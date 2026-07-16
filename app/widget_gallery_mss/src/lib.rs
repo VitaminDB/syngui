@@ -204,7 +204,6 @@ fn page_wrap(child: impl Widget + 'static) -> impl Widget {
         .vertical()
         .scrollbar_policy(ScrollbarPolicy::Auto)
         .child(child)
-        .style("padding", 24.0_f32)
         .class("content")
 }
 

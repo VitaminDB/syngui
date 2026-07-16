@@ -18,4 +18,5 @@
 
 .content {
     background: var(--bg-base);
+    padding: 20px;
 }
