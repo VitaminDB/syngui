@@ -3,11 +3,7 @@
 A retained-mode GUI framework for Rust — GPU-rendered via wgpu, styled with CSS-like
 stylesheets, wired with reactive signals.
 
-<!-- Screenshot slot: run `cargo run -p widget_gallery_mss`, capture a frame,
-     save it to docs/widget-gallery.png, then delete this comment and uncomment
-     the line below. (A broken image link is worse than none, so it stays
-     commented until the file exists.) -->
-<!-- ![The widget_gallery_mss example — 250+ widgets and MSS styling, running natively](docs/widget-gallery.png) -->
+![The widget_gallery_mss example running natively — MarkdownView with syntax highlighting, one of 250+ widgets](docs/widget-gallery.png)
 
 ```rust
 use syngui::prelude::*;
