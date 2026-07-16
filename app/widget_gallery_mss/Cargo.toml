@@ -1,0 +1,36 @@
+[package]
+name = "widget_gallery_mss"
+version = "0.1.0"
+edition = "2021"
+authors = ["Alexeyev Vitaly"]
+build = "build.rs"
+
+[lib]
+crate-type = ["cdylib", "rlib"]
+
+[features]
+default = ["map", "ffmpeg", "terminal"]
+map = ["syngui/map", "syngui/clipboard"]
+# Видео-плеер на базе FFmpeg (требует системные libav* + pkg-config).
+ffmpeg = ["syngui/ffmpeg"]
+# Эмулятор терминала (portable-pty + vte) — feature `terminal` в syngui.
+terminal = ["syngui/terminal"]
+
+[dependencies]
+syngui = { path = "../../syngui", default-features = false, features = ["winit", "msdf", "effects", "markdown", "markdown-syntax", "material-icons", "clipboard"] }
+# Простой stderr-логгер: респектит RUST_LOG. Нужен, чтобы `log::info!` /
+# `log::warn!` (в т.ч. из syngui/video/hwaccel) реально что-то выводили
+# в demo-приложении.
+env_logger = "0.11"
+log = "0.4"
+
+[target.'cfg(target_arch = "wasm32")'.dependencies]
+wasm-bindgen = "0.2"
+console_error_panic_hook = "0.1"
+
+[build-dependencies]
+winres = "0.1"
+
+[[bin]]
+name = "widget_gallery_mss"
+path = "src/main.rs"

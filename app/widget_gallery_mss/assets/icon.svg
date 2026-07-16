@@ -1,0 +1,24 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512">
+  <defs>
+    <linearGradient id="bg" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" style="stop-color:#3B82F6"/>
+      <stop offset="100%" style="stop-color:#8B5CF6"/>
+    </linearGradient>
+    <linearGradient id="shine" x1="0%" y1="0%" x2="0%" y2="100%">
+      <stop offset="0%" style="stop-color:rgba(255,255,255,0.25)"/>
+      <stop offset="50%" style="stop-color:rgba(255,255,255,0)"/>
+    </linearGradient>
+  </defs>
+  <!-- Rounded square background -->
+  <rect x="16" y="16" width="480" height="480" rx="96" ry="96" fill="url(#bg)"/>
+  <!-- Shine overlay -->
+  <rect x="16" y="16" width="480" height="240" rx="96" ry="96" fill="url(#shine)"/>
+  <!-- Letter M - bold geometric -->
+  <path d="M 128 384 L 128 160 L 196 160 L 256 260 L 316 160 L 384 160 L 384 384 L 328 384 L 328 248 L 272 340 L 240 340 L 184 248 L 184 384 Z"
+        fill="#FFFFFF" opacity="0.95"/>
+  <!-- Small UI squares decoration (bottom-right) -->
+  <rect x="340" y="370" width="24" height="24" rx="4" fill="rgba(255,255,255,0.4)"/>
+  <rect x="370" y="370" width="24" height="24" rx="4" fill="rgba(255,255,255,0.3)"/>
+  <rect x="340" y="400" width="24" height="24" rx="4" fill="rgba(255,255,255,0.2)"/>
+  <rect x="370" y="400" width="24" height="24" rx="4" fill="rgba(255,255,255,0.3)"/>
+</svg>

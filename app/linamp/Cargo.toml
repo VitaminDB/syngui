@@ -1,0 +1,19 @@
+[package]
+name = "linamp"
+version.workspace = true
+edition.workspace = true
+authors.workspace = true
+
+[lib]
+crate-type = ["cdylib", "rlib"]
+
+[[bin]]
+name = "linamp"
+path = "src/main.rs"
+
+[features]
+default = ["desktop"]
+desktop = ["syngui/clipboard"]
+
+[dependencies]
+syngui = { path = "../../syngui", default-features = false, features = ["winit", "msdf", "effects", "material-icons"] }

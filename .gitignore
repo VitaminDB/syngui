@@ -1,0 +1,28 @@
+# Rust
+target/
+Cargo.lock
+**/*.rs.bk
+*.pdb
+
+# IDE / editor
+.idea/
+.vscode/
+*.swp
+*.swo
+*~
+
+# Local agent state
+.claude/
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Android build output (sources are kept; these are regenerated)
+**/local.properties
+**/.gradle/
+**/app/build/
+**/jniLibs/
+
+# WASM build output (regenerable via web/build.sh)
+**/web/pkg/

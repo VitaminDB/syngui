@@ -1,0 +1,43 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512">
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0%" stop-color="#1f2847"/>
+      <stop offset="100%" stop-color="#141a30"/>
+    </linearGradient>
+  </defs>
+  <!-- Background -->
+  <rect width="512" height="512" rx="108" fill="url(#bg)"/>
+  <!-- Display area -->
+  <rect x="56" y="48" width="400" height="120" rx="24" fill="#16213e"/>
+  <!-- Display text "42" -->
+  <text x="424" y="140" font-family="sans-serif" font-weight="700" font-size="80" fill="#e8e8e8" text-anchor="end">42</text>
+  <!-- Button grid 4x3 -->
+  <!-- Row 1 -->
+  <rect x="56"  y="196" width="88" height="72" rx="16" fill="#0f3460"/>
+  <rect x="156" y="196" width="88" height="72" rx="16" fill="#0f3460"/>
+  <rect x="256" y="196" width="88" height="72" rx="16" fill="#0f3460"/>
+  <rect x="356" y="196" width="88" height="72" rx="16" fill="#e94560"/>
+  <!-- Row 2 -->
+  <rect x="56"  y="284" width="88" height="72" rx="16" fill="#2a2a4a"/>
+  <rect x="156" y="284" width="88" height="72" rx="16" fill="#2a2a4a"/>
+  <rect x="256" y="284" width="88" height="72" rx="16" fill="#2a2a4a"/>
+  <rect x="356" y="284" width="88" height="72" rx="16" fill="#e94560"/>
+  <!-- Row 3 -->
+  <rect x="56"  y="372" width="88" height="72" rx="16" fill="#2a2a4a"/>
+  <rect x="156" y="372" width="88" height="72" rx="16" fill="#2a2a4a"/>
+  <rect x="256" y="372" width="88" height="72" rx="16" fill="#2a2a4a"/>
+  <rect x="356" y="372" width="88" height="72" rx="16" fill="#e94560"/>
+  <!-- Button labels -->
+  <text x="100" y="243" font-family="sans-serif" font-weight="600" font-size="28" fill="#a8b8d8" text-anchor="middle">AC</text>
+  <text x="200" y="243" font-family="sans-serif" font-weight="600" font-size="28" fill="#a8b8d8" text-anchor="middle">%</text>
+  <text x="300" y="243" font-family="sans-serif" font-weight="600" font-size="28" fill="#a8b8d8" text-anchor="middle">/</text>
+  <text x="400" y="243" font-family="sans-serif" font-weight="600" font-size="28" fill="#fff" text-anchor="middle">x</text>
+  <text x="100" y="331" font-family="sans-serif" font-weight="600" font-size="32" fill="#fff" text-anchor="middle">7</text>
+  <text x="200" y="331" font-family="sans-serif" font-weight="600" font-size="32" fill="#fff" text-anchor="middle">8</text>
+  <text x="300" y="331" font-family="sans-serif" font-weight="600" font-size="32" fill="#fff" text-anchor="middle">9</text>
+  <text x="400" y="331" font-family="sans-serif" font-weight="600" font-size="28" fill="#fff" text-anchor="middle">-</text>
+  <text x="100" y="419" font-family="sans-serif" font-weight="600" font-size="32" fill="#fff" text-anchor="middle">4</text>
+  <text x="200" y="419" font-family="sans-serif" font-weight="600" font-size="32" fill="#fff" text-anchor="middle">5</text>
+  <text x="300" y="419" font-family="sans-serif" font-weight="600" font-size="32" fill="#fff" text-anchor="middle">6</text>
+  <text x="400" y="419" font-family="sans-serif" font-weight="600" font-size="28" fill="#fff" text-anchor="middle">+</text>
+</svg>

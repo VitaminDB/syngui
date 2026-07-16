@@ -1,0 +1,364 @@
+[package]
+name = "syngui"
+version = "0.1.0"
+edition = "2021"
+authors = ["Alexeyev Vitaly"]
+license = "MIT OR Apache-2.0"
+description = "Retained-mode GUI framework: wgpu rendering, CSS-like stylesheets, reactive signals, 250+ widgets"
+readme = "README.md"
+keywords = ["gui", "ui", "wgpu", "widgets", "reactive"]
+categories = ["gui", "graphics"]
+
+[dependencies]
+# Core GPU
+wgpu = { version = "28.0.0", features = ["default"] }
+winit = { version = "0.30.13", optional = true }
+raw-window-handle = "0.6.2"
+
+# Wayland DnD (own implementation, не покрыто winit'ом — issue #1881).
+# Открываем второй wl_display через `Backend::from_foreign_display` поверх
+# winit'овского socket'а и слушаем wl_data_device на отдельном thread.
+smithay-client-toolkit = { version = "0.19", optional = true, default-features = false }
+wayland-client = { version = "0.31", optional = true }
+wayland-backend = { version = "0.3", optional = true, features = ["client_system"] }
+percent-encoding = { version = "2", optional = true }
+bytemuck = { version = "1.25.0", features = ["derive"] }
+anyhow = "1.0.102"
+pollster = "0.4.0"
+
+# Math
+euclid = "0.22.14"
+glam = { version = "0.32.1", optional = true }
+wide = "0.7"
+
+# Text rendering
+swash = { version = "0.2.7" }
+rustybuzz = { version = "0.20.1" }
+
+# Collections
+hashbrown = "0.16.1"
+compact_str = "0.9.0"
+
+# Parallelism (used by parallel layout/render phases)
+rayon = "1.10"
+
+# Utilities
+log = "0.4.29"
+bitflags = "2.11.0"
+web-time = "1.1.0"
+
+# Markdown parsing
+pulldown-cmark = { version = "0.13", optional = true, default-features = false }
+
+# Syntax highlighting for markdown code blocks (под feature `markdown-syntax`).
+# default-fancy включает fancy-regex (чистый Rust, без oniguruma/C-зависимостей).
+syntect = { version = "5", optional = true, default-features = false, features = [
+    "default-fancy",
+] }
+
+# ureq (HTTP для тайлов карты на native) объявлен в
+# [target.'cfg(not(target_arch = "wasm32"))'.dependencies] ниже — под wasm32
+# он не собирается, там тайлы грузятся через web_sys fetch.
+
+# Clipboard (cross-platform, not available on wasm32)
+# arboard is declared under [target.'cfg(not(target_arch = "wasm32"))'.dependencies] below
+
+# Accessibility (AccessKit for real screen reader support)
+accesskit = { version = "0.24.0", optional = true }
+accesskit_winit = { version = "0.32.2", optional = true }
+
+# For LRU font cache (04_text_rendering.md)
+lru = { version = "0.16.3", optional = true }
+
+# Image loading (09_project_structure.md)
+# default-features = false убирает редкие декодеры (avif/exr/tiff/webp/dds/...).
+# Для иконок и тайлов карты достаточно png+jpeg+gif+bmp+ico — это ~4 декодера
+# вместо ~14 по умолчанию. На WASM экономит ~1.5–2 MB.
+image = { version = "0.25.10", optional = true, default-features = false, features = [
+    "png",
+    "jpeg",
+    "gif",
+    "bmp",
+    "ico",
+] }
+
+# SVG-рендер для image_store (feature `image-svg`). resvg — pure-Rust,
+# тащит usvg (парсер) + tiny-skia (растеризатор). Используется внутри
+# `decode_image_bytes`, чтобы SVG-иконки/иллюстрации в маркдауне (включая
+# инлайн-картинки из web_render-результатов) корректно превращались
+# в RGBA вместо «format could not be determined» от image-крейта.
+resvg = { version = "0.45", optional = true }
+
+# Base64 для data: URL — нужен только при включённом image-network.
+base64 = { version = "0.22", optional = true }
+
+# Async
+parking_lot = { version = "0.12.5", optional = true }
+tokio = { version = "1", features = [
+    "rt-multi-thread",
+    "macros",
+], optional = true }
+
+# Tracing (alternative to log)
+tracing = { version = "0.1.44", optional = true }
+
+# SlotMap (alternative to hashbrown)
+slotmap = { version = "1.1.1", optional = true }
+
+# Splash screen (CPU software rendering for splash window)
+softbuffer = { version = "0.4", optional = true }
+
+# Audio capture (microphone) + WAV encoding — feature `audio`.
+# cpal не Send-friendly: stream живёт в собственном потоке, общение через канал.
+cpal = { version = "0.15", optional = true }
+hound = { version = "3.5", optional = true }
+# Resampling для AudioPlayer (если sr ≠ native output sr).
+rubato = { workspace = true, optional = true }
+
+# FFmpeg-биндинг для feature `ffmpeg` — playback видео+аудио файлов и сетевых
+# URL (http/rtsp/rtmp). Требует системные libav{codec,format,util,swscale,
+# swresample} (FFmpeg 7+). На Debian/Ubuntu:
+# `apt install libavcodec-dev libavformat-dev libavutil-dev libswscale-dev
+#  libswresample-dev pkg-config`. Без feature линковка не происходит.
+ffmpeg-next = { version = "8.1", optional = true, default-features = false, features = [
+    "codec",
+    "format",
+    "software-resampling",
+    "software-scaling",
+] }
+
+# Виджет `Terminal` под feature `terminal` — кросс-платформенный PTY (Linux/
+# macOS/Windows ConPTY) + low-level VT100/ANSI парсер. Grid/scrollback/SGR
+# реализованы поверх vte::Perform нашими руками. Reader-поток шлёт байты в
+# Element через crossbeam-channel (ниже под cfg(not wasm/android)).
+portable-pty = { version = "0.8", optional = true }
+vte = { version = "0.13", optional = true }
+# Открытие http(s)/file URL в системном браузере. Используется виджетами,
+# которым нужно «click → external app»: терминал (OSC 8 hyperlinks),
+# MarkdownView (клик по ссылке). Подключается через feature `links`,
+# а terminal/markdown-links форсят её транзитивно.
+webbrowser = { version = "1", optional = true }
+
+# Виджет `CodeEditor` под feature `code-editor` — Zed/VSCode-style редактор
+# с rope-буфером (ropey), regex-based подсветкой через synoptic (чистый Rust),
+# виртуальным рендером, multi-cursor, undo/redo group-based.
+# Подсветка покрывает все 7 языков (Rust/JSON/TOML/MD/TS/TSX/Python) через
+# `synoptic::from_extension` — отдельные per-language features не нужны.
+ropey = { version = "1.6", optional = true }
+# synoptic — pure-Rust syntax highlighter. Зависит только от regex/char_index/
+# nohash-hasher/unicode-width — никаких C-зависимостей, никакого FFI, никаких
+# SIGSEGV при наборе `[ ]` (см. историю с tree-sitter в коммите выше).
+synoptic = { version = "2", optional = true }
+smallvec = { version = "1", optional = true }
+
+[features]
+default = ["msdf", "effects", "clipboard", "winit", "wayland-dnd"]
+
+# Windowing (winit-based window and app modules)
+winit = ["dep:winit"]
+
+# Text rendering
+msdf = []
+color-emoji = ["image"]
+
+# Effects
+effects = ["blur", "shadow"]
+blur = []
+shadow = []
+
+# Platform
+wayland = ["winit", "winit/wayland"]
+x11 = ["winit", "winit/x11"]
+android = ["winit", "winit/android-game-activity"]
+
+# OS-level drag&drop файлов на Wayland (winit не реализует — issue #1881).
+# Запускает отдельный thread с wl_data_device listener'ом, использует
+# winit'овский wl_display через `Backend::from_foreign_display`.
+wayland-dnd = [
+    "winit", "winit/wayland",
+    "dep:smithay-client-toolkit", "dep:wayland-client",
+    "dep:wayland-backend", "dep:percent-encoding",
+]
+
+# Debug
+debug = ["inspector"]
+inspector = []
+
+# Clipboard
+clipboard = ["arboard"]
+
+# Accessibility (AccessKit: AT-SPI on Linux, UIA on Windows, NSAccessibility on macOS)
+accessibility = ["dep:accesskit", "dep:accesskit_winit", "winit"]
+
+# Markdown
+markdown = ["pulldown-cmark"]
+
+# Markdown syntax highlighting в code-блоках MarkdownView (через syntect).
+# Без feature рендер деградирует к плоскому цвету code-блока.
+markdown-syntax = ["markdown", "dep:syntect"]
+
+# Открытие http(s) ссылок в MarkdownView (клик по `[text](url)` стартует
+# системный браузер). Без feature `links` MarkdownView продолжает рендерить
+# и парсить ссылки, но `on_link_click`-fallback вернёт ошибку — приложение
+# должно явно задать `.on_link_click(...)`.
+markdown-links = ["markdown", "links"]
+
+# Открытие external URL через системный браузер. Подтягивает webbrowser-крейт
+# и включает реальную имплементацию `syngui::open_url(...)`. Без неё функция
+# возвращает Err. Используется виджетами Terminal (OSC 8) и MarkdownView.
+links = ["dep:webbrowser"]
+
+# Map widget (кроссплатформенное ядро: декод тайлов, atlas, math, async-загрузчик).
+# На wasm тайлы грузятся через web_sys fetch + кэш в IndexedDB. На native нужна
+# фича `map-native` (ureq + tokio для дискового async-кэша).
+map = ["image"]
+# Native-загрузка тайлов: блокирующий ureq в spawn_blocking + дисковый кэш.
+# `tokio` — для async_runtime::spawn и spawn_blocking.
+map-native = ["map", "dep:ureq", "tokio"]
+
+# Сетевые источники для ImageStore: http(s)://, data:image/...;base64,...,
+# file://. Включает blocking ureq + image decoding.
+image-network = ["dep:ureq", "dep:base64", "image"]
+
+# SVG-рендер в ImageStore: при загрузке байтов делается sniff на `<svg`
+# и при попадании используется resvg+tiny-skia → RGBA. Без этой фичи
+# SVG не декодируются (image-крейт растровый) и логируются как ошибка.
+# Имя без префикса `image-` чтобы cargo не интерпретировал его как
+# `image/svg` (feature `svg` крейта image — её там нет).
+svg = ["image", "dep:resvg"]
+
+# Захват звука с микрофона + WAV энкодер. Включает виджет AudioWaveform
+# для визуализации входного сигнала.
+audio = ["dep:cpal", "dep:hound", "dep:rubato"]
+
+# Видео-плеер на базе FFmpeg (libavcodec/format/swscale/swresample).
+# Тянет audio (для AudioPlayer streaming) — A/V sync завязан на samples_played.
+# Сетевые URL (http/rtsp/rtmp) поддерживаются автоматически libavformat'ом —
+# `VideoPlayer::open` принимает path или URL без отдельного API.
+ffmpeg = ["dep:ffmpeg-next", "audio"]
+
+# Icon fonts (embedded via include_bytes)
+material-icons = []
+font-awesome = []
+
+# Async runtime
+tokio = ["dep:tokio"]
+
+# Testing (headless harness, no GPU required)
+testing = []
+
+# Additional features
+lru-cache = ["lru"]
+image-support = ["image"]
+splash = ["softbuffer", "image", "winit"]
+tracing-support = ["tracing"]
+slotmap-support = ["slotmap"]
+
+# Системный трей (TrayConfig + сворачивание окна вместо exit). Использует
+# tray-icon (Tauri); image для декодирования PNG-иконки → RGBA. Только desktop.
+tray = ["winit", "dep:tray-icon", "image", "dep:crossbeam-channel", "dep:gtk"]
+
+# Single-instance lock + IPC активации второго запуска. При попытке запуска
+# второго экземпляра отправляется сообщение работающему процессу через
+# local socket / named pipe; второй процесс выходит, первый показывает окно.
+single-instance = ["winit", "dep:single-instance", "dep:interprocess"]
+
+# Виджет терминала с PTY (portable-pty) и low-level VT100 парсером (vte).
+# Grid/scrollback/SGR реализованы внутри syngui. crossbeam-channel — для
+# передачи байтов из reader-потока в Element. На wasm/android фича не
+# собирается (нет PTY API), сборка фреймворка без неё проходит.
+terminal = ["dep:portable-pty", "dep:vte", "dep:crossbeam-channel", "links"]
+
+# CodeEditor — продвинутый виджет редактора кода (как Zed/VSCode):
+# rope-буфер (ropey) + synoptic regex-подсветка + виртуальный рендер
+# видимых строк + undo/redo с groupings + MSS темы.
+# synoptic из коробки покрывает все нужные языки (Rust/JSON/TOML/MD/TS/TSX/PY)
+# через `from_extension` — единственный feature-флаг включает их все.
+# Сохранены алиасы code-editor-mvp/-all для обратной совместимости —
+# раньше они тянули per-language tree-sitter грамматики, теперь оба
+# означают тот же `code-editor`.
+code-editor = ["dep:ropey", "dep:synoptic", "dep:smallvec", "dep:crossbeam-channel"]
+code-editor-mvp = ["code-editor"]
+code-editor-all = ["code-editor"]
+
+[target.'cfg(all(not(target_arch = "wasm32"), not(target_os = "android")))'.dependencies]
+arboard = { version = "3", optional = true, features = [
+    "wayland-data-control",
+] }
+font-kit = "0.14"
+
+# Tray icon (Tauri), используется только под feature `tray`.
+tray-icon = { version = "0.21", optional = true }
+# Crossbeam channels для tray forwarder thread (select! по двум receivers).
+crossbeam-channel = { version = "0.5", optional = true }
+# Single-instance lock и IPC.
+single-instance = { version = "0.3", optional = true }
+interprocess = { version = "2", optional = true }
+
+# GTK на Linux обязателен для tray-icon (libappindicator под капотом
+# инициализирует GTK, но без активного main loop меню трея не получает
+# сигналов). Подключается только под feature `tray`. Версия совпадает
+# с той, что тянет libappindicator 0.9.
+[target.'cfg(all(target_os = "linux", not(target_arch = "wasm32")))'.dependencies]
+gtk = { version = "0.18", optional = true }
+
+[target.'cfg(target_os = "android")'.dependencies]
+android-activity = { version = "0.6", features = ["game-activity"] }
+android_logger = "0.15.1"
+jni = "0.22.4"
+
+# Native-only зависимости (на wasm32 не собираются).
+[target.'cfg(not(target_arch = "wasm32"))'.dependencies]
+# HTTP для загрузки тайлов карты (feature `map-native`). Блокирующий клиент —
+# на native уходит в tokio::task::spawn_blocking.
+ureq = { version = "3", optional = true }
+
+[target.'cfg(target_arch = "wasm32")'.dependencies]
+wgpu = { version = "28.0.0", features = [
+    "webgl",
+    "fragile-send-sync-non-atomic-wasm",
+] }
+wasm-bindgen = "0.2"
+wasm-bindgen-futures = "0.4"
+js-sys = "0.3"
+console_error_panic_hook = "0.1"
+getrandom = { version = "0.2", features = ["js"] }
+# IndexedDB-кэш тайлов карты (feature `map`): async-обёртка над IndexedDB,
+# тянет нужные web-sys фичи сама.
+idb = "0.6"
+web-sys = { version = "0.3", features = [
+    "Window",
+    "Document",
+    "HtmlElement",
+    "HtmlCanvasElement",
+    "Response",
+] }
+
+[dev-dependencies]
+criterion = "0.8.2"
+
+[[bench]]
+name = "layout"
+harness = false
+
+[[bench]]
+name = "render"
+harness = false
+
+[[bench]]
+name = "event_dispatch"
+harness = false
+
+[[test]]
+name = "cascade_descendant"
+required-features = ["testing"]
+
+[[test]]
+name = "test_layout"
+required-features = ["testing"]
+
+[[test]]
+name = "test_effects"
+required-features = ["testing"]
+
+# Profiles moved to workspace root Cargo.toml
