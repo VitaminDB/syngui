@@ -33,7 +33,7 @@ that's the point:
 - **Fine-grained reactivity.** SolidJS-style `use_signal` / `use_effect` / `create_memo` /
   `use_context`, with automatic dependency tracking. Signals are `Copy`; subtrees rebuild
   granularly instead of re-running the whole view.
-- **Batteries genuinely included.** 250+ widgets across 10 categories, including things
+- **Batteries genuinely included.** 70+ widgets across 10 categories, including things
   you normally vendor yourself: charts (line/bar/pie/radar/gauge), a tile map widget with
   pan-zoom, an embedded terminal (PTY + VT100), a markdown view with syntax highlighting,
   a rope-backed code editor, audio and video playback, and a devtools inspector.
