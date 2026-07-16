@@ -3,8 +3,11 @@
 A retained-mode GUI framework for Rust — GPU-rendered via wgpu, styled with CSS-like
 stylesheets, wired with reactive signals.
 
-<!-- TODO: добавить скриншот widget_gallery_mss перед публикацией:
-     ![Widget gallery](docs/screenshot.png) -->
+<!-- Screenshot slot: run `cargo run -p widget_gallery_mss`, capture a frame,
+     save it to docs/widget-gallery.png, then delete this comment and uncomment
+     the line below. (A broken image link is worse than none, so it stays
+     commented until the file exists.) -->
+<!-- ![The widget_gallery_mss example — 250+ widgets and MSS styling, running natively](docs/widget-gallery.png) -->
 
 ```rust
 use syngui::prelude::*;
@@ -149,6 +152,8 @@ cargo install wasm-bindgen-cli
 cd app/widget_gallery_mss/web && ./build.sh
 python3 -m http.server --directory .   # then open http://localhost:8000
 ```
+
+The web build omits desktop-only widgets (terminal, video, native clipboard).
 
 **Android** — the `calculator` app ships a Gradle project. Create
 `app/calculator/android/local.properties` pointing at your SDK, then build with the
