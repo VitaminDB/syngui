@@ -103,7 +103,7 @@ pub mod prelude {
         Dropdown, DropdownItem, Combobox,
         Tooltip, TooltipPosition, Snackbar, SnackbarPosition,
         NotificationCtx, NotificationHost, NotificationItem, NotificationSeverity,
-        Dialog, AlertDialog, ConfirmDialog, DialogAction,
+        Dialog, AlertDialog, ConfirmDialog, DialogAction, set_dialog_labels,
         FloatingWindow,
         PopupMenu, MenuItem,
         ContextMenu,

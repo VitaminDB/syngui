@@ -12,6 +12,25 @@ use std::sync::Arc;
 use crate::core::sync::Mutex;
 use crate::signal::{RwSignal, use_signal};
 
+/// Локализованные подписи кнопок встроенных диалогов: (подтвердить, отмена).
+static DIALOG_LABELS: std::sync::Mutex<Option<(String, String)>> = std::sync::Mutex::new(None);
+
+/// Задать локализованные подписи кнопок для `ConfirmDialog`/`AlertDialog`.
+/// Приложение вызывает это один раз (и при смене языка). По умолчанию — «OK» / «Cancel».
+pub fn set_dialog_labels(confirm: impl Into<String>, cancel: impl Into<String>) {
+    if let Ok(mut g) = DIALOG_LABELS.lock() {
+        *g = Some((confirm.into(), cancel.into()));
+    }
+}
+
+fn dialog_labels() -> (String, String) {
+    DIALOG_LABELS
+        .lock()
+        .ok()
+        .and_then(|g| g.clone())
+        .unwrap_or_else(|| ("OK".to_string(), "Cancel".to_string()))
+}
+
 #[derive(Clone)]
 pub struct DialogAction {
     pub label: String,
@@ -111,7 +130,9 @@ impl Widget for Dialog {
             bounds: Rect::zero(),
             viewport_size: Cell::new(Size::zero()),
             hover_action: None,
-            classes: Vec::new(),
+            // Класс по умолчанию — чтобы приложение могло темизировать все диалоги
+            // одним правилом `.dialog { ... }` в своих стилях.
+            classes: vec!["dialog".to_string()],
             dirty_flags: DirtyFlags::LAYOUT | DirtyFlags::RENDER,
             overlay_registered: false,
             mss: MssFields::new(),
@@ -437,10 +458,11 @@ pub struct AlertDialog;
 
 impl AlertDialog {
     pub fn new(title: impl Into<String>, message: impl Into<String>, is_open: RwSignal<bool>) -> Dialog {
+        let (ok_label, _) = dialog_labels();
         Dialog::new(title)
             .body(message)
             .is_open(is_open)
-            .action(DialogAction::new("OK", move || {
+            .action(DialogAction::new(ok_label, move || {
                 is_open.set(false);
             }).primary())
     }
@@ -458,15 +480,16 @@ impl ConfirmDialog {
         let on_confirm = Arc::new(Mutex::new(on_confirm));
         let on_confirm_ok = on_confirm.clone();
         let on_confirm_cancel = on_confirm;
+        let (ok_label, cancel_label) = dialog_labels();
 
         Dialog::new(title)
             .body(message)
             .is_open(is_open)
-            .action(DialogAction::new("Cancel", move || {
+            .action(DialogAction::new(cancel_label, move || {
                 is_open.set(false);
                 if let Ok(mut cb) = on_confirm_cancel.lock() { cb(false); }
             }))
-            .action(DialogAction::new("OK", move || {
+            .action(DialogAction::new(ok_label, move || {
                 is_open.set(false);
                 if let Ok(mut cb) = on_confirm_ok.lock() { cb(true); }
             }).primary())

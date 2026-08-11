@@ -42,6 +42,7 @@ pub use visual::{
     Avatar, Badge, BadgeSize, Canvas, Card, Chip, CircularProgress,
     Divider, DividerDirection, Icon, Image, ImageFit, ProgressBar,
     Calendar, RichText, TextSpan,
+    EmitKind, ParticleSystem,
 };
 #[cfg(feature = "markdown")]
 pub use visual::{MarkdownView, MdStyle, MarkdownEditor, EditorMode};
@@ -62,7 +63,7 @@ pub use feedback::{
     NotificationCtx, NotificationHost, NotificationItem, NotificationSeverity,
 };
 pub use overlay::{
-    Dialog, AlertDialog, ConfirmDialog, DialogAction,
+    Dialog, AlertDialog, ConfirmDialog, DialogAction, set_dialog_labels,
     FloatingWindow,
     PopupMenu, PopupAnchor, MenuItem,
     PopupPanel,

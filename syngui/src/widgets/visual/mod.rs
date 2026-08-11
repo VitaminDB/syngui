@@ -5,6 +5,7 @@ pub mod audio_waveform;
 #[cfg(feature = "audio")]
 pub mod static_waveform;
 pub mod canvas;
+pub mod particles;
 pub mod card;
 pub mod chip;
 pub mod circular_progress;
@@ -31,6 +32,7 @@ pub mod terminal;
 pub use avatar::Avatar;
 pub use badge::{Badge, BadgeSize};
 pub use canvas::Canvas;
+pub use particles::{EmitKind, ParticleSystem};
 pub use card::Card;
 pub use chip::Chip;
 pub use circular_progress::CircularProgress;

@@ -9,7 +9,7 @@ pub mod popup_panel;
 pub mod window_drag_region;
 pub mod window_control;
 
-pub use dialog::{Dialog, AlertDialog, ConfirmDialog, DialogAction};
+pub use dialog::{Dialog, AlertDialog, ConfirmDialog, DialogAction, set_dialog_labels};
 pub use floating_window::FloatingWindow;
 pub use menu::{PopupMenu, PopupAnchor, MenuItem};
 pub use context_menu::ContextMenu;
