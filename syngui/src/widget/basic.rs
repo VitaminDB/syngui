@@ -353,6 +353,8 @@ impl Widget for Text {
             max_render_width: f32::INFINITY,
             text_measure: None,
             mss_max_lines: self.max_lines,
+            mss_width: None,
+            mss_height: None,
             selectable: self.selectable,
             selection: TextSelectionState::new(),
             cursor_pos: 0,
@@ -404,6 +406,8 @@ struct TextElement {
     max_render_width: f32,
     text_measure: Option<std::sync::Arc<dyn crate::widget::context::TextMeasure>>,
     mss_max_lines: Option<usize>,
+    mss_width: Option<crate::mss::Dimension>,
+    mss_height: Option<crate::mss::Dimension>,
 
     selectable: bool,
     selection: TextSelectionState,
@@ -492,7 +496,12 @@ impl Element for TextElement {
         let line_height = self.mss_line_height
             .map(|lh| lh.resolve(self.font_size))
             .unwrap_or(self.font_size * 1.3);
-        let available_width = if constraints.max_width.is_finite() {
+        // Явные размеры (MSS width/height) резолвим относительно родителя.
+        let explicit_w = self.mss_width.and_then(|d| d.resolve_opt(constraints.containing_block.width));
+        let explicit_h = self.mss_height.and_then(|d| d.resolve_opt(constraints.containing_block.height));
+        let available_width = if let Some(w) = explicit_w {
+            (w - pad_h).max(1.0)
+        } else if constraints.max_width.is_finite() {
             (constraints.max_width - pad_h).max(1.0)
         } else {
             f32::INFINITY
@@ -519,17 +528,22 @@ impl Element for TextElement {
         let line_count = line_count.min(self.mss_max_lines.unwrap_or(usize::MAX));
         let natural_height = line_height * line_count as f32 + pad_v;
         let aligned = self.mss_text_align.is_some();
-        let width = if aligned && constraints.max_width.is_finite() {
+        let width = if let Some(w) = explicit_w {
+            w
+        } else if aligned && constraints.max_width.is_finite() {
             constraints.max_width
         } else {
             (text_width + pad_h).min(constraints.max_width)
         };
-        let height = if aligned && constraints.max_height.is_finite() {
+        let height = if let Some(h) = explicit_h {
+            h
+        } else if aligned && constraints.max_height.is_finite() {
             constraints.max_height
         } else {
             natural_height.min(constraints.max_height)
         };
-        self.max_render_width = constraints.max_width;
+        // Отрисовка/выравнивание внутри явной ширины, а не всего max_width.
+        self.max_render_width = explicit_w.unwrap_or(constraints.max_width);
         let size = Size::new(width, height);
         self.bounds = Rect::new(self.bounds.origin, size);
         size
@@ -772,6 +786,13 @@ impl Element for TextElement {
         self.apply_style(style);
     }
 
+    fn explicit_dimensions(&self, parent_width: f32, parent_height: f32) -> (Option<f32>, Option<f32>) {
+        (
+            self.mss_width.and_then(|d| d.resolve_opt(parent_width)),
+            self.mss_height.and_then(|d| d.resolve_opt(parent_height)),
+        )
+    }
+
     fn accessibility_info(&self) -> Option<crate::a11y::AccessibilityInfo> {
         Some(crate::a11y::AccessibilityInfo {
             role: crate::a11y::Role::StaticText,
@@ -796,6 +817,10 @@ impl StyledElement for TextElement {
         if let Some(ta) = style.text_align() {
             self.mss_text_align = Some(ta);
         }
+        // Явные размеры (MSS width/height). Раньше Text их игнорировал, из-за чего
+        // text-align растягивал текст на весь max_width и центрированный глиф уезжал.
+        self.mss_width = style.width();
+        self.mss_height = style.height();
         if let Some(td) = style.text_decoration() {
             self.mss_text_decoration = td;
         }

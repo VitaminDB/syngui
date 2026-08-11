@@ -726,6 +726,7 @@ impl Element for TextFieldElement {
                 self.focused = true;
                 self.mss.start_transition_to(self.hover, false, true, false);
                 ctx.set_virtual_keyboard_visible(true);
+                ctx.set_numeric_keyboard(false);
                 ctx.set_focused_text(self.text.clone());
 
                 ctx.request_paint();

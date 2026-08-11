@@ -618,6 +618,7 @@ impl Element for MultilineTextEditElement {
                 self.focused = true;
                 self.start_transition_to_current_state();
                 ctx.set_virtual_keyboard_visible(true);
+                ctx.set_numeric_keyboard(false);
                 ctx.set_focused_text(self.text.clone());
                 ctx.request_paint();
                 return EventResult::Handled;

@@ -105,6 +105,7 @@ impl Widget for TimePicker {
             editing_field: None,
             edit_text: String::new(),
             cursor_blink: 0.0,
+            focus_requested: false,
             classes: Vec::new(),
             dirty_flags: DirtyFlags::LAYOUT | DirtyFlags::RENDER,
             mss: MssFields::new(),
@@ -159,6 +160,7 @@ pub struct TimePickerElement {
     editing_field: Option<EditField>,
     edit_text: String,
     cursor_blink: f32,
+    focus_requested: bool,
     classes: Vec<String>,
     dirty_flags: DirtyFlags,
     mss: MssFields,
@@ -255,6 +257,7 @@ impl TimePickerElement {
     fn start_edit(&mut self, field: EditField) {
         self.commit_edit();
         self.editing_field = Some(field);
+        self.focus_requested = true;
         self.edit_text = match field {
             EditField::Hour => format!("{:02}", self.view_hour),
             EditField::Minute => format!("{:02}", self.view_minute),
@@ -491,11 +494,17 @@ impl Element for TimePickerElement {
 
                         if rects.hour_value.contains(*position) {
                             self.start_edit(EditField::Hour);
+                            ctx.set_virtual_keyboard_visible(true);
+                            ctx.set_numeric_keyboard(true);
+                            ctx.set_focused_text(self.edit_text.clone());
                             ctx.request_paint();
                             return EventResult::Handled;
                         }
                         if rects.minute_value.contains(*position) {
                             self.start_edit(EditField::Minute);
+                            ctx.set_virtual_keyboard_visible(true);
+                            ctx.set_numeric_keyboard(true);
+                            ctx.set_focused_text(self.edit_text.clone());
                             ctx.request_paint();
                             return EventResult::Handled;
                         }
@@ -527,6 +536,7 @@ impl Element for TimePickerElement {
                             self.selected = Some(Time::new(self.view_hour, self.view_minute));
                             self.is_open = false;
                             ctx.unregister_overlay();
+                            ctx.set_virtual_keyboard_visible(false);
                             self.fire_change();
                             ctx.request_paint();
                             return EventResult::Handled;
@@ -579,6 +589,12 @@ impl Element for TimePickerElement {
                     _ => EventResult::Handled,
                 }
             }
+            Event::FocusLost => {
+                self.commit_edit();
+                ctx.set_virtual_keyboard_visible(false);
+                ctx.request_paint();
+                EventResult::Ignored
+            }
             _ => EventResult::Ignored,
         }
     }
@@ -619,6 +635,22 @@ impl Element for TimePickerElement {
     }
 
     fn children(&self) -> &[ElementId] { &[] }
+
+    fn take_focus_request(&mut self) -> bool {
+        std::mem::take(&mut self.focus_requested)
+    }
+
+    fn accessibility_info(&self) -> Option<crate::a11y::AccessibilityInfo> {
+        Some(crate::a11y::AccessibilityInfo {
+            role: crate::a11y::Role::TextField,
+            state: crate::a11y::NodeState {
+                focused: self.editing_field.is_some(),
+                ..Default::default()
+            },
+            properties: crate::a11y::NodeProperties::default(),
+        })
+    }
+
     fn bounds(&self) -> Rect { self.bounds }
     fn set_position(&mut self, pos: Point) { self.bounds.origin = pos; }
     fn mark_dirty(&mut self, flags: DirtyFlags) { self.dirty_flags |= flags; }

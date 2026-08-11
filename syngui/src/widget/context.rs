@@ -76,6 +76,7 @@ pub struct EventContext {
     pub(crate) clipboard: Option<Arc<Mutex<arboard::Clipboard>>>,
     viewport_size: Size,
     pub(crate) show_virtual_keyboard: Option<bool>,
+    pub(crate) numeric_keyboard: Option<bool>,
     pub(crate) focused_text: Option<String>,
     pub(crate) scroll_into_view_request: Option<crate::core::Rect>,
     pub(crate) start_window_drag: bool,
@@ -108,6 +109,7 @@ impl EventContext {
             clipboard: None,
             viewport_size: Size::new(1280.0, 720.0),
             show_virtual_keyboard: None,
+            numeric_keyboard: None,
             focused_text: None,
             scroll_into_view_request: None,
             start_window_drag: false,
@@ -138,6 +140,7 @@ impl EventContext {
             || self.start_drag.is_some()
             || self.cursor_icon.is_some()
             || self.show_virtual_keyboard.is_some()
+            || self.numeric_keyboard.is_some()
             || self.focused_text.is_some()
             || self.scroll_into_view_request.is_some()
             || self.start_window_drag
@@ -200,6 +203,11 @@ impl EventContext {
 
     pub fn set_virtual_keyboard_visible(&mut self, visible: bool) {
         self.show_virtual_keyboard = Some(visible);
+    }
+
+    /// Тип экранной клавиатуры: `true` — цифровая, `false` — обычная (текст).
+    pub fn set_numeric_keyboard(&mut self, numeric: bool) {
+        self.numeric_keyboard = Some(numeric);
     }
 
     pub fn set_focused_text(&mut self, text: String) {

@@ -394,6 +394,9 @@ impl ElementTree {
         if let Some(show) = ctx.show_virtual_keyboard.take() {
             self.virtual_keyboard_request = Some(show);
         }
+        if let Some(numeric) = ctx.numeric_keyboard.take() {
+            self.keyboard_numeric = numeric;
+        }
         if ctx.start_window_drag {
             self.window_drag_request = true;
             ctx.start_window_drag = false;
