@@ -311,12 +311,15 @@ impl PieChartElement {
     fn pie_geometry(&self, padding: [f32; 4], legend_h: f32, title_h: f32) -> (f32, f32, f32, f32) {
         let inner_w = self.bounds.size.width - padding[0] - padding[2];
         let inner_h = self.bounds.size.height - padding[1] - padding[3] - legend_h - title_h;
+        // Резерв под внешние подписи: выносная линия (+24) + строка текста.
+        // 70px было чрезмерно и «схлопывало» кольцо, особенно когда снизу есть
+        // легенда и по высоте остаётся мало места.
         let label_margin = match self.label_position {
-            PieLabelPosition::Outside => 70.0,
+            PieLabelPosition::Outside => 46.0,
             _ => 0.0,
         };
         let available = (inner_w - label_margin * 2.0).min(inner_h - label_margin * 2.0).max(20.0);
-        let outer_r = available * 0.45;
+        let outer_r = available * 0.5;
         let inner_r = outer_r * self.inner_radius;
 
         let cx = self.bounds.origin.x + padding[0] + inner_w * 0.5;

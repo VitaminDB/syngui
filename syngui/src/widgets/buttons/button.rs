@@ -343,7 +343,26 @@ impl Element for ButtonElement {
             }
         }
 
-        if let Some(border) = border {
+        // Градиентный фон (как DecoratedBox). Состояние-специфичные solid-цвета
+        // (:hover/:pressed/:selected и transition) перекрывают градиент; при disabled
+        // рисуем приглушённый solid.
+        let use_gradient = self.mss.background_gradient.is_some()
+            && !self.disabled
+            && self.mss.transition.background_color().is_none()
+            && self
+                .mss
+                .target_props(self.hover, self.pressed, self.focused, self.selected)
+                .background_color()
+                .is_none();
+
+        if use_gradient {
+            let grad = self.mss.background_gradient.as_ref().unwrap().clone();
+            if let Some(border) = border {
+                list.push_gradient_rect_bordered(self.bounds, grad, cr, border);
+            } else {
+                list.push_gradient_rect(self.bounds, grad, cr);
+            }
+        } else if let Some(border) = border {
             list.push_rect_bordered(self.bounds, bg_color, cr, border);
         } else if bg_color.a > 0.0 {
             list.push_rect(self.bounds, bg_color, cr);

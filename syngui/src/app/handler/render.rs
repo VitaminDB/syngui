@@ -5,6 +5,17 @@ use crate::mss::parse_stylesheet_str;
 use web_time::Instant;
 use super::AppHandler;
 
+/// Извлекает цвет переменной `--bg` из таблицы темы. Используется, чтобы
+/// clear-color окна (а с ним полоса статус-бара и любые непокрытые области)
+/// совпадал с фоном темы.
+pub(super) fn parse_theme_bg(ss: &crate::mss::StyleSheet) -> Option<crate::core::Color> {
+    let v = ss.get_variable("--bg")?;
+    let c = v
+        .as_color()
+        .or_else(|| v.as_string().and_then(crate::mss::MssColor::parse))?;
+    Some(crate::core::Color::from_srgb(c.r, c.g, c.b, c.a as f32 / 255.0))
+}
+
 impl AppHandler {
     pub(in crate::app) fn update_cursor(&mut self) {
         let new_cursor = self.tree.cursor_request.unwrap_or(CursorIcon::Default);
@@ -424,6 +435,11 @@ impl AppHandler {
                 } else {
                     self.config.light_stylesheet.clone().unwrap_or_default()
                 };
+                // Clear-color окна = фон темы: полоса статус-бара и непокрытые
+                // области больше не остаются дефолтным светлым фоном.
+                if let Some(bg) = parse_theme_bg(&new_ss) {
+                    self.config.background_color = bg;
+                }
                 self.style_engine.load_stylesheet(new_ss);
                 for additional in &self.config.additional_stylesheets {
                     self.style_engine.load_additional_stylesheet(additional.clone());
