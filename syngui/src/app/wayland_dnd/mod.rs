@@ -14,7 +14,7 @@ use wayland_backend::sys::client::Backend;
 use wayland_client::{globals::registry_queue_init, Connection};
 use winit::event_loop::EventLoopProxy;
 
-use crate::app::user_event::MguiUserEvent;
+use crate::app::user_event::SynGuiUserEvent;
 use crate::window::Window;
 
 mod state;
@@ -28,7 +28,7 @@ unsafe impl Send for WlDisplayPtr {}
 
 pub fn try_start_wayland_dnd(
     window: Arc<Window>,
-    proxy: EventLoopProxy<MguiUserEvent>,
+    proxy: EventLoopProxy<SynGuiUserEvent>,
 ) -> Option<JoinHandle<()>> {
     let display_ptr = match window.display_handle() {
         Ok(handle) => match handle.as_raw() {
@@ -57,7 +57,7 @@ pub fn try_start_wayland_dnd(
 
 fn run_dispatch_loop(
     display_ptr: WlDisplayPtr,
-    proxy: EventLoopProxy<MguiUserEvent>,
+    proxy: EventLoopProxy<SynGuiUserEvent>,
 ) -> Result<(), Box<dyn std::error::Error>> {
     // SAFETY: указатель wl_display получен из winit'овского окна и валиден
     let backend = unsafe { Backend::from_foreign_display(display_ptr.0.as_ptr().cast()) };

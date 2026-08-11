@@ -21,7 +21,7 @@ pub mod notification;
 
 pub use builder::{AppBuilder, WindowConfig};
 pub use tray::{TrayCloseAction, TrayConfig, TrayMenuItem};
-pub use user_event::MguiUserEvent;
+pub use user_event::SynGuiUserEvent;
 
 #[cfg(target_os = "android")]
 pub use android_activity::AndroidApp;

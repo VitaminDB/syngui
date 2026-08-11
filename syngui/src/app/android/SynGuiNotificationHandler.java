@@ -15,7 +15,7 @@ import android.os.Build;
 import android.os.SystemClock;
 import java.util.concurrent.ConcurrentLinkedQueue;
 
-public class MguiNotificationHandler {
+public class SynGuiNotificationHandler {
     private static Activity sActivity;
     private static NotificationManager sManager;
     private static AlarmManager sAlarmManager;
@@ -45,6 +45,47 @@ public class MguiNotificationHandler {
             activity.registerReceiver(alarmReceiver, alarmFilter, Context.RECEIVER_NOT_EXPORTED);
         } else {
             activity.registerReceiver(alarmReceiver, alarmFilter);
+        }
+    }
+
+    // ── Foreground-таймер (живой прогресс-бар) ───────────────────────────
+
+    /**
+     * Запустить/обновить foreground-сервис живого прогресс-бара обратного отсчёта.
+     * Класс сервиса резолвится по имени через контекст активности, поэтому
+     * работает из in-memory DEX (сервис лежит в базовом DEX APK).
+     */
+    public static void startForegroundTimer(String channelId, String title,
+            long startMs, long deadlineMs, String readyText, String waitFmt) {
+        if (sActivity == null) return;
+        try {
+            Intent i = new Intent();
+            i.setClassName(sActivity, "syngui.android.SynGuiForegroundService");
+            i.putExtra("action", "start");
+            i.putExtra("channel", channelId);
+            i.putExtra("title", title);
+            i.putExtra("start", startMs);
+            i.putExtra("deadline", deadlineMs);
+            i.putExtra("ready_text", readyText);
+            i.putExtra("wait_fmt", waitFmt);
+            if (Build.VERSION.SDK_INT >= 26) {
+                sActivity.startForegroundService(i);
+            } else {
+                sActivity.startService(i);
+            }
+        } catch (Throwable t) {
+            // FGS недоступен — вызывающая сторона использует fallback.
+        }
+    }
+
+    public static void stopForegroundTimer() {
+        if (sActivity == null) return;
+        try {
+            Intent i = new Intent();
+            i.setClassName(sActivity, "syngui.android.SynGuiForegroundService");
+            i.putExtra("action", "stop");
+            sActivity.startService(i);
+        } catch (Throwable t) {
         }
     }
 

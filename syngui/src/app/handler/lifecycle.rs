@@ -4,11 +4,11 @@ use crate::window::{Window, WindowBuilder};
 use super::AppHandler;
 
 #[cfg(feature = "accessibility")]
-use super::MguiActivationHandler;
+use super::SynGuiActivationHandler;
 #[cfg(feature = "accessibility")]
-use super::MguiActionHandler;
+use super::SynGuiActionHandler;
 #[cfg(feature = "accessibility")]
-use super::MguiDeactivationHandler;
+use super::SynGuiDeactivationHandler;
 
 impl AppHandler {
     pub(in crate::app) fn init(&mut self, event_loop: &winit::event_loop::ActiveEventLoop) {
@@ -68,9 +68,9 @@ impl AppHandler {
         {
             let ak_adapter = accesskit_winit::Adapter::with_direct_handlers(
                 window.winit_window(),
-                MguiActivationHandler,
-                MguiActionHandler,
-                MguiDeactivationHandler,
+                SynGuiActivationHandler,
+                SynGuiActionHandler,
+                SynGuiDeactivationHandler,
             );
             self.accesskit_adapter = Some(ak_adapter);
         }

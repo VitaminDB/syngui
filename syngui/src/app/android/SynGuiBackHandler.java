@@ -5,7 +5,7 @@ import android.window.OnBackInvokedCallback;
 import android.window.OnBackInvokedDispatcher;
 import java.util.concurrent.atomic.AtomicBoolean;
 
-public class MguiBackHandler {
+public class SynGuiBackHandler {
     public static final AtomicBoolean backPressed = new AtomicBoolean(false);
 
     public static void register(Activity activity) {

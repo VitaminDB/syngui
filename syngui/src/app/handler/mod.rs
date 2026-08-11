@@ -110,7 +110,7 @@ pub(super) struct AppHandler {
     #[cfg(target_arch = "wasm32")]
     pub(super) wasm_font_ready: bool,
 
-    pub(super) event_loop_proxy: Option<winit::event_loop::EventLoopProxy<super::user_event::MguiUserEvent>>,
+    pub(super) event_loop_proxy: Option<winit::event_loop::EventLoopProxy<super::user_event::SynGuiUserEvent>>,
 
     #[cfg(all(feature = "tray", not(target_arch = "wasm32"), not(target_os = "android")))]
     pub(super) tray: Option<super::tray::TrayManager>,
@@ -146,6 +146,20 @@ impl AppHandler {
         } else {
             None
         };
+
+        // Начальный clear-color = фон стартовой темы. Иначе при запуске сразу в
+        // тёмной теме (theme_state==current) блок смены не срабатывает и полоса
+        // статус-бара осталась бы дефолтной светлой.
+        {
+            let init_ss = if initial_is_dark {
+                config.dark_stylesheet.as_ref()
+            } else {
+                config.light_stylesheet.as_ref()
+            };
+            if let Some(bg) = init_ss.and_then(render::parse_theme_bg) {
+                config.background_color = bg;
+            }
+        }
 
         let devtools = {
             let mut dt = crate::devtools::DevTools::new();
@@ -330,29 +344,29 @@ impl AppHandler {
 }
 
 #[cfg(feature = "accessibility")]
-pub(super) struct MguiActivationHandler;
+pub(super) struct SynGuiActivationHandler;
 
 #[cfg(feature = "accessibility")]
-impl accesskit::ActivationHandler for MguiActivationHandler {
+impl accesskit::ActivationHandler for SynGuiActivationHandler {
     fn request_initial_tree(&mut self) -> Option<accesskit::TreeUpdate> {
         None
     }
 }
 
 #[cfg(feature = "accessibility")]
-pub(super) struct MguiActionHandler;
+pub(super) struct SynGuiActionHandler;
 
 #[cfg(feature = "accessibility")]
-impl accesskit::ActionHandler for MguiActionHandler {
+impl accesskit::ActionHandler for SynGuiActionHandler {
     fn do_action(&mut self, _request: accesskit::ActionRequest) {
     }
 }
 
 #[cfg(feature = "accessibility")]
-pub(super) struct MguiDeactivationHandler;
+pub(super) struct SynGuiDeactivationHandler;
 
 #[cfg(feature = "accessibility")]
-impl accesskit::DeactivationHandler for MguiDeactivationHandler {
+impl accesskit::DeactivationHandler for SynGuiDeactivationHandler {
     fn deactivate_accessibility(&mut self) {
     }
 }

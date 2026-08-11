@@ -8,14 +8,24 @@ import android.view.inputmethod.*;
 import android.widget.FrameLayout;
 import java.util.concurrent.ConcurrentLinkedQueue;
 
-public class MguiInputHandler {
-    private static MguiInputView inputView;
+public class SynGuiInputHandler {
+    private static SynGuiInputView inputView;
     private static InputMethodManager imm;
     static final ConcurrentLinkedQueue<String> events = new ConcurrentLinkedQueue<>();
+    // Тип клавиатуры: true — цифровая, false — обычная (текст). Package-private,
+    // чтобы SynGuiInputView мог прочитать в onCreateInputConnection.
+    static volatile boolean numericInput = false;
+
+    public static void setNumericInput(boolean numeric) {
+        numericInput = numeric;
+        if (inputView != null && imm != null) {
+            inputView.post(() -> imm.restartInput(inputView));
+        }
+    }
 
     public static void register(Activity activity) {
         activity.runOnUiThread(() -> {
-            inputView = new MguiInputView(activity);
+            inputView = new SynGuiInputView(activity);
             inputView.setLayoutParams(new FrameLayout.LayoutParams(1, 1));
             inputView.setAlpha(0f);
             inputView.setFocusable(true);
@@ -70,13 +80,13 @@ public class MguiInputHandler {
 /**
  * Invisible View — anchor for IME. Does not manage text itself.
  */
-class MguiInputView extends View {
+class SynGuiInputView extends View {
     String currentText = "";
     int cursorPos = 0;
     int composingStart = -1;
     int composingEnd = -1;
 
-    public MguiInputView(Context context) {
+    public SynGuiInputView(Context context) {
         super(context);
     }
 
@@ -87,11 +97,13 @@ class MguiInputView extends View {
 
     @Override
     public InputConnection onCreateInputConnection(EditorInfo outAttrs) {
-        outAttrs.inputType = InputType.TYPE_CLASS_TEXT;
+        outAttrs.inputType = SynGuiInputHandler.numericInput
+                ? InputType.TYPE_CLASS_NUMBER
+                : InputType.TYPE_CLASS_TEXT;
         outAttrs.imeOptions = EditorInfo.IME_FLAG_NO_FULLSCREEN;
         outAttrs.initialSelStart = cursorPos;
         outAttrs.initialSelEnd = cursorPos;
-        return new MguiInputConnection(this);
+        return new SynGuiInputConnection(this);
     }
 }
 
@@ -103,10 +115,10 @@ class MguiInputView extends View {
  *   "D:before,after" — delete surrounding text
  *   "K:enter" — Enter key
  */
-class MguiInputConnection extends BaseInputConnection {
-    private final MguiInputView view;
+class SynGuiInputConnection extends BaseInputConnection {
+    private final SynGuiInputView view;
 
-    MguiInputConnection(MguiInputView view) {
+    SynGuiInputConnection(SynGuiInputView view) {
         super(view, true);
         this.view = view;
     }
@@ -161,7 +173,7 @@ class MguiInputConnection extends BaseInputConnection {
         view.cursorPos = view.composingEnd;
 
         // Send composing text as tentative input — native side shows it
-        MguiInputHandler.events.add("S:" + t);
+        SynGuiInputHandler.events.add("S:" + t);
         return true;
     }
 
@@ -171,7 +183,7 @@ class MguiInputConnection extends BaseInputConnection {
         if (view.composingStart >= 0) {
             view.composingStart = -1;
             view.composingEnd = -1;
-            MguiInputHandler.events.add("F:");
+            SynGuiInputHandler.events.add("F:");
         }
         return true;
     }
@@ -187,7 +199,7 @@ class MguiInputConnection extends BaseInputConnection {
         view.cursorPos = pos + t.length();
 
         // Send final committed text
-        MguiInputHandler.events.add("C:" + t);
+        SynGuiInputHandler.events.add("C:" + t);
         return true;
     }
 
@@ -202,7 +214,7 @@ class MguiInputConnection extends BaseInputConnection {
         view.currentText = view.currentText.substring(0, delStart) + view.currentText.substring(delEnd);
         view.cursorPos = delStart;
 
-        MguiInputHandler.events.add("D:" + beforeLength + "," + afterLength);
+        SynGuiInputHandler.events.add("D:" + beforeLength + "," + afterLength);
         return true;
     }
 
@@ -213,7 +225,7 @@ class MguiInputConnection extends BaseInputConnection {
                 if (view.composingStart >= 0) {
                     // Backspace within composing — remove last composing char
                     removeComposingRegion();
-                    MguiInputHandler.events.add("R:");  // reset composing in native
+                    SynGuiInputHandler.events.add("R:");  // reset composing in native
                 } else {
                     int pos = Math.min(view.cursorPos, view.currentText.length());
                     if (pos > 0) {
@@ -221,7 +233,7 @@ class MguiInputConnection extends BaseInputConnection {
                                 + view.currentText.substring(pos);
                         view.cursorPos = pos - 1;
                     }
-                    MguiInputHandler.events.add("D:1,0");
+                    SynGuiInputHandler.events.add("D:1,0");
                 }
             } else if (event.getKeyCode() == KeyEvent.KEYCODE_FORWARD_DEL) {
                 removeComposingRegion();
@@ -230,10 +242,10 @@ class MguiInputConnection extends BaseInputConnection {
                     view.currentText = view.currentText.substring(0, pos)
                             + view.currentText.substring(pos + 1);
                 }
-                MguiInputHandler.events.add("D:0,1");
+                SynGuiInputHandler.events.add("D:0,1");
             } else if (event.getKeyCode() == KeyEvent.KEYCODE_ENTER) {
                 removeComposingRegion();
-                MguiInputHandler.events.add("K:enter");
+                SynGuiInputHandler.events.add("K:enter");
             }
         }
         return true;

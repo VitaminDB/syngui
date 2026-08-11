@@ -1,5 +1,5 @@
 #[derive(Debug, Clone)]
-pub enum MguiUserEvent {
+pub enum SynGuiUserEvent {
     TrayShow,
     TrayHide,
     TrayToggle,

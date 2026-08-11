@@ -1,11 +1,11 @@
 use crate::input::{DragData, Event, Modifiers};
 use super::handler::AppHandler;
 use super::input_mapping::{map_mouse_button, map_key_code};
-use super::user_event::MguiUserEvent;
+use super::user_event::SynGuiUserEvent;
 use crate::core::Point;
 use web_time::Instant;
 
-impl winit::application::ApplicationHandler<MguiUserEvent> for AppHandler {
+impl winit::application::ApplicationHandler<SynGuiUserEvent> for AppHandler {
     fn resumed(&mut self, event_loop: &winit::event_loop::ActiveEventLoop) {
         #[cfg(target_arch = "wasm32")]
         web_sys::console::log_1(&"[syngui] resumed() called".into());
@@ -602,30 +602,30 @@ impl winit::application::ApplicationHandler<MguiUserEvent> for AppHandler {
     fn user_event(
         &mut self,
         event_loop: &winit::event_loop::ActiveEventLoop,
-        event: MguiUserEvent,
+        event: SynGuiUserEvent,
     ) {
         match event {
-            MguiUserEvent::TrayShow | MguiUserEvent::Activate => {
+            SynGuiUserEvent::TrayShow | SynGuiUserEvent::Activate => {
                 self.show_main_window();
             }
-            MguiUserEvent::TrayHide => {
+            SynGuiUserEvent::TrayHide => {
                 self.hide_main_window();
             }
-            MguiUserEvent::TrayToggle => {
+            SynGuiUserEvent::TrayToggle => {
                 self.toggle_main_window_visibility();
             }
-            MguiUserEvent::TrayExit => {
+            SynGuiUserEvent::TrayExit => {
                 #[cfg(all(feature = "tray", not(target_arch = "wasm32"), not(target_os = "android")))]
                 { self.tray.take(); }
                 #[cfg(all(feature = "single-instance", not(target_arch = "wasm32"), not(target_os = "android")))]
                 { self.single_instance.take(); }
                 event_loop.exit();
             }
-            MguiUserEvent::MenuItem(id) => {
+            SynGuiUserEvent::MenuItem(id) => {
                 log::debug!("[syngui] tray menu item: {id}");
             }
             #[cfg(feature = "wayland-dnd")]
-            MguiUserEvent::WaylandDnd(ev) => {
+            SynGuiUserEvent::WaylandDnd(ev) => {
                 self.handle_wayland_dnd(ev);
             }
         }

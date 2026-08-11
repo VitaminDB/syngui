@@ -110,7 +110,7 @@ impl AppHandler {
     }
 
     #[cfg(target_os = "android")]
-    const FRAMEWORK_DEX: &'static [u8] = include_bytes!("../android/mgui_framework.dex");
+    const FRAMEWORK_DEX: &'static [u8] = include_bytes!("../android/syngui_framework.dex");
 
     #[cfg(target_os = "android")]
     fn back_class_cache() -> &'static std::sync::atomic::AtomicPtr<()> {
@@ -171,7 +171,7 @@ impl AppHandler {
             &[JValue::Object(&buf), JValue::Object(&parent)],
         ).map_err(|e| format!("new InMemoryDexClassLoader: {}", e))?;
 
-        let name: JObject = env.new_string("syngui.android.MguiBackHandler")
+        let name: JObject = env.new_string("syngui.android.SynGuiBackHandler")
             .map_err(|e| format!("string: {}", e))?.into();
         let cls = env.call_method(
             &loader, "loadClass", "(Ljava/lang/String;)Ljava/lang/Class;",
@@ -191,7 +191,7 @@ impl AppHandler {
         std::mem::forget(global);
         Self::back_class_cache().store(raw, std::sync::atomic::Ordering::SeqCst);
 
-        let input_name: JObject = env.new_string("syngui.android.MguiInputHandler")
+        let input_name: JObject = env.new_string("syngui.android.SynGuiInputHandler")
             .map_err(|e| format!("string: {}", e))?.into();
         let input_cls = env.call_method(
             &loader, "loadClass", "(Ljava/lang/String;)Ljava/lang/Class;",
@@ -211,7 +211,7 @@ impl AppHandler {
         std::mem::forget(input_global);
         Self::input_class_cache().store(input_raw, std::sync::atomic::Ordering::SeqCst);
 
-        let notif_name: JObject = env.new_string("syngui.android.MguiNotificationHandler")
+        let notif_name: JObject = env.new_string("syngui.android.SynGuiNotificationHandler")
             .map_err(|e| format!("string: {}", e))?.into();
         let notif_cls = env.call_method(
             &loader, "loadClass", "(Ljava/lang/String;)Ljava/lang/Class;",
@@ -383,6 +383,30 @@ impl AppHandler {
         }
     }
 
+    /// Тип экранной клавиатуры: цифровая (true) или обычная (false).
+    #[cfg(target_os = "android")]
+    fn set_input_numeric_jni(&self, numeric: bool) {
+        let ptr = Self::input_class_cache().load(std::sync::atomic::Ordering::Relaxed);
+        if ptr.is_null() { return; }
+        let Some(ref android_app) = self.android_app else { return };
+        let vm_ptr = android_app.vm_as_ptr();
+
+        unsafe {
+            let Ok(vm) = jni::JavaVM::from_raw(vm_ptr as *mut jni::sys::JavaVM) else { return };
+            let Ok(mut env) = vm.attach_current_thread_permanently() else {
+                std::mem::forget(vm); return;
+            };
+            let cls: jni::objects::JClass = jni::objects::JObject::from_raw(ptr as jni::sys::jobject).into();
+            let _ = env.call_static_method(
+                &cls,
+                "setNumericInput",
+                "(Z)V",
+                &[jni::objects::JValue::Bool(numeric as u8)],
+            );
+            std::mem::forget(vm);
+        }
+    }
+
     #[cfg(target_os = "android")]
     fn set_input_text_jni(&self, text: &str) {
         let ptr = Self::input_class_cache().load(std::sync::atomic::Ordering::Relaxed);
@@ -410,6 +434,7 @@ impl AppHandler {
             #[cfg(target_os = "android")]
             {
                 if _show {
+                    self.set_input_numeric_jni(self.tree.keyboard_numeric);
                     self.composing_len = 0;
                     if let Some(text) = self.tree.focused_text_content.take() {
                         self.set_input_text_jni(&text);

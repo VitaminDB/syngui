@@ -23,7 +23,7 @@ use wayland_client::{
 };
 use winit::event_loop::EventLoopProxy;
 
-use crate::app::user_event::{MguiUserEvent, WaylandDndEvent};
+use crate::app::user_event::{SynGuiUserEvent, WaylandDndEvent};
 
 use super::uri::parse_uri_list;
 
@@ -50,7 +50,7 @@ pub(super) struct DnDState {
     pub output_state: OutputState,
     pub data_device_manager: DataDeviceManagerState,
     pub seats: Vec<SeatEntry>,
-    pub proxy: EventLoopProxy<MguiUserEvent>,
+    pub proxy: EventLoopProxy<SynGuiUserEvent>,
     pub accept_counter: u32,
     pub exit: bool,
 }
@@ -91,13 +91,13 @@ impl DataDeviceHandler for DnDState {
             offer.accept_mime_type(self.accept_counter, None);
             return;
         }
-        let _ = self.proxy.send_event(MguiUserEvent::WaylandDnd(
+        let _ = self.proxy.send_event(SynGuiUserEvent::WaylandDnd(
             WaylandDndEvent::Enter { x: x as f32, y: y as f32 },
         ));
     }
 
     fn leave(&mut self, _conn: &Connection, _qh: &QueueHandle<Self>, _wl_dd: &WlDataDevice) {
-        if self.proxy.send_event(MguiUserEvent::WaylandDnd(WaylandDndEvent::Leave)).is_err() {
+        if self.proxy.send_event(SynGuiUserEvent::WaylandDnd(WaylandDndEvent::Leave)).is_err() {
             self.exit = true;
         }
     }
@@ -112,7 +112,7 @@ impl DataDeviceHandler for DnDState {
     ) {
         if self
             .proxy
-            .send_event(MguiUserEvent::WaylandDnd(WaylandDndEvent::Motion {
+            .send_event(SynGuiUserEvent::WaylandDnd(WaylandDndEvent::Motion {
                 x: x as f32,
                 y: y as f32,
             }))
@@ -168,7 +168,7 @@ impl DataDeviceHandler for DnDState {
             if paths.is_empty() {
                 return;
             }
-            let _ = proxy.send_event(MguiUserEvent::WaylandDnd(WaylandDndEvent::Drop {
+            let _ = proxy.send_event(SynGuiUserEvent::WaylandDnd(WaylandDndEvent::Drop {
                 x,
                 y,
                 paths,

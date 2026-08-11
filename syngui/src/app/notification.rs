@@ -191,6 +191,33 @@ pub fn cancel_alarm(alarm_id: i32) {
     unsafe { cancel_alarm_jni(vm, cls, alarm_id) };
 }
 
+/// Запустить/обновить foreground-сервис живого прогресс-бара обратного отсчёта.
+///
+/// `start_ms`..`deadline_ms` — окно отсчёта (epoch ms); сервис сам обновляет бар
+/// раз в секунду и переживает сворачивание/выгрузку процесса. `wait_fmt` —
+/// формат подписи ожидания с одним `%s` (подставляется ЧЧ:ММ:СС).
+pub fn start_foreground_timer(
+    channel_id: &str,
+    title: &str,
+    start_ms: i64,
+    deadline_ms: i64,
+    ready_text: &str,
+    wait_fmt: &str,
+) {
+    let Some((vm, cls)) = get_ptrs() else { return };
+    unsafe {
+        let _ = start_foreground_timer_jni(
+            vm, cls, channel_id, title, start_ms, deadline_ms, ready_text, wait_fmt,
+        );
+    }
+}
+
+/// Остановить foreground-сервис прогресс-бара.
+pub fn stop_foreground_timer() {
+    let Some((vm, cls)) = get_ptrs() else { return };
+    unsafe { stop_foreground_timer_jni(vm, cls) };
+}
+
 fn post_notify_jni(
     id: i32, channel_id: &str, title: &str, text: &str,
     big_text: Option<&str>, priority: i32, auto_cancel: bool, ongoing: bool,
@@ -471,6 +498,43 @@ unsafe fn cancel_alarm_jni(vm: *mut std::ffi::c_void, cls_ptr: *mut (), alarm_id
             &cls, "cancelAlarm", "(I)V",
             &[jni::objects::JValue::Int(alarm_id)],
         ).map_err(|e| format!("cancelAlarm: {e}"))?;
+        Ok(())
+    });
+}
+
+#[allow(clippy::too_many_arguments)]
+unsafe fn start_foreground_timer_jni(
+    vm: *mut std::ffi::c_void, cls_ptr: *mut (),
+    channel_id: &str, title: &str, start_ms: i64, deadline_ms: i64,
+    ready_text: &str, wait_fmt: &str,
+) -> Result<(), String> {
+    with_env(vm, |env| {
+        let j_channel = env.new_string(channel_id).map_err(|e| format!("{e}"))?;
+        let j_title = env.new_string(title).map_err(|e| format!("{e}"))?;
+        let j_ready = env.new_string(ready_text).map_err(|e| format!("{e}"))?;
+        let j_fmt = env.new_string(wait_fmt).map_err(|e| format!("{e}"))?;
+        let cls = jclass!(cls_ptr);
+        env.call_static_method(
+            &cls, "startForegroundTimer",
+            "(Ljava/lang/String;Ljava/lang/String;JJLjava/lang/String;Ljava/lang/String;)V",
+            &[
+                jni::objects::JValue::Object(&j_channel),
+                jni::objects::JValue::Object(&j_title),
+                jni::objects::JValue::Long(start_ms),
+                jni::objects::JValue::Long(deadline_ms),
+                jni::objects::JValue::Object(&j_ready),
+                jni::objects::JValue::Object(&j_fmt),
+            ],
+        ).map_err(|e| format!("startForegroundTimer: {e}"))?;
+        Ok(())
+    })
+}
+
+unsafe fn stop_foreground_timer_jni(vm: *mut std::ffi::c_void, cls_ptr: *mut ()) {
+    let _ = with_env(vm, |env| {
+        let cls = jclass!(cls_ptr);
+        env.call_static_method(&cls, "stopForegroundTimer", "()V", &[])
+            .map_err(|e| format!("stopForegroundTimer: {e}"))?;
         Ok(())
     });
 }

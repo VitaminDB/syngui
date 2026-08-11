@@ -113,7 +113,7 @@ pub(crate) use platform::TrayManager;
 ))]
 mod platform {
     use super::*;
-    use crate::app::user_event::MguiUserEvent;
+    use crate::app::user_event::SynGuiUserEvent;
     use tray_icon::{
         menu::{Menu, MenuEvent, MenuId, MenuItem, PredefinedMenuItem},
         Icon, MouseButton, MouseButtonState, TrayIconBuilder, TrayIconEvent,
@@ -135,7 +135,7 @@ mod platform {
     impl TrayManager {
         pub fn start(
             cfg: TrayConfig,
-            proxy: EventLoopProxy<MguiUserEvent>,
+            proxy: EventLoopProxy<SynGuiUserEvent>,
         ) -> Result<Self, Box<dyn std::error::Error>> {
             install_event_handlers(&cfg, proxy.clone());
 
@@ -218,16 +218,16 @@ mod platform {
         }
     }
 
-    fn install_event_handlers(cfg: &TrayConfig, proxy: EventLoopProxy<MguiUserEvent>) {
+    fn install_event_handlers(cfg: &TrayConfig, proxy: EventLoopProxy<SynGuiUserEvent>) {
         {
             let proxy = proxy.clone();
             MenuEvent::set_event_handler(Some(move |ev: MenuEvent| {
                 let id = ev.id.0;
                 let user_ev = match id.as_str() {
-                    ID_SHOW => MguiUserEvent::TrayShow,
-                    ID_HIDE => MguiUserEvent::TrayHide,
-                    ID_EXIT => MguiUserEvent::TrayExit,
-                    _ => MguiUserEvent::MenuItem(id),
+                    ID_SHOW => SynGuiUserEvent::TrayShow,
+                    ID_HIDE => SynGuiUserEvent::TrayHide,
+                    ID_EXIT => SynGuiUserEvent::TrayExit,
+                    _ => SynGuiUserEvent::MenuItem(id),
                 };
                 let _ = proxy.send_event(user_ev);
             }));
@@ -241,7 +241,7 @@ mod platform {
                     ..
                 } = ev
                 {
-                    let _ = proxy.send_event(MguiUserEvent::TrayToggle);
+                    let _ = proxy.send_event(SynGuiUserEvent::TrayToggle);
                 }
             }));
         } else {

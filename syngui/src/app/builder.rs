@@ -454,7 +454,7 @@ impl AppBuilder {
             let android_app = app_handler.config.android_app.clone()
                 .expect("AndroidApp must be provided via .with_android_app() on Android");
             app_handler.android_app = Some(android_app.clone());
-            let event_loop = winit::event_loop::EventLoop::<super::user_event::MguiUserEvent>::with_user_event()
+            let event_loop = winit::event_loop::EventLoop::<super::user_event::SynGuiUserEvent>::with_user_event()
                 .with_android_app(android_app)
                 .build()
                 .expect("Failed to create event loop");
@@ -464,7 +464,7 @@ impl AppBuilder {
 
         #[cfg(all(not(target_arch = "wasm32"), not(target_os = "android")))]
         {
-            let event_loop = winit::event_loop::EventLoop::<super::user_event::MguiUserEvent>::with_user_event()
+            let event_loop = winit::event_loop::EventLoop::<super::user_event::SynGuiUserEvent>::with_user_event()
                 .build()
                 .expect("Failed to create event loop");
             let proxy = event_loop.create_proxy();
@@ -502,7 +502,7 @@ impl AppBuilder {
         {
             let mut app_handler = super::handler::AppHandler::new(self, root_factory.clone(), style_engine, initial_is_dark);
             use winit::platform::web::EventLoopExtWebSys;
-            let event_loop = winit::event_loop::EventLoop::<super::user_event::MguiUserEvent>::with_user_event()
+            let event_loop = winit::event_loop::EventLoop::<super::user_event::SynGuiUserEvent>::with_user_event()
                 .build()
                 .expect("Failed to create event loop");
             app_handler.event_loop_proxy = Some(event_loop.create_proxy());

@@ -11,7 +11,7 @@ pub(crate) use desktop::{notify_running_instance, SingleInstanceLock};
     not(target_os = "android")
 ))]
 mod desktop {
-    use super::super::user_event::MguiUserEvent;
+    use super::super::user_event::SynGuiUserEvent;
     use interprocess::local_socket::{
         traits::{Listener as _, ListenerExt as _, Stream as _},
         GenericNamespaced, ListenerNonblockingMode, ListenerOptions, Stream, ToNsName,
@@ -39,7 +39,7 @@ mod desktop {
     impl SingleInstanceLock {
         pub fn try_acquire(
             app_id: &str,
-            proxy: EventLoopProxy<MguiUserEvent>,
+            proxy: EventLoopProxy<SynGuiUserEvent>,
         ) -> Result<Option<Self>, Box<dyn std::error::Error>> {
             let lock = SingleInstance::new(app_id)
                 .map_err(|e| format!("single-instance lock failed: {e}"))?;
@@ -81,7 +81,7 @@ mod desktop {
 
     fn run_listener(
         listener: interprocess::local_socket::Listener,
-        proxy: EventLoopProxy<MguiUserEvent>,
+        proxy: EventLoopProxy<SynGuiUserEvent>,
         shutdown: Arc<AtomicBool>,
     ) {
         for incoming in listener.incoming() {
@@ -93,7 +93,7 @@ mod desktop {
                     let mut buf = [0u8; 32];
                     let n = stream.read(&mut buf).unwrap_or(0);
                     if buf.get(..n).map_or(false, |b| b.starts_with(b"activate")) {
-                        let _ = proxy.send_event(MguiUserEvent::Activate);
+                        let _ = proxy.send_event(SynGuiUserEvent::Activate);
                     }
                 }
                 Err(err) if err.kind() == ErrorKind::WouldBlock => {
