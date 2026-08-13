@@ -245,7 +245,7 @@ impl Element for RouterViewElement {
     }
 
     fn layout_hint(&self) -> LayoutHint {
-        LayoutHint::Stack
+        LayoutHint::Stack { expand: false }
     }
 
     fn build_display_list(&self, _list: &mut DisplayList, _clip: Rect) {

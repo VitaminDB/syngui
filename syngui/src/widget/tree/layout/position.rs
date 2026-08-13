@@ -63,7 +63,7 @@ impl ElementTree {
             crate::widget::LayoutHint::Padding { left, top, .. } => {
                 self.position_padding_children(&children, parent_pos, left, top);
             }
-            crate::widget::LayoutHint::Stack => {
+            crate::widget::LayoutHint::Stack { .. } => {
                 self.position_stack_children(&children, parent_pos);
             }
             crate::widget::LayoutHint::Center => {

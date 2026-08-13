@@ -791,11 +791,10 @@ impl MapViewElement {
         let center_tile_x = center_tx.floor() as i32;
         let center_tile_y = center_ty.floor() as i32;
 
-        // How many tiles needed to cover viewport from center (+1 for rounding safety)
-        let tiles_left = ((vw / 2.0 + center_px) / tile_size).ceil() as i32 + 1;
-        let tiles_right = ((vw / 2.0 - center_px) / tile_size).ceil() as i32 + 1;
-        let tiles_up = ((vh / 2.0 + center_py) / tile_size).ceil() as i32 + 1;
-        let tiles_down = ((vh / 2.0 - center_py) / tile_size).ceil() as i32 + 1;
+        let dx_min = ((center_px - vw / 2.0) / tile_size).floor() as i32;
+        let dx_max = ((center_px + vw / 2.0) / tile_size).ceil() as i32 - 1;
+        let dy_min = ((center_py - vh / 2.0) / tile_size).floor() as i32;
+        let dy_max = ((center_py + vh / 2.0) / tile_size).ceil() as i32 - 1;
 
         let max_tile = (1i32 << zoom) - 1;
 
@@ -804,8 +803,8 @@ impl MapViewElement {
             Err(_) => return,
         };
 
-        for dy in -tiles_up..=tiles_down {
-            for dx in -tiles_left..=tiles_right {
+        for dy in dy_min..=dy_max {
+            for dx in dx_min..=dx_max {
                 let tx = center_tile_x + dx;
                 let ty = center_tile_y + dy;
 
@@ -838,16 +837,20 @@ impl MapViewElement {
                 }
 
                 let url = self.provider.tile_url(key.x, key.y, key.z);
-                match self.tile_loader.request_tile(key, url) {
-                    TileState::Loaded(rgba) => {
-                        let slot = atlas.insert_tile(key, &rgba);
+                let slot = match self.tile_loader.request_tile(key, url) {
+                    TileState::Loaded(rgba) => atlas.insert_tile(key, &rgba),
+                    TileState::Loading | TileState::Failed => None,
+                };
+
+                match slot {
+                    Some(slot) => {
                         let uv_rect = Rect::new(
                             Point::new(slot.uv_x, slot.uv_y),
                             Size::new(slot.uv_w, slot.uv_h),
                         );
                         list.push_image(tile_rect, TextureId(0), uv_rect, Color::WHITE);
                     }
-                    TileState::Loading | TileState::Failed => {
+                    None => {
                         if !Self::draw_parent_tile(list, &mut atlas, &key, tile_rect, self.provider.id) {
                             list.push_rect(tile_rect, Color::new(0.9, 0.9, 0.9, 1.0), [0.0; 4]);
                         }

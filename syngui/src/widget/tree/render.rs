@@ -88,7 +88,7 @@ impl ElementTree {
                 cull_clip
             };
 
-            let is_stack = matches!(hint, LayoutHint::Stack);
+            let is_stack = matches!(hint, LayoutHint::Stack { .. });
             let active_count = node.element.active_child_count();
 
             let mut visible_buf: Vec<usize> = Vec::new();

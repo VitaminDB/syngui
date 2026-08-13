@@ -207,8 +207,8 @@ impl ElementTree {
                 LayoutHint::Padding { left, top, right, bottom } => {
                     self.measure_padding(&children, constraints, *left, *top, *right, *bottom, id)
                 }
-                LayoutHint::Stack => {
-                    self.measure_stack(&children, constraints, id)
+                LayoutHint::Stack { expand } => {
+                    self.measure_stack(&children, constraints, id, *expand)
                 }
                 LayoutHint::Center => {
                     self.measure_center(&children, constraints, id)

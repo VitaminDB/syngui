@@ -248,6 +248,7 @@ impl ElementTree {
         let mut max_height = 0.0f32;
         let mut total_flex = 0.0f32;
         let mut expanded_idx: Vec<(u32, f32)> = Vec::new();
+        let mut measured_widths: Vec<(u32, f32)> = Vec::with_capacity(children_idx.len());
 
         let container_constraints = Constraints {
             min_width: 0.0,
@@ -271,6 +272,7 @@ impl ElementTree {
                 let m = probe.margin;
                 total_fixed_width += child_size.width + m.left + m.right;
                 max_height = max_height.max(child_size.height + m.top + m.bottom);
+                measured_widths.push((probe.idx, child_size.width));
             }
         }
 
@@ -296,6 +298,7 @@ impl ElementTree {
                 };
                 let child_size = self.measure_recursive_by_idx(*cidx, expanded_constraints);
                 max_height = max_height.max(child_size.height);
+                measured_widths.push((*cidx, expanded_width));
             }
 
             total_width = effective_max_width;
@@ -304,8 +307,32 @@ impl ElementTree {
                 let child_size = self.measure_recursive_by_idx(*cidx, non_expanded_constraints);
                 total_fixed_width += child_size.width;
                 max_height = max_height.max(child_size.height);
+                measured_widths.push((*cidx, child_size.width));
             }
             total_width = total_fixed_width + gap_space;
+        }
+
+        if cross_align == CrossAxisAlignment::Stretch
+            && !effective_max_height.is_finite()
+            && max_height.is_finite()
+            && max_height > 0.0
+        {
+            for (cidx, width) in &measured_widths {
+                let margin = child_probes
+                    .iter()
+                    .find(|p| p.idx == *cidx)
+                    .map(|p| p.margin)
+                    .unwrap_or_default();
+                let target = (max_height - margin.top - margin.bottom).max(0.0);
+                let stretch_constraints = Constraints {
+                    min_width: *width,
+                    max_width: *width,
+                    min_height: target,
+                    max_height: f32::INFINITY,
+                    containing_block: Size::new(*width, target),
+                };
+                self.measure_recursive_by_idx(*cidx, stretch_constraints);
+            }
         }
 
         if let Some(node) = self.elements.get_mut(&id) {
@@ -495,12 +522,25 @@ impl ElementTree {
         Size::new(width, height)
     }
 
-    pub(super) fn measure_stack(&mut self, children: &[ElementId], constraints: Constraints, id: ElementId) -> Size {
+    pub(super) fn measure_stack(&mut self, children: &[ElementId], constraints: Constraints, id: ElementId, expand: bool) -> Size {
         let mut max_width = 0.0f32;
         let mut max_height = 0.0f32;
 
+        let expanded = Constraints {
+            min_width: if constraints.max_width.is_finite() { constraints.max_width } else { constraints.min_width },
+            max_width: constraints.max_width,
+            min_height: if constraints.max_height.is_finite() { constraints.max_height } else { constraints.min_height },
+            max_height: constraints.max_height,
+            containing_block: constraints.containing_block,
+        };
+
         for &child_id in children {
-            let child_size = self.measure_recursive(child_id, constraints);
+            let child_constraints = if expand && !self.child_floats_over_stack(child_id) {
+                expanded
+            } else {
+                constraints
+            };
+            let child_size = self.measure_recursive(child_id, child_constraints);
             max_width = max_width.max(child_size.width);
             max_height = max_height.max(child_size.height);
         }
@@ -515,6 +555,21 @@ impl ElementTree {
             max_width.min(constraints.max_width),
             max_height.min(constraints.max_height)
         )
+    }
+
+    fn child_floats_over_stack(&self, child_id: ElementId) -> bool {
+        self.elements
+            .get(&child_id)
+            .map(|node| {
+                matches!(
+                    node.element.layout_hint(),
+                    crate::widget::LayoutHint::Portal { .. }
+                        | crate::widget::LayoutHint::FloatingWindow { .. }
+                        | crate::widget::LayoutHint::Positioned { .. }
+                        | crate::widget::LayoutHint::Tooltip { .. }
+                )
+            })
+            .unwrap_or(false)
     }
 
     pub(super) fn measure_center(&mut self, children: &[ElementId], constraints: Constraints, id: ElementId) -> Size {

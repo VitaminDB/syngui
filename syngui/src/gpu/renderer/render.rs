@@ -34,10 +34,7 @@ impl Renderer {
             self.image_gpu_cache.process_uploads(&gpu.device, &gpu.queue, &mut store);
         }
         #[cfg(feature = "map")]
-        if let Some(ref tile_atlas) = self.tile_atlas {
-            let mut atlas = tile_atlas.lock().unwrap();
-            atlas.upload(&gpu.queue);
-        }
+        self.sync_tile_atlas(gpu);
 
         let resolution = [self.logical_width as f32, self.logical_height as f32];
         let clip_slot_map = self.write_clip_uniform_slots(gpu, &render_ops, resolution, elapsed, scale);
@@ -194,10 +191,7 @@ impl Renderer {
             self.image_gpu_cache.process_uploads(&gpu.device, &gpu.queue, &mut store);
         }
         #[cfg(feature = "map")]
-        if let Some(ref tile_atlas) = self.tile_atlas {
-            let mut atlas = tile_atlas.lock().unwrap();
-            atlas.upload(&gpu.queue);
-        }
+        self.sync_tile_atlas(gpu);
 
         let resolution = [self.logical_width as f32, self.logical_height as f32];
         let clip_slot_map = self.write_clip_uniform_slots(gpu, &render_ops, resolution, elapsed, scale);

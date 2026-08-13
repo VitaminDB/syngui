@@ -126,7 +126,7 @@ impl Element for StackElement {
     }
 
     fn layout_hint(&self) -> LayoutHint {
-        LayoutHint::Stack
+        LayoutHint::Stack { expand: matches!(self.fit, StackFit::Expand) }
     }
 
     fn build_display_list(&self, _list: &mut DisplayList, _clip: Rect) {}

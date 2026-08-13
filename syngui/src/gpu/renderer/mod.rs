@@ -555,25 +555,77 @@ impl Renderer {
             return;
         }
 
-        let tile_atlas = crate::gpu::tile_atlas::TileAtlas::new(&gpu.device, &gpu.queue);
+        let tile_atlas = crate::gpu::tile_atlas::TileAtlas::with_capacity(
+            &gpu.device,
+            &gpu.queue,
+            self.tiles_for_viewport(),
+        );
 
-        let tile_bind_group = gpu.device.create_bind_group(&wgpu::BindGroupDescriptor {
-            label: Some("Tile Atlas BG"),
-            layout: self.image_gpu_cache.bind_group_layout(),
-            entries: &[
-                wgpu::BindGroupEntry {
-                    binding: 0,
-                    resource: wgpu::BindingResource::TextureView(&tile_atlas.texture_view),
-                },
-                wgpu::BindGroupEntry {
-                    binding: 1,
-                    resource: wgpu::BindingResource::Sampler(&tile_atlas.sampler),
-                },
-            ],
-        });
+        let tile_bind_group = Self::create_tile_atlas_bind_group(
+            gpu,
+            self.image_gpu_cache.bind_group_layout(),
+            &tile_atlas,
+        );
 
         self.tile_atlas = Some(std::sync::Arc::new(crate::core::sync::Mutex::new(tile_atlas)));
         self.tile_atlas_bind_group = Some(tile_bind_group);
+    }
+
+    #[cfg(feature = "map")]
+    fn create_tile_atlas_bind_group(
+        gpu: &GpuShared,
+        layout: &wgpu::BindGroupLayout,
+        atlas: &crate::gpu::tile_atlas::TileAtlas,
+    ) -> wgpu::BindGroup {
+        gpu.device.create_bind_group(&wgpu::BindGroupDescriptor {
+            label: Some("Tile Atlas BG"),
+            layout,
+            entries: &[
+                wgpu::BindGroupEntry {
+                    binding: 0,
+                    resource: wgpu::BindingResource::TextureView(&atlas.texture_view),
+                },
+                wgpu::BindGroupEntry {
+                    binding: 1,
+                    resource: wgpu::BindingResource::Sampler(&atlas.sampler),
+                },
+            ],
+        })
+    }
+
+    #[cfg(feature = "map")]
+    fn tiles_for_viewport(&self) -> usize {
+        const TILE: f32 = 256.0;
+        let cols = (self.logical_width as f32 / TILE).ceil() as usize + 1;
+        let rows = (self.logical_height as f32 / TILE).ceil() as usize + 1;
+        cols * rows * 5 / 4
+    }
+
+    #[cfg(feature = "map")]
+    pub(super) fn sync_tile_atlas(&mut self, gpu: &GpuShared) {
+        let Some(tile_atlas) = self.tile_atlas.clone() else {
+            return;
+        };
+        let needed = self.tiles_for_viewport();
+
+        let grown = {
+            let Ok(mut atlas) = tile_atlas.lock() else {
+                return;
+            };
+            atlas.upload(&gpu.queue);
+            atlas.end_frame();
+            atlas.ensure_capacity(&gpu.device, &gpu.queue, needed)
+        };
+
+        if grown {
+            if let Ok(atlas) = tile_atlas.lock() {
+                self.tile_atlas_bind_group = Some(Self::create_tile_atlas_bind_group(
+                    gpu,
+                    self.image_gpu_cache.bind_group_layout(),
+                    &atlas,
+                ));
+            }
+        }
     }
 
     fn ensure_scene_texture(&mut self, device: &wgpu::Device) {

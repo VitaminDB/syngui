@@ -12,7 +12,7 @@ pub enum LayoutHint {
     Center,
     Column { gap: f32, cross_align: CrossAxisAlignment, main_align: MainAxisAlignment, padding_left: f32, padding_top: f32, padding_right: f32, padding_bottom: f32, expand: bool },
     Row { gap: f32, offset_x: f32, cross_align: CrossAxisAlignment, main_align: MainAxisAlignment, padding_left: f32, padding_top: f32, padding_right: f32, padding_bottom: f32 },
-    Stack,
+    Stack { expand: bool },
     Padding { left: f32, top: f32, right: f32, bottom: f32 },
     Grid { columns: usize, row_gap: f32, col_gap: f32, masonry: bool },
     Scroll {
