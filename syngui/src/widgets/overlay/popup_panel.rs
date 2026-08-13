@@ -21,6 +21,7 @@ pub struct PopupPanel {
     anchor_rect: RwSignal<Rect>,
     anchor: PopupAnchor,
     min_width: f32,
+    max_width: Option<f32>,
     max_height: f32,
     on_close: Option<Arc<Mutex<dyn FnMut() + Send>>>,
     classes: Vec<String>,
@@ -34,6 +35,7 @@ impl PopupPanel {
             anchor_rect: use_signal(Rect::zero()),
             anchor: PopupAnchor::BottomEnd,
             min_width: 180.0,
+            max_width: None,
             max_height: 600.0,
             on_close: None,
             classes: Vec::new(),
@@ -65,6 +67,11 @@ impl PopupPanel {
         self
     }
 
+    pub fn max_width(mut self, width: f32) -> Self {
+        self.max_width = Some(width);
+        self
+    }
+
     pub fn max_height(mut self, height: f32) -> Self {
         self.max_height = height;
         self
@@ -93,12 +100,14 @@ impl Widget for PopupPanel {
             anchor_rect: self.anchor_rect,
             anchor: self.anchor,
             min_width: self.min_width,
+            max_width: self.max_width,
             max_height: self.max_height,
             on_close: self.on_close.clone(),
             child_ids: Vec::new(),
             bounds: Rect::zero(),
             viewport_size: Cell::new(Size::zero()),
             content_size: Cell::new(Size::zero()),
+            placed_rect: Cell::new(Rect::zero()),
             classes: self.classes.clone(),
             dirty_flags: DirtyFlags::LAYOUT | DirtyFlags::RENDER,
             overlay_registered: false,
@@ -134,12 +143,14 @@ struct PopupPanelElement {
     anchor_rect: RwSignal<Rect>,
     anchor: PopupAnchor,
     min_width: f32,
+    max_width: Option<f32>,
     max_height: f32,
     on_close: Option<Arc<Mutex<dyn FnMut() + Send>>>,
     child_ids: Vec<ElementId>,
     bounds: Rect,
     viewport_size: Cell<Size>,
     content_size: Cell<Size>,
+    placed_rect: Cell<Rect>,
     classes: Vec<String>,
     dirty_flags: DirtyFlags,
     overlay_registered: bool,
@@ -172,7 +183,10 @@ impl PopupPanelElement {
         let content = self.content_size.get();
         let ar = self.anchor_rect.get_untracked();
 
-        let width = self.min_width.max(content.width);
+        let width = content
+            .width
+            .max(self.min_width)
+            .min(self.content_width_limit());
         let natural_height = content.height;
         let height = natural_height.min(self.max_height);
 
@@ -205,6 +219,25 @@ impl PopupPanelElement {
 
         Rect::new(Point::new(x, y), Size::new(width, final_height))
     }
+
+    fn content_width_limit(&self) -> f32 {
+        let viewport = self.viewport_size.get();
+        let limit = self.max_width.unwrap_or(self.min_width);
+        if viewport.width > 0.0 {
+            limit.min(viewport.width)
+        } else {
+            limit
+        }
+    }
+
+    fn placed_rect(&self) -> Rect {
+        let placed = self.placed_rect.get();
+        if placed.size.width > 0.0 {
+            placed
+        } else {
+            self.panel_rect()
+        }
+    }
 }
 
 impl Element for PopupPanelElement {
@@ -214,8 +247,10 @@ impl Element for PopupPanelElement {
             self.anchor_rect = p.anchor_rect;
             self.anchor = p.anchor;
             self.min_width = p.min_width;
+            self.max_width = p.max_width;
             self.max_height = p.max_height;
             self.on_close = p.on_close.clone();
+            self.is_open.subscribe_element(self.id);
             self.mark_dirty(DirtyFlags::RENDER | DirtyFlags::LAYOUT);
         }
     }
@@ -237,14 +272,19 @@ impl Element for PopupPanelElement {
 
     fn layout_hint(&self) -> LayoutHint {
         let panel = self.panel_rect();
+        self.placed_rect.set(panel);
         LayoutHint::FloatingWindow {
             x: panel.origin.x,
             y: panel.origin.y,
         }
     }
 
+    fn is_visible(&self) -> bool {
+        self.is_open()
+    }
+
     fn explicit_dimensions(&self, _parent_width: f32, _parent_height: f32) -> (Option<f32>, Option<f32>) {
-        (Some(self.min_width), Some(self.max_height))
+        (Some(self.content_width_limit()), Some(self.max_height))
     }
 
     fn set_content_size(&mut self, size: Size) {
@@ -267,7 +307,7 @@ impl Element for PopupPanelElement {
         let border_color = self.mss.border_color.unwrap_or(Color::from_hex("#E5E7EB"));
         let radii = self.border_radius();
 
-        let panel = self.panel_rect();
+        let panel = self.placed_rect();
 
         list.push_shadow(
             panel,
@@ -312,7 +352,7 @@ impl Element for PopupPanelElement {
             return EventResult::Ignored;
         }
 
-        let panel = self.panel_rect();
+        let panel = self.placed_rect();
 
         match event {
             Event::MouseDown { button, position } => {
@@ -351,7 +391,9 @@ impl Element for PopupPanelElement {
     fn id(&self) -> ElementId { self.id }
     fn set_id(&mut self, id: ElementId) { self.id = id; }
 
-    fn mount(&mut self, _tree: &mut ElementTree) {}
+    fn mount(&mut self, _tree: &mut ElementTree) {
+        self.is_open.subscribe_element(self.id);
+    }
 
     fn set_classes(&mut self, classes: Vec<String>) {
         self.classes = classes;

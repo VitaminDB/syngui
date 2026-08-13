@@ -14,7 +14,12 @@ fn overlay() -> Column {
 }
 
 #[test]
-fn stack_expand_stretches_children() {
+fn stack_fit_behaviour() {
+    expand_stretches_children();
+    loose_keeps_children_intrinsic();
+}
+
+fn expand_stretches_children() {
     let widget = Stack::new().fit(StackFit::Expand).child(overlay());
 
     let mut harness = TestHarness::new(Box::new(widget));
@@ -36,8 +41,7 @@ fn stack_expand_stretches_children() {
     );
 }
 
-#[test]
-fn stack_loose_keeps_children_intrinsic() {
+fn loose_keeps_children_intrinsic() {
     let widget = Stack::new().child(overlay());
 
     let mut harness = TestHarness::new(Box::new(widget));
