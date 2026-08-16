@@ -157,6 +157,14 @@ default = ["msdf", "effects", "clipboard", "winit", "wayland-dnd"]
 # Windowing (winit-based window and app modules)
 winit = ["dep:winit"]
 
+# Системное оформление (light/dark + акцент DE) через XDG-портал. Без фичи
+# остаётся fallback по конфигам DE (kdeglobals/gsettings) — без слежения в
+# реальном времени, только опрос.
+system-theme = ["dep:zbus"]
+
+# Размытие фона за прозрачным окном средствами композитора (KWin).
+system-blur = ["winit", "dep:wayland-protocols-plasma", "dep:wayland-scanner", "dep:x11rb", "dep:wayland-client", "dep:wayland-backend"]
+
 # Text rendering
 msdf = []
 color-emoji = ["image"]
@@ -301,6 +309,16 @@ interprocess = { version = "2", optional = true }
 # с той, что тянет libappindicator 0.9.
 [target.'cfg(all(target_os = "linux", not(target_arch = "wasm32")))'.dependencies]
 gtk = { version = "0.18", optional = true }
+# XDG Desktop Portal (`org.freedesktop.appearance`) под feature `system-theme`.
+# Блокирующий API: слежение живёт в отдельном потоке, async-рантайм не нужен.
+zbus = { version = "5", optional = true }
+# KWin blur/contrast (feature `system-blur`): Wayland-протоколы Plasma и
+# X11-свойство `_KDE_NET_WM_BLUR_BEHIND_REGION`.
+wayland-protocols-plasma = { version = "0.3", optional = true, features = ["client"] }
+# ext-background-effect-v1 (KWin 6.7+) в wayland-protocols ещё не завезли —
+# биндинг генерируем из XML в `protocols/` макросом wayland-scanner.
+wayland-scanner = { version = "0.31", optional = true }
+x11rb = { version = "0.13", optional = true }
 
 [target.'cfg(target_os = "android")'.dependencies]
 android-activity = { version = "0.6", features = ["game-activity"] }

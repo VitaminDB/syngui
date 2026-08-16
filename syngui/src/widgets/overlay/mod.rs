@@ -8,6 +8,7 @@ pub mod portal;
 pub mod popup_panel;
 pub mod window_drag_region;
 pub mod window_control;
+pub mod system_window_controls;
 
 pub use dialog::{Dialog, AlertDialog, ConfirmDialog, DialogAction, set_dialog_labels};
 pub use floating_window::FloatingWindow;
@@ -19,3 +20,4 @@ pub use portal::{Portal, PortalAnchor};
 pub use popup_panel::PopupPanel;
 pub use window_drag_region::WindowDragRegion;
 pub use window_control::{WindowControl, WindowControlAction};
+pub use system_window_controls::{ControlsSide, SystemWindowControls};

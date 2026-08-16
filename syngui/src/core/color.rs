@@ -122,4 +122,39 @@ impl Color {
             self.a,
         )
     }
+
+    /// sRGB-компоненты в диапазоне 0..1 (так их отдаёт XDG-портал
+    /// `org.freedesktop.appearance/accent-color`) → линейный `Color`.
+    pub fn from_srgb_f32(r: f32, g: f32, b: f32) -> Self {
+        Self::new(
+            srgb_to_linear(r.clamp(0.0, 1.0)),
+            srgb_to_linear(g.clamp(0.0, 1.0)),
+            srgb_to_linear(b.clamp(0.0, 1.0)),
+            1.0,
+        )
+    }
+
+    /// Обратно в sRGB-байты — для сериализации в MSS/hex.
+    pub fn to_srgb_u8(&self) -> [u8; 3] {
+        let f = |c: f32| (linear_to_srgb(c.clamp(0.0, 1.0)) * 255.0).round() as u8;
+        [f(self.r), f(self.g), f(self.b)]
+    }
+
+    /// `#RRGGBB` (альфа отбрасывается — MSS-переменные палитры непрозрачны).
+    pub fn to_hex(&self) -> String {
+        let [r, g, b] = self.to_srgb_u8();
+        format!("#{r:02X}{g:02X}{b:02X}")
+    }
+
+    /// Относительная яркость по WCAG. Компоненты уже линейные, поэтому
+    /// коэффициенты применяются напрямую.
+    pub fn relative_luminance(&self) -> f32 {
+        0.2126 * self.r + 0.7152 * self.g + 0.0722 * self.b
+    }
+
+    /// Чёрный или белый — тот, что контрастнее на этом фоне (порог 0.179 —
+    /// точка равного контраста по WCAG).
+    pub fn readable_on(&self) -> Color {
+        if self.relative_luminance() > 0.179 { Color::BLACK } else { Color::WHITE }
+    }
 }

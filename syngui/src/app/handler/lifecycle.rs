@@ -256,6 +256,12 @@ impl AppHandler {
                     window.clone(),
                 )
             };
+            self.sync_window_state(crate::window::WindowState {
+                maximized,
+                fullscreen,
+                focused,
+            });
+
             let mut flags = 0u8;
             if maximized  { flags |= wf::MAXIMIZED;  }
             if fullscreen { flags |= wf::FULLSCREEN; }
@@ -347,6 +353,9 @@ impl AppHandler {
             crate::signal::set_window(window.clone());
             crate::async_runtime::set_async_window(window.clone());
         }
+
+        self.start_appearance_watcher();
+        self.start_backdrop_effect();
 
         #[cfg(all(feature = "tray", not(target_arch = "wasm32"), not(target_os = "android")))]
         {

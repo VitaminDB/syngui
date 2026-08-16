@@ -125,6 +125,9 @@ impl winit::application::ApplicationHandler<SynGuiUserEvent> for AppHandler {
             winit::event::WindowEvent::Focused(_) => {
                 self.sync_window_flags();
             }
+            winit::event::WindowEvent::ThemeChanged(theme) => {
+                self.handle_theme_changed(theme);
+            }
             winit::event::WindowEvent::ScaleFactorChanged { scale_factor, .. } => {
                 self.scale_factor = scale_factor;
 

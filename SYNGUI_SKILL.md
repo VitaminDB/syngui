@@ -16,6 +16,7 @@
 7. [Анимации](#7-анимации)
 8. [Паттерны и рецепты](#8-паттерны-и-рецепты)
 9. [Android-поддержка](#9-android-поддержка)
+10. [Системное оформление](#10-системное-оформление)
 
 ---
 
@@ -1803,6 +1804,67 @@ build_targets = ["aarch64-linux-android"]
 min_sdk_version = 28
 target_sdk_version = 34
 ```
+
+---
+
+## 10. Системное оформление
+
+Три независимых источника настроек рабочего стола; подробности —
+`docs/14-system-appearance.md`.
+
+### Светлая/тёмная схема и акцент DE
+
+```rust
+use syngui::appearance::read_system_appearance;
+
+let appearance = use_signal(read_system_appearance());   // стартуем сразу в системной схеме
+
+App::new()
+    .with_dynamic_theme(theme_mss)
+    .with_system_appearance(appearance)   // дальше обновляет фреймворк
+    .run(...);
+
+// в эффекте темы
+let system = appearance.get();
+if system.is_dark() { /* тёмная палитра */ }
+if let Some(accent) = system.accent { /* accent.to_hex(), .lighten(), .readable_on() */ }
+```
+
+Источник на Linux — XDG-портал `org.freedesktop.appearance` (feature
+`system-theme`), fallback — `kdeglobals` / `gsettings`; на Windows и macOS —
+winit `ThemeChanged`. `Window::theme()` из winit на Linux бесполезен.
+
+### Кнопки окна в системном виде
+
+```rust
+use syngui::widgets::overlay::SystemWindowControls;
+
+Row::new()
+    .child(SystemWindowControls::left())
+    .child(title)
+    .child(SystemWindowControls::right())
+```
+
+Раскладка — из `kwinrc` / `gsettings`, внешний вид на KDE — из SVG темы
+Aurorae (все состояния кнопки), иначе — встроенный вектор по MSS-цветам.
+
+### Размытие фона (feature `system-blur`)
+
+```rust
+// Область эффекта = «шелл»: отступ под тень и радиус углов, иначе композитор
+// размоет и прозрачную рамку вокруг окна.
+let backdrop = use_signal(syngui::window::BackdropConfig::frosted().with_shell(30.0, 20.0));
+let window_state = use_signal(syngui::window::WindowState::default());
+
+App::new()
+    .transparent(true)
+    .with_backdrop(backdrop)          // переключается на лету
+    .with_window_state(window_state)  // maximized / fullscreen / focused
+    .run(...);
+```
+
+Работает поверх `ext-background-effect-v1` (KWin 6.7+), `org_kde_kwin_blur`
+или X11-свойства `_KDE_NET_WM_BLUR_BEHIND_REGION` — что найдётся.
 
 ---
 
