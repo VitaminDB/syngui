@@ -181,7 +181,7 @@ pub fn render_vertical(
     }
     let radius = [style.corner_radius; 4];
 
-    let track_alpha_base = if fader.hovered || fader.dragging { style.track_color.a * opacity } else { 0.0 };
+    let track_alpha_base = track_alpha(style, fader, opacity);
     if track_alpha_base > 0.001 {
         let track = vertical_track_rect(viewport, style);
         list.push_rect(track, style.track_color.with_alpha(track_alpha_base), radius);
@@ -206,7 +206,7 @@ pub fn render_horizontal(
     }
     let radius = [style.corner_radius; 4];
 
-    let track_alpha_base = if fader.hovered || fader.dragging { style.track_color.a * opacity } else { 0.0 };
+    let track_alpha_base = track_alpha(style, fader, opacity);
     if track_alpha_base > 0.001 {
         let track = horizontal_track_rect(viewport, style);
         list.push_rect(track, style.track_color.with_alpha(track_alpha_base), radius);
@@ -215,6 +215,22 @@ pub fn render_horizontal(
     let thumb = horizontal_thumb_rect(viewport, content_w, scroll_x, style);
     let color = pick_thumb_color(style, fader, opacity);
     list.push_rect(thumb, color, radius);
+}
+
+/// Прозрачность жёлоба.
+///
+/// У overlay-полосы (`Auto`) жёлоб появляется только под курсором — иначе он
+/// висел бы поверх контента без пользы. У постоянной полосы (`Always`) он,
+/// наоборот, нужен всегда: именно жёлоб показывает полный диапазон прокрутки
+/// и делает тонкий thumb заметным. Пустой цвет (alpha 0) выключает жёлоб
+/// в обоих режимах.
+fn track_alpha(style: &ScrollbarStyle, fader: &ScrollbarFader, opacity: f32) -> f32 {
+    let visible = fader.hovered || fader.dragging || style.policy == ScrollbarPolicy::Always;
+    if visible {
+        style.track_color.a * opacity
+    } else {
+        0.0
+    }
 }
 
 fn pick_thumb_color(style: &ScrollbarStyle, fader: &ScrollbarFader, opacity: f32) -> Color {
