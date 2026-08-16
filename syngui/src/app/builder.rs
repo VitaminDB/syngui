@@ -93,6 +93,9 @@ pub struct AppBuilder {
     pub(super) staging_belt: bool,
     pub(super) devtools: bool,
     pub(super) dynamic_theme_mss: Option<RwSignal<String>>,
+    pub(super) system_appearance: Option<RwSignal<crate::appearance::SystemAppearance>>,
+    pub(super) backdrop: Option<RwSignal<crate::window::BackdropConfig>>,
+    pub(super) window_state: Option<RwSignal<crate::window::WindowState>>,
     #[cfg(feature = "splash")]
     pub(super) splash_config: Option<super::splash::SplashConfig>,
     #[cfg(target_os = "android")]
@@ -139,6 +142,9 @@ impl AppBuilder {
             staging_belt: false,
             devtools: false,
             dynamic_theme_mss: None,
+            system_appearance: None,
+            backdrop: None,
+            window_state: None,
             #[cfg(feature = "splash")]
             splash_config: None,
             #[cfg(target_os = "android")]
@@ -261,6 +267,41 @@ impl AppBuilder {
 
     pub fn with_dynamic_theme(mut self, signal: RwSignal<String>) -> Self {
         self.dynamic_theme_mss = Some(signal);
+        self
+    }
+
+    /// Держит сигнал в согласии с системным оформлением рабочего стола:
+    /// светлая/тёмная схема, акцент DE, повышенный контраст, reduced-motion.
+    ///
+    /// Значение выставляется до построения дерева виджетов, поэтому приложение
+    /// стартует уже в системной теме, а дальше обновляется на каждое изменение
+    /// настроек (на Linux — сигнал портала, на Windows/macOS — winit
+    /// `ThemeChanged`). Приложение обычно связывает его с
+    /// [`with_dynamic_theme`](Self::with_dynamic_theme) через свой `create_effect`.
+    pub fn with_system_appearance(
+        mut self,
+        signal: RwSignal<crate::appearance::SystemAppearance>,
+    ) -> Self {
+        self.system_appearance = Some(signal);
+        self
+    }
+
+    /// Просит композитор размывать фон за окном («стекло»), пока сигнал этого
+    /// требует. Работает только у прозрачного окна
+    /// ([`transparent`](Self::transparent)) и там, где такой эффект вообще есть
+    /// — сейчас это KWin (Wayland и X11); в остальных окружениях запрос молча
+    /// игнорируется, окно остаётся просто прозрачным.
+    pub fn with_backdrop(mut self, signal: RwSignal<crate::window::BackdropConfig>) -> Self {
+        self.backdrop = Some(signal);
+        self
+    }
+
+    /// Держит сигнал в согласии с состоянием окна (развёрнуто / во весь экран /
+    /// в фокусе). Приложению это нужно там, где оформление зависит от состояния:
+    /// геометрия «шелла» под размытие, иконка «восстановить» у кнопки окна,
+    /// приглушённые кнопки неактивного окна.
+    pub fn with_window_state(mut self, signal: RwSignal<crate::window::WindowState>) -> Self {
+        self.window_state = Some(signal);
         self
     }
 

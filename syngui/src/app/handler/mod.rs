@@ -1,4 +1,5 @@
 mod android;
+mod appearance;
 mod styling;
 mod windows;
 mod lifecycle;
@@ -117,6 +118,12 @@ pub(super) struct AppHandler {
 
     #[cfg(all(feature = "single-instance", not(target_arch = "wasm32"), not(target_os = "android")))]
     pub(super) single_instance: Option<super::single_instance::SingleInstanceLock>,
+
+    /// Слежение за системным оформлением; жив, пока живо приложение.
+    pub(super) appearance_watcher: Option<crate::appearance::AppearanceWatcher>,
+    /// Последняя применённая пара (настройка фона, размер окна) — фильтр
+    /// повторных запросов к композитору при resize.
+    pub(super) last_backdrop: Option<(crate::window::BackdropConfig, (u32, u32))>,
 
     pub(super) main_window_visible: bool,
 
@@ -242,6 +249,8 @@ impl AppHandler {
             tray: None,
             #[cfg(all(feature = "single-instance", not(target_arch = "wasm32"), not(target_os = "android")))]
             single_instance: None,
+            appearance_watcher: None,
+            last_backdrop: None,
             main_window_visible: true,
             pending_show: false,
             #[cfg(all(feature = "wayland-dnd", target_os = "linux"))]

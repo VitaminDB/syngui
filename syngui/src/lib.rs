@@ -1,5 +1,6 @@
 pub mod a11y;
 pub mod animation;
+pub mod appearance;
 pub mod clipboard;
 #[cfg(feature = "winit")]
 pub mod app;
@@ -55,6 +56,7 @@ pub use window::*;
 pub mod prelude {
     pub use crate::a11y::{AccessibilityInfo, Role, NodeState, NodeProperties, FocusManager};
     pub use crate::animation::{Animation, Easing};
+    pub use crate::appearance::{ColorScheme, SystemAppearance};
     #[cfg(feature = "winit")]
     pub use crate::app::{App, AppBuilder, GpuBackend, GpuPowerPreference};
     pub use crate::core::*;
