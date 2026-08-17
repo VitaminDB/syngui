@@ -1076,6 +1076,11 @@ impl Element for TableViewElement {
             self.columns = tv.columns.clone();
 
             if columns_changed {
+                // Кэш строк собран под прежний набор колонок: значения в нём
+                // лежат по старым индексам, и после смены набора показывали бы
+                // данные не из тех столбцов.
+                self.row_cache.clear();
+                self.cache_range = 0..0;
                 self.column_visibility.resize(self.columns.len(), true);
                 if let Some(ref state) = self.column_visibility_state {
                     if let Ok(g) = state.lock() {
@@ -1123,12 +1128,21 @@ impl Element for TableViewElement {
             self.on_column_resize = tv.on_column_resize.clone();
             self.column_visibility_state = tv.column_visibility_state.clone();
             self.on_column_visibility_change = tv.on_column_visibility_change.clone();
+            let old_visibility = self.column_visibility.clone();
             if let Some(ref state) = self.column_visibility_state {
                 if let Ok(g) = state.lock() {
                     if g.len() == self.columns.len() {
                         self.column_visibility = g.clone();
                     }
                 }
+            }
+            if old_visibility != self.column_visibility {
+                // Скрытая колонка могла не считаться в row_builder — после
+                // её включения кэш содержал бы пустые ячейки до ближайшей
+                // прокрутки.
+                self.row_cache.clear();
+                self.cache_range = 0..0;
+                self.needs_child_rebuild = self.compositional;
             }
             self.selected_rows = tv.selected_rows.clone();
             self.width = tv.width;
@@ -1239,6 +1253,83 @@ impl Element for TableViewElement {
                     if vis_pos >= last_vis_pos { break; }
                     let vb = Rect::new(Point::new(cx - 0.5, row_y), Size::new(1.0, row_h));
                     list.push_rect(vb, border_color.with_alpha(self.grid_alpha), [0.0; 4]);
+                }
+            }
+
+            // Текст обычных ячеек. В дереве виджетов их нет (см.
+            // `build_children`), поэтому рисуем сами — по тем же границам
+            // строк и колонок, что и сетка выше.
+            let cp = self.cell_padding;
+            let cfs = self.cell_font_size;
+            let rp = self.row_padding;
+            let bottom_spacer_count = if self.comp_visible_last < self.row_count() { 1 } else { 0 };
+            for (i, &(row_y, row_h)) in self.row_bounds.iter().enumerate().skip(spacer_offset) {
+                let vis_row = (i - spacer_offset) + self.comp_visible_first;
+                if vis_row >= self.row_count() { break; }
+                if i >= self.row_bounds.len() - bottom_spacer_count { break; }
+                let phys_row = self.physical_row(vis_row);
+                let Some(row_data) = self.get_physical_row(phys_row) else { continue };
+
+                let mut cell_x = self.bounds.x() + rp[0];
+                for phys_col in self.visible_columns() {
+                    let col_w = self.column_widths.get(phys_col).copied().unwrap_or(0.0);
+                    let Some(col) = self.columns.get(phys_col) else { continue };
+                    if col.cell_renderer.is_some() || col.cell_renderer_with_row.is_some() {
+                        cell_x += col_w;
+                        continue;
+                    }
+                    let editing = self
+                        .edit_state
+                        .as_ref()
+                        .map(|e| e.row == phys_row && e.col == phys_col)
+                        .unwrap_or(false);
+                    let buf_text;
+                    let text = if editing {
+                        buf_text = self
+                            .edit_state
+                            .as_ref()
+                            .map(|e| format!("{}|", e.buffer))
+                            .unwrap_or_default();
+                        buf_text.as_str()
+                    } else {
+                        row_data.get(phys_col).map(|s| s.as_str()).unwrap_or("")
+                    };
+                    if !text.is_empty() && col_w > 0.0 {
+                        let avail_w = (col_w - cp * 2.0).max(0.0);
+                        let cell_rect = Rect::new(
+                            Point::new(
+                                cell_x + cp,
+                                row_y + rp[1] + (row_h - rp[1] - rp[3] - cfs) / 2.0,
+                            ),
+                            Size::new(avail_w, cfs + 2.0),
+                        );
+                        // Длинный текст переносится по словам и вылезает за
+                        // строку — подрезаем его по клетке. Оценка ширины
+                        // грубая (точный обмер стоит дороже самой отрисовки),
+                        // лишний clip у пограничных ячеек безвреден, а на
+                        // коротких значениях его нет вовсе — иначе батчинг
+                        // ломался бы на каждой ячейке.
+                        let may_wrap = text.chars().count() as f32 * cfs * 0.55 > avail_w;
+                        if may_wrap {
+                            list.push_clip(Rect::new(
+                                Point::new(cell_x, row_y),
+                                Size::new(col_w, row_h),
+                            ));
+                        }
+                        list.push_text_aligned(
+                            text,
+                            cell_rect,
+                            fg,
+                            cfs,
+                            col.align.to_text_align(),
+                            TextDecoration::None,
+                            400,
+                        );
+                        if may_wrap {
+                            list.pop_clip();
+                        }
+                    }
+                    cell_x += col_w;
                 }
             }
 
@@ -1813,15 +1904,35 @@ impl Element for TableViewElement {
 
     fn build_children(&self) -> Vec<Box<dyn Widget>> {
         if !self.compositional { return Vec::new(); }
+
+        /// Схлопывает подряд идущие «обычные» колонки в одну распорку —
+        /// место под текст, который рисуется мимо дерева виджетов.
+        fn push_gap(
+            row: &mut crate::widgets::containers::Row,
+            px: &mut f32,
+            flex: &mut f32,
+        ) {
+            if *px > 0.0 {
+                let spacer = crate::widgets::containers::DecoratedBox::new()
+                    .style("width", crate::mss::StyleValue::px(*px));
+                row.children.push(Box::new(spacer));
+                *px = 0.0;
+            }
+            if *flex > 0.0 {
+                let spacer = crate::widgets::containers::DecoratedBox::new()
+                    .style("flex-grow", crate::mss::StyleValue::Number(*flex));
+                row.children.push(Box::new(spacer));
+                *flex = 0.0;
+            }
+        }
+
         let count = self.row_count();
         let (virt_first, virt_last) = self.comp_visible_range();
         let mut column = crate::widgets::containers::Column::new()
             .cross_axis_alignment(CrossAxisAlignment::Stretch);
 
         let border_color = self.mss.border_color.unwrap_or(Color::from_hex("#333333"));
-        let text_color = self.mss.color.unwrap_or(Color::from_hex("#334155"));
         let cp = self.cell_padding;
-        let cfs = self.cell_font_size;
         let rp = self.row_padding;
 
         if virt_first > 0 {
@@ -1848,8 +1959,34 @@ impl Element for TableViewElement {
                 .gap(0.0)
                 .cross_axis_alignment(CrossAxisAlignment::Center);
 
+            // Виджеты строятся только для колонок с кастомным рендерером.
+            // Обычные текстовые ячейки рисуются напрямую в display list
+            // (см. `build_display_list`) — при десятках колонок разница
+            // принципиальная: два виджета на строку вместо сотен, которые
+            // пришлось бы пересобирать и переразмечать на каждый
+            // прокрученный ряд.
+            let mut pending_px = 0.0f32;
+            let mut pending_flex = 0.0f32;
+
             for (col_idx, col) in self.columns.iter().enumerate() {
                 if !self.is_col_visible(col_idx) { continue; }
+                let computed_w = self.column_widths.get(col_idx).copied();
+
+                let has_renderer =
+                    col.cell_renderer.is_some() || col.cell_renderer_with_row.is_some();
+                if !has_renderer {
+                    match computed_w {
+                        Some(w) => pending_px += w,
+                        None => match col.width {
+                            ColumnWidth::Flex(flex) => pending_flex += flex,
+                            ColumnWidth::Fixed(w) => pending_px += w.max(col.min_width),
+                        },
+                    }
+                    continue;
+                }
+
+                push_gap(&mut row, &mut pending_px, &mut pending_flex);
+
                 let cell_text = row_data
                     .and_then(|r| r.get(col_idx))
                     .map(|s| s.as_str())
@@ -1861,67 +1998,38 @@ impl Element for TableViewElement {
                     ColumnAlign::Right => CrossAxisAlignment::End,
                 };
 
-                let cell_content: Box<dyn Widget> = if let Some(ref renderer) = col.cell_renderer_with_row {
-                    {
-                        let mut wrapper = crate::widgets::containers::Column::new()
-                            .cross_axis_alignment(cross_align);
+                let cell_content: Box<dyn Widget> = {
+                    let mut wrapper = crate::widgets::containers::Column::new()
+                        .cross_axis_alignment(cross_align);
+                    if let Some(ref renderer) = col.cell_renderer_with_row {
                         let row_slice: &[String] = row_data.map(|v| v.as_slice()).unwrap_or(&[]);
                         wrapper.children.push(renderer(phys_row, row_slice));
-                        Box::new(
-                            crate::widgets::containers::Padding::symmetric(cp, 4.0)
-                                .child(wrapper)
-                        )
-                    }
-                } else if let Some(ref renderer) = col.cell_renderer {
-                    {
-                        let mut wrapper = crate::widgets::containers::Column::new()
-                            .cross_axis_alignment(cross_align);
+                    } else if let Some(ref renderer) = col.cell_renderer {
                         wrapper.children.push(renderer(phys_row, cell_text));
-                        Box::new(
-                            crate::widgets::containers::Padding::symmetric(cp, 4.0)
-                                .child(wrapper)
-                        )
                     }
-                } else {
-                    {
-                        let mut wrapper = crate::widgets::containers::Column::new()
-                            .cross_axis_alignment(cross_align);
-                        wrapper.children.push(Box::new(
-                            crate::widget::Text::new(cell_text).color(text_color).style("font-size", cfs)
-                        ));
-                        Box::new(
-                            crate::widgets::containers::Padding::symmetric(cp, 4.0)
-                                .child(wrapper)
-                        )
-                    }
+                    Box::new(
+                        crate::widgets::containers::Padding::symmetric(cp, 4.0)
+                            .child(wrapper)
+                    )
                 };
 
-                let computed_w = self.column_widths.get(col_idx).copied();
-                if let Some(w) = computed_w {
-                    let mut cell = crate::widgets::containers::DecoratedBox::new();
-                    cell.clip = true;
-                    cell.child = Some(cell_content);
-                    let cell = cell.style("width", crate::mss::StyleValue::px(w));
-                    row.children.push(Box::new(cell));
-                } else {
-                    match col.width {
+                let mut cell = crate::widgets::containers::DecoratedBox::new();
+                cell.clip = true;
+                cell.child = Some(cell_content);
+                let cell = match computed_w {
+                    Some(w) => cell.style("width", crate::mss::StyleValue::px(w)),
+                    None => match col.width {
                         ColumnWidth::Flex(flex) => {
-                            let mut cell = crate::widgets::containers::DecoratedBox::new();
-                            cell.clip = true;
-                            cell.child = Some(cell_content);
-                            let cell = cell.style("flex-grow", crate::mss::StyleValue::Number(flex));
-                            row.children.push(Box::new(cell));
+                            cell.style("flex-grow", crate::mss::StyleValue::Number(flex))
                         }
                         ColumnWidth::Fixed(w) => {
-                            let mut cell = crate::widgets::containers::DecoratedBox::new();
-                            cell.clip = true;
-                            cell.child = Some(cell_content);
-                            let cell = cell.style("width", crate::mss::StyleValue::px(w.max(col.min_width)));
-                            row.children.push(Box::new(cell));
+                            cell.style("width", crate::mss::StyleValue::px(w.max(col.min_width)))
                         }
-                    }
-                }
+                    },
+                };
+                row.children.push(Box::new(cell));
             }
+            push_gap(&mut row, &mut pending_px, &mut pending_flex);
 
             let row_widget: Box<dyn Widget> = if rp[0] > 0.0 || rp[1] > 0.0 || rp[2] > 0.0 || rp[3] > 0.0 {
                 Box::new(
