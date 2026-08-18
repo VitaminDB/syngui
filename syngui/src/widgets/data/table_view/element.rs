@@ -127,6 +127,8 @@ impl Widget for TableView {
             edit_state: None,
             on_cell_select: self.on_cell_select.clone(),
             on_cell_edit: self.on_cell_edit.clone(),
+            on_row_double_click: self.on_row_double_click.clone(),
+            on_cell_double_click: self.on_cell_double_click.clone(),
             grid_alpha: 0.4,
             sort_warned_virtual: false,
         };
@@ -211,6 +213,8 @@ pub struct TableViewElement {
     edit_state: Option<CellEditState>,
     on_cell_select: Option<Arc<Mutex<dyn FnMut(usize, usize) + Send>>>,
     on_cell_edit: Option<Arc<Mutex<dyn FnMut(usize, usize, String, String) + Send>>>,
+    on_row_double_click: Option<Arc<Mutex<dyn FnMut(usize) + Send>>>,
+    on_cell_double_click: Option<Arc<Mutex<dyn FnMut(usize, usize) + Send>>>,
     grid_alpha: f32,
     sort_warned_virtual: bool,
 }
@@ -1125,6 +1129,10 @@ impl Element for TableViewElement {
             self.buffer_size = tv.buffer_size;
             self.on_sort = tv.on_sort.clone();
             self.on_row_click = tv.on_row_click.clone();
+            self.on_cell_select = tv.on_cell_select.clone();
+            self.on_cell_edit = tv.on_cell_edit.clone();
+            self.on_row_double_click = tv.on_row_double_click.clone();
+            self.on_cell_double_click = tv.on_cell_double_click.clone();
             self.on_column_resize = tv.on_column_resize.clone();
             self.column_visibility_state = tv.column_visibility_state.clone();
             self.on_column_visibility_change = tv.on_column_visibility_change.clone();
@@ -1791,14 +1799,22 @@ impl Element for TableViewElement {
                 }
                 EventResult::Handled
             }
-            Event::DoubleClick { button, position } if *button == MouseButton::Left && self.editable => {
+            Event::DoubleClick { button, position } if *button == MouseButton::Left => {
                 if self.bounds.contains(*position) {
                     if let (Some(row), Some(col)) =
                         (self.row_at_y(position.y), self.col_at_x(position.x))
                     {
                         self.focused = true;
                         self.cursor_cell = Some((row, col));
-                        self.begin_edit(row, col);
+                        if let Some(ref cb) = self.on_cell_double_click {
+                            if let Ok(mut f) = cb.lock() { f(row, col); }
+                        }
+                        if let Some(ref cb) = self.on_row_double_click {
+                            if let Ok(mut f) = cb.lock() { f(row); }
+                        }
+                        if self.editable {
+                            self.begin_edit(row, col);
+                        }
                         ctx.request_paint();
                         return EventResult::Handled;
                     }
@@ -2183,5 +2199,111 @@ impl StyledElement for TableViewElement {
     fn set_classes(&mut self, classes: Vec<String>) {
         self.classes = classes;
         self.mark_dirty(DirtyFlags::RENDER);
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::super::{TableColumn, TableView};
+    use crate::core::Point;
+    use crate::input::{Event, MouseButton};
+    use crate::testing::TestHarness;
+    use std::sync::{Arc, Mutex};
+
+    fn sample_table() -> TableView {
+        TableView::new(
+            vec![TableColumn::new("A"), TableColumn::new("B")],
+            vec![
+                vec!["a1".to_string(), "b1".to_string()],
+                vec!["a2".to_string(), "b2".to_string()],
+            ],
+        )
+        .row_height(20.0)
+        .header_height(20.0)
+    }
+
+    #[test]
+    fn double_click_fires_row_callback() {
+        let hits = Arc::new(Mutex::new(Vec::<usize>::new()));
+        let sink = hits.clone();
+        let table = sample_table().on_row_double_click(move |row| {
+            sink.lock().unwrap().push(row);
+        });
+
+        let mut h = TestHarness::new(Box::new(table));
+        h.layout(400.0, 200.0);
+        let pos = Point::new(50.0, 50.0);
+        h.send_event(&Event::MouseDown { button: MouseButton::Left, position: pos });
+        h.send_event(&Event::DoubleClick { button: MouseButton::Left, position: pos });
+
+        assert_eq!(*hits.lock().unwrap(), vec![1]);
+    }
+
+    #[test]
+    fn double_click_fires_cell_callback_with_column() {
+        let hits = Arc::new(Mutex::new(Vec::<(usize, usize)>::new()));
+        let sink = hits.clone();
+        let table = sample_table().on_cell_double_click(move |row, col| {
+            sink.lock().unwrap().push((row, col));
+        });
+
+        let mut h = TestHarness::new(Box::new(table));
+        h.layout(400.0, 200.0);
+        let pos = Point::new(300.0, 30.0);
+        h.send_event(&Event::MouseDown { button: MouseButton::Left, position: pos });
+        h.send_event(&Event::DoubleClick { button: MouseButton::Left, position: pos });
+
+        assert_eq!(*hits.lock().unwrap(), vec![(0, 1)]);
+    }
+
+    #[test]
+    fn double_click_reaches_table_with_custom_cell_widgets() {
+        let hits = Arc::new(Mutex::new(Vec::<usize>::new()));
+        let sink = hits.clone();
+        let columns = vec![
+            TableColumn::new("A").cell_renderer(|_, text| {
+                Box::new(crate::widgets::Text::new(text)) as Box<dyn crate::widget::Widget>
+            }),
+            TableColumn::new("B"),
+        ];
+        let table = TableView::new(
+            columns,
+            vec![
+                vec!["a1".to_string(), "b1".to_string()],
+                vec!["a2".to_string(), "b2".to_string()],
+            ],
+        )
+        .row_height(20.0)
+        .header_height(20.0)
+        .on_row_double_click(move |row| {
+            sink.lock().unwrap().push(row);
+        });
+
+        let mut h = TestHarness::new(Box::new(table));
+        h.layout(400.0, 200.0);
+        h.rebuild();
+        h.layout(400.0, 200.0);
+        let pos = Point::new(50.0, 30.0);
+        h.send_event(&Event::MouseDown { button: MouseButton::Left, position: pos });
+        h.send_event(&Event::DoubleClick { button: MouseButton::Left, position: pos });
+
+        assert_eq!(*hits.lock().unwrap(), vec![0]);
+    }
+
+    #[test]
+    fn double_click_on_header_does_not_fire_row_callback() {
+        let hits = Arc::new(Mutex::new(Vec::<usize>::new()));
+        let sink = hits.clone();
+        let table = sample_table().on_row_double_click(move |row| {
+            sink.lock().unwrap().push(row);
+        });
+
+        let mut h = TestHarness::new(Box::new(table));
+        h.layout(400.0, 200.0);
+        let pos = Point::new(50.0, 10.0);
+        h.send_event(&Event::MouseDown { button: MouseButton::Left, position: pos });
+        h.send_event(&Event::DoubleClick { button: MouseButton::Left, position: pos });
+
+        assert!(hits.lock().unwrap().is_empty());
     }
 }
