@@ -741,26 +741,29 @@ impl TableViewElement {
     fn draw_h_scrollbar(&self, list: &mut DisplayList) {
         let body = self.body_rect();
         let content_w = self.total_columns_width();
-        if content_w <= body.size.width {
+        if content_w <= body.size.width + 0.5 {
             return;
         }
+        // Полосу рисуем всегда, пока контент шире области: иначе не видно,
+        // что таблицу вообще можно прокрутить вбок. Через общий fader она бы
+        // не появилась — он гасит прозрачность до нуля, пока нет наведения.
         let style = self.compose_scrollbar_style();
-        let opacity = crate::widgets::scroll::effective_opacity(&self.scrollbar_fader, &style);
-        if opacity <= 0.0 {
+        let Some((track, thumb)) = self.h_scrollbar_rects() else {
             return;
-        }
-        let mut fader = self.scrollbar_fader;
-        fader.dragging = self.h_scrollbar_dragging;
-        fader.hovered = self.h_scrollbar_hovered || fader.hovered;
-        crate::widgets::scroll::render_horizontal(
-            list,
-            body,
-            content_w,
-            self.scroll_offset_x,
-            &style,
-            &fader,
-            opacity,
-        );
+        };
+        let radius = [style.corner_radius; 4];
+        let base = self
+            .mss
+            .color
+            .or(self.mss.border_color)
+            .unwrap_or(Color::from_hex("#9CA3AF"));
+        list.push_rect(track, base.with_alpha(0.14), radius);
+        let thumb_alpha = if self.h_scrollbar_dragging || self.h_scrollbar_hovered {
+            0.85
+        } else {
+            0.5
+        };
+        list.push_rect(thumb, base.with_alpha(thumb_alpha), radius);
     }
 
     fn check_comp_rebuild(&mut self) {
@@ -1984,11 +1987,18 @@ impl Element for TableViewElement {
                 let body = self.body_rect();
                 if position.y < body.y() { return EventResult::Ignored; }
 
-                // Горизонтальная прокрутка: собственная дельта тачпада/колеса
-                // либо вертикальная дельта с зажатым Shift.
+                // Горизонтальная прокрутка: собственная дельта тачпада/колеса,
+                // либо вертикальная дельта с зажатым Shift (обычная мышь).
                 let max_x = self.max_scroll_x();
-                if max_x > 0.0 && delta_x.abs() > 0.01 {
-                    let new_x = (self.scroll_offset_x - delta_x).clamp(0.0, max_x);
+                let h_delta = if delta_x.abs() > 0.01 {
+                    *delta_x
+                } else if ctx.modifiers.shift {
+                    *delta
+                } else {
+                    0.0
+                };
+                if max_x > 0.0 && h_delta.abs() > 0.01 {
+                    let new_x = (self.scroll_offset_x - h_delta).clamp(0.0, max_x);
                     if (new_x - self.scroll_offset_x).abs() > 0.01 {
                         self.scroll_offset_x = new_x;
                         self.scrollbar_fader.flash();
