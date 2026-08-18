@@ -28,6 +28,9 @@ pub struct Button {
     pub disabled: bool,
     pub on_click: Option<Arc<Mutex<dyn FnMut() + Send>>>,
     pub on_click_at: Option<Arc<Mutex<dyn FnMut(Point) + Send>>>,
+    /// Клик с прямоугольником самой кнопки — чтобы выпадающие панели можно
+    /// было привязать к ней, а не к позиции курсора.
+    pub on_click_bounds: Option<Arc<Mutex<dyn FnMut(Rect) + Send>>>,
     pub active_index: Option<(RwSignal<usize>, usize)>,
     pub icon: Option<String>,
     pub icon_position: IconPosition,
@@ -41,6 +44,7 @@ impl Button {
             disabled: false,
             on_click: None,
             on_click_at: None,
+            on_click_bounds: None,
             active_index: None,
             icon: None,
             icon_position: IconPosition::Leading,
@@ -94,6 +98,12 @@ impl Button {
         self
     }
 
+    /// Обработчик клика, получающий прямоугольник кнопки в координатах окна.
+    pub fn on_click_with_bounds(mut self, callback: impl FnMut(Rect) + Send + 'static) -> Self {
+        self.on_click_bounds = Some(Arc::new(Mutex::new(callback)));
+        self
+    }
+
     pub fn class(mut self, name: &str) -> Self {
         for c in name.split_whitespace() {
             let s = c.to_string();
@@ -113,6 +123,7 @@ impl Widget for Button {
             disabled: self.disabled,
             on_click: self.on_click.clone(),
             on_click_at: self.on_click_at.clone(),
+            on_click_bounds: self.on_click_bounds.clone(),
             active_index: self.active_index,
             icon: self.icon.clone(),
             icon_position: self.icon_position,
@@ -150,6 +161,7 @@ pub struct ButtonElement {
     disabled: bool,
     on_click: Option<Arc<Mutex<dyn FnMut() + Send>>>,
     on_click_at: Option<Arc<Mutex<dyn FnMut(Point) + Send>>>,
+    on_click_bounds: Option<Arc<Mutex<dyn FnMut(Rect) + Send>>>,
     active_index: Option<(RwSignal<usize>, usize)>,
     icon: Option<String>,
     icon_position: IconPosition,
@@ -218,6 +230,7 @@ impl Element for ButtonElement {
             self.disabled = btn.disabled;
             self.on_click = btn.on_click.clone();
             self.on_click_at = btn.on_click_at.clone();
+            self.on_click_bounds = btn.on_click_bounds.clone();
             self.active_index = btn.active_index;
             self.icon = btn.icon.clone();
             self.icon_position = btn.icon_position;
@@ -488,6 +501,11 @@ impl Element for ButtonElement {
                             f(*position);
                         }
                     }
+                    if let Some(ref cb) = self.on_click_bounds {
+                        if let Ok(mut f) = cb.lock() {
+                            f(self.bounds);
+                        }
+                    }
                 }
                 ctx.request_paint();
                 EventResult::Handled
@@ -508,6 +526,11 @@ impl Element for ButtonElement {
                 if let Some(ref cb) = self.on_click {
                     if let Ok(mut f) = cb.lock() {
                         f();
+                    }
+                }
+                if let Some(ref cb) = self.on_click_bounds {
+                    if let Ok(mut f) = cb.lock() {
+                        f(self.bounds);
                     }
                 }
                 if let Some(ref cb) = self.on_click_at {
