@@ -287,41 +287,9 @@ mod tests {
         }
     }
 
-    #[test]
-    fn test_parse_volna_full_styles() {
-        let input = concat!(
-            include_str!("../../../../app/volna_plus/styles/base/variables.mss"),
-            "\n",
-            include_str!("../../../../app/volna_plus/styles/components/sidebar.mss"),
-            "\n",
-            include_str!("../../../../app/volna_plus/styles/components/top_app_bar.mss"),
-            "\n",
-            include_str!("../../../../app/volna_plus/styles/components/search_field.mss"),
-            "\n",
-            include_str!("../../../../app/volna_plus/styles/components/footer.mss"),
-            "\n",
-            include_str!("../../../../app/volna_plus/styles/components/table.mss"),
-            "\n",
-            include_str!("../../../../app/volna_plus/styles/components/dropdown.mss"),
-            "\n",
-            include_str!("../../../../app/volna_plus/styles/components/device_info.mss"),
-            "\n",
-            include_str!("../../../../app/volna_plus/styles/pages/common.mss"),
-            "\n",
-            include_str!("../../../../app/volna_plus/styles/pages/settings.mss"),
-            "\n",
-            include_str!("../../../../app/volna_plus/styles/pages/configurator.mss"),
-            "\n",
-            include_str!("../../../../app/volna_plus/styles/pages/configurator_style1.mss"),
-        );
-        let mut parser = MssParser::new(input);
-        match parser.parse() {
-            Ok((sheet, _warnings)) => {
-                assert!(sheet.rules().len() > 10);
-            }
-            Err(e) => panic!("Failed to parse full volna styles: {:?}", e),
-        }
-    }
+    // test_parse_volna_full_styles удалён: include_str! ссылался на
+    // app/volna_plus, которого больше нет в репозитории — тестовый таргет
+    // библиотеки не собирался целиком.
 
     #[test]
     fn test_parse_volna_configurator_style1() {
