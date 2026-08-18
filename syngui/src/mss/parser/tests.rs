@@ -693,6 +693,65 @@ mod tests {
     }
 
     #[test]
+    fn border_side_shorthand_expands_to_longhands() {
+        let d = decl("border-bottom: 1px solid #ff0000;");
+        assert!(!d.contains_key("border-bottom"), "raw `border-bottom` should be gone");
+        assert_eq!(px(&d, "border-bottom-width"), 1.0);
+        match d.get("border-bottom-style").unwrap() {
+            StyleValue::String(s) => assert_eq!(s, "solid"),
+            other => panic!("border-bottom-style: {:?}", other),
+        }
+        match d.get("border-bottom-color").unwrap() {
+            StyleValue::Color(c) => assert_eq!((c.r, c.g, c.b), (0xff, 0x00, 0x00)),
+            other => panic!("border-bottom-color: {:?}", other),
+        }
+        assert!(!d.contains_key("border-top-width"));
+        assert!(!d.contains_key("border-left-width"));
+        assert!(!d.contains_key("border-right-width"));
+    }
+
+    #[test]
+    fn border_side_shorthand_accepts_var_color_and_any_token_order() {
+        let d = decl("border-top: solid 2px var(--border);");
+        assert_eq!(px(&d, "border-top-width"), 2.0);
+        match d.get("border-top-color").unwrap() {
+            StyleValue::Var(name) => assert_eq!(name, "--border"),
+            other => panic!("border-top-color: {:?}", other),
+        }
+    }
+
+    #[test]
+    fn border_side_shorthand_none_zeroes_width() {
+        let d = decl("border-left: none;");
+        assert!(!d.contains_key("border-left"));
+        assert_eq!(px(&d, "border-left-width"), 0.0);
+    }
+
+    #[test]
+    fn border_side_shorthand_without_width_defaults_to_1px() {
+        let d = decl("border-right: solid #000000;");
+        assert_eq!(px(&d, "border-right-width"), 1.0);
+    }
+
+    #[test]
+    fn border_none_zeroes_all_sides() {
+        let d = decl("border: none;");
+        assert!(!d.contains_key("border"));
+        for side in ["border-top-width", "border-right-width", "border-bottom-width", "border-left-width"] {
+            assert_eq!(px(&d, side), 0.0, "{side}");
+        }
+    }
+
+    #[test]
+    fn border_shorthand_keeps_style_keyword() {
+        let d = decl("border: 2px dashed #00ff00;");
+        match d.get("border-style").unwrap() {
+            StyleValue::String(s) => assert_eq!(s, "dashed"),
+            other => panic!("border-style: {:?}", other),
+        }
+    }
+
+    #[test]
     fn border_radius_shorthand_2_values_to_four_corners() {
         let d = decl("border-radius: 10px 5px;");
         assert!(!d.contains_key("border-radius"));

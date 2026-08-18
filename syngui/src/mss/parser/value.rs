@@ -194,72 +194,125 @@ pub(super) fn parse_value(cursor: &mut ParserCursor) -> Result<StyleValue, super
     Ok(StyleValue::String(value_str.to_string()))
 }
 
-pub(super) fn expand_border_shorthand(value: &StyleValue) -> Option<Vec<(String, StyleValue)>> {
+const BORDER_STYLE_KEYWORDS: &[&str] = &[
+    "solid", "dashed", "dotted", "double", "groove", "ridge", "inset", "outset", "none", "hidden",
+];
+
+struct BorderParts {
+    width: Option<StyleValue>,
+    style: Option<StyleValue>,
+    color: Option<StyleValue>,
+}
+
+fn parse_border_parts(value: &StyleValue) -> Option<BorderParts> {
     let s = match value {
-        StyleValue::String(s) => s.as_str(),
+        StyleValue::String(s) => s.clone(),
+        StyleValue::Length(_, _) | StyleValue::Number(_) => {
+            return Some(BorderParts { width: Some(value.clone()), style: None, color: None });
+        }
+        StyleValue::Color(_) | StyleValue::Gradient(_) => {
+            return Some(BorderParts { width: None, style: None, color: Some(value.clone()) });
+        }
         _ => return None,
     };
 
-    let mut tokens: Vec<&str> = Vec::new();
-    let mut depth = 0i32;
-    let mut start = 0usize;
-    let bytes = s.as_bytes();
-    let mut i = 0usize;
-    while i < s.len() {
-        let ch = bytes[i] as char;
-        match ch {
-            '(' => depth += 1,
-            ')' => { if depth > 0 { depth -= 1; } }
-            c if c.is_ascii_whitespace() && depth == 0 => {
-                if i > start {
-                    let tok = s[start..i].trim();
-                    if !tok.is_empty() { tokens.push(tok); }
-                }
-                start = i + 1;
-            }
-            _ => {}
+    let tokens = tokenize_shorthand(&s);
+    if tokens.is_empty() {
+        return None;
+    }
+
+    let mut width: Option<StyleValue> = None;
+    let mut style: Option<StyleValue> = None;
+    let mut color_tokens: Vec<&str> = Vec::new();
+
+    for tok in tokens {
+        let lower = tok.to_ascii_lowercase();
+        if style.is_none() && BORDER_STYLE_KEYWORDS.contains(&lower.as_str()) {
+            style = Some(StyleValue::String(lower));
+            continue;
         }
-        i += 1;
-    }
-    if start < s.len() {
-        let tok = s[start..].trim();
-        if !tok.is_empty() { tokens.push(tok); }
+        if width.is_none() {
+            match parse_token(tok) {
+                Some(v @ StyleValue::Length(_, _)) | Some(v @ StyleValue::Number(_)) => {
+                    width = Some(v);
+                    continue;
+                }
+                _ => {}
+            }
+        }
+        color_tokens.push(tok);
     }
 
-    if tokens.len() < 2 {
+    let color = if color_tokens.is_empty() {
+        None
+    } else {
+        parse_token(&color_tokens.join(" "))
+    };
+
+    if width.is_none() && style.is_none() && color.is_none() {
         return None;
     }
 
-    let width_str = tokens[0];
-    if !width_str.ends_with("px")
-        && width_str.parse::<f32>().is_err()
-    {
+    Some(BorderParts { width, style, color })
+}
+
+fn border_parts_to_declarations(
+    width_prop: &str,
+    style_prop: &str,
+    color_prop: &str,
+    parts: BorderParts,
+) -> Vec<(String, StyleValue)> {
+    let hidden = matches!(
+        parts.style.as_ref(),
+        Some(StyleValue::String(s)) if s == "none" || s == "hidden"
+    );
+
+    let width = if hidden {
+        Some(StyleValue::Length(0.0, Unit::Px))
+    } else if parts.width.is_some() {
+        parts.width.clone()
+    } else {
+        Some(StyleValue::Length(1.0, Unit::Px))
+    };
+
+    let mut out = Vec::new();
+    if let Some(w) = width {
+        out.push((width_prop.to_string(), w));
+    }
+    if let Some(s) = parts.style {
+        out.push((style_prop.to_string(), s));
+    }
+    if let Some(c) = parts.color {
+        out.push((color_prop.to_string(), c));
+    }
+    out
+}
+
+pub(super) fn expand_border_shorthand(value: &StyleValue) -> Option<Vec<(String, StyleValue)>> {
+    let parts = parse_border_parts(value)?;
+    Some(border_parts_to_declarations(
+        "border-width",
+        "border-style",
+        "border-color",
+        parts,
+    ))
+}
+
+pub(super) fn expand_border_side_shorthand(
+    property: &str,
+    value: &StyleValue,
+) -> Option<Vec<(String, StyleValue)>> {
+    let side = property.strip_prefix("border-")?;
+    if !matches!(side, "top" | "right" | "bottom" | "left") {
         return None;
     }
-
-    const STYLE_KEYWORDS: &[&str] = &["solid", "dashed", "dotted", "double", "groove", "ridge", "inset", "outset", "none", "hidden"];
-    let mut color_start = 1usize;
-    if tokens.len() >= 3 && STYLE_KEYWORDS.contains(&tokens[1]) {
-        color_start = 2;
-    } else if tokens.len() == 2 && STYLE_KEYWORDS.contains(&tokens[1]) {
-        return None;
-    }
-
-    let color_str = tokens[color_start..].join(" ");
-    if color_str.is_empty() {
-        return None;
-    }
-
-    let mut width_cursor = ParserCursor::new(width_str);
-    let width_value = parse_value(&mut width_cursor).ok()?;
-
-    let mut color_cursor = ParserCursor::new(&color_str);
-    let color_value = parse_value(&mut color_cursor).ok()?;
-
-    Some(vec![
-        ("border-width".to_string(), width_value),
-        ("border-color".to_string(), color_value),
-    ])
+    let parts = parse_border_parts(value)?;
+    Some(border_parts_to_declarations(
+        &format!("border-{side}-width"),
+        &format!("border-{side}-style"),
+        &format!("border-{side}-color"),
+        parts,
+    ))
 }
 
 fn tokenize_shorthand(s: &str) -> Vec<&str> {
