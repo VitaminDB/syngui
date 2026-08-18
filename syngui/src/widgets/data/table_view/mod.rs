@@ -281,6 +281,8 @@ pub struct TableView {
     pub(super) editable: bool,
     pub(super) on_cell_select: Option<Arc<Mutex<dyn FnMut(usize, usize) + Send>>>,
     pub(super) on_cell_edit: Option<Arc<Mutex<dyn FnMut(usize, usize, String, String) + Send>>>,
+    pub(super) on_row_double_click: Option<Arc<Mutex<dyn FnMut(usize) + Send>>>,
+    pub(super) on_cell_double_click: Option<Arc<Mutex<dyn FnMut(usize, usize) + Send>>>,
 }
 
 impl TableView {
@@ -318,6 +320,8 @@ impl TableView {
             editable: false,
             on_cell_select: None,
             on_cell_edit: None,
+            on_row_double_click: None,
+            on_cell_double_click: None,
         }
     }
 
@@ -362,6 +366,8 @@ impl TableView {
             editable: false,
             on_cell_select: None,
             on_cell_edit: None,
+            on_row_double_click: None,
+            on_cell_double_click: None,
         }
     }
 
@@ -427,6 +433,16 @@ impl TableView {
         callback: impl FnMut(usize, usize, String, String) + Send + 'static,
     ) -> Self {
         self.on_cell_edit = Some(Arc::new(Mutex::new(callback)));
+        self
+    }
+
+    pub fn on_row_double_click(mut self, callback: impl FnMut(usize) + Send + 'static) -> Self {
+        self.on_row_double_click = Some(Arc::new(Mutex::new(callback)));
+        self
+    }
+
+    pub fn on_cell_double_click(mut self, callback: impl FnMut(usize, usize) + Send + 'static) -> Self {
+        self.on_cell_double_click = Some(Arc::new(Mutex::new(callback)));
         self
     }
 
