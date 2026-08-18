@@ -70,6 +70,10 @@ impl Widget for TableView {
                 .map(|s| *s.lock().unwrap())
                 .unwrap_or(0.0),
             scroll_state: self.scroll_state.clone(),
+            scroll_offset_x: 0.0,
+            h_scrollbar_dragging: false,
+            h_scrollbar_drag_offset: 0.0,
+            h_scrollbar_hovered: false,
             velocity: 0.0,
             hovered_row: None,
             hovered_header_col: None,
@@ -160,6 +164,11 @@ pub struct TableViewElement {
     height: Option<Dimension>,
     scroll_offset: f32,
     scroll_state: Option<Arc<Mutex<f32>>>,
+    // Горизонтальная прокрутка — когда сумма ширин колонок шире области.
+    scroll_offset_x: f32,
+    h_scrollbar_dragging: bool,
+    h_scrollbar_drag_offset: f32,
+    h_scrollbar_hovered: bool,
     velocity: f32,
     hovered_row: Option<usize>,
     hovered_header_col: Option<usize>,
@@ -442,7 +451,7 @@ impl TableViewElement {
             return None;
         }
         let visible: Vec<usize> = self.visible_columns().collect();
-        let mut cx = self.bounds.x();
+        let mut cx = self.bounds.x() - self.scroll_offset_x;
         for (vis_pos, phys_i) in visible.iter().copied().enumerate() {
             let w = self.column_widths.get(phys_i).copied().unwrap_or(0.0);
             cx += w;
@@ -694,6 +703,66 @@ impl TableViewElement {
         }
     }
 
+    /// Полная ширина всех видимых колонок (может быть больше области — тогда
+    /// включается горизонтальная прокрутка).
+    fn total_columns_width(&self) -> f32 {
+        self.visible_columns()
+            .map(|i| self.column_widths.get(i).copied().unwrap_or(0.0))
+            .sum()
+    }
+
+    /// Предел горизонтальной прокрутки.
+    fn max_scroll_x(&self) -> f32 {
+        (self.total_columns_width() - self.body_rect().size.width).max(0.0)
+    }
+
+    fn set_scroll_offset_x(&mut self, offset: f32) {
+        self.scroll_offset_x = offset.clamp(0.0, self.max_scroll_x());
+    }
+
+    /// Прямоугольники дорожки и ползунка горизонтальной полосы (если нужна).
+    fn h_scrollbar_rects(&self) -> Option<(Rect, Rect)> {
+        let body = self.body_rect();
+        let content_w = self.total_columns_width();
+        if content_w <= body.size.width {
+            return None;
+        }
+        let style = self.compose_scrollbar_style();
+        let track = crate::widgets::scroll::horizontal_track_rect(body, &style);
+        let thumb = crate::widgets::scroll::horizontal_thumb_rect(
+            body,
+            content_w,
+            self.scroll_offset_x,
+            &style,
+        );
+        Some((track, thumb))
+    }
+
+    fn draw_h_scrollbar(&self, list: &mut DisplayList) {
+        let body = self.body_rect();
+        let content_w = self.total_columns_width();
+        if content_w <= body.size.width {
+            return;
+        }
+        let style = self.compose_scrollbar_style();
+        let opacity = crate::widgets::scroll::effective_opacity(&self.scrollbar_fader, &style);
+        if opacity <= 0.0 {
+            return;
+        }
+        let mut fader = self.scrollbar_fader;
+        fader.dragging = self.h_scrollbar_dragging;
+        fader.hovered = self.h_scrollbar_hovered || fader.hovered;
+        crate::widgets::scroll::render_horizontal(
+            list,
+            body,
+            content_w,
+            self.scroll_offset_x,
+            &style,
+            &fader,
+            opacity,
+        );
+    }
+
     fn check_comp_rebuild(&mut self) {
         if !self.compositional { return; }
         self.ensure_cached_for_viewport();
@@ -767,7 +836,7 @@ impl TableViewElement {
     }
 
     fn col_at_x(&self, x: f32) -> Option<usize> {
-        let mut cx = self.bounds.x();
+        let mut cx = self.bounds.x() - self.scroll_offset_x;
         for phys_i in self.visible_columns() {
             let w = self.column_widths.get(phys_i).copied().unwrap_or(0.0);
             if x >= cx && x < cx + w { return Some(phys_i); }
@@ -893,7 +962,7 @@ impl TableViewElement {
         );
         list.push_rect(hb_rect, border_color, [0.0; 4]);
 
-        let mut cx = self.bounds.x();
+        let mut cx = self.bounds.x() - self.scroll_offset_x;
         let visible: Vec<usize> = self.visible_columns().collect();
         let last_vis_pos = visible.len().saturating_sub(1);
         for (vis_pos, phys_i) in visible.iter().copied().enumerate() {
@@ -1190,6 +1259,12 @@ impl Element for TableViewElement {
         if self.compositional && self.column_widths != old_widths {
             self.needs_child_rebuild = true;
         }
+        // Не даём горизонтальной прокрутке выйти за предел при изменении
+        // размеров окна или скрытии колонок.
+        let max_x = self.max_scroll_x();
+        if self.scroll_offset_x > max_x {
+            self.scroll_offset_x = max_x;
+        }
         self.ensure_cached_for_viewport();
         Size::new(w, h)
     }
@@ -1253,7 +1328,7 @@ impl Element for TableViewElement {
                 list.push_rect(hb, border_color.with_alpha(self.grid_alpha), [0.0; 4]);
 
                 let visible: Vec<usize> = self.visible_columns().collect();
-                let mut cx = self.bounds.x();
+                let mut cx = self.bounds.x() - self.scroll_offset_x;
                 let last_vis_pos = visible.len().saturating_sub(1);
                 for (vis_pos, phys_j) in visible.iter().copied().enumerate() {
                     let w = self.column_widths.get(phys_j).copied().unwrap_or(0.0);
@@ -1278,7 +1353,7 @@ impl Element for TableViewElement {
                 let phys_row = self.physical_row(vis_row);
                 let Some(row_data) = self.get_physical_row(phys_row) else { continue };
 
-                let mut cell_x = self.bounds.x() + rp[0];
+                let mut cell_x = self.bounds.x() - self.scroll_offset_x + rp[0];
                 for phys_col in self.visible_columns() {
                     let col_w = self.column_widths.get(phys_col).copied().unwrap_or(0.0);
                     let Some(col) = self.columns.get(phys_col) else { continue };
@@ -1346,7 +1421,7 @@ impl Element for TableViewElement {
                 if vis_r >= self.comp_visible_first && vis_r < self.comp_visible_last {
                     let local = vis_r - self.comp_visible_first + spacer_offset;
                     if let Some((row_y, row_h)) = self.row_bounds.get(local).copied() {
-                        let mut cx = self.bounds.x();
+                        let mut cx = self.bounds.x() - self.scroll_offset_x;
                         for phys_j in self.visible_columns() {
                             let w = self.column_widths.get(phys_j).copied().unwrap_or(0.0);
                             if phys_j == c {
@@ -1403,7 +1478,7 @@ impl Element for TableViewElement {
             let rb = Rect::new(Point::new(self.bounds.x(), y + self.row_height - 1.0), Size::new(self.bounds.size.width, 1.0));
             list.push_rect(rb, border_color.with_alpha(self.grid_alpha), [0.0; 4]);
 
-            let mut vx = self.bounds.x();
+            let mut vx = self.bounds.x() - self.scroll_offset_x;
             for (vis_pos, phys_j) in visible_cols.iter().copied().enumerate() {
                 let w = self.column_widths.get(phys_j).copied().unwrap_or(0.0);
                 vx += w;
@@ -1416,7 +1491,7 @@ impl Element for TableViewElement {
             let cfs = self.cell_font_size;
             let rp = self.row_padding;
             if let Some(row_data) = self.get_visible_row(vis_row) {
-                let mut cell_x = self.bounds.x() + rp[0];
+                let mut cell_x = self.bounds.x() - self.scroll_offset_x + rp[0];
                 for phys_col in visible_cols.iter().copied() {
                     let col_w = self.column_widths.get(phys_col).copied().unwrap_or(0.0);
                     let editing = self
@@ -1465,6 +1540,7 @@ impl Element for TableViewElement {
         }
 
         self.draw_scrollbar(list);
+        self.draw_h_scrollbar(list);
         list.pop_clip();
         list.pop_clip();
         list.push_rect_bordered(self.bounds, Color::TRANSPARENT, radii, Border::new(1.0, border_color));
@@ -1482,6 +1558,7 @@ impl Element for TableViewElement {
         list.pop_clip();
         list.push_clip(self.bounds);
         self.draw_scrollbar(list);
+        self.draw_h_scrollbar(list);
         list.pop_clip();
         list.pop_clip();
         list.push_rect_bordered(self.bounds, Color::TRANSPARENT, radii, Border::new(1.0, border_color));
@@ -1550,6 +1627,18 @@ impl Element for TableViewElement {
 
                 if let Some(_col) = self.hit_resize_handle(*pos) {
                     ctx.set_cursor(CursorIcon::ColResize);
+                    return EventResult::Handled;
+                }
+
+                if self.h_scrollbar_dragging {
+                    let body = self.body_rect();
+                    let content_w = self.total_columns_width();
+                    let thumb_w = (body.size.width / content_w * body.size.width).max(20.0);
+                    let max_x = self.max_scroll_x();
+                    let rel = pos.x - body.x() - self.h_scrollbar_drag_offset;
+                    let ratio = rel / (body.size.width - thumb_w).max(1.0);
+                    self.set_scroll_offset_x((ratio * max_x).clamp(0.0, max_x));
+                    ctx.request_paint();
                     return EventResult::Handled;
                 }
 
@@ -1734,6 +1823,27 @@ impl Element for TableViewElement {
                     }
                 }
 
+                if let Some((track, thumb)) = self.h_scrollbar_rects() {
+                    if thumb.contains(*position) {
+                        self.h_scrollbar_dragging = true;
+                        self.h_scrollbar_drag_offset = position.x - thumb.x();
+                        ctx.request_paint();
+                        return EventResult::Handled;
+                    }
+                    if track.contains(*position) {
+                        let body = self.body_rect();
+                        let thumb_w = thumb.size.width;
+                        let max_x = self.max_scroll_x();
+                        let rel = position.x - body.x() - thumb_w / 2.0;
+                        let ratio = rel / (body.size.width - thumb_w).max(1.0);
+                        self.set_scroll_offset_x((ratio * max_x).clamp(0.0, max_x));
+                        self.h_scrollbar_dragging = true;
+                        self.h_scrollbar_drag_offset = thumb_w / 2.0;
+                        ctx.request_paint();
+                        return EventResult::Handled;
+                    }
+                }
+
                 if let Some((track, thumb)) = self.scrollbar_rects() {
                     if thumb.contains(*position) {
                         self.scrollbar_dragging = true;
@@ -1852,12 +1962,31 @@ impl Element for TableViewElement {
                     ctx.request_paint();
                     return EventResult::Handled;
                 }
+                if self.h_scrollbar_dragging {
+                    self.h_scrollbar_dragging = false;
+                    ctx.request_paint();
+                    return EventResult::Handled;
+                }
                 EventResult::Ignored
             }
-            Event::MouseWheel { delta, position, .. } => {
+            Event::MouseWheel { delta, delta_x, position } => {
                 if !self.bounds.contains(*position) { return EventResult::Ignored; }
                 let body = self.body_rect();
                 if position.y < body.y() { return EventResult::Ignored; }
+
+                // Горизонтальная прокрутка: собственная дельта тачпада/колеса
+                // либо вертикальная дельта с зажатым Shift.
+                let max_x = self.max_scroll_x();
+                if max_x > 0.0 && delta_x.abs() > 0.01 {
+                    let new_x = (self.scroll_offset_x - delta_x).clamp(0.0, max_x);
+                    if (new_x - self.scroll_offset_x).abs() > 0.01 {
+                        self.scroll_offset_x = new_x;
+                        self.scrollbar_fader.flash();
+                        ctx.request_paint();
+                        return EventResult::Handled;
+                    }
+                }
+
                 let new_offset = (self.scroll_offset - delta).clamp(0.0, self.max_scroll());
                 if (new_offset - self.scroll_offset).abs() > 0.01 {
                     self.set_scroll_offset(new_offset);
@@ -1885,6 +2014,7 @@ impl Element for TableViewElement {
     fn is_dirty(&self, flags: DirtyFlags) -> bool { self.dirty_flags.contains(flags) }
     fn id(&self) -> ElementId { self.id }
     fn set_id(&mut self, id: ElementId) { self.id = id; }
+    fn as_any_mut(&mut self) -> Option<&mut dyn Any> { Some(self) }
     fn mount(&mut self, _tree: &mut ElementTree) {}
 
     fn layout_hint(&self) -> LayoutHint {
@@ -2205,6 +2335,7 @@ impl StyledElement for TableViewElement {
 #[cfg(test)]
 mod tests {
     use super::super::{TableColumn, TableView};
+    use super::TableViewElement;
     use crate::core::Point;
     use crate::input::{Event, MouseButton};
     use crate::testing::TestHarness;
@@ -2306,4 +2437,41 @@ mod tests {
 
         assert!(hits.lock().unwrap().is_empty());
     }
+    #[test]
+    fn horizontal_wheel_scrolls_wide_table() {
+        // Таблица шире области: три фиксированные колонки по 300px в окне 400px.
+        let table = TableView::new(
+            vec![
+                TableColumn::fixed("A", 300.0),
+                TableColumn::fixed("B", 300.0),
+                TableColumn::fixed("C", 300.0),
+            ],
+            vec![vec!["a".into(), "b".into(), "c".into()]],
+        )
+        .row_height(20.0)
+        .header_height(20.0);
+
+        let mut h = TestHarness::new(Box::new(table));
+        h.layout(400.0, 200.0);
+
+        // Прокрутка вправо (delta_x < 0 сдвигает содержимое влево, offset растёт).
+        h.send_event(&Event::MouseWheel {
+            delta: 0.0,
+            delta_x: -120.0,
+            position: Point::new(200.0, 100.0),
+        });
+
+        // 900px контента в 400px окне → max_scroll_x = 500; сместились на 120.
+        let root = h.root_id;
+        let el = h.tree.get_mut(root).unwrap()
+            .as_any_mut().unwrap()
+            .downcast_ref::<TableViewElement>().unwrap();
+        assert!(
+            el.scroll_offset_x > 0.0,
+            "горизонтальная прокрутка не сработала: {}",
+            el.scroll_offset_x
+        );
+        assert!(el.scroll_offset_x <= el.max_scroll_x() + 0.01);
+    }
+
 }
