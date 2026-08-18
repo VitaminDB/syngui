@@ -469,6 +469,14 @@ impl Element for ButtonElement {
                 if self.hover {
                     ctx.set_cursor(CursorIcon::Pointer);
                 }
+                // Курсор ушёл с кнопки — снимаем и нажатие. Иначе оно залипает,
+                // когда MouseUp перехватил кто-то другой: например открытое по
+                // клику модальное меню, накрывающее весь экран.
+                if !self.hover && self.pressed {
+                    self.pressed = false;
+                    self.start_transition_to_current_state();
+                    ctx.request_paint();
+                }
                 if self.hover != was_hover {
                     self.start_transition_to_current_state();
                     ctx.request_paint();
@@ -596,6 +604,10 @@ impl Element for ButtonElement {
     fn is_dirty(&self, flags: DirtyFlags) -> bool {
         self.dirty_flags.contains(flags)
     }
+    fn as_any_mut(&mut self) -> Option<&mut dyn Any> {
+        Some(self)
+    }
+
     fn id(&self) -> ElementId {
         self.id
     }
@@ -677,5 +689,43 @@ impl StyledElement for ButtonElement {
     fn set_classes(&mut self, classes: Vec<String>) {
         self.classes = classes;
         self.mark_dirty(DirtyFlags::RENDER);
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::Button;
+    use crate::core::Point;
+    use crate::input::{Event, MouseButton};
+    use crate::testing::TestHarness;
+
+    /// Нажатие не должно залипать, если `MouseUp` перехватил кто-то другой —
+    /// например открытое по клику модальное меню поверх всего окна. Уход
+    /// курсора с кнопки снимает и наведение, и нажатие.
+    #[test]
+    fn press_is_released_when_pointer_leaves() {
+        let mut h = TestHarness::new(Box::new(Button::new("Раздел")));
+        h.layout(200.0, 40.0);
+
+        let inside = Point::new(20.0, 20.0);
+        h.send_event(&Event::MouseMove(inside));
+        h.send_event(&Event::MouseDown {
+            button: MouseButton::Left,
+            position: inside,
+        });
+        // MouseUp «съеден» оверлеем — кнопка его не увидит.
+        h.send_event(&Event::MouseMove(Point::new(-1.0, -1.0)));
+
+        let root = h.root_id;
+        let el = h
+            .tree
+            .get_mut(root)
+            .unwrap()
+            .as_any_mut()
+            .unwrap()
+            .downcast_ref::<super::ButtonElement>()
+            .unwrap();
+        assert!(!el.pressed, "нажатие залипло после ухода курсора");
+        assert!(!el.hover, "наведение залипло после ухода курсора");
     }
 }
