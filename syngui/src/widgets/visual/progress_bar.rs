@@ -91,6 +91,12 @@ pub struct ProgressBarElement {
     mss: MssFields,
 }
 
+impl ProgressBarElement {
+    fn percent_font_size(&self) -> f32 {
+        self.mss.font_size.unwrap_or(12.0)
+    }
+}
+
 impl Element for ProgressBarElement {
     fn update(&mut self, widget: &dyn Widget, _ctx: &mut UpdateContext) {
         if let Some(pb) = widget.as_any().downcast_ref::<ProgressBar>() {
@@ -103,7 +109,15 @@ impl Element for ProgressBarElement {
 
     fn layout(&mut self, constraints: Constraints) -> Size {
         let width = self.mss.width.map(|d| d.resolve(constraints.max_width)).unwrap_or(constraints.max_width).min(constraints.max_width);
-        let height = self.mss.height.map(|d| d.resolve(constraints.max_height)).unwrap_or(8.0).min(constraints.max_height);
+        let bar_h = self.mss.height.map(|d| d.resolve(constraints.max_height)).unwrap_or(8.0);
+        // С процентами виджет подрастает до кегля текста — процент рисуется
+        // ВНУТРИ собственных bounds (справа от полосы), а не поверх соседей.
+        let height = if self.show_percentage && !self.indeterminate {
+            bar_h.max(self.percent_font_size() + 2.0)
+        } else {
+            bar_h
+        };
+        let height = height.min(constraints.max_height);
 
         self.bounds = Rect::new(Point::zero(), Size::new(width, height));
         Size::new(width, height)
@@ -114,38 +128,54 @@ impl Element for ProgressBarElement {
         let fill_color = self.mss.accent_color
             .or(self.mss.background_color)
             .unwrap_or_else(|| Color::from_hex("#3B82F6"));
-        let radius = self.bounds.size.height / 2.0;
 
-        list.push_rect(self.bounds, track_color, [radius; 4]);
+        let show_pct = self.show_percentage && !self.indeterminate;
+        let fs = self.percent_font_size();
+        // Зона процента справа: "100%" при данном кегле + зазор до полосы.
+        let pct_zone = if show_pct { (fs * 2.6).ceil() + 6.0 } else { 0.0 };
+
+        let bar_h = self
+            .mss
+            .height
+            .map(|d| d.resolve(self.bounds.size.height))
+            .unwrap_or(8.0)
+            .min(self.bounds.size.height);
+        let bar_rect = Rect::new(
+            Point::new(
+                self.bounds.x(),
+                self.bounds.y() + (self.bounds.size.height - bar_h) / 2.0,
+            ),
+            Size::new((self.bounds.size.width - pct_zone).max(0.0), bar_h),
+        );
+        let radius = bar_h / 2.0;
+
+        list.push_rect(bar_rect, track_color, [radius; 4]);
 
         if self.indeterminate {
-            let strip_width = self.bounds.size.width * 0.3;
-            let x = self.bounds.x() + self.animation_offset * self.bounds.size.width;
+            let strip_width = bar_rect.size.width * 0.3;
+            let x = bar_rect.x() + self.animation_offset * bar_rect.size.width;
             let fill_rect = Rect::new(
-                Point::new(x, self.bounds.y()),
-                Size::new(strip_width, self.bounds.size.height),
+                Point::new(x, bar_rect.y()),
+                Size::new(strip_width, bar_rect.size.height),
             );
             list.push_rect(fill_rect, fill_color, [radius; 4]);
         } else if self.value > 0.0 {
-            let fill_width = self.bounds.size.width * self.value;
+            let fill_width = bar_rect.size.width * self.value;
             let fill_rect = Rect::new(
-                self.bounds.origin,
-                Size::new(fill_width, self.bounds.size.height),
+                bar_rect.origin,
+                Size::new(fill_width, bar_rect.size.height),
             );
             list.push_rect(fill_rect, fill_color, [radius; 4]);
         }
 
-        if self.show_percentage && !self.indeterminate {
+        if show_pct {
             let percentage = format!("{}%", (self.value * 100.0) as i32);
             let text_rect = Rect::new(
-                Point::new(
-                    self.bounds.x() + (self.bounds.size.width - 40.0) / 2.0,
-                    self.bounds.y() - 16.0,
-                ),
-                Size::new(40.0, 14.0),
+                Point::new(self.bounds.x() + self.bounds.size.width - pct_zone + 6.0, self.bounds.y()),
+                Size::new(pct_zone - 6.0, self.bounds.size.height),
             );
             let pct_color = self.mss.color.unwrap_or_else(|| Color::from_hex("#374151"));
-            list.push_text_centered(&percentage, text_rect, pct_color, 12.0);
+            list.push_text_centered(&percentage, text_rect, pct_color, fs);
         }
     }
 
