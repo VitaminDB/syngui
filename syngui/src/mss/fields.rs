@@ -165,6 +165,7 @@ pub struct MssFields {
     pub border_radius: Option<[Dimension; 4]>,
     pub border_width: Option<f32>,
     pub border_widths: Option<[f32; 4]>,
+    pub border_side_colors: [Option<Color>; 4],
 
     pub padding_left: Option<f32>,
     pub padding_right: Option<f32>,
@@ -268,6 +269,7 @@ impl MssFields {
             border_radius: None,
             border_width: None,
             border_widths: None,
+            border_side_colors: [None; 4],
             padding_left: None,
             padding_right: None,
             padding_top: None,
@@ -349,6 +351,7 @@ impl MssFields {
         self.border_radius = None;
         self.border_width = None;
         self.border_widths = None;
+        self.border_side_colors = [None; 4];
         self.padding_left = None;
         self.padding_right = None;
         self.padding_top = None;
@@ -434,10 +437,17 @@ impl MssFields {
         if let Some(dims) = style.border_radius_dimensions() {
             self.border_radius = Some(dims);
         }
-        let bl = style.get("border-left-width").and_then(|v| v.as_px());
-        let bt = style.get("border-top-width").and_then(|v| v.as_px());
-        let br = style.get("border-right-width").and_then(|v| v.as_px());
-        let bb = style.get("border-bottom-width").and_then(|v| v.as_px());
+        let hidden_style = |value: Option<&str>| matches!(value, Some("none") | Some("hidden"));
+        let all_hidden = hidden_style(style.get("border-style").and_then(|v| v.as_string()));
+        let side_width = |width_prop: &str, style_prop: &str| {
+            let w = style.get(width_prop).and_then(|v| v.as_px())?;
+            let off = all_hidden || hidden_style(style.get(style_prop).and_then(|v| v.as_string()));
+            Some(if off { 0.0 } else { w })
+        };
+        let bl = side_width("border-left-width", "border-left-style");
+        let bt = side_width("border-top-width", "border-top-style");
+        let br = side_width("border-right-width", "border-right-style");
+        let bb = side_width("border-bottom-width", "border-bottom-style");
         if bl.is_some() || bt.is_some() || br.is_some() || bb.is_some() {
             self.border_widths = Some([
                 bl.unwrap_or(0.0),
@@ -449,6 +459,19 @@ impl MssFields {
                 if a == b && b == c && c == d {
                     self.border_width = Some(a);
                 }
+            }
+        }
+        for (i, prop) in [
+            "border-left-color",
+            "border-top-color",
+            "border-right-color",
+            "border-bottom-color",
+        ]
+        .iter()
+        .enumerate()
+        {
+            if let Some(c) = style.get(prop).and_then(|v| v.as_color()) {
+                self.border_side_colors[i] = Some(mss_color_to_core(c));
             }
         }
 
@@ -756,6 +779,95 @@ impl MssFields {
 
     pub fn border_width_or(&self, default: f32) -> f32 {
         self.border_width.unwrap_or(default)
+    }
+
+    pub fn resolved_corner_radii(&self, bounds: crate::core::Rect) -> [f32; 4] {
+        let reference = bounds.size.width.min(bounds.size.height);
+        self.border_radius_resolved(reference, 0.0)
+    }
+
+    pub fn paint_background(&self, list: &mut crate::render::DisplayList, bounds: crate::core::Rect) {
+        if bounds.size.width <= 0.0 || bounds.size.height <= 0.0 {
+            return;
+        }
+        let radii = self.resolved_corner_radii(bounds);
+        if let Some(ref gradient) = self.background_gradient {
+            list.push_gradient_rect(bounds, gradient.clone(), radii);
+        } else if let Some(bg) = self.background_color {
+            if bg.a > 0.0 {
+                list.push_rect(bounds, bg, radii);
+            }
+        }
+        if let Some(tint) = self.color_tint {
+            list.push_rect(bounds, tint, radii);
+        }
+    }
+
+    fn resolved_border_sides(&self) -> [Option<(f32, Color)>; 4] {
+        let mut sides = [None; 4];
+        let widths = match self.border_widths {
+            Some(w) => w,
+            None => match (self.border_width, self.border_color.or(self.side_color(0))) {
+                (Some(w), Some(_)) if w > 0.0 => [w; 4],
+                _ => return sides,
+            },
+        };
+        for (i, w) in widths.iter().enumerate() {
+            if *w > 0.0 {
+                if let Some(color) = self.side_color(i) {
+                    sides[i] = Some((*w, color));
+                }
+            }
+        }
+        sides
+    }
+
+    fn side_color(&self, index: usize) -> Option<Color> {
+        self.border_side_colors[index].or(self.border_color)
+    }
+
+    pub fn paint_border(&self, list: &mut crate::render::DisplayList, bounds: crate::core::Rect) {
+        if bounds.size.width <= 0.0 || bounds.size.height <= 0.0 {
+            return;
+        }
+        let sides = self.resolved_border_sides();
+        if sides.iter().all(|s| s.is_none()) {
+            return;
+        }
+        let radii = self.resolved_corner_radii(bounds);
+
+        let uniform = sides.iter().all(|s| s.is_some()) && {
+            let (w0, c0) = sides[0].unwrap();
+            sides.iter().all(|s| s.map(|(w, c)| w == w0 && c == c0).unwrap_or(false))
+        };
+        if uniform {
+            let (w, c) = sides[0].unwrap();
+            let fill = Color::new(c.r, c.g, c.b, 0.0);
+            list.push_rect_bordered(bounds, fill, radii, crate::render::Border::new(w, c));
+            return;
+        }
+
+        let mut groups: Vec<(Color, [f32; 4])> = Vec::new();
+        for (i, side) in sides.iter().enumerate() {
+            if let Some((w, c)) = side {
+                if let Some(g) = groups.iter_mut().find(|(gc, _)| gc == c) {
+                    g.1[i] = *w;
+                } else {
+                    let mut widths = [0.0f32; 4];
+                    widths[i] = *w;
+                    groups.push((*c, widths));
+                }
+            }
+        }
+        for (color, widths) in &groups {
+            list.push_rect_per_side_border(
+                bounds,
+                Color::TRANSPARENT,
+                radii,
+                None,
+                crate::render::PerSideBorder { widths: *widths, color: *color },
+            );
+        }
     }
 
     pub fn border_radius_uniform(&self, reference_size: f32, default: f32) -> f32 {
@@ -1257,6 +1369,58 @@ mod tests {
         f.apply(&style);
         assert_eq!(f.border_widths, Some([2.0, 2.0, 2.0, 2.0]));
         assert_eq!(f.border_width, Some(2.0));
+    }
+
+    #[test]
+    fn test_per_side_border_color_extracted() {
+        let mut style = ComputedStyle::new();
+        style.set(
+            "border-bottom-width",
+            crate::mss::StyleValue::Length(1.0, crate::mss::Unit::Px),
+        );
+        style.set(
+            "border-bottom-color",
+            StyleValue::Color(crate::mss::MssColor::rgb(255, 0, 0)),
+        );
+        let mut f = MssFields::new();
+        f.apply(&style);
+        let c = f.border_side_colors[3].expect("border-bottom-color не извлечён");
+        assert!((c.r - 1.0).abs() < 1e-3);
+        assert!(f.border_side_colors[1].is_none());
+    }
+
+    #[test]
+    fn test_border_style_none_zeroes_side_width() {
+        let mut style = ComputedStyle::new();
+        style.set(
+            "border-bottom-width",
+            crate::mss::StyleValue::Length(3.0, crate::mss::Unit::Px),
+        );
+        style.set(
+            "border-bottom-style",
+            StyleValue::String("none".to_string()),
+        );
+        let mut f = MssFields::new();
+        f.apply(&style);
+        assert_eq!(f.border_widths, Some([0.0, 0.0, 0.0, 0.0]));
+    }
+
+    #[test]
+    fn test_uniform_border_style_none_zeroes_all_sides() {
+        let mut style = ComputedStyle::new();
+        for side in [
+            "border-top-width",
+            "border-right-width",
+            "border-bottom-width",
+            "border-left-width",
+        ] {
+            style.set(side, crate::mss::StyleValue::Length(2.0, crate::mss::Unit::Px));
+        }
+        style.set("border-style", StyleValue::String("none".to_string()));
+        let mut f = MssFields::new();
+        f.apply(&style);
+        assert_eq!(f.border_widths, Some([0.0, 0.0, 0.0, 0.0]));
+        assert_eq!(f.border_width, Some(0.0));
     }
 
     #[test]

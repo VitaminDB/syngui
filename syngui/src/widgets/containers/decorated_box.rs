@@ -676,12 +676,19 @@ impl StyledElement for DecoratedBoxElement {
         self.border_sides = [None; 4];
         let default_bc = self.mss.border_color;
         let mut raw_sides: [Option<(f32, Color)>; 4] = [None; 4];
-        for (i, (width_prop, color_prop)) in [
-            ("border-left-width", "border-left-color"),
-            ("border-top-width", "border-top-color"),
-            ("border-right-width", "border-right-color"),
-            ("border-bottom-width", "border-bottom-color"),
+        let hidden = |prop: &str| {
+            matches!(style.get(prop).and_then(|v| v.as_string()), Some("none") | Some("hidden"))
+        };
+        let all_hidden = hidden("border-style");
+        for (i, (width_prop, color_prop, style_prop)) in [
+            ("border-left-width", "border-left-color", "border-left-style"),
+            ("border-top-width", "border-top-color", "border-top-style"),
+            ("border-right-width", "border-right-color", "border-right-style"),
+            ("border-bottom-width", "border-bottom-color", "border-bottom-style"),
         ].iter().enumerate() {
+            if all_hidden || hidden(style_prop) {
+                continue;
+            }
             if let Some(w) = style.get(width_prop).and_then(|v| v.as_px()) {
                 let color = style.get(color_prop)
                     .and_then(|v| v.as_color())

@@ -13,6 +13,9 @@ fn insert_with_shorthand_expansion(
 ) {
     let expanded = match property.as_str() {
         "border" => expand_border_shorthand(&value),
+        "border-top" | "border-right" | "border-bottom" | "border-left" => {
+            expand_border_side_shorthand(property.as_str(), &value)
+        }
         "padding" => expand_edge_shorthand(
             ["padding-top", "padding-right", "padding-bottom", "padding-left"],
             &value,

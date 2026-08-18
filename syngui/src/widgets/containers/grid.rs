@@ -179,7 +179,12 @@ impl Element for GridElement {
         }
     }
 
-    fn build_display_list(&self, _list: &mut DisplayList, _clip: Rect) {
+    fn build_display_list(&self, list: &mut DisplayList, _clip: Rect) {
+        self.mss.paint_background(list, self.bounds);
+    }
+
+    fn post_build_display_list(&self, list: &mut DisplayList, _clip: Rect) {
+        self.mss.paint_border(list, self.bounds);
     }
 
     fn handle_event(&mut self, _event: &Event, _ctx: &mut crate::widget::context::EventContext) -> EventResult {

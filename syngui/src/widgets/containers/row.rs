@@ -226,7 +226,12 @@ impl Element for RowElement {
         )
     }
 
-    fn build_display_list(&self, _list: &mut DisplayList, _clip: Rect) {
+    fn build_display_list(&self, list: &mut DisplayList, _clip: Rect) {
+        self.mss.paint_background(list, self.bounds);
+    }
+
+    fn post_build_display_list(&self, list: &mut DisplayList, _clip: Rect) {
+        self.mss.paint_border(list, self.bounds);
     }
 
     fn handle_event(&mut self, _event: &Event, _ctx: &mut crate::widget::context::EventContext) -> EventResult {
@@ -311,5 +316,50 @@ impl StyledElement for RowElement {
     fn set_classes(&mut self, classes: Vec<String>) {
         self.classes = classes;
         self.mark_dirty(DirtyFlags::RENDER);
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::Row;
+    use crate::core::Rect;
+    use crate::render::display_list::{DisplayList, DrawCommand};
+    use crate::testing::TestHarness;
+    use crate::widget::{Widget, WidgetExt};
+    use crate::widgets::Text;
+
+    fn commands_for(mss: &str) -> Vec<DrawCommand> {
+        let row = Row::new()
+            .child(Text::new("cell"))
+            .class("bar");
+        let mut h = TestHarness::new(Box::new(row) as Box<dyn Widget>);
+        let engine = h.apply_mss(mss);
+        h.apply_styles(&engine);
+        h.layout(200.0, 40.0);
+        let mut list = DisplayList::new();
+        h.tree.build_display_list(h.root_id, &mut list, Rect::new(crate::core::Point::zero(), crate::core::Size::new(200.0, 40.0)));
+        list.commands()
+    }
+
+    #[test]
+    fn row_paints_mss_background() {
+        let cmds = commands_for(".bar { background: #ff0000; }");
+        let painted = cmds.iter().any(|c| match c {
+            DrawCommand::Rect { color, .. } => color.r > 0.9 && color.a > 0.9,
+            _ => false,
+        });
+        assert!(painted, "Row не нарисовал фон из MSS: {:?}", cmds);
+    }
+
+    #[test]
+    fn row_paints_bottom_border_from_shorthand() {
+        let cmds = commands_for(".bar { border-bottom: 1px solid #00ff00; }");
+        let painted = cmds.iter().any(|c| match c {
+            DrawCommand::Rect { per_side_border: Some(ps), .. } => {
+                ps.widths[3] > 0.0 && ps.widths[0] == 0.0 && ps.widths[1] == 0.0 && ps.widths[2] == 0.0
+            }
+            _ => false,
+        });
+        assert!(painted, "Row не нарисовал border-bottom: {:?}", cmds);
     }
 }
