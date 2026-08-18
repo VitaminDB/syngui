@@ -25,13 +25,13 @@ impl Batcher {
                 self.ensure_batch(ShaderType::Rect, None, *clip_rect);
                 self.add_linear_gradient_rect(*rect, gradient, *corner_radius, border.as_ref(), per_side_border.as_ref());
             }
-            DrawCommand::Text { text, rect, color, font_size, font_weight, text_align, decoration, font_family, letter_spacing, text_shadow, bbox_sample, clip_rect, .. } => {
+            DrawCommand::Text { text, rect, color, font_size, font_weight, text_align, decoration, font_family, letter_spacing, text_shadow, bbox_sample, clip_rect, no_wrap, .. } => {
                 if text.is_empty() {
                     return;
                 }
                 let sf = self.scale_factor;
                 let phys_font_size = ((*font_size * sf) as u16).max(1);
-                let phys_max_width = rect.size.width * sf;
+                let phys_max_width = if *no_wrap { 0.0 } else { rect.size.width * sf };
                 let bold = *font_weight >= 700;
                 let phys_letter_spacing = *letter_spacing * sf;
                 let glyphs = self.shape_text_cached_spacing(font_atlas, text, phys_font_size, phys_max_width, bold, font_family.as_deref(), phys_letter_spacing);

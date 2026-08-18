@@ -988,15 +988,19 @@ impl TableViewElement {
             } else {
                 header_fg
             };
-            list.push_text_aligned(
+            list.push_clip(Rect::new(
+                Point::new(cx, self.bounds.y()),
+                Size::new(w, self.header_height),
+            ));
+            list.push_text_singleline(
                 &col.header,
                 text_rect,
                 cell_fg,
                 h_font_size,
                 col.align.to_text_align(),
-                TextDecoration::None,
                 600,
             );
+            list.pop_clip();
 
             if icon_w > 0.0 {
                 let icon_x = cx + w - h_padding - SORT_ICON_SIZE;
@@ -1399,13 +1403,12 @@ impl Element for TableViewElement {
                                 Size::new(col_w, row_h),
                             ));
                         }
-                        list.push_text_aligned(
+                        list.push_text_singleline(
                             text,
                             cell_rect,
                             fg,
                             cfs,
                             col.align.to_text_align(),
-                            TextDecoration::None,
                             400,
                         );
                         if may_wrap {
@@ -1530,10 +1533,17 @@ impl Element for TableViewElement {
                     };
                     let cell_rect = Rect::new(
                         Point::new(cell_x + cp, y + rp[1] + (self.row_height - rp[1] - rp[3] - cfs) / 2.0),
-                        Size::new(col_w - cp * 2.0, cfs + 2.0),
+                        Size::new((col_w - cp * 2.0).max(0.0), cfs + 2.0),
                     );
                     let align = self.columns.get(phys_col).map(|c| c.align).unwrap_or_default();
-                    list.push_text_aligned(text, cell_rect, fg, cfs, align.to_text_align(), TextDecoration::None, 400);
+                    if !text.is_empty() && col_w > 0.0 {
+                        list.push_clip(Rect::new(
+                            Point::new(cell_x, y),
+                            Size::new(col_w, self.row_height),
+                        ));
+                        list.push_text_singleline(text, cell_rect, fg, cfs, align.to_text_align(), 400);
+                        list.pop_clip();
+                    }
                     cell_x += col_w;
                 }
             }

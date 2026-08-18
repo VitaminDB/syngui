@@ -101,6 +101,7 @@ impl DisplayList {
             bbox_sample: None,
             clip_rect: ClipRect::from_rect(clip),
             z_index: self.current_z,
+            no_wrap: false,
         });
         self.current_z += 1;
     }
@@ -232,6 +233,7 @@ impl DisplayList {
             bbox_sample: None,
             clip_rect: clip,
             z_index: z,
+            no_wrap: false,
         });
         self.current_z += 1;
     }
@@ -253,6 +255,7 @@ impl DisplayList {
             bbox_sample: None,
             clip_rect: clip,
             z_index: z,
+            no_wrap: false,
         });
         self.current_z += 1;
     }
@@ -274,6 +277,32 @@ impl DisplayList {
             bbox_sample: None,
             clip_rect: clip,
             z_index: z,
+            no_wrap: false,
+        });
+        self.current_z += 1;
+    }
+
+    /// Текст без переноса: рисуется одной строкой, лишнее обрезается текущим
+    /// клипом. Для ячеек таблиц, где узкая колонка иначе ломала бы дату на
+    /// несколько строк.
+    pub fn push_text_singleline(&mut self, text: &str, rect: crate::core::Rect, color: Color, font_size: f32, align: TextAlign, font_weight: u16) {
+        let clip = *self.current_clip();
+        let z = self.current_z;
+        self.target().push(DrawCommand::Text {
+            text: CompactString::from(text),
+            rect,
+            color,
+            font_size,
+            font_weight,
+            text_align: align,
+            decoration: TextDecoration::None,
+            font_family: None,
+            letter_spacing: 0.0,
+            text_shadow: None,
+            bbox_sample: None,
+            clip_rect: clip,
+            z_index: z,
+            no_wrap: true,
         });
         self.current_z += 1;
     }
@@ -295,6 +324,7 @@ impl DisplayList {
             bbox_sample: None,
             clip_rect: clip,
             z_index: z,
+            no_wrap: false,
         });
         self.current_z += 1;
     }
@@ -328,6 +358,7 @@ impl DisplayList {
             bbox_sample: None,
             clip_rect: clip,
             z_index: z,
+            no_wrap: false,
         });
         self.current_z += 1;
     }
@@ -361,6 +392,7 @@ impl DisplayList {
             bbox_sample: Some(CompactString::from(bbox_sample)),
             clip_rect: clip,
             z_index: z,
+            no_wrap: false,
         });
         self.current_z += 1;
     }

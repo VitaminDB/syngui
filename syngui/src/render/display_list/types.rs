@@ -47,6 +47,9 @@ pub enum DrawCommand {
         bbox_sample: Option<CompactString>,
         clip_rect: ClipRect,
         z_index: u32,
+        /// Не переносить текст: рисуется одной строкой, лишнее обрезается
+        /// клипом. Нужно для ячеек таблиц и прочих однострочных подписей.
+        no_wrap: bool,
     },
     Image {
         rect: crate::core::Rect,
