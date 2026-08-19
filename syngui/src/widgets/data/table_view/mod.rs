@@ -258,6 +258,8 @@ pub struct TableView {
     pub(super) on_sort: Option<Arc<Mutex<dyn FnMut(usize, SortDirection) + Send>>>,
     pub(super) on_row_click: Option<Arc<Mutex<dyn FnMut(usize) + Send>>>,
     pub(super) selected_rows: Vec<usize>,
+    pub(super) on_selection_change:
+        Option<std::sync::Arc<std::sync::Mutex<dyn FnMut(Vec<usize>) + Send>>>,
     pub(super) width: Option<Dimension>,
     pub(super) height: Option<Dimension>,
     pub(super) custom_header_bg: Option<Color>,
@@ -298,6 +300,7 @@ impl TableView {
             on_sort: None,
             on_row_click: None,
             selected_rows: Vec::new(),
+            on_selection_change: None,
             width: None,
             height: None,
             custom_header_bg: None,
@@ -344,6 +347,7 @@ impl TableView {
             on_sort: None,
             on_row_click: None,
             selected_rows: Vec::new(),
+            on_selection_change: None,
             width: None,
             height: None,
             custom_header_bg: None,
@@ -377,6 +381,18 @@ impl TableView {
     pub fn striped(mut self, s: bool) -> Self { self.striped = s; self }
     pub fn buffer_size(mut self, n: usize) -> Self { self.buffer_size = n; self }
     pub fn selected_rows(mut self, rows: Vec<usize>) -> Self { self.selected_rows = rows; self }
+
+    /// Вызывается, когда меняется набор выделенных строк.
+    ///
+    /// Ctrl добавляет строку к выбору, Shift выбирает промежуток —
+    /// без этого нельзя править группу записей разом.
+    pub fn on_selection_change(
+        mut self,
+        callback: impl FnMut(Vec<usize>) + Send + 'static,
+    ) -> Self {
+        self.on_selection_change = Some(std::sync::Arc::new(std::sync::Mutex::new(callback)));
+        self
+    }
     pub fn width(mut self, w: f32) -> Self { self.width = Some(Dimension::Px(w)); self }
     pub fn height(mut self, h: f32) -> Self { self.height = Some(Dimension::Px(h)); self }
     pub fn scroll_state(mut self, state: Arc<Mutex<f32>>) -> Self { self.scroll_state = Some(state); self }
