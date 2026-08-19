@@ -63,6 +63,7 @@ impl Widget for TableView {
             sorted_indices: None,
             on_sort: self.on_sort.clone(),
             on_row_click: self.on_row_click.clone(),
+            on_selection_change: self.on_selection_change.clone(),
             selected_rows: self.selected_rows.clone(),
             width: self.width,
             height: self.height,
@@ -159,6 +160,8 @@ pub struct TableViewElement {
     sorted_indices: Option<Vec<usize>>,
     on_sort: Option<Arc<Mutex<dyn FnMut(usize, SortDirection) + Send>>>,
     on_row_click: Option<Arc<Mutex<dyn FnMut(usize) + Send>>>,
+    /// Выбор изменился: список выделенных строк целиком.
+    on_selection_change: Option<Arc<Mutex<dyn FnMut(Vec<usize>) + Send>>>,
     selected_rows: Vec<usize>,
     width: Option<Dimension>,
     height: Option<Dimension>,
@@ -1205,6 +1208,7 @@ impl Element for TableViewElement {
             self.buffer_size = tv.buffer_size;
             self.on_sort = tv.on_sort.clone();
             self.on_row_click = tv.on_row_click.clone();
+            self.on_selection_change = tv.on_selection_change.clone();
             self.on_cell_select = tv.on_cell_select.clone();
             self.on_cell_edit = tv.on_cell_edit.clone();
             self.on_row_double_click = tv.on_row_double_click.clone();
@@ -1897,10 +1901,42 @@ impl Element for TableViewElement {
                         }
                     }
                     self.focused = true;
-                    if let Some(pos) = self.selected_rows.iter().position(|&r| r == phys_row) {
-                        self.selected_rows.remove(pos);
+                    // Ctrl добавляет строку к выбору, Shift выбирает
+                    // промежуток от предыдущей — так ведут себя списки
+                    // везде, и без этого нельзя править группу записей.
+                    if ctx.modifiers.ctrl {
+                        if let Some(pos) = self.selected_rows.iter().position(|&r| r == phys_row) {
+                            self.selected_rows.remove(pos);
+                        } else {
+                            self.selected_rows.push(phys_row);
+                        }
+                    } else if ctx.modifiers.shift && !self.selected_rows.is_empty() {
+                        let anchor = *self.selected_rows.last().unwrap();
+                        let (from, to) = if anchor <= phys_row {
+                            (anchor, phys_row)
+                        } else {
+                            (phys_row, anchor)
+                        };
+                        for row in from..=to {
+                            if !self.selected_rows.contains(&row) {
+                                self.selected_rows.push(row);
+                            }
+                        }
+                    } else if let Some(pos) =
+                        self.selected_rows.iter().position(|&r| r == phys_row)
+                    {
+                        if self.selected_rows.len() == 1 {
+                            self.selected_rows.remove(pos);
+                        } else {
+                            self.selected_rows = vec![phys_row];
+                        }
                     } else {
                         self.selected_rows = vec![phys_row];
+                    }
+                    if let Some(ref cb) = self.on_selection_change {
+                        if let Ok(mut f) = cb.lock() {
+                            f(self.selected_rows.clone());
+                        }
                     }
                     if let Some(ref cb) = self.on_row_click {
                         if let Ok(mut f) = cb.lock() { f(phys_row); }
@@ -2371,6 +2407,81 @@ mod tests {
         )
         .row_height(20.0)
         .header_height(20.0)
+    }
+
+    /// Строки таблицы: клик по строке 0 приходится на y=30, по строке 1 — на y=50.
+    fn click(h: &mut TestHarness, row: usize, ctrl: bool, shift: bool) {
+        h.tree.modifiers = crate::input::Modifiers {
+            ctrl,
+            shift,
+            alt: false,
+            meta: false,
+        };
+        let y = 30.0 + row as f32 * 20.0;
+        h.send_event(&Event::MouseDown {
+            button: MouseButton::Left,
+            position: Point::new(50.0, y),
+        });
+    }
+
+    fn three_rows() -> TableView {
+        TableView::new(
+            vec![TableColumn::new("A")],
+            (0..3).map(|n| vec![format!("строка {n}")]).collect(),
+        )
+        .row_height(20.0)
+        .header_height(20.0)
+    }
+
+    #[test]
+    fn plain_click_selects_one_row() {
+        let seen = Arc::new(Mutex::new(Vec::<Vec<usize>>::new()));
+        let sink = seen.clone();
+        let table = three_rows().on_selection_change(move |rows| {
+            sink.lock().unwrap().push(rows);
+        });
+        let mut h = TestHarness::new(Box::new(table));
+        h.layout(400.0, 200.0);
+
+        click(&mut h, 0, false, false);
+        click(&mut h, 2, false, false);
+        // Обычный клик заменяет выбор, а не копит его.
+        assert_eq!(*seen.lock().unwrap(), vec![vec![0], vec![2]]);
+    }
+
+    #[test]
+    fn ctrl_click_adds_and_removes_rows() {
+        let seen = Arc::new(Mutex::new(Vec::<Vec<usize>>::new()));
+        let sink = seen.clone();
+        let table = three_rows().on_selection_change(move |rows| {
+            sink.lock().unwrap().push(rows);
+        });
+        let mut h = TestHarness::new(Box::new(table));
+        h.layout(400.0, 200.0);
+
+        click(&mut h, 0, false, false);
+        click(&mut h, 2, true, false);
+        click(&mut h, 0, true, false);
+        let seen = seen.lock().unwrap();
+        assert_eq!(seen[0], vec![0]);
+        assert_eq!(seen[1], vec![0, 2], "Ctrl должен добавлять строку");
+        assert_eq!(seen[2], vec![2], "повторный Ctrl снимает выбор со строки");
+    }
+
+    #[test]
+    fn shift_click_selects_a_range() {
+        let seen = Arc::new(Mutex::new(Vec::<Vec<usize>>::new()));
+        let sink = seen.clone();
+        let table = three_rows().on_selection_change(move |rows| {
+            sink.lock().unwrap().push(rows);
+        });
+        let mut h = TestHarness::new(Box::new(table));
+        h.layout(400.0, 200.0);
+
+        click(&mut h, 0, false, false);
+        click(&mut h, 2, false, true);
+        let seen = seen.lock().unwrap();
+        assert_eq!(seen[1], vec![0, 1, 2], "Shift должен выбрать промежуток");
     }
 
     #[test]
