@@ -28,6 +28,9 @@ pub struct TextField {
     pub error_text: Option<String>,
     pub input_filter: Option<Arc<dyn Fn(char) -> bool + Send + Sync>>,
     pub on_filter_reject: Option<Arc<Mutex<dyn FnMut(char) + Send>>>,
+    /// Забрать клавиатурный фокус при монтировании — для полей, с которых
+    /// начинается ввод (палитра команд, диалог поиска).
+    pub autofocus: bool,
 }
 
 impl TextField {
@@ -49,6 +52,7 @@ impl TextField {
             error_text: None,
             input_filter: None,
             on_filter_reject: None,
+            autofocus: false,
         }
     }
 
@@ -123,6 +127,12 @@ impl TextField {
         self
     }
 
+    /// Поле забирает клавиатурный фокус сразу при появлении на экране.
+    pub fn autofocus(mut self, on: bool) -> Self {
+        self.autofocus = on;
+        self
+    }
+
     pub fn on_prefix_click(mut self, callback: impl FnMut() + Send + 'static) -> Self {
         self.on_prefix_click = Some(Arc::new(Mutex::new(callback)));
         self
@@ -174,7 +184,9 @@ impl Widget for TextField {
             suffix_width: 0.0,
             bounds: Rect::zero(),
             hover: false,
-            focused: false,
+            focused: self.autofocus,
+            autofocus: self.autofocus,
+            focus_request_pending: self.autofocus,
             cursor_pos: self.text.len(),
             selection: TextSelectionState::new(),
             on_change: self.on_change.clone(),
@@ -225,6 +237,9 @@ pub struct TextFieldElement {
     bounds: Rect,
     hover: bool,
     focused: bool,
+    /// Поле просит фокус при монтировании; заявка забирается деревом один раз.
+    autofocus: bool,
+    focus_request_pending: bool,
     cursor_pos: usize,
     selection: TextSelectionState,
     on_change: Option<Arc<Mutex<dyn FnMut(&str) + Send>>>,
@@ -432,8 +447,17 @@ impl Element for TextFieldElement {
             self.error_text = tf.error_text.clone();
             self.input_filter = tf.input_filter.clone();
             self.on_filter_reject = tf.on_filter_reject.clone();
+            if tf.autofocus && !self.autofocus {
+                self.focus_request_pending = true;
+                self.focused = true;
+            }
+            self.autofocus = tf.autofocus;
             self.mark_dirty(DirtyFlags::LAYOUT | DirtyFlags::RENDER);
         }
+    }
+
+    fn take_focus_request(&mut self) -> bool {
+        std::mem::take(&mut self.focus_request_pending)
     }
 
     fn layout(&mut self, constraints: Constraints) -> Size {
