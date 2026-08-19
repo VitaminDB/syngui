@@ -627,6 +627,11 @@ impl winit::application::ApplicationHandler<SynGuiUserEvent> for AppHandler {
             SynGuiUserEvent::MenuItem(id) => {
                 log::debug!("[syngui] tray menu item: {id}");
             }
+            SynGuiUserEvent::MainThreadWake => {
+                // Очередь run_on_main_thread: дренируем прямо здесь — рендера
+                // (и его дренажа) в фоне может не быть вовсе.
+                crate::async_runtime::poll_main_thread_callbacks();
+            }
             #[cfg(feature = "wayland-dnd")]
             SynGuiUserEvent::WaylandDnd(ev) => {
                 self.handle_wayland_dnd(ev);

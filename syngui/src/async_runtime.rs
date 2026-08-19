@@ -9,6 +9,10 @@ struct MainChannel {
 
 static MAIN_CHANNEL: OnceLock<MainChannel> = OnceLock::new();
 static WINDOW: Mutex<Option<Arc<dyn crate::signal::RedrawNotifier>>> = Mutex::new(None);
+/// Пробудитель event loop'а (EventLoopProxy::send_event). Нужен отдельно от
+/// request_redraw: без живого surface (фон на Android, свёрнутое окно) redraw
+/// не приходит, и очередь колбэков зависала бы до следующего кадра.
+static WAKER: Mutex<Option<Box<dyn Fn() + Send>>> = Mutex::new(None);
 
 fn channel() -> &'static MainChannel {
     MAIN_CHANNEL.get_or_init(|| {
@@ -23,8 +27,23 @@ fn channel() -> &'static MainChannel {
 pub fn run_on_main_thread(f: impl FnOnce() + Send + 'static) {
     let ch = channel();
     let _ = ch.tx.send(Box::new(f));
+    // Сначала будим сам loop (работает и без окна/кадров), затем — redraw,
+    // чтобы изменения сигналов сразу попали в кадр, когда окно живо.
+    if let Ok(guard) = WAKER.lock() {
+        if let Some(wake) = guard.as_ref() {
+            wake();
+        }
+    }
     if let Some(window) = WINDOW.lock().ok().and_then(|g| g.clone()) {
         window.request_redraw();
+    }
+}
+
+/// Установить пробудитель event loop'а для `run_on_main_thread` (обычно
+/// замыкание над `EventLoopProxy::send_event`). Ставится раннером при старте.
+pub fn set_main_thread_waker(wake: impl Fn() + Send + 'static) {
+    if let Ok(mut guard) = WAKER.lock() {
+        *guard = Some(Box::new(wake));
     }
 }
 

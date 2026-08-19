@@ -6,6 +6,9 @@ pub enum SynGuiUserEvent {
     TrayExit,
     MenuItem(String),
     Activate,
+    /// Разбудить цикл и выполнить очередь `run_on_main_thread` — работает и
+    /// когда окно не рендерится (свёрнутое/фоновое Android-приложение).
+    MainThreadWake,
     #[cfg(feature = "wayland-dnd")]
     WaylandDnd(WaylandDndEvent),
 }

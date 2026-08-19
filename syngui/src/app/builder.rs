@@ -500,6 +500,10 @@ impl AppBuilder {
                 .build()
                 .expect("Failed to create event loop");
             app_handler.event_loop_proxy = Some(event_loop.create_proxy());
+            let waker_proxy = event_loop.create_proxy();
+            crate::async_runtime::set_main_thread_waker(move || {
+                let _ = waker_proxy.send_event(super::user_event::SynGuiUserEvent::MainThreadWake);
+            });
             event_loop.run_app(&mut app_handler).expect("Event loop error");
         }
 
@@ -530,6 +534,10 @@ impl AppBuilder {
 
             let mut app_handler = super::handler::AppHandler::new(self, root_factory.clone(), style_engine, initial_is_dark);
             app_handler.event_loop_proxy = Some(proxy);
+            let waker_proxy = event_loop.create_proxy();
+            crate::async_runtime::set_main_thread_waker(move || {
+                let _ = waker_proxy.send_event(super::user_event::SynGuiUserEvent::MainThreadWake);
+            });
 
             #[cfg(all(feature = "single-instance", not(target_arch = "wasm32"), not(target_os = "android")))]
             {
@@ -547,6 +555,10 @@ impl AppBuilder {
                 .build()
                 .expect("Failed to create event loop");
             app_handler.event_loop_proxy = Some(event_loop.create_proxy());
+            let waker_proxy = event_loop.create_proxy();
+            crate::async_runtime::set_main_thread_waker(move || {
+                let _ = waker_proxy.send_event(super::user_event::SynGuiUserEvent::MainThreadWake);
+            });
             event_loop.spawn_app(app_handler);
         }
     }
