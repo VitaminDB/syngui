@@ -80,6 +80,8 @@ image = { version = "0.25.10", optional = true, default-features = false, featur
     "gif",
     "bmp",
     "ico",
+    # webp: обложки музыкальных CDN (cdnimg.zaycev.net и т.п.) — decode-only, pure Rust.
+    "webp",
 ] }
 
 # SVG-рендер для image_store (feature `image-svg`). resvg — pure-Rust,
