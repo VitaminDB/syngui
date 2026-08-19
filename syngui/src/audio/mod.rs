@@ -7,7 +7,7 @@ mod stream;
 pub mod wav;
 
 pub use dsp::{Biquad, BiquadMode, LinearGain, SchroederReverb};
-pub use player::AudioPlayer;
+pub use player::{AudioPlayer, GrowingWriter};
 pub use recorder::{list_input_devices, AudioError, AudioRecorder, VisHandle};
 pub use session::{RecordingOptions, RecordingResult, RecordingSession, RecordingState};
 pub use stream::AudioStream;

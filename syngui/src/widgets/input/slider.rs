@@ -134,6 +134,7 @@ impl Widget for Slider {
             bounds: Rect::zero(),
             track_bounds: Rect::zero(),
             dragging: false,
+            touch_id: None,
             hover: false,
             focused: false,
             editing: false,
@@ -180,6 +181,8 @@ pub struct SliderElement {
     bounds: Rect,
     track_bounds: Rect,
     dragging: bool,
+    /// Палец, ведущий текущий drag (тачскрины; см. Touch-ветки handle_event).
+    touch_id: Option<u64>,
     hover: bool,
     focused: bool,
     editing: bool,
@@ -622,6 +625,38 @@ impl Element for SliderElement {
                 }
                 EventResult::Ignored
             }
+            // Тачскрины: при движении пальца MouseMove не синтезируется (см.
+            // app/event_handling.rs — только TouchMove), поэтому drag ведём по
+            // Touch-событиям сами. Handled на TouchStart в границах слайдера
+            // не даёт родительскому ScrollView начать прокрутку этим жестом;
+            // значение и dragging выставит синтезированный MouseDown следом.
+            Event::TouchStart { id, position } => {
+                if self.bounds.contains(*position) {
+                    self.touch_id = Some(*id);
+                    return EventResult::Handled;
+                }
+                EventResult::Ignored
+            }
+            Event::TouchMove { id, position } => {
+                if self.touch_id == Some(*id) && self.dragging {
+                    let drag_axis = if self.vertical { position.y } else { position.x };
+                    let new_value = self.pos_to_value(drag_axis);
+                    if (new_value - self.value).abs() > 0.001 {
+                        self.value = new_value.clamp(self.min, self.max);
+                        self.trigger_change();
+                    }
+                    ctx.request_paint();
+                    return EventResult::Handled;
+                }
+                EventResult::Ignored
+            }
+            Event::TouchEnd { id, .. } => {
+                if self.touch_id.take() == Some(*id) {
+                    // dragging сбросит синтезированный MouseUp следом.
+                    return EventResult::Handled;
+                }
+                EventResult::Ignored
+            }
             Event::CharInput(ch) if self.editing => {
                 if ch.is_control() {
                     return EventResult::Ignored;
@@ -891,6 +926,7 @@ mod tests {
             bounds: Rect::zero(),
             track_bounds: Rect::zero(),
             dragging: false,
+            touch_id: None,
             hover: false,
             focused: false,
             editing: false,
@@ -1007,5 +1043,63 @@ mod tests {
         let elem = direct(&s);
         assert!(elem.bipolar);
         assert!(elem.min < 0.0 && elem.max > 0.0);
+    }
+
+    // Тачскрины: TouchStart в границах клеймит жест (Handled), движение пальца
+    // ведёт drag по TouchMove (MouseMove на таче не синтезируется).
+    #[test]
+    fn touch_drag_moves_value() {
+        let s = Slider::new().range(0.0, 1.0).step(0.01).value(1.0);
+        let mut elem = direct(&s);
+        elem.layout(Constraints::tight(Size::new(200.0, 24.0)));
+        let mut ctx = crate::widget::context::EventContext::new(elem.id);
+
+        let y = elem.bounds.y() + elem.bounds.size.height / 2.0;
+        let start = Point::new(elem.track_bounds.x() + elem.track_bounds.size.width, y);
+
+        // TouchStart клеймится (иначе родительский ScrollView начал бы скролл).
+        let r = elem.handle_event(&Event::TouchStart { id: 7, position: start }, &mut ctx);
+        assert!(r.is_handled(), "TouchStart в границах должен клеймиться");
+        // Синтезированный MouseDown (приходит следом) начинает drag.
+        let r = elem.handle_event(
+            &Event::MouseDown { button: MouseButton::Left, position: start },
+            &mut ctx,
+        );
+        assert!(r.is_handled());
+        assert!(elem.dragging);
+
+        // Палец на середину трека → значение ~0.5.
+        let mid = Point::new(elem.track_bounds.x() + elem.track_bounds.size.width / 2.0, y);
+        let r = elem.handle_event(&Event::TouchMove { id: 7, position: mid }, &mut ctx);
+        assert!(r.is_handled(), "TouchMove ведущего пальца должен двигать drag");
+        assert!((elem.value - 0.5).abs() < 0.05, "value={}", elem.value);
+
+        // Чужой палец drag не трогает.
+        let r = elem.handle_event(&Event::TouchMove { id: 8, position: start }, &mut ctx);
+        assert!(!r.is_handled());
+        assert!((elem.value - 0.5).abs() < 0.05);
+
+        // TouchEnd + синтезированный MouseUp завершают drag.
+        let r = elem.handle_event(&Event::TouchEnd { id: 7, position: mid }, &mut ctx);
+        assert!(r.is_handled());
+        let r = elem.handle_event(
+            &Event::MouseUp { button: MouseButton::Left, position: mid },
+            &mut ctx,
+        );
+        assert!(r.is_handled());
+        assert!(!elem.dragging);
+        assert!(elem.touch_id.is_none());
+    }
+
+    // Регресс step-снапа: диапазон 0..1 с дефолтным step=1.0 давал бы только
+    // крайние значения — мелкий step обязан давать промежуточные.
+    #[test]
+    fn fine_step_yields_intermediate_values() {
+        let s = Slider::new().range(0.0, 1.0).step(0.01).value(0.0);
+        let mut elem = direct(&s);
+        elem.layout(Constraints::tight(Size::new(200.0, 24.0)));
+        let mid_x = elem.track_bounds.x() + elem.track_bounds.size.width / 2.0;
+        let v = elem.pos_to_value(mid_x);
+        assert!(v > 0.4 && v < 0.6, "середина трека ≈ 0.5, а не снап к 0/1: {v}");
     }
 }

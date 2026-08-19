@@ -352,6 +352,93 @@ impl AudioPlayer {
         }
     }
 
+    /// Прогрессивное воспроизведение с перемоткой: PCM дописывается в растущий
+    /// буфер по мере декодирования, а курсор свободно перемещается в пределах
+    /// уже записанного (`seek_seconds` работает сразу, в отличие от
+    /// `start_streaming`). Возвращает плеер и писателя: писатель принимает
+    /// interleaved-СТЕРЕО чанки исходной частоты `src_sample_rate` (`push`) и
+    /// завершает трек `finish()` — до этого достижение конца буфера означает
+    /// буферизацию (тишина без done), а не конец трека.
+    ///
+    /// `reserve_seconds` — предварительный резерв буфера (например, длительность
+    /// трека из метаданных + запас): исключает реаллокации в аудио-пути.
+    pub fn start_stereo_growing(
+        src_sample_rate: u32,
+        reserve_seconds: f32,
+    ) -> Result<(Self, GrowingWriter), AudioError> {
+        if src_sample_rate == 0 {
+            return Err(AudioError::Cpal("нулевой sample rate".into()));
+        }
+        let host = cpal::default_host();
+        let (device, supported) = pick_output_device(&host)?;
+        let native_sr = supported.sample_rate().0;
+        let device_channels = supported.channels();
+        let sample_format = supported.sample_format();
+        let config: cpal::StreamConfig = supported.into();
+        let target_channels: u16 = if device_channels >= 2 { 2 } else { 1 };
+
+        let reserve = (native_sr as f64
+            * target_channels as f64
+            * reserve_seconds.clamp(1.0, 3600.0) as f64) as usize;
+        let buf = Arc::new(GrowingPcm {
+            data: Mutex::new(Vec::with_capacity(reserve)),
+            complete: AtomicBool::new(false),
+        });
+
+        let state = Arc::new(PlayerState::new_pending());
+        state
+            .audio_channels
+            .store(target_channels, Ordering::Release);
+        state.sample_rate.store(native_sr, Ordering::Release);
+
+        let (stop_tx, stop_rx) = mpsc::channel::<()>();
+        let (init_tx, init_rx) = mpsc::sync_channel::<Result<(), AudioError>>(1);
+
+        let state_thread = state.clone();
+        let buf_thread = buf.clone();
+        let join = thread::Builder::new()
+            .name("syngui-audio-player-growing".into())
+            .spawn(move || {
+                let _ = run_player_thread_growing(
+                    state_thread,
+                    buf_thread,
+                    init_tx,
+                    stop_rx,
+                    &device,
+                    &config,
+                    sample_format,
+                    device_channels,
+                );
+            })
+            .map_err(|e| AudioError::Cpal(format!("spawn thread: {e}")))?;
+
+        match init_rx.recv_timeout(INIT_TIMEOUT) {
+            Ok(Ok(())) => {
+                let writer = GrowingWriter {
+                    state: state.clone(),
+                    buf,
+                    src_rate: src_sample_rate,
+                    native_rate: native_sr,
+                    target_channels,
+                    phase: 0.0,
+                    prev: None,
+                };
+                Ok((
+                    Self {
+                        state,
+                        stop_tx: Some(stop_tx),
+                        join: Some(join),
+                    },
+                    writer,
+                ))
+            }
+            Ok(Err(e)) => Err(e),
+            Err(_) => Err(AudioError::Cpal(
+                "timeout инициализации growing output stream".into(),
+            )),
+        }
+    }
+
     fn stop_inner(&mut self) {
         if let Some(tx) = self.stop_tx.take() {
             let _ = tx.send(());
@@ -366,6 +453,113 @@ impl AudioPlayer {
 impl Drop for AudioPlayer {
     fn drop(&mut self) {
         self.stop_inner();
+    }
+}
+
+/// Растущий PCM-буфер growing-плеера: уже в native SR и каналах устройства.
+struct GrowingPcm {
+    data: Mutex<Vec<f32>>,
+    /// Писатель закончил: конец буфера теперь означает конец трека, а не буферизацию.
+    complete: AtomicBool,
+}
+
+/// Писатель growing-плеера (см. [`AudioPlayer::start_stereo_growing`]):
+/// конвертирует исходные стерео-чанки в формат устройства (линейный ресемплинг
+/// с непрерывной между чанками фазой) и дописывает их в общий буфер.
+pub struct GrowingWriter {
+    state: Arc<PlayerState>,
+    buf: Arc<GrowingPcm>,
+    src_rate: u32,
+    native_rate: u32,
+    target_channels: u16,
+    /// Дробная позиция чтения в «виртуальном ряду» фреймов ([prev] + чанк).
+    phase: f64,
+    /// Последний исходный фрейм предыдущего чанка — опора интерполяции на стыке.
+    prev: Option<(f32, f32)>,
+}
+
+impl GrowingWriter {
+    /// Дописать interleaved-стерео чанк исходной частоты (нечётный хвост
+    /// отбрасывается, пустой чанк — no-op).
+    pub fn push(&mut self, interleaved: &[f32]) {
+        let frames = interleaved.len() / 2;
+        if frames == 0 {
+            return;
+        }
+        let out = self.convert(interleaved, frames);
+        if out.is_empty() {
+            return;
+        }
+        if let Ok(mut data) = self.buf.data.lock() {
+            data.extend_from_slice(&out);
+            self.state.total.store(data.len(), Ordering::Release);
+        }
+    }
+
+    /// Ресемплинг + маппинг каналов одного чанка.
+    fn convert(&mut self, src: &[f32], frames: usize) -> Vec<f32> {
+        let ch = self.target_channels.max(1) as usize;
+        if self.src_rate == self.native_rate {
+            let mut out = Vec::with_capacity(frames * ch);
+            for f in 0..frames {
+                let (l, r) = (src[f * 2], src[f * 2 + 1]);
+                if ch == 2 {
+                    out.push(l);
+                    out.push(r);
+                } else {
+                    out.push(0.5 * (l + r));
+                }
+            }
+            self.prev = Some((src[(frames - 1) * 2], src[(frames - 1) * 2 + 1]));
+            return out;
+        }
+
+        // Линейная интерполяция по виртуальному ряду фреймов [prev?] + чанк;
+        // phase переносит дробный остаток на следующий вызов — стыки без щелчков.
+        let step = self.src_rate as f64 / self.native_rate as f64;
+        let prev = self.prev;
+        let has_prev = prev.is_some() as usize;
+        let ext_len = frames + has_prev;
+        let frame_at = move |i: usize| -> (f32, f32) {
+            if has_prev == 1 && i == 0 {
+                prev.unwrap()
+            } else {
+                let s = i - has_prev;
+                (src[s * 2], src[s * 2 + 1])
+            }
+        };
+
+        let mut out = Vec::with_capacity((frames as f64 / step) as usize * ch + ch);
+        let mut p = self.phase;
+        while (p.floor() as usize) + 1 < ext_len {
+            let i = p.floor() as usize;
+            let t = (p - i as f64) as f32;
+            let (l0, r0) = frame_at(i);
+            let (l1, r1) = frame_at(i + 1);
+            let l = l0 + (l1 - l0) * t;
+            let r = r0 + (r1 - r0) * t;
+            if ch == 2 {
+                out.push(l);
+                out.push(r);
+            } else {
+                out.push(0.5 * (l + r));
+            }
+            p += step;
+        }
+        self.phase = p - (ext_len as f64 - 1.0);
+        self.prev = Some(frame_at(ext_len - 1));
+        out
+    }
+
+    /// Данных больше не будет: с этого момента конец буфера — конец трека.
+    pub fn finish(&self) {
+        self.buf.complete.store(true, Ordering::Release);
+    }
+
+    /// Сколько всего записано, в секундах (после [`Self::finish`] — длительность трека).
+    pub fn written_seconds(&self) -> f64 {
+        let ch = self.target_channels.max(1) as usize;
+        (self.state.total() / ch) as f64 / self.native_rate as f64
     }
 }
 
@@ -829,8 +1023,18 @@ fn write_callback_i16(state: &PlayerState, pcm: &[f32], data: &mut [i16], channe
     let dev_ch = channels.max(1) as usize;
     let frames = data.len() / dev_ch;
     let chunk = next_chunk_frames(state, pcm, frames);
-    let audio_ch = state.audio_channels() as usize;
-    let vol = state.volume();
+    fill_device_frames_i16(state.audio_channels() as usize, dev_ch, state.volume(), &chunk, data);
+}
+
+fn write_callback_u16(state: &PlayerState, pcm: &[f32], data: &mut [u16], channels: u16) {
+    let dev_ch = channels.max(1) as usize;
+    let frames = data.len() / dev_ch;
+    let chunk = next_chunk_frames(state, pcm, frames);
+    fill_device_frames_u16(state.audio_channels() as usize, dev_ch, state.volume(), &chunk, data);
+}
+
+fn fill_device_frames_i16(audio_ch: usize, dev_ch: usize, vol: f32, chunk: &[f32], data: &mut [i16]) {
+    let frames = data.len() / dev_ch;
     for f in 0..frames {
         for c in 0..dev_ch {
             let sample = if c < audio_ch.min(2) {
@@ -845,13 +1049,9 @@ fn write_callback_i16(state: &PlayerState, pcm: &[f32], data: &mut [i16], channe
     }
 }
 
-fn write_callback_u16(state: &PlayerState, pcm: &[f32], data: &mut [u16], channels: u16) {
-    let dev_ch = channels.max(1) as usize;
+fn fill_device_frames_u16(audio_ch: usize, dev_ch: usize, vol: f32, chunk: &[f32], data: &mut [u16]) {
     let frames = data.len() / dev_ch;
-    let chunk = next_chunk_frames(state, pcm, frames);
-    let audio_ch = state.audio_channels() as usize;
     let mid = (u16::MAX / 2) as f32;
-    let vol = state.volume();
     for f in 0..frames {
         for c in 0..dev_ch {
             let sample = if c < audio_ch.min(2) {
@@ -864,6 +1064,156 @@ fn write_callback_u16(state: &PlayerState, pcm: &[f32], data: &mut [u16], channe
             data[f * dev_ch + c] = (((sample * vol).clamp(-1.0, 1.0) * mid) + mid) as u16;
         }
     }
+}
+
+// ── Growing-плеер ────────────────────────────────────────────────────────
+
+fn run_player_thread_growing(
+    state: Arc<PlayerState>,
+    buf: Arc<GrowingPcm>,
+    init_tx: mpsc::SyncSender<Result<(), AudioError>>,
+    stop_rx: mpsc::Receiver<()>,
+    device: &cpal::Device,
+    config: &cpal::StreamConfig,
+    sample_format: cpal::SampleFormat,
+    channels: u16,
+) -> Result<(), AudioError> {
+    let err_fn = |e| eprintln!("[syngui/audio/player growing] stream error: {e}");
+
+    let stream = match sample_format {
+        cpal::SampleFormat::F32 => {
+            let st = state.clone();
+            let b = buf.clone();
+            device.build_output_stream(
+                config,
+                move |data: &mut [f32], _: &cpal::OutputCallbackInfo| {
+                    let dev_ch = channels.max(1) as usize;
+                    let chunk = next_chunk_growing(&st, &b, data.len() / dev_ch);
+                    fill_device_frames_f32(
+                        st.audio_channels() as usize,
+                        dev_ch,
+                        st.volume(),
+                        &chunk,
+                        data,
+                    );
+                },
+                err_fn,
+                None,
+            )
+        }
+        cpal::SampleFormat::I16 => {
+            let st = state.clone();
+            let b = buf.clone();
+            device.build_output_stream(
+                config,
+                move |data: &mut [i16], _: &cpal::OutputCallbackInfo| {
+                    let dev_ch = channels.max(1) as usize;
+                    let chunk = next_chunk_growing(&st, &b, data.len() / dev_ch);
+                    fill_device_frames_i16(
+                        st.audio_channels() as usize,
+                        dev_ch,
+                        st.volume(),
+                        &chunk,
+                        data,
+                    );
+                },
+                err_fn,
+                None,
+            )
+        }
+        cpal::SampleFormat::U16 => {
+            let st = state.clone();
+            let b = buf.clone();
+            device.build_output_stream(
+                config,
+                move |data: &mut [u16], _: &cpal::OutputCallbackInfo| {
+                    let dev_ch = channels.max(1) as usize;
+                    let chunk = next_chunk_growing(&st, &b, data.len() / dev_ch);
+                    fill_device_frames_u16(
+                        st.audio_channels() as usize,
+                        dev_ch,
+                        st.volume(),
+                        &chunk,
+                        data,
+                    );
+                },
+                err_fn,
+                None,
+            )
+        }
+        other => {
+            let err = AudioError::Cpal(format!(
+                "growing: неподдерживаемый sample format: {other:?}"
+            ));
+            let _ = init_tx.send(Err(err.clone()));
+            return Err(err);
+        }
+    };
+    let stream = match stream {
+        Ok(s) => s,
+        Err(e) => {
+            let err = AudioError::Cpal(format!("growing build_output_stream: {e}"));
+            let _ = init_tx.send(Err(err.clone()));
+            return Err(err);
+        }
+    };
+    if let Err(e) = stream.play() {
+        let err = AudioError::Cpal(format!("growing stream.play: {e}"));
+        let _ = init_tx.send(Err(err.clone()));
+        return Err(err);
+    }
+    state.ready.store(true, Ordering::Release);
+    let _ = init_tx.send(Ok(()));
+
+    loop {
+        if state.done.load(Ordering::Acquire) {
+            break;
+        }
+        // Конец трека — только когда писатель закончил И буфер дочитан;
+        // до finish() конец буфера означает буферизацию (тишина в колбэке).
+        if buf.complete.load(Ordering::Acquire)
+            && state.cursor.load(Ordering::Acquire) >= state.total()
+        {
+            state.done.store(true, Ordering::Release);
+            break;
+        }
+        match stop_rx.recv_timeout(Duration::from_millis(20)) {
+            Ok(()) => {
+                state.done.store(true, Ordering::Release);
+                break;
+            }
+            Err(mpsc::RecvTimeoutError::Timeout) => continue,
+            Err(mpsc::RecvTimeoutError::Disconnected) => break,
+        }
+    }
+    drop(stream);
+    Ok(())
+}
+
+/// Очередной чанк growing-буфера. В аудио-колбэке блокироваться нельзя:
+/// при конфликте локов отдаём тишину цикла (писатель держит лок только на
+/// memcpy). Курсор двигается через CAS — параллельный `seek_seconds` важнее.
+fn next_chunk_growing(state: &PlayerState, buf: &GrowingPcm, frames: usize) -> Vec<f32> {
+    let ach = state.audio_channels().max(1) as usize;
+    let needed = frames * ach;
+    if state.is_paused() {
+        return vec![0.0; needed];
+    }
+    let Ok(data) = buf.data.try_lock() else {
+        return vec![0.0; needed];
+    };
+    let total = data.len();
+    let start = state.cursor.load(Ordering::Acquire);
+    if start >= total {
+        return vec![0.0; needed]; // буферизация или конец (решает управляющий цикл)
+    }
+    let end = (start + needed).min(total);
+    let mut out = data[start..end].to_vec();
+    out.resize(needed, 0.0);
+    let _ = state
+        .cursor
+        .compare_exchange(start, end, Ordering::AcqRel, Ordering::Relaxed);
+    out
 }
 
 fn fill_device_frames_f32(
@@ -1066,5 +1416,121 @@ mod tests {
             out.len(),
             expected,
         );
+    }
+
+    // ── Growing-плеер ────────────────────────────────────────────────────
+
+    fn growing_writer(src: u32, native: u32, ch: u16) -> (GrowingWriter, Arc<PlayerState>) {
+        let state = Arc::new(PlayerState::new_pending());
+        state.audio_channels.store(ch, Ordering::Release);
+        state.sample_rate.store(native, Ordering::Release);
+        let buf = Arc::new(GrowingPcm {
+            data: Mutex::new(Vec::new()),
+            complete: AtomicBool::new(false),
+        });
+        let w = GrowingWriter {
+            state: state.clone(),
+            buf,
+            src_rate: src,
+            native_rate: native,
+            target_channels: ch,
+            phase: 0.0,
+            prev: None,
+        };
+        (w, state)
+    }
+
+    #[test]
+    fn growing_same_rate_passthrough_stereo() {
+        let (mut w, state) = growing_writer(48_000, 48_000, 2);
+        w.push(&[0.1, -0.1, 0.2, -0.2]);
+        assert_eq!(state.total(), 4);
+        let data = w.buf.data.lock().unwrap();
+        assert_eq!(*data, vec![0.1, -0.1, 0.2, -0.2]);
+    }
+
+    #[test]
+    fn growing_same_rate_downmix_mono() {
+        let (mut w, state) = growing_writer(48_000, 48_000, 1);
+        w.push(&[1.0, 0.0, 0.0, 1.0]);
+        assert_eq!(state.total(), 2);
+        let data = w.buf.data.lock().unwrap();
+        assert_eq!(*data, vec![0.5, 0.5]);
+    }
+
+    #[test]
+    fn growing_resample_ratio_holds_across_chunks() {
+        // 44.1k → 48k, много мелких чанков: суммарный выход ≈ вход×ratio,
+        // независимо от нарезки (непрерывная фаза на стыках).
+        let (mut w, state) = growing_writer(44_100, 48_000, 2);
+        let mut src_frames = 0usize;
+        for n in [7usize, 100, 3, 512, 1, 64] {
+            let chunk: Vec<f32> = (0..n * 2).map(|i| (i as f32 * 0.05).sin()).collect();
+            src_frames += n;
+            w.push(&chunk);
+        }
+        let out_frames = state.total() / 2;
+        let expected = (src_frames as f64 * 48_000.0 / 44_100.0) as usize;
+        assert!(
+            (out_frames as i64 - expected as i64).abs() <= 3,
+            "выход {out_frames} фреймов, ожидалось ≈{expected}"
+        );
+    }
+
+    #[test]
+    fn growing_resample_is_continuous_on_chunk_borders() {
+        // Линейно растущий сигнал: после ресемплинга он обязан остаться
+        // монотонным — щелчок на стыке чанков дал бы скачок назад.
+        let (mut w, _state) = growing_writer(44_100, 48_000, 1);
+        let total = 1000usize;
+        let src: Vec<f32> = (0..total * 2)
+            .map(|i| (i / 2) as f32 / total as f32)
+            .collect();
+        for chunk in src.chunks(2 * 37) {
+            w.push(chunk);
+        }
+        let data = w.buf.data.lock().unwrap();
+        for pair in data.windows(2) {
+            assert!(
+                pair[1] >= pair[0] - 1e-4,
+                "немонотонность на ресемпле: {} → {}",
+                pair[0],
+                pair[1]
+            );
+        }
+    }
+
+    #[test]
+    fn growing_chunk_buffers_at_end_until_finish() {
+        let (mut w, state) = growing_writer(48_000, 48_000, 1);
+        w.push(&[0.5, 0.5, 0.5, 0.5]); // 2 моно-сэмпла
+        // Читаем больше, чем есть: доступное + тишина, курсор — на конец буфера.
+        let chunk = next_chunk_growing(&state, &w.buf, 4);
+        assert_eq!(chunk, vec![0.5, 0.5, 0.0, 0.0]);
+        assert_eq!(state.cursor.load(Ordering::Acquire), 2);
+        // Буфер дочитан, finish не вызван → тишина, курсор стоит (буферизация).
+        let chunk = next_chunk_growing(&state, &w.buf, 4);
+        assert_eq!(chunk, vec![0.0; 4]);
+        assert_eq!(state.cursor.load(Ordering::Acquire), 2);
+        // Дописали — чтение продолжается с того же места.
+        w.push(&[0.25, 0.25]);
+        let chunk = next_chunk_growing(&state, &w.buf, 1);
+        assert_eq!(chunk, vec![0.25]);
+    }
+
+    #[test]
+    fn growing_seek_within_written_data() {
+        let (mut w, state) = growing_writer(48_000, 48_000, 2);
+        let chunk: Vec<f32> = vec![0.1; 48_000 * 2]; // 1 секунда стерео
+        w.push(&chunk);
+        state.ready.store(true, Ordering::Release);
+        // seek внутри записанного — работает (в отличие от start_streaming).
+        let player_like = state.clone();
+        let sr = player_like.sample_rate.load(Ordering::Acquire) as f64;
+        let target_frames = (0.5 * sr).round() as usize;
+        // повторяем формулу seek_seconds
+        let target = (target_frames * 2).min(player_like.total());
+        player_like.cursor.store(target, Ordering::Release);
+        assert_eq!(state.cursor.load(Ordering::Acquire), 48_000);
     }
 }

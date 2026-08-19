@@ -159,7 +159,19 @@ impl ElementTree {
     }
 
     fn dispatch_positional(&mut self, root_id: ElementId, event: &Event, pos: crate::core::Point) -> EventResult {
-        if matches!(event, Event::MouseUp { .. } | Event::MouseMove(_)) {
+        // Touch-события тоже идут захватчику: на тачскринах MouseDown
+        // синтезируется на TouchStart (ставит mouse_captor), а движение пальца
+        // приходит только как TouchMove — без приоритета захватчика drag,
+        // начатый на слайдере/скроллбаре, «отваливался» бы, стоило пальцу
+        // покинуть его границы. Если захватчик событие игнорирует, оно, как и
+        // прежде, уходит вниз по hit-test.
+        if matches!(
+            event,
+            Event::MouseUp { .. }
+                | Event::MouseMove(_)
+                | Event::TouchMove { .. }
+                | Event::TouchEnd { .. }
+        ) {
             if let Some(cap) = self.mouse_captor {
                 if self.elements.contains_key(&cap) {
                     let (s, k) = self.accumulated_event_transform(cap);
