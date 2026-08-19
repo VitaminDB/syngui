@@ -538,7 +538,24 @@ impl<'a> MdRenderer<'a> {
             &lines[..]
         };
 
-        let content_h = lines.len() as f32 * line_h;
+        // Мягкий перенос: строка длиннее блока режется на подстроки по
+        // ширине (жёстко, посимвольно — как в терминале). Без него длинный
+        // вывод инструмента/код просто клипается правым краем.
+        let avail_w = (self.max_width - padding * 2.0).max(1.0);
+        let mut display: Vec<(usize, usize)> = Vec::new();
+        {
+            let mut line_byte_offset = 0usize;
+            for line in lines {
+                for (a, b) in
+                    wrap_code_line(line, avail_w, &mut |t| self.text_width(t, font_size))
+                {
+                    display.push((line_byte_offset + a, line_byte_offset + b));
+                }
+                line_byte_offset += line.len() + 1;
+            }
+        }
+
+        let content_h = display.len().max(1) as f32 * line_h;
         let total_h = content_h + padding * 2.0;
 
         let bg_rect = Rect::new(
@@ -556,12 +573,10 @@ impl<'a> MdRenderer<'a> {
 
         let default_color = self.style.code_block_color;
         let mut line_y = self.y + padding;
-        let mut line_byte_offset: usize = 0;
         let mut tok_idx: usize = 0;
 
-        for (line_idx, line) in lines.iter().enumerate() {
-            let line_start = line_byte_offset;
-            let line_end = line_start + line.len();
+        for (line_idx, &(line_start, line_end)) in display.iter().enumerate() {
+            let line = &code[line_start..line_end];
 
             if line_idx > 0 {
                 self.bump_line();
@@ -630,7 +645,6 @@ impl<'a> MdRenderer<'a> {
             self.emit_selectable(sel_rect, line, font_size, None, false, None);
 
             line_y += line_h;
-            line_byte_offset = line_end + 1;
         }
 
         if let Some(hotspots) = self.copy_hotspots.as_deref_mut() {
@@ -1309,6 +1323,75 @@ fn measure_inlines_width_tm(
     w
 }
 
+/// Режет строку код-блока на подстроки шириной ≤ `avail_w` (байтовые
+/// диапазоны внутри `line`). Перенос жёсткий, посимвольный — как в
+/// терминале: у кода и вывода инструментов «слов» в типографском смысле
+/// нет, а клип строки прячет данные. Максимальный влезающий префикс ищется
+/// бинарным поиском по числу символов (`measure` монотонна по префиксу).
+fn wrap_code_line(
+    line: &str,
+    avail_w: f32,
+    measure: &mut dyn FnMut(&str) -> f32,
+) -> Vec<(usize, usize)> {
+    if line.is_empty() || measure(line) <= avail_w {
+        return vec![(0, line.len())];
+    }
+    let mut out = Vec::new();
+    let mut start = 0usize;
+    while start < line.len() {
+        let rest = &line[start..];
+        if measure(rest) <= avail_w {
+            out.push((start, line.len()));
+            break;
+        }
+        // Байтовые начала символов; idx[k] — длина префикса из k символов.
+        let idx: Vec<usize> = rest.char_indices().map(|(i, _)| i).collect();
+        if idx.len() <= 1 {
+            // Единственный символ шире блока — рисуем как есть.
+            out.push((start, line.len()));
+            break;
+        }
+        let mut lo = 1usize;
+        let mut hi = idx.len() - 1;
+        while lo < hi {
+            let mid = (lo + hi + 1) / 2;
+            if measure(&rest[..idx[mid]]) <= avail_w {
+                lo = mid;
+            } else {
+                hi = mid - 1;
+            }
+        }
+        let cut = idx[lo.max(1)];
+        out.push((start, start + cut));
+        start += cut;
+    }
+    if out.is_empty() {
+        out.push((0, line.len()));
+    }
+    out
+}
+
+/// Число отображаемых строк код-блока с учётом мягкого переноса — общая
+/// арифметика для measure- и render-проходов, чтобы фон блока совпадал с
+/// фактически нарисованным текстом.
+pub(super) fn count_code_display_lines(
+    code: &str,
+    avail_w: f32,
+    measure: &mut dyn FnMut(&str) -> f32,
+) -> usize {
+    let lines: Vec<&str> = code.lines().collect();
+    let lines = if lines.last().map_or(false, |l| l.is_empty()) {
+        &lines[..lines.len() - 1]
+    } else {
+        &lines[..]
+    };
+    lines
+        .iter()
+        .map(|l| wrap_code_line(l, avail_w, measure).len())
+        .sum::<usize>()
+        .max(1)
+}
+
 pub fn measure_natural_width(
     blocks: &[MdBlock],
     style: &MdStyle,
@@ -1446,7 +1529,12 @@ fn measure_block(
             }
         }
         MdBlock::CodeBlock { code, .. } => {
-            let lines = code.lines().count().max(1);
+            let avail_w = (max_width - style.code_block_padding * 2.0).max(1.0);
+            let mut measure = |t: &str| match tm {
+                Some(tm) => tm.measure_text_width(t, style.code_font_size, t.chars().count()),
+                None => text_width(t, style.code_font_size),
+            };
+            let lines = count_code_display_lines(code, avail_w, &mut measure);
             let line_h = style.code_font_size * style.line_height;
             lines as f32 * line_h + style.code_block_padding * 2.0
         }
@@ -1612,4 +1700,57 @@ fn simulate_wrap_lines(
     }
 
     lines
+}
+
+#[cfg(test)]
+mod code_wrap_tests {
+    use super::{count_code_display_lines, wrap_code_line};
+
+    /// Моноширинная метрика: 10px на символ — арифметика прозрачна.
+    fn mono(t: &str) -> f32 {
+        t.chars().count() as f32 * 10.0
+    }
+
+    #[test]
+    fn short_line_stays_single() {
+        let mut m = mono;
+        assert_eq!(wrap_code_line("hello", 100.0, &mut m), vec![(0, 5)]);
+    }
+
+    #[test]
+    fn long_line_wraps_at_width() {
+        let mut m = mono;
+        // 25 символов при ширине 100px (10 симв.) → 10 + 10 + 5.
+        let line = "abcdefghijabcdefghijabcde";
+        let parts = wrap_code_line(line, 100.0, &mut m);
+        assert_eq!(parts, vec![(0, 10), (10, 20), (20, 25)]);
+    }
+
+    #[test]
+    fn multibyte_chars_cut_on_char_boundary() {
+        let mut m = mono;
+        // Кириллица по 2 байта: 6 символов при ширине 4 символа → 4 + 2.
+        let line = "привет";
+        let parts = wrap_code_line(line, 40.0, &mut m);
+        assert_eq!(parts, vec![(0, 8), (8, 12)]);
+        assert_eq!(&line[0..8], "прив");
+        assert_eq!(&line[8..12], "ет");
+    }
+
+    #[test]
+    fn tiny_width_still_advances() {
+        let mut m = mono;
+        // Ширина меньше одного символа — по символу на строку, без зацикла.
+        let parts = wrap_code_line("abc", 5.0, &mut m);
+        assert_eq!(parts, vec![(0, 1), (1, 2), (2, 3)]);
+    }
+
+    #[test]
+    fn display_lines_count_sums_wraps() {
+        let mut m = mono;
+        // "aaaaaaaaaa\nbbb" при ширине 5 симв. → 2 + 1 = 3 строки.
+        assert_eq!(count_code_display_lines("aaaaaaaaaa\nbbb", 50.0, &mut m), 3);
+        // Пустой код — минимум одна строка (фон блока не нулевой).
+        assert_eq!(count_code_display_lines("", 50.0, &mut m), 1);
+    }
 }
