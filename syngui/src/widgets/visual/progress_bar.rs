@@ -125,8 +125,10 @@ impl Element for ProgressBarElement {
 
     fn build_display_list(&self, list: &mut DisplayList, _clip: Rect) {
         let track_color = self.mss.background_color.unwrap_or_else(|| Color::from_hex("#E5E7EB"));
+        // Заливка: accent-color, затем color (как у Slider). Фолбэк на
+        // background-color был багом — заливка цветом дорожки невидима.
         let fill_color = self.mss.accent_color
-            .or(self.mss.background_color)
+            .or(self.mss.color)
             .unwrap_or_else(|| Color::from_hex("#3B82F6"));
 
         let show_pct = self.show_percentage && !self.indeterminate;
