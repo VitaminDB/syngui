@@ -191,6 +191,27 @@ impl PtySession {
         self.reader_alive.load(Ordering::Acquire)
     }
 
+    /// `true`, если у tty есть foreground-процесс, отличный от самого shell'а —
+    /// т.е. в терминале прямо сейчас выполняется команда. Сравниваем foreground
+    /// process group tty (`tcgetpgrp` master-fd) с pid дочернего shell'а: shell
+    /// в prompt'е сам является foreground-группой (pgid == его pid), а
+    /// запущенный job получает собственную process group → id расходятся.
+    /// Требует job control в shell'е (интерактивные bash/zsh/fish — всегда);
+    /// при любой ошибке или до spawn'а PTY — `false`.
+    #[cfg(unix)]
+    pub fn has_foreground_child(&self) -> bool {
+        match (self.master.process_group_leader(), self.child.process_id()) {
+            (Some(fg), Some(shell)) => i64::from(fg) != i64::from(shell),
+            _ => false,
+        }
+    }
+
+    /// На платформах без tcgetpgrp (Windows) занятость не определяется.
+    #[cfg(not(unix))]
+    pub fn has_foreground_child(&self) -> bool {
+        false
+    }
+
     #[allow(dead_code)]
     pub fn try_wait_exit(&mut self) -> Option<u32> {
         match self.child.try_wait() {
