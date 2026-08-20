@@ -451,6 +451,7 @@ impl FontAtlas {
         let mut scaler = context
             .builder(font_ref)
             .size(size_px as f32)
+            .hint(true)
             .build();
 
         let glyph_metrics = font_ref.glyph_metrics(&[]);
@@ -889,7 +890,7 @@ impl crate::widget::context::TextMeasure for crate::core::sync::Mutex<FontAtlas>
     fn measure_text_width(&self, text: &str, font_size: f32, char_count: usize) -> f32 {
         let mut atlas = self.lock().unwrap();
         let sf = atlas.scale_factor();
-let size_px = ((font_size * sf) as u16).max(1);
+        let size_px = ((font_size * sf).round() as u16).max(1);
         let phys = atlas.measure_text_width(text, size_px, char_count, None);
         phys / sf
     }
@@ -897,7 +898,7 @@ let size_px = ((font_size * sf) as u16).max(1);
     fn measure_text_width_styled(&self, text: &str, font_size: f32, char_count: usize, bold: bool, font_family: Option<&str>) -> f32 {
         let mut atlas = self.lock().unwrap();
         let sf = atlas.scale_factor();
-        let size_px = ((font_size * sf) as u16).max(1);
+        let size_px = ((font_size * sf).round() as u16).max(1);
         let phys = atlas.measure_text_width_styled(text, size_px, char_count, bold, font_family);
         phys / sf
     }
@@ -916,7 +917,7 @@ let size_px = ((font_size * sf) as u16).max(1);
         }
         let mut atlas = self.lock().unwrap();
         let sf = atlas.scale_factor();
-        let size_px = ((font_size * sf) as u16).max(1);
+        let size_px = ((font_size * sf).round() as u16).max(1);
         let phys_base = atlas.measure_text_width_styled(text, size_px, char_count, bold, font_family);
         let visible = text.chars().take(char_count).count();
         let phys = phys_base + (letter_spacing * sf) * (visible as f32);
@@ -926,14 +927,14 @@ let size_px = ((font_size * sf) as u16).max(1);
     fn hit_test_char(&self, text: &str, font_size: f32, x_offset: f32) -> usize {
         let mut atlas = self.lock().unwrap();
         let sf = atlas.scale_factor();
-let size_px = ((font_size * sf) as u16).max(1);
+        let size_px = ((font_size * sf).round() as u16).max(1);
         atlas.hit_test_char_position(text, size_px, x_offset * sf, None)
     }
 
     fn hit_test_char_styled(&self, text: &str, font_size: f32, x_offset: f32, font_family: Option<&str>) -> usize {
         let mut atlas = self.lock().unwrap();
         let sf = atlas.scale_factor();
-let size_px = ((font_size * sf) as u16).max(1);
+        let size_px = ((font_size * sf).round() as u16).max(1);
         atlas.hit_test_char_position(text, size_px, x_offset * sf, font_family)
     }
 }
