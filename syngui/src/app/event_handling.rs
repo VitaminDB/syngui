@@ -18,6 +18,11 @@ impl winit::application::ApplicationHandler<SynGuiUserEvent> for AppHandler {
                 self.recreate_surface();
             }
         }
+        #[cfg(target_os = "android")]
+        {
+            self.android_suspended = false;
+            event_loop.set_control_flow(winit::event_loop::ControlFlow::Wait);
+        }
         if let Some(window) = &self.window {
             window.request_redraw();
         }
@@ -25,6 +30,16 @@ impl winit::application::ApplicationHandler<SynGuiUserEvent> for AppHandler {
 
     fn suspended(&mut self, _event_loop: &winit::event_loop::ActiveEventLoop) {
         self.drop_surface();
+        // Android: в suspended winit игнорирует wake-up'ы EventLoopProxy, и
+        // run_on_main_thread-колбэки (фоновые тики плеера, команды медиа-сессии)
+        // зависали бы до resume. Медленный пульс по таймауту дренирует их.
+        #[cfg(target_os = "android")]
+        {
+            self.android_suspended = true;
+            _event_loop.set_control_flow(winit::event_loop::ControlFlow::WaitUntil(
+                std::time::Instant::now() + std::time::Duration::from_millis(1000),
+            ));
+        }
     }
 
     fn window_event(
@@ -599,6 +614,13 @@ impl winit::application::ApplicationHandler<SynGuiUserEvent> for AppHandler {
         #[cfg(target_arch = "wasm32")]
         if let Some(window) = &self.window {
             window.request_redraw();
+        }
+        // Android-фон: продлеваем пульс, пока не возобновимся (см. suspended()).
+        #[cfg(target_os = "android")]
+        if self.android_suspended {
+            event_loop.set_control_flow(winit::event_loop::ControlFlow::WaitUntil(
+                std::time::Instant::now() + std::time::Duration::from_millis(1000),
+            ));
         }
     }
 
