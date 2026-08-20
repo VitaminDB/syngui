@@ -182,6 +182,20 @@ impl TerminalSession {
         }
     }
 
+    /// `true`, если в терминале прямо сейчас выполняется команда (foreground
+    /// process group tty отличается от shell'а — см.
+    /// [`PtySession::has_foreground_child`]). Для не-спавнутого или мёртвого
+    /// PTY — `false` («простаивает»).
+    pub fn is_busy(&self) -> bool {
+        if let Ok(pty) = self.inner.pty.lock() {
+            pty.as_ref()
+                .map(|p| p.has_foreground_child())
+                .unwrap_or(false)
+        } else {
+            false
+        }
+    }
+
     pub fn title(&self) -> Option<String> {
         self.inner.state.lock().ok().and_then(|s| s.title.clone())
     }
