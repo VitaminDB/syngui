@@ -259,7 +259,7 @@ pub struct TableView {
     pub(super) on_row_click: Option<Arc<Mutex<dyn FnMut(usize) + Send>>>,
     pub(super) selected_rows: Vec<usize>,
     pub(super) on_selection_change:
-        Option<std::sync::Arc<std::sync::Mutex<dyn FnMut(Vec<usize>) + Send>>>,
+        Option<Arc<Mutex<dyn FnMut(Vec<usize>) + Send>>>,
     pub(super) width: Option<Dimension>,
     pub(super) height: Option<Dimension>,
     pub(super) custom_header_bg: Option<Color>,
@@ -390,7 +390,7 @@ impl TableView {
         mut self,
         callback: impl FnMut(Vec<usize>) + Send + 'static,
     ) -> Self {
-        self.on_selection_change = Some(std::sync::Arc::new(std::sync::Mutex::new(callback)));
+        self.on_selection_change = Some(Arc::new(Mutex::new(callback)));
         self
     }
     pub fn width(mut self, w: f32) -> Self { self.width = Some(Dimension::Px(w)); self }
