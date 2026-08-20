@@ -510,24 +510,33 @@ impl winit::application::ApplicationHandler<SynGuiUserEvent> for AppHandler {
                 );
                 let id = touch.id;
 
+                // Порог, после которого жест считается скроллом, а не тапом.
+                const TAP_SLOP: f32 = 8.0;
+
                 match touch.phase {
                     winit::event::TouchPhase::Started => {
                         self.cursor_position = position;
-                        self.update_focus_from_click(position);
-
+                        // Клик НЕ синтезируется здесь: жест ещё может оказаться
+                        // скроллом. Тап синтезируется на отпускании (ниже).
+                        if self.touch_tap.is_none() {
+                            self.touch_tap = Some((id, position, false));
+                        }
                         if let Some(root_id) = self.root_id {
                             let touch_event = Event::TouchStart { id, position };
                             self.tree.handle_event(root_id, &touch_event);
-                            let mouse_event = Event::MouseDown {
-                                button: crate::input::MouseButton::Left,
-                                position,
-                            };
-                            self.tree.handle_event(root_id, &mouse_event);
                         }
                     }
                     winit::event::TouchPhase::Moved => {
                         self.cursor_position = position;
-
+                        if let Some((tid, start, moved)) = &mut self.touch_tap {
+                            if *tid == id
+                                && !*moved
+                                && ((position.x - start.x).abs() > TAP_SLOP
+                                    || (position.y - start.y).abs() > TAP_SLOP)
+                            {
+                                *moved = true;
+                            }
+                        }
                         if let Some(root_id) = self.root_id {
                             let touch_event = Event::TouchMove { id, position };
                             self.tree.handle_event(root_id, &touch_event);
@@ -537,11 +546,30 @@ impl winit::application::ApplicationHandler<SynGuiUserEvent> for AppHandler {
                         if let Some(root_id) = self.root_id {
                             let touch_event = Event::TouchEnd { id, position };
                             self.tree.handle_event(root_id, &touch_event);
-                            let mouse_event = Event::MouseUp {
-                                button: crate::input::MouseButton::Left,
-                                position,
-                            };
-                            self.tree.handle_event(root_id, &mouse_event);
+                        }
+                        let is_tap = match self.touch_tap {
+                            Some((tid, _, moved)) if tid == id => {
+                                self.touch_tap = None;
+                                !moved
+                                    && matches!(touch.phase, winit::event::TouchPhase::Ended)
+                            }
+                            _ => false,
+                        };
+                        if is_tap {
+                            // Палец не сдвинулся — это клик: down+up в точке отпускания.
+                            self.update_focus_from_click(position);
+                            if let Some(root_id) = self.root_id {
+                                let down = Event::MouseDown {
+                                    button: crate::input::MouseButton::Left,
+                                    position,
+                                };
+                                self.tree.handle_event(root_id, &down);
+                                let up = Event::MouseUp {
+                                    button: crate::input::MouseButton::Left,
+                                    position,
+                                };
+                                self.tree.handle_event(root_id, &up);
+                            }
                         }
                     }
                 }

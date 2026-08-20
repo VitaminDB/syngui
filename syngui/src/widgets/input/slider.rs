@@ -632,7 +632,15 @@ impl Element for SliderElement {
             // значение и dragging выставит синтезированный MouseDown следом.
             Event::TouchStart { id, position } => {
                 if self.bounds.contains(*position) {
+                    if self.editing {
+                        self.commit_editing();
+                    }
                     self.touch_id = Some(*id);
+                    self.dragging = true;
+                    let drag_axis = if self.vertical { position.y } else { position.x };
+                    self.value = self.pos_to_value(drag_axis).clamp(self.min, self.max);
+                    self.trigger_change();
+                    ctx.request_paint();
                     return EventResult::Handled;
                 }
                 EventResult::Ignored
@@ -652,7 +660,8 @@ impl Element for SliderElement {
             }
             Event::TouchEnd { id, .. } => {
                 if self.touch_id.take() == Some(*id) {
-                    // dragging сбросит синтезированный MouseUp следом.
+                    self.dragging = false;
+                    ctx.request_paint();
                     return EventResult::Handled;
                 }
                 EventResult::Ignored
@@ -1057,16 +1066,11 @@ mod tests {
         let y = elem.bounds.y() + elem.bounds.size.height / 2.0;
         let start = Point::new(elem.track_bounds.x() + elem.track_bounds.size.width, y);
 
-        // TouchStart клеймится (иначе родительский ScrollView начал бы скролл).
+        // TouchStart клеймится (иначе родительский ScrollView начал бы скролл)
+        // и сам начинает drag: MouseDown на таче синтезируется только для тапа.
         let r = elem.handle_event(&Event::TouchStart { id: 7, position: start }, &mut ctx);
         assert!(r.is_handled(), "TouchStart в границах должен клеймиться");
-        // Синтезированный MouseDown (приходит следом) начинает drag.
-        let r = elem.handle_event(
-            &Event::MouseDown { button: MouseButton::Left, position: start },
-            &mut ctx,
-        );
-        assert!(r.is_handled());
-        assert!(elem.dragging);
+        assert!(elem.dragging, "drag начинается прямо с TouchStart");
 
         // Палец на середину трека → значение ~0.5.
         let mid = Point::new(elem.track_bounds.x() + elem.track_bounds.size.width / 2.0, y);
@@ -1079,13 +1083,8 @@ mod tests {
         assert!(!r.is_handled());
         assert!((elem.value - 0.5).abs() < 0.05);
 
-        // TouchEnd + синтезированный MouseUp завершают drag.
+        // TouchEnd завершает drag сам (MouseUp при скролле не синтезируется).
         let r = elem.handle_event(&Event::TouchEnd { id: 7, position: mid }, &mut ctx);
-        assert!(r.is_handled());
-        let r = elem.handle_event(
-            &Event::MouseUp { button: MouseButton::Left, position: mid },
-            &mut ctx,
-        );
         assert!(r.is_handled());
         assert!(!elem.dragging);
         assert!(elem.touch_id.is_none());

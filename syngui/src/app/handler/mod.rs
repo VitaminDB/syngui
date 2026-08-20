@@ -135,6 +135,11 @@ pub(super) struct AppHandler {
     #[cfg(target_os = "android")]
     pub(super) android_suspended: bool,
 
+    /// Отложенный tap-синтез для тача: (id первого пальца, точка старта,
+    /// превышен ли slop). Клик синтезируется на отпускании и только если палец
+    /// не сдвинулся — иначе скролл списка «проваливался» в строку под пальцем.
+    pub(super) touch_tap: Option<(u64, crate::core::Point, bool)>,
+
     #[cfg(all(feature = "wayland-dnd", target_os = "linux"))]
     pub(super) wayland_dnd_handle: Option<std::thread::JoinHandle<()>>,
 }
@@ -261,6 +266,7 @@ impl AppHandler {
             pending_show: false,
             #[cfg(target_os = "android")]
             android_suspended: false,
+            touch_tap: None,
             #[cfg(all(feature = "wayland-dnd", target_os = "linux"))]
             wayland_dnd_handle: None,
         }

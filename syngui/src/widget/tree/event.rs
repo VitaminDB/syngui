@@ -46,9 +46,11 @@ impl ElementTree {
     }
 
     pub fn handle_event(&mut self, root_id: ElementId, event: &Event) -> EventResult {
-        let is_mouse_up = matches!(event, Event::MouseUp { .. });
+        // TouchEnd снимает захват так же, как MouseUp: при скролле синтезиро-
+        // ванного MouseUp не будет, и захватчик повис бы до следующего клика.
+        let is_release = matches!(event, Event::MouseUp { .. } | Event::TouchEnd { .. });
         let result = self.do_handle_event(root_id, event);
-        if is_mouse_up {
+        if is_release {
             self.mouse_captor = None;
         }
         result
@@ -214,6 +216,12 @@ impl ElementTree {
             if r.is_handled() {
                 if matches!(event, Event::MouseDown { .. }) {
                     self.last_mousedown_element = Some(id);
+                    self.mouse_captor = Some(id);
+                }
+                // Захват тач-жеста: кто заклеймил TouchStart (слайдер,
+                // ScrollView), тот получает и последующие TouchMove/TouchEnd,
+                // даже когда палец уходит за границы виджета.
+                if matches!(event, Event::TouchStart { .. }) {
                     self.mouse_captor = Some(id);
                 }
                 return r;
