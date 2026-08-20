@@ -129,6 +129,12 @@ pub(super) struct AppHandler {
 
     pub(super) pending_show: bool,
 
+    /// Android: активити в фоне (surface уничтожен). winit в этом состоянии
+    /// игнорирует wake-up'ы EventLoopProxy («ignore wake ups while suspended»),
+    /// поэтому цикл переводится на медленный пульс WaitUntil — см. about_to_wait.
+    #[cfg(target_os = "android")]
+    pub(super) android_suspended: bool,
+
     #[cfg(all(feature = "wayland-dnd", target_os = "linux"))]
     pub(super) wayland_dnd_handle: Option<std::thread::JoinHandle<()>>,
 }
@@ -253,6 +259,8 @@ impl AppHandler {
             last_backdrop: None,
             main_window_visible: true,
             pending_show: false,
+            #[cfg(target_os = "android")]
+            android_suspended: false,
             #[cfg(all(feature = "wayland-dnd", target_os = "linux"))]
             wayland_dnd_handle: None,
         }
