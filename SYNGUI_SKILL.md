@@ -698,13 +698,17 @@ Autocomplete::new()
 
 #### DatePicker
 ```rust
-DatePicker::new()
-    .value(Date::new(2026, 3, 20))
-    .on_change(|date| { ... })
+DatePicker::new()               // пусто + плейсхолдер локали («дд.мм.гггг»)
+    .today()                    // или .selected(Date::new(2026, 8, 20))
+    .locale(CalendarLocale::english())
+    .min_date(Date::today())
+    .on_change(|date: Option<Date>| { ... })
     .width(200.0)
 ```
-**Прямые**: `value`, `on_change`, `width`
-**MSS**: `background`, `color`, `border`
+**Прямые**: `selected`, `today`, `placeholder`, `locale`, `min_date`,
+`max_date`, `show_week_numbers`, `on_change`, `width`
+**MSS**: `background`, `color`, `border`, `accent-color` + переменные `--cal-*`
+(общая тема с `Calendar` — попап рисуется той же панелью)
 
 #### TimePicker
 ```rust
@@ -1097,12 +1101,22 @@ RichText::new(vec![
 
 #### Calendar
 ```rust
-Calendar::new()
-    .selected(Date::new(2026, 3, 20))
-    .on_select(|date| { ... })
+Calendar::new()                     // текущий месяц, сегодня выделено
+    .show_week_numbers(true)
+    .on_select(|date: Date| { ... })
+
+set_default_locale(CalendarLocale::english());   // язык всех календарей
 ```
-**Прямые**: `selected`, `on_select`
-**MSS**: `background`, `color`, `accent-color`
+Русская локаль по умолчанию. Клик по месяцу или году в заголовке — быстрый
+выбор (12 месяцев / страница из 12 лет). Сегодняшний день всегда обведён.
+
+**Прямые**: `selected`, `no_selection`, `locale`, `on_select`,
+`show_week_numbers`, `min_date`, `max_date`
+**MSS**: `background`, `color`, `border-color`, `accent-color`, `font-size`,
+`--cal-panel-bg`, `--cal-panel-border`, `--cal-muted-color`,
+`--cal-outside-color`, `--cal-weekend-color`, `--cal-today-color`,
+`--cal-selected-color`, `--cal-hover-bg`, `--cal-disabled-color`,
+`--cal-cell-size`, `--cal-radius`, `--cal-font-size`
 
 #### Accordion
 ```rust

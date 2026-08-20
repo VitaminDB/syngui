@@ -160,10 +160,14 @@ Text field with suggestion popup. Provides autocomplete as user types.
 ### DatePicker
 
 ```rust
-DatePicker::new()
-    .value(Date::new(2024, 3, 15))
-    .on_change(|date: Date| { ... })
+DatePicker::new()                       // плейсхолдер и формат — из локали
+    .today()                            // или .selected(Date::new(2026, 8, 20))
+    .min_date(Date::today())
+    .on_change(|date: Option<Date>| { ... })
 ```
+
+Попап рисуется той же панелью, что и `Calendar`: русская локаль по умолчанию,
+быстрый выбор месяца/года по клику на заголовок, обведённая сегодняшняя дата.
 
 ### TimePicker
 
@@ -274,7 +278,33 @@ RichText::new(vec![
 
 ### Calendar
 
-Month-view calendar grid.
+Сетка месяца с выбором даты. Без `.selected(...)` открывается на текущем месяце
+с выделенной сегодняшней датой.
+
+```rust
+Calendar::new()
+    .show_week_numbers(true)            // колонка номеров недель (ISO-8601)
+    .on_select(|date: Date| { ... })
+
+Calendar::new().locale(CalendarLocale::english())   // язык конкретного виджета
+set_default_locale(CalendarLocale::german());       // язык всего приложения
+```
+
+Локали: `russian()` (по умолчанию), `english()`, `german()`, `french()`,
+`spanish()`; `CalendarLocale::from_id("ru_RU.UTF-8")` и `detect()` — по
+переменным окружения. Локаль задаёт названия месяцев и дней, первый день
+недели, выходные и формат даты (`format_date`, `format_long`).
+
+Клик по названию месяца или по году в заголовке открывает быстрый выбор
+(сетка 12 месяцев / страница из 12 лет), стрелки листают месяц, год или
+страницу лет — по текущему режиму.
+
+**MSS** (общие для `Calendar` и `DatePicker`): `background`, `color`,
+`border-color`, `accent-color`, `font-size` и переменные `--cal-panel-bg`,
+`--cal-panel-border`, `--cal-muted-color`, `--cal-outside-color`,
+`--cal-weekend-color`, `--cal-today-color`, `--cal-selected-color`,
+`--cal-hover-bg`, `--cal-disabled-color`, `--cal-cell-size`, `--cal-radius`,
+`--cal-font-size`.
 
 ### Accordion
 

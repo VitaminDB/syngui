@@ -41,7 +41,8 @@ pub use scroll::{ScrollView, ScrollDirection};
 pub use visual::{
     Avatar, Badge, BadgeSize, Canvas, Card, Chip, CircularProgress,
     Divider, DividerDirection, Icon, Image, ImageFit, ProgressBar,
-    Calendar, RichText, TextSpan,
+    Calendar, CalendarLocale, CalendarTheme, DateOrder, RichText, TextSpan,
+    default_locale, set_default_locale,
     EmitKind, ParticleSystem,
 };
 #[cfg(feature = "markdown")]

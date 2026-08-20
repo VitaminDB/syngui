@@ -199,6 +199,20 @@ Chip {
     font-size: 13px;
 }
 
+/* Календарь и попап DatePicker рисуются общей панелью — одна тема на оба.
+   Переменные `--cal-*` наследуются, поэтому достаточно объявить их один раз. */
+Calendar, DatePicker {
+    --cal-panel-bg:       var(--bg-surface);
+    --cal-panel-border:   var(--border);
+    --cal-muted-color:    var(--text-subtle);
+    --cal-outside-color:  var(--text-subtle);
+    --cal-weekend-color:  var(--error);
+    --cal-today-color:    var(--accent);
+    --cal-hover-bg:       var(--bg-overlay);
+    --cal-radius:         12px;
+    --cal-cell-size:      36px;
+}
+
 /* Shared panel-like widgets */
 Calendar, ListView, TabView, Dialog,
 FloatingWindow, PopupMenu, TableView, TreeView,
