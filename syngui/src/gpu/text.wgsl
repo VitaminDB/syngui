@@ -97,10 +97,10 @@ fn fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
     // Mono glyph (или mono shadow-pass): alpha из атласа, tint vertex'ом.
     let blur = in.data.y;
     if (blur <= 0.0) {
-        // Fast-path: bitwise-identical к baseline (без shadow blur и для
-        // обычного main-text pass'а — blur там тоже 0).
+        // Coverage из растеризатора используется как есть: глифы хинтованы и
+        // снапятся к пиксельной сетке, S-кривая (smoothstep) искажала AA-покрытие.
         let texel = textureSample(font_atlas, font_sampler, in.uv);
-        let alpha = smoothstep(0.0, 1.0, texel.a);
+        let alpha = texel.a;
         return apply_rounded_clip(vec4<f32>(in.color.rgb, in.color.a * alpha), in.logical_pos);
     }
 

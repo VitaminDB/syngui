@@ -30,7 +30,7 @@ impl Batcher {
                     return;
                 }
                 let sf = self.scale_factor;
-                let phys_font_size = ((*font_size * sf) as u16).max(1);
+                let phys_font_size = ((*font_size * sf).round() as u16).max(1);
                 let phys_max_width = if *no_wrap { 0.0 } else { rect.size.width * sf };
                 let bold = *font_weight >= 700;
                 let phys_letter_spacing = *letter_spacing * sf;
@@ -112,6 +112,11 @@ impl Batcher {
                     origin_x = (origin_x * sf).round() / sf;
                 }
 
+                // Снап к физической пиксельной сетке: дробное положение квада при
+                // Linear-сэмплере атласа размывает глиф. Под не-identity transform
+                // (анимации) снап отключён, иначе текст дрожит.
+                let snap = sf > 0.0 && self.current_transform == crate::core::Transform::identity();
+
                 if let Some(shadow) = text_shadow {
                     self.ensure_batch(ShaderType::Text, None, *clip_rect);
                     let shadow_color = self.apply_opacity(shadow.color.to_array());
@@ -122,8 +127,17 @@ impl Batcher {
 
                     for glyph in glyphs.iter() {
                         if glyph.glyph.width == 0 || glyph.glyph.height == 0 { continue; }
-                        let gx = origin_x + glyph.x / sf + shadow_offset_x;
-                        let gy = origin_y + glyph.y / sf + shadow_offset_y;
+                        let (gx, gy) = if snap {
+                            (
+                                ((origin_x + shadow_offset_x) * sf + glyph.x).round() / sf,
+                                ((origin_y + shadow_offset_y) * sf + glyph.y).round() / sf,
+                            )
+                        } else {
+                            (
+                                origin_x + glyph.x / sf + shadow_offset_x,
+                                origin_y + glyph.y / sf + shadow_offset_y,
+                            )
+                        };
                         let gw = glyph.glyph.width as f32 / sf;
                         let gh = glyph.glyph.height as f32 / sf;
                         let (x, y, w, h) = if pad > 0.0 {
@@ -168,8 +182,14 @@ impl Batcher {
 
                 for glyph in glyphs.iter() {
                     if glyph.glyph.width == 0 || glyph.glyph.height == 0 { continue; }
-                    let x = origin_x + glyph.x / sf;
-                    let y = origin_y + glyph.y / sf;
+                    let (x, y) = if snap {
+                        (
+                            (origin_x * sf + glyph.x).round() / sf,
+                            (origin_y * sf + glyph.y).round() / sf,
+                        )
+                    } else {
+                        (origin_x + glyph.x / sf, origin_y + glyph.y / sf)
+                    };
                     let w = glyph.glyph.width as f32 / sf;
                     let h = glyph.glyph.height as f32 / sf;
                     let uv_x = glyph.glyph.uv_x;
@@ -193,12 +213,16 @@ impl Batcher {
 
                 if *decoration != crate::mss::TextDecoration::None && text_width > 0.0 {
                     self.ensure_batch(ShaderType::Rect, None, *clip_rect);
-                    let line_thickness = (*font_size * 0.07).max(1.0);
-                    let line_y = match decoration {
+                    let mut line_thickness = (*font_size * 0.07).max(1.0);
+                    let mut line_y = match decoration {
                         crate::mss::TextDecoration::Underline => origin_y + text_height + 2.0,
                         crate::mss::TextDecoration::LineThrough => origin_y + text_height * 0.5,
                         _ => origin_y,
                     };
+                    if snap {
+                        line_thickness = (line_thickness * sf).round().max(1.0) / sf;
+                        line_y = (line_y * sf).round() / sf;
+                    }
                     let line_rect = crate::core::Rect::new(
                         crate::core::Point::new(origin_x, line_y),
                         crate::core::Size::new(text_width, line_thickness),
@@ -228,7 +252,7 @@ impl Batcher {
             }
             DrawCommand::TextSelection { text, sel_start, sel_end, base_x, y, height, font_size, color, font_family, clip_rect, .. } => {
                 let sf = self.scale_factor;
-                let phys_font_size = ((*font_size * sf) as u16).max(1);
+                let phys_font_size = ((*font_size * sf).round() as u16).max(1);
                 let ff = font_family.as_deref();
                 let start_char_count = text[..*sel_start].chars().count();
                 let text_before_start = &text[..*sel_start];
@@ -248,7 +272,7 @@ impl Batcher {
             }
             DrawCommand::TextCursor { text, cursor_pos, base_x, y, height, font_size, font_weight, color, font_family, clip_rect, .. } => {
                 let sf = self.scale_factor;
-                let phys_font_size = (*font_size * sf) as u16;
+                let phys_font_size = ((*font_size * sf).round() as u16).max(1);
                 let bold = *font_weight >= 600;
                 let byte_pos = (*cursor_pos).min(text.len());
                 let text_before_cursor = &text[..byte_pos];
