@@ -125,9 +125,16 @@ pub fn build_input_section() -> impl Widget {
                     .gap(8.0)
                     .child(label("Date Picker"))
                     .child(
-                        DatePicker::new()
-                            .selected(Date::new(2026, 3, 3))
-                            .width(200.0),
+                        Row::new()
+                            .gap(12.0)
+                            // Плейсхолдер и формат берутся из локали.
+                            .child(DatePicker::new().width(160.0))
+                            .child(DatePicker::new().today().width(160.0))
+                            .child(
+                                DatePicker::new()
+                                    .locale(CalendarLocale::english())
+                                    .width(160.0),
+                            ),
                     ),
             )
             // TimePicker

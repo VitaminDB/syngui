@@ -43,7 +43,10 @@ pub use progress_bar::ProgressBar;
 pub use segmented_progress_bar::{SegmentState, SegmentedProgressBar};
 #[cfg(feature = "audio")]
 pub use static_waveform::StaticWaveform;
-pub use calendar::Calendar;
+pub use calendar::{
+    default_locale, set_default_locale, Calendar, CalendarLocale, CalendarTheme, CalendarVars,
+    DateOrder, PanelHit, PanelMode, PanelState,
+};
 pub use rich_text::{RichText, TextSpan};
 #[cfg(feature = "markdown")]
 pub use markdown_view::{MarkdownView, MdStyle};

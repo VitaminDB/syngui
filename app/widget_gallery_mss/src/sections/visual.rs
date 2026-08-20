@@ -281,16 +281,15 @@ pub fn build_visual_section() -> impl Widget {
                     .child(
                         Row::new()
                             .gap(16.0)
+                            // Локаль по умолчанию — русская, открывается на
+                            // текущем месяце с выделенным сегодня.
+                            .child(Calendar::new())
                             .child(
                                 Calendar::new()
-                                    .selected(Date::new(2026, 3, 3)),
-                            )
-                            .child(
-                                Calendar::new()
-                                    .selected(Date::new(2026, 3, 15))
+                                    .locale(CalendarLocale::english())
                                     .show_week_numbers(true)
-                                    .min_date(Date::new(2026, 3, 1))
-                                    .max_date(Date::new(2026, 3, 28)),
+                                    .min_date(Date::today().add_days(-10))
+                                    .max_date(Date::today().add_days(20)),
                             ),
                     ),
             )
