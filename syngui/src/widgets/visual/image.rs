@@ -23,6 +23,8 @@ pub struct Image {
     source: ImageSource,
     fit: ImageFit,
     tint: Option<Color>,
+    /// Рисовать ли встроенные заглушки «загрузка»/«ошибка».
+    placeholder: bool,
 }
 
 impl Image {
@@ -31,6 +33,7 @@ impl Image {
             source: ImageSource::Path(path.into()),
             fit: ImageFit::default(),
             tint: None,
+            placeholder: true,
         }
     }
 
@@ -42,6 +45,7 @@ impl Image {
             },
             fit: ImageFit::default(),
             tint: None,
+            placeholder: true,
         }
     }
 
@@ -50,6 +54,7 @@ impl Image {
             source: ImageSource::Url(url.into()),
             fit: ImageFit::default(),
             tint: None,
+            placeholder: true,
         }
     }
 
@@ -63,6 +68,7 @@ impl Image {
             },
             fit: ImageFit::default(),
             tint: None,
+            placeholder: true,
         }
     }
 
@@ -76,6 +82,14 @@ impl Image {
         self
     }
 
+    /// Рисовать ли встроенные заглушки, пока картинка грузится или если она
+    /// не загрузилась (серый/розовый прямоугольник со значком). `false` — до
+    /// готовности не рисуется ничего: подложку даёт родитель (обложка с
+    /// градиентом, аватар с инициалами), и битая ссылка не портит вид.
+    pub fn placeholder(mut self, show: bool) -> Self {
+        self.placeholder = show;
+        self
+    }
 }
 
 impl Widget for Image {
@@ -87,6 +101,7 @@ impl Widget for Image {
             height: None,
             fit: self.fit,
             tint: self.tint,
+            placeholder: self.placeholder,
             opacity: 1.0,
             bounds: Rect::zero(),
             classes: Vec::new(),
@@ -122,6 +137,7 @@ pub struct ImageElement {
     height: Option<Dimension>,
     fit: ImageFit,
     tint: Option<Color>,
+    placeholder: bool,
     opacity: f32,
     bounds: Rect,
     classes: Vec<String>,
@@ -205,15 +221,26 @@ impl Element for ImageElement {
                 self.request_load();
                 self.mark_dirty(DirtyFlags::LAYOUT);
             }
-            self.fit = image.fit;
+            if self.fit != image.fit {
+                self.fit = image.fit;
+                self.mark_dirty(DirtyFlags::LAYOUT);
+            }
             self.tint = image.tint;
+            self.placeholder = image.placeholder;
             self.mark_dirty(DirtyFlags::RENDER);
         }
     }
 
     fn layout(&mut self, constraints: Constraints) -> Size {
+        // Cover/Fill заполняют отведённый бокс (как `object-fit` в CSS): размер
+        // задаёт родитель, а не файл. Иначе до загрузки (и при битой ссылке)
+        // картинка получала 200×150 и заглушка торчала в углу бокса, а после —
+        // натуральную ширину с высотой по пропорции, и «cover» не накрывал бокс.
+        let fills = matches!(self.fit, ImageFit::Cover | ImageFit::Fill);
         let width = if let Some(d) = self.width {
             d.resolve(constraints.max_width).min(constraints.max_width)
+        } else if fills && constraints.has_bounded_width() {
+            constraints.max_width
         } else if let (Some(h), Some(nw), Some(nh)) = (self.height, self.natural_width, self.natural_height) {
             let aspect = nw as f32 / nh as f32;
             (h.resolve(constraints.max_height).min(constraints.max_height) * aspect).min(constraints.max_width)
@@ -225,6 +252,8 @@ impl Element for ImageElement {
 
         let height = if let Some(d) = self.height {
             d.resolve(constraints.max_height).min(constraints.max_height)
+        } else if fills && constraints.has_bounded_height() {
+            constraints.max_height
         } else if let (Some(nw), Some(nh)) = (self.natural_width, self.natural_height) {
             let aspect = nh as f32 / nw as f32;
             (width * aspect).min(constraints.max_height)
@@ -258,6 +287,9 @@ impl Element for ImageElement {
                 }
             }
             ImageLoadState::Loading => {
+                if !self.placeholder {
+                    return;
+                }
                 let bg_color = self.mss.background_color.unwrap_or_else(|| Color::from_hex("#F3F4F6"));
                 list.push_rect(self.bounds, bg_color, [4.0; 4]);
 
@@ -284,6 +316,9 @@ impl Element for ImageElement {
                 }
             }
             ImageLoadState::Failed => {
+                if !self.placeholder {
+                    return;
+                }
                 let bg_color = Color::from_hex("#FEE2E2");
                 list.push_rect(self.bounds, bg_color, [4.0; 4]);
 
