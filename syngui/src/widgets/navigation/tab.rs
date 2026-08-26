@@ -521,4 +521,46 @@ mod tests {
 
         assert_eq!(wide - base, 48.0, "16+16 по умолчанию → 40+40");
     }
+
+    /// Лента с отступом сверху: TabBar и вкладки вписываются в область
+    /// содержимого контейнера, а не в его полную высоту — нижний край
+    /// вкладки (с индикатором) лежит ровно на нижней границе ленты.
+    #[test]
+    fn strip_padding_shrinks_bar_and_tabs() {
+        use crate::testing::TestHarness;
+        use crate::widget::WidgetExt;
+        use crate::widgets::containers::DecoratedBox;
+        use crate::widgets::navigation::TabBar;
+
+        crate::signal::init_main_thread();
+        let state = use_signal(0usize);
+        let bar = TabBar::new()
+            .tab(Tab::new("Данные", 0, &state))
+            .tab(Tab::new("Период", 1, &state));
+        let strip = DecoratedBox::new().class("strip").child(bar);
+        let mut h = TestHarness::new(Box::new(strip));
+        h.apply_mss(
+            ".strip { height: 44; padding: 8 8 0 8; }
+             .strip TabBar { width: 100%; }",
+        );
+        h.layout_loose(800.0, 600.0);
+
+        let strip_id = h.root_id;
+        let strip_b = h.element_bounds(strip_id);
+        assert_eq!(strip_b.size.height, 44.0);
+
+        let bar_id = h.find_by_type_name("TabBar")[0];
+        let bar_b = h.element_bounds(bar_id);
+        assert_eq!(bar_b.origin.y, 8.0, "TabBar начинается под верхним отступом");
+        assert_eq!(bar_b.size.height, 36.0, "TabBar занимает 44 − 8");
+        assert_eq!(bar_b.origin.x, 8.0);
+        assert_eq!(bar_b.size.width, 800.0 - 16.0, "width: 100% — на всю область содержимого");
+
+        for id in h.find_by_type_name("Tab") {
+            let b = h.element_bounds(id);
+            assert_eq!(b.origin.y, 8.0);
+            assert_eq!(b.size.height, 36.0, "вкладка не выше полосы");
+            assert_eq!(b.origin.y + b.size.height, 44.0, "низ вкладки — на нижней границе ленты");
+        }
+    }
 }

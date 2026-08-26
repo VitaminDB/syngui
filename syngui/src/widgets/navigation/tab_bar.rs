@@ -190,6 +190,15 @@ impl Element for TabBarElement {
 
     fn element_type_name(&self) -> &str { "TabBar" }
 
+    /// `width`/`height` из MSS (в т.ч. проценты) — иначе движок раскладки
+    /// считает полосу по сумме вкладок и `width: 100%` не действует.
+    fn explicit_dimensions(&self, parent_width: f32, parent_height: f32) -> (Option<f32>, Option<f32>) {
+        (
+            self.mss.width.and_then(|d| d.resolve_opt(parent_width)),
+            self.mss.height.and_then(|d| d.resolve_opt(parent_height)),
+        )
+    }
+
     fn reset_mss_styles(&mut self) { self.mss.reset(); }
     fn mss(&self) -> Option<&crate::mss::MssFields> { Some(&self.mss) }
     fn apply_computed_style(&mut self, style: &ComputedStyle) {
