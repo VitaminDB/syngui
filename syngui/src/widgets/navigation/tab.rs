@@ -14,6 +14,15 @@ use crate::signal::RwSignal;
 
 pub type TabState = RwSignal<usize>;
 
+/// Бокс иконки по умолчанию (глиф рисуется внутри него по центру).
+const ICON_BOX: f32 = 20.0;
+/// Зазор между боксом иконки и заголовком.
+const ICON_GAP: f32 = 4.0;
+/// Высота текстовой строки заголовка.
+const TEXT_BOX: f32 = 18.0;
+/// Высота вкладки по умолчанию, если не задана через MSS и не ограничена родителем.
+const DEFAULT_HEIGHT: f32 = 44.0;
+
 pub struct Tab {
     pub title: String,
     pub icon: Option<String>,
@@ -57,14 +66,16 @@ impl Tab {
     }
 }
 
-impl Widget for Tab {
-    fn create_element(&self) -> Box<dyn Element> {
-        Box::new(TabElement {
+impl Tab {
+    /// Собрать элемент с уже известным состоянием выбора (без чтения сигнала —
+    /// так элемент можно строить и в тестах вне главного потока).
+    fn element(&self, is_selected: bool) -> TabElement {
+        TabElement {
             id: ElementId::new(),
             title: self.title.clone(), icon: self.icon.clone(),
             index: self.index, selected_state: self.selected_state,
             disabled: self.disabled, closable: self.closable, on_close: self.on_close.clone(),
-            is_selected: self.is_selected(),
+            is_selected,
             bounds: Rect::zero(), close_button_bounds: None,
             hover: false, hover_close: false, focused: false,
             classes: Vec::new(), dirty_flags: DirtyFlags::LAYOUT | DirtyFlags::RENDER,
@@ -74,7 +85,13 @@ impl Widget for Tab {
             badge_color: self.badge_color,
             mss_indicator_height: None,
             mss_indicator_inset: None,
-        })
+        }
+    }
+}
+
+impl Widget for Tab {
+    fn create_element(&self) -> Box<dyn Element> {
+        Box::new(self.element(self.is_selected()))
     }
 
     fn can_update(&self, other: &dyn Any) -> bool { other.is::<Self>() }
@@ -105,6 +122,30 @@ impl TabElement {
     fn start_transition_to_current_state(&mut self) {
         self.mss.start_transition_to(self.hover, false, false, self.is_selected);
     }
+
+    /// Горизонтальные отступы из MSS (`padding: 0 16`); по умолчанию 16 с каждой стороны.
+    fn horizontal_padding(&self) -> (f32, f32) {
+        let [l, _, r, _] = self.mss.padding_ltrb([16.0, 0.0, 16.0, 0.0]);
+        (l, r)
+    }
+
+    /// Сторона квадратного бокса под иконку: не меньше [`ICON_BOX`], но
+    /// растёт вместе с `icon-size`, чтобы крупный глиф не вылезал за бокс.
+    fn icon_box(&self) -> f32 {
+        self.mss.icon_size.unwrap_or(0.0).max(ICON_BOX)
+    }
+
+    /// Смещение по Y, при котором бокс высотой `box_h` стоит по центру вкладки.
+    fn centered_y(&self, box_h: f32) -> f32 {
+        self.bounds.y() + ((self.bounds.size.height - box_h) / 2.0).round()
+    }
+
+    fn close_rect(&self) -> Rect {
+        Rect::new(
+            Point::new(self.bounds.x() + self.bounds.size.width - 28.0, self.centered_y(20.0)),
+            Size::new(20.0, 20.0),
+        )
+    }
 }
 
 impl Element for TabElement {
@@ -130,10 +171,10 @@ impl Element for TabElement {
     }
 
     fn layout(&mut self, constraints: Constraints) -> Size {
-        let padding = 16.0;
+        let (pad_l, pad_r) = self.horizontal_padding();
         let font_size = self.mss.font_size_or(14.0);
         let bold = self.mss.font_weight_or(400) >= 700;
-        let icon_width = if self.icon.is_some() { 24.0 } else { 0.0 };
+        let icon_width = if self.icon.is_some() { self.icon_box() + ICON_GAP } else { 0.0 };
         let close_width = if self.closable { 24.0 } else { 0.0 };
         let text_width = self.text_measure.as_ref()
             .map(|tm| tm.measure_text_width_styled(&self.title, font_size, self.title.chars().count(), bold, self.mss.font_family.as_deref()))
@@ -144,18 +185,17 @@ impl Element for TabElement {
                 .unwrap_or(t.chars().count() as f32 * 7.0);
             8.0 + (tw + 14.0).max(18.0)
         }).unwrap_or(0.0);
-        let intrinsic = (padding * 2.0 + icon_width + text_width + badge_width + close_width).max(80.0);
+        let intrinsic = (pad_l + icon_width + text_width + badge_width + close_width + pad_r).max(80.0);
         let width = intrinsic
             .max(constraints.min_width)
             .min(constraints.max_width);
-        let height = self.mss.height.map(|d| d.resolve(constraints.max_height)).unwrap_or(44.0);
+        // Высота — из MSS или по умолчанию, но в пределах, отведённых родителем:
+        // иначе вкладка выше полосы и её индикатор у нижнего края уезжает под
+        // соседний виджет.
+        let height = self.mss.height.map(|d| d.resolve(constraints.max_height)).unwrap_or(DEFAULT_HEIGHT);
+        let height = constraints.constrain_height(height);
         self.bounds = Rect::new(Point::zero(), Size::new(width, height));
-        if self.closable {
-            self.close_button_bounds = Some(Rect::new(
-                Point::new(self.bounds.x() + width - 28.0, self.bounds.y() + 10.0),
-                Size::new(20.0, 20.0),
-            ));
-        }
+        self.close_button_bounds = self.closable.then(|| self.close_rect());
         Size::new(width, height)
     }
 
@@ -211,11 +251,14 @@ impl Element for TabElement {
             list.push_rect(indicator, primary, [0.0; 4]);
         }
 
-        let mut text_x = self.bounds.x() + 12.0;
+        let (pad_l, pad_r) = self.horizontal_padding();
+        let mut text_x = self.bounds.x() + pad_l;
         if let Some(ref icon) = self.icon {
+            let icon_box = self.icon_box();
+            let icon_px = self.mss.icon_size.unwrap_or(font_size);
             let icon_rect = Rect::new(
-                Point::new(text_x, self.bounds.y() + 10.0),
-                Size::new(20.0, 20.0),
+                Point::new(text_x, self.centered_y(icon_box)),
+                Size::new(icon_box, icon_box),
             );
             let icon_state = if self.disabled {
                 IconState::Disabled
@@ -227,10 +270,10 @@ impl Element for TabElement {
                 IconState::Normal
             };
             let icon_color = self.mss.icon_color(icon_state, gray_700);
-            list.push_text_styled(icon, icon_rect, icon_color, font_size,
+            list.push_text_styled(icon, icon_rect, icon_color, icon_px,
                 crate::mss::TextAlign::DEFAULT, crate::mss::TextDecoration::None,
                 font_weight, self.mss.font_family.clone());
-            text_x += 24.0;
+            text_x += icon_box + ICON_GAP;
         }
 
         let text_color = if self.mss.has_mss_styles {
@@ -243,7 +286,7 @@ impl Element for TabElement {
             gray_500
         };
 
-        let right_padding = if self.closable { 36.0 } else { 8.0 };
+        let right_padding = if self.closable { 36.0 } else { pad_r };
         let badge_bg_width = self.badge.as_ref().map(|t| {
             let tw = self.text_measure.as_ref()
                 .map(|tm| tm.measure_text_width(t, 11.0, t.chars().count()))
@@ -253,8 +296,8 @@ impl Element for TabElement {
         let badge_reserve = if badge_bg_width > 0.0 { badge_bg_width + 8.0 } else { 0.0 };
 
         let text_rect = Rect::new(
-            Point::new(text_x, self.bounds.y() + 11.0),
-            Size::new((self.bounds.size.width - (text_x - self.bounds.x()) - right_padding - badge_reserve).max(0.0), 18.0),
+            Point::new(text_x, self.centered_y(TEXT_BOX)),
+            Size::new((self.bounds.size.width - (text_x - self.bounds.x()) - right_padding - badge_reserve).max(0.0), TEXT_BOX),
         );
         list.push_text_styled(&self.title, text_rect, text_color, font_size,
             crate::mss::TextAlign::DEFAULT, crate::mss::TextDecoration::None,
@@ -368,8 +411,8 @@ impl Element for TabElement {
     fn bounds(&self) -> Rect { self.bounds }
     fn set_position(&mut self, pos: Point) {
         self.bounds.origin = pos;
-        if let Some(ref mut close_rect) = self.close_button_bounds {
-            close_rect.origin = Point::new(pos.x + self.bounds.size.width - 28.0, pos.y + 10.0);
+        if self.close_button_bounds.is_some() {
+            self.close_button_bounds = Some(self.close_rect());
         }
     }
     fn mark_dirty(&mut self, flags: DirtyFlags) { self.dirty_flags |= flags; }
@@ -432,4 +475,50 @@ impl StyledElement for TabElement {
     fn apply_style(&mut self, _style: &ComputedStyle) { self.mark_dirty(DirtyFlags::RENDER); }
     fn classes(&self) -> &[String] { &self.classes }
     fn set_classes(&mut self, classes: Vec<String>) { self.classes = classes; self.mark_dirty(DirtyFlags::RENDER); }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{Tab, DEFAULT_HEIGHT};
+    use crate::core::Size;
+    use crate::layout::Constraints;
+    use crate::mss::{ComputedStyle, StyleValue};
+    use crate::signal::use_signal;
+    use crate::widget::Element;
+
+    fn tab_element(title: &str) -> super::TabElement {
+        let state = use_signal(0usize);
+        Tab::new(title, 0, &state).element(false)
+    }
+
+    /// Вкладка не выше, чем позволяет родитель: иначе её индикатор у нижнего
+    /// края оказывается за пределами полосы и перекрывается соседним виджетом.
+    #[test]
+    fn height_is_clamped_to_parent_constraints() {
+        let mut el = tab_element("Данные");
+        let size = el.layout(Constraints::new(0.0, 500.0, 0.0, 40.0));
+        assert_eq!(size.height, 40.0);
+        assert_eq!(el.bounds().size.height, 40.0);
+
+        let mut el = tab_element("Данные");
+        let size = el.layout(Constraints::new(0.0, 500.0, 0.0, f32::INFINITY));
+        assert_eq!(size.height, DEFAULT_HEIGHT, "без ограничения — высота по умолчанию");
+    }
+
+    /// Горизонтальные отступы вкладки задаются через MSS `padding`.
+    #[test]
+    fn horizontal_padding_comes_from_mss() {
+        let loose = Constraints::loose(Size::new(1000.0, 100.0));
+        let mut plain = tab_element("Показания за период");
+        let base = plain.layout(loose).width;
+
+        let mut padded = tab_element("Показания за период");
+        let mut style = ComputedStyle::new();
+        style.set("padding-left", StyleValue::Number(40.0));
+        style.set("padding-right", StyleValue::Number(40.0));
+        padded.apply_computed_style(&style);
+        let wide = padded.layout(loose).width;
+
+        assert_eq!(wide - base, 48.0, "16+16 по умолчанию → 40+40");
+    }
 }

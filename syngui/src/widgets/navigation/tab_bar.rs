@@ -115,7 +115,9 @@ impl Element for TabBarElement {
     }
 
     fn layout(&mut self, constraints: Constraints) -> Size {
+        // Как и у вкладок: высота из MSS или 44, но не выше, чем разрешил родитель.
         let height = self.mss.height.map(|d| d.resolve(constraints.max_height)).unwrap_or(44.0);
+        let height = constraints.constrain_height(height);
         let width = constraints.max_width;
 
         self.bounds = Rect::new(Point::zero(), Size::new(width, height));
