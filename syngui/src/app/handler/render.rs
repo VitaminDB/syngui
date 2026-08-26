@@ -431,6 +431,17 @@ impl AppHandler {
             debug.record_frame(dt.as_secs_f32());
         }
 
+        #[cfg(feature = "i18n")]
+        if let Some(renderer) = self.renderer.as_ref() {
+            let lang = crate::i18n::language();
+            let base = lang.base();
+            renderer
+                .font_atlas
+                .lock()
+                .unwrap()
+                .set_preferred_cjk(base == "ja", base == "ko");
+        }
+
         if let Some(theme_state) = self.config.theme_state {
             let is_dark = theme_state.get_untracked();
             if is_dark != self.current_theme_is_dark {
