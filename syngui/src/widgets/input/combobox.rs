@@ -18,6 +18,7 @@ pub struct Combobox {
     placeholder: String,
     on_change: Option<Arc<Mutex<dyn FnMut(&str) + Send>>>,
     width: Option<Dimension>,
+    popup_min_width: Option<f32>,
 }
 
 impl Combobox {
@@ -28,7 +29,17 @@ impl Combobox {
             placeholder: String::new(),
             on_change: None,
             width: None,
+            popup_min_width: None,
         }
+    }
+
+    /// Минимальная ширина выпадающего списка. Полезно для узких полей с
+    /// длинными подписями пунктов: попап становится шире поля (прижимается к
+    /// правому краю окна, если не помещается), а пункты не переносятся.
+    /// То же задаётся из MSS переменной `--popup-min-width`.
+    pub fn popup_min_width(mut self, w: f32) -> Self {
+        self.popup_min_width = Some(w);
+        self
     }
 
     pub fn text(mut self, text: impl Into<String>) -> Self {
@@ -79,6 +90,9 @@ impl Widget for Combobox {
             mss_popup_hover_bg: None,
             mss_popup_hover_fg: None,
             mss_popup_max_height: None,
+            popup_min_width: self.popup_min_width,
+            mss_popup_min_width: None,
+            viewport_width: 0.0,
             mss_popup_min_height: None,
         })
     }
@@ -119,6 +133,10 @@ pub struct ComboboxElement {
     mss_popup_hover_fg: Option<Color>,
     mss_popup_max_height: Option<f32>,
     mss_popup_min_height: Option<f32>,
+    popup_min_width: Option<f32>,
+    mss_popup_min_width: Option<f32>,
+    /// Ширина окна на момент открытия — чтобы широкий попап не уезжал за край.
+    viewport_width: f32,
 }
 
 impl ComboboxElement {
@@ -151,6 +169,12 @@ impl ComboboxElement {
                 .map(|(i, _)| i)
                 .collect()
         };
+        // Список стал короче — смещение прокрутки не должно уводить за конец.
+        let h = self.effective_popup_height(self.filtered_indices.len());
+        let max_scroll = (self.filtered_indices.len() as f32 * ITEM_HEIGHT - h).max(0.0);
+        if self.scroll_offset > max_scroll {
+            self.scroll_offset = max_scroll;
+        }
     }
 
     fn dropdown_rect(&self) -> Rect {
@@ -162,10 +186,13 @@ impl ComboboxElement {
         } else {
             self.bounds.y() + INPUT_HEIGHT + popup_gap
         };
-        Rect::new(
-            Point::new(self.bounds.x(), y),
-            Size::new(self.bounds.size.width, h),
-        )
+        let min_w = self.popup_min_width.or(self.mss_popup_min_width).unwrap_or(0.0);
+        let w = self.bounds.size.width.max(min_w);
+        let mut x = self.bounds.x();
+        if self.viewport_width > 0.0 && x + w > self.viewport_width - 8.0 {
+            x = (self.viewport_width - 8.0 - w).max(0.0);
+        }
+        Rect::new(Point::new(x, y), Size::new(w, h))
     }
 
     fn fire_change(&self) {
@@ -183,6 +210,7 @@ impl Element for ComboboxElement {
             self.placeholder = cb.placeholder.clone();
             self.on_change = cb.on_change.clone();
             self.width = cb.width;
+            self.popup_min_width = cb.popup_min_width;
             self.update_filter();
             self.mark_dirty(DirtyFlags::LAYOUT | DirtyFlags::RENDER);
         }
@@ -212,9 +240,9 @@ impl Element for ComboboxElement {
             Size::new(self.bounds.size.width - 40.0, 16.0),
         );
         if self.text.is_empty() {
-            list.push_text(&self.placeholder, text_rect, muted, 14.0);
+            list.push_text_singleline(&self.placeholder, text_rect, muted, 14.0, crate::mss::TextAlign::LEFT | crate::mss::TextAlign::VCENTER, 400);
         } else {
-            list.push_text(&self.text, text_rect, fg, 14.0);
+            list.push_text_singleline(&self.text, text_rect, fg, 14.0, crate::mss::TextAlign::LEFT | crate::mss::TextAlign::VCENTER, 400);
         }
 
         if self.focused {
@@ -312,7 +340,9 @@ impl Element for ComboboxElement {
                 } else {
                     popup_fg
                 };
-                list.push_text(&item.label, ir, color, 14.0);
+                // Одна строка: длинная подпись обрезается клипом попапа, а не
+                // переносится поверх соседних пунктов.
+                list.push_text_singleline(&item.label, ir, color, 14.0, crate::mss::TextAlign::LEFT | crate::mss::TextAlign::VCENTER, 400);
             }
 
             list.pop_clip();
@@ -372,20 +402,36 @@ impl Element for ComboboxElement {
                     self.is_open = !self.is_open;
                     if self.is_open {
                         self.update_filter();
+                        // Список открывается с начала; если текущее значение
+                        // есть среди пунктов — прокручиваем к нему.
+                        self.scroll_offset = 0.0;
                         let popup_gap = 4.0;
                         let dd_h = self.effective_popup_height(self.filtered_indices.len());
+                        self.viewport_width = ctx.viewport_size().width;
                         self.opens_upward = self.bounds.y() + INPUT_HEIGHT + dd_h + popup_gap > ctx.viewport_size().height
                             && self.bounds.y() >= dd_h + popup_gap;
                         let dd = self.dropdown_rect();
+                        if let Some(vi) = self.filtered_indices.iter().position(|&i| {
+                            self.items[i].value == self.text || self.items[i].label == self.text
+                        }) {
+                            let max_scroll = (self.filtered_indices.len() as f32 * ITEM_HEIGHT
+                                - dd.size.height)
+                                .max(0.0);
+                            self.scroll_offset = (vi as f32 * ITEM_HEIGHT).min(max_scroll);
+                        }
+                        // Область оверлея — объединение поля и попапа (попап
+                        // может быть шире поля и сдвинут влево).
+                        let left = self.bounds.x().min(dd.x());
+                        let right = (self.bounds.x() + self.bounds.size.width).max(dd.x() + dd.size.width);
                         let overlay_bounds = if self.opens_upward {
                             Rect::new(
-                                Point::new(self.bounds.x(), dd.y()),
-                                Size::new(self.bounds.size.width, dd.size.height + popup_gap + INPUT_HEIGHT),
+                                Point::new(left, dd.y()),
+                                Size::new(right - left, dd.size.height + popup_gap + INPUT_HEIGHT),
                             )
                         } else {
                             Rect::new(
-                                self.bounds.origin,
-                                Size::new(self.bounds.size.width, INPUT_HEIGHT + popup_gap + dd.size.height),
+                                Point::new(left, self.bounds.y()),
+                                Size::new(right - left, INPUT_HEIGHT + popup_gap + dd.size.height),
                             )
                         };
                         ctx.register_overlay(overlay_bounds, false);
@@ -568,6 +614,7 @@ impl Element for ComboboxElement {
         if let Some(c) = style.get("--popup-hover-color").and_then(|v| v.as_color()) { self.mss_popup_hover_fg = Some(mss_color_to_core(c)); }
         if let Some(d) = style.get("--popup-max-height").and_then(|v| v.as_dimension()) { self.mss_popup_max_height = Some(d.resolve(1000.0)); }
         if let Some(d) = style.get("--popup-min-height").and_then(|v| v.as_dimension()) { self.mss_popup_min_height = Some(d.resolve(1000.0)); }
+        if let Some(d) = style.get("--popup-min-width").and_then(|v| v.as_dimension()) { self.mss_popup_min_width = Some(d.resolve(1000.0)); }
         self.apply_style(style);
     }
 
