@@ -42,6 +42,9 @@ impl AppHandler {
             .with_title(&self.config.title);
 
         let window = Arc::new(Window::new(event_loop, window_builder));
+        // Веб: пропуск F-клавиш браузеру — до того, как canvas получит фокус.
+        #[cfg(target_arch = "wasm32")]
+        crate::app::web_keys::install();
         self.scale_factor = window.scale_factor();
         self.main_window_id = Some(window.winit_window().id());
         self.window = Some(window.clone());
@@ -245,12 +248,25 @@ impl AppHandler {
         }
         #[cfg(target_arch = "wasm32")]
         {
+            // В браузере у canvas нет свёртывания/разворачивания/скрытия;
+            // полноэкранный режим есть — через Fullscreen API (winit).
             self.tree.window_minimize_request = false;
             self.tree.window_toggle_maximize_request = false;
-            self.tree.window_toggle_fullscreen_request = false;
             self.tree.window_hide_request = false;
             self.tree.window_show_request = false;
             self.tree.window_toggle_visibility_request = false;
+            if self.tree.window_toggle_fullscreen_request {
+                self.tree.window_toggle_fullscreen_request = false;
+                if let Some(window) = self.window.as_ref() {
+                    let winit_window = window.winit_window();
+                    let is_fs = winit_window.fullscreen().is_some();
+                    winit_window.set_fullscreen(if is_fs {
+                        None
+                    } else {
+                        Some(winit::window::Fullscreen::Borderless(None))
+                    });
+                }
+            }
         }
     }
 
@@ -260,8 +276,10 @@ impl AppHandler {
         v
     }
 
+    /// Снимает флаги окна (развёрнуто / полноэкранно / в фокусе) и разносит
+    /// их в сигнал `WindowState` и MSS-псевдоклассы. В браузере «развёрнуто»
+    /// всегда false, полноэкранность — по `document.fullscreenElement`.
     pub(in crate::app) fn sync_window_flags(&mut self) {
-        #[cfg(not(target_arch = "wasm32"))]
         {
             use crate::mss::window_flags as wf;
             let (maximized, fullscreen, focused, request_redraw) = {

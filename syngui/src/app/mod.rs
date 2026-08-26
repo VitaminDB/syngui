@@ -18,6 +18,8 @@ pub(crate) mod single_instance;
 
 #[cfg(target_os = "android")]
 pub mod notification;
+#[cfg(target_arch = "wasm32")]
+pub(crate) mod web_keys;
 
 pub use builder::{AppBuilder, WindowConfig};
 pub use tray::{TrayCloseAction, TrayConfig, TrayMenuItem};

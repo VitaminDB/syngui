@@ -308,9 +308,12 @@ pub fn primary_window() -> Option<Arc<crate::window::Window>> {
     PRIMARY_WINDOW.with(|cell| cell.borrow().clone())
 }
 
+/// Переключить полноэкранный режим главного окна. В браузере — Fullscreen
+/// API для canvas: вызывать из обработчика действия пользователя (клик,
+/// клавиша), иначе браузер отклонит запрос.
 #[cfg(feature = "winit")]
 pub fn toggle_fullscreen() {
-    #[cfg(not(any(target_arch = "wasm32", target_os = "android")))]
+    #[cfg(not(target_os = "android"))]
     if let Some(window) = primary_window() {
         let win = window.winit_window();
         let is_fs = win.fullscreen().is_some();

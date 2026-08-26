@@ -113,6 +113,8 @@ pub struct AppBuilder {
     pub(super) window_icon_png: Option<Vec<u8>>,
     pub(super) tray_config: Option<crate::app::tray::TrayConfig>,
     pub(super) single_instance_id: Option<String>,
+    /// Web: клавиши F1–F12, которые получает приложение (остальные — браузеру).
+    pub(super) captured_function_keys: crate::input::FunctionKeys,
 }
 
 impl AppBuilder {
@@ -160,6 +162,7 @@ impl AppBuilder {
             window_icon_png: None,
             tray_config: None,
             single_instance_id: None,
+            captured_function_keys: crate::input::FunctionKeys::NONE,
         }
     }
 
@@ -354,8 +357,23 @@ impl AppBuilder {
         self
     }
 
+    /// Полноэкранный режим при запуске. В браузере не применяется: Fullscreen
+    /// API требует действия пользователя — включайте по клику через
+    /// [`crate::signal::toggle_fullscreen`] или F11 (если клавиша
+    /// перехвачена, см. [`Self::capture_function_keys`]).
     pub fn fullscreen(mut self, fullscreen: bool) -> Self {
         self.fullscreen = fullscreen;
+        self
+    }
+
+    /// Веб-сборка: какие клавиши F1–F12 получает приложение. Остальные
+    /// остаются браузеру (F5 — перезагрузка, F11 — полноэкранный режим,
+    /// F12 — инструменты разработчика): событие до canvas не доходит.
+    /// По умолчанию — [`FunctionKeys::NONE`](crate::input::FunctionKeys::NONE).
+    /// На других платформах приложение получает все клавиши, настройка не
+    /// влияет. Менять на лету — [`crate::input::set_captured_function_keys`].
+    pub fn capture_function_keys(mut self, keys: crate::input::FunctionKeys) -> Self {
+        self.captured_function_keys = keys;
         self
     }
 
@@ -549,6 +567,7 @@ impl AppBuilder {
 
         #[cfg(target_arch = "wasm32")]
         {
+            crate::input::set_captured_function_keys(self.captured_function_keys);
             let mut app_handler = super::handler::AppHandler::new(self, root_factory.clone(), style_engine, initial_is_dark);
             use winit::platform::web::EventLoopExtWebSys;
             let event_loop = winit::event_loop::EventLoop::<super::user_event::SynGuiUserEvent>::with_user_event()

@@ -1898,6 +1898,42 @@ App::new()
 Работает поверх `ext-background-effect-v1` (KWin 6.7+), `org_kde_kwin_blur`
 или X11-свойства `_KDE_NET_WM_BLUR_BEHIND_REGION` — что найдётся.
 
+## 11. Веб-сборка (wasm32)
+
+### Функциональные клавиши F1–F12
+
+winit на web вызывает `preventDefault()` для всех клавиш, пришедших на canvas
+(иначе Tab/Backspace/пробел ломали бы страницу), поэтому F5, F11, F12 «глохнут».
+Фреймворк ставит capture-слушатель на `window` и останавливает F-клавиши,
+которые приложение **не** перехватывает, до canvas — браузер выполняет своё
+действие (F5 — перезагрузка, F11 — полноэкранный режим, F12 — devtools).
+
+```rust
+use syngui::input::{FunctionKeys, Key};
+
+App::new()
+    // По умолчанию FunctionKeys::NONE — все F1–F12 остаются браузеру.
+    .capture_function_keys(FunctionKeys::of(&[Key::F2, Key::F11]))
+    .run(...);
+
+// На лету (например, пока открыт редактор):
+syngui::input::set_captured_function_keys(FunctionKeys::ALL);
+let now = syngui::input::captured_function_keys();
+```
+
+Перехваченные клавиши приходят в `Event::KeyDown` как обычно; F11 при этом
+переключает полноэкранный режим canvas, F12 — devtools syngui. На native и
+Android настройка не влияет: там приложение получает все клавиши.
+
+### Полноэкранный режим
+
+`syngui::signal::toggle_fullscreen()` и `WindowControl`-запросы работают и в
+браузере — через Fullscreen API для canvas. Вызывать из обработчика действия
+пользователя (клик, клавиша): без transient activation браузер отклонит запрос,
+поэтому `App::new().fullscreen(true)` при старте в web не применяется. Выход —
+Esc или повторный вызов; `WindowState.fullscreen` и псевдокласс
+`:window-fullscreen` обновляются по `Resized`/`Focused`.
+
 ---
 
 ## Краткая справка

@@ -359,6 +359,11 @@ web-sys = { version = "0.3", features = [
     "HtmlElement",
     "HtmlCanvasElement",
     "Response",
+    # Пропуск функциональных клавиш браузеру (app/web_keys.rs).
+    "Event",
+    "EventTarget",
+    "KeyboardEvent",
+    "console",
 ] }
 
 [dev-dependencies]

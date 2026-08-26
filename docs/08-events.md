@@ -94,6 +94,30 @@ enum Key {
 }
 ```
 
+### Function keys on web
+
+On wasm32 winit calls `preventDefault()` for every key delivered to the canvas,
+which silently disables browser shortcuts such as F5 (reload), F11 (browser
+fullscreen) and F12 (devtools). `syngui::input::FunctionKeys` declares which of
+F1–F12 the application captures; every other function key is stopped by a
+capture-phase listener on `window` before it reaches the canvas, so the browser
+performs its default action.
+
+```rust
+use syngui::input::{FunctionKeys, Key};
+
+App::new()
+    .capture_function_keys(FunctionKeys::of(&[Key::F2, Key::F11]))  // default: NONE
+    .run(...);
+
+// Change at runtime:
+syngui::input::set_captured_function_keys(FunctionKeys::ALL);
+```
+
+Captured keys arrive as regular `Event::KeyDown`; F11 additionally toggles
+canvas fullscreen and F12 the syngui devtools. On native and Android the
+application always receives all keys and the setting has no effect.
+
 ## Event Dispatch
 
 Events flow through the element tree via depth-first traversal:

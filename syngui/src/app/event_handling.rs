@@ -354,7 +354,10 @@ impl winit::application::ApplicationHandler<SynGuiUserEvent> for AppHandler {
                     }
                 }
 
-                #[cfg(not(any(target_arch = "wasm32", target_os = "android")))]
+                // В браузере сюда F11 попадает, только если приложение её
+                // перехватило (`AppBuilder::capture_function_keys`); иначе
+                // клавишу обрабатывает сам браузер.
+                #[cfg(not(target_os = "android"))]
                 if event.state == winit::event::ElementState::Pressed {
                     if let PhysicalKey::Code(winit::keyboard::KeyCode::F11) = event.physical_key {
                         if let Some(window) = &self.window {
