@@ -80,6 +80,7 @@ pub struct EventContext {
     pub(crate) focused_text: Option<String>,
     pub(crate) scroll_into_view_request: Option<crate::core::Rect>,
     pub(crate) start_window_drag: bool,
+    pub(crate) start_window_resize: Option<crate::input::ResizeDirection>,
     pub(crate) close_window: bool,
     pub(crate) minimize_window: bool,
     pub(crate) toggle_maximize_window: bool,
@@ -113,6 +114,7 @@ impl EventContext {
             focused_text: None,
             scroll_into_view_request: None,
             start_window_drag: false,
+            start_window_resize: None,
             close_window: false,
             minimize_window: false,
             toggle_maximize_window: false,
@@ -144,6 +146,7 @@ impl EventContext {
             || self.focused_text.is_some()
             || self.scroll_into_view_request.is_some()
             || self.start_window_drag
+            || self.start_window_resize.is_some()
             || self.close_window
             || self.minimize_window
             || self.toggle_maximize_window
@@ -167,6 +170,14 @@ impl EventContext {
 
     pub fn start_window_drag(&mut self) {
         self.start_window_drag = true;
+    }
+
+    /// Просит оконную систему начать интерактивное изменение размера окна за
+    /// указанную сторону/угол — для frameless-окон, у которых нет системной
+    /// рамки с зонами захвата. Обрабатывается после события, как и
+    /// [`start_window_drag`](Self::start_window_drag).
+    pub fn start_window_resize(&mut self, direction: crate::input::ResizeDirection) {
+        self.start_window_resize = Some(direction);
     }
 
     pub fn close_window(&mut self) {

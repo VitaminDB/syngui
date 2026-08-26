@@ -826,3 +826,38 @@ mod tests {
         }
     }
 }
+
+/// Сторона или угол окна, за которые пользователь тянет frameless-окно.
+///
+/// Используется [`crate::widget::EventContext::start_window_resize`] и виджетом
+/// [`crate::widgets::overlay::WindowResizeRegion`]: у окна без системной рамки
+/// композитор не даёт захвата за края, поэтому приложение само определяет
+/// зону и просит оконную систему начать интерактивный ресайз.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+pub enum ResizeDirection {
+    North,
+    South,
+    East,
+    West,
+    NorthEast,
+    NorthWest,
+    SouthEast,
+    SouthWest,
+}
+
+impl ResizeDirection {
+    /// Курсор, соответствующий направлению — показывается, пока указатель
+    /// находится над зоной захвата.
+    pub fn cursor(self) -> CursorIcon {
+        match self {
+            Self::North => CursorIcon::NResize,
+            Self::South => CursorIcon::SResize,
+            Self::East => CursorIcon::EResize,
+            Self::West => CursorIcon::WResize,
+            Self::NorthEast => CursorIcon::NeResize,
+            Self::NorthWest => CursorIcon::NwResize,
+            Self::SouthEast => CursorIcon::SeResize,
+            Self::SouthWest => CursorIcon::SwResize,
+        }
+    }
+}

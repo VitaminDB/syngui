@@ -173,6 +173,26 @@ impl AppHandler {
     }
 
     pub(in crate::app) fn process_window_drag_request(&mut self) {
+        if let Some(direction) = self.tree.window_resize_request.take() {
+            #[cfg(not(target_arch = "wasm32"))]
+            if let Some(window) = self.window.as_ref() {
+                use crate::input::ResizeDirection as D;
+                use winit::window::ResizeDirection as W;
+                let direction = match direction {
+                    D::North => W::North,
+                    D::South => W::South,
+                    D::East => W::East,
+                    D::West => W::West,
+                    D::NorthEast => W::NorthEast,
+                    D::NorthWest => W::NorthWest,
+                    D::SouthEast => W::SouthEast,
+                    D::SouthWest => W::SouthWest,
+                };
+                if let Err(err) = window.winit_window().drag_resize_window(direction) {
+                    eprintln!("[syngui] drag_resize_window failed: {err}");
+                }
+            }
+        }
         if !self.tree.window_drag_request {
             return;
         }

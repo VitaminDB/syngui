@@ -421,6 +421,9 @@ impl ElementTree {
             self.window_drag_request = true;
             ctx.start_window_drag = false;
         }
+        if let Some(direction) = ctx.start_window_resize.take() {
+            self.window_resize_request = Some(direction);
+        }
         if ctx.close_window {
             self.window_close_request = true;
             ctx.close_window = false;

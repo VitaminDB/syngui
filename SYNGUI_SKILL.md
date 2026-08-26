@@ -1862,6 +1862,24 @@ Row::new()
 Раскладка — из `kwinrc` / `gsettings`, внешний вид на KDE — из SVG темы
 Aurorae (все состояния кнопки), иначе — встроенный вектор по MSS-цветам.
 
+### Ресайз frameless-окна за края
+
+У окна без системной рамки (`frameless()`) композитор не даёт захвата за
+края. `WindowResizeRegion` оборачивает корень: полоса шириной `inset` вдоль
+каждого края показывает курсор-стрелку и по нажатию просит оконную систему
+начать интерактивный ресайз (`EventContext::start_window_resize`). В
+развёрнутом и полноэкранном окне зона выключается сама.
+
+```rust
+use syngui::widgets::overlay::WindowResizeRegion;
+
+// inset = прозрачный «воздух» вокруг шелла (`.window-backdrop { padding }`),
+// тогда зона захвата лежит в отступе и не перекрывает содержимое.
+WindowResizeRegion::new().inset(24.0).child(
+    DecoratedBox::new().class("window-backdrop").child(shell),
+)
+```
+
 ### Размытие фона (feature `system-blur`)
 
 ```rust

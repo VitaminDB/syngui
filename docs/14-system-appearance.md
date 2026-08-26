@@ -98,6 +98,29 @@ pub struct SystemDecorations {
 }
 ```
 
+## Ресайз frameless-окна
+
+Перетаскивание за титлбар (`WindowDragRegion`) — лишь половина
+собственной рамки: у окна без декораций нет и зон захвата для изменения
+размера. `WindowResizeRegion` добавляет их сам: полоса шириной `inset`
+вдоль каждого края (и угловые зоны 24px) показывает курсор-стрелку, а
+нажатие левой кнопкой вызывает `EventContext::start_window_resize(dir)` —
+фреймворк передаёт направление в `winit::Window::drag_resize_window`, и
+дальше окно тянет оконная система, как обычную рамку.
+
+```rust
+use syngui::widgets::overlay::WindowResizeRegion;
+
+WindowResizeRegion::new()
+    .inset(24.0)          // = padding прозрачного «воздуха» вокруг шелла
+    .child(DecoratedBox::new().class("window-backdrop").child(shell))
+```
+
+Дочерние элементы получают события первыми, поэтому кнопки у самого края
+продолжают работать. Когда окно развёрнуто или в полноэкранном режиме,
+зона отключается (по флагам `:window-maximized` / `:window-fullscreen`),
+иначе она легла бы на содержимое у края экрана.
+
 ## Размытие фона
 
 ```rust
