@@ -321,13 +321,13 @@ impl Element for VideoViewElement {
 
     fn accessibility_info(&self) -> Option<crate::a11y::AccessibilityInfo> {
         let label = if let Ok(p) = self.player.lock() {
-            format!(
-                "Видео {}×{}",
-                p.meta().width,
-                p.meta().height
+            crate::i18n::builtin_args(
+                "video.a11y",
+                "Video {w}×{h}",
+                &[("w", &p.meta().width), ("h", &p.meta().height)],
             )
         } else {
-            "Видео".to_string()
+            crate::i18n::builtin("video.a11y_short", "Video")
         };
         Some(crate::a11y::AccessibilityInfo {
             role: crate::a11y::Role::Image,

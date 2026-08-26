@@ -42,6 +42,14 @@ pub struct TimePicker {
     use_24h: bool,
 }
 
+fn period_label(hour: u32) -> String {
+    if hour < 12 {
+        crate::i18n::builtin("time_picker.am", "AM")
+    } else {
+        crate::i18n::builtin("time_picker.pm", "PM")
+    }
+}
+
 impl TimePicker {
     pub fn new() -> Self {
         Self {
@@ -198,7 +206,7 @@ impl TimePickerElement {
         if self.use_24h {
             time.format()
         } else {
-            let period = if time.hour < 12 { "AM" } else { "PM" };
+            let period = period_label(time.hour);
             let h12 = if time.hour == 0 { 12 } else if time.hour > 12 { time.hour - 12 } else { time.hour };
             format!("{}:{:02} {}", h12, time.minute, period)
         }
@@ -406,17 +414,17 @@ impl Element for TimePickerElement {
         list.push_text_centered("\u{E313}", rects.minute_down, popup_fg_secondary, 14.0);
 
         if !self.use_24h {
-            let period = if self.view_hour < 12 { "AM" } else { "PM" };
+            let period = period_label(self.view_hour);
             let period_rect = Rect::new(
                 Point::new(rects.minute_value.x() + SPINNER_WIDTH + 4.0, rects.minute_value.y()),
                 Size::new(32.0, VALUE_HEIGHT),
             );
-            list.push_text_centered(period, period_rect, popup_fg_secondary, 14.0);
+            list.push_text_centered(&period, period_rect, popup_fg_secondary, 14.0);
         }
 
         let confirm_bg = if self.hover_zone == HoverZone::Confirm { accent.darken(0.1) } else { accent };
         list.push_rect(rects.confirm, confirm_bg, [6.0; 4]);
-        list.push_text_centered("OK", rects.confirm, Color::WHITE, 14.0);
+        list.push_text_centered(&crate::i18n::builtin("time_picker.ok", "OK"), rects.confirm, Color::WHITE, 14.0);
 
         list.end_overlay();
     }

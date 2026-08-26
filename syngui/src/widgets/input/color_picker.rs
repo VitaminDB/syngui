@@ -523,7 +523,7 @@ impl Element for ColorPickerElement {
 
         let hex_rect = self.hex_row_rect(popup);
         let hex_label_rect = Rect::new(hex_rect.origin, Size::new(36.0, hex_rect.size.height));
-        list.push_text("HEX", hex_label_rect, popup_fg.with_alpha(0.6), 11.0);
+        list.push_text(&crate::i18n::builtin("color_picker.hex", "HEX"), hex_label_rect, popup_fg.with_alpha(0.6), 11.0);
 
         let hex_input_rect = Rect::new(
             Point::new(hex_rect.x() + 36.0, hex_rect.y() + 2.0),

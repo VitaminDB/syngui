@@ -79,7 +79,7 @@ pub fn allow_signal_reads_on_this_thread() {
     THREAD_OWNS_SIGNALS.with(|c| c.set(true));
 }
 
-fn is_main_thread() -> bool {
+pub(crate) fn is_main_thread() -> bool {
     #[cfg(target_arch = "wasm32")]
     { true }
     #[cfg(not(target_arch = "wasm32"))]

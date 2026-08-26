@@ -103,15 +103,18 @@ This is a young framework built by one person. It is used in production by its a
 has 880+ tests, and carries no `todo!()` stubs — but you should know what's missing
 before you adopt it:
 
-- **Text shaping is simple.** Glyph advances are summed per-character. Latin and Cyrillic
-  render correctly; there is no kerning, no ligatures, no GSUB/GPOS, no bidirectional text,
-  and no complex-script support (Arabic joining, Devanagari reordering). If you need those,
-  this framework is not ready for you yet.
+- **Text shaping is simple.** Glyph advances are summed per-character. Latin, Cyrillic and
+  CJK render correctly (CJK through a system-font fallback chain with ideographic line
+  breaks); there is no kerning, no ligatures, no GSUB/GPOS, no bidirectional text, and no
+  complex-script support (Arabic joining, Devanagari reordering). If you need those, this
+  framework is not ready for you yet.
 - **Accessibility is behind a non-default feature.** AccessKit integration exists
   (AT-SPI / UIA / NSAccessibility) but is not enabled by default and is not continuously
   tested.
 - **No CI yet.** Windows, macOS, and Android builds are verified manually.
-- **No i18n layer.** Strings are inline; there is no translation mechanism yet.
+- **i18n is minimal by design.** `syngui::i18n` gives you `key = "value"` catalogs, `tr!`/`trn!`
+  with CLDR-style plural rules, live language switching and OS locale detection — but no
+  number/date formatting beyond the calendar widget.
 - **API is not stable.** Expect breaking changes.
 
 ## Building

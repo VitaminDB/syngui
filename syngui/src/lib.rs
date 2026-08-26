@@ -17,6 +17,21 @@ pub mod debug;
 pub mod devtools;
 pub mod effects;
 pub mod gpu;
+#[cfg(feature = "i18n")]
+pub mod i18n;
+#[cfg(not(feature = "i18n"))]
+pub(crate) mod i18n {
+    pub(crate) fn builtin(_key: &str, fallback: &str) -> String {
+        fallback.to_string()
+    }
+    pub(crate) fn builtin_args(_key: &str, fallback: &str, args: &[(&str, &dyn std::fmt::Display)]) -> String {
+        let mut out = fallback.to_string();
+        for (name, value) in args {
+            out = out.replace(&format!("{{{name}}}"), &value.to_string());
+        }
+        out
+    }
+}
 pub mod input;
 pub mod layout;
 pub mod mss;
@@ -86,6 +101,11 @@ pub mod prelude {
     pub use crate::async_hook::use_async;
 
     pub use crate::context_provider::{provide_context, use_context, try_use_context};
+
+    #[cfg(feature = "i18n")]
+    pub use crate::i18n::{tr, tr_args, trn, trn_args, try_tr, Lang};
+    #[cfg(feature = "i18n")]
+    pub use crate::{tr, trn};
 
     pub use crate::widgets::{
         Button, SegmentedButton, ToolButton,

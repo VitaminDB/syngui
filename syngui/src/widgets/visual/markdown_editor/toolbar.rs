@@ -22,19 +22,19 @@ pub fn build_toolbar(mode: RwSignal<EditorMode>) -> Box<dyn Widget> {
             .class("toolbar")
             .child(
                 ToolButton::new(ICON_EDIT)
-                    .tooltip("Edit")
+                    .tooltip(crate::i18n::builtin("markdown_editor.edit", "Edit"))
                     .active(current == EditorMode::Edit)
                     .on_click(move || mode_edit.set(EditorMode::Edit)),
             )
             .child(
                 ToolButton::new(ICON_PREVIEW)
-                    .tooltip("Preview")
+                    .tooltip(crate::i18n::builtin("markdown_editor.preview", "Preview"))
                     .active(current == EditorMode::Preview)
                     .on_click(move || mode_preview.set(EditorMode::Preview)),
             )
             .child(
                 ToolButton::new(ICON_SPLIT)
-                    .tooltip("Split")
+                    .tooltip(crate::i18n::builtin("markdown_editor.split", "Split"))
                     .active(current == EditorMode::Split)
                     .on_click(move || mode_split.set(EditorMode::Split)),
             ),

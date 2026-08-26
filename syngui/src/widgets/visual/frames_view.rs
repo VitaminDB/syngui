@@ -445,7 +445,7 @@ impl Element for FramesViewElement {
             role: crate::a11y::Role::Image,
             state: crate::a11y::NodeState::default(),
             properties: crate::a11y::NodeProperties {
-                label: Some(format!("Видео {}×{} ({} кадров)", w, h, self.frames.len())),
+                label: Some(crate::i18n::builtin_args("frames_view.a11y", "Video {w}×{h}, frames: {n}", &[("w", &w), ("h", &h), ("n", &self.frames.len())])),
                 ..Default::default()
             },
         })

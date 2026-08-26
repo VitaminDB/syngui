@@ -312,7 +312,7 @@ impl Element for ImageElement {
                         ),
                         Size::new(self.bounds.size.width, 16.0),
                     );
-                    list.push_text_centered("Loading...", text_rect, icon_color, 11.0);
+                    list.push_text_centered(&crate::i18n::builtin("image.loading", "Loading..."), text_rect, icon_color, 11.0);
                 }
             }
             ImageLoadState::Failed => {

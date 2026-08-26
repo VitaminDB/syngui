@@ -193,8 +193,14 @@ impl Element for RouterViewElement {
             let router_lock = rv.router.lock().unwrap();
             self.changed_flag = router_lock.changed_flag();
             drop(router_lock);
+            self.active_key = self.router.lock().unwrap().current().to_string();
+            self.pending_rebuild = true;
             self.mark_dirty(DirtyFlags::LAYOUT | DirtyFlags::RENDER);
         }
+    }
+
+    fn manages_own_children(&self) -> bool {
+        true
     }
 
     fn animate(&mut self, _dt: Duration) -> bool {
@@ -329,5 +335,38 @@ impl StyledElement for RouterViewElement {
     fn set_classes(&mut self, classes: Vec<String>) {
         self.classes = classes;
         self.mark_dirty(DirtyFlags::RENDER);
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::signal::use_signal;
+    use crate::testing::TestHarness;
+    use crate::widget::Text;
+    use crate::widgets::Reactive;
+
+    #[test]
+    fn keeps_active_route_when_parent_rebuilds() {
+        let router = Arc::new(Mutex::new(Router::new(vec!["a", "b"], "a")));
+        let tick = use_signal(0u32);
+        let inner = router.clone();
+        let widget = Reactive::new(move || {
+            let _ = tick.get();
+            vec![Box::new(
+                RouterView::new(inner.clone())
+                    .route("a", || Box::new(Text::new("A")))
+                    .route("b", || Box::new(Text::new("B"))),
+            ) as Box<dyn Widget>]
+        });
+        let mut harness = TestHarness::new(Box::new(widget));
+        harness.rebuild();
+        assert_eq!(harness.find_by_type_name("Text").len(), 1);
+        tick.set(1);
+        harness.rebuild();
+        assert_eq!(harness.find_by_type_name("Text").len(), 1);
+        router.lock().unwrap().navigate("b");
+        harness.rebuild();
+        assert_eq!(harness.find_by_type_name("Text").len(), 1);
     }
 }

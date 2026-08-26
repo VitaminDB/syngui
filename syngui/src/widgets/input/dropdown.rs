@@ -62,7 +62,7 @@ impl Dropdown {
         Self {
             items: Vec::new(),
             selected: Arc::new(Mutex::new(None)),
-            placeholder: "Select...".to_string(),
+            placeholder: String::new(),
             disabled: false,
             width: None,
             max_height: 200.0,
@@ -290,6 +290,16 @@ impl DropdownElement {
     }
 }
 
+impl DropdownElement {
+    fn placeholder_text(&self) -> String {
+        if self.placeholder.is_empty() {
+            crate::i18n::builtin("dropdown.placeholder", "Select...")
+        } else {
+            self.placeholder.clone()
+        }
+    }
+}
+
 impl Element for DropdownElement {
     fn update(&mut self, widget: &dyn Widget, _ctx: &mut UpdateContext) {
         if let Some(dropdown) = widget.as_any().downcast_ref::<Dropdown>() {
@@ -311,7 +321,8 @@ impl Element for DropdownElement {
         let intrinsic = if mss_width.is_none() {
             let font_size = self.mss.font_size_or(14.0);
             let max_text_w = if let Some(ref tm) = self.text_measure {
-                let mut max_w = tm.measure_text_width(&self.placeholder, font_size, self.placeholder.chars().count());
+                let placeholder = self.placeholder_text();
+                let mut max_w = tm.measure_text_width(&placeholder, font_size, placeholder.chars().count());
                 for item in &self.items {
                     let w = tm.measure_text_width(&item.label, font_size, item.label.chars().count());
                     if w > max_w { max_w = w; }
@@ -394,7 +405,7 @@ impl Element for DropdownElement {
             text_left += icon_size + 6.0;
         }
 
-        let text = self.get_selected_label().unwrap_or_else(|| self.placeholder.clone());
+        let text = self.get_selected_label().unwrap_or_else(|| self.placeholder_text());
         let text_color = if self.disabled {
             muted
         } else if self.get_selected_label().is_none() {
@@ -856,7 +867,7 @@ impl Element for DropdownElement {
             },
             properties: crate::a11y::NodeProperties {
                 value: selected_label,
-                placeholder: if self.placeholder.is_empty() { None } else { Some(self.placeholder.clone()) },
+                placeholder: Some(self.placeholder_text()),
                 ..Default::default()
             },
         })

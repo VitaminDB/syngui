@@ -30,9 +30,9 @@ pub fn paint_find_toolbar(
     list.push_rect(toolbar_rect, bg, [6.0; 4]);
 
     let label = if find.query.is_empty() {
-        "Find:".to_string()
+        crate::i18n::builtin("code_editor.find", "Find:")
     } else {
-        format!("Find: {}", find.query)
+        crate::i18n::builtin_args("code_editor.find_query", "Find: {query}", &[("query", &find.query)])
     };
     let label_rect = Rect::new(
         Point::new(toolbar_x + TOOLBAR_PADDING_X, toolbar_y),
@@ -98,9 +98,9 @@ pub fn paint_goto_toolbar(
     list.push_rect(toolbar_rect, bg, [6.0; 4]);
 
     let label = if buffer.is_empty() {
-        format!("Go to line (1..{}):", total_lines)
+        crate::i18n::builtin_args("code_editor.goto_line", "Go to line (1..{total}):", &[("total", &total_lines)])
     } else {
-        format!("Go to line: {}", buffer)
+        crate::i18n::builtin_args("code_editor.goto_line_input", "Go to line: {line}", &[("line", &buffer)])
     };
     let label_rect = Rect::new(
         Point::new(toolbar_x + TOOLBAR_PADDING_X, toolbar_y),

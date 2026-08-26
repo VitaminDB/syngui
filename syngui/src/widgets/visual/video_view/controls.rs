@@ -39,7 +39,7 @@ pub fn video_player_view(player: Arc<Mutex<VideoPlayer>>) -> impl Widget {
             let player = player.clone();
             vec![Box::new(
                 ToolButton::new(icon)
-                    .tooltip(if is_paused { "Воспроизвести" } else { "Пауза" })
+                    .tooltip(if is_paused { crate::i18n::builtin("video.play", "Play") } else { crate::i18n::builtin("video.pause", "Pause") })
                     .on_click(move || {
                         if let Ok(mut p) = player.lock() {
                             if p.is_paused() {
@@ -91,7 +91,7 @@ pub fn video_player_view(player: Arc<Mutex<VideoPlayer>>) -> impl Widget {
             let player = player.clone();
             vec![Box::new(
                 ToolButton::new(icon)
-                    .tooltip(if v <= 0.0 { "Включить звук" } else { "Выключить звук" })
+                    .tooltip(if v <= 0.0 { crate::i18n::builtin("video.unmute", "Unmute") } else { crate::i18n::builtin("video.mute", "Mute") })
                     .on_click(move || {
                         let new_v = if volume.get_untracked() <= 0.0 { 1.0 } else { 0.0 };
                         if let Ok(p) = player.lock() {

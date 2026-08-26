@@ -319,6 +319,7 @@ impl Widget for MarkdownView {
             menu_open: self.menu_open,
             menu_pos: self.menu_pos,
             menu_action: self.menu_action,
+            menu_mounted: false,
             clipboard: None,
             on_link_click: self.on_link_click.clone(),
             pending_link: None,
@@ -333,43 +334,38 @@ impl Widget for MarkdownView {
     fn as_any(&self) -> &dyn Any { self }
     fn as_any_mut(&mut self) -> &mut dyn Any { self }
 
-    fn mount(&self, tree: &mut ElementTree, parent_id: ElementId) {
-        if !self.selectable {
-            return;
-        }
-        let action_setter = self.menu_action;
-        let menu = PopupMenu::new()
-            .items(vec![
-                MenuItem::new("copy", "Копировать")
-                    .icon(ICON_CONTENT_COPY)
-                    .shortcut("Ctrl+C"),
-                MenuItem::new("select_all", "Выделить всё")
-                    .icon(ICON_SELECT_ALL)
-                    .shortcut("Ctrl+A"),
-                MenuItem::new("copy_all", "Копировать всё")
-                    .icon(ICON_CONTENT_COPY),
-            ])
-            .is_open(self.menu_open)
-            .position(self.menu_pos)
-            .on_select(move |id| {
-                let action = match id {
-                    "copy" => Some(MdMenuAction::CopySelection),
-                    "select_all" => Some(MdMenuAction::SelectAll),
-                    "copy_all" => Some(MdMenuAction::CopyAll),
-                    _ => None,
-                };
-                if let Some(a) = action {
-                    action_setter.set(Some(a));
-                }
-            });
-        let menu_element = menu.create_element();
-        let menu_id = tree.insert_with_type_id(
-            menu_element,
-            Some(parent_id),
-            menu.as_any().type_id(),
-        );
-        menu.mount(tree, menu_id);
-    }
+    fn mount(&self, _tree: &mut ElementTree, _parent_id: ElementId) {}
+}
+
+fn context_menu(
+    menu_open: RwSignal<bool>,
+    menu_pos: RwSignal<Point>,
+    menu_action: RwSignal<Option<MdMenuAction>>,
+) -> PopupMenu {
+    PopupMenu::new()
+        .items(vec![
+            MenuItem::new("copy", crate::i18n::builtin("markdown_view.copy", "Copy"))
+                .icon(ICON_CONTENT_COPY)
+                .shortcut("Ctrl+C"),
+            MenuItem::new("select_all", crate::i18n::builtin("markdown_view.select_all", "Select all"))
+                .icon(ICON_SELECT_ALL)
+                .shortcut("Ctrl+A"),
+            MenuItem::new("copy_all", crate::i18n::builtin("markdown_view.copy_all", "Copy all"))
+                .icon(ICON_CONTENT_COPY),
+        ])
+        .is_open(menu_open)
+        .position(menu_pos)
+        .on_select(move |id| {
+            let action = match id {
+                "copy" => Some(MdMenuAction::CopySelection),
+                "select_all" => Some(MdMenuAction::SelectAll),
+                "copy_all" => Some(MdMenuAction::CopyAll),
+                _ => None,
+            };
+            if let Some(a) = action {
+                menu_action.set(Some(a));
+            }
+        })
 }
 
 fn build_highlighter(
@@ -439,6 +435,7 @@ pub struct MarkdownViewElement {
     menu_open: RwSignal<bool>,
     menu_pos: RwSignal<Point>,
     menu_action: RwSignal<Option<MdMenuAction>>,
+    menu_mounted: bool,
     #[cfg(feature = "clipboard")]
     clipboard: Option<Arc<Mutex<arboard::Clipboard>>>,
     #[cfg(not(feature = "clipboard"))]
@@ -782,8 +779,29 @@ impl Element for MarkdownViewElement {
             self.on_link_click = w.on_link_click.clone();
             self.pending_link = None;
             self.base_url = w.base_url.clone();
+            self.menu_mounted = false;
             self.mark_dirty(DirtyFlags::LAYOUT | DirtyFlags::RENDER);
         }
+    }
+
+    fn manages_own_children(&self) -> bool {
+        true
+    }
+
+    fn needs_rebuild(&self) -> bool {
+        !self.menu_mounted
+    }
+
+    fn build_children(&self) -> Vec<Box<dyn Widget>> {
+        if self.selectable {
+            vec![Box::new(context_menu(self.menu_open, self.menu_pos, self.menu_action))]
+        } else {
+            vec![]
+        }
+    }
+
+    fn clear_rebuild(&mut self) {
+        self.menu_mounted = true;
     }
 
     fn layout(&mut self, constraints: Constraints) -> Size {
@@ -1316,5 +1334,35 @@ impl StyledElement for MarkdownViewElement {
     fn set_classes(&mut self, classes: Vec<String>) {
         self.classes = classes;
         self.mark_dirty(DirtyFlags::RENDER);
+    }
+}
+
+#[cfg(test)]
+mod rebuild_tests {
+    use super::*;
+    use crate::signal::use_signal;
+    use crate::testing::TestHarness;
+    use crate::widgets::Reactive;
+
+    #[test]
+    fn context_menu_survives_parent_rebuild() {
+        let tick = use_signal(0u32);
+        let widget = Reactive::new(move || {
+            let _ = tick.get();
+            vec![Box::new(MarkdownView::new("hello")) as Box<dyn Widget>]
+        });
+        let mut harness = TestHarness::new(Box::new(widget));
+        harness.rebuild();
+        assert_eq!(harness.find_by_type_name("PopupMenu").len(), 1);
+        tick.set(1);
+        harness.rebuild();
+        assert_eq!(harness.find_by_type_name("PopupMenu").len(), 1);
+    }
+
+    #[test]
+    fn non_selectable_has_no_menu() {
+        let mut harness = TestHarness::new(Box::new(MarkdownView::new("hello").selectable(false)));
+        harness.rebuild();
+        assert_eq!(harness.find_by_type_name("PopupMenu").len(), 0);
     }
 }

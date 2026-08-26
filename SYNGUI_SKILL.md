@@ -17,6 +17,8 @@
 8. [Паттерны и рецепты](#8-паттерны-и-рецепты)
 9. [Android-поддержка](#9-android-поддержка)
 10. [Системное оформление](#10-системное-оформление)
+11. [Веб-сборка (wasm32)](#11-веб-сборка-wasm32)
+12. [Локализация (i18n)](#12-локализация-i18n)
 
 ---
 
@@ -164,6 +166,7 @@ pub fn run_desktop() {
 | `.with_additional_styles_str(content)` | Добавить стили из строки |
 | `.with_dynamic_theme(signal)` | Динамическая смена темы |
 | `.with_font_family(family)` | Шрифт по умолчанию |
+| `.with_fallback_font_url(url)` | Запасной шрифт для web (CJK); на desktop и Android подбирается из системы |
 | `.with_icon_font(data)` | Иконочный шрифт (Material Icons) |
 | `.with_debug_overlay(bool)` | FPS-оверлей |
 | `.with_dev_tools(bool)` | DevTools (F12) |
@@ -1936,6 +1939,46 @@ Esc или повторный вызов; `WindowState.fullscreen` и псевд
 
 ---
 
+## 12. Локализация (i18n)
+
+Каталоги `key = "value"` встраиваются через `include_str!`, текущий язык — сигнал;
+`tr!` внутри билдера `Reactive` перестраивает поддерево при `set_language`.
+Полное описание — `docs/15-i18n.md`.
+
+```rust
+syngui::i18n::register_catalogs(&[include_str!("../i18n/en.lang"), include_str!("../i18n/ru.lang")]);
+syngui::i18n::set_language(syngui::i18n::system_language());
+
+App::new().run(|_| Box::new(DecoratedBox::new().child(|| {
+    syngui::i18n::subscribe();                // корень живёт под сигналом языка
+    build_root()
+})));
+
+Text::new(tr!("settings.title"));
+Text::new(tr!("greeting", name = user_name));
+Text::new(trn!("files.count", files.len()));  // .one/.few/.many/.other в каталоге
+```
+
+Правила: `tr!` резолвится там, где строка строится (внутри `Reactive`/`.child(|| …)`);
+`RouterView` и `MarkdownView` перестраиваются вместе с родителем; `tr()` можно звать
+из воркеров; переключатель языков берёт список из `syngui::i18n::languages()`.
+Строки встроенных виджетов (диалоги, пикеры, меню Markdown, видео) уже в каталоге
+syngui и переопределяются из приложения по тем же ключам.
+
+Файл каталога:
+
+```
+@tag = "ru"
+@name = "Русский"
+settings.title = "Настройки"
+greeting = "Привет, {name}!"
+files.count.one = "{n} файл"
+files.count.few = "{n} файла"
+files.count.many = "{n} файлов"
+```
+
+---
+
 ## Краткая справка
 
 ### Импорты
@@ -1961,6 +2004,18 @@ use syngui::mgui;                 // mgui! macro
 | `.get_untracked()` | Чтение без подписки |
 | `.set(val)` | Запись + уведомление |
 | `.update(\|v\| ...)` | Мутация на месте |
+
+### Локализация (шпаргалка)
+
+| Вызов | Что делает |
+|-------|-----------|
+| `i18n::register_catalogs(&[..])` | Каталоги приложения (`include_str!`) |
+| `i18n::set_language("ru")` | Смена языка, живая перестройка |
+| `i18n::subscribe()` | Подписать корневой `Reactive` |
+| `tr!("key")`, `tr!("key", a = v)` | Перевод, плейсхолдеры `{a}` |
+| `trn!("key", n)` | Форма множественного числа |
+| `i18n::languages()` | Список языков для переключателя |
+| `i18n::system_language()` | Язык ОС |
 
 ### Ключевые правила
 

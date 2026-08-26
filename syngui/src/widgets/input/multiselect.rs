@@ -30,7 +30,7 @@ impl Multiselect {
         Self {
             items,
             selected: Vec::new(),
-            placeholder: "Select...".to_string(),
+            placeholder: String::new(),
             on_change: None,
             width: None,
             autocomplete: false,
@@ -314,7 +314,8 @@ impl Element for MultiselectElement {
                 Point::new(self.bounds.x() + 12.0, self.bounds.y() + (self.bounds.size.height - 14.0) / 2.0),
                 Size::new(self.bounds.size.width - 40.0, 16.0),
             );
-            list.push_text(&self.placeholder, text_rect, muted, 14.0);
+            let placeholder = if self.placeholder.is_empty() { crate::i18n::builtin("multiselect.placeholder", "Select...") } else { self.placeholder.clone() };
+            list.push_text(&placeholder, text_rect, muted, 14.0);
         } else {
             let (visible, extra) = self.visible_chips();
             let available_w = self.bounds.size.width - 40.0;
@@ -423,7 +424,7 @@ impl Element for MultiselectElement {
                     Size::new(filter_rect.size.width - 36.0, 16.0),
                 );
                 if self.filter_text.is_empty() {
-                    list.push_text("\u{041F}\u{043E}\u{0438}\u{0441}\u{043A}...", text_rect, popup_muted, 13.0);
+                    list.push_text(&crate::i18n::builtin("multiselect.search", "Search..."), text_rect, popup_muted, 13.0);
                 } else {
                     list.push_text(&self.filter_text, text_rect, popup_fg, 13.0);
                 }
@@ -522,7 +523,7 @@ impl Element for MultiselectElement {
                     Point::new(dd.x() + 12.0, items_y_start + 8.0),
                     Size::new(dd.size.width - 24.0, 20.0),
                 );
-                list.push_text("\u{041D}\u{0438}\u{0447}\u{0435}\u{0433}\u{043E} \u{043D}\u{0435} \u{043D}\u{0430}\u{0439}\u{0434}\u{0435}\u{043D}\u{043E}", empty_rect, popup_muted, 13.0);
+                list.push_text(&crate::i18n::builtin("multiselect.empty", "Nothing found"), empty_rect, popup_muted, 13.0);
             }
 
             list.pop_clip();

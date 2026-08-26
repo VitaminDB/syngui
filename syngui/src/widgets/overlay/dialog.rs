@@ -28,7 +28,7 @@ fn dialog_labels() -> (String, String) {
         .lock()
         .ok()
         .and_then(|g| g.clone())
-        .unwrap_or_else(|| ("OK".to_string(), "Cancel".to_string()))
+        .unwrap_or_else(|| (crate::i18n::builtin("dialog.ok", "OK"), crate::i18n::builtin("dialog.cancel", "Cancel")))
 }
 
 #[derive(Clone)]

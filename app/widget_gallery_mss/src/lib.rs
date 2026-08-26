@@ -88,6 +88,8 @@ pub fn run_app() {
 
     let initial_mss = build_initial_mss();
     let theme_mss = use_signal(initial_mss.clone());
+    syngui::i18n::register_catalogs(&[include_str!("../i18n/en.lang"), include_str!("../i18n/ru.lang")]);
+    syngui::i18n::set_language(syngui::i18n::system_language());
 
     App::new()
         .title("SYNGUI Widget Gallery")
@@ -103,10 +105,16 @@ pub fn run_app() {
         .with_styles_str(&initial_mss)
         .with_dynamic_theme(theme_mss)
         .with_debug_overlay(false)
-        .run(move |_ctx| Box::new(build_gallery(theme_mss)));
+        .run(move |_ctx| {
+            provide_context(make_ctx(theme_mss));
+            Box::new(DecoratedBox::new().class("grow").child(move || {
+                syngui::i18n::subscribe();
+                build_gallery()
+            }))
+        });
 }
 
-fn build_gallery(theme_mss: RwSignal<String>) -> impl Widget {
+fn make_ctx(theme_mss: RwSignal<String>) -> GalleryCtx {
     let is_dark = use_signal(false);
     let current_theme_id = use_signal("clean_modern".to_string());
     let sidebar_state = use_signal(0usize);
@@ -116,15 +124,31 @@ fn build_gallery(theme_mss: RwSignal<String>) -> impl Widget {
         "mss-properties",
     )));
 
-    let ctx = GalleryCtx {
+    GalleryCtx {
         is_dark,
         theme_mss,
         current_theme_id,
         sidebar_state,
         current_route,
-        router: router.clone(),
-    };
-    provide_context(ctx);
+        router,
+    }
+}
+
+const SECTION_ICONS: [&str; 25] = [
+    "🎛", "🔘", "⌨", "☑", "🎨", "📦", "🧭", "📜", "✨", "📐", "💬", "📋", "🔄",
+    "🖌", "📊", "💡", "📄", "🗺", "⚡", "🌟", "🎨", "📈", "🎬", "🖥", "⬜",
+];
+
+fn section_items() -> Vec<ListItem> {
+    ROUTE_KEYS
+        .iter()
+        .zip(SECTION_ICONS)
+        .map(|(key, icon)| ListItem::new(tr!(&format!("gallery.section.{key}"))).icon(icon))
+        .collect()
+}
+
+fn build_gallery() -> impl Widget {
+    let sidebar_state = use_context::<GalleryCtx>().sidebar_state;
 
     Column::new().gap(0.0).child(build_header()).child(
         DecoratedBox::new().class("grow").child(
@@ -133,33 +157,7 @@ fn build_gallery(theme_mss: RwSignal<String>) -> impl Widget {
                 .child(
                     Sidebar::new().class("gallery-sidebar").child(
                         DecoratedBox::new().class("grow").child(
-                            ListView::new(vec![
-                                ListItem::new("MSS Properties").icon("🎛"),
-                                ListItem::new("Buttons").icon("🔘"),
-                                ListItem::new("Input").icon("⌨"),
-                                ListItem::new("Selection").icon("☑"),
-                                ListItem::new("Visual").icon("🎨"),
-                                ListItem::new("Containers").icon("📦"),
-                                ListItem::new("Navigation").icon("🧭"),
-                                ListItem::new("Scroll & Layout").icon("📜"),
-                                ListItem::new("Animation").icon("✨"),
-                                ListItem::new("Layout Animation").icon("📐"),
-                                ListItem::new("Dialogs").icon("💬"),
-                                ListItem::new("Menus").icon("📋"),
-                                ListItem::new("Drag & Drop").icon("🔄"),
-                                ListItem::new("Canvas").icon("🖌"),
-                                ListItem::new("Data").icon("📊"),
-                                ListItem::new("Feedback").icon("💡"),
-                                ListItem::new("Markdown").icon("📄"),
-                                ListItem::new("Map").icon("🗺"),
-                                ListItem::new("Effects").icon("⚡"),
-                                ListItem::new("Effects Showcase").icon("🌟"),
-                                ListItem::new("Gradients").icon("🎨"),
-                                ListItem::new("Charts").icon("📈"),
-                                ListItem::new("FFmpeg Video").icon("🎬"),
-                                ListItem::new("Terminal").icon("🖥"),
-                                ListItem::new("Border test").icon("⬜"),
-                            ])
+                            ListView::new(section_items())
                             .selection_mode(SelectionMode::Single)
                             .selected(vec![sidebar_state.get()])
                             .on_select(move |idx| {
@@ -179,12 +177,23 @@ fn build_gallery(theme_mss: RwSignal<String>) -> impl Widget {
 fn build_header() -> impl Widget {
     let _ctx = use_context::<GalleryCtx>();
 
-    TopAppBar::new("SYNGUI Widget Gallery")
+    TopAppBar::new(tr!("gallery.title"))
         .action(Badge::new("v0.1").medium().class("header-badge"))
-        .action(Text::new("Theme:").class("header-subtitle"))
+        .action(Text::new(tr!("gallery.language")).class("header-subtitle"))
+        .action({
+            let current = syngui::i18n::language();
+            let mut dd = Dropdown::new();
+            for lang in syngui::i18n::languages() {
+                dd = dd.item(DropdownItem::new(lang.tag.tag(), lang.name));
+            }
+            dd.selected(current.tag())
+                .on_change(move |tag: &str| syngui::i18n::set_language(tag))
+                .style("width", 150.0_f32)
+        })
+        .action(Text::new(tr!("gallery.theme")).class("header-subtitle"))
         .action({
             let themes = theme_data::builtin_themes();
-            let mut dd = Dropdown::new().placeholder("Select theme...");
+            let mut dd = Dropdown::new().placeholder(tr!("gallery.theme.placeholder"));
             for t in &themes {
                 dd = dd.item(DropdownItem::simple(t.name));
             }
