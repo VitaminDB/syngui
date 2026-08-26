@@ -109,6 +109,8 @@ pub(super) struct AppHandler {
     #[cfg(target_arch = "wasm32")]
     pub(super) pending_emoji_font: Rc<RefCell<Option<Vec<u8>>>>,
     #[cfg(target_arch = "wasm32")]
+    pub(super) pending_fallback_fonts: Rc<RefCell<Vec<Vec<u8>>>>,
+    #[cfg(target_arch = "wasm32")]
     pub(super) wasm_font_ready: bool,
 
     pub(super) event_loop_proxy: Option<winit::event_loop::EventLoopProxy<super::user_event::SynGuiUserEvent>>,
@@ -246,6 +248,8 @@ impl AppHandler {
             pending_font: Rc::new(RefCell::new(None)),
             #[cfg(target_arch = "wasm32")]
             pending_emoji_font: Rc::new(RefCell::new(None)),
+            #[cfg(target_arch = "wasm32")]
+            pending_fallback_fonts: Rc::new(RefCell::new(Vec::new())),
             #[cfg(target_arch = "wasm32")]
             wasm_font_ready: false,
             main_window_id: None,

@@ -206,6 +206,11 @@ impl AppHandler {
                     renderer.font_atlas.lock().unwrap().set_emoji_font_data(emoji_data);
                     font_changed = true;
                 }
+                let fallback_fonts = std::mem::take(&mut *self.pending_fallback_fonts.borrow_mut());
+                for data in fallback_fonts {
+                    renderer.font_atlas.lock().unwrap().add_fallback_font(data, 0);
+                    font_changed = true;
+                }
             }
             if font_changed {
                 web_sys::console::log_1(&"[syngui] Font data received".into());

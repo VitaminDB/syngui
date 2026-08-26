@@ -67,6 +67,7 @@ pub struct Batcher {
     pub(self) current_transform: Transform,
     pub(self) shaped_cache: HashMap<ShapedTextKey, (Arc<Vec<ShapedGlyph>>, u64)>,
     pub(self) frame_counter: u64,
+    pub(self) atlas_generation: u64,
 }
 
 struct BatchState {
@@ -87,6 +88,7 @@ impl Batcher {
             current_transform: Transform::identity(),
             shaped_cache: HashMap::new(),
             frame_counter: 0,
+            atlas_generation: 0,
         }
     }
 
@@ -102,6 +104,12 @@ impl Batcher {
         self.current_opacity = 1.0;
         self.transform_stack.clear();
         self.current_transform = Transform::identity();
+        font_atlas.begin_frame();
+        let atlas_generation = font_atlas.generation();
+        if atlas_generation != self.atlas_generation {
+            self.atlas_generation = atlas_generation;
+            self.shaped_cache.clear();
+        }
         self.frame_counter += 1;
         if self.frame_counter % 4 == 0 {
             let cutoff = self.frame_counter.saturating_sub(2);

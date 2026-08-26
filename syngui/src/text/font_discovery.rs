@@ -2,6 +2,7 @@ use font_kit::family_name::FamilyName;
 use font_kit::handle::Handle;
 use font_kit::properties::{Properties, Weight, Style};
 use font_kit::source::SystemSource;
+use crate::text::script::Script;
 
 #[cfg(target_os = "windows")]
 const FALLBACK_FAMILIES: &[&str] = &[
@@ -153,3 +154,113 @@ pub fn list_monospace_families() -> &'static [String] {
         })
         .as_slice()
     }
+
+#[cfg(target_os = "windows")]
+const FALLBACK_BY_SCRIPT: &[(Script, &[&str])] = &[
+    (Script::Han, &["Microsoft YaHei", "Yu Gothic", "Malgun Gothic", "SimSun"]),
+    (Script::Kana, &["Yu Gothic", "Meiryo", "MS Gothic", "Microsoft YaHei"]),
+    (Script::Hangul, &["Malgun Gothic", "Gulim", "Microsoft YaHei"]),
+];
+
+#[cfg(target_os = "macos")]
+const FALLBACK_BY_SCRIPT: &[(Script, &[&str])] = &[
+    (Script::Han, &["PingFang SC", "Hiragino Sans GB", "Hiragino Sans", "Apple SD Gothic Neo"]),
+    (Script::Kana, &["Hiragino Sans", "Hiragino Kaku Gothic ProN", "PingFang SC"]),
+    (Script::Hangul, &["Apple SD Gothic Neo", "PingFang SC"]),
+];
+
+#[cfg(not(any(target_os = "windows", target_os = "macos")))]
+const FALLBACK_BY_SCRIPT: &[(Script, &[&str])] = &[
+    (Script::Han, &[
+        "Noto Sans CJK SC", "Noto Sans CJK JP", "Noto Sans CJK KR", "Noto Sans CJK TC",
+        "Source Han Sans", "WenQuanYi Zen Hei", "WenQuanYi Micro Hei", "Droid Sans Fallback",
+        "AR PL UMing CN", "AR PL New Sung",
+    ]),
+    (Script::Kana, &["Noto Sans CJK JP", "Noto Sans CJK SC", "Source Han Sans", "Droid Sans Fallback"]),
+    (Script::Hangul, &["Noto Sans CJK KR", "Noto Sans CJK SC", "NanumGothic", "Droid Sans Fallback"]),
+];
+
+fn fallback_families(script: Script) -> &'static [&'static str] {
+    FALLBACK_BY_SCRIPT
+        .iter()
+        .find(|(s, _)| *s == script)
+        .map(|(_, families)| *families)
+        .unwrap_or(&[])
+}
+
+fn fallback_search_order(script: Script, prefer_japanese: bool, prefer_korean: bool) -> Vec<&'static str> {
+    let mut order: Vec<&'static str> = Vec::new();
+    let mut push_all = |names: &'static [&'static str]| {
+        for name in names {
+            if !order.contains(name) {
+                order.push(name);
+            }
+        }
+    };
+    if script == Script::Han {
+        if prefer_japanese {
+            push_all(fallback_families(Script::Kana));
+        }
+        if prefer_korean {
+            push_all(fallback_families(Script::Hangul));
+        }
+    }
+    push_all(fallback_families(script));
+    order
+}
+
+/// Loads a system font covering `script`, trying families one at a time so a
+/// missing family never resolves to the default sans. For Han, the Japanese-
+/// or Korean-first families go ahead when the UI prefers those glyph shapes.
+/// Returns the file bytes and the face index inside them (non-zero for `.ttc`).
+pub fn discover_fallback_font(script: Script, prefer_japanese: bool, prefer_korean: bool) -> Option<(Vec<u8>, u32)> {
+    let families: Vec<FamilyName> = fallback_search_order(script, prefer_japanese, prefer_korean)
+        .into_iter()
+        .map(|name| FamilyName::Title(name.to_string()))
+        .collect();
+    let found = try_families_individually(&families, &Properties::default());
+    if found.is_none() {
+        log::warn!("No fallback font for {:?} — its characters will not render", script);
+    }
+    found
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn han_search_order_honours_preference() {
+        let plain = fallback_search_order(Script::Han, false, false);
+        assert_eq!(plain, fallback_families(Script::Han));
+
+        let jp = fallback_search_order(Script::Han, true, false);
+        let kana = fallback_families(Script::Kana);
+        assert_eq!(&jp[..kana.len()], kana);
+        assert_eq!(jp.len(), kana.len() + plain.iter().filter(|n| !kana.contains(n)).count());
+
+        let ko = fallback_search_order(Script::Han, false, true);
+        assert_eq!(ko[0], fallback_families(Script::Hangul)[0]);
+
+        assert_eq!(fallback_search_order(Script::Kana, true, true), fallback_families(Script::Kana));
+    }
+
+    #[test]
+    fn han_fallback_discovery_matches_installed_families() {
+        let source = SystemSource::new();
+        let installed: Vec<&str> = fallback_families(Script::Han)
+            .iter()
+            .copied()
+            .filter(|name| source.select_family_by_name(name).is_ok())
+            .collect();
+        let found = discover_fallback_font(Script::Han, false, false);
+        if installed.is_empty() {
+            eprintln!("no Han fallback family installed; discovery returned {}", if found.is_some() { "Some" } else { "None" });
+            return;
+        }
+        let (data, face_index) = found.unwrap_or_else(|| panic!("{installed:?} installed but discovery returned None"));
+        let font = swash::FontRef::from_index(&data, face_index as usize).expect("loadable face");
+        eprintln!("Han fallback: {} bytes, face {face_index}, candidates {installed:?}", data.len());
+        assert_ne!(font.charmap().map('日'), 0, "face {face_index} does not cover U+65E5");
+    }
+}

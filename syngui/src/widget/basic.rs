@@ -4,6 +4,7 @@ use crate::input::{CursorIcon, Event, EventResult, Key, MouseButton};
 use crate::layout::Constraints;
 use crate::mss::ComputedStyle;
 use crate::render::DisplayList;
+use crate::text::line_break::breaks_before;
 use crate::widget::{DirtyFlags, ElementId, UpdateContext, EventContext};
 use crate::widget::selection::TextSelectionState;
 use std::any::Any;
@@ -52,21 +53,23 @@ fn visual_lines_in_segment(
     let mut word_width: f32 = 0.0;
     let mut word_chars: usize = 0;
     let mut buf = [0u8; 4];
+    let mut prev: Option<char> = None;
 
     for ch in line.chars() {
         let ch_str = ch.encode_utf8(&mut buf);
         let advance = tm.measure_text_width_styled(ch_str, font_size, 1, bold, font_family);
+        let prev_ch = prev.replace(ch);
 
-        if ch == ' ' {
-            if word_chars > 0 {
-                if x + word_width > available_width && x > 0.0 {
-                    visual_lines += 1;
-                    x = 0.0;
-                }
-                x += word_width;
-                word_width = 0.0;
-                word_chars = 0;
+        if (ch == ' ' || breaks_before(prev_ch, ch)) && word_chars > 0 {
+            if x + word_width > available_width && x > 0.0 {
+                visual_lines += 1;
+                x = 0.0;
             }
+            x += word_width;
+            word_width = 0.0;
+            word_chars = 0;
+        }
+        if ch == ' ' {
             x += advance;
             continue;
         }
@@ -131,9 +134,11 @@ fn truncate_to_lines<'a>(
     let on_last = |idx: usize| idx == max_lines - 1;
     let budget_for = |idx: usize| if on_last(idx) { last_budget } else { available_width };
 
+    let mut prev: Option<char> = None;
     let mut iter = text.char_indices().peekable();
     while let Some((byte_idx, ch)) = iter.next() {
         let next_byte = iter.peek().map(|&(b, _)| b).unwrap_or(text.len());
+        let prev_ch = prev.replace(ch);
 
         if ch == '\n' {
             if word_chars > 0 {
@@ -164,25 +169,25 @@ fn truncate_to_lines<'a>(
         let ch_str = ch.encode_utf8(&mut buf);
         let advance = tm.measure_text_width_styled(ch_str, font_size, 1, bold, font_family);
 
-        if ch == ' ' {
-            if word_chars > 0 {
-                if x + word_width > budget_for(line_idx) && x > 0.0 {
-                    if on_last(line_idx) {
-                        return ellipsize(text, last_committed_byte);
-                    }
-                    line_idx += 1;
-                    x = 0.0;
-                }
-                if on_last(line_idx) && x + word_width > last_budget {
+        if (ch == ' ' || breaks_before(prev_ch, ch)) && word_chars > 0 {
+            if x + word_width > budget_for(line_idx) && x > 0.0 {
+                if on_last(line_idx) {
                     return ellipsize(text, last_committed_byte);
                 }
-                x += word_width;
-                if on_last(line_idx) {
-                    last_committed_byte = byte_idx;
-                }
-                word_width = 0.0;
-                word_chars = 0;
+                line_idx += 1;
+                x = 0.0;
             }
+            if on_last(line_idx) && x + word_width > last_budget {
+                return ellipsize(text, last_committed_byte);
+            }
+            x += word_width;
+            if on_last(line_idx) {
+                last_committed_byte = byte_idx;
+            }
+            word_width = 0.0;
+            word_chars = 0;
+        }
+        if ch == ' ' {
             if on_last(line_idx) && x + advance > last_budget {
                 return ellipsize(text, last_committed_byte);
             }
@@ -1161,5 +1166,44 @@ mod tests {
     fn text_max_lines_stores_value() {
         let t = Text::new("hi").max_lines(3);
         assert_eq!(t.max_lines, Some(3));
+    }
+
+    #[test]
+    fn visual_lines_cjk_without_spaces_wraps() {
+        let line = "日本語のテキストは空白なしで折り返されます";
+        let n = count_visual_lines_via_measure(line, 100.0, 12.0, false, None, &MonoMeasure);
+        assert_eq!(n, 3, "22 ideographs at 10 per line, got {n}");
+    }
+
+    #[test]
+    fn visual_lines_hangul_without_spaces_wraps() {
+        let n = count_visual_lines_via_measure("한국어텍스트는띄어쓰기없이", 50.0, 12.0, false, None, &MonoMeasure);
+        assert_eq!(n, 3);
+    }
+
+    #[test]
+    fn visual_lines_latin_word_after_cjk_stays_whole() {
+        let n = count_visual_lines_via_measure("日本語ですabcdefghijk", 100.0, 12.0, false, None, &MonoMeasure);
+        assert_eq!(n, 3, "expected 日本語です / abcdefghij / k, got {n}");
+    }
+
+    #[test]
+    fn truncate_cjk_without_spaces_appends_ellipsis() {
+        let out = trunc("日本語のテキストです", 40.0, 1);
+        assert_eq!(out.as_ref(), "日本語\u{2026}");
+    }
+
+    #[test]
+    fn truncate_cjk_two_lines_cuts_at_ideograph() {
+        let out = trunc("日本語のテキストですよ", 40.0, 2);
+        assert_eq!(out.as_ref(), "日本語のテキス\u{2026}");
+    }
+
+    #[test]
+    fn truncate_latin_word_after_cjk_wraps_as_a_word() {
+        let out = trunc("日本語Hello", 50.0, 2);
+        assert_eq!(out.as_ref(), "日本語Hell\u{2026}");
+        let latin = trunc("abc Hello", 50.0, 2);
+        assert_eq!(latin.as_ref(), "abc Hell\u{2026}");
     }
 }

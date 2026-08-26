@@ -1,4 +1,14 @@
-use hashbrown::HashMap;
+use hashbrown::{HashMap, HashSet};
+use std::sync::Arc;
+
+use crate::text::line_break::breaks_before;
+use crate::text::script::{script_of, Script};
+
+const FONT_REGULAR: u8 = 0;
+const FONT_EMOJI: u8 = 1;
+const FONT_BOLD: u8 = 2;
+const FONT_ICON: u8 = 3;
+const FIRST_EXTRA_FONT: u8 = 4;
 
 #[derive(Clone, Copy, Hash, Eq, PartialEq, Debug)]
 pub struct GlyphKey {
@@ -40,24 +50,33 @@ pub struct FontAtlasStats {
     pub row_height: u32,
 }
 
-struct ExtraFont {
-    regular: Vec<u8>,
-    bold: Vec<u8>,
-    face_index_regular: u32,
-    face_index_bold: u32,
-    font_index_regular: u8,
-    font_index_bold: u8,
+#[derive(Clone)]
+struct FontFace {
+    data: Arc<[u8]>,
+    face_index: u32,
+}
+
+impl FontFace {
+    fn new(data: Vec<u8>, face_index: u32) -> Option<Self> {
+        if data.is_empty() {
+            return None;
+        }
+        Some(Self { data: Arc::from(data), face_index })
+    }
+
+    fn font_ref(&self) -> Option<swash::FontRef<'_>> {
+        swash::FontRef::from_index(&self.data, self.face_index as usize)
+    }
 }
 
 pub struct FontAtlas {
-    font_data: Vec<u8>,
-    bold_font_data: Vec<u8>,
-    emoji_font_data: Vec<u8>,
-    icon_font_data: Vec<u8>,
-    font_face_index: u32,
-    bold_face_index: u32,
-    emoji_face_index: u32,
-    extra_fonts: HashMap<String, ExtraFont>,
+    faces: Vec<Option<FontFace>>,
+    extra_fonts: HashMap<String, Option<(u8, u8)>>,
+    fallback_faces: Vec<u8>,
+    fallback_discovered: Vec<u8>,
+    fallback_tried: HashSet<Script>,
+    prefer_japanese: bool,
+    prefer_korean: bool,
     next_font_index: u8,
     texture: wgpu::Texture,
     pub texture_view: wgpu::TextureView,
@@ -71,6 +90,8 @@ pub struct FontAtlas {
     charmap_cache: HashMap<(char, u8), u16>,
     pixels: Vec<u8>,
     dirty: bool,
+    overflowed: bool,
+    generation: u64,
     scale_factor: f32,
 }
 
@@ -133,20 +154,26 @@ impl FontAtlas {
 
         let ((font_data, font_face_index), (bold_font_data, bold_face_index), (emoji_font_data, emoji_face_index)) = Self::load_all_fonts(preferred_family);
 
-        if emoji_font_data.is_empty() {
+        let emoji = FontFace::new(emoji_font_data, emoji_face_index);
+        if emoji.is_none() {
             log::warn!("No emoji font found — emoji will not render");
         }
+        let faces = vec![
+            FontFace::new(font_data, font_face_index),
+            emoji,
+            FontFace::new(bold_font_data, bold_face_index),
+            None,
+        ];
 
         Self {
-            font_data,
-            bold_font_data,
-            emoji_font_data,
-            icon_font_data: Vec::new(),
-            font_face_index,
-            bold_face_index,
-            emoji_face_index,
+            faces,
             extra_fonts: HashMap::new(),
-            next_font_index: 4,
+            fallback_faces: Vec::new(),
+            fallback_discovered: Vec::new(),
+            fallback_tried: HashSet::new(),
+            prefer_japanese: false,
+            prefer_korean: false,
+            next_font_index: FIRST_EXTRA_FONT,
             texture,
             texture_view,
             sampler,
@@ -159,6 +186,8 @@ impl FontAtlas {
             charmap_cache: HashMap::new(),
             pixels,
             dirty: false,
+            overflowed: false,
+            generation: 0,
             scale_factor: 1.0,
         }
     }
@@ -201,44 +230,133 @@ impl FontAtlas {
     }
 
     pub fn set_font_data(&mut self, data: Vec<u8>) {
-        if data.is_empty() {
+        let Some(face) = FontFace::new(data, 0) else {
             return;
-        }
-        self.font_data = data;
-        self.glyphs.clear();
+        };
+        self.set_face(FONT_REGULAR, Some(face));
         self.charmap_cache.clear();
-        self.cursor_x = 1;
-        self.cursor_y = 1;
-        self.row_height = 0;
-        self.pixels.fill(0);
-        self.dirty = true;
+        self.reset_glyphs();
     }
 
     pub fn set_emoji_font_data(&mut self, data: Vec<u8>) {
-        if data.is_empty() {
-            return;
+        if let Some(face) = FontFace::new(data, 0) {
+            self.replace_face(FONT_EMOJI, face);
         }
-        self.emoji_font_data = data;
-        self.charmap_cache.retain(|&(ch, _), _| !Self::is_likely_emoji(ch));
     }
 
     pub fn set_icon_font_data(&mut self, data: Vec<u8>) {
-        if data.is_empty() {
-            return;
+        if let Some(face) = FontFace::new(data, 0) {
+            self.replace_face(FONT_ICON, face);
         }
-        self.icon_font_data = data;
     }
 
-    pub fn has_emoji_font(&self) -> bool { !self.emoji_font_data.is_empty() }
+    /// Registers an app-provided CJK fallback face (`face_index` selects the
+    /// face inside a `.ttc`). Consulted after the regular font for Han, Kana
+    /// and Hangul characters, in registration order, before platform discovery.
+    pub fn add_fallback_font(&mut self, data: Vec<u8>, face_index: u32) {
+        if let Some(face) = FontFace::new(data, face_index) {
+            self.push_fallback_face(face);
+        }
+    }
+
+    /// Makes platform fallback discovery for Han prefer Japanese- or
+    /// Korean-first families. Faces discovered under the old preference are
+    /// dropped so the next miss rediscovers; app-provided faces stay.
+    pub fn set_preferred_cjk(&mut self, japanese: bool, korean: bool) {
+        if (self.prefer_japanese, self.prefer_korean) == (japanese, korean) {
+            return;
+        }
+        self.prefer_japanese = japanese;
+        self.prefer_korean = korean;
+        self.fallback_tried.clear();
+        let discovered = std::mem::take(&mut self.fallback_discovered);
+        if discovered.is_empty() {
+            return;
+        }
+        for font_index in discovered {
+            self.fallback_faces.retain(|&i| i != font_index);
+            self.charmap_cache.retain(|&(_, fi), _| fi != font_index);
+            self.set_face(font_index, None);
+        }
+        self.reset_glyphs();
+    }
+
+    /// Bumps whenever previously returned glyph data stops being valid: a font
+    /// slot replaced, a fallback face added, or the atlas reset after overflow.
+    /// Anything caching shaped text must drop its cache when this changes.
+    pub fn generation(&self) -> u64 {
+        self.generation
+    }
+
+    /// Call once per frame before shaping. If a glyph did not fit during the
+    /// previous frame the atlas is cleared and `generation` bumped, so the
+    /// frame being built rasterizes only what it actually shows.
+    pub fn begin_frame(&mut self) {
+        if !self.overflowed {
+            return;
+        }
+        self.overflowed = false;
+        self.reset_glyphs();
+        log::info!("font_atlas: reset after overflow, generation {}", self.generation);
+    }
+
+    pub fn has_emoji_font(&self) -> bool {
+        self.has_face(FONT_EMOJI)
+    }
+
+    fn reset_glyphs(&mut self) {
+        self.glyphs.clear();
+        self.pixels.fill(0);
+        self.cursor_x = 1;
+        self.cursor_y = 1;
+        self.row_height = 0;
+        self.generation += 1;
+        self.dirty = true;
+    }
+
+    fn face(&self, font_index: u8) -> Option<FontFace> {
+        self.faces.get(font_index as usize).and_then(|face| face.clone())
+    }
+
+    fn has_face(&self, font_index: u8) -> bool {
+        self.faces.get(font_index as usize).is_some_and(|face| face.is_some())
+    }
+
+    fn set_face(&mut self, font_index: u8, face: Option<FontFace>) {
+        let i = font_index as usize;
+        if self.faces.len() <= i {
+            self.faces.resize(i + 1, None);
+        }
+        self.faces[i] = face;
+    }
+
+    fn replace_face(&mut self, font_index: u8, face: FontFace) {
+        self.set_face(font_index, Some(face));
+        self.charmap_cache.retain(|&(_, fi), _| fi != font_index);
+        self.glyphs.retain(|key, _| key.font_index != font_index);
+        self.generation += 1;
+    }
+
+    fn push_face(&mut self, face: Option<FontFace>) -> u8 {
+        let font_index = self.next_font_index;
+        self.next_font_index += 1;
+        self.set_face(font_index, face);
+        font_index
+    }
+
+    fn push_fallback_face(&mut self, face: FontFace) -> u8 {
+        let font_index = self.push_face(Some(face));
+        self.fallback_faces.push(font_index);
+        self.generation += 1;
+        font_index
+    }
 
     fn cached_glyph_id(&self, ch: char, font_index: u8) -> Option<u16> {
         self.charmap_cache.get(&(ch, font_index)).copied()
     }
 
-    fn lookup_and_cache_glyph_id(&mut self, ch: char, font_index: u8, font_data: &[u8], face_index: u32) -> u16 {
-        let gid = swash::FontRef::from_index(font_data, face_index as usize)
-            .map(|fr| fr.charmap().map(ch))
-            .unwrap_or(0);
+    fn lookup_and_cache_glyph_id(&mut self, ch: char, font_index: u8, face: &FontFace) -> u16 {
+        let gid = face.font_ref().map(|fr| fr.charmap().map(ch)).unwrap_or(0);
         self.charmap_cache.insert((ch, font_index), gid);
         gid
     }
@@ -254,177 +372,128 @@ impl FontAtlas {
             || (0x25A0..=0x25FF).contains(&c)
     }
 
+    fn glyph_id_in(&mut self, ch: char, font_index: u8) -> Option<u16> {
+        let glyph_id = match self.cached_glyph_id(ch, font_index) {
+            Some(gid) => gid,
+            None => {
+                let face = self.face(font_index)?;
+                self.lookup_and_cache_glyph_id(ch, font_index, &face)
+            }
+        };
+        (glyph_id != 0).then_some(glyph_id)
+    }
+
+    fn ensure_glyph_in(&mut self, ch: char, size_px: u16, font_index: u8) -> Option<GlyphKey> {
+        let glyph_id = self.glyph_id_in(ch, font_index)?;
+        let key = GlyphKey { glyph_id, size_px, font_index };
+        if self.glyphs.contains_key(&key) {
+            return Some(key);
+        }
+        let face = self.face(font_index)?;
+        self.rasterize_glyph(face, glyph_id, size_px, key).map(|_| key)
+    }
+
     fn ensure_glyph(&mut self, ch: char, size_px: u16) -> Option<GlyphKey> {
-        if Self::is_likely_emoji(ch) && !self.emoji_font_data.is_empty() {
-            let glyph_id = self.cached_glyph_id(ch, 1).unwrap_or_else(|| {
-                let fi = self.emoji_face_index;
-                self.lookup_and_cache_glyph_id(ch, 1, &self.emoji_font_data.clone(), fi)
-            });
-            if glyph_id != 0 {
-                let key = GlyphKey { glyph_id, size_px, font_index: 1 };
-                if self.glyphs.contains_key(&key) {
-                    return Some(key);
-                }
-                let fi = self.emoji_face_index;
-                if self.rasterize_glyph(&self.emoji_font_data.clone(), glyph_id, size_px, key, fi).is_some() {
-                    return Some(key);
-                }
+        if Self::is_likely_emoji(ch) {
+            if let Some(key) = self.ensure_glyph_in(ch, size_px, FONT_EMOJI) {
+                return Some(key);
             }
         }
+        if let Some(key) = self.ensure_glyph_in(ch, size_px, FONT_REGULAR) {
+            return Some(key);
+        }
+        if let Some(key) = self.ensure_fallback_glyph(ch, size_px) {
+            return Some(key);
+        }
+        if let Some(key) = self.ensure_glyph_in(ch, size_px, FONT_ICON) {
+            return Some(key);
+        }
+        self.ensure_glyph_in(ch, size_px, FONT_EMOJI)
+    }
 
-        if !self.font_data.is_empty() {
-            let glyph_id = self.cached_glyph_id(ch, 0).unwrap_or_else(|| {
-                let fi = self.font_face_index;
-                self.lookup_and_cache_glyph_id(ch, 0, &self.font_data.clone(), fi)
-            });
-            if glyph_id != 0 {
-                let key = GlyphKey { glyph_id, size_px, font_index: 0 };
-                if self.glyphs.contains_key(&key) {
-                    return Some(key);
-                }
-                let fi = self.font_face_index;
-                if self.rasterize_glyph(&self.font_data.clone(), glyph_id, size_px, key, fi).is_some() {
-                    return Some(key);
-                }
+    /// CJK fallback: the first registered fallback face whose charmap covers
+    /// `ch` is used; when none does, the platform is asked once per script and
+    /// the discovered face is appended. Bold text goes through the same
+    /// regular-weight faces — CJK fallbacks carry no bold companion.
+    fn ensure_fallback_glyph(&mut self, ch: char, size_px: u16) -> Option<GlyphKey> {
+        let script = script_of(ch)?;
+        for i in 0..self.fallback_faces.len() {
+            let font_index = self.fallback_faces[i];
+            if self.glyph_id_in(ch, font_index).is_some() {
+                return self.ensure_glyph_in(ch, size_px, font_index);
             }
         }
-
-        if !self.icon_font_data.is_empty() {
-            let glyph_id = self.cached_glyph_id(ch, 3).unwrap_or_else(|| {
-                self.lookup_and_cache_glyph_id(ch, 3, &self.icon_font_data.clone(), 0)
-            });
-            if glyph_id != 0 {
-                let key = GlyphKey { glyph_id, size_px, font_index: 3 };
-                if self.glyphs.contains_key(&key) {
-                    return Some(key);
-                }
-                if self.rasterize_glyph(&self.icon_font_data.clone(), glyph_id, size_px, key, 0).is_some() {
-                    return Some(key);
-                }
-            }
+        if !self.fallback_tried.insert(script) {
+            return None;
         }
-
-        if !self.emoji_font_data.is_empty() {
-            let glyph_id = self.cached_glyph_id(ch, 1).unwrap_or_else(|| {
-                let fi = self.emoji_face_index;
-                self.lookup_and_cache_glyph_id(ch, 1, &self.emoji_font_data.clone(), fi)
-            });
-            if glyph_id != 0 {
-                let key = GlyphKey { glyph_id, size_px, font_index: 1 };
-                if self.glyphs.contains_key(&key) {
-                    return Some(key);
-                }
-                let fi = self.emoji_face_index;
-                if self.rasterize_glyph(&self.emoji_font_data.clone(), glyph_id, size_px, key, fi).is_some() {
-                    return Some(key);
-                }
-            }
-        }
-
-        None
+        let (data, face_index) = self.discover_fallback(script)?;
+        let face = FontFace::new(data, face_index)?;
+        let font_index = self.push_fallback_face(face);
+        self.fallback_discovered.push(font_index);
+        log::info!("font_atlas: fallback face #{} loaded for {:?}", font_index, script);
+        self.ensure_glyph_in(ch, size_px, font_index)
     }
 
     fn ensure_glyph_bold(&mut self, ch: char, size_px: u16) -> Option<GlyphKey> {
-        if !self.bold_font_data.is_empty() {
-            let glyph_id = self.cached_glyph_id(ch, 2).unwrap_or_else(|| {
-                let fi = self.bold_face_index;
-                self.lookup_and_cache_glyph_id(ch, 2, &self.bold_font_data.clone(), fi)
-            });
-            if glyph_id != 0 {
-                let key = GlyphKey { glyph_id, size_px, font_index: 2 };
-                if self.glyphs.contains_key(&key) {
-                    return Some(key);
-                }
-                let fi = self.bold_face_index;
-                if self.rasterize_glyph(&self.bold_font_data.clone(), glyph_id, size_px, key, fi).is_some() {
-                    return Some(key);
-                }
-            }
+        if let Some(key) = self.ensure_glyph_in(ch, size_px, FONT_BOLD) {
+            return Some(key);
         }
         self.ensure_glyph(ch, size_px)
     }
 
-    #[cfg(all(not(target_arch = "wasm32"), not(target_os = "android")))]
     fn load_font_family(&mut self, family: &str) -> Option<(u8, u8)> {
-        if let Some(ef) = self.extra_fonts.get(family) {
-            return Some((ef.font_index_regular, ef.font_index_bold));
+        if let Some(&indices) = self.extra_fonts.get(family) {
+            return indices;
         }
+        let indices = self.discover_font_family(family);
+        if indices.is_none() {
+            log::warn!("Font family '{}' not found, falling back to primary", family);
+        }
+        self.extra_fonts.insert(family.to_string(), indices);
+        indices
+    }
+
+    #[cfg(all(not(target_arch = "wasm32"), not(target_os = "android")))]
+    fn discover_font_family(&mut self, family: &str) -> Option<(u8, u8)> {
         use crate::text::font_discovery;
         let (regular, regular_face) = font_discovery::discover_font(Some(family));
-        if regular.is_empty() {
-            log::warn!("Font family '{}' not found, falling back to primary", family);
-            return None;
-        }
+        let regular = FontFace::new(regular, regular_face)?;
         let (bold, bold_face) = font_discovery::discover_bold_font(Some(family));
-        let idx_regular = self.next_font_index;
-        let idx_bold = self.next_font_index + 1;
-        self.next_font_index += 2;
-        self.extra_fonts.insert(family.to_string(), ExtraFont {
-            regular,
-            bold,
-            face_index_regular: regular_face,
-            face_index_bold: bold_face,
-            font_index_regular: idx_regular,
-            font_index_bold: idx_bold,
-        });
+        let idx_regular = self.push_face(Some(regular));
+        let idx_bold = self.push_face(FontFace::new(bold, bold_face));
         Some((idx_regular, idx_bold))
     }
 
     #[cfg(target_os = "android")]
-    fn load_font_family(&mut self, _family: &str) -> Option<(u8, u8)> {
+    fn discover_font_family(&mut self, _family: &str) -> Option<(u8, u8)> {
         None
     }
 
     #[cfg(target_arch = "wasm32")]
-    fn load_font_family(&mut self, _family: &str) -> Option<(u8, u8)> {
+    fn discover_font_family(&mut self, _family: &str) -> Option<(u8, u8)> {
+        None
+    }
+
+    #[cfg(all(not(target_arch = "wasm32"), not(target_os = "android")))]
+    fn discover_fallback(&self, script: Script) -> Option<(Vec<u8>, u32)> {
+        crate::text::font_discovery::discover_fallback_font(script, self.prefer_japanese, self.prefer_korean)
+    }
+
+    #[cfg(target_os = "android")]
+    fn discover_fallback(&self, script: Script) -> Option<(Vec<u8>, u32)> {
+        crate::text::font_discovery_android::discover_fallback_font(script, self.prefer_japanese, self.prefer_korean)
+    }
+
+    #[cfg(target_arch = "wasm32")]
+    fn discover_fallback(&self, _script: Script) -> Option<(Vec<u8>, u32)> {
         None
     }
 
     fn ensure_glyph_family(&mut self, ch: char, size_px: u16, bold: bool, family: &str) -> Option<GlyphKey> {
-        let indices = self.load_font_family(family);
-        if let Some((idx_regular, idx_bold)) = indices {
-            let ef = self.extra_fonts.get(family).unwrap();
-            let (font_idx, face_idx, has_data) = if bold && !ef.bold.is_empty() {
-                (idx_bold, ef.face_index_bold, true)
-            } else if !ef.regular.is_empty() {
-                (idx_regular, ef.face_index_regular, true)
-            } else {
-                (idx_regular, 0, false)
-            };
-
-            if has_data {
-                let cache_key = (ch, font_idx);
-                let glyph_id = if let Some(&gid) = self.charmap_cache.get(&cache_key) {
-                    gid
-                } else {
-                    let ef = self.extra_fonts.get(family).unwrap();
-                    let font_data_ref = if bold && !ef.bold.is_empty() {
-                        ef.bold.as_slice()
-                    } else {
-                        ef.regular.as_slice()
-                    };
-                    let gid = swash::FontRef::from_index(font_data_ref, face_idx as usize)
-                        .map(|fr| fr.charmap().map(ch))
-                        .unwrap_or(0);
-                    self.charmap_cache.insert(cache_key, gid);
-                    gid
-                };
-
-                if glyph_id != 0 {
-                    let key = GlyphKey { glyph_id, size_px, font_index: font_idx };
-                    if self.glyphs.contains_key(&key) {
-                        return Some(key);
-                    }
-                    let ef = self.extra_fonts.get(family).unwrap();
-                    let font_data = if bold && !ef.bold.is_empty() {
-                        ef.bold.clone()
-                    } else {
-                        ef.regular.clone()
-                    };
-                    if self.rasterize_glyph(&font_data, glyph_id, size_px, key, face_idx).is_some() {
-                        return Some(key);
-                    }
-                }
+        if let Some((idx_regular, idx_bold)) = self.load_font_family(family) {
+            let font_index = if bold && self.has_face(idx_bold) { idx_bold } else { idx_regular };
+            if let Some(key) = self.ensure_glyph_in(ch, size_px, font_index) {
+                return Some(key);
             }
         }
         if bold {
@@ -434,15 +503,8 @@ impl FontAtlas {
         }
     }
 
-    fn rasterize_glyph(
-        &mut self,
-        font_data: &[u8],
-        glyph_id: u16,
-        size_px: u16,
-        key: GlyphKey,
-        face_index: u32,
-    ) -> Option<()> {
-        let font_ref = swash::FontRef::from_index(font_data, face_index as usize)?;
+    fn rasterize_glyph(&mut self, face: FontFace, glyph_id: u16, size_px: u16, key: GlyphKey) -> Option<()> {
+        let font_ref = face.font_ref()?;
 
         use swash::scale::ScaleContext;
         use swash::zeno::Format;
@@ -519,7 +581,10 @@ impl FontAtlas {
         }
 
         if self.cursor_y + glyph_h + padding > self.atlas_height {
-            log::warn!("Font atlas full");
+            if !self.overflowed {
+                log::warn!("Font atlas full — resetting at the next frame");
+            }
+            self.overflowed = true;
             return None;
         }
 
@@ -578,7 +643,7 @@ impl FontAtlas {
     }
 
     pub fn memory_stats(&self) -> FontAtlasStats {
-        let font_data_bytes = self.font_data.len() + self.bold_font_data.len() + self.emoji_font_data.len() + self.icon_font_data.len();
+        let font_data_bytes = self.faces.iter().flatten().map(|face| face.data.len()).sum::<usize>();
         let pixels_bytes = self.pixels.len();
         let glyph_cache_bytes = self.glyphs.len() * std::mem::size_of::<(GlyphKey, CachedGlyph)>();
         FontAtlasStats {
@@ -632,10 +697,12 @@ impl FontAtlas {
 
         let chars: Vec<char> = text.chars().collect();
         let mut i = 0;
+        let mut prev: Option<char> = None;
 
         while i < chars.len() {
             let ch = chars[i];
             i += 1;
+            let prev_ch = prev.replace(ch);
 
             if ch == '\n' {
                 for &(wch, _) in &word_glyphs {
@@ -648,14 +715,16 @@ impl FontAtlas {
                 continue;
             }
 
-            if ch == ' ' {
+            if ch == ' ' || breaks_before(prev_ch, ch) {
                 for &(wch, _) in &word_glyphs {
                     self.emit_glyph(wch, size_px, bold, font_family, &mut x, y, &mut result);
                 }
                 word_glyphs.clear();
                 word_width = 0.0;
-                self.emit_glyph(ch, size_px, bold, font_family, &mut x, y, &mut result);
-                continue;
+                if ch == ' ' {
+                    self.emit_glyph(ch, size_px, bold, font_family, &mut x, y, &mut result);
+                    continue;
+                }
             }
 
             let advance = self.glyph_advance(ch, size_px, bold, font_family);
@@ -714,10 +783,12 @@ impl FontAtlas {
         let mut word_width = 0.0f32;
         let chars: Vec<char> = text.chars().collect();
         let mut i = 0;
+        let mut prev: Option<char> = None;
 
         while i < chars.len() {
             let ch = chars[i];
             i += 1;
+            let prev_ch = prev.replace(ch);
 
             if ch == '\n' {
                 for &(wch, _) in &word_glyphs {
@@ -730,14 +801,16 @@ impl FontAtlas {
                 continue;
             }
 
-            if ch == ' ' {
+            if ch == ' ' || breaks_before(prev_ch, ch) {
                 for &(wch, _) in &word_glyphs {
                     self.emit_glyph_spaced(wch, size_px, bold, font_family, &mut x, y, letter_spacing, &mut result);
                 }
                 word_glyphs.clear();
                 word_width = 0.0;
-                self.emit_glyph_spaced(ch, size_px, bold, font_family, &mut x, y, letter_spacing, &mut result);
-                continue;
+                if ch == ' ' {
+                    self.emit_glyph_spaced(ch, size_px, bold, font_family, &mut x, y, letter_spacing, &mut result);
+                    continue;
+                }
             }
 
             let advance = self.glyph_advance(ch, size_px, bold, font_family) + letter_spacing;
@@ -816,7 +889,7 @@ impl FontAtlas {
     }
 
     pub fn has_font(&self) -> bool {
-        !self.font_data.is_empty()
+        self.has_face(FONT_REGULAR)
     }
     pub fn measure_text_width(&mut self, text: &str, size_px: u16, pos: usize, font_family: Option<&str>) -> f32 {
         self.measure_text_width_styled(text, size_px, pos, false, font_family)

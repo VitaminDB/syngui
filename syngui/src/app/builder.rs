@@ -83,6 +83,7 @@ pub struct AppBuilder {
     pub(super) theme_state: Option<RwSignal<bool>>,
     pub(super) font_url: Option<String>,
     pub(super) emoji_font_url: Option<String>,
+    pub(super) fallback_font_urls: Vec<String>,
     pub(super) additional_stylesheets: Vec<StyleSheet>,
     pub(super) gpu_backend: GpuBackend,
     pub(super) gpu_power: GpuPowerPreference,
@@ -134,6 +135,7 @@ impl AppBuilder {
             theme_state: None,
             font_url: None,
             emoji_font_url: None,
+            fallback_font_urls: Vec::new(),
             font_family: None,
             icon_font_data: None,
             additional_stylesheets: Vec::new(),
@@ -320,6 +322,14 @@ impl AppBuilder {
 
     pub fn with_emoji_font_url(mut self, url: impl Into<String>) -> Self {
         self.emoji_font_url = Some(url.into());
+        self
+    }
+
+    /// wasm: a font fetched from `url` and registered as a CJK fallback face
+    /// (see `FontAtlas::add_fallback_font`). May be called several times; the
+    /// faces are tried in this order. Fetching does not delay the first frame.
+    pub fn with_fallback_font_url(mut self, url: impl Into<String>) -> Self {
+        self.fallback_font_urls.push(url.into());
         self
     }
 

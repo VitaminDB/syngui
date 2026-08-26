@@ -148,6 +148,22 @@ impl AppHandler {
                     }
                 });
             }
+
+            for url in self.config.fallback_font_urls.clone() {
+                let pending_fallback = self.pending_fallback_fonts.clone();
+                let window_clone = window.clone();
+                wasm_bindgen_futures::spawn_local(async move {
+                    match super::super::input_mapping::fetch_bytes(&url).await {
+                        Ok(data) => {
+                            pending_fallback.borrow_mut().push(data);
+                            window_clone.request_redraw();
+                        }
+                        Err(e) => {
+                            log::error!("Failed to fetch fallback font from '{}': {:?}", url, e);
+                        }
+                    }
+                });
+            }
         }
     }
 
