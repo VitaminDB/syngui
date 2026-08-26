@@ -12,6 +12,7 @@ pub struct TestHarness {
 impl TestHarness {
     pub fn new(widget: Box<dyn Widget>) -> Self {
         signal::init_main_thread();
+        signal::allow_signal_reads_on_this_thread();
         let mut tree = ElementTree::new();
         let element = widget.create_element();
         let root_id = tree.insert(element, None);

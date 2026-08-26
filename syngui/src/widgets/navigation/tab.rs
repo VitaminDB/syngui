@@ -532,7 +532,7 @@ mod tests {
         use crate::widgets::containers::DecoratedBox;
         use crate::widgets::navigation::TabBar;
 
-        crate::signal::init_main_thread();
+        crate::signal::allow_signal_reads_on_this_thread();
         let state = use_signal(0usize);
         let bar = TabBar::new()
             .tab(Tab::new("Данные", 0, &state))

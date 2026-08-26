@@ -1,6 +1,6 @@
 use crate::widget::ElementId;
 use std::any::Any;
-use std::cell::RefCell;
+use std::cell::{Cell, RefCell};
 use std::collections::{HashMap, HashSet};
 use std::marker::PhantomData;
 use std::sync::{Arc, OnceLock};
@@ -63,11 +63,30 @@ thread_local! {
 
 static MAIN_THREAD_ID: OnceLock<ThreadId> = OnceLock::new();
 
+thread_local! {
+    /// Поток объявлен владельцем собственного runtime сигналов
+    /// (см. [`allow_signal_reads_on_this_thread`]).
+    static THREAD_OWNS_SIGNALS: Cell<bool> = const { Cell::new(false) };
+}
+
+/// Разрешить чтение сигналов в текущем потоке независимо от того, какой
+/// поток стал «главным». Runtime сигналов — thread-local, поэтому поток,
+/// создавший сигнал, читает его корректно; но `MAIN_THREAD_ID` достаётся
+/// первому вызвавшему [`init_main_thread`], и в параллельных тестах остальные
+/// потоки получали ложный панический «чтение вне главного потока».
+/// Используется `TestHarness`; в приложении вызывать не нужно.
+pub fn allow_signal_reads_on_this_thread() {
+    THREAD_OWNS_SIGNALS.with(|c| c.set(true));
+}
+
 fn is_main_thread() -> bool {
     #[cfg(target_arch = "wasm32")]
     { true }
     #[cfg(not(target_arch = "wasm32"))]
     {
+        if THREAD_OWNS_SIGNALS.with(|c| c.get()) {
+            return true;
+        }
         MAIN_THREAD_ID
             .get()
             .map_or(true, |id| *id == std::thread::current().id())
