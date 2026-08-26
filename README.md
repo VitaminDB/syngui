@@ -1,5 +1,7 @@
 # syngui
 
+[![Donate via PayPal](https://img.shields.io/badge/donate-PayPal-0070ba?logo=paypal&logoColor=white)](https://paypal.me/vitamindbnfkz)
+
 A retained-mode GUI framework for Rust — GPU-rendered via wgpu, styled with CSS-like
 stylesheets, wired with reactive signals.
 
@@ -154,6 +156,10 @@ The web build omits desktop-only widgets (terminal, video, native clipboard).
 **Android** — the `calculator` app ships a Gradle project. Create
 `app/calculator/android/local.properties` pointing at your SDK, then build with the
 included `gradlew` (requires the Android SDK/NDK and `cargo-ndk`).
+
+## Support
+
+syngui is free and open source. If it is useful to you, you can support its development with a donation via [PayPal](https://paypal.me/vitamindbnfkz).
 
 ## License
 
