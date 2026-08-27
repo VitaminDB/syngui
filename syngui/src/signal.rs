@@ -3,6 +3,7 @@ use std::any::Any;
 use std::cell::{Cell, RefCell};
 use std::collections::{HashMap, HashSet};
 use std::marker::PhantomData;
+use std::rc::Rc;
 use std::sync::{Arc, OnceLock};
 use std::thread::ThreadId;
 
@@ -16,6 +17,11 @@ pub struct EffectId(u64);
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub struct SignalId(u64);
 
+/// Плейсхолдер, который лежит в слоте, пока [`RwSignal::update`] держит
+/// значение снаружи. Нужен, чтобы замыкание пользователя выполнялось без
+/// активного заимствования `RUNTIME`.
+struct TakenDuringUpdate;
+
 struct SignalSlot {
     value: Box<dyn Any>,
     subscribers: HashSet<ElementId>,
@@ -23,7 +29,7 @@ struct SignalSlot {
 }
 
 struct EffectSlot {
-    closure: Box<dyn Fn() -> Option<Box<dyn Fn()>>>,
+    closure: Rc<dyn Fn() -> Option<Box<dyn Fn()>>>,
     dependencies: HashSet<SignalId>,
     cleanup: Option<Box<dyn Fn()>>,
     active: bool,
@@ -147,7 +153,7 @@ impl<T: 'static + Clone> RwSignal<T> {
                 rt.slots[idx].effect_subscribers.insert(effect_id);
                 rt.effects[effect_id.0 as usize].dependencies.insert(self.id);
             }
-            rt.slots[idx].value.downcast_ref::<T>().expect("Signal type mismatch").clone()
+            read_slot::<T>(&rt.slots[idx], "get").clone()
         })
     }
 
@@ -155,7 +161,7 @@ impl<T: 'static + Clone> RwSignal<T> {
         assert_main_thread_for_read::<T>("get_untracked");
         RUNTIME.with(|rt| {
             let rt = rt.borrow();
-            rt.slots[self.id.0 as usize].value.downcast_ref::<T>().expect("Signal type mismatch").clone()
+            read_slot::<T>(&rt.slots[self.id.0 as usize], "get_untracked").clone()
         })
     }
 
@@ -174,16 +180,17 @@ impl<T: 'static + Clone> RwSignal<T> {
         T: PartialEq + Send,
     {
         if is_main_thread() {
-            RUNTIME.with(|rt| {
+            let notifiers = RUNTIME.with(|rt| {
                 let mut rt = rt.borrow_mut();
                 let idx = self.id.0 as usize;
                 {
-                    let old = rt.slots[idx].value.downcast_ref::<T>().unwrap();
-                    if *old == new_value { return; }
+                    let old = read_slot::<T>(&rt.slots[idx], "set");
+                    if *old == new_value { return Vec::new(); }
                 }
                 rt.slots[idx].value = Box::new(new_value);
-                notify_subscribers(&mut rt, idx);
+                mark_dirty(&mut rt, idx)
             });
+            request_redraws(notifiers);
         } else {
             let signal = *self;
             crate::async_runtime::run_on_main_thread(move || {
@@ -197,12 +204,13 @@ impl<T: 'static + Clone> RwSignal<T> {
         T: Send,
     {
         if is_main_thread() {
-            RUNTIME.with(|rt| {
+            let notifiers = RUNTIME.with(|rt| {
                 let mut rt = rt.borrow_mut();
                 let idx = self.id.0 as usize;
                 rt.slots[idx].value = Box::new(new_value);
-                notify_subscribers(&mut rt, idx);
+                mark_dirty(&mut rt, idx)
             });
+            request_redraws(notifiers);
         } else {
             let signal = *self;
             crate::async_runtime::run_on_main_thread(move || {
@@ -211,6 +219,15 @@ impl<T: 'static + Clone> RwSignal<T> {
         }
     }
 
+    /// Изменяет значение на месте. Замыкание выполняется **без** активного
+    /// заимствования `RUNTIME`: значение на это время вынимается из слота,
+    /// а обратно кладётся после возврата. Поэтому внутри `f` можно читать и
+    /// писать другие сигналы, дёргать `tr!`, слать нотификации — раньше это
+    /// роняло приложение паникой «RefCell already borrowed».
+    ///
+    /// Единственное, чего нельзя, — читать **этот же** сигнал внутри `f`:
+    /// его значение сейчас у вас в руках. Такое чтение даёт понятную панику,
+    /// а не диагностику про RefCell.
     pub fn update(&self, f: impl FnOnce(&mut T)) {
         debug_assert!(
             is_main_thread(),
@@ -218,19 +235,76 @@ impl<T: 'static + Clone> RwSignal<T> {
              Use set() or set_always() for cross-thread updates, \
              or wrap in run_on_main_thread()."
         );
-        RUNTIME.with(|rt| {
+        let idx = self.id.0 as usize;
+        let taken: Box<T> = RUNTIME.with(|rt| {
             let mut rt = rt.borrow_mut();
-            let idx = self.id.0 as usize;
-            {
-                let value = rt.slots[idx].value.downcast_mut::<T>().unwrap();
-                f(value);
+            let value = std::mem::replace(
+                &mut rt.slots[idx].value,
+                Box::new(TakenDuringUpdate) as Box<dyn Any>,
+            );
+            value.downcast::<T>().unwrap_or_else(|_| {
+                panic!(
+                    "RwSignal::<{ty}>::update(): signal type mismatch",
+                    ty = std::any::type_name::<T>()
+                )
+            })
+        });
+        // Guard возвращает значение в слот, даже если `f` запаникует:
+        // иначе сигнал навсегда остался бы с плейсхолдером.
+        let mut guard = UpdateGuard { idx, value: Some(taken) };
+        f(guard.value.as_mut().expect("update value present"));
+        let value = guard.value.take().expect("update value present");
+
+        let notifiers = RUNTIME.with(|rt| {
+            let mut rt = rt.borrow_mut();
+            rt.slots[idx].value = value;
+            mark_dirty(&mut rt, idx)
+        });
+        request_redraws(notifiers);
+    }
+}
+
+struct UpdateGuard<T: 'static> {
+    idx: usize,
+    value: Option<Box<T>>,
+}
+
+impl<T: 'static> Drop for UpdateGuard<T> {
+    fn drop(&mut self) {
+        let Some(value) = self.value.take() else { return };
+        let idx = self.idx;
+        let _ = RUNTIME.try_with(|rt| {
+            if let Ok(mut rt) = rt.try_borrow_mut() {
+                rt.slots[idx].value = value;
             }
-            notify_subscribers(&mut rt, idx);
         });
     }
 }
 
-fn notify_subscribers(rt: &mut SignalRuntime, idx: usize) {
+/// Читает значение слота, различая «не тот тип» и «сигнал занят своим update».
+fn read_slot<'a, T: 'static>(slot: &'a SignalSlot, method: &'static str) -> &'a T {
+    if let Some(value) = slot.value.downcast_ref::<T>() {
+        return value;
+    }
+    if slot.value.is::<TakenDuringUpdate>() {
+        panic!(
+            "RwSignal::<{ty}>::{method}() called from inside this signal's own update(). \
+             The value is currently held by the update closure. Read it before update(), \
+             or mutate through the `&mut` the closure already has.",
+            ty = std::any::type_name::<T>(),
+        );
+    }
+    panic!(
+        "RwSignal::<{ty}>::{method}(): signal type mismatch",
+        ty = std::any::type_name::<T>()
+    );
+}
+
+/// Помечает подписчиков грязными и **возвращает** нотификаторы: сам
+/// `request_redraw` вызывается уже без заимствования `RUNTIME`, иначе
+/// нотификатор, который читает сигналы, роняет приложение.
+#[must_use = "notifiers must be run via request_redraws() after the RUNTIME borrow is dropped"]
+fn mark_dirty(rt: &mut SignalRuntime, idx: usize) -> Vec<Arc<dyn RedrawNotifier>> {
     let subscribers: Vec<ElementId> = rt.slots[idx].subscribers.iter().copied().collect();
     for elem_id in subscribers {
         rt.dirty_elements.insert(elem_id);
@@ -239,7 +313,11 @@ fn notify_subscribers(rt: &mut SignalRuntime, idx: usize) {
     for eid in effect_subs {
         rt.pending_effect_ids.insert(eid);
     }
-    for notifier in &rt.notifiers {
+    rt.notifiers.clone()
+}
+
+fn request_redraws(notifiers: Vec<Arc<dyn RedrawNotifier>>) {
+    for notifier in notifiers {
         notifier.request_redraw();
     }
 }
@@ -370,7 +448,7 @@ pub fn clear_element_dirty(element_id: ElementId) {
 }
 
 pub fn mark_all_reactive_dirty() {
-    RUNTIME.with(|rt| {
+    let notifiers = RUNTIME.with(|rt| {
         let mut rt = rt.borrow_mut();
         let all_subscribers: Vec<ElementId> = rt.slots.iter()
             .flat_map(|slot| slot.subscribers.iter().copied())
@@ -378,10 +456,9 @@ pub fn mark_all_reactive_dirty() {
         for elem_id in all_subscribers {
             rt.dirty_elements.insert(elem_id);
         }
-        for notifier in &rt.notifiers {
-            notifier.request_redraw();
-        }
+        rt.notifiers.clone()
     });
+    request_redraws(notifiers);
 }
 
 pub fn cleanup_element(element_id: ElementId) {
@@ -444,7 +521,7 @@ pub fn create_effect_with_cleanup(
         let mut rt = rt.borrow_mut();
         let id = EffectId(rt.effects.len() as u64);
         rt.effects.push(EffectSlot {
-            closure: Box::new(f),
+            closure: Rc::new(f),
             dependencies: HashSet::new(),
             cleanup: None,
             active: true,
@@ -456,6 +533,22 @@ pub fn create_effect_with_cleanup(
     });
     run_effect(effect_id);
     effect_id
+}
+
+struct TrackingGuard {
+    saved_stack: Option<Vec<ElementId>>,
+}
+
+impl Drop for TrackingGuard {
+    fn drop(&mut self) {
+        let Some(saved_stack) = self.saved_stack.take() else { return };
+        let _ = RUNTIME.try_with(|rt| {
+            if let Ok(mut rt) = rt.try_borrow_mut() {
+                rt.effect_tracking = None;
+                rt.tracking_stack = saved_stack;
+            }
+        });
+    }
 }
 
 fn run_effect(effect_id: EffectId) {
@@ -487,26 +580,30 @@ fn run_effect(effect_id: EffectId) {
         return;
     }
 
-    let closure_result = RUNTIME.with(|rt| {
-        let closure_ptr: *const dyn Fn() -> Option<Box<dyn Fn()>>;
-        {
-            let rt = rt.borrow();
-            let idx = effect_id.0 as usize;
-            if !rt.effects[idx].active {
-                return None;
-            }
-            closure_ptr = &*rt.effects[idx].closure as *const _;
+    // Замыкание достаётся из runtime по `Rc`, а не по сырому указателю:
+    // если внутри эффекта создаётся новый эффект, `rt.effects` реаллоцируется
+    // и указатель на старый буфер повисает.
+    let closure = RUNTIME.with(|rt| {
+        let rt = rt.borrow();
+        let idx = effect_id.0 as usize;
+        if idx >= rt.effects.len() || !rt.effects[idx].active {
+            return None;
         }
-        let saved_stack = std::mem::take(&mut rt.borrow_mut().tracking_stack);
-        rt.borrow_mut().effect_tracking = Some(effect_id);
-        // SAFETY: The closure lives in the RUNTIME vec which we don't
-        let result = unsafe { (*closure_ptr)() };
-        rt.borrow_mut().effect_tracking = None;
-        rt.borrow_mut().tracking_stack = saved_stack;
-        Some(result)
+        Some(Rc::clone(&rt.effects[idx].closure))
     });
+    let Some(closure) = closure else { return };
 
-    if let Some(cleanup) = closure_result.flatten() {
+    let saved_stack = RUNTIME.with(|rt| {
+        let mut rt = rt.borrow_mut();
+        rt.effect_tracking = Some(effect_id);
+        std::mem::take(&mut rt.tracking_stack)
+    });
+    // Guard восстанавливает tracking-состояние, даже если эффект запаникует.
+    let restore = TrackingGuard { saved_stack: Some(saved_stack) };
+    let closure_result = closure();
+    drop(restore);
+
+    if let Some(cleanup) = closure_result {
         RUNTIME.with(|rt| {
             let mut rt = rt.borrow_mut();
             let idx = effect_id.0 as usize;
