@@ -396,4 +396,8 @@ required-features = ["testing"]
 name = "test_effects"
 required-features = ["testing"]
 
+[[test]]
+name = "test_draggable_button"
+required-features = ["testing"]
+
 # Profiles moved to workspace root Cargo.toml

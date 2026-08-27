@@ -14,6 +14,9 @@ use std::time::Duration;
 pub struct ToolButton {
     pub icon: String, pub tooltip: Option<String>, pub text: Option<String>,
     pub disabled: bool, pub active: bool,
+    /// Кнопка не заявляет нажатия: MouseDown/MouseUp проходят к предку
+    /// (например, `Draggable::on_click`), hover и tooltip остаются свои.
+    pub press_passthrough: bool,
     pub on_click: Option<Arc<Mutex<dyn FnMut() + Send>>>,
     pub on_click_at: Option<Arc<Mutex<dyn FnMut(Point) + Send>>>,
     pub on_click_with_bounds: Option<Arc<Mutex<dyn FnMut(Point, Rect) + Send>>>,
@@ -25,11 +28,19 @@ impl ToolButton {
     pub fn new(icon: impl Into<String>) -> Self {
         Self {
             icon: icon.into(), tooltip: None, text: None,
-            disabled: false, active: false,
+            disabled: false, active: false, press_passthrough: false,
             on_click: None, on_click_at: None, on_click_with_bounds: None,
         }
     }
     pub fn tooltip(mut self, t: impl Into<String>) -> Self { self.tooltip = Some(t.into()); self }
+    /// Визуальная кнопка без собственного нажатия.
+    ///
+    /// События идут от самого глубокого элемента под курсором к корню, и
+    /// обычная кнопка «заклеймивает» MouseDown — предок вроде `Draggable`
+    /// его не видит, а с ним теряет и клик, и старт перетаскивания. В этом
+    /// режиме кнопка отдаёт нажатия наверх, сохраняя hover-подсветку и
+    /// tooltip; свои `on_click*` при этом не вызываются.
+    pub fn press_passthrough(mut self) -> Self { self.press_passthrough = true; self }
     pub fn text(mut self, t: impl Into<String>) -> Self { self.text = Some(t.into()); self }
     pub fn disabled(mut self, d: bool) -> Self { self.disabled = d; self }
     pub fn active(mut self, a: bool) -> Self { self.active = a; self }
@@ -52,6 +63,7 @@ impl Widget for ToolButton {
         Box::new(ToolButtonElement {
             id: ElementId::new(), icon: self.icon.clone(), tooltip: self.tooltip.clone(),
             text: self.text.clone(), disabled: self.disabled, active: self.active,
+            press_passthrough: self.press_passthrough,
             on_click: self.on_click.clone(),
             on_click_at: self.on_click_at.clone(),
             on_click_with_bounds: self.on_click_with_bounds.clone(),
@@ -69,7 +81,7 @@ impl Widget for ToolButton {
 
 pub struct ToolButtonElement {
     id: ElementId, icon: String, tooltip: Option<String>, text: Option<String>,
-    disabled: bool, active: bool,
+    disabled: bool, active: bool, press_passthrough: bool,
     on_click: Option<Arc<Mutex<dyn FnMut() + Send>>>,
     on_click_at: Option<Arc<Mutex<dyn FnMut(Point) + Send>>>,
     on_click_with_bounds: Option<Arc<Mutex<dyn FnMut(Point, Rect) + Send>>>,
@@ -90,6 +102,7 @@ impl Element for ToolButtonElement {
         if let Some(btn) = widget.as_any().downcast_ref::<ToolButton>() {
             self.icon = btn.icon.clone(); self.tooltip = btn.tooltip.clone(); self.text = btn.text.clone();
             self.disabled = btn.disabled; self.active = btn.active;
+            self.press_passthrough = btn.press_passthrough;
             self.on_click = btn.on_click.clone();
             self.on_click_at = btn.on_click_at.clone();
             self.on_click_with_bounds = btn.on_click_with_bounds.clone();
@@ -234,7 +247,11 @@ impl Element for ToolButtonElement {
                 if self.hover { return EventResult::Handled; }
                 EventResult::Ignored
             }
-            Event::MouseDown { button, position } if *button == MouseButton::Left && self.bounds.contains(*position) => {
+            Event::MouseDown { button, position }
+                if *button == MouseButton::Left
+                    && !self.press_passthrough
+                    && self.bounds.contains(*position) =>
+            {
                 self.pressed = true;
                 self.start_transition_to_current_state();
                 ctx.request_paint();
