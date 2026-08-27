@@ -10,6 +10,7 @@ use crate::widget::{
 };
 use crate::widgets::containers::IntoWidget;
 use crate::widgets::overlay::menu::PopupAnchor;
+use crate::widgets::overlay::placement::{clamp_span, fit_span};
 use std::any::Any;
 use std::cell::Cell;
 use std::sync::Arc;
@@ -190,29 +191,22 @@ impl PopupPanelElement {
         let natural_height = content.height;
         let height = natural_height.min(self.max_height);
 
-        let (mut x, mut y) = match self.anchor {
+        // `flip_up_to` — низ перевёрнутого варианта: панель раскроется вверх,
+        // упершись в эту линию (верх якоря либо сама точка открытия).
+        let (x, y, flip_up_to) = match self.anchor {
             PopupAnchor::BottomStart => {
-                (ar.origin.x, ar.origin.y + ar.size.height)
+                (ar.origin.x, ar.origin.y + ar.size.height, ar.origin.y)
             }
             PopupAnchor::BottomEnd => {
-                (ar.origin.x + ar.size.width - width, ar.origin.y + ar.size.height)
+                (ar.origin.x + ar.size.width - width, ar.origin.y + ar.size.height, ar.origin.y)
             }
             PopupAnchor::Position => {
-                (ar.origin.x, ar.origin.y)
+                (ar.origin.x, ar.origin.y, ar.origin.y)
             }
         };
 
-        if viewport.width > 0.0 {
-            x = x.max(0.0).min((viewport.width - width).max(0.0));
-        }
-
-        if viewport.height > 0.0 && y + height > viewport.height {
-            let flipped = ar.origin.y - height;
-            if flipped >= 0.0 {
-                y = flipped;
-            }
-        }
-        y = y.max(0.0);
+        let x = clamp_span(x, width, viewport.width);
+        let y = fit_span(y, height, flip_up_to, viewport.height);
 
         let max_available = (viewport.height - y).max(0.0);
         let final_height = height.min(max_available);

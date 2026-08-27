@@ -11,6 +11,7 @@ use std::cell::{Cell, RefCell};
 use std::sync::Arc;
 use crate::core::sync::Mutex;
 use crate::signal::{RwSignal, use_signal};
+use super::placement::{clamp_span, fit_span};
 
 #[derive(Clone, Debug)]
 pub struct MenuItem {
@@ -304,31 +305,26 @@ impl PopupMenuElement {
         let viewport = self.viewport_size.get();
         let width = self.level_width(0);
 
-        let (x, y) = match self.anchor {
+        // `flip_up_to` — низ перевёрнутого варианта: меню раскроется вверх,
+        // упершись в эту линию. Для `Position` это сама точка открытия
+        // (курсор или край кнопки), для якорных вариантов — верх якоря.
+        let (x, y, flip_up_to) = match self.anchor {
             PopupAnchor::Position => {
                 let pos = self.position.get_untracked();
-                (pos.x, pos.y)
+                (pos.x, pos.y, pos.y)
             }
             PopupAnchor::BottomStart => {
                 let r = self.anchor_rect.get_untracked();
-                (r.origin.x, r.origin.y + r.size.height)
+                (r.origin.x, r.origin.y + r.size.height, r.origin.y)
             }
             PopupAnchor::BottomEnd => {
                 let r = self.anchor_rect.get_untracked();
-                (r.origin.x + r.size.width - width, r.origin.y + r.size.height)
+                (r.origin.x + r.size.width - width, r.origin.y + r.size.height, r.origin.y)
             }
         };
 
-        let x = if viewport.width > 0.0 {
-            x.max(0.0).min((viewport.width - width).max(0.0))
-        } else { x };
-
-        let y = if viewport.height > 0.0 && y + height > viewport.height {
-            let anchor_r = self.anchor_rect.get_untracked();
-            let flipped = anchor_r.origin.y - height;
-            if flipped >= 0.0 { flipped } else { y }
-        } else { y };
-        let y = y.max(0.0);
+        let x = clamp_span(x, width, viewport.width);
+        let y = fit_span(y, height, flip_up_to, viewport.height);
 
         Rect::new(Point::new(x, y), Size::new(width, height))
     }
@@ -345,20 +341,10 @@ impl PopupMenuElement {
         let height = self.level_height(level);
         let viewport = self.viewport_size.get();
 
-        let mut y = parent_item_rect.y() - MENU_PADDING;
-        if viewport.height > 0.0 && y + height > viewport.height {
-            y = (viewport.height - height).max(0.0);
-        }
-        if y < 0.0 { y = 0.0; }
-
-        let right_x = parent_level.right();
-        let mut x = right_x;
-        if viewport.width > 0.0 && x + width > viewport.width {
-            let flipped = parent_level.x() - width;
-            if flipped >= 0.0 { x = flipped; }
-            else { x = (viewport.width - width).max(0.0); }
-        }
-        if x < 0.0 { x = 0.0; }
+        // Подменю не переворачивается по вертикали — только прижимается;
+        // по горизонтали уходит влево от родителя, если справа нет места.
+        let y = clamp_span(parent_item_rect.y() - MENU_PADDING, height, viewport.height);
+        let x = fit_span(parent_level.right(), width, parent_level.x(), viewport.width);
 
         Rect::new(Point::new(x, y), Size::new(width, height))
     }
