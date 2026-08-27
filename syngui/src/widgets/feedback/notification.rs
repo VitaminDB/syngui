@@ -151,15 +151,26 @@ impl NotificationCtx {
 pub struct NotificationHost {
     ctx: NotificationCtx,
     classes: Vec<String>,
+    grow_up: bool,
 }
 
 impl NotificationHost {
     pub fn new(ctx: NotificationCtx) -> Self {
-        Self { ctx, classes: Vec::new() }
+        Self { ctx, classes: Vec::new(), grow_up: false }
     }
 
     pub fn class(mut self, class: impl Into<String>) -> Self {
         self.classes.push(class.into());
+        self
+    }
+
+    /// Стек растёт ВВЕРХ — для хоста, приклеенного к нижнему краю
+    /// (`PortalAnchor::BottomEnd`): свежая карточка появляется снизу,
+    /// прежние уезжают выше, а колода переполнения выглядывает над верхней
+    /// карточкой, а не под нижней. Без этого при нижнем якоре колода лезла
+    /// бы за край окна.
+    pub fn grow_up(mut self, yes: bool) -> Self {
+        self.grow_up = yes;
         self
     }
 }
@@ -172,6 +183,7 @@ impl Widget for NotificationHost {
             active: Vec::new(),
             bounds: Rect::zero(),
             classes: self.classes.clone(),
+            grow_up: self.grow_up,
             dirty_flags: DirtyFlags::LAYOUT | DirtyFlags::RENDER,
             mss: MssFields::new(),
             text_measure: None,
@@ -228,6 +240,8 @@ pub struct NotificationHostElement {
     active: Vec<ActiveNotification>,
     bounds: Rect,
     classes: Vec<String>,
+    /// См. [`NotificationHost::grow_up`].
+    grow_up: bool,
     dirty_flags: DirtyFlags,
     mss: MssFields,
     text_measure: Option<Arc<dyn crate::widget::context::TextMeasure>>,
@@ -311,6 +325,22 @@ impl NotificationHostElement {
         total.max(1)
     }
 
+    /// Сколько карточек переполнения показывается «колодой» за видимыми.
+    fn deck_layers(&self) -> usize {
+        self.active.len().saturating_sub(MAX_VISIBLE).min(DECK_DEPTH)
+    }
+
+    /// Y первой видимой карточки. В режиме [`NotificationHost::grow_up`]
+    /// сверху резервируется полоса под выглядывающую колоду — она входит в
+    /// высоту хоста (см. `layout`), поэтому видимый стек сдвигается вниз.
+    fn visible_origin_y(&self) -> f32 {
+        if self.grow_up {
+            self.bounds.origin.y + self.deck_layers() as f32 * CARD_OFFSET_PX
+        } else {
+            self.bounds.origin.y
+        }
+    }
+
     fn measure_item(&self, item: &NotificationItem, max_w: f32) -> (f32, f32) {
         let pad = self.effective_padding();
         let font_size = self.effective_font_size();
@@ -350,6 +380,10 @@ impl Element for NotificationHostElement {
     fn update(&mut self, widget: &dyn Widget, _ctx: &mut UpdateContext) {
         if let Some(host) = widget.as_any().downcast_ref::<NotificationHost>() {
             self.items = host.ctx.items_handle();
+            if self.grow_up != host.grow_up {
+                self.grow_up = host.grow_up;
+                self.mark_dirty(DirtyFlags::LAYOUT);
+            }
             self.mark_dirty(DirtyFlags::RENDER);
         }
     }
@@ -387,8 +421,7 @@ impl Element for NotificationHostElement {
                 host_h += gap;
             }
         }
-        let deck_layers = self.active.len().saturating_sub(MAX_VISIBLE).min(DECK_DEPTH);
-        host_h += deck_layers as f32 * CARD_OFFSET_PX;
+        host_h += self.deck_layers() as f32 * CARD_OFFSET_PX;
 
         self.bounds = Rect::new(self.bounds.origin, Size::new(host_w, host_h));
         Size::new(host_w, host_h)
@@ -416,7 +449,7 @@ impl Element for NotificationHostElement {
         list.begin_overlay();
 
         let mut visible_y: Vec<f32> = Vec::with_capacity(self.active.len().min(MAX_VISIBLE));
-        let mut cur_y = origin_y;
+        let mut cur_y = self.visible_origin_y();
         for i in 0..self.active.len().min(MAX_VISIBLE) {
             visible_y.push(cur_y);
             cur_y += self.active[i].cached_height + gap;
@@ -430,13 +463,20 @@ impl Element for NotificationHostElement {
             if opacity <= 0.01 {
                 continue;
             }
-            let last_visible_y = visible_y.last().copied().unwrap_or(origin_y);
-            let last_h = self
-                .active
-                .get(MAX_VISIBLE - 1)
-                .map(|n| n.cached_height)
-                .unwrap_or(0.0);
-            let y = last_visible_y + last_h - last_h * scale + depth * CARD_OFFSET_PX;
+            let y = if self.grow_up {
+                // Колода выглядывает НАД верхней карточкой: её верхняя кромка
+                // поднимается на depth * offset, остальное перекрыто видимой
+                // карточкой (колода рисуется до неё).
+                visible_y.first().copied().unwrap_or(origin_y) - depth * CARD_OFFSET_PX
+            } else {
+                let last_visible_y = visible_y.last().copied().unwrap_or(origin_y);
+                let last_h = self
+                    .active
+                    .get(MAX_VISIBLE - 1)
+                    .map(|n| n.cached_height)
+                    .unwrap_or(0.0);
+                last_visible_y + last_h - last_h * scale + depth * CARD_OFFSET_PX
+            };
             let scaled_w = host_w * scale;
             let x = origin_x + (host_w - scaled_w) * 0.5;
             let scaled_h = self.active[idx].cached_height * scale;
@@ -552,10 +592,9 @@ impl Element for NotificationHostElement {
         let gap = self.effective_gap();
         let host_w = self.bounds.size.width;
         let origin_x = self.bounds.origin.x;
-        let origin_y = self.bounds.origin.y;
         let visible_count = self.active.len().min(MAX_VISIBLE);
         let mut rects: Vec<Rect> = Vec::with_capacity(visible_count);
-        let mut cur_y = origin_y;
+        let mut cur_y = self.visible_origin_y();
         for i in 0..visible_count {
             rects.push(Rect::new(
                 Point::new(origin_x, cur_y),

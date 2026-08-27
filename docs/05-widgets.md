@@ -737,14 +737,34 @@ Snackbar::new("File saved successfully")
 
 ### Notification
 
-```rust
-NotificationHost::new()
-    .position(NotificationPosition::TopRight)
+Хост рисует стек уведомлений в том углу, куда его поставил `Portal`;
+одновременно видно не больше трёх карточек, остальные ждут в «колоде» за
+ними (два верхних слоя выглядывают на 6 px со scale/opacity-ступенькой).
 
-// Push notification
-NotificationItem::new("Title")
-    .severity(NotificationSeverity::Success) // Info | Success | Warning | Error
+```rust
+// Ctx живёт в контексте приложения, хост монтируется один раз.
+let ctx = NotificationCtx::with_default_duration(15_000);
+
+Portal::new()
+    .is_open(always_open)
+    .modal(false)
+    .backdrop(false)
+    .anchor(PortalAnchor::BottomEnd { margin_bottom: 72.0, margin_right: 16.0 })
+    .child(NotificationHost::new(ctx.clone()).grow_up(true))
+
+// Показать уведомление откуда угодно:
+ctx.success("Сохранено");
+ctx.show(
+    NotificationItem::error("Не удалось загрузить")
+        .message("Проверьте путь к модели")
+        .duration_ms(8_000),
+);
 ```
+
+`grow_up(true)` — для нижнего якоря: свежая карточка появляется снизу,
+прежние уезжают вверх, колода выглядывает над верхней карточкой (иначе
+уходила бы за нижний край окна). Severity: `info` | `success` | `warning` |
+`error`, каждому соответствует MSS-класс `.severity-*` с `accent-color`.
 
 ## Styling with Classes
 
