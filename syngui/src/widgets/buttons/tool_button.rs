@@ -71,6 +71,9 @@ impl Widget for ToolButton {
             dirty_flags: DirtyFlags::LAYOUT | DirtyFlags::RENDER,
             mss: MssFields::new(),
             text_measure: None,
+            tip_elapsed: Duration::ZERO,
+            tip_visible: false,
+            tip_suppressed: false,
         })
     }
     fn can_update(&self, other: &dyn Any) -> bool { other.is::<Self>() }
@@ -89,11 +92,63 @@ pub struct ToolButtonElement {
     classes: Vec<String>, dirty_flags: DirtyFlags,
     mss: MssFields,
     text_measure: Option<std::sync::Arc<dyn crate::widget::context::TextMeasure>>,
+    /// Сколько курсор уже стоит над кнопкой (для задержки подсказки).
+    tip_elapsed: Duration,
+    /// Подсказка показана.
+    tip_visible: bool,
+    /// Подсказку погасило нажатие — до ухода курсора не показывать снова.
+    tip_suppressed: bool,
 }
+
+/// Задержка появления подсказки — как у виджета `Tooltip`.
+const TOOLTIP_DELAY: Duration = Duration::from_millis(500);
+/// Потолок ширины подсказки, px.
+const TOOLTIP_MAX_WIDTH: f32 = 320.0;
 
 impl ToolButtonElement {
     fn start_transition_to_current_state(&mut self) {
         self.mss.start_transition_to(self.hover, self.pressed, false, false);
+    }
+
+    fn hide_tip(&mut self) {
+        self.tip_visible = false;
+        self.tip_elapsed = Duration::ZERO;
+    }
+
+    /// Ждём ли задержку показа подсказки (нужны кадры анимации).
+    fn tip_pending(&self) -> bool {
+        self.tooltip.is_some() && self.hover && !self.tip_visible && !self.tip_suppressed
+    }
+
+    /// Геометрия подсказки: под кнопкой по центру; если не влезает в `clip`
+    /// снизу — над кнопкой; по горизонтали прижимается к краям `clip`.
+    fn tooltip_rect(&self, text: &str, clip: Rect) -> Rect {
+        let font_size = 12.0_f32;
+        let line_height = font_size + 4.0;
+        let (pad_h, pad_v) = (16.0_f32, 12.0_f32);
+        let lines: Vec<&str> = text.lines().collect();
+        let max_line = lines
+            .iter()
+            .map(|line| {
+                self.text_measure
+                    .as_ref()
+                    .map(|tm| tm.measure_text_width(line, font_size, line.chars().count()))
+                    .unwrap_or_else(|| line.chars().count() as f32 * font_size * 0.6)
+            })
+            .fold(0.0f32, f32::max)
+            .min(TOOLTIP_MAX_WIDTH);
+        let w = max_line + pad_h;
+        let h = lines.len().max(1) as f32 * line_height + pad_v;
+        let gap = 6.0;
+        let mut x = self.bounds.x() + (self.bounds.size.width - w) / 2.0;
+        let mut y = self.bounds.y() + self.bounds.size.height + gap;
+        if clip.size.height.is_finite() && y + h > clip.y() + clip.size.height {
+            y = self.bounds.y() - h - gap;
+        }
+        if clip.size.width.is_finite() && clip.size.width > w {
+            x = x.clamp(clip.x(), clip.x() + clip.size.width - w);
+        }
+        Rect::new(Point::new(x, y), Size::new(w, h))
     }
 }
 
@@ -240,6 +295,9 @@ impl Element for ToolButtonElement {
                 let was = self.hover; self.hover = self.bounds.contains(*pos);
                 if self.hover { ctx.set_cursor(CursorIcon::Pointer); }
                 if self.hover != was {
+                    // Подсказка: таймер стартует при входе, гаснет при уходе.
+                    self.hide_tip();
+                    if !self.hover { self.tip_suppressed = false; }
                     self.start_transition_to_current_state();
                     ctx.request_paint();
                     return EventResult::Handled;
@@ -253,6 +311,9 @@ impl Element for ToolButtonElement {
                     && self.bounds.contains(*position) =>
             {
                 self.pressed = true;
+                // Нажали — подсказка больше не нужна до следующего наведения.
+                self.hide_tip();
+                self.tip_suppressed = true;
                 self.start_transition_to_current_state();
                 ctx.request_paint();
                 EventResult::Handled
@@ -308,11 +369,52 @@ impl Element for ToolButtonElement {
     }
 
     fn animate(&mut self, dt: Duration) -> bool {
-        self.mss.transition.tick(dt.as_secs_f32())
+        let mut animating = self.mss.transition.tick(dt.as_secs_f32());
+        if self.tip_pending() {
+            self.tip_elapsed += dt;
+            if self.tip_elapsed >= TOOLTIP_DELAY {
+                self.tip_visible = true;
+                self.mark_dirty(DirtyFlags::RENDER);
+            }
+            animating = true;
+        }
+        animating
     }
 
     fn needs_repaint(&self) -> bool {
-        self.mss.transition.is_animating()
+        self.mss.transition.is_animating() || self.tip_pending()
+    }
+
+    /// Подсказка рисуется overlay-слоем поверх всего, как у виджета
+    /// `Tooltip` в текстовом режиме: раньше `tooltip` шёл только в
+    /// accessibility-label и визуально не показывался.
+    fn post_build_display_list(&self, list: &mut DisplayList, clip: Rect) {
+        if !self.tip_visible { return; }
+        let Some(text) = self.tooltip.as_deref() else { return; };
+        if text.trim().is_empty() { return; }
+        let tip = self.tooltip_rect(text, clip);
+        let bg = Color::from_hex("#1E1F22");
+        let border = Color::from_hex("#3F4147");
+        let fg = Color::WHITE;
+        let font_size = 12.0_f32;
+        let line_height = font_size + 4.0;
+        let radius = tip.size.height.min(tip.size.width).min(20.0) / 2.0;
+        let radius = radius.min(8.0);
+        list.begin_overlay();
+        list.push_shadow(tip, Color::from_hex("#000000").with_alpha(0.35), 12.0, (0.0, 4.0), [radius; 4]);
+        list.push_rect_bordered(tip, bg, [radius; 4], crate::Border::new(1.0, border));
+        for (i, line) in text.lines().enumerate() {
+            let text_rect = Rect::new(
+                Point::new(tip.x() + 8.0, tip.y() + 6.0 + i as f32 * line_height),
+                Size::new(tip.size.width - 16.0, line_height),
+            );
+            list.push_text_styled(
+                line, text_rect, fg, font_size,
+                crate::mss::TextAlign::DEFAULT, crate::mss::TextDecoration::None,
+                400, self.mss.font_family.clone(),
+            );
+        }
+        list.end_overlay();
     }
 
     fn children(&self) -> &[ElementId] { &[] }
