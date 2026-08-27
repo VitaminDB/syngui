@@ -155,6 +155,11 @@ impl ElementTree {
         }
     }
 
+    /// Призрак перетаскивания. Пока элемент-источник жив, это его живой
+    /// снимок: поддерево `source_id` рисуется ещё раз со сдвигом к курсору и
+    /// полупрозрачно — плитка, вкладка или карточка выглядят при переносе
+    /// так же, как на своём месте. Если источник уже исчез из дерева (или
+    /// у него нулевые границы) — текстовая пилюля с `label` (или payload).
     pub fn build_drag_overlay(&self, list: &mut DisplayList) {
         let drag = match &self.drag_state {
             Some(d) => d,
@@ -162,6 +167,30 @@ impl ElementTree {
         };
 
         list.begin_overlay_absolute();
+
+        let ghost_origin = Point::new(
+            drag.current_pos.x - drag.drag_offset.x,
+            drag.current_pos.y - drag.drag_offset.y,
+        );
+
+        let source_id = ElementId(drag.data.source_id);
+        let source_alive = self.elements.resolve(source_id).is_some()
+            && drag.source_bounds.size.width > 0.0
+            && drag.source_bounds.size.height > 0.0;
+
+        if source_alive {
+            let dx = ghost_origin.x - drag.source_bounds.origin.x;
+            let dy = ghost_origin.y - drag.source_bounds.origin.y;
+            list.push_opacity(0.85);
+            list.push_transform(crate::core::Transform::translation(dx, dy));
+            // Клип — границы источника в его собственных координатах:
+            // трансформация сдвигает и команды, и клипы.
+            self.build_display_list(source_id, list, drag.source_bounds);
+            list.pop_transform();
+            list.pop_opacity();
+            list.end_overlay();
+            return;
+        }
 
         let display_text = drag.data.label.as_deref().unwrap_or(&drag.data.payload);
         let font_size = 14.0_f32;
@@ -171,15 +200,10 @@ impl ElementTree {
             .unwrap_or(display_text.len() as f32 * font_size * 0.6);
         let min_width = (text_width + 24.0).max(drag.source_bounds.size.width);
         let size = Size::new(min_width, drag.source_bounds.size.height.max(32.0));
-
-        let ghost_origin = Point::new(
-            drag.current_pos.x - drag.drag_offset.x,
-            drag.current_pos.y - drag.drag_offset.y,
-        );
         let ghost_rect = Rect::new(ghost_origin, size);
 
         let bg = Color::from_hex("#2B2D31");
-        let border_color = Color::from_hex("#00B4D8");
+        let border_color = Color::from_hex("#4B4F58");
         let text_color = Color::from_hex("#F2F3F5");
         let shadow_color = Color::new(0.0, 0.0, 0.0, 0.4);
 
@@ -191,7 +215,7 @@ impl ElementTree {
         );
         list.push_rect(shadow_rect, shadow_color, [8.0; 4]);
 
-        list.push_rect_bordered(ghost_rect, bg, [8.0; 4], Border { width: 2.0, color: border_color });
+        list.push_rect_bordered(ghost_rect, bg, [8.0; 4], Border { width: 1.0, color: border_color });
 
         let text_rect = Rect::new(
             Point::new(ghost_rect.origin.x + 12.0, ghost_rect.origin.y),
