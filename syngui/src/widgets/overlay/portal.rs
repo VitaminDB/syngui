@@ -29,6 +29,7 @@ pub struct Portal {
     children: Vec<Box<dyn Widget>>,
     is_open: RwSignal<bool>,
     modal: bool,
+    close_on_outside_click: bool,
     backdrop: bool,
     backdrop_color: Color,
     width: Option<Dimension>,
@@ -42,6 +43,7 @@ impl Portal {
             children: Vec::new(),
             is_open: use_signal(false),
             modal: true,
+            close_on_outside_click: true,
             backdrop: true,
             backdrop_color: Color::new(0.0, 0.0, 0.0, 0.4),
             width: None,
@@ -62,6 +64,16 @@ impl Portal {
 
     pub fn modal(mut self, modal: bool) -> Self {
         self.modal = modal;
+        self
+    }
+
+    /// Закрывать ли модал кликом мимо содержимого. По умолчанию да.
+    ///
+    /// Выключается там, где случайный клик мимо стоит дорого: длинная форма
+    /// с уже сделанными настройками, идущая операция. Escape при этом
+    /// продолжает работать — это осознанный жест, а не промах.
+    pub fn close_on_outside_click(mut self, close: bool) -> Self {
+        self.close_on_outside_click = close;
         self
     }
 
@@ -97,6 +109,7 @@ impl Widget for Portal {
             id: ElementId::new(),
             is_open: self.is_open,
             modal: self.modal,
+            close_on_outside_click: self.close_on_outside_click,
             backdrop: self.backdrop,
             backdrop_color: self.backdrop_color,
             width: self.width,
@@ -137,6 +150,7 @@ struct PortalElement {
     id: ElementId,
     is_open: RwSignal<bool>,
     modal: bool,
+    close_on_outside_click: bool,
     backdrop: bool,
     backdrop_color: Color,
     width: Option<Dimension>,
@@ -205,6 +219,7 @@ impl Element for PortalElement {
         if let Some(p) = widget.as_any().downcast_ref::<Portal>() {
             self.is_open = p.is_open;
             self.modal = p.modal;
+            self.close_on_outside_click = p.close_on_outside_click;
             self.backdrop = p.backdrop;
             self.backdrop_color = p.backdrop_color;
             self.width = p.width;
@@ -290,7 +305,11 @@ impl Element for PortalElement {
                 if *button == MouseButton::Left && self.modal {
                     let content = self.content_rect();
                     if !content.contains(*position) {
-                        self.close(ctx);
+                        if self.close_on_outside_click {
+                            self.close(ctx);
+                        }
+                        // Клик по подложке модала не проходит вниз в любом
+                        // случае: иначе он попал бы в страницу под диалогом.
                         return EventResult::Handled;
                     }
                 }
