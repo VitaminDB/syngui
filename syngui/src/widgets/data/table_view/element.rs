@@ -30,6 +30,7 @@ const POPOVER_PADDING: f32 = 8.0;
 const POPOVER_MIN_WIDTH: f32 = 200.0;
 const POPOVER_CHECK_SIZE: f32 = 18.0;
 const POPOVER_GAP_AFTER_CHECK: f32 = 8.0;
+const CONTEXT_MENU_WIDTH: f32 = 190.0;
 
 impl Widget for TableView {
     fn create_element(&self) -> Box<dyn Element> {
@@ -136,6 +137,12 @@ impl Widget for TableView {
             on_cell_double_click: self.on_cell_double_click.clone(),
             grid_alpha: 0.4,
             sort_warned_virtual: false,
+            cell_cursor: self.cell_cursor,
+            text_selection: self.text_selection,
+            text_measure: None,
+            text_sel: None,
+            text_selecting: false,
+            context_menu: None,
         };
         Box::new(el)
     }
@@ -229,6 +236,44 @@ pub struct TableViewElement {
     on_cell_double_click: Option<Arc<Mutex<dyn FnMut(usize, usize) + Send>>>,
     grid_alpha: f32,
     sort_warned_virtual: bool,
+    cell_cursor: bool,
+    text_selection: bool,
+    /// Обмер текста из дерева — по нему считается ширина текста ячейки и
+    /// позиция символа под курсором.
+    text_measure: Option<Arc<dyn crate::widget::context::TextMeasure>>,
+    /// Выделенный фрагмент текста ячейки: физические строка и колонка,
+    /// якорь и подвижный конец в байтах исходной строки.
+    text_sel: Option<CellTextSelection>,
+    /// Мышь тянет выделение текста прямо сейчас.
+    text_selecting: bool,
+    /// Контекстное меню ячейки: точка вызова и подсвеченный пункт.
+    context_menu: Option<CellContextMenu>,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq)]
+struct CellTextSelection {
+    row: usize,
+    col: usize,
+    anchor: usize,
+    head: usize,
+}
+
+impl CellTextSelection {
+    fn range(&self) -> (usize, usize) {
+        (self.anchor.min(self.head), self.anchor.max(self.head))
+    }
+
+    fn is_empty(&self) -> bool {
+        self.anchor == self.head
+    }
+}
+
+#[derive(Debug, Clone)]
+struct CellContextMenu {
+    origin: Point,
+    row: usize,
+    col: usize,
+    hovered: Option<usize>,
 }
 
 #[derive(Debug, Clone)]
@@ -851,6 +896,241 @@ impl TableViewElement {
         None
     }
 
+    /// Левый край и ширина колонки на экране.
+    fn col_x_screen(&self, phys_col: usize) -> Option<(f32, f32)> {
+        let mut cx = self.bounds.x() - self.scroll_offset_x;
+        for phys_i in self.visible_columns() {
+            let w = self.column_widths.get(phys_i).copied().unwrap_or(0.0);
+            if phys_i == phys_col { return Some((cx, w)); }
+            cx += w;
+        }
+        None
+    }
+
+    fn measured_text_width(&self, text: &str) -> f32 {
+        let chars = text.chars().count();
+        match self.text_measure.as_ref() {
+            Some(tm) => tm.measure_text_width(text, self.cell_font_size, chars),
+            None => chars as f32 * self.cell_font_size * 0.55,
+        }
+    }
+
+    /// Левый край и ширина нарисованного текста ячейки с учётом
+    /// выравнивания колонки: по этой рамке ставится I-beam и рисуется
+    /// подсветка выделения.
+    fn cell_text_box(&self, phys_col: usize, text: &str) -> Option<(f32, f32)> {
+        let (col_x, col_w) = self.col_x_screen(phys_col)?;
+        let cp = self.cell_padding;
+        let avail = (col_w - cp * 2.0).max(0.0);
+        if avail <= 0.0 { return None; }
+        let w = self.measured_text_width(text).min(avail);
+        let left = col_x + self.row_padding[0] + cp;
+        let x = match self.columns.get(phys_col).map(|c| c.align).unwrap_or_default() {
+            ColumnAlign::Right => left + (avail - w),
+            ColumnAlign::Center => left + (avail - w) / 2.0,
+            ColumnAlign::Left => left,
+        };
+        Some((x, w))
+    }
+
+    /// Текст ячейки — только у обычных колонок: у колонки со своим
+    /// рисователем содержимое живёт в дочернем виджете.
+    fn plain_cell_text(&self, phys_row: usize, phys_col: usize) -> Option<String> {
+        let col = self.columns.get(phys_col)?;
+        if col.cell_renderer.is_some() || col.cell_renderer_with_row.is_some() {
+            return None;
+        }
+        let row = self.get_physical_row(phys_row)?;
+        let text = row.get(phys_col)?.clone();
+        if text.is_empty() { None } else { Some(text) }
+    }
+
+    fn byte_at_x(&self, text: &str, x_local: f32) -> usize {
+        let idx = match self.text_measure.as_ref() {
+            Some(tm) => tm.hit_test_char_styled(text, self.cell_font_size, x_local.max(0.0), None),
+            None => (x_local.max(0.0) / (self.cell_font_size * 0.55).max(1.0)) as usize,
+        };
+        text.char_indices().nth(idx).map(|(b, _)| b).unwrap_or(text.len())
+    }
+
+    /// Ячейка и позиция в её тексте под курсором — `None`, если курсор мимо
+    /// самого текста (пустое место ячейки текстом не считается).
+    fn cell_text_hit(&self, pos: Point) -> Option<(usize, usize, usize)> {
+        if !self.text_selection { return None; }
+        let phys_row = self.row_at_y(pos.y)?;
+        let phys_col = self.col_at_x(pos.x)?;
+        let text = self.plain_cell_text(phys_row, phys_col)?;
+        let (text_x, text_w) = self.cell_text_box(phys_col, &text)?;
+        if pos.x < text_x || pos.x > text_x + text_w { return None; }
+        Some((phys_row, phys_col, self.byte_at_x(&text, pos.x - text_x)))
+    }
+
+    /// Позиция в тексте уже выбранной ячейки — для протягивания выделения,
+    /// когда курсор ушёл за край текста.
+    fn byte_in_cell(&self, phys_row: usize, phys_col: usize, x: f32) -> Option<usize> {
+        let text = self.plain_cell_text(phys_row, phys_col)?;
+        let (text_x, text_w) = self.cell_text_box(phys_col, &text)?;
+        if x <= text_x { return Some(0); }
+        if x >= text_x + text_w { return Some(text.len()); }
+        Some(self.byte_at_x(&text, x - text_x))
+    }
+
+    fn selected_cell_text(&self) -> Option<String> {
+        let sel = self.text_sel?;
+        if sel.is_empty() { return None; }
+        let text = self.plain_cell_text(sel.row, sel.col)?;
+        let (start, end) = sel.range();
+        text.get(start..end).map(|s| s.to_string())
+    }
+
+    /// Выделенные строки целиком: видимые колонки через табуляцию — в таком
+    /// виде вставка попадает по столбцам в таблицах и редакторах.
+    fn selected_rows_text(&self) -> Option<String> {
+        if self.selected_rows.is_empty() { return None; }
+        let mut rows: Vec<usize> = self.selected_rows.clone();
+        rows.sort_by_key(|r| self.visible_row(*r));
+        let cols: Vec<usize> = self.visible_columns().collect();
+        let mut out = String::new();
+        for (i, phys_row) in rows.iter().enumerate() {
+            let Some(data) = self.get_physical_row(*phys_row) else { continue };
+            if i > 0 { out.push('\n'); }
+            for (j, phys_col) in cols.iter().enumerate() {
+                if j > 0 { out.push('\t'); }
+                if let Some(v) = data.get(*phys_col) { out.push_str(v); }
+            }
+        }
+        if out.is_empty() { None } else { Some(out) }
+    }
+
+    /// Что скопирует «Копировать»: выделенный фрагмент, иначе текст ячейки
+    /// под меню, иначе выделенные строки.
+    fn copy_payload(&self) -> Option<String> {
+        if let Some(t) = self.selected_cell_text() { return Some(t); }
+        if let Some(menu) = self.context_menu.as_ref() {
+            if let Some(t) = self.plain_cell_text(menu.row, menu.col) { return Some(t); }
+        }
+        self.selected_rows_text()
+    }
+
+    fn context_menu_items(&self) -> [String; 2] {
+        [
+            crate::i18n::builtin("table.copy", "Copy"),
+            crate::i18n::builtin("table.copy_row", "Copy row"),
+        ]
+    }
+
+    fn context_menu_rect(&self) -> Option<Rect> {
+        let menu = self.context_menu.as_ref()?;
+        let w = CONTEXT_MENU_WIDTH;
+        let h = POPOVER_PADDING * 2.0 + 2.0 * POPOVER_ITEM_HEIGHT;
+        // У правого и нижнего края таблицы меню разворачивается внутрь,
+        // иначе пункты уехали бы за её границу.
+        let max_x = self.bounds.x() + self.bounds.size.width;
+        let max_y = self.bounds.y() + self.bounds.size.height;
+        let x = if menu.origin.x + w > max_x { (menu.origin.x - w).max(self.bounds.x()) } else { menu.origin.x };
+        let y = if menu.origin.y + h > max_y { (menu.origin.y - h).max(self.bounds.y()) } else { menu.origin.y };
+        Some(Rect::new(Point::new(x, y), Size::new(w, h)))
+    }
+
+    fn context_menu_item_rect(&self, index: usize) -> Option<Rect> {
+        let menu = self.context_menu_rect()?;
+        let y = menu.y() + POPOVER_PADDING + index as f32 * POPOVER_ITEM_HEIGHT;
+        Some(Rect::new(
+            Point::new(menu.x() + POPOVER_PADDING, y),
+            Size::new(menu.size.width - POPOVER_PADDING * 2.0, POPOVER_ITEM_HEIGHT),
+        ))
+    }
+
+    fn context_menu_hit_test(&self, pos: Point) -> Option<usize> {
+        if self.context_menu.is_none() { return None; }
+        (0..2).find(|i| {
+            self.context_menu_item_rect(*i).map_or(false, |r| r.contains(pos))
+        })
+    }
+
+    /// Подсветка выделенного фрагмента под текстом ячейки.
+    fn draw_text_selection(
+        &self,
+        list: &mut DisplayList,
+        phys_row: usize,
+        phys_col: usize,
+        text: &str,
+        text_y: f32,
+    ) {
+        let Some(sel) = self.text_sel else { return };
+        if sel.row != phys_row || sel.col != phys_col || sel.is_empty() { return; }
+        let Some((text_x, _)) = self.cell_text_box(phys_col, text) else { return };
+        let (start, end) = sel.range();
+        let color = self
+            .mss
+            .selection_color
+            .unwrap_or_else(|| {
+                self.mss
+                    .accent_color
+                    .unwrap_or(Color::from_hex("#3B82F6"))
+                    .with_alpha(0.35)
+            });
+        list.push_text_selection(
+            text,
+            start.min(text.len()),
+            end.min(text.len()),
+            text_x,
+            text_y,
+            self.cell_font_size + 2.0,
+            self.cell_font_size,
+            color,
+        );
+    }
+
+    fn draw_context_menu(&self, list: &mut DisplayList) {
+        let Some(rect) = self.context_menu_rect() else { return; };
+        let bg = self.mss.background_color.unwrap_or(Color::WHITE);
+        let border_color = self.mss.border_color.unwrap_or(Color::from_hex("#CBD5E1"));
+        let fg = self.mss.color.unwrap_or(Color::from_hex("#1E293B"));
+        let hover_bg = self.row_hover_bg.unwrap_or_else(|| bg.darken(0.06));
+
+        let shadow = Rect::new(Point::new(rect.x() + 2.0, rect.y() + 4.0), rect.size);
+        list.push_rect(shadow, Color::from_hex("#000000").with_alpha(0.18), [8.0; 4]);
+        list.push_rect_bordered(rect, bg, [8.0; 4], Border::new(1.0, border_color));
+
+        let hovered = self.context_menu.as_ref().and_then(|m| m.hovered);
+        for (idx, label) in self.context_menu_items().iter().enumerate() {
+            let Some(item) = self.context_menu_item_rect(idx) else { continue };
+            if hovered == Some(idx) {
+                list.push_rect(item, hover_bg, [4.0; 4]);
+            }
+            let text_rect = Rect::new(
+                Point::new(item.x() + 8.0, item.y() + (item.size.height - self.cell_font_size) / 2.0),
+                Size::new(item.size.width - 16.0, self.cell_font_size + 2.0),
+            );
+            list.push_text(label, text_rect, fg, self.cell_font_size);
+        }
+    }
+
+    /// Копирует то, что просит пункт меню, и закрывает меню.
+    fn run_context_menu_item(&mut self, index: usize, ctx: &mut EventContext) {
+        let text = if index == 0 {
+            self.copy_payload()
+        } else {
+            let row = self.context_menu.as_ref().map(|m| m.row);
+            row.and_then(|r| {
+                let cols: Vec<usize> = self.visible_columns().collect();
+                let data = self.get_physical_row(r)?;
+                let mut out = String::new();
+                for (j, c) in cols.iter().enumerate() {
+                    if j > 0 { out.push('\t'); }
+                    if let Some(v) = data.get(*c) { out.push_str(v); }
+                }
+                if out.is_empty() { None } else { Some(out) }
+            })
+        };
+        if let Some(text) = text {
+            ctx.copy_to_clipboard(&text);
+        }
+        self.context_menu = None;
+        ctx.request_paint();
+    }
+
     fn scrollbar_rects(&self) -> Option<(Rect, Rect)> {
         let body = self.body_rect();
         if self.content_height() <= body.size.height {
@@ -1233,6 +1513,16 @@ impl Element for TableViewElement {
                 self.needs_child_rebuild = self.compositional;
             }
             self.selected_rows = tv.selected_rows.clone();
+            self.cell_cursor = tv.cell_cursor;
+            self.text_selection = tv.text_selection;
+            if !self.cell_cursor {
+                self.cursor_cell = None;
+            }
+            if !self.text_selection {
+                self.text_sel = None;
+                self.text_selecting = false;
+                self.context_menu = None;
+            }
             self.width = tv.width;
             self.height = tv.height;
             self.compositional = tv.columns.iter().any(|c| {
@@ -1410,6 +1700,7 @@ impl Element for TableViewElement {
                                 Size::new(col_w, row_h),
                             ));
                         }
+                        self.draw_text_selection(list, phys_row, phys_col, text, cell_rect.y());
                         list.push_text_singleline(
                             text,
                             cell_rect,
@@ -1426,7 +1717,7 @@ impl Element for TableViewElement {
                 }
             }
 
-            if let Some((phys_r, c)) = self.cursor_cell {
+            if let Some((phys_r, c)) = self.cursor_cell.filter(|_| self.cell_cursor) {
                 let vis_r = self.visible_row(phys_r);
                 if vis_r >= self.comp_visible_first && vis_r < self.comp_visible_last {
                     let local = vis_r - self.comp_visible_first + spacer_offset;
@@ -1509,7 +1800,9 @@ impl Element for TableViewElement {
                         .as_ref()
                         .map(|e| e.row == phys_row && e.col == phys_col)
                         .unwrap_or(false);
-                    if self.cursor_cell == Some((phys_row, phys_col)) || editing {
+                    let cell_cursor_here =
+                        self.cell_cursor && self.cursor_cell == Some((phys_row, phys_col));
+                    if cell_cursor_here || editing {
                         let cell_bg_rect = Rect::new(
                             Point::new(cell_x, y),
                             Size::new(col_w, self.row_height),
@@ -1548,6 +1841,7 @@ impl Element for TableViewElement {
                             Point::new(cell_x, y),
                             Size::new(col_w, self.row_height),
                         ));
+                        self.draw_text_selection(list, phys_row, phys_col, text, cell_rect.y());
                         list.push_text_singleline(text, cell_rect, fg, cfs, align.to_text_align(), 400);
                         list.pop_clip();
                     }
@@ -1563,6 +1857,9 @@ impl Element for TableViewElement {
         list.push_rect_bordered(self.bounds, Color::TRANSPARENT, radii, Border::new(1.0, border_color));
         if self.popover_open {
             self.draw_popover(list);
+        }
+        if self.context_menu.is_some() {
+            self.draw_context_menu(list);
         }
     }
 
@@ -1581,6 +1878,9 @@ impl Element for TableViewElement {
         list.push_rect_bordered(self.bounds, Color::TRANSPARENT, radii, Border::new(1.0, border_color));
         if self.popover_open {
             self.draw_popover(list);
+        }
+        if self.context_menu.is_some() {
+            self.draw_context_menu(list);
         }
     }
 
@@ -1612,6 +1912,35 @@ impl Element for TableViewElement {
     fn handle_event(&mut self, event: &Event, ctx: &mut EventContext) -> EventResult {
         match event {
             Event::MouseMove(pos) => {
+                if self.context_menu.is_some() {
+                    let hit = self.context_menu_hit_test(*pos);
+                    if let Some(menu) = self.context_menu.as_mut() {
+                        if menu.hovered != hit {
+                            menu.hovered = hit;
+                            ctx.request_paint();
+                        }
+                    }
+                    if hit.is_some() {
+                        ctx.set_cursor(CursorIcon::Pointer);
+                        return EventResult::Handled;
+                    }
+                }
+
+                // Протягивание выделения текста ведём даже за краем ячейки:
+                // курсор ушёл вбок — выделение доходит до конца строки.
+                if self.text_selecting {
+                    if let Some(sel) = self.text_sel {
+                        if let Some(byte) = self.byte_in_cell(sel.row, sel.col, pos.x) {
+                            if byte != sel.head {
+                                self.text_sel = Some(CellTextSelection { head: byte, ..sel });
+                                ctx.request_paint();
+                            }
+                        }
+                    }
+                    ctx.set_cursor(CursorIcon::Text);
+                    return EventResult::Handled;
+                }
+
                 if self.popover_open {
                     let new_idx = self.popover_hit_test(*pos);
                     if new_idx != self.popover_hovered_index {
@@ -1746,11 +2075,61 @@ impl Element for TableViewElement {
                     ctx.request_paint();
                 }
                 if new_hover.is_some() {
-                    ctx.set_cursor(CursorIcon::Pointer);
+                    if self.text_selection {
+                        // Текст выделяется мышью: I-beam там, где он есть,
+                        // обычная стрелка на пустом месте строки.
+                        if self.cell_text_hit(*pos).is_some() {
+                            ctx.set_cursor(CursorIcon::Text);
+                        } else {
+                            ctx.set_cursor(CursorIcon::Default);
+                        }
+                    } else {
+                        ctx.set_cursor(CursorIcon::Pointer);
+                    }
                 }
                 EventResult::Handled
             }
+            Event::MouseDown { button, position } if *button == MouseButton::Right => {
+                if !self.text_selection || !self.bounds.contains(*position) {
+                    return EventResult::Ignored;
+                }
+                if position.y < self.bounds.y() + self.header_height {
+                    return EventResult::Ignored;
+                }
+                let Some(phys_row) = self.row_at_y(position.y) else {
+                    return EventResult::Ignored;
+                };
+                let col = self.col_at_x(position.x).unwrap_or(0);
+                // Меню относится к ячейке под курсором: щелчок вне текущего
+                // выделения переносит его туда, внутри — сохраняет.
+                let keep = self
+                    .text_sel
+                    .map(|sel| sel.row == phys_row && sel.col == col && !sel.is_empty())
+                    .unwrap_or(false);
+                if !keep {
+                    self.text_sel = None;
+                }
+                self.text_selecting = false;
+                self.focused = true;
+                self.context_menu = Some(CellContextMenu {
+                    origin: *position,
+                    row: phys_row,
+                    col,
+                    hovered: None,
+                });
+                ctx.request_paint();
+                EventResult::Handled
+            }
             Event::MouseDown { button, position } if *button == MouseButton::Left => {
+                if self.context_menu.is_some() {
+                    if let Some(idx) = self.context_menu_hit_test(*position) {
+                        self.run_context_menu_item(idx, ctx);
+                        return EventResult::Handled;
+                    }
+                    self.context_menu = None;
+                    ctx.request_paint();
+                }
+
                 if self.popover_open {
                     if let Some(idx) = self.popover_hit_test(*position) {
                         let hideable = self.hideable_columns();
@@ -1894,9 +2273,30 @@ impl Element for TableViewElement {
                     if let Some(ci) = col_idx {
                         let new_cursor = Some((phys_row, ci));
                         if new_cursor != self.cursor_cell {
-                            self.cursor_cell = new_cursor;
+                            if self.cell_cursor {
+                                self.cursor_cell = new_cursor;
+                            }
                             if let Some(ref cb) = self.on_cell_select {
                                 if let Ok(mut f) = cb.lock() { f(phys_row, ci); }
+                            }
+                        }
+                    }
+                    if self.text_selection {
+                        // Клик по тексту ставит каретку и начинает выделение;
+                        // клик мимо текста снимает прежнее.
+                        match self.cell_text_hit(*position) {
+                            Some((row, col, byte)) => {
+                                self.text_sel = Some(CellTextSelection {
+                                    row,
+                                    col,
+                                    anchor: byte,
+                                    head: byte,
+                                });
+                                self.text_selecting = true;
+                            }
+                            None => {
+                                self.text_sel = None;
+                                self.text_selecting = false;
                             }
                         }
                     }
@@ -1946,6 +2346,20 @@ impl Element for TableViewElement {
                 }
                 EventResult::Ignored
             }
+            Event::KeyDown(Key::C) if self.text_selection && self.focused && ctx.modifiers.ctrl => {
+                match self.copy_payload() {
+                    Some(text) => {
+                        ctx.copy_to_clipboard(&text);
+                        EventResult::Handled
+                    }
+                    None => EventResult::Ignored,
+                }
+            }
+            Event::KeyDown(Key::Escape) if self.context_menu.is_some() => {
+                self.context_menu = None;
+                ctx.request_paint();
+                EventResult::Handled
+            }
             Event::KeyDown(key) if (self.keyboard_nav || self.editable || self.popover_open) && (self.focused || self.popover_open) => {
                 self.handle_key_nav(*key, ctx)
             }
@@ -1992,6 +2406,9 @@ impl Element for TableViewElement {
                 EventResult::Ignored
             }
             Event::MouseUp { button, .. } if *button == MouseButton::Left => {
+                if self.text_selecting {
+                    self.text_selecting = false;
+                }
                 if let Some(rs) = self.resize_state.take() {
                     let new_w = self
                         .user_col_widths
@@ -2071,7 +2488,9 @@ impl Element for TableViewElement {
     fn id(&self) -> ElementId { self.id }
     fn set_id(&mut self, id: ElementId) { self.id = id; }
     fn as_any_mut(&mut self) -> Option<&mut dyn Any> { Some(self) }
-    fn mount(&mut self, _tree: &mut ElementTree) {}
+    fn mount(&mut self, tree: &mut ElementTree) {
+        self.text_measure = tree.text_measure.clone();
+    }
 
     fn layout_hint(&self) -> LayoutHint {
         if self.compositional {
@@ -2133,7 +2552,7 @@ impl Element for TableViewElement {
         let mut column = crate::widgets::containers::Column::new()
             .cross_axis_alignment(CrossAxisAlignment::Stretch);
 
-        let border_color = self.mss.border_color.unwrap_or(Color::from_hex("#333333"));
+
         let cp = self.cell_padding;
         let rp = self.row_padding;
 
@@ -2243,10 +2662,11 @@ impl Element for TableViewElement {
             };
             let mut row_container = crate::widgets::containers::DecoratedBox::new();
             row_container.child = Some(row_widget);
+            // Разделитель строки рисует сама таблица — цветом сетки с
+            // `grid-alpha`. Рамка у контейнера строки давала вторую линию
+            // поверх, причём чёрную: цвет из inline-стиля до неё не доходил.
             let row_container = row_container
-                .style("height", crate::mss::StyleValue::px(self.row_height))
-                .style("border-bottom-width", crate::mss::StyleValue::px(1.0))
-                .style("border-bottom-color", border_color);
+                .style("height", crate::mss::StyleValue::px(self.row_height));
             column.children.push(Box::new(row_container));
         }
 
@@ -2392,6 +2812,7 @@ impl StyledElement for TableViewElement {
 mod tests {
     use super::super::{TableColumn, TableView};
     use super::TableViewElement;
+    use crate::core::types::RectExt;
     use crate::core::Point;
     use crate::input::{Event, MouseButton};
     use crate::testing::TestHarness;
@@ -2605,4 +3026,148 @@ mod tests {
         assert!(el.scroll_offset_x <= el.max_scroll_x() + 0.01);
     }
 
+    /// Таблица с широкой колонкой: текст ячейки заведомо начинается в
+    /// известной точке, поэтому по x можно целиться в конкретные символы.
+    fn text_table() -> TableView {
+        TableView::new(
+            vec![TableColumn::fixed("A", 300.0)],
+            vec![vec!["Костанай".to_string()]],
+        )
+        .row_height(20.0)
+        .header_height(20.0)
+        .text_selection(true)
+    }
+
+    fn element(h: &mut TestHarness) -> &mut TableViewElement {
+        let root = h.root_id;
+        h.tree
+            .get_mut(root)
+            .unwrap()
+            .as_any_mut()
+            .unwrap()
+            .downcast_mut::<TableViewElement>()
+            .unwrap()
+    }
+
+    #[test]
+    fn cell_cursor_disabled_keeps_frame_off() {
+        let table = three_rows().cell_cursor(false);
+        let mut h = TestHarness::new(Box::new(table));
+        h.layout(400.0, 200.0);
+
+        click(&mut h, 1, false, false);
+
+        let el = element(&mut h);
+        assert_eq!(el.cursor_cell, None, "рамка ячейки должна быть выключена");
+        assert_eq!(el.selected_rows, vec![1], "строка всё равно выделяется");
+    }
+
+    #[test]
+    fn cell_cursor_enabled_by_default() {
+        let mut h = TestHarness::new(Box::new(three_rows()));
+        h.layout(400.0, 200.0);
+
+        click(&mut h, 1, false, false);
+
+        assert_eq!(element(&mut h).cursor_cell, Some((1, 0)));
+    }
+
+    #[test]
+    fn drag_selects_cell_text() {
+        let mut h = TestHarness::new(Box::new(text_table()));
+        h.layout(400.0, 200.0);
+
+        // Текст начинается с левого края ячейки плюс cell-padding; тянем от
+        // самого начала строки вправо — выделение не должно быть пустым.
+        let y = 30.0;
+        h.send_event(&Event::MouseDown {
+            button: MouseButton::Left,
+            position: Point::new(14.0, y),
+        });
+        h.send_event(&Event::MouseMove(Point::new(200.0, y)));
+        h.send_event(&Event::MouseUp {
+            button: MouseButton::Left,
+            position: Point::new(200.0, y),
+        });
+
+        let el = element(&mut h);
+        let sel = el.text_sel.expect("выделение текста не началось");
+        assert_eq!((sel.row, sel.col), (0, 0));
+        assert!(!sel.is_empty(), "протягивание должно выделить фрагмент");
+        assert!(!el.text_selecting, "после отпускания кнопки протягивание закончено");
+        let text = el.selected_cell_text().expect("нет выделенного текста");
+        assert!(
+            "Костанай".starts_with(&text),
+            "выделен фрагмент с начала строки, получено {text:?}"
+        );
+    }
+
+    #[test]
+    fn text_selection_off_keeps_cells_intact() {
+        let mut h = TestHarness::new(Box::new(three_rows()));
+        h.layout(400.0, 200.0);
+
+        let y = 30.0;
+        h.send_event(&Event::MouseDown {
+            button: MouseButton::Left,
+            position: Point::new(14.0, y),
+        });
+        h.send_event(&Event::MouseMove(Point::new(200.0, y)));
+
+        assert!(element(&mut h).text_sel.is_none());
+    }
+
+    #[test]
+    fn right_click_opens_and_closes_context_menu() {
+        let mut h = TestHarness::new(Box::new(text_table()));
+        h.layout(400.0, 200.0);
+
+        h.send_event(&Event::MouseDown {
+            button: MouseButton::Right,
+            position: Point::new(60.0, 30.0),
+        });
+        {
+            let el = element(&mut h);
+            let menu = el.context_menu.as_ref().expect("меню не открылось");
+            assert_eq!(menu.row, 0);
+        }
+
+        // Щелчок по первому пункту («Копировать») закрывает меню.
+        let item = element(&mut h)
+            .context_menu_item_rect(0)
+            .expect("нет пункта меню");
+        let center = Point::new(
+            item.x() + item.size.width / 2.0,
+            item.y() + item.size.height / 2.0,
+        );
+        h.send_event(&Event::MouseDown { button: MouseButton::Left, position: center });
+        assert!(element(&mut h).context_menu.is_none(), "меню должно закрыться");
+    }
+
+    #[test]
+    fn right_click_ignored_without_text_selection() {
+        let mut h = TestHarness::new(Box::new(three_rows()));
+        h.layout(400.0, 200.0);
+
+        h.send_event(&Event::MouseDown {
+            button: MouseButton::Right,
+            position: Point::new(60.0, 30.0),
+        });
+
+        assert!(element(&mut h).context_menu.is_none());
+    }
+
+    #[test]
+    fn selected_rows_text_joins_columns_with_tabs() {
+        let mut h = TestHarness::new(Box::new(sample_table().text_selection(true)));
+        h.layout(400.0, 200.0);
+
+        click(&mut h, 0, false, false);
+        click(&mut h, 1, true, false);
+
+        let text = element(&mut h)
+            .selected_rows_text()
+            .expect("нет текста выделенных строк");
+        assert_eq!(text, "a1\tb1\na2\tb2");
+    }
 }

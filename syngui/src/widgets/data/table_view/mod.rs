@@ -285,6 +285,8 @@ pub struct TableView {
     pub(super) on_cell_edit: Option<Arc<Mutex<dyn FnMut(usize, usize, String, String) + Send>>>,
     pub(super) on_row_double_click: Option<Arc<Mutex<dyn FnMut(usize) + Send>>>,
     pub(super) on_cell_double_click: Option<Arc<Mutex<dyn FnMut(usize, usize) + Send>>>,
+    pub(super) cell_cursor: bool,
+    pub(super) text_selection: bool,
 }
 
 impl TableView {
@@ -325,6 +327,8 @@ impl TableView {
             on_cell_edit: None,
             on_row_double_click: None,
             on_cell_double_click: None,
+            cell_cursor: true,
+            text_selection: false,
         }
     }
 
@@ -372,6 +376,8 @@ impl TableView {
             on_cell_edit: None,
             on_row_double_click: None,
             on_cell_double_click: None,
+            cell_cursor: true,
+            text_selection: false,
         }
     }
 
@@ -426,6 +432,16 @@ impl TableView {
     }
 
     pub fn keyboard_nav(mut self, enabled: bool) -> Self { self.keyboard_nav = enabled; self }
+
+    /// Рамка активной ячейки под курсором. `false` — клик выделяет только
+    /// строку, отдельная ячейка не подсвечивается (список-реестр, где
+    /// ячейка не является самостоятельной единицей).
+    pub fn cell_cursor(mut self, enabled: bool) -> Self { self.cell_cursor = enabled; self }
+
+    /// Текст ячеек можно выделять мышью и копировать: над текстом курсор
+    /// I-beam вместо руки, протягивание выделяет фрагмент, Ctrl+C и
+    /// контекстное меню копируют его в буфер обмена.
+    pub fn text_selection(mut self, enabled: bool) -> Self { self.text_selection = enabled; self }
 
     pub fn editable(mut self, enabled: bool) -> Self { self.editable = enabled; self }
 
