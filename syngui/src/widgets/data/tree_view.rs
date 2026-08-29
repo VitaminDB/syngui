@@ -186,11 +186,13 @@ impl TreeView {
     }
 }
 
-impl Widget for TreeView {
-    fn create_element(&self) -> Box<dyn Element> {
+impl TreeView {
+    /// Собрать элемент. Отдельно от [`Widget::create_element`], чтобы тесты
+    /// могли работать с конкретным типом, а не с `Box<dyn Element>`.
+    fn element(&self) -> TreeViewElement {
         let mut flat = Vec::new();
         flatten_nodes(&self.nodes, 0, &mut flat);
-        Box::new(TreeViewElement {
+        TreeViewElement {
             id: ElementId::new(),
             nodes: self.nodes.clone(),
             flat_nodes: flat,
@@ -206,12 +208,21 @@ impl Widget for TreeView {
             scroll_offset: 0.0,
             scrollbar_fader: crate::widgets::scroll::ScrollbarFader::default(),
             scrollbar_interaction: crate::widgets::scroll::ScrollbarInteraction::default(),
+            rows: Vec::new(),
+            rows_width: -1.0,
+            text_measure: None,
             hovered_index: None,
             bounds: Rect::zero(),
             classes: self.classes.clone(),
             dirty_flags: DirtyFlags::LAYOUT | DirtyFlags::RENDER,
             mss: MssFields::new(),
-        })
+        }
+    }
+}
+
+impl Widget for TreeView {
+    fn create_element(&self) -> Box<dyn Element> {
+        Box::new(self.element())
     }
 
     fn can_update(&self, other: &dyn Any) -> bool { other.is::<Self>() }
@@ -223,11 +234,36 @@ impl Widget for TreeView {
 
 const ARROW_ZONE_WIDTH: f32 = 20.0;
 
+/// Размер подписи узла и шаг переноса. `* 1.3` — тот же множитель, что
+/// `FontAtlas::shape_text` использует для межстрочного интервала.
+const LABEL_FONT_SIZE: f32 = 14.0;
+const LABEL_LINE_HEIGHT: f32 = LABEL_FONT_SIZE * 1.3;
+
+/// Плашка выделения/hover. `PAD` — воздух между рамкой и содержимым: он
+/// одинаков слева и справа, поэтому левый край плашки считается от первого
+/// нарисованного элемента строки, а не от края виджета — иначе отступ
+/// вложенности и пустая зона стрелки уезжали бы внутрь рамки.
+/// `EDGE` — зазор от правого края виджета, чтобы рамка не липла к скроллбару.
+const ROW_PILL_RADIUS: f32 = 9.0;
+const ROW_PILL_PAD: f32 = 6.0;
+const ROW_PILL_EDGE: f32 = 4.0;
+const ROW_PILL_INSET_Y: f32 = 1.0;
+
 const ICON_GLYPH_SIZE: f32 = 16.0;
 const BADGE_DIAMETER_RATIO: f32 = 0.55;
 const BADGE_CORNER_INSET_RATIO: f32 = 0.0;
 const BADGE_HALO_RATIO: f32 = 0.08;
 const BADGE_GLYPH: &str = "\u{EF4A}";
+
+/// Вертикальная геометрия одной видимой строки. Строки больше не лежат на
+/// равномерной сетке: подпись, не влезшая в ширину панели, переносится, и
+/// строка становится выше на столько, сколько заняли переносы.
+#[derive(Clone, Copy, Debug, PartialEq)]
+struct RowGeometry {
+    /// Верх строки относительно начала контента (без учёта скролла).
+    top: f32,
+    height: f32,
+}
 
 pub struct TreeViewElement {
     id: ElementId,
@@ -250,11 +286,144 @@ pub struct TreeViewElement {
     mss: MssFields,
     scrollbar_fader: crate::widgets::scroll::ScrollbarFader,
     scrollbar_interaction: crate::widgets::scroll::ScrollbarInteraction,
+    /// Кэш высот строк, пересчитывается в `layout` при смене ширины или
+    /// состава дерева.
+    rows: Vec<RowGeometry>,
+    rows_width: f32,
+    text_measure: Option<Arc<dyn crate::widget::context::TextMeasure>>,
 }
 
 impl TreeViewElement {
+    /// Левый край подписи узла относительно левого края виджета: отступ,
+    /// вложенность, зона стрелки и, если есть, иконка типа.
+    fn label_offset(&self, node: &FlatNode) -> f32 {
+        let mut x = 8.0 + node.depth as f32 * self.indent + ARROW_ZONE_WIDTH;
+        if node.icon.is_some() {
+            x += 24.0;
+        }
+        x
+    }
+
+    /// Левый край содержимого строки — то, вокруг чего рисуется плашка
+    /// выделения: стрелка раскрытия, а у листьев — иконка типа.
+    fn content_offset(&self, node: &FlatNode) -> f32 {
+        let x = 8.0 + node.depth as f32 * self.indent;
+        if node.has_children { x } else { x + ARROW_ZONE_WIDTH }
+    }
+
+    /// Правый край текста: внутренняя граница плашки.
+    fn label_right(&self, total_width: f32) -> f32 {
+        total_width - ROW_PILL_EDGE - ROW_PILL_PAD
+    }
+
+    /// Плашка выделения/hover для строки. Обнимает содержимое с одинаковым
+    /// воздухом со всех сторон: слева начинается от первого нарисованного
+    /// элемента, справа заканчивается за концом подписи. У переносящейся
+    /// подписи упирается в край панели.
+    fn pill_rect(&self, node: &FlatNode, row_rect: Rect) -> Rect {
+        let total_width = row_rect.size.width;
+        let left = row_rect.x() + self.content_offset(node) - ROW_PILL_PAD;
+        let text_end = row_rect.x()
+            + self.label_offset(node)
+            + self.label_painted_width(node, total_width);
+        let right = (text_end + ROW_PILL_PAD)
+            .min(row_rect.x() + total_width - ROW_PILL_EDGE);
+        Rect::new(
+            Point::new(left, row_rect.y() + ROW_PILL_INSET_Y),
+            Size::new(
+                (right - left).max(0.0),
+                (row_rect.size.height - ROW_PILL_INSET_Y * 2.0).max(0.0),
+            ),
+        )
+    }
+
+    /// Ширина, остающаяся подписи в строке заданной общей ширины.
+    fn label_width(&self, node: &FlatNode, total_width: f32) -> f32 {
+        (self.label_right(total_width) - self.label_offset(node)).max(0.0)
+    }
+
+    /// Сколько подпись занимает на самом деле: своя ширина, но не больше
+    /// доступной. Длинная подпись переносится и забирает всё место, короткая
+    /// оставляет хвост пустым — по ней и обрезается плашка выделения.
+    fn label_painted_width(&self, node: &FlatNode, total_width: f32) -> f32 {
+        let available = self.label_width(node, total_width);
+        let Some(tm) = self.text_measure.as_deref() else {
+            return available;
+        };
+        let natural = tm.measure_text_width_styled(
+            &node.label,
+            LABEL_FONT_SIZE,
+            node.label.chars().count(),
+            false,
+            None,
+        );
+        natural.min(available)
+    }
+
+    /// Высота строки: базовая плюс место под перенос подписи.
+    fn measure_row(&self, node: &FlatNode, total_width: f32) -> f32 {
+        let Some(tm) = self.text_measure.as_deref() else {
+            return self.item_height;
+        };
+        // Запас в пиксель: рендерер переносит текст в физических пикселях с
+        // округлённым кеглем, и без запаса расчёт изредка выходит
+        // оптимистичнее реальной разбивки — строка бы всё равно наехала.
+        let width = self.label_width(node, total_width) - 1.0;
+        if width <= 0.0 {
+            return self.item_height;
+        }
+        let lines = crate::widget::count_visual_lines_via_measure(
+            &node.label,
+            width,
+            LABEL_FONT_SIZE,
+            false,
+            None,
+            tm,
+        );
+        self.item_height + lines.saturating_sub(1) as f32 * LABEL_LINE_HEIGHT
+    }
+
+    /// Пересчитать кэш высот под текущую ширину виджета.
+    fn recompute_rows(&mut self) {
+        let width = self.bounds.size.width;
+        let heights: Vec<f32> = self
+            .flat_nodes
+            .iter()
+            .map(|n| self.measure_row(n, width))
+            .collect();
+        self.rows.clear();
+        self.rows.reserve(heights.len());
+        let mut top = 0.0;
+        for height in heights {
+            self.rows.push(RowGeometry { top, height });
+            top += height;
+        }
+        self.rows_width = width;
+    }
+
+    /// Геометрия строки. Пока кэш не построен (layout ещё не звали) —
+    /// равномерная сетка, как было до переноса подписей.
+    fn row_geometry(&self, i: usize) -> RowGeometry {
+        self.rows.get(i).copied().unwrap_or(RowGeometry {
+            top: i as f32 * self.item_height,
+            height: self.item_height,
+        })
+    }
+
+    /// Индекс первой строки, чей низ ниже `offset`.
+    fn row_index_at(&self, offset: f32) -> usize {
+        if self.rows.len() == self.flat_nodes.len() {
+            self.rows.partition_point(|r| r.top + r.height <= offset)
+        } else {
+            (offset / self.item_height).max(0.0) as usize
+        }
+    }
+
     fn content_height(&self) -> f32 {
-        self.flat_nodes.len() as f32 * self.item_height
+        match self.rows.last() {
+            Some(r) if self.rows.len() == self.flat_nodes.len() => r.top + r.height,
+            _ => self.flat_nodes.len() as f32 * self.item_height,
+        }
     }
 
     fn max_scroll(&self) -> f32 {
@@ -264,6 +433,7 @@ impl TreeViewElement {
     fn reflatten(&mut self) {
         self.flat_nodes.clear();
         flatten_nodes(&self.nodes, 0, &mut self.flat_nodes);
+        self.recompute_rows();
     }
 
     fn row_at_y(&self, y: f32) -> Option<usize> {
@@ -271,7 +441,10 @@ impl TreeViewElement {
             return None;
         }
         let local_y = y - self.bounds.y() + self.scroll_offset;
-        let idx = (local_y / self.item_height) as usize;
+        if local_y < 0.0 {
+            return None;
+        }
+        let idx = self.row_index_at(local_y);
         if idx < self.flat_nodes.len() { Some(idx) } else { None }
     }
 
@@ -306,6 +479,10 @@ impl Element for TreeViewElement {
         let h = self.mss.height.or(self.fixed_height).map(|d| d.resolve(constraints.max_height)).unwrap_or(constraints.max_height).min(constraints.max_height);
         let h = if h.is_infinite() { 300.0 } else { h };
         self.bounds = Rect::new(Point::zero(), Size::new(w, h));
+        // Ширина определяет, где переносится подпись, а значит и высоты строк.
+        if self.rows_width != w || self.rows.len() != self.flat_nodes.len() {
+            self.recompute_rows();
+        }
         Size::new(w, h)
     }
 
@@ -322,28 +499,32 @@ impl Element for TreeViewElement {
 
         let viewport_top = self.scroll_offset;
         let viewport_bottom = viewport_top + self.bounds.size.height;
-        let first = (viewport_top / self.item_height) as usize;
-        let last = ((viewport_bottom / self.item_height) as usize + 1).min(self.flat_nodes.len());
+        let first = self.row_index_at(viewport_top);
+        let last = (self.row_index_at(viewport_bottom) + 1).min(self.flat_nodes.len());
 
         for i in first..last {
             let node = &self.flat_nodes[i];
-            let y = self.bounds.y() + (i as f32 * self.item_height) - self.scroll_offset;
+            let geom = self.row_geometry(i);
+            let y = self.bounds.y() + geom.top - self.scroll_offset;
             let row_rect = Rect::new(
                 Point::new(self.bounds.x(), y),
-                Size::new(self.bounds.size.width, self.item_height),
+                Size::new(self.bounds.size.width, geom.height),
             );
 
             let is_selected = self.selected.contains(&node.id);
             let is_hovered = self.hovered_index == Some(i);
-            let row_bg = if is_selected {
-                primary.with_alpha(0.15)
+            let pill = self.pill_rect(node, row_rect);
+            if is_selected {
+                list.push_rect_bordered(
+                    pill,
+                    primary.with_alpha(0.15),
+                    [ROW_PILL_RADIUS; 4],
+                    Border::new(1.0, primary.with_alpha(0.5)),
+                );
             } else if is_hovered {
-                bg.darken(0.03)
-            } else {
-                Color::TRANSPARENT
-            };
-            if row_bg != Color::TRANSPARENT {
-                list.push_rect(row_rect, row_bg, [0.0; 4]);
+                // Фон дерева часто прозрачный, поэтому hover строится от
+                // цвета текста: `bg.darken` на прозрачном не давал ничего.
+                list.push_rect(pill, fg.with_alpha(0.07), [ROW_PILL_RADIUS; 4]);
             }
 
             let x_base = self.bounds.x() + 8.0 + node.depth as f32 * self.indent;
@@ -352,11 +533,11 @@ impl Element for TreeViewElement {
                 let line_x = self.bounds.x() + 8.0 + (node.depth as f32 - 1.0) * self.indent + ARROW_ZONE_WIDTH / 2.0;
                 let vl = Rect::new(
                     Point::new(line_x, y),
-                    Size::new(1.0, self.item_height),
+                    Size::new(1.0, geom.height),
                 );
                 list.push_rect(vl, border_color, [0.0; 4]);
                 let hl = Rect::new(
-                    Point::new(line_x, y + self.item_height / 2.0),
+                    Point::new(line_x, y + geom.height / 2.0),
                     Size::new(self.indent / 2.0, 1.0),
                 );
                 list.push_rect(hl, border_color, [0.0; 4]);
@@ -373,7 +554,7 @@ impl Element for TreeViewElement {
             if node.has_children {
                 let arrow = if node.expanded { "\u{E5CF}" } else { "\u{E5CC}" };
                 let arrow_rect = Rect::new(
-                    Point::new(x_base, y + (self.item_height - ICON_GLYPH_SIZE) / 2.0),
+                    Point::new(x_base, y + (geom.height - ICON_GLYPH_SIZE) / 2.0),
                     Size::new(18.0, ICON_GLYPH_SIZE),
                 );
                 list.push_text(
@@ -387,7 +568,7 @@ impl Element for TreeViewElement {
             let mut text_x = x_base + ARROW_ZONE_WIDTH;
 
             if let Some(ref icon) = node.icon {
-                let icon_top = y + (self.item_height - ICON_GLYPH_SIZE) / 2.0;
+                let icon_top = y + (geom.height - ICON_GLYPH_SIZE) / 2.0;
                 let icon_rect = Rect::new(
                     Point::new(text_x, icon_top),
                     Size::new(20.0, ICON_GLYPH_SIZE),
@@ -424,9 +605,17 @@ impl Element for TreeViewElement {
                 text_x += 24.0;
             }
 
+            // Rect подписи занимает строку целиком: рендерер центрирует
+            // текст по переданному прямоугольнику, и только при полной
+            // высоте центр текста совпадает с центром плашки — иначе воздух
+            // сверху и снизу получается разным. Заодно сюда помещаются все
+            // строки переноса.
             let label_rect = Rect::new(
-                Point::new(text_x, y + (self.item_height - 14.0) / 2.0),
-                Size::new(self.bounds.size.width - (text_x - self.bounds.x()) - 8.0, 16.0),
+                Point::new(text_x, y),
+                Size::new(
+                    (self.bounds.x() + self.label_right(self.bounds.size.width) - text_x).max(0.0),
+                    geom.height,
+                ),
             );
             let text_color = if is_selected {
                 primary
@@ -446,13 +635,13 @@ impl Element for TreeViewElement {
                     &node.label,
                     label_rect,
                     text_color,
-                    14.0,
+                    LABEL_FONT_SIZE,
                     TextAlign::DEFAULT,
                     TextDecoration::LineThrough,
                     400,
                 );
             } else {
-                list.push_text(&node.label, label_rect, text_color, 14.0);
+                list.push_text(&node.label, label_rect, text_color, LABEL_FONT_SIZE);
             }
         }
 
@@ -632,7 +821,13 @@ impl Element for TreeViewElement {
     fn is_dirty(&self, flags: DirtyFlags) -> bool { self.dirty_flags.contains(flags) }
     fn id(&self) -> ElementId { self.id }
     fn set_id(&mut self, id: ElementId) { self.id = id; }
-    fn mount(&mut self, _tree: &mut ElementTree) {}
+
+    /// Измеритель текста нужен, чтобы знать, на сколько строк развернётся
+    /// подпись, и заложить под неё высоту строки.
+    fn mount(&mut self, tree: &mut ElementTree) {
+        self.text_measure = tree.text_measure.clone();
+        self.recompute_rows();
+    }
 
     fn set_classes(&mut self, classes: Vec<String>) {
         self.classes = classes;
@@ -779,5 +974,206 @@ mod tests {
         assert_eq!(leaf_flat.id, "file");
         let ld = leaf_flat.decoration.as_ref().expect("leaf decoration");
         assert_eq!(ld.label_color, Some(yellow));
+    }
+
+    // --- переменная высота строк ---
+    //
+    // Подпись, не влезающая в ширину панели, переносится рендерером. Пока
+    // строки лежали на равномерной сетке `i * item_height`, вторая строка
+    // подписи наезжала на следующий узел.
+
+    /// 10px на символ при любом кегле — считать ожидания легко в уме.
+    struct MonoMeasure;
+    impl crate::widget::context::TextMeasure for MonoMeasure {
+        fn measure_text_width(&self, text: &str, _font_size: f32, char_count: usize) -> f32 {
+            text.chars().take(char_count).count() as f32 * 10.0
+        }
+        fn hit_test_char(&self, _text: &str, _font_size: f32, x_offset: f32) -> usize {
+            (x_offset / 10.0).floor().max(0.0) as usize
+        }
+    }
+
+    /// Элемент с готовым измерителем и посчитанной раскладкой.
+    fn element(labels: &[&str], width: f32) -> TreeViewElement {
+        let nodes: Vec<TreeNode> = labels
+            .iter()
+            .enumerate()
+            .map(|(i, l)| TreeNode::leaf(format!("n{i}"), *l))
+            .collect();
+        let tv = TreeView::new(nodes).item_height(26.0).indent(18.0);
+        let mut el = tv.element();
+        el.text_measure = Some(Arc::new(MonoMeasure));
+        el.layout(Constraints {
+            min_width: width,
+            max_width: width,
+            min_height: 400.0,
+            max_height: 400.0,
+            containing_block: Size::new(width, 400.0),
+        });
+        el
+    }
+
+    /// Ширина под подпись у корневого узла без иконки:
+    /// `width - (8 + 0*indent + ARROW_ZONE_WIDTH) - 8`.
+    #[test]
+    fn short_label_keeps_the_base_row_height() {
+        let el = element(&["src"], 200.0);
+        assert_eq!(el.row_geometry(0).height, 26.0);
+    }
+
+    #[test]
+    fn wrapped_label_makes_its_row_taller() {
+        // Под подпись остаётся 200 - 28 - 8 = 164px, минус пиксель запаса —
+        // 163px, то есть 16 символов в строке. Подпись из 32 — две строки.
+        let el = element(&["synthos-0.1.0-100-x86_64.pkg.tar"], 200.0);
+        let h = el.row_geometry(0).height;
+        assert!(h > 26.0, "строка должна была вырасти, а осталась {h}");
+        assert_eq!(h, 26.0 + LABEL_LINE_HEIGHT);
+    }
+
+    #[test]
+    fn row_grows_further_as_the_label_grows() {
+        let two = element(&["synthos-0.1.0-100-x86_64.pkg.tar"], 200.0);
+        let three = element(&["synthos-0.1.0-100-x86_64.pkg.tar.zst.backup"], 200.0);
+        let expected = two.row_geometry(0).height + LABEL_LINE_HEIGHT;
+        let actual = three.row_geometry(0).height;
+        assert!(
+            (actual - expected).abs() < 0.01,
+            "каждая лишняя строка подписи добавляет ровно один межстрочный шаг: \
+             ждали {expected}, получили {actual}"
+        );
+    }
+
+    #[test]
+    fn following_rows_shift_down_by_the_extra_height() {
+        let el = element(&["synthos-0.1.0-100-x86_64.pkg.tar", "src"], 200.0);
+        let first = el.row_geometry(0);
+        assert_eq!(el.row_geometry(1).top, first.height, "второй узел стоит под первым");
+        assert_eq!(el.row_geometry(1).height, 26.0);
+    }
+
+    #[test]
+    fn content_height_sums_variable_rows() {
+        let el = element(&["synthos-0.1.0-100-x86_64.pkg.tar", "src"], 200.0);
+        assert_eq!(el.content_height(), el.row_geometry(0).height + 26.0);
+    }
+
+    /// Клик по второму узлу обязан попасть во второй узел, а не в хвост
+    /// разросшегося первого.
+    #[test]
+    fn hit_test_follows_the_variable_grid() {
+        let el = element(&["synthos-0.1.0-100-x86_64.pkg.tar", "src"], 200.0);
+        let tall = el.row_geometry(0).height;
+        assert_eq!(el.row_at_y(tall - 2.0), Some(0));
+        assert_eq!(el.row_at_y(tall + 2.0), Some(1));
+    }
+
+    #[test]
+    fn wider_panel_collapses_the_row_back() {
+        let el = element(&["synthos-0.1.0-100-x86_64.pkg.tar"], 600.0);
+        assert_eq!(el.row_geometry(0).height, 26.0, "в широкой панели переноса нет");
+    }
+
+    // --- геометрия плашки выделения ---
+
+    /// Воздух слева от рамки до иконки обязан совпадать с воздухом справа
+    /// до края текста, иначе рамка выглядит смещённой. Раньше плашка
+    /// начиналась от края виджета и вбирала отступ вложенности со зоной
+    /// стрелки — слева получалось заметно больше.
+    #[test]
+    fn pill_padding_is_symmetric_for_a_leaf() {
+        // 7 символов по 10px — подпись короче доступной ширины, значит
+        // плашка обрезается по её концу, а не по краю панели.
+        let el = element(&["file.rs"], 300.0);
+        let node = &el.flat_nodes[0];
+        let row = Rect::new(Point::new(0.0, 0.0), Size::new(300.0, 26.0));
+        let pill = el.pill_rect(node, row);
+
+        // Слева: от рамки до иконки. Справа: от конца подписи до рамки.
+        let text_end = el.label_offset(node) + el.label_painted_width(node, 300.0);
+        let left_gap = el.content_offset(node) - pill.x();
+        let right_gap = (pill.x() + pill.size.width) - text_end;
+        assert_eq!(left_gap, right_gap, "воздух слева {left_gap} и справа {right_gap}");
+        assert_eq!(left_gap, ROW_PILL_PAD);
+        assert!(
+            pill.x() + pill.size.width < 300.0 - ROW_PILL_EDGE,
+            "короткая подпись не должна растягивать плашку до края панели"
+        );
+    }
+
+    /// Переносящаяся подпись занимает всю доступную ширину — плашка
+    /// упирается в край панели и дальше не растёт.
+    #[test]
+    fn pill_stops_at_the_panel_edge_for_a_wrapped_label() {
+        let el = element(&["synthos-0.1.0-100-x86_64.pkg.tar"], 200.0);
+        let row = Rect::new(Point::new(0.0, 0.0), Size::new(200.0, 26.0));
+        let pill = el.pill_rect(&el.flat_nodes[0], row);
+        assert_eq!(pill.x() + pill.size.width, 200.0 - ROW_PILL_EDGE);
+    }
+
+    /// Отступ вложенности остаётся снаружи рамки — именно он раньше делал
+    /// левое поле шире правого.
+    #[test]
+    fn pill_excludes_the_indentation_gutter() {
+        let tree = TreeNode::branch("d", "src", vec![TreeNode::leaf("f", "a.rs")]).expanded(true);
+        let tv = TreeView::new(vec![tree]).item_height(26.0).indent(18.0);
+        let el = tv.element();
+        let row = Rect::new(Point::new(0.0, 0.0), Size::new(200.0, 26.0));
+        let parent = el.pill_rect(&el.flat_nodes[0], row);
+        let child = el.pill_rect(&el.flat_nodes[1], row);
+        assert!(
+            child.x() > parent.x(),
+            "рамка вложенного узла сдвинута вправо: {} против {}",
+            child.x(),
+            parent.x()
+        );
+        // Отступ вложенности — 18px, и он остаётся снаружи рамки.
+        assert_eq!(child.x() - parent.x(), 18.0 + ARROW_ZONE_WIDTH);
+    }
+
+    /// У узла со стрелкой рамка начинается от стрелки, у листа — от иконки:
+    /// в обоих случаях от первого нарисованного элемента строки.
+    #[test]
+    fn pill_starts_at_the_first_painted_part_of_the_row() {
+        let branch = TreeNode::branch("d", "src", vec![TreeNode::leaf("f", "a.rs")]);
+        let tv = TreeView::new(vec![branch]).item_height(26.0).indent(18.0);
+        let el = tv.element();
+        let dir = &el.flat_nodes[0];
+        assert_eq!(el.content_offset(dir), 8.0, "у папки рамка от стрелки");
+
+        let leaf = element(&["a.rs"], 200.0);
+        assert_eq!(
+            leaf.content_offset(&leaf.flat_nodes[0]),
+            8.0 + ARROW_ZONE_WIDTH,
+            "у листа стрелки нет — рамка от иконки"
+        );
+    }
+
+    /// Вложенность сдвигает рамку вместе с содержимым.
+    #[test]
+    fn pill_follows_indentation() {
+        let tree = TreeNode::branch("d", "src", vec![TreeNode::leaf("f", "a.rs")]).expanded(true);
+        let tv = TreeView::new(vec![tree]).item_height(26.0).indent(18.0);
+        let el = tv.element();
+        let child = &el.flat_nodes[1];
+        assert_eq!(child.depth, 1);
+        assert_eq!(el.content_offset(child), 8.0 + 18.0 + ARROW_ZONE_WIDTH);
+    }
+
+    /// Без измерителя (например, в headless-тесте) поведение прежнее —
+    /// равномерная сетка.
+    #[test]
+    fn falls_back_to_the_uniform_grid_without_a_measurer() {
+        let tv = TreeView::new(vec![TreeNode::leaf("a", "очень длинная подпись узла")])
+            .item_height(26.0);
+        let mut el = tv.element();
+        el.layout(Constraints {
+            min_width: 100.0,
+            max_width: 100.0,
+            min_height: 400.0,
+            max_height: 400.0,
+            containing_block: Size::new(100.0, 400.0),
+        });
+        assert_eq!(el.row_geometry(0).height, 26.0);
     }
 }

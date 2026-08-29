@@ -9,6 +9,7 @@ pub mod visitor;
 pub mod widget;
 
 pub use basic::{Text, Center, Elide};
+pub(crate) use basic::count_visual_lines_via_measure;
 pub use context::{BuildContext, EventContext, UpdateContext};
 pub use dirty::DirtyFlags;
 pub use element::{ChildHit, Element, EventContextExt, LayoutHint};

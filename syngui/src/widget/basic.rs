@@ -14,7 +14,10 @@ use crate::core::sync::Mutex;
 
 const DEFAULT_FONT_SIZE: f32 = 16.0;
 
-fn count_visual_lines_via_measure(
+/// Сколько визуальных строк займёт текст в заданной ширине. Алгоритм
+/// переноса тот же, что в `FontAtlas::shape_text`, — иначе расчёт разошёлся
+/// бы с тем, что реально рисует рендерер.
+pub(crate) fn count_visual_lines_via_measure(
     text: &str,
     available_width: f32,
     font_size: f32,
