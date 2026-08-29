@@ -58,9 +58,11 @@ impl ToolButton {
     }
 }
 
-impl Widget for ToolButton {
-    fn create_element(&self) -> Box<dyn Element> {
-        Box::new(ToolButtonElement {
+impl ToolButton {
+    /// Собрать элемент. Отдельно от [`Widget::create_element`], чтобы тесты
+    /// могли работать с конкретным типом, а не с `Box<dyn Element>`.
+    fn element(&self) -> ToolButtonElement {
+        ToolButtonElement {
             id: ElementId::new(), icon: self.icon.clone(), tooltip: self.tooltip.clone(),
             text: self.text.clone(), disabled: self.disabled, active: self.active,
             press_passthrough: self.press_passthrough,
@@ -74,7 +76,13 @@ impl Widget for ToolButton {
             tip_elapsed: Duration::ZERO,
             tip_visible: false,
             tip_suppressed: false,
-        })
+        }
+    }
+}
+
+impl Widget for ToolButton {
+    fn create_element(&self) -> Box<dyn Element> {
+        Box::new(self.element())
     }
     fn can_update(&self, other: &dyn Any) -> bool { other.is::<Self>() }
     fn as_any(&self) -> &dyn Any { self }
@@ -104,6 +112,7 @@ pub struct ToolButtonElement {
 const TOOLTIP_DELAY: Duration = Duration::from_millis(500);
 /// Потолок ширины подсказки, px.
 const TOOLTIP_MAX_WIDTH: f32 = 320.0;
+const TOOLTIP_FONT_SIZE: f32 = 12.0;
 
 impl ToolButtonElement {
     fn start_transition_to_current_state(&mut self) {
@@ -123,12 +132,11 @@ impl ToolButtonElement {
     /// Геометрия подсказки: под кнопкой по центру; если не влезает в `clip`
     /// снизу — над кнопкой; по горизонтали прижимается к краям `clip`.
     fn tooltip_rect(&self, text: &str, clip: Rect) -> Rect {
-        let font_size = 12.0_f32;
+        let font_size = TOOLTIP_FONT_SIZE;
         let line_height = font_size + 4.0;
         let (pad_h, pad_v) = (16.0_f32, 12.0_f32);
-        let lines: Vec<&str> = text.lines().collect();
-        let max_line = lines
-            .iter()
+        let max_line = text
+            .lines()
             .map(|line| {
                 self.text_measure
                     .as_ref()
@@ -138,7 +146,22 @@ impl ToolButtonElement {
             .fold(0.0f32, f32::max)
             .min(TOOLTIP_MAX_WIDTH);
         let w = max_line + pad_h;
-        let h = lines.len().max(1) as f32 * line_height + pad_v;
+        // Считаем визуальные строки, а не логические: длинная подсказка без
+        // единого `\n` всё равно переносится по `TOOLTIP_MAX_WIDTH`, и по
+        // числу `text.lines()` фон выходил на строку ниже текста — воздух
+        // сверху и снизу переставал совпадать с однострочным случаем.
+        let lines = match self.text_measure.as_deref() {
+            Some(tm) => crate::widget::count_visual_lines_via_measure(
+                text,
+                (w - pad_h).max(1.0),
+                font_size,
+                false,
+                self.mss.font_family.as_deref(),
+                tm,
+            ),
+            None => text.lines().count().max(1),
+        };
+        let h = lines.max(1) as f32 * line_height + pad_v;
         let gap = 6.0;
         let mut x = self.bounds.x() + (self.bounds.size.width - w) / 2.0;
         let mut y = self.bounds.y() + self.bounds.size.height + gap;
@@ -396,24 +419,34 @@ impl Element for ToolButtonElement {
         let bg = Color::from_hex("#1E1F22");
         let border = Color::from_hex("#3F4147");
         let fg = Color::WHITE;
-        let font_size = 12.0_f32;
-        let line_height = font_size + 4.0;
+        let font_size = TOOLTIP_FONT_SIZE;
         let radius = tip.size.height.min(tip.size.width).min(20.0) / 2.0;
         let radius = radius.min(8.0);
-        list.begin_overlay();
+        // `post_build_display_list` вызывается внутри push/pop собственного
+        // transform элемента, поэтому обычный overlay унаследовал бы поворот
+        // кнопки — подсказка у крутящейся на hover кнопки ехала бы вместе с
+        // ней. Берём координаты родителя: трансформации предков (скролл,
+        // анимации контейнеров) при этом сохраняются.
+        if self.mss.compute_active_transform(self.bounds).is_some() {
+            list.begin_overlay_parent_space();
+        } else {
+            list.begin_overlay();
+        }
         list.push_shadow(tip, Color::from_hex("#000000").with_alpha(0.35), 12.0, (0.0, 4.0), [radius; 4]);
         list.push_rect_bordered(tip, bg, [radius; 4], crate::Border::new(1.0, border));
-        for (i, line) in text.lines().enumerate() {
-            let text_rect = Rect::new(
-                Point::new(tip.x() + 8.0, tip.y() + 6.0 + i as f32 * line_height),
-                Size::new(tip.size.width - 16.0, line_height),
-            );
-            list.push_text_styled(
-                line, text_rect, fg, font_size,
-                crate::mss::TextAlign::DEFAULT, crate::mss::TextDecoration::None,
-                400, self.mss.font_family.clone(),
-            );
-        }
+        // Весь текст одним блоком во внутренней области плашки: рендерер сам
+        // переносит его по ширине и центрирует по высоте, поэтому воздух
+        // сверху и снизу одинаков при любом числе строк. Рисовать построчно
+        // нельзя — перенос делает рендерер, и позиции разъезжались.
+        let text_rect = Rect::new(
+            Point::new(tip.x() + 8.0, tip.y() + 6.0),
+            Size::new((tip.size.width - 16.0).max(0.0), (tip.size.height - 12.0).max(0.0)),
+        );
+        list.push_text_styled(
+            text, text_rect, fg, font_size,
+            crate::mss::TextAlign::DEFAULT, crate::mss::TextDecoration::None,
+            400, self.mss.font_family.clone(),
+        );
         list.end_overlay();
     }
 
@@ -474,4 +507,67 @@ impl StyledElement for ToolButtonElement {
     fn apply_style(&mut self, _style: &ComputedStyle) { self.mark_dirty(DirtyFlags::RENDER); }
     fn classes(&self) -> &[String] { &self.classes }
     fn set_classes(&mut self, classes: Vec<String>) { self.classes = classes; self.mark_dirty(DirtyFlags::RENDER); }
+}
+
+#[cfg(test)]
+mod tooltip_geometry_tests {
+    use super::*;
+    use crate::widget::context::TextMeasure;
+
+    /// 10px на символ — считать ожидания легко в уме.
+    struct MonoMeasure;
+    impl TextMeasure for MonoMeasure {
+        fn measure_text_width(&self, text: &str, _font_size: f32, char_count: usize) -> f32 {
+            text.chars().take(char_count).count() as f32 * 10.0
+        }
+        fn hit_test_char(&self, _text: &str, _font_size: f32, x_offset: f32) -> usize {
+            (x_offset / 10.0).floor().max(0.0) as usize
+        }
+    }
+
+    fn element() -> ToolButtonElement {
+        let mut el = ToolButton::new("x").element();
+        el.text_measure = Some(std::sync::Arc::new(MonoMeasure));
+        el.bounds = Rect::new(Point::new(100.0, 100.0), Size::new(32.0, 32.0));
+        el
+    }
+
+    fn clip() -> Rect {
+        Rect::new(Point::new(0.0, 0.0), Size::new(1000.0, 1000.0))
+    }
+
+    const LINE_H: f32 = TOOLTIP_FONT_SIZE + 4.0;
+    const PAD_V: f32 = 12.0;
+
+    #[test]
+    fn short_tooltip_is_one_line_tall() {
+        let el = element();
+        let r = el.tooltip_rect("Сохранить", clip());
+        assert_eq!(r.size.height, LINE_H + PAD_V);
+    }
+
+    /// Длинная подсказка без единого `\n` всё равно переносится по
+    /// `TOOLTIP_MAX_WIDTH`. Высота обязана считаться по визуальным строкам,
+    /// иначе фон оказывается ниже текста и воздух сверху/снизу разъезжается.
+    #[test]
+    fn wrapped_tooltip_grows_with_the_visual_lines() {
+        let el = element();
+        // 320px максимум минус 16px padding → 304px, то есть 30 символов в
+        // строке. 60 символов лягут в две строки.
+        let text = "a".repeat(60);
+        let r = el.tooltip_rect(&text, clip());
+        assert!(
+            r.size.height > LINE_H + PAD_V,
+            "подсказка переносится, но высота осталась однострочной: {}",
+            r.size.height
+        );
+        assert_eq!(r.size.height, 2.0 * LINE_H + PAD_V);
+    }
+
+    #[test]
+    fn tooltip_width_is_capped() {
+        let el = element();
+        let r = el.tooltip_rect(&"a".repeat(200), clip());
+        assert_eq!(r.size.width, TOOLTIP_MAX_WIDTH + 16.0);
+    }
 }

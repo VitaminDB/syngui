@@ -691,6 +691,28 @@ impl DisplayList {
     }
 
     pub fn begin_overlay(&mut self) {
+        let base = self.current_transform;
+        self.begin_overlay_with_base(base);
+    }
+
+    /// Оверлей в системе координат родителя: собственный `transform`
+    /// элемента (поворот кнопки, масштаб) на слой не распространяется, а
+    /// трансформации предков — да.
+    ///
+    /// Для подсказок: подсказка у крутящейся на hover кнопки не должна
+    /// крутиться вместе с ней, но обязана уезжать вместе со скроллом.
+    /// Вызывать только когда элемент действительно запушил свой transform —
+    /// иначе снимется трансформация предка.
+    pub fn begin_overlay_parent_space(&mut self) {
+        let base = self
+            .transform_stack
+            .last()
+            .copied()
+            .unwrap_or_else(crate::core::Transform::identity);
+        self.begin_overlay_with_base(base);
+    }
+
+    fn begin_overlay_with_base(&mut self, transform: crate::core::Transform) {
         self.overlay_depth += 1;
         while self.overlay_levels.len() < self.overlay_depth {
             self.overlay_levels.push(Vec::new());
@@ -699,7 +721,6 @@ impl DisplayList {
             &mut self.clip_stack,
             vec![ClipRect::full_screen()],
         ));
-        let transform = self.current_transform;
         if transform != crate::core::Transform::identity() {
             self.overlay_levels[self.overlay_depth - 1].push(DrawCommand::PushTransform(transform));
         }
@@ -844,5 +865,76 @@ impl DisplayList {
 
     pub fn push_command(&mut self, command: DrawCommand) {
         self.target().push(command);
+    }
+}
+
+#[cfg(test)]
+mod overlay_transform_tests {
+    use super::*;
+    use crate::core::{Color, Point, Rect, Size, Transform};
+
+    fn overlay_transform(list: &DisplayList) -> Option<Transform> {
+        list.overlay_level_slices()
+            .iter()
+            .flat_map(|level| level.iter())
+            .find_map(|cmd| match cmd {
+                DrawCommand::PushTransform(t) => Some(*t),
+                _ => None,
+            })
+    }
+
+    fn rect() -> Rect {
+        Rect::new(Point::new(0.0, 0.0), Size::new(10.0, 10.0))
+    }
+
+    /// Обычный overlay тянет за собой всю текущую цепочку трансформаций —
+    /// включая собственный поворот элемента.
+    #[test]
+    fn plain_overlay_inherits_the_whole_transform_chain() {
+        let mut list = DisplayList::new();
+        let parent = Transform::translation(10.0, 20.0);
+        let own = Transform::translation(0.0, 5.0);
+        list.push_transform(parent);
+        list.push_transform(own);
+        list.begin_overlay();
+        list.push_rect(rect(), Color::WHITE, [0.0; 4]);
+        list.end_overlay();
+        list.pop_transform();
+        list.pop_transform();
+
+        assert_eq!(overlay_transform(&list), Some(own.then(&parent)));
+    }
+
+    /// Оверлей в координатах родителя отбрасывает собственный transform
+    /// элемента, но сохраняет трансформации предков: подсказка не крутится
+    /// вместе с кнопкой, но уезжает вместе со скроллом.
+    #[test]
+    fn parent_space_overlay_drops_only_the_own_transform() {
+        let mut list = DisplayList::new();
+        let parent = Transform::translation(10.0, 20.0);
+        let own = Transform::translation(0.0, 5.0);
+        list.push_transform(parent);
+        list.push_transform(own);
+        list.begin_overlay_parent_space();
+        list.push_rect(rect(), Color::WHITE, [0.0; 4]);
+        list.end_overlay();
+        list.pop_transform();
+        list.pop_transform();
+
+        assert_eq!(overlay_transform(&list), Some(parent));
+    }
+
+    /// Единственный transform — свой: оверлей остаётся в экранных координатах.
+    #[test]
+    fn parent_space_overlay_without_ancestors_is_identity() {
+        let mut list = DisplayList::new();
+        list.push_transform(Transform::translation(0.0, 5.0));
+        list.begin_overlay_parent_space();
+        list.push_rect(rect(), Color::WHITE, [0.0; 4]);
+        list.end_overlay();
+        list.pop_transform();
+
+        // identity в оверлей не пишется вовсе — команды PushTransform нет.
+        assert_eq!(overlay_transform(&list), None);
     }
 }

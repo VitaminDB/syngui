@@ -462,8 +462,22 @@ impl ElementTree {
             node.element.layout(constraints);
         }
 
+        // Ширину, навязанную родителем, соблюдаем: когда Row растягивает
+        // flex-ребёнка, он задаёт min = max = доля остатка, и Loose обязан
+        // вернуть эту долю, а не натуральную ширину содержимого. Иначе
+        // `.grow` молча схлопывается — причём не сразу, а после первой же
+        // перестройки реактивного поддерева, когда у узла появляется
+        // ребёнок с собственной шириной.
+        //
+        // По высоте — наоборот, натуральный размер: `min_height` сюда
+        // приходит от `Stack(StackFit::Expand)` как «можешь занять всё», и
+        // если его исполнить, содержимое перестаёт центрироваться по
+        // поперечной оси Row — заголовок панели уезжает к верхнему краю.
         Size::new(
-            child_size.width.min(constraints.max_width),
+            child_size
+                .width
+                .max(constraints.min_width)
+                .min(constraints.max_width.max(constraints.min_width)),
             child_size.height.min(constraints.max_height),
         )
     }
