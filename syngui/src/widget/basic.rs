@@ -465,9 +465,11 @@ impl Text {
     }
 }
 
-impl Widget for Text {
-    fn create_element(&self) -> Box<dyn Element> {
-        Box::new(TextElement {
+impl Text {
+    /// Собрать элемент. Отдельно от [`Widget::create_element`], чтобы тесты
+    /// могли работать с конкретным типом, а не с `Box<dyn Element>`.
+    fn element(&self) -> TextElement {
+        TextElement {
             id: ElementId::new(),
             bounds: Rect::zero(),
             text: self.text.clone(),
@@ -505,7 +507,13 @@ impl Widget for Text {
             mss_selection_color: Color::new(0.231, 0.510, 0.965, 0.30),
             last_click_at: None,
             click_count: 0,
-        })
+        }
+    }
+}
+
+impl Widget for Text {
+    fn create_element(&self) -> Box<dyn Element> {
+        Box::new(self.element())
     }
 
     fn can_update(&self, other: &dyn Any) -> bool {
@@ -563,6 +571,59 @@ struct TextElement {
 }
 
 impl TextElement {
+    /// Текст в том виде, в каком он попадёт на экран: с применённым
+    /// `text-transform`. Мерить надо именно его — заглавные шире строчных,
+    /// и по неперевёрнутой строке ширина выходит заниженной.
+    fn display_text(&self) -> std::borrow::Cow<'_, str> {
+        match self.mss_text_transform {
+            Some(crate::mss::fields::TextTransform::Uppercase) => {
+                std::borrow::Cow::Owned(self.text.to_uppercase())
+            }
+            Some(crate::mss::fields::TextTransform::Lowercase) => {
+                std::borrow::Cow::Owned(self.text.to_lowercase())
+            }
+            Some(crate::mss::fields::TextTransform::Capitalize) => {
+                let mut result = String::with_capacity(self.text.len());
+                let mut cap_next = true;
+                for c in self.text.chars() {
+                    if cap_next && c.is_alphabetic() {
+                        for uc in c.to_uppercase() {
+                            result.push(uc);
+                        }
+                        cap_next = false;
+                    } else {
+                        result.push(c);
+                        if c.is_whitespace() {
+                            cap_next = true;
+                        }
+                    }
+                }
+                std::borrow::Cow::Owned(result)
+            }
+            _ => std::borrow::Cow::Borrowed(&self.text),
+        }
+    }
+
+    /// Ширина строки с учётом разрядки: `FontAtlas::emit_glyph_spaced`
+    /// добавляет `letter-spacing` после каждого глифа, последний включительно.
+    fn measure_line(&self, line: &str, bold: bool) -> f32 {
+        let chars = line.chars().count();
+        let base = self
+            .text_measure
+            .as_ref()
+            .map(|tm| {
+                tm.measure_text_width_styled(
+                    line,
+                    self.font_size,
+                    chars,
+                    bold,
+                    self.mss_font_family.as_deref(),
+                )
+            })
+            .unwrap_or_else(|| chars as f32 * self.font_size * 0.65);
+        base + self.mss_letter_spacing * chars as f32
+    }
+
     fn effective_color(&self) -> Color {
         if let (Some(dark), Some(theme)) = (&self.dark_color, &self.theme) {
             if *theme.lock().unwrap() { *dark } else { self.color }
@@ -637,12 +698,11 @@ impl Element for TextElement {
         let pad_h = self.mss_padding_left + self.mss_padding_right;
         let pad_v = self.mss_padding_top + self.mss_padding_bottom;
         let bold = self.mss_font_weight >= 700;
-        let text_width = self.text_measure.as_ref()
-            .map(|tm| tm.measure_text_width_styled(
-                &self.text, self.font_size, self.text.chars().count(),
-                bold, self.mss_font_family.as_deref(),
-            ))
-            .unwrap_or_else(|| self.text.chars().count() as f32 * self.font_size * 0.65);
+        let measured = self.display_text();
+        let text_width = measured
+            .split('\n')
+            .map(|line| self.measure_line(line, bold))
+            .fold(0.0f32, f32::max);
         let line_height = self.mss_line_height
             .map(|lh| lh.resolve(self.font_size))
             .unwrap_or(self.font_size * 1.3);
@@ -716,25 +776,9 @@ impl Element for TextElement {
             Size::new(render_width, (self.bounds.size.height - pad_v).max(0.0)),
         );
 
-        let display_text: std::borrow::Cow<str> = match self.mss_text_transform {
-            Some(crate::mss::fields::TextTransform::Uppercase) => std::borrow::Cow::Owned(self.text.to_uppercase()),
-            Some(crate::mss::fields::TextTransform::Lowercase) => std::borrow::Cow::Owned(self.text.to_lowercase()),
-            Some(crate::mss::fields::TextTransform::Capitalize) => {
-                let mut result = String::with_capacity(self.text.len());
-                let mut cap_next = true;
-                for c in self.text.chars() {
-                    if cap_next && c.is_alphabetic() {
-                        for uc in c.to_uppercase() { result.push(uc); }
-                        cap_next = false;
-                    } else {
-                        result.push(c);
-                        if c.is_whitespace() { cap_next = true; }
-                    }
-                }
-                std::borrow::Cow::Owned(result)
-            }
-            _ => std::borrow::Cow::Borrowed(&self.text),
-        };
+        // Та же строка, по которой считалась ширина в `layout` — иначе бокс
+        // и надпись расходятся.
+        let display_text = self.display_text();
 
         let bold = self.mss_font_weight >= 700;
         let tm: Option<&dyn crate::widget::context::TextMeasure> =
@@ -1126,8 +1170,22 @@ impl Element for CenterElement {
     }
 
     fn layout(&mut self, constraints: Constraints) -> Size {
-        let width = constraints.max_width;
-        let height = constraints.max_height;
+        // Center заполняет то, что ему дали, но «дали бесконечность» —
+        // не размер: в неограниченной по ширине строке (Row меряет
+        // не-flex детей с `max_width = INFINITY`) вернуть `inf` значит
+        // отправить элемент и всё его содержимое в бесконечность. Тогда
+        // размер определяет содержимое — его подставит `measure_center`.
+        // Та же развилка, что в `RowElement::layout`.
+        let width = if constraints.max_width.is_finite() {
+            constraints.max_width
+        } else {
+            constraints.min_width.max(0.0)
+        };
+        let height = if constraints.max_height.is_finite() {
+            constraints.max_height
+        } else {
+            constraints.min_height.max(0.0)
+        };
         self.bounds = Rect::new(Point::zero(), Size::new(width, height));
         Size::new(width, height)
     }
@@ -1437,5 +1495,113 @@ mod tests {
     #[test]
     fn elide_middle_narrower_than_ellipsis_returns_just_ellipsis() {
         assert_eq!(mid("abcdefgh", 5.0), "\u{2026}");
+    }
+
+    // --- Center в неограниченной строке ---
+
+    fn center_layout(max_w: f32, max_h: f32) -> Size {
+        let mut el = *Box::new(CenterElement {
+            id: ElementId::new(),
+            bounds: Rect::zero(),
+            classes: Vec::new(),
+            dirty_flags: DirtyFlags::empty(),
+        });
+        el.layout(Constraints {
+            min_width: 0.0,
+            max_width: max_w,
+            min_height: 0.0,
+            max_height: max_h,
+            containing_block: Size::new(100.0, 100.0),
+        })
+    }
+
+    #[test]
+    fn center_fills_finite_constraints() {
+        let size = center_layout(200.0, 40.0);
+        assert_eq!(size, Size::new(200.0, 40.0));
+    }
+
+    /// Row меряет не-flex детей с `max_width = INFINITY`. Вернуть оттуда
+    /// бесконечность значит отправить элемент и всё его содержимое в
+    /// бесконечность — так пилюли в заголовке окна получали `w = inf` и
+    /// просто не рисовались. Размер в этом случае задаёт содержимое.
+    #[test]
+    fn center_does_not_return_infinity() {
+        let size = center_layout(f32::INFINITY, f32::INFINITY);
+        assert!(size.width.is_finite() && size.height.is_finite(), "{size:?}");
+        assert_eq!(size, Size::new(0.0, 0.0));
+    }
+
+    #[test]
+    fn center_handles_one_unbounded_axis() {
+        let size = center_layout(f32::INFINITY, 40.0);
+        assert_eq!(size, Size::new(0.0, 40.0));
+    }
+
+    // --- ширина мерится по тому, что рисуется ---
+
+    fn measured_width(text: &str, transform: Option<crate::mss::fields::TextTransform>, spacing: f32) -> f32 {
+        let widget = Text::new(text);
+        let mut el = widget.element();
+        el.text_measure = Some(Arc::new(MonoMeasure));
+        el.mss_text_transform = transform;
+        el.mss_letter_spacing = spacing;
+        el.font_size = 12.0;
+        el.layout(Constraints {
+            min_width: 0.0,
+            max_width: f32::INFINITY,
+            min_height: 0.0,
+            max_height: f32::INFINITY,
+            containing_block: Size::new(500.0, 500.0),
+        })
+        .width
+    }
+
+    /// `MonoMeasure` даёт 10px на символ, поэтому «beta» — 40px.
+    #[test]
+    fn width_without_transform_is_plain() {
+        assert_eq!(measured_width("beta", None, 0.0), 40.0);
+    }
+
+    /// Разрядка добавляется после каждого глифа (`emit_glyph_spaced`), и
+    /// ширина бокса обязана её учитывать — иначе надпись вылезает за край.
+    #[test]
+    fn width_includes_letter_spacing() {
+        assert_eq!(measured_width("beta", None, 2.0), 40.0 + 8.0);
+    }
+
+    /// Ширину «beta» мерить нельзя, когда на экране «BETA»: у MonoMeasure
+    /// это видно только через число символов, но в реальном шрифте
+    /// заглавные шире, и текст уезжал за правый край пилюли.
+    #[test]
+    fn width_is_measured_after_text_transform() {
+        let mut el = Text::new("beta").element();
+        el.text_measure = Some(Arc::new(UppercaseAware));
+        el.mss_text_transform = Some(crate::mss::fields::TextTransform::Uppercase);
+        el.font_size = 12.0;
+        let w = el
+            .layout(Constraints {
+                min_width: 0.0,
+                max_width: f32::INFINITY,
+                min_height: 0.0,
+                max_height: f32::INFINITY,
+                containing_block: Size::new(500.0, 500.0),
+            })
+            .width;
+        assert_eq!(w, 4.0 * 15.0, "мерить надо «BETA», а не «beta»: {w}");
+    }
+
+    /// Заглавные шире строчных — как в настоящем шрифте.
+    struct UppercaseAware;
+    impl TextMeasure for UppercaseAware {
+        fn measure_text_width(&self, text: &str, _font_size: f32, char_count: usize) -> f32 {
+            text.chars()
+                .take(char_count)
+                .map(|c| if c.is_uppercase() { 15.0 } else { 10.0 })
+                .sum()
+        }
+        fn hit_test_char(&self, _text: &str, _font_size: f32, x_offset: f32) -> usize {
+            (x_offset / 10.0).floor().max(0.0) as usize
+        }
     }
 }
