@@ -8,7 +8,7 @@ pub mod tree;
 pub mod visitor;
 pub mod widget;
 
-pub use basic::{Text, Center};
+pub use basic::{Text, Center, Elide};
 pub use context::{BuildContext, EventContext, UpdateContext};
 pub use dirty::DirtyFlags;
 pub use element::{ChildHit, Element, EventContextExt, LayoutHint};

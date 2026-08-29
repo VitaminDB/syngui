@@ -88,7 +88,7 @@ pub mod prelude {
     #[cfg(feature = "winit")]
     pub use crate::window::{Window, WindowBuilder, WindowEvent};
     
-    pub use crate::widget::{Text, Center};
+    pub use crate::widget::{Text, Center, Elide};
     
     pub use crate::core::canvas::{CanvasContext, Paint, LineCap, LineJoin};
 

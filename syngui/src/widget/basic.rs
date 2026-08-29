@@ -277,6 +277,128 @@ fn count_visual_lines_approx(text: &str, available_width: f32, font_size: f32) -
     total.max(1)
 }
 
+/// Где ставить многоточие, когда однострочный текст не влезает в отведённую
+/// ширину.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum Elide {
+    /// Обрезать хвост: `/home/master/Pro…`. Поведение по умолчанию.
+    #[default]
+    End,
+    /// Схлопывать середину, сохраняя начало и конец: `/home/…/synthos`. Для
+    /// путей (есть `/` или `\`) выкидываются целые сегменты, для остального —
+    /// символы. Включает однострочный режим, даже если `max_lines` не задан.
+    Middle,
+}
+
+/// Сжимает середину строки, пока она не влезет в `available_width`.
+fn elide_middle<'a>(
+    text: &'a str,
+    available_width: f32,
+    font_size: f32,
+    bold: bool,
+    font_family: Option<&str>,
+    tm: &dyn crate::widget::context::TextMeasure,
+) -> std::borrow::Cow<'a, str> {
+    let measure = |s: &str| {
+        tm.measure_text_width_styled(s, font_size, s.chars().count(), bold, font_family)
+    };
+    // Многострочный текст сжимать по середине бессмысленно — берём первую строку.
+    let text = match text.split_once('\n') {
+        Some((first, _)) => first,
+        None => text,
+    };
+    if !available_width.is_finite() || available_width <= 0.0 || measure(text) <= available_width {
+        return std::borrow::Cow::Borrowed(text);
+    }
+    if let Some(s) = elide_path_segments(text, available_width, &measure) {
+        return std::borrow::Cow::Owned(s);
+    }
+    std::borrow::Cow::Owned(elide_chars(text, available_width, &measure))
+}
+
+/// Путь: выкидываем сегменты из середины, сохраняя корень и хвост.
+/// `/home/master/Projects/2027/synthos` → `/home/…/2027/synthos` → `…/synthos`.
+/// Возвращает `None`, если строка не похожа на путь.
+fn elide_path_segments(
+    text: &str,
+    available_width: f32,
+    measure: &dyn Fn(&str) -> f32,
+) -> Option<String> {
+    let sep = if text.contains('/') {
+        '/'
+    } else if text.contains('\\') {
+        '\\'
+    } else {
+        return None;
+    };
+    // Хвостовой разделитель («…/synthos/») в сжатом виде только мешает.
+    let trimmed = text.strip_suffix(sep).unwrap_or(text);
+    let segments: Vec<&str> = trimmed.split(sep).filter(|s| !s.is_empty()).collect();
+    if segments.len() < 2 {
+        return None;
+    }
+    let absolute = trimmed.starts_with(sep);
+    let root = if absolute { String::from(sep) } else { String::new() };
+    let joined = |parts: &[&str]| parts.join(&sep.to_string());
+
+    // Сначала держим первый сегмент («~», «home»), отдавая хвост по одному.
+    // Верхняя граница — `len - 1`: при большем `keep` выкидывать из середины
+    // нечего, и кандидат выходит длиннее исходной строки, которая уже не
+    // влезла.
+    let head = segments[0];
+    for keep in (1..segments.len() - 1).rev() {
+        let tail = joined(&segments[segments.len() - keep..]);
+        let candidate = format!("{root}{head}{sep}{ELLIPSIS}{sep}{tail}");
+        if measure(&candidate) <= available_width {
+            return Some(candidate);
+        }
+    }
+    // Не влезло даже с одним сегментом хвоста — жертвуем началом.
+    for keep in (1..segments.len()).rev() {
+        let tail = joined(&segments[segments.len() - keep..]);
+        let candidate = format!("{ELLIPSIS}{sep}{tail}");
+        if measure(&candidate) <= available_width {
+            return Some(candidate);
+        }
+    }
+    // Остался один сегмент, и тот длинный — режем его посимвольно.
+    Some(elide_chars(segments[segments.len() - 1], available_width, measure))
+}
+
+/// Посимвольное сжатие середины: наращиваем начало и конец от `…`, пока влезает.
+fn elide_chars(text: &str, available_width: f32, measure: &dyn Fn(&str) -> f32) -> String {
+    if measure(ELLIPSIS) > available_width {
+        return ELLIPSIS.to_string();
+    }
+    let chars: Vec<(usize, char)> = text.char_indices().collect();
+    let n = chars.len();
+    // head — сколько символов слева, tail — сколько справа; растим по очереди,
+    // начиная с хвоста: он информативнее (имя файла, расширение).
+    let mut head = 0usize;
+    let mut tail = 0usize;
+    loop {
+        let grow_tail = tail <= head;
+        let (nh, nt) = if grow_tail { (head, tail + 1) } else { (head + 1, tail) };
+        if nh + nt >= n {
+            break;
+        }
+        let start = chars[nh].0;
+        let end = chars[n - nt].0;
+        let candidate = format!("{}{ELLIPSIS}{}", &text[..start], &text[end..]);
+        if measure(&candidate) > available_width {
+            break;
+        }
+        head = nh;
+        tail = nt;
+    }
+    if head + tail == 0 {
+        return ELLIPSIS.to_string();
+    }
+    let start = chars[head].0;
+    let end = chars[n - tail].0;
+    format!("{}{ELLIPSIS}{}", &text[..start], &text[end..])
+}
+
 pub struct Text {
     text: String,
     color: Option<Color>,
@@ -284,6 +406,7 @@ pub struct Text {
     dark_color: Option<Color>,
     theme: Option<Arc<Mutex<bool>>>,
     max_lines: Option<usize>,
+    elide: Elide,
     selectable: bool,
 }
 
@@ -296,6 +419,7 @@ impl Text {
             dark_color: None,
             theme: None,
             max_lines: None,
+            elide: Elide::End,
             selectable: false,
         }
     }
@@ -329,6 +453,13 @@ impl Text {
         self.max_lines = Some(n.max(1));
         self
     }
+
+    /// Как сжимать текст, который не влезает. [`Elide::Middle`] подразумевает
+    /// одну строку, поэтому отдельный `max_lines(1)` не нужен.
+    pub fn elide(mut self, elide: Elide) -> Self {
+        self.elide = elide;
+        self
+    }
 }
 
 impl Widget for Text {
@@ -357,7 +488,11 @@ impl Widget for Text {
             mss_padding_bottom: 0.0,
             max_render_width: f32::INFINITY,
             text_measure: None,
-            mss_max_lines: self.max_lines,
+            mss_max_lines: match self.elide {
+                Elide::Middle => Some(self.max_lines.unwrap_or(1)),
+                Elide::End => self.max_lines,
+            },
+            mss_elide: self.elide,
             mss_width: None,
             mss_height: None,
             selectable: self.selectable,
@@ -411,6 +546,7 @@ struct TextElement {
     max_render_width: f32,
     text_measure: Option<std::sync::Arc<dyn crate::widget::context::TextMeasure>>,
     mss_max_lines: Option<usize>,
+    mss_elide: Elide,
     mss_width: Option<crate::mss::Dimension>,
     mss_height: Option<crate::mss::Dimension>,
 
@@ -475,13 +611,19 @@ impl Element for TextElement {
             }
             self.dark_color = widget.dark_color;
             self.theme = widget.theme.clone();
-            let max_lines_changed = widget.max_lines.is_some()
-                && self.mss_max_lines != widget.max_lines;
-            if let Some(n) = widget.max_lines {
+            let new_max_lines = match widget.elide {
+                Elide::Middle => Some(widget.max_lines.unwrap_or(1)),
+                Elide::End => widget.max_lines,
+            };
+            let max_lines_changed =
+                new_max_lines.is_some() && self.mss_max_lines != new_max_lines;
+            if let Some(n) = new_max_lines {
                 self.mss_max_lines = Some(n);
             }
+            let elide_changed = self.mss_elide != widget.elide;
+            self.mss_elide = widget.elide;
             let mut flags = DirtyFlags::RENDER;
-            if text_changed || max_lines_changed {
+            if text_changed || max_lines_changed || elide_changed {
                 flags |= DirtyFlags::LAYOUT;
             }
             self.mark_dirty(flags);
@@ -591,10 +733,24 @@ impl Element for TextElement {
             _ => std::borrow::Cow::Borrowed(&self.text),
         };
 
-        let display_text: std::borrow::Cow<str> = if let Some(n) = self.mss_max_lines {
-            let bold = self.mss_font_weight >= 700;
-            let tm: Option<&dyn crate::widget::context::TextMeasure> =
-                self.text_measure.as_deref();
+        let bold = self.mss_font_weight >= 700;
+        let tm: Option<&dyn crate::widget::context::TextMeasure> =
+            self.text_measure.as_deref();
+        let display_text: std::borrow::Cow<str> = if let (Elide::Middle, Some(tm)) =
+            (self.mss_elide, tm)
+        {
+            match elide_middle(
+                display_text.as_ref(),
+                render_width,
+                self.font_size,
+                bold,
+                self.mss_font_family.as_deref(),
+                tm,
+            ) {
+                std::borrow::Cow::Borrowed(s) if s.len() == display_text.len() => display_text,
+                other => std::borrow::Cow::Owned(other.into_owned()),
+            }
+        } else if let Some(n) = self.mss_max_lines {
             match truncate_to_lines(
                 display_text.as_ref(),
                 render_width,
@@ -1205,5 +1361,78 @@ mod tests {
         assert_eq!(out.as_ref(), "日本語Hell\u{2026}");
         let latin = trunc("abc Hello", 50.0, 2);
         assert_eq!(latin.as_ref(), "abc Hell\u{2026}");
+    }
+
+    // --- сжатие середины (Elide::Middle) ---
+    // MonoMeasure: 10px на символ, поэтому ширина = 10 * (число символов).
+
+    fn mid(text: &str, width: f32) -> String {
+        elide_middle(text, width, 12.0, false, None, &MonoMeasure).into_owned()
+    }
+
+    #[test]
+    fn elide_middle_keeps_text_that_fits() {
+        assert_eq!(mid("~/Projects/2027/synthos", 300.0), "~/Projects/2027/synthos");
+    }
+
+    #[test]
+    fn elide_middle_drops_path_segments_one_by_one() {
+        let path = "~/Projects/2027/synthos";
+        // 23 символа → 230px. Ужимаем шаг за шагом.
+        assert_eq!(mid(path, 220.0), "~/\u{2026}/2027/synthos");
+        assert_eq!(mid(path, 150.0), "~/\u{2026}/synthos");
+        assert_eq!(mid(path, 100.0), "\u{2026}/synthos");
+    }
+
+    #[test]
+    fn elide_middle_keeps_absolute_root_slash() {
+        let path = "/home/master/Projects/2027/synthos";
+        assert_eq!(mid(path, 250.0), "/home/\u{2026}/2027/synthos");
+        assert_eq!(mid(path, 180.0), "/home/\u{2026}/synthos");
+    }
+
+    #[test]
+    fn elide_middle_ignores_trailing_separator() {
+        assert_eq!(mid("/home/master/2027/synthos/", 190.0), "/home/\u{2026}/synthos");
+    }
+
+    /// Два сегмента: выкидывать из середины нечего, жертвуем головой.
+    #[test]
+    fn elide_middle_two_segments_drops_the_head() {
+        // 14 символов не влезают в 100px, «…/Projects» — ровно 10.
+        assert_eq!(mid("/home/Projects", 100.0), "\u{2026}/Projects");
+    }
+
+    #[test]
+    fn elide_middle_falls_back_to_chars_for_last_segment() {
+        // Один сегмент не влезает целиком — режем его посимвольно.
+        let out = mid("/verylongsingledirectoryname", 100.0);
+        assert!(out.contains('\u{2026}'), "{out}");
+        assert!(out.chars().count() <= 10, "{out}");
+    }
+
+    #[test]
+    fn elide_middle_on_plain_text_cuts_chars() {
+        let out = mid("abcdefghijklmnop", 100.0);
+        assert_eq!(out.chars().count(), 10);
+        assert!(out.starts_with("abcd") && out.ends_with("mnop"), "{out}");
+    }
+
+    #[test]
+    fn elide_middle_windows_separator() {
+        assert_eq!(
+            mid("C:\\Users\\master\\Projects\\synthos", 200.0),
+            "C:\\\u{2026}\\synthos"
+        );
+    }
+
+    #[test]
+    fn elide_middle_uses_first_line_only() {
+        assert_eq!(mid("~/Projects/2027/synthos\nвторая", 150.0), "~/\u{2026}/synthos");
+    }
+
+    #[test]
+    fn elide_middle_narrower_than_ellipsis_returns_just_ellipsis() {
+        assert_eq!(mid("abcdefgh", 5.0), "\u{2026}");
     }
 }
