@@ -32,14 +32,13 @@ impl Widget for Page {
             scroll_offset: Point::zero(),
             velocity: Point::zero(),
             is_coasting: false,
+            bounce_allowed: false,
 
             overscroll_x: 0.0,
             overscroll_y: 0.0,
             bounce_velocity_x: 0.0,
             bounce_velocity_y: 0.0,
             is_bouncing: false,
-            bounce_target_y: 0.0,
-            bounce_target_x: 0.0,
 
             scroll_animation: None,
             scroll_anim_start_y: 0.0,
@@ -103,14 +102,18 @@ pub struct PageElement {
     scroll_offset: Point,
     velocity: Point,
     is_coasting: bool,
+    /// Можно ли уводить содержимое за край и возвращать «резинкой».
+    /// Разрешено для касания: палец тянет лист, и отскок читается как
+    /// продолжение жеста. Для колеса — нет: у края мышь должна упираться
+    /// намертво, иначе каждый оборот вверх на упоре качает лист туда-сюда
+    /// и это выглядит как дребезг.
+    bounce_allowed: bool,
 
     overscroll_x: f32,
     overscroll_y: f32,
     bounce_velocity_x: f32,
     bounce_velocity_y: f32,
     is_bouncing: bool,
-    bounce_target_y: f32,
-    bounce_target_x: f32,
 
     scroll_animation: Option<Animation>,
     scroll_anim_start_y: f32,
@@ -179,6 +182,24 @@ impl PageElement {
                 0.0
             },
         )
+    }
+
+    /// Прервать «резинку» отскока и вернуть смещение в допустимые пределы.
+    ///
+    /// Любой новый ввод обязан это сделать: пока `is_bouncing` жив, кадр
+    /// анимации переписывает `scroll_offset` своей траекторией, и первые
+    /// обороты колеса (или рывок ползунка) пропадают впустую — прокрутка
+    /// «схватывается» только с третьего раза.
+    fn interrupt_bounce(&mut self) {
+        if !self.is_bouncing && self.overscroll_x == 0.0 && self.overscroll_y == 0.0 {
+            return;
+        }
+        self.is_bouncing = false;
+        self.overscroll_x = 0.0;
+        self.overscroll_y = 0.0;
+        self.bounce_velocity_x = 0.0;
+        self.bounce_velocity_y = 0.0;
+        self.scroll_offset = self.clamp_offset(self.scroll_offset);
     }
 
     fn overscroll_amount_y(&self) -> f32 {
@@ -459,6 +480,8 @@ impl Element for PageElement {
                     return EventResult::Ignored;
                 }
 
+                self.interrupt_bounce();
+
                 let mut delta_y = if can_y { -*delta } else { 0.0 };
                 let mut delta_x = if can_x { -*ev_dx } else { 0.0 };
 
@@ -481,16 +504,40 @@ impl Element for PageElement {
                 self.scroll_offset.y = (old_y + delta_y).clamp(0.0, self.max_scroll_y());
                 self.scroll_offset.x = (old_x + delta_x).clamp(0.0, self.max_scroll_x());
 
+                // Упор в край: инерция дальше не нужна — она бы только
+                // тянула содержимое в уже закрытую сторону.
+                if delta_y == 0.0 {
+                    self.velocity.y = 0.0;
+                }
+                if delta_x == 0.0 {
+                    self.velocity.x = 0.0;
+                }
+
                 if (self.scroll_offset.y - old_y).abs() < 0.001
                     && (self.scroll_offset.x - old_x).abs() < 0.001
                 {
+                    if self.velocity.x == 0.0 && self.velocity.y == 0.0 {
+                        self.is_coasting = false;
+                    }
                     return EventResult::Handled;
+                }
+
+                // Разворот колеса обнуляет прежнюю инерцию. Смешивать её со
+                // встречным импульсом нельзя: усреднение оставляет знак
+                // старого движения, и содержимое ещё пару оборотов едет в
+                // прежнюю сторону, будто прокрутка не слушается.
+                if delta_y * self.velocity.y < 0.0 {
+                    self.velocity.y = 0.0;
+                }
+                if delta_x * self.velocity.x < 0.0 {
+                    self.velocity.x = 0.0;
                 }
 
                 let alpha = 0.3;
                 self.velocity.y = self.velocity.y * (1.0 - alpha) + delta_y * VELOCITY_SCALE * alpha;
                 self.velocity.x = self.velocity.x * (1.0 - alpha) + delta_x * VELOCITY_SCALE * alpha;
                 self.is_coasting = true;
+                self.bounce_allowed = false;
 
                 self.scroll_animation = None;
 
@@ -544,6 +591,9 @@ impl Element for PageElement {
                 if self.show_vertical_scrollbar_thumb() {
                     let thumb = self.vertical_scrollbar_thumb();
                     if thumb.contains(*position) {
+                        self.interrupt_bounce();
+                        self.is_coasting = false;
+                        self.velocity = Point::zero();
                         self.dragging_vertical = true;
                         ctx.request_paint();
                         return EventResult::Captured;
@@ -552,6 +602,9 @@ impl Element for PageElement {
                 if self.show_horizontal_scrollbar_thumb() {
                     let thumb = self.horizontal_scrollbar_thumb();
                     if thumb.contains(*position) {
+                        self.interrupt_bounce();
+                        self.is_coasting = false;
+                        self.velocity = Point::zero();
                         self.dragging_horizontal = true;
                         ctx.request_paint();
                         return EventResult::Captured;
@@ -677,15 +730,18 @@ impl Element for PageElement {
                     let dy = start.y - position.y;
                     let dx = start.x - position.x;
 
+                    let max_os = self.physics.max_overscroll.min(50.0);
                     if self.can_scroll_y() {
-                        self.scroll_offset.y = self.scroll_offset.y + dy;
+                        let raw = self.scroll_offset.y + self.overscroll_y + dy;
                         let max_y = self.max_scroll_y();
-                        self.scroll_offset.y = self.scroll_offset.y.clamp(-50.0, max_y + 50.0);
+                        self.scroll_offset.y = raw.clamp(0.0, max_y);
+                        self.overscroll_y = (raw - self.scroll_offset.y).clamp(-max_os, max_os);
                     }
                     if self.can_scroll_x() {
-                        self.scroll_offset.x = self.scroll_offset.x + dx;
+                        let raw = self.scroll_offset.x + self.overscroll_x + dx;
                         let max_x = self.max_scroll_x();
-                        self.scroll_offset.x = self.scroll_offset.x.clamp(-50.0, max_x + 50.0);
+                        self.scroll_offset.x = raw.clamp(0.0, max_x);
+                        self.overscroll_x = (raw - self.scroll_offset.x).clamp(-max_os, max_os);
                     }
 
                     let alpha = 0.3;
@@ -706,15 +762,15 @@ impl Element for PageElement {
                 self.touch_drag_start = None;
                 self.touch_id = None;
 
-                if self.scroll_offset.y < 0.0 || self.scroll_offset.y > self.max_scroll_y()
-                    || self.scroll_offset.x < 0.0 || self.scroll_offset.x > self.max_scroll_x()
-                {
+                if self.overscroll_y != 0.0 || self.overscroll_x != 0.0 {
                     self.is_bouncing = true;
-                    self.bounce_target_y = self.scroll_offset.y.clamp(0.0, self.max_scroll_y());
-                    self.bounce_target_x = self.scroll_offset.x.clamp(0.0, self.max_scroll_x());
+                    self.bounce_allowed = true;
+                    self.bounce_velocity_y = self.velocity.y;
+                    self.bounce_velocity_x = self.velocity.x;
                     self.velocity = Point::zero();
                 } else if self.velocity.y.abs() > 1.0 || self.velocity.x.abs() > 1.0 {
                     self.is_coasting = true;
+                    self.bounce_allowed = true;
                 }
                 ctx.request_paint();
                 EventResult::Handled
@@ -725,7 +781,11 @@ impl Element for PageElement {
     }
 
     fn animate(&mut self, dt: Duration) -> bool {
-        let dt_secs = dt.as_secs_f32();
+        // Кадр, просевший до долей секунды (подгрузка данных, свёрнутое
+        // окно), не отыгрываем целиком: инерция за такой шаг перепрыгнула бы
+        // экран, а «резинка» — раскачалась. Ограничиваем шаг физики 10 Гц.
+        const MAX_FRAME_DT: f32 = 0.1;
+        let dt_secs = dt.as_secs_f32().min(MAX_FRAME_DT);
         if dt_secs <= 0.0 {
             return self.is_animating();
         }
@@ -748,31 +808,44 @@ impl Element for PageElement {
             let os_y = self.overscroll_amount_y();
             let os_x = self.overscroll_amount_x();
 
-            if os_y.abs() > 0.0 || os_x.abs() > 0.0 {
+            let hard_stop = !self.bounce_allowed && (os_y.abs() > 0.0 || os_x.abs() > 0.0);
+            if hard_stop {
+                // Колесо: у края жёсткий упор, без «резинки». Инерцию гасим
+                // по той оси, что упёрлась, — вторая может ехать дальше.
+                if os_y.abs() > 0.0 {
+                    self.velocity.y = 0.0;
+                }
+                if os_x.abs() > 0.0 {
+                    self.velocity.x = 0.0;
+                }
+                self.scroll_offset = self.clamp_offset(self.scroll_offset);
+                if self.velocity.x.abs() < physics.min_velocity
+                    && self.velocity.y.abs() < physics.min_velocity
+                {
+                    self.is_coasting = false;
+                    self.velocity = Point::zero();
+                }
+            } else if os_y.abs() > 0.0 || os_x.abs() > 0.0 {
+                let max = physics.max_overscroll;
                 if self.can_scroll_y() && os_y.abs() > 0.0 {
-                    let max = physics.max_overscroll;
-                    self.scroll_offset.y = self.scroll_offset.y.clamp(
-                        -max,
-                        self.max_scroll_y() + max,
-                    );
-                    self.overscroll_y = self.overscroll_amount_y();
+                    self.overscroll_y = os_y.clamp(-max, max);
                     self.bounce_velocity_y = self.velocity.y;
                     self.velocity.y = 0.0;
-                    self.bounce_target_y = if self.scroll_offset.y < 0.0 { 0.0 } else { self.max_scroll_y() };
                     self.is_bouncing = true;
                 }
                 if self.can_scroll_x() && os_x.abs() > 0.0 {
-                    let max = physics.max_overscroll;
-                    self.scroll_offset.x = self.scroll_offset.x.clamp(
-                        -max,
-                        self.max_scroll_x() + max,
-                    );
-                    self.overscroll_x = self.overscroll_amount_x();
+                    self.overscroll_x = os_x.clamp(-max, max);
                     self.bounce_velocity_x = self.velocity.x;
                     self.velocity.x = 0.0;
-                    self.bounce_target_x = if self.scroll_offset.x < 0.0 { 0.0 } else { self.max_scroll_x() };
                     self.is_bouncing = true;
                 }
+                // Смещение всегда остаётся в своих пределах: за край
+                // содержимое уводит только растяжение `overscroll_*`, и
+                // отрисовка складывает их сама. Пока растяжение сидело ещё
+                // и в `scroll_offset`, трансформация вычитала его дважды —
+                // «резинка» не рисовалась, зато отсечение и полоса
+                // прокрутки видели смещение далеко за содержимым.
+                self.scroll_offset = self.clamp_offset(self.scroll_offset);
                 self.is_coasting = false;
             }
 
@@ -799,10 +872,11 @@ impl Element for PageElement {
             if self.can_scroll_y() && self.overscroll_y.abs() > 0.0 {
                 let (new_os, new_vel) =
                     spring.update(self.overscroll_y, 0.0, self.bounce_velocity_y, dt_secs);
-                self.overscroll_y = new_os;
+                // Растяжение «резинки» ограничено тем же пределом, что и при
+                // разгоне: без этого любая численная аномалия уносит
+                // содержимое на тысячи пикселей от области просмотра.
+                self.overscroll_y = new_os.clamp(-physics.max_overscroll, physics.max_overscroll);
                 self.bounce_velocity_y = new_vel;
-
-                self.scroll_offset.y = self.bounce_target_y + self.overscroll_y;
 
                 if !spring.is_at_rest(self.overscroll_y, self.bounce_velocity_y) {
                     at_rest = false;
@@ -812,10 +886,8 @@ impl Element for PageElement {
             if self.can_scroll_x() && self.overscroll_x.abs() > 0.0 {
                 let (new_os, new_vel) =
                     spring.update(self.overscroll_x, 0.0, self.bounce_velocity_x, dt_secs);
-                self.overscroll_x = new_os;
+                self.overscroll_x = new_os.clamp(-physics.max_overscroll, physics.max_overscroll);
                 self.bounce_velocity_x = new_vel;
-
-                self.scroll_offset.x = self.bounce_target_x + self.overscroll_x;
 
                 if !spring.is_at_rest(self.overscroll_x, self.bounce_velocity_x) {
                     at_rest = false;

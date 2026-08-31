@@ -487,6 +487,16 @@ impl Element for ScrollViewElement {
                     return EventResult::Handled;
                 }
 
+                // Разворот колеса обнуляет прежнюю инерцию, иначе усреднение
+                // сохраняет знак старого движения и прокрутка ещё пару
+                // оборотов едет в обратную сторону.
+                if dy * self.velocity.y < 0.0 {
+                    self.velocity.y = 0.0;
+                }
+                if dx * self.velocity.x < 0.0 {
+                    self.velocity.x = 0.0;
+                }
+
                 let alpha = 0.3;
                 self.velocity.y = self.velocity.y * (1.0 - alpha) + dy * VELOCITY_SCALE * alpha;
                 self.velocity.x = self.velocity.x * (1.0 - alpha) + dx * VELOCITY_SCALE * alpha;

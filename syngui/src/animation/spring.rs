@@ -25,16 +25,60 @@ impl Spring {
         self
     }
 
+    /// Шаг интегрирования. Полу-неявный Эйлер устойчив, только пока шаг мал
+    /// относительно жёсткости и трения: при `dt > 2·mass/damping` множитель
+    /// `(1 − damping·dt/mass)` уходит меньше −1, и каждый кадр не гасит
+    /// колебание, а усиливает его. Просевший кадр (подгрузка данных,
+    /// свёрнутое окно, тяжёлая перерисовка) давал ровно это: «резинка»
+    /// прокрутки улетала на тысячи пикселей, содержимое уезжало за пределы
+    /// экрана и область выглядела пустой. Поэтому длинный кадр отыгрываем
+    /// подшагами устойчивой длины, а совсем большой пропуск времени
+    /// обрезаем — догонять физику за секунду простоя незачем.
     pub fn update(&self, current: f32, target: f32, velocity: f32, dt_secs: f32) -> (f32, f32) {
-        let displacement = current - target;
-        let spring_force = -self.stiffness * displacement;
-        let damping_force = -self.damping * velocity;
-        let acceleration = (spring_force + damping_force) / self.mass;
+        if !dt_secs.is_finite() || dt_secs <= 0.0 {
+            return (current, velocity);
+        }
 
-        let new_velocity = velocity + acceleration * dt_secs;
-        let new_position = current + new_velocity * dt_secs;
+        const MAX_DT: f32 = 0.25;
+        let mut remaining = dt_secs.min(MAX_DT);
+        let step_limit = self.stable_step();
 
-        (new_position, new_velocity)
+        let mut position = current;
+        let mut vel = velocity;
+
+        while remaining > 0.0 {
+            let step = remaining.min(step_limit);
+            let displacement = position - target;
+            let spring_force = -self.stiffness * displacement;
+            let damping_force = -self.damping * vel;
+            let acceleration = (spring_force + damping_force) / self.mass;
+
+            vel += acceleration * step;
+            position += vel * step;
+            remaining -= step;
+        }
+
+        (position, vel)
+    }
+
+    /// Наибольший шаг, на котором интегрирование остаётся устойчивым:
+    /// половина от предела по собственной частоте `2/ω` и по трению
+    /// `2·mass/damping`, но не длиннее кадра 120 Гц.
+    fn stable_step(&self) -> f32 {
+        const MAX_STEP: f32 = 1.0 / 120.0;
+        let mass = self.mass.max(f32::EPSILON);
+
+        let mut limit = MAX_STEP;
+        if self.stiffness > 0.0 {
+            let omega = (self.stiffness / mass).sqrt();
+            if omega > 0.0 {
+                limit = limit.min(1.0 / omega);
+            }
+        }
+        if self.damping > 0.0 {
+            limit = limit.min(mass / self.damping);
+        }
+        limit.max(1.0 / 4000.0)
     }
 
     pub fn is_at_rest(&self, displacement: f32, velocity: f32) -> bool {
@@ -137,6 +181,47 @@ mod tests {
         }
         assert!((pos - target).abs() < 0.01, "spring should converge, pos={}", pos);
         assert!(vel.abs() < 0.01);
+    }
+
+    /// Длинный кадр не должен раскачивать пружину: при `damping·dt > 2·mass`
+    /// наивный шаг переворачивает скорость и уносит значение в тысячи.
+    /// Именно так «резинка» прокрутки утаскивала содержимое за экран.
+    #[test]
+    fn long_frame_does_not_blow_up() {
+        let s = Spring::new().with_stiffness(300.0).with_damping(25.0);
+        let mut pos = 80.0_f32;
+        let mut vel = -1500.0_f32;
+        for _ in 0..40 {
+            let (p, v) = s.update(pos, 0.0, vel, 0.25);
+            pos = p;
+            vel = v;
+            assert!(
+                pos.abs() < 500.0,
+                "растяжение убежало: pos={pos}, vel={vel}"
+            );
+        }
+        assert!(pos.abs() < 1.0, "пружина обязана успокоиться: pos={pos}");
+    }
+
+    /// На нормальном кадре поведение прежнее: пружина сходится к цели.
+    #[test]
+    fn short_frames_still_converge() {
+        let s = Spring::new().with_stiffness(300.0).with_damping(25.0);
+        let mut pos = 50.0_f32;
+        let mut vel = 0.0_f32;
+        for _ in 0..300 {
+            let (p, v) = s.update(pos, 0.0, vel, 1.0 / 60.0);
+            pos = p;
+            vel = v;
+        }
+        assert!(pos.abs() < 0.5, "pos={pos}");
+    }
+
+    #[test]
+    fn zero_and_negative_dt_are_noop() {
+        let s = Spring::default();
+        assert_eq!(s.update(3.0, 0.0, 1.0, 0.0), (3.0, 1.0));
+        assert_eq!(s.update(3.0, 0.0, 1.0, -0.5), (3.0, 1.0));
     }
 
     #[test]
