@@ -815,6 +815,10 @@ impl Element for TextElement {
         };
 
         let align = self.mss_text_align.unwrap_or(crate::mss::TextAlign::DEFAULT);
+        // Однострочный режим (max_lines=1 / elide) рисуется без переноса:
+        // строка уже усечена по ширине, а рисовать её с переносом опасно —
+        // 1px расхождения измерений перекидывали бы хвост на вторую строку.
+        let single_line = self.mss_max_lines == Some(1) || self.mss_elide == Elide::Middle;
         let has_extra = self.mss_letter_spacing != 0.0
             || self.mss_text_shadow.is_some()
             || self.mss_text_transform.is_some();
@@ -851,6 +855,12 @@ impl Element for TextElement {
                 self.mss_font_family.clone(),
                 self.mss_letter_spacing,
                 self.mss_text_shadow.clone(),
+                single_line,
+            );
+        } else if single_line {
+            list.push_text_singleline(
+                &display_text, render_bounds, self.effective_color(), self.font_size,
+                align, self.mss_font_weight,
             );
         } else {
             list.push_text(&display_text, render_bounds, self.effective_color(), self.font_size);

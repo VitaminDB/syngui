@@ -355,6 +355,7 @@ impl DisplayList {
         self.current_z += 1;
     }
 
+    #[allow(clippy::too_many_arguments)]
     pub fn push_text_full(
         &mut self,
         text: &str,
@@ -367,6 +368,7 @@ impl DisplayList {
         font_family: Option<String>,
         letter_spacing: f32,
         text_shadow: Option<crate::mss::fields::TextShadow>,
+        no_wrap: bool,
     ) {
         let clip = *self.current_clip();
         let z = self.current_z;
@@ -384,7 +386,7 @@ impl DisplayList {
             bbox_sample: None,
             clip_rect: clip,
             z_index: z,
-            no_wrap: false,
+            no_wrap,
         });
         self.current_z += 1;
     }
