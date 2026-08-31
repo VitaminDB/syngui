@@ -113,6 +113,10 @@ impl ElementTree {
         let mut measured_count = 0usize;
         let mut measured_height_sum = 0.0f32;
 
+        // Gap считается только между детьми ненулевой высоты: скрытые
+        // попапы/диалоги меряются в 0 и не должны раздвигать соседей.
+        // Flex-дети — всегда участники: им ещё раздадут остаток.
+        let mut gap_participants = 0usize;
         for probe in &child_probes {
             if let Some(flex) = probe_flex(probe) {
                 total_flex += flex;
@@ -122,6 +126,9 @@ impl ElementTree {
                     let avg_h = if measured_count > 0 { measured_height_sum / measured_count as f32 } else { 50.0 };
                     if let Some(est) = self.scroll_estimate(probe.id, total_fixed_height, avg_h) {
                         total_fixed_height += est.height;
+                        if est.height > 0.0 {
+                            gap_participants += 1;
+                        }
                         max_width = max_width.max(est.width);
                         continue;
                     }
@@ -136,17 +143,17 @@ impl ElementTree {
                 let m = probe.margin;
                 let h = child_size.height + m.top + m.bottom;
                 total_fixed_height += h;
+                if h > 0.0 {
+                    gap_participants += 1;
+                }
                 max_width = max_width.max(child_size.width + m.left + m.right);
                 measured_count += 1;
                 measured_height_sum += h;
             }
         }
+        gap_participants += expanded_idx.len();
 
-        let gap_space = if !children_idx.is_empty() {
-            gap * (children_idx.len() - 1) as f32
-        } else {
-            0.0
-        };
+        let gap_space = gap * gap_participants.saturating_sub(1) as f32;
 
         let total_height;
         if !expanded_idx.is_empty() && effective_max_height.is_finite() {
@@ -258,6 +265,10 @@ impl ElementTree {
             containing_block: child_cb,
         };
 
+        // Gap считается только между детьми ненулевой ширины: скрытые
+        // попапы/оверлеи меряются в 0 и не должны раздвигать соседей.
+        // Flex-дети — всегда участники: им ещё раздадут остаток.
+        let mut gap_participants = 0usize;
         for probe in &child_probes {
             if let Some(flex) = probe_flex(probe) {
                 total_flex += flex;
@@ -270,17 +281,18 @@ impl ElementTree {
                 };
                 let child_size = self.measure_recursive_by_idx(probe.idx, c);
                 let m = probe.margin;
-                total_fixed_width += child_size.width + m.left + m.right;
+                let extent = child_size.width + m.left + m.right;
+                total_fixed_width += extent;
+                if extent > 0.0 {
+                    gap_participants += 1;
+                }
                 max_height = max_height.max(child_size.height + m.top + m.bottom);
                 measured_widths.push((probe.idx, child_size.width));
             }
         }
+        gap_participants += expanded_idx.len();
 
-        let gap_space = if !children_idx.is_empty() {
-            gap * (children_idx.len() - 1) as f32
-        } else {
-            0.0
-        };
+        let gap_space = gap * gap_participants.saturating_sub(1) as f32;
 
         let total_width;
         if !expanded_idx.is_empty() && effective_max_width.is_finite() {

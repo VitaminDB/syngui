@@ -233,16 +233,21 @@ impl ElementTree {
 
     fn position_column_children(&mut self, children: &[ElementId], parent_pos: Point, parent_size: Size, gap: f32, cross_align: crate::layout::CrossAxisAlignment, main_align: crate::layout::MainAxisAlignment) {
         let mut total_height = 0.0f32;
+        // Gap начисляется только между детьми ненулевой высоты: скрытые
+        // попапы/диалоги меряются в 0 и не должны раздвигать соседей.
+        let mut participants = 0usize;
         let mut child_infos: Vec<(ElementId, Size, crate::core::EdgeInsets)> = Vec::new();
         for &child_id in children {
             let child_size = self.cache_get(&child_id).map(|c| c.size).unwrap_or(Size::zero());
             let m = self.elements.get(&child_id).map(|n| n.effective_margin()).unwrap_or_default();
-            total_height += child_size.height + m.top + m.bottom;
+            let extent = child_size.height + m.top + m.bottom;
+            total_height += extent;
+            if extent > 0.0 {
+                participants += 1;
+            }
             child_infos.push((child_id, child_size, m));
         }
-        if !children.is_empty() {
-            total_height += gap * (children.len() - 1) as f32;
-        }
+        total_height += gap * participants.saturating_sub(1) as f32;
 
         let remaining = (parent_size.height - total_height).max(0.0);
 
@@ -251,17 +256,17 @@ impl ElementTree {
             crate::layout::MainAxisAlignment::Center => (parent_pos.y + remaining / 2.0, 0.0),
             crate::layout::MainAxisAlignment::End => (parent_pos.y + remaining, 0.0),
             crate::layout::MainAxisAlignment::SpaceBetween => {
-                let extra = if child_infos.len() > 1 {
-                    remaining / (child_infos.len() - 1) as f32
+                let extra = if participants > 1 {
+                    remaining / (participants - 1) as f32
                 } else { 0.0 };
                 (parent_pos.y, extra)
             }
             crate::layout::MainAxisAlignment::SpaceEvenly => {
-                let extra = remaining / (child_infos.len() + 1) as f32;
+                let extra = remaining / (participants + 1) as f32;
                 (parent_pos.y + extra, extra)
             }
             crate::layout::MainAxisAlignment::SpaceAround => {
-                let extra = remaining / child_infos.len() as f32;
+                let extra = remaining / participants.max(1) as f32;
                 (parent_pos.y + extra / 2.0, extra)
             }
         };
@@ -275,22 +280,31 @@ impl ElementTree {
                 crate::layout::CrossAxisAlignment::End => parent_pos.x + content_width - child_size.width - m.right,
             };
             self.position_recursive(*child_id, Point::new(x, y + m.top));
-            y += child_size.height + m.top + m.bottom + gap + gap_extra;
+            let extent = child_size.height + m.top + m.bottom;
+            y += extent;
+            if extent > 0.0 {
+                y += gap + gap_extra;
+            }
         }
     }
 
     fn position_row_children(&mut self, children: &[ElementId], parent_pos: Point, parent_size: Size, gap: f32, offset_x: f32, cross_align: crate::layout::CrossAxisAlignment, main_align: crate::layout::MainAxisAlignment) {
         let mut total_width = offset_x;
+        // Gap начисляется только между детьми ненулевой ширины: скрытые
+        // попапы/оверлеи меряются в 0 и не должны раздвигать соседей.
+        let mut participants = 0usize;
         let mut child_infos: Vec<(ElementId, Size, crate::core::EdgeInsets)> = Vec::new();
         for &child_id in children {
             let child_size = self.cache_get(&child_id).map(|c| c.size).unwrap_or(Size::zero());
             let m = self.elements.get(&child_id).map(|n| n.effective_margin()).unwrap_or_default();
-            total_width += child_size.width + m.left + m.right;
+            let extent = child_size.width + m.left + m.right;
+            total_width += extent;
+            if extent > 0.0 {
+                participants += 1;
+            }
             child_infos.push((child_id, child_size, m));
         }
-        if !children.is_empty() {
-            total_width += gap * (children.len() - 1) as f32;
-        }
+        total_width += gap * participants.saturating_sub(1) as f32;
 
         let remaining = (parent_size.width - total_width).max(0.0);
         let (start_offset, effective_gap) = match main_align {
@@ -298,19 +312,19 @@ impl ElementTree {
             crate::layout::MainAxisAlignment::End => (remaining, gap),
             crate::layout::MainAxisAlignment::Center => (remaining / 2.0, gap),
             crate::layout::MainAxisAlignment::SpaceBetween => {
-                if children.len() > 1 {
-                    (0.0, gap + remaining / (children.len() - 1) as f32)
+                if participants > 1 {
+                    (0.0, gap + remaining / (participants - 1) as f32)
                 } else {
                     (remaining / 2.0, gap)
                 }
             }
             crate::layout::MainAxisAlignment::SpaceAround => {
-                let n = children.len() as f32;
+                let n = participants.max(1) as f32;
                 let space = remaining / n;
                 (space / 2.0, gap + space)
             }
             crate::layout::MainAxisAlignment::SpaceEvenly => {
-                let n = children.len() as f32 + 1.0;
+                let n = participants as f32 + 1.0;
                 let space = remaining / n;
                 (space, gap + space)
             }
@@ -325,7 +339,11 @@ impl ElementTree {
                 crate::layout::CrossAxisAlignment::Stretch | crate::layout::CrossAxisAlignment::Baseline => parent_pos.y + m.top,
             };
             self.position_recursive(*child_id, Point::new(x + m.left, y));
-            x += child_size.width + m.left + m.right + effective_gap;
+            let extent = child_size.width + m.left + m.right;
+            x += extent;
+            if extent > 0.0 {
+                x += effective_gap;
+            }
         }
     }
 
