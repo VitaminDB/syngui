@@ -341,7 +341,10 @@ impl PageElement {
         }
         self.velocity = Point::zero();
         self.is_coasting = false;
+        self.overscroll_x = 0.0;
         self.overscroll_y = 0.0;
+        self.bounce_velocity_x = 0.0;
+        self.bounce_velocity_y = 0.0;
         self.is_bouncing = false;
 
         self.scroll_anim_start_y = self.scroll_offset.y;
@@ -858,6 +861,14 @@ impl Element for PageElement {
             }
 
             needs_repaint = true;
+        }
+
+        if !self.is_bouncing
+            && !self.is_coasting
+            && self.touch_drag_start.is_none()
+            && (self.overscroll_x != 0.0 || self.overscroll_y != 0.0)
+        {
+            self.is_bouncing = true;
         }
 
         if self.is_bouncing {
