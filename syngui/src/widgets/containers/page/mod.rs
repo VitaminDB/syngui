@@ -52,6 +52,7 @@ pub struct Page {
     scrollbar_width: f32,
     physics: ScrollPhysics,
     scroll_to: Option<ScrollTarget>,
+    center_content: bool,
 }
 
 impl Page {
@@ -63,6 +64,7 @@ impl Page {
             scrollbar_width: 8.0,
             physics: ScrollPhysics::default(),
             scroll_to: None,
+            center_content: false,
         }
     }
 
@@ -100,6 +102,17 @@ impl Page {
 
     pub fn physics(mut self, physics: ScrollPhysics) -> Self {
         self.physics = physics;
+        self
+    }
+
+    /// Содержимое, которое уже (или ниже) области просмотра, стоит по её
+    /// центру, а не прижимается к левому верхнему углу.
+    ///
+    /// Нужно там, где ребёнок — документ фиксированного размера: лист
+    /// предпросмотра, изображение, схема. По оси, где содержимое переросло
+    /// область, ничего не меняется — оно прокручивается как обычно.
+    pub fn center_content(mut self, center: bool) -> Self {
+        self.center_content = center;
         self
     }
 

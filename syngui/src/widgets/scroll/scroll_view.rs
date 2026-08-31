@@ -31,6 +31,7 @@ pub struct ScrollView {
     direction: ScrollDirection,
     scrollbar_policy: ScrollbarPolicy,
     scrollbar_width: f32,
+    center_content: bool,
     classes: Vec<String>,
 }
 
@@ -41,6 +42,7 @@ impl ScrollView {
             direction: ScrollDirection::default(),
             scrollbar_policy: ScrollbarPolicy::Auto,
             scrollbar_width: 8.0,
+            center_content: false,
             classes: Vec::new(),
         }
     }
@@ -52,6 +54,14 @@ impl ScrollView {
 
     pub fn direction(mut self, direction: ScrollDirection) -> Self {
         self.direction = direction;
+        self
+    }
+
+    /// Содержимое, которое уже (или ниже) области просмотра, стоит по её
+    /// центру, а не прижимается к левому верхнему углу. По оси с
+    /// переполнением ничего не меняется — там идёт обычная прокрутка.
+    pub fn center_content(mut self, center: bool) -> Self {
+        self.center_content = center;
         self
     }
 
@@ -107,6 +117,7 @@ impl Widget for ScrollView {
             direction: self.direction,
             scrollbar_policy: self.scrollbar_policy,
             scrollbar_width: self.scrollbar_width,
+            center_content: self.center_content,
 
             scroll_offset: Point::zero(),
             velocity: Point::zero(),
@@ -165,6 +176,7 @@ pub struct ScrollViewElement {
     direction: ScrollDirection,
     scrollbar_policy: ScrollbarPolicy,
     scrollbar_width: f32,
+    center_content: bool,
 
     scroll_offset: Point,
     velocity: Point,
@@ -200,6 +212,18 @@ impl ScrollViewElement {
         matches!(
             self.direction,
             ScrollDirection::Vertical | ScrollDirection::Both
+        )
+    }
+
+    /// Сдвиг содержимого к центру области по осям, где оно свободно
+    /// помещается. По оси с переполнением сдвиг нулевой.
+    fn center_offset(&self) -> Point {
+        if !self.center_content {
+            return Point::zero();
+        }
+        Point::new(
+            ((self.bounds.size.width - self.content_size.width) * 0.5).max(0.0),
+            ((self.bounds.size.height - self.content_size.height) * 0.5).max(0.0),
         )
     }
 
@@ -358,6 +382,7 @@ impl Element for ScrollViewElement {
             self.direction = sv.direction;
             self.scrollbar_policy = sv.scrollbar_policy;
             self.scrollbar_width = sv.scrollbar_width;
+            self.center_content = sv.center_content;
             self.mark_dirty(DirtyFlags::LAYOUT | DirtyFlags::RENDER);
         }
     }
@@ -392,9 +417,10 @@ impl Element for ScrollViewElement {
         list.push_clip(clip_bounds);
         let sf = list.scale_factor().max(1.0);
         let snap = |v: f32| (v * sf).trunc() / sf;
+        let center = self.center_offset();
         let transform = Transform::translation(
-            snap(-self.scroll_offset.x),
-            snap(-self.scroll_offset.y),
+            snap(center.x - self.scroll_offset.x),
+            snap(center.y - self.scroll_offset.y),
         );
         list.push_transform(transform);
     }
@@ -814,8 +840,15 @@ impl Element for ScrollViewElement {
         }
     }
 
+    /// Смещение содержимого для попадания курсора. Центрирующий сдвиг —
+    /// часть этого смещения: иначе указатель уезжал бы относительно того,
+    /// что нарисовано.
     fn scroll_offset(&self) -> Point {
-        self.scroll_offset
+        let center = self.center_offset();
+        Point::new(
+            self.scroll_offset.x - center.x,
+            self.scroll_offset.y - center.y,
+        )
     }
 
     fn is_scroll_container(&self) -> bool {
@@ -943,5 +976,48 @@ impl StyledElement for ScrollViewElement {
     fn set_classes(&mut self, classes: Vec<String>) {
         self.classes = classes;
         self.mark_dirty(DirtyFlags::RENDER);
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn element(center: bool, viewport: Size, content: Size) -> Box<dyn Element> {
+        let sv = ScrollView::new().both().center_content(center);
+        let mut el = sv.create_element();
+        el.layout(Constraints::tight(viewport));
+        el.set_content_size(content);
+        el
+    }
+
+    fn center_of(el: &dyn Element) -> Point {
+        // `scroll_offset` для событий содержит центрирующий сдвиг со знаком
+        // минус — по нему и проверяем, куда уехало содержимое.
+        Point::new(-el.scroll_offset().x, -el.scroll_offset().y)
+    }
+
+    /// Документ уже области — стоит по центру по горизонтали.
+    #[test]
+    fn narrow_content_is_centered() {
+        let el = element(true, Size::new(1000.0, 600.0), Size::new(600.0, 2000.0));
+        let c = center_of(el.as_ref());
+        assert_eq!(c.x, 200.0);
+        // По вертикали содержимое переполняет область — сдвига нет.
+        assert_eq!(c.y, 0.0);
+    }
+
+    /// Документ шире области — центрировать нечего, идёт обычная прокрутка.
+    #[test]
+    fn wide_content_is_not_centered() {
+        let el = element(true, Size::new(1000.0, 600.0), Size::new(1400.0, 2000.0));
+        assert_eq!(center_of(el.as_ref()), Point::zero());
+    }
+
+    /// Без явного включения поведение прежнее — прижатие к левому верхнему углу.
+    #[test]
+    fn centering_is_opt_in() {
+        let el = element(false, Size::new(1000.0, 600.0), Size::new(600.0, 200.0));
+        assert_eq!(center_of(el.as_ref()), Point::zero());
     }
 }

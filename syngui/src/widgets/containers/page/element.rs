@@ -25,6 +25,7 @@ impl Widget for Page {
             direction: self.direction,
             scrollbar_policy: self.scrollbar_policy,
             scrollbar_width: self.scrollbar_width,
+            center_content: self.center_content,
             padding: EdgeInsets::default(),
             physics: self.physics,
             background: None,
@@ -95,6 +96,7 @@ pub struct PageElement {
     direction: ScrollDirection,
     scrollbar_policy: ScrollbarPolicy,
     scrollbar_width: f32,
+    center_content: bool,
     padding: EdgeInsets,
     physics: ScrollPhysics,
     background: Option<Color>,
@@ -138,6 +140,20 @@ pub struct PageElement {
 }
 
 impl PageElement {
+    /// Сдвиг содержимого к центру области по осям, где оно свободно
+    /// помещается. По оси с переполнением сдвиг нулевой — там содержимое
+    /// прокручивается, и центрировать нечего.
+    fn center_offset(&self) -> Point {
+        if !self.center_content {
+            return Point::zero();
+        }
+        let vp = self.viewport().size;
+        Point::new(
+            ((vp.width - self.content_size.width) * 0.5).max(0.0),
+            ((vp.height - self.content_size.height) * 0.5).max(0.0),
+        )
+    }
+
     fn viewport(&self) -> Rect {
         Rect::new(
             Point::new(
@@ -375,6 +391,7 @@ impl Element for PageElement {
             self.direction = page.direction;
             self.scrollbar_policy = page.scrollbar_policy;
             self.scrollbar_width = page.scrollbar_width;
+            self.center_content = page.center_content;
             self.physics = page.physics;
 
             if let Some(target) = &page.scroll_to {
@@ -417,8 +434,9 @@ impl Element for PageElement {
 
         let sf = list.scale_factor().max(1.0);
         let snap = |v: f32| (v * sf).trunc() / sf;
-        let tx = snap(-self.scroll_offset.x + self.overscroll_x);
-        let ty = snap(-self.scroll_offset.y + self.overscroll_y);
+        let center = self.center_offset();
+        let tx = snap(center.x - self.scroll_offset.x + self.overscroll_x);
+        let ty = snap(center.y - self.scroll_offset.y + self.overscroll_y);
         let transform = Transform::translation(tx, ty);
         list.push_transform(transform);
 
@@ -1005,8 +1023,15 @@ impl Element for PageElement {
         false
     }
 
+    /// Смещение содержимого для попадания курсора. Центрирующий сдвиг —
+    /// часть этого смещения: иначе указатель уезжал бы относительно того,
+    /// что нарисовано.
     fn scroll_offset(&self) -> Point {
-        self.scroll_offset
+        let center = self.center_offset();
+        Point::new(
+            self.scroll_offset.x - center.x,
+            self.scroll_offset.y - center.y,
+        )
     }
 
     fn is_scroll_container(&self) -> bool {
