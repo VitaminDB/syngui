@@ -307,6 +307,32 @@ impl DisplayList {
         self.current_z += 1;
     }
 
+    /// Как `push_text_styled`, но без переноса: текст рисуется одной строкой,
+    /// лишнее обрезается клипом. Для подписей контролов (Dropdown, кнопки),
+    /// где узкий бокс иначе ломал бы подпись на несколько строк.
+    #[allow(clippy::too_many_arguments)]
+    pub fn push_text_styled_singleline(&mut self, text: &str, rect: crate::core::Rect, color: Color, font_size: f32, align: TextAlign, decoration: TextDecoration, font_weight: u16, font_family: Option<String>) {
+        let clip = *self.current_clip();
+        let z = self.current_z;
+        self.target().push(DrawCommand::Text {
+            text: CompactString::from(text),
+            rect,
+            color,
+            font_size,
+            font_weight,
+            text_align: align,
+            decoration,
+            font_family: font_family.map(CompactString::from),
+            letter_spacing: 0.0,
+            text_shadow: None,
+            bbox_sample: None,
+            clip_rect: clip,
+            z_index: z,
+            no_wrap: true,
+        });
+        self.current_z += 1;
+    }
+
     pub fn push_text_styled(&mut self, text: &str, rect: crate::core::Rect, color: Color, font_size: f32, align: TextAlign, decoration: TextDecoration, font_weight: u16, font_family: Option<String>) {
         let clip = *self.current_clip();
         let z = self.current_z;

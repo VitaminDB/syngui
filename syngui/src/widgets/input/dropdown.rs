@@ -418,7 +418,9 @@ impl Element for DropdownElement {
             Point::new(text_left, self.bounds.y()),
             Size::new(self.bounds.x() + self.bounds.size.width - 32.0 - text_left, self.bounds.size.height),
         );
-        list.push_text_styled(&text, text_rect, text_color, font_size,
+        // Одной строкой: узкий Dropdown не должен ломать подпись на две строки —
+        // лишнее обрезается краем контрола.
+        list.push_text_styled_singleline(&text, text_rect, text_color, font_size,
             TextAlign::DEFAULT, TextDecoration::None, font_weight, self.mss.font_family.clone());
 
         let arrow = if self.is_open { "\u{E5CE}" } else { "\u{E5CF}" };
@@ -551,7 +553,7 @@ impl Element for DropdownElement {
                     Point::new(text_x, adjusted_rect.y()),
                     Size::new(adjusted_rect.size.width - (text_x - adjusted_rect.x()) - 32.0, item_h),
                 );
-                list.push_text_styled(&item.label, label_rect, text_color, font_size,
+                list.push_text_styled_singleline(&item.label, label_rect, text_color, font_size,
                     TextAlign::DEFAULT, TextDecoration::None, font_weight, self.mss.font_family.clone());
 
                 if is_selected {

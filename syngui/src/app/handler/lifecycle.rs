@@ -464,6 +464,10 @@ impl AppHandler {
             let safe = &self.tree.safe_area;
             let layout_h = (logical_h - safe.top - safe.bottom).max(0.0);
             self.tree.root_offset = crate::core::Point::new(safe.left, safe.top);
+            crate::viewport::publish(crate::core::Size::new(
+                logical_w - safe.left - safe.right,
+                layout_h,
+            ));
             let constraints = crate::layout::Constraints::new(
                 0.0, logical_w - safe.left - safe.right,
                 0.0, layout_h,

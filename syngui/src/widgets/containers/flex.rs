@@ -16,6 +16,7 @@ pub struct Flex {
     pub wrap: bool,
     pub main_axis_alignment: MainAxisAlignment,
     pub cross_axis_alignment: CrossAxisAlignment,
+    classes: Vec<String>,
 }
 
 impl Flex {
@@ -27,6 +28,7 @@ impl Flex {
             wrap: false,
             main_axis_alignment: MainAxisAlignment::default(),
             cross_axis_alignment: CrossAxisAlignment::default(),
+            classes: Vec::new(),
         }
     }
 
@@ -72,6 +74,11 @@ impl Flex {
         self.cross_axis_alignment = alignment;
         self
     }
+
+    pub fn class(mut self, class: impl Into<String>) -> Self {
+        self.classes.push(class.into());
+        self
+    }
 }
 
 impl Default for Flex {
@@ -91,7 +98,7 @@ impl Widget for Flex {
             main_axis_alignment: self.main_axis_alignment,
             cross_axis_alignment: self.cross_axis_alignment,
             child_ids: Vec::new(),
-            classes: Vec::new(),
+            classes: self.classes.clone(),
             dirty_flags: DirtyFlags::LAYOUT | DirtyFlags::RENDER,
             mss: MssFields::new(),
         })
@@ -119,6 +126,10 @@ impl Widget for Flex {
 
     fn child_widgets(&self) -> Vec<&dyn Widget> {
         self.children.iter().map(|c| c.as_ref() as &dyn Widget).collect()
+    }
+
+    fn widget_classes(&self) -> &[String] {
+        &self.classes
     }
 }
 

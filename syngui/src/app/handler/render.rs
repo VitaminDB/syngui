@@ -299,6 +299,10 @@ impl AppHandler {
             let layout_h = (logical_h - safe.top - safe.bottom - keyboard_h).max(0.0);
             let layout_w = logical_w - safe.left - safe.right;
             self.tree.root_offset = crate::core::Point::new(safe.left, safe.top);
+            // Публикация размера вьюпорта здесь покрывает пути без отдельного
+            // Resized-обработчика (wasm, Android): любой ресайз ведёт к redraw,
+            // а set() дедуплицирует — подписчики будятся только при изменении.
+            crate::viewport::publish(crate::core::Size::new(layout_w, layout_h));
             let constraints = crate::layout::Constraints::new(
                 0.0, layout_w,
                 0.0, layout_h,
