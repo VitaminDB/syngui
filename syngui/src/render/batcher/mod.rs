@@ -136,6 +136,28 @@ impl Batcher {
         color
     }
 
+    /// Сохраняет ли текущая трансформация физическую пиксельную сетку.
+    ///
+    /// Снап глифов к целым пикселям имеет смысл, только если то, что нарисовано
+    /// снапнутым, таким и останется. Прокрутка сдвигает содержимое чистой
+    /// трансляцией на целое число физических пикселей (`ScrollView` округляет
+    /// смещение сам) — под ней снап обязателен: без него строки, отъехавшие на
+    /// долю пикселя, размазываются Linear-сэмплером и текст «мылится» при
+    /// прокрутке. Под масштабом, поворотом или дробным сдвигом анимации снап
+    /// отключён — там он заставлял бы текст дрожать на пиксель.
+    pub(self) fn transform_keeps_pixel_grid(&self) -> bool {
+        let t = &self.current_transform;
+        if t.m11 != 1.0 || t.m12 != 0.0 || t.m21 != 0.0 || t.m22 != 1.0 {
+            return false;
+        }
+        let sf = self.scale_factor;
+        let aligned = |v: f32| {
+            let phys = v * sf;
+            (phys - phys.round()).abs() < 0.01
+        };
+        aligned(t.m31) && aligned(t.m32)
+    }
+
     #[inline]
     pub(self) fn transform_quad(&self, corners: [[f32; 2]; 4]) -> [[f32; 2]; 4] {
         if self.current_transform == Transform::identity() {
@@ -274,5 +296,43 @@ impl Batcher {
 impl Default for Batcher {
     fn default() -> Self {
         Self::new()
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// Прокрутка сдвигает содержимое на целое число физических пикселей —
+    /// снап глифов под таким сдвигом остаётся корректным.
+    #[test]
+    fn scroll_translation_keeps_pixel_grid() {
+        let mut b = Batcher::new();
+        b.set_scale_factor(2.0);
+        // Смещение прокрутки, округлённое так же, как это делает ScrollView.
+        let offset = (137.4_f32 * 2.0).trunc() / 2.0;
+        b.current_transform = Transform::translation(-offset, -offset);
+        assert!(b.transform_keeps_pixel_grid());
+    }
+
+    /// Дробный сдвиг анимации сетку ломает — снап должен отключаться, иначе
+    /// текст дрожит на пиксель во время движения.
+    #[test]
+    fn fractional_translation_breaks_pixel_grid() {
+        let mut b = Batcher::new();
+        b.set_scale_factor(1.0);
+        b.current_transform = Transform::translation(0.0, -12.37);
+        assert!(!b.transform_keeps_pixel_grid());
+    }
+
+    /// Масштаб и поворот сетку не сохраняют при любом смещении.
+    #[test]
+    fn scale_breaks_pixel_grid() {
+        let mut b = Batcher::new();
+        b.set_scale_factor(1.0);
+        b.current_transform = Transform::scale(1.5, 1.5);
+        assert!(!b.transform_keeps_pixel_grid());
+        b.current_transform = Transform::identity();
+        assert!(b.transform_keeps_pixel_grid());
     }
 }

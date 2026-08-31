@@ -113,9 +113,10 @@ impl Batcher {
                 }
 
                 // Снап к физической пиксельной сетке: дробное положение квада при
-                // Linear-сэмплере атласа размывает глиф. Под не-identity transform
-                // (анимации) снап отключён, иначе текст дрожит.
-                let snap = sf > 0.0 && self.current_transform == crate::core::Transform::identity();
+                // Linear-сэмплере атласа размывает глиф. Работает и под сдвигом
+                // прокрутки — он целочисленный в физических пикселях и сетку не
+                // ломает; см. `transform_keeps_pixel_grid`.
+                let snap = sf > 0.0 && self.transform_keeps_pixel_grid();
 
                 if let Some(shadow) = text_shadow {
                     self.ensure_batch(ShaderType::Text, None, *clip_rect);
