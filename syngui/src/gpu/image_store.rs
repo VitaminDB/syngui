@@ -321,10 +321,48 @@ fn decode_image_bytes(bytes: &[u8]) -> Result<ImageData, String> {
     }
 }
 
+/// Распознаёт SVG по корневому тегу, пропуская XML-пролог, DOCTYPE и
+/// комментарии перед ним.
+///
+/// Раньше здесь был поиск подстроки `<svg` в первых 1024 байтах, и файл с
+/// длинной шапкой-комментарием (у иконки synthos она заняла 2 КБ) переставал
+/// опознаваться — картинка молча превращалась в плейсхолдер ошибки. Разбор
+/// пролога надёжнее любого окна: тег ищется там, где он обязан быть по
+/// XML-грамматике, а не в произвольном префиксе.
 #[cfg(feature = "svg")]
 fn looks_like_svg(bytes: &[u8]) -> bool {
-    let n = bytes.len().min(1024);
-    bytes[..n].windows(4).any(|w| w.eq_ignore_ascii_case(b"<svg"))
+    // BOM + всё, что разрешено перед корневым элементом.
+    let mut rest = bytes.strip_prefix(b"\xEF\xBB\xBF").unwrap_or(bytes);
+    loop {
+        rest = trim_ascii_start(rest);
+        let close: &[u8] = if rest.starts_with(b"<?") {
+            b"?>"
+        } else if rest.starts_with(b"<!--") {
+            b"-->"
+        } else if rest.starts_with(b"<!") {
+            // DOCTYPE без внутреннего подмножества — до первого '>'.
+            b">"
+        } else {
+            return rest.len() >= 4 && rest[..4].eq_ignore_ascii_case(b"<svg");
+        };
+        match find(rest, close) {
+            Some(i) => rest = &rest[i + close.len()..],
+            None => return false,
+        }
+    }
+}
+
+#[cfg(feature = "svg")]
+fn trim_ascii_start(bytes: &[u8]) -> &[u8] {
+    let skip = bytes.iter().take_while(|b| b.is_ascii_whitespace()).count();
+    &bytes[skip..]
+}
+
+#[cfg(feature = "svg")]
+fn find(haystack: &[u8], needle: &[u8]) -> Option<usize> {
+    haystack
+        .windows(needle.len())
+        .position(|w| w == needle)
 }
 
 #[cfg(feature = "svg")]
@@ -506,8 +544,34 @@ mod tests {
         assert!(looks_like_svg(b"<?xml version=\"1.0\"?><svg/>"));
         assert!(looks_like_svg(b"<svg width=\"10\"/>"));
         assert!(looks_like_svg(b"  \n<SVG xmlns=\"...\"/>"));
+        assert!(looks_like_svg(b"\xEF\xBB\xBF<svg/>"));
         assert!(!looks_like_svg(b"<html><body/></html>"));
         assert!(!looks_like_svg(&[0x89, 0x50, 0x4E, 0x47]));
+    }
+
+    /// Шапка-комментарий длиннее любого фиксированного окна сниффинга: именно
+    /// на ней ломалась иконка synthos.
+    #[cfg(feature = "svg")]
+    #[test]
+    fn looks_like_svg_skips_long_leading_comment() {
+        let mut bytes = b"<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n<!--\n".to_vec();
+        bytes.extend(std::iter::repeat(b'x').take(4096));
+        bytes.extend_from_slice(b"\n-->\n<svg xmlns=\"http://www.w3.org/2000/svg\"/>");
+        assert!(looks_like_svg(&bytes));
+    }
+
+    #[cfg(feature = "svg")]
+    #[test]
+    fn looks_like_svg_skips_doctype() {
+        assert!(looks_like_svg(
+            b"<!DOCTYPE svg PUBLIC \"-//W3C//DTD SVG 1.1//EN\" \"svg11.dtd\">\n<svg/>"
+        ));
+    }
+
+    #[cfg(feature = "svg")]
+    #[test]
+    fn looks_like_svg_rejects_unterminated_comment() {
+        assert!(!looks_like_svg(b"<!-- comment never closed <svg/>"));
     }
 
     #[cfg(feature = "svg")]
