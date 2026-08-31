@@ -81,6 +81,28 @@ fn apply_rounded_clip(color: vec4<f32>, logical_pos: vec2<f32>) -> vec4<f32> {
     return vec4(color.rgb, color.a * clip_alpha);
 }
 
+// Покрытие глифа с поправкой на линейный блендинг.
+//
+// Кадр собирается в линейном пространстве (surface — sRGB-формат), поэтому
+// GPU смешивает глиф с фоном по линейным величинам: полупокрытый пиксель
+// чёрного текста на белом листе даёт линейные 0.5 — это sRGB 0.73, а не 0.5,
+// какие дал бы перцептивный блендинг. Штрихи мелкого кегля почти целиком
+// состоят из таких пикселей, и текст выцветает до серой каши.
+//
+// Возвращаем покрытию перцептивный смысл: для тёмного текста подтягиваем
+// альфу вверх (эмуляция смешения по светлому фону), для светлого — вниз (по
+// тёмному). Смешиваем оба края по яркости самого текста: фон шейдеру не
+// виден, но текст почти всегда контрастен фону, и знак поправки от этого не
+// зависит. Покрытие 0 и 1 обе ветви оставляют на месте — сплошная заливка
+// глифа не меняется, правится только антиалиасинг.
+fn gamma_coverage(a: f32, color: vec3<f32>) -> f32 {
+    let luma = clamp(dot(color, vec3<f32>(0.2126, 0.7152, 0.0722)), 0.0, 1.0);
+    let t = pow(luma, 1.0 / 2.2);
+    let dark = 1.0 - pow(1.0 - a, 2.2);
+    let light = pow(a, 2.2);
+    return mix(dark, light, t);
+}
+
 @fragment
 fn fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
     if (in.data.x > 1.5) {
@@ -97,10 +119,10 @@ fn fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
     // Mono glyph (или mono shadow-pass): alpha из атласа, tint vertex'ом.
     let blur = in.data.y;
     if (blur <= 0.0) {
-        // Coverage из растеризатора используется как есть: глифы хинтованы и
-        // снапятся к пиксельной сетке, S-кривая (smoothstep) искажала AA-покрытие.
+        // Coverage из растеризатора берётся без S-кривой (smoothstep искажал
+        // AA), но с поправкой на линейный блендинг — см. `gamma_coverage`.
         let texel = textureSample(font_atlas, font_sampler, in.uv);
-        let alpha = texel.a;
+        let alpha = gamma_coverage(texel.a, in.color.rgb);
         return apply_rounded_clip(vec4<f32>(in.color.rgb, in.color.a * alpha), in.logical_pos);
     }
 
