@@ -343,7 +343,10 @@ pub fn apply_styles_dirty(tree: &mut ElementTree, style_engine: &StyleEngine) ->
     let mut cand: Vec<u32> = Vec::new();
     let window_flags = tree.window_flags;
 
-    let mut inherited_for: std::collections::HashMap<ElementId, ComputedStyle> =
+    // Наследуемые стили — за Rc: чистые элементы (обычно почти всё дерево)
+    // передают их дальше бампом счётчика вместо клона HashMap на элемент.
+    let empty_inh: std::rc::Rc<ComputedStyle> = std::rc::Rc::new(ComputedStyle::default());
+    let mut inherited_for: std::collections::HashMap<ElementId, std::rc::Rc<ComputedStyle>> =
         std::collections::HashMap::with_capacity(order.len());
     let mut ancestor_dirty_for: std::collections::HashMap<ElementId, bool> =
         std::collections::HashMap::with_capacity(order.len());
@@ -352,7 +355,7 @@ pub fn apply_styles_dirty(tree: &mut ElementTree, style_engine: &StyleEngine) ->
         let parent_id = tree.elements.get(&id).and_then(|n| n.parent);
         let parent_inh = parent_id
             .and_then(|p| inherited_for.get(&p).cloned())
-            .unwrap_or_default();
+            .unwrap_or_else(|| empty_inh.clone());
         let ancestor_dirty = parent_id
             .and_then(|p| ancestor_dirty_for.get(&p).copied())
             .unwrap_or(false);
@@ -384,21 +387,22 @@ pub fn apply_styles_dirty(tree: &mut ElementTree, style_engine: &StyleEngine) ->
         }
 
         if !has_identity && !has_inline {
-            let base = parent_inh.clone();
             if let Some(node) = tree.elements.get_mut(&id) {
-                if node.had_mss_rules || base.properties().next().is_some() {
+                if node.had_mss_rules || parent_inh.properties().next().is_some() {
                     node.element.reset_mss_styles();
-                    node.element.apply_computed_style(&base);
-                    node.had_mss_rules = base.properties().next().is_some();
+                    node.element.apply_computed_style(&parent_inh);
+                    node.had_mss_rules = parent_inh.properties().next().is_some();
                     node.refresh_hint_cache();
                 }
                 node.styles_dirty = false;
             }
-            inherited_for.insert(id, extract_inherited(&base));
+            // parent_inh уже отфильтрован extract_inherited у предка —
+            // передаём дальше без пересборки.
+            inherited_for.insert(id, parent_inh);
             continue;
         }
 
-        let mut base = parent_inh.clone();
+        let mut base = (*parent_inh).clone();
         let mut hover = ComputedStyle::default();
         let mut active = ComputedStyle::default();
         let mut focus = ComputedStyle::default();
@@ -497,7 +501,7 @@ pub fn apply_styles_dirty(tree: &mut ElementTree, style_engine: &StyleEngine) ->
                     node.refresh_hint_cache();
                 }
             }
-            inherited_for.insert(id, ComputedStyle::default());
+            inherited_for.insert(id, empty_inh.clone());
             continue;
         }
 
@@ -535,7 +539,7 @@ pub fn apply_styles_dirty(tree: &mut ElementTree, style_engine: &StyleEngine) ->
             node.refresh_hint_cache();
         }
 
-        inherited_for.insert(id, extract_inherited(&base));
+        inherited_for.insert(id, std::rc::Rc::new(extract_inherited(&base)));
     }
 
     true

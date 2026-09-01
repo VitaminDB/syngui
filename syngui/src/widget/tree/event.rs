@@ -10,6 +10,8 @@ fn is_identity_transform(s: Point, k: f32) -> bool {
 
 impl ElementTree {
     pub fn dispatch_event_to(&mut self, id: ElementId, event: &Event) -> EventResult {
+        // Событие может запустить transition (hover и т.п.) — взводим обход анимаций.
+        self.animations_armed = true;
         if let Some(node) = self.elements.get_mut(&id) {
             let mut ctx = EventContext::new(id);
             ctx.modifiers = self.modifiers;
@@ -46,6 +48,7 @@ impl ElementTree {
     }
 
     pub fn handle_event(&mut self, root_id: ElementId, event: &Event) -> EventResult {
+        self.animations_armed = true;
         // TouchEnd снимает захват так же, как MouseUp: при скролле синтезиро-
         // ванного MouseUp не будет, и захватчик повис бы до следующего клика.
         let is_release = matches!(event, Event::MouseUp { .. } | Event::TouchEnd { .. });

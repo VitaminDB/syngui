@@ -176,6 +176,10 @@ impl AppHandler {
     }
 
     pub(in crate::app) fn render(&mut self) {
+        // Кадр может применить стили или собрать новые элементы — то и другое
+        // способно запустить анимацию; взводим обход в следующем update().
+        self.tree.animations_armed = true;
+
         #[cfg(target_arch = "wasm32")]
         if self.gpu.is_none() {
             let has_pending = self.pending_gpu.borrow().is_some();
@@ -573,29 +577,36 @@ impl AppHandler {
         };
 
         if let Some(root_id) = self.root_id {
-            if self.tree.animate(root_id, dt) {
-                if paced_allowed {
-                    self.last_paced_redraw = Some(now);
-                    if let Some(window) = &self.window {
-                        window.request_redraw();
+            // Обход всех элементов — только пока «взведено» (см. animations_armed):
+            // события, рендер и новые элементы взводят, пустой обход даёт отбой.
+            // В простое update() не трогает дерево вовсе.
+            if self.tree.animations_armed {
+                if self.tree.animate(root_id, dt) {
+                    if paced_allowed {
+                        self.last_paced_redraw = Some(now);
+                        if let Some(window) = &self.window {
+                            window.request_redraw();
+                        }
+                    } else if frame_limit > 0 {
+                        // Иначе анимация замирала до следующего события (движения
+                        // мыши): кадр не запрошен, а сам по себе цикл не проснётся.
+                        // Просим пробуждение к моменту, когда пейсер разрешит кадр.
+                        let min_interval =
+                            std::time::Duration::from_secs_f32(1.0 / frame_limit as f32);
+                        let elapsed = self
+                            .last_paced_redraw
+                            .map(|t| now.duration_since(t))
+                            .unwrap_or(min_interval);
+                        let delay = min_interval.saturating_sub(elapsed).max(
+                            std::time::Duration::from_millis(1),
+                        );
+                        self.wakeup_after = Some(match self.wakeup_after {
+                            Some(d) => d.min(delay),
+                            None => delay,
+                        });
                     }
-                } else if frame_limit > 0 {
-                    // Иначе анимация замирала до следующего события (движения
-                    // мыши): кадр не запрошен, а сам по себе цикл не проснётся.
-                    // Просим пробуждение к моменту, когда пейсер разрешит кадр.
-                    let min_interval =
-                        std::time::Duration::from_secs_f32(1.0 / frame_limit as f32);
-                    let elapsed = self
-                        .last_paced_redraw
-                        .map(|t| now.duration_since(t))
-                        .unwrap_or(min_interval);
-                    let delay = min_interval.saturating_sub(elapsed).max(
-                        std::time::Duration::from_millis(1),
-                    );
-                    self.wakeup_after = Some(match self.wakeup_after {
-                        Some(d) => d.min(delay),
-                        None => delay,
-                    });
+                } else {
+                    self.tree.animations_armed = false;
                 }
             }
         }
