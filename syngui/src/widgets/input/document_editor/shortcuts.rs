@@ -136,10 +136,12 @@ mod tests {
         let mut t = InlineText::plain("**почти*");
         // Хвост `*` после `**` — открывающий маркер сместился бы на `*`
         // внутри `**`: не срабатываем.
-        assert!(try_inline_shortcut(&mut t, t.len_bytes()).is_none());
+        let len = t.len_bytes();
+        assert!(try_inline_shortcut(&mut t, len).is_none());
 
         let mut t = InlineText::plain("тут *курсив*");
-        let new = try_inline_shortcut(&mut t, t.len_bytes()).unwrap();
+        let len = t.len_bytes();
+        let new = try_inline_shortcut(&mut t, len).unwrap();
         assert_eq!(t.text(), "тут курсив");
         assert_eq!(new, "тут курсив".len());
         assert!(t.0.iter().any(|r| r.style.italic));
@@ -148,18 +150,21 @@ mod tests {
     #[test]
     fn inline_code_and_strike() {
         let mut t = InlineText::plain("см. `код`");
-        try_inline_shortcut(&mut t, t.len_bytes()).unwrap();
+        let len = t.len_bytes();
+        try_inline_shortcut(&mut t, len).unwrap();
         assert!(t.0.iter().any(|r| r.style.code && r.text == "код"));
 
         let mut t = InlineText::plain("~~зачёркнуто~~");
-        try_inline_shortcut(&mut t, t.len_bytes()).unwrap();
+        let len = t.len_bytes();
+        try_inline_shortcut(&mut t, len).unwrap();
         assert!(t.0.iter().any(|r| r.style.strike && r.text == "зачёркнуто"));
     }
 
     #[test]
     fn inline_rejects_spaces() {
         let mut t = InlineText::plain("2 * 3 *");
-        assert!(try_inline_shortcut(&mut t, t.len_bytes()).is_none());
+        let len = t.len_bytes();
+        assert!(try_inline_shortcut(&mut t, len).is_none());
         assert_eq!(t.text(), "2 * 3 *");
     }
 }
