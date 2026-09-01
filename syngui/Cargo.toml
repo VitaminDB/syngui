@@ -400,6 +400,10 @@ name = "document_roundtrip"
 required-features = ["document-editor"]
 
 [[test]]
+name = "document_editor_widget"
+required-features = ["document-editor", "testing"]
+
+[[test]]
 name = "cascade_descendant"
 required-features = ["testing"]
 

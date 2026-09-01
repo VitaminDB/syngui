@@ -11,9 +11,15 @@
 //! самодостаточны и покрыты round-trip корпусом в tests/document_roundtrip.rs.
 
 pub mod attrs;
+mod build;
+mod chrome;
+pub mod linebox;
 pub mod model;
 pub mod parse;
+pub mod rows;
 pub mod serialize;
+pub mod style;
+mod widget;
 
 pub use model::{
     Attrs, BlockId, BlockKind, DocAlign, DocBlock, DocModel, InlineRun, InlineStyle, InlineText,
@@ -21,3 +27,5 @@ pub use model::{
 };
 pub use parse::parse_document;
 pub use serialize::serialize_document;
+pub use style::DocStyle;
+pub use widget::DocumentEditor;
