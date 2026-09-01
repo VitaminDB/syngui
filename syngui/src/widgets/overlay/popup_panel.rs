@@ -205,10 +205,16 @@ impl PopupPanelElement {
             }
         };
 
-        let x = clamp_span(x, width, viewport.width);
-        let y = fit_span(y, height, flip_up_to, viewport.height);
+        // Координаты якоря глобальные (включают safe area), а viewport_size —
+        // только размер layout-области. Зажимаем позицию в её реальных
+        // границах `[origin .. origin + size]`, иначе на Android панель,
+        // которой не хватает места (открытая клавиатура), прижимается к нулю
+        // окна — под статусбар.
+        let origin = crate::viewport::viewport_origin();
+        let x = origin.x + clamp_span(x - origin.x, width, viewport.width);
+        let y = origin.y + fit_span(y - origin.y, height, flip_up_to - origin.y, viewport.height);
 
-        let max_available = (viewport.height - y).max(0.0);
+        let max_available = (origin.y + viewport.height - y).max(0.0);
         let final_height = height.min(max_available);
 
         Rect::new(Point::new(x, y), Size::new(width, final_height))
@@ -356,7 +362,7 @@ impl Element for PopupPanelElement {
                 }
                 EventResult::Ignored
             }
-            Event::KeyDown(crate::input::Key::Escape) => {
+            Event::KeyDown(crate::input::Key::Escape) | Event::BackPressed => {
                 self.close(ctx);
                 EventResult::Handled
             }

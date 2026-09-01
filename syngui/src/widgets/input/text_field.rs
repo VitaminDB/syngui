@@ -522,9 +522,12 @@ impl TextFieldElement {
         self.hint_hover = false;
         if self.hint_visible {
             let field = self.field_rect();
+            // Координаты поля глобальные, viewport_size — размер layout-области:
+            // сравнение ведётся в границах `[origin .. origin + size]`.
+            let origin = crate::viewport::viewport_origin();
             let below_fits = field.y() + field.size.height + HINT_GAP + HINT_HEIGHT
-                <= ctx.viewport_size().height;
-            let above_fits = field.y() >= HINT_GAP + HINT_HEIGHT;
+                <= origin.y + ctx.viewport_size().height;
+            let above_fits = field.y() - origin.y >= HINT_GAP + HINT_HEIGHT;
             // Android: над полем, чтобы не уйти под экранную клавиатуру.
             self.hint_above = if cfg!(target_os = "android") {
                 above_fits

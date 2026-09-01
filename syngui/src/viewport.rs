@@ -11,11 +11,12 @@
 
 use std::cell::Cell;
 
-use crate::core::Size;
+use crate::core::{Point, Size};
 use crate::signal::{create_effect, use_signal, RwSignal};
 
 thread_local! {
     static VIEWPORT: Cell<Option<RwSignal<Size>>> = const { Cell::new(None) };
+    static ORIGIN: Cell<(f32, f32)> = const { Cell::new((0.0, 0.0)) };
 }
 
 /// Логический размер вьюпорта главного окна. Сигнал живёт в runtime главного
@@ -52,4 +53,19 @@ pub fn viewport_below(width: f32) -> RwSignal<bool> {
 /// будятся только при реальном изменении размера.
 pub(crate) fn publish(size: Size) {
     viewport_size().set(size);
+}
+
+/// Смещение layout-области от левого верхнего угла окна (safe area: статусбар,
+/// вырез). Координаты элементов дерева глобальные — с этим смещением, а
+/// [`viewport_size`] его не включает, поэтому оверлеям, зажимающим позицию в
+/// границы вьюпорта, нужен именно диапазон `[origin .. origin + size]`.
+/// Не сигнал: изменение всегда сопровождается общим relayout.
+pub fn viewport_origin() -> Point {
+    let (x, y) = ORIGIN.with(|c| c.get());
+    Point::new(x, y)
+}
+
+/// Публикация смещения layout-области фреймворком (вместе с [`publish`]).
+pub(crate) fn publish_origin(origin: Point) {
+    ORIGIN.with(|c| c.set((origin.x, origin.y)));
 }

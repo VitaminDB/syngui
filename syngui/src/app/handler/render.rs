@@ -339,6 +339,7 @@ impl AppHandler {
             // Resized-обработчика (wasm, Android): любой ресайз ведёт к redraw,
             // а set() дедуплицирует — подписчики будятся только при изменении.
             crate::viewport::publish(crate::core::Size::new(layout_w, layout_h));
+            crate::viewport::publish_origin(self.tree.root_offset);
             let constraints = crate::layout::Constraints::new(
                 0.0, layout_w,
                 0.0, layout_h,
