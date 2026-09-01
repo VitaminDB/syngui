@@ -647,6 +647,22 @@ impl winit::application::ApplicationHandler<SynGuiUserEvent> for AppHandler {
         if let Some(window) = &self.window {
             window.request_redraw();
         }
+        // Отложенное пробуждение из update(): продолжение анимации в окне
+        // frame-limit'а или пульс Android-моста ввода. Цикл проснётся по
+        // таймеру и снова вызовет update() — без лишнего рендера.
+        // ControlFlow у winit персистентен, поэтому без запроса возвращаем
+        // Wait — иначе истёкший WaitUntil будил бы цикл вхолостую.
+        #[cfg(not(target_arch = "wasm32"))]
+        match self.wakeup_after.take() {
+            Some(delay) => {
+                event_loop.set_control_flow(winit::event_loop::ControlFlow::WaitUntil(
+                    std::time::Instant::now() + delay,
+                ));
+            }
+            None => {
+                event_loop.set_control_flow(winit::event_loop::ControlFlow::Wait);
+            }
+        }
         // Android-фон: продлеваем пульс, пока не возобновимся (см. suspended()).
         #[cfg(target_os = "android")]
         if self.android_suspended {

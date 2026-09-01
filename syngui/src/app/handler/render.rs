@@ -542,8 +542,24 @@ impl AppHandler {
         {
             self.poll_input_handler();
             self.poll_android_back();
-            if let Some(window) = &self.window {
-                window.request_redraw();
+            // Пульс опроса IME-моста и кнопки «назад» вместо безусловного
+            // request_redraw: раньше приложение рендерило полный кадр на
+            // каждом vsync даже в простое. Теперь кадры рисуются только по
+            // грязным элементам/анимациям, а Java-мост опрашивается таймером
+            // без рендера. Тачи приходят событиями winit и в опросе не
+            // нуждаются.
+            let poll_pulse = std::time::Duration::from_millis(12);
+            self.wakeup_after = Some(match self.wakeup_after {
+                Some(d) => d.min(poll_pulse),
+                None => poll_pulse,
+            });
+            // Пока открыта экранная клавиатура, кадры продолжаются: layout
+            // подстраивается под её высоту (query в render), а высота меняется
+            // без событий — анимация IME.
+            if self.keyboard_shown {
+                if let Some(window) = &self.window {
+                    window.request_redraw();
+                }
             }
         }
 
@@ -563,6 +579,23 @@ impl AppHandler {
                     if let Some(window) = &self.window {
                         window.request_redraw();
                     }
+                } else if frame_limit > 0 {
+                    // Иначе анимация замирала до следующего события (движения
+                    // мыши): кадр не запрошен, а сам по себе цикл не проснётся.
+                    // Просим пробуждение к моменту, когда пейсер разрешит кадр.
+                    let min_interval =
+                        std::time::Duration::from_secs_f32(1.0 / frame_limit as f32);
+                    let elapsed = self
+                        .last_paced_redraw
+                        .map(|t| now.duration_since(t))
+                        .unwrap_or(min_interval);
+                    let delay = min_interval.saturating_sub(elapsed).max(
+                        std::time::Duration::from_millis(1),
+                    );
+                    self.wakeup_after = Some(match self.wakeup_after {
+                        Some(d) => d.min(delay),
+                        None => delay,
+                    });
                 }
             }
         }

@@ -63,6 +63,10 @@ pub(super) struct AppHandler {
     pub(super) root_id: Option<crate::widget::ElementId>,
     pub(super) last_frame_time: Instant,
     pub(super) last_paced_redraw: Option<Instant>,
+    /// Запрос «разбудить цикл через N» из update(): анимация ждёт окна
+    /// frame-limit'а, либо Android-мост ввода ждёт следующего опроса.
+    /// Потребляется в about_to_wait → ControlFlow::WaitUntil.
+    pub(super) wakeup_after: Option<std::time::Duration>,
     pub(super) cursor_position: Point,
     pub(super) scale_factor: f64,
     pub(super) focus_manager: FocusManager,
@@ -198,6 +202,7 @@ impl AppHandler {
             root_id: None,
             last_frame_time: Instant::now(),
             last_paced_redraw: None,
+            wakeup_after: None,
             cursor_position: Point::zero(),
             scale_factor: 1.0,
             focus_manager: FocusManager::new(),
