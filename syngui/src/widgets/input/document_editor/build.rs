@@ -12,37 +12,39 @@ use crate::widget::Widget;
 
 use super::chrome::Chrome;
 use super::model::{Attrs, BlockKind, DocBlock, InlineText, MediaKind};
+use super::state::GeomMap;
 use super::rows::{
     CodeBlockView, DividerView, EmbedCard, MediaCard, MediaGlyph, RowDecor, TableBlockView,
     TextRow,
 };
 use super::style::DocStyle;
 
-pub fn block_widget(block: &DocBlock, style: &Arc<DocStyle>) -> Box<dyn Widget> {
+pub fn block_widget(block: &DocBlock, style: &Arc<DocStyle>, geom: &GeomMap) -> Box<dyn Widget> {
     match &block.kind {
-        BlockKind::Paragraph(text) => text_row(block, text, style, RowDecor::None, 0.0, None),
+        BlockKind::Paragraph(text) => text_row(block, text, style, geom, RowDecor::None, 0.0, None),
         BlockKind::Heading { level, text } => {
             let idx = (*level as usize).saturating_sub(1).min(5);
-            let mut row = base_row(block, text, style);
+            let mut row = base_row(block, text, style, geom);
             row.font_size = style.heading_sizes[idx];
             row.bold = true;
             row.color = style.heading_color;
             Box::new(row)
         }
         BlockKind::Bullet { text, children } => {
-            item_widget(block, text, children, style, RowDecor::Bullet)
+            item_widget(block, text, children, style, geom, RowDecor::Bullet)
         }
         BlockKind::Numbered { number, text, children } => {
-            item_widget(block, text, children, style, RowDecor::Number(*number))
+            item_widget(block, text, children, style, geom, RowDecor::Number(*number))
         }
         BlockKind::Todo { checked, text, children } => {
-            item_widget(block, text, children, style, RowDecor::Checkbox { checked: *checked })
+            item_widget(block, text, children, style, geom, RowDecor::Checkbox { checked: *checked })
         }
         BlockKind::Toggle { summary, children, collapsed } => {
             let row = text_row(
                 block,
                 summary,
                 style,
+                geom,
                 RowDecor::Toggle { collapsed: *collapsed },
                 style.indent,
                 None,
@@ -54,7 +56,7 @@ pub fn block_widget(block: &DocBlock, style: &Arc<DocStyle>) -> Box<dyn Widget> 
                     Chrome::new()
                         .gap(style.child_spacing)
                         .child(row)
-                        .child(children_column(children, style)),
+                        .child(children_column(children, style, geom)),
                 )
             }
         }
@@ -63,7 +65,7 @@ pub fn block_widget(block: &DocBlock, style: &Arc<DocStyle>) -> Box<dyn Widget> 
                 .gap(style.child_spacing)
                 .padding(style.quote_border_width + style.quote_padding_left, 4.0, 4.0, 4.0)
                 .border_left(style.quote_border_width, style.quote_border_color)
-                .children(children.iter().map(|b| block_widget(b, style))),
+                .children(children.iter().map(|b| block_widget(b, style, geom))),
         ),
         BlockKind::Callout { kind, title, children } => {
             let accent = attr_color(&block.attrs).unwrap_or_else(|| style.callout_color(kind));
@@ -79,12 +81,12 @@ pub fn block_widget(block: &DocBlock, style: &Arc<DocStyle>) -> Box<dyn Widget> 
                 .radius(style.callout_radius)
                 .border_left(3.0, accent);
             if !title.is_empty() {
-                let mut row = base_row(block, title, style);
+                let mut row = base_row(block, title, style, geom);
                 row.bold = true;
                 row.color = accent;
                 chrome = chrome.child(Box::new(row));
             }
-            chrome = chrome.children(children.iter().map(|b| block_widget(b, style)));
+            chrome = chrome.children(children.iter().map(|b| block_widget(b, style, geom)));
             Box::new(chrome)
         }
         BlockKind::CodeBlock { language, code } => Box::new(CodeBlockView {
@@ -115,9 +117,10 @@ fn item_widget(
     text: &InlineText,
     children: &[DocBlock],
     style: &Arc<DocStyle>,
+    geom: &GeomMap,
     decor: RowDecor,
 ) -> Box<dyn Widget> {
-    let row = text_row(block, text, style, decor, style.indent, None);
+    let row = text_row(block, text, style, geom, decor, style.indent, None);
     if children.is_empty() {
         return row;
     }
@@ -125,21 +128,21 @@ fn item_widget(
         Chrome::new()
             .gap(style.child_spacing)
             .child(row)
-            .child(children_column(children, style)),
+            .child(children_column(children, style, geom)),
     )
 }
 
 /// Колонка детей блока с отступом под гаттер родителя.
-fn children_column(children: &[DocBlock], style: &Arc<DocStyle>) -> Box<dyn Widget> {
+fn children_column(children: &[DocBlock], style: &Arc<DocStyle>, geom: &GeomMap) -> Box<dyn Widget> {
     Box::new(
         Chrome::new()
             .gap(style.child_spacing)
             .padding(style.indent, 0.0, 0.0, 0.0)
-            .children(children.iter().map(|b| block_widget(b, style))),
+            .children(children.iter().map(|b| block_widget(b, style, geom))),
     )
 }
 
-fn base_row(block: &DocBlock, text: &InlineText, style: &Arc<DocStyle>) -> TextRow {
+fn base_row(block: &DocBlock, text: &InlineText, style: &Arc<DocStyle>, geom: &GeomMap) -> TextRow {
     TextRow {
         block_id: block.id,
         text: text.clone(),
@@ -149,6 +152,7 @@ fn base_row(block: &DocBlock, text: &InlineText, style: &Arc<DocStyle>) -> TextR
         decor: RowDecor::None,
         gutter: 0.0,
         style: style.clone(),
+        geom: Some(geom.clone()),
     }
 }
 
@@ -156,11 +160,12 @@ fn text_row(
     block: &DocBlock,
     text: &InlineText,
     style: &Arc<DocStyle>,
+    geom: &GeomMap,
     decor: RowDecor,
     gutter: f32,
     color: Option<Color>,
 ) -> Box<dyn Widget> {
-    let mut row = base_row(block, text, style);
+    let mut row = base_row(block, text, style, geom);
     row.decor = decor;
     row.gutter = gutter;
     if let Some(c) = color {

@@ -20,6 +20,7 @@ use crate::widget::{DirtyFlags, Element, ElementId, ElementTree, Widget};
 
 use super::linebox::{layout_inline_text, InlineLayout};
 use super::model::{BlockId, InlineText, LinkTarget};
+use super::state::{GeomLine, GeomMap, GeomSeg};
 use super::style::DocStyle;
 
 /// Общая часть Element-реализации листьев.
@@ -33,9 +34,6 @@ macro_rules! leaf_common {
         }
         fn bounds(&self) -> Rect {
             self.bounds
-        }
-        fn set_position(&mut self, pos: Point) {
-            self.bounds.origin = pos;
         }
         fn children(&self) -> &[ElementId] {
             &[]
@@ -108,6 +106,8 @@ pub struct TextRow {
     /// Ширина гаттера маркера; 0 — без гаттера.
     pub gutter: f32,
     pub style: Arc<DocStyle>,
+    /// Реестр геометрии строк редактора (каретка/выделение контейнера).
+    pub geom: Option<GeomMap>,
 }
 
 impl Widget for TextRow {
@@ -124,6 +124,7 @@ impl Widget for TextRow {
             decor: self.decor.clone(),
             gutter: self.gutter,
             style: self.style.clone(),
+            geom: self.geom.clone(),
             tm: None,
             cache: None,
         })
@@ -143,6 +144,7 @@ pub struct TextRowElement {
     decor: RowDecor,
     gutter: f32,
     style: Arc<DocStyle>,
+    geom: Option<GeomMap>,
     tm: Option<Arc<dyn TextMeasure>>,
     /// (ширина текстовой области, раскладка).
     cache: Option<(f32, InlineLayout)>,
@@ -170,8 +172,50 @@ impl TextRowElement {
                 },
             };
             self.cache = Some((avail, layout));
+            self.publish_geom();
         }
         &self.cache.as_ref().unwrap().1
+    }
+
+    /// Публикует строки в реестр геометрии (origin обновляет set_position).
+    fn publish_geom(&self) {
+        let Some(geom) = &self.geom else { return };
+        let Some((_, layout)) = &self.cache else { return };
+        // Префиксные суммы байтовых длин ранов → абсолютные смещения.
+        let mut prefix = Vec::with_capacity(self.text.0.len() + 1);
+        let mut acc = 0usize;
+        for run in &self.text.0 {
+            prefix.push(acc);
+            acc += run.text.len();
+        }
+        prefix.push(acc);
+
+        let lines = layout
+            .lines
+            .iter()
+            .map(|line| GeomLine {
+                y: line.y,
+                segs: line
+                    .segs
+                    .iter()
+                    .map(|seg| GeomSeg {
+                        x: self.gutter + seg.x,
+                        width: seg.width,
+                        text: seg.text.clone(),
+                        abs_start: prefix.get(seg.run_idx).copied().unwrap_or(0) + seg.byte_start,
+                        bold: seg.style.bold,
+                        font_size: seg.style.font_size,
+                    })
+                    .collect(),
+            })
+            .collect();
+
+        let mut map = geom.lock().unwrap();
+        let entry = map.entry(self.block_id).or_default();
+        entry.gutter = self.gutter;
+        entry.line_h = self.style.line_h(self.font_size);
+        entry.lines = lines;
+        entry.origin = self.bounds.origin;
     }
 
     fn draw_decor(&self, list: &mut DisplayList) {
@@ -276,6 +320,7 @@ impl Element for TextRowElement {
             ctx.mark_layout_dirty();
         }
         self.block_id = w.block_id;
+        self.geom = w.geom.clone();
     }
 
     fn mount(&mut self, tree: &mut ElementTree) {
@@ -343,6 +388,15 @@ impl Element for TextRowElement {
 
     fn element_type_name(&self) -> &str {
         "doc-text-row"
+    }
+
+    fn set_position(&mut self, pos: Point) {
+        self.bounds.origin = pos;
+        if let Some(geom) = &self.geom {
+            if let Ok(mut map) = geom.lock() {
+                map.entry(self.block_id).or_default().origin = pos;
+            }
+        }
     }
 
     leaf_common!();
@@ -517,6 +571,10 @@ impl Element for CodeBlockElement {
         "doc-code-block"
     }
 
+    fn set_position(&mut self, pos: Point) {
+        self.bounds.origin = pos;
+    }
+
     leaf_common!();
 }
 
@@ -572,6 +630,10 @@ impl Element for DividerElement {
 
     fn element_type_name(&self) -> &str {
         "doc-divider"
+    }
+
+    fn set_position(&mut self, pos: Point) {
+        self.bounds.origin = pos;
     }
 
     leaf_common!();
@@ -703,6 +765,10 @@ impl Element for MediaCardElement {
         "doc-media-card"
     }
 
+    fn set_position(&mut self, pos: Point) {
+        self.bounds.origin = pos;
+    }
+
     leaf_common!();
 }
 
@@ -787,6 +853,10 @@ impl Element for EmbedCardElement {
 
     fn element_type_name(&self) -> &str {
         "doc-embed-card"
+    }
+
+    fn set_position(&mut self, pos: Point) {
+        self.bounds.origin = pos;
     }
 
     leaf_common!();
@@ -980,6 +1050,10 @@ impl Element for TableBlockElement {
 
     fn element_type_name(&self) -> &str {
         "doc-table"
+    }
+
+    fn set_position(&mut self, pos: Point) {
+        self.bounds.origin = pos;
     }
 
     leaf_common!();

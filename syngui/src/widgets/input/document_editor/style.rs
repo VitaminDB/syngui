@@ -21,6 +21,8 @@ pub struct DocStyle {
     pub link_color: Color,
     /// Цвет wiki-ссылки на несуществующую страницу.
     pub link_missing_color: Color,
+    pub caret_color: Color,
+    pub selection_color: Color,
 
     // Инлайн-код и код-блоки.
     pub code_color: Color,
@@ -85,6 +87,8 @@ impl Default for DocStyle {
             heading_sizes: [28.0, 23.0, 19.0, 17.0, 15.5, 14.5],
             link_color: Color::from_hex("#6ea8ff"),
             link_missing_color: Color::from_hex("#c76a6a"),
+            caret_color: Color::from_hex("#6ea8ff"),
+            selection_color: Color::from_hex("#6ea8ff").with_alpha(0.28),
 
             code_color: Color::from_hex("#e8b3f0"),
             code_bg: Color::from_hex("#ffffff").with_alpha(0.08),
@@ -180,6 +184,8 @@ impl DocStyle {
             "--doc-heading-color" => heading_color,
             "--doc-link-color" => link_color,
             "--doc-link-missing-color" => link_missing_color,
+            "--doc-caret-color" => caret_color,
+            "--doc-selection-color" => selection_color,
             "--doc-code-color" => code_color,
             "--doc-code-bg" => code_bg,
             "--doc-code-block-bg" => code_block_bg,

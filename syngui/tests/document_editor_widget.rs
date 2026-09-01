@@ -1,13 +1,14 @@
-//! Smoke-тест каркаса DocumentEditor (этап S2): read-only рендер —
-//! построение детей по блокам, раскладка, отрисовка без паники.
+//! Тесты DocumentEditor на headless-харнесе: read-only рендер (S2) и
+//! редактирование — каретка, набор, выделение, IME (S3).
 
 use std::sync::Arc;
 
 use syngui::core::{Point, Rect, Size};
+use syngui::input::{Event, Key, MouseButton};
 use syngui::render::DisplayList;
 use syngui::testing::TestHarness;
 use syngui::widget::context::TextMeasure;
-use syngui::widgets::input::document_editor::DocumentEditor;
+use syngui::widgets::input::document_editor::{DocumentEditor, DocumentEditorHandle};
 
 /// Моноширинная метрика: 10px на символ.
 struct Mono;
@@ -110,6 +111,135 @@ fn collapsed_toggle_hides_children() {
         count(&open),
         count(&closed)
     );
+}
+
+// ─── Редактирование (S3) ────────────────────────────────────────────────────
+
+/// Харнес с ручкой: клик уже сделан, каретка стоит в точке `click`.
+fn editing_harness(md: &str, click: Point) -> (TestHarness, DocumentEditorHandle) {
+    let handle = DocumentEditorHandle::new();
+    let mut h = TestHarness::new(Box::new(DocumentEditor::new().markdown(md).handle(&handle)));
+    h.tree.text_measure = Some(Arc::new(Mono));
+    h.rebuild();
+    h.layout(800.0, 2000.0);
+    h.send_event(&Event::MouseDown { button: MouseButton::Left, position: click });
+    h.send_event(&Event::MouseUp { button: MouseButton::Left, position: click });
+    (h, handle)
+}
+
+/// Прогоняет цикл «правка → перестройка → раскладка».
+fn settle(h: &mut TestHarness) {
+    h.rebuild();
+    h.layout(800.0, 2000.0);
+}
+
+fn type_str(h: &mut TestHarness, s: &str) {
+    for c in s.chars() {
+        h.send_event(&Event::CharInput(c));
+    }
+}
+
+// Контент начинается при ширине 800: колонка 760, поля (768-760)/2=4,
+// итого x0 = 16 + 4 = 20; первая строка на y = 16.
+const X0: f32 = 20.0;
+const Y0: f32 = 16.0;
+
+#[test]
+fn click_places_caret_and_typing_inserts() {
+    // Клик за концом «абв» (3 симв. × 10px) — каретка в конец.
+    let (mut h, handle) = editing_harness("абв\n", Point::new(X0 + 60.0, Y0 + 8.0));
+    type_str(&mut h, "гд");
+    settle(&mut h);
+    assert_eq!(handle.serialize(), "абвгд\n");
+    assert!(handle.revision().get_untracked() >= 2);
+}
+
+#[test]
+fn click_mid_text_inserts_at_position() {
+    // Клик между «а» и «б» (x = 10px от начала текста).
+    let (mut h, handle) = editing_harness("абв\n", Point::new(X0 + 10.0, Y0 + 8.0));
+    type_str(&mut h, "X");
+    settle(&mut h);
+    assert_eq!(handle.serialize(), "аXбв\n");
+}
+
+#[test]
+fn enter_splits_and_backspace_merges() {
+    let (mut h, handle) = editing_harness("абв\n", Point::new(X0 + 20.0, Y0 + 8.0));
+    h.send_event(&Event::KeyDown(Key::Enter));
+    settle(&mut h);
+    assert_eq!(handle.serialize(), "аб\n\nв\n");
+    // Каретка в начале «в» — Backspace склеивает обратно.
+    h.send_event(&Event::KeyDown(Key::Backspace));
+    settle(&mut h);
+    assert_eq!(handle.serialize(), "абв\n");
+}
+
+#[test]
+fn backspace_deletes_char() {
+    let (mut h, handle) = editing_harness("абв\n", Point::new(X0 + 60.0, Y0 + 8.0));
+    h.send_event(&Event::KeyDown(Key::Backspace));
+    settle(&mut h);
+    assert_eq!(handle.serialize(), "аб\n");
+}
+
+#[test]
+fn drag_selection_delete() {
+    // Тянем выделение от «б» до конца, Backspace удаляет диапазон.
+    let (mut h, handle) = editing_harness("абвгд\n", Point::new(X0 + 10.0, Y0 + 8.0));
+    h.send_event(&Event::MouseDown {
+        button: MouseButton::Left,
+        position: Point::new(X0 + 10.0, Y0 + 8.0),
+    });
+    h.send_event(&Event::MouseMove(Point::new(X0 + 50.0, Y0 + 8.0)));
+    h.send_event(&Event::MouseUp {
+        button: MouseButton::Left,
+        position: Point::new(X0 + 50.0, Y0 + 8.0),
+    });
+    h.send_event(&Event::KeyDown(Key::Backspace));
+    settle(&mut h);
+    assert_eq!(handle.serialize(), "аде\n".replace("де", "")); // «а» + пусто
+    assert_eq!(handle.serialize(), "а\n");
+}
+
+#[test]
+fn arrows_navigate_between_blocks() {
+    let (mut h, handle) = editing_harness("аб\n\nвг\n", Point::new(X0 + 40.0, Y0 + 8.0));
+    // Каретка в конце «аб»; вправо — начало «вг»; печать попадает во 2-й блок.
+    h.send_event(&Event::KeyDown(Key::Right));
+    type_str(&mut h, "X");
+    settle(&mut h);
+    assert_eq!(handle.serialize(), "аб\n\nXвг\n");
+}
+
+#[test]
+fn ime_commit_inserts() {
+    let (mut h, handle) = editing_harness("аб\n", Point::new(X0 + 40.0, Y0 + 8.0));
+    h.send_event(&Event::ImePreedit { text: "ねこ".to_string(), cursor: None });
+    h.send_event(&Event::ImeCommit("猫".to_string()));
+    settle(&mut h);
+    assert_eq!(handle.serialize(), "аб猫\n");
+}
+
+#[test]
+fn gutter_click_toggles_todo() {
+    // Гаттер задачи: indent 26px, чекбокс в его середине.
+    let (mut h, handle) = editing_harness("- [ ] задача\n", Point::new(X0 + 500.0, Y0 + 300.0));
+    h.send_event(&Event::MouseDown {
+        button: MouseButton::Left,
+        position: Point::new(X0 + 13.0, Y0 + 10.0),
+    });
+    settle(&mut h);
+    assert_eq!(handle.serialize(), "- [x] задача\n");
+}
+
+#[test]
+fn enter_in_list_creates_item() {
+    let (mut h, handle) = editing_harness("- раз\n", Point::new(X0 + 26.0 + 60.0, Y0 + 8.0));
+    h.send_event(&Event::KeyDown(Key::Enter));
+    type_str(&mut h, "два");
+    settle(&mut h);
+    assert_eq!(handle.serialize(), "- раз\n- два\n");
 }
 
 #[test]
