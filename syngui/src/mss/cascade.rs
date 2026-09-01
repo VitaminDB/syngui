@@ -32,6 +32,103 @@ fn window_pseudo_matches(pseudo: &str, window_flags: u8) -> Option<bool> {
     Some(window_flags & flag != 0)
 }
 
+/// Индекс правил по правому сегменту селектора.
+///
+/// Раньше каскад проверял КАЖДОЕ правило на КАЖДОМ элементе — при ~1000
+/// правил и нескольких тысячах элементов это миллионы вызовов
+/// selector_matches на один проход стилей (главное узкое место рантайма).
+/// Индекс раскладывает правила по вёдрам: класс/тип правого сегмента —
+/// кандидаты для элемента берутся только из вёдер его классов, его типа и
+/// catch-all. Полная проверка совпадения остаётся за selector_matches.
+struct RuleIndex<'a> {
+    by_class: std::collections::HashMap<&'a str, Vec<u32>>,
+    by_type: std::collections::HashMap<&'a str, Vec<u32>>,
+    catch_all: Vec<u32>,
+}
+
+impl<'a> RuleIndex<'a> {
+    fn build(rules: &'a [StyleRule]) -> Self {
+        use super::stylesheet::{Selector, SelectorChain, SelectorPart};
+
+        let mut by_class: std::collections::HashMap<&str, Vec<u32>> =
+            std::collections::HashMap::new();
+        let mut by_type: std::collections::HashMap<&str, Vec<u32>> =
+            std::collections::HashMap::new();
+        let mut catch_all: Vec<u32> = Vec::new();
+
+        fn slot_chain<'a>(
+            chain: &'a SelectorChain,
+            i: u32,
+            by_class: &mut std::collections::HashMap<&'a str, Vec<u32>>,
+            by_type: &mut std::collections::HashMap<&'a str, Vec<u32>>,
+            catch_all: &mut Vec<u32>,
+        ) {
+            match chain.target() {
+                SelectorPart::Class(c) => by_class.entry(c.as_str()).or_default().push(i),
+                SelectorPart::Element(e) => by_type.entry(e.as_str()).or_default().push(i),
+                SelectorPart::Compound { classes, element, .. } => {
+                    // Compound требует ВСЕ свои классы, поэтому ведро любого
+                    // из них корректно сужает кандидатов; берём первый.
+                    if let Some(c) = classes.first() {
+                        by_class.entry(c.as_str()).or_default().push(i);
+                    } else if let Some(e) = element {
+                        by_type.entry(e.as_str()).or_default().push(i);
+                    } else {
+                        catch_all.push(i);
+                    }
+                }
+                SelectorPart::Universal | SelectorPart::Id(_) => catch_all.push(i),
+            }
+        }
+
+        for (i, rule) in rules.iter().enumerate() {
+            let i = i as u32;
+            match &rule.selector {
+                Selector::Class(c) | Selector::ClassPseudo(c, _) => {
+                    by_class.entry(c.as_str()).or_default().push(i)
+                }
+                Selector::Element(e) | Selector::ElementPseudo(e, _) => {
+                    by_type.entry(e.as_str()).or_default().push(i)
+                }
+                Selector::Universal | Selector::Id(_) => catch_all.push(i),
+                Selector::Complex(chain) => {
+                    slot_chain(chain, i, &mut by_class, &mut by_type, &mut catch_all)
+                }
+                Selector::Group(chains) => {
+                    // Правило попадает в ведро каждой цепочки; дубли снимает
+                    // sort+dedup в candidates().
+                    for chain in chains {
+                        slot_chain(chain, i, &mut by_class, &mut by_type, &mut catch_all);
+                    }
+                }
+            }
+        }
+
+        Self { by_class, by_type, catch_all }
+    }
+
+    /// Индексы правил-кандидатов для элемента, отсортированные и без дублей.
+    fn candidates(&self, classes: &[String], type_name: &str, out: &mut Vec<u32>) {
+        out.clear();
+        out.extend_from_slice(&self.catch_all);
+        if !type_name.is_empty() {
+            if let Some(v) = self.by_type.get(type_name) {
+                out.extend_from_slice(v);
+            }
+        }
+        for cls in classes {
+            // Часть builder-ов хранит классы одной строкой с пробелами.
+            for token in cls.split_whitespace() {
+                if let Some(v) = self.by_class.get(token) {
+                    out.extend_from_slice(v);
+                }
+            }
+        }
+        out.sort_unstable();
+        out.dedup();
+    }
+}
+
 fn dfs_order(tree: &ElementTree, root: ElementId) -> Vec<ElementId> {
     let mut order = Vec::with_capacity(tree.elements.len());
     let mut stack: Vec<ElementId> = vec![root];
@@ -52,7 +149,9 @@ pub fn apply_styles_to_tree(tree: &mut ElementTree, style_engine: &StyleEngine) 
         None => return,
     };
     let order = dfs_order(tree, root_id);
-    let rules: Vec<StyleRule> = style_engine.stylesheet().rules().to_vec();
+    let rules: &[StyleRule] = style_engine.stylesheet().rules();
+    let index = RuleIndex::build(rules);
+    let mut cand: Vec<u32> = Vec::new();
     let window_flags = tree.window_flags;
 
     let mut inherited_for: std::collections::HashMap<ElementId, ComputedStyle> =
@@ -64,11 +163,12 @@ pub fn apply_styles_to_tree(tree: &mut ElementTree, style_engine: &StyleEngine) 
             .and_then(|p| inherited_for.get(&p).cloned())
             .unwrap_or_default();
 
-        let (has_identity, has_inline, type_name) = if let Some(node) = tree.elements.get(&id) {
+        let (has_identity, has_inline, type_name, classes) = if let Some(node) = tree.elements.get(&id) {
             (
                 !node.element.get_classes().is_empty() || !node.element.element_type_name().is_empty(),
                 !node.inline_styles.is_empty(),
                 node.element.element_type_name().to_string(),
+                node.element.get_classes().to_vec(),
             )
         } else {
             inherited_for.insert(id, parent_inh);
@@ -89,8 +189,9 @@ pub fn apply_styles_to_tree(tree: &mut ElementTree, style_engine: &StyleEngine) 
         let mut has_base = base.properties().next().is_some();
 
         if has_identity || has_inline {
-            let mut matching: Vec<(usize, (u32, u32, u32), &StyleRule)> = rules.iter()
-                .enumerate()
+            index.candidates(&classes, &type_name, &mut cand);
+            let mut matching: Vec<(usize, (u32, u32, u32), &StyleRule)> = cand.iter()
+                .map(|&i| (i as usize, &rules[i as usize]))
                 .filter(|(_, rule)| selector_matches(&rule.selector, id, tree))
                 .map(|(i, rule)| (i, rule.selector.specificity(), rule))
                 .collect();
@@ -237,7 +338,9 @@ pub fn apply_styles_dirty(tree: &mut ElementTree, style_engine: &StyleEngine) ->
     }
 
     let order = dfs_order(tree, root_id);
-    let rules: Vec<StyleRule> = style_engine.stylesheet().rules().to_vec();
+    let rules: &[StyleRule] = style_engine.stylesheet().rules();
+    let index = RuleIndex::build(rules);
+    let mut cand: Vec<u32> = Vec::new();
     let window_flags = tree.window_flags;
 
     let mut inherited_for: std::collections::HashMap<ElementId, ComputedStyle> =
@@ -254,12 +357,13 @@ pub fn apply_styles_dirty(tree: &mut ElementTree, style_engine: &StyleEngine) ->
             .and_then(|p| ancestor_dirty_for.get(&p).copied())
             .unwrap_or(false);
 
-        let (has_identity, has_inline, is_dirty, type_name) = if let Some(node) = tree.elements.get(&id) {
+        let (has_identity, has_inline, is_dirty, type_name, classes) = if let Some(node) = tree.elements.get(&id) {
             (
                 !node.element.get_classes().is_empty() || !node.element.element_type_name().is_empty(),
                 !node.inline_styles.is_empty(),
                 node.styles_dirty,
                 node.element.element_type_name().to_string(),
+                node.element.get_classes().to_vec(),
             )
         } else {
             inherited_for.insert(id, parent_inh);
@@ -307,8 +411,9 @@ pub fn apply_styles_dirty(tree: &mut ElementTree, style_engine: &StyleEngine) ->
         let mut has_checked = false;
         let mut has_base = base.properties().next().is_some();
 
-        let mut matching: Vec<(usize, (u32, u32, u32), &StyleRule)> = rules.iter()
-            .enumerate()
+        index.candidates(&classes, &type_name, &mut cand);
+        let mut matching: Vec<(usize, (u32, u32, u32), &StyleRule)> = cand.iter()
+            .map(|&i| (i as usize, &rules[i as usize]))
             .filter(|(_, rule)| selector_matches(&rule.selector, id, tree))
             .map(|(i, rule)| (i, rule.selector.specificity(), rule))
             .collect();
