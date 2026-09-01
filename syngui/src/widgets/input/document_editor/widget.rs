@@ -63,6 +63,38 @@ impl DocumentEditorHandle {
     pub fn revision(&self) -> RwSignal<u64> {
         self.revision
     }
+
+    /// Замена `pending:<token>` на реальный url после ingest'а хоста
+    /// (drop файла → фоновая загрузка в хранилище → patch). Бампает
+    /// ревизию (автосейв запишет свежий url); перестройку виджетов хост
+    /// триггерит инкрементом `.model_epoch(...)` своего сигнала.
+    pub fn patch_media(&self, token: &str, url: &str) -> bool {
+        let pending = format!("pending:{token}");
+        let mut model = lock(&self.model);
+        fn walk(blocks: &mut [super::model::DocBlock], pending: &str, url: &str) -> bool {
+            for b in blocks.iter_mut() {
+                if let super::model::BlockKind::Media { media, url: u, .. } = &mut b.kind {
+                    if u == pending {
+                        *u = url.to_string();
+                        *media = super::model::MediaKind::detect(url, &b.attrs);
+                        return true;
+                    }
+                }
+                if let Some(children) = b.kind.children_mut() {
+                    if walk(children, pending, url) {
+                        return true;
+                    }
+                }
+            }
+            false
+        }
+        let found = walk(&mut model.blocks, &pending, url);
+        drop(model);
+        if found {
+            self.revision.set(self.revision.get_untracked() + 1);
+        }
+        found
+    }
 }
 
 impl Default for DocumentEditorHandle {
@@ -85,6 +117,8 @@ pub struct DocumentEditor {
     on_slash_custom: Option<Arc<dyn Fn(&str) + Send + Sync>>,
     links: Option<Arc<dyn DocLinkProvider>>,
     media: Option<Arc<dyn DocMediaResolver>>,
+    model_epoch: u64,
+    on_drop_file: Option<Arc<dyn Fn(std::path::PathBuf, String) + Send + Sync>>,
 }
 
 impl DocumentEditor {
@@ -99,7 +133,27 @@ impl DocumentEditor {
             on_slash_custom: None,
             links: None,
             media: None,
+            model_epoch: 0,
+            on_drop_file: None,
         }
+    }
+
+    /// Эпоха модели: хост инкрементирует после внешних мутаций через
+    /// handle (patch_media) — смена значения перестраивает блоки без
+    /// репарса markdown.
+    pub fn model_epoch(mut self, epoch: u64) -> Self {
+        self.model_epoch = epoch;
+        self
+    }
+
+    /// Дроп файла в документ: редактор вставил pending-блок и отдаёт
+    /// (путь, токен) — хост загружает файл и зовёт handle.patch_media.
+    pub fn on_drop_file(
+        mut self,
+        f: impl Fn(std::path::PathBuf, String) + Send + Sync + 'static,
+    ) -> Self {
+        self.on_drop_file = Some(Arc::new(f));
+        self
     }
 
     /// Провайдер ссылок хоста: автокомплит `[[`, битые ссылки, открытие.
@@ -205,6 +259,8 @@ impl Widget for DocumentEditor {
             drag: None,
             links: self.links.clone(),
             media: self.media.clone(),
+            model_epoch: self.model_epoch,
+            on_drop_file: self.on_drop_file.clone(),
             wiki: None,
         })
     }
@@ -263,6 +319,8 @@ pub struct DocumentEditorElement {
     drag: Option<DragBlock>,
     links: Option<Arc<dyn DocLinkProvider>>,
     media: Option<Arc<dyn DocMediaResolver>>,
+    model_epoch: u64,
+    on_drop_file: Option<Arc<dyn Fn(std::path::PathBuf, String) + Send + Sync>>,
     /// Автокомплит wiki-ссылки `[[`.
     wiki: Option<WikiState>,
 }
@@ -1225,6 +1283,42 @@ impl DocumentEditorElement {
         }
     }
 
+    /// Дроп файла: вставка pending-блока Media рядом с точкой сброса.
+    /// Возвращает токен для handle.patch_media.
+    fn insert_pending_media(&mut self, at: Point, path: &std::path::Path) -> String {
+        use std::sync::atomic::{AtomicU64, Ordering};
+        static TOKEN: AtomicU64 = AtomicU64::new(1);
+        let token = TOKEN.fetch_add(1, Ordering::Relaxed).to_string();
+        let url = format!("pending:{token}");
+        let alt = path
+            .file_name()
+            .map(|n| n.to_string_lossy().to_string())
+            .unwrap_or_else(|| "файл".to_string());
+        let media = super::model::MediaKind::detect(&path.display().to_string(), &super::model::Attrs::default());
+
+        self.checkpoint(EditClass::Structure);
+        let target = self.drop_target(at);
+        {
+            let mut model = self.model();
+            let id = model.alloc_id();
+            let block = super::model::DocBlock::new(
+                id,
+                super::model::BlockKind::Media { media, url, alt },
+            );
+            match target {
+                Some((target_id, before)) => {
+                    edit::with_siblings(&mut model.blocks, target_id, &mut |sibs, idx| {
+                        let pos = if before { idx } else { idx + 1 };
+                        sibs.insert(pos, block.clone());
+                    });
+                }
+                None => model.blocks.push(block),
+            }
+        }
+        self.after_edit();
+        token
+    }
+
     /// Ссылка сегмента под курсором (для Ctrl+клика).
     fn link_at(&self, p: Point) -> Option<super::model::LinkTarget> {
         let map = self.geom.lock().ok()?;
@@ -1506,8 +1600,15 @@ impl Element for DocumentEditorElement {
         let links_changed = self.links.is_some() != w.links.is_some();
         self.links = w.links.clone();
         self.media = w.media.clone();
+        self.on_drop_file = w.on_drop_file.clone();
         if links_changed {
             self.rebuild = true;
+        }
+        if w.model_epoch != self.model_epoch {
+            self.model_epoch = w.model_epoch;
+            self.rebuild = true;
+            self.mark_dirty(DirtyFlags::LAYOUT | DirtyFlags::RENDER);
+            ctx.mark_layout_dirty();
         }
         if let Some(h) = &w.handle {
             if !Arc::ptr_eq(&self.model, &h.model) {
@@ -1529,12 +1630,22 @@ impl Element for DocumentEditorElement {
 
     fn mount(&mut self, tree: &mut ElementTree) {
         self.tm = tree.text_measure.clone();
+        // Приём дропа файлов (события Drop идут только по реестру целей).
+        tree.register_drop_target(self.id);
     }
 
     fn layout(&mut self, constraints: Constraints) -> Size {
-        // Вызывается только для пустого документа (без детей).
         let width = if constraints.max_width.is_finite() { constraints.max_width } else { 0.0 };
-        let height = self.style.doc_padding * 2.0 + self.style.line_h(self.style.text_size);
+        // С детьми дерево зовёт layout с tight-размером (min == max) — его
+        // и принимаем; без детей (пустой документ) — высота одной строки.
+        let tight = constraints.min_height.is_finite()
+            && (constraints.min_height - constraints.max_height).abs() < 0.5
+            && constraints.min_height > 0.0;
+        let height = if tight {
+            constraints.min_height
+        } else {
+            self.style.doc_padding * 2.0 + self.style.line_h(self.style.text_size)
+        };
         self.bounds.size = Size::new(width, height);
         self.bounds.size
     }
@@ -1568,6 +1679,7 @@ impl Element for DocumentEditorElement {
             style: self.style.clone(),
             geom: self.geom.clone(),
             links: self.links.clone(),
+            media: self.media.clone(),
         };
         let model = self.model();
         model.blocks.iter().map(|b| block_widget(b, &env)).collect()
@@ -1824,6 +1936,21 @@ impl Element for DocumentEditorElement {
                     return EventResult::Handled;
                 }
                 EventResult::Ignored
+            }
+            Event::Drop { position, data } => {
+                if self.read_only || data.drag_type != crate::input::DragData::TYPE_FILE {
+                    return EventResult::Ignored;
+                }
+                if !self.bounds.contains(*position) {
+                    return EventResult::Ignored;
+                }
+                let Some(cb) = self.on_drop_file.clone() else {
+                    return EventResult::Ignored;
+                };
+                let path = std::path::PathBuf::from(data.payload.clone());
+                let token = self.insert_pending_media(*position, &path);
+                cb(path, token);
+                EventResult::Handled
             }
             Event::DoubleClick { button: MouseButton::Left, position } => {
                 if !self.bounds.contains(*position) {

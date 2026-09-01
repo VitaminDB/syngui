@@ -17,6 +17,8 @@ mod build;
 mod chrome;
 pub mod linebox;
 pub mod links;
+#[cfg(feature = "ffmpeg")]
+pub mod media_block;
 pub mod model;
 pub mod parse;
 pub mod rows;

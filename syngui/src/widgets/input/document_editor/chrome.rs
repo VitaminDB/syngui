@@ -140,10 +140,18 @@ impl Element for ChromeElement {
     fn mount(&mut self, _tree: &mut ElementTree) {}
 
     fn layout(&mut self, constraints: Constraints) -> Size {
-        // Контейнер без детей — нулевая высота; с детьми размер считает
-        // ElementTree по layout_hint.
         let width = if constraints.max_width.is_finite() { constraints.max_width } else { 0.0 };
-        self.bounds.size = Size::new(width, self.padding[1] + self.padding[3]);
+        // С детьми дерево зовёт layout с tight-размером (min == max) — его
+        // принимаем (фон/полоса рисуются по bounds); без детей — паддинги.
+        let tight = constraints.min_height.is_finite()
+            && (constraints.min_height - constraints.max_height).abs() < 0.5
+            && constraints.min_height > 0.0;
+        let height = if tight {
+            constraints.min_height
+        } else {
+            self.padding[1] + self.padding[3]
+        };
+        self.bounds.size = Size::new(width, height);
         self.bounds.size
     }
 

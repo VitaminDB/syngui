@@ -88,6 +88,11 @@ fn layout_gives_heights_and_paint_does_not_panic() {
         assert!(b.size.width > 0.0, "строка без ширины: {b:?}");
     }
 
+    // Регрессия: tight-layout контейнеров не должен терять высоту
+    // (фоны callout'ов и хит-зона дропа рисуются по bounds).
+    let root_bounds = h.element_bounds(h.root_id);
+    assert!(root_bounds.size.height > 100.0, "корень сжался: {root_bounds:?}");
+
     let mut list = DisplayList::new();
     let clip = Rect::new(Point::zero(), Size::new(800.0, 4000.0));
     h.tree.build_display_list(h.root_id, &mut list, clip);
@@ -512,4 +517,42 @@ fn wiki_escape_leaves_literal() {
     let m = parse_document(&handle.serialize());
     let BlockKind::Paragraph(t) = &m.blocks[0].kind else { panic!() };
     assert_eq!(t.text(), "аб [[x!");
+}
+
+// ─── Дроп файлов и patch_media (S8) ─────────────────────────────────────────
+
+#[test]
+fn drop_file_inserts_pending_and_patch_resolves() {
+    use std::sync::Mutex as StdMutex;
+    let handle = DocumentEditorHandle::new();
+    let dropped: Arc<StdMutex<Vec<(String, String)>>> = Arc::new(StdMutex::new(Vec::new()));
+    let dropped_cb = dropped.clone();
+    let mut h = TestHarness::new(Box::new(
+        DocumentEditor::new()
+            .markdown("абв\n")
+            .handle(&handle)
+            .on_drop_file(move |path, token| {
+                dropped_cb.lock().unwrap().push((path.display().to_string(), token));
+            }),
+    ));
+    h.tree.text_measure = Some(Arc::new(Mono));
+    h.rebuild();
+    h.layout(800.0, 2000.0);
+
+    h.tree.dispatch_drag_event(&Event::Drop {
+        position: Point::new(X0 + 20.0, Y0 + 40.0),
+        data: syngui::input::DragData::external_file(std::path::Path::new("/tmp/демо.mp4")),
+    });
+    settle(&mut h);
+
+    let calls = dropped.lock().unwrap().clone();
+    assert_eq!(calls.len(), 1, "колбэк дропа должен вызваться");
+    let token = calls[0].1.clone();
+    assert!(handle.serialize().contains(&format!("pending:{token}")));
+
+    // Хост «загрузил» файл и патчит url.
+    assert!(handle.patch_media(&token, "blob:aa11.mp4"));
+    settle(&mut h);
+    assert!(handle.serialize().contains("blob:aa11.mp4"), "{}", handle.serialize());
+    assert!(!handle.serialize().contains("pending:"));
 }

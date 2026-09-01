@@ -11,7 +11,7 @@ use crate::core::Color;
 use crate::widget::Widget;
 
 use super::chrome::Chrome;
-use super::links::DocLinkProvider;
+use super::links::{DocLinkProvider, DocMediaResolver};
 use super::model::{Attrs, BlockKind, DocBlock, InlineText, MediaKind};
 use super::state::GeomMap;
 use super::rows::{
@@ -25,6 +25,7 @@ pub struct BuildEnv {
     pub style: Arc<DocStyle>,
     pub geom: GeomMap,
     pub links: Option<Arc<dyn DocLinkProvider>>,
+    pub media: Option<Arc<dyn DocMediaResolver>>,
 }
 
 pub fn block_widget(block: &DocBlock, env: &BuildEnv) -> Box<dyn Widget> {
@@ -112,7 +113,7 @@ pub fn block_widget(block: &DocBlock, env: &BuildEnv) -> Box<dyn Widget> {
             style: style.clone(),
         }),
         BlockKind::Divider => Box::new(DividerView { style: style.clone() }),
-        BlockKind::Media { media, url, alt } => media_widget(block, *media, url, alt, style),
+        BlockKind::Media { media, url, alt } => media_widget(block, *media, url, alt, env),
         BlockKind::Embed { target } => Box::new(EmbedCard {
             block_id: block.id,
             target: target.clone(),
@@ -188,21 +189,55 @@ fn media_widget(
     media: MediaKind,
     url: &str,
     alt: &str,
-    style: &Arc<DocStyle>,
+    env: &BuildEnv,
 ) -> Box<dyn Widget> {
-    // Картинки с обычным путём/URL показываем сразу через ImageStore;
-    // blob:-ссылки резолвятся хостом на этапе S7 (DocMediaResolver).
-    if media == MediaKind::Image && !url.starts_with("blob:") {
-        #[cfg(feature = "image")]
-        {
-            use crate::widgets::visual::image::{Image, ImageFit};
-            let img = if url.starts_with("http://") || url.starts_with("https://") {
-                Image::from_url(url)
-            } else {
-                Image::new(url)
-            };
-            return Box::new(img.fit(ImageFit::Contain));
+    let style = &env.style;
+    // Файл ещё загружается в хранилище хоста (drop/paste): карточка «…».
+    if url.starts_with("pending:") {
+        return Box::new(MediaCard {
+            block_id: block.id,
+            glyph: MediaGlyph::File,
+            title: alt.to_string(),
+            subtitle: "…".to_string(),
+            style: style.clone(),
+        });
+    }
+    let resolved = env.media.as_ref().and_then(|m| m.resolve(url));
+    match media {
+        MediaKind::Image => {
+            #[cfg(feature = "image")]
+            {
+                use crate::widgets::visual::image::{Image, ImageFit};
+                if let Some(r) = &resolved {
+                    return Box::new(
+                        Image::new(r.path.display().to_string()).fit(ImageFit::Contain),
+                    );
+                }
+                if !url.starts_with("blob:") {
+                    let img = if url.starts_with("http://") || url.starts_with("https://") {
+                        Image::from_url(url)
+                    } else {
+                        Image::new(url)
+                    };
+                    return Box::new(img.fit(ImageFit::Contain));
+                }
+            }
         }
+        MediaKind::Video | MediaKind::Audio => {
+            // Живой плеер — когда есть резолвер, файл и ffmpeg.
+            #[cfg(feature = "ffmpeg")]
+            if let (Some(m), Some(_)) = (&env.media, &resolved) {
+                return Box::new(super::media_block::MediaBlock {
+                    block_id: block.id,
+                    kind: media,
+                    url: url.to_string(),
+                    alt: alt.to_string(),
+                    style: style.clone(),
+                    media: m.clone(),
+                });
+            }
+        }
+        MediaKind::File => {}
     }
     let glyph = match media {
         MediaKind::Video => MediaGlyph::Video,
