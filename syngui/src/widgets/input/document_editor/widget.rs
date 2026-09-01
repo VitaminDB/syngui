@@ -64,6 +64,27 @@ impl DocumentEditorHandle {
         self.revision
     }
 
+    /// Дописывает markdown-фрагмент в конец документа (палитра вставки
+    /// хоста). Id блоков фрагмента переназначаются из счётчика модели;
+    /// ревизия бампается, перестройку хост запускает через model_epoch.
+    pub fn append_markdown(&self, md: &str) {
+        let fragment = parse_document(md);
+        let mut model = lock(&self.model);
+        fn remap(blocks: &mut Vec<super::model::DocBlock>, model: &mut DocModel) {
+            for b in blocks.iter_mut() {
+                b.id = model.alloc_id();
+                if let Some(children) = b.kind.children_mut() {
+                    remap(children, model);
+                }
+            }
+        }
+        let mut blocks = fragment.blocks;
+        remap(&mut blocks, &mut model);
+        model.blocks.extend(blocks);
+        drop(model);
+        self.revision.set(self.revision.get_untracked() + 1);
+    }
+
     /// Замена `pending:<token>` на реальный url после ingest'а хоста
     /// (drop файла → фоновая загрузка в хранилище → patch). Бампает
     /// ревизию (автосейв запишет свежий url); перестройку виджетов хост
