@@ -109,6 +109,31 @@ pub fn prev_char_boundary(s: &str, offset: usize) -> usize {
     i
 }
 
+/// Заменяет байтовый диапазон wiki-ссылкой: текст `display`, цель `target`.
+/// Возвращает смещение сразу после ссылки.
+pub fn replace_with_wiki_link(
+    text: &mut InlineText,
+    start: usize,
+    end: usize,
+    target: &str,
+    display: &str,
+) -> usize {
+    text_delete(text, start, end);
+    let (left, right) = text_split(text, start);
+    let mut out = left;
+    out.0.push(InlineRun {
+        text: display.to_string(),
+        style: InlineStyle {
+            link: Some(LinkTarget::Wiki { target: target.to_string() }),
+            ..InlineStyle::default()
+        },
+    });
+    out.0.extend(right.0);
+    out.normalize();
+    *text = out;
+    start + display.len()
+}
+
 /// Применяет модификатор стиля к байтовому диапазону: раны разрезаются по
 /// границам, целевые получают `f`, соседние с одинаковым стилем сливаются.
 pub fn style_range(

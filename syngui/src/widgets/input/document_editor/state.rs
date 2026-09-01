@@ -13,7 +13,7 @@ use std::sync::{Arc, Mutex};
 
 use crate::core::Point;
 
-use super::model::{BlockId, BlockKind, DocBlock, DocModel};
+use super::model::{BlockId, BlockKind, DocBlock, DocModel, LinkTarget};
 
 /// Позиция каретки: блок + байтовое смещение в его тексте.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -138,6 +138,8 @@ pub struct GeomSeg {
     pub abs_start: usize,
     pub bold: bool,
     pub font_size: f32,
+    /// Ссылка сегмента (Ctrl+клик в контейнере).
+    pub link: Option<LinkTarget>,
 }
 
 impl GeomSeg {

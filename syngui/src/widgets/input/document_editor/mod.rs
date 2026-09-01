@@ -16,6 +16,7 @@ pub mod edit;
 mod build;
 mod chrome;
 pub mod linebox;
+pub mod links;
 pub mod model;
 pub mod parse;
 pub mod rows;
@@ -32,5 +33,6 @@ pub use model::{
 };
 pub use parse::parse_document;
 pub use serialize::serialize_document;
+pub use links::{DocLinkProvider, DocMediaResolver, LinkCandidate, ResolvedMedia};
 pub use style::DocStyle;
 pub use widget::{DocumentEditor, DocumentEditorHandle};

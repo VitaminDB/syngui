@@ -19,6 +19,7 @@ use crate::widget::context::{EventContext, TextMeasure, UpdateContext};
 use crate::widget::{DirtyFlags, Element, ElementId, ElementTree, Widget};
 
 use super::linebox::{layout_inline_text, InlineLayout};
+use super::links::DocLinkProvider;
 use super::model::{BlockId, InlineText, LinkTarget};
 use super::state::{GeomLine, GeomMap, GeomSeg};
 use super::style::DocStyle;
@@ -108,6 +109,8 @@ pub struct TextRow {
     pub style: Arc<DocStyle>,
     /// Реестр геометрии строк редактора (каретка/выделение контейнера).
     pub geom: Option<GeomMap>,
+    /// Провайдер ссылок хоста — окраска битых wiki-ссылок.
+    pub links: Option<Arc<dyn DocLinkProvider>>,
 }
 
 impl Widget for TextRow {
@@ -125,6 +128,7 @@ impl Widget for TextRow {
             gutter: self.gutter,
             style: self.style.clone(),
             geom: self.geom.clone(),
+            links: self.links.clone(),
             tm: None,
             cache: None,
         })
@@ -145,6 +149,7 @@ pub struct TextRowElement {
     gutter: f32,
     style: Arc<DocStyle>,
     geom: Option<GeomMap>,
+    links: Option<Arc<dyn DocLinkProvider>>,
     tm: Option<Arc<dyn TextMeasure>>,
     /// (ширина текстовой области, раскладка).
     cache: Option<(f32, InlineLayout)>,
@@ -205,6 +210,7 @@ impl TextRowElement {
                         abs_start: prefix.get(seg.run_idx).copied().unwrap_or(0) + seg.byte_start,
                         bold: seg.style.bold,
                         font_size: seg.style.font_size,
+                        link: seg.style.link.clone(),
                     })
                     .collect(),
             })
@@ -321,6 +327,7 @@ impl Element for TextRowElement {
         }
         self.block_id = w.block_id;
         self.geom = w.geom.clone();
+        self.links = w.links.clone();
     }
 
     fn mount(&mut self, tree: &mut ElementTree) {
@@ -344,6 +351,14 @@ impl Element for TextRowElement {
         for line in &layout.lines {
             for seg in &line.segs {
                 let color = match (&seg.style.link, seg.style.code) {
+                    (Some(LinkTarget::Wiki { target }), _) => {
+                        let missing = self
+                            .links
+                            .as_deref()
+                            .map(|l| !l.link_exists(target))
+                            .unwrap_or(false);
+                        if missing { s.link_missing_color } else { s.link_color }
+                    }
                     (Some(_), _) => s.link_color,
                     (None, true) => s.code_color,
                     (None, false) => self.color,

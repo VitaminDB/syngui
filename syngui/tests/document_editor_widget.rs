@@ -8,7 +8,7 @@ use syngui::input::{Event, Key, MouseButton};
 use syngui::render::DisplayList;
 use syngui::testing::TestHarness;
 use syngui::widget::context::TextMeasure;
-use syngui::widgets::input::document_editor::{DocumentEditor, DocumentEditorHandle};
+use syngui::widgets::input::document_editor::{parse_document, BlockKind, DocumentEditor, DocumentEditorHandle};
 
 /// Моноширинная метрика: 10px на символ.
 struct Mono;
@@ -444,4 +444,72 @@ fn move_block_unit() {
     let parent = m2.blocks[0].id;
     let child = m2.blocks[0].kind.children().unwrap()[0].id;
     assert!(!edit::move_block(&mut m2, parent, child, true));
+}
+
+// ─── Автокомплит [[ и ссылки (S7) ───────────────────────────────────────────
+
+struct StubLinks;
+impl syngui::widgets::input::document_editor::DocLinkProvider for StubLinks {
+    fn complete(
+        &self,
+        prefix: &str,
+    ) -> Vec<syngui::widgets::input::document_editor::LinkCandidate> {
+        use syngui::widgets::input::document_editor::LinkCandidate;
+        ["Проект X", "Проект Y", "План"]
+            .iter()
+            .filter(|t| t.to_lowercase().contains(&prefix.to_lowercase()))
+            .map(|t| LinkCandidate { target: t.to_string(), label: t.to_string() })
+            .collect()
+    }
+    fn link_exists(&self, target: &str) -> bool {
+        target != "Битая"
+    }
+}
+
+#[test]
+fn wiki_autocomplete_inserts_link() {
+    let handle = DocumentEditorHandle::new();
+    let mut h = TestHarness::new(Box::new(
+        DocumentEditor::new()
+            .markdown("см. \n")
+            .handle(&handle)
+            .links(Arc::new(StubLinks)),
+    ));
+    h.tree.text_measure = Some(Arc::new(Mono));
+    h.rebuild();
+    h.layout(800.0, 2000.0);
+    // NB: хвостовой пробел срезан парсером; кликаем в конец «см.».
+    let p = Point::new(X0 + 30.0, Y0 + 8.0);
+    h.send_event(&Event::MouseDown { button: MouseButton::Left, position: p });
+    h.send_event(&Event::MouseUp { button: MouseButton::Left, position: p });
+    type_str(&mut h, " [[план");
+    h.send_event(&Event::KeyDown(Key::Enter));
+    settle(&mut h);
+    assert_eq!(handle.serialize(), "см. [[План]]\n");
+}
+
+#[test]
+fn wiki_escape_leaves_literal() {
+    let handle = DocumentEditorHandle::new();
+    let mut h = TestHarness::new(Box::new(
+        DocumentEditor::new()
+            .markdown("аб\n")
+            .handle(&handle)
+            .links(Arc::new(StubLinks)),
+    ));
+    h.tree.text_measure = Some(Arc::new(Mono));
+    h.rebuild();
+    h.layout(800.0, 2000.0);
+    let p = Point::new(X0 + 40.0, Y0 + 8.0);
+    h.send_event(&Event::MouseDown { button: MouseButton::Left, position: p });
+    h.send_event(&Event::MouseUp { button: MouseButton::Left, position: p });
+    type_str(&mut h, " [[x");
+    h.send_event(&Event::KeyDown(Key::Escape));
+    type_str(&mut h, "!");
+    settle(&mut h);
+    // Литеральный `[[x!` при сериализации экранируется, при парсе он
+    // остаётся текстом (не ссылкой) — проверяем содержимое.
+    let m = parse_document(&handle.serialize());
+    let BlockKind::Paragraph(t) = &m.blocks[0].kind else { panic!() };
+    assert_eq!(t.text(), "аб [[x!");
 }

@@ -26,8 +26,9 @@ use crate::widget::{
     DirtyFlags, Element, ElementId, ElementTree, LayoutHint, StyledElement, Widget,
 };
 
-use super::build::block_widget;
+use super::build::{block_widget, BuildEnv};
 use super::edit;
+use super::links::{DocLinkProvider, DocMediaResolver, LinkCandidate};
 use super::history::{EditClass, UndoStack};
 use super::model::{BlockKind, DocBlock, DocModel, InlineStyle, InlineText};
 use super::shortcuts::{block_shortcut, try_inline_shortcut, BlockShortcut};
@@ -82,6 +83,8 @@ pub struct DocumentEditor {
     on_change: Option<Arc<dyn Fn() + Send + Sync>>,
     slash_items: Vec<SlashItem>,
     on_slash_custom: Option<Arc<dyn Fn(&str) + Send + Sync>>,
+    links: Option<Arc<dyn DocLinkProvider>>,
+    media: Option<Arc<dyn DocMediaResolver>>,
 }
 
 impl DocumentEditor {
@@ -94,7 +97,21 @@ impl DocumentEditor {
             on_change: None,
             slash_items: default_items(),
             on_slash_custom: None,
+            links: None,
+            media: None,
         }
+    }
+
+    /// Провайдер ссылок хоста: автокомплит `[[`, битые ссылки, открытие.
+    pub fn links(mut self, provider: Arc<dyn DocLinkProvider>) -> Self {
+        self.links = Some(provider);
+        self
+    }
+
+    /// Резолвер медиа хоста (`blob:` → локальный файл, постер, волна).
+    pub fn media(mut self, resolver: Arc<dyn DocMediaResolver>) -> Self {
+        self.media = Some(resolver);
+        self
     }
 
     /// Полная замена каталога slash-меню (локализация, свои пункты).
@@ -186,6 +203,9 @@ impl Widget for DocumentEditor {
             ui_rects: Mutex::new(UiRects::default()),
             hover_block: None,
             drag: None,
+            links: self.links.clone(),
+            media: self.media.clone(),
+            wiki: None,
         })
     }
 
@@ -241,6 +261,21 @@ pub struct DocumentEditorElement {
     hover_block: Option<super::model::BlockId>,
     /// Перетаскивание блока за ручку.
     drag: Option<DragBlock>,
+    links: Option<Arc<dyn DocLinkProvider>>,
+    media: Option<Arc<dyn DocMediaResolver>>,
+    /// Автокомплит wiki-ссылки `[[`.
+    wiki: Option<WikiState>,
+}
+
+/// Состояние открытого автокомплита `[[`.
+struct WikiState {
+    block: super::model::BlockId,
+    /// Смещение первой `[` в тексте блока.
+    start: usize,
+    query: String,
+    selected: usize,
+    /// Кандидаты последнего запроса (замораживаются на кадр отрисовки).
+    candidates: Vec<LinkCandidate>,
 }
 
 /// Состояние перетаскивания блока.
@@ -263,6 +298,8 @@ struct UiRects {
     toolbar: Option<(Rect, f32)>,
     /// (прямоугольник ручки ⋮⋮, блок).
     handle: Option<(Rect, super::model::BlockId)>,
+    /// (прямоугольник wiki-меню, число пунктов).
+    wiki: Option<(Rect, usize)>,
 }
 
 impl DocumentEditorElement {
@@ -1188,6 +1225,144 @@ impl DocumentEditorElement {
         }
     }
 
+    /// Ссылка сегмента под курсором (для Ctrl+клика).
+    fn link_at(&self, p: Point) -> Option<super::model::LinkTarget> {
+        let map = self.geom.lock().ok()?;
+        for row in map.values() {
+            for line in &row.lines {
+                let y0 = row.origin.y + line.y;
+                if p.y < y0 || p.y > y0 + row.line_h {
+                    continue;
+                }
+                for seg in &line.segs {
+                    let x0 = row.origin.x + seg.x;
+                    if p.x >= x0 && p.x <= x0 + seg.width {
+                        return seg.link.clone();
+                    }
+                }
+            }
+        }
+        None
+    }
+
+    fn wiki_candidates(&self, query: &str) -> Vec<LinkCandidate> {
+        let mut out = self
+            .links
+            .as_deref()
+            .map(|l| l.complete(query))
+            .unwrap_or_default();
+        out.truncate(SLASH_MAX_ROWS);
+        // Без совпадений, но с запросом — пункт «создать как есть».
+        if out.is_empty() && !query.is_empty() {
+            out.push(LinkCandidate { target: query.to_string(), label: query.to_string() });
+        }
+        out
+    }
+
+    /// Открытие автокомплита после ввода второй `[`.
+    fn maybe_open_wiki(&mut self) {
+        let Some(pos) = self.caret() else { return };
+        let ok = {
+            let model = self.model();
+            let text = edit::find_block(&model.blocks, pos.block)
+                .and_then(|b| b.kind.text())
+                .map(|t| t.text())
+                .unwrap_or_default();
+            pos.offset >= 2 && text[..pos.offset].ends_with("[[")
+        };
+        if ok {
+            self.close_slash();
+            self.wiki = Some(WikiState {
+                block: pos.block,
+                start: pos.offset - 2,
+                query: String::new(),
+                selected: 0,
+                candidates: self.wiki_candidates(""),
+            });
+            self.mark_dirty(DirtyFlags::RENDER);
+        }
+    }
+
+    fn close_wiki(&mut self) {
+        if self.wiki.take().is_some() {
+            self.mark_dirty(DirtyFlags::RENDER);
+        }
+    }
+
+    /// Применение кандидата: `[[query` заменяется готовой wiki-ссылкой.
+    fn apply_wiki(&mut self, idx: usize) {
+        let Some(w) = self.wiki.take() else { return };
+        let Some(c) = w.candidates.get(idx).cloned() else { return };
+        self.checkpoint(EditClass::Structure);
+        let end = w.start + 2 + w.query.len();
+        let new_offset = {
+            let mut model = self.model();
+            edit::find_block_mut(&mut model.blocks, w.block)
+                .and_then(|b| b.kind.text_mut())
+                .map(|t| edit::replace_with_wiki_link(t, w.start, end, &c.target, &c.target))
+        };
+        if let Some(offset) = new_offset {
+            self.selection =
+                Some(DocSelection::caret(CaretPos { block: w.block, offset }));
+        }
+        self.after_edit();
+    }
+
+    /// Меню автокомплита `[[` под кареткой.
+    fn draw_wiki_menu(&self, list: &mut DisplayList) {
+        let Some(w) = &self.wiki else { return };
+        let anchor = self
+            .caret_rect(CaretPos { block: w.block, offset: w.start })
+            .or_else(|| self.caret().and_then(|p| self.caret_rect(p)));
+        let Some(anchor) = anchor else { return };
+        let count = w.candidates.len().min(SLASH_MAX_ROWS);
+        if count == 0 {
+            return;
+        }
+        let s = &self.style;
+        let rect = Rect::new(
+            Point::new(anchor.origin.x, anchor.origin.y + anchor.size.height + 4.0),
+            Size::new(SLASH_MENU_W, count as f32 * SLASH_ROW_H + 8.0),
+        );
+        list.push_rect(rect, s.menu_bg, [8.0; 4]);
+        for edge in edges(rect) {
+            list.push_rect(edge, s.menu_border, [0.0; 4]);
+        }
+        let selected = w.selected.min(count - 1);
+        for (i, item) in w.candidates.iter().take(count).enumerate() {
+            let row = Rect::new(
+                Point::new(rect.origin.x + 4.0, rect.origin.y + 4.0 + i as f32 * SLASH_ROW_H),
+                Size::new(rect.size.width - 8.0, SLASH_ROW_H),
+            );
+            if i == selected {
+                list.push_rect(row, s.menu_sel_bg, [5.0; 4]);
+            }
+            list.push_text_styled_singleline(
+                &item.label,
+                Rect::new(
+                    Point::new(
+                        row.origin.x + 8.0,
+                        row.origin.y + (SLASH_ROW_H - s.text_size * 1.3) / 2.0,
+                    ),
+                    Size::new(row.size.width - 16.0, s.text_size * 1.4),
+                ),
+                s.link_color,
+                s.text_size,
+                TextAlign::DEFAULT,
+                TextDecoration::None,
+                400,
+                None,
+            );
+        }
+        if let Ok(mut ui) = self.ui_rects.lock() {
+            let hit = Rect::new(
+                Point::new(rect.origin.x, rect.origin.y + 4.0),
+                Size::new(rect.size.width, count as f32 * SLASH_ROW_H),
+            );
+            ui.wiki = Some((hit, count));
+        }
+    }
+
     /// Slash-меню под кареткой.
     fn draw_slash_menu(&self, list: &mut DisplayList) {
         let Some(sl) = &self.slash else { return };
@@ -1328,6 +1503,12 @@ impl Element for DocumentEditorElement {
         let Some(w) = widget.as_any().downcast_ref::<DocumentEditor>() else { return };
         self.read_only = w.read_only;
         self.on_change = w.on_change.clone();
+        let links_changed = self.links.is_some() != w.links.is_some();
+        self.links = w.links.clone();
+        self.media = w.media.clone();
+        if links_changed {
+            self.rebuild = true;
+        }
         if let Some(h) = &w.handle {
             if !Arc::ptr_eq(&self.model, &h.model) {
                 self.model = h.model.clone();
@@ -1383,8 +1564,13 @@ impl Element for DocumentEditorElement {
     }
 
     fn build_children(&self) -> Vec<Box<dyn Widget>> {
+        let env = BuildEnv {
+            style: self.style.clone(),
+            geom: self.geom.clone(),
+            links: self.links.clone(),
+        };
         let model = self.model();
-        model.blocks.iter().map(|b| block_widget(b, &self.style, &self.geom)).collect()
+        model.blocks.iter().map(|b| block_widget(b, &env)).collect()
     }
 
     fn clear_rebuild(&mut self) {
@@ -1413,6 +1599,7 @@ impl Element for DocumentEditorElement {
         }
         self.draw_drag_ui(list);
         self.draw_slash_menu(list);
+        self.draw_wiki_menu(list);
         self.draw_toolbar(list);
         let Some(pos) = self.caret() else { return };
         let Some(rect) = self.caret_rect(pos) else { return };
@@ -1478,6 +1665,15 @@ impl Element for DocumentEditorElement {
                 }
                 self.focused = true;
                 ctx.set_focused_text(String::new());
+                // Ctrl+клик — открытие ссылки через провайдера хоста.
+                if ctx.modifiers.ctrl {
+                    if let Some(link) = self.link_at(*position) {
+                        if let Some(provider) = &self.links {
+                            provider.open_link(&link);
+                        }
+                        return EventResult::Handled;
+                    }
+                }
                 // Клик по панелям, нарисованным поверх (тулбар, slash-меню).
                 if !self.read_only {
                     let (toolbar_hit, slash_hit) = {
@@ -1656,6 +1852,54 @@ impl Element for DocumentEditorElement {
                 let shift = ctx.modifiers.shift;
                 let ctrl = ctx.modifiers.ctrl;
                 let editable = !self.read_only;
+                // Автокомплит [[ перехватывает навигацию.
+                if let Some(w) = &mut self.wiki {
+                    let count = w.candidates.len();
+                    match key {
+                        Key::Up => {
+                            w.selected = w.selected.saturating_sub(1);
+                            self.mark_dirty(DirtyFlags::RENDER);
+                            return EventResult::Handled;
+                        }
+                        Key::Down => {
+                            if count > 0 {
+                                w.selected = (w.selected + 1).min(count - 1);
+                            }
+                            self.mark_dirty(DirtyFlags::RENDER);
+                            return EventResult::Handled;
+                        }
+                        Key::Enter | Key::Tab => {
+                            let idx = w.selected;
+                            self.apply_wiki(idx);
+                            return EventResult::Handled;
+                        }
+                        Key::Escape => {
+                            self.close_wiki();
+                            return EventResult::Handled;
+                        }
+                        Key::Left | Key::Right => {
+                            self.close_wiki();
+                        }
+                        Key::Backspace => {
+                            if w.query.pop().is_none() {
+                                self.close_wiki();
+                            } else {
+                                let q = self.wiki.as_ref().map(|w| w.query.clone());
+                                if let Some(q) = q {
+                                    let cands = self.wiki_candidates(&q);
+                                    if let Some(w) = &mut self.wiki {
+                                        w.candidates = cands;
+                                        w.selected = 0;
+                                    }
+                                }
+                            }
+                            self.checkpoint(EditClass::Deleting);
+                            self.backspace();
+                            return EventResult::Handled;
+                        }
+                        _ => {}
+                    }
+                }
                 // Slash-меню перехватывает навигацию.
                 if let Some(sl) = &mut self.slash {
                     let count = filter_items(&self.slash_items, &sl.query).len();
@@ -1831,6 +2075,25 @@ impl Element for DocumentEditorElement {
                 self.checkpoint(EditClass::Typing);
                 let mut buf = [0u8; 4];
                 self.insert_str(ch.encode_utf8(&mut buf));
+                // Автокомплит [[: набор уточняет кандидатов.
+                if self.wiki.is_some() {
+                    if ch.is_whitespace() || ch == ']' {
+                        self.close_wiki();
+                    } else {
+                        let q = {
+                            let w = self.wiki.as_mut().expect("wiki активен");
+                            w.query.push(ch);
+                            w.selected = 0;
+                            w.query.clone()
+                        };
+                        let cands = self.wiki_candidates(&q);
+                        if let Some(w) = &mut self.wiki {
+                            w.candidates = cands;
+                        }
+                        self.mark_dirty(DirtyFlags::RENDER);
+                    }
+                    return EventResult::Handled;
+                }
                 // Slash-меню: набор уточняет фильтр (пробел закрывает).
                 if let Some(sl) = &mut self.slash {
                     if ch.is_whitespace() {
@@ -1844,6 +2107,7 @@ impl Element for DocumentEditorElement {
                 }
                 match ch {
                     '/' => self.maybe_open_slash(),
+                    '[' => self.maybe_open_wiki(),
                     ' ' => {
                         self.maybe_block_shortcut();
                     }
