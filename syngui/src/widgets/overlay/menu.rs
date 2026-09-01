@@ -641,7 +641,7 @@ impl Element for PopupMenuElement {
                 }
                 EventResult::Handled
             }
-            Event::KeyDown(crate::input::Key::Escape) => {
+            Event::KeyDown(crate::input::Key::Escape) | Event::BackPressed => {
                 self.close_menu(ctx);
                 EventResult::Handled
             }

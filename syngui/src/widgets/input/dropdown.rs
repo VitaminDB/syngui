@@ -653,6 +653,15 @@ impl Element for DropdownElement {
                 }
                 EventResult::Ignored
             }
+            Event::BackPressed => {
+                if self.is_open {
+                    self.is_open = false;
+                    ctx.unregister_overlay();
+                    ctx.request_paint();
+                    return EventResult::Handled;
+                }
+                EventResult::Ignored
+            }
             Event::KeyDown(key) => {
                 if self.is_open {
                     match key {

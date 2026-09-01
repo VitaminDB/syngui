@@ -68,6 +68,7 @@ impl winit::application::ApplicationHandler<SynGuiUserEvent> for AppHandler {
             winit::event::WindowEvent::CloseRequested => {
                 #[cfg(target_os = "android")]
                 {
+                    let _ = &event_loop;
                     let back_event = Event::BackPressed;
                     if let Some(root_id) = self.root_id {
                         let result = self.tree.handle_event(root_id, &back_event);
@@ -78,7 +79,9 @@ impl winit::application::ApplicationHandler<SynGuiUserEvent> for AppHandler {
                             return;
                         }
                     }
-                    event_loop.exit();
+                    // Необработанный «назад» сворачивает приложение, а не
+                    // завершает его — стандартное поведение Android.
+                    self.move_task_to_back();
                 }
                 #[cfg(not(target_os = "android"))]
                 {

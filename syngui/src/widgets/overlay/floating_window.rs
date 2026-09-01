@@ -691,6 +691,15 @@ impl Element for FloatingWindowElement {
         }
 
         match event {
+            Event::BackPressed => {
+                if self.closable {
+                    self.close_window(ctx);
+                    return EventResult::Handled;
+                }
+                // Незакрываемое окно «съедает» жест: назад под модалкой
+                // уводил бы навигацию, пока окно остаётся на экране.
+                return EventResult::Handled;
+            }
             Event::MouseMove(pos) => {
                 if let Some(edge) = self.resizing {
                     self.apply_resize(edge, *pos);

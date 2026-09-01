@@ -104,6 +104,7 @@ type RouteBuilder = Arc<dyn Fn() -> Box<dyn Widget> + Send + Sync>;
 pub struct RouterView {
     router: Arc<Mutex<Router>>,
     builders: Vec<(String, RouteBuilder)>,
+    handle_back: bool,
 }
 
 impl RouterView {
@@ -111,6 +112,7 @@ impl RouterView {
         Self {
             router,
             builders: Vec::new(),
+            handle_back: true,
         }
     }
 
@@ -120,6 +122,16 @@ impl RouterView {
         builder: impl Fn() -> Box<dyn Widget> + Send + Sync + 'static,
     ) -> Self {
         self.builders.push((key.into(), Arc::new(builder)));
+        self
+    }
+
+    /// Обрабатывать ли [`Event::BackPressed`] самим RouterView (по умолчанию —
+    /// да: шаг назад по истории). Приложение, которое держит вокруг роутера
+    /// собственное состояние (подсветка навигации, крошки) и обрабатывает
+    /// «назад» само, выключает встроенную обработку, иначе RouterView перехватит
+    /// событие раньше и состояние приложения разъедется с историей.
+    pub fn handle_back(mut self, on: bool) -> Self {
+        self.handle_back = on;
         self
     }
 }
@@ -139,6 +151,7 @@ impl Widget for RouterView {
             active_key,
             pending_rebuild: false,
             changed_flag,
+            handle_back: self.handle_back,
             classes: Vec::new(),
             dirty_flags: DirtyFlags::LAYOUT | DirtyFlags::RENDER,
             mss: MssFields::new(),
@@ -180,6 +193,7 @@ struct RouterViewElement {
     active_key: String,
     pending_rebuild: bool,
     changed_flag: Arc<AtomicBool>,
+    handle_back: bool,
     classes: Vec<String>,
     dirty_flags: DirtyFlags,
     mss: MssFields,
@@ -194,6 +208,7 @@ impl Element for RouterViewElement {
             self.changed_flag = router_lock.changed_flag();
             drop(router_lock);
             self.active_key = self.router.lock().unwrap().current().to_string();
+            self.handle_back = rv.handle_back;
             self.pending_rebuild = true;
             self.mark_dirty(DirtyFlags::LAYOUT | DirtyFlags::RENDER);
         }
@@ -258,7 +273,7 @@ impl Element for RouterViewElement {
     }
 
     fn handle_event(&mut self, event: &Event, _ctx: &mut EventContext) -> EventResult {
-        if matches!(event, Event::BackPressed) {
+        if self.handle_back && matches!(event, Event::BackPressed) {
             if let Ok(mut r) = self.router.lock() {
                 if r.can_go_back() {
                     r.back();

@@ -103,9 +103,49 @@ impl AppHandler {
             }
 
             let back_event = Event::BackPressed;
-            if let Some(root_id) = self.root_id {
-                let _result = self.tree.handle_event(root_id, &back_event);
+            let handled = self
+                .root_id
+                .map(|root_id| self.tree.handle_event(root_id, &back_event).is_handled())
+                .unwrap_or(false);
+            if handled {
+                if let Some(ref window) = self.window {
+                    window.request_redraw();
+                }
+            } else {
+                // Некому обрабатывать «назад» — стандартное поведение Android:
+                // приложение сворачивается (не завершается).
+                self.move_task_to_back();
             }
+        }
+    }
+
+    /// `Activity.moveTaskToBack(true)`: свернуть приложение — реакция на жест
+    /// «назад», который не обработал ни один виджет.
+    #[cfg(target_os = "android")]
+    pub(crate) fn move_task_to_back(&self) {
+        use jni::objects::JObject;
+
+        let Some(ref android_app) = self.android_app else { return };
+        let vm_ptr = android_app.vm_as_ptr();
+        let activity_ptr = android_app.activity_as_ptr();
+        if vm_ptr.is_null() || activity_ptr.is_null() {
+            return;
+        }
+
+        unsafe {
+            let Ok(vm) = jni::JavaVM::from_raw(vm_ptr as *mut jni::sys::JavaVM) else { return };
+            let Ok(mut env) = vm.attach_current_thread_permanently() else {
+                std::mem::forget(vm);
+                return;
+            };
+            let activity = JObject::from_raw(activity_ptr as jni::sys::jobject);
+            if env
+                .call_method(&activity, "moveTaskToBack", "(Z)Z", &[jni::objects::JValue::Bool(1)])
+                .is_err()
+            {
+                let _ = env.exception_clear();
+            }
+            std::mem::forget(vm);
         }
     }
 
