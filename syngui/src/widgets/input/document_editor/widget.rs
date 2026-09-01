@@ -36,8 +36,8 @@ use super::slash::{default_items, filter_items, SlashAction, SlashItem, SlashSta
 use super::parse::parse_document;
 use super::serialize::serialize_document;
 use super::state::{
-    gutter_action, new_geom_map, BlockOrder, CaretPos, DocSelection, GeomMap, GutterAction,
-    RowGeom,
+    gutter_action, new_geom_map, new_table_geom_map, BlockOrder, CaretPos, DocSelection, GeomMap,
+    GutterAction, RowGeom, TableCaret, TableGeom, TableGeomMap,
 };
 use super::style::DocStyle;
 
@@ -277,6 +277,8 @@ impl Widget for DocumentEditor {
             read_only: self.read_only,
             rebuild: true,
             geom: new_geom_map(),
+            tables: new_table_geom_map(),
+            table_caret: None,
             tm: None,
             focused: false,
             selection: None,
@@ -334,6 +336,10 @@ pub struct DocumentEditorElement {
     read_only: bool,
     rebuild: bool,
     geom: GeomMap,
+    /// Геометрия таблиц (публикуют TableBlockElement'ы).
+    tables: TableGeomMap,
+    /// Каретка внутри ячейки таблицы (отдельный режим от `selection`).
+    table_caret: Option<TableCaret>,
     tm: Option<Arc<dyn TextMeasure>>,
     focused: bool,
     selection: Option<DocSelection>,
@@ -984,6 +990,7 @@ impl DocumentEditorElement {
         };
         drop(model);
         self.selection = Some(sel);
+        self.table_caret = None;
         self.mark_dirty(DirtyFlags::RENDER);
     }
 
@@ -1257,11 +1264,15 @@ impl DocumentEditorElement {
                         rect.size,
                     );
                     c.set_color(s.muted_color.with_alpha(0.8));
+                    // Сетка 2×3 точки, отцентрованная в рамке ручки:
+                    // ширина 7+2r, высота 12+2r при r=1.6.
+                    let x0 = (HANDLE_W - 7.0 - 3.2) / 2.0 + 1.6;
+                    let y0 = (HANDLE_H - 12.0 - 3.2) / 2.0 + 1.6;
                     for row in 0..3 {
                         for col in 0..2 {
                             c.fill_circle(
-                                3.0 + col as f32 * 7.0,
-                                3.0 + row as f32 * 6.0,
+                                x0 + col as f32 * 7.0,
+                                y0 + row as f32 * 6.0,
                                 1.6,
                             );
                         }
@@ -1566,10 +1577,17 @@ impl DocumentEditorElement {
         let Some(anchor) = self.caret_rect(start) else { return };
         let s = &self.style;
         let labels = ["B", "I", "S", "<>"];
-        let rect = Rect::new(
-            Point::new(anchor.origin.x, (anchor.origin.y - TOOLBAR_H - 6.0).max(0.0)),
-            Size::new(TOOLBAR_BTN_W * labels.len() as f32, TOOLBAR_H),
-        );
+        let w = TOOLBAR_BTN_W * labels.len() as f32;
+        // Над выделением; у верхней кромки редактора места нет (тулбар
+        // уходил под шапку панели) — переносим под строку выделения.
+        let mut y = anchor.origin.y - TOOLBAR_H - 6.0;
+        if y < self.bounds.origin.y + 2.0 {
+            y = anchor.origin.y + anchor.size.height + 6.0;
+        }
+        let max_x = (self.bounds.origin.x + self.bounds.size.width - w - 4.0)
+            .max(self.bounds.origin.x);
+        let x = anchor.origin.x.min(max_x);
+        let rect = Rect::new(Point::new(x, y), Size::new(w, TOOLBAR_H));
         list.push_rect(rect, s.menu_bg, [6.0; 4]);
         for edge in edges(rect) {
             list.push_rect(edge, s.menu_border, [0.0; 4]);
@@ -1597,6 +1615,291 @@ impl DocumentEditorElement {
             ui.toolbar = Some((rect, TOOLBAR_BTN_W));
         }
     }
+}
+
+// ─── Редактирование ячеек таблицы ───────────────────────────────────────────
+//
+// Таблица — лист без своей каретки: геометрию публикует TableBlockElement,
+// а контейнер по ней хит-тестит ячейки, держит [`TableCaret`] (отдельный
+// режим от `selection`), правит плоский текст ячейки в модели и рисует
+// рамку/каретку поверх.
+impl DocumentEditorElement {
+    fn table_geom_of(&self, block: super::model::BlockId) -> Option<TableGeom> {
+        self.tables.lock().ok()?.get(&block).cloned()
+    }
+
+    /// Хит-тест точки в ячейку таблицы.
+    fn table_hit(&self, p: Point) -> Option<TableCaret> {
+        let (block, row, col, cell_x) = {
+            let map = self.tables.lock().ok()?;
+            let mut found = None;
+            for (id, g) in map.iter() {
+                if g.col_widths.is_empty() || g.rows_n == 0 {
+                    continue;
+                }
+                let w = g.total_width();
+                let h = g.rows_n as f32 * g.row_h;
+                if p.x < g.origin.x
+                    || p.x > g.origin.x + w
+                    || p.y < g.origin.y
+                    || p.y > g.origin.y + h
+                {
+                    continue;
+                }
+                let row = (((p.y - g.origin.y) / g.row_h) as usize).min(g.rows_n - 1);
+                let mut col = g.col_widths.len() - 1;
+                let mut x = g.origin.x;
+                for (i, cw) in g.col_widths.iter().enumerate() {
+                    if p.x < x + cw {
+                        col = i;
+                        break;
+                    }
+                    x += cw;
+                }
+                found = Some((*id, row, col, g.col_x(col)));
+                break;
+            }
+            found?
+        };
+        let text = self.table_cell_text(block, row, col)?;
+        let offset = match self.tm.as_deref() {
+            Some(tm) => {
+                let local_x = p.x - cell_x - self.style.table_cell_padding_h;
+                let ci =
+                    tm.hit_test_char_styled(&text, self.style.text_size, local_x.max(0.0), None);
+                text.char_indices().nth(ci).map(|(b, _)| b).unwrap_or(text.len())
+            }
+            None => text.len(),
+        };
+        Some(TableCaret { block, row, col, offset })
+    }
+
+    /// Плоский текст ячейки (`row == 0` — шапка). Отсутствующая ячейка
+    /// ragged-строки — пустая строка.
+    fn table_cell_text(
+        &self,
+        block: super::model::BlockId,
+        row: usize,
+        col: usize,
+    ) -> Option<String> {
+        let model = self.model();
+        let b = edit::find_block(&model.blocks, block)?;
+        let BlockKind::Table { headers, rows, .. } = &b.kind else { return None };
+        let cell = if row == 0 { headers.get(col) } else { rows.get(row.checked_sub(1)?)?.get(col) };
+        Some(cell.map(|t| t.text()).unwrap_or_default())
+    }
+
+    /// Записывает плоский текст в ячейку; недостающие ячейки добивает пустыми.
+    fn set_table_cell(&mut self, tc: TableCaret, new_text: String) {
+        {
+            let mut model = self.model();
+            let Some(b) = edit::find_block_mut(&mut model.blocks, tc.block) else { return };
+            let BlockKind::Table { headers, rows, .. } = &mut b.kind else { return };
+            let slot = if tc.row == 0 {
+                while headers.len() <= tc.col {
+                    headers.push(InlineText::default());
+                }
+                headers.get_mut(tc.col)
+            } else {
+                let Some(data_row) = rows.get_mut(tc.row - 1) else { return };
+                while data_row.len() <= tc.col {
+                    data_row.push(InlineText::default());
+                }
+                data_row.get_mut(tc.col)
+            };
+            if let Some(cell) = slot {
+                *cell = InlineText::plain(new_text);
+            }
+        }
+        self.after_edit();
+    }
+
+    /// Вставка текста в позицию каретки таблицы.
+    fn table_insert(&mut self, s: &str) {
+        let Some(tc) = self.table_caret else { return };
+        let Some(mut text) = self.table_cell_text(tc.block, tc.row, tc.col) else { return };
+        let at = floor_char_boundary(&text, tc.offset);
+        text.insert_str(at, s);
+        self.table_caret = Some(TableCaret { offset: at + s.len(), ..tc });
+        self.set_table_cell(tc, text);
+    }
+
+    /// Перевод каретки в другую ячейку (смещение в конец её текста — как
+    /// при переходе Tab'ом; `offset` подрежется при отрисовке).
+    fn table_goto(&mut self, tc: TableCaret, row: usize, col: usize, at_end: bool) {
+        let offset = if at_end {
+            self.table_cell_text(tc.block, row, col).map(|t| t.len()).unwrap_or(0)
+        } else {
+            0
+        };
+        self.table_caret = Some(TableCaret { block: tc.block, row, col, offset });
+        self.caret_on = true;
+        self.blink_ms = 0.0;
+        self.mark_dirty(DirtyFlags::RENDER);
+    }
+
+    /// Клавиши в режиме каретки таблицы. `true` — событие поглощено.
+    fn table_key(&mut self, key: &Key, shift: bool) -> bool {
+        let Some(tc) = self.table_caret else { return false };
+        let Some(text) = self.table_cell_text(tc.block, tc.row, tc.col) else {
+            self.table_caret = None;
+            return false;
+        };
+        let Some(g) = self.table_geom_of(tc.block) else {
+            self.table_caret = None;
+            return false;
+        };
+        let (cols, rows_n) = (g.col_widths.len().max(1), g.rows_n.max(1));
+        let off = floor_char_boundary(&text, tc.offset);
+        match key {
+            Key::Escape => {
+                self.table_caret = None;
+                self.mark_dirty(DirtyFlags::RENDER);
+                true
+            }
+            Key::Left => {
+                if off > 0 {
+                    let new = edit::prev_char_boundary(&text, off);
+                    self.table_caret = Some(TableCaret { offset: new, ..tc });
+                    self.caret_on = true;
+                    self.mark_dirty(DirtyFlags::RENDER);
+                } else if tc.col > 0 {
+                    self.table_goto(tc, tc.row, tc.col - 1, true);
+                } else if tc.row > 0 {
+                    self.table_goto(tc, tc.row - 1, cols - 1, true);
+                }
+                true
+            }
+            Key::Right => {
+                if off < text.len() {
+                    let new = edit::next_char_boundary(&text, off);
+                    self.table_caret = Some(TableCaret { offset: new, ..tc });
+                    self.caret_on = true;
+                    self.mark_dirty(DirtyFlags::RENDER);
+                } else if tc.col + 1 < cols {
+                    self.table_goto(tc, tc.row, tc.col + 1, false);
+                } else if tc.row + 1 < rows_n {
+                    self.table_goto(tc, tc.row + 1, 0, false);
+                }
+                true
+            }
+            Key::Up => {
+                if tc.row > 0 {
+                    self.table_goto(tc, tc.row - 1, tc.col, true);
+                }
+                true
+            }
+            Key::Down | Key::Enter => {
+                if tc.row + 1 < rows_n {
+                    self.table_goto(tc, tc.row + 1, tc.col, true);
+                } else if matches!(key, Key::Enter) {
+                    // Внизу таблицы Enter выходит из режима ячейки.
+                    self.table_caret = None;
+                    self.mark_dirty(DirtyFlags::RENDER);
+                }
+                true
+            }
+            Key::Tab => {
+                if shift {
+                    if tc.col > 0 {
+                        self.table_goto(tc, tc.row, tc.col - 1, true);
+                    } else if tc.row > 0 {
+                        self.table_goto(tc, tc.row - 1, cols - 1, true);
+                    }
+                } else if tc.col + 1 < cols {
+                    self.table_goto(tc, tc.row, tc.col + 1, true);
+                } else if tc.row + 1 < rows_n {
+                    self.table_goto(tc, tc.row + 1, 0, true);
+                }
+                true
+            }
+            Key::Home => {
+                self.table_caret = Some(TableCaret { offset: 0, ..tc });
+                self.mark_dirty(DirtyFlags::RENDER);
+                true
+            }
+            Key::End => {
+                self.table_caret = Some(TableCaret { offset: text.len(), ..tc });
+                self.mark_dirty(DirtyFlags::RENDER);
+                true
+            }
+            Key::Backspace => {
+                if off > 0 {
+                    self.checkpoint(EditClass::Typing);
+                    let start = edit::prev_char_boundary(&text, off);
+                    let mut new_text = text;
+                    new_text.replace_range(start..off, "");
+                    self.table_caret = Some(TableCaret { offset: start, ..tc });
+                    self.set_table_cell(tc, new_text);
+                }
+                true
+            }
+            Key::Delete => {
+                if off < text.len() {
+                    self.checkpoint(EditClass::Typing);
+                    let end = edit::next_char_boundary(&text, off);
+                    let mut new_text = text;
+                    new_text.replace_range(off..end, "");
+                    self.table_caret = Some(TableCaret { offset: off, ..tc });
+                    self.set_table_cell(tc, new_text);
+                }
+                true
+            }
+            _ => false,
+        }
+    }
+
+    /// Рамка редактируемой ячейки и каретка в ней.
+    fn draw_table_caret(&self, list: &mut DisplayList) {
+        let Some(tc) = self.table_caret else { return };
+        let Some(g) = self.table_geom_of(tc.block) else { return };
+        if tc.col >= g.col_widths.len() || tc.row >= g.rows_n {
+            return;
+        }
+        let s = &self.style;
+        let x0 = g.col_x(tc.col);
+        let y0 = g.origin.y + tc.row as f32 * g.row_h;
+        let w = g.col_widths[tc.col];
+        let cell = Rect::new(Point::new(x0, y0), Size::new(w, g.row_h));
+        for edge in edges(cell) {
+            list.push_rect(edge, s.caret_color, [0.0; 4]);
+        }
+        if !self.caret_on {
+            return;
+        }
+        let text = self.table_cell_text(tc.block, tc.row, tc.col).unwrap_or_default();
+        let off = floor_char_boundary(&text, tc.offset);
+        let prefix = &text[..off];
+        let px = match self.tm.as_deref() {
+            Some(tm) => tm.measure_text_width_styled(
+                prefix,
+                s.text_size,
+                prefix.chars().count(),
+                tc.row == 0,
+                None,
+            ),
+            None => 0.0,
+        };
+        let cx = (x0 + s.table_cell_padding_h + px).min(x0 + w - 3.0);
+        list.push_rect(
+            Rect::new(
+                Point::new(cx, y0 + s.table_cell_padding_v),
+                Size::new(2.0, (g.row_h - s.table_cell_padding_v * 2.0).max(4.0)),
+            ),
+            s.caret_color,
+            [1.0; 4],
+        );
+    }
+}
+
+/// Ближайшая граница символа не выше `at` (после внешних правок смещение
+/// могло уйти внутрь многобайтового символа).
+fn floor_char_boundary(s: &str, at: usize) -> usize {
+    let mut i = at.min(s.len());
+    while i > 0 && !s.is_char_boundary(i) {
+        i -= 1;
+    }
+    i
 }
 
 const SLASH_ROW_H: f32 = 26.0;
@@ -1721,6 +2024,7 @@ impl Element for DocumentEditorElement {
         let env = BuildEnv {
             style: self.style.clone(),
             geom: self.geom.clone(),
+            tables: self.tables.clone(),
             links: self.links.clone(),
             media: self.media.clone(),
             embeds: self.embeds.clone(),
@@ -1738,6 +2042,9 @@ impl Element for DocumentEditorElement {
             alive.insert(b.id);
         });
         if let Ok(mut map) = self.geom.lock() {
+            map.retain(|id, _| alive.contains(id));
+        }
+        if let Ok(mut map) = self.tables.lock() {
             map.retain(|id, _| alive.contains(id));
         }
     }
@@ -1758,6 +2065,7 @@ impl Element for DocumentEditorElement {
         self.draw_slash_menu(list);
         self.draw_wiki_menu(list);
         self.draw_toolbar(list);
+        self.draw_table_caret(list);
         let Some(pos) = self.caret() else { return };
         let Some(rect) = self.caret_rect(pos) else { return };
         if self.caret_on {
@@ -1906,7 +2214,20 @@ impl Element for DocumentEditorElement {
                         return EventResult::Handled;
                     }
                 }
+                // Клик в ячейку таблицы — режим каретки таблицы.
+                if !self.read_only {
+                    if let Some(tc) = self.table_hit(*position) {
+                        self.table_caret = Some(tc);
+                        self.selection = None;
+                        self.goal_x = None;
+                        self.caret_on = true;
+                        self.blink_ms = 0.0;
+                        self.mark_dirty(DirtyFlags::RENDER);
+                        return EventResult::Handled;
+                    }
+                }
                 if let Some(pos) = self.hit_caret(*position) {
+                    self.table_caret = None;
                     self.goal_x = None;
                     self.set_caret(pos, ctx.modifiers.shift);
                     if !ctx.modifiers.shift {
@@ -2024,6 +2345,13 @@ impl Element for DocumentEditorElement {
                 let shift = ctx.modifiers.shift;
                 let ctrl = ctx.modifiers.ctrl;
                 let editable = !self.read_only;
+                // Каретка в ячейке таблицы — свой обработчик навигации/правок
+                // (ctrl-комбинации, напр. undo, проходят дальше).
+                if editable && !ctrl && self.table_caret.is_some() {
+                    if self.table_key(key, shift) {
+                        return EventResult::Handled;
+                    }
+                }
                 // Автокомплит [[ перехватывает навигацию.
                 if let Some(w) = &mut self.wiki {
                     let count = w.candidates.len();
@@ -2240,6 +2568,13 @@ impl Element for DocumentEditorElement {
                 if !self.focused || self.read_only || c.is_control() {
                     return EventResult::Ignored;
                 }
+                if self.table_caret.is_some() {
+                    let ch = *c;
+                    self.checkpoint(EditClass::Typing);
+                    let mut buf = [0u8; 4];
+                    self.table_insert(ch.encode_utf8(&mut buf));
+                    return EventResult::Handled;
+                }
                 if self.caret().is_none() {
                     return EventResult::Ignored;
                 }
@@ -2309,7 +2644,11 @@ impl Element for DocumentEditorElement {
                 }
                 self.preedit = None;
                 self.checkpoint(EditClass::Typing);
-                self.insert_str(text);
+                if self.table_caret.is_some() {
+                    self.table_insert(text);
+                } else {
+                    self.insert_str(text);
+                }
                 EventResult::Handled
             }
             Event::FocusLost => {
@@ -2326,7 +2665,10 @@ impl Element for DocumentEditorElement {
     }
 
     fn animate(&mut self, dt: Duration) -> bool {
-        if !self.focused || self.read_only || self.selection.is_none() {
+        if !self.focused
+            || self.read_only
+            || (self.selection.is_none() && self.table_caret.is_none())
+        {
             return false;
         }
         self.blink_ms += dt.as_secs_f32() * 1000.0;
@@ -2339,7 +2681,7 @@ impl Element for DocumentEditorElement {
     }
 
     fn wants_animate_tick(&self) -> bool {
-        self.focused && !self.read_only && self.selection.is_some()
+        self.focused && !self.read_only && (self.selection.is_some() || self.table_caret.is_some())
     }
 
     fn wants_tab(&self) -> bool {

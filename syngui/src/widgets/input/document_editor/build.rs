@@ -13,7 +13,7 @@ use crate::widget::Widget;
 use super::chrome::Chrome;
 use super::links::{DocLinkProvider, DocMediaResolver, EmbedCtx, EmbedFactory};
 use super::model::{Attrs, BlockKind, DocBlock, InlineText, MediaKind};
-use super::state::GeomMap;
+use super::state::{GeomMap, TableGeomMap};
 use super::rows::{
     CodeBlockView, DividerView, EmbedCard, MediaCard, MediaGlyph, RowDecor, TableBlockView,
     TextRow,
@@ -24,6 +24,7 @@ use super::style::DocStyle;
 pub struct BuildEnv {
     pub style: Arc<DocStyle>,
     pub geom: GeomMap,
+    pub tables: TableGeomMap,
     pub links: Option<Arc<dyn DocLinkProvider>>,
     pub media: Option<Arc<dyn DocMediaResolver>>,
     pub embeds: Option<Arc<dyn EmbedFactory>>,
@@ -113,6 +114,7 @@ pub fn block_widget(block: &DocBlock, env: &BuildEnv) -> Box<dyn Widget> {
             headers: headers.clone(),
             rows: rows.clone(),
             style: style.clone(),
+            tables: Some(env.tables.clone()),
         }),
         BlockKind::Divider => Box::new(DividerView { style: style.clone() }),
         BlockKind::Media { media, url, alt } => media_widget(block, *media, url, alt, env),

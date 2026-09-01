@@ -177,3 +177,45 @@ pub type GeomMap = Arc<Mutex<HashMap<BlockId, RowGeom>>>;
 pub fn new_geom_map() -> GeomMap {
     Arc::new(Mutex::new(HashMap::new()))
 }
+
+// ─── Геометрия таблиц ───────────────────────────────────────────────────────
+
+/// Геометрия таблицы, опубликованная её элементом: контейнер по ней делает
+/// хит-тест ячеек и рисует каретку редактируемой ячейки.
+#[derive(Clone, Debug, Default)]
+pub struct TableGeom {
+    /// Абсолютный левый верхний угол таблицы.
+    pub origin: Point,
+    pub col_widths: Vec<f32>,
+    /// Высота строки (шапка и данные одинаковые).
+    pub row_h: f32,
+    /// Число строк, включая шапку.
+    pub rows_n: usize,
+}
+
+impl TableGeom {
+    pub fn total_width(&self) -> f32 {
+        self.col_widths.iter().sum()
+    }
+
+    /// Левая кромка колонки.
+    pub fn col_x(&self, col: usize) -> f32 {
+        self.origin.x + self.col_widths[..col.min(self.col_widths.len())].iter().sum::<f32>()
+    }
+}
+
+pub type TableGeomMap = Arc<Mutex<HashMap<BlockId, TableGeom>>>;
+
+pub fn new_table_geom_map() -> TableGeomMap {
+    Arc::new(Mutex::new(HashMap::new()))
+}
+
+/// Каретка внутри ячейки таблицы: `row == 0` — шапка, дальше — строки данных.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct TableCaret {
+    pub block: BlockId,
+    pub row: usize,
+    pub col: usize,
+    /// Байтовое смещение в плоском тексте ячейки.
+    pub offset: usize,
+}

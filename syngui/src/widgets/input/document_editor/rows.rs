@@ -21,7 +21,7 @@ use crate::widget::{DirtyFlags, Element, ElementId, ElementTree, Widget};
 use super::linebox::{layout_inline_text, InlineLayout};
 use super::links::DocLinkProvider;
 use super::model::{BlockId, InlineText, LinkTarget};
-use super::state::{GeomLine, GeomMap, GeomSeg};
+use super::state::{GeomLine, GeomMap, GeomSeg, TableGeom, TableGeomMap};
 use super::style::DocStyle;
 
 /// Общая часть Element-реализации листьев.
@@ -884,6 +884,8 @@ pub struct TableBlockView {
     pub headers: Vec<InlineText>,
     pub rows: Vec<Vec<InlineText>>,
     pub style: Arc<DocStyle>,
+    /// Реестр геометрии таблиц (хит-тест ячеек в контейнере).
+    pub tables: Option<TableGeomMap>,
 }
 
 impl Widget for TableBlockView {
@@ -898,6 +900,7 @@ impl Widget for TableBlockView {
             style: self.style.clone(),
             tm: None,
             col_widths: Vec::new(),
+            tables: self.tables.clone(),
         })
     }
     leaf_widget_common!();
@@ -913,6 +916,7 @@ pub struct TableBlockElement {
     style: Arc<DocStyle>,
     tm: Option<Arc<dyn TextMeasure>>,
     col_widths: Vec<f32>,
+    tables: Option<TableGeomMap>,
 }
 
 impl TableBlockElement {
@@ -939,6 +943,21 @@ impl TableBlockElement {
             ),
             None => plain.chars().count() as f32 * self.style.text_size * 0.6,
         }
+    }
+
+    /// Публикует геометрию таблицы (origin обновляет set_position).
+    fn publish_geom(&self) {
+        let Some(tables) = &self.tables else { return };
+        let Ok(mut map) = tables.lock() else { return };
+        map.insert(
+            self.block_id,
+            TableGeom {
+                origin: self.bounds.origin,
+                col_widths: self.col_widths.clone(),
+                row_h: self.row_h(),
+                rows_n: self.rows.len() + 1,
+            },
+        );
     }
 }
 
@@ -985,6 +1004,7 @@ impl Element for TableBlockElement {
         self.col_widths = widths;
         let height = (self.rows.len() as f32 + 1.0) * self.row_h() + 2.0;
         self.bounds.size = Size::new(width, height);
+        self.publish_geom();
         self.bounds.size
     }
 
@@ -1069,6 +1089,7 @@ impl Element for TableBlockElement {
 
     fn set_position(&mut self, pos: Point) {
         self.bounds.origin = pos;
+        self.publish_geom();
     }
 
     leaf_common!();
