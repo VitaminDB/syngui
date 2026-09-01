@@ -15,6 +15,8 @@ pub mod time_picker;
 pub mod color_picker;
 #[cfg(feature = "code-editor")]
 pub mod code_editor;
+#[cfg(feature = "document-editor")]
+pub mod document_editor;
 
 pub use text_field::TextField;
 pub use checkbox::Checkbox;

@@ -210,6 +210,11 @@ markdown = ["pulldown-cmark"]
 # Без feature рендер деградирует к плоскому цвету code-блока.
 markdown-syntax = ["markdown", "dep:syntect"]
 
+# DocumentEditor — WYSIWYG-редактор блочных документов (Notion-стиль):
+# модель с плоскими стилевыми ранами + markdown ↔ модель с расширениями
+# ([[wiki-ссылки]], ![[врезки]], callout/toggle, инлайн-атрибуты {k=v}).
+document-editor = ["markdown"]
+
 # Открытие http(s) ссылок в MarkdownView (клик по `[text](url)` стартует
 # системный браузер). Без feature `links` MarkdownView продолжает рендерить
 # и парсить ссылки, но `on_link_click`-fallback вернёт ошибку — приложение
@@ -389,6 +394,10 @@ harness = false
 [[bench]]
 name = "event_dispatch"
 harness = false
+
+[[test]]
+name = "document_roundtrip"
+required-features = ["document-editor"]
 
 [[test]]
 name = "cascade_descendant"
