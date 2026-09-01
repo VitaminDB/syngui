@@ -129,33 +129,44 @@ pub(super) fn parse_keyframes(cursor: &mut ParserCursor, stylesheet: &mut StyleS
             continue;
         }
 
-        let position = if cursor.starts_with("from") {
-            cursor.consume("from");
-            0.0
-        } else if cursor.starts_with("to") {
-            cursor.consume("to");
-            1.0
-        } else {
-            let start = cursor.position;
-            while !cursor.is_eof() {
-                let c = cursor.peek().unwrap_or('\0');
-                if c.is_ascii_digit() || c == '.' {
-                    cursor.advance();
-                } else {
-                    break;
+        // Список позиций шага: `0%, 100% { … }` — CSS разрешает несколько
+        // селекторов у одного блока, декларации применяются к каждому.
+        let mut positions: Vec<f32> = Vec::new();
+        loop {
+            let position = if cursor.starts_with("from") {
+                cursor.consume("from");
+                0.0
+            } else if cursor.starts_with("to") {
+                cursor.consume("to");
+                1.0
+            } else {
+                let start = cursor.position;
+                while !cursor.is_eof() {
+                    let c = cursor.peek().unwrap_or('\0');
+                    if c.is_ascii_digit() || c == '.' {
+                        cursor.advance();
+                    } else {
+                        break;
+                    }
                 }
+                let num_str = &cursor.input[start..cursor.position];
+                let pct: f32 = num_str.parse().map_err(|_| {
+                    ParseError::InvalidValue(num_str.to_string(), "keyframe percentage".to_string(), cursor.line)
+                })?;
+                if cursor.peek() == Some('%') {
+                    cursor.consume("%");
+                }
+                pct / 100.0
+            };
+            positions.push(position);
+            cursor.skip_whitespace();
+            if cursor.peek() == Some(',') {
+                cursor.consume(",");
+                cursor.skip_whitespace();
+                continue;
             }
-            let num_str = &cursor.input[start..cursor.position];
-            let pct: f32 = num_str.parse().map_err(|_| {
-                ParseError::InvalidValue(num_str.to_string(), "keyframe percentage".to_string(), cursor.line)
-            })?;
-            if cursor.peek() == Some('%') {
-                cursor.consume("%");
-            }
-            pct / 100.0
-        };
-
-        cursor.skip_whitespace();
+            break;
+        }
 
         if cursor.peek() != Some('{') {
             return Err(ParseError::UnexpectedToken(
@@ -201,7 +212,9 @@ pub(super) fn parse_keyframes(cursor: &mut ParserCursor, stylesheet: &mut StyleS
             cursor.consume("}");
         }
 
-        steps.push(KeyframeStep { position, declarations });
+        for position in positions {
+            steps.push(KeyframeStep { position, declarations: declarations.clone() });
+        }
         cursor.skip_whitespace();
     }
 

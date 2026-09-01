@@ -63,6 +63,12 @@ impl<'a> RuleIndex<'a> {
             by_type: &mut std::collections::HashMap<&'a str, Vec<u32>>,
             catch_all: &mut Vec<u32>,
         ) {
+            // Пустая цепочка (битый селектор, напр. утёкший keyframe-фрейм)
+            // ничего не матчит — не кладём её ни в одно ведро вместо паники
+            // в target(); chain_matches для неё и так возвращает false.
+            if chain.segments.is_empty() {
+                return;
+            }
             match chain.target() {
                 SelectorPart::Class(c) => by_class.entry(c.as_str()).or_default().push(i),
                 SelectorPart::Element(e) => by_type.entry(e.as_str()).or_default().push(i),
