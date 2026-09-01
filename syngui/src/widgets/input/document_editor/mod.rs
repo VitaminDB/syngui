@@ -11,6 +11,7 @@
 //! самодостаточны и покрыты round-trip корпусом в tests/document_roundtrip.rs.
 
 pub mod attrs;
+pub mod history;
 pub mod edit;
 mod build;
 mod chrome;

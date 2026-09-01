@@ -258,3 +258,56 @@ fn wide_layout_centers_content_column() {
     );
     assert!(b.origin.x > 100.0, "колонка должна центрироваться: {:?}", b.origin);
 }
+
+// ─── Undo/redo и отступы (S4) ───────────────────────────────────────────────
+
+#[test]
+fn undo_redo_typing() {
+    let (mut h, handle) = editing_harness("аб\n", Point::new(X0 + 40.0, Y0 + 8.0));
+    type_str(&mut h, "вг");
+    settle(&mut h);
+    assert_eq!(handle.serialize(), "абвг\n");
+    // Набор сгруппирован — один Ctrl+Z откатывает всё слово.
+    h.tree.modifiers.ctrl = true;
+    h.send_event(&Event::KeyDown(Key::Z));
+    h.tree.modifiers.ctrl = false;
+    settle(&mut h);
+    assert_eq!(handle.serialize(), "аб\n");
+    h.tree.modifiers.ctrl = true;
+    h.send_event(&Event::KeyDown(Key::Y));
+    h.tree.modifiers.ctrl = false;
+    settle(&mut h);
+    assert_eq!(handle.serialize(), "абвг\n");
+}
+
+#[test]
+fn undo_structure_steps_separate() {
+    let (mut h, handle) = editing_harness("аб\n", Point::new(X0 + 40.0, Y0 + 8.0));
+    h.send_event(&Event::KeyDown(Key::Enter));
+    settle(&mut h);
+    type_str(&mut h, "в");
+    settle(&mut h);
+    assert_eq!(handle.serialize(), "аб\n\nв\n");
+    h.tree.modifiers.ctrl = true;
+    h.send_event(&Event::KeyDown(Key::Z)); // откат набора
+    h.send_event(&Event::KeyDown(Key::Z)); // откат Enter
+    h.tree.modifiers.ctrl = false;
+    settle(&mut h);
+    assert_eq!(handle.serialize(), "аб\n");
+}
+
+#[test]
+fn tab_indents_list_item() {
+    // Каретка во втором пункте.
+    let (mut h, handle) = editing_harness("- раз\n- два\n", Point::new(X0 + 26.0 + 20.0, Y0 + 23.0 * 1.0 + 8.0));
+    // Уточняем позицию клика: вторая строка ниже первой на line_h (15*1.55 ≈ 23.25) + gap.
+    let _ = &handle;
+    h.send_event(&Event::KeyDown(Key::Tab));
+    settle(&mut h);
+    assert_eq!(handle.serialize(), "- раз\n  - два\n");
+    h.tree.modifiers.shift = true;
+    h.send_event(&Event::KeyDown(Key::Tab));
+    h.tree.modifiers.shift = false;
+    settle(&mut h);
+    assert_eq!(handle.serialize(), "- раз\n- два\n");
+}

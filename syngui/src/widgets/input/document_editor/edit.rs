@@ -497,6 +497,49 @@ pub fn delete_at_end(model: &mut DocModel, caret: CaretPos) -> CaretPos {
     caret
 }
 
+/// Tab: пункт списка становится ребёнком предыдущего сиблинга-пункта.
+pub fn indent_item(model: &mut DocModel, id: BlockId) -> bool {
+    with_siblings(&mut model.blocks, id, &mut |sibs, idx| {
+        if idx == 0 || !sibs[idx].kind.is_list_item() || !sibs[idx - 1].kind.is_list_item() {
+            return false;
+        }
+        let block = sibs.remove(idx);
+        if let Some(children) = sibs[idx - 1].kind.children_mut() {
+            children.push(block);
+            renumber(children);
+        } else {
+            sibs.insert(idx, block);
+            return false;
+        }
+        renumber(sibs);
+        true
+    })
+    .unwrap_or(false)
+}
+
+/// Shift+Tab: пункт поднимается на уровень родителя, сразу после него.
+pub fn outdent_item(model: &mut DocModel, id: BlockId) -> bool {
+    let Some(&parent) = ancestors(&model.blocks, id).last() else { return false };
+    let is_item = find_block(&model.blocks, id).map(|b| b.kind.is_list_item()).unwrap_or(false);
+    let parent_is_item =
+        find_block(&model.blocks, parent).map(|b| b.kind.is_list_item()).unwrap_or(false);
+    if !is_item || !parent_is_item {
+        return false;
+    }
+    let Some(block) = with_siblings(&mut model.blocks, id, &mut |sibs, idx| {
+        let b = sibs.remove(idx);
+        renumber(sibs);
+        b
+    }) else {
+        return false;
+    };
+    with_siblings(&mut model.blocks, parent, &mut |sibs, idx| {
+        sibs.insert(idx + 1, block.clone());
+        renumber(sibs);
+    });
+    true
+}
+
 pub fn toggle_todo(model: &mut DocModel, id: BlockId) {
     if let Some(BlockKind::Todo { checked, .. }) =
         find_block_mut(&mut model.blocks, id).map(|b| &mut b.kind)

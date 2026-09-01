@@ -28,6 +28,7 @@ use crate::widget::{
 
 use super::build::block_widget;
 use super::edit;
+use super::history::{EditClass, UndoStack};
 use super::model::DocModel;
 use super::parse::parse_document;
 use super::serialize::serialize_document;
@@ -160,6 +161,7 @@ impl Widget for DocumentEditor {
             preedit: None,
             revision: self.handle.as_ref().map(|h| h.revision),
             on_change: self.on_change.clone(),
+            history: UndoStack::new(),
         })
     }
 
@@ -204,11 +206,72 @@ pub struct DocumentEditorElement {
     preedit: Option<String>,
     revision: Option<RwSignal<u64>>,
     on_change: Option<Arc<dyn Fn() + Send + Sync>>,
+    history: UndoStack,
 }
 
 impl DocumentEditorElement {
     fn model(&self) -> MutexGuard<'_, DocModel> {
         lock(&self.model)
+    }
+
+    /// Снимок в историю перед правкой (группировка по классу и блоку).
+    fn checkpoint(&mut self, class: EditClass) {
+        let block = self.caret().map(|c| c.block);
+        let model = lock(&self.model);
+        let snapshot_sel = self.selection;
+        // NB: заимствуем guard только на время клона.
+        self.history.checkpoint(&model, snapshot_sel, class, block);
+    }
+
+    fn undo(&mut self) {
+        let snap = {
+            let model = lock(&self.model);
+            self.history.undo(&model, self.selection)
+        };
+        if let Some(s) = snap {
+            *lock(&self.model) = s.model;
+            self.selection = s.selection;
+            self.after_edit();
+        }
+    }
+
+    fn redo(&mut self) {
+        let snap = {
+            let model = lock(&self.model);
+            self.history.redo(&model, self.selection)
+        };
+        if let Some(s) = snap {
+            *lock(&self.model) = s.model;
+            self.selection = s.selection;
+            self.after_edit();
+        }
+    }
+
+    /// Tab / Shift+Tab с записью в историю (снапшот откатывается, если
+    /// правка не применилась).
+    fn tab_indent_checkpointed(&mut self, outdent: bool) -> bool {
+        self.checkpoint(EditClass::Structure);
+        let done = self.tab_indent(outdent);
+        if !done {
+            self.history.discard_last_checkpoint();
+        }
+        done
+    }
+
+    /// Tab / Shift+Tab: отступ пункта списка.
+    fn tab_indent(&mut self, outdent: bool) -> bool {
+        let Some(pos) = self.caret() else { return false };
+        let mut model = self.model();
+        let done = if outdent {
+            edit::outdent_item(&mut model, pos.block)
+        } else {
+            edit::indent_item(&mut model, pos.block)
+        };
+        drop(model);
+        if done {
+            self.after_edit();
+        }
+        done
     }
 
     /// Фиксация правки: перестройка детей, ревизия, колбэк.
@@ -806,6 +869,7 @@ impl Element for DocumentEditorElement {
                 // Клик по гаттеру: чекбокс/шеврон.
                 if !self.read_only {
                     if let Some((id, action)) = self.gutter_hit(*position) {
+                        self.checkpoint(EditClass::Structure);
                         let mut model = self.model();
                         match action {
                             GutterAction::ToggleTodo => edit::toggle_todo(&mut model, id),
@@ -890,25 +954,43 @@ impl Element for DocumentEditorElement {
                         let text = self.selection_text();
                         if !text.is_empty() {
                             ctx.copy_to_clipboard(&text);
+                            self.checkpoint(EditClass::Structure);
                             self.delete_selection_if_any();
                         }
                         true
                     }
                     Key::V if ctrl && editable => {
                         if let Some(text) = ctx.paste_from_clipboard() {
+                            self.checkpoint(EditClass::Structure);
                             self.paste(&text);
                         }
                         true
                     }
+                    Key::Z if ctrl && editable => {
+                        if shift {
+                            self.redo();
+                        } else {
+                            self.undo();
+                        }
+                        true
+                    }
+                    Key::Y if ctrl && editable => {
+                        self.redo();
+                        true
+                    }
+                    Key::Tab if editable => self.tab_indent_checkpointed(shift),
                     Key::Backspace if editable => {
+                        self.checkpoint(EditClass::Deleting);
                         self.backspace();
                         true
                     }
                     Key::Delete if editable => {
+                        self.checkpoint(EditClass::Deleting);
                         self.delete_forward();
                         true
                     }
                     Key::Enter if editable => {
+                        self.checkpoint(EditClass::Structure);
                         self.enter(shift);
                         true
                     }
@@ -961,6 +1043,7 @@ impl Element for DocumentEditorElement {
                 if self.caret().is_none() {
                     return EventResult::Ignored;
                 }
+                self.checkpoint(EditClass::Typing);
                 let mut buf = [0u8; 4];
                 self.insert_str(c.encode_utf8(&mut buf));
                 EventResult::Handled
@@ -978,6 +1061,7 @@ impl Element for DocumentEditorElement {
                     return EventResult::Ignored;
                 }
                 self.preedit = None;
+                self.checkpoint(EditClass::Typing);
                 self.insert_str(text);
                 EventResult::Handled
             }
@@ -1009,6 +1093,10 @@ impl Element for DocumentEditorElement {
 
     fn wants_animate_tick(&self) -> bool {
         self.focused && !self.read_only && self.selection.is_some()
+    }
+
+    fn wants_tab(&self) -> bool {
+        self.focused && !self.read_only
     }
 
     fn element_type_name(&self) -> &str {
