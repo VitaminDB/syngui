@@ -361,6 +361,19 @@ impl ElementTree {
         id
     }
 
+    /// Регистрирует элемент в реестре анимаций, если ему нужны тики.
+    /// Вызывается из всех точек, где анимация могла стартовать: каскад стилей
+    /// (keyframes/transitions), измерение и позиционирование (AnimatedSize,
+    /// плавный скролл), scroll-into-view. animate() обходит только реестр.
+    pub(crate) fn note_animation_started(&mut self, id: ElementId) {
+        if let Some(node) = self.elements.get(&id) {
+            if node.element.needs_repaint() || node.element.wants_animate_tick() {
+                self.animation_registry.insert(id);
+                self.animations_armed = true;
+            }
+        }
+    }
+
     pub(crate) fn sync_registries_for(&mut self, id: ElementId) {
         if let Some(node) = self.elements.get(&id) {
             if node.element.needs_repaint() || node.element.wants_animate_tick() {
@@ -516,6 +529,8 @@ impl ElementTree {
                             DirtyFlags::RENDER | DirtyFlags::PAINT
                         );
                     }
+                    // Плавный скролл — анимация на предке-контейнере.
+                    self.note_animation_started(parent_id);
                     return result;
                 }
                 return false;
@@ -970,6 +985,8 @@ impl ElementTree {
                 if let Some(node) = self.elements.get_mut(&parent_id) {
                     node.element.ensure_visible(child_rect);
                 }
+                // Плавный скролл — анимация на предке, не на исходном элементе.
+                self.note_animation_started(parent_id);
                 return;
             }
 
@@ -1048,6 +1065,7 @@ impl ElementTree {
                     node.element.apply_computed_style(&base);
                     node.refresh_hint_cache();
                 }
+                self.note_animation_started(id);
             }
         }
     }

@@ -12,9 +12,14 @@ impl ElementTree {
         self.overlay_stack.retain(|e| e.element_id != element_id);
     }
 
+    /// Тикает анимации. Обход — только по реестру `animation_registry`:
+    /// все точки старта анимаций регистрируют элемент (каскад стилей, диспетчер
+    /// событий, измерение/позиционирование, scroll-into-view — см.
+    /// `note_animation_started` / `sync_registries_for`), а закончившиеся
+    /// элементы обход снимает сам. Раньше обходились ВСЕ элементы дерева.
     pub fn animate(&mut self, _root_id: ElementId, dt: Duration) -> bool {
         let _t = web_time::Instant::now();
-        let ids: Vec<ElementId> = self.elements.keys().copied().collect();
+        let ids: Vec<ElementId> = self.animation_registry.iter().copied().collect();
         let mut needs_repaint = false;
         let mut stale: Vec<ElementId> = Vec::new();
 

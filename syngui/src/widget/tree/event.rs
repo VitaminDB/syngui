@@ -575,11 +575,15 @@ impl ElementTree {
             if let Some(node) = self.elements.get_mut(target_id) {
                 let r = node.element.handle_event(&adjusted, &mut ctx);
                 let ctx_dirty = ctx.take_dirty_flags();
+                let did_something = r.is_handled() || !ctx_dirty.is_empty();
                 if !ctx_dirty.is_empty() {
                     node.element.mark_dirty(ctx_dirty);
                 }
                 if r.is_handled() {
                     result = EventResult::Handled;
+                }
+                if did_something {
+                    self.sync_registries_for(*target_id);
                 }
             }
         }

@@ -29,11 +29,18 @@ impl ElementTree {
             )
         };
 
+        let mut anim_started = false;
         if let Some(node) = self.elements.get_mut_by_idx(idx) {
             node.element.set_position(parent_pos);
             if !matches!(hint, crate::widget::LayoutHint::Scroll { .. } | crate::widget::LayoutHint::AnimatedSize | crate::widget::LayoutHint::Container { .. } | crate::widget::LayoutHint::Portal { .. } | crate::widget::LayoutHint::FloatingWindow { .. } | crate::widget::LayoutHint::Tooltip { .. }) {
                 node.element.set_content_size(own_size);
+                anim_started =
+                    node.element.needs_repaint() || node.element.wants_animate_tick();
             }
+        }
+        if anim_started {
+            self.animation_registry.insert(id);
+            self.animations_armed = true;
         }
 
         match hint {

@@ -273,6 +273,9 @@ impl ElementTree {
 
         self.cache_set_by_idx(idx, LayoutCache { size: own_size, constraints_hash, visible: true });
 
+        // Измерение могло запустить анимацию (AnimatedSize, оценки скролла).
+        self.note_animation_started(id);
+
         self.indent_level -= 1;
         own_size
     }

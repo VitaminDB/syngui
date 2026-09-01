@@ -301,6 +301,8 @@ pub fn apply_styles_to_tree(tree: &mut ElementTree, style_engine: &StyleEngine) 
                 node.styles_dirty = false;
                 node.refresh_hint_cache();
             }
+            // Стили могли запустить keyframe-анимацию или transition.
+            tree.note_animation_started(id);
         } else {
             if let Some(node) = tree.elements.get_mut(&id) {
                 if node.had_mss_rules || base.properties().next().is_some() {
@@ -538,6 +540,8 @@ pub fn apply_styles_dirty(tree: &mut ElementTree, style_engine: &StyleEngine) ->
             node.styles_dirty = false;
             node.refresh_hint_cache();
         }
+        // Стили могли запустить keyframe-анимацию или transition.
+        tree.note_animation_started(id);
 
         inherited_for.insert(id, std::rc::Rc::new(extract_inherited(&base)));
     }
