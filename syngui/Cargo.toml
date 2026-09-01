@@ -367,6 +367,12 @@ web-sys = { version = "0.3", features = [
     "EventTarget",
     "KeyboardEvent",
     "console",
+    # Буфер обмена (clipboard.rs, app/web_clipboard.rs): DOM paste + Clipboard API.
+    "Navigator",
+    "Clipboard",
+    "ClipboardEvent",
+    "DataTransfer",
+    "KeyboardEventInit",
 ] }
 
 [dev-dependencies]

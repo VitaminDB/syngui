@@ -931,7 +931,6 @@ impl Element for TextElement {
             }
             Event::KeyDown(Key::C) if ctx.modifiers.ctrl => {
                 if let Some(text) = self.selection.selected_text(&self.text, self.cursor_pos) {
-                    #[cfg(feature = "clipboard")]
                     ctx.copy_to_clipboard(text);
                     return EventResult::Handled;
                 }

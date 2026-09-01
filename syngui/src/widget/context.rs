@@ -2,8 +2,6 @@ use crate::core::{Rect, Size};
 use crate::input::{CursorIcon, DragData};
 use crate::widget::{ElementId, DirtyFlags};
 use std::sync::Arc;
-#[cfg(feature = "clipboard")]
-use crate::core::sync::Mutex;
 
 pub trait TextMeasure: Send + Sync {
     fn measure_text_width(&self, text: &str, font_size: f32, char_count: usize) -> f32;
@@ -72,8 +70,6 @@ pub struct EventContext {
     pub(crate) start_drag: Option<DragData>,
     pub(crate) cursor_icon: Option<CursorIcon>,
     pub(crate) text_measure: Option<Arc<dyn TextMeasure>>,
-    #[cfg(feature = "clipboard")]
-    pub(crate) clipboard: Option<Arc<Mutex<arboard::Clipboard>>>,
     viewport_size: Size,
     pub(crate) show_virtual_keyboard: Option<bool>,
     pub(crate) numeric_keyboard: Option<bool>,
@@ -106,8 +102,6 @@ impl EventContext {
             start_drag: None,
             cursor_icon: None,
             text_measure: None,
-            #[cfg(feature = "clipboard")]
-            clipboard: None,
             viewport_size: Size::new(1280.0, 720.0),
             show_virtual_keyboard: None,
             numeric_keyboard: None,
@@ -233,27 +227,13 @@ impl EventContext {
         self.text_measure = Some(tm);
     }
 
-    #[cfg(feature = "clipboard")]
     pub fn copy_to_clipboard(&self, text: &str) {
-        if let Some(ref cb) = self.clipboard {
-            if let Ok(mut clipboard) = cb.lock() {
-                let _ = clipboard.set_text(text.to_string());
-            }
-        }
+        crate::clipboard::copy(text);
     }
 
-    #[cfg(feature = "clipboard")]
     pub fn paste_from_clipboard(&self) -> Option<String> {
-        self.clipboard.as_ref().and_then(|cb| {
-            cb.lock().ok().and_then(|mut clipboard| clipboard.get_text().ok())
-        })
+        crate::clipboard::paste()
     }
-
-    #[cfg(not(feature = "clipboard"))]
-    pub fn copy_to_clipboard(&self, _text: &str) {}
-
-    #[cfg(not(feature = "clipboard"))]
-    pub fn paste_from_clipboard(&self) -> Option<String> { None }
 
     pub fn set_viewport_size(&mut self, size: Size) {
         self.viewport_size = size;

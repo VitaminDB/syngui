@@ -87,6 +87,37 @@ impl AppHandler {
         }
     }
 
+    /// Autofocus (`focus_request_pending`) выставляет фокус только логически:
+    /// элемент помечает себя focused, дерево — `focused_element`. Здесь этому
+    /// элементу диспатчится настоящий `FocusGained` (и `FocusLost` прежнему),
+    /// чтобы отработали побочные эффекты фокуса: запрос экранной клавиатуры
+    /// Android, подсказка буфера обмена, a11y.
+    pub(in crate::app) fn process_pending_autofocus(&mut self, root_id: crate::widget::ElementId) {
+        let Some(id) = self.tree.pending_autofocus.take() else {
+            return;
+        };
+        if !self.tree.elements.contains_key(&id) {
+            return;
+        }
+        let old_focus = self.focus_manager.current_focus();
+        if old_focus != Some(id) {
+            if let Some(old_id) = old_focus {
+                if self.tree.elements.contains_key(&old_id) {
+                    self.tree.dispatch_event_to(old_id, &Event::FocusLost);
+                }
+            }
+            if !self.focus_manager.set_focus(id) {
+                self.focus_manager.rebuild_tab_order(&self.tree, root_id);
+                self.focus_manager.set_focus(id);
+            }
+        }
+        self.tree.focused_element = Some(id);
+        self.tree.dispatch_event_to(id, &Event::FocusGained);
+        self.a11y_tree.update_focus(id);
+        self.a11y_dirty = true;
+        self.process_virtual_keyboard_request();
+    }
+
     pub(in crate::app) fn find_text_input_at(&self, element_id: crate::widget::ElementId, pos: Point) -> Option<crate::widget::ElementId> {
         let node = self.tree.elements.get(&element_id)?;
         if !node.element.is_visible() {
@@ -275,6 +306,7 @@ impl AppHandler {
                 self.tree.force_full_measure = true;
                 self.a11y_dirty = true;
             }
+            self.process_pending_autofocus(root_id);
         }
         let rebuild_elapsed = t_rebuild.elapsed();
 
@@ -430,6 +462,20 @@ impl AppHandler {
 
     pub(in crate::app) fn update(&mut self) {
         crate::async_runtime::poll_main_thread_callbacks();
+
+        // Веб: readText() обновил кэш буфера обмена — повторяем FocusGained
+        // фокусному элементу, чтобы подсказка буфера показала свежий текст.
+        #[cfg(target_arch = "wasm32")]
+        if crate::clipboard::take_refreshed() {
+            if let Some(focused) = self.tree.focused_element {
+                if self.tree.elements.contains_key(&focused) {
+                    self.tree.dispatch_event_to(focused, &crate::input::Event::FocusGained);
+                    if let Some(window) = &self.window {
+                        window.request_redraw();
+                    }
+                }
+            }
+        }
 
         let now = Instant::now();
         let dt = now - self.last_frame_time;

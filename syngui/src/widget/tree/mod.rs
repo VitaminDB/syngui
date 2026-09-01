@@ -110,8 +110,6 @@ pub struct ElementTree {
     pub viewport_size: Size,
     pub(crate) pixel_snap_scale: f32,
     pub modifiers: crate::input::Modifiers,
-    #[cfg(feature = "clipboard")]
-    pub clipboard: Option<std::sync::Arc<crate::core::sync::Mutex<arboard::Clipboard>>>,
     pub image_store: Option<std::sync::Arc<crate::core::sync::Mutex<crate::gpu::image_store::ImageStore>>>,
     #[cfg(feature = "map")]
     pub tile_atlas: Option<std::sync::Arc<crate::core::sync::Mutex<crate::gpu::tile_atlas::TileAtlas>>>,
@@ -130,6 +128,11 @@ pub struct ElementTree {
     pub window_flags: u8,
     pub focused_text_content: Option<String>,
     pub focused_element: Option<ElementId>,
+    /// Элемент, забравший фокус через autofocus при монтировании/rebuild.
+    /// `AppHandler` после rebuild-цикла диспатчит ему `FocusGained` (иначе
+    /// поле «фокусировано» только логически: без события не запросится
+    /// экранная клавиатура Android и подсказка буфера обмена).
+    pub(crate) pending_autofocus: Option<ElementId>,
     pub safe_area: crate::core::EdgeInsets,
     pub root_offset: Point,
     pub(crate) drop_targets: Vec<ElementId>,
@@ -169,8 +172,6 @@ impl ElementTree {
             viewport_size: Size::new(1280.0, 720.0),
             pixel_snap_scale: 0.0,
             modifiers: crate::input::Modifiers::empty(),
-            #[cfg(feature = "clipboard")]
-            clipboard: None,
             image_store: None,
             #[cfg(feature = "map")]
             tile_atlas: None,
@@ -189,6 +190,7 @@ impl ElementTree {
             window_flags: 0,
             focused_text_content: None,
             focused_element: None,
+            pending_autofocus: None,
             safe_area: crate::core::EdgeInsets::zero(),
             root_offset: Point::zero(),
             drop_targets: Vec::new(),
@@ -356,6 +358,7 @@ impl ElementTree {
 
         if wants_focus {
             self.focused_element = Some(id);
+            self.pending_autofocus = Some(id);
         }
 
         id
@@ -833,6 +836,7 @@ impl ElementTree {
             .unwrap_or(false);
         if wants_focus {
             self.focused_element = Some(id);
+            self.pending_autofocus = Some(id);
         }
         self.sync_registries_for(id);
     }

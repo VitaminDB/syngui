@@ -69,6 +69,9 @@ TextField::new()
     .suffix(widget)                   // Arbitrary right widget
     .on_change(|text: &str| { ... })
     .on_submit(|text: &str| { ... }) // Enter key
+    .autofocus(true)                  // Grab keyboard focus on mount
+    .clipboard_hint(true)             // Clipboard chip on focus (tap inserts);
+                                      // also via MSS `clipboard-hint: on`
 ```
 
 ### MultilineTextEdit

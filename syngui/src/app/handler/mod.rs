@@ -83,8 +83,6 @@ pub(super) struct AppHandler {
     /// Порог двойного клика, разрешённый из настройки ОС/DE на старте
     /// (или override из билдера). См. [`crate::input::resolve_double_click_interval`].
     pub(super) double_click_interval: std::time::Duration,
-    #[cfg(feature = "clipboard")]
-    pub(super) clipboard: Option<std::sync::Arc<crate::core::sync::Mutex<arboard::Clipboard>>>,
     pub(super) debug_overlay: Option<crate::debug::DebugOverlay>,
     pub(super) devtools: Option<crate::devtools::DevTools>,
     pub(super) app_start_time: Instant,
@@ -220,18 +218,6 @@ impl AppHandler {
             last_click_time: None,
             last_click_pos: None,
             double_click_interval,
-            #[cfg(feature = "clipboard")]
-            clipboard: {
-                match arboard::Clipboard::new() {
-                    Ok(c) => {
-                        Some(std::sync::Arc::new(crate::core::sync::Mutex::new(c)))
-                    }
-                    Err(e) => {
-                        log::warn!("Failed to initialize clipboard: {}", e);
-                        None
-                    }
-                }
-            },
             debug_overlay,
             devtools,
             app_start_time: Instant::now(),

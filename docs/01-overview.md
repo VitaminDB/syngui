@@ -149,7 +149,7 @@ default = ["msdf", "effects"]
 | `wayland` | Wayland backend (Linux) |
 | `x11` | X11 backend (Linux) |
 | `tokio` | Async runtime (`use_async`, `spawn`) |
-| `clipboard` | Clipboard support |
+| `clipboard` | Clipboard support on desktop via arboard (wasm and Android need no feature: Clipboard API / JNI) |
 | `map` | MapView widget |
 | `markdown` | MarkdownView widget |
 | `debug` | Debug utilities |

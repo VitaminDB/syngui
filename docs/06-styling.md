@@ -206,6 +206,17 @@ Each widget has a type name used in MSS selectors:
 }
 ```
 
+### Text Inputs
+
+```css
+.my-input {
+    caret-color: #2196F3;
+    selection-color: #2196F340;
+    clipboard-hint: on;              /* on | off — chip with clipboard text on
+                                        focus; tap inserts it (TextField) */
+}
+```
+
 ## Variables
 
 ```css

@@ -98,8 +98,6 @@ impl AppHandler {
         tree.text_measure = Some(renderer.font_atlas.clone() as std::sync::Arc<dyn crate::widget::context::TextMeasure>);
         renderer.font_atlas.lock().unwrap().set_scale_factor(self.scale_factor as f32);
         tree.image_store = Some(renderer.image_store.clone());
-        #[cfg(feature = "clipboard")]
-        { tree.clipboard = self.clipboard.clone(); }
 
         let element = widget.create_element();
         let root_id = tree.insert_with_type_id(element, None, widget.as_any().type_id());

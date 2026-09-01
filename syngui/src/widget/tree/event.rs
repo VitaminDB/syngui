@@ -20,8 +20,6 @@ impl ElementTree {
             if let Some(ref tm) = self.text_measure {
                 ctx.set_text_measure(tm.clone());
             }
-            #[cfg(feature = "clipboard")]
-            { ctx.clipboard = self.clipboard.clone(); }
             let result = node.element.handle_event(event, &mut ctx);
             let ctx_dirty = ctx.take_dirty_flags();
             let did_something = result.is_handled() || !ctx_dirty.is_empty() || ctx.has_side_effects();
@@ -514,8 +512,6 @@ impl ElementTree {
             if let Some(ref tm) = self.text_measure {
                 ctx.set_text_measure(tm.clone());
             }
-            #[cfg(feature = "clipboard")]
-            { ctx.clipboard = self.clipboard.clone(); }
             let result = node.element.handle_event(event, &mut ctx);
             let ctx_dirty = ctx.take_dirty_flags();
             let did_something = result.is_handled() || !ctx_dirty.is_empty() || ctx.has_side_effects();
@@ -569,8 +565,6 @@ impl ElementTree {
             if let Some(ref tm) = self.text_measure {
                 ctx.set_text_measure(tm.clone());
             }
-            #[cfg(feature = "clipboard")]
-            { ctx.clipboard = self.clipboard.clone(); }
 
             if let Some(node) = self.elements.get_mut(target_id) {
                 let r = node.element.handle_event(&adjusted, &mut ctx);

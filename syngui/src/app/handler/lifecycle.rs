@@ -45,6 +45,14 @@ impl AppHandler {
         // Веб: пропуск F-клавиш браузеру — до того, как canvas получит фокус.
         #[cfg(target_arch = "wasm32")]
         crate::app::web_keys::install();
+        // Веб: вставка из системного буфера через DOM-событие `paste`.
+        #[cfg(target_arch = "wasm32")]
+        {
+            use winit::platform::web::WindowExtWebSys;
+            if let Some(canvas) = window.winit_window().canvas() {
+                crate::app::web_clipboard::install(canvas);
+            }
+        }
         self.scale_factor = window.scale_factor();
         self.main_window_id = Some(window.winit_window().id());
         self.window = Some(window.clone());
@@ -380,8 +388,6 @@ impl AppHandler {
 
         self.tree.text_measure = Some(renderer.font_atlas.clone() as std::sync::Arc<dyn crate::widget::context::TextMeasure>);
         renderer.font_atlas.lock().unwrap().set_scale_factor(self.scale_factor as f32);
-        #[cfg(feature = "clipboard")]
-        { self.tree.clipboard = self.clipboard.clone(); }
 
         self.tree.image_store = Some(renderer.image_store.clone());
 
@@ -433,6 +439,15 @@ impl AppHandler {
 
         #[cfg(target_os = "android")]
         self.register_back_handler();
+
+        // Android: JNI-мост буфера обмена (ClipboardManager).
+        #[cfg(target_os = "android")]
+        if let Some(ref android_app) = self.android_app {
+            crate::clipboard::set_android_ptrs(
+                android_app.vm_as_ptr(),
+                android_app.activity_as_ptr(),
+            );
+        }
 
         #[cfg(target_arch = "wasm32")]
         web_sys::console::log_1(&"[syngui] signals registered, deferring root widget until font loads".into());

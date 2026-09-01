@@ -194,6 +194,10 @@ pub struct MssFields {
 
     pub caret_color: Option<Color>,
 
+    /// `clipboard-hint: on|off` — показывать при фокусе текстового поля
+    /// всплывашку с текстом из буфера обмена (тап по ней вставляет текст).
+    pub clipboard_hint: Option<bool>,
+
     pub line_height: Option<LineHeight>,
 
     pub transform_origin: Option<TransformOrigin>,
@@ -291,6 +295,7 @@ impl MssFields {
             icon_opacity: None,
             selection_color: None,
             caret_color: None,
+            clipboard_hint: None,
             line_height: None,
             transform_origin: None,
             opacity: None,
@@ -519,6 +524,13 @@ impl MssFields {
         }
         if let Some(c) = style.get("caret-color").and_then(|v| v.as_color()) {
             self.caret_color = Some(Color::from_srgb(c.r, c.g, c.b, c.a as f32 / 255.0));
+        }
+        if let Some(s) = style.get("clipboard-hint").and_then(|v| v.as_string()) {
+            self.clipboard_hint = match s {
+                "on" | "true" | "show" => Some(true),
+                "off" | "false" | "none" | "hidden" => Some(false),
+                _ => self.clipboard_hint,
+            };
         }
         if let Some(v) = style.get("line-height") {
             self.line_height = match v {

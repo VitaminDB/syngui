@@ -320,7 +320,6 @@ impl Widget for MarkdownView {
             menu_pos: self.menu_pos,
             menu_action: self.menu_action,
             menu_mounted: false,
-            clipboard: None,
             on_link_click: self.on_link_click.clone(),
             pending_link: None,
             base_url: self.base_url.clone(),
@@ -436,10 +435,6 @@ pub struct MarkdownViewElement {
     menu_pos: RwSignal<Point>,
     menu_action: RwSignal<Option<MdMenuAction>>,
     menu_mounted: bool,
-    #[cfg(feature = "clipboard")]
-    clipboard: Option<Arc<Mutex<arboard::Clipboard>>>,
-    #[cfg(not(feature = "clipboard"))]
-    clipboard: Option<()>,
 
     on_link_click: Option<Arc<dyn Fn(&str) + Send + Sync>>,
     pending_link: Option<(String, Point)>,
@@ -580,27 +575,8 @@ impl MarkdownViewElement {
         self.selection_focus = SelPos { run_idx: end_idx, byte_in_run: end_byte };
     }
 
-    #[cfg(feature = "clipboard")]
     fn write_clipboard(&self, text: &str) {
-        let Some(cb) = self.clipboard.as_ref() else {
-            log::warn!("MarkdownView: clipboard handle отсутствует, копирование пропущено");
-            return;
-        };
-        match cb.lock() {
-            Ok(mut g) => {
-                if let Err(e) = g.set_text(text.to_string()) {
-                    log::warn!("MarkdownView: clipboard set_text не удался: {e}");
-                }
-            }
-            Err(_) => {
-                log::warn!("MarkdownView: clipboard mutex poisoned");
-            }
-        }
-    }
-
-    #[cfg(not(feature = "clipboard"))]
-    fn write_clipboard(&self, _text: &str) {
-        log::warn!("MarkdownView: feature `clipboard` отключена — копирование недоступно");
+        crate::clipboard::copy(text);
     }
 
     fn select_all(&mut self) {
@@ -1007,15 +983,7 @@ impl Element for MarkdownViewElement {
             Event::MouseDown { button: MouseButton::Left, position } => {
                 if let Some(idx) = copy_buttons.iter().position(|(r, _)| r.contains(*position)) {
                     let code = copy_buttons[idx].1.clone();
-                    #[cfg(feature = "clipboard")]
-                    {
-                        ctx.copy_to_clipboard(&code);
-                    }
-                    #[cfg(not(feature = "clipboard"))]
-                    {
-                        let _ = &code;
-                        log::warn!("MarkdownView copy_code: feature `clipboard` is disabled");
-                    }
+                    ctx.copy_to_clipboard(&code);
                     self.flash_until = Some(Instant::now() + COPY_FLASH_DURATION);
                     self.flashed_hotspot = Some(idx);
                     self.mark_dirty(DirtyFlags::RENDER);
@@ -1087,15 +1055,7 @@ impl Element for MarkdownViewElement {
             }
             Event::KeyDown(Key::C) if self.selectable && ctx.modifiers.ctrl => {
                 if let Some(text) = self.selection_text() {
-                    #[cfg(feature = "clipboard")]
-                    {
-                        ctx.copy_to_clipboard(&text);
-                    }
-                    #[cfg(not(feature = "clipboard"))]
-                    {
-                        let _ = &text;
-                        log::warn!("MarkdownView Ctrl+C: feature `clipboard` is disabled");
-                    }
+                    ctx.copy_to_clipboard(&text);
                     return EventResult::Handled;
                 }
                 EventResult::Ignored
@@ -1127,10 +1087,6 @@ impl Element for MarkdownViewElement {
     fn mount(&mut self, tree: &mut ElementTree) {
         self.text_measure = tree.text_measure.clone();
         self.image_store = tree.image_store.clone();
-        #[cfg(feature = "clipboard")]
-        {
-            self.clipboard = tree.clipboard.clone();
-        }
     }
 
     fn element_type_name(&self) -> &str { "MarkdownView" }

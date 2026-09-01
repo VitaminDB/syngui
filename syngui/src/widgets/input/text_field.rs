@@ -31,6 +31,9 @@ pub struct TextField {
     /// Забрать клавиатурный фокус при монтировании — для полей, с которых
     /// начинается ввод (палитра команд, диалог поиска).
     pub autofocus: bool,
+    /// Показывать при фокусе всплывашку с текстом из буфера обмена: тап по
+    /// ней вставляет текст. Также включается из MSS: `clipboard-hint: on`.
+    pub clipboard_hint: bool,
 }
 
 impl TextField {
@@ -53,6 +56,7 @@ impl TextField {
             input_filter: None,
             on_filter_reject: None,
             autofocus: false,
+            clipboard_hint: false,
         }
     }
 
@@ -133,6 +137,13 @@ impl TextField {
         self
     }
 
+    /// Всплывашка с текстом из буфера обмена при фокусе (тап вставляет
+    /// текст). Эквивалент MSS-свойства `clipboard-hint: on`.
+    pub fn clipboard_hint(mut self, on: bool) -> Self {
+        self.clipboard_hint = on;
+        self
+    }
+
     pub fn on_prefix_click(mut self, callback: impl FnMut() + Send + 'static) -> Self {
         self.on_prefix_click = Some(Arc::new(Mutex::new(callback)));
         self
@@ -204,6 +215,11 @@ impl Widget for TextField {
             preedit_cursor: None,
             text_measure: None,
             scroll_offset: 0.0,
+            clipboard_hint_prop: self.clipboard_hint,
+            hint_text: None,
+            hint_visible: false,
+            hint_hover: false,
+            hint_above: false,
         })
     }
 
@@ -257,6 +273,14 @@ pub struct TextFieldElement {
     scroll_offset: f32,
     preedit_text: Option<String>,
     preedit_cursor: Option<(usize, usize)>,
+    /// Подсказка буфера обмена включена через builder (MSS может переопределить).
+    clipboard_hint_prop: bool,
+    /// Текст из буфера обмена, предлагаемый к вставке.
+    hint_text: Option<String>,
+    hint_visible: bool,
+    hint_hover: bool,
+    /// Чип рисуется над полем (снизу не влезает / Android-клавиатура).
+    hint_above: bool,
 }
 
 const FONT_SIZE: f32 = 14.0;
@@ -268,6 +292,17 @@ const HELPER_TOP_GAP: f32 = 4.0;
 const ERROR_COLOR_HEX: &str = "#EF4444";
 
 const OBSCURE_CHAR: &str = "\u{2022}";
+
+const HINT_HEIGHT: f32 = 34.0;
+const HINT_GAP: f32 = 6.0;
+const HINT_FONT_SIZE: f32 = 13.0;
+const HINT_PADDING_X: f32 = 12.0;
+const HINT_ICON_SIZE: f32 = 15.0;
+const HINT_ICON_GAP: f32 = 7.0;
+/// Material Icons `content_paste`.
+const HINT_ICON: &str = "\u{E14F}";
+/// Максимум символов подсказки в чипе.
+const HINT_MAX_CHARS: usize = 80;
 
 impl TextFieldElement {
     fn visual_text(&self) -> String {
@@ -422,6 +457,107 @@ impl TextFieldElement {
             self.scroll_offset = (cursor_x - margin).max(0.0);
         }
     }
+
+    fn clipboard_hint_enabled(&self) -> bool {
+        self.mss.clipboard_hint.unwrap_or(self.clipboard_hint_prop)
+    }
+
+    /// Текст чипа: одна строка, обрезанная до [`HINT_MAX_CHARS`].
+    fn hint_display_text(&self) -> String {
+        let raw = self.hint_text.as_deref().unwrap_or("");
+        let trimmed = raw.trim();
+        let mut s: String = trimmed
+            .chars()
+            .take(HINT_MAX_CHARS)
+            .map(|c| if c == '\n' || c == '\r' || c == '\t' { ' ' } else { c })
+            .collect();
+        if trimmed.chars().count() > HINT_MAX_CHARS {
+            s.push('…');
+        }
+        s
+    }
+
+    fn hint_chip_rect(&self) -> Rect {
+        let field = self.field_rect();
+        let display = self.hint_display_text();
+        let text_w = if let Some(ref tm) = self.text_measure {
+            tm.measure_text_width(&display, HINT_FONT_SIZE, display.chars().count())
+        } else {
+            display.chars().count() as f32 * HINT_FONT_SIZE * 0.6
+        };
+        let intrinsic = HINT_PADDING_X * 2.0 + HINT_ICON_SIZE + HINT_ICON_GAP + text_w;
+        let w = intrinsic.min(field.size.width).max(HINT_HEIGHT);
+        let y = if self.hint_above {
+            field.y() - HINT_GAP - HINT_HEIGHT
+        } else {
+            field.y() + field.size.height + HINT_GAP
+        };
+        Rect::new(Point::new(field.x(), y), Size::new(w, HINT_HEIGHT))
+    }
+
+    /// Границы overlay для маршрутизации событий: поле + чип.
+    fn hint_overlay_bounds(&self) -> Rect {
+        let field = self.field_rect();
+        let chip = self.hint_chip_rect();
+        let x0 = field.x().min(chip.x());
+        let y0 = field.y().min(chip.y());
+        let x1 = (field.x() + field.size.width).max(chip.x() + chip.size.width);
+        let y1 = (field.y() + field.size.height).max(chip.y() + chip.size.height);
+        Rect::new(Point::new(x0, y0), Size::new(x1 - x0, y1 - y0))
+    }
+
+    /// Обновляет подсказку буфера обмена при получении фокуса.
+    fn refresh_clipboard_hint(&mut self, ctx: &mut EventContext) {
+        if !self.clipboard_hint_enabled() || self.read_only || self.obscure {
+            return;
+        }
+        // Веб: readText() асинхронный — кэш подтянется, и FocusGained
+        // повторится из AppHandler::update() уже со свежим текстом.
+        #[cfg(target_arch = "wasm32")]
+        crate::clipboard::request_refresh();
+        self.hint_text = ctx
+            .paste_from_clipboard()
+            .filter(|t| !t.trim().is_empty() && *t != self.text);
+        self.hint_visible = self.hint_text.is_some();
+        self.hint_hover = false;
+        if self.hint_visible {
+            let field = self.field_rect();
+            let below_fits = field.y() + field.size.height + HINT_GAP + HINT_HEIGHT
+                <= ctx.viewport_size().height;
+            let above_fits = field.y() >= HINT_GAP + HINT_HEIGHT;
+            // Android: над полем, чтобы не уйти под экранную клавиатуру.
+            self.hint_above = if cfg!(target_os = "android") {
+                above_fits
+            } else {
+                !below_fits && above_fits
+            };
+        }
+    }
+
+    /// Вставляет текст подсказки в позицию курсора (как обычную вставку).
+    fn insert_hint_text(&mut self, ctx: &mut EventContext) {
+        if let Some(text) = self.hint_text.take() {
+            let text = text.replace('\n', " ").replace('\r', "");
+            let filtered = self.apply_input_filter(&text);
+            if !filtered.is_empty() || self.input_filter.is_none() {
+                self.selection.replace_selection(&mut self.text, &mut self.cursor_pos, &filtered);
+                self.trigger_change();
+                self.ensure_cursor_visible();
+            }
+        }
+        self.hint_visible = false;
+        self.hint_hover = false;
+        ctx.request_paint();
+    }
+
+    fn dismiss_hint(&mut self, ctx: &mut EventContext) {
+        if self.hint_visible {
+            self.hint_visible = false;
+            self.hint_text = None;
+            self.hint_hover = false;
+            ctx.request_paint();
+        }
+    }
 }
 
 impl Element for TextFieldElement {
@@ -447,6 +583,7 @@ impl Element for TextFieldElement {
             self.error_text = tf.error_text.clone();
             self.input_filter = tf.input_filter.clone();
             self.on_filter_reject = tf.on_filter_reject.clone();
+            self.clipboard_hint_prop = tf.clipboard_hint;
             if tf.autofocus && !self.autofocus {
                 self.focus_request_pending = true;
                 self.focused = true;
@@ -709,6 +846,57 @@ impl Element for TextFieldElement {
                 self.mss.font_family.clone(),
             );
         }
+
+        // Чип подсказки буфера обмена: рисуется в overlay-слое поверх всего.
+        if self.focused && self.hint_visible && self.hint_text.is_some() {
+            let chip = self.hint_chip_rect();
+            let chip_radius = 10.0_f32.min(chip.size.height / 2.0);
+            let chip_bg = if self.hint_hover { bg_color.darken(0.05) } else { bg_color };
+            let chip_border = if border_color.a > 0.01 {
+                border_color
+            } else {
+                fg.with_alpha(0.15)
+            };
+
+            list.begin_overlay();
+            list.push_shadow(
+                chip,
+                Color::new(0.0, 0.0, 0.0, 0.18),
+                10.0,
+                (0.0, 3.0),
+                [chip_radius; 4],
+            );
+            list.push_rect_bordered(
+                chip,
+                chip_bg,
+                [chip_radius; 4],
+                Border { width: 1.0, color: chip_border },
+            );
+
+            let icon_rect = Rect::new(
+                Point::new(chip.x() + HINT_PADDING_X, chip.y()),
+                Size::new(HINT_ICON_SIZE + 2.0, chip.size.height),
+            );
+            list.push_text_centered(HINT_ICON, icon_rect, primary, HINT_ICON_SIZE);
+
+            let text_x = chip.x() + HINT_PADDING_X + HINT_ICON_SIZE + HINT_ICON_GAP;
+            let hint_text_h = HINT_FONT_SIZE + 4.0;
+            let hint_rect = Rect::new(
+                Point::new(text_x, chip.y() + (chip.size.height - hint_text_h) / 2.0),
+                Size::new((chip.x() + chip.size.width - HINT_PADDING_X - text_x).max(0.0), hint_text_h),
+            );
+            list.push_text_styled_singleline(
+                &self.hint_display_text(),
+                hint_rect,
+                fg,
+                HINT_FONT_SIZE,
+                TextAlign::DEFAULT,
+                TextDecoration::None,
+                400,
+                self.mss.font_family.clone(),
+            );
+            list.end_overlay();
+        }
     }
 
     fn handle_event(&mut self, event: &Event, ctx: &mut EventContext) -> EventResult {
@@ -718,6 +906,17 @@ impl Element for TextFieldElement {
 
         match event {
             Event::MouseMove(pos) => {
+                if self.hint_visible {
+                    let over_chip = self.hint_chip_rect().contains(*pos);
+                    if over_chip != self.hint_hover {
+                        self.hint_hover = over_chip;
+                        ctx.request_paint();
+                    }
+                    if over_chip {
+                        ctx.set_cursor(CursorIcon::Pointer);
+                        return EventResult::Handled;
+                    }
+                }
                 let was_hover = self.hover;
                 self.hover = self.field_rect().contains(*pos);
                 if self.selection.mouse_selecting && self.focused {
@@ -752,6 +951,7 @@ impl Element for TextFieldElement {
                 ctx.set_virtual_keyboard_visible(true);
                 ctx.set_numeric_keyboard(false);
                 ctx.set_focused_text(self.text.clone());
+                self.refresh_clipboard_hint(ctx);
 
                 ctx.request_paint();
                 EventResult::Handled
@@ -760,6 +960,7 @@ impl Element for TextFieldElement {
                 self.focused = false;
                 self.mss.start_transition_to(self.hover, false, false, false);
                 ctx.set_virtual_keyboard_visible(false);
+                self.dismiss_hint(ctx);
                 self.selection.clear();
                 if self.submit_on_focus_lost {
                     if let Some(ref callback) = self.on_submit {
@@ -772,6 +973,18 @@ impl Element for TextFieldElement {
                 EventResult::Handled
             }
             Event::MouseDown { button, position } => {
+                if *button == MouseButton::Left && self.hint_visible {
+                    if self.hint_chip_rect().contains(*position) {
+                        self.insert_hint_text(ctx);
+                        return EventResult::Handled;
+                    }
+                    // Клик мимо чипа и мимо поля — подсказка больше не нужна.
+                    // Клик в само поле подсказку не прячет: FocusGained
+                    // приходит раньше MouseDown, иначе она исчезала бы сразу.
+                    if !self.field_rect().contains(*position) {
+                        self.dismiss_hint(ctx);
+                    }
+                }
                 if *button == MouseButton::Left && self.on_prefix_click.is_some() {
                     if let Some(rect) = self.prefix_hit_rect() {
                         if rect.contains(*position) {
@@ -836,6 +1049,8 @@ impl Element for TextFieldElement {
                 if !self.focused {
                     return EventResult::Ignored;
                 }
+                // Начали работать с клавиатуры — подсказка буфера не нужна.
+                self.dismiss_hint(ctx);
 
                 let shift = ctx.modifiers.shift;
                 let ctrl = ctx.modifiers.ctrl;
@@ -1005,6 +1220,7 @@ impl Element for TextFieldElement {
                 if !self.focused || self.read_only || ch.is_control() || ctx.modifiers.ctrl {
                     return EventResult::Ignored;
                 }
+                self.dismiss_hint(ctx);
 
                 if !self.accept_char(*ch) {
                     self.trigger_filter_reject(*ch);
@@ -1026,6 +1242,7 @@ impl Element for TextFieldElement {
                 if !self.focused || self.read_only {
                     return EventResult::Ignored;
                 }
+                self.dismiss_hint(ctx);
                 self.text = self.apply_input_filter(text);
                 self.cursor_pos = self.text.len();
                 self.selection.clear();
@@ -1040,6 +1257,7 @@ impl Element for TextFieldElement {
                 if !self.focused || self.read_only {
                     return EventResult::Ignored;
                 }
+                self.dismiss_hint(ctx);
                 self.preedit_text = None;
                 self.preedit_cursor = None;
                 let filtered = self.apply_input_filter(text);
@@ -1116,6 +1334,17 @@ impl Element for TextFieldElement {
     }
 
     fn element_type_name(&self) -> &str { "TextField" }
+
+    /// Декларативный overlay для чипа подсказки буфера обмена: события в его
+    /// границах маршрутизируются полю, а `sync_overlay_stack` держит границы
+    /// актуальными при любом реflow (например, при появлении клавиатуры).
+    fn overlay_request(&self) -> Option<(Rect, bool)> {
+        if self.focused && self.hint_visible {
+            Some((self.hint_overlay_bounds(), false))
+        } else {
+            None
+        }
+    }
 
     fn animate(&mut self, dt: std::time::Duration) -> bool {
         self.mss.transition.tick(dt.as_secs_f32())

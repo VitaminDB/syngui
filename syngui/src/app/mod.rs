@@ -20,6 +20,8 @@ pub(crate) mod single_instance;
 pub mod notification;
 #[cfg(target_arch = "wasm32")]
 pub(crate) mod web_keys;
+#[cfg(target_arch = "wasm32")]
+pub(crate) mod web_clipboard;
 
 pub use builder::{AppBuilder, WindowConfig};
 pub use tray::{TrayCloseAction, TrayConfig, TrayMenuItem};
