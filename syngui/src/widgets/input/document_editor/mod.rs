@@ -20,6 +20,8 @@ pub mod model;
 pub mod parse;
 pub mod rows;
 pub mod serialize;
+pub mod shortcuts;
+pub mod slash;
 pub mod state;
 pub mod style;
 mod widget;

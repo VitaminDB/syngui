@@ -29,7 +29,9 @@ use crate::widget::{
 use super::build::block_widget;
 use super::edit;
 use super::history::{EditClass, UndoStack};
-use super::model::DocModel;
+use super::model::{BlockKind, DocBlock, DocModel, InlineStyle, InlineText};
+use super::shortcuts::{block_shortcut, try_inline_shortcut, BlockShortcut};
+use super::slash::{default_items, filter_items, SlashAction, SlashItem, SlashState};
 use super::parse::parse_document;
 use super::serialize::serialize_document;
 use super::state::{
@@ -78,6 +80,8 @@ pub struct DocumentEditor {
     classes: Vec<String>,
     handle: Option<DocumentEditorHandle>,
     on_change: Option<Arc<dyn Fn() + Send + Sync>>,
+    slash_items: Vec<SlashItem>,
+    on_slash_custom: Option<Arc<dyn Fn(&str) + Send + Sync>>,
 }
 
 impl DocumentEditor {
@@ -88,7 +92,21 @@ impl DocumentEditor {
             classes: Vec::new(),
             handle: None,
             on_change: None,
+            slash_items: default_items(),
+            on_slash_custom: None,
         }
+    }
+
+    /// Полная замена каталога slash-меню (локализация, свои пункты).
+    pub fn slash_items(mut self, items: Vec<SlashItem>) -> Self {
+        self.slash_items = items;
+        self
+    }
+
+    /// Обработчик кастомных пунктов slash-меню (`SlashAction::Custom`).
+    pub fn on_slash_custom(mut self, f: impl Fn(&str) + Send + Sync + 'static) -> Self {
+        self.on_slash_custom = Some(Arc::new(f));
+        self
     }
 
     /// Markdown-исходник документа. Смена строки (по fingerprint) заменяет
@@ -162,6 +180,10 @@ impl Widget for DocumentEditor {
             revision: self.handle.as_ref().map(|h| h.revision),
             on_change: self.on_change.clone(),
             history: UndoStack::new(),
+            slash: None,
+            slash_items: self.slash_items.clone(),
+            on_slash_custom: self.on_slash_custom.clone(),
+            ui_rects: Mutex::new(UiRects::default()),
         })
     }
 
@@ -207,6 +229,21 @@ pub struct DocumentEditorElement {
     revision: Option<RwSignal<u64>>,
     on_change: Option<Arc<dyn Fn() + Send + Sync>>,
     history: UndoStack,
+    slash: Option<SlashState>,
+    slash_items: Vec<SlashItem>,
+    on_slash_custom: Option<Arc<dyn Fn(&str) + Send + Sync>>,
+    /// Прямоугольники всплывающих панелей, вычисленные при отрисовке
+    /// (paint идёт по &self — интерьерная мутабельность, как у MarkdownView).
+    ui_rects: Mutex<UiRects>,
+}
+
+/// Хит-зоны панелей, нарисованных поверх документа.
+#[derive(Default)]
+struct UiRects {
+    /// (прямоугольник меню, число видимых пунктов).
+    slash: Option<(Rect, usize)>,
+    /// (прямоугольник тулбара, ширина кнопки).
+    toolbar: Option<(Rect, f32)>,
 }
 
 impl DocumentEditorElement {
@@ -272,6 +309,279 @@ impl DocumentEditorElement {
             self.after_edit();
         }
         done
+    }
+
+    /// Конверсия параграфа по блочному шорткату (`# `, `- `, `1. `...).
+    fn apply_block_shortcut(&mut self, sc: BlockShortcut, eaten: usize) {
+        let Some(pos) = self.caret() else { return };
+        let new_caret = {
+            let mut model = self.model();
+            let extra_id = model.alloc_id();
+            edit::with_siblings(&mut model.blocks, pos.block, &mut |sibs, idx| {
+                let own_id = sibs[idx].id;
+                let Some(text_ref) = sibs[idx].kind.text_mut() else { return None };
+                let mut text = std::mem::take(text_ref);
+                edit::text_delete(&mut text, 0, eaten);
+                let after = CaretPos { block: own_id, offset: pos.offset.saturating_sub(eaten) };
+                match &sc {
+                    BlockShortcut::Heading(n) => {
+                        sibs[idx].kind = BlockKind::Heading { level: *n, text };
+                        Some(after)
+                    }
+                    BlockShortcut::Bullet => {
+                        sibs[idx].kind = BlockKind::Bullet { text, children: Vec::new() };
+                        Some(after)
+                    }
+                    BlockShortcut::Numbered(n) => {
+                        sibs[idx].kind =
+                            BlockKind::Numbered { number: *n, text, children: Vec::new() };
+                        Some(after)
+                    }
+                    BlockShortcut::Todo => {
+                        sibs[idx].kind =
+                            BlockKind::Todo { checked: false, text, children: Vec::new() };
+                        Some(after)
+                    }
+                    BlockShortcut::Toggle => {
+                        sibs[idx].kind =
+                            BlockKind::Toggle { summary: text, children: Vec::new(), collapsed: false };
+                        Some(after)
+                    }
+                    BlockShortcut::Quote => {
+                        let inner = DocBlock::new(extra_id, BlockKind::Paragraph(text));
+                        sibs[idx].kind = BlockKind::Quote(vec![inner]);
+                        Some(CaretPos { block: extra_id, offset: after.offset })
+                    }
+                    BlockShortcut::CodeBlock => {
+                        sibs[idx].kind =
+                            BlockKind::CodeBlock { language: None, code: String::new() };
+                        let p = DocBlock::new(extra_id, BlockKind::Paragraph(text));
+                        sibs.insert(idx + 1, p);
+                        Some(CaretPos { block: extra_id, offset: 0 })
+                    }
+                    BlockShortcut::Divider => {
+                        sibs[idx].kind = BlockKind::Divider;
+                        let p = DocBlock::new(extra_id, BlockKind::Paragraph(text));
+                        sibs.insert(idx + 1, p);
+                        Some(CaretPos { block: extra_id, offset: 0 })
+                    }
+                }
+            })
+        };
+        if let Some(Some(caret)) = new_caret {
+            self.selection = Some(DocSelection::caret(caret));
+            self.after_edit();
+        }
+    }
+
+    /// Проверка блочного шортката после ввода символа.
+    fn maybe_block_shortcut(&mut self) -> bool {
+        let Some(pos) = self.caret() else { return false };
+        let found = {
+            let model = self.model();
+            let block = edit::find_block(&model.blocks, pos.block);
+            let is_paragraph = matches!(block.map(|b| &b.kind), Some(BlockKind::Paragraph(_)));
+            if !is_paragraph {
+                None
+            } else {
+                let text = block.and_then(|b| b.kind.text()).map(|t| t.text()).unwrap_or_default();
+                let head = &text[..pos.offset.min(text.len())];
+                block_shortcut(head)
+            }
+        };
+        if let Some((sc, eaten)) = found {
+            self.apply_block_shortcut(sc, eaten);
+            true
+        } else {
+            false
+        }
+    }
+
+    /// Инлайн-шорткат после ввода замыкающего маркера.
+    fn maybe_inline_shortcut(&mut self) {
+        let Some(pos) = self.caret() else { return };
+        let new_offset = {
+            let mut model = self.model();
+            edit::find_block_mut(&mut model.blocks, pos.block)
+                .and_then(|b| b.kind.text_mut())
+                .and_then(|t| try_inline_shortcut(t, pos.offset))
+        };
+        if let Some(offset) = new_offset {
+            self.selection = Some(DocSelection::caret(CaretPos { block: pos.block, offset }));
+            self.after_edit();
+        }
+    }
+
+    /// Открытие slash-меню после ввода `/`.
+    fn maybe_open_slash(&mut self) {
+        let Some(pos) = self.caret() else { return };
+        let ok = {
+            let model = self.model();
+            let block = edit::find_block(&model.blocks, pos.block);
+            let is_paragraph = matches!(block.map(|b| &b.kind), Some(BlockKind::Paragraph(_)));
+            let text = block.and_then(|b| b.kind.text()).map(|t| t.text()).unwrap_or_default();
+            // `/` уже в тексте: до него либо пусто, либо пробел.
+            let before = &text[..pos.offset.saturating_sub(1)];
+            is_paragraph && (before.is_empty() || before.ends_with(' '))
+        };
+        if ok {
+            self.slash = Some(SlashState {
+                block: pos.block,
+                start: pos.offset - 1,
+                query: String::new(),
+                selected: 0,
+            });
+            self.mark_dirty(DirtyFlags::RENDER);
+        }
+    }
+
+    fn close_slash(&mut self) {
+        if self.slash.take().is_some() {
+            self.mark_dirty(DirtyFlags::RENDER);
+        }
+    }
+
+    /// Применение пункта slash-меню.
+    fn apply_slash(&mut self, action: SlashAction) {
+        let Some(sl) = self.slash.take() else { return };
+        self.checkpoint(EditClass::Structure);
+        // Удаляем `/query` из текста.
+        {
+            let mut model = self.model();
+            if let Some(t) =
+                edit::find_block_mut(&mut model.blocks, sl.block).and_then(|b| b.kind.text_mut())
+            {
+                edit::text_delete(t, sl.start, sl.start + 1 + sl.query.len());
+            }
+        }
+        self.selection = Some(DocSelection::caret(CaretPos { block: sl.block, offset: sl.start }));
+        match &action {
+            SlashAction::Paragraph => self.after_edit(),
+            SlashAction::Heading(n) => self.convert_current(|text| BlockKind::Heading {
+                level: *n,
+                text,
+            }),
+            SlashAction::Bullet => {
+                self.convert_current(|text| BlockKind::Bullet { text, children: Vec::new() })
+            }
+            SlashAction::Numbered => self.convert_current(|text| BlockKind::Numbered {
+                number: 1,
+                text,
+                children: Vec::new(),
+            }),
+            SlashAction::Todo => self.convert_current(|text| BlockKind::Todo {
+                checked: false,
+                text,
+                children: Vec::new(),
+            }),
+            SlashAction::Toggle => self.convert_current(|text| BlockKind::Toggle {
+                summary: text,
+                children: Vec::new(),
+                collapsed: false,
+            }),
+            SlashAction::Quote => self.apply_block_shortcut(BlockShortcut::Quote, 0),
+            SlashAction::Callout => self.convert_current(|text| BlockKind::Callout {
+                kind: "note".to_string(),
+                title: text,
+                children: Vec::new(),
+            }),
+            SlashAction::CodeBlock => self.apply_block_shortcut(BlockShortcut::CodeBlock, 0),
+            SlashAction::Divider => self.apply_block_shortcut(BlockShortcut::Divider, 0),
+            SlashAction::Table => {
+                let Some(pos) = self.caret() else { return };
+                {
+                    let mut model = self.model();
+                    let id = model.alloc_id();
+                    let empty = InlineText::default;
+                    let table = BlockKind::Table {
+                        headers: vec![empty(), empty()],
+                        rows: vec![vec![empty(), empty()]],
+                        aligns: vec![Default::default(), Default::default()],
+                    };
+                    edit::with_siblings(&mut model.blocks, pos.block, &mut |sibs, idx| {
+                        sibs.insert(idx + 1, DocBlock::new(id, table.clone()));
+                    });
+                }
+                self.after_edit();
+            }
+            SlashAction::Custom(id) => {
+                if let Some(cb) = &self.on_slash_custom {
+                    cb(id);
+                }
+                self.after_edit();
+            }
+        }
+    }
+
+    /// Смена типа текущего текстового блока с сохранением текста.
+    fn convert_current(&mut self, make: impl Fn(InlineText) -> BlockKind) {
+        let Some(pos) = self.caret() else { return };
+        {
+            let mut model = self.model();
+            if let Some(block) = edit::find_block_mut(&mut model.blocks, pos.block) {
+                if let Some(text_ref) = block.kind.text_mut() {
+                    let text = std::mem::take(text_ref);
+                    block.kind = make(text);
+                }
+            }
+        }
+        self.after_edit();
+    }
+
+    /// Переключение инлайн-стиля выделения (тулбар и Ctrl+B/I/E/Shift+S).
+    fn toggle_inline(
+        &mut self,
+        pred: fn(&InlineStyle) -> bool,
+        apply: fn(&mut InlineStyle, bool),
+    ) {
+        let Some(sel) = self.selection else { return };
+        if sel.is_caret() {
+            return;
+        }
+        self.checkpoint(EditClass::Structure);
+        let mut model = self.model();
+        let order = BlockOrder::of(&model);
+        let (start, end) = sel.ordered(&order);
+        let (Some(si), Some(ei)) = (order.idx(start.block), order.idx(end.block)) else { return };
+
+        let portion = |model: &DocModel, i: usize| -> (usize, usize) {
+            let id = order.ids[i];
+            let len = edit::block_text_len(model, id);
+            let lo = if i == si { start.offset.min(len) } else { 0 };
+            let hi = if i == ei { end.offset.min(len) } else { len };
+            (lo, hi)
+        };
+
+        // Фаза 1: весь диапазон уже стилизован?
+        let mut all = true;
+        for i in si..=ei {
+            let (lo, hi) = portion(&model, i);
+            if hi <= lo {
+                continue;
+            }
+            let styled = edit::find_block(&model.blocks, order.ids[i])
+                .and_then(|b| b.kind.text())
+                .map(|t| edit::range_has_style(t, lo, hi, &pred))
+                .unwrap_or(true);
+            if !styled {
+                all = false;
+                break;
+            }
+        }
+        let target = !all;
+        for i in si..=ei {
+            let (lo, hi) = portion(&model, i);
+            if hi <= lo {
+                continue;
+            }
+            if let Some(t) = edit::find_block_mut(&mut model.blocks, order.ids[i])
+                .and_then(|b| b.kind.text_mut())
+            {
+                edit::style_range(t, lo, hi, &|s| apply(s, target));
+            }
+        }
+        drop(model);
+        self.after_edit();
     }
 
     /// Фиксация правки: перестройка детей, ревизия, колбэк.
@@ -708,6 +1018,130 @@ impl DocumentEditorElement {
     }
 }
 
+impl DocumentEditorElement {
+    /// Slash-меню под кареткой.
+    fn draw_slash_menu(&self, list: &mut DisplayList) {
+        let Some(sl) = &self.slash else { return };
+        let anchor = self
+            .caret_rect(CaretPos { block: sl.block, offset: sl.start })
+            .or_else(|| self.caret().and_then(|p| self.caret_rect(p)));
+        let Some(anchor) = anchor else { return };
+        let items = filter_items(&self.slash_items, &sl.query);
+        let count = items.len().min(SLASH_MAX_ROWS);
+        if count == 0 {
+            return;
+        }
+        let s = &self.style;
+        let rect = Rect::new(
+            Point::new(anchor.origin.x, anchor.origin.y + anchor.size.height + 4.0),
+            Size::new(SLASH_MENU_W, count as f32 * SLASH_ROW_H + 8.0),
+        );
+        list.push_rect(rect, s.menu_bg, [8.0; 4]);
+        // Тонкая рамка четырьмя полосами.
+        for edge in edges(rect) {
+            list.push_rect(edge, s.menu_border, [0.0; 4]);
+        }
+        let selected = sl.selected.min(count - 1);
+        for (i, item) in items.iter().take(count).enumerate() {
+            let row = Rect::new(
+                Point::new(rect.origin.x + 4.0, rect.origin.y + 4.0 + i as f32 * SLASH_ROW_H),
+                Size::new(rect.size.width - 8.0, SLASH_ROW_H),
+            );
+            if i == selected {
+                list.push_rect(row, s.menu_sel_bg, [5.0; 4]);
+            }
+            list.push_text_styled_singleline(
+                &item.label,
+                Rect::new(
+                    Point::new(row.origin.x + 8.0, row.origin.y + (SLASH_ROW_H - s.text_size * 1.3) / 2.0),
+                    Size::new(row.size.width - 16.0, s.text_size * 1.4),
+                ),
+                s.text_color,
+                s.text_size,
+                TextAlign::DEFAULT,
+                TextDecoration::None,
+                400,
+                None,
+            );
+        }
+        if let Ok(mut ui) = self.ui_rects.lock() {
+            // Хит-зона — только строки (без внутренних полей).
+            let hit = Rect::new(
+                Point::new(rect.origin.x, rect.origin.y + 4.0),
+                Size::new(rect.size.width, count as f32 * SLASH_ROW_H),
+            );
+            ui.slash = Some((hit, count));
+        }
+    }
+
+    /// Мини-тулбар инлайн-стилей над выделением.
+    fn draw_toolbar(&self, list: &mut DisplayList) {
+        let Some(sel) = self.selection else { return };
+        if sel.is_caret() || self.mouse_selecting || self.slash.is_some() {
+            return;
+        }
+        let model = self.model();
+        let order = BlockOrder::of(&model);
+        drop(model);
+        let (start, _) = sel.ordered(&order);
+        let Some(anchor) = self.caret_rect(start) else { return };
+        let s = &self.style;
+        let labels = ["B", "I", "S", "<>"];
+        let rect = Rect::new(
+            Point::new(anchor.origin.x, (anchor.origin.y - TOOLBAR_H - 6.0).max(0.0)),
+            Size::new(TOOLBAR_BTN_W * labels.len() as f32, TOOLBAR_H),
+        );
+        list.push_rect(rect, s.menu_bg, [6.0; 4]);
+        for edge in edges(rect) {
+            list.push_rect(edge, s.menu_border, [0.0; 4]);
+        }
+        for (i, label) in labels.iter().enumerate() {
+            let cell = Rect::new(
+                Point::new(rect.origin.x + i as f32 * TOOLBAR_BTN_W, rect.origin.y),
+                Size::new(TOOLBAR_BTN_W, TOOLBAR_H),
+            );
+            list.push_text_styled_singleline(
+                label,
+                Rect::new(
+                    Point::new(cell.origin.x, cell.origin.y + (TOOLBAR_H - s.text_size * 1.3) / 2.0),
+                    Size::new(cell.size.width, s.text_size * 1.4),
+                ),
+                s.text_color,
+                s.text_size,
+                TextAlign::CENTER,
+                TextDecoration::None,
+                if i == 0 { 700 } else { 500 },
+                None,
+            );
+        }
+        if let Ok(mut ui) = self.ui_rects.lock() {
+            ui.toolbar = Some((rect, TOOLBAR_BTN_W));
+        }
+    }
+}
+
+const SLASH_ROW_H: f32 = 26.0;
+const SLASH_MENU_W: f32 = 230.0;
+const SLASH_MAX_ROWS: usize = 8;
+const TOOLBAR_BTN_W: f32 = 30.0;
+const TOOLBAR_H: f32 = 26.0;
+
+/// Четыре стороны прямоугольника толщиной 1px (рамка без заливки).
+fn edges(r: Rect) -> [Rect; 4] {
+    [
+        Rect::new(r.origin, Size::new(r.size.width, 1.0)),
+        Rect::new(
+            Point::new(r.origin.x, r.origin.y + r.size.height - 1.0),
+            Size::new(r.size.width, 1.0),
+        ),
+        Rect::new(r.origin, Size::new(1.0, r.size.height)),
+        Rect::new(
+            Point::new(r.origin.x + r.size.width - 1.0, r.origin.y),
+            Size::new(1.0, r.size.height),
+        ),
+    ]
+}
+
 fn dist(v: f32, lo: f32, hi: f32) -> f32 {
     if v < lo {
         lo - v
@@ -799,9 +1233,15 @@ impl Element for DocumentEditorElement {
     }
 
     fn post_build_display_list(&self, list: &mut DisplayList, _clip: Rect) {
+        // Сбрасываем хит-зоны панелей; отрисовка ниже заполнит актуальные.
+        if let Ok(mut ui) = self.ui_rects.lock() {
+            *ui = UiRects::default();
+        }
         if !self.focused || self.read_only {
             return;
         }
+        self.draw_slash_menu(list);
+        self.draw_toolbar(list);
         let Some(pos) = self.caret() else { return };
         let Some(rect) = self.caret_rect(pos) else { return };
         if self.caret_on {
@@ -866,6 +1306,47 @@ impl Element for DocumentEditorElement {
                 }
                 self.focused = true;
                 ctx.set_focused_text(String::new());
+                // Клик по панелям, нарисованным поверх (тулбар, slash-меню).
+                if !self.read_only {
+                    let (toolbar_hit, slash_hit) = {
+                        let ui = self.ui_rects.lock().unwrap_or_else(|e| e.into_inner());
+                        let t = ui.toolbar.and_then(|(rect, btn_w)| {
+                            rect.contains(*position)
+                                .then(|| ((position.x - rect.origin.x) / btn_w) as usize)
+                        });
+                        let sl = ui.slash.and_then(|(rect, count)| {
+                            (rect.contains(*position) && count > 0).then(|| {
+                                (((position.y - rect.origin.y) / SLASH_ROW_H) as usize)
+                                    .min(count - 1)
+                            })
+                        });
+                        (t, sl)
+                    };
+                    if let Some(btn) = toolbar_hit {
+                        match btn {
+                            0 => self.toggle_inline(|s| s.bold, |s, v| s.bold = v),
+                            1 => self.toggle_inline(|s| s.italic, |s, v| s.italic = v),
+                            2 => self.toggle_inline(|s| s.strike, |s, v| s.strike = v),
+                            _ => self.toggle_inline(|s| s.code, |s, v| s.code = v),
+                        }
+                        return EventResult::Handled;
+                    }
+                    if let Some(idx) = slash_hit {
+                        let action = self
+                            .slash
+                            .as_ref()
+                            .and_then(|sl| {
+                                filter_items(&self.slash_items, &sl.query)
+                                    .get(idx)
+                                    .map(|it| it.action.clone())
+                            });
+                        if let Some(action) = action {
+                            self.apply_slash(action);
+                        }
+                        return EventResult::Handled;
+                    }
+                }
+                self.close_slash();
                 // Клик по гаттеру: чекбокс/шеврон.
                 if !self.read_only {
                     if let Some((id, action)) = self.gutter_hit(*position) {
@@ -938,6 +1419,56 @@ impl Element for DocumentEditorElement {
                 let shift = ctx.modifiers.shift;
                 let ctrl = ctx.modifiers.ctrl;
                 let editable = !self.read_only;
+                // Slash-меню перехватывает навигацию.
+                if let Some(sl) = &mut self.slash {
+                    let count = filter_items(&self.slash_items, &sl.query).len();
+                    match key {
+                        Key::Up => {
+                            sl.selected = sl.selected.saturating_sub(1);
+                            self.mark_dirty(DirtyFlags::RENDER);
+                            return EventResult::Handled;
+                        }
+                        Key::Down => {
+                            if count > 0 {
+                                sl.selected = (sl.selected + 1).min(count - 1);
+                            }
+                            self.mark_dirty(DirtyFlags::RENDER);
+                            return EventResult::Handled;
+                        }
+                        Key::Enter => {
+                            let query = sl.query.clone();
+                            let idx = sl.selected;
+                            let action = filter_items(&self.slash_items, &query)
+                                .get(idx)
+                                .map(|it| it.action.clone());
+                            if let Some(action) = action {
+                                self.apply_slash(action);
+                            } else {
+                                self.close_slash();
+                            }
+                            return EventResult::Handled;
+                        }
+                        Key::Escape => {
+                            self.close_slash();
+                            return EventResult::Handled;
+                        }
+                        Key::Left | Key::Right => {
+                            self.close_slash();
+                            // Дальше — обычная навигация.
+                        }
+                        Key::Backspace => {
+                            if sl.query.pop().is_none() {
+                                self.close_slash();
+                            } else {
+                                sl.selected = 0;
+                            }
+                            self.checkpoint(EditClass::Deleting);
+                            self.backspace();
+                            return EventResult::Handled;
+                        }
+                        _ => {}
+                    }
+                }
                 let handled = match key {
                     Key::A if ctrl => {
                         self.select_all();
@@ -976,6 +1507,22 @@ impl Element for DocumentEditorElement {
                     }
                     Key::Y if ctrl && editable => {
                         self.redo();
+                        true
+                    }
+                    Key::B if ctrl && editable => {
+                        self.toggle_inline(|s| s.bold, |s, v| s.bold = v);
+                        true
+                    }
+                    Key::I if ctrl && editable => {
+                        self.toggle_inline(|s| s.italic, |s, v| s.italic = v);
+                        true
+                    }
+                    Key::E if ctrl && editable => {
+                        self.toggle_inline(|s| s.code, |s, v| s.code = v);
+                        true
+                    }
+                    Key::S if ctrl && shift && editable => {
+                        self.toggle_inline(|s| s.strike, |s, v| s.strike = v);
                         true
                     }
                     Key::Tab if editable => self.tab_indent_checkpointed(shift),
@@ -1043,9 +1590,36 @@ impl Element for DocumentEditorElement {
                 if self.caret().is_none() {
                     return EventResult::Ignored;
                 }
+                let ch = *c;
                 self.checkpoint(EditClass::Typing);
                 let mut buf = [0u8; 4];
-                self.insert_str(c.encode_utf8(&mut buf));
+                self.insert_str(ch.encode_utf8(&mut buf));
+                // Slash-меню: набор уточняет фильтр (пробел закрывает).
+                if let Some(sl) = &mut self.slash {
+                    if ch.is_whitespace() {
+                        self.close_slash();
+                    } else {
+                        sl.query.push(ch);
+                        sl.selected = 0;
+                        self.mark_dirty(DirtyFlags::RENDER);
+                    }
+                    return EventResult::Handled;
+                }
+                match ch {
+                    '/' => self.maybe_open_slash(),
+                    ' ' => {
+                        self.maybe_block_shortcut();
+                    }
+                    '`' | '-' => {
+                        // ``` и --- срабатывают целой строкой; иначе `
+                        // может замыкать инлайн-код.
+                        if !self.maybe_block_shortcut() && ch == '`' {
+                            self.maybe_inline_shortcut();
+                        }
+                    }
+                    '*' | '~' => self.maybe_inline_shortcut(),
+                    _ => {}
+                }
                 EventResult::Handled
             }
             Event::ImePreedit { text, .. } => {

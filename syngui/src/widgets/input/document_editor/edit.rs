@@ -109,6 +109,78 @@ pub fn prev_char_boundary(s: &str, offset: usize) -> usize {
     i
 }
 
+/// Применяет модификатор стиля к байтовому диапазону: раны разрезаются по
+/// границам, целевые получают `f`, соседние с одинаковым стилем сливаются.
+pub fn style_range(
+    text: &mut InlineText,
+    start: usize,
+    end: usize,
+    f: &dyn Fn(&mut InlineStyle),
+) {
+    if end <= start {
+        return;
+    }
+    let runs = std::mem::take(&mut text.0);
+    let mut acc = 0usize;
+    for run in runs {
+        let len = run.text.len();
+        let r_start = acc;
+        let r_end = acc + len;
+        acc = r_end;
+        let cut_start = start.max(r_start).min(r_end);
+        let cut_end = end.max(r_start).min(r_end);
+        if cut_end <= cut_start {
+            text.0.push(run);
+            continue;
+        }
+        let local_s = cut_start - r_start;
+        let local_e = cut_end - r_start;
+        if local_s > 0 {
+            text.0.push(InlineRun {
+                text: run.text[..local_s].to_string(),
+                style: run.style.clone(),
+            });
+        }
+        let mut mid_style = run.style.clone();
+        f(&mut mid_style);
+        text.0.push(InlineRun { text: run.text[local_s..local_e].to_string(), style: mid_style });
+        if local_e < len {
+            text.0.push(InlineRun {
+                text: run.text[local_e..].to_string(),
+                style: run.style.clone(),
+            });
+        }
+    }
+    text.normalize();
+}
+
+/// Истинно, когда весь диапазон удовлетворяет предикату стиля.
+pub fn range_has_style(
+    text: &InlineText,
+    start: usize,
+    end: usize,
+    pred: &dyn Fn(&InlineStyle) -> bool,
+) -> bool {
+    if end <= start {
+        return false;
+    }
+    let mut acc = 0usize;
+    let mut any = false;
+    for run in &text.0 {
+        let r_start = acc;
+        let r_end = acc + run.text.len();
+        acc = r_end;
+        if r_end <= start || r_start >= end {
+            continue;
+        }
+        any = true;
+        if !pred(&run.style) {
+            return false;
+        }
+    }
+    any
+}
+
 /// Границы слова вокруг смещения (для выделения двойным кликом).
 pub fn word_bounds(s: &str, offset: usize) -> (usize, usize) {
     if s.is_empty() {

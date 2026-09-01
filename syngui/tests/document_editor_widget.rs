@@ -311,3 +311,102 @@ fn tab_indents_list_item() {
     settle(&mut h);
     assert_eq!(handle.serialize(), "- раз\n- два\n");
 }
+
+// ─── Шорткаты, slash-меню, инлайн-стили (S5) ────────────────────────────────
+
+#[test]
+fn hash_space_makes_heading() {
+    let (mut h, handle) = editing_harness("\n", Point::new(X0 + 5.0, Y0 + 8.0));
+    // Пустой документ → пустой параграф? Пустой md не имеет блоков; берём
+    // документ с одним параграфом и печатаем префикс в его начало.
+    let _ = (h, handle);
+    let (mut h, handle) = editing_harness("текст\n", Point::new(X0, Y0 + 8.0));
+    type_str(&mut h, "## ");
+    settle(&mut h);
+    assert_eq!(handle.serialize(), "## текст\n");
+}
+
+#[test]
+fn dash_space_makes_bullet() {
+    let (mut h, handle) = editing_harness("пункт\n", Point::new(X0, Y0 + 8.0));
+    type_str(&mut h, "- ");
+    settle(&mut h);
+    assert_eq!(handle.serialize(), "- пункт\n");
+}
+
+#[test]
+fn checkbox_shortcut() {
+    let (mut h, handle) = editing_harness("дело\n", Point::new(X0, Y0 + 8.0));
+    type_str(&mut h, "[] ");
+    settle(&mut h);
+    assert_eq!(handle.serialize(), "- [ ] дело\n");
+}
+
+#[test]
+fn inline_bold_shortcut() {
+    // NB: pulldown срезает хвостовой пробел параграфа при парсе.
+    let (mut h, handle) = editing_harness("см.\n", Point::new(X0 + 30.0, Y0 + 8.0));
+    type_str(&mut h, " **вот**");
+    settle(&mut h);
+    assert_eq!(handle.serialize(), "см. **вот**\n");
+    // Проверяем, что это именно стиль, а не литеральные звёздочки:
+    // literals сериализовались бы как \*\*вот\*\*.
+    assert!(!handle.serialize().contains("\\*"));
+}
+
+#[test]
+fn slash_menu_turns_into_heading() {
+    // «/h1» в начале параграфа, Enter — выбор Heading 1.
+    let (mut h, handle) = editing_harness("абв\n", Point::new(X0, Y0 + 8.0));
+    type_str(&mut h, "/h1");
+    h.send_event(&Event::KeyDown(Key::Enter));
+    settle(&mut h);
+    assert_eq!(handle.serialize(), "# абв\n");
+}
+
+#[test]
+fn slash_escape_keeps_text() {
+    let (mut h, handle) = editing_harness("аб\n", Point::new(X0 + 40.0, Y0 + 8.0));
+    type_str(&mut h, " /код");
+    h.send_event(&Event::KeyDown(Key::Escape));
+    // Esc оставляет набранный текст как есть, ввод продолжается.
+    type_str(&mut h, "!");
+    settle(&mut h);
+    assert_eq!(handle.serialize(), "аб /код!\n");
+}
+
+#[test]
+fn ctrl_b_bolds_selection() {
+    let (mut h, handle) = editing_harness("абвгд\n", Point::new(X0 + 10.0, Y0 + 8.0));
+    // Выделяем «бв» драгом.
+    h.send_event(&Event::MouseDown {
+        button: MouseButton::Left,
+        position: Point::new(X0 + 10.0, Y0 + 8.0),
+    });
+    h.send_event(&Event::MouseMove(Point::new(X0 + 30.0, Y0 + 8.0)));
+    h.send_event(&Event::MouseUp {
+        button: MouseButton::Left,
+        position: Point::new(X0 + 30.0, Y0 + 8.0),
+    });
+    h.tree.modifiers.ctrl = true;
+    h.send_event(&Event::KeyDown(Key::B));
+    h.tree.modifiers.ctrl = false;
+    settle(&mut h);
+    assert_eq!(handle.serialize(), "а**бв**гд\n");
+    // Повторный Ctrl+B снимает стиль.
+    h.tree.modifiers.ctrl = true;
+    h.send_event(&Event::KeyDown(Key::B));
+    h.tree.modifiers.ctrl = false;
+    settle(&mut h);
+    assert_eq!(handle.serialize(), "абвгд\n");
+}
+
+#[test]
+fn divider_shortcut_inserts_divider() {
+    let (mut h, handle) = editing_harness("x\n", Point::new(X0, Y0 + 8.0));
+    // Backspace-ом стираем «x», получаем пустой параграф? Пустой блок
+    // не переживает сериализацию, поэтому просто печатаем --- в начало.
+    type_str(&mut h, "---");
+    settle(&mut h);
+    assert!(handle.serialize().starts_with("---\n"), "{}", handle.serialize());
+}

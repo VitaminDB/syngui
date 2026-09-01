@@ -23,6 +23,10 @@ pub struct DocStyle {
     pub link_missing_color: Color,
     pub caret_color: Color,
     pub selection_color: Color,
+    /// Всплывающие меню редактора (slash-меню, автокомплит ссылок).
+    pub menu_bg: Color,
+    pub menu_border: Color,
+    pub menu_sel_bg: Color,
 
     // Инлайн-код и код-блоки.
     pub code_color: Color,
@@ -89,6 +93,9 @@ impl Default for DocStyle {
             link_missing_color: Color::from_hex("#c76a6a"),
             caret_color: Color::from_hex("#6ea8ff"),
             selection_color: Color::from_hex("#6ea8ff").with_alpha(0.28),
+            menu_bg: Color::from_hex("#232833"),
+            menu_border: Color::from_hex("#ffffff").with_alpha(0.12),
+            menu_sel_bg: Color::from_hex("#ffffff").with_alpha(0.10),
 
             code_color: Color::from_hex("#e8b3f0"),
             code_bg: Color::from_hex("#ffffff").with_alpha(0.08),
@@ -186,6 +193,9 @@ impl DocStyle {
             "--doc-link-missing-color" => link_missing_color,
             "--doc-caret-color" => caret_color,
             "--doc-selection-color" => selection_color,
+            "--doc-menu-bg" => menu_bg,
+            "--doc-menu-border" => menu_border,
+            "--doc-menu-sel-bg" => menu_sel_bg,
             "--doc-code-color" => code_color,
             "--doc-code-bg" => code_bg,
             "--doc-code-block-bg" => code_block_bg,
