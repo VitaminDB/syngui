@@ -41,6 +41,11 @@ pub struct KeyframeAnimation {
     pub play_state: AnimPlayState,
     pub elapsed: f32,
     pub completed_iterations: f32,
+    /// Был ли уже первый tick. Первый dt после создания не начисляется:
+    /// он накоплен ДО старта анимации (простой цикла, долгий кадр) и
+    /// мгновенно «доигрывал» бы короткую анимацию до конца — на экране
+    /// оставался застывший стартовый кадр.
+    ticked: bool,
 }
 
 impl KeyframeAnimation {
@@ -61,6 +66,7 @@ impl KeyframeAnimation {
             play_state: AnimPlayState::default(),
             elapsed: 0.0,
             completed_iterations: 0.0,
+            ticked: false,
         }
     }
 
@@ -134,6 +140,10 @@ impl KeyframeAnimation {
 
     pub fn tick(&mut self, dt_secs: f32) -> bool {
         if self.play_state == AnimPlayState::Paused {
+            return self.is_running();
+        }
+        if !self.ticked {
+            self.ticked = true;
             return self.is_running();
         }
         self.elapsed += dt_secs;
@@ -467,6 +477,7 @@ mod tests {
         let vals = anim.current_values();
         assert!((vals.opacity().unwrap() - 0.0).abs() < 0.01);
 
+        anim.tick(0.0); // прогрев: первый tick не начисляет dt
         anim.tick(0.5);
         let vals = anim.current_values();
         assert!((vals.opacity().unwrap() - 0.5).abs() < 0.01);
@@ -498,6 +509,7 @@ mod tests {
         };
         let mut anim = KeyframeAnimation::new(kf, 0.5, Easing::Linear, 1.0);
 
+        anim.tick(0.0); // прогрев: первый tick не начисляет dt
         assert!(anim.tick(0.3));
         assert!(anim.is_running());
         assert!(!anim.tick(0.3));
@@ -516,6 +528,7 @@ mod tests {
         };
         let mut anim = KeyframeAnimation::new(kf, 1.0, Easing::Linear, 1.0);
 
+        anim.tick(0.0); // прогрев: первый tick не начисляет dt
         anim.tick(0.25);
         let vals = anim.current_values();
         assert!((vals.opacity().unwrap() - 0.5).abs() < 0.01);
@@ -616,6 +629,7 @@ mod tests {
         let mut anim = KeyframeAnimation::new(kf, 1.0, Easing::Linear, 1.0);
         anim.direction = AnimDirection::Reverse;
 
+        anim.tick(0.0); // прогрев: первый tick не начисляет dt
         anim.tick(0.25);
         let vals = anim.current_values();
         assert!((vals.opacity().unwrap() - 0.75).abs() < 0.01);
@@ -630,6 +644,7 @@ mod tests {
         let mut anim = KeyframeAnimation::new(kf, 0.5, Easing::Linear, 1.0);
         anim.fill_mode = AnimFillMode::Forwards;
 
+        anim.tick(0.0); // прогрев: первый tick не начисляет dt
         anim.tick(1.0);
         assert!(!anim.is_running());
         let vals = anim.current_values();
@@ -645,6 +660,7 @@ mod tests {
         let mut anim = KeyframeAnimation::new(kf, 0.5, Easing::Linear, 1.0);
         anim.fill_mode = AnimFillMode::None;
 
+        anim.tick(0.0); // прогрев: первый tick не начисляет dt
         anim.tick(1.0);
         let vals = anim.current_values();
         assert!(vals.opacity().is_none());
@@ -674,6 +690,7 @@ mod tests {
         let mut anim = KeyframeAnimation::new(kf, 1.0, Easing::Linear, 1.0);
         anim.delay_secs = 0.5;
 
+        anim.tick(0.0); // прогрев: первый tick не начисляет dt
         anim.tick(0.3);
         assert!(anim.current_values().opacity().is_none());
 
