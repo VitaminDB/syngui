@@ -612,6 +612,35 @@ pub fn outdent_item(model: &mut DocModel, id: BlockId) -> bool {
     true
 }
 
+/// Перемещение блока (с поддеревом) к другому блоку: before — перед ним,
+/// иначе после. Запрещено перемещение в собственное поддерево.
+pub fn move_block(model: &mut DocModel, src: BlockId, target: BlockId, before: bool) -> bool {
+    if src == target {
+        return false;
+    }
+    if ancestors(&model.blocks, target).contains(&src) {
+        return false;
+    }
+    let Some(block) = with_siblings(&mut model.blocks, src, &mut |sibs, idx| {
+        let b = sibs.remove(idx);
+        renumber(sibs);
+        b
+    }) else {
+        return false;
+    };
+    let inserted = with_siblings(&mut model.blocks, target, &mut |sibs, idx| {
+        let at = if before { idx } else { idx + 1 };
+        sibs.insert(at, block.clone());
+        renumber(sibs);
+    })
+    .is_some();
+    if !inserted {
+        // Цель исчезла — блок не теряем.
+        model.blocks.push(block);
+    }
+    true
+}
+
 pub fn toggle_todo(model: &mut DocModel, id: BlockId) {
     if let Some(BlockKind::Todo { checked, .. }) =
         find_block_mut(&mut model.blocks, id).map(|b| &mut b.kind)

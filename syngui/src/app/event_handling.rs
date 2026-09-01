@@ -69,19 +69,9 @@ impl winit::application::ApplicationHandler<SynGuiUserEvent> for AppHandler {
                 #[cfg(target_os = "android")]
                 {
                     let _ = &event_loop;
-                    let back_event = Event::BackPressed;
-                    if let Some(root_id) = self.root_id {
-                        let result = self.tree.handle_event(root_id, &back_event);
-                        if result.is_handled() {
-                            if let Some(ref window) = self.window {
-                                window.request_redraw();
-                            }
-                            return;
-                        }
-                    }
-                    // Необработанный «назад» сворачивает приложение, а не
-                    // завершает его — стандартное поведение Android.
-                    self.move_task_to_back();
+                    // Единая обработка «назад» (клавиатура → виджеты →
+                    // сворачивание), см. dispatch_back.
+                    self.dispatch_back();
                 }
                 #[cfg(not(target_os = "android"))]
                 {
@@ -342,6 +332,17 @@ impl winit::application::ApplicationHandler<SynGuiUserEvent> for AppHandler {
 
                 #[cfg(target_os = "android")]
                 {
+                    // Текст на Android идёт через IME-канал, клавиши здесь не
+                    // обрабатываются — кроме «назад»: без OnBackInvokedDispatcher
+                    // (Android < 13 или enableOnBackInvokedCallback=false) жест
+                    // приходит legacy-путём KEYCODE_BACK → BrowserBack.
+                    if event.state == winit::event::ElementState::Pressed {
+                        if let winit::keyboard::Key::Named(winit::keyboard::NamedKey::BrowserBack) =
+                            &event.logical_key
+                        {
+                            self.dispatch_back();
+                        }
+                    }
                     return;
                 }
 

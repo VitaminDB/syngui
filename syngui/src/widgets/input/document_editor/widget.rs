@@ -184,6 +184,8 @@ impl Widget for DocumentEditor {
             slash_items: self.slash_items.clone(),
             on_slash_custom: self.on_slash_custom.clone(),
             ui_rects: Mutex::new(UiRects::default()),
+            hover_block: None,
+            drag: None,
         })
     }
 
@@ -235,6 +237,21 @@ pub struct DocumentEditorElement {
     /// Прямоугольники всплывающих панелей, вычисленные при отрисовке
     /// (paint идёт по &self — интерьерная мутабельность, как у MarkdownView).
     ui_rects: Mutex<UiRects>,
+    /// Блок под курсором — для показа ручки ⋮⋮.
+    hover_block: Option<super::model::BlockId>,
+    /// Перетаскивание блока за ручку.
+    drag: Option<DragBlock>,
+}
+
+/// Состояние перетаскивания блока.
+struct DragBlock {
+    block: super::model::BlockId,
+    start: Point,
+    current: Point,
+    /// Порог в 4px пройден — рисуем ghost и индикатор.
+    started: bool,
+    /// Куда вставлять: (блок-цель, перед ним?).
+    target: Option<(super::model::BlockId, bool)>,
 }
 
 /// Хит-зоны панелей, нарисованных поверх документа.
@@ -244,6 +261,8 @@ struct UiRects {
     slash: Option<(Rect, usize)>,
     /// (прямоугольник тулбара, ширина кнопки).
     toolbar: Option<(Rect, f32)>,
+    /// (прямоугольник ручки ⋮⋮, блок).
+    handle: Option<(Rect, super::model::BlockId)>,
 }
 
 impl DocumentEditorElement {
@@ -1019,6 +1038,156 @@ impl DocumentEditorElement {
 }
 
 impl DocumentEditorElement {
+    /// Прямоугольник ручки ⋮⋮ для блока (слева от контента).
+    fn handle_rect(&self, block: super::model::BlockId) -> Option<Rect> {
+        let map = self.geom.lock().ok()?;
+        let row = map.get(&block)?;
+        let x = (row.origin.x - HANDLE_W - 6.0).max(self.bounds.origin.x + 2.0);
+        let y = row.origin.y + (row.line_h - HANDLE_H) / 2.0;
+        Some(Rect::new(Point::new(x, y), Size::new(HANDLE_W, HANDLE_H)))
+    }
+
+    /// Блок, чья строка содержит вертикаль точки.
+    fn row_at(&self, p: Point) -> Option<super::model::BlockId> {
+        let map = self.geom.lock().ok()?;
+        let mut best: Option<(f32, super::model::BlockId)> = None;
+        for (id, row) in map.iter() {
+            let height = row
+                .lines
+                .last()
+                .map(|l| l.y + row.line_h)
+                .unwrap_or(row.line_h);
+            let dy = dist(p.y, row.origin.y, row.origin.y + height);
+            if best.map(|(d, _)| dy < d).unwrap_or(true) {
+                best = Some((dy, *id));
+            }
+        }
+        best.filter(|(d, _)| *d < 6.0).map(|(_, id)| id)
+    }
+
+    /// Слот вставки при перетаскивании: до/после ближайшего блока по Y.
+    fn drop_target(&self, p: Point) -> Option<(super::model::BlockId, bool)> {
+        let map = self.geom.lock().ok()?;
+        let mut best: Option<(f32, super::model::BlockId, bool)> = None;
+        for (id, row) in map.iter() {
+            let height = row
+                .lines
+                .last()
+                .map(|l| l.y + row.line_h)
+                .unwrap_or(row.line_h);
+            let mid = row.origin.y + height / 2.0;
+            let before = p.y < mid;
+            let d = (p.y - mid).abs();
+            if best.map(|(bd, _, _)| d < bd).unwrap_or(true) {
+                best = Some((d, *id, before));
+            }
+        }
+        best.map(|(_, id, before)| (id, before))
+    }
+
+    /// Y-координата индикатора вставки.
+    fn drop_indicator_y(&self, target: (super::model::BlockId, bool)) -> Option<(f32, f32, f32)> {
+        let map = self.geom.lock().ok()?;
+        let row = map.get(&target.0)?;
+        let height = row
+            .lines
+            .last()
+            .map(|l| l.y + row.line_h)
+            .unwrap_or(row.line_h);
+        let y = if target.1 {
+            row.origin.y - self.style.block_spacing / 2.0
+        } else {
+            row.origin.y + height + self.style.block_spacing / 2.0
+        };
+        // Ширина линии — по строке цели.
+        let w = row
+            .lines
+            .iter()
+            .flat_map(|l| l.segs.last())
+            .map(|s| s.x + s.width)
+            .fold(120.0f32, f32::max);
+        Some((row.origin.x, y, w))
+    }
+
+    /// Ручка ⋮⋮, ghost и индикатор вставки.
+    fn draw_drag_ui(&self, list: &mut DisplayList) {
+        let s = &self.style;
+        // Ручка у блока под курсором (когда не тянем).
+        if self.drag.is_none() {
+            if let Some(block) = self.hover_block {
+                if let Some(rect) = self.handle_rect(block) {
+                    let mut c = crate::core::canvas::CanvasContext::new(
+                        rect.origin,
+                        rect.size,
+                    );
+                    c.set_color(s.muted_color.with_alpha(0.8));
+                    for row in 0..3 {
+                        for col in 0..2 {
+                            c.fill_circle(
+                                3.0 + col as f32 * 7.0,
+                                3.0 + row as f32 * 6.0,
+                                1.6,
+                            );
+                        }
+                    }
+                    c.flush(list);
+                    if let Ok(mut ui) = self.ui_rects.lock() {
+                        ui.handle = Some((rect, block));
+                    }
+                }
+            }
+        }
+        // Индикатор вставки и ghost при активном перетаскивании.
+        if let Some(drag) = &self.drag {
+            if drag.started {
+                if let Some(target) = drag.target {
+                    if let Some((x, y, w)) = self.drop_indicator_y(target) {
+                        list.push_rect(
+                            Rect::new(Point::new(x, y - 1.0), Size::new(w, 2.0)),
+                            s.caret_color,
+                            [1.0; 4],
+                        );
+                    }
+                }
+                // Ghost: первая строка текста блока рядом с курсором.
+                let text = {
+                    let model = self.model();
+                    edit::find_block(&model.blocks, drag.block)
+                        .and_then(|b| b.kind.text())
+                        .map(|t| t.text())
+                        .unwrap_or_default()
+                };
+                let label: String = text.chars().take(40).collect();
+                let w = self
+                    .tm
+                    .as_deref()
+                    .map(|tm| {
+                        tm.measure_text_width(&label, s.text_size, label.chars().count())
+                    })
+                    .unwrap_or(120.0)
+                    + 20.0;
+                let ghost = Rect::new(
+                    Point::new(drag.current.x + 10.0, drag.current.y + 8.0),
+                    Size::new(w.max(60.0), s.line_h(s.text_size) + 6.0),
+                );
+                list.push_rect(ghost, s.menu_bg.with_alpha(0.92), [6.0; 4]);
+                list.push_text_styled_singleline(
+                    &label,
+                    Rect::new(
+                        Point::new(ghost.origin.x + 10.0, ghost.origin.y + 3.0),
+                        Size::new(ghost.size.width - 20.0, s.text_size * 1.4),
+                    ),
+                    s.text_color,
+                    s.text_size,
+                    TextAlign::DEFAULT,
+                    TextDecoration::None,
+                    400,
+                    None,
+                );
+            }
+        }
+    }
+
     /// Slash-меню под кареткой.
     fn draw_slash_menu(&self, list: &mut DisplayList) {
         let Some(sl) = &self.slash else { return };
@@ -1125,6 +1294,8 @@ const SLASH_MENU_W: f32 = 230.0;
 const SLASH_MAX_ROWS: usize = 8;
 const TOOLBAR_BTN_W: f32 = 30.0;
 const TOOLBAR_H: f32 = 26.0;
+const HANDLE_W: f32 = 16.0;
+const HANDLE_H: f32 = 18.0;
 
 /// Четыре стороны прямоугольника толщиной 1px (рамка без заливки).
 fn edges(r: Rect) -> [Rect; 4] {
@@ -1240,6 +1411,7 @@ impl Element for DocumentEditorElement {
         if !self.focused || self.read_only {
             return;
         }
+        self.draw_drag_ui(list);
         self.draw_slash_menu(list);
         self.draw_toolbar(list);
         let Some(pos) = self.caret() else { return };
@@ -1346,6 +1518,26 @@ impl Element for DocumentEditorElement {
                         return EventResult::Handled;
                     }
                 }
+                // Захват ручки ⋮⋮ — начало перетаскивания блока.
+                if !self.read_only {
+                    let handle_hit = {
+                        let ui = self.ui_rects.lock().unwrap_or_else(|e| e.into_inner());
+                        ui.handle.and_then(|(rect, block)| {
+                            rect.contains(*position).then_some(block)
+                        })
+                    };
+                    if let Some(block) = handle_hit {
+                        self.drag = Some(DragBlock {
+                            block,
+                            start: *position,
+                            current: *position,
+                            started: false,
+                            target: None,
+                        });
+                        ctx.capture();
+                        return EventResult::Handled;
+                    }
+                }
                 self.close_slash();
                 // Клик по гаттеру: чекбокс/шеврон.
                 if !self.read_only {
@@ -1372,6 +1564,33 @@ impl Element for DocumentEditorElement {
                 EventResult::Handled
             }
             Event::MouseMove(position) => {
+                if let Some(drag) = &mut self.drag {
+                    drag.current = *position;
+                    if !drag.started
+                        && (drag.current.x - drag.start.x).abs()
+                            + (drag.current.y - drag.start.y).abs()
+                            > 4.0
+                    {
+                        drag.started = true;
+                    }
+                    if drag.started {
+                        let src = drag.block;
+                        let target = self.drop_target(*position).filter(|(t, _)| *t != src);
+                        if let Some(drag) = &mut self.drag {
+                            drag.target = target;
+                        }
+                        self.mark_dirty(DirtyFlags::RENDER);
+                    }
+                    return EventResult::Handled;
+                }
+                // Hover-строка для показа ручки.
+                if self.focused && !self.read_only && self.bounds.contains(*position) {
+                    let hovered = self.row_at(*position);
+                    if hovered != self.hover_block {
+                        self.hover_block = hovered;
+                        self.mark_dirty(DirtyFlags::RENDER);
+                    }
+                }
                 if self.mouse_selecting {
                     if let Some(pos) = self.hit_caret(*position) {
                         if let Some(sel) = &mut self.selection {
@@ -1386,6 +1605,24 @@ impl Element for DocumentEditorElement {
                 EventResult::Ignored
             }
             Event::MouseUp { button: MouseButton::Left, .. } => {
+                if let Some(drag) = self.drag.take() {
+                    if drag.started {
+                        if let Some((target, before)) = drag.target {
+                            self.checkpoint(EditClass::Structure);
+                            let moved = {
+                                let mut model = self.model();
+                                edit::move_block(&mut model, drag.block, target, before)
+                            };
+                            if moved {
+                                self.after_edit();
+                            } else {
+                                self.history.discard_last_checkpoint();
+                            }
+                        }
+                    }
+                    self.mark_dirty(DirtyFlags::RENDER);
+                    return EventResult::Handled;
+                }
                 if self.mouse_selecting {
                     self.mouse_selecting = false;
                     return EventResult::Handled;

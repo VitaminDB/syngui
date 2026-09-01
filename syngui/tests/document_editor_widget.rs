@@ -410,3 +410,38 @@ fn divider_shortcut_inserts_divider() {
     settle(&mut h);
     assert!(handle.serialize().starts_with("---\n"), "{}", handle.serialize());
 }
+
+// ─── Перетаскивание блоков за ручку (S6) ────────────────────────────────────
+
+#[test]
+fn drag_handle_reorders_blocks() {
+    let (mut h, handle) = editing_harness("раз\n\nдва\n\nтри\n", Point::new(X0 + 10.0, Y0 + 8.0));
+    // Наводимся на первую строку — появляется ручка.
+    h.send_event(&Event::MouseMove(Point::new(X0 + 10.0, Y0 + 8.0)));
+    // Перерисовка post-списка вычисляет хит-зону ручки.
+    let mut list = DisplayList::new();
+    h.tree.build_display_list(h.root_id, &mut list, Rect::new(Point::zero(), Size::new(800.0, 2000.0)));
+    // Хватаем ручку (она слева от контента, кламп к краю контейнера).
+    let grab = Point::new(4.0, Y0 + 8.0);
+    h.send_event(&Event::MouseDown { button: MouseButton::Left, position: grab });
+    // Тянем ниже третьего блока (строки ~23px + spacing 10).
+    let drop = Point::new(X0 + 10.0, Y0 + 3.0 * 33.0);
+    h.send_event(&Event::MouseMove(drop));
+    h.send_event(&Event::MouseUp { button: MouseButton::Left, position: drop });
+    settle(&mut h);
+    assert_eq!(handle.serialize(), "два\n\nтри\n\nраз\n");
+}
+
+#[test]
+fn move_block_unit() {
+    use syngui::widgets::input::document_editor::*;
+    let mut m = parse_document("а\n\nб\n\nв\n");
+    let ids: Vec<_> = m.blocks.iter().map(|b| b.id).collect();
+    assert!(edit::move_block(&mut m, ids[0], ids[2], false));
+    assert_eq!(serialize_document(&m), "б\n\nв\n\nа\n");
+    // В собственное поддерево нельзя.
+    let mut m2 = parse_document("- родитель\n  - ребёнок\n");
+    let parent = m2.blocks[0].id;
+    let child = m2.blocks[0].kind.children().unwrap()[0].id;
+    assert!(!edit::move_block(&mut m2, parent, child, true));
+}

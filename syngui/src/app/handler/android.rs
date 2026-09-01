@@ -86,36 +86,48 @@ impl AppHandler {
 
         let pressed = unsafe { Self::poll_back_jni(vm_ptr, activity_ptr) };
         if pressed {
-            if self.keyboard_shown {
-                self.keyboard_shown = false;
-                self.composing_len = 0;
-                self.hide_keyboard_jni();
-                if let Some(old_id) = self.focus_manager.current_focus() {
-                    self.tree.dispatch_event_to(old_id, &Event::FocusLost);
-                    self.focus_manager.clear_focus();
-                    self.tree.focused_element = None;
-                }
-                self.process_virtual_keyboard_request();
-                if let Some(ref window) = self.window {
-                    window.request_redraw();
-                }
-                return;
-            }
+            self.dispatch_back();
+        }
+    }
 
-            let back_event = Event::BackPressed;
-            let handled = self
-                .root_id
-                .map(|root_id| self.tree.handle_event(root_id, &back_event).is_handled())
-                .unwrap_or(false);
-            if handled {
-                if let Some(ref window) = self.window {
-                    window.request_redraw();
-                }
-            } else {
-                // Некому обрабатывать «назад» — стандартное поведение Android:
-                // приложение сворачивается (не завершается).
-                self.move_task_to_back();
+    /// Обработка жеста/клавиши «назад», общая для обоих каналов доставки:
+    /// OnBackInvokedDispatcher (Android 13+, `poll_android_back`) и legacy
+    /// KEYCODE_BACK → BrowserBack (KeyboardInput в event_handling). Сначала
+    /// закрывается экранная клавиатура, затем событие идёт виджетам; если
+    /// никто не обработал — приложение сворачивается.
+    #[cfg(target_os = "android")]
+    pub(crate) fn dispatch_back(&mut self) {
+        use crate::input::Event;
+
+        if self.keyboard_shown {
+            self.keyboard_shown = false;
+            self.composing_len = 0;
+            self.hide_keyboard_jni();
+            if let Some(old_id) = self.focus_manager.current_focus() {
+                self.tree.dispatch_event_to(old_id, &Event::FocusLost);
+                self.focus_manager.clear_focus();
+                self.tree.focused_element = None;
             }
+            self.process_virtual_keyboard_request();
+            if let Some(ref window) = self.window {
+                window.request_redraw();
+            }
+            return;
+        }
+
+        let back_event = Event::BackPressed;
+        let handled = self
+            .root_id
+            .map(|root_id| self.tree.handle_event(root_id, &back_event).is_handled())
+            .unwrap_or(false);
+        if handled {
+            if let Some(ref window) = self.window {
+                window.request_redraw();
+            }
+        } else {
+            // Некому обрабатывать «назад» — стандартное поведение Android:
+            // приложение сворачивается (не завершается).
+            self.move_task_to_back();
         }
     }
 
