@@ -11,7 +11,7 @@ use crate::core::Color;
 use crate::widget::Widget;
 
 use super::chrome::Chrome;
-use super::links::{DocLinkProvider, DocMediaResolver};
+use super::links::{DocLinkProvider, DocMediaResolver, EmbedCtx, EmbedFactory};
 use super::model::{Attrs, BlockKind, DocBlock, InlineText, MediaKind};
 use super::state::GeomMap;
 use super::rows::{
@@ -26,6 +26,8 @@ pub struct BuildEnv {
     pub geom: GeomMap,
     pub links: Option<Arc<dyn DocLinkProvider>>,
     pub media: Option<Arc<dyn DocMediaResolver>>,
+    pub embeds: Option<Arc<dyn EmbedFactory>>,
+    pub embed_ctx: EmbedCtx,
 }
 
 pub fn block_widget(block: &DocBlock, env: &BuildEnv) -> Box<dyn Widget> {
@@ -114,11 +116,26 @@ pub fn block_widget(block: &DocBlock, env: &BuildEnv) -> Box<dyn Widget> {
         }),
         BlockKind::Divider => Box::new(DividerView { style: style.clone() }),
         BlockKind::Media { media, url, alt } => media_widget(block, *media, url, alt, env),
-        BlockKind::Embed { target } => Box::new(EmbedCard {
-            block_id: block.id,
-            target: target.clone(),
-            style: style.clone(),
-        }),
+        BlockKind::Embed { target } => {
+            if let Some(factory) = &env.embeds {
+                if let Some(inner) = factory.build(target, &env.embed_ctx) {
+                    // Живая врезка в рамке.
+                    return Box::new(
+                        Chrome::new()
+                            .padding(6.0, 6.0, 6.0, 6.0)
+                            .radius(8.0)
+                            .bg(style.embed_bg)
+                            .border_left(2.0, style.embed_border_color)
+                            .child(inner),
+                    );
+                }
+            }
+            Box::new(EmbedCard {
+                block_id: block.id,
+                target: target.clone(),
+                style: style.clone(),
+            })
+        }
     }
 }
 

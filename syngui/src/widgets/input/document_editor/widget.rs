@@ -28,7 +28,7 @@ use crate::widget::{
 
 use super::build::{block_widget, BuildEnv};
 use super::edit;
-use super::links::{DocLinkProvider, DocMediaResolver, LinkCandidate};
+use super::links::{DocLinkProvider, DocMediaResolver, EmbedCtx, EmbedFactory, LinkCandidate};
 use super::history::{EditClass, UndoStack};
 use super::model::{BlockKind, DocBlock, DocModel, InlineStyle, InlineText};
 use super::shortcuts::{block_shortcut, try_inline_shortcut, BlockShortcut};
@@ -117,6 +117,8 @@ pub struct DocumentEditor {
     on_slash_custom: Option<Arc<dyn Fn(&str) + Send + Sync>>,
     links: Option<Arc<dyn DocLinkProvider>>,
     media: Option<Arc<dyn DocMediaResolver>>,
+    embeds: Option<Arc<dyn EmbedFactory>>,
+    embed_ctx: EmbedCtx,
     model_epoch: u64,
     on_drop_file: Option<Arc<dyn Fn(std::path::PathBuf, String) + Send + Sync>>,
 }
@@ -133,9 +135,23 @@ impl DocumentEditor {
             on_slash_custom: None,
             links: None,
             media: None,
+            embeds: None,
+            embed_ctx: EmbedCtx::default(),
             model_epoch: 0,
             on_drop_file: None,
         }
+    }
+
+    /// Фабрика живых врезок `![[…]]`.
+    pub fn embeds(mut self, factory: Arc<dyn EmbedFactory>) -> Self {
+        self.embeds = Some(factory);
+        self
+    }
+
+    /// Контекст вложенности (host передаёт depth+1 во вложенные редакторы).
+    pub fn embed_ctx(mut self, ctx: EmbedCtx) -> Self {
+        self.embed_ctx = ctx;
+        self
     }
 
     /// Эпоха модели: хост инкрементирует после внешних мутаций через
@@ -259,6 +275,8 @@ impl Widget for DocumentEditor {
             drag: None,
             links: self.links.clone(),
             media: self.media.clone(),
+            embeds: self.embeds.clone(),
+            embed_ctx: self.embed_ctx.clone(),
             model_epoch: self.model_epoch,
             on_drop_file: self.on_drop_file.clone(),
             wiki: None,
@@ -319,6 +337,8 @@ pub struct DocumentEditorElement {
     drag: Option<DragBlock>,
     links: Option<Arc<dyn DocLinkProvider>>,
     media: Option<Arc<dyn DocMediaResolver>>,
+    embeds: Option<Arc<dyn EmbedFactory>>,
+    embed_ctx: EmbedCtx,
     model_epoch: u64,
     on_drop_file: Option<Arc<dyn Fn(std::path::PathBuf, String) + Send + Sync>>,
     /// Автокомплит wiki-ссылки `[[`.
@@ -1600,6 +1620,8 @@ impl Element for DocumentEditorElement {
         let links_changed = self.links.is_some() != w.links.is_some();
         self.links = w.links.clone();
         self.media = w.media.clone();
+        self.embeds = w.embeds.clone();
+        self.embed_ctx = w.embed_ctx.clone();
         self.on_drop_file = w.on_drop_file.clone();
         if links_changed {
             self.rebuild = true;
@@ -1680,6 +1702,8 @@ impl Element for DocumentEditorElement {
             geom: self.geom.clone(),
             links: self.links.clone(),
             media: self.media.clone(),
+            embeds: self.embeds.clone(),
+            embed_ctx: self.embed_ctx.clone(),
         };
         let model = self.model();
         model.blocks.iter().map(|b| block_widget(b, &env)).collect()

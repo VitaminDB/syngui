@@ -70,6 +70,22 @@ pub trait DocMediaResolver: Send + Sync {
     }
 }
 
+/// Контекст построения врезки `![[…]]` — защита от рекурсии.
+#[derive(Clone, Debug, Default)]
+pub struct EmbedCtx {
+    /// Глубина вложенности (0 — верхний документ).
+    pub depth: usize,
+    /// Цепочка целей от корня — для детекта циклов.
+    pub chain: Vec<String>,
+}
+
+/// Фабрика живых врезок: хост отдаёт виджет содержимого цели
+/// (read-only страница, редактируемая база, мини-канвас). `None` —
+/// рисуется карточка-плейсхолдер.
+pub trait EmbedFactory: Send + Sync {
+    fn build(&self, target: &str, ctx: &EmbedCtx) -> Option<Box<dyn crate::widget::Widget>>;
+}
+
 /// Заглушки по умолчанию.
 pub struct NoLinks;
 impl DocLinkProvider for NoLinks {}
