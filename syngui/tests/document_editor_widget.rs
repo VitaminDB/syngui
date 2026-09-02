@@ -708,3 +708,64 @@ fn dragging_by_the_handle_pins_the_block() {
         assert!((v % 5.0).abs() < 0.01, "координата не по шагу привязки: {v} в\n{md}");
     }
 }
+
+/// Регрессия: закреплённый блок должен «числиться» там, где нарисован.
+/// Дерево ставит Positioned-обёртку в начало холста и смещает только её
+/// ребёнка — из-за этого блок перехватывал наведение у соседей сверху и
+/// не тянулся за собственную ручку.
+#[test]
+fn pinned_block_is_registered_where_it_is_drawn() {
+    let md = "Первый\n\nВторой\n\n~~~doc-layout\n1 520 300 200\n~~~\n".replace("~~~", "```");
+    let handle = DocumentEditorHandle::new();
+    let layout = DocLayout { free: true, snap: true, snap_step: 5.0, ..DocLayout::default() };
+    let mut h = TestHarness::new(Box::new(
+        DocumentEditor::new().markdown(&md).handle(&handle).layout(layout),
+    ));
+    h.tree.text_measure = Some(Arc::new(Mono));
+    h.rebuild();
+    h.layout(900.0, 700.0);
+
+    // Второй блок закреплён; первый остался в потоке наверху.
+    let rows = h.find_by_type_name("doc-text-row");
+    let pinned = rows
+        .iter()
+        .map(|id| h.element_bounds(*id))
+        .find(|b| b.origin.x > 400.0)
+        .expect("закреплённый блок нарисован по своим координатам");
+
+    let inside = Point::new(pinned.origin.x + 5.0, pinned.origin.y + 5.0);
+    h.send_event(&Event::MouseDown { button: MouseButton::Left, position: inside });
+    h.send_event(&Event::MouseUp { button: MouseButton::Left, position: inside });
+    h.send_event(&Event::MouseMove(inside));
+    let mut list = DisplayList::new();
+    h.tree.build_display_list(
+        h.root_id,
+        &mut list,
+        Rect::new(Point::zero(), Size::new(900.0, 700.0)),
+    );
+
+    // Ручка ⋮⋮ этого блока — слева от него; тянем вниз на 100 px.
+    let grip = Point::new(pinned.origin.x - 14.0, pinned.origin.y + 8.0);
+    h.send_event(&Event::MouseDown { button: MouseButton::Left, position: grip });
+    h.send_event(&Event::MouseMove(Point::new(grip.x, grip.y + 100.0)));
+    h.send_event(&Event::MouseUp { button: MouseButton::Left, position: grip });
+    settle(&mut h);
+
+    let md = handle.serialize();
+    let coords: Vec<f32> = md
+        .lines()
+        .find(|l| l.starts_with("1 "))
+        .expect("геометрия закреплённого блока")
+        .split_whitespace()
+        .skip(1)
+        .filter_map(|t| t.parse().ok())
+        .collect();
+    assert!(
+        (coords[1] - 400.0).abs() < 6.0,
+        "блок не поехал за своей ручкой: {coords:?}\n{md}"
+    );
+    assert!(
+        (coords[0] - 520.0).abs() < 6.0,
+        "блок уехал по горизонтали: {coords:?}\n{md}"
+    );
+}

@@ -305,7 +305,14 @@ impl Element for ChromeElement {
         self.bounds
     }
     fn set_position(&mut self, pos: Point) {
-        self.bounds.origin = pos;
+        // Дерево ставит Positioned-элемент в позицию родителя и смещает
+        // только его ребёнка (`position_recursive`). Собственные границы
+        // при этом остались бы в начале холста — а по ним считаются
+        // хит-тест детей, ручка ⋮⋮ и цель дропа. Сдвигаем сами.
+        self.bounds.origin = match self.absolute {
+            Some((x, y)) => Point::new(pos.x + x, pos.y + y),
+            None => pos,
+        };
         // Размер уже посчитан — публикуем прямоугольник блока целиком.
         if let Some((id, map)) = &self.track {
             if let Ok(mut m) = map.lock() {
