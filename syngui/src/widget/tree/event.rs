@@ -542,46 +542,132 @@ impl ElementTree {
         }
     }
 
+    /// Drag-события (DragMove/DragEnter/Drop) идут **самой глубокой** цели
+    /// под курсором, и только если она их не взяла — следующей по глубине:
+    /// вложенная DropArea (карточка доски внутри редактора страницы) получает
+    /// дроп одна, а не вместе с внешней. Остальные цели, которые точку
+    /// содержат, но перекрыты, и цели вне точки получают `DragLeave` на
+    /// движении — так они снимают подсветку. `DragLeave`/`DragEnd` — всем.
     pub fn dispatch_drag_event(&mut self, event: &Event) -> EventResult {
         let targets = self.drop_targets.clone();
-        let mut result = EventResult::Ignored;
-
-        for target_id in &targets {
-            if self.elements.get(target_id).is_none() {
-                continue;
+        let positional = matches!(
+            event,
+            Event::DragMove { .. } | Event::DragEnter { .. } | Event::Drop { .. }
+        );
+        if !positional {
+            let mut result = EventResult::Ignored;
+            for target_id in &targets {
+                if self.deliver_drag_event(*target_id, event).is_handled() {
+                    result = EventResult::Handled;
+                }
             }
+            return result;
+        }
 
+        // Кандидаты: цели, содержащие точку в своих координатах; глубокие
+        // первыми, из равных — зарегистрированная позже.
+        let mut hits: Vec<(usize, usize, ElementId, Event)> = Vec::new();
+        let mut misses: Vec<ElementId> = Vec::new();
+        for (order, target_id) in targets.iter().enumerate() {
+            let Some(node) = self.elements.get(target_id) else { continue };
             let (s, k) = self.accumulated_event_transform(*target_id);
             let adjusted = if is_identity_transform(s, k) {
                 event.clone()
             } else {
                 event.with_inverse_transform(s, k)
             };
-
-            let mut ctx = EventContext::new(*target_id);
-            ctx.modifiers = self.modifiers;
-            ctx.set_viewport_size(self.viewport_size);
-            ctx.set_window_flags(self.window_flags);
-            if let Some(ref tm) = self.text_measure {
-                ctx.set_text_measure(tm.clone());
-            }
-
-            if let Some(node) = self.elements.get_mut(target_id) {
-                let r = node.element.handle_event(&adjusted, &mut ctx);
-                let ctx_dirty = ctx.take_dirty_flags();
-                let did_something = r.is_handled() || !ctx_dirty.is_empty();
-                if !ctx_dirty.is_empty() {
-                    node.element.mark_dirty(ctx_dirty);
-                }
-                if r.is_handled() {
-                    result = EventResult::Handled;
-                }
-                if did_something {
-                    self.sync_registries_for(*target_id);
-                }
+            let inside = adjusted
+                .position()
+                .map(|p| node.element.bounds().contains(p))
+                .unwrap_or(false);
+            if inside {
+                hits.push((self.depth_of(*target_id), order, *target_id, adjusted));
+            } else {
+                misses.push(*target_id);
             }
         }
+        hits.sort_by(|a, b| b.0.cmp(&a.0).then(b.1.cmp(&a.1)));
 
+        let is_drop = matches!(event, Event::Drop { .. });
+        let mut result = EventResult::Ignored;
+        for (_, _, target_id, adjusted) in &hits {
+            if result.is_handled() {
+                if !is_drop {
+                    self.deliver_drag_event(*target_id, &Event::DragLeave);
+                }
+                continue;
+            }
+            if self.deliver_drag_event(*target_id, adjusted).is_handled() {
+                result = EventResult::Handled;
+            }
+        }
+        if !is_drop {
+            for target_id in misses {
+                self.deliver_drag_event(target_id, &Event::DragLeave);
+            }
+        }
+        result
+    }
+
+    /// Закончить drag дерева в точке `position` — то, что приложение делает
+    /// на отпускании кнопки: `Drop` целям (если не отмена), `DragEnd` —
+    /// источнику напрямую (обход от фокуса до Draggable внутри редактора-в-
+    /// фокусе не доходит, а ему надо снять захват и закончить жест) и
+    /// дереву; состояние переноса и захват мыши снимаются (MouseUp дереву при
+    /// drag'е не шлётся). `false` — переноса не было.
+    pub fn end_drag(&mut self, root_id: ElementId, position: crate::core::Point, cancelled: bool) -> bool {
+        let Some(data) = self.drag_state.as_ref().map(|d| d.data.clone()) else { return false };
+        if !cancelled {
+            self.dispatch_drag_event(&Event::Drop { position, data: data.clone() });
+        }
+        let drag_end = Event::DragEnd { cancelled };
+        let source = ElementId(data.source_id);
+        if data.source_id != 0 && self.elements.contains_key(&source) {
+            self.dispatch_event_to(source, &drag_end);
+        }
+        self.handle_event(root_id, &drag_end);
+        self.drag_state = None;
+        self.mouse_captor = None;
+        true
+    }
+
+    /// Глубина элемента (число предков).
+    fn depth_of(&self, id: ElementId) -> usize {
+        let mut depth = 0;
+        let mut current = self.elements.get(&id).and_then(|n| n.parent);
+        while let Some(parent_id) = current {
+            depth += 1;
+            current = self.elements.get(&parent_id).and_then(|n| n.parent);
+        }
+        depth
+    }
+
+    fn deliver_drag_event(&mut self, target_id: ElementId, event: &Event) -> EventResult {
+        if self.elements.get(&target_id).is_none() {
+            return EventResult::Ignored;
+        }
+        let mut ctx = EventContext::new(target_id);
+        ctx.modifiers = self.modifiers;
+        ctx.set_viewport_size(self.viewport_size);
+        ctx.set_window_flags(self.window_flags);
+        if let Some(ref tm) = self.text_measure {
+            ctx.set_text_measure(tm.clone());
+        }
+        let mut result = EventResult::Ignored;
+        if let Some(node) = self.elements.get_mut(&target_id) {
+            let r = node.element.handle_event(event, &mut ctx);
+            let ctx_dirty = ctx.take_dirty_flags();
+            let did_something = r.is_handled() || !ctx_dirty.is_empty();
+            if !ctx_dirty.is_empty() {
+                node.element.mark_dirty(ctx_dirty);
+            }
+            if r.is_handled() {
+                result = EventResult::Handled;
+            }
+            if did_something {
+                self.sync_registries_for(target_id);
+            }
+        }
         result
     }
 }

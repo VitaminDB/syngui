@@ -659,15 +659,20 @@ Right-click context menu.
 ### Draggable / DropArea
 
 ```rust
-Draggable::new(drag_content)
-    .drag_type("task")
-    .payload(task_id.to_string())
+Draggable::new("task", task_id.to_string())
     .label("Move task")
+    .on_drag_start(|bounds| { ... })
+    .child(drag_content)
 
-DropArea::new(drop_target_content)
-    .accept_type("task")
+DropArea::new()
+    .accept_types(vec!["task".into()])
+    .on_drag_over(|info: DropInfo| { ... })   // hover with position and area size
     .on_drop(|data: DragData| { ... })
+    .child(drop_target_content)
 ```
+
+Nested drop areas are fine: the deepest one under the cursor gets the
+event, the outer only if the inner ignores it (see `08-events.md`).
 
 ## Data
 

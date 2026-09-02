@@ -177,24 +177,49 @@ Fields:
 - `payload: String` — serialized data
 - `source_id: u64` — source element ID
 - `label: Option<String>` — display label for ghost overlay
+- `ghost: bool` — draw the ghost at the cursor (`without_ghost()` when the
+  source shows the move itself, e.g. a document block moving live)
 
 ### Draggable / DropArea Widgets
 
 ```rust
 // Source
-Draggable::new(content_widget)
-    .drag_type("task")
-    .payload(serde_json::to_string(&task).unwrap())
+Draggable::new("task", serde_json::to_string(&task).unwrap())
     .label("Move task")
+    .on_drag_start(|bounds: Rect| { /* threshold passed; source bounds */ })
+    .child(content_widget)
 
 // Target
-DropArea::new(target_widget)
-    .accept_type("task")
+DropArea::new()
+    .accept_types(vec!["task".into()])
+    .on_drag_over(|info: DropInfo| {
+        // every DragMove inside: info.local_position / info.size → upper or lower half
+    })
+    .on_drop_positioned(|info: DropInfo| { /* drop with position */ })
     .on_drop(|data: DragData| {
         let task: Task = serde_json::from_str(&data.payload).unwrap();
-        // Handle drop
     })
+    .child(target_widget)
 ```
+
+### Dispatch rules
+
+- `DragMove` / `DragEnter` / `Drop` go to the **deepest** registered drop
+  target whose bounds contain the cursor (in its own coordinates, scroll
+  and zoom of ancestors applied). Only if it returns `Ignored` (e.g. the
+  type is not accepted) does the next target up get the event — nested
+  `DropArea`s (a board column inside a document editor that itself accepts
+  files) never both receive a drop.
+- Targets that no longer contain the cursor get `DragLeave` on every move.
+- On release the application calls `ElementTree::end_drag(root, pos, cancelled)`:
+  `Drop` to the targets, `DragEnd` to the source element directly (the focus
+  walk would not reach a `Draggable` inside a focused editor) and to the tree,
+  then the drag state and the mouse captor are cleared — the tree gets no
+  `MouseUp` for a release that ends a drag.
+- `DocumentEditor::block_drag_type("doc-block")` announces a block dragged
+  by its ⋮⋮ handle as a tree drag (payload — block id, no ghost), so host
+  `DropArea`s inside the page can accept blocks; the editor finishes the
+  gesture on `DragEnd`.
 
 ## Widget-Level Event Handling
 

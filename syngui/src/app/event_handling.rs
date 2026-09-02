@@ -215,12 +215,7 @@ impl winit::application::ApplicationHandler<SynGuiUserEvent> for AppHandler {
 
                 if !is_press && self.tree.drag_state.is_some() {
                     if let Some(root_id) = self.root_id {
-                        let data = self.tree.drag_state.as_ref().unwrap().data.clone();
-                        let drop_event = Event::Drop { position: pos, data };
-                        self.tree.dispatch_drag_event(&drop_event);
-                        let drag_end = Event::DragEnd { cancelled: false };
-                        self.tree.handle_event(root_id, &drag_end);
-                        self.tree.drag_state = None;
+                        self.tree.end_drag(root_id, pos, false);
                         if let Some(window) = &self.window {
                             window.request_redraw();
                         }

@@ -15,6 +15,8 @@ pub struct DropInfo {
     pub data: DragData,
     pub position: Point,
     pub local_position: Point,
+    /// Размер области — чтобы решать «верхняя/нижняя половина».
+    pub size: Size,
 }
 
 pub struct DropArea {
@@ -24,6 +26,8 @@ pub struct DropArea {
     pub on_drop_positioned: Option<Arc<Mutex<dyn FnMut(DropInfo) + Send>>>,
     pub on_drag_enter: Option<Arc<Mutex<dyn FnMut() + Send>>>,
     pub on_drag_leave: Option<Arc<Mutex<dyn FnMut() + Send>>>,
+    /// Каждое движение над областью — с позицией (подсветка места вставки).
+    pub on_drag_over: Option<Arc<Mutex<dyn FnMut(DropInfo) + Send>>>,
     pub placeholder: String,
 }
 
@@ -36,6 +40,7 @@ impl DropArea {
             on_drop_positioned: None,
             on_drag_enter: None,
             on_drag_leave: None,
+            on_drag_over: None,
             placeholder: "Drop here".to_string(),
         }
     }
@@ -70,6 +75,13 @@ impl DropArea {
         self
     }
 
+    /// Движение курсора над областью во время переноса — с позицией
+    /// (`DropInfo::local_position` — от левого верхнего угла области).
+    pub fn on_drag_over(mut self, callback: impl FnMut(DropInfo) + Send + 'static) -> Self {
+        self.on_drag_over = Some(Arc::new(Mutex::new(callback)));
+        self
+    }
+
     pub fn placeholder(mut self, text: impl Into<String>) -> Self {
         self.placeholder = text.into();
         self
@@ -90,6 +102,7 @@ impl Widget for DropArea {
             on_drop_positioned: self.on_drop_positioned.clone(),
             on_drag_enter: self.on_drag_enter.clone(),
             on_drag_leave: self.on_drag_leave.clone(),
+            on_drag_over: self.on_drag_over.clone(),
             placeholder: self.placeholder.clone(),
             bounds: Rect::zero(),
             drag_over: false,
@@ -125,6 +138,7 @@ struct DropAreaElement {
     on_drop_positioned: Option<Arc<Mutex<dyn FnMut(DropInfo) + Send>>>,
     on_drag_enter: Option<Arc<Mutex<dyn FnMut() + Send>>>,
     on_drag_leave: Option<Arc<Mutex<dyn FnMut() + Send>>>,
+    on_drag_over: Option<Arc<Mutex<dyn FnMut(DropInfo) + Send>>>,
     placeholder: String,
     bounds: Rect,
     drag_over: bool,
@@ -139,6 +153,18 @@ impl DropAreaElement {
     fn accepts(&self, drag_type: &str) -> bool {
         self.accept_types.is_empty() || self.accept_types.iter().any(|t| t == drag_type)
     }
+
+    fn info(&self, position: Point, data: &DragData) -> DropInfo {
+        DropInfo {
+            data: data.clone(),
+            position,
+            local_position: Point::new(
+                position.x - self.bounds.origin.x,
+                position.y - self.bounds.origin.y,
+            ),
+            size: self.bounds.size,
+        }
+    }
 }
 
 impl Element for DropAreaElement {
@@ -149,6 +175,7 @@ impl Element for DropAreaElement {
             self.on_drop_positioned = da.on_drop_positioned.clone();
             self.on_drag_enter = da.on_drag_enter.clone();
             self.on_drag_leave = da.on_drag_leave.clone();
+            self.on_drag_over = da.on_drag_over.clone();
             self.placeholder = da.placeholder.clone();
             self.mark_dirty(DirtyFlags::RENDER);
         }
@@ -214,11 +241,15 @@ impl Element for DropAreaElement {
 
     fn handle_event(&mut self, event: &Event, ctx: &mut EventContext) -> EventResult {
         match event {
-            Event::DragEnter { data, .. } => {
+            Event::DragEnter { position, data } => {
                 if self.accepts(&data.drag_type) {
                     self.drag_over = true;
                     if let Some(ref cb) = self.on_drag_enter {
                         if let Ok(mut f) = cb.lock() { f(); }
+                    }
+                    if let Some(ref cb) = self.on_drag_over {
+                        let info = self.info(*position, data);
+                        if let Ok(mut f) = cb.lock() { f(info); }
                     }
                     ctx.request_paint();
                     return EventResult::Handled;
@@ -243,14 +274,7 @@ impl Element for DropAreaElement {
                         if let Ok(mut f) = cb.lock() { f(); }
                     }
                     if let Some(ref cb) = self.on_drop_positioned {
-                        let info = DropInfo {
-                            data: data.clone(),
-                            position: *position,
-                            local_position: Point::new(
-                                position.x - self.bounds.origin.x,
-                                position.y - self.bounds.origin.y,
-                            ),
-                        };
+                        let info = self.info(*position, data);
                         if let Ok(mut f) = cb.lock() { f(info); }
                     } else if let Some(ref cb) = self.on_drop {
                         if let Ok(mut f) = cb.lock() { f(data.clone()); }
@@ -270,6 +294,10 @@ impl Element for DropAreaElement {
                             if let Ok(mut f) = cb.lock() { f(); }
                         }
                         ctx.request_paint();
+                    }
+                    if let Some(ref cb) = self.on_drag_over {
+                        let info = self.info(*position, data);
+                        if let Ok(mut f) = cb.lock() { f(info); }
                     }
                     return EventResult::Handled;
                 } else if self.drag_over {

@@ -196,6 +196,10 @@ pub struct DragData {
     pub payload: String,
     pub source_id: u64,
     pub label: Option<String>,
+    /// Рисовать ли призрак у курсора. Выключается, когда источник сам
+    /// показывает перенос (блок редактора едет живьём) — иначе поверх него
+    /// висела бы ещё и пилюля с payload'ом.
+    pub ghost: bool,
 }
 
 impl DragData {
@@ -207,7 +211,14 @@ impl DragData {
             payload: payload.into(),
             source_id,
             label: None,
+            ghost: true,
         }
+    }
+
+    /// Без призрака у курсора (источник показывает перенос сам).
+    pub fn without_ghost(mut self) -> Self {
+        self.ghost = false;
+        self
     }
 
     pub fn external_file(path: &std::path::Path) -> Self {
@@ -220,6 +231,7 @@ impl DragData {
             payload,
             source_id: 0,
             label,
+            ghost: true,
         }
     }
 

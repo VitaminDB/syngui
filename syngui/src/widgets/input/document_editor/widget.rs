@@ -312,6 +312,10 @@ pub struct DocumentEditor {
     /// Дроп не-файла (карточка доски и т.п.) на документ: хост решает, что
     /// вставить; `true` — принято.
     on_drop_data: Option<Arc<dyn Fn(Point, &crate::input::DragData) -> bool + Send + Sync>>,
+    /// Тип drag-данных для переноса блока за ⋮⋮: с ним перенос становится
+    /// ещё и drag'ом дерева (payload — id блока, без призрака), и его
+    /// принимают DropArea хоста — в частности доски внутри самой страницы.
+    block_drag_type: Option<String>,
 }
 
 impl DocumentEditor {
@@ -334,6 +338,7 @@ impl DocumentEditor {
             on_focus_lost: None,
             on_block_drop: None,
             on_drop_data: None,
+            block_drag_type: None,
             on_context_menu: None,
             layout: DocLayout::default(),
             fill_height: false,
@@ -378,6 +383,16 @@ impl DocumentEditor {
         f: impl Fn(Point, &crate::input::DragData) -> bool + Send + Sync + 'static,
     ) -> Self {
         self.on_drop_data = Some(Arc::new(f));
+        self
+    }
+
+    /// Перенос блока за ⋮⋮ объявляется drag'ом дерева этого типа (payload —
+    /// id блока, `DragData::without_ghost`): его принимают DropArea хоста,
+    /// в том числе внутри самой страницы. Отпускание тогда приходит как
+    /// `DragEnd`, а блок, который DropArea забрал, хост удаляет через
+    /// `DocOp::DeleteBlock`.
+    pub fn block_drag_type(mut self, drag_type: impl Into<String>) -> Self {
+        self.block_drag_type = Some(drag_type.into());
         self
     }
 
@@ -555,6 +570,7 @@ impl Widget for DocumentEditor {
             on_focus_lost: self.on_focus_lost.clone(),
             on_block_drop: self.on_block_drop.clone(),
             on_drop_data: self.on_drop_data.clone(),
+            block_drag_type: self.block_drag_type.clone(),
             on_context_menu: self.on_context_menu.clone(),
             ops: self.handle.as_ref().map(|h| h.ops.clone()).unwrap_or_default(),
             wiki: None,
@@ -591,6 +607,7 @@ pub struct DocumentEditorElement {
     on_focus_lost: Option<Arc<dyn Fn() + Send + Sync>>,
     on_block_drop: Option<Arc<dyn Fn(Point, super::model::BlockId) -> bool + Send + Sync>>,
     on_drop_data: Option<Arc<dyn Fn(Point, &crate::input::DragData) -> bool + Send + Sync>>,
+    block_drag_type: Option<String>,
     id: ElementId,
     bounds: Rect,
     dirty: DirtyFlags,
@@ -682,6 +699,8 @@ struct DragBlock {
     started: bool,
     /// Куда вставлять: (блок-цель, перед ним?).
     target: Option<(super::model::BlockId, bool)>,
+    /// Drag дерева уже объявлен (`block_drag_type`).
+    announced: bool,
 }
 
 /// Перетаскивание блока по холсту свободной раскладки.
@@ -693,6 +712,8 @@ struct FreeDrag {
     /// Ширина блока на старте (для resize).
     start_width: f32,
     moved: bool,
+    /// Drag дерева уже объявлен (`block_drag_type`).
+    announced: bool,
 }
 
 /// Что тянут за блок в свободной раскладке.
@@ -2440,8 +2461,28 @@ impl DocumentEditorElement {
             mode,
             start_width: width,
             moved: false,
+            announced: false,
         });
         true
+    }
+
+    /// Объявить перенос блока drag'ом дерева (если хост задал тип): payload
+    /// — id блока, призрака нет — блок и так виден (едет живьём на холсте,
+    /// в потоке — свой ghost).
+    fn announce_block_drag(&self, block: super::model::BlockId, at: Point, ctx: &mut EventContext) -> bool {
+        let Some(t) = self.block_drag_type.clone() else { return false };
+        ctx.cursor_position = at;
+        ctx.start_drag(crate::input::DragData::new(t, block.0.to_string(), self.id.0).without_ghost());
+        true
+    }
+
+    /// Блок-объект со своей высотой (доска, диаграмма) под точкой: над ним
+    /// свой индикатор вставки не рисуем — дроп туда принимает сам объект.
+    fn sized_embed_at(&self, p: Point) -> Option<super::model::BlockId> {
+        let map = self.blocks.lock().ok()?;
+        map.iter()
+            .find(|(id, rect)| rect.contains(p) && self.is_sized_embed(**id))
+            .map(|(id, _)| *id)
     }
 
     /// Тянем блок: координаты (или ширина) пишутся сразу в модель, чтобы
@@ -3749,6 +3790,7 @@ impl Element for DocumentEditorElement {
         self.on_focus_lost = w.on_focus_lost.clone();
         self.on_block_drop = w.on_block_drop.clone();
         self.on_drop_data = w.on_drop_data.clone();
+        self.block_drag_type = w.block_drag_type.clone();
         if w.autofocus && !self.autofocus {
             self.focus_request_pending = true;
             self.focused = true;
@@ -4149,6 +4191,7 @@ impl Element for DocumentEditorElement {
                             current: *position,
                             started: false,
                             target: None,
+                            announced: false,
                         });
                         ctx.capture();
                         return EventResult::Handled;
@@ -4266,6 +4309,18 @@ impl Element for DocumentEditorElement {
                 if let Some(mode) = self.free_drag.as_ref().map(|d| d.mode) {
                     ctx.set_cursor(mode.cursor());
                     self.update_free_drag(*position);
+                    let announce = self
+                        .free_drag
+                        .as_ref()
+                        .map(|d| d.mode == FreeDragMode::Move && d.moved && !d.announced)
+                        .unwrap_or(false);
+                    if announce {
+                        let block = self.free_drag.as_ref().map(|d| d.block).unwrap();
+                        let done = self.announce_block_drag(block, *position, ctx);
+                        if let Some(d) = &mut self.free_drag {
+                            d.announced = done;
+                        }
+                    }
                     return EventResult::Handled;
                 }
                 if let Some(drag) = &mut self.drag {
@@ -4279,7 +4334,18 @@ impl Element for DocumentEditorElement {
                     }
                     if drag.started {
                         let src = drag.block;
-                        let target = self.drop_target(*position).filter(|(t, _)| *t != src);
+                        let announce = !drag.announced;
+                        let over_object = self.sized_embed_at(*position).is_some_and(|id| id != src);
+                        let target = if over_object {
+                            None
+                        } else {
+                            self.drop_target(*position).filter(|(t, _)| *t != src)
+                        };
+                        if announce && self.announce_block_drag(src, *position, ctx) {
+                            if let Some(drag) = &mut self.drag {
+                                drag.announced = true;
+                            }
+                        }
                         if let Some(drag) = &mut self.drag {
                             drag.target = target;
                         }
@@ -4360,6 +4426,36 @@ impl Element for DocumentEditorElement {
                 }
                 if self.mouse_selecting {
                     self.mouse_selecting = false;
+                    return EventResult::Handled;
+                }
+                EventResult::Ignored
+            }
+            // Перенос блока шёл drag'ом дерева: MouseUp приложение не шлёт,
+            // жест заканчивает DragEnd. Если DropArea хоста забрал блок, он
+            // уже поставил в очередь `DeleteBlock`; здесь — только свой
+            // финал: закрепить (холст) либо переставить (поток).
+            Event::DragEnd { .. } => {
+                if let Some(drag) = self.free_drag.take() {
+                    let _ = drag;
+                    self.after_edit();
+                    return EventResult::Handled;
+                }
+                if let Some(drag) = self.drag.take() {
+                    if drag.started {
+                        if let Some((target, before)) = drag.target {
+                            self.checkpoint(EditClass::Structure);
+                            let moved = {
+                                let mut model = self.model();
+                                edit::move_block(&mut model, drag.block, target, before)
+                            };
+                            if moved {
+                                self.after_edit();
+                            } else {
+                                self.history.discard_last_checkpoint();
+                            }
+                        }
+                    }
+                    self.mark_dirty(DirtyFlags::RENDER);
                     return EventResult::Handled;
                 }
                 EventResult::Ignored

@@ -1231,3 +1231,198 @@ fn embed_children_receive_clicks() {
     h.send_event(&Event::MouseUp { button: MouseButton::Left, position: inside });
     assert_eq!(clicks.load(Ordering::SeqCst), 1, "клик не дошёл до виджета врезки");
 }
+
+/// Draggable внутри врезки → drag дерева → Drop в DropArea той же врезки
+/// (цепочка приложения: MouseDown, MouseMove, DragMove, Drop) — виджеты
+/// живой врезки участвуют в переносе наравне с остальными.
+#[test]
+fn embed_drag_and_drop_reaches_drop_area() {
+    use std::sync::atomic::{AtomicUsize, Ordering};
+    use syngui::prelude::*;
+    use syngui::widget::Widget;
+    use syngui::widgets::input::document_editor::{EmbedCtx, EmbedFactory};
+    use syngui::widgets::overlay::{Draggable, DropArea};
+
+    struct DndFactory(Arc<AtomicUsize>);
+    impl EmbedFactory for DndFactory {
+        fn build(&self, _target: &str, _ctx: &EmbedCtx) -> Option<Box<dyn Widget>> {
+            let drops = self.0.clone();
+            Some(Box::new(
+                Column::new()
+                    .gap(20.0)
+                    .child(Draggable::new("card", "b|k").child(Text::new("Карточка")))
+                    .child(
+                        DropArea::new()
+                            .accept_types(vec!["card".to_string()])
+                            .on_drop(move |_d| {
+                                drops.fetch_add(1, Ordering::SeqCst);
+                            })
+                            .child(Text::new("Хвост колонки")),
+                    ),
+            ))
+        }
+        fn has_own_height(&self, _target: &str) -> bool {
+            true
+        }
+    }
+
+    let drops = Arc::new(AtomicUsize::new(0));
+    let handle = DocumentEditorHandle::new();
+    let mut h = TestHarness::new(Box::new(
+        DocumentEditor::new()
+            .markdown("Текст\n\n![[kanban:abc]]{h=300}\n")
+            .handle(&handle)
+            .embeds(Arc::new(DndFactory(drops.clone())))
+            .layout(DocLayout { free: true, ..DocLayout::default() }),
+    ));
+    h.tree.text_measure = Some(Arc::new(Mono));
+    h.rebuild();
+    h.layout(800.0, 600.0);
+
+    let drg = h.find_by_type_name("Draggable");
+    let dra = h.find_by_type_name("DropArea");
+    assert_eq!((drg.len(), dra.len()), (1, 1), "врезка не построилась");
+    let bd = h.element_bounds(drg[0]);
+    let ba = h.element_bounds(dra[0]);
+    eprintln!("draggable {bd:?} droparea {ba:?}");
+    assert!(bd.size.width > 0.0 && ba.size.height > 0.0);
+    let from = Point::new(bd.origin.x + bd.size.width / 2.0, bd.origin.y + bd.size.height / 2.0);
+    let to = Point::new(ba.origin.x + ba.size.width / 2.0, ba.origin.y + ba.size.height / 2.0);
+
+    h.send_event(&Event::MouseDown { button: MouseButton::Left, position: from });
+    h.send_event(&Event::MouseMove(Point::new(from.x + 12.0, from.y + 12.0)));
+    assert!(h.tree.drag_state.is_some(), "drag не начался: MouseDown/MouseMove не дошли до Draggable");
+    h.send_event(&Event::MouseMove(to));
+    let data = h.tree.drag_state.as_ref().unwrap().data.clone();
+    h.tree.dispatch_drag_event(&Event::DragMove { position: to, data: data.clone() });
+    h.tree.dispatch_drag_event(&Event::Drop { position: to, data });
+    h.send_event(&Event::DragEnd { cancelled: false });
+    h.tree.drag_state = None;
+    assert_eq!(drops.load(Ordering::SeqCst), 1, "Drop не дошёл до DropArea врезки");
+}
+
+/// Перенос блока за ⋮⋮ с `block_drag_type` — ещё и drag дерева: DropArea
+/// врезки (доска на той же странице) получает дроп с id блока, хост
+/// удаляет блок через `DocOp::DeleteBlock`, а редактор заканчивает жест
+/// по `DragEnd` (MouseUp приложение при drag'е дерева не шлёт).
+#[test]
+fn block_drag_by_handle_drops_into_embed_drop_area() {
+    use std::sync::Mutex;
+    use syngui::prelude::*;
+    use syngui::widget::Widget;
+    use syngui::widgets::input::document_editor::{BlockId, EmbedCtx, EmbedFactory};
+    use syngui::widgets::overlay::DropArea;
+
+    struct SinkFactory(Arc<Mutex<Vec<String>>>);
+    impl EmbedFactory for SinkFactory {
+        fn build(&self, _target: &str, _ctx: &EmbedCtx) -> Option<Box<dyn Widget>> {
+            let got = self.0.clone();
+            Some(Box::new(
+                DropArea::new()
+                    .accept_types(vec!["doc-block".to_string()])
+                    .on_drop(move |d| got.lock().unwrap().push(d.payload.clone()))
+                    .child(Text::new("Колонка доски — сюда можно бросить блок")),
+            ))
+        }
+        fn has_own_height(&self, _target: &str) -> bool {
+            true
+        }
+    }
+
+    let got = Arc::new(Mutex::new(Vec::new()));
+    let handle = DocumentEditorHandle::new();
+    let layout = DocLayout { free: true, ..DocLayout::default() };
+    let mut h = TestHarness::new(Box::new(
+        DocumentEditor::new()
+            .markdown("Раз\n\nДва\n\n![[kanban:abc]]{h=120}\n")
+            .handle(&handle)
+            .embeds(Arc::new(SinkFactory(got.clone())))
+            .block_drag_type("doc-block")
+            .layout(layout),
+    ));
+    h.tree.text_measure = Some(Arc::new(Mono));
+    h.rebuild();
+    h.layout(800.0, 600.0);
+
+    let areas = h.find_by_type_name("DropArea");
+    assert_eq!(areas.len(), 1);
+    let area = h.element_bounds(areas[0]);
+    assert!(area.size.height > 0.0, "у DropArea врезки нет размера: {area:?}");
+
+    // Наведение — ручка рисуется у блока под курсором.
+    let row = h.element_bounds(h.find_by_type_name("doc-text-row")[1]);
+    let inside = Point::new(row.origin.x + 5.0, row.origin.y + 5.0);
+    h.send_event(&Event::MouseDown { button: MouseButton::Left, position: inside });
+    h.send_event(&Event::MouseUp { button: MouseButton::Left, position: inside });
+    h.send_event(&Event::MouseMove(inside));
+    let mut list = DisplayList::new();
+    h.tree.build_display_list(h.root_id, &mut list, Rect::new(Point::zero(), Size::new(800.0, 600.0)));
+
+    let grip = Point::new(row.origin.x - 14.0, row.origin.y + 8.0);
+    h.send_event(&Event::MouseDown { button: MouseButton::Left, position: grip });
+    h.send_event(&Event::MouseMove(Point::new(grip.x + 40.0, grip.y + 30.0)));
+    let drag = h.tree.drag_state.as_ref().expect("перенос блока должен объявить drag дерева");
+    assert_eq!(drag.data.drag_type, "doc-block");
+    assert!(!drag.data.ghost, "призрак не нужен — блок едет живьём");
+    let block_id: u64 = drag.data.payload.parse().expect("payload — id блока");
+    let data = drag.data.clone();
+
+    // Как AppHandler: движение → DragMove целям, отпускание → Drop, DragEnd.
+    let to = Point::new(area.origin.x + area.size.width / 2.0, area.origin.y + area.size.height / 2.0);
+    h.send_event(&Event::MouseMove(to));
+    h.tree.dispatch_drag_event(&Event::DragMove { position: to, data: data.clone() });
+    h.tree.dispatch_drag_event(&Event::Drop { position: to, data });
+    h.send_event(&Event::DragEnd { cancelled: false });
+    h.tree.drag_state = None;
+
+    assert_eq!(got.lock().unwrap().as_slice(), [block_id.to_string()], "DropArea должна получить id блока");
+    // Хост забрал блок — удаляет его из документа.
+    assert_eq!(handle.block_markdown(BlockId(block_id)).as_deref(), Some("Два\n"));
+    handle.queue_op(DocOp::DeleteBlock(BlockId(block_id)));
+    h.update_widget(Box::new(
+        DocumentEditor::new()
+            .markdown("Раз\n\nДва\n\n![[kanban:abc]]{h=120}\n")
+            .handle(&handle)
+            .embeds(Arc::new(SinkFactory(got.clone())))
+            .block_drag_type("doc-block")
+            .model_epoch(1)
+            .layout(DocLayout { free: true, ..DocLayout::default() }),
+    ));
+    settle(&mut h);
+    let md = handle.serialize();
+    assert!(!md.contains("Два"), "блок должен уйти со страницы:\n{md}");
+    assert!(md.contains("Раз"), "остальное на месте:\n{md}");
+    // Жест закончен: движение мыши больше ничего не тащит.
+    let before = handle.serialize();
+    h.send_event(&Event::MouseMove(Point::new(to.x + 50.0, to.y + 50.0)));
+    settle(&mut h);
+    assert_eq!(handle.serialize(), before);
+}
+
+/// В потоке то же: с `block_drag_type` перенос объявляется drag'ом дерева, а
+/// перестановка блоков доводится до конца по `DragEnd` вместо MouseUp.
+#[test]
+fn flow_block_drag_finishes_on_drag_end() {
+    let handle = DocumentEditorHandle::new();
+    let mut h = TestHarness::new(Box::new(
+        DocumentEditor::new().markdown("раз\n\nдва\n\nтри\n").handle(&handle).block_drag_type("doc-block"),
+    ));
+    h.tree.text_measure = Some(Arc::new(Mono));
+    h.rebuild();
+    h.layout(800.0, 600.0);
+    let click = Point::new(X0 + 10.0, Y0 + 8.0);
+    h.send_event(&Event::MouseDown { button: MouseButton::Left, position: click });
+    h.send_event(&Event::MouseUp { button: MouseButton::Left, position: click });
+    h.send_event(&Event::MouseMove(click));
+    let mut list = DisplayList::new();
+    h.tree.build_display_list(h.root_id, &mut list, Rect::new(Point::zero(), Size::new(800.0, 2000.0)));
+    let grab = Point::new(4.0, Y0 + 8.0);
+    h.send_event(&Event::MouseDown { button: MouseButton::Left, position: grab });
+    let drop = Point::new(X0 + 10.0, Y0 + 3.0 * 33.0);
+    h.send_event(&Event::MouseMove(drop));
+    assert!(h.tree.drag_state.is_some(), "перенос в потоке должен объявить drag дерева");
+    h.send_event(&Event::DragEnd { cancelled: false });
+    h.tree.drag_state = None;
+    settle(&mut h);
+    assert_eq!(handle.serialize(), "два\n\nтри\n\nраз\n");
+}

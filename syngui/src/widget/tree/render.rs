@@ -162,8 +162,8 @@ impl ElementTree {
     /// у него нулевые границы) — текстовая пилюля с `label` (или payload).
     pub fn build_drag_overlay(&self, list: &mut DisplayList) {
         let drag = match &self.drag_state {
-            Some(d) => d,
-            None => return,
+            Some(d) if d.data.ghost => d,
+            _ => return,
         };
 
         list.begin_overlay_absolute();

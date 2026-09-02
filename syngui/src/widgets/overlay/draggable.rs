@@ -19,6 +19,8 @@ pub struct Draggable {
     pub threshold: f32,
     pub on_click: Option<Arc<Mutex<dyn FnMut() + Send>>>,
     pub on_double_click: Option<Arc<Mutex<dyn FnMut() + Send>>>,
+    /// Перенос начался (порог пройден) — с границами источника.
+    pub on_drag_start: Option<Arc<Mutex<dyn FnMut(Rect) + Send>>>,
     pub label: Option<String>,
 }
 
@@ -31,6 +33,7 @@ impl Draggable {
             threshold: 5.0,
             on_click: None,
             on_double_click: None,
+            on_drag_start: None,
             label: None,
         }
     }
@@ -59,6 +62,12 @@ impl Draggable {
         self.label = Some(label.into());
         self
     }
+
+    /// Перенос начался: порог пройден, `bounds` — границы источника.
+    pub fn on_drag_start(mut self, cb: impl FnMut(Rect) + Send + 'static) -> Self {
+        self.on_drag_start = Some(Arc::new(Mutex::new(cb)));
+        self
+    }
 }
 
 impl Widget for Draggable {
@@ -70,6 +79,7 @@ impl Widget for Draggable {
             threshold: self.threshold,
             on_click: self.on_click.clone(),
             on_double_click: self.on_double_click.clone(),
+            on_drag_start: self.on_drag_start.clone(),
             label: self.label.clone(),
             bounds: Rect::zero(),
             mouse_down_pos: None,
@@ -105,6 +115,7 @@ struct DraggableElement {
     threshold: f32,
     on_click: Option<Arc<Mutex<dyn FnMut() + Send>>>,
     on_double_click: Option<Arc<Mutex<dyn FnMut() + Send>>>,
+    on_drag_start: Option<Arc<Mutex<dyn FnMut(Rect) + Send>>>,
     label: Option<String>,
     bounds: Rect,
     mouse_down_pos: Option<Point>,
@@ -123,6 +134,7 @@ impl Element for DraggableElement {
             self.threshold = d.threshold;
             self.on_click = d.on_click.clone();
             self.on_double_click = d.on_double_click.clone();
+            self.on_drag_start = d.on_drag_start.clone();
             self.label = d.label.clone();
         }
     }
@@ -167,6 +179,9 @@ impl Element for DraggableElement {
                             );
                             data.label = self.label.clone();
                             ctx.start_drag(data);
+                            if let Some(ref cb) = self.on_drag_start {
+                                if let Ok(mut f) = cb.lock() { f(self.bounds); }
+                            }
                             return EventResult::Handled;
                         }
                     }
