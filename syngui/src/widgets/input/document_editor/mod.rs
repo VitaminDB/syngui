@@ -37,4 +37,5 @@ pub use parse::parse_document;
 pub use serialize::serialize_document;
 pub use links::{DocLinkProvider, DocMediaResolver, EmbedCtx, EmbedFactory, LinkCandidate, ResolvedMedia};
 pub use style::DocStyle;
-pub use widget::{DocumentEditor, DocumentEditorHandle};
+pub use slash::{SlashAction, SlashItem};
+pub use widget::{DocOp, DocumentEditor, DocumentEditorHandle};

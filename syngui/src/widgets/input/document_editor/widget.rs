@@ -41,17 +41,60 @@ use super::state::{
 };
 use super::style::DocStyle;
 
+/// Операция хоста над документом «у каретки» — кладётся в очередь ручки
+/// ([`DocumentEditorHandle::queue_op`]) и применяется самим элементом на
+/// ближайшем `update` (после бампа `model_epoch` хостом): так правка
+/// проходит через историю undo и ставит каретку, чего внешний код без
+/// доступа к состоянию элемента сделать не может.
+#[derive(Clone, Debug)]
+pub enum DocOp {
+    /// Вставить markdown-фрагмент после блока каретки (без каретки — в
+    /// конец). Пустой параграф под кареткой заменяется фрагментом.
+    InsertMarkdown(String),
+    /// Вставить новый пустой блок заданного типа после блока каретки
+    /// (пустой параграф под кареткой используется на месте) — та же
+    /// логика, что у пункта slash-меню.
+    InsertBlock(SlashAction),
+    /// Сменить тип блока каретки (как пункт slash-меню).
+    TurnInto(SlashAction),
+    /// Продублировать блок каретки сразу под ним.
+    Duplicate,
+    /// Удалить блок каретки (последний блок документа — очистить).
+    Delete,
+    /// Сдвинуть блок каретки на одну позицию среди соседей.
+    Move { down: bool },
+}
+
 /// Ручка редактора для хоста: доступ к модели (сериализация для автосейва)
 /// и сигнал ревизии, растущий на каждую правку.
 #[derive(Clone)]
 pub struct DocumentEditorHandle {
     model: Arc<Mutex<DocModel>>,
     revision: RwSignal<u64>,
+    /// Очередь операций хоста, применяемая элементом (см. [`DocOp`]).
+    ops: Arc<Mutex<Vec<DocOp>>>,
 }
 
 impl DocumentEditorHandle {
     pub fn new() -> Self {
-        Self { model: Arc::new(Mutex::new(DocModel::new())), revision: use_signal(0) }
+        Self {
+            model: Arc::new(Mutex::new(DocModel::new())),
+            revision: use_signal(0),
+            ops: Arc::new(Mutex::new(Vec::new())),
+        }
+    }
+
+    /// Поставить операцию в очередь элемента. Применяется на ближайшем
+    /// `update` виджета — хост после вызова бампает `.model_epoch(..)`
+    /// (пересоздание виджета Reactive'ом); без этого очередь ждёт
+    /// следующего пересоздания.
+    pub fn queue_op(&self, op: DocOp) {
+        self.ops.lock().unwrap_or_else(|e| e.into_inner()).push(op);
+    }
+
+    /// Есть ли блок с текстом в документе (для доступности пунктов меню).
+    pub fn is_empty(&self) -> bool {
+        lock(&self.model).blocks.is_empty()
     }
 
     /// Текущий документ в markdown.
@@ -70,16 +113,8 @@ impl DocumentEditorHandle {
     pub fn append_markdown(&self, md: &str) {
         let fragment = parse_document(md);
         let mut model = lock(&self.model);
-        fn remap(blocks: &mut Vec<super::model::DocBlock>, model: &mut DocModel) {
-            for b in blocks.iter_mut() {
-                b.id = model.alloc_id();
-                if let Some(children) = b.kind.children_mut() {
-                    remap(children, model);
-                }
-            }
-        }
         let mut blocks = fragment.blocks;
-        remap(&mut blocks, &mut model);
+        remap_ids(&mut blocks, &mut model);
         model.blocks.extend(blocks);
         drop(model);
         self.revision.set(self.revision.get_untracked() + 1);
@@ -128,6 +163,17 @@ fn lock(model: &Arc<Mutex<DocModel>>) -> MutexGuard<'_, DocModel> {
     model.lock().unwrap_or_else(|e| e.into_inner())
 }
 
+/// Переназначение runtime-id блоков фрагмента из счётчика модели
+/// (фрагмент распарсен отдельно — его id пересекаются с документом).
+fn remap_ids(blocks: &mut Vec<DocBlock>, model: &mut DocModel) {
+    for b in blocks.iter_mut() {
+        b.id = model.alloc_id();
+        if let Some(children) = b.kind.children_mut() {
+            remap_ids(children, model);
+        }
+    }
+}
+
 pub struct DocumentEditor {
     source: String,
     read_only: bool,
@@ -142,6 +188,7 @@ pub struct DocumentEditor {
     embed_ctx: EmbedCtx,
     model_epoch: u64,
     on_drop_file: Option<Arc<dyn Fn(std::path::PathBuf, String) + Send + Sync>>,
+    on_context_menu: Option<Arc<dyn Fn(Point) + Send + Sync>>,
 }
 
 impl DocumentEditor {
@@ -160,6 +207,7 @@ impl DocumentEditor {
             embed_ctx: EmbedCtx::default(),
             model_epoch: 0,
             on_drop_file: None,
+            on_context_menu: None,
         }
     }
 
@@ -190,6 +238,15 @@ impl DocumentEditor {
         f: impl Fn(std::path::PathBuf, String) + Send + Sync + 'static,
     ) -> Self {
         self.on_drop_file = Some(Arc::new(f));
+        self
+    }
+
+    /// Правый клик внутри документа: редактор ставит каретку в точку клика
+    /// и отдаёт абсолютную позицию — хост показывает своё контекстное меню
+    /// и действует через [`DocumentEditorHandle::queue_op`]. Без колбэка
+    /// правый клик не перехватывается (сработает внешний `ContextMenu`).
+    pub fn on_context_menu(mut self, f: impl Fn(Point) + Send + Sync + 'static) -> Self {
+        self.on_context_menu = Some(Arc::new(f));
         self
     }
 
@@ -302,6 +359,8 @@ impl Widget for DocumentEditor {
             embed_ctx: self.embed_ctx.clone(),
             model_epoch: self.model_epoch,
             on_drop_file: self.on_drop_file.clone(),
+            on_context_menu: self.on_context_menu.clone(),
+            ops: self.handle.as_ref().map(|h| h.ops.clone()).unwrap_or_default(),
             wiki: None,
         })
     }
@@ -368,6 +427,9 @@ pub struct DocumentEditorElement {
     embed_ctx: EmbedCtx,
     model_epoch: u64,
     on_drop_file: Option<Arc<dyn Fn(std::path::PathBuf, String) + Send + Sync>>,
+    on_context_menu: Option<Arc<dyn Fn(Point) + Send + Sync>>,
+    /// Очередь операций хоста (общая с ручкой).
+    ops: Arc<Mutex<Vec<DocOp>>>,
     /// Автокомплит wiki-ссылки `[[`.
     wiki: Option<WikiState>,
 }
@@ -616,8 +678,14 @@ impl DocumentEditorElement {
             }
         }
         self.selection = Some(DocSelection::caret(CaretPos { block: sl.block, offset: sl.start }));
+        self.apply_action(action);
+    }
+
+    /// Применение действия slash-/контекстного меню к блоку каретки.
+    /// Чекпойнт истории делает вызывающий.
+    fn apply_action(&mut self, action: SlashAction) {
         match &action {
-            SlashAction::Paragraph => self.after_edit(),
+            SlashAction::Paragraph => self.convert_current(BlockKind::Paragraph),
             SlashAction::Heading(n) => self.convert_current(|text| BlockKind::Heading {
                 level: *n,
                 text,
@@ -672,6 +740,225 @@ impl DocumentEditorElement {
                 self.after_edit();
             }
         }
+    }
+
+    /// Очередь операций хоста ([`DocumentEditorHandle::queue_op`]).
+    fn apply_pending_ops(&mut self, ctx: &mut UpdateContext) {
+        let ops: Vec<DocOp> =
+            std::mem::take(&mut *self.ops.lock().unwrap_or_else(|e| e.into_inner()));
+        if ops.is_empty() || self.read_only {
+            return;
+        }
+        for op in ops {
+            self.apply_op(op);
+        }
+        ctx.mark_layout_dirty();
+    }
+
+    fn apply_op(&mut self, op: DocOp) {
+        match op {
+            DocOp::InsertMarkdown(md) => self.insert_markdown_at_caret(&md),
+            DocOp::TurnInto(action) => {
+                if self.caret().is_none() {
+                    self.caret_to_last_block();
+                }
+                if self.caret().is_none() {
+                    return;
+                }
+                self.checkpoint(EditClass::Structure);
+                self.apply_action(action);
+            }
+            DocOp::InsertBlock(action) => {
+                if self.caret().is_none() {
+                    self.caret_to_last_block();
+                }
+                self.checkpoint(EditClass::Structure);
+                let anchor = self.caret().map(|c| c.block);
+                let target = {
+                    let mut model = self.model();
+                    let reuse = anchor.and_then(|id| {
+                        edit::find_block(&model.blocks, id).map(|b| {
+                            matches!(&b.kind, BlockKind::Paragraph(t) if t.text().is_empty())
+                        })
+                    });
+                    match (anchor, reuse) {
+                        (Some(id), Some(true)) => Some(id),
+                        (Some(id), _) => {
+                            let new_id = model.alloc_id();
+                            let par = DocBlock::new(new_id, BlockKind::Paragraph(InlineText::default()));
+                            let mut slot = Some(par);
+                            edit::with_siblings(&mut model.blocks, id, &mut |sibs, idx| {
+                                if let Some(p) = slot.take() {
+                                    sibs.insert(idx + 1, p);
+                                }
+                            });
+                            Some(new_id)
+                        }
+                        (None, _) => {
+                            let new_id = model.alloc_id();
+                            model.blocks.push(DocBlock::new(
+                                new_id,
+                                BlockKind::Paragraph(InlineText::default()),
+                            ));
+                            Some(new_id)
+                        }
+                    }
+                };
+                if let Some(id) = target {
+                    self.selection = Some(DocSelection::caret(CaretPos { block: id, offset: 0 }));
+                    self.table_caret = None;
+                    self.apply_action(action);
+                }
+            }
+            DocOp::Duplicate => self.duplicate_current(),
+            DocOp::Delete => self.delete_current(),
+            DocOp::Move { down } => self.move_current(down),
+        }
+    }
+
+    /// Каретка в конец последнего блока (операции без каретки).
+    fn caret_to_last_block(&mut self) {
+        let target = {
+            let model = self.model();
+            model.blocks.last().map(|b| (b.id, edit::block_text_len(&model, b.id)))
+        };
+        if let Some((id, len)) = target {
+            self.selection = Some(DocSelection::caret(CaretPos { block: id, offset: len }));
+        }
+    }
+
+    /// Вставка распарсенного фрагмента после блока каретки; пустой
+    /// параграф под кареткой заменяется. Каретка — в первый текстовый
+    /// блок фрагмента.
+    fn insert_markdown_at_caret(&mut self, md: &str) {
+        let fragment = parse_document(md);
+        if fragment.blocks.is_empty() {
+            return;
+        }
+        self.checkpoint(EditClass::Structure);
+        let anchor = self.caret().map(|c| c.block);
+        let first = {
+            let mut model = self.model();
+            let mut blocks = fragment.blocks;
+            remap_ids(&mut blocks, &mut model);
+            let first = blocks.first().map(|b| (b.id, b.kind.text().is_some()));
+            let mut slot = Some(blocks);
+            let inserted = anchor.and_then(|id| {
+                edit::with_siblings(&mut model.blocks, id, &mut |sibs, idx| {
+                    let Some(blocks) = slot.take() else { return };
+                    let empty_par = matches!(&sibs[idx].kind, BlockKind::Paragraph(t) if t.text().is_empty());
+                    let at = if empty_par {
+                        sibs.remove(idx);
+                        idx
+                    } else {
+                        idx + 1
+                    };
+                    for (i, b) in blocks.into_iter().enumerate() {
+                        sibs.insert(at + i, b);
+                    }
+                })
+            });
+            if inserted.is_none() {
+                if let Some(blocks) = slot.take() {
+                    model.blocks.extend(blocks);
+                }
+            }
+            first
+        };
+        if let Some((id, has_text)) = first {
+            if has_text {
+                self.selection = Some(DocSelection::caret(CaretPos { block: id, offset: 0 }));
+            }
+        }
+        self.after_edit();
+    }
+
+    fn duplicate_current(&mut self) {
+        let Some(pos) = self.caret() else { return };
+        self.checkpoint(EditClass::Structure);
+        let new_id = {
+            let mut model = self.model();
+            let mut copy: Option<DocBlock> = None;
+            edit::with_siblings(&mut model.blocks, pos.block, &mut |sibs, idx| {
+                copy = Some(sibs[idx].clone());
+            });
+            let Some(dup) = copy else { return };
+            let mut v = vec![dup];
+            remap_ids(&mut v, &mut model);
+            let new_id = v[0].id;
+            let mut slot = v.pop();
+            edit::with_siblings(&mut model.blocks, pos.block, &mut |sibs, idx| {
+                if let Some(d) = slot.take() {
+                    sibs.insert(idx + 1, d);
+                }
+            });
+            new_id
+        };
+        let len = edit::block_text_len(&self.model(), new_id);
+        self.selection =
+            Some(DocSelection::caret(CaretPos { block: new_id, offset: pos.offset.min(len) }));
+        self.after_edit();
+    }
+
+    fn delete_current(&mut self) {
+        let Some(pos) = self.caret() else { return };
+        self.checkpoint(EditClass::Structure);
+        let next = {
+            let mut model = self.model();
+            let neighbour = edit::with_siblings(&mut model.blocks, pos.block, &mut |sibs, idx| {
+                sibs.remove(idx);
+                if sibs.is_empty() {
+                    None
+                } else {
+                    Some(sibs[idx.saturating_sub(1).min(sibs.len() - 1)].id)
+                }
+            })
+            .flatten();
+            if model.blocks.is_empty() {
+                let id = model.alloc_id();
+                model.blocks.push(DocBlock::new(id, BlockKind::Paragraph(InlineText::default())));
+                Some(id)
+            } else {
+                neighbour
+            }
+        };
+        self.selection = next.and_then(|id| {
+            let model = self.model();
+            let has_text = edit::find_block(&model.blocks, id).and_then(|b| b.kind.text()).is_some();
+            let len = edit::block_text_len(&model, id);
+            has_text.then(|| DocSelection::caret(CaretPos { block: id, offset: len }))
+        });
+        self.table_caret = None;
+        self.after_edit();
+    }
+
+    fn move_current(&mut self, down: bool) {
+        let Some(pos) = self.caret() else { return };
+        self.checkpoint(EditClass::Structure);
+        let moved = {
+            let mut model = self.model();
+            edit::with_siblings(&mut model.blocks, pos.block, &mut |sibs, idx| {
+                if down {
+                    if idx + 1 < sibs.len() {
+                        sibs.swap(idx, idx + 1);
+                        true
+                    } else {
+                        false
+                    }
+                } else if idx > 0 {
+                    sibs.swap(idx, idx - 1);
+                    true
+                } else {
+                    false
+                }
+            })
+            .unwrap_or(false)
+        };
+        if !moved {
+            self.history.discard_last_checkpoint();
+            return;
+        }
+        self.after_edit();
     }
 
     /// Смена типа текущего текстового блока с сохранением текста.
@@ -1947,6 +2234,7 @@ impl Element for DocumentEditorElement {
         self.embeds = w.embeds.clone();
         self.embed_ctx = w.embed_ctx.clone();
         self.on_drop_file = w.on_drop_file.clone();
+        self.on_context_menu = w.on_context_menu.clone();
         if links_changed {
             self.rebuild = true;
         }
@@ -1960,6 +2248,7 @@ impl Element for DocumentEditorElement {
             if !Arc::ptr_eq(&self.model, &h.model) {
                 self.model = h.model.clone();
                 self.revision = Some(h.revision);
+                self.ops = h.ops.clone();
                 self.rebuild = true;
             }
         }
@@ -1972,6 +2261,7 @@ impl Element for DocumentEditorElement {
             self.mark_dirty(DirtyFlags::LAYOUT | DirtyFlags::RENDER);
             ctx.mark_layout_dirty();
         }
+        self.apply_pending_ops(ctx);
     }
 
     fn mount(&mut self, tree: &mut ElementTree) {
@@ -2235,6 +2525,43 @@ impl Element for DocumentEditorElement {
                         ctx.capture();
                     }
                 }
+                EventResult::Handled
+            }
+            Event::MouseDown { button: MouseButton::Right, position } => {
+                if !self.bounds.contains(*position) || self.read_only {
+                    return EventResult::Ignored;
+                }
+                let Some(cb) = self.on_context_menu.clone() else {
+                    return EventResult::Ignored;
+                };
+                // Как левый клик: фокус и каретка в точку клика, панели
+                // закрыть. Клик внутри непустого выделения его сохраняет —
+                // меню действует над выделенным диапазоном.
+                self.focused = true;
+                ctx.set_focused_text(String::new());
+                self.close_slash();
+                self.wiki = None;
+                if let Some(pos) = self.hit_caret(*position) {
+                    let keep = self
+                        .selection
+                        .filter(|s| !s.is_caret())
+                        .map(|s| {
+                            let model = self.model();
+                            let order = BlockOrder::of(&model);
+                            let (a, b) = s.ordered(&order);
+                            order.cmp(a, pos).is_le() && order.cmp(pos, b).is_le()
+                        })
+                        .unwrap_or(false);
+                    if !keep {
+                        self.table_caret = None;
+                        self.goal_x = None;
+                        self.set_caret(pos, false);
+                    }
+                } else if self.caret().is_none() {
+                    self.caret_to_last_block();
+                }
+                self.mark_dirty(DirtyFlags::RENDER);
+                cb(*position);
                 EventResult::Handled
             }
             Event::MouseMove(position) => {
