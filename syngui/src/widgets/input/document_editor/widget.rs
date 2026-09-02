@@ -2115,6 +2115,17 @@ impl DocumentEditorElement {
         }
     }
 
+    /// Врезка-объект со своей высотой (доска, диаграмма).
+    fn is_sized_embed(&self, block: super::model::BlockId) -> bool {
+        let model = self.model();
+        match model.blocks.iter().find(|b| b.id == block).map(|b| &b.kind) {
+            Some(BlockKind::Embed { target }) => {
+                self.embeds.as_ref().is_some_and(|f| f.has_own_height(target))
+            }
+            _ => false,
+        }
+    }
+
     /// Блок, у которого высота задаётся явно (фигура и медиа): у текста она
     /// считается по контенту, тянуть её за кромку нечего.
     fn has_free_height(&self, block: super::model::BlockId) -> bool {
@@ -2411,12 +2422,15 @@ impl DocumentEditorElement {
             )
         };
         let current = self.current_block().and_then(|id| self.top_level_of(id));
-        if let Some(block) = self.hover_block.filter(|b| Some(*b) != current) {
+        // Доска и диаграмма — самостоятельные объекты со своим оформлением:
+        // ни подсветки под курсором, ни рамки выбора вокруг них.
+        let plain = |id: super::model::BlockId| self.is_sized_embed(id);
+        if let Some(block) = self.hover_block.filter(|b| Some(*b) != current && !plain(*b)) {
             if let Some(rect) = self.block_rect(block) {
                 list.push_rect(inflate(rect), self.style.block_hover_color, [4.0; 4]);
             }
         }
-        if let Some(rect) = current.and_then(|id| self.block_rect(id)) {
+        if let Some(rect) = current.filter(|id| !plain(*id)).and_then(|id| self.block_rect(id)) {
             for edge in edges(inflate(rect)) {
                 list.push_rect(edge, self.style.block_selected_color, [0.0; 4]);
             }

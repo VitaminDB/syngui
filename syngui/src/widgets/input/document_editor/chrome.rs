@@ -308,6 +308,14 @@ impl Element for ChromeElement {
         "doc-chrome"
     }
 
+    /// Распорка лежит поверх всего холста последним ребёнком Stack'а: без
+    /// прозрачности для хит-теста она перехватывала бы путь события, и
+    /// клики не доходили бы до виджетов закреплённых блоков (кнопки доски,
+    /// поля диаграммы).
+    fn passthrough_hit_test(&self) -> bool {
+        self.extent.is_some()
+    }
+
     fn handle_event(&mut self, _event: &Event, _ctx: &mut EventContext) -> EventResult {
         EventResult::Ignored
     }

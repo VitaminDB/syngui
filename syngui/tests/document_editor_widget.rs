@@ -1179,3 +1179,55 @@ fn free_layout_canvas_grows_past_the_viewport_width() {
     assert!(flow.size.width > 700.0, "колонка потока ужалась при бесконечной ширине: {:?}", flow.size);
     assert!(flow.origin.x > 40.0, "колонка потока должна стоять по центру области: {:?}", flow.origin);
 }
+
+/// Виджеты внутри живой врезки получают мышь: клик по кнопке доски
+/// должен дойти до неё, а не осесть в редакторе (выбор блока).
+#[test]
+fn embed_children_receive_clicks() {
+    use std::sync::atomic::{AtomicUsize, Ordering};
+    use syngui::prelude::*;
+    use syngui::widget::Widget;
+    use syngui::widgets::input::document_editor::{EmbedCtx, EmbedFactory};
+    use syngui::widgets::GestureDetector;
+
+    struct ClickyFactory(Arc<AtomicUsize>);
+    impl EmbedFactory for ClickyFactory {
+        fn build(&self, _target: &str, _ctx: &EmbedCtx) -> Option<Box<dyn Widget>> {
+            let clicks = self.0.clone();
+            Some(Box::new(
+                GestureDetector::new()
+                    .on_click(move || {
+                        clicks.fetch_add(1, Ordering::SeqCst);
+                    })
+                    // Текст даёт виджету размер и без MSS-движка (харнес
+                    // инлайн-стили не применяет).
+                    .child(Text::new("Кнопка доски")),
+            ))
+        }
+        fn has_own_height(&self, _target: &str) -> bool {
+            true
+        }
+    }
+
+    let clicks = Arc::new(AtomicUsize::new(0));
+    let handle = DocumentEditorHandle::new();
+    let mut h = TestHarness::new(Box::new(
+        DocumentEditor::new()
+            .markdown("Текст\n\n![[kanban:abc]]\n")
+            .handle(&handle)
+            .embeds(Arc::new(ClickyFactory(clicks.clone())))
+            .layout(DocLayout { free: true, ..DocLayout::default() }),
+    ));
+    h.tree.text_measure = Some(Arc::new(Mono));
+    h.rebuild();
+    h.layout(800.0, 600.0);
+
+    let gestures = h.find_by_type_name("GestureDetector");
+    assert_eq!(gestures.len(), 1, "врезка не построилась");
+    let b = h.element_bounds(gestures[0]);
+    assert!(b.size.width > 0.0 && b.size.height > 0.0, "у виджета врезки нет размера: {b:?}");
+    let inside = Point::new(b.origin.x + b.size.width / 2.0, b.origin.y + b.size.height / 2.0);
+    h.send_event(&Event::MouseDown { button: MouseButton::Left, position: inside });
+    h.send_event(&Event::MouseUp { button: MouseButton::Left, position: inside });
+    assert_eq!(clicks.load(Ordering::SeqCst), 1, "клик не дошёл до виджета врезки");
+}

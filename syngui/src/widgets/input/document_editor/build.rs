@@ -137,6 +137,11 @@ pub fn block_widget(block: &DocBlock, env: &BuildEnv) -> Box<dyn Widget> {
                 let mut ectx = env.embed_ctx.clone();
                 ectx.height = super::free::height_of(&block.attrs);
                 if let Some(inner) = factory.build(target, &ectx) {
+                    // Объект со своей высотой (доска, диаграмма) — сам себе
+                    // оформление: без рамки, фона и полосы.
+                    if factory.has_own_height(target) {
+                        return inner;
+                    }
                     // Живая врезка в рамке.
                     return Box::new(
                         Chrome::new()
