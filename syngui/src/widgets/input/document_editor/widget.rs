@@ -37,8 +37,9 @@ use super::slash::{default_items, filter_items, SlashAction, SlashItem, SlashSta
 use super::parse::parse_document;
 use super::serialize::serialize_document;
 use super::state::{
-    gutter_action, new_block_rect_map, new_geom_map, new_table_geom_map, BlockOrder, BlockRectMap,
-    CaretPos, DocSelection, GeomMap, GutterAction, RowGeom, TableCaret, TableGeom, TableGeomMap,
+    gutter_action, new_block_rect_map, new_code_geom_map, new_geom_map, new_table_geom_map,
+    BlockOrder, BlockRectMap, CaretPos, CodeCaret, CodeGeom, CodeGeomMap, DocSelection, GeomMap,
+    GutterAction, RowGeom, TableCaret, TableGeom, TableGeomMap,
 };
 use super::free::{self, DocGrid, DocLayout};
 use super::style::DocStyle;
@@ -389,6 +390,8 @@ impl Widget for DocumentEditor {
             geom: new_geom_map(),
             blocks: new_block_rect_map(),
             tables: new_table_geom_map(),
+            codes: new_code_geom_map(),
+            code_caret: None,
             table_caret: None,
             tm: None,
             focused: false,
@@ -458,6 +461,10 @@ pub struct DocumentEditorElement {
     blocks: BlockRectMap,
     /// Геометрия таблиц (публикуют TableBlockElement'ы).
     tables: TableGeomMap,
+    /// Геометрия код-блоков (публикуют CodeBlockElement'ы).
+    codes: CodeGeomMap,
+    /// Каретка внутри код-блока (отдельный режим, как у таблицы).
+    code_caret: Option<CodeCaret>,
     /// Каретка внутри ячейки таблицы (отдельный режим от `selection`).
     table_caret: Option<TableCaret>,
     tm: Option<Arc<dyn TextMeasure>>,
@@ -904,6 +911,9 @@ impl DocumentEditorElement {
                     }
                 };
                 if let Some(id) = target {
+                    if let Some(anchor) = anchor {
+                        self.pin_below(anchor, id);
+                    }
                     self.selection = Some(DocSelection::caret(CaretPos { block: id, offset: 0 }));
                     self.table_caret = None;
                     self.apply_action(action);
@@ -1004,6 +1014,9 @@ impl DocumentEditorElement {
             first
         };
         if let Some((id, has_text)) = first {
+            if let Some(anchor) = anchor {
+                self.pin_below(anchor, id);
+            }
             if has_text {
                 self.selection = Some(DocSelection::caret(CaretPos { block: id, offset: 0 }));
             }
@@ -1590,6 +1603,7 @@ impl DocumentEditorElement {
         let new = edit::split_block(&mut model, pos);
         drop(model);
         self.selection = Some(DocSelection::caret(new));
+        self.pin_below(pos.block, new.block);
         self.after_edit();
     }
 
@@ -1658,6 +1672,41 @@ fn estimate_height(kind: &BlockKind, style: &DocStyle) -> f32 {
 // ─── Свободная раскладка ────────────────────────────────────────────────────
 
 impl DocumentEditorElement {
+    /// Новый блок, родившийся рядом с закреплённым (Enter, вставка), встаёт
+    /// **под ним**. Иначе он уходил в колонку потока — то есть улетал в угол
+    /// холста, за километр от места, где его создавали.
+    fn pin_below(&mut self, anchor: super::model::BlockId, block: super::model::BlockId) {
+        if !self.layout.free {
+            return;
+        }
+        let (Some(top_anchor), Some(top_block)) =
+            (self.top_level_of(anchor), self.top_level_of(block))
+        else {
+            return;
+        };
+        if top_anchor == top_block {
+            return;
+        }
+        let anchor_geom = {
+            let model = self.model();
+            let b = model.blocks.iter().find(|b| b.id == top_anchor);
+            b.and_then(|b| free::pos_of(&b.attrs).map(|(x, y)| (x, y, free::width_of(&b.attrs))))
+        };
+        let Some((x, y, width)) = anchor_geom else { return };
+        let height = self
+            .block_rect(top_anchor)
+            .map(|r| r.size.height)
+            .unwrap_or_else(|| self.style.line_h(self.style.text_size));
+        let below = self.layout.snapped(y + height + self.style.block_spacing);
+        let width = width.unwrap_or(self.layout.block_width);
+        let mut model = self.model();
+        let Some(b) = model.blocks.iter_mut().find(|b| b.id == top_block) else { return };
+        if free::pos_of(&b.attrs).is_none() {
+            free::set_pos(&mut b.attrs, x, below);
+            free::set_width(&mut b.attrs, width);
+        }
+    }
+
     /// Поставить блок в точку холста (вставка из контекстного меню).
     fn place_free_block(&mut self, id: super::model::BlockId, at: Point) {
         let width = self.layout.block_width;
@@ -2339,6 +2388,210 @@ impl DocumentEditorElement {
     }
 
     /// Хит-тест точки в ячейку таблицы.
+    // ─── Каретка внутри код-блока ───────────────────────────────────────────
+
+    fn code_geom_of(&self, block: super::model::BlockId) -> Option<CodeGeom> {
+        self.codes.lock().ok()?.get(&block).cloned()
+    }
+
+    /// Текст код-блока.
+    fn code_text(&self, block: super::model::BlockId) -> Option<String> {
+        let model = self.model();
+        let b = edit::find_block(&model.blocks, block)?;
+        let BlockKind::CodeBlock { code, .. } = &b.kind else { return None };
+        Some(code.clone())
+    }
+
+    fn set_code(&mut self, block: super::model::BlockId, new_code: String) {
+        {
+            let mut model = self.model();
+            let Some(b) = edit::find_block_mut(&mut model.blocks, block) else { return };
+            let BlockKind::CodeBlock { code, .. } = &mut b.kind else { return };
+            *code = new_code;
+        }
+        self.after_edit();
+    }
+
+    /// Смещение в тексте кода по экранной точке.
+    fn code_offset_at(&self, g: &CodeGeom, code: &str, p: Point) -> usize {
+        if g.lines.is_empty() {
+            return 0;
+        }
+        let rel_y = p.y - g.origin.y - g.pad;
+        let line = ((rel_y / g.line_h).floor().max(0.0) as usize).min(g.lines.len() - 1);
+        let (start, end) = g.lines[line];
+        let text = &code[start.min(code.len())..end.min(code.len())];
+        let local_x = (p.x - g.origin.x - g.pad).max(0.0);
+        match self.tm.as_deref() {
+            Some(tm) => {
+                let ci = tm.hit_test_char(text, g.font_size, local_x);
+                start + text.char_indices().nth(ci).map(|(b, _)| b).unwrap_or(text.len())
+            }
+            None => end,
+        }
+    }
+
+    fn code_hit(&self, p: Point) -> Option<CodeCaret> {
+        let (block, g) = {
+            let map = self.codes.lock().ok()?;
+            map.iter()
+                .find(|(_, g)| {
+                    let h = g.pad * 2.0 + g.lines.len() as f32 * g.line_h;
+                    p.y >= g.origin.y && p.y <= g.origin.y + h
+                })
+                .map(|(id, g)| (*id, g.clone()))?
+        };
+        let code = self.code_text(block)?;
+        Some(CodeCaret { block, offset: self.code_offset_at(&g, &code, p) })
+    }
+
+    fn code_insert(&mut self, s: &str) {
+        let Some(cc) = self.code_caret else { return };
+        let Some(mut code) = self.code_text(cc.block) else { return };
+        let at = floor_char_boundary(&code, cc.offset);
+        code.insert_str(at, s);
+        self.code_caret = Some(CodeCaret { offset: at + s.len(), ..cc });
+        self.set_code(cc.block, code);
+    }
+
+    /// Клавиши в режиме каретки кода. `true` — событие поглощено.
+    fn code_key(&mut self, key: &Key, shift: bool) -> bool {
+        let Some(cc) = self.code_caret else { return false };
+        let Some(code) = self.code_text(cc.block) else {
+            self.code_caret = None;
+            return false;
+        };
+        let at = floor_char_boundary(&code, cc.offset);
+        let set_offset = |me: &mut Self, off: usize| {
+            me.code_caret = Some(CodeCaret { offset: off, ..cc });
+            me.caret_on = true;
+            me.blink_ms = 0.0;
+            me.mark_dirty(DirtyFlags::RENDER);
+        };
+        match key {
+            Key::Escape => {
+                self.code_caret = None;
+                self.mark_dirty(DirtyFlags::RENDER);
+                true
+            }
+            // В коде Enter — перевод строки, а не разрыв блока; выйти из
+            // блока можно Escape или стрелками за его границы.
+            Key::Enter if !shift => {
+                self.code_insert("\n");
+                true
+            }
+            Key::Tab => {
+                self.code_insert("    ");
+                true
+            }
+            Key::Backspace => {
+                if at == 0 {
+                    return true;
+                }
+                let prev = code[..at].chars().next_back().map(|c| at - c.len_utf8()).unwrap_or(0);
+                let mut next = code.clone();
+                next.replace_range(prev..at, "");
+                set_offset(self, prev);
+                self.set_code(cc.block, next);
+                true
+            }
+            Key::Delete => {
+                if at >= code.len() {
+                    return true;
+                }
+                let end = code[at..].chars().next().map(|c| at + c.len_utf8()).unwrap_or(code.len());
+                let mut next = code.clone();
+                next.replace_range(at..end, "");
+                self.set_code(cc.block, next);
+                true
+            }
+            Key::Left => {
+                let prev = code[..at].chars().next_back().map(|c| at - c.len_utf8()).unwrap_or(0);
+                set_offset(self, prev);
+                true
+            }
+            Key::Right => {
+                let next =
+                    code[at..].chars().next().map(|c| at + c.len_utf8()).unwrap_or(code.len());
+                set_offset(self, next);
+                true
+            }
+            Key::Home | Key::End | Key::Up | Key::Down => {
+                let Some(g) = self.code_geom_of(cc.block) else { return true };
+                let line = g.line_of(at);
+                let (ls, le) = g.lines[line];
+                match key {
+                    Key::Home => set_offset(self, ls),
+                    Key::End => set_offset(self, le),
+                    Key::Up if line == 0 => {
+                        // Выше кода — обычная каретка документа.
+                        self.code_caret = None;
+                        self.caret_to_neighbour(cc.block, false);
+                    }
+                    Key::Down if line + 1 >= g.lines.len() => {
+                        self.code_caret = None;
+                        self.caret_to_neighbour(cc.block, true);
+                    }
+                    _ => {
+                        let target = if matches!(key, Key::Up) { line - 1 } else { line + 1 };
+                        let (ts, te) = g.lines[target];
+                        let col = at.saturating_sub(ls);
+                        set_offset(self, (ts + col).min(te));
+                    }
+                }
+                true
+            }
+            _ => false,
+        }
+    }
+
+    /// Каретка в соседний текстовый блок (выход из кода стрелками).
+    fn caret_to_neighbour(&mut self, block: super::model::BlockId, down: bool) {
+        let target = {
+            let model = self.model();
+            let order = BlockOrder::of(&model);
+            // Код в порядке блоков не участвует — берём ближайший текстовый
+            // блок по документу.
+            let ids: Vec<super::model::BlockId> = order.ids.clone();
+            let doc_idx = model.blocks.iter().position(|b| b.id == block);
+            drop(model);
+            match doc_idx {
+                Some(_) if down => ids.first().copied(),
+                _ => ids.last().copied(),
+            }
+        };
+        if let Some(id) = target {
+            let len = edit::block_text_len(&self.model(), id);
+            self.selection = Some(DocSelection::caret(CaretPos {
+                block: id,
+                offset: if down { 0 } else { len },
+            }));
+        }
+        self.mark_dirty(DirtyFlags::RENDER);
+    }
+
+    fn draw_code_caret(&self, list: &mut DisplayList) {
+        let Some(cc) = self.code_caret else { return };
+        if !self.caret_on {
+            return;
+        }
+        let Some(g) = self.code_geom_of(cc.block) else { return };
+        let Some(code) = self.code_text(cc.block) else { return };
+        let at = floor_char_boundary(&code, cc.offset);
+        let line = g.line_of(at);
+        let (start, end) = g.lines[line];
+        let prefix = &code[start.min(code.len())..at.clamp(start, end.min(code.len()))];
+        let x = match self.tm.as_deref() {
+            Some(tm) => tm.measure_text_width(prefix, g.font_size, prefix.chars().count()),
+            None => prefix.chars().count() as f32 * g.font_size * 0.6,
+        };
+        let rect = Rect::new(
+            Point::new(g.origin.x + g.pad + x, g.origin.y + g.pad + line as f32 * g.line_h + 1.0),
+            Size::new(2.0, (g.line_h - 2.0).max(4.0)),
+        );
+        list.push_rect(rect, self.style.caret_color, [1.0; 4]);
+    }
+
     fn table_hit(&self, p: Point) -> Option<TableCaret> {
         let (block, row, col, cell_x) = {
             let map = self.tables.lock().ok()?;
@@ -2774,6 +3027,7 @@ impl Element for DocumentEditorElement {
             style: self.style.clone(),
             geom: self.geom.clone(),
             tables: self.tables.clone(),
+            codes: self.codes.clone(),
             links: self.links.clone(),
             media: self.media.clone(),
             embeds: self.embeds.clone(),
@@ -2855,6 +3109,9 @@ impl Element for DocumentEditorElement {
         if let Ok(mut map) = self.blocks.lock() {
             map.retain(|id, _| alive.contains(id));
         }
+        if let Ok(mut map) = self.codes.lock() {
+            map.retain(|id, _| alive.contains(id));
+        }
     }
 
     fn build_display_list(&self, list: &mut DisplayList, clip: Rect) {
@@ -2875,6 +3132,7 @@ impl Element for DocumentEditorElement {
         self.draw_wiki_menu(list);
         self.draw_toolbar(list);
         self.draw_table_caret(list);
+        self.draw_code_caret(list);
         let Some(pos) = self.caret() else { return };
         let Some(rect) = self.caret_rect(pos) else { return };
         if self.caret_on {
@@ -3048,6 +3306,19 @@ impl Element for DocumentEditorElement {
                 if !self.read_only {
                     if let Some(tc) = self.table_hit(*position) {
                         self.table_caret = Some(tc);
+                        self.code_caret = None;
+                        self.selection = None;
+                        self.goal_x = None;
+                        self.caret_on = true;
+                        self.blink_ms = 0.0;
+                        self.mark_dirty(DirtyFlags::RENDER);
+                        return EventResult::Handled;
+                    }
+                    // Клик в код — режим каретки кода: у код-блока нет
+                    // текстовых строк документа, каретка своя.
+                    if let Some(cc) = self.code_hit(*position) {
+                        self.code_caret = Some(cc);
+                        self.table_caret = None;
                         self.selection = None;
                         self.goal_x = None;
                         self.caret_on = true;
@@ -3058,6 +3329,7 @@ impl Element for DocumentEditorElement {
                 }
                 if let Some(pos) = self.hit_caret(*position) {
                     self.table_caret = None;
+                    self.code_caret = None;
                     self.goal_x = None;
                     self.set_caret(pos, ctx.modifiers.shift);
                     if !ctx.modifiers.shift {
@@ -3094,6 +3366,7 @@ impl Element for DocumentEditorElement {
                         .unwrap_or(false);
                     if !keep {
                         self.table_caret = None;
+                        self.code_caret = None;
                         self.goal_x = None;
                         self.set_caret(pos, false);
                     }
@@ -3245,6 +3518,11 @@ impl Element for DocumentEditorElement {
                 let editable = !self.read_only;
                 // Каретка в ячейке таблицы — свой обработчик навигации/правок
                 // (ctrl-комбинации, напр. undo, проходят дальше).
+                if editable && !ctrl && self.code_caret.is_some() {
+                    if self.code_key(key, shift) {
+                        return EventResult::Handled;
+                    }
+                }
                 if editable && !ctrl && self.table_caret.is_some() {
                     if self.table_key(key, shift) {
                         return EventResult::Handled;
@@ -3466,6 +3744,13 @@ impl Element for DocumentEditorElement {
                 if !self.focused || self.read_only || c.is_control() {
                     return EventResult::Ignored;
                 }
+                if self.code_caret.is_some() {
+                    let ch = *c;
+                    self.checkpoint(EditClass::Typing);
+                    let mut buf = [0u8; 4];
+                    self.code_insert(ch.encode_utf8(&mut buf));
+                    return EventResult::Handled;
+                }
                 if self.table_caret.is_some() {
                     let ch = *c;
                     self.checkpoint(EditClass::Typing);
@@ -3542,6 +3827,10 @@ impl Element for DocumentEditorElement {
                 }
                 self.preedit = None;
                 self.checkpoint(EditClass::Typing);
+                if self.code_caret.is_some() {
+                    self.code_insert(text);
+                    return EventResult::Handled;
+                }
                 if self.table_caret.is_some() {
                     self.table_insert(text);
                 } else {
@@ -3565,7 +3854,9 @@ impl Element for DocumentEditorElement {
     fn animate(&mut self, dt: Duration) -> bool {
         if !self.focused
             || self.read_only
-            || (self.selection.is_none() && self.table_caret.is_none())
+            || (self.selection.is_none()
+                && self.table_caret.is_none()
+                && self.code_caret.is_none())
         {
             return false;
         }
@@ -3579,7 +3870,11 @@ impl Element for DocumentEditorElement {
     }
 
     fn wants_animate_tick(&self) -> bool {
-        self.focused && !self.read_only && (self.selection.is_some() || self.table_caret.is_some())
+        self.focused
+            && !self.read_only
+            && (self.selection.is_some()
+                || self.table_caret.is_some()
+                || self.code_caret.is_some())
     }
 
     fn wants_tab(&self) -> bool {

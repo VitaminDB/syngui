@@ -190,6 +190,45 @@ pub fn new_block_rect_map() -> BlockRectMap {
     Arc::new(Mutex::new(HashMap::new()))
 }
 
+// ─── Геометрия код-блоков ───────────────────────────────────────────────────
+
+/// Геометрия код-блока, опубликованная его элементом: по ней контейнер
+/// ставит каретку внутрь кода (собственных текстовых строк у блока нет).
+#[derive(Clone, Debug, Default)]
+pub struct CodeGeom {
+    /// Абсолютный левый верхний угол блока.
+    pub origin: Point,
+    pub pad: f32,
+    pub line_h: f32,
+    pub font_size: f32,
+    /// Байтовые диапазоны экранных строк в тексте кода (с учётом переноса).
+    pub lines: Vec<(usize, usize)>,
+}
+
+impl CodeGeom {
+    /// Индекс экранной строки, содержащей смещение.
+    pub fn line_of(&self, offset: usize) -> usize {
+        self.lines
+            .iter()
+            .rposition(|(s, _)| *s <= offset)
+            .unwrap_or(0)
+            .min(self.lines.len().saturating_sub(1))
+    }
+}
+
+pub type CodeGeomMap = Arc<Mutex<HashMap<BlockId, CodeGeom>>>;
+
+pub fn new_code_geom_map() -> CodeGeomMap {
+    Arc::new(Mutex::new(HashMap::new()))
+}
+
+/// Каретка внутри код-блока: блок + байтовое смещение в его тексте.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct CodeCaret {
+    pub block: BlockId,
+    pub offset: usize,
+}
+
 // ─── Геометрия таблиц ───────────────────────────────────────────────────────
 
 /// Геометрия таблицы, опубликованная её элементом: контейнер по ней делает

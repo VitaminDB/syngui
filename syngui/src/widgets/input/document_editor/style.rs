@@ -54,6 +54,8 @@ pub struct DocStyle {
     pub checkbox_color: Color,
     pub checkbox_check_color: Color,
     pub checkbox_size: f32,
+    /// Зазор между чекбоксом и текстом задачи.
+    pub checkbox_gap: f32,
     pub toggle_chevron_color: Color,
 
     // Прочие блоки.
@@ -122,6 +124,7 @@ impl Default for DocStyle {
             checkbox_color: Color::from_hex("#7d8797"),
             checkbox_check_color: Color::from_hex("#6ea8ff"),
             checkbox_size: 15.0,
+            checkbox_gap: 8.0,
             toggle_chevron_color: Color::from_hex("#9aa3b2"),
 
             divider_color: Color::from_hex("#ffffff").with_alpha(0.12),
@@ -226,6 +229,7 @@ impl DocStyle {
             "--doc-padding" => doc_padding,
             "--doc-code-block-padding" => code_block_padding,
             "--doc-callout-padding" => callout_padding,
+            "--doc-checkbox-gap" => checkbox_gap,
         }
         if let Some(lh) = style.get("--doc-line-height").and_then(|v| v.as_px()) {
             self.line_height = lh;

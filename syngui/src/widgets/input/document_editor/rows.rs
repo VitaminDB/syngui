@@ -21,7 +21,7 @@ use crate::widget::{DirtyFlags, Element, ElementId, ElementTree, Widget};
 use super::linebox::{layout_inline_text, InlineLayout};
 use super::links::DocLinkProvider;
 use super::model::{BlockId, InlineText, LinkTarget};
-use super::state::{GeomLine, GeomMap, GeomSeg, TableGeom, TableGeomMap};
+use super::state::{CodeGeomMap, GeomLine, GeomMap, GeomSeg, TableGeom, TableGeomMap};
 use super::style::DocStyle;
 
 /// Общая часть Element-реализации листьев.
@@ -271,7 +271,9 @@ impl TextRowElement {
             }
             RowDecor::Checkbox { checked } => {
                 let cb = s.checkbox_size;
-                let x = (self.gutter - cb) / 2.0;
+                // Прижат влево с зазором до текста: по центру гаттера
+                // рамка почти касалась первой буквы задачи.
+                let x = (self.gutter - s.checkbox_gap - cb).max(0.0);
                 let y = cy - cb / 2.0;
                 let mut c = CanvasContext::new(o, self.bounds.size);
                 if *checked {
@@ -424,6 +426,8 @@ pub struct CodeBlockView {
     pub language: Option<String>,
     pub code: String,
     pub style: Arc<DocStyle>,
+    /// Реестр геометрии код-блоков редактора (каретка внутри кода).
+    pub codes: Option<CodeGeomMap>,
 }
 
 impl Widget for CodeBlockView {
@@ -436,6 +440,7 @@ impl Widget for CodeBlockView {
             language: self.language.clone(),
             code: self.code.clone(),
             style: self.style.clone(),
+            codes: self.codes.clone(),
             tm: None,
             display_lines: Vec::new(),
             cached_width: -1.0,
@@ -452,6 +457,7 @@ pub struct CodeBlockElement {
     language: Option<String>,
     code: String,
     style: Arc<DocStyle>,
+    codes: Option<CodeGeomMap>,
     tm: Option<Arc<dyn TextMeasure>>,
     /// Байтовые диапазоны экранных строк в `code`.
     display_lines: Vec<(usize, usize)>,
@@ -499,6 +505,18 @@ impl CodeBlockElement {
             self.display_lines.push((0, 0));
         }
     }
+
+    /// Публикует геометрию блока (origin обновляет set_position).
+    fn publish_code_geom(&self) {
+        let Some(codes) = &self.codes else { return };
+        let Ok(mut map) = codes.lock() else { return };
+        let entry = map.entry(self.block_id).or_default();
+        entry.origin = self.bounds.origin;
+        entry.pad = self.style.code_block_padding;
+        entry.line_h = self.style.line_h(self.style.code_font_size);
+        entry.font_size = self.style.code_font_size;
+        entry.lines = self.display_lines.clone();
+    }
 }
 
 impl Element for CodeBlockElement {
@@ -516,6 +534,7 @@ impl Element for CodeBlockElement {
             ctx.mark_layout_dirty();
         }
         self.block_id = w.block_id;
+        self.codes = w.codes.clone();
     }
 
     fn mount(&mut self, tree: &mut ElementTree) {
@@ -529,6 +548,7 @@ impl Element for CodeBlockElement {
         let line_h = self.style.line_h(self.style.code_font_size);
         let height = pad * 2.0 + self.display_lines.len() as f32 * line_h;
         self.bounds.size = Size::new(width, height);
+        self.publish_code_geom();
         self.bounds.size
     }
 
@@ -588,6 +608,11 @@ impl Element for CodeBlockElement {
 
     fn set_position(&mut self, pos: Point) {
         self.bounds.origin = pos;
+        if let Some(codes) = &self.codes {
+            if let Ok(mut map) = codes.lock() {
+                map.entry(self.block_id).or_default().origin = pos;
+            }
+        }
     }
 
     leaf_common!();

@@ -13,7 +13,7 @@ use crate::widget::Widget;
 use super::chrome::Chrome;
 use super::links::{DocLinkProvider, DocMediaResolver, EmbedCtx, EmbedFactory};
 use super::model::{Attrs, BlockKind, DocBlock, InlineText, MediaKind};
-use super::state::{GeomMap, TableGeomMap};
+use super::state::{CodeGeomMap, GeomMap, TableGeomMap};
 use super::rows::{
     CodeBlockView, DividerView, EmbedCard, MediaCard, MediaGlyph, RowDecor, TableBlockView,
     TextRow,
@@ -25,6 +25,7 @@ pub struct BuildEnv {
     pub style: Arc<DocStyle>,
     pub geom: GeomMap,
     pub tables: TableGeomMap,
+    pub codes: CodeGeomMap,
     pub links: Option<Arc<dyn DocLinkProvider>>,
     pub media: Option<Arc<dyn DocMediaResolver>>,
     pub embeds: Option<Arc<dyn EmbedFactory>>,
@@ -94,12 +95,13 @@ pub fn block_widget(block: &DocBlock, env: &BuildEnv) -> Box<dyn Widget> {
                 .bg(accent.with_alpha(style.callout_bg_alpha))
                 .radius(style.callout_radius)
                 .border_left(3.0, accent);
-            if !title.is_empty() {
-                let mut row = base_row(block, title, env);
-                row.bold = true;
-                row.color = accent;
-                chrome = chrome.child(Box::new(row));
-            }
+            // Строка заголовка нужна всегда, даже пустая: без неё у
+            // выноски нет геометрии — каретке некуда встать, и блок
+            // оказывался нередактируемым.
+            let mut row = base_row(block, title, env);
+            row.bold = true;
+            row.color = accent;
+            chrome = chrome.child(Box::new(row));
             chrome = chrome.children(children.iter().map(|b| block_widget(b, env)));
             Box::new(chrome)
         }
@@ -108,6 +110,7 @@ pub fn block_widget(block: &DocBlock, env: &BuildEnv) -> Box<dyn Widget> {
             language: language.clone(),
             code: code.clone(),
             style: style.clone(),
+            codes: Some(env.codes.clone()),
         }),
         BlockKind::Table { headers, rows, .. } => Box::new(TableBlockView {
             block_id: block.id,

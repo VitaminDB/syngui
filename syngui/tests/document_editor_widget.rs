@@ -769,3 +769,53 @@ fn pinned_block_is_registered_where_it_is_drawn() {
         "блок уехал по горизонтали: {coords:?}\n{md}"
     );
 }
+
+/// Код-блок редактируется на месте: клик ставит каретку внутрь кода,
+/// набор и Enter правят его текст, а не разрывают блок.
+#[test]
+fn code_block_is_editable_in_place() {
+    let (mut h, handle) = editing_harness("```rust\nfn a() {}\n```\n", Point::new(X0, Y0));
+    let code = h.find_by_type_name("doc-code-block");
+    assert_eq!(code.len(), 1);
+    let b = h.element_bounds(code[0]);
+
+    // Клик в конец первой строки кода.
+    let at = Point::new(b.origin.x + 400.0, b.origin.y + 14.0);
+    h.send_event(&Event::MouseDown { button: MouseButton::Left, position: at });
+    h.send_event(&Event::MouseUp { button: MouseButton::Left, position: at });
+    type_str(&mut h, "!");
+    settle(&mut h);
+    assert!(
+        handle.serialize().contains("fn a() {}!"),
+        "набор не попал в код:\n{}",
+        handle.serialize()
+    );
+
+    // Enter внутри кода — перевод строки, а не разрыв блока.
+    h.send_event(&Event::KeyDown(Key::Enter));
+    type_str(&mut h, "x");
+    settle(&mut h);
+    let md = handle.serialize();
+    assert!(md.contains("fn a() {}!\nx"), "Enter не дал новую строку кода:\n{md}");
+    assert_eq!(md.matches("```").count(), 2, "блок разорвался:\n{md}");
+}
+
+/// Выноска без заголовка тоже редактируется: строка заголовка строится
+/// всегда, иначе каретке некуда встать.
+#[test]
+fn empty_callout_has_an_editable_row() {
+    let (mut h, handle) = editing_harness("> [!note]\n>\n> Тело.\n", Point::new(X0, Y0));
+    let rows = h.find_by_type_name("doc-text-row");
+    assert!(rows.len() >= 2, "у выноски должна быть строка заголовка: {}", rows.len());
+    let b = h.element_bounds(rows[0]);
+    let at = Point::new(b.origin.x + 2.0, b.origin.y + 4.0);
+    h.send_event(&Event::MouseDown { button: MouseButton::Left, position: at });
+    h.send_event(&Event::MouseUp { button: MouseButton::Left, position: at });
+    type_str(&mut h, "Тема");
+    settle(&mut h);
+    assert!(
+        handle.serialize().contains("Тема"),
+        "заголовок выноски не редактируется:\n{}",
+        handle.serialize()
+    );
+}
