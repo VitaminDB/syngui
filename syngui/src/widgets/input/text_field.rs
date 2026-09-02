@@ -407,14 +407,26 @@ impl TextFieldElement {
         }
     }
 
+    /// Горизонтальные отступы текста: MSS-паддинг, если задан стилем, иначе
+    /// дефолтные 12px. Без этого поле нельзя было выровнять по тексту
+    /// соседей — константа игнорировала padding из темы.
+    fn h_pad_left(&self) -> f32 {
+        self.mss.padding_left.unwrap_or(TEXT_PADDING)
+    }
+
+    fn h_pad_right(&self) -> f32 {
+        self.mss.padding_right.unwrap_or(TEXT_PADDING)
+    }
+
     fn text_left_offset(&self) -> f32 {
-        TEXT_PADDING + if self.prefix_width > 0.0 { self.prefix_width + 6.0 } else { 0.0 }
+        self.h_pad_left() + if self.prefix_width > 0.0 { self.prefix_width + 6.0 } else { 0.0 }
     }
 
     fn text_area_width(&self) -> f32 {
         let prefix_gap = if self.prefix_width > 0.0 { self.prefix_width + 6.0 } else { 0.0 };
         let suffix_gap = if self.suffix_width > 0.0 { self.suffix_width + 6.0 } else { 0.0 };
-        (self.bounds.size.width - TEXT_PADDING * 2.0 - prefix_gap - suffix_gap).max(0.0)
+        (self.bounds.size.width - self.h_pad_left() - self.h_pad_right() - prefix_gap - suffix_gap)
+            .max(0.0)
     }
 
     fn cursor_x(&self) -> f32 {
@@ -434,7 +446,7 @@ impl TextFieldElement {
             return None;
         }
         let field = self.field_rect();
-        let x = field.x() + TEXT_PADDING;
+        let x = field.x() + self.h_pad_left();
         let w = self.prefix_width + 6.0;
         let y = field.y();
         let h = field.size.height;
@@ -720,11 +732,11 @@ impl Element for TextFieldElement {
 
         let prefix_gap = if self.prefix_width > 0.0 { self.prefix_width + 6.0 } else { 0.0 };
         let _suffix_gap = if self.suffix_width > 0.0 { self.suffix_width + 6.0 } else { 0.0 };
-        let text_left = field.x() + TEXT_PADDING + prefix_gap;
+        let text_left = field.x() + self.h_pad_left() + prefix_gap;
         let text_w = self.text_area_width();
 
         if let Some(ref el) = self.prefix_element {
-            let prefix_x = field.x() + TEXT_PADDING;
+            let prefix_x = field.x() + self.h_pad_left();
             let prefix_y = field.y() + (field.size.height - el.bounds().size.height) / 2.0;
             list.push_transform(crate::core::Transform::translation(prefix_x, prefix_y));
             el.build_display_list(list, _clip);
@@ -732,7 +744,7 @@ impl Element for TextFieldElement {
         }
 
         if let Some(ref el) = self.suffix_element {
-            let suffix_x = field.x() + field.size.width - TEXT_PADDING - self.suffix_width;
+            let suffix_x = field.x() + field.size.width - self.h_pad_right() - self.suffix_width;
             let suffix_y = field.y() + (field.size.height - el.bounds().size.height) / 2.0;
             list.push_transform(crate::core::Transform::translation(suffix_x, suffix_y));
             el.build_display_list(list, _clip);
