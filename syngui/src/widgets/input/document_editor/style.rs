@@ -58,6 +58,8 @@ pub struct DocStyle {
 
     // Прочие блоки.
     pub divider_color: Color,
+    /// Цвет фон-сетки свободной раскладки.
+    pub grid_color: Color,
     pub divider_thickness: f32,
     pub media_bg: Color,
     pub media_radius: f32,
@@ -123,6 +125,7 @@ impl Default for DocStyle {
             toggle_chevron_color: Color::from_hex("#9aa3b2"),
 
             divider_color: Color::from_hex("#ffffff").with_alpha(0.12),
+            grid_color: Color::from_hex("#ffffff").with_alpha(0.09),
             divider_thickness: 1.0,
             media_bg: Color::from_hex("#ffffff").with_alpha(0.05),
             media_radius: 8.0,
@@ -207,6 +210,7 @@ impl DocStyle {
             "--doc-checkbox-check-color" => checkbox_check_color,
             "--doc-toggle-chevron-color" => toggle_chevron_color,
             "--doc-divider-color" => divider_color,
+            "--doc-grid-color" => grid_color,
             "--doc-media-bg" => media_bg,
             "--doc-embed-border-color" => embed_border_color,
             "--doc-embed-bg" => embed_bg,

@@ -8,7 +8,9 @@ use syngui::input::{Event, Key, MouseButton};
 use syngui::render::DisplayList;
 use syngui::testing::TestHarness;
 use syngui::widget::context::TextMeasure;
-use syngui::widgets::input::document_editor::{parse_document, BlockKind, DocumentEditor, DocumentEditorHandle};
+use syngui::widgets::input::document_editor::{
+    parse_document, BlockKind, DocGrid, DocLayout, DocumentEditor, DocumentEditorHandle,
+};
 
 /// Моноширинная метрика: 10px на символ.
 struct Mono;
@@ -555,4 +557,102 @@ fn drop_file_inserts_pending_and_patch_resolves() {
     settle(&mut h);
     assert!(handle.serialize().contains("blob:aa11.mp4"), "{}", handle.serialize());
     assert!(!handle.serialize().contains("pending:"));
+}
+
+// ─── Сохранение модели и свободная раскладка ────────────────────────────────
+
+/// Регрессия: пересоздание элемента (размонтирование поддерева при смене
+/// вкладки) не должно перепарсивать исходник хоста поверх правок в ручке.
+#[test]
+fn handle_keeps_edits_when_element_is_recreated() {
+    let (mut h, handle) = editing_harness("аб\n", Point::new(X0 + 40.0, Y0 + 8.0));
+    type_str(&mut h, "вг");
+    settle(&mut h);
+    assert_eq!(handle.serialize(), "абвг\n");
+
+    // Новый элемент по тому же исходнику и той же ручке — как при
+    // возврате на вкладку заметок.
+    let mut again = TestHarness::new(Box::new(
+        DocumentEditor::new().markdown("аб\n").handle(&handle),
+    ));
+    again.tree.text_measure = Some(Arc::new(Mono));
+    again.rebuild();
+    again.layout(800.0, 2000.0);
+    assert_eq!(handle.serialize(), "абвг\n", "правки потерялись при пересборке элемента");
+
+    // Другой исходник (перезагрузка страницы) модель всё ещё заменяет.
+    let mut reload = TestHarness::new(Box::new(
+        DocumentEditor::new().markdown("другое\n").handle(&handle),
+    ));
+    reload.tree.text_measure = Some(Arc::new(Mono));
+    reload.rebuild();
+    reload.layout(800.0, 2000.0);
+    assert_eq!(handle.serialize(), "другое\n");
+}
+
+/// Свободная раскладка: блоки стоят по своим координатам, а не колонкой.
+#[test]
+fn free_layout_positions_blocks_by_coordinates() {
+    let md = "Первый\n\nВторой\n\n~~~doc-layout\n0 40 300 200\n1 400 60 200\n~~~\n"
+        .replace("~~~", "```");
+    let handle = DocumentEditorHandle::new();
+    let layout = DocLayout { free: true, grid: DocGrid::Dots, ..DocLayout::default() };
+    let mut h = TestHarness::new(Box::new(
+        DocumentEditor::new().markdown(&md).handle(&handle).layout(layout),
+    ));
+    h.tree.text_measure = Some(Arc::new(Mono));
+    h.rebuild();
+    let size = h.layout(900.0, 700.0);
+
+    let rows = h.find_by_type_name("doc-text-row");
+    assert_eq!(rows.len(), 2, "должны быть два параграфа");
+    let a = h.element_bounds(rows[0]);
+    let b = h.element_bounds(rows[1]);
+    assert!((a.origin.x - 40.0).abs() < 1.0, "первый блок не по x=40: {:?}", a.origin);
+    assert!((a.origin.y - 300.0).abs() < 1.0, "первый блок не по y=300: {:?}", a.origin);
+    assert!((b.origin.x - 400.0).abs() < 1.0, "второй блок не по x=400: {:?}", b.origin);
+    assert!((b.origin.y - 60.0).abs() < 1.0, "второй блок не по y=60: {:?}", b.origin);
+    assert!(a.size.width <= 201.0, "ширина блока задаётся раскладкой: {:?}", a.size);
+    assert!(size.height >= 700.0, "холст должен закрывать вьюпорт: {size:?}");
+
+    // Геометрия переживает round-trip через markdown.
+    let back = handle.serialize();
+    assert!(back.contains("0 40 300 200"), "геометрия не сохранилась:\n{back}");
+
+    let mut list = DisplayList::new();
+    h.tree.build_display_list(
+        h.root_id,
+        &mut list,
+        Rect::new(Point::zero(), Size::new(900.0, 700.0)),
+    );
+}
+
+/// Переход в свободную раскладку замораживает текущие места блоков.
+#[test]
+fn switching_to_free_layout_freezes_flow_positions() {
+    let handle = DocumentEditorHandle::new();
+    let mut h = TestHarness::new(Box::new(
+        DocumentEditor::new().markdown("Раз\n\nДва\n").handle(&handle),
+    ));
+    h.tree.text_measure = Some(Arc::new(Mono));
+    h.rebuild();
+    h.layout(800.0, 600.0);
+    let flow_second = h.element_bounds(h.find_by_type_name("doc-text-row")[1]);
+
+    h.update_widget(Box::new(
+        DocumentEditor::new()
+            .markdown("Раз\n\nДва\n")
+            .handle(&handle)
+            .layout(DocLayout { free: true, ..DocLayout::default() }),
+    ));
+    h.rebuild();
+    h.layout(800.0, 600.0);
+    let free_second = h.element_bounds(h.find_by_type_name("doc-text-row")[1]);
+    assert!(
+        (free_second.origin.y - flow_second.origin.y).abs() < 2.0,
+        "блок прыгнул при переходе в свободную раскладку: {:?} → {:?}",
+        flow_second.origin,
+        free_second.origin
+    );
+    assert!(handle.serialize().contains("doc-layout"), "координаты не записались");
 }

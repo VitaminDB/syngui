@@ -30,6 +30,15 @@ impl TestHarness {
         self.tree.layout(self.root_id, Constraints::loose(Size::new(width, height)))
     }
 
+    /// Прогнать `update` корневого элемента новым виджетом — как делает
+    /// Reactive при пересборке поддерева с теми же элементами.
+    pub fn update_widget(&mut self, widget: Box<dyn Widget>) {
+        let mut ctx = crate::widget::context::UpdateContext::new(self.root_id);
+        if let Some(element) = self.tree.get_mut(self.root_id) {
+            element.update(widget.as_ref(), &mut ctx);
+        }
+    }
+
     pub fn rebuild(&mut self) {
         self.tree.rebuild_if_needed(self.root_id);
         signal::drain_and_run_effects();

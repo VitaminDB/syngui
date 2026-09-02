@@ -27,7 +27,21 @@ pub fn parse_document(source: &str) -> DocModel {
     }
     let (mut blocks, next_id) = b.finish();
     post_process(&mut blocks);
+    take_layout_fence(&mut blocks);
     DocModel::with_blocks(blocks, next_id)
+}
+
+/// Снимает хвостовой служебный блок ```doc-layout``` и раскладывает
+/// координаты свободной раскладки обратно по атрибутам блоков.
+fn take_layout_fence(blocks: &mut Vec<DocBlock>) {
+    let idx = blocks.iter().position(|b| {
+        matches!(&b.kind, BlockKind::CodeBlock { language, .. }
+            if language.as_deref() == Some(super::free::LAYOUT_FENCE))
+    });
+    let Some(idx) = idx else { return };
+    let block = blocks.remove(idx);
+    let BlockKind::CodeBlock { code, .. } = block.kind else { return };
+    super::free::apply_geometry(blocks, &code);
 }
 
 // ─── Фаза 1: сборка событий pulldown ────────────────────────────────────────

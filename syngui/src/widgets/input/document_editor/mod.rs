@@ -3,6 +3,7 @@
 //! Слои модуля:
 //! - [`model`] — блочная модель документа (плоские стилевые раны, runtime-id);
 //! - [`attrs`] — инлайн-атрибуты `{key=value flag}`;
+//! - [`free`] — свободная раскладка: координаты блоков, привязка, сетка;
 //! - [`parse`] / [`serialize`] — markdown ↔ модель с расширениями:
 //!   `[[wiki-ссылки]]`, `![[врезки]]`, callout/toggle-цитаты, медиа-блоки,
 //!   инлайн-атрибуты.
@@ -11,6 +12,7 @@
 //! самодостаточны и покрыты round-trip корпусом в tests/document_roundtrip.rs.
 
 pub mod attrs;
+pub mod free;
 pub mod history;
 pub mod edit;
 mod build;
@@ -36,6 +38,7 @@ pub use model::{
 pub use parse::parse_document;
 pub use serialize::serialize_document;
 pub use links::{DocLinkProvider, DocMediaResolver, EmbedCtx, EmbedFactory, LinkCandidate, ResolvedMedia};
+pub use free::{DocGrid, DocLayout};
 pub use style::DocStyle;
 pub use slash::{SlashAction, SlashItem};
 pub use widget::{DocOp, DocumentEditor, DocumentEditorHandle};

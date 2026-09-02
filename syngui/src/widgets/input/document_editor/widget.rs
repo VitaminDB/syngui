@@ -10,7 +10,7 @@
 
 use std::any::Any;
 use std::collections::hash_map::DefaultHasher;
-use std::collections::HashSet;
+use std::collections::{HashMap, HashSet};
 use std::hash::{Hash, Hasher};
 use std::sync::{Arc, Mutex, MutexGuard};
 use std::time::Duration;
@@ -27,6 +27,7 @@ use crate::widget::{
 };
 
 use super::build::{block_widget, BuildEnv};
+use super::chrome::Chrome;
 use super::edit;
 use super::links::{DocLinkProvider, DocMediaResolver, EmbedCtx, EmbedFactory, LinkCandidate};
 use super::history::{EditClass, UndoStack};
@@ -39,6 +40,7 @@ use super::state::{
     gutter_action, new_geom_map, new_table_geom_map, BlockOrder, CaretPos, DocSelection, GeomMap,
     GutterAction, RowGeom, TableCaret, TableGeom, TableGeomMap,
 };
+use super::free::{self, DocGrid, DocLayout};
 use super::style::DocStyle;
 
 /// Операция хоста над документом «у каретки» — кладётся в очередь ручки
@@ -73,6 +75,11 @@ pub struct DocumentEditorHandle {
     revision: RwSignal<u64>,
     /// Очередь операций хоста, применяемая элементом (см. [`DocOp`]).
     ops: Arc<Mutex<Vec<DocOp>>>,
+    /// Отпечаток markdown, из которого модель уже загружена. Живёт в
+    /// ручке, а не в элементе: элемент пересоздаётся при каждом
+    /// размонтировании поддерева (переключение вкладки/маршрута), и без
+    /// этой отметки он перепарсил бы исходник хоста поверх правок.
+    source_fp: Arc<Mutex<Option<u64>>>,
 }
 
 impl DocumentEditorHandle {
@@ -81,7 +88,23 @@ impl DocumentEditorHandle {
             model: Arc::new(Mutex::new(DocModel::new())),
             revision: use_signal(0),
             ops: Arc::new(Mutex::new(Vec::new())),
+            source_fp: Arc::new(Mutex::new(None)),
         }
+    }
+
+    /// Отпечаток исходника, из которого загружена модель ручки.
+    fn loaded_fp(&self) -> Option<u64> {
+        *self.source_fp.lock().unwrap_or_else(|e| e.into_inner())
+    }
+
+    fn set_loaded_fp(&self, fp: u64) {
+        *self.source_fp.lock().unwrap_or_else(|e| e.into_inner()) = Some(fp);
+    }
+
+    /// Забыть отметку загрузки: следующий `markdown(..)` с тем же текстом
+    /// снова заменит модель (перезагрузка страницы с диска).
+    pub fn reset_source(&self) {
+        *self.source_fp.lock().unwrap_or_else(|e| e.into_inner()) = None;
     }
 
     /// Поставить операцию в очередь элемента. Применяется на ближайшем
@@ -189,6 +212,8 @@ pub struct DocumentEditor {
     model_epoch: u64,
     on_drop_file: Option<Arc<dyn Fn(std::path::PathBuf, String) + Send + Sync>>,
     on_context_menu: Option<Arc<dyn Fn(Point) + Send + Sync>>,
+    layout: DocLayout,
+    fill_height: bool,
 }
 
 impl DocumentEditor {
@@ -208,7 +233,23 @@ impl DocumentEditor {
             model_epoch: 0,
             on_drop_file: None,
             on_context_menu: None,
+            layout: DocLayout::default(),
+            fill_height: false,
         }
+    }
+
+    /// Раскладка страницы: поток либо свободное размещение блоков с
+    /// привязкой и фон-сеткой (см. [`DocLayout`]).
+    pub fn layout(mut self, layout: DocLayout) -> Self {
+        self.layout = layout;
+        self
+    }
+
+    /// Держать высоту не меньше видимой области: клик и правый клик ниже
+    /// последнего блока попадают в редактор, а не в пустоту скроллера.
+    pub fn fill_height(mut self, fill: bool) -> Self {
+        self.fill_height = fill;
+        self
     }
 
     /// Фабрика живых врезок `![[…]]`.
@@ -317,12 +358,24 @@ fn fingerprint(s: &str) -> u64 {
 
 impl Widget for DocumentEditor {
     fn create_element(&self) -> Box<dyn Element> {
-        let model = self
-            .handle
-            .as_ref()
-            .map(|h| h.model.clone())
-            .unwrap_or_else(|| Arc::new(Mutex::new(DocModel::new())));
-        *lock(&model) = parse_document(&self.source);
+        let fp = fingerprint(&self.source);
+        let model = match &self.handle {
+            Some(h) => {
+                // Ручка уже держит модель, загруженную из этого же
+                // исходника (пересоздание элемента после размонтирования)
+                // — правки в ней свежее исходника хоста, не трогаем.
+                if h.loaded_fp() != Some(fp) {
+                    *lock(&h.model) = parse_document(&self.source);
+                    h.set_loaded_fp(fp);
+                }
+                h.model.clone()
+            }
+            None => {
+                let model = Arc::new(Mutex::new(DocModel::new()));
+                *lock(&model) = parse_document(&self.source);
+                model
+            }
+        };
         Box::new(DocumentEditorElement {
             id: ElementId::new(),
             bounds: Rect::zero(),
@@ -330,7 +383,7 @@ impl Widget for DocumentEditor {
             classes: self.classes.clone(),
             model,
             style: Arc::new(DocStyle::default()),
-            source_fp: fingerprint(&self.source),
+            source_fp: Some(fp),
             read_only: self.read_only,
             rebuild: true,
             geom: new_geom_map(),
@@ -362,6 +415,10 @@ impl Widget for DocumentEditor {
             on_context_menu: self.on_context_menu.clone(),
             ops: self.handle.as_ref().map(|h| h.ops.clone()).unwrap_or_default(),
             wiki: None,
+            layout: self.layout,
+            fill_height: self.fill_height,
+            menu_pos: None,
+            free_drag: None,
         })
     }
 
@@ -391,7 +448,8 @@ pub struct DocumentEditorElement {
     classes: Vec<String>,
     model: Arc<Mutex<DocModel>>,
     style: Arc<DocStyle>,
-    source_fp: u64,
+    /// Отпечаток исходника, из которого разобрана текущая модель.
+    source_fp: Option<u64>,
     read_only: bool,
     rebuild: bool,
     geom: GeomMap,
@@ -432,6 +490,16 @@ pub struct DocumentEditorElement {
     ops: Arc<Mutex<Vec<DocOp>>>,
     /// Автокомплит wiki-ссылки `[[`.
     wiki: Option<WikiState>,
+    /// Раскладка страницы (поток / свободная + сетка и привязка).
+    layout: DocLayout,
+    /// Держать высоту не меньше видимой области: клик ниже последнего
+    /// блока должен попадать в редактор, а не в пустоту скроллера.
+    fill_height: bool,
+    /// Точка последнего правого клика в координатах холста — место
+    /// вставки блока из контекстного меню в свободной раскладке.
+    menu_pos: Option<Point>,
+    /// Перенос/растяжение блока по холсту свободной раскладки.
+    free_drag: Option<FreeDrag>,
 }
 
 /// Состояние открытого автокомплита `[[`.
@@ -456,6 +524,18 @@ struct DragBlock {
     target: Option<(super::model::BlockId, bool)>,
 }
 
+/// Перетаскивание блока по холсту свободной раскладки.
+struct FreeDrag {
+    block: super::model::BlockId,
+    /// Смещение курсора от левого верхнего угла блока.
+    grab: Point,
+    /// Изменение ширины вместо переноса.
+    resize: bool,
+    /// Ширина блока на старте (для resize).
+    start_width: f32,
+    moved: bool,
+}
+
 /// Хит-зоны панелей, нарисованных поверх документа.
 #[derive(Default)]
 struct UiRects {
@@ -465,6 +545,8 @@ struct UiRects {
     toolbar: Option<(Rect, f32)>,
     /// (прямоугольник ручки ⋮⋮, блок).
     handle: Option<(Rect, super::model::BlockId)>,
+    /// (правая кромка блока, блок) — растяжение в свободной раскладке.
+    resize: Option<(Rect, super::model::BlockId)>,
     /// (прямоугольник wiki-меню, число пунктов).
     wiki: Option<(Rect, usize)>,
 }
@@ -756,8 +838,18 @@ impl DocumentEditorElement {
     }
 
     fn apply_op(&mut self, op: DocOp) {
+        // В свободной раскладке вставка из контекстного меню идёт в точку
+        // правого клика, а не «после блока каретки».
+        let at = self.layout.free.then(|| self.menu_pos).flatten();
+        self.menu_pos = None;
         match op {
-            DocOp::InsertMarkdown(md) => self.insert_markdown_at_caret(&md),
+            DocOp::InsertMarkdown(md) => {
+                if let Some(at) = at {
+                    self.insert_free_markdown(&md, at);
+                } else {
+                    self.insert_markdown_at_caret(&md);
+                }
+            }
             DocOp::TurnInto(action) => {
                 if self.caret().is_none() {
                     self.caret_to_last_block();
@@ -769,6 +861,10 @@ impl DocumentEditorElement {
                 self.apply_action(action);
             }
             DocOp::InsertBlock(action) => {
+                if let Some(at) = at {
+                    self.insert_free_block(action, at);
+                    return;
+                }
                 if self.caret().is_none() {
                     self.caret_to_last_block();
                 }
@@ -830,6 +926,45 @@ impl DocumentEditorElement {
     /// Вставка распарсенного фрагмента после блока каретки; пустой
     /// параграф под кареткой заменяется. Каретка — в первый текстовый
     /// блок фрагмента.
+    /// Новый блок в точке холста: верхним уровнем, с кареткой внутри.
+    fn insert_free_block(&mut self, action: SlashAction, at: Point) {
+        self.checkpoint(EditClass::Structure);
+        let id = {
+            let mut model = self.model();
+            let id = model.alloc_id();
+            model.blocks.push(DocBlock::new(id, BlockKind::Paragraph(InlineText::default())));
+            id
+        };
+        self.place_free_block(id, at);
+        self.selection = Some(DocSelection::caret(CaretPos { block: id, offset: 0 }));
+        self.table_caret = None;
+        self.apply_action(action);
+    }
+
+    /// Markdown-фрагмент в точке холста (врезки базы/канваса из меню).
+    fn insert_free_markdown(&mut self, md: &str, at: Point) {
+        let fragment = parse_document(md);
+        if fragment.blocks.is_empty() {
+            return;
+        }
+        self.checkpoint(EditClass::Structure);
+        let first = {
+            let mut model = self.model();
+            let mut blocks = fragment.blocks;
+            remap_ids(&mut blocks, &mut model);
+            let first = blocks.first().map(|b| (b.id, b.kind.text().is_some()));
+            model.blocks.extend(blocks);
+            first
+        };
+        if let Some((id, has_text)) = first {
+            self.place_free_block(id, at);
+            if has_text {
+                self.selection = Some(DocSelection::caret(CaretPos { block: id, offset: 0 }));
+            }
+        }
+        self.after_edit();
+    }
+
     fn insert_markdown_at_caret(&mut self, md: &str) {
         let fragment = parse_document(md);
         if fragment.blocks.is_empty() {
@@ -1034,6 +1169,9 @@ impl DocumentEditorElement {
 
     /// Фиксация правки: перестройка детей, ревизия, колбэк.
     fn after_edit(&mut self) {
+        if self.layout.free {
+            self.ensure_free_geometry();
+        }
         self.rebuild = true;
         self.mark_dirty(DirtyFlags::LAYOUT | DirtyFlags::RENDER);
         self.caret_on = true;
@@ -1467,6 +1605,312 @@ impl DocumentEditorElement {
     }
 }
 
+/// Оценка высоты блока, у которого ещё нет опубликованной геометрии
+/// (медиа, врезка, разделитель): нужна только для первого размещения в
+/// свободной раскладке и для запаса высоты холста.
+fn estimate_height(kind: &BlockKind, style: &DocStyle) -> f32 {
+    match kind {
+        BlockKind::Divider => 17.0,
+        BlockKind::Media { .. } => 220.0,
+        BlockKind::Embed { .. } => 200.0,
+        BlockKind::Table { rows, .. } => (rows.len() as f32 + 1.0) * 30.0,
+        _ => style.line_h(style.text_size) * 2.0,
+    }
+}
+
+// ─── Свободная раскладка ────────────────────────────────────────────────────
+
+impl DocumentEditorElement {
+    /// Прямоугольники верхнеуровневых блоков (объединение опубликованной
+    /// геометрии их поддеревьев) в экранных координатах.
+    fn subtree_rects(&self, model: &DocModel) -> HashMap<super::model::BlockId, Rect> {
+        let mut out = HashMap::new();
+        let Ok(map) = self.geom.lock() else { return out };
+        fn ids(block: &DocBlock, acc: &mut Vec<super::model::BlockId>) {
+            acc.push(block.id);
+            if let Some(children) = block.kind.children() {
+                for c in children {
+                    ids(c, acc);
+                }
+            }
+        }
+        for b in model.blocks.iter() {
+            let mut acc = Vec::new();
+            ids(b, &mut acc);
+            let mut rect: Option<Rect> = None;
+            for id in acc {
+                let Some(row) = map.get(&id) else { continue };
+                let h = row.lines.last().map(|l| l.y + row.line_h).unwrap_or(row.line_h);
+                let w = row
+                    .lines
+                    .iter()
+                    .filter_map(|l| l.segs.last())
+                    .map(|sg| sg.x + sg.width)
+                    .fold(0.0f32, f32::max)
+                    .max(row.gutter);
+                let r = Rect::new(row.origin, Size::new(w, h));
+                rect = Some(match rect {
+                    None => r,
+                    Some(prev) => union(prev, r),
+                });
+            }
+            if let Some(r) = rect {
+                out.insert(b.id, r);
+            }
+        }
+        out
+    }
+
+    /// Досыпать координаты блокам, которым их не хватает: при переходе в
+    /// свободную раскладку — из текущей потоковой геометрии, дальше —
+    /// каскадом под предыдущим блоком. Уже заданные координаты не трогаем.
+    fn ensure_free_geometry(&mut self) {
+        if !self.layout.free {
+            return;
+        }
+        let missing = {
+            let model = self.model();
+            model.blocks.iter().any(|b| free::pos_of(&b.attrs).is_none())
+        };
+        if !missing {
+            return;
+        }
+        let pad = self.style.doc_padding;
+        let spacing = self.style.block_spacing;
+        let origin = self.bounds.origin;
+        let frozen_w = self
+            .style
+            .max_content_width
+            .unwrap_or(self.layout.block_width)
+            .min((self.bounds.size.width - pad * 2.0).max(160.0));
+        let rects = {
+            let model = self.model();
+            self.subtree_rects(&model)
+        };
+        let style = self.style.clone();
+        let mut model = self.model();
+        // Курсор каскада: место под предыдущим блоком — туда встаёт блок,
+        // родившийся из Enter или вставки без явной точки.
+        let mut cursor = (pad, pad);
+        for b in model.blocks.iter_mut() {
+            let rect = rects.get(&b.id).copied();
+            let height = |b: &DocBlock| rect
+                .map(|r| r.size.height)
+                .unwrap_or_else(|| estimate_height(&b.kind, &style));
+            if let Some((x, y)) = free::pos_of(&b.attrs) {
+                cursor = (x, y + height(b) + spacing);
+                continue;
+            }
+            let (x, y) = match rect {
+                Some(r) => ((r.origin.x - origin.x).max(0.0), (r.origin.y - origin.y).max(0.0)),
+                None => cursor,
+            };
+            let h = height(b);
+            free::set_pos(&mut b.attrs, x, y);
+            if free::width_of(&b.attrs).is_none() {
+                free::set_width(&mut b.attrs, frozen_w);
+            }
+            cursor = (x, y + h + spacing);
+        }
+    }
+
+    /// Поставить блок в точку холста (вставка из контекстного меню).
+    fn place_free_block(&mut self, id: super::model::BlockId, at: Point) {
+        let width = self.layout.block_width;
+        let mut model = self.model();
+        let Some(b) = model.blocks.iter_mut().find(|b| b.id == id) else { return };
+        free::set_pos(&mut b.attrs, at.x.max(0.0), at.y.max(0.0));
+        if free::width_of(&b.attrs).is_none() {
+            free::set_width(&mut b.attrs, width);
+        }
+    }
+
+    /// Верхнеуровневый блок, содержащий данный (сам блок либо его предок).
+    fn top_level_of(&self, id: super::model::BlockId) -> Option<super::model::BlockId> {
+        let model = self.model();
+        fn has(block: &DocBlock, id: super::model::BlockId) -> bool {
+            if block.id == id {
+                return true;
+            }
+            block.kind.children().map(|cs| cs.iter().any(|c| has(c, id))).unwrap_or(false)
+        }
+        model.blocks.iter().find(|b| has(b, id)).map(|b| b.id)
+    }
+
+    /// Зона растяжения ширины блока (правая кромка) в свободной раскладке.
+    fn resize_rect(&self, block: super::model::BlockId) -> Option<Rect> {
+        if !self.layout.free {
+            return None;
+        }
+        let (x, w) = {
+            let model = self.model();
+            let b = model.blocks.iter().find(|b| b.id == block)?;
+            let (x, _) = free::pos_of(&b.attrs)?;
+            (x, free::width_of(&b.attrs).unwrap_or(self.layout.block_width))
+        };
+        let map = self.geom.lock().ok()?;
+        let row = map.get(&block)?;
+        let h = row.lines.last().map(|l| l.y + row.line_h).unwrap_or(row.line_h);
+        let left = self.bounds.origin.x + x + w - 3.0;
+        Some(Rect::new(Point::new(left, row.origin.y), Size::new(8.0, h.max(HANDLE_H))))
+    }
+
+    /// Начать перенос (или растяжение) блока по холсту.
+    fn start_free_drag(&mut self, block: super::model::BlockId, at: Point, resize: bool) -> bool {
+        if !self.layout.free {
+            return false;
+        }
+        let Some(top) = self.top_level_of(block) else { return false };
+        let (pos, width) = {
+            let model = self.model();
+            let Some(b) = model.blocks.iter().find(|b| b.id == top) else { return false };
+            (free::pos_of(&b.attrs), free::width_of(&b.attrs))
+        };
+        let Some((x, y)) = pos else { return false };
+        let width = width.unwrap_or(self.layout.block_width);
+        self.checkpoint(EditClass::Structure);
+        self.free_drag = Some(FreeDrag {
+            block: top,
+            grab: Point::new(at.x - (self.bounds.origin.x + x), at.y - (self.bounds.origin.y + y)),
+            resize,
+            start_width: width,
+            moved: false,
+        });
+        true
+    }
+
+    /// Тянем блок: координаты (или ширина) пишутся сразу в модель, чтобы
+    /// раскладка шла обычным перестроением; ревизия бампается один раз в
+    /// конце (иначе автосейв дёргался бы на каждый кадр).
+    fn update_free_drag(&mut self, at: Point) {
+        let Some(drag) = &self.free_drag else { return };
+        let (block, grab, resize, start_width) =
+            (drag.block, drag.grab, drag.resize, drag.start_width);
+        let origin = self.bounds.origin;
+        let layout = self.layout;
+        let changed = {
+            let mut model = self.model();
+            let Some(b) = model.blocks.iter_mut().find(|b| b.id == block) else { return };
+            if resize {
+                let x = free::pos_of(&b.attrs).map(|(x, _)| x).unwrap_or(0.0);
+                let w = layout.snapped(at.x - origin.x - x).clamp(80.0, 4000.0);
+                let same = (w - free::width_of(&b.attrs).unwrap_or(start_width)).abs() < 0.5;
+                if !same {
+                    free::set_width(&mut b.attrs, w);
+                }
+                !same
+            } else {
+                let x = layout.snapped(at.x - grab.x - origin.x).max(0.0);
+                let y = layout.snapped(at.y - grab.y - origin.y).max(0.0);
+                let same = free::pos_of(&b.attrs)
+                    .map(|(px, py)| (px - x).abs() < 0.5 && (py - y).abs() < 0.5)
+                    .unwrap_or(false);
+                if !same {
+                    free::set_pos(&mut b.attrs, x, y);
+                }
+                !same
+            }
+        };
+        if changed {
+            if let Some(drag) = &mut self.free_drag {
+                drag.moved = true;
+            }
+            self.rebuild = true;
+            self.mark_dirty(DirtyFlags::LAYOUT | DirtyFlags::RENDER);
+        }
+    }
+
+    /// Фон холста: точки, линии или кресты с шагом сетки.
+    fn draw_grid(&self, list: &mut DisplayList, clip: Rect) {
+        if !self.layout.free || self.layout.grid == DocGrid::None {
+            return;
+        }
+        let area = intersect(self.bounds, clip);
+        if area.size.width <= 0.0 || area.size.height <= 0.0 {
+            return;
+        }
+        let step = self.layout.grid_step_px();
+        let color = self.style.grid_color;
+        let nx = (area.size.width / step).ceil() as i32 + 1;
+        let ny = (area.size.height / step).ceil() as i32 + 1;
+        if nx <= 0 || ny <= 0 || nx > 600 || ny > 600 {
+            return;
+        }
+        let ox = self.bounds.origin.x;
+        let oy = self.bounds.origin.y;
+        let first_x = ((area.origin.x - ox) / step).floor() * step + ox;
+        let first_y = ((area.origin.y - oy) / step).floor() * step + oy;
+        match self.layout.grid {
+            DocGrid::Lines => {
+                for i in 0..nx {
+                    let x = first_x + i as f32 * step;
+                    list.push_rect(
+                        Rect::new(Point::new(x, area.origin.y), Size::new(1.0, area.size.height)),
+                        color,
+                        [0.0; 4],
+                    );
+                }
+                for j in 0..ny {
+                    let y = first_y + j as f32 * step;
+                    list.push_rect(
+                        Rect::new(Point::new(area.origin.x, y), Size::new(area.size.width, 1.0)),
+                        color,
+                        [0.0; 4],
+                    );
+                }
+            }
+            DocGrid::Dots => {
+                for j in 0..ny {
+                    for i in 0..nx {
+                        let x = first_x + i as f32 * step;
+                        let y = first_y + j as f32 * step;
+                        list.push_rect(
+                            Rect::new(Point::new(x - 0.75, y - 0.75), Size::new(1.5, 1.5)),
+                            color,
+                            [0.75; 4],
+                        );
+                    }
+                }
+            }
+            DocGrid::Cross => {
+                for j in 0..ny {
+                    for i in 0..nx {
+                        let x = first_x + i as f32 * step;
+                        let y = first_y + j as f32 * step;
+                        list.push_rect(
+                            Rect::new(Point::new(x - 3.0, y - 0.5), Size::new(6.0, 1.0)),
+                            color,
+                            [0.0; 4],
+                        );
+                        list.push_rect(
+                            Rect::new(Point::new(x - 0.5, y - 3.0), Size::new(1.0, 6.0)),
+                            color,
+                            [0.0; 4],
+                        );
+                    }
+                }
+            }
+            DocGrid::None => {}
+        }
+    }
+}
+
+fn union(a: Rect, b: Rect) -> Rect {
+    let x0 = a.origin.x.min(b.origin.x);
+    let y0 = a.origin.y.min(b.origin.y);
+    let x1 = (a.origin.x + a.size.width).max(b.origin.x + b.size.width);
+    let y1 = (a.origin.y + a.size.height).max(b.origin.y + b.size.height);
+    Rect::new(Point::new(x0, y0), Size::new(x1 - x0, y1 - y0))
+}
+
+fn intersect(a: Rect, b: Rect) -> Rect {
+    let x0 = a.origin.x.max(b.origin.x);
+    let y0 = a.origin.y.max(b.origin.y);
+    let x1 = (a.origin.x + a.size.width).min(b.origin.x + b.size.width);
+    let y1 = (a.origin.y + a.size.height).min(b.origin.y + b.size.height);
+    Rect::new(Point::new(x0, y0), Size::new((x1 - x0).max(0.0), (y1 - y0).max(0.0)))
+}
+
 impl DocumentEditorElement {
     /// Прямоугольник ручки ⋮⋮ для блока (слева от контента).
     fn handle_rect(&self, block: super::model::BlockId) -> Option<Rect> {
@@ -1567,6 +2011,21 @@ impl DocumentEditorElement {
                     c.flush(list);
                     if let Ok(mut ui) = self.ui_rects.lock() {
                         ui.handle = Some((rect, block));
+                    }
+                }
+                // Правая кромка блока — растяжение ширины (свободная
+                // раскладка): узкая полоска в цвет ручки.
+                if let Some(rect) = self.resize_rect(block) {
+                    list.push_rect(
+                        Rect::new(
+                            Point::new(rect.origin.x + 2.0, rect.origin.y),
+                            Size::new(2.0, rect.size.height),
+                        ),
+                        s.muted_color.with_alpha(0.5),
+                        [1.0; 4],
+                    );
+                    if let Ok(mut ui) = self.ui_rects.lock() {
+                        ui.resize = Some((rect, block));
                     }
                 }
             }
@@ -2235,6 +2694,19 @@ impl Element for DocumentEditorElement {
         self.embed_ctx = w.embed_ctx.clone();
         self.on_drop_file = w.on_drop_file.clone();
         self.on_context_menu = w.on_context_menu.clone();
+        self.fill_height = w.fill_height;
+        if self.layout != w.layout {
+            let was_free = self.layout.free;
+            self.layout = w.layout;
+            if w.layout.free && !was_free {
+                // Переход в свободную раскладку: координаты берём из
+                // текущей потоковой геометрии, страница не «прыгает».
+                self.ensure_free_geometry();
+            }
+            self.rebuild = true;
+            self.mark_dirty(DirtyFlags::LAYOUT | DirtyFlags::RENDER);
+            ctx.mark_layout_dirty();
+        }
         if links_changed {
             self.rebuild = true;
         }
@@ -2249,12 +2721,21 @@ impl Element for DocumentEditorElement {
                 self.model = h.model.clone();
                 self.revision = Some(h.revision);
                 self.ops = h.ops.clone();
+                // Модель ручки уже загружена из своего исходника — берём
+                // её отметку, иначе смена страницы перепарсила бы поверх
+                // несохранённых правок.
+                self.source_fp = h.loaded_fp();
+                self.selection = None;
+                self.table_caret = None;
                 self.rebuild = true;
             }
         }
         let fp = fingerprint(&w.source);
-        if fp != self.source_fp {
-            self.source_fp = fp;
+        if Some(fp) != self.source_fp {
+            self.source_fp = Some(fp);
+            if let Some(h) = &w.handle {
+                h.set_loaded_fp(fp);
+            }
             *lock(&self.model) = parse_document(&w.source);
             self.selection = None;
             self.rebuild = true;
@@ -2286,8 +2767,26 @@ impl Element for DocumentEditorElement {
         self.bounds.size
     }
 
+    fn min_max_dimensions(
+        &self,
+        _parent_width: f32,
+        parent_height: f32,
+    ) -> (Option<f32>, Option<f32>, Option<f32>, Option<f32>) {
+        // Документ короче видимой области всё равно занимает её целиком:
+        // иначе клик и правый клик ниже последнего блока уходят мимо
+        // редактора (в пустоту скроллера) и каретку поставить некуда.
+        let min_h = (self.fill_height && parent_height.is_finite() && parent_height > 0.0)
+            .then_some(parent_height);
+        (None, None, min_h, None)
+    }
+
     fn layout_hint(&self) -> LayoutHint {
         let s = &self.style;
+        if self.layout.free {
+            // Свободная раскладка: блоки — Positioned-обёртки, размер
+            // холста держит распорка (см. build_children).
+            return LayoutHint::Stack { expand: false };
+        }
         // Колонка как в Notion: листья сами ограничивают свою ширину
         // max_content_width (см. rows::clamp_width), а корень центрирует.
         LayoutHint::Column {
@@ -2321,7 +2820,32 @@ impl Element for DocumentEditorElement {
             embed_ctx: self.embed_ctx.clone(),
         };
         let model = self.model();
-        model.blocks.iter().map(|b| block_widget(b, &env)).collect()
+        if !self.layout.free {
+            return model.blocks.iter().map(|b| block_widget(b, &env)).collect();
+        }
+        let pad = self.style.doc_padding;
+        let rects = self.subtree_rects(&model);
+        let origin = self.bounds.origin;
+        let mut out: Vec<Box<dyn Widget>> = Vec::with_capacity(model.blocks.len() + 1);
+        let mut extent = (pad, pad);
+        let mut fallback_y = pad;
+        for b in model.blocks.iter() {
+            let (x, y) = free::pos_of(&b.attrs).unwrap_or((pad, fallback_y));
+            let w = free::width_of(&b.attrs).unwrap_or(self.layout.block_width);
+            let h = rects
+                .get(&b.id)
+                .map(|r| r.size.height)
+                .unwrap_or_else(|| estimate_height(&b.kind, &self.style));
+            fallback_y = y + h + self.style.block_spacing;
+            extent.0 = extent.0.max(x + w + pad);
+            extent.1 = extent.1.max(y + h + pad);
+            let _ = origin;
+            out.push(Box::new(
+                Chrome::new().absolute(x, y).fixed_width(w).child(block_widget(b, &env)),
+            ));
+        }
+        out.push(Box::new(Chrome::extent(extent.0, extent.1)));
+        out
     }
 
     fn clear_rebuild(&mut self) {
@@ -2339,7 +2863,8 @@ impl Element for DocumentEditorElement {
         }
     }
 
-    fn build_display_list(&self, list: &mut DisplayList, _clip: Rect) {
+    fn build_display_list(&self, list: &mut DisplayList, clip: Rect) {
+        self.draw_grid(list, clip);
         self.draw_selection(list);
     }
 
@@ -2411,6 +2936,9 @@ impl Element for DocumentEditorElement {
         }
         match event {
             Event::MouseDown { button: MouseButton::Left, position } => {
+                // Точка правого клика актуальна только до следующего
+                // действия: дальше вставка снова идёт «у каретки».
+                self.menu_pos = None;
                 if !self.bounds.contains(*position) {
                     if self.focused {
                         self.focused = false;
@@ -2469,15 +2997,33 @@ impl Element for DocumentEditorElement {
                         return EventResult::Handled;
                     }
                 }
-                // Захват ручки ⋮⋮ — начало перетаскивания блока.
+                // Захват ручки ⋮⋮ — перетаскивание блока (в свободной
+                // раскладке — перенос по холсту), правая кромка — ширина.
                 if !self.read_only {
-                    let handle_hit = {
+                    let (handle_hit, resize_hit) = {
                         let ui = self.ui_rects.lock().unwrap_or_else(|e| e.into_inner());
-                        ui.handle.and_then(|(rect, block)| {
-                            rect.contains(*position).then_some(block)
-                        })
+                        (
+                            ui.handle.and_then(|(rect, block)| {
+                                rect.contains(*position).then_some(block)
+                            }),
+                            ui.resize.and_then(|(rect, block)| {
+                                rect.contains(*position).then_some(block)
+                            }),
+                        )
                     };
+                    if let Some(block) = resize_hit {
+                        if self.start_free_drag(block, *position, true) {
+                            ctx.capture();
+                            return EventResult::Handled;
+                        }
+                    }
                     if let Some(block) = handle_hit {
+                        if self.layout.free {
+                            if self.start_free_drag(block, *position, false) {
+                                ctx.capture();
+                                return EventResult::Handled;
+                            }
+                        }
                         self.drag = Some(DragBlock {
                             block,
                             start: *position,
@@ -2560,11 +3106,23 @@ impl Element for DocumentEditorElement {
                 } else if self.caret().is_none() {
                     self.caret_to_last_block();
                 }
+                // Точка вставки для свободной раскладки — в координатах
+                // холста, уже с привязкой к сетке.
+                self.menu_pos = self.layout.free.then(|| {
+                    Point::new(
+                        self.layout.snapped(position.x - self.bounds.origin.x),
+                        self.layout.snapped(position.y - self.bounds.origin.y),
+                    )
+                });
                 self.mark_dirty(DirtyFlags::RENDER);
                 cb(*position);
                 EventResult::Handled
             }
             Event::MouseMove(position) => {
+                if self.free_drag.is_some() {
+                    self.update_free_drag(*position);
+                    return EventResult::Handled;
+                }
                 if let Some(drag) = &mut self.drag {
                     drag.current = *position;
                     if !drag.started
@@ -2606,6 +3164,14 @@ impl Element for DocumentEditorElement {
                 EventResult::Ignored
             }
             Event::MouseUp { button: MouseButton::Left, .. } => {
+                if let Some(drag) = self.free_drag.take() {
+                    if drag.moved {
+                        self.after_edit();
+                    } else {
+                        self.history.discard_last_checkpoint();
+                    }
+                    return EventResult::Handled;
+                }
                 if let Some(drag) = self.drag.take() {
                     if drag.started {
                         if let Some((target, before)) = drag.target {
@@ -2666,6 +3232,7 @@ impl Element for DocumentEditorElement {
                 EventResult::Handled
             }
             Event::KeyDown(key) => {
+                self.menu_pos = None;
                 if !self.focused {
                     return EventResult::Ignored;
                 }

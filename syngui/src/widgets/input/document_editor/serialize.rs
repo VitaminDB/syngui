@@ -7,13 +7,36 @@
 //! — проверяется корпусом фикстур в tests/document_roundtrip.rs.
 
 use super::attrs::serialize_attrs;
+use super::free;
 use super::model::*;
 
 pub fn serialize_document(model: &DocModel) -> String {
-    let lines = blocks_to_lines(&model.blocks);
+    let mut lines = blocks_to_lines(&model.blocks);
+    // Хвостовой служебный блок со свободной раскладкой (см. `free`).
+    if let Some(geom) = free::serialize_geometry(&model.blocks) {
+        if !lines.is_empty() {
+            lines.push(String::new());
+        }
+        lines.push(format!("```{}", free::LAYOUT_FENCE));
+        lines.extend(geom.split('\n').map(str::to_string));
+        lines.push("```".to_string());
+    }
     let mut out = lines.join("\n");
     if !out.is_empty() {
         out.push('\n');
+    }
+    out
+}
+
+/// Атрибуты, которые пишутся инлайном: без ключей свободной раскладки —
+/// те уходят хвостовым блоком (у параграфа и таблицы места под них нет,
+/// формат должен быть один на все виды блоков).
+fn inline_attrs(attrs: &Attrs) -> Attrs {
+    let mut out = Attrs::default();
+    for (key, value) in attrs.0.iter() {
+        if !free::is_geom_key(key) {
+            out.set(key.clone(), value.clone());
+        }
     }
     out
 }
@@ -43,9 +66,10 @@ fn block_lines(block: &DocBlock) -> Vec<String> {
         BlockKind::Heading { level, text } => {
             let hashes = "#".repeat((*level).clamp(1, 6) as usize);
             let mut line = format!("{hashes} {}", inline_to_md(text).replace('\n', " "));
-            if !block.attrs.is_empty() {
+            let attrs = inline_attrs(&block.attrs);
+            if !attrs.is_empty() {
                 line.push(' ');
-                line.push_str(&serialize_attrs(&block.attrs));
+                line.push_str(&serialize_attrs(&attrs));
             }
             vec![line]
         }
@@ -61,11 +85,11 @@ fn block_lines(block: &DocBlock) -> Vec<String> {
         }
         BlockKind::Quote(children) => quote_lines(None, children),
         BlockKind::Callout { kind, title, children } => {
-            let first = callout_first_line(kind, &block.attrs, title);
+            let first = callout_first_line(kind, &inline_attrs(&block.attrs), title);
             quote_lines(Some(first), children)
         }
         BlockKind::Toggle { summary, children, collapsed } => {
-            let mut attrs = block.attrs.clone();
+            let mut attrs = inline_attrs(&block.attrs);
             if !*collapsed {
                 attrs.set("open", "");
             }
@@ -85,12 +109,12 @@ fn block_lines(block: &DocBlock) -> Vec<String> {
         BlockKind::Media { url, alt, .. } => {
             let alt = alt.replace('\n', " ").replace('[', "\\[").replace(']', "\\]");
             let mut line = format!("![{alt}]({})", format_url(url));
-            line.push_str(&serialize_attrs(&block.attrs));
+            line.push_str(&serialize_attrs(&inline_attrs(&block.attrs)));
             vec![line]
         }
         BlockKind::Embed { target } => {
             let mut line = format!("![[{target}]]");
-            line.push_str(&serialize_attrs(&block.attrs));
+            line.push_str(&serialize_attrs(&inline_attrs(&block.attrs)));
             vec![line]
         }
     }

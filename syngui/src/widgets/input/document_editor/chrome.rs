@@ -2,6 +2,11 @@
 //! пунктов списка): Column-раскладка детей + собственная отрисовка фона,
 //! скругления и левой цветной полосы. Фон рисуется до детей, поэтому
 //! оказывается под ними.
+//!
+//! В свободной раскладке ([`super::free`]) он же — обёртка блока:
+//! `absolute` переводит контейнер в `LayoutHint::Positioned`, `fixed_width`
+//! задаёт ширину колонки блока, а бездетная `extent`-распорка растягивает
+//! холст редактора до нужного размера (Stack меряется по максимуму детей).
 
 use std::any::Any;
 use std::time::Duration;
@@ -20,6 +25,12 @@ pub struct Chrome {
     bg: Option<Color>,
     radius: f32,
     border_left: Option<(f32, Color)>,
+    /// Свободная раскладка: смещение блока от начала холста.
+    absolute: Option<(f32, f32)>,
+    /// Свободная раскладка: ширина колонки блока.
+    fixed_width: Option<f32>,
+    /// Бездетная распорка холста: минимальный размер (не меньше вьюпорта).
+    extent: Option<(f32, f32)>,
 }
 
 impl Chrome {
@@ -31,7 +42,29 @@ impl Chrome {
             bg: None,
             radius: 0.0,
             border_left: None,
+            absolute: None,
+            fixed_width: None,
+            extent: None,
         }
+    }
+
+    /// Разместить блок в точке холста (свободная раскладка).
+    pub fn absolute(mut self, x: f32, y: f32) -> Self {
+        self.absolute = Some((x, y));
+        self
+    }
+
+    /// Ширина колонки блока в свободной раскладке.
+    pub fn fixed_width(mut self, width: f32) -> Self {
+        self.fixed_width = Some(width.max(40.0));
+        self
+    }
+
+    /// Распорка холста: держит размер не меньше (w, h) и вьюпорта.
+    pub fn extent(w: f32, h: f32) -> Self {
+        let mut chrome = Self::new();
+        chrome.extent = Some((w, h));
+        chrome
     }
 
     pub fn gap(mut self, gap: f32) -> Self {
@@ -81,6 +114,9 @@ impl Widget for Chrome {
             bg: self.bg,
             radius: self.radius,
             border_left: self.border_left,
+            absolute: self.absolute,
+            fixed_width: self.fixed_width,
+            extent: self.extent,
         })
     }
 
@@ -119,17 +155,27 @@ pub struct ChromeElement {
     bg: Option<Color>,
     radius: f32,
     border_left: Option<(f32, Color)>,
+    absolute: Option<(f32, f32)>,
+    fixed_width: Option<f32>,
+    extent: Option<(f32, f32)>,
 }
 
 impl Element for ChromeElement {
     fn update(&mut self, widget: &dyn Widget, ctx: &mut UpdateContext) {
         let Some(w) = widget.as_any().downcast_ref::<Chrome>() else { return };
-        let layout_changed = self.gap != w.gap || self.padding != w.padding;
+        let layout_changed = self.gap != w.gap
+            || self.padding != w.padding
+            || self.absolute != w.absolute
+            || self.fixed_width != w.fixed_width
+            || self.extent != w.extent;
         self.gap = w.gap;
         self.padding = w.padding;
         self.bg = w.bg;
         self.radius = w.radius;
         self.border_left = w.border_left;
+        self.absolute = w.absolute;
+        self.fixed_width = w.fixed_width;
+        self.extent = w.extent;
         self.mark_dirty(DirtyFlags::RENDER);
         if layout_changed {
             self.mark_dirty(DirtyFlags::LAYOUT);
@@ -140,7 +186,20 @@ impl Element for ChromeElement {
     fn mount(&mut self, _tree: &mut ElementTree) {}
 
     fn layout(&mut self, constraints: Constraints) -> Size {
-        let width = if constraints.max_width.is_finite() { constraints.max_width } else { 0.0 };
+        if let Some((ew, eh)) = self.extent {
+            let cb = constraints.containing_block;
+            let w = ew.max(cb.width).min(constraints.max_width.max(0.0));
+            let h = eh.max(cb.height);
+            self.bounds.size = Size::new(w, h);
+            return self.bounds.size;
+        }
+        let width = if let Some(w) = self.fixed_width {
+            w.min(constraints.max_width)
+        } else if constraints.max_width.is_finite() {
+            constraints.max_width
+        } else {
+            0.0
+        };
         // С детьми дерево зовёт layout с tight-размером (min == max) — его
         // принимаем (фон/полоса рисуются по bounds); без детей — паддинги.
         let tight = constraints.min_height.is_finite()
@@ -155,7 +214,14 @@ impl Element for ChromeElement {
         self.bounds.size
     }
 
+    fn explicit_dimensions(&self, _parent_width: f32, _parent_height: f32) -> (Option<f32>, Option<f32>) {
+        (self.fixed_width, None)
+    }
+
     fn layout_hint(&self) -> LayoutHint {
+        if let Some((x, y)) = self.absolute {
+            return LayoutHint::Positioned { x, y };
+        }
         LayoutHint::Column {
             gap: self.gap,
             cross_align: CrossAxisAlignment::Stretch,
