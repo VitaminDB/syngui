@@ -596,8 +596,12 @@ impl Element for TextFieldElement {
             self.obscure = tf.obscure;
             self.width = tf.width;
             if tf.text != self.text {
+                // Текст подменили снаружи (нормализованное значение после
+                // submit): каретка остаётся в байтах старого текста и может
+                // попасть внутрь многобайтового символа — рендер паниковал
+                // на срезе строки. Сдвигаем к границе символа.
                 self.text = tf.text.clone();
-                self.cursor_pos = self.text.len().min(self.cursor_pos);
+                self.cursor_pos = floor_char_boundary(&self.text, self.cursor_pos);
                 self.selection.clear();
             }
             self.prefix_element = tf.prefix.as_ref().map(|w| w.create_element());
@@ -1443,5 +1447,28 @@ impl StyledElement for TextFieldElement {
     fn set_classes(&mut self, classes: Vec<String>) {
         self.classes = classes;
         self.mark_dirty(DirtyFlags::RENDER);
+    }
+}
+
+/// Ближайшая граница символа не правее `i` (и не дальше конца строки).
+pub(crate) fn floor_char_boundary(s: &str, i: usize) -> usize {
+    let mut i = i.min(s.len());
+    while i > 0 && !s.is_char_boundary(i) {
+        i -= 1;
+    }
+    i
+}
+
+#[cfg(test)]
+mod boundary_tests {
+    use super::*;
+
+    #[test]
+    fn floor_boundary_snaps_inside_multibyte() {
+        let s = "прототип, дизайн";
+        assert_eq!(floor_char_boundary(s, 29), 28);
+        assert_eq!(floor_char_boundary(s, 28), 28);
+        assert_eq!(floor_char_boundary(s, 100), s.len());
+        assert_eq!(floor_char_boundary("", 5), 0);
     }
 }

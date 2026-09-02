@@ -1426,3 +1426,38 @@ fn flow_block_drag_finishes_on_drag_end() {
     settle(&mut h);
     assert_eq!(handle.serialize(), "два\n\nтри\n\nраз\n");
 }
+
+/// Встроенный редактор карточки: `plain` (без ручки/подсветки) и
+/// подсказки в пустом заголовке и абзаце рисуются без паники, а набор в
+/// пустом заголовке их заменяет.
+#[test]
+fn plain_editor_with_placeholders_renders_and_edits() {
+    let handle = DocumentEditorHandle::new();
+    let mut h = TestHarness::new(Box::new(
+        DocumentEditor::new()
+            .markdown("## \n")
+            .handle(&handle)
+            .plain(true)
+            .heading_placeholder("Заголовок")
+            .placeholder("Описание")
+            .autofocus(true),
+    ));
+    h.tree.text_measure = Some(Arc::new(Mono));
+    h.rebuild();
+    h.layout(300.0, 200.0);
+    let mut list = DisplayList::new();
+    h.tree.build_display_list(h.root_id, &mut list, Rect::new(Point::zero(), Size::new(300.0, 200.0)));
+    // Клик в пустой заголовок (харнес фокус сам не переводит): набор +
+    // Enter → абзац.
+    let row = h.element_bounds(h.find_by_type_name("doc-text-row")[0]);
+    let at = Point::new(row.origin.x + 4.0, row.origin.y + row.size.height / 2.0);
+    h.send_event(&Event::MouseDown { button: MouseButton::Left, position: at });
+    h.send_event(&Event::MouseUp { button: MouseButton::Left, position: at });
+    h.send_events(&[Event::CharInput('З'), Event::CharInput('а'), Event::KeyDown(Key::Enter), Event::KeyUp(Key::Enter)]);
+    settle(&mut h);
+    h.send_events(&[Event::CharInput('т')]);
+    settle(&mut h);
+    assert_eq!(handle.serialize(), "## За\n\nт\n");
+    let mut list = DisplayList::new();
+    h.tree.build_display_list(h.root_id, &mut list, Rect::new(Point::zero(), Size::new(300.0, 200.0)));
+}

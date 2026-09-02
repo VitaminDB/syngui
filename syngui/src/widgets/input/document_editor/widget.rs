@@ -316,6 +316,12 @@ pub struct DocumentEditor {
     /// ещё и drag'ом дерева (payload — id блока, без призрака), и его
     /// принимают DropArea хоста — в частности доски внутри самой страницы.
     block_drag_type: Option<String>,
+    /// Без обвязки блоков: ни ручки ⋮⋮, ни подсветки/рамки блока, ни зон
+    /// растяжения — для маленьких встроенных редакторов (карточка доски).
+    plain: bool,
+    /// Подсказка в пустом абзаце / пустом заголовке.
+    placeholder: Option<String>,
+    heading_placeholder: Option<String>,
 }
 
 impl DocumentEditor {
@@ -339,6 +345,9 @@ impl DocumentEditor {
             on_block_drop: None,
             on_drop_data: None,
             block_drag_type: None,
+            plain: false,
+            placeholder: None,
+            heading_placeholder: None,
             on_context_menu: None,
             layout: DocLayout::default(),
             fill_height: false,
@@ -393,6 +402,25 @@ impl DocumentEditor {
     /// `DocOp::DeleteBlock`.
     pub fn block_drag_type(mut self, drag_type: impl Into<String>) -> Self {
         self.block_drag_type = Some(drag_type.into());
+        self
+    }
+
+    /// Без обвязки блоков (ручка ⋮⋮, подсветка и рамка блока, зоны
+    /// растяжения): маленький встроенный редактор — карточка доски.
+    pub fn plain(mut self, plain: bool) -> Self {
+        self.plain = plain;
+        self
+    }
+
+    /// Подсказка в каждом пустом абзаце (приглушённым цветом).
+    pub fn placeholder(mut self, text: impl Into<String>) -> Self {
+        self.placeholder = Some(text.into());
+        self
+    }
+
+    /// Подсказка в пустом заголовке.
+    pub fn heading_placeholder(mut self, text: impl Into<String>) -> Self {
+        self.heading_placeholder = Some(text.into());
         self
     }
 
@@ -571,6 +599,9 @@ impl Widget for DocumentEditor {
             on_block_drop: self.on_block_drop.clone(),
             on_drop_data: self.on_drop_data.clone(),
             block_drag_type: self.block_drag_type.clone(),
+            plain: self.plain,
+            placeholder: self.placeholder.clone(),
+            heading_placeholder: self.heading_placeholder.clone(),
             on_context_menu: self.on_context_menu.clone(),
             ops: self.handle.as_ref().map(|h| h.ops.clone()).unwrap_or_default(),
             wiki: None,
@@ -608,6 +639,9 @@ pub struct DocumentEditorElement {
     on_block_drop: Option<Arc<dyn Fn(Point, super::model::BlockId) -> bool + Send + Sync>>,
     on_drop_data: Option<Arc<dyn Fn(Point, &crate::input::DragData) -> bool + Send + Sync>>,
     block_drag_type: Option<String>,
+    plain: bool,
+    placeholder: Option<String>,
+    heading_placeholder: Option<String>,
     id: ElementId,
     bounds: Rect,
     dirty: DirtyFlags,
@@ -2588,7 +2622,7 @@ impl DocumentEditorElement {
     /// Габариты блока: лёгкая заливка под курсором и рамка у текущего.
     /// Пустой блок иначе не виден вовсе — ни где он, ни какого размера.
     fn draw_block_bounds(&self, list: &mut DisplayList) {
-        if self.read_only {
+        if self.read_only || self.plain {
             return;
         }
         let pad = 3.0;
@@ -2766,6 +2800,9 @@ impl DocumentEditorElement {
 
     /// Ручка ⋮⋮, ghost и индикатор вставки.
     fn draw_drag_ui(&self, list: &mut DisplayList) {
+        if self.plain {
+            return;
+        }
         let s = &self.style;
         // Ручка у блока под курсором (когда не тянем).
         if self.drag.is_none() {
@@ -3791,6 +3828,12 @@ impl Element for DocumentEditorElement {
         self.on_block_drop = w.on_block_drop.clone();
         self.on_drop_data = w.on_drop_data.clone();
         self.block_drag_type = w.block_drag_type.clone();
+        self.plain = w.plain;
+        if self.placeholder != w.placeholder || self.heading_placeholder != w.heading_placeholder {
+            self.placeholder = w.placeholder.clone();
+            self.heading_placeholder = w.heading_placeholder.clone();
+            self.rebuild = true;
+        }
         if w.autofocus && !self.autofocus {
             self.focus_request_pending = true;
             self.focused = true;
@@ -3931,6 +3974,8 @@ impl Element for DocumentEditorElement {
             media: self.media.clone(),
             embeds: self.embeds.clone(),
             embed_ctx: self.embed_ctx.clone(),
+            placeholder: self.placeholder.clone(),
+            heading_placeholder: self.heading_placeholder.clone(),
         };
         let model = self.model();
         // Каждый верхнеуровневый блок обёрнут Chrome'ом, который публикует

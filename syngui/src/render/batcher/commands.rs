@@ -255,12 +255,14 @@ impl Batcher {
                 let sf = self.scale_factor;
                 let phys_font_size = ((*font_size * sf).round() as u16).max(1);
                 let ff = font_family.as_deref();
-                let start_char_count = text[..*sel_start].chars().count();
-                let text_before_start = &text[..*sel_start];
+                let sel_start = snap_boundary(text, *sel_start);
+                let sel_end = snap_boundary(text, *sel_end);
+                let start_char_count = text[..sel_start].chars().count();
+                let text_before_start = &text[..sel_start];
                 let start_x_offset = font_atlas.measure_text_width(text_before_start, phys_font_size, start_char_count, ff);
                 let start_x = *base_x + start_x_offset / sf;
-                let end_char_count = text[..*sel_end].chars().count();
-                let text_before_end = &text[..*sel_end];
+                let end_char_count = text[..sel_end].chars().count();
+                let text_before_end = &text[..sel_end];
                 let end_x_offset = font_atlas.measure_text_width(text_before_end, phys_font_size, end_char_count, ff);
                 let end_x = *base_x + end_x_offset / sf;
                 let sel_width = (end_x - start_x).max(1.0);
@@ -275,7 +277,7 @@ impl Batcher {
                 let sf = self.scale_factor;
                 let phys_font_size = ((*font_size * sf).round() as u16).max(1);
                 let bold = *font_weight >= 600;
-                let byte_pos = (*cursor_pos).min(text.len());
+                let byte_pos = snap_boundary(text, *cursor_pos);
                 let text_before_cursor = &text[..byte_pos];
                 let char_count = text_before_cursor.chars().count();
                 let cursor_x_offset = font_atlas.measure_text_width_styled(text_before_cursor, phys_font_size, char_count, bold, font_family.as_deref());
@@ -436,4 +438,14 @@ impl Batcher {
             DrawCommand::Cached(_) | DrawCommand::Custom { .. } => {}
         }
     }
+}
+
+/// Байтовый индекс, безопасный для среза: не дальше конца и на границе
+/// символа (виджет мог подменить текст, оставив старую каретку).
+fn snap_boundary(text: &str, i: usize) -> usize {
+    let mut i = i.min(text.len());
+    while i > 0 && !text.is_char_boundary(i) {
+        i -= 1;
+    }
+    i
 }

@@ -113,6 +113,8 @@ pub struct TextRow {
     pub geom: Option<GeomMap>,
     /// Провайдер ссылок хоста — окраска битых wiki-ссылок.
     pub links: Option<Arc<dyn DocLinkProvider>>,
+    /// Подсказка приглушённым цветом, пока блок пуст.
+    pub placeholder: Option<String>,
 }
 
 impl Widget for TextRow {
@@ -128,6 +130,7 @@ impl Widget for TextRow {
             color: self.color,
             align: self.align,
             decor: self.decor.clone(),
+            placeholder: self.placeholder.clone(),
             gutter: self.gutter,
             style: self.style.clone(),
             geom: self.geom.clone(),
@@ -150,6 +153,7 @@ pub struct TextRowElement {
     color: Color,
     align: f32,
     decor: RowDecor,
+    placeholder: Option<String>,
     gutter: f32,
     style: Arc<DocStyle>,
     geom: Option<GeomMap>,
@@ -331,6 +335,7 @@ impl Element for TextRowElement {
             || self.color != w.color
             || (self.align - w.align).abs() > f32::EPSILON
             || self.decor != w.decor
+            || self.placeholder != w.placeholder
             || self.gutter != w.gutter
             || !Arc::ptr_eq(&self.style, &w.style);
         if changed {
@@ -340,6 +345,7 @@ impl Element for TextRowElement {
             self.color = w.color;
             self.align = w.align;
             self.decor = w.decor.clone();
+            self.placeholder = w.placeholder.clone();
             self.gutter = w.gutter;
             self.style = w.style.clone();
             self.cache = None;
@@ -369,6 +375,21 @@ impl Element for TextRowElement {
         let s = &self.style;
         let o = self.bounds.origin;
         let x0 = o.x + self.gutter;
+        if self.text.is_empty() {
+            if let Some(ph) = &self.placeholder {
+                let y = o.y + layout.lines.first().map(|l| l.y).unwrap_or(0.0);
+                let rect = Rect::new(Point::new(x0, y), Size::new(self.bounds.size.width, 0.0));
+                list.push_text_aligned(
+                    ph,
+                    rect,
+                    self.color.with_alpha(0.4),
+                    self.font_size,
+                    TextAlign::DEFAULT,
+                    TextDecoration::None,
+                    if self.bold { 700 } else { 400 },
+                );
+            }
+        }
         for line in &layout.lines {
             for seg in &line.segs {
                 let color = match (&seg.style.link, seg.style.code) {

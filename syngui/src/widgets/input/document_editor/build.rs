@@ -31,6 +31,9 @@ pub struct BuildEnv {
     pub media: Option<Arc<dyn DocMediaResolver>>,
     pub embeds: Option<Arc<dyn EmbedFactory>>,
     pub embed_ctx: EmbedCtx,
+    /// Подсказки в пустом абзаце / заголовке.
+    pub placeholder: Option<String>,
+    pub heading_placeholder: Option<String>,
 }
 
 pub fn block_widget(block: &DocBlock, env: &BuildEnv) -> Box<dyn Widget> {
@@ -193,6 +196,15 @@ fn children_column(children: &[DocBlock], env: &BuildEnv) -> Box<dyn Widget> {
 }
 
 fn base_row(block: &DocBlock, text: &InlineText, env: &BuildEnv) -> TextRow {
+    let placeholder = if text.is_empty() {
+        match &block.kind {
+            BlockKind::Paragraph(_) => env.placeholder.clone(),
+            BlockKind::Heading { .. } => env.heading_placeholder.clone(),
+            _ => None,
+        }
+    } else {
+        None
+    };
     TextRow {
         block_id: block.id,
         text: text.clone(),
@@ -205,6 +217,7 @@ fn base_row(block: &DocBlock, text: &InlineText, env: &BuildEnv) -> TextRow {
         style: env.style.clone(),
         geom: Some(env.geom.clone()),
         links: env.links.clone(),
+        placeholder,
     }
 }
 
