@@ -311,15 +311,11 @@ impl<'a> MdRenderer<'a> {
     }
 
     fn text_width(&self, text: &str, font_size: f32) -> f32 {
-        self.text_measure.as_ref()
-            .map(|tm| tm.measure_text_width(text, font_size, text.chars().count()))
-            .unwrap_or_else(|| text.chars().count() as f32 * font_size * CHAR_W)
+        span_text_width(text, font_size, false, self.text_measure.as_deref())
     }
 
     fn bold_text_width(&self, text: &str, font_size: f32) -> f32 {
-        self.text_measure.as_ref()
-            .map(|tm| tm.measure_text_width_styled(text, font_size, text.chars().count(), true, None))
-            .unwrap_or_else(|| text.chars().count() as f32 * font_size * BOLD_CHAR_W)
+        span_text_width(text, font_size, true, self.text_measure.as_deref())
     }
 
     pub fn render_blocks(&mut self, blocks: &[MdBlock]) {
@@ -1037,47 +1033,10 @@ impl<'a> MdRenderer<'a> {
     /// повторять раскладку [`Self::render_flat_spans`] шаг в шаг: та рисует,
     /// эта только считает строки (первый проход layout'а таблицы).
     fn measure_flat_spans_height(&self, spans: &[FlatSpan], max_w: f32) -> f32 {
-        if spans.is_empty() {
-            return self.style.text_size * self.style.line_height;
-        }
-        let line_h = spans
-            .iter()
-            .map(|s| s.font_size)
-            .fold(self.style.text_size, f32::max)
-            * self.style.line_height;
-        let mut x_rel = 0.0f32;
-        let mut lines = 1usize;
-        for span in spans {
-            let sw = if span.bold {
-                self.bold_text_width(&span.text, span.font_size)
-            } else {
-                self.text_width(&span.text, span.font_size)
-            };
-            if x_rel + sw > max_w && !span.text.is_empty() {
-                let words: Vec<&str> = span.text.split_inclusive(' ').collect();
-                if words.len() > 1 {
-                    for word in &words {
-                        let ww = if span.bold {
-                            self.bold_text_width(word, span.font_size)
-                        } else {
-                            self.text_width(word, span.font_size)
-                        };
-                        if x_rel + ww > max_w && x_rel > 0.0 {
-                            lines += 1;
-                            x_rel = 0.0;
-                        }
-                        x_rel += ww;
-                    }
-                    continue;
-                }
-                if x_rel > 0.0 {
-                    lines += 1;
-                    x_rel = 0.0;
-                }
-            }
-            x_rel += sw;
-        }
-        lines as f32 * line_h
+        let tm = self.text_measure.as_deref();
+        measure_flat_spans_height_with(spans, self.style, max_w, &|t, fs, bold| {
+            span_text_width(t, fs, bold, tm)
+        })
     }
 
     fn render_hr(&mut self) {
@@ -1347,6 +1306,144 @@ fn flatten_recursive(
             }
         }
     }
+}
+
+/// Ширина текста тем же способом, что у отрисовки
+/// ([`MdRenderer::text_width`]/[`bold_text_width`] делегируют сюда) —
+/// единственная точка, которой обязан пользоваться и measure-проход:
+/// разные ширины у layout'а и рендера — это наезды либо дыры в ленте.
+fn span_text_width(text: &str, font_size: f32, bold: bool, tm: Option<&dyn TextMeasure>) -> f32 {
+    match tm {
+        Some(tm) if bold => {
+            tm.measure_text_width_styled(text, font_size, text.chars().count(), true, None)
+        }
+        Some(tm) => tm.measure_text_width(text, font_size, text.chars().count()),
+        None if bold => text.chars().count() as f32 * font_size * BOLD_CHAR_W,
+        None => text.chars().count() as f32 * font_size * CHAR_W,
+    }
+}
+
+/// Сколько строк займут спаны при переносе в ширину `max_w` — общая
+/// раскладка для отрисовки ([`MdRenderer::render_flat_spans`]) и
+/// measure-прохода. Любое изменение логики переноса там обязано отразиться
+/// здесь, иначе высота блока разойдётся с нарисованным.
+fn measure_flat_spans_height_with(
+    spans: &[FlatSpan],
+    style: &MdStyle,
+    max_w: f32,
+    span_w: &dyn Fn(&str, f32, bool) -> f32,
+) -> f32 {
+    if spans.is_empty() {
+        return style.text_size * style.line_height;
+    }
+    let line_h = spans
+        .iter()
+        .map(|s| s.font_size)
+        .fold(style.text_size, f32::max)
+        * style.line_height;
+    let mut x_rel = 0.0f32;
+    let mut lines = 1usize;
+    for span in spans {
+        let sw = span_w(&span.text, span.font_size, span.bold);
+        if x_rel + sw > max_w && !span.text.is_empty() {
+            let words: Vec<&str> = span.text.split_inclusive(' ').collect();
+            if words.len() > 1 {
+                for word in &words {
+                    let ww = span_w(word, span.font_size, span.bold);
+                    if x_rel + ww > max_w && x_rel > 0.0 {
+                        lines += 1;
+                        x_rel = 0.0;
+                    }
+                    x_rel += ww;
+                }
+                continue;
+            }
+            if x_rel > 0.0 {
+                lines += 1;
+                x_rel = 0.0;
+            }
+        }
+        x_rel += sw;
+    }
+    lines as f32 * line_h
+}
+
+/// Высота таблицы для measure-прохода. Обязана шаг в шаг повторять
+/// [`MdRenderer::render_table`]: те же ширины колонок (интринсики по
+/// `measure_inlines_width` + масштаб/растяжка под `max_width`), тот же
+/// перенос в ячейках. Раньше здесь стояло `row_h × (1 + rows)` — с
+/// появлением переноса таблица рисовалась выше, чем мерилась, и всё, что
+/// ниже неё в ленте, наезжало на соседей.
+fn measure_table_height(
+    headers: &[MdTableCell],
+    rows: &[Vec<MdTableCell>],
+    style: &MdStyle,
+    max_width: f32,
+    tm: Option<&dyn TextMeasure>,
+) -> f32 {
+    let num_cols = headers.len().max(1);
+    let pad_h = style.table_cell_padding_h;
+    let pad_v = style.table_cell_padding_v;
+    let font_size = style.text_size;
+    let min_row_h = font_size * style.line_height + pad_v * 2.0;
+
+    let mut col_widths = vec![60.0f32; num_cols];
+    for (j, header) in headers.iter().enumerate() {
+        let w = measure_inlines_width(&header.inlines, font_size) + pad_h * 2.0;
+        col_widths[j] = col_widths[j].max(w);
+    }
+    for row in rows {
+        for (j, cell) in row.iter().enumerate() {
+            if j < num_cols {
+                let w = measure_inlines_width(&cell.inlines, font_size) + pad_h * 2.0;
+                col_widths[j] = col_widths[j].max(w);
+            }
+        }
+    }
+    let total_w: f32 = col_widths.iter().sum();
+    if total_w > max_width && total_w > 0.0 {
+        let scale = max_width / total_w;
+        for w in &mut col_widths {
+            *w *= scale;
+        }
+    } else if total_w < max_width {
+        let extra = (max_width - total_w) / num_cols as f32;
+        for w in &mut col_widths {
+            *w += extra;
+        }
+    }
+
+    let span_w = |t: &str, fs: f32, bold: bool| span_text_width(t, fs, bold, tm);
+    let flat_cell = |inlines: &[MdInline], bold: bool| -> Vec<FlatSpan> {
+        let is = InlineStyle {
+            color: style.text_color,
+            font_size,
+            bold,
+            italic: false,
+            strikethrough: false,
+            link: false,
+            link_url: None,
+        };
+        let mut out = Vec::new();
+        flatten_recursive(inlines, &is, style, &mut out);
+        out
+    };
+    let row_height = |cells: &[MdTableCell], bold: bool| -> f32 {
+        let mut h = min_row_h;
+        for (j, cell) in cells.iter().enumerate() {
+            let cw = col_widths.get(j).copied().unwrap_or(60.0);
+            let avail = (cw - pad_h * 2.0).max(1.0);
+            let flat = flat_cell(&cell.inlines, bold);
+            h = h.max(measure_flat_spans_height_with(&flat, style, avail, &span_w) + pad_v * 2.0);
+        }
+        h
+    };
+
+    let mut total = row_height(headers, true);
+    for row in rows {
+        total += row_height(row, false);
+    }
+    total
 }
 
 fn measure_inlines_width(inlines: &[MdInline], font_size: f32) -> f32 {
@@ -1647,9 +1744,8 @@ fn measure_block(
             }
             h
         }
-        MdBlock::Table { rows, .. } => {
-            let row_h = style.text_size * style.line_height + style.table_cell_padding_v * 2.0;
-            row_h * (1 + rows.len()) as f32
+        MdBlock::Table { headers, rows, .. } => {
+            measure_table_height(headers, rows, style, max_width, tm)
         }
         MdBlock::HorizontalRule => style.hr_thickness,
         MdBlock::FootnoteDefinition { blocks, .. } => {
@@ -1829,5 +1925,44 @@ mod code_wrap_tests {
         assert_eq!(count_code_display_lines("aaaaaaaaaa\nbbb", 50.0, &mut m), 3);
         // Пустой код — минимум одна строка (фон блока не нулевой).
         assert_eq!(count_code_display_lines("", 50.0, &mut m), 1);
+    }
+}
+
+#[cfg(test)]
+mod table_measure_tests {
+    use super::super::parser::parse_markdown;
+    use super::{measure_block, MdBlock, MdStyle};
+
+    fn table_block() -> MdBlock {
+        let md = "| Показатель | Ваш результат | Интерпретация по времени |\n\
+                  |---|---|---|\n\
+                  | Объём (6 мл) | Глобальная функция сохранена, токсического удара нет | норма |\n\
+                  | Вязкость | повышено (повышено) | 2 см |\n";
+        parse_markdown(md)
+            .into_iter()
+            .find(|b| matches!(b, MdBlock::Table { .. }))
+            .expect("таблица распарсилась")
+    }
+
+    /// Регрессия к «таблица выглядывает из пузырька»: measure обязан расти
+    /// вместе с переносом. Раньше высота была `row_h × (1 + rows)` при любой
+    /// ширине — отрисовка с переносом выходила выше, чем меряный блок, и
+    /// всё, что ниже по ленте, наезжало на соседей.
+    #[test]
+    fn squeezed_table_measures_taller_than_wide_one() {
+        let style = MdStyle::default();
+        let block = table_block();
+        let wide = measure_block(&block, &style, 2000.0, None, None);
+        let narrow = measure_block(&block, &style, 420.0, None, None);
+        let single_row = style.text_size * style.line_height + style.table_cell_padding_v * 2.0;
+        assert!(
+            narrow > wide + single_row * 0.9,
+            "узкая таблица обязана мериться выше широкой: wide={wide}, narrow={narrow}"
+        );
+        // Широкой таблице перенос не нужен — высота как у одной строки на ряд.
+        assert!(
+            (wide - single_row * 3.0).abs() < 1.0,
+            "без переноса — три однострочных ряда: wide={wide}, row={single_row}"
+        );
     }
 }
