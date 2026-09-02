@@ -62,6 +62,10 @@ pub struct DocStyle {
     pub divider_color: Color,
     /// Цвет фон-сетки свободной раскладки.
     pub grid_color: Color,
+    /// Подсветка габаритов блока под курсором.
+    pub block_hover_color: Color,
+    /// Рамка текущего блока (панель свойств работает над ним).
+    pub block_selected_color: Color,
     pub divider_thickness: f32,
     pub media_bg: Color,
     pub media_radius: f32,
@@ -129,6 +133,8 @@ impl Default for DocStyle {
 
             divider_color: Color::from_hex("#ffffff").with_alpha(0.12),
             grid_color: Color::from_hex("#ffffff").with_alpha(0.09),
+            block_hover_color: Color::from_hex("#ffffff").with_alpha(0.06),
+            block_selected_color: Color::from_hex("#6ea8ff").with_alpha(0.55),
             divider_thickness: 1.0,
             media_bg: Color::from_hex("#ffffff").with_alpha(0.05),
             media_radius: 8.0,
@@ -214,6 +220,8 @@ impl DocStyle {
             "--doc-toggle-chevron-color" => toggle_chevron_color,
             "--doc-divider-color" => divider_color,
             "--doc-grid-color" => grid_color,
+            "--doc-block-hover-color" => block_hover_color,
+            "--doc-block-selected-color" => block_selected_color,
             "--doc-media-bg" => media_bg,
             "--doc-embed-border-color" => embed_border_color,
             "--doc-embed-bg" => embed_bg,

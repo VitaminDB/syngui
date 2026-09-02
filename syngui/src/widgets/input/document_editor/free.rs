@@ -148,30 +148,71 @@ fn fmt(v: f32) -> String {
     }
 }
 
-/// Служебный блок с геометрией для хвоста markdown; пусто — если ни один
-/// блок не размещён вручную.
+/// Виды блоков, у которых в markdown есть своё место под `{атрибуты}`.
+/// У остальных (параграф, список, код, таблица, разделитель) его нет —
+/// их атрибуты уходят в служебный блок хвостом документа.
+pub fn has_inline_attrs(kind: &super::model::BlockKind) -> bool {
+    use super::model::BlockKind;
+    matches!(
+        kind,
+        BlockKind::Heading { .. }
+            | BlockKind::Callout { .. }
+            | BlockKind::Toggle { .. }
+            | BlockKind::Media { .. }
+            | BlockKind::Embed { .. }
+    )
+}
+
+/// Атрибуты блока, которые пишутся служебным блоком: геометрия всегда, а
+/// у блоков без места под инлайн-атрибуты — и всё остальное.
+fn sidecar_attrs(block: &DocBlock) -> Attrs {
+    let inline_ok = has_inline_attrs(&block.kind);
+    let mut out = Attrs::default();
+    for (key, value) in block.attrs.0.iter() {
+        if is_geom_key(key) || !inline_ok {
+            out.set(key.clone(), value.clone());
+        }
+    }
+    out
+}
+
+/// Служебный блок с геометрией и свойствами для хвоста markdown; пусто —
+/// если писать нечего.
 pub fn serialize_geometry(blocks: &[DocBlock]) -> Option<String> {
     let mut lines = Vec::new();
     for (i, b) in blocks.iter().enumerate() {
-        let Some((x, y)) = pos_of(&b.attrs) else { continue };
-        let w = width_of(&b.attrs).unwrap_or(0.0);
-        lines.push(format!("{i} {} {} {}", fmt(x), fmt(y), fmt(w)));
+        let attrs = sidecar_attrs(b);
+        if attrs.is_empty() {
+            continue;
+        }
+        lines.push(format!("{i} {}", super::attrs::serialize_attrs(&attrs)));
     }
     (!lines.is_empty()).then(|| lines.join("\n"))
 }
 
-/// Разложить геометрию из служебного блока обратно по атрибутам блоков.
+/// Разложить служебный блок обратно по атрибутам блоков.
+///
+/// Понимает и старый позиционный формат `индекс x y w` — им записаны
+/// страницы до появления свойств блока.
 pub fn apply_geometry(blocks: &mut [DocBlock], body: &str) {
     for line in body.lines() {
-        let mut it = line.split_whitespace();
-        let (Some(i), Some(x), Some(y)) = (it.next(), it.next(), it.next()) else { continue };
-        let w = it.next();
-        let (Ok(i), Ok(x), Ok(y)) = (i.parse::<usize>(), x.parse::<f32>(), y.parse::<f32>()) else {
-            continue;
-        };
+        let line = line.trim();
+        let Some((head, rest)) = line.split_once(char::is_whitespace) else { continue };
+        let Ok(i) = head.parse::<usize>() else { continue };
         let Some(block) = blocks.get_mut(i) else { continue };
+        let rest = rest.trim();
+        if let Some(attrs) = super::attrs::parse_attr_block(rest) {
+            for (k, v) in attrs.0 {
+                block.attrs.set(k, v);
+            }
+            continue;
+        }
+        // Старый формат: `x y w`.
+        let mut it = rest.split_whitespace();
+        let (Some(x), Some(y)) = (it.next(), it.next()) else { continue };
+        let (Ok(x), Ok(y)) = (x.parse::<f32>(), y.parse::<f32>()) else { continue };
         set_pos(&mut block.attrs, x, y);
-        if let Some(Ok(w)) = w.map(str::parse::<f32>) {
+        if let Some(Ok(w)) = it.next().map(str::parse::<f32>) {
             if w > 1.0 {
                 set_width(&mut block.attrs, w);
             }
@@ -197,8 +238,8 @@ mod tests {
         set_pos(&mut blocks[0].attrs, 40.0, 120.0);
         set_width(&mut blocks[0].attrs, 520.0);
         set_pos(&mut blocks[2].attrs, 40.5, 300.0);
+        blocks[2].attrs.set("color", "#ff8800");
         let body = serialize_geometry(&blocks).unwrap();
-        assert_eq!(body, "0 40 120 520\n2 40.5 300 0");
 
         let mut back = vec![block(1), block(2), block(3)];
         apply_geometry(&mut back, &body);
@@ -206,7 +247,15 @@ mod tests {
         assert_eq!(width_of(&back[0].attrs), Some(520.0));
         assert_eq!(pos_of(&back[1].attrs), None);
         assert_eq!(pos_of(&back[2].attrs), Some((40.5, 300.0)));
-        assert_eq!(width_of(&back[2].attrs), None);
+        assert_eq!(back[2].attrs.get("color"), Some("#ff8800"));
+    }
+
+    #[test]
+    fn old_positional_format_still_reads() {
+        let mut back = vec![block(1), block(2)];
+        apply_geometry(&mut back, "1 40 120 520");
+        assert_eq!(pos_of(&back[1].attrs), Some((40.0, 120.0)));
+        assert_eq!(width_of(&back[1].attrs), Some(520.0));
     }
 
     #[test]

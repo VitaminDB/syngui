@@ -37,6 +37,9 @@ impl TestHarness {
         if let Some(element) = self.tree.get_mut(self.root_id) {
             element.update(widget.as_ref(), &mut ctx);
         }
+        // Как в дереве после update: элемент, запросивший пересборку,
+        // попадает в реестр — иначе `rebuild` его не увидит.
+        self.tree.sync_registries_for(self.root_id);
     }
 
     pub fn rebuild(&mut self) {

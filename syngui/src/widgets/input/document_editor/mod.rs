@@ -4,6 +4,7 @@
 //! - [`model`] — блочная модель документа (плоские стилевые раны, runtime-id);
 //! - [`attrs`] — инлайн-атрибуты `{key=value flag}`;
 //! - [`free`] — свободная раскладка: координаты блоков, привязка, сетка;
+//! - [`props`] — свойства блока (цвет, кегль, выравнивание) и дерево блоков;
 //! - [`parse`] / [`serialize`] — markdown ↔ модель с расширениями:
 //!   `[[wiki-ссылки]]`, `![[врезки]]`, callout/toggle-цитаты, медиа-блоки,
 //!   инлайн-атрибуты.
@@ -23,6 +24,7 @@ pub mod links;
 pub mod media_block;
 pub mod model;
 pub mod parse;
+pub mod props;
 pub mod rows;
 pub mod serialize;
 pub mod shortcuts;
@@ -39,6 +41,7 @@ pub use parse::parse_document;
 pub use serialize::serialize_document;
 pub use links::{DocLinkProvider, DocMediaResolver, EmbedCtx, EmbedFactory, LinkCandidate, ResolvedMedia};
 pub use free::{DocGrid, DocLayout};
+pub use props::{BlockOutline, TableOp};
 pub use style::DocStyle;
 pub use slash::{SlashAction, SlashItem};
-pub use widget::{DocOp, DocumentEditor, DocumentEditorHandle};
+pub use widget::{BlockProps, DocOp, DocumentEditor, DocumentEditorHandle};

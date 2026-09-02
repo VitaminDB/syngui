@@ -10,8 +10,18 @@ use syngui::testing::TestHarness;
 use syngui::widget::context::TextMeasure;
 use syngui::widgets::input::document_editor::{
     parse_document, BlockKind, DocGrid, DocLayout, DocOp, DocumentEditor, DocumentEditorHandle,
-    SlashAction,
+    SlashAction, TableOp,
 };
+
+
+/// Значение ключа геометрии/свойства блока `idx` из служебного блока.
+fn geom_val(md: &str, idx: usize, key: &str) -> Option<f32> {
+    let line = md.lines().find(|l| l.starts_with(&format!("{idx} ")))?;
+    let inner = line.split_once('{')?.1.trim_end_matches('}');
+    inner
+        .split_whitespace()
+        .find_map(|kv| kv.strip_prefix(&format!("{key}="))?.parse().ok())
+}
 
 /// Моноширинная метрика: 10px на символ.
 struct Mono;
@@ -618,7 +628,9 @@ fn free_layout_positions_blocks_by_coordinates() {
 
     // Геометрия переживает round-trip через markdown.
     let back = handle.serialize();
-    assert!(back.contains("0 40 300 200"), "геометрия не сохранилась:\n{back}");
+    assert_eq!(geom_val(&back, 0, "x"), Some(40.0), "геометрия не сохранилась:\n{back}");
+    assert_eq!(geom_val(&back, 0, "y"), Some(300.0));
+    assert_eq!(geom_val(&back, 0, "w"), Some(200.0));
 
     let mut list = DisplayList::new();
     h.tree.build_display_list(
@@ -696,16 +708,9 @@ fn dragging_by_the_handle_pins_the_block() {
 
     let md = handle.serialize();
     assert!(md.contains("doc-layout"), "перенос не закрепил блок:\n{md}");
-    let coords: Vec<f32> = md
-        .lines()
-        .find(|l| l.starts_with("1 "))
-        .expect("координаты второго блока")
-        .split_whitespace()
-        .skip(1)
-        .filter_map(|t| t.parse().ok())
-        .collect();
-    assert!(coords.len() >= 2, "строка геометрии неполная:\n{md}");
-    for v in &coords[..2] {
+    let x = geom_val(&md, 1, "x").expect("координаты второго блока");
+    let y = geom_val(&md, 1, "y").expect("координаты второго блока");
+    for v in [x, y] {
         assert!((v % 5.0).abs() < 0.01, "координата не по шагу привязки: {v} в\n{md}");
     }
 }
@@ -753,22 +758,10 @@ fn pinned_block_is_registered_where_it_is_drawn() {
     settle(&mut h);
 
     let md = handle.serialize();
-    let coords: Vec<f32> = md
-        .lines()
-        .find(|l| l.starts_with("1 "))
-        .expect("геометрия закреплённого блока")
-        .split_whitespace()
-        .skip(1)
-        .filter_map(|t| t.parse().ok())
-        .collect();
-    assert!(
-        (coords[1] - 400.0).abs() < 6.0,
-        "блок не поехал за своей ручкой: {coords:?}\n{md}"
-    );
-    assert!(
-        (coords[0] - 520.0).abs() < 6.0,
-        "блок уехал по горизонтали: {coords:?}\n{md}"
-    );
+    let x = geom_val(&md, 1, "x").expect("геометрия закреплённого блока");
+    let y = geom_val(&md, 1, "y").expect("геометрия закреплённого блока");
+    assert!((y - 400.0).abs() < 6.0, "блок не поехал за своей ручкой: {y}\n{md}");
+    assert!((x - 520.0).abs() < 6.0, "блок уехал по горизонтали: {x}\n{md}");
 }
 
 /// Код-блок редактируется на месте: клик ставит каретку внутрь кода,
@@ -864,11 +857,62 @@ fn context_insert_pins_the_real_block() {
             .take_while(|l| !l.starts_with("```"))
             .collect();
         assert_eq!(geom.len(), 1, "{action:?}: закреплён не ровно один блок:\n{md}");
-        let coords: Vec<f32> =
-            geom[0].split_whitespace().skip(1).filter_map(|t| t.parse().ok()).collect();
+        let idx: usize = geom[0].split_whitespace().next().unwrap().parse().unwrap();
+        let x = geom_val(&md, idx, "x").unwrap();
+        let y = geom_val(&md, idx, "y").unwrap();
         assert!(
-            (coords[0] - 300.0).abs() < 40.0 && (coords[1] - 400.0).abs() < 40.0,
-            "{action:?}: блок встал не в точку клика: {coords:?}\n{md}"
+            (x - 300.0).abs() < 40.0 && (y - 400.0).abs() < 40.0,
+            "{action:?}: блок встал не в точку клика: {x},{y}\n{md}"
         );
     }
+}
+
+/// Дерево блоков видит и пустые блоки, а свойства блока меняют его вид.
+#[test]
+fn outline_and_block_props() {
+    let handle = DocumentEditorHandle::new();
+    let mut h = TestHarness::new(Box::new(
+        DocumentEditor::new().markdown("Текст\n\n---\n\n| a | b |\n| --- | --- |\n| 1 | 2 |\n").handle(&handle),
+    ));
+    h.tree.text_measure = Some(Arc::new(Mono));
+    h.rebuild();
+    h.layout(800.0, 600.0);
+
+    let outline = handle.outline();
+    assert_eq!(outline.len(), 3, "в дереве должны быть все блоки: {outline:?}");
+    assert_eq!(outline[1].kind, "divider", "невидимый блок обязан быть в дереве");
+    assert_eq!(outline[2].kind, "table");
+
+    // Свойство блока применяется к отрисовке: кегль заголовка из атрибута.
+    let id = outline[0].id;
+    let props = handle.block_props(id).expect("свойства блока");
+    assert_eq!(props.kind, "paragraph");
+    handle.queue_op(DocOp::SetAttr { block: id, key: "size".into(), value: Some("40".into()) });
+    h.update_widget(Box::new(
+        DocumentEditor::new()
+            .markdown("Текст\n\n---\n\n| a | b |\n| --- | --- |\n| 1 | 2 |\n")
+            .handle(&handle)
+            .model_epoch(1),
+    ));
+    settle(&mut h);
+    let row = h.element_bounds(h.find_by_type_name("doc-text-row")[0]);
+    assert!(row.size.height > 40.0, "кегль из свойств не применился: {:?}", row.size);
+    assert!(
+        handle.serialize().contains("size=40"),
+        "свойство не сохранилось:\n{}",
+        handle.serialize()
+    );
+
+    // Колонка таблицы добавляется операцией панели свойств.
+    let table = outline[2].id;
+    handle.queue_op(DocOp::Table { block: table, op: TableOp::AddColumn });
+    h.update_widget(Box::new(
+        DocumentEditor::new()
+            .markdown("Текст\n\n---\n\n| a | b |\n| --- | --- |\n| 1 | 2 |\n")
+            .handle(&handle)
+            .model_epoch(2),
+    ));
+    settle(&mut h);
+    let props = handle.block_props(table).expect("свойства таблицы");
+    assert_eq!(props.table, Some((2, 3)), "колонка не добавилась");
 }

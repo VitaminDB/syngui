@@ -13,6 +13,7 @@ use crate::widget::Widget;
 use super::chrome::Chrome;
 use super::links::{DocLinkProvider, DocMediaResolver, EmbedCtx, EmbedFactory};
 use super::model::{Attrs, BlockKind, DocBlock, InlineText, MediaKind};
+use super::props;
 use super::state::{CodeGeomMap, GeomMap, TableGeomMap};
 use super::rows::{
     CodeBlockView, DividerView, EmbedCard, MediaCard, MediaGlyph, RowDecor, TableBlockView,
@@ -44,7 +45,8 @@ pub fn block_widget(block: &DocBlock, env: &BuildEnv) -> Box<dyn Widget> {
             row.font_size = style.heading_sizes[idx];
             row.bold = true;
             row.color = style.heading_color;
-            Box::new(row)
+            style_row(&mut row, &block.attrs);
+            with_background(Box::new(row), &block.attrs, env)
         }
         BlockKind::Bullet { text, children } => {
             item_widget(block, text, children, env, RowDecor::Bullet)
@@ -101,6 +103,7 @@ pub fn block_widget(block: &DocBlock, env: &BuildEnv) -> Box<dyn Widget> {
             let mut row = base_row(block, title, env);
             row.bold = true;
             row.color = accent;
+            style_row(&mut row, &block.attrs);
             chrome = chrome.child(Box::new(row));
             chrome = chrome.children(children.iter().map(|b| block_widget(b, env)));
             Box::new(chrome)
@@ -181,12 +184,39 @@ fn base_row(block: &DocBlock, text: &InlineText, env: &BuildEnv) -> TextRow {
         font_size: env.style.text_size,
         bold: false,
         color: env.style.text_color,
+        align: props::align_factor(&block.attrs),
         decor: RowDecor::None,
         gutter: 0.0,
         style: env.style.clone(),
         geom: Some(env.geom.clone()),
         links: env.links.clone(),
     }
+}
+
+/// Пер-блочные переопределения стиля из атрибутов (панель свойств).
+/// Идут последними: тип блока задаёт умолчания, атрибут их перебивает.
+fn style_row(row: &mut TextRow, attrs: &Attrs) {
+    if let Some(c) = props::color_of(attrs, props::COLOR) {
+        row.color = c;
+    }
+    if let Some(size) = props::size_of(attrs) {
+        row.font_size = size;
+    }
+    if let Some(bold) = props::bold_of(attrs) {
+        row.bold = bold;
+    }
+}
+
+/// Подложка блока (`{bg=#…}`) — обёрткой вокруг готового виджета.
+fn with_background(widget: Box<dyn Widget>, attrs: &Attrs, env: &BuildEnv) -> Box<dyn Widget> {
+    let Some(bg) = props::color_of(attrs, props::BG) else { return widget };
+    Box::new(
+        Chrome::new()
+            .bg(bg)
+            .radius(env.style.callout_radius)
+            .padding(8.0, 4.0, 8.0, 4.0)
+            .child(widget),
+    )
 }
 
 fn text_row(
@@ -203,7 +233,8 @@ fn text_row(
     if let Some(c) = color {
         row.color = c;
     }
-    Box::new(row)
+    style_row(&mut row, &block.attrs);
+    with_background(Box::new(row), &block.attrs, env)
 }
 
 fn media_widget(

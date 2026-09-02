@@ -805,3 +805,65 @@ mod tests {
         let _ = m;
     }
 }
+
+// ─── Таблица: строки и колонки ──────────────────────────────────────────────
+
+/// Добавить/удалить строку или колонку таблицы. `at` — строка и колонка
+/// каретки (строка 0 — шапка); `true`, если таблица изменилась.
+pub fn table_op(
+    model: &mut DocModel,
+    block: BlockId,
+    op: super::props::TableOp,
+    at: (usize, usize),
+) -> bool {
+    use super::props::TableOp;
+    let Some(b) = find_block_mut(&mut model.blocks, block) else { return false };
+    let BlockKind::Table { headers, rows, aligns } = &mut b.kind else { return false };
+    let cols = headers.len().max(aligns.len()).max(1);
+    match op {
+        TableOp::AddRow => {
+            // Строка встаёт после текущей; шапка добавляет первую строку.
+            let idx = at.0.min(rows.len());
+            rows.insert(idx, vec![InlineText::default(); cols]);
+            true
+        }
+        TableOp::AddColumn => {
+            let idx = (at.1 + 1).min(cols);
+            headers.insert(idx.min(headers.len()), InlineText::default());
+            aligns.insert(idx.min(aligns.len()), DocAlign::default());
+            for row in rows.iter_mut() {
+                while row.len() < cols {
+                    row.push(InlineText::default());
+                }
+                row.insert(idx.min(row.len()), InlineText::default());
+            }
+            true
+        }
+        TableOp::DeleteRow => {
+            // Шапку не удаляем — без неё markdown-таблицы не бывает.
+            if at.0 == 0 || rows.is_empty() {
+                return false;
+            }
+            rows.remove(at.0 - 1);
+            true
+        }
+        TableOp::DeleteColumn => {
+            if cols <= 1 {
+                return false;
+            }
+            let idx = at.1.min(cols - 1);
+            if idx < headers.len() {
+                headers.remove(idx);
+            }
+            if idx < aligns.len() {
+                aligns.remove(idx);
+            }
+            for row in rows.iter_mut() {
+                if idx < row.len() {
+                    row.remove(idx);
+                }
+            }
+            true
+        }
+    }
+}

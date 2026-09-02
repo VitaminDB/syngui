@@ -103,6 +103,8 @@ pub struct TextRow {
     pub font_size: f32,
     pub bold: bool,
     pub color: Color,
+    /// Доля свободного места слева (0 — влево, 0.5 — центр, 1 — вправо).
+    pub align: f32,
     pub decor: RowDecor,
     /// Ширина гаттера маркера; 0 — без гаттера.
     pub gutter: f32,
@@ -124,6 +126,7 @@ impl Widget for TextRow {
             font_size: self.font_size,
             bold: self.bold,
             color: self.color,
+            align: self.align,
             decor: self.decor.clone(),
             gutter: self.gutter,
             style: self.style.clone(),
@@ -145,6 +148,7 @@ pub struct TextRowElement {
     font_size: f32,
     bold: bool,
     color: Color,
+    align: f32,
     decor: RowDecor,
     gutter: f32,
     style: Arc<DocStyle>,
@@ -162,7 +166,7 @@ impl TextRowElement {
             None => true,
         };
         if dirty {
-            let layout = match self.tm.as_deref() {
+            let mut layout = match self.tm.as_deref() {
                 Some(tm) => layout_inline_text(
                     &self.text,
                     self.font_size,
@@ -176,6 +180,19 @@ impl TextRowElement {
                     height: self.style.line_h(self.font_size),
                 },
             };
+            // Выравнивание — сдвигом сегментов: каретка, выделение и
+            // хит-тест считаются по тем же `seg.x`, отдельной ветки нет.
+            if self.align > 0.0 {
+                for line in layout.lines.iter_mut() {
+                    let w = line.segs.last().map(|s| s.x + s.width).unwrap_or(0.0);
+                    let shift = ((avail - w) * self.align).max(0.0);
+                    if shift > 0.5 {
+                        for seg in line.segs.iter_mut() {
+                            seg.x += shift;
+                        }
+                    }
+                }
+            }
             self.cache = Some((avail, layout));
             self.publish_geom();
         }
@@ -312,6 +329,7 @@ impl Element for TextRowElement {
             || self.font_size != w.font_size
             || self.bold != w.bold
             || self.color != w.color
+            || (self.align - w.align).abs() > f32::EPSILON
             || self.decor != w.decor
             || self.gutter != w.gutter
             || !Arc::ptr_eq(&self.style, &w.style);
@@ -320,6 +338,7 @@ impl Element for TextRowElement {
             self.font_size = w.font_size;
             self.bold = w.bold;
             self.color = w.color;
+            self.align = w.align;
             self.decor = w.decor.clone();
             self.gutter = w.gutter;
             self.style = w.style.clone();

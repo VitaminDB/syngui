@@ -42,6 +42,7 @@ use super::state::{
     GutterAction, RowGeom, TableCaret, TableGeom, TableGeomMap,
 };
 use super::free::{self, DocGrid, DocLayout};
+use super::props::{self, BlockOutline, TableOp};
 use super::style::DocStyle;
 
 /// Операция хоста над документом «у каретки» — кладётся в очередь ручки
@@ -66,6 +67,27 @@ pub enum DocOp {
     Delete,
     /// Сдвинуть блок каретки на одну позицию среди соседей.
     Move { down: bool },
+    /// Сделать блок текущим (клик в дереве блоков хоста).
+    Select(super::model::BlockId),
+    /// Свойство блока: `None` — вернуть к теме (см. [`super::props`]).
+    SetAttr { block: super::model::BlockId, key: String, value: Option<String> },
+    /// Строки и колонки таблицы.
+    Table { block: super::model::BlockId, op: TableOp },
+}
+
+/// Снимок свойств блока для панели хоста.
+#[derive(Clone, Debug)]
+pub struct BlockProps {
+    pub id: super::model::BlockId,
+    /// Машинный тип: `paragraph`, `heading`, `table`, …
+    pub kind: &'static str,
+    /// Уровень заголовка (иначе 0).
+    pub level: u8,
+    /// Язык код-блока.
+    pub language: Option<String>,
+    /// (строк с шапкой, колонок) — для таблицы.
+    pub table: Option<(usize, usize)>,
+    pub attrs: super::model::Attrs,
 }
 
 /// Ручка редактора для хоста: доступ к модели (сериализация для автосейва)
@@ -76,6 +98,9 @@ pub struct DocumentEditorHandle {
     revision: RwSignal<u64>,
     /// Очередь операций хоста, применяемая элементом (см. [`DocOp`]).
     ops: Arc<Mutex<Vec<DocOp>>>,
+    /// Текущий блок (каретка либо выбор в дереве блоков хоста). Элемент
+    /// обновляет сигнал сам — панель свойств подписывается на него.
+    selected: RwSignal<Option<super::model::BlockId>>,
     /// Отпечаток markdown, из которого модель уже загружена. Живёт в
     /// ручке, а не в элементе: элемент пересоздаётся при каждом
     /// размонтировании поддерева (переключение вкладки/маршрута), и без
@@ -89,8 +114,43 @@ impl DocumentEditorHandle {
             model: Arc::new(Mutex::new(DocModel::new())),
             revision: use_signal(0),
             ops: Arc::new(Mutex::new(Vec::new())),
+            selected: use_signal(None),
             source_fp: Arc::new(Mutex::new(None)),
         }
+    }
+
+    /// Сигнал текущего блока: `.get()` в Reactive — подписка на выбор.
+    pub fn selected(&self) -> RwSignal<Option<super::model::BlockId>> {
+        self.selected
+    }
+
+    /// Дерево блоков страницы (в том числе пустых — их в документе не
+    /// видно, а настроить надо).
+    pub fn outline(&self) -> Vec<BlockOutline> {
+        props::outline_of(&lock(&self.model).blocks)
+    }
+
+    /// Снимок блока для панели свойств: тип, уровень, атрибуты.
+    pub fn block_props(&self, id: super::model::BlockId) -> Option<BlockProps> {
+        let model = lock(&self.model);
+        let b = edit::find_block(&model.blocks, id)?;
+        Some(BlockProps {
+            id,
+            kind: props::kind_name(&b.kind),
+            level: match &b.kind {
+                BlockKind::Heading { level, .. } => *level,
+                _ => 0,
+            },
+            language: match &b.kind {
+                BlockKind::CodeBlock { language, .. } => language.clone(),
+                _ => None,
+            },
+            table: match &b.kind {
+                BlockKind::Table { headers, rows, .. } => Some((rows.len() + 1, headers.len())),
+                _ => None,
+            },
+            attrs: b.attrs.clone(),
+        })
     }
 
     /// Отпечаток исходника, из которого загружена модель ручки.
@@ -392,6 +452,7 @@ impl Widget for DocumentEditor {
             tables: new_table_geom_map(),
             codes: new_code_geom_map(),
             code_caret: None,
+            selected: self.handle.as_ref().map(|h| h.selected),
             table_caret: None,
             tm: None,
             focused: false,
@@ -465,6 +526,8 @@ pub struct DocumentEditorElement {
     codes: CodeGeomMap,
     /// Каретка внутри код-блока (отдельный режим, как у таблицы).
     code_caret: Option<CodeCaret>,
+    /// Сигнал текущего блока (общий с ручкой).
+    selected: Option<RwSignal<Option<super::model::BlockId>>>,
     /// Каретка внутри ячейки таблицы (отдельный режим от `selection`).
     table_caret: Option<TableCaret>,
     tm: Option<Arc<dyn TextMeasure>>,
@@ -927,6 +990,76 @@ impl DocumentEditorElement {
             DocOp::Duplicate => self.duplicate_current(),
             DocOp::Delete => self.delete_current(),
             DocOp::Move { down } => self.move_current(down),
+            DocOp::Select(id) => self.select_block(id),
+            DocOp::SetAttr { block, key, value } => {
+                self.checkpoint(EditClass::Structure);
+                let changed = {
+                    let mut model = self.model();
+                    match edit::find_block_mut(&mut model.blocks, block) {
+                        Some(b) => {
+                            props::set(&mut b.attrs, &key, value.as_deref());
+                            true
+                        }
+                        None => false,
+                    }
+                };
+                if changed {
+                    self.after_edit();
+                } else {
+                    self.history.discard_last_checkpoint();
+                }
+            }
+            DocOp::Table { block, op } => {
+                self.checkpoint(EditClass::Structure);
+                let at = self
+                    .table_caret
+                    .filter(|tc| tc.block == block)
+                    .map(|tc| (tc.row, tc.col))
+                    .unwrap_or((0, 0));
+                let changed = {
+                    let mut model = self.model();
+                    edit::table_op(&mut model, block, op, at)
+                };
+                if changed {
+                    self.after_edit();
+                } else {
+                    self.history.discard_last_checkpoint();
+                }
+            }
+        }
+    }
+
+    /// Сделать блок текущим: каретка внутрь него в его режиме.
+    fn select_block(&mut self, id: super::model::BlockId) {
+        let exists = {
+            let model = self.model();
+            edit::find_block(&model.blocks, id).is_some()
+        };
+        if !exists {
+            return;
+        }
+        self.caret_into(id);
+        self.focused = true;
+        self.caret_on = true;
+        self.blink_ms = 0.0;
+        self.publish_selection();
+        self.mark_dirty(DirtyFlags::RENDER);
+    }
+
+    /// Блок, который считается текущим для панели свойств.
+    fn current_block(&self) -> Option<super::model::BlockId> {
+        self.code_caret
+            .map(|c| c.block)
+            .or_else(|| self.table_caret.map(|t| t.block))
+            .or_else(|| self.caret().map(|c| c.block))
+    }
+
+    /// Обновить сигнал текущего блока в ручке (панель свойств хоста).
+    fn publish_selection(&mut self) {
+        let Some(sig) = self.selected else { return };
+        let now = self.current_block();
+        if sig.get_untracked() != now {
+            sig.set(now);
         }
     }
 
@@ -1314,6 +1447,7 @@ impl DocumentEditorElement {
 
     /// Фиксация правки: перестройка детей, ревизия, колбэк.
     fn after_edit(&mut self) {
+        self.publish_selection();
         self.rebuild = true;
         self.mark_dirty(DirtyFlags::LAYOUT | DirtyFlags::RENDER);
         self.caret_on = true;
@@ -1450,6 +1584,7 @@ impl DocumentEditorElement {
         });
         self.caret_on = true;
         self.blink_ms = 0.0;
+        self.publish_selection();
         self.mark_dirty(DirtyFlags::RENDER);
     }
 
@@ -1935,6 +2070,32 @@ impl DocumentEditorElement {
             }
             self.rebuild = true;
             self.mark_dirty(DirtyFlags::LAYOUT | DirtyFlags::RENDER);
+        }
+    }
+
+    /// Габариты блока: лёгкая заливка под курсором и рамка у текущего.
+    /// Пустой блок иначе не виден вовсе — ни где он, ни какого размера.
+    fn draw_block_bounds(&self, list: &mut DisplayList) {
+        if self.read_only {
+            return;
+        }
+        let pad = 3.0;
+        let inflate = |r: Rect| {
+            Rect::new(
+                Point::new(r.origin.x - pad, r.origin.y - pad),
+                Size::new(r.size.width + pad * 2.0, r.size.height + pad * 2.0),
+            )
+        };
+        let current = self.current_block().and_then(|id| self.top_level_of(id));
+        if let Some(block) = self.hover_block.filter(|b| Some(*b) != current) {
+            if let Some(rect) = self.block_rect(block) {
+                list.push_rect(inflate(rect), self.style.block_hover_color, [4.0; 4]);
+            }
+        }
+        if let Some(rect) = current.and_then(|id| self.block_rect(id)) {
+            for edge in edges(inflate(rect)) {
+                list.push_rect(edge, self.style.block_selected_color, [0.0; 4]);
+            }
         }
     }
 
@@ -3026,6 +3187,7 @@ impl Element for DocumentEditorElement {
                 self.model = h.model.clone();
                 self.revision = Some(h.revision);
                 self.ops = h.ops.clone();
+                self.selected = Some(h.selected);
                 // Модель ручки уже загружена из своего исходника — берём
                 // её отметку, иначе смена страницы перепарсила бы поверх
                 // несохранённых правок.
@@ -3208,6 +3370,7 @@ impl Element for DocumentEditorElement {
 
     fn build_display_list(&self, list: &mut DisplayList, clip: Rect) {
         self.draw_grid(list, clip);
+        self.draw_block_bounds(list);
         self.draw_selection(list);
     }
 
@@ -3216,10 +3379,13 @@ impl Element for DocumentEditorElement {
         if let Ok(mut ui) = self.ui_rects.lock() {
             *ui = UiRects::default();
         }
-        if !self.focused || self.read_only {
+        if self.read_only {
             return;
         }
         self.draw_drag_ui(list);
+        if !self.focused {
+            return;
+        }
         self.draw_slash_menu(list);
         self.draw_wiki_menu(list);
         self.draw_toolbar(list);
@@ -3403,6 +3569,7 @@ impl Element for DocumentEditorElement {
                         self.goal_x = None;
                         self.caret_on = true;
                         self.blink_ms = 0.0;
+                        self.publish_selection();
                         self.mark_dirty(DirtyFlags::RENDER);
                         return EventResult::Handled;
                     }
@@ -3415,6 +3582,7 @@ impl Element for DocumentEditorElement {
                         self.goal_x = None;
                         self.caret_on = true;
                         self.blink_ms = 0.0;
+                        self.publish_selection();
                         self.mark_dirty(DirtyFlags::RENDER);
                         return EventResult::Handled;
                     }
@@ -3504,8 +3672,9 @@ impl Element for DocumentEditorElement {
                     ctx.set_cursor(CursorIcon::Grabbing);
                     return EventResult::Handled;
                 }
-                // Hover-строка для показа ручки.
-                if self.focused && !self.read_only && self.bounds.contains(*position) {
+                // Блок под курсором: ручка ⋮⋮ и подсветка габаритов
+                // показываются по наведению, не дожидаясь клика.
+                if !self.read_only && self.bounds.contains(*position) {
                     let hovered = self.row_at(*position);
                     if hovered != self.hover_block {
                         self.hover_block = hovered;
