@@ -23,6 +23,13 @@ fn geom_val(md: &str, idx: usize, key: &str) -> Option<f32> {
         .find_map(|kv| kv.strip_prefix(&format!("{key}="))?.parse().ok())
 }
 
+/// Значение инлайн-атрибута `{k=v …}` из markdown (ключ — целиком, не
+/// подстрокой: `x1` не должен находиться внутри `cx1`).
+fn attr_val(md: &str, key: &str) -> Option<f32> {
+    md.split(['{', '}', ' ', '\n'])
+        .find_map(|tok| tok.strip_prefix(&format!("{key}="))?.parse().ok())
+}
+
 /// Моноширинная метрика: 10px на символ.
 struct Mono;
 impl TextMeasure for Mono {
@@ -1057,11 +1064,7 @@ fn dragging_a_line_endpoint_moves_it() {
     settle(&mut h);
 
     let out = handle.serialize();
-    let val = |k: &str| {
-        out.split_once(&format!("{k}="))
-            .and_then(|(_, r)| r.split([' ', '}']).next())
-            .and_then(|v| v.parse::<f32>().ok())
-    };
+    let val = |k: &str| attr_val(&out, k);
     assert!(val("x2").unwrap_or(0.0) > 240.0, "конец не уехал вправо:\n{out}");
     assert!(val("y2").unwrap_or(0.0) > 60.0, "конец не уехал вниз:\n{out}");
     assert!(geom_val(&out, 0, "h").unwrap_or(0.0) > 80.0, "рамка не подтянулась:\n{out}");
@@ -1090,4 +1093,50 @@ fn clicking_a_shape_selects_it() {
     let props = handle.block_props(selected).expect("свойства фигуры");
     assert_eq!(props.kind, "shape");
     assert_eq!(props.shape, Some(ShapeKind::Rect));
+}
+
+/// Направляющая кривой тянется отдельной хваталкой: концы остаются на
+/// месте, а `cx/cy` уезжают за курсором.
+#[test]
+fn dragging_a_curve_control_bends_it() {
+    let md = "![[shape:curve]]{x1=0 y1=0 x2=200 y2=0}\n\n~~~doc-layout\n0 {h=24 w=224 x=100 y=100}\n~~~\n"
+        .replace("~~~", "```");
+    let handle = DocumentEditorHandle::new();
+    let layout = DocLayout { free: true, snap: false, ..DocLayout::default() };
+    let mut h = TestHarness::new(Box::new(
+        DocumentEditor::new().markdown(&md).handle(&handle).layout(layout),
+    ));
+    h.tree.text_measure = Some(Arc::new(Mono));
+    h.rebuild();
+    h.layout(900.0, 700.0);
+
+    // Хваталки рисуются у блока под курсором.
+    let shape = h.element_bounds(h.find_by_type_name("doc-shape")[0]);
+    h.send_event(&Event::MouseMove(Point::new(
+        shape.origin.x + shape.size.width / 2.0,
+        shape.origin.y + shape.size.height / 2.0,
+    )));
+    let mut list = DisplayList::new();
+    h.tree.build_display_list(
+        h.root_id,
+        &mut list,
+        Rect::new(Point::zero(), Size::new(900.0, 700.0)),
+    );
+
+    // Первая направляющая по умолчанию — правее первого конца на 45% длины
+    // (у горизонтальной кривой она лежит на той же высоте).
+    let ctrl = Point::new(shape.origin.x + 12.0 + 90.0, shape.origin.y + 12.0);
+    h.send_event(&Event::MouseDown { button: MouseButton::Left, position: ctrl });
+    h.send_event(&Event::MouseMove(Point::new(ctrl.x, ctrl.y + 120.0)));
+    h.send_event(&Event::MouseUp { button: MouseButton::Left, position: ctrl });
+    settle(&mut h);
+
+    let out = handle.serialize();
+    // Ключ ищется целиком: `x1=` — подстрока `cx1=`, и наивный split_once
+    // возвращал бы значение направляющей вместо конца.
+    let val = |k: &str| attr_val(&out, k);
+    assert!(val("cy1").unwrap_or(0.0) > 80.0, "направляющая не уехала вниз:\n{out}");
+    assert_eq!(val("x1"), Some(0.0), "конец кривой сдвинулся:\n{out}");
+    assert_eq!(val("x2"), Some(200.0), "второй конец сдвинулся:\n{out}");
+    assert!(geom_val(&out, 0, "h").unwrap_or(0.0) > 100.0, "рамка не выросла:\n{out}");
 }

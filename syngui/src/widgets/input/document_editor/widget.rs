@@ -630,8 +630,8 @@ enum FreeDragMode {
     Height,
     /// Правый нижний угол — ширина и высота сразу.
     Corner,
-    /// Конец линейной фигуры: `false` — первый, `true` — второй.
-    Endpoint(bool),
+    /// Хваталка линейной фигуры: 0/1 — концы, 2/3 — направляющие кривой.
+    Endpoint(usize),
 }
 
 impl FreeDragMode {
@@ -661,8 +661,8 @@ struct UiRects {
     resize_v: Option<(Rect, super::model::BlockId)>,
     /// (правый нижний угол, блок) — ширина и высота сразу.
     corner: Option<(Rect, super::model::BlockId)>,
-    /// (хваталки концов линейной фигуры, блок).
-    ends: Option<([Rect; 2], super::model::BlockId)>,
+    /// (хваталки линейной фигуры — концы и направляющие, блок).
+    ends: Option<(Vec<Rect>, super::model::BlockId)>,
     /// (прямоугольник wiki-меню, число пунктов).
     wiki: Option<(Rect, usize)>,
 }
@@ -1978,7 +1978,9 @@ impl DocumentEditorElement {
 /// свободной раскладке и для запаса высоты холста.
 fn estimate_height(block: &DocBlock, style: &DocStyle) -> f32 {
     match &block.kind {
-        BlockKind::Shape { shape } if shape.is_line() => shape::line_box(&block.attrs).height,
+        BlockKind::Shape { shape } if shape.is_line() => {
+            shape::line_box(&block.attrs, *shape).height
+        }
         BlockKind::Shape { .. } => shape::height_of(&block.attrs),
         BlockKind::Media { .. } => {
             free::height_of(&block.attrs).unwrap_or(220.0)
@@ -2038,7 +2040,9 @@ impl DocumentEditorElement {
             // Фигура шире колонки текста смотрелась бы нелепо: у неё свои
             // умолчания, а у линии ширина — это длина отрезка.
             let w = match &b.kind {
-                BlockKind::Shape { shape } if shape.is_line() => shape::line_box(&b.attrs).width,
+                BlockKind::Shape { shape } if shape.is_line() => {
+                    shape::line_box(&b.attrs, *shape).width
+                }
                 BlockKind::Shape { .. } => shape::DEFAULT_W,
                 _ => width,
             };
@@ -2146,26 +2150,30 @@ impl DocumentEditorElement {
         ))
     }
 
-    /// Хваталки концов линейной фигуры.
-    fn endpoint_rects(&self, block: super::model::BlockId) -> Option<[Rect; 2]> {
+    /// Хваталки линейной фигуры: два конца, а у кривой — ещё две
+    /// направляющие точки Безье (порядок как в [`shape::line_handles`]).
+    fn endpoint_rects(&self, block: super::model::BlockId) -> Option<Vec<Rect>> {
         if !self.layout.free {
             return None;
         }
-        self.shape_of(block).filter(|k| k.is_line())?;
+        let kind = self.shape_of(block).filter(|k| k.is_line())?;
         let rect = self.block_rect(block)?;
         let attrs = {
             let model = self.model();
             model.blocks.iter().find(|b| b.id == block)?.attrs.clone()
         };
-        let (p1, p2) = shape::local_endpoints(&attrs);
         let r = 7.0;
-        let at = |p: (f32, f32)| {
-            Rect::new(
-                Point::new(rect.origin.x + p.0 - r, rect.origin.y + p.1 - r),
-                Size::new(r * 2.0, r * 2.0),
-            )
-        };
-        Some([at(p1), at(p2)])
+        Some(
+            shape::local_handles(&attrs, kind)
+                .into_iter()
+                .map(|p| {
+                    Rect::new(
+                        Point::new(rect.origin.x + p.0 - r, rect.origin.y + p.1 - r),
+                        Size::new(r * 2.0, r * 2.0),
+                    )
+                })
+                .collect(),
+        )
     }
 
     /// Фигура под точкой: верхний по порядку блок-примитив, накрывающий её.
@@ -2184,9 +2192,12 @@ impl DocumentEditorElement {
             // длинная диагональ перекрывала бы полхолста.
             if let BlockKind::Shape { shape } = &b.kind {
                 if shape.is_line() {
-                    let (a, c) = shape::local_endpoints(&b.attrs);
                     let local = (p.x - rect.origin.x, p.y - rect.origin.y);
-                    if dist_to_segment(local, a, c) > 8.0 {
+                    let path = shape::line_polyline(&b.attrs, *shape);
+                    let near = path
+                        .windows(2)
+                        .any(|w| dist_to_segment(local, w[0], w[1]) <= 8.0);
+                    if !near {
                         continue;
                     }
                 }
@@ -2212,10 +2223,10 @@ impl DocumentEditorElement {
     /// Хваталка размера под курсором (порядок: концы → угол → кромки).
     fn size_handle_at(&self, p: Point) -> Option<(super::model::BlockId, FreeDragMode)> {
         let ui = self.ui_rects.lock().ok()?;
-        if let Some((rects, block)) = ui.ends {
+        if let Some((rects, block)) = &ui.ends {
             for (i, r) in rects.iter().enumerate() {
                 if r.contains(p) {
-                    return Some((block, FreeDragMode::Endpoint(i == 1)));
+                    return Some((*block, FreeDragMode::Endpoint(i)));
                 }
             }
         }
@@ -2313,31 +2324,47 @@ impl DocumentEditorElement {
                 // Конец отрезка тянется по холсту; модель держится в
                 // каноничном виде — минимум концов равен нулю, а рамка
                 // блока сдвигается под них.
-                FreeDragMode::Endpoint(second) => {
-                    let (p1, p2) = shape::endpoints_of(&b.attrs);
-                    let (minx, miny) = (p1.0.min(p2.0), p1.1.min(p2.1));
+                // Хваталка тянется по холсту; модель держится в каноничном
+                // виде — минимум точек равен нулю, а рамка блока сдвигается
+                // под них. У кривой вместе с концами так же ездят её
+                // направляющие: иначе после переноса конца дуга «съезжала».
+                FreeDragMode::Endpoint(index) => {
+                    let Some(kind) = (match &b.kind {
+                        BlockKind::Shape { shape } => Some(*shape),
+                        _ => None,
+                    }) else {
+                        return;
+                    };
                     let pad = shape::LINE_PAD;
-                    let abs = |p: (f32, f32)| (bx + p.0 - minx + pad, by + p.1 - miny + pad);
-                    let (mut a, mut c) = (abs(p1), abs(p2));
-                    let target = (
+                    let pts = shape::line_handles(&b.attrs, kind);
+                    let (minx, miny) = pts.iter().fold((f32::MAX, f32::MAX), |acc, p| {
+                        (acc.0.min(p.0), acc.1.min(p.1))
+                    });
+                    let mut abs: Vec<(f32, f32)> = pts
+                        .iter()
+                        .map(|p| (bx + p.0 - minx + pad, by + p.1 - miny + pad))
+                        .collect();
+                    let Some(slot) = abs.get_mut(index) else { return };
+                    *slot = (
                         layout.snapped(at.x - origin.x).max(0.0),
                         layout.snapped(at.y - origin.y).max(0.0),
                     );
-                    if second {
-                        c = target;
-                    } else {
-                        a = target;
-                    }
-                    let (nx, ny) = (a.0.min(c.0), a.1.min(c.1));
+                    let (nx, ny) = abs.iter().fold((f32::MAX, f32::MAX), |acc, p| {
+                        (acc.0.min(p.0), acc.1.min(p.1))
+                    });
                     let pos = ((nx - pad).max(0.0), (ny - pad).max(0.0));
-                    let (e1, e2) = ((a.0 - nx, a.1 - ny), (c.0 - nx, c.1 - ny));
-                    let same = shape::endpoints_of(&b.attrs) == (e1, e2)
+                    let local: Vec<(f32, f32)> =
+                        abs.iter().map(|p| (p.0 - nx, p.1 - ny)).collect();
+                    let same = local == pts
                         && (bx - pos.0).abs() < 0.5
                         && (by - pos.1).abs() < 0.5;
                     if !same {
                         free::set_pos(&mut b.attrs, pos.0, pos.1);
-                        shape::set_endpoints(&mut b.attrs, e1, e2);
-                        let bbox = shape::line_box(&b.attrs);
+                        shape::set_endpoints(&mut b.attrs, local[0], local[1]);
+                        if kind.is_curve() {
+                            shape::set_controls(&mut b.attrs, local[2], local[3]);
+                        }
+                        let bbox = shape::line_box(&b.attrs, kind);
                         free::set_width(&mut b.attrs, bbox.width);
                         free::set_height(&mut b.attrs, bbox.height);
                     }
@@ -2611,23 +2638,54 @@ impl DocumentEditorElement {
                     }
                 }
                 if let Some(rects) = self.endpoint_rects(block) {
-                    for r in rects.iter() {
+                    // У кривой хваталок четыре: два конца (сплошные кружки)
+                    // и две направляющие Безье — те меньше и привязаны к
+                    // своему концу тонкой линией, как в векторных редакторах.
+                    let center = |r: &Rect| {
+                        Point::new(
+                            r.origin.x + r.size.width / 2.0,
+                            r.origin.y + r.size.height / 2.0,
+                        )
+                    };
+                    if rects.len() >= 4 {
+                        let mut c = crate::core::canvas::CanvasContext::new(
+                            self.bounds.origin,
+                            self.bounds.size,
+                        );
+                        c.set_anti_alias(1.0);
+                        c.set_color(s.shape_handle_color.with_alpha(0.5));
+                        c.set_stroke_width(1.0);
+                        let rel = |p: Point| {
+                            (p.x - self.bounds.origin.x, p.y - self.bounds.origin.y)
+                        };
+                        for (end, ctrl) in [(0, 2), (1, 3)] {
+                            let (a, b) = (rel(center(&rects[end])), rel(center(&rects[ctrl])));
+                            c.draw_polyline(&[a, b]);
+                        }
+                        c.flush(list);
+                    }
+                    for (i, r) in rects.iter().enumerate() {
+                        let control = i >= 2;
+                        let radius = if control { 4.0 } else { 5.0 };
                         let mut c = crate::core::canvas::CanvasContext::new(r.origin, r.size);
                         c.set_anti_alias(1.0);
-                        c.set_color(s.menu_bg);
-                        c.fill_circle(r.size.width / 2.0, r.size.height / 2.0, 5.5);
-                        c.set_color(s.shape_handle_color);
-                        c.set_stroke_width(2.0);
-                        let pts = crate::core::canvas::tessellator::circle_points(
-                            Point::new(r.size.width / 2.0, r.size.height / 2.0),
-                            5.0,
-                            18,
-                        );
-                        let mut ring: Vec<(f32, f32)> = pts.iter().map(|p| (p.x, p.y)).collect();
-                        if let Some(&first) = ring.first() {
-                            ring.push(first);
+                        c.set_color(if control { s.shape_handle_color } else { s.menu_bg });
+                        c.fill_circle(r.size.width / 2.0, r.size.height / 2.0, radius + 0.5);
+                        if !control {
+                            c.set_color(s.shape_handle_color);
+                            c.set_stroke_width(2.0);
+                            let pts = crate::core::canvas::tessellator::circle_points(
+                                Point::new(r.size.width / 2.0, r.size.height / 2.0),
+                                radius,
+                                18,
+                            );
+                            let mut ring: Vec<(f32, f32)> =
+                                pts.iter().map(|p| (p.x, p.y)).collect();
+                            if let Some(&first) = ring.first() {
+                                ring.push(first);
+                            }
+                            c.draw_polyline(&ring);
                         }
-                        c.draw_polyline(&ring);
                         c.flush(list);
                     }
                     if let Ok(mut ui) = self.ui_rects.lock() {

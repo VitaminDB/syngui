@@ -282,3 +282,23 @@ fn shape_geometry_survives_roundtrip() {
     assert!(out.contains("h=64"), "высота потерялась:\n{out}");
     assert!(out.contains("x=60"), "координаты потерялись:\n{out}");
 }
+
+#[test]
+fn curve_shapes() {
+    // Кривая — тот же линейный примитив, плюс две направляющие Безье.
+    // Порядок ключей в сериализации детерминирован (BTreeMap — по алфавиту).
+    let src = "![[shape:curve-arrow]]{cx1=80 cx2=20 cy1=0 cy2=120 x1=0 x2=180 y1=0 y2=120}\n";
+    let m = parse_document(src);
+    match &m.blocks[0].kind {
+        BlockKind::Shape { shape } => {
+            assert_eq!(*shape, ShapeKind::CurveArrow);
+            assert!(shape.is_curve() && shape.is_line() && shape.arrow_end());
+        }
+        other => panic!("не кривая: {other:?}"),
+    }
+    assert_eq!(serialize_document(&m), src);
+    assert_eq!(roundtrip(src), src);
+    // Синоним и прямой аналог вида.
+    assert_eq!(ShapeKind::from_name("bezier"), Some(ShapeKind::Curve));
+    assert_eq!(ShapeKind::CurveDoubleArrow.straightened(), ShapeKind::DoubleArrow);
+}

@@ -252,10 +252,14 @@ pub enum ShapeKind {
     Line,
     Arrow,
     DoubleArrow,
+    /// Кубическая кривая Безье с двумя направляющими точками.
+    Curve,
+    CurveArrow,
+    CurveDoubleArrow,
 }
 
 impl ShapeKind {
-    pub const ALL: [ShapeKind; 7] = [
+    pub const ALL: [ShapeKind; 10] = [
         ShapeKind::Rect,
         ShapeKind::Ellipse,
         ShapeKind::Triangle,
@@ -263,6 +267,9 @@ impl ShapeKind {
         ShapeKind::Line,
         ShapeKind::Arrow,
         ShapeKind::DoubleArrow,
+        ShapeKind::Curve,
+        ShapeKind::CurveArrow,
+        ShapeKind::CurveDoubleArrow,
     ];
 
     pub fn name(self) -> &'static str {
@@ -274,6 +281,9 @@ impl ShapeKind {
             ShapeKind::Line => "line",
             ShapeKind::Arrow => "arrow",
             ShapeKind::DoubleArrow => "arrow2",
+            ShapeKind::Curve => "curve",
+            ShapeKind::CurveArrow => "curve-arrow",
+            ShapeKind::CurveDoubleArrow => "curve-arrow2",
         }
     }
 
@@ -286,22 +296,57 @@ impl ShapeKind {
             "line" => ShapeKind::Line,
             "arrow" => ShapeKind::Arrow,
             "arrow2" | "doublearrow" | "double-arrow" => ShapeKind::DoubleArrow,
+            "curve" | "bezier" => ShapeKind::Curve,
+            "curve-arrow" | "curvearrow" | "bezier-arrow" => ShapeKind::CurveArrow,
+            "curve-arrow2" | "curvearrow2" => ShapeKind::CurveDoubleArrow,
             _ => return None,
         })
     }
 
-    /// Линейные виды задаются двумя концами, а не рамкой.
+    /// Линейные виды задаются концами, а не рамкой.
     pub fn is_line(self) -> bool {
-        matches!(self, ShapeKind::Line | ShapeKind::Arrow | ShapeKind::DoubleArrow)
+        matches!(
+            self,
+            ShapeKind::Line
+                | ShapeKind::Arrow
+                | ShapeKind::DoubleArrow
+                | ShapeKind::Curve
+                | ShapeKind::CurveArrow
+                | ShapeKind::CurveDoubleArrow
+        )
     }
 
-    /// Стрелка на конце / в начале отрезка.
+    /// Кривая Безье: к двум концам добавляются две направляющие точки.
+    pub fn is_curve(self) -> bool {
+        matches!(
+            self,
+            ShapeKind::Curve | ShapeKind::CurveArrow | ShapeKind::CurveDoubleArrow
+        )
+    }
+
+    /// Стрелка на конце / в начале линии.
     pub fn arrow_end(self) -> bool {
-        matches!(self, ShapeKind::Arrow | ShapeKind::DoubleArrow)
+        matches!(
+            self,
+            ShapeKind::Arrow
+                | ShapeKind::DoubleArrow
+                | ShapeKind::CurveArrow
+                | ShapeKind::CurveDoubleArrow
+        )
     }
 
     pub fn arrow_start(self) -> bool {
-        matches!(self, ShapeKind::DoubleArrow)
+        matches!(self, ShapeKind::DoubleArrow | ShapeKind::CurveDoubleArrow)
+    }
+
+    /// Прямой аналог кривой и наоборот — для «превратить в» и умолчаний.
+    pub fn straightened(self) -> Self {
+        match self {
+            ShapeKind::Curve => ShapeKind::Line,
+            ShapeKind::CurveArrow => ShapeKind::Arrow,
+            ShapeKind::CurveDoubleArrow => ShapeKind::DoubleArrow,
+            other => other,
+        }
     }
 }
 

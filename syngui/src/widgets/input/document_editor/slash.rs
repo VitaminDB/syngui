@@ -62,6 +62,8 @@ pub fn default_items() -> Vec<SlashItem> {
         SlashItem::new(Shape(ShapeKind::Ellipse), "Ellipse", "ellipse circle oval shape"),
         SlashItem::new(Shape(ShapeKind::Line), "Line", "line shape"),
         SlashItem::new(Shape(ShapeKind::Arrow), "Arrow", "arrow shape"),
+        SlashItem::new(Shape(ShapeKind::Curve), "Curve", "curve bezier shape"),
+        SlashItem::new(Shape(ShapeKind::CurveArrow), "Curved arrow", "curve bezier arrow"),
     ]
 }
 

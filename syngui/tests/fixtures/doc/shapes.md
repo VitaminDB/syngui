@@ -14,3 +14,7 @@
 1 {h=140 w=260 x=40 y=200}
 3 {h=114 w=204 x=40 y=380}
 ```
+
+![[shape:curve]]{stroke=#6ea8ff sw=2}
+
+![[shape:curve-arrow]]{cx1=120 cx2=40 cy1=0 cy2=140 x1=0 x2=220 y1=0 y2=140}

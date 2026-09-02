@@ -5,9 +5,11 @@
 //! radius=8 opacity=70}`) — как и прочие свойства блока, поэтому переживает
 //! дублирование, перенос и round-trip markdown. Рамочная фигура занимает
 //! прямоугольник блока (ширина — `w` свободной раскладки, высота — `h`);
-//! линейная задаётся двумя концами `x1 y1 x2 y2` в координатах **внутри**
-//! блока, а её рамка — их bbox с полем [`LINE_PAD`] под наконечники и
-//! хваталки концов.
+//! линейная задаётся концами `x1 y1 x2 y2` в координатах **внутри** блока,
+//! а кривая Безье — ещё и двумя направляющими `cx1 cy1 cx2 cy2`. Рамка
+//! линейной фигуры — bbox её точек с полем [`LINE_PAD`] под наконечники и
+//! хваталки; кривая целиком лежит в выпуклой оболочке своих четырёх точек,
+//! поэтому такой bbox её всегда накрывает.
 //!
 //! Рисуется всё одним `CanvasContext` (заливка тесселяцией, обводка
 //! линейными полосами) — как рёбра канваса и ручка ⋮⋮ редактора.
@@ -15,7 +17,7 @@
 use std::any::Any;
 use std::sync::Arc;
 
-use crate::core::canvas::tessellator::arc_points;
+use crate::core::canvas::tessellator::{arc_points, flatten_cubic_bezier};
 use crate::core::canvas::CanvasContext;
 use crate::core::{Color, Point, Rect, Size};
 use crate::input::{Event, EventResult};
@@ -45,6 +47,11 @@ pub const X1: &str = "x1";
 pub const Y1: &str = "y1";
 pub const X2: &str = "x2";
 pub const Y2: &str = "y2";
+/// Направляющие точки кривой Безье (в тех же координатах).
+pub const CX1: &str = "cx1";
+pub const CY1: &str = "cy1";
+pub const CX2: &str = "cx2";
+pub const CY2: &str = "cy2";
 
 /// Ключи, которыми управляет панель свойств фигуры.
 pub const SHAPE_KEYS: [&str; 6] = [FILL, STROKE, STROKE_W, DASH, RADIUS, OPACITY];
@@ -146,6 +153,45 @@ pub fn set_endpoints(attrs: &mut Attrs, p1: (f32, f32), p2: (f32, f32)) {
     }
 }
 
+/// Направляющие кривой. Пока их не трогали мышью, они выводятся из концов —
+/// плавная S-образная дуга по длинной оси, как провода нодового редактора.
+pub fn controls_of(attrs: &Attrs) -> ((f32, f32), (f32, f32)) {
+    let (p1, p2) = endpoints_of(attrs);
+    let (dx, dy) = (p2.0 - p1.0, p2.1 - p1.1);
+    let (d1, d2) = if dx.abs() >= dy.abs() {
+        let off = (dx.abs() * 0.45).max(40.0) * dx.signum();
+        ((off, 0.0), (-off, 0.0))
+    } else {
+        let off = (dy.abs() * 0.45).max(40.0) * dy.signum();
+        ((0.0, off), (0.0, -off))
+    };
+    let num = |k: &str, d: f32| {
+        attrs.get(k).and_then(|v| v.parse::<f32>().ok()).filter(|v| v.is_finite()).unwrap_or(d)
+    };
+    (
+        (num(CX1, p1.0 + d1.0), num(CY1, p1.1 + d1.1)),
+        (num(CX2, p2.0 + d2.0), num(CY2, p2.1 + d2.1)),
+    )
+}
+
+pub fn set_controls(attrs: &mut Attrs, c1: (f32, f32), c2: (f32, f32)) {
+    for (key, v) in [(CX1, c1.0), (CY1, c1.1), (CX2, c2.0), (CY2, c2.1)] {
+        attrs.set(key, fmt(v));
+    }
+}
+
+/// Все точки линейной фигуры: концы, а у кривой — ещё направляющие.
+/// Порядок — тот же, что у хваталок: конец, конец, направляющая,
+/// направляющая.
+pub fn line_handles(attrs: &Attrs, kind: ShapeKind) -> Vec<(f32, f32)> {
+    let (p1, p2) = endpoints_of(attrs);
+    if !kind.is_curve() {
+        return vec![p1, p2];
+    }
+    let (c1, c2) = controls_of(attrs);
+    vec![p1, p2, c1, c2]
+}
+
 fn fmt(v: f32) -> String {
     let r = (v * 10.0).round() / 10.0;
     if (r - r.round()).abs() < f32::EPSILON {
@@ -155,23 +201,48 @@ fn fmt(v: f32) -> String {
     }
 }
 
-/// Габариты линейной фигуры: bbox концов плюс поле под наконечники.
-pub fn line_box(attrs: &Attrs) -> Size {
-    let (p1, p2) = endpoints_of(attrs);
-    Size::new(
-        (p1.0.max(p2.0) - p1.0.min(p2.0)).abs() + LINE_PAD * 2.0,
-        (p1.1.max(p2.1) - p1.1.min(p2.1)).abs() + LINE_PAD * 2.0,
-    )
+/// Габариты линейной фигуры: bbox её точек плюс поле под наконечники.
+pub fn line_box(attrs: &Attrs, kind: ShapeKind) -> Size {
+    let pts = line_handles(attrs, kind);
+    let (min, max) = bounds(&pts);
+    Size::new(max.0 - min.0 + LINE_PAD * 2.0, max.1 - min.1 + LINE_PAD * 2.0)
 }
 
-/// Концы в координатах виджета (с полем и с нулём в минимуме bbox).
-pub fn local_endpoints(attrs: &Attrs) -> ((f32, f32), (f32, f32)) {
-    let (p1, p2) = endpoints_of(attrs);
-    let (ox, oy) = (p1.0.min(p2.0), p1.1.min(p2.1));
-    (
-        (p1.0 - ox + LINE_PAD, p1.1 - oy + LINE_PAD),
-        (p2.0 - ox + LINE_PAD, p2.1 - oy + LINE_PAD),
-    )
+fn bounds(points: &[(f32, f32)]) -> ((f32, f32), (f32, f32)) {
+    let mut min = (f32::MAX, f32::MAX);
+    let mut max = (f32::MIN, f32::MIN);
+    for p in points {
+        min = (min.0.min(p.0), min.1.min(p.1));
+        max = (max.0.max(p.0), max.1.max(p.1));
+    }
+    (min, max)
+}
+
+/// Точки в координатах виджета (с полем и с нулём в минимуме bbox).
+pub fn local_handles(attrs: &Attrs, kind: ShapeKind) -> Vec<(f32, f32)> {
+    let pts = line_handles(attrs, kind);
+    let (min, _) = bounds(&pts);
+    pts.iter().map(|p| (p.0 - min.0 + LINE_PAD, p.1 - min.1 + LINE_PAD)).collect()
+}
+
+/// Концы в координатах виджета (частый случай — прямая линия).
+pub fn local_endpoints(attrs: &Attrs, kind: ShapeKind) -> ((f32, f32), (f32, f32)) {
+    let h = local_handles(attrs, kind);
+    (h[0], h[1])
+}
+
+/// Ломаная, по которой рисуется и щупается линейная фигура: у прямой это
+/// сам отрезок, у кривой — сглаженная кубическая Безье.
+pub fn line_polyline(attrs: &Attrs, kind: ShapeKind) -> Vec<(f32, f32)> {
+    let h = local_handles(attrs, kind);
+    if !kind.is_curve() {
+        return vec![h[0], h[1]];
+    }
+    let pt = |p: (f32, f32)| Point::new(p.0, p.1);
+    flatten_cubic_bezier(pt(h[0]), pt(h[2]), pt(h[3]), pt(h[1]), 0.25)
+        .into_iter()
+        .map(|p| (p.x, p.y))
+        .collect()
 }
 
 // ─── Отрисовка ──────────────────────────────────────────────────────────────
@@ -222,26 +293,61 @@ pub fn draw(c: &mut CanvasContext, kind: ShapeKind, size: Size, st: &ShapeStyle,
 
 fn draw_line_shape(c: &mut CanvasContext, kind: ShapeKind, st: &ShapeStyle, attrs: &Attrs) {
     let Some(stroke) = st.stroke else { return };
-    let (p1, p2) = local_endpoints(attrs);
-    let dx = p2.0 - p1.0;
-    let dy = p2.1 - p1.1;
-    let len = (dx * dx + dy * dy).sqrt();
-    if len < 0.5 {
+    let mut path = line_polyline(attrs, kind);
+    if path.len() < 2 {
         return;
     }
-    let (ux, uy) = (dx / len, dy / len);
-    // Отрезок укорачивается на длину наконечника, иначе линия торчит из него.
-    let head = (4.0 + st.stroke_w * 2.2).min(len / 2.0);
-    let a = if kind.arrow_start() { (p1.0 + ux * head * 0.8, p1.1 + uy * head * 0.8) } else { p1 };
-    let b = if kind.arrow_end() { (p2.0 - ux * head * 0.8, p2.1 - uy * head * 0.8) } else { p2 };
-    c.set_color(stroke);
-    c.set_stroke_width(st.stroke_w);
-    stroke_path(c, &[a, b], st.dash);
+    // Наконечник рисуется отдельным треугольником, поэтому линию под ним
+    // укорачиваем — иначе она торчит из острия.
+    let head = 4.0 + st.stroke_w * 2.2;
+    let start_dir = direction(path[0], path[1]);
+    let end_dir = direction(path[path.len() - 2], path[path.len() - 1]);
+    let (tip_start, tip_end) = (path[0], path[path.len() - 1]);
+    if kind.arrow_start() {
+        trim_front(&mut path, head * 0.8);
+    }
     if kind.arrow_end() {
-        arrow_head(c, p2, (ux, uy), head, stroke);
+        path.reverse();
+        trim_front(&mut path, head * 0.8);
+        path.reverse();
+    }
+    if path.len() >= 2 {
+        c.set_color(stroke);
+        c.set_stroke_width(st.stroke_w);
+        stroke_path(c, &path, st.dash);
+    }
+    if kind.arrow_end() {
+        arrow_head(c, tip_end, end_dir, head, stroke);
     }
     if kind.arrow_start() {
-        arrow_head(c, p1, (-ux, -uy), head, stroke);
+        arrow_head(c, tip_start, (-start_dir.0, -start_dir.1), head, stroke);
+    }
+}
+
+/// Единичный вектор от `a` к `b` (нулевой отрезок — вправо).
+fn direction(a: (f32, f32), b: (f32, f32)) -> (f32, f32) {
+    let (dx, dy) = (b.0 - a.0, b.1 - a.1);
+    let len = (dx * dx + dy * dy).sqrt();
+    if len < 0.001 {
+        (1.0, 0.0)
+    } else {
+        (dx / len, dy / len)
+    }
+}
+
+/// Убрать `cut` пикселей длины с начала ломаной (под наконечник).
+fn trim_front(path: &mut Vec<(f32, f32)>, cut: f32) {
+    let mut left = cut;
+    while path.len() >= 2 {
+        let (a, b) = (path[0], path[1]);
+        let seg = ((b.0 - a.0).powi(2) + (b.1 - a.1).powi(2)).sqrt();
+        if seg > left {
+            let t = left / seg.max(0.001);
+            path[0] = (a.0 + (b.0 - a.0) * t, a.1 + (b.1 - a.1) * t);
+            return;
+        }
+        left -= seg;
+        path.remove(0);
     }
 }
 
@@ -392,7 +498,7 @@ impl Element for ShapeElement {
         let avail =
             if constraints.max_width.is_finite() { constraints.max_width } else { DEFAULT_W };
         self.bounds.size = if self.shape.is_line() {
-            let b = line_box(&self.attrs);
+            let b = line_box(&self.attrs, self.shape);
             Size::new(b.width.min(avail.max(40.0)), b.height)
         } else {
             Size::new(avail, height_of(&self.attrs))
@@ -486,10 +592,10 @@ mod tests {
     fn line_geometry() {
         let mut a = Attrs::default();
         set_endpoints(&mut a, (10.0, 40.0), (110.0, 0.0));
-        let b = line_box(&a);
+        let b = line_box(&a, ShapeKind::Line);
         assert_eq!(b.width, 100.0 + LINE_PAD * 2.0);
         assert_eq!(b.height, 40.0 + LINE_PAD * 2.0);
-        let (p1, p2) = local_endpoints(&a);
+        let (p1, p2) = local_endpoints(&a, ShapeKind::Line);
         assert_eq!(p1, (LINE_PAD, 40.0 + LINE_PAD));
         assert_eq!(p2, (100.0 + LINE_PAD, LINE_PAD));
     }
