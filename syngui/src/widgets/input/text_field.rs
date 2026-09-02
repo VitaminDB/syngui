@@ -23,6 +23,7 @@ pub struct TextField {
     pub on_change: Option<Arc<Mutex<dyn FnMut(&str) + Send>>>,
     pub on_submit: Option<Arc<Mutex<dyn FnMut(&str) + Send>>>,
     pub submit_on_focus_lost: bool,
+    pub on_escape: Option<Arc<Mutex<dyn FnMut() + Send>>>,
     pub on_prefix_click: Option<Arc<Mutex<dyn FnMut() + Send>>>,
     pub helper_text: Option<String>,
     pub error_text: Option<String>,
@@ -50,6 +51,7 @@ impl TextField {
             on_change: None,
             on_submit: None,
             submit_on_focus_lost: false,
+            on_escape: None,
             on_prefix_click: None,
             helper_text: None,
             error_text: None,
@@ -131,6 +133,14 @@ impl TextField {
         self
     }
 
+    /// Escape в поле. Сам Escape только снимает фокус; хосту inline-правки
+    /// (переименование чата, подпись графа) этого мало — ему нужно закрыть
+    /// режим правки, не сохраняя текст.
+    pub fn on_escape(mut self, callback: impl FnMut() + Send + 'static) -> Self {
+        self.on_escape = Some(Arc::new(Mutex::new(callback)));
+        self
+    }
+
     /// Поле забирает клавиатурный фокус сразу при появлении на экране.
     pub fn autofocus(mut self, on: bool) -> Self {
         self.autofocus = on;
@@ -203,6 +213,7 @@ impl Widget for TextField {
             on_change: self.on_change.clone(),
             on_submit: self.on_submit.clone(),
             submit_on_focus_lost: self.submit_on_focus_lost,
+            on_escape: self.on_escape.clone(),
             on_prefix_click: self.on_prefix_click.clone(),
             helper_text: self.helper_text.clone(),
             error_text: self.error_text.clone(),
@@ -261,6 +272,7 @@ pub struct TextFieldElement {
     on_change: Option<Arc<Mutex<dyn FnMut(&str) + Send>>>,
     on_submit: Option<Arc<Mutex<dyn FnMut(&str) + Send>>>,
     submit_on_focus_lost: bool,
+    on_escape: Option<Arc<Mutex<dyn FnMut() + Send>>>,
     on_prefix_click: Option<Arc<Mutex<dyn FnMut() + Send>>>,
     helper_text: Option<String>,
     error_text: Option<String>,
@@ -581,6 +593,7 @@ impl Element for TextFieldElement {
             self.on_change = tf.on_change.clone();
             self.on_submit = tf.on_submit.clone();
             self.submit_on_focus_lost = tf.submit_on_focus_lost;
+            self.on_escape = tf.on_escape.clone();
             self.on_prefix_click = tf.on_prefix_click.clone();
             self.helper_text = tf.helper_text.clone();
             self.error_text = tf.error_text.clone();
@@ -1213,6 +1226,11 @@ impl Element for TextFieldElement {
                     Key::Escape => {
                         self.focused = false;
                         self.selection.clear();
+                        if let Some(ref callback) = self.on_escape {
+                            if let Ok(mut cb) = callback.lock() {
+                                cb();
+                            }
+                        }
                         ctx.request_paint();
                         EventResult::Handled
                     }

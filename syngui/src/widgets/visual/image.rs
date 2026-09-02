@@ -369,6 +369,15 @@ impl Element for ImageElement {
         false
     }
 
+    /// Пока картинка грузится/декодится, элемент обязан числиться в
+    /// точечном реестре анимаций: готовность стора он узнаёт опросом в
+    /// [`Self::animate`]. Без этого реестр не звал `animate` вовсе, и уже
+    /// декодированная картинка навсегда оставалась плейсхолдером 🖼
+    /// (логотип в рейле synthos).
+    fn wants_animate_tick(&self) -> bool {
+        self.image_state == ImageLoadState::Loading
+    }
+
     fn clip_content(&self) -> bool {
         self.fit == ImageFit::Cover
     }
