@@ -1140,3 +1140,42 @@ fn dragging_a_curve_control_bends_it() {
     assert_eq!(val("x2"), Some(200.0), "второй конец сдвинулся:\n{out}");
     assert!(geom_val(&out, 0, "h").unwrap_or(0.0) > 100.0, "рамка не выросла:\n{out}");
 }
+
+/// Холст свободной раскладки шире видимой области, когда блок ушёл за её
+/// правый край (страница прокручивается по горизонтали), а колонка потока
+/// при этом держит ширину области, а не ужимается к своим строкам.
+#[test]
+fn free_layout_canvas_grows_past_the_viewport_width() {
+    let md = "Поток\n\nДалеко\n\n~~~doc-layout\n1 1200 40 300\n~~~\n".replace("~~~", "```");
+    let handle = DocumentEditorHandle::new();
+    let mut h = TestHarness::new(Box::new(
+        DocumentEditor::new()
+            .markdown(&md)
+            .handle(&handle)
+            .layout(DocLayout { free: true, ..DocLayout::default() }),
+    ));
+    h.tree.text_measure = Some(Arc::new(Mono));
+    h.rebuild();
+    // Как под `Page::both()`: обе оси безграничны, containing block — вьюпорт.
+    let viewport = Size::new(900.0, 700.0);
+    let size = h.tree.layout(
+        h.root_id,
+        syngui::layout::Constraints {
+            min_width: 0.0,
+            max_width: f32::INFINITY,
+            min_height: 0.0,
+            max_height: f32::INFINITY,
+            containing_block: viewport,
+        },
+    );
+    assert!(size.width >= 1500.0, "холст должен вместить блок за правым краем: {size:?}");
+    assert!(size.height >= 700.0, "холст не ниже вьюпорта: {size:?}");
+
+    let rows = h.find_by_type_name("doc-text-row");
+    assert_eq!(rows.len(), 2);
+    let flow = h.element_bounds(rows[0]);
+    let far = h.element_bounds(rows[1]);
+    assert!((far.origin.x - 1200.0).abs() < 1.0, "закреплённый блок не по x=1200: {:?}", far.origin);
+    assert!(flow.size.width > 700.0, "колонка потока ужалась при бесконечной ширине: {:?}", flow.size);
+    assert!(flow.origin.x > 40.0, "колонка потока должна стоять по центру области: {:?}", flow.origin);
+}

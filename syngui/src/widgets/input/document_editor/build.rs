@@ -132,7 +132,11 @@ pub fn block_widget(block: &DocBlock, env: &BuildEnv) -> Box<dyn Widget> {
         BlockKind::Media { media, url, alt } => media_widget(block, *media, url, alt, env),
         BlockKind::Embed { target } => {
             if let Some(factory) = &env.embeds {
-                if let Some(inner) = factory.build(target, &env.embed_ctx) {
+                // Высота блока уходит хосту вместе с контекстом: врезка со
+                // своей высотой (доска, диаграмма) растягивается за кромку.
+                let mut ectx = env.embed_ctx.clone();
+                ectx.height = super::free::height_of(&block.attrs);
+                if let Some(inner) = factory.build(target, &ectx) {
                     // Живая врезка в рамке.
                     return Box::new(
                         Chrome::new()

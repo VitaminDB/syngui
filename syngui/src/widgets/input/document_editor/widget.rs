@@ -90,6 +90,8 @@ pub struct BlockProps {
     pub table: Option<(usize, usize)>,
     /// Вид векторного примитива.
     pub shape: Option<super::model::ShapeKind>,
+    /// Цель врезки `![[…]]` (страница либо объект хоста `kind:id`).
+    pub embed: Option<String>,
     pub attrs: super::model::Attrs,
 }
 
@@ -154,6 +156,10 @@ impl DocumentEditorHandle {
             },
             shape: match &b.kind {
                 BlockKind::Shape { shape } => Some(*shape),
+                _ => None,
+            },
+            embed: match &b.kind {
+                BlockKind::Embed { target } => Some(target.clone()),
                 _ => None,
             },
             attrs: b.attrs.clone(),
@@ -1986,7 +1992,7 @@ fn estimate_height(block: &DocBlock, style: &DocStyle) -> f32 {
             free::height_of(&block.attrs).unwrap_or(220.0)
         }
         BlockKind::Divider => 17.0,
-        BlockKind::Embed { .. } => 200.0,
+        BlockKind::Embed { .. } => free::height_of(&block.attrs).unwrap_or(200.0),
         BlockKind::Table { rows, .. } => (rows.len() as f32 + 1.0) * 30.0,
         _ => style.line_h(style.text_size) * 2.0,
     }
@@ -2119,6 +2125,10 @@ impl DocumentEditorElement {
             Some(BlockKind::Media { media, .. }) => {
                 matches!(media, super::model::MediaKind::Image)
             }
+            // Врезка со своей высотой (доска, диаграмма) — решает хост.
+            Some(BlockKind::Embed { target }) => {
+                self.embeds.as_ref().is_some_and(|f| f.has_own_height(target))
+            }
             _ => false,
         }
     }
@@ -2202,11 +2212,17 @@ impl DocumentEditorElement {
                     }
                 }
                 hit = Some((b.id, true));
+            } else if let BlockKind::Embed { target } = &b.kind {
+                // Врезка со своей высотой (доска, диаграмма): клик по её
+                // пустому месту делает блок текущим — панель свойств и
+                // хваталки размера; клики по её виджетам до сюда не доходят.
+                let own = self.embeds.as_ref().is_some_and(|f| f.has_own_height(target));
+                hit = Some((b.id, own));
             } else {
                 hit = Some((b.id, false));
             }
         }
-        hit.filter(|(_, is_shape)| *is_shape).map(|(id, _)| id)
+        hit.filter(|(_, is_object)| *is_object).map(|(id, _)| id)
     }
 
     /// Сделать блок текущим без каретки (клик по фигуре).
@@ -3741,9 +3757,14 @@ impl Element for DocumentEditorElement {
         }
         let mut out: Vec<Box<dyn Widget>> = Vec::with_capacity(pinned.len() + 2);
         if !flow.is_empty() {
+            // Колонка потока держит ширину видимой области: холст
+            // прокручивается и по горизонтали, ширина у него бесконечная,
+            // и без этого колонка ужалась бы к своим строкам и уехала в
+            // левый край вместо центра.
             out.push(Box::new(
                 Chrome::new()
                     .center(true)
+                    .fill_width(true)
                     .gap(self.style.block_spacing)
                     .padding(pad, pad, pad, pad)
                     .children(flow),

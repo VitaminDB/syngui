@@ -32,6 +32,9 @@ pub struct Chrome {
     absolute: Option<(f32, f32)>,
     /// Свободная раскладка: ширина колонки блока.
     fixed_width: Option<f32>,
+    /// Занимать ширину видимой области (колонка потока на холсте с
+    /// бесконечной шириной).
+    fill_width: bool,
     /// Бездетная распорка холста: минимальный размер (не меньше вьюпорта).
     extent: Option<(f32, f32)>,
     /// Центрировать детей по поперечной оси (колонка потока).
@@ -51,6 +54,7 @@ impl Chrome {
             border_left: None,
             absolute: None,
             fixed_width: None,
+            fill_width: false,
             extent: None,
             center: false,
             track: None,
@@ -80,6 +84,14 @@ impl Chrome {
     /// Ширина колонки блока в свободной раскладке.
     pub fn fixed_width(mut self, width: f32) -> Self {
         self.fixed_width = Some(width.max(40.0));
+        self
+    }
+
+    /// Ширина — по видимой области (containing block), а не по детям:
+    /// нужна колонке потока на холсте, который прокручивается по
+    /// горизонтали и потому меряется с бесконечной шириной.
+    pub fn fill_width(mut self, fill: bool) -> Self {
+        self.fill_width = fill;
         self
     }
 
@@ -139,6 +151,7 @@ impl Widget for Chrome {
             border_left: self.border_left,
             absolute: self.absolute,
             fixed_width: self.fixed_width,
+            fill_width: self.fill_width,
             extent: self.extent,
             center: self.center,
             track: self.track.clone(),
@@ -182,6 +195,7 @@ pub struct ChromeElement {
     border_left: Option<(f32, Color)>,
     absolute: Option<(f32, f32)>,
     fixed_width: Option<f32>,
+    fill_width: bool,
     extent: Option<(f32, f32)>,
     center: bool,
     track: Option<(BlockId, BlockRectMap)>,
@@ -194,6 +208,7 @@ impl Element for ChromeElement {
             || self.padding != w.padding
             || self.absolute != w.absolute
             || self.fixed_width != w.fixed_width
+            || self.fill_width != w.fill_width
             || self.extent != w.extent
             || self.center != w.center;
         self.gap = w.gap;
@@ -203,6 +218,7 @@ impl Element for ChromeElement {
         self.border_left = w.border_left;
         self.absolute = w.absolute;
         self.fixed_width = w.fixed_width;
+        self.fill_width = w.fill_width;
         self.extent = w.extent;
         self.center = w.center;
         self.track = w.track.clone();
@@ -227,6 +243,8 @@ impl Element for ChromeElement {
             w.min(constraints.max_width)
         } else if constraints.max_width.is_finite() {
             constraints.max_width
+        } else if self.fill_width {
+            constraints.containing_block.width
         } else {
             0.0
         };
@@ -244,7 +262,10 @@ impl Element for ChromeElement {
         self.bounds.size
     }
 
-    fn explicit_dimensions(&self, _parent_width: f32, _parent_height: f32) -> (Option<f32>, Option<f32>) {
+    fn explicit_dimensions(&self, parent_width: f32, _parent_height: f32) -> (Option<f32>, Option<f32>) {
+        if self.fixed_width.is_none() && self.fill_width && parent_width.is_finite() && parent_width > 0.0 {
+            return (Some(parent_width), None);
+        }
         (self.fixed_width, None)
     }
 
