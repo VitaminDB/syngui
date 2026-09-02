@@ -1019,6 +1019,15 @@ impl Element for PageElement {
 
     fn element_type_name(&self) -> &str { "Page" }
 
+    /// Клик по ползунку — наш, детям его не отдавать: иначе редактор на
+    /// всю область (или любой другой ребёнок под ползунком) забирал бы
+    /// MouseDown первым, и ползунок нельзя было бы тянуть.
+    fn child_at_position(&self, pos: Point) -> crate::widget::ChildHit {
+        let on_thumb = (self.show_vertical_scrollbar_thumb() && self.vertical_scrollbar_thumb().contains(pos))
+            || (self.show_horizontal_scrollbar_thumb() && self.horizontal_scrollbar_thumb().contains(pos));
+        if on_thumb { crate::widget::ChildHit::None } else { crate::widget::ChildHit::Unknown }
+    }
+
     fn clip_content(&self) -> bool {
         false
     }

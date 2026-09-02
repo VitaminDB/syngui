@@ -936,6 +936,13 @@ impl Element for ScrollViewElement {
         "ScrollView"
     }
 
+    /// Клик по ползунку — наш, детям его не отдавать (см. Page).
+    fn child_at_position(&self, pos: Point) -> crate::widget::ChildHit {
+        let on_thumb = (self.show_vertical_thumb() && self.vertical_thumb_rect().contains(pos))
+            || (self.show_horizontal_thumb() && self.horizontal_thumb_rect().contains(pos));
+        if on_thumb { crate::widget::ChildHit::None } else { crate::widget::ChildHit::Unknown }
+    }
+
     fn reset_mss_styles(&mut self) { self.mss.reset(); }
     fn mss(&self) -> Option<&crate::mss::MssFields> { Some(&self.mss) }
     fn apply_computed_style(&mut self, style: &ComputedStyle) {

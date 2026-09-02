@@ -2618,16 +2618,21 @@ impl DocumentEditorElement {
                     }
                 }
                 // Правая кромка блока — растяжение ширины (свободная
-                // раскладка): узкая полоска в цвет ручки.
+                // раскладка): узкая полоска в цвет ручки. У объекта со
+                // своим оформлением (доска, диаграмма) зоны есть, а
+                // полосок нет — они читались как рамка вокруг блока.
+                let plain = self.is_sized_embed(block);
                 if let Some(rect) = self.resize_rect(block) {
-                    list.push_rect(
-                        Rect::new(
-                            Point::new(rect.origin.x + 2.0, rect.origin.y),
-                            Size::new(2.0, rect.size.height),
-                        ),
-                        s.muted_color.with_alpha(0.5),
-                        [1.0; 4],
-                    );
+                    if !plain {
+                        list.push_rect(
+                            Rect::new(
+                                Point::new(rect.origin.x + 2.0, rect.origin.y),
+                                Size::new(2.0, rect.size.height),
+                            ),
+                            s.muted_color.with_alpha(0.5),
+                            [1.0; 4],
+                        );
+                    }
                     if let Ok(mut ui) = self.ui_rects.lock() {
                         ui.resize = Some((rect, block));
                     }
@@ -2641,28 +2646,33 @@ impl DocumentEditorElement {
             // перекрывал бы выбранный блок где-то в другом углу холста.
             let focus = self.current_block().and_then(|id| self.top_level_of(id));
             for block in [focus, self.hover_block].into_iter().flatten() {
+                let plain = self.is_sized_embed(block);
                 if let Some(rect) = self.resize_v_rect(block) {
-                    list.push_rect(
-                        Rect::new(
-                            Point::new(rect.origin.x, rect.origin.y + 2.0),
-                            Size::new(rect.size.width, 2.0),
-                        ),
-                        s.muted_color.with_alpha(0.5),
-                        [1.0; 4],
-                    );
+                    if !plain {
+                        list.push_rect(
+                            Rect::new(
+                                Point::new(rect.origin.x, rect.origin.y + 2.0),
+                                Size::new(rect.size.width, 2.0),
+                            ),
+                            s.muted_color.with_alpha(0.5),
+                            [1.0; 4],
+                        );
+                    }
                     if let Ok(mut ui) = self.ui_rects.lock() {
                         ui.resize_v = Some((rect, block));
                     }
                 }
                 if let Some(rect) = self.resize_corner_rect(block) {
-                    list.push_rect(
-                        Rect::new(
-                            Point::new(rect.origin.x + 1.0, rect.origin.y + 1.0),
-                            Size::new(8.0, 8.0),
-                        ),
-                        s.shape_handle_color.with_alpha(0.9),
-                        [2.0; 4],
-                    );
+                    if !plain {
+                        list.push_rect(
+                            Rect::new(
+                                Point::new(rect.origin.x + 1.0, rect.origin.y + 1.0),
+                                Size::new(8.0, 8.0),
+                            ),
+                            s.shape_handle_color.with_alpha(0.9),
+                            [2.0; 4],
+                        );
+                    }
                     if let Ok(mut ui) = self.ui_rects.lock() {
                         ui.corner = Some((rect, block));
                     }
