@@ -1029,6 +1029,16 @@ impl DocumentEditorElement {
             });
             new_id
         };
+        if self.layout.free {
+            // Иначе копия ложится ровно на оригинал и выглядит пропажей.
+            let step = self.layout.grid_step_px();
+            let mut model = self.model();
+            if let Some(b) = model.blocks.iter_mut().find(|b| b.id == new_id) {
+                if let Some((x, y)) = free::pos_of(&b.attrs) {
+                    free::set_pos(&mut b.attrs, x + step, y + step);
+                }
+            }
+        }
         let len = edit::block_text_len(&self.model(), new_id);
         self.selection =
             Some(DocSelection::caret(CaretPos { block: new_id, offset: pos.offset.min(len) }));
@@ -1070,6 +1080,33 @@ impl DocumentEditorElement {
     fn move_current(&mut self, down: bool) {
         let Some(pos) = self.caret() else { return };
         self.checkpoint(EditClass::Structure);
+        // В свободной раскладке перестановка соседей ничего не меняет
+        // визуально — двигаем блок по холсту на шаг сетки.
+        if self.layout.free {
+            let step = self.layout.grid_step_px() * if down { 1.0 } else { -1.0 };
+            let target = self.top_level_of(pos.block);
+            let moved = target
+                .map(|id| {
+                    let mut model = self.model();
+                    match model.blocks.iter_mut().find(|b| b.id == id) {
+                        Some(b) => match free::pos_of(&b.attrs) {
+                            Some((x, y)) => {
+                                free::set_pos(&mut b.attrs, x, (y + step).max(0.0));
+                                true
+                            }
+                            None => false,
+                        },
+                        None => false,
+                    }
+                })
+                .unwrap_or(false);
+            if moved {
+                self.after_edit();
+            } else {
+                self.history.discard_last_checkpoint();
+            }
+            return;
+        }
         let moved = {
             let mut model = self.model();
             edit::with_siblings(&mut model.blocks, pos.block, &mut |sibs, idx| {
