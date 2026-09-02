@@ -844,6 +844,11 @@ impl<'a> MdRenderer<'a> {
         }
     }
 
+    /// Таблица с переносом текста в ячейках. Раскладка двухпроходная:
+    /// сперва по flat-спанам меряется высота каждой строки при уже
+    /// известных ширинах колонок ([`Self::measure_flat_spans_height`]),
+    /// затем рисуются подложки и содержимое. Без переноса узкие колонки
+    /// (широкая таблица, ужатая в пузырёк) рисовали текст поверх соседей.
     fn render_table(
         &mut self,
         headers: &[MdTableCell],
@@ -854,7 +859,7 @@ impl<'a> MdRenderer<'a> {
         let pad_h = self.style.table_cell_padding_h;
         let pad_v = self.style.table_cell_padding_v;
         let font_size = self.style.text_size;
-        let row_h = font_size * self.style.line_height + pad_v * 2.0;
+        let min_row_h = font_size * self.style.line_height + pad_v * 2.0;
         let border_color = self.style.table_border_color;
 
         let mut col_widths = vec![60.0f32; num_cols];
@@ -887,38 +892,72 @@ impl<'a> MdRenderer<'a> {
 
         let table_w: f32 = col_widths.iter().sum();
 
+        let header_style = InlineStyle {
+            color: self.style.table_header_color,
+            font_size,
+            bold: true,
+            italic: false,
+            strikethrough: false,
+            link: false,
+            link_url: None,
+        };
+        let cell_style = InlineStyle {
+            color: self.style.text_color,
+            font_size,
+            bold: false,
+            italic: false,
+            strikethrough: false,
+            link: false,
+            link_url: None,
+        };
+
         {
+            let header_flat: Vec<Vec<FlatSpan>> = headers
+                .iter()
+                .map(|h| self.flatten_inlines(&h.inlines, header_style.clone()))
+                .collect();
+            let mut header_h = min_row_h;
+            for (j, flat) in header_flat.iter().enumerate() {
+                let cw = col_widths.get(j).copied().unwrap_or(60.0);
+                let avail = (cw - pad_h * 2.0).max(1.0);
+                header_h = header_h.max(self.measure_flat_spans_height(flat, avail) + pad_v * 2.0);
+            }
+
             let header_rect = Rect::new(
                 Point::new(self.origin_x, self.y),
-                Size::new(table_w, row_h),
+                Size::new(table_w, header_h),
             );
             self.list.push_rect(header_rect, self.style.table_header_bg, [4.0, 4.0, 0.0, 0.0]);
 
             let mut cx = self.origin_x;
-            for (j, header) in headers.iter().enumerate() {
+            for (j, flat) in header_flat.iter().enumerate() {
                 let cw = col_widths.get(j).copied().unwrap_or(60.0);
                 let align = alignments.get(j).copied().unwrap_or_default();
-                self.render_table_cell(
-                    &header.inlines,
-                    cx, self.y, cw, row_h, pad_h, pad_v,
-                    self.style.table_header_color,
-                    font_size,
-                    align,
-                    true,
-                );
+                self.render_table_cell_flat(flat, cx, self.y, cw, pad_h, pad_v, align);
                 cx += cw;
             }
 
             let border_rect = Rect::new(
-                Point::new(self.origin_x, self.y + row_h - 1.0),
+                Point::new(self.origin_x, self.y + header_h - 1.0),
                 Size::new(table_w, 1.0),
             );
             self.list.push_rect(border_rect, border_color, [0.0; 4]);
 
-            self.y += row_h;
+            self.y += header_h;
         }
 
         for (ri, row) in rows.iter().enumerate() {
+            let row_flat: Vec<Vec<FlatSpan>> = row
+                .iter()
+                .map(|c| self.flatten_inlines(&c.inlines, cell_style.clone()))
+                .collect();
+            let mut row_h = min_row_h;
+            for (j, flat) in row_flat.iter().enumerate() {
+                let cw = col_widths.get(j).copied().unwrap_or(60.0);
+                let avail = (cw - pad_h * 2.0).max(1.0);
+                row_h = row_h.max(self.measure_flat_spans_height(flat, avail) + pad_v * 2.0);
+            }
+
             if ri % 2 == 1 {
                 let stripe_rect = Rect::new(
                     Point::new(self.origin_x, self.y),
@@ -929,17 +968,10 @@ impl<'a> MdRenderer<'a> {
             }
 
             let mut cx = self.origin_x;
-            for (j, cell) in row.iter().enumerate() {
+            for (j, flat) in row_flat.iter().enumerate() {
                 let cw = col_widths.get(j).copied().unwrap_or(60.0);
                 let align = alignments.get(j).copied().unwrap_or_default();
-                self.render_table_cell(
-                    &cell.inlines,
-                    cx, self.y, cw, row_h, pad_h, pad_v,
-                    self.style.text_color,
-                    font_size,
-                    align,
-                    false,
-                );
+                self.render_table_cell_flat(flat, cx, self.y, cw, pad_h, pad_v, align);
                 cx += cw;
             }
 
@@ -953,35 +985,99 @@ impl<'a> MdRenderer<'a> {
         }
     }
 
-    fn render_table_cell(
+    /// Одна ячейка таблицы. Помещается в строку — рисуется одной строкой с
+    /// выравниванием (стартовая точка прижимается к `x + pad_h`, чтобы
+    /// center/right при округлениях не выезжали из ячейки влево); не
+    /// помещается — переносится [`Self::render_flat_spans`] по ширине
+    /// колонки, выравнивание при переносе всегда левое.
+    fn render_table_cell_flat(
         &mut self,
-        inlines: &[MdInline],
-        x: f32, y: f32, width: f32, _height: f32,
+        flat: &[FlatSpan],
+        x: f32, y: f32, width: f32,
         pad_h: f32, pad_v: f32,
-        color: Color, font_size: f32,
         align: MdAlign,
-        bold: bool,
     ) {
-        let is = InlineStyle {
-            color,
-            font_size,
-            bold,
-            italic: false,
-            strikethrough: false,
-            link: false,
-            link_url: None,
-        };
-        let flat = self.flatten_inlines(inlines, is);
-        let content_w: f32 = flat.iter().map(|s| span_width(s)).sum();
+        let avail = (width - pad_h * 2.0).max(1.0);
+        let mut content_w = 0.0f32;
+        for span in flat {
+            content_w += if span.bold {
+                self.bold_text_width(&span.text, span.font_size)
+            } else {
+                self.text_width(&span.text, span.font_size)
+            };
+        }
 
-        let text_x = match align {
-            MdAlign::Left => x + pad_h,
-            MdAlign::Center => x + (width - content_w) / 2.0,
-            MdAlign::Right => x + width - pad_h - content_w,
-        };
-        let text_y = y + pad_v;
+        let saved_y = self.y;
+        self.y = y + pad_v;
+        if content_w <= avail {
+            let text_x = match align {
+                MdAlign::Left => x + pad_h,
+                MdAlign::Center => x + ((width - content_w) / 2.0).max(pad_h),
+                MdAlign::Right => x + (width - pad_h - content_w).max(pad_h),
+            };
+            let mut cx = text_x;
+            for span in flat {
+                if span.text.is_empty() {
+                    continue;
+                }
+                self.draw_flat_span_text(&span.text, span, cx);
+                cx += if span.bold {
+                    self.bold_text_width(&span.text, span.font_size)
+                } else {
+                    self.text_width(&span.text, span.font_size)
+                };
+            }
+        } else {
+            self.render_flat_spans(flat, x + pad_h, avail);
+        }
+        self.y = saved_y;
+    }
 
-        self.render_flat_spans_single_line(&flat, text_x, text_y, width - pad_h * 2.0);
+    /// Высота, которую займут спаны при переносе в ширину `max_w`. Обязана
+    /// повторять раскладку [`Self::render_flat_spans`] шаг в шаг: та рисует,
+    /// эта только считает строки (первый проход layout'а таблицы).
+    fn measure_flat_spans_height(&self, spans: &[FlatSpan], max_w: f32) -> f32 {
+        if spans.is_empty() {
+            return self.style.text_size * self.style.line_height;
+        }
+        let line_h = spans
+            .iter()
+            .map(|s| s.font_size)
+            .fold(self.style.text_size, f32::max)
+            * self.style.line_height;
+        let mut x_rel = 0.0f32;
+        let mut lines = 1usize;
+        for span in spans {
+            let sw = if span.bold {
+                self.bold_text_width(&span.text, span.font_size)
+            } else {
+                self.text_width(&span.text, span.font_size)
+            };
+            if x_rel + sw > max_w && !span.text.is_empty() {
+                let words: Vec<&str> = span.text.split_inclusive(' ').collect();
+                if words.len() > 1 {
+                    for word in &words {
+                        let ww = if span.bold {
+                            self.bold_text_width(word, span.font_size)
+                        } else {
+                            self.text_width(word, span.font_size)
+                        };
+                        if x_rel + ww > max_w && x_rel > 0.0 {
+                            lines += 1;
+                            x_rel = 0.0;
+                        }
+                        x_rel += ww;
+                    }
+                    continue;
+                }
+                if x_rel > 0.0 {
+                    lines += 1;
+                    x_rel = 0.0;
+                }
+            }
+            x_rel += sw;
+        }
+        lines as f32 * line_h
     }
 
     fn render_hr(&mut self) {
@@ -1062,17 +1158,6 @@ impl<'a> MdRenderer<'a> {
         lines_height += line_h;
         self.y = start_y;
         lines_height
-    }
-
-    fn render_flat_spans_single_line(&mut self, spans: &[FlatSpan], mut x: f32, y: f32, _max_w: f32) {
-        let saved_y = self.y;
-        self.y = y;
-        for span in spans {
-            if span.text.is_empty() { continue; }
-            self.draw_flat_span_text(&span.text, span, x);
-            x += span_width(span);
-        }
-        self.y = saved_y;
     }
 
     fn draw_flat_span_text(&mut self, text: &str, span: &FlatSpan, x: f32) {
@@ -1261,14 +1346,6 @@ fn flatten_recursive(
                 });
             }
         }
-    }
-}
-
-fn span_width(span: &FlatSpan) -> f32 {
-    if span.bold {
-        bold_text_width(&span.text, span.font_size)
-    } else {
-        text_width(&span.text, span.font_size)
     }
 }
 
