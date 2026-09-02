@@ -668,8 +668,12 @@ impl Element for TextFieldElement {
             let mut bg = self.mss.effective_bg(&target, Color::WHITE);
             let mut fg = self.mss.effective_fg(&target, Color::from_hex("#374151"));
             let mut bc = self.mss.effective_border_color(&target, Color::TRANSPARENT);
-            let bw = self.mss.border_width_or(1.0);
-            let draw_bw = if self.focused { bw.max(2.0) } else { bw };
+            // Явная ширина из MSS уважается и в фокусе: утолщение до 2px —
+            // это фокус-подсказка для полей без своего стиля, а не закон.
+            let draw_bw = match self.mss.border_width {
+                Some(w) => w,
+                None => if self.focused { 2.0 } else { 1.0 },
+            };
             if self.disabled {
                 bg = bg.with_alpha(bg.a * 0.5);
                 fg = fg.with_alpha(fg.a * 0.5);
@@ -690,8 +694,12 @@ impl Element for TextFieldElement {
             } else {
                 (bg, border_base)
             };
-            let bw = self.mss.border_width_or(1.0);
-            let draw_bw = if self.focused { bw.max(2.0) } else { bw };
+            // Явная ширина из MSS уважается и в фокусе: утолщение до 2px —
+            // это фокус-подсказка для полей без своего стиля, а не закон.
+            let draw_bw = match self.mss.border_width {
+                Some(w) => w,
+                None => if self.focused { 2.0 } else { 1.0 },
+            };
             (bg_color, fg, border_color, draw_bw)
         };
         let (border_color, draw_bw) = if self.error_text.is_some() {
