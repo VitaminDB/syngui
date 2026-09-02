@@ -992,10 +992,12 @@ impl DocumentEditorElement {
                 }
             }
             DocOp::TurnInto(action) => {
-                if self.caret().is_none() {
+                // У фигуры каретки нет — она выбрана как объект; уводить
+                // каретку в последний блок в этом случае нельзя.
+                if self.caret().is_none() && self.object_sel.is_none() {
                     self.caret_to_last_block();
                 }
-                if self.caret().is_none() {
+                if self.caret().is_none() && self.object_sel.is_none() {
                     return;
                 }
                 self.checkpoint(EditClass::Structure);
@@ -1006,12 +1008,12 @@ impl DocumentEditorElement {
                     self.insert_free_block(action, at);
                     return;
                 }
-                if self.caret().is_none() {
+                if self.caret().is_none() && self.object_sel.is_none() {
                     self.caret_to_last_block();
                 }
                 self.checkpoint(EditClass::Structure);
                 let before = self.top_ids();
-                let anchor = self.caret().map(|c| c.block);
+                let anchor = self.caret().map(|c| c.block).or(self.object_sel);
                 let target = {
                     let mut model = self.model();
                     let reuse = anchor.and_then(|id| {
@@ -1321,8 +1323,19 @@ impl DocumentEditorElement {
         self.after_edit();
     }
 
+    /// Блок, над которым работают операции меню: под кареткой либо
+    /// выбранный объект (у фигуры каретки нет).
+    fn target_block(&self) -> Option<(super::model::BlockId, usize)> {
+        match self.caret() {
+            Some(pos) => Some((pos.block, pos.offset)),
+            None => self.current_block().map(|id| (id, 0)),
+        }
+    }
+
     fn duplicate_current(&mut self) {
-        let Some(pos) = self.caret() else { return };
+        let Some(pos) = self.target_block().map(|(block, offset)| CaretPos { block, offset }) else {
+            return;
+        };
         self.checkpoint(EditClass::Structure);
         let new_id = {
             let mut model = self.model();
@@ -1359,7 +1372,9 @@ impl DocumentEditorElement {
     }
 
     fn delete_current(&mut self) {
-        let Some(pos) = self.caret() else { return };
+        let Some(pos) = self.target_block().map(|(block, offset)| CaretPos { block, offset }) else {
+            return;
+        };
         self.checkpoint(EditClass::Structure);
         let next = {
             let mut model = self.model();
@@ -1391,7 +1406,9 @@ impl DocumentEditorElement {
     }
 
     fn move_current(&mut self, down: bool) {
-        let Some(pos) = self.caret() else { return };
+        let Some(pos) = self.target_block().map(|(block, offset)| CaretPos { block, offset }) else {
+            return;
+        };
         self.checkpoint(EditClass::Structure);
         // В свободной раскладке перестановка соседей ничего не меняет
         // визуально — двигаем блок по холсту на шаг сетки.
@@ -2562,8 +2579,11 @@ impl DocumentEditorElement {
             // Хваталки размера у блока с явной высотой и концы линии —
             // и под курсором, и у выбранного (фигуру часто настраивают
             // из панели свойств, курсор при этом далеко).
+            // Порядок важен: хит-зоны пишутся в общий реестр, и последним
+            // должен оказаться блок под курсором — иначе его хваталки
+            // перекрывал бы выбранный блок где-то в другом углу холста.
             let focus = self.current_block().and_then(|id| self.top_level_of(id));
-            for block in [self.hover_block, focus].into_iter().flatten() {
+            for block in [focus, self.hover_block].into_iter().flatten() {
                 if let Some(rect) = self.resize_v_rect(block) {
                     list.push_rect(
                         Rect::new(
