@@ -879,6 +879,7 @@ impl DocumentEditorElement {
                     self.caret_to_last_block();
                 }
                 self.checkpoint(EditClass::Structure);
+                let before = self.top_ids();
                 let anchor = self.caret().map(|c| c.block);
                 let target = {
                     let mut model = self.model();
@@ -916,7 +917,11 @@ impl DocumentEditorElement {
                     }
                     self.selection = Some(DocSelection::caret(CaretPos { block: id, offset: 0 }));
                     self.table_caret = None;
+                    self.code_caret = None;
                     self.apply_action(action);
+                    if self.layout.free {
+                        self.settle_inserted(&before, None, anchor.or(Some(id)));
+                    }
                 }
             }
             DocOp::Duplicate => self.duplicate_current(),
@@ -939,9 +944,93 @@ impl DocumentEditorElement {
     /// Вставка распарсенного фрагмента после блока каретки; пустой
     /// параграф под кареткой заменяется. Каретка — в первый текстовый
     /// блок фрагмента.
+    fn top_ids(&self) -> Vec<super::model::BlockId> {
+        self.model().blocks.iter().map(|b| b.id).collect()
+    }
+
+    fn is_empty_paragraph(&self, id: super::model::BlockId) -> bool {
+        let model = self.model();
+        model
+            .blocks
+            .iter()
+            .find(|b| b.id == id)
+            .map(|b| matches!(&b.kind, BlockKind::Paragraph(t) if t.text().is_empty()))
+            .unwrap_or(false)
+    }
+
+    fn remove_top_block(&mut self, id: super::model::BlockId) {
+        self.model().blocks.retain(|b| b.id != id);
+    }
+
+    /// Каретка внутрь только что вставленного блока — в его собственном
+    /// режиме (таблица и код своих текстовых строк документа не имеют).
+    fn caret_into(&mut self, id: super::model::BlockId) {
+        let kind = {
+            let model = self.model();
+            model.blocks.iter().find(|b| b.id == id).map(|b| match &b.kind {
+                BlockKind::Table { .. } => 1u8,
+                BlockKind::CodeBlock { .. } => 2,
+                k if k.text().is_some() => 3,
+                _ => 0,
+            })
+        };
+        self.selection = None;
+        self.table_caret = None;
+        self.code_caret = None;
+        match kind {
+            Some(1) => self.table_caret = Some(TableCaret { block: id, row: 0, col: 0, offset: 0 }),
+            Some(2) => self.code_caret = Some(CodeCaret { block: id, offset: 0 }),
+            Some(3) => {
+                self.selection = Some(DocSelection::caret(CaretPos { block: id, offset: 0 }))
+            }
+            _ => {}
+        }
+    }
+
+    /// Разложить блоки, появившиеся от действия вставки: первый — в точку
+    /// (или под якорь), остальные — лесенкой под ним.
+    ///
+    /// Действие могло не превратить блок-каркас, а **добавить свой рядом**
+    /// (так делает таблица, и так же код добавляет параграф следом) — тогда
+    /// координаты остались бы на пустом каркасе, а сама таблица уехала бы в
+    /// колонку потока в углу холста.
+    fn settle_inserted(
+        &mut self,
+        before: &[super::model::BlockId],
+        at: Option<Point>,
+        anchor: Option<super::model::BlockId>,
+    ) {
+        let mut fresh: Vec<super::model::BlockId> =
+            self.top_ids().into_iter().filter(|id| !before.contains(id)).collect();
+        // Пустые параграфы вокруг — служебные: свой каркас до действия и
+        // «строка после» от шорткатов кода и разделителя. Если действие
+        // дало настоящий блок, они только мусорят на холсте.
+        if fresh.iter().any(|id| !self.is_empty_paragraph(*id)) {
+            let junk: Vec<super::model::BlockId> =
+                fresh.iter().copied().filter(|id| self.is_empty_paragraph(*id)).collect();
+            for id in &junk {
+                self.remove_top_block(*id);
+            }
+            fresh.retain(|id| !junk.contains(id));
+        }
+        let Some(&first) = fresh.first() else { return };
+        match (at, anchor) {
+            (Some(at), _) => self.place_free_block(first, at),
+            (None, Some(anchor)) => self.pin_below(anchor, first),
+            _ => {}
+        }
+        let mut prev = first;
+        for id in fresh.iter().skip(1) {
+            self.pin_below(prev, *id);
+            prev = *id;
+        }
+        self.caret_into(first);
+    }
+
     /// Новый блок в точке холста: верхним уровнем, с кареткой внутри.
     fn insert_free_block(&mut self, action: SlashAction, at: Point) {
         self.checkpoint(EditClass::Structure);
+        let before = self.top_ids();
         let id = {
             let mut model = self.model();
             let id = model.alloc_id();
@@ -951,7 +1040,10 @@ impl DocumentEditorElement {
         self.place_free_block(id, at);
         self.selection = Some(DocSelection::caret(CaretPos { block: id, offset: 0 }));
         self.table_caret = None;
+        self.code_caret = None;
         self.apply_action(action);
+        self.settle_inserted(&before, Some(at), None);
+        self.after_edit();
     }
 
     /// Markdown-фрагмент в точке холста (врезки базы/канваса из меню).

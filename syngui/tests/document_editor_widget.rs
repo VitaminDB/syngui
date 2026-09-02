@@ -9,7 +9,8 @@ use syngui::render::DisplayList;
 use syngui::testing::TestHarness;
 use syngui::widget::context::TextMeasure;
 use syngui::widgets::input::document_editor::{
-    parse_document, BlockKind, DocGrid, DocLayout, DocumentEditor, DocumentEditorHandle,
+    parse_document, BlockKind, DocGrid, DocLayout, DocOp, DocumentEditor, DocumentEditorHandle,
+    SlashAction,
 };
 
 /// Моноширинная метрика: 10px на символ.
@@ -818,4 +819,56 @@ fn empty_callout_has_an_editable_row() {
         "заголовок выноски не редактируется:\n{}",
         handle.serialize()
     );
+}
+
+/// Вставка правым кликом ставит в точку **сам блок**, а не пустой каркас:
+/// таблица и код добавляют собственный блок рядом, и координаты должны
+/// достаться ему.
+#[test]
+fn context_insert_pins_the_real_block() {
+    for (action, expect) in [
+        (SlashAction::Table, "|"),
+        (SlashAction::CodeBlock, "```"),
+        (SlashAction::Todo, "- [ ]"),
+    ] {
+        let handle = DocumentEditorHandle::new();
+        let layout = DocLayout { free: true, snap: true, snap_step: 5.0, ..DocLayout::default() };
+        let widget = |epoch: u64, handle: &DocumentEditorHandle| -> Box<dyn syngui::widget::Widget> {
+            Box::new(
+                DocumentEditor::new()
+                    .markdown("Текст\n")
+                    .handle(handle)
+                    .layout(layout)
+                    .model_epoch(epoch)
+                    .on_context_menu(|_| {}),
+            )
+        };
+        let mut h = TestHarness::new(widget(0, &handle));
+        h.tree.text_measure = Some(Arc::new(Mono));
+        h.rebuild();
+        h.layout(900.0, 700.0);
+
+        // Правый клик в пустое место → операция вставки из меню хоста.
+        let at = Point::new(300.0, 400.0);
+        h.send_event(&Event::MouseDown { button: MouseButton::Right, position: at });
+        handle.queue_op(DocOp::InsertBlock(action.clone()));
+        h.update_widget(widget(1, &handle));
+        settle(&mut h);
+
+        let md = handle.serialize();
+        assert!(md.contains(expect), "{action:?}: блок не вставился:\n{md}");
+        let geom: Vec<&str> = md
+            .lines()
+            .skip_while(|l| !l.starts_with("```doc-layout"))
+            .skip(1)
+            .take_while(|l| !l.starts_with("```"))
+            .collect();
+        assert_eq!(geom.len(), 1, "{action:?}: закреплён не ровно один блок:\n{md}");
+        let coords: Vec<f32> =
+            geom[0].split_whitespace().skip(1).filter_map(|t| t.parse().ok()).collect();
+        assert!(
+            (coords[0] - 300.0).abs() < 40.0 && (coords[1] - 400.0).abs() < 40.0,
+            "{action:?}: блок встал не в точку клика: {coords:?}\n{md}"
+        );
+    }
 }
