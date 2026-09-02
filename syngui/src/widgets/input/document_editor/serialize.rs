@@ -47,6 +47,14 @@ fn inline_attrs(attrs: &Attrs) -> Attrs {
 
 /// Список блоков → строки. Между соседними элементами списка пустой строки
 /// нет (иначе pulldown делает список loose), между остальными блоками — есть.
+/// Markdown одного блока с детьми, без служебного хвоста раскладки:
+/// координаты и размеры блока переносить некуда.
+pub fn block_markdown(block: &DocBlock) -> String {
+    let mut out = blocks_to_lines(std::slice::from_ref(block)).join("\n");
+    out.push('\n');
+    out
+}
+
 fn blocks_to_lines(blocks: &[DocBlock]) -> Vec<String> {
     let mut out = Vec::new();
     let mut prev_is_item = false;

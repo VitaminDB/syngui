@@ -74,6 +74,11 @@ pub enum DocOp {
     SetAttr { block: super::model::BlockId, key: String, value: Option<String> },
     /// Строки и колонки таблицы.
     Table { block: super::model::BlockId, op: TableOp },
+    /// Удалить блок по id (хост забрал его — например, в карточку доски).
+    DeleteBlock(super::model::BlockId),
+    /// Вставить markdown в точку: на холст свободной раскладки — ровно в
+    /// неё, в потоке — у блока под точкой (дроп извне).
+    InsertMarkdownAt { at: Point, md: String },
 }
 
 /// Снимок свойств блока для панели хоста.
@@ -164,6 +169,14 @@ impl DocumentEditorHandle {
             },
             attrs: b.attrs.clone(),
         })
+    }
+
+    /// Markdown одного верхнеуровневого блока (без геометрии раскладки) —
+    /// для переноса блока в карточку доски.
+    pub fn block_markdown(&self, id: super::model::BlockId) -> Option<String> {
+        let model = lock(&self.model);
+        let b = model.blocks.iter().find(|b| b.id == id)?;
+        Some(super::serialize::block_markdown(b))
     }
 
     /// Отпечаток исходника, из которого загружена модель ручки.
@@ -288,6 +301,17 @@ pub struct DocumentEditor {
     on_context_menu: Option<Arc<dyn Fn(Point) + Send + Sync>>,
     layout: DocLayout,
     fill_height: bool,
+    /// Получить фокус сразу после создания (правка карточки на месте).
+    autofocus: bool,
+    /// Фокус ушёл (клик где угодно ещё) — хост закрывает правку.
+    on_focus_lost: Option<Arc<dyn Fn() + Send + Sync>>,
+    /// Блок отпущен после перетаскивания за ⋮⋮ в точке: хост может забрать
+    /// его себе (в карточку доски) — тогда возвращает `true`, и блок
+    /// удаляется из документа.
+    on_block_drop: Option<Arc<dyn Fn(Point, super::model::BlockId) -> bool + Send + Sync>>,
+    /// Дроп не-файла (карточка доски и т.п.) на документ: хост решает, что
+    /// вставить; `true` — принято.
+    on_drop_data: Option<Arc<dyn Fn(Point, &crate::input::DragData) -> bool + Send + Sync>>,
 }
 
 impl DocumentEditor {
@@ -306,6 +330,10 @@ impl DocumentEditor {
             embed_ctx: EmbedCtx::default(),
             model_epoch: 0,
             on_drop_file: None,
+            autofocus: false,
+            on_focus_lost: None,
+            on_block_drop: None,
+            on_drop_data: None,
             on_context_menu: None,
             layout: DocLayout::default(),
             fill_height: false,
@@ -321,6 +349,38 @@ impl DocumentEditor {
 
     /// Держать высоту не меньше видимой области: клик и правый клик ниже
     /// последнего блока попадают в редактор, а не в пустоту скроллера.
+    /// Фокус (и каретка в первый блок) сразу после создания.
+    pub fn autofocus(mut self, on: bool) -> Self {
+        self.autofocus = on;
+        self
+    }
+
+    /// Редактор потерял фокус: клик по другому вводу или по пустому месту.
+    pub fn on_focus_lost(mut self, f: impl Fn() + Send + Sync + 'static) -> Self {
+        self.on_focus_lost = Some(Arc::new(f));
+        self
+    }
+
+    /// Блок отпущен после переноса за ⋮⋮ в точке `Point`: верните `true`,
+    /// если забрали его (он удалится из документа), иначе блок ляжет как
+    /// обычно.
+    pub fn on_block_drop(
+        mut self,
+        f: impl Fn(Point, super::model::BlockId) -> bool + Send + Sync + 'static,
+    ) -> Self {
+        self.on_block_drop = Some(Arc::new(f));
+        self
+    }
+
+    /// Дроп данных перетаскивания (не файла) на документ.
+    pub fn on_drop_data(
+        mut self,
+        f: impl Fn(Point, &crate::input::DragData) -> bool + Send + Sync + 'static,
+    ) -> Self {
+        self.on_drop_data = Some(Arc::new(f));
+        self
+    }
+
     pub fn fill_height(mut self, fill: bool) -> Self {
         self.fill_height = fill;
         self
@@ -468,7 +528,6 @@ impl Widget for DocumentEditor {
             selected: self.handle.as_ref().map(|h| h.selected),
             table_caret: None,
             tm: None,
-            focused: false,
             selection: None,
             mouse_selecting: false,
             goal_x: None,
@@ -490,6 +549,12 @@ impl Widget for DocumentEditor {
             embed_ctx: self.embed_ctx.clone(),
             model_epoch: self.model_epoch,
             on_drop_file: self.on_drop_file.clone(),
+            autofocus: self.autofocus,
+            focus_request_pending: self.autofocus,
+            focused: self.autofocus,
+            on_focus_lost: self.on_focus_lost.clone(),
+            on_block_drop: self.on_block_drop.clone(),
+            on_drop_data: self.on_drop_data.clone(),
             on_context_menu: self.on_context_menu.clone(),
             ops: self.handle.as_ref().map(|h| h.ops.clone()).unwrap_or_default(),
             wiki: None,
@@ -521,6 +586,11 @@ impl Widget for DocumentEditor {
 }
 
 pub struct DocumentEditorElement {
+    autofocus: bool,
+    focus_request_pending: bool,
+    on_focus_lost: Option<Arc<dyn Fn() + Send + Sync>>,
+    on_block_drop: Option<Arc<dyn Fn(Point, super::model::BlockId) -> bool + Send + Sync>>,
+    on_drop_data: Option<Arc<dyn Fn(Point, &crate::input::DragData) -> bool + Send + Sync>>,
     id: ElementId,
     bounds: Rect,
     dirty: DirtyFlags,
@@ -1065,6 +1135,8 @@ impl DocumentEditorElement {
             }
             DocOp::Duplicate => self.duplicate_current(),
             DocOp::Delete => self.delete_current(),
+            DocOp::DeleteBlock(id) => self.delete_block(id),
+            DocOp::InsertMarkdownAt { at: point, md } => self.insert_markdown_at_point(&md, point),
             DocOp::Move { down } => self.move_current(down),
             DocOp::Select(id) => self.select_block(id),
             DocOp::SetAttr { block, key, value } => {
@@ -1375,6 +1447,70 @@ impl DocumentEditorElement {
         self.selection =
             Some(DocSelection::caret(CaretPos { block: new_id, offset: pos.offset.min(len) }));
         self.after_edit();
+    }
+
+    /// Хост забирает блок себе (дроп в карточку доски): `true` — блок
+    /// удалён из документа.
+    fn host_took_block(&mut self, at: Point, block: super::model::BlockId) -> bool {
+        let Some(cb) = self.on_block_drop.clone() else { return false };
+        let Some(top) = self.top_level_of(block) else { return false };
+        if !cb(at, top) {
+            return false;
+        }
+        self.delete_block(top);
+        true
+    }
+
+    /// Удалить блок по id; последний блок документа заменяется пустым
+    /// параграфом. Каретка и выбор, стоявшие в нём, снимаются.
+    fn delete_block(&mut self, id: super::model::BlockId) {
+        self.checkpoint(EditClass::Structure);
+        let removed = {
+            let mut model = self.model();
+            let removed = edit::with_siblings(&mut model.blocks, id, &mut |sibs, idx| {
+                sibs.remove(idx);
+            })
+            .is_some();
+            if removed && model.blocks.is_empty() {
+                let nid = model.alloc_id();
+                model.blocks.push(DocBlock::new(nid, BlockKind::Paragraph(InlineText::default())));
+            }
+            removed
+        };
+        if !removed {
+            self.history.discard_last_checkpoint();
+            return;
+        }
+        if self.selection.as_ref().map(|s| s.head.block == id || s.anchor.block == id).unwrap_or(false) {
+            self.selection = None;
+        }
+        if self.table_caret.as_ref().map(|t| t.block == id).unwrap_or(false) {
+            self.table_caret = None;
+        }
+        if self.code_caret.as_ref().map(|c| c.block == id).unwrap_or(false) {
+            self.code_caret = None;
+        }
+        if self.object_sel == Some(id) {
+            self.object_sel = None;
+        }
+        self.after_edit();
+    }
+
+    /// Вставка markdown в точку: на холсте — ровно туда, в потоке — у блока
+    /// под точкой (без него — в конец).
+    fn insert_markdown_at_point(&mut self, md: &str, at: Point) {
+        if self.layout.free {
+            self.insert_free_markdown(md, at);
+            return;
+        }
+        match self.hit_caret(at) {
+            Some(pos) => self.selection = Some(DocSelection::caret(pos)),
+            None => self.caret_to_last_block(),
+        }
+        self.table_caret = None;
+        self.code_caret = None;
+        self.object_sel = None;
+        self.insert_markdown_at_caret(md);
     }
 
     fn delete_current(&mut self) {
@@ -3610,6 +3746,14 @@ impl Element for DocumentEditorElement {
         self.embeds = w.embeds.clone();
         self.embed_ctx = w.embed_ctx.clone();
         self.on_drop_file = w.on_drop_file.clone();
+        self.on_focus_lost = w.on_focus_lost.clone();
+        self.on_block_drop = w.on_block_drop.clone();
+        self.on_drop_data = w.on_drop_data.clone();
+        if w.autofocus && !self.autofocus {
+            self.focus_request_pending = true;
+            self.focused = true;
+        }
+        self.autofocus = w.autofocus;
         self.on_context_menu = w.on_context_menu.clone();
         self.fill_height = w.fill_height;
         if self.layout != w.layout {
@@ -3655,6 +3799,18 @@ impl Element for DocumentEditorElement {
             self.rebuild = true;
             self.mark_dirty(DirtyFlags::LAYOUT | DirtyFlags::RENDER);
             ctx.mark_layout_dirty();
+        }
+        if self.autofocus && self.focused && self.selection.is_none()
+            && self.table_caret.is_none() && self.code_caret.is_none() && self.object_sel.is_none()
+        {
+            // Автофокус: каретка в начало первого блока, чтобы можно было
+            // сразу печатать (правка карточки на месте).
+            let first = self.model().blocks.first().map(|b| (b.id, b.kind.text().is_some()));
+            if let Some((id, true)) = first {
+                self.selection = Some(DocSelection::caret(CaretPos { block: id, offset: 0 }));
+                self.caret_on = true;
+                self.blink_ms = 0.0;
+            }
         }
         self.apply_pending_ops(ctx);
     }
@@ -4165,8 +4321,16 @@ impl Element for DocumentEditorElement {
                 }
                 EventResult::Ignored
             }
-            Event::MouseUp { button: MouseButton::Left, .. } => {
-                if let Some(_drag) = self.free_drag.take() {
+            Event::MouseUp { button: MouseButton::Left, position } => {
+                if let Some(drag) = self.free_drag.take() {
+                    // Перенос за ⋮⋮ мог закончиться над карточкой доски —
+                    // тогда блок забирает хост.
+                    if drag.mode == FreeDragMode::Move
+                        && drag.moved
+                        && self.host_took_block(*position, drag.block)
+                    {
+                        return EventResult::Handled;
+                    }
                     // Даже без движения блок мог только что закрепиться —
                     // это правка модели, её надо сохранить.
                     self.after_edit();
@@ -4174,6 +4338,10 @@ impl Element for DocumentEditorElement {
                 }
                 if let Some(drag) = self.drag.take() {
                     if drag.started {
+                        if self.host_took_block(*position, drag.block) {
+                            self.mark_dirty(DirtyFlags::RENDER);
+                            return EventResult::Handled;
+                        }
                         if let Some((target, before)) = drag.target {
                             self.checkpoint(EditClass::Structure);
                             let moved = {
@@ -4197,11 +4365,14 @@ impl Element for DocumentEditorElement {
                 EventResult::Ignored
             }
             Event::Drop { position, data } => {
-                if self.read_only || data.drag_type != crate::input::DragData::TYPE_FILE {
+                if self.read_only || !self.bounds.contains(*position) {
                     return EventResult::Ignored;
                 }
-                if !self.bounds.contains(*position) {
-                    return EventResult::Ignored;
+                if data.drag_type != crate::input::DragData::TYPE_FILE {
+                    let Some(cb) = self.on_drop_data.clone() else {
+                        return EventResult::Ignored;
+                    };
+                    return if cb(*position, data) { EventResult::Handled } else { EventResult::Ignored };
                 }
                 let Some(cb) = self.on_drop_file.clone() else {
                     return EventResult::Ignored;
@@ -4561,12 +4732,22 @@ impl Element for DocumentEditorElement {
                 }
                 EventResult::Handled
             }
+            Event::FocusGained => {
+                if !self.focused && !self.read_only {
+                    self.focused = true;
+                    self.mark_dirty(DirtyFlags::RENDER);
+                }
+                EventResult::Ignored
+            }
             Event::FocusLost => {
                 if self.focused {
                     self.focused = false;
                     self.mouse_selecting = false;
                     self.preedit = None;
                     self.mark_dirty(DirtyFlags::RENDER);
+                    if let Some(cb) = self.on_focus_lost.clone() {
+                        cb();
+                    }
                 }
                 EventResult::Ignored
             }
@@ -4606,6 +4787,24 @@ impl Element for DocumentEditorElement {
 
     fn element_type_name(&self) -> &str {
         "document-editor"
+    }
+
+    fn take_focus_request(&mut self) -> bool {
+        std::mem::take(&mut self.focus_request_pending)
+    }
+
+    /// Роль текстового поля: так приложение переводит фокус на редактор
+    /// по клику и шлёт прежнему вводу `FocusLost` — без этого правка
+    /// карточки доски не закрывалась бы кликом мимо неё.
+    fn accessibility_info(&self) -> Option<crate::a11y::AccessibilityInfo> {
+        if self.read_only {
+            return None;
+        }
+        Some(crate::a11y::AccessibilityInfo {
+            role: crate::a11y::Role::TextField,
+            state: crate::a11y::NodeState { focused: self.focused, ..Default::default() },
+            properties: crate::a11y::NodeProperties::default(),
+        })
     }
 
     fn apply_computed_style(&mut self, style: &ComputedStyle) {
