@@ -18,6 +18,9 @@ use crate::render::DisplayList;
 use crate::widget::context::{EventContext, UpdateContext};
 use crate::widget::{DirtyFlags, Element, ElementId, ElementTree, LayoutHint, Widget};
 
+use super::model::BlockId;
+use super::state::BlockRectMap;
+
 pub struct Chrome {
     children: Vec<Box<dyn Widget>>,
     gap: f32,
@@ -31,6 +34,10 @@ pub struct Chrome {
     fixed_width: Option<f32>,
     /// Бездетная распорка холста: минимальный размер (не меньше вьюпорта).
     extent: Option<(f32, f32)>,
+    /// Центрировать детей по поперечной оси (колонка потока).
+    center: bool,
+    /// Публиковать свой прямоугольник как геометрию блока.
+    track: Option<(BlockId, BlockRectMap)>,
 }
 
 impl Chrome {
@@ -45,7 +52,23 @@ impl Chrome {
             absolute: None,
             fixed_width: None,
             extent: None,
+            center: false,
+            track: None,
         }
+    }
+
+    /// Публиковать свои границы как прямоугольник блока (ручка ⋮⋮, цель
+    /// дропа, координаты при переносе).
+    pub fn track(mut self, id: BlockId, map: BlockRectMap) -> Self {
+        self.track = Some((id, map));
+        self
+    }
+
+    /// Колонка потока внутри свободной раскладки: центрируется так же,
+    /// как корневая колонка редактора (листья сами жмут ширину).
+    pub fn center(mut self, center: bool) -> Self {
+        self.center = center;
+        self
     }
 
     /// Разместить блок в точке холста (свободная раскладка).
@@ -117,6 +140,8 @@ impl Widget for Chrome {
             absolute: self.absolute,
             fixed_width: self.fixed_width,
             extent: self.extent,
+            center: self.center,
+            track: self.track.clone(),
         })
     }
 
@@ -158,6 +183,8 @@ pub struct ChromeElement {
     absolute: Option<(f32, f32)>,
     fixed_width: Option<f32>,
     extent: Option<(f32, f32)>,
+    center: bool,
+    track: Option<(BlockId, BlockRectMap)>,
 }
 
 impl Element for ChromeElement {
@@ -167,7 +194,8 @@ impl Element for ChromeElement {
             || self.padding != w.padding
             || self.absolute != w.absolute
             || self.fixed_width != w.fixed_width
-            || self.extent != w.extent;
+            || self.extent != w.extent
+            || self.center != w.center;
         self.gap = w.gap;
         self.padding = w.padding;
         self.bg = w.bg;
@@ -176,6 +204,8 @@ impl Element for ChromeElement {
         self.absolute = w.absolute;
         self.fixed_width = w.fixed_width;
         self.extent = w.extent;
+        self.center = w.center;
+        self.track = w.track.clone();
         self.mark_dirty(DirtyFlags::RENDER);
         if layout_changed {
             self.mark_dirty(DirtyFlags::LAYOUT);
@@ -224,7 +254,11 @@ impl Element for ChromeElement {
         }
         LayoutHint::Column {
             gap: self.gap,
-            cross_align: CrossAxisAlignment::Stretch,
+            cross_align: if self.center {
+                CrossAxisAlignment::Center
+            } else {
+                CrossAxisAlignment::Stretch
+            },
             main_align: MainAxisAlignment::Start,
             padding_left: self.padding[0],
             padding_top: self.padding[1],
@@ -272,6 +306,12 @@ impl Element for ChromeElement {
     }
     fn set_position(&mut self, pos: Point) {
         self.bounds.origin = pos;
+        // Размер уже посчитан — публикуем прямоугольник блока целиком.
+        if let Some((id, map)) = &self.track {
+            if let Ok(mut m) = map.lock() {
+                m.insert(*id, self.bounds);
+            }
+        }
     }
     fn children(&self) -> &[ElementId] {
         &[]

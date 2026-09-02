@@ -627,9 +627,10 @@ fn free_layout_positions_blocks_by_coordinates() {
     );
 }
 
-/// Переход в свободную раскладку замораживает текущие места блоков.
+/// Свободная раскладка не двигает то, чего не двигали: блок без координат
+/// остаётся в колонке потока, координаты появляются только при переносе.
 #[test]
-fn switching_to_free_layout_freezes_flow_positions() {
+fn free_layout_keeps_untouched_blocks_in_flow() {
     let handle = DocumentEditorHandle::new();
     let mut h = TestHarness::new(Box::new(
         DocumentEditor::new().markdown("Раз\n\nДва\n").handle(&handle),
@@ -654,5 +655,56 @@ fn switching_to_free_layout_freezes_flow_positions() {
         flow_second.origin,
         free_second.origin
     );
-    assert!(handle.serialize().contains("doc-layout"), "координаты не записались");
+    assert!(
+        !handle.serialize().contains("doc-layout"),
+        "нетронутый блок не должен получать координаты:\n{}",
+        handle.serialize()
+    );
+}
+
+/// Перенос за ручку ⋮⋮ закрепляет блок на холсте с привязкой к шагу.
+#[test]
+fn dragging_by_the_handle_pins_the_block() {
+    let handle = DocumentEditorHandle::new();
+    let layout = DocLayout { free: true, snap: true, snap_step: 5.0, ..DocLayout::default() };
+    let mut h = TestHarness::new(Box::new(
+        DocumentEditor::new().markdown("Раз\n\nДва\n").handle(&handle).layout(layout),
+    ));
+    h.tree.text_measure = Some(Arc::new(Mono));
+    h.rebuild();
+    h.layout(800.0, 600.0);
+
+    // Фокус и наведение — ручка рисуется только у блока под курсором.
+    let row = h.element_bounds(h.find_by_type_name("doc-text-row")[1]);
+    let inside = Point::new(row.origin.x + 5.0, row.origin.y + 5.0);
+    h.send_event(&Event::MouseDown { button: MouseButton::Left, position: inside });
+    h.send_event(&Event::MouseUp { button: MouseButton::Left, position: inside });
+    h.send_event(&Event::MouseMove(inside));
+    let mut list = DisplayList::new();
+    h.tree.build_display_list(
+        h.root_id,
+        &mut list,
+        Rect::new(Point::zero(), Size::new(800.0, 600.0)),
+    );
+
+    let grip = Point::new(row.origin.x - 14.0, row.origin.y + 8.0);
+    h.send_event(&Event::MouseDown { button: MouseButton::Left, position: grip });
+    h.send_event(&Event::MouseMove(Point::new(grip.x + 103.0, grip.y + 47.0)));
+    h.send_event(&Event::MouseUp { button: MouseButton::Left, position: grip });
+    settle(&mut h);
+
+    let md = handle.serialize();
+    assert!(md.contains("doc-layout"), "перенос не закрепил блок:\n{md}");
+    let coords: Vec<f32> = md
+        .lines()
+        .find(|l| l.starts_with("1 "))
+        .expect("координаты второго блока")
+        .split_whitespace()
+        .skip(1)
+        .filter_map(|t| t.parse().ok())
+        .collect();
+    assert!(coords.len() >= 2, "строка геометрии неполная:\n{md}");
+    for v in &coords[..2] {
+        assert!((v % 5.0).abs() < 0.01, "координата не по шагу привязки: {v} в\n{md}");
+    }
 }

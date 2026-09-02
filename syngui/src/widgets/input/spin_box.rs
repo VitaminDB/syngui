@@ -8,8 +8,13 @@ use crate::widget::context::{EventContext, EventContextExt};
 use crate::widget::{DirtyFlags, Element, ElementId, ElementTree, StyledElement, UpdateContext, Widget};
 use std::any::Any;
 use std::sync::Arc;
+use std::sync::atomic::{AtomicU64, Ordering};
 use std::time::Duration;
 use crate::core::sync::Mutex;
+
+/// Id поля, которое сейчас правят с клавиатуры (0 — никто). Правка — это
+/// состояние на всё приложение: одновременно мигающих кареток быть не должно.
+static ACTIVE_EDITOR: AtomicU64 = AtomicU64::new(0);
 
 const DEFAULT_BUTTON_WIDTH: f32 = 28.0;
 const DEFAULT_HEIGHT: f32 = 40.0;
@@ -252,11 +257,22 @@ impl SpinBoxElement {
         self.edit_text = self.formatted_value();
         self.edit_cursor = self.edit_text.len();
         self.cursor_blink = 0.0;
+        ACTIVE_EDITOR.store(self.id.0, Ordering::Relaxed);
+    }
+
+    fn release_editor_slot(&self) {
+        let _ = ACTIVE_EDITOR.compare_exchange(
+            self.id.0,
+            0,
+            Ordering::Relaxed,
+            Ordering::Relaxed,
+        );
     }
 
     fn commit_editing(&mut self) {
         if self.editing {
             self.editing = false;
+            self.release_editor_slot();
             if let Ok(v) = self.edit_text.parse::<f64>() {
                 self.set_value(v);
             }
@@ -265,6 +281,7 @@ impl SpinBoxElement {
 
     fn cancel_editing(&mut self) {
         self.editing = false;
+        self.release_editor_slot();
     }
 
     fn cursor_byte_pos(&self) -> usize {
@@ -594,6 +611,14 @@ impl Element for SpinBoxElement {
         }
 
         if self.editing {
+            // Клик в соседний SpinBox сюда не приходит (позиционная
+            // доставка), а `FocusLost` полю с ролью Slider не шлют — без
+            // этой проверки в панели одновременно мигали две каретки.
+            if ACTIVE_EDITOR.load(Ordering::Relaxed) != self.id.0 {
+                self.commit_editing();
+                self.mark_dirty(DirtyFlags::RENDER);
+                return needs_anim;
+            }
             self.cursor_blink += dt_secs;
             self.mark_dirty(DirtyFlags::RENDER);
             needs_anim = true;

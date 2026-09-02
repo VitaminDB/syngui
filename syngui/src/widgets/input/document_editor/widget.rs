@@ -10,13 +10,13 @@
 
 use std::any::Any;
 use std::collections::hash_map::DefaultHasher;
-use std::collections::{HashMap, HashSet};
+use std::collections::HashSet;
 use std::hash::{Hash, Hasher};
 use std::sync::{Arc, Mutex, MutexGuard};
 use std::time::Duration;
 
 use crate::core::{Point, Rect, Size};
-use crate::input::{Event, EventResult, Key, MouseButton};
+use crate::input::{CursorIcon, Event, EventResult, Key, MouseButton};
 use crate::layout::{Constraints, CrossAxisAlignment, MainAxisAlignment};
 use crate::mss::{ComputedStyle, TextAlign, TextDecoration};
 use crate::render::DisplayList;
@@ -37,8 +37,8 @@ use super::slash::{default_items, filter_items, SlashAction, SlashItem, SlashSta
 use super::parse::parse_document;
 use super::serialize::serialize_document;
 use super::state::{
-    gutter_action, new_geom_map, new_table_geom_map, BlockOrder, CaretPos, DocSelection, GeomMap,
-    GutterAction, RowGeom, TableCaret, TableGeom, TableGeomMap,
+    gutter_action, new_block_rect_map, new_geom_map, new_table_geom_map, BlockOrder, BlockRectMap,
+    CaretPos, DocSelection, GeomMap, GutterAction, RowGeom, TableCaret, TableGeom, TableGeomMap,
 };
 use super::free::{self, DocGrid, DocLayout};
 use super::style::DocStyle;
@@ -387,6 +387,7 @@ impl Widget for DocumentEditor {
             read_only: self.read_only,
             rebuild: true,
             geom: new_geom_map(),
+            blocks: new_block_rect_map(),
             tables: new_table_geom_map(),
             table_caret: None,
             tm: None,
@@ -453,6 +454,8 @@ pub struct DocumentEditorElement {
     read_only: bool,
     rebuild: bool,
     geom: GeomMap,
+    /// Прямоугольники верхнеуровневых блоков (публикуют обёртки Chrome).
+    blocks: BlockRectMap,
     /// Геометрия таблиц (публикуют TableBlockElement'ы).
     tables: TableGeomMap,
     /// Каретка внутри ячейки таблицы (отдельный режим от `selection`).
@@ -1206,9 +1209,6 @@ impl DocumentEditorElement {
 
     /// Фиксация правки: перестройка детей, ревизия, колбэк.
     fn after_edit(&mut self) {
-        if self.layout.free {
-            self.ensure_free_geometry();
-        }
         self.rebuild = true;
         self.mark_dirty(DirtyFlags::LAYOUT | DirtyFlags::RENDER);
         self.caret_on = true;
@@ -1658,99 +1658,6 @@ fn estimate_height(kind: &BlockKind, style: &DocStyle) -> f32 {
 // ─── Свободная раскладка ────────────────────────────────────────────────────
 
 impl DocumentEditorElement {
-    /// Прямоугольники верхнеуровневых блоков (объединение опубликованной
-    /// геометрии их поддеревьев) в экранных координатах.
-    fn subtree_rects(&self, model: &DocModel) -> HashMap<super::model::BlockId, Rect> {
-        let mut out = HashMap::new();
-        let Ok(map) = self.geom.lock() else { return out };
-        fn ids(block: &DocBlock, acc: &mut Vec<super::model::BlockId>) {
-            acc.push(block.id);
-            if let Some(children) = block.kind.children() {
-                for c in children {
-                    ids(c, acc);
-                }
-            }
-        }
-        for b in model.blocks.iter() {
-            let mut acc = Vec::new();
-            ids(b, &mut acc);
-            let mut rect: Option<Rect> = None;
-            for id in acc {
-                let Some(row) = map.get(&id) else { continue };
-                let h = row.lines.last().map(|l| l.y + row.line_h).unwrap_or(row.line_h);
-                let w = row
-                    .lines
-                    .iter()
-                    .filter_map(|l| l.segs.last())
-                    .map(|sg| sg.x + sg.width)
-                    .fold(0.0f32, f32::max)
-                    .max(row.gutter);
-                let r = Rect::new(row.origin, Size::new(w, h));
-                rect = Some(match rect {
-                    None => r,
-                    Some(prev) => union(prev, r),
-                });
-            }
-            if let Some(r) = rect {
-                out.insert(b.id, r);
-            }
-        }
-        out
-    }
-
-    /// Досыпать координаты блокам, которым их не хватает: при переходе в
-    /// свободную раскладку — из текущей потоковой геометрии, дальше —
-    /// каскадом под предыдущим блоком. Уже заданные координаты не трогаем.
-    fn ensure_free_geometry(&mut self) {
-        if !self.layout.free {
-            return;
-        }
-        let missing = {
-            let model = self.model();
-            model.blocks.iter().any(|b| free::pos_of(&b.attrs).is_none())
-        };
-        if !missing {
-            return;
-        }
-        let pad = self.style.doc_padding;
-        let spacing = self.style.block_spacing;
-        let origin = self.bounds.origin;
-        let frozen_w = self
-            .style
-            .max_content_width
-            .unwrap_or(self.layout.block_width)
-            .min((self.bounds.size.width - pad * 2.0).max(160.0));
-        let rects = {
-            let model = self.model();
-            self.subtree_rects(&model)
-        };
-        let style = self.style.clone();
-        let mut model = self.model();
-        // Курсор каскада: место под предыдущим блоком — туда встаёт блок,
-        // родившийся из Enter или вставки без явной точки.
-        let mut cursor = (pad, pad);
-        for b in model.blocks.iter_mut() {
-            let rect = rects.get(&b.id).copied();
-            let height = |b: &DocBlock| rect
-                .map(|r| r.size.height)
-                .unwrap_or_else(|| estimate_height(&b.kind, &style));
-            if let Some((x, y)) = free::pos_of(&b.attrs) {
-                cursor = (x, y + height(b) + spacing);
-                continue;
-            }
-            let (x, y) = match rect {
-                Some(r) => ((r.origin.x - origin.x).max(0.0), (r.origin.y - origin.y).max(0.0)),
-                None => cursor,
-            };
-            let h = height(b);
-            free::set_pos(&mut b.attrs, x, y);
-            if free::width_of(&b.attrs).is_none() {
-                free::set_width(&mut b.attrs, frozen_w);
-            }
-            cursor = (x, y + h + spacing);
-        }
-    }
-
     /// Поставить блок в точку холста (вставка из контекстного меню).
     fn place_free_block(&mut self, id: super::model::BlockId, at: Point) {
         let width = self.layout.block_width;
@@ -1774,22 +1681,56 @@ impl DocumentEditorElement {
         model.blocks.iter().find(|b| has(b, id)).map(|b| b.id)
     }
 
+    /// Геометрия блока на холсте: из атрибутов, а для ещё не закреплённого
+    /// блока — из его текущего места в потоке (перенос не должен прыгать).
+    fn free_geom(&self, block: super::model::BlockId) -> Option<(f32, f32, f32)> {
+        let pinned = {
+            let model = self.model();
+            let b = model.blocks.iter().find(|b| b.id == block)?;
+            free::pos_of(&b.attrs).map(|(x, y)| (x, y, free::width_of(&b.attrs)))
+        };
+        let rect = self.block_rect(block);
+        match pinned {
+            Some((x, y, w)) => Some((
+                x,
+                y,
+                w.or_else(|| rect.map(|r| r.size.width)).unwrap_or(self.layout.block_width),
+            )),
+            None => {
+                let r = rect?;
+                Some((
+                    r.origin.x - self.bounds.origin.x,
+                    r.origin.y - self.bounds.origin.y,
+                    r.size.width,
+                ))
+            }
+        }
+    }
+
+    /// Закрепить блок там, где он сейчас (первый перенос из потока).
+    fn pin_block(&mut self, block: super::model::BlockId) -> Option<(f32, f32, f32)> {
+        let geom = self.free_geom(block)?;
+        let mut model = self.model();
+        let b = model.blocks.iter_mut().find(|b| b.id == block)?;
+        free::set_pos(&mut b.attrs, geom.0, geom.1);
+        if free::width_of(&b.attrs).is_none() {
+            free::set_width(&mut b.attrs, geom.2);
+        }
+        Some(geom)
+    }
+
     /// Зона растяжения ширины блока (правая кромка) в свободной раскладке.
     fn resize_rect(&self, block: super::model::BlockId) -> Option<Rect> {
         if !self.layout.free {
             return None;
         }
-        let (x, w) = {
-            let model = self.model();
-            let b = model.blocks.iter().find(|b| b.id == block)?;
-            let (x, _) = free::pos_of(&b.attrs)?;
-            (x, free::width_of(&b.attrs).unwrap_or(self.layout.block_width))
-        };
-        let map = self.geom.lock().ok()?;
-        let row = map.get(&block)?;
-        let h = row.lines.last().map(|l| l.y + row.line_h).unwrap_or(row.line_h);
+        let (x, _, w) = self.free_geom(block)?;
+        let rect = self.block_rect(block)?;
         let left = self.bounds.origin.x + x + w - 3.0;
-        Some(Rect::new(Point::new(left, row.origin.y), Size::new(8.0, h.max(HANDLE_H))))
+        Some(Rect::new(
+            Point::new(left, rect.origin.y),
+            Size::new(8.0, rect.size.height.max(HANDLE_H)),
+        ))
     }
 
     /// Начать перенос (или растяжение) блока по холсту.
@@ -1798,14 +1739,13 @@ impl DocumentEditorElement {
             return false;
         }
         let Some(top) = self.top_level_of(block) else { return false };
-        let (pos, width) = {
-            let model = self.model();
-            let Some(b) = model.blocks.iter().find(|b| b.id == top) else { return false };
-            (free::pos_of(&b.attrs), free::width_of(&b.attrs))
-        };
-        let Some((x, y)) = pos else { return false };
-        let width = width.unwrap_or(self.layout.block_width);
         self.checkpoint(EditClass::Structure);
+        // Блок мог ещё стоять в потоке — закрепляем его ровно там, где он
+        // сейчас нарисован, иначе перенос начинался бы со скачка.
+        let Some((x, y, width)) = self.pin_block(top) else {
+            self.history.discard_last_checkpoint();
+            return false;
+        };
         self.free_drag = Some(FreeDrag {
             block: top,
             grab: Point::new(at.x - (self.bounds.origin.x + x), at.y - (self.bounds.origin.y + y)),
@@ -1932,14 +1872,6 @@ impl DocumentEditorElement {
     }
 }
 
-fn union(a: Rect, b: Rect) -> Rect {
-    let x0 = a.origin.x.min(b.origin.x);
-    let y0 = a.origin.y.min(b.origin.y);
-    let x1 = (a.origin.x + a.size.width).max(b.origin.x + b.size.width);
-    let y1 = (a.origin.y + a.size.height).max(b.origin.y + b.size.height);
-    Rect::new(Point::new(x0, y0), Size::new(x1 - x0, y1 - y0))
-}
-
 fn intersect(a: Rect, b: Rect) -> Rect {
     let x0 = a.origin.x.max(b.origin.x);
     let y0 = a.origin.y.max(b.origin.y);
@@ -1949,26 +1881,39 @@ fn intersect(a: Rect, b: Rect) -> Rect {
 }
 
 impl DocumentEditorElement {
+    /// Прямоугольник блока целиком (обёртка публикует его при раскладке).
+    fn block_rect(&self, block: super::model::BlockId) -> Option<Rect> {
+        self.blocks.lock().ok()?.get(&block).copied()
+    }
+
     /// Прямоугольник ручки ⋮⋮ для блока (слева от контента).
     fn handle_rect(&self, block: super::model::BlockId) -> Option<Rect> {
-        let map = self.geom.lock().ok()?;
-        let row = map.get(&block)?;
-        let x = (row.origin.x - HANDLE_W - 6.0).max(self.bounds.origin.x + 2.0);
-        let y = row.origin.y + (row.line_h - HANDLE_H) / 2.0;
+        let rect = self.block_rect(block)?;
+        // По первой строке блока, а не по его центру: у таблицы и кода
+        // высота в десятки строк, ручка посередине выглядит потерянной.
+        let line_h = self
+            .geom
+            .lock()
+            .ok()
+            .and_then(|m| m.get(&block).map(|r| r.line_h))
+            .unwrap_or(HANDLE_H);
+        let x = (rect.origin.x - HANDLE_W - 6.0).max(self.bounds.origin.x + 2.0);
+        let y = rect.origin.y + (line_h.min(rect.size.height) - HANDLE_H) / 2.0;
         Some(Rect::new(Point::new(x, y), Size::new(HANDLE_W, HANDLE_H)))
     }
 
-    /// Блок, чья строка содержит вертикаль точки.
+    /// Блок под курсором: тот, чей прямоугольник накрывает точку по
+    /// вертикали (полоса слева под ручку тоже считается его зоной).
     fn row_at(&self, p: Point) -> Option<super::model::BlockId> {
-        let map = self.geom.lock().ok()?;
+        let map = self.blocks.lock().ok()?;
         let mut best: Option<(f32, super::model::BlockId)> = None;
-        for (id, row) in map.iter() {
-            let height = row
-                .lines
-                .last()
-                .map(|l| l.y + row.line_h)
-                .unwrap_or(row.line_h);
-            let dy = dist(p.y, row.origin.y, row.origin.y + height);
+        for (id, rect) in map.iter() {
+            let left = rect.origin.x - HANDLE_W - 10.0;
+            let right = rect.origin.x + rect.size.width + 4.0;
+            if p.x < left || p.x > right {
+                continue;
+            }
+            let dy = dist(p.y, rect.origin.y, rect.origin.y + rect.size.height);
             if best.map(|(d, _)| dy < d).unwrap_or(true) {
                 best = Some((dy, *id));
             }
@@ -1978,15 +1923,10 @@ impl DocumentEditorElement {
 
     /// Слот вставки при перетаскивании: до/после ближайшего блока по Y.
     fn drop_target(&self, p: Point) -> Option<(super::model::BlockId, bool)> {
-        let map = self.geom.lock().ok()?;
+        let map = self.blocks.lock().ok()?;
         let mut best: Option<(f32, super::model::BlockId, bool)> = None;
-        for (id, row) in map.iter() {
-            let height = row
-                .lines
-                .last()
-                .map(|l| l.y + row.line_h)
-                .unwrap_or(row.line_h);
-            let mid = row.origin.y + height / 2.0;
+        for (id, rect) in map.iter() {
+            let mid = rect.origin.y + rect.size.height / 2.0;
             let before = p.y < mid;
             let d = (p.y - mid).abs();
             if best.map(|(bd, _, _)| d < bd).unwrap_or(true) {
@@ -1998,26 +1938,13 @@ impl DocumentEditorElement {
 
     /// Y-координата индикатора вставки.
     fn drop_indicator_y(&self, target: (super::model::BlockId, bool)) -> Option<(f32, f32, f32)> {
-        let map = self.geom.lock().ok()?;
-        let row = map.get(&target.0)?;
-        let height = row
-            .lines
-            .last()
-            .map(|l| l.y + row.line_h)
-            .unwrap_or(row.line_h);
+        let rect = self.block_rect(target.0)?;
         let y = if target.1 {
-            row.origin.y - self.style.block_spacing / 2.0
+            rect.origin.y - self.style.block_spacing / 2.0
         } else {
-            row.origin.y + height + self.style.block_spacing / 2.0
+            rect.origin.y + rect.size.height + self.style.block_spacing / 2.0
         };
-        // Ширина линии — по строке цели.
-        let w = row
-            .lines
-            .iter()
-            .flat_map(|l| l.segs.last())
-            .map(|s| s.x + s.width)
-            .fold(120.0f32, f32::max);
-        Some((row.origin.x, y, w))
+        Some((rect.origin.x, y, rect.size.width.max(120.0)))
     }
 
     /// Ручка ⋮⋮, ghost и индикатор вставки.
@@ -2735,11 +2662,7 @@ impl Element for DocumentEditorElement {
         if self.layout != w.layout {
             let was_free = self.layout.free;
             self.layout = w.layout;
-            if w.layout.free && !was_free {
-                // Переход в свободную раскладку: координаты берём из
-                // текущей потоковой геометрии, страница не «прыгает».
-                self.ensure_free_geometry();
-            }
+            let _ = was_free;
             self.rebuild = true;
             self.mark_dirty(DirtyFlags::LAYOUT | DirtyFlags::RENDER);
             ctx.mark_layout_dirty();
@@ -2857,30 +2780,61 @@ impl Element for DocumentEditorElement {
             embed_ctx: self.embed_ctx.clone(),
         };
         let model = self.model();
+        // Каждый верхнеуровневый блок обёрнут Chrome'ом, который публикует
+        // свой прямоугольник: у таблицы, кода, медиа и разделителя нет
+        // текстовых строк, а ручка ⋮⋮ и цель дропа нужны и им.
+        let wrap = |b: &DocBlock| -> Box<dyn Widget> {
+            Box::new(
+                Chrome::new()
+                    .center(true)
+                    .track(b.id, self.blocks.clone())
+                    .child(block_widget(b, &env)),
+            )
+        };
         if !self.layout.free {
-            return model.blocks.iter().map(|b| block_widget(b, &env)).collect();
+            return model.blocks.iter().map(wrap).collect();
         }
+        // Свободная раскладка: блок с координатами стоит на холсте, блок
+        // без них остаётся в колонке потока — страница, которую ещё не
+        // трогали мышью, выглядит ровно как раньше.
         let pad = self.style.doc_padding;
-        let rects = self.subtree_rects(&model);
+        let rects = self.blocks.lock().ok().map(|m| m.clone()).unwrap_or_default();
         let origin = self.bounds.origin;
-        let mut out: Vec<Box<dyn Widget>> = Vec::with_capacity(model.blocks.len() + 1);
+        let mut flow: Vec<Box<dyn Widget>> = Vec::new();
+        let mut pinned: Vec<Box<dyn Widget>> = Vec::new();
         let mut extent = (pad, pad);
-        let mut fallback_y = pad;
         for b in model.blocks.iter() {
-            let (x, y) = free::pos_of(&b.attrs).unwrap_or((pad, fallback_y));
+            let Some((x, y)) = free::pos_of(&b.attrs) else {
+                flow.push(wrap(b));
+                continue;
+            };
             let w = free::width_of(&b.attrs).unwrap_or(self.layout.block_width);
             let h = rects
                 .get(&b.id)
                 .map(|r| r.size.height)
                 .unwrap_or_else(|| estimate_height(&b.kind, &self.style));
-            fallback_y = y + h + self.style.block_spacing;
             extent.0 = extent.0.max(x + w + pad);
             extent.1 = extent.1.max(y + h + pad);
             let _ = origin;
-            out.push(Box::new(
-                Chrome::new().absolute(x, y).fixed_width(w).child(block_widget(b, &env)),
+            pinned.push(Box::new(
+                Chrome::new()
+                    .absolute(x, y)
+                    .fixed_width(w)
+                    .track(b.id, self.blocks.clone())
+                    .child(block_widget(b, &env)),
             ));
         }
+        let mut out: Vec<Box<dyn Widget>> = Vec::with_capacity(pinned.len() + 2);
+        if !flow.is_empty() {
+            out.push(Box::new(
+                Chrome::new()
+                    .center(true)
+                    .gap(self.style.block_spacing)
+                    .padding(pad, pad, pad, pad)
+                    .children(flow),
+            ));
+        }
+        out.extend(pinned);
         out.push(Box::new(Chrome::extent(extent.0, extent.1)));
         out
     }
@@ -2896,6 +2850,9 @@ impl Element for DocumentEditorElement {
             map.retain(|id, _| alive.contains(id));
         }
         if let Ok(mut map) = self.tables.lock() {
+            map.retain(|id, _| alive.contains(id));
+        }
+        if let Ok(mut map) = self.blocks.lock() {
             map.retain(|id, _| alive.contains(id));
         }
     }
@@ -3157,6 +3114,8 @@ impl Element for DocumentEditorElement {
             }
             Event::MouseMove(position) => {
                 if self.free_drag.is_some() {
+                    let resize = self.free_drag.as_ref().is_some_and(|d| d.resize);
+                    ctx.set_cursor(if resize { CursorIcon::ColResize } else { CursorIcon::Grabbing });
                     self.update_free_drag(*position);
                     return EventResult::Handled;
                 }
@@ -3177,6 +3136,7 @@ impl Element for DocumentEditorElement {
                         }
                         self.mark_dirty(DirtyFlags::RENDER);
                     }
+                    ctx.set_cursor(CursorIcon::Grabbing);
                     return EventResult::Handled;
                 }
                 // Hover-строка для показа ручки.
@@ -3185,6 +3145,15 @@ impl Element for DocumentEditorElement {
                     if hovered != self.hover_block {
                         self.hover_block = hovered;
                         self.mark_dirty(DirtyFlags::RENDER);
+                    }
+                    // Курсор над хваталками блока: ручка ⋮⋮ тащит блок,
+                    // правая кромка (свободная раскладка) тянет ширину.
+                    if let Some(block) = self.hover_block {
+                        if self.resize_rect(block).is_some_and(|r| r.contains(*position)) {
+                            ctx.set_cursor(CursorIcon::ColResize);
+                        } else if self.handle_rect(block).is_some_and(|r| r.contains(*position)) {
+                            ctx.set_cursor(CursorIcon::Grab);
+                        }
                     }
                 }
                 if self.mouse_selecting {
@@ -3201,12 +3170,10 @@ impl Element for DocumentEditorElement {
                 EventResult::Ignored
             }
             Event::MouseUp { button: MouseButton::Left, .. } => {
-                if let Some(drag) = self.free_drag.take() {
-                    if drag.moved {
-                        self.after_edit();
-                    } else {
-                        self.history.discard_last_checkpoint();
-                    }
+                if let Some(_drag) = self.free_drag.take() {
+                    // Даже без движения блок мог только что закрепиться —
+                    // это правка модели, её надо сохранить.
+                    self.after_edit();
                     return EventResult::Handled;
                 }
                 if let Some(drag) = self.drag.take() {
