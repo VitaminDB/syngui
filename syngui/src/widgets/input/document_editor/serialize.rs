@@ -116,6 +116,11 @@ fn block_lines(block: &DocBlock) -> Vec<String> {
             line.push_str(&serialize_attrs(&inline_attrs(&block.attrs)));
             vec![line]
         }
+        BlockKind::Shape { shape } => {
+            let mut line = format!("![[shape:{}]]", shape.name());
+            line.push_str(&serialize_attrs(&inline_attrs(&block.attrs)));
+            vec![line]
+        }
         BlockKind::Embed { target } => {
             let mut line = format!("![[{target}]]");
             line.push_str(&serialize_attrs(&inline_attrs(&block.attrs)));

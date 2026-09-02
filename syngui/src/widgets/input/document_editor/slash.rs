@@ -20,6 +20,8 @@ pub enum SlashAction {
     CodeBlock,
     Divider,
     Table,
+    /// Векторный примитив (см. [`super::shape`]).
+    Shape(super::model::ShapeKind),
     /// Кастомное действие хоста: id уходит в колбэк `on_slash_custom`.
     Custom(String),
 }
@@ -40,6 +42,7 @@ impl SlashItem {
 
 /// Каталог по умолчанию (подписи на английском — хост переопределяет).
 pub fn default_items() -> Vec<SlashItem> {
+    use super::model::ShapeKind;
     use SlashAction::*;
     vec![
         SlashItem::new(Paragraph, "Text", "text paragraph plain"),
@@ -55,6 +58,10 @@ pub fn default_items() -> Vec<SlashItem> {
         SlashItem::new(CodeBlock, "Code", "code fence snippet"),
         SlashItem::new(Divider, "Divider", "divider hr separator line"),
         SlashItem::new(Table, "Table", "table grid"),
+        SlashItem::new(Shape(ShapeKind::Rect), "Rectangle", "rect shape box"),
+        SlashItem::new(Shape(ShapeKind::Ellipse), "Ellipse", "ellipse circle oval shape"),
+        SlashItem::new(Shape(ShapeKind::Line), "Line", "line shape"),
+        SlashItem::new(Shape(ShapeKind::Arrow), "Arrow", "arrow shape"),
     ]
 }
 

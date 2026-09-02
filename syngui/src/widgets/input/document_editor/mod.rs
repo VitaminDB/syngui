@@ -5,6 +5,7 @@
 //! - [`attrs`] — инлайн-атрибуты `{key=value flag}`;
 //! - [`free`] — свободная раскладка: координаты блоков, привязка, сетка;
 //! - [`props`] — свойства блока (цвет, кегль, выравнивание) и дерево блоков;
+//! - [`shape`] — векторные примитивы (прямоугольник, овал, линия, стрелка);
 //! - [`parse`] / [`serialize`] — markdown ↔ модель с расширениями:
 //!   `[[wiki-ссылки]]`, `![[врезки]]`, callout/toggle-цитаты, медиа-блоки,
 //!   инлайн-атрибуты.
@@ -27,6 +28,7 @@ pub mod parse;
 pub mod props;
 pub mod rows;
 pub mod serialize;
+pub mod shape;
 pub mod shortcuts;
 pub mod slash;
 pub mod state;
@@ -35,13 +37,14 @@ mod widget;
 
 pub use model::{
     Attrs, BlockId, BlockKind, DocAlign, DocBlock, DocModel, InlineRun, InlineStyle, InlineText,
-    LinkTarget, MediaKind,
+    LinkTarget, MediaKind, ShapeKind,
 };
 pub use parse::parse_document;
 pub use serialize::serialize_document;
 pub use links::{DocLinkProvider, DocMediaResolver, EmbedCtx, EmbedFactory, LinkCandidate, ResolvedMedia};
 pub use free::{DocGrid, DocLayout};
 pub use props::{BlockOutline, TableOp};
+pub use shape::ShapeStyle;
 pub use style::DocStyle;
 pub use slash::{SlashAction, SlashItem};
 pub use widget::{BlockProps, DocOp, DocumentEditor, DocumentEditorHandle};

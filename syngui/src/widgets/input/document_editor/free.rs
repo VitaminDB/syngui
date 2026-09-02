@@ -29,10 +29,12 @@ pub const LAYOUT_FENCE: &str = "doc-layout";
 pub const ATTR_X: &str = "x";
 pub const ATTR_Y: &str = "y";
 pub const ATTR_W: &str = "w";
+/// Высота блока: нужна фигурам и медиа — у текста она считается по контенту.
+pub const ATTR_H: &str = "h";
 
 /// Ключ геометрии, который сериализуется отдельным блоком, а не инлайном.
 pub fn is_geom_key(key: &str) -> bool {
-    matches!(key, ATTR_X | ATTR_Y | ATTR_W)
+    matches!(key, ATTR_X | ATTR_Y | ATTR_W | ATTR_H)
 }
 
 /// Фон холста в свободной раскладке.
@@ -131,12 +133,23 @@ pub fn set_width(attrs: &mut Attrs, w: f32) {
     attrs.set(ATTR_W, fmt(w));
 }
 
+/// Высота блока в свободной раскладке (фигуры, медиа).
+pub fn height_of(attrs: &Attrs) -> Option<f32> {
+    let h = attrs.get(ATTR_H)?.parse::<f32>().ok()?;
+    (h.is_finite() && h > 1.0).then_some(h)
+}
+
+pub fn set_height(attrs: &mut Attrs, h: f32) {
+    attrs.set(ATTR_H, fmt(h));
+}
+
 /// Убрать геометрию (возврат в поток не трогает её — это делает хост
 /// явной командой «сбросить раскладку»).
 pub fn clear(attrs: &mut Attrs) {
     attrs.remove(ATTR_X);
     attrs.remove(ATTR_Y);
     attrs.remove(ATTR_W);
+    attrs.remove(ATTR_H);
 }
 
 fn fmt(v: f32) -> String {
@@ -160,6 +173,7 @@ pub fn has_inline_attrs(kind: &super::model::BlockKind) -> bool {
             | BlockKind::Toggle { .. }
             | BlockKind::Media { .. }
             | BlockKind::Embed { .. }
+            | BlockKind::Shape { .. }
     )
 }
 

@@ -128,6 +128,11 @@ pub enum BlockKind {
     Embed {
         target: String,
     },
+    /// Векторный примитив: `![[shape:rect]]{fill=… stroke=…}`. Геометрия и
+    /// оформление живут в атрибутах блока (см. [`super::shape`]).
+    Shape {
+        shape: ShapeKind,
+    },
 }
 
 impl BlockKind {
@@ -234,6 +239,69 @@ impl MediaKind {
             // частый случай `![](https://…)`.
             _ => MediaKind::Image,
         }
+    }
+}
+
+/// Вид векторного примитива. В markdown — хвост `![[shape:<имя>]]`.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum ShapeKind {
+    Rect,
+    Ellipse,
+    Triangle,
+    Diamond,
+    Line,
+    Arrow,
+    DoubleArrow,
+}
+
+impl ShapeKind {
+    pub const ALL: [ShapeKind; 7] = [
+        ShapeKind::Rect,
+        ShapeKind::Ellipse,
+        ShapeKind::Triangle,
+        ShapeKind::Diamond,
+        ShapeKind::Line,
+        ShapeKind::Arrow,
+        ShapeKind::DoubleArrow,
+    ];
+
+    pub fn name(self) -> &'static str {
+        match self {
+            ShapeKind::Rect => "rect",
+            ShapeKind::Ellipse => "ellipse",
+            ShapeKind::Triangle => "triangle",
+            ShapeKind::Diamond => "diamond",
+            ShapeKind::Line => "line",
+            ShapeKind::Arrow => "arrow",
+            ShapeKind::DoubleArrow => "arrow2",
+        }
+    }
+
+    pub fn from_name(name: &str) -> Option<Self> {
+        Some(match name {
+            "rect" | "rectangle" | "box" => ShapeKind::Rect,
+            "ellipse" | "circle" | "oval" => ShapeKind::Ellipse,
+            "triangle" => ShapeKind::Triangle,
+            "diamond" | "rhombus" => ShapeKind::Diamond,
+            "line" => ShapeKind::Line,
+            "arrow" => ShapeKind::Arrow,
+            "arrow2" | "doublearrow" | "double-arrow" => ShapeKind::DoubleArrow,
+            _ => return None,
+        })
+    }
+
+    /// Линейные виды задаются двумя концами, а не рамкой.
+    pub fn is_line(self) -> bool {
+        matches!(self, ShapeKind::Line | ShapeKind::Arrow | ShapeKind::DoubleArrow)
+    }
+
+    /// Стрелка на конце / в начале отрезка.
+    pub fn arrow_end(self) -> bool {
+        matches!(self, ShapeKind::Arrow | ShapeKind::DoubleArrow)
+    }
+
+    pub fn arrow_start(self) -> bool {
+        matches!(self, ShapeKind::DoubleArrow)
     }
 }
 

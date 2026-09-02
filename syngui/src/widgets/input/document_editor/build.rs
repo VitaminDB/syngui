@@ -123,6 +123,12 @@ pub fn block_widget(block: &DocBlock, env: &BuildEnv) -> Box<dyn Widget> {
             tables: Some(env.tables.clone()),
         }),
         BlockKind::Divider => Box::new(DividerView { style: style.clone() }),
+        BlockKind::Shape { shape } => Box::new(super::shape::ShapeView {
+            block_id: block.id,
+            shape: *shape,
+            attrs: block.attrs.clone(),
+            style: style.clone(),
+        }),
         BlockKind::Media { media, url, alt } => media_widget(block, *media, url, alt, env),
         BlockKind::Embed { target } => {
             if let Some(factory) = &env.embeds {
@@ -260,11 +266,21 @@ fn media_widget(
         MediaKind::Image => {
             #[cfg(feature = "image")]
             {
+                use crate::widget::styled::WidgetExt;
                 use crate::widgets::visual::image::{Image, ImageFit};
+                // Высота картинки — из свободной раскладки (тянется за
+                // нижнюю кромку и правится в панели свойств); без неё
+                // картинка занимает место по своим пропорциям.
+                let sized = |img: Image| -> Box<dyn Widget> {
+                    match super::free::height_of(&block.attrs) {
+                        Some(h) => Box::new(
+                            img.style("height", crate::mss::StyleValue::px(h)),
+                        ),
+                        None => Box::new(img),
+                    }
+                };
                 if let Some(r) = &resolved {
-                    return Box::new(
-                        Image::new(r.path.display().to_string()).fit(ImageFit::Contain),
-                    );
+                    return sized(Image::new(r.path.display().to_string()).fit(ImageFit::Contain));
                 }
                 if !url.starts_with("blob:") {
                     let img = if url.starts_with("http://") || url.starts_with("https://") {
@@ -272,7 +288,7 @@ fn media_widget(
                     } else {
                         Image::new(url)
                     };
-                    return Box::new(img.fit(ImageFit::Contain));
+                    return sized(img.fit(ImageFit::Contain));
                 }
             }
         }

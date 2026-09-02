@@ -630,7 +630,14 @@ fn post_process(blocks: &mut Vec<DocBlock>) {
         if let BlockKind::Paragraph(text) = &mut block.kind {
             text.normalize();
             if let Some((target, attrs)) = parse_embed_paragraph(text) {
-                block.kind = BlockKind::Embed { target };
+                // `![[shape:rect]]` — не врезка, а векторный примитив.
+                block.kind = match target
+                    .strip_prefix("shape:")
+                    .and_then(super::model::ShapeKind::from_name)
+                {
+                    Some(shape) => BlockKind::Shape { shape },
+                    None => BlockKind::Embed { target },
+                };
                 block.attrs = attrs;
                 continue;
             }

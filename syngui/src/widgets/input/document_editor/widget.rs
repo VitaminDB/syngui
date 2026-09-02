@@ -43,6 +43,7 @@ use super::state::{
 };
 use super::free::{self, DocGrid, DocLayout};
 use super::props::{self, BlockOutline, TableOp};
+use super::shape;
 use super::style::DocStyle;
 
 /// Операция хоста над документом «у каретки» — кладётся в очередь ручки
@@ -87,6 +88,8 @@ pub struct BlockProps {
     pub language: Option<String>,
     /// (строк с шапкой, колонок) — для таблицы.
     pub table: Option<(usize, usize)>,
+    /// Вид векторного примитива.
+    pub shape: Option<super::model::ShapeKind>,
     pub attrs: super::model::Attrs,
 }
 
@@ -147,6 +150,10 @@ impl DocumentEditorHandle {
             },
             table: match &b.kind {
                 BlockKind::Table { headers, rows, .. } => Some((rows.len() + 1, headers.len())),
+                _ => None,
+            },
+            shape: match &b.kind {
+                BlockKind::Shape { shape } => Some(*shape),
                 _ => None,
             },
             attrs: b.attrs.clone(),
@@ -484,6 +491,7 @@ impl Widget for DocumentEditor {
             fill_height: self.fill_height,
             menu_pos: None,
             free_drag: None,
+            object_sel: None,
         })
     }
 
@@ -573,6 +581,9 @@ pub struct DocumentEditorElement {
     menu_pos: Option<Point>,
     /// Перенос/растяжение блока по холсту свободной раскладки.
     free_drag: Option<FreeDrag>,
+    /// Выбранный блок, у которого нет каретки (фигура): панель свойств,
+    /// рамка габаритов и ручки размера работают и над ним.
+    object_sel: Option<super::model::BlockId>,
 }
 
 /// Состояние открытого автокомплита `[[`.
@@ -602,11 +613,37 @@ struct FreeDrag {
     block: super::model::BlockId,
     /// Смещение курсора от левого верхнего угла блока.
     grab: Point,
-    /// Изменение ширины вместо переноса.
-    resize: bool,
+    mode: FreeDragMode,
     /// Ширина блока на старте (для resize).
     start_width: f32,
     moved: bool,
+}
+
+/// Что тянут за блок в свободной раскладке.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum FreeDragMode {
+    /// Перенос за ручку ⋮⋮.
+    Move,
+    /// Правая кромка — ширина.
+    Width,
+    /// Нижняя кромка — высота (фигура, медиа).
+    Height,
+    /// Правый нижний угол — ширина и высота сразу.
+    Corner,
+    /// Конец линейной фигуры: `false` — первый, `true` — второй.
+    Endpoint(bool),
+}
+
+impl FreeDragMode {
+    fn cursor(self) -> CursorIcon {
+        match self {
+            FreeDragMode::Move => CursorIcon::Grabbing,
+            FreeDragMode::Width => CursorIcon::ColResize,
+            FreeDragMode::Height => CursorIcon::RowResize,
+            FreeDragMode::Corner => CursorIcon::SeResize,
+            FreeDragMode::Endpoint(_) => CursorIcon::Crosshair,
+        }
+    }
 }
 
 /// Хит-зоны панелей, нарисованных поверх документа.
@@ -620,6 +657,12 @@ struct UiRects {
     handle: Option<(Rect, super::model::BlockId)>,
     /// (правая кромка блока, блок) — растяжение в свободной раскладке.
     resize: Option<(Rect, super::model::BlockId)>,
+    /// (нижняя кромка блока, блок) — высота фигуры и медиа.
+    resize_v: Option<(Rect, super::model::BlockId)>,
+    /// (правый нижний угол, блок) — ширина и высота сразу.
+    corner: Option<(Rect, super::model::BlockId)>,
+    /// (хваталки концов линейной фигуры, блок).
+    ends: Option<([Rect; 2], super::model::BlockId)>,
     /// (прямоугольник wiki-меню, число пунктов).
     wiki: Option<(Rect, usize)>,
 }
@@ -888,6 +931,31 @@ impl DocumentEditorElement {
                 }
                 self.after_edit();
             }
+            SlashAction::Shape(shape_kind) => {
+                let Some(pos) = self.caret().map(|c| c.block).or(self.object_sel) else { return };
+                // Каретка уже в фигуре — меняем её вид, сохраняя оформление
+                // (пункт «превратить в» для примитивов).
+                let mut model = self.model();
+                if let Some(b) = edit::find_block_mut(&mut model.blocks, pos) {
+                    if matches!(b.kind, BlockKind::Shape { .. }) {
+                        b.kind = BlockKind::Shape { shape: *shape_kind };
+                        drop(model);
+                        self.after_edit();
+                        return;
+                    }
+                }
+                let id = model.alloc_id();
+                let mut block = DocBlock::new(id, BlockKind::Shape { shape: *shape_kind });
+                if !shape_kind.is_line() {
+                    free::set_height(&mut block.attrs, shape::DEFAULT_H);
+                }
+                edit::with_siblings(&mut model.blocks, pos, &mut |sibs, idx| {
+                    sibs.insert(idx + 1, block.clone());
+                });
+                drop(model);
+                self.object_sel = Some(id);
+                self.after_edit();
+            }
             SlashAction::Custom(id) => {
                 if let Some(cb) = &self.on_slash_custom {
                     cb(id);
@@ -1052,6 +1120,7 @@ impl DocumentEditorElement {
             .map(|c| c.block)
             .or_else(|| self.table_caret.map(|t| t.block))
             .or_else(|| self.caret().map(|c| c.block))
+            .or(self.object_sel)
     }
 
     /// Обновить сигнал текущего блока в ручке (панель свойств хоста).
@@ -1110,13 +1179,16 @@ impl DocumentEditorElement {
         self.selection = None;
         self.table_caret = None;
         self.code_caret = None;
+        self.object_sel = None;
         match kind {
             Some(1) => self.table_caret = Some(TableCaret { block: id, row: 0, col: 0, offset: 0 }),
             Some(2) => self.code_caret = Some(CodeCaret { block: id, offset: 0 }),
             Some(3) => {
                 self.selection = Some(DocSelection::caret(CaretPos { block: id, offset: 0 }))
             }
-            _ => {}
+            // Фигура и разделитель: каретке некуда встать — блок просто
+            // становится текущим.
+            _ => self.object_sel = Some(id),
         }
     }
 
@@ -1578,6 +1650,7 @@ impl DocumentEditorElement {
     }
 
     fn set_caret(&mut self, pos: CaretPos, extend: bool) {
+        self.object_sel = None;
         self.selection = Some(match (self.selection, extend) {
             (Some(sel), true) => DocSelection { anchor: sel.anchor, head: pos },
             _ => DocSelection::caret(pos),
@@ -1886,10 +1959,14 @@ impl DocumentEditorElement {
 /// Оценка высоты блока, у которого ещё нет опубликованной геометрии
 /// (медиа, врезка, разделитель): нужна только для первого размещения в
 /// свободной раскладке и для запаса высоты холста.
-fn estimate_height(kind: &BlockKind, style: &DocStyle) -> f32 {
-    match kind {
+fn estimate_height(block: &DocBlock, style: &DocStyle) -> f32 {
+    match &block.kind {
+        BlockKind::Shape { shape } if shape.is_line() => shape::line_box(&block.attrs).height,
+        BlockKind::Shape { .. } => shape::height_of(&block.attrs),
+        BlockKind::Media { .. } => {
+            free::height_of(&block.attrs).unwrap_or(220.0)
+        }
         BlockKind::Divider => 17.0,
-        BlockKind::Media { .. } => 220.0,
         BlockKind::Embed { .. } => 200.0,
         BlockKind::Table { rows, .. } => (rows.len() as f32 + 1.0) * 30.0,
         _ => style.line_h(style.text_size) * 2.0,
@@ -1941,7 +2018,14 @@ impl DocumentEditorElement {
         let Some(b) = model.blocks.iter_mut().find(|b| b.id == id) else { return };
         free::set_pos(&mut b.attrs, at.x.max(0.0), at.y.max(0.0));
         if free::width_of(&b.attrs).is_none() {
-            free::set_width(&mut b.attrs, width);
+            // Фигура шире колонки текста смотрелась бы нелепо: у неё свои
+            // умолчания, а у линии ширина — это длина отрезка.
+            let w = match &b.kind {
+                BlockKind::Shape { shape } if shape.is_line() => shape::line_box(&b.attrs).width,
+                BlockKind::Shape { .. } => shape::DEFAULT_W,
+                _ => width,
+            };
+            free::set_width(&mut b.attrs, w);
         }
     }
 
@@ -1995,9 +2079,146 @@ impl DocumentEditorElement {
         Some(geom)
     }
 
+    /// Вид фигуры блока (если блок — примитив).
+    fn shape_of(&self, block: super::model::BlockId) -> Option<super::model::ShapeKind> {
+        let model = self.model();
+        match model.blocks.iter().find(|b| b.id == block)?.kind {
+            BlockKind::Shape { shape } => Some(shape),
+            _ => None,
+        }
+    }
+
+    /// Блок, у которого высота задаётся явно (фигура и медиа): у текста она
+    /// считается по контенту, тянуть её за кромку нечего.
+    fn has_free_height(&self, block: super::model::BlockId) -> bool {
+        let model = self.model();
+        match model.blocks.iter().find(|b| b.id == block).map(|b| &b.kind) {
+            Some(BlockKind::Shape { shape }) => !shape.is_line(),
+            // У видео и аудио высоту задаёт сам плеер, у файла — карточка.
+            Some(BlockKind::Media { media, .. }) => {
+                matches!(media, super::model::MediaKind::Image)
+            }
+            _ => false,
+        }
+    }
+
+    /// Зона растяжения высоты блока (нижняя кромка).
+    fn resize_v_rect(&self, block: super::model::BlockId) -> Option<Rect> {
+        if !self.layout.free || !self.has_free_height(block) {
+            return None;
+        }
+        let rect = self.block_rect(block)?;
+        Some(Rect::new(
+            Point::new(rect.origin.x, rect.origin.y + rect.size.height - 3.0),
+            Size::new(rect.size.width.max(24.0), 8.0),
+        ))
+    }
+
+    /// Правый нижний угол: ширина и высота сразу.
+    fn resize_corner_rect(&self, block: super::model::BlockId) -> Option<Rect> {
+        if !self.layout.free || !self.has_free_height(block) {
+            return None;
+        }
+        let rect = self.block_rect(block)?;
+        Some(Rect::new(
+            Point::new(
+                rect.origin.x + rect.size.width - 5.0,
+                rect.origin.y + rect.size.height - 5.0,
+            ),
+            Size::new(12.0, 12.0),
+        ))
+    }
+
+    /// Хваталки концов линейной фигуры.
+    fn endpoint_rects(&self, block: super::model::BlockId) -> Option<[Rect; 2]> {
+        if !self.layout.free {
+            return None;
+        }
+        self.shape_of(block).filter(|k| k.is_line())?;
+        let rect = self.block_rect(block)?;
+        let attrs = {
+            let model = self.model();
+            model.blocks.iter().find(|b| b.id == block)?.attrs.clone()
+        };
+        let (p1, p2) = shape::local_endpoints(&attrs);
+        let r = 7.0;
+        let at = |p: (f32, f32)| {
+            Rect::new(
+                Point::new(rect.origin.x + p.0 - r, rect.origin.y + p.1 - r),
+                Size::new(r * 2.0, r * 2.0),
+            )
+        };
+        Some([at(p1), at(p2)])
+    }
+
+    /// Фигура под точкой: верхний по порядку блок-примитив, накрывающий её.
+    /// Текстовый блок поверх фигуры перехватывает клик — как и должно быть
+    /// при наложении.
+    fn shape_at(&self, p: Point) -> Option<super::model::BlockId> {
+        let rects = self.blocks.lock().ok()?.clone();
+        let model = self.model();
+        let mut hit: Option<(super::model::BlockId, bool)> = None;
+        for b in model.blocks.iter() {
+            let Some(rect) = rects.get(&b.id) else { continue };
+            if !rect.contains(p) {
+                continue;
+            }
+            // У линии зона клика — сам отрезок, а не его bbox: иначе
+            // длинная диагональ перекрывала бы полхолста.
+            if let BlockKind::Shape { shape } = &b.kind {
+                if shape.is_line() {
+                    let (a, c) = shape::local_endpoints(&b.attrs);
+                    let local = (p.x - rect.origin.x, p.y - rect.origin.y);
+                    if dist_to_segment(local, a, c) > 8.0 {
+                        continue;
+                    }
+                }
+                hit = Some((b.id, true));
+            } else {
+                hit = Some((b.id, false));
+            }
+        }
+        hit.filter(|(_, is_shape)| *is_shape).map(|(id, _)| id)
+    }
+
+    /// Сделать блок текущим без каретки (клик по фигуре).
+    fn select_object(&mut self, id: super::model::BlockId) {
+        self.selection = None;
+        self.table_caret = None;
+        self.code_caret = None;
+        self.object_sel = Some(id);
+        self.focused = true;
+        self.publish_selection();
+        self.mark_dirty(DirtyFlags::RENDER);
+    }
+
+    /// Хваталка размера под курсором (порядок: концы → угол → кромки).
+    fn size_handle_at(&self, p: Point) -> Option<(super::model::BlockId, FreeDragMode)> {
+        let ui = self.ui_rects.lock().ok()?;
+        if let Some((rects, block)) = ui.ends {
+            for (i, r) in rects.iter().enumerate() {
+                if r.contains(p) {
+                    return Some((block, FreeDragMode::Endpoint(i == 1)));
+                }
+            }
+        }
+        for (zone, mode) in [
+            (ui.corner, FreeDragMode::Corner),
+            (ui.resize, FreeDragMode::Width),
+            (ui.resize_v, FreeDragMode::Height),
+        ] {
+            if let Some((rect, block)) = zone {
+                if rect.contains(p) {
+                    return Some((block, mode));
+                }
+            }
+        }
+        None
+    }
+
     /// Зона растяжения ширины блока (правая кромка) в свободной раскладке.
     fn resize_rect(&self, block: super::model::BlockId) -> Option<Rect> {
-        if !self.layout.free {
+        if !self.layout.free || self.shape_of(block).is_some_and(|k| k.is_line()) {
             return None;
         }
         let (x, _, w) = self.free_geom(block)?;
@@ -2010,7 +2231,7 @@ impl DocumentEditorElement {
     }
 
     /// Начать перенос (или растяжение) блока по холсту.
-    fn start_free_drag(&mut self, block: super::model::BlockId, at: Point, resize: bool) -> bool {
+    fn start_free_drag(&mut self, block: super::model::BlockId, at: Point, mode: FreeDragMode) -> bool {
         if !self.layout.free {
             return false;
         }
@@ -2025,7 +2246,7 @@ impl DocumentEditorElement {
         self.free_drag = Some(FreeDrag {
             block: top,
             grab: Point::new(at.x - (self.bounds.origin.x + x), at.y - (self.bounds.origin.y + y)),
-            resize,
+            mode,
             start_width: width,
             moved: false,
         });
@@ -2037,31 +2258,74 @@ impl DocumentEditorElement {
     /// конце (иначе автосейв дёргался бы на каждый кадр).
     fn update_free_drag(&mut self, at: Point) {
         let Some(drag) = &self.free_drag else { return };
-        let (block, grab, resize, start_width) =
-            (drag.block, drag.grab, drag.resize, drag.start_width);
+        let (block, grab, mode, start_width) = (drag.block, drag.grab, drag.mode, drag.start_width);
         let origin = self.bounds.origin;
         let layout = self.layout;
         let changed = {
             let mut model = self.model();
             let Some(b) = model.blocks.iter_mut().find(|b| b.id == block) else { return };
-            if resize {
-                let x = free::pos_of(&b.attrs).map(|(x, _)| x).unwrap_or(0.0);
-                let w = layout.snapped(at.x - origin.x - x).clamp(80.0, 4000.0);
-                let same = (w - free::width_of(&b.attrs).unwrap_or(start_width)).abs() < 0.5;
-                if !same {
-                    free::set_width(&mut b.attrs, w);
+            let (bx, by) = free::pos_of(&b.attrs).unwrap_or((0.0, 0.0));
+            match mode {
+                FreeDragMode::Move => {
+                    let x = layout.snapped(at.x - grab.x - origin.x).max(0.0);
+                    let y = layout.snapped(at.y - grab.y - origin.y).max(0.0);
+                    let same = (bx - x).abs() < 0.5 && (by - y).abs() < 0.5;
+                    if !same {
+                        free::set_pos(&mut b.attrs, x, y);
+                    }
+                    !same
                 }
-                !same
-            } else {
-                let x = layout.snapped(at.x - grab.x - origin.x).max(0.0);
-                let y = layout.snapped(at.y - grab.y - origin.y).max(0.0);
-                let same = free::pos_of(&b.attrs)
-                    .map(|(px, py)| (px - x).abs() < 0.5 && (py - y).abs() < 0.5)
-                    .unwrap_or(false);
-                if !same {
-                    free::set_pos(&mut b.attrs, x, y);
+                FreeDragMode::Width | FreeDragMode::Height | FreeDragMode::Corner => {
+                    let mut changed = false;
+                    if mode != FreeDragMode::Height {
+                        let w = layout.snapped(at.x - origin.x - bx).clamp(40.0, 4000.0);
+                        if (w - free::width_of(&b.attrs).unwrap_or(start_width)).abs() >= 0.5 {
+                            free::set_width(&mut b.attrs, w);
+                            changed = true;
+                        }
+                    }
+                    if mode != FreeDragMode::Width {
+                        let h = layout.snapped(at.y - origin.y - by).clamp(20.0, 4000.0);
+                        if (h - free::height_of(&b.attrs).unwrap_or(-1.0)).abs() >= 0.5 {
+                            free::set_height(&mut b.attrs, h);
+                            changed = true;
+                        }
+                    }
+                    changed
                 }
-                !same
+                // Конец отрезка тянется по холсту; модель держится в
+                // каноничном виде — минимум концов равен нулю, а рамка
+                // блока сдвигается под них.
+                FreeDragMode::Endpoint(second) => {
+                    let (p1, p2) = shape::endpoints_of(&b.attrs);
+                    let (minx, miny) = (p1.0.min(p2.0), p1.1.min(p2.1));
+                    let pad = shape::LINE_PAD;
+                    let abs = |p: (f32, f32)| (bx + p.0 - minx + pad, by + p.1 - miny + pad);
+                    let (mut a, mut c) = (abs(p1), abs(p2));
+                    let target = (
+                        layout.snapped(at.x - origin.x).max(0.0),
+                        layout.snapped(at.y - origin.y).max(0.0),
+                    );
+                    if second {
+                        c = target;
+                    } else {
+                        a = target;
+                    }
+                    let (nx, ny) = (a.0.min(c.0), a.1.min(c.1));
+                    let pos = ((nx - pad).max(0.0), (ny - pad).max(0.0));
+                    let (e1, e2) = ((a.0 - nx, a.1 - ny), (c.0 - nx, c.1 - ny));
+                    let same = shape::endpoints_of(&b.attrs) == (e1, e2)
+                        && (bx - pos.0).abs() < 0.5
+                        && (by - pos.1).abs() < 0.5;
+                    if !same {
+                        free::set_pos(&mut b.attrs, pos.0, pos.1);
+                        shape::set_endpoints(&mut b.attrs, e1, e2);
+                        let bbox = shape::line_box(&b.attrs);
+                        free::set_width(&mut b.attrs, bbox.width);
+                        free::set_height(&mut b.attrs, bbox.height);
+                    }
+                    !same
+                }
             }
         };
         if changed {
@@ -2292,6 +2556,62 @@ impl DocumentEditorElement {
                     );
                     if let Ok(mut ui) = self.ui_rects.lock() {
                         ui.resize = Some((rect, block));
+                    }
+                }
+            }
+            // Хваталки размера у блока с явной высотой и концы линии —
+            // и под курсором, и у выбранного (фигуру часто настраивают
+            // из панели свойств, курсор при этом далеко).
+            let focus = self.current_block().and_then(|id| self.top_level_of(id));
+            for block in [self.hover_block, focus].into_iter().flatten() {
+                if let Some(rect) = self.resize_v_rect(block) {
+                    list.push_rect(
+                        Rect::new(
+                            Point::new(rect.origin.x, rect.origin.y + 2.0),
+                            Size::new(rect.size.width, 2.0),
+                        ),
+                        s.muted_color.with_alpha(0.5),
+                        [1.0; 4],
+                    );
+                    if let Ok(mut ui) = self.ui_rects.lock() {
+                        ui.resize_v = Some((rect, block));
+                    }
+                }
+                if let Some(rect) = self.resize_corner_rect(block) {
+                    list.push_rect(
+                        Rect::new(
+                            Point::new(rect.origin.x + 1.0, rect.origin.y + 1.0),
+                            Size::new(8.0, 8.0),
+                        ),
+                        s.shape_handle_color.with_alpha(0.9),
+                        [2.0; 4],
+                    );
+                    if let Ok(mut ui) = self.ui_rects.lock() {
+                        ui.corner = Some((rect, block));
+                    }
+                }
+                if let Some(rects) = self.endpoint_rects(block) {
+                    for r in rects.iter() {
+                        let mut c = crate::core::canvas::CanvasContext::new(r.origin, r.size);
+                        c.set_anti_alias(1.0);
+                        c.set_color(s.menu_bg);
+                        c.fill_circle(r.size.width / 2.0, r.size.height / 2.0, 5.5);
+                        c.set_color(s.shape_handle_color);
+                        c.set_stroke_width(2.0);
+                        let pts = crate::core::canvas::tessellator::circle_points(
+                            Point::new(r.size.width / 2.0, r.size.height / 2.0),
+                            5.0,
+                            18,
+                        );
+                        let mut ring: Vec<(f32, f32)> = pts.iter().map(|p| (p.x, p.y)).collect();
+                        if let Some(&first) = ring.first() {
+                            ring.push(first);
+                        }
+                        c.draw_polyline(&ring);
+                        c.flush(list);
+                    }
+                    if let Ok(mut ui) = self.ui_rects.lock() {
+                        ui.ends = Some((rects, block));
                     }
                 }
             }
@@ -3110,6 +3430,15 @@ impl DocumentEditorElement {
 
 /// Ближайшая граница символа не выше `at` (после внешних правок смещение
 /// могло уйти внутрь многобайтового символа).
+/// Расстояние от точки до отрезка — зона клика по линейной фигуре.
+fn dist_to_segment(p: (f32, f32), a: (f32, f32), b: (f32, f32)) -> f32 {
+    let (dx, dy) = (b.0 - a.0, b.1 - a.1);
+    let len2 = dx * dx + dy * dy;
+    let t = if len2 < 0.001 { 0.0 } else { (((p.0 - a.0) * dx + (p.1 - a.1) * dy) / len2).clamp(0.0, 1.0) };
+    let (cx, cy) = (a.0 + dx * t, a.1 + dy * t);
+    ((p.0 - cx).powi(2) + (p.1 - cy).powi(2)).sqrt()
+}
+
 fn floor_char_boundary(s: &str, at: usize) -> usize {
     let mut i = at.min(s.len());
     while i > 0 && !s.is_char_boundary(i) {
@@ -3320,7 +3649,7 @@ impl Element for DocumentEditorElement {
             let h = rects
                 .get(&b.id)
                 .map(|r| r.size.height)
-                .unwrap_or_else(|| estimate_height(&b.kind, &self.style));
+                .unwrap_or_else(|| estimate_height(b, &self.style));
             extent.0 = extent.0.max(x + w + pad);
             extent.1 = extent.1.max(y + h + pad);
             let _ = origin;
@@ -3521,15 +3850,16 @@ impl Element for DocumentEditorElement {
                             }),
                         )
                     };
-                    if let Some(block) = resize_hit {
-                        if self.start_free_drag(block, *position, true) {
+                    let _ = resize_hit;
+                    if let Some((block, mode)) = self.size_handle_at(*position) {
+                        if self.start_free_drag(block, *position, mode) {
                             ctx.capture();
                             return EventResult::Handled;
                         }
                     }
                     if let Some(block) = handle_hit {
                         if self.layout.free {
-                            if self.start_free_drag(block, *position, false) {
+                            if self.start_free_drag(block, *position, FreeDragMode::Move) {
                                 ctx.capture();
                                 return EventResult::Handled;
                             }
@@ -3557,6 +3887,14 @@ impl Element for DocumentEditorElement {
                         }
                         drop(model);
                         self.after_edit();
+                        return EventResult::Handled;
+                    }
+                }
+                // Клик по фигуре: каретке внутри неё места нет — она просто
+                // становится текущим блоком (панель свойств, ручки размера).
+                if !self.read_only {
+                    if let Some(id) = self.shape_at(*position) {
+                        self.select_object(id);
                         return EventResult::Handled;
                     }
                 }
@@ -3646,9 +3984,8 @@ impl Element for DocumentEditorElement {
                 EventResult::Handled
             }
             Event::MouseMove(position) => {
-                if self.free_drag.is_some() {
-                    let resize = self.free_drag.as_ref().is_some_and(|d| d.resize);
-                    ctx.set_cursor(if resize { CursorIcon::ColResize } else { CursorIcon::Grabbing });
+                if let Some(mode) = self.free_drag.as_ref().map(|d| d.mode) {
+                    ctx.set_cursor(mode.cursor());
                     self.update_free_drag(*position);
                     return EventResult::Handled;
                 }
@@ -3682,11 +4019,13 @@ impl Element for DocumentEditorElement {
                     }
                     // Курсор над хваталками блока: ручка ⋮⋮ тащит блок,
                     // правая кромка (свободная раскладка) тянет ширину.
-                    if let Some(block) = self.hover_block {
-                        if self.resize_rect(block).is_some_and(|r| r.contains(*position)) {
-                            ctx.set_cursor(CursorIcon::ColResize);
-                        } else if self.handle_rect(block).is_some_and(|r| r.contains(*position)) {
+                    if let Some((_, mode)) = self.size_handle_at(*position) {
+                        ctx.set_cursor(mode.cursor());
+                    } else if let Some(block) = self.hover_block {
+                        if self.handle_rect(block).is_some_and(|r| r.contains(*position)) {
                             ctx.set_cursor(CursorIcon::Grab);
+                        } else if self.shape_at(*position).is_some() {
+                            ctx.set_cursor(CursorIcon::Pointer);
                         }
                     }
                 }

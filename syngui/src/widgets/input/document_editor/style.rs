@@ -70,6 +70,10 @@ pub struct DocStyle {
     pub media_bg: Color,
     pub media_radius: f32,
     pub media_placeholder_height: f32,
+    /// Обводка векторного примитива по умолчанию (см. [`super::shape`]).
+    pub shape_stroke_color: Color,
+    /// Цвет хваталок концов линии и углов фигуры.
+    pub shape_handle_color: Color,
     pub embed_border_color: Color,
     pub embed_bg: Color,
     pub table_border_color: Color,
@@ -139,6 +143,8 @@ impl Default for DocStyle {
             media_bg: Color::from_hex("#ffffff").with_alpha(0.05),
             media_radius: 8.0,
             media_placeholder_height: 72.0,
+            shape_stroke_color: Color::from_hex("#9aa3b2"),
+            shape_handle_color: Color::from_hex("#6ea8ff"),
             embed_border_color: Color::from_hex("#ffffff").with_alpha(0.14),
             embed_bg: Color::from_hex("#ffffff").with_alpha(0.04),
             table_border_color: Color::from_hex("#ffffff").with_alpha(0.12),
@@ -223,6 +229,8 @@ impl DocStyle {
             "--doc-block-hover-color" => block_hover_color,
             "--doc-block-selected-color" => block_selected_color,
             "--doc-media-bg" => media_bg,
+            "--doc-shape-stroke-color" => shape_stroke_color,
+            "--doc-shape-handle-color" => shape_handle_color,
             "--doc-embed-border-color" => embed_border_color,
             "--doc-embed-bg" => embed_bg,
             "--doc-table-border-color" => table_border_color,

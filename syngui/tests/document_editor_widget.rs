@@ -10,7 +10,7 @@ use syngui::testing::TestHarness;
 use syngui::widget::context::TextMeasure;
 use syngui::widgets::input::document_editor::{
     parse_document, BlockKind, DocGrid, DocLayout, DocOp, DocumentEditor, DocumentEditorHandle,
-    SlashAction, TableOp,
+    ShapeKind, SlashAction, TableOp,
 };
 
 
@@ -915,4 +915,179 @@ fn outline_and_block_props() {
     settle(&mut h);
     let props = handle.block_props(table).expect("свойства таблицы");
     assert_eq!(props.table, Some((2, 3)), "колонка не добавилась");
+}
+
+// ─── Векторные примитивы ────────────────────────────────────────────────────
+
+/// Прогнать очередь операций хоста: элемент разбирает её в `update()`,
+/// то есть при пересборке виджета (в приложении это делает Reactive).
+fn pump(h: &mut TestHarness, handle: &DocumentEditorHandle, md: &str, layout: DocLayout) {
+    h.update_widget(Box::new(
+        DocumentEditor::new()
+            .markdown(md)
+            .handle(handle)
+            .layout(layout)
+            .on_context_menu(|_| {})
+            .model_epoch(1),
+    ));
+    settle(h);
+}
+
+/// Вставка примитива из меню: блок появляется в точке правого клика со
+/// своими умолчаниями размера и становится текущим (панель свойств хоста).
+#[test]
+fn inserting_a_shape_places_it_at_the_click() {
+    let handle = DocumentEditorHandle::new();
+    let layout = DocLayout { free: true, snap: false, ..DocLayout::default() };
+    let mut h = TestHarness::new(Box::new(
+        DocumentEditor::new()
+            .markdown("Текст\n")
+            .handle(&handle)
+            .layout(layout)
+            // Точку вставки запоминает обработчик контекстного меню.
+            .on_context_menu(|_| {}),
+    ));
+    h.tree.text_measure = Some(Arc::new(Mono));
+    h.rebuild();
+    h.layout(900.0, 700.0);
+
+    // Правый клик запоминает точку вставки, как в реальном меню.
+    h.send_event(&Event::MouseDown {
+        button: MouseButton::Right,
+        position: Point::new(300.0, 240.0),
+    });
+    handle.queue_op(DocOp::InsertBlock(SlashAction::Shape(ShapeKind::Rect)));
+    pump(&mut h, &handle, "Текст\n", layout);
+
+    let md = handle.serialize();
+    assert!(md.contains("![[shape:rect]]"), "фигура не вставилась:\n{md}");
+    // Индекс фигуры среди верхнеуровневых блоков — по служебному блоку.
+    let idx: usize = md
+        .lines()
+        .find(|l| l.contains("h=140"))
+        .and_then(|l| l.split_whitespace().next())
+        .and_then(|i| i.parse().ok())
+        .unwrap_or_else(|| panic!("у фигуры нет геометрии:\n{md}"));
+    assert!(geom_val(&md, idx, "x").is_some(), "фигура не встала в точку клика:\n{md}");
+    assert_eq!(geom_val(&md, idx, "w"), Some(220.0), "ширина по умолчанию:\n{md}");
+    assert!(h.find_by_type_name("doc-shape").len() == 1, "фигура не отрисована");
+    assert_eq!(handle.selected().get_untracked().is_some(), true, "фигура не стала текущей");
+}
+
+/// Свойства фигуры правятся панелью хоста через `SetAttr` и переживают
+/// сериализацию.
+#[test]
+fn shape_properties_go_through_attrs() {
+    let handle = DocumentEditorHandle::new();
+    let mut h = TestHarness::new(Box::new(
+        DocumentEditor::new().markdown("![[shape:ellipse]]\n").handle(&handle),
+    ));
+    h.tree.text_measure = Some(Arc::new(Mono));
+    h.rebuild();
+    h.layout(800.0, 600.0);
+
+    let block = handle.outline()[0].id;
+    handle.queue_op(DocOp::SetAttr { block, key: "fill".into(), value: Some("#4f8cff".into()) });
+    handle.queue_op(DocOp::SetAttr { block, key: "sw".into(), value: Some("4".into()) });
+    pump(&mut h, &handle, "![[shape:ellipse]]\n", DocLayout::default());
+    let md = handle.serialize();
+    assert!(md.contains("fill=#4f8cff") && md.contains("sw=4"), "свойства не записались:\n{md}");
+
+    // Пустое значение возвращает свойство к теме.
+    handle.queue_op(DocOp::SetAttr { block, key: "fill".into(), value: None });
+    pump(&mut h, &handle, "![[shape:ellipse]]\n", DocLayout::default());
+    assert!(!handle.serialize().contains("fill="), "свойство не снялось");
+}
+
+/// «Превратить в» меняет вид фигуры, сохраняя её оформление и геометрию.
+#[test]
+fn turning_a_shape_keeps_its_look() {
+    let handle = DocumentEditorHandle::new();
+    let mut h = TestHarness::new(Box::new(
+        DocumentEditor::new()
+            .markdown("![[shape:rect]]{fill=#243149 sw=3}\n")
+            .handle(&handle),
+    ));
+    h.tree.text_measure = Some(Arc::new(Mono));
+    h.rebuild();
+    h.layout(800.0, 600.0);
+
+    let block = handle.outline()[0].id;
+    handle.queue_op(DocOp::Select(block));
+    handle.queue_op(DocOp::TurnInto(SlashAction::Shape(ShapeKind::Diamond)));
+    pump(&mut h, &handle, "![[shape:rect]]{fill=#243149 sw=3}\n", DocLayout::default());
+
+    let md = handle.serialize();
+    assert!(md.contains("![[shape:diamond]]"), "вид не сменился:\n{md}");
+    assert!(md.contains("fill=#243149") && md.contains("sw=3"), "оформление потерялось:\n{md}");
+    assert_eq!(handle.outline().len(), 1, "вместо смены вида добавился блок");
+}
+
+/// Конец линии тянется мышью: концы пишутся в атрибуты, а рамка блока
+/// подтягивается под них.
+#[test]
+fn dragging_a_line_endpoint_moves_it() {
+    let md = "![[shape:arrow]]{x1=0 y1=0 x2=200 y2=0}\n\n~~~doc-layout\n0 {h=24 w=224 x=100 y=100}\n~~~\n"
+        .replace("~~~", "```");
+    let handle = DocumentEditorHandle::new();
+    let layout = DocLayout { free: true, snap: false, ..DocLayout::default() };
+    let mut h = TestHarness::new(Box::new(
+        DocumentEditor::new().markdown(&md).handle(&handle).layout(layout),
+    ));
+    h.tree.text_measure = Some(Arc::new(Mono));
+    h.rebuild();
+    h.layout(900.0, 700.0);
+
+    // Хваталки рисуются у блока под курсором — наводимся на линию.
+    let shape = h.element_bounds(h.find_by_type_name("doc-shape")[0]);
+    let on_line = Point::new(shape.origin.x + 60.0, shape.origin.y + 12.0);
+    h.send_event(&Event::MouseMove(on_line));
+    let mut list = DisplayList::new();
+    h.tree.build_display_list(
+        h.root_id,
+        &mut list,
+        Rect::new(Point::zero(), Size::new(900.0, 700.0)),
+    );
+
+    // Правый конец отрезка: он на 12 px (поле) от правого края рамки.
+    let end = Point::new(shape.origin.x + shape.size.width - 12.0, shape.origin.y + 12.0);
+    h.send_event(&Event::MouseDown { button: MouseButton::Left, position: end });
+    h.send_event(&Event::MouseMove(Point::new(end.x + 60.0, end.y + 80.0)));
+    h.send_event(&Event::MouseUp { button: MouseButton::Left, position: end });
+    settle(&mut h);
+
+    let out = handle.serialize();
+    let val = |k: &str| {
+        out.split_once(&format!("{k}="))
+            .and_then(|(_, r)| r.split([' ', '}']).next())
+            .and_then(|v| v.parse::<f32>().ok())
+    };
+    assert!(val("x2").unwrap_or(0.0) > 240.0, "конец не уехал вправо:\n{out}");
+    assert!(val("y2").unwrap_or(0.0) > 60.0, "конец не уехал вниз:\n{out}");
+    assert!(geom_val(&out, 0, "h").unwrap_or(0.0) > 80.0, "рамка не подтянулась:\n{out}");
+}
+
+/// Клик по фигуре делает её текущим блоком — каретки внутри неё нет.
+#[test]
+fn clicking_a_shape_selects_it() {
+    let md = "Текст\n\n![[shape:rect]]\n\n~~~doc-layout\n1 {h=120 w=200 x=300 y=300}\n~~~\n"
+        .replace("~~~", "```");
+    let handle = DocumentEditorHandle::new();
+    let layout = DocLayout { free: true, ..DocLayout::default() };
+    let mut h = TestHarness::new(Box::new(
+        DocumentEditor::new().markdown(&md).handle(&handle).layout(layout),
+    ));
+    h.tree.text_measure = Some(Arc::new(Mono));
+    h.rebuild();
+    h.layout(900.0, 700.0);
+
+    let shape = h.element_bounds(h.find_by_type_name("doc-shape")[0]);
+    let inside = Point::new(shape.origin.x + 40.0, shape.origin.y + 40.0);
+    h.send_event(&Event::MouseDown { button: MouseButton::Left, position: inside });
+    h.send_event(&Event::MouseUp { button: MouseButton::Left, position: inside });
+
+    let selected = handle.selected().get_untracked().expect("фигура должна стать текущей");
+    let props = handle.block_props(selected).expect("свойства фигуры");
+    assert_eq!(props.kind, "shape");
+    assert_eq!(props.shape, Some(ShapeKind::Rect));
 }

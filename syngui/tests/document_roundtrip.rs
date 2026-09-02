@@ -251,3 +251,34 @@ fn ids_unique() {
         assert!(seen.insert(b.id), "дубль id {:?}", b.id);
     });
 }
+
+#[test]
+fn shape_blocks() {
+    // Примитив — врезка со своим префиксом: `![[shape:<вид>]]{оформление}`.
+    let m = parse_document("![[shape:rect]]{fill=#243149 sw=3}\n");
+    let b = &m.blocks[0];
+    match &b.kind {
+        BlockKind::Shape { shape } => assert_eq!(*shape, ShapeKind::Rect),
+        other => panic!("не фигура: {other:?}"),
+    }
+    assert_eq!(b.attrs.get("fill"), Some("#243149"));
+    assert_eq!(serialize_document(&m), "![[shape:rect]]{fill=#243149 sw=3}\n");
+
+    // Неизвестный вид остаётся обычной врезкой, а не теряется.
+    match first_kind("![[shape:зигзаг]]\n") {
+        BlockKind::Embed { target } => assert_eq!(target, "shape:зигзаг"),
+        other => panic!("не врезка: {other:?}"),
+    }
+    // Синонимы вида нормализуются к каноничному имени.
+    let m = parse_document("![[shape:circle]]\n");
+    assert_eq!(serialize_document(&m), "![[shape:ellipse]]\n");
+}
+
+#[test]
+fn shape_geometry_survives_roundtrip() {
+    let src = "![[shape:arrow]]{sw=2 x1=0 y1=40 x2=200 y2=0}\n\n```doc-layout\n0 {h=64 w=224 x=60 y=120}\n```\n";
+    let out = roundtrip(src);
+    assert!(out.contains("x2=200"), "концы линии потерялись:\n{out}");
+    assert!(out.contains("h=64"), "высота потерялась:\n{out}");
+    assert!(out.contains("x=60"), "координаты потерялись:\n{out}");
+}

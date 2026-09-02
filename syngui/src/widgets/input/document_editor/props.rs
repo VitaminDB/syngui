@@ -104,6 +104,7 @@ pub fn kind_name(kind: &BlockKind) -> &'static str {
         BlockKind::Divider => "divider",
         BlockKind::Media { .. } => "media",
         BlockKind::Embed { .. } => "embed",
+        BlockKind::Shape { .. } => "shape",
     }
 }
 
@@ -138,6 +139,7 @@ pub fn label_of(block: &DocBlock) -> String {
             if alt.trim().is_empty() { url.chars().take(50).collect() } else { alt.clone() }
         }
         BlockKind::Embed { target } => target.clone(),
+        BlockKind::Shape { shape } => shape.name().to_string(),
         _ => String::new(),
     }
 }
