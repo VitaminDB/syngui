@@ -81,6 +81,8 @@ pub struct DocLayout {
     pub snap_step: f32,
     /// Ширина нового блока в свободной раскладке.
     pub block_width: f32,
+    /// Фон холста поверх темы (под сеткой); `None` — как в теме.
+    pub background: Option<crate::core::Color>,
 }
 
 impl Default for DocLayout {
@@ -92,6 +94,7 @@ impl Default for DocLayout {
             snap: true,
             snap_step: 5.0,
             block_width: 520.0,
+            background: None,
         }
     }
 }

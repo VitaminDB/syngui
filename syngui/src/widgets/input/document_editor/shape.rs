@@ -352,7 +352,7 @@ fn trim_front(path: &mut Vec<(f32, f32)>, cut: f32) {
 }
 
 /// Наконечник: закрашенный треугольник в точке `tip` по направлению `dir`.
-fn arrow_head(c: &mut CanvasContext, tip: (f32, f32), dir: (f32, f32), head: f32, color: Color) {
+pub fn arrow_head(c: &mut CanvasContext, tip: (f32, f32), dir: (f32, f32), head: f32, color: Color) {
     let (ux, uy) = dir;
     let (nx, ny) = (-uy, ux);
     let base = (tip.0 - ux * head, tip.1 - uy * head);
@@ -366,7 +366,7 @@ fn arrow_head(c: &mut CanvasContext, tip: (f32, f32), dir: (f32, f32), head: f32
 }
 
 /// Обводка пути: сплошная полилиния либо набор штрихов.
-fn stroke_path(c: &mut CanvasContext, points: &[(f32, f32)], dash: f32) {
+pub fn stroke_path(c: &mut CanvasContext, points: &[(f32, f32)], dash: f32) {
     if dash < 1.0 {
         c.draw_polyline(points);
         return;

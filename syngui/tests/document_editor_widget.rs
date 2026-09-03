@@ -1697,3 +1697,29 @@ fn replace_markdown_from_host_survives_rebuild_and_undoes() {
     settle(&mut h);
     assert_eq!(handle.serialize(), "абв\n");
 }
+
+/// Фон страницы из раскладки рисуется первым прямоугольником — на весь
+/// холст, под сеткой (свойство страницы, а не режима).
+#[test]
+fn background_is_painted_under_grid() {
+    let handle = DocumentEditorHandle::new();
+    let bg = syngui::core::Color::from_hex("#243149");
+    let layout = DocLayout { free: true, grid: DocGrid::Dots, background: Some(bg), ..DocLayout::default() };
+    let mut h = TestHarness::new(Box::new(
+        DocumentEditor::new().markdown("Текст\n").handle(&handle).layout(layout),
+    ));
+    h.tree.text_measure = Some(Arc::new(Mono));
+    h.rebuild();
+    h.layout(900.0, 700.0);
+    let mut list = DisplayList::new();
+    h.tree.build_display_list(h.root_id, &mut list, Rect::new(Point::zero(), Size::new(900.0, 700.0)));
+    let first = list
+        .iter_all_commands()
+        .find_map(|c| match c {
+            syngui::render::DrawCommand::Rect { rect, color, .. } => Some((*rect, *color)),
+            _ => None,
+        })
+        .expect("хотя бы один прямоугольник");
+    assert_eq!(first.1, bg, "первым должен идти фон страницы");
+    assert!(first.0.size.width >= 900.0 && first.0.size.height >= 700.0, "фон не на весь холст: {:?}", first.0);
+}

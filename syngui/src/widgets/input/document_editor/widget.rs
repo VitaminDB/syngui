@@ -4503,6 +4503,14 @@ impl Element for DocumentEditorElement {
     }
 
     fn build_display_list(&self, list: &mut DisplayList, clip: Rect) {
+        // Фон страницы — под сеткой, на весь холст (в потоке тоже: это
+        // свойство страницы, а не режима).
+        if let Some(bg) = self.layout.background {
+            let area = intersect(self.bounds, clip);
+            if area.size.width > 0.0 && area.size.height > 0.0 {
+                list.push_rect(area, bg, [0.0; 4]);
+            }
+        }
         self.draw_grid(list, clip);
         self.draw_block_bounds(list);
         self.draw_selection(list);
