@@ -522,6 +522,79 @@ impl AppHandler {
         }
     }
 
+    /// Заявка показать фокусное поле над экранной клавиатурой.
+    #[cfg(any(target_os = "android", target_arch = "wasm32"))]
+    pub(in crate::app) fn arm_keyboard_reveal(&mut self) {
+        self.keyboard_reveal = self
+            .focus_manager
+            .current_focus()
+            .or(self.tree.focused_element)
+            .map(|element| super::KeyboardReveal { element, scrolled: false });
+    }
+
+    /// Показ фокусного поля над экранной клавиатурой; зовётся в кадре после
+    /// layout, `visible_h` — высота области над клавиатурой. Шаг 1: прокрутка
+    /// ближайшего скролл-контейнера (позиции обновит следующий layout).
+    /// Шаг 2, кадром позже: если поле всё ещё под клавиатурой (контейнера
+    /// нет или он сам под ней) — сдвиг содержимого `keyboard_pan`, как
+    /// `adjustPan` в Android. Возвращает true, если нужен новый кадр.
+    #[cfg(any(target_os = "android", target_arch = "wasm32"))]
+    pub(in crate::app) fn reveal_focused_under_keyboard(&mut self, visible_h: f32) -> bool {
+        let Some(mut reveal) = self.keyboard_reveal else {
+            return false;
+        };
+        if !self.tree.elements.contains_key(&reveal.element) {
+            self.keyboard_reveal = None;
+            return false;
+        }
+        if !reveal.scrolled {
+            reveal.scrolled = true;
+            self.keyboard_reveal = Some(reveal);
+            self.tree.ensure_element_visible(reveal.element);
+            return true;
+        }
+        self.keyboard_reveal = None;
+        let Some(rect) = self.tree.get(reveal.element).map(|el| el.bounds()) else {
+            return false;
+        };
+        const MARGIN: f32 = 20.0;
+        // Видимая область в абсолютных координатах: позиции элементов уже
+        // учитывают текущий сдвиг, край экрана — нет.
+        let top = self.tree.safe_area.top;
+        let bottom = top + visible_h;
+        let current = self.tree.keyboard_pan;
+        let mut pan = current;
+        let overflow = rect.origin.y + rect.size.height + MARGIN - bottom;
+        if overflow > 0.0 {
+            pan += overflow;
+            // Верх поля выше экрана не уводим: высокому полю важнее верх.
+            let max_pan = current + (rect.origin.y - MARGIN - top).max(0.0);
+            pan = pan.min(max_pan);
+        } else {
+            let above = top - (rect.origin.y - MARGIN);
+            if above > 0.0 {
+                pan -= above;
+            }
+        }
+        pan = pan.max(0.0);
+        if (pan - current).abs() > 0.5 {
+            self.tree.keyboard_pan = pan;
+            return true;
+        }
+        false
+    }
+
+    /// Снимает сдвиг содержимого; true, если он был.
+    #[cfg(any(target_os = "android", target_arch = "wasm32"))]
+    pub(in crate::app) fn reset_keyboard_pan(&mut self) -> bool {
+        if self.tree.keyboard_pan != 0.0 {
+            self.tree.keyboard_pan = 0.0;
+            true
+        } else {
+            false
+        }
+    }
+
     pub(in crate::app) fn process_virtual_keyboard_request(&mut self) {
         if let Some(_show) = self.tree.virtual_keyboard_request.take() {
             #[cfg(target_arch = "wasm32")]
@@ -535,12 +608,13 @@ impl AppHandler {
                         self.tree.keyboard_secret,
                         rect,
                     );
-                    // После сжатия viewport'а клавиатурой (Resized) поле
-                    // прокручивается в видимую область.
-                    self.pending_scroll_element = self.focus_manager.current_focus();
+                    // Когда клавиатура сожмёт viewport, поле покажется над
+                    // ней: прокрутка или сдвиг содержимого (render).
+                    self.arm_keyboard_reveal();
                 } else {
                     crate::app::web_text_agent::hide();
-                    self.pending_scroll_element = None;
+                    self.keyboard_reveal = None;
+                    self.reset_keyboard_pan();
                 }
             }
             #[cfg(target_os = "android")]
@@ -551,7 +625,7 @@ impl AppHandler {
                     if let Some(text) = self.tree.focused_text_content.take() {
                         self.set_input_text_jni(&text);
                     }
-                    self.pending_scroll_element = self.focus_manager.current_focus();
+                    self.arm_keyboard_reveal();
                 }
                 if _show != self.keyboard_shown {
                     self.keyboard_shown = _show;
@@ -559,7 +633,8 @@ impl AppHandler {
                         self.show_keyboard_jni();
                     } else {
                         self.hide_keyboard_jni();
-                        self.pending_scroll_element = None;
+                        self.keyboard_reveal = None;
+                        self.reset_keyboard_pan();
                     }
                 }
             }

@@ -26,6 +26,16 @@ use std::cell::RefCell;
 #[cfg(target_arch = "wasm32")]
 use std::rc::Rc;
 
+/// Поле под экранной клавиатурой: шаг 1 — прокрутка ближайшего
+/// скролл-контейнера, шаг 2 (кадром позже, по свежим позициям) — сдвиг
+/// содержимого `ElementTree::keyboard_pan`, если поле всё ещё не видно.
+#[cfg(any(target_os = "android", target_arch = "wasm32"))]
+#[derive(Clone, Copy)]
+pub(super) struct KeyboardReveal {
+    pub element: crate::widget::ElementId,
+    pub scrolled: bool,
+}
+
 pub(super) struct SecondaryWindow {
     #[allow(dead_code)]
     pub name: String,
@@ -102,8 +112,14 @@ pub(super) struct AppHandler {
     pub(super) keyboard_shown: bool,
     #[cfg(target_os = "android")]
     pub(super) composing_len: usize,
+    /// Фокусное поле, которое нужно показать над экранной клавиатурой
+    /// (см. `reveal_focused_under_keyboard`).
     #[cfg(any(target_os = "android", target_arch = "wasm32"))]
-    pub(super) pending_scroll_element: Option<crate::widget::ElementId>,
+    pub(super) keyboard_reveal: Option<KeyboardReveal>,
+    /// Веб: высота области под клавиатурой, для которой поле уже показывали;
+    /// смена высоты (открытие, шаги анимации, поворот) показывает заново.
+    #[cfg(target_arch = "wasm32")]
+    pub(super) web_reveal_height: f32,
     #[cfg(target_arch = "wasm32")]
     pub(super) pending_gpu: Rc<RefCell<Option<GpuContext>>>,
     #[cfg(target_arch = "wasm32")]
@@ -232,7 +248,9 @@ impl AppHandler {
             #[cfg(target_os = "android")]
             composing_len: 0,
             #[cfg(any(target_os = "android", target_arch = "wasm32"))]
-            pending_scroll_element: None,
+            keyboard_reveal: None,
+            #[cfg(target_arch = "wasm32")]
+            web_reveal_height: 0.0,
             #[cfg(target_arch = "wasm32")]
             pending_gpu: Rc::new(RefCell::new(None)),
             #[cfg(target_arch = "wasm32")]

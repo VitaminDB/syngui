@@ -136,6 +136,16 @@ pub struct ElementTree {
     /// экранная клавиатура Android и подсказка буфера обмена).
     pub(crate) pending_autofocus: Option<ElementId>,
     pub safe_area: crate::core::EdgeInsets,
+    /// Сдвиг содержимого вверх (px) под экранную клавиатуру — аналог
+    /// `adjustPan` в Android: когда фокусное поле оказалось под клавиатурой,
+    /// а прокрутить его некому (страница без скролл-контейнера), корень
+    /// смещается на эту величину. Складывается в `root_offset.y` со знаком
+    /// минус в `AppHandler`; 0 — нет сдвига.
+    pub keyboard_pan: f32,
+    /// `root_offset`, с которым в последний раз расставлялись позиции:
+    /// смена только смещения (safe area, `keyboard_pan`) при тех же
+    /// ограничениях обходится перепозиционированием без полного layout.
+    pub(crate) last_root_offset: Point,
     pub root_offset: Point,
     pub(crate) drop_targets: Vec<ElementId>,
     pub(crate) layout_log_enabled: bool,
@@ -196,6 +206,8 @@ impl ElementTree {
             pending_autofocus: None,
             safe_area: crate::core::EdgeInsets::zero(),
             root_offset: Point::zero(),
+            keyboard_pan: 0.0,
+            last_root_offset: Point::zero(),
             drop_targets: Vec::new(),
             layout_log_enabled: std::env::var("MGUI_LAYOUT_LOG").is_ok(),
             last_mousedown_element: None,

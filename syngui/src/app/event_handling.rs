@@ -117,7 +117,8 @@ impl winit::application::ApplicationHandler<SynGuiUserEvent> for AppHandler {
                     let safe = &self.tree.safe_area;
                     let layout_h = (logical_h - safe.top - safe.bottom).max(0.0);
                     let layout_w = logical_w - safe.left - safe.right;
-                    self.tree.root_offset = crate::core::Point::new(safe.left, safe.top);
+                    self.tree.root_offset =
+                        crate::core::Point::new(safe.left, safe.top - self.tree.keyboard_pan);
                     crate::viewport::publish(crate::core::Size::new(layout_w, layout_h));
                     let constraints = crate::layout::Constraints::new(
                         0.0, layout_w,
@@ -125,13 +126,6 @@ impl winit::application::ApplicationHandler<SynGuiUserEvent> for AppHandler {
                     );
                     self.tree.layout(root_id, constraints);
                     self.a11y_dirty = true;
-                    // Веб: viewport сжала экранная клавиатура
-                    // (interactive-widget=resizes-content) — фокусное поле
-                    // прокручивается в видимую область.
-                    #[cfg(target_arch = "wasm32")]
-                    if let Some(id) = self.pending_scroll_element.take() {
-                        self.tree.ensure_element_visible(id);
-                    }
                 }
 
                 if let Some(window) = &self.window {

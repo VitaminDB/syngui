@@ -159,8 +159,18 @@ keyboard is closed).
 
 Host page: add `interactive-widget=resizes-content` to the viewport meta so
 the layout viewport (and the canvas) shrinks when the keyboard opens; syngui
-then relayouts and scrolls the focused field into view. Without it the
-browser only pans the visual viewport to the agent.
+then relayouts and reveals the focused field. Without it the browser only
+pans the visual viewport to the agent.
+
+**Revealing the field** (web and Android share this): while the keyboard is
+open, the frame after layout first asks the nearest scroll container to
+scroll the focused field into view; if the field is still under the keyboard
+a frame later (no scroll container, or the container itself is under the
+keyboard) the whole tree is shifted up by `ElementTree::keyboard_pan` — the
+counterpart of Android's `adjustPan`. The shift is recomputed when the
+visible height changes (keyboard opening in steps, rotation) or focus moves
+to another field, and removed when the keyboard closes. A changed root
+offset only repositions the tree; it does not trigger a full relayout.
 
 ```html
 <meta name="viewport" content="width=device-width, initial-scale=1, interactive-widget=resizes-content" />

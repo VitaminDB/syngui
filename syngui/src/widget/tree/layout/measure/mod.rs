@@ -42,6 +42,12 @@ impl ElementTree {
         }
 
         if !needs_layout && constraints_hash == self.last_constraints_hash {
+            if self.root_offset != self.last_root_offset {
+                // Сдвинулся только корень (safe area, keyboard_pan): размеры
+                // прежние, достаточно расставить позиции заново.
+                self.last_root_offset = self.root_offset;
+                self.position_recursive(root_id, self.root_offset);
+            }
             self.sync_overlay_stack();
             return self.elements.resolve(root_id)
                 .and_then(|i| self.layout_cache.get(i as usize).copied())
@@ -63,6 +69,7 @@ impl ElementTree {
         let size = self.measure_recursive(root_id, constraints);
 
         self.position_recursive(root_id, self.root_offset);
+        self.last_root_offset = self.root_offset;
 
         for node in self.elements.values_mut() {
             node.element.clear_dirty(DirtyFlags::LAYOUT);
@@ -280,4 +287,32 @@ impl ElementTree {
         own_size
     }
 
+}
+
+#[cfg(test)]
+mod root_offset_tests {
+    use crate::core::Point;
+    use crate::testing::TestHarness;
+    use crate::widgets::{DecoratedBox, Padding};
+
+    /// Смена `root_offset` при тех же ограничениях (safe area, keyboard_pan)
+    /// переставляет позиции без полного layout — дерево не «грязное», но
+    /// координаты обновляются.
+    #[test]
+    fn root_offset_change_repositions_tree() {
+        let mut h = TestHarness::new(Box::new(Padding::all(10.0).child(DecoratedBox::new())));
+        h.layout(200.0, 100.0);
+        let inner = h.find_by_type_name("DecoratedBox")[0];
+        assert_eq!(h.element_bounds(inner).origin, Point::new(10.0, 10.0));
+
+        h.tree.root_offset = Point::new(0.0, -30.0);
+        h.layout(200.0, 100.0);
+        let bounds = h.element_bounds(inner);
+        assert_eq!((bounds.origin.x, bounds.origin.y), (10.0, -20.0));
+        assert_eq!(h.element_bounds(h.root_id).origin.y, -30.0);
+
+        h.tree.root_offset = Point::zero();
+        h.layout(200.0, 100.0);
+        assert_eq!(h.element_bounds(inner).origin, Point::new(10.0, 10.0));
+    }
 }

@@ -1669,7 +1669,9 @@ assert_bounds!(b, 0.0, 0.0, 120.0, 32.0);
 canvas синтетическими клавишами (`input::edit_diff`); `set_secret_keyboard(true)`
 у поля пароля — `type="password"`. Хост-странице нужна
 `interactive-widget=resizes-content` в viewport-мете, иначе canvas не сжимается
-под клавиатуру. `syngui::core::sync::Mutex` на wasm — без блокировок
+под клавиатуру. Поле под клавиатурой (web и Android): сначала прокрутка ближайшего
+скролл-контейнера, кадром позже — сдвиг всего дерева `tree.keyboard_pan` (аналог
+`adjustPan`), если поле всё ещё не видно; сдвиг снимается с закрытием клавиатуры. `syngui::core::sync::Mutex` на wasm — без блокировок
 (однопоточная реализация), поэтому пиши `syngui::core::sync::Mutex`, а не `std::sync::Mutex`,
 если код должен собираться под web.
 

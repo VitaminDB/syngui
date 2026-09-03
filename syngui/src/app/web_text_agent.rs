@@ -309,7 +309,8 @@ fn is_active(input: &web_sys::HtmlInputElement) -> bool {
         .unwrap_or(false)
 }
 
-fn keyboard_open() -> bool {
+/// Экранная клавиатура открыта — по высоте visualViewport.
+pub(crate) fn keyboard_open() -> bool {
     let Some(viewport) = web_sys::window().and_then(|w| w.visual_viewport()) else {
         return false;
     };

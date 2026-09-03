@@ -283,7 +283,8 @@ impl AppHandler {
                     let logical_h = (self.config.height as f64 / self.scale_factor) as f32;
                     let safe = &self.tree.safe_area;
                     let layout_h = (logical_h - safe.top - safe.bottom).max(0.0);
-                    self.tree.root_offset = crate::core::Point::new(safe.left, safe.top);
+                    self.tree.root_offset =
+                        crate::core::Point::new(safe.left, safe.top - self.tree.keyboard_pan);
                     let constraints = crate::layout::Constraints::new(
                         0.0, logical_w - safe.left - safe.right,
                         0.0, layout_h,
@@ -345,7 +346,8 @@ impl AppHandler {
             let keyboard_h = 0.0f32;
             let layout_h = (logical_h - safe.top - safe.bottom - keyboard_h).max(0.0);
             let layout_w = logical_w - safe.left - safe.right;
-            self.tree.root_offset = crate::core::Point::new(safe.left, safe.top);
+            self.tree.root_offset =
+                crate::core::Point::new(safe.left, safe.top - self.tree.keyboard_pan);
             // Публикация размера вьюпорта здесь покрывает пути без отдельного
             // Resized-обработчика (wasm, Android): любой ресайз ведёт к redraw,
             // а set() дедуплицирует — подписчики будятся только при изменении.
@@ -373,12 +375,42 @@ impl AppHandler {
             #[cfg(target_arch = "wasm32")]
             self.sync_web_text_agent_rect();
 
-            #[cfg(target_os = "android")]
+            // Экранная клавиатура: фокусное поле — над ней (прокрутка или
+            // сдвиг содержимого), сдвиг снимается, когда клавиатуры нет.
+            #[cfg(any(target_os = "android", target_arch = "wasm32"))]
             {
-                let kb_ready = keyboard_height_changed || self.keyboard_height > 100.0;
-                if kb_ready {
-                    if let Some(element_id) = self.pending_scroll_element.take() {
-                        self.tree.ensure_element_visible(element_id);
+                #[cfg(target_os = "android")]
+                let kb_open = keyboard_height_changed || self.keyboard_height > 100.0;
+                #[cfg(target_os = "android")]
+                if keyboard_height_changed && self.keyboard_reveal.is_none() {
+                    self.arm_keyboard_reveal();
+                }
+                #[cfg(target_arch = "wasm32")]
+                let kb_open = crate::app::web_text_agent::is_shown()
+                    && crate::app::web_text_agent::keyboard_open();
+                #[cfg(target_arch = "wasm32")]
+                if kb_open {
+                    // Высота над клавиатурой изменилась (открытие, шаги
+                    // анимации, поворот) — показать поле заново.
+                    if (layout_h - self.web_reveal_height).abs() > 0.5 {
+                        self.web_reveal_height = layout_h;
+                        self.arm_keyboard_reveal();
+                    }
+                } else {
+                    self.web_reveal_height = 0.0;
+                }
+                let changed = if kb_open {
+                    self.reveal_focused_under_keyboard(layout_h)
+                } else {
+                    #[cfg(target_arch = "wasm32")]
+                    let closed = true;
+                    #[cfg(target_os = "android")]
+                    let closed = self.keyboard_height < 1.0;
+                    closed && self.reset_keyboard_pan()
+                };
+                if changed {
+                    if let Some(window) = &self.window {
+                        window.request_redraw();
                     }
                 }
             }
