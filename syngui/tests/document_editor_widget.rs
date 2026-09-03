@@ -1300,6 +1300,121 @@ fn click_inside_embed_drops_caret_from_previous_block() {
     assert!(handle.serialize().starts_with("# CAЗаголовок"), "{}", handle.serialize());
 }
 
+/// Ctrl+буква — не набор: в русской раскладке xkb на Ctrl+Z отдаёт «я»,
+/// и без фильтра буква вставлялась бы перед самой отменой.
+#[test]
+fn char_input_with_ctrl_is_not_typed() {
+    let (mut h, handle) = editing_harness("аб\n", Point::new(X0 + 40.0, Y0 + 8.0));
+    h.tree.modifiers.ctrl = true;
+    h.send_event(&Event::CharInput('я'));
+    h.tree.modifiers.ctrl = false;
+    settle(&mut h);
+    assert_eq!(handle.serialize(), "аб\n");
+}
+
+/// Отмена из очереди хоста (кнопки шапки) и сигнал «можно отменить /
+/// повторить»; история живёт в ручке и переживает пересоздание элемента.
+#[test]
+fn undo_op_from_host_and_history_signal() {
+    let (mut h, handle) = editing_harness("аб\n", Point::new(X0 + 40.0, Y0 + 8.0));
+    assert_eq!(handle.history_state().get(), (false, false));
+    type_str(&mut h, "в");
+    settle(&mut h);
+    assert_eq!(handle.serialize(), "абв\n");
+    assert_eq!(handle.history_state().get(), (true, false));
+
+    // Элемент пересоздан заново (смена плитки) — история на месте.
+    let mut h = TestHarness::new(Box::new(DocumentEditor::new().markdown("аб\n").handle(&handle).model_epoch(1)));
+    h.tree.text_measure = Some(Arc::new(Mono));
+    h.rebuild();
+    h.layout(800.0, 2000.0);
+    assert_eq!(handle.serialize(), "абв\n", "модель ручки должна пережить пересоздание");
+    handle.queue_op(DocOp::Undo);
+    h.update_widget(Box::new(DocumentEditor::new().markdown("аб\n").handle(&handle).model_epoch(2)));
+    settle(&mut h);
+    assert_eq!(handle.serialize(), "аб\n");
+    assert_eq!(handle.history_state().get(), (false, true));
+    handle.queue_op(DocOp::Redo);
+    h.update_widget(Box::new(DocumentEditor::new().markdown("аб\n").handle(&handle).model_epoch(3)));
+    settle(&mut h);
+    assert_eq!(handle.serialize(), "абв\n");
+    assert_eq!(handle.history_state().get(), (true, false));
+}
+
+/// Рамка из пустого места выделяет блоки, которых касается; Delete
+/// удаляет их одним шагом, Ctrl+Z возвращает.
+#[test]
+fn marquee_selects_blocks_and_delete_removes_them() {
+    let (mut h, handle) = editing_harness("а\n\nб\n\nв\n", Point::new(X0 + 5.0, Y0 + 5.0));
+    let rows = h.find_by_type_name("doc-text-row");
+    assert_eq!(rows.len(), 3);
+    let r0 = h.element_bounds(rows[0]);
+    let r1 = h.element_bounds(rows[1]);
+    // Правое поле — вне колонки блоков.
+    let start = Point::new(798.0, r0.origin.y + 2.0);
+    let end = Point::new(2.0, r1.origin.y + r1.size.height - 2.0);
+    h.send_event(&Event::MouseDown { button: MouseButton::Left, position: start });
+    h.send_event(&Event::MouseMove(Point::new(start.x - 10.0, start.y + 10.0)));
+    h.send_event(&Event::MouseMove(end));
+    h.send_event(&Event::MouseUp { button: MouseButton::Left, position: end });
+    assert_eq!(handle.block_selection().get().len(), 2, "рамка должна выделить два блока");
+
+    h.send_event(&Event::KeyDown(Key::Delete));
+    settle(&mut h);
+    assert_eq!(handle.serialize(), "в\n");
+    assert!(handle.block_selection().get().is_empty());
+
+    h.tree.modifiers.ctrl = true;
+    h.send_event(&Event::KeyDown(Key::Z));
+    h.tree.modifiers.ctrl = false;
+    settle(&mut h);
+    assert_eq!(handle.serialize(), "а\n\nб\n\nв\n");
+}
+
+/// Ctrl+клик переключает блок в выделении, повторный Ctrl+A выделяет все
+/// блоки, Esc снимает; клик без протяжки в пустом месте — обычная каретка.
+#[test]
+fn ctrl_click_and_double_ctrl_a_select_blocks() {
+    let (mut h, handle) = editing_harness("а\n\nб\n\nв\n", Point::new(X0 + 5.0, Y0 + 5.0));
+    let rows = h.find_by_type_name("doc-text-row");
+    let r1 = h.element_bounds(rows[1]);
+    let mid = Point::new(r1.origin.x + 5.0, r1.origin.y + r1.size.height / 2.0);
+    h.tree.modifiers.ctrl = true;
+    h.send_event(&Event::MouseDown { button: MouseButton::Left, position: mid });
+    h.send_event(&Event::MouseUp { button: MouseButton::Left, position: mid });
+    h.tree.modifiers.ctrl = false;
+    let sel = handle.block_selection().get();
+    assert_eq!(sel.len(), 1);
+    assert_eq!(Some(sel[0]), handle.outline().get(1).map(|b| b.id));
+
+    h.tree.modifiers.ctrl = true;
+    h.send_event(&Event::MouseDown { button: MouseButton::Left, position: mid });
+    h.send_event(&Event::MouseUp { button: MouseButton::Left, position: mid });
+    h.tree.modifiers.ctrl = false;
+    assert!(handle.block_selection().get().is_empty(), "повторный Ctrl+клик снимает");
+
+    // Каретка в первый блок, затем Ctrl+A дважды.
+    let p0 = Point::new(X0 + 5.0, Y0 + 5.0);
+    h.send_event(&Event::MouseDown { button: MouseButton::Left, position: p0 });
+    h.send_event(&Event::MouseUp { button: MouseButton::Left, position: p0 });
+    h.tree.modifiers.ctrl = true;
+    h.send_event(&Event::KeyDown(Key::A));
+    assert!(handle.block_selection().get().is_empty(), "первый Ctrl+A — текст");
+    h.send_event(&Event::KeyDown(Key::A));
+    h.tree.modifiers.ctrl = false;
+    assert_eq!(handle.block_selection().get().len(), 3, "второй Ctrl+A — все блоки");
+    h.send_event(&Event::KeyDown(Key::Escape));
+    assert!(handle.block_selection().get().is_empty());
+
+    // Клик в пустом месте без протяжки ставит каретку — набор идёт в текст.
+    let empty = Point::new(798.0, Y0 + 5.0);
+    h.send_event(&Event::MouseDown { button: MouseButton::Left, position: empty });
+    h.send_event(&Event::MouseUp { button: MouseButton::Left, position: empty });
+    type_str(&mut h, "х");
+    settle(&mut h);
+    assert!(handle.serialize().starts_with("ах") || handle.serialize().starts_with("ха"), "{}", handle.serialize());
+}
+
 /// Draggable внутри врезки → drag дерева → Drop в DropArea той же врезки
 /// (цепочка приложения: MouseDown, MouseMove, DragMove, Drop) — виджеты
 /// живой врезки участвуют в переносе наравне с остальными.

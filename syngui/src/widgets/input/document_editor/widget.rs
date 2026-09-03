@@ -79,6 +79,20 @@ pub enum DocOp {
     /// Вставить markdown в точку: на холст свободной раскладки — ровно в
     /// неё, в потоке — у блока под точкой (дроп извне).
     InsertMarkdownAt { at: Point, md: String },
+    /// Отменить / повторить последнюю правку (кнопки хоста; история живёт
+    /// в ручке страницы и переживает пересоздание элемента).
+    Undo,
+    Redo,
+    /// Скопировать в буфер обмена выделенные блоки (без выделения —
+    /// текущий блок) как markdown.
+    Copy,
+    /// Вырезать: копия в буфер + удаление одним шагом истории.
+    Cut,
+    /// Вставить из буфера: после выделенных блоков, без выделения — у
+    /// каретки (многострочный текст — блоками markdown).
+    Paste,
+    /// Выделить блоки верхнего уровня (пустой список — снять выделение).
+    SelectBlocks(Vec<super::model::BlockId>),
 }
 
 /// Снимок свойств блока для панели хоста.
@@ -116,6 +130,14 @@ pub struct DocumentEditorHandle {
     /// размонтировании поддерева (переключение вкладки/маршрута), и без
     /// этой отметки он перепарсил бы исходник хоста поверх правок.
     source_fp: Arc<Mutex<Option<u64>>>,
+    /// История undo/redo — тоже в ручке: иначе смена плитки рейла или
+    /// страницы теряла бы (а при общем элементе — путала бы) историю.
+    history: Arc<Mutex<UndoStack>>,
+    /// (есть что отменить, есть что повторить) — кнопки хоста.
+    history_state: RwSignal<(bool, bool)>,
+    /// Выделенные блоки страницы (верхний уровень, порядок документа) —
+    /// подсветка строк в дереве блоков хоста.
+    block_selection: RwSignal<Vec<super::model::BlockId>>,
 }
 
 impl DocumentEditorHandle {
@@ -126,7 +148,21 @@ impl DocumentEditorHandle {
             ops: Arc::new(Mutex::new(Vec::new())),
             selected: use_signal(None),
             source_fp: Arc::new(Mutex::new(None)),
+            history: Arc::new(Mutex::new(UndoStack::new())),
+            history_state: use_signal((false, false)),
+            block_selection: use_signal(Vec::new()),
         }
+    }
+
+    /// Сигнал `(можно отменить, можно повторить)`: `.get()` в Reactive —
+    /// подписка для кнопок истории хоста.
+    pub fn history_state(&self) -> RwSignal<(bool, bool)> {
+        self.history_state
+    }
+
+    /// Сигнал выделенных блоков (id верхнего уровня в порядке документа).
+    pub fn block_selection(&self) -> RwSignal<Vec<super::model::BlockId>> {
+        self.block_selection
     }
 
     /// Сигнал текущего блока: `.get()` в Reactive — подписка на выбор.
@@ -579,7 +615,7 @@ impl Widget for DocumentEditor {
             preedit: None,
             revision: self.handle.as_ref().map(|h| h.revision),
             on_change: self.on_change.clone(),
-            history: UndoStack::new(),
+            history: self.handle.as_ref().map(|h| h.history.clone()).unwrap_or_default(),
             slash: None,
             slash_items: self.slash_items.clone(),
             on_slash_custom: self.on_slash_custom.clone(),
@@ -610,6 +646,11 @@ impl Widget for DocumentEditor {
             menu_pos: None,
             free_drag: None,
             object_sel: None,
+            history_state: self.handle.as_ref().map(|h| h.history_state),
+            block_sel: Vec::new(),
+            block_anchor: None,
+            block_sel_sig: self.handle.as_ref().map(|h| h.block_selection),
+            marquee: None,
         })
     }
 
@@ -676,7 +717,7 @@ pub struct DocumentEditorElement {
     preedit: Option<String>,
     revision: Option<RwSignal<u64>>,
     on_change: Option<Arc<dyn Fn() + Send + Sync>>,
-    history: UndoStack,
+    history: Arc<Mutex<UndoStack>>,
     slash: Option<SlashState>,
     slash_items: Vec<SlashItem>,
     on_slash_custom: Option<Arc<dyn Fn(&str) + Send + Sync>>,
@@ -711,6 +752,48 @@ pub struct DocumentEditorElement {
     /// Выбранный блок, у которого нет каретки (фигура): панель свойств,
     /// рамка габаритов и ручки размера работают и над ним.
     object_sel: Option<super::model::BlockId>,
+    /// (можно отменить, можно повторить) для хоста.
+    history_state: Option<RwSignal<(bool, bool)>>,
+    /// Выделенные блоки верхнего уровня (порядок документа) — отдельный
+    /// режим: каретки нет, Delete/Ctrl+C/X/V работают над блоками.
+    block_sel: Vec<super::model::BlockId>,
+    /// Якорь диапазона Shift+клик.
+    block_anchor: Option<super::model::BlockId>,
+    block_sel_sig: Option<RwSignal<Vec<super::model::BlockId>>>,
+    /// Рамка выделения: нажатие в пустом месте и протяжка.
+    marquee: Option<Marquee>,
+}
+
+/// Рамка выделения блоков. До порога движения — обычный клик (каретка
+/// ставится на отпускании), после — прямоугольник, выделяющий все блоки,
+/// которых он касается.
+#[derive(Clone, Copy)]
+struct Marquee {
+    start: Point,
+    current: Point,
+    active: bool,
+}
+
+fn rect_from_points(a: Point, b: Point) -> Rect {
+    let x0 = a.x.min(b.x);
+    let y0 = a.y.min(b.y);
+    Rect::new(Point::new(x0, y0), Size::new((a.x - b.x).abs(), (a.y - b.y).abs()))
+}
+
+fn rects_intersect(a: Rect, b: Rect) -> bool {
+    a.origin.x < b.origin.x + b.size.width
+        && b.origin.x < a.origin.x + a.size.width
+        && a.origin.y < b.origin.y + b.size.height
+        && b.origin.y < a.origin.y + a.size.height
+}
+
+/// Контур прямоугольника четырьмя тонкими полосками.
+fn stroke_rect(list: &mut DisplayList, r: Rect, color: crate::core::Color, w: f32) {
+    let (x, y, wd, h) = (r.origin.x, r.origin.y, r.size.width, r.size.height);
+    list.push_rect(Rect::new(Point::new(x, y), Size::new(wd, w)), color, [0.0; 4]);
+    list.push_rect(Rect::new(Point::new(x, y + h - w), Size::new(wd, w)), color, [0.0; 4]);
+    list.push_rect(Rect::new(Point::new(x, y), Size::new(w, h)), color, [0.0; 4]);
+    list.push_rect(Rect::new(Point::new(x + wd - w, y), Size::new(w, h)), color, [0.0; 4]);
 }
 
 /// Состояние открытого автокомплита `[[`.
@@ -803,19 +886,35 @@ impl DocumentEditorElement {
         lock(&self.model)
     }
 
+    fn history(&self) -> MutexGuard<'_, UndoStack> {
+        self.history.lock().unwrap_or_else(|e| e.into_inner())
+    }
+
+    /// Сигнал «можно отменить / повторить» для кнопок хоста.
+    fn publish_history(&mut self) {
+        let Some(sig) = self.history_state else { return };
+        let now = {
+            let h = self.history();
+            (h.can_undo(), h.can_redo())
+        };
+        if sig.get_untracked() != now {
+            sig.set(now);
+        }
+    }
+
     /// Снимок в историю перед правкой (группировка по классу и блоку).
     fn checkpoint(&mut self, class: EditClass) {
         let block = self.caret().map(|c| c.block);
         let model = lock(&self.model);
         let snapshot_sel = self.selection;
         // NB: заимствуем guard только на время клона.
-        self.history.checkpoint(&model, snapshot_sel, class, block);
+        self.history().checkpoint(&model, snapshot_sel, class, block);
     }
 
     fn undo(&mut self) {
         let snap = {
             let model = lock(&self.model);
-            self.history.undo(&model, self.selection)
+            self.history().undo(&model, self.selection)
         };
         if let Some(s) = snap {
             *lock(&self.model) = s.model;
@@ -827,7 +926,7 @@ impl DocumentEditorElement {
     fn redo(&mut self) {
         let snap = {
             let model = lock(&self.model);
-            self.history.redo(&model, self.selection)
+            self.history().redo(&model, self.selection)
         };
         if let Some(s) = snap {
             *lock(&self.model) = s.model;
@@ -842,7 +941,7 @@ impl DocumentEditorElement {
         self.checkpoint(EditClass::Structure);
         let done = self.tab_indent(outdent);
         if !done {
-            self.history.discard_last_checkpoint();
+            self.history().discard_last_checkpoint();
         }
         done
     }
@@ -1194,6 +1293,29 @@ impl DocumentEditorElement {
             DocOp::InsertMarkdownAt { at: point, md } => self.insert_markdown_at_point(&md, point),
             DocOp::Move { down } => self.move_current(down),
             DocOp::Select(id) => self.select_block(id),
+            // Кнопки истории хоста: клик по ним увёл фокус приложения с
+            // редактора — просим обратно, чтобы восстановленная каретка
+            // была видна и набор продолжился.
+            DocOp::Undo => {
+                self.undo();
+                self.focused = true;
+                self.focus_request_pending = true;
+            }
+            DocOp::Redo => {
+                self.redo();
+                self.focused = true;
+                self.focus_request_pending = true;
+            }
+            DocOp::Copy => {
+                self.copy_blocks();
+            }
+            DocOp::Cut => self.cut_blocks(),
+            DocOp::Paste => {
+                self.paste_blocks();
+                self.focused = true;
+                self.focus_request_pending = true;
+            }
+            DocOp::SelectBlocks(ids) => self.select_blocks(ids),
             DocOp::SetAttr { block, key, value } => {
                 self.checkpoint(EditClass::Structure);
                 let changed = {
@@ -1209,7 +1331,7 @@ impl DocumentEditorElement {
                 if changed {
                     self.after_edit();
                 } else {
-                    self.history.discard_last_checkpoint();
+                    self.history().discard_last_checkpoint();
                 }
             }
             DocOp::Table { block, op } => {
@@ -1226,7 +1348,7 @@ impl DocumentEditorElement {
                 if changed {
                     self.after_edit();
                 } else {
-                    self.history.discard_last_checkpoint();
+                    self.history().discard_last_checkpoint();
                 }
             }
         }
@@ -1260,6 +1382,7 @@ impl DocumentEditorElement {
             .or_else(|| self.table_caret.map(|t| t.block))
             .or_else(|| self.caret().map(|c| c.block))
             .or(self.object_sel)
+            .or_else(|| self.block_sel.first().copied())
     }
 
     /// Обновить сигнал текущего блока в ручке (панель свойств хоста).
@@ -1319,6 +1442,7 @@ impl DocumentEditorElement {
         self.table_caret = None;
         self.code_caret = None;
         self.object_sel = None;
+        self.drop_block_sel();
         match kind {
             Some(1) => self.table_caret = Some(TableCaret { block: id, row: 0, col: 0, offset: 0 }),
             Some(2) => self.code_caret = Some(CodeCaret { block: id, offset: 0 }),
@@ -1420,7 +1544,9 @@ impl DocumentEditorElement {
             return;
         }
         self.checkpoint(EditClass::Structure);
-        let anchor = self.caret().map(|c| c.block);
+        // Якорь — текущий блок: под кареткой либо выбранный объект
+        // (фигура, доска): у них каретки нет, но вставка «после» нужна.
+        let anchor = self.target_block().map(|(b, _)| b);
         let first = {
             let mut model = self.model();
             let mut blocks = fragment.blocks;
@@ -1537,7 +1663,7 @@ impl DocumentEditorElement {
             removed
         };
         if !removed {
-            self.history.discard_last_checkpoint();
+            self.history().discard_last_checkpoint();
             return;
         }
         if self.selection.as_ref().map(|s| s.head.block == id || s.anchor.block == id).unwrap_or(false) {
@@ -1634,7 +1760,7 @@ impl DocumentEditorElement {
             if moved {
                 self.after_edit();
             } else {
-                self.history.discard_last_checkpoint();
+                self.history().discard_last_checkpoint();
             }
             return;
         }
@@ -1658,7 +1784,7 @@ impl DocumentEditorElement {
             .unwrap_or(false)
         };
         if !moved {
-            self.history.discard_last_checkpoint();
+            self.history().discard_last_checkpoint();
             return;
         }
         self.after_edit();
@@ -1738,6 +1864,7 @@ impl DocumentEditorElement {
     /// Фиксация правки: перестройка детей, ревизия, колбэк.
     fn after_edit(&mut self) {
         self.publish_selection();
+        self.publish_history();
         self.rebuild = true;
         self.mark_dirty(DirtyFlags::LAYOUT | DirtyFlags::RENDER);
         self.caret_on = true;
@@ -1748,6 +1875,200 @@ impl DocumentEditorElement {
         if let Some(cb) = &self.on_change {
             cb();
         }
+    }
+
+    // ─── Выделение блоков ──────────────────────────────────────────────────
+
+    /// Верхнеуровневый блок под точкой — по опубликованным прямоугольникам
+    /// (`BlockRectMap`), без допусков: для выделения нужен именно блок под
+    /// курсором, а не ближайший (как у `row_at` для ручки ⋮⋮).
+    fn top_block_at(&self, p: Point) -> Option<super::model::BlockId> {
+        let map = self.blocks.lock().ok()?;
+        map.iter().find(|(_, r)| r.contains(p)).map(|(id, _)| *id)
+    }
+
+    fn top_order(&self) -> Vec<super::model::BlockId> {
+        self.model().blocks.iter().map(|b| b.id).collect()
+    }
+
+    fn publish_block_sel(&mut self) {
+        let Some(sig) = self.block_sel_sig else { return };
+        if sig.get_untracked() != self.block_sel {
+            sig.set(self.block_sel.clone());
+        }
+    }
+
+    /// Снять выделение блоков тихо (каретка встаёт — режим блоков кончился).
+    fn drop_block_sel(&mut self) {
+        if !self.block_sel.is_empty() {
+            self.block_sel.clear();
+            self.publish_block_sel();
+        }
+        self.block_anchor = None;
+    }
+
+    fn clear_block_sel(&mut self) {
+        if !self.block_sel.is_empty() {
+            self.mark_dirty(DirtyFlags::RENDER);
+        }
+        self.drop_block_sel();
+    }
+
+    /// Выделить блоки (id верхнего уровня; порядок берётся из документа,
+    /// чужие id отбрасываются). Каретка и выбор объекта снимаются —
+    /// выделение блоков живёт отдельным режимом.
+    fn select_blocks(&mut self, ids: Vec<super::model::BlockId>) {
+        let sel: Vec<super::model::BlockId> =
+            self.top_order().into_iter().filter(|id| ids.contains(id)).collect();
+        if !sel.is_empty() {
+            self.selection = None;
+            self.table_caret = None;
+            self.code_caret = None;
+            self.object_sel = None;
+            self.mouse_selecting = false;
+            if self.block_anchor.map_or(true, |a| !sel.contains(&a)) {
+                self.block_anchor = sel.first().copied();
+            }
+        } else {
+            self.block_anchor = None;
+        }
+        self.block_sel = sel;
+        self.publish_block_sel();
+        self.publish_selection();
+        self.mark_dirty(DirtyFlags::RENDER);
+    }
+
+    /// Ctrl+клик: добавить/убрать блок; он же становится якорем диапазона.
+    fn toggle_block_sel(&mut self, id: super::model::BlockId) {
+        let mut ids = self.block_sel.clone();
+        match ids.iter().position(|b| *b == id) {
+            Some(i) => {
+                ids.remove(i);
+            }
+            None => ids.push(id),
+        }
+        self.select_blocks(ids);
+        self.block_anchor = Some(id);
+    }
+
+    /// Shift+клик: диапазон от якоря до блока в порядке документа.
+    fn select_block_range(&mut self, to: super::model::BlockId) {
+        let order = self.top_order();
+        let from = self.block_anchor.or_else(|| self.block_sel.first().copied()).unwrap_or(to);
+        let (Some(a), Some(b)) =
+            (order.iter().position(|x| *x == from), order.iter().position(|x| *x == to))
+        else {
+            self.select_blocks(vec![to]);
+            return;
+        };
+        let (lo, hi) = if a <= b { (a, b) } else { (b, a) };
+        self.select_blocks(order[lo..=hi].to_vec());
+        self.block_anchor = Some(from);
+    }
+
+    /// Блоки, которых касается прямоугольник рамки.
+    fn blocks_in_rect(&self, r: Rect) -> Vec<super::model::BlockId> {
+        let Ok(map) = self.blocks.lock() else { return Vec::new() };
+        map.iter().filter(|(_, b)| rects_intersect(r, **b)).map(|(id, _)| *id).collect()
+    }
+
+    /// Markdown блоков для буфера: выделенные, без выделения — текущий
+    /// (верхнего уровня). Блоки разделены пустой строкой.
+    fn selection_blocks_markdown(&self) -> Option<(Vec<super::model::BlockId>, String)> {
+        let ids: Vec<super::model::BlockId> = if !self.block_sel.is_empty() {
+            self.block_sel.clone()
+        } else {
+            self.target_block().and_then(|(b, _)| self.top_level_of(b)).into_iter().collect()
+        };
+        if ids.is_empty() {
+            return None;
+        }
+        let model = self.model();
+        let mut out = String::new();
+        for id in &ids {
+            if let Some(b) = model.blocks.iter().find(|b| b.id == *id) {
+                if !out.is_empty() {
+                    out.push('\n');
+                }
+                out.push_str(&super::serialize::block_markdown(b));
+            }
+        }
+        Some((ids, out))
+    }
+
+    fn copy_blocks(&mut self) -> bool {
+        let Some((_, md)) = self.selection_blocks_markdown() else { return false };
+        crate::clipboard::copy(&md);
+        true
+    }
+
+    fn cut_blocks(&mut self) {
+        let Some((ids, md)) = self.selection_blocks_markdown() else { return };
+        crate::clipboard::copy(&md);
+        self.delete_blocks(ids);
+    }
+
+    /// Удалить блоки верхнего уровня одним шагом истории; каретка — в
+    /// блок над первым удалённым (или в первый оставшийся).
+    fn delete_blocks(&mut self, ids: Vec<super::model::BlockId>) {
+        if ids.is_empty() {
+            return;
+        }
+        self.checkpoint(EditClass::Structure);
+        let next = {
+            let mut model = self.model();
+            let first_idx = model.blocks.iter().position(|b| ids.contains(&b.id)).unwrap_or(0);
+            model.blocks.retain(|b| !ids.contains(&b.id));
+            if model.blocks.is_empty() {
+                let id = model.alloc_id();
+                model.blocks.push(DocBlock::new(id, BlockKind::Paragraph(InlineText::default())));
+            }
+            let idx = first_idx.saturating_sub(1).min(model.blocks.len() - 1);
+            model.blocks[idx].id
+        };
+        self.block_sel.clear();
+        self.block_anchor = None;
+        self.publish_block_sel();
+        self.caret_into(next);
+        if let Some(sel) = self.selection {
+            let len = edit::block_text_len(&self.model(), sel.head.block);
+            self.selection = Some(DocSelection::caret(CaretPos { block: sel.head.block, offset: len }));
+        }
+        self.after_edit();
+    }
+
+    /// Ctrl+V: однострочный текст — в строку у каретки; многострочный (или
+    /// без каретки — над фигурой/доской) — блоками markdown, так что
+    /// структура из другого редактора и наши копии блоков сохраняются.
+    fn paste_text(&mut self, text: &str) {
+        let text = text.replace('\r', "");
+        let multi = text.trim_end_matches('\n').contains('\n');
+        if multi || self.caret().is_none() {
+            self.insert_markdown_at_caret(&text);
+        } else {
+            self.checkpoint(EditClass::Structure);
+            self.paste(&text);
+        }
+    }
+
+    /// Вставка из буфера: после выделенных блоков, иначе как Ctrl+V.
+    fn paste_blocks(&mut self) {
+        let Some(text) = crate::clipboard::paste() else { return };
+        if text.trim().is_empty() {
+            return;
+        }
+        if let Some(last) = self.block_sel.last().copied() {
+            self.block_sel.clear();
+            self.block_anchor = None;
+            self.publish_block_sel();
+            self.selection = None;
+            self.table_caret = None;
+            self.code_caret = None;
+            self.object_sel = Some(last);
+            self.insert_markdown_at_caret(&text);
+            return;
+        }
+        self.paste_text(&text);
     }
 
     // ─── Геометрия ──────────────────────────────────────────────────────────
@@ -1869,6 +2190,7 @@ impl DocumentEditorElement {
 
     fn set_caret(&mut self, pos: CaretPos, extend: bool) {
         self.object_sel = None;
+        self.drop_block_sel();
         self.selection = Some(match (self.selection, extend) {
             (Some(sel), true) => DocSelection { anchor: sel.anchor, head: pos },
             _ => DocSelection::caret(pos),
@@ -2436,6 +2758,7 @@ impl DocumentEditorElement {
     /// над чужой врезкой (доска, диаграмма) фокус снимается: приложение его
     /// туда не даёт, а два «фокусированных» ввода делят клавиатуру.
     fn select_object(&mut self, id: super::model::BlockId, focus: bool) {
+        self.drop_block_sel();
         self.selection = None;
         self.table_caret = None;
         self.code_caret = None;
@@ -2496,7 +2819,7 @@ impl DocumentEditorElement {
         // Блок мог ещё стоять в потоке — закрепляем его ровно там, где он
         // сейчас нарисован, иначе перенос начинался бы со скачка.
         let Some((x, y, width)) = self.pin_block(top) else {
-            self.history.discard_last_checkpoint();
+            self.history().discard_last_checkpoint();
             return false;
         };
         self.free_drag = Some(FreeDrag {
@@ -2839,6 +3162,28 @@ impl DocumentEditorElement {
             return;
         }
         let s = &self.style;
+        // Выделенные блоки — заливка с контуром; рамка протяжки — тоньше.
+        if !self.block_sel.is_empty() {
+            if let Ok(map) = self.blocks.lock() {
+                for id in &self.block_sel {
+                    if let Some(r) = map.get(id) {
+                        let rr = Rect::new(
+                            Point::new(r.origin.x - 4.0, r.origin.y - 2.0),
+                            Size::new(r.size.width + 8.0, r.size.height + 4.0),
+                        );
+                        list.push_rect(rr, s.selection_color, [6.0; 4]);
+                        stroke_rect(list, rr, s.caret_color.with_alpha(0.7), 1.0);
+                    }
+                }
+            }
+        }
+        if let Some(m) = &self.marquee {
+            if m.active {
+                let r = rect_from_points(m.start, m.current);
+                list.push_rect(r, s.selection_color.with_alpha(0.12), [2.0; 4]);
+                stroke_rect(list, r, s.caret_color.with_alpha(0.6), 1.0);
+            }
+        }
         // Ручка у блока под курсором (когда не тянем).
         if self.drag.is_none() {
             if let Some(block) = self.hover_block {
@@ -3899,6 +4244,13 @@ impl Element for DocumentEditorElement {
                 self.revision = Some(h.revision);
                 self.ops = h.ops.clone();
                 self.selected = Some(h.selected);
+                self.history = h.history.clone();
+                self.history_state = Some(h.history_state);
+                self.block_sel_sig = Some(h.block_selection);
+                self.block_sel.clear();
+                self.block_anchor = None;
+                self.object_sel = None;
+                self.marquee = None;
                 // Модель ручки уже загружена из своего исходника — берём
                 // её отметку, иначе смена страницы перепарсила бы поверх
                 // несохранённых правок.
@@ -4292,6 +4644,33 @@ impl Element for DocumentEditorElement {
                         return EventResult::Handled;
                     }
                 }
+                // Выделение блоков: Ctrl+клик переключает блок, Shift+клик
+                // при выделении тянет диапазон, нажатие в пустом месте
+                // (поля, холст, ниже текста) начинает рамку — без протяжки
+                // на отпускании ставится обычная каретка. Простой клик по
+                // блоку снимает выделение.
+                if !self.read_only && !self.plain {
+                    let top = self.top_block_at(*position);
+                    if ctx.modifiers.ctrl {
+                        if let Some(id) = top {
+                            self.toggle_block_sel(id);
+                            return EventResult::Handled;
+                        }
+                    }
+                    if ctx.modifiers.shift && !self.block_sel.is_empty() {
+                        if let Some(id) = top {
+                            self.select_block_range(id);
+                            return EventResult::Handled;
+                        }
+                    }
+                    if top.is_none() && self.shape_at(*position).is_none() {
+                        self.marquee =
+                            Some(Marquee { start: *position, current: *position, active: false });
+                        ctx.capture();
+                        return EventResult::Handled;
+                    }
+                    self.clear_block_sel();
+                }
                 // Клик по фигуре: каретке внутри неё места нет — она просто
                 // становится текущим блоком (панель свойств, ручки размера).
                 // Врезка-объект (доска, диаграмма) — так же, но её виджеты
@@ -4370,7 +4749,12 @@ impl Element for DocumentEditorElement {
                 ctx.set_focused_text(String::new());
                 self.close_slash();
                 self.wiki = None;
-                if let Some(id) = object {
+                let keep_blocks =
+                    self.top_block_at(*position).is_some_and(|t| self.block_sel.contains(&t));
+                if keep_blocks {
+                    // Меню над выделенными блоками действует над всеми ними —
+                    // выделение не трогаем.
+                } else if let Some(id) = object {
                     // Меню над фигурой или объектом: он и становится текущим
                     // блоком — каретка в соседний текст не прыгает, «Удалить
                     // блок» удаляет именно его.
@@ -4408,6 +4792,21 @@ impl Element for DocumentEditorElement {
                 EventResult::Handled
             }
             Event::MouseMove(position) => {
+                if let Some(mut m) = self.marquee {
+                    m.current = *position;
+                    if !m.active
+                        && (m.current.x - m.start.x).abs() + (m.current.y - m.start.y).abs() > 4.0
+                    {
+                        m.active = true;
+                    }
+                    self.marquee = Some(m);
+                    if m.active {
+                        let ids = self.blocks_in_rect(rect_from_points(m.start, m.current));
+                        self.select_blocks(ids);
+                    }
+                    self.mark_dirty(DirtyFlags::RENDER);
+                    return EventResult::Handled;
+                }
                 if let Some(mode) = self.free_drag.as_ref().map(|d| d.mode) {
                     ctx.set_cursor(mode.cursor());
                     self.update_free_drag(*position);
@@ -4490,6 +4889,21 @@ impl Element for DocumentEditorElement {
                 EventResult::Ignored
             }
             Event::MouseUp { button: MouseButton::Left, position } => {
+                if let Some(m) = self.marquee.take() {
+                    if !m.active {
+                        // Клик без протяжки — каретка в ближайшую строку,
+                        // как и раньше.
+                        self.clear_block_sel();
+                        if let Some(pos) = self.hit_caret(m.start) {
+                            self.table_caret = None;
+                            self.code_caret = None;
+                            self.goal_x = None;
+                            self.set_caret(pos, false);
+                        }
+                    }
+                    self.mark_dirty(DirtyFlags::RENDER);
+                    return EventResult::Handled;
+                }
                 if let Some(drag) = self.free_drag.take() {
                     // Перенос за ⋮⋮ мог закончиться над карточкой доски —
                     // тогда блок забирает хост.
@@ -4502,9 +4916,20 @@ impl Element for DocumentEditorElement {
                     // Даже без движения блок мог только что закрепиться —
                     // это правка модели, её надо сохранить.
                     self.after_edit();
+                    // Клик по ⋮⋮ без переноса выделяет блок.
+                    if drag.mode == FreeDragMode::Move && !drag.moved {
+                        if let Some(top) = self.top_level_of(drag.block) {
+                            self.select_blocks(vec![top]);
+                        }
+                    }
                     return EventResult::Handled;
                 }
                 if let Some(drag) = self.drag.take() {
+                    if !drag.started {
+                        if let Some(top) = self.top_level_of(drag.block) {
+                            self.select_blocks(vec![top]);
+                        }
+                    }
                     if drag.started {
                         if self.host_took_block(*position, drag.block) {
                             self.mark_dirty(DirtyFlags::RENDER);
@@ -4519,7 +4944,7 @@ impl Element for DocumentEditorElement {
                             if moved {
                                 self.after_edit();
                             } else {
-                                self.history.discard_last_checkpoint();
+                                self.history().discard_last_checkpoint();
                             }
                         }
                     }
@@ -4553,7 +4978,7 @@ impl Element for DocumentEditorElement {
                             if moved {
                                 self.after_edit();
                             } else {
-                                self.history.discard_last_checkpoint();
+                                self.history().discard_last_checkpoint();
                             }
                         }
                     }
@@ -4718,9 +5143,70 @@ impl Element for DocumentEditorElement {
                         _ => {}
                     }
                 }
+                // Выделение блоков — свой набор клавиш: удалить, буфер,
+                // все блоки, шаг выделения вверх/вниз, Esc.
+                if editable && !self.block_sel.is_empty() {
+                    match key {
+                        Key::Delete | Key::Backspace => {
+                            let ids = self.block_sel.clone();
+                            self.delete_blocks(ids);
+                            return EventResult::Handled;
+                        }
+                        Key::Escape => {
+                            self.clear_block_sel();
+                            return EventResult::Handled;
+                        }
+                        Key::C if ctrl => {
+                            self.copy_blocks();
+                            return EventResult::Handled;
+                        }
+                        Key::X if ctrl => {
+                            self.cut_blocks();
+                            return EventResult::Handled;
+                        }
+                        Key::V if ctrl => {
+                            self.paste_blocks();
+                            return EventResult::Handled;
+                        }
+                        Key::A if ctrl => {
+                            let all = self.top_order();
+                            self.select_blocks(all);
+                            return EventResult::Handled;
+                        }
+                        Key::Up | Key::Down => {
+                            let order = self.top_order();
+                            let up = matches!(key, Key::Up);
+                            let edge = if up {
+                                self.block_sel.first().copied()
+                            } else {
+                                self.block_sel.last().copied()
+                            };
+                            let next = edge
+                                .and_then(|id| order.iter().position(|x| *x == id))
+                                .map(|i| if up { i.saturating_sub(1) } else { (i + 1).min(order.len() - 1) })
+                                .and_then(|i| order.get(i).copied());
+                            if let Some(n) = next {
+                                if shift {
+                                    self.select_block_range(n);
+                                } else {
+                                    self.select_blocks(vec![n]);
+                                }
+                            }
+                            return EventResult::Handled;
+                        }
+                        _ => {}
+                    }
+                }
                 let handled = match key {
                     Key::A if ctrl => {
+                        // Повторный Ctrl+A (весь текст уже выделен)
+                        // выделяет блоки целиком.
+                        let before = self.selection;
                         self.select_all();
+                        if editable && !self.plain && before == self.selection {
+                            let all = self.top_order();
+                            self.select_blocks(all);
+                        }
                         true
                     }
                     Key::C if ctrl => {
@@ -4741,8 +5227,7 @@ impl Element for DocumentEditorElement {
                     }
                     Key::V if ctrl && editable => {
                         if let Some(text) = ctx.paste_from_clipboard() {
-                            self.checkpoint(EditClass::Structure);
-                            self.paste(&text);
+                            self.paste_text(&text);
                         }
                         true
                     }
@@ -4833,7 +5318,12 @@ impl Element for DocumentEditorElement {
                 }
             }
             Event::CharInput(c) => {
-                if !self.focused || self.read_only || c.is_control() {
+                // С Ctrl (кроме AltGr = Ctrl+Alt в Windows) и с Cmd текст не
+                // набирают: в русской раскладке xkb на Ctrl+Z отдаёт «я»
+                // (control-преобразование только для ASCII), и буква
+                // вставлялась бы перед самой отменой — «Ctrl+Z не работает».
+                let combo = (ctx.modifiers.ctrl && !ctx.modifiers.alt) || ctx.modifiers.meta;
+                if !self.focused || self.read_only || c.is_control() || combo {
                     return EventResult::Ignored;
                 }
                 if self.code_caret.is_some() {

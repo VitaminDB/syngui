@@ -448,8 +448,13 @@ impl winit::application::ApplicationHandler<SynGuiUserEvent> for AppHandler {
                     }
                 }
 
+                // Текст при Ctrl (кроме AltGr = Ctrl+Alt в Windows) и Cmd —
+                // не набор: в русской раскладке xkb на Ctrl+Z отдаёт «я»
+                // (control-преобразование только для ASCII), и буква
+                // вставлялась бы перед самой отменой.
+                let combo = (self.modifiers.ctrl && !self.modifiers.alt) || self.modifiers.meta;
                 #[cfg(not(target_os = "android"))]
-                if event.state == winit::event::ElementState::Pressed {
+                if event.state == winit::event::ElementState::Pressed && !combo {
                     if let Some(text) = event.text {
                         for ch in text.chars() {
                             if !ch.is_control() {

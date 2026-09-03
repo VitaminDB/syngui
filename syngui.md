@@ -1010,7 +1010,22 @@ DocumentEditor::new()                 // фича "document-editor" (Notion-ст
     .slash_items(items).on_slash_custom(|q| {})
     .links(provider).media(resolver).embeds(factory)
     .on_context_menu(|p| {}).on_drop_file(..).on_change(|| {})
+// Ручка: модель, история undo/redo и выделение блоков живут в ней —
+// переживают пересоздание элемента (смена вкладки/страницы).
+handle.serialize(); handle.revision(); handle.selected();
+handle.history_state()                // RwSignal<(можно отменить, можно повторить)>
+handle.block_selection()              // RwSignal<Vec<BlockId>> — выделенные блоки
+handle.queue_op(DocOp::Undo)          // Redo, Copy, Cut, Paste, SelectBlocks(ids),
+                                      // InsertMarkdown, Duplicate, Delete, Move{down}, …
 ```
+
+Выделение блоков в `DocumentEditor`: Ctrl+клик — переключить блок,
+Shift+клик — диапазон, клик по ручке ⋮⋮ без переноса — блок, протяжка из
+пустого места — рамка; повторный Ctrl+A — все блоки, Esc — снять, ↑/↓ —
+шаг по блокам. Над выделением Delete/Backspace удаляют, Ctrl+C/X/V
+работают с блоками как markdown (Ctrl+V без выделения: одна строка — в
+текст, несколько — блоками). `CharInput` при Ctrl/Cmd (кроме AltGr)
+приложение не шлёт — в русской раскладке Ctrl+Z иначе печатал «я».
 
 ### 7.4. Данные
 
