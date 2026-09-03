@@ -1644,3 +1644,56 @@ fn plain_editor_with_placeholders_renders_and_edits() {
     let mut list = DisplayList::new();
     h.tree.build_display_list(h.root_id, &mut list, Rect::new(Point::zero(), Size::new(300.0, 200.0)));
 }
+
+/// Замена документа хостом (`replace_markdown`, агент): каретка не
+/// остаётся на исчезнувшем блоке, пересозданный элемент с новым исходником
+/// модель не перепарсивает, а Ctrl+Z возвращает прежний текст.
+#[test]
+fn replace_markdown_from_host_survives_rebuild_and_undoes() {
+    let (mut h, handle) = editing_harness("аб\n", Point::new(X0 + 40.0, Y0 + 8.0));
+    type_str(&mut h, "в");
+    settle(&mut h);
+    assert_eq!(handle.serialize(), "абв\n");
+
+    handle.replace_markdown("# Новое\n\nтело\n");
+    assert_eq!(handle.serialize(), "# Новое\n\nтело\n");
+    assert_eq!(handle.history_state().get(), (true, false));
+    // Хост перестраивает элемент по model_epoch — с новым исходником.
+    h.update_widget(Box::new(
+        DocumentEditor::new().markdown("# Новое\n\nтело\n").handle(&handle).model_epoch(1),
+    ));
+    settle(&mut h);
+    assert_eq!(handle.serialize(), "# Новое\n\nтело\n", "перестройка перепарсила модель");
+    // Набор после замены не падает на устаревшей каретке и идёт в документ.
+    let rows = h.find_by_type_name("doc-text-row");
+    let row = h.element_bounds(rows[rows.len() - 1]);
+    let at = Point::new(row.origin.x + row.size.width - 4.0, row.origin.y + row.size.height / 2.0);
+    h.send_event(&Event::MouseDown { button: MouseButton::Left, position: at });
+    h.send_event(&Event::MouseUp { button: MouseButton::Left, position: at });
+    type_str(&mut h, "!");
+    settle(&mut h);
+    assert!(handle.serialize().contains("тело!"), "{}", handle.serialize());
+
+    // Страница, которую ни разу не показывали: модель заменена до первого
+    // элемента — он не должен перепарсить исходник поверх неё.
+    let fresh = DocumentEditorHandle::new();
+    fresh.replace_markdown("из агента\n");
+    let mut first = TestHarness::new(Box::new(DocumentEditor::new().markdown("из агента\n").handle(&fresh)));
+    first.tree.text_measure = Some(Arc::new(Mono));
+    first.rebuild();
+    first.layout(800.0, 400.0);
+    assert_eq!(fresh.serialize(), "из агента\n");
+
+    // Отмена из очереди хоста возвращает документ до замены.
+    handle.queue_op(DocOp::Undo);
+    h.update_widget(Box::new(
+        DocumentEditor::new().markdown("# Новое\n\nтело\n").handle(&handle).model_epoch(2),
+    ));
+    settle(&mut h);
+    handle.queue_op(DocOp::Undo);
+    h.update_widget(Box::new(
+        DocumentEditor::new().markdown("# Новое\n\nтело\n").handle(&handle).model_epoch(3),
+    ));
+    settle(&mut h);
+    assert_eq!(handle.serialize(), "абв\n");
+}

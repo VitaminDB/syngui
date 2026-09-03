@@ -266,6 +266,36 @@ impl DocumentEditorHandle {
         self.revision.set(self.revision.get_untracked() + 1);
     }
 
+    /// Заменить документ целиком новым markdown — правка хоста (агент,
+    /// импорт, откат к сохранённой версии). Прежняя модель уходит в
+    /// историю отдельным шагом: Ctrl+Z у пользователя возвращает её.
+    /// Отпечаток исходника становится отпечатком нового текста, так что
+    /// хост, отдавший элементу тот же markdown в `markdown(..)`, не
+    /// перепарсит его поверх модели — и страница, которую ни разу не
+    /// показывали, откроется уже с новым содержимым. Ревизия бампается;
+    /// перестройку смонтированного элемента хост запускает через
+    /// `model_epoch`, а тот снимает каретку с исчезнувших блоков.
+    pub fn replace_markdown(&self, md: &str) {
+        let fresh = parse_document(md);
+        {
+            let mut model = lock(&self.model);
+            self.history
+                .lock()
+                .unwrap_or_else(|e| e.into_inner())
+                .checkpoint(&model, None, EditClass::Structure, None);
+            *model = fresh;
+        }
+        self.set_loaded_fp(fingerprint(md));
+        let state = {
+            let h = self.history.lock().unwrap_or_else(|e| e.into_inner());
+            (h.can_undo(), h.can_redo())
+        };
+        if self.history_state.get_untracked() != state {
+            self.history_state.set(state);
+        }
+        self.revision.set(self.revision.get_untracked() + 1);
+    }
+
     /// Замена `pending:<token>` на реальный url после ingest'а хоста
     /// (drop файла → фоновая загрузка в хранилище → patch). Бампает
     /// ревизию (автосейв запишет свежий url); перестройку виджетов хост
@@ -4436,6 +4466,28 @@ impl Element for DocumentEditorElement {
         self.model().for_each(&mut |b| {
             alive.insert(b.id);
         });
+        // Модель могла смениться под элементом целиком
+        // (`DocumentEditorHandle::replace_markdown`): каретка и выбор, что
+        // указывают на исчезнувшие блоки, снимаются.
+        if self
+            .selection
+            .is_some_and(|s| !alive.contains(&s.anchor.block) || !alive.contains(&s.head.block))
+        {
+            self.selection = None;
+        }
+        if self.table_caret.as_ref().is_some_and(|c| !alive.contains(&c.block)) {
+            self.table_caret = None;
+        }
+        if self.code_caret.as_ref().is_some_and(|c| !alive.contains(&c.block)) {
+            self.code_caret = None;
+        }
+        if self.object_sel.is_some_and(|id| !alive.contains(&id)) {
+            self.object_sel = None;
+        }
+        if self.block_sel.iter().any(|id| !alive.contains(id)) {
+            self.block_sel.retain(|id| alive.contains(id));
+            self.block_anchor = None;
+        }
         if let Ok(mut map) = self.geom.lock() {
             map.retain(|id, _| alive.contains(id));
         }
