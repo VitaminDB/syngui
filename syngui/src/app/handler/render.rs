@@ -59,6 +59,13 @@ impl AppHandler {
             }
 
             if new_focus == old_focus && new_focus.is_some() {
+                // Веб: повторный тап по фокусному полю — клавиатуру могли
+                // закрыть кнопкой «назад», браузер об этом не сообщил.
+                #[cfg(target_arch = "wasm32")]
+                {
+                    self.tree.virtual_keyboard_request = Some(true);
+                    self.process_virtual_keyboard_request();
+                }
                 return;
             }
 
@@ -309,6 +316,9 @@ impl AppHandler {
             }
             self.process_pending_autofocus(root_id);
         }
+        // Запросы клавиатуры с прочих путей смены фокуса (Tab, Escape,
+        // программный фокус) — не ждать следующего клика.
+        self.process_virtual_keyboard_request();
         let rebuild_elapsed = t_rebuild.elapsed();
 
         crate::signal::drain_and_run_effects();
@@ -359,6 +369,9 @@ impl AppHandler {
             }
             self.tree.force_full_measure = false;
             layout_elapsed = t_layout.elapsed();
+
+            #[cfg(target_arch = "wasm32")]
+            self.sync_web_text_agent_rect();
 
             #[cfg(target_os = "android")]
             {
@@ -467,6 +480,12 @@ impl AppHandler {
 
         // Веб: readText() обновил кэш буфера обмена — повторяем FocusGained
         // фокусному элементу, чтобы подсказка буфера показала свежий текст.
+        // Веб: пользователь закрыл экранную клавиатуру — снимаем фокус с поля.
+        #[cfg(target_arch = "wasm32")]
+        if crate::app::web_text_agent::take_dismissed() {
+            self.dismiss_web_keyboard();
+        }
+
         #[cfg(target_arch = "wasm32")]
         if crate::clipboard::take_refreshed() {
             if let Some(focused) = self.tree.focused_element {

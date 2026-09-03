@@ -118,6 +118,54 @@ Captured keys arrive as regular `Event::KeyDown`; F11 additionally toggles
 canvas fullscreen and F12 the syngui devtools. On native and Android the
 application always receives all keys and the setting has no effect.
 
+### Soft keyboard on web
+
+Mobile browsers only raise the on-screen keyboard for a focused editable DOM
+element, and the winit canvas is not one. syngui therefore keeps a hidden
+`<input>` ("text agent") next to the canvas — the web counterpart of the
+invisible input view used on Android. The same widget request drives both:
+
+```rust
+Event::FocusGained => {
+    ctx.set_virtual_keyboard_visible(true);
+    ctx.set_numeric_keyboard(false);   // inputmode="numeric" when true
+    ctx.set_secret_keyboard(false);    // type="password" when true (no IME suggestions/learning)
+    ctx.set_focused_text(self.text.clone());  // the agent mirrors the field
+}
+Event::FocusLost => ctx.set_virtual_keyboard_visible(false),
+```
+
+On show the agent takes the field text, is positioned over the field (so the
+browser scrolls to it when the keyboard opens) and focused synchronously
+inside the tap handler. Everything typed lands in the agent; each `input`
+event is diffed against the previous value (`syngui::input::edit_diff`) and
+replayed to the canvas as synthetic key events — `Backspace` per removed
+character and a keydown whose `key` is the inserted character, which winit
+turns into `Event::CharInput`. IME composition and autocorrect reduce to the
+same diff. Non-text keys (Enter, arrows, Tab, Escape, Ctrl/Cmd shortcuts)
+are forwarded to the canvas as-is with `preventDefault()`; printable keys are
+forwarded without `key`, so widgets still see `KeyDown(Key::A)` while the
+character itself arrives from the `input` event. `Ctrl/Cmd+V` never reaches
+the agent — the clipboard hook intercepts it earlier and the widget pastes
+from the clipboard cache. `hide()` blurs the agent and focuses the canvas
+again, so a physical keyboard goes straight to winit.
+
+The browser does not report the user closing the keyboard (Android back
+button): the agent watches `visualViewport` and, when its height returns to
+normal while the agent is focused, the application drops the field focus —
+the same as the Android back gesture. Tapping an already focused field
+re-requests the keyboard (`blur()` + `focus()` when the viewport says the
+keyboard is closed).
+
+Host page: add `interactive-widget=resizes-content` to the viewport meta so
+the layout viewport (and the canvas) shrinks when the keyboard opens; syngui
+then relayouts and scrolls the focused field into view. Without it the
+browser only pans the visual viewport to the agent.
+
+```html
+<meta name="viewport" content="width=device-width, initial-scale=1, interactive-widget=resizes-content" />
+```
+
 ## Event Dispatch
 
 Events flow through the element tree via depth-first traversal:

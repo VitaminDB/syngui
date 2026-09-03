@@ -22,6 +22,8 @@ pub mod notification;
 pub(crate) mod web_keys;
 #[cfg(target_arch = "wasm32")]
 pub(crate) mod web_clipboard;
+#[cfg(target_arch = "wasm32")]
+pub(crate) mod web_text_agent;
 
 pub use builder::{AppBuilder, WindowConfig};
 pub use tray::{TrayCloseAction, TrayConfig, TrayMenuItem};

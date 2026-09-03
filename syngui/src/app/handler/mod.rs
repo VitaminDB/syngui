@@ -102,7 +102,7 @@ pub(super) struct AppHandler {
     pub(super) keyboard_shown: bool,
     #[cfg(target_os = "android")]
     pub(super) composing_len: usize,
-    #[cfg(target_os = "android")]
+    #[cfg(any(target_os = "android", target_arch = "wasm32"))]
     pub(super) pending_scroll_element: Option<crate::widget::ElementId>,
     #[cfg(target_arch = "wasm32")]
     pub(super) pending_gpu: Rc<RefCell<Option<GpuContext>>>,
@@ -231,7 +231,7 @@ impl AppHandler {
             keyboard_shown: false,
             #[cfg(target_os = "android")]
             composing_len: 0,
-            #[cfg(target_os = "android")]
+            #[cfg(any(target_os = "android", target_arch = "wasm32"))]
             pending_scroll_element: None,
             #[cfg(target_arch = "wasm32")]
             pending_gpu: Rc::new(RefCell::new(None)),

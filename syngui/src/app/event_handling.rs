@@ -125,6 +125,13 @@ impl winit::application::ApplicationHandler<SynGuiUserEvent> for AppHandler {
                     );
                     self.tree.layout(root_id, constraints);
                     self.a11y_dirty = true;
+                    // Веб: viewport сжала экранная клавиатура
+                    // (interactive-widget=resizes-content) — фокусное поле
+                    // прокручивается в видимую область.
+                    #[cfg(target_arch = "wasm32")]
+                    if let Some(id) = self.pending_scroll_element.take() {
+                        self.tree.ensure_element_visible(id);
+                    }
                 }
 
                 if let Some(window) = &self.window {
@@ -438,6 +445,7 @@ impl winit::application::ApplicationHandler<SynGuiUserEvent> for AppHandler {
                                 self.tree.focused_element = Some(new_id);
                                 self.a11y_tree.update_focus(new_id);
                                 self.a11y_dirty = true;
+                                self.process_virtual_keyboard_request();
 
                                 if let Some(window) = &self.window {
                                     window.request_redraw();

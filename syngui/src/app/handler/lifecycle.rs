@@ -50,7 +50,9 @@ impl AppHandler {
         {
             use winit::platform::web::WindowExtWebSys;
             if let Some(canvas) = window.winit_window().canvas() {
-                crate::app::web_clipboard::install(canvas);
+                crate::app::web_clipboard::install(canvas.clone());
+                // Экранная клавиатура: скрытый <input> рядом с canvas.
+                crate::app::web_text_agent::install(canvas);
             }
         }
         self.scale_factor = window.scale_factor();
@@ -318,6 +320,13 @@ impl AppHandler {
                     window.clone(),
                 )
             };
+            // Веб: фокус — у страницы, а не у canvas: при наборе он на
+            // скрытом агенте ввода, и окно не должно считаться неактивным.
+            #[cfg(target_arch = "wasm32")]
+            let focused = web_sys::window()
+                .and_then(|w| w.document())
+                .and_then(|d| d.has_focus().ok())
+                .unwrap_or(focused);
             self.sync_window_state(crate::window::WindowState {
                 maximized,
                 fullscreen,

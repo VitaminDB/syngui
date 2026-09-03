@@ -414,9 +414,17 @@ impl ElementTree {
         }
         if let Some(show) = ctx.show_virtual_keyboard.take() {
             self.virtual_keyboard_request = Some(show);
+            // Скрытый ввод объявляет только поле пароля; остальные виджеты
+            // молчат — сбрасываем, чтобы флаг не пережил смену фокуса.
+            if show {
+                self.keyboard_secret = false;
+            }
         }
         if let Some(numeric) = ctx.numeric_keyboard.take() {
             self.keyboard_numeric = numeric;
+        }
+        if let Some(secret) = ctx.secret_keyboard.take() {
+            self.keyboard_secret = secret;
         }
         if ctx.start_window_drag {
             self.window_drag_request = true;

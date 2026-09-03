@@ -73,6 +73,7 @@ pub struct EventContext {
     viewport_size: Size,
     pub(crate) show_virtual_keyboard: Option<bool>,
     pub(crate) numeric_keyboard: Option<bool>,
+    pub(crate) secret_keyboard: Option<bool>,
     pub(crate) focused_text: Option<String>,
     pub(crate) scroll_into_view_request: Option<crate::core::Rect>,
     pub(crate) start_window_drag: bool,
@@ -105,6 +106,7 @@ impl EventContext {
             viewport_size: Size::new(1280.0, 720.0),
             show_virtual_keyboard: None,
             numeric_keyboard: None,
+            secret_keyboard: None,
             focused_text: None,
             scroll_into_view_request: None,
             start_window_drag: false,
@@ -137,6 +139,7 @@ impl EventContext {
             || self.cursor_icon.is_some()
             || self.show_virtual_keyboard.is_some()
             || self.numeric_keyboard.is_some()
+            || self.secret_keyboard.is_some()
             || self.focused_text.is_some()
             || self.scroll_into_view_request.is_some()
             || self.start_window_drag
@@ -213,6 +216,12 @@ impl EventContext {
     /// Тип экранной клавиатуры: `true` — цифровая, `false` — обычная (текст).
     pub fn set_numeric_keyboard(&mut self, numeric: bool) {
         self.numeric_keyboard = Some(numeric);
+    }
+
+    /// Скрытый ввод (пароль): экранная клавиатура без подсказок и запоминания
+    /// набранного. В браузере агент ввода становится `type="password"`.
+    pub fn set_secret_keyboard(&mut self, secret: bool) {
+        self.secret_keyboard = Some(secret);
     }
 
     pub fn set_focused_text(&mut self, text: String) {

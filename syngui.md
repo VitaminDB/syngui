@@ -1663,7 +1663,13 @@ assert_bounds!(b, 0.0, 0.0, 120.0, 32.0);
 **WASM** — цель `wasm32-unknown-unknown`; шрифты не берутся из системы,
 задавай `.with_font_url(..)` и `.with_fallback_font_url(..)`;
 `capture_function_keys` определяет, какие F-клавиши забирает приложение;
-кэш тайлов карты — IndexedDB. `syngui::core::sync::Mutex` на wasm — без блокировок
+кэш тайлов карты — IndexedDB. Экранная клавиатура — тот же
+`ctx.set_virtual_keyboard_visible(..)`, что на Android: скрытый `<input>`
+рядом с canvas (`app/web_text_agent.rs`) берёт фокус, набор возвращается в
+canvas синтетическими клавишами (`input::edit_diff`); `set_secret_keyboard(true)`
+у поля пароля — `type="password"`. Хост-странице нужна
+`interactive-widget=resizes-content` в viewport-мете, иначе canvas не сжимается
+под клавиатуру. `syngui::core::sync::Mutex` на wasm — без блокировок
 (однопоточная реализация), поэтому пиши `syngui::core::sync::Mutex`, а не `std::sync::Mutex`,
 если код должен собираться под web.
 

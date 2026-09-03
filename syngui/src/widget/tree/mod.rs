@@ -116,6 +116,8 @@ pub struct ElementTree {
     pub(crate) last_constraints_hash: u64,
     pub virtual_keyboard_request: Option<bool>,
     pub keyboard_numeric: bool,
+    /// Скрытый ввод (пароль) у фокусного поля — см. `EventContext::set_secret_keyboard`.
+    pub keyboard_secret: bool,
     pub window_drag_request: bool,
     pub window_resize_request: Option<crate::input::ResizeDirection>,
     pub window_close_request: bool,
@@ -178,6 +180,7 @@ impl ElementTree {
             last_constraints_hash: 0,
             virtual_keyboard_request: None,
             keyboard_numeric: false,
+            keyboard_secret: false,
             window_drag_request: false,
             window_resize_request: None,
             window_close_request: false,

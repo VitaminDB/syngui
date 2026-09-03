@@ -990,6 +990,7 @@ impl Element for TextFieldElement {
                 self.mss.start_transition_to(self.hover, false, true, false);
                 ctx.set_virtual_keyboard_visible(true);
                 ctx.set_numeric_keyboard(false);
+                ctx.set_secret_keyboard(self.obscure);
                 ctx.set_focused_text(self.text.clone());
                 self.refresh_clipboard_hint(ctx);
 

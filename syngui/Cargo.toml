@@ -378,6 +378,12 @@ web-sys = { version = "0.3", features = [
     "ClipboardEvent",
     "DataTransfer",
     "KeyboardEventInit",
+    # Экранная клавиатура в браузере (app/web_text_agent.rs): скрытый <input>.
+    "HtmlInputElement",
+    "Element",
+    "Node",
+    "CssStyleDeclaration",
+    "VisualViewport",
 ] }
 
 [dev-dependencies]

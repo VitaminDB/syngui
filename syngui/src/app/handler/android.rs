@@ -481,8 +481,68 @@ impl AppHandler {
         }
     }
 
+    /// Положение фокусного элемента в логических пикселях (CSS px на wasm).
+    #[cfg(target_arch = "wasm32")]
+    fn focused_element_rect(&self) -> Option<crate::core::Rect> {
+        let id = self.focus_manager.current_focus().or(self.tree.focused_element)?;
+        self.tree.get(id).map(|el| el.bounds())
+    }
+
+    /// Веб: положение агента ввода следует за фокусным полем (скролл,
+    /// relayout под клавиатуру) — браузер прокручивает страницу именно к нему.
+    #[cfg(target_arch = "wasm32")]
+    pub(in crate::app) fn sync_web_text_agent_rect(&self) {
+        if !crate::app::web_text_agent::is_shown() {
+            return;
+        }
+        if let Some(rect) = self.focused_element_rect() {
+            crate::app::web_text_agent::sync_rect(rect);
+        }
+    }
+
+    /// Веб: пользователь закрыл экранную клавиатуру сам (кнопка «назад»).
+    /// Как `dispatch_back` на Android — поле теряет фокус, чтобы следующий
+    /// тап снова поднял клавиатуру.
+    #[cfg(target_arch = "wasm32")]
+    pub(in crate::app) fn dismiss_web_keyboard(&mut self) {
+        use crate::input::Event;
+
+        if let Some(old_id) = self.focus_manager.current_focus() {
+            if self.tree.elements.contains_key(&old_id) {
+                self.tree.dispatch_event_to(old_id, &Event::FocusLost);
+            }
+            self.focus_manager.clear_focus();
+            self.tree.focused_element = None;
+            self.a11y_dirty = true;
+        }
+        self.tree.virtual_keyboard_request = Some(false);
+        self.process_virtual_keyboard_request();
+        if let Some(ref window) = self.window {
+            window.request_redraw();
+        }
+    }
+
     pub(in crate::app) fn process_virtual_keyboard_request(&mut self) {
         if let Some(_show) = self.tree.virtual_keyboard_request.take() {
+            #[cfg(target_arch = "wasm32")]
+            {
+                if _show {
+                    let text = self.tree.focused_text_content.take();
+                    let rect = self.focused_element_rect();
+                    crate::app::web_text_agent::show(
+                        text.as_deref(),
+                        self.tree.keyboard_numeric,
+                        self.tree.keyboard_secret,
+                        rect,
+                    );
+                    // После сжатия viewport'а клавиатурой (Resized) поле
+                    // прокручивается в видимую область.
+                    self.pending_scroll_element = self.focus_manager.current_focus();
+                } else {
+                    crate::app::web_text_agent::hide();
+                    self.pending_scroll_element = None;
+                }
+            }
             #[cfg(target_os = "android")]
             {
                 if _show {
