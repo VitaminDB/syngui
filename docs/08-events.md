@@ -221,6 +221,18 @@ DropArea::new()
   `DropArea`s inside the page can accept blocks; the editor finishes the
   gesture on `DragEnd`.
 
+### Focus on click
+
+On every mouse press the application walks the tree from the deepest
+element under the cursor upwards and gives focus to the first text input
+it meets (`Role::TextField` / `ComboBox` / `Terminal`); the previous input
+gets `FocusLost`, the new one `FocusGained`. An input may refuse a point
+with `Element::text_input_hit(point)` — `DocumentEditor` returns `false`
+over its embeds (a kanban board inside a page), so a click on the board's
+own widgets clears the editor's focus and caret instead of leaving them in
+the heading above. A click in the embed's empty area then only makes the
+embed the current block (properties panel) without focusing the editor.
+
 ## Widget-Level Event Handling
 
 Most widgets expose event callbacks via builder methods:

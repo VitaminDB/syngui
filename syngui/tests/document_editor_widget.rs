@@ -1232,6 +1232,74 @@ fn embed_children_receive_clicks() {
     assert_eq!(clicks.load(Ordering::SeqCst), 1, "клик не дошёл до виджета врезки");
 }
 
+/// Клик внутри врезки-объекта (доска) не оставляет каретку в блоке над
+/// ней: приложению редактор над врезкой фокус не отдаёт
+/// (`Element::text_input_hit`), а клик в её пустое место лишь делает
+/// объект текущим и снимает фокус — набор после этого в заголовок не идёт.
+#[test]
+fn click_inside_embed_drops_caret_from_previous_block() {
+    use syngui::prelude::*;
+    use syngui::widget::Widget;
+    use syngui::widgets::input::document_editor::{EmbedCtx, EmbedFactory};
+
+    struct InertFactory;
+    impl EmbedFactory for InertFactory {
+        fn build(&self, _target: &str, _ctx: &EmbedCtx) -> Option<Box<dyn Widget>> {
+            Some(Box::new(Text::new("Доска без кнопок")))
+        }
+        fn has_own_height(&self, _target: &str) -> bool {
+            true
+        }
+    }
+
+    let handle = DocumentEditorHandle::new();
+    let mut h = TestHarness::new(Box::new(
+        DocumentEditor::new()
+            .markdown("# Заголовок\n\n![[kanban:abc]]{h=200}\n")
+            .handle(&handle)
+            .embeds(Arc::new(InertFactory))
+            .layout(DocLayout { free: true, ..DocLayout::default() }),
+    ));
+    h.tree.text_measure = Some(Arc::new(Mono));
+    h.rebuild();
+    h.layout(800.0, 600.0);
+
+    let texts = h.find_by_type_name("Text");
+    assert_eq!(texts.len(), 1, "врезка не построилась");
+    let b = h.element_bounds(texts[0]);
+    let inside = Point::new(b.origin.x + b.size.width / 2.0, b.origin.y + b.size.height / 2.0);
+    let heading = Point::new(X0 + 1.0, Y0 + 1.0);
+
+    // Правило для приложения: над врезкой редактор фокус не берёт.
+    let editors = h.find_by_type_name("document-editor");
+    assert_eq!(editors.len(), 1);
+    let editor = h.tree.get(editors[0]).unwrap();
+    assert!(editor.text_input_hit(heading), "над заголовком фокус должен браться");
+    assert!(!editor.text_input_hit(inside), "над врезкой фокус браться не должен");
+
+    // Каретка в заголовке: набор попадает в него.
+    h.send_event(&Event::MouseDown { button: MouseButton::Left, position: heading });
+    h.send_event(&Event::MouseUp { button: MouseButton::Left, position: heading });
+    h.send_event(&Event::CharInput('A'));
+    assert!(handle.serialize().starts_with("# AЗаголовок"), "{}", handle.serialize());
+
+    // Клик по пустому месту врезки: объект — текущий блок, каретки и
+    // фокуса у редактора нет — буква в заголовок не попадает.
+    h.send_event(&Event::MouseDown { button: MouseButton::Left, position: inside });
+    h.send_event(&Event::MouseUp { button: MouseButton::Left, position: inside });
+    let embed_id = handle.outline().iter().find(|b| b.kind == "embed").map(|b| b.id);
+    assert!(embed_id.is_some());
+    assert_eq!(handle.selected().get(), embed_id, "врезка должна стать текущим блоком");
+    h.send_event(&Event::CharInput('B'));
+    assert!(!handle.serialize().contains('B'), "набор ушёл в заголовок: {}", handle.serialize());
+
+    // Клик обратно в текст возвращает каретку.
+    h.send_event(&Event::MouseDown { button: MouseButton::Left, position: heading });
+    h.send_event(&Event::MouseUp { button: MouseButton::Left, position: heading });
+    h.send_event(&Event::CharInput('C'));
+    assert!(handle.serialize().starts_with("# CAЗаголовок"), "{}", handle.serialize());
+}
+
 /// Draggable внутри врезки → drag дерева → Drop в DropArea той же врезки
 /// (цепочка приложения: MouseDown, MouseMove, DragMove, Drop) — виджеты
 /// живой врезки участвуют в переносе наравне с остальными.

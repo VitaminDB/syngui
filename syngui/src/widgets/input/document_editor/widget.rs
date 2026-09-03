@@ -1243,6 +1243,10 @@ impl DocumentEditorElement {
         }
         self.caret_into(id);
         self.focused = true;
+        // Выбор пришёл извне (панель блоков хоста): клик по панели снял
+        // фокус приложения с редактора — просим его обратно, иначе редактор
+        // «фокусирован» сам по себе и делит клавиатуру со следующим вводом.
+        self.focus_request_pending = true;
         self.caret_on = true;
         self.blink_ms = 0.0;
         self.publish_selection();
@@ -2427,13 +2431,19 @@ impl DocumentEditorElement {
         hit.filter(|(_, is_object)| *is_object).map(|(id, _)| id)
     }
 
-    /// Сделать блок текущим без каретки (клик по фигуре).
-    fn select_object(&mut self, id: super::model::BlockId) {
+    /// Сделать блок текущим без каретки (клик по фигуре или объекту).
+    /// `focus` — оставить редактору фокус (Delete и стрелки над фигурой);
+    /// над чужой врезкой (доска, диаграмма) фокус снимается: приложение его
+    /// туда не даёт, а два «фокусированных» ввода делят клавиатуру.
+    fn select_object(&mut self, id: super::model::BlockId, focus: bool) {
         self.selection = None;
         self.table_caret = None;
         self.code_caret = None;
         self.object_sel = Some(id);
-        self.focused = true;
+        self.focused = focus;
+        if !focus {
+            self.mouse_selecting = false;
+        }
         self.publish_selection();
         self.mark_dirty(DirtyFlags::RENDER);
     }
@@ -2508,6 +2518,31 @@ impl DocumentEditorElement {
         ctx.cursor_position = at;
         ctx.start_drag(crate::input::DragData::new(t, block.0.to_string(), self.id.0).without_ghost());
         true
+    }
+
+    /// Любая врезка под точкой (объект со своей высотой или вложенная
+    /// страница): её виджеты редактору чужие — фокус по клику там не
+    /// берётся (`text_input_hit`), каретка не ставится.
+    fn embed_at(&self, p: Point) -> Option<super::model::BlockId> {
+        let map = self.blocks.lock().ok()?;
+        let model = self.model();
+        model
+            .blocks
+            .iter()
+            .filter(|b| matches!(b.kind, BlockKind::Embed { .. }))
+            .find(|b| map.get(&b.id).is_some_and(|r| r.contains(p)))
+            .map(|b| b.id)
+    }
+
+    /// Снять фокус редактора самому: клик пришёлся на чужую врезку, и
+    /// приложение фокус ему не отдало (`text_input_hit`) — `FocusLost`
+    /// сюда не придёт, а прежняя каретка иначе осталась бы живой.
+    fn drop_focus(&mut self) {
+        if self.focused {
+            self.focused = false;
+            self.mouse_selecting = false;
+            self.mark_dirty(DirtyFlags::RENDER);
+        }
     }
 
     /// Блок-объект со своей высотой (доска, диаграмма) под точкой: над ним
@@ -4259,9 +4294,18 @@ impl Element for DocumentEditorElement {
                 }
                 // Клик по фигуре: каретке внутри неё места нет — она просто
                 // становится текущим блоком (панель свойств, ручки размера).
+                // Врезка-объект (доска, диаграмма) — так же, но её виджеты
+                // чужие: приложение фокус редактору над ней не даёт
+                // (`text_input_hit`), и редактор его не удерживает — иначе
+                // каретка в заголовке над доской оставалась бы живой.
                 if !self.read_only {
+                    let foreign = self.embed_at(*position).is_some();
                     if let Some(id) = self.shape_at(*position) {
-                        self.select_object(id);
+                        self.select_object(id, !foreign);
+                        return EventResult::Handled;
+                    }
+                    if foreign {
+                        self.drop_focus();
                         return EventResult::Handled;
                     }
                 }
@@ -4311,14 +4355,27 @@ impl Element for DocumentEditorElement {
                 let Some(cb) = self.on_context_menu.clone() else {
                     return EventResult::Ignored;
                 };
+                // Внутри чужой врезки без своего объекта (вложенная
+                // страница) меню документа не по адресу.
+                let foreign = self.embed_at(*position).is_some();
+                let object = self.shape_at(*position);
+                if foreign && object.is_none() {
+                    self.drop_focus();
+                    return EventResult::Ignored;
+                }
                 // Как левый клик: фокус и каретка в точку клика, панели
                 // закрыть. Клик внутри непустого выделения его сохраняет —
                 // меню действует над выделенным диапазоном.
-                self.focused = true;
+                self.focused = !foreign;
                 ctx.set_focused_text(String::new());
                 self.close_slash();
                 self.wiki = None;
-                if let Some(pos) = self.hit_caret(*position) {
+                if let Some(id) = object {
+                    // Меню над фигурой или объектом: он и становится текущим
+                    // блоком — каретка в соседний текст не прыгает, «Удалить
+                    // блок» удаляет именно его.
+                    self.select_object(id, !foreign);
+                } else if let Some(pos) = self.hit_caret(*position) {
                     let keep = self
                         .selection
                         .filter(|s| !s.is_caret())
@@ -4946,6 +5003,13 @@ impl Element for DocumentEditorElement {
             state: crate::a11y::NodeState { focused: self.focused, ..Default::default() },
             properties: crate::a11y::NodeProperties::default(),
         })
+    }
+
+    /// Над врезкой редактор фокус по клику не берёт: там чужие виджеты
+    /// (доска, диаграмма), и каретка в прежнем блоке иначе оставалась бы
+    /// живой — приложение снимает фокус, а клик уходит виджету врезки.
+    fn text_input_hit(&self, point: Point) -> bool {
+        self.embed_at(point).is_none()
     }
 
     fn apply_computed_style(&mut self, style: &ComputedStyle) {

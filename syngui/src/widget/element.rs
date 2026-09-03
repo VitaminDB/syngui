@@ -94,6 +94,16 @@ pub trait Element: Send {
         false
     }
 
+    /// Принимает ли элемент-ввод фокус по клику в этой точке. По умолчанию —
+    /// во всей своей области (`find_text_input_at` уже проверил `hit_test`).
+    /// Контейнер с чужими виджетами внутри (редактор документа с
+    /// врезками-объектами: доска, диаграмма) отдаёт `false` над ними —
+    /// тогда клик по врезке снимает фокус и каретку с контейнера, а не
+    /// оставляет их в соседнем блоке.
+    fn text_input_hit(&self, _point: Point) -> bool {
+        true
+    }
+
     fn overlay_request(&self) -> Option<(Rect, bool)> {
         None
     }
@@ -307,6 +317,10 @@ impl Element for Box<dyn Element> {
 
     fn passthrough_hit_test(&self) -> bool {
         self.as_ref().passthrough_hit_test()
+    }
+
+    fn text_input_hit(&self, point: Point) -> bool {
+        self.as_ref().text_input_hit(point)
     }
 
     fn overlay_request(&self) -> Option<(Rect, bool)> {

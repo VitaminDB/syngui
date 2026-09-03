@@ -155,6 +155,7 @@ impl AppHandler {
                     | crate::a11y::Role::ComboBox
                     | crate::a11y::Role::Terminal
             ) && !info.state.disabled
+                && node.element.text_input_hit(pos)
             {
                 return Some(element_id);
             }
