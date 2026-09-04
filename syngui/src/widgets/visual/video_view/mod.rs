@@ -297,6 +297,8 @@ impl Element for VideoViewElement {
         "VideoView"
     }
 
+    fn mss(&self) -> Option<&crate::mss::MssFields> { Some(&self.mss) }
+
     fn reset_mss_styles(&mut self) {
         self.mss.reset();
     }

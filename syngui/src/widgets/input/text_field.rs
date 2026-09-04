@@ -4,7 +4,9 @@ use crate::layout::Constraints;
 use crate::mss::{ComputedStyle, Dimension, MssFields, TextAlign, TextDecoration};
 use crate::render::{Border, DisplayList};
 use crate::widget::context::{EventContext, EventContextExt};
+use crate::signal::{use_signal, RwSignal};
 use crate::widget::selection::TextSelectionState;
+use crate::widgets::input::edit_menu::{edit_context_menu, EditMenuAction};
 use crate::widget::{DirtyFlags, Element, ElementId, ElementTree, StyledElement, UpdateContext, Widget};
 use crate::widgets::containers::IntoWidget;
 use std::any::Any;
@@ -35,6 +37,10 @@ pub struct TextField {
     /// Показывать при фокусе всплывашку с текстом из буфера обмена: тап по
     /// ней вставляет текст. Также включается из MSS: `clipboard-hint: on`.
     pub clipboard_hint: bool,
+    /// Состояние контекстного меню «Вырезать/Копировать/Вставить».
+    pub(crate) menu_open: RwSignal<bool>,
+    pub(crate) menu_pos: RwSignal<Point>,
+    pub(crate) menu_action: RwSignal<Option<EditMenuAction>>,
 }
 
 impl TextField {
@@ -59,6 +65,9 @@ impl TextField {
             on_filter_reject: None,
             autofocus: false,
             clipboard_hint: false,
+            menu_open: use_signal(false),
+            menu_pos: use_signal(Point::zero()),
+            menu_action: use_signal(None),
         }
     }
 
@@ -231,6 +240,10 @@ impl Widget for TextField {
             hint_visible: false,
             hint_hover: false,
             hint_above: false,
+            menu_open: self.menu_open,
+            menu_pos: self.menu_pos,
+            menu_action: self.menu_action,
+            menu_mounted: false,
         })
     }
 
@@ -293,6 +306,10 @@ pub struct TextFieldElement {
     hint_hover: bool,
     /// Чип рисуется над полем (снизу не влезает / Android-клавиатура).
     hint_above: bool,
+    menu_open: RwSignal<bool>,
+    menu_pos: RwSignal<Point>,
+    menu_action: RwSignal<Option<EditMenuAction>>,
+    menu_mounted: bool,
 }
 
 const FONT_SIZE: f32 = 14.0;
@@ -467,6 +484,55 @@ impl TextFieldElement {
             self.bounds.origin,
             Size::new(self.bounds.size.width, (self.bounds.size.height - extra).max(0.0)),
         )
+    }
+
+    /// Выполняет выбранный в контекстном меню пункт. Вызывается из
+    /// `animate`: у колбэка меню нет ни элемента, ни `EventContext`,
+    /// поэтому с буфером обмена работаем напрямую.
+    fn apply_menu_action(&mut self, action: EditMenuAction) {
+        match action {
+            EditMenuAction::Copy if !self.obscure => {
+                if let Some(selected) = self.selection.selected_text(&self.text, self.cursor_pos) {
+                    crate::clipboard::copy(selected);
+                }
+            }
+            EditMenuAction::Cut if !self.read_only && !self.obscure => {
+                let selected = self
+                    .selection
+                    .selected_text(&self.text, self.cursor_pos)
+                    .map(|s| s.to_string());
+                if let Some(selected) = selected {
+                    crate::clipboard::copy(&selected);
+                    if self.selection.delete_selection(&mut self.text, &mut self.cursor_pos) {
+                        self.trigger_change();
+                        self.ensure_cursor_visible();
+                    }
+                }
+            }
+            EditMenuAction::Paste if !self.read_only => {
+                if let Some(pasted) = crate::clipboard::paste() {
+                    // Однострочное поле переносов не держит — как и Ctrl+V.
+                    let pasted = pasted.replace('\n', " ").replace('\r', "");
+                    let filtered = self.apply_input_filter(&pasted);
+                    if !filtered.is_empty() || self.input_filter.is_none() {
+                        self.selection.replace_selection(
+                            &mut self.text,
+                            &mut self.cursor_pos,
+                            &filtered,
+                        );
+                        self.trigger_change();
+                        self.ensure_cursor_visible();
+                    }
+                }
+            }
+            EditMenuAction::SelectAll => {
+                self.selection.select_all();
+                self.cursor_pos = self.text.len();
+                self.ensure_cursor_visible();
+            }
+            EditMenuAction::Copy | EditMenuAction::Cut | EditMenuAction::Paste => {}
+        }
+        self.mark_dirty(DirtyFlags::RENDER);
     }
 
     fn ensure_cursor_visible(&mut self) {
@@ -1039,6 +1105,23 @@ impl Element for TextFieldElement {
                         }
                     }
                 }
+                if *button == MouseButton::Right && self.field_rect().contains(*position) {
+                    // Клик вне выделения переносит каретку — как в системных
+                    // полях ввода; клик по выделенному его сохраняет.
+                    if !self.selection.has_selection(self.cursor_pos) {
+                        let text_x = self.bounds.x() + self.text_left_offset();
+                        let rel_x = (position.x - text_x + self.scroll_offset).max(0.0);
+                        self.cursor_pos = self.hit_test_cursor(rel_x, ctx);
+                        self.selection.clear();
+                    }
+                    self.menu_pos.set(*position);
+                    self.menu_open.set(true);
+                    // Пункты зависят от выделения — пересобрать перед показом.
+                    self.menu_mounted = false;
+                    ctx.request_paint();
+                    return EventResult::Handled;
+                }
+
                 if *button == MouseButton::Left && self.field_rect().contains(*position) {
                     self.focused = true;
                     let text_x = self.bounds.x() + self.text_left_offset();
@@ -1393,11 +1476,47 @@ impl Element for TextFieldElement {
     }
 
     fn animate(&mut self, dt: std::time::Duration) -> bool {
-        self.mss.transition.tick(dt.as_secs_f32())
+        let mut redraw = self.mss.transition.tick(dt.as_secs_f32());
+        if let Some(action) = self.menu_action.get_untracked() {
+            self.menu_action.set(None);
+            self.apply_menu_action(action);
+            redraw = true;
+        }
+        redraw
     }
 
     fn needs_repaint(&self) -> bool {
         self.mss.transition.is_animating()
+    }
+
+    /// Пока меню открыто (и пока не разобран его выбор) полю нужны кадры:
+    /// пункт приходит отложенно, через сигнал.
+    fn wants_animate_tick(&self) -> bool {
+        self.menu_open.get_untracked() || self.menu_action.get_untracked().is_some()
+    }
+
+    fn manages_own_children(&self) -> bool {
+        true
+    }
+
+    fn needs_rebuild(&self) -> bool {
+        !self.menu_mounted
+    }
+
+    fn build_children(&self) -> Vec<Box<dyn Widget>> {
+        // У поля-пароля копировать и вырезать нечего — оставляем вставку.
+        let has_selection = !self.obscure && self.selection.has_selection(self.cursor_pos);
+        vec![Box::new(edit_context_menu(
+            self.menu_open,
+            self.menu_pos,
+            self.menu_action,
+            self.read_only,
+            has_selection,
+        ))]
+    }
+
+    fn clear_rebuild(&mut self) {
+        self.menu_mounted = true;
     }
 
     fn reset_mss_styles(&mut self) { self.mss.reset(); }

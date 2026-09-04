@@ -854,6 +854,21 @@ impl Element for MarkdownViewElement {
         }
     }
 
+    /// Тик нужен, пока открыто контекстное меню (его выбор приходит
+    /// отложенно через `menu_action`), пока не отыграла подсветка кнопки
+    /// «копировать код» и пока грузятся картинки. Иначе точечный реестр
+    /// анимаций элемент не обходит и «Копировать»/«Выделить всё» из меню
+    /// не срабатывают.
+    fn wants_animate_tick(&self) -> bool {
+        self.menu_open.get_untracked()
+            || self.menu_action.get_untracked().is_some()
+            || self.flash_until.is_some()
+            || self
+                .images
+                .values()
+                .any(|e| e.state == ImageLoadState::Loading)
+    }
+
     fn animate(&mut self, _dt: std::time::Duration) -> bool {
         if let Some(deadline) = self.flash_until {
             if Instant::now() >= deadline {

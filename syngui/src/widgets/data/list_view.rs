@@ -671,6 +671,11 @@ impl Element for ListViewElement {
         }
     }
 
+    /// Инерция прокрутки и затухание скроллбара.
+    fn wants_animate_tick(&self) -> bool {
+        self.velocity.abs() > 0.5 || self.scrollbar_fader.opacity > 0.0
+    }
+
     fn animate(&mut self, dt: Duration) -> bool {
         let mut needs_repaint = false;
         if self.velocity.abs() > 0.5 {

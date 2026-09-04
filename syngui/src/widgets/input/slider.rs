@@ -796,6 +796,11 @@ impl Element for SliderElement {
         }
     }
 
+    /// Каретка мигает только в режиме ручного ввода значения.
+    fn wants_animate_tick(&self) -> bool {
+        self.editing
+    }
+
     fn animate(&mut self, dt: std::time::Duration) -> bool {
         if self.editing {
             self.cursor_blink += dt.as_secs_f32();

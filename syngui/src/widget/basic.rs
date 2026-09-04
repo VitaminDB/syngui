@@ -13,6 +13,9 @@ use std::time::Instant;
 use crate::core::sync::Mutex;
 
 const DEFAULT_FONT_SIZE: f32 = 16.0;
+/// Цвет подсветки выделения в [`Text`] по умолчанию — к нему возвращает
+/// `reset_mss_styles`, когда правило с `selection-color` перестало совпадать.
+const DEFAULT_SELECTION_COLOR: Color = Color::new(0.231, 0.510, 0.965, 0.30);
 
 /// Сколько визуальных строк займёт текст в заданной ширине. Алгоритм
 /// переноса тот же, что в `FontAtlas::shape_text`, — иначе расчёт разошёлся
@@ -474,6 +477,12 @@ impl Text {
             bounds: Rect::zero(),
             text: self.text.clone(),
             color: self.color.unwrap_or(Color::rgb(0.0, 0.0, 0.0)),
+            base_color: self.color,
+            base_font_weight: self.font_weight,
+            base_max_lines: match self.elide {
+                Elide::Middle => Some(self.max_lines.unwrap_or(1)),
+                Elide::End => self.max_lines,
+            },
             font_size: DEFAULT_FONT_SIZE,
             dark_color: self.dark_color,
             theme: self.theme.clone(),
@@ -504,7 +513,7 @@ impl Text {
             selection: TextSelectionState::new(),
             cursor_pos: 0,
             mouse_selecting: false,
-            mss_selection_color: Color::new(0.231, 0.510, 0.965, 0.30),
+            mss_selection_color: DEFAULT_SELECTION_COLOR,
             last_click_at: None,
             click_count: 0,
         }
@@ -537,6 +546,13 @@ struct TextElement {
     bounds: Rect,
     text: String,
     color: Color,
+    /// Значения, заданные самим виджетом (`Text::color`, `font_weight`,
+    /// `max_lines`). Text хранит стили плоскими полями, а не `MssFields`,
+    /// поэтому сбрасывать их в `reset_mss_styles` надо не в ноль, а сюда —
+    /// иначе снятое MSS-правило унесло бы с собой и настройки билдера.
+    base_color: Option<Color>,
+    base_font_weight: Option<u16>,
+    base_max_lines: Option<usize>,
     font_size: f32,
     dark_color: Option<Color>,
     theme: Option<Arc<Mutex<bool>>>,
@@ -667,6 +683,8 @@ impl Element for TextElement {
             }
             self.selectable = widget.selectable;
             self.text = widget.text.clone();
+            self.base_color = widget.color;
+            self.base_font_weight = widget.font_weight;
             if let Some(c) = widget.color {
                 self.color = c;
             }
@@ -679,6 +697,7 @@ impl Element for TextElement {
                 Elide::Middle => Some(widget.max_lines.unwrap_or(1)),
                 Elide::End => widget.max_lines,
             };
+            self.base_max_lines = new_max_lines;
             let max_lines_changed =
                 new_max_lines.is_some() && self.mss_max_lines != new_max_lines;
             if let Some(n) = new_max_lines {
@@ -1001,6 +1020,32 @@ impl Element for TextElement {
 
     fn apply_computed_style(&mut self, style: &ComputedStyle) {
         self.apply_style(style);
+    }
+
+    /// Каскад зовёт это перед тем, как применить новый набор правил. Без
+    /// сброса свойство, которого в новом правиле нет (цвет, padding,
+    /// letter-spacing), оставалось бы от старого: `Text.class(if err {"err"}
+    /// else {"ok"})` так и оставался бы красным после ухода ошибки.
+    fn reset_mss_styles(&mut self) {
+        self.color = self.base_color.unwrap_or(Color::rgb(0.0, 0.0, 0.0));
+        self.font_size = DEFAULT_FONT_SIZE;
+        self.mss_font_weight = self.base_font_weight.unwrap_or(400);
+        self.mss_text_align = None;
+        self.mss_text_decoration = crate::mss::TextDecoration::None;
+        self.mss_font_family = None;
+        self.mss_letter_spacing = 0.0;
+        self.mss_text_transform = None;
+        self.mss_text_shadow = None;
+        self.mss_line_height = None;
+        self.mss_padding_left = 0.0;
+        self.mss_padding_right = 0.0;
+        self.mss_padding_top = 0.0;
+        self.mss_padding_bottom = 0.0;
+        self.mss_width = None;
+        self.mss_height = None;
+        self.mss_max_lines = self.base_max_lines;
+        self.mss_selection_color = DEFAULT_SELECTION_COLOR;
+        self.mark_dirty(DirtyFlags::LAYOUT | DirtyFlags::RENDER);
     }
 
     fn explicit_dimensions(&self, parent_width: f32, parent_height: f32) -> (Option<f32>, Option<f32>) {

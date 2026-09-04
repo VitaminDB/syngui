@@ -135,6 +135,11 @@ impl Element for CanvasElement {
         ctx.flush(list);
     }
 
+    /// Кадры нужны только анимированному холсту.
+    fn wants_animate_tick(&self) -> bool {
+        self.animated
+    }
+
     fn animate(&mut self, dt: std::time::Duration) -> bool {
         if self.animated {
             self.elapsed += dt.as_secs_f32();

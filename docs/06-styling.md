@@ -217,6 +217,40 @@ Each widget has a type name used in MSS selectors:
 }
 ```
 
+### `Text`: supported properties
+
+`Text` is a leaf glyph renderer. It stores its style in flat fields instead of
+`MssFields` (2888 bytes per element is too much for the most numerous node in
+the tree) and paints only the string itself — never a box behind it. A rule
+that matches a `Text` therefore applies only from this list:
+
+| Group | Properties |
+|-------|------------|
+| Color | `color`, `selection-color` |
+| Font | `font-size`, `font-weight`, `font-family` |
+| Text | `text-align`, `text-decoration`, `text-transform`, `text-shadow`, `letter-spacing`, `line-height`, `line-clamp` |
+| Box | `padding`, `padding-left/right/top/bottom`, `width`, `height` |
+| Layout | `margin`, `flex-grow` — resolved by the parent from the cascade, not by `Text` itself |
+
+Anything else is ignored **silently**: the declaration parses fine, it just
+never reaches the element. Watch out for these, they are the common surprises:
+
+| Ignored on `Text` | Why | Use instead |
+|-------------------|-----|-------------|
+| `background-color`, gradients, `border*`, `box-shadow`, `outline*`, `opacity`, `filter` | `Text` paints no box | Wrap in `DecoratedBox`/`Card` and style the wrapper |
+| `transform`, `rotate`, `scale` | Applied by the renderer from `Element::mss()`, which `Text` does not implement | `TransformBox`, or a styled wrapper |
+| `:hover`, `:active`, `:focus` and transitions between them | `Text` tracks no pointer state — `handle_event` returns early unless `selectable(true)` | Put the pseudo-state rule on the container around it |
+| `@keyframes` / `animation` | `Text` implements no `setup_keyframe_animation` | Animate the wrapper, or drive the text from a signal |
+
+No text widget paints a box: `RichText` does carry full `MssFields` (so
+renderer-level properties such as `transform` reach it), but it too draws only
+glyphs. A background, a border or a hover highlight behind a label always means
+a container around it.
+
+When a rule stops matching (a class flips, the stylesheet is swapped), `Text`
+restores the values its builder set — `Text::color()`, `bold()`, `max_lines()` —
+and drops the rest back to defaults. Regression cover: `tests/mss_text_reset.rs`.
+
 ## Variables
 
 ```css

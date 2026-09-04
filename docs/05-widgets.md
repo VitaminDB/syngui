@@ -74,9 +74,16 @@ TextField::new()
                                       // also via MSS `clipboard-hint: on`
 ```
 
+Right-clicking the field opens a context menu — Cut / Copy / Paste / Select
+all, wired to the same operations as Ctrl+X/C/V/A. Cut and Copy are greyed out
+without a selection, a read-only field shows only Copy and Select all, and an
+`obscure` (password) field never offers to copy its contents. A right click
+outside the selection moves the caret first, so Paste lands where you clicked.
+
 ### MultilineTextEdit
 
-Multi-line text editing with the same API as TextField.
+Multi-line text editing with the same API as TextField, including the
+right-click Cut / Copy / Paste / Select all menu.
 
 ### Checkbox
 

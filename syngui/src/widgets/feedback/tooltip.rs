@@ -392,6 +392,11 @@ impl Element for TooltipElement {
         list.end_overlay();
     }
 
+    /// Тик отсчитывает задержку до показа подсказки под курсором.
+    fn wants_animate_tick(&self) -> bool {
+        self.hovered && !self.visible
+    }
+
     fn animate(&mut self, dt: Duration) -> bool {
         if self.hovered && !self.visible {
             self.hover_elapsed += dt;

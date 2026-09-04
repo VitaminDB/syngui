@@ -212,6 +212,11 @@ impl Element for SnackbarElement {
         list.end_overlay();
     }
 
+    /// Тик ведёт появление, таймер автозакрытия и затухание.
+    fn wants_animate_tick(&self) -> bool {
+        self.is_visible() || self.opacity > 0.0
+    }
+
     fn animate(&mut self, dt: Duration) -> bool {
         let is_showing = self.is_visible();
 

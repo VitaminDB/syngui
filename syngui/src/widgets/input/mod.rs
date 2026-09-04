@@ -1,3 +1,4 @@
+pub mod edit_menu;
 pub mod text_field;
 pub mod checkbox;
 pub mod radio;
@@ -18,6 +19,7 @@ pub mod code_editor;
 #[cfg(feature = "document-editor")]
 pub mod document_editor;
 
+pub use edit_menu::EditMenuAction;
 pub use text_field::TextField;
 pub use checkbox::Checkbox;
 pub use radio::{RadioButton, RadioGroup};

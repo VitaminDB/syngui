@@ -186,6 +186,11 @@ impl Element for SegmentedProgressBarElement {
         }
     }
 
+    /// Тик нужен, пока не доиграло появление.
+    fn wants_animate_tick(&self) -> bool {
+        self.appear_t < 1.0
+    }
+
     fn animate(&mut self, dt: Duration) -> bool {
         if self.appear_t < 1.0 {
             self.appear_t = (self.appear_t + dt.as_secs_f32() / APPEAR_DURATION_SECS).min(1.0);

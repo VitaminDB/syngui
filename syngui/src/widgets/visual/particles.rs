@@ -304,6 +304,11 @@ impl Element for ParticleElement {
         ctx.flush(list);
     }
 
+    /// Пока есть живые частицы или отложенный спавн (ждёт bounds).
+    fn wants_animate_tick(&self) -> bool {
+        self.pending || !self.particles.is_empty()
+    }
+
     fn animate(&mut self, dt: std::time::Duration) -> bool {
         let dt = dt.as_secs_f32().min(0.05);
 

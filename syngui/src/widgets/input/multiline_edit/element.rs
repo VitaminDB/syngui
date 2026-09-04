@@ -7,6 +7,8 @@ use crate::mss::{MssFields, TextAlign, TextDecoration};
 use crate::render::{Border, DisplayList};
 use crate::widget::context::{EventContext, EventContextExt, TextMeasure};
 use crate::widget::selection::TextSelectionState;
+use crate::widgets::input::edit_menu::{edit_context_menu, EditMenuAction};
+use crate::signal::RwSignal;
 use crate::widget::{DirtyFlags, Element, ElementId, ElementTree, StyledElement, UpdateContext, Widget};
 use std::any::Any;
 use std::sync::Arc;
@@ -49,6 +51,10 @@ impl Widget for MultilineTextEdit {
             dragging_scrollbar: false,
             drag_start_y: 0.0,
             drag_start_offset: 0,
+            menu_open: self.menu_open,
+            menu_pos: self.menu_pos,
+            menu_action: self.menu_action,
+            menu_mounted: false,
         })
     }
 
@@ -98,6 +104,10 @@ struct MultilineTextEditElement {
     dragging_scrollbar: bool,
     drag_start_y: f32,
     drag_start_offset: usize,
+    menu_open: RwSignal<bool>,
+    menu_pos: RwSignal<Point>,
+    menu_action: RwSignal<Option<EditMenuAction>>,
+    menu_mounted: bool,
 }
 
 impl MultilineTextEditElement {
@@ -390,6 +400,52 @@ impl MultilineTextEditElement {
     fn segment_text<'a>(&self, line: &'a str, logical_idx: usize, seg_start: usize, seg_end: usize) -> String {
         let _ = logical_idx;
         line.chars().skip(seg_start).take(seg_end - seg_start).collect()
+    }
+
+    /// Выполняет выбранный в контекстном меню пункт. Вызывается из
+    /// `animate`: у колбэка меню нет доступа ни к элементу, ни к
+    /// `EventContext`, поэтому с буфером обмена работаем напрямую.
+    fn apply_menu_action(&mut self, action: EditMenuAction) {
+        match action {
+            EditMenuAction::Copy => {
+                let cursor_byte = self.cursor_byte_offset();
+                if let Some(selected) = self.selection.selected_text(&self.text, cursor_byte) {
+                    crate::clipboard::copy(selected);
+                }
+            }
+            EditMenuAction::Cut if !self.read_only => {
+                let mut cursor_byte = self.cursor_byte_offset();
+                let selected = self
+                    .selection
+                    .selected_text(&self.text, cursor_byte)
+                    .map(|s| s.to_string());
+                if let Some(selected) = selected {
+                    crate::clipboard::copy(&selected);
+                    self.selection.delete_selection(&mut self.text, &mut cursor_byte);
+                    self.sync_cursor_from_byte(cursor_byte);
+                    self.recompute_wraps();
+                    self.trigger_change();
+                }
+            }
+            EditMenuAction::Paste if !self.read_only => {
+                if let Some(pasted) = crate::clipboard::paste() {
+                    let mut cursor_byte = self.cursor_byte_offset();
+                    self.selection
+                        .replace_selection(&mut self.text, &mut cursor_byte, &pasted);
+                    self.sync_cursor_from_byte(cursor_byte);
+                    self.recompute_wraps();
+                    self.ensure_cursor_visible();
+                    self.trigger_change();
+                }
+            }
+            EditMenuAction::SelectAll => {
+                self.selection.select_all();
+                self.cursor_line = self.line_count().saturating_sub(1);
+                self.cursor_col = self.line_char_count(self.cursor_line);
+            }
+            EditMenuAction::Cut | EditMenuAction::Paste => {}
+        }
+        self.mark_dirty(DirtyFlags::RENDER);
     }
 
     fn click_to_cursor(&self, pos: Point, ctx: &EventContext) -> (usize, usize) {
@@ -710,6 +766,24 @@ impl Element for MultilineTextEditElement {
                         return EventResult::Handled;
                     }
                 }
+                if *button == MouseButton::Right && self.bounds.contains(*position) {
+                    // Клик вне выделения переносит каретку — как в системных
+                    // полях ввода; клик по выделенному его сохраняет.
+                    let cursor_byte = self.cursor_byte_offset();
+                    if !self.selection.has_selection(cursor_byte) {
+                        let (line, col) = self.click_to_cursor(*position, ctx);
+                        self.cursor_line = line;
+                        self.cursor_col = col;
+                        self.selection.clear();
+                    }
+                    self.menu_pos.set(*position);
+                    self.menu_open.set(true);
+                    // Пункты зависят от выделения — пересобрать перед показом.
+                    self.menu_mounted = false;
+                    ctx.request_paint();
+                    return EventResult::Handled;
+                }
+
                 if *button == MouseButton::Left && self.bounds.contains(*position) {
                     self.focused = true;
                     let (line, col) = self.click_to_cursor(*position, ctx);
@@ -1075,11 +1149,46 @@ impl Element for MultilineTextEditElement {
     }
 
     fn animate(&mut self, dt: std::time::Duration) -> bool {
-        self.mss.transition.tick(dt.as_secs_f32())
+        let mut redraw = self.mss.transition.tick(dt.as_secs_f32());
+        if let Some(action) = self.menu_action.get_untracked() {
+            self.menu_action.set(None);
+            self.apply_menu_action(action);
+            redraw = true;
+        }
+        redraw
     }
 
     fn needs_repaint(&self) -> bool {
         self.mss.transition.is_animating()
+    }
+
+    /// Пока меню открыто (и пока не разобран его выбор) полю нужны кадры:
+    /// пункт приходит отложенно, через сигнал.
+    fn wants_animate_tick(&self) -> bool {
+        self.menu_open.get_untracked() || self.menu_action.get_untracked().is_some()
+    }
+
+    fn manages_own_children(&self) -> bool {
+        true
+    }
+
+    fn needs_rebuild(&self) -> bool {
+        !self.menu_mounted
+    }
+
+    fn build_children(&self) -> Vec<Box<dyn Widget>> {
+        let cursor_byte = self.cursor_byte_offset();
+        vec![Box::new(edit_context_menu(
+            self.menu_open,
+            self.menu_pos,
+            self.menu_action,
+            self.read_only,
+            self.selection.has_selection(cursor_byte),
+        ))]
+    }
+
+    fn clear_rebuild(&mut self) {
+        self.menu_mounted = true;
     }
 
     fn children(&self) -> &[ElementId] {
@@ -1215,6 +1324,10 @@ mod tests {
             dragging_scrollbar: false,
             drag_start_y: 0.0,
             drag_start_offset: 0,
+            menu_open: crate::signal::use_signal(false),
+            menu_pos: crate::signal::use_signal(Point::zero()),
+            menu_action: crate::signal::use_signal(None),
+            menu_mounted: false,
         }
     }
 

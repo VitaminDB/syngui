@@ -44,6 +44,8 @@ pub trait Element: Send + 'static {
 
     // Animation
     fn animate(&mut self, dt: Duration) -> bool;  // Return true if still animating
+    fn wants_animate_tick(&self) -> bool;         // Ask to be ticked (see below)
+    fn needs_repaint(&self) -> bool;              // Same, for repaint-driven state
 
     // Identity
     fn id(&self) -> ElementId;
@@ -169,6 +171,48 @@ impl Element for ColorBoxElement {
 }
 ```
 
+## Getting animate() Called
+
+`animate()` is **not** run for every element each frame. The tree keeps a
+registry of elements that asked for ticks, and only those are visited. An
+element enters the registry when either `wants_animate_tick()` or
+`needs_repaint()` returns `true` — checked when the element is inserted, laid
+out, positioned, restyled, and right after it handled an event.
+
+So an `animate()` that does real work needs a matching claim, or it never runs:
+
+```rust
+fn animate(&mut self, dt: Duration) -> bool {
+    if self.spinning {
+        self.angle += dt.as_secs_f32();
+        return true;
+    }
+    false
+}
+
+/// Mirrors the condition inside animate(): no spin, no frames.
+fn wants_animate_tick(&self) -> bool {
+    self.spinning
+}
+```
+
+Keep the claim as narrow as the animation itself — an element that always
+returns `true` keeps the app rendering frames forever.
+
+Deferred work counts too, not just animation. A popup menu callback has no
+access to your element, so the usual pattern is to park the choice in a signal
+and consume it in `animate()`. Then the claim must cover that window:
+
+```rust
+fn wants_animate_tick(&self) -> bool {
+    self.menu_open.get_untracked() || self.menu_action.get_untracked().is_some()
+}
+```
+
+The element opened the menu in its own `handle_event`, and the tree
+re-evaluates the claim right after — so it is already in the registry by the
+time the user picks an item.
+
 ## Widget with Children
 
 For compositional widgets, manage children via `mount()` and `child_widgets()`:
@@ -270,8 +314,22 @@ impl Element for MyElement {
     fn apply_computed_style(&mut self, style: &ComputedStyle) {
         self.mss.apply(style); // MssFields helper
     }
+
+    // Do not skip these two — they are what makes the element a full MSS
+    // citizen, and both are one-liners once you keep an `MssFields`:
+    fn mss(&self) -> Option<&MssFields> { Some(&self.mss) }
+    fn reset_mss_styles(&mut self) { self.mss.reset(); }
 }
 ```
+
+`mss()` is how the framework reads resolved values back out of the element:
+the renderer takes `transform` from it, layout takes intrinsic `width:
+fit-content`, the app takes the root background, and `TestHarness::element_mss`
+reads it in tests. Without it those silently do nothing.
+
+`reset_mss_styles()` runs before every re-cascade. Without it a property from a
+rule that stopped matching stays applied — flip a class from `.error` to `.ok`
+and the element keeps the old colour, because `.ok` says nothing about `color`.
 
 Then style in MSS:
 

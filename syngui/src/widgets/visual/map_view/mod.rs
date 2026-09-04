@@ -630,6 +630,18 @@ impl Element for MapViewElement {
         EventResult::Ignored
     }
 
+    /// Кадры нужны на перелёте камеры, пока подгружаются тайлы, пока
+    /// анимируются маркеры и пока провайдер может смениться снаружи.
+    fn wants_animate_tick(&self) -> bool {
+        self.fly_animation.is_some()
+            || self.tile_loader.has_pending()
+            || self.provider_source.is_some()
+            || self
+                .markers
+                .iter()
+                .any(|m| m.is_animating(web_time::Instant::now()))
+    }
+
     fn animate(&mut self, dt: std::time::Duration) -> bool {
         let mut needs_frame = false;
 
@@ -743,6 +755,8 @@ impl Element for MapViewElement {
     fn get_classes(&self) -> &[String] {
         &self.classes
     }
+
+    fn mss(&self) -> Option<&crate::mss::MssFields> { Some(&self.mss) }
 
     fn reset_mss_styles(&mut self) {
         self.mss.reset();

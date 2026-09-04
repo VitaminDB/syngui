@@ -124,6 +124,32 @@ impl TestHarness {
         results
     }
 
+    /// Прогоняет отрисовку — как кадр приложения. Нужна там, где виджет
+    /// узнаёт размер поверхности только при рисовании (попапы, контекстные
+    /// меню) и лишь после этого попадает в overlay-стек, через который к
+    /// нему приходят клики.
+    pub fn paint(&mut self) -> crate::render::DisplayList {
+        let mut list = crate::render::DisplayList::new();
+        list.set_surface_size(self.tree.viewport_size);
+        let clip = Rect::new(crate::core::Point::zero(), self.tree.viewport_size);
+        self.tree.build_display_list(self.root_id, &mut list, clip);
+        self.tree.sync_overlay_stack();
+        list
+    }
+
+    /// Тик анимаций — как кадр приложения. Обходит только элементы,
+    /// зарегистрированные в реестре анимаций.
+    pub fn animate(&mut self, dt: std::time::Duration) -> bool {
+        let r = self.tree.animate(self.root_id, dt);
+        self.tree.rebuild_if_needed(self.root_id);
+        r
+    }
+
+    /// Стоит ли элемент в реестре анимаций (получает ли `animate`).
+    pub fn is_animating(&self, id: ElementId) -> bool {
+        self.tree.animation_registry.contains(&id)
+    }
+
     pub fn element_count(&self) -> usize {
         let mut count = 0;
         self.walk_tree(self.root_id, &mut |_, _| count += 1);

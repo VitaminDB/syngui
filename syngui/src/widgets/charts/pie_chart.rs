@@ -682,6 +682,12 @@ impl Element for PieChartElement {
         }
     }
 
+    /// Первый кадр запускает появление, дальше тик нужен, пока идёт
+    /// анимация появления, показа/скрытия рядов или подсветки точки.
+    fn wants_animate_tick(&self) -> bool {
+        (self.animate_enabled && !self.anim.appear_started) || self.anim.is_animating()
+    }
+
     fn animate(&mut self, dt: Duration) -> bool {
         if self.animate_enabled && !self.anim.appear_started {
             self.anim.start_appear();

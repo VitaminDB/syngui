@@ -147,6 +147,11 @@ impl Element for CircularProgressElement {
         ctx.flush(list);
     }
 
+    /// Крутится только неопределённый прогресс.
+    fn wants_animate_tick(&self) -> bool {
+        self.indeterminate
+    }
+
     fn animate(&mut self, dt: std::time::Duration) -> bool {
         if self.indeterminate {
             self.rotation_angle += dt.as_secs_f32() * std::f32::consts::TAU * 0.8;

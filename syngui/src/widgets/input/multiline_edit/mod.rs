@@ -2,6 +2,9 @@ mod element;
 
 use std::sync::Arc;
 use crate::core::sync::Mutex;
+use crate::core::Point;
+use crate::signal::{use_signal, RwSignal};
+use crate::widgets::input::edit_menu::EditMenuAction;
 
 pub struct MultilineTextEdit {
     pub text: String,
@@ -15,6 +18,10 @@ pub struct MultilineTextEdit {
     pub on_change: Option<Arc<Mutex<dyn FnMut(&str) + Send>>>,
     pub submit_on_enter: bool,
     pub on_submit: Option<Arc<Mutex<dyn FnMut(&str) + Send>>>,
+    /// Состояние контекстного меню «Вырезать/Копировать/Вставить».
+    pub(crate) menu_open: RwSignal<bool>,
+    pub(crate) menu_pos: RwSignal<Point>,
+    pub(crate) menu_action: RwSignal<Option<EditMenuAction>>,
 }
 
 impl MultilineTextEdit {
@@ -31,6 +38,9 @@ impl MultilineTextEdit {
             on_change: None,
             submit_on_enter: false,
             on_submit: None,
+            menu_open: use_signal(false),
+            menu_pos: use_signal(Point::zero()),
+            menu_action: use_signal(None),
         }
     }
 

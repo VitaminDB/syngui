@@ -418,6 +418,22 @@ name = "cascade_descendant"
 required-features = ["testing"]
 
 [[test]]
+name = "mss_text_reset"
+required-features = ["testing"]
+
+[[test]]
+name = "mss_element_transform"
+required-features = ["testing"]
+
+[[test]]
+name = "test_context_menu_actions"
+required-features = ["testing", "terminal", "markdown"]
+
+[[test]]
+name = "repro_tool_wrap"
+required-features = ["testing", "markdown"]
+
+[[test]]
 name = "test_layout"
 required-features = ["testing"]
 

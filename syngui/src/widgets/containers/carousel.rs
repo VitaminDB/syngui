@@ -277,6 +277,11 @@ impl Element for CarouselElement {
         }
     }
 
+    /// Кадры нужны на время переезда слайда и постоянно — при автопрокрутке.
+    fn wants_animate_tick(&self) -> bool {
+        self.animating || (self.auto_play && self.page_count > 1)
+    }
+
     fn animate(&mut self, dt: Duration) -> bool {
         let mut needs_redraw = false;
         const SLIDE_DURATION: f32 = 0.35;

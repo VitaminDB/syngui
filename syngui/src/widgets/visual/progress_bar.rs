@@ -181,6 +181,11 @@ impl Element for ProgressBarElement {
         }
     }
 
+    /// Бегущая полоса — только у неопределённого прогресса.
+    fn wants_animate_tick(&self) -> bool {
+        self.indeterminate
+    }
+
     fn animate(&mut self, dt: std::time::Duration) -> bool {
         if self.indeterminate {
             self.animation_offset += dt.as_secs_f32() * 0.5;

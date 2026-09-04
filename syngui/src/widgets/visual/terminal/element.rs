@@ -467,6 +467,14 @@ impl Element for TerminalElement {
         list.pop_clip();
     }
 
+    /// Терминал живёт кадрами: в `animate` он подхватывает новую ревизию
+    /// сессии (вывод PTY), мигает курсором, гасит скроллбар и выполняет
+    /// команды из `command_signal` (Copy/Paste/Clear контекстного меню).
+    /// Без этой заявки точечный реестр анимаций элемент не обходит.
+    fn wants_animate_tick(&self) -> bool {
+        true
+    }
+
     fn animate(&mut self, dt: Duration) -> bool {
         if self.session.is_none() && self.cols > 0 && self.rows > 0 {
             self.ensure_session();
@@ -990,6 +998,8 @@ impl Element for TerminalElement {
     fn element_type_name(&self) -> &str {
         "Terminal"
     }
+
+    fn mss(&self) -> Option<&crate::mss::MssFields> { Some(&self.mss) }
 
     fn reset_mss_styles(&mut self) {
         self.mss.reset();

@@ -493,6 +493,11 @@ impl Element for GaugeChartElement {
         EventResult::Ignored
     }
 
+    /// Стрелка едет к новому значению, пока не догонит цель.
+    fn wants_animate_tick(&self) -> bool {
+        self.anim_started
+    }
+
     fn animate(&mut self, dt: Duration) -> bool {
         if !self.anim_started {
             return false;

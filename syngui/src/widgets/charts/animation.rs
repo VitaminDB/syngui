@@ -97,6 +97,23 @@ impl ChartAnimationState {
         self.pan_offset.1 = new_cy - data_cy;
     }
 
+    /// Нужен ли ещё кадр: те же условия, что двигают состояние в [`tick`].
+    /// По ней элементы графиков заявляют себя реестру анимаций.
+    pub fn is_animating(&self) -> bool {
+        if self.appear_started && self.appear_progress < 1.0 {
+            return true;
+        }
+        for i in 0..self.series_visibility.len() {
+            let target = if self.series_visible[i] { 1.0 } else { 0.0 };
+            if (self.series_visibility[i] - target).abs() > 0.001 {
+                return true;
+            }
+        }
+        let hover_target = if self.hover_point.is_some() { 1.0 } else { 0.0 };
+        (self.hover_t - hover_target).abs() > 0.001
+            || (self.tooltip_opacity - hover_target).abs() > 0.001
+    }
+
     pub fn tick(&mut self, dt: Duration) -> bool {
         let dt_s = dt.as_secs_f32();
         let mut animating = false;
