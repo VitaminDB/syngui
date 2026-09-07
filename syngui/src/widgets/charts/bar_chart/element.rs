@@ -1012,7 +1012,8 @@ impl Element for BarChartElement {
                     }
                 }
 
-                EventResult::Handled
+                // Клик мимо легенды график не поглощает — см. LineChart.
+                EventResult::Ignored
             }
 
             _ => EventResult::Ignored,

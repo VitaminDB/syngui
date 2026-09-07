@@ -745,7 +745,10 @@ impl Element for LineChartElement {
                     }
                 }
 
-                EventResult::Handled
+                // Клик мимо легенды, точки и зума график не поглощает:
+                // встроенный в чужой контейнер (врезка документа, карточка),
+                // он иначе не даёт хозяину узнать о клике по себе.
+                EventResult::Ignored
             }
 
             Event::MouseUp { button, .. } => {
