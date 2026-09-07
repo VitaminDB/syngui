@@ -293,7 +293,16 @@ impl FloatingWindowElement {
             let min_w = self.mss.min_width.map(|d| d.resolve(vw)).unwrap_or(RESIZE_MIN_FALLBACK);
             return self.base_size.width.clamp(min_w, max_w);
         }
-        let min_w = self.mss.min_width.map(|d| d.resolve(vw)).unwrap_or(self.base_size.width);
+        // MSS `min-width` — нижняя граница для ресайза мышью, а не замена
+        // базовой ширины: окно с `.size(760, …)` и `min-width: 420px`
+        // открывается на 760, а ужать его можно до 420. Раньше стиль
+        // подменял базу, и окно схлопывалось до min-width при открытии.
+        let base_w = self.base_size.width;
+        let min_w = self
+            .mss
+            .min_width
+            .map(|d| d.resolve(vw).max(base_w))
+            .unwrap_or(base_w);
         let pad = self.padding();
         let needed = self.content_size.width + 2.0 * pad;
         needed.clamp(min_w.min(max_w), max_w)
