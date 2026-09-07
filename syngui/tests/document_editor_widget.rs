@@ -1836,3 +1836,61 @@ fn click_beside_code_block_does_not_enter_code() {
     let md = handle.serialize();
     assert!(md.contains("```rust\nabc\n```"), "клик мимо блока попал в код:\n{md}");
 }
+
+/// Выделение внутри ячейки таблицы — по образцу код-блока: протяжка мышью,
+/// Backspace по диапазону, Shift+стрелки и набор поверх выделенного,
+/// Ctrl+A на всю ячейку. Переход в соседнюю ячейку снимает выделение.
+#[test]
+fn table_cell_selection_by_mouse_and_keyboard() {
+    let md = "| A | B |\n| --- | --- |\n| abcdef | gh |\n";
+    let (mut h, handle) = editing_harness(md, Point::new(X0, Y0));
+    let tables = h.find_by_type_name("doc-table");
+    assert_eq!(tables.len(), 1);
+    let b = h.element_bounds(tables[0]);
+    // Две строки (шапка + данные), высота таблицы = 2·row_h + 2;
+    // текст ячейки начинается через padding_h = 10, Mono даёт 10px/символ.
+    let row_h = (b.size.height - 2.0) / 2.0;
+    let y = b.origin.y + row_h * 1.5;
+    let col_x = |c: f32| b.origin.x + 10.0 + 10.0 * c;
+
+    // Протяжка от «c» до «e» в первой ячейке данных → выделено «cd».
+    let from = Point::new(col_x(2.0), y);
+    let to = Point::new(col_x(4.0), y);
+    h.send_event(&Event::MouseDown { button: MouseButton::Left, position: from });
+    h.send_event(&Event::MouseMove(to));
+    h.send_event(&Event::MouseUp { button: MouseButton::Left, position: to });
+    h.send_event(&Event::KeyDown(Key::Backspace));
+    settle(&mut h);
+    let out = handle.serialize();
+    assert!(out.contains("| abef | gh |"), "протяжка не выделила диапазон:\n{out}");
+
+    // Shift+Right ×2 от каретки (после «ab») и набор — «ef» заменяется на «X».
+    h.tree.modifiers.shift = true;
+    h.send_event(&Event::KeyDown(Key::Right));
+    h.send_event(&Event::KeyDown(Key::Right));
+    h.tree.modifiers.shift = false;
+    type_str(&mut h, "X");
+    settle(&mut h);
+    let out = handle.serialize();
+    assert!(out.contains("| abX | gh |"), "Shift+стрелки не выделили или набор не заменил:\n{out}");
+
+    // Shift+Left выделяет «X», Tab уводит в соседнюю ячейку и снимает
+    // выделение: набор там ничего не стирает.
+    h.tree.modifiers.shift = true;
+    h.send_event(&Event::KeyDown(Key::Left));
+    h.tree.modifiers.shift = false;
+    h.send_event(&Event::KeyDown(Key::Tab));
+    type_str(&mut h, "!");
+    settle(&mut h);
+    let out = handle.serialize();
+    assert!(out.contains("| abX | gh! |"), "переход в ячейку не снял выделение:\n{out}");
+
+    // Ctrl+A внутри ячейки — весь её текст, Delete стирает его; таблица цела.
+    h.tree.modifiers.ctrl = true;
+    h.send_event(&Event::KeyDown(Key::A));
+    h.tree.modifiers.ctrl = false;
+    h.send_event(&Event::KeyDown(Key::Delete));
+    settle(&mut h);
+    let out = handle.serialize();
+    assert!(out.contains("| abX |  |") || out.contains("| abX | |"), "Ctrl+A не выделил ячейку:\n{out}");
+}

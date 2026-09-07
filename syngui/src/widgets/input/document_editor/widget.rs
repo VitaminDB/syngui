@@ -636,6 +636,8 @@ impl Widget for DocumentEditor {
             code_caret: None,
             code_anchor: None,
             mouse_selecting_code: false,
+            table_anchor: None,
+            mouse_selecting_table: false,
             selected: self.handle.as_ref().map(|h| h.selected),
             table_caret: None,
             tm: None,
@@ -740,6 +742,11 @@ pub struct DocumentEditorElement {
     code_anchor: Option<CodeCaret>,
     /// Протяжка выделения мышью внутри кода (аналог `mouse_selecting`).
     mouse_selecting_code: bool,
+    /// Якорь выделения внутри ячейки таблицы: диапазон от него до
+    /// `table_caret`. Значим только в той же ячейке.
+    table_anchor: Option<TableCaret>,
+    /// Протяжка выделения мышью внутри ячейки.
+    mouse_selecting_table: bool,
     /// Сигнал текущего блока (общий с ручкой).
     selected: Option<RwSignal<Option<super::model::BlockId>>>,
     /// Каретка внутри ячейки таблицы (отдельный режим от `selection`).
@@ -1482,7 +1489,10 @@ impl DocumentEditorElement {
         self.object_sel = None;
         self.drop_block_sel();
         match kind {
-            Some(1) => self.table_caret = Some(TableCaret { block: id, row: 0, col: 0, offset: 0 }),
+            Some(1) => {
+                self.table_anchor = None;
+                self.table_caret = Some(TableCaret { block: id, row: 0, col: 0, offset: 0 });
+            }
             Some(2) => {
                 self.code_anchor = None;
                 self.code_caret = Some(CodeCaret { block: id, offset: 0 });
@@ -1968,6 +1978,7 @@ impl DocumentEditorElement {
             self.object_sel = None;
             self.mouse_selecting = false;
             self.mouse_selecting_code = false;
+            self.mouse_selecting_table = false;
             if self.block_anchor.map_or(true, |a| !sel.contains(&a)) {
                 self.block_anchor = sel.first().copied();
             }
@@ -2836,6 +2847,7 @@ impl DocumentEditorElement {
         if !focus {
             self.mouse_selecting = false;
             self.mouse_selecting_code = false;
+            self.mouse_selecting_table = false;
         }
         self.publish_selection();
         self.mark_dirty(DirtyFlags::RENDER);
@@ -2935,6 +2947,7 @@ impl DocumentEditorElement {
             self.focused = false;
             self.mouse_selecting = false;
             self.mouse_selecting_code = false;
+            self.mouse_selecting_table = false;
             self.mark_dirty(DirtyFlags::RENDER);
         }
     }
@@ -4136,10 +4149,84 @@ impl DocumentEditorElement {
     fn table_insert(&mut self, s: &str) {
         let Some(tc) = self.table_caret else { return };
         let Some(mut text) = self.table_cell_text(tc.block, tc.row, tc.col) else { return };
-        let at = floor_char_boundary(&text, tc.offset);
+        // Набор поверх выделения заменяет его.
+        let at = match self.table_selection() {
+            Some((_, a, b)) => {
+                text.replace_range(a..b, "");
+                a
+            }
+            None => floor_char_boundary(&text, tc.offset),
+        };
         text.insert_str(at, s);
+        self.table_anchor = None;
         self.table_caret = Some(TableCaret { offset: at + s.len(), ..tc });
         self.set_table_cell(tc, text);
+    }
+
+    /// Одна и та же ячейка (блок, строка, колонка).
+    fn same_cell(a: &TableCaret, b: &TableCaret) -> bool {
+        a.block == b.block && a.row == b.row && a.col == b.col
+    }
+
+    /// Выделение внутри ячейки: каретка и байтовый диапазон между якорем и
+    /// кареткой. `None` — якоря нет, он в другой ячейке или совпадает с
+    /// кареткой.
+    fn table_selection(&self) -> Option<(TableCaret, usize, usize)> {
+        let tc = self.table_caret?;
+        let anchor = self.table_anchor.filter(|a| Self::same_cell(a, &tc))?;
+        let text = self.table_cell_text(tc.block, tc.row, tc.col)?;
+        let lo = anchor.offset.min(tc.offset).min(text.len());
+        let hi = anchor.offset.max(tc.offset).min(text.len());
+        let a = floor_char_boundary(&text, lo);
+        let b = floor_char_boundary(&text, hi);
+        (a < b).then_some((tc, a, b))
+    }
+
+    fn table_selection_text(&self) -> Option<String> {
+        let (tc, a, b) = self.table_selection()?;
+        let text = self.table_cell_text(tc.block, tc.row, tc.col)?;
+        Some(text[a..b].to_string())
+    }
+
+    /// Удаляет выделенный фрагмент ячейки, каретка встаёт в его начало.
+    /// `false` — выделения не было.
+    fn table_delete_selection(&mut self) -> bool {
+        let Some((tc, a, b)) = self.table_selection() else { return false };
+        let Some(mut text) = self.table_cell_text(tc.block, tc.row, tc.col) else { return false };
+        text.replace_range(a..b, "");
+        self.table_anchor = None;
+        self.table_caret = Some(TableCaret { offset: a, ..tc });
+        self.caret_on = true;
+        self.blink_ms = 0.0;
+        self.set_table_cell(tc, text);
+        true
+    }
+
+    /// Ctrl+A внутри ячейки — весь её текст.
+    fn table_select_all(&mut self) {
+        let Some(tc) = self.table_caret else { return };
+        let Some(text) = self.table_cell_text(tc.block, tc.row, tc.col) else { return };
+        self.table_anchor = Some(TableCaret { offset: 0, ..tc });
+        self.table_caret = Some(TableCaret { offset: text.len(), ..tc });
+        self.mark_dirty(DirtyFlags::RENDER);
+    }
+
+    /// Смещение в тексте ячейки `tc` по экранной точке: X зажимается в
+    /// ячейку, так что протяжка за её край даёт начало/конец текста.
+    fn table_offset_at(&self, tc: TableCaret, p: Point) -> Option<usize> {
+        let g = self.table_geom_of(tc.block)?;
+        if tc.col >= g.col_widths.len() {
+            return None;
+        }
+        let text = self.table_cell_text(tc.block, tc.row, tc.col)?;
+        let local_x = p.x - g.col_x(tc.col) - self.style.table_cell_padding_h;
+        Some(match self.tm.as_deref() {
+            Some(tm) => {
+                let ci = tm.hit_test_char_styled(&text, self.style.text_size, local_x.max(0.0), None);
+                text.char_indices().nth(ci).map(|(b, _)| b).unwrap_or(text.len())
+            }
+            None => text.len(),
+        })
     }
 
     /// Перевод каретки в другую ячейку (смещение в конец её текста — как
@@ -4169,9 +4256,30 @@ impl DocumentEditorElement {
         };
         let (cols, rows_n) = (g.col_widths.len().max(1), g.rows_n.max(1));
         let off = floor_char_boundary(&text, tc.offset);
+        // Shift+Left/Right/Home/End растягивают выделение внутри ячейки от
+        // якоря (якорь — прежняя каретка); любое другое движение, в том
+        // числе переход в соседнюю ячейку, снимает его.
+        if matches!(key, Key::Left | Key::Right | Key::Home | Key::End) {
+            self.table_anchor = if shift {
+                self.table_anchor.filter(|a| Self::same_cell(a, &tc)).or(Some(tc))
+            } else {
+                None
+            };
+        } else if matches!(key, Key::Up | Key::Down | Key::Enter | Key::Tab) {
+            self.table_anchor = None;
+        }
+        // Backspace/Delete при выделении стирают его целиком.
+        if matches!(key, Key::Backspace | Key::Delete) {
+            if self.table_selection().is_some() {
+                self.checkpoint(EditClass::Deleting);
+                self.table_delete_selection();
+                return true;
+            }
+        }
         match key {
             Key::Escape => {
                 self.table_caret = None;
+                self.table_anchor = None;
                 self.mark_dirty(DirtyFlags::RENDER);
                 true
             }
@@ -4282,10 +4390,29 @@ impl DocumentEditorElement {
         for edge in edges(cell) {
             list.push_rect(edge, s.caret_color, [0.0; 4]);
         }
+        let text = self.table_cell_text(tc.block, tc.row, tc.col).unwrap_or_default();
+        let width_of = |t: &str| -> f32 {
+            match self.tm.as_deref() {
+                Some(tm) => tm.measure_text_width_styled(t, s.text_size, t.chars().count(), tc.row == 0, None),
+                None => 0.0,
+            }
+        };
+        // Подсветка выделения внутри ячейки — независимо от мигания каретки.
+        if let Some((_, a, b)) = self.table_selection() {
+            let x_a = x0 + s.table_cell_padding_h + width_of(&text[..a]);
+            let x_b = (x0 + s.table_cell_padding_h + width_of(&text[..b])).min(x0 + w - 1.0);
+            list.push_rect(
+                Rect::new(
+                    Point::new(x_a, y0 + s.table_cell_padding_v),
+                    Size::new((x_b - x_a).max(0.0), (g.row_h - s.table_cell_padding_v * 2.0).max(4.0)),
+                ),
+                s.selection_color,
+                [2.0; 4],
+            );
+        }
         if !self.caret_on {
             return;
         }
-        let text = self.table_cell_text(tc.block, tc.row, tc.col).unwrap_or_default();
         let off = floor_char_boundary(&text, tc.offset);
         let prefix = &text[..off];
         let px = match self.tm.as_deref() {
@@ -4893,12 +5020,26 @@ impl Element for DocumentEditorElement {
                 // Клик в ячейку таблицы — режим каретки таблицы.
                 if !self.read_only {
                     if let Some(tc) = self.table_hit(*position) {
+                        // Shift+клик в той же ячейке растягивает выделение от
+                        // прежней каретки; обычный клик ставит якорь заново и
+                        // захватывает мышь под протяжку.
+                        let extend = ctx.modifiers.shift
+                            && self.table_caret.is_some_and(|old| Self::same_cell(&old, &tc));
+                        self.table_anchor = if extend {
+                            self.table_anchor.filter(|a| Self::same_cell(a, &tc)).or(self.table_caret)
+                        } else {
+                            Some(tc)
+                        };
                         self.table_caret = Some(tc);
                         self.code_caret = None;
                         self.selection = None;
                         self.goal_x = None;
                         self.caret_on = true;
                         self.blink_ms = 0.0;
+                        if !extend {
+                            self.mouse_selecting_table = true;
+                            ctx.capture();
+                        }
                         self.publish_selection();
                         self.mark_dirty(DirtyFlags::RENDER);
                         return EventResult::Handled;
@@ -5091,6 +5232,21 @@ impl Element for DocumentEditorElement {
                         }
                     }
                 }
+                if self.mouse_selecting_table {
+                    // Протяжка внутри ячейки: голова выделения — по X точки в
+                    // ячейке якоря; строки/колонки не меняются.
+                    if let Some(tc) = self.table_caret {
+                        if let Some(off) = self.table_offset_at(tc, *position) {
+                            if off != tc.offset {
+                                self.table_caret = Some(TableCaret { offset: off, ..tc });
+                                self.caret_on = true;
+                                self.blink_ms = 0.0;
+                                self.mark_dirty(DirtyFlags::RENDER);
+                            }
+                        }
+                    }
+                    return EventResult::Handled;
+                }
                 if self.mouse_selecting_code {
                     // Протяжка внутри кода: голова выделения — по точке, даже
                     // если мышь вышла за блок (смещение зажимается в его
@@ -5186,13 +5342,19 @@ impl Element for DocumentEditorElement {
                     self.mark_dirty(DirtyFlags::RENDER);
                     return EventResult::Handled;
                 }
+                if self.mouse_selecting_table {
+                    self.mouse_selecting_table = false;
+                    return EventResult::Handled;
+                }
                 if self.mouse_selecting_code {
                     self.mouse_selecting_code = false;
+                    self.mouse_selecting_table = false;
                     return EventResult::Handled;
                 }
                 if self.mouse_selecting {
                     self.mouse_selecting = false;
                     self.mouse_selecting_code = false;
+                    self.mouse_selecting_table = false;
                     return EventResult::Handled;
                 }
                 EventResult::Ignored
@@ -5442,6 +5604,10 @@ impl Element for DocumentEditorElement {
                         self.code_select_all();
                         true
                     }
+                    Key::A if ctrl && self.table_caret.is_some() => {
+                        self.table_select_all();
+                        true
+                    }
                     Key::A if ctrl => {
                         // Повторный Ctrl+A (весь текст уже выделен)
                         // выделяет блоки целиком.
@@ -5458,6 +5624,7 @@ impl Element for DocumentEditorElement {
                         // документное `selection` (клик в код его обнуляет).
                         let text = self
                             .code_selection_text()
+                            .or_else(|| self.table_selection_text())
                             .unwrap_or_else(|| self.selection_text());
                         if !text.is_empty() {
                             ctx.copy_to_clipboard(&text);
@@ -5469,6 +5636,10 @@ impl Element for DocumentEditorElement {
                             ctx.copy_to_clipboard(&text);
                             self.checkpoint(EditClass::Deleting);
                             self.code_delete_selection();
+                        } else if let Some(text) = self.table_selection_text() {
+                            ctx.copy_to_clipboard(&text);
+                            self.checkpoint(EditClass::Deleting);
+                            self.table_delete_selection();
                         } else {
                             let text = self.selection_text();
                             if !text.is_empty() {
@@ -5486,6 +5657,12 @@ impl Element for DocumentEditorElement {
                                 // markdown-блоки там ни к чему.
                                 self.checkpoint(EditClass::Structure);
                                 self.code_insert(&text);
+                            } else if self.table_caret.is_some() {
+                                // Ячейка — одна строка: переводы строк
+                                // сломали бы markdown-таблицу.
+                                self.checkpoint(EditClass::Structure);
+                                let flat = text.replace(['\r', '\n'], " ");
+                                self.table_insert(&flat);
                             } else {
                                 self.paste_text(&text);
                             }
@@ -5693,6 +5870,7 @@ impl Element for DocumentEditorElement {
                     self.focused = false;
                     self.mouse_selecting = false;
                     self.mouse_selecting_code = false;
+                    self.mouse_selecting_table = false;
                     self.preedit = None;
                     self.mark_dirty(DirtyFlags::RENDER);
                     if let Some(cb) = self.on_focus_lost.clone() {
