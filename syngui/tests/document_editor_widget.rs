@@ -1771,3 +1771,68 @@ fn background_is_painted_under_grid() {
     assert_eq!(first.1, bg, "первым должен идти фон страницы");
     assert!(first.0.size.width >= 900.0 && first.0.size.height >= 700.0, "фон не на весь холст: {:?}", first.0);
 }
+
+/// Выделение внутри кода: протяжка мышью берёт диапазон, Backspace стирает
+/// его, Shift+стрелки растягивают от каретки, набор заменяет выделенное,
+/// Ctrl+A берёт весь код. Раньше у код-блока была только каретка: клик в
+/// код обнулял `selection`, а протяжка ничего не делала.
+#[test]
+fn code_block_selection_by_mouse_and_keyboard() {
+    let (mut h, handle) = editing_harness("```rust\nabcdef\nghij\n```\n", Point::new(X0, Y0));
+    let code = h.find_by_type_name("doc-code-block");
+    assert_eq!(code.len(), 1);
+    let b = h.element_bounds(code[0]);
+    // Блок: отступ 12 сверху и снизу, две строки; Mono даёт 10px на символ.
+    let line_h = (b.size.height - 24.0) / 2.0;
+    let line_y = |i: f32| b.origin.y + 12.0 + line_h * (i + 0.5);
+    let col_x = |c: f32| b.origin.x + 12.0 + 10.0 * c;
+
+    // Протяжка от «c» первой строки до «i» второй → выделено «cdef\ngh».
+    let from = Point::new(col_x(2.0), line_y(0.0));
+    let to = Point::new(col_x(2.0), line_y(1.0));
+    h.send_event(&Event::MouseDown { button: MouseButton::Left, position: from });
+    h.send_event(&Event::MouseMove(to));
+    h.send_event(&Event::MouseUp { button: MouseButton::Left, position: to });
+    h.send_event(&Event::KeyDown(Key::Backspace));
+    settle(&mut h);
+    let md = handle.serialize();
+    assert!(md.contains("```rust\nabij\n```"), "протяжка не выделила диапазон:\n{md}");
+
+    // Shift+Right ×2 от каретки (после «ab») и набор — «ij» заменяется на «X».
+    h.tree.modifiers.shift = true;
+    h.send_event(&Event::KeyDown(Key::Right));
+    h.send_event(&Event::KeyDown(Key::Right));
+    h.tree.modifiers.shift = false;
+    type_str(&mut h, "X");
+    settle(&mut h);
+    let md = handle.serialize();
+    assert!(md.contains("```rust\nabX\n```"), "Shift+стрелки не выделили или набор не заменил:\n{md}");
+
+    // Ctrl+A внутри кода — весь текст блока, Delete стирает его; блок цел.
+    h.tree.modifiers.ctrl = true;
+    h.send_event(&Event::KeyDown(Key::A));
+    h.tree.modifiers.ctrl = false;
+    h.send_event(&Event::KeyDown(Key::Delete));
+    settle(&mut h);
+    let md = handle.serialize();
+    assert!(!md.contains("abX"), "Ctrl+A не выделил весь код:\n{md}");
+    assert_eq!(md.matches("```").count(), 2, "блок разорвался:\n{md}");
+}
+
+/// Клик на полях страницы на высоте код-блока — не клик в код: раньше
+/// хит-тест смотрел только на Y, ставил каретку в код и глотал рамку.
+#[test]
+fn click_beside_code_block_does_not_enter_code() {
+    let (mut h, handle) =
+        editing_harness("пара\n\n```rust\nabc\n```\n", Point::new(X0 + 10.0, Y0 + 8.0));
+    let code = h.find_by_type_name("doc-code-block");
+    assert_eq!(code.len(), 1);
+    let b = h.element_bounds(code[0]);
+    let beside = Point::new(b.origin.x - 8.0, b.origin.y + 14.0);
+    h.send_event(&Event::MouseDown { button: MouseButton::Left, position: beside });
+    h.send_event(&Event::MouseUp { button: MouseButton::Left, position: beside });
+    type_str(&mut h, "z");
+    settle(&mut h);
+    let md = handle.serialize();
+    assert!(md.contains("```rust\nabc\n```"), "клик мимо блока попал в код:\n{md}");
+}

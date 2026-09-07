@@ -552,6 +552,7 @@ impl CodeBlockElement {
         let Ok(mut map) = codes.lock() else { return };
         let entry = map.entry(self.block_id).or_default();
         entry.origin = self.bounds.origin;
+        entry.width = self.bounds.size.width;
         entry.pad = self.style.code_block_padding;
         entry.line_h = self.style.line_h(self.style.code_font_size);
         entry.font_size = self.style.code_font_size;

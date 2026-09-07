@@ -634,6 +634,8 @@ impl Widget for DocumentEditor {
             tables: new_table_geom_map(),
             codes: new_code_geom_map(),
             code_caret: None,
+            code_anchor: None,
+            mouse_selecting_code: false,
             selected: self.handle.as_ref().map(|h| h.selected),
             table_caret: None,
             tm: None,
@@ -732,6 +734,12 @@ pub struct DocumentEditorElement {
     codes: CodeGeomMap,
     /// Каретка внутри код-блока (отдельный режим, как у таблицы).
     code_caret: Option<CodeCaret>,
+    /// Якорь выделения внутри кода: диапазон от него до `code_caret`.
+    /// Значим только в блоке каретки; клик мышью и вход в блок с
+    /// клавиатуры ставят его заново.
+    code_anchor: Option<CodeCaret>,
+    /// Протяжка выделения мышью внутри кода (аналог `mouse_selecting`).
+    mouse_selecting_code: bool,
     /// Сигнал текущего блока (общий с ручкой).
     selected: Option<RwSignal<Option<super::model::BlockId>>>,
     /// Каретка внутри ячейки таблицы (отдельный режим от `selection`).
@@ -1475,7 +1483,10 @@ impl DocumentEditorElement {
         self.drop_block_sel();
         match kind {
             Some(1) => self.table_caret = Some(TableCaret { block: id, row: 0, col: 0, offset: 0 }),
-            Some(2) => self.code_caret = Some(CodeCaret { block: id, offset: 0 }),
+            Some(2) => {
+                self.code_anchor = None;
+                self.code_caret = Some(CodeCaret { block: id, offset: 0 });
+            }
             Some(3) => {
                 self.selection = Some(DocSelection::caret(CaretPos { block: id, offset: 0 }))
             }
@@ -1956,6 +1967,7 @@ impl DocumentEditorElement {
             self.code_caret = None;
             self.object_sel = None;
             self.mouse_selecting = false;
+            self.mouse_selecting_code = false;
             if self.block_anchor.map_or(true, |a| !sel.contains(&a)) {
                 self.block_anchor = sel.first().copied();
             }
@@ -2823,6 +2835,7 @@ impl DocumentEditorElement {
         self.focused = focus;
         if !focus {
             self.mouse_selecting = false;
+            self.mouse_selecting_code = false;
         }
         self.publish_selection();
         self.mark_dirty(DirtyFlags::RENDER);
@@ -2921,6 +2934,7 @@ impl DocumentEditorElement {
         if self.focused {
             self.focused = false;
             self.mouse_selecting = false;
+            self.mouse_selecting_code = false;
             self.mark_dirty(DirtyFlags::RENDER);
         }
     }
@@ -3779,7 +3793,11 @@ impl DocumentEditorElement {
             map.iter()
                 .find(|(_, g)| {
                     let h = g.pad * 2.0 + g.lines.len() as f32 * g.line_h;
-                    p.y >= g.origin.y && p.y <= g.origin.y + h
+                    // И по X: клик на полях страницы на высоте блока — не
+                    // клик в код (иначе он глотал каретку и рамку).
+                    let in_x = g.width <= 0.0
+                        || (p.x >= g.origin.x && p.x <= g.origin.x + g.width);
+                    in_x && p.y >= g.origin.y && p.y <= g.origin.y + h
                 })
                 .map(|(id, g)| (*id, g.clone()))?
         };
@@ -3790,10 +3808,61 @@ impl DocumentEditorElement {
     fn code_insert(&mut self, s: &str) {
         let Some(cc) = self.code_caret else { return };
         let Some(mut code) = self.code_text(cc.block) else { return };
-        let at = floor_char_boundary(&code, cc.offset);
+        // Набор поверх выделения заменяет его.
+        let at = match self.code_selection() {
+            Some((_, a, b)) => {
+                code.replace_range(a..b, "");
+                a
+            }
+            None => floor_char_boundary(&code, cc.offset),
+        };
         code.insert_str(at, s);
+        self.code_anchor = None;
         self.code_caret = Some(CodeCaret { offset: at + s.len(), ..cc });
         self.set_code(cc.block, code);
+    }
+
+    /// Выделение внутри кода: блок и байтовый диапазон между якорем и
+    /// кареткой. `None` — якоря нет, он в другом блоке или совпадает с
+    /// кареткой.
+    fn code_selection(&self) -> Option<(super::model::BlockId, usize, usize)> {
+        let cc = self.code_caret?;
+        let anchor = self.code_anchor.filter(|a| a.block == cc.block)?;
+        let code = self.code_text(cc.block)?;
+        let lo = anchor.offset.min(cc.offset).min(code.len());
+        let hi = anchor.offset.max(cc.offset).min(code.len());
+        let a = floor_char_boundary(&code, lo);
+        let b = floor_char_boundary(&code, hi);
+        (a < b).then_some((cc.block, a, b))
+    }
+
+    fn code_selection_text(&self) -> Option<String> {
+        let (block, a, b) = self.code_selection()?;
+        let code = self.code_text(block)?;
+        Some(code[a..b].to_string())
+    }
+
+    /// Удаляет выделенный фрагмент кода, каретка встаёт в его начало.
+    /// `false` — выделения не было.
+    fn code_delete_selection(&mut self) -> bool {
+        let Some((block, a, b)) = self.code_selection() else { return false };
+        let Some(mut code) = self.code_text(block) else { return false };
+        code.replace_range(a..b, "");
+        self.code_anchor = None;
+        self.code_caret = Some(CodeCaret { block, offset: a });
+        self.caret_on = true;
+        self.blink_ms = 0.0;
+        self.set_code(block, code);
+        true
+    }
+
+    /// Ctrl+A внутри кода — весь текст блока.
+    fn code_select_all(&mut self) {
+        let Some(cc) = self.code_caret else { return };
+        let Some(code) = self.code_text(cc.block) else { return };
+        self.code_anchor = Some(CodeCaret { block: cc.block, offset: 0 });
+        self.code_caret = Some(CodeCaret { block: cc.block, offset: code.len() });
+        self.mark_dirty(DirtyFlags::RENDER);
     }
 
     /// Клавиши в режиме каретки кода. `true` — событие поглощено.
@@ -3810,9 +3879,23 @@ impl DocumentEditorElement {
             me.blink_ms = 0.0;
             me.mark_dirty(DirtyFlags::RENDER);
         };
+        // Shift+движение растягивает выделение от якоря (якорь — прежняя
+        // каретка, если его ещё не было); движение без Shift снимает его.
+        if matches!(key, Key::Left | Key::Right | Key::Home | Key::End | Key::Up | Key::Down) {
+            self.code_anchor = if shift {
+                self.code_anchor.filter(|a| a.block == cc.block).or(Some(cc))
+            } else {
+                None
+            };
+        }
+        // Backspace/Delete при выделении стирают его целиком.
+        if matches!(key, Key::Backspace | Key::Delete) && self.code_delete_selection() {
+            return true;
+        }
         match key {
             Key::Escape => {
                 self.code_caret = None;
+                self.code_anchor = None;
                 self.mark_dirty(DirtyFlags::RENDER);
                 true
             }
@@ -3914,11 +3997,41 @@ impl DocumentEditorElement {
 
     fn draw_code_caret(&self, list: &mut DisplayList) {
         let Some(cc) = self.code_caret else { return };
+        let Some(g) = self.code_geom_of(cc.block) else { return };
+        let Some(code) = self.code_text(cc.block) else { return };
+        let width_of = |s: &str| -> f32 {
+            match self.tm.as_deref() {
+                Some(tm) => tm.measure_text_width(s, g.font_size, s.chars().count()),
+                None => s.chars().count() as f32 * g.font_size * 0.6,
+            }
+        };
+        // Подсветка выделения — по экранным строкам, независимо от мигания
+        // каретки.
+        if let Some((_, a, b)) = self.code_selection() {
+            let first = g.line_of(a);
+            let last = g.line_of(b).max(first);
+            for line in first..=last {
+                let Some(&(ls, le)) = g.lines.get(line) else { break };
+                let (ls, le) = (ls.min(code.len()), le.min(code.len()));
+                let from = a.clamp(ls, le);
+                let to = b.clamp(ls, le);
+                let x0 = width_of(&code[ls..from]);
+                let x1 = width_of(&code[ls..to]);
+                // Перенос строки внутри выделения показываем хвостом.
+                let tail = if line < last { g.font_size * 0.5 } else { 0.0 };
+                let rect = Rect::new(
+                    Point::new(
+                        g.origin.x + g.pad + x0,
+                        g.origin.y + g.pad + line as f32 * g.line_h,
+                    ),
+                    Size::new((x1 - x0 + tail).max(0.0), g.line_h),
+                );
+                list.push_rect(rect, self.style.selection_color, [2.0; 4]);
+            }
+        }
         if !self.caret_on {
             return;
         }
-        let Some(g) = self.code_geom_of(cc.block) else { return };
-        let Some(code) = self.code_text(cc.block) else { return };
         let at = floor_char_boundary(&code, cc.offset);
         let line = g.line_of(at);
         let (start, end) = g.lines[line];
@@ -4793,12 +4906,26 @@ impl Element for DocumentEditorElement {
                     // Клик в код — режим каретки кода: у код-блока нет
                     // текстовых строк документа, каретка своя.
                     if let Some(cc) = self.code_hit(*position) {
+                        // Shift+клик в том же блоке растягивает выделение от
+                        // прежней каретки; обычный клик ставит якорь заново
+                        // и захватывает мышь под протяжку.
+                        let extend = ctx.modifiers.shift
+                            && self.code_caret.is_some_and(|old| old.block == cc.block);
+                        self.code_anchor = if extend {
+                            self.code_anchor.filter(|a| a.block == cc.block).or(self.code_caret)
+                        } else {
+                            Some(cc)
+                        };
                         self.code_caret = Some(cc);
                         self.table_caret = None;
                         self.selection = None;
                         self.goal_x = None;
                         self.caret_on = true;
                         self.blink_ms = 0.0;
+                        if !extend {
+                            self.mouse_selecting_code = true;
+                            ctx.capture();
+                        }
                         self.publish_selection();
                         self.mark_dirty(DirtyFlags::RENDER);
                         return EventResult::Handled;
@@ -4964,6 +5091,25 @@ impl Element for DocumentEditorElement {
                         }
                     }
                 }
+                if self.mouse_selecting_code {
+                    // Протяжка внутри кода: голова выделения — по точке, даже
+                    // если мышь вышла за блок (смещение зажимается в его
+                    // строки).
+                    if let Some(cc) = self.code_caret {
+                        if let (Some(g), Some(code)) =
+                            (self.code_geom_of(cc.block), self.code_text(cc.block))
+                        {
+                            let off = self.code_offset_at(&g, &code, *position);
+                            if off != cc.offset {
+                                self.code_caret = Some(CodeCaret { offset: off, ..cc });
+                                self.caret_on = true;
+                                self.blink_ms = 0.0;
+                                self.mark_dirty(DirtyFlags::RENDER);
+                            }
+                        }
+                    }
+                    return EventResult::Handled;
+                }
                 if self.mouse_selecting {
                     if let Some(pos) = self.hit_caret(*position) {
                         if let Some(sel) = &mut self.selection {
@@ -5040,8 +5186,13 @@ impl Element for DocumentEditorElement {
                     self.mark_dirty(DirtyFlags::RENDER);
                     return EventResult::Handled;
                 }
+                if self.mouse_selecting_code {
+                    self.mouse_selecting_code = false;
+                    return EventResult::Handled;
+                }
                 if self.mouse_selecting {
                     self.mouse_selecting = false;
+                    self.mouse_selecting_code = false;
                     return EventResult::Handled;
                 }
                 EventResult::Ignored
@@ -5287,6 +5438,10 @@ impl Element for DocumentEditorElement {
                     }
                 }
                 let handled = match key {
+                    Key::A if ctrl && self.code_caret.is_some() => {
+                        self.code_select_all();
+                        true
+                    }
                     Key::A if ctrl => {
                         // Повторный Ctrl+A (весь текст уже выделен)
                         // выделяет блоки целиком.
@@ -5299,24 +5454,41 @@ impl Element for DocumentEditorElement {
                         true
                     }
                     Key::C if ctrl => {
-                        let text = self.selection_text();
+                        // Выделение внутри кода — копируем его фрагмент, а не
+                        // документное `selection` (клик в код его обнуляет).
+                        let text = self
+                            .code_selection_text()
+                            .unwrap_or_else(|| self.selection_text());
                         if !text.is_empty() {
                             ctx.copy_to_clipboard(&text);
                         }
                         true
                     }
                     Key::X if ctrl && editable => {
-                        let text = self.selection_text();
-                        if !text.is_empty() {
+                        if let Some(text) = self.code_selection_text() {
                             ctx.copy_to_clipboard(&text);
-                            self.checkpoint(EditClass::Structure);
-                            self.delete_selection_if_any();
+                            self.checkpoint(EditClass::Deleting);
+                            self.code_delete_selection();
+                        } else {
+                            let text = self.selection_text();
+                            if !text.is_empty() {
+                                ctx.copy_to_clipboard(&text);
+                                self.checkpoint(EditClass::Structure);
+                                self.delete_selection_if_any();
+                            }
                         }
                         true
                     }
                     Key::V if ctrl && editable => {
                         if let Some(text) = ctx.paste_from_clipboard() {
-                            self.paste_text(&text);
+                            if self.code_caret.is_some() {
+                                // В код вставляем текст как есть: разбор на
+                                // markdown-блоки там ни к чему.
+                                self.checkpoint(EditClass::Structure);
+                                self.code_insert(&text);
+                            } else {
+                                self.paste_text(&text);
+                            }
                         }
                         true
                     }
@@ -5520,6 +5692,7 @@ impl Element for DocumentEditorElement {
                 if self.focused {
                     self.focused = false;
                     self.mouse_selecting = false;
+                    self.mouse_selecting_code = false;
                     self.preedit = None;
                     self.mark_dirty(DirtyFlags::RENDER);
                     if let Some(cb) = self.on_focus_lost.clone() {
