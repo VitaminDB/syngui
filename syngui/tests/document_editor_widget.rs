@@ -1698,6 +1698,54 @@ fn replace_markdown_from_host_survives_rebuild_and_undoes() {
     assert_eq!(handle.serialize(), "абв\n");
 }
 
+/// Переключение страницы в свободную раскладку закрепляет каждый блок там,
+/// где его поставил поток: картинка не меняется, а объект, добавленный
+/// следом, не ложится поверх текста. Это правка документа — с отменой.
+#[test]
+fn switching_to_free_layout_pins_blocks_where_the_flow_put_them() {
+    let handle = DocumentEditorHandle::new();
+    let md = "# Заголовок\n\nАбзац\n";
+    let mut h = TestHarness::new(Box::new(DocumentEditor::new().markdown(md).handle(&handle)));
+    h.tree.text_measure = Some(Arc::new(Mono));
+    h.rebuild();
+    h.layout(800.0, 2000.0);
+    let rows_of = |h: &mut TestHarness| -> Vec<Rect> {
+        h.find_by_type_name("doc-text-row").iter().map(|&e| h.element_bounds(e)).collect()
+    };
+    let before = rows_of(&mut h);
+    assert!(before.len() >= 2, "{before:?}");
+    assert!(!handle.serialize().contains("doc-layout"));
+
+    h.update_widget(Box::new(
+        DocumentEditor::new()
+            .markdown(md)
+            .handle(&handle)
+            .layout(DocLayout { free: true, ..DocLayout::default() }),
+    ));
+    h.rebuild();
+    h.layout(800.0, 2000.0);
+    let src = handle.serialize();
+    assert!(src.contains("```doc-layout") && src.contains("\n0 {") && src.contains("\n1 {"), "{src}");
+    let after = rows_of(&mut h);
+    assert_eq!(before.len(), after.len(), "{after:?}");
+    for (b, a) in before.iter().zip(&after) {
+        assert!(
+            (b.origin.x - a.origin.x).abs() < 1.0 && (b.origin.y - a.origin.y).abs() < 1.0,
+            "строка переехала: {b:?} → {a:?}"
+        );
+    }
+    // Правка попала в историю — Ctrl+Z вернёт поток без координат.
+    assert!(handle.history_state().get().0);
+
+    // Обратно в поток: координаты остаются, повторное включение холста
+    // ничего не перезакрепляет.
+    h.update_widget(Box::new(DocumentEditor::new().markdown(md).handle(&handle)));
+    h.rebuild();
+    h.layout(800.0, 2000.0);
+    let kept = handle.serialize();
+    assert_eq!(kept, src);
+}
+
 /// Фон страницы из раскладки рисуется первым прямоугольником — на весь
 /// холст, под сеткой (свойство страницы, а не режима).
 #[test]

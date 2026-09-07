@@ -2641,6 +2641,33 @@ impl DocumentEditorElement {
         }
     }
 
+    /// Переход поток → свободная раскладка: каждый ещё не закреплённый
+    /// верхнеуровневый блок получает координаты и ширину своего места в
+    /// потоке — прямоугольники опубликованы прошлой раскладкой. Иначе все
+    /// блоки оставались в колонке потока, и первый же закреплённый объект
+    /// ложился поверх текста (07.09.2026, страница «Тестовая»). Обратный
+    /// переход ничего не трогает: поток координаты игнорирует, а при
+    /// повторном включении холста они снова в силе.
+    fn pin_flow_blocks(&mut self) {
+        let unpinned: Vec<super::model::BlockId> = self
+            .model()
+            .blocks
+            .iter()
+            .filter(|b| free::pos_of(&b.attrs).is_none())
+            .map(|b| b.id)
+            .collect();
+        let ids: Vec<super::model::BlockId> =
+            unpinned.into_iter().filter(|id| self.block_rect(*id).is_some()).collect();
+        if ids.is_empty() {
+            return;
+        }
+        self.checkpoint(EditClass::Structure);
+        for id in ids {
+            self.pin_block(id);
+        }
+        self.after_edit();
+    }
+
     /// Закрепить блок там, где он сейчас (первый перенос из потока).
     fn pin_block(&mut self, block: super::model::BlockId) -> Option<(f32, f32, f32)> {
         let geom = self.free_geom(block)?;
@@ -4254,7 +4281,9 @@ impl Element for DocumentEditorElement {
         if self.layout != w.layout {
             let was_free = self.layout.free;
             self.layout = w.layout;
-            let _ = was_free;
+            if !was_free && self.layout.free {
+                self.pin_flow_blocks();
+            }
             self.rebuild = true;
             self.mark_dirty(DirtyFlags::LAYOUT | DirtyFlags::RENDER);
             ctx.mark_layout_dirty();
