@@ -49,6 +49,7 @@ pub struct HeatOverlay {
     idw_power: f32,
     resolution: u32,
     opacity: f32,
+    halo_radius: f32,
     cache_key: String,
 }
 
@@ -69,6 +70,7 @@ impl HeatOverlay {
             idw_power: 2.0,
             resolution: 160,
             opacity: 0.72,
+            halo_radius: 0.0,
             cache_key: "syngui-map-heat".to_string(),
         }
     }
@@ -109,6 +111,17 @@ impl HeatOverlay {
         self
     }
 
+    /// Режим «ореолов»: цвет ложится не на всю область, а только вокруг
+    /// точек — в радиусе `radius_px` экранных пикселей с плавным
+    /// затуханием к краю (гауссово ядро, σ = radius/2). Где ореолы
+    /// соседних точек пересекаются, их значения смешиваются, и цвет
+    /// плавно переходит от одного к другому. `0.0` (по умолчанию) —
+    /// сплошное IDW-поле по всей области.
+    pub fn halo_radius(mut self, radius_px: f32) -> Self {
+        self.halo_radius = radius_px.max(0.0);
+        self
+    }
+
     pub fn cache_key(mut self, key: impl Into<String>) -> Self {
         self.cache_key = key.into();
         self
@@ -133,6 +146,7 @@ impl Widget for HeatOverlay {
             idw_power: self.idw_power,
             resolution: self.resolution,
             opacity: self.opacity,
+            halo_radius: self.halo_radius,
             cache_key: self.cache_key.clone(),
             bounds: Rect::zero(),
             image_store: None,
@@ -169,6 +183,7 @@ struct GenKey {
     color_min_bits: u32,
     color_max_bits: u32,
     opacity_bits: u32,
+    halo_bits: u32,
 }
 
 pub struct HeatOverlayElement {
@@ -181,6 +196,7 @@ pub struct HeatOverlayElement {
     idw_power: f32,
     resolution: u32,
     opacity: f32,
+    halo_radius: f32,
     cache_key: String,
     bounds: Rect,
     image_store: Option<Arc<Mutex<ImageStore>>>,
@@ -213,6 +229,7 @@ impl HeatOverlayElement {
             color_min_bits: self.color_min.to_bits(),
             color_max_bits: self.color_max.to_bits(),
             opacity_bits: self.opacity.to_bits(),
+            halo_bits: self.halo_radius.to_bits(),
         }
     }
 
@@ -239,7 +256,11 @@ impl HeatOverlayElement {
             }
         };
 
-        let rgba = self.render_idw(bw, bh, vp);
+        let rgba = if self.halo_radius > 0.0 {
+            self.render_halo(bw, bh, vp)
+        } else {
+            self.render_idw(bw, bh, vp)
+        };
 
         let mut store = match store.lock() {
             Ok(s) => s,
@@ -262,12 +283,9 @@ impl HeatOverlayElement {
         self.last_gen = Some(key);
     }
 
-    fn render_idw(&self, bw: u32, bh: u32, vp: MapViewport) -> Vec<u8> {
-        let lut = self.gradient.rasterize(256);
-        let alpha = (self.opacity * 255.0).round().clamp(0.0, 255.0) as u8;
-
-        let screen_pts: Vec<(f32, f32, f32)> = self
-            .points
+    /// Точки в экранных координатах viewport'а: (x, y, значение).
+    fn screen_points(&self, vp: MapViewport) -> Vec<(f32, f32, f32)> {
+        self.points
             .iter()
             .map(|p| {
                 let (px, py) = tile_math::geo_to_pixel(
@@ -281,9 +299,55 @@ impl HeatOverlayElement {
                 );
                 (px, py, p.value)
             })
-            .collect();
+            .collect()
+    }
 
+    /// Позиция значения на шкале 0..1 (индекс в LUT градиента).
+    fn lut_index(&self, value: f32) -> usize {
         let range = self.color_max - self.color_min;
+        let t = if range.abs() < 1e-6 {
+            0.5
+        } else {
+            ((value - self.color_min) / range).clamp(0.0, 1.0)
+        };
+        (t * 255.0).round().clamp(0.0, 255.0) as usize
+    }
+
+    /// Ореолы вокруг точек: цвет — взвешенное по ядру среднее значений
+    /// соседних точек, альфа — покрытие ядрами (сумма весов, обрезанная
+    /// единицей). Вдали от точек слой прозрачен.
+    fn render_halo(&self, bw: u32, bh: u32, vp: MapViewport) -> Vec<u8> {
+        let lut = self.gradient.rasterize(256);
+        let screen_pts = self.screen_points(vp);
+        let kernel = HaloKernel::new(self.halo_radius);
+
+        let mut rgba = vec![0u8; (bw * bh * 4) as usize];
+        for j in 0..bh {
+            let sy = (j as f32 + 0.5) / bh as f32 * vp.viewport_h;
+            for i in 0..bw {
+                let sx = (i as f32 + 0.5) / bw as f32 * vp.viewport_w;
+                // Вне ореолов пиксель полностью прозрачный, но цвет ему всё
+                // равно задаём (низ шкалы), а не оставляем чёрным: текстура
+                // сэмплируется линейно с обычной (не premultiplied) альфой,
+                // и чёрный сосед дал бы тёмную кайму по краю ореола.
+                let (value, coverage) = kernel
+                    .sample(sx, sy, &screen_pts)
+                    .unwrap_or((self.color_min, 0.0));
+                let o = self.lut_index(value) * 4;
+                let p = ((j * bw + i) * 4) as usize;
+                rgba[p] = lut[o];
+                rgba[p + 1] = lut[o + 1];
+                rgba[p + 2] = lut[o + 2];
+                rgba[p + 3] = (self.opacity * coverage * 255.0).round().clamp(0.0, 255.0) as u8;
+            }
+        }
+        rgba
+    }
+
+    fn render_idw(&self, bw: u32, bh: u32, vp: MapViewport) -> Vec<u8> {
+        let lut = self.gradient.rasterize(256);
+        let alpha = (self.opacity * 255.0).round().clamp(0.0, 255.0) as u8;
+        let screen_pts = self.screen_points(vp);
         let half_power = 0.5 * self.idw_power;
 
         let mut rgba = vec![0u8; (bw * bh * 4) as usize];
@@ -309,14 +373,7 @@ impl HeatOverlayElement {
                 }
 
                 let value = exact.unwrap_or_else(|| if den > 0.0 { num / den } else { self.color_min });
-
-                let t = if range.abs() < 1e-6 {
-                    0.5
-                } else {
-                    ((value - self.color_min) / range).clamp(0.0, 1.0)
-                };
-                let idx = (t * 255.0).round().clamp(0.0, 255.0) as usize;
-                let o = idx * 4;
+                let o = self.lut_index(value) * 4;
 
                 let p = ((j * bw + i) * 4) as usize;
                 rgba[p] = lut[o];
@@ -326,6 +383,48 @@ impl HeatOverlayElement {
             }
         }
         rgba
+    }
+}
+
+/// Ядро ореола: гауссово затухание с σ = radius/2. Вклад точек дальше
+/// 3.5σ (< e⁻⁶ от максимума) отбрасывается — и ради скорости, и чтобы
+/// далёкий плотный кластер не подкрашивал край одиночного ореола.
+struct HaloKernel {
+    inv_2s2: f32,
+    cutoff2: f32,
+}
+
+impl HaloKernel {
+    fn new(radius_px: f32) -> Self {
+        let sigma = (radius_px * 0.5).max(0.5);
+        Self {
+            inv_2s2: 1.0 / (2.0 * sigma * sigma),
+            cutoff2: (3.5 * sigma) * (3.5 * sigma),
+        }
+    }
+
+    /// `(значение, покрытие 0..1)` в экранной точке; `None` — вне ореолов.
+    /// Покрытие одиночной точки в её центре равно 1 и спадает по Гауссу;
+    /// у скопления точек суммы весов больше единицы обрезаются — внутри
+    /// кластера ровная заливка, по краю плавный спад.
+    fn sample(&self, sx: f32, sy: f32, pts: &[(f32, f32, f32)]) -> Option<(f32, f32)> {
+        let mut num = 0.0f32;
+        let mut den = 0.0f32;
+        for &(px, py, val) in pts {
+            let dx = sx - px;
+            let dy = sy - py;
+            let d2 = dx * dx + dy * dy;
+            if d2 > self.cutoff2 {
+                continue;
+            }
+            let w = (-d2 * self.inv_2s2).exp();
+            num += val * w;
+            den += w;
+        }
+        if den <= 1e-6 {
+            return None;
+        }
+        Some((num / den, den.min(1.0)))
     }
 }
 
@@ -340,6 +439,7 @@ impl Element for HeatOverlayElement {
             self.idw_power = w.idw_power;
             self.resolution = w.resolution;
             self.opacity = w.opacity;
+            self.halo_radius = w.halo_radius;
             self.cache_key = w.cache_key.clone();
             self.mark_dirty(DirtyFlags::LAYOUT | DirtyFlags::RENDER);
         }
@@ -470,6 +570,7 @@ mod tests {
             idw_power: 2.0,
             resolution: 64,
             opacity: 0.7,
+            halo_radius: 0.0,
             cache_key: "test".to_string(),
             bounds: Rect::new(Point::new(0.0, 0.0), Size::new(400.0, 300.0)),
             image_store: None,
@@ -529,6 +630,55 @@ mod tests {
             hot_px[0] as i32 - hot_px[2] as i32 > cold_px[0] as i32 - cold_px[2] as i32,
             "у горячей точки красный должен преобладать над синим сильнее, чем у холодной"
         );
+    }
+
+    #[test]
+    fn halo_kernel_full_at_point_and_empty_far_away() {
+        let k = HaloKernel::new(40.0);
+        let pts = [(100.0, 100.0, 50.0)];
+        let (v, c) = k.sample(100.0, 100.0, &pts).expect("центр точки внутри ореола");
+        assert_eq!(v, 50.0);
+        assert!((c - 1.0).abs() < 1e-6, "в центре покрытие 1, получили {c}");
+        let (_, edge) = k.sample(140.0, 100.0, &pts).expect("радиус — ещё внутри");
+        assert!(edge > 0.05 && edge < 0.5, "на радиусе покрытие спадает: {edge}");
+        assert!(k.sample(300.0, 100.0, &pts).is_none(), "вдали ореола нет");
+    }
+
+    #[test]
+    fn halo_kernel_blends_values_between_neighbours() {
+        let k = HaloKernel::new(40.0);
+        let pts = [(100.0, 100.0, 10.0), (140.0, 100.0, 90.0)];
+        let (mid, _) = k.sample(120.0, 100.0, &pts).unwrap();
+        assert!((mid - 50.0).abs() < 1e-3, "посередине — среднее, получили {mid}");
+        let (near_cold, _) = k.sample(105.0, 100.0, &pts).unwrap();
+        let (near_hot, _) = k.sample(135.0, 100.0, &pts).unwrap();
+        assert!(near_cold < 30.0 && near_hot > 70.0, "{near_cold} / {near_hot}");
+        let (_, cluster) = k.sample(120.0, 100.0, &pts).unwrap();
+        assert!(cluster <= 1.0);
+    }
+
+    #[test]
+    fn halo_render_is_transparent_away_from_points() {
+        let hot = HeatPoint::new(53.2144, 63.6246, 90.0);
+        let mut e = element(vec![hot], 5.0, 90.0);
+        e.halo_radius = 40.0;
+        let bw = 64u32;
+        let bh = (bw as f32 * (e.viewport.viewport_h / e.viewport.viewport_w)).round() as u32;
+        let rgba = e.render_halo(bw, bh, e.viewport);
+        assert_eq!(rgba.len(), (bw * bh * 4) as usize);
+
+        let alpha_at = |sx: f32, sy: f32| -> u8 {
+            let i = ((sx / e.viewport.viewport_w * bw as f32) as u32).min(bw - 1);
+            let j = ((sy / e.viewport.viewport_h * bh as f32) as u32).min(bh - 1);
+            rgba[((j * bw + i) * 4 + 3) as usize]
+        };
+        // Точка в центре viewport'а: там альфа близка к opacity, в углу — ноль.
+        let centre = alpha_at(200.0, 150.0);
+        assert!(centre >= (0.7 * 255.0 * 0.8) as u8, "в центре ореола альфа {centre}");
+        assert_eq!(alpha_at(5.0, 5.0), 0);
+        assert_eq!(alpha_at(395.0, 295.0), 0);
+        // Прозрачные пиксели окрашены низом шкалы (не чёрные) — без каймы.
+        assert_ne!(&rgba[0..3], &[0, 0, 0]);
     }
 
     #[test]

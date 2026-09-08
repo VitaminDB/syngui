@@ -1129,6 +1129,10 @@ VideoView / video_player_view(..)         // фича "ffmpeg"
 FramesView::new(frames, fps).playing_signal(..).position_signal(..).autoplay(true)
 MapView::new().center(lat, lng).zoom(12).provider(TileProvider::osm())
     .marker(MapMarker::new(lat, lng).label("X").pulse())   // фича "map"
+HeatOverlay::new().points(vec![HeatPoint::new(lat, lng, 71.5)]).viewport(vp)
+    .color_range(60.0, 95.0).gradient(g).opacity(0.6)     // поверх MapView в Stack
+    .halo_radius(48.0)   // цвет только вокруг точек (гаусс, σ = r/2), в зоне
+                         // пересечения — смешение; 0 (по умолчанию) — IDW-поле на всю область
 ```
 
 ### 7.7. Чарты (`syngui/src/widgets/charts/`)
