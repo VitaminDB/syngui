@@ -197,7 +197,7 @@ impl ElementTree {
         if let Some(cut) = path.iter().position(|id| {
             self.elements
                 .get(id)
-                .map(|n| n.element.intercepts_child_events())
+                .map(|n| n.element.intercepts_event(event))
                 .unwrap_or(false)
         }) {
             path.truncate(cut + 1);
@@ -493,7 +493,7 @@ impl ElementTree {
             .unwrap_or((Point::zero(), 1.0));
 
         let intercepts = self.elements.get(&id)
-            .map(|n| n.element.intercepts_child_events())
+            .map(|n| n.element.intercepts_event(event))
             .unwrap_or(false);
 
         let children = self.elements.get(&id)

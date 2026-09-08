@@ -192,6 +192,14 @@ pub trait Element: Send {
         false
     }
 
+    /// Перехват отдельного события: элемент забирает его себе, не пуская
+    /// к детям. По умолчанию — то же, что [`Element::intercepts_child_events`];
+    /// переопределяют, когда перехватить нужно ровно один вид событий, а
+    /// остальные (наведение, колесо) ребёнку по-прежнему нужны.
+    fn intercepts_event(&self, _event: &Event) -> bool {
+        self.intercepts_child_events()
+    }
+
     fn set_content_size(&mut self, _size: Size) {
     }
 
@@ -421,6 +429,10 @@ impl Element for Box<dyn Element> {
 
     fn intercepts_child_events(&self) -> bool {
         self.as_ref().intercepts_child_events()
+    }
+
+    fn intercepts_event(&self, event: &Event) -> bool {
+        self.as_ref().intercepts_event(event)
     }
 
     fn set_content_size(&mut self, size: Size) {

@@ -131,6 +131,15 @@ impl Element for WindowControlElement {
         EventResult::Ignored
     }
 
+    /// Нажатие в этой области — команда окну, что бы внутри ни лежало:
+    /// событие забирается до детей. Иначе интерактивный ребёнок (Button
+    /// помечает MouseDown как Handled даже без `on_click`) оставлял бы
+    /// кнопку мёртвой — так «Выйти» в диалоге подтверждения не закрывал
+    /// окно. Наведение, отпускание и колесо ребёнку идут как обычно.
+    fn intercepts_event(&self, event: &Event) -> bool {
+        matches!(event, Event::MouseDown { .. })
+    }
+
     fn animate(&mut self, _dt: Duration) -> bool { false }
     fn needs_repaint(&self) -> bool { false }
 

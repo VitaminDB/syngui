@@ -184,6 +184,27 @@ Events flow through the element tree via depth-first traversal:
 2. **Normal DFS** — root → children, deepest element hit-tested first
 3. **Bubbling** — if child returns `Ignored`, parent gets the event
 
+### Intercepting an event before the children
+
+Children are dispatched first, and a `Handled` from one of them ends the
+walk — the parent never sees the event. `Button` reports `Handled` on
+`MouseDown` even without an `on_click`, so a wrapper that acts on the press
+itself (`WindowControl` around a button) would never fire.
+
+An element takes an event ahead of its children by overriding
+`Element::intercepts_event`:
+
+```rust
+fn intercepts_event(&self, event: &Event) -> bool {
+    matches!(event, Event::MouseDown { .. })
+}
+```
+
+The default forwards to `intercepts_child_events()` (all events or none), so
+existing elements keep their behaviour. Intercept the narrowest set that does
+the job: `WindowControl` takes only `MouseDown`, and hover, `MouseUp` and
+wheel still reach the child.
+
 ### Hover-out
 
 There are no `MouseEnter`/`MouseLeave` events: every element derives its
