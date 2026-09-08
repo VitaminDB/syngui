@@ -18,6 +18,12 @@ pub struct MultilineTextEdit {
     pub on_change: Option<Arc<Mutex<dyn FnMut(&str) + Send>>>,
     pub submit_on_enter: bool,
     pub on_submit: Option<Arc<Mutex<dyn FnMut(&str) + Send>>>,
+    /// Очередь вставок в позицию каретки от хоста (панель эмодзи и т.п.):
+    /// элемент вычерпывает её при `update` — хост кладёт строку и
+    /// пересобирает виджет (бампом сигнала, на который подписан его
+    /// `Reactive`). Подмена `text` снаружи каретку не двигает, а вставка —
+    /// двигает за вставленное и уведомляет `on_change`.
+    pub insert_queue: Option<Arc<Mutex<Vec<String>>>>,
     /// Состояние контекстного меню «Вырезать/Копировать/Вставить».
     pub(crate) menu_open: RwSignal<bool>,
     pub(crate) menu_pos: RwSignal<Point>,
@@ -38,6 +44,7 @@ impl MultilineTextEdit {
             on_change: None,
             submit_on_enter: false,
             on_submit: None,
+            insert_queue: None,
             menu_open: use_signal(false),
             menu_pos: use_signal(Point::zero()),
             menu_action: use_signal(None),
@@ -96,6 +103,12 @@ impl MultilineTextEdit {
 
     pub fn on_submit(mut self, callback: impl FnMut(&str) + Send + 'static) -> Self {
         self.on_submit = Some(Arc::new(Mutex::new(callback)));
+        self
+    }
+
+    /// Очередь вставок в каретку (см. поле `insert_queue`).
+    pub fn insert_queue(mut self, queue: Arc<Mutex<Vec<String>>>) -> Self {
+        self.insert_queue = Some(queue);
         self
     }
 }

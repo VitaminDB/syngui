@@ -39,6 +39,7 @@ impl Widget for MultilineTextEdit {
             on_change: self.on_change.clone(),
             submit_on_enter: self.submit_on_enter,
             on_submit: self.on_submit.clone(),
+            insert_queue: self.insert_queue.clone(),
             classes: Vec::new(),
             dirty_flags: DirtyFlags::LAYOUT | DirtyFlags::RENDER,
             mss: MssFields::new(),
@@ -92,6 +93,7 @@ struct MultilineTextEditElement {
     on_change: Option<Arc<Mutex<dyn FnMut(&str) + Send>>>,
     submit_on_enter: bool,
     on_submit: Option<Arc<Mutex<dyn FnMut(&str) + Send>>>,
+    insert_queue: Option<Arc<Mutex<Vec<String>>>>,
     classes: Vec<String>,
     dirty_flags: DirtyFlags,
     mss: MssFields,
@@ -192,6 +194,31 @@ impl MultilineTextEditElement {
                 cb(&self.text);
             }
         }
+    }
+
+    /// Вставить текст в каретку (выделение заменяется) — как ввод символа.
+    fn insert_at_caret(&mut self, text: &str) {
+        let mut cursor_byte = self.cursor_byte_offset();
+        self.selection.replace_selection(&mut self.text, &mut cursor_byte, text);
+        self.sync_cursor_from_byte(cursor_byte);
+        self.recompute_wraps();
+        self.trigger_change();
+    }
+
+    /// Вычерпать очередь вставок хоста. `true` — текст изменился.
+    fn drain_insert_queue(&mut self) -> bool {
+        let Some(queue) = self.insert_queue.clone() else { return false };
+        let pending: Vec<String> = match queue.lock() {
+            Ok(mut q) => std::mem::take(&mut *q),
+            Err(_) => return false,
+        };
+        if pending.is_empty() || self.read_only {
+            return false;
+        }
+        for s in pending {
+            self.insert_at_caret(&s);
+        }
+        true
     }
 
     fn visible_rows(&self) -> usize {
@@ -493,6 +520,10 @@ impl Element for MultilineTextEditElement {
             self.on_change = mte.on_change.clone();
             self.submit_on_enter = mte.submit_on_enter;
             self.on_submit = mte.on_submit.clone();
+            self.insert_queue = mte.insert_queue.clone();
+            if self.drain_insert_queue() {
+                self.mark_dirty(DirtyFlags::LAYOUT);
+            }
             self.mark_dirty(DirtyFlags::RENDER);
         }
     }
