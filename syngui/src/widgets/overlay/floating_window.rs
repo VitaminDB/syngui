@@ -23,6 +23,14 @@ const RESIZE_GRAB_ZONE: f32 = 5.0;
 const RESIZE_CORNER_ZONE: f32 = 14.0;
 const RESIZE_MIN_FALLBACK: f32 = 100.0;
 
+/// Сколько окна остаётся в пределах вьюпорта, когда его утащили за край:
+/// за эту полосу его можно вернуть обратно мышью.
+const KEEP_VISIBLE_WIDTH: f32 = 120.0;
+/// Минимальный кусок полосы заголовка (без кнопок), которого достаточно,
+/// чтобы схватить окно. Меньше — включается перетаскивание за тело.
+const MIN_GRAB_WIDTH: f32 = 32.0;
+const MIN_GRAB_HEIGHT: f32 = 12.0;
+
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 enum ResizeEdge {
     Top,
@@ -283,15 +291,28 @@ impl FloatingWindowElement {
         self.mss_title_font_size.unwrap_or(DEFAULT_TITLE_FONT_SIZE)
     }
 
+    /// Окно не должно быть шире/выше главного: иначе его заголовок и кнопки
+    /// уезжают за край экрана, и окно не закрыть. Ноль — вьюпорт ещё не
+    /// известен (до первого layout), тогда ограничения нет.
+    fn fit_width(&self, w: f32) -> f32 {
+        let vw = self.viewport_size.width;
+        if vw > 0.0 { w.min(vw) } else { w }
+    }
+
+    fn fit_height(&self, h: f32) -> f32 {
+        let vh = self.viewport_size.height;
+        if vh > 0.0 { h.min(vh) } else { h }
+    }
+
     fn resolved_width(&self) -> f32 {
         let vw = self.viewport_size.width;
         if let Some(d) = self.mss.width {
-            return d.resolve(vw);
+            return self.fit_width(d.resolve(vw));
         }
         let max_w = self.mss.max_width.map(|d| d.resolve(vw)).unwrap_or(f32::INFINITY);
         if self.user_resized {
             let min_w = self.mss.min_width.map(|d| d.resolve(vw)).unwrap_or(RESIZE_MIN_FALLBACK);
-            return self.base_size.width.clamp(min_w, max_w);
+            return self.fit_width(self.base_size.width.clamp(min_w, max_w));
         }
         // MSS `min-width` — нижняя граница для ресайза мышью, а не замена
         // базовой ширины: окно с `.size(760, …)` и `min-width: 420px`
@@ -305,22 +326,22 @@ impl FloatingWindowElement {
             .unwrap_or(base_w);
         let pad = self.padding();
         let needed = self.content_size.width + 2.0 * pad;
-        needed.clamp(min_w.min(max_w), max_w)
+        self.fit_width(needed.clamp(min_w.min(max_w), max_w))
     }
 
     fn resolved_height(&self) -> f32 {
         let vh = self.viewport_size.height;
         if let Some(d) = self.mss.height {
-            return d.resolve(vh);
+            return self.fit_height(d.resolve(vh));
         }
         if self.base_size.height > 0.0 {
-            return self.base_size.height;
+            return self.fit_height(self.base_size.height);
         }
         let pad = self.padding();
         let needed = TITLE_BAR_HEIGHT + 2.0 * pad + self.content_size.height;
         let min_h = self.mss.min_height.map(|d| d.resolve(vh)).unwrap_or(0.0);
         let max_h = self.mss.max_height.map(|d| d.resolve(vh)).unwrap_or(f32::INFINITY);
-        needed.clamp(min_h.min(max_h), max_h)
+        self.fit_height(needed.clamp(min_h.min(max_h), max_h))
     }
 
     fn window_rect(&self) -> Rect {
@@ -348,6 +369,62 @@ impl FloatingWindowElement {
             Point::new(tb.x() + tb.size.width - dx, tb.y() + 4.0),
             Size::new(28.0, 28.0),
         )
+    }
+
+    /// Область главного окна, доступная оверлеям: размер вьюпорта со
+    /// смещением safe area (статусбар, вырез) — координаты элементов
+    /// глобальные, поэтому смещение здесь обязательно.
+    fn viewport_rect(&self) -> Rect {
+        Rect::new(crate::viewport::viewport_origin(), self.viewport_size)
+    }
+
+    /// Полоса заголовка, за которую окно тащат: без кнопок закрытия и
+    /// сворачивания.
+    fn title_grab_rect(&self) -> Rect {
+        let tb = self.title_bar_rect();
+        Rect::new(
+            tb.origin,
+            Size::new((tb.size.width - self.title_buttons_reserved()).max(0.0), tb.size.height),
+        )
+    }
+
+    /// Заголовок недостижим: окно вынесено за край так, что тащить его не за
+    /// что. Тогда перетаскивание работает по всему телу окна — иначе окно не
+    /// вернуть на экран и не закрыть (случается при резком уменьшении окна
+    /// приложения или крупном масштабе интерфейса).
+    fn title_grab_unreachable(&self) -> bool {
+        let vp = self.viewport_rect();
+        if vp.size.width <= 0.0 || vp.size.height <= 0.0 {
+            return false;
+        }
+        let grab = self.title_grab_rect();
+        let visible_w = (grab.x() + grab.size.width).min(vp.x() + vp.size.width)
+            - grab.x().max(vp.x());
+        let visible_h = (grab.y() + grab.size.height).min(vp.y() + vp.size.height)
+            - grab.y().max(vp.y());
+        visible_w < MIN_GRAB_WIDTH || visible_h < MIN_GRAB_HEIGHT
+    }
+
+    /// Точка, в которую можно поставить окно, не потеряв его: заголовок
+    /// остаётся в пределах вьюпорта, по горизонтали видна хотя бы полоса
+    /// [`KEEP_VISIBLE_WIDTH`].
+    fn clamp_to_viewport(&self, pos: Point, size: Size) -> Point {
+        let vp = self.viewport_rect();
+        if vp.size.width <= 0.0 || vp.size.height <= 0.0 {
+            return pos;
+        }
+        let keep = KEEP_VISIBLE_WIDTH.min(size.width);
+        let min_x = vp.x() - (size.width - keep).max(0.0);
+        let max_x = (vp.x() + vp.size.width - keep).max(min_x);
+        let min_y = vp.y();
+        let max_y = (vp.y() + vp.size.height - TITLE_BAR_HEIGHT).max(min_y);
+        Point::new(pos.x.clamp(min_x, max_x), pos.y.clamp(min_y, max_y))
+    }
+
+    /// Сдвинуть окно, не выпуская заголовок за пределы вьюпорта.
+    fn set_position_clamped(&self, pos: Point) {
+        let size = Size::new(self.resolved_width(), self.resolved_height());
+        self.position.set(self.clamp_to_viewport(pos, size));
     }
 
     fn title_buttons_reserved(&self) -> f32 {
@@ -461,7 +538,8 @@ impl FloatingWindowElement {
 
         self.base_size = Size::new(clamped_w, clamped_h);
         self.user_resized = true;
-        self.position.set(new_pos);
+        self.position
+            .set(self.clamp_to_viewport(new_pos, Size::new(clamped_w, clamped_h)));
         if let Some(sig) = self.size_signal {
             sig.set(Size::new(clamped_w, clamped_h));
         }
@@ -541,14 +619,28 @@ impl Element for FloatingWindowElement {
         }
         self.was_open = currently_open;
 
-        let vw = self.viewport_size.width;
-        let vh = self.viewport_size.height;
+        let vp = self.viewport_rect();
+        let vw = vp.size.width;
+        let vh = vp.size.height;
         if self.needs_center && vw > 0.0 && vh > 0.0 {
             if self.base_size.height > 0.0 {
                 self.needs_center = false;
-                let cx = (vw - self.base_size.width) / 2.0;
-                let cy = (vh - self.base_size.height) / 2.0;
-                self.position.set(Point::new(cx.max(0.0), cy.max(0.0)));
+                let win_w = self.resolved_width();
+                let win_h = self.resolved_height();
+                let cx = vp.x() + (vw - win_w) / 2.0;
+                let cy = vp.y() + (vh - win_h) / 2.0;
+                self.position
+                    .set(Point::new(cx.max(vp.x()), cy.max(vp.y())));
+            }
+        } else if currently_open && vw > 0.0 && vh > 0.0 {
+            // Главное окно сузилось, сменился масштаб интерфейса или пришла
+            // сохранённая позиция от прошлого запуска — окно подтягивается
+            // обратно, чтобы заголовок остался в пределах вьюпорта.
+            let pos = self.position.get_untracked();
+            let size = Size::new(self.resolved_width(), self.resolved_height());
+            let clamped = self.clamp_to_viewport(pos, size);
+            if (clamped.x - pos.x).abs() > 0.5 || (clamped.y - pos.y).abs() > 0.5 {
+                self.position.set(clamped);
             }
         }
 
@@ -725,7 +817,7 @@ impl Element for FloatingWindowElement {
                         pos.x - self.drag_offset.x,
                         pos.y - self.drag_offset.y,
                     );
-                    self.position.set(new_pos);
+                    self.set_position_clamped(new_pos);
                     let win = self.window_rect();
                     ctx.register_overlay(win, false);
                     ctx.set_cursor(CursorIcon::Grabbing);
@@ -791,7 +883,10 @@ impl Element for FloatingWindowElement {
                         return EventResult::Handled;
                     }
 
-                    let drag_area = if self.drag_on_body {
+                    // Заголовок за краем экрана — тащим за тело окна: клик
+                    // сюда доходит только если его не забрал ни один виджет
+                    // содержимого, так что кнопки внутри не страдают.
+                    let drag_area = if self.drag_on_body || self.title_grab_unreachable() {
                         self.window_rect().contains(*position)
                     } else {
                         self.title_bar_rect().contains(*position)
@@ -847,7 +942,7 @@ impl Element for FloatingWindowElement {
                     self.resize_start_pos = self.position.get_untracked();
                     return EventResult::Handled;
                 }
-                let drag_area = if self.drag_on_body {
+                let drag_area = if self.drag_on_body || self.title_grab_unreachable() {
                     self.window_rect().contains(*position)
                 } else {
                     self.title_bar_rect().contains(*position)
@@ -880,7 +975,7 @@ impl Element for FloatingWindowElement {
                         position.x - self.drag_offset.x,
                         position.y - self.drag_offset.y,
                     );
-                    self.position.set(new_pos);
+                    self.set_position_clamped(new_pos);
                     let win = self.window_rect();
                     ctx.register_overlay(win, false);
                     ctx.request_layout();
@@ -942,11 +1037,13 @@ impl Element for FloatingWindowElement {
             let vh = self.viewport_size.height;
             if vw > 0.0 && vh > 0.0 {
                 self.needs_center = false;
+                let vp = self.viewport_rect();
                 let win_w = self.resolved_width();
                 let win_h = self.resolved_height();
-                let cx = (vw - win_w) / 2.0;
-                let cy = (vh - win_h) / 2.0;
-                self.position.set(Point::new(cx.max(0.0), cy.max(0.0)));
+                let cx = vp.x() + (vw - win_w) / 2.0;
+                let cy = vp.y() + (vh - win_h) / 2.0;
+                self.position
+                    .set(Point::new(cx.max(vp.x()), cy.max(vp.y())));
             }
         }
     }

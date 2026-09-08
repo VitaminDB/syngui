@@ -118,6 +118,9 @@ pub struct AppBuilder {
     pub(super) close_guard: Option<CloseGuard>,
     /// Web: клавиши F1–F12, которые получает приложение (остальные — браузеру).
     pub(super) captured_function_keys: crate::input::FunctionKeys,
+    /// Стартовый масштаб интерфейса поверх системного DPI — см.
+    /// [`crate::scale`].
+    pub(super) ui_scale: f32,
 }
 
 /// Проверка перед закрытием окна. Вызывается на главном потоке, поэтому
@@ -172,6 +175,7 @@ impl AppBuilder {
             single_instance_id: None,
             close_guard: None,
             captured_function_keys: crate::input::FunctionKeys::NONE,
+            ui_scale: 1.0,
         }
     }
 
@@ -204,6 +208,14 @@ impl AppBuilder {
 
     pub fn frame_limit(mut self, fps: u32) -> Self {
         self.frame_limit = fps;
+        self
+    }
+
+    /// Масштаб интерфейса поверх системного DPI: 1.25 — «125%», всё
+    /// приложение крупнее, логический вьюпорт соответственно меньше.
+    /// В рантайме меняется через [`crate::scale::set_ui_scale`].
+    pub fn ui_scale(mut self, scale: f32) -> Self {
+        self.ui_scale = scale;
         self
     }
 

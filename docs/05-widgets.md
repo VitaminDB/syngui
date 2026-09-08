@@ -657,7 +657,10 @@ Portal::new()
 
 ### FloatingWindow
 
-Draggable floating window overlay.
+Draggable floating window overlay. The window is never larger than the
+viewport and is kept reachable: its position is clamped so the title bar
+stays on screen. If the title bar is unreachable anyway, dragging falls back
+to the window body.
 
 ### PopupMenu / MenuItem
 

@@ -37,6 +37,7 @@ pub mod layout;
 pub mod mss;
 pub mod perf;
 pub mod render;
+pub mod scale;
 pub mod signal;
 pub mod text;
 pub mod viewport;
@@ -96,6 +97,7 @@ pub mod prelude {
     pub use crate::signal::{use_signal, create_memo, create_effect, create_effect_with_cleanup, dispose_effect, use_effect, use_effect_with_cleanup, RwSignal, Memo, EffectId};
 
     pub use crate::viewport::{viewport_size, viewport_below};
+    pub use crate::scale::{set_ui_scale, ui_scale, MAX_UI_SCALE, MIN_UI_SCALE};
 
     pub use crate::async_runtime::run_on_main_thread;
     #[cfg(feature = "tokio")]

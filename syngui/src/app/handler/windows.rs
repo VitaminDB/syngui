@@ -61,7 +61,7 @@ impl AppHandler {
             .copied()
             .unwrap_or(surface_caps.formats[0]);
 
-        let scale = window.scale_factor();
+        let scale = window.scale_factor() * crate::scale::ui_scale() as f64;
         let (phys_w, phys_h) = window.size();
         let phys_w = phys_w.max(1);
         let phys_h = phys_h.max(1);

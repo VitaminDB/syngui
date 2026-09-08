@@ -237,6 +237,12 @@ impl AppHandler {
             return;
         }
 
+        // Масштаб интерфейса сменили из UI — применяем до сборки кадра:
+        // дальше по функции layout уже считается по новому scale_factor.
+        if crate::scale::take_ui_scale_dirty() {
+            self.apply_ui_scale();
+        }
+
         #[cfg(target_arch = "wasm32")]
         {
             let mut font_changed = false;

@@ -145,16 +145,19 @@ impl winit::application::ApplicationHandler<SynGuiUserEvent> for AppHandler {
                 self.handle_theme_changed(theme);
             }
             winit::event::WindowEvent::ScaleFactorChanged { scale_factor, .. } => {
-                self.scale_factor = scale_factor;
+                self.system_scale_factor = scale_factor;
+                // Пользовательский масштаб множится поверх системного DPI.
+                let effective = self.effective_scale_factor();
+                self.scale_factor = effective;
 
                 if let Some(renderer) = self.renderer.as_mut() {
-                    let logical_w = (self.config.width as f64 / scale_factor) as u32;
-                    let logical_h = (self.config.height as f64 / scale_factor) as u32;
+                    let logical_w = (self.config.width as f64 / effective) as u32;
+                    let logical_h = (self.config.height as f64 / effective) as u32;
                     if let Some(gpu) = self.gpu.as_ref() {
                         renderer.resize(&gpu.shared.device, self.config.width, self.config.height, logical_w, logical_h);
                     }
                     if let Ok(mut atlas) = renderer.font_atlas.lock() {
-                        atlas.set_scale_factor(scale_factor as f32);
+                        atlas.set_scale_factor(effective as f32);
                     }
                     self.tree.mark_all_dirty(crate::widget::DirtyFlags::LAYOUT);
                 }

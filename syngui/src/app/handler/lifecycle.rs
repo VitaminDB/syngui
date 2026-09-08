@@ -55,7 +55,8 @@ impl AppHandler {
                 crate::app::web_text_agent::install(canvas);
             }
         }
-        self.scale_factor = window.scale_factor();
+        self.system_scale_factor = window.scale_factor();
+        self.scale_factor = self.effective_scale_factor();
         self.main_window_id = Some(window.winit_window().id());
         self.window = Some(window.clone());
         self.main_window_visible = true;

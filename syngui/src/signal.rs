@@ -349,6 +349,14 @@ pub fn create_memo<T: 'static + Clone>(compute: impl Fn() -> T + 'static) -> Mem
     Memo { compute: Box::new(compute) }
 }
 
+/// Разбудить окно на перерисовку, не трогая сигналы. Нужна коду, который
+/// меняет состояние вне реактивного графа, — например масштабу интерфейса
+/// ([`crate::scale::set_ui_scale`]).
+pub fn request_redraw() {
+    let notifiers = RUNTIME.with(|rt| rt.borrow().notifiers.clone());
+    request_redraws(notifiers);
+}
+
 pub fn set_notifier(notifier: Arc<dyn RedrawNotifier>) {
     RUNTIME.with(|rt| {
         let mut rt = rt.borrow_mut();

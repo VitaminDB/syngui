@@ -78,7 +78,14 @@ pub(super) struct AppHandler {
     /// Потребляется в about_to_wait → ControlFlow::WaitUntil.
     pub(super) wakeup_after: Option<std::time::Duration>,
     pub(super) cursor_position: Point,
+    /// Итоговый множитель «логические единицы → физические пиксели»:
+    /// системный DPI-масштаб окна, умноженный на пользовательский
+    /// ([`crate::scale::ui_scale`]).
     pub(super) scale_factor: f64,
+    /// DPI-масштаб окна, каким его сообщает система, — без пользовательского
+    /// множителя. Нужен, чтобы пересчитать `scale_factor` при смене любого
+    /// из двух.
+    pub(super) system_scale_factor: f64,
     pub(super) focus_manager: FocusManager,
     pub(super) a11y_tree: A11yTree,
     pub(super) modifiers: Modifiers,
@@ -175,6 +182,9 @@ impl AppHandler {
     pub(super) fn new(mut config: AppBuilder, root_factory: RootFactory, style_engine: StyleEngine, initial_is_dark: bool) -> Self {
         let pending_windows = std::mem::take(&mut config.extra_windows);
         let sticky_threshold = config.sticky_threshold;
+        // Масштаб интерфейса — до создания окна: первый layout уже должен
+        // считать логический вьюпорт с ним.
+        crate::scale::set_initial_ui_scale(config.ui_scale);
         let double_click_interval = config
             .double_click_interval
             .unwrap_or_else(crate::input::resolve_double_click_interval);
@@ -218,7 +228,8 @@ impl AppHandler {
             last_paced_redraw: None,
             wakeup_after: None,
             cursor_position: Point::zero(),
-            scale_factor: 1.0,
+            scale_factor: crate::scale::ui_scale() as f64,
+            system_scale_factor: 1.0,
             focus_manager: FocusManager::new(),
             #[cfg(feature = "accessibility")]
             a11y_tree: A11yTree::new(Box::new(AccessKitAdapter::new())),
@@ -383,6 +394,70 @@ impl AppHandler {
             CursorIcon::EResize => winit::window::CursorIcon::EResize,
             CursorIcon::SResize => winit::window::CursorIcon::SResize,
             CursorIcon::WResize => winit::window::CursorIcon::WResize,
+        }
+    }
+
+    /// Системный DPI-масштаб окна, умноженный на пользовательский масштаб
+    /// интерфейса. Именно он переводит логические единицы в физические
+    /// пиксели — и в рендере, и при разборе координат ввода.
+    pub(in crate::app) fn effective_scale_factor(&self) -> f64 {
+        self.system_scale_factor * crate::scale::ui_scale() as f64
+    }
+
+    /// Применить сменившийся масштаб интерфейса: перенастроить рендерер и
+    /// атлас шрифта под новый размер физического пикселя и запросить полный
+    /// пересчёт раскладки. Сам layout и публикация вьюпорта происходят
+    /// дальше по кадру — в [`AppHandler::render`].
+    pub(in crate::app) fn apply_ui_scale(&mut self) {
+        let effective = self.effective_scale_factor();
+        if (effective - self.scale_factor).abs() < 1e-6 {
+            return;
+        }
+        self.scale_factor = effective;
+
+        let (phys_w, phys_h) = (self.config.width, self.config.height);
+        if let Some(renderer) = self.renderer.as_mut() {
+            let logical_w = (phys_w as f64 / effective).max(1.0) as u32;
+            let logical_h = (phys_h as f64 / effective).max(1.0) as u32;
+            if let Some(gpu) = self.gpu.as_ref() {
+                renderer.resize(&gpu.shared.device, phys_w, phys_h, logical_w, logical_h);
+            }
+            if let Ok(mut atlas) = renderer.font_atlas.lock() {
+                atlas.set_scale_factor(effective as f32);
+            }
+        }
+
+        // Размер глифа в физических пикселях изменился — закэшированные
+        // измерения текста и раскладка целиком считаются заново.
+        self.tree.mark_all_dirty(crate::widget::DirtyFlags::LAYOUT);
+        self.tree.force_full_measure = true;
+
+        // Вторичные окна живут со своим DPI, но пользовательский масштаб у
+        // приложения общий.
+        let ui = crate::scale::ui_scale() as f64;
+        let ids: Vec<winit::window::WindowId> = self.secondary_windows.keys().copied().collect();
+        for id in ids {
+            if let Some(sw) = self.secondary_windows.get_mut(&id) {
+                let sf = sw.window.scale_factor() * ui;
+                if (sf - sw.scale_factor).abs() < 1e-6 {
+                    continue;
+                }
+                sw.scale_factor = sf;
+                let logical_w = (sw.width as f64 / sf).max(1.0) as u32;
+                let logical_h = (sw.height as f64 / sf).max(1.0) as u32;
+                if let Some(gpu) = self.gpu.as_ref() {
+                    sw.renderer.resize(&gpu.shared.device, sw.width, sw.height, logical_w, logical_h);
+                }
+                if let Ok(mut atlas) = sw.renderer.font_atlas.lock() {
+                    atlas.set_scale_factor(sf as f32);
+                }
+                sw.tree.mark_all_dirty(crate::widget::DirtyFlags::LAYOUT);
+                sw.window.request_redraw();
+            }
+        }
+
+        if let Some(window) = &self.window {
+            window.request_redraw();
         }
     }
 
