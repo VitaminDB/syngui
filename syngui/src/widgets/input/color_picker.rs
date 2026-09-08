@@ -1,7 +1,7 @@
 use crate::core::{Color, Point, Rect, RectExt, Size};
 use crate::input::{CursorIcon, Event, EventResult, MouseButton};
 use crate::layout::Constraints;
-use crate::mss::{ComputedStyle, Dimension};
+use crate::mss::{ComputedStyle, Dimension, TextAlign, TextDecoration};
 use crate::mss::MssFields;
 use crate::render::{Border, DisplayList};
 use crate::widget::context::{EventContext, EventContextExt};
@@ -185,6 +185,10 @@ impl Widget for ColorPicker {
             hex_input: self.color.to_hex(),
             drag_target: DragTarget::None,
             opens_upward: false,
+            viewport: Size::zero(),
+            mss_popup_bg: None,
+            mss_popup_fg: None,
+            mss_popup_border: None,
             bounds: Rect::zero(),
             child_ids: Vec::new(),
             classes: Vec::new(),
@@ -220,6 +224,12 @@ const SLIDER_HEIGHT: f32 = 20.0;
 const SLIDER_GAP: f32 = 6.0;
 const HEX_ROW_HEIGHT: f32 = 32.0;
 const PREVIEW_HEIGHT: f32 = 32.0;
+/// Зазор между попапом и краем окна: без него палитра у правой панели
+/// уезжала за границу и обрезалась.
+const VIEWPORT_MARGIN: f32 = 8.0;
+/// Синий канал слайдера — именно синий, а не акцент темы: три полосы
+/// R/G/B должны читаться как каналы, а не как «два цвета и акцент».
+const CHANNEL_B: &str = "#3B82F6";
 
 #[derive(Clone, Copy, Debug, PartialEq)]
 enum DragTarget {
@@ -242,6 +252,14 @@ pub struct ColorPickerElement {
     hex_input: String,
     drag_target: DragTarget,
     opens_upward: bool,
+    /// Размер окна на момент открытия: попап прижимается к нему, чтобы не
+    /// уехать за край (контрол может стоять у самой кромки панели).
+    viewport: Size,
+    /// Цвета палитры отдельно от поля-кнопки (`--popup-*`, как у Dropdown
+    /// и PopupMenu): поле сидит на фоне формы, а палитра — на фоне панели.
+    mss_popup_bg: Option<Color>,
+    mss_popup_fg: Option<Color>,
+    mss_popup_border: Option<Color>,
     bounds: Rect,
     child_ids: Vec<ElementId>,
     classes: Vec<String>,
@@ -257,18 +275,35 @@ impl ColorPickerElement {
             + PREVIEW_HEIGHT
     }
 
+    /// Прямоугольник попапа: под контролом (или над ним, если снизу не
+    /// влезает) и прижатый к окну по обеим осям — контрол часто стоит у
+    /// правой кромки панели, и попап шириной 260 уезжал за экран.
     fn popup_rect(&self) -> Rect {
         let h = self.popup_height();
         let trigger_h = self.bounds.size.height;
-        let y = if self.opens_upward {
+        let mut x = self.bounds.x();
+        let mut y = if self.opens_upward {
             self.bounds.y() - h - 4.0
         } else {
             self.bounds.y() + trigger_h + 4.0
         };
-        Rect::new(
-            Point::new(self.bounds.x(), y),
-            Size::new(POPUP_WIDTH, h),
-        )
+        if self.viewport.width > 0.0 {
+            x = x.min(self.viewport.width - POPUP_WIDTH - VIEWPORT_MARGIN).max(VIEWPORT_MARGIN);
+        }
+        if self.viewport.height > 0.0 {
+            y = y.min(self.viewport.height - h - VIEWPORT_MARGIN).max(VIEWPORT_MARGIN);
+        }
+        Rect::new(Point::new(x, y), Size::new(POPUP_WIDTH, h))
+    }
+
+    /// Область оверлея: контрол вместе с попапом, где бы тот ни оказался.
+    fn overlay_rect(&self) -> Rect {
+        let popup = self.popup_rect();
+        let left = self.bounds.x().min(popup.x());
+        let top = self.bounds.y().min(popup.y());
+        let right = self.bounds.right().max(popup.right());
+        let bottom = self.bounds.bottom().max(popup.bottom());
+        Rect::new(Point::new(left, top), Size::new(right - left, bottom - top))
     }
 
     fn sv_field_rect(&self, popup: Rect) -> Rect {
@@ -309,6 +344,13 @@ impl ColorPickerElement {
             Point::new(popup.x() + POPUP_PADDING, y),
             Size::new(POPUP_WIDTH - POPUP_PADDING * 2.0, PREVIEW_HEIGHT),
         )
+    }
+
+    /// Подложка полосы канала: рамка попапа, чуть светлее.
+    fn slider_track(&self) -> Color {
+        self.mss_popup_border
+            .or_else(|| self.mss.border_color.map(|c| c.lighten(0.2)))
+            .unwrap_or(Color::from_hex("#E5E7EB"))
     }
 
     fn update_from_hsv(&mut self) {
@@ -395,14 +437,16 @@ impl ColorPickerElement {
         let bar_x = rect.x() + label_w;
         let bar_w = rect.size.width - label_w - value_w;
 
+        // Подпись и значение — строго одной строкой: перенос в узкой
+        // ячейке уводил число под слайдер.
         let label_rect = Rect::new(rect.origin, Size::new(label_w, rect.size.height));
-        list.push_text(label, label_rect, fg.with_alpha(0.6), 11.0);
+        list.push_text_styled_singleline(label, label_rect, fg.with_alpha(0.6), 11.0, TextAlign::DEFAULT, TextDecoration::None, 500, None);
 
         let bar_rect = Rect::new(
             Point::new(bar_x, rect.y() + (rect.size.height - 8.0) / 2.0),
             Size::new(bar_w, 8.0),
         );
-        let bar_bg = self.mss.border_color.map(|c| c.lighten(0.2)).unwrap_or(Color::from_hex("#E5E7EB"));
+        let bar_bg = self.slider_track();
         list.push_rect(bar_rect, bar_bg, [4.0; 4]);
 
         let fill_w = (value as f32 / 255.0) * bar_w;
@@ -417,10 +461,10 @@ impl ColorPickerElement {
         list.push_rect_bordered(thumb_rect, Color::WHITE, [5.0; 4], Border::new(2.0, channel_color));
 
         let val_rect = Rect::new(
-            Point::new(rect.x() + rect.size.width - value_w, rect.y()),
-            Size::new(value_w, rect.size.height),
+            Point::new(rect.x() + rect.size.width - value_w, rect.y() + (rect.size.height - 13.0) / 2.0),
+            Size::new(value_w, 13.0),
         );
-        list.push_text(&value.to_string(), val_rect, fg, 11.0);
+        list.push_text_styled_singleline(&value.to_string(), val_rect, fg, 11.0, TextAlign::RIGHT, TextDecoration::None, 500, None);
     }
 }
 
@@ -489,7 +533,18 @@ impl Element for ColorPickerElement {
                 Size::new((self.bounds.right() - h_pad - text_x).max(0.0), font_size + 2.0),
             );
             let text_color = self.mss.color.unwrap_or(Color::from_hex("#1F2937"));
-            list.push_text(&self.color.to_hex(), text_rect, text_color, font_size);
+            // `#RRGGBB` в узком контроле (96 px в панели свойств) переносился
+            // на вторую строку и вылезал за кнопку — только одна строка.
+            list.push_text_styled_singleline(
+                &self.color.to_hex(),
+                text_rect,
+                text_color,
+                font_size,
+                TextAlign::DEFAULT,
+                TextDecoration::None,
+                400,
+                None,
+            );
         }
 
         if !self.is_open { return; }
@@ -499,9 +554,12 @@ impl Element for ColorPickerElement {
         list.begin_overlay();
 
         list.push_shadow(popup, Color::BLACK.with_alpha(0.15), 16.0, (0.0, 4.0), [12.0; 4]);
-        let popup_bg = self.mss.background_color.unwrap_or(Color::WHITE);
-        let popup_fg = self.mss.color.unwrap_or(Color::from_hex("#1F2937"));
-        let popup_border = self.mss.border_color.map(|c| c.lighten(0.2)).unwrap_or(Color::from_hex("#E5E7EB"));
+        let popup_bg = self.mss_popup_bg.or(self.mss.background_color).unwrap_or(Color::WHITE);
+        let popup_fg = self.mss_popup_fg.or(self.mss.color).unwrap_or(Color::from_hex("#1F2937"));
+        let popup_border = self
+            .mss_popup_border
+            .or_else(|| self.mss.border_color.map(|c| c.lighten(0.2)))
+            .unwrap_or(Color::from_hex("#E5E7EB"));
         list.push_rect_bordered(popup, popup_bg, [12.0; 4], Border::new(1.0, popup_border));
 
         let sv_rect = self.sv_field_rect(popup);
@@ -519,24 +577,37 @@ impl Element for ColorPickerElement {
         self.draw_rgb_slider(list, g_rect, "G", self.color.g, Color::from_hex("#22C55E"), popup_fg);
 
         let b_rect = self.rgb_slider_rect(popup, 2);
-        self.draw_rgb_slider(list, b_rect, "B", self.color.b, self.mss.accent_color.unwrap_or(Color::from_hex("#3B82F6")), popup_fg);
+        self.draw_rgb_slider(list, b_rect, "B", self.color.b, Color::from_hex(CHANNEL_B), popup_fg);
 
         let hex_rect = self.hex_row_rect(popup);
         let hex_label_rect = Rect::new(hex_rect.origin, Size::new(36.0, hex_rect.size.height));
-        list.push_text(&crate::i18n::builtin("color_picker.hex", "HEX"), hex_label_rect, popup_fg.with_alpha(0.6), 11.0);
+        list.push_text_styled_singleline(
+            &crate::i18n::builtin("color_picker.hex", "HEX"),
+            hex_label_rect,
+            popup_fg.with_alpha(0.6),
+            11.0,
+            TextAlign::DEFAULT,
+            TextDecoration::None,
+            500,
+            None,
+        );
 
         let hex_input_rect = Rect::new(
             Point::new(hex_rect.x() + 36.0, hex_rect.y() + 2.0),
             Size::new(hex_rect.size.width - 36.0, hex_rect.size.height - 4.0),
         );
-        let hex_input_bg = self.mss.background_color.map(|c| c.darken(0.03)).unwrap_or(Color::from_hex("#F9FAFB"));
-        let hex_input_border = self.mss.border_color.unwrap_or(Color::from_hex("#D1D5DB"));
+        let hex_input_bg = self
+            .mss_popup_bg
+            .or(self.mss.background_color)
+            .map(|c| c.darken(0.03))
+            .unwrap_or(Color::from_hex("#F9FAFB"));
+        let hex_input_border = self.mss_popup_border.or(self.mss.border_color).unwrap_or(Color::from_hex("#D1D5DB"));
         list.push_rect_bordered(hex_input_rect, hex_input_bg, [4.0; 4], Border::new(1.0, hex_input_border));
         let hex_text_rect = Rect::new(
             Point::new(hex_input_rect.x() + 8.0, hex_input_rect.y() + (hex_input_rect.size.height - 12.0) / 2.0),
             Size::new(hex_input_rect.size.width - 16.0, 14.0),
         );
-        list.push_text(&self.hex_input, hex_text_rect, popup_fg, 12.0);
+        list.push_text_styled_singleline(&self.hex_input, hex_text_rect, popup_fg, 12.0, TextAlign::DEFAULT, TextDecoration::None, 400, None);
 
         let preview = self.preview_rect(popup);
         let half_w = preview.size.width / 2.0;
@@ -587,21 +658,10 @@ impl Element for ColorPickerElement {
                     if self.is_open {
                         let popup_h = self.popup_height();
                         let trigger_h = self.bounds.size.height;
-                        self.opens_upward = self.bounds.y() + trigger_h + 4.0 + popup_h > ctx.viewport_size().height
+                        self.viewport = ctx.viewport_size();
+                        self.opens_upward = self.bounds.y() + trigger_h + 4.0 + popup_h > self.viewport.height
                             && self.bounds.y() >= popup_h + 4.0;
-                        let popup = self.popup_rect();
-                        let overlay_bounds = if self.opens_upward {
-                            Rect::new(
-                                Point::new(self.bounds.x(), popup.y()),
-                                Size::new(POPUP_WIDTH, popup.size.height + 4.0 + trigger_h),
-                            )
-                        } else {
-                            Rect::new(
-                                self.bounds.origin,
-                                Size::new(POPUP_WIDTH, trigger_h + 4.0 + popup.size.height),
-                            )
-                        };
-                        ctx.register_overlay(overlay_bounds, false);
+                        ctx.register_overlay(self.overlay_rect(), false);
                     } else {
                         ctx.unregister_overlay();
                     }
@@ -742,6 +802,10 @@ impl Element for ColorPickerElement {
     fn apply_computed_style(&mut self, style: &ComputedStyle) {
         self.mss.apply(style);
         if let Some(w) = self.mss.width { self.width = Some(w); }
+        let color_of = |key: &str| style.get(key).and_then(|v| v.as_color()).map(crate::animation::transition::mss_color_to_core);
+        self.mss_popup_bg = color_of("--popup-background");
+        self.mss_popup_fg = color_of("--popup-color");
+        self.mss_popup_border = color_of("--popup-border");
         self.mark_dirty(DirtyFlags::LAYOUT | DirtyFlags::RENDER);
     }
 
@@ -768,5 +832,74 @@ impl StyledElement for ColorPickerElement {
     fn set_classes(&mut self, classes: Vec<String>) {
         self.classes = classes;
         self.mark_dirty(DirtyFlags::RENDER);
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn element(bounds: Rect, viewport: Size) -> ColorPickerElement {
+        let color = ColorValue::new(59, 130, 246);
+        let (h, sat, v) = color.to_hsv();
+        ColorPickerElement {
+            id: ElementId::new(),
+            color,
+            on_change: None,
+            width: None,
+            show_alpha: false,
+            has_child: false,
+            is_open: true,
+            hue: h,
+            sat,
+            val: v,
+            hex_input: color.to_hex(),
+            drag_target: DragTarget::None,
+            opens_upward: false,
+            viewport,
+            mss_popup_bg: None,
+            mss_popup_fg: None,
+            mss_popup_border: None,
+            bounds,
+            child_ids: Vec::new(),
+            classes: Vec::new(),
+            dirty_flags: DirtyFlags::empty(),
+            mss: MssFields::new(),
+        }
+    }
+
+    /// Попап у правой кромки окна прижимается к нему, а не уезжает за край:
+    /// контрол в правой панели заметок стоит в ~100 px от границы, а сам
+    /// попап шириной 260.
+    #[test]
+    fn popup_is_kept_inside_the_viewport() {
+        let viewport = Size::new(1200.0, 800.0);
+        let el = element(Rect::new(Point::new(1090.0, 100.0), Size::new(96.0, 28.0)), viewport);
+        let popup = el.popup_rect();
+        assert!(popup.right() <= viewport.width - VIEWPORT_MARGIN + 0.01, "правый край: {popup:?}");
+        assert!(popup.x() >= VIEWPORT_MARGIN - 0.01);
+        assert_eq!(popup.size.width, POPUP_WIDTH, "ширина попапа не меняется");
+
+        // Снизу не влезает — попап уходит вверх и всё равно внутри окна.
+        let mut low = element(Rect::new(Point::new(20.0, 700.0), Size::new(96.0, 28.0)), viewport);
+        low.opens_upward = true;
+        let popup = low.popup_rect();
+        assert!(popup.y() >= VIEWPORT_MARGIN - 0.01 && popup.bottom() <= viewport.height - VIEWPORT_MARGIN + 0.01, "{popup:?}");
+
+        // Оверлей накрывает и кнопку, и попап, где бы тот ни оказался.
+        let el = element(Rect::new(Point::new(1090.0, 100.0), Size::new(96.0, 28.0)), viewport);
+        let (overlay, popup) = (el.overlay_rect(), el.popup_rect());
+        assert!(overlay.x() <= popup.x().min(el.bounds.x()) + 0.01);
+        assert!(overlay.right() >= popup.right().max(el.bounds.right()) - 0.01);
+        assert!(overlay.bottom() >= popup.bottom() - 0.01);
+    }
+
+    /// Без известного окна (попап ещё ни разу не открывали) прямоугольник
+    /// считается от контрола, как и раньше.
+    #[test]
+    fn popup_without_a_viewport_follows_the_trigger() {
+        let el = element(Rect::new(Point::new(40.0, 60.0), Size::new(96.0, 28.0)), Size::zero());
+        let popup = el.popup_rect();
+        assert_eq!((popup.x(), popup.y()), (40.0, 60.0 + 28.0 + 4.0));
     }
 }

@@ -361,15 +361,21 @@ impl FontAtlas {
         gid
     }
 
+    /// Стоит ли сперва искать глиф в эмодзи-шрифте. Диапазон начинается с
+    /// 0x1F000, а не 0x1F300: блок Enclosed Alphanumeric Supplement
+    /// (🆕 🆗 🆒 🆓, 🈶) и Mahjong/Domino лежат ниже, и такие символы
+    /// уходили в обычный шрифт — то есть в «квадратик». Промах здесь не
+    /// страшен: `ensure_glyph` всё равно откатывается к regular.
     fn is_likely_emoji(ch: char) -> bool {
         let c = ch as u32;
-        (0x1F300..=0x1FAFF).contains(&c)
+        (0x1F000..=0x1FAFF).contains(&c)
             || (0x2600..=0x27BF).contains(&c)
             || (0xFE00..=0xFE0F).contains(&c)
             || (0x200D..=0x200D).contains(&c)
             || (0x2300..=0x23FF).contains(&c)
-            || (0x2B50..=0x2B55).contains(&c)
+            || (0x2B00..=0x2BFF).contains(&c)
             || (0x25A0..=0x25FF).contains(&c)
+            || (0x3297..=0x3299).contains(&c)
     }
 
     fn glyph_id_in(&mut self, ch: char, font_index: u8) -> Option<u16> {
