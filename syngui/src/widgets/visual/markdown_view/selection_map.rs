@@ -7,7 +7,6 @@ pub struct SelectableRun {
     pub visible_text: String,
     pub font_size: f32,
     pub font_family: Option<String>,
-    #[allow(dead_code)]
     pub bold: bool,
     pub block_id: u32,
     pub line_id: u32,
@@ -85,10 +84,11 @@ pub fn hit_test(runs: &[SelectableRun], pos: Point, tm: &dyn TextMeasure) -> Sel
 
     let run = &runs[best_run];
     let x_local = (pos.x - run.rect.origin.x).clamp(0.0, run.rect.size.width);
-    let char_idx = tm.hit_test_char_styled(
+    let char_idx = tm.hit_test_char_weighted(
         &run.visible_text,
         run.font_size,
         x_local,
+        run.bold,
         run.font_family.as_deref(),
     );
     let byte = char_idx_to_byte(&run.visible_text, char_idx);

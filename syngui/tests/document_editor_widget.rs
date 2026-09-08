@@ -258,6 +258,38 @@ fn gutter_click_toggles_todo() {
     assert_eq!(handle.serialize(), "- [x] задача\n");
 }
 
+/// Клик по шеврону toggle работает и когда над блоком уже висит ручка
+/// ⋮⋮: у блока, прижатого к левому краю, её рамка накрывает гаттер, и
+/// раньше клик уходил в перетаскивание вместо сворачивания.
+#[test]
+fn toggle_chevron_wins_over_drag_handle() {
+    let md = "> [!toggle]{open} Секция\n>\n> Внутри.\n";
+    let handle = DocumentEditorHandle::new();
+    let mut h = TestHarness::new(Box::new(
+        DocumentEditor::new().markdown(md).handle(&handle),
+    ));
+    h.tree.text_measure = Some(Arc::new(Mono));
+    h.rebuild();
+    h.layout(800.0, 2000.0);
+    let _ = h.paint();
+    // Курсор над шапкой toggle — появляется ручка ⋮⋮.
+    h.send_event(&Event::MouseMove(Point::new(X0 + 60.0, Y0 + 10.0)));
+    h.rebuild();
+    h.layout(800.0, 2000.0);
+    let _ = h.paint();
+    h.send_event(&Event::MouseDown {
+        button: MouseButton::Left,
+        position: Point::new(X0 + 13.0, Y0 + 10.0),
+    });
+    h.rebuild();
+    h.layout(800.0, 2000.0);
+    assert!(
+        !handle.serialize().contains("{open}"),
+        "клик по шеврону должен свернуть toggle:\n{}",
+        handle.serialize()
+    );
+}
+
 #[test]
 fn enter_in_list_creates_item() {
     let (mut h, handle) = editing_harness("- раз\n", Point::new(X0 + 26.0 + 60.0, Y0 + 8.0));
@@ -647,10 +679,10 @@ fn free_layout_positions_blocks_by_coordinates() {
     );
 }
 
-/// Свободная раскладка не двигает то, чего не двигали: блок без координат
-/// остаётся в колонке потока, координаты появляются только при переносе.
+/// Переход в свободную раскладку не двигает блоки: каждый закрепляется
+/// там, где его держал поток, и картинка на экране не меняется.
 #[test]
-fn free_layout_keeps_untouched_blocks_in_flow() {
+fn switching_to_free_layout_pins_blocks_where_they_were() {
     let handle = DocumentEditorHandle::new();
     let mut h = TestHarness::new(Box::new(
         DocumentEditor::new().markdown("Раз\n\nДва\n").handle(&handle),
@@ -675,10 +707,13 @@ fn free_layout_keeps_untouched_blocks_in_flow() {
         flow_second.origin,
         free_second.origin
     );
+    let md = handle.serialize();
+    assert!(md.contains("doc-layout"), "блоки должны закрепиться:\n{md}");
+    let y = geom_val(&md, 1, "y").expect("у второго блока есть y");
     assert!(
-        !handle.serialize().contains("doc-layout"),
-        "нетронутый блок не должен получать координаты:\n{}",
-        handle.serialize()
+        (y - flow_second.origin.y).abs() < 2.0,
+        "закрепление сдвинуло блок: поток {:?}, холст y={y}\n{md}",
+        flow_second.origin
     );
 }
 
@@ -720,6 +755,39 @@ fn dragging_by_the_handle_pins_the_block() {
     for v in [x, y] {
         assert!((v % 5.0).abs() < 0.01, "координата не по шагу привязки: {v} в\n{md}");
     }
+}
+
+/// Новый блок в свободной раскладке встаёт под всей колонкой, а не
+/// вплотную под якорем: иначе Enter в середине страницы рождал блок
+/// поверх соседнего.
+#[test]
+fn new_free_block_goes_to_the_end_of_the_column() {
+    // Три закреплённых блока: якорь — первый, ниже него стоят ещё два.
+    let md = "Раз\n\nДва\n\nТри\n\n~~~doc-layout\n0 {x=40 y=40 w=300}\n1 {x=40 y=120 w=300}\n2 {x=40 y=200 w=300}\n~~~\n"
+        .replace("~~~", "```");
+    let handle = DocumentEditorHandle::new();
+    let layout = DocLayout { free: true, snap: true, snap_step: 5.0, ..DocLayout::default() };
+    let mut h = TestHarness::new(Box::new(
+        DocumentEditor::new().markdown(&md).handle(&handle).layout(layout),
+    ));
+    h.tree.text_measure = Some(Arc::new(Mono));
+    h.rebuild();
+    h.layout(900.0, 900.0);
+
+    // Каретка в конец первого блока, Enter — новый блок сразу за ним.
+    let first = Point::new(40.0 + 25.0, 40.0 + 8.0);
+    h.send_event(&Event::MouseDown { button: MouseButton::Left, position: first });
+    h.send_event(&Event::MouseUp { button: MouseButton::Left, position: first });
+    h.send_event(&Event::KeyDown(Key::Enter));
+    type_str(&mut h, "новый");
+    settle(&mut h);
+
+    let out = handle.serialize();
+    let y = geom_val(&out, 1, "y").expect("у нового блока есть координаты");
+    assert!(
+        y > 200.0,
+        "новый блок должен встать под всей колонкой (ниже y=200), а он на y={y}:\n{out}"
+    );
 }
 
 /// Регрессия: закреплённый блок должен «числиться» там, где нарисован.

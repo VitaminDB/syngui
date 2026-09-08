@@ -124,6 +124,10 @@ pub enum DrawCommand {
         y: f32,
         height: f32,
         font_size: f32,
+        /// Начертание выделенного текста: подсветку меряем тем же
+        /// начертанием, каким текст нарисован, иначе у жирного заливка
+        /// обрывается раньше глифов.
+        font_weight: u16,
         color: Color,
         font_family: Option<CompactString>,
         clip_rect: ClipRect,

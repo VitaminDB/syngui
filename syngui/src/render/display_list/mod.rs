@@ -573,6 +573,28 @@ impl DisplayList {
         color: Color,
         font_family: Option<String>,
     ) {
+        self.push_text_selection_weighted(
+            text, sel_start, sel_end, base_x, y, height, font_size, 400, color, font_family,
+        );
+    }
+
+    /// То же, но с начертанием текста: ширина подсветки меряется тем же
+    /// шрифтом, каким текст нарисован. Без этого у жирных строк (заголовок,
+    /// `**текст**`) синий прямоугольник обрывался, не дойдя до конца слова.
+    #[allow(clippy::too_many_arguments)]
+    pub fn push_text_selection_weighted(
+        &mut self,
+        text: &str,
+        sel_start: usize,
+        sel_end: usize,
+        base_x: f32,
+        y: f32,
+        height: f32,
+        font_size: f32,
+        font_weight: u16,
+        color: Color,
+        font_family: Option<String>,
+    ) {
         if sel_start >= sel_end {
             return;
         }
@@ -586,6 +608,7 @@ impl DisplayList {
             y,
             height,
             font_size,
+            font_weight,
             color,
             font_family: font_family.map(CompactString::from),
             clip_rect: clip,

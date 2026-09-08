@@ -2213,14 +2213,20 @@ impl DocumentEditorElement {
     }
 
     /// Клик по гаттеру строки: чекбокс / шеврон toggle.
+    ///
+    /// Зона с запасом: сам маркер — 8–12 px в 26-пиксельном гаттере, и
+    /// попасть в него мышью с первого раза трудно. Запас слева уводит в
+    /// поле, где стоит ручка ⋮⋮, — гаттер проверяется раньше неё, поэтому
+    /// перетаскивание он не ломает.
     fn gutter_hit(&self, p: Point) -> Option<(super::model::BlockId, GutterAction)> {
+        const GUTTER_PAD: f32 = 6.0;
         let map = self.geom.lock().ok()?;
         let model = self.model();
         for (id, row) in map.iter() {
             if row.gutter <= 0.0 {
                 continue;
             }
-            let hit = p.x >= row.origin.x
+            let hit = p.x >= row.origin.x - GUTTER_PAD
                 && p.x < row.origin.x + row.gutter
                 && p.y >= row.origin.y
                 && p.y < row.origin.y + row.line_h;
@@ -2572,8 +2578,13 @@ fn estimate_height(block: &DocBlock, style: &DocStyle) -> f32 {
 
 impl DocumentEditorElement {
     /// Новый блок, родившийся рядом с закреплённым (Enter, вставка), встаёт
-    /// **под ним**. Иначе он уходил в колонку потока — то есть улетал в угол
-    /// холста, за километр от места, где его создавали.
+    /// **в конец колонки** — под нижним блоком холста, у его левого края.
+    ///
+    /// Раньше он вставал вплотную под якорем и накрывал собой то, что уже
+    /// стояло ниже: на живой странице каждый Enter в середине текста рождал
+    /// блок поверх соседнего. Конец колонки — единственное место, где
+    /// наложения не будет ни при каком порядке правок; двигать блок оттуда
+    /// пользователь волен мышью.
     fn pin_below(&mut self, anchor: super::model::BlockId, block: super::model::BlockId) {
         if !self.layout.free {
             return;
@@ -2586,24 +2597,46 @@ impl DocumentEditorElement {
         if top_anchor == top_block {
             return;
         }
-        let anchor_geom = {
+        // Якорь без координат сидит в колонке потока — новый блок туда же:
+        // страницу, которой ещё не касались мышью, закреплять незачем.
+        let anchor_width = {
             let model = self.model();
-            let b = model.blocks.iter().find(|b| b.id == top_anchor);
-            b.and_then(|b| free::pos_of(&b.attrs).map(|(x, y)| (x, y, free::width_of(&b.attrs))))
+            let Some(b) = model.blocks.iter().find(|b| b.id == top_anchor) else { return };
+            if free::pos_of(&b.attrs).is_none() {
+                return;
+            }
+            free::width_of(&b.attrs)
         };
-        let Some((x, y, width)) = anchor_geom else { return };
-        let height = self
-            .block_rect(top_anchor)
-            .map(|r| r.size.height)
-            .unwrap_or_else(|| self.style.line_h(self.style.text_size));
-        let below = self.layout.snapped(y + height + self.style.block_spacing);
-        let width = width.unwrap_or(self.layout.block_width);
+        let (x, y) = self.free_column_end();
+        let width = anchor_width.unwrap_or(self.layout.block_width);
         let mut model = self.model();
         let Some(b) = model.blocks.iter_mut().find(|b| b.id == top_block) else { return };
         if free::pos_of(&b.attrs).is_none() {
-            free::set_pos(&mut b.attrs, x, below);
+            free::set_pos(&mut b.attrs, x, y);
             free::set_width(&mut b.attrs, width);
         }
+    }
+
+    /// Левый край и Y свободного места под всеми закреплёнными блоками.
+    /// Пустой холст — [`FREE_ORIGIN`].
+    fn free_column_end(&self) -> (f32, f32) {
+        const FREE_ORIGIN: f32 = 40.0;
+        let model = self.model();
+        let mut left = f32::INFINITY;
+        let mut bottom = f32::NEG_INFINITY;
+        for b in model.blocks.iter() {
+            let Some((x, y)) = free::pos_of(&b.attrs) else { continue };
+            let h = self
+                .block_rect(b.id)
+                .map(|r| r.size.height)
+                .unwrap_or_else(|| estimate_height(b, &self.style));
+            left = left.min(x);
+            bottom = bottom.max(y + h);
+        }
+        if !left.is_finite() || !bottom.is_finite() {
+            return (FREE_ORIGIN, FREE_ORIGIN);
+        }
+        (left, self.layout.snapped(bottom + self.style.block_spacing))
     }
 
     /// Поставить блок в точку холста (вставка из контекстного меню).
@@ -4918,6 +4951,25 @@ impl Element for DocumentEditorElement {
                         return EventResult::Handled;
                     }
                 }
+                // Клик по гаттеру (чекбокс задачи, шеврон toggle) —
+                // раньше ручки ⋮⋮ и раньше выделения блоков: у блока,
+                // прижатого к левому краю холста, рамка ручки накрывает
+                // гаттер, и клик по шеврону уходил в перетаскивание
+                // вместо сворачивания.
+                if !self.read_only {
+                    if let Some((id, action)) = self.gutter_hit(*position) {
+                        self.close_slash();
+                        self.checkpoint(EditClass::Structure);
+                        let mut model = self.model();
+                        match action {
+                            GutterAction::ToggleTodo => edit::toggle_todo(&mut model, id),
+                            GutterAction::ToggleCollapse => edit::toggle_collapse(&mut model, id),
+                        }
+                        drop(model);
+                        self.after_edit();
+                        return EventResult::Handled;
+                    }
+                }
                 // Захват ручки ⋮⋮ — перетаскивание блока (в свободной
                 // раскладке — перенос по холсту), правая кромка — ширина.
                 if !self.read_only {
@@ -4959,20 +5011,6 @@ impl Element for DocumentEditorElement {
                     }
                 }
                 self.close_slash();
-                // Клик по гаттеру: чекбокс/шеврон.
-                if !self.read_only {
-                    if let Some((id, action)) = self.gutter_hit(*position) {
-                        self.checkpoint(EditClass::Structure);
-                        let mut model = self.model();
-                        match action {
-                            GutterAction::ToggleTodo => edit::toggle_todo(&mut model, id),
-                            GutterAction::ToggleCollapse => edit::toggle_collapse(&mut model, id),
-                        }
-                        drop(model);
-                        self.after_edit();
-                        return EventResult::Handled;
-                    }
-                }
                 // Выделение блоков: Ctrl+клик переключает блок, Shift+клик
                 // при выделении тянет диапазон, нажатие в пустом месте
                 // (поля, холст, ниже текста) начинает рамку — без протяжки

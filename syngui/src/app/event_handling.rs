@@ -75,6 +75,12 @@ impl winit::application::ApplicationHandler<SynGuiUserEvent> for AppHandler {
                 }
                 #[cfg(not(target_os = "android"))]
                 {
+                    if !self.close_allowed() {
+                        if let Some(window) = &self.window {
+                            window.request_redraw();
+                        }
+                        return;
+                    }
                     if self.should_hide_on_close() {
                         self.hide_main_window();
                     } else {
@@ -278,6 +284,12 @@ impl winit::application::ApplicationHandler<SynGuiUserEvent> for AppHandler {
                 self.process_window_drag_request();
                 self.process_window_control_requests();
                 if self.take_window_close_request() {
+                    if !self.close_allowed() {
+                        if let Some(window) = &self.window {
+                            window.request_redraw();
+                        }
+                        return;
+                    }
                     if self.should_hide_on_close() {
                         self.hide_main_window();
                     } else {
@@ -694,6 +706,10 @@ impl winit::application::ApplicationHandler<SynGuiUserEvent> for AppHandler {
                 self.toggle_main_window_visibility();
             }
             SynGuiUserEvent::TrayExit => {
+                if !self.close_allowed() {
+                    self.show_main_window();
+                    return;
+                }
                 #[cfg(all(feature = "tray", not(target_arch = "wasm32"), not(target_os = "android")))]
                 { self.tray.take(); }
                 #[cfg(all(feature = "single-instance", not(target_arch = "wasm32"), not(target_os = "android")))]

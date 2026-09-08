@@ -500,7 +500,7 @@ impl MarkdownViewElement {
             if hi <= lo {
                 continue;
             }
-            list.push_text_selection_styled(
+            list.push_text_selection_weighted(
                 &run.visible_text,
                 lo,
                 hi,
@@ -508,6 +508,7 @@ impl MarkdownViewElement {
                 run.rect.origin.y,
                 run.rect.size.height,
                 run.font_size,
+                if run.bold { 700 } else { 400 },
                 self.selection_color,
                 run.font_family.clone(),
             );
@@ -936,6 +937,13 @@ impl Element for MarkdownViewElement {
         event: &Event,
         ctx: &mut EventContext,
     ) -> EventResult {
+        // Метрика текста могла появиться в дереве уже после mount
+        // (пересоздание рендера, headless-харнес). Без неё hit-тест
+        // выделения возвращает нулевую позицию — тянешь мышью, а
+        // подсветки нет.
+        if self.text_measure.is_none() {
+            self.text_measure = ctx.text_measure.clone();
+        }
         let copy_buttons: Vec<(Rect, String)> = if self.copy_code {
             match self.copy_hotspots.lock() {
                 Ok(g) => g.iter()
@@ -1335,5 +1343,61 @@ mod rebuild_tests {
         let mut harness = TestHarness::new(Box::new(MarkdownView::new("hello").selectable(false)));
         harness.rebuild();
         assert_eq!(harness.find_by_type_name("PopupMenu").len(), 0);
+    }
+
+    /// Подсветка выделения меряется тем же начертанием, каким текст
+    /// нарисован: у жирной строки синий прямоугольник обрывался раньше
+    /// глифов (в чате — «выделение не до конца»).
+    #[test]
+    fn selection_of_bold_text_carries_weight() {
+        use crate::core::Point;
+        use crate::input::{Event, MouseButton};
+        use crate::render::DrawCommand;
+        use crate::widget::context::TextMeasure;
+        use std::sync::Arc;
+
+        /// Жирный шире обычного вдвое — расхождение видно на глаз.
+        struct Weighted;
+        impl TextMeasure for Weighted {
+            fn measure_text_width(&self, _t: &str, font_size: f32, chars: usize) -> f32 {
+                chars as f32 * font_size * 0.5
+            }
+            fn measure_text_width_styled(
+                &self,
+                t: &str,
+                font_size: f32,
+                chars: usize,
+                bold: bool,
+                _f: Option<&str>,
+            ) -> f32 {
+                let base = self.measure_text_width(t, font_size, chars);
+                if bold { base * 2.0 } else { base }
+            }
+            fn hit_test_char(&self, text: &str, font_size: f32, x: f32) -> usize {
+                ((x / (font_size * 0.5)).round() as usize).min(text.chars().count())
+            }
+        }
+
+        let mut h = TestHarness::new(Box::new(MarkdownView::new("**bold line here**")));
+        h.tree.text_measure = Some(Arc::new(Weighted));
+        h.rebuild();
+        h.layout(600.0, 200.0);
+        let _ = h.paint();
+        let id = h.find_by_type_name("MarkdownView")[0];
+        let b = h.element_bounds(id);
+        h.send_event(&Event::MouseDown {
+            button: MouseButton::Left,
+            position: Point::new(b.origin.x + 1.0, b.origin.y + b.size.height / 2.0),
+        });
+        h.send_event(&Event::MouseMove(Point::new(
+            b.origin.x + 400.0,
+            b.origin.y + b.size.height / 2.0,
+        )));
+        let dl = h.paint();
+        let weight = dl.commands().iter().find_map(|c| match c {
+            DrawCommand::TextSelection { font_weight, .. } => Some(*font_weight),
+            _ => None,
+        });
+        assert_eq!(weight, Some(700), "выделение жирного текста должно нести начертание");
     }
 }

@@ -251,19 +251,22 @@ impl Batcher {
                 self.ensure_batch(ShaderType::GlowShadow, None, *clip_rect);
                 self.add_shadow(*rect, *color, *blur_radius, *offset, *corner_radius);
             }
-            DrawCommand::TextSelection { text, sel_start, sel_end, base_x, y, height, font_size, color, font_family, clip_rect, .. } => {
+            DrawCommand::TextSelection { text, sel_start, sel_end, base_x, y, height, font_size, font_weight, color, font_family, clip_rect, .. } => {
                 let sf = self.scale_factor;
                 let phys_font_size = ((*font_size * sf).round() as u16).max(1);
                 let ff = font_family.as_deref();
+                // Меряем тем же начертанием, каким рисуется текст: у жирных
+                // глифов advance шире, и подсветка обрывалась до конца слова.
+                let bold = *font_weight >= 600;
                 let sel_start = snap_boundary(text, *sel_start);
                 let sel_end = snap_boundary(text, *sel_end);
                 let start_char_count = text[..sel_start].chars().count();
                 let text_before_start = &text[..sel_start];
-                let start_x_offset = font_atlas.measure_text_width(text_before_start, phys_font_size, start_char_count, ff);
+                let start_x_offset = font_atlas.measure_text_width_styled(text_before_start, phys_font_size, start_char_count, bold, ff);
                 let start_x = *base_x + start_x_offset / sf;
                 let end_char_count = text[..sel_end].chars().count();
                 let text_before_end = &text[..sel_end];
-                let end_x_offset = font_atlas.measure_text_width(text_before_end, phys_font_size, end_char_count, ff);
+                let end_x_offset = font_atlas.measure_text_width_styled(text_before_end, phys_font_size, end_char_count, bold, ff);
                 let end_x = *base_x + end_x_offset / sf;
                 let sel_width = (end_x - start_x).max(1.0);
                 self.ensure_batch(ShaderType::Rect, None, *clip_rect);

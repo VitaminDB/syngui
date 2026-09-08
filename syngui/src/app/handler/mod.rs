@@ -285,6 +285,15 @@ impl AppHandler {
         }
     }
 
+    /// Даёт приложению отменить закрытие (несохранённое, живые процессы).
+    /// Без guard'а — закрываем, как раньше.
+    pub(super) fn close_allowed(&self) -> bool {
+        match self.config.close_guard.as_ref() {
+            Some(guard) => guard(),
+            None => true,
+        }
+    }
+
     pub(super) fn should_hide_on_close(&self) -> bool {
         #[cfg(all(feature = "tray", not(target_arch = "wasm32"), not(target_os = "android")))]
         {

@@ -938,13 +938,17 @@ impl FontAtlas {
     }
 
     pub fn hit_test_char_position(&mut self, text: &str, size_px: u16, x_offset: f32, font_family: Option<&str>) -> usize {
+        self.hit_test_char_position_styled(text, size_px, x_offset, false, font_family)
+    }
+
+    pub fn hit_test_char_position_styled(&mut self, text: &str, size_px: u16, x_offset: f32, bold: bool, font_family: Option<&str>) -> usize {
         let mut x = 0.0f32;
         let mut best_idx = 0;
 
         for (idx, ch) in text.chars().enumerate() {
             let key = match font_family {
-                Some(fam) => self.ensure_glyph_family(ch, size_px, false, fam),
-                None => self.ensure_glyph(ch, size_px),
+                Some(fam) => self.ensure_glyph_family(ch, size_px, bold, fam),
+                None => if bold { self.ensure_glyph_bold(ch, size_px) } else { self.ensure_glyph(ch, size_px) },
             };
             let key = match key {
                 Some(k) => k,
@@ -1014,6 +1018,20 @@ impl crate::widget::context::TextMeasure for crate::core::sync::Mutex<FontAtlas>
         let mut atlas = self.lock().unwrap();
         let sf = atlas.scale_factor();
         let size_px = ((font_size * sf).round() as u16).max(1);
-        atlas.hit_test_char_position(text, size_px, x_offset * sf, font_family)
+        atlas.hit_test_char_position_styled(text, size_px, x_offset * sf, false, font_family)
+    }
+
+    fn hit_test_char_weighted(
+        &self,
+        text: &str,
+        font_size: f32,
+        x_offset: f32,
+        bold: bool,
+        font_family: Option<&str>,
+    ) -> usize {
+        let mut atlas = self.lock().unwrap();
+        let sf = atlas.scale_factor();
+        let size_px = ((font_size * sf).round() as u16).max(1);
+        atlas.hit_test_char_position_styled(text, size_px, x_offset * sf, bold, font_family)
     }
 }

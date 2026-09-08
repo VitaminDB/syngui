@@ -854,7 +854,7 @@ impl Element for TextFieldElement {
                 let vis_sel_start = self.map_pos_to_visual(sel_start);
                 let vis_sel_end = self.map_pos_to_visual(sel_end);
                 let sel_color = self.mss.selection_color_or_default();
-                list.push_text_selection_styled(
+                list.push_text_selection_weighted(
                     &vis,
                     vis_sel_start,
                     vis_sel_end,
@@ -862,6 +862,7 @@ impl Element for TextFieldElement {
                     text_y - 1.0,
                     text_height + 2.0,
                     font_size,
+                    font_weight,
                     sel_color,
                     self.mss.font_family.clone(),
                 );

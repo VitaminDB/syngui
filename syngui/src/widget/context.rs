@@ -30,6 +30,21 @@ pub trait TextMeasure: Send + Sync {
         let _ = font_family;
         self.hit_test_char(text, font_size, x_offset)
     }
+
+    /// Попадание символа с учётом начертания: у жирных глифов advance
+    /// шире, и без этого каретка в заголовке вставала не туда, куда
+    /// показывает подсветка выделения.
+    fn hit_test_char_weighted(
+        &self,
+        text: &str,
+        font_size: f32,
+        x_offset: f32,
+        bold: bool,
+        font_family: Option<&str>,
+    ) -> usize {
+        let _ = bold;
+        self.hit_test_char_styled(text, font_size, x_offset, font_family)
+    }
 }
 
 #[derive(Debug)]

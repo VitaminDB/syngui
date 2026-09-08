@@ -114,9 +114,15 @@ pub struct AppBuilder {
     pub(super) window_icon_png: Option<Vec<u8>>,
     pub(super) tray_config: Option<crate::app::tray::TrayConfig>,
     pub(super) single_instance_id: Option<String>,
+    /// Спросить приложение перед закрытием окна: `false` — закрытие отменено.
+    pub(super) close_guard: Option<CloseGuard>,
     /// Web: клавиши F1–F12, которые получает приложение (остальные — браузеру).
     pub(super) captured_function_keys: crate::input::FunctionKeys,
 }
+
+/// Проверка перед закрытием окна. Вызывается на главном потоке, поэтому
+/// внутри доступны сигналы приложения.
+pub type CloseGuard = std::sync::Arc<dyn Fn() -> bool + Send + Sync>;
 
 impl AppBuilder {
     pub fn new() -> Self {
@@ -164,6 +170,7 @@ impl AppBuilder {
             window_icon_png: None,
             tray_config: None,
             single_instance_id: None,
+            close_guard: None,
             captured_function_keys: crate::input::FunctionKeys::NONE,
         }
     }
@@ -476,6 +483,22 @@ impl AppBuilder {
 
     pub fn with_tray(mut self, config: crate::app::tray::TrayConfig) -> Self {
         self.tray_config = Some(config);
+        self
+    }
+
+    /// Проверка перед закрытием окна: `false` — окно не закрывается.
+    ///
+    /// Вызывается на системный запрос (кнопка ✕, Alt+F4, меню окна) и на
+    /// [`EventContext::close_window`](crate::widget::EventContext::close_window)
+    /// из интерфейса. Замыкание идёт на главном потоке — читать и писать
+    /// сигналы в нём можно: типичный guard показывает диалог «есть
+    /// незавершённые дела» и возвращает `false`, а кнопка «Выйти» в этом
+    /// диалоге снимает свою же блокировку и просит закрытие ещё раз.
+    pub fn on_close_request<F>(mut self, guard: F) -> Self
+    where
+        F: Fn() -> bool + Send + Sync + 'static,
+    {
+        self.close_guard = Some(std::sync::Arc::new(guard));
         self
     }
 

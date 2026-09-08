@@ -21,11 +21,17 @@ pub enum WindowControlAction {
 pub struct WindowControl {
     pub action: WindowControlAction,
     pub child: Option<Box<dyn Widget>>,
+    pub on_activate: Option<ActivateCallback>,
 }
+
+/// Колбэк перед действием над окном. Нужен там, где кнопка не только
+/// закрывает окно, но и оставляет за собой след в состоянии приложения
+/// (подтверждённый выход, снятие guard'а закрытия).
+pub type ActivateCallback = std::sync::Arc<dyn Fn() + Send + Sync>;
 
 impl WindowControl {
     pub fn new(action: WindowControlAction) -> Self {
-        Self { action, child: None }
+        Self { action, child: None, on_activate: None }
     }
 
     pub fn close() -> Self { Self::new(WindowControlAction::Close) }
@@ -36,6 +42,15 @@ impl WindowControl {
         self.child = Some(child.into_widget());
         self
     }
+
+    /// Вызывается перед самим действием над окном.
+    pub fn on_activate<F>(mut self, f: F) -> Self
+    where
+        F: Fn() + Send + Sync + 'static,
+    {
+        self.on_activate = Some(std::sync::Arc::new(f));
+        self
+    }
 }
 
 impl Widget for WindowControl {
@@ -43,6 +58,7 @@ impl Widget for WindowControl {
         Box::new(WindowControlElement {
             id: ElementId::new(),
             action: self.action,
+            on_activate: self.on_activate.clone(),
             bounds: Rect::zero(),
             classes: Vec::new(),
             dirty_flags: DirtyFlags::LAYOUT | DirtyFlags::RENDER,
@@ -74,6 +90,7 @@ impl Widget for WindowControl {
 struct WindowControlElement {
     id: ElementId,
     action: WindowControlAction,
+    on_activate: Option<ActivateCallback>,
     bounds: Rect,
     classes: Vec<String>,
     dirty_flags: DirtyFlags,
@@ -84,6 +101,7 @@ impl Element for WindowControlElement {
     fn update(&mut self, widget: &dyn Widget, _ctx: &mut UpdateContext) {
         if let Some(w) = widget.as_any().downcast_ref::<WindowControl>() {
             self.action = w.action;
+            self.on_activate = w.on_activate.clone();
         }
     }
 
@@ -99,6 +117,9 @@ impl Element for WindowControlElement {
     fn handle_event(&mut self, event: &Event, ctx: &mut EventContext) -> EventResult {
         if let Event::MouseDown { button, position } = event {
             if *button == MouseButton::Left && self.bounds.contains(*position) {
+                if let Some(cb) = &self.on_activate {
+                    cb();
+                }
                 match self.action {
                     WindowControlAction::Close => ctx.close_window(),
                     WindowControlAction::Minimize => ctx.minimize_window(),
