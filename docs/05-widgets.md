@@ -510,8 +510,18 @@ Lower-level scrollable container:
 ```rust
 ScrollView::new()
     .direction(ScrollDirection::Vertical)
+    .follow_end(true)                 // feed mode: start at the bottom, keep the
+                                      // bottom in view while content grows
     .child(content)
 ```
+
+`follow_end` is for feeds (chat, logs): the first layout scrolls to the
+bottom, and every content growth (streaming text, new items) keeps the
+bottom in view — until the user scrolls up (wheel, keys, thumb drag, touch);
+from then on new content does not move the viewport, and once the user
+reaches the bottom again the view sticks again. To reset on a content
+switch (a different chat), rebuild the `ScrollView` — a fresh element
+starts stuck to the bottom.
 
 ## Navigation
 

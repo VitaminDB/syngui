@@ -32,6 +32,7 @@ pub struct ScrollView {
     scrollbar_policy: ScrollbarPolicy,
     scrollbar_width: f32,
     center_content: bool,
+    follow_end: bool,
     classes: Vec<String>,
 }
 
@@ -43,8 +44,18 @@ impl ScrollView {
             scrollbar_policy: ScrollbarPolicy::Auto,
             scrollbar_width: 8.0,
             center_content: false,
+            follow_end: false,
             classes: Vec::new(),
         }
+    }
+
+    /// Лента (чат, лог): при первом показе содержимое прокручено в самый
+    /// низ, а пока оно растёт (стрим, новые сообщения) — низ держится.
+    /// Стоит пользователю прокрутить вверх, прилипание отключается и
+    /// возвращается, когда он снова доходит до низа. Только по вертикали.
+    pub fn follow_end(mut self, follow: bool) -> Self {
+        self.follow_end = follow;
+        self
     }
 
     pub fn child<M>(mut self, child: impl IntoWidget<M>) -> Self {
@@ -118,6 +129,8 @@ impl Widget for ScrollView {
             scrollbar_policy: self.scrollbar_policy,
             scrollbar_width: self.scrollbar_width,
             center_content: self.center_content,
+            follow_end: self.follow_end,
+            stick_to_end: true,
 
             scroll_offset: Point::zero(),
             velocity: Point::zero(),
@@ -177,6 +190,11 @@ pub struct ScrollViewElement {
     scrollbar_policy: ScrollbarPolicy,
     scrollbar_width: f32,
     center_content: bool,
+    /// Режим ленты (`ScrollView::follow_end`).
+    follow_end: bool,
+    /// Лента прижата к низу: содержимое растёт — низ держится. Снимается,
+    /// когда пользователь уходит вверх, и ставится снова у самого низа.
+    stick_to_end: bool,
 
     scroll_offset: Point,
     velocity: Point,
@@ -355,6 +373,14 @@ impl ScrollViewElement {
         self.scrollbar_idle_time = 0.0;
     }
 
+    /// После прокрутки пользователем: прилипание к низу есть, только если
+    /// он сам стоит у низа (допуск в пиксель — под округление).
+    fn refresh_stick(&mut self) {
+        if self.follow_end && self.can_scroll_y() {
+            self.stick_to_end = self.scroll_offset.y >= self.max_scroll_y() - 1.0;
+        }
+    }
+
     fn compose_scrollbar_style(&self) -> crate::widgets::scroll::ScrollbarStyle {
         let fg = self.mss.color.unwrap_or(Color::from_hex("#9CA3AF"));
         let mut style = self.mss.scrollbar_style(fg);
@@ -366,6 +392,57 @@ impl ScrollViewElement {
             style.policy = self.scrollbar_policy;
         }
         style
+    }
+
+
+    fn handle_key(&mut self, key: &Key, vp_h: f32, ctx: &mut EventContext) -> EventResult {
+        match key {
+            Key::Home if self.can_scroll_y() => {
+                self.scroll_offset.y = 0.0;
+                self.velocity = Point::zero();
+                self.is_coasting = false;
+                self.flash_scrollbar();
+                ctx.request_paint();
+                EventResult::Handled
+            }
+            Key::End if self.can_scroll_y() => {
+                self.scroll_offset.y = self.max_scroll_y();
+                self.velocity = Point::zero();
+                self.is_coasting = false;
+                self.flash_scrollbar();
+                ctx.request_paint();
+                EventResult::Handled
+            }
+            Key::PageUp if self.can_scroll_y() => {
+                self.scroll_offset.y =
+                    (self.scroll_offset.y - vp_h).max(0.0);
+                self.flash_scrollbar();
+                ctx.request_paint();
+                EventResult::Handled
+            }
+            Key::PageDown if self.can_scroll_y() => {
+                self.scroll_offset.y =
+                    (self.scroll_offset.y + vp_h).min(self.max_scroll_y());
+                self.flash_scrollbar();
+                ctx.request_paint();
+                EventResult::Handled
+            }
+            Key::Up if self.can_scroll_y() => {
+                self.scroll_offset.y =
+                    (self.scroll_offset.y - 40.0).max(0.0);
+                self.flash_scrollbar();
+                ctx.request_paint();
+                EventResult::Handled
+            }
+            Key::Down if self.can_scroll_y() => {
+                self.scroll_offset.y =
+                    (self.scroll_offset.y + 40.0).min(self.max_scroll_y());
+                self.flash_scrollbar();
+                ctx.request_paint();
+                EventResult::Handled
+            }
+            _ => EventResult::Ignored,
+        }
     }
 
     fn is_animating(&self) -> bool {
@@ -383,6 +460,7 @@ impl Element for ScrollViewElement {
             self.scrollbar_policy = sv.scrollbar_policy;
             self.scrollbar_width = sv.scrollbar_width;
             self.center_content = sv.center_content;
+            self.follow_end = sv.follow_end;
             self.mark_dirty(DirtyFlags::LAYOUT | DirtyFlags::RENDER);
         }
     }
@@ -528,6 +606,7 @@ impl Element for ScrollViewElement {
                 self.velocity.x = self.velocity.x * (1.0 - alpha) + dx * VELOCITY_SCALE * alpha;
                 self.is_coasting = true;
 
+                self.refresh_stick();
                 self.flash_scrollbar();
                 ctx.request_paint();
                 EventResult::Handled
@@ -535,53 +614,11 @@ impl Element for ScrollViewElement {
 
             Event::KeyDown(key) => {
                 let vp_h = self.bounds.size.height;
-                match key {
-                    Key::Home if self.can_scroll_y() => {
-                        self.scroll_offset.y = 0.0;
-                        self.velocity = Point::zero();
-                        self.is_coasting = false;
-                        self.flash_scrollbar();
-                        ctx.request_paint();
-                        EventResult::Handled
-                    }
-                    Key::End if self.can_scroll_y() => {
-                        self.scroll_offset.y = self.max_scroll_y();
-                        self.velocity = Point::zero();
-                        self.is_coasting = false;
-                        self.flash_scrollbar();
-                        ctx.request_paint();
-                        EventResult::Handled
-                    }
-                    Key::PageUp if self.can_scroll_y() => {
-                        self.scroll_offset.y =
-                            (self.scroll_offset.y - vp_h).max(0.0);
-                        self.flash_scrollbar();
-                        ctx.request_paint();
-                        EventResult::Handled
-                    }
-                    Key::PageDown if self.can_scroll_y() => {
-                        self.scroll_offset.y =
-                            (self.scroll_offset.y + vp_h).min(self.max_scroll_y());
-                        self.flash_scrollbar();
-                        ctx.request_paint();
-                        EventResult::Handled
-                    }
-                    Key::Up if self.can_scroll_y() => {
-                        self.scroll_offset.y =
-                            (self.scroll_offset.y - 40.0).max(0.0);
-                        self.flash_scrollbar();
-                        ctx.request_paint();
-                        EventResult::Handled
-                    }
-                    Key::Down if self.can_scroll_y() => {
-                        self.scroll_offset.y =
-                            (self.scroll_offset.y + 40.0).min(self.max_scroll_y());
-                        self.flash_scrollbar();
-                        ctx.request_paint();
-                        EventResult::Handled
-                    }
-                    _ => EventResult::Ignored,
+                let result = self.handle_key(key, vp_h, ctx);
+                if result == EventResult::Handled {
+                    self.refresh_stick();
                 }
+                result
             }
 
             Event::MouseDown { button, position } if *button == MouseButton::Left => {
@@ -617,6 +654,7 @@ impl Element for ScrollViewElement {
                             * self.max_scroll_y())
                         .clamp(0.0, self.max_scroll_y());
                     }
+                    self.refresh_stick();
                     self.flash_scrollbar();
                     ctx.request_paint();
                     return EventResult::Captured;
@@ -745,6 +783,7 @@ impl Element for ScrollViewElement {
                         self.velocity.x * (1.0 - alpha) + dx * VELOCITY_SCALE * alpha;
 
                     self.touch_drag_start = Some(*position);
+                    self.refresh_stick();
                     self.flash_scrollbar();
                     ctx.request_paint();
                     EventResult::Handled
@@ -804,6 +843,7 @@ impl Element for ScrollViewElement {
                 self.velocity = Point::zero();
                 self.is_coasting = false;
             }
+            self.refresh_stick();
 
             needs_repaint = true;
         }
@@ -831,6 +871,11 @@ impl Element for ScrollViewElement {
     fn set_content_size(&mut self, size: Size) {
         self.content_size = size;
         let max_y = self.max_scroll_y();
+        // Лента: пока прижата к низу, растущее содержимое не уводит низ из
+        // виду (первый показ — тоже к низу).
+        if self.follow_end && self.stick_to_end && self.can_scroll_y() {
+            self.scroll_offset.y = max_y;
+        }
         if self.scroll_offset.y > max_y {
             self.scroll_offset.y = max_y;
         }
@@ -1019,6 +1064,37 @@ mod tests {
     fn wide_content_is_not_centered() {
         let el = element(true, Size::new(1000.0, 600.0), Size::new(1400.0, 2000.0));
         assert_eq!(center_of(el.as_ref()), Point::zero());
+    }
+
+    /// Лента: первый показ — к низу, рост содержимого держит низ, уход
+    /// пользователя вверх отцепляет, возврат к низу цепляет снова.
+    #[test]
+    fn follow_end_sticks_to_the_bottom_until_the_user_scrolls_up() {
+        let sv = ScrollView::new().vertical().follow_end(true);
+        let mut el = sv.create_element();
+        el.layout(Constraints::tight(Size::new(400.0, 600.0)));
+        el.set_content_size(Size::new(400.0, 2000.0));
+        assert_eq!(el.scroll_offset().y, 1400.0, "первый показ — в самом низу");
+        el.set_content_size(Size::new(400.0, 2600.0));
+        assert_eq!(el.scroll_offset().y, 2000.0, "стрим растит содержимое — низ держится");
+        // Пользователь листает вверх колесом.
+        let mut ctx = crate::widget::context::EventContext::new(el.id());
+        let up = Event::MouseWheel { delta: 120.0, delta_x: 0.0, position: Point::new(100.0, 100.0) };
+        assert_eq!(el.handle_event(&up, &mut ctx), EventResult::Handled);
+        let scrolled = el.scroll_offset().y;
+        assert!(scrolled < 2000.0);
+        el.set_content_size(Size::new(400.0, 3000.0));
+        assert_eq!(el.scroll_offset().y, scrolled, "ушёл вверх — новые сообщения не дёргают ленту");
+        // Клавиша End возвращает к низу — и прилипание снова работает.
+        assert_eq!(el.handle_event(&Event::KeyDown(Key::End), &mut ctx), EventResult::Handled);
+        assert_eq!(el.scroll_offset().y, 2400.0);
+        el.set_content_size(Size::new(400.0, 3300.0));
+        assert_eq!(el.scroll_offset().y, 2700.0);
+        // Без follow_end поведение прежнее: содержимое сверху.
+        let mut plain = ScrollView::new().vertical().create_element();
+        plain.layout(Constraints::tight(Size::new(400.0, 600.0)));
+        plain.set_content_size(Size::new(400.0, 2000.0));
+        assert_eq!(plain.scroll_offset().y, 0.0);
     }
 
     /// Без явного включения поведение прежнее — прижатие к левому верхнему углу.
