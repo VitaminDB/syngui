@@ -1343,6 +1343,7 @@ mod tests {
             on_change: None,
             submit_on_enter: false,
             on_submit: None,
+            insert_queue: None,
             classes: Vec::new(),
             dirty_flags: DirtyFlags::empty(),
             mss: MssFields::new(),
