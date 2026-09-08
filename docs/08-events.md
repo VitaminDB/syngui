@@ -184,6 +184,19 @@ Events flow through the element tree via depth-first traversal:
 2. **Normal DFS** — root → children, deepest element hit-tested first
 3. **Bubbling** — if child returns `Ignored`, parent gets the event
 
+### Hover-out
+
+There are no `MouseEnter`/`MouseLeave` events: every element derives its
+hover state from `bounds.contains(pos)` on `MouseMove`. The tree remembers the
+last hit-test path; on the next `MouseMove` every element that dropped out of
+that path receives a synthetic `MouseMove` at an off-screen point (`-1, -1`),
+never the real cursor position. An element can leave the path while the
+cursor is still inside its bounds (an overlapping sibling in a `Stack`, a
+`ScrollView` thumb, an overlay) — with the real position it would stay
+"hovered" forever and get no further events (a `ToolButton` tooltip would
+stay on screen, see `tests/tooltip_hover_out.rs`). The element that captured
+the mouse is the exception: it always gets the real position.
+
 ### Capture
 
 When an element returns `EventResult::Captured`, subsequent mouse events are delivered directly to that element until mouse button is released.

@@ -181,6 +181,9 @@ impl Element for ToolButtonElement {
             self.icon = btn.icon.clone(); self.tooltip = btn.tooltip.clone(); self.text = btn.text.clone();
             self.disabled = btn.disabled; self.active = btn.active;
             self.press_passthrough = btn.press_passthrough;
+            // Кнопка стала disabled под курсором: событий она больше не
+            // разбирает, hover и таймер подсказки замёрзли бы.
+            if self.disabled && self.hover { self.hover = false; self.hide_tip(); }
             self.on_click = btn.on_click.clone();
             self.on_click_at = btn.on_click_at.clone();
             self.on_click_with_bounds = btn.on_click_with_bounds.clone();
@@ -312,7 +315,14 @@ impl Element for ToolButtonElement {
     }
 
     fn handle_event(&mut self, event: &Event, ctx: &mut EventContext) -> EventResult {
-        if self.disabled { return EventResult::Ignored; }
+        if self.disabled {
+            if matches!(event, Event::MouseMove(_)) && self.hover {
+                self.hover = false;
+                self.hide_tip();
+                ctx.request_paint();
+            }
+            return EventResult::Ignored;
+        }
         match event {
             Event::MouseMove(pos) => {
                 let was = self.hover; self.hover = self.bounds.contains(*pos);
@@ -340,6 +350,16 @@ impl Element for ToolButtonElement {
                 self.start_transition_to_current_state();
                 ctx.request_paint();
                 EventResult::Handled
+            }
+            // Сквозное нажатие (плитки рейла): событие уходит дальше, но
+            // подсказка после клика так же не нужна до следующего наведения.
+            Event::MouseDown { button, position }
+                if *button == MouseButton::Left && self.press_passthrough && self.bounds.contains(*position) =>
+            {
+                self.hide_tip();
+                self.tip_suppressed = true;
+                ctx.request_paint();
+                EventResult::Ignored
             }
             Event::MouseUp { button, position } if *button == MouseButton::Left && self.pressed => {
                 self.pressed = false;

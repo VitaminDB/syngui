@@ -258,16 +258,30 @@ impl ElementTree {
             }
         };
 
+        // «Уход» тем, кто выпал из hit-path, — синтетической точкой за
+        // экраном, а не реальной позицией: элемент мог выпасть из пути, а
+        // курсор всё ещё внутри его bounds (перекрыл сосед в Stack, ползунок
+        // ScrollView, overlay). С реальной позицией он считал бы себя «под
+        // курсором» и больше событий не получал — hover замерзал, подсказка
+        // ToolButton висела поверх контента. Захватившему мышь элементу
+        // (Slider тащат за пределами bounds) реальная позиция нужна — он
+        // получает её ниже.
+        let off_screen = crate::core::Point::new(-1.0, -1.0);
         for id in old_path.iter().copied() {
-            if !new_set.contains(&id) {
-                dispatch_one(self, id, &mut any_handled);
+            if new_set.contains(&id) || Some(id) == self.mouse_captor {
+                continue;
+            }
+            if self.elements.contains_key(&id)
+                && self.dispatch_event_to(id, &Event::MouseMove(off_screen)).is_handled()
+            {
+                any_handled = true;
             }
         }
         for id in new_path.iter().copied() {
             dispatch_one(self, id, &mut any_handled);
         }
         if let Some(captor_id) = self.mouse_captor {
-            if !new_set.contains(&captor_id) && !old_path.contains(&captor_id) {
+            if !new_set.contains(&captor_id) {
                 dispatch_one(self, captor_id, &mut any_handled);
             }
         }
