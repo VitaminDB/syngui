@@ -594,19 +594,41 @@ pub fn delete_at_end(model: &mut DocModel, caret: CaretPos) -> CaretPos {
     caret
 }
 
-/// Tab: пункт списка становится ребёнком предыдущего сиблинга-пункта.
-pub fn indent_item(model: &mut DocModel, id: BlockId) -> bool {
+/// Tab: блок уходит внутрь соседа сверху, если тот умеет держать детей
+/// (пункт списка, toggle, выноска, цитата). Пункт списка вкладывается
+/// только в пункт списка — иначе Tab в списке под выноской молча уносил
+/// бы пункт в неё; остальные блоки (таблица, картинка, врезка) вкладывать
+/// в любой контейнер можно и нужно: иначе таблицу не убрать под toggle.
+pub fn indent_block(model: &mut DocModel, id: BlockId) -> bool {
     with_siblings(&mut model.blocks, id, &mut |sibs, idx| {
-        if idx == 0 || !sibs[idx].kind.is_list_item() || !sibs[idx - 1].kind.is_list_item() {
+        if idx == 0 {
             return false;
         }
-        let block = sibs.remove(idx);
-        if let Some(children) = sibs[idx - 1].kind.children_mut() {
-            children.push(block);
-            renumber(children);
-        } else {
-            sibs.insert(idx, block);
+        let self_is_item = sibs[idx].kind.is_list_item();
+        if sibs[idx - 1].kind.children().is_none()
+            || (self_is_item && !sibs[idx - 1].kind.is_list_item())
+        {
             return false;
+        }
+        let mut block = sibs.remove(idx);
+        // Геометрия холста есть только у блоков верхнего уровня (сайдкар
+        // пишет её по их индексам) — у ребёнка она превратилась бы в
+        // мусор при следующем сохранении.
+        super::free::clear(&mut block.attrs);
+        let parent = &mut sibs[idx - 1];
+        // Иначе вложенный блок «пропадает» внутри свёрнутого toggle.
+        if let BlockKind::Toggle { collapsed, .. } = &mut parent.kind {
+            *collapsed = false;
+        }
+        match parent.kind.children_mut() {
+            Some(children) => {
+                children.push(block);
+                renumber(children);
+            }
+            None => {
+                sibs.insert(idx, block);
+                return false;
+            }
         }
         renumber(sibs);
         true
@@ -614,15 +636,9 @@ pub fn indent_item(model: &mut DocModel, id: BlockId) -> bool {
     .unwrap_or(false)
 }
 
-/// Shift+Tab: пункт поднимается на уровень родителя, сразу после него.
-pub fn outdent_item(model: &mut DocModel, id: BlockId) -> bool {
+/// Shift+Tab: блок поднимается на уровень родителя, сразу после него.
+pub fn outdent_block(model: &mut DocModel, id: BlockId) -> bool {
     let Some(&parent) = ancestors(&model.blocks, id).last() else { return false };
-    let is_item = find_block(&model.blocks, id).map(|b| b.kind.is_list_item()).unwrap_or(false);
-    let parent_is_item =
-        find_block(&model.blocks, parent).map(|b| b.kind.is_list_item()).unwrap_or(false);
-    if !is_item || !parent_is_item {
-        return false;
-    }
     let Some(block) = with_siblings(&mut model.blocks, id, &mut |sibs, idx| {
         let b = sibs.remove(idx);
         renumber(sibs);
@@ -791,6 +807,53 @@ mod tests {
         let (mut m, order) = model("- [ ] задача\n");
         toggle_todo(&mut m, order.ids[0]);
         assert_eq!(serialize_document(&m), "- [x] задача\n");
+    }
+
+    #[test]
+    fn indent_table_into_toggle() {
+        // Агент часто пишет toggle и таблицу соседними блоками — Tab
+        // (или пункт меню) убирает таблицу внутрь, Shift+Tab возвращает.
+        let (mut m, _) = model("> [!toggle] Полная таблица\n\n| A | B |\n| --- | --- |\n| 1 | 2 |\n");
+        assert_eq!(m.blocks.len(), 2);
+        let table = m.blocks[1].id;
+        assert!(indent_block(&mut m, table));
+        assert_eq!(m.blocks.len(), 1);
+        match &m.blocks[0].kind {
+            BlockKind::Toggle { children, collapsed, .. } => {
+                assert!(matches!(children.as_slice(), [b] if matches!(b.kind, BlockKind::Table { .. })));
+                assert!(!collapsed, "вложение раскрывает toggle — иначе блок «пропал»");
+            }
+            other => panic!("не toggle: {other:?}"),
+        }
+        assert_eq!(
+            serialize_document(&m),
+            "> [!toggle]{open} Полная таблица\n>\n> | A | B |\n> | --- | --- |\n> | 1 | 2 |\n"
+        );
+        assert!(outdent_block(&mut m, table));
+        assert_eq!(m.blocks.len(), 2);
+        assert!(matches!(m.blocks[1].kind, BlockKind::Table { .. }));
+    }
+
+    #[test]
+    fn indent_block_drops_canvas_geometry() {
+        // Координаты холста живут только у верхнего уровня: у ребёнка они
+        // ушли бы в сайдкар чужим индексом.
+        let (mut m, _) = model("> [!toggle] Секция\n\nтекст\n");
+        let para = m.blocks[1].id;
+        super::super::free::set_pos(&mut m.blocks[1].attrs, 40.0, 120.0);
+        assert!(indent_block(&mut m, para));
+        let BlockKind::Toggle { children, .. } = &m.blocks[0].kind else { panic!() };
+        assert!(super::super::free::pos_of(&children[0].attrs).is_none());
+    }
+
+    #[test]
+    fn indent_list_item_only_into_list_item() {
+        // Пункт списка под выноской остаётся снаружи: Tab в списке иначе
+        // молча уносил бы пункты в чужой блок.
+        let (mut m, _) = model("> [!note] Важно\n\n- пункт\n");
+        let item = m.blocks[1].id;
+        assert!(!indent_block(&mut m, item));
+        assert_eq!(m.blocks.len(), 2);
     }
 
     #[test]

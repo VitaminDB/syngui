@@ -302,3 +302,19 @@ fn curve_shapes() {
     assert_eq!(ShapeKind::from_name("bezier"), Some(ShapeKind::Curve));
     assert_eq!(ShapeKind::CurveDoubleArrow.straightened(), ShapeKind::DoubleArrow);
 }
+
+#[test]
+fn table_inside_toggle() {
+    // Содержимое toggle — строки цитаты; таблица внутри переживает
+    // round-trip (агент, забывший «> », получает два соседних блока).
+    let src = "> [!toggle] Полная таблица\n>\n> | A | B |\n> | --- | --- |\n> | 1 | 2 |\n";
+    let m = parse_document(src);
+    assert_eq!(m.blocks.len(), 1, "toggle с таблицей — один блок");
+    match &m.blocks[0].kind {
+        BlockKind::Toggle { children, .. } => {
+            assert!(matches!(children.as_slice(), [b] if matches!(b.kind, BlockKind::Table { .. })));
+        }
+        other => panic!("не toggle: {other:?}"),
+    }
+    assert_eq!(serialize_document(&m), src);
+}

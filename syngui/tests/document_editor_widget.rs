@@ -369,6 +369,33 @@ fn tab_indents_list_item() {
     assert_eq!(handle.serialize(), "- раз\n- два\n");
 }
 
+/// Пункт меню «Вложить в блок выше» для блока без каретки: таблица,
+/// написанная соседом toggle (а не строками цитаты), уходит внутрь него —
+/// и toggle начинает её сворачивать.
+#[test]
+fn host_op_nests_a_table_into_the_toggle_above() {
+    let md = "> [!toggle] Полная таблица\n\n| A | B |\n| --- | --- |\n| 1 | 2 |\n";
+    let handle = DocumentEditorHandle::new();
+    let mut h = TestHarness::new(Box::new(DocumentEditor::new().markdown(md).handle(&handle)));
+    h.tree.text_measure = Some(Arc::new(Mono));
+    h.rebuild();
+    h.layout(800.0, 2000.0);
+
+    let table = handle.outline()[1].id;
+    handle.queue_op(DocOp::Select(table));
+    handle.queue_op(DocOp::Indent { outdent: false });
+    pump(&mut h, &handle, md, DocLayout::default());
+    assert_eq!(
+        handle.serialize(),
+        "> [!toggle]{open} Полная таблица\n>\n> | A | B |\n> | --- | --- |\n> | 1 | 2 |\n"
+    );
+    assert_eq!(handle.outline().len(), 1, "таблица осталась отдельным блоком");
+
+    handle.queue_op(DocOp::Indent { outdent: true });
+    pump(&mut h, &handle, md, DocLayout::default());
+    assert_eq!(handle.outline().len(), 2, "Shift+Tab не вернул таблицу наружу");
+}
+
 // ─── Шорткаты, slash-меню, инлайн-стили (S5) ────────────────────────────────
 
 #[test]

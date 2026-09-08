@@ -68,6 +68,10 @@ pub enum DocOp {
     Delete,
     /// Сдвинуть блок каретки на одну позицию среди соседей.
     Move { down: bool },
+    /// Вложить блок в соседа сверху (toggle, выноску, цитату, пункт
+    /// списка) либо вынуть из родителя — то же, что Tab / Shift+Tab, но
+    /// доступно и блокам без каретки (таблица, картинка, врезка).
+    Indent { outdent: bool },
     /// Сделать блок текущим (клик в дереве блоков хоста).
     Select(super::model::BlockId),
     /// Свойство блока: `None` — вернуть к теме (см. [`super::props`]).
@@ -991,14 +995,17 @@ impl DocumentEditorElement {
         done
     }
 
-    /// Tab / Shift+Tab: отступ пункта списка.
+    /// Tab / Shift+Tab (и пункты меню хоста): вложить блок в соседа
+    /// сверху / вынуть из родителя. Целевой блок — как у остальных
+    /// операций хоста: каретка, а без неё — выделенный блок (таблицу или
+    /// картинку иначе не вложить: каретки в них нет).
     fn tab_indent(&mut self, outdent: bool) -> bool {
-        let Some(pos) = self.caret() else { return false };
+        let Some((block, _)) = self.target_block() else { return false };
         let mut model = self.model();
         let done = if outdent {
-            edit::outdent_item(&mut model, pos.block)
+            edit::outdent_block(&mut model, block)
         } else {
-            edit::indent_item(&mut model, pos.block)
+            edit::indent_block(&mut model, block)
         };
         drop(model);
         if done {
@@ -1337,6 +1344,9 @@ impl DocumentEditorElement {
             DocOp::DeleteBlock(id) => self.delete_block(id),
             DocOp::InsertMarkdownAt { at: point, md } => self.insert_markdown_at_point(&md, point),
             DocOp::Move { down } => self.move_current(down),
+            DocOp::Indent { outdent } => {
+                self.tab_indent_checkpointed(outdent);
+            }
             DocOp::Select(id) => self.select_block(id),
             // Кнопки истории хоста: клик по ним увёл фокус приложения с
             // редактора — просим обратно, чтобы восстановленная каретка
