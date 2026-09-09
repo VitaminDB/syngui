@@ -160,6 +160,10 @@ pub struct ElementTree {
     pub(crate) rebuild_registry: std::collections::HashSet<ElementId>,
     pub(crate) last_hovered_path: Vec<ElementId>,
     pub(crate) mouse_captor: Option<ElementId>,
+    /// Элемент, владеющий текстовым выделением (`EventContext::claim_text_selection`).
+    /// Получает `MouseDown` вне своих границ — по hit-test событие до него не
+    /// дошло бы, и выделение оставалось бы висеть после клика по пустому месту.
+    pub(crate) text_selection_owner: Option<ElementId>,
     pub(crate) post_layout_sync_registry: std::collections::HashSet<ElementId>,
 }
 
@@ -218,6 +222,7 @@ impl ElementTree {
             rebuild_registry: std::collections::HashSet::new(),
             last_hovered_path: Vec::new(),
             mouse_captor: None,
+            text_selection_owner: None,
             post_layout_sync_registry: std::collections::HashSet::new(),
         }
     }
@@ -904,6 +909,9 @@ impl ElementTree {
         }
         if self.mouse_captor == Some(id) {
             self.mouse_captor = None;
+        }
+        if self.text_selection_owner == Some(id) {
+            self.text_selection_owner = None;
         }
         if self.focused_element == Some(id) {
             self.focused_element = None;

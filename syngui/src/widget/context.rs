@@ -100,6 +100,11 @@ pub struct EventContext {
     pub(crate) hide_window: bool,
     pub(crate) show_window: bool,
     pub(crate) toggle_window_visibility: bool,
+    /// Заявка на владение текстовым выделением: `Some(true)` — элемент
+    /// выделил текст, `Some(false)` — снял выделение. Дерево запоминает
+    /// владельца и доставляет ему MouseDown вне его границ, чтобы клик по
+    /// свободному месту снимал выделение (см. `ElementTree::text_selection_owner`).
+    pub(crate) text_selection_claim: Option<bool>,
     window_flags: u8,
 }
 
@@ -133,8 +138,22 @@ impl EventContext {
             hide_window: false,
             show_window: false,
             toggle_window_visibility: false,
+            text_selection_claim: None,
             window_flags: 0,
         }
+    }
+
+    /// Элемент выделил текст мышью/клавиатурой и хочет узнать о клике в
+    /// любом другом месте: дерево доставит ему `MouseDown` даже вне его
+    /// границ (по hit-test он бы туда не дошёл), а элемент по нему снимет
+    /// выделение. Одновременно владелец один — новая заявка вытесняет старую.
+    pub fn claim_text_selection(&mut self) {
+        self.text_selection_claim = Some(true);
+    }
+
+    /// Выделение снято — клики в других местах больше не нужны.
+    pub fn release_text_selection(&mut self) {
+        self.text_selection_claim = Some(false);
     }
 
     pub fn capture(&mut self) {
@@ -149,6 +168,7 @@ impl EventContext {
 
     pub(crate) fn has_side_effects(&self) -> bool {
         self.overlay_register.is_some()
+            || self.text_selection_claim.is_some()
             || self.overlay_unregister
             || self.start_drag.is_some()
             || self.cursor_icon.is_some()

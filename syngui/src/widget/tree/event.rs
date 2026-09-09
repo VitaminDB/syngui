@@ -90,6 +90,7 @@ impl ElementTree {
 
         if matches!(event, Event::MouseDown { .. }) {
             self.last_mousedown_element = None;
+            self.notify_text_selection_owner(event);
         }
 
         let event_pos = event.position();
@@ -142,6 +143,36 @@ impl ElementTree {
             return self.dispatch_positional(root_id, event, pos);
         }
         self.dispatch_event(root_id, event)
+    }
+
+    /// Владелец текстового выделения получает `MouseDown` вне своих границ.
+    /// Обычная доставка позиционная (hit-test) или обходит только поддерево
+    /// overlay, так что клик по свободному месту страницы или окна до него не
+    /// доходит — и выделение оставалось бы. Внутри границ ничего не шлём:
+    /// туда событие придёт штатным путём, а второй экземпляр засчитался бы
+    /// как двойной клик.
+    fn notify_text_selection_owner(&mut self, event: &Event) {
+        let owner = match self.text_selection_owner {
+            Some(id) => id,
+            None => return,
+        };
+        if !self.elements.contains_key(&owner) {
+            self.text_selection_owner = None;
+            return;
+        }
+        let (s, k) = self.accumulated_event_transform(owner);
+        let adj = if is_identity_transform(s, k) {
+            event.clone()
+        } else {
+            event.with_inverse_transform(s, k)
+        };
+        let inside = match (adj.position(), self.elements.get(&owner)) {
+            (Some(pos), Some(node)) => node.element.bounds().contains(pos),
+            _ => true,
+        };
+        if !inside {
+            self.dispatch_event_to(owner, &adj);
+        }
     }
 
     fn dispatch_focus_bubble(&mut self, focused: ElementId, event: &Event) -> EventResult {
@@ -403,6 +434,13 @@ impl ElementTree {
         if ctx.overlay_unregister {
             self.unregister_overlay(element_id);
             ctx.overlay_unregister = false;
+        }
+        if let Some(claim) = ctx.text_selection_claim.take() {
+            if claim {
+                self.text_selection_owner = Some(element_id);
+            } else if self.text_selection_owner == Some(element_id) {
+                self.text_selection_owner = None;
+            }
         }
         if let Some(data) = ctx.start_drag.take() {
             let pos = ctx.cursor_position;

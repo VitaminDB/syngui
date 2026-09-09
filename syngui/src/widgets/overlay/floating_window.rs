@@ -700,15 +700,33 @@ impl Element for FloatingWindowElement {
 
         let win = self.window_rect();
 
-        list.push_shadow(
-            win,
-            Color::new(0.0, 0.0, 0.0, 0.15),
-            16.0,
-            (0.0, 4.0),
-            [radius; 4],
-        );
+        // Тень и рамка — из MSS (`box-shadow`, `border`), как у DecoratedBox;
+        // без стиля — прежний мягкий дефолт.
+        match self.mss.box_shadow.as_ref().filter(|s| !s.is_empty()) {
+            Some(shadows) => {
+                for shadow in shadows.as_slice() {
+                    if !shadow.inset {
+                        list.push_shadow(
+                            win,
+                            shadow.color,
+                            shadow.blur_radius,
+                            (shadow.offset_x, shadow.offset_y),
+                            [radius; 4],
+                        );
+                    }
+                }
+            }
+            None => list.push_shadow(
+                win,
+                Color::new(0.0, 0.0, 0.0, 0.15),
+                16.0,
+                (0.0, 4.0),
+                [radius; 4],
+            ),
+        }
 
-        list.push_rect_bordered(win, bg, [radius; 4], Border { width: 1.0, color: border_color });
+        let border_width = self.mss.border_width_or(1.0);
+        list.push_rect_bordered(win, bg, [radius; 4], Border { width: border_width, color: border_color });
 
         let tb = self.title_bar_rect();
         list.push_rect(tb, bg.darken(0.08), [radius, radius, 0.0, 0.0]);

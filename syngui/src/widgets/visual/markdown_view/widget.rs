@@ -1017,6 +1017,17 @@ impl Element for MarkdownViewElement {
                     return EventResult::Handled;
                 }
                 if !self.selectable || !self.bounds.contains(*position) {
+                    // Клик вне блока снимает выделение — дерево доставляет
+                    // MouseDown владельцу выделения и за пределами его границ
+                    // (`ElementTree::notify_text_selection_owner`), внутри
+                    // overlay событие обходит всё поддерево и так.
+                    if self.selection_anchor.is_some() {
+                        self.selection_anchor = None;
+                        self.selection_focus = SelPos::ZERO;
+                        self.mouse_selecting = false;
+                        ctx.release_text_selection();
+                        self.mark_dirty(DirtyFlags::RENDER);
+                    }
                     return EventResult::Ignored;
                 }
                 let pos_sel = self.hit_test_pos(*position);
@@ -1049,6 +1060,7 @@ impl Element for MarkdownViewElement {
                         self.mouse_selecting = true;
                     }
                 }
+                ctx.claim_text_selection();
                 self.mark_dirty(DirtyFlags::RENDER);
                 EventResult::Handled
             }
@@ -1085,6 +1097,7 @@ impl Element for MarkdownViewElement {
             }
             Event::KeyDown(Key::A) if self.selectable && ctx.modifiers.ctrl => {
                 self.select_all();
+                ctx.claim_text_selection();
                 self.mark_dirty(DirtyFlags::RENDER);
                 EventResult::Handled
             }
@@ -1113,6 +1126,7 @@ impl Element for MarkdownViewElement {
     }
 
     fn element_type_name(&self) -> &str { "MarkdownView" }
+    fn as_any_mut(&mut self) -> Option<&mut dyn Any> { Some(self) }
 
     fn set_classes(&mut self, classes: Vec<String>) {
         self.classes = classes;
@@ -1399,5 +1413,49 @@ mod rebuild_tests {
             _ => None,
         });
         assert_eq!(weight, Some(700), "выделение жирного текста должно нести начертание");
+    }
+
+    /// Клик по свободному месту снимает выделение. Позиционная доставка
+    /// событий до MarkdownView вне его границ не доходит, поэтому дерево
+    /// запоминает владельца выделения и шлёт ему MouseDown отдельно
+    /// (`ElementTree::notify_text_selection_owner`) — даже если клик
+    /// пришёлся на элемент, который MouseDown обработал сам (кнопка).
+    #[test]
+    fn click_outside_clears_selection() {
+        use crate::core::RectExt;
+        use crate::input::{Event, MouseButton};
+        use crate::widgets::containers::Column;
+        use crate::widgets::Button;
+
+        let widget = Column::new()
+            .child(MarkdownView::new("hello world"))
+            .child(Button::new("Кнопка"));
+        let mut harness = TestHarness::new(Box::new(widget));
+        harness.layout(300.0, 200.0);
+
+        let md = harness.find_by_type_name("MarkdownView")[0];
+        let md_bounds = harness.element_bounds(md);
+        let btn = harness.find_by_type_name("Button")[0];
+        let btn_bounds = harness.element_bounds(btn);
+        assert!(!btn_bounds.contains(md_bounds.center()), "кнопка должна стоять вне блока");
+
+        let anchor = |h: &mut TestHarness| {
+            h.tree
+                .get_mut(md)
+                .and_then(|e| e.as_any_mut())
+                .and_then(|e| e.downcast_mut::<MarkdownViewElement>())
+                .map(|e| e.selection_anchor.is_some())
+                .expect("MarkdownViewElement")
+        };
+
+        harness.send_event(&Event::MouseDown { button: MouseButton::Left, position: md_bounds.center() });
+        harness.send_event(&Event::MouseUp { button: MouseButton::Left, position: md_bounds.center() });
+        assert!(anchor(&mut harness), "клик по тексту начинает выделение");
+        assert_eq!(harness.tree.text_selection_owner, Some(md), "блок объявил себя владельцем выделения");
+
+        harness.send_event(&Event::MouseDown { button: MouseButton::Left, position: btn_bounds.center() });
+        harness.send_event(&Event::MouseUp { button: MouseButton::Left, position: btn_bounds.center() });
+        assert!(!anchor(&mut harness), "клик вне блока снимает выделение");
+        assert_eq!(harness.tree.text_selection_owner, None, "владелец отпущен");
     }
 }
