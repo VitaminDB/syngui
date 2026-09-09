@@ -1,16 +1,18 @@
+use crate::core::sync::Mutex;
 use crate::core::{Color, Point, Rect, RectExt, Size};
 use crate::input::{CursorIcon, Event, EventResult, Key, MouseButton};
 use crate::layout::Constraints;
-use crate::mss::{ComputedStyle, Dimension};
 use crate::mss::MssFields;
+use crate::mss::{ComputedStyle, Dimension};
 use crate::render::{Border, DisplayList};
 use crate::widget::context::{EventContext, EventContextExt};
-use crate::widget::{DirtyFlags, Element, ElementId, ElementTree, StyledElement, UpdateContext, Widget};
+use crate::widget::{
+    DirtyFlags, Element, ElementId, ElementTree, StyledElement, UpdateContext, Widget,
+};
 use std::any::Any;
-use std::sync::Arc;
 use std::sync::atomic::{AtomicU64, Ordering};
+use std::sync::Arc;
 use std::time::Duration;
-use crate::core::sync::Mutex;
 
 /// Id поля, которое сейчас правят с клавиатуры (0 — никто). Правка — это
 /// состояние на всё приложение: одновременно мигающих кареток быть не должно.
@@ -22,6 +24,9 @@ const DEFAULT_BORDER_RADIUS: f32 = 8.0;
 const DEFAULT_BORDER_WIDTH: f32 = 1.0;
 const DEFAULT_FONT_SIZE: f32 = 14.0;
 const DEFAULT_VALUE_PADDING: f32 = 6.0;
+/// Сколько места оставить под значение и до какой ширины ужимать кнопки.
+const MIN_VALUE_WIDTH: f32 = 26.0;
+const MIN_BUTTON_WIDTH: f32 = 14.0;
 
 const REPEAT_INITIAL_DELAY: f32 = 0.4;
 const REPEAT_INTERVAL: f32 = 0.08;
@@ -179,8 +184,19 @@ pub struct SpinBoxElement {
 }
 
 impl SpinBoxElement {
+    /// Ширина кнопки «−»/«+». Узкое поле (спиннер часов в панели
+    /// свойств — 72px) кнопками по умолчанию съедало значение до
+    /// нескольких пикселей, и «24» ломалось на две строки: кнопки
+    /// сжимаются, пока значению не останется `MIN_VALUE_WIDTH`.
     fn button_width(&self) -> f32 {
-        self.mss.padding_left.unwrap_or(DEFAULT_BUTTON_WIDTH)
+        let want = self.mss.padding_left.unwrap_or(DEFAULT_BUTTON_WIDTH);
+        let pad = self.value_padding();
+        let room = (self.bounds.size.width - MIN_VALUE_WIDTH - pad * 2.0) / 2.0;
+        if self.bounds.size.width <= 0.0 {
+            want
+        } else {
+            want.min(room.max(MIN_BUTTON_WIDTH))
+        }
     }
 
     fn value_padding(&self) -> f32 {
@@ -188,11 +204,17 @@ impl SpinBoxElement {
     }
 
     fn resolved_height(&self) -> f32 {
-        self.mss.height.map(|d| d.resolve(f32::INFINITY)).unwrap_or(DEFAULT_HEIGHT)
+        self.mss
+            .height
+            .map(|d| d.resolve(f32::INFINITY))
+            .unwrap_or(DEFAULT_HEIGHT)
     }
 
     fn resolved_radius(&self) -> f32 {
-        self.mss.border_radius_uniform(self.bounds.size.width.min(self.bounds.size.height), DEFAULT_BORDER_RADIUS)
+        self.mss.border_radius_uniform(
+            self.bounds.size.width.min(self.bounds.size.height),
+            DEFAULT_BORDER_RADIUS,
+        )
     }
 
     fn resolved_border_width(&self) -> f32 {
@@ -209,16 +231,16 @@ impl SpinBoxElement {
 
     fn minus_rect(&self) -> Rect {
         let bw = self.button_width();
-        Rect::new(
-            self.bounds.origin,
-            Size::new(bw, self.bounds.size.height),
-        )
+        Rect::new(self.bounds.origin, Size::new(bw, self.bounds.size.height))
     }
 
     fn plus_rect(&self) -> Rect {
         let bw = self.button_width();
         Rect::new(
-            Point::new(self.bounds.x() + self.bounds.size.width - bw, self.bounds.y()),
+            Point::new(
+                self.bounds.x() + self.bounds.size.width - bw,
+                self.bounds.y(),
+            ),
             Size::new(bw, self.bounds.size.height),
         )
     }
@@ -228,7 +250,10 @@ impl SpinBoxElement {
         let pad = self.value_padding();
         Rect::new(
             Point::new(self.bounds.x() + bw + pad, self.bounds.y()),
-            Size::new((self.bounds.size.width - bw * 2.0 - pad * 2.0).max(0.0), self.bounds.size.height),
+            Size::new(
+                (self.bounds.size.width - bw * 2.0 - pad * 2.0).max(0.0),
+                self.bounds.size.height,
+            ),
         )
     }
 
@@ -261,12 +286,7 @@ impl SpinBoxElement {
     }
 
     fn release_editor_slot(&self) {
-        let _ = ACTIVE_EDITOR.compare_exchange(
-            self.id.0,
-            0,
-            Ordering::Relaxed,
-            Ordering::Relaxed,
-        );
+        let _ = ACTIVE_EDITOR.compare_exchange(self.id.0, 0, Ordering::Relaxed, Ordering::Relaxed);
     }
 
     fn commit_editing(&mut self) {
@@ -285,7 +305,8 @@ impl SpinBoxElement {
     }
 
     fn cursor_byte_pos(&self) -> usize {
-        self.edit_text.char_indices()
+        self.edit_text
+            .char_indices()
             .nth(self.edit_cursor)
             .map(|(i, _)| i)
             .unwrap_or(self.edit_text.len())
@@ -320,8 +341,11 @@ impl Element for SpinBoxElement {
     }
 
     fn layout(&mut self, constraints: Constraints) -> Size {
-        let width = self.width.map(|d| d.resolve(constraints.max_width))
-            .unwrap_or(constraints.max_width).min(constraints.max_width);
+        let width = self
+            .width
+            .map(|d| d.resolve(constraints.max_width))
+            .unwrap_or(constraints.max_width)
+            .min(constraints.max_width);
         let height = self.resolved_height();
         self.bounds = Rect::new(Point::zero(), Size::new(width, height));
         Size::new(width, height)
@@ -330,14 +354,36 @@ impl Element for SpinBoxElement {
     fn build_display_list(&self, list: &mut DisplayList, _clip: Rect) {
         let bg = self.mss.background_color.unwrap_or(Color::WHITE);
         let fg = self.mss.color.unwrap_or_else(|| Color::from_hex("#1F2937"));
-        let border_color = self.mss.border_color.unwrap_or_else(|| Color::from_hex("#D1D5DB"));
-        let hover_bg = if self.mss.background_color.is_some() { bg.lighten(0.1) } else { Color::from_hex("#F3F4F6") };
-        let pressed_bg = if self.mss.background_color.is_some() { bg.lighten(0.15) } else { Color::from_hex("#E5E7EB") };
-        let divider_color = if self.mss.border_color.is_some() { border_color } else { Color::from_hex("#E5E7EB") };
-        let accent = self.mss.accent_color.unwrap_or_else(|| Color::from_hex("#3B82F6"));
+        let border_color = self
+            .mss
+            .border_color
+            .unwrap_or_else(|| Color::from_hex("#D1D5DB"));
+        let hover_bg = if self.mss.background_color.is_some() {
+            bg.lighten(0.1)
+        } else {
+            Color::from_hex("#F3F4F6")
+        };
+        let pressed_bg = if self.mss.background_color.is_some() {
+            bg.lighten(0.15)
+        } else {
+            Color::from_hex("#E5E7EB")
+        };
+        let divider_color = if self.mss.border_color.is_some() {
+            border_color
+        } else {
+            Color::from_hex("#E5E7EB")
+        };
+        let accent = self
+            .mss
+            .accent_color
+            .unwrap_or_else(|| Color::from_hex("#3B82F6"));
 
         let bg_color = if self.disabled { bg.darken(0.05) } else { bg };
-        let text_color = if self.disabled { fg.with_alpha(0.5) } else { fg };
+        let text_color = if self.disabled {
+            fg.with_alpha(0.5)
+        } else {
+            fg
+        };
 
         let radius = self.resolved_radius();
         let bw = self.button_width();
@@ -347,14 +393,23 @@ impl Element for SpinBoxElement {
         let active_border = if self.editing { accent } else { border_color };
         let active_bw = if self.editing { 2.0 } else { border_w };
         list.push_rect_bordered(
-            self.bounds, bg_color, [radius; 4],
-            Border { width: active_bw, color: active_border },
+            self.bounds,
+            bg_color,
+            [radius; 4],
+            Border {
+                width: active_bw,
+                color: active_border,
+            },
         );
 
         let inner_radius = (radius - border_w).max(0.0);
         if !self.disabled {
             if self.minus_pressed || self.minus_hovered {
-                let color = if self.minus_pressed { pressed_bg } else { hover_bg };
+                let color = if self.minus_pressed {
+                    pressed_bg
+                } else {
+                    hover_bg
+                };
                 let r = Rect::new(
                     Point::new(self.bounds.x() + border_w, self.bounds.y() + border_w),
                     Size::new(bw - border_w, h - border_w * 2.0),
@@ -362,9 +417,16 @@ impl Element for SpinBoxElement {
                 list.push_rect(r, color, [inner_radius, 0.0, 0.0, inner_radius]);
             }
             if self.plus_pressed || self.plus_hovered {
-                let color = if self.plus_pressed { pressed_bg } else { hover_bg };
+                let color = if self.plus_pressed {
+                    pressed_bg
+                } else {
+                    hover_bg
+                };
                 let r = Rect::new(
-                    Point::new(self.bounds.x() + self.bounds.size.width - bw, self.bounds.y() + border_w),
+                    Point::new(
+                        self.bounds.x() + self.bounds.size.width - bw,
+                        self.bounds.y() + border_w,
+                    ),
                     Size::new(bw - border_w, h - border_w * 2.0),
                 );
                 list.push_rect(r, color, [0.0, inner_radius, inner_radius, 0.0]);
@@ -378,7 +440,10 @@ impl Element for SpinBoxElement {
         list.push_rect(left_div, divider_color, [0.0; 4]);
 
         let right_div = Rect::new(
-            Point::new(self.bounds.x() + self.bounds.size.width - bw, self.bounds.y()),
+            Point::new(
+                self.bounds.x() + self.bounds.size.width - bw,
+                self.bounds.y(),
+            ),
             Size::new(1.0, h),
         );
         list.push_rect(right_div, divider_color, [0.0; 4]);
@@ -395,7 +460,7 @@ impl Element for SpinBoxElement {
                 Point::new(vr.x() + 2.0, vr.y() + (vr.size.height - val_fs) / 2.0),
                 Size::new(vr.size.width - 4.0, val_fs + 2.0),
             );
-            list.push_text(&self.edit_text, text_rect, text_color, val_fs);
+            list.push_text_singleline(&self.edit_text, text_rect, text_color, val_fs, crate::mss::TextAlign::DEFAULT, 400);
 
             let blink_phase = (self.cursor_blink * CURSOR_BLINK_RATE * 2.0) % 2.0;
             if blink_phase < 1.0 {
@@ -409,7 +474,9 @@ impl Element for SpinBoxElement {
                 list.push_rect(cursor_rect, accent, [0.0; 4]);
             }
         } else {
-            list.push_text_centered(&self.formatted_value(), vr, text_color, val_fs);
+            // Однострочно: значение в узком поле иначе переносится по
+            // символам («24» → «2» и «4»).
+            list.push_text_singleline(&self.formatted_value(), vr, text_color, val_fs, crate::mss::TextAlign::CENTER, 400);
         }
     }
 
@@ -445,7 +512,9 @@ impl Element for SpinBoxElement {
             Event::MouseDown { button, position } => {
                 if *button == MouseButton::Left {
                     if self.minus_rect().contains(*position) {
-                        if self.editing { self.commit_editing(); }
+                        if self.editing {
+                            self.commit_editing();
+                        }
                         self.minus_pressed = true;
                         self.set_value(self.value - self.step);
                         self.start_repeat(-1);
@@ -453,7 +522,9 @@ impl Element for SpinBoxElement {
                         return EventResult::Handled;
                     }
                     if self.plus_rect().contains(*position) {
-                        if self.editing { self.commit_editing(); }
+                        if self.editing {
+                            self.commit_editing();
+                        }
                         self.plus_pressed = true;
                         self.set_value(self.value + self.step);
                         self.start_repeat(1);
@@ -489,7 +560,9 @@ impl Element for SpinBoxElement {
                 EventResult::Ignored
             }
             Event::CharInput(ch) if self.editing => {
-                if ch.is_control() { return EventResult::Ignored; }
+                if ch.is_control() {
+                    return EventResult::Ignored;
+                }
                 if ch.is_ascii_digit() || *ch == '.' || *ch == '-' {
                     let byte_pos = self.cursor_byte_pos();
                     self.edit_text.insert(byte_pos, *ch);
@@ -500,69 +573,67 @@ impl Element for SpinBoxElement {
                 }
                 EventResult::Handled
             }
-            Event::KeyDown(key) if self.editing => {
-                match key {
-                    Key::Backspace => {
-                        if self.edit_cursor > 0 {
-                            self.edit_cursor -= 1;
-                            let byte_pos = self.cursor_byte_pos();
-                            self.edit_text.remove(byte_pos);
-                            self.cursor_blink = 0.0;
-                            ctx.request_paint();
-                        }
-                        EventResult::Handled
-                    }
-                    Key::Delete => {
+            Event::KeyDown(key) if self.editing => match key {
+                Key::Backspace => {
+                    if self.edit_cursor > 0 {
+                        self.edit_cursor -= 1;
                         let byte_pos = self.cursor_byte_pos();
-                        if byte_pos < self.edit_text.len() {
-                            self.edit_text.remove(byte_pos);
-                            self.cursor_blink = 0.0;
-                            ctx.request_paint();
-                        }
-                        EventResult::Handled
-                    }
-                    Key::Left => {
-                        if self.edit_cursor > 0 {
-                            self.edit_cursor -= 1;
-                            self.cursor_blink = 0.0;
-                            ctx.request_paint();
-                        }
-                        EventResult::Handled
-                    }
-                    Key::Right => {
-                        let char_count = self.edit_text.chars().count();
-                        if self.edit_cursor < char_count {
-                            self.edit_cursor += 1;
-                            self.cursor_blink = 0.0;
-                            ctx.request_paint();
-                        }
-                        EventResult::Handled
-                    }
-                    Key::Home => {
-                        self.edit_cursor = 0;
+                        self.edit_text.remove(byte_pos);
                         self.cursor_blink = 0.0;
                         ctx.request_paint();
-                        EventResult::Handled
                     }
-                    Key::End => {
-                        self.edit_cursor = self.edit_text.chars().count();
-                        self.cursor_blink = 0.0;
-                        ctx.request_paint();
-                        EventResult::Handled
-                    }
-                    Key::Enter => {
-                        self.commit_editing();
-                        ctx.request_paint();
-                        EventResult::Handled
-                    }
-                    Key::Escape => {
-                        self.cancel_editing();
-                        ctx.request_paint();
-                        EventResult::Handled
-                    }
-                    _ => EventResult::Handled,
+                    EventResult::Handled
                 }
-            }
+                Key::Delete => {
+                    let byte_pos = self.cursor_byte_pos();
+                    if byte_pos < self.edit_text.len() {
+                        self.edit_text.remove(byte_pos);
+                        self.cursor_blink = 0.0;
+                        ctx.request_paint();
+                    }
+                    EventResult::Handled
+                }
+                Key::Left => {
+                    if self.edit_cursor > 0 {
+                        self.edit_cursor -= 1;
+                        self.cursor_blink = 0.0;
+                        ctx.request_paint();
+                    }
+                    EventResult::Handled
+                }
+                Key::Right => {
+                    let char_count = self.edit_text.chars().count();
+                    if self.edit_cursor < char_count {
+                        self.edit_cursor += 1;
+                        self.cursor_blink = 0.0;
+                        ctx.request_paint();
+                    }
+                    EventResult::Handled
+                }
+                Key::Home => {
+                    self.edit_cursor = 0;
+                    self.cursor_blink = 0.0;
+                    ctx.request_paint();
+                    EventResult::Handled
+                }
+                Key::End => {
+                    self.edit_cursor = self.edit_text.chars().count();
+                    self.cursor_blink = 0.0;
+                    ctx.request_paint();
+                    EventResult::Handled
+                }
+                Key::Enter => {
+                    self.commit_editing();
+                    ctx.request_paint();
+                    EventResult::Handled
+                }
+                Key::Escape => {
+                    self.cancel_editing();
+                    ctx.request_paint();
+                    EventResult::Handled
+                }
+                _ => EventResult::Handled,
+            },
             Event::FocusGained => EventResult::Handled,
             Event::FocusLost => {
                 if self.editing {
@@ -631,7 +702,11 @@ impl Element for SpinBoxElement {
         self.repeat_direction.is_some() || self.editing
     }
 
-    fn explicit_dimensions(&self, _parent_width: f32, _parent_height: f32) -> (Option<f32>, Option<f32>) {
+    fn explicit_dimensions(
+        &self,
+        _parent_width: f32,
+        _parent_height: f32,
+    ) -> (Option<f32>, Option<f32>) {
         (
             self.width.map(|d| d.resolve(f32::INFINITY)),
             self.mss.height.map(|d| d.resolve(f32::INFINITY)),
@@ -681,10 +756,16 @@ impl Element for SpinBoxElement {
         &self.classes
     }
 
-    fn element_type_name(&self) -> &str { "SpinBox" }
+    fn element_type_name(&self) -> &str {
+        "SpinBox"
+    }
 
-    fn reset_mss_styles(&mut self) { self.mss.reset(); }
-    fn mss(&self) -> Option<&crate::mss::MssFields> { Some(&self.mss) }
+    fn reset_mss_styles(&mut self) {
+        self.mss.reset();
+    }
+    fn mss(&self) -> Option<&crate::mss::MssFields> {
+        Some(&self.mss)
+    }
     fn apply_computed_style(&mut self, style: &ComputedStyle) {
         self.mss.apply(style);
         self.mark_dirty(DirtyFlags::LAYOUT | DirtyFlags::RENDER);
@@ -699,7 +780,8 @@ impl Element for SpinBoxElement {
         selected: Option<&ComputedStyle>,
         _checked: Option<&ComputedStyle>,
     ) {
-        self.mss.apply_transitions(base, hover, active, focus, selected);
+        self.mss
+            .apply_transitions(base, hover, active, focus, selected);
     }
 
     fn accessibility_info(&self) -> Option<crate::a11y::AccessibilityInfo> {
@@ -730,5 +812,51 @@ impl StyledElement for SpinBoxElement {
     fn set_classes(&mut self, classes: Vec<String>) {
         self.classes = classes;
         self.mark_dirty(DirtyFlags::RENDER);
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn element(width: f32) -> SpinBoxElement {
+        SpinBoxElement {
+            id: ElementId::new(),
+            value: 24.0,
+            min: 0.0,
+            max: 24.0,
+            step: 1.0,
+            decimal_places: 0,
+            disabled: false,
+            width: Some(Dimension::Px(width)),
+            on_change: None,
+            bounds: Rect::new(Point::zero(), Size::new(width, 28.0)),
+            minus_hovered: false,
+            plus_hovered: false,
+            minus_pressed: false,
+            plus_pressed: false,
+            repeat_direction: None,
+            repeat_elapsed: 0.0,
+            repeat_initial_done: false,
+            editing: false,
+            edit_text: String::new(),
+            edit_cursor: 0,
+            cursor_blink: 0.0,
+            classes: Vec::new(),
+            dirty_flags: DirtyFlags::LAYOUT | DirtyFlags::RENDER,
+            mss: MssFields::new(),
+        }
+    }
+
+    /// Узкое поле (спиннер часов в панели свойств — 72px) оставляет
+    /// значению место: раньше кнопки по умолчанию съедали его до
+    /// нескольких пикселей и «24» переносилось на две строки.
+    #[test]
+    fn narrow_spin_box_keeps_room_for_the_value() {
+        let e = element(72.0);
+        assert!(e.value_rect().size.width >= MIN_VALUE_WIDTH, "поле значения {} px", e.value_rect().size.width);
+        assert!(e.button_width() >= MIN_BUTTON_WIDTH, "кнопка не уже {MIN_BUTTON_WIDTH} px");
+        // Широкому полю кнопки остаются штатными.
+        assert_eq!(element(200.0).button_width(), DEFAULT_BUTTON_WIDTH);
     }
 }

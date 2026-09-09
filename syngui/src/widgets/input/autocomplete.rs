@@ -1,16 +1,18 @@
 use crate::animation::transition::mss_color_to_core;
+use crate::core::sync::Mutex;
 use crate::core::{Color, Point, Rect, RectExt, Size};
 use crate::input::{CursorIcon, Event, EventResult, Key, MouseButton};
 use crate::layout::Constraints;
-use crate::mss::{ComputedStyle, Dimension};
 use crate::mss::MssFields;
+use crate::mss::{ComputedStyle, Dimension};
 use crate::render::{Border, DisplayList};
 use crate::widget::context::{EventContext, EventContextExt};
 use crate::widget::selection::TextSelectionState;
-use crate::widget::{DirtyFlags, Element, ElementId, ElementTree, StyledElement, UpdateContext, Widget};
+use crate::widget::{
+    DirtyFlags, Element, ElementId, ElementTree, StyledElement, UpdateContext, Widget,
+};
 use std::any::Any;
 use std::sync::Arc;
-use crate::core::sync::Mutex;
 
 pub struct Autocomplete {
     suggestions: Vec<String>,
@@ -100,9 +102,15 @@ impl Widget for Autocomplete {
         })
     }
 
-    fn can_update(&self, other: &dyn Any) -> bool { other.is::<Self>() }
-    fn as_any(&self) -> &dyn Any { self }
-    fn as_any_mut(&mut self) -> &mut dyn Any { self }
+    fn can_update(&self, other: &dyn Any) -> bool {
+        other.is::<Self>()
+    }
+    fn as_any(&self) -> &dyn Any {
+        self
+    }
+    fn as_any_mut(&mut self) -> &mut dyn Any {
+        self
+    }
     fn mount(&self, _tree: &mut ElementTree, _parent_id: ElementId) {}
 }
 
@@ -143,7 +151,8 @@ pub struct AutocompleteElement {
 
 impl AutocompleteElement {
     fn char_idx_to_byte(&self, char_idx: usize) -> usize {
-        self.text.char_indices()
+        self.text
+            .char_indices()
             .nth(char_idx)
             .map(|(i, _)| i)
             .unwrap_or(self.text.len())
@@ -186,7 +195,10 @@ impl AutocompleteElement {
             return;
         }
         let query = self.text.to_lowercase();
-        self.filtered = self.suggestions.iter().enumerate()
+        self.filtered = self
+            .suggestions
+            .iter()
+            .enumerate()
             .filter(|(_, s)| s.to_lowercase().contains(&query))
             .map(|(i, _)| i)
             .collect();
@@ -210,13 +222,17 @@ impl AutocompleteElement {
 
     fn fire_change(&self) {
         if let Some(ref cb) = self.on_change {
-            if let Ok(mut f) = cb.lock() { f(&self.text); }
+            if let Ok(mut f) = cb.lock() {
+                f(&self.text);
+            }
         }
     }
 
     fn fire_select(&self, value: &str) {
         if let Some(ref cb) = self.on_select {
-            if let Ok(mut f) = cb.lock() { f(value); }
+            if let Ok(mut f) = cb.lock() {
+                f(value);
+            }
         }
     }
 }
@@ -237,7 +253,11 @@ impl Element for AutocompleteElement {
     }
 
     fn layout(&mut self, constraints: Constraints) -> Size {
-        let w = self.width.map(|d| d.resolve(constraints.max_width)).unwrap_or(constraints.max_width).min(constraints.max_width);
+        let w = self
+            .width
+            .map(|d| d.resolve(constraints.max_width))
+            .unwrap_or(constraints.max_width)
+            .min(constraints.max_width);
         self.bounds = Rect::new(Point::zero(), Size::new(w, INPUT_HEIGHT));
         Size::new(w, INPUT_HEIGHT)
     }
@@ -245,48 +265,77 @@ impl Element for AutocompleteElement {
     fn build_display_list(&self, list: &mut DisplayList, _clip: Rect) {
         let bg = self.mss.background_color.unwrap_or(Color::WHITE);
         let fg = self.mss.color.unwrap_or_else(|| Color::from_hex("#1F2937"));
-        let border_base = self.mss.border_color.unwrap_or_else(|| Color::from_hex("#D1D5DB"));
-        let accent = self.mss.border_color.map(|c| c.lighten(0.3)).unwrap_or_else(|| self.mss.accent_color.unwrap_or(Color::from_hex("#3B82F6")));
-        let placeholder_color = if self.mss.color.is_some() { fg.with_alpha(0.5) } else { Color::from_hex("#9CA3AF") };
+        let border_base = self
+            .mss
+            .border_color
+            .unwrap_or_else(|| Color::from_hex("#D1D5DB"));
+        let accent = self
+            .mss
+            .border_color
+            .map(|c| c.lighten(0.3))
+            .unwrap_or_else(|| self.mss.accent_color.unwrap_or(Color::from_hex("#3B82F6")));
+        let placeholder_color = if self.mss.color.is_some() {
+            fg.with_alpha(0.5)
+        } else {
+            Color::from_hex("#9CA3AF")
+        };
 
         let border_color = if self.focused { accent } else { border_base };
 
         list.push_rect_bordered(
-            self.bounds, bg, [8.0; 4],
+            self.bounds,
+            bg,
+            [8.0; 4],
             Border::new(if self.focused { 2.0 } else { 1.0 }, border_color),
         );
 
         let text_rect = Rect::new(
-            Point::new(self.bounds.x() + 12.0, self.bounds.y() + (INPUT_HEIGHT - 14.0) / 2.0),
+            Point::new(
+                self.bounds.x() + 12.0,
+                self.bounds.y() + (INPUT_HEIGHT - 14.0) / 2.0,
+            ),
             Size::new(self.bounds.size.width - 24.0, 16.0),
         );
         if self.text.is_empty() {
-            list.push_text(&self.placeholder, text_rect, placeholder_color, 14.0);
+            list.push_text_singleline(&self.placeholder, text_rect, placeholder_color, 14.0, crate::mss::TextAlign::DEFAULT, 400);
         } else {
             if let Some((sel_start, sel_end)) = self.selection.range(self.cursor_pos) {
                 let sel_color = self.mss.selection_color_or_default();
                 list.push_text_selection_styled(
-                    &self.text, sel_start, sel_end,
-                    self.bounds.x() + 12.0, self.bounds.y() + 10.0,
-                    INPUT_HEIGHT - 20.0, 14.0, sel_color,
+                    &self.text,
+                    sel_start,
+                    sel_end,
+                    self.bounds.x() + 12.0,
+                    self.bounds.y() + 10.0,
+                    INPUT_HEIGHT - 20.0,
+                    14.0,
+                    sel_color,
                     self.mss.font_family.clone(),
                 );
             }
-            list.push_text(&self.text, text_rect, fg, 14.0);
+            list.push_text_singleline(&self.text, text_rect, fg, 14.0, crate::mss::TextAlign::DEFAULT, 400);
         }
 
         if self.focused {
             let caret = self.mss.caret_color_or(accent);
             list.push_text_cursor_styled(
-                &self.text, self.cursor_pos,
-                self.bounds.x() + 12.0, self.bounds.y() + 10.0,
-                INPUT_HEIGHT - 20.0, 14.0, self.mss.font_weight_or(400), caret,
+                &self.text,
+                self.cursor_pos,
+                self.bounds.x() + 12.0,
+                self.bounds.y() + 10.0,
+                INPUT_HEIGHT - 20.0,
+                14.0,
+                self.mss.font_weight_or(400),
+                caret,
                 self.mss.font_family.clone(),
             );
         }
 
         let icon_rect = Rect::new(
-            Point::new(self.bounds.x() + self.bounds.size.width - 28.0, self.bounds.y() + (INPUT_HEIGHT - 14.0) / 2.0),
+            Point::new(
+                self.bounds.x() + self.bounds.size.width - 28.0,
+                self.bounds.y() + (INPUT_HEIGHT - 14.0) / 2.0,
+            ),
             Size::new(16.0, 14.0),
         );
         list.push_text("🔍", icon_rect, placeholder_color, 12.0);
@@ -296,19 +345,39 @@ impl Element for AutocompleteElement {
             let popup_bg = self.mss_popup_bg.unwrap_or(bg);
             let popup_fg = self.mss_popup_fg.unwrap_or(fg);
             let _popup_accent = self.mss_popup_accent.unwrap_or(accent);
-            let popup_border_color = self.mss_popup_border.unwrap_or(
-                if self.mss.border_color.is_some() { border_base } else { Color::from_hex("#E5E7EB") }
-            );
-            let popup_hover_bg = self.mss_popup_hover_bg.unwrap_or_else(|| popup_bg.darken(0.05));
+            let popup_border_color =
+                self.mss_popup_border
+                    .unwrap_or(if self.mss.border_color.is_some() {
+                        border_base
+                    } else {
+                        Color::from_hex("#E5E7EB")
+                    });
+            let popup_hover_bg = self
+                .mss_popup_hover_bg
+                .unwrap_or_else(|| popup_bg.darken(0.05));
 
             let menu_radius: f32 = 8.0;
             let menu_bw: f32 = 1.0;
             list.begin_overlay();
-            list.push_shadow(dd, Color::BLACK.with_alpha(0.12), 12.0, (0.0, 4.0), [menu_radius; 4]);
-            list.push_rect_bordered(dd, popup_bg, [menu_radius; 4], Border::new(menu_bw, popup_border_color));
+            list.push_shadow(
+                dd,
+                Color::BLACK.with_alpha(0.12),
+                12.0,
+                (0.0, 4.0),
+                [menu_radius; 4],
+            );
+            list.push_rect_bordered(
+                dd,
+                popup_bg,
+                [menu_radius; 4],
+                Border::new(menu_bw, popup_border_color),
+            );
             let inset = Rect::new(
                 Point::new(dd.x() + menu_bw, dd.y() + menu_bw),
-                Size::new((dd.size.width - menu_bw * 2.0).max(0.0), (dd.size.height - menu_bw * 2.0).max(0.0)),
+                Size::new(
+                    (dd.size.width - menu_bw * 2.0).max(0.0),
+                    (dd.size.height - menu_bw * 2.0).max(0.0),
+                ),
             );
             list.push_clip(inset);
             let inner_radius = (menu_radius - menu_bw).max(0.0);
@@ -319,23 +388,38 @@ impl Element for AutocompleteElement {
             let mut last_visible: Option<usize> = None;
             for (vi, _) in self.filtered.iter().enumerate() {
                 let y = dd.y() + vi as f32 * ITEM_HEIGHT - self.scroll_offset;
-                if y + ITEM_HEIGHT <= dd_top { continue; }
-                if y >= dd_bottom { break; }
-                if first_visible.is_none() { first_visible = Some(vi); }
+                if y + ITEM_HEIGHT <= dd_top {
+                    continue;
+                }
+                if y >= dd_bottom {
+                    break;
+                }
+                if first_visible.is_none() {
+                    first_visible = Some(vi);
+                }
                 last_visible = Some(vi);
             }
 
             for (vi, &suggestion_idx) in self.filtered.iter().enumerate() {
                 let y = dd.y() + vi as f32 * ITEM_HEIGHT - self.scroll_offset;
-                if y + ITEM_HEIGHT < dd_top || y > dd_bottom { continue; }
+                if y + ITEM_HEIGHT < dd_top || y > dd_bottom {
+                    continue;
+                }
 
-                let adjusted_rect = Rect::new(Point::new(dd.x() + menu_bw, y), Size::new(inset.size.width, ITEM_HEIGHT));
+                let adjusted_rect = Rect::new(
+                    Point::new(dd.x() + menu_bw, y),
+                    Size::new(inset.size.width, ITEM_HEIGHT),
+                );
 
                 let clamped_top = adjusted_rect.y().max(dd_top + menu_bw);
-                let clamped_bottom = (adjusted_rect.y() + adjusted_rect.size.height).min(dd_bottom - menu_bw);
+                let clamped_bottom =
+                    (adjusted_rect.y() + adjusted_rect.size.height).min(dd_bottom - menu_bw);
                 let clamped_rect = Rect::new(
                     Point::new(adjusted_rect.x(), clamped_top),
-                    Size::new(adjusted_rect.size.width, (clamped_bottom - clamped_top).max(0.0)),
+                    Size::new(
+                        adjusted_rect.size.width,
+                        (clamped_bottom - clamped_top).max(0.0),
+                    ),
                 );
 
                 let is_first = first_visible == Some(vi);
@@ -361,7 +445,7 @@ impl Element for AutocompleteElement {
                 } else {
                     popup_fg
                 };
-                list.push_text(text, ir, text_color, 14.0);
+                list.push_text_singleline(text, ir, text_color, 14.0, crate::mss::TextAlign::DEFAULT, 400);
             }
 
             list.pop_clip();
@@ -434,7 +518,8 @@ impl Element for AutocompleteElement {
                 if self.is_open {
                     let dd = self.dropdown_rect();
                     if dd.contains(*position) {
-                        let vi = ((position.y - dd.y() + self.scroll_offset) / ITEM_HEIGHT) as usize;
+                        let vi =
+                            ((position.y - dd.y() + self.scroll_offset) / ITEM_HEIGHT) as usize;
                         if let Some(&idx) = self.filtered.get(vi) {
                             let selected = self.suggestions[idx].clone();
                             self.text = selected.clone();
@@ -475,26 +560,36 @@ impl Element for AutocompleteElement {
                 EventResult::Ignored
             }
             Event::CharInput(ch) if self.focused => {
-                if ch.is_control() || ctx.modifiers.ctrl { return EventResult::Ignored; }
+                if ch.is_control() || ctx.modifiers.ctrl {
+                    return EventResult::Ignored;
+                }
                 let mut ch_buf = [0u8; 4];
                 let ch_str = ch.encode_utf8(&mut ch_buf);
-                self.selection.replace_selection(&mut self.text, &mut self.cursor_pos, ch_str);
+                self.selection
+                    .replace_selection(&mut self.text, &mut self.cursor_pos, ch_str);
                 self.update_filter();
                 if self.is_open {
                     let popup_gap = 4.0;
                     let dd_h = self.effective_popup_height(self.filtered.len());
-                    self.opens_upward = self.bounds.y() + INPUT_HEIGHT + dd_h + popup_gap > ctx.viewport_size().height
+                    self.opens_upward = self.bounds.y() + INPUT_HEIGHT + dd_h + popup_gap
+                        > ctx.viewport_size().height
                         && self.bounds.y() >= dd_h + popup_gap;
                     let dd = self.dropdown_rect();
                     let overlay_bounds = if self.opens_upward {
                         Rect::new(
                             Point::new(self.bounds.x(), dd.y()),
-                            Size::new(self.bounds.size.width, dd.size.height + popup_gap + INPUT_HEIGHT),
+                            Size::new(
+                                self.bounds.size.width,
+                                dd.size.height + popup_gap + INPUT_HEIGHT,
+                            ),
                         )
                     } else {
                         Rect::new(
                             self.bounds.origin,
-                            Size::new(self.bounds.size.width, INPUT_HEIGHT + popup_gap + dd.size.height),
+                            Size::new(
+                                self.bounds.size.width,
+                                INPUT_HEIGHT + popup_gap + dd.size.height,
+                            ),
                         )
                     };
                     ctx.register_overlay(overlay_bounds, false);
@@ -517,7 +612,10 @@ impl Element for AutocompleteElement {
 
                 match key {
                     Key::Backspace => {
-                        if self.selection.delete_selection(&mut self.text, &mut self.cursor_pos) {
+                        if self
+                            .selection
+                            .delete_selection(&mut self.text, &mut self.cursor_pos)
+                        {
                             self.update_filter();
                             self.fire_change();
                             ctx.request_paint();
@@ -536,10 +634,15 @@ impl Element for AutocompleteElement {
                         EventResult::Handled
                     }
                     Key::Delete => {
-                        if self.selection.delete_selection(&mut self.text, &mut self.cursor_pos) {
+                        if self
+                            .selection
+                            .delete_selection(&mut self.text, &mut self.cursor_pos)
+                        {
                             self.update_filter();
                             self.fire_change();
-                        } else if self.cursor_pos < self.text.len() && self.text.is_char_boundary(self.cursor_pos) {
+                        } else if self.cursor_pos < self.text.len()
+                            && self.text.is_char_boundary(self.cursor_pos)
+                        {
                             self.text.remove(self.cursor_pos);
                             self.update_filter();
                             self.fire_change();
@@ -578,13 +681,21 @@ impl Element for AutocompleteElement {
                         EventResult::Handled
                     }
                     Key::Home => {
-                        if shift { self.selection.extend_or_start(self.cursor_pos); } else { self.selection.clear(); }
+                        if shift {
+                            self.selection.extend_or_start(self.cursor_pos);
+                        } else {
+                            self.selection.clear();
+                        }
                         self.cursor_pos = 0;
                         ctx.request_paint();
                         EventResult::Handled
                     }
                     Key::End => {
-                        if shift { self.selection.extend_or_start(self.cursor_pos); } else { self.selection.clear(); }
+                        if shift {
+                            self.selection.extend_or_start(self.cursor_pos);
+                        } else {
+                            self.selection.clear();
+                        }
                         self.cursor_pos = self.text.len();
                         ctx.request_paint();
                         EventResult::Handled
@@ -618,7 +729,8 @@ impl Element for AutocompleteElement {
                     Key::Down if self.is_open => {
                         let max = self.filtered.len();
                         if max > 0 {
-                            self.hover_index = Some(self.hover_index.map(|i| (i + 1).min(max - 1)).unwrap_or(0));
+                            self.hover_index =
+                                Some(self.hover_index.map(|i| (i + 1).min(max - 1)).unwrap_or(0));
                             ctx.request_paint();
                         }
                         EventResult::Handled
@@ -631,11 +743,14 @@ impl Element for AutocompleteElement {
                     _ => EventResult::Ignored,
                 }
             }
-            Event::MouseWheel { delta, position, .. } if self.is_open => {
+            Event::MouseWheel {
+                delta, position, ..
+            } if self.is_open => {
                 let dd = self.dropdown_rect();
                 if dd.contains(*position) {
                     let total_height = self.filtered.len() as f32 * ITEM_HEIGHT;
-                    let max_scroll = (total_height - self.effective_popup_height(self.filtered.len())).max(0.0);
+                    let max_scroll =
+                        (total_height - self.effective_popup_height(self.filtered.len())).max(0.0);
                     self.scroll_offset = (self.scroll_offset - delta).clamp(0.0, max_scroll);
                     ctx.request_paint();
                     return EventResult::Handled;
@@ -643,7 +758,8 @@ impl Element for AutocompleteElement {
                 EventResult::Ignored
             }
             Event::ImeCommit(text) if self.focused => {
-                self.selection.replace_selection(&mut self.text, &mut self.cursor_pos, text);
+                self.selection
+                    .replace_selection(&mut self.text, &mut self.cursor_pos, text);
                 self.update_filter();
                 self.hover_index = None;
                 self.fire_change();
@@ -656,20 +772,40 @@ impl Element for AutocompleteElement {
         }
     }
 
-    fn children(&self) -> &[ElementId] { &[] }
-    fn bounds(&self) -> Rect { self.bounds }
+    fn children(&self) -> &[ElementId] {
+        &[]
+    }
+    fn bounds(&self) -> Rect {
+        self.bounds
+    }
 
-    fn explicit_dimensions(&self, _parent_width: f32, _parent_height: f32) -> (Option<f32>, Option<f32>) {
+    fn explicit_dimensions(
+        &self,
+        _parent_width: f32,
+        _parent_height: f32,
+    ) -> (Option<f32>, Option<f32>) {
         let w = self.width.map(|d| d.resolve(1000.0));
         (w, Some(INPUT_HEIGHT))
     }
 
-    fn set_position(&mut self, pos: Point) { self.bounds.origin = pos; }
-    fn mark_dirty(&mut self, flags: DirtyFlags) { self.dirty_flags |= flags; }
-    fn clear_dirty(&mut self, flags: DirtyFlags) { self.dirty_flags.remove(flags); }
-    fn is_dirty(&self, flags: DirtyFlags) -> bool { self.dirty_flags.contains(flags) }
-    fn id(&self) -> ElementId { self.id }
-    fn set_id(&mut self, id: ElementId) { self.id = id; }
+    fn set_position(&mut self, pos: Point) {
+        self.bounds.origin = pos;
+    }
+    fn mark_dirty(&mut self, flags: DirtyFlags) {
+        self.dirty_flags |= flags;
+    }
+    fn clear_dirty(&mut self, flags: DirtyFlags) {
+        self.dirty_flags.remove(flags);
+    }
+    fn is_dirty(&self, flags: DirtyFlags) -> bool {
+        self.dirty_flags.contains(flags)
+    }
+    fn id(&self) -> ElementId {
+        self.id
+    }
+    fn set_id(&mut self, id: ElementId) {
+        self.id = id;
+    }
     fn mount(&mut self, _tree: &mut ElementTree) {}
 
     fn set_classes(&mut self, classes: Vec<String>) {
@@ -677,23 +813,58 @@ impl Element for AutocompleteElement {
         self.mark_dirty(DirtyFlags::RENDER);
     }
 
-    fn get_classes(&self) -> &[String] { &self.classes }
+    fn get_classes(&self) -> &[String] {
+        &self.classes
+    }
 
-    fn element_type_name(&self) -> &str { "Autocomplete" }
+    fn element_type_name(&self) -> &str {
+        "Autocomplete"
+    }
 
-    fn reset_mss_styles(&mut self) { self.mss.reset(); }
-    fn mss(&self) -> Option<&crate::mss::MssFields> { Some(&self.mss) }
+    fn reset_mss_styles(&mut self) {
+        self.mss.reset();
+    }
+    fn mss(&self) -> Option<&crate::mss::MssFields> {
+        Some(&self.mss)
+    }
     fn apply_computed_style(&mut self, style: &ComputedStyle) {
         self.mss.apply(style);
-        if let Some(w) = self.mss.width { self.width = Some(w); }
-        if let Some(c) = style.get("--popup-background").and_then(|v| v.as_color()) { self.mss_popup_bg = Some(mss_color_to_core(c)); }
-        if let Some(c) = style.get("--popup-color").and_then(|v| v.as_color()) { self.mss_popup_fg = Some(mss_color_to_core(c)); }
-        if let Some(c) = style.get("--popup-accent").and_then(|v| v.as_color()) { self.mss_popup_accent = Some(mss_color_to_core(c)); }
-        if let Some(c) = style.get("--popup-border").and_then(|v| v.as_color()) { self.mss_popup_border = Some(mss_color_to_core(c)); }
-        if let Some(c) = style.get("--popup-hover-background").and_then(|v| v.as_color()) { self.mss_popup_hover_bg = Some(mss_color_to_core(c)); }
-        if let Some(c) = style.get("--popup-hover-color").and_then(|v| v.as_color()) { self.mss_popup_hover_fg = Some(mss_color_to_core(c)); }
-        if let Some(d) = style.get("--popup-max-height").and_then(|v| v.as_dimension()) { self.mss_popup_max_height = Some(d.resolve(1000.0)); }
-        if let Some(d) = style.get("--popup-min-height").and_then(|v| v.as_dimension()) { self.mss_popup_min_height = Some(d.resolve(1000.0)); }
+        if let Some(w) = self.mss.width {
+            self.width = Some(w);
+        }
+        if let Some(c) = style.get("--popup-background").and_then(|v| v.as_color()) {
+            self.mss_popup_bg = Some(mss_color_to_core(c));
+        }
+        if let Some(c) = style.get("--popup-color").and_then(|v| v.as_color()) {
+            self.mss_popup_fg = Some(mss_color_to_core(c));
+        }
+        if let Some(c) = style.get("--popup-accent").and_then(|v| v.as_color()) {
+            self.mss_popup_accent = Some(mss_color_to_core(c));
+        }
+        if let Some(c) = style.get("--popup-border").and_then(|v| v.as_color()) {
+            self.mss_popup_border = Some(mss_color_to_core(c));
+        }
+        if let Some(c) = style
+            .get("--popup-hover-background")
+            .and_then(|v| v.as_color())
+        {
+            self.mss_popup_hover_bg = Some(mss_color_to_core(c));
+        }
+        if let Some(c) = style.get("--popup-hover-color").and_then(|v| v.as_color()) {
+            self.mss_popup_hover_fg = Some(mss_color_to_core(c));
+        }
+        if let Some(d) = style
+            .get("--popup-max-height")
+            .and_then(|v| v.as_dimension())
+        {
+            self.mss_popup_max_height = Some(d.resolve(1000.0));
+        }
+        if let Some(d) = style
+            .get("--popup-min-height")
+            .and_then(|v| v.as_dimension())
+        {
+            self.mss_popup_min_height = Some(d.resolve(1000.0));
+        }
         self.mark_dirty(DirtyFlags::LAYOUT | DirtyFlags::RENDER);
     }
 
@@ -706,7 +877,8 @@ impl Element for AutocompleteElement {
         selected: Option<&ComputedStyle>,
         _checked: Option<&ComputedStyle>,
     ) {
-        self.mss.apply_transitions(base, hover, active, focus, selected);
+        self.mss
+            .apply_transitions(base, hover, active, focus, selected);
     }
 
     fn accessibility_info(&self) -> Option<crate::a11y::AccessibilityInfo> {
@@ -718,8 +890,16 @@ impl Element for AutocompleteElement {
                 ..Default::default()
             },
             properties: crate::a11y::NodeProperties {
-                value: if self.text.is_empty() { None } else { Some(self.text.clone()) },
-                placeholder: if self.placeholder.is_empty() { None } else { Some(self.placeholder.clone()) },
+                value: if self.text.is_empty() {
+                    None
+                } else {
+                    Some(self.text.clone())
+                },
+                placeholder: if self.placeholder.is_empty() {
+                    None
+                } else {
+                    Some(self.placeholder.clone())
+                },
                 ..Default::default()
             },
         })
@@ -731,7 +911,9 @@ impl StyledElement for AutocompleteElement {
         self.mark_dirty(DirtyFlags::LAYOUT | DirtyFlags::RENDER);
     }
 
-    fn classes(&self) -> &[String] { &self.classes }
+    fn classes(&self) -> &[String] {
+        &self.classes
+    }
 
     fn set_classes(&mut self, classes: Vec<String>) {
         self.classes = classes;

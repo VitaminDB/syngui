@@ -1,14 +1,16 @@
+use crate::core::sync::Mutex;
 use crate::core::{Color, Point, Rect, RectExt, Size};
 use crate::input::{CursorIcon, Event, EventResult, Key, MouseButton};
 use crate::layout::Constraints;
-use crate::mss::{ComputedStyle, Dimension};
 use crate::mss::MssFields;
+use crate::mss::{ComputedStyle, Dimension};
 use crate::render::{Border, DisplayList};
 use crate::widget::context::{EventContext, EventContextExt};
-use crate::widget::{DirtyFlags, Element, ElementId, ElementTree, StyledElement, UpdateContext, Widget};
+use crate::widget::{
+    DirtyFlags, Element, ElementId, ElementTree, StyledElement, UpdateContext, Widget,
+};
 use std::any::Any;
 use std::sync::Arc;
-use crate::core::sync::Mutex;
 
 /// Ширина зоны числового значения (см. [`Slider::show_value`]) по умолчанию.
 const DEFAULT_VALUE_WIDTH: f32 = 44.0;
@@ -210,7 +212,10 @@ impl SliderElement {
     fn value_rect(&self) -> Rect {
         let w = self.value_zone_width();
         Rect::new(
-            Point::new(self.bounds.x() + self.bounds.size.width - w, self.bounds.y()),
+            Point::new(
+                self.bounds.x() + self.bounds.size.width - w,
+                self.bounds.y(),
+            ),
             Size::new(w, self.bounds.size.height),
         )
     }
@@ -285,10 +290,9 @@ impl SliderElement {
             if range <= 0.0 || self.track_bounds.size.height <= 0.0 {
                 return self.min;
             }
-            let percent =
-                ((self.track_bounds.y() + self.track_bounds.size.height - pos)
-                    / self.track_bounds.size.height)
-                    .clamp(0.0, 1.0);
+            let percent = ((self.track_bounds.y() + self.track_bounds.size.height - pos)
+                / self.track_bounds.size.height)
+                .clamp(0.0, 1.0);
             self.min + percent * range
         } else {
             if range <= 0.0 || self.track_bounds.size.width <= 0.0 {
@@ -344,9 +348,7 @@ impl Element for SliderElement {
             let mss_width = self.mss.width.map(|d| d.resolve(constraints.max_width));
             let width = mss_width.unwrap_or(24.0).min(constraints.max_width);
             let mss_height = self.mss.height.map(|d| d.resolve(constraints.max_height));
-            let height = mss_height
-                .unwrap_or(120.0)
-                .min(constraints.max_height);
+            let height = mss_height.unwrap_or(120.0).min(constraints.max_height);
 
             self.bounds = Rect::new(Point::zero(), Size::new(width, height));
 
@@ -370,7 +372,11 @@ impl Element for SliderElement {
 
             let vz = self.value_zone_width();
             let vz_total = if vz > 0.0 { vz + VALUE_GAP } else { 0.0 };
-            let track_height = self.mss.min_height.map(|d| d.resolve(height)).unwrap_or(4.0);
+            let track_height = self
+                .mss
+                .min_height
+                .map(|d| d.resolve(height))
+                .unwrap_or(4.0);
             self.track_bounds = Rect::new(
                 Point::new(8.0, (height - track_height) / 2.0),
                 Size::new((width - 16.0 - vz_total).max(1.0), track_height),
@@ -381,14 +387,21 @@ impl Element for SliderElement {
     }
 
     fn build_display_list(&self, list: &mut DisplayList, _clip: Rect) {
-        let track_base = self.mss.background_color.unwrap_or(Color::from_hex("#D1D5DB"));
+        let track_base = self
+            .mss
+            .background_color
+            .unwrap_or(Color::from_hex("#D1D5DB"));
         let fill_base = self.mss.color.unwrap_or(Color::from_hex("#3B82F6"));
         let track_color = if self.disabled {
             track_base.darken(0.1)
         } else {
             track_base
         };
-        let fill_color = if self.disabled { track_base.darken(0.2) } else { fill_base };
+        let fill_color = if self.disabled {
+            track_base.darken(0.2)
+        } else {
+            fill_base
+        };
 
         let track_radius_basis = if self.vertical {
             self.track_bounds.size.width
@@ -491,12 +504,21 @@ impl Element for SliderElement {
                 Size::new(thumb_w, thumb_h),
             );
             let radii = [thumb_h / 2.0; 4];
-            list.push_shadow(thumb_rect, Color::new(0.0, 0.0, 0.0, 0.15), 2.0, (0.0, 1.0), radii);
+            list.push_shadow(
+                thumb_rect,
+                Color::new(0.0, 0.0, 0.0, 0.15),
+                2.0,
+                (0.0, 1.0),
+                radii,
+            );
             list.push_rect_bordered(
                 thumb_rect,
                 thumb_color,
                 radii,
-                Border { width: thumb_border_width, color: thumb_border },
+                Border {
+                    width: thumb_border_width,
+                    color: thumb_border,
+                },
             );
         } else {
             let thumb_size = self.mss.max_height.map(|d| d.resolve(0.0)).unwrap_or(16.0);
@@ -508,12 +530,21 @@ impl Element for SliderElement {
                 Size::new(thumb_size, thumb_size),
             );
             let thumb_radius = thumb_size / 2.0;
-            list.push_shadow(thumb_rect, Color::new(0.0, 0.0, 0.0, 0.15), 2.0, (0.0, 1.0), [thumb_radius; 4]);
+            list.push_shadow(
+                thumb_rect,
+                Color::new(0.0, 0.0, 0.0, 0.15),
+                2.0,
+                (0.0, 1.0),
+                [thumb_radius; 4],
+            );
             list.push_rect_bordered(
                 thumb_rect,
                 thumb_color,
                 [thumb_radius; 4],
-                Border { width: thumb_border_width, color: thumb_border },
+                Border {
+                    width: thumb_border_width,
+                    color: thumb_border,
+                },
             );
         }
 
@@ -521,7 +552,9 @@ impl Element for SliderElement {
         if self.show_value && !self.vertical {
             let vr = self.value_rect();
             let fs = self.value_font_size.or(self.mss.font_size).unwrap_or(11.0);
-            let text_color = self.label_color.unwrap_or_else(|| Color::from_hex("#98A0AD"));
+            let text_color = self
+                .label_color
+                .unwrap_or_else(|| Color::from_hex("#98A0AD"));
 
             if self.editing {
                 let accent = self.mss.caret_color.unwrap_or(fill_base);
@@ -529,13 +562,16 @@ impl Element for SliderElement {
                     vr,
                     Color::new(0.0, 0.0, 0.0, 0.35),
                     [4.0; 4],
-                    Border { width: 1.0, color: accent },
+                    Border {
+                        width: 1.0,
+                        color: accent,
+                    },
                 );
                 let text_rect = Rect::new(
                     Point::new(vr.x() + 4.0, vr.y() + (vr.size.height - fs) / 2.0),
                     Size::new((vr.size.width - 8.0).max(0.0), fs + 2.0),
                 );
-                list.push_text(&self.edit_text, text_rect, text_color, fs);
+                list.push_text_singleline(&self.edit_text, text_rect, text_color, fs, crate::mss::TextAlign::DEFAULT, 400);
 
                 let blink_phase = (self.cursor_blink * CURSOR_BLINK_RATE * 2.0) % 2.0;
                 if blink_phase < 1.0 {
@@ -549,7 +585,8 @@ impl Element for SliderElement {
                     list.push_rect(cursor_rect, accent, [0.0; 4]);
                 }
             } else {
-                list.push_text_centered(&self.formatted_value(), vr, text_color, fs);
+                // Однострочно: узкая зона значения иначе переносит число.
+                list.push_text_singleline(&self.formatted_value(), vr, text_color, fs, crate::mss::TextAlign::CENTER, 400);
             }
         }
     }
@@ -587,7 +624,9 @@ impl Element for SliderElement {
                     ctx.request_paint();
                     return EventResult::Handled;
                 }
-                if self.hover { return EventResult::Handled; }
+                if self.hover {
+                    return EventResult::Handled;
+                }
                 EventResult::Ignored
             }
             Event::MouseDown { button, position } => {
@@ -604,7 +643,11 @@ impl Element for SliderElement {
                             self.commit_editing();
                         }
                         self.dragging = true;
-                        let drag_axis = if self.vertical { position.y } else { position.x };
+                        let drag_axis = if self.vertical {
+                            position.y
+                        } else {
+                            position.x
+                        };
                         self.value = self.pos_to_value(drag_axis).clamp(self.min, self.max);
                         self.trigger_change();
                         ctx.request_paint();
@@ -637,7 +680,11 @@ impl Element for SliderElement {
                     }
                     self.touch_id = Some(*id);
                     self.dragging = true;
-                    let drag_axis = if self.vertical { position.y } else { position.x };
+                    let drag_axis = if self.vertical {
+                        position.y
+                    } else {
+                        position.x
+                    };
                     self.value = self.pos_to_value(drag_axis).clamp(self.min, self.max);
                     self.trigger_change();
                     ctx.request_paint();
@@ -647,7 +694,11 @@ impl Element for SliderElement {
             }
             Event::TouchMove { id, position } => {
                 if self.touch_id == Some(*id) && self.dragging {
-                    let drag_axis = if self.vertical { position.y } else { position.x };
+                    let drag_axis = if self.vertical {
+                        position.y
+                    } else {
+                        position.x
+                    };
                     let new_value = self.pos_to_value(drag_axis);
                     if (new_value - self.value).abs() > 0.001 {
                         self.value = new_value.clamp(self.min, self.max);
@@ -680,69 +731,67 @@ impl Element for SliderElement {
                 }
                 EventResult::Handled
             }
-            Event::KeyDown(key) if self.editing => {
-                match key {
-                    Key::Backspace => {
-                        if self.edit_cursor > 0 {
-                            self.edit_cursor -= 1;
-                            let byte_pos = self.cursor_byte_pos();
-                            self.edit_text.remove(byte_pos);
-                            self.cursor_blink = 0.0;
-                            ctx.request_paint();
-                        }
-                        EventResult::Handled
-                    }
-                    Key::Delete => {
+            Event::KeyDown(key) if self.editing => match key {
+                Key::Backspace => {
+                    if self.edit_cursor > 0 {
+                        self.edit_cursor -= 1;
                         let byte_pos = self.cursor_byte_pos();
-                        if byte_pos < self.edit_text.len() {
-                            self.edit_text.remove(byte_pos);
-                            self.cursor_blink = 0.0;
-                            ctx.request_paint();
-                        }
-                        EventResult::Handled
-                    }
-                    Key::Left => {
-                        if self.edit_cursor > 0 {
-                            self.edit_cursor -= 1;
-                            self.cursor_blink = 0.0;
-                            ctx.request_paint();
-                        }
-                        EventResult::Handled
-                    }
-                    Key::Right => {
-                        let char_count = self.edit_text.chars().count();
-                        if self.edit_cursor < char_count {
-                            self.edit_cursor += 1;
-                            self.cursor_blink = 0.0;
-                            ctx.request_paint();
-                        }
-                        EventResult::Handled
-                    }
-                    Key::Home => {
-                        self.edit_cursor = 0;
+                        self.edit_text.remove(byte_pos);
                         self.cursor_blink = 0.0;
                         ctx.request_paint();
-                        EventResult::Handled
                     }
-                    Key::End => {
-                        self.edit_cursor = self.edit_text.chars().count();
-                        self.cursor_blink = 0.0;
-                        ctx.request_paint();
-                        EventResult::Handled
-                    }
-                    Key::Enter => {
-                        self.commit_editing();
-                        ctx.request_paint();
-                        EventResult::Handled
-                    }
-                    Key::Escape => {
-                        self.cancel_editing();
-                        ctx.request_paint();
-                        EventResult::Handled
-                    }
-                    _ => EventResult::Handled,
+                    EventResult::Handled
                 }
-            }
+                Key::Delete => {
+                    let byte_pos = self.cursor_byte_pos();
+                    if byte_pos < self.edit_text.len() {
+                        self.edit_text.remove(byte_pos);
+                        self.cursor_blink = 0.0;
+                        ctx.request_paint();
+                    }
+                    EventResult::Handled
+                }
+                Key::Left => {
+                    if self.edit_cursor > 0 {
+                        self.edit_cursor -= 1;
+                        self.cursor_blink = 0.0;
+                        ctx.request_paint();
+                    }
+                    EventResult::Handled
+                }
+                Key::Right => {
+                    let char_count = self.edit_text.chars().count();
+                    if self.edit_cursor < char_count {
+                        self.edit_cursor += 1;
+                        self.cursor_blink = 0.0;
+                        ctx.request_paint();
+                    }
+                    EventResult::Handled
+                }
+                Key::Home => {
+                    self.edit_cursor = 0;
+                    self.cursor_blink = 0.0;
+                    ctx.request_paint();
+                    EventResult::Handled
+                }
+                Key::End => {
+                    self.edit_cursor = self.edit_text.chars().count();
+                    self.cursor_blink = 0.0;
+                    ctx.request_paint();
+                    EventResult::Handled
+                }
+                Key::Enter => {
+                    self.commit_editing();
+                    ctx.request_paint();
+                    EventResult::Handled
+                }
+                Key::Escape => {
+                    self.cancel_editing();
+                    ctx.request_paint();
+                    EventResult::Handled
+                }
+                _ => EventResult::Handled,
+            },
             Event::KeyDown(Key::Down) | Event::KeyDown(Key::Left) => {
                 if self.focused {
                     self.value = (self.value - self.step).max(self.min);
@@ -822,8 +871,10 @@ impl Element for SliderElement {
         self.bounds.origin = pos;
         if self.vertical {
             let track_w = self.track_bounds.size.width;
-            self.track_bounds.origin =
-                Point::new(pos.x + (self.bounds.size.width - track_w) / 2.0, pos.y + 8.0);
+            self.track_bounds.origin = Point::new(
+                pos.x + (self.bounds.size.width - track_w) / 2.0,
+                pos.y + 8.0,
+            );
         } else {
             self.track_bounds.origin = Point::new(pos.x + 8.0, pos.y + 10.0);
         }
@@ -860,13 +911,21 @@ impl Element for SliderElement {
         &self.classes
     }
 
-    fn element_type_name(&self) -> &str { "Slider" }
+    fn element_type_name(&self) -> &str {
+        "Slider"
+    }
 
-    fn reset_mss_styles(&mut self) { self.mss.reset(); }
-    fn mss(&self) -> Option<&crate::mss::MssFields> { Some(&self.mss) }
+    fn reset_mss_styles(&mut self) {
+        self.mss.reset();
+    }
+    fn mss(&self) -> Option<&crate::mss::MssFields> {
+        Some(&self.mss)
+    }
     fn apply_computed_style(&mut self, style: &ComputedStyle) {
         self.mss.apply(style);
-        if let Some(w) = self.mss.width { self.width = Some(w); }
+        if let Some(w) = self.mss.width {
+            self.width = Some(w);
+        }
         if let Some(c) = style.get("label-color").and_then(|v| v.as_color()) {
             self.label_color = Some(crate::animation::transition::mss_color_to_core(c));
         }
@@ -885,7 +944,8 @@ impl Element for SliderElement {
         selected: Option<&ComputedStyle>,
         _checked: Option<&ComputedStyle>,
     ) {
-        self.mss.apply_transitions(base, hover, active, focus, selected);
+        self.mss
+            .apply_transitions(base, hover, active, focus, selected);
     }
 
     fn accessibility_info(&self) -> Option<crate::a11y::AccessibilityInfo> {
@@ -962,8 +1022,14 @@ mod tests {
         let mut elem = direct(&s);
         let constraints = Constraints::tight(Size::new(200.0, 100.0));
         let size = elem.layout(constraints);
-        assert!(size.height > 50.0, "vertical должен занять height: got {size:?}");
-        assert!(size.width <= 50.0, "vertical width — толщина карты: got {size:?}");
+        assert!(
+            size.height > 50.0,
+            "vertical должен занять height: got {size:?}"
+        );
+        assert!(
+            size.width <= 50.0,
+            "vertical width — толщина карты: got {size:?}"
+        );
     }
 
     #[test]
@@ -973,7 +1039,10 @@ mod tests {
         elem.layout(Constraints::tight(Size::new(24.0, 120.0)));
         let pos_min = elem.value_to_pos(0.0);
         let pos_max = elem.value_to_pos(100.0);
-        assert!(pos_max < pos_min, "max value должен быть выше: max_y={pos_max} min_y={pos_min}");
+        assert!(
+            pos_max < pos_min,
+            "max value должен быть выше: max_y={pos_max} min_y={pos_min}"
+        );
     }
 
     #[test]
@@ -983,12 +1052,19 @@ mod tests {
         elem.layout(Constraints::tight(Size::new(200.0, 24.0)));
         let pos_min = elem.value_to_pos(0.0);
         let pos_max = elem.value_to_pos(100.0);
-        assert!(pos_min < pos_max, "min value слева: min_x={pos_min} max_x={pos_max}");
+        assert!(
+            pos_min < pos_max,
+            "min value слева: min_x={pos_min} max_x={pos_max}"
+        );
     }
 
     #[test]
     fn pos_to_value_roundtrip_vertical() {
-        let s = Slider::new().vertical().range(-10.0, 10.0).value(0.0).step(0.0);
+        let s = Slider::new()
+            .vertical()
+            .range(-10.0, 10.0)
+            .value(0.0)
+            .step(0.0);
         let mut elem = direct(&s);
         elem.layout(Constraints::tight(Size::new(24.0, 120.0)));
         for v in [-10.0_f32, -5.0, 0.0, 5.0, 10.0] {
@@ -1003,7 +1079,11 @@ mod tests {
 
     #[test]
     fn edit_commit_snaps_and_clamps() {
-        let s = Slider::new().range(256.0, 1920.0).step(32.0).value(1344.0).show_value(0);
+        let s = Slider::new()
+            .range(256.0, 1920.0)
+            .step(32.0)
+            .value(1344.0)
+            .show_value(0);
         let mut elem = direct(&s);
         elem.start_editing();
         assert_eq!(elem.edit_text, "1344");
@@ -1024,7 +1104,11 @@ mod tests {
 
     #[test]
     fn edit_cancel_keeps_value() {
-        let s = Slider::new().range(0.0, 10.0).step(0.5).value(5.0).show_value(1);
+        let s = Slider::new()
+            .range(0.0, 10.0)
+            .step(0.5)
+            .value(5.0)
+            .show_value(1);
         let mut elem = direct(&s);
         elem.start_editing();
         elem.edit_text = "9.5".into();
@@ -1073,23 +1157,53 @@ mod tests {
 
         // TouchStart клеймится (иначе родительский ScrollView начал бы скролл)
         // и сам начинает drag: MouseDown на таче синтезируется только для тапа.
-        let r = elem.handle_event(&Event::TouchStart { id: 7, position: start }, &mut ctx);
+        let r = elem.handle_event(
+            &Event::TouchStart {
+                id: 7,
+                position: start,
+            },
+            &mut ctx,
+        );
         assert!(r.is_handled(), "TouchStart в границах должен клеймиться");
         assert!(elem.dragging, "drag начинается прямо с TouchStart");
 
         // Палец на середину трека → значение ~0.5.
-        let mid = Point::new(elem.track_bounds.x() + elem.track_bounds.size.width / 2.0, y);
-        let r = elem.handle_event(&Event::TouchMove { id: 7, position: mid }, &mut ctx);
-        assert!(r.is_handled(), "TouchMove ведущего пальца должен двигать drag");
+        let mid = Point::new(
+            elem.track_bounds.x() + elem.track_bounds.size.width / 2.0,
+            y,
+        );
+        let r = elem.handle_event(
+            &Event::TouchMove {
+                id: 7,
+                position: mid,
+            },
+            &mut ctx,
+        );
+        assert!(
+            r.is_handled(),
+            "TouchMove ведущего пальца должен двигать drag"
+        );
         assert!((elem.value - 0.5).abs() < 0.05, "value={}", elem.value);
 
         // Чужой палец drag не трогает.
-        let r = elem.handle_event(&Event::TouchMove { id: 8, position: start }, &mut ctx);
+        let r = elem.handle_event(
+            &Event::TouchMove {
+                id: 8,
+                position: start,
+            },
+            &mut ctx,
+        );
         assert!(!r.is_handled());
         assert!((elem.value - 0.5).abs() < 0.05);
 
         // TouchEnd завершает drag сам (MouseUp при скролле не синтезируется).
-        let r = elem.handle_event(&Event::TouchEnd { id: 7, position: mid }, &mut ctx);
+        let r = elem.handle_event(
+            &Event::TouchEnd {
+                id: 7,
+                position: mid,
+            },
+            &mut ctx,
+        );
         assert!(r.is_handled());
         assert!(!elem.dragging);
         assert!(elem.touch_id.is_none());
@@ -1104,6 +1218,9 @@ mod tests {
         elem.layout(Constraints::tight(Size::new(200.0, 24.0)));
         let mid_x = elem.track_bounds.x() + elem.track_bounds.size.width / 2.0;
         let v = elem.pos_to_value(mid_x);
-        assert!(v > 0.4 && v < 0.6, "середина трека ≈ 0.5, а не снап к 0/1: {v}");
+        assert!(
+            v > 0.4 && v < 0.6,
+            "середина трека ≈ 0.5, а не снап к 0/1: {v}"
+        );
     }
 }

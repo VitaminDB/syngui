@@ -1,9 +1,10 @@
+use crate::core::sync::Mutex;
 use crate::core::{Color, Point, Rect, Size};
 use crate::input::{Event, EventResult, MouseButton};
 use crate::layout::Constraints;
 use crate::mss::{ComputedStyle, MssFields};
 use crate::render::{Border, DisplayList};
-use crate::signal::{RwSignal, use_signal};
+use crate::signal::{use_signal, RwSignal};
 use crate::widget::context::{EventContext, EventContextExt};
 use crate::widget::{
     DirtyFlags, Element, ElementId, ElementTree, LayoutHint, StyledElement, UpdateContext, Widget,
@@ -14,7 +15,6 @@ use crate::widgets::overlay::placement::{clamp_span, fit_span};
 use std::any::Any;
 use std::cell::Cell;
 use std::sync::Arc;
-use crate::core::sync::Mutex;
 
 pub struct PopupPanel {
     children: Vec<Box<dyn Widget>>,
@@ -90,7 +90,9 @@ impl PopupPanel {
 }
 
 impl Default for PopupPanel {
-    fn default() -> Self { Self::new() }
+    fn default() -> Self {
+        Self::new()
+    }
 }
 
 impl Widget for PopupPanel {
@@ -120,8 +122,12 @@ impl Widget for PopupPanel {
         other.is::<Self>()
     }
 
-    fn as_any(&self) -> &dyn Any { self }
-    fn as_any_mut(&mut self) -> &mut dyn Any { self }
+    fn as_any(&self) -> &dyn Any {
+        self
+    }
+    fn as_any_mut(&mut self) -> &mut dyn Any {
+        self
+    }
 
     fn mount(&self, tree: &mut ElementTree, parent_id: ElementId) {
         for child in &self.children {
@@ -132,10 +138,15 @@ impl Widget for PopupPanel {
     }
 
     fn child_widgets(&self) -> Vec<&dyn Widget> {
-        self.children.iter().map(|c| c.as_ref() as &dyn Widget).collect()
+        self.children
+            .iter()
+            .map(|c| c.as_ref() as &dyn Widget)
+            .collect()
     }
 
-    fn widget_classes(&self) -> &[String] { &self.classes }
+    fn widget_classes(&self) -> &[String] {
+        &self.classes
+    }
 }
 
 struct PopupPanelElement {
@@ -170,7 +181,9 @@ impl PopupPanelElement {
             self.overlay_registered = false;
         }
         if let Some(ref cb) = self.on_close {
-            if let Ok(mut f) = cb.lock() { f(); }
+            if let Ok(mut f) = cb.lock() {
+                f();
+            }
         }
         ctx.request_paint();
     }
@@ -179,30 +192,35 @@ impl PopupPanelElement {
         self.mss.border_radius_resolved(0.0, 8.0)
     }
 
+    /// Внутренние отступы панели из MSS: `[left, top, right, bottom]`.
+    /// Раньше `padding` в стиле панели ничего не давал — содержимое
+    /// клалось от кромки к кромке, и текст полей касался краёв окна.
+    fn padding(&self) -> [f32; 4] {
+        self.mss.padding_ltrb([0.0; 4])
+    }
+
     fn panel_rect(&self) -> Rect {
         let viewport = self.viewport_size.get();
         let content = self.content_size.get();
         let ar = self.anchor_rect.get_untracked();
 
-        let width = content
-            .width
+        let pad = self.padding();
+        let width = (content.width + pad[0] + pad[2])
             .max(self.min_width)
             .min(self.content_width_limit());
-        let natural_height = content.height;
+        let natural_height = content.height + pad[1] + pad[3];
         let height = natural_height.min(self.max_height);
 
         // `flip_up_to` — низ перевёрнутого варианта: панель раскроется вверх,
         // упершись в эту линию (верх якоря либо сама точка открытия).
         let (x, y, flip_up_to) = match self.anchor {
-            PopupAnchor::BottomStart => {
-                (ar.origin.x, ar.origin.y + ar.size.height, ar.origin.y)
-            }
-            PopupAnchor::BottomEnd => {
-                (ar.origin.x + ar.size.width - width, ar.origin.y + ar.size.height, ar.origin.y)
-            }
-            PopupAnchor::Position => {
-                (ar.origin.x, ar.origin.y, ar.origin.y)
-            }
+            PopupAnchor::BottomStart => (ar.origin.x, ar.origin.y + ar.size.height, ar.origin.y),
+            PopupAnchor::BottomEnd => (
+                ar.origin.x + ar.size.width - width,
+                ar.origin.y + ar.size.height,
+                ar.origin.y,
+            ),
+            PopupAnchor::Position => (ar.origin.x, ar.origin.y, ar.origin.y),
         };
 
         // Координаты якоря глобальные (включают safe area), а viewport_size —
@@ -256,8 +274,16 @@ impl Element for PopupPanelElement {
     }
 
     fn layout(&mut self, constraints: Constraints) -> Size {
-        let w = if constraints.max_width.is_finite() { constraints.max_width } else { 0.0 };
-        let h = if constraints.max_height.is_finite() { constraints.max_height } else { 0.0 };
+        let w = if constraints.max_width.is_finite() {
+            constraints.max_width
+        } else {
+            0.0
+        };
+        let h = if constraints.max_height.is_finite() {
+            constraints.max_height
+        } else {
+            0.0
+        };
         self.bounds = Rect::new(Point::zero(), Size::new(w, h));
         Size::zero()
     }
@@ -273,9 +299,10 @@ impl Element for PopupPanelElement {
     fn layout_hint(&self) -> LayoutHint {
         let panel = self.panel_rect();
         self.placed_rect.set(panel);
+        let pad = self.padding();
         LayoutHint::FloatingWindow {
-            x: panel.origin.x,
-            y: panel.origin.y,
+            x: panel.origin.x + pad[0],
+            y: panel.origin.y + pad[1],
         }
     }
 
@@ -283,8 +310,16 @@ impl Element for PopupPanelElement {
         self.is_open()
     }
 
-    fn explicit_dimensions(&self, _parent_width: f32, _parent_height: f32) -> (Option<f32>, Option<f32>) {
-        (Some(self.content_width_limit()), Some(self.max_height))
+    fn explicit_dimensions(
+        &self,
+        _parent_width: f32,
+        _parent_height: f32,
+    ) -> (Option<f32>, Option<f32>) {
+        let pad = self.padding();
+        (
+            Some((self.content_width_limit() - pad[0] - pad[2]).max(0.0)),
+            Some((self.max_height - pad[1] - pad[3]).max(0.0)),
+        )
     }
 
     fn set_content_size(&mut self, size: Size) {
@@ -317,10 +352,17 @@ impl Element for PopupPanelElement {
             radii,
         );
 
-        list.push_rect_bordered(panel, bg, radii, Border { width: 1.0, color: border_color });
+        list.push_rect_bordered(
+            panel,
+            bg,
+            radii,
+            Border {
+                width: 1.0,
+                color: border_color,
+            },
+        );
 
         list.push_clip(panel);
-
     }
 
     fn post_build_display_list(&self, list: &mut DisplayList, _clip: Rect) {
@@ -370,26 +412,46 @@ impl Element for PopupPanelElement {
         }
     }
 
-    fn children(&self) -> &[ElementId] { &self.child_ids }
-    fn bounds(&self) -> Rect { self.bounds }
+    fn children(&self) -> &[ElementId] {
+        &self.child_ids
+    }
+    fn bounds(&self) -> Rect {
+        self.bounds
+    }
 
     fn hit_test(&self, _point: Point) -> bool {
         self.is_open()
     }
 
     fn overlay_request(&self) -> Option<(Rect, bool)> {
-        if !self.is_open() { return None; }
+        if !self.is_open() {
+            return None;
+        }
         let viewport = self.viewport_size.get();
-        if viewport.width <= 0.0 || viewport.height <= 0.0 { return None; }
+        if viewport.width <= 0.0 || viewport.height <= 0.0 {
+            return None;
+        }
         Some((Rect::new(Point::zero(), viewport), true))
     }
 
-    fn set_position(&mut self, pos: Point) { self.bounds.origin = pos; }
-    fn mark_dirty(&mut self, flags: DirtyFlags) { self.dirty_flags |= flags; }
-    fn clear_dirty(&mut self, flags: DirtyFlags) { self.dirty_flags.remove(flags); }
-    fn is_dirty(&self, flags: DirtyFlags) -> bool { self.dirty_flags.contains(flags) }
-    fn id(&self) -> ElementId { self.id }
-    fn set_id(&mut self, id: ElementId) { self.id = id; }
+    fn set_position(&mut self, pos: Point) {
+        self.bounds.origin = pos;
+    }
+    fn mark_dirty(&mut self, flags: DirtyFlags) {
+        self.dirty_flags |= flags;
+    }
+    fn clear_dirty(&mut self, flags: DirtyFlags) {
+        self.dirty_flags.remove(flags);
+    }
+    fn is_dirty(&self, flags: DirtyFlags) -> bool {
+        self.dirty_flags.contains(flags)
+    }
+    fn id(&self) -> ElementId {
+        self.id
+    }
+    fn set_id(&mut self, id: ElementId) {
+        self.id = id;
+    }
 
     fn mount(&mut self, _tree: &mut ElementTree) {
         self.is_open.subscribe_element(self.id);
@@ -400,11 +462,19 @@ impl Element for PopupPanelElement {
         self.mark_dirty(DirtyFlags::RENDER);
     }
 
-    fn get_classes(&self) -> &[String] { &self.classes }
-    fn element_type_name(&self) -> &str { "PopupPanel" }
+    fn get_classes(&self) -> &[String] {
+        &self.classes
+    }
+    fn element_type_name(&self) -> &str {
+        "PopupPanel"
+    }
 
-    fn reset_mss_styles(&mut self) { self.mss.reset(); }
-    fn mss(&self) -> Option<&crate::mss::MssFields> { Some(&self.mss) }
+    fn reset_mss_styles(&mut self) {
+        self.mss.reset();
+    }
+    fn mss(&self) -> Option<&crate::mss::MssFields> {
+        Some(&self.mss)
+    }
 
     fn apply_computed_style(&mut self, style: &ComputedStyle) {
         self.mss.apply(style);
@@ -420,7 +490,8 @@ impl Element for PopupPanelElement {
         selected: Option<&ComputedStyle>,
         _checked: Option<&ComputedStyle>,
     ) {
-        self.mss.apply_transitions(base, hover, active, focus, selected);
+        self.mss
+            .apply_transitions(base, hover, active, focus, selected);
     }
 
     fn accessibility_info(&self) -> Option<crate::a11y::AccessibilityInfo> {
@@ -439,7 +510,9 @@ impl StyledElement for PopupPanelElement {
     fn apply_style(&mut self, _style: &ComputedStyle) {
         self.mark_dirty(DirtyFlags::RENDER | DirtyFlags::LAYOUT);
     }
-    fn classes(&self) -> &[String] { &self.classes }
+    fn classes(&self) -> &[String] {
+        &self.classes
+    }
     fn set_classes(&mut self, classes: Vec<String>) {
         self.classes = classes;
         self.mark_dirty(DirtyFlags::RENDER);

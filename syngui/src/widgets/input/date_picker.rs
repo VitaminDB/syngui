@@ -4,19 +4,23 @@
 //! [`Calendar`](crate::widgets::Calendar): общие локализация, быстрый выбор
 //! месяца/года и MSS-переменные `--cal-*`.
 
+use crate::core::sync::Mutex;
 use crate::core::{Color, Point, Rect, RectExt, Size};
 use crate::input::{CursorIcon, Event, EventResult, MouseButton};
 use crate::layout::Constraints;
-use crate::mss::{ComputedStyle, Dimension};
 use crate::mss::MssFields;
+use crate::mss::{ComputedStyle, Dimension};
 use crate::render::{Border, DisplayList};
 use crate::widget::context::{EventContext, EventContextExt, TextMeasure};
-use crate::widget::{DirtyFlags, Element, ElementId, ElementTree, StyledElement, UpdateContext, Widget};
+use crate::widget::{
+    DirtyFlags, Element, ElementId, ElementTree, StyledElement, UpdateContext, Widget,
+};
 use crate::widgets::visual::calendar::panel::{self, PanelMetrics};
-use crate::widgets::visual::calendar::{default_locale, CalendarLocale, CalendarTheme, CalendarVars, PanelState};
+use crate::widgets::visual::calendar::{
+    default_locale, CalendarLocale, CalendarTheme, CalendarVars, PanelState,
+};
 use std::any::Any;
 use std::sync::Arc;
-use crate::core::sync::Mutex;
 
 pub use crate::widgets::visual::calendar::Date;
 
@@ -96,12 +100,17 @@ impl DatePicker {
 }
 
 impl Default for DatePicker {
-    fn default() -> Self { Self::new() }
+    fn default() -> Self {
+        Self::new()
+    }
 }
 
 impl Widget for DatePicker {
     fn create_element(&self) -> Box<dyn Element> {
-        let state = self.selected.map(PanelState::from_date).unwrap_or_else(PanelState::today);
+        let state = self
+            .selected
+            .map(PanelState::from_date)
+            .unwrap_or_else(PanelState::today);
         Box::new(DatePickerElement {
             id: ElementId::new(),
             selected: self.selected,
@@ -126,9 +135,15 @@ impl Widget for DatePicker {
         })
     }
 
-    fn can_update(&self, other: &dyn Any) -> bool { other.is::<Self>() }
-    fn as_any(&self) -> &dyn Any { self }
-    fn as_any_mut(&mut self) -> &mut dyn Any { self }
+    fn can_update(&self, other: &dyn Any) -> bool {
+        other.is::<Self>()
+    }
+    fn as_any(&self) -> &dyn Any {
+        self
+    }
+    fn as_any_mut(&mut self) -> &mut dyn Any {
+        self
+    }
     fn mount(&self, _tree: &mut ElementTree, _parent_id: ElementId) {}
 }
 
@@ -180,7 +195,9 @@ impl DatePickerElement {
 
     fn fire_change(&self) {
         if let Some(ref cb) = self.on_change {
-            if let Ok(mut f) = cb.lock() { f(self.selected); }
+            if let Ok(mut f) = cb.lock() {
+                f(self.selected);
+            }
         }
     }
 
@@ -226,7 +243,11 @@ impl Element for DatePickerElement {
         } else {
             self.metrics().width
         };
-        let w = self.width.map(|d| d.resolve(constraints.max_width)).unwrap_or(default_w).min(constraints.max_width);
+        let w = self
+            .width
+            .map(|d| d.resolve(constraints.max_width))
+            .unwrap_or(default_w)
+            .min(constraints.max_width);
         self.bounds = Rect::new(Point::zero(), Size::new(w, INPUT_HEIGHT));
         Size::new(w, INPUT_HEIGHT)
     }
@@ -235,7 +256,11 @@ impl Element for DatePickerElement {
         let theme = self.theme();
         let bg_color = self.mss.background_color.unwrap_or(Color::WHITE);
         let base_border = self.mss.border_color.unwrap_or(Color::from_hex("#D1D5DB"));
-        let border_color = if self.is_open { theme.accent } else { base_border };
+        let border_color = if self.is_open {
+            theme.accent
+        } else {
+            base_border
+        };
         let placeholder_color = theme.muted;
 
         list.push_rect_bordered(
@@ -247,26 +272,39 @@ impl Element for DatePickerElement {
 
         let font_size = self.mss.font_size.unwrap_or(14.0);
         let text_rect = Rect::new(
-            Point::new(self.bounds.x() + 12.0, self.bounds.y() + (INPUT_HEIGHT - font_size) / 2.0),
+            Point::new(
+                self.bounds.x() + 12.0,
+                self.bounds.y() + (INPUT_HEIGHT - font_size) / 2.0,
+            ),
             Size::new(self.bounds.size.width - 40.0, font_size + 2.0),
         );
         match self.selected {
-            Some(d) => list.push_text(&self.locale.format_date(&d), text_rect, theme.text, font_size),
-            None => list.push_text(self.placeholder_text(), text_rect, placeholder_color, font_size),
+            // Однострочно: в узком поле дата иначе ломается на две строки.
+            Some(d) => list.push_text_singleline(&self.locale.format_date(&d), text_rect, theme.text, font_size, crate::mss::TextAlign::DEFAULT, 400),
+            None => list.push_text_singleline(self.placeholder_text(), text_rect, placeholder_color, font_size, crate::mss::TextAlign::DEFAULT, 400),
         }
 
         let icon_rect = Rect::new(
-            Point::new(self.bounds.x() + self.bounds.size.width - 28.0, self.bounds.y() + (INPUT_HEIGHT - 14.0) / 2.0),
+            Point::new(
+                self.bounds.x() + self.bounds.size.width - 28.0,
+                self.bounds.y() + (INPUT_HEIGHT - 14.0) / 2.0,
+            ),
             Size::new(16.0, 14.0),
         );
         list.push_text(
             panel::ICON_CALENDAR,
             icon_rect,
-            if self.is_open { theme.accent } else { theme.muted },
+            if self.is_open {
+                theme.accent
+            } else {
+                theme.muted
+            },
             14.0,
         );
 
-        if !self.is_open { return; }
+        if !self.is_open {
+            return;
+        }
 
         let cal = self.calendar_rect();
         let input = panel::PanelInput {
@@ -282,7 +320,13 @@ impl Element for DatePickerElement {
         };
 
         list.begin_overlay();
-        list.push_shadow(cal, Color::BLACK.with_alpha(0.15), 16.0, (0.0, 4.0), [theme.radius; 4]);
+        list.push_shadow(
+            cal,
+            Color::BLACK.with_alpha(0.15),
+            16.0,
+            (0.0, 4.0),
+            [theme.radius; 4],
+        );
         panel::draw(list, cal, &input);
         list.end_overlay();
     }
@@ -315,7 +359,11 @@ impl Element for DatePickerElement {
                         ctx.request_paint();
                     }
                     if hit.is_some() || cal.contains(*pos) {
-                        ctx.set_cursor(if hit.is_some() { CursorIcon::Pointer } else { CursorIcon::Default });
+                        ctx.set_cursor(if hit.is_some() {
+                            CursorIcon::Pointer
+                        } else {
+                            CursorIcon::Default
+                        });
                         return EventResult::Handled;
                     }
                 }
@@ -338,12 +386,18 @@ impl Element for DatePickerElement {
                         let overlay_bounds = if self.opens_upward {
                             Rect::new(
                                 Point::new(self.bounds.x(), cal.y()),
-                                Size::new(m.width.max(self.bounds.size.width), m.height + POPUP_GAP + INPUT_HEIGHT),
+                                Size::new(
+                                    m.width.max(self.bounds.size.width),
+                                    m.height + POPUP_GAP + INPUT_HEIGHT,
+                                ),
                             )
                         } else {
                             Rect::new(
                                 self.bounds.origin,
-                                Size::new(m.width.max(self.bounds.size.width), INPUT_HEIGHT + POPUP_GAP + m.height),
+                                Size::new(
+                                    m.width.max(self.bounds.size.width),
+                                    INPUT_HEIGHT + POPUP_GAP + m.height,
+                                ),
                             )
                         };
                         ctx.register_overlay(overlay_bounds, false);
@@ -378,14 +432,30 @@ impl Element for DatePickerElement {
         }
     }
 
-    fn children(&self) -> &[ElementId] { &[] }
-    fn bounds(&self) -> Rect { self.bounds }
-    fn set_position(&mut self, pos: Point) { self.bounds.origin = pos; }
-    fn mark_dirty(&mut self, flags: DirtyFlags) { self.dirty_flags |= flags; }
-    fn clear_dirty(&mut self, flags: DirtyFlags) { self.dirty_flags.remove(flags); }
-    fn is_dirty(&self, flags: DirtyFlags) -> bool { self.dirty_flags.contains(flags) }
-    fn id(&self) -> ElementId { self.id }
-    fn set_id(&mut self, id: ElementId) { self.id = id; }
+    fn children(&self) -> &[ElementId] {
+        &[]
+    }
+    fn bounds(&self) -> Rect {
+        self.bounds
+    }
+    fn set_position(&mut self, pos: Point) {
+        self.bounds.origin = pos;
+    }
+    fn mark_dirty(&mut self, flags: DirtyFlags) {
+        self.dirty_flags |= flags;
+    }
+    fn clear_dirty(&mut self, flags: DirtyFlags) {
+        self.dirty_flags.remove(flags);
+    }
+    fn is_dirty(&self, flags: DirtyFlags) -> bool {
+        self.dirty_flags.contains(flags)
+    }
+    fn id(&self) -> ElementId {
+        self.id
+    }
+    fn set_id(&mut self, id: ElementId) {
+        self.id = id;
+    }
     fn mount(&mut self, tree: &mut ElementTree) {
         self.text_measure = tree.text_measure.clone();
     }
@@ -395,16 +465,26 @@ impl Element for DatePickerElement {
         self.mark_dirty(DirtyFlags::RENDER);
     }
 
-    fn get_classes(&self) -> &[String] { &self.classes }
+    fn get_classes(&self) -> &[String] {
+        &self.classes
+    }
 
-    fn element_type_name(&self) -> &str { "DatePicker" }
+    fn element_type_name(&self) -> &str {
+        "DatePicker"
+    }
 
-    fn reset_mss_styles(&mut self) { self.mss.reset(); }
-    fn mss(&self) -> Option<&crate::mss::MssFields> { Some(&self.mss) }
+    fn reset_mss_styles(&mut self) {
+        self.mss.reset();
+    }
+    fn mss(&self) -> Option<&crate::mss::MssFields> {
+        Some(&self.mss)
+    }
     fn apply_computed_style(&mut self, style: &ComputedStyle) {
         self.mss.apply(style);
         self.vars = CalendarVars::read(style);
-        if let Some(w) = self.mss.width { self.width = Some(w); }
+        if let Some(w) = self.mss.width {
+            self.width = Some(w);
+        }
         self.mark_dirty(DirtyFlags::LAYOUT | DirtyFlags::RENDER);
     }
 
@@ -417,7 +497,8 @@ impl Element for DatePickerElement {
         selected: Option<&ComputedStyle>,
         _checked: Option<&ComputedStyle>,
     ) {
-        self.mss.apply_transitions(base, hover, active, focus, selected);
+        self.mss
+            .apply_transitions(base, hover, active, focus, selected);
     }
 }
 
@@ -427,7 +508,9 @@ impl StyledElement for DatePickerElement {
         self.mark_dirty(DirtyFlags::LAYOUT | DirtyFlags::RENDER);
     }
 
-    fn classes(&self) -> &[String] { &self.classes }
+    fn classes(&self) -> &[String] {
+        &self.classes
+    }
 
     fn set_classes(&mut self, classes: Vec<String>) {
         self.classes = classes;

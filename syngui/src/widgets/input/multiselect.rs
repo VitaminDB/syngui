@@ -1,17 +1,19 @@
 use crate::animation::transition::mss_color_to_core;
+use crate::core::sync::Mutex;
 use crate::core::{Color, Point, Rect, RectExt, Size};
 use crate::input::{CursorIcon, Event, EventResult, Key, MouseButton};
 use crate::layout::Constraints;
-use crate::mss::{ComputedStyle, Dimension};
 use crate::mss::MssFields;
+use crate::mss::{ComputedStyle, Dimension};
 use crate::render::{Border, DisplayList};
+use crate::widget::context::TextMeasure;
 use crate::widget::context::{EventContext, EventContextExt};
-use crate::widget::{DirtyFlags, Element, ElementId, ElementTree, StyledElement, UpdateContext, Widget};
+use crate::widget::{
+    DirtyFlags, Element, ElementId, ElementTree, StyledElement, UpdateContext, Widget,
+};
 use std::any::Any;
 use std::sync::Arc;
 use std::time::Duration;
-use crate::core::sync::Mutex;
-use crate::widget::context::TextMeasure;
 
 use super::dropdown::DropdownItem;
 
@@ -103,9 +105,15 @@ impl Widget for Multiselect {
         })
     }
 
-    fn can_update(&self, other: &dyn Any) -> bool { other.is::<Self>() }
-    fn as_any(&self) -> &dyn Any { self }
-    fn as_any_mut(&mut self) -> &mut dyn Any { self }
+    fn can_update(&self, other: &dyn Any) -> bool {
+        other.is::<Self>()
+    }
+    fn as_any(&self) -> &dyn Any {
+        self
+    }
+    fn as_any_mut(&mut self) -> &mut dyn Any {
+        self
+    }
     fn mount(&self, _tree: &mut ElementTree, _parent_id: ElementId) {}
 }
 
@@ -155,20 +163,28 @@ pub struct MultiselectElement {
 impl MultiselectElement {
     fn fire_change(&self) {
         if let Some(ref cb) = self.on_change {
-            if let Ok(mut f) = cb.lock() { f(&self.selected); }
+            if let Ok(mut f) = cb.lock() {
+                f(&self.selected);
+            }
         }
     }
 
     fn effective_popup_height(&self, item_count: usize) -> f32 {
         let content_h = item_count as f32 * ITEM_HEIGHT;
-        let filter_h = if self.autocomplete { FILTER_HEIGHT + FILTER_GAP } else { 0.0 };
+        let filter_h = if self.autocomplete {
+            FILTER_HEIGHT + FILTER_GAP
+        } else {
+            0.0
+        };
         let max_h = self.mss_popup_max_height.unwrap_or(MAX_DROPDOWN_HEIGHT);
         let min_h = self.mss_popup_min_height.unwrap_or(0.0);
         (content_h + filter_h).min(max_h).max(min_h)
     }
 
     fn chip_width(&self, label: &str) -> f32 {
-        let text_w = self.text_measure.as_ref()
+        let text_w = self
+            .text_measure
+            .as_ref()
             .map(|tm| tm.measure_text_width(label, CHIP_FONT_SIZE, label.chars().count()))
             .unwrap_or_else(|| label.chars().count() as f32 * CHIP_FONT_SIZE * 0.65);
         text_w + CHIP_PADDING
@@ -219,7 +235,10 @@ impl MultiselectElement {
             self.filtered_indices.clear();
         } else {
             let lower = self.filter_text.to_lowercase();
-            self.filtered_indices = self.items.iter().enumerate()
+            self.filtered_indices = self
+                .items
+                .iter()
+                .enumerate()
                 .filter(|(_, item)| item.label.to_lowercase().contains(&lower))
                 .map(|(i, _)| i)
                 .collect();
@@ -267,7 +286,11 @@ impl MultiselectElement {
     }
 
     fn items_y_offset(&self) -> f32 {
-        if self.autocomplete { FILTER_HEIGHT + FILTER_GAP } else { 0.0 }
+        if self.autocomplete {
+            FILTER_HEIGHT + FILTER_GAP
+        } else {
+            0.0
+        }
     }
 }
 
@@ -289,7 +312,11 @@ impl Element for MultiselectElement {
     }
 
     fn layout(&mut self, constraints: Constraints) -> Size {
-        let w = self.width.map(|d| d.resolve(constraints.max_width)).unwrap_or(constraints.max_width).min(constraints.max_width);
+        let w = self
+            .width
+            .map(|d| d.resolve(constraints.max_width))
+            .unwrap_or(constraints.max_width)
+            .min(constraints.max_width);
         let h = self.input_height();
         self.bounds = Rect::new(Point::zero(), Size::new(w, h));
         Size::new(w, h)
@@ -305,17 +332,26 @@ impl Element for MultiselectElement {
         let border_color = if self.is_open { primary } else { border };
 
         list.push_rect_bordered(
-            self.bounds, bg, [8.0; 4],
+            self.bounds,
+            bg,
+            [8.0; 4],
             Border::new(if self.is_open { 2.0 } else { 1.0 }, border_color),
         );
 
         if self.selected.is_empty() {
             let text_rect = Rect::new(
-                Point::new(self.bounds.x() + 12.0, self.bounds.y() + (self.bounds.size.height - 14.0) / 2.0),
+                Point::new(
+                    self.bounds.x() + 12.0,
+                    self.bounds.y() + (self.bounds.size.height - 14.0) / 2.0,
+                ),
                 Size::new(self.bounds.size.width - 40.0, 16.0),
             );
-            let placeholder = if self.placeholder.is_empty() { crate::i18n::builtin("multiselect.placeholder", "Select...") } else { self.placeholder.clone() };
-            list.push_text(&placeholder, text_rect, muted, 14.0);
+            let placeholder = if self.placeholder.is_empty() {
+                crate::i18n::builtin("multiselect.placeholder", "Select...")
+            } else {
+                self.placeholder.clone()
+            };
+            list.push_text_singleline(&placeholder, text_rect, muted, 14.0, crate::mss::TextAlign::DEFAULT, 400);
         } else {
             let (visible, extra) = self.visible_chips();
             let available_w = self.bounds.size.width - 40.0;
@@ -329,7 +365,9 @@ impl Element for MultiselectElement {
             list.push_clip(chip_area);
 
             for &idx in visible {
-                if idx >= self.items.len() { continue; }
+                if idx >= self.items.len() {
+                    continue;
+                }
                 let label = &self.items[idx].label;
                 let chip_w = self.chip_width(label);
 
@@ -350,7 +388,7 @@ impl Element for MultiselectElement {
                     Point::new(x + 8.0, y + (CHIP_HEIGHT - 11.0) / 2.0),
                     Size::new(chip_w - 24.0, 12.0),
                 );
-                list.push_text(label, text_rect, fg, CHIP_FONT_SIZE);
+                list.push_text_singleline(label, text_rect, fg, CHIP_FONT_SIZE, crate::mss::TextAlign::DEFAULT, 400);
 
                 let close_rect = Rect::new(
                     Point::new(x + chip_w - 16.0, y + (CHIP_HEIGHT - 10.0) / 2.0),
@@ -377,7 +415,10 @@ impl Element for MultiselectElement {
         }
 
         let arrow_rect = Rect::new(
-            Point::new(self.bounds.x() + self.bounds.size.width - 28.0, self.bounds.y() + (self.bounds.size.height - 10.0) / 2.0),
+            Point::new(
+                self.bounds.x() + self.bounds.size.width - 28.0,
+                self.bounds.y() + (self.bounds.size.height - 10.0) / 2.0,
+            ),
             Size::new(16.0, 12.0),
         );
         let arrow = if self.is_open { "\u{E5CE}" } else { "\u{E5CF}" };
@@ -389,18 +430,34 @@ impl Element for MultiselectElement {
             let popup_fg = self.mss_popup_fg.unwrap_or(fg);
             let popup_accent = self.mss_popup_accent.unwrap_or(primary);
             let popup_border_color = self.mss_popup_border.unwrap_or(border);
-            let popup_hover_bg = self.mss_popup_hover_bg.unwrap_or_else(|| popup_bg.darken(0.05));
+            let popup_hover_bg = self
+                .mss_popup_hover_bg
+                .unwrap_or_else(|| popup_bg.darken(0.05));
             let popup_muted = popup_fg.with_alpha(0.5);
 
             list.begin_overlay();
             let menu_radius: f32 = 8.0;
             let menu_bw: f32 = 1.0;
-            list.push_shadow(dd, Color::BLACK.with_alpha(0.12), 12.0, (0.0, 4.0), [menu_radius; 4]);
-            list.push_rect_bordered(dd, popup_bg, [menu_radius; 4], Border::new(menu_bw, popup_border_color));
+            list.push_shadow(
+                dd,
+                Color::BLACK.with_alpha(0.12),
+                12.0,
+                (0.0, 4.0),
+                [menu_radius; 4],
+            );
+            list.push_rect_bordered(
+                dd,
+                popup_bg,
+                [menu_radius; 4],
+                Border::new(menu_bw, popup_border_color),
+            );
 
             let inset = Rect::new(
                 Point::new(dd.x() + menu_bw, dd.y() + menu_bw),
-                Size::new((dd.size.width - menu_bw * 2.0).max(0.0), (dd.size.height - menu_bw * 2.0).max(0.0)),
+                Size::new(
+                    (dd.size.width - menu_bw * 2.0).max(0.0),
+                    (dd.size.height - menu_bw * 2.0).max(0.0),
+                ),
             );
             list.push_clip(inset);
             let inner_radius = (menu_radius - menu_bw).max(0.0);
@@ -411,20 +468,36 @@ impl Element for MultiselectElement {
                     Point::new(dd.x() + 8.0, dd.y() + 4.0),
                     Size::new(dd.size.width - 16.0, FILTER_HEIGHT - 4.0),
                 );
-                list.push_rect_bordered(filter_rect, popup_bg, [6.0; 4], Border::new(1.5, popup_accent));
+                list.push_rect_bordered(
+                    filter_rect,
+                    popup_bg,
+                    [6.0; 4],
+                    Border::new(1.5, popup_accent),
+                );
 
                 let icon_rect = Rect::new(
-                    Point::new(filter_rect.x() + 8.0, filter_rect.y() + (filter_rect.size.height - 14.0) / 2.0),
+                    Point::new(
+                        filter_rect.x() + 8.0,
+                        filter_rect.y() + (filter_rect.size.height - 14.0) / 2.0,
+                    ),
                     Size::new(14.0, 14.0),
                 );
                 list.push_text("\u{E8B6}", icon_rect, popup_muted, 14.0);
 
                 let text_rect = Rect::new(
-                    Point::new(filter_rect.x() + 28.0, filter_rect.y() + (filter_rect.size.height - 14.0) / 2.0),
+                    Point::new(
+                        filter_rect.x() + 28.0,
+                        filter_rect.y() + (filter_rect.size.height - 14.0) / 2.0,
+                    ),
                     Size::new(filter_rect.size.width - 36.0, 16.0),
                 );
                 if self.filter_text.is_empty() {
-                    list.push_text(&crate::i18n::builtin("multiselect.search", "Search..."), text_rect, popup_muted, 13.0);
+                    list.push_text(
+                        &crate::i18n::builtin("multiselect.search", "Search..."),
+                        text_rect,
+                        popup_muted,
+                        13.0,
+                    );
                 } else {
                     list.push_text(&self.filter_text, text_rect, popup_fg, 13.0);
                 }
@@ -433,10 +506,8 @@ impl Element for MultiselectElement {
                 if blink_phase < 1.0 {
                     let char_w = 7.5;
                     let cursor_x = text_rect.x() + self.filter_text.chars().count() as f32 * char_w;
-                    let cursor_rect = Rect::new(
-                        Point::new(cursor_x, text_rect.y()),
-                        Size::new(1.5, 14.0),
-                    );
+                    let cursor_rect =
+                        Rect::new(Point::new(cursor_x, text_rect.y()), Size::new(1.5, 14.0));
                     list.push_rect(cursor_rect, popup_accent, [0.0; 4]);
                 }
 
@@ -455,23 +526,38 @@ impl Element for MultiselectElement {
             let mut last_visible: Option<usize> = None;
             for (vi, _) in display_items.iter().enumerate() {
                 let y = items_y_start + vi as f32 * ITEM_HEIGHT - self.scroll_offset;
-                if y + ITEM_HEIGHT <= dd_top { continue; }
-                if y >= dd_bottom { break; }
-                if first_visible.is_none() { first_visible = Some(vi); }
+                if y + ITEM_HEIGHT <= dd_top {
+                    continue;
+                }
+                if y >= dd_bottom {
+                    break;
+                }
+                if first_visible.is_none() {
+                    first_visible = Some(vi);
+                }
                 last_visible = Some(vi);
             }
 
             for (vi, &actual_idx) in display_items.iter().enumerate() {
                 let y = items_y_start + vi as f32 * ITEM_HEIGHT - self.scroll_offset;
-                if y + ITEM_HEIGHT < dd_top || y > dd_bottom { continue; }
+                if y + ITEM_HEIGHT < dd_top || y > dd_bottom {
+                    continue;
+                }
 
-                let adjusted_rect = Rect::new(Point::new(dd.x() + menu_bw, y), Size::new(inset.size.width, ITEM_HEIGHT));
+                let adjusted_rect = Rect::new(
+                    Point::new(dd.x() + menu_bw, y),
+                    Size::new(inset.size.width, ITEM_HEIGHT),
+                );
 
                 let clamped_top = adjusted_rect.y().max(dd_top);
-                let clamped_bottom = (adjusted_rect.y() + adjusted_rect.size.height).min(dd_bottom - menu_bw);
+                let clamped_bottom =
+                    (adjusted_rect.y() + adjusted_rect.size.height).min(dd_bottom - menu_bw);
                 let clamped_rect = Rect::new(
                     Point::new(adjusted_rect.x(), clamped_top),
-                    Size::new(adjusted_rect.size.width, (clamped_bottom - clamped_top).max(0.0)),
+                    Size::new(
+                        adjusted_rect.size.width,
+                        (clamped_bottom - clamped_top).max(0.0),
+                    ),
                 );
 
                 let is_first = first_visible == Some(vi);
@@ -499,7 +585,12 @@ impl Element for MultiselectElement {
                     );
                     list.push_text("\u{E5CA}", check_rect, Color::WHITE, 11.0);
                 } else {
-                    list.push_rect_bordered(cb_rect, popup_bg, [3.0; 4], Border::new(1.0, popup_border_color));
+                    list.push_rect_bordered(
+                        cb_rect,
+                        popup_bg,
+                        [3.0; 4],
+                        Border::new(1.0, popup_border_color),
+                    );
                 }
 
                 let item = &self.items[actual_idx];
@@ -523,7 +614,12 @@ impl Element for MultiselectElement {
                     Point::new(dd.x() + 12.0, items_y_start + 8.0),
                     Size::new(dd.size.width - 24.0, 20.0),
                 );
-                list.push_text(&crate::i18n::builtin("multiselect.empty", "Nothing found"), empty_rect, popup_muted, 13.0);
+                list.push_text(
+                    &crate::i18n::builtin("multiselect.empty", "Nothing found"),
+                    empty_rect,
+                    popup_muted,
+                    13.0,
+                );
             }
 
             list.pop_clip();
@@ -543,7 +639,8 @@ impl Element for MultiselectElement {
                     if dd.contains(*pos) {
                         let items_y = dd.y() + self.items_y_offset();
                         if pos.y >= items_y {
-                            let vi = ((pos.y - items_y + self.scroll_offset) / ITEM_HEIGHT) as usize;
+                            let vi =
+                                ((pos.y - items_y + self.scroll_offset) / ITEM_HEIGHT) as usize;
                             if self.hover_index != Some(vi) {
                                 self.hover_index = Some(vi);
                                 ctx.request_paint();
@@ -565,14 +662,19 @@ impl Element for MultiselectElement {
 
                     let visible_vec: Vec<usize> = visible.to_vec();
                     for &idx in visible_vec.iter() {
-                        if idx >= self.items.len() { continue; }
+                        if idx >= self.items.len() {
+                            continue;
+                        }
                         let chip_w = self.chip_width(&self.items[idx].label);
-                        if x - self.bounds.x() - 8.0 + chip_w > available_w && x > self.bounds.x() + 9.0 {
+                        if x - self.bounds.x() - 8.0 + chip_w > available_w
+                            && x > self.bounds.x() + 9.0
+                        {
                             x = self.bounds.x() + 8.0;
                             y += CHIP_HEIGHT + CHIP_GAP;
                         }
                         let close_x = x + chip_w - 16.0;
-                        let close_rect = Rect::new(Point::new(close_x, y), Size::new(16.0, CHIP_HEIGHT));
+                        let close_rect =
+                            Rect::new(Point::new(close_x, y), Size::new(16.0, CHIP_HEIGHT));
                         if close_rect.contains(*position) {
                             if let Some(pos) = self.selected.iter().position(|&i| i == idx) {
                                 self.selected.remove(pos);
@@ -593,18 +695,26 @@ impl Element for MultiselectElement {
                             self.cursor_blink = 0.0;
                             let popup_gap = 4.0;
                             let dd_h = self.effective_popup_height(self.items.len());
-                            self.opens_upward = self.bounds.y() + self.bounds.size.height + dd_h + popup_gap > ctx.viewport_size().height
-                                && self.bounds.y() >= dd_h + popup_gap;
+                            self.opens_upward =
+                                self.bounds.y() + self.bounds.size.height + dd_h + popup_gap
+                                    > ctx.viewport_size().height
+                                    && self.bounds.y() >= dd_h + popup_gap;
                             let dd = self.dropdown_rect();
                             let overlay_bounds = if self.opens_upward {
                                 Rect::new(
                                     Point::new(self.bounds.x(), dd.y()),
-                                    Size::new(self.bounds.size.width, dd.size.height + popup_gap + self.bounds.size.height),
+                                    Size::new(
+                                        self.bounds.size.width,
+                                        dd.size.height + popup_gap + self.bounds.size.height,
+                                    ),
                                 )
                             } else {
                                 Rect::new(
                                     self.bounds.origin,
-                                    Size::new(self.bounds.size.width, self.bounds.size.height + popup_gap + dd.size.height),
+                                    Size::new(
+                                        self.bounds.size.width,
+                                        self.bounds.size.height + popup_gap + dd.size.height,
+                                    ),
                                 )
                             };
                             ctx.register_overlay(overlay_bounds, false);
@@ -625,7 +735,8 @@ impl Element for MultiselectElement {
                         }
 
                         if position.y >= items_y {
-                            let vi = ((position.y - items_y + self.scroll_offset) / ITEM_HEIGHT) as usize;
+                            let vi = ((position.y - items_y + self.scroll_offset) / ITEM_HEIGHT)
+                                as usize;
                             let display = self.display_indices();
                             if vi < display.len() {
                                 let actual_idx = display[vi];
@@ -669,7 +780,9 @@ impl Element for MultiselectElement {
                 ctx.request_paint();
                 EventResult::Handled
             }
-            Event::MouseWheel { delta, position, .. } if self.is_open => {
+            Event::MouseWheel {
+                delta, position, ..
+            } if self.is_open => {
                 let dd = self.dropdown_rect();
                 if dd.contains(*position) {
                     let display_count = self.visible_item_count();
@@ -699,20 +812,40 @@ impl Element for MultiselectElement {
         self.is_open && self.autocomplete
     }
 
-    fn children(&self) -> &[ElementId] { &[] }
-    fn bounds(&self) -> Rect { self.bounds }
+    fn children(&self) -> &[ElementId] {
+        &[]
+    }
+    fn bounds(&self) -> Rect {
+        self.bounds
+    }
 
-    fn explicit_dimensions(&self, _parent_width: f32, _parent_height: f32) -> (Option<f32>, Option<f32>) {
+    fn explicit_dimensions(
+        &self,
+        _parent_width: f32,
+        _parent_height: f32,
+    ) -> (Option<f32>, Option<f32>) {
         let w = self.width.map(|d| d.resolve(1000.0));
         (w, None)
     }
 
-    fn set_position(&mut self, pos: Point) { self.bounds.origin = pos; }
-    fn mark_dirty(&mut self, flags: DirtyFlags) { self.dirty_flags |= flags; }
-    fn clear_dirty(&mut self, flags: DirtyFlags) { self.dirty_flags.remove(flags); }
-    fn is_dirty(&self, flags: DirtyFlags) -> bool { self.dirty_flags.contains(flags) }
-    fn id(&self) -> ElementId { self.id }
-    fn set_id(&mut self, id: ElementId) { self.id = id; }
+    fn set_position(&mut self, pos: Point) {
+        self.bounds.origin = pos;
+    }
+    fn mark_dirty(&mut self, flags: DirtyFlags) {
+        self.dirty_flags |= flags;
+    }
+    fn clear_dirty(&mut self, flags: DirtyFlags) {
+        self.dirty_flags.remove(flags);
+    }
+    fn is_dirty(&self, flags: DirtyFlags) -> bool {
+        self.dirty_flags.contains(flags)
+    }
+    fn id(&self) -> ElementId {
+        self.id
+    }
+    fn set_id(&mut self, id: ElementId) {
+        self.id = id;
+    }
     fn mount(&mut self, tree: &mut ElementTree) {
         self.text_measure = tree.text_measure.clone();
     }
@@ -722,23 +855,58 @@ impl Element for MultiselectElement {
         self.mark_dirty(DirtyFlags::RENDER);
     }
 
-    fn get_classes(&self) -> &[String] { &self.classes }
+    fn get_classes(&self) -> &[String] {
+        &self.classes
+    }
 
-    fn element_type_name(&self) -> &str { "Multiselect" }
+    fn element_type_name(&self) -> &str {
+        "Multiselect"
+    }
 
-    fn reset_mss_styles(&mut self) { self.mss.reset(); }
-    fn mss(&self) -> Option<&crate::mss::MssFields> { Some(&self.mss) }
+    fn reset_mss_styles(&mut self) {
+        self.mss.reset();
+    }
+    fn mss(&self) -> Option<&crate::mss::MssFields> {
+        Some(&self.mss)
+    }
     fn apply_computed_style(&mut self, style: &ComputedStyle) {
         self.mss.apply(style);
-        if let Some(w) = self.mss.width { self.width = Some(w); }
-        if let Some(c) = style.get("--popup-background").and_then(|v| v.as_color()) { self.mss_popup_bg = Some(mss_color_to_core(c)); }
-        if let Some(c) = style.get("--popup-color").and_then(|v| v.as_color()) { self.mss_popup_fg = Some(mss_color_to_core(c)); }
-        if let Some(c) = style.get("--popup-accent").and_then(|v| v.as_color()) { self.mss_popup_accent = Some(mss_color_to_core(c)); }
-        if let Some(c) = style.get("--popup-border").and_then(|v| v.as_color()) { self.mss_popup_border = Some(mss_color_to_core(c)); }
-        if let Some(c) = style.get("--popup-hover-background").and_then(|v| v.as_color()) { self.mss_popup_hover_bg = Some(mss_color_to_core(c)); }
-        if let Some(c) = style.get("--popup-hover-color").and_then(|v| v.as_color()) { self.mss_popup_hover_fg = Some(mss_color_to_core(c)); }
-        if let Some(d) = style.get("--popup-max-height").and_then(|v| v.as_dimension()) { self.mss_popup_max_height = Some(d.resolve(1000.0)); }
-        if let Some(d) = style.get("--popup-min-height").and_then(|v| v.as_dimension()) { self.mss_popup_min_height = Some(d.resolve(1000.0)); }
+        if let Some(w) = self.mss.width {
+            self.width = Some(w);
+        }
+        if let Some(c) = style.get("--popup-background").and_then(|v| v.as_color()) {
+            self.mss_popup_bg = Some(mss_color_to_core(c));
+        }
+        if let Some(c) = style.get("--popup-color").and_then(|v| v.as_color()) {
+            self.mss_popup_fg = Some(mss_color_to_core(c));
+        }
+        if let Some(c) = style.get("--popup-accent").and_then(|v| v.as_color()) {
+            self.mss_popup_accent = Some(mss_color_to_core(c));
+        }
+        if let Some(c) = style.get("--popup-border").and_then(|v| v.as_color()) {
+            self.mss_popup_border = Some(mss_color_to_core(c));
+        }
+        if let Some(c) = style
+            .get("--popup-hover-background")
+            .and_then(|v| v.as_color())
+        {
+            self.mss_popup_hover_bg = Some(mss_color_to_core(c));
+        }
+        if let Some(c) = style.get("--popup-hover-color").and_then(|v| v.as_color()) {
+            self.mss_popup_hover_fg = Some(mss_color_to_core(c));
+        }
+        if let Some(d) = style
+            .get("--popup-max-height")
+            .and_then(|v| v.as_dimension())
+        {
+            self.mss_popup_max_height = Some(d.resolve(1000.0));
+        }
+        if let Some(d) = style
+            .get("--popup-min-height")
+            .and_then(|v| v.as_dimension())
+        {
+            self.mss_popup_min_height = Some(d.resolve(1000.0));
+        }
         self.mark_dirty(DirtyFlags::LAYOUT | DirtyFlags::RENDER);
     }
 
@@ -751,7 +919,8 @@ impl Element for MultiselectElement {
         selected: Option<&ComputedStyle>,
         _checked: Option<&ComputedStyle>,
     ) {
-        self.mss.apply_transitions(base, hover, active, focus, selected);
+        self.mss
+            .apply_transitions(base, hover, active, focus, selected);
     }
 }
 
@@ -760,7 +929,9 @@ impl StyledElement for MultiselectElement {
         self.mark_dirty(DirtyFlags::LAYOUT | DirtyFlags::RENDER);
     }
 
-    fn classes(&self) -> &[String] { &self.classes }
+    fn classes(&self) -> &[String] {
+        &self.classes
+    }
 
     fn set_classes(&mut self, classes: Vec<String>) {
         self.classes = classes;
