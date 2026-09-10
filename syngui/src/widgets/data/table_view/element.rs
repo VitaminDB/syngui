@@ -1,14 +1,19 @@
-use super::{ColumnAlign, ColumnWidth, SortDirection, SortKey, SortKeyFn, TableColumn, TableDataSource, TableView};
+use super::{
+    ColumnAlign, ColumnWidth, SortDirection, SortKey, SortKeyFn, TableColumn, TableContextAction,
+    TableDataSource, TableView,
+};
 use crate::animation::transition::mss_color_to_core;
-use crate::core::{Color, Point, Rect, RectExt, Size, Transform};
 use crate::core::sync::Mutex;
+use crate::core::{Color, Point, Rect, RectExt, Size, Transform};
 use crate::input::{CursorIcon, Event, EventResult, Key, MouseButton};
 use crate::layout::{Constraints, CrossAxisAlignment};
 use crate::mss::{ComputedStyle, Dimension, IconState, MssFields, TextAlign, TextDecoration};
 use crate::render::{Border, DisplayList};
 use crate::widget::context::{EventContext, EventContextExt};
-use crate::widget::{DirtyFlags, Element, ElementId, ElementTree, LayoutHint, StyledElement, UpdateContext, Widget};
 use crate::widget::styled::WidgetExt;
+use crate::widget::{
+    DirtyFlags, Element, ElementId, ElementTree, LayoutHint, StyledElement, UpdateContext, Widget,
+};
 use std::any::Any;
 use std::collections::HashMap;
 use std::ops::Range;
@@ -31,19 +36,28 @@ const POPOVER_MIN_WIDTH: f32 = 200.0;
 const POPOVER_CHECK_SIZE: f32 = 18.0;
 const POPOVER_GAP_AFTER_CHECK: f32 = 8.0;
 const CONTEXT_MENU_WIDTH: f32 = 190.0;
+/// Высота промежутка с чертой между встроенными пунктами меню и пунктами,
+/// которые добавило приложение.
+const CONTEXT_MENU_SEPARATOR: f32 = 9.0;
+/// Сколько пунктов меню таблица рисует сама (копирование ячейки и строки).
+const BUILTIN_CONTEXT_ITEMS: usize = 2;
 
 impl Widget for TableView {
     fn create_element(&self) -> Box<dyn Element> {
         let data = match &self.data {
             TableDataSource::Eager(rows) => TableDataSource::Eager(rows.clone()),
-            TableDataSource::Virtual { row_count, row_builder } => TableDataSource::Virtual {
+            TableDataSource::Virtual {
+                row_count,
+                row_builder,
+            } => TableDataSource::Virtual {
                 row_count: *row_count,
                 row_builder: row_builder.clone(),
             },
         };
-        let compositional = self.columns.iter().any(|c| {
-            c.cell_renderer.is_some() || c.cell_renderer_with_row.is_some()
-        });
+        let compositional = self
+            .columns
+            .iter()
+            .any(|c| c.cell_renderer.is_some() || c.cell_renderer_with_row.is_some());
         let initial_visibility = self
             .column_visibility_state
             .as_ref()
@@ -68,7 +82,9 @@ impl Widget for TableView {
             selected_rows: self.selected_rows.clone(),
             width: self.width,
             height: self.height,
-            scroll_offset: self.scroll_state.as_ref()
+            scroll_offset: self
+                .scroll_state
+                .as_ref()
                 .map(|s| *s.lock().unwrap())
                 .unwrap_or(0.0),
             scroll_state: self.scroll_state.clone(),
@@ -143,13 +159,21 @@ impl Widget for TableView {
             text_sel: None,
             text_selecting: false,
             context_menu: None,
+            context_actions: self.context_actions.clone(),
+            on_context_action: self.on_context_action.clone(),
         };
         Box::new(el)
     }
 
-    fn can_update(&self, other: &dyn Any) -> bool { other.is::<Self>() }
-    fn as_any(&self) -> &dyn Any { self }
-    fn as_any_mut(&mut self) -> &mut dyn Any { self }
+    fn can_update(&self, other: &dyn Any) -> bool {
+        other.is::<Self>()
+    }
+    fn as_any(&self) -> &dyn Any {
+        self
+    }
+    fn as_any_mut(&mut self) -> &mut dyn Any {
+        self
+    }
     fn mount(&self, _tree: &mut ElementTree, _parent_id: ElementId) {}
 }
 
@@ -248,6 +272,9 @@ pub struct TableViewElement {
     text_selecting: bool,
     /// Контекстное меню ячейки: точка вызова и подсвеченный пункт.
     context_menu: Option<CellContextMenu>,
+    /// Пункты меню, добавленные приложением, и обработчик нажатия.
+    context_actions: Vec<TableContextAction>,
+    on_context_action: Option<Arc<Mutex<dyn FnMut(&str, usize) + Send>>>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq)]
@@ -294,7 +321,6 @@ struct ColumnResizeState {
 const RESIZE_HANDLE_WIDTH: f32 = 4.0;
 
 impl TableViewElement {
-
     fn has_hideable_columns(&self) -> bool {
         self.columns.iter().any(|c| c.hideable)
     }
@@ -319,8 +345,8 @@ impl TableViewElement {
         if !self.has_hideable_columns() {
             return None;
         }
-        let x = self.bounds.x() + self.bounds.size.width
-            - SETTINGS_BUTTON_INSET - SETTINGS_BUTTON_SIZE;
+        let x =
+            self.bounds.x() + self.bounds.size.width - SETTINGS_BUTTON_INSET - SETTINGS_BUTTON_SIZE;
         let y = self.bounds.y() + (self.header_height - SETTINGS_BUTTON_SIZE) / 2.0;
         Some(Rect::new(
             Point::new(x, y),
@@ -329,12 +355,16 @@ impl TableViewElement {
     }
 
     fn popover_rect(&self) -> Option<Rect> {
-        if !self.popover_open { return None; }
+        if !self.popover_open {
+            return None;
+        }
         let btn = self.settings_button_rect()?;
         let hideable: Vec<_> = (0..self.columns.len())
             .filter(|i| self.columns[*i].hideable)
             .collect();
-        if hideable.is_empty() { return None; }
+        if hideable.is_empty() {
+            return None;
+        }
         let h = POPOVER_PADDING * 2.0 + hideable.len() as f32 * POPOVER_ITEM_HEIGHT;
         let w = POPOVER_MIN_WIDTH;
         let x = (btn.x() + btn.size.width - w).max(self.bounds.x() + 4.0);
@@ -358,7 +388,9 @@ impl TableViewElement {
     }
 
     fn popover_hit_test(&self, pos: Point) -> Option<usize> {
-        if !self.popover_open { return None; }
+        if !self.popover_open {
+            return None;
+        }
         let hideable = self.hideable_columns();
         for (idx, _) in hideable.iter().enumerate() {
             if let Some(r) = self.popover_item_rect(idx) {
@@ -383,14 +415,21 @@ impl TableViewElement {
 
     fn visible_row(&self, physical_idx: usize) -> usize {
         match &self.sorted_indices {
-            Some(perm) => perm.iter().position(|&i| i == physical_idx).unwrap_or(physical_idx),
+            Some(perm) => perm
+                .iter()
+                .position(|&i| i == physical_idx)
+                .unwrap_or(physical_idx),
             None => physical_idx,
         }
     }
 
     fn compute_sort_perm(&self, col_idx: usize, dir: SortDirection) -> Option<Vec<usize>> {
-        let TableDataSource::Eager(rows) = &self.data else { return None; };
-        if rows.is_empty() { return Some(Vec::new()); }
+        let TableDataSource::Eager(rows) = &self.data else {
+            return None;
+        };
+        if rows.is_empty() {
+            return Some(Vec::new());
+        }
         let col = self.columns.get(col_idx)?;
         let extractor: SortKeyFn = col
             .sort_key
@@ -452,7 +491,9 @@ impl TableViewElement {
         let mut fixed_total = 0.0;
         let mut flex_total = 0.0;
         for (i, col) in self.columns.iter().enumerate() {
-            if !self.is_col_visible(i) { continue; }
+            if !self.is_col_visible(i) {
+                continue;
+            }
             if let Some(user_w) = self.user_col_widths.get(i).and_then(|w| *w) {
                 fixed_total += user_w;
             } else if let Some(dim) = self.col_widths.get(i).and_then(|d| *d) {
@@ -465,33 +506,48 @@ impl TableViewElement {
             }
         }
         let remaining = (available_for_columns - fixed_total).max(0.0);
-        self.column_widths = self.columns.iter().enumerate().map(|(i, col)| {
-            if !self.is_col_visible(i) {
-                return 0.0;
-            }
-            let base_w = if let Some(user_w) = self.user_col_widths.get(i).and_then(|w| *w) {
-                user_w
-            } else if let Some(dim) = self.col_widths.get(i).and_then(|d| *d) {
-                dim.resolve(available_for_columns)
-            } else {
-                match col.width {
-                    ColumnWidth::Fixed(w) => w.max(col.min_width),
-                    ColumnWidth::Flex(f) => {
-                        let w = if flex_total > 0.0 { remaining * f / flex_total } else { remaining };
-                        w.max(col.min_width)
-                    }
+        self.column_widths = self
+            .columns
+            .iter()
+            .enumerate()
+            .map(|(i, col)| {
+                if !self.is_col_visible(i) {
+                    return 0.0;
                 }
-            };
-            let min_w = self.col_min_widths.get(i).and_then(|d| *d)
-                .map(|d| d.resolve(available_for_columns))
-                .unwrap_or(self.cell_min_width)
-                .max(col.min_width);
-            let max_w_mss = self.col_max_widths.get(i).and_then(|d| *d)
-                .map(|d| d.resolve(available_for_columns))
-                .unwrap_or(self.cell_max_width);
-            let max_w = max_w_mss.min(col.max_width);
-            base_w.clamp(min_w.min(max_w), max_w)
-        }).collect();
+                let base_w = if let Some(user_w) = self.user_col_widths.get(i).and_then(|w| *w) {
+                    user_w
+                } else if let Some(dim) = self.col_widths.get(i).and_then(|d| *d) {
+                    dim.resolve(available_for_columns)
+                } else {
+                    match col.width {
+                        ColumnWidth::Fixed(w) => w.max(col.min_width),
+                        ColumnWidth::Flex(f) => {
+                            let w = if flex_total > 0.0 {
+                                remaining * f / flex_total
+                            } else {
+                                remaining
+                            };
+                            w.max(col.min_width)
+                        }
+                    }
+                };
+                let min_w = self
+                    .col_min_widths
+                    .get(i)
+                    .and_then(|d| *d)
+                    .map(|d| d.resolve(available_for_columns))
+                    .unwrap_or(self.cell_min_width)
+                    .max(col.min_width);
+                let max_w_mss = self
+                    .col_max_widths
+                    .get(i)
+                    .and_then(|d| *d)
+                    .map(|d| d.resolve(available_for_columns))
+                    .unwrap_or(self.cell_max_width);
+                let max_w = max_w_mss.min(col.max_width);
+                base_w.clamp(min_w.min(max_w), max_w)
+            })
+            .collect();
     }
 
     fn hit_resize_handle(&self, pos: Point) -> Option<usize> {
@@ -503,8 +559,12 @@ impl TableViewElement {
         for (vis_pos, phys_i) in visible.iter().copied().enumerate() {
             let w = self.column_widths.get(phys_i).copied().unwrap_or(0.0);
             cx += w;
-            if vis_pos + 1 >= visible.len() { break; }
-            if !self.columns[phys_i].resizable { continue; }
+            if vis_pos + 1 >= visible.len() {
+                break;
+            }
+            if !self.columns[phys_i].resizable {
+                continue;
+            }
             if (pos.x - cx).abs() <= RESIZE_HANDLE_WIDTH {
                 return Some(phys_i);
             }
@@ -566,7 +626,9 @@ impl TableViewElement {
         if new_cursor != self.cursor_cell {
             self.cursor_cell = new_cursor;
             if let Some(ref cb) = self.on_cell_select {
-                if let Ok(mut f) = cb.lock() { f(r, c); }
+                if let Ok(mut f) = cb.lock() {
+                    f(r, c);
+                }
             }
             self.scroll_to_visible_row(self.visible_row(r));
         }
@@ -726,7 +788,10 @@ impl TableViewElement {
     fn body_rect(&self) -> Rect {
         Rect::new(
             Point::new(self.bounds.x(), self.bounds.y() + self.header_height),
-            Size::new(self.bounds.size.width, self.bounds.size.height - self.header_height),
+            Size::new(
+                self.bounds.size.width,
+                self.bounds.size.height - self.header_height,
+            ),
         )
     }
 
@@ -815,7 +880,9 @@ impl TableViewElement {
     }
 
     fn check_comp_rebuild(&mut self) {
-        if !self.compositional { return; }
+        if !self.compositional {
+            return;
+        }
         self.ensure_cached_for_viewport();
         let (f, l) = self.comp_visible_range();
         if f != self.comp_visible_first || l != self.comp_visible_last {
@@ -825,7 +892,9 @@ impl TableViewElement {
 
     fn comp_visible_range(&self) -> (usize, usize) {
         let count = self.row_count();
-        if count == 0 { return (0, 0); }
+        if count == 0 {
+            return (0, 0);
+        }
         let body_h = self.body_rect().size.height;
         if body_h <= 0.0 {
             if self.comp_visible_first > 0 || self.comp_visible_last > 0 {
@@ -849,7 +918,9 @@ impl TableViewElement {
 
     fn row_at_y(&self, y: f32) -> Option<usize> {
         let body = self.body_rect();
-        if y < body.y() || y > body.y() + body.size.height { return None; }
+        if y < body.y() || y > body.y() + body.size.height {
+            return None;
+        }
         let local_y = y - body.y() + self.scroll_offset;
 
         if self.compositional && !self.row_bounds.is_empty() {
@@ -868,7 +939,9 @@ impl TableViewElement {
         }
 
         let effective_rh = self.effective_row_height();
-        if effective_rh <= 0.0 { return None; }
+        if effective_rh <= 0.0 {
+            return None;
+        }
         let vis_row = (local_y / effective_rh) as usize;
         if vis_row < self.row_count() {
             Some(self.physical_row(vis_row))
@@ -880,7 +953,11 @@ impl TableViewElement {
     fn effective_row_height(&self) -> f32 {
         if self.compositional && self.actual_content_height > 0.0 {
             let count = self.row_count();
-            if count > 0 { self.actual_content_height / count as f32 } else { self.row_height }
+            if count > 0 {
+                self.actual_content_height / count as f32
+            } else {
+                self.row_height
+            }
         } else {
             self.row_height
         }
@@ -890,7 +967,9 @@ impl TableViewElement {
         let mut cx = self.bounds.x() - self.scroll_offset_x;
         for phys_i in self.visible_columns() {
             let w = self.column_widths.get(phys_i).copied().unwrap_or(0.0);
-            if x >= cx && x < cx + w { return Some(phys_i); }
+            if x >= cx && x < cx + w {
+                return Some(phys_i);
+            }
             cx += w;
         }
         None
@@ -901,7 +980,9 @@ impl TableViewElement {
         let mut cx = self.bounds.x() - self.scroll_offset_x;
         for phys_i in self.visible_columns() {
             let w = self.column_widths.get(phys_i).copied().unwrap_or(0.0);
-            if phys_i == phys_col { return Some((cx, w)); }
+            if phys_i == phys_col {
+                return Some((cx, w));
+            }
             cx += w;
         }
         None
@@ -922,10 +1003,17 @@ impl TableViewElement {
         let (col_x, col_w) = self.col_x_screen(phys_col)?;
         let cp = self.cell_padding;
         let avail = (col_w - cp * 2.0).max(0.0);
-        if avail <= 0.0 { return None; }
+        if avail <= 0.0 {
+            return None;
+        }
         let w = self.measured_text_width(text).min(avail);
         let left = col_x + self.row_padding[0] + cp;
-        let x = match self.columns.get(phys_col).map(|c| c.align).unwrap_or_default() {
+        let x = match self
+            .columns
+            .get(phys_col)
+            .map(|c| c.align)
+            .unwrap_or_default()
+        {
             ColumnAlign::Right => left + (avail - w),
             ColumnAlign::Center => left + (avail - w) / 2.0,
             ColumnAlign::Left => left,
@@ -942,7 +1030,11 @@ impl TableViewElement {
         }
         let row = self.get_physical_row(phys_row)?;
         let text = row.get(phys_col)?.clone();
-        if text.is_empty() { None } else { Some(text) }
+        if text.is_empty() {
+            None
+        } else {
+            Some(text)
+        }
     }
 
     fn byte_at_x(&self, text: &str, x_local: f32) -> usize {
@@ -950,18 +1042,25 @@ impl TableViewElement {
             Some(tm) => tm.hit_test_char_styled(text, self.cell_font_size, x_local.max(0.0), None),
             None => (x_local.max(0.0) / (self.cell_font_size * 0.55).max(1.0)) as usize,
         };
-        text.char_indices().nth(idx).map(|(b, _)| b).unwrap_or(text.len())
+        text.char_indices()
+            .nth(idx)
+            .map(|(b, _)| b)
+            .unwrap_or(text.len())
     }
 
     /// Ячейка и позиция в её тексте под курсором — `None`, если курсор мимо
     /// самого текста (пустое место ячейки текстом не считается).
     fn cell_text_hit(&self, pos: Point) -> Option<(usize, usize, usize)> {
-        if !self.text_selection { return None; }
+        if !self.text_selection {
+            return None;
+        }
         let phys_row = self.row_at_y(pos.y)?;
         let phys_col = self.col_at_x(pos.x)?;
         let text = self.plain_cell_text(phys_row, phys_col)?;
         let (text_x, text_w) = self.cell_text_box(phys_col, &text)?;
-        if pos.x < text_x || pos.x > text_x + text_w { return None; }
+        if pos.x < text_x || pos.x > text_x + text_w {
+            return None;
+        }
         Some((phys_row, phys_col, self.byte_at_x(&text, pos.x - text_x)))
     }
 
@@ -970,14 +1069,20 @@ impl TableViewElement {
     fn byte_in_cell(&self, phys_row: usize, phys_col: usize, x: f32) -> Option<usize> {
         let text = self.plain_cell_text(phys_row, phys_col)?;
         let (text_x, text_w) = self.cell_text_box(phys_col, &text)?;
-        if x <= text_x { return Some(0); }
-        if x >= text_x + text_w { return Some(text.len()); }
+        if x <= text_x {
+            return Some(0);
+        }
+        if x >= text_x + text_w {
+            return Some(text.len());
+        }
         Some(self.byte_at_x(&text, x - text_x))
     }
 
     fn selected_cell_text(&self) -> Option<String> {
         let sel = self.text_sel?;
-        if sel.is_empty() { return None; }
+        if sel.is_empty() {
+            return None;
+        }
         let text = self.plain_cell_text(sel.row, sel.col)?;
         let (start, end) = sel.range();
         text.get(start..end).map(|s| s.to_string())
@@ -986,55 +1091,109 @@ impl TableViewElement {
     /// Выделенные строки целиком: видимые колонки через табуляцию — в таком
     /// виде вставка попадает по столбцам в таблицах и редакторах.
     fn selected_rows_text(&self) -> Option<String> {
-        if self.selected_rows.is_empty() { return None; }
+        if self.selected_rows.is_empty() {
+            return None;
+        }
         let mut rows: Vec<usize> = self.selected_rows.clone();
         rows.sort_by_key(|r| self.visible_row(*r));
         let cols: Vec<usize> = self.visible_columns().collect();
         let mut out = String::new();
         for (i, phys_row) in rows.iter().enumerate() {
-            let Some(data) = self.get_physical_row(*phys_row) else { continue };
-            if i > 0 { out.push('\n'); }
+            let Some(data) = self.get_physical_row(*phys_row) else {
+                continue;
+            };
+            if i > 0 {
+                out.push('\n');
+            }
             for (j, phys_col) in cols.iter().enumerate() {
-                if j > 0 { out.push('\t'); }
-                if let Some(v) = data.get(*phys_col) { out.push_str(v); }
+                if j > 0 {
+                    out.push('\t');
+                }
+                if let Some(v) = data.get(*phys_col) {
+                    out.push_str(v);
+                }
             }
         }
-        if out.is_empty() { None } else { Some(out) }
+        if out.is_empty() {
+            None
+        } else {
+            Some(out)
+        }
     }
 
     /// Что скопирует «Копировать»: выделенный фрагмент, иначе текст ячейки
     /// под меню, иначе выделенные строки.
     fn copy_payload(&self) -> Option<String> {
-        if let Some(t) = self.selected_cell_text() { return Some(t); }
+        if let Some(t) = self.selected_cell_text() {
+            return Some(t);
+        }
         if let Some(menu) = self.context_menu.as_ref() {
-            if let Some(t) = self.plain_cell_text(menu.row, menu.col) { return Some(t); }
+            if let Some(t) = self.plain_cell_text(menu.row, menu.col) {
+                return Some(t);
+            }
         }
         self.selected_rows_text()
     }
 
-    fn context_menu_items(&self) -> [String; 2] {
-        [
-            crate::i18n::builtin("table.copy", "Copy"),
-            crate::i18n::builtin("table.copy_row", "Copy row"),
-        ]
+    /// Пункты меню: два встроенных (копирование) плюс те, что добавило
+    /// приложение через `context_actions`.
+    fn context_menu_items(&self) -> Vec<(String, bool)> {
+        let mut items = vec![
+            (crate::i18n::builtin("table.copy", "Copy"), false),
+            (crate::i18n::builtin("table.copy_row", "Copy row"), false),
+        ];
+        for a in &self.context_actions {
+            items.push((a.label.clone(), a.disabled));
+        }
+        items
     }
 
     fn context_menu_rect(&self) -> Option<Rect> {
         let menu = self.context_menu.as_ref()?;
-        let w = CONTEXT_MENU_WIDTH;
-        let h = POPOVER_PADDING * 2.0 + 2.0 * POPOVER_ITEM_HEIGHT;
+        let items = self.context_menu_items();
+        let widest = items
+            .iter()
+            .map(|(label, _)| self.measured_text_width(label))
+            .fold(0.0_f32, f32::max);
+        let w = CONTEXT_MENU_WIDTH.max(widest + POPOVER_PADDING * 2.0 + 24.0);
+        let h = POPOVER_PADDING * 2.0
+            + items.len() as f32 * POPOVER_ITEM_HEIGHT
+            + self.context_menu_separator_height();
         // У правого и нижнего края таблицы меню разворачивается внутрь,
         // иначе пункты уехали бы за её границу.
         let max_x = self.bounds.x() + self.bounds.size.width;
         let max_y = self.bounds.y() + self.bounds.size.height;
-        let x = if menu.origin.x + w > max_x { (menu.origin.x - w).max(self.bounds.x()) } else { menu.origin.x };
-        let y = if menu.origin.y + h > max_y { (menu.origin.y - h).max(self.bounds.y()) } else { menu.origin.y };
+        let x = if menu.origin.x + w > max_x {
+            (menu.origin.x - w).max(self.bounds.x())
+        } else {
+            menu.origin.x
+        };
+        let y = if menu.origin.y + h > max_y {
+            (menu.origin.y - h).max(self.bounds.y())
+        } else {
+            menu.origin.y
+        };
         Some(Rect::new(Point::new(x, y), Size::new(w, h)))
+    }
+
+    /// Высота полосы-разделителя между встроенными пунктами и пунктами
+    /// приложения; без пользовательских пунктов её нет.
+    fn context_menu_separator_height(&self) -> f32 {
+        if self.context_actions.is_empty() {
+            0.0
+        } else {
+            CONTEXT_MENU_SEPARATOR
+        }
     }
 
     fn context_menu_item_rect(&self, index: usize) -> Option<Rect> {
         let menu = self.context_menu_rect()?;
-        let y = menu.y() + POPOVER_PADDING + index as f32 * POPOVER_ITEM_HEIGHT;
+        let sep = if index >= BUILTIN_CONTEXT_ITEMS {
+            self.context_menu_separator_height()
+        } else {
+            0.0
+        };
+        let y = menu.y() + POPOVER_PADDING + index as f32 * POPOVER_ITEM_HEIGHT + sep;
         Some(Rect::new(
             Point::new(menu.x() + POPOVER_PADDING, y),
             Size::new(menu.size.width - POPOVER_PADDING * 2.0, POPOVER_ITEM_HEIGHT),
@@ -1042,9 +1201,13 @@ impl TableViewElement {
     }
 
     fn context_menu_hit_test(&self, pos: Point) -> Option<usize> {
-        if self.context_menu.is_none() { return None; }
-        (0..2).find(|i| {
-            self.context_menu_item_rect(*i).map_or(false, |r| r.contains(pos))
+        if self.context_menu.is_none() {
+            return None;
+        }
+        let items = self.context_menu_items();
+        (0..items.len()).find(|i| {
+            self.context_menu_item_rect(*i)
+                .map_or(false, |r| r.contains(pos))
         })
     }
 
@@ -1058,18 +1221,19 @@ impl TableViewElement {
         text_y: f32,
     ) {
         let Some(sel) = self.text_sel else { return };
-        if sel.row != phys_row || sel.col != phys_col || sel.is_empty() { return; }
-        let Some((text_x, _)) = self.cell_text_box(phys_col, text) else { return };
+        if sel.row != phys_row || sel.col != phys_col || sel.is_empty() {
+            return;
+        }
+        let Some((text_x, _)) = self.cell_text_box(phys_col, text) else {
+            return;
+        };
         let (start, end) = sel.range();
-        let color = self
-            .mss
-            .selection_color
-            .unwrap_or_else(|| {
-                self.mss
-                    .accent_color
-                    .unwrap_or(Color::from_hex("#3B82F6"))
-                    .with_alpha(0.35)
-            });
+        let color = self.mss.selection_color.unwrap_or_else(|| {
+            self.mss
+                .accent_color
+                .unwrap_or(Color::from_hex("#3B82F6"))
+                .with_alpha(0.35)
+        });
         list.push_text_selection(
             text,
             start.min(text.len()),
@@ -1083,32 +1247,71 @@ impl TableViewElement {
     }
 
     fn draw_context_menu(&self, list: &mut DisplayList) {
-        let Some(rect) = self.context_menu_rect() else { return; };
+        let Some(rect) = self.context_menu_rect() else {
+            return;
+        };
         let bg = self.mss.background_color.unwrap_or(Color::WHITE);
         let border_color = self.mss.border_color.unwrap_or(Color::from_hex("#CBD5E1"));
         let fg = self.mss.color.unwrap_or(Color::from_hex("#1E293B"));
         let hover_bg = self.row_hover_bg.unwrap_or_else(|| bg.darken(0.06));
 
         let shadow = Rect::new(Point::new(rect.x() + 2.0, rect.y() + 4.0), rect.size);
-        list.push_rect(shadow, Color::from_hex("#000000").with_alpha(0.18), [8.0; 4]);
+        list.push_rect(
+            shadow,
+            Color::from_hex("#000000").with_alpha(0.18),
+            [8.0; 4],
+        );
         list.push_rect_bordered(rect, bg, [8.0; 4], Border::new(1.0, border_color));
 
         let hovered = self.context_menu.as_ref().and_then(|m| m.hovered);
-        for (idx, label) in self.context_menu_items().iter().enumerate() {
-            let Some(item) = self.context_menu_item_rect(idx) else { continue };
-            if hovered == Some(idx) {
+        let items = self.context_menu_items();
+        for (idx, (label, disabled)) in items.iter().enumerate() {
+            let Some(item) = self.context_menu_item_rect(idx) else {
+                continue;
+            };
+            // Черта между встроенными пунктами и пунктами приложения.
+            if idx == BUILTIN_CONTEXT_ITEMS && !self.context_actions.is_empty() {
+                let line = Rect::new(
+                    Point::new(item.x(), item.y() - CONTEXT_MENU_SEPARATOR / 2.0),
+                    Size::new(item.size.width, 1.0),
+                );
+                list.push_rect(line, border_color, [0.0; 4]);
+            }
+            if hovered == Some(idx) && !*disabled {
                 list.push_rect(item, hover_bg, [4.0; 4]);
             }
             let text_rect = Rect::new(
-                Point::new(item.x() + 8.0, item.y() + (item.size.height - self.cell_font_size) / 2.0),
+                Point::new(
+                    item.x() + 8.0,
+                    item.y() + (item.size.height - self.cell_font_size) / 2.0,
+                ),
                 Size::new(item.size.width - 16.0, self.cell_font_size + 2.0),
             );
-            list.push_text(label, text_rect, fg, self.cell_font_size);
+            let color = if *disabled { fg.with_alpha(0.4) } else { fg };
+            list.push_text(label, text_rect, color, self.cell_font_size);
         }
     }
 
-    /// Копирует то, что просит пункт меню, и закрывает меню.
+    /// Копирует то, что просит пункт меню, либо отдаёт пункт приложению,
+    /// и закрывает меню.
     fn run_context_menu_item(&mut self, index: usize, ctx: &mut EventContext) {
+        if index >= BUILTIN_CONTEXT_ITEMS {
+            let action = self.context_actions.get(index - BUILTIN_CONTEXT_ITEMS).cloned();
+            let row = self.context_menu.as_ref().map(|m| m.row);
+            self.context_menu = None;
+            ctx.request_paint();
+            if let (Some(action), Some(row)) = (action, row) {
+                if action.disabled {
+                    return;
+                }
+                if let Some(ref cb) = self.on_context_action {
+                    if let Ok(mut f) = cb.lock() {
+                        f(&action.id, row);
+                    }
+                }
+            }
+            return;
+        }
         let text = if index == 0 {
             self.copy_payload()
         } else {
@@ -1118,10 +1321,18 @@ impl TableViewElement {
                 let data = self.get_physical_row(r)?;
                 let mut out = String::new();
                 for (j, c) in cols.iter().enumerate() {
-                    if j > 0 { out.push('\t'); }
-                    if let Some(v) = data.get(*c) { out.push_str(v); }
+                    if j > 0 {
+                        out.push('\t');
+                    }
+                    if let Some(v) = data.get(*c) {
+                        out.push_str(v);
+                    }
                 }
-                if out.is_empty() { None } else { Some(out) }
+                if out.is_empty() {
+                    None
+                } else {
+                    Some(out)
+                }
             })
         };
         if let Some(text) = text {
@@ -1148,7 +1359,9 @@ impl TableViewElement {
     }
 
     fn compose_scrollbar_style(&self) -> crate::widgets::scroll::ScrollbarStyle {
-        let fg = self.mss.color
+        let fg = self
+            .mss
+            .color
             .or(self.mss.border_color)
             .unwrap_or(Color::from_hex("#9CA3AF"));
         self.mss.scrollbar_style(fg)
@@ -1167,9 +1380,10 @@ impl TableViewElement {
 
     fn ensure_cached_for_viewport(&mut self) {
         let (row_count, row_builder) = match &self.data {
-            TableDataSource::Virtual { row_count, row_builder } => {
-                (*row_count, row_builder.clone())
-            }
+            TableDataSource::Virtual {
+                row_count,
+                row_builder,
+            } => (*row_count, row_builder.clone()),
             TableDataSource::Eager(_) => return,
         };
 
@@ -1180,8 +1394,7 @@ impl TableViewElement {
             let viewport_top = self.scroll_offset;
             let viewport_bottom = viewport_top + body_h;
             let vis_first = (viewport_top / self.row_height) as usize;
-            let vis_last =
-                ((viewport_bottom / self.row_height) as usize + 1).min(row_count);
+            let vis_last = ((viewport_bottom / self.row_height) as usize + 1).min(row_count);
             (
                 vis_first.saturating_sub(self.buffer_size),
                 (vis_last + self.buffer_size).min(row_count),
@@ -1189,15 +1402,14 @@ impl TableViewElement {
         };
         let fetch_range = fetch_start..fetch_end;
 
-        if fetch_range.start >= self.cache_range.start
-            && fetch_range.end <= self.cache_range.end
-        {
+        if fetch_range.start >= self.cache_range.start && fetch_range.end <= self.cache_range.end {
             return;
         }
 
         let retain_start = fetch_start.saturating_sub(self.buffer_size);
         let retain_end = (fetch_end + self.buffer_size).min(row_count);
-        self.row_cache.retain(|k, _| *k >= retain_start && *k < retain_end);
+        self.row_cache
+            .retain(|k, _| *k >= retain_start && *k < retain_end);
 
         for i in fetch_range {
             if !self.row_cache.contains_key(&i) {
@@ -1209,10 +1421,14 @@ impl TableViewElement {
 
     fn draw_scrollbar(&self, list: &mut DisplayList) {
         let body = self.body_rect();
-        if self.content_height() <= body.size.height { return; }
+        if self.content_height() <= body.size.height {
+            return;
+        }
         let style = self.compose_scrollbar_style();
         let opacity = crate::widgets::scroll::effective_opacity(&self.scrollbar_fader, &style);
-        if opacity <= 0.0 { return; }
+        if opacity <= 0.0 {
+            return;
+        }
         let mut fader = self.scrollbar_fader;
         fader.dragging = self.scrollbar_dragging;
         fader.hovered = self.scrollbar_hovered || fader.hovered;
@@ -1254,7 +1470,9 @@ impl TableViewElement {
         for (vis_pos, phys_i) in visible.iter().copied().enumerate() {
             let col = &self.columns[phys_i];
             let w = self.column_widths.get(phys_i).copied().unwrap_or(0.0);
-            if w <= 0.0 { continue; }
+            if w <= 0.0 {
+                continue;
+            }
 
             let is_sorted = self.sortable && col.sortable && self.sort_column == Some(phys_i);
             let is_sortable = self.sortable && col.sortable;
@@ -1265,7 +1483,10 @@ impl TableViewElement {
             };
 
             let text_rect = Rect::new(
-                Point::new(cx + h_padding, self.bounds.y() + (self.header_height - h_font_size) / 2.0),
+                Point::new(
+                    cx + h_padding,
+                    self.bounds.y() + (self.header_height - h_font_size) / 2.0,
+                ),
                 Size::new((w - h_padding * 2.0 - icon_w).max(0.0), h_font_size + 2.0),
             );
 
@@ -1355,7 +1576,9 @@ impl TableViewElement {
     }
 
     fn draw_popover(&self, list: &mut DisplayList) {
-        let Some(pop_rect) = self.popover_rect() else { return; };
+        let Some(pop_rect) = self.popover_rect() else {
+            return;
+        };
         let bg = self.mss.background_color.unwrap_or(Color::WHITE);
         let border_color = self.mss.border_color.unwrap_or(Color::from_hex("#CBD5E1"));
         let fg = self.mss.color.unwrap_or(Color::from_hex("#1E293B"));
@@ -1366,13 +1589,19 @@ impl TableViewElement {
             Point::new(pop_rect.x() + 2.0, pop_rect.y() + 4.0),
             pop_rect.size,
         );
-        list.push_rect(shadow_rect, Color::from_hex("#000000").with_alpha(0.18), [8.0; 4]);
+        list.push_rect(
+            shadow_rect,
+            Color::from_hex("#000000").with_alpha(0.18),
+            [8.0; 4],
+        );
 
         list.push_rect_bordered(pop_rect, bg, [8.0; 4], Border::new(1.0, border_color));
 
         let hideable = self.hideable_columns();
         for (idx, &phys_i) in hideable.iter().enumerate() {
-            let Some(item_rect) = self.popover_item_rect(idx) else { continue; };
+            let Some(item_rect) = self.popover_item_rect(idx) else {
+                continue;
+            };
             let is_hover = self.popover_hovered_index == Some(idx);
             if is_hover {
                 list.push_rect(item_rect, hover_bg, [4.0; 4]);
@@ -1388,7 +1617,12 @@ impl TableViewElement {
             let checked = self.is_col_visible(phys_i);
             let check_border = if checked { primary } else { border_color };
             let check_fill = if checked { primary } else { Color::TRANSPARENT };
-            list.push_rect_bordered(check_rect, check_fill, [3.0; 4], Border::new(1.5, check_border));
+            list.push_rect_bordered(
+                check_rect,
+                check_fill,
+                [3.0; 4],
+                Border::new(1.5, check_border),
+            );
             if checked {
                 list.push_text_aligned(
                     MI_CHECK,
@@ -1468,7 +1702,10 @@ impl Element for TableViewElement {
                         self.cache_range = 0..0;
                     }
                 }
-                TableDataSource::Virtual { row_count, row_builder } => {
+                TableDataSource::Virtual {
+                    row_count,
+                    row_builder,
+                } => {
                     let old_count = self.row_count();
                     self.data = TableDataSource::Virtual {
                         row_count: *row_count,
@@ -1515,6 +1752,8 @@ impl Element for TableViewElement {
             self.selected_rows = tv.selected_rows.clone();
             self.cell_cursor = tv.cell_cursor;
             self.text_selection = tv.text_selection;
+            self.context_actions = tv.context_actions.clone();
+            self.on_context_action = tv.on_context_action.clone();
             if !self.cell_cursor {
                 self.cursor_cell = None;
             }
@@ -1525,22 +1764,43 @@ impl Element for TableViewElement {
             }
             self.width = tv.width;
             self.height = tv.height;
-            self.compositional = tv.columns.iter().any(|c| {
-                c.cell_renderer.is_some() || c.cell_renderer_with_row.is_some()
-            });
+            self.compositional = tv
+                .columns
+                .iter()
+                .any(|c| c.cell_renderer.is_some() || c.cell_renderer_with_row.is_some());
             if (self.compositional && data_changed) || columns_changed {
                 self.needs_child_rebuild = true;
             }
-            if let Some(v) = tv.custom_header_bg { self.header_bg_custom = Some(v); }
-            if let Some(v) = tv.custom_header_color { self.header_color_custom = Some(v); }
-            if let Some(v) = tv.custom_header_font_size { self.header_font_size = v; }
-            if let Some(v) = tv.custom_cell_font_size { self.cell_font_size = v; }
-            if let Some(v) = tv.custom_cell_padding { self.cell_padding = v; }
-            if let Some(v) = tv.custom_cell_min_width { self.cell_min_width = v; }
-            if let Some(v) = tv.custom_cell_max_width { self.cell_max_width = v; }
-            if let Some(v) = tv.custom_row_hover_bg { self.row_hover_bg = Some(v); }
-            if let Some(v) = tv.custom_row_selected_bg { self.row_selected_bg = Some(v); }
-            if let Some(v) = tv.custom_row_padding { self.row_padding = v; }
+            if let Some(v) = tv.custom_header_bg {
+                self.header_bg_custom = Some(v);
+            }
+            if let Some(v) = tv.custom_header_color {
+                self.header_color_custom = Some(v);
+            }
+            if let Some(v) = tv.custom_header_font_size {
+                self.header_font_size = v;
+            }
+            if let Some(v) = tv.custom_cell_font_size {
+                self.cell_font_size = v;
+            }
+            if let Some(v) = tv.custom_cell_padding {
+                self.cell_padding = v;
+            }
+            if let Some(v) = tv.custom_cell_min_width {
+                self.cell_min_width = v;
+            }
+            if let Some(v) = tv.custom_cell_max_width {
+                self.cell_max_width = v;
+            }
+            if let Some(v) = tv.custom_row_hover_bg {
+                self.row_hover_bg = Some(v);
+            }
+            if let Some(v) = tv.custom_row_selected_bg {
+                self.row_selected_bg = Some(v);
+            }
+            if let Some(v) = tv.custom_row_padding {
+                self.row_padding = v;
+            }
             self.compute_column_widths(self.bounds.size.width);
             self.ensure_cached_for_viewport();
             if data_changed || columns_changed {
@@ -1551,8 +1811,16 @@ impl Element for TableViewElement {
     }
 
     fn layout(&mut self, constraints: Constraints) -> Size {
-        let w = self.width.map(|d| d.resolve(constraints.max_width)).unwrap_or(constraints.max_width).min(constraints.max_width);
-        let h = self.height.map(|d| d.resolve(constraints.max_height)).unwrap_or(constraints.max_height).min(constraints.max_height);
+        let w = self
+            .width
+            .map(|d| d.resolve(constraints.max_width))
+            .unwrap_or(constraints.max_width)
+            .min(constraints.max_width);
+        let h = self
+            .height
+            .map(|d| d.resolve(constraints.max_height))
+            .unwrap_or(constraints.max_height)
+            .min(constraints.max_height);
         let h = if h.is_infinite() { 300.0 } else { h };
         self.bounds = Rect::new(Point::zero(), Size::new(w, h));
         let old_widths = self.column_widths.clone();
@@ -1591,16 +1859,25 @@ impl Element for TableViewElement {
             let spacer_offset = if self.comp_visible_first > 0 { 1 } else { 0 };
             for (i, &(row_y, row_h)) in self.row_bounds.iter().enumerate().skip(spacer_offset) {
                 let vis_row = (i - spacer_offset) + self.comp_visible_first;
-                if vis_row >= self.row_count() { break; }
-                let bottom_spacer_count = if self.comp_visible_last < self.row_count() { 1 } else { 0 };
-                if i >= self.row_bounds.len() - bottom_spacer_count { break; }
+                if vis_row >= self.row_count() {
+                    break;
+                }
+                let bottom_spacer_count = if self.comp_visible_last < self.row_count() {
+                    1
+                } else {
+                    0
+                };
+                if i >= self.row_bounds.len() - bottom_spacer_count {
+                    break;
+                }
 
                 let phys_row = self.physical_row(vis_row);
                 let is_hovered = self.hovered_row == Some(phys_row);
                 let is_selected = self.selected_rows.contains(&phys_row);
 
                 let row_bg = if is_selected {
-                    self.row_selected_bg.unwrap_or_else(|| primary.with_alpha(0.15))
+                    self.row_selected_bg
+                        .unwrap_or_else(|| primary.with_alpha(0.15))
                 } else if is_hovered {
                     self.row_hover_bg.unwrap_or_else(|| bg.darken(0.08))
                 } else if self.striped && vis_row % 2 == 1 {
@@ -1618,9 +1895,17 @@ impl Element for TableViewElement {
 
             for (i, &(row_y, row_h)) in self.row_bounds.iter().enumerate().skip(spacer_offset) {
                 let vis_row = (i - spacer_offset) + self.comp_visible_first;
-                if vis_row >= self.row_count() { break; }
-                let bottom_spacer_count = if self.comp_visible_last < self.row_count() { 1 } else { 0 };
-                if i >= self.row_bounds.len() - bottom_spacer_count { break; }
+                if vis_row >= self.row_count() {
+                    break;
+                }
+                let bottom_spacer_count = if self.comp_visible_last < self.row_count() {
+                    1
+                } else {
+                    0
+                };
+                if i >= self.row_bounds.len() - bottom_spacer_count {
+                    break;
+                }
 
                 let hb = Rect::new(
                     Point::new(self.bounds.x(), row_y + row_h - 1.0),
@@ -1634,7 +1919,9 @@ impl Element for TableViewElement {
                 for (vis_pos, phys_j) in visible.iter().copied().enumerate() {
                     let w = self.column_widths.get(phys_j).copied().unwrap_or(0.0);
                     cx += w;
-                    if vis_pos >= last_vis_pos { break; }
+                    if vis_pos >= last_vis_pos {
+                        break;
+                    }
                     let vb = Rect::new(Point::new(cx - 0.5, row_y), Size::new(1.0, row_h));
                     list.push_rect(vb, border_color.with_alpha(self.grid_alpha), [0.0; 4]);
                 }
@@ -1646,18 +1933,30 @@ impl Element for TableViewElement {
             let cp = self.cell_padding;
             let cfs = self.cell_font_size;
             let rp = self.row_padding;
-            let bottom_spacer_count = if self.comp_visible_last < self.row_count() { 1 } else { 0 };
+            let bottom_spacer_count = if self.comp_visible_last < self.row_count() {
+                1
+            } else {
+                0
+            };
             for (i, &(row_y, row_h)) in self.row_bounds.iter().enumerate().skip(spacer_offset) {
                 let vis_row = (i - spacer_offset) + self.comp_visible_first;
-                if vis_row >= self.row_count() { break; }
-                if i >= self.row_bounds.len() - bottom_spacer_count { break; }
+                if vis_row >= self.row_count() {
+                    break;
+                }
+                if i >= self.row_bounds.len() - bottom_spacer_count {
+                    break;
+                }
                 let phys_row = self.physical_row(vis_row);
-                let Some(row_data) = self.get_physical_row(phys_row) else { continue };
+                let Some(row_data) = self.get_physical_row(phys_row) else {
+                    continue;
+                };
 
                 let mut cell_x = self.bounds.x() - self.scroll_offset_x + rp[0];
                 for phys_col in self.visible_columns() {
                     let col_w = self.column_widths.get(phys_col).copied().unwrap_or(0.0);
-                    let Some(col) = self.columns.get(phys_col) else { continue };
+                    let Some(col) = self.columns.get(phys_col) else {
+                        continue;
+                    };
                     if col.cell_renderer.is_some() || col.cell_renderer_with_row.is_some() {
                         cell_x += col_w;
                         continue;
@@ -1759,12 +2058,16 @@ impl Element for TableViewElement {
         for vis_row in render_first..render_last {
             let phys_row = self.physical_row(vis_row);
             let y = body.y() + (vis_row as f32 * self.row_height) - self.scroll_offset;
-            let row_rect = Rect::new(Point::new(self.bounds.x(), y), Size::new(self.bounds.size.width, self.row_height));
+            let row_rect = Rect::new(
+                Point::new(self.bounds.x(), y),
+                Size::new(self.bounds.size.width, self.row_height),
+            );
 
             let is_selected = self.selected_rows.contains(&phys_row);
             let is_hovered = self.hovered_row == Some(phys_row);
             let row_bg = if is_selected {
-                self.row_selected_bg.unwrap_or_else(|| primary.with_alpha(0.15))
+                self.row_selected_bg
+                    .unwrap_or_else(|| primary.with_alpha(0.15))
             } else if is_hovered {
                 self.row_hover_bg.unwrap_or_else(|| bg.darken(0.08))
             } else if self.striped && vis_row % 2 == 1 {
@@ -1776,14 +2079,19 @@ impl Element for TableViewElement {
                 list.push_rect(row_rect, row_bg, [0.0; 4]);
             }
 
-            let rb = Rect::new(Point::new(self.bounds.x(), y + self.row_height - 1.0), Size::new(self.bounds.size.width, 1.0));
+            let rb = Rect::new(
+                Point::new(self.bounds.x(), y + self.row_height - 1.0),
+                Size::new(self.bounds.size.width, 1.0),
+            );
             list.push_rect(rb, border_color.with_alpha(self.grid_alpha), [0.0; 4]);
 
             let mut vx = self.bounds.x() - self.scroll_offset_x;
             for (vis_pos, phys_j) in visible_cols.iter().copied().enumerate() {
                 let w = self.column_widths.get(phys_j).copied().unwrap_or(0.0);
                 vx += w;
-                if vis_pos >= last_vis_pos { break; }
+                if vis_pos >= last_vis_pos {
+                    break;
+                }
                 let vb = Rect::new(Point::new(vx - 0.5, y), Size::new(1.0, self.row_height));
                 list.push_rect(vb, border_color.with_alpha(self.grid_alpha), [0.0; 4]);
             }
@@ -1803,10 +2111,8 @@ impl Element for TableViewElement {
                     let cell_cursor_here =
                         self.cell_cursor && self.cursor_cell == Some((phys_row, phys_col));
                     if cell_cursor_here || editing {
-                        let cell_bg_rect = Rect::new(
-                            Point::new(cell_x, y),
-                            Size::new(col_w, self.row_height),
-                        );
+                        let cell_bg_rect =
+                            Rect::new(Point::new(cell_x, y), Size::new(col_w, self.row_height));
                         let (fill, border_w) = if editing {
                             (bg, 2.0)
                         } else {
@@ -1832,17 +2138,31 @@ impl Element for TableViewElement {
                         fallback
                     };
                     let cell_rect = Rect::new(
-                        Point::new(cell_x + cp, y + rp[1] + (self.row_height - rp[1] - rp[3] - cfs) / 2.0),
+                        Point::new(
+                            cell_x + cp,
+                            y + rp[1] + (self.row_height - rp[1] - rp[3] - cfs) / 2.0,
+                        ),
                         Size::new((col_w - cp * 2.0).max(0.0), cfs + 2.0),
                     );
-                    let align = self.columns.get(phys_col).map(|c| c.align).unwrap_or_default();
+                    let align = self
+                        .columns
+                        .get(phys_col)
+                        .map(|c| c.align)
+                        .unwrap_or_default();
                     if !text.is_empty() && col_w > 0.0 {
                         list.push_clip(Rect::new(
                             Point::new(cell_x, y),
                             Size::new(col_w, self.row_height),
                         ));
                         self.draw_text_selection(list, phys_row, phys_col, text, cell_rect.y());
-                        list.push_text_singleline(text, cell_rect, fg, cfs, align.to_text_align(), 400);
+                        list.push_text_singleline(
+                            text,
+                            cell_rect,
+                            fg,
+                            cfs,
+                            align.to_text_align(),
+                            400,
+                        );
                         list.pop_clip();
                     }
                     cell_x += col_w;
@@ -1854,7 +2174,12 @@ impl Element for TableViewElement {
         self.draw_h_scrollbar(list);
         list.pop_clip();
         list.pop_clip();
-        list.push_rect_bordered(self.bounds, Color::TRANSPARENT, radii, Border::new(1.0, border_color));
+        list.push_rect_bordered(
+            self.bounds,
+            Color::TRANSPARENT,
+            radii,
+            Border::new(1.0, border_color),
+        );
         if self.popover_open {
             self.draw_popover(list);
         }
@@ -1864,7 +2189,9 @@ impl Element for TableViewElement {
     }
 
     fn post_build_display_list(&self, list: &mut DisplayList, _clip: Rect) {
-        if !self.compositional { return; }
+        if !self.compositional {
+            return;
+        }
         let border_color = self.mss.border_color.unwrap_or(Color::from_hex("#E2E8F0"));
         let radius_ref = self.bounds.size.width.min(self.bounds.size.height);
         let radii = self.mss.border_radius_resolved(radius_ref, 8.0);
@@ -1875,7 +2202,12 @@ impl Element for TableViewElement {
         self.draw_h_scrollbar(list);
         list.pop_clip();
         list.pop_clip();
-        list.push_rect_bordered(self.bounds, Color::TRANSPARENT, radii, Border::new(1.0, border_color));
+        list.push_rect_bordered(
+            self.bounds,
+            Color::TRANSPARENT,
+            radii,
+            Border::new(1.0, border_color),
+        );
         if self.popover_open {
             self.draw_popover(list);
         }
@@ -1995,7 +2327,8 @@ impl Element for TableViewElement {
 
                 if self.scrollbar_dragging {
                     let body = self.body_rect();
-                    let thumb_h = (body.size.height / self.content_height() * body.size.height).max(20.0);
+                    let thumb_h =
+                        (body.size.height / self.content_height() * body.size.height).max(20.0);
                     let max_s = self.max_scroll();
                     let relative_y = pos.y - body.y() - self.scrollbar_drag_offset;
                     let ratio = relative_y / (body.size.height - thumb_h);
@@ -2020,7 +2353,9 @@ impl Element for TableViewElement {
                     self.scrollbar_hovered = false;
                     self.hovered_header_col = None;
                     self.settings_button_hovered = false;
-                    if changed { ctx.request_paint(); }
+                    if changed {
+                        ctx.request_paint();
+                    }
                     return EventResult::Ignored;
                 }
 
@@ -2051,8 +2386,12 @@ impl Element for TableViewElement {
                     let body_was = self.hovered_row.is_some() || self.scrollbar_hovered;
                     self.hovered_row = None;
                     self.scrollbar_hovered = false;
-                    if body_was { painted = true; }
-                    if painted { ctx.request_paint(); }
+                    if body_was {
+                        painted = true;
+                    }
+                    if painted {
+                        ctx.request_paint();
+                    }
                     return EventResult::Handled;
                 }
 
@@ -2062,7 +2401,8 @@ impl Element for TableViewElement {
                     ctx.request_paint();
                 }
 
-                let sb_hovered = self.scrollbar_rects()
+                let sb_hovered = self
+                    .scrollbar_rects()
                     .map_or(false, |(track, _)| track.contains(*pos));
                 if sb_hovered != self.scrollbar_hovered {
                     self.scrollbar_hovered = sb_hovered;
@@ -2095,7 +2435,8 @@ impl Element for TableViewElement {
                 EventResult::Handled
             }
             Event::MouseDown { button, position } if *button == MouseButton::Right => {
-                if !self.text_selection || !self.bounds.contains(*position) {
+                let has_actions = !self.context_actions.is_empty();
+                if (!self.text_selection && !has_actions) || !self.bounds.contains(*position) {
                     return EventResult::Ignored;
                 }
                 if position.y < self.bounds.y() + self.header_height {
@@ -2116,6 +2457,17 @@ impl Element for TableViewElement {
                 }
                 self.text_selecting = false;
                 self.focused = true;
+                // Пункты приложения работают с выделенными строками, поэтому
+                // щелчок по строке вне выделения переносит выделение на неё —
+                // как в проводнике.
+                if has_actions && !self.selected_rows.contains(&phys_row) {
+                    self.selected_rows = vec![phys_row];
+                    if let Some(ref cb) = self.on_selection_change {
+                        if let Ok(mut f) = cb.lock() {
+                            f(self.selected_rows.clone());
+                        }
+                    }
+                }
                 self.context_menu = Some(CellContextMenu {
                     origin: *position,
                     row: phys_row,
@@ -2147,7 +2499,9 @@ impl Element for TableViewElement {
                             self.column_visibility[phys_i] = new_visible;
                             self.persist_column_visibility();
                             if let Some(ref cb) = self.on_column_visibility_change {
-                                if let Ok(mut f) = cb.lock() { f(phys_i, new_visible); }
+                                if let Ok(mut f) = cb.lock() {
+                                    f(phys_i, new_visible);
+                                }
                             }
                             self.compute_column_widths(self.bounds.size.width);
                             self.needs_child_rebuild = self.compositional;
@@ -2167,7 +2521,9 @@ impl Element for TableViewElement {
                     }
                 }
 
-                if !self.bounds.contains(*position) { return EventResult::Ignored; }
+                if !self.bounds.contains(*position) {
+                    return EventResult::Ignored;
+                }
 
                 if let Some(btn) = self.settings_button_rect() {
                     if btn.contains(*position) {
@@ -2209,7 +2565,9 @@ impl Element for TableViewElement {
                                 Some(col_idx)
                             };
                             if let Some(ref cb) = self.on_sort {
-                                if let Ok(mut f) = cb.lock() { f(col_idx, new_dir); }
+                                if let Ok(mut f) = cb.lock() {
+                                    f(col_idx, new_dir);
+                                }
                                 self.sorted_indices = None;
                                 self.row_cache.clear();
                                 self.cache_range = 0..0;
@@ -2282,7 +2640,9 @@ impl Element for TableViewElement {
                                 self.cursor_cell = new_cursor;
                             }
                             if let Some(ref cb) = self.on_cell_select {
-                                if let Ok(mut f) = cb.lock() { f(phys_row, ci); }
+                                if let Ok(mut f) = cb.lock() {
+                                    f(phys_row, ci);
+                                }
                             }
                         }
                     }
@@ -2327,8 +2687,7 @@ impl Element for TableViewElement {
                                 self.selected_rows.push(row);
                             }
                         }
-                    } else if let Some(pos) =
-                        self.selected_rows.iter().position(|&r| r == phys_row)
+                    } else if let Some(pos) = self.selected_rows.iter().position(|&r| r == phys_row)
                     {
                         if self.selected_rows.len() == 1 {
                             self.selected_rows.remove(pos);
@@ -2344,7 +2703,9 @@ impl Element for TableViewElement {
                         }
                     }
                     if let Some(ref cb) = self.on_row_click {
-                        if let Ok(mut f) = cb.lock() { f(phys_row); }
+                        if let Ok(mut f) = cb.lock() {
+                            f(phys_row);
+                        }
                     }
                     ctx.request_paint();
                     return EventResult::Handled;
@@ -2365,7 +2726,10 @@ impl Element for TableViewElement {
                 ctx.request_paint();
                 EventResult::Handled
             }
-            Event::KeyDown(key) if (self.keyboard_nav || self.editable || self.popover_open) && (self.focused || self.popover_open) => {
+            Event::KeyDown(key)
+                if (self.keyboard_nav || self.editable || self.popover_open)
+                    && (self.focused || self.popover_open) =>
+            {
                 self.handle_key_nav(*key, ctx)
             }
             Event::CharInput(ch) if self.edit_state.is_some() => {
@@ -2385,10 +2749,14 @@ impl Element for TableViewElement {
                         self.focused = true;
                         self.cursor_cell = Some((row, col));
                         if let Some(ref cb) = self.on_cell_double_click {
-                            if let Ok(mut f) = cb.lock() { f(row, col); }
+                            if let Ok(mut f) = cb.lock() {
+                                f(row, col);
+                            }
                         }
                         if let Some(ref cb) = self.on_row_double_click {
-                            if let Ok(mut f) = cb.lock() { f(row); }
+                            if let Ok(mut f) = cb.lock() {
+                                f(row);
+                            }
                         }
                         if self.editable {
                             self.begin_edit(row, col);
@@ -2440,10 +2808,18 @@ impl Element for TableViewElement {
                 }
                 EventResult::Ignored
             }
-            Event::MouseWheel { delta, delta_x, position } => {
-                if !self.bounds.contains(*position) { return EventResult::Ignored; }
+            Event::MouseWheel {
+                delta,
+                delta_x,
+                position,
+            } => {
+                if !self.bounds.contains(*position) {
+                    return EventResult::Ignored;
+                }
                 let body = self.body_rect();
-                if position.y < body.y() { return EventResult::Ignored; }
+                if position.y < body.y() {
+                    return EventResult::Ignored;
+                }
 
                 // Горизонтальная прокрутка: собственная дельта тачпада/колеса,
                 // либо вертикальная дельта с зажатым Shift (обычная мышь).
@@ -2484,15 +2860,33 @@ impl Element for TableViewElement {
         }
     }
 
-    fn children(&self) -> &[ElementId] { &[] }
-    fn bounds(&self) -> Rect { self.bounds }
-    fn set_position(&mut self, pos: Point) { self.bounds.origin = pos; }
-    fn mark_dirty(&mut self, flags: DirtyFlags) { self.dirty_flags |= flags; }
-    fn clear_dirty(&mut self, flags: DirtyFlags) { self.dirty_flags.remove(flags); }
-    fn is_dirty(&self, flags: DirtyFlags) -> bool { self.dirty_flags.contains(flags) }
-    fn id(&self) -> ElementId { self.id }
-    fn set_id(&mut self, id: ElementId) { self.id = id; }
-    fn as_any_mut(&mut self) -> Option<&mut dyn Any> { Some(self) }
+    fn children(&self) -> &[ElementId] {
+        &[]
+    }
+    fn bounds(&self) -> Rect {
+        self.bounds
+    }
+    fn set_position(&mut self, pos: Point) {
+        self.bounds.origin = pos;
+    }
+    fn mark_dirty(&mut self, flags: DirtyFlags) {
+        self.dirty_flags |= flags;
+    }
+    fn clear_dirty(&mut self, flags: DirtyFlags) {
+        self.dirty_flags.remove(flags);
+    }
+    fn is_dirty(&self, flags: DirtyFlags) -> bool {
+        self.dirty_flags.contains(flags)
+    }
+    fn id(&self) -> ElementId {
+        self.id
+    }
+    fn set_id(&mut self, id: ElementId) {
+        self.id = id;
+    }
+    fn as_any_mut(&mut self) -> Option<&mut dyn Any> {
+        Some(self)
+    }
     fn mount(&mut self, tree: &mut ElementTree) {
         self.text_measure = tree.text_measure.clone();
     }
@@ -2500,7 +2894,10 @@ impl Element for TableViewElement {
     fn layout_hint(&self) -> LayoutHint {
         if self.compositional {
             LayoutHint::Scroll {
-                left: 0.0, top: self.header_height, right: 0.0, bottom: 0.0,
+                left: 0.0,
+                top: self.header_height,
+                right: 0.0,
+                bottom: 0.0,
                 unbounded_width: false,
                 unbounded_height: true,
             }
@@ -2509,7 +2906,9 @@ impl Element for TableViewElement {
         }
     }
 
-    fn clip_content(&self) -> bool { false }
+    fn clip_content(&self) -> bool {
+        false
+    }
 
     fn scroll_offset(&self) -> Point {
         if self.compositional {
@@ -2525,19 +2924,21 @@ impl Element for TableViewElement {
         }
     }
 
-    fn manages_own_children(&self) -> bool { self.compositional }
-    fn needs_rebuild(&self) -> bool { self.compositional && self.needs_child_rebuild }
+    fn manages_own_children(&self) -> bool {
+        self.compositional
+    }
+    fn needs_rebuild(&self) -> bool {
+        self.compositional && self.needs_child_rebuild
+    }
 
     fn build_children(&self) -> Vec<Box<dyn Widget>> {
-        if !self.compositional { return Vec::new(); }
+        if !self.compositional {
+            return Vec::new();
+        }
 
         /// Схлопывает подряд идущие «обычные» колонки в одну распорку —
         /// место под текст, который рисуется мимо дерева виджетов.
-        fn push_gap(
-            row: &mut crate::widgets::containers::Row,
-            px: &mut f32,
-            flex: &mut f32,
-        ) {
+        fn push_gap(row: &mut crate::widgets::containers::Row, px: &mut f32, flex: &mut f32) {
             if *px > 0.0 {
                 let spacer = crate::widgets::containers::DecoratedBox::new()
                     .style("width", crate::mss::StyleValue::px(*px));
@@ -2556,7 +2957,6 @@ impl Element for TableViewElement {
         let (virt_first, virt_last) = self.comp_visible_range();
         let mut column = crate::widgets::containers::Column::new()
             .cross_axis_alignment(CrossAxisAlignment::Stretch);
-
 
         let cp = self.cell_padding;
         let rp = self.row_padding;
@@ -2595,7 +2995,9 @@ impl Element for TableViewElement {
             let mut pending_flex = 0.0f32;
 
             for (col_idx, col) in self.columns.iter().enumerate() {
-                if !self.is_col_visible(col_idx) { continue; }
+                if !self.is_col_visible(col_idx) {
+                    continue;
+                }
                 let computed_w = self.column_widths.get(col_idx).copied();
 
                 let has_renderer =
@@ -2625,18 +3027,15 @@ impl Element for TableViewElement {
                 };
 
                 let cell_content: Box<dyn Widget> = {
-                    let mut wrapper = crate::widgets::containers::Column::new()
-                        .cross_axis_alignment(cross_align);
+                    let mut wrapper =
+                        crate::widgets::containers::Column::new().cross_axis_alignment(cross_align);
                     if let Some(ref renderer) = col.cell_renderer_with_row {
                         let row_slice: &[String] = row_data.map(|v| v.as_slice()).unwrap_or(&[]);
                         wrapper.children.push(renderer(phys_row, row_slice));
                     } else if let Some(ref renderer) = col.cell_renderer {
                         wrapper.children.push(renderer(phys_row, cell_text));
                     }
-                    Box::new(
-                        crate::widgets::containers::Padding::symmetric(cp, 4.0)
-                            .child(wrapper)
-                    )
+                    Box::new(crate::widgets::containers::Padding::symmetric(cp, 4.0).child(wrapper))
                 };
 
                 let mut cell = crate::widgets::containers::DecoratedBox::new();
@@ -2657,21 +3056,22 @@ impl Element for TableViewElement {
             }
             push_gap(&mut row, &mut pending_px, &mut pending_flex);
 
-            let row_widget: Box<dyn Widget> = if rp[0] > 0.0 || rp[1] > 0.0 || rp[2] > 0.0 || rp[3] > 0.0 {
-                Box::new(
-                    crate::widgets::containers::Padding::only(rp[0], rp[1], rp[2], rp[3])
-                        .child(row)
-                )
-            } else {
-                Box::new(row)
-            };
+            let row_widget: Box<dyn Widget> =
+                if rp[0] > 0.0 || rp[1] > 0.0 || rp[2] > 0.0 || rp[3] > 0.0 {
+                    Box::new(
+                        crate::widgets::containers::Padding::only(rp[0], rp[1], rp[2], rp[3])
+                            .child(row),
+                    )
+                } else {
+                    Box::new(row)
+                };
             let mut row_container = crate::widgets::containers::DecoratedBox::new();
             row_container.child = Some(row_widget);
             // Разделитель строки рисует сама таблица — цветом сетки с
             // `grid-alpha`. Рамка у контейнера строки давала вторую линию
             // поверх, причём чёрную: цвет из inline-стиля до неё не доходил.
-            let row_container = row_container
-                .style("height", crate::mss::StyleValue::px(self.row_height));
+            let row_container =
+                row_container.style("height", crate::mss::StyleValue::px(self.row_height));
             column.children.push(Box::new(row_container));
         }
 
@@ -2702,18 +3102,30 @@ impl Element for TableViewElement {
         self.mark_dirty(DirtyFlags::RENDER);
     }
 
-    fn get_classes(&self) -> &[String] { &self.classes }
-    fn element_type_name(&self) -> &str { "TableView" }
-    fn reset_mss_styles(&mut self) { self.mss.reset(); }
-    fn mss(&self) -> Option<&crate::mss::MssFields> { Some(&self.mss) }
+    fn get_classes(&self) -> &[String] {
+        &self.classes
+    }
+    fn element_type_name(&self) -> &str {
+        "TableView"
+    }
+    fn reset_mss_styles(&mut self) {
+        self.mss.reset();
+    }
+    fn mss(&self) -> Option<&crate::mss::MssFields> {
+        Some(&self.mss)
+    }
 
     fn apply_computed_style(&mut self, style: &ComputedStyle) {
         let old_color = self.mss.color;
         let old_border = self.mss.border_color;
         let old_bg = self.mss.background_color;
         self.mss.apply(style);
-        if let Some(w) = style.width() { self.width = Some(w); }
-        if let Some(h) = style.height() { self.height = Some(h); }
+        if let Some(w) = style.width() {
+            self.width = Some(w);
+        }
+        if let Some(h) = style.height() {
+            self.height = Some(h);
+        }
 
         if let Some(v) = style.get("header-bg").and_then(|v| v.as_color()) {
             self.header_bg_custom = Some(mss_color_to_core(v));
@@ -2739,14 +3151,30 @@ impl Element for TableViewElement {
         if let Some(v) = style.get("row-padding").and_then(|v| v.as_px()) {
             self.row_padding = [v; 4];
         }
-        if let Some(v) = style.get("row-padding-left").and_then(|v| v.as_px()) { self.row_padding[0] = v; }
-        if let Some(v) = style.get("row-padding-top").and_then(|v| v.as_px()) { self.row_padding[1] = v; }
-        if let Some(v) = style.get("row-padding-right").and_then(|v| v.as_px()) { self.row_padding[2] = v; }
-        if let Some(v) = style.get("row-padding-bottom").and_then(|v| v.as_px()) { self.row_padding[3] = v; }
-        if let Some(v) = style.get("cell-font-size").and_then(|v| v.as_px()) { self.cell_font_size = v; }
-        if let Some(v) = style.get("cell-padding").and_then(|v| v.as_px()) { self.cell_padding = v; }
-        if let Some(v) = style.get("cell-min-width").and_then(|v| v.as_px()) { self.cell_min_width = v; }
-        if let Some(v) = style.get("cell-max-width").and_then(|v| v.as_px()) { self.cell_max_width = v; }
+        if let Some(v) = style.get("row-padding-left").and_then(|v| v.as_px()) {
+            self.row_padding[0] = v;
+        }
+        if let Some(v) = style.get("row-padding-top").and_then(|v| v.as_px()) {
+            self.row_padding[1] = v;
+        }
+        if let Some(v) = style.get("row-padding-right").and_then(|v| v.as_px()) {
+            self.row_padding[2] = v;
+        }
+        if let Some(v) = style.get("row-padding-bottom").and_then(|v| v.as_px()) {
+            self.row_padding[3] = v;
+        }
+        if let Some(v) = style.get("cell-font-size").and_then(|v| v.as_px()) {
+            self.cell_font_size = v;
+        }
+        if let Some(v) = style.get("cell-padding").and_then(|v| v.as_px()) {
+            self.cell_padding = v;
+        }
+        if let Some(v) = style.get("cell-min-width").and_then(|v| v.as_px()) {
+            self.cell_min_width = v;
+        }
+        if let Some(v) = style.get("cell-max-width").and_then(|v| v.as_px()) {
+            self.cell_max_width = v;
+        }
         if let Some(v) = style.get("grid-alpha").and_then(|v| v.as_px()) {
             self.grid_alpha = v.clamp(0.0, 1.0);
         }
@@ -2756,16 +3184,28 @@ impl Element for TableViewElement {
         self.col_min_widths = vec![None; col_count];
         self.col_max_widths = vec![None; col_count];
         for i in 0..col_count {
-            if let Some(v) = style.get(&format!("col-{}-width", i)).and_then(|v| v.as_dimension()) {
+            if let Some(v) = style
+                .get(&format!("col-{}-width", i))
+                .and_then(|v| v.as_dimension())
+            {
                 self.col_widths[i] = Some(v);
             }
-            if let Some(v) = style.get(&format!("col-{}-min-width", i)).and_then(|v| v.as_dimension()) {
+            if let Some(v) = style
+                .get(&format!("col-{}-min-width", i))
+                .and_then(|v| v.as_dimension())
+            {
                 self.col_min_widths[i] = Some(v);
             }
-            if let Some(v) = style.get(&format!("col-{}-max-width", i)).and_then(|v| v.as_dimension()) {
+            if let Some(v) = style
+                .get(&format!("col-{}-max-width", i))
+                .and_then(|v| v.as_dimension())
+            {
                 self.col_max_widths[i] = Some(v);
             }
-            if let Some(v) = style.get(&format!("col-{}-align", i)).and_then(|v| v.as_string()) {
+            if let Some(v) = style
+                .get(&format!("col-{}-align", i))
+                .and_then(|v| v.as_string())
+            {
                 self.columns[i].align = match v {
                     "center" => ColumnAlign::Center,
                     "right" => ColumnAlign::Right,
@@ -2800,12 +3240,18 @@ impl Element for TableViewElement {
 
 impl StyledElement for TableViewElement {
     fn apply_style(&mut self, style: &ComputedStyle) {
-        if let Some(w) = style.width() { self.width = Some(w); }
-        if let Some(h) = style.height() { self.height = Some(h); }
+        if let Some(w) = style.width() {
+            self.width = Some(w);
+        }
+        if let Some(h) = style.height() {
+            self.height = Some(h);
+        }
         self.mark_dirty(DirtyFlags::LAYOUT | DirtyFlags::RENDER);
     }
 
-    fn classes(&self) -> &[String] { &self.classes }
+    fn classes(&self) -> &[String] {
+        &self.classes
+    }
 
     fn set_classes(&mut self, classes: Vec<String>) {
         self.classes = classes;
@@ -2815,7 +3261,7 @@ impl StyledElement for TableViewElement {
 
 #[cfg(test)]
 mod tests {
-    use super::super::{TableColumn, TableView};
+    use super::super::{TableColumn, TableContextAction, TableView};
     use super::TableViewElement;
     use crate::core::types::RectExt;
     use crate::core::Point;
@@ -2921,8 +3367,14 @@ mod tests {
         let mut h = TestHarness::new(Box::new(table));
         h.layout(400.0, 200.0);
         let pos = Point::new(50.0, 50.0);
-        h.send_event(&Event::MouseDown { button: MouseButton::Left, position: pos });
-        h.send_event(&Event::DoubleClick { button: MouseButton::Left, position: pos });
+        h.send_event(&Event::MouseDown {
+            button: MouseButton::Left,
+            position: pos,
+        });
+        h.send_event(&Event::DoubleClick {
+            button: MouseButton::Left,
+            position: pos,
+        });
 
         assert_eq!(*hits.lock().unwrap(), vec![1]);
     }
@@ -2938,8 +3390,14 @@ mod tests {
         let mut h = TestHarness::new(Box::new(table));
         h.layout(400.0, 200.0);
         let pos = Point::new(300.0, 30.0);
-        h.send_event(&Event::MouseDown { button: MouseButton::Left, position: pos });
-        h.send_event(&Event::DoubleClick { button: MouseButton::Left, position: pos });
+        h.send_event(&Event::MouseDown {
+            button: MouseButton::Left,
+            position: pos,
+        });
+        h.send_event(&Event::DoubleClick {
+            button: MouseButton::Left,
+            position: pos,
+        });
 
         assert_eq!(*hits.lock().unwrap(), vec![(0, 1)]);
     }
@@ -2972,8 +3430,14 @@ mod tests {
         h.rebuild();
         h.layout(400.0, 200.0);
         let pos = Point::new(50.0, 30.0);
-        h.send_event(&Event::MouseDown { button: MouseButton::Left, position: pos });
-        h.send_event(&Event::DoubleClick { button: MouseButton::Left, position: pos });
+        h.send_event(&Event::MouseDown {
+            button: MouseButton::Left,
+            position: pos,
+        });
+        h.send_event(&Event::DoubleClick {
+            button: MouseButton::Left,
+            position: pos,
+        });
 
         assert_eq!(*hits.lock().unwrap(), vec![0]);
     }
@@ -2989,8 +3453,14 @@ mod tests {
         let mut h = TestHarness::new(Box::new(table));
         h.layout(400.0, 200.0);
         let pos = Point::new(50.0, 10.0);
-        h.send_event(&Event::MouseDown { button: MouseButton::Left, position: pos });
-        h.send_event(&Event::DoubleClick { button: MouseButton::Left, position: pos });
+        h.send_event(&Event::MouseDown {
+            button: MouseButton::Left,
+            position: pos,
+        });
+        h.send_event(&Event::DoubleClick {
+            button: MouseButton::Left,
+            position: pos,
+        });
 
         assert!(hits.lock().unwrap().is_empty());
     }
@@ -3020,9 +3490,14 @@ mod tests {
 
         // 900px контента в 400px окне → max_scroll_x = 500; сместились на 120.
         let root = h.root_id;
-        let el = h.tree.get_mut(root).unwrap()
-            .as_any_mut().unwrap()
-            .downcast_ref::<TableViewElement>().unwrap();
+        let el = h
+            .tree
+            .get_mut(root)
+            .unwrap()
+            .as_any_mut()
+            .unwrap()
+            .downcast_ref::<TableViewElement>()
+            .unwrap();
         assert!(
             el.scroll_offset_x > 0.0,
             "горизонтальная прокрутка не сработала: {}",
@@ -3052,6 +3527,129 @@ mod tests {
             .unwrap()
             .downcast_mut::<TableViewElement>()
             .unwrap()
+    }
+
+    /// Правый клик по строке вне выделения переносит выделение на неё —
+    /// пункты приложения работают именно с выделенными строками.
+    #[test]
+    fn right_click_moves_selection_to_row_under_cursor() {
+        let seen = Arc::new(Mutex::new(Vec::<Vec<usize>>::new()));
+        let sink = seen.clone();
+        let table = three_rows()
+            .context_actions(vec![TableContextAction::new("group.add", "В группу")])
+            .on_selection_change(move |rows| sink.lock().unwrap().push(rows));
+        let mut h = TestHarness::new(Box::new(table));
+        h.layout(400.0, 200.0);
+
+        click(&mut h, 0, false, false);
+        h.send_event(&Event::MouseDown {
+            button: MouseButton::Right,
+            position: Point::new(50.0, 70.0),
+        });
+
+        assert_eq!(
+            *seen.lock().unwrap(),
+            vec![vec![0], vec![2]],
+            "правый клик по невыделенной строке должен выделить её"
+        );
+        assert!(element(&mut h).context_menu.is_some(), "меню не открылось");
+    }
+
+    /// Правый клик по строке внутри выделения выделение сохраняет.
+    #[test]
+    fn right_click_keeps_multi_selection() {
+        let seen = Arc::new(Mutex::new(Vec::<Vec<usize>>::new()));
+        let sink = seen.clone();
+        let table = three_rows()
+            .context_actions(vec![TableContextAction::new("group.add", "В группу")])
+            .on_selection_change(move |rows| sink.lock().unwrap().push(rows));
+        let mut h = TestHarness::new(Box::new(table));
+        h.layout(400.0, 200.0);
+
+        click(&mut h, 0, false, false);
+        click(&mut h, 2, true, false);
+        h.send_event(&Event::MouseDown {
+            button: MouseButton::Right,
+            position: Point::new(50.0, 30.0),
+        });
+
+        assert_eq!(
+            seen.lock().unwrap().len(),
+            2,
+            "выделение из нескольких строк должно остаться как есть"
+        );
+    }
+
+    /// Нажатие пункта приложения отдаёт его id и строку, на которой открыли
+    /// меню, и закрывает меню.
+    #[test]
+    fn context_action_reports_id_and_row() {
+        let hits = Arc::new(Mutex::new(Vec::<(String, usize)>::new()));
+        let sink = hits.clone();
+        let table = three_rows()
+            .context_actions(vec![
+                TableContextAction::new("group.add", "Добавить в группу"),
+                TableContextAction::new("group.remove", "Убрать из группы").disabled(true),
+            ])
+            .on_context_action(move |id, row| sink.lock().unwrap().push((id.to_string(), row)));
+        let mut h = TestHarness::new(Box::new(table));
+        h.layout(400.0, 200.0);
+
+        h.send_event(&Event::MouseDown {
+            button: MouseButton::Right,
+            position: Point::new(50.0, 50.0),
+        });
+        // Первые два пункта — встроенное копирование, третий — свой.
+        let item = element(&mut h).context_menu_item_rect(2).unwrap();
+        h.send_event(&Event::MouseDown {
+            button: MouseButton::Left,
+            position: Point::new(item.x() + 5.0, item.y() + 5.0),
+        });
+
+        assert_eq!(*hits.lock().unwrap(), vec![("group.add".to_string(), 1)]);
+        assert!(element(&mut h).context_menu.is_none(), "меню не закрылось");
+    }
+
+    /// Выключенный пункт не срабатывает.
+    #[test]
+    fn disabled_context_action_does_nothing() {
+        let hits = Arc::new(Mutex::new(Vec::<String>::new()));
+        let sink = hits.clone();
+        let table = three_rows()
+            .context_actions(vec![
+                TableContextAction::new("group.add", "Добавить в группу"),
+                TableContextAction::new("group.remove", "Убрать из группы").disabled(true),
+            ])
+            .on_context_action(move |id, _row| sink.lock().unwrap().push(id.to_string()));
+        let mut h = TestHarness::new(Box::new(table));
+        h.layout(400.0, 200.0);
+
+        h.send_event(&Event::MouseDown {
+            button: MouseButton::Right,
+            position: Point::new(50.0, 50.0),
+        });
+        let item = element(&mut h).context_menu_item_rect(3).unwrap();
+        h.send_event(&Event::MouseDown {
+            button: MouseButton::Left,
+            position: Point::new(item.x() + 5.0, item.y() + 5.0),
+        });
+
+        assert!(hits.lock().unwrap().is_empty());
+    }
+
+    /// Без пунктов приложения меню остаётся прежним: два пункта копирования
+    /// и никакого разделителя.
+    #[test]
+    fn builtin_menu_has_two_items() {
+        let mut h = TestHarness::new(Box::new(text_table()));
+        h.layout(400.0, 200.0);
+        h.send_event(&Event::MouseDown {
+            button: MouseButton::Right,
+            position: Point::new(50.0, 30.0),
+        });
+        let el = element(&mut h);
+        assert_eq!(el.context_menu_items().len(), 2);
+        assert_eq!(el.context_menu_separator_height(), 0.0);
     }
 
     #[test]
@@ -3099,7 +3697,10 @@ mod tests {
         let sel = el.text_sel.expect("выделение текста не началось");
         assert_eq!((sel.row, sel.col), (0, 0));
         assert!(!sel.is_empty(), "протягивание должно выделить фрагмент");
-        assert!(!el.text_selecting, "после отпускания кнопки протягивание закончено");
+        assert!(
+            !el.text_selecting,
+            "после отпускания кнопки протягивание закончено"
+        );
         let text = el.selected_cell_text().expect("нет выделенного текста");
         assert!(
             "Костанай".starts_with(&text),
@@ -3145,8 +3746,14 @@ mod tests {
             item.x() + item.size.width / 2.0,
             item.y() + item.size.height / 2.0,
         );
-        h.send_event(&Event::MouseDown { button: MouseButton::Left, position: center });
-        assert!(element(&mut h).context_menu.is_none(), "меню должно закрыться");
+        h.send_event(&Event::MouseDown {
+            button: MouseButton::Left,
+            position: center,
+        });
+        assert!(
+            element(&mut h).context_menu.is_none(),
+            "меню должно закрыться"
+        );
     }
 
     #[test]

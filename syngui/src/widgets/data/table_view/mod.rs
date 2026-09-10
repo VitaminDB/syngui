@@ -1,16 +1,15 @@
 mod element;
 
-use std::sync::Arc;
-use std::fmt;
-use crate::core::Color;
 use crate::core::sync::Mutex;
+use crate::core::Color;
 use crate::mss::{Dimension, TextAlign};
 use crate::widget::Widget;
+use std::fmt;
+use std::sync::Arc;
 
 pub type CellRendererFn = Arc<dyn Fn(usize, &str) -> Box<dyn Widget> + Send + Sync>;
 
-pub type CellRendererWithRowFn =
-    Arc<dyn Fn(usize, &[String]) -> Box<dyn Widget> + Send + Sync>;
+pub type CellRendererWithRowFn = Arc<dyn Fn(usize, &[String]) -> Box<dyn Widget> + Send + Sync>;
 
 pub type SortKeyFn = Arc<dyn Fn(&str) -> SortKey + Send + Sync>;
 
@@ -113,7 +112,10 @@ impl fmt::Debug for TableColumn {
             .field("visible", &self.visible)
             .field("sort_key", &self.sort_key.as_ref().map(|_| ".."))
             .field("cell_renderer", &self.cell_renderer.as_ref().map(|_| ".."))
-            .field("cell_renderer_with_row", &self.cell_renderer_with_row.as_ref().map(|_| ".."))
+            .field(
+                "cell_renderer_with_row",
+                &self.cell_renderer_with_row.as_ref().map(|_| ".."),
+            )
             .field("align", &self.align)
             .finish()
     }
@@ -171,27 +173,45 @@ impl TableColumn {
         }
     }
 
-    pub fn min_width(mut self, w: f32) -> Self { self.min_width = w; self }
+    pub fn min_width(mut self, w: f32) -> Self {
+        self.min_width = w;
+        self
+    }
 
-    pub fn max_width(mut self, w: f32) -> Self { self.max_width = w; self }
+    pub fn max_width(mut self, w: f32) -> Self {
+        self.max_width = w;
+        self
+    }
 
-    pub fn resizable(mut self, r: bool) -> Self { self.resizable = r; self }
+    pub fn resizable(mut self, r: bool) -> Self {
+        self.resizable = r;
+        self
+    }
 
-    pub fn sortable(mut self, s: bool) -> Self { self.sortable = s; self }
+    pub fn sortable(mut self, s: bool) -> Self {
+        self.sortable = s;
+        self
+    }
 
-    pub fn hideable(mut self, h: bool) -> Self { self.hideable = h; self }
+    pub fn hideable(mut self, h: bool) -> Self {
+        self.hideable = h;
+        self
+    }
 
-    pub fn visible(mut self, v: bool) -> Self { self.visible = v; self }
+    pub fn visible(mut self, v: bool) -> Self {
+        self.visible = v;
+        self
+    }
 
-    pub fn sort_key(
-        mut self,
-        f: impl Fn(&str) -> SortKey + Send + Sync + 'static,
-    ) -> Self {
+    pub fn sort_key(mut self, f: impl Fn(&str) -> SortKey + Send + Sync + 'static) -> Self {
         self.sort_key = Some(Arc::new(f));
         self
     }
 
-    pub fn align(mut self, align: ColumnAlign) -> Self { self.align = align; self }
+    pub fn align(mut self, align: ColumnAlign) -> Self {
+        self.align = align;
+        self
+    }
 
     pub fn cell_renderer(
         mut self,
@@ -217,7 +237,9 @@ pub enum ColumnWidth {
 }
 
 impl Default for ColumnWidth {
-    fn default() -> Self { ColumnWidth::Flex(1.0) }
+    fn default() -> Self {
+        ColumnWidth::Flex(1.0)
+    }
 }
 
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
@@ -247,6 +269,34 @@ impl TableDataSource {
     }
 }
 
+/// Пункт контекстного меню строки, который добавляет приложение.
+///
+/// Встроенные пункты копирования остаются на месте; пользовательские
+/// добавляются под разделителем и приходят в
+/// [`TableView::on_context_action`] по своему `id` вместе с индексом
+/// строки, на которой открыли меню.
+#[derive(Clone, Debug)]
+pub struct TableContextAction {
+    pub id: String,
+    pub label: String,
+    pub disabled: bool,
+}
+
+impl TableContextAction {
+    pub fn new(id: impl Into<String>, label: impl Into<String>) -> Self {
+        Self {
+            id: id.into(),
+            label: label.into(),
+            disabled: false,
+        }
+    }
+
+    pub fn disabled(mut self, disabled: bool) -> Self {
+        self.disabled = disabled;
+        self
+    }
+}
+
 pub struct TableView {
     pub(super) columns: Vec<TableColumn>,
     pub(super) data: TableDataSource,
@@ -258,8 +308,7 @@ pub struct TableView {
     pub(super) on_sort: Option<Arc<Mutex<dyn FnMut(usize, SortDirection) + Send>>>,
     pub(super) on_row_click: Option<Arc<Mutex<dyn FnMut(usize) + Send>>>,
     pub(super) selected_rows: Vec<usize>,
-    pub(super) on_selection_change:
-        Option<Arc<Mutex<dyn FnMut(Vec<usize>) + Send>>>,
+    pub(super) on_selection_change: Option<Arc<Mutex<dyn FnMut(Vec<usize>) + Send>>>,
     pub(super) width: Option<Dimension>,
     pub(super) height: Option<Dimension>,
     pub(super) custom_header_bg: Option<Color>,
@@ -277,8 +326,7 @@ pub struct TableView {
     pub(super) on_column_resize: Option<Arc<Mutex<dyn FnMut(usize, f32) + Send>>>,
     pub(super) table_id: Option<String>,
     pub(super) column_visibility_state: Option<Arc<Mutex<Vec<bool>>>>,
-    pub(super) on_column_visibility_change:
-        Option<Arc<Mutex<dyn FnMut(usize, bool) + Send>>>,
+    pub(super) on_column_visibility_change: Option<Arc<Mutex<dyn FnMut(usize, bool) + Send>>>,
     pub(super) keyboard_nav: bool,
     pub(super) editable: bool,
     pub(super) on_cell_select: Option<Arc<Mutex<dyn FnMut(usize, usize) + Send>>>,
@@ -287,6 +335,8 @@ pub struct TableView {
     pub(super) on_cell_double_click: Option<Arc<Mutex<dyn FnMut(usize, usize) + Send>>>,
     pub(super) cell_cursor: bool,
     pub(super) text_selection: bool,
+    pub(super) context_actions: Vec<TableContextAction>,
+    pub(super) on_context_action: Option<Arc<Mutex<dyn FnMut(&str, usize) + Send>>>,
 }
 
 impl TableView {
@@ -329,6 +379,8 @@ impl TableView {
             on_cell_double_click: None,
             cell_cursor: true,
             text_selection: false,
+            context_actions: Vec::new(),
+            on_context_action: None,
         }
     }
 
@@ -378,15 +430,35 @@ impl TableView {
             on_cell_double_click: None,
             cell_cursor: true,
             text_selection: false,
+            context_actions: Vec::new(),
+            on_context_action: None,
         }
     }
 
-    pub fn sortable(mut self, s: bool) -> Self { self.sortable = s; self }
-    pub fn row_height(mut self, h: f32) -> Self { self.row_height = h; self }
-    pub fn header_height(mut self, h: f32) -> Self { self.header_height = h; self }
-    pub fn striped(mut self, s: bool) -> Self { self.striped = s; self }
-    pub fn buffer_size(mut self, n: usize) -> Self { self.buffer_size = n; self }
-    pub fn selected_rows(mut self, rows: Vec<usize>) -> Self { self.selected_rows = rows; self }
+    pub fn sortable(mut self, s: bool) -> Self {
+        self.sortable = s;
+        self
+    }
+    pub fn row_height(mut self, h: f32) -> Self {
+        self.row_height = h;
+        self
+    }
+    pub fn header_height(mut self, h: f32) -> Self {
+        self.header_height = h;
+        self
+    }
+    pub fn striped(mut self, s: bool) -> Self {
+        self.striped = s;
+        self
+    }
+    pub fn buffer_size(mut self, n: usize) -> Self {
+        self.buffer_size = n;
+        self
+    }
+    pub fn selected_rows(mut self, rows: Vec<usize>) -> Self {
+        self.selected_rows = rows;
+        self
+    }
 
     /// Вызывается, когда меняется набор выделенных строк.
     ///
@@ -399,9 +471,18 @@ impl TableView {
         self.on_selection_change = Some(Arc::new(Mutex::new(callback)));
         self
     }
-    pub fn width(mut self, w: f32) -> Self { self.width = Some(Dimension::Px(w)); self }
-    pub fn height(mut self, h: f32) -> Self { self.height = Some(Dimension::Px(h)); self }
-    pub fn scroll_state(mut self, state: Arc<Mutex<f32>>) -> Self { self.scroll_state = Some(state); self }
+    pub fn width(mut self, w: f32) -> Self {
+        self.width = Some(Dimension::Px(w));
+        self
+    }
+    pub fn height(mut self, h: f32) -> Self {
+        self.height = Some(Dimension::Px(h));
+        self
+    }
+    pub fn scroll_state(mut self, state: Arc<Mutex<f32>>) -> Self {
+        self.scroll_state = Some(state);
+        self
+    }
 
     pub fn column_widths_state(mut self, state: Arc<Mutex<Vec<Option<f32>>>>) -> Self {
         self.column_widths_state = Some(state);
@@ -431,19 +512,49 @@ impl TableView {
         self
     }
 
-    pub fn keyboard_nav(mut self, enabled: bool) -> Self { self.keyboard_nav = enabled; self }
+    pub fn keyboard_nav(mut self, enabled: bool) -> Self {
+        self.keyboard_nav = enabled;
+        self
+    }
 
     /// Рамка активной ячейки под курсором. `false` — клик выделяет только
     /// строку, отдельная ячейка не подсвечивается (список-реестр, где
     /// ячейка не является самостоятельной единицей).
-    pub fn cell_cursor(mut self, enabled: bool) -> Self { self.cell_cursor = enabled; self }
+    pub fn cell_cursor(mut self, enabled: bool) -> Self {
+        self.cell_cursor = enabled;
+        self
+    }
 
     /// Текст ячеек можно выделять мышью и копировать: над текстом курсор
     /// I-beam вместо руки, протягивание выделяет фрагмент, Ctrl+C и
     /// контекстное меню копируют его в буфер обмена.
-    pub fn text_selection(mut self, enabled: bool) -> Self { self.text_selection = enabled; self }
+    /// Пункты контекстного меню строки, которые добавляет приложение.
+    /// Показываются под встроенными пунктами копирования, отделённые
+    /// чертой; нажатие приходит в [`Self::on_context_action`].
+    pub fn context_actions(mut self, actions: Vec<TableContextAction>) -> Self {
+        self.context_actions = actions;
+        self
+    }
 
-    pub fn editable(mut self, enabled: bool) -> Self { self.editable = enabled; self }
+    /// Обработчик пользовательского пункта меню: `id` пункта и индекс
+    /// строки, на которой меню открыли.
+    pub fn on_context_action(
+        mut self,
+        callback: impl FnMut(&str, usize) + Send + 'static,
+    ) -> Self {
+        self.on_context_action = Some(Arc::new(Mutex::new(callback)));
+        self
+    }
+
+    pub fn text_selection(mut self, enabled: bool) -> Self {
+        self.text_selection = enabled;
+        self
+    }
+
+    pub fn editable(mut self, enabled: bool) -> Self {
+        self.editable = enabled;
+        self
+    }
 
     pub fn on_sort(mut self, callback: impl FnMut(usize, SortDirection) + Send + 'static) -> Self {
         self.on_sort = Some(Arc::new(Mutex::new(callback)));
@@ -473,17 +584,44 @@ impl TableView {
         self
     }
 
-    pub fn on_cell_double_click(mut self, callback: impl FnMut(usize, usize) + Send + 'static) -> Self {
+    pub fn on_cell_double_click(
+        mut self,
+        callback: impl FnMut(usize, usize) + Send + 'static,
+    ) -> Self {
         self.on_cell_double_click = Some(Arc::new(Mutex::new(callback)));
         self
     }
 
-    pub fn header_bg(mut self, color: Color) -> Self { self.custom_header_bg = Some(color); self }
-    pub fn header_color(mut self, color: Color) -> Self { self.custom_header_color = Some(color); self }
-    pub fn header_font_size(mut self, size: f32) -> Self { self.custom_header_font_size = Some(size); self }
-    pub fn cell_font_size(mut self, size: f32) -> Self { self.custom_cell_font_size = Some(size); self }
-    pub fn cell_padding(mut self, p: f32) -> Self { self.custom_cell_padding = Some(p); self }
-    pub fn row_hover_bg(mut self, color: Color) -> Self { self.custom_row_hover_bg = Some(color); self }
-    pub fn row_selected_bg(mut self, color: Color) -> Self { self.custom_row_selected_bg = Some(color); self }
-    pub fn row_padding(mut self, padding: [f32; 4]) -> Self { self.custom_row_padding = Some(padding); self }
+    pub fn header_bg(mut self, color: Color) -> Self {
+        self.custom_header_bg = Some(color);
+        self
+    }
+    pub fn header_color(mut self, color: Color) -> Self {
+        self.custom_header_color = Some(color);
+        self
+    }
+    pub fn header_font_size(mut self, size: f32) -> Self {
+        self.custom_header_font_size = Some(size);
+        self
+    }
+    pub fn cell_font_size(mut self, size: f32) -> Self {
+        self.custom_cell_font_size = Some(size);
+        self
+    }
+    pub fn cell_padding(mut self, p: f32) -> Self {
+        self.custom_cell_padding = Some(p);
+        self
+    }
+    pub fn row_hover_bg(mut self, color: Color) -> Self {
+        self.custom_row_hover_bg = Some(color);
+        self
+    }
+    pub fn row_selected_bg(mut self, color: Color) -> Self {
+        self.custom_row_selected_bg = Some(color);
+        self
+    }
+    pub fn row_padding(mut self, padding: [f32; 4]) -> Self {
+        self.custom_row_padding = Some(padding);
+        self
+    }
 }
