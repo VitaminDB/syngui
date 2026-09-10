@@ -1,82 +1,71 @@
-pub mod macros;
 pub mod buttons;
+pub mod charts;
 pub mod containers;
 pub mod data;
 pub mod feedback;
 pub mod input;
+pub mod macros;
 pub mod navigation;
 pub mod overlay;
 pub mod scroll;
 pub mod visual;
-pub mod charts;
 
-pub use crate::layout::{MainAxisAlignment, CrossAxisAlignment, FlexDirection};
+pub use crate::layout::{CrossAxisAlignment, FlexDirection, MainAxisAlignment};
 
-pub use crate::widget::{Text, Center};
+pub use crate::widget::{Center, Text};
 
 pub use buttons::{Button, IconPosition, OptionButton, SegmentedButton, ToolButton};
-pub use containers::{
-    Animated, RepeatMode, TransformOrigin,
-    AnimatedSize, AnimationAxis,
-    Column, Flex, Grid, VirtualFlex, Padding, Row, Stack, StackFit, DecoratedBox, ShowIf,
-    Page, ScrollbarPolicy, ScrollPhysics, ScrollTarget,
-    Carousel, SplitView, SplitDirection,
-    GestureDetector,
-    IntoWidget, Reactive,
-    Named,
-    TransformBox, TransformState,
+pub use charts::{
+    AreaFill, AxisConfig, BarChart, BarMode, BarOrientation, BarSeries, DataPoint, GaugeChart,
+    GaugeSegment, LegendPosition, LineChart, LineStyle, MarkLine, PieChart, PieLabelPosition,
+    PieSlice, PointShape, RadarChart, RadarGridShape, RadarIndicator, RadarSeries, Series,
+    SeriesStyle, TooltipConfig, VisualMapPiece,
 };
-pub use input::{
-    Checkbox, Dropdown, DropdownItem, DropdownState, MultilineTextEdit, RadioButton, RadioGroup,
-    Slider, TickSlider, SpinBox, TextField, Toggle, Combobox, Multiselect, Autocomplete,
-    DatePicker, Date, TimePicker, Time, ColorPicker, ColorValue,
+pub use containers::{
+    Animated, AnimatedSize, AnimationAxis, Carousel, Column, DecoratedBox, Flex, GestureDetector,
+    Grid, IntoWidget, Named, Padding, Page, Reactive, RepeatMode, Row, ScrollPhysics, ScrollTarget,
+    ScrollbarPolicy, ShowIf, SplitDirection, SplitView, Stack, StackFit, TransformBox,
+    TransformOrigin, TransformState, VirtualFlex,
+};
+pub use data::{
+    ColumnWidth, ListItem, ListView, Property, PropertyGrid, PropertyValue, SelectionMode,
+    SortDirection, TableColumn, TableContextAction, TableView, TreeNode, TreeNodeDecoration,
+    TreeView,
+};
+pub use feedback::{
+    NotificationCtx, NotificationHost, NotificationItem, NotificationSeverity, Snackbar,
+    SnackbarPosition, Tooltip, TooltipPosition,
 };
 #[cfg(feature = "code-editor")]
 pub use input::CodeEditor;
+pub use input::{
+    Autocomplete, Checkbox, ColorPicker, ColorValue, Combobox, Date, DatePicker, Dropdown,
+    DropdownItem, DropdownState, MultilineTextEdit, Multiselect, RadioButton, RadioGroup, Slider,
+    SpinBox, TextField, TickSlider, Time, TimePicker, Toggle,
+};
 pub use navigation::{
-    Breadcrumb, Router, RouterView, Sidebar, Tab, TabBar, TabPosition,
-    TabState, Toolbar, Pagination, Stepper, StepInfo, TopAppBar,
-};
-pub use scroll::{ScrollView, ScrollDirection};
-pub use visual::{
-    Avatar, Badge, BadgeSize, Canvas, Card, Chip, CircularProgress,
-    Divider, DividerDirection, Icon, Image, ImageFit, ProgressBar,
-    Calendar, CalendarLocale, CalendarTheme, DateOrder, RichText, TextSpan,
-    default_locale, set_default_locale,
-    EmitKind, ParticleSystem,
-};
-#[cfg(feature = "markdown")]
-pub use visual::{MarkdownView, MdStyle, MarkdownEditor, EditorMode};
-#[cfg(feature = "map")]
-pub use visual::{MapView, MapViewport, MapMarker, HeatOverlay, HeatPoint, BuildingOverlay, BuildingShape, TileProvider, TileCache};
-#[cfg(feature = "ffmpeg")]
-pub use visual::{video_player_view, VideoView};
-#[cfg(feature = "terminal")]
-pub use visual::{Terminal, TerminalConfig, TerminalSession};
-pub use data::{
-    ListView, ListItem, SelectionMode,
-    TableView, TableColumn, ColumnWidth, SortDirection,
-    TreeView, TreeNode, TreeNodeDecoration,
-    PropertyGrid, Property, PropertyValue,
-};
-pub use feedback::{
-    Tooltip, TooltipPosition, Snackbar, SnackbarPosition,
-    NotificationCtx, NotificationHost, NotificationItem, NotificationSeverity,
+    Breadcrumb, Pagination, Router, RouterView, Sidebar, StepInfo, Stepper, Tab, TabBar,
+    TabPosition, TabState, Toolbar, TopAppBar,
 };
 pub use overlay::{
-    Dialog, AlertDialog, ConfirmDialog, DialogAction, set_dialog_labels,
-    FloatingWindow,
-    PopupMenu, PopupAnchor, MenuItem,
-    PopupPanel,
-    ContextMenu,
-    Draggable, DropArea, DropInfo,
-    Portal, PortalAnchor,
+    set_dialog_labels, AlertDialog, ConfirmDialog, ContextMenu, Dialog, DialogAction, Draggable,
+    DropArea, DropInfo, FloatingWindow, MenuItem, PopupAnchor, PopupMenu, PopupPanel, Portal,
+    PortalAnchor,
 };
-pub use charts::{
-    LineChart, Series, DataPoint, AxisConfig, LegendPosition, LineStyle,
-    PointShape, SeriesStyle, TooltipConfig, AreaFill, VisualMapPiece, MarkLine,
-    GaugeChart, GaugeSegment,
-    PieChart, PieSlice, PieLabelPosition,
-    BarChart, BarSeries, BarMode, BarOrientation,
-    RadarChart, RadarIndicator, RadarSeries, RadarGridShape,
+pub use scroll::{ScrollDirection, ScrollView};
+pub use visual::{
+    default_locale, set_default_locale, Avatar, Badge, BadgeSize, Calendar, CalendarLocale,
+    CalendarTheme, Canvas, Card, Chip, CircularProgress, DateOrder, Divider, DividerDirection,
+    EmitKind, Icon, Image, ImageFit, ParticleSystem, ProgressBar, RichText, TextSpan,
 };
+#[cfg(feature = "ffmpeg")]
+pub use visual::{video_player_view, VideoView};
+#[cfg(feature = "map")]
+pub use visual::{
+    BuildingOverlay, BuildingShape, HeatOverlay, HeatPoint, MapMarker, MapView, MapViewport,
+    TileCache, TileProvider,
+};
+#[cfg(feature = "markdown")]
+pub use visual::{EditorMode, MarkdownEditor, MarkdownView, MdStyle};
+#[cfg(feature = "terminal")]
+pub use visual::{Terminal, TerminalConfig, TerminalSession};
