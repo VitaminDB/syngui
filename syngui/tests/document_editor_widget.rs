@@ -335,6 +335,60 @@ fn wide_layout_centers_content_column() {
 // ─── Undo/redo и отступы (S4) ───────────────────────────────────────────────
 
 #[test]
+fn clipboard_keys_go_to_host_first() {
+    use std::sync::Mutex;
+    use syngui::widgets::input::document_editor::ClipboardKey;
+
+    let seen: Arc<Mutex<Vec<(ClipboardKey, usize)>>> = Arc::new(Mutex::new(Vec::new()));
+    let log = seen.clone();
+    let handle = DocumentEditorHandle::new();
+    let editor = DocumentEditor::new()
+        .markdown("Первый\n\nВторой\n")
+        .handle(&handle)
+        // Блоки хост забирает себе, текстовый режим — нет.
+        .on_clipboard_key(move |key, blocks| {
+            log.lock().unwrap().push((key, blocks.len()));
+            !blocks.is_empty()
+        });
+    let mut h = TestHarness::new(Box::new(editor));
+    h.tree.text_measure = Some(Arc::new(Mono));
+    h.rebuild();
+    h.layout(800.0, 2000.0);
+    let click = Point::new(X0 + 10.0, Y0 + 8.0);
+    h.send_event(&Event::MouseDown {
+        button: MouseButton::Left,
+        position: click,
+    });
+    h.send_event(&Event::MouseUp {
+        button: MouseButton::Left,
+        position: click,
+    });
+    let ctrl = |h: &mut TestHarness, key: Key| {
+        h.tree.modifiers.ctrl = true;
+        h.send_event(&Event::KeyDown(key));
+        h.tree.modifiers.ctrl = false;
+    };
+    // Текстовый режим: Ctrl+C без выделения — хосту, без блоков.
+    ctrl(&mut h, Key::C);
+    // Двойной Ctrl+A — выделение блоков; Ctrl+C/V уходят хосту со списком,
+    // и забранная хостом вставка документ не трогает.
+    ctrl(&mut h, Key::A);
+    ctrl(&mut h, Key::A);
+    ctrl(&mut h, Key::C);
+    ctrl(&mut h, Key::V);
+    settle(&mut h);
+    assert_eq!(
+        *seen.lock().unwrap(),
+        [
+            (ClipboardKey::Copy, 0),
+            (ClipboardKey::Copy, 2),
+            (ClipboardKey::Paste, 2)
+        ]
+    );
+    assert_eq!(handle.serialize(), "Первый\n\nВторой\n");
+}
+
+#[test]
 fn undo_redo_typing() {
     let (mut h, handle) = editing_harness("аб\n", Point::new(X0 + 40.0, Y0 + 8.0));
     type_str(&mut h, "вг");

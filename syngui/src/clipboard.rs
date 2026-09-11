@@ -47,6 +47,33 @@ mod imp {
         let result = h.lock().ok().and_then(|mut g| g.get_text().ok());
         result
     }
+
+    /// Текст и дополнительные форматы одной копией. На Wayland — через
+    /// data-control (`wl-clipboard-rs`): текст уходит всеми текстовыми
+    /// MIME, остальное — под своими; без Wayland или при ошибке — только
+    /// текст (arboard кладёт один формат за раз).
+    pub fn copy_rich(text: &str, formats: &[(&str, &[u8])]) {
+        #[cfg(all(target_os = "linux", feature = "wl-clipboard-rs"))]
+        if !formats.is_empty() && std::env::var_os("WAYLAND_DISPLAY").is_some() {
+            use wl_clipboard_rs::copy::{MimeSource, MimeType, Options, Source};
+            let mut sources = vec![MimeSource {
+                source: Source::Bytes(text.as_bytes().into()),
+                mime_type: MimeType::Text,
+            }];
+            for (mime, data) in formats {
+                sources.push(MimeSource {
+                    source: Source::Bytes((*data).into()),
+                    mime_type: MimeType::Specific(mime.to_string()),
+                });
+            }
+            match Options::new().copy_multi(sources) {
+                Ok(()) => return,
+                Err(e) => log::warn!("clipboard: copy_multi не удался ({e}), кладу только текст"),
+            }
+        }
+        let _ = formats;
+        copy(text);
+    }
 }
 
 #[cfg(target_arch = "wasm32")]
@@ -310,6 +337,72 @@ mod imp {
 }
 
 pub use imp::{copy, paste};
+
+#[cfg(all(
+    feature = "clipboard",
+    not(target_arch = "wasm32"),
+    not(target_os = "android")
+))]
+pub use imp::copy_rich;
+
+/// Без системного буфера с форматами — только текст.
+#[cfg(not(all(
+    feature = "clipboard",
+    not(target_arch = "wasm32"),
+    not(target_os = "android")
+)))]
+pub fn copy_rich(text: &str, _formats: &[(&str, &[u8])]) {
+    copy(text);
+}
+
+/// `text/uri-list` для файлов (RFC 2483): по `file://`-URI на строку, CRLF.
+pub fn uri_list(paths: &[impl AsRef<std::path::Path>]) -> String {
+    paths
+        .iter()
+        .map(|p| file_uri(p.as_ref()))
+        .collect::<Vec<_>>()
+        .join("\r\n")
+}
+
+/// `file://`-URI локального пути: байты вне unreserved и `/` — `%XX`.
+pub fn file_uri(path: &std::path::Path) -> String {
+    #[cfg(unix)]
+    let bytes = {
+        use std::os::unix::ffi::OsStrExt;
+        path.as_os_str().as_bytes().to_vec()
+    };
+    #[cfg(not(unix))]
+    let bytes = path.to_string_lossy().replace('\\', "/").into_bytes();
+    let mut out = String::from("file://");
+    if bytes.first() != Some(&b'/') {
+        out.push('/');
+    }
+    for b in bytes {
+        if b.is_ascii_alphanumeric() || b"-._~/".contains(&b) {
+            out.push(b as char);
+        } else {
+            out.push_str(&format!("%{b:02X}"));
+        }
+    }
+    out
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn file_uris_are_percent_encoded() {
+        assert_eq!(
+            file_uri(std::path::Path::new("/tmp/a b/я.txt")),
+            "file:///tmp/a%20b/%D1%8F.txt"
+        );
+        assert_eq!(
+            uri_list(&["/a", "/b#c"]),
+            "file:///a\r\nfile:///b%23c"
+        );
+    }
+}
 
 #[cfg(target_arch = "wasm32")]
 pub use imp::request_refresh;

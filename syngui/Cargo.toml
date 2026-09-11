@@ -198,7 +198,7 @@ debug = ["inspector"]
 inspector = []
 
 # Clipboard
-clipboard = ["arboard"]
+clipboard = ["arboard", "wl-clipboard-rs"]
 
 # Accessibility (AccessKit: AT-SPI on Linux, UIA on Windows, NSAccessibility on macOS)
 accessibility = ["dep:accesskit", "dep:accesskit_winit", "winit"]
@@ -329,6 +329,9 @@ wayland-protocols-plasma = { version = "0.3", optional = true, features = ["clie
 # биндинг генерируем из XML в `protocols/` макросом wayland-scanner.
 wayland-scanner = { version = "0.31", optional = true }
 x11rb = { version = "0.13", optional = true }
+# Буфер обмена в нескольких форматах одной копией (`clipboard::copy_rich`):
+# arboard кладёт только один формат за раз. Версия — та, что тянет arboard.
+wl-clipboard-rs = { version = "0.9", optional = true }
 
 # Локальная дата для календаря (`localtime_r`). На Windows используется
 # GetLocalTime через прямой extern, на wasm — js_sys::Date.

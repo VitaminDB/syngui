@@ -49,4 +49,4 @@ pub use serialize::serialize_document;
 pub use shape::ShapeStyle;
 pub use slash::{SlashAction, SlashItem};
 pub use style::DocStyle;
-pub use widget::{BlockProps, DocOp, DocumentEditor, DocumentEditorHandle};
+pub use widget::{BlockProps, ClipboardKey, DocOp, DocumentEditor, DocumentEditorHandle};

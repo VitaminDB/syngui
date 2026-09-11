@@ -46,6 +46,17 @@ use super::state::{
 };
 use super::style::DocStyle;
 
+/// Клавиша буфера обмена, которую редактор сначала отдаёт хосту
+/// ([`DocumentEditor::on_clipboard_key`]).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum ClipboardKey {
+    Copy,
+    Cut,
+    Paste,
+}
+
+type ClipboardHook = Arc<dyn Fn(ClipboardKey, &[super::model::BlockId]) -> bool + Send + Sync>;
+
 /// Операция хоста над документом «у каретки» — кладётся в очередь ручки
 /// ([`DocumentEditorHandle::queue_op`]) и применяется самим элементом на
 /// ближайшем `update` (после бампа `model_epoch` хостом): так правка
@@ -383,6 +394,8 @@ pub struct DocumentEditor {
     model_epoch: u64,
     on_drop_file: Option<Arc<dyn Fn(std::path::PathBuf, String) + Send + Sync>>,
     on_context_menu: Option<Arc<dyn Fn(Point) + Send + Sync>>,
+    /// Ctrl+C/X/V до встроенного буфера (см. [`Self::on_clipboard_key`]).
+    on_clipboard_key: Option<ClipboardHook>,
     layout: DocLayout,
     fill_height: bool,
     /// Получить фокус сразу после создания (правка карточки на месте).
@@ -433,6 +446,7 @@ impl DocumentEditor {
             placeholder: None,
             heading_placeholder: None,
             on_context_menu: None,
+            on_clipboard_key: None,
             layout: DocLayout::default(),
             fill_height: false,
         }
@@ -549,6 +563,18 @@ impl DocumentEditor {
     /// правый клик не перехватывается (сработает внешний `ContextMenu`).
     pub fn on_context_menu(mut self, f: impl Fn(Point) + Send + Sync + 'static) -> Self {
         self.on_context_menu = Some(Arc::new(f));
+        self
+    }
+
+    /// Ctrl+C/X/V — сначала хосту, потом встроенному буферу. `blocks` —
+    /// выделенные блоки (режим выделения блоков); пусто — текстовый режим,
+    /// там хук зовётся только для Ctrl+C без выделенного текста. Вернуть
+    /// `true`, если хост обработал клавишу сам: редактор её уже не трогает.
+    pub fn on_clipboard_key(
+        mut self,
+        f: impl Fn(ClipboardKey, &[super::model::BlockId]) -> bool + Send + Sync + 'static,
+    ) -> Self {
+        self.on_clipboard_key = Some(Arc::new(f));
         self
     }
 
@@ -695,6 +721,7 @@ impl Widget for DocumentEditor {
             placeholder: self.placeholder.clone(),
             heading_placeholder: self.heading_placeholder.clone(),
             on_context_menu: self.on_context_menu.clone(),
+            on_clipboard_key: self.on_clipboard_key.clone(),
             ops: self
                 .handle
                 .as_ref()
@@ -806,6 +833,7 @@ pub struct DocumentEditorElement {
     model_epoch: u64,
     on_drop_file: Option<Arc<dyn Fn(std::path::PathBuf, String) + Send + Sync>>,
     on_context_menu: Option<Arc<dyn Fn(Point) + Send + Sync>>,
+    on_clipboard_key: Option<ClipboardHook>,
     /// Очередь операций хоста (общая с ручкой).
     ops: Arc<Mutex<Vec<DocOp>>>,
     /// Автокомплит wiki-ссылки `[[`.
@@ -2249,6 +2277,15 @@ impl DocumentEditorElement {
             }
         }
         Some((ids, out))
+    }
+
+    /// Клавиша буфера над выделенными блоками — сначала хосту
+    /// ([`DocumentEditor::on_clipboard_key`]); `true` — он забрал её себе.
+    fn host_clipboard(&self, key: ClipboardKey) -> bool {
+        let Some(cb) = self.on_clipboard_key.clone() else {
+            return false;
+        };
+        cb(key, &self.block_sel)
     }
 
     fn copy_blocks(&mut self) -> bool {
@@ -5058,6 +5095,7 @@ impl Element for DocumentEditorElement {
         }
         self.autofocus = w.autofocus;
         self.on_context_menu = w.on_context_menu.clone();
+        self.on_clipboard_key = w.on_clipboard_key.clone();
         self.fill_height = w.fill_height;
         if self.layout != w.layout {
             let was_free = self.layout.free;
@@ -6168,15 +6206,21 @@ impl Element for DocumentEditorElement {
                             return EventResult::Handled;
                         }
                         Key::C if ctrl => {
-                            self.copy_blocks();
+                            if !self.host_clipboard(ClipboardKey::Copy) {
+                                self.copy_blocks();
+                            }
                             return EventResult::Handled;
                         }
                         Key::X if ctrl => {
-                            self.cut_blocks();
+                            if !self.host_clipboard(ClipboardKey::Cut) {
+                                self.cut_blocks();
+                            }
                             return EventResult::Handled;
                         }
                         Key::V if ctrl => {
-                            self.paste_blocks();
+                            if !self.host_clipboard(ClipboardKey::Paste) {
+                                self.paste_blocks();
+                            }
                             return EventResult::Handled;
                         }
                         Key::A if ctrl => {
@@ -6243,6 +6287,8 @@ impl Element for DocumentEditorElement {
                             .unwrap_or_else(|| self.selection_text());
                         if !text.is_empty() {
                             ctx.copy_to_clipboard(&text);
+                        } else if let Some(cb) = self.on_clipboard_key.clone() {
+                            cb(ClipboardKey::Copy, &[]);
                         }
                         true
                     }
