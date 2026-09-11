@@ -14,8 +14,8 @@ pub use line_chart::LineChart;
 pub use pie_chart::PieChart;
 pub use radar_chart::RadarChart;
 pub use types::{
-    AreaFill, AxisConfig, BarMode, BarOrientation, BarSeries, DataPoint, LegendConfig,
-    LegendPosition, LineStyle, MarkLine, PieLabelPosition, PieSlice, PointShape, RadarGridShape,
-    RadarIndicator, RadarSeries, Series, SeriesStyle, TooltipConfig, VisualMapPiece,
-    DEFAULT_PALETTE,
+    AreaFill, AxisConfig, BarLineSeries, BarMode, BarOrientation, BarSeries, DataPoint,
+    LegendConfig, LegendPosition, LineStyle, MarkLine, PieLabelPosition, PieSlice, PointShape,
+    RadarGridShape, RadarIndicator, RadarSeries, Series, SeriesStyle, TooltipConfig,
+    VisualMapPiece, DEFAULT_PALETTE,
 };

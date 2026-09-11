@@ -246,6 +246,7 @@ pub struct AxisConfig {
     pub format_fn: Option<Arc<dyn Fn(f64) -> String + Send + Sync>>,
     pub show_grid: bool,
     pub show_axis_line: bool,
+    pub show_labels: bool,
     pub inverse: bool,
 }
 
@@ -259,6 +260,7 @@ impl Default for AxisConfig {
             format_fn: None,
             show_grid: true,
             show_axis_line: true,
+            show_labels: true,
             inverse: false,
         }
     }
@@ -272,6 +274,7 @@ impl std::fmt::Debug for AxisConfig {
             .field("max", &self.max)
             .field("tick_count", &self.tick_count)
             .field("show_grid", &self.show_grid)
+            .field("show_labels", &self.show_labels)
             .finish()
     }
 }
@@ -313,6 +316,13 @@ impl AxisConfig {
 
     pub fn axis_line(mut self, show: bool) -> Self {
         self.show_axis_line = show;
+        self
+    }
+
+    /// Подписи делений оси. Скрытые подписи не рисуются и не занимают
+    /// места: область графика растёт на их высоту (ширину).
+    pub fn labels(mut self, show: bool) -> Self {
+        self.show_labels = show;
         self
     }
 
@@ -500,6 +510,71 @@ impl BarSeries {
 
     pub fn color(mut self, color: impl Into<Color>) -> Self {
         self.color = Some(color.into());
+        self
+    }
+}
+
+/// Линия поверх столбцов [`BarChart`](super::BarChart): по значению на
+/// категорию на общей шкале значений. `None` — пропуск, разрывающий линию.
+#[derive(Debug, Clone)]
+pub struct BarLineSeries {
+    pub name: String,
+    pub data: Vec<Option<f64>>,
+    pub style: SeriesStyle,
+}
+
+impl BarLineSeries {
+    pub fn new(
+        name: impl Into<String>,
+        data: impl IntoIterator<Item = impl Into<Option<f64>>>,
+    ) -> Self {
+        Self {
+            name: name.into(),
+            data: data.into_iter().map(Into::into).collect(),
+            style: SeriesStyle::default(),
+        }
+    }
+
+    pub fn color(mut self, color: impl Into<Color>) -> Self {
+        self.style.color = Some(color.into());
+        self
+    }
+
+    pub fn line_width(mut self, width: f32) -> Self {
+        self.style.line_width = width;
+        self
+    }
+
+    pub fn dashed(mut self) -> Self {
+        self.style.line_style = LineStyle::Dashed {
+            dash: 8.0,
+            gap: 4.0,
+        };
+        self
+    }
+
+    pub fn smooth(mut self, enabled: bool) -> Self {
+        self.style.smooth = enabled;
+        self
+    }
+
+    pub fn show_points(mut self, show: bool) -> Self {
+        self.style.show_points = show;
+        self
+    }
+
+    pub fn point_size(mut self, size: f32) -> Self {
+        self.style.point_size = size;
+        self
+    }
+
+    pub fn point_shape(mut self, shape: PointShape) -> Self {
+        self.style.point_shape = shape;
+        self
+    }
+
+    pub fn style(mut self, style: SeriesStyle) -> Self {
+        self.style = style;
         self
     }
 }

@@ -66,7 +66,7 @@ pub fn render_x_axis(
     }
 
     let label_y = plot.origin.y + plot.size.height + 4.0;
-    for &tick_val in &ticks {
+    for &tick_val in ticks.iter().filter(|_| config.show_labels) {
         let x = scale.map(tick_val);
         let abs_x = plot.origin.x + x;
 
@@ -140,7 +140,7 @@ pub fn render_y_axis(
     }
 
     let label_x = plot.origin.x - 4.0;
-    for &tick_val in &ticks {
+    for &tick_val in ticks.iter().filter(|_| config.show_labels) {
         let y = scale.map(tick_val);
         let abs_y = plot.origin.y + y;
 
@@ -194,6 +194,9 @@ pub fn estimate_y_axis_width(
     font_size: f32,
     text_measure: Option<&Arc<dyn TextMeasure>>,
 ) -> f32 {
+    if !config.show_labels {
+        return 0.0;
+    }
     let ticks = compute_ticks(y_min, y_max, config.tick_count);
     let mut max_w: f32 = 0.0;
     for tick in &ticks {

@@ -1,7 +1,9 @@
-//! Bar chart demo page: 6 examples showcasing different bar chart features.
+//! Bar chart demo page: 7 examples showcasing different bar chart features.
 
 use syngui::prelude::*;
-use syngui::widgets::charts::{AxisConfig, BarMode, BarOrientation, BarSeries, LegendPosition};
+use syngui::widgets::charts::{
+    AxisConfig, BarLineSeries, BarMode, BarOrientation, BarSeries, LegendPosition,
+};
 use syngui::widgets::*;
 
 use crate::sections::{label, section_card, section_title};
@@ -10,12 +12,65 @@ use crate::sections::{label, section_card, section_title};
 pub fn build_bar_chart_demos() -> impl Widget {
     Column::new()
         .gap(24.0)
+        .child(section_card(build_line_overlay_demo()))
         .child(section_card(build_basic_demo()))
         .child(section_card(build_grouped_demo()))
         .child(section_card(build_stacked_demo()))
         .child(section_card(build_horizontal_demo()))
         .child(section_card(build_value_labels_demo()))
         .child(section_card(build_styled_demo()))
+}
+
+// ─── 0. Bars with a Line ───────────────────────────────────────────────────
+
+fn build_line_overlay_demo() -> impl Widget {
+    Column::new()
+        .gap(12.0)
+        .child(section_title("Bars with a Line"))
+        .child(label(
+            "Line series on the same value axis, centered over each category; a gap breaks the line",
+        ))
+        .child(
+            BarChart::new()
+                .title("Visits and Conversion")
+                .categories(
+                    ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"]
+                        .map(String::from)
+                        .to_vec(),
+                )
+                .bar_series(
+                    BarSeries::new("Visits, %", vec![62.0, 71.0, 58.0, 80.0, 76.0, 40.0, 35.0])
+                        .color(Color::from_hex("#5470c6")),
+                )
+                .line_series(
+                    BarLineSeries::new(
+                        "Conversion, %",
+                        vec![
+                            Some(88.0),
+                            Some(91.0),
+                            Some(84.0),
+                            None,
+                            Some(79.0),
+                            Some(66.0),
+                            Some(100.0),
+                        ],
+                    )
+                    .color(Color::from_hex("#3ba272"))
+                    .smooth(true)
+                    .point_size(3.5),
+                )
+                .y_axis(
+                    AxisConfig::new()
+                        .min(0.0)
+                        .max(100.0)
+                        .format(|v| format!("{v:.0}%")),
+                )
+                .legend(LegendPosition::Bottom)
+                .bar_radius(4.0)
+                .animate(true)
+                .size(700.0, 400.0)
+                .class("bar-chart"),
+        )
 }
 
 // ─── 1. Basic Vertical Bars ────────────────────────────────────────────────

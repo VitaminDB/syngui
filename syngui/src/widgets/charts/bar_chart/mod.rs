@@ -1,13 +1,15 @@
 mod element;
 
 use super::types::{
-    AxisConfig, BarMode, BarOrientation, BarSeries, LegendConfig, LegendPosition, TooltipConfig,
+    AxisConfig, BarLineSeries, BarMode, BarOrientation, BarSeries, LegendConfig, LegendPosition,
+    TooltipConfig,
 };
 use crate::mss::Dimension;
 
 pub struct BarChart {
     categories: Vec<String>,
     bar_series: Vec<BarSeries>,
+    line_series: Vec<BarLineSeries>,
     mode: BarMode,
     orientation: BarOrientation,
     x_axis: AxisConfig,
@@ -30,6 +32,7 @@ impl BarChart {
         Self {
             categories: Vec::new(),
             bar_series: Vec::new(),
+            line_series: Vec::new(),
             mode: BarMode::Grouped,
             orientation: BarOrientation::Vertical,
             x_axis: AxisConfig::default(),
@@ -60,6 +63,13 @@ impl BarChart {
 
     pub fn bar_series(mut self, series: BarSeries) -> Self {
         self.bar_series.push(series);
+        self
+    }
+
+    /// Линия поверх столбцов на той же шкале значений: по точке на
+    /// категорию, в центре её слота. Пропуск (`None`) разрывает линию.
+    pub fn line_series(mut self, series: BarLineSeries) -> Self {
+        self.line_series.push(series);
         self
     }
 

@@ -18,69 +18,19 @@ use super::super::animation::ChartAnimationState;
 use super::super::math::{compute_ticks, format_tick_value, LinearScale};
 use super::super::render::axis::{estimate_y_axis_width, render_x_axis, render_y_axis, AxisColors};
 use super::super::render::legend::{legend_height, render_legend_items};
+use super::super::render::series::{render_line_gpu, render_points};
 use super::super::render::tooltip::TooltipColors;
 use super::super::types::{
-    palette_color, AxisConfig, BarMode, BarOrientation, BarSeries, ChartLayout, LegendConfig,
-    LegendPosition, TooltipConfig,
+    palette_color, AxisConfig, BarLineSeries, BarMode, BarOrientation, BarSeries, ChartLayout,
+    LegendConfig, LegendPosition, TooltipConfig,
 };
+
+/// Сколько пикселей вокруг точки линии ещё считается попаданием курсора.
+const POINT_HIT_SLOP: f32 = 6.0;
 
 impl Widget for BarChart {
     fn create_element(&self) -> Box<dyn Element> {
-        let num_series = self.bar_series.len();
-        let mut anim = ChartAnimationState::default();
-        anim.ensure_series_count(num_series);
-        if self.animate {
-            anim.start_appear();
-        } else {
-            anim.appear_progress = 1.0;
-            anim.appear_eased = 1.0;
-            anim.appear_started = true;
-        }
-
-        let resolved_colors: Vec<Color> = self
-            .bar_series
-            .iter()
-            .enumerate()
-            .map(|(i, s)| s.color.unwrap_or_else(|| palette_color(i)))
-            .collect();
-
-        Box::new(BarChartElement {
-            id: ElementId::new(),
-            categories: self.categories.clone(),
-            bar_series: self.bar_series.clone(),
-            mode: self.mode,
-            orientation: self.orientation,
-            x_axis: self.x_axis.clone(),
-            y_axis: self.y_axis.clone(),
-            legend_config: self.legend.clone(),
-            tooltip_config: self.tooltip,
-            animate_enabled: self.animate,
-            show_value_labels: self.show_value_labels,
-            bar_width: self.bar_width,
-            bar_gap: self.bar_gap,
-            bar_border_radius: self.bar_border_radius,
-            width: self.width,
-            height: self.height,
-            title: self.title.clone(),
-            bounds: Rect::zero(),
-            layout: ChartLayout::default(),
-            value_scale: LinearScale::new((0.0, 1.0), (100.0, 0.0)),
-            resolved_colors,
-            bar_rects: Vec::new(),
-            hovered_bar: None,
-            mouse_pos: None,
-            anim,
-            legend_rects: Vec::new(),
-            classes: self.classes.clone(),
-            dirty_flags: DirtyFlags::LAYOUT | DirtyFlags::RENDER,
-            mss: MssFields::new(),
-            mss_grid_color: None,
-            mss_axis_color: None,
-            mss_axis_font_size: None,
-            mss_title_font_size: None,
-            mss_tooltip_bg: None,
-            text_measure: None,
-        })
+        Box::new(BarChartElement::from_widget(self))
     }
 
     fn can_update(&self, other: &dyn Any) -> bool {
@@ -101,11 +51,20 @@ impl Widget for BarChart {
     }
 }
 
+/// Что сейчас под курсором: столбец `(серия, категория)` или точка линии
+/// `(линия, категория)`.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum Hover {
+    Bar(usize, usize),
+    Line(usize, usize),
+}
+
 struct BarChartElement {
     id: ElementId,
 
     categories: Vec<String>,
     bar_series: Vec<BarSeries>,
+    line_series: Vec<BarLineSeries>,
     mode: BarMode,
     orientation: BarOrientation,
     x_axis: AxisConfig,
@@ -125,9 +84,12 @@ struct BarChartElement {
     layout: ChartLayout,
     value_scale: LinearScale,
     resolved_colors: Vec<Color>,
+    line_colors: Vec<Color>,
 
     bar_rects: Vec<Vec<Rect>>,
-    hovered_bar: Option<(usize, usize)>,
+    /// Точки линий относительно начала области графика; `None` — пропуск.
+    line_points: Vec<Vec<Option<(f32, f32)>>>,
+    hovered: Option<Hover>,
 
     mouse_pos: Option<Point>,
 
@@ -149,6 +111,61 @@ struct BarChartElement {
 }
 
 impl BarChartElement {
+    fn from_widget(w: &BarChart) -> Self {
+        let mut anim = ChartAnimationState::default();
+        anim.ensure_series_count(w.bar_series.len() + w.line_series.len());
+        if w.animate {
+            anim.start_appear();
+        } else {
+            anim.appear_progress = 1.0;
+            anim.appear_eased = 1.0;
+            anim.appear_started = true;
+        }
+
+        let mut element = Self {
+            id: ElementId::new(),
+            categories: w.categories.clone(),
+            bar_series: w.bar_series.clone(),
+            line_series: w.line_series.clone(),
+            mode: w.mode,
+            orientation: w.orientation,
+            x_axis: w.x_axis.clone(),
+            y_axis: w.y_axis.clone(),
+            legend_config: w.legend.clone(),
+            tooltip_config: w.tooltip,
+            animate_enabled: w.animate,
+            show_value_labels: w.show_value_labels,
+            bar_width: w.bar_width,
+            bar_gap: w.bar_gap,
+            bar_border_radius: w.bar_border_radius,
+            width: w.width,
+            height: w.height,
+            title: w.title.clone(),
+            bounds: Rect::zero(),
+            layout: ChartLayout::default(),
+            value_scale: LinearScale::new((0.0, 1.0), (100.0, 0.0)),
+            resolved_colors: Vec::new(),
+            line_colors: Vec::new(),
+            bar_rects: Vec::new(),
+            line_points: Vec::new(),
+            hovered: None,
+            mouse_pos: None,
+            anim,
+            legend_rects: Vec::new(),
+            classes: w.classes.clone(),
+            dirty_flags: DirtyFlags::LAYOUT | DirtyFlags::RENDER,
+            mss: MssFields::new(),
+            mss_grid_color: None,
+            mss_axis_color: None,
+            mss_axis_font_size: None,
+            mss_title_font_size: None,
+            mss_tooltip_bg: None,
+            text_measure: None,
+        };
+        element.resolve_colors();
+        element
+    }
+
     fn resolve_colors(&mut self) {
         self.resolved_colors = self
             .bar_series
@@ -156,11 +173,31 @@ impl BarChartElement {
             .enumerate()
             .map(|(i, s)| s.color.unwrap_or_else(|| palette_color(i)))
             .collect();
+        let offset = self.bar_series.len();
+        self.line_colors = self
+            .line_series
+            .iter()
+            .enumerate()
+            .map(|(i, s)| s.style.color.unwrap_or_else(|| palette_color(offset + i)))
+            .collect();
+    }
+
+    /// Индекс линии в общем списке серий: сначала столбцы, затем линии.
+    /// По нему живут видимость серии, анимация и легенда.
+    fn line_series_index(&self, line: usize) -> usize {
+        self.bar_series.len() + line
+    }
+
+    fn value_axis(&self) -> &AxisConfig {
+        match self.orientation {
+            BarOrientation::Vertical => &self.y_axis,
+            BarOrientation::Horizontal => &self.x_axis,
+        }
     }
 
     fn compute_value_range(&self) -> (f64, f64) {
         let num_categories = self.categories.len();
-        if num_categories == 0 || self.bar_series.is_empty() {
+        if num_categories == 0 || (self.bar_series.is_empty() && self.line_series.is_empty()) {
             return (0.0, 1.0);
         }
 
@@ -197,6 +234,16 @@ impl BarChartElement {
                     value_max = value_max.max(pos_sum);
                     value_min = value_min.min(neg_sum);
                 }
+            }
+        }
+
+        for (li, series) in self.line_series.iter().enumerate() {
+            if !self.anim.is_series_visible(self.line_series_index(li)) {
+                continue;
+            }
+            for &val in series.data.iter().flatten() {
+                value_min = value_min.min(val);
+                value_max = value_max.max(val);
             }
         }
 
@@ -246,12 +293,17 @@ impl BarChartElement {
 
         let (value_min, value_max) = self.compute_value_range();
 
-        let value_min = self.y_axis.min.unwrap_or(value_min);
-        let value_max = self.y_axis.max.unwrap_or(value_max);
+        let value_min = self.value_axis().min.unwrap_or(value_min);
+        let value_max = self.value_axis().max.unwrap_or(value_max);
+
+        let x_axis_h = if self.x_axis.show_labels {
+            axis_font_size + 8.0
+        } else {
+            0.0
+        };
 
         match self.orientation {
             BarOrientation::Vertical => {
-                let x_axis_h = axis_font_size + 8.0;
                 let y_axis_w = estimate_y_axis_width(
                     &self.y_axis,
                     value_min,
@@ -297,20 +349,22 @@ impl BarChartElement {
                 self.compute_bar_rects_vertical();
             }
             BarOrientation::Horizontal => {
-                let x_axis_h = axis_font_size + 8.0;
-                let cat_axis_w = self
-                    .categories
-                    .iter()
-                    .map(|c| {
-                        super::super::render::estimate_text_width(
-                            c,
-                            axis_font_size,
-                            self.text_measure.as_ref(),
-                        )
-                    })
-                    .fold(0.0_f32, f32::max)
-                    .max(20.0)
-                    + 8.0;
+                let cat_axis_w = if self.y_axis.show_labels {
+                    self.categories
+                        .iter()
+                        .map(|c| {
+                            super::super::render::estimate_text_width(
+                                c,
+                                axis_font_size,
+                                self.text_measure.as_ref(),
+                            )
+                        })
+                        .fold(0.0_f32, f32::max)
+                        .max(20.0)
+                        + 8.0
+                } else {
+                    0.0
+                };
 
                 let plot_x = inner_x + cat_axis_w;
                 let plot_y = inner_y + title_h + legend_top;
@@ -349,6 +403,8 @@ impl BarChartElement {
                 self.compute_bar_rects_horizontal();
             }
         }
+
+        self.compute_line_points();
     }
 
     fn compute_bar_rects_vertical(&mut self) {
@@ -534,21 +590,52 @@ impl BarChartElement {
         }
     }
 
+    /// Точка линии стоит в центре слота своей категории — там же, где
+    /// центр группы столбцов, — а по оси значений идёт по общей шкале.
+    fn compute_line_points(&mut self) {
+        let plot = self.layout.plot_rect;
+        let num_categories = self.categories.len();
+        let slot = match self.orientation {
+            BarOrientation::Vertical => plot.size.width,
+            BarOrientation::Horizontal => plot.size.height,
+        } / num_categories.max(1) as f32;
+
+        let points: Vec<Vec<Option<(f32, f32)>>> = self
+            .line_series
+            .iter()
+            .map(|series| {
+                (0..num_categories)
+                    .map(|ci| {
+                        series.data.get(ci).copied().flatten().map(|val| {
+                            let along = slot * (ci as f32 + 0.5);
+                            let value = self.value_scale.map(val);
+                            match self.orientation {
+                                BarOrientation::Vertical => (along, value),
+                                BarOrientation::Horizontal => (value, along),
+                            }
+                        })
+                    })
+                    .collect()
+            })
+            .collect();
+        self.line_points = points;
+    }
+
     fn axis_colors(&self) -> AxisColors {
         let default = AxisColors::default();
         AxisColors {
             grid_color: self
                 .mss_grid_color
-                .or(self.mss.color.map(|c| c.with_alpha(0.15)))
+                .or(self.mss.color.map(|c| c.multiply_alpha(0.15)))
                 .unwrap_or(default.grid_color),
             axis_color: self
                 .mss_axis_color
-                .or(self.mss.color.map(|c| c.with_alpha(0.4)))
+                .or(self.mss.color.map(|c| c.multiply_alpha(0.4)))
                 .unwrap_or(default.axis_color),
             label_color: self
                 .mss
                 .color
-                .map(|c| c.with_alpha(0.6))
+                .map(|c| c.multiply_alpha(0.6))
                 .unwrap_or(default.label_color),
             title_color: self.mss.color.unwrap_or(default.title_color),
             axis_font_size: self.mss_axis_font_size.unwrap_or(default.axis_font_size),
@@ -580,29 +667,107 @@ impl BarChartElement {
         None
     }
 
-    fn render_bar_tooltip(&self, list: &mut DisplayList, mouse: Point, si: usize, ci: usize) {
+    fn hit_test_line(&self, pos: Point) -> Option<(usize, usize)> {
+        let origin = self.layout.plot_rect.origin;
+        let mut best: Option<((usize, usize), f32)> = None;
+        for (li, points) in self.line_points.iter().enumerate() {
+            if !self.anim.is_series_visible(self.line_series_index(li)) {
+                continue;
+            }
+            let reach = self.line_series[li].style.point_size + POINT_HIT_SLOP;
+            for (ci, point) in points.iter().enumerate() {
+                let Some((x, y)) = *point else {
+                    continue;
+                };
+                let distance =
+                    ((origin.x + x - pos.x).powi(2) + (origin.y + y - pos.y).powi(2)).sqrt();
+                if distance <= reach && best.map_or(true, |(_, d)| distance < d) {
+                    best = Some(((li, ci), distance));
+                }
+            }
+        }
+        best.map(|(hit, _)| hit)
+    }
+
+    /// Точка линии лежит поверх столбцов, поэтому и под курсором она первая.
+    fn hit_test(&self, pos: Point) -> Option<Hover> {
+        self.hit_test_line(pos)
+            .map(|(li, ci)| Hover::Line(li, ci))
+            .or_else(|| self.hit_test_bar(pos).map(|(si, ci)| Hover::Bar(si, ci)))
+    }
+
+    fn hover_key(&self, hover: Hover) -> (usize, usize) {
+        match hover {
+            Hover::Bar(si, ci) => (si, ci),
+            Hover::Line(li, ci) => (self.line_series_index(li), ci),
+        }
+    }
+
+    fn format_value(&self, value: f64) -> String {
+        match self.value_axis().format_fn {
+            Some(ref fmt) => fmt(value),
+            None => format_tick_value(value),
+        }
+    }
+
+    fn render_lines(&self, list: &mut DisplayList) {
+        let plot = self.layout.plot_rect;
+        let appear = self.anim.appear_eased;
+        for (li, series) in self.line_series.iter().enumerate() {
+            let opacity = self.anim.series_opacity(self.line_series_index(li));
+            if opacity < 0.01 {
+                continue;
+            }
+            let color = self.line_colors[li].multiply_alpha(opacity);
+            let hovered_category = match self.hovered {
+                Some(Hover::Line(hl, ci)) if hl == li => Some(ci),
+                _ => None,
+            };
+            let points = self.line_points.get(li).map(Vec::as_slice).unwrap_or(&[]);
+            for run in line_runs(points) {
+                let screen: Vec<(f32, f32)> = run.iter().map(|&(_, p)| p).collect();
+                render_line_gpu(
+                    list,
+                    &screen,
+                    &series.style,
+                    color,
+                    appear,
+                    plot.origin,
+                    series.style.smooth,
+                );
+                let hover_idx =
+                    hovered_category.and_then(|ci| run.iter().position(|&(c, _)| c == ci));
+                render_points(
+                    list,
+                    &screen,
+                    &series.style,
+                    color,
+                    hover_idx,
+                    self.anim.hover_t,
+                    appear,
+                    plot.origin,
+                );
+            }
+        }
+    }
+
+    fn render_value_tooltip(
+        &self,
+        list: &mut DisplayList,
+        mouse: Point,
+        category: &str,
+        series_name: &str,
+        value: f64,
+        color: Color,
+    ) {
         let tc = self.tooltip_colors();
         let opacity = self.anim.tooltip_opacity;
         if opacity < 0.01 {
             return;
         }
 
-        let cat_name = self.categories.get(ci).map(|s| s.as_str()).unwrap_or("?");
-        let series_name = self
-            .bar_series
-            .get(si)
-            .map(|s| s.name.as_str())
-            .unwrap_or("?");
-        let value = self
-            .bar_series
-            .get(si)
-            .and_then(|s| s.data.get(ci))
-            .copied()
-            .unwrap_or(0.0);
-        let value_str = format_tick_value(value);
-
-        let line1 = cat_name.to_string();
-        let line2 = format!("{}: {}", series_name, value_str);
+        let line1 = category.to_string();
+        let line2 = format!("{}: {}", series_name, self.format_value(value));
 
         let line_height = tc.font_size + 4.0;
         let padding = 8.0;
@@ -662,17 +827,67 @@ impl BarChartElement {
             tc.font_size,
         );
 
-        let color = self
-            .resolved_colors
-            .get(si)
-            .copied()
-            .unwrap_or(Color::WHITE);
         let text_rect2 = Rect::new(
             Point::new(x + padding, y + padding + line_height),
             Size::new(max_text_width, line_height),
         );
         list.push_text(&line2, text_rect2, color.with_alpha(opacity), tc.font_size);
     }
+
+    fn render_hover_tooltip(&self, list: &mut DisplayList, mouse: Point, hover: Hover) {
+        let (ci, name, value, color) = match hover {
+            Hover::Bar(si, ci) => {
+                let Some(series) = self.bar_series.get(si) else {
+                    return;
+                };
+                (
+                    ci,
+                    series.name.as_str(),
+                    series.data.get(ci).copied().unwrap_or(0.0),
+                    self.resolved_colors
+                        .get(si)
+                        .copied()
+                        .unwrap_or(Color::WHITE),
+                )
+            }
+            Hover::Line(li, ci) => {
+                let Some(series) = self.line_series.get(li) else {
+                    return;
+                };
+                let Some(value) = series.data.get(ci).copied().flatten() else {
+                    return;
+                };
+                (
+                    ci,
+                    series.name.as_str(),
+                    value,
+                    self.line_colors.get(li).copied().unwrap_or(Color::WHITE),
+                )
+            }
+        };
+        let category = self.categories.get(ci).map(|s| s.as_str()).unwrap_or("?");
+        self.render_value_tooltip(list, mouse, category, name, value, color);
+    }
+}
+
+/// Непрерывные участки линии: пропуск в данных разрывает её.
+fn line_runs(points: &[Option<(f32, f32)>]) -> Vec<Vec<(usize, (f32, f32))>> {
+    let mut runs: Vec<Vec<(usize, (f32, f32))>> = Vec::new();
+    let mut current: Vec<(usize, (f32, f32))> = Vec::new();
+    for (ci, point) in points.iter().enumerate() {
+        match point {
+            Some(p) => current.push((ci, *p)),
+            None => {
+                if !current.is_empty() {
+                    runs.push(std::mem::take(&mut current));
+                }
+            }
+        }
+    }
+    if !current.is_empty() {
+        runs.push(current);
+    }
+    runs
 }
 
 impl Element for BarChartElement {
@@ -680,6 +895,7 @@ impl Element for BarChartElement {
         if let Some(w) = widget.as_any().downcast_ref::<BarChart>() {
             self.categories = w.categories.clone();
             self.bar_series = w.bar_series.clone();
+            self.line_series = w.line_series.clone();
             self.mode = w.mode;
             self.orientation = w.orientation;
             self.x_axis = w.x_axis.clone();
@@ -695,7 +911,8 @@ impl Element for BarChartElement {
             self.height = w.height;
             self.title = w.title.clone();
 
-            self.anim.ensure_series_count(self.bar_series.len());
+            self.anim
+                .ensure_series_count(self.bar_series.len() + self.line_series.len());
             self.resolve_colors();
             self.mark_dirty(DirtyFlags::LAYOUT | DirtyFlags::RENDER);
         }
@@ -768,7 +985,7 @@ impl Element for BarChartElement {
             }
             BarOrientation::Horizontal => {
                 let num_categories = self.categories.len();
-                if num_categories > 0 {
+                if self.y_axis.show_labels && num_categories > 0 {
                     let cat_height = plot.size.height / num_categories as f32;
                     let label_color = axis_colors.label_color;
                     for (i, cat) in self.categories.iter().enumerate() {
@@ -906,7 +1123,7 @@ impl Element for BarChartElement {
                     }
                 };
 
-                let is_hovered = self.hovered_bar == Some((si, ci));
+                let is_hovered = self.hovered == Some(Hover::Bar(si, ci));
                 let bar_color = if is_hovered {
                     color.lighten(0.15)
                 } else {
@@ -979,10 +1196,14 @@ impl Element for BarChartElement {
 
         list.pop_clip();
 
+        // Линии рисуются без обрезки по области графика: точка на границе
+        // шкалы (0 % или 100 %) иначе теряет половину кружка.
+        self.render_lines(list);
+
         match self.orientation {
             BarOrientation::Vertical => {
                 let num_cats = self.categories.len();
-                if num_cats > 0 {
+                if self.x_axis.show_labels && num_cats > 0 {
                     let cat_width = plot.size.width / num_cats as f32;
                     let label_color = axis_colors.label_color;
                     for (i, cat) in self.categories.iter().enumerate() {
@@ -1023,19 +1244,31 @@ impl Element for BarChartElement {
             }
         }
 
-        if self.legend_config.position != LegendPosition::None && self.bar_series.len() > 1 {
+        let series_count = self.bar_series.len() + self.line_series.len();
+        if self.legend_config.position != LegendPosition::None && series_count > 1 {
             let legend_font = 12.0;
             let label_color = self
                 .mss
                 .color
-                .map(|c| c.with_alpha(0.6))
+                .map(|c| c.multiply_alpha(0.6))
                 .unwrap_or(Color::from_hex("#64748b"));
-            let names: Vec<&str> = self.bar_series.iter().map(|s| s.name.as_str()).collect();
+            let names: Vec<&str> = self
+                .bar_series
+                .iter()
+                .map(|s| s.name.as_str())
+                .chain(self.line_series.iter().map(|s| s.name.as_str()))
+                .collect();
+            let colors: Vec<Color> = self
+                .resolved_colors
+                .iter()
+                .chain(self.line_colors.iter())
+                .copied()
+                .collect();
             render_legend_items(
                 list,
                 &self.layout.legend_rect,
                 &names,
-                &self.resolved_colors,
+                &colors,
                 &self.anim.series_visibility,
                 legend_font,
                 label_color,
@@ -1044,8 +1277,8 @@ impl Element for BarChartElement {
         }
 
         if self.tooltip_config.enabled {
-            if let (Some(mouse), Some((si, ci))) = (self.mouse_pos, self.hovered_bar) {
-                self.render_bar_tooltip(list, mouse, si, ci);
+            if let (Some(mouse), Some(hover)) = (self.mouse_pos, self.hovered) {
+                self.render_hover_tooltip(list, mouse, hover);
             }
         }
     }
@@ -1058,8 +1291,9 @@ impl Element for BarChartElement {
         match event {
             Event::MouseMove(pos) => {
                 if !self.bounds.contains(*pos) {
-                    if self.hovered_bar.is_some() {
-                        self.hovered_bar = None;
+                    if self.hovered.is_some() {
+                        self.hovered = None;
+                        self.anim.hover_point = None;
                         self.mouse_pos = None;
                         ctx.request_paint();
                     }
@@ -1068,10 +1302,10 @@ impl Element for BarChartElement {
 
                 self.mouse_pos = Some(*pos);
 
-                let new_hover = self.hit_test_bar(*pos);
-                if new_hover != self.hovered_bar {
-                    self.hovered_bar = new_hover;
-                    self.anim.hover_point = new_hover;
+                let new_hover = self.hit_test(*pos);
+                if new_hover != self.hovered {
+                    self.hovered = new_hover;
+                    self.anim.hover_point = new_hover.map(|hover| self.hover_key(hover));
                     ctx.request_paint();
                 }
 
@@ -1212,8 +1446,9 @@ impl Element for BarChartElement {
             state: crate::a11y::NodeState::default(),
             properties: crate::a11y::NodeProperties {
                 label: Some(format!(
-                    "Bar chart with {} series and {} categories",
+                    "Bar chart with {} bar series, {} line series and {} categories",
                     self.bar_series.len(),
+                    self.line_series.len(),
                     self.categories.len(),
                 )),
                 ..Default::default()
@@ -1234,5 +1469,94 @@ impl StyledElement for BarChartElement {
     fn set_classes(&mut self, classes: Vec<String>) {
         self.classes = classes;
         self.mark_dirty(DirtyFlags::RENDER);
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn laid_out(chart: BarChart) -> BarChartElement {
+        let mut element = BarChartElement::from_widget(&chart);
+        let size = Size::new(400.0, 200.0);
+        element.layout(Constraints {
+            min_width: size.width,
+            max_width: size.width,
+            min_height: size.height,
+            max_height: size.height,
+            containing_block: size,
+        });
+        element
+    }
+
+    fn two_categories() -> BarChart {
+        BarChart::new()
+            .categories(vec!["a".to_string(), "b".to_string()])
+            .bar_series(BarSeries::new("bars", vec![10.0, 20.0]))
+            .animate(false)
+    }
+
+    #[test]
+    fn line_values_extend_the_value_range() {
+        let element = laid_out(
+            two_categories().line_series(BarLineSeries::new("line", vec![Some(50.0), None])),
+        );
+        let (_, max) = element.compute_value_range();
+        assert!(max >= 50.0, "верх шкалы {max} ниже значения линии");
+    }
+
+    #[test]
+    fn line_points_sit_on_category_centers_and_skip_gaps() {
+        let element = laid_out(
+            two_categories().line_series(BarLineSeries::new("line", vec![Some(15.0), None])),
+        );
+        let plot = element.layout.plot_rect;
+        let (x, y) = element.line_points[0][0].expect("точка первой категории");
+        assert!((x - plot.size.width / 4.0).abs() < 1e-3, "x = {x}");
+        assert!((y - element.value_scale.map(15.0)).abs() < 1e-3, "y = {y}");
+        assert!(element.line_points[0][1].is_none());
+    }
+
+    #[test]
+    fn line_point_is_centered_over_its_bar() {
+        let element =
+            laid_out(two_categories().line_series(BarLineSeries::new("line", vec![15.0, 25.0])));
+        let bar = element.bar_rects[0][1];
+        let (x, _) = element.line_points[0][1].expect("точка второй категории");
+        let bar_center = bar.origin.x + bar.size.width / 2.0 - element.layout.plot_rect.origin.x;
+        assert!((x - bar_center).abs() < 1e-3, "{x} против {bar_center}");
+    }
+
+    #[test]
+    fn hidden_axis_labels_give_their_space_to_the_plot() {
+        let shown = laid_out(two_categories());
+        let hidden = laid_out(
+            two_categories()
+                .x_axis(AxisConfig::new().labels(false))
+                .y_axis(AxisConfig::new().labels(false)),
+        );
+        assert!(hidden.layout.plot_rect.size.height > shown.layout.plot_rect.size.height);
+        assert!(hidden.layout.plot_rect.size.width > shown.layout.plot_rect.size.width);
+    }
+
+    #[test]
+    fn hover_prefers_line_point_over_the_bar_beneath() {
+        let element =
+            laid_out(two_categories().line_series(BarLineSeries::new("line", vec![5.0, 25.0])));
+        let origin = element.layout.plot_rect.origin;
+        let (x, y) = element.line_points[0][0].expect("точка первой категории");
+        let hit = element.hit_test(Point::new(origin.x + x, origin.y + y));
+        assert_eq!(hit, Some(Hover::Line(0, 0)));
+    }
+
+    #[test]
+    fn gaps_split_a_line_into_runs() {
+        let runs = line_runs(&[Some((0.0, 1.0)), None, Some((2.0, 3.0)), Some((4.0, 5.0))]);
+        assert_eq!(runs.len(), 2);
+        assert_eq!(runs[0].len(), 1);
+        assert_eq!(
+            runs[1].iter().map(|(ci, _)| *ci).collect::<Vec<_>>(),
+            vec![2, 3]
+        );
     }
 }

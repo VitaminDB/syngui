@@ -177,13 +177,15 @@ impl LineChartElement {
 
         let legend_h = legend::legend_height(self.legend_config.position, legend_font_size);
 
-        let x_axis_h = axis_font_size
-            + 8.0
-            + if self.x_axis.title.is_some() {
-                title_font_size + 4.0
-            } else {
-                0.0
-            };
+        let x_axis_h = (if self.x_axis.show_labels {
+            axis_font_size + 8.0
+        } else {
+            0.0
+        }) + if self.x_axis.title.is_some() {
+            title_font_size + 4.0
+        } else {
+            0.0
+        };
 
         let visible: Vec<bool> = (0..self.series.len())
             .map(|i| self.anim.is_series_visible(i))
@@ -302,16 +304,16 @@ impl LineChartElement {
         axis::AxisColors {
             grid_color: self
                 .mss_grid_color
-                .or(self.mss.color.map(|c| c.with_alpha(0.15)))
+                .or(self.mss.color.map(|c| c.multiply_alpha(0.15)))
                 .unwrap_or(default.grid_color),
             axis_color: self
                 .mss_axis_color
-                .or(self.mss.color.map(|c| c.with_alpha(0.4)))
+                .or(self.mss.color.map(|c| c.multiply_alpha(0.4)))
                 .unwrap_or(default.axis_color),
             label_color: self
                 .mss
                 .color
-                .map(|c| c.with_alpha(0.6))
+                .map(|c| c.multiply_alpha(0.6))
                 .unwrap_or(default.label_color),
             title_color: self.mss.color.unwrap_or(default.title_color),
             axis_font_size: self.mss_axis_font_size.unwrap_or(default.axis_font_size),
@@ -640,7 +642,7 @@ impl Element for LineChartElement {
             let label_color = self
                 .mss
                 .color
-                .map(|c| c.with_alpha(0.6))
+                .map(|c| c.multiply_alpha(0.6))
                 .unwrap_or(Color::from_hex("#64748b"));
             legend::render_legend(
                 list,
@@ -659,7 +661,7 @@ impl Element for LineChartElement {
                 let label_color = self
                     .mss
                     .color
-                    .map(|c| c.with_alpha(0.6))
+                    .map(|c| c.multiply_alpha(0.6))
                     .unwrap_or(Color::from_hex("#64748b"));
                 let font_size = self.mss_legend_font_size.unwrap_or(11.0);
                 series::render_visual_map_legend(

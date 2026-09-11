@@ -213,9 +213,24 @@ impl ElementTree {
 
         let gap_space = gap * gap_participants.saturating_sub(1) as f32;
 
+        // Главный размер колонки для flex-детей. Конечный максимум — как
+        // раньше: колонка занимает его целиком. Если максимум бесконечен
+        // (колонка внутри ScrollView), но снизу её подпирает `min_height`
+        // родителя (Row со Stretch растягивает карточку до соседа) или
+        // собственный `min-height`, свободное место считается до этой
+        // планки — как у flex-контейнера с min-height в CSS.
+        let flex_main = if effective_max_height.is_finite() {
+            Some(effective_max_height)
+        } else {
+            let floor = (constraints.min_height - pad_v)
+                .max(min_h.map_or(0.0, |m| m - pad_v))
+                .max(0.0);
+            (floor > total_fixed_height + gap_space).then_some(floor)
+        };
+
         let total_height;
-        if !expanded_idx.is_empty() && effective_max_height.is_finite() {
-            let remaining = (effective_max_height - total_fixed_height - gap_space).max(0.0);
+        if let (false, Some(flex_main)) = (expanded_idx.is_empty(), flex_main) {
+            let remaining = (flex_main - total_fixed_height - gap_space).max(0.0);
 
             for (cidx, flex) in &expanded_idx {
                 let expanded_height = remaining * flex / total_flex;
@@ -230,7 +245,7 @@ impl ElementTree {
                 max_width = max_width.max(child_size.width);
             }
 
-            total_height = effective_max_height;
+            total_height = flex_main;
         } else {
             for (cidx, _flex) in &expanded_idx {
                 let child_size = self.measure_recursive_by_idx(*cidx, non_expanded_constraints);
@@ -968,7 +983,7 @@ impl ElementTree {
 
         let needs_intrinsic_pass =
             shrink_w && (min_w.is_some() || max_w.is_some() || mss_intrinsic_w || mss_intrinsic_h);
-        let (mut width, mut height, content) = if needs_intrinsic_pass {
+        let (mut width, mut height, mut content) = if needs_intrinsic_pass {
             let child_min_h = if !shrink_h { child_max_h } else { 0.0 };
             let probe_constraints = Constraints {
                 min_width: 0.0,
@@ -1079,6 +1094,29 @@ impl ElementTree {
             constraints.min_height.min(constraints.max_height),
             constraints.max_height,
         );
+
+        // Контейнер вырос сверх содержимого — его растянул родитель
+        // (`min_height` при бесконечном `max_height`, как у Row со Stretch
+        // внутри ScrollView) или поднял собственный `min-height`. Высота
+        // теперь определена, и дети должны её видеть: иначе flex-дети не
+        // получают остаток, а проценты считаются от бесконечности и дают 0.
+        if shrink_h && height.is_finite() && height - pad_v > content.height {
+            let inner_w = (width - pad_h).max(0.0);
+            let inner_h = (height - pad_v).max(0.0);
+            let definite = Constraints {
+                min_width: if shrink_w { 0.0 } else { inner_w },
+                max_width: inner_w,
+                min_height: 0.0,
+                max_height: inner_h,
+                containing_block: Size::new(inner_w, inner_h),
+            };
+            content = Size::zero();
+            for &child_id in children {
+                let cs = self.measure_recursive(child_id, definite);
+                content.width = content.width.max(cs.width);
+                content.height += cs.height;
+            }
+        }
 
         if width != parent_size.width || height != parent_size.height {
             let tight = Constraints {
