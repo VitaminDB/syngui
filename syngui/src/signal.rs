@@ -485,35 +485,45 @@ pub fn mark_all_reactive_dirty() {
     request_redraws(notifiers);
 }
 
+/// Зовётся из `Drop` элементов. На выходе из программы элементы умирают при
+/// разрушении thread-local'ов — в том числе внутри самого `RUNTIME` (дерево
+/// в значениях сигналов и замыканиях эффектов) или после него. Тогда
+/// `RUNTIME.with` паниковал «cannot access a Thread Local Storage value
+/// during or after destruction», а паника в деструкторе TLS — это abort с
+/// core dump на каждом закрытии окна. Убирать в этот момент уже нечего.
 pub fn cleanup_element(element_id: ElementId) {
-    let cleanups: Vec<Box<dyn Fn()>> = RUNTIME.with(|rt| {
-        let mut rt = rt.borrow_mut();
-        rt.dirty_elements.remove(&element_id);
-        for slot in &mut rt.slots {
-            slot.subscribers.remove(&element_id);
-        }
-        let mut taken: Vec<Box<dyn Fn()>> = Vec::new();
-        if let Some(effect_ids) = rt.element_effects.remove(&element_id) {
-            for eid in effect_ids {
-                let idx = eid.0 as usize;
-                if idx < rt.effects.len() && rt.effects[idx].active {
-                    if let Some(cleanup) = rt.effects[idx].cleanup.take() {
-                        taken.push(cleanup);
-                    }
-                    rt.effects[idx].active = false;
-                    let deps: Vec<SignalId> = rt.effects[idx].dependencies.drain().collect();
-                    for sig_id in deps {
-                        let sig_idx = sig_id.0 as usize;
-                        if sig_idx < rt.slots.len() {
-                            rt.slots[sig_idx].effect_subscribers.remove(&eid);
+    let cleanups: Vec<Box<dyn Fn()>> = RUNTIME
+        .try_with(|rt| {
+            let Ok(mut rt) = rt.try_borrow_mut() else {
+                return Vec::new();
+            };
+            rt.dirty_elements.remove(&element_id);
+            for slot in &mut rt.slots {
+                slot.subscribers.remove(&element_id);
+            }
+            let mut taken: Vec<Box<dyn Fn()>> = Vec::new();
+            if let Some(effect_ids) = rt.element_effects.remove(&element_id) {
+                for eid in effect_ids {
+                    let idx = eid.0 as usize;
+                    if idx < rt.effects.len() && rt.effects[idx].active {
+                        if let Some(cleanup) = rt.effects[idx].cleanup.take() {
+                            taken.push(cleanup);
                         }
+                        rt.effects[idx].active = false;
+                        let deps: Vec<SignalId> = rt.effects[idx].dependencies.drain().collect();
+                        for sig_id in deps {
+                            let sig_idx = sig_id.0 as usize;
+                            if sig_idx < rt.slots.len() {
+                                rt.slots[sig_idx].effect_subscribers.remove(&eid);
+                            }
+                        }
+                        rt.pending_effect_ids.remove(&eid);
                     }
-                    rt.pending_effect_ids.remove(&eid);
                 }
             }
-        }
-        taken
-    });
+            taken
+        })
+        .unwrap_or_default();
     for cleanup in cleanups {
         cleanup();
     }

@@ -7,6 +7,50 @@ use syngui::prelude::*;
 use syngui::signal::{begin_element_scope, cleanup_element, end_element_scope};
 use syngui::widget::ElementId;
 
+/// Элемент, умирающий при разрушении thread-local'ов после `RUNTIME` (так
+/// бывает на выходе из приложения), не должен паниковать в
+/// `cleanup_element`: паника в деструкторе TLS — abort процесса. Сценарий
+/// гоняется в дочернем процессе, чтобы регресс не уронил весь тестовый бинарь.
+#[test]
+fn cleanup_element_during_tls_teardown_does_not_abort() {
+    const CHILD: &str = "SYNGUI_TLS_TEARDOWN_CHILD";
+    if std::env::var_os(CHILD).is_some() {
+        struct CleanupOnDrop(ElementId);
+        impl Drop for CleanupOnDrop {
+            fn drop(&mut self) {
+                cleanup_element(self.0);
+            }
+        }
+        thread_local! {
+            static EARLY: std::cell::RefCell<Option<CleanupOnDrop>> =
+                const { std::cell::RefCell::new(None) };
+        }
+        std::thread::spawn(|| {
+            // EARLY регистрируется раньше RUNTIME и разрушается после него.
+            EARLY.with(|e| *e.borrow_mut() = Some(CleanupOnDrop(ElementId(7))));
+            let s = use_signal(0_u32);
+            s.set(1);
+        })
+        .join()
+        .expect("teardown thread");
+        return;
+    }
+    let out = std::process::Command::new(std::env::current_exe().unwrap())
+        .args([
+            "cleanup_element_during_tls_teardown_does_not_abort",
+            "--exact",
+            "--test-threads=1",
+        ])
+        .env(CHILD, "1")
+        .output()
+        .expect("spawn child test");
+    assert!(
+        out.status.success(),
+        "TLS teardown aborted the process: {}",
+        String::from_utf8_lossy(&out.stderr)
+    );
+}
+
 #[test]
 fn dispose_cleanup_can_mutate_signal_no_panic() {
     let flag = use_signal(true);
