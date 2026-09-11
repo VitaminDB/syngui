@@ -12,7 +12,10 @@ pub const DOUBLE_CLICK_INTERVAL: Duration = Duration::from_millis(500);
 
 #[derive(Clone, Debug)]
 pub enum Event {
-    Resized { width: u32, height: u32 },
+    Resized {
+        width: u32,
+        height: u32,
+    },
     CloseRequested,
     MouseMove(Point),
     MouseDown {
@@ -31,9 +34,18 @@ pub enum Event {
     KeyDown(Key),
     KeyUp(Key),
     CharInput(char),
-    TouchStart { id: u64, position: Point },
-    TouchMove { id: u64, position: Point },
-    TouchEnd { id: u64, position: Point },
+    TouchStart {
+        id: u64,
+        position: Point,
+    },
+    TouchMove {
+        id: u64,
+        position: Point,
+    },
+    TouchEnd {
+        id: u64,
+        position: Point,
+    },
     DoubleClick {
         button: MouseButton,
         position: Point,
@@ -42,13 +54,30 @@ pub enum Event {
     FocusLost,
     BackPressed,
     Custom(String),
-    DragStart { position: Point, data: DragData },
-    DragMove { position: Point, data: DragData },
-    DragEnter { position: Point, data: DragData },
+    DragStart {
+        position: Point,
+        data: DragData,
+    },
+    DragMove {
+        position: Point,
+        data: DragData,
+    },
+    DragEnter {
+        position: Point,
+        data: DragData,
+    },
     DragLeave,
-    Drop { position: Point, data: DragData },
-    DragEnd { cancelled: bool },
-    ImePreedit { text: String, cursor: Option<(usize, usize)> },
+    Drop {
+        position: Point,
+        data: DragData,
+    },
+    DragEnd {
+        cancelled: bool,
+    },
+    ImePreedit {
+        text: String,
+        cursor: Option<(usize, usize)>,
+    },
     ImeCommit(String),
     ImeEnabled,
     ImeDisabled,
@@ -223,9 +252,7 @@ impl DragData {
 
     pub fn external_file(path: &std::path::Path) -> Self {
         let payload = path.to_string_lossy().into_owned();
-        let label = path
-            .file_name()
-            .map(|n| n.to_string_lossy().into_owned());
+        let label = path.file_name().map(|n| n.to_string_lossy().into_owned());
         Self {
             drag_type: Self::TYPE_FILE.to_string(),
             payload,
@@ -651,8 +678,7 @@ mod tests {
 
     #[test]
     fn with_inverse_transform_mouse_move() {
-        let e = Event::MouseMove(pt(20.0, 40.0))
-            .with_inverse_transform(pt(10.0, 10.0), 2.0);
+        let e = Event::MouseMove(pt(20.0, 40.0)).with_inverse_transform(pt(10.0, 10.0), 2.0);
         assert_eq!(e.position(), Some(pt(15.0, 25.0)));
     }
 
@@ -783,9 +809,7 @@ mod tests {
         } else {
             panic!("CharInput should pass through");
         }
-        if let Event::FocusGained =
-            Event::FocusGained.with_inverse_transform(pt(1.0, 1.0), 2.0)
-        {
+        if let Event::FocusGained = Event::FocusGained.with_inverse_transform(pt(1.0, 1.0), 2.0) {
         } else {
             panic!("FocusGained should pass through");
         }

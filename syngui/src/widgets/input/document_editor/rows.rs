@@ -76,7 +76,11 @@ macro_rules! leaf_widget_common {
 /// Ширина листа: доступная ширина, ограниченная колонкой контента
 /// (`max_content_width`). Корневой Column центрирует ограниченные листья.
 fn clamp_width(constraints: &Constraints, style: &DocStyle) -> f32 {
-    let avail = if constraints.max_width.is_finite() { constraints.max_width } else { 600.0 };
+    let avail = if constraints.max_width.is_finite() {
+        constraints.max_width
+    } else {
+        600.0
+    };
     match style.max_content_width {
         Some(cap) => avail.min(cap),
         None => avail,
@@ -206,7 +210,9 @@ impl TextRowElement {
     /// Публикует строки в реестр геометрии (origin обновляет set_position).
     fn publish_geom(&self) {
         let Some(geom) = &self.geom else { return };
-        let Some((_, layout)) = &self.cache else { return };
+        let Some((_, layout)) = &self.cache else {
+            return;
+        };
         // Префиксные суммы байтовых длин ранов → абсолютные смещения.
         let mut prefix = Vec::with_capacity(self.text.0.len() + 1);
         let mut acc = 0usize;
@@ -328,7 +334,9 @@ impl TextRowElement {
 
 impl Element for TextRowElement {
     fn update(&mut self, widget: &dyn Widget, ctx: &mut UpdateContext) {
-        let Some(w) = widget.as_any().downcast_ref::<TextRow>() else { return };
+        let Some(w) = widget.as_any().downcast_ref::<TextRow>() else {
+            return;
+        };
         let changed = self.text != w.text
             || self.font_size != w.font_size
             || self.bold != w.bold
@@ -370,7 +378,9 @@ impl Element for TextRowElement {
     }
 
     fn build_display_list(&self, list: &mut DisplayList, _clip: Rect) {
-        let Some((_, layout)) = &self.cache else { return };
+        let Some((_, layout)) = &self.cache else {
+            return;
+        };
         self.draw_decor(list);
         let s = &self.style;
         let o = self.bounds.origin;
@@ -399,7 +409,11 @@ impl Element for TextRowElement {
                             .as_deref()
                             .map(|l| !l.link_exists(target))
                             .unwrap_or(false);
-                        if missing { s.link_missing_color } else { s.link_color }
+                        if missing {
+                            s.link_missing_color
+                        } else {
+                            s.link_color
+                        }
                     }
                     (Some(_), _) => s.link_color,
                     (None, true) => s.code_color,
@@ -410,7 +424,10 @@ impl Element for TextRowElement {
                 if seg.style.code {
                     let bg = Rect::new(
                         Point::new(x - s.code_padding_h, y - 1.0),
-                        Size::new(seg.width + s.code_padding_h * 2.0, seg.style.font_size + 4.0),
+                        Size::new(
+                            seg.width + s.code_padding_h * 2.0,
+                            seg.style.font_size + 4.0,
+                        ),
                     );
                     let r = s.code_radius;
                     list.push_rect(bg, s.code_bg, [r, r, r, r]);
@@ -425,7 +442,10 @@ impl Element for TextRowElement {
                     TextDecoration::None,
                     if seg.style.bold { 700 } else { 400 },
                 );
-                if matches!(seg.style.link, Some(LinkTarget::Url(_) | LinkTarget::Wiki { .. })) {
+                if matches!(
+                    seg.style.link,
+                    Some(LinkTarget::Url(_) | LinkTarget::Wiki { .. })
+                ) {
                     let ul = Rect::new(
                         Point::new(x, y + seg.style.font_size + 1.0),
                         Size::new(seg.width, 1.0),
@@ -537,7 +557,8 @@ impl CodeBlockElement {
                     }
                     w += cw;
                 }
-                self.display_lines.push((offset + start, offset + line.len()));
+                self.display_lines
+                    .push((offset + start, offset + line.len()));
             }
             offset += line.len() + 1;
         }
@@ -562,10 +583,10 @@ impl CodeBlockElement {
 
 impl Element for CodeBlockElement {
     fn update(&mut self, widget: &dyn Widget, ctx: &mut UpdateContext) {
-        let Some(w) = widget.as_any().downcast_ref::<CodeBlockView>() else { return };
-        if self.code != w.code
-            || self.language != w.language
-            || !Arc::ptr_eq(&self.style, &w.style)
+        let Some(w) = widget.as_any().downcast_ref::<CodeBlockView>() else {
+            return;
+        };
+        if self.code != w.code || self.language != w.language || !Arc::ptr_eq(&self.style, &w.style)
         {
             self.code = w.code.clone();
             self.language = w.language.clone();
@@ -769,7 +790,9 @@ pub struct MediaCardElement {
 
 impl Element for MediaCardElement {
     fn update(&mut self, widget: &dyn Widget, ctx: &mut UpdateContext) {
-        let Some(w) = widget.as_any().downcast_ref::<MediaCard>() else { return };
+        let Some(w) = widget.as_any().downcast_ref::<MediaCard>() else {
+            return;
+        };
         if self.title != w.title || self.subtitle != w.subtitle || self.glyph != w.glyph {
             self.title = w.title.clone();
             self.subtitle = w.subtitle.clone();
@@ -822,7 +845,10 @@ impl Element for MediaCardElement {
         let text_w = (self.bounds.size.width - h - 16.0).max(20.0);
         list.push_text_styled_singleline(
             &self.title,
-            Rect::new(Point::new(text_x, o.y + h / 2.0 - s.text_size - 2.0), Size::new(text_w, s.text_size * 1.4)),
+            Rect::new(
+                Point::new(text_x, o.y + h / 2.0 - s.text_size - 2.0),
+                Size::new(text_w, s.text_size * 1.4),
+            ),
             s.text_color,
             s.text_size,
             TextAlign::DEFAULT,
@@ -832,7 +858,10 @@ impl Element for MediaCardElement {
         );
         list.push_text_styled_singleline(
             &self.subtitle,
-            Rect::new(Point::new(text_x, o.y + h / 2.0 + 3.0), Size::new(text_w, s.text_size * 1.3)),
+            Rect::new(
+                Point::new(text_x, o.y + h / 2.0 + 3.0),
+                Size::new(text_w, s.text_size * 1.3),
+            ),
             s.muted_color,
             (s.text_size - 2.0).max(10.0),
             TextAlign::DEFAULT,
@@ -886,7 +915,9 @@ pub struct EmbedCardElement {
 
 impl Element for EmbedCardElement {
     fn update(&mut self, widget: &dyn Widget, ctx: &mut UpdateContext) {
-        let Some(w) = widget.as_any().downcast_ref::<EmbedCard>() else { return };
+        let Some(w) = widget.as_any().downcast_ref::<EmbedCard>() else {
+            return;
+        };
         if self.target != w.target {
             self.target = w.target.clone();
             self.mark_dirty(DirtyFlags::RENDER);
@@ -920,7 +951,10 @@ impl Element for EmbedCardElement {
         list.push_text_styled_singleline(
             &label,
             Rect::new(
-                Point::new(b.origin.x + 12.0, b.origin.y + (b.size.height - s.text_size * 1.3) / 2.0),
+                Point::new(
+                    b.origin.x + 12.0,
+                    b.origin.y + (b.size.height - s.text_size * 1.3) / 2.0,
+                ),
                 Size::new(b.size.width - 24.0, s.text_size * 1.4),
             ),
             s.link_color,
@@ -1029,7 +1063,9 @@ impl TableBlockElement {
 
 impl Element for TableBlockElement {
     fn update(&mut self, widget: &dyn Widget, ctx: &mut UpdateContext) {
-        let Some(w) = widget.as_any().downcast_ref::<TableBlockView>() else { return };
+        let Some(w) = widget.as_any().downcast_ref::<TableBlockView>() else {
+            return;
+        };
         if self.headers != w.headers || self.rows != w.rows {
             self.headers = w.headers.clone();
             self.rows = w.rows.clone();

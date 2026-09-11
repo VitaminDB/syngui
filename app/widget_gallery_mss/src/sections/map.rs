@@ -1,8 +1,8 @@
-use syngui::prelude::*;
-use syngui::widgets::*;
-use super::{section_card, section_title, label};
+use super::{label, section_card, section_title};
 use std::sync::{Arc, OnceLock};
 use syngui::core::sync::Mutex;
+use syngui::prelude::*;
+use syngui::widgets::*;
 
 /// Shared provider state — polled by MapViewElement::animate()
 static PROVIDER_SOURCE: OnceLock<Arc<Mutex<TileProvider>>> = OnceLock::new();
@@ -45,8 +45,8 @@ pub fn build_map_section() -> impl Widget {
                             move |value| {
                                 *source.lock().unwrap() = get_provider(value);
                             }
-                        })
-                    )
+                        }),
+                    ),
             )
             .child(
                 MapView::new()
@@ -76,7 +76,7 @@ pub fn build_map_section() -> impl Widget {
                             .label("Petropavlovsk")
                             .color(Color::from_hex("#8E24AA"))
                             .size(12.0),
-                    ])
-            )
+                    ]),
+            ),
     )
 }

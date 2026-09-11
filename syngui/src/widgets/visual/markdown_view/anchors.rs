@@ -1,4 +1,4 @@
-use super::model::{MdBlock, MdInline, MdListItem, MdTaskItem, MdTableCell};
+use super::model::{MdBlock, MdInline, MdListItem, MdTableCell, MdTaskItem};
 
 pub fn slugify(text: &str) -> String {
     let mut out = String::with_capacity(text.len());
@@ -108,7 +108,10 @@ pub fn find_autolinks(text: &str) -> Vec<(usize, usize, String)> {
         }
         while j > start + scheme_len {
             let last = bytes[j - 1];
-            if matches!(last, b'.' | b',' | b';' | b':' | b'!' | b'?' | b')' | b']' | b'>' | b'\'' | b'"') {
+            if matches!(
+                last,
+                b'.' | b',' | b';' | b':' | b'!' | b'?' | b')' | b']' | b'>' | b'\'' | b'"'
+            ) {
                 j -= 1;
             } else {
                 break;
@@ -127,9 +130,28 @@ fn is_url_byte(b: u8) -> bool {
     b.is_ascii_alphanumeric()
         || matches!(
             b,
-            b'-' | b'.' | b'_' | b'~' | b':' | b'/' | b'?' | b'#' | b'[' | b']'
-                | b'@' | b'!' | b'$' | b'&' | b'\'' | b'(' | b')' | b'*' | b'+'
-                | b',' | b';' | b'=' | b'%'
+            b'-' | b'.'
+                | b'_'
+                | b'~'
+                | b':'
+                | b'/'
+                | b'?'
+                | b'#'
+                | b'['
+                | b']'
+                | b'@'
+                | b'!'
+                | b'$'
+                | b'&'
+                | b'\''
+                | b'('
+                | b')'
+                | b'*'
+                | b'+'
+                | b','
+                | b';'
+                | b'='
+                | b'%'
         )
 }
 
@@ -228,7 +250,10 @@ mod tests {
     fn slugify_basic() {
         assert_eq!(slugify("Hello World"), "hello-world");
         assert_eq!(slugify("  Multiple   spaces  "), "multiple-spaces");
-        assert_eq!(slugify("Code blocks: rust + json!"), "code-blocks-rust-json");
+        assert_eq!(
+            slugify("Code blocks: rust + json!"),
+            "code-blocks-rust-json"
+        );
         assert_eq!(slugify(""), "");
         assert_eq!(slugify("---"), "");
         assert_eq!(slugify("SYNGUI v0.1"), "syngui-v0-1");

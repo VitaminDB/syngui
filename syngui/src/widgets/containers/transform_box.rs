@@ -777,7 +777,11 @@ impl Element for TransformBoxElement {
         }
     }
 
-    fn explicit_dimensions(&self, _parent_width: f32, _parent_height: f32) -> (Option<f32>, Option<f32>) {
+    fn explicit_dimensions(
+        &self,
+        _parent_width: f32,
+        _parent_height: f32,
+    ) -> (Option<f32>, Option<f32>) {
         (
             Some(self.current_size.width),
             Some(self.current_size.height),

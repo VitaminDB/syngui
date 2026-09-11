@@ -45,7 +45,11 @@ impl Default for WindowResizeRegion {
 
 impl WindowResizeRegion {
     pub fn new() -> Self {
-        Self { child: None, inset: DEFAULT_INSET, enabled: true }
+        Self {
+            child: None,
+            inset: DEFAULT_INSET,
+            enabled: true,
+        }
     }
 
     pub fn child<M>(mut self, child: impl IntoWidget<M>) -> Self {
@@ -93,11 +97,8 @@ impl Widget for WindowResizeRegion {
     fn mount(&self, tree: &mut ElementTree, parent_id: ElementId) {
         if let Some(child) = &self.child {
             let child_element = child.create_element();
-            let child_id = tree.insert_with_type_id(
-                child_element,
-                Some(parent_id),
-                child.as_any().type_id(),
-            );
+            let child_id =
+                tree.insert_with_type_id(child_element, Some(parent_id), child.as_any().type_id());
             child.mount(tree, child_id);
         }
     }
@@ -329,16 +330,40 @@ mod tests {
     fn edges_and_corners() {
         let r = region(800.0, 600.0, 8.0);
         assert_eq!(r.direction_at(Point::new(400.0, 300.0)), None);
-        assert_eq!(r.direction_at(Point::new(2.0, 300.0)), Some(ResizeDirection::West));
-        assert_eq!(r.direction_at(Point::new(797.0, 300.0)), Some(ResizeDirection::East));
-        assert_eq!(r.direction_at(Point::new(400.0, 3.0)), Some(ResizeDirection::North));
-        assert_eq!(r.direction_at(Point::new(400.0, 597.0)), Some(ResizeDirection::South));
-        assert_eq!(r.direction_at(Point::new(2.0, 2.0)), Some(ResizeDirection::NorthWest));
-        assert_eq!(r.direction_at(Point::new(797.0, 597.0)), Some(ResizeDirection::SouthEast));
+        assert_eq!(
+            r.direction_at(Point::new(2.0, 300.0)),
+            Some(ResizeDirection::West)
+        );
+        assert_eq!(
+            r.direction_at(Point::new(797.0, 300.0)),
+            Some(ResizeDirection::East)
+        );
+        assert_eq!(
+            r.direction_at(Point::new(400.0, 3.0)),
+            Some(ResizeDirection::North)
+        );
+        assert_eq!(
+            r.direction_at(Point::new(400.0, 597.0)),
+            Some(ResizeDirection::South)
+        );
+        assert_eq!(
+            r.direction_at(Point::new(2.0, 2.0)),
+            Some(ResizeDirection::NorthWest)
+        );
+        assert_eq!(
+            r.direction_at(Point::new(797.0, 597.0)),
+            Some(ResizeDirection::SouthEast)
+        );
         // Полоса у края рядом с углом — диагональ, даже если по второй оси
         // точка вне полосы захвата.
-        assert_eq!(r.direction_at(Point::new(2.0, 590.0)), Some(ResizeDirection::SouthWest));
-        assert_eq!(r.direction_at(Point::new(790.0, 2.0)), Some(ResizeDirection::NorthEast));
+        assert_eq!(
+            r.direction_at(Point::new(2.0, 590.0)),
+            Some(ResizeDirection::SouthWest)
+        );
+        assert_eq!(
+            r.direction_at(Point::new(790.0, 2.0)),
+            Some(ResizeDirection::NorthEast)
+        );
     }
 
     #[test]

@@ -28,9 +28,9 @@ fn result_card() -> Box<dyn Widget> {
             Box::new(DecoratedBox::new().class("grow")),
             Box::new(Text::new("11:04").class("msg-time")),
         ]);
-    let collapsible = AnimatedSize::new(Reactive::new(
-        move || -> Vec<Box<dyn Widget>> { vec![body_wrap()] },
-    ))
+    let collapsible = AnimatedSize::new(Reactive::new(move || -> Vec<Box<dyn Widget>> {
+        vec![body_wrap()]
+    }))
     .axis(AnimationAxis::Height)
     .duration_ms(200);
     Box::new(
@@ -38,7 +38,10 @@ fn result_card() -> Box<dyn Widget> {
             Column::new()
                 .gap(8.0)
                 .cross_axis_alignment(CrossAxisAlignment::Stretch)
-                .children(vec![Box::new(header) as Box<dyn Widget>, Box::new(collapsible)]),
+                .children(vec![
+                    Box::new(header) as Box<dyn Widget>,
+                    Box::new(collapsible),
+                ]),
         ),
     )
 }
@@ -56,9 +59,10 @@ fn group() -> Box<dyn Widget> {
             .gap(8.0)
             .cross_axis_alignment(CrossAxisAlignment::Stretch)
             .children(vec![result_card()]);
-        vec![Box::new(
-            DecoratedBox::new().class("tool-group-children").child(col),
-        ) as Box<dyn Widget>]
+        vec![
+            Box::new(DecoratedBox::new().class("tool-group-children").child(col))
+                as Box<dyn Widget>,
+        ]
     });
     let body = AnimatedSize::new(body_reactive)
         .axis(AnimationAxis::Height)

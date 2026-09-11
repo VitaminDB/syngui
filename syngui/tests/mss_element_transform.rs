@@ -24,7 +24,10 @@ fn chip_receives_mss_transform() {
     h.apply_mss("Chip { transform: rotate(15deg); }");
     h.layout(200.0, 60.0);
 
-    assert!(pushes_transform(&mut h), "transform на Chip должен уехать в display list");
+    assert!(
+        pushes_transform(&mut h),
+        "transform на Chip должен уехать в display list"
+    );
 }
 
 #[test]
@@ -34,5 +37,8 @@ fn chip_without_transform_rule_pushes_nothing() {
     h.apply_mss("Chip { background-color: #EEEEEE; }");
     h.layout(200.0, 60.0);
 
-    assert!(!pushes_transform(&mut h), "без правила лишнего трансформа быть не должно");
+    assert!(
+        !pushes_transform(&mut h),
+        "без правила лишнего трансформа быть не должно"
+    );
 }

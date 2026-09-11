@@ -93,19 +93,18 @@ pub(crate) async fn fetch_bytes(url: &str) -> Result<Vec<u8>, String> {
         .await
         .map_err(|e| format!("fetch error: {:?}", e))?;
 
-    let resp: web_sys::Response = resp_value
-        .dyn_into()
-        .map_err(|_| "response cast error")?;
+    let resp: web_sys::Response = resp_value.dyn_into().map_err(|_| "response cast error")?;
 
     if !resp.ok() {
         return Err(format!("HTTP {}", resp.status()));
     }
 
     let array_buffer = JsFuture::from(
-        resp.array_buffer().map_err(|e| format!("array_buffer error: {:?}", e))?
+        resp.array_buffer()
+            .map_err(|e| format!("array_buffer error: {:?}", e))?,
     )
-        .await
-        .map_err(|e| format!("array_buffer await error: {:?}", e))?;
+    .await
+    .map_err(|e| format!("array_buffer await error: {:?}", e))?;
 
     let uint8_array = js_sys::Uint8Array::new(&array_buffer);
     Ok(uint8_array.to_vec())

@@ -1,10 +1,10 @@
 //! Bar chart demo page: 6 examples showcasing different bar chart features.
 
 use syngui::prelude::*;
+use syngui::widgets::charts::{AxisConfig, BarMode, BarOrientation, BarSeries, LegendPosition};
 use syngui::widgets::*;
-use syngui::widgets::charts::{AxisConfig, BarSeries, BarMode, BarOrientation, LegendPosition};
 
-use crate::sections::{section_card, section_title, label};
+use crate::sections::{label, section_card, section_title};
 
 /// Build all bar chart demos.
 pub fn build_bar_chart_demos() -> impl Widget {
@@ -29,8 +29,12 @@ fn build_basic_demo() -> impl Widget {
             BarChart::new()
                 .title("Monthly Revenue")
                 .categories(vec![
-                    "Jan".to_string(), "Feb".to_string(), "Mar".to_string(),
-                    "Apr".to_string(), "May".to_string(), "Jun".to_string(),
+                    "Jan".to_string(),
+                    "Feb".to_string(),
+                    "Mar".to_string(),
+                    "Apr".to_string(),
+                    "May".to_string(),
+                    "Jun".to_string(),
                 ])
                 .bar_series(
                     BarSeries::new("Revenue", vec![120.0, 200.0, 150.0, 80.0, 230.0, 180.0])
@@ -55,7 +59,10 @@ fn build_grouped_demo() -> impl Widget {
             BarChart::new()
                 .title("Quarterly Sales by Region")
                 .categories(vec![
-                    "Q1".to_string(), "Q2".to_string(), "Q3".to_string(), "Q4".to_string(),
+                    "Q1".to_string(),
+                    "Q2".to_string(),
+                    "Q3".to_string(),
+                    "Q4".to_string(),
                 ])
                 .bar_series(
                     BarSeries::new("North", vec![320.0, 410.0, 380.0, 490.0])
@@ -90,7 +97,10 @@ fn build_stacked_demo() -> impl Widget {
             BarChart::new()
                 .title("Quarterly Sales by Region (Stacked)")
                 .categories(vec![
-                    "Q1".to_string(), "Q2".to_string(), "Q3".to_string(), "Q4".to_string(),
+                    "Q1".to_string(),
+                    "Q2".to_string(),
+                    "Q3".to_string(),
+                    "Q4".to_string(),
                 ])
                 .bar_series(
                     BarSeries::new("North", vec![320.0, 410.0, 380.0, 490.0])
@@ -125,8 +135,12 @@ fn build_horizontal_demo() -> impl Widget {
             BarChart::new()
                 .title("Programming Language Popularity")
                 .categories(vec![
-                    "Python".to_string(), "JavaScript".to_string(), "Java".to_string(),
-                    "C++".to_string(), "Rust".to_string(), "Go".to_string(),
+                    "Python".to_string(),
+                    "JavaScript".to_string(),
+                    "Java".to_string(),
+                    "C++".to_string(),
+                    "Rust".to_string(),
+                    "Go".to_string(),
                     "TypeScript".to_string(),
                 ])
                 .bar_series(
@@ -153,8 +167,11 @@ fn build_value_labels_demo() -> impl Widget {
             BarChart::new()
                 .title("Team Performance")
                 .categories(vec![
-                    "Alice".to_string(), "Bob".to_string(), "Carol".to_string(),
-                    "Dave".to_string(), "Eve".to_string(),
+                    "Alice".to_string(),
+                    "Bob".to_string(),
+                    "Carol".to_string(),
+                    "Dave".to_string(),
+                    "Eve".to_string(),
                 ])
                 .bar_series(
                     BarSeries::new("Tasks Completed", vec![45.0, 38.0, 52.0, 31.0, 47.0])
@@ -180,8 +197,13 @@ fn build_styled_demo() -> impl Widget {
             BarChart::new()
                 .title("Website Traffic (thousands)")
                 .categories(vec![
-                    "Mon".to_string(), "Tue".to_string(), "Wed".to_string(),
-                    "Thu".to_string(), "Fri".to_string(), "Sat".to_string(), "Sun".to_string(),
+                    "Mon".to_string(),
+                    "Tue".to_string(),
+                    "Wed".to_string(),
+                    "Thu".to_string(),
+                    "Fri".to_string(),
+                    "Sat".to_string(),
+                    "Sun".to_string(),
                 ])
                 .bar_series(
                     BarSeries::new("Visitors", vec![5.2, 7.8, 6.5, 8.1, 9.3, 12.5, 10.2])

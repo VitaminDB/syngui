@@ -22,7 +22,9 @@ fn kde() -> Option<SystemAppearance> {
     let ini = Ini::parse(&text);
 
     let scheme_mode = ini.get("General", "ColorSchemeMode");
-    let window_bg = ini.get("Colors:Window", "BackgroundNormal").and_then(parse_rgb);
+    let window_bg = ini
+        .get("Colors:Window", "BackgroundNormal")
+        .and_then(parse_rgb);
     let color_scheme = match scheme_mode.map(str::trim) {
         Some(m) if m.eq_ignore_ascii_case("dark") => ColorScheme::Dark,
         Some(m) if m.eq_ignore_ascii_case("light") => ColorScheme::Light,
@@ -37,7 +39,10 @@ fn kde() -> Option<SystemAppearance> {
     let accent = ini
         .get("General", "AccentColor")
         .and_then(parse_rgb)
-        .or_else(|| ini.get("Colors:Selection", "BackgroundNormal").and_then(parse_rgb));
+        .or_else(|| {
+            ini.get("Colors:Selection", "BackgroundNormal")
+                .and_then(parse_rgb)
+        });
 
     Some(SystemAppearance {
         color_scheme,
@@ -153,15 +158,23 @@ mod tests {
 
     #[test]
     fn ini_reads_sections() {
-        let ini = Ini::parse("[General]\nColorSchemeMode=dark\n\n[Colors:Window]\nBackgroundNormal=50,50,50\n");
+        let ini = Ini::parse(
+            "[General]\nColorSchemeMode=dark\n\n[Colors:Window]\nBackgroundNormal=50,50,50\n",
+        );
         assert_eq!(ini.get("General", "ColorSchemeMode"), Some("dark"));
-        assert_eq!(ini.get("Colors:Window", "BackgroundNormal"), Some("50,50,50"));
+        assert_eq!(
+            ini.get("Colors:Window", "BackgroundNormal"),
+            Some("50,50,50")
+        );
         assert_eq!(ini.get("General", "BackgroundNormal"), None);
     }
 
     #[test]
     fn rgb_parses_plasma_triples() {
-        assert_eq!(parse_rgb("0, 122, 255").map(|c| c.to_hex()), Some("#007AFF".into()));
+        assert_eq!(
+            parse_rgb("0, 122, 255").map(|c| c.to_hex()),
+            Some("#007AFF".into())
+        );
         assert!(parse_rgb("не цвет").is_none());
     }
 }

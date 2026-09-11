@@ -45,7 +45,8 @@ impl TileAtlas {
         let max_dim = Self::max_side(device);
         let (atlas_width, atlas_height) =
             Self::grow_to_fit(MIN_ATLAS_SIZE, MIN_ATLAS_SIZE, tiles_needed, max_dim);
-        let (texture, texture_view) = Self::create_texture(device, queue, atlas_width, atlas_height);
+        let (texture, texture_view) =
+            Self::create_texture(device, queue, atlas_width, atlas_height);
 
         let sampler = device.create_sampler(&wgpu::SamplerDescriptor {
             label: Some("Tile Sampler"),
@@ -79,7 +80,12 @@ impl TileAtlas {
         (device.limits().max_texture_dimension_2d / TILE_SIZE).max(1) * TILE_SIZE
     }
 
-    fn grow_to_fit(mut width: u32, mut height: u32, tiles_needed: usize, max_side: u32) -> (u32, u32) {
+    fn grow_to_fit(
+        mut width: u32,
+        mut height: u32,
+        tiles_needed: usize,
+        max_side: u32,
+    ) -> (u32, u32) {
         width = width.min(max_side).max(TILE_SIZE);
         height = height.min(max_side).max(TILE_SIZE);
         loop {
@@ -126,7 +132,11 @@ impl TileAtlas {
                 wgpu::TexelCopyTextureInfo {
                     texture: &texture,
                     mip_level: 0,
-                    origin: wgpu::Origin3d { x: 0, y: written, z: 0 },
+                    origin: wgpu::Origin3d {
+                        x: 0,
+                        y: written,
+                        z: 0,
+                    },
                     aspect: wgpu::TextureAspect::All,
                 },
                 &band[..(width * rows * 4) as usize],
@@ -160,7 +170,12 @@ impl TileAtlas {
         self.generation
     }
 
-    pub fn ensure_capacity(&mut self, device: &wgpu::Device, queue: &wgpu::Queue, tiles_needed: usize) -> bool {
+    pub fn ensure_capacity(
+        &mut self,
+        device: &wgpu::Device,
+        queue: &wgpu::Queue,
+        tiles_needed: usize,
+    ) -> bool {
         if tiles_needed <= self.capacity() {
             return false;
         }
@@ -284,7 +299,9 @@ impl TileAtlas {
     }
 
     pub fn clear_provider(&mut self, provider_id: u8) {
-        let keys_to_remove: Vec<TileKey> = self.tiles.keys()
+        let keys_to_remove: Vec<TileKey> = self
+            .tiles
+            .keys()
             .filter(|k| k.provider_id == provider_id)
             .copied()
             .collect();

@@ -260,8 +260,7 @@ impl Element for ButtonElement {
         let text_width = if self.text.is_empty() {
             0.0
         } else {
-            self
-                .text_measure
+            self.text_measure
                 .as_ref()
                 .map(|tm| {
                     crate::perf::incr(crate::perf::Counter::ButtonTextMeasure);
@@ -387,7 +386,11 @@ impl Element for ButtonElement {
         let icon_size = self.mss.icon_size.unwrap_or(DEFAULT_ICON_SIZE);
         let has_icon = self.icon.is_some();
         let has_text = !self.text.is_empty();
-        let icon_gap = if has_icon && has_text { DEFAULT_ICON_GAP } else { 0.0 };
+        let icon_gap = if has_icon && has_text {
+            DEFAULT_ICON_GAP
+        } else {
+            0.0
+        };
 
         let content_x = self.bounds.x() + pad_l;
         let content_w = (self.bounds.size.width - pad_l - pad_r).max(0.0);
@@ -406,32 +409,36 @@ impl Element for ButtonElement {
                     list.push_text_centered(icon_str, icon_rect, text_color, icon_size);
                     let text_x = content_x + icon_size + icon_gap;
                     let text_w = (content_w - icon_size - icon_gap).max(0.0);
-                    let text_rect = Rect::new(
-                        Point::new(text_x, text_y),
-                        Size::new(text_w, font_size),
-                    );
+                    let text_rect =
+                        Rect::new(Point::new(text_x, text_y), Size::new(text_w, font_size));
                     list.push_text_styled(
-                        &self.text, text_rect, text_color, font_size,
-                        crate::mss::TextAlign::CENTER, crate::mss::TextDecoration::None,
-                        font_weight, self.mss.font_family.clone(),
+                        &self.text,
+                        text_rect,
+                        text_color,
+                        font_size,
+                        crate::mss::TextAlign::CENTER,
+                        crate::mss::TextDecoration::None,
+                        font_weight,
+                        self.mss.font_family.clone(),
                     );
                 }
                 IconPosition::Trailing => {
                     let text_w = (content_w - icon_size - icon_gap).max(0.0);
-                    let text_rect = Rect::new(
-                        Point::new(content_x, text_y),
-                        Size::new(text_w, font_size),
-                    );
+                    let text_rect =
+                        Rect::new(Point::new(content_x, text_y), Size::new(text_w, font_size));
                     list.push_text_styled(
-                        &self.text, text_rect, text_color, font_size,
-                        crate::mss::TextAlign::CENTER, crate::mss::TextDecoration::None,
-                        font_weight, self.mss.font_family.clone(),
+                        &self.text,
+                        text_rect,
+                        text_color,
+                        font_size,
+                        crate::mss::TextAlign::CENTER,
+                        crate::mss::TextDecoration::None,
+                        font_weight,
+                        self.mss.font_family.clone(),
                     );
                     let icon_x = content_x + text_w + icon_gap;
-                    let icon_rect = Rect::new(
-                        Point::new(icon_x, icon_y),
-                        Size::new(icon_size, icon_size),
-                    );
+                    let icon_rect =
+                        Rect::new(Point::new(icon_x, icon_y), Size::new(icon_size, icon_size));
                     list.push_text_centered(icon_str, icon_rect, text_color, icon_size);
                 }
             }
@@ -450,9 +457,14 @@ impl Element for ButtonElement {
                 Size::new(content_w, font_size),
             );
             list.push_text_styled(
-                &self.text, text_rect, text_color, font_size,
-                crate::mss::TextAlign::CENTER, crate::mss::TextDecoration::None,
-                font_weight, self.mss.font_family.clone(),
+                &self.text,
+                text_rect,
+                text_color,
+                font_size,
+                crate::mss::TextAlign::CENTER,
+                crate::mss::TextDecoration::None,
+                font_weight,
+                self.mss.font_family.clone(),
             );
         }
         let _ = clip;
@@ -636,7 +648,9 @@ impl Element for ButtonElement {
     fn reset_mss_styles(&mut self) {
         self.mss.reset();
     }
-    fn mss(&self) -> Option<&crate::mss::MssFields> { Some(&self.mss) }
+    fn mss(&self) -> Option<&crate::mss::MssFields> {
+        Some(&self.mss)
+    }
     fn apply_computed_style(&mut self, style: &ComputedStyle) {
         self.mss.apply(style);
         if let Some(f) = style

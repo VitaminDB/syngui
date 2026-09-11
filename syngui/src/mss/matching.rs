@@ -15,7 +15,11 @@ fn part_matches(part: &SelectorPart, id: ElementId, ctx: &impl SelectorMatchCont
         SelectorPart::Element(elem) => ctx.element_type_name(id) == elem.as_str(),
         SelectorPart::Universal => true,
         SelectorPart::Id(_) => false,
-        SelectorPart::Compound { element, id: _id, classes } => {
+        SelectorPart::Compound {
+            element,
+            id: _id,
+            classes,
+        } => {
             if let Some(elem) = element {
                 if ctx.element_type_name(id) != elem.as_str() {
                     return false;
@@ -62,24 +66,22 @@ fn chain_matches(chain: &SelectorChain, id: ElementId, ctx: &impl SelectorMatchC
                     }
                     ancestor = ctx.parent_id(anc_id);
                 }
-                if !found { return false; }
-            }
-            Combinator::Child => {
-                match ctx.parent_id(current_id) {
-                    Some(parent) if part_matches(required_part, parent, ctx) => {
-                        current_id = parent;
-                    }
-                    _ => return false,
+                if !found {
+                    return false;
                 }
             }
-            Combinator::AdjacentSibling => {
-                match ctx.previous_sibling(current_id) {
-                    Some(prev) if part_matches(required_part, prev, ctx) => {
-                        current_id = prev;
-                    }
-                    _ => return false,
+            Combinator::Child => match ctx.parent_id(current_id) {
+                Some(parent) if part_matches(required_part, parent, ctx) => {
+                    current_id = parent;
                 }
-            }
+                _ => return false,
+            },
+            Combinator::AdjacentSibling => match ctx.previous_sibling(current_id) {
+                Some(prev) if part_matches(required_part, prev, ctx) => {
+                    current_id = prev;
+                }
+                _ => return false,
+            },
             Combinator::GeneralSibling => {
                 let siblings = ctx.previous_siblings(current_id);
                 let mut found = false;
@@ -90,7 +92,9 @@ fn chain_matches(chain: &SelectorChain, id: ElementId, ctx: &impl SelectorMatchC
                         break;
                     }
                 }
-                if !found { return false; }
+                if !found {
+                    return false;
+                }
             }
         }
     }
@@ -130,7 +134,10 @@ mod tests {
 
     impl MockTree {
         fn new() -> Self {
-            Self { nodes: vec![], children: vec![] }
+            Self {
+                nodes: vec![],
+                children: vec![],
+            }
         }
 
         fn add(&mut self, id: u64, classes: &[&str], elem_type: &str, parent: Option<u64>) {
@@ -152,14 +159,19 @@ mod tests {
             }
         }
 
-        fn find(&self, id: ElementId) -> Option<&(ElementId, Vec<String>, String, Option<ElementId>)> {
+        fn find(
+            &self,
+            id: ElementId,
+        ) -> Option<&(ElementId, Vec<String>, String, Option<ElementId>)> {
             self.nodes.iter().find(|(eid, _, _, _)| *eid == id)
         }
     }
 
     impl SelectorMatchContext for MockTree {
         fn element_classes(&self, id: ElementId) -> &[String] {
-            self.find(id).map(|(_, c, _, _)| c.as_slice()).unwrap_or(&[])
+            self.find(id)
+                .map(|(_, c, _, _)| c.as_slice())
+                .unwrap_or(&[])
         }
 
         fn element_type_name(&self, id: ElementId) -> &str {
@@ -172,10 +184,13 @@ mod tests {
 
         fn previous_sibling(&self, id: ElementId) -> Option<ElementId> {
             let parent = self.parent_id(id)?;
-            let children = self.children.iter()
-                .find(|(p, _)| *p == parent)?;
+            let children = self.children.iter().find(|(p, _)| *p == parent)?;
             let pos = children.1.iter().position(|&c| c == id)?;
-            if pos > 0 { Some(children.1[pos - 1]) } else { None }
+            if pos > 0 {
+                Some(children.1[pos - 1])
+            } else {
+                None
+            }
         }
 
         fn previous_siblings(&self, id: ElementId) -> Vec<ElementId> {

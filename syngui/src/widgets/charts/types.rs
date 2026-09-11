@@ -21,7 +21,10 @@ impl From<(f64, f64)> for DataPoint {
 
 impl From<(f32, f32)> for DataPoint {
     fn from((x, y): (f32, f32)) -> Self {
-        Self { x: x as f64, y: y as f64 }
+        Self {
+            x: x as f64,
+            y: y as f64,
+        }
     }
 }
 
@@ -59,7 +62,9 @@ pub struct AreaFill {
 
 impl AreaFill {
     pub fn new(opacity: f32) -> Self {
-        Self { opacity: opacity.clamp(0.0, 1.0) }
+        Self {
+            opacity: opacity.clamp(0.0, 1.0),
+        }
     }
 }
 
@@ -101,7 +106,11 @@ pub struct VisualMapPiece {
 
 impl VisualMapPiece {
     pub fn new(gt: f64, lte: f64, color: impl Into<Color>) -> Self {
-        Self { gt, lte, color: color.into() }
+        Self {
+            gt,
+            lte,
+            color: color.into(),
+        }
     }
 
     pub fn contains(&self, value: f64) -> bool {
@@ -119,7 +128,12 @@ pub struct MarkLine {
 
 impl MarkLine {
     pub fn new(value: f64) -> Self {
-        Self { value, label: None, color: None, dashed: true }
+        Self {
+            value,
+            label: None,
+            color: None,
+            dashed: true,
+        }
     }
 
     pub fn label(mut self, label: impl Into<String>) -> Self {
@@ -170,7 +184,10 @@ impl Series {
     }
 
     pub fn dashed(mut self) -> Self {
-        self.style.line_style = LineStyle::Dashed { dash: 8.0, gap: 4.0 };
+        self.style.line_style = LineStyle::Dashed {
+            dash: 8.0,
+            gap: 4.0,
+        };
         self
     }
 
@@ -339,7 +356,9 @@ impl LegendConfig {
     }
 
     pub fn none() -> Self {
-        Self { position: LegendPosition::None }
+        Self {
+            position: LegendPosition::None,
+        }
     }
 }
 
@@ -360,11 +379,17 @@ impl Default for TooltipConfig {
 
 impl TooltipConfig {
     pub fn enabled(enabled: bool) -> Self {
-        Self { enabled, shared: true }
+        Self {
+            enabled,
+            shared: true,
+        }
     }
 
     pub fn disabled() -> Self {
-        Self { enabled: false, shared: false }
+        Self {
+            enabled: false,
+            shared: false,
+        }
     }
 }
 
@@ -390,8 +415,8 @@ impl Default for ChartLayout {
 }
 
 pub const DEFAULT_PALETTE: [&str; 10] = [
-    "#5470c6", "#91cc75", "#fac858", "#ee6666", "#73c0de",
-    "#3ba272", "#fc8452", "#9a60b4", "#ea7ccc", "#48b8d0",
+    "#5470c6", "#91cc75", "#fac858", "#ee6666", "#73c0de", "#3ba272", "#fc8452", "#9a60b4",
+    "#ea7ccc", "#48b8d0",
 ];
 
 pub fn palette_color(index: usize) -> Color {
@@ -407,7 +432,11 @@ pub struct PieSlice {
 
 impl PieSlice {
     pub fn new(label: impl Into<String>, value: f64) -> Self {
-        Self { label: label.into(), value, color: None }
+        Self {
+            label: label.into(),
+            value,
+            color: None,
+        }
     }
 
     pub fn color(mut self, color: impl Into<Color>) -> Self {
@@ -424,7 +453,9 @@ pub enum PieLabelPosition {
 }
 
 impl Default for PieLabelPosition {
-    fn default() -> Self { Self::Outside }
+    fn default() -> Self {
+        Self::Outside
+    }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq)]
@@ -434,7 +465,9 @@ pub enum BarMode {
 }
 
 impl Default for BarMode {
-    fn default() -> Self { Self::Grouped }
+    fn default() -> Self {
+        Self::Grouped
+    }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq)]
@@ -444,7 +477,9 @@ pub enum BarOrientation {
 }
 
 impl Default for BarOrientation {
-    fn default() -> Self { Self::Vertical }
+    fn default() -> Self {
+        Self::Vertical
+    }
 }
 
 #[derive(Debug, Clone)]
@@ -456,7 +491,11 @@ pub struct BarSeries {
 
 impl BarSeries {
     pub fn new(name: impl Into<String>, data: Vec<f64>) -> Self {
-        Self { name: name.into(), data, color: None }
+        Self {
+            name: name.into(),
+            data,
+            color: None,
+        }
     }
 
     pub fn color(mut self, color: impl Into<Color>) -> Self {
@@ -473,7 +512,10 @@ pub struct RadarIndicator {
 
 impl RadarIndicator {
     pub fn new(name: impl Into<String>, max: f64) -> Self {
-        Self { name: name.into(), max }
+        Self {
+            name: name.into(),
+            max,
+        }
     }
 }
 
@@ -527,5 +569,7 @@ pub enum RadarGridShape {
 }
 
 impl Default for RadarGridShape {
-    fn default() -> Self { Self::Polygon }
+    fn default() -> Self {
+        Self::Polygon
+    }
 }

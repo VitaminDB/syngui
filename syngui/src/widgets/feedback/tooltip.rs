@@ -4,10 +4,12 @@ use crate::layout::Constraints;
 use crate::mss::ComputedStyle;
 use crate::mss::MssFields;
 use crate::render::DisplayList;
-use crate::Border;
-use crate::widget::context::{EventContext, EventContextExt};
-use crate::widget::{DirtyFlags, Element, ElementId, ElementTree, LayoutHint, StyledElement, UpdateContext, Widget};
 use crate::widget::context::TextMeasure;
+use crate::widget::context::{EventContext, EventContextExt};
+use crate::widget::{
+    DirtyFlags, Element, ElementId, ElementTree, LayoutHint, StyledElement, UpdateContext, Widget,
+};
+use crate::Border;
 use std::any::Any;
 use std::cell::Cell;
 use std::sync::Arc;
@@ -113,18 +115,32 @@ impl Widget for Tooltip {
         })
     }
 
-    fn can_update(&self, other: &dyn Any) -> bool { other.is::<Self>() }
-    fn as_any(&self) -> &dyn Any { self }
-    fn as_any_mut(&mut self) -> &mut dyn Any { self }
+    fn can_update(&self, other: &dyn Any) -> bool {
+        other.is::<Self>()
+    }
+    fn as_any(&self) -> &dyn Any {
+        self
+    }
+    fn as_any_mut(&mut self) -> &mut dyn Any {
+        self
+    }
 
     fn mount(&self, tree: &mut ElementTree, parent_id: ElementId) {
         let child_element = self.child.create_element();
-        let child_id = tree.insert_with_type_id(child_element, Some(parent_id), self.child.as_any().type_id());
+        let child_id = tree.insert_with_type_id(
+            child_element,
+            Some(parent_id),
+            self.child.as_any().type_id(),
+        );
         self.child.mount(tree, child_id);
 
         if let TooltipContent::Rich(ref content) = self.content {
             let content_element = content.create_element();
-            let content_id = tree.insert_with_type_id(content_element, Some(parent_id), content.as_any().type_id());
+            let content_id = tree.insert_with_type_id(
+                content_element,
+                Some(parent_id),
+                content.as_any().type_id(),
+            );
             content.mount(tree, content_id);
         }
     }
@@ -161,24 +177,29 @@ pub struct TooltipElement {
 impl TooltipElement {
     fn text_tooltip_rect(&self) -> Rect {
         let font_size = self.mss.font_size_or(12.0);
-        let pad_h = self.mss.padding_left.unwrap_or(8.0)
-            + self.mss.padding_right.unwrap_or(8.0);
-        let pad_v = self.mss.padding_top.unwrap_or(6.0)
-            + self.mss.padding_bottom.unwrap_or(6.0);
+        let pad_h = self.mss.padding_left.unwrap_or(8.0) + self.mss.padding_right.unwrap_or(8.0);
+        let pad_v = self.mss.padding_top.unwrap_or(6.0) + self.mss.padding_bottom.unwrap_or(6.0);
         let line_height = font_size + 4.0;
 
         let lines: Vec<&str> = self.text.lines().collect();
         let line_count = lines.len().max(1);
 
-        let max_w = self.mss.max_width
+        let max_w = self
+            .mss
+            .max_width
             .map(|d| d.resolve(self.bounds.size.width))
             .unwrap_or(self.max_width);
 
-        let max_line_width = lines.iter().map(|line| {
-            self.text_measure.as_ref()
-                .map(|tm| tm.measure_text_width(line, font_size, line.chars().count()))
-                .unwrap_or_else(|| line.chars().count() as f32 * font_size * 0.6)
-        }).fold(0.0f32, f32::max).min(max_w);
+        let max_line_width = lines
+            .iter()
+            .map(|line| {
+                self.text_measure
+                    .as_ref()
+                    .map(|tm| tm.measure_text_width(line, font_size, line.chars().count()))
+                    .unwrap_or_else(|| line.chars().count() as f32 * font_size * 0.6)
+            })
+            .fold(0.0f32, f32::max)
+            .min(max_w);
 
         let tooltip_w = max_line_width + pad_h;
         let mut tooltip_h = line_count as f32 * line_height + pad_v;
@@ -218,10 +239,14 @@ impl TooltipElement {
         let pad_t = self.mss.padding_top.unwrap_or(DEFAULT_PAD);
         let pad_b = self.mss.padding_bottom.unwrap_or(DEFAULT_PAD);
 
-        let max_w = self.mss.max_width
+        let max_w = self
+            .mss
+            .max_width
             .map(|d| d.resolve(self.bounds.size.width))
             .unwrap_or(self.max_width);
-        let max_h = self.mss.max_height
+        let max_h = self
+            .mss
+            .max_height
             .map(|d| d.resolve(self.bounds.size.height))
             .unwrap_or(300.0);
 
@@ -234,18 +259,12 @@ impl TooltipElement {
                 self.bounds.x(),
                 self.bounds.y() + self.bounds.size.height + gap,
             ),
-            TooltipPosition::Above => (
-                self.bounds.x(),
-                self.bounds.y() - tooltip_h - gap,
-            ),
+            TooltipPosition::Above => (self.bounds.x(), self.bounds.y() - tooltip_h - gap),
             TooltipPosition::Right => (
                 self.bounds.x() + self.bounds.size.width + gap,
                 self.bounds.y(),
             ),
-            TooltipPosition::Left => (
-                self.bounds.x() - tooltip_w - gap,
-                self.bounds.y(),
-            ),
+            TooltipPosition::Left => (self.bounds.x() - tooltip_w - gap, self.bounds.y()),
         };
 
         Rect::new(Point::new(x, y), Size::new(tooltip_w, tooltip_h))
@@ -268,8 +287,16 @@ impl Element for TooltipElement {
     }
 
     fn layout(&mut self, constraints: Constraints) -> Size {
-        let w = if constraints.max_width.is_finite() { constraints.max_width } else { constraints.min_width.max(40.0) };
-        let h = if constraints.max_height.is_finite() { constraints.max_height } else { constraints.min_height.max(40.0) };
+        let w = if constraints.max_width.is_finite() {
+            constraints.max_width
+        } else {
+            constraints.min_width.max(40.0)
+        };
+        let h = if constraints.max_height.is_finite() {
+            constraints.max_height
+        } else {
+            constraints.min_height.max(40.0)
+        };
         self.bounds = Rect::new(Point::zero(), Size::new(w, h));
         Size::new(w, h)
     }
@@ -285,7 +312,12 @@ impl Element for TooltipElement {
                 padding_b: self.mss.padding_bottom.unwrap_or(DEFAULT_PAD),
             }
         } else {
-            LayoutHint::Padding { left: 0.0, top: 0.0, right: 0.0, bottom: 0.0 }
+            LayoutHint::Padding {
+                left: 0.0,
+                top: 0.0,
+                right: 0.0,
+                bottom: 0.0,
+            }
         }
     }
 
@@ -297,14 +329,22 @@ impl Element for TooltipElement {
         self.content_size.set(size);
     }
 
-    fn explicit_dimensions(&self, _parent_width: f32, _parent_height: f32) -> (Option<f32>, Option<f32>) {
+    fn explicit_dimensions(
+        &self,
+        _parent_width: f32,
+        _parent_height: f32,
+    ) -> (Option<f32>, Option<f32>) {
         if !self.is_rich {
             return (None, None);
         }
-        let w = self.mss.max_width
+        let w = self
+            .mss
+            .max_width
             .map(|d| d.resolve(self.bounds.size.width))
             .or(Some(self.max_width));
-        let h = self.mss.max_height
+        let h = self
+            .mss
+            .max_height
             .map(|d| d.resolve(self.bounds.size.height));
         (w, h)
     }
@@ -317,13 +357,24 @@ impl Element for TooltipElement {
             list.begin_overlay();
 
             let tip = self.rich_tooltip_rect();
-            let bg = self.mss.background_color.unwrap_or(Color::from_hex("#1E1F22"));
-            let radius = self.mss.border_radius_uniform(tip.size.width.min(tip.size.height), 10.0);
+            let bg = self
+                .mss
+                .background_color
+                .unwrap_or(Color::from_hex("#1E1F22"));
+            let radius = self
+                .mss
+                .border_radius_uniform(tip.size.width.min(tip.size.height), 10.0);
 
             if let Some(ref shadows) = self.mss.box_shadow {
                 for sh in &shadows.0 {
                     if !sh.inset {
-                        list.push_shadow(tip, sh.color, sh.blur_radius, (sh.offset_x, sh.offset_y), [radius; 4]);
+                        list.push_shadow(
+                            tip,
+                            sh.color,
+                            sh.blur_radius,
+                            (sh.offset_x, sh.offset_y),
+                            [radius; 4],
+                        );
                     }
                 }
             }
@@ -331,7 +382,12 @@ impl Element for TooltipElement {
                 let bw = self.mss.border_width.unwrap_or(1.0);
                 list.push_rect_bordered(tip, bg, [radius; 4], Border::new(bw, bc));
             } else {
-                list.push_rect_bordered(tip, bg, [radius; 4], Border::new(1.0, Color::from_hex("#3F4147")));
+                list.push_rect_bordered(
+                    tip,
+                    bg,
+                    [radius; 4],
+                    Border::new(1.0, Color::from_hex("#3F4147")),
+                );
             }
             list.push_clip(tip);
         }
@@ -346,14 +402,21 @@ impl Element for TooltipElement {
             return;
         }
 
-        if !self.visible { return; }
+        if !self.visible {
+            return;
+        }
 
         let tip = self.text_tooltip_rect();
-        let bg = self.mss.background_color.unwrap_or(Color::from_hex("#1E1F22"));
+        let bg = self
+            .mss
+            .background_color
+            .unwrap_or(Color::from_hex("#1E1F22"));
         let text_color = self.mss.color.unwrap_or(Color::WHITE);
         let font_size = self.mss.font_size_or(12.0);
         let font_weight = self.mss.font_weight_or(400);
-        let radius = self.mss.border_radius_uniform(tip.size.width.min(tip.size.height), 10.0);
+        let radius = self
+            .mss
+            .border_radius_uniform(tip.size.width.min(tip.size.height), 10.0);
         let pad_l = self.mss.padding_left.unwrap_or(8.0);
         let pad_t = self.mss.padding_top.unwrap_or(6.0);
         let line_height = font_size + 4.0;
@@ -362,7 +425,13 @@ impl Element for TooltipElement {
         if let Some(ref shadows) = self.mss.box_shadow {
             for sh in &shadows.0 {
                 if !sh.inset {
-                    list.push_shadow(tip, sh.color, sh.blur_radius, (sh.offset_x, sh.offset_y), [radius; 4]);
+                    list.push_shadow(
+                        tip,
+                        sh.color,
+                        sh.blur_radius,
+                        (sh.offset_x, sh.offset_y),
+                        [radius; 4],
+                    );
                 }
             }
         }
@@ -370,23 +439,37 @@ impl Element for TooltipElement {
             let bw = self.mss.border_width.unwrap_or(1.0);
             list.push_rect_bordered(tip, bg, [radius; 4], Border::new(bw, bc));
         } else {
-            list.push_rect_bordered(tip, bg, [radius; 4], Border::new(1.0, Color::from_hex("#3F4147")));
+            list.push_rect_bordered(
+                tip,
+                bg,
+                [radius; 4],
+                Border::new(1.0, Color::from_hex("#3F4147")),
+            );
         }
         let lines: Vec<&str> = self.text.lines().collect();
-        let max_h = self.mss.max_height
+        let max_h = self
+            .mss
+            .max_height
             .map(|d| d.resolve(self.bounds.size.height))
             .unwrap_or(f32::INFINITY);
         for (i, line) in lines.iter().enumerate() {
             let y = tip.y() + pad_t + i as f32 * line_height;
-            if y + line_height > tip.y() + max_h { break; }
+            if y + line_height > tip.y() + max_h {
+                break;
+            }
             let text_rect = Rect::new(
                 Point::new(tip.x() + pad_l, y),
                 Size::new(tip.size.width - pad_l * 2.0, line_height),
             );
             list.push_text_styled(
-                line, text_rect, text_color, font_size,
-                crate::mss::TextAlign::DEFAULT, crate::mss::TextDecoration::None,
-                font_weight, self.mss.font_family.clone(),
+                line,
+                text_rect,
+                text_color,
+                font_size,
+                crate::mss::TextAlign::DEFAULT,
+                crate::mss::TextDecoration::None,
+                font_weight,
+                self.mss.font_family.clone(),
             );
         }
         list.end_overlay();
@@ -445,31 +528,57 @@ impl Element for TooltipElement {
         }
     }
 
-    fn children(&self) -> &[ElementId] { &self.child_ids }
-    fn bounds(&self) -> Rect { self.bounds }
-    fn set_position(&mut self, pos: Point) { self.bounds.origin = pos; }
-    fn mark_dirty(&mut self, flags: DirtyFlags) { self.dirty_flags |= flags; }
-    fn clear_dirty(&mut self, flags: DirtyFlags) { self.dirty_flags.remove(flags); }
-    fn is_dirty(&self, flags: DirtyFlags) -> bool { self.dirty_flags.contains(flags) }
-    fn id(&self) -> ElementId { self.id }
-    fn set_id(&mut self, id: ElementId) { self.id = id; }
+    fn children(&self) -> &[ElementId] {
+        &self.child_ids
+    }
+    fn bounds(&self) -> Rect {
+        self.bounds
+    }
+    fn set_position(&mut self, pos: Point) {
+        self.bounds.origin = pos;
+    }
+    fn mark_dirty(&mut self, flags: DirtyFlags) {
+        self.dirty_flags |= flags;
+    }
+    fn clear_dirty(&mut self, flags: DirtyFlags) {
+        self.dirty_flags.remove(flags);
+    }
+    fn is_dirty(&self, flags: DirtyFlags) -> bool {
+        self.dirty_flags.contains(flags)
+    }
+    fn id(&self) -> ElementId {
+        self.id
+    }
+    fn set_id(&mut self, id: ElementId) {
+        self.id = id;
+    }
     fn mount(&mut self, tree: &mut ElementTree) {
         self.text_measure = tree.text_measure.clone();
     }
 
-    fn clip_content(&self) -> bool { false }
+    fn clip_content(&self) -> bool {
+        false
+    }
 
     fn set_classes(&mut self, classes: Vec<String>) {
         self.classes = classes;
         self.mark_dirty(DirtyFlags::RENDER);
     }
 
-    fn get_classes(&self) -> &[String] { &self.classes }
+    fn get_classes(&self) -> &[String] {
+        &self.classes
+    }
 
-    fn element_type_name(&self) -> &str { "Tooltip" }
+    fn element_type_name(&self) -> &str {
+        "Tooltip"
+    }
 
-    fn reset_mss_styles(&mut self) { self.mss.reset(); }
-    fn mss(&self) -> Option<&crate::mss::MssFields> { Some(&self.mss) }
+    fn reset_mss_styles(&mut self) {
+        self.mss.reset();
+    }
+    fn mss(&self) -> Option<&crate::mss::MssFields> {
+        Some(&self.mss)
+    }
     fn apply_computed_style(&mut self, style: &ComputedStyle) {
         self.mss.apply(style);
         self.mark_dirty(DirtyFlags::RENDER);
@@ -495,7 +604,9 @@ impl StyledElement for TooltipElement {
         self.mark_dirty(DirtyFlags::RENDER);
     }
 
-    fn classes(&self) -> &[String] { &self.classes }
+    fn classes(&self) -> &[String] {
+        &self.classes
+    }
 
     fn set_classes(&mut self, classes: Vec<String>) {
         self.classes = classes;

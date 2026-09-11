@@ -1,10 +1,10 @@
 mod element;
 
-use std::sync::Arc;
 use crate::core::sync::Mutex;
 use crate::core::Point;
 use crate::signal::{use_signal, RwSignal};
 use crate::widgets::input::edit_menu::EditMenuAction;
+use std::sync::Arc;
 
 pub struct MultilineTextEdit {
     pub text: String,

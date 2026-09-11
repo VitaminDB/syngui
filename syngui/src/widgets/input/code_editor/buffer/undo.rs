@@ -53,7 +53,10 @@ impl UndoStack {
                 cursors_after,
             });
         } else {
-            let group = self.current.as_mut().expect("group must exist when not on boundary");
+            let group = self
+                .current
+                .as_mut()
+                .expect("group must exist when not on boundary");
             group.edits.push(inverse);
             group.cursors_after = cursors_after;
         }

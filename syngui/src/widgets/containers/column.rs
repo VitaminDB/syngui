@@ -1,12 +1,14 @@
+use super::IntoWidget;
 use crate::core::{Point, Rect, Size};
 use crate::input::{Event, EventResult};
 use crate::layout::Constraints;
-use crate::layout::{MainAxisAlignment, CrossAxisAlignment};
-use crate::mss::{ComputedStyle, Dimension};
+use crate::layout::{CrossAxisAlignment, MainAxisAlignment};
 use crate::mss::MssFields;
+use crate::mss::{ComputedStyle, Dimension};
 use crate::render::DisplayList;
-use crate::widget::{DirtyFlags, Element, ElementId, ElementTree, LayoutHint, StyledElement, UpdateContext, Widget};
-use super::IntoWidget;
+use crate::widget::{
+    DirtyFlags, Element, ElementId, ElementTree, LayoutHint, StyledElement, UpdateContext, Widget,
+};
 use std::any::Any;
 
 pub struct Column {
@@ -134,13 +136,17 @@ impl Widget for Column {
     fn mount(&self, tree: &mut ElementTree, parent_id: ElementId) {
         for child in &self.children {
             let child_element = child.create_element();
-            let child_id = tree.insert_with_type_id(child_element, Some(parent_id), child.as_any().type_id());
+            let child_id =
+                tree.insert_with_type_id(child_element, Some(parent_id), child.as_any().type_id());
             child.mount(tree, child_id);
         }
     }
 
     fn child_widgets(&self) -> Vec<&dyn Widget> {
-        self.children.iter().map(|c| c.as_ref() as &dyn Widget).collect()
+        self.children
+            .iter()
+            .map(|c| c.as_ref() as &dyn Widget)
+            .collect()
     }
 
     fn widget_classes(&self) -> &[String] {
@@ -193,7 +199,8 @@ impl Element for ColumnElement {
             constraints.min_width.max(40.0)
         };
         let height = if let Some(ref d) = self.mss.height {
-            d.resolve(constraints.max_height).min(constraints.max_height)
+            d.resolve(constraints.max_height)
+                .min(constraints.max_height)
         } else if constraints.max_height.is_finite() {
             constraints.max_height
         } else {
@@ -218,21 +225,31 @@ impl Element for ColumnElement {
         }
     }
 
-    fn explicit_dimensions(&self, parent_width: f32, parent_height: f32) -> (Option<f32>, Option<f32>) {
+    fn explicit_dimensions(
+        &self,
+        parent_width: f32,
+        parent_height: f32,
+    ) -> (Option<f32>, Option<f32>) {
         (
             self.mss.width.and_then(|d| d.resolve_opt(parent_width)),
             self.mss.height.and_then(|d| d.resolve_opt(parent_height)),
         )
     }
 
-    fn min_max_dimensions(&self, parent_width: f32, parent_height: f32)
-        -> (Option<f32>, Option<f32>, Option<f32>, Option<f32>)
-    {
+    fn min_max_dimensions(
+        &self,
+        parent_width: f32,
+        parent_height: f32,
+    ) -> (Option<f32>, Option<f32>, Option<f32>, Option<f32>) {
         (
             self.mss.min_width.and_then(|d| d.resolve_opt(parent_width)),
             self.mss.max_width.and_then(|d| d.resolve_opt(parent_width)),
-            self.mss.min_height.and_then(|d| d.resolve_opt(parent_height)),
-            self.mss.max_height.and_then(|d| d.resolve_opt(parent_height)),
+            self.mss
+                .min_height
+                .and_then(|d| d.resolve_opt(parent_height)),
+            self.mss
+                .max_height
+                .and_then(|d| d.resolve_opt(parent_height)),
         )
     }
 
@@ -244,11 +261,17 @@ impl Element for ColumnElement {
         self.mss.paint_border(list, self.bounds);
     }
 
-    fn handle_event(&mut self, _event: &Event, _ctx: &mut crate::widget::context::EventContext) -> EventResult {
+    fn handle_event(
+        &mut self,
+        _event: &Event,
+        _ctx: &mut crate::widget::context::EventContext,
+    ) -> EventResult {
         EventResult::Ignored
     }
 
-    fn passthrough_hit_test(&self) -> bool { true }
+    fn passthrough_hit_test(&self) -> bool {
+        true
+    }
 
     fn children(&self) -> &[ElementId] {
         &self.child_ids
@@ -284,7 +307,9 @@ impl Element for ColumnElement {
 
     fn mount(&mut self, _tree: &mut ElementTree) {}
 
-    fn clip_content(&self) -> bool { self.clip }
+    fn clip_content(&self) -> bool {
+        self.clip
+    }
 
     fn set_classes(&mut self, classes: Vec<String>) {
         self.classes = classes;
@@ -295,8 +320,12 @@ impl Element for ColumnElement {
         &self.classes
     }
 
-    fn reset_mss_styles(&mut self) { self.mss.reset(); }
-    fn mss(&self) -> Option<&crate::mss::MssFields> { Some(&self.mss) }
+    fn reset_mss_styles(&mut self) {
+        self.mss.reset();
+    }
+    fn mss(&self) -> Option<&crate::mss::MssFields> {
+        Some(&self.mss)
+    }
     fn apply_computed_style(&mut self, style: &ComputedStyle) {
         self.mss.apply(style);
         if self.mss.width.is_none() {
@@ -311,7 +340,9 @@ impl Element for ColumnElement {
         self.mark_dirty(DirtyFlags::LAYOUT | DirtyFlags::RENDER);
     }
 
-    fn element_type_name(&self) -> &str { "Column" }
+    fn element_type_name(&self) -> &str {
+        "Column"
+    }
 }
 
 impl StyledElement for ColumnElement {

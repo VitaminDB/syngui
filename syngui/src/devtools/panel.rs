@@ -1,6 +1,6 @@
+use super::DevToolsTab;
 use crate::core::{Color, Point, Rect, Size};
 use crate::render::DisplayList;
-use super::DevToolsTab;
 
 pub const PANEL_MIN_WIDTH: f32 = 250.0;
 pub const PANEL_MAX_WIDTH: f32 = 600.0;
@@ -49,7 +49,10 @@ pub fn panel_rect(surface_size: Size, panel_width: f32) -> Rect {
 
 pub fn content_rect(panel: Rect) -> Rect {
     Rect::new(
-        Point::new(panel.origin.x + PADDING, panel.origin.y + TAB_BAR_HEIGHT + 1.0),
+        Point::new(
+            panel.origin.x + PADDING,
+            panel.origin.y + TAB_BAR_HEIGHT + 1.0,
+        ),
         Size::new(
             panel.size.width - PADDING * 2.0,
             panel.size.height - TAB_BAR_HEIGHT - 1.0,
@@ -77,7 +80,10 @@ pub fn render_tab_bar(list: &mut DisplayList, panel: Rect, active_tab: &DevTools
     let tab_width = panel.size.width / tabs.len() as f32;
     for (i, (tab, label)) in tabs.iter().enumerate() {
         let x = panel.origin.x + i as f32 * tab_width;
-        let tab_rect = Rect::new(Point::new(x, panel.origin.y), Size::new(tab_width, TAB_BAR_HEIGHT));
+        let tab_rect = Rect::new(
+            Point::new(x, panel.origin.y),
+            Size::new(tab_width, TAB_BAR_HEIGHT),
+        );
 
         if std::mem::discriminant(tab) == std::mem::discriminant(active_tab) {
             list.push_rect(tab_rect, TAB_ACTIVE_BG, [0.0; 4]);

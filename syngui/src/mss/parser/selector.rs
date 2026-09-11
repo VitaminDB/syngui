@@ -10,7 +10,10 @@ enum SelectorToken {
     PseudoOnly(String),
 }
 
-pub(super) fn parse_selector_chains(cursor: &ParserCursor, s: &str) -> Result<Vec<SelectorChain>, ParseError> {
+pub(super) fn parse_selector_chains(
+    cursor: &ParserCursor,
+    s: &str,
+) -> Result<Vec<SelectorChain>, ParseError> {
     let s = s.trim();
     if s.is_empty() {
         return Err(ParseError::EmptySelector(cursor.line));
@@ -21,7 +24,9 @@ pub(super) fn parse_selector_chains(cursor: &ParserCursor, s: &str) -> Result<Ve
 
     for part in parts {
         let part = part.trim();
-        if part.is_empty() { continue; }
+        if part.is_empty() {
+            continue;
+        }
         chains.push(parse_single_chain(cursor, part)?);
     }
 
@@ -166,7 +171,9 @@ fn tokenize_selector(cursor: &ParserCursor, s: &str) -> Result<Vec<SelectorToken
         while pos < chars.len() && chars[pos].is_whitespace() {
             pos += 1;
         }
-        if pos >= chars.len() { break; }
+        if pos >= chars.len() {
+            break;
+        }
 
         let c = chars[pos];
 
@@ -189,7 +196,9 @@ fn tokenize_selector(cursor: &ParserCursor, s: &str) -> Result<Vec<SelectorToken
         if c == '.' {
             pos += 1;
             let start = pos;
-            while pos < chars.len() && (chars[pos].is_alphanumeric() || chars[pos] == '-' || chars[pos] == '_') {
+            while pos < chars.len()
+                && (chars[pos].is_alphanumeric() || chars[pos] == '-' || chars[pos] == '_')
+            {
                 pos += 1;
             }
             let name: String = chars[start..pos].iter().collect();
@@ -199,7 +208,9 @@ fn tokenize_selector(cursor: &ParserCursor, s: &str) -> Result<Vec<SelectorToken
             if pos < chars.len() && chars[pos] == ':' {
                 pos += 1;
                 let ps_start = pos;
-                while pos < chars.len() && (chars[pos].is_alphanumeric() || chars[pos] == '-' || chars[pos] == '_') {
+                while pos < chars.len()
+                    && (chars[pos].is_alphanumeric() || chars[pos] == '-' || chars[pos] == '_')
+                {
                     pos += 1;
                 }
                 let pseudo: String = chars[ps_start..pos].iter().collect();
@@ -214,7 +225,9 @@ fn tokenize_selector(cursor: &ParserCursor, s: &str) -> Result<Vec<SelectorToken
         if c == '#' {
             pos += 1;
             let start = pos;
-            while pos < chars.len() && (chars[pos].is_alphanumeric() || chars[pos] == '-' || chars[pos] == '_') {
+            while pos < chars.len()
+                && (chars[pos].is_alphanumeric() || chars[pos] == '-' || chars[pos] == '_')
+            {
                 pos += 1;
             }
             let name: String = chars[start..pos].iter().collect();
@@ -232,18 +245,25 @@ fn tokenize_selector(cursor: &ParserCursor, s: &str) -> Result<Vec<SelectorToken
 
         if c.is_alphabetic() {
             let start = pos;
-            while pos < chars.len() && (chars[pos].is_alphanumeric() || chars[pos] == '-' || chars[pos] == '_') {
+            while pos < chars.len()
+                && (chars[pos].is_alphanumeric() || chars[pos] == '-' || chars[pos] == '_')
+            {
                 pos += 1;
             }
             let name: String = chars[start..pos].iter().collect();
             if pos < chars.len() && chars[pos] == ':' {
                 pos += 1;
                 let ps_start = pos;
-                while pos < chars.len() && (chars[pos].is_alphanumeric() || chars[pos] == '-' || chars[pos] == '_') {
+                while pos < chars.len()
+                    && (chars[pos].is_alphanumeric() || chars[pos] == '-' || chars[pos] == '_')
+                {
                     pos += 1;
                 }
                 let pseudo: String = chars[ps_start..pos].iter().collect();
-                tokens.push(SelectorToken::PartPseudo(SelectorPart::Element(name), pseudo));
+                tokens.push(SelectorToken::PartPseudo(
+                    SelectorPart::Element(name),
+                    pseudo,
+                ));
             } else {
                 tokens.push(SelectorToken::Part(SelectorPart::Element(name)));
             }
@@ -254,7 +274,9 @@ fn tokenize_selector(cursor: &ParserCursor, s: &str) -> Result<Vec<SelectorToken
         if c == ':' {
             pos += 1;
             let ps_start = pos;
-            while pos < chars.len() && (chars[pos].is_alphanumeric() || chars[pos] == '-' || chars[pos] == '_') {
+            while pos < chars.len()
+                && (chars[pos].is_alphanumeric() || chars[pos] == '-' || chars[pos] == '_')
+            {
                 pos += 1;
             }
             let pseudo: String = chars[ps_start..pos].iter().collect();
@@ -269,7 +291,9 @@ fn tokenize_selector(cursor: &ParserCursor, s: &str) -> Result<Vec<SelectorToken
 }
 
 fn maybe_insert_descendant(chars: &[char], pos: usize, tokens: &mut Vec<SelectorToken>) {
-    if pos >= chars.len() { return; }
+    if pos >= chars.len() {
+        return;
+    }
     let next_immediate = chars[pos];
     if matches!(next_immediate, '.' | '#') {
         return;
@@ -278,7 +302,9 @@ fn maybe_insert_descendant(chars: &[char], pos: usize, tokens: &mut Vec<Selector
     while p < chars.len() && chars[p].is_whitespace() {
         p += 1;
     }
-    if p >= chars.len() { return; }
+    if p >= chars.len() {
+        return;
+    }
     let next = chars[p];
     if matches!(next, '.' | '#' | '*') || next.is_alphabetic() {
         if !matches!(tokens.last(), Some(SelectorToken::Combinator(_))) {
@@ -293,18 +319,34 @@ pub(super) fn merge_into_compound(existing: SelectorPart, next: SelectorPart) ->
         SelectorPart::Class(c) => (None, None, vec![c]),
         SelectorPart::Id(i) => (None, Some(i), Vec::new()),
         SelectorPart::Universal => (None, None, Vec::new()),
-        SelectorPart::Compound { element, id, classes } => (element, id, classes),
+        SelectorPart::Compound {
+            element,
+            id,
+            classes,
+        } => (element, id, classes),
     };
     match next {
         SelectorPart::Element(e) => element = Some(e),
         SelectorPart::Class(c) => classes.push(c),
         SelectorPart::Id(i) => id = Some(i),
         SelectorPart::Universal => {}
-        SelectorPart::Compound { element: e, id: i, classes: c } => {
-            if e.is_some() { element = e; }
-            if i.is_some() { id = i; }
+        SelectorPart::Compound {
+            element: e,
+            id: i,
+            classes: c,
+        } => {
+            if e.is_some() {
+                element = e;
+            }
+            if i.is_some() {
+                id = i;
+            }
             classes.extend(c);
         }
     }
-    SelectorPart::Compound { element, id, classes }
+    SelectorPart::Compound {
+        element,
+        id,
+        classes,
+    }
 }

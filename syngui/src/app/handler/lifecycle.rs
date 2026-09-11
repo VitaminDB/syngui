@@ -1,12 +1,12 @@
-use std::sync::Arc;
+use super::AppHandler;
 use crate::gpu::{GpuContext, Renderer};
 use crate::window::{Window, WindowBuilder};
-use super::AppHandler;
+use std::sync::Arc;
 
 #[cfg(feature = "accessibility")]
-use super::SynGuiActivationHandler;
-#[cfg(feature = "accessibility")]
 use super::SynGuiActionHandler;
+#[cfg(feature = "accessibility")]
+use super::SynGuiActivationHandler;
 #[cfg(feature = "accessibility")]
 use super::SynGuiDeactivationHandler;
 
@@ -14,7 +14,9 @@ impl AppHandler {
     pub(in crate::app) fn init(&mut self, event_loop: &winit::event_loop::ActiveEventLoop) {
         #[cfg(feature = "splash")]
         if let Some(ref splash_config) = self.config.splash_config {
-            if let Some(splash) = super::super::splash::SplashWindow::create(event_loop, splash_config) {
+            if let Some(splash) =
+                super::super::splash::SplashWindow::create(event_loop, splash_config)
+            {
                 splash.wait_and_close();
             }
         }
@@ -38,8 +40,7 @@ impl AppHandler {
             .with_fullscreen(self.config.fullscreen);
 
         #[cfg(target_os = "android")]
-        let window_builder = WindowBuilder::new()
-            .with_title(&self.config.title);
+        let window_builder = WindowBuilder::new().with_title(&self.config.title);
 
         let window = Arc::new(Window::new(event_loop, window_builder));
         // Веб: пропуск F-клавиш браузеру — до того, как canvas получит фокус.
@@ -64,10 +65,8 @@ impl AppHandler {
         #[cfg(all(feature = "wayland-dnd", target_os = "linux"))]
         if self.wayland_dnd_handle.is_none() {
             if let Some(proxy) = self.event_loop_proxy.clone() {
-                self.wayland_dnd_handle = super::super::wayland_dnd::try_start_wayland_dnd(
-                    window.clone(),
-                    proxy,
-                );
+                self.wayland_dnd_handle =
+                    super::super::wayland_dnd::try_start_wayland_dnd(window.clone(), proxy);
             }
         }
 
@@ -119,7 +118,8 @@ impl AppHandler {
             let power = self.config.gpu_power;
             wasm_bindgen_futures::spawn_local(async move {
                 web_sys::console::log_1(&"[syngui] create_gpu_async started".into());
-                let gpu = AppHandler::create_gpu_async(&window_clone, vsync, backend, power, false).await;
+                let gpu =
+                    AppHandler::create_gpu_async(&window_clone, vsync, backend, power, false).await;
                 web_sys::console::log_1(&"[syngui] GPU context created, storing...".into());
                 *pending.borrow_mut() = Some(gpu);
                 window_clone.request_redraw();
@@ -180,9 +180,14 @@ impl AppHandler {
 
     #[allow(dead_code)]
     pub(in crate::app) fn recreate_surface(&mut self) {
-        let window = self.window.as_ref().expect("Window must exist for surface recreation");
+        let window = self
+            .window
+            .as_ref()
+            .expect("Window must exist for surface recreation");
         if let Some(gpu) = self.gpu.as_mut() {
-            let new_surface = gpu.shared.instance
+            let new_surface = gpu
+                .shared
+                .instance
                 .create_surface(window.clone())
                 .expect("Failed to recreate surface");
 
@@ -335,9 +340,15 @@ impl AppHandler {
             });
 
             let mut flags = 0u8;
-            if maximized  { flags |= wf::MAXIMIZED;  }
-            if fullscreen { flags |= wf::FULLSCREEN; }
-            if focused    { flags |= wf::FOCUSED;    }
+            if maximized {
+                flags |= wf::MAXIMIZED;
+            }
+            if fullscreen {
+                flags |= wf::FULLSCREEN;
+            }
+            if focused {
+                flags |= wf::FOCUSED;
+            }
             if !self.tree.set_window_flags(flags) {
                 return;
             }
@@ -357,7 +368,10 @@ impl AppHandler {
         #[cfg(target_arch = "wasm32")]
         web_sys::console::log_1(&"[syngui] complete_gpu_init called".into());
 
-        let window = self.window.as_ref().expect("Window must exist before GPU init");
+        let window = self
+            .window
+            .as_ref()
+            .expect("Window must exist before GPU init");
 
         #[cfg(target_arch = "wasm32")]
         let (phys_w, phys_h) = {
@@ -385,19 +399,39 @@ impl AppHandler {
         let logical_w = (phys_w as f64 / self.scale_factor).max(1.0) as u32;
         let logical_h = (phys_h as f64 / self.scale_factor).max(1.0) as u32;
         #[cfg(target_arch = "wasm32")]
-        web_sys::console::log_1(&format!("[syngui] creating renderer {}x{} (logical {}x{})", phys_w, phys_h, logical_w, logical_h).into());
+        web_sys::console::log_1(
+            &format!(
+                "[syngui] creating renderer {}x{} (logical {}x{})",
+                phys_w, phys_h, logical_w, logical_h
+            )
+            .into(),
+        );
 
         let surface_format = gpu.window_surface.surface_config.format;
         #[allow(unused_mut)]
-        let mut renderer = Renderer::new(&gpu.shared, surface_format, phys_w, phys_h, logical_w, logical_h, self.config.font_family.clone());
+        let mut renderer = Renderer::new(
+            &gpu.shared,
+            surface_format,
+            phys_w,
+            phys_h,
+            logical_w,
+            logical_h,
+            self.config.font_family.clone(),
+        );
 
         renderer.set_staging_belt(self.config.staging_belt, &gpu.shared.device);
 
         #[cfg(target_arch = "wasm32")]
         web_sys::console::log_1(&"[syngui] renderer created, setting up tree".into());
 
-        self.tree.text_measure = Some(renderer.font_atlas.clone() as std::sync::Arc<dyn crate::widget::context::TextMeasure>);
-        renderer.font_atlas.lock().unwrap().set_scale_factor(self.scale_factor as f32);
+        self.tree.text_measure =
+            Some(renderer.font_atlas.clone()
+                as std::sync::Arc<dyn crate::widget::context::TextMeasure>);
+        renderer
+            .font_atlas
+            .lock()
+            .unwrap()
+            .set_scale_factor(self.scale_factor as f32);
 
         self.tree.image_store = Some(renderer.image_store.clone());
 
@@ -408,7 +442,11 @@ impl AppHandler {
         }
 
         if let Some(icon_data) = self.config.icon_font_data {
-            renderer.font_atlas.lock().unwrap().set_icon_font_data(icon_data.to_vec());
+            renderer
+                .font_atlas
+                .lock()
+                .unwrap()
+                .set_icon_font_data(icon_data.to_vec());
         }
 
         self.gpu = Some(gpu);
@@ -427,12 +465,17 @@ impl AppHandler {
         self.start_appearance_watcher();
         self.start_backdrop_effect();
 
-        #[cfg(all(feature = "tray", not(target_arch = "wasm32"), not(target_os = "android")))]
+        #[cfg(all(
+            feature = "tray",
+            not(target_arch = "wasm32"),
+            not(target_os = "android")
+        ))]
         {
             if self.tray.is_none() {
-                if let (Some(cfg), Some(proxy)) =
-                    (self.config.tray_config.clone(), self.event_loop_proxy.clone())
-                {
+                if let (Some(cfg), Some(proxy)) = (
+                    self.config.tray_config.clone(),
+                    self.event_loop_proxy.clone(),
+                ) {
                     match super::super::tray::TrayManager::start(cfg, proxy) {
                         Ok(manager) => self.tray = Some(manager),
                         Err(e) => eprintln!("[syngui] system tray unavailable: {e}"),
@@ -460,7 +503,9 @@ impl AppHandler {
         }
 
         #[cfg(target_arch = "wasm32")]
-        web_sys::console::log_1(&"[syngui] signals registered, deferring root widget until font loads".into());
+        web_sys::console::log_1(
+            &"[syngui] signals registered, deferring root widget until font loads".into(),
+        );
 
         #[cfg(not(target_arch = "wasm32"))]
         {
@@ -494,8 +539,10 @@ impl AppHandler {
                 layout_h,
             ));
             let constraints = crate::layout::Constraints::new(
-                0.0, logical_w - safe.left - safe.right,
-                0.0, layout_h,
+                0.0,
+                logical_w - safe.left - safe.right,
+                0.0,
+                layout_h,
             );
             self.tree.layout(root_id, constraints);
 
@@ -512,7 +559,6 @@ impl AppHandler {
                 }
             }
         }
-
     }
 
     async fn create_gpu_async(
@@ -553,34 +599,38 @@ impl AppHandler {
             ..Default::default()
         });
 
-        let surface = instance.create_surface(window.clone()).expect("Failed to create surface");
+        let surface = instance
+            .create_surface(window.clone())
+            .expect("Failed to create surface");
 
-        let adapter = instance.request_adapter(&wgpu::RequestAdapterOptions {
-            power_preference,
-            compatible_surface: Some(&surface),
-            force_fallback_adapter: false,
-        }).await.expect("Failed to find suitable adapter");
+        let adapter = instance
+            .request_adapter(&wgpu::RequestAdapterOptions {
+                power_preference,
+                compatible_surface: Some(&surface),
+                force_fallback_adapter: false,
+            })
+            .await
+            .expect("Failed to find suitable adapter");
 
         let limits = if cfg!(target_arch = "wasm32") {
-            wgpu::Limits::downlevel_webgl2_defaults()
-                .using_resolution(adapter.limits())
+            wgpu::Limits::downlevel_webgl2_defaults().using_resolution(adapter.limits())
         } else if cfg!(target_os = "android") {
-            wgpu::Limits::downlevel_webgl2_defaults()
-                .using_resolution(adapter.limits())
+            wgpu::Limits::downlevel_webgl2_defaults().using_resolution(adapter.limits())
         } else {
             wgpu::Limits::default()
         };
 
-        let (device, queue) = adapter.request_device(
-            &wgpu::DeviceDescriptor {
+        let (device, queue) = adapter
+            .request_device(&wgpu::DeviceDescriptor {
                 required_features: wgpu::Features::empty(),
                 required_limits: limits,
                 label: Some("GPU Device"),
                 memory_hints: wgpu::MemoryHints::Performance,
                 trace: wgpu::Trace::Off,
                 experimental_features: wgpu::ExperimentalFeatures::disabled(),
-            },
-        ).await.expect("Failed to create device");
+            })
+            .await
+            .expect("Failed to create device");
 
         let surface_caps = surface.get_capabilities(&adapter);
         let surface_format = surface_caps
@@ -594,9 +644,15 @@ impl AppHandler {
         let width = width.max(1);
         let height = height.max(1);
         let alpha_mode = if transparent {
-            if surface_caps.alpha_modes.contains(&wgpu::CompositeAlphaMode::PreMultiplied) {
+            if surface_caps
+                .alpha_modes
+                .contains(&wgpu::CompositeAlphaMode::PreMultiplied)
+            {
                 wgpu::CompositeAlphaMode::PreMultiplied
-            } else if surface_caps.alpha_modes.contains(&wgpu::CompositeAlphaMode::PostMultiplied) {
+            } else if surface_caps
+                .alpha_modes
+                .contains(&wgpu::CompositeAlphaMode::PostMultiplied)
+            {
                 wgpu::CompositeAlphaMode::PostMultiplied
             } else {
                 surface_caps.alpha_modes[0]
@@ -644,11 +700,16 @@ fn resolve_initial_size(
     width_ratio: Option<f32>,
     height_ratio: Option<f32>,
 ) -> (u32, u32) {
-    let monitor = event_loop.primary_monitor().or_else(|| event_loop.available_monitors().next());
+    let monitor = event_loop
+        .primary_monitor()
+        .or_else(|| event_loop.available_monitors().next());
     let monitor_logical = monitor.map(|m| {
         let size = m.size();
         let sf = m.scale_factor().max(0.1);
-        ((size.width as f64 / sf) as f32, (size.height as f64 / sf) as f32)
+        (
+            (size.width as f64 / sf) as f32,
+            (size.height as f64 / sf) as f32,
+        )
     });
     let w = match (width_ratio, monitor_logical) {
         (Some(r), Some((mw, _))) => (mw * r).round().max(1.0) as u32,

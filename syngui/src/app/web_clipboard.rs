@@ -36,19 +36,16 @@ pub(crate) fn install(canvas: web_sys::HtmlCanvasElement) {
         return;
     };
 
-    let keydown = Closure::<dyn FnMut(web_sys::KeyboardEvent)>::new(
-        |event: web_sys::KeyboardEvent| {
+    let keydown =
+        Closure::<dyn FnMut(web_sys::KeyboardEvent)>::new(|event: web_sys::KeyboardEvent| {
             if !event.is_trusted() {
                 return;
             }
-            if (event.ctrl_key() || event.meta_key())
-                && !event.alt_key()
-                && event.code() == "KeyV"
+            if (event.ctrl_key() || event.meta_key()) && !event.alt_key() && event.code() == "KeyV"
             {
                 event.stop_propagation();
             }
-        },
-    );
+        });
     if let Err(err) = window.add_event_listener_with_callback_and_bool(
         "keydown",
         keydown.as_ref().unchecked_ref(),
@@ -58,8 +55,8 @@ pub(crate) fn install(canvas: web_sys::HtmlCanvasElement) {
     }
     keydown.forget();
 
-    let paste = Closure::<dyn FnMut(web_sys::ClipboardEvent)>::new(
-        |event: web_sys::ClipboardEvent| {
+    let paste =
+        Closure::<dyn FnMut(web_sys::ClipboardEvent)>::new(|event: web_sys::ClipboardEvent| {
             let Some(data) = event.clipboard_data() else {
                 return;
             };
@@ -84,20 +81,19 @@ pub(crate) fn install(canvas: web_sys::HtmlCanvasElement) {
                 init.set_ctrl_key(true);
                 init.set_bubbles(true);
                 init.set_cancelable(true);
-                let Ok(synthetic) = web_sys::KeyboardEvent::new_with_keyboard_event_init_dict(
-                    "keydown", &init,
-                ) else {
+                let Ok(synthetic) =
+                    web_sys::KeyboardEvent::new_with_keyboard_event_init_dict("keydown", &init)
+                else {
                     return;
                 };
                 let _ = canvas.dispatch_event(&synthetic);
-                if let Ok(up) = web_sys::KeyboardEvent::new_with_keyboard_event_init_dict(
-                    "keyup", &init,
-                ) {
+                if let Ok(up) =
+                    web_sys::KeyboardEvent::new_with_keyboard_event_init_dict("keyup", &init)
+                {
                     let _ = canvas.dispatch_event(&up);
                 }
             });
-        },
-    );
+        });
     if let Err(err) =
         window.add_event_listener_with_callback("paste", paste.as_ref().unchecked_ref())
     {

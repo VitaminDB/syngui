@@ -125,7 +125,9 @@ impl VideoPlayer {
 
     pub fn set_volume(&self, v: f32) {
         let v = v.clamp(0.0, 1.0);
-        self.shared.volume_bits.store(v.to_bits(), Ordering::Relaxed);
+        self.shared
+            .volume_bits
+            .store(v.to_bits(), Ordering::Relaxed);
         if let Some(p) = &self.audio {
             p.set_volume(v);
         }
@@ -255,7 +257,11 @@ impl VideoPlayer {
         let rx = self.decoder.install_audio_tee()?;
         let meta = self.decoder.meta();
         let sr = self.decoder.audio_output_sr();
-        Some(AudioStream::from_channel(rx, sr, meta.audio_channels.max(1)))
+        Some(AudioStream::from_channel(
+            rx,
+            sr,
+            meta.audio_channels.max(1),
+        ))
     }
 
     pub fn uninstall_tees(&self) {

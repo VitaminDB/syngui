@@ -44,7 +44,10 @@ mod tests {
     fn skips_comments_and_blanks() {
         let txt = "# comment line\r\n\r\nfile:///a.txt\r\n# another\r\nfile:///b.txt\r\n";
         let paths = parse_uri_list(txt);
-        assert_eq!(paths, vec![PathBuf::from("/a.txt"), PathBuf::from("/b.txt")]);
+        assert_eq!(
+            paths,
+            vec![PathBuf::from("/a.txt"), PathBuf::from("/b.txt")]
+        );
     }
 
     #[test]

@@ -67,18 +67,30 @@ pub fn layout_inline_text(
 ) -> InlineLayout {
     let line_h = style.line_h(base_size);
     let max_width = max_width.max(base_size); // Защита от вырожденной ширины.
-    let mut lines: Vec<LineBox> = vec![LineBox { y: 0.0, height: line_h, segs: Vec::new() }];
+    let mut lines: Vec<LineBox> = vec![LineBox {
+        y: 0.0,
+        height: line_h,
+        segs: Vec::new(),
+    }];
     let mut x = 0.0f32;
 
     let new_line = |lines: &mut Vec<LineBox>, x: &mut f32| {
         let y = lines.len() as f32 * line_h;
-        lines.push(LineBox { y, height: line_h, segs: Vec::new() });
+        lines.push(LineBox {
+            y,
+            height: line_h,
+            segs: Vec::new(),
+        });
         *x = 0.0;
     };
 
     for (run_idx, run) in text.0.iter().enumerate() {
         let seg_style = SegStyle {
-            font_size: if run.style.code { style.code_font_size } else { base_size },
+            font_size: if run.style.code {
+                style.code_font_size
+            } else {
+                base_size
+            },
             bold: run.style.bold || force_bold,
             italic: run.style.italic,
             strike: run.style.strike,
@@ -111,7 +123,9 @@ pub fn layout_inline_text(
             let part_w = measure(part);
             if x + part_w <= max_width {
                 // Часть помещается целиком.
-                push_seg(&mut lines, &mut x, part, part_w, run_idx, byte_pos, &seg_style);
+                push_seg(
+                    &mut lines, &mut x, part, part_w, run_idx, byte_pos, &seg_style,
+                );
                 byte_pos += part.len();
                 continue;
             }
@@ -123,7 +137,9 @@ pub fn layout_inline_text(
                 if x + ww > max_width && x > 0.0 {
                     new_line(&mut lines, &mut x);
                 }
-                push_seg(&mut lines, &mut x, word, ww, run_idx, word_start, &seg_style);
+                push_seg(
+                    &mut lines, &mut x, word, ww, run_idx, word_start, &seg_style,
+                );
                 word_start += word.len();
             }
             byte_pos += part.len();
@@ -184,7 +200,10 @@ mod tests {
     }
 
     fn style() -> DocStyle {
-        DocStyle { line_height: 2.0, ..DocStyle::default() }
+        DocStyle {
+            line_height: 2.0,
+            ..DocStyle::default()
+        }
     }
 
     #[test]
@@ -203,9 +222,8 @@ mod tests {
         let t = InlineText::plain("привет мир небо");
         let l = layout_inline_text(&t, 10.0, false, 100.0, &style(), &Mono);
         assert_eq!(l.lines.len(), 2);
-        let line_text = |i: usize| -> String {
-            l.lines[i].segs.iter().map(|s| s.text.as_str()).collect()
-        };
+        let line_text =
+            |i: usize| -> String { l.lines[i].segs.iter().map(|s| s.text.as_str()).collect() };
         assert_eq!(line_text(0), "привет ");
         assert_eq!(line_text(1), "мир небо");
     }

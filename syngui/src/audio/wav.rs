@@ -1,5 +1,5 @@
 use std::fs::File;
-use std::io::{BufWriter, Cursor, Write, Seek};
+use std::io::{BufWriter, Cursor, Seek, Write};
 use std::path::{Path, PathBuf};
 
 use hound::{SampleFormat, WavSpec, WavWriter};
@@ -29,8 +29,7 @@ impl WavStreamWriter {
             bits_per_sample: 16,
             sample_format: SampleFormat::Int,
         };
-        let writer =
-            WavWriter::new(buf, spec).map_err(|e| AudioError::Wav(e.to_string()))?;
+        let writer = WavWriter::new(buf, spec).map_err(|e| AudioError::Wav(e.to_string()))?;
         Ok(Self {
             inner: WriterImpl::Open {
                 writer,
@@ -43,7 +42,11 @@ impl WavStreamWriter {
     }
 
     pub fn write_chunk(&mut self, samples: &[f32]) -> Result<(), AudioError> {
-        let WriterImpl::Open { writer, samples_written } = &mut self.inner else {
+        let WriterImpl::Open {
+            writer,
+            samples_written,
+        } = &mut self.inner
+        else {
             return Err(AudioError::Wav("writer уже finalize'нут".into()));
         };
         for s in samples {
@@ -59,16 +62,18 @@ impl WavStreamWriter {
     pub fn finalize(&mut self) -> Result<(), AudioError> {
         let prev = std::mem::replace(&mut self.inner, WriterImpl::Closed);
         match prev {
-            WriterImpl::Open { writer, .. } => {
-                writer.finalize().map_err(|e| AudioError::Wav(e.to_string()))
-            }
+            WriterImpl::Open { writer, .. } => writer
+                .finalize()
+                .map_err(|e| AudioError::Wav(e.to_string())),
             WriterImpl::Closed => Err(AudioError::Wav("writer уже finalize'нут".into())),
         }
     }
 
     pub fn samples_written(&self) -> u64 {
         match &self.inner {
-            WriterImpl::Open { samples_written, .. } => *samples_written,
+            WriterImpl::Open {
+                samples_written, ..
+            } => *samples_written,
             WriterImpl::Closed => 0,
         }
     }
@@ -95,7 +100,10 @@ impl Drop for WavStreamWriter {
 }
 
 enum WriterImpl<W: Write + Seek> {
-    Open { writer: WavWriter<W>, samples_written: u64 },
+    Open {
+        writer: WavWriter<W>,
+        samples_written: u64,
+    },
     Closed,
 }
 
@@ -109,7 +117,8 @@ pub fn into_pcm16_bytes(samples: &[f32], sample_rate: u32) -> Result<Vec<u8>, Au
     let mut buf: Vec<u8> = Vec::with_capacity(samples.len() * 2 + 64);
     {
         let cursor = Cursor::new(&mut buf);
-        let mut writer = WavWriter::new(cursor, spec).map_err(|e| AudioError::Wav(e.to_string()))?;
+        let mut writer =
+            WavWriter::new(cursor, spec).map_err(|e| AudioError::Wav(e.to_string()))?;
         for s in samples {
             let amp = (s.clamp(-1.0, 1.0) * i16::MAX as f32) as i16;
             writer
@@ -185,7 +194,10 @@ mod tests {
         w.write_chunk(&[0.1, -0.1]).expect("chunk");
         w.finalize().expect("first finalize");
         assert!(!w.is_open());
-        assert!(w.finalize().is_err(), "повторный finalize должен вернуть Err");
+        assert!(
+            w.finalize().is_err(),
+            "повторный finalize должен вернуть Err"
+        );
         let _ = std::fs::remove_file(&path);
     }
 

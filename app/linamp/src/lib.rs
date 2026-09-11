@@ -1,12 +1,12 @@
 //! LinAmp — Winamp-style multi-window audio player demo
 
+use syngui::app::WindowConfig;
 use syngui::prelude::*;
 use syngui::text::icon_fonts::material;
-use syngui::app::WindowConfig;
 
+mod equalizer;
 mod player;
 mod playlist;
-mod equalizer;
 
 const STYLES: &str = include_str!("../styles/linamp.mss");
 
@@ -42,14 +42,46 @@ impl LinAmpCtx {
 
 pub fn demo_tracks() -> Vec<TrackInfo> {
     vec![
-        TrackInfo { title: "Sandstorm".into(), artist: "Darude".into(), duration: "3:45".into() },
-        TrackInfo { title: "Blue (Da Ba Dee)".into(), artist: "Eiffel 65".into(), duration: "3:28".into() },
-        TrackInfo { title: "Better Off Alone".into(), artist: "Alice Deejay".into(), duration: "3:32".into() },
-        TrackInfo { title: "Kernkraft 400".into(), artist: "Zombie Nation".into(), duration: "3:33".into() },
-        TrackInfo { title: "Children".into(), artist: "Robert Miles".into(), duration: "4:54".into() },
-        TrackInfo { title: "Insomnia".into(), artist: "Faithless".into(), duration: "6:28".into() },
-        TrackInfo { title: "Firestarter".into(), artist: "The Prodigy".into(), duration: "4:42".into() },
-        TrackInfo { title: "Around the World".into(), artist: "Daft Punk".into(), duration: "7:09".into() },
+        TrackInfo {
+            title: "Sandstorm".into(),
+            artist: "Darude".into(),
+            duration: "3:45".into(),
+        },
+        TrackInfo {
+            title: "Blue (Da Ba Dee)".into(),
+            artist: "Eiffel 65".into(),
+            duration: "3:28".into(),
+        },
+        TrackInfo {
+            title: "Better Off Alone".into(),
+            artist: "Alice Deejay".into(),
+            duration: "3:32".into(),
+        },
+        TrackInfo {
+            title: "Kernkraft 400".into(),
+            artist: "Zombie Nation".into(),
+            duration: "3:33".into(),
+        },
+        TrackInfo {
+            title: "Children".into(),
+            artist: "Robert Miles".into(),
+            duration: "4:54".into(),
+        },
+        TrackInfo {
+            title: "Insomnia".into(),
+            artist: "Faithless".into(),
+            duration: "6:28".into(),
+        },
+        TrackInfo {
+            title: "Firestarter".into(),
+            artist: "The Prodigy".into(),
+            duration: "4:42".into(),
+        },
+        TrackInfo {
+            title: "Around the World".into(),
+            artist: "Daft Punk".into(),
+            duration: "7:09".into(),
+        },
     ]
 }
 

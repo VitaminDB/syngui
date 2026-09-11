@@ -1,7 +1,7 @@
+use super::panel;
 use crate::core::{Point, Rect, Size};
 use crate::render::DisplayList;
 use crate::widget::{Element, ElementId, ElementTree};
-use super::panel;
 
 pub struct InspectorHitResult {
     pub hovered_node: Option<ElementId>,
@@ -33,14 +33,26 @@ pub fn render_inspector(
             Point::new(content_rect.origin.x + 4.0, y + 2.0),
             Size::new(content_rect.size.width - 8.0, panel::FONT_SIZE + 2.0),
         );
-        list.push_text(">> Pick element (click on viewport) <<", text_rect, panel::TEXT_PRIMARY, panel::FONT_SIZE);
+        list.push_text(
+            ">> Pick element (click on viewport) <<",
+            text_rect,
+            panel::TEXT_PRIMARY,
+            panel::FONT_SIZE,
+        );
         y += panel::LINE_HEIGHT + 4.0;
     }
 
     if let Some(root_id) = tree.root_id {
         render_node_recursive(
-            list, tree, root_id, 0, &mut y,
-            content_rect, selected, hovered_tree_node, expanded,
+            list,
+            tree,
+            root_id,
+            0,
+            &mut y,
+            content_rect,
+            selected,
+            hovered_tree_node,
+            expanded,
         );
     }
 
@@ -114,25 +126,42 @@ fn render_node_recursive(
 
         let has_children = !node.children.is_empty();
         if has_children {
-            let arrow = if expanded.contains(&node_id) { "\u{25BC}" } else { "\u{25B6}" };
+            let arrow = if expanded.contains(&node_id) {
+                "\u{25BC}"
+            } else {
+                "\u{25B6}"
+            };
             let arrow_rect = Rect::new(
                 Point::new(x_offset, line_y + 2.0),
                 Size::new(12.0, panel::FONT_SIZE + 2.0),
             );
-            list.push_text(arrow, arrow_rect, panel::TEXT_SECONDARY, panel::SMALL_FONT_SIZE);
+            list.push_text(
+                arrow,
+                arrow_rect,
+                panel::TEXT_SECONDARY,
+                panel::SMALL_FONT_SIZE,
+            );
         }
 
         let text_x = x_offset + 14.0;
         let available_width = content_rect.origin.x + content_rect.size.width - text_x;
 
         let type_name = node.element.element_type_name();
-        let display_name = if type_name.is_empty() { "Element" } else { type_name };
+        let display_name = if type_name.is_empty() {
+            "Element"
+        } else {
+            type_name
+        };
         let label = match &node.debug_name {
             Some(name) => format!("{}(\"{}\")", display_name, name),
             None => display_name.to_string(),
         };
 
-        let vis_prefix = if !node.element.is_visible() { "[hidden] " } else { "" };
+        let vis_prefix = if !node.element.is_visible() {
+            "[hidden] "
+        } else {
+            ""
+        };
 
         let text_rect = Rect::new(
             Point::new(text_x, line_y + 2.0),
@@ -141,31 +170,54 @@ fn render_node_recursive(
         list.push_text(
             &format!("{}{}", vis_prefix, label),
             text_rect,
-            if node.element.is_visible() { panel::TEXT_KEYWORD } else { panel::TEXT_SECONDARY },
+            if node.element.is_visible() {
+                panel::TEXT_KEYWORD
+            } else {
+                panel::TEXT_SECONDARY
+            },
             panel::FONT_SIZE,
         );
 
         let classes = node.element.get_classes();
         if !classes.is_empty() {
-            let classes_str: String = classes.iter().take(3).map(|c| format!(".{}", c)).collect::<Vec<_>>().join("");
+            let classes_str: String = classes
+                .iter()
+                .take(3)
+                .map(|c| format!(".{}", c))
+                .collect::<Vec<_>>()
+                .join("");
             let suffix = if classes.len() > 3 { "..." } else { "" };
             let class_text = format!("{}{}", classes_str, suffix);
 
-            let name_width = (vis_prefix.chars().count() + label.chars().count()) as f32 * 7.0 + 4.0;
+            let name_width =
+                (vis_prefix.chars().count() + label.chars().count()) as f32 * 7.0 + 4.0;
             let class_rect = Rect::new(
                 Point::new(text_x + name_width, line_y + 2.0),
                 Size::new(available_width - name_width, panel::FONT_SIZE + 2.0),
             );
-            list.push_text(&class_text, class_rect, panel::TEXT_STRING, panel::FONT_SIZE);
+            list.push_text(
+                &class_text,
+                class_rect,
+                panel::TEXT_STRING,
+                panel::FONT_SIZE,
+            );
         }
 
         let id_text = format!("#{}", node_id.0);
         let id_width = id_text.chars().count() as f32 * 6.0;
         let id_rect = Rect::new(
-            Point::new(content_rect.origin.x + content_rect.size.width - id_width - 4.0, line_y + 2.0),
+            Point::new(
+                content_rect.origin.x + content_rect.size.width - id_width - 4.0,
+                line_y + 2.0,
+            ),
             Size::new(id_width, panel::FONT_SIZE + 2.0),
         );
-        list.push_text(&id_text, id_rect, panel::TEXT_SECONDARY, panel::SMALL_FONT_SIZE);
+        list.push_text(
+            &id_text,
+            id_rect,
+            panel::TEXT_SECONDARY,
+            panel::SMALL_FONT_SIZE,
+        );
     }
 
     *y += panel::LINE_HEIGHT;
@@ -174,8 +226,15 @@ fn render_node_recursive(
         let children: Vec<ElementId> = node.children.clone();
         for child_id in children {
             render_node_recursive(
-                list, tree, child_id, depth + 1, y,
-                content_rect, selected, hovered, expanded,
+                list,
+                tree,
+                child_id,
+                depth + 1,
+                y,
+                content_rect,
+                selected,
+                hovered,
+                expanded,
             );
         }
     }
@@ -195,7 +254,9 @@ pub fn hit_test_tree(
         toggle_expand: None,
     };
 
-    if click_pos.x < content_rect.origin.x || click_pos.x > content_rect.origin.x + content_rect.size.width {
+    if click_pos.x < content_rect.origin.x
+        || click_pos.x > content_rect.origin.x + content_rect.size.width
+    {
         return result;
     }
 
@@ -207,8 +268,14 @@ pub fn hit_test_tree(
 
     if let Some(root_id) = tree.root_id {
         hit_test_node_recursive(
-            tree, root_id, 0, &mut y, content_rect,
-            expanded, click_pos, &mut result,
+            tree,
+            root_id,
+            0,
+            &mut y,
+            content_rect,
+            expanded,
+            click_pos,
+            &mut result,
         );
     }
 
@@ -248,26 +315,25 @@ fn hit_test_node_recursive(
         let children: Vec<ElementId> = node.children.clone();
         for child_id in children {
             hit_test_node_recursive(
-                tree, child_id, depth + 1, y,
-                content_rect, expanded, click_pos, result,
+                tree,
+                child_id,
+                depth + 1,
+                y,
+                content_rect,
+                expanded,
+                click_pos,
+                result,
             );
         }
     }
 }
 
-pub fn pick_element_at(
-    tree: &ElementTree,
-    pos: Point,
-) -> Option<ElementId> {
+pub fn pick_element_at(tree: &ElementTree, pos: Point) -> Option<ElementId> {
     let root_id = tree.root_id?;
     pick_element_recursive(tree, root_id, pos)
 }
 
-fn pick_element_recursive(
-    tree: &ElementTree,
-    node_id: ElementId,
-    pos: Point,
-) -> Option<ElementId> {
+fn pick_element_recursive(tree: &ElementTree, node_id: ElementId, pos: Point) -> Option<ElementId> {
     let node = tree.elements.get(&node_id)?;
 
     if !node.element.is_visible() {

@@ -139,7 +139,10 @@ mod tests {
 
     #[test]
     fn builder_chain() {
-        let s = Spring::new().with_stiffness(100.0).with_damping(10.0).with_mass(0.5);
+        let s = Spring::new()
+            .with_stiffness(100.0)
+            .with_damping(10.0)
+            .with_mass(0.5);
         assert_eq!(s.stiffness, 100.0);
         assert_eq!(s.damping, 10.0);
         assert_eq!(s.mass, 0.5);
@@ -179,7 +182,11 @@ mod tests {
             pos = p;
             vel = v;
         }
-        assert!((pos - target).abs() < 0.01, "spring should converge, pos={}", pos);
+        assert!(
+            (pos - target).abs() < 0.01,
+            "spring should converge, pos={}",
+            pos
+        );
         assert!(vel.abs() < 0.01);
     }
 

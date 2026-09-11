@@ -87,7 +87,9 @@ pub fn allow_signal_reads_on_this_thread() {
 
 pub(crate) fn is_main_thread() -> bool {
     #[cfg(target_arch = "wasm32")]
-    { true }
+    {
+        true
+    }
     #[cfg(not(target_arch = "wasm32"))]
     {
         if THREAD_OWNS_SIGNALS.with(|c| c.get()) {
@@ -132,7 +134,9 @@ pub struct RwSignal<T> {
 }
 
 impl<T> Clone for RwSignal<T> {
-    fn clone(&self) -> Self { *self }
+    fn clone(&self) -> Self {
+        *self
+    }
 }
 impl<T> Copy for RwSignal<T> {}
 
@@ -151,7 +155,9 @@ impl<T: 'static + Clone> RwSignal<T> {
             }
             if let Some(effect_id) = rt.effect_tracking {
                 rt.slots[idx].effect_subscribers.insert(effect_id);
-                rt.effects[effect_id.0 as usize].dependencies.insert(self.id);
+                rt.effects[effect_id.0 as usize]
+                    .dependencies
+                    .insert(self.id);
             }
             read_slot::<T>(&rt.slots[idx], "get").clone()
         })
@@ -185,7 +191,9 @@ impl<T: 'static + Clone> RwSignal<T> {
                 let idx = self.id.0 as usize;
                 {
                     let old = read_slot::<T>(&rt.slots[idx], "set");
-                    if *old == new_value { return Vec::new(); }
+                    if *old == new_value {
+                        return Vec::new();
+                    }
                 }
                 rt.slots[idx].value = Box::new(new_value);
                 mark_dirty(&mut rt, idx)
@@ -251,7 +259,10 @@ impl<T: 'static + Clone> RwSignal<T> {
         });
         // Guard возвращает значение в слот, даже если `f` запаникует:
         // иначе сигнал навсегда остался бы с плейсхолдером.
-        let mut guard = UpdateGuard { idx, value: Some(taken) };
+        let mut guard = UpdateGuard {
+            idx,
+            value: Some(taken),
+        };
         f(guard.value.as_mut().expect("update value present"));
         let value = guard.value.take().expect("update value present");
 
@@ -271,7 +282,9 @@ struct UpdateGuard<T: 'static> {
 
 impl<T: 'static> Drop for UpdateGuard<T> {
     fn drop(&mut self) {
-        let Some(value) = self.value.take() else { return };
+        let Some(value) = self.value.take() else {
+            return;
+        };
         let idx = self.idx;
         let _ = RUNTIME.try_with(|rt| {
             if let Ok(mut rt) = rt.try_borrow_mut() {
@@ -331,7 +344,10 @@ pub fn use_signal<T: 'static + Clone>(initial: T) -> RwSignal<T> {
             subscribers: HashSet::new(),
             effect_subscribers: HashSet::new(),
         });
-        RwSignal { id, _marker: PhantomData }
+        RwSignal {
+            id,
+            _marker: PhantomData,
+        }
     })
 }
 
@@ -346,7 +362,9 @@ impl<T: 'static + Clone> Memo<T> {
 }
 
 pub fn create_memo<T: 'static + Clone>(compute: impl Fn() -> T + 'static) -> Memo<T> {
-    Memo { compute: Box::new(compute) }
+    Memo {
+        compute: Box::new(compute),
+    }
 }
 
 /// Разбудить окно на перерисовку, не трогая сигналы. Нужна коду, который
@@ -434,9 +452,7 @@ pub fn end_tracking() {
 }
 
 pub fn has_dirty_elements() -> bool {
-    RUNTIME.with(|rt| {
-        !rt.borrow().dirty_elements.is_empty()
-    })
+    RUNTIME.with(|rt| !rt.borrow().dirty_elements.is_empty())
 }
 
 pub fn dirty_element_ids() -> Vec<ElementId> {
@@ -444,9 +460,7 @@ pub fn dirty_element_ids() -> Vec<ElementId> {
 }
 
 pub fn is_element_dirty(element_id: ElementId) -> bool {
-    RUNTIME.with(|rt| {
-        rt.borrow().dirty_elements.contains(&element_id)
-    })
+    RUNTIME.with(|rt| rt.borrow().dirty_elements.contains(&element_id))
 }
 
 pub fn clear_element_dirty(element_id: ElementId) {
@@ -458,7 +472,9 @@ pub fn clear_element_dirty(element_id: ElementId) {
 pub fn mark_all_reactive_dirty() {
     let notifiers = RUNTIME.with(|rt| {
         let mut rt = rt.borrow_mut();
-        let all_subscribers: Vec<ElementId> = rt.slots.iter()
+        let all_subscribers: Vec<ElementId> = rt
+            .slots
+            .iter()
             .flat_map(|slot| slot.subscribers.iter().copied())
             .collect();
         for elem_id in all_subscribers {
@@ -522,9 +538,7 @@ pub fn create_effect(f: impl Fn() + 'static) -> EffectId {
     })
 }
 
-pub fn create_effect_with_cleanup(
-    f: impl Fn() -> Option<Box<dyn Fn()>> + 'static,
-) -> EffectId {
+pub fn create_effect_with_cleanup(f: impl Fn() -> Option<Box<dyn Fn()>> + 'static) -> EffectId {
     let effect_id = RUNTIME.with(|rt| {
         let mut rt = rt.borrow_mut();
         let id = EffectId(rt.effects.len() as u64);
@@ -549,7 +563,9 @@ struct TrackingGuard {
 
 impl Drop for TrackingGuard {
     fn drop(&mut self) {
-        let Some(saved_stack) = self.saved_stack.take() else { return };
+        let Some(saved_stack) = self.saved_stack.take() else {
+            return;
+        };
         let _ = RUNTIME.try_with(|rt| {
             if let Ok(mut rt) = rt.try_borrow_mut() {
                 rt.effect_tracking = None;
@@ -607,7 +623,9 @@ fn run_effect(effect_id: EffectId) {
         std::mem::take(&mut rt.tracking_stack)
     });
     // Guard восстанавливает tracking-состояние, даже если эффект запаникует.
-    let restore = TrackingGuard { saved_stack: Some(saved_stack) };
+    let restore = TrackingGuard {
+        saved_stack: Some(saved_stack),
+    };
     let closure_result = closure();
     drop(restore);
 
@@ -639,9 +657,7 @@ pub fn use_effect(f: impl Fn() + 'static) -> EffectId {
     create_effect(f)
 }
 
-pub fn use_effect_with_cleanup(
-    f: impl Fn() -> Option<Box<dyn Fn()>> + 'static,
-) -> EffectId {
+pub fn use_effect_with_cleanup(f: impl Fn() -> Option<Box<dyn Fn()>> + 'static) -> EffectId {
     create_effect_with_cleanup(f)
 }
 

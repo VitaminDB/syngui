@@ -21,10 +21,9 @@ pub(crate) fn resolve_ref(base: Option<&str>, raw: &str) -> ResolvedRef {
         None => ResolvedRef::Url(raw.to_string()),
         Some(base) => match url_scheme(base).as_deref() {
             Some("http") | Some("https") => ResolvedRef::Url(join_url(base, raw)),
-            Some("file") => ResolvedRef::Path(join_path(
-                base.strip_prefix("file://").unwrap_or(base),
-                raw,
-            )),
+            Some("file") => {
+                ResolvedRef::Path(join_path(base.strip_prefix("file://").unwrap_or(base), raw))
+            }
             _ => ResolvedRef::Path(join_path(base, raw)),
         },
     }
@@ -148,7 +147,10 @@ mod tests {
 
     #[test]
     fn anchor_and_empty_passthrough() {
-        assert_eq!(resolve_ref(Some("/docs"), "#section"), ResolvedRef::Url("#section".into()));
+        assert_eq!(
+            resolve_ref(Some("/docs"), "#section"),
+            ResolvedRef::Url("#section".into())
+        );
         assert_eq!(resolve_ref(None, ""), ResolvedRef::Url("".into()));
     }
 
@@ -198,7 +200,10 @@ mod tests {
 
     #[test]
     fn no_base_relative_stays_url() {
-        assert_eq!(resolve_ref(None, "img/a.png"), ResolvedRef::Url("img/a.png".into()));
+        assert_eq!(
+            resolve_ref(None, "img/a.png"),
+            ResolvedRef::Url("img/a.png".into())
+        );
     }
 
     #[test]
@@ -209,7 +214,10 @@ mod tests {
 
     #[test]
     fn link_local_relative_becomes_file_url() {
-        assert_eq!(resolve_link(Some("/home/u/docs"), "page.md"), "file:///home/u/docs/page.md");
+        assert_eq!(
+            resolve_link(Some("/home/u/docs"), "page.md"),
+            "file:///home/u/docs/page.md"
+        );
         assert_eq!(resolve_link(Some("/home/u/docs"), "#top"), "#top");
         assert_eq!(
             resolve_link(Some("https://host.com/d/"), "x.html"),

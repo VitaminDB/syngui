@@ -1,17 +1,18 @@
 mod android;
 mod appearance;
-mod styling;
-mod windows;
 mod lifecycle;
 mod render;
+mod styling;
+mod windows;
 
-use crate::a11y::{A11yTree, FocusManager};
-#[cfg(not(feature = "accessibility"))]
-use crate::a11y::LoggingAdapter;
+use super::builder::AppBuilder;
 #[cfg(feature = "accessibility")]
 use crate::a11y::AccessKitAdapter;
+#[cfg(not(feature = "accessibility"))]
+use crate::a11y::LoggingAdapter;
+use crate::a11y::{A11yTree, FocusManager};
 use crate::core::Point;
-use crate::gpu::{GpuContext, WindowSurface, Renderer};
+use crate::gpu::{GpuContext, Renderer, WindowSurface};
 use crate::input::{CursorIcon, Modifiers};
 use crate::mss::StyleEngine;
 use crate::render::DisplayList;
@@ -19,7 +20,6 @@ use crate::widget::{ElementTree, Widget};
 use crate::window::Window;
 use std::sync::Arc;
 use web_time::Instant;
-use super::builder::AppBuilder;
 
 #[cfg(target_arch = "wasm32")]
 use std::cell::RefCell;
@@ -106,8 +106,12 @@ pub(super) struct AppHandler {
     pub(super) display_list: DisplayList,
     pub(super) surface_valid: bool,
     pub(super) main_window_id: Option<winit::window::WindowId>,
-    pub(super) secondary_windows: std::collections::HashMap<winit::window::WindowId, SecondaryWindow>,
-    pub(super) pending_windows: Vec<(super::builder::WindowConfig, Box<dyn FnOnce(&mut crate::widget::BuildContext) -> Box<dyn Widget>>)>,
+    pub(super) secondary_windows:
+        std::collections::HashMap<winit::window::WindowId, SecondaryWindow>,
+    pub(super) pending_windows: Vec<(
+        super::builder::WindowConfig,
+        Box<dyn FnOnce(&mut crate::widget::BuildContext) -> Box<dyn Widget>>,
+    )>,
     pub(super) sticky_threshold: Option<f32>,
     pub(super) sticky_groups: Vec<std::collections::HashSet<winit::window::WindowId>>,
     pub(super) window_positions: std::collections::HashMap<winit::window::WindowId, (i32, i32)>,
@@ -138,12 +142,21 @@ pub(super) struct AppHandler {
     #[cfg(target_arch = "wasm32")]
     pub(super) wasm_font_ready: bool,
 
-    pub(super) event_loop_proxy: Option<winit::event_loop::EventLoopProxy<super::user_event::SynGuiUserEvent>>,
+    pub(super) event_loop_proxy:
+        Option<winit::event_loop::EventLoopProxy<super::user_event::SynGuiUserEvent>>,
 
-    #[cfg(all(feature = "tray", not(target_arch = "wasm32"), not(target_os = "android")))]
+    #[cfg(all(
+        feature = "tray",
+        not(target_arch = "wasm32"),
+        not(target_os = "android")
+    ))]
     pub(super) tray: Option<super::tray::TrayManager>,
 
-    #[cfg(all(feature = "single-instance", not(target_arch = "wasm32"), not(target_os = "android")))]
+    #[cfg(all(
+        feature = "single-instance",
+        not(target_arch = "wasm32"),
+        not(target_os = "android")
+    ))]
     pub(super) single_instance: Option<super::single_instance::SingleInstanceLock>,
 
     /// Слежение за системным оформлением; жив, пока живо приложение.
@@ -179,7 +192,12 @@ pub(super) fn is_wayland_session() -> bool {
 }
 
 impl AppHandler {
-    pub(super) fn new(mut config: AppBuilder, root_factory: RootFactory, style_engine: StyleEngine, initial_is_dark: bool) -> Self {
+    pub(super) fn new(
+        mut config: AppBuilder,
+        root_factory: RootFactory,
+        style_engine: StyleEngine,
+        initial_is_dark: bool,
+    ) -> Self {
         let pending_windows = std::mem::take(&mut config.extra_windows);
         let sticky_threshold = config.sticky_threshold;
         // Масштаб интерфейса — до создания окна: первый layout уже должен
@@ -188,7 +206,10 @@ impl AppHandler {
         let double_click_interval = config
             .double_click_interval
             .unwrap_or_else(crate::input::resolve_double_click_interval);
-        log::debug!("double-click interval resolved to {:?}", double_click_interval);
+        log::debug!(
+            "double-click interval resolved to {:?}",
+            double_click_interval
+        );
         let debug_overlay = if config.debug_overlay {
             Some(crate::debug::DebugOverlay::new())
         } else {
@@ -211,7 +232,9 @@ impl AppHandler {
 
         let devtools = {
             let mut dt = crate::devtools::DevTools::new();
-            if config.devtools { dt.toggle(); }
+            if config.devtools {
+                dt.toggle();
+            }
             Some(dt)
         };
 
@@ -280,9 +303,17 @@ impl AppHandler {
             window_positions: std::collections::HashMap::new(),
 
             event_loop_proxy: None,
-            #[cfg(all(feature = "tray", not(target_arch = "wasm32"), not(target_os = "android")))]
+            #[cfg(all(
+                feature = "tray",
+                not(target_arch = "wasm32"),
+                not(target_os = "android")
+            ))]
             tray: None,
-            #[cfg(all(feature = "single-instance", not(target_arch = "wasm32"), not(target_os = "android")))]
+            #[cfg(all(
+                feature = "single-instance",
+                not(target_arch = "wasm32"),
+                not(target_os = "android")
+            ))]
             single_instance: None,
             appearance_watcher: None,
             last_backdrop: None,
@@ -306,7 +337,11 @@ impl AppHandler {
     }
 
     pub(super) fn should_hide_on_close(&self) -> bool {
-        #[cfg(all(feature = "tray", not(target_arch = "wasm32"), not(target_os = "android")))]
+        #[cfg(all(
+            feature = "tray",
+            not(target_arch = "wasm32"),
+            not(target_os = "android")
+        ))]
         {
             if self.tray.is_some() {
                 if let Some(cfg) = self.config.tray_config.as_ref() {
@@ -357,7 +392,8 @@ impl AppHandler {
         self.focus_manager = crate::a11y::FocusManager::new();
         #[cfg(feature = "accessibility")]
         {
-            self.a11y_tree = crate::a11y::A11yTree::new(Box::new(crate::a11y::AccessKitAdapter::new()));
+            self.a11y_tree =
+                crate::a11y::A11yTree::new(Box::new(crate::a11y::AccessKitAdapter::new()));
             self.accesskit_adapter = None;
         }
         #[cfg(not(feature = "accessibility"))]
@@ -446,7 +482,13 @@ impl AppHandler {
                 let logical_w = (sw.width as f64 / sf).max(1.0) as u32;
                 let logical_h = (sw.height as f64 / sf).max(1.0) as u32;
                 if let Some(gpu) = self.gpu.as_ref() {
-                    sw.renderer.resize(&gpu.shared.device, sw.width, sw.height, logical_w, logical_h);
+                    sw.renderer.resize(
+                        &gpu.shared.device,
+                        sw.width,
+                        sw.height,
+                        logical_w,
+                        logical_h,
+                    );
                 }
                 if let Ok(mut atlas) = sw.renderer.font_atlas.lock() {
                     atlas.set_scale_factor(sf as f32);
@@ -460,7 +502,6 @@ impl AppHandler {
             window.request_redraw();
         }
     }
-
 }
 
 #[cfg(feature = "accessibility")]
@@ -478,8 +519,7 @@ pub(super) struct SynGuiActionHandler;
 
 #[cfg(feature = "accessibility")]
 impl accesskit::ActionHandler for SynGuiActionHandler {
-    fn do_action(&mut self, _request: accesskit::ActionRequest) {
-    }
+    fn do_action(&mut self, _request: accesskit::ActionRequest) {}
 }
 
 #[cfg(feature = "accessibility")]
@@ -487,6 +527,5 @@ pub(super) struct SynGuiDeactivationHandler;
 
 #[cfg(feature = "accessibility")]
 impl accesskit::DeactivationHandler for SynGuiDeactivationHandler {
-    fn deactivate_accessibility(&mut self) {
-    }
+    fn deactivate_accessibility(&mut self) {}
 }

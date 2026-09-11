@@ -103,7 +103,11 @@ impl FlexLayout {
         )
     }
 
-    fn layout_column(&mut self, children: &mut [&mut dyn Element], constraints: Constraints) -> Size {
+    fn layout_column(
+        &mut self,
+        children: &mut [&mut dyn Element],
+        constraints: Constraints,
+    ) -> Size {
         let n = children.len();
         if n == 0 {
             return Size::zero();

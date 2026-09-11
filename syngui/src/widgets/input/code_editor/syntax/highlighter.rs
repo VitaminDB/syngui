@@ -22,8 +22,9 @@ impl std::fmt::Debug for Highlighter {
 
 impl Highlighter {
     pub fn new(language: Language, tab_width: usize) -> Self {
-        let inner = synoptic::from_extension(language.extension(), tab_width)
-            .expect("synoptic::from_extension всегда возвращает Some (fallback на пустой Highlighter)");
+        let inner = synoptic::from_extension(language.extension(), tab_width).expect(
+            "synoptic::from_extension всегда возвращает Some (fallback на пустой Highlighter)",
+        );
         Self {
             inner,
             lines: Vec::new(),
@@ -105,9 +106,7 @@ mod tests {
         h.reparse(text);
         let spans = h.highlight_lines(text, 0..1);
         assert_eq!(spans.len(), 1);
-        let has_keyword = spans[0]
-            .iter()
-            .any(|s| s.class == TokenClass::Keyword);
+        let has_keyword = spans[0].iter().any(|s| s.class == TokenClass::Keyword);
         assert!(
             has_keyword,
             "ожидаем хотя бы один Keyword span в `fn main() {{}}`"

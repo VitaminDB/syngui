@@ -1,5 +1,5 @@
-use syngui::prelude::*;
 use syngui::mss::StyleValue;
+use syngui::prelude::*;
 
 use super::{label, section_card, section_title};
 
@@ -37,7 +37,6 @@ pub fn build_gradients_section() -> impl Widget {
         Column::new()
             .gap(20.0)
             .child(section_title("Gradients"))
-
             // ── Linear Gradients (MSS) ──
             .child(
                 Column::new()
@@ -49,10 +48,9 @@ pub fn build_gradients_section() -> impl Widget {
                             .child(gradient_box("gradient-horizontal", "Horizontal (90deg)"))
                             .child(gradient_box("gradient-vertical", "Vertical (180deg)"))
                             .child(gradient_box("gradient-diagonal", "Diagonal (135deg)"))
-                            .child(gradient_box("gradient-to-top", "To top (0deg)"))
+                            .child(gradient_box("gradient-to-top", "To top (0deg)")),
                     ),
             )
-
             // ── Multi-stop Gradients (MSS) ──
             .child(
                 Column::new()
@@ -63,10 +61,9 @@ pub fn build_gradients_section() -> impl Widget {
                             .gap(12.0)
                             .child(gradient_box("gradient-rainbow", "Rainbow"))
                             .child(gradient_box("gradient-sunset", "Sunset"))
-                            .child(gradient_box("gradient-ocean", "Ocean"))
+                            .child(gradient_box("gradient-ocean", "Ocean")),
                     ),
             )
-
             // ── Radial Gradients (MSS) ──
             .child(
                 Column::new()
@@ -76,10 +73,9 @@ pub fn build_gradients_section() -> impl Widget {
                         Row::new()
                             .gap(12.0)
                             .child(gradient_box("gradient-radial", "Circle"))
-                            .child(gradient_box("gradient-radial-ellipse", "Ellipse"))
+                            .child(gradient_box("gradient-radial-ellipse", "Ellipse")),
                     ),
             )
-
             // ── Gradients with Rounded Corners (MSS) ──
             .child(
                 Column::new()
@@ -89,10 +85,9 @@ pub fn build_gradients_section() -> impl Widget {
                         Row::new()
                             .gap(12.0)
                             .child(gradient_box("gradient-rounded", "Rounded 12px"))
-                            .child(gradient_box("gradient-pill", "Pill shape"))
+                            .child(gradient_box("gradient-pill", "Pill shape")),
                     ),
             )
-
             // ── Gradients with Borders ──
             .child(
                 Column::new()
@@ -101,10 +96,9 @@ pub fn build_gradients_section() -> impl Widget {
                     .child(
                         Row::new()
                             .gap(12.0)
-                            .child(gradient_box("gradient-bordered", "With border"))
+                            .child(gradient_box("gradient-bordered", "With border")),
                     ),
             )
-
             // ── Programmatic Gradients ──
             .child(
                 Column::new()
@@ -145,10 +139,9 @@ pub fn build_gradients_section() -> impl Widget {
                                     quality: syngui::core::GRADIENT_DEFAULT_QUALITY,
                                 },
                                 "Code: Radial",
-                            ))
+                            )),
                     ),
             )
-
             // ── Gradient Cards (practical UI) ──
             .child(
                 Column::new()
@@ -157,11 +150,15 @@ pub fn build_gradients_section() -> impl Widget {
                     .child(
                         Row::new()
                             .gap(12.0)
-                            .child(gradient_card("gradient-card-purple", "Premium Plan", "$29/mo"))
+                            .child(gradient_card(
+                                "gradient-card-purple",
+                                "Premium Plan",
+                                "$29/mo",
+                            ))
                             .child(gradient_card("gradient-card-blue", "Pro Plan", "$49/mo"))
-                            .child(gradient_card("gradient-card-green", "Enterprise", "$99/mo"))
+                            .child(gradient_card("gradient-card-green", "Enterprise", "$99/mo")),
                     ),
-            )
+            ),
     )
 }
 
@@ -173,7 +170,11 @@ fn gradient_card(class: &str, title: &str, price: &str) -> impl Widget {
             Column::new()
                 .gap(8.0)
                 .child(Text::new(title).color(Color::WHITE).bold())
-                .child(Text::new(price).color(Color::WHITE.with_alpha(0.8)).style("font-size", 24.0_f32))
+                .child(
+                    Text::new(price)
+                        .color(Color::WHITE.with_alpha(0.8))
+                        .style("font-size", 24.0_f32),
+                ),
         )
         .class(class)
 }

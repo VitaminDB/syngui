@@ -1,23 +1,22 @@
 //! Effects Showcase — 3-panel layout with sub-sidebar for effect categories.
 
-mod shadows;
-mod glow;
 mod blur_glass;
-mod filters;
+mod chains;
 mod color_effects;
+mod distortion;
+mod filters;
+mod glow;
+mod keyframes_fx;
+mod opacity;
 mod outline;
 mod overlay_effects;
-mod distortion;
-mod opacity;
-mod chains;
+mod shadows;
 mod transitions;
-mod keyframes_fx;
 
-use syngui::prelude::*;
-use syngui::widgets::*;
 use std::sync::Arc;
 use syngui::core::sync::Mutex;
-
+use syngui::prelude::*;
+use syngui::widgets::*;
 
 const ROUTE_KEYS: [&str; 12] = [
     "shadows",
@@ -59,30 +58,30 @@ pub fn build_effects_showcase() -> impl Widget {
         "shadows",
     )));
 
-    let items: Vec<ListItem> = ROUTE_NAMES.iter().zip(ROUTE_ICONS.iter())
+    let items: Vec<ListItem> = ROUTE_NAMES
+        .iter()
+        .zip(ROUTE_ICONS.iter())
         .map(|(name, icon)| ListItem::new(*name).icon(*icon))
         .collect();
 
     Row::new()
         .gap(0.0)
         .child(
-            Sidebar::new()
-                .class("effects-sidebar")
-                .child(
-                    DecoratedBox::new().class("grow").child(
-                        ListView::new(items)
-                            .selection_mode(SelectionMode::Single)
-                            .selected(vec![0])
-                            .on_select({
-                                let r = router.clone();
-                                move |idx| {
-                                    if let Some(key) = ROUTE_KEYS.get(idx) {
-                                        r.lock().unwrap().navigate(*key);
-                                    }
+            Sidebar::new().class("effects-sidebar").child(
+                DecoratedBox::new().class("grow").child(
+                    ListView::new(items)
+                        .selection_mode(SelectionMode::Single)
+                        .selected(vec![0])
+                        .on_select({
+                            let r = router.clone();
+                            move |idx| {
+                                if let Some(key) = ROUTE_KEYS.get(idx) {
+                                    r.lock().unwrap().navigate(*key);
                                 }
-                            })
-                    )
+                            }
+                        }),
                 ),
+            ),
         )
         .child(
             DecoratedBox::new().class("grow").child(
@@ -93,7 +92,9 @@ pub fn build_effects_showcase() -> impl Widget {
                     .route("filters", || Box::new(page(filters::build())))
                     .route("color-effects", || Box::new(page(color_effects::build())))
                     .route("outline", || Box::new(page(outline::build())))
-                    .route("overlay-effects", || Box::new(page(overlay_effects::build())))
+                    .route("overlay-effects", || {
+                        Box::new(page(overlay_effects::build()))
+                    })
                     .route("distortion", || Box::new(page(distortion::build())))
                     .route("opacity", || Box::new(page(opacity::build())))
                     .route("chains", || Box::new(page(chains::build())))
@@ -132,7 +133,12 @@ pub(crate) fn fx_subject(gradient_class: &str, filter_class: &str) -> impl Widge
 }
 
 /// Helper: filter demo card with label + MSS code
-pub(crate) fn filter_card(gradient_class: &str, filter_class: &str, label_text: &str, mss_code: &str) -> impl Widget {
+pub(crate) fn filter_card(
+    gradient_class: &str,
+    filter_class: &str,
+    label_text: &str,
+    mss_code: &str,
+) -> impl Widget {
     use syngui::mgui;
     mgui! {
         Column::new().gap(6.0) => [
@@ -162,7 +168,13 @@ pub(crate) fn shadow_card(extra_class: &str, label_text: &str, mss_code: &str) -
 
 /// Helper: showcase card with gradient bg and effect
 #[allow(dead_code)]
-pub(crate) fn showcase_card(bg_class: &str, fx_class: &str, title: &str, code: &str, desc: &str) -> impl Widget {
+pub(crate) fn showcase_card(
+    bg_class: &str,
+    fx_class: &str,
+    title: &str,
+    code: &str,
+    desc: &str,
+) -> impl Widget {
     use syngui::mgui;
     mgui! {
         Column::new().gap(8.0) => [

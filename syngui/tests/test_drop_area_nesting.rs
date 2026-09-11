@@ -26,8 +26,12 @@ fn build(inner_types: Vec<&str>, outer_types: Vec<&str>) -> (TestHarness, Counte
         outer_over: Arc::new(AtomicUsize::new(0)),
         inner_leave: Arc::new(AtomicUsize::new(0)),
     };
-    let (outer, inner, outer_over, inner_leave) =
-        (c.outer.clone(), c.inner.clone(), c.outer_over.clone(), c.inner_leave.clone());
+    let (outer, inner, outer_over, inner_leave) = (
+        c.outer.clone(),
+        c.inner.clone(),
+        c.outer_over.clone(),
+        c.inner_leave.clone(),
+    );
     let widget = DropArea::new()
         .accept_types(outer_types.into_iter().map(String::from).collect())
         .on_drop(move |_| {
@@ -63,7 +67,10 @@ fn areas(h: &TestHarness) -> (Point, Point) {
     let outer = h.element_bounds(ids[0]);
     let inner = h.element_bounds(ids[1]);
     assert!(inner.size.height > 0.0 && outer.size.height > inner.size.height);
-    let in_inner = Point::new(inner.origin.x + 10.0, inner.origin.y + inner.size.height / 2.0);
+    let in_inner = Point::new(
+        inner.origin.x + 10.0,
+        inner.origin.y + inner.size.height / 2.0,
+    );
     let in_outer_only = Point::new(outer.origin.x + 10.0, outer.origin.y + 2.0);
     (in_inner, in_outer_only)
 }
@@ -73,17 +80,41 @@ fn deepest_area_takes_the_drop_alone() {
     let (mut h, c) = build(vec!["card"], vec!["card"]);
     let (in_inner, in_outer_only) = areas(&h);
     let data = DragData::new("card", "k1", 0);
-    h.tree.dispatch_drag_event(&Event::DragMove { position: in_inner, data: data.clone() });
-    h.tree.dispatch_drag_event(&Event::Drop { position: in_inner, data: data.clone() });
-    assert_eq!(c.inner.load(Ordering::SeqCst), 1, "внутренняя область должна принять дроп");
-    assert_eq!(c.outer.load(Ordering::SeqCst), 0, "внешняя область дроп получать не должна");
+    h.tree.dispatch_drag_event(&Event::DragMove {
+        position: in_inner,
+        data: data.clone(),
+    });
+    h.tree.dispatch_drag_event(&Event::Drop {
+        position: in_inner,
+        data: data.clone(),
+    });
+    assert_eq!(
+        c.inner.load(Ordering::SeqCst),
+        1,
+        "внутренняя область должна принять дроп"
+    );
+    assert_eq!(
+        c.outer.load(Ordering::SeqCst),
+        0,
+        "внешняя область дроп получать не должна"
+    );
     // Движение над внутренней — внешняя не «над», on_drag_over не зовётся.
     assert_eq!(c.outer_over.load(Ordering::SeqCst), 0);
 
-    h.tree.dispatch_drag_event(&Event::DragMove { position: in_outer_only, data: data.clone() });
-    assert_eq!(c.inner_leave.load(Ordering::SeqCst), 1, "уход с внутренней области — DragLeave ей");
+    h.tree.dispatch_drag_event(&Event::DragMove {
+        position: in_outer_only,
+        data: data.clone(),
+    });
+    assert_eq!(
+        c.inner_leave.load(Ordering::SeqCst),
+        1,
+        "уход с внутренней области — DragLeave ей"
+    );
     assert!(c.outer_over.load(Ordering::SeqCst) >= 1);
-    h.tree.dispatch_drag_event(&Event::Drop { position: in_outer_only, data });
+    h.tree.dispatch_drag_event(&Event::Drop {
+        position: in_outer_only,
+        data,
+    });
     assert_eq!(c.outer.load(Ordering::SeqCst), 1);
     assert_eq!(c.inner.load(Ordering::SeqCst), 1);
 }
@@ -95,7 +126,10 @@ fn drop_falls_through_to_the_next_area_by_type() {
     let (mut h, c) = build(vec!["card"], vec![]);
     let (in_inner, _) = areas(&h);
     let data = DragData::new("file", "/tmp/a.png", 0);
-    h.tree.dispatch_drag_event(&Event::Drop { position: in_inner, data });
+    h.tree.dispatch_drag_event(&Event::Drop {
+        position: in_inner,
+        data,
+    });
     assert_eq!(c.inner.load(Ordering::SeqCst), 0);
     assert_eq!(c.outer.load(Ordering::SeqCst), 1);
 }

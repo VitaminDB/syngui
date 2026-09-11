@@ -165,5 +165,9 @@ fn as_accent(value: &Value<'_>) -> Option<Color> {
     if rgb.iter().any(|c| !(0.0..=1.0).contains(c)) {
         return None;
     }
-    Some(Color::from_srgb_f32(rgb[0] as f32, rgb[1] as f32, rgb[2] as f32))
+    Some(Color::from_srgb_f32(
+        rgb[0] as f32,
+        rgb[1] as f32,
+        rgb[2] as f32,
+    ))
 }

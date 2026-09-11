@@ -1,8 +1,8 @@
 use syngui::mgui;
 use syngui::prelude::*;
 
-use super::{shadow_card, filter_card, surface_card};
-use crate::sections::{section_card, section_title, label};
+use super::{filter_card, shadow_card, surface_card};
+use crate::sections::{label, section_card, section_title};
 
 pub fn build() -> impl Widget {
     mgui! {

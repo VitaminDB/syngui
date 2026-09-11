@@ -31,7 +31,10 @@ pub struct DocSelection {
 
 impl DocSelection {
     pub fn caret(pos: CaretPos) -> Self {
-        Self { anchor: pos, head: pos }
+        Self {
+            anchor: pos,
+            head: pos,
+        }
     }
 
     pub fn is_caret(&self) -> bool {
@@ -152,7 +155,9 @@ impl RowGeom {
     /// Строка, содержащая смещение (или ближайшая).
     pub fn line_of_offset(&self, offset: usize) -> usize {
         for (i, line) in self.lines.iter().enumerate() {
-            let Some(last) = line.segs.last() else { continue };
+            let Some(last) = line.segs.last() else {
+                continue;
+            };
             // Конец строки принадлежит ей, если следующая строка не
             // начинается с того же смещения (мягкий перенос).
             let end = last.abs_end();
@@ -163,7 +168,12 @@ impl RowGeom {
                 .map(|s| s.abs_start == end)
                 .unwrap_or(false);
             if offset < end || (offset == end && !next_starts_here) {
-                if line.segs.first().map(|s| s.abs_start <= offset).unwrap_or(false) {
+                if line
+                    .segs
+                    .first()
+                    .map(|s| s.abs_start <= offset)
+                    .unwrap_or(false)
+                {
                     return i;
                 }
             }
@@ -254,7 +264,10 @@ impl TableGeom {
 
     /// Левая кромка колонки.
     pub fn col_x(&self, col: usize) -> f32 {
-        self.origin.x + self.col_widths[..col.min(self.col_widths.len())].iter().sum::<f32>()
+        self.origin.x
+            + self.col_widths[..col.min(self.col_widths.len())]
+                .iter()
+                .sum::<f32>()
     }
 }
 

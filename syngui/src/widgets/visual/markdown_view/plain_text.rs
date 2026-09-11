@@ -179,8 +179,7 @@ fn write_inlines(buf: &mut String, inlines: &[MdInline], line_prefix: &str) {
             MdInline::Link { children, .. } => {
                 write_inlines(buf, children, line_prefix);
             }
-            MdInline::Image { .. } => {
-            }
+            MdInline::Image { .. } => {}
             MdInline::SoftBreak => buf.push(' '),
             MdInline::HardBreak => {
                 buf.push('\n');
@@ -203,8 +202,8 @@ fn push_line_prefix(buf: &mut String, line_prefix: &str) {
 
 #[cfg(test)]
 mod tests {
-    use super::*;
     use super::super::model::{MdAlign, MdBlock, MdInline, MdListItem, MdTableCell, MdTaskItem};
+    use super::*;
 
     fn text(s: &str) -> MdInline {
         MdInline::Text(s.to_string())
@@ -269,10 +268,7 @@ mod tests {
             language: Some("rust".to_string()),
             code: "fn main() {\n    println!(\"hi\");\n}".to_string(),
         }];
-        assert_eq!(
-            linearize(&blocks),
-            "fn main() {\n    println!(\"hi\");\n}"
-        );
+        assert_eq!(linearize(&blocks), "fn main() {\n    println!(\"hi\");\n}");
     }
 
     #[test]
@@ -343,15 +339,9 @@ mod tests {
     #[test]
     fn block_quote_prefixes_each_line() {
         let blocks = vec![MdBlock::BlockQuote {
-            blocks: vec![
-                para("первая строка"),
-                para("вторая строка"),
-            ],
+            blocks: vec![para("первая строка"), para("вторая строка")],
         }];
-        assert_eq!(
-            linearize(&blocks),
-            "> первая строка\n> \n> вторая строка"
-        );
+        assert_eq!(linearize(&blocks), "> первая строка\n> \n> вторая строка");
     }
 
     #[test]
@@ -386,10 +376,7 @@ mod tests {
     #[test]
     fn footnote_ref_keeps_visible_marker() {
         let blocks = vec![MdBlock::Paragraph {
-            inlines: vec![
-                text("текст"),
-                MdInline::FootnoteRef("note".to_string()),
-            ],
+            inlines: vec![text("текст"), MdInline::FootnoteRef("note".to_string())],
         }];
         assert_eq!(linearize(&blocks), "текст[^note]");
     }

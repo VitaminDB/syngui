@@ -86,10 +86,7 @@ pub fn compute_ticks(min: f64, max: f64, desired_count: usize) -> Vec<f64> {
     ticks
 }
 
-pub fn data_extent(
-    series: &[super::types::Series],
-    visible: &[bool],
-) -> (f64, f64, f64, f64) {
+pub fn data_extent(series: &[super::types::Series], visible: &[bool]) -> (f64, f64, f64, f64) {
     let mut x_min = f64::INFINITY;
     let mut x_max = f64::NEG_INFINITY;
     let mut y_min = f64::INFINITY;
@@ -113,7 +110,11 @@ pub fn data_extent(
 
     let y_range = y_max - y_min;
     if y_range.abs() < 1e-12 {
-        let pad = if y_min.abs() < 1e-12 { 1.0 } else { y_min.abs() * 0.1 };
+        let pad = if y_min.abs() < 1e-12 {
+            1.0
+        } else {
+            y_min.abs() * 0.1
+        };
         y_min -= pad;
         y_max += pad;
     } else {
@@ -146,16 +147,14 @@ pub fn catmull_rom_to_bezier(
         let p0 = if i == 0 { points[0] } else { points[i - 1] };
         let p1 = points[i];
         let p2 = points[i + 1];
-        let p3 = if i + 2 < n { points[i + 2] } else { points[n - 1] };
+        let p3 = if i + 2 < n {
+            points[i + 2]
+        } else {
+            points[n - 1]
+        };
 
-        let cp1 = (
-            p1.0 + alpha * (p2.0 - p0.0),
-            p1.1 + alpha * (p2.1 - p0.1),
-        );
-        let cp2 = (
-            p2.0 - alpha * (p3.0 - p1.0),
-            p2.1 - alpha * (p3.1 - p1.1),
-        );
+        let cp1 = (p1.0 + alpha * (p2.0 - p0.0), p1.1 + alpha * (p2.1 - p0.1));
+        let cp2 = (p2.0 - alpha * (p3.0 - p1.0), p2.1 - alpha * (p3.1 - p1.1));
 
         segments.push((p1, cp1, cp2, p2));
     }
@@ -163,11 +162,7 @@ pub fn catmull_rom_to_bezier(
     segments
 }
 
-pub fn segment_dashed(
-    points: &[(f32, f32)],
-    dash_len: f32,
-    gap_len: f32,
-) -> Vec<Vec<(f32, f32)>> {
+pub fn segment_dashed(points: &[(f32, f32)], dash_len: f32, gap_len: f32) -> Vec<Vec<(f32, f32)>> {
     if points.len() < 2 || dash_len <= 0.0 {
         return vec![points.to_vec()];
     }
@@ -286,13 +281,23 @@ pub fn polar_to_cartesian(cx: f32, cy: f32, r: f32, angle_rad: f32) -> (f32, f32
     (cx + r * angle_rad.cos(), cy - r * angle_rad.sin())
 }
 
-pub fn regular_polygon_points(cx: f32, cy: f32, r: f32, n: usize, start_angle: f32) -> Vec<(f32, f32)> {
-    if n == 0 { return Vec::new(); }
+pub fn regular_polygon_points(
+    cx: f32,
+    cy: f32,
+    r: f32,
+    n: usize,
+    start_angle: f32,
+) -> Vec<(f32, f32)> {
+    if n == 0 {
+        return Vec::new();
+    }
     let step = std::f32::consts::TAU / n as f32;
-    (0..n).map(|i| {
-        let angle = start_angle + i as f32 * step;
-        polar_to_cartesian(cx, cy, r, angle)
-    }).collect()
+    (0..n)
+        .map(|i| {
+            let angle = start_angle + i as f32 * step;
+            polar_to_cartesian(cx, cy, r, angle)
+        })
+        .collect()
 }
 
 #[cfg(test)]

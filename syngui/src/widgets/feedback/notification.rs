@@ -156,7 +156,11 @@ pub struct NotificationHost {
 
 impl NotificationHost {
     pub fn new(ctx: NotificationCtx) -> Self {
-        Self { ctx, classes: Vec::new(), grow_up: false }
+        Self {
+            ctx,
+            classes: Vec::new(),
+            grow_up: false,
+        }
     }
 
     pub fn class(mut self, class: impl Into<String>) -> Self {
@@ -267,8 +271,10 @@ impl NotificationHostElement {
         self.mss.font_size.unwrap_or(DEFAULT_FONT_SIZE)
     }
     fn effective_border_radius(&self) -> f32 {
-        self.mss
-            .border_radius_uniform(self.bounds.size.width.min(self.bounds.size.height), DEFAULT_BORDER_RADIUS)
+        self.mss.border_radius_uniform(
+            self.bounds.size.width.min(self.bounds.size.height),
+            DEFAULT_BORDER_RADIUS,
+        )
     }
 
     fn font_family_str(&self) -> Option<&str> {
@@ -294,7 +300,9 @@ impl NotificationHostElement {
         if text.is_empty() {
             return 1;
         }
-        let space_w = self.measure_width(" ", font_size, bold).max(font_size * 0.25);
+        let space_w = self
+            .measure_width(" ", font_size, bold)
+            .max(font_size * 0.25);
         let mut total = 0usize;
         for paragraph in text.split('\n') {
             if paragraph.is_empty() {
@@ -327,7 +335,10 @@ impl NotificationHostElement {
 
     /// Сколько карточек переполнения показывается «колодой» за видимыми.
     fn deck_layers(&self) -> usize {
-        self.active.len().saturating_sub(MAX_VISIBLE).min(DECK_DEPTH)
+        self.active
+            .len()
+            .saturating_sub(MAX_VISIBLE)
+            .min(DECK_DEPTH)
     }
 
     /// Y первой видимой карточки. В режиме [`NotificationHost::grow_up`]
@@ -441,7 +452,10 @@ impl Element for NotificationHostElement {
         let msg_color = title_color.with_alpha(0.7);
         let close_color_idle = title_color.with_alpha(0.4);
         let close_color_hover = title_color;
-        let bg_default = self.mss.background_color.unwrap_or(Color::from_hex("#FFFFFF"));
+        let bg_default = self
+            .mss
+            .background_color
+            .unwrap_or(Color::from_hex("#FFFFFF"));
         let host_w = self.bounds.size.width;
         let origin_x = self.bounds.origin.x;
         let origin_y = self.bounds.origin.y;
@@ -495,7 +509,7 @@ impl Element for NotificationHostElement {
                 close_color_idle,
                 close_color_hover,
                 bg_default,
-                 false,
+                false,
             );
         }
 
@@ -520,7 +534,7 @@ impl Element for NotificationHostElement {
                 close_color_idle,
                 close_color_hover,
                 bg_default,
-                 true,
+                true,
             );
         }
 
@@ -760,10 +774,16 @@ impl NotificationHostElement {
             Point::new(rect.x() + pad, rect.y() + pad),
             Size::new(ICON_SIZE, ICON_SIZE),
         );
-        list.push_text_centered(n.item.severity.icon(), icon_rect, accent.with_alpha(opacity), ICON_SIZE);
+        list.push_text_centered(
+            n.item.severity.icon(),
+            icon_rect,
+            accent.with_alpha(opacity),
+            ICON_SIZE,
+        );
 
         let title_x = rect.x() + pad + ICON_SIZE + 12.0;
-        let title_w = (rect.size.width - (title_x - rect.x()) - pad - CLOSE_ICON_SIZE - 8.0).max(40.0);
+        let title_w =
+            (rect.size.width - (title_x - rect.x()) - pad - CLOSE_ICON_SIZE - 8.0).max(40.0);
         let title_line_h = font_size * 1.4;
         let title_lines = self.count_visual_lines(&n.item.title, title_w, font_size, true);
         let title_rect = Rect::new(
@@ -808,7 +828,12 @@ impl NotificationHostElement {
         } else {
             close_color_idle
         };
-        list.push_text_centered("\u{E5CD}", close_rect, close_color.with_alpha(opacity), CLOSE_ICON_SIZE);
+        list.push_text_centered(
+            "\u{E5CD}",
+            close_rect,
+            close_color.with_alpha(opacity),
+            CLOSE_ICON_SIZE,
+        );
     }
 }
 

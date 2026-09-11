@@ -2,11 +2,13 @@ use crate::core::canvas::CanvasContext;
 use crate::core::{Color, Point, Rect, Size};
 use crate::input::{Event, EventResult, MouseButton};
 use crate::layout::Constraints;
-use crate::mss::{ComputedStyle, Dimension};
 use crate::mss::MssFields;
+use crate::mss::{ComputedStyle, Dimension};
 use crate::render::DisplayList;
-use crate::widget::{DirtyFlags, Element, ElementId, ElementTree, StyledElement, UpdateContext, Widget};
 use crate::widget::context::TextMeasure;
+use crate::widget::{
+    DirtyFlags, Element, ElementId, ElementTree, StyledElement, UpdateContext, Widget,
+};
 use std::any::Any;
 use std::sync::Arc;
 use std::time::Duration;
@@ -14,11 +16,11 @@ use std::time::Duration;
 use super::animation::ChartAnimationState;
 use super::math::{polar_to_cartesian, regular_polygon_points};
 use super::render::estimate_text_width;
-use super::render::legend::{render_legend_items, legend_height};
+use super::render::legend::{legend_height, render_legend_items};
 use super::render::tooltip::TooltipColors;
 use super::types::{
-    LegendConfig, LegendPosition, RadarGridShape, RadarIndicator, RadarSeries,
-    TooltipConfig, palette_color,
+    palette_color, LegendConfig, LegendPosition, RadarGridShape, RadarIndicator, RadarSeries,
+    TooltipConfig,
 };
 
 pub struct RadarChart {
@@ -132,15 +134,20 @@ impl RadarChart {
 }
 
 impl Default for RadarChart {
-    fn default() -> Self { Self::new() }
+    fn default() -> Self {
+        Self::new()
+    }
 }
 
 impl Widget for RadarChart {
     fn create_element(&self) -> Box<dyn Element> {
         let num_series = self.radar_series.len();
-        let resolved_colors: Vec<Color> = self.radar_series.iter().enumerate().map(|(i, s)| {
-            s.color.unwrap_or_else(|| palette_color(i))
-        }).collect();
+        let resolved_colors: Vec<Color> = self
+            .radar_series
+            .iter()
+            .enumerate()
+            .map(|(i, s)| s.color.unwrap_or_else(|| palette_color(i)))
+            .collect();
 
         let mut anim = ChartAnimationState::default();
         anim.ensure_series_count(num_series);
@@ -181,11 +188,19 @@ impl Widget for RadarChart {
         })
     }
 
-    fn can_update(&self, other: &dyn Any) -> bool { other.is::<Self>() }
-    fn as_any(&self) -> &dyn Any { self }
-    fn as_any_mut(&mut self) -> &mut dyn Any { self }
+    fn can_update(&self, other: &dyn Any) -> bool {
+        other.is::<Self>()
+    }
+    fn as_any(&self) -> &dyn Any {
+        self
+    }
+    fn as_any_mut(&mut self) -> &mut dyn Any {
+        self
+    }
     fn mount(&self, _tree: &mut ElementTree, _parent_id: ElementId) {}
-    fn widget_classes(&self) -> &[String] { &self.classes }
+    fn widget_classes(&self) -> &[String] {
+        &self.classes
+    }
 }
 
 struct RadarChartElement {
@@ -227,27 +242,39 @@ struct RadarChartElement {
 }
 
 impl RadarChartElement {
-    fn compute_data_points(&self, cx: f32, cy: f32, radius: f32, appear_eased: f32) -> Vec<Vec<(f32, f32)>> {
+    fn compute_data_points(
+        &self,
+        cx: f32,
+        cy: f32,
+        radius: f32,
+        appear_eased: f32,
+    ) -> Vec<Vec<(f32, f32)>> {
         let n = self.indicators.len();
         if n == 0 {
             return Vec::new();
         }
         let step_angle = std::f32::consts::TAU / n as f32;
 
-        self.radar_series.iter().enumerate().map(|(si, series)| {
-            (0..n).map(|i| {
-                let angle = self.start_angle + i as f32 * step_angle;
-                let max_val = self.indicators[i].max;
-                let val = series.data.get(i).copied().unwrap_or(0.0);
-                let ratio = if max_val > 0.0 {
-                    (val / max_val).clamp(0.0, 1.0) as f32
-                } else {
-                    0.0
-                };
-                let r = ratio * radius * appear_eased * self.anim.series_opacity(si);
-                polar_to_cartesian(cx, cy, r, angle)
-            }).collect()
-        }).collect()
+        self.radar_series
+            .iter()
+            .enumerate()
+            .map(|(si, series)| {
+                (0..n)
+                    .map(|i| {
+                        let angle = self.start_angle + i as f32 * step_angle;
+                        let max_val = self.indicators[i].max;
+                        let val = series.data.get(i).copied().unwrap_or(0.0);
+                        let ratio = if max_val > 0.0 {
+                            (val / max_val).clamp(0.0, 1.0) as f32
+                        } else {
+                            0.0
+                        };
+                        let r = ratio * radius * appear_eased * self.anim.series_opacity(si);
+                        polar_to_cartesian(cx, cy, r, angle)
+                    })
+                    .collect()
+            })
+            .collect()
     }
 
     fn find_nearest_series(&self, mouse: Point) -> Option<usize> {
@@ -287,9 +314,12 @@ impl Element for RadarChartElement {
             self.height = w.height;
             self.title = w.title.clone();
 
-            self.resolved_colors = w.radar_series.iter().enumerate().map(|(i, s)| {
-                s.color.unwrap_or_else(|| palette_color(i))
-            }).collect();
+            self.resolved_colors = w
+                .radar_series
+                .iter()
+                .enumerate()
+                .map(|(i, s)| s.color.unwrap_or_else(|| palette_color(i)))
+                .collect();
 
             self.anim.ensure_series_count(w.radar_series.len());
             self.mark_dirty(DirtyFlags::LAYOUT | DirtyFlags::RENDER);
@@ -297,13 +327,17 @@ impl Element for RadarChartElement {
     }
 
     fn layout(&mut self, constraints: Constraints) -> Size {
-        let w = self.mss.width
+        let w = self
+            .mss
+            .width
             .or(self.width)
             .map(|d| d.resolve(constraints.max_width))
             .unwrap_or(350.0)
             .min(constraints.max_width);
 
-        let h = self.mss.height
+        let h = self
+            .mss
+            .height
             .or(self.height)
             .map(|d| d.resolve(constraints.max_height))
             .unwrap_or(350.0)
@@ -323,8 +357,11 @@ impl Element for RadarChartElement {
         if let Some(ref shadows) = self.mss.box_shadow {
             for shadow in shadows.0.iter() {
                 list.push_shadow(
-                    self.bounds, shadow.color, shadow.blur_radius,
-                    (shadow.offset_x, shadow.offset_y), border_radius,
+                    self.bounds,
+                    shadow.color,
+                    shadow.blur_radius,
+                    (shadow.offset_x, shadow.offset_y),
+                    border_radius,
                 );
             }
         }
@@ -351,10 +388,12 @@ impl Element for RadarChartElement {
         let cy = inner_y + title_h + label_offset + chart_size * 0.5;
         let radius = chart_size * 0.4;
 
-        let grid_color = self.mss_grid_color
+        let grid_color = self
+            .mss_grid_color
             .or(self.mss.color.map(|c| c.with_alpha(0.15)))
             .unwrap_or(Color::from_hex("#d1d5db"));
-        let label_color = self.mss_label_color
+        let label_color = self
+            .mss_label_color
             .or(self.mss.color.map(|c| c.with_alpha(0.6)))
             .unwrap_or(Color::from_hex("#64748b"));
         let label_font = self.mss_label_font_size.unwrap_or(11.0);
@@ -427,15 +466,20 @@ impl Element for RadarChartElement {
                 continue;
             }
 
-            let color = self.resolved_colors.get(si).copied().unwrap_or(Color::from_hex("#5470c6"));
+            let color = self
+                .resolved_colors
+                .get(si)
+                .copied()
+                .unwrap_or(Color::from_hex("#5470c6"));
             let pts: Vec<(f32, f32)> = data_points.get(si).cloned().unwrap_or_default();
             if pts.is_empty() {
                 continue;
             }
 
-            let local_pts: Vec<(f32, f32)> = pts.iter().map(|&(px, py)| {
-                (px - self.bounds.origin.x, py - self.bounds.origin.y)
-            }).collect();
+            let local_pts: Vec<(f32, f32)> = pts
+                .iter()
+                .map(|&(px, py)| (px - self.bounds.origin.x, py - self.bounds.origin.y))
+                .collect();
 
             let mut series_ctx = CanvasContext::new(self.bounds.origin, self.bounds.size);
 
@@ -474,10 +518,8 @@ impl Element for RadarChartElement {
 
         if self.legend_config.position != LegendPosition::None && self.radar_series.len() > 1 {
             let legend_y = cy + chart_size * 0.5 + label_offset;
-            let legend_rect = Rect::new(
-                Point::new(inner_x, legend_y),
-                Size::new(inner_w, legend_h),
-            );
+            let legend_rect =
+                Rect::new(Point::new(inner_x, legend_y), Size::new(inner_w, legend_h));
             let names: Vec<&str> = self.radar_series.iter().map(|s| s.name.as_str()).collect();
             let _hit_rects = render_legend_items(
                 list,
@@ -501,7 +543,11 @@ impl Element for RadarChartElement {
         }
     }
 
-    fn handle_event(&mut self, event: &Event, _ctx: &mut crate::widget::context::EventContext) -> EventResult {
+    fn handle_event(
+        &mut self,
+        event: &Event,
+        _ctx: &mut crate::widget::context::EventContext,
+    ) -> EventResult {
         match event {
             Event::MouseMove(pos) => {
                 if !self.bounds.contains(*pos) {
@@ -523,7 +569,10 @@ impl Element for RadarChartElement {
                 }
                 EventResult::Handled
             }
-            Event::MouseDown { button: MouseButton::Left, position } => {
+            Event::MouseDown {
+                button: MouseButton::Left,
+                position,
+            } => {
                 if !self.bounds.contains(*position) {
                     return EventResult::Ignored;
                 }
@@ -578,30 +627,54 @@ impl Element for RadarChartElement {
         self.anim.tick(dt)
     }
 
-    fn children(&self) -> &[ElementId] { &[] }
-    fn bounds(&self) -> Rect { self.bounds }
+    fn children(&self) -> &[ElementId] {
+        &[]
+    }
+    fn bounds(&self) -> Rect {
+        self.bounds
+    }
 
     fn set_position(&mut self, pos: Point) {
         self.bounds.origin = pos;
     }
 
-    fn mark_dirty(&mut self, flags: DirtyFlags) { self.dirty_flags |= flags; }
-    fn clear_dirty(&mut self, flags: DirtyFlags) { self.dirty_flags.remove(flags); }
-    fn is_dirty(&self, flags: DirtyFlags) -> bool { self.dirty_flags.contains(flags) }
-    fn id(&self) -> ElementId { self.id }
-    fn set_id(&mut self, id: ElementId) { self.id = id; }
-    fn mount(&mut self, tree: &mut ElementTree) { self.text_measure = tree.text_measure.clone(); }
+    fn mark_dirty(&mut self, flags: DirtyFlags) {
+        self.dirty_flags |= flags;
+    }
+    fn clear_dirty(&mut self, flags: DirtyFlags) {
+        self.dirty_flags.remove(flags);
+    }
+    fn is_dirty(&self, flags: DirtyFlags) -> bool {
+        self.dirty_flags.contains(flags)
+    }
+    fn id(&self) -> ElementId {
+        self.id
+    }
+    fn set_id(&mut self, id: ElementId) {
+        self.id = id;
+    }
+    fn mount(&mut self, tree: &mut ElementTree) {
+        self.text_measure = tree.text_measure.clone();
+    }
 
     fn set_classes(&mut self, classes: Vec<String>) {
         self.classes = classes;
         self.mark_dirty(DirtyFlags::RENDER);
     }
 
-    fn get_classes(&self) -> &[String] { &self.classes }
-    fn element_type_name(&self) -> &str { "RadarChart" }
+    fn get_classes(&self) -> &[String] {
+        &self.classes
+    }
+    fn element_type_name(&self) -> &str {
+        "RadarChart"
+    }
 
-    fn reset_mss_styles(&mut self) { self.mss.reset(); }
-    fn mss(&self) -> Option<&crate::mss::MssFields> { Some(&self.mss) }
+    fn reset_mss_styles(&mut self) {
+        self.mss.reset();
+    }
+    fn mss(&self) -> Option<&crate::mss::MssFields> {
+        Some(&self.mss)
+    }
     fn apply_computed_style(&mut self, style: &ComputedStyle) {
         self.mss.apply(style);
 
@@ -630,7 +703,8 @@ impl Element for RadarChartElement {
         selected: Option<&ComputedStyle>,
         _checked: Option<&ComputedStyle>,
     ) {
-        self.mss.apply_transitions(base, hover, active, focus, selected);
+        self.mss
+            .apply_transitions(base, hover, active, focus, selected);
     }
 
     fn accessibility_info(&self) -> Option<crate::a11y::AccessibilityInfo> {
@@ -661,7 +735,11 @@ impl RadarChartElement {
         let padding = 8.0;
 
         let mut lines: Vec<(String, Color)> = Vec::new();
-        let series_color = self.resolved_colors.get(si).copied().unwrap_or(Color::WHITE);
+        let series_color = self
+            .resolved_colors
+            .get(si)
+            .copied()
+            .unwrap_or(Color::WHITE);
         lines.push((series.name.clone(), series_color));
 
         for (i, ind) in self.indicators.iter().enumerate() {
@@ -671,7 +749,9 @@ impl RadarChartElement {
 
         let max_text_width = lines
             .iter()
-            .map(|(text, _)| estimate_text_width(text, colors.font_size, self.text_measure.as_ref()))
+            .map(|(text, _)| {
+                estimate_text_width(text, colors.font_size, self.text_measure.as_ref())
+            })
             .fold(0.0_f32, f32::max);
         let tooltip_width = max_text_width + padding * 2.0;
         let tooltip_height = lines.len() as f32 * line_height + padding * 2.0;
@@ -692,10 +772,7 @@ impl RadarChartElement {
         x = x.max(self.bounds.origin.x);
         y = y.max(self.bounds.origin.y);
 
-        let tooltip_rect = Rect::new(
-            Point::new(x, y),
-            Size::new(tooltip_width, tooltip_height),
-        );
+        let tooltip_rect = Rect::new(Point::new(x, y), Size::new(tooltip_width, tooltip_height));
 
         list.push_shadow(
             tooltip_rect,
@@ -732,7 +809,9 @@ impl StyledElement for RadarChartElement {
     fn apply_style(&mut self, _style: &ComputedStyle) {
         self.mark_dirty(DirtyFlags::LAYOUT | DirtyFlags::RENDER);
     }
-    fn classes(&self) -> &[String] { &self.classes }
+    fn classes(&self) -> &[String] {
+        &self.classes
+    }
     fn set_classes(&mut self, classes: Vec<String>) {
         self.classes = classes;
         self.mark_dirty(DirtyFlags::RENDER);

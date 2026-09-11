@@ -1,4 +1,4 @@
-use super::color::{Color, linear_to_srgb};
+use super::color::{linear_to_srgb, Color};
 
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct ColorStop {
@@ -8,11 +8,17 @@ pub struct ColorStop {
 
 impl ColorStop {
     pub fn new(color: Color, position: f32) -> Self {
-        Self { color, position: Some(position) }
+        Self {
+            color,
+            position: Some(position),
+        }
     }
 
     pub fn auto(color: Color) -> Self {
-        Self { color, position: None }
+        Self {
+            color,
+            position: None,
+        }
     }
 }
 
@@ -47,11 +53,21 @@ pub const GRADIENT_DEFAULT_QUALITY: u8 = 24;
 
 impl Gradient {
     pub fn radial(shape: GradientShape, center: (f32, f32), stops: Vec<ColorStop>) -> Self {
-        Gradient::Radial { shape, center, stops, quality: GRADIENT_DEFAULT_QUALITY }
+        Gradient::Radial {
+            shape,
+            center,
+            stops,
+            quality: GRADIENT_DEFAULT_QUALITY,
+        }
     }
 
     pub fn conic(from_angle: f32, center: (f32, f32), stops: Vec<ColorStop>) -> Self {
-        Gradient::Conic { from_angle, center, stops, quality: GRADIENT_DEFAULT_QUALITY }
+        Gradient::Conic {
+            from_angle,
+            center,
+            stops,
+            quality: GRADIENT_DEFAULT_QUALITY,
+        }
     }
 
     pub fn with_quality(mut self, quality: u8) -> Self {
@@ -71,10 +87,8 @@ impl Gradient {
             return vec![(stops[0].color, 0.0)];
         }
 
-        let mut result: Vec<(Color, Option<f32>)> = stops
-            .iter()
-            .map(|s| (s.color, s.position))
-            .collect();
+        let mut result: Vec<(Color, Option<f32>)> =
+            stops.iter().map(|s| (s.color, s.position)).collect();
 
         if result[0].1.is_none() {
             result[0].1 = Some(0.0);
@@ -99,7 +113,8 @@ impl Gradient {
             let end_pos = result[end].1.unwrap();
             let count = end - start;
             for j in 1..count {
-                result[start + j].1 = Some(start_pos + (end_pos - start_pos) * j as f32 / count as f32);
+                result[start + j].1 =
+                    Some(start_pos + (end_pos - start_pos) * j as f32 / count as f32);
             }
             i = end + 1;
         }

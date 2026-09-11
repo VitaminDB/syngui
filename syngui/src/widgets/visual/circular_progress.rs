@@ -5,7 +5,9 @@ use crate::layout::Constraints;
 use crate::mss::ComputedStyle;
 use crate::mss::MssFields;
 use crate::render::DisplayList;
-use crate::widget::{DirtyFlags, Element, ElementId, ElementTree, StyledElement, UpdateContext, Widget};
+use crate::widget::{
+    DirtyFlags, Element, ElementId, ElementTree, StyledElement, UpdateContext, Widget,
+};
 use std::any::Any;
 
 pub struct CircularProgress {
@@ -48,7 +50,6 @@ impl CircularProgress {
         self.stroke_width = width;
         self
     }
-
 }
 
 impl Default for CircularProgress {
@@ -113,7 +114,10 @@ impl Element for CircularProgressElement {
     }
 
     fn layout(&mut self, constraints: Constraints) -> Size {
-        let s = self.size.min(constraints.max_width).min(constraints.max_height);
+        let s = self
+            .size
+            .min(constraints.max_width)
+            .min(constraints.max_height);
         self.bounds = Rect::new(Point::zero(), Size::new(s, s));
         Size::new(s, s)
     }
@@ -125,12 +129,18 @@ impl Element for CircularProgressElement {
 
         let mut ctx = CanvasContext::new(self.bounds.origin, self.bounds.size);
 
-        let track_color = self.mss.border_color.unwrap_or_else(|| Color::from_hex("#E5E7EB"));
+        let track_color = self
+            .mss
+            .border_color
+            .unwrap_or_else(|| Color::from_hex("#E5E7EB"));
         ctx.set_color(track_color);
         ctx.set_stroke_width(self.stroke_width);
         ctx.stroke_circle(cx, cy, radius);
 
-        let fill_color = self.mss.accent_color.unwrap_or_else(|| Color::from_hex("#3B82F6"));
+        let fill_color = self
+            .mss
+            .accent_color
+            .unwrap_or_else(|| Color::from_hex("#3B82F6"));
         ctx.set_color(fill_color);
         ctx.set_stroke_width(self.stroke_width);
 
@@ -163,7 +173,11 @@ impl Element for CircularProgressElement {
         false
     }
 
-    fn handle_event(&mut self, _event: &Event, _ctx: &mut crate::widget::context::EventContext) -> EventResult {
+    fn handle_event(
+        &mut self,
+        _event: &Event,
+        _ctx: &mut crate::widget::context::EventContext,
+    ) -> EventResult {
         EventResult::Ignored
     }
 
@@ -210,10 +224,16 @@ impl Element for CircularProgressElement {
         &self.classes
     }
 
-    fn element_type_name(&self) -> &str { "CircularProgress" }
+    fn element_type_name(&self) -> &str {
+        "CircularProgress"
+    }
 
-    fn reset_mss_styles(&mut self) { self.mss.reset(); }
-    fn mss(&self) -> Option<&crate::mss::MssFields> { Some(&self.mss) }
+    fn reset_mss_styles(&mut self) {
+        self.mss.reset();
+    }
+    fn mss(&self) -> Option<&crate::mss::MssFields> {
+        Some(&self.mss)
+    }
     fn apply_computed_style(&mut self, style: &ComputedStyle) {
         self.mss.apply(style);
         if let Some(d) = self.mss.width {
@@ -231,7 +251,8 @@ impl Element for CircularProgressElement {
         selected: Option<&ComputedStyle>,
         _checked: Option<&ComputedStyle>,
     ) {
-        self.mss.apply_transitions(base, hover, active, focus, selected);
+        self.mss
+            .apply_transitions(base, hover, active, focus, selected);
     }
 
     fn accessibility_info(&self) -> Option<crate::a11y::AccessibilityInfo> {

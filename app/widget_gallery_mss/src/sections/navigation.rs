@@ -1,6 +1,6 @@
 use syngui::prelude::*;
-use syngui::widgets::*;
 use syngui::signal::use_signal;
+use syngui::widgets::*;
 
 use super::{label, section_card, section_title};
 
@@ -85,20 +85,19 @@ pub fn build_navigation_section() -> impl Widget {
             )
             // ── Stepper variants ───────────────────────────────────
             .child(
-                Column::new().gap(8.0)
-                    .child(label("Stepper — Pill"))
-                    .child(
-                        Stepper::new()
-                            .step("Business type", Some("Supporting text"))
-                            .step("Business Detail", Some("Supporting text"))
-                            .step("Your details", Some("Supporting text"))
-                            .step("Verification", Some("Supporting text"))
-                            .current(1)
-                            .class("pill"),
-                    ),
+                Column::new().gap(8.0).child(label("Stepper — Pill")).child(
+                    Stepper::new()
+                        .step("Business type", Some("Supporting text"))
+                        .step("Business Detail", Some("Supporting text"))
+                        .step("Your details", Some("Supporting text"))
+                        .step("Verification", Some("Supporting text"))
+                        .current(1)
+                        .class("pill"),
+                ),
             )
             .child(
-                Column::new().gap(8.0)
+                Column::new()
+                    .gap(8.0)
                     .child(label("Stepper — Radio"))
                     .child(
                         Stepper::new()
@@ -113,7 +112,8 @@ pub fn build_navigation_section() -> impl Widget {
                     ),
             )
             .child(
-                Column::new().gap(8.0)
+                Column::new()
+                    .gap(8.0)
                     .child(label("Stepper — Numbered"))
                     .child(
                         Stepper::new()
@@ -127,20 +127,19 @@ pub fn build_navigation_section() -> impl Widget {
                     ),
             )
             .child(
-                Column::new().gap(8.0)
-                    .child(label("Stepper — Icon"))
-                    .child(
-                        Stepper::new()
-                            .step_with_icon("Personal info", "📋", Some("Support text"))
-                            .step_with_icon("Social accounts", "🔗", Some("Support text"))
-                            .step_with_icon("Integrations", "⚙", Some("Support text"))
-                            .step_with_icon("Payment info", "💳", Some("Support text"))
-                            .current(1)
-                            .class("icon"),
-                    ),
+                Column::new().gap(8.0).child(label("Stepper — Icon")).child(
+                    Stepper::new()
+                        .step_with_icon("Personal info", "📋", Some("Support text"))
+                        .step_with_icon("Social accounts", "🔗", Some("Support text"))
+                        .step_with_icon("Integrations", "⚙", Some("Support text"))
+                        .step_with_icon("Payment info", "💳", Some("Support text"))
+                        .current(1)
+                        .class("icon"),
+                ),
             )
             .child(
-                Column::new().gap(8.0)
+                Column::new()
+                    .gap(8.0)
                     .child(label("Stepper — Status"))
                     .child(
                         Stepper::new()

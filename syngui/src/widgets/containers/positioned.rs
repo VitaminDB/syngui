@@ -163,8 +163,16 @@ impl Element for PositionedElement {
         }
         let size = self.size.unwrap_or_else(|| {
             Size::new(
-                if constraints.max_width.is_finite() { constraints.max_width } else { 0.0 },
-                if constraints.max_height.is_finite() { constraints.max_height } else { 0.0 },
+                if constraints.max_width.is_finite() {
+                    constraints.max_width
+                } else {
+                    0.0
+                },
+                if constraints.max_height.is_finite() {
+                    constraints.max_height
+                } else {
+                    0.0
+                },
             )
         });
         self.bounds = Rect::new(self.bounds.origin, size);
@@ -172,7 +180,10 @@ impl Element for PositionedElement {
     }
 
     fn layout_hint(&self) -> LayoutHint {
-        LayoutHint::Positioned { x: self.x, y: self.y }
+        LayoutHint::Positioned {
+            x: self.x,
+            y: self.y,
+        }
     }
 
     fn animate(&mut self, _dt: std::time::Duration) -> bool {
@@ -298,7 +309,8 @@ impl Element for PositionedElement {
         selected: Option<&ComputedStyle>,
         _checked: Option<&ComputedStyle>,
     ) {
-        self.mss.apply_transitions(base, hover, active, focus, selected);
+        self.mss
+            .apply_transitions(base, hover, active, focus, selected);
     }
 }
 

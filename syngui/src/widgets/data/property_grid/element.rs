@@ -1,16 +1,18 @@
 use super::{Property, PropertyGrid, PropertyValue};
+use crate::core::sync::Mutex;
 use crate::core::{Color, Point, Rect, RectExt, Size};
 use crate::input::{CursorIcon, Event, EventResult, MouseButton};
 use crate::layout::Constraints;
-use crate::mss::{ComputedStyle, Dimension};
 use crate::mss::MssFields;
+use crate::mss::{ComputedStyle, Dimension};
 use crate::render::{Border, DisplayList};
 use crate::widget::context::{EventContext, EventContextExt};
-use crate::widget::{DirtyFlags, Element, ElementId, ElementTree, StyledElement, UpdateContext, Widget};
+use crate::widget::{
+    DirtyFlags, Element, ElementId, ElementTree, StyledElement, UpdateContext, Widget,
+};
 use crate::widgets::input::color_picker::ColorValue;
 use std::any::Any;
 use std::sync::Arc;
-use crate::core::sync::Mutex;
 
 impl Widget for PropertyGrid {
     fn create_element(&self) -> Box<dyn Element> {
@@ -50,9 +52,15 @@ impl Widget for PropertyGrid {
         })
     }
 
-    fn can_update(&self, other: &dyn Any) -> bool { other.is::<Self>() }
-    fn as_any(&self) -> &dyn Any { self }
-    fn as_any_mut(&mut self) -> &mut dyn Any { self }
+    fn can_update(&self, other: &dyn Any) -> bool {
+        other.is::<Self>()
+    }
+    fn as_any(&self) -> &dyn Any {
+        self
+    }
+    fn as_any_mut(&mut self) -> &mut dyn Any {
+        self
+    }
     fn mount(&self, _tree: &mut ElementTree, _parent_id: ElementId) {}
 }
 
@@ -108,15 +116,19 @@ impl PropertyGridElement {
         let label_w = self.label_width.unwrap_or(120.0);
         let padding = 40.0;
 
-        let max_value_w = self.properties.iter().map(|p| {
-            let text = p.value.display();
-            let char_count = text.chars().count();
-            if let Some(ref tm) = self.text_measure {
-                tm.measure_text_width(&text, font_size, char_count)
-            } else {
-                char_count as f32 * font_size * 0.6
-            }
-        }).fold(0.0f32, f32::max);
+        let max_value_w = self
+            .properties
+            .iter()
+            .map(|p| {
+                let text = p.value.display();
+                let char_count = text.chars().count();
+                if let Some(ref tm) = self.text_measure {
+                    tm.measure_text_width(&text, font_size, char_count)
+                } else {
+                    char_count as f32 * font_size * 0.6
+                }
+            })
+            .fold(0.0f32, f32::max);
 
         label_w + max_value_w + padding
     }
@@ -131,14 +143,22 @@ impl PropertyGridElement {
 
     fn row_at_y(&self, y: f32) -> Option<usize> {
         let local_y = y - self.bounds.y() + self.scroll_offset;
-        if local_y < 0.0 { return None; }
+        if local_y < 0.0 {
+            return None;
+        }
         let idx = (local_y / self.row_height) as usize;
-        if idx < self.properties.len() { Some(idx) } else { None }
+        if idx < self.properties.len() {
+            Some(idx)
+        } else {
+            None
+        }
     }
 
     fn fire_change(&self, idx: usize, value: PropertyValue) {
         if let Some(ref cb) = self.on_change {
-            if let Ok(mut f) = cb.lock() { f(idx, value); }
+            if let Ok(mut f) = cb.lock() {
+                f(idx, value);
+            }
         }
     }
 
@@ -154,11 +174,11 @@ impl PropertyGridElement {
                             return;
                         }
                     }
-                    PropertyValue::Bool(_) => {
-                        PropertyValue::Bool(
-                            self.edit_buffer == "true" || self.edit_buffer == "1" || self.edit_buffer == "yes"
-                        )
-                    }
+                    PropertyValue::Bool(_) => PropertyValue::Bool(
+                        self.edit_buffer == "true"
+                            || self.edit_buffer == "1"
+                            || self.edit_buffer == "yes",
+                    ),
                     PropertyValue::Color(_) => {
                         let hex = self.edit_buffer.trim_start_matches('#');
                         if hex.len() == 6 {
@@ -168,7 +188,10 @@ impl PropertyGridElement {
                                 u8::from_str_radix(&hex[4..6], 16),
                             ) {
                                 PropertyValue::Color(Color::new(
-                                    r as f32 / 255.0, g as f32 / 255.0, b as f32 / 255.0, 1.0
+                                    r as f32 / 255.0,
+                                    g as f32 / 255.0,
+                                    b as f32 / 255.0,
+                                    1.0,
                                 ))
                             } else {
                                 return;
@@ -178,7 +201,10 @@ impl PropertyGridElement {
                         }
                     }
                     PropertyValue::Choice(items, _) => {
-                        let selected = items.iter().position(|s| s == &self.edit_buffer).unwrap_or(0);
+                        let selected = items
+                            .iter()
+                            .position(|s| s == &self.edit_buffer)
+                            .unwrap_or(0);
                         PropertyValue::Choice(items.clone(), selected)
                     }
                 };
@@ -190,7 +216,9 @@ impl PropertyGridElement {
     }
 
     fn start_edit(&mut self, idx: usize) {
-        if idx >= self.properties.len() { return; }
+        if idx >= self.properties.len() {
+            return;
+        }
         self.editing_row = Some(idx);
         self.edit_buffer = self.properties[idx].value.display();
         self.edit_cursor = self.edit_buffer.len();
@@ -201,15 +229,22 @@ impl PropertyGridElement {
     const CP_GAP: f32 = 8.0;
     const CP_PAD: f32 = 12.0;
 
-    fn cp_popup_w(&self) -> f32 { Self::CP_PAD * 2.0 + Self::CP_SV_SIZE + Self::CP_GAP + Self::CP_HUE_W }
-    fn cp_popup_h(&self) -> f32 { Self::CP_PAD * 2.0 + Self::CP_SV_SIZE }
+    fn cp_popup_w(&self) -> f32 {
+        Self::CP_PAD * 2.0 + Self::CP_SV_SIZE + Self::CP_GAP + Self::CP_HUE_W
+    }
+    fn cp_popup_h(&self) -> f32 {
+        Self::CP_PAD * 2.0 + Self::CP_SV_SIZE
+    }
 
     fn cp_popup_rect(&self, row_idx: usize) -> Rect {
         let row_y = self.bounds.y() + (row_idx as f32 * self.row_height) - self.scroll_offset;
         let label_w = self.label_w();
         let x = self.bounds.x() + label_w;
         let y = row_y + self.row_height + 2.0;
-        Rect::new(Point::new(x, y), Size::new(self.cp_popup_w(), self.cp_popup_h()))
+        Rect::new(
+            Point::new(x, y),
+            Size::new(self.cp_popup_w(), self.cp_popup_h()),
+        )
     }
 
     fn cp_sv_rect(&self, popup: Rect) -> Rect {
@@ -221,7 +256,10 @@ impl PropertyGridElement {
 
     fn cp_hue_rect(&self, popup: Rect) -> Rect {
         Rect::new(
-            Point::new(popup.x() + Self::CP_PAD + Self::CP_SV_SIZE + Self::CP_GAP, popup.y() + Self::CP_PAD),
+            Point::new(
+                popup.x() + Self::CP_PAD + Self::CP_SV_SIZE + Self::CP_GAP,
+                popup.y() + Self::CP_PAD,
+            ),
             Size::new(Self::CP_HUE_W, Self::CP_SV_SIZE),
         )
     }
@@ -263,8 +301,15 @@ impl PropertyGridElement {
 
     fn filter_suggestions(&mut self) {
         let query = self.add_buffer.to_lowercase();
-        let existing: Vec<String> = self.properties.iter().map(|p| p.name.to_lowercase()).collect();
-        self.add_filtered = self.suggestions.iter().enumerate()
+        let existing: Vec<String> = self
+            .properties
+            .iter()
+            .map(|p| p.name.to_lowercase())
+            .collect();
+        self.add_filtered = self
+            .suggestions
+            .iter()
+            .enumerate()
             .filter(|(_, s)| {
                 let sl = s.to_lowercase();
                 sl.contains(&query) && !existing.contains(&sl)
@@ -274,20 +319,28 @@ impl PropertyGridElement {
         self.add_dropdown_open = !self.add_filtered.is_empty() && !self.add_buffer.is_empty();
         if let Some(h) = self.add_hover {
             if h >= self.add_filtered.len() {
-                self.add_hover = if self.add_filtered.is_empty() { None } else { Some(self.add_filtered.len() - 1) };
+                self.add_hover = if self.add_filtered.is_empty() {
+                    None
+                } else {
+                    Some(self.add_filtered.len() - 1)
+                };
             }
         }
     }
 
     fn fire_add(&self, name: &str, value: PropertyValue) {
         if let Some(ref cb) = self.on_add {
-            if let Ok(mut f) = cb.lock() { f(name, value); }
+            if let Ok(mut f) = cb.lock() {
+                f(name, value);
+            }
         }
     }
 
     fn fire_remove(&self, idx: usize, name: &str) {
         if let Some(ref cb) = self.on_remove {
-            if let Ok(mut f) = cb.lock() { f(idx, name); }
+            if let Ok(mut f) = cb.lock() {
+                f(idx, name);
+            }
         }
     }
 
@@ -299,7 +352,10 @@ impl PropertyGridElement {
         }
         let value = PropertyValue::Text(String::new());
         self.fire_add(&name, value.clone());
-        self.properties.push(Property { name: name.clone(), value });
+        self.properties.push(Property {
+            name: name.clone(),
+            value,
+        });
         self.add_buffer.clear();
         self.add_cursor = 0;
         self.add_mode = false;
@@ -331,7 +387,10 @@ impl PropertyGridElement {
         let y = (base_y + (row_idx as f32 * self.row_height) - self.scroll_offset).round();
         let x = self.bounds.x() + self.bounds.size.width - Self::DELETE_BTN_SIZE - 8.0;
         let cy = y + (self.row_height - Self::DELETE_BTN_SIZE) / 2.0;
-        Rect::new(Point::new(x, cy), Size::new(Self::DELETE_BTN_SIZE, Self::DELETE_BTN_SIZE))
+        Rect::new(
+            Point::new(x, cy),
+            Size::new(Self::DELETE_BTN_SIZE, Self::DELETE_BTN_SIZE),
+        )
     }
 
     fn dropdown_rect(&self) -> Rect {
@@ -364,14 +423,26 @@ impl PropertyGridElement {
         let cy = rect.y() + (1.0 - self.cp_val) * rect.size.height;
         let r = 5.0;
         let cur = Rect::new(Point::new(cx - r, cy - r), Size::new(r * 2.0, r * 2.0));
-        list.push_rect_bordered(cur, Color::TRANSPARENT, [r; 4], Border::new(2.0, Color::WHITE));
-        list.push_rect_bordered(cur, Color::TRANSPARENT, [r; 4], Border::new(1.0, Color::BLACK.with_alpha(0.3)));
+        list.push_rect_bordered(
+            cur,
+            Color::TRANSPARENT,
+            [r; 4],
+            Border::new(2.0, Color::WHITE),
+        );
+        list.push_rect_bordered(
+            cur,
+            Color::TRANSPARENT,
+            [r; 4],
+            Border::new(1.0, Color::BLACK.with_alpha(0.3)),
+        );
     }
 
     fn draw_cp_hue_bar(&self, list: &mut DisplayList, rect: Rect) {
         let steps = 12;
         let cell_h = rect.size.height / steps as f32;
-        let hues = [0.0, 30.0, 60.0, 90.0, 120.0, 150.0, 180.0, 210.0, 240.0, 270.0, 300.0, 330.0];
+        let hues = [
+            0.0, 30.0, 60.0, 90.0, 120.0, 150.0, 180.0, 210.0, 240.0, 270.0, 300.0, 330.0,
+        ];
         for (i, &h) in hues.iter().enumerate() {
             let cv = ColorValue::from_hsv(h, 1.0, 1.0);
             let cell = Rect::new(
@@ -381,8 +452,16 @@ impl PropertyGridElement {
             list.push_rect(cell, cv.to_color(), [0.0; 4]);
         }
         let cy = rect.y() + (self.cp_hue / 360.0) * rect.size.height;
-        let cur = Rect::new(Point::new(rect.x() - 1.0, cy - 2.0), Size::new(rect.size.width + 2.0, 4.0));
-        list.push_rect_bordered(cur, Color::TRANSPARENT, [2.0; 4], Border::new(2.0, Color::WHITE));
+        let cur = Rect::new(
+            Point::new(rect.x() - 1.0, cy - 2.0),
+            Size::new(rect.size.width + 2.0, 4.0),
+        );
+        list.push_rect_bordered(
+            cur,
+            Color::TRANSPARENT,
+            [2.0; 4],
+            Border::new(2.0, Color::WHITE),
+        );
     }
 }
 
@@ -404,15 +483,32 @@ impl Element for PropertyGridElement {
     }
 
     fn layout(&mut self, constraints: Constraints) -> Size {
-        let min_w = self.mss.min_width.map(|d| d.resolve(constraints.max_width)).unwrap_or(300.0);
-        let max_w = self.mss.max_width.map(|d| d.resolve(constraints.max_width)).unwrap_or(f32::INFINITY);
-        let w = self.mss.width.or(self.fixed_width)
+        let min_w = self
+            .mss
+            .min_width
+            .map(|d| d.resolve(constraints.max_width))
+            .unwrap_or(300.0);
+        let max_w = self
+            .mss
+            .max_width
+            .map(|d| d.resolve(constraints.max_width))
+            .unwrap_or(f32::INFINITY);
+        let w = self
+            .mss
+            .width
+            .or(self.fixed_width)
             .map(|d| d.resolve(constraints.max_width))
             .unwrap_or_else(|| self.natural_width().max(min_w))
             .clamp(min_w, max_w)
             .min(constraints.max_width);
         let natural_h = self.content_height();
-        let h = self.mss.height.or(self.fixed_height).map(|d| d.resolve(constraints.max_height)).unwrap_or(natural_h.min(400.0)).min(constraints.max_height);
+        let h = self
+            .mss
+            .height
+            .or(self.fixed_height)
+            .map(|d| d.resolve(constraints.max_height))
+            .unwrap_or(natural_h.min(400.0))
+            .min(constraints.max_height);
         self.bounds = Rect::new(Point::zero(), Size::new(w, h));
         Size::new(w, h)
     }
@@ -461,9 +557,14 @@ impl Element for PropertyGridElement {
             let y = (base_y + (row_idx as f32 * self.row_height) - self.scroll_offset).round();
 
             if row_idx + 1 < self.properties.len() {
-                let next_y = (base_y + ((row_idx + 1) as f32 * self.row_height) - self.scroll_offset).round();
+                let next_y = (base_y + ((row_idx + 1) as f32 * self.row_height)
+                    - self.scroll_offset)
+                    .round();
                 list.push_rect(
-                    Rect::new(Point::new(base_x, next_y), Size::new(self.bounds.size.width, 1.0)),
+                    Rect::new(
+                        Point::new(base_x, next_y),
+                        Size::new(self.bounds.size.width, 1.0),
+                    ),
                     border_color,
                     [0.0; 4],
                 );
@@ -532,7 +633,12 @@ impl Element for PropertyGridElement {
                             Size::new(16.0, 16.0),
                         );
                         let check_bg = if *b { primary } else { bg };
-                        list.push_rect_bordered(check_rect, check_bg, [3.0; 4], Border::new(1.0, border_color));
+                        list.push_rect_bordered(
+                            check_rect,
+                            check_bg,
+                            [3.0; 4],
+                            Border::new(1.0, border_color),
+                        );
                         if *b {
                             list.push_text_centered("\u{2713}", check_rect, bg, 11.0);
                         }
@@ -567,7 +673,10 @@ impl Element for PropertyGridElement {
         if self.editable {
             let add_y = self.add_row_y();
             list.push_rect(
-                Rect::new(Point::new(base_x, add_y), Size::new(self.bounds.size.width, 1.0)),
+                Rect::new(
+                    Point::new(base_x, add_y),
+                    Size::new(self.bounds.size.width, 1.0),
+                ),
                 border_color,
                 [0.0; 4],
             );
@@ -607,22 +716,25 @@ impl Element for PropertyGridElement {
             let track_h = self.bounds.size.height;
             let thumb_h = (track_h / self.content_height() * track_h).max(20.0);
             let max_s = self.max_scroll();
-            let thumb_y = self.bounds.y() + if max_s > 0.0 {
-                (self.scroll_offset / max_s) * (track_h - thumb_h)
-            } else {
-                0.0
-            };
+            let thumb_y = self.bounds.y()
+                + if max_s > 0.0 {
+                    (self.scroll_offset / max_s) * (track_h - thumb_h)
+                } else {
+                    0.0
+                };
             let scrollbar_x = self.bounds.x() + self.bounds.size.width - 6.0;
-            let thumb_rect = Rect::new(
-                Point::new(scrollbar_x, thumb_y),
-                Size::new(4.0, thumb_h),
-            );
+            let thumb_rect = Rect::new(Point::new(scrollbar_x, thumb_y), Size::new(4.0, thumb_h));
             list.push_rect(thumb_rect, fg.with_alpha(0.2), [2.0; 4]);
         }
 
         list.pop_clip();
 
-        list.push_rect_bordered(self.bounds, Color::TRANSPARENT, [8.0; 4], Border::new(1.0, border_color));
+        list.push_rect_bordered(
+            self.bounds,
+            Color::TRANSPARENT,
+            [8.0; 4],
+            Border::new(1.0, border_color),
+        );
 
         if self.add_dropdown_open && !self.add_filtered.is_empty() {
             let dd = self.dropdown_rect();
@@ -631,7 +743,9 @@ impl Element for PropertyGridElement {
             list.push_rect_bordered(dd, bg, [6.0; 4], Border::new(1.0, border_color));
 
             for (fi, &si) in self.add_filtered.iter().enumerate() {
-                if fi >= 6 { break; }
+                if fi >= 6 {
+                    break;
+                }
                 let item_y = dd.y() + fi as f32 * Self::DROPDOWN_ITEM_H;
                 let item_rect = Rect::new(
                     Point::new(dd.x(), item_y),
@@ -645,7 +759,11 @@ impl Element for PropertyGridElement {
                         Point::new(dd.x() + 12.0, item_y + (Self::DROPDOWN_ITEM_H - 13.0) / 2.0),
                         Size::new(dd.size.width - 24.0, 14.0),
                     );
-                    let text_color = if self.add_hover == Some(fi) { primary } else { fg };
+                    let text_color = if self.add_hover == Some(fi) {
+                        primary
+                    } else {
+                        fg
+                    };
                     list.push_text(name, text_rect, text_color, 12.0);
                 }
             }
@@ -656,13 +774,29 @@ impl Element for PropertyGridElement {
         if let Some(row_idx) = self.color_picker_row {
             let popup = self.cp_popup_rect(row_idx);
             list.begin_overlay();
-            list.push_shadow(popup, Color::BLACK.with_alpha(0.15), 12.0, (0.0, 4.0), [8.0; 4]);
+            list.push_shadow(
+                popup,
+                Color::BLACK.with_alpha(0.15),
+                12.0,
+                (0.0, 4.0),
+                [8.0; 4],
+            );
             list.push_rect_bordered(popup, bg, [8.0; 4], Border::new(1.0, border_color));
             let sv = self.cp_sv_rect(popup);
-            list.push_rect_bordered(sv, Color::TRANSPARENT, [4.0; 4], Border::new(1.0, border_color));
+            list.push_rect_bordered(
+                sv,
+                Color::TRANSPARENT,
+                [4.0; 4],
+                Border::new(1.0, border_color),
+            );
             self.draw_cp_sv_field(list, sv);
             let hue = self.cp_hue_rect(popup);
-            list.push_rect_bordered(hue, Color::TRANSPARENT, [4.0; 4], Border::new(1.0, border_color));
+            list.push_rect_bordered(
+                hue,
+                Color::TRANSPARENT,
+                [4.0; 4],
+                Border::new(1.0, border_color),
+            );
             self.draw_cp_hue_bar(list, hue);
             list.end_overlay();
         }
@@ -678,12 +812,14 @@ impl Element for PropertyGridElement {
                             CpDragTarget::SvField => {
                                 let sv = self.cp_sv_rect(popup);
                                 self.cp_sat = ((pos.x - sv.x()) / sv.size.width).clamp(0.0, 1.0);
-                                self.cp_val = 1.0 - ((pos.y - sv.y()) / sv.size.height).clamp(0.0, 1.0);
+                                self.cp_val =
+                                    1.0 - ((pos.y - sv.y()) / sv.size.height).clamp(0.0, 1.0);
                                 self.cp_update_color();
                             }
                             CpDragTarget::HueBar => {
                                 let hb = self.cp_hue_rect(popup);
-                                self.cp_hue = ((pos.y - hb.y()) / hb.size.height).clamp(0.0, 1.0) * 360.0;
+                                self.cp_hue =
+                                    ((pos.y - hb.y()) / hb.size.height).clamp(0.0, 1.0) * 360.0;
                                 self.cp_update_color();
                             }
                             CpDragTarget::None => {}
@@ -705,7 +841,11 @@ impl Element for PropertyGridElement {
                     let dd = self.dropdown_rect();
                     if dd.contains(*pos) {
                         let fi = ((pos.y - dd.y()) / Self::DROPDOWN_ITEM_H) as usize;
-                        let new_hover = if fi < self.add_filtered.len() { Some(fi) } else { None };
+                        let new_hover = if fi < self.add_filtered.len() {
+                            Some(fi)
+                        } else {
+                            None
+                        };
                         if new_hover != self.add_hover {
                             self.add_hover = new_hover;
                             ctx.request_paint();
@@ -796,7 +936,8 @@ impl Element for PropertyGridElement {
                     if sv.contains(*position) {
                         self.cp_drag = CpDragTarget::SvField;
                         self.cp_sat = ((position.x - sv.x()) / sv.size.width).clamp(0.0, 1.0);
-                        self.cp_val = 1.0 - ((position.y - sv.y()) / sv.size.height).clamp(0.0, 1.0);
+                        self.cp_val =
+                            1.0 - ((position.y - sv.y()) / sv.size.height).clamp(0.0, 1.0);
                         self.cp_update_color();
                         ctx.request_paint();
                         return EventResult::Handled;
@@ -805,7 +946,8 @@ impl Element for PropertyGridElement {
                     let hb = self.cp_hue_rect(popup);
                     if hb.contains(*position) {
                         self.cp_drag = CpDragTarget::HueBar;
-                        self.cp_hue = ((position.y - hb.y()) / hb.size.height).clamp(0.0, 1.0) * 360.0;
+                        self.cp_hue =
+                            ((position.y - hb.y()) / hb.size.height).clamp(0.0, 1.0) * 360.0;
                         self.cp_update_color();
                         ctx.request_paint();
                         return EventResult::Handled;
@@ -860,7 +1002,10 @@ impl Element for PropertyGridElement {
                                 let popup = self.cp_popup_rect(row_idx);
                                 let overlay = Rect::new(
                                     Point::new(popup.x(), self.bounds.y()),
-                                    Size::new(popup.size.width, popup.y() + popup.size.height - self.bounds.y()),
+                                    Size::new(
+                                        popup.size.width,
+                                        popup.y() + popup.size.height - self.bounds.y(),
+                                    ),
                                 );
                                 ctx.register_overlay(overlay, false);
                             }
@@ -883,8 +1028,12 @@ impl Element for PropertyGridElement {
                 }
                 EventResult::Handled
             }
-            Event::MouseWheel { delta, position, .. } => {
-                if !self.bounds.contains(*position) { return EventResult::Ignored; }
+            Event::MouseWheel {
+                delta, position, ..
+            } => {
+                if !self.bounds.contains(*position) {
+                    return EventResult::Ignored;
+                }
                 let scroll_amount = *delta;
                 let new_offset = (self.scroll_offset - scroll_amount).clamp(0.0, self.max_scroll());
                 if (new_offset - self.scroll_offset).abs() > 0.01 {
@@ -904,68 +1053,73 @@ impl Element for PropertyGridElement {
                 }
                 EventResult::Ignored
             }
-            Event::KeyDown(key) if self.add_mode => {
-                match key {
-                    crate::input::Key::Backspace => {
-                        if self.add_cursor > 0 {
-                            let prev = self.add_buffer[..self.add_cursor]
-                                .char_indices().next_back().map(|(i, _)| i).unwrap_or(0);
-                            self.add_buffer.remove(prev);
-                            self.add_cursor = prev;
-                            self.filter_suggestions();
-                            ctx.request_paint();
-                        }
-                        EventResult::Handled
-                    }
-                    crate::input::Key::Enter => {
-                        if let Some(hi) = self.add_hover {
-                            self.select_suggestion(hi);
-                        } else {
-                            self.commit_add();
-                        }
+            Event::KeyDown(key) if self.add_mode => match key {
+                crate::input::Key::Backspace => {
+                    if self.add_cursor > 0 {
+                        let prev = self.add_buffer[..self.add_cursor]
+                            .char_indices()
+                            .next_back()
+                            .map(|(i, _)| i)
+                            .unwrap_or(0);
+                        self.add_buffer.remove(prev);
+                        self.add_cursor = prev;
+                        self.filter_suggestions();
                         ctx.request_paint();
-                        EventResult::Handled
                     }
-                    crate::input::Key::Escape => {
-                        self.add_mode = false;
-                        self.add_dropdown_open = false;
-                        ctx.request_paint();
-                        EventResult::Handled
-                    }
-                    crate::input::Key::Down => {
-                        if self.add_dropdown_open {
-                            let max = self.add_filtered.len().saturating_sub(1);
-                            self.add_hover = Some(self.add_hover.map(|h| (h + 1).min(max)).unwrap_or(0));
-                            ctx.request_paint();
-                        }
-                        EventResult::Handled
-                    }
-                    crate::input::Key::Up => {
-                        if self.add_dropdown_open {
-                            self.add_hover = self.add_hover.map(|h| h.saturating_sub(1));
-                            ctx.request_paint();
-                        }
-                        EventResult::Handled
-                    }
-                    crate::input::Key::Left => {
-                        if self.add_cursor > 0 {
-                            self.add_cursor = self.add_buffer[..self.add_cursor]
-                                .char_indices().next_back().map(|(i, _)| i).unwrap_or(0);
-                            ctx.request_paint();
-                        }
-                        EventResult::Handled
-                    }
-                    crate::input::Key::Right => {
-                        if self.add_cursor < self.add_buffer.len() {
-                            let ch = self.add_buffer[self.add_cursor..].chars().next().unwrap();
-                            self.add_cursor += ch.len_utf8();
-                            ctx.request_paint();
-                        }
-                        EventResult::Handled
-                    }
-                    _ => EventResult::Ignored,
+                    EventResult::Handled
                 }
-            }
+                crate::input::Key::Enter => {
+                    if let Some(hi) = self.add_hover {
+                        self.select_suggestion(hi);
+                    } else {
+                        self.commit_add();
+                    }
+                    ctx.request_paint();
+                    EventResult::Handled
+                }
+                crate::input::Key::Escape => {
+                    self.add_mode = false;
+                    self.add_dropdown_open = false;
+                    ctx.request_paint();
+                    EventResult::Handled
+                }
+                crate::input::Key::Down => {
+                    if self.add_dropdown_open {
+                        let max = self.add_filtered.len().saturating_sub(1);
+                        self.add_hover =
+                            Some(self.add_hover.map(|h| (h + 1).min(max)).unwrap_or(0));
+                        ctx.request_paint();
+                    }
+                    EventResult::Handled
+                }
+                crate::input::Key::Up => {
+                    if self.add_dropdown_open {
+                        self.add_hover = self.add_hover.map(|h| h.saturating_sub(1));
+                        ctx.request_paint();
+                    }
+                    EventResult::Handled
+                }
+                crate::input::Key::Left => {
+                    if self.add_cursor > 0 {
+                        self.add_cursor = self.add_buffer[..self.add_cursor]
+                            .char_indices()
+                            .next_back()
+                            .map(|(i, _)| i)
+                            .unwrap_or(0);
+                        ctx.request_paint();
+                    }
+                    EventResult::Handled
+                }
+                crate::input::Key::Right => {
+                    if self.add_cursor < self.add_buffer.len() {
+                        let ch = self.add_buffer[self.add_cursor..].chars().next().unwrap();
+                        self.add_cursor += ch.len_utf8();
+                        ctx.request_paint();
+                    }
+                    EventResult::Handled
+                }
+                _ => EventResult::Ignored,
+            },
             Event::CharInput(ch) if self.editing_row.is_some() => {
                 if !ch.is_control() && !ctx.modifiers.ctrl {
                     self.edit_buffer.insert(self.edit_cursor, *ch);
@@ -975,70 +1129,68 @@ impl Element for PropertyGridElement {
                 }
                 EventResult::Ignored
             }
-            Event::KeyDown(key) if self.editing_row.is_some() => {
-                match key {
-                    crate::input::Key::Backspace => {
-                        if self.edit_cursor > 0 {
-                            let prev = self.edit_buffer[..self.edit_cursor]
-                                .char_indices()
-                                .next_back()
-                                .map(|(i, _)| i)
-                                .unwrap_or(0);
-                            self.edit_buffer.remove(prev);
-                            self.edit_cursor = prev;
-                            ctx.request_paint();
-                        }
-                        EventResult::Handled
-                    }
-                    crate::input::Key::Delete => {
-                        if self.edit_cursor < self.edit_buffer.len() {
-                            self.edit_buffer.remove(self.edit_cursor);
-                            ctx.request_paint();
-                        }
-                        EventResult::Handled
-                    }
-                    crate::input::Key::Home => {
-                        self.edit_cursor = 0;
+            Event::KeyDown(key) if self.editing_row.is_some() => match key {
+                crate::input::Key::Backspace => {
+                    if self.edit_cursor > 0 {
+                        let prev = self.edit_buffer[..self.edit_cursor]
+                            .char_indices()
+                            .next_back()
+                            .map(|(i, _)| i)
+                            .unwrap_or(0);
+                        self.edit_buffer.remove(prev);
+                        self.edit_cursor = prev;
                         ctx.request_paint();
-                        EventResult::Handled
                     }
-                    crate::input::Key::End => {
-                        self.edit_cursor = self.edit_buffer.len();
-                        ctx.request_paint();
-                        EventResult::Handled
-                    }
-                    crate::input::Key::Left => {
-                        if self.edit_cursor > 0 {
-                            self.edit_cursor = self.edit_buffer[..self.edit_cursor]
-                                .char_indices()
-                                .next_back()
-                                .map(|(i, _)| i)
-                                .unwrap_or(0);
-                        }
-                        ctx.request_paint();
-                        EventResult::Handled
-                    }
-                    crate::input::Key::Right => {
-                        if self.edit_cursor < self.edit_buffer.len() {
-                            let ch = self.edit_buffer[self.edit_cursor..].chars().next().unwrap();
-                            self.edit_cursor += ch.len_utf8();
-                        }
-                        ctx.request_paint();
-                        EventResult::Handled
-                    }
-                    crate::input::Key::Escape => {
-                        self.editing_row = None;
-                        ctx.request_paint();
-                        EventResult::Handled
-                    }
-                    crate::input::Key::Enter => {
-                        self.commit_edit();
-                        ctx.request_paint();
-                        EventResult::Handled
-                    }
-                    _ => EventResult::Ignored,
+                    EventResult::Handled
                 }
-            }
+                crate::input::Key::Delete => {
+                    if self.edit_cursor < self.edit_buffer.len() {
+                        self.edit_buffer.remove(self.edit_cursor);
+                        ctx.request_paint();
+                    }
+                    EventResult::Handled
+                }
+                crate::input::Key::Home => {
+                    self.edit_cursor = 0;
+                    ctx.request_paint();
+                    EventResult::Handled
+                }
+                crate::input::Key::End => {
+                    self.edit_cursor = self.edit_buffer.len();
+                    ctx.request_paint();
+                    EventResult::Handled
+                }
+                crate::input::Key::Left => {
+                    if self.edit_cursor > 0 {
+                        self.edit_cursor = self.edit_buffer[..self.edit_cursor]
+                            .char_indices()
+                            .next_back()
+                            .map(|(i, _)| i)
+                            .unwrap_or(0);
+                    }
+                    ctx.request_paint();
+                    EventResult::Handled
+                }
+                crate::input::Key::Right => {
+                    if self.edit_cursor < self.edit_buffer.len() {
+                        let ch = self.edit_buffer[self.edit_cursor..].chars().next().unwrap();
+                        self.edit_cursor += ch.len_utf8();
+                    }
+                    ctx.request_paint();
+                    EventResult::Handled
+                }
+                crate::input::Key::Escape => {
+                    self.editing_row = None;
+                    ctx.request_paint();
+                    EventResult::Handled
+                }
+                crate::input::Key::Enter => {
+                    self.commit_edit();
+                    ctx.request_paint();
+                    EventResult::Handled
+                }
+                _ => EventResult::Ignored,
+            },
             Event::FocusLost => {
                 if self.editing_row.is_some() {
                     self.commit_edit();
@@ -1055,14 +1207,30 @@ impl Element for PropertyGridElement {
         }
     }
 
-    fn children(&self) -> &[ElementId] { &[] }
-    fn bounds(&self) -> Rect { self.bounds }
-    fn set_position(&mut self, pos: Point) { self.bounds.origin = pos; }
-    fn mark_dirty(&mut self, flags: DirtyFlags) { self.dirty_flags |= flags; }
-    fn clear_dirty(&mut self, flags: DirtyFlags) { self.dirty_flags.remove(flags); }
-    fn is_dirty(&self, flags: DirtyFlags) -> bool { self.dirty_flags.contains(flags) }
-    fn id(&self) -> ElementId { self.id }
-    fn set_id(&mut self, id: ElementId) { self.id = id; }
+    fn children(&self) -> &[ElementId] {
+        &[]
+    }
+    fn bounds(&self) -> Rect {
+        self.bounds
+    }
+    fn set_position(&mut self, pos: Point) {
+        self.bounds.origin = pos;
+    }
+    fn mark_dirty(&mut self, flags: DirtyFlags) {
+        self.dirty_flags |= flags;
+    }
+    fn clear_dirty(&mut self, flags: DirtyFlags) {
+        self.dirty_flags.remove(flags);
+    }
+    fn is_dirty(&self, flags: DirtyFlags) -> bool {
+        self.dirty_flags.contains(flags)
+    }
+    fn id(&self) -> ElementId {
+        self.id
+    }
+    fn set_id(&mut self, id: ElementId) {
+        self.id = id;
+    }
     fn mount(&mut self, tree: &mut ElementTree) {
         self.text_measure = tree.text_measure.clone();
     }
@@ -1072,16 +1240,28 @@ impl Element for PropertyGridElement {
         self.mark_dirty(DirtyFlags::RENDER);
     }
 
-    fn get_classes(&self) -> &[String] { &self.classes }
+    fn get_classes(&self) -> &[String] {
+        &self.classes
+    }
 
-    fn element_type_name(&self) -> &str { "PropertyGrid" }
+    fn element_type_name(&self) -> &str {
+        "PropertyGrid"
+    }
 
-    fn reset_mss_styles(&mut self) { self.mss.reset(); }
-    fn mss(&self) -> Option<&crate::mss::MssFields> { Some(&self.mss) }
+    fn reset_mss_styles(&mut self) {
+        self.mss.reset();
+    }
+    fn mss(&self) -> Option<&crate::mss::MssFields> {
+        Some(&self.mss)
+    }
     fn apply_computed_style(&mut self, style: &ComputedStyle) {
         self.mss.apply(style);
-        if let Some(w) = style.width() { self.fixed_width = Some(w); }
-        if let Some(h) = style.height() { self.fixed_height = Some(h); }
+        if let Some(w) = style.width() {
+            self.fixed_width = Some(w);
+        }
+        if let Some(h) = style.height() {
+            self.fixed_height = Some(h);
+        }
         self.mark_dirty(DirtyFlags::LAYOUT | DirtyFlags::RENDER);
     }
 
@@ -1094,7 +1274,8 @@ impl Element for PropertyGridElement {
         selected: Option<&ComputedStyle>,
         _checked: Option<&ComputedStyle>,
     ) {
-        self.mss.apply_transitions(base, hover, active, focus, selected);
+        self.mss
+            .apply_transitions(base, hover, active, focus, selected);
     }
 }
 
@@ -1103,7 +1284,9 @@ impl StyledElement for PropertyGridElement {
         self.mark_dirty(DirtyFlags::LAYOUT | DirtyFlags::RENDER);
     }
 
-    fn classes(&self) -> &[String] { &self.classes }
+    fn classes(&self) -> &[String] {
+        &self.classes
+    }
 
     fn set_classes(&mut self, classes: Vec<String>) {
         self.classes = classes;

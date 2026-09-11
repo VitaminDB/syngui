@@ -18,7 +18,11 @@ fn build(reactive: bool) -> TestHarness {
                 .class("grow")
                 .child(Stack::new().fit(StackFit::Expand).children(vec![content])),
         )
-        .child(DecoratedBox::new().style("width", 32.0_f32).style("height", 32.0_f32));
+        .child(
+            DecoratedBox::new()
+                .style("width", 32.0_f32)
+                .style("height", 32.0_f32),
+        );
     let mut h = TestHarness::new(Box::new(row));
     let engine = h.apply_mss(MSS);
     h.apply_styles(&engine);
@@ -37,13 +41,21 @@ fn grow_width(h: &TestHarness) -> f32 {
 #[test]
 fn static_content_grows() {
     let h = build(false);
-    assert!((grow_width(&h) - 362.0).abs() < 1.0, "got {}", grow_width(&h));
+    assert!(
+        (grow_width(&h) - 362.0).abs() < 1.0,
+        "got {}",
+        grow_width(&h)
+    );
 }
 
 #[test]
 fn reactive_content_grows_too() {
     let h = build(true);
-    assert!((grow_width(&h) - 362.0).abs() < 1.0, "got {}", grow_width(&h));
+    assert!(
+        (grow_width(&h) - 362.0).abs() < 1.0,
+        "got {}",
+        grow_width(&h)
+    );
 }
 
 /// Растягивать flex-ребёнка нужно только по главной оси. По поперечной

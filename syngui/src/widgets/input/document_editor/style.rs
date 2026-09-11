@@ -189,7 +189,12 @@ impl DocStyle {
         if fs != 16.0 {
             self.text_size = fs;
         }
-        let color = |name: &str| style.get(name).and_then(|v| v.as_color()).map(mss_color_to_core);
+        let color = |name: &str| {
+            style
+                .get(name)
+                .and_then(|v| v.as_color())
+                .map(mss_color_to_core)
+        };
         let px = |name: &str| style.get(name).and_then(|v| v.as_px());
 
         macro_rules! set_color {

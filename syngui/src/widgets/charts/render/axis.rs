@@ -84,7 +84,12 @@ pub fn render_x_axis(
             Point::new(abs_x - 30.0, label_y),
             Size::new(60.0, colors.axis_font_size + 4.0),
         );
-        list.push_text_centered(&label, label_rect, colors.label_color, colors.axis_font_size);
+        list.push_text_centered(
+            &label,
+            label_rect,
+            colors.label_color,
+            colors.axis_font_size,
+        );
     }
 
     if let Some(ref title) = config.title {
@@ -93,7 +98,12 @@ pub fn render_x_axis(
             Point::new(plot.origin.x, title_y),
             Size::new(plot.size.width, colors.title_font_size + 4.0),
         );
-        list.push_text_centered(title, title_rect, colors.title_color, colors.title_font_size);
+        list.push_text_centered(
+            title,
+            title_rect,
+            colors.title_color,
+            colors.title_font_size,
+        );
     }
 }
 
@@ -162,10 +172,18 @@ pub fn render_y_axis(
 
     if let Some(ref title) = config.title {
         let title_rect = Rect::new(
-            Point::new(plot.origin.x - 50.0, plot.origin.y - colors.title_font_size - 4.0),
+            Point::new(
+                plot.origin.x - 50.0,
+                plot.origin.y - colors.title_font_size - 4.0,
+            ),
             Size::new(50.0, colors.title_font_size + 4.0),
         );
-        list.push_text_centered(title, title_rect, colors.title_color, colors.title_font_size);
+        list.push_text_centered(
+            title,
+            title_rect,
+            colors.title_color,
+            colors.title_font_size,
+        );
     }
 }
 

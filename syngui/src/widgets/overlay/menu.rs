@@ -1,17 +1,19 @@
+use super::placement::{clamp_span, fit_span};
+use crate::core::sync::Mutex;
 use crate::core::{Color, Point, Rect, RectExt, Size};
 use crate::input::{Event, EventResult, MouseButton};
 use crate::layout::Constraints;
 use crate::mss::ComputedStyle;
 use crate::mss::{IconState, MssFields};
 use crate::render::{Border, DisplayList};
+use crate::signal::{use_signal, RwSignal};
 use crate::widget::context::{EventContext, EventContextExt};
-use crate::widget::{DirtyFlags, Element, ElementId, ElementTree, StyledElement, UpdateContext, Widget};
+use crate::widget::{
+    DirtyFlags, Element, ElementId, ElementTree, StyledElement, UpdateContext, Widget,
+};
 use std::any::Any;
 use std::cell::{Cell, RefCell};
 use std::sync::Arc;
-use crate::core::sync::Mutex;
-use crate::signal::{RwSignal, use_signal};
-use super::placement::{clamp_span, fit_span};
 
 #[derive(Clone, Debug)]
 pub struct MenuItem {
@@ -142,7 +144,9 @@ impl PopupMenu {
 }
 
 impl Default for PopupMenu {
-    fn default() -> Self { Self::new() }
+    fn default() -> Self {
+        Self::new()
+    }
 }
 
 impl Widget for PopupMenu {
@@ -173,9 +177,15 @@ impl Widget for PopupMenu {
         })
     }
 
-    fn can_update(&self, other: &dyn Any) -> bool { other.is::<Self>() }
-    fn as_any(&self) -> &dyn Any { self }
-    fn as_any_mut(&mut self) -> &mut dyn Any { self }
+    fn can_update(&self, other: &dyn Any) -> bool {
+        other.is::<Self>()
+    }
+    fn as_any(&self) -> &dyn Any {
+        self
+    }
+    fn as_any_mut(&mut self) -> &mut dyn Any {
+        self
+    }
     fn mount(&self, _tree: &mut ElementTree, _parent_id: ElementId) {}
 }
 
@@ -227,7 +237,13 @@ struct PopupMenuElement {
 impl PopupMenuElement {
     fn estimate_text_width(&self, text: &str, font_size: f32) -> f32 {
         if let Some(tm) = self.text_measure.borrow().as_ref() {
-            return tm.measure_text_width_styled(text, font_size, text.chars().count(), false, None);
+            return tm.measure_text_width_styled(
+                text,
+                font_size,
+                text.chars().count(),
+                false,
+                None,
+            );
         }
         text.chars().count() as f32 * font_size * 0.6
     }
@@ -236,7 +252,11 @@ impl PopupMenuElement {
         if item.separator {
             return 0.0;
         }
-        let icon_w = if item.icon.is_some() { ITEM_ICON_BOX + ITEM_ICON_GAP } else { 0.0 };
+        let icon_w = if item.icon.is_some() {
+            ITEM_ICON_BOX + ITEM_ICON_GAP
+        } else {
+            0.0
+        };
         let label_w = self.estimate_text_width(&item.label, LABEL_FONT_SIZE);
         let trailing_w = if item.has_submenu() {
             CHEVRON_BOX + SHORTCUT_LABEL_GAP
@@ -256,8 +276,12 @@ impl PopupMenuElement {
     fn items_at_level(&self, level: usize) -> &[MenuItem] {
         let mut cur: &[MenuItem] = &self.items;
         for k in 0..level {
-            let Some(&i) = self.open_path.get(k) else { return &[]; };
-            let Some(item) = cur.get(i) else { return &[]; };
+            let Some(&i) = self.open_path.get(k) else {
+                return &[];
+            };
+            let Some(item) = cur.get(i) else {
+                return &[];
+            };
             cur = &item.children;
         }
         cur
@@ -285,9 +309,17 @@ impl PopupMenuElement {
     }
 
     fn level_height(&self, level: usize) -> f32 {
-        let content: f32 = self.items_at_level(level).iter().map(|item| {
-            if item.separator { SEPARATOR_HEIGHT } else { MENU_ITEM_HEIGHT }
-        }).sum();
+        let content: f32 = self
+            .items_at_level(level)
+            .iter()
+            .map(|item| {
+                if item.separator {
+                    SEPARATOR_HEIGHT
+                } else {
+                    MENU_ITEM_HEIGHT
+                }
+            })
+            .sum();
         content + MENU_PADDING * 2.0
     }
 
@@ -319,7 +351,11 @@ impl PopupMenuElement {
             }
             PopupAnchor::BottomEnd => {
                 let r = self.anchor_rect.get_untracked();
-                (r.origin.x + r.size.width - width, r.origin.y + r.size.height, r.origin.y)
+                (
+                    r.origin.x + r.size.width - width,
+                    r.origin.y + r.size.height,
+                    r.origin.y,
+                )
             }
         };
 
@@ -344,7 +380,12 @@ impl PopupMenuElement {
         // Подменю не переворачивается по вертикали — только прижимается;
         // по горизонтали уходит влево от родителя, если справа нет места.
         let y = clamp_span(parent_item_rect.y() - MENU_PADDING, height, viewport.height);
-        let x = fit_span(parent_level.right(), width, parent_level.x(), viewport.width);
+        let x = fit_span(
+            parent_level.right(),
+            width,
+            parent_level.x(),
+            viewport.width,
+        );
 
         Rect::new(Point::new(x, y), Size::new(width, height))
     }
@@ -353,7 +394,11 @@ impl PopupMenuElement {
         let lvl = self.level_rect(level);
         let mut y = lvl.y() + MENU_PADDING;
         for (i, item) in self.items_at_level(level).iter().enumerate() {
-            let h = if item.separator { SEPARATOR_HEIGHT } else { MENU_ITEM_HEIGHT };
+            let h = if item.separator {
+                SEPARATOR_HEIGHT
+            } else {
+                MENU_ITEM_HEIGHT
+            };
             if i == index {
                 return Rect::new(Point::new(lvl.x(), y), Size::new(lvl.size.width, h));
             }
@@ -396,8 +441,22 @@ impl PopupMenuElement {
     ) {
         let lvl = self.level_rect(level);
 
-        list.push_shadow(lvl, Color::new(0.0, 0.0, 0.0, 0.12), 12.0, (0.0, 4.0), [8.0; 4]);
-        list.push_rect_bordered(lvl, bg, [8.0; 4], Border { width: 1.0, color: border });
+        list.push_shadow(
+            lvl,
+            Color::new(0.0, 0.0, 0.0, 0.12),
+            12.0,
+            (0.0, 4.0),
+            [8.0; 4],
+        );
+        list.push_rect_bordered(
+            lvl,
+            bg,
+            [8.0; 4],
+            Border {
+                width: 1.0,
+                color: border,
+            },
+        );
 
         let items = self.items_at_level(level);
         let hover_idx = self.hover_at(level);
@@ -455,7 +514,9 @@ impl PopupMenuElement {
             let (trailing_block_w, trailing_pad_after_label) = if item.has_submenu() {
                 (CHEVRON_BOX, SHORTCUT_LABEL_GAP)
             } else if let Some(ref shortcut) = item.shortcut {
-                let w = self.estimate_text_width(shortcut, SHORTCUT_FONT_SIZE).ceil();
+                let w = self
+                    .estimate_text_width(shortcut, SHORTCUT_FONT_SIZE)
+                    .ceil();
                 let _ = shortcut;
                 (w, SHORTCUT_LABEL_GAP)
             } else {
@@ -512,8 +573,16 @@ impl Element for PopupMenuElement {
     }
 
     fn layout(&mut self, constraints: Constraints) -> Size {
-        let w = if constraints.max_width.is_finite() { constraints.max_width } else { 0.0 };
-        let h = if constraints.max_height.is_finite() { constraints.max_height } else { 0.0 };
+        let w = if constraints.max_width.is_finite() {
+            constraints.max_width
+        } else {
+            0.0
+        };
+        let h = if constraints.max_height.is_finite() {
+            constraints.max_height
+        } else {
+            0.0
+        };
         self.bounds = Rect::new(Point::zero(), Size::new(w, h));
         if w > 0.0 && h > 0.0 {
             self.viewport_size.set(Size::new(w, h));
@@ -529,13 +598,16 @@ impl Element for PopupMenuElement {
         list.begin_overlay();
         self.viewport_size.set(list.surface_size());
 
-        let bg = self.mss_popup_bg
+        let bg = self
+            .mss_popup_bg
             .or(self.mss.background_color)
             .unwrap_or(Color::WHITE);
-        let fg = self.mss_popup_fg
+        let fg = self
+            .mss_popup_fg
             .or(self.mss.color)
             .unwrap_or(Color::from_hex("#374151"));
-        let border = self.mss_popup_border
+        let border = self
+            .mss_popup_border
             .or(self.mss.border_color)
             .unwrap_or(Color::from_hex("#E5E7EB"));
         let hover_bg = self.mss_popup_hover_bg.unwrap_or_else(|| bg.darken(0.05));
@@ -544,11 +616,19 @@ impl Element for PopupMenuElement {
         let visible_levels = self.open_path.len().max(1);
         for level in 0..visible_levels {
             self.draw_level(list, level, bg, fg, border, hover_bg, arrow);
-            let Some(idx) = self.open_path.get(level).copied() else { break; };
+            let Some(idx) = self.open_path.get(level).copied() else {
+                break;
+            };
             let items = self.items_at_level(level);
-            let Some(item) = items.get(idx) else { break; };
-            if !item.has_submenu() { break; }
-            if level + 1 >= self.open_path.len() { break; }
+            let Some(item) = items.get(idx) else {
+                break;
+            };
+            if !item.has_submenu() {
+                break;
+            }
+            if level + 1 >= self.open_path.len() {
+                break;
+            }
         }
 
         list.end_overlay();
@@ -573,14 +653,18 @@ impl Element for PopupMenuElement {
                     let items_len = self.items_at_level(level).len();
                     for i in 0..items_len {
                         let item = &self.items_at_level(level)[i];
-                        if item.separator || item.disabled { continue; }
+                        if item.separator || item.disabled {
+                            continue;
+                        }
                         let r = self.item_rect_at(level, i);
                         if r.contains(*pos) {
                             hit = Some((level, i));
                             break;
                         }
                     }
-                    if hit.is_some() { break; }
+                    if hit.is_some() {
+                        break;
+                    }
                 }
 
                 if let Some((level, idx)) = hit {
@@ -597,7 +681,8 @@ impl Element for PopupMenuElement {
                     if item_has_children {
                         let first_child = {
                             let items = self.items_at_level(level);
-                            items.get(idx)
+                            items
+                                .get(idx)
                                 .and_then(|p| Self::first_selectable(&p.children))
                         };
                         if let Some(ci) = first_child {
@@ -621,14 +706,23 @@ impl Element for PopupMenuElement {
                         for i in 0..items_len {
                             let (is_sep, is_disabled, is_leaf, item_id) = {
                                 let item = &self.items_at_level(level)[i];
-                                (item.separator, item.disabled, item.children.is_empty(), item.id.clone())
+                                (
+                                    item.separator,
+                                    item.disabled,
+                                    item.children.is_empty(),
+                                    item.id.clone(),
+                                )
                             };
-                            if is_sep || is_disabled { continue; }
+                            if is_sep || is_disabled {
+                                continue;
+                            }
                             let r = self.item_rect_at(level, i);
                             if r.contains(*position) {
                                 if is_leaf {
                                     if let Some(ref cb) = self.on_select {
-                                        if let Ok(mut f) = cb.lock() { f(&item_id); }
+                                        if let Ok(mut f) = cb.lock() {
+                                            f(&item_id);
+                                        }
                                     }
                                     self.close_menu(ctx);
                                 }
@@ -652,8 +746,11 @@ impl Element for PopupMenuElement {
                     let first_child = {
                         let items = self.items_at_level(level);
                         items.get(idx).and_then(|p| {
-                            if p.has_submenu() { Self::first_selectable(&p.children) }
-                            else { None }
+                            if p.has_submenu() {
+                                Self::first_selectable(&p.children)
+                            } else {
+                                None
+                            }
                         })
                     };
                     if let Some(c) = first_child {
@@ -686,7 +783,10 @@ impl Element for PopupMenuElement {
                     let items = self.items_at_level(level);
                     let mut found = None;
                     for i in (0..cur).rev() {
-                        if !items[i].separator && !items[i].disabled { found = Some(i); break; }
+                        if !items[i].separator && !items[i].disabled {
+                            found = Some(i);
+                            break;
+                        }
                     }
                     found
                 };
@@ -711,7 +811,10 @@ impl Element for PopupMenuElement {
                     let items = self.items_at_level(level);
                     let mut found = None;
                     for i in (cur + 1)..items.len() {
-                        if !items[i].separator && !items[i].disabled { found = Some(i); break; }
+                        if !items[i].separator && !items[i].disabled {
+                            found = Some(i);
+                            break;
+                        }
                     }
                     found
                 };
@@ -728,8 +831,9 @@ impl Element for PopupMenuElement {
                     let idx = self.open_path[level];
                     let action = {
                         let item = &self.items_at_level(level)[idx];
-                        if item.disabled || item.separator { None }
-                        else if item.has_submenu() {
+                        if item.disabled || item.separator {
+                            None
+                        } else if item.has_submenu() {
                             Self::first_selectable(&item.children).map(EnterAction::OpenChild)
                         } else {
                             Some(EnterAction::Select(item.id.clone()))
@@ -738,7 +842,9 @@ impl Element for PopupMenuElement {
                     match action {
                         Some(EnterAction::Select(id)) => {
                             if let Some(ref cb) = self.on_select {
-                                if let Ok(mut f) = cb.lock() { f(&id); }
+                                if let Ok(mut f) = cb.lock() {
+                                    f(&id);
+                                }
                             }
                             self.close_menu(ctx);
                         }
@@ -756,40 +862,89 @@ impl Element for PopupMenuElement {
         }
     }
 
-    fn children(&self) -> &[ElementId] { &[] }
-    fn bounds(&self) -> Rect { self.bounds }
+    fn children(&self) -> &[ElementId] {
+        &[]
+    }
+    fn bounds(&self) -> Rect {
+        self.bounds
+    }
 
     fn hit_test(&self, _point: Point) -> bool {
         self.is_open.get_untracked()
     }
 
     fn overlay_request(&self) -> Option<(Rect, bool)> {
-        if !self.is_open.get_untracked() { return None; }
+        if !self.is_open.get_untracked() {
+            return None;
+        }
         let viewport = self.viewport_size.get();
-        if viewport.width <= 0.0 || viewport.height <= 0.0 { return None; }
+        if viewport.width <= 0.0 || viewport.height <= 0.0 {
+            return None;
+        }
         Some((Rect::new(Point::zero(), viewport), true))
     }
-    fn set_position(&mut self, pos: Point) { self.bounds.origin = pos; }
-    fn mark_dirty(&mut self, flags: DirtyFlags) { self.dirty_flags |= flags; }
-    fn clear_dirty(&mut self, flags: DirtyFlags) { self.dirty_flags.remove(flags); }
-    fn is_dirty(&self, flags: DirtyFlags) -> bool { self.dirty_flags.contains(flags) }
-    fn id(&self) -> ElementId { self.id }
-    fn set_id(&mut self, id: ElementId) { self.id = id; }
+    fn set_position(&mut self, pos: Point) {
+        self.bounds.origin = pos;
+    }
+    fn mark_dirty(&mut self, flags: DirtyFlags) {
+        self.dirty_flags |= flags;
+    }
+    fn clear_dirty(&mut self, flags: DirtyFlags) {
+        self.dirty_flags.remove(flags);
+    }
+    fn is_dirty(&self, flags: DirtyFlags) -> bool {
+        self.dirty_flags.contains(flags)
+    }
+    fn id(&self) -> ElementId {
+        self.id
+    }
+    fn set_id(&mut self, id: ElementId) {
+        self.id = id;
+    }
     fn mount(&mut self, _tree: &mut ElementTree) {}
-    fn set_classes(&mut self, classes: Vec<String>) { self.classes = classes; self.mark_dirty(DirtyFlags::RENDER); }
-    fn get_classes(&self) -> &[String] { &self.classes }
-    fn element_type_name(&self) -> &str { "PopupMenu" }
-    fn reset_mss_styles(&mut self) { self.mss.reset(); }
-    fn mss(&self) -> Option<&crate::mss::MssFields> { Some(&self.mss) }
+    fn set_classes(&mut self, classes: Vec<String>) {
+        self.classes = classes;
+        self.mark_dirty(DirtyFlags::RENDER);
+    }
+    fn get_classes(&self) -> &[String] {
+        &self.classes
+    }
+    fn element_type_name(&self) -> &str {
+        "PopupMenu"
+    }
+    fn reset_mss_styles(&mut self) {
+        self.mss.reset();
+    }
+    fn mss(&self) -> Option<&crate::mss::MssFields> {
+        Some(&self.mss)
+    }
     fn apply_computed_style(&mut self, style: &ComputedStyle) {
         self.mss.apply(style);
         use crate::animation::transition::mss_color_to_core;
-        if let Some(c) = style.get("--popup-background").and_then(|v| v.as_color()) { self.mss_popup_bg = Some(mss_color_to_core(c)); }
-        if let Some(c) = style.get("--popup-color").and_then(|v| v.as_color()) { self.mss_popup_fg = Some(mss_color_to_core(c)); }
-        if let Some(c) = style.get("--popup-border").and_then(|v| v.as_color()) { self.mss_popup_border = Some(mss_color_to_core(c)); }
-        if let Some(c) = style.get("--popup-hover-background").and_then(|v| v.as_color()) { self.mss_popup_hover_bg = Some(mss_color_to_core(c)); }
-        if let Some(c) = style.get("--popup-hover-color").and_then(|v| v.as_color()) { self.mss_popup_hover_fg = Some(mss_color_to_core(c)); }
-        if let Some(c) = style.get("--popup-submenu-arrow-color").and_then(|v| v.as_color()) { self.mss_popup_arrow = Some(mss_color_to_core(c)); }
+        if let Some(c) = style.get("--popup-background").and_then(|v| v.as_color()) {
+            self.mss_popup_bg = Some(mss_color_to_core(c));
+        }
+        if let Some(c) = style.get("--popup-color").and_then(|v| v.as_color()) {
+            self.mss_popup_fg = Some(mss_color_to_core(c));
+        }
+        if let Some(c) = style.get("--popup-border").and_then(|v| v.as_color()) {
+            self.mss_popup_border = Some(mss_color_to_core(c));
+        }
+        if let Some(c) = style
+            .get("--popup-hover-background")
+            .and_then(|v| v.as_color())
+        {
+            self.mss_popup_hover_bg = Some(mss_color_to_core(c));
+        }
+        if let Some(c) = style.get("--popup-hover-color").and_then(|v| v.as_color()) {
+            self.mss_popup_hover_fg = Some(mss_color_to_core(c));
+        }
+        if let Some(c) = style
+            .get("--popup-submenu-arrow-color")
+            .and_then(|v| v.as_color())
+        {
+            self.mss_popup_arrow = Some(mss_color_to_core(c));
+        }
         self.mark_dirty(DirtyFlags::RENDER);
     }
 
@@ -802,7 +957,8 @@ impl Element for PopupMenuElement {
         selected: Option<&ComputedStyle>,
         _checked: Option<&ComputedStyle>,
     ) {
-        self.mss.apply_transitions(base, hover, active, focus, selected);
+        self.mss
+            .apply_transitions(base, hover, active, focus, selected);
     }
 
     fn accessibility_info(&self) -> Option<crate::a11y::AccessibilityInfo> {
@@ -813,7 +969,10 @@ impl Element for PopupMenuElement {
                 ..Default::default()
             },
             properties: crate::a11y::NodeProperties {
-                label: Some(format!("Menu with {} items", self.items.iter().filter(|i| !i.separator).count())),
+                label: Some(format!(
+                    "Menu with {} items",
+                    self.items.iter().filter(|i| !i.separator).count()
+                )),
                 ..Default::default()
             },
         })
@@ -827,7 +986,14 @@ impl Element for PopupMenuElement {
 }
 
 impl StyledElement for PopupMenuElement {
-    fn apply_style(&mut self, _style: &ComputedStyle) { self.mark_dirty(DirtyFlags::RENDER); }
-    fn classes(&self) -> &[String] { &self.classes }
-    fn set_classes(&mut self, classes: Vec<String>) { self.classes = classes; self.mark_dirty(DirtyFlags::RENDER); }
+    fn apply_style(&mut self, _style: &ComputedStyle) {
+        self.mark_dirty(DirtyFlags::RENDER);
+    }
+    fn classes(&self) -> &[String] {
+        &self.classes
+    }
+    fn set_classes(&mut self, classes: Vec<String>) {
+        self.classes = classes;
+        self.mark_dirty(DirtyFlags::RENDER);
+    }
 }

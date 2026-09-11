@@ -1,10 +1,12 @@
 mod element;
 
+use crate::core::sync::Mutex;
 use crate::mss::Dimension;
 use std::sync::Arc;
-use crate::core::sync::Mutex;
 
-use super::types::{AxisConfig, DataPoint, LegendConfig, LegendPosition, MarkLine, Series, TooltipConfig};
+use super::types::{
+    AxisConfig, DataPoint, LegendConfig, LegendPosition, MarkLine, Series, TooltipConfig,
+};
 
 pub struct LineChart {
     pub(super) series: Vec<Series>,

@@ -1,12 +1,12 @@
-pub mod types;
-pub mod tree;
 pub mod focus;
 pub mod platform;
+pub mod tree;
+pub mod types;
 
-pub use types::*;
-pub use tree::A11yTree;
 pub use focus::FocusManager;
-pub use platform::{PlatformAdapter, LoggingAdapter, NullAdapter};
+pub use platform::{LoggingAdapter, NullAdapter, PlatformAdapter};
+pub use tree::A11yTree;
+pub use types::*;
 
 #[cfg(feature = "accessibility")]
 pub mod accesskit_adapter;

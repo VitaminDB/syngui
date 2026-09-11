@@ -61,7 +61,10 @@ impl FontFace {
         if data.is_empty() {
             return None;
         }
-        Some(Self { data: Arc::from(data), face_index })
+        Some(Self {
+            data: Arc::from(data),
+            face_index,
+        })
     }
 
     fn font_ref(&self) -> Option<swash::FontRef<'_>> {
@@ -100,7 +103,11 @@ impl FontAtlas {
         Self::with_config(device, queue, None)
     }
 
-    pub fn with_config(device: &wgpu::Device, queue: &wgpu::Queue, preferred_family: Option<String>) -> Self {
+    pub fn with_config(
+        device: &wgpu::Device,
+        queue: &wgpu::Queue,
+        preferred_family: Option<String>,
+    ) -> Self {
         let atlas_width = 2048u32;
         let atlas_height = 2048u32;
 
@@ -152,7 +159,11 @@ impl FontAtlas {
             },
         );
 
-        let ((font_data, font_face_index), (bold_font_data, bold_face_index), (emoji_font_data, emoji_face_index)) = Self::load_all_fonts(preferred_family);
+        let (
+            (font_data, font_face_index),
+            (bold_font_data, bold_face_index),
+            (emoji_font_data, emoji_face_index),
+        ) = Self::load_all_fonts(preferred_family);
 
         let emoji = FontFace::new(emoji_font_data, emoji_face_index);
         if emoji.is_none() {
@@ -201,7 +212,9 @@ impl FontAtlas {
     }
 
     #[cfg(all(not(target_arch = "wasm32"), not(target_os = "android")))]
-    fn load_all_fonts(preferred_family: Option<String>) -> ((Vec<u8>, u32), (Vec<u8>, u32), (Vec<u8>, u32)) {
+    fn load_all_fonts(
+        preferred_family: Option<String>,
+    ) -> ((Vec<u8>, u32), (Vec<u8>, u32), (Vec<u8>, u32)) {
         use crate::text::font_discovery;
 
         let family = preferred_family.as_deref();
@@ -213,7 +226,9 @@ impl FontAtlas {
     }
 
     #[cfg(target_os = "android")]
-    fn load_all_fonts(preferred_family: Option<String>) -> ((Vec<u8>, u32), (Vec<u8>, u32), (Vec<u8>, u32)) {
+    fn load_all_fonts(
+        preferred_family: Option<String>,
+    ) -> ((Vec<u8>, u32), (Vec<u8>, u32), (Vec<u8>, u32)) {
         use crate::text::font_discovery_android;
 
         let family = preferred_family.as_deref();
@@ -225,7 +240,9 @@ impl FontAtlas {
     }
 
     #[cfg(target_arch = "wasm32")]
-    fn load_all_fonts(_preferred_family: Option<String>) -> ((Vec<u8>, u32), (Vec<u8>, u32), (Vec<u8>, u32)) {
+    fn load_all_fonts(
+        _preferred_family: Option<String>,
+    ) -> ((Vec<u8>, u32), (Vec<u8>, u32), (Vec<u8>, u32)) {
         ((Vec::new(), 0), (Vec::new(), 0), (Vec::new(), 0))
     }
 
@@ -297,7 +314,10 @@ impl FontAtlas {
         }
         self.overflowed = false;
         self.reset_glyphs();
-        log::info!("font_atlas: reset after overflow, generation {}", self.generation);
+        log::info!(
+            "font_atlas: reset after overflow, generation {}",
+            self.generation
+        );
     }
 
     pub fn has_emoji_font(&self) -> bool {
@@ -315,11 +335,15 @@ impl FontAtlas {
     }
 
     fn face(&self, font_index: u8) -> Option<FontFace> {
-        self.faces.get(font_index as usize).and_then(|face| face.clone())
+        self.faces
+            .get(font_index as usize)
+            .and_then(|face| face.clone())
     }
 
     fn has_face(&self, font_index: u8) -> bool {
-        self.faces.get(font_index as usize).is_some_and(|face| face.is_some())
+        self.faces
+            .get(font_index as usize)
+            .is_some_and(|face| face.is_some())
     }
 
     fn set_face(&mut self, font_index: u8, face: Option<FontFace>) {
@@ -391,12 +415,17 @@ impl FontAtlas {
 
     fn ensure_glyph_in(&mut self, ch: char, size_px: u16, font_index: u8) -> Option<GlyphKey> {
         let glyph_id = self.glyph_id_in(ch, font_index)?;
-        let key = GlyphKey { glyph_id, size_px, font_index };
+        let key = GlyphKey {
+            glyph_id,
+            size_px,
+            font_index,
+        };
         if self.glyphs.contains_key(&key) {
             return Some(key);
         }
         let face = self.face(font_index)?;
-        self.rasterize_glyph(face, glyph_id, size_px, key).map(|_| key)
+        self.rasterize_glyph(face, glyph_id, size_px, key)
+            .map(|_| key)
     }
 
     fn ensure_glyph(&mut self, ch: char, size_px: u16) -> Option<GlyphKey> {
@@ -436,7 +465,11 @@ impl FontAtlas {
         let face = FontFace::new(data, face_index)?;
         let font_index = self.push_fallback_face(face);
         self.fallback_discovered.push(font_index);
-        log::info!("font_atlas: fallback face #{} loaded for {:?}", font_index, script);
+        log::info!(
+            "font_atlas: fallback face #{} loaded for {:?}",
+            font_index,
+            script
+        );
         self.ensure_glyph_in(ch, size_px, font_index)
     }
 
@@ -453,7 +486,10 @@ impl FontAtlas {
         }
         let indices = self.discover_font_family(family);
         if indices.is_none() {
-            log::warn!("Font family '{}' not found, falling back to primary", family);
+            log::warn!(
+                "Font family '{}' not found, falling back to primary",
+                family
+            );
         }
         self.extra_fonts.insert(family.to_string(), indices);
         indices
@@ -482,12 +518,20 @@ impl FontAtlas {
 
     #[cfg(all(not(target_arch = "wasm32"), not(target_os = "android")))]
     fn discover_fallback(&self, script: Script) -> Option<(Vec<u8>, u32)> {
-        crate::text::font_discovery::discover_fallback_font(script, self.prefer_japanese, self.prefer_korean)
+        crate::text::font_discovery::discover_fallback_font(
+            script,
+            self.prefer_japanese,
+            self.prefer_korean,
+        )
     }
 
     #[cfg(target_os = "android")]
     fn discover_fallback(&self, script: Script) -> Option<(Vec<u8>, u32)> {
-        crate::text::font_discovery_android::discover_fallback_font(script, self.prefer_japanese, self.prefer_korean)
+        crate::text::font_discovery_android::discover_fallback_font(
+            script,
+            self.prefer_japanese,
+            self.prefer_korean,
+        )
     }
 
     #[cfg(target_arch = "wasm32")]
@@ -495,9 +539,19 @@ impl FontAtlas {
         None
     }
 
-    fn ensure_glyph_family(&mut self, ch: char, size_px: u16, bold: bool, family: &str) -> Option<GlyphKey> {
+    fn ensure_glyph_family(
+        &mut self,
+        ch: char,
+        size_px: u16,
+        bold: bool,
+        family: &str,
+    ) -> Option<GlyphKey> {
         if let Some((idx_regular, idx_bold)) = self.load_font_family(family) {
-            let font_index = if bold && self.has_face(idx_bold) { idx_bold } else { idx_regular };
+            let font_index = if bold && self.has_face(idx_bold) {
+                idx_bold
+            } else {
+                idx_regular
+            };
             if let Some(key) = self.ensure_glyph_in(ch, size_px, font_index) {
                 return Some(key);
             }
@@ -509,7 +563,13 @@ impl FontAtlas {
         }
     }
 
-    fn rasterize_glyph(&mut self, face: FontFace, glyph_id: u16, size_px: u16, key: GlyphKey) -> Option<()> {
+    fn rasterize_glyph(
+        &mut self,
+        face: FontFace,
+        glyph_id: u16,
+        size_px: u16,
+        key: GlyphKey,
+    ) -> Option<()> {
         let font_ref = face.font_ref()?;
 
         use swash::scale::ScaleContext;
@@ -541,11 +601,9 @@ impl FontAtlas {
                     (None, false)
                 }
             } else {
-                let alpha_image = swash::scale::Render::new(&[
-                    swash::scale::Source::Outline,
-                ])
-                .format(Format::Alpha)
-                .render(&mut scaler, glyph_id);
+                let alpha_image = swash::scale::Render::new(&[swash::scale::Source::Outline])
+                    .format(Format::Alpha)
+                    .render(&mut scaler, glyph_id);
                 (alpha_image, false)
             }
         };
@@ -554,9 +612,14 @@ impl FontAtlas {
             Some(img) if img.placement.width > 0 && img.placement.height > 0 => img,
             _ => {
                 let cached = CachedGlyph {
-                    uv_x: 0.0, uv_y: 0.0, uv_w: 0.0, uv_h: 0.0,
-                    width: 0, height: 0,
-                    bearing_x: 0.0, bearing_y: 0.0,
+                    uv_x: 0.0,
+                    uv_y: 0.0,
+                    uv_w: 0.0,
+                    uv_h: 0.0,
+                    width: 0,
+                    height: 0,
+                    bearing_x: 0.0,
+                    bearing_y: 0.0,
                     advance,
                     is_color: false,
                 };
@@ -649,7 +712,12 @@ impl FontAtlas {
     }
 
     pub fn memory_stats(&self) -> FontAtlasStats {
-        let font_data_bytes = self.faces.iter().flatten().map(|face| face.data.len()).sum::<usize>();
+        let font_data_bytes = self
+            .faces
+            .iter()
+            .flatten()
+            .map(|face| face.data.len())
+            .sum::<usize>();
         let pixels_bytes = self.pixels.len();
         let glyph_cache_bytes = self.glyphs.len() * std::mem::size_of::<(GlyphKey, CachedGlyph)>();
         FontAtlasStats {
@@ -691,7 +759,14 @@ impl FontAtlas {
         );
     }
 
-    pub fn shape_text(&mut self, text: &str, size_px: u16, max_width: f32, bold: bool, font_family: Option<&str>) -> Vec<ShapedGlyph> {
+    pub fn shape_text(
+        &mut self,
+        text: &str,
+        size_px: u16,
+        max_width: f32,
+        bold: bool,
+        font_family: Option<&str>,
+    ) -> Vec<ShapedGlyph> {
         let mut result = Vec::new();
         let mut x = 0.0f32;
         let line_height = size_px as f32 * 1.3;
@@ -762,7 +837,13 @@ impl FontAtlas {
         result
     }
 
-    fn glyph_advance(&mut self, ch: char, size_px: u16, bold: bool, font_family: Option<&str>) -> f32 {
+    fn glyph_advance(
+        &mut self,
+        ch: char,
+        size_px: u16,
+        bold: bool,
+        font_family: Option<&str>,
+    ) -> f32 {
         let key = match font_family {
             Some(fam) => self.ensure_glyph_family(ch, size_px, bold, fam),
             None if bold => self.ensure_glyph_bold(ch, size_px),
@@ -775,7 +856,15 @@ impl FontAtlas {
         self.glyphs.get(&key).map(|g| g.advance).unwrap_or(0.0)
     }
 
-    pub fn shape_text_spaced(&mut self, text: &str, size_px: u16, max_width: f32, bold: bool, font_family: Option<&str>, letter_spacing: f32) -> Vec<ShapedGlyph> {
+    pub fn shape_text_spaced(
+        &mut self,
+        text: &str,
+        size_px: u16,
+        max_width: f32,
+        bold: bool,
+        font_family: Option<&str>,
+        letter_spacing: f32,
+    ) -> Vec<ShapedGlyph> {
         if letter_spacing.abs() < 0.01 {
             return self.shape_text(text, size_px, max_width, bold, font_family);
         }
@@ -798,7 +887,16 @@ impl FontAtlas {
 
             if ch == '\n' {
                 for &(wch, _) in &word_glyphs {
-                    self.emit_glyph_spaced(wch, size_px, bold, font_family, &mut x, y, letter_spacing, &mut result);
+                    self.emit_glyph_spaced(
+                        wch,
+                        size_px,
+                        bold,
+                        font_family,
+                        &mut x,
+                        y,
+                        letter_spacing,
+                        &mut result,
+                    );
                 }
                 word_glyphs.clear();
                 word_width = 0.0;
@@ -809,12 +907,30 @@ impl FontAtlas {
 
             if ch == ' ' || breaks_before(prev_ch, ch) {
                 for &(wch, _) in &word_glyphs {
-                    self.emit_glyph_spaced(wch, size_px, bold, font_family, &mut x, y, letter_spacing, &mut result);
+                    self.emit_glyph_spaced(
+                        wch,
+                        size_px,
+                        bold,
+                        font_family,
+                        &mut x,
+                        y,
+                        letter_spacing,
+                        &mut result,
+                    );
                 }
                 word_glyphs.clear();
                 word_width = 0.0;
                 if ch == ' ' {
-                    self.emit_glyph_spaced(ch, size_px, bold, font_family, &mut x, y, letter_spacing, &mut result);
+                    self.emit_glyph_spaced(
+                        ch,
+                        size_px,
+                        bold,
+                        font_family,
+                        &mut x,
+                        y,
+                        letter_spacing,
+                        &mut result,
+                    );
                     continue;
                 }
             }
@@ -830,7 +946,16 @@ impl FontAtlas {
             if max_width > 0.0 && word_width > max_width + wrap_eps && word_glyphs.len() > 1 {
                 let last = word_glyphs.pop().unwrap();
                 for &(wch, _) in &word_glyphs {
-                    self.emit_glyph_spaced(wch, size_px, bold, font_family, &mut x, y, letter_spacing, &mut result);
+                    self.emit_glyph_spaced(
+                        wch,
+                        size_px,
+                        bold,
+                        font_family,
+                        &mut x,
+                        y,
+                        letter_spacing,
+                        &mut result,
+                    );
                 }
                 word_glyphs.clear();
                 x = 0.0;
@@ -841,12 +966,31 @@ impl FontAtlas {
         }
 
         for &(wch, _) in &word_glyphs {
-            self.emit_glyph_spaced(wch, size_px, bold, font_family, &mut x, y, letter_spacing, &mut result);
+            self.emit_glyph_spaced(
+                wch,
+                size_px,
+                bold,
+                font_family,
+                &mut x,
+                y,
+                letter_spacing,
+                &mut result,
+            );
         }
         result
     }
 
-    fn emit_glyph_spaced(&mut self, ch: char, size_px: u16, bold: bool, font_family: Option<&str>, x: &mut f32, y: f32, letter_spacing: f32, result: &mut Vec<ShapedGlyph>) {
+    fn emit_glyph_spaced(
+        &mut self,
+        ch: char,
+        size_px: u16,
+        bold: bool,
+        font_family: Option<&str>,
+        x: &mut f32,
+        y: f32,
+        letter_spacing: f32,
+        result: &mut Vec<ShapedGlyph>,
+    ) {
         let key = match font_family {
             Some(fam) => self.ensure_glyph_family(ch, size_px, bold, fam),
             None if bold => self.ensure_glyph_bold(ch, size_px),
@@ -870,7 +1014,16 @@ impl FontAtlas {
         *x += glyph.advance + letter_spacing;
     }
 
-    fn emit_glyph(&mut self, ch: char, size_px: u16, bold: bool, font_family: Option<&str>, x: &mut f32, y: f32, result: &mut Vec<ShapedGlyph>) {
+    fn emit_glyph(
+        &mut self,
+        ch: char,
+        size_px: u16,
+        bold: bool,
+        font_family: Option<&str>,
+        x: &mut f32,
+        y: f32,
+        result: &mut Vec<ShapedGlyph>,
+    ) {
         let key = match font_family {
             Some(fam) => self.ensure_glyph_family(ch, size_px, bold, fam),
             None if bold => self.ensure_glyph_bold(ch, size_px),
@@ -897,11 +1050,24 @@ impl FontAtlas {
     pub fn has_font(&self) -> bool {
         self.has_face(FONT_REGULAR)
     }
-    pub fn measure_text_width(&mut self, text: &str, size_px: u16, pos: usize, font_family: Option<&str>) -> f32 {
+    pub fn measure_text_width(
+        &mut self,
+        text: &str,
+        size_px: u16,
+        pos: usize,
+        font_family: Option<&str>,
+    ) -> f32 {
         self.measure_text_width_styled(text, size_px, pos, false, font_family)
     }
 
-    pub fn measure_text_width_styled(&mut self, text: &str, size_px: u16, pos: usize, bold: bool, font_family: Option<&str>) -> f32 {
+    pub fn measure_text_width_styled(
+        &mut self,
+        text: &str,
+        size_px: u16,
+        pos: usize,
+        bold: bool,
+        font_family: Option<&str>,
+    ) -> f32 {
         let mut x = 0.0f32;
         let mut char_count = 0;
 
@@ -912,7 +1078,13 @@ impl FontAtlas {
 
             let key = match font_family {
                 Some(fam) => self.ensure_glyph_family(ch, size_px, bold, fam),
-                None => if bold { self.ensure_glyph_bold(ch, size_px) } else { self.ensure_glyph(ch, size_px) },
+                None => {
+                    if bold {
+                        self.ensure_glyph_bold(ch, size_px)
+                    } else {
+                        self.ensure_glyph(ch, size_px)
+                    }
+                }
             };
             let key = match key {
                 Some(k) => k,
@@ -933,30 +1105,53 @@ impl FontAtlas {
             x += glyph.advance;
             char_count += 1;
         }
-        
+
         x
     }
 
-    pub fn hit_test_char_position(&mut self, text: &str, size_px: u16, x_offset: f32, font_family: Option<&str>) -> usize {
+    pub fn hit_test_char_position(
+        &mut self,
+        text: &str,
+        size_px: u16,
+        x_offset: f32,
+        font_family: Option<&str>,
+    ) -> usize {
         self.hit_test_char_position_styled(text, size_px, x_offset, false, font_family)
     }
 
-    pub fn hit_test_char_position_styled(&mut self, text: &str, size_px: u16, x_offset: f32, bold: bool, font_family: Option<&str>) -> usize {
+    pub fn hit_test_char_position_styled(
+        &mut self,
+        text: &str,
+        size_px: u16,
+        x_offset: f32,
+        bold: bool,
+        font_family: Option<&str>,
+    ) -> usize {
         let mut x = 0.0f32;
         let mut best_idx = 0;
 
         for (idx, ch) in text.chars().enumerate() {
             let key = match font_family {
                 Some(fam) => self.ensure_glyph_family(ch, size_px, bold, fam),
-                None => if bold { self.ensure_glyph_bold(ch, size_px) } else { self.ensure_glyph(ch, size_px) },
+                None => {
+                    if bold {
+                        self.ensure_glyph_bold(ch, size_px)
+                    } else {
+                        self.ensure_glyph(ch, size_px)
+                    }
+                }
             };
             let key = match key {
                 Some(k) => k,
-                None => { continue; }
+                None => {
+                    continue;
+                }
             };
             let advance = match self.glyphs.get(&key) {
                 Some(g) => g.advance,
-                None => { continue; }
+                None => {
+                    continue;
+                }
             };
             let mid = x + advance * 0.5;
             if x_offset < mid {
@@ -978,7 +1173,14 @@ impl crate::widget::context::TextMeasure for crate::core::sync::Mutex<FontAtlas>
         phys / sf
     }
 
-    fn measure_text_width_styled(&self, text: &str, font_size: f32, char_count: usize, bold: bool, font_family: Option<&str>) -> f32 {
+    fn measure_text_width_styled(
+        &self,
+        text: &str,
+        font_size: f32,
+        char_count: usize,
+        bold: bool,
+        font_family: Option<&str>,
+    ) -> f32 {
         let mut atlas = self.lock().unwrap();
         let sf = atlas.scale_factor();
         let size_px = ((font_size * sf).round() as u16).max(1);
@@ -1001,7 +1203,8 @@ impl crate::widget::context::TextMeasure for crate::core::sync::Mutex<FontAtlas>
         let mut atlas = self.lock().unwrap();
         let sf = atlas.scale_factor();
         let size_px = ((font_size * sf).round() as u16).max(1);
-        let phys_base = atlas.measure_text_width_styled(text, size_px, char_count, bold, font_family);
+        let phys_base =
+            atlas.measure_text_width_styled(text, size_px, char_count, bold, font_family);
         let visible = text.chars().take(char_count).count();
         let phys = phys_base + (letter_spacing * sf) * (visible as f32);
         phys / sf
@@ -1014,7 +1217,13 @@ impl crate::widget::context::TextMeasure for crate::core::sync::Mutex<FontAtlas>
         atlas.hit_test_char_position(text, size_px, x_offset * sf, None)
     }
 
-    fn hit_test_char_styled(&self, text: &str, font_size: f32, x_offset: f32, font_family: Option<&str>) -> usize {
+    fn hit_test_char_styled(
+        &self,
+        text: &str,
+        font_size: f32,
+        x_offset: f32,
+        font_family: Option<&str>,
+    ) -> usize {
         let mut atlas = self.lock().unwrap();
         let sf = atlas.scale_factor();
         let size_px = ((font_size * sf).round() as u16).max(1);

@@ -2,11 +2,13 @@ use crate::core::canvas::CanvasContext;
 use crate::core::{Color, Point, Rect, Size};
 use crate::input::{Event, EventResult};
 use crate::layout::Constraints;
-use crate::mss::{ComputedStyle, Dimension};
 use crate::mss::MssFields;
+use crate::mss::{ComputedStyle, Dimension};
 use crate::render::DisplayList;
-use crate::widget::{DirtyFlags, Element, ElementId, ElementTree, StyledElement, UpdateContext, Widget};
 use crate::widget::context::TextMeasure;
+use crate::widget::{
+    DirtyFlags, Element, ElementId, ElementTree, StyledElement, UpdateContext, Widget,
+};
 use std::any::Any;
 use std::sync::Arc;
 use std::time::Duration;
@@ -22,7 +24,11 @@ pub struct GaugeSegment {
 
 impl GaugeSegment {
     pub fn new(from: f64, to: f64, color: impl Into<Color>) -> Self {
-        Self { from, to, color: color.into() }
+        Self {
+            from,
+            to,
+            color: color.into(),
+        }
     }
 }
 
@@ -73,39 +79,75 @@ impl GaugeChart {
         }
     }
 
-    pub fn value(mut self, v: f64) -> Self { self.value = v; self }
+    pub fn value(mut self, v: f64) -> Self {
+        self.value = v;
+        self
+    }
 
-    pub fn min(mut self, v: f64) -> Self { self.min = v; self }
+    pub fn min(mut self, v: f64) -> Self {
+        self.min = v;
+        self
+    }
 
-    pub fn max(mut self, v: f64) -> Self { self.max = v; self }
+    pub fn max(mut self, v: f64) -> Self {
+        self.max = v;
+        self
+    }
 
     pub fn segment(mut self, seg: GaugeSegment) -> Self {
         self.segments.push(seg);
         self
     }
 
-    pub fn start_angle(mut self, deg: f32) -> Self { self.start_angle_deg = deg; self }
+    pub fn start_angle(mut self, deg: f32) -> Self {
+        self.start_angle_deg = deg;
+        self
+    }
 
-    pub fn end_angle(mut self, deg: f32) -> Self { self.end_angle_deg = deg; self }
+    pub fn end_angle(mut self, deg: f32) -> Self {
+        self.end_angle_deg = deg;
+        self
+    }
 
-    pub fn needle(mut self, show: bool) -> Self { self.show_needle = show; self }
+    pub fn needle(mut self, show: bool) -> Self {
+        self.show_needle = show;
+        self
+    }
 
-    pub fn ticks(mut self, show: bool) -> Self { self.show_ticks = show; self }
+    pub fn ticks(mut self, show: bool) -> Self {
+        self.show_ticks = show;
+        self
+    }
 
-    pub fn tick_count(mut self, count: usize) -> Self { self.tick_count = count; self }
+    pub fn tick_count(mut self, count: usize) -> Self {
+        self.tick_count = count;
+        self
+    }
 
-    pub fn minor_ticks(mut self, count: usize) -> Self { self.minor_tick_count = count; self }
+    pub fn minor_ticks(mut self, count: usize) -> Self {
+        self.minor_tick_count = count;
+        self
+    }
 
-    pub fn labels(mut self, show: bool) -> Self { self.show_labels = show; self }
+    pub fn labels(mut self, show: bool) -> Self {
+        self.show_labels = show;
+        self
+    }
 
-    pub fn show_value(mut self, show: bool) -> Self { self.show_value = show; self }
+    pub fn show_value(mut self, show: bool) -> Self {
+        self.show_value = show;
+        self
+    }
 
     pub fn format(mut self, f: impl Fn(f64) -> String + Send + Sync + 'static) -> Self {
         self.value_format = Some(Arc::new(f));
         self
     }
 
-    pub fn title(mut self, t: impl Into<String>) -> Self { self.title = Some(t.into()); self }
+    pub fn title(mut self, t: impl Into<String>) -> Self {
+        self.title = Some(t.into());
+        self
+    }
 
     pub fn size(mut self, w: f32, h: f32) -> Self {
         self.width = Some(Dimension::Px(w));
@@ -113,15 +155,26 @@ impl GaugeChart {
         self
     }
 
-    pub fn animate(mut self, enabled: bool) -> Self { self.animate = enabled; self }
+    pub fn animate(mut self, enabled: bool) -> Self {
+        self.animate = enabled;
+        self
+    }
 
-    pub fn track_width(mut self, ratio: f32) -> Self { self.track_width_ratio = ratio; self }
+    pub fn track_width(mut self, ratio: f32) -> Self {
+        self.track_width_ratio = ratio;
+        self
+    }
 
-    pub fn class(mut self, cls: impl Into<String>) -> Self { self.classes.push(cls.into()); self }
+    pub fn class(mut self, cls: impl Into<String>) -> Self {
+        self.classes.push(cls.into());
+        self
+    }
 }
 
 impl Default for GaugeChart {
-    fn default() -> Self { Self::new() }
+    fn default() -> Self {
+        Self::new()
+    }
 }
 
 impl Widget for GaugeChart {
@@ -164,11 +217,19 @@ impl Widget for GaugeChart {
         })
     }
 
-    fn can_update(&self, other: &dyn Any) -> bool { other.is::<Self>() }
-    fn as_any(&self) -> &dyn Any { self }
-    fn as_any_mut(&mut self) -> &mut dyn Any { self }
+    fn can_update(&self, other: &dyn Any) -> bool {
+        other.is::<Self>()
+    }
+    fn as_any(&self) -> &dyn Any {
+        self
+    }
+    fn as_any_mut(&mut self) -> &mut dyn Any {
+        self
+    }
     fn mount(&self, _tree: &mut ElementTree, _parent_id: ElementId) {}
-    fn widget_classes(&self) -> &[String] { &self.classes }
+    fn widget_classes(&self) -> &[String] {
+        &self.classes
+    }
 }
 
 struct GaugeChartElement {
@@ -276,13 +337,17 @@ impl Element for GaugeChartElement {
     }
 
     fn layout(&mut self, constraints: Constraints) -> Size {
-        let w = self.mss.width
+        let w = self
+            .mss
+            .width
             .or(self.width)
             .map(|d| d.resolve(constraints.max_width))
             .unwrap_or(250.0)
             .min(constraints.max_width);
 
-        let h = self.mss.height
+        let h = self
+            .mss
+            .height
             .or(self.height)
             .map(|d| d.resolve(constraints.max_height))
             .unwrap_or(250.0)
@@ -316,8 +381,11 @@ impl Element for GaugeChartElement {
         if let Some(ref shadows) = self.mss.box_shadow {
             for shadow in shadows.0.iter() {
                 list.push_shadow(
-                    self.bounds, shadow.color, shadow.blur_radius,
-                    (shadow.offset_x, shadow.offset_y), border_radius,
+                    self.bounds,
+                    shadow.color,
+                    shadow.blur_radius,
+                    (shadow.offset_x, shadow.offset_y),
+                    border_radius,
                 );
             }
         }
@@ -335,9 +403,19 @@ impl Element for GaugeChartElement {
         let track_width = radius * self.track_width_ratio;
 
         let fg_color = self.mss.color;
-        let track_color = self.mss_track_color.unwrap_or_else(|| fg_color.map(|c| c.with_alpha(0.2)).unwrap_or(Color::from_hex("#e2e8f0")));
-        let needle_color = self.mss_needle_color.or(fg_color).unwrap_or(Color::from_hex("#1e293b"));
-        let label_color = self.mss_label_color.or(fg_color.map(|c| c.with_alpha(0.6))).unwrap_or(Color::from_hex("#64748b"));
+        let track_color = self.mss_track_color.unwrap_or_else(|| {
+            fg_color
+                .map(|c| c.with_alpha(0.2))
+                .unwrap_or(Color::from_hex("#e2e8f0"))
+        });
+        let needle_color = self
+            .mss_needle_color
+            .or(fg_color)
+            .unwrap_or(Color::from_hex("#1e293b"));
+        let label_color = self
+            .mss_label_color
+            .or(fg_color.map(|c| c.with_alpha(0.6)))
+            .unwrap_or(Color::from_hex("#64748b"));
         let scale_factor = (gauge_size / 250.0).clamp(0.5, 1.5);
         let label_font = self.mss_label_font_size.unwrap_or(10.0) * scale_factor;
         let value_font = self.mss_value_font_size.unwrap_or(28.0) * scale_factor;
@@ -349,7 +427,13 @@ impl Element for GaugeChartElement {
 
         ctx.set_color(track_color);
         ctx.set_stroke_width(track_width);
-        ctx.draw_arc(local_cx, local_cy, radius, -self.start_angle, -self.end_angle);
+        ctx.draw_arc(
+            local_cx,
+            local_cy,
+            radius,
+            -self.start_angle,
+            -self.end_angle,
+        );
 
         let range = self.max - self.min;
         if range > 0.0 {
@@ -382,8 +466,10 @@ impl Element for GaugeChartElement {
                 let r0 = outer_r;
                 let r1 = outer_r + major_len;
                 ctx.draw_line(
-                    local_cx + cos_a * r0, local_cy - sin_a * r0,
-                    local_cx + cos_a * r1, local_cy - sin_a * r1,
+                    local_cx + cos_a * r0,
+                    local_cy - sin_a * r0,
+                    local_cx + cos_a * r1,
+                    local_cy - sin_a * r1,
                 );
 
                 if i < self.tick_count && self.minor_tick_count > 0 {
@@ -396,8 +482,10 @@ impl Element for GaugeChartElement {
                         ctx.set_stroke_width(0.8);
                         let mr1 = outer_r + minor_len;
                         ctx.draw_line(
-                            local_cx + mc * r0, local_cy - ms * r0,
-                            local_cx + mc * mr1, local_cy - ms * mr1,
+                            local_cx + mc * r0,
+                            local_cy - ms * r0,
+                            local_cx + mc * mr1,
+                            local_cy - ms * mr1,
                         );
                     }
                 }
@@ -426,12 +514,7 @@ impl Element for GaugeChartElement {
             let tail_y = local_cy + sin_a * tail_len;
 
             ctx.set_color(needle_color);
-            ctx.fill_polygon(&[
-                (tip_x, tip_y),
-                base1,
-                (tail_x, tail_y),
-                base2,
-            ]);
+            ctx.fill_polygon(&[(tip_x, tip_y), base1, (tail_x, tail_y), base2]);
 
             ctx.fill_circle(local_cx, local_cy, radius * 0.06);
         }
@@ -452,7 +535,8 @@ impl Element for GaugeChartElement {
                 let lx = self.bounds.origin.x + local_cx + angle.cos() * label_r;
                 let ly = self.bounds.origin.y + local_cy - angle.sin() * label_r;
 
-                let label_w = estimate_text_width(&label_text, label_font, self.text_measure.as_ref());
+                let label_w =
+                    estimate_text_width(&label_text, label_font, self.text_measure.as_ref());
                 let label_rect = Rect::new(
                     Point::new(lx - label_w * 0.5, ly - label_font * 0.5),
                     Size::new(label_w, label_font + 2.0),
@@ -489,7 +573,11 @@ impl Element for GaugeChartElement {
         }
     }
 
-    fn handle_event(&mut self, _event: &Event, _ctx: &mut crate::widget::context::EventContext) -> EventResult {
+    fn handle_event(
+        &mut self,
+        _event: &Event,
+        _ctx: &mut crate::widget::context::EventContext,
+    ) -> EventResult {
         EventResult::Ignored
     }
 
@@ -519,30 +607,54 @@ impl Element for GaugeChartElement {
         true
     }
 
-    fn children(&self) -> &[ElementId] { &[] }
-    fn bounds(&self) -> Rect { self.bounds }
+    fn children(&self) -> &[ElementId] {
+        &[]
+    }
+    fn bounds(&self) -> Rect {
+        self.bounds
+    }
 
     fn set_position(&mut self, pos: Point) {
         self.bounds.origin = pos;
     }
 
-    fn mark_dirty(&mut self, flags: DirtyFlags) { self.dirty_flags |= flags; }
-    fn clear_dirty(&mut self, flags: DirtyFlags) { self.dirty_flags.remove(flags); }
-    fn is_dirty(&self, flags: DirtyFlags) -> bool { self.dirty_flags.contains(flags) }
-    fn id(&self) -> ElementId { self.id }
-    fn set_id(&mut self, id: ElementId) { self.id = id; }
-    fn mount(&mut self, tree: &mut ElementTree) { self.text_measure = tree.text_measure.clone(); }
+    fn mark_dirty(&mut self, flags: DirtyFlags) {
+        self.dirty_flags |= flags;
+    }
+    fn clear_dirty(&mut self, flags: DirtyFlags) {
+        self.dirty_flags.remove(flags);
+    }
+    fn is_dirty(&self, flags: DirtyFlags) -> bool {
+        self.dirty_flags.contains(flags)
+    }
+    fn id(&self) -> ElementId {
+        self.id
+    }
+    fn set_id(&mut self, id: ElementId) {
+        self.id = id;
+    }
+    fn mount(&mut self, tree: &mut ElementTree) {
+        self.text_measure = tree.text_measure.clone();
+    }
 
     fn set_classes(&mut self, classes: Vec<String>) {
         self.classes = classes;
         self.mark_dirty(DirtyFlags::RENDER);
     }
 
-    fn get_classes(&self) -> &[String] { &self.classes }
-    fn element_type_name(&self) -> &str { "GaugeChart" }
+    fn get_classes(&self) -> &[String] {
+        &self.classes
+    }
+    fn element_type_name(&self) -> &str {
+        "GaugeChart"
+    }
 
-    fn reset_mss_styles(&mut self) { self.mss.reset(); }
-    fn mss(&self) -> Option<&crate::mss::MssFields> { Some(&self.mss) }
+    fn reset_mss_styles(&mut self) {
+        self.mss.reset();
+    }
+    fn mss(&self) -> Option<&crate::mss::MssFields> {
+        Some(&self.mss)
+    }
     fn apply_computed_style(&mut self, style: &ComputedStyle) {
         self.mss.apply(style);
 
@@ -577,7 +689,8 @@ impl Element for GaugeChartElement {
         selected: Option<&ComputedStyle>,
         _checked: Option<&ComputedStyle>,
     ) {
-        self.mss.apply_transitions(base, hover, active, focus, selected);
+        self.mss
+            .apply_transitions(base, hover, active, focus, selected);
     }
 
     fn accessibility_info(&self) -> Option<crate::a11y::AccessibilityInfo> {
@@ -585,7 +698,10 @@ impl Element for GaugeChartElement {
             role: crate::a11y::Role::Group,
             state: crate::a11y::NodeState::default(),
             properties: crate::a11y::NodeProperties {
-                label: Some(format!("Gauge: {:.0} / {:.0}-{:.0}", self.value, self.min, self.max)),
+                label: Some(format!(
+                    "Gauge: {:.0} / {:.0}-{:.0}",
+                    self.value, self.min, self.max
+                )),
                 ..Default::default()
             },
         })
@@ -596,7 +712,9 @@ impl StyledElement for GaugeChartElement {
     fn apply_style(&mut self, _style: &ComputedStyle) {
         self.mark_dirty(DirtyFlags::LAYOUT | DirtyFlags::RENDER);
     }
-    fn classes(&self) -> &[String] { &self.classes }
+    fn classes(&self) -> &[String] {
+        &self.classes
+    }
     fn set_classes(&mut self, classes: Vec<String>) {
         self.classes = classes;
         self.mark_dirty(DirtyFlags::RENDER);

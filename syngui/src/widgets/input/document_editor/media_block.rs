@@ -159,7 +159,10 @@ impl MediaBlockElement {
     /// Зоны управления видео (полоса снизу).
     fn video_controls_rect(&self) -> Rect {
         Rect::new(
-            Point::new(self.bounds.origin.x, self.bounds.origin.y + self.bounds.size.height - CONTROLS_H),
+            Point::new(
+                self.bounds.origin.x,
+                self.bounds.origin.y + self.bounds.size.height - CONTROLS_H,
+            ),
             Size::new(self.bounds.size.width, CONTROLS_H),
         )
     }
@@ -181,7 +184,11 @@ impl MediaBlockElement {
         list.push_rect(self.bounds, Color::from_hex("#000000"), [0.0; 4]);
 
         // Кадр или постер, вписанный по contain.
-        let handle = if self.activated() { self.frame_handle } else { self.poster_handle };
+        let handle = if self.activated() {
+            self.frame_handle
+        } else {
+            self.poster_handle
+        };
         if let Some(h) = handle {
             let rect = self.fit_rect();
             list.push_image(
@@ -201,7 +208,11 @@ impl MediaBlockElement {
             c.set_color(Color::rgba(0.0, 0.0, 0.0, 0.55));
             c.fill_circle(lx, ly, 26.0);
             c.set_color(Color::rgba(1.0, 1.0, 1.0, 0.95));
-            c.fill_polygon(&[(lx - 8.0, ly - 12.0), (lx - 8.0, ly + 12.0), (lx + 13.0, ly)]);
+            c.fill_polygon(&[
+                (lx - 8.0, ly - 12.0),
+                (lx - 8.0, ly + 12.0),
+                (lx + 13.0, ly),
+            ]);
             c.flush(list);
         } else {
             // Полоса управления.
@@ -230,7 +241,10 @@ impl MediaBlockElement {
             list.push_text_styled_singleline(
                 &time,
                 Rect::new(
-                    Point::new(progress.origin.x + progress.size.width + 8.0, bar.origin.y + 9.0),
+                    Point::new(
+                        progress.origin.x + progress.size.width + 8.0,
+                        bar.origin.y + 9.0,
+                    ),
                     Size::new(70.0, 16.0),
                 ),
                 Color::rgba(1.0, 1.0, 1.0, 0.9),
@@ -286,7 +300,11 @@ impl MediaBlockElement {
             let x = wave.origin.x - o.x + i as f32 * bw;
             let y = wave.origin.y - o.y + (wave.size.height - bh) / 2.0;
             let played = (i as f32 + 0.5) / bins as f32 <= played_f;
-            c.set_color(if played { s.checkbox_check_color } else { s.muted_color.with_alpha(0.5) });
+            c.set_color(if played {
+                s.checkbox_check_color
+            } else {
+                s.muted_color.with_alpha(0.5)
+            });
             c.fill_rounded_rect(x + 1.0, y, (bw - 2.0).max(1.5), bh, 1.0);
         }
         c.flush(list);
@@ -341,7 +359,10 @@ impl MediaBlockElement {
         let scale = (bw / nw).min(bh / nh);
         let (sw, sh) = (nw * scale, nh * scale);
         Rect::new(
-            Point::new(self.bounds.origin.x + (bw - sw) / 2.0, self.bounds.origin.y + (bh - sh) / 2.0),
+            Point::new(
+                self.bounds.origin.x + (bw - sw) / 2.0,
+                self.bounds.origin.y + (bh - sh) / 2.0,
+            ),
             Size::new(sw, sh),
         )
     }
@@ -349,7 +370,9 @@ impl MediaBlockElement {
 
 impl Element for MediaBlockElement {
     fn update(&mut self, widget: &dyn Widget, ctx: &mut UpdateContext) {
-        let Some(w) = widget.as_any().downcast_ref::<MediaBlock>() else { return };
+        let Some(w) = widget.as_any().downcast_ref::<MediaBlock>() else {
+            return;
+        };
         if self.url != w.url || self.kind != w.kind {
             self.url = w.url.clone();
             self.kind = w.kind;
@@ -375,8 +398,7 @@ impl Element for MediaBlockElement {
                     (self.image_store.as_ref(), self.media.poster(&self.url))
                 {
                     if let Ok(mut s) = store.lock() {
-                        let (h, _) =
-                            s.request(&ImageSource::Path(poster.display().to_string()));
+                        let (h, _) = s.request(&ImageSource::Path(poster.display().to_string()));
                         self.poster_handle = Some(h);
                     }
                 }
@@ -396,7 +418,11 @@ impl Element for MediaBlockElement {
     }
 
     fn layout(&mut self, constraints: Constraints) -> Size {
-        let avail = if constraints.max_width.is_finite() { constraints.max_width } else { 600.0 };
+        let avail = if constraints.max_width.is_finite() {
+            constraints.max_width
+        } else {
+            600.0
+        };
         let width = match self.style.max_content_width {
             Some(cap) => avail.min(cap),
             None => avail,
@@ -425,7 +451,10 @@ impl Element for MediaBlockElement {
 
     fn handle_event(&mut self, event: &Event, _ctx: &mut EventContext) -> EventResult {
         match event {
-            Event::MouseDown { button: MouseButton::Left, position } => {
+            Event::MouseDown {
+                button: MouseButton::Left,
+                position,
+            } => {
                 if !self.bounds.contains(*position) {
                     return EventResult::Ignored;
                 }
@@ -444,8 +473,7 @@ impl Element for MediaBlockElement {
                             let progress = self.progress_rect();
                             let controls = self.video_controls_rect();
                             if progress.contains(*position) {
-                                let f =
-                                    (position.x - progress.origin.x) / progress.size.width;
+                                let f = (position.x - progress.origin.x) / progress.size.width;
                                 self.seek_fraction(f);
                             } else if controls.contains(*position) {
                                 self.toggle_play();
@@ -464,7 +492,9 @@ impl Element for MediaBlockElement {
     }
 
     fn animate(&mut self, _dt: Duration) -> bool {
-        let Some(player) = self.player.clone() else { return false };
+        let Some(player) = self.player.clone() else {
+            return false;
+        };
         let (frame, pos, dur, paused) = match player.lock() {
             Ok(mut p) => (
                 p.poll_frame(),

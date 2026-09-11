@@ -68,16 +68,35 @@ impl CalendarLocale {
         Self {
             id: Cow::Borrowed("ru"),
             months: strs12([
-                "Январь", "Февраль", "Март", "Апрель", "Май", "Июнь",
-                "Июль", "Август", "Сентябрь", "Октябрь", "Ноябрь", "Декабрь",
+                "Январь",
+                "Февраль",
+                "Март",
+                "Апрель",
+                "Май",
+                "Июнь",
+                "Июль",
+                "Август",
+                "Сентябрь",
+                "Октябрь",
+                "Ноябрь",
+                "Декабрь",
             ]),
             months_genitive: strs12([
-                "января", "февраля", "марта", "апреля", "мая", "июня",
-                "июля", "августа", "сентября", "октября", "ноября", "декабря",
+                "января",
+                "февраля",
+                "марта",
+                "апреля",
+                "мая",
+                "июня",
+                "июля",
+                "августа",
+                "сентября",
+                "октября",
+                "ноября",
+                "декабря",
             ]),
             months_short: strs12([
-                "янв", "фев", "мар", "апр", "май", "июн",
-                "июл", "авг", "сен", "окт", "ноя", "дек",
+                "янв", "фев", "мар", "апр", "май", "июн", "июл", "авг", "сен", "окт", "ноя", "дек",
             ]),
             weekdays_short: strs7(["Пн", "Вт", "Ср", "Чт", "Пт", "Сб", "Вс"]),
             first_weekday: 0,
@@ -96,16 +115,35 @@ impl CalendarLocale {
         Self {
             id: Cow::Borrowed("en"),
             months: strs12([
-                "January", "February", "March", "April", "May", "June",
-                "July", "August", "September", "October", "November", "December",
+                "January",
+                "February",
+                "March",
+                "April",
+                "May",
+                "June",
+                "July",
+                "August",
+                "September",
+                "October",
+                "November",
+                "December",
             ]),
             months_genitive: strs12([
-                "January", "February", "March", "April", "May", "June",
-                "July", "August", "September", "October", "November", "December",
+                "January",
+                "February",
+                "March",
+                "April",
+                "May",
+                "June",
+                "July",
+                "August",
+                "September",
+                "October",
+                "November",
+                "December",
             ]),
             months_short: strs12([
-                "Jan", "Feb", "Mar", "Apr", "May", "Jun",
-                "Jul", "Aug", "Sep", "Oct", "Nov", "Dec",
+                "Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec",
             ]),
             weekdays_short: strs7(["Mo", "Tu", "We", "Th", "Fr", "Sa", "Su"]),
             first_weekday: 6,
@@ -124,16 +162,35 @@ impl CalendarLocale {
         Self {
             id: Cow::Borrowed("de"),
             months: strs12([
-                "Januar", "Februar", "März", "April", "Mai", "Juni",
-                "Juli", "August", "September", "Oktober", "November", "Dezember",
+                "Januar",
+                "Februar",
+                "März",
+                "April",
+                "Mai",
+                "Juni",
+                "Juli",
+                "August",
+                "September",
+                "Oktober",
+                "November",
+                "Dezember",
             ]),
             months_genitive: strs12([
-                "Januar", "Februar", "März", "April", "Mai", "Juni",
-                "Juli", "August", "September", "Oktober", "November", "Dezember",
+                "Januar",
+                "Februar",
+                "März",
+                "April",
+                "Mai",
+                "Juni",
+                "Juli",
+                "August",
+                "September",
+                "Oktober",
+                "November",
+                "Dezember",
             ]),
             months_short: strs12([
-                "Jan", "Feb", "Mär", "Apr", "Mai", "Jun",
-                "Jul", "Aug", "Sep", "Okt", "Nov", "Dez",
+                "Jan", "Feb", "Mär", "Apr", "Mai", "Jun", "Jul", "Aug", "Sep", "Okt", "Nov", "Dez",
             ]),
             weekdays_short: strs7(["Mo", "Di", "Mi", "Do", "Fr", "Sa", "So"]),
             first_weekday: 0,
@@ -152,16 +209,36 @@ impl CalendarLocale {
         Self {
             id: Cow::Borrowed("fr"),
             months: strs12([
-                "janvier", "février", "mars", "avril", "mai", "juin",
-                "juillet", "août", "septembre", "octobre", "novembre", "décembre",
+                "janvier",
+                "février",
+                "mars",
+                "avril",
+                "mai",
+                "juin",
+                "juillet",
+                "août",
+                "septembre",
+                "octobre",
+                "novembre",
+                "décembre",
             ]),
             months_genitive: strs12([
-                "janvier", "février", "mars", "avril", "mai", "juin",
-                "juillet", "août", "septembre", "octobre", "novembre", "décembre",
+                "janvier",
+                "février",
+                "mars",
+                "avril",
+                "mai",
+                "juin",
+                "juillet",
+                "août",
+                "septembre",
+                "octobre",
+                "novembre",
+                "décembre",
             ]),
             months_short: strs12([
-                "janv", "févr", "mars", "avr", "mai", "juin",
-                "juil", "août", "sept", "oct", "nov", "déc",
+                "janv", "févr", "mars", "avr", "mai", "juin", "juil", "août", "sept", "oct", "nov",
+                "déc",
             ]),
             weekdays_short: strs7(["lun", "mar", "mer", "jeu", "ven", "sam", "dim"]),
             first_weekday: 0,
@@ -180,16 +257,35 @@ impl CalendarLocale {
         Self {
             id: Cow::Borrowed("es"),
             months: strs12([
-                "enero", "febrero", "marzo", "abril", "mayo", "junio",
-                "julio", "agosto", "septiembre", "octubre", "noviembre", "diciembre",
+                "enero",
+                "febrero",
+                "marzo",
+                "abril",
+                "mayo",
+                "junio",
+                "julio",
+                "agosto",
+                "septiembre",
+                "octubre",
+                "noviembre",
+                "diciembre",
             ]),
             months_genitive: strs12([
-                "enero", "febrero", "marzo", "abril", "mayo", "junio",
-                "julio", "agosto", "septiembre", "octubre", "noviembre", "diciembre",
+                "enero",
+                "febrero",
+                "marzo",
+                "abril",
+                "mayo",
+                "junio",
+                "julio",
+                "agosto",
+                "septiembre",
+                "octubre",
+                "noviembre",
+                "diciembre",
             ]),
             months_short: strs12([
-                "ene", "feb", "mar", "abr", "may", "jun",
-                "jul", "ago", "sep", "oct", "nov", "dic",
+                "ene", "feb", "mar", "abr", "may", "jun", "jul", "ago", "sep", "oct", "nov", "dic",
             ]),
             weekdays_short: strs7(["lun", "mar", "mié", "jue", "vie", "sáb", "dom"]),
             first_weekday: 0,
@@ -286,7 +382,10 @@ impl CalendarLocale {
     pub fn format_long(&self, date: &Date) -> String {
         self.long_pattern
             .replace("{d}", &date.day.to_string())
-            .replace("{month}", self.months_genitive[month_idx(date.month)].as_ref())
+            .replace(
+                "{month}",
+                self.months_genitive[month_idx(date.month)].as_ref(),
+            )
             .replace("{y}", &date.year.to_string())
     }
 
@@ -297,7 +396,9 @@ impl CalendarLocale {
 }
 
 impl Default for CalendarLocale {
-    fn default() -> Self { default_locale() }
+    fn default() -> Self {
+        default_locale()
+    }
 }
 
 fn month_idx(month: u32) -> usize {
@@ -361,7 +462,10 @@ mod tests {
         assert_eq!(CalendarLocale::russian().format_long(&d), "20 августа 2026");
         assert_eq!(CalendarLocale::english().format_long(&d), "August 20, 2026");
         assert_eq!(CalendarLocale::german().format_long(&d), "20. August 2026");
-        assert_eq!(CalendarLocale::spanish().format_long(&d), "20 de agosto de 2026");
+        assert_eq!(
+            CalendarLocale::spanish().format_long(&d),
+            "20 de agosto de 2026"
+        );
     }
 
     #[test]

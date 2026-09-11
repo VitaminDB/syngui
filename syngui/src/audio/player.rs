@@ -105,7 +105,9 @@ impl AudioPlayer {
         let state_thread = state.clone();
         let join = thread::Builder::new()
             .name("syngui-audio-prep-stereo".into())
-            .spawn(move || run_stereo_prep_and_play(state_thread, interleaved, sample_rate, stop_rx))
+            .spawn(move || {
+                run_stereo_prep_and_play(state_thread, interleaved, sample_rate, stop_rx)
+            })
             .map_err(|e| AudioError::Cpal(format!("spawn prep thread: {e}")))?;
         Ok(Self {
             state,
@@ -208,19 +210,14 @@ impl AudioPlayer {
 
     pub fn set_volume(&self, volume: f32) {
         let v = volume.max(0.0).min(8.0);
-        self.state
-            .volume_bits
-            .store(v.to_bits(), Ordering::Relaxed);
+        self.state.volume_bits.store(v.to_bits(), Ordering::Relaxed);
     }
 
     pub fn volume(&self) -> f32 {
         self.state.volume()
     }
 
-    pub fn start_streaming(
-        rx: Receiver<Vec<f32>>,
-        sample_rate: u32,
-    ) -> Result<Self, AudioError> {
+    pub fn start_streaming(rx: Receiver<Vec<f32>>, sample_rate: u32) -> Result<Self, AudioError> {
         let host = cpal::default_host();
         let (device, supported) = pick_output_device(&host)?;
         let native_sr = supported.sample_rate().0;
@@ -726,21 +723,29 @@ fn write_streaming_f32(
 ) {
     let ch = channels.max(1) as usize;
     if paused {
-        for v in data.iter_mut() { *v = 0.0; }
+        for v in data.iter_mut() {
+            *v = 0.0;
+        }
         return;
     }
     let frames = data.len() / ch;
     if let Ok(mut q) = queue.lock() {
         let take = frames.min(q.len());
         for i in 0..frames {
-            let s = if i < take { q.pop_front().unwrap_or(0.0) } else { 0.0 } * volume;
+            let s = if i < take {
+                q.pop_front().unwrap_or(0.0)
+            } else {
+                0.0
+            } * volume;
             for c in 0..ch {
                 data[i * ch + c] = s;
             }
         }
         played.fetch_add(take, Ordering::AcqRel);
     } else {
-        for v in data.iter_mut() { *v = 0.0; }
+        for v in data.iter_mut() {
+            *v = 0.0;
+        }
     }
 }
 
@@ -754,14 +759,20 @@ fn write_streaming_i16(
 ) {
     let ch = channels.max(1) as usize;
     if paused {
-        for v in data.iter_mut() { *v = 0; }
+        for v in data.iter_mut() {
+            *v = 0;
+        }
         return;
     }
     let frames = data.len() / ch;
     if let Ok(mut q) = queue.lock() {
         let take = frames.min(q.len());
         for i in 0..frames {
-            let s = if i < take { q.pop_front().unwrap_or(0.0) } else { 0.0 } * volume;
+            let s = if i < take {
+                q.pop_front().unwrap_or(0.0)
+            } else {
+                0.0
+            } * volume;
             let v = (s.clamp(-1.0, 1.0) * i16::MAX as f32) as i16;
             for c in 0..ch {
                 data[i * ch + c] = v;
@@ -769,7 +780,9 @@ fn write_streaming_i16(
         }
         played.fetch_add(take, Ordering::AcqRel);
     } else {
-        for v in data.iter_mut() { *v = 0; }
+        for v in data.iter_mut() {
+            *v = 0;
+        }
     }
 }
 
@@ -784,7 +797,9 @@ fn write_streaming_u16(
     let ch = channels.max(1) as usize;
     let mid_u16 = u16::MAX / 2;
     if paused {
-        for v in data.iter_mut() { *v = mid_u16; }
+        for v in data.iter_mut() {
+            *v = mid_u16;
+        }
         return;
     }
     let frames = data.len() / ch;
@@ -792,7 +807,11 @@ fn write_streaming_u16(
     if let Ok(mut q) = queue.lock() {
         let take = frames.min(q.len());
         for i in 0..frames {
-            let s = if i < take { q.pop_front().unwrap_or(0.0) } else { 0.0 } * volume;
+            let s = if i < take {
+                q.pop_front().unwrap_or(0.0)
+            } else {
+                0.0
+            } * volume;
             let v = ((s.clamp(-1.0, 1.0) * mid) + mid) as u16;
             for c in 0..ch {
                 data[i * ch + c] = v;
@@ -800,7 +819,9 @@ fn write_streaming_u16(
         }
         played.fetch_add(take, Ordering::AcqRel);
     } else {
-        for v in data.iter_mut() { *v = mid_u16; }
+        for v in data.iter_mut() {
+            *v = mid_u16;
+        }
     }
 }
 
@@ -840,7 +861,13 @@ fn run_mono_prep_and_play(
     state.total.store(pcm_native.len(), Ordering::Release);
 
     if let Err(e) = build_and_run_stream(
-        &state, pcm_native, &device, &config, sample_format, channels, stop_rx,
+        &state,
+        pcm_native,
+        &device,
+        &config,
+        sample_format,
+        channels,
+        stop_rx,
     ) {
         state.set_error(&e);
     }
@@ -1023,17 +1050,35 @@ fn write_callback_i16(state: &PlayerState, pcm: &[f32], data: &mut [i16], channe
     let dev_ch = channels.max(1) as usize;
     let frames = data.len() / dev_ch;
     let chunk = next_chunk_frames(state, pcm, frames);
-    fill_device_frames_i16(state.audio_channels() as usize, dev_ch, state.volume(), &chunk, data);
+    fill_device_frames_i16(
+        state.audio_channels() as usize,
+        dev_ch,
+        state.volume(),
+        &chunk,
+        data,
+    );
 }
 
 fn write_callback_u16(state: &PlayerState, pcm: &[f32], data: &mut [u16], channels: u16) {
     let dev_ch = channels.max(1) as usize;
     let frames = data.len() / dev_ch;
     let chunk = next_chunk_frames(state, pcm, frames);
-    fill_device_frames_u16(state.audio_channels() as usize, dev_ch, state.volume(), &chunk, data);
+    fill_device_frames_u16(
+        state.audio_channels() as usize,
+        dev_ch,
+        state.volume(),
+        &chunk,
+        data,
+    );
 }
 
-fn fill_device_frames_i16(audio_ch: usize, dev_ch: usize, vol: f32, chunk: &[f32], data: &mut [i16]) {
+fn fill_device_frames_i16(
+    audio_ch: usize,
+    dev_ch: usize,
+    vol: f32,
+    chunk: &[f32],
+    data: &mut [i16],
+) {
     let frames = data.len() / dev_ch;
     for f in 0..frames {
         for c in 0..dev_ch {
@@ -1049,7 +1094,13 @@ fn fill_device_frames_i16(audio_ch: usize, dev_ch: usize, vol: f32, chunk: &[f32
     }
 }
 
-fn fill_device_frames_u16(audio_ch: usize, dev_ch: usize, vol: f32, chunk: &[f32], data: &mut [u16]) {
+fn fill_device_frames_u16(
+    audio_ch: usize,
+    dev_ch: usize,
+    vol: f32,
+    chunk: &[f32],
+    data: &mut [u16],
+) {
     let frames = data.len() / dev_ch;
     let mid = (u16::MAX / 2) as f32;
     for f in 0..frames {
@@ -1288,8 +1339,7 @@ fn resample_mono_f32(pcm: &[f32], sr_in: u32, sr_out: u32) -> Result<Vec<f32>, A
     let mut resampler = SincFixedIn::<f32>::new(ratio, 2.0, params, in_chunk, 1)
         .map_err(|e| AudioError::Cpal(format!("rubato create: {e}")))?;
 
-    let mut out: Vec<f32> =
-        Vec::with_capacity((pcm.len() as f64 * ratio) as usize + in_chunk);
+    let mut out: Vec<f32> = Vec::with_capacity((pcm.len() as f64 * ratio) as usize + in_chunk);
 
     let mut pos = 0;
     while pos + in_chunk <= pcm.len() {
@@ -1504,7 +1554,7 @@ mod tests {
     fn growing_chunk_buffers_at_end_until_finish() {
         let (mut w, state) = growing_writer(48_000, 48_000, 1);
         w.push(&[0.5, 0.5, 0.5, 0.5]); // 2 моно-сэмпла
-        // Читаем больше, чем есть: доступное + тишина, курсор — на конец буфера.
+                                       // Читаем больше, чем есть: доступное + тишина, курсор — на конец буфера.
         let chunk = next_chunk_growing(&state, &w.buf, 4);
         assert_eq!(chunk, vec![0.5, 0.5, 0.0, 0.0]);
         assert_eq!(state.cursor.load(Ordering::Acquire), 2);

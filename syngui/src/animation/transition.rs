@@ -1,8 +1,8 @@
 use std::collections::{HashMap, HashSet};
 
 use crate::animation::Easing;
-use crate::core::Color;
 use crate::core::shadow::Shadows;
+use crate::core::Color;
 use crate::effects::FilterEffect;
 use crate::mss::{ComputedStyle, StyleValue};
 
@@ -39,32 +39,31 @@ impl AnimatedValue {
             StyleValue::Color(c) => AnimatedValue::Color(mss_color_to_core(*c)),
             StyleValue::Number(n) => AnimatedValue::Float(*n),
             StyleValue::Length(v, crate::mss::Unit::Px) => AnimatedValue::Float(*v),
-            StyleValue::String(s) => {
-                match classify_property(property) {
-                    PropertyType::Color => {
-                        crate::mss::MssColor::parse(s)
-                            .map(|c| AnimatedValue::Color(mss_color_to_core(c)))
-                            .unwrap_or(AnimatedValue::None)
-                    }
-                    PropertyType::Float => {
-                        let s = s.trim().trim_end_matches("px");
-                        s.trim_end_matches('%').parse::<f32>().ok()
-                            .map(AnimatedValue::Float)
-                            .unwrap_or(AnimatedValue::None)
-                    }
-                    PropertyType::Shadows => {
-                        Shadows::parse(s)
-                            .map(AnimatedValue::Shadows)
-                            .unwrap_or(AnimatedValue::None)
-                    }
-                    PropertyType::FilterChain => {
-                        let chain = crate::effects::parse_filter_chain(s);
-                        if chain.is_empty() { AnimatedValue::None }
-                        else { AnimatedValue::FilterChain(chain) }
-                    }
-                    PropertyType::NonAnimatable => AnimatedValue::None,
+            StyleValue::String(s) => match classify_property(property) {
+                PropertyType::Color => crate::mss::MssColor::parse(s)
+                    .map(|c| AnimatedValue::Color(mss_color_to_core(c)))
+                    .unwrap_or(AnimatedValue::None),
+                PropertyType::Float => {
+                    let s = s.trim().trim_end_matches("px");
+                    s.trim_end_matches('%')
+                        .parse::<f32>()
+                        .ok()
+                        .map(AnimatedValue::Float)
+                        .unwrap_or(AnimatedValue::None)
                 }
-            }
+                PropertyType::Shadows => Shadows::parse(s)
+                    .map(AnimatedValue::Shadows)
+                    .unwrap_or(AnimatedValue::None),
+                PropertyType::FilterChain => {
+                    let chain = crate::effects::parse_filter_chain(s);
+                    if chain.is_empty() {
+                        AnimatedValue::None
+                    } else {
+                        AnimatedValue::FilterChain(chain)
+                    }
+                }
+                PropertyType::NonAnimatable => AnimatedValue::None,
+            },
             _ => AnimatedValue::None,
         }
     }
@@ -72,13 +71,11 @@ impl AnimatedValue {
     pub fn default_for_property(property: &str) -> AnimatedValue {
         match classify_property(property) {
             PropertyType::Color => AnimatedValue::Color(Color::TRANSPARENT),
-            PropertyType::Float => {
-                match property {
-                    "opacity" => AnimatedValue::Float(1.0),
-                    "scale" | "scale-x" | "scale-y" => AnimatedValue::Float(1.0),
-                    _ => AnimatedValue::Float(0.0),
-                }
-            }
+            PropertyType::Float => match property {
+                "opacity" => AnimatedValue::Float(1.0),
+                "scale" | "scale-x" | "scale-y" => AnimatedValue::Float(1.0),
+                _ => AnimatedValue::Float(0.0),
+            },
             PropertyType::Shadows => AnimatedValue::Shadows(Shadows::new()),
             PropertyType::FilterChain => AnimatedValue::FilterChain(Vec::new()),
             PropertyType::NonAnimatable => AnimatedValue::None,
@@ -99,17 +96,15 @@ enum PropertyType {
 
 fn classify_property(name: &str) -> PropertyType {
     match name {
-        "background-color" | "background" | "color" | "border-color"
-        | "outline-color" | "accent-color" | "color-tint" => PropertyType::Color,
+        "background-color" | "background" | "color" | "border-color" | "outline-color"
+        | "accent-color" | "color-tint" => PropertyType::Color,
 
-        "opacity" | "outline-width" | "outline-offset" | "border-width"
-        | "font-size" | "gap" | "icon-size" | "letter-spacing"
-        | "padding" | "padding-left" | "padding-right" | "padding-top" | "padding-bottom"
-        | "margin" | "margin-left" | "margin-right" | "margin-top" | "margin-bottom"
-        | "width" | "height" | "min-width" | "max-width" | "min-height" | "max-height"
-        | "noise" | "vignette"
-        | "border-radius"
-        | "translate-x" | "translate-y" | "rotate" | "scale" | "scale-x" | "scale-y" => PropertyType::Float,
+        "opacity" | "outline-width" | "outline-offset" | "border-width" | "font-size" | "gap"
+        | "icon-size" | "letter-spacing" | "padding" | "padding-left" | "padding-right"
+        | "padding-top" | "padding-bottom" | "margin" | "margin-left" | "margin-right"
+        | "margin-top" | "margin-bottom" | "width" | "height" | "min-width" | "max-width"
+        | "min-height" | "max-height" | "noise" | "vignette" | "border-radius" | "translate-x"
+        | "translate-y" | "rotate" | "scale" | "scale-x" | "scale-y" => PropertyType::Float,
 
         "box-shadow" | "glow" => PropertyType::Shadows,
         "filter" | "backdrop-filter" => PropertyType::FilterChain,
@@ -164,7 +159,9 @@ impl AnimatedPropertyMap {
             return;
         }
         match (property, value) {
-            ("background-color" | "background", AnimatedValue::Color(c)) => self.background_color = Some(c),
+            ("background-color" | "background", AnimatedValue::Color(c)) => {
+                self.background_color = Some(c)
+            }
             ("color", AnimatedValue::Color(c)) => self.color = Some(c),
             ("border-color", AnimatedValue::Color(c)) => self.border_color = Some(c),
             ("outline-color", AnimatedValue::Color(c)) => self.outline_color = Some(c),
@@ -206,30 +203,90 @@ impl AnimatedPropertyMap {
             "box-shadow" => self.box_shadow = None,
             "glow" => self.glow = None,
             "filter" => self.filter = None,
-            other => { self.extras.remove(other); }
+            other => {
+                self.extras.remove(other);
+            }
         }
     }
 
     pub fn get(&self, property: &str) -> AnimatedValue {
         match property {
-            "background-color" | "background" => self.background_color.map(AnimatedValue::Color).unwrap_or(AnimatedValue::None),
-            "color" => self.color.map(AnimatedValue::Color).unwrap_or(AnimatedValue::None),
-            "border-color" => self.border_color.map(AnimatedValue::Color).unwrap_or(AnimatedValue::None),
-            "outline-color" => self.outline_color.map(AnimatedValue::Color).unwrap_or(AnimatedValue::None),
-            "opacity" => self.opacity.map(AnimatedValue::Float).unwrap_or(AnimatedValue::None),
-            "border-width" => self.border_width.map(AnimatedValue::Float).unwrap_or(AnimatedValue::None),
-            "outline-width" => self.outline_width.map(AnimatedValue::Float).unwrap_or(AnimatedValue::None),
-            "outline-offset" => self.outline_offset.map(AnimatedValue::Float).unwrap_or(AnimatedValue::None),
-            "translate-x" => self.translate_x.map(AnimatedValue::Float).unwrap_or(AnimatedValue::None),
-            "translate-y" => self.translate_y.map(AnimatedValue::Float).unwrap_or(AnimatedValue::None),
-            "rotate" => self.rotate.map(AnimatedValue::Float).unwrap_or(AnimatedValue::None),
-            "scale" => self.scale.map(AnimatedValue::Float).unwrap_or(AnimatedValue::None),
-            "scale-x" => self.scale_x.map(AnimatedValue::Float).unwrap_or(AnimatedValue::None),
-            "scale-y" => self.scale_y.map(AnimatedValue::Float).unwrap_or(AnimatedValue::None),
-            "box-shadow" => self.box_shadow.clone().map(AnimatedValue::Shadows).unwrap_or(AnimatedValue::None),
-            "glow" => self.glow.clone().map(AnimatedValue::Shadows).unwrap_or(AnimatedValue::None),
-            "filter" => self.filter.clone().map(AnimatedValue::FilterChain).unwrap_or(AnimatedValue::None),
-            other => self.extras.get(other).cloned().unwrap_or(AnimatedValue::None),
+            "background-color" | "background" => self
+                .background_color
+                .map(AnimatedValue::Color)
+                .unwrap_or(AnimatedValue::None),
+            "color" => self
+                .color
+                .map(AnimatedValue::Color)
+                .unwrap_or(AnimatedValue::None),
+            "border-color" => self
+                .border_color
+                .map(AnimatedValue::Color)
+                .unwrap_or(AnimatedValue::None),
+            "outline-color" => self
+                .outline_color
+                .map(AnimatedValue::Color)
+                .unwrap_or(AnimatedValue::None),
+            "opacity" => self
+                .opacity
+                .map(AnimatedValue::Float)
+                .unwrap_or(AnimatedValue::None),
+            "border-width" => self
+                .border_width
+                .map(AnimatedValue::Float)
+                .unwrap_or(AnimatedValue::None),
+            "outline-width" => self
+                .outline_width
+                .map(AnimatedValue::Float)
+                .unwrap_or(AnimatedValue::None),
+            "outline-offset" => self
+                .outline_offset
+                .map(AnimatedValue::Float)
+                .unwrap_or(AnimatedValue::None),
+            "translate-x" => self
+                .translate_x
+                .map(AnimatedValue::Float)
+                .unwrap_or(AnimatedValue::None),
+            "translate-y" => self
+                .translate_y
+                .map(AnimatedValue::Float)
+                .unwrap_or(AnimatedValue::None),
+            "rotate" => self
+                .rotate
+                .map(AnimatedValue::Float)
+                .unwrap_or(AnimatedValue::None),
+            "scale" => self
+                .scale
+                .map(AnimatedValue::Float)
+                .unwrap_or(AnimatedValue::None),
+            "scale-x" => self
+                .scale_x
+                .map(AnimatedValue::Float)
+                .unwrap_or(AnimatedValue::None),
+            "scale-y" => self
+                .scale_y
+                .map(AnimatedValue::Float)
+                .unwrap_or(AnimatedValue::None),
+            "box-shadow" => self
+                .box_shadow
+                .clone()
+                .map(AnimatedValue::Shadows)
+                .unwrap_or(AnimatedValue::None),
+            "glow" => self
+                .glow
+                .clone()
+                .map(AnimatedValue::Shadows)
+                .unwrap_or(AnimatedValue::None),
+            "filter" => self
+                .filter
+                .clone()
+                .map(AnimatedValue::FilterChain)
+                .unwrap_or(AnimatedValue::None),
+            other => self
+                .extras
+                .get(other)
+                .cloned()
+                .unwrap_or(AnimatedValue::None),
         }
     }
 
@@ -256,23 +313,57 @@ impl AnimatedPropertyMap {
 
     pub fn iter(&self) -> impl Iterator<Item = (&str, AnimatedValue)> + '_ {
         let mut out: Vec<(&str, AnimatedValue)> = Vec::new();
-        if let Some(c) = self.background_color { out.push(("background-color", AnimatedValue::Color(c))); }
-        if let Some(c) = self.color { out.push(("color", AnimatedValue::Color(c))); }
-        if let Some(c) = self.border_color { out.push(("border-color", AnimatedValue::Color(c))); }
-        if let Some(c) = self.outline_color { out.push(("outline-color", AnimatedValue::Color(c))); }
-        if let Some(f) = self.opacity { out.push(("opacity", AnimatedValue::Float(f))); }
-        if let Some(f) = self.border_width { out.push(("border-width", AnimatedValue::Float(f))); }
-        if let Some(f) = self.outline_width { out.push(("outline-width", AnimatedValue::Float(f))); }
-        if let Some(f) = self.outline_offset { out.push(("outline-offset", AnimatedValue::Float(f))); }
-        if let Some(f) = self.translate_x { out.push(("translate-x", AnimatedValue::Float(f))); }
-        if let Some(f) = self.translate_y { out.push(("translate-y", AnimatedValue::Float(f))); }
-        if let Some(f) = self.rotate { out.push(("rotate", AnimatedValue::Float(f))); }
-        if let Some(f) = self.scale { out.push(("scale", AnimatedValue::Float(f))); }
-        if let Some(f) = self.scale_x { out.push(("scale-x", AnimatedValue::Float(f))); }
-        if let Some(f) = self.scale_y { out.push(("scale-y", AnimatedValue::Float(f))); }
-        if let Some(ref s) = self.box_shadow { out.push(("box-shadow", AnimatedValue::Shadows(s.clone()))); }
-        if let Some(ref s) = self.glow { out.push(("glow", AnimatedValue::Shadows(s.clone()))); }
-        if let Some(ref f) = self.filter { out.push(("filter", AnimatedValue::FilterChain(f.clone()))); }
+        if let Some(c) = self.background_color {
+            out.push(("background-color", AnimatedValue::Color(c)));
+        }
+        if let Some(c) = self.color {
+            out.push(("color", AnimatedValue::Color(c)));
+        }
+        if let Some(c) = self.border_color {
+            out.push(("border-color", AnimatedValue::Color(c)));
+        }
+        if let Some(c) = self.outline_color {
+            out.push(("outline-color", AnimatedValue::Color(c)));
+        }
+        if let Some(f) = self.opacity {
+            out.push(("opacity", AnimatedValue::Float(f)));
+        }
+        if let Some(f) = self.border_width {
+            out.push(("border-width", AnimatedValue::Float(f)));
+        }
+        if let Some(f) = self.outline_width {
+            out.push(("outline-width", AnimatedValue::Float(f)));
+        }
+        if let Some(f) = self.outline_offset {
+            out.push(("outline-offset", AnimatedValue::Float(f)));
+        }
+        if let Some(f) = self.translate_x {
+            out.push(("translate-x", AnimatedValue::Float(f)));
+        }
+        if let Some(f) = self.translate_y {
+            out.push(("translate-y", AnimatedValue::Float(f)));
+        }
+        if let Some(f) = self.rotate {
+            out.push(("rotate", AnimatedValue::Float(f)));
+        }
+        if let Some(f) = self.scale {
+            out.push(("scale", AnimatedValue::Float(f)));
+        }
+        if let Some(f) = self.scale_x {
+            out.push(("scale-x", AnimatedValue::Float(f)));
+        }
+        if let Some(f) = self.scale_y {
+            out.push(("scale-y", AnimatedValue::Float(f)));
+        }
+        if let Some(ref s) = self.box_shadow {
+            out.push(("box-shadow", AnimatedValue::Shadows(s.clone())));
+        }
+        if let Some(ref s) = self.glow {
+            out.push(("glow", AnimatedValue::Shadows(s.clone())));
+        }
+        if let Some(ref f) = self.filter {
+            out.push(("filter", AnimatedValue::FilterChain(f.clone())));
+        }
         out.extend(self.extras.iter().map(|(k, v)| (k.as_str(), v.clone())));
         out.into_iter()
     }
@@ -299,26 +390,60 @@ impl AnimatedPropertyMap {
         self.set(property, AnimatedValue::Float(value));
     }
 
-    pub fn background_color(&self) -> Option<Color> { self.background_color }
-    pub fn color(&self) -> Option<Color> { self.color }
-    pub fn border_color(&self) -> Option<Color> { self.border_color }
-    pub fn outline_color(&self) -> Option<Color> { self.outline_color }
+    pub fn background_color(&self) -> Option<Color> {
+        self.background_color
+    }
+    pub fn color(&self) -> Option<Color> {
+        self.color
+    }
+    pub fn border_color(&self) -> Option<Color> {
+        self.border_color
+    }
+    pub fn outline_color(&self) -> Option<Color> {
+        self.outline_color
+    }
 
-    pub fn opacity(&self) -> Option<f32> { self.opacity }
-    pub fn outline_width(&self) -> Option<f32> { self.outline_width }
-    pub fn outline_offset(&self) -> Option<f32> { self.outline_offset }
-    pub fn border_width(&self) -> Option<f32> { self.border_width }
+    pub fn opacity(&self) -> Option<f32> {
+        self.opacity
+    }
+    pub fn outline_width(&self) -> Option<f32> {
+        self.outline_width
+    }
+    pub fn outline_offset(&self) -> Option<f32> {
+        self.outline_offset
+    }
+    pub fn border_width(&self) -> Option<f32> {
+        self.border_width
+    }
 
-    pub fn translate_x(&self) -> Option<f32> { self.translate_x }
-    pub fn translate_y(&self) -> Option<f32> { self.translate_y }
-    pub fn rotate(&self) -> Option<f32> { self.rotate }
-    pub fn scale(&self) -> Option<f32> { self.scale }
-    pub fn scale_x(&self) -> Option<f32> { self.scale_x }
-    pub fn scale_y(&self) -> Option<f32> { self.scale_y }
+    pub fn translate_x(&self) -> Option<f32> {
+        self.translate_x
+    }
+    pub fn translate_y(&self) -> Option<f32> {
+        self.translate_y
+    }
+    pub fn rotate(&self) -> Option<f32> {
+        self.rotate
+    }
+    pub fn scale(&self) -> Option<f32> {
+        self.scale
+    }
+    pub fn scale_x(&self) -> Option<f32> {
+        self.scale_x
+    }
+    pub fn scale_y(&self) -> Option<f32> {
+        self.scale_y
+    }
 
-    pub fn filter(&self) -> Option<Vec<FilterEffect>> { self.filter.clone() }
-    pub fn box_shadow(&self) -> Option<Shadows> { self.box_shadow.clone() }
-    pub fn glow(&self) -> Option<Shadows> { self.glow.clone() }
+    pub fn filter(&self) -> Option<Vec<FilterEffect>> {
+        self.filter.clone()
+    }
+    pub fn box_shadow(&self) -> Option<Shadows> {
+        self.box_shadow.clone()
+    }
+    pub fn glow(&self) -> Option<Shadows> {
+        self.glow.clone()
+    }
 }
 
 #[derive(Clone, Debug)]
@@ -380,7 +505,8 @@ impl TransitionState {
             }
         } else if let Some(dur) = style.transition_duration_ms() {
             let prop = style.transition_property().unwrap_or("all");
-            let easing = style.transition_easing()
+            let easing = style
+                .transition_easing()
                 .map(easing_from_str)
                 .unwrap_or(Easing::CSS_EASE);
             specs.push(TransitionSpec {
@@ -391,7 +517,10 @@ impl TransitionState {
             });
         }
 
-        Self { specs, active: Vec::new() }
+        Self {
+            specs,
+            active: Vec::new(),
+        }
     }
 
     pub fn has_specs(&self) -> bool {
@@ -409,7 +538,11 @@ impl TransitionState {
         }
     }
 
-    pub fn start_transition(&mut self, old_props: &AnimatedPropertyMap, new_props: &AnimatedPropertyMap) {
+    pub fn start_transition(
+        &mut self,
+        old_props: &AnimatedPropertyMap,
+        new_props: &AnimatedPropertyMap,
+    ) {
         let all_keys: HashSet<&str> = old_props.keys().chain(new_props.keys()).collect();
 
         for prop_name in all_keys {
@@ -422,8 +555,16 @@ impl TransitionState {
             let new_val = new_props.get(prop_name);
 
             let default = AnimatedValue::default_for_property(prop_name);
-            let old_val = if matches!(old_val, AnimatedValue::None) { default.clone() } else { old_val };
-            let new_val = if matches!(new_val, AnimatedValue::None) { default } else { new_val };
+            let old_val = if matches!(old_val, AnimatedValue::None) {
+                default.clone()
+            } else {
+                old_val
+            };
+            let new_val = if matches!(new_val, AnimatedValue::None) {
+                default
+            } else {
+                new_val
+            };
 
             if matches!(old_val, AnimatedValue::None) || matches!(new_val, AnimatedValue::None) {
                 continue;
@@ -593,8 +734,9 @@ impl TransitionState {
         let alias = match property {
             "background-color" => Some("background"),
             "background" => Some("background-color"),
-            "translate-x" | "translate-y" | "rotate"
-            | "scale" | "scale-x" | "scale-y" => Some("transform"),
+            "translate-x" | "translate-y" | "rotate" | "scale" | "scale-x" | "scale-y" => {
+                Some("transform")
+            }
             _ => None,
         };
         if let Some(alias) = alias {
@@ -670,7 +812,10 @@ fn parse_transition_shorthand(s: &str) -> Option<TransitionSpec> {
 
 fn parse_duration_secs(s: &str) -> Option<f32> {
     if s.ends_with("ms") {
-        s.trim_end_matches("ms").parse::<f32>().ok().map(|v| v / 1000.0)
+        s.trim_end_matches("ms")
+            .parse::<f32>()
+            .ok()
+            .map(|v| v / 1000.0)
     } else if s.ends_with('s') {
         s.trim_end_matches('s').parse::<f32>().ok()
     } else {
@@ -764,30 +909,32 @@ mod tests {
 
     #[test]
     fn property_map_get_background_color() {
-        let props = AnimatedPropertyMap::new()
-            .with_color("background-color", Color::RED);
-        assert_eq!(props.get("background-color"), AnimatedValue::Color(Color::RED));
+        let props = AnimatedPropertyMap::new().with_color("background-color", Color::RED);
+        assert_eq!(
+            props.get("background-color"),
+            AnimatedValue::Color(Color::RED)
+        );
         assert_eq!(props.background_color(), Some(Color::RED));
     }
 
     #[test]
     fn property_map_get_color() {
-        let props = AnimatedPropertyMap::new()
-            .with_color("color", Color::BLUE);
+        let props = AnimatedPropertyMap::new().with_color("color", Color::BLUE);
         assert_eq!(props.get("color"), AnimatedValue::Color(Color::BLUE));
     }
 
     #[test]
     fn property_map_get_border_color() {
-        let props = AnimatedPropertyMap::new()
-            .with_color("border-color", Color::GREEN);
-        assert_eq!(props.get("border-color"), AnimatedValue::Color(Color::GREEN));
+        let props = AnimatedPropertyMap::new().with_color("border-color", Color::GREEN);
+        assert_eq!(
+            props.get("border-color"),
+            AnimatedValue::Color(Color::GREEN)
+        );
     }
 
     #[test]
     fn property_map_get_opacity() {
-        let props = AnimatedPropertyMap::new()
-            .with_float("opacity", 0.5);
+        let props = AnimatedPropertyMap::new().with_float("opacity", 0.5);
         assert_eq!(props.get("opacity"), AnimatedValue::Float(0.5));
     }
 
@@ -833,14 +980,20 @@ mod tests {
     fn easing_from_str_bounce() {
         assert_eq!(easing_from_str("ease-in-bounce"), Easing::EaseInBounce);
         assert_eq!(easing_from_str("ease-out-bounce"), Easing::EaseOutBounce);
-        assert_eq!(easing_from_str("ease-in-out-bounce"), Easing::EaseInOutBounce);
+        assert_eq!(
+            easing_from_str("ease-in-out-bounce"),
+            Easing::EaseInOutBounce
+        );
     }
 
     #[test]
     fn easing_from_str_elastic() {
         assert_eq!(easing_from_str("ease-in-elastic"), Easing::EaseInElastic);
         assert_eq!(easing_from_str("ease-out-elastic"), Easing::EaseOutElastic);
-        assert_eq!(easing_from_str("ease-in-out-elastic"), Easing::EaseInOutElastic);
+        assert_eq!(
+            easing_from_str("ease-in-out-elastic"),
+            Easing::EaseInOutElastic
+        );
     }
 
     #[test]
@@ -951,19 +1104,25 @@ mod tests {
 
         ts.tick(0.05);
         let bg = ts.background_color().unwrap();
-        assert!(bg.r > 0.3 && bg.r < 0.7, "bg should be mid-transition, r={}", bg.r);
+        assert!(
+            bg.r > 0.3 && bg.r < 0.7,
+            "bg should be mid-transition, r={}",
+            bg.r
+        );
 
         let opacity = ts.opacity().unwrap();
-        assert!(opacity > 0.3 && opacity < 0.7, "opacity should be mid: {}", opacity);
+        assert!(
+            opacity > 0.3 && opacity < 0.7,
+            "opacity should be mid: {}",
+            opacity
+        );
     }
 
     #[test]
     fn transition_state_completes() {
         let mut ts = make_ts();
-        let old = AnimatedPropertyMap::new()
-            .with_color("background-color", Color::BLACK);
-        let new = AnimatedPropertyMap::new()
-            .with_color("background-color", Color::WHITE);
+        let old = AnimatedPropertyMap::new().with_color("background-color", Color::BLACK);
+        let new = AnimatedPropertyMap::new().with_color("background-color", Color::WHITE);
 
         ts.start_transition(&old, &new);
         let still_animating = ts.tick(0.2);
@@ -975,8 +1134,7 @@ mod tests {
     #[test]
     fn transition_same_values_no_animation() {
         let mut ts = make_ts();
-        let props = AnimatedPropertyMap::new()
-            .with_color("background-color", Color::RED);
+        let props = AnimatedPropertyMap::new().with_color("background-color", Color::RED);
         ts.start_transition(&props, &props);
         assert!(!ts.is_animating());
     }
@@ -990,10 +1148,8 @@ mod tests {
     #[test]
     fn transition_smooth_interruption() {
         let mut ts = make_ts();
-        let black = AnimatedPropertyMap::new()
-            .with_color("background-color", Color::BLACK);
-        let white = AnimatedPropertyMap::new()
-            .with_color("background-color", Color::WHITE);
+        let black = AnimatedPropertyMap::new().with_color("background-color", Color::BLACK);
+        let white = AnimatedPropertyMap::new().with_color("background-color", Color::WHITE);
 
         ts.start_transition(&black, &white);
         ts.tick(0.05);
@@ -1003,7 +1159,11 @@ mod tests {
 
         ts.start_transition(&white, &black);
         let start = ts.background_color().unwrap();
-        assert!(start.r > 0.3, "interruption should start from current value, r={}", start.r);
+        assert!(
+            start.r > 0.3,
+            "interruption should start from current value, r={}",
+            start.r
+        );
     }
 
     #[test]

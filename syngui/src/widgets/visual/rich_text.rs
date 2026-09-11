@@ -1,11 +1,13 @@
 use crate::core::{Color, Point, Rect, RectExt, Size};
 use crate::layout::Constraints;
-use crate::mss::{ComputedStyle, Dimension};
 use crate::mss::MssFields;
-use crate::render::DisplayList;
+use crate::mss::{ComputedStyle, Dimension};
 use crate::mss::{TextAlign, TextDecoration};
-use crate::widget::{DirtyFlags, Element, ElementId, ElementTree, StyledElement, UpdateContext, Widget};
+use crate::render::DisplayList;
 use crate::widget::context::TextMeasure;
+use crate::widget::{
+    DirtyFlags, Element, ElementId, ElementTree, StyledElement, UpdateContext, Widget,
+};
 use std::any::Any;
 use std::sync::Arc;
 
@@ -31,11 +33,26 @@ impl TextSpan {
         }
     }
 
-    pub fn color(mut self, c: Color) -> Self { self.color = Some(c); self }
-    pub fn font_size(mut self, s: f32) -> Self { self.font_size = Some(s); self }
-    pub fn bold(mut self) -> Self { self.bold = true; self }
-    pub fn italic(mut self) -> Self { self.italic = true; self }
-    pub fn underline(mut self) -> Self { self.underline = true; self }
+    pub fn color(mut self, c: Color) -> Self {
+        self.color = Some(c);
+        self
+    }
+    pub fn font_size(mut self, s: f32) -> Self {
+        self.font_size = Some(s);
+        self
+    }
+    pub fn bold(mut self) -> Self {
+        self.bold = true;
+        self
+    }
+    pub fn italic(mut self) -> Self {
+        self.italic = true;
+        self
+    }
+    pub fn underline(mut self) -> Self {
+        self.underline = true;
+        self
+    }
 }
 
 pub struct RichText {
@@ -59,7 +76,11 @@ impl RichText {
         }
     }
 
-    pub fn span(mut self, text: impl Into<String>, style_fn: impl FnOnce(TextSpan) -> TextSpan) -> Self {
+    pub fn span(
+        mut self,
+        text: impl Into<String>,
+        style_fn: impl FnOnce(TextSpan) -> TextSpan,
+    ) -> Self {
         let span = TextSpan::new(text);
         self.spans.push(style_fn(span));
         self
@@ -70,15 +91,32 @@ impl RichText {
         self
     }
 
-    pub fn default_color(mut self, c: Color) -> Self { self.default_color = c; self }
-    pub fn default_font_size(mut self, s: f32) -> Self { self.default_font_size = s; self }
-    pub fn line_height(mut self, h: f32) -> Self { self.line_height = h; self }
-    pub fn wrap(mut self, w: bool) -> Self { self.wrap = w; self }
-    pub fn max_width(mut self, w: f32) -> Self { self.max_width = Some(Dimension::Px(w)); self }
+    pub fn default_color(mut self, c: Color) -> Self {
+        self.default_color = c;
+        self
+    }
+    pub fn default_font_size(mut self, s: f32) -> Self {
+        self.default_font_size = s;
+        self
+    }
+    pub fn line_height(mut self, h: f32) -> Self {
+        self.line_height = h;
+        self
+    }
+    pub fn wrap(mut self, w: bool) -> Self {
+        self.wrap = w;
+        self
+    }
+    pub fn max_width(mut self, w: f32) -> Self {
+        self.max_width = Some(Dimension::Px(w));
+        self
+    }
 }
 
 impl Default for RichText {
-    fn default() -> Self { Self::new() }
+    fn default() -> Self {
+        Self::new()
+    }
 }
 
 impl Widget for RichText {
@@ -99,9 +137,15 @@ impl Widget for RichText {
         })
     }
 
-    fn can_update(&self, other: &dyn Any) -> bool { other.is::<Self>() }
-    fn as_any(&self) -> &dyn Any { self }
-    fn as_any_mut(&mut self) -> &mut dyn Any { self }
+    fn can_update(&self, other: &dyn Any) -> bool {
+        other.is::<Self>()
+    }
+    fn as_any(&self) -> &dyn Any {
+        self
+    }
+    fn as_any_mut(&mut self) -> &mut dyn Any {
+        self
+    }
     fn mount(&self, _tree: &mut ElementTree, _parent_id: ElementId) {}
 }
 
@@ -125,16 +169,31 @@ pub struct RichTextElement {
 impl RichTextElement {
     fn span_width(&self, span: &TextSpan, default_size: f32) -> f32 {
         let fs = span.font_size.unwrap_or(default_size);
-        self.text_measure.as_ref()
-            .map(|tm| tm.measure_text_width_styled(&span.text, fs, span.text.chars().count(), span.bold, None))
+        self.text_measure
+            .as_ref()
+            .map(|tm| {
+                tm.measure_text_width_styled(
+                    &span.text,
+                    fs,
+                    span.text.chars().count(),
+                    span.bold,
+                    None,
+                )
+            })
             .unwrap_or_else(|| {
-                let factor = if span.bold { CHAR_WIDTH_FACTOR * 1.1 } else { CHAR_WIDTH_FACTOR };
+                let factor = if span.bold {
+                    CHAR_WIDTH_FACTOR * 1.1
+                } else {
+                    CHAR_WIDTH_FACTOR
+                };
                 span.text.chars().count() as f32 * fs * factor
             })
     }
 
     fn compute_lines(&self, max_w: f32) -> Vec<Vec<(usize, usize, usize)>> {
-        if self.spans.is_empty() { return vec![]; }
+        if self.spans.is_empty() {
+            return vec![];
+        }
 
         let mut lines: Vec<Vec<usize>> = vec![vec![]];
         let mut current_x = 0.0f32;
@@ -151,13 +210,19 @@ impl RichTextElement {
             current_x += sw;
         }
 
-        lines.into_iter().map(|line| {
-            line.into_iter().map(|i| (i, 0, self.spans[i].text.len())).collect()
-        }).collect()
+        lines
+            .into_iter()
+            .map(|line| {
+                line.into_iter()
+                    .map(|i| (i, 0, self.spans[i].text.len()))
+                    .collect()
+            })
+            .collect()
     }
 
     fn line_max_font_size(&self, span_indices: &[(usize, usize, usize)]) -> f32 {
-        span_indices.iter()
+        span_indices
+            .iter()
             .map(|(i, _, _)| self.spans[*i].font_size.unwrap_or(self.default_font_size))
             .fold(0.0f32, f32::max)
     }
@@ -177,7 +242,11 @@ impl Element for RichTextElement {
     }
 
     fn layout(&mut self, constraints: Constraints) -> Size {
-        let max_w = self.max_width.map(|d| d.resolve(constraints.max_width)).unwrap_or(constraints.max_width).min(constraints.max_width);
+        let max_w = self
+            .max_width
+            .map(|d| d.resolve(constraints.max_width))
+            .unwrap_or(constraints.max_width)
+            .min(constraints.max_width);
         let lines = self.compute_lines(max_w);
 
         let mut total_height = 0.0f32;
@@ -188,7 +257,8 @@ impl Element for RichTextElement {
             let line_h = line_fs * self.line_height;
             total_height += line_h;
 
-            let line_w: f32 = line.iter()
+            let line_w: f32 = line
+                .iter()
                 .map(|(i, _, _)| self.span_width(&self.spans[*i], self.default_font_size))
                 .sum();
             max_line_width = max_line_width.max(line_w);
@@ -206,7 +276,9 @@ impl Element for RichTextElement {
     }
 
     fn build_display_list(&self, list: &mut DisplayList, _clip: Rect) {
-        if self.spans.is_empty() { return; }
+        if self.spans.is_empty() {
+            return;
+        }
 
         let effective_default = self.mss.color.unwrap_or(self.default_color);
         let max_w = self.bounds.size.width;
@@ -228,14 +300,19 @@ impl Element for RichTextElement {
                 let font_weight: u16 = if span.bold { 700 } else { 400 };
                 let baseline_y = y + (line_h - fs) / 2.0;
                 let rect = Rect::new(Point::new(x, baseline_y), Size::new(sw, 0.0));
-                list.push_text_aligned(&span.text, rect, color, fs, TextAlign::DEFAULT, TextDecoration::None, font_weight);
+                list.push_text_aligned(
+                    &span.text,
+                    rect,
+                    color,
+                    fs,
+                    TextAlign::DEFAULT,
+                    TextDecoration::None,
+                    font_weight,
+                );
 
                 if span.underline {
                     let underline_y = text_y + fs + 1.0;
-                    let underline_rect = Rect::new(
-                        Point::new(x, underline_y),
-                        Size::new(sw, 1.0),
-                    );
+                    let underline_rect = Rect::new(Point::new(x, underline_y), Size::new(sw, 1.0));
                     list.push_rect(underline_rect, color, [0.0; 4]);
                 }
 
@@ -246,18 +323,38 @@ impl Element for RichTextElement {
         }
     }
 
-    fn handle_event(&mut self, _event: &crate::input::Event, _ctx: &mut crate::widget::context::EventContext) -> crate::input::EventResult {
+    fn handle_event(
+        &mut self,
+        _event: &crate::input::Event,
+        _ctx: &mut crate::widget::context::EventContext,
+    ) -> crate::input::EventResult {
         crate::input::EventResult::Ignored
     }
 
-    fn children(&self) -> &[ElementId] { &[] }
-    fn bounds(&self) -> Rect { self.bounds }
-    fn set_position(&mut self, pos: Point) { self.bounds.origin = pos; }
-    fn mark_dirty(&mut self, flags: DirtyFlags) { self.dirty_flags |= flags; }
-    fn clear_dirty(&mut self, flags: DirtyFlags) { self.dirty_flags.remove(flags); }
-    fn is_dirty(&self, flags: DirtyFlags) -> bool { self.dirty_flags.contains(flags) }
-    fn id(&self) -> ElementId { self.id }
-    fn set_id(&mut self, id: ElementId) { self.id = id; }
+    fn children(&self) -> &[ElementId] {
+        &[]
+    }
+    fn bounds(&self) -> Rect {
+        self.bounds
+    }
+    fn set_position(&mut self, pos: Point) {
+        self.bounds.origin = pos;
+    }
+    fn mark_dirty(&mut self, flags: DirtyFlags) {
+        self.dirty_flags |= flags;
+    }
+    fn clear_dirty(&mut self, flags: DirtyFlags) {
+        self.dirty_flags.remove(flags);
+    }
+    fn is_dirty(&self, flags: DirtyFlags) -> bool {
+        self.dirty_flags.contains(flags)
+    }
+    fn id(&self) -> ElementId {
+        self.id
+    }
+    fn set_id(&mut self, id: ElementId) {
+        self.id = id;
+    }
     fn mount(&mut self, tree: &mut ElementTree) {
         self.text_measure = tree.text_measure.clone();
     }
@@ -267,15 +364,25 @@ impl Element for RichTextElement {
         self.mark_dirty(DirtyFlags::RENDER);
     }
 
-    fn get_classes(&self) -> &[String] { &self.classes }
+    fn get_classes(&self) -> &[String] {
+        &self.classes
+    }
 
-    fn element_type_name(&self) -> &str { "RichText" }
+    fn element_type_name(&self) -> &str {
+        "RichText"
+    }
 
-    fn reset_mss_styles(&mut self) { self.mss.reset(); }
-    fn mss(&self) -> Option<&crate::mss::MssFields> { Some(&self.mss) }
+    fn reset_mss_styles(&mut self) {
+        self.mss.reset();
+    }
+    fn mss(&self) -> Option<&crate::mss::MssFields> {
+        Some(&self.mss)
+    }
     fn apply_computed_style(&mut self, style: &ComputedStyle) {
         self.mss.apply(style);
-        if let Some(d) = self.mss.width { self.max_width = Some(d); }
+        if let Some(d) = self.mss.width {
+            self.max_width = Some(d);
+        }
         self.mark_dirty(DirtyFlags::LAYOUT | DirtyFlags::RENDER);
     }
 
@@ -288,7 +395,8 @@ impl Element for RichTextElement {
         selected: Option<&ComputedStyle>,
         _checked: Option<&ComputedStyle>,
     ) {
-        self.mss.apply_transitions(base, hover, active, focus, selected);
+        self.mss
+            .apply_transitions(base, hover, active, focus, selected);
     }
 }
 
@@ -297,7 +405,9 @@ impl StyledElement for RichTextElement {
         self.mark_dirty(DirtyFlags::LAYOUT | DirtyFlags::RENDER);
     }
 
-    fn classes(&self) -> &[String] { &self.classes }
+    fn classes(&self) -> &[String] {
+        &self.classes
+    }
 
     fn set_classes(&mut self, classes: Vec<String>) {
         self.classes = classes;

@@ -1,4 +1,4 @@
-use super::{Page, ScrollbarPolicy, ScrollPhysics, ScrollTarget};
+use super::{Page, ScrollPhysics, ScrollTarget, ScrollbarPolicy};
 use crate::animation::{Animation, Easing, Spring};
 use crate::core::{Color, EdgeInsets, Point, Rect, Size, Transform};
 use crate::input::{Event, EventResult, Key, MouseButton};
@@ -79,13 +79,17 @@ impl Widget for Page {
     fn mount(&self, tree: &mut ElementTree, parent_id: ElementId) {
         if let Some(child) = &self.child {
             let child_element = child.create_element();
-            let child_id = tree.insert_with_type_id(child_element, Some(parent_id), child.as_any().type_id());
+            let child_id =
+                tree.insert_with_type_id(child_element, Some(parent_id), child.as_any().type_id());
             child.mount(tree, child_id);
         }
     }
 
     fn child_widgets(&self) -> Vec<&dyn Widget> {
-        self.child.as_ref().map(|c| vec![c.as_ref() as &dyn Widget]).unwrap_or_default()
+        self.child
+            .as_ref()
+            .map(|c| vec![c.as_ref() as &dyn Widget])
+            .unwrap_or_default()
     }
 }
 
@@ -168,11 +172,17 @@ impl PageElement {
     }
 
     fn can_scroll_x(&self) -> bool {
-        matches!(self.direction, ScrollDirection::Horizontal | ScrollDirection::Both)
+        matches!(
+            self.direction,
+            ScrollDirection::Horizontal | ScrollDirection::Both
+        )
     }
 
     fn can_scroll_y(&self) -> bool {
-        matches!(self.direction, ScrollDirection::Vertical | ScrollDirection::Both)
+        matches!(
+            self.direction,
+            ScrollDirection::Vertical | ScrollDirection::Both
+        )
     }
 
     fn max_scroll_x(&self) -> f32 {
@@ -247,7 +257,9 @@ impl PageElement {
     }
 
     fn show_vertical_scrollbar_track(&self) -> bool {
-        if !self.can_scroll_y() { return false; }
+        if !self.can_scroll_y() {
+            return false;
+        }
         let has_overflow = self.content_size.height > self.viewport().size.height;
         match self.scrollbar_policy {
             ScrollbarPolicy::Always => true,
@@ -257,7 +269,9 @@ impl PageElement {
     }
 
     fn show_vertical_scrollbar_thumb(&self) -> bool {
-        if !self.can_scroll_y() { return false; }
+        if !self.can_scroll_y() {
+            return false;
+        }
         let has_overflow = self.content_size.height > self.viewport().size.height;
         match self.scrollbar_policy {
             ScrollbarPolicy::Always => has_overflow,
@@ -267,7 +281,9 @@ impl PageElement {
     }
 
     fn show_horizontal_scrollbar_track(&self) -> bool {
-        if !self.can_scroll_x() { return false; }
+        if !self.can_scroll_x() {
+            return false;
+        }
         let has_overflow = self.content_size.width > self.viewport().size.width;
         match self.scrollbar_policy {
             ScrollbarPolicy::Always => true,
@@ -277,7 +293,9 @@ impl PageElement {
     }
 
     fn show_horizontal_scrollbar_thumb(&self) -> bool {
-        if !self.can_scroll_x() { return false; }
+        if !self.can_scroll_x() {
+            return false;
+        }
         let has_overflow = self.content_size.width > self.viewport().size.width;
         match self.scrollbar_policy {
             ScrollbarPolicy::Always => has_overflow,
@@ -380,8 +398,7 @@ impl PageElement {
         let scrollbar_fading = self.scrollbar_policy == ScrollbarPolicy::Auto
             && self.scrollbar_opacity > 0.0
             && !self.hover_scrollbar_area;
-        self.is_coasting || self.is_bouncing || self.scroll_animation.is_some()
-            || scrollbar_fading
+        self.is_coasting || self.is_bouncing || self.scroll_animation.is_some() || scrollbar_fading
     }
 }
 
@@ -439,7 +456,6 @@ impl Element for PageElement {
         let ty = snap(center.y - self.scroll_offset.y + self.overscroll_y);
         let transform = Transform::translation(tx, ty);
         list.push_transform(transform);
-
     }
 
     fn post_build_display_list(&self, list: &mut DisplayList, _clip: Rect) {
@@ -490,7 +506,11 @@ impl Element for PageElement {
 
     fn handle_event(&mut self, event: &Event, ctx: &mut EventContext) -> EventResult {
         match event {
-            Event::MouseWheel { delta, delta_x: ev_dx, position } => {
+            Event::MouseWheel {
+                delta,
+                delta_x: ev_dx,
+                position,
+            } => {
                 if !self.bounds.contains(*position) {
                     return EventResult::Ignored;
                 }
@@ -555,8 +575,10 @@ impl Element for PageElement {
                 }
 
                 let alpha = 0.3;
-                self.velocity.y = self.velocity.y * (1.0 - alpha) + delta_y * VELOCITY_SCALE * alpha;
-                self.velocity.x = self.velocity.x * (1.0 - alpha) + delta_x * VELOCITY_SCALE * alpha;
+                self.velocity.y =
+                    self.velocity.y * (1.0 - alpha) + delta_y * VELOCITY_SCALE * alpha;
+                self.velocity.x =
+                    self.velocity.x * (1.0 - alpha) + delta_x * VELOCITY_SCALE * alpha;
                 self.is_coasting = true;
                 self.bounce_allowed = false;
 
@@ -671,8 +693,10 @@ impl Element for PageElement {
                 if self.show_vertical_scrollbar_track() && self.bounds.contains(*pos) {
                     let vp = self.viewport();
                     let area_x = vp.origin.x + vp.size.width - self.scrollbar_width - hit_margin;
-                    if pos.x >= area_x && pos.x <= vp.origin.x + vp.size.width
-                        && pos.y >= vp.origin.y && pos.y <= vp.origin.y + vp.size.height
+                    if pos.x >= area_x
+                        && pos.x <= vp.origin.x + vp.size.width
+                        && pos.y >= vp.origin.y
+                        && pos.y <= vp.origin.y + vp.size.height
                     {
                         in_area = true;
                     }
@@ -680,8 +704,10 @@ impl Element for PageElement {
                 if self.show_horizontal_scrollbar_track() && self.bounds.contains(*pos) {
                     let vp = self.viewport();
                     let area_y = vp.origin.y + vp.size.height - self.scrollbar_width - hit_margin;
-                    if pos.y >= area_y && pos.y <= vp.origin.y + vp.size.height
-                        && pos.x >= vp.origin.x && pos.x <= vp.origin.x + vp.size.width
+                    if pos.y >= area_y
+                        && pos.y <= vp.origin.y + vp.size.height
+                        && pos.x >= vp.origin.x
+                        && pos.x <= vp.origin.x + vp.size.width
                     {
                         in_area = true;
                     }
@@ -938,8 +964,8 @@ impl Element for PageElement {
         if let Some(ref mut anim) = self.scroll_animation {
             let still_running = anim.tick(dt);
             let t = anim.current_value();
-            self.scroll_offset.y =
-                self.scroll_anim_start_y + (self.scroll_anim_target_y - self.scroll_anim_start_y) * t;
+            self.scroll_offset.y = self.scroll_anim_start_y
+                + (self.scroll_anim_target_y - self.scroll_anim_start_y) * t;
 
             if !still_running || anim.is_complete() {
                 self.scroll_offset.y = self.scroll_anim_target_y;
@@ -1017,15 +1043,23 @@ impl Element for PageElement {
 
     fn mount(&mut self, _tree: &mut ElementTree) {}
 
-    fn element_type_name(&self) -> &str { "Page" }
+    fn element_type_name(&self) -> &str {
+        "Page"
+    }
 
     /// Клик по ползунку — наш, детям его не отдавать: иначе редактор на
     /// всю область (или любой другой ребёнок под ползунком) забирал бы
     /// MouseDown первым, и ползунок нельзя было бы тянуть.
     fn child_at_position(&self, pos: Point) -> crate::widget::ChildHit {
-        let on_thumb = (self.show_vertical_scrollbar_thumb() && self.vertical_scrollbar_thumb().contains(pos))
-            || (self.show_horizontal_scrollbar_thumb() && self.horizontal_scrollbar_thumb().contains(pos));
-        if on_thumb { crate::widget::ChildHit::None } else { crate::widget::ChildHit::Unknown }
+        let on_thumb = (self.show_vertical_scrollbar_thumb()
+            && self.vertical_scrollbar_thumb().contains(pos))
+            || (self.show_horizontal_scrollbar_thumb()
+                && self.horizontal_scrollbar_thumb().contains(pos));
+        if on_thumb {
+            crate::widget::ChildHit::None
+        } else {
+            crate::widget::ChildHit::Unknown
+        }
     }
 
     fn clip_content(&self) -> bool {
@@ -1048,7 +1082,9 @@ impl Element for PageElement {
     }
 
     fn ensure_visible(&mut self, child_rect: Rect) -> bool {
-        if !self.can_scroll_y() { return false; }
+        if !self.can_scroll_y() {
+            return false;
+        }
 
         let vp = self.viewport();
         let margin = 20.0;
@@ -1094,18 +1130,30 @@ impl Element for PageElement {
         &self.classes
     }
 
-    fn reset_mss_styles(&mut self) { self.mss.reset(); }
-    fn mss(&self) -> Option<&crate::mss::MssFields> { Some(&self.mss) }
+    fn reset_mss_styles(&mut self) {
+        self.mss.reset();
+    }
+    fn mss(&self) -> Option<&crate::mss::MssFields> {
+        Some(&self.mss)
+    }
     fn apply_computed_style(&mut self, style: &ComputedStyle) {
         self.mss.apply(style);
 
         if let Some(bg) = self.mss.background_color {
             self.background = Some(bg);
         }
-        if let Some(pl) = self.mss.padding_left { self.padding.left = pl; }
-        if let Some(pr) = self.mss.padding_right { self.padding.right = pr; }
-        if let Some(pt) = self.mss.padding_top { self.padding.top = pt; }
-        if let Some(pb) = self.mss.padding_bottom { self.padding.bottom = pb; }
+        if let Some(pl) = self.mss.padding_left {
+            self.padding.left = pl;
+        }
+        if let Some(pr) = self.mss.padding_right {
+            self.padding.right = pr;
+        }
+        if let Some(pt) = self.mss.padding_top {
+            self.padding.top = pt;
+        }
+        if let Some(pb) = self.mss.padding_bottom {
+            self.padding.bottom = pb;
+        }
         if let Some(v) = style.get("scrollbar-width").and_then(|v| v.as_px()) {
             self.scrollbar_width = v;
         }

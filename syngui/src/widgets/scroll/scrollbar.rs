@@ -130,10 +130,17 @@ pub fn vertical_thumb_rect(
     let ratio = (visible / content_h.max(visible)).clamp(0.0, 1.0);
     let thumb_h = (track_h * ratio).max(style.min_thumb_length).min(track_h);
     let max_scroll = (content_h - visible).max(0.0);
-    let pos_ratio = if max_scroll > 0.0 { (scroll_y / max_scroll).clamp(0.0, 1.0) } else { 0.0 };
+    let pos_ratio = if max_scroll > 0.0 {
+        (scroll_y / max_scroll).clamp(0.0, 1.0)
+    } else {
+        0.0
+    };
     let thumb_y = viewport.origin.y + (track_h - thumb_h) * pos_ratio;
     let thumb_x = viewport.origin.x + viewport.size.width - style.width;
-    Rect::new(Point::new(thumb_x, thumb_y), Size::new(style.width, thumb_h))
+    Rect::new(
+        Point::new(thumb_x, thumb_y),
+        Size::new(style.width, thumb_h),
+    )
 }
 
 pub fn horizontal_thumb_rect(
@@ -147,22 +154,35 @@ pub fn horizontal_thumb_rect(
     let ratio = (visible / content_w.max(visible)).clamp(0.0, 1.0);
     let thumb_w = (track_w * ratio).max(style.min_thumb_length).min(track_w);
     let max_scroll = (content_w - visible).max(0.0);
-    let pos_ratio = if max_scroll > 0.0 { (scroll_x / max_scroll).clamp(0.0, 1.0) } else { 0.0 };
+    let pos_ratio = if max_scroll > 0.0 {
+        (scroll_x / max_scroll).clamp(0.0, 1.0)
+    } else {
+        0.0
+    };
     let thumb_x = viewport.origin.x + (track_w - thumb_w) * pos_ratio;
     let thumb_y = viewport.origin.y + viewport.size.height - style.width;
-    Rect::new(Point::new(thumb_x, thumb_y), Size::new(thumb_w, style.width))
+    Rect::new(
+        Point::new(thumb_x, thumb_y),
+        Size::new(thumb_w, style.width),
+    )
 }
 
 pub fn vertical_track_rect(viewport: Rect, style: &ScrollbarStyle) -> Rect {
     Rect::new(
-        Point::new(viewport.origin.x + viewport.size.width - style.width, viewport.origin.y),
+        Point::new(
+            viewport.origin.x + viewport.size.width - style.width,
+            viewport.origin.y,
+        ),
         Size::new(style.width, viewport.size.height),
     )
 }
 
 pub fn horizontal_track_rect(viewport: Rect, style: &ScrollbarStyle) -> Rect {
     Rect::new(
-        Point::new(viewport.origin.x, viewport.origin.y + viewport.size.height - style.width),
+        Point::new(
+            viewport.origin.x,
+            viewport.origin.y + viewport.size.height - style.width,
+        ),
         Size::new(viewport.size.width, style.width),
     )
 }
@@ -184,7 +204,11 @@ pub fn render_vertical(
     let track_alpha_base = track_alpha(style, fader, opacity);
     if track_alpha_base > 0.001 {
         let track = vertical_track_rect(viewport, style);
-        list.push_rect(track, style.track_color.with_alpha(track_alpha_base), radius);
+        list.push_rect(
+            track,
+            style.track_color.with_alpha(track_alpha_base),
+            radius,
+        );
     }
 
     let thumb = vertical_thumb_rect(viewport, content_h, scroll_y, style);
@@ -209,7 +233,11 @@ pub fn render_horizontal(
     let track_alpha_base = track_alpha(style, fader, opacity);
     if track_alpha_base > 0.001 {
         let track = horizontal_track_rect(viewport, style);
-        list.push_rect(track, style.track_color.with_alpha(track_alpha_base), radius);
+        list.push_rect(
+            track,
+            style.track_color.with_alpha(track_alpha_base),
+            radius,
+        );
     }
 
     let thumb = horizontal_thumb_rect(viewport, content_w, scroll_x, style);
@@ -234,7 +262,11 @@ fn track_alpha(style: &ScrollbarStyle, fader: &ScrollbarFader, opacity: f32) -> 
 }
 
 fn pick_thumb_color(style: &ScrollbarStyle, fader: &ScrollbarFader, opacity: f32) -> Color {
-    let base = if fader.dragging || fader.hovered { style.thumb_hover_color } else { style.thumb_color };
+    let base = if fader.dragging || fader.hovered {
+        style.thumb_hover_color
+    } else {
+        style.thumb_color
+    };
     base.with_alpha(base.a * opacity)
 }
 
@@ -279,12 +311,24 @@ pub struct ScrollbarInteraction {
 }
 
 impl ScrollbarInteraction {
-    pub fn dragging(&self) -> bool { self.dragging_v || self.dragging_h }
-    pub fn dragging_vertical(&self) -> bool { self.dragging_v }
-    pub fn dragging_horizontal(&self) -> bool { self.dragging_h }
-    pub fn hover_thumb_v(&self) -> bool { self.hover_thumb_v }
-    pub fn hover_thumb_h(&self) -> bool { self.hover_thumb_h }
-    pub fn hover_area(&self) -> bool { self.hover_area }
+    pub fn dragging(&self) -> bool {
+        self.dragging_v || self.dragging_h
+    }
+    pub fn dragging_vertical(&self) -> bool {
+        self.dragging_v
+    }
+    pub fn dragging_horizontal(&self) -> bool {
+        self.dragging_h
+    }
+    pub fn hover_thumb_v(&self) -> bool {
+        self.hover_thumb_v
+    }
+    pub fn hover_thumb_h(&self) -> bool {
+        self.hover_thumb_h
+    }
+    pub fn hover_area(&self) -> bool {
+        self.hover_area
+    }
 
     pub fn try_begin_drag(
         &mut self,
@@ -337,8 +381,8 @@ impl ScrollbarInteraction {
             let max_y = geom.max_scroll_y();
             let track_remain = (track_h - thumb_h).max(0.0);
             if track_remain > 0.5 {
-                let thumb_top = (pos.y - geom.viewport.origin.y - self.grab_offset_v)
-                    .clamp(0.0, track_remain);
+                let thumb_top =
+                    (pos.y - geom.viewport.origin.y - self.grab_offset_v).clamp(0.0, track_remain);
                 let pos_ratio = thumb_top / track_remain;
                 new_y = (pos_ratio * max_y).clamp(0.0, max_y);
             }
@@ -351,8 +395,8 @@ impl ScrollbarInteraction {
             let max_x = geom.max_scroll_x();
             let track_remain = (track_w - thumb_w).max(0.0);
             if track_remain > 0.5 {
-                let thumb_left = (pos.x - geom.viewport.origin.x - self.grab_offset_h)
-                    .clamp(0.0, track_remain);
+                let thumb_left =
+                    (pos.x - geom.viewport.origin.x - self.grab_offset_h).clamp(0.0, track_remain);
                 let pos_ratio = thumb_left / track_remain;
                 new_x = (pos_ratio * max_x).clamp(0.0, max_x);
             }
@@ -446,7 +490,9 @@ impl ScrollbarInteraction {
 mod tests {
     use super::*;
 
-    fn vp(w: f32, h: f32) -> Rect { Rect::new(Point::zero(), Size::new(w, h)) }
+    fn vp(w: f32, h: f32) -> Rect {
+        Rect::new(Point::zero(), Size::new(w, h))
+    }
 
     #[test]
     fn vertical_thumb_clamps_to_track_when_content_smaller() {
@@ -465,8 +511,12 @@ mod tests {
         let thumb = vertical_thumb_rect(viewport, content_h, max_scroll, &style);
         let thumb_bottom = thumb.origin.y + thumb.size.height;
         let track_bottom = viewport.origin.y + viewport.size.height;
-        assert!((thumb_bottom - track_bottom).abs() < 0.5,
-            "thumb_bottom={} track_bottom={}", thumb_bottom, track_bottom);
+        assert!(
+            (thumb_bottom - track_bottom).abs() < 0.5,
+            "thumb_bottom={} track_bottom={}",
+            thumb_bottom,
+            track_bottom
+        );
     }
 
     #[test]
@@ -485,7 +535,11 @@ mod tests {
         for _ in 0..20 {
             fader.tick(0.05, &style);
         }
-        assert!(fader.opacity < 1.0, "opacity={} (must decay)", fader.opacity);
+        assert!(
+            fader.opacity < 1.0,
+            "opacity={} (must decay)",
+            fader.opacity
+        );
     }
 
     #[test]
@@ -575,9 +629,16 @@ mod tests {
         let mut it = ScrollbarInteraction::default();
         let g = geom(400.0, 0.0);
         assert!(it.try_begin_drag(&mut fader, &g, &style, Point::new(95.0, 15.0)));
-        let (new_y, _) = it.update_drag(&mut fader, &g, &style, Point::new(95.0, 9999.0)).unwrap();
-        assert!((new_y - 300.0).abs() < 1.0, "new_y={new_y} should clamp to 300");
-        let (new_y, _) = it.update_drag(&mut fader, &g, &style, Point::new(95.0, -9999.0)).unwrap();
+        let (new_y, _) = it
+            .update_drag(&mut fader, &g, &style, Point::new(95.0, 9999.0))
+            .unwrap();
+        assert!(
+            (new_y - 300.0).abs() < 1.0,
+            "new_y={new_y} should clamp to 300"
+        );
+        let (new_y, _) = it
+            .update_drag(&mut fader, &g, &style, Point::new(95.0, -9999.0))
+            .unwrap();
         assert!(new_y.abs() < 1.0, "new_y={new_y} should clamp to 0");
     }
 
@@ -600,7 +661,9 @@ mod tests {
         let mut fader = ScrollbarFader::default();
         let mut it = ScrollbarInteraction::default();
         let g = geom(400.0, 0.0);
-        assert!(it.update_drag(&mut fader, &g, &style, Point::new(50.0, 50.0)).is_none());
+        assert!(it
+            .update_drag(&mut fader, &g, &style, Point::new(50.0, 50.0))
+            .is_none());
     }
 
     #[test]

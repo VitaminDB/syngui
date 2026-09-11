@@ -1,5 +1,5 @@
-pub use crate::render::display_list::{Effect, BlendModeType};
 use crate::core::Color;
+pub use crate::render::display_list::{BlendModeType, Effect};
 
 pub fn blur(radius: f32) -> Effect {
     Effect::Blur { radius }
@@ -10,7 +10,12 @@ pub fn backdrop_blur(radius: f32) -> Effect {
 }
 
 pub fn shadow(color: crate::core::Color, blur_radius: f32, offset_x: f32, offset_y: f32) -> Effect {
-    Effect::Shadow { color, blur_radius, offset_x, offset_y }
+    Effect::Shadow {
+        color,
+        blur_radius,
+        offset_x,
+        offset_y,
+    }
 }
 
 pub fn opacity(value: f32) -> Effect {
@@ -50,7 +55,10 @@ pub fn chromatic_aberration(offset: f32) -> Effect {
 }
 
 pub fn displacement(amplitude: f32, frequency: f32) -> Effect {
-    Effect::Displacement { amplitude, frequency }
+    Effect::Displacement {
+        amplitude,
+        frequency,
+    }
 }
 
 pub fn scanlines(density: f32, opacity: f32) -> Effect {
@@ -66,7 +74,11 @@ pub fn noise(intensity: f32) -> Effect {
 }
 
 pub fn hsb_adjust(hue: f32, saturation: f32, brightness: f32) -> Effect {
-    Effect::HsbAdjust { hue, saturation, brightness }
+    Effect::HsbAdjust {
+        hue,
+        saturation,
+        brightness,
+    }
 }
 
 pub fn glow(radius: f32, intensity: f32) -> Effect {
@@ -74,7 +86,10 @@ pub fn glow(radius: f32, intensity: f32) -> Effect {
 }
 
 pub fn glitch(intensity: f32, block_size: f32) -> Effect {
-    Effect::Glitch { intensity, block_size }
+    Effect::Glitch {
+        intensity,
+        block_size,
+    }
 }
 
 pub fn dissolve(threshold: f32) -> Effect {
@@ -126,11 +141,17 @@ pub fn refraction(distortion: f32, ior: f32) -> Effect {
 }
 
 pub fn lens_flare(threshold: f32, intensity: f32) -> Effect {
-    Effect::LensFlare { threshold, intensity }
+    Effect::LensFlare {
+        threshold,
+        intensity,
+    }
 }
 
 pub fn mask_reveal(progress: f32, direction: f32) -> Effect {
-    Effect::MaskReveal { progress, direction }
+    Effect::MaskReveal {
+        progress,
+        direction,
+    }
 }
 
 pub fn chain(effects: Vec<Effect>) -> Effect {
@@ -210,46 +231,113 @@ impl FilterEffect {
     }
 
     pub fn lerp(&self, other: &FilterEffect, t: f32) -> Option<FilterEffect> {
-        fn mix(a: f32, b: f32, t: f32) -> f32 { a + (b - a) * t }
+        fn mix(a: f32, b: f32, t: f32) -> f32 {
+            a + (b - a) * t
+        }
         fn mix3(a: &[f32; 3], b: &[f32; 3], t: f32) -> [f32; 3] {
             [mix(a[0], b[0], t), mix(a[1], b[1], t), mix(a[2], b[2], t)]
         }
         fn mix4(a: &[f32; 4], b: &[f32; 4], t: f32) -> [f32; 4] {
-            [mix(a[0], b[0], t), mix(a[1], b[1], t), mix(a[2], b[2], t), mix(a[3], b[3], t)]
+            [
+                mix(a[0], b[0], t),
+                mix(a[1], b[1], t),
+                mix(a[2], b[2], t),
+                mix(a[3], b[3], t),
+            ]
         }
 
         match (self, other) {
-            (FilterEffect::Blur(a), FilterEffect::Blur(b)) => Some(FilterEffect::Blur(mix(*a, *b, t))),
-            (FilterEffect::Grayscale(a), FilterEffect::Grayscale(b)) => Some(FilterEffect::Grayscale(mix(*a, *b, t))),
-            (FilterEffect::Sepia(a), FilterEffect::Sepia(b)) => Some(FilterEffect::Sepia(mix(*a, *b, t))),
-            (FilterEffect::Invert(a), FilterEffect::Invert(b)) => Some(FilterEffect::Invert(mix(*a, *b, t))),
-            (FilterEffect::Brightness(a), FilterEffect::Brightness(b)) => Some(FilterEffect::Brightness(mix(*a, *b, t))),
-            (FilterEffect::Contrast(a), FilterEffect::Contrast(b)) => Some(FilterEffect::Contrast(mix(*a, *b, t))),
-            (FilterEffect::HueRotate(a), FilterEffect::HueRotate(b)) => Some(FilterEffect::HueRotate(mix(*a, *b, t))),
-            (FilterEffect::Saturate(a), FilterEffect::Saturate(b)) => Some(FilterEffect::Saturate(mix(*a, *b, t))),
-            (FilterEffect::Pixelate(a), FilterEffect::Pixelate(b)) => Some(FilterEffect::Pixelate(mix(*a, *b, t))),
-            (FilterEffect::EdgeDetect(a), FilterEffect::EdgeDetect(b)) => Some(FilterEffect::EdgeDetect(mix(*a, *b, t))),
-            (FilterEffect::ChromaticAberration(a), FilterEffect::ChromaticAberration(b)) => Some(FilterEffect::ChromaticAberration(mix(*a, *b, t))),
-            (FilterEffect::Wave(a1, a2), FilterEffect::Wave(b1, b2)) => Some(FilterEffect::Wave(mix(*a1, *b1, t), mix(*a2, *b2, t))),
+            (FilterEffect::Blur(a), FilterEffect::Blur(b)) => {
+                Some(FilterEffect::Blur(mix(*a, *b, t)))
+            }
+            (FilterEffect::Grayscale(a), FilterEffect::Grayscale(b)) => {
+                Some(FilterEffect::Grayscale(mix(*a, *b, t)))
+            }
+            (FilterEffect::Sepia(a), FilterEffect::Sepia(b)) => {
+                Some(FilterEffect::Sepia(mix(*a, *b, t)))
+            }
+            (FilterEffect::Invert(a), FilterEffect::Invert(b)) => {
+                Some(FilterEffect::Invert(mix(*a, *b, t)))
+            }
+            (FilterEffect::Brightness(a), FilterEffect::Brightness(b)) => {
+                Some(FilterEffect::Brightness(mix(*a, *b, t)))
+            }
+            (FilterEffect::Contrast(a), FilterEffect::Contrast(b)) => {
+                Some(FilterEffect::Contrast(mix(*a, *b, t)))
+            }
+            (FilterEffect::HueRotate(a), FilterEffect::HueRotate(b)) => {
+                Some(FilterEffect::HueRotate(mix(*a, *b, t)))
+            }
+            (FilterEffect::Saturate(a), FilterEffect::Saturate(b)) => {
+                Some(FilterEffect::Saturate(mix(*a, *b, t)))
+            }
+            (FilterEffect::Pixelate(a), FilterEffect::Pixelate(b)) => {
+                Some(FilterEffect::Pixelate(mix(*a, *b, t)))
+            }
+            (FilterEffect::EdgeDetect(a), FilterEffect::EdgeDetect(b)) => {
+                Some(FilterEffect::EdgeDetect(mix(*a, *b, t)))
+            }
+            (FilterEffect::ChromaticAberration(a), FilterEffect::ChromaticAberration(b)) => {
+                Some(FilterEffect::ChromaticAberration(mix(*a, *b, t)))
+            }
+            (FilterEffect::Wave(a1, a2), FilterEffect::Wave(b1, b2)) => {
+                Some(FilterEffect::Wave(mix(*a1, *b1, t), mix(*a2, *b2, t)))
+            }
             (FilterEffect::Crt(a), FilterEffect::Crt(b)) => Some(FilterEffect::Crt(mix(*a, *b, t))),
-            (FilterEffect::Vignette(a), FilterEffect::Vignette(b)) => Some(FilterEffect::Vignette(mix(*a, *b, t))),
-            (FilterEffect::Noise(a), FilterEffect::Noise(b)) => Some(FilterEffect::Noise(mix(*a, *b, t))),
-            (FilterEffect::Glitch(a), FilterEffect::Glitch(b)) => Some(FilterEffect::Glitch(mix(*a, *b, t))),
-            (FilterEffect::Dissolve(a), FilterEffect::Dissolve(b)) => Some(FilterEffect::Dissolve(mix(*a, *b, t))),
-            (FilterEffect::Swirl(a1, a2), FilterEffect::Swirl(b1, b2)) => Some(FilterEffect::Swirl(mix(*a1, *b1, t), mix(*a2, *b2, t))),
-            (FilterEffect::Bulge(a), FilterEffect::Bulge(b)) => Some(FilterEffect::Bulge(mix(*a, *b, t))),
-            (FilterEffect::GradientMap(ad, al), FilterEffect::GradientMap(bd, bl)) => Some(FilterEffect::GradientMap(mix3(ad, bd, t), mix3(al, bl, t))),
-            (FilterEffect::Duotone(as_, ah), FilterEffect::Duotone(bs, bh)) => Some(FilterEffect::Duotone(mix3(as_, bs, t), mix3(ah, bh, t))),
-            (FilterEffect::Silhouette(a), FilterEffect::Silhouette(b)) => Some(FilterEffect::Silhouette(mix4(a, b, t))),
-            (FilterEffect::HeatHaze(a1, a2), FilterEffect::HeatHaze(b1, b2)) => Some(FilterEffect::HeatHaze(mix(*a1, *b1, t), mix(*a2, *b2, t))),
-            (FilterEffect::DirectionalBlur(a1, a2), FilterEffect::DirectionalBlur(b1, b2)) => Some(FilterEffect::DirectionalBlur(mix(*a1, *b1, t), mix(*a2, *b2, t))),
-            (FilterEffect::MotionBlur(a1, a2), FilterEffect::MotionBlur(b1, b2)) => Some(FilterEffect::MotionBlur(mix(*a1, *b1, t), mix(*a2, *b2, t))),
-            (FilterEffect::RadialBlur(a), FilterEffect::RadialBlur(b)) => Some(FilterEffect::RadialBlur(mix(*a, *b, t))),
-            (FilterEffect::ColorGrade(a1, a2, a3), FilterEffect::ColorGrade(b1, b2, b3)) => Some(FilterEffect::ColorGrade(mix(*a1, *b1, t), mix(*a2, *b2, t), mix(*a3, *b3, t))),
-            (FilterEffect::Hologram(ac, ai), FilterEffect::Hologram(bc, bi)) => Some(FilterEffect::Hologram(mix3(ac, bc, t), mix(*ai, *bi, t))),
-            (FilterEffect::Refraction(a1, a2), FilterEffect::Refraction(b1, b2)) => Some(FilterEffect::Refraction(mix(*a1, *b1, t), mix(*a2, *b2, t))),
-            (FilterEffect::LensFlare(a1, a2), FilterEffect::LensFlare(b1, b2)) => Some(FilterEffect::LensFlare(mix(*a1, *b1, t), mix(*a2, *b2, t))),
-            (FilterEffect::MaskReveal(a1, a2), FilterEffect::MaskReveal(b1, b2)) => Some(FilterEffect::MaskReveal(mix(*a1, *b1, t), mix(*a2, *b2, t))),
+            (FilterEffect::Vignette(a), FilterEffect::Vignette(b)) => {
+                Some(FilterEffect::Vignette(mix(*a, *b, t)))
+            }
+            (FilterEffect::Noise(a), FilterEffect::Noise(b)) => {
+                Some(FilterEffect::Noise(mix(*a, *b, t)))
+            }
+            (FilterEffect::Glitch(a), FilterEffect::Glitch(b)) => {
+                Some(FilterEffect::Glitch(mix(*a, *b, t)))
+            }
+            (FilterEffect::Dissolve(a), FilterEffect::Dissolve(b)) => {
+                Some(FilterEffect::Dissolve(mix(*a, *b, t)))
+            }
+            (FilterEffect::Swirl(a1, a2), FilterEffect::Swirl(b1, b2)) => {
+                Some(FilterEffect::Swirl(mix(*a1, *b1, t), mix(*a2, *b2, t)))
+            }
+            (FilterEffect::Bulge(a), FilterEffect::Bulge(b)) => {
+                Some(FilterEffect::Bulge(mix(*a, *b, t)))
+            }
+            (FilterEffect::GradientMap(ad, al), FilterEffect::GradientMap(bd, bl)) => {
+                Some(FilterEffect::GradientMap(mix3(ad, bd, t), mix3(al, bl, t)))
+            }
+            (FilterEffect::Duotone(as_, ah), FilterEffect::Duotone(bs, bh)) => {
+                Some(FilterEffect::Duotone(mix3(as_, bs, t), mix3(ah, bh, t)))
+            }
+            (FilterEffect::Silhouette(a), FilterEffect::Silhouette(b)) => {
+                Some(FilterEffect::Silhouette(mix4(a, b, t)))
+            }
+            (FilterEffect::HeatHaze(a1, a2), FilterEffect::HeatHaze(b1, b2)) => {
+                Some(FilterEffect::HeatHaze(mix(*a1, *b1, t), mix(*a2, *b2, t)))
+            }
+            (FilterEffect::DirectionalBlur(a1, a2), FilterEffect::DirectionalBlur(b1, b2)) => Some(
+                FilterEffect::DirectionalBlur(mix(*a1, *b1, t), mix(*a2, *b2, t)),
+            ),
+            (FilterEffect::MotionBlur(a1, a2), FilterEffect::MotionBlur(b1, b2)) => {
+                Some(FilterEffect::MotionBlur(mix(*a1, *b1, t), mix(*a2, *b2, t)))
+            }
+            (FilterEffect::RadialBlur(a), FilterEffect::RadialBlur(b)) => {
+                Some(FilterEffect::RadialBlur(mix(*a, *b, t)))
+            }
+            (FilterEffect::ColorGrade(a1, a2, a3), FilterEffect::ColorGrade(b1, b2, b3)) => Some(
+                FilterEffect::ColorGrade(mix(*a1, *b1, t), mix(*a2, *b2, t), mix(*a3, *b3, t)),
+            ),
+            (FilterEffect::Hologram(ac, ai), FilterEffect::Hologram(bc, bi)) => {
+                Some(FilterEffect::Hologram(mix3(ac, bc, t), mix(*ai, *bi, t)))
+            }
+            (FilterEffect::Refraction(a1, a2), FilterEffect::Refraction(b1, b2)) => {
+                Some(FilterEffect::Refraction(mix(*a1, *b1, t), mix(*a2, *b2, t)))
+            }
+            (FilterEffect::LensFlare(a1, a2), FilterEffect::LensFlare(b1, b2)) => {
+                Some(FilterEffect::LensFlare(mix(*a1, *b1, t), mix(*a2, *b2, t)))
+            }
+            (FilterEffect::MaskReveal(a1, a2), FilterEffect::MaskReveal(b1, b2)) => {
+                Some(FilterEffect::MaskReveal(mix(*a1, *b1, t), mix(*a2, *b2, t)))
+            }
             _ => None,
         }
     }
@@ -262,19 +350,45 @@ impl FilterEffect {
             FilterEffect::Invert(a) => Effect::Invert { amount: *a },
             FilterEffect::Brightness(a) => Effect::Brightness { amount: *a },
             FilterEffect::Contrast(a) => Effect::Contrast { amount: *a },
-            FilterEffect::HueRotate(deg) => Effect::HsbAdjust { hue: *deg / 360.0, saturation: 1.0, brightness: 1.0 },
-            FilterEffect::Saturate(a) => Effect::HsbAdjust { hue: 0.0, saturation: *a, brightness: 1.0 },
+            FilterEffect::HueRotate(deg) => Effect::HsbAdjust {
+                hue: *deg / 360.0,
+                saturation: 1.0,
+                brightness: 1.0,
+            },
+            FilterEffect::Saturate(a) => Effect::HsbAdjust {
+                hue: 0.0,
+                saturation: *a,
+                brightness: 1.0,
+            },
             FilterEffect::Pixelate(s) => Effect::Pixelate { block_size: *s },
             FilterEffect::EdgeDetect(t) => Effect::EdgeDetection { threshold: *t },
             FilterEffect::ChromaticAberration(o) => Effect::ChromaticAberration { offset: *o },
-            FilterEffect::Wave(amp, freq) => Effect::Displacement { amplitude: *amp, frequency: *freq },
-            FilterEffect::Crt(o) => Effect::Scanlines { density: 2.0, opacity: *o },
-            FilterEffect::Vignette(r) => Effect::Vignette { radius: *r, softness: 0.3 },
+            FilterEffect::Wave(amp, freq) => Effect::Displacement {
+                amplitude: *amp,
+                frequency: *freq,
+            },
+            FilterEffect::Crt(o) => Effect::Scanlines {
+                density: 2.0,
+                opacity: *o,
+            },
+            FilterEffect::Vignette(r) => Effect::Vignette {
+                radius: *r,
+                softness: 0.3,
+            },
             FilterEffect::Noise(i) => Effect::Noise { intensity: *i },
-            FilterEffect::Glitch(i) => Effect::Glitch { intensity: *i, block_size: 8.0 },
+            FilterEffect::Glitch(i) => Effect::Glitch {
+                intensity: *i,
+                block_size: 8.0,
+            },
             FilterEffect::Dissolve(t) => Effect::Dissolve { threshold: *t },
-            FilterEffect::Swirl(a, r) => Effect::Swirl { angle: *a, radius: *r },
-            FilterEffect::Bulge(s) => Effect::Bulge { strength: *s, radius: 0.5 },
+            FilterEffect::Swirl(a, r) => Effect::Swirl {
+                angle: *a,
+                radius: *r,
+            },
+            FilterEffect::Bulge(s) => Effect::Bulge {
+                strength: *s,
+                radius: 0.5,
+            },
             FilterEffect::GradientMap(d, l) => Effect::GradientMap {
                 dark: Color::new(d[0], d[1], d[2], 1.0),
                 light: Color::new(l[0], l[1], l[2], 1.0),
@@ -286,18 +400,40 @@ impl FilterEffect {
             FilterEffect::Silhouette(c) => Effect::Silhouette {
                 color: Color::new(c[0], c[1], c[2], c[3]),
             },
-            FilterEffect::HeatHaze(a, s) => Effect::HeatHaze { amplitude: *a, speed: *s },
-            FilterEffect::DirectionalBlur(angle, radius) => Effect::DirectionalBlur { angle: *angle, radius: *radius },
-            FilterEffect::MotionBlur(angle, radius) => Effect::DirectionalBlur { angle: *angle, radius: *radius },
+            FilterEffect::HeatHaze(a, s) => Effect::HeatHaze {
+                amplitude: *a,
+                speed: *s,
+            },
+            FilterEffect::DirectionalBlur(angle, radius) => Effect::DirectionalBlur {
+                angle: *angle,
+                radius: *radius,
+            },
+            FilterEffect::MotionBlur(angle, radius) => Effect::DirectionalBlur {
+                angle: *angle,
+                radius: *radius,
+            },
             FilterEffect::RadialBlur(i) => Effect::RadialBlur { intensity: *i },
-            FilterEffect::ColorGrade(l, g, ga) => Effect::ColorGrade { lift: *l, gamma: *g, gain: *ga },
+            FilterEffect::ColorGrade(l, g, ga) => Effect::ColorGrade {
+                lift: *l,
+                gamma: *g,
+                gain: *ga,
+            },
             FilterEffect::Hologram(c, i) => Effect::Hologram {
                 color: Color::new(c[0], c[1], c[2], 1.0),
                 intensity: *i,
             },
-            FilterEffect::Refraction(d, ior) => Effect::Refraction { distortion: *d, ior: *ior },
-            FilterEffect::LensFlare(t, i) => Effect::LensFlare { threshold: *t, intensity: *i },
-            FilterEffect::MaskReveal(p, d) => Effect::MaskReveal { progress: *p, direction: *d },
+            FilterEffect::Refraction(d, ior) => Effect::Refraction {
+                distortion: *d,
+                ior: *ior,
+            },
+            FilterEffect::LensFlare(t, i) => Effect::LensFlare {
+                threshold: *t,
+                intensity: *i,
+            },
+            FilterEffect::MaskReveal(p, d) => Effect::MaskReveal {
+                progress: *p,
+                direction: *d,
+            },
         }
     }
 
@@ -305,7 +441,7 @@ impl FilterEffect {
         let s = s.trim();
         let paren = s.find('(')?;
         let name = s[..paren].trim();
-        let args = s[paren+1..].trim_end_matches(')').trim();
+        let args = s[paren + 1..].trim_end_matches(')').trim();
 
         let parse_value = |v: &str| -> Option<f32> {
             let v = v.trim();
@@ -527,7 +663,10 @@ pub fn parse_filter_chain(s: &str) -> Vec<FilterEffect> {
 
     for ch in s.chars() {
         match ch {
-            '(' => { depth += 1; current.push(ch); }
+            '(' => {
+                depth += 1;
+                current.push(ch);
+            }
             ')' => {
                 depth -= 1;
                 current.push(ch);

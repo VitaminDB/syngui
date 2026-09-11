@@ -115,7 +115,11 @@ impl ShapeStyle {
                 .get(RADIUS)
                 .and_then(|v| v.parse::<f32>().ok())
                 .filter(|v| (0.0..=200.0).contains(v))
-                .unwrap_or(if matches!(kind, ShapeKind::Rect) { 8.0 } else { 0.0 }),
+                .unwrap_or(if matches!(kind, ShapeKind::Rect) {
+                    8.0
+                } else {
+                    0.0
+                }),
             opacity,
         }
     }
@@ -141,9 +145,15 @@ pub fn height_of(attrs: &Attrs) -> f32 {
 /// По умолчанию — горизонтальный отрезок длиной `DEFAULT_W`.
 pub fn endpoints_of(attrs: &Attrs) -> ((f32, f32), (f32, f32)) {
     let num = |k: &str, d: f32| {
-        attrs.get(k).and_then(|v| v.parse::<f32>().ok()).filter(|v| v.is_finite()).unwrap_or(d)
+        attrs
+            .get(k)
+            .and_then(|v| v.parse::<f32>().ok())
+            .filter(|v| v.is_finite())
+            .unwrap_or(d)
     };
-    let w = super::free::width_of(attrs).map(|w| (w - LINE_PAD * 2.0).max(20.0)).unwrap_or(DEFAULT_W);
+    let w = super::free::width_of(attrs)
+        .map(|w| (w - LINE_PAD * 2.0).max(20.0))
+        .unwrap_or(DEFAULT_W);
     ((num(X1, 0.0), num(Y1, 0.0)), (num(X2, w), num(Y2, 0.0)))
 }
 
@@ -166,7 +176,11 @@ pub fn controls_of(attrs: &Attrs) -> ((f32, f32), (f32, f32)) {
         ((0.0, off), (0.0, -off))
     };
     let num = |k: &str, d: f32| {
-        attrs.get(k).and_then(|v| v.parse::<f32>().ok()).filter(|v| v.is_finite()).unwrap_or(d)
+        attrs
+            .get(k)
+            .and_then(|v| v.parse::<f32>().ok())
+            .filter(|v| v.is_finite())
+            .unwrap_or(d)
     };
     (
         (num(CX1, p1.0 + d1.0), num(CY1, p1.1 + d1.1)),
@@ -205,7 +219,10 @@ fn fmt(v: f32) -> String {
 pub fn line_box(attrs: &Attrs, kind: ShapeKind) -> Size {
     let pts = line_handles(attrs, kind);
     let (min, max) = bounds(&pts);
-    Size::new(max.0 - min.0 + LINE_PAD * 2.0, max.1 - min.1 + LINE_PAD * 2.0)
+    Size::new(
+        max.0 - min.0 + LINE_PAD * 2.0,
+        max.1 - min.1 + LINE_PAD * 2.0,
+    )
 }
 
 fn bounds(points: &[(f32, f32)]) -> ((f32, f32), (f32, f32)) {
@@ -222,7 +239,9 @@ fn bounds(points: &[(f32, f32)]) -> ((f32, f32), (f32, f32)) {
 pub fn local_handles(attrs: &Attrs, kind: ShapeKind) -> Vec<(f32, f32)> {
     let pts = line_handles(attrs, kind);
     let (min, _) = bounds(&pts);
-    pts.iter().map(|p| (p.0 - min.0 + LINE_PAD, p.1 - min.1 + LINE_PAD)).collect()
+    pts.iter()
+        .map(|p| (p.0 - min.0 + LINE_PAD, p.1 - min.1 + LINE_PAD))
+        .collect()
 }
 
 /// Концы в координатах виджета (частый случай — прямая линия).
@@ -352,7 +371,13 @@ fn trim_front(path: &mut Vec<(f32, f32)>, cut: f32) {
 }
 
 /// Наконечник: закрашенный треугольник в точке `tip` по направлению `dir`.
-pub fn arrow_head(c: &mut CanvasContext, tip: (f32, f32), dir: (f32, f32), head: f32, color: Color) {
+pub fn arrow_head(
+    c: &mut CanvasContext,
+    tip: (f32, f32),
+    dir: (f32, f32),
+    head: f32,
+    color: Color,
+) {
     let (ux, uy) = dir;
     let (nx, ny) = (-uy, ux);
     let base = (tip.0 - ux * head, tip.1 - uy * head);
@@ -478,7 +503,9 @@ pub struct ShapeElement {
 
 impl Element for ShapeElement {
     fn update(&mut self, widget: &dyn Widget, ctx: &mut UpdateContext) {
-        let Some(w) = widget.as_any().downcast_ref::<ShapeView>() else { return };
+        let Some(w) = widget.as_any().downcast_ref::<ShapeView>() else {
+            return;
+        };
         let resized = self.shape != w.shape || self.attrs != w.attrs;
         self.block_id = w.block_id;
         self.shape = w.shape;
@@ -495,8 +522,11 @@ impl Element for ShapeElement {
     fn mount(&mut self, _tree: &mut ElementTree) {}
 
     fn layout(&mut self, constraints: Constraints) -> Size {
-        let avail =
-            if constraints.max_width.is_finite() { constraints.max_width } else { DEFAULT_W };
+        let avail = if constraints.max_width.is_finite() {
+            constraints.max_width
+        } else {
+            DEFAULT_W
+        };
         self.bounds.size = if self.shape.is_line() {
             let b = line_box(&self.attrs, self.shape);
             Size::new(b.width.min(avail.max(40.0)), b.height)

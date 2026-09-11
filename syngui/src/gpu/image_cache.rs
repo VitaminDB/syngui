@@ -285,8 +285,7 @@ mod mip_tests {
     fn transparent_neighbours_do_not_darken_edges() {
         // 2×2: один красный непрозрачный + три полностью прозрачных чёрных.
         let src = [
-            255, 0, 0, 255, /**/ 0, 0, 0, 0,
-            0, 0, 0, 0, /*   */ 0, 0, 0, 0,
+            255, 0, 0, 255, /**/ 0, 0, 0, 0, 0, 0, 0, 0, /*   */ 0, 0, 0, 0,
         ];
         let (w, h, out) = downscale_half(2, 2, &src);
         assert_eq!((w, h), (1, 1));

@@ -37,7 +37,10 @@ pub enum ControlsSide {
 
 /// Кнопки, которые приложение действительно умеет выполнять.
 fn is_supported(button: WindowButton) -> bool {
-    matches!(button, WindowButton::Minimize | WindowButton::Maximize | WindowButton::Close)
+    matches!(
+        button,
+        WindowButton::Minimize | WindowButton::Maximize | WindowButton::Close
+    )
 }
 
 /// Масштаб экрана: SVG растеризуется ровно в физические пиксели, которые займёт
@@ -114,7 +117,10 @@ impl SystemWindowControls {
 
 impl Widget for SystemWindowControls {
     fn create_element(&self) -> Box<dyn Element> {
-        let decorations = self.decorations.clone().unwrap_or_else(read_system_decorations);
+        let decorations = self
+            .decorations
+            .clone()
+            .unwrap_or_else(read_system_decorations);
         let buttons: Vec<WindowButton> = match self.side {
             ControlsSide::Left => decorations.layout.left.clone(),
             ControlsSide::Right => decorations.layout.right.clone(),
@@ -275,7 +281,9 @@ impl SystemWindowControlsElement {
         let hover_bg = if is_close {
             Color::from_hex("#E81123")
         } else {
-            self.mss.background_color.unwrap_or(Color::from_hex("#00000018"))
+            self.mss
+                .background_color
+                .unwrap_or(Color::from_hex("#00000018"))
         };
         match state {
             ButtonState::Hover => list.push_rect(rect, hover_bg, [rect.size.width * 0.5; 4]),
@@ -297,7 +305,10 @@ impl SystemWindowControlsElement {
         let inset = rect.size.width * 0.3;
         let g = Rect::new(
             Point::new(rect.x() + inset, rect.y() + inset),
-            Size::new(rect.size.width - inset * 2.0, rect.size.height - inset * 2.0),
+            Size::new(
+                rect.size.width - inset * 2.0,
+                rect.size.height - inset * 2.0,
+            ),
         );
         let thickness = (rect.size.width * 0.08).max(1.0);
 

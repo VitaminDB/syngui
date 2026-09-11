@@ -1,14 +1,16 @@
 use crate::animation::transition::mss_color_to_core;
+use crate::core::sync::Mutex;
 use crate::core::{Color, Point, Rect, RectExt, Size};
 use crate::input::{CursorIcon, Event, EventResult, Key, MouseButton};
 use crate::layout::Constraints;
 use crate::mss::{ComputedStyle, Dimension, MssFields, TextAlign, TextDecoration};
 use crate::render::{Border, DisplayList};
 use crate::widget::context::{EventContext, EventContextExt};
-use crate::widget::{DirtyFlags, Element, ElementId, ElementTree, StyledElement, UpdateContext, Widget};
+use crate::widget::{
+    DirtyFlags, Element, ElementId, ElementTree, StyledElement, UpdateContext, Widget,
+};
 use std::any::Any;
 use std::sync::Arc;
-use crate::core::sync::Mutex;
 
 #[derive(Clone, Debug)]
 pub struct DropdownItem {
@@ -119,7 +121,6 @@ impl Dropdown {
         self.leading_icon = Some(icon.into());
         self
     }
-
 }
 
 impl Default for Dropdown {
@@ -247,12 +248,18 @@ impl DropdownElement {
         if self.opens_upward {
             Rect::new(
                 Point::new(self.bounds.x(), self.bounds.y() - dd_h - popup_gap),
-                Size::new(self.bounds.size.width, dd_h + popup_gap + self.bounds.size.height),
+                Size::new(
+                    self.bounds.size.width,
+                    dd_h + popup_gap + self.bounds.size.height,
+                ),
             )
         } else {
             Rect::new(
                 Point::new(self.bounds.x(), self.bounds.y()),
-                Size::new(self.bounds.size.width, self.bounds.size.height + popup_gap + dd_h),
+                Size::new(
+                    self.bounds.size.width,
+                    self.bounds.size.height + popup_gap + dd_h,
+                ),
             )
         }
     }
@@ -260,7 +267,8 @@ impl DropdownElement {
     fn determine_direction(&mut self, viewport_height: f32) {
         let dd_h = self.dropdown_bounds.size.height;
         let popup_gap = 4.0;
-        self.opens_upward = self.bounds.y() + self.bounds.size.height + dd_h + popup_gap > viewport_height
+        self.opens_upward = self.bounds.y() + self.bounds.size.height + dd_h + popup_gap
+            > viewport_height
             && self.bounds.y() >= dd_h + popup_gap;
     }
 
@@ -271,19 +279,22 @@ impl DropdownElement {
         let popup_gap = 4.0;
 
         if self.opens_upward {
-            self.dropdown_bounds.origin = Point::new(self.bounds.x(), self.bounds.y() - dropdown_h - popup_gap);
+            self.dropdown_bounds.origin =
+                Point::new(self.bounds.x(), self.bounds.y() - dropdown_h - popup_gap);
         } else {
-            self.dropdown_bounds.origin = Point::new(self.bounds.x(), self.bounds.y() + height + popup_gap);
+            self.dropdown_bounds.origin =
+                Point::new(self.bounds.x(), self.bounds.y() + height + popup_gap);
         }
 
-        let base_y = if self.opens_upward { -dropdown_h - popup_gap } else { height + popup_gap };
+        let base_y = if self.opens_upward {
+            -dropdown_h - popup_gap
+        } else {
+            height + popup_gap
+        };
         self.item_bounds.clear();
         let mut y = base_y;
         for (i, _) in self.items.iter().enumerate() {
-            let item_rect = Rect::new(
-                Point::new(0.0, y),
-                Size::new(width, 36.0),
-            );
+            let item_rect = Rect::new(Point::new(0.0, y), Size::new(width, 36.0));
             self.item_bounds.push((item_rect, i));
             y += 36.0;
         }
@@ -316,46 +327,65 @@ impl Element for DropdownElement {
     }
 
     fn layout(&mut self, constraints: Constraints) -> Size {
-        let max_w = self.mss.max_width.map(|d| d.resolve(constraints.max_width)).unwrap_or(constraints.max_width);
+        let max_w = self
+            .mss
+            .max_width
+            .map(|d| d.resolve(constraints.max_width))
+            .unwrap_or(constraints.max_width);
         let mss_width = self.mss.width.or(self.width);
         let intrinsic = if mss_width.is_none() {
             let font_size = self.mss.font_size_or(14.0);
             let max_text_w = if let Some(ref tm) = self.text_measure {
                 let placeholder = self.placeholder_text();
-                let mut max_w = tm.measure_text_width(&placeholder, font_size, placeholder.chars().count());
+                let mut max_w =
+                    tm.measure_text_width(&placeholder, font_size, placeholder.chars().count());
                 for item in &self.items {
-                    let w = tm.measure_text_width(&item.label, font_size, item.label.chars().count());
-                    if w > max_w { max_w = w; }
+                    let w =
+                        tm.measure_text_width(&item.label, font_size, item.label.chars().count());
+                    if w > max_w {
+                        max_w = w;
+                    }
                 }
                 max_w
             } else {
                 100.0
             };
-            let icon_w = if self.leading_icon.is_some() { font_size + 8.0 } else { 0.0 };
+            let icon_w = if self.leading_icon.is_some() {
+                font_size + 8.0
+            } else {
+                0.0
+            };
             max_text_w + 12.0 + icon_w + 44.0
         } else {
             constraints.max_width
         };
-        let width = mss_width.map(|d| d.resolve(constraints.max_width)).unwrap_or(intrinsic).min(max_w).min(constraints.max_width);
-        let height = self.mss.height.map(|d| d.resolve(constraints.max_height)).unwrap_or(40.0);
+        let width = mss_width
+            .map(|d| d.resolve(constraints.max_width))
+            .unwrap_or(intrinsic)
+            .min(max_w)
+            .min(constraints.max_width);
+        let height = self
+            .mss
+            .height
+            .map(|d| d.resolve(constraints.max_height))
+            .unwrap_or(40.0);
 
         self.bounds = Rect::new(Point::zero(), Size::new(width, height));
 
         let dropdown_height = self.effective_popup_height();
         let popup_gap = 4.0;
-        let base_y = if self.opens_upward { -dropdown_height - popup_gap } else { height + popup_gap };
-        self.dropdown_bounds = Rect::new(
-            Point::new(0.0, base_y),
-            Size::new(width, dropdown_height),
-        );
+        let base_y = if self.opens_upward {
+            -dropdown_height - popup_gap
+        } else {
+            height + popup_gap
+        };
+        self.dropdown_bounds =
+            Rect::new(Point::new(0.0, base_y), Size::new(width, dropdown_height));
 
         self.item_bounds.clear();
         let mut y = base_y;
         for (i, _item) in self.items.iter().enumerate() {
-            let item_rect = Rect::new(
-                Point::new(0.0, y),
-                Size::new(width, 36.0),
-            );
+            let item_rect = Rect::new(Point::new(0.0, y), Size::new(width, 36.0));
             self.item_bounds.push((item_rect, i));
             y += 36.0;
         }
@@ -364,7 +394,6 @@ impl Element for DropdownElement {
     }
 
     fn build_display_list(&self, list: &mut DisplayList, _clip: Rect) {
-
         let bg = self.mss.background_color.unwrap_or(Color::WHITE);
         let fg = self.mss.color.unwrap_or(Color::from_hex("#111827"));
         let border = self.mss.border_color.unwrap_or(Color::from_hex("#D1D5DB"));
@@ -390,7 +419,14 @@ impl Element for DropdownElement {
             self.bounds,
             bg_color,
             [radius; 4],
-            Border { width: if self.is_open || self.hover_button { bw_active } else { bw_normal }, color: border_color },
+            Border {
+                width: if self.is_open || self.hover_button {
+                    bw_active
+                } else {
+                    bw_normal
+                },
+                color: border_color,
+            },
         );
 
         let mut text_left = self.bounds.x() + 12.0;
@@ -400,12 +436,18 @@ impl Element for DropdownElement {
                 Point::new(text_left, self.bounds.y()),
                 Size::new(icon_size + 4.0, self.bounds.size.height),
             );
-            let icon_color = if self.disabled { muted } else { fg.with_alpha(0.6) };
+            let icon_color = if self.disabled {
+                muted
+            } else {
+                fg.with_alpha(0.6)
+            };
             list.push_text_centered(icon, icon_rect, icon_color, icon_size);
             text_left += icon_size + 6.0;
         }
 
-        let text = self.get_selected_label().unwrap_or_else(|| self.placeholder_text());
+        let text = self
+            .get_selected_label()
+            .unwrap_or_else(|| self.placeholder_text());
         let text_color = if self.disabled {
             muted
         } else if self.get_selected_label().is_none() {
@@ -416,16 +458,30 @@ impl Element for DropdownElement {
 
         let text_rect = Rect::new(
             Point::new(text_left, self.bounds.y()),
-            Size::new(self.bounds.x() + self.bounds.size.width - 32.0 - text_left, self.bounds.size.height),
+            Size::new(
+                self.bounds.x() + self.bounds.size.width - 32.0 - text_left,
+                self.bounds.size.height,
+            ),
         );
         // Одной строкой: узкий Dropdown не должен ломать подпись на две строки —
         // лишнее обрезается краем контрола.
-        list.push_text_styled_singleline(&text, text_rect, text_color, font_size,
-            TextAlign::DEFAULT, TextDecoration::None, font_weight, self.mss.font_family.clone());
+        list.push_text_styled_singleline(
+            &text,
+            text_rect,
+            text_color,
+            font_size,
+            TextAlign::DEFAULT,
+            TextDecoration::None,
+            font_weight,
+            self.mss.font_family.clone(),
+        );
 
         let arrow = if self.is_open { "\u{E5CE}" } else { "\u{E5CF}" };
         let arrow_rect = Rect::new(
-            Point::new(self.bounds.x() + self.bounds.size.width - 32.0, self.bounds.y()),
+            Point::new(
+                self.bounds.x() + self.bounds.size.width - 32.0,
+                self.bounds.y(),
+            ),
             Size::new(24.0, self.bounds.size.height),
         );
         list.push_text_centered(arrow, arrow_rect, muted, 18.0);
@@ -436,8 +492,11 @@ impl Element for DropdownElement {
             let popup_accent = self.mss_popup_accent.unwrap_or(primary);
             let popup_border = self.mss_popup_border.unwrap_or(border);
             let popup_muted = popup_fg.with_alpha(0.5);
-            let popup_hover_bg = self.mss_popup_hover_bg.unwrap_or_else(|| popup_bg.darken(0.06));
-            let popup_selected_bg = self.mss_popup_selected_bg
+            let popup_hover_bg = self
+                .mss_popup_hover_bg
+                .unwrap_or_else(|| popup_bg.darken(0.06));
+            let popup_selected_bg = self
+                .mss_popup_selected_bg
                 .unwrap_or_else(|| popup_accent.with_alpha(0.1));
             let popup_disabled_bg = popup_bg.darken(0.05);
 
@@ -457,11 +516,17 @@ impl Element for DropdownElement {
                 self.dropdown_bounds,
                 popup_bg,
                 [menu_radius; 4],
-                Border { width: menu_bw, color: popup_border },
+                Border {
+                    width: menu_bw,
+                    color: popup_border,
+                },
             );
 
             let inset = Rect::new(
-                Point::new(self.dropdown_bounds.x() + menu_bw, self.dropdown_bounds.y() + menu_bw),
+                Point::new(
+                    self.dropdown_bounds.x() + menu_bw,
+                    self.dropdown_bounds.y() + menu_bw,
+                ),
                 Size::new(
                     (self.dropdown_bounds.size.width - menu_bw * 2.0).max(0.0),
                     (self.dropdown_bounds.size.height - menu_bw * 2.0).max(0.0),
@@ -477,15 +542,24 @@ impl Element for DropdownElement {
             let mut last_visible: Option<usize> = None;
             for (item_rect, idx) in &self.item_bounds {
                 let iy = self.bounds.y() + item_rect.y() - self.scroll_offset;
-                if iy + item_rect.size.height <= dd_top { continue; }
-                if iy >= dd_bottom { break; }
-                if first_visible.is_none() { first_visible = Some(*idx); }
+                if iy + item_rect.size.height <= dd_top {
+                    continue;
+                }
+                if iy >= dd_bottom {
+                    break;
+                }
+                if first_visible.is_none() {
+                    first_visible = Some(*idx);
+                }
                 last_visible = Some(*idx);
             }
 
             for (item_rect, idx) in &self.item_bounds {
                 let adjusted_rect = Rect::new(
-                    Point::new(self.dropdown_bounds.x() + menu_bw, self.bounds.y() + item_rect.y() - self.scroll_offset),
+                    Point::new(
+                        self.dropdown_bounds.x() + menu_bw,
+                        self.bounds.y() + item_rect.y() - self.scroll_offset,
+                    ),
                     Size::new(inset.size.width, item_rect.size.height),
                 );
 
@@ -511,10 +585,14 @@ impl Element for DropdownElement {
                 };
 
                 let clamped_top = adjusted_rect.y().max(dd_top + menu_bw);
-                let clamped_bottom = (adjusted_rect.y() + adjusted_rect.size.height).min(dd_bottom - menu_bw);
+                let clamped_bottom =
+                    (adjusted_rect.y() + adjusted_rect.size.height).min(dd_bottom - menu_bw);
                 let clamped_rect = Rect::new(
                     Point::new(adjusted_rect.x(), clamped_top),
-                    Size::new(adjusted_rect.size.width, (clamped_bottom - clamped_top).max(0.0)),
+                    Size::new(
+                        adjusted_rect.size.width,
+                        (clamped_bottom - clamped_top).max(0.0),
+                    ),
                 );
 
                 let is_first = first_visible == Some(*idx);
@@ -534,7 +612,11 @@ impl Element for DropdownElement {
                         Point::new(text_x, adjusted_rect.y()),
                         Size::new(20.0, item_h),
                     );
-                    let icon_color = if item.disabled { popup_muted } else { popup_fg.with_alpha(0.6) };
+                    let icon_color = if item.disabled {
+                        popup_muted
+                    } else {
+                        popup_fg.with_alpha(0.6)
+                    };
                     list.push_text_centered(icon, icon_rect, icon_color, font_size);
                     text_x += 24.0;
                 }
@@ -551,14 +633,28 @@ impl Element for DropdownElement {
 
                 let label_rect = Rect::new(
                     Point::new(text_x, adjusted_rect.y()),
-                    Size::new(adjusted_rect.size.width - (text_x - adjusted_rect.x()) - 32.0, item_h),
+                    Size::new(
+                        adjusted_rect.size.width - (text_x - adjusted_rect.x()) - 32.0,
+                        item_h,
+                    ),
                 );
-                list.push_text_styled_singleline(&item.label, label_rect, text_color, font_size,
-                    TextAlign::DEFAULT, TextDecoration::None, font_weight, self.mss.font_family.clone());
+                list.push_text_styled_singleline(
+                    &item.label,
+                    label_rect,
+                    text_color,
+                    font_size,
+                    TextAlign::DEFAULT,
+                    TextDecoration::None,
+                    font_weight,
+                    self.mss.font_family.clone(),
+                );
 
                 if is_selected {
                     let check_rect = Rect::new(
-                        Point::new(adjusted_rect.x() + adjusted_rect.size.width - 28.0, adjusted_rect.y()),
+                        Point::new(
+                            adjusted_rect.x() + adjusted_rect.size.width - 28.0,
+                            adjusted_rect.y(),
+                        ),
                         Size::new(20.0, item_h),
                     );
                     list.push_text_centered("\u{E5CA}", check_rect, popup_accent, font_size);
@@ -580,13 +676,18 @@ impl Element for DropdownElement {
             Event::MouseMove(pos) => {
                 let was_hover_button = self.hover_button;
                 self.hover_button = self.bounds.contains(*pos);
-                if self.hover_button { ctx.set_cursor(CursorIcon::Pointer); }
+                if self.hover_button {
+                    ctx.set_cursor(CursorIcon::Pointer);
+                }
 
                 if self.is_open {
                     let mut new_hover_item = None;
                     for (item_rect, idx) in &self.item_bounds {
                         let adjusted_rect = Rect::new(
-                            Point::new(self.bounds.x() + item_rect.x(), self.bounds.y() + item_rect.y() - self.scroll_offset),
+                            Point::new(
+                                self.bounds.x() + item_rect.x(),
+                                self.bounds.y() + item_rect.y() - self.scroll_offset,
+                            ),
                             item_rect.size,
                         );
                         if adjusted_rect.contains(*pos) {
@@ -625,7 +726,10 @@ impl Element for DropdownElement {
                     } else if self.is_open {
                         for (item_rect, idx) in &self.item_bounds {
                             let adjusted_rect = Rect::new(
-                                Point::new(self.bounds.x() + item_rect.x(), self.bounds.y() + item_rect.y() - self.scroll_offset),
+                                Point::new(
+                                    self.bounds.x() + item_rect.x(),
+                                    self.bounds.y() + item_rect.y() - self.scroll_offset,
+                                ),
                                 item_rect.size,
                             );
                             if adjusted_rect.contains(*position) {
@@ -784,7 +888,11 @@ impl Element for DropdownElement {
         self.bounds
     }
 
-    fn explicit_dimensions(&self, _parent_width: f32, _parent_height: f32) -> (Option<f32>, Option<f32>) {
+    fn explicit_dimensions(
+        &self,
+        _parent_width: f32,
+        _parent_height: f32,
+    ) -> (Option<f32>, Option<f32>) {
         let w = self.mss.width.or(self.width).map(|d| d.resolve(1000.0));
         let h = self.mss.height.map(|d| d.resolve(1000.0));
         (w, h)
@@ -794,9 +902,11 @@ impl Element for DropdownElement {
         self.bounds.origin = pos;
         let popup_gap = 4.0;
         if self.opens_upward {
-            self.dropdown_bounds.origin = Point::new(pos.x, pos.y - self.dropdown_bounds.size.height - popup_gap);
+            self.dropdown_bounds.origin =
+                Point::new(pos.x, pos.y - self.dropdown_bounds.size.height - popup_gap);
         } else {
-            self.dropdown_bounds.origin = Point::new(pos.x, pos.y + self.bounds.size.height + popup_gap);
+            self.dropdown_bounds.origin =
+                Point::new(pos.x, pos.y + self.bounds.size.height + popup_gap);
         }
     }
 
@@ -837,20 +947,59 @@ impl Element for DropdownElement {
         "Dropdown"
     }
 
-    fn reset_mss_styles(&mut self) { self.mss.reset(); }
-    fn mss(&self) -> Option<&crate::mss::MssFields> { Some(&self.mss) }
+    fn reset_mss_styles(&mut self) {
+        self.mss.reset();
+    }
+    fn mss(&self) -> Option<&crate::mss::MssFields> {
+        Some(&self.mss)
+    }
     fn apply_computed_style(&mut self, style: &ComputedStyle) {
         self.mss.apply(style);
-        if let Some(c) = style.get("--popup-background").and_then(|v| v.as_color()) { self.mss_popup_bg = Some(mss_color_to_core(c)); }
-        if let Some(c) = style.get("--popup-color").and_then(|v| v.as_color()) { self.mss_popup_fg = Some(mss_color_to_core(c)); }
-        if let Some(c) = style.get("--popup-accent").and_then(|v| v.as_color()) { self.mss_popup_accent = Some(mss_color_to_core(c)); }
-        if let Some(c) = style.get("--popup-border").and_then(|v| v.as_color()) { self.mss_popup_border = Some(mss_color_to_core(c)); }
-        if let Some(c) = style.get("--popup-hover-background").and_then(|v| v.as_color()) { self.mss_popup_hover_bg = Some(mss_color_to_core(c)); }
-        if let Some(c) = style.get("--popup-hover-color").and_then(|v| v.as_color()) { self.mss_popup_hover_fg = Some(mss_color_to_core(c)); }
-        if let Some(c) = style.get("--popup-selected-background").and_then(|v| v.as_color()) { self.mss_popup_selected_bg = Some(mss_color_to_core(c)); }
-        if let Some(c) = style.get("--popup-selected-color").and_then(|v| v.as_color()) { self.mss_popup_selected_fg = Some(mss_color_to_core(c)); }
-        if let Some(d) = style.get("--popup-max-height").and_then(|v| v.as_dimension()) { self.mss_popup_max_height = Some(d.resolve(1000.0)); }
-        if let Some(d) = style.get("--popup-min-height").and_then(|v| v.as_dimension()) { self.mss_popup_min_height = Some(d.resolve(1000.0)); }
+        if let Some(c) = style.get("--popup-background").and_then(|v| v.as_color()) {
+            self.mss_popup_bg = Some(mss_color_to_core(c));
+        }
+        if let Some(c) = style.get("--popup-color").and_then(|v| v.as_color()) {
+            self.mss_popup_fg = Some(mss_color_to_core(c));
+        }
+        if let Some(c) = style.get("--popup-accent").and_then(|v| v.as_color()) {
+            self.mss_popup_accent = Some(mss_color_to_core(c));
+        }
+        if let Some(c) = style.get("--popup-border").and_then(|v| v.as_color()) {
+            self.mss_popup_border = Some(mss_color_to_core(c));
+        }
+        if let Some(c) = style
+            .get("--popup-hover-background")
+            .and_then(|v| v.as_color())
+        {
+            self.mss_popup_hover_bg = Some(mss_color_to_core(c));
+        }
+        if let Some(c) = style.get("--popup-hover-color").and_then(|v| v.as_color()) {
+            self.mss_popup_hover_fg = Some(mss_color_to_core(c));
+        }
+        if let Some(c) = style
+            .get("--popup-selected-background")
+            .and_then(|v| v.as_color())
+        {
+            self.mss_popup_selected_bg = Some(mss_color_to_core(c));
+        }
+        if let Some(c) = style
+            .get("--popup-selected-color")
+            .and_then(|v| v.as_color())
+        {
+            self.mss_popup_selected_fg = Some(mss_color_to_core(c));
+        }
+        if let Some(d) = style
+            .get("--popup-max-height")
+            .and_then(|v| v.as_dimension())
+        {
+            self.mss_popup_max_height = Some(d.resolve(1000.0));
+        }
+        if let Some(d) = style
+            .get("--popup-min-height")
+            .and_then(|v| v.as_dimension())
+        {
+            self.mss_popup_min_height = Some(d.resolve(1000.0));
+        }
         self.mark_dirty(DirtyFlags::LAYOUT | DirtyFlags::RENDER);
     }
 
@@ -863,7 +1012,8 @@ impl Element for DropdownElement {
         selected: Option<&ComputedStyle>,
         _checked: Option<&ComputedStyle>,
     ) {
-        self.mss.apply_transitions(base, hover, active, focus, selected);
+        self.mss
+            .apply_transitions(base, hover, active, focus, selected);
     }
 
     fn accessibility_info(&self) -> Option<crate::a11y::AccessibilityInfo> {

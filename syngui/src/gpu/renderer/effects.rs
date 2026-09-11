@@ -5,14 +5,16 @@ use wgpu::util::DeviceExt;
 use super::{BlurUniforms, EffectRenderStep, EffectTarget, PostProcessUniforms, Renderer};
 
 impl Renderer {
-
     pub(super) fn build_render_plan(
         &mut self,
         render_ops: &[RenderOp],
         device: &wgpu::Device,
         background_color: crate::core::Color,
         elapsed: f32,
-    ) -> (Vec<EffectRenderStep>, Vec<crate::gpu::texture_pool::PoolHandle>) {
+    ) -> (
+        Vec<EffectRenderStep>,
+        Vec<crate::gpu::texture_pool::PoolHandle>,
+    ) {
         use crate::render::display_list::Effect;
 
         let mut plan: Vec<EffectRenderStep> = Vec::with_capacity(render_ops.len() + 8);
@@ -30,8 +32,10 @@ impl Renderer {
         let mut scene_cleared = false;
 
         let bg = [
-            background_color.r as f64, background_color.g as f64,
-            background_color.b as f64, background_color.a as f64,
+            background_color.r as f64,
+            background_color.g as f64,
+            background_color.b as f64,
+            background_color.a as f64,
         ];
 
         for op in render_ops {
@@ -42,7 +46,12 @@ impl Renderer {
                     }
                 }
                 RenderOp::BeginEffect { effect, bounds } => {
-                    let bounds_px = [bounds.origin.x, bounds.origin.y, bounds.width(), bounds.height()];
+                    let bounds_px = [
+                        bounds.origin.x,
+                        bounds.origin.y,
+                        bounds.width(),
+                        bounds.height(),
+                    ];
                     if buf_idx > seg_start {
                         let (clear, cc) = match current_target {
                             EffectTarget::Scene => {
@@ -232,7 +241,11 @@ impl Renderer {
                     radius: *radius,
                     direction: [0.0, 1.0],
                 });
-                plan.push(EffectRenderStep::CompositeBounded { source: snapshot, dest, bounds: bounds_px });
+                plan.push(EffectRenderStep::CompositeBounded {
+                    source: snapshot,
+                    dest,
+                    bounds: bounds_px,
+                });
                 plan.push(EffectRenderStep::Composite { source, dest });
             }
 
@@ -245,10 +258,20 @@ impl Renderer {
                 let mut current = source;
                 for eff in &active {
                     current = Self::apply_single_effect(
-                        texture_pool, device, eff, current, plan, handles, elapsed, bounds_px,
+                        texture_pool,
+                        device,
+                        eff,
+                        current,
+                        plan,
+                        handles,
+                        elapsed,
+                        bounds_px,
                     );
                 }
-                plan.push(EffectRenderStep::Composite { source: current, dest });
+                plan.push(EffectRenderStep::Composite {
+                    source: current,
+                    dest,
+                });
             }
 
             other => {
@@ -380,25 +403,22 @@ impl Renderer {
 
                     if buf_range.is_empty() {
                         if *clear {
-                            let _pass =
-                                encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
-                                    label: Some("Clear Pass"),
-                                    color_attachments: &[Some(
-                                        wgpu::RenderPassColorAttachment {
-                                            view,
-                                            resolve_target: None,
-                                            ops: wgpu::Operations {
-                                                load,
-                                                store: wgpu::StoreOp::Store,
-                                            },
-                                            depth_slice: None,
-                                        },
-                                    )],
-                                    depth_stencil_attachment: None,
-                                    timestamp_writes: None,
-                                    occlusion_query_set: None,
-                                    multiview_mask: None,
-                                });
+                            let _pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
+                                label: Some("Clear Pass"),
+                                color_attachments: &[Some(wgpu::RenderPassColorAttachment {
+                                    view,
+                                    resolve_target: None,
+                                    ops: wgpu::Operations {
+                                        load,
+                                        store: wgpu::StoreOp::Store,
+                                    },
+                                    depth_slice: None,
+                                })],
+                                depth_stencil_attachment: None,
+                                timestamp_writes: None,
+                                occlusion_query_set: None,
+                                multiview_mask: None,
+                            });
                         }
                         continue;
                     }
@@ -435,16 +455,18 @@ impl Renderer {
                         _padding: 0.0,
                         _padding2: [0.0; 2],
                     };
-                    let staging = gpu.device.create_buffer_init(
-                        &wgpu::util::BufferInitDescriptor {
-                            label: Some("Blur Uniform Staging"),
-                            contents: bytemuck::cast_slice(&[uniforms]),
-                            usage: wgpu::BufferUsages::COPY_SRC,
-                        },
-                    );
+                    let staging =
+                        gpu.device
+                            .create_buffer_init(&wgpu::util::BufferInitDescriptor {
+                                label: Some("Blur Uniform Staging"),
+                                contents: bytemuck::cast_slice(&[uniforms]),
+                                usage: wgpu::BufferUsages::COPY_SRC,
+                            });
                     encoder.copy_buffer_to_buffer(
-                        &staging, 0,
-                        &self.blur_uniform_buffer, 0,
+                        &staging,
+                        0,
+                        &self.blur_uniform_buffer,
+                        0,
                         std::mem::size_of::<BlurUniforms>() as u64,
                     );
 
@@ -505,16 +527,18 @@ impl Renderer {
                         params2: *params2,
                         bounds: bounds_uv,
                     };
-                    let staging = gpu.device.create_buffer_init(
-                        &wgpu::util::BufferInitDescriptor {
-                            label: Some("PostProcess Uniform Staging"),
-                            contents: bytemuck::cast_slice(&[uniforms]),
-                            usage: wgpu::BufferUsages::COPY_SRC,
-                        },
-                    );
+                    let staging =
+                        gpu.device
+                            .create_buffer_init(&wgpu::util::BufferInitDescriptor {
+                                label: Some("PostProcess Uniform Staging"),
+                                contents: bytemuck::cast_slice(&[uniforms]),
+                                usage: wgpu::BufferUsages::COPY_SRC,
+                            });
                     encoder.copy_buffer_to_buffer(
-                        &staging, 0,
-                        &self.postprocess_uniform_buffer, 0,
+                        &staging,
+                        0,
+                        &self.postprocess_uniform_buffer,
+                        0,
                         std::mem::size_of::<PostProcessUniforms>() as u64,
                     );
 
@@ -607,7 +631,11 @@ impl Renderer {
                     rp.draw_indexed(0..6, 0, 0..1);
                 }
 
-                EffectRenderStep::CompositeBounded { source, dest, bounds } => {
+                EffectRenderStep::CompositeBounded {
+                    source,
+                    dest,
+                    bounds,
+                } => {
                     let view = match dest {
                         EffectTarget::Scene => scene_view,
                         EffectTarget::Pool(h) => self.texture_pool.view(*h),
@@ -696,24 +724,44 @@ impl Renderer {
                 match current_pipeline {
                     crate::render::ShaderType::Rect => {
                         render_pass.set_pipeline(&self.rect_pipeline);
-                        render_pass.set_bind_group(0, &self.uniform_bind_group, &[batch.uniform_offset]);
+                        render_pass.set_bind_group(
+                            0,
+                            &self.uniform_bind_group,
+                            &[batch.uniform_offset],
+                        );
                     }
                     crate::render::ShaderType::Text => {
                         render_pass.set_pipeline(&self.text_pipeline);
-                        render_pass.set_bind_group(0, &self.uniform_bind_group, &[batch.uniform_offset]);
+                        render_pass.set_bind_group(
+                            0,
+                            &self.uniform_bind_group,
+                            &[batch.uniform_offset],
+                        );
                         render_pass.set_bind_group(1, &self.text_bind_group, &[]);
                     }
                     crate::render::ShaderType::Shadow => {
                         render_pass.set_pipeline(&self.shadow_pipeline);
-                        render_pass.set_bind_group(0, &self.uniform_bind_group, &[batch.uniform_offset]);
+                        render_pass.set_bind_group(
+                            0,
+                            &self.uniform_bind_group,
+                            &[batch.uniform_offset],
+                        );
                     }
                     crate::render::ShaderType::InnerShadow => {
                         render_pass.set_pipeline(&self.inner_shadow_pipeline);
-                        render_pass.set_bind_group(0, &self.uniform_bind_group, &[batch.uniform_offset]);
+                        render_pass.set_bind_group(
+                            0,
+                            &self.uniform_bind_group,
+                            &[batch.uniform_offset],
+                        );
                     }
                     crate::render::ShaderType::Image => {
                         render_pass.set_pipeline(&self.image_pipeline);
-                        render_pass.set_bind_group(0, &self.uniform_bind_group, &[batch.uniform_offset]);
+                        render_pass.set_bind_group(
+                            0,
+                            &self.uniform_bind_group,
+                            &[batch.uniform_offset],
+                        );
                         let mut bound = false;
                         if let Some(tex_id) = batch.texture_id {
                             if tex_id.0 == 0 {
@@ -722,9 +770,7 @@ impl Renderer {
                                     render_pass.set_bind_group(1, bg, &[]);
                                     bound = true;
                                 }
-                            } else if let Some(bg) =
-                                self.image_gpu_cache.get_bind_group(tex_id.0)
-                            {
+                            } else if let Some(bg) = self.image_gpu_cache.get_bind_group(tex_id.0) {
                                 render_pass.set_bind_group(1, bg, &[]);
                                 bound = true;
                             }
@@ -735,15 +781,27 @@ impl Renderer {
                     }
                     crate::render::ShaderType::Line => {
                         render_pass.set_pipeline(&self.line_pipeline);
-                        render_pass.set_bind_group(0, &self.uniform_bind_group, &[batch.uniform_offset]);
+                        render_pass.set_bind_group(
+                            0,
+                            &self.uniform_bind_group,
+                            &[batch.uniform_offset],
+                        );
                     }
                     crate::render::ShaderType::GlowShadow => {
                         render_pass.set_pipeline(&self.glow_shadow_pipeline);
-                        render_pass.set_bind_group(0, &self.uniform_bind_group, &[batch.uniform_offset]);
+                        render_pass.set_bind_group(
+                            0,
+                            &self.uniform_bind_group,
+                            &[batch.uniform_offset],
+                        );
                     }
                     crate::render::ShaderType::Effect => {
                         render_pass.set_pipeline(&self.rect_pipeline);
-                        render_pass.set_bind_group(0, &self.uniform_bind_group, &[batch.uniform_offset]);
+                        render_pass.set_bind_group(
+                            0,
+                            &self.uniform_bind_group,
+                            &[batch.uniform_offset],
+                        );
                     }
                 }
             } else if need_offset_switch {
@@ -754,10 +812,10 @@ impl Renderer {
             if batch.clip_rect.enabled {
                 let sx = (batch.clip_rect.x as f32 * scale) as u32;
                 let sy = (batch.clip_rect.y as f32 * scale) as u32;
-                let sr = ((batch.clip_rect.x as f32 + batch.clip_rect.width as f32) * scale)
-                    .ceil() as u32;
-                let sb = ((batch.clip_rect.y as f32 + batch.clip_rect.height as f32) * scale)
-                    .ceil() as u32;
+                let sr = ((batch.clip_rect.x as f32 + batch.clip_rect.width as f32) * scale).ceil()
+                    as u32;
+                let sb = ((batch.clip_rect.y as f32 + batch.clip_rect.height as f32) * scale).ceil()
+                    as u32;
                 let sw = sr.saturating_sub(sx).min(self.width.saturating_sub(sx));
                 let sh = sb.saturating_sub(sy).min(self.height.saturating_sub(sy));
                 if sx >= self.width || sy >= self.height || sw == 0 || sh == 0 {
@@ -769,10 +827,7 @@ impl Renderer {
             }
 
             render_pass.set_vertex_buffer(0, batch.vertex_buffer.slice(..));
-            render_pass.set_index_buffer(
-                batch.index_buffer.slice(..),
-                wgpu::IndexFormat::Uint32,
-            );
+            render_pass.set_index_buffer(batch.index_buffer.slice(..), wgpu::IndexFormat::Uint32);
             render_pass.draw_indexed(0..batch.index_count, 0, 0..1);
         }
     }

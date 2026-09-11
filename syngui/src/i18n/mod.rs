@@ -13,10 +13,10 @@ pub use plural::{PluralCategory, PluralRule};
 pub use system::system_language;
 
 use crate::signal::{self, use_signal, RwSignal};
+use std::cell::OnceCell;
 use std::collections::HashSet;
 use std::fmt::Display;
 use std::sync::atomic::{AtomicU64, Ordering};
-use std::cell::OnceCell;
 use std::sync::{Mutex, OnceLock};
 
 const BUILTIN: &[&str] = &[
@@ -102,13 +102,18 @@ impl Registry {
     }
 
     fn catalogs_for<'a>(&'a self, lang: &'a Lang) -> impl Iterator<Item = &'a Catalog> + 'a {
-        self.app.iter().chain(self.builtin.iter()).filter(move |c| &c.tag == lang)
+        self.app
+            .iter()
+            .chain(self.builtin.iter())
+            .filter(move |c| &c.tag == lang)
     }
 
     fn lookup(&self, key: &str) -> Option<String> {
-        self.chain
-            .iter()
-            .find_map(|lang| self.catalogs_for(lang).find_map(|c| c.get(key)).map(str::to_string))
+        self.chain.iter().find_map(|lang| {
+            self.catalogs_for(lang)
+                .find_map(|c| c.get(key))
+                .map(str::to_string)
+        })
     }
 
     fn lookup_plural(&self, key: &str, n: u64) -> Option<String> {
@@ -116,7 +121,11 @@ impl Registry {
             for cat in self.catalogs_for(lang) {
                 let form = format!("{key}.{}", cat.plural.category(n).suffix());
                 let other = format!("{key}.other");
-                if let Some(v) = cat.get(&form).or_else(|| cat.get(&other)).or_else(|| cat.get(key)) {
+                if let Some(v) = cat
+                    .get(&form)
+                    .or_else(|| cat.get(&other))
+                    .or_else(|| cat.get(key))
+                {
                     return Some(v.to_string());
                 }
             }
@@ -239,10 +248,18 @@ pub fn requested_language() -> Lang {
 /// Языки для переключателя: каталоги приложения, а если их нет — встроенные.
 pub fn languages() -> Vec<LangInfo> {
     let mut list = with_registry(|reg| {
-        let source = if reg.app.is_empty() { &reg.builtin } else { &reg.app };
+        let source = if reg.app.is_empty() {
+            &reg.builtin
+        } else {
+            &reg.app
+        };
         source
             .iter()
-            .map(|c| LangInfo { tag: c.tag.clone(), name: c.name.clone(), english: c.english.clone() })
+            .map(|c| LangInfo {
+                tag: c.tag.clone(),
+                name: c.name.clone(),
+                english: c.english.clone(),
+            })
             .collect::<Vec<_>>()
     });
     list.sort_by(|a, b| a.tag.cmp(&b.tag));

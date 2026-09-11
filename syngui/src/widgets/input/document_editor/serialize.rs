@@ -86,21 +86,37 @@ fn block_lines(block: &DocBlock) -> Vec<String> {
             vec![line]
         }
         BlockKind::Bullet { text, children } => list_item_lines("- ", 2, text, children),
-        BlockKind::Todo { checked, text, children } => {
+        BlockKind::Todo {
+            checked,
+            text,
+            children,
+        } => {
             let marker = if *checked { "- [x] " } else { "- [ ] " };
             list_item_lines(marker, 2, text, children)
         }
-        BlockKind::Numbered { number, text, children } => {
+        BlockKind::Numbered {
+            number,
+            text,
+            children,
+        } => {
             let marker = format!("{number}. ");
             let indent = marker.len();
             list_item_lines(&marker, indent, text, children)
         }
         BlockKind::Quote(children) => quote_lines(None, children),
-        BlockKind::Callout { kind, title, children } => {
+        BlockKind::Callout {
+            kind,
+            title,
+            children,
+        } => {
             let first = callout_first_line(kind, &inline_attrs(&block.attrs), title);
             quote_lines(Some(first), children)
         }
-        BlockKind::Toggle { summary, children, collapsed } => {
+        BlockKind::Toggle {
+            summary,
+            children,
+            collapsed,
+        } => {
             let mut attrs = inline_attrs(&block.attrs);
             if !*collapsed {
                 attrs.set("open", "");
@@ -116,10 +132,17 @@ fn block_lines(block: &DocBlock) -> Vec<String> {
             lines.push(fence);
             lines
         }
-        BlockKind::Table { headers, rows, aligns } => table_lines(headers, rows, aligns),
+        BlockKind::Table {
+            headers,
+            rows,
+            aligns,
+        } => table_lines(headers, rows, aligns),
         BlockKind::Divider => vec!["---".to_string()],
         BlockKind::Media { url, alt, .. } => {
-            let alt = alt.replace('\n', " ").replace('[', "\\[").replace(']', "\\]");
+            let alt = alt
+                .replace('\n', " ")
+                .replace('[', "\\[")
+                .replace(']', "\\]");
             let mut line = format!("![{alt}]({})", format_url(url));
             line.push_str(&serialize_attrs(&inline_attrs(&block.attrs)));
             vec![line]
@@ -204,11 +227,20 @@ fn callout_first_line(kind: &str, attrs: &Attrs, title: &InlineText) -> String {
     line
 }
 
-fn table_lines(headers: &[InlineText], rows: &[Vec<InlineText>], aligns: &[DocAlign]) -> Vec<String> {
-    let cols = headers.len().max(rows.iter().map(|r| r.len()).max().unwrap_or(0)).max(1);
+fn table_lines(
+    headers: &[InlineText],
+    rows: &[Vec<InlineText>],
+    aligns: &[DocAlign],
+) -> Vec<String> {
+    let cols = headers
+        .len()
+        .max(rows.iter().map(|r| r.len()).max().unwrap_or(0))
+        .max(1);
     let cell = |t: Option<&InlineText>| -> String {
         let md = t.map(inline_to_md).unwrap_or_default();
-        md.replace("\\\n", " ").replace('\n', " ").replace('|', "\\|")
+        md.replace("\\\n", " ")
+            .replace('\n', " ")
+            .replace('|', "\\|")
     };
     let mut lines = Vec::new();
     let mut header_line = String::from("|");
@@ -404,7 +436,11 @@ fn escape_line_start(line: String) -> String {
 
 /// URL в круглых скобках: с пробелами/скобками — в угловые скобки.
 fn format_url(url: &str) -> String {
-    if url.is_empty() || url.chars().any(|c| c.is_whitespace() || c == '(' || c == ')') {
+    if url.is_empty()
+        || url
+            .chars()
+            .any(|c| c.is_whitespace() || c == '(' || c == ')')
+    {
         format!("<{url}>")
     } else {
         url.to_string()

@@ -2,13 +2,15 @@ use crate::animation::transition::mss_color_to_core;
 use crate::core::{Color, Point, Rect, RectExt, Size};
 use crate::input::{Event, EventResult};
 use crate::layout::{Constraints, CrossAxisAlignment, MainAxisAlignment};
-use crate::mss::{ComputedStyle, Dimension, StyleValue};
 use crate::mss::MssFields;
+use crate::mss::{ComputedStyle, Dimension, StyleValue};
 use crate::render::DisplayList;
-use crate::widget::context::EventContext;
-use crate::widget::{DirtyFlags, Element, ElementId, ElementTree, LayoutHint, StyledElement, UpdateContext, Widget};
 use crate::widget::basic::Text;
+use crate::widget::context::EventContext;
 use crate::widget::styled::WidgetExt;
+use crate::widget::{
+    DirtyFlags, Element, ElementId, ElementTree, LayoutHint, StyledElement, UpdateContext, Widget,
+};
 use crate::widgets::containers::{DecoratedBox, IntoWidget};
 use std::any::Any;
 
@@ -69,9 +71,15 @@ impl Widget for TopAppBar {
         })
     }
 
-    fn can_update(&self, other: &dyn Any) -> bool { other.is::<Self>() }
-    fn as_any(&self) -> &dyn Any { self }
-    fn as_any_mut(&mut self) -> &mut dyn Any { self }
+    fn can_update(&self, other: &dyn Any) -> bool {
+        other.is::<Self>()
+    }
+    fn as_any(&self) -> &dyn Any {
+        self
+    }
+    fn as_any_mut(&mut self) -> &mut dyn Any {
+        self
+    }
 
     fn mount(&self, tree: &mut ElementTree, parent_id: ElementId) {
         if let Some(ref leading) = self.leading {
@@ -82,12 +90,14 @@ impl Widget for TopAppBar {
 
         let title_widget = Text::new(&self.title).class("title");
         let title_el = title_widget.create_element();
-        let title_id = tree.insert_with_type_id(title_el, Some(parent_id), title_widget.as_any().type_id());
+        let title_id =
+            tree.insert_with_type_id(title_el, Some(parent_id), title_widget.as_any().type_id());
         title_widget.mount(tree, title_id);
 
         let spacer = DecoratedBox::new().style("flex-grow", StyleValue::Number(1.0));
         let spacer_el = spacer.create_element();
-        let spacer_id = tree.insert_with_type_id(spacer_el, Some(parent_id), spacer.as_any().type_id());
+        let spacer_id =
+            tree.insert_with_type_id(spacer_el, Some(parent_id), spacer.as_any().type_id());
         spacer.mount(tree, spacer_id);
 
         for action in &self.actions {
@@ -134,12 +144,19 @@ impl Element for TopAppBarElement {
 
     fn layout(&mut self, constraints: Constraints) -> Size {
         let w = constraints.max_width;
-        let h = self.height.resolve(constraints.max_height).min(constraints.max_height);
+        let h = self
+            .height
+            .resolve(constraints.max_height)
+            .min(constraints.max_height);
         self.bounds = Rect::new(Point::zero(), Size::new(w, h));
         Size::new(w, h)
     }
 
-    fn explicit_dimensions(&self, _parent_width: f32, _parent_height: f32) -> (Option<f32>, Option<f32>) {
+    fn explicit_dimensions(
+        &self,
+        _parent_width: f32,
+        _parent_height: f32,
+    ) -> (Option<f32>, Option<f32>) {
         (None, Some(self.height.resolve(f32::INFINITY)))
     }
 
@@ -158,7 +175,8 @@ impl Element for TopAppBarElement {
     }
 
     fn build_display_list(&self, list: &mut DisplayList, _clip: Rect) {
-        let bg = self.bg_color
+        let bg = self
+            .bg_color
             .or(self.mss.background_color)
             .unwrap_or(Color::from_hex("#1976D2"));
         list.push_rect(self.bounds, bg, [0.0; 4]);
@@ -182,7 +200,10 @@ impl Element for TopAppBarElement {
             let offset_y = self.elevation * 0.5;
             list.begin_overlay_absolute();
             let clip_rect = Rect::new(
-                Point::new(self.bounds.origin.x, self.bounds.origin.y + self.bounds.size.height),
+                Point::new(
+                    self.bounds.origin.x,
+                    self.bounds.origin.y + self.bounds.size.height,
+                ),
                 Size::new(self.bounds.size.width, blur + offset_y),
             );
             list.push_clip(clip_rect);
@@ -202,14 +223,30 @@ impl Element for TopAppBarElement {
         EventResult::Ignored
     }
 
-    fn children(&self) -> &[ElementId] { &self.child_ids }
-    fn bounds(&self) -> Rect { self.bounds }
-    fn set_position(&mut self, pos: Point) { self.bounds.origin = pos; }
-    fn mark_dirty(&mut self, flags: DirtyFlags) { self.dirty_flags |= flags; }
-    fn clear_dirty(&mut self, flags: DirtyFlags) { self.dirty_flags.remove(flags); }
-    fn is_dirty(&self, flags: DirtyFlags) -> bool { self.dirty_flags.contains(flags) }
-    fn id(&self) -> ElementId { self.id }
-    fn set_id(&mut self, id: ElementId) { self.id = id; }
+    fn children(&self) -> &[ElementId] {
+        &self.child_ids
+    }
+    fn bounds(&self) -> Rect {
+        self.bounds
+    }
+    fn set_position(&mut self, pos: Point) {
+        self.bounds.origin = pos;
+    }
+    fn mark_dirty(&mut self, flags: DirtyFlags) {
+        self.dirty_flags |= flags;
+    }
+    fn clear_dirty(&mut self, flags: DirtyFlags) {
+        self.dirty_flags.remove(flags);
+    }
+    fn is_dirty(&self, flags: DirtyFlags) -> bool {
+        self.dirty_flags.contains(flags)
+    }
+    fn id(&self) -> ElementId {
+        self.id
+    }
+    fn set_id(&mut self, id: ElementId) {
+        self.id = id;
+    }
     fn mount(&mut self, _tree: &mut ElementTree) {}
 
     fn set_classes(&mut self, classes: Vec<String>) {
@@ -217,18 +254,32 @@ impl Element for TopAppBarElement {
         self.mark_dirty(DirtyFlags::RENDER);
     }
 
-    fn get_classes(&self) -> &[String] { &self.classes }
+    fn get_classes(&self) -> &[String] {
+        &self.classes
+    }
 
-    fn element_type_name(&self) -> &str { "TopAppBar" }
+    fn element_type_name(&self) -> &str {
+        "TopAppBar"
+    }
 
-    fn reset_mss_styles(&mut self) { self.mss.reset(); }
-    fn mss(&self) -> Option<&crate::mss::MssFields> { Some(&self.mss) }
+    fn reset_mss_styles(&mut self) {
+        self.mss.reset();
+    }
+    fn mss(&self) -> Option<&crate::mss::MssFields> {
+        Some(&self.mss)
+    }
     fn apply_computed_style(&mut self, style: &ComputedStyle) {
         self.mss.apply(style);
 
-        if let Some(bg) = style.background_color() { self.bg_color = Some(mss_color_to_core(bg)); }
-        if let Some(d) = style.height() { self.height = d; }
-        if let Some(e) = style.get("elevation").and_then(|v| v.as_px()) { self.elevation = e; }
+        if let Some(bg) = style.background_color() {
+            self.bg_color = Some(mss_color_to_core(bg));
+        }
+        if let Some(d) = style.height() {
+            self.height = d;
+        }
+        if let Some(e) = style.get("elevation").and_then(|v| v.as_px()) {
+            self.elevation = e;
+        }
         if let Some(c) = style.get("shadow-color").and_then(|v| v.as_color()) {
             self.shadow_color = mss_color_to_core(c);
         }
@@ -239,11 +290,15 @@ impl Element for TopAppBarElement {
 
 impl StyledElement for TopAppBarElement {
     fn apply_style(&mut self, style: &ComputedStyle) {
-        if let Some(bg) = style.background_color() { self.bg_color = Some(mss_color_to_core(bg)); }
+        if let Some(bg) = style.background_color() {
+            self.bg_color = Some(mss_color_to_core(bg));
+        }
         self.mark_dirty(DirtyFlags::RENDER | DirtyFlags::LAYOUT);
     }
 
-    fn classes(&self) -> &[String] { &self.classes }
+    fn classes(&self) -> &[String] {
+        &self.classes
+    }
 
     fn set_classes(&mut self, classes: Vec<String>) {
         self.classes = classes;

@@ -22,7 +22,11 @@ pub struct BackdropContrast {
 impl Default for BackdropContrast {
     fn default() -> Self {
         // Значения, на которых KWin рисует Plasma-панели.
-        Self { contrast: 1.0, intensity: 1.0, saturation: 1.15 }
+        Self {
+            contrast: 1.0,
+            intensity: 1.0,
+            saturation: 1.15,
+        }
     }
 }
 
@@ -52,7 +56,11 @@ pub struct BackdropConfig {
 
 impl BackdropConfig {
     pub fn blur() -> Self {
-        Self { blur: true, contrast: None, region: BackdropRegion::Surface }
+        Self {
+            blur: true,
+            contrast: None,
+            region: BackdropRegion::Surface,
+        }
     }
 
     pub fn frosted() -> Self {
@@ -116,7 +124,9 @@ mod platform {
     mod wayland {
         use std::sync::{Mutex, OnceLock};
 
-        use raw_window_handle::{HasDisplayHandle, HasWindowHandle, RawDisplayHandle, RawWindowHandle};
+        use raw_window_handle::{
+            HasDisplayHandle, HasWindowHandle, RawDisplayHandle, RawWindowHandle,
+        };
         use wayland_backend::sys::client::{Backend, ObjectId};
         use wayland_client::globals::{registry_queue_init, GlobalListContents};
         use wayland_client::protocol::wl_compositor::WlCompositor;
@@ -267,9 +277,10 @@ mod platform {
             match (config.blur, applied.kwin_blur.take()) {
                 (true, existing) => {
                     let blur = existing.or_else(|| {
-                        applied.kwin_blur_manager.as_ref().map(|m| {
-                            m.create(&applied.surface, &applied.queue_handle, ())
-                        })
+                        applied
+                            .kwin_blur_manager
+                            .as_ref()
+                            .map(|m| m.create(&applied.surface, &applied.queue_handle, ()))
                     });
                     if let Some(blur) = blur {
                         let region = shaped(applied);
@@ -294,9 +305,10 @@ mod platform {
             match (config.contrast, applied.kwin_contrast.take()) {
                 (Some(params), existing) => {
                     let contrast = existing.or_else(|| {
-                        applied.kwin_contrast_manager.as_ref().map(|m| {
-                            m.create(&applied.surface, &applied.queue_handle, ())
-                        })
+                        applied
+                            .kwin_contrast_manager
+                            .as_ref()
+                            .map(|m| m.create(&applied.surface, &applied.queue_handle, ()))
                     });
                     if let Some(contrast) = contrast {
                         let region = shaped(applied);
@@ -328,11 +340,7 @@ mod platform {
         /// горизонтальными полосами — прямоугольники это всё, что умеет
         /// `wl_region`, а строка высотой в пиксель даёт край не хуже
         /// антиалиасинга композитора.
-        fn fill_region(
-            region: &WlRegion,
-            shape: super::super::BackdropRegion,
-            size: (f64, f64),
-        ) {
+        fn fill_region(region: &WlRegion, shape: super::super::BackdropRegion, size: (f64, f64)) {
             use super::super::BackdropRegion;
 
             let (inset, radius) = match shape {
@@ -360,7 +368,12 @@ mod platform {
                 return;
             }
 
-            region.add(x as i32, (y + r) as i32, width as i32, (height - 2.0 * r) as i32);
+            region.add(
+                x as i32,
+                (y + r) as i32,
+                width as i32,
+                (height - 2.0 * r) as i32,
+            );
             let steps = r.ceil() as i32;
             for i in 0..steps {
                 let dy = i as f64 + 0.5;
@@ -397,7 +410,9 @@ mod platform {
             let ext_manager = globals
                 .bind::<ExtBackgroundEffectManagerV1, _, _>(&queue_handle, 1..=1, ())
                 .ok();
-            let compositor = globals.bind::<WlCompositor, _, _>(&queue_handle, 1..=6, ()).ok();
+            let compositor = globals
+                .bind::<WlCompositor, _, _>(&queue_handle, 1..=6, ())
+                .ok();
             let kwin_blur_manager = globals
                 .bind::<OrgKdeKwinBlurManager, _, _>(&queue_handle, 1..=1, ())
                 .ok();
@@ -416,10 +431,9 @@ mod platform {
 
             // SAFETY: wl_surface принадлежит тому же wl_display, поверх которого
             // построен backend, поэтому id валиден в этом соединении.
-            let id = unsafe {
-                ObjectId::from_ptr(WlSurface::interface(), surface_ptr.as_ptr().cast())
-            }
-            .ok()?;
+            let id =
+                unsafe { ObjectId::from_ptr(WlSurface::interface(), surface_ptr.as_ptr().cast()) }
+                    .ok()?;
             let surface = WlSurface::from_id(&connection, id).ok()?;
 
             Some(Applied {

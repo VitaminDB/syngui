@@ -1,13 +1,13 @@
-use std::sync::atomic::{AtomicU64, Ordering};
-use crate::core::{Rect, Size, Point};
+use crate::core::{Point, Rect, Size};
 use crate::input::{CursorIcon, DragData};
-use crate::widget::{DirtyFlags, Element, Widget};
 use crate::widget::context::UpdateContext;
+use crate::widget::{DirtyFlags, Element, Widget};
+use std::sync::atomic::{AtomicU64, Ordering};
 
-mod layout;
 mod event;
-mod render;
+mod layout;
 mod overlay;
+mod render;
 mod storage;
 
 pub(crate) use storage::ElementStorage;
@@ -110,9 +110,11 @@ pub struct ElementTree {
     pub viewport_size: Size,
     pub(crate) pixel_snap_scale: f32,
     pub modifiers: crate::input::Modifiers,
-    pub image_store: Option<std::sync::Arc<crate::core::sync::Mutex<crate::gpu::image_store::ImageStore>>>,
+    pub image_store:
+        Option<std::sync::Arc<crate::core::sync::Mutex<crate::gpu::image_store::ImageStore>>>,
     #[cfg(feature = "map")]
-    pub tile_atlas: Option<std::sync::Arc<crate::core::sync::Mutex<crate::gpu::tile_atlas::TileAtlas>>>,
+    pub tile_atlas:
+        Option<std::sync::Arc<crate::core::sync::Mutex<crate::gpu::tile_atlas::TileAtlas>>>,
     pub(crate) last_constraints_hash: u64,
     pub virtual_keyboard_request: Option<bool>,
     pub keyboard_numeric: bool,
@@ -235,7 +237,8 @@ impl ElementTree {
     }
 
     pub fn root(&self) -> Option<&Box<dyn Element>> {
-        self.root_id.and_then(|id| self.elements.get(&id).map(|n| &n.element))
+        self.root_id
+            .and_then(|id| self.elements.get(&id).map(|n| &n.element))
     }
 
     pub fn set_pixel_snap_scale(&mut self, scale: f32) {
@@ -255,13 +258,21 @@ impl ElementTree {
     pub(crate) fn cache_get(&self, id: &ElementId) -> Option<LayoutCache> {
         let idx = self.elements.resolve(*id)? as usize;
         let c = *self.layout_cache.get(idx)?;
-        if c.is_empty_slot() { None } else { Some(c) }
+        if c.is_empty_slot() {
+            None
+        } else {
+            Some(c)
+        }
     }
 
     #[inline]
     pub(crate) fn cache_get_by_idx(&self, idx: u32) -> Option<LayoutCache> {
         let c = *self.layout_cache.get(idx as usize)?;
-        if c.is_empty_slot() { None } else { Some(c) }
+        if c.is_empty_slot() {
+            None
+        } else {
+            Some(c)
+        }
     }
 
     pub(crate) fn cache_set_by_idx(&mut self, idx: u32, cache: LayoutCache) {
@@ -273,7 +284,9 @@ impl ElementTree {
     }
 
     pub(crate) fn cache_remove(&mut self, id: &ElementId) {
-        let Some(idx) = self.elements.resolve(*id).map(|i| i as usize) else { return };
+        let Some(idx) = self.elements.resolve(*id).map(|i| i as usize) else {
+            return;
+        };
         if let Some(slot) = self.layout_cache.get_mut(idx) {
             *slot = LayoutCache::empty();
         }
@@ -286,17 +299,26 @@ impl ElementTree {
     }
 
     pub fn root_mut(&mut self) -> Option<&mut Box<dyn Element>> {
-        self.root_id.and_then(|id| self.elements.get_mut(&id).map(|n| &mut n.element))
+        self.root_id
+            .and_then(|id| self.elements.get_mut(&id).map(|n| &mut n.element))
     }
 
-    pub fn insert_widget(&mut self, widget: &dyn super::Widget, parent: Option<ElementId>) -> ElementId {
+    pub fn insert_widget(
+        &mut self,
+        widget: &dyn super::Widget,
+        parent: Option<ElementId>,
+    ) -> ElementId {
         let element = widget.create_element();
         let type_id = widget.as_any().type_id();
         let inline = widget.widget_inline_styles().to_vec();
         self.insert_with_type_id_and_inline(element, parent, type_id, inline)
     }
 
-    pub fn set_node_inline_styles(&mut self, id: ElementId, styles: Vec<(String, crate::mss::StyleValue)>) {
+    pub fn set_node_inline_styles(
+        &mut self,
+        id: ElementId,
+        styles: Vec<(String, crate::mss::StyleValue)>,
+    ) {
         if let Some(node) = self.elements.get_mut(&id) {
             node.inline_styles = styles;
         }
@@ -437,10 +459,16 @@ impl ElementTree {
         self.elements.get(&id).map_or(&[], |n| &n.children)
     }
 
-    pub fn scroll_to_reveal(&mut self, _root_id: ElementId, touch_pos: crate::core::Point, visible_height: f32) {
-
+    pub fn scroll_to_reveal(
+        &mut self,
+        _root_id: ElementId,
+        touch_pos: crate::core::Point,
+        visible_height: f32,
+    ) {
         let result = self.find_scroll_container_at(_root_id, touch_pos, self.root_offset);
-        let Some((scroll_id, abs_y)) = result else { return };
+        let Some((scroll_id, abs_y)) = result else {
+            return;
+        };
 
         let mut current_id = scroll_id;
         let mut current_abs_y = abs_y;
@@ -481,25 +509,24 @@ impl ElementTree {
         }
     }
 
-    fn find_scroll_container_at(&self, id: ElementId, pos: crate::core::Point, parent_offset: crate::core::Point) -> Option<(ElementId, f32)> {
+    fn find_scroll_container_at(
+        &self,
+        id: ElementId,
+        pos: crate::core::Point,
+        parent_offset: crate::core::Point,
+    ) -> Option<(ElementId, f32)> {
         let node = self.elements.get(&id)?;
         let bounds = node.element.bounds();
         let abs_x = parent_offset.x + bounds.origin.x;
         let abs_y = parent_offset.y + bounds.origin.y;
-        let abs_bounds = crate::core::Rect::new(
-            crate::core::Point::new(abs_x, abs_y),
-            bounds.size,
-        );
+        let abs_bounds = crate::core::Rect::new(crate::core::Point::new(abs_x, abs_y), bounds.size);
 
         if !abs_bounds.contains(pos) {
             return None;
         }
 
         let scroll_off = node.element.scroll_offset();
-        let child_offset = crate::core::Point::new(
-            abs_x - scroll_off.x,
-            abs_y - scroll_off.y,
-        );
+        let child_offset = crate::core::Point::new(abs_x - scroll_off.x, abs_y - scroll_off.y);
 
         let children = node.children.clone();
         for &child_id in children.iter().rev() {
@@ -527,15 +554,21 @@ impl ElementTree {
                 None => return false,
             };
 
-            let is_scroll = self.elements.get(&parent_id)
+            let is_scroll = self
+                .elements
+                .get(&parent_id)
                 .map(|n| n.element.is_scroll_container())
                 .unwrap_or(false);
 
             if is_scroll {
-                let scroll_bounds = self.elements.get(&parent_id)
+                let scroll_bounds = self
+                    .elements
+                    .get(&parent_id)
                     .map(|n| n.element.bounds())
                     .unwrap_or(crate::core::Rect::zero());
-                let scroll_offset = self.elements.get(&parent_id)
+                let scroll_offset = self
+                    .elements
+                    .get(&parent_id)
                     .map(|n| n.element.scroll_offset())
                     .unwrap_or(crate::core::Point::zero());
 
@@ -548,9 +581,9 @@ impl ElementTree {
                 if let Some(parent_node) = self.elements.get_mut(&parent_id) {
                     let result = parent_node.element.ensure_visible(child_rect);
                     if result {
-                        parent_node.element.mark_dirty(
-                            DirtyFlags::RENDER | DirtyFlags::PAINT
-                        );
+                        parent_node
+                            .element
+                            .mark_dirty(DirtyFlags::RENDER | DirtyFlags::PAINT);
                     }
                     // Плавный скролл — анимация на предке-контейнере.
                     self.note_animation_started(parent_id);
@@ -665,7 +698,8 @@ impl ElementTree {
 
                 if let Some(node) = self.elements.get_mut(&id) {
                     node.element.clear_rebuild();
-                    node.element.mark_dirty(DirtyFlags::LAYOUT | DirtyFlags::RENDER);
+                    node.element
+                        .mark_dirty(DirtyFlags::LAYOUT | DirtyFlags::RENDER);
                     node.refresh_hint_cache();
                 }
                 self.sync_registries_for(id);
@@ -675,7 +709,9 @@ impl ElementTree {
     }
 
     fn reconcile_children_of(&mut self, parent_id: ElementId, new_widgets: &[Box<dyn Widget>]) {
-        let old_child_ids: Vec<ElementId> = self.elements.get(&parent_id)
+        let old_child_ids: Vec<ElementId> = self
+            .elements
+            .get(&parent_id)
             .map(|n| n.children.clone())
             .unwrap_or_default();
 
@@ -689,18 +725,24 @@ impl ElementTree {
 
             if i < old_len {
                 let old_id = old_child_ids[i];
-                let old_type_matches = self.elements.get(&old_id)
+                let old_type_matches = self
+                    .elements
+                    .get(&old_id)
                     .map(|n| n.widget_type_id == new_type_id)
                     .unwrap_or(false);
 
                 if old_type_matches {
                     self.update_element(old_id, new_widget.as_ref());
 
-                    let manages_children = self.elements.get(&old_id)
+                    let manages_children = self
+                        .elements
+                        .get(&old_id)
                         .map(|n| n.element.manages_own_children())
                         .unwrap_or(false);
                     if !manages_children {
-                        let needs_own_rebuild = self.elements.get(&old_id)
+                        let needs_own_rebuild = self
+                            .elements
+                            .get(&old_id)
                             .map(|n| n.element.needs_rebuild())
                             .unwrap_or(false);
                         if !needs_own_rebuild {
@@ -715,7 +757,12 @@ impl ElementTree {
 
             let child_element = new_widget.create_element();
             let inline = new_widget.widget_inline_styles().to_vec();
-            let child_id = self.insert_with_type_id_and_inline(child_element, Some(parent_id), new_type_id, inline);
+            let child_id = self.insert_with_type_id_and_inline(
+                child_element,
+                Some(parent_id),
+                new_type_id,
+                inline,
+            );
             let widget_classes = new_widget.widget_classes();
             if !widget_classes.is_empty() {
                 if let Some(node) = self.elements.get_mut(&child_id) {
@@ -741,7 +788,8 @@ impl ElementTree {
             }
         }
 
-        let kept_idx: Vec<u32> = kept_ids.iter()
+        let kept_idx: Vec<u32> = kept_ids
+            .iter()
             .filter_map(|id| self.elements.resolve(*id))
             .collect();
         if let Some(node) = self.elements.get_mut(&parent_id) {
@@ -750,20 +798,28 @@ impl ElementTree {
         }
     }
 
-    fn reconcile_children_ref(&mut self, parent_id: ElementId, new_child_widgets: Vec<&dyn Widget>) {
-        let old_child_ids: Vec<ElementId> = self.elements.get(&parent_id)
+    fn reconcile_children_ref(
+        &mut self,
+        parent_id: ElementId,
+        new_child_widgets: Vec<&dyn Widget>,
+    ) {
+        let old_child_ids: Vec<ElementId> = self
+            .elements
+            .get(&parent_id)
             .map(|n| n.children.clone())
             .unwrap_or_default();
 
         let new_len = new_child_widgets.len();
         let old_len = old_child_ids.len();
 
-        let structure_matches = new_len == old_len && (0..new_len).all(|i| {
-            let new_type_id = new_child_widgets[i].as_any().type_id();
-            self.elements.get(&old_child_ids[i])
-                .map(|n| n.widget_type_id == new_type_id)
-                .unwrap_or(false)
-        });
+        let structure_matches = new_len == old_len
+            && (0..new_len).all(|i| {
+                let new_type_id = new_child_widgets[i].as_any().type_id();
+                self.elements
+                    .get(&old_child_ids[i])
+                    .map(|n| n.widget_type_id == new_type_id)
+                    .unwrap_or(false)
+            });
 
         if !structure_matches {
             self.remove_children(parent_id);
@@ -771,7 +827,12 @@ impl ElementTree {
                 let child_element = new_widget.create_element();
                 let type_id = new_widget.as_any().type_id();
                 let inline = new_widget.widget_inline_styles().to_vec();
-                let child_id = self.insert_with_type_id_and_inline(child_element, Some(parent_id), type_id, inline);
+                let child_id = self.insert_with_type_id_and_inline(
+                    child_element,
+                    Some(parent_id),
+                    type_id,
+                    inline,
+                );
                 let widget_classes = new_widget.widget_classes();
                 if !widget_classes.is_empty() {
                     if let Some(node) = self.elements.get_mut(&child_id) {
@@ -790,11 +851,15 @@ impl ElementTree {
 
             self.update_element(old_id, new_widget);
 
-            let manages_children = self.elements.get(&old_id)
+            let manages_children = self
+                .elements
+                .get(&old_id)
                 .map(|n| n.element.manages_own_children())
                 .unwrap_or(false);
             if !manages_children {
-                let needs_own_rebuild = self.elements.get(&old_id)
+                let needs_own_rebuild = self
+                    .elements
+                    .get(&old_id)
                     .map(|n| n.element.needs_rebuild())
                     .unwrap_or(false);
                 if !needs_own_rebuild {
@@ -840,8 +905,12 @@ impl ElementTree {
         }
         if ctx.needs_layout || ctx.needs_render {
             let mut flags = DirtyFlags::empty();
-            if ctx.needs_layout { flags |= DirtyFlags::LAYOUT; }
-            if ctx.needs_render { flags |= DirtyFlags::RENDER; }
+            if ctx.needs_layout {
+                flags |= DirtyFlags::LAYOUT;
+            }
+            if ctx.needs_render {
+                flags |= DirtyFlags::RENDER;
+            }
             if let Some(node) = self.elements.get_mut(&id) {
                 node.element.mark_dirty(flags);
             }
@@ -944,13 +1013,15 @@ impl Default for ElementTree {
 
 impl crate::mss::SelectorMatchContext for ElementTree {
     fn element_classes(&self, id: ElementId) -> &[String] {
-        self.elements.get(&id)
+        self.elements
+            .get(&id)
             .map(|n| n.element.get_classes())
             .unwrap_or(&[])
     }
 
     fn element_type_name(&self, id: ElementId) -> &str {
-        self.elements.get(&id)
+        self.elements
+            .get(&id)
             .map(|n| n.element.element_type_name())
             .unwrap_or("")
     }
@@ -963,7 +1034,11 @@ impl crate::mss::SelectorMatchContext for ElementTree {
         let parent_id = self.elements.get(&id)?.parent?;
         let parent = self.elements.get(&parent_id)?;
         let pos = parent.children.iter().position(|&c| c == id)?;
-        if pos > 0 { Some(parent.children[pos - 1]) } else { None }
+        if pos > 0 {
+            Some(parent.children[pos - 1])
+        } else {
+            None
+        }
     }
 
     fn previous_siblings(&self, id: ElementId) -> Vec<ElementId> {
@@ -984,7 +1059,11 @@ impl crate::mss::SelectorMatchContext for ElementTree {
 }
 
 impl ElementTree {
-    pub fn scroll_element_into_view(&mut self, element_id: ElementId, _element_rect: crate::core::Rect) {
+    pub fn scroll_element_into_view(
+        &mut self,
+        element_id: ElementId,
+        _element_rect: crate::core::Rect,
+    ) {
         let element_bounds = match self.elements.get(&element_id) {
             Some(n) => n.element.bounds(),
             None => return,
@@ -1000,7 +1079,9 @@ impl ElementTree {
                 None => return,
             };
 
-            let is_scroll = self.elements.get(&parent_id)
+            let is_scroll = self
+                .elements
+                .get(&parent_id)
                 .map(|n| n.element.is_scroll_container())
                 .unwrap_or(false);
 
@@ -1026,7 +1107,7 @@ impl ElementTree {
     }
 
     pub fn apply_styles(&mut self, style_engine: &crate::mss::StyleEngine) {
-        use crate::mss::{selector_matches, selector_pseudo, ComputedStyle, window_flags as wf};
+        use crate::mss::{selector_matches, selector_pseudo, window_flags as wf, ComputedStyle};
 
         let element_ids: Vec<super::ElementId> = self.elements.keys().copied().collect();
         let rules = style_engine.stylesheet().rules().to_vec();
@@ -1059,9 +1140,9 @@ impl ElementTree {
                 let pseudo = selector_pseudo(&rule.selector);
                 let apply = match pseudo {
                     None => true,
-                    Some("window-maximized")  => window_flags & wf::MAXIMIZED  != 0,
+                    Some("window-maximized") => window_flags & wf::MAXIMIZED != 0,
                     Some("window-fullscreen") => window_flags & wf::FULLSCREEN != 0,
-                    Some("window-focused")    => window_flags & wf::FOCUSED    != 0,
+                    Some("window-focused") => window_flags & wf::FOCUSED != 0,
                     Some(_) => false,
                 };
                 if apply {
@@ -1073,7 +1154,9 @@ impl ElementTree {
             }
 
             {
-                let has_inline = self.elements.get(&id)
+                let has_inline = self
+                    .elements
+                    .get(&id)
                     .map(|n| !n.inline_styles.is_empty())
                     .unwrap_or(false);
                 if has_inline {

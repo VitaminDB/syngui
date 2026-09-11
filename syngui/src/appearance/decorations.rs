@@ -129,12 +129,18 @@ impl DecorationLayout {
     pub fn fallback() -> Self {
         Self {
             left: Vec::new(),
-            right: vec![WindowButton::Minimize, WindowButton::Maximize, WindowButton::Close],
+            right: vec![
+                WindowButton::Minimize,
+                WindowButton::Maximize,
+                WindowButton::Close,
+            ],
         }
     }
 
     fn parse_kde(spec: &str) -> Vec<WindowButton> {
-        spec.chars().filter_map(WindowButton::from_kde_char).collect()
+        spec.chars()
+            .filter_map(WindowButton::from_kde_char)
+            .collect()
     }
 }
 
@@ -243,7 +249,9 @@ fn kde() -> Option<SystemDecorations> {
     // старая секция — читаем ту, что заполнена.
     let section = ["org.kde.kdecoration3", "org.kde.kdecoration2"]
         .into_iter()
-        .find(|s| kwinrc.get(s, "library").is_some() || kwinrc.get(s, "ButtonsOnRight").is_some())?;
+        .find(|s| {
+            kwinrc.get(s, "library").is_some() || kwinrc.get(s, "ButtonsOnRight").is_some()
+        })?;
 
     let theme = aurorae_theme(kwinrc.get(section, "library"), kwinrc.get(section, "theme"));
     let theme_rc = theme.as_ref().and_then(read_theme_rc);
@@ -253,12 +261,20 @@ fn kde() -> Option<SystemDecorations> {
     // поэтому смотрим именно на наличие ключа.
     let left = kwinrc
         .get(section, "ButtonsOnLeft")
-        .or_else(|| theme_ini.as_ref().and_then(|i| i.get("General", "LeftButtons")))
+        .or_else(|| {
+            theme_ini
+                .as_ref()
+                .and_then(|i| i.get("General", "LeftButtons"))
+        })
         .map(DecorationLayout::parse_kde)
         .unwrap_or_default();
     let right = kwinrc
         .get(section, "ButtonsOnRight")
-        .or_else(|| theme_ini.as_ref().and_then(|i| i.get("General", "RightButtons")))
+        .or_else(|| {
+            theme_ini
+                .as_ref()
+                .and_then(|i| i.get("General", "RightButtons"))
+        })
         .map(DecorationLayout::parse_kde)
         .unwrap_or_else(|| DecorationLayout::fallback().right);
 
@@ -335,9 +351,14 @@ fn data_dirs() -> Vec<PathBuf> {
     } else if let Some(home) = std::env::var_os("HOME") {
         dirs.push(PathBuf::from(home).join(".local/share"));
     }
-    let extra = std::env::var("XDG_DATA_DIRS")
-        .unwrap_or_else(|_| "/usr/local/share:/usr/share".into());
-    dirs.extend(extra.split(':').filter(|s| !s.is_empty()).map(PathBuf::from));
+    let extra =
+        std::env::var("XDG_DATA_DIRS").unwrap_or_else(|_| "/usr/local/share:/usr/share".into());
+    dirs.extend(
+        extra
+            .split(':')
+            .filter(|s| !s.is_empty())
+            .map(PathBuf::from),
+    );
     dirs
 }
 
@@ -361,10 +382,15 @@ fn gnome() -> Option<SystemDecorations> {
     let spec = raw.trim().trim_matches('\'');
     let (left, right) = spec.split_once(':')?;
     let parse = |s: &str| -> Vec<WindowButton> {
-        s.split(',').filter_map(WindowButton::from_gnome_name).collect()
+        s.split(',')
+            .filter_map(WindowButton::from_gnome_name)
+            .collect()
     };
     Some(SystemDecorations {
-        layout: DecorationLayout { left: parse(left), right: parse(right) },
+        layout: DecorationLayout {
+            left: parse(left),
+            right: parse(right),
+        },
         metrics: DecorationMetrics::default(),
         style: DecorationStyle::Native,
     })
@@ -413,8 +439,8 @@ pub fn rasterize_aurorae_button(
     // пределами pixmap.
     let scale = size_px as f32 / bbox.width().max(bbox.height());
     let mut pixmap = tiny_skia::Pixmap::new(size_px, size_px)?;
-    let transform = tiny_skia::Transform::from_scale(scale, scale)
-        .pre_translate(-bbox.x(), -bbox.y());
+    let transform =
+        tiny_skia::Transform::from_scale(scale, scale).pre_translate(-bbox.x(), -bbox.y());
     resvg::render(&tree, transform, &mut pixmap.as_mut());
 
     let mut rgba = pixmap.data().to_vec();
@@ -427,7 +453,11 @@ pub fn rasterize_aurorae_button(
             px[2] = ((px[2] as f32 * inv).round() as u32).min(255) as u8;
         }
     }
-    Some(RasterizedButton { width: size_px, height: size_px, rgba })
+    Some(RasterizedButton {
+        width: size_px,
+        height: size_px,
+        rgba,
+    })
 }
 
 #[cfg(test)]
@@ -438,7 +468,11 @@ mod tests {
     fn kde_letters_map_to_buttons() {
         assert_eq!(
             DecorationLayout::parse_kde("IAX"),
-            vec![WindowButton::Minimize, WindowButton::Maximize, WindowButton::Close]
+            vec![
+                WindowButton::Minimize,
+                WindowButton::Maximize,
+                WindowButton::Close
+            ]
         );
         // Неизвестные буквы просто игнорируются.
         assert_eq!(DecorationLayout::parse_kde("XQ"), vec![WindowButton::Close]);
@@ -447,8 +481,14 @@ mod tests {
 
     #[test]
     fn gnome_names_map_to_buttons() {
-        assert_eq!(WindowButton::from_gnome_name("appmenu"), Some(WindowButton::ApplicationMenu));
-        assert_eq!(WindowButton::from_gnome_name("close"), Some(WindowButton::Close));
+        assert_eq!(
+            WindowButton::from_gnome_name("appmenu"),
+            Some(WindowButton::ApplicationMenu)
+        );
+        assert_eq!(
+            WindowButton::from_gnome_name("close"),
+            Some(WindowButton::Close)
+        );
         assert_eq!(WindowButton::from_gnome_name("tab"), None);
     }
 }

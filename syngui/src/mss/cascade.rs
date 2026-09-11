@@ -1,9 +1,9 @@
-use crate::widget::{ElementId, ElementTree};
-use super::stylesheet::StyleRule;
-use super::style_engine::{StyleEngine, ComputedStyle};
-use super::value::StyleValue;
-use super::matching::{selector_matches, selector_pseudo};
 use super::inheritance::{extract_inherited, resolve_cascade_keyword};
+use super::matching::{selector_matches, selector_pseudo};
+use super::style_engine::{ComputedStyle, StyleEngine};
+use super::stylesheet::StyleRule;
+use super::value::StyleValue;
+use crate::widget::{ElementId, ElementTree};
 
 #[inline]
 fn resolve_for_cascade(
@@ -24,9 +24,9 @@ fn resolve_for_cascade(
 fn window_pseudo_matches(pseudo: &str, window_flags: u8) -> Option<bool> {
     use super::style_engine::window_flags as wf;
     let flag = match pseudo {
-        "window-maximized"  => wf::MAXIMIZED,
+        "window-maximized" => wf::MAXIMIZED,
         "window-fullscreen" => wf::FULLSCREEN,
-        "window-focused"    => wf::FOCUSED,
+        "window-focused" => wf::FOCUSED,
         _ => return None,
     };
     Some(window_flags & flag != 0)
@@ -72,7 +72,9 @@ impl<'a> RuleIndex<'a> {
             match chain.target() {
                 SelectorPart::Class(c) => by_class.entry(c.as_str()).or_default().push(i),
                 SelectorPart::Element(e) => by_type.entry(e.as_str()).or_default().push(i),
-                SelectorPart::Compound { classes, element, .. } => {
+                SelectorPart::Compound {
+                    classes, element, ..
+                } => {
                     // Compound требует ВСЕ свои классы, поэтому ведро любого
                     // из них корректно сужает кандидатов; берём первый.
                     if let Some(c) = classes.first() {
@@ -110,7 +112,11 @@ impl<'a> RuleIndex<'a> {
             }
         }
 
-        Self { by_class, by_type, catch_all }
+        Self {
+            by_class,
+            by_type,
+            catch_all,
+        }
     }
 
     /// Индексы правил-кандидатов для элемента, отсортированные и без дублей.
@@ -164,22 +170,26 @@ pub fn apply_styles_to_tree(tree: &mut ElementTree, style_engine: &StyleEngine) 
         std::collections::HashMap::with_capacity(order.len());
 
     for id in order {
-        let parent_inh = tree.elements.get(&id)
+        let parent_inh = tree
+            .elements
+            .get(&id)
             .and_then(|n| n.parent)
             .and_then(|p| inherited_for.get(&p).cloned())
             .unwrap_or_default();
 
-        let (has_identity, has_inline, type_name, classes) = if let Some(node) = tree.elements.get(&id) {
-            (
-                !node.element.get_classes().is_empty() || !node.element.element_type_name().is_empty(),
-                !node.inline_styles.is_empty(),
-                node.element.element_type_name().to_string(),
-                node.element.get_classes().to_vec(),
-            )
-        } else {
-            inherited_for.insert(id, parent_inh);
-            continue;
-        };
+        let (has_identity, has_inline, type_name, classes) =
+            if let Some(node) = tree.elements.get(&id) {
+                (
+                    !node.element.get_classes().is_empty()
+                        || !node.element.element_type_name().is_empty(),
+                    !node.inline_styles.is_empty(),
+                    node.element.element_type_name().to_string(),
+                    node.element.get_classes().to_vec(),
+                )
+            } else {
+                inherited_for.insert(id, parent_inh);
+                continue;
+            };
 
         let mut base = parent_inh.clone();
         let mut hover = ComputedStyle::default();
@@ -196,7 +206,8 @@ pub fn apply_styles_to_tree(tree: &mut ElementTree, style_engine: &StyleEngine) 
 
         if has_identity || has_inline {
             index.candidates(&classes, &type_name, &mut cand);
-            let mut matching: Vec<(usize, (u32, u32, u32), &StyleRule)> = cand.iter()
+            let mut matching: Vec<(usize, (u32, u32, u32), &StyleRule)> = cand
+                .iter()
                 .map(|&i| (i as usize, &rules[i as usize]))
                 .filter(|(_, rule)| selector_matches(&rule.selector, id, tree))
                 .map(|(i, rule)| (i, rule.selector.specificity(), rule))
@@ -209,56 +220,78 @@ pub fn apply_styles_to_tree(tree: &mut ElementTree, style_engine: &StyleEngine) 
                     None => {
                         has_base = true;
                         for (prop, val) in &rule.declarations {
-                            base.set(prop, resolve_for_cascade(style_engine, val, prop, &parent_inh));
+                            base.set(
+                                prop,
+                                resolve_for_cascade(style_engine, val, prop, &parent_inh),
+                            );
                         }
                     }
                     Some("hover") => {
                         has_hover = true;
                         for (prop, val) in &rule.declarations {
-                            hover.set(prop, resolve_for_cascade(style_engine, val, prop, &parent_inh));
+                            hover.set(
+                                prop,
+                                resolve_for_cascade(style_engine, val, prop, &parent_inh),
+                            );
                         }
                     }
                     Some("checked") => {
                         has_checked = true;
                         for (prop, val) in &rule.declarations {
-                            checked.set(prop, resolve_for_cascade(style_engine, val, prop, &parent_inh));
+                            checked.set(
+                                prop,
+                                resolve_for_cascade(style_engine, val, prop, &parent_inh),
+                            );
                         }
                     }
                     Some("active") | Some("pressed") => {
                         has_active = true;
                         for (prop, val) in &rule.declarations {
-                            active.set(prop, resolve_for_cascade(style_engine, val, prop, &parent_inh));
+                            active.set(
+                                prop,
+                                resolve_for_cascade(style_engine, val, prop, &parent_inh),
+                            );
                         }
                     }
                     Some("focus") => {
                         has_focus = true;
                         for (prop, val) in &rule.declarations {
-                            focus.set(prop, resolve_for_cascade(style_engine, val, prop, &parent_inh));
+                            focus.set(
+                                prop,
+                                resolve_for_cascade(style_engine, val, prop, &parent_inh),
+                            );
                         }
                     }
                     Some("selected") => {
                         has_selected = true;
                         for (prop, val) in &rule.declarations {
-                            selected.set(prop, resolve_for_cascade(style_engine, val, prop, &parent_inh));
+                            selected.set(
+                                prop,
+                                resolve_for_cascade(style_engine, val, prop, &parent_inh),
+                            );
                         }
                     }
-                    Some(p) => {
-                        match window_pseudo_matches(p, window_flags) {
-                            Some(true) => {
-                                has_base = true;
-                                for (prop, val) in &rule.declarations {
-                                    base.set(prop, resolve_for_cascade(style_engine, val, prop, &parent_inh));
-                                }
-                            }
-                            Some(false) => {  }
-                            None => {
-                                has_base = true;
-                                for (prop, val) in &rule.declarations {
-                                    base.set(prop, resolve_for_cascade(style_engine, val, prop, &parent_inh));
-                                }
+                    Some(p) => match window_pseudo_matches(p, window_flags) {
+                        Some(true) => {
+                            has_base = true;
+                            for (prop, val) in &rule.declarations {
+                                base.set(
+                                    prop,
+                                    resolve_for_cascade(style_engine, val, prop, &parent_inh),
+                                );
                             }
                         }
-                    }
+                        Some(false) => {}
+                        None => {
+                            has_base = true;
+                            for (prop, val) in &rule.declarations {
+                                base.set(
+                                    prop,
+                                    resolve_for_cascade(style_engine, val, prop, &parent_inh),
+                                );
+                            }
+                        }
+                    },
                 }
             }
 
@@ -267,7 +300,10 @@ pub fn apply_styles_to_tree(tree: &mut ElementTree, style_engine: &StyleEngine) 
                     let inline = node.inline_styles.clone();
                     has_base = true;
                     for (prop, val) in &inline {
-                        base.set(prop, resolve_for_cascade(style_engine, val, prop, &parent_inh));
+                        base.set(
+                            prop,
+                            resolve_for_cascade(style_engine, val, prop, &parent_inh),
+                        );
                     }
                 }
             }
@@ -286,11 +322,31 @@ pub fn apply_styles_to_tree(tree: &mut ElementTree, style_engine: &StyleEngine) 
             if let Some(node) = tree.elements.get_mut(&id) {
                 node.element.reset_mss_styles();
                 node.element.apply_computed_style(&base);
-                let hover_full = if has_hover { Some(merge_layer(&base, &hover)) } else { None };
-                let active_full = if has_active { Some(merge_layer(&base, &active)) } else { None };
-                let focus_full = if has_focus { Some(merge_layer(&base, &focus)) } else { None };
-                let selected_full = if has_selected { Some(merge_layer(&base, &selected)) } else { None };
-                let checked_full = if has_checked { Some(merge_layer(&base, &checked)) } else { None };
+                let hover_full = if has_hover {
+                    Some(merge_layer(&base, &hover))
+                } else {
+                    None
+                };
+                let active_full = if has_active {
+                    Some(merge_layer(&base, &active))
+                } else {
+                    None
+                };
+                let focus_full = if has_focus {
+                    Some(merge_layer(&base, &focus))
+                } else {
+                    None
+                };
+                let selected_full = if has_selected {
+                    Some(merge_layer(&base, &selected))
+                } else {
+                    None
+                };
+                let checked_full = if has_checked {
+                    Some(merge_layer(&base, &checked))
+                } else {
+                    None
+                };
                 node.element.apply_transition_styles(
                     &base,
                     hover_full.as_ref(),
@@ -299,7 +355,8 @@ pub fn apply_styles_to_tree(tree: &mut ElementTree, style_engine: &StyleEngine) 
                     selected_full.as_ref(),
                     checked_full.as_ref(),
                 );
-                node.element.setup_keyframe_animation(&base, style_engine.stylesheet());
+                node.element
+                    .setup_keyframe_animation(&base, style_engine.stylesheet());
                 node.mss_margin_set = base.has_margin();
                 node.mss_margin = base.margin();
                 node.mss_flex_grow = base.flex_grow().unwrap_or(0.0);
@@ -368,19 +425,21 @@ pub fn apply_styles_dirty(tree: &mut ElementTree, style_engine: &StyleEngine) ->
             .and_then(|p| ancestor_dirty_for.get(&p).copied())
             .unwrap_or(false);
 
-        let (has_identity, has_inline, is_dirty, type_name, classes) = if let Some(node) = tree.elements.get(&id) {
-            (
-                !node.element.get_classes().is_empty() || !node.element.element_type_name().is_empty(),
-                !node.inline_styles.is_empty(),
-                node.styles_dirty,
-                node.element.element_type_name().to_string(),
-                node.element.get_classes().to_vec(),
-            )
-        } else {
-            inherited_for.insert(id, parent_inh);
-            ancestor_dirty_for.insert(id, ancestor_dirty);
-            continue;
-        };
+        let (has_identity, has_inline, is_dirty, type_name, classes) =
+            if let Some(node) = tree.elements.get(&id) {
+                (
+                    !node.element.get_classes().is_empty()
+                        || !node.element.element_type_name().is_empty(),
+                    !node.inline_styles.is_empty(),
+                    node.styles_dirty,
+                    node.element.element_type_name().to_string(),
+                    node.element.get_classes().to_vec(),
+                )
+            } else {
+                inherited_for.insert(id, parent_inh);
+                ancestor_dirty_for.insert(id, ancestor_dirty);
+                continue;
+            };
 
         let subtree_dirty = ancestor_dirty || is_dirty;
         ancestor_dirty_for.insert(id, subtree_dirty);
@@ -424,7 +483,8 @@ pub fn apply_styles_dirty(tree: &mut ElementTree, style_engine: &StyleEngine) ->
         let mut has_base = base.properties().next().is_some();
 
         index.candidates(&classes, &type_name, &mut cand);
-        let mut matching: Vec<(usize, (u32, u32, u32), &StyleRule)> = cand.iter()
+        let mut matching: Vec<(usize, (u32, u32, u32), &StyleRule)> = cand
+            .iter()
             .map(|&i| (i as usize, &rules[i as usize]))
             .filter(|(_, rule)| selector_matches(&rule.selector, id, tree))
             .map(|(i, rule)| (i, rule.selector.specificity(), rule))
@@ -437,51 +497,75 @@ pub fn apply_styles_dirty(tree: &mut ElementTree, style_engine: &StyleEngine) ->
                 None => {
                     has_base = true;
                     for (prop, val) in &rule.declarations {
-                        base.set(prop, resolve_for_cascade(style_engine, val, prop, &parent_inh));
+                        base.set(
+                            prop,
+                            resolve_for_cascade(style_engine, val, prop, &parent_inh),
+                        );
                     }
                 }
                 Some("hover") => {
                     has_hover = true;
                     for (prop, val) in &rule.declarations {
-                        hover.set(prop, resolve_for_cascade(style_engine, val, prop, &parent_inh));
+                        hover.set(
+                            prop,
+                            resolve_for_cascade(style_engine, val, prop, &parent_inh),
+                        );
                     }
                 }
                 Some("checked") => {
                     has_checked = true;
                     for (prop, val) in &rule.declarations {
-                        checked.set(prop, resolve_for_cascade(style_engine, val, prop, &parent_inh));
+                        checked.set(
+                            prop,
+                            resolve_for_cascade(style_engine, val, prop, &parent_inh),
+                        );
                     }
                 }
                 Some("active") | Some("pressed") => {
                     has_active = true;
                     for (prop, val) in &rule.declarations {
-                        active.set(prop, resolve_for_cascade(style_engine, val, prop, &parent_inh));
+                        active.set(
+                            prop,
+                            resolve_for_cascade(style_engine, val, prop, &parent_inh),
+                        );
                     }
                 }
                 Some("focus") => {
                     has_focus = true;
                     for (prop, val) in &rule.declarations {
-                        focus.set(prop, resolve_for_cascade(style_engine, val, prop, &parent_inh));
+                        focus.set(
+                            prop,
+                            resolve_for_cascade(style_engine, val, prop, &parent_inh),
+                        );
                     }
                 }
                 Some("selected") => {
                     has_selected = true;
                     for (prop, val) in &rule.declarations {
-                        selected.set(prop, resolve_for_cascade(style_engine, val, prop, &parent_inh));
+                        selected.set(
+                            prop,
+                            resolve_for_cascade(style_engine, val, prop, &parent_inh),
+                        );
                     }
                 }
                 Some(p) => match window_pseudo_matches(p, window_flags) {
                     Some(true) => {
                         has_base = true;
                         for (prop, val) in &rule.declarations {
-                            base.set(prop, resolve_for_cascade(style_engine, val, prop, &parent_inh));
+                            base.set(
+                                prop,
+                                resolve_for_cascade(style_engine, val, prop, &parent_inh),
+                            );
                         }
                     }
                     Some(false) => {}
                     None => {
                         has_base = true;
                         for (prop, val) in &rule.declarations {
-                            base.set(prop, resolve_for_cascade(style_engine, val, prop, &parent_inh));
+                            base.set(
+                                prop,
+                                resolve_for_cascade(style_engine, val, prop, &parent_inh),
+                            );
                         }
                     }
                 },
@@ -494,16 +578,27 @@ pub fn apply_styles_dirty(tree: &mut ElementTree, style_engine: &StyleEngine) ->
             id, type_name, matching.len(), is_dirty,
         );
 
-        let has_any_rules = has_base || has_hover || has_active || has_focus || has_selected || has_checked || has_inline;
+        let has_any_rules = has_base
+            || has_hover
+            || has_active
+            || has_focus
+            || has_selected
+            || has_checked
+            || has_inline;
 
         if !has_any_rules {
-            let had_rules = tree.elements.get(&id).map(|n| n.had_mss_rules).unwrap_or(false);
+            let had_rules = tree
+                .elements
+                .get(&id)
+                .map(|n| n.had_mss_rules)
+                .unwrap_or(false);
             if had_rules {
                 if let Some(node) = tree.elements.get_mut(&id) {
                     node.element.reset_mss_styles();
                     let empty = ComputedStyle::default();
                     node.element.apply_computed_style(&empty);
-                    node.element.apply_transition_styles(&empty, None, None, None, None, None);
+                    node.element
+                        .apply_transition_styles(&empty, None, None, None, None, None);
                     node.had_mss_rules = false;
                     node.styles_dirty = false;
                     node.refresh_hint_cache();
@@ -524,11 +619,31 @@ pub fn apply_styles_dirty(tree: &mut ElementTree, style_engine: &StyleEngine) ->
                     base.set(prop, resolved);
                 }
             }
-            let hover_full = if has_hover { Some(merge_layer(&base, &hover)) } else { None };
-            let active_full = if has_active { Some(merge_layer(&base, &active)) } else { None };
-            let focus_full = if has_focus { Some(merge_layer(&base, &focus)) } else { None };
-            let selected_full = if has_selected { Some(merge_layer(&base, &selected)) } else { None };
-            let checked_full = if has_checked { Some(merge_layer(&base, &checked)) } else { None };
+            let hover_full = if has_hover {
+                Some(merge_layer(&base, &hover))
+            } else {
+                None
+            };
+            let active_full = if has_active {
+                Some(merge_layer(&base, &active))
+            } else {
+                None
+            };
+            let focus_full = if has_focus {
+                Some(merge_layer(&base, &focus))
+            } else {
+                None
+            };
+            let selected_full = if has_selected {
+                Some(merge_layer(&base, &selected))
+            } else {
+                None
+            };
+            let checked_full = if has_checked {
+                Some(merge_layer(&base, &checked))
+            } else {
+                None
+            };
             node.element.apply_computed_style(&base);
             node.element.apply_transition_styles(
                 &base,
@@ -538,7 +653,8 @@ pub fn apply_styles_dirty(tree: &mut ElementTree, style_engine: &StyleEngine) ->
                 selected_full.as_ref(),
                 checked_full.as_ref(),
             );
-            node.element.setup_keyframe_animation(&base, style_engine.stylesheet());
+            node.element
+                .setup_keyframe_animation(&base, style_engine.stylesheet());
             node.mss_margin_set = base.has_margin();
             node.mss_margin = base.margin();
             node.mss_flex_grow = base.flex_grow().unwrap_or(0.0);

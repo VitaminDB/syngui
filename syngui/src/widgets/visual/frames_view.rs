@@ -417,7 +417,9 @@ impl Element for FramesViewElement {
         "FramesView"
     }
 
-    fn mss(&self) -> Option<&crate::mss::MssFields> { Some(&self.mss) }
+    fn mss(&self) -> Option<&crate::mss::MssFields> {
+        Some(&self.mss)
+    }
 
     fn reset_mss_styles(&mut self) {
         self.mss.reset();
@@ -447,7 +449,11 @@ impl Element for FramesViewElement {
             role: crate::a11y::Role::Image,
             state: crate::a11y::NodeState::default(),
             properties: crate::a11y::NodeProperties {
-                label: Some(crate::i18n::builtin_args("frames_view.a11y", "Video {w}×{h}, frames: {n}", &[("w", &w), ("h", &h), ("n", &self.frames.len())])),
+                label: Some(crate::i18n::builtin_args(
+                    "frames_view.a11y",
+                    "Video {w}×{h}, frames: {n}",
+                    &[("w", &w), ("h", &h), ("n", &self.frames.len())],
+                )),
                 ..Default::default()
             },
         })

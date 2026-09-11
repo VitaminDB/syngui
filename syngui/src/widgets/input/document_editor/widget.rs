@@ -29,21 +29,21 @@ use crate::widget::{
 use super::build::{block_widget, BuildEnv};
 use super::chrome::Chrome;
 use super::edit;
-use super::links::{DocLinkProvider, DocMediaResolver, EmbedCtx, EmbedFactory, LinkCandidate};
+use super::free::{self, DocGrid, DocLayout};
 use super::history::{EditClass, UndoStack};
+use super::links::{DocLinkProvider, DocMediaResolver, EmbedCtx, EmbedFactory, LinkCandidate};
 use super::model::{BlockKind, DocBlock, DocModel, InlineStyle, InlineText};
+use super::parse::parse_document;
+use super::props::{self, BlockOutline, TableOp};
+use super::serialize::serialize_document;
+use super::shape;
 use super::shortcuts::{block_shortcut, try_inline_shortcut, BlockShortcut};
 use super::slash::{default_items, filter_items, SlashAction, SlashItem, SlashState};
-use super::parse::parse_document;
-use super::serialize::serialize_document;
 use super::state::{
     gutter_action, new_block_rect_map, new_code_geom_map, new_geom_map, new_table_geom_map,
     BlockOrder, BlockRectMap, CaretPos, CodeCaret, CodeGeom, CodeGeomMap, DocSelection, GeomMap,
     GutterAction, RowGeom, TableCaret, TableGeom, TableGeomMap,
 };
-use super::free::{self, DocGrid, DocLayout};
-use super::props::{self, BlockOutline, TableOp};
-use super::shape;
 use super::style::DocStyle;
 
 /// Операция хоста над документом «у каретки» — кладётся в очередь ручки
@@ -67,22 +67,36 @@ pub enum DocOp {
     /// Удалить блок каретки (последний блок документа — очистить).
     Delete,
     /// Сдвинуть блок каретки на одну позицию среди соседей.
-    Move { down: bool },
+    Move {
+        down: bool,
+    },
     /// Вложить блок в соседа сверху (toggle, выноску, цитату, пункт
     /// списка) либо вынуть из родителя — то же, что Tab / Shift+Tab, но
     /// доступно и блокам без каретки (таблица, картинка, врезка).
-    Indent { outdent: bool },
+    Indent {
+        outdent: bool,
+    },
     /// Сделать блок текущим (клик в дереве блоков хоста).
     Select(super::model::BlockId),
     /// Свойство блока: `None` — вернуть к теме (см. [`super::props`]).
-    SetAttr { block: super::model::BlockId, key: String, value: Option<String> },
+    SetAttr {
+        block: super::model::BlockId,
+        key: String,
+        value: Option<String>,
+    },
     /// Строки и колонки таблицы.
-    Table { block: super::model::BlockId, op: TableOp },
+    Table {
+        block: super::model::BlockId,
+        op: TableOp,
+    },
     /// Удалить блок по id (хост забрал его — например, в карточку доски).
     DeleteBlock(super::model::BlockId),
     /// Вставить markdown в точку: на холст свободной раскладки — ровно в
     /// неё, в потоке — у блока под точкой (дроп извне).
-    InsertMarkdownAt { at: Point, md: String },
+    InsertMarkdownAt {
+        at: Point,
+        md: String,
+    },
     /// Отменить / повторить последнюю правку (кнопки хоста; история живёт
     /// в ручке страницы и переживает пересоздание элемента).
     Undo,
@@ -653,7 +667,11 @@ impl Widget for DocumentEditor {
             preedit: None,
             revision: self.handle.as_ref().map(|h| h.revision),
             on_change: self.on_change.clone(),
-            history: self.handle.as_ref().map(|h| h.history.clone()).unwrap_or_default(),
+            history: self
+                .handle
+                .as_ref()
+                .map(|h| h.history.clone())
+                .unwrap_or_default(),
             slash: None,
             slash_items: self.slash_items.clone(),
             on_slash_custom: self.on_slash_custom.clone(),
@@ -677,7 +695,11 @@ impl Widget for DocumentEditor {
             placeholder: self.placeholder.clone(),
             heading_placeholder: self.heading_placeholder.clone(),
             on_context_menu: self.on_context_menu.clone(),
-            ops: self.handle.as_ref().map(|h| h.ops.clone()).unwrap_or_default(),
+            ops: self
+                .handle
+                .as_ref()
+                .map(|h| h.ops.clone())
+                .unwrap_or_default(),
             wiki: None,
             layout: self.layout,
             fill_height: self.fill_height,
@@ -826,7 +848,10 @@ struct Marquee {
 fn rect_from_points(a: Point, b: Point) -> Rect {
     let x0 = a.x.min(b.x);
     let y0 = a.y.min(b.y);
-    Rect::new(Point::new(x0, y0), Size::new((a.x - b.x).abs(), (a.y - b.y).abs()))
+    Rect::new(
+        Point::new(x0, y0),
+        Size::new((a.x - b.x).abs(), (a.y - b.y).abs()),
+    )
 }
 
 fn rects_intersect(a: Rect, b: Rect) -> bool {
@@ -839,10 +864,26 @@ fn rects_intersect(a: Rect, b: Rect) -> bool {
 /// Контур прямоугольника четырьмя тонкими полосками.
 fn stroke_rect(list: &mut DisplayList, r: Rect, color: crate::core::Color, w: f32) {
     let (x, y, wd, h) = (r.origin.x, r.origin.y, r.size.width, r.size.height);
-    list.push_rect(Rect::new(Point::new(x, y), Size::new(wd, w)), color, [0.0; 4]);
-    list.push_rect(Rect::new(Point::new(x, y + h - w), Size::new(wd, w)), color, [0.0; 4]);
-    list.push_rect(Rect::new(Point::new(x, y), Size::new(w, h)), color, [0.0; 4]);
-    list.push_rect(Rect::new(Point::new(x + wd - w, y), Size::new(w, h)), color, [0.0; 4]);
+    list.push_rect(
+        Rect::new(Point::new(x, y), Size::new(wd, w)),
+        color,
+        [0.0; 4],
+    );
+    list.push_rect(
+        Rect::new(Point::new(x, y + h - w), Size::new(wd, w)),
+        color,
+        [0.0; 4],
+    );
+    list.push_rect(
+        Rect::new(Point::new(x, y), Size::new(w, h)),
+        color,
+        [0.0; 4],
+    );
+    list.push_rect(
+        Rect::new(Point::new(x + wd - w, y), Size::new(w, h)),
+        color,
+        [0.0; 4],
+    );
 }
 
 /// Состояние открытого автокомплита `[[`.
@@ -941,7 +982,9 @@ impl DocumentEditorElement {
 
     /// Сигнал «можно отменить / повторить» для кнопок хоста.
     fn publish_history(&mut self) {
-        let Some(sig) = self.history_state else { return };
+        let Some(sig) = self.history_state else {
+            return;
+        };
         let now = {
             let h = self.history();
             (h.can_undo(), h.can_redo())
@@ -957,7 +1000,8 @@ impl DocumentEditorElement {
         let model = lock(&self.model);
         let snapshot_sel = self.selection;
         // NB: заимствуем guard только на время клона.
-        self.history().checkpoint(&model, snapshot_sel, class, block);
+        self.history()
+            .checkpoint(&model, snapshot_sel, class, block);
     }
 
     fn undo(&mut self) {
@@ -1000,7 +1044,9 @@ impl DocumentEditorElement {
     /// операций хоста: каретка, а без неё — выделенный блок (таблицу или
     /// картинку иначе не вложить: каретки в них нет).
     fn tab_indent(&mut self, outdent: bool) -> bool {
-        let Some((block, _)) = self.target_block() else { return false };
+        let Some((block, _)) = self.target_block() else {
+            return false;
+        };
         let mut model = self.model();
         let done = if outdent {
             edit::outdent_block(&mut model, block)
@@ -1022,51 +1068,79 @@ impl DocumentEditorElement {
             let extra_id = model.alloc_id();
             edit::with_siblings(&mut model.blocks, pos.block, &mut |sibs, idx| {
                 let own_id = sibs[idx].id;
-                let Some(text_ref) = sibs[idx].kind.text_mut() else { return None };
+                let Some(text_ref) = sibs[idx].kind.text_mut() else {
+                    return None;
+                };
                 let mut text = std::mem::take(text_ref);
                 edit::text_delete(&mut text, 0, eaten);
-                let after = CaretPos { block: own_id, offset: pos.offset.saturating_sub(eaten) };
+                let after = CaretPos {
+                    block: own_id,
+                    offset: pos.offset.saturating_sub(eaten),
+                };
                 match &sc {
                     BlockShortcut::Heading(n) => {
                         sibs[idx].kind = BlockKind::Heading { level: *n, text };
                         Some(after)
                     }
                     BlockShortcut::Bullet => {
-                        sibs[idx].kind = BlockKind::Bullet { text, children: Vec::new() };
+                        sibs[idx].kind = BlockKind::Bullet {
+                            text,
+                            children: Vec::new(),
+                        };
                         Some(after)
                     }
                     BlockShortcut::Numbered(n) => {
-                        sibs[idx].kind =
-                            BlockKind::Numbered { number: *n, text, children: Vec::new() };
+                        sibs[idx].kind = BlockKind::Numbered {
+                            number: *n,
+                            text,
+                            children: Vec::new(),
+                        };
                         Some(after)
                     }
                     BlockShortcut::Todo => {
-                        sibs[idx].kind =
-                            BlockKind::Todo { checked: false, text, children: Vec::new() };
+                        sibs[idx].kind = BlockKind::Todo {
+                            checked: false,
+                            text,
+                            children: Vec::new(),
+                        };
                         Some(after)
                     }
                     BlockShortcut::Toggle => {
-                        sibs[idx].kind =
-                            BlockKind::Toggle { summary: text, children: Vec::new(), collapsed: false };
+                        sibs[idx].kind = BlockKind::Toggle {
+                            summary: text,
+                            children: Vec::new(),
+                            collapsed: false,
+                        };
                         Some(after)
                     }
                     BlockShortcut::Quote => {
                         let inner = DocBlock::new(extra_id, BlockKind::Paragraph(text));
                         sibs[idx].kind = BlockKind::Quote(vec![inner]);
-                        Some(CaretPos { block: extra_id, offset: after.offset })
+                        Some(CaretPos {
+                            block: extra_id,
+                            offset: after.offset,
+                        })
                     }
                     BlockShortcut::CodeBlock => {
-                        sibs[idx].kind =
-                            BlockKind::CodeBlock { language: None, code: String::new() };
+                        sibs[idx].kind = BlockKind::CodeBlock {
+                            language: None,
+                            code: String::new(),
+                        };
                         let p = DocBlock::new(extra_id, BlockKind::Paragraph(text));
                         sibs.insert(idx + 1, p);
-                        Some(CaretPos { block: extra_id, offset: 0 })
+                        Some(CaretPos {
+                            block: extra_id,
+                            offset: 0,
+                        })
                     }
                     BlockShortcut::Divider => {
                         sibs[idx].kind = BlockKind::Divider;
                         let p = DocBlock::new(extra_id, BlockKind::Paragraph(text));
                         sibs.insert(idx + 1, p);
-                        Some(CaretPos { block: extra_id, offset: 0 })
+                        Some(CaretPos {
+                            block: extra_id,
+                            offset: 0,
+                        })
                     }
                 }
             })
@@ -1079,7 +1153,9 @@ impl DocumentEditorElement {
 
     /// Проверка блочного шортката после ввода символа.
     fn maybe_block_shortcut(&mut self) -> bool {
-        let Some(pos) = self.caret() else { return false };
+        let Some(pos) = self.caret() else {
+            return false;
+        };
         let found = {
             let model = self.model();
             let block = edit::find_block(&model.blocks, pos.block);
@@ -1087,7 +1163,10 @@ impl DocumentEditorElement {
             if !is_paragraph {
                 None
             } else {
-                let text = block.and_then(|b| b.kind.text()).map(|t| t.text()).unwrap_or_default();
+                let text = block
+                    .and_then(|b| b.kind.text())
+                    .map(|t| t.text())
+                    .unwrap_or_default();
                 let head = &text[..pos.offset.min(text.len())];
                 block_shortcut(head)
             }
@@ -1110,7 +1189,10 @@ impl DocumentEditorElement {
                 .and_then(|t| try_inline_shortcut(t, pos.offset))
         };
         if let Some(offset) = new_offset {
-            self.selection = Some(DocSelection::caret(CaretPos { block: pos.block, offset }));
+            self.selection = Some(DocSelection::caret(CaretPos {
+                block: pos.block,
+                offset,
+            }));
             self.after_edit();
         }
     }
@@ -1122,7 +1204,10 @@ impl DocumentEditorElement {
             let model = self.model();
             let block = edit::find_block(&model.blocks, pos.block);
             let is_paragraph = matches!(block.map(|b| &b.kind), Some(BlockKind::Paragraph(_)));
-            let text = block.and_then(|b| b.kind.text()).map(|t| t.text()).unwrap_or_default();
+            let text = block
+                .and_then(|b| b.kind.text())
+                .map(|t| t.text())
+                .unwrap_or_default();
             // `/` уже в тексте: до него либо пусто, либо пробел.
             let before = &text[..pos.offset.saturating_sub(1)];
             is_paragraph && (before.is_empty() || before.ends_with(' '))
@@ -1157,7 +1242,10 @@ impl DocumentEditorElement {
                 edit::text_delete(t, sl.start, sl.start + 1 + sl.query.len());
             }
         }
-        self.selection = Some(DocSelection::caret(CaretPos { block: sl.block, offset: sl.start }));
+        self.selection = Some(DocSelection::caret(CaretPos {
+            block: sl.block,
+            offset: sl.start,
+        }));
         self.apply_action(action);
     }
 
@@ -1166,13 +1254,13 @@ impl DocumentEditorElement {
     fn apply_action(&mut self, action: SlashAction) {
         match &action {
             SlashAction::Paragraph => self.convert_current(BlockKind::Paragraph),
-            SlashAction::Heading(n) => self.convert_current(|text| BlockKind::Heading {
-                level: *n,
-                text,
-            }),
-            SlashAction::Bullet => {
-                self.convert_current(|text| BlockKind::Bullet { text, children: Vec::new() })
+            SlashAction::Heading(n) => {
+                self.convert_current(|text| BlockKind::Heading { level: *n, text })
             }
+            SlashAction::Bullet => self.convert_current(|text| BlockKind::Bullet {
+                text,
+                children: Vec::new(),
+            }),
             SlashAction::Numbered => self.convert_current(|text| BlockKind::Numbered {
                 number: 1,
                 text,
@@ -1214,7 +1302,9 @@ impl DocumentEditorElement {
                 self.after_edit();
             }
             SlashAction::Shape(shape_kind) => {
-                let Some(pos) = self.caret().map(|c| c.block).or(self.object_sel) else { return };
+                let Some(pos) = self.caret().map(|c| c.block).or(self.object_sel) else {
+                    return;
+                };
                 // Каретка уже в фигуре — меняем её вид, сохраняя оформление
                 // (пункт «превратить в» для примитивов).
                 let mut model = self.model();
@@ -1299,15 +1389,16 @@ impl DocumentEditorElement {
                 let target = {
                     let mut model = self.model();
                     let reuse = anchor.and_then(|id| {
-                        edit::find_block(&model.blocks, id).map(|b| {
-                            matches!(&b.kind, BlockKind::Paragraph(t) if t.text().is_empty())
-                        })
+                        edit::find_block(&model.blocks, id).map(
+                            |b| matches!(&b.kind, BlockKind::Paragraph(t) if t.text().is_empty()),
+                        )
                     });
                     match (anchor, reuse) {
                         (Some(id), Some(true)) => Some(id),
                         (Some(id), _) => {
                             let new_id = model.alloc_id();
-                            let par = DocBlock::new(new_id, BlockKind::Paragraph(InlineText::default()));
+                            let par =
+                                DocBlock::new(new_id, BlockKind::Paragraph(InlineText::default()));
                             let mut slot = Some(par);
                             edit::with_siblings(&mut model.blocks, id, &mut |sibs, idx| {
                                 if let Some(p) = slot.take() {
@@ -1330,7 +1421,10 @@ impl DocumentEditorElement {
                     if let Some(anchor) = anchor {
                         self.pin_below(anchor, id);
                     }
-                    self.selection = Some(DocSelection::caret(CaretPos { block: id, offset: 0 }));
+                    self.selection = Some(DocSelection::caret(CaretPos {
+                        block: id,
+                        offset: 0,
+                    }));
                     self.table_caret = None;
                     self.code_caret = None;
                     self.apply_action(action);
@@ -1453,10 +1547,16 @@ impl DocumentEditorElement {
     fn caret_to_last_block(&mut self) {
         let target = {
             let model = self.model();
-            model.blocks.last().map(|b| (b.id, edit::block_text_len(&model, b.id)))
+            model
+                .blocks
+                .last()
+                .map(|b| (b.id, edit::block_text_len(&model, b.id)))
         };
         if let Some((id, len)) = target {
-            self.selection = Some(DocSelection::caret(CaretPos { block: id, offset: len }));
+            self.selection = Some(DocSelection::caret(CaretPos {
+                block: id,
+                offset: len,
+            }));
         }
     }
 
@@ -1486,12 +1586,16 @@ impl DocumentEditorElement {
     fn caret_into(&mut self, id: super::model::BlockId) {
         let kind = {
             let model = self.model();
-            model.blocks.iter().find(|b| b.id == id).map(|b| match &b.kind {
-                BlockKind::Table { .. } => 1u8,
-                BlockKind::CodeBlock { .. } => 2,
-                k if k.text().is_some() => 3,
-                _ => 0,
-            })
+            model
+                .blocks
+                .iter()
+                .find(|b| b.id == id)
+                .map(|b| match &b.kind {
+                    BlockKind::Table { .. } => 1u8,
+                    BlockKind::CodeBlock { .. } => 2,
+                    k if k.text().is_some() => 3,
+                    _ => 0,
+                })
         };
         self.selection = None;
         self.table_caret = None;
@@ -1501,14 +1605,25 @@ impl DocumentEditorElement {
         match kind {
             Some(1) => {
                 self.table_anchor = None;
-                self.table_caret = Some(TableCaret { block: id, row: 0, col: 0, offset: 0 });
+                self.table_caret = Some(TableCaret {
+                    block: id,
+                    row: 0,
+                    col: 0,
+                    offset: 0,
+                });
             }
             Some(2) => {
                 self.code_anchor = None;
-                self.code_caret = Some(CodeCaret { block: id, offset: 0 });
+                self.code_caret = Some(CodeCaret {
+                    block: id,
+                    offset: 0,
+                });
             }
             Some(3) => {
-                self.selection = Some(DocSelection::caret(CaretPos { block: id, offset: 0 }))
+                self.selection = Some(DocSelection::caret(CaretPos {
+                    block: id,
+                    offset: 0,
+                }))
             }
             // Фигура и разделитель: каретке некуда встать — блок просто
             // становится текущим.
@@ -1529,14 +1644,20 @@ impl DocumentEditorElement {
         at: Option<Point>,
         anchor: Option<super::model::BlockId>,
     ) {
-        let mut fresh: Vec<super::model::BlockId> =
-            self.top_ids().into_iter().filter(|id| !before.contains(id)).collect();
+        let mut fresh: Vec<super::model::BlockId> = self
+            .top_ids()
+            .into_iter()
+            .filter(|id| !before.contains(id))
+            .collect();
         // Пустые параграфы вокруг — служебные: свой каркас до действия и
         // «строка после» от шорткатов кода и разделителя. Если действие
         // дало настоящий блок, они только мусорят на холсте.
         if fresh.iter().any(|id| !self.is_empty_paragraph(*id)) {
-            let junk: Vec<super::model::BlockId> =
-                fresh.iter().copied().filter(|id| self.is_empty_paragraph(*id)).collect();
+            let junk: Vec<super::model::BlockId> = fresh
+                .iter()
+                .copied()
+                .filter(|id| self.is_empty_paragraph(*id))
+                .collect();
             for id in &junk {
                 self.remove_top_block(*id);
             }
@@ -1563,11 +1684,17 @@ impl DocumentEditorElement {
         let id = {
             let mut model = self.model();
             let id = model.alloc_id();
-            model.blocks.push(DocBlock::new(id, BlockKind::Paragraph(InlineText::default())));
+            model.blocks.push(DocBlock::new(
+                id,
+                BlockKind::Paragraph(InlineText::default()),
+            ));
             id
         };
         self.place_free_block(id, at);
-        self.selection = Some(DocSelection::caret(CaretPos { block: id, offset: 0 }));
+        self.selection = Some(DocSelection::caret(CaretPos {
+            block: id,
+            offset: 0,
+        }));
         self.table_caret = None;
         self.code_caret = None;
         self.apply_action(action);
@@ -1593,7 +1720,10 @@ impl DocumentEditorElement {
         if let Some((id, has_text)) = first {
             self.place_free_block(id, at);
             if has_text {
-                self.selection = Some(DocSelection::caret(CaretPos { block: id, offset: 0 }));
+                self.selection = Some(DocSelection::caret(CaretPos {
+                    block: id,
+                    offset: 0,
+                }));
             }
         }
         self.after_edit();
@@ -1617,7 +1747,8 @@ impl DocumentEditorElement {
             let inserted = anchor.and_then(|id| {
                 edit::with_siblings(&mut model.blocks, id, &mut |sibs, idx| {
                     let Some(blocks) = slot.take() else { return };
-                    let empty_par = matches!(&sibs[idx].kind, BlockKind::Paragraph(t) if t.text().is_empty());
+                    let empty_par =
+                        matches!(&sibs[idx].kind, BlockKind::Paragraph(t) if t.text().is_empty());
                     let at = if empty_par {
                         sibs.remove(idx);
                         idx
@@ -1641,7 +1772,10 @@ impl DocumentEditorElement {
                 self.pin_below(anchor, id);
             }
             if has_text {
-                self.selection = Some(DocSelection::caret(CaretPos { block: id, offset: 0 }));
+                self.selection = Some(DocSelection::caret(CaretPos {
+                    block: id,
+                    offset: 0,
+                }));
             }
         }
         self.after_edit();
@@ -1657,7 +1791,10 @@ impl DocumentEditorElement {
     }
 
     fn duplicate_current(&mut self) {
-        let Some(pos) = self.target_block().map(|(block, offset)| CaretPos { block, offset }) else {
+        let Some(pos) = self
+            .target_block()
+            .map(|(block, offset)| CaretPos { block, offset })
+        else {
             return;
         };
         self.checkpoint(EditClass::Structure);
@@ -1690,16 +1827,22 @@ impl DocumentEditorElement {
             }
         }
         let len = edit::block_text_len(&self.model(), new_id);
-        self.selection =
-            Some(DocSelection::caret(CaretPos { block: new_id, offset: pos.offset.min(len) }));
+        self.selection = Some(DocSelection::caret(CaretPos {
+            block: new_id,
+            offset: pos.offset.min(len),
+        }));
         self.after_edit();
     }
 
     /// Хост забирает блок себе (дроп в карточку доски): `true` — блок
     /// удалён из документа.
     fn host_took_block(&mut self, at: Point, block: super::model::BlockId) -> bool {
-        let Some(cb) = self.on_block_drop.clone() else { return false };
-        let Some(top) = self.top_level_of(block) else { return false };
+        let Some(cb) = self.on_block_drop.clone() else {
+            return false;
+        };
+        let Some(top) = self.top_level_of(block) else {
+            return false;
+        };
         if !cb(at, top) {
             return false;
         }
@@ -1719,7 +1862,10 @@ impl DocumentEditorElement {
             .is_some();
             if removed && model.blocks.is_empty() {
                 let nid = model.alloc_id();
-                model.blocks.push(DocBlock::new(nid, BlockKind::Paragraph(InlineText::default())));
+                model.blocks.push(DocBlock::new(
+                    nid,
+                    BlockKind::Paragraph(InlineText::default()),
+                ));
             }
             removed
         };
@@ -1727,13 +1873,28 @@ impl DocumentEditorElement {
             self.history().discard_last_checkpoint();
             return;
         }
-        if self.selection.as_ref().map(|s| s.head.block == id || s.anchor.block == id).unwrap_or(false) {
+        if self
+            .selection
+            .as_ref()
+            .map(|s| s.head.block == id || s.anchor.block == id)
+            .unwrap_or(false)
+        {
             self.selection = None;
         }
-        if self.table_caret.as_ref().map(|t| t.block == id).unwrap_or(false) {
+        if self
+            .table_caret
+            .as_ref()
+            .map(|t| t.block == id)
+            .unwrap_or(false)
+        {
             self.table_caret = None;
         }
-        if self.code_caret.as_ref().map(|c| c.block == id).unwrap_or(false) {
+        if self
+            .code_caret
+            .as_ref()
+            .map(|c| c.block == id)
+            .unwrap_or(false)
+        {
             self.code_caret = None;
         }
         if self.object_sel == Some(id) {
@@ -1760,7 +1921,10 @@ impl DocumentEditorElement {
     }
 
     fn delete_current(&mut self) {
-        let Some(pos) = self.target_block().map(|(block, offset)| CaretPos { block, offset }) else {
+        let Some(pos) = self
+            .target_block()
+            .map(|(block, offset)| CaretPos { block, offset })
+        else {
             return;
         };
         self.checkpoint(EditClass::Structure);
@@ -1777,7 +1941,10 @@ impl DocumentEditorElement {
             .flatten();
             if model.blocks.is_empty() {
                 let id = model.alloc_id();
-                model.blocks.push(DocBlock::new(id, BlockKind::Paragraph(InlineText::default())));
+                model.blocks.push(DocBlock::new(
+                    id,
+                    BlockKind::Paragraph(InlineText::default()),
+                ));
                 Some(id)
             } else {
                 neighbour
@@ -1785,16 +1952,26 @@ impl DocumentEditorElement {
         };
         self.selection = next.and_then(|id| {
             let model = self.model();
-            let has_text = edit::find_block(&model.blocks, id).and_then(|b| b.kind.text()).is_some();
+            let has_text = edit::find_block(&model.blocks, id)
+                .and_then(|b| b.kind.text())
+                .is_some();
             let len = edit::block_text_len(&model, id);
-            has_text.then(|| DocSelection::caret(CaretPos { block: id, offset: len }))
+            has_text.then(|| {
+                DocSelection::caret(CaretPos {
+                    block: id,
+                    offset: len,
+                })
+            })
         });
         self.table_caret = None;
         self.after_edit();
     }
 
     fn move_current(&mut self, down: bool) {
-        let Some(pos) = self.target_block().map(|(block, offset)| CaretPos { block, offset }) else {
+        let Some(pos) = self
+            .target_block()
+            .map(|(block, offset)| CaretPos { block, offset })
+        else {
             return;
         };
         self.checkpoint(EditClass::Structure);
@@ -1867,11 +2044,7 @@ impl DocumentEditorElement {
     }
 
     /// Переключение инлайн-стиля выделения (тулбар и Ctrl+B/I/E/Shift+S).
-    fn toggle_inline(
-        &mut self,
-        pred: fn(&InlineStyle) -> bool,
-        apply: fn(&mut InlineStyle, bool),
-    ) {
+    fn toggle_inline(&mut self, pred: fn(&InlineStyle) -> bool, apply: fn(&mut InlineStyle, bool)) {
         let Some(sel) = self.selection else { return };
         if sel.is_caret() {
             return;
@@ -1880,7 +2053,9 @@ impl DocumentEditorElement {
         let mut model = self.model();
         let order = BlockOrder::of(&model);
         let (start, end) = sel.ordered(&order);
-        let (Some(si), Some(ei)) = (order.idx(start.block), order.idx(end.block)) else { return };
+        let (Some(si), Some(ei)) = (order.idx(start.block), order.idx(end.block)) else {
+            return;
+        };
 
         let portion = |model: &DocModel, i: usize| -> (usize, usize) {
             let id = order.ids[i];
@@ -1953,7 +2128,9 @@ impl DocumentEditorElement {
     }
 
     fn publish_block_sel(&mut self) {
-        let Some(sig) = self.block_sel_sig else { return };
+        let Some(sig) = self.block_sel_sig else {
+            return;
+        };
         if sig.get_untracked() != self.block_sel {
             sig.set(self.block_sel.clone());
         }
@@ -1979,8 +2156,11 @@ impl DocumentEditorElement {
     /// чужие id отбрасываются). Каретка и выбор объекта снимаются —
     /// выделение блоков живёт отдельным режимом.
     fn select_blocks(&mut self, ids: Vec<super::model::BlockId>) {
-        let sel: Vec<super::model::BlockId> =
-            self.top_order().into_iter().filter(|id| ids.contains(id)).collect();
+        let sel: Vec<super::model::BlockId> = self
+            .top_order()
+            .into_iter()
+            .filter(|id| ids.contains(id))
+            .collect();
         if !sel.is_empty() {
             self.selection = None;
             self.table_caret = None;
@@ -2017,10 +2197,14 @@ impl DocumentEditorElement {
     /// Shift+клик: диапазон от якоря до блока в порядке документа.
     fn select_block_range(&mut self, to: super::model::BlockId) {
         let order = self.top_order();
-        let from = self.block_anchor.or_else(|| self.block_sel.first().copied()).unwrap_or(to);
-        let (Some(a), Some(b)) =
-            (order.iter().position(|x| *x == from), order.iter().position(|x| *x == to))
-        else {
+        let from = self
+            .block_anchor
+            .or_else(|| self.block_sel.first().copied())
+            .unwrap_or(to);
+        let (Some(a), Some(b)) = (
+            order.iter().position(|x| *x == from),
+            order.iter().position(|x| *x == to),
+        ) else {
             self.select_blocks(vec![to]);
             return;
         };
@@ -2031,8 +2215,13 @@ impl DocumentEditorElement {
 
     /// Блоки, которых касается прямоугольник рамки.
     fn blocks_in_rect(&self, r: Rect) -> Vec<super::model::BlockId> {
-        let Ok(map) = self.blocks.lock() else { return Vec::new() };
-        map.iter().filter(|(_, b)| rects_intersect(r, **b)).map(|(id, _)| *id).collect()
+        let Ok(map) = self.blocks.lock() else {
+            return Vec::new();
+        };
+        map.iter()
+            .filter(|(_, b)| rects_intersect(r, **b))
+            .map(|(id, _)| *id)
+            .collect()
     }
 
     /// Markdown блоков для буфера: выделенные, без выделения — текущий
@@ -2041,7 +2230,10 @@ impl DocumentEditorElement {
         let ids: Vec<super::model::BlockId> = if !self.block_sel.is_empty() {
             self.block_sel.clone()
         } else {
-            self.target_block().and_then(|(b, _)| self.top_level_of(b)).into_iter().collect()
+            self.target_block()
+                .and_then(|(b, _)| self.top_level_of(b))
+                .into_iter()
+                .collect()
         };
         if ids.is_empty() {
             return None;
@@ -2060,13 +2252,17 @@ impl DocumentEditorElement {
     }
 
     fn copy_blocks(&mut self) -> bool {
-        let Some((_, md)) = self.selection_blocks_markdown() else { return false };
+        let Some((_, md)) = self.selection_blocks_markdown() else {
+            return false;
+        };
         crate::clipboard::copy(&md);
         true
     }
 
     fn cut_blocks(&mut self) {
-        let Some((ids, md)) = self.selection_blocks_markdown() else { return };
+        let Some((ids, md)) = self.selection_blocks_markdown() else {
+            return;
+        };
         crate::clipboard::copy(&md);
         self.delete_blocks(ids);
     }
@@ -2080,11 +2276,18 @@ impl DocumentEditorElement {
         self.checkpoint(EditClass::Structure);
         let next = {
             let mut model = self.model();
-            let first_idx = model.blocks.iter().position(|b| ids.contains(&b.id)).unwrap_or(0);
+            let first_idx = model
+                .blocks
+                .iter()
+                .position(|b| ids.contains(&b.id))
+                .unwrap_or(0);
             model.blocks.retain(|b| !ids.contains(&b.id));
             if model.blocks.is_empty() {
                 let id = model.alloc_id();
-                model.blocks.push(DocBlock::new(id, BlockKind::Paragraph(InlineText::default())));
+                model.blocks.push(DocBlock::new(
+                    id,
+                    BlockKind::Paragraph(InlineText::default()),
+                ));
             }
             let idx = first_idx.saturating_sub(1).min(model.blocks.len() - 1);
             model.blocks[idx].id
@@ -2095,7 +2298,10 @@ impl DocumentEditorElement {
         self.caret_into(next);
         if let Some(sel) = self.selection {
             let len = edit::block_text_len(&self.model(), sel.head.block);
-            self.selection = Some(DocSelection::caret(CaretPos { block: sel.head.block, offset: len }));
+            self.selection = Some(DocSelection::caret(CaretPos {
+                block: sel.head.block,
+                offset: len,
+            }));
         }
         self.after_edit();
     }
@@ -2116,7 +2322,9 @@ impl DocumentEditorElement {
 
     /// Вставка из буфера: после выделенных блоков, иначе как Ctrl+V.
     fn paste_blocks(&mut self) {
-        let Some(text) = crate::clipboard::paste() else { return };
+        let Some(text) = crate::clipboard::paste() else {
+            return;
+        };
         if text.trim().is_empty() {
             return;
         }
@@ -2138,8 +2346,12 @@ impl DocumentEditorElement {
 
     /// X-координата смещения внутри строки (относительно origin строки).
     fn x_of_offset(&self, row: &RowGeom, line_idx: usize, offset: usize) -> f32 {
-        let Some(line) = row.lines.get(line_idx) else { return row.gutter };
-        let Some(tm) = self.tm.as_deref() else { return row.gutter };
+        let Some(line) = row.lines.get(line_idx) else {
+            return row.gutter;
+        };
+        let Some(tm) = self.tm.as_deref() else {
+            return row.gutter;
+        };
         for seg in &line.segs {
             if offset <= seg.abs_start {
                 return seg.x;
@@ -2156,7 +2368,10 @@ impl DocumentEditorElement {
                     );
             }
         }
-        line.segs.last().map(|s| s.x + s.width).unwrap_or(row.gutter)
+        line.segs
+            .last()
+            .map(|s| s.x + s.width)
+            .unwrap_or(row.gutter)
     }
 
     /// Прямоугольник каретки в абсолютных координатах.
@@ -2215,7 +2430,10 @@ impl DocumentEditorElement {
                     .nth(ci)
                     .map(|(b, _)| b)
                     .unwrap_or(seg.text.len());
-                return Some(CaretPos { block, offset: seg.abs_start + byte });
+                return Some(CaretPos {
+                    block,
+                    offset: seg.abs_start + byte,
+                });
             }
             offset = seg.abs_end();
         }
@@ -2261,7 +2479,10 @@ impl DocumentEditorElement {
         self.object_sel = None;
         self.drop_block_sel();
         self.selection = Some(match (self.selection, extend) {
-            (Some(sel), true) => DocSelection { anchor: sel.anchor, head: pos },
+            (Some(sel), true) => DocSelection {
+                anchor: sel.anchor,
+                head: pos,
+            },
             _ => DocSelection::caret(pos),
         });
         self.caret_on = true;
@@ -2280,16 +2501,28 @@ impl DocumentEditorElement {
             .unwrap_or_default();
         let new = if dir < 0 {
             if pos.offset > 0 {
-                CaretPos { block: pos.block, offset: edit::prev_char_boundary(&text, pos.offset) }
+                CaretPos {
+                    block: pos.block,
+                    offset: edit::prev_char_boundary(&text, pos.offset),
+                }
             } else if let Some(prev) = order.prev(pos.block) {
-                CaretPos { block: prev, offset: edit::block_text_len(&model, prev) }
+                CaretPos {
+                    block: prev,
+                    offset: edit::block_text_len(&model, prev),
+                }
             } else {
                 pos
             }
         } else if pos.offset < text.len() {
-            CaretPos { block: pos.block, offset: edit::next_char_boundary(&text, pos.offset) }
+            CaretPos {
+                block: pos.block,
+                offset: edit::next_char_boundary(&text, pos.offset),
+            }
         } else if let Some(next) = order.next(pos.block) {
-            CaretPos { block: next, offset: 0 }
+            CaretPos {
+                block: next,
+                offset: 0,
+            }
         } else {
             pos
         };
@@ -2300,7 +2533,9 @@ impl DocumentEditorElement {
 
     fn move_vertical(&mut self, dir: i32, extend: bool) {
         let Some(pos) = self.caret() else { return };
-        let Some(rect) = self.caret_rect(pos) else { return };
+        let Some(rect) = self.caret_rect(pos) else {
+            return;
+        };
         let goal_x = self.goal_x.unwrap_or(rect.origin.x);
         self.goal_x = Some(goal_x);
 
@@ -2320,15 +2555,20 @@ impl DocumentEditorElement {
             } else if dir > 0 && line_idx + 1 < lines_n {
                 Some((pos.block, line_idx + 1))
             } else {
-                let neighbor =
-                    if dir < 0 { order.prev(pos.block) } else { order.next(pos.block) };
+                let neighbor = if dir < 0 {
+                    order.prev(pos.block)
+                } else {
+                    order.next(pos.block)
+                };
                 neighbor.map(|nb| {
                     let n_lines = map.get(&nb).map(|r| r.lines.len().max(1)).unwrap_or(1);
                     (nb, if dir < 0 { n_lines - 1 } else { 0 })
                 })
             }
         };
-        let Some((block, line_idx)) = target else { return };
+        let Some((block, line_idx)) = target else {
+            return;
+        };
         // Смещение в целевой строке по goal_x.
         let new = {
             let map = match self.geom.lock() {
@@ -2336,7 +2576,8 @@ impl DocumentEditorElement {
                 Err(_) => return,
             };
             let Some(row) = map.get(&block) else { return };
-            let y = row.origin.y + row.lines.get(line_idx).map(|l| l.y).unwrap_or(0.0)
+            let y = row.origin.y
+                + row.lines.get(line_idx).map(|l| l.y).unwrap_or(0.0)
                 + row.line_h / 2.0;
             Point::new(goal_x, y)
         };
@@ -2351,9 +2592,13 @@ impl DocumentEditorElement {
             Ok(m) => m,
             Err(_) => return,
         };
-        let Some(row) = map.get(&pos.block) else { return };
+        let Some(row) = map.get(&pos.block) else {
+            return;
+        };
         let li = row.line_of_offset(pos.offset);
-        let Some(line) = row.lines.get(li) else { return };
+        let Some(line) = row.lines.get(li) else {
+            return;
+        };
         let offset = if end {
             line.segs.last().map(|s| s.abs_end()).unwrap_or(0)
         } else {
@@ -2361,16 +2606,30 @@ impl DocumentEditorElement {
         };
         drop(map);
         self.goal_x = None;
-        self.set_caret(CaretPos { block: pos.block, offset }, extend);
+        self.set_caret(
+            CaretPos {
+                block: pos.block,
+                offset,
+            },
+            extend,
+        );
     }
 
     fn select_all(&mut self) {
         let model = self.model();
         let order = BlockOrder::of(&model);
-        let (Some(first), Some(last)) = (order.ids.first(), order.ids.last()) else { return };
+        let (Some(first), Some(last)) = (order.ids.first(), order.ids.last()) else {
+            return;
+        };
         let sel = DocSelection {
-            anchor: CaretPos { block: *first, offset: 0 },
-            head: CaretPos { block: *last, offset: edit::block_text_len(&model, *last) },
+            anchor: CaretPos {
+                block: *first,
+                offset: 0,
+            },
+            head: CaretPos {
+                block: *last,
+                offset: edit::block_text_len(&model, *last),
+            },
         };
         drop(model);
         self.selection = Some(sel);
@@ -2380,7 +2639,9 @@ impl DocumentEditorElement {
 
     /// Плоский текст выделения (для клипборда).
     fn selection_text(&self) -> String {
-        let Some(sel) = self.selection else { return String::new() };
+        let Some(sel) = self.selection else {
+            return String::new();
+        };
         if sel.is_caret() {
             return String::new();
         }
@@ -2397,8 +2658,16 @@ impl DocumentEditorElement {
                 .and_then(|b| b.kind.text())
                 .map(|t| t.text())
                 .unwrap_or_default();
-            let lo = if i == si { start.offset.min(text.len()) } else { 0 };
-            let hi = if i == ei { end.offset.min(text.len()) } else { text.len() };
+            let lo = if i == si {
+                start.offset.min(text.len())
+            } else {
+                0
+            };
+            let hi = if i == ei {
+                end.offset.min(text.len())
+            } else {
+                text.len()
+            };
             if i > si {
                 out.push('\n');
             }
@@ -2410,7 +2679,9 @@ impl DocumentEditorElement {
     // ─── Правки ─────────────────────────────────────────────────────────────
 
     fn delete_selection_if_any(&mut self) -> bool {
-        let Some(sel) = self.selection else { return false };
+        let Some(sel) = self.selection else {
+            return false;
+        };
         if sel.is_caret() {
             return false;
         }
@@ -2467,7 +2738,10 @@ impl DocumentEditorElement {
             {
                 edit::text_delete(t, start, pos.offset);
             }
-            CaretPos { block: pos.block, offset: start }
+            CaretPos {
+                block: pos.block,
+                offset: start,
+            }
         };
         drop(model);
         self.selection = Some(DocSelection::caret(new));
@@ -2527,7 +2801,9 @@ impl DocumentEditorElement {
         let order = BlockOrder::of(&model);
         drop(model);
         let (start, end) = sel.ordered(&order);
-        let (Some(si), Some(ei)) = (order.idx(start.block), order.idx(end.block)) else { return };
+        let (Some(si), Some(ei)) = (order.idx(start.block), order.idx(end.block)) else {
+            return;
+        };
         let Ok(map) = self.geom.lock() else { return };
 
         for i in si..=ei {
@@ -2537,7 +2813,11 @@ impl DocumentEditorElement {
             let block_end = if i == ei {
                 end.offset
             } else {
-                row.lines.last().and_then(|l| l.segs.last()).map(|s| s.abs_end()).unwrap_or(0)
+                row.lines
+                    .last()
+                    .and_then(|l| l.segs.last())
+                    .map(|s| s.abs_end())
+                    .unwrap_or(0)
             };
             for (li, line) in row.lines.iter().enumerate() {
                 let (Some(first), Some(last)) = (line.segs.first(), line.segs.last()) else {
@@ -2574,9 +2854,7 @@ fn estimate_height(block: &DocBlock, style: &DocStyle) -> f32 {
             shape::line_box(&block.attrs, *shape).height
         }
         BlockKind::Shape { .. } => shape::height_of(&block.attrs),
-        BlockKind::Media { .. } => {
-            free::height_of(&block.attrs).unwrap_or(220.0)
-        }
+        BlockKind::Media { .. } => free::height_of(&block.attrs).unwrap_or(220.0),
         BlockKind::Divider => 17.0,
         BlockKind::Embed { .. } => free::height_of(&block.attrs).unwrap_or(200.0),
         BlockKind::Table { rows, .. } => (rows.len() as f32 + 1.0) * 30.0,
@@ -2611,7 +2889,9 @@ impl DocumentEditorElement {
         // страницу, которой ещё не касались мышью, закреплять незачем.
         let anchor_width = {
             let model = self.model();
-            let Some(b) = model.blocks.iter().find(|b| b.id == top_anchor) else { return };
+            let Some(b) = model.blocks.iter().find(|b| b.id == top_anchor) else {
+                return;
+            };
             if free::pos_of(&b.attrs).is_none() {
                 return;
             }
@@ -2620,7 +2900,9 @@ impl DocumentEditorElement {
         let (x, y) = self.free_column_end();
         let width = anchor_width.unwrap_or(self.layout.block_width);
         let mut model = self.model();
-        let Some(b) = model.blocks.iter_mut().find(|b| b.id == top_block) else { return };
+        let Some(b) = model.blocks.iter_mut().find(|b| b.id == top_block) else {
+            return;
+        };
         if free::pos_of(&b.attrs).is_none() {
             free::set_pos(&mut b.attrs, x, y);
             free::set_width(&mut b.attrs, width);
@@ -2635,7 +2917,9 @@ impl DocumentEditorElement {
         let mut left = f32::INFINITY;
         let mut bottom = f32::NEG_INFINITY;
         for b in model.blocks.iter() {
-            let Some((x, y)) = free::pos_of(&b.attrs) else { continue };
+            let Some((x, y)) = free::pos_of(&b.attrs) else {
+                continue;
+            };
             let h = self
                 .block_rect(b.id)
                 .map(|r| r.size.height)
@@ -2653,7 +2937,9 @@ impl DocumentEditorElement {
     fn place_free_block(&mut self, id: super::model::BlockId, at: Point) {
         let width = self.layout.block_width;
         let mut model = self.model();
-        let Some(b) = model.blocks.iter_mut().find(|b| b.id == id) else { return };
+        let Some(b) = model.blocks.iter_mut().find(|b| b.id == id) else {
+            return;
+        };
         free::set_pos(&mut b.attrs, at.x.max(0.0), at.y.max(0.0));
         if free::width_of(&b.attrs).is_none() {
             // Фигура шире колонки текста смотрелась бы нелепо: у неё свои
@@ -2676,7 +2962,11 @@ impl DocumentEditorElement {
             if block.id == id {
                 return true;
             }
-            block.kind.children().map(|cs| cs.iter().any(|c| has(c, id))).unwrap_or(false)
+            block
+                .kind
+                .children()
+                .map(|cs| cs.iter().any(|c| has(c, id)))
+                .unwrap_or(false)
         }
         model.blocks.iter().find(|b| has(b, id)).map(|b| b.id)
     }
@@ -2694,7 +2984,8 @@ impl DocumentEditorElement {
             Some((x, y, w)) => Some((
                 x,
                 y,
-                w.or_else(|| rect.map(|r| r.size.width)).unwrap_or(self.layout.block_width),
+                w.or_else(|| rect.map(|r| r.size.width))
+                    .unwrap_or(self.layout.block_width),
             )),
             None => {
                 let r = rect?;
@@ -2722,8 +3013,10 @@ impl DocumentEditorElement {
             .filter(|b| free::pos_of(&b.attrs).is_none())
             .map(|b| b.id)
             .collect();
-        let ids: Vec<super::model::BlockId> =
-            unpinned.into_iter().filter(|id| self.block_rect(*id).is_some()).collect();
+        let ids: Vec<super::model::BlockId> = unpinned
+            .into_iter()
+            .filter(|id| self.block_rect(*id).is_some())
+            .collect();
         if ids.is_empty() {
             return;
         }
@@ -2759,9 +3052,10 @@ impl DocumentEditorElement {
     fn is_sized_embed(&self, block: super::model::BlockId) -> bool {
         let model = self.model();
         match model.blocks.iter().find(|b| b.id == block).map(|b| &b.kind) {
-            Some(BlockKind::Embed { target }) => {
-                self.embeds.as_ref().is_some_and(|f| f.has_own_height(target))
-            }
+            Some(BlockKind::Embed { target }) => self
+                .embeds
+                .as_ref()
+                .is_some_and(|f| f.has_own_height(target)),
             _ => false,
         }
     }
@@ -2777,9 +3071,10 @@ impl DocumentEditorElement {
                 matches!(media, super::model::MediaKind::Image)
             }
             // Врезка со своей высотой (доска, диаграмма) — решает хост.
-            Some(BlockKind::Embed { target }) => {
-                self.embeds.as_ref().is_some_and(|f| f.has_own_height(target))
-            }
+            Some(BlockKind::Embed { target }) => self
+                .embeds
+                .as_ref()
+                .is_some_and(|f| f.has_own_height(target)),
             _ => false,
         }
     }
@@ -2845,7 +3140,9 @@ impl DocumentEditorElement {
         let model = self.model();
         let mut hit: Option<(super::model::BlockId, bool)> = None;
         for b in model.blocks.iter() {
-            let Some(rect) = rects.get(&b.id) else { continue };
+            let Some(rect) = rects.get(&b.id) else {
+                continue;
+            };
             if !rect.contains(p) {
                 continue;
             }
@@ -2867,7 +3164,10 @@ impl DocumentEditorElement {
                 // Врезка со своей высотой (доска, диаграмма): клик по её
                 // пустому месту делает блок текущим — панель свойств и
                 // хваталки размера; клики по её виджетам до сюда не доходят.
-                let own = self.embeds.as_ref().is_some_and(|f| f.has_own_height(target));
+                let own = self
+                    .embeds
+                    .as_ref()
+                    .is_some_and(|f| f.has_own_height(target));
                 hit = Some((b.id, own));
             } else {
                 hit = Some((b.id, false));
@@ -2935,11 +3235,18 @@ impl DocumentEditorElement {
     }
 
     /// Начать перенос (или растяжение) блока по холсту.
-    fn start_free_drag(&mut self, block: super::model::BlockId, at: Point, mode: FreeDragMode) -> bool {
+    fn start_free_drag(
+        &mut self,
+        block: super::model::BlockId,
+        at: Point,
+        mode: FreeDragMode,
+    ) -> bool {
         if !self.layout.free {
             return false;
         }
-        let Some(top) = self.top_level_of(block) else { return false };
+        let Some(top) = self.top_level_of(block) else {
+            return false;
+        };
         self.checkpoint(EditClass::Structure);
         // Блок мог ещё стоять в потоке — закрепляем его ровно там, где он
         // сейчас нарисован, иначе перенос начинался бы со скачка.
@@ -2949,7 +3256,10 @@ impl DocumentEditorElement {
         };
         self.free_drag = Some(FreeDrag {
             block: top,
-            grab: Point::new(at.x - (self.bounds.origin.x + x), at.y - (self.bounds.origin.y + y)),
+            grab: Point::new(
+                at.x - (self.bounds.origin.x + x),
+                at.y - (self.bounds.origin.y + y),
+            ),
             mode,
             start_width: width,
             moved: false,
@@ -2961,10 +3271,19 @@ impl DocumentEditorElement {
     /// Объявить перенос блока drag'ом дерева (если хост задал тип): payload
     /// — id блока, призрака нет — блок и так виден (едет живьём на холсте,
     /// в потоке — свой ghost).
-    fn announce_block_drag(&self, block: super::model::BlockId, at: Point, ctx: &mut EventContext) -> bool {
-        let Some(t) = self.block_drag_type.clone() else { return false };
+    fn announce_block_drag(
+        &self,
+        block: super::model::BlockId,
+        at: Point,
+        ctx: &mut EventContext,
+    ) -> bool {
+        let Some(t) = self.block_drag_type.clone() else {
+            return false;
+        };
         ctx.cursor_position = at;
-        ctx.start_drag(crate::input::DragData::new(t, block.0.to_string(), self.id.0).without_ghost());
+        ctx.start_drag(
+            crate::input::DragData::new(t, block.0.to_string(), self.id.0).without_ghost(),
+        );
         true
     }
 
@@ -3014,7 +3333,9 @@ impl DocumentEditorElement {
         let layout = self.layout;
         let changed = {
             let mut model = self.model();
-            let Some(b) = model.blocks.iter_mut().find(|b| b.id == block) else { return };
+            let Some(b) = model.blocks.iter_mut().find(|b| b.id == block) else {
+                return;
+            };
             let (bx, by) = free::pos_of(&b.attrs).unwrap_or((0.0, 0.0));
             match mode {
                 FreeDragMode::Move => {
@@ -3067,7 +3388,9 @@ impl DocumentEditorElement {
                         .iter()
                         .map(|p| (bx + p.0 - minx + pad, by + p.1 - miny + pad))
                         .collect();
-                    let Some(slot) = abs.get_mut(index) else { return };
+                    let Some(slot) = abs.get_mut(index) else {
+                        return;
+                    };
                     *slot = (
                         layout.snapped(at.x - origin.x).max(0.0),
                         layout.snapped(at.y - origin.y).max(0.0),
@@ -3076,11 +3399,8 @@ impl DocumentEditorElement {
                         (acc.0.min(p.0), acc.1.min(p.1))
                     });
                     let pos = ((nx - pad).max(0.0), (ny - pad).max(0.0));
-                    let local: Vec<(f32, f32)> =
-                        abs.iter().map(|p| (p.0 - nx, p.1 - ny)).collect();
-                    let same = local == pts
-                        && (bx - pos.0).abs() < 0.5
-                        && (by - pos.1).abs() < 0.5;
+                    let local: Vec<(f32, f32)> = abs.iter().map(|p| (p.0 - nx, p.1 - ny)).collect();
+                    let same = local == pts && (bx - pos.0).abs() < 0.5 && (by - pos.1).abs() < 0.5;
                     if !same {
                         free::set_pos(&mut b.attrs, pos.0, pos.1);
                         shape::set_endpoints(&mut b.attrs, local[0], local[1]);
@@ -3121,12 +3441,18 @@ impl DocumentEditorElement {
         // Доска и диаграмма — самостоятельные объекты со своим оформлением:
         // ни подсветки под курсором, ни рамки выбора вокруг них.
         let plain = |id: super::model::BlockId| self.is_sized_embed(id);
-        if let Some(block) = self.hover_block.filter(|b| Some(*b) != current && !plain(*b)) {
+        if let Some(block) = self
+            .hover_block
+            .filter(|b| Some(*b) != current && !plain(*b))
+        {
             if let Some(rect) = self.block_rect(block) {
                 list.push_rect(inflate(rect), self.style.block_hover_color, [4.0; 4]);
             }
         }
-        if let Some(rect) = current.filter(|id| !plain(*id)).and_then(|id| self.block_rect(id)) {
+        if let Some(rect) = current
+            .filter(|id| !plain(*id))
+            .and_then(|id| self.block_rect(id))
+        {
             for edge in edges(inflate(rect)) {
                 list.push_rect(edge, self.style.block_selected_color, [0.0; 4]);
             }
@@ -3158,7 +3484,10 @@ impl DocumentEditorElement {
                 for i in 0..nx {
                     let x = first_x + i as f32 * step;
                     list.push_rect(
-                        Rect::new(Point::new(x, area.origin.y), Size::new(1.0, area.size.height)),
+                        Rect::new(
+                            Point::new(x, area.origin.y),
+                            Size::new(1.0, area.size.height),
+                        ),
                         color,
                         [0.0; 4],
                     );
@@ -3166,7 +3495,10 @@ impl DocumentEditorElement {
                 for j in 0..ny {
                     let y = first_y + j as f32 * step;
                     list.push_rect(
-                        Rect::new(Point::new(area.origin.x, y), Size::new(area.size.width, 1.0)),
+                        Rect::new(
+                            Point::new(area.origin.x, y),
+                            Size::new(area.size.width, 1.0),
+                        ),
                         color,
                         [0.0; 4],
                     );
@@ -3213,7 +3545,10 @@ fn intersect(a: Rect, b: Rect) -> Rect {
     let y0 = a.origin.y.max(b.origin.y);
     let x1 = (a.origin.x + a.size.width).min(b.origin.x + b.size.width);
     let y1 = (a.origin.y + a.size.height).min(b.origin.y + b.size.height);
-    Rect::new(Point::new(x0, y0), Size::new((x1 - x0).max(0.0), (y1 - y0).max(0.0)))
+    Rect::new(
+        Point::new(x0, y0),
+        Size::new((x1 - x0).max(0.0), (y1 - y0).max(0.0)),
+    )
 }
 
 impl DocumentEditorElement {
@@ -3315,10 +3650,7 @@ impl DocumentEditorElement {
         if self.drag.is_none() {
             if let Some(block) = self.hover_block {
                 if let Some(rect) = self.handle_rect(block) {
-                    let mut c = crate::core::canvas::CanvasContext::new(
-                        rect.origin,
-                        rect.size,
-                    );
+                    let mut c = crate::core::canvas::CanvasContext::new(rect.origin, rect.size);
                     c.set_color(s.muted_color.with_alpha(0.8));
                     // Сетка 2×3 точки, отцентрованная в рамке ручки:
                     // ширина 7+2r, высота 12+2r при r=1.6.
@@ -3326,11 +3658,7 @@ impl DocumentEditorElement {
                     let y0 = (HANDLE_H - 12.0 - 3.2) / 2.0 + 1.6;
                     for row in 0..3 {
                         for col in 0..2 {
-                            c.fill_circle(
-                                x0 + col as f32 * 7.0,
-                                y0 + row as f32 * 6.0,
-                                1.6,
-                            );
+                            c.fill_circle(x0 + col as f32 * 7.0, y0 + row as f32 * 6.0, 1.6);
                         }
                     }
                     c.flush(list);
@@ -3416,9 +3744,8 @@ impl DocumentEditorElement {
                         c.set_anti_alias(1.0);
                         c.set_color(s.shape_handle_color.with_alpha(0.5));
                         c.set_stroke_width(1.0);
-                        let rel = |p: Point| {
-                            (p.x - self.bounds.origin.x, p.y - self.bounds.origin.y)
-                        };
+                        let rel =
+                            |p: Point| (p.x - self.bounds.origin.x, p.y - self.bounds.origin.y);
                         for (end, ctrl) in [(0, 2), (1, 3)] {
                             let (a, b) = (rel(center(&rects[end])), rel(center(&rects[ctrl])));
                             c.draw_polyline(&[a, b]);
@@ -3430,7 +3757,11 @@ impl DocumentEditorElement {
                         let radius = if control { 4.0 } else { 5.0 };
                         let mut c = crate::core::canvas::CanvasContext::new(r.origin, r.size);
                         c.set_anti_alias(1.0);
-                        c.set_color(if control { s.shape_handle_color } else { s.menu_bg });
+                        c.set_color(if control {
+                            s.shape_handle_color
+                        } else {
+                            s.menu_bg
+                        });
                         c.fill_circle(r.size.width / 2.0, r.size.height / 2.0, radius + 0.5);
                         if !control {
                             c.set_color(s.shape_handle_color);
@@ -3479,9 +3810,7 @@ impl DocumentEditorElement {
                 let w = self
                     .tm
                     .as_deref()
-                    .map(|tm| {
-                        tm.measure_text_width(&label, s.text_size, label.chars().count())
-                    })
+                    .map(|tm| tm.measure_text_width(&label, s.text_size, label.chars().count()))
                     .unwrap_or(120.0)
                     + 20.0;
                 let ghost = Rect::new(
@@ -3517,17 +3846,18 @@ impl DocumentEditorElement {
             .file_name()
             .map(|n| n.to_string_lossy().to_string())
             .unwrap_or_else(|| "файл".to_string());
-        let media = super::model::MediaKind::detect(&path.display().to_string(), &super::model::Attrs::default());
+        let media = super::model::MediaKind::detect(
+            &path.display().to_string(),
+            &super::model::Attrs::default(),
+        );
 
         self.checkpoint(EditClass::Structure);
         let target = self.drop_target(at);
         {
             let mut model = self.model();
             let id = model.alloc_id();
-            let block = super::model::DocBlock::new(
-                id,
-                super::model::BlockKind::Media { media, url, alt },
-            );
+            let block =
+                super::model::DocBlock::new(id, super::model::BlockKind::Media { media, url, alt });
             match target {
                 Some((target_id, before)) => {
                     edit::with_siblings(&mut model.blocks, target_id, &mut |sibs, idx| {
@@ -3571,7 +3901,10 @@ impl DocumentEditorElement {
         out.truncate(SLASH_MAX_ROWS);
         // Без совпадений, но с запросом — пункт «создать как есть».
         if out.is_empty() && !query.is_empty() {
-            out.push(LinkCandidate { target: query.to_string(), label: query.to_string() });
+            out.push(LinkCandidate {
+                target: query.to_string(),
+                label: query.to_string(),
+            });
         }
         out
     }
@@ -3609,7 +3942,9 @@ impl DocumentEditorElement {
     /// Применение кандидата: `[[query` заменяется готовой wiki-ссылкой.
     fn apply_wiki(&mut self, idx: usize) {
         let Some(w) = self.wiki.take() else { return };
-        let Some(c) = w.candidates.get(idx).cloned() else { return };
+        let Some(c) = w.candidates.get(idx).cloned() else {
+            return;
+        };
         self.checkpoint(EditClass::Structure);
         let end = w.start + 2 + w.query.len();
         let new_offset = {
@@ -3619,8 +3954,10 @@ impl DocumentEditorElement {
                 .map(|t| edit::replace_with_wiki_link(t, w.start, end, &c.target, &c.target))
         };
         if let Some(offset) = new_offset {
-            self.selection =
-                Some(DocSelection::caret(CaretPos { block: w.block, offset }));
+            self.selection = Some(DocSelection::caret(CaretPos {
+                block: w.block,
+                offset,
+            }));
         }
         self.after_edit();
     }
@@ -3629,7 +3966,10 @@ impl DocumentEditorElement {
     fn draw_wiki_menu(&self, list: &mut DisplayList) {
         let Some(w) = &self.wiki else { return };
         let anchor = self
-            .caret_rect(CaretPos { block: w.block, offset: w.start })
+            .caret_rect(CaretPos {
+                block: w.block,
+                offset: w.start,
+            })
             .or_else(|| self.caret().and_then(|p| self.caret_rect(p)));
         let Some(anchor) = anchor else { return };
         let count = w.candidates.len().min(SLASH_MAX_ROWS);
@@ -3648,7 +3988,10 @@ impl DocumentEditorElement {
         let selected = w.selected.min(count - 1);
         for (i, item) in w.candidates.iter().take(count).enumerate() {
             let row = Rect::new(
-                Point::new(rect.origin.x + 4.0, rect.origin.y + 4.0 + i as f32 * SLASH_ROW_H),
+                Point::new(
+                    rect.origin.x + 4.0,
+                    rect.origin.y + 4.0 + i as f32 * SLASH_ROW_H,
+                ),
                 Size::new(rect.size.width - 8.0, SLASH_ROW_H),
             );
             if i == selected {
@@ -3684,7 +4027,10 @@ impl DocumentEditorElement {
     fn draw_slash_menu(&self, list: &mut DisplayList) {
         let Some(sl) = &self.slash else { return };
         let anchor = self
-            .caret_rect(CaretPos { block: sl.block, offset: sl.start })
+            .caret_rect(CaretPos {
+                block: sl.block,
+                offset: sl.start,
+            })
             .or_else(|| self.caret().and_then(|p| self.caret_rect(p)));
         let Some(anchor) = anchor else { return };
         let items = filter_items(&self.slash_items, &sl.query);
@@ -3705,7 +4051,10 @@ impl DocumentEditorElement {
         let selected = sl.selected.min(count - 1);
         for (i, item) in items.iter().take(count).enumerate() {
             let row = Rect::new(
-                Point::new(rect.origin.x + 4.0, rect.origin.y + 4.0 + i as f32 * SLASH_ROW_H),
+                Point::new(
+                    rect.origin.x + 4.0,
+                    rect.origin.y + 4.0 + i as f32 * SLASH_ROW_H,
+                ),
                 Size::new(rect.size.width - 8.0, SLASH_ROW_H),
             );
             if i == selected {
@@ -3714,7 +4063,10 @@ impl DocumentEditorElement {
             list.push_text_styled_singleline(
                 &item.label,
                 Rect::new(
-                    Point::new(row.origin.x + 8.0, row.origin.y + (SLASH_ROW_H - s.text_size * 1.3) / 2.0),
+                    Point::new(
+                        row.origin.x + 8.0,
+                        row.origin.y + (SLASH_ROW_H - s.text_size * 1.3) / 2.0,
+                    ),
                     Size::new(row.size.width - 16.0, s.text_size * 1.4),
                 ),
                 s.text_color,
@@ -3745,7 +4097,9 @@ impl DocumentEditorElement {
         let order = BlockOrder::of(&model);
         drop(model);
         let (start, _) = sel.ordered(&order);
-        let Some(anchor) = self.caret_rect(start) else { return };
+        let Some(anchor) = self.caret_rect(start) else {
+            return;
+        };
         let s = &self.style;
         let labels = ["B", "I", "S", "<>"];
         let w = TOOLBAR_BTN_W * labels.len() as f32;
@@ -3755,8 +4109,8 @@ impl DocumentEditorElement {
         if y < self.bounds.origin.y + 2.0 {
             y = anchor.origin.y + anchor.size.height + 6.0;
         }
-        let max_x = (self.bounds.origin.x + self.bounds.size.width - w - 4.0)
-            .max(self.bounds.origin.x);
+        let max_x =
+            (self.bounds.origin.x + self.bounds.size.width - w - 4.0).max(self.bounds.origin.x);
         let x = anchor.origin.x.min(max_x);
         let rect = Rect::new(Point::new(x, y), Size::new(w, TOOLBAR_H));
         list.push_rect(rect, s.menu_bg, [6.0; 4]);
@@ -3771,7 +4125,10 @@ impl DocumentEditorElement {
             list.push_text_styled_singleline(
                 label,
                 Rect::new(
-                    Point::new(cell.origin.x, cell.origin.y + (TOOLBAR_H - s.text_size * 1.3) / 2.0),
+                    Point::new(
+                        cell.origin.x,
+                        cell.origin.y + (TOOLBAR_H - s.text_size * 1.3) / 2.0,
+                    ),
                     Size::new(cell.size.width, s.text_size * 1.4),
                 ),
                 s.text_color,
@@ -3810,15 +4167,21 @@ impl DocumentEditorElement {
     fn code_text(&self, block: super::model::BlockId) -> Option<String> {
         let model = self.model();
         let b = edit::find_block(&model.blocks, block)?;
-        let BlockKind::CodeBlock { code, .. } = &b.kind else { return None };
+        let BlockKind::CodeBlock { code, .. } = &b.kind else {
+            return None;
+        };
         Some(code.clone())
     }
 
     fn set_code(&mut self, block: super::model::BlockId, new_code: String) {
         {
             let mut model = self.model();
-            let Some(b) = edit::find_block_mut(&mut model.blocks, block) else { return };
-            let BlockKind::CodeBlock { code, .. } = &mut b.kind else { return };
+            let Some(b) = edit::find_block_mut(&mut model.blocks, block) else {
+                return;
+            };
+            let BlockKind::CodeBlock { code, .. } = &mut b.kind else {
+                return;
+            };
             *code = new_code;
         }
         self.after_edit();
@@ -3837,7 +4200,12 @@ impl DocumentEditorElement {
         match self.tm.as_deref() {
             Some(tm) => {
                 let ci = tm.hit_test_char(text, g.font_size, local_x);
-                start + text.char_indices().nth(ci).map(|(b, _)| b).unwrap_or(text.len())
+                start
+                    + text
+                        .char_indices()
+                        .nth(ci)
+                        .map(|(b, _)| b)
+                        .unwrap_or(text.len())
             }
             None => end,
         }
@@ -3851,19 +4219,23 @@ impl DocumentEditorElement {
                     let h = g.pad * 2.0 + g.lines.len() as f32 * g.line_h;
                     // И по X: клик на полях страницы на высоте блока — не
                     // клик в код (иначе он глотал каретку и рамку).
-                    let in_x = g.width <= 0.0
-                        || (p.x >= g.origin.x && p.x <= g.origin.x + g.width);
+                    let in_x = g.width <= 0.0 || (p.x >= g.origin.x && p.x <= g.origin.x + g.width);
                     in_x && p.y >= g.origin.y && p.y <= g.origin.y + h
                 })
                 .map(|(id, g)| (*id, g.clone()))?
         };
         let code = self.code_text(block)?;
-        Some(CodeCaret { block, offset: self.code_offset_at(&g, &code, p) })
+        Some(CodeCaret {
+            block,
+            offset: self.code_offset_at(&g, &code, p),
+        })
     }
 
     fn code_insert(&mut self, s: &str) {
         let Some(cc) = self.code_caret else { return };
-        let Some(mut code) = self.code_text(cc.block) else { return };
+        let Some(mut code) = self.code_text(cc.block) else {
+            return;
+        };
         // Набор поверх выделения заменяет его.
         let at = match self.code_selection() {
             Some((_, a, b)) => {
@@ -3874,7 +4246,10 @@ impl DocumentEditorElement {
         };
         code.insert_str(at, s);
         self.code_anchor = None;
-        self.code_caret = Some(CodeCaret { offset: at + s.len(), ..cc });
+        self.code_caret = Some(CodeCaret {
+            offset: at + s.len(),
+            ..cc
+        });
         self.set_code(cc.block, code);
     }
 
@@ -3901,8 +4276,12 @@ impl DocumentEditorElement {
     /// Удаляет выделенный фрагмент кода, каретка встаёт в его начало.
     /// `false` — выделения не было.
     fn code_delete_selection(&mut self) -> bool {
-        let Some((block, a, b)) = self.code_selection() else { return false };
-        let Some(mut code) = self.code_text(block) else { return false };
+        let Some((block, a, b)) = self.code_selection() else {
+            return false;
+        };
+        let Some(mut code) = self.code_text(block) else {
+            return false;
+        };
         code.replace_range(a..b, "");
         self.code_anchor = None;
         self.code_caret = Some(CodeCaret { block, offset: a });
@@ -3915,15 +4294,25 @@ impl DocumentEditorElement {
     /// Ctrl+A внутри кода — весь текст блока.
     fn code_select_all(&mut self) {
         let Some(cc) = self.code_caret else { return };
-        let Some(code) = self.code_text(cc.block) else { return };
-        self.code_anchor = Some(CodeCaret { block: cc.block, offset: 0 });
-        self.code_caret = Some(CodeCaret { block: cc.block, offset: code.len() });
+        let Some(code) = self.code_text(cc.block) else {
+            return;
+        };
+        self.code_anchor = Some(CodeCaret {
+            block: cc.block,
+            offset: 0,
+        });
+        self.code_caret = Some(CodeCaret {
+            block: cc.block,
+            offset: code.len(),
+        });
         self.mark_dirty(DirtyFlags::RENDER);
     }
 
     /// Клавиши в режиме каретки кода. `true` — событие поглощено.
     fn code_key(&mut self, key: &Key, shift: bool) -> bool {
-        let Some(cc) = self.code_caret else { return false };
+        let Some(cc) = self.code_caret else {
+            return false;
+        };
         let Some(code) = self.code_text(cc.block) else {
             self.code_caret = None;
             return false;
@@ -3937,9 +4326,14 @@ impl DocumentEditorElement {
         };
         // Shift+движение растягивает выделение от якоря (якорь — прежняя
         // каретка, если его ещё не было); движение без Shift снимает его.
-        if matches!(key, Key::Left | Key::Right | Key::Home | Key::End | Key::Up | Key::Down) {
+        if matches!(
+            key,
+            Key::Left | Key::Right | Key::Home | Key::End | Key::Up | Key::Down
+        ) {
             self.code_anchor = if shift {
-                self.code_anchor.filter(|a| a.block == cc.block).or(Some(cc))
+                self.code_anchor
+                    .filter(|a| a.block == cc.block)
+                    .or(Some(cc))
             } else {
                 None
             };
@@ -3969,7 +4363,11 @@ impl DocumentEditorElement {
                 if at == 0 {
                     return true;
                 }
-                let prev = code[..at].chars().next_back().map(|c| at - c.len_utf8()).unwrap_or(0);
+                let prev = code[..at]
+                    .chars()
+                    .next_back()
+                    .map(|c| at - c.len_utf8())
+                    .unwrap_or(0);
                 let mut next = code.clone();
                 next.replace_range(prev..at, "");
                 set_offset(self, prev);
@@ -3980,25 +4378,38 @@ impl DocumentEditorElement {
                 if at >= code.len() {
                     return true;
                 }
-                let end = code[at..].chars().next().map(|c| at + c.len_utf8()).unwrap_or(code.len());
+                let end = code[at..]
+                    .chars()
+                    .next()
+                    .map(|c| at + c.len_utf8())
+                    .unwrap_or(code.len());
                 let mut next = code.clone();
                 next.replace_range(at..end, "");
                 self.set_code(cc.block, next);
                 true
             }
             Key::Left => {
-                let prev = code[..at].chars().next_back().map(|c| at - c.len_utf8()).unwrap_or(0);
+                let prev = code[..at]
+                    .chars()
+                    .next_back()
+                    .map(|c| at - c.len_utf8())
+                    .unwrap_or(0);
                 set_offset(self, prev);
                 true
             }
             Key::Right => {
-                let next =
-                    code[at..].chars().next().map(|c| at + c.len_utf8()).unwrap_or(code.len());
+                let next = code[at..]
+                    .chars()
+                    .next()
+                    .map(|c| at + c.len_utf8())
+                    .unwrap_or(code.len());
                 set_offset(self, next);
                 true
             }
             Key::Home | Key::End | Key::Up | Key::Down => {
-                let Some(g) = self.code_geom_of(cc.block) else { return true };
+                let Some(g) = self.code_geom_of(cc.block) else {
+                    return true;
+                };
                 let line = g.line_of(at);
                 let (ls, le) = g.lines[line];
                 match key {
@@ -4014,7 +4425,11 @@ impl DocumentEditorElement {
                         self.caret_to_neighbour(cc.block, true);
                     }
                     _ => {
-                        let target = if matches!(key, Key::Up) { line - 1 } else { line + 1 };
+                        let target = if matches!(key, Key::Up) {
+                            line - 1
+                        } else {
+                            line + 1
+                        };
                         let (ts, te) = g.lines[target];
                         let col = at.saturating_sub(ls);
                         set_offset(self, (ts + col).min(te));
@@ -4053,8 +4468,12 @@ impl DocumentEditorElement {
 
     fn draw_code_caret(&self, list: &mut DisplayList) {
         let Some(cc) = self.code_caret else { return };
-        let Some(g) = self.code_geom_of(cc.block) else { return };
-        let Some(code) = self.code_text(cc.block) else { return };
+        let Some(g) = self.code_geom_of(cc.block) else {
+            return;
+        };
+        let Some(code) = self.code_text(cc.block) else {
+            return;
+        };
         let width_of = |s: &str| -> f32 {
             match self.tm.as_deref() {
                 Some(tm) => tm.measure_text_width(s, g.font_size, s.chars().count()),
@@ -4067,7 +4486,9 @@ impl DocumentEditorElement {
             let first = g.line_of(a);
             let last = g.line_of(b).max(first);
             for line in first..=last {
-                let Some(&(ls, le)) = g.lines.get(line) else { break };
+                let Some(&(ls, le)) = g.lines.get(line) else {
+                    break;
+                };
                 let (ls, le) = (ls.min(code.len()), le.min(code.len()));
                 let from = a.clamp(ls, le);
                 let to = b.clamp(ls, le);
@@ -4097,7 +4518,10 @@ impl DocumentEditorElement {
             None => prefix.chars().count() as f32 * g.font_size * 0.6,
         };
         let rect = Rect::new(
-            Point::new(g.origin.x + g.pad + x, g.origin.y + g.pad + line as f32 * g.line_h + 1.0),
+            Point::new(
+                g.origin.x + g.pad + x,
+                g.origin.y + g.pad + line as f32 * g.line_h + 1.0,
+            ),
             Size::new(2.0, (g.line_h - 2.0).max(4.0)),
         );
         list.push_rect(rect, self.style.caret_color, [1.0; 4]);
@@ -4141,11 +4565,19 @@ impl DocumentEditorElement {
                 let local_x = p.x - cell_x - self.style.table_cell_padding_h;
                 let ci =
                     tm.hit_test_char_styled(&text, self.style.text_size, local_x.max(0.0), None);
-                text.char_indices().nth(ci).map(|(b, _)| b).unwrap_or(text.len())
+                text.char_indices()
+                    .nth(ci)
+                    .map(|(b, _)| b)
+                    .unwrap_or(text.len())
             }
             None => text.len(),
         };
-        Some(TableCaret { block, row, col, offset })
+        Some(TableCaret {
+            block,
+            row,
+            col,
+            offset,
+        })
     }
 
     /// Плоский текст ячейки (`row == 0` — шапка). Отсутствующая ячейка
@@ -4158,8 +4590,14 @@ impl DocumentEditorElement {
     ) -> Option<String> {
         let model = self.model();
         let b = edit::find_block(&model.blocks, block)?;
-        let BlockKind::Table { headers, rows, .. } = &b.kind else { return None };
-        let cell = if row == 0 { headers.get(col) } else { rows.get(row.checked_sub(1)?)?.get(col) };
+        let BlockKind::Table { headers, rows, .. } = &b.kind else {
+            return None;
+        };
+        let cell = if row == 0 {
+            headers.get(col)
+        } else {
+            rows.get(row.checked_sub(1)?)?.get(col)
+        };
         Some(cell.map(|t| t.text()).unwrap_or_default())
     }
 
@@ -4167,15 +4605,21 @@ impl DocumentEditorElement {
     fn set_table_cell(&mut self, tc: TableCaret, new_text: String) {
         {
             let mut model = self.model();
-            let Some(b) = edit::find_block_mut(&mut model.blocks, tc.block) else { return };
-            let BlockKind::Table { headers, rows, .. } = &mut b.kind else { return };
+            let Some(b) = edit::find_block_mut(&mut model.blocks, tc.block) else {
+                return;
+            };
+            let BlockKind::Table { headers, rows, .. } = &mut b.kind else {
+                return;
+            };
             let slot = if tc.row == 0 {
                 while headers.len() <= tc.col {
                     headers.push(InlineText::default());
                 }
                 headers.get_mut(tc.col)
             } else {
-                let Some(data_row) = rows.get_mut(tc.row - 1) else { return };
+                let Some(data_row) = rows.get_mut(tc.row - 1) else {
+                    return;
+                };
                 while data_row.len() <= tc.col {
                     data_row.push(InlineText::default());
                 }
@@ -4191,7 +4635,9 @@ impl DocumentEditorElement {
     /// Вставка текста в позицию каретки таблицы.
     fn table_insert(&mut self, s: &str) {
         let Some(tc) = self.table_caret else { return };
-        let Some(mut text) = self.table_cell_text(tc.block, tc.row, tc.col) else { return };
+        let Some(mut text) = self.table_cell_text(tc.block, tc.row, tc.col) else {
+            return;
+        };
         // Набор поверх выделения заменяет его.
         let at = match self.table_selection() {
             Some((_, a, b)) => {
@@ -4202,7 +4648,10 @@ impl DocumentEditorElement {
         };
         text.insert_str(at, s);
         self.table_anchor = None;
-        self.table_caret = Some(TableCaret { offset: at + s.len(), ..tc });
+        self.table_caret = Some(TableCaret {
+            offset: at + s.len(),
+            ..tc
+        });
         self.set_table_cell(tc, text);
     }
 
@@ -4234,8 +4683,12 @@ impl DocumentEditorElement {
     /// Удаляет выделенный фрагмент ячейки, каретка встаёт в его начало.
     /// `false` — выделения не было.
     fn table_delete_selection(&mut self) -> bool {
-        let Some((tc, a, b)) = self.table_selection() else { return false };
-        let Some(mut text) = self.table_cell_text(tc.block, tc.row, tc.col) else { return false };
+        let Some((tc, a, b)) = self.table_selection() else {
+            return false;
+        };
+        let Some(mut text) = self.table_cell_text(tc.block, tc.row, tc.col) else {
+            return false;
+        };
         text.replace_range(a..b, "");
         self.table_anchor = None;
         self.table_caret = Some(TableCaret { offset: a, ..tc });
@@ -4248,9 +4701,14 @@ impl DocumentEditorElement {
     /// Ctrl+A внутри ячейки — весь её текст.
     fn table_select_all(&mut self) {
         let Some(tc) = self.table_caret else { return };
-        let Some(text) = self.table_cell_text(tc.block, tc.row, tc.col) else { return };
+        let Some(text) = self.table_cell_text(tc.block, tc.row, tc.col) else {
+            return;
+        };
         self.table_anchor = Some(TableCaret { offset: 0, ..tc });
-        self.table_caret = Some(TableCaret { offset: text.len(), ..tc });
+        self.table_caret = Some(TableCaret {
+            offset: text.len(),
+            ..tc
+        });
         self.mark_dirty(DirtyFlags::RENDER);
     }
 
@@ -4265,8 +4723,12 @@ impl DocumentEditorElement {
         let local_x = p.x - g.col_x(tc.col) - self.style.table_cell_padding_h;
         Some(match self.tm.as_deref() {
             Some(tm) => {
-                let ci = tm.hit_test_char_styled(&text, self.style.text_size, local_x.max(0.0), None);
-                text.char_indices().nth(ci).map(|(b, _)| b).unwrap_or(text.len())
+                let ci =
+                    tm.hit_test_char_styled(&text, self.style.text_size, local_x.max(0.0), None);
+                text.char_indices()
+                    .nth(ci)
+                    .map(|(b, _)| b)
+                    .unwrap_or(text.len())
             }
             None => text.len(),
         })
@@ -4276,11 +4738,18 @@ impl DocumentEditorElement {
     /// при переходе Tab'ом; `offset` подрежется при отрисовке).
     fn table_goto(&mut self, tc: TableCaret, row: usize, col: usize, at_end: bool) {
         let offset = if at_end {
-            self.table_cell_text(tc.block, row, col).map(|t| t.len()).unwrap_or(0)
+            self.table_cell_text(tc.block, row, col)
+                .map(|t| t.len())
+                .unwrap_or(0)
         } else {
             0
         };
-        self.table_caret = Some(TableCaret { block: tc.block, row, col, offset });
+        self.table_caret = Some(TableCaret {
+            block: tc.block,
+            row,
+            col,
+            offset,
+        });
         self.caret_on = true;
         self.blink_ms = 0.0;
         self.mark_dirty(DirtyFlags::RENDER);
@@ -4288,7 +4757,9 @@ impl DocumentEditorElement {
 
     /// Клавиши в режиме каретки таблицы. `true` — событие поглощено.
     fn table_key(&mut self, key: &Key, shift: bool) -> bool {
-        let Some(tc) = self.table_caret else { return false };
+        let Some(tc) = self.table_caret else {
+            return false;
+        };
         let Some(text) = self.table_cell_text(tc.block, tc.row, tc.col) else {
             self.table_caret = None;
             return false;
@@ -4304,7 +4775,9 @@ impl DocumentEditorElement {
         // числе переход в соседнюю ячейку, снимает его.
         if matches!(key, Key::Left | Key::Right | Key::Home | Key::End) {
             self.table_anchor = if shift {
-                self.table_anchor.filter(|a| Self::same_cell(a, &tc)).or(Some(tc))
+                self.table_anchor
+                    .filter(|a| Self::same_cell(a, &tc))
+                    .or(Some(tc))
             } else {
                 None
             };
@@ -4388,7 +4861,10 @@ impl DocumentEditorElement {
                 true
             }
             Key::End => {
-                self.table_caret = Some(TableCaret { offset: text.len(), ..tc });
+                self.table_caret = Some(TableCaret {
+                    offset: text.len(),
+                    ..tc
+                });
                 self.mark_dirty(DirtyFlags::RENDER);
                 true
             }
@@ -4398,7 +4874,10 @@ impl DocumentEditorElement {
                     let start = edit::prev_char_boundary(&text, off);
                     let mut new_text = text;
                     new_text.replace_range(start..off, "");
-                    self.table_caret = Some(TableCaret { offset: start, ..tc });
+                    self.table_caret = Some(TableCaret {
+                        offset: start,
+                        ..tc
+                    });
                     self.set_table_cell(tc, new_text);
                 }
                 true
@@ -4421,7 +4900,9 @@ impl DocumentEditorElement {
     /// Рамка редактируемой ячейки и каретка в ней.
     fn draw_table_caret(&self, list: &mut DisplayList) {
         let Some(tc) = self.table_caret else { return };
-        let Some(g) = self.table_geom_of(tc.block) else { return };
+        let Some(g) = self.table_geom_of(tc.block) else {
+            return;
+        };
         if tc.col >= g.col_widths.len() || tc.row >= g.rows_n {
             return;
         }
@@ -4433,10 +4914,18 @@ impl DocumentEditorElement {
         for edge in edges(cell) {
             list.push_rect(edge, s.caret_color, [0.0; 4]);
         }
-        let text = self.table_cell_text(tc.block, tc.row, tc.col).unwrap_or_default();
+        let text = self
+            .table_cell_text(tc.block, tc.row, tc.col)
+            .unwrap_or_default();
         let width_of = |t: &str| -> f32 {
             match self.tm.as_deref() {
-                Some(tm) => tm.measure_text_width_styled(t, s.text_size, t.chars().count(), tc.row == 0, None),
+                Some(tm) => tm.measure_text_width_styled(
+                    t,
+                    s.text_size,
+                    t.chars().count(),
+                    tc.row == 0,
+                    None,
+                ),
                 None => 0.0,
             }
         };
@@ -4447,7 +4936,10 @@ impl DocumentEditorElement {
             list.push_rect(
                 Rect::new(
                     Point::new(x_a, y0 + s.table_cell_padding_v),
-                    Size::new((x_b - x_a).max(0.0), (g.row_h - s.table_cell_padding_v * 2.0).max(4.0)),
+                    Size::new(
+                        (x_b - x_a).max(0.0),
+                        (g.row_h - s.table_cell_padding_v * 2.0).max(4.0),
+                    ),
                 ),
                 s.selection_color,
                 [2.0; 4],
@@ -4486,7 +4978,11 @@ impl DocumentEditorElement {
 fn dist_to_segment(p: (f32, f32), a: (f32, f32), b: (f32, f32)) -> f32 {
     let (dx, dy) = (b.0 - a.0, b.1 - a.1);
     let len2 = dx * dx + dy * dy;
-    let t = if len2 < 0.001 { 0.0 } else { (((p.0 - a.0) * dx + (p.1 - a.1) * dy) / len2).clamp(0.0, 1.0) };
+    let t = if len2 < 0.001 {
+        0.0
+    } else {
+        (((p.0 - a.0) * dx + (p.1 - a.1) * dy) / len2).clamp(0.0, 1.0)
+    };
     let (cx, cy) = (a.0 + dx * t, a.1 + dy * t);
     ((p.0 - cx).powi(2) + (p.1 - cy).powi(2)).sqrt()
 }
@@ -4535,7 +5031,9 @@ fn dist(v: f32, lo: f32, hi: f32) -> f32 {
 
 impl Element for DocumentEditorElement {
     fn update(&mut self, widget: &dyn Widget, ctx: &mut UpdateContext) {
-        let Some(w) = widget.as_any().downcast_ref::<DocumentEditor>() else { return };
+        let Some(w) = widget.as_any().downcast_ref::<DocumentEditor>() else {
+            return;
+        };
         self.read_only = w.read_only;
         self.on_change = w.on_change.clone();
         let links_changed = self.links.is_some() != w.links.is_some();
@@ -4614,14 +5112,25 @@ impl Element for DocumentEditorElement {
             self.mark_dirty(DirtyFlags::LAYOUT | DirtyFlags::RENDER);
             ctx.mark_layout_dirty();
         }
-        if self.autofocus && self.focused && self.selection.is_none()
-            && self.table_caret.is_none() && self.code_caret.is_none() && self.object_sel.is_none()
+        if self.autofocus
+            && self.focused
+            && self.selection.is_none()
+            && self.table_caret.is_none()
+            && self.code_caret.is_none()
+            && self.object_sel.is_none()
         {
             // Автофокус: каретка в начало первого блока, чтобы можно было
             // сразу печатать (правка карточки на месте).
-            let first = self.model().blocks.first().map(|b| (b.id, b.kind.text().is_some()));
+            let first = self
+                .model()
+                .blocks
+                .first()
+                .map(|b| (b.id, b.kind.text().is_some()));
             if let Some((id, true)) = first {
-                self.selection = Some(DocSelection::caret(CaretPos { block: id, offset: 0 }));
+                self.selection = Some(DocSelection::caret(CaretPos {
+                    block: id,
+                    offset: 0,
+                }));
                 self.caret_on = true;
                 self.blink_ms = 0.0;
             }
@@ -4636,7 +5145,11 @@ impl Element for DocumentEditorElement {
     }
 
     fn layout(&mut self, constraints: Constraints) -> Size {
-        let width = if constraints.max_width.is_finite() { constraints.max_width } else { 0.0 };
+        let width = if constraints.max_width.is_finite() {
+            constraints.max_width
+        } else {
+            0.0
+        };
         // С детьми дерево зовёт layout с tight-размером (min == max) — его
         // и принимаем; без детей (пустой документ) — высота одной строки.
         let tight = constraints.min_height.is_finite()
@@ -4725,7 +5238,12 @@ impl Element for DocumentEditorElement {
         // без них остаётся в колонке потока — страница, которую ещё не
         // трогали мышью, выглядит ровно как раньше.
         let pad = self.style.doc_padding;
-        let rects = self.blocks.lock().ok().map(|m| m.clone()).unwrap_or_default();
+        let rects = self
+            .blocks
+            .lock()
+            .ok()
+            .map(|m| m.clone())
+            .unwrap_or_default();
         let origin = self.bounds.origin;
         let mut flow: Vec<Box<dyn Widget>> = Vec::new();
         let mut pinned: Vec<Box<dyn Widget>> = Vec::new();
@@ -4787,10 +5305,18 @@ impl Element for DocumentEditorElement {
         {
             self.selection = None;
         }
-        if self.table_caret.as_ref().is_some_and(|c| !alive.contains(&c.block)) {
+        if self
+            .table_caret
+            .as_ref()
+            .is_some_and(|c| !alive.contains(&c.block))
+        {
             self.table_caret = None;
         }
-        if self.code_caret.as_ref().is_some_and(|c| !alive.contains(&c.block)) {
+        if self
+            .code_caret
+            .as_ref()
+            .is_some_and(|c| !alive.contains(&c.block))
+        {
             self.code_caret = None;
         }
         if self.object_sel.is_some_and(|id| !alive.contains(&id)) {
@@ -4846,7 +5372,9 @@ impl Element for DocumentEditorElement {
         self.draw_table_caret(list);
         self.draw_code_caret(list);
         let Some(pos) = self.caret() else { return };
-        let Some(rect) = self.caret_rect(pos) else { return };
+        let Some(rect) = self.caret_rect(pos) else {
+            return;
+        };
         if self.caret_on {
             list.push_rect(rect, self.style.caret_color, [1.0; 4]);
         }
@@ -4899,7 +5427,10 @@ impl Element for DocumentEditorElement {
             self.tm = ctx.text_measure.clone();
         }
         match event {
-            Event::MouseDown { button: MouseButton::Left, position } => {
+            Event::MouseDown {
+                button: MouseButton::Left,
+                position,
+            } => {
                 // Точка правого клика актуальна только до следующего
                 // действия: дальше вставка снова идёт «у каретки».
                 self.menu_pos = None;
@@ -4947,14 +5478,11 @@ impl Element for DocumentEditorElement {
                         return EventResult::Handled;
                     }
                     if let Some(idx) = slash_hit {
-                        let action = self
-                            .slash
-                            .as_ref()
-                            .and_then(|sl| {
-                                filter_items(&self.slash_items, &sl.query)
-                                    .get(idx)
-                                    .map(|it| it.action.clone())
-                            });
+                        let action = self.slash.as_ref().and_then(|sl| {
+                            filter_items(&self.slash_items, &sl.query)
+                                .get(idx)
+                                .map(|it| it.action.clone())
+                        });
                         if let Some(action) = action {
                             self.apply_slash(action);
                         }
@@ -5041,8 +5569,11 @@ impl Element for DocumentEditorElement {
                         }
                     }
                     if top.is_none() && self.shape_at(*position).is_none() {
-                        self.marquee =
-                            Some(Marquee { start: *position, current: *position, active: false });
+                        self.marquee = Some(Marquee {
+                            start: *position,
+                            current: *position,
+                            active: false,
+                        });
                         ctx.capture();
                         return EventResult::Handled;
                     }
@@ -5072,9 +5603,13 @@ impl Element for DocumentEditorElement {
                         // прежней каретки; обычный клик ставит якорь заново и
                         // захватывает мышь под протяжку.
                         let extend = ctx.modifiers.shift
-                            && self.table_caret.is_some_and(|old| Self::same_cell(&old, &tc));
+                            && self
+                                .table_caret
+                                .is_some_and(|old| Self::same_cell(&old, &tc));
                         self.table_anchor = if extend {
-                            self.table_anchor.filter(|a| Self::same_cell(a, &tc)).or(self.table_caret)
+                            self.table_anchor
+                                .filter(|a| Self::same_cell(a, &tc))
+                                .or(self.table_caret)
                         } else {
                             Some(tc)
                         };
@@ -5101,7 +5636,9 @@ impl Element for DocumentEditorElement {
                         let extend = ctx.modifiers.shift
                             && self.code_caret.is_some_and(|old| old.block == cc.block);
                         self.code_anchor = if extend {
-                            self.code_anchor.filter(|a| a.block == cc.block).or(self.code_caret)
+                            self.code_anchor
+                                .filter(|a| a.block == cc.block)
+                                .or(self.code_caret)
                         } else {
                             Some(cc)
                         };
@@ -5132,7 +5669,10 @@ impl Element for DocumentEditorElement {
                 }
                 EventResult::Handled
             }
-            Event::MouseDown { button: MouseButton::Right, position } => {
+            Event::MouseDown {
+                button: MouseButton::Right,
+                position,
+            } => {
                 if !self.bounds.contains(*position) || self.read_only {
                     return EventResult::Ignored;
                 }
@@ -5154,8 +5694,9 @@ impl Element for DocumentEditorElement {
                 ctx.set_focused_text(String::new());
                 self.close_slash();
                 self.wiki = None;
-                let keep_blocks =
-                    self.top_block_at(*position).is_some_and(|t| self.block_sel.contains(&t));
+                let keep_blocks = self
+                    .top_block_at(*position)
+                    .is_some_and(|t| self.block_sel.contains(&t));
                 if keep_blocks {
                     // Меню над выделенными блоками действует над всеми ними —
                     // выделение не трогаем.
@@ -5241,7 +5782,8 @@ impl Element for DocumentEditorElement {
                     if drag.started {
                         let src = drag.block;
                         let announce = !drag.announced;
-                        let over_object = self.sized_embed_at(*position).is_some_and(|id| id != src);
+                        let over_object =
+                            self.sized_embed_at(*position).is_some_and(|id| id != src);
                         let target = if over_object {
                             None
                         } else {
@@ -5273,7 +5815,10 @@ impl Element for DocumentEditorElement {
                     if let Some((_, mode)) = self.size_handle_at(*position) {
                         ctx.set_cursor(mode.cursor());
                     } else if let Some(block) = self.hover_block {
-                        if self.handle_rect(block).is_some_and(|r| r.contains(*position)) {
+                        if self
+                            .handle_rect(block)
+                            .is_some_and(|r| r.contains(*position))
+                        {
                             ctx.set_cursor(CursorIcon::Grab);
                         } else if self.shape_at(*position).is_some() {
                             ctx.set_cursor(CursorIcon::Pointer);
@@ -5327,7 +5872,10 @@ impl Element for DocumentEditorElement {
                 }
                 EventResult::Ignored
             }
-            Event::MouseUp { button: MouseButton::Left, position } => {
+            Event::MouseUp {
+                button: MouseButton::Left,
+                position,
+            } => {
                 if let Some(m) = self.marquee.take() {
                     if !m.active {
                         // Клик без протяжки — каретка в ближайшую строку,
@@ -5445,7 +5993,11 @@ impl Element for DocumentEditorElement {
                     let Some(cb) = self.on_drop_data.clone() else {
                         return EventResult::Ignored;
                     };
-                    return if cb(*position, data) { EventResult::Handled } else { EventResult::Ignored };
+                    return if cb(*position, data) {
+                        EventResult::Handled
+                    } else {
+                        EventResult::Ignored
+                    };
                 }
                 let Some(cb) = self.on_drop_file.clone() else {
                     return EventResult::Ignored;
@@ -5455,7 +6007,10 @@ impl Element for DocumentEditorElement {
                 cb(path, token);
                 EventResult::Handled
             }
-            Event::DoubleClick { button: MouseButton::Left, position } => {
+            Event::DoubleClick {
+                button: MouseButton::Left,
+                position,
+            } => {
                 if !self.bounds.contains(*position) {
                     return EventResult::Ignored;
                 }
@@ -5468,8 +6023,14 @@ impl Element for DocumentEditorElement {
                     drop(model);
                     let (s, e) = edit::word_bounds(&text, pos.offset);
                     self.selection = Some(DocSelection {
-                        anchor: CaretPos { block: pos.block, offset: s },
-                        head: CaretPos { block: pos.block, offset: e },
+                        anchor: CaretPos {
+                            block: pos.block,
+                            offset: s,
+                        },
+                        head: CaretPos {
+                            block: pos.block,
+                            offset: e,
+                        },
                     });
                     self.mark_dirty(DirtyFlags::RENDER);
                 }
@@ -5633,7 +6194,13 @@ impl Element for DocumentEditorElement {
                             };
                             let next = edge
                                 .and_then(|id| order.iter().position(|x| *x == id))
-                                .map(|i| if up { i.saturating_sub(1) } else { (i + 1).min(order.len() - 1) })
+                                .map(|i| {
+                                    if up {
+                                        i.saturating_sub(1)
+                                    } else {
+                                        (i + 1).min(order.len() - 1)
+                                    }
+                                })
                                 .and_then(|i| order.get(i).copied());
                             if let Some(n) = next {
                                 if shift {
@@ -5885,7 +6452,11 @@ impl Element for DocumentEditorElement {
                 if !self.focused {
                     return EventResult::Ignored;
                 }
-                self.preedit = if text.is_empty() { None } else { Some(text.clone()) };
+                self.preedit = if text.is_empty() {
+                    None
+                } else {
+                    Some(text.clone())
+                };
                 self.mark_dirty(DirtyFlags::RENDER);
                 EventResult::Handled
             }
@@ -5934,9 +6505,7 @@ impl Element for DocumentEditorElement {
     fn animate(&mut self, dt: Duration) -> bool {
         if !self.focused
             || self.read_only
-            || (self.selection.is_none()
-                && self.table_caret.is_none()
-                && self.code_caret.is_none())
+            || (self.selection.is_none() && self.table_caret.is_none() && self.code_caret.is_none())
         {
             return false;
         }
@@ -5952,9 +6521,7 @@ impl Element for DocumentEditorElement {
     fn wants_animate_tick(&self) -> bool {
         self.focused
             && !self.read_only
-            && (self.selection.is_some()
-                || self.table_caret.is_some()
-                || self.code_caret.is_some())
+            && (self.selection.is_some() || self.table_caret.is_some() || self.code_caret.is_some())
     }
 
     fn wants_tab(&self) -> bool {
@@ -5978,7 +6545,10 @@ impl Element for DocumentEditorElement {
         }
         Some(crate::a11y::AccessibilityInfo {
             role: crate::a11y::Role::TextField,
-            state: crate::a11y::NodeState { focused: self.focused, ..Default::default() },
+            state: crate::a11y::NodeState {
+                focused: self.focused,
+                ..Default::default()
+            },
             properties: crate::a11y::NodeProperties::default(),
         })
     }

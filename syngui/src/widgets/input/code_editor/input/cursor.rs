@@ -28,7 +28,11 @@ impl Cursor {
         if a == self.pos {
             return None;
         }
-        Some(if a < self.pos { a..self.pos } else { self.pos..a })
+        Some(if a < self.pos {
+            a..self.pos
+        } else {
+            self.pos..a
+        })
     }
 
     pub fn clear_selection(&mut self) {

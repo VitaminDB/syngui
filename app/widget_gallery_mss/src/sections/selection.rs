@@ -50,21 +50,18 @@ pub fn build_selection_section() -> impl Widget {
             })
             // New: Multiselect
             .child(
-                Column::new()
-                    .gap(8.0)
-                    .child(label("Multiselect"))
-                    .child(
-                        Multiselect::new(vec![
-                            DropdownItem::simple("Apple"),
-                            DropdownItem::simple("Banana"),
-                            DropdownItem::simple("Cherry"),
-                            DropdownItem::simple("Grape"),
-                            DropdownItem::simple("Orange"),
-                        ])
-                        .selected(vec![0, 2])
-                        .placeholder("Select fruits...")
-                        .width(250.0),
-                    ),
+                Column::new().gap(8.0).child(label("Multiselect")).child(
+                    Multiselect::new(vec![
+                        DropdownItem::simple("Apple"),
+                        DropdownItem::simple("Banana"),
+                        DropdownItem::simple("Cherry"),
+                        DropdownItem::simple("Grape"),
+                        DropdownItem::simple("Orange"),
+                    ])
+                    .selected(vec![0, 2])
+                    .placeholder("Select fruits...")
+                    .width(250.0),
+                ),
             ),
     )
 }

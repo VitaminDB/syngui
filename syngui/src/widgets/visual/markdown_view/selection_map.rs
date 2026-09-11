@@ -20,7 +20,10 @@ pub struct SelPos {
 }
 
 impl SelPos {
-    pub const ZERO: Self = SelPos { run_idx: 0, byte_in_run: 0 };
+    pub const ZERO: Self = SelPos {
+        run_idx: 0,
+        byte_in_run: 0,
+    };
 
     pub fn key(self) -> (usize, usize) {
         (self.run_idx, self.byte_in_run)
@@ -92,7 +95,10 @@ pub fn hit_test(runs: &[SelectableRun], pos: Point, tm: &dyn TextMeasure) -> Sel
         run.font_family.as_deref(),
     );
     let byte = char_idx_to_byte(&run.visible_text, char_idx);
-    SelPos { run_idx: best_run, byte_in_run: byte }
+    SelPos {
+        run_idx: best_run,
+        byte_in_run: byte,
+    }
 }
 
 fn char_idx_to_byte(text: &str, char_idx: usize) -> usize {
@@ -121,8 +127,16 @@ pub fn extract_selection_text(runs: &[SelectableRun], a: SelPos, b: SelPos) -> S
 
     for ri in start_run..=end_run {
         let run = &runs[ri];
-        let lo = if ri == start_run { start.byte_in_run } else { 0 };
-        let hi = if ri == end_run { end.byte_in_run } else { run.visible_text.len() };
+        let lo = if ri == start_run {
+            start.byte_in_run
+        } else {
+            0
+        };
+        let hi = if ri == end_run {
+            end.byte_in_run
+        } else {
+            run.visible_text.len()
+        };
         let lo = lo.min(run.visible_text.len());
         let hi = hi.min(run.visible_text.len());
         if hi <= lo {
@@ -151,8 +165,14 @@ pub fn select_all_pos(runs: &[SelectableRun]) -> (SelPos, SelPos) {
     let last = runs.len() - 1;
     let last_byte = runs[last].visible_text.len();
     (
-        SelPos { run_idx: 0, byte_in_run: 0 },
-        SelPos { run_idx: last, byte_in_run: last_byte },
+        SelPos {
+            run_idx: 0,
+            byte_in_run: 0,
+        },
+        SelPos {
+            run_idx: last,
+            byte_in_run: last_byte,
+        },
     )
 }
 
@@ -219,8 +239,14 @@ mod tests {
         let runs = vec![run(rect(0.0, 0.0, 100.0, 18.0), "hello world", 0, 0)];
         let s = extract_selection_text(
             &runs,
-            SelPos { run_idx: 0, byte_in_run: 0 },
-            SelPos { run_idx: 0, byte_in_run: 5 },
+            SelPos {
+                run_idx: 0,
+                byte_in_run: 0,
+            },
+            SelPos {
+                run_idx: 0,
+                byte_in_run: 5,
+            },
         );
         assert_eq!(s, "hello");
     }
@@ -230,8 +256,14 @@ mod tests {
         let runs = vec![run(rect(0.0, 0.0, 100.0, 18.0), "hello world", 0, 0)];
         let s = extract_selection_text(
             &runs,
-            SelPos { run_idx: 0, byte_in_run: 6 },
-            SelPos { run_idx: 0, byte_in_run: 11 },
+            SelPos {
+                run_idx: 0,
+                byte_in_run: 6,
+            },
+            SelPos {
+                run_idx: 0,
+                byte_in_run: 11,
+            },
         );
         assert_eq!(s, "world");
     }
@@ -244,8 +276,14 @@ mod tests {
         ];
         let s = extract_selection_text(
             &runs,
-            SelPos { run_idx: 0, byte_in_run: 0 },
-            SelPos { run_idx: 1, byte_in_run: 4 },
+            SelPos {
+                run_idx: 0,
+                byte_in_run: 0,
+            },
+            SelPos {
+                run_idx: 1,
+                byte_in_run: 4,
+            },
         );
         assert_eq!(s, "alpha beta");
     }
@@ -258,8 +296,14 @@ mod tests {
         ];
         let s = extract_selection_text(
             &runs,
-            SelPos { run_idx: 0, byte_in_run: 0 },
-            SelPos { run_idx: 1, byte_in_run: 6 },
+            SelPos {
+                run_idx: 0,
+                byte_in_run: 0,
+            },
+            SelPos {
+                run_idx: 1,
+                byte_in_run: 6,
+            },
         );
         assert_eq!(s, "first\nsecond");
     }
@@ -272,8 +316,14 @@ mod tests {
         ];
         let s = extract_selection_text(
             &runs,
-            SelPos { run_idx: 0, byte_in_run: 0 },
-            SelPos { run_idx: 1, byte_in_run: 5 },
+            SelPos {
+                run_idx: 0,
+                byte_in_run: 0,
+            },
+            SelPos {
+                run_idx: 1,
+                byte_in_run: 5,
+            },
         );
         assert_eq!(s, "para1\n\npara2");
     }
@@ -283,8 +333,14 @@ mod tests {
         let runs = vec![run(rect(0.0, 0.0, 50.0, 18.0), "abc", 0, 0)];
         let s = extract_selection_text(
             &runs,
-            SelPos { run_idx: 0, byte_in_run: 1 },
-            SelPos { run_idx: 0, byte_in_run: 1 },
+            SelPos {
+                run_idx: 0,
+                byte_in_run: 1,
+            },
+            SelPos {
+                run_idx: 0,
+                byte_in_run: 1,
+            },
         );
         assert_eq!(s, "");
     }
@@ -297,7 +353,13 @@ mod tests {
         ];
         let (a, b) = select_all_pos(&runs);
         assert_eq!(a, SelPos::ZERO);
-        assert_eq!(b, SelPos { run_idx: 1, byte_in_run: 4 });
+        assert_eq!(
+            b,
+            SelPos {
+                run_idx: 1,
+                byte_in_run: 4
+            }
+        );
     }
 
     #[test]

@@ -27,7 +27,8 @@ pub struct GpuContext {
 
 impl GpuContext {
     pub fn resize(&mut self, width: u32, height: u32) {
-        self.window_surface.resize(&self.shared.device, width, height);
+        self.window_surface
+            .resize(&self.shared.device, width, height);
     }
 
     pub fn split(self) -> (GpuShared, WindowSurface) {

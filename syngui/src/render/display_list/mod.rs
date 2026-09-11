@@ -2,9 +2,9 @@ mod types;
 pub use types::*;
 
 use crate::core::Color;
+use crate::core::{Point, Rect, Size};
 use crate::mss::{TextAlign, TextDecoration};
 use crate::render::{ClipRect, TextureId};
-use crate::core::{Rect, Point, Size};
 use compact_str::CompactString;
 
 #[derive(Debug, Default)]
@@ -86,7 +86,7 @@ impl DisplayList {
         let height = font_size * 1.2;
         let size = Size::new(width, height);
         let rect = Rect::new(pos, size);
-        
+
         self.commands.push(DrawCommand::Text {
             text: CompactString::from(text),
             rect,
@@ -145,7 +145,12 @@ impl DisplayList {
         self.current_z += 1;
     }
 
-    pub fn push_gradient_rect(&mut self, rect: crate::core::Rect, gradient: crate::core::Gradient, radius: [f32; 4]) {
+    pub fn push_gradient_rect(
+        &mut self,
+        rect: crate::core::Rect,
+        gradient: crate::core::Gradient,
+        radius: [f32; 4],
+    ) {
         let radius = Self::clamp_corner_radius(&rect, radius);
         let clip = *self.current_clip();
         let z = self.current_z;
@@ -161,7 +166,13 @@ impl DisplayList {
         self.current_z += 1;
     }
 
-    pub fn push_gradient_rect_bordered(&mut self, rect: crate::core::Rect, gradient: crate::core::Gradient, radius: [f32; 4], border: Border) {
+    pub fn push_gradient_rect_bordered(
+        &mut self,
+        rect: crate::core::Rect,
+        gradient: crate::core::Gradient,
+        radius: [f32; 4],
+        border: Border,
+    ) {
         let radius = Self::clamp_corner_radius(&rect, radius);
         let clip = *self.current_clip();
         let z = self.current_z;
@@ -177,7 +188,13 @@ impl DisplayList {
         self.current_z += 1;
     }
 
-    pub fn push_rect_bordered(&mut self, rect: crate::core::Rect, color: Color, radius: [f32; 4], border: Border) {
+    pub fn push_rect_bordered(
+        &mut self,
+        rect: crate::core::Rect,
+        color: Color,
+        radius: [f32; 4],
+        border: Border,
+    ) {
         let radius = Self::clamp_corner_radius(&rect, radius);
         let clip = *self.current_clip();
         let z = self.current_z;
@@ -238,7 +255,13 @@ impl DisplayList {
         self.current_z += 1;
     }
 
-    pub fn push_text_centered(&mut self, text: &str, rect: crate::core::Rect, color: Color, font_size: f32) {
+    pub fn push_text_centered(
+        &mut self,
+        text: &str,
+        rect: crate::core::Rect,
+        color: Color,
+        font_size: f32,
+    ) {
         let clip = *self.current_clip();
         let z = self.current_z;
         self.target().push(DrawCommand::Text {
@@ -260,7 +283,16 @@ impl DisplayList {
         self.current_z += 1;
     }
 
-    pub fn push_text_aligned(&mut self, text: &str, rect: crate::core::Rect, color: Color, font_size: f32, align: TextAlign, decoration: TextDecoration, font_weight: u16) {
+    pub fn push_text_aligned(
+        &mut self,
+        text: &str,
+        rect: crate::core::Rect,
+        color: Color,
+        font_size: f32,
+        align: TextAlign,
+        decoration: TextDecoration,
+        font_weight: u16,
+    ) {
         let clip = *self.current_clip();
         let z = self.current_z;
         self.target().push(DrawCommand::Text {
@@ -285,7 +317,15 @@ impl DisplayList {
     /// Текст без переноса: рисуется одной строкой, лишнее обрезается текущим
     /// клипом. Для ячеек таблиц, где узкая колонка иначе ломала бы дату на
     /// несколько строк.
-    pub fn push_text_singleline(&mut self, text: &str, rect: crate::core::Rect, color: Color, font_size: f32, align: TextAlign, font_weight: u16) {
+    pub fn push_text_singleline(
+        &mut self,
+        text: &str,
+        rect: crate::core::Rect,
+        color: Color,
+        font_size: f32,
+        align: TextAlign,
+        font_weight: u16,
+    ) {
         let clip = *self.current_clip();
         let z = self.current_z;
         self.target().push(DrawCommand::Text {
@@ -311,7 +351,17 @@ impl DisplayList {
     /// лишнее обрезается клипом. Для подписей контролов (Dropdown, кнопки),
     /// где узкий бокс иначе ломал бы подпись на несколько строк.
     #[allow(clippy::too_many_arguments)]
-    pub fn push_text_styled_singleline(&mut self, text: &str, rect: crate::core::Rect, color: Color, font_size: f32, align: TextAlign, decoration: TextDecoration, font_weight: u16, font_family: Option<String>) {
+    pub fn push_text_styled_singleline(
+        &mut self,
+        text: &str,
+        rect: crate::core::Rect,
+        color: Color,
+        font_size: f32,
+        align: TextAlign,
+        decoration: TextDecoration,
+        font_weight: u16,
+        font_family: Option<String>,
+    ) {
         let clip = *self.current_clip();
         let z = self.current_z;
         self.target().push(DrawCommand::Text {
@@ -333,7 +383,17 @@ impl DisplayList {
         self.current_z += 1;
     }
 
-    pub fn push_text_styled(&mut self, text: &str, rect: crate::core::Rect, color: Color, font_size: f32, align: TextAlign, decoration: TextDecoration, font_weight: u16, font_family: Option<String>) {
+    pub fn push_text_styled(
+        &mut self,
+        text: &str,
+        rect: crate::core::Rect,
+        color: Color,
+        font_size: f32,
+        align: TextAlign,
+        decoration: TextDecoration,
+        font_weight: u16,
+        font_family: Option<String>,
+    ) {
         let clip = *self.current_clip();
         let z = self.current_z;
         self.target().push(DrawCommand::Text {
@@ -528,7 +588,10 @@ impl DisplayList {
         let z = self.current_z;
         let outer_expand = offset + width;
         let outer_rect = crate::core::Rect::new(
-            Point::new(bounds.origin.x - outer_expand, bounds.origin.y - outer_expand),
+            Point::new(
+                bounds.origin.x - outer_expand,
+                bounds.origin.y - outer_expand,
+            ),
             Size::new(
                 bounds.size.width + outer_expand * 2.0,
                 bounds.size.height + outer_expand * 2.0,
@@ -574,7 +637,16 @@ impl DisplayList {
         font_family: Option<String>,
     ) {
         self.push_text_selection_weighted(
-            text, sel_start, sel_end, base_x, y, height, font_size, 400, color, font_family,
+            text,
+            sel_start,
+            sel_end,
+            base_x,
+            y,
+            height,
+            font_size,
+            400,
+            color,
+            font_family,
         );
     }
 
@@ -628,7 +700,17 @@ impl DisplayList {
         font_weight: u16,
         color: Color,
     ) {
-        self.push_text_cursor_styled(text, cursor_pos, base_x, y, height, font_size, font_weight, color, None);
+        self.push_text_cursor_styled(
+            text,
+            cursor_pos,
+            base_x,
+            y,
+            height,
+            font_size,
+            font_weight,
+            color,
+            None,
+        );
     }
 
     pub fn push_text_cursor_styled(
@@ -673,7 +755,8 @@ impl DisplayList {
             ClipRect::from_rect(clip_rect)
         };
         self.clip_stack.push(new_clip);
-        self.target().push(DrawCommand::PushClip { rect: clip_rect });
+        self.target()
+            .push(DrawCommand::PushClip { rect: clip_rect });
     }
 
     pub fn push_clip_rounded(&mut self, rect: crate::core::Rect, corner_radius: [f32; 4]) {
@@ -689,7 +772,8 @@ impl DisplayList {
             ClipRect::from_rect_rounded(clip_rect, corner_radius)
         };
         self.clip_stack.push(new_clip);
-        self.target().push(DrawCommand::PushClip { rect: clip_rect });
+        self.target()
+            .push(DrawCommand::PushClip { rect: clip_rect });
     }
 
     pub fn pop_clip(&mut self) {
@@ -730,11 +814,16 @@ impl DisplayList {
         } else {
             bounds
         };
-        self.target().push(DrawCommand::BeginEffectLayer { effect, bounds: screen_bounds });
+        self.target().push(DrawCommand::BeginEffectLayer {
+            effect,
+            bounds: screen_bounds,
+        });
     }
 
     pub fn pop_effect_layer(&mut self) {
-        self.target().push(DrawCommand::EndEffectLayer { texture_id: TextureId(0) });
+        self.target().push(DrawCommand::EndEffectLayer {
+            texture_id: TextureId(0),
+        });
     }
 
     pub fn is_in_overlay(&self) -> bool {
@@ -789,7 +878,8 @@ impl DisplayList {
         ));
         self.saved_transforms.push(self.current_transform);
         self.current_transform = crate::core::Transform::identity();
-        self.overlay_base_transforms.push(crate::core::Transform::identity());
+        self.overlay_base_transforms
+            .push(crate::core::Transform::identity());
     }
 
     pub fn end_overlay(&mut self) {
@@ -818,7 +908,9 @@ impl DisplayList {
     }
 
     pub fn iter_all_commands(&self) -> impl Iterator<Item = &DrawCommand> {
-        self.commands.iter().chain(self.overlay_levels.iter().flat_map(|l| l.iter()))
+        self.commands
+            .iter()
+            .chain(self.overlay_levels.iter().flat_map(|l| l.iter()))
     }
 
     pub fn normal_commands(&self) -> &[DrawCommand] {

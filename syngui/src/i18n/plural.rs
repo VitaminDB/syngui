@@ -70,11 +70,18 @@ impl PluralRule {
 
     /// Разбор имени из `@plural = "…"`.
     pub fn parse(name: &str) -> Option<PluralRule> {
-        NAMES.iter().find(|(n, _)| *n == name).map(|(_, rule)| *rule)
+        NAMES
+            .iter()
+            .find(|(n, _)| *n == name)
+            .map(|(_, rule)| *rule)
     }
 
     pub fn name(self) -> &'static str {
-        NAMES.iter().find(|(_, r)| *r == self).map(|(n, _)| *n).unwrap_or("one-other")
+        NAMES
+            .iter()
+            .find(|(_, r)| *r == self)
+            .map(|(n, _)| *n)
+            .unwrap_or("one-other")
     }
 
     pub fn category(self, n: u64) -> PluralCategory {
@@ -82,10 +89,18 @@ impl PluralRule {
         let mod100 = n % 100;
         match self {
             PluralRule::OneOther => {
-                if n == 1 { PluralCategory::One } else { PluralCategory::Other }
+                if n == 1 {
+                    PluralCategory::One
+                } else {
+                    PluralCategory::Other
+                }
             }
             PluralRule::ZeroOneOther => {
-                if n <= 1 { PluralCategory::One } else { PluralCategory::Other }
+                if n <= 1 {
+                    PluralCategory::One
+                } else {
+                    PluralCategory::Other
+                }
             }
             PluralRule::EastSlavic => {
                 if mod10 == 1 && mod100 != 11 {
@@ -122,7 +137,10 @@ mod tests {
     #[test]
     fn east_slavic() {
         assert_eq!(
-            cats(PluralRule::EastSlavic, &[0, 1, 2, 5, 11, 21, 22, 25, 101, 111, 112, 114]),
+            cats(
+                PluralRule::EastSlavic,
+                &[0, 1, 2, 5, 11, 21, 22, 25, 101, 111, 112, 114]
+            ),
             vec![Many, One, Few, Many, Many, One, Few, Many, One, Many, Many, Many]
         );
     }
@@ -137,19 +155,37 @@ mod tests {
 
     #[test]
     fn one_other_and_zero_one_other() {
-        assert_eq!(cats(PluralRule::OneOther, &[0, 1, 2]), vec![Other, One, Other]);
-        assert_eq!(cats(PluralRule::ZeroOneOther, &[0, 1, 2]), vec![One, One, Other]);
-        assert_eq!(cats(PluralRule::OtherOnly, &[0, 1, 2]), vec![Other, Other, Other]);
+        assert_eq!(
+            cats(PluralRule::OneOther, &[0, 1, 2]),
+            vec![Other, One, Other]
+        );
+        assert_eq!(
+            cats(PluralRule::ZeroOneOther, &[0, 1, 2]),
+            vec![One, One, Other]
+        );
+        assert_eq!(
+            cats(PluralRule::OtherOnly, &[0, 1, 2]),
+            vec![Other, Other, Other]
+        );
     }
 
     #[test]
     fn rule_table_covers_all_shipped_languages() {
         let expected = [
-            ("en", PluralRule::OneOther), ("ru", PluralRule::EastSlavic), ("de", PluralRule::OneOther),
-            ("fr", PluralRule::ZeroOneOther), ("es", PluralRule::OneOther), ("it", PluralRule::OneOther),
-            ("pt", PluralRule::ZeroOneOther), ("pl", PluralRule::Polish), ("uk", PluralRule::EastSlavic),
-            ("kk", PluralRule::OneOther), ("tr", PluralRule::OneOther), ("zh", PluralRule::OtherOnly),
-            ("ja", PluralRule::OtherOnly), ("ko", PluralRule::OtherOnly),
+            ("en", PluralRule::OneOther),
+            ("ru", PluralRule::EastSlavic),
+            ("de", PluralRule::OneOther),
+            ("fr", PluralRule::ZeroOneOther),
+            ("es", PluralRule::OneOther),
+            ("it", PluralRule::OneOther),
+            ("pt", PluralRule::ZeroOneOther),
+            ("pl", PluralRule::Polish),
+            ("uk", PluralRule::EastSlavic),
+            ("kk", PluralRule::OneOther),
+            ("tr", PluralRule::OneOther),
+            ("zh", PluralRule::OtherOnly),
+            ("ja", PluralRule::OtherOnly),
+            ("ko", PluralRule::OtherOnly),
         ];
         for (tag, rule) in expected {
             assert_eq!(PluralRule::for_language(tag), rule, "{tag}");

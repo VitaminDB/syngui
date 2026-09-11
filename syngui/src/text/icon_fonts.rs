@@ -1,15 +1,13 @@
 #[cfg(feature = "material-icons")]
 pub mod material {
-    pub const FONT_DATA: &[u8] =
-        include_bytes!("../../assets/fonts/MaterialIcons-Regular.ttf");
+    pub const FONT_DATA: &[u8] = include_bytes!("../../assets/fonts/MaterialIcons-Regular.ttf");
 
     pub const FAMILY_NAME: &str = "Material Icons";
 }
 
 #[cfg(feature = "font-awesome")]
 pub mod awesome {
-    pub const SOLID_FONT_DATA: &[u8] =
-        include_bytes!("../../assets/fonts/FontAwesome6-Solid.otf");
+    pub const SOLID_FONT_DATA: &[u8] = include_bytes!("../../assets/fonts/FontAwesome6-Solid.otf");
 
     pub const REGULAR_FONT_DATA: &[u8] =
         include_bytes!("../../assets/fonts/FontAwesome6-Regular.otf");

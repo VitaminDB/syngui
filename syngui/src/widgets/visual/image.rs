@@ -1,14 +1,16 @@
+use crate::core::sync::Mutex;
 use crate::core::{Color, Point, Rect, RectExt, Size};
 use crate::gpu::image_store::{ImageHandle, ImageLoadState, ImageSource, ImageStore};
 use crate::input::{Event, EventResult};
 use crate::layout::Constraints;
-use crate::mss::{ComputedStyle, Dimension};
 use crate::mss::MssFields;
+use crate::mss::{ComputedStyle, Dimension};
 use crate::render::{DisplayList, TextureId};
-use crate::widget::{DirtyFlags, Element, ElementId, ElementTree, StyledElement, UpdateContext, Widget};
+use crate::widget::{
+    DirtyFlags, Element, ElementId, ElementTree, StyledElement, UpdateContext, Widget,
+};
 use std::any::Any;
 use std::sync::Arc;
-use crate::core::sync::Mutex;
 
 #[derive(Clone, Copy, Debug, Default, PartialEq)]
 pub enum ImageFit {
@@ -208,7 +210,9 @@ impl Element for ImageElement {
             let source_changed = match (&self.source, &image.source) {
                 (ImageSource::Path(a), ImageSource::Path(b)) => a != b,
                 (ImageSource::Bytes { key: a, .. }, ImageSource::Bytes { key: b, .. }) => a != b,
-                (ImageSource::RawRgba { key: a, .. }, ImageSource::RawRgba { key: b, .. }) => a != b,
+                (ImageSource::RawRgba { key: a, .. }, ImageSource::RawRgba { key: b, .. }) => {
+                    a != b
+                }
                 (ImageSource::Url(a), ImageSource::Url(b)) => a != b,
                 _ => true,
             };
@@ -241,9 +245,14 @@ impl Element for ImageElement {
             d.resolve(constraints.max_width).min(constraints.max_width)
         } else if fills && constraints.has_bounded_width() {
             constraints.max_width
-        } else if let (Some(h), Some(nw), Some(nh)) = (self.height, self.natural_width, self.natural_height) {
+        } else if let (Some(h), Some(nw), Some(nh)) =
+            (self.height, self.natural_width, self.natural_height)
+        {
             let aspect = nw as f32 / nh as f32;
-            (h.resolve(constraints.max_height).min(constraints.max_height) * aspect).min(constraints.max_width)
+            (h.resolve(constraints.max_height)
+                .min(constraints.max_height)
+                * aspect)
+                .min(constraints.max_width)
         } else if let Some(nw) = self.natural_width {
             (nw as f32).min(constraints.max_width)
         } else {
@@ -251,7 +260,8 @@ impl Element for ImageElement {
         };
 
         let height = if let Some(d) = self.height {
-            d.resolve(constraints.max_height).min(constraints.max_height)
+            d.resolve(constraints.max_height)
+                .min(constraints.max_height)
         } else if fills && constraints.has_bounded_height() {
             constraints.max_height
         } else if let (Some(nw), Some(nh)) = (self.natural_width, self.natural_height) {
@@ -290,11 +300,20 @@ impl Element for ImageElement {
                 if !self.placeholder {
                     return;
                 }
-                let bg_color = self.mss.background_color.unwrap_or_else(|| Color::from_hex("#F3F4F6"));
+                let bg_color = self
+                    .mss
+                    .background_color
+                    .unwrap_or_else(|| Color::from_hex("#F3F4F6"));
                 list.push_rect(self.bounds, bg_color, [4.0; 4]);
 
-                let icon_color = self.mss.color.map(|c| c.with_alpha(0.5)).unwrap_or_else(|| Color::from_hex("#9CA3AF"));
-                let icon_size = 20.0f32.min(self.bounds.size.width * 0.5).min(self.bounds.size.height * 0.5);
+                let icon_color = self
+                    .mss
+                    .color
+                    .map(|c| c.with_alpha(0.5))
+                    .unwrap_or_else(|| Color::from_hex("#9CA3AF"));
+                let icon_size = 20.0f32
+                    .min(self.bounds.size.width * 0.5)
+                    .min(self.bounds.size.height * 0.5);
                 let icon_rect = Rect::new(
                     Point::new(
                         self.bounds.x() + (self.bounds.size.width - icon_size) / 2.0,
@@ -312,7 +331,12 @@ impl Element for ImageElement {
                         ),
                         Size::new(self.bounds.size.width, 16.0),
                     );
-                    list.push_text_centered(&crate::i18n::builtin("image.loading", "Loading..."), text_rect, icon_color, 11.0);
+                    list.push_text_centered(
+                        &crate::i18n::builtin("image.loading", "Loading..."),
+                        text_rect,
+                        icon_color,
+                        11.0,
+                    );
                 }
             }
             ImageLoadState::Failed => {
@@ -322,7 +346,9 @@ impl Element for ImageElement {
                 let bg_color = Color::from_hex("#FEE2E2");
                 list.push_rect(self.bounds, bg_color, [4.0; 4]);
 
-                let icon_size = 20.0f32.min(self.bounds.size.width * 0.5).min(self.bounds.size.height * 0.5);
+                let icon_size = 20.0f32
+                    .min(self.bounds.size.width * 0.5)
+                    .min(self.bounds.size.height * 0.5);
                 let icon_rect = Rect::new(
                     Point::new(
                         self.bounds.x() + (self.bounds.size.width - icon_size) / 2.0,
@@ -330,12 +356,21 @@ impl Element for ImageElement {
                     ),
                     Size::new(icon_size, icon_size),
                 );
-                list.push_text_centered("⚠", icon_rect, Color::from_hex("#EF4444"), icon_size * 0.8);
+                list.push_text_centered(
+                    "⚠",
+                    icon_rect,
+                    Color::from_hex("#EF4444"),
+                    icon_size * 0.8,
+                );
             }
         }
     }
 
-    fn handle_event(&mut self, _event: &Event, _ctx: &mut crate::widget::context::EventContext) -> EventResult {
+    fn handle_event(
+        &mut self,
+        _event: &Event,
+        _ctx: &mut crate::widget::context::EventContext,
+    ) -> EventResult {
         EventResult::Ignored
     }
 
@@ -428,14 +463,24 @@ impl Element for ImageElement {
         &self.classes
     }
 
-    fn element_type_name(&self) -> &str { "Image" }
+    fn element_type_name(&self) -> &str {
+        "Image"
+    }
 
-    fn reset_mss_styles(&mut self) { self.mss.reset(); }
-    fn mss(&self) -> Option<&crate::mss::MssFields> { Some(&self.mss) }
+    fn reset_mss_styles(&mut self) {
+        self.mss.reset();
+    }
+    fn mss(&self) -> Option<&crate::mss::MssFields> {
+        Some(&self.mss)
+    }
     fn apply_computed_style(&mut self, style: &ComputedStyle) {
         self.mss.apply(style);
-        if let Some(d) = self.mss.width { self.width = Some(d); }
-        if let Some(d) = self.mss.height { self.height = Some(d); }
+        if let Some(d) = self.mss.width {
+            self.width = Some(d);
+        }
+        if let Some(d) = self.mss.height {
+            self.height = Some(d);
+        }
         self.mark_dirty(DirtyFlags::RENDER | DirtyFlags::LAYOUT);
     }
 
@@ -448,7 +493,8 @@ impl Element for ImageElement {
         selected: Option<&ComputedStyle>,
         _checked: Option<&ComputedStyle>,
     ) {
-        self.mss.apply_transitions(base, hover, active, focus, selected);
+        self.mss
+            .apply_transitions(base, hover, active, focus, selected);
     }
 
     fn accessibility_info(&self) -> Option<crate::a11y::AccessibilityInfo> {

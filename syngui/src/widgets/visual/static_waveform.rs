@@ -1,8 +1,8 @@
 use std::sync::Arc;
 
 use crate::audio::{compute_rms_bins, AudioBuffer};
-use crate::core::{Color, Point, Rect, RectExt, Size};
 use crate::core::sync::Mutex;
+use crate::core::{Color, Point, Rect, RectExt, Size};
 use crate::input::{CursorIcon, Event, EventResult, MouseButton};
 use crate::layout::Constraints;
 use crate::mss::{ComputedStyle, Dimension, MssFields};
@@ -183,11 +183,7 @@ impl StaticWaveformElement {
 impl Element for StaticWaveformElement {
     fn update(&mut self, widget: &dyn Widget, _ctx: &mut UpdateContext) {
         if let Some(w) = widget.as_any().downcast_ref::<StaticWaveform>() {
-            let new_ptr = w
-                .pcm
-                .as_ref()
-                .map(|b| Arc::as_ptr(b) as usize)
-                .unwrap_or(0);
+            let new_ptr = w.pcm.as_ref().map(|b| Arc::as_ptr(b) as usize).unwrap_or(0);
             let pcm_changed = new_ptr != self.bins_cache_ptr;
             let bins_changed = w.bins != self.bins;
             let progress_changed = w.progress != self.progress;
@@ -312,7 +308,11 @@ impl Element for StaticWaveformElement {
                 Some(px) => bar_center_x <= px,
                 None => false,
             };
-            let color = if is_played { played_color } else { pending_color };
+            let color = if is_played {
+                played_color
+            } else {
+                pending_color
+            };
             let bar_rect = Rect::new(Point::new(x, y), Size::new(inner_w, h));
             list.push_rect(bar_rect, color, [radius; 4]);
         }
@@ -326,7 +326,11 @@ impl Element for StaticWaveformElement {
                 Point::new(px - 1.5, self.bounds.y()),
                 Size::new(3.0, total_h),
             );
-            list.push_rect(glow_rect, caret_color.with_alpha(0.25), [1.5, 1.5, 1.5, 1.5]);
+            list.push_rect(
+                glow_rect,
+                caret_color.with_alpha(0.25),
+                [1.5, 1.5, 1.5, 1.5],
+            );
             let core_rect = Rect::new(
                 Point::new(px - 0.5, self.bounds.y()),
                 Size::new(1.0, total_h),
@@ -350,11 +354,7 @@ impl Element for StaticWaveformElement {
                 if self.hover {
                     ctx.set_cursor(CursorIcon::Pointer);
                 }
-                let dragging = self
-                    .seeking
-                    .lock()
-                    .map(|g| *g)
-                    .unwrap_or(false);
+                let dragging = self.seeking.lock().map(|g| *g).unwrap_or(false);
                 if dragging {
                     self.invoke_seek(pos.x);
                     ctx.set_cursor(CursorIcon::Pointer);
@@ -483,7 +483,8 @@ impl Element for StaticWaveformElement {
         selected: Option<&ComputedStyle>,
         _checked: Option<&ComputedStyle>,
     ) {
-        self.mss.apply_transitions(base, hover, active, focus, selected);
+        self.mss
+            .apply_transitions(base, hover, active, focus, selected);
     }
 
     fn accessibility_info(&self) -> Option<crate::a11y::AccessibilityInfo> {
@@ -492,9 +493,7 @@ impl Element for StaticWaveformElement {
             state: crate::a11y::NodeState::default(),
             properties: crate::a11y::NodeProperties {
                 label: Some("Audio waveform".to_string()),
-                value: self
-                    .progress
-                    .map(|p| format!("{:.0}%", p * 100.0)),
+                value: self.progress.map(|p| format!("{:.0}%", p * 100.0)),
                 ..Default::default()
             },
         })

@@ -83,7 +83,9 @@ impl Widget for VideoView {
     }
 
     fn mount(&self, _tree: &mut ElementTree, _parent_id: ElementId) {}
-    fn widget_classes(&self) -> &[String] { &self.classes }
+    fn widget_classes(&self) -> &[String] {
+        &self.classes
+    }
 }
 
 pub struct VideoViewElement {
@@ -297,7 +299,9 @@ impl Element for VideoViewElement {
         "VideoView"
     }
 
-    fn mss(&self) -> Option<&crate::mss::MssFields> { Some(&self.mss) }
+    fn mss(&self) -> Option<&crate::mss::MssFields> {
+        Some(&self.mss)
+    }
 
     fn reset_mss_styles(&mut self) {
         self.mss.reset();

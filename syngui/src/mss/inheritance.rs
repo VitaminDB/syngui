@@ -146,7 +146,10 @@ mod tests {
             inh.get("--node-bg"),
             Some(&StyleValue::String("transparent".to_string()))
         );
-        assert_eq!(inh.get("color"), Some(&StyleValue::Color(Color::rgb(255, 255, 255))));
+        assert_eq!(
+            inh.get("color"),
+            Some(&StyleValue::Color(Color::rgb(255, 255, 255)))
+        );
         assert_eq!(inh.get("padding"), None);
     }
 
@@ -167,7 +170,10 @@ mod tests {
         s.set("background", StyleValue::Color(Color::rgb(255, 255, 255)));
 
         let inh = extract_inherited(&s);
-        assert_eq!(inh.get("color"), Some(&StyleValue::Color(Color::rgb(1, 2, 3))));
+        assert_eq!(
+            inh.get("color"),
+            Some(&StyleValue::Color(Color::rgb(1, 2, 3)))
+        );
         assert_eq!(inh.get("font-size"), Some(&StyleValue::px(14.0)));
         assert_eq!(inh.get("padding"), None);
         assert_eq!(inh.get("background"), None);

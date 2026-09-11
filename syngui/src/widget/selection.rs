@@ -10,13 +10,15 @@ impl TextSelectionState {
     }
 
     pub fn range(&self, cursor_pos: usize) -> Option<(usize, usize)> {
-        self.anchor.map(|anchor| {
-            if anchor <= cursor_pos {
-                (anchor, cursor_pos)
-            } else {
-                (cursor_pos, anchor)
-            }
-        }).filter(|(s, e)| s != e)
+        self.anchor
+            .map(|anchor| {
+                if anchor <= cursor_pos {
+                    (anchor, cursor_pos)
+                } else {
+                    (cursor_pos, anchor)
+                }
+            })
+            .filter(|(s, e)| s != e)
     }
 
     pub fn start(&mut self, pos: usize) {
@@ -39,9 +41,7 @@ impl TextSelectionState {
     }
 
     pub fn selected_text<'a>(&self, text: &'a str, cursor_pos: usize) -> Option<&'a str> {
-        self.range(cursor_pos).map(|(start, end)| {
-            &text[start..end]
-        })
+        self.range(cursor_pos).map(|(start, end)| &text[start..end])
     }
 
     pub fn delete_selection(&mut self, text: &mut String, cursor_pos: &mut usize) -> bool {
@@ -55,7 +55,12 @@ impl TextSelectionState {
         }
     }
 
-    pub fn replace_selection(&mut self, text: &mut String, cursor_pos: &mut usize, replacement: &str) {
+    pub fn replace_selection(
+        &mut self,
+        text: &mut String,
+        cursor_pos: &mut usize,
+        replacement: &str,
+    ) {
         if let Some((start, end)) = self.range(*cursor_pos) {
             text.drain(start..end);
             text.insert_str(start, replacement);
@@ -77,7 +82,10 @@ impl TextSelectionState {
         let offset = if text.is_char_boundary(offset) {
             offset
         } else {
-            (0..offset).rev().find(|&b| text.is_char_boundary(b)).unwrap_or(0)
+            (0..offset)
+                .rev()
+                .find(|&b| text.is_char_boundary(b))
+                .unwrap_or(0)
         };
 
         let is_word_char = |ch: char| ch.is_alphanumeric() || ch == '_';
@@ -96,7 +104,9 @@ impl TextSelectionState {
             }
             let mut end = offset;
             for ch in text[offset..].chars() {
-                if !is_word_char(ch) { break; }
+                if !is_word_char(ch) {
+                    break;
+                }
                 end += ch.len_utf8();
             }
             (start, end)
@@ -104,7 +114,11 @@ impl TextSelectionState {
             if let Some(ch) = current_char {
                 (offset, offset + ch.len_utf8())
             } else if offset > 0 {
-                let prev = text[..offset].char_indices().next_back().map(|(i, _)| i).unwrap_or(0);
+                let prev = text[..offset]
+                    .char_indices()
+                    .next_back()
+                    .map(|(i, _)| i)
+                    .unwrap_or(0);
                 (prev, offset)
             } else {
                 (0, 0)

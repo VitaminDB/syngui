@@ -45,11 +45,11 @@ fn build(pages: usize, rows: usize) -> TestHarness {
     // Page намеренно не корень дерева: отсечение содержимого считается
     // только для вложенных узлов, а на экране показаний страница всегда
     // лежит внутри колонки с тулбаром.
-    let root = Column::new()
-        .expand()
-        .child(DecoratedBox::new().class("grow").child(
-            Page::new().child(Padding::all(20.0).child(col)),
-        ));
+    let root = Column::new().expand().child(
+        DecoratedBox::new()
+            .class("grow")
+            .child(Page::new().child(Padding::all(20.0).child(col))),
+    );
     let mut h = TestHarness::new(Box::new(root));
     let engine = h.apply_mss(MSS);
     h.apply_styles(&engine);
@@ -67,8 +67,11 @@ fn frame(h: &mut TestHarness, dt: Duration) -> (usize, f32) {
     let mut dl = DisplayList::new();
     dl.set_scale_factor(1.0);
     dl.set_surface_size(Size::new(VIEW_W, VIEW_H));
-    h.tree
-        .build_display_list(root, &mut dl, Rect::new(Point::zero(), Size::new(VIEW_W, VIEW_H)));
+    h.tree.build_display_list(
+        root,
+        &mut dl,
+        Rect::new(Point::zero(), Size::new(VIEW_W, VIEW_H)),
+    );
 
     let cmds = dl.commands();
     let texts = cmds
@@ -108,7 +111,10 @@ fn content_survives_long_scrolling() {
             empty_steps.push(step);
         }
     }
-    assert!(empty_steps.is_empty(), "контент пропал на шагах {empty_steps:?}");
+    assert!(
+        empty_steps.is_empty(),
+        "контент пропал на шагах {empty_steps:?}"
+    );
 }
 
 /// Разгон к краю плюс просевший кадр — тот самый случай.

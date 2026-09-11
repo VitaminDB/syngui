@@ -1,10 +1,10 @@
 //! Pie chart demo page: 5 examples showcasing different pie/donut chart features.
 
 use syngui::prelude::*;
+use syngui::widgets::charts::{LegendPosition, PieLabelPosition, PieSlice};
 use syngui::widgets::*;
-use syngui::widgets::charts::{PieSlice, PieLabelPosition, LegendPosition};
 
-use crate::sections::{section_card, section_title, label};
+use crate::sections::{label, section_card, section_title};
 
 /// Build all pie chart demos.
 pub fn build_pie_chart_demos() -> impl Widget {
@@ -23,7 +23,9 @@ fn build_basic_demo() -> impl Widget {
     Column::new()
         .gap(12.0)
         .child(section_title("Basic Pie Chart"))
-        .child(label("Simple pie chart with 5 slices and auto-assigned colors"))
+        .child(label(
+            "Simple pie chart with 5 slices and auto-assigned colors",
+        ))
         .child(
             PieChart::new()
                 .title("Market Share")
@@ -84,7 +86,9 @@ fn build_labels_demo() -> impl Widget {
     Column::new()
         .gap(12.0)
         .child(section_title("Labels & Percentages"))
-        .child(label("Outside labels with percentage display and leader lines"))
+        .child(label(
+            "Outside labels with percentage display and leader lines",
+        ))
         .child(
             Row::new()
                 .gap(24.0)
@@ -127,7 +131,9 @@ fn build_interactive_demo() -> impl Widget {
     Column::new()
         .gap(12.0)
         .child(section_title("Interactive Pie"))
-        .child(label("Hover to explode slices, legend click to toggle visibility"))
+        .child(label(
+            "Hover to explode slices, legend click to toggle visibility",
+        ))
         .child(
             PieChart::new()
                 .title("Traffic Sources")
@@ -153,7 +159,9 @@ fn build_multi_donut_demo() -> impl Widget {
     Column::new()
         .gap(12.0)
         .child(section_title("Multi-Donut Comparison"))
-        .child(label("Multiple small donut charts for dashboard-style comparisons"))
+        .child(label(
+            "Multiple small donut charts for dashboard-style comparisons",
+        ))
         .child(
             Row::new()
                 .gap(16.0)

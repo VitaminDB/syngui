@@ -5,9 +5,7 @@ use std::thread::JoinHandle;
 
 use raw_window_handle::{HasDisplayHandle, RawDisplayHandle};
 use smithay_client_toolkit::{
-    data_device_manager::DataDeviceManagerState,
-    output::OutputState,
-    registry::RegistryState,
+    data_device_manager::DataDeviceManagerState, output::OutputState, registry::RegistryState,
     seat::SeatState,
 };
 use wayland_backend::sys::client::Backend;

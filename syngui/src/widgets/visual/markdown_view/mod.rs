@@ -8,9 +8,9 @@ mod resolve;
 mod selection_map;
 mod widget;
 
-pub use highlight::{CodeHighlighter, HighlightToken, NoHighlight};
 #[cfg(feature = "markdown-syntax")]
 pub use highlight::SyntectHighlighter;
+pub use highlight::{CodeHighlighter, HighlightToken, NoHighlight};
 // Модель и парсер публичны для интеграционных тестов и диагностики того,
 // во что реально разбирается конкретный текст.
 pub use model::{MdBlock, MdInline};

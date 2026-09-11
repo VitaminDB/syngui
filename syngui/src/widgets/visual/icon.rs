@@ -4,7 +4,9 @@ use crate::layout::Constraints;
 use crate::mss::ComputedStyle;
 use crate::mss::MssFields;
 use crate::render::DisplayList;
-use crate::widget::{DirtyFlags, Element, ElementId, ElementTree, StyledElement, UpdateContext, Widget};
+use crate::widget::{
+    DirtyFlags, Element, ElementId, ElementTree, StyledElement, UpdateContext, Widget,
+};
 use std::any::Any;
 
 const DEFAULT_ICON_SIZE: f32 = 18.0;
@@ -77,8 +79,7 @@ impl Element for IconElement {
     }
 
     fn build_display_list(&self, list: &mut DisplayList, _clip: Rect) {
-        let color = self.mss.color
-            .unwrap_or_else(|| Color::from_hex("#374151"));
+        let color = self.mss.color.unwrap_or_else(|| Color::from_hex("#374151"));
         let icon_size = self.icon_size();
 
         let text_rect = Rect::new(
@@ -91,7 +92,11 @@ impl Element for IconElement {
         list.push_text_centered(&self.name, text_rect, color, icon_size);
     }
 
-    fn handle_event(&mut self, _event: &Event, _ctx: &mut crate::widget::context::EventContext) -> EventResult {
+    fn handle_event(
+        &mut self,
+        _event: &Event,
+        _ctx: &mut crate::widget::context::EventContext,
+    ) -> EventResult {
         EventResult::Ignored
     }
 
@@ -138,10 +143,16 @@ impl Element for IconElement {
         &self.classes
     }
 
-    fn element_type_name(&self) -> &str { "Icon" }
+    fn element_type_name(&self) -> &str {
+        "Icon"
+    }
 
-    fn reset_mss_styles(&mut self) { self.mss.reset(); }
-    fn mss(&self) -> Option<&crate::mss::MssFields> { Some(&self.mss) }
+    fn reset_mss_styles(&mut self) {
+        self.mss.reset();
+    }
+    fn mss(&self) -> Option<&crate::mss::MssFields> {
+        Some(&self.mss)
+    }
     fn apply_computed_style(&mut self, style: &ComputedStyle) {
         self.mss.apply(style);
         self.mark_dirty(DirtyFlags::RENDER | DirtyFlags::LAYOUT);
@@ -156,7 +167,8 @@ impl Element for IconElement {
         selected: Option<&ComputedStyle>,
         _checked: Option<&ComputedStyle>,
     ) {
-        self.mss.apply_transitions(base, hover, active, focus, selected);
+        self.mss
+            .apply_transitions(base, hover, active, focus, selected);
     }
 
     fn accessibility_info(&self) -> Option<crate::a11y::AccessibilityInfo> {

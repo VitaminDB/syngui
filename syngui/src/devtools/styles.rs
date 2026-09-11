@@ -1,8 +1,8 @@
+use super::panel;
 use crate::core::{Point, Rect, Size};
+use crate::mss::{selector_matches, selector_pseudo, StyleEngine};
 use crate::render::DisplayList;
 use crate::widget::{Element, ElementId, ElementTree};
-use crate::mss::{StyleEngine, selector_matches, selector_pseudo};
-use super::panel;
 
 pub fn render_styles(
     list: &mut DisplayList,
@@ -34,15 +34,35 @@ pub fn render_styles(
     let bounds = element.bounds();
 
     let info_lines = [
-        ("Type", if type_name.is_empty() { "Element" } else { type_name }.to_string()),
+        (
+            "Type",
+            if type_name.is_empty() {
+                "Element"
+            } else {
+                type_name
+            }
+            .to_string(),
+        ),
         ("ID", format!("#{}", selected_id.0)),
         ("Classes", {
             let classes = element.get_classes();
-            if classes.is_empty() { "(none)".to_string() }
-            else { classes.iter().map(|c| format!(".{}", c)).collect::<Vec<_>>().join(" ") }
+            if classes.is_empty() {
+                "(none)".to_string()
+            } else {
+                classes
+                    .iter()
+                    .map(|c| format!(".{}", c))
+                    .collect::<Vec<_>>()
+                    .join(" ")
+            }
         }),
-        ("Bounds", format!("({:.0}, {:.0}) {:.0}x{:.0}",
-            bounds.origin.x, bounds.origin.y, bounds.size.width, bounds.size.height)),
+        (
+            "Bounds",
+            format!(
+                "({:.0}, {:.0}) {:.0}x{:.0}",
+                bounds.origin.x, bounds.origin.y, bounds.size.width, bounds.size.height
+            ),
+        ),
         ("Visible", format!("{}", element.is_visible())),
         ("Layout", format!("{:?}", element.layout_hint())),
         ("Dirty", format_dirty_flags(element)),
@@ -110,7 +130,12 @@ pub fn render_styles(
                     Point::new(x + 16.0, y + 2.0),
                     Size::new(120.0, panel::FONT_SIZE + 2.0),
                 );
-                list.push_text(&format!("{}:", prop), prop_rect, panel::TEXT_PRIMARY, panel::FONT_SIZE);
+                list.push_text(
+                    &format!("{}:", prop),
+                    prop_rect,
+                    panel::TEXT_PRIMARY,
+                    panel::FONT_SIZE,
+                );
 
                 let val_str = format_style_value(val);
                 let val_color = style_value_color(val);
@@ -140,7 +165,12 @@ pub fn render_styles(
             Point::new(x + 4.0, y + 2.0),
             Size::new(w - 8.0, panel::FONT_SIZE + 2.0),
         );
-        list.push_text("No matching rules", no_rules_rect, panel::TEXT_SECONDARY, panel::FONT_SIZE);
+        list.push_text(
+            "No matching rules",
+            no_rules_rect,
+            panel::TEXT_SECONDARY,
+            panel::FONT_SIZE,
+        );
     }
 
     list.pop_clip();
@@ -151,18 +181,16 @@ fn render_no_selection(list: &mut DisplayList, content_rect: Rect) {
         Point::new(content_rect.origin.x + 4.0, content_rect.origin.y + 20.0),
         Size::new(content_rect.size.width - 8.0, panel::FONT_SIZE + 2.0),
     );
-    list.push_text("Select an element to view styles", text_rect, panel::TEXT_SECONDARY, panel::FONT_SIZE);
+    list.push_text(
+        "Select an element to view styles",
+        text_rect,
+        panel::TEXT_SECONDARY,
+        panel::FONT_SIZE,
+    );
 }
 
-fn render_section_header(
-    list: &mut DisplayList,
-    x: f32, y: f32, w: f32,
-    title: &str,
-) -> f32 {
-    let header_rect = Rect::new(
-        Point::new(x, y),
-        Size::new(w, panel::LINE_HEIGHT),
-    );
+fn render_section_header(list: &mut DisplayList, x: f32, y: f32, w: f32, title: &str) -> f32 {
+    let header_rect = Rect::new(Point::new(x, y), Size::new(w, panel::LINE_HEIGHT));
     list.push_rect(header_rect, panel::TAB_BG, [0.0; 4]);
 
     let text_rect = Rect::new(
@@ -177,20 +205,45 @@ fn render_section_header(
 fn format_dirty_flags(element: &dyn Element) -> String {
     use crate::widget::DirtyFlags;
     let mut flags = Vec::new();
-    if element.is_dirty(DirtyFlags::LAYOUT) { flags.push("LAYOUT"); }
-    if element.is_dirty(DirtyFlags::RENDER) { flags.push("RENDER"); }
-    if element.is_dirty(DirtyFlags::PAINT) { flags.push("PAINT"); }
-    if element.is_dirty(DirtyFlags::STATE) { flags.push("STATE"); }
-    if element.is_dirty(DirtyFlags::CHILDREN) { flags.push("CHILDREN"); }
-    if element.is_dirty(DirtyFlags::ANIMATION) { flags.push("ANIMATION"); }
-    if flags.is_empty() { "clean".to_string() } else { flags.join(" | ") }
+    if element.is_dirty(DirtyFlags::LAYOUT) {
+        flags.push("LAYOUT");
+    }
+    if element.is_dirty(DirtyFlags::RENDER) {
+        flags.push("RENDER");
+    }
+    if element.is_dirty(DirtyFlags::PAINT) {
+        flags.push("PAINT");
+    }
+    if element.is_dirty(DirtyFlags::STATE) {
+        flags.push("STATE");
+    }
+    if element.is_dirty(DirtyFlags::CHILDREN) {
+        flags.push("CHILDREN");
+    }
+    if element.is_dirty(DirtyFlags::ANIMATION) {
+        flags.push("ANIMATION");
+    }
+    if flags.is_empty() {
+        "clean".to_string()
+    } else {
+        flags.join(" | ")
+    }
 }
 
 fn format_style_value(val: &crate::mss::StyleValue) -> String {
     use crate::mss::StyleValue;
     match val {
-        StyleValue::Color(c) => format!("#{:02X}{:02X}{:02X}{}", c.r, c.g, c.b,
-            if c.a < 255 { format!("{:02X}", c.a) } else { String::new() }),
+        StyleValue::Color(c) => format!(
+            "#{:02X}{:02X}{:02X}{}",
+            c.r,
+            c.g,
+            c.b,
+            if c.a < 255 {
+                format!("{:02X}", c.a)
+            } else {
+                String::new()
+            }
+        ),
         StyleValue::Length(v, unit) => format!("{}{}", v, format_unit(unit)),
         StyleValue::Number(v) => format!("{}", v),
         StyleValue::String(s) => format!("\"{}\"", s),
@@ -198,11 +251,21 @@ fn format_style_value(val: &crate::mss::StyleValue) -> String {
         StyleValue::VarWithFallback(name, fallback) => {
             format!("var(--{}, {})", name, format_style_value(fallback))
         }
-        StyleValue::List(items) => items.iter().map(|i| format_style_value(i)).collect::<Vec<_>>().join(", "),
+        StyleValue::List(items) => items
+            .iter()
+            .map(|i| format_style_value(i))
+            .collect::<Vec<_>>()
+            .join(", "),
         StyleValue::Gradient(g) => match g {
-            crate::core::Gradient::Linear { angle_deg, stops } => format!("linear-gradient({}deg, {} stops)", angle_deg, stops.len()),
-            crate::core::Gradient::Radial { stops, .. } => format!("radial-gradient({} stops)", stops.len()),
-            crate::core::Gradient::Conic { stops, .. } => format!("conic-gradient({} stops)", stops.len()),
+            crate::core::Gradient::Linear { angle_deg, stops } => {
+                format!("linear-gradient({}deg, {} stops)", angle_deg, stops.len())
+            }
+            crate::core::Gradient::Radial { stops, .. } => {
+                format!("radial-gradient({} stops)", stops.len())
+            }
+            crate::core::Gradient::Conic { stops, .. } => {
+                format!("conic-gradient({} stops)", stops.len())
+            }
         },
         StyleValue::None => "none".to_string(),
         StyleValue::Inherit => "inherit".to_string(),
@@ -255,7 +318,8 @@ fn wrap_text(text: &str, avail_width: f32, font_size: f32) -> Vec<String> {
             break;
         }
 
-        let byte_limit = remaining.char_indices()
+        let byte_limit = remaining
+            .char_indices()
             .nth(max_chars)
             .map(|(i, _)| i)
             .unwrap_or(remaining.len());

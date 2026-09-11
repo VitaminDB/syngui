@@ -4,7 +4,9 @@ use crate::layout::Constraints;
 use crate::mss::ComputedStyle;
 use crate::mss::MssFields;
 use crate::render::DisplayList;
-use crate::widget::{DirtyFlags, Element, ElementId, ElementTree, StyledElement, UpdateContext, Widget};
+use crate::widget::{
+    DirtyFlags, Element, ElementId, ElementTree, StyledElement, UpdateContext, Widget,
+};
 use std::any::Any;
 
 pub struct ProgressBar {
@@ -40,7 +42,6 @@ impl ProgressBar {
         self.show_percentage = true;
         self
     }
-
 }
 
 impl Default for ProgressBar {
@@ -108,8 +109,17 @@ impl Element for ProgressBarElement {
     }
 
     fn layout(&mut self, constraints: Constraints) -> Size {
-        let width = self.mss.width.map(|d| d.resolve(constraints.max_width)).unwrap_or(constraints.max_width).min(constraints.max_width);
-        let bar_h = self.mss.height.map(|d| d.resolve(constraints.max_height)).unwrap_or(8.0);
+        let width = self
+            .mss
+            .width
+            .map(|d| d.resolve(constraints.max_width))
+            .unwrap_or(constraints.max_width)
+            .min(constraints.max_width);
+        let bar_h = self
+            .mss
+            .height
+            .map(|d| d.resolve(constraints.max_height))
+            .unwrap_or(8.0);
         // С процентами виджет подрастает до кегля текста — процент рисуется
         // ВНУТРИ собственных bounds (справа от полосы), а не поверх соседей.
         let height = if self.show_percentage && !self.indeterminate {
@@ -124,17 +134,26 @@ impl Element for ProgressBarElement {
     }
 
     fn build_display_list(&self, list: &mut DisplayList, _clip: Rect) {
-        let track_color = self.mss.background_color.unwrap_or_else(|| Color::from_hex("#E5E7EB"));
+        let track_color = self
+            .mss
+            .background_color
+            .unwrap_or_else(|| Color::from_hex("#E5E7EB"));
         // Заливка: accent-color, затем color (как у Slider). Фолбэк на
         // background-color был багом — заливка цветом дорожки невидима.
-        let fill_color = self.mss.accent_color
+        let fill_color = self
+            .mss
+            .accent_color
             .or(self.mss.color)
             .unwrap_or_else(|| Color::from_hex("#3B82F6"));
 
         let show_pct = self.show_percentage && !self.indeterminate;
         let fs = self.percent_font_size();
         // Зона процента справа: "100%" при данном кегле + зазор до полосы.
-        let pct_zone = if show_pct { (fs * 2.6).ceil() + 6.0 } else { 0.0 };
+        let pct_zone = if show_pct {
+            (fs * 2.6).ceil() + 6.0
+        } else {
+            0.0
+        };
 
         let bar_h = self
             .mss
@@ -163,17 +182,17 @@ impl Element for ProgressBarElement {
             list.push_rect(fill_rect, fill_color, [radius; 4]);
         } else if self.value > 0.0 {
             let fill_width = bar_rect.size.width * self.value;
-            let fill_rect = Rect::new(
-                bar_rect.origin,
-                Size::new(fill_width, bar_rect.size.height),
-            );
+            let fill_rect = Rect::new(bar_rect.origin, Size::new(fill_width, bar_rect.size.height));
             list.push_rect(fill_rect, fill_color, [radius; 4]);
         }
 
         if show_pct {
             let percentage = format!("{}%", (self.value * 100.0) as i32);
             let text_rect = Rect::new(
-                Point::new(self.bounds.x() + self.bounds.size.width - pct_zone + 6.0, self.bounds.y()),
+                Point::new(
+                    self.bounds.x() + self.bounds.size.width - pct_zone + 6.0,
+                    self.bounds.y(),
+                ),
                 Size::new(pct_zone - 6.0, self.bounds.size.height),
             );
             let pct_color = self.mss.color.unwrap_or_else(|| Color::from_hex("#374151"));
@@ -197,7 +216,11 @@ impl Element for ProgressBarElement {
         false
     }
 
-    fn handle_event(&mut self, _event: &Event, _ctx: &mut crate::widget::context::EventContext) -> EventResult {
+    fn handle_event(
+        &mut self,
+        _event: &Event,
+        _ctx: &mut crate::widget::context::EventContext,
+    ) -> EventResult {
         EventResult::Ignored
     }
 
@@ -244,10 +267,16 @@ impl Element for ProgressBarElement {
         &self.classes
     }
 
-    fn element_type_name(&self) -> &str { "ProgressBar" }
+    fn element_type_name(&self) -> &str {
+        "ProgressBar"
+    }
 
-    fn reset_mss_styles(&mut self) { self.mss.reset(); }
-    fn mss(&self) -> Option<&crate::mss::MssFields> { Some(&self.mss) }
+    fn reset_mss_styles(&mut self) {
+        self.mss.reset();
+    }
+    fn mss(&self) -> Option<&crate::mss::MssFields> {
+        Some(&self.mss)
+    }
     fn apply_computed_style(&mut self, style: &ComputedStyle) {
         self.mss.apply(style);
         self.mark_dirty(DirtyFlags::RENDER | DirtyFlags::LAYOUT);
@@ -262,7 +291,8 @@ impl Element for ProgressBarElement {
         selected: Option<&ComputedStyle>,
         _checked: Option<&ComputedStyle>,
     ) {
-        self.mss.apply_transitions(base, hover, active, focus, selected);
+        self.mss
+            .apply_transitions(base, hover, active, focus, selected);
     }
 
     fn accessibility_info(&self) -> Option<crate::a11y::AccessibilityInfo> {

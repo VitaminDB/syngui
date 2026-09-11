@@ -2,11 +2,13 @@ use crate::core::canvas::CanvasContext;
 use crate::core::{Color, Point, Rect, Size};
 use crate::input::{Event, EventResult, MouseButton};
 use crate::layout::Constraints;
-use crate::mss::{ComputedStyle, Dimension};
 use crate::mss::MssFields;
+use crate::mss::{ComputedStyle, Dimension};
 use crate::render::DisplayList;
-use crate::widget::{DirtyFlags, Element, ElementId, ElementTree, StyledElement, UpdateContext, Widget};
 use crate::widget::context::TextMeasure;
+use crate::widget::{
+    DirtyFlags, Element, ElementId, ElementTree, StyledElement, UpdateContext, Widget,
+};
 use std::any::Any;
 use std::f32::consts::TAU;
 use std::sync::Arc;
@@ -15,11 +17,20 @@ use std::time::Duration;
 use super::animation::ChartAnimationState;
 use super::math::polar_to_cartesian;
 use super::render::estimate_text_width;
-use super::render::legend::{render_legend_items, legend_height};
-use super::types::{LegendConfig, LegendPosition, PieLabelPosition, PieSlice, TooltipConfig, palette_color};
+use super::render::legend::{legend_height, render_legend_items};
 use super::render::tooltip::TooltipColors;
+use super::types::{
+    palette_color, LegendConfig, LegendPosition, PieLabelPosition, PieSlice, TooltipConfig,
+};
 
-fn arc_quads(cx: f32, cy: f32, outer_r: f32, inner_r: f32, start: f32, end: f32) -> Vec<Vec<(f32, f32)>> {
+fn arc_quads(
+    cx: f32,
+    cy: f32,
+    outer_r: f32,
+    inner_r: f32,
+    start: f32,
+    end: f32,
+) -> Vec<Vec<(f32, f32)>> {
     let steps = ((end - start).abs() / 0.035).max(2.0) as usize;
     let mut quads = Vec::with_capacity(steps);
 
@@ -51,10 +62,14 @@ fn arc_quads(cx: f32, cy: f32, outer_r: f32, inner_r: f32, start: f32, end: f32)
 }
 
 fn hit_test_slice(
-    mx: f32, my: f32,
-    cx: f32, cy: f32,
-    outer_r: f32, inner_r: f32,
-    start: f32, end: f32,
+    mx: f32,
+    my: f32,
+    cx: f32,
+    cy: f32,
+    outer_r: f32,
+    inner_r: f32,
+    start: f32,
+    end: f32,
 ) -> bool {
     let dx = mx - cx;
     let dy = -(my - cy);
@@ -63,11 +78,17 @@ fn hit_test_slice(
         return false;
     }
     let mut angle = dy.atan2(dx);
-    if angle < 0.0 { angle += TAU; }
+    if angle < 0.0 {
+        angle += TAU;
+    }
     let mut s = start % TAU;
-    if s < 0.0 { s += TAU; }
+    if s < 0.0 {
+        s += TAU;
+    }
     let mut e = end % TAU;
-    if e < 0.0 { e += TAU; }
+    if e < 0.0 {
+        e += TAU;
+    }
     if s < e {
         angle >= s && angle <= e
     } else {
@@ -186,15 +207,20 @@ impl PieChart {
 }
 
 impl Default for PieChart {
-    fn default() -> Self { Self::new() }
+    fn default() -> Self {
+        Self::new()
+    }
 }
 
 impl Widget for PieChart {
     fn create_element(&self) -> Box<dyn Element> {
         let count = self.slices.len();
-        let resolved_colors: Vec<Color> = self.slices.iter().enumerate().map(|(i, s)| {
-            s.color.unwrap_or_else(|| palette_color(i))
-        }).collect();
+        let resolved_colors: Vec<Color> = self
+            .slices
+            .iter()
+            .enumerate()
+            .map(|(i, s)| s.color.unwrap_or_else(|| palette_color(i)))
+            .collect();
 
         let mut anim = ChartAnimationState::default();
         anim.ensure_series_count(count);
@@ -233,11 +259,19 @@ impl Widget for PieChart {
         })
     }
 
-    fn can_update(&self, other: &dyn Any) -> bool { other.is::<Self>() }
-    fn as_any(&self) -> &dyn Any { self }
-    fn as_any_mut(&mut self) -> &mut dyn Any { self }
+    fn can_update(&self, other: &dyn Any) -> bool {
+        other.is::<Self>()
+    }
+    fn as_any(&self) -> &dyn Any {
+        self
+    }
+    fn as_any_mut(&mut self) -> &mut dyn Any {
+        self
+    }
     fn mount(&self, _tree: &mut ElementTree, _parent_id: ElementId) {}
-    fn widget_classes(&self) -> &[String] { &self.classes }
+    fn widget_classes(&self) -> &[String] {
+        &self.classes
+    }
 }
 
 struct PieChartElement {
@@ -283,7 +317,10 @@ impl PieChartElement {
         self.slice_angles.clear();
         self.slice_angles.reserve(count);
 
-        let total: f64 = self.slices.iter().enumerate()
+        let total: f64 = self
+            .slices
+            .iter()
+            .enumerate()
             .filter(|(i, _)| self.anim.is_series_visible(*i))
             .map(|(_, s)| s.value.max(0.0))
             .sum();
@@ -298,7 +335,11 @@ impl PieChartElement {
         let mut cumulative = 0.0_f64;
         for (i, slice) in self.slices.iter().enumerate() {
             let start_frac = cumulative / total;
-            let value = if self.anim.is_series_visible(i) { slice.value.max(0.0) } else { 0.0 };
+            let value = if self.anim.is_series_visible(i) {
+                slice.value.max(0.0)
+            } else {
+                0.0
+            };
             cumulative += value;
             let end_frac = cumulative / total;
 
@@ -318,7 +359,9 @@ impl PieChartElement {
             PieLabelPosition::Outside => 46.0,
             _ => 0.0,
         };
-        let available = (inner_w - label_margin * 2.0).min(inner_h - label_margin * 2.0).max(20.0);
+        let available = (inner_w - label_margin * 2.0)
+            .min(inner_h - label_margin * 2.0)
+            .max(20.0);
         let outer_r = available * 0.5;
         let inner_r = outer_r * self.inner_radius;
 
@@ -354,9 +397,12 @@ impl Element for PieChartElement {
             self.title = w.title.clone();
 
             let count = w.slices.len();
-            self.resolved_colors = w.slices.iter().enumerate().map(|(i, s)| {
-                s.color.unwrap_or_else(|| palette_color(i))
-            }).collect();
+            self.resolved_colors = w
+                .slices
+                .iter()
+                .enumerate()
+                .map(|(i, s)| s.color.unwrap_or_else(|| palette_color(i)))
+                .collect();
 
             self.anim.ensure_series_count(count);
 
@@ -368,13 +414,17 @@ impl Element for PieChartElement {
     }
 
     fn layout(&mut self, constraints: Constraints) -> Size {
-        let w = self.mss.width
+        let w = self
+            .mss
+            .width
             .or(self.width)
             .map(|d| d.resolve(constraints.max_width))
             .unwrap_or(300.0)
             .min(constraints.max_width);
 
-        let h = self.mss.height
+        let h = self
+            .mss
+            .height
             .or(self.height)
             .map(|d| d.resolve(constraints.max_height))
             .unwrap_or(300.0)
@@ -389,7 +439,8 @@ impl Element for PieChartElement {
         let bg_color = self.mss.background_color.unwrap_or(Color::TRANSPARENT);
         let border_radius = self.mss.border_radius_resolved(self.bounds.size.width, 0.0);
         let padding = self.mss.padding_ltrb([16.0; 4]);
-        let label_color = self.mss_label_color
+        let label_color = self
+            .mss_label_color
             .or(self.mss.color.map(|c| c.with_alpha(0.6)))
             .unwrap_or(Color::from_hex("#64748b"));
         let label_font = self.mss_label_font_size.unwrap_or(11.0);
@@ -400,13 +451,20 @@ impl Element for PieChartElement {
         if let Some(ref shadows) = self.mss.box_shadow {
             for shadow in shadows.0.iter() {
                 list.push_shadow(
-                    self.bounds, shadow.color, shadow.blur_radius,
-                    (shadow.offset_x, shadow.offset_y), border_radius,
+                    self.bounds,
+                    shadow.color,
+                    shadow.blur_radius,
+                    (shadow.offset_x, shadow.offset_y),
+                    border_radius,
                 );
             }
         }
 
-        let title_h = if self.title.is_some() { label_font + 12.0 } else { 0.0 };
+        let title_h = if self.title.is_some() {
+            label_font + 12.0
+        } else {
+            0.0
+        };
         if let Some(ref title) = self.title {
             let title_font = label_font + 4.0;
             let title_color = self.mss.color.unwrap_or(Color::from_hex("#1e293b"));
@@ -427,7 +485,10 @@ impl Element for PieChartElement {
         let local_cx = cx - self.bounds.origin.x;
         let local_cy = cy - self.bounds.origin.y;
 
-        let total: f64 = self.slices.iter().enumerate()
+        let total: f64 = self
+            .slices
+            .iter()
+            .enumerate()
             .filter(|(i, _)| self.anim.is_series_visible(*i))
             .map(|(_, s)| s.value.max(0.0))
             .sum();
@@ -435,23 +496,36 @@ impl Element for PieChartElement {
         let mut ctx = CanvasContext::new(self.bounds.origin, self.bounds.size);
 
         for (i, _slice) in self.slices.iter().enumerate() {
-            if i >= self.slice_angles.len() { break; }
+            if i >= self.slice_angles.len() {
+                break;
+            }
             let (start, end) = self.slice_angles[i];
 
             let opacity = self.anim.series_opacity(i);
-            if opacity < 0.01 { continue; }
+            if opacity < 0.01 {
+                continue;
+            }
 
             let anim_end = start + (end - start) * self.anim.appear_eased;
-            if (anim_end - start).abs() < 0.001 { continue; }
+            if (anim_end - start).abs() < 0.001 {
+                continue;
+            }
 
-            let explode = if i < self.explode_progress.len() { self.explode_progress[i] } else { 0.0 };
+            let explode = if i < self.explode_progress.len() {
+                self.explode_progress[i]
+            } else {
+                0.0
+            };
             let mid_angle = (start + anim_end) * 0.5;
             let offset_x = explode * 10.0 * mid_angle.cos();
             let offset_y = explode * 10.0 * (-mid_angle.sin());
             let slice_cx = local_cx + offset_x;
             let slice_cy = local_cy + offset_y;
 
-            let color = self.resolved_colors.get(i).copied()
+            let color = self
+                .resolved_colors
+                .get(i)
+                .copied()
                 .unwrap_or_else(|| palette_color(i))
                 .with_alpha(opacity);
 
@@ -466,17 +540,24 @@ impl Element for PieChartElement {
         if self.label_position != PieLabelPosition::None && self.anim.appear_eased > 0.1 {
             list.push_clip(self.bounds);
             for (i, sl) in self.slices.iter().enumerate() {
-                if i >= self.slice_angles.len() { continue; }
+                if i >= self.slice_angles.len() {
+                    continue;
+                }
                 let opacity = self.anim.series_opacity(i);
-                if opacity < 0.01 { continue; }
+                if opacity < 0.01 {
+                    continue;
+                }
 
                 let (start, end) = self.slice_angles[i];
                 let anim_end = start + (end - start) * self.anim.appear_eased;
-                if (anim_end - start).abs() < 0.01 { continue; }
+                if (anim_end - start).abs() < 0.01 {
+                    continue;
+                }
 
                 let mid_angle = (start + anim_end) * 0.5;
                 let label_text = self.format_label(sl, total);
-                let text_w = estimate_text_width(&label_text, label_font, self.text_measure.as_ref());
+                let text_w =
+                    estimate_text_width(&label_text, label_font, self.text_measure.as_ref());
 
                 match self.label_position {
                     PieLabelPosition::Inside => {
@@ -503,17 +584,28 @@ impl Element for PieChartElement {
                         line_ctx.set_color(label_color.with_alpha(opacity * 0.5));
                         line_ctx.set_stroke_width(1.0);
                         line_ctx.draw_line(
-                            ex - self.bounds.origin.x, ey - self.bounds.origin.y,
-                            lx - self.bounds.origin.x, ly - self.bounds.origin.y,
+                            ex - self.bounds.origin.x,
+                            ey - self.bounds.origin.y,
+                            lx - self.bounds.origin.x,
+                            ly - self.bounds.origin.y,
                         );
                         line_ctx.flush(list);
 
-                        let text_x = if mid_angle.cos() >= 0.0 { lx } else { lx - text_w };
+                        let text_x = if mid_angle.cos() >= 0.0 {
+                            lx
+                        } else {
+                            lx - text_w
+                        };
                         let label_rect = Rect::new(
                             Point::new(text_x, ly - label_font * 0.5),
                             Size::new(text_w, label_font + 2.0),
                         );
-                        list.push_text(&label_text, label_rect, label_color.with_alpha(opacity), label_font);
+                        list.push_text(
+                            &label_text,
+                            label_rect,
+                            label_color.with_alpha(opacity),
+                            label_font,
+                        );
                     }
                     PieLabelPosition::None => {}
                 }
@@ -558,17 +650,17 @@ impl Element for PieChartElement {
                         "0%".to_string()
                     };
                     let value_text = format_value(slice.value);
-                    let lines = vec![
-                        slice.label.clone(),
-                        format!("{} ({})", value_text, pct),
-                    ];
+                    let lines = vec![slice.label.clone(), format!("{} ({})", value_text, pct)];
 
                     let colors = TooltipColors::default();
                     let opacity = self.anim.tooltip_opacity;
                     let line_height = colors.font_size + 4.0;
                     let tt_padding = 8.0;
-                    let max_text_w = lines.iter()
-                        .map(|t| estimate_text_width(t, colors.font_size, self.text_measure.as_ref()))
+                    let max_text_w = lines
+                        .iter()
+                        .map(|t| {
+                            estimate_text_width(t, colors.font_size, self.text_measure.as_ref())
+                        })
                         .fold(0.0_f32, f32::max);
                     let tt_w = max_text_w + tt_padding * 2.0;
                     let tt_h = lines.len() as f32 * line_height + tt_padding * 2.0;
@@ -590,11 +682,20 @@ impl Element for PieChartElement {
                     list.push_shadow(
                         tt_rect,
                         Color::new(0.0, 0.0, 0.0, 0.2 * opacity),
-                        8.0, (0.0, 2.0), [6.0; 4],
+                        8.0,
+                        (0.0, 2.0),
+                        [6.0; 4],
                     );
-                    list.push_rect(tt_rect, colors.background.with_alpha(opacity * 0.95), [6.0; 4]);
+                    list.push_rect(
+                        tt_rect,
+                        colors.background.with_alpha(opacity * 0.95),
+                        [6.0; 4],
+                    );
 
-                    let swatch_color = self.resolved_colors.get(idx).copied()
+                    let swatch_color = self
+                        .resolved_colors
+                        .get(idx)
+                        .copied()
                         .unwrap_or(Color::from_hex("#888888"));
                     let swatch_rect = Rect::new(
                         Point::new(tx + tt_padding, ty + tt_padding + 2.0),
@@ -604,7 +705,11 @@ impl Element for PieChartElement {
 
                     let mut text_y = ty + tt_padding;
                     for (li, text) in lines.iter().enumerate() {
-                        let text_x = if li == 0 { tx + tt_padding + 12.0 } else { tx + tt_padding };
+                        let text_x = if li == 0 {
+                            tx + tt_padding + 12.0
+                        } else {
+                            tx + tt_padding
+                        };
                         let text_rect = Rect::new(
                             Point::new(text_x, text_y),
                             Size::new(max_text_w, line_height),
@@ -622,7 +727,11 @@ impl Element for PieChartElement {
         }
     }
 
-    fn handle_event(&mut self, event: &Event, _ctx: &mut crate::widget::context::EventContext) -> EventResult {
+    fn handle_event(
+        &mut self,
+        event: &Event,
+        _ctx: &mut crate::widget::context::EventContext,
+    ) -> EventResult {
         match event {
             Event::MouseMove(pos) => {
                 let pos = *pos;
@@ -639,13 +748,19 @@ impl Element for PieChartElement {
 
                 let padding = self.mss.padding_ltrb([16.0; 4]);
                 let label_font = self.mss_label_font_size.unwrap_or(11.0);
-                let title_h = if self.title.is_some() { label_font + 12.0 } else { 0.0 };
+                let title_h = if self.title.is_some() {
+                    label_font + 12.0
+                } else {
+                    0.0
+                };
                 let legend_h = legend_height(self.legend_config.position, label_font);
                 let (cx, cy, outer_r, inner_r) = self.pie_geometry(padding, legend_h, title_h);
 
                 let mut found = None;
                 for (i, angles) in self.slice_angles.iter().enumerate() {
-                    if !self.anim.is_series_visible(i) { continue; }
+                    if !self.anim.is_series_visible(i) {
+                        continue;
+                    }
                     let (start, end) = *angles;
                     let anim_end = start + (end - start) * self.anim.appear_eased;
                     if hit_test_slice(pos.x, pos.y, cx, cy, outer_r, inner_r, start, anim_end) {
@@ -662,10 +777,16 @@ impl Element for PieChartElement {
 
                 EventResult::Handled
             }
-            Event::MouseDown { button, position, .. } => {
-                if *button != MouseButton::Left { return EventResult::Ignored; }
+            Event::MouseDown {
+                button, position, ..
+            } => {
+                if *button != MouseButton::Left {
+                    return EventResult::Ignored;
+                }
                 let pos = *position;
-                if !self.bounds.contains(pos) { return EventResult::Ignored; }
+                if !self.bounds.contains(pos) {
+                    return EventResult::Ignored;
+                }
 
                 for (i, rect) in self.legend_rects.iter().enumerate() {
                     if rect.contains(pos) {
@@ -698,7 +819,11 @@ impl Element for PieChartElement {
         let dt_s = dt.as_secs_f32();
         let speed = 8.0 * dt_s;
         for i in 0..self.explode_progress.len() {
-            let target = if self.hovered_slice == Some(i) { 1.0 } else { 0.0 };
+            let target = if self.hovered_slice == Some(i) {
+                1.0
+            } else {
+                0.0
+            };
             let current = self.explode_progress[i];
             if (current - target).abs() > 0.001 {
                 let delta = (target - current) * speed.min(0.4);
@@ -716,30 +841,54 @@ impl Element for PieChartElement {
         animating
     }
 
-    fn children(&self) -> &[ElementId] { &[] }
-    fn bounds(&self) -> Rect { self.bounds }
+    fn children(&self) -> &[ElementId] {
+        &[]
+    }
+    fn bounds(&self) -> Rect {
+        self.bounds
+    }
 
     fn set_position(&mut self, pos: Point) {
         self.bounds.origin = pos;
     }
 
-    fn mark_dirty(&mut self, flags: DirtyFlags) { self.dirty_flags |= flags; }
-    fn clear_dirty(&mut self, flags: DirtyFlags) { self.dirty_flags.remove(flags); }
-    fn is_dirty(&self, flags: DirtyFlags) -> bool { self.dirty_flags.contains(flags) }
-    fn id(&self) -> ElementId { self.id }
-    fn set_id(&mut self, id: ElementId) { self.id = id; }
-    fn mount(&mut self, tree: &mut ElementTree) { self.text_measure = tree.text_measure.clone(); }
+    fn mark_dirty(&mut self, flags: DirtyFlags) {
+        self.dirty_flags |= flags;
+    }
+    fn clear_dirty(&mut self, flags: DirtyFlags) {
+        self.dirty_flags.remove(flags);
+    }
+    fn is_dirty(&self, flags: DirtyFlags) -> bool {
+        self.dirty_flags.contains(flags)
+    }
+    fn id(&self) -> ElementId {
+        self.id
+    }
+    fn set_id(&mut self, id: ElementId) {
+        self.id = id;
+    }
+    fn mount(&mut self, tree: &mut ElementTree) {
+        self.text_measure = tree.text_measure.clone();
+    }
 
     fn set_classes(&mut self, classes: Vec<String>) {
         self.classes = classes;
         self.mark_dirty(DirtyFlags::RENDER);
     }
 
-    fn get_classes(&self) -> &[String] { &self.classes }
-    fn element_type_name(&self) -> &str { "PieChart" }
+    fn get_classes(&self) -> &[String] {
+        &self.classes
+    }
+    fn element_type_name(&self) -> &str {
+        "PieChart"
+    }
 
-    fn reset_mss_styles(&mut self) { self.mss.reset(); }
-    fn mss(&self) -> Option<&crate::mss::MssFields> { Some(&self.mss) }
+    fn reset_mss_styles(&mut self) {
+        self.mss.reset();
+    }
+    fn mss(&self) -> Option<&crate::mss::MssFields> {
+        Some(&self.mss)
+    }
     fn apply_computed_style(&mut self, style: &ComputedStyle) {
         self.mss.apply(style);
 
@@ -765,7 +914,8 @@ impl Element for PieChartElement {
         selected: Option<&ComputedStyle>,
         _checked: Option<&ComputedStyle>,
     ) {
-        self.mss.apply_transitions(base, hover, active, focus, selected);
+        self.mss
+            .apply_transitions(base, hover, active, focus, selected);
     }
 
     fn accessibility_info(&self) -> Option<crate::a11y::AccessibilityInfo> {
@@ -774,8 +924,12 @@ impl Element for PieChartElement {
             "Pie chart (empty)".to_string()
         } else {
             let top = &self.slices[0];
-            format!("Pie chart: {} slices, largest: {} ({:.0}%)",
-                self.slices.len(), top.label, top.value / total * 100.0)
+            format!(
+                "Pie chart: {} slices, largest: {} ({:.0}%)",
+                self.slices.len(),
+                top.label,
+                top.value / total * 100.0
+            )
         };
         Some(crate::a11y::AccessibilityInfo {
             role: crate::a11y::Role::Group,
@@ -792,7 +946,9 @@ impl StyledElement for PieChartElement {
     fn apply_style(&mut self, _style: &ComputedStyle) {
         self.mark_dirty(DirtyFlags::LAYOUT | DirtyFlags::RENDER);
     }
-    fn classes(&self) -> &[String] { &self.classes }
+    fn classes(&self) -> &[String] {
+        &self.classes
+    }
     fn set_classes(&mut self, classes: Vec<String>) {
         self.classes = classes;
         self.mark_dirty(DirtyFlags::RENDER);

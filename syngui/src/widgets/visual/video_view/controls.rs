@@ -4,9 +4,7 @@ use crate::core::sync::Mutex;
 use crate::signal::{use_signal, RwSignal};
 use crate::video::VideoPlayer;
 use crate::widget::{Text, Widget, WidgetExt};
-use crate::widgets::{
-    Column, CrossAxisAlignment, Reactive, Row, Slider, ToolButton,
-};
+use crate::widgets::{Column, CrossAxisAlignment, Reactive, Row, Slider, ToolButton};
 
 use super::VideoView;
 
@@ -39,7 +37,11 @@ pub fn video_player_view(player: Arc<Mutex<VideoPlayer>>) -> impl Widget {
             let player = player.clone();
             vec![Box::new(
                 ToolButton::new(icon)
-                    .tooltip(if is_paused { crate::i18n::builtin("video.play", "Play") } else { crate::i18n::builtin("video.pause", "Pause") })
+                    .tooltip(if is_paused {
+                        crate::i18n::builtin("video.play", "Play")
+                    } else {
+                        crate::i18n::builtin("video.pause", "Pause")
+                    })
                     .on_click(move || {
                         if let Ok(mut p) = player.lock() {
                             if p.is_paused() {
@@ -78,22 +80,34 @@ pub fn video_player_view(player: Arc<Mutex<VideoPlayer>>) -> impl Widget {
 
     let time_label = Reactive::new(move || {
         let cur = pos.get();
-        vec![Box::new(
-            Text::new(format_time(cur, duration)).class("ffmpeg-time"),
-        ) as Box<dyn Widget>]
+        vec![
+            Box::new(Text::new(format_time(cur, duration)).class("ffmpeg-time")) as Box<dyn Widget>,
+        ]
     });
 
     let mute_btn = {
         let player = player.clone();
         Reactive::new(move || {
             let v = volume.get();
-            let icon = if v <= 0.0 { MI_VOLUME_OFF } else { MI_VOLUME_UP };
+            let icon = if v <= 0.0 {
+                MI_VOLUME_OFF
+            } else {
+                MI_VOLUME_UP
+            };
             let player = player.clone();
             vec![Box::new(
                 ToolButton::new(icon)
-                    .tooltip(if v <= 0.0 { crate::i18n::builtin("video.unmute", "Unmute") } else { crate::i18n::builtin("video.mute", "Mute") })
+                    .tooltip(if v <= 0.0 {
+                        crate::i18n::builtin("video.unmute", "Unmute")
+                    } else {
+                        crate::i18n::builtin("video.mute", "Mute")
+                    })
                     .on_click(move || {
-                        let new_v = if volume.get_untracked() <= 0.0 { 1.0 } else { 0.0 };
+                        let new_v = if volume.get_untracked() <= 0.0 {
+                            1.0
+                        } else {
+                            0.0
+                        };
                         if let Ok(p) = player.lock() {
                             p.set_volume(new_v);
                         }
@@ -136,10 +150,7 @@ pub fn video_player_view(player: Arc<Mutex<VideoPlayer>>) -> impl Widget {
         .child(volume_slider)
         .class("ffmpeg-controls");
 
-    Column::new()
-        .child(video)
-        .child(bar)
-        .class("ffmpeg-player")
+    Column::new().child(video).child(bar).class("ffmpeg-player")
 }
 
 fn format_time(cur: f32, total: f32) -> String {

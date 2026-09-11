@@ -22,8 +22,16 @@ pub fn build_buttons_section() -> impl Widget {
                 Column::new().gap(8.0).child(label("Disabled State")).child(
                     Row::new()
                         .gap(8.0)
-                        .child(Button::new("Disabled Primary").class("primary").disabled(true))
-                        .child(Button::new("Disabled Secondary").class("secondary").disabled(true)),
+                        .child(
+                            Button::new("Disabled Primary")
+                                .class("primary")
+                                .disabled(true),
+                        )
+                        .child(
+                            Button::new("Disabled Secondary")
+                                .class("secondary")
+                                .disabled(true),
+                        ),
                 ),
             )
             .child(
@@ -54,10 +62,7 @@ pub fn build_buttons_section() -> impl Widget {
                 Column::new()
                     .gap(8.0)
                     .child(label("Segmented Button"))
-                    .child(
-                        SegmentedButton::new(vec!["Day", "Week", "Month"])
-                            .selected(1),
-                    ),
+                    .child(SegmentedButton::new(vec!["Day", "Week", "Month"]).selected(1)),
             ),
     )
 }

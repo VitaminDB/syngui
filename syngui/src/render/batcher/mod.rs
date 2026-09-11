@@ -3,13 +3,13 @@ mod draw_gradient;
 mod draw_rect;
 mod draw_shadow;
 
+use crate::core::Transform;
+use crate::render::{Batch, ClipRect, RenderOp, ShaderType, TextureId, Vertex};
+use crate::text::font_atlas::ShapedGlyph;
+use crate::text::FontAtlas;
 use std::collections::HashMap;
 use std::hash::{Hash, Hasher};
 use std::sync::Arc;
-use crate::core::Transform;
-use crate::render::{Batch, ClipRect, RenderOp, ShaderType, TextureId, Vertex};
-use crate::text::FontAtlas;
-use crate::text::font_atlas::ShapedGlyph;
 
 const MAX_VERTICES_PER_BATCH: usize = 65536;
 
@@ -96,7 +96,11 @@ impl Batcher {
         self.scale_factor = scale_factor;
     }
 
-    pub fn process(&mut self, display_list: &crate::render::DisplayList, font_atlas: &mut FontAtlas) -> Vec<RenderOp> {
+    pub fn process(
+        &mut self,
+        display_list: &crate::render::DisplayList,
+        font_atlas: &mut FontAtlas,
+    ) -> Vec<RenderOp> {
         self.ops.clear();
         self.buckets.clear();
         self.current_key = None;
@@ -113,7 +117,8 @@ impl Batcher {
         self.frame_counter += 1;
         if self.frame_counter % 4 == 0 {
             let cutoff = self.frame_counter.saturating_sub(2);
-            self.shaped_cache.retain(|_, (_, last_used)| *last_used >= cutoff);
+            self.shaped_cache
+                .retain(|_, (_, last_used)| *last_used >= cutoff);
         }
 
         for cmd in display_list.normal_commands() {
@@ -179,8 +184,17 @@ impl Batcher {
         ]
     }
 
-    pub(self) fn ensure_batch(&mut self, shader: ShaderType, texture: Option<TextureId>, clip: ClipRect) {
-        let key = BatchKey { shader_type: shader, texture, clip_rect: clip };
+    pub(self) fn ensure_batch(
+        &mut self,
+        shader: ShaderType,
+        texture: Option<TextureId>,
+        clip: ClipRect,
+    ) {
+        let key = BatchKey {
+            shader_type: shader,
+            texture,
+            clip_rect: clip,
+        };
         self.buckets.entry(key).or_insert_with(|| BatchState {
             vertices: Vec::with_capacity(256),
             indices: Vec::with_capacity(384),
@@ -199,7 +213,9 @@ impl Batcher {
         }
 
         entries.sort_by(|(a, _), (b, _)| {
-            a.clip_rect.enabled.cmp(&b.clip_rect.enabled)
+            a.clip_rect
+                .enabled
+                .cmp(&b.clip_rect.enabled)
                 .then(a.clip_rect.x.cmp(&b.clip_rect.x))
                 .then(a.clip_rect.y.cmp(&b.clip_rect.y))
                 .then(a.clip_rect.width.cmp(&b.clip_rect.width))
@@ -287,8 +303,16 @@ impl Batcher {
             return Arc::clone(glyphs);
         }
 
-        let glyphs = Arc::new(font_atlas.shape_text_spaced(text, font_size, max_width, bold, font_family, letter_spacing));
-        self.shaped_cache.insert(key, (Arc::clone(&glyphs), self.frame_counter));
+        let glyphs = Arc::new(font_atlas.shape_text_spaced(
+            text,
+            font_size,
+            max_width,
+            bold,
+            font_family,
+            letter_spacing,
+        ));
+        self.shaped_cache
+            .insert(key, (Arc::clone(&glyphs), self.frame_counter));
         glyphs
     }
 }

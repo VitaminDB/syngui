@@ -140,7 +140,11 @@ impl Dimension {
             | Dimension::FitContent
             | Dimension::MaxContent
             | Dimension::MinContent => {
-                if parent.is_finite() { parent } else { 0.0 }
+                if parent.is_finite() {
+                    parent
+                } else {
+                    0.0
+                }
             }
         }
     }
@@ -207,7 +211,7 @@ impl Color {
 
     fn parse_hex(s: &str) -> Option<Self> {
         let hex = &s[1..];
-        
+
         match hex.len() {
             3 => {
                 let r = u8::from_str_radix(&hex[0..1].repeat(2), 16).ok()?;
@@ -233,12 +237,13 @@ impl Color {
     }
 
     fn parse_rgb(s: &str) -> Option<Self> {
-        let inner = s.trim_start_matches("rgb(")
+        let inner = s
+            .trim_start_matches("rgb(")
             .trim_start_matches("rgba(")
             .trim_end_matches(')');
-        
+
         let parts: Vec<&str> = inner.split(',').map(|s| s.trim()).collect();
-        
+
         if parts.len() < 3 {
             return None;
         }

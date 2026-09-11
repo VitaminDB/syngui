@@ -302,7 +302,11 @@ impl Element for ChipElement {
         let avail_text = self.bounds.size.width
             - (x_offset - self.bounds.x())
             - pad_h
-            - if self.deletable { DEFAULT_DELETE_ZONE } else { 0.0 };
+            - if self.deletable {
+                DEFAULT_DELETE_ZONE
+            } else {
+                0.0
+            };
         let text_width = measured_text_w.min(avail_text);
 
         let text_rect = Rect::new(
@@ -354,7 +358,8 @@ impl Element for ChipElement {
                 self.hovered = hovering;
 
                 if self.deletable && hovering {
-                    let delete_x = self.bounds.x() + self.bounds.size.width - DEFAULT_DELETE_ZONE - pad_h;
+                    let delete_x =
+                        self.bounds.x() + self.bounds.size.width - DEFAULT_DELETE_ZONE - pad_h;
                     self.delete_hovered = pos.x >= delete_x;
                 } else {
                     self.delete_hovered = false;
@@ -457,7 +462,9 @@ impl Element for ChipElement {
         "Chip"
     }
 
-    fn mss(&self) -> Option<&crate::mss::MssFields> { Some(&self.mss) }
+    fn mss(&self) -> Option<&crate::mss::MssFields> {
+        Some(&self.mss)
+    }
 
     fn reset_mss_styles(&mut self) {
         self.mss.reset();

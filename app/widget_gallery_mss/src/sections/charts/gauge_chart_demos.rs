@@ -1,10 +1,10 @@
 //! Gauge chart demo page: 6 examples showcasing different gauge styles.
 
 use syngui::prelude::*;
-use syngui::widgets::*;
 use syngui::widgets::charts::GaugeSegment;
+use syngui::widgets::*;
 
-use crate::sections::{section_card, section_title, label};
+use crate::sections::{label, section_card, section_title};
 
 /// Build all gauge chart demos.
 pub fn build_gauge_chart_demos() -> impl Widget {
@@ -24,7 +24,9 @@ fn build_basic_demo() -> impl Widget {
     Column::new()
         .gap(12.0)
         .child(section_title("Basic Gauge"))
-        .child(label("Simple gauge showing a single value with default styling"))
+        .child(label(
+            "Simple gauge showing a single value with default styling",
+        ))
         .child(
             Row::new()
                 .gap(24.0)
@@ -52,7 +54,9 @@ fn build_segments_demo() -> impl Widget {
     Column::new()
         .gap(12.0)
         .child(section_title("Colored Segments"))
-        .child(label("Gauge with color-coded zones: good (green), warning (yellow), danger (red)"))
+        .child(label(
+            "Gauge with color-coded zones: good (green), warning (yellow), danger (red)",
+        ))
         .child(
             Row::new()
                 .gap(24.0)
@@ -86,7 +90,9 @@ fn build_speedometer_demo() -> impl Widget {
     Column::new()
         .gap(12.0)
         .child(section_title("Speedometer"))
-        .child(label("Automotive-style gauge with 0–220 km/h range and fine divisions"))
+        .child(label(
+            "Automotive-style gauge with 0–220 km/h range and fine divisions",
+        ))
         .child(
             GaugeChart::new()
                 .value(120.0)
@@ -111,7 +117,9 @@ fn build_temperature_demo() -> impl Widget {
     Column::new()
         .gap(12.0)
         .child(section_title("Temperature Gauge"))
-        .child(label("Temperature range from -20°C to +50°C with blue-to-red segments"))
+        .child(label(
+            "Temperature range from -20°C to +50°C with blue-to-red segments",
+        ))
         .child(
             GaugeChart::new()
                 .value(22.5)
@@ -137,7 +145,9 @@ fn build_multi_gauge_demo() -> impl Widget {
     Column::new()
         .gap(12.0)
         .child(section_title("Multi-Gauge Dashboard"))
-        .child(label("Three small gauges in a row — CPU, Memory, Disk usage"))
+        .child(label(
+            "Three small gauges in a row — CPU, Memory, Disk usage",
+        ))
         .child(
             Row::new()
                 .gap(16.0)
@@ -192,7 +202,9 @@ fn build_custom_angles_demo() -> impl Widget {
     Column::new()
         .gap(12.0)
         .child(section_title("Custom Angles"))
-        .child(label("Different arc spans: semi-circle (180°) and full 270° gauge"))
+        .child(label(
+            "Different arc spans: semi-circle (180°) and full 270° gauge",
+        ))
         .child(
             Row::new()
                 .gap(24.0)

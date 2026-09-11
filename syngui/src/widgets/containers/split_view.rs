@@ -6,7 +6,9 @@ use crate::mss::MssFields;
 use crate::render::DisplayList;
 use crate::signal::RwSignal;
 use crate::widget::context::{EventContext, EventContextExt};
-use crate::widget::{DirtyFlags, Element, ElementId, ElementTree, LayoutHint, StyledElement, UpdateContext, Widget};
+use crate::widget::{
+    DirtyFlags, Element, ElementId, ElementTree, LayoutHint, StyledElement, UpdateContext, Widget,
+};
 use std::any::Any;
 
 #[derive(Clone, Copy, Debug, PartialEq)]
@@ -104,25 +106,38 @@ impl Widget for SplitView {
         })
     }
 
-    fn can_update(&self, other: &dyn Any) -> bool { other.is::<Self>() }
-    fn as_any(&self) -> &dyn Any { self }
-    fn as_any_mut(&mut self) -> &mut dyn Any { self }
+    fn can_update(&self, other: &dyn Any) -> bool {
+        other.is::<Self>()
+    }
+    fn as_any(&self) -> &dyn Any {
+        self
+    }
+    fn as_any_mut(&mut self) -> &mut dyn Any {
+        self
+    }
 
     fn mount(&self, tree: &mut ElementTree, parent_id: ElementId) {
         let first_el = self.first.create_element();
-        let first_id = tree.insert_with_type_id(first_el, Some(parent_id), self.first.as_any().type_id());
+        let first_id =
+            tree.insert_with_type_id(first_el, Some(parent_id), self.first.as_any().type_id());
         self.first.mount(tree, first_id);
 
         let second_el = self.second.create_element();
-        let second_id = tree.insert_with_type_id(second_el, Some(parent_id), self.second.as_any().type_id());
+        let second_id =
+            tree.insert_with_type_id(second_el, Some(parent_id), self.second.as_any().type_id());
         self.second.mount(tree, second_id);
     }
 
     fn child_widgets(&self) -> Vec<&dyn Widget> {
-        vec![self.first.as_ref() as &dyn Widget, self.second.as_ref() as &dyn Widget]
+        vec![
+            self.first.as_ref() as &dyn Widget,
+            self.second.as_ref() as &dyn Widget,
+        ]
     }
 
-    fn widget_classes(&self) -> &[String] { &self.classes }
+    fn widget_classes(&self) -> &[String] {
+        &self.classes
+    }
 }
 
 pub struct SplitViewElement {
@@ -162,8 +177,14 @@ impl SplitViewElement {
 
     fn clamp_ratio(&mut self) {
         let is_h = self.direction == SplitDirection::Horizontal;
-        let total = if is_h { self.bounds.size.width } else { self.bounds.size.height } - self.divider_width;
-        if total <= 0.0 { return; }
+        let total = if is_h {
+            self.bounds.size.width
+        } else {
+            self.bounds.size.height
+        } - self.divider_width;
+        if total <= 0.0 {
+            return;
+        }
         let min_ratio = self.min_size / total;
         let max_ratio = 1.0 - min_ratio;
         self.ratio = self.ratio.clamp(min_ratio.min(0.5), max_ratio.max(0.5));
@@ -190,8 +211,16 @@ impl Element for SplitViewElement {
     }
 
     fn layout(&mut self, constraints: Constraints) -> Size {
-        let w = if constraints.max_width.is_finite() { constraints.max_width } else { 400.0 };
-        let h = if constraints.max_height.is_finite() { constraints.max_height } else { 300.0 };
+        let w = if constraints.max_width.is_finite() {
+            constraints.max_width
+        } else {
+            400.0
+        };
+        let h = if constraints.max_height.is_finite() {
+            constraints.max_height
+        } else {
+            300.0
+        };
         self.bounds = Rect::new(Point::zero(), Size::new(w, h));
         self.clamp_ratio();
         Size::new(w, h)
@@ -205,16 +234,22 @@ impl Element for SplitViewElement {
         }
     }
 
-    fn build_display_list(&self, _list: &mut DisplayList, _clip: Rect) {
-    }
+    fn build_display_list(&self, _list: &mut DisplayList, _clip: Rect) {}
 
     fn post_build_display_list(&self, list: &mut DisplayList, _clip: Rect) {
         let hit = self.divider_rect();
         let is_h = self.direction == SplitDirection::Horizontal;
-        let visual_t = self.mss.divider_thickness.unwrap_or(self.divider_width).max(0.0);
+        let visual_t = self
+            .mss
+            .divider_thickness
+            .unwrap_or(self.divider_width)
+            .max(0.0);
         let visual = if is_h {
             let cx = hit.x() + (hit.size.width - visual_t) / 2.0;
-            Rect::new(Point::new(cx, hit.y()), Size::new(visual_t, hit.size.height))
+            Rect::new(
+                Point::new(cx, hit.y()),
+                Size::new(visual_t, hit.size.height),
+            )
         } else {
             let cy = hit.y() + (hit.size.height - visual_t) / 2.0;
             Rect::new(Point::new(hit.x(), cy), Size::new(hit.size.width, visual_t))
@@ -289,7 +324,11 @@ impl Element for SplitViewElement {
                         ctx.request_layout();
                         ctx.request_paint();
                     }
-                    let cursor = if is_h { CursorIcon::ColResize } else { CursorIcon::RowResize };
+                    let cursor = if is_h {
+                        CursorIcon::ColResize
+                    } else {
+                        CursorIcon::RowResize
+                    };
                     ctx.set_cursor(cursor);
                     return EventResult::Handled;
                 }
@@ -300,7 +339,11 @@ impl Element for SplitViewElement {
 
                 if self.hover_divider {
                     let is_h = self.direction == SplitDirection::Horizontal;
-                    let cursor = if is_h { CursorIcon::ColResize } else { CursorIcon::RowResize };
+                    let cursor = if is_h {
+                        CursorIcon::ColResize
+                    } else {
+                        CursorIcon::RowResize
+                    };
                     ctx.set_cursor(cursor);
                 }
 
@@ -332,30 +375,58 @@ impl Element for SplitViewElement {
         }
     }
 
-    fn children(&self) -> &[ElementId] { &[] }
-    fn bounds(&self) -> Rect { self.bounds }
-    fn set_position(&mut self, pos: Point) { self.bounds.origin = pos; }
-    fn mark_dirty(&mut self, flags: DirtyFlags) { self.dirty_flags |= flags; }
-    fn clear_dirty(&mut self, flags: DirtyFlags) { self.dirty_flags.remove(flags); }
-    fn is_dirty(&self, flags: DirtyFlags) -> bool { self.dirty_flags.contains(flags) }
-    fn id(&self) -> ElementId { self.id }
-    fn set_id(&mut self, id: ElementId) { self.id = id; }
+    fn children(&self) -> &[ElementId] {
+        &[]
+    }
+    fn bounds(&self) -> Rect {
+        self.bounds
+    }
+    fn set_position(&mut self, pos: Point) {
+        self.bounds.origin = pos;
+    }
+    fn mark_dirty(&mut self, flags: DirtyFlags) {
+        self.dirty_flags |= flags;
+    }
+    fn clear_dirty(&mut self, flags: DirtyFlags) {
+        self.dirty_flags.remove(flags);
+    }
+    fn is_dirty(&self, flags: DirtyFlags) -> bool {
+        self.dirty_flags.contains(flags)
+    }
+    fn id(&self) -> ElementId {
+        self.id
+    }
+    fn set_id(&mut self, id: ElementId) {
+        self.id = id;
+    }
     fn mount(&mut self, _tree: &mut ElementTree) {}
-    fn clip_content(&self) -> bool { true }
+    fn clip_content(&self) -> bool {
+        true
+    }
 
-    fn intercepts_child_events(&self) -> bool { self.dragging }
+    fn intercepts_child_events(&self) -> bool {
+        self.dragging
+    }
 
     fn set_classes(&mut self, classes: Vec<String>) {
         self.classes = classes;
         self.mark_dirty(DirtyFlags::RENDER);
     }
 
-    fn get_classes(&self) -> &[String] { &self.classes }
+    fn get_classes(&self) -> &[String] {
+        &self.classes
+    }
 
-    fn element_type_name(&self) -> &str { "SplitView" }
+    fn element_type_name(&self) -> &str {
+        "SplitView"
+    }
 
-    fn reset_mss_styles(&mut self) { self.mss.reset(); }
-    fn mss(&self) -> Option<&crate::mss::MssFields> { Some(&self.mss) }
+    fn reset_mss_styles(&mut self) {
+        self.mss.reset();
+    }
+    fn mss(&self) -> Option<&crate::mss::MssFields> {
+        Some(&self.mss)
+    }
     fn apply_computed_style(&mut self, style: &ComputedStyle) {
         self.mss.apply(style);
         self.mark_dirty(DirtyFlags::RENDER);
@@ -370,7 +441,8 @@ impl Element for SplitViewElement {
         selected: Option<&ComputedStyle>,
         _checked: Option<&ComputedStyle>,
     ) {
-        self.mss.apply_transitions(base, hover, active, focus, selected);
+        self.mss
+            .apply_transitions(base, hover, active, focus, selected);
     }
 }
 
@@ -379,7 +451,9 @@ impl StyledElement for SplitViewElement {
         self.mark_dirty(DirtyFlags::LAYOUT | DirtyFlags::RENDER);
     }
 
-    fn classes(&self) -> &[String] { &self.classes }
+    fn classes(&self) -> &[String] {
+        &self.classes
+    }
 
     fn set_classes(&mut self, classes: Vec<String>) {
         self.classes = classes;

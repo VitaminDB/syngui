@@ -150,7 +150,9 @@ mod platform {
                 let tray_icon = match catch_unwind(AssertUnwindSafe(|| build_tray_icon(&cfg))) {
                     Ok(Ok(t)) => t,
                     Ok(Err(e)) => return Err(e),
-                    Err(panic) => return Err(format!("tray init panicked: {}", panic_message(&panic)).into()),
+                    Err(panic) => {
+                        return Err(format!("tray init panicked: {}", panic_message(&panic)).into())
+                    }
                 };
                 Ok(Self {
                     _tray_icon: tray_icon,
@@ -249,7 +251,9 @@ mod platform {
         }
     }
 
-    fn build_tray_icon(cfg: &TrayConfig) -> Result<tray_icon::TrayIcon, Box<dyn std::error::Error>> {
+    fn build_tray_icon(
+        cfg: &TrayConfig,
+    ) -> Result<tray_icon::TrayIcon, Box<dyn std::error::Error>> {
         let icon = match cfg.icon_png.as_deref() {
             Some(bytes) => Some(decode_png_to_icon(bytes)?),
             None => None,

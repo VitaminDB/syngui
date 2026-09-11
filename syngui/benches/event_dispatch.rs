@@ -1,11 +1,11 @@
 //! Event handling benchmarks — dispatch performance through element trees
 
-use std::hint::black_box;
 use criterion::{criterion_group, criterion_main, BenchmarkId, Criterion};
+use std::hint::black_box;
 use syngui::core::{Color, Size};
 use syngui::input::{Event, MouseButton};
 use syngui::layout::Constraints;
-use syngui::widget::{Text, Widget, ElementTree, ElementId, WidgetExt};
+use syngui::widget::{ElementId, ElementTree, Text, Widget, WidgetExt};
 use syngui::widgets::{Column, DecoratedBox, Padding, Row};
 
 // ── Helpers ─────────────────────────────────────────────────────────────
@@ -33,15 +33,20 @@ fn build_flat_list(n: usize) -> Box<dyn Widget> {
 fn build_deep_tree(depth: usize) -> Box<dyn Widget> {
     fn make_widget(depth: usize) -> Box<dyn Widget> {
         if depth == 0 {
-            Box::new(DecoratedBox::new().style("width", 100.0_f32).style("height", 40.0_f32).style("background-color", Color::from_hex("#EEEEEE")))
+            Box::new(
+                DecoratedBox::new()
+                    .style("width", 100.0_f32)
+                    .style("height", 40.0_f32)
+                    .style("background-color", Color::from_hex("#EEEEEE")),
+            )
         } else {
             Box::new(
                 Padding::all(4.0).child(
                     Column::new()
                         .gap(2.0)
                         .child(Text::new(format!("Level {depth}")))
-                        .children(vec![make_widget(depth - 1)])
-                )
+                        .children(vec![make_widget(depth - 1)]),
+                ),
             )
         }
     }
@@ -62,7 +67,7 @@ fn build_realistic_ui() -> Box<dyn Widget> {
                     .style("width", 200.0_f32)
                     .style("height", 32.0_f32)
                     .style("background-color", Color::from_hex("#F3F4F6"))
-                    .child(Text::new(format!("Card {i}")))
+                    .child(Text::new(format!("Card {i}"))),
             );
         }
         content_row = content_row.child(card_col);
@@ -81,9 +86,7 @@ fn bench_event_mouse_move(c: &mut Criterion) {
             let widget = build_flat_list(n);
             let (mut tree, root_id) = build_and_layout(widget.as_ref());
             let event = Event::MouseMove(euclid::point2(100.0, 200.0));
-            b.iter(|| {
-                black_box(tree.handle_event(root_id, &event))
-            });
+            b.iter(|| black_box(tree.handle_event(root_id, &event)));
         });
     }
     group.finish();
@@ -100,9 +103,7 @@ fn bench_event_mouse_click(c: &mut Criterion) {
                 button: MouseButton::Left,
                 position: euclid::point2(100.0, 200.0),
             };
-            b.iter(|| {
-                black_box(tree.handle_event(root_id, &event))
-            });
+            b.iter(|| black_box(tree.handle_event(root_id, &event)));
         });
     }
     group.finish();
@@ -116,9 +117,7 @@ fn bench_event_deep_dispatch(c: &mut Criterion) {
             let widget = build_deep_tree(depth);
             let (mut tree, root_id) = build_and_layout(widget.as_ref());
             let event = Event::MouseMove(euclid::point2(50.0, 50.0));
-            b.iter(|| {
-                black_box(tree.handle_event(root_id, &event))
-            });
+            b.iter(|| black_box(tree.handle_event(root_id, &event)));
         });
     }
     group.finish();
@@ -133,9 +132,7 @@ fn bench_event_realistic_ui(c: &mut Criterion) {
     // Mouse move (visits all siblings)
     group.bench_function("mouse_move", |b| {
         let event = Event::MouseMove(euclid::point2(300.0, 200.0));
-        b.iter(|| {
-            black_box(tree.handle_event(root_id, &event))
-        });
+        b.iter(|| black_box(tree.handle_event(root_id, &event)));
     });
 
     // Mouse click (short-circuits)
@@ -144,17 +141,13 @@ fn bench_event_realistic_ui(c: &mut Criterion) {
             button: MouseButton::Left,
             position: euclid::point2(300.0, 200.0),
         };
-        b.iter(|| {
-            black_box(tree.handle_event(root_id, &event))
-        });
+        b.iter(|| black_box(tree.handle_event(root_id, &event)));
     });
 
     // Key event — no focus set → falls back to DFS
     group.bench_function("key_down", |b| {
         let event = Event::KeyDown(syngui::input::Key::Tab);
-        b.iter(|| {
-            black_box(tree.handle_event(root_id, &event))
-        });
+        b.iter(|| black_box(tree.handle_event(root_id, &event)));
     });
 
     // Key event — focused_element set to root → targeted dispatch, 1-element chain.
@@ -163,9 +156,7 @@ fn bench_event_realistic_ui(c: &mut Criterion) {
         let (mut tree, root_id) = build_and_layout(widget.as_ref());
         tree.focused_element = Some(root_id);
         let event = Event::KeyDown(syngui::input::Key::Tab);
-        b.iter(|| {
-            black_box(tree.handle_event(root_id, &event))
-        });
+        b.iter(|| black_box(tree.handle_event(root_id, &event)));
     });
 
     group.finish();
@@ -180,9 +171,7 @@ fn bench_event_miss(c: &mut Criterion) {
             button: MouseButton::Left,
             position: euclid::point2(5000.0, 5000.0),
         };
-        b.iter(|| {
-            black_box(tree.handle_event(root_id, &event))
-        });
+        b.iter(|| black_box(tree.handle_event(root_id, &event)));
     });
 }
 

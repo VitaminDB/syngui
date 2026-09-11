@@ -1,12 +1,14 @@
 use crate::core::{Color, Point, Rect, RectExt, Size};
 use crate::input::{Event, EventResult};
 use crate::layout::{Constraints, CrossAxisAlignment, MainAxisAlignment};
-use crate::mss::{ComputedStyle, Dimension};
 use crate::mss::MssFields;
+use crate::mss::{ComputedStyle, Dimension};
 use crate::render::DisplayList;
 use crate::widget::basic::Text;
 use crate::widget::context::EventContext;
-use crate::widget::{DirtyFlags, Element, ElementId, ElementTree, LayoutHint, StyledElement, UpdateContext, Widget};
+use crate::widget::{
+    DirtyFlags, Element, ElementId, ElementTree, LayoutHint, StyledElement, UpdateContext, Widget,
+};
 use crate::widgets::containers::IntoWidget;
 use std::any::Any;
 
@@ -64,14 +66,19 @@ impl Widget for Toolbar {
         })
     }
 
-    fn can_update(&self, other: &dyn Any) -> bool { other.is::<Self>() }
-    fn as_any(&self) -> &dyn Any { self }
-    fn as_any_mut(&mut self) -> &mut dyn Any { self }
+    fn can_update(&self, other: &dyn Any) -> bool {
+        other.is::<Self>()
+    }
+    fn as_any(&self) -> &dyn Any {
+        self
+    }
+    fn as_any_mut(&mut self) -> &mut dyn Any {
+        self
+    }
 
     fn mount(&self, tree: &mut ElementTree, parent_id: ElementId) {
         if let Some(ref title) = self.title {
-            let title_widget = Text::new(title)
-                .color(Color::from_hex("#1F2937"));
+            let title_widget = Text::new(title).color(Color::from_hex("#1F2937"));
             let el = title_widget.create_element();
             let id = tree.insert_with_type_id(el, Some(parent_id), title_widget.as_any().type_id());
             title_widget.mount(tree, id);
@@ -85,7 +92,10 @@ impl Widget for Toolbar {
     }
 
     fn child_widgets(&self) -> Vec<&dyn Widget> {
-        self.children.iter().map(|c| c.as_ref() as &dyn Widget).collect()
+        self.children
+            .iter()
+            .map(|c| c.as_ref() as &dyn Widget)
+            .collect()
     }
 }
 
@@ -109,7 +119,10 @@ impl Element for ToolbarElement {
 
     fn layout(&mut self, constraints: Constraints) -> Size {
         let width = constraints.max_width;
-        let height = self.mss.height.map(|d| d.resolve(constraints.max_height))
+        let height = self
+            .mss
+            .height
+            .map(|d| d.resolve(constraints.max_height))
             .unwrap_or_else(|| self.height.resolve(constraints.max_height))
             .min(constraints.max_height);
         self.bounds = Rect::new(Point::zero(), Size::new(width, height));
@@ -117,7 +130,10 @@ impl Element for ToolbarElement {
     }
 
     fn build_display_list(&self, list: &mut DisplayList, _clip: Rect) {
-        let bg = self.mss.background_color.unwrap_or(Color::from_hex("#FFFFFF"));
+        let bg = self
+            .mss
+            .background_color
+            .unwrap_or(Color::from_hex("#FFFFFF"));
         list.push_rect(self.bounds, bg, [0.0; 4]);
 
         list.push_shadow(
@@ -129,7 +145,10 @@ impl Element for ToolbarElement {
         );
 
         let bottom_line = Rect::new(
-            Point::new(self.bounds.x(), self.bounds.y() + self.bounds.size.height - 1.0),
+            Point::new(
+                self.bounds.x(),
+                self.bounds.y() + self.bounds.size.height - 1.0,
+            ),
             Size::new(self.bounds.size.width, 1.0),
         );
         let border_color = self.mss.border_color.unwrap_or(Color::from_hex("#E5E7EB"));
@@ -140,14 +159,30 @@ impl Element for ToolbarElement {
         EventResult::Ignored
     }
 
-    fn children(&self) -> &[ElementId] { &self.child_ids }
-    fn bounds(&self) -> Rect { self.bounds }
-    fn set_position(&mut self, pos: Point) { self.bounds.origin = pos; }
-    fn mark_dirty(&mut self, flags: DirtyFlags) { self.dirty_flags |= flags; }
-    fn clear_dirty(&mut self, flags: DirtyFlags) { self.dirty_flags.remove(flags); }
-    fn is_dirty(&self, flags: DirtyFlags) -> bool { self.dirty_flags.contains(flags) }
-    fn id(&self) -> ElementId { self.id }
-    fn set_id(&mut self, id: ElementId) { self.id = id; }
+    fn children(&self) -> &[ElementId] {
+        &self.child_ids
+    }
+    fn bounds(&self) -> Rect {
+        self.bounds
+    }
+    fn set_position(&mut self, pos: Point) {
+        self.bounds.origin = pos;
+    }
+    fn mark_dirty(&mut self, flags: DirtyFlags) {
+        self.dirty_flags |= flags;
+    }
+    fn clear_dirty(&mut self, flags: DirtyFlags) {
+        self.dirty_flags.remove(flags);
+    }
+    fn is_dirty(&self, flags: DirtyFlags) -> bool {
+        self.dirty_flags.contains(flags)
+    }
+    fn id(&self) -> ElementId {
+        self.id
+    }
+    fn set_id(&mut self, id: ElementId) {
+        self.id = id;
+    }
     fn mount(&mut self, _tree: &mut ElementTree) {}
 
     fn layout_hint(&self) -> LayoutHint {
@@ -168,15 +203,25 @@ impl Element for ToolbarElement {
         self.mark_dirty(DirtyFlags::RENDER);
     }
 
-    fn get_classes(&self) -> &[String] { &self.classes }
+    fn get_classes(&self) -> &[String] {
+        &self.classes
+    }
 
-    fn element_type_name(&self) -> &str { "Toolbar" }
+    fn element_type_name(&self) -> &str {
+        "Toolbar"
+    }
 
-    fn reset_mss_styles(&mut self) { self.mss.reset(); }
-    fn mss(&self) -> Option<&crate::mss::MssFields> { Some(&self.mss) }
+    fn reset_mss_styles(&mut self) {
+        self.mss.reset();
+    }
+    fn mss(&self) -> Option<&crate::mss::MssFields> {
+        Some(&self.mss)
+    }
     fn apply_computed_style(&mut self, style: &ComputedStyle) {
         self.mss.apply(style);
-        if let Some(h) = style.height() { self.height = h; }
+        if let Some(h) = style.height() {
+            self.height = h;
+        }
         self.mark_dirty(DirtyFlags::RENDER | DirtyFlags::LAYOUT);
     }
 
@@ -189,7 +234,8 @@ impl Element for ToolbarElement {
         selected: Option<&ComputedStyle>,
         _checked: Option<&ComputedStyle>,
     ) {
-        self.mss.apply_transitions(base, hover, active, focus, selected);
+        self.mss
+            .apply_transitions(base, hover, active, focus, selected);
     }
 }
 
@@ -198,7 +244,9 @@ impl StyledElement for ToolbarElement {
         self.mark_dirty(DirtyFlags::RENDER);
     }
 
-    fn classes(&self) -> &[String] { &self.classes }
+    fn classes(&self) -> &[String] {
+        &self.classes
+    }
 
     fn set_classes(&mut self, classes: Vec<String>) {
         self.classes = classes;

@@ -29,7 +29,11 @@ fn multi_position_frames_parse_into_keyframes() {
             Selector::Group(chains) => chains.iter().any(|c| c.segments.is_empty()),
             _ => false,
         };
-        assert!(!empty, "утёкшее правило с пустым селектором: {:?}", rule.selector);
+        assert!(
+            !empty,
+            "утёкшее правило с пустым селектором: {:?}",
+            rule.selector
+        );
     }
     // Оба обычных правила на месте (хвост не съеден восстановлением).
     assert_eq!(sheet.rules().len(), 2, "{:?}", sheet.rules());

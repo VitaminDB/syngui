@@ -19,19 +19,27 @@ mod inner {
 
     impl<T> Mutex<T> {
         pub fn new(val: T) -> Self {
-            Self { inner: UnsafeCell::new(val) }
+            Self {
+                inner: UnsafeCell::new(val),
+            }
         }
     }
 
     impl<T: ?Sized> Mutex<T> {
         pub fn lock(&self) -> Result<MutexGuard<'_, T>, std::sync::PoisonError<MutexGuard<'_, T>>> {
             // Safety: wasm32 is single-threaded, no concurrent access
-            Ok(MutexGuard { data: unsafe { &mut *self.inner.get() } })
+            Ok(MutexGuard {
+                data: unsafe { &mut *self.inner.get() },
+            })
         }
 
-        pub fn try_lock(&self) -> Result<MutexGuard<'_, T>, std::sync::TryLockError<MutexGuard<'_, T>>> {
+        pub fn try_lock(
+            &self,
+        ) -> Result<MutexGuard<'_, T>, std::sync::TryLockError<MutexGuard<'_, T>>> {
             // Safety: wasm32 is single-threaded, always succeeds
-            Ok(MutexGuard { data: unsafe { &mut *self.inner.get() } })
+            Ok(MutexGuard {
+                data: unsafe { &mut *self.inner.get() },
+            })
         }
     }
 

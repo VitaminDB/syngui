@@ -12,7 +12,8 @@ impl Lang {
         let raw = raw.split(['.', '@']).next().unwrap_or("");
         let mut parts = raw.split(['-', '_']).filter(|p| !p.is_empty());
         let language = parts.next()?;
-        if !(2..=3).contains(&language.len()) || !language.chars().all(|c| c.is_ascii_alphabetic()) {
+        if !(2..=3).contains(&language.len()) || !language.chars().all(|c| c.is_ascii_alphabetic())
+        {
             return None;
         }
         let mut tag = language.to_ascii_lowercase();
@@ -82,7 +83,10 @@ pub fn resolve(requested: &Lang, available: &[Lang]) -> Option<Lang> {
     if available.contains(requested) {
         return Some(requested.clone());
     }
-    available.iter().find(|l| l.base() == requested.base()).cloned()
+    available
+        .iter()
+        .find(|l| l.base() == requested.base())
+        .cloned()
 }
 
 #[cfg(test)]
@@ -126,10 +130,24 @@ mod tests {
     fn resolves_exact_then_base() {
         let available = langs(&["en", "ru", "pt-BR", "zh-CN"]);
         assert_eq!(resolve(&Lang::new("ru"), &available).unwrap().tag(), "ru");
-        assert_eq!(resolve(&Lang::new("ru_RU.UTF-8"), &available).unwrap().tag(), "ru");
-        assert_eq!(resolve(&Lang::new("pt-PT"), &available).unwrap().tag(), "pt-BR");
-        assert_eq!(resolve(&Lang::new("zh-TW"), &available).unwrap().tag(), "zh-CN");
-        assert_eq!(resolve(&Lang::new("zh"), &available).unwrap().tag(), "zh-CN");
+        assert_eq!(
+            resolve(&Lang::new("ru_RU.UTF-8"), &available)
+                .unwrap()
+                .tag(),
+            "ru"
+        );
+        assert_eq!(
+            resolve(&Lang::new("pt-PT"), &available).unwrap().tag(),
+            "pt-BR"
+        );
+        assert_eq!(
+            resolve(&Lang::new("zh-TW"), &available).unwrap().tag(),
+            "zh-CN"
+        );
+        assert_eq!(
+            resolve(&Lang::new("zh"), &available).unwrap().tag(),
+            "zh-CN"
+        );
         assert!(resolve(&Lang::new("de"), &available).is_none());
     }
 }

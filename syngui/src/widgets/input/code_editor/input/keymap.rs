@@ -21,7 +21,10 @@ pub enum KeyAction {
         page: bool,
         extend_selection: bool,
     },
-    DeleteChar { forward: bool, word: bool },
+    DeleteChar {
+        forward: bool,
+        word: bool,
+    },
     InsertNewline,
     InsertTab,
     SelectAll,
@@ -225,7 +228,10 @@ mod tests {
 
     #[test]
     fn enter_inserts_newline() {
-        assert_eq!(map_key(Key::Enter, no_mod()), Some(KeyAction::InsertNewline));
+        assert_eq!(
+            map_key(Key::Enter, no_mod()),
+            Some(KeyAction::InsertNewline)
+        );
     }
 
     #[test]

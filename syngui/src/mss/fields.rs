@@ -1,4 +1,6 @@
-use crate::animation::transition::{AnimatedPropertyMap, mss_color_to_core, ResolvedProps, TransitionState};
+use crate::animation::transition::{
+    mss_color_to_core, AnimatedPropertyMap, ResolvedProps, TransitionState,
+};
 use crate::core::{Color, Gradient, Shadows};
 use crate::input::CursorIcon;
 use crate::mss::parser::transform::TransformOrigin;
@@ -12,64 +14,171 @@ use std::sync::{Mutex, OnceLock};
 pub const KNOWN_PROPERTIES_FOR_TESTS: &[&str] = KNOWN_PROPERTIES;
 
 const KNOWN_PROPERTIES: &[&str] = &[
-    "background", "background-color", "color", "border-color", "accent-color",
-    "border-radius", "border-width", "border", "border-left-width", "border-top-width",
-    "border-right-width", "border-bottom-width",
-    "border-style", "border-top-style", "border-right-style",
-    "border-bottom-style", "border-left-style",
-    "border-left-color", "border-top-color",
-    "border-right-color", "border-bottom-color",
-    "border-top-left-radius", "border-top-right-radius",
-    "border-bottom-right-radius", "border-bottom-left-radius",
-    "width", "height", "min-width", "max-width", "min-height", "max-height",
-    "padding", "padding-left", "padding-right", "padding-top", "padding-bottom",
-    "margin", "margin-left", "margin-top", "margin-right", "margin-bottom",
-    "font-size", "font-weight", "font-family", "icon-size",
-    "icon-color", "icon-color-selected", "icon-color-hover", "icon-color-disabled",
+    "background",
+    "background-color",
+    "color",
+    "border-color",
+    "accent-color",
+    "border-radius",
+    "border-width",
+    "border",
+    "border-left-width",
+    "border-top-width",
+    "border-right-width",
+    "border-bottom-width",
+    "border-style",
+    "border-top-style",
+    "border-right-style",
+    "border-bottom-style",
+    "border-left-style",
+    "border-left-color",
+    "border-top-color",
+    "border-right-color",
+    "border-bottom-color",
+    "border-top-left-radius",
+    "border-top-right-radius",
+    "border-bottom-right-radius",
+    "border-bottom-left-radius",
+    "width",
+    "height",
+    "min-width",
+    "max-width",
+    "min-height",
+    "max-height",
+    "padding",
+    "padding-left",
+    "padding-right",
+    "padding-top",
+    "padding-bottom",
+    "margin",
+    "margin-left",
+    "margin-top",
+    "margin-right",
+    "margin-bottom",
+    "font-size",
+    "font-weight",
+    "font-family",
+    "icon-size",
+    "icon-color",
+    "icon-color-selected",
+    "icon-color-hover",
+    "icon-color-disabled",
     "icon-opacity",
     "selection-color",
     "caret-color",
     "line-height",
-    "transform", "transform-origin",
-    "translate-x", "translate-y", "rotate", "scale", "scale-x", "scale-y",
-    "opacity", "cursor", "box-shadow", "overflow",
-    "text-align", "text-vertical-align", "text-decoration",
-    "letter-spacing", "text-transform", "text-shadow", "line-clamp",
+    "transform",
+    "transform-origin",
+    "translate-x",
+    "translate-y",
+    "rotate",
+    "scale",
+    "scale-x",
+    "scale-y",
+    "opacity",
+    "cursor",
+    "box-shadow",
+    "overflow",
+    "text-align",
+    "text-vertical-align",
+    "text-decoration",
+    "letter-spacing",
+    "text-transform",
+    "text-shadow",
+    "line-clamp",
     "gap",
-    "transition", "transition-property", "transition-duration", "transition-timing-function",
+    "transition",
+    "transition-property",
+    "transition-duration",
+    "transition-timing-function",
     "animation",
-    "animation-name", "animation-duration", "animation-timing-function", "animation-iteration-count",
-    "animation-delay", "animation-direction", "animation-fill-mode", "animation-play-state",
-    "filter", "backdrop-filter", "mix-blend-mode",
-    "outline", "outline-width", "outline-color", "outline-offset",
-    "glow", "color-tint", "noise", "vignette",
+    "animation-name",
+    "animation-duration",
+    "animation-timing-function",
+    "animation-iteration-count",
+    "animation-delay",
+    "animation-direction",
+    "animation-fill-mode",
+    "animation-play-state",
+    "filter",
+    "backdrop-filter",
+    "mix-blend-mode",
+    "outline",
+    "outline-width",
+    "outline-color",
+    "outline-offset",
+    "glow",
+    "color-tint",
+    "noise",
+    "vignette",
     "flex-grow",
-    "grid-color", "axis-color", "axis-font-size",
-    "title-font-size", "legend-font-size",
-    "tooltip-background", "tooltip-border-color",
-    "label-color", "label-font-size", "value-font-size",
-    "track-color", "needle-color", "point-size",
+    "grid-color",
+    "axis-color",
+    "axis-font-size",
+    "title-font-size",
+    "legend-font-size",
+    "tooltip-background",
+    "tooltip-border-color",
+    "label-color",
+    "label-font-size",
+    "value-font-size",
+    "track-color",
+    "needle-color",
+    "point-size",
     "divider-thickness",
-    "scrollbar-width", "scrollbar-color", "scrollbar-thumb-hover-color",
-    "scrollbar-track-color", "scrollbar-radius",
-    "scrollbar-policy", "scrollbar-fade-delay",
-    "editor-bg", "editor-fg", "editor-gutter-bg", "editor-gutter-fg",
-    "editor-cursor", "editor-selection", "editor-current-line",
-    "editor-bracket-match", "editor-whitespace",
-    "editor-find-match", "editor-find-current",
-    "token-keyword", "token-keyword-control",
-    "token-type", "token-type-builtin",
-    "token-function", "token-function-macro",
-    "token-constant", "token-constant-builtin",
-    "token-string", "token-string-special",
-    "token-number", "token-comment", "token-operator", "token-punctuation",
-    "token-variable", "token-property", "token-attribute",
-    "token-tag", "token-namespace",
-    "header-bg", "header-color", "header-font-size", "header-padding",
-    "row-hover-bg", "row-selected-bg", "row-striped-bg",
-    "row-padding", "row-padding-left", "row-padding-top",
-    "row-padding-right", "row-padding-bottom",
-    "cell-padding", "cell-font-size", "cell-min-width", "cell-max-width",
+    "scrollbar-width",
+    "scrollbar-color",
+    "scrollbar-thumb-hover-color",
+    "scrollbar-track-color",
+    "scrollbar-radius",
+    "scrollbar-policy",
+    "scrollbar-fade-delay",
+    "editor-bg",
+    "editor-fg",
+    "editor-gutter-bg",
+    "editor-gutter-fg",
+    "editor-cursor",
+    "editor-selection",
+    "editor-current-line",
+    "editor-bracket-match",
+    "editor-whitespace",
+    "editor-find-match",
+    "editor-find-current",
+    "token-keyword",
+    "token-keyword-control",
+    "token-type",
+    "token-type-builtin",
+    "token-function",
+    "token-function-macro",
+    "token-constant",
+    "token-constant-builtin",
+    "token-string",
+    "token-string-special",
+    "token-number",
+    "token-comment",
+    "token-operator",
+    "token-punctuation",
+    "token-variable",
+    "token-property",
+    "token-attribute",
+    "token-tag",
+    "token-namespace",
+    "header-bg",
+    "header-color",
+    "header-font-size",
+    "header-padding",
+    "row-hover-bg",
+    "row-selected-bg",
+    "row-striped-bg",
+    "row-padding",
+    "row-padding-left",
+    "row-padding-top",
+    "row-padding-right",
+    "row-padding-bottom",
+    "cell-padding",
+    "cell-font-size",
+    "cell-min-width",
+    "cell-max-width",
     "grid-alpha",
 ];
 
@@ -112,9 +221,12 @@ impl TextShadow {
         let mut rest = s;
         for _ in 0..3 {
             rest = rest.trim_start();
-            let end = rest.find(|c: char| !c.is_ascii_digit() && c != '.' && c != '-')
+            let end = rest
+                .find(|c: char| !c.is_ascii_digit() && c != '.' && c != '-')
                 .unwrap_or(rest.len());
-            if end == 0 { break; }
+            if end == 0 {
+                break;
+            }
             if let Ok(n) = rest[..end].parse::<f32>() {
                 nums.push(n);
                 rest = &rest[end..];
@@ -122,7 +234,9 @@ impl TextShadow {
                 break;
             }
         }
-        if nums.len() < 2 { return None; }
+        if nums.len() < 2 {
+            return None;
+        }
         let offset_x = nums[0];
         let offset_y = nums[1];
         let blur_radius = nums.get(2).copied().unwrap_or(0.0);
@@ -132,18 +246,25 @@ impl TextShadow {
         } else {
             parse_color_string(color_str)?
         };
-        Some(TextShadow { offset_x, offset_y, blur_radius, color })
+        Some(TextShadow {
+            offset_x,
+            offset_y,
+            blur_radius,
+            color,
+        })
     }
 }
 
 fn parse_color_string(s: &str) -> Option<Color> {
     use crate::mss::value::Color as MssColor;
-    MssColor::parse(s).map(|c| Color::new(
-        c.r as f32 / 255.0,
-        c.g as f32 / 255.0,
-        c.b as f32 / 255.0,
-        c.a as f32 / 255.0,
-    ))
+    MssColor::parse(s).map(|c| {
+        Color::new(
+            c.r as f32 / 255.0,
+            c.g as f32 / 255.0,
+            c.b as f32 / 255.0,
+            c.a as f32 / 255.0,
+        )
+    })
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -480,12 +601,24 @@ impl MssFields {
             }
         }
 
-        if let Some(d) = style.width() { self.width = Some(d); }
-        if let Some(d) = style.height() { self.height = Some(d); }
-        if let Some(d) = style.min_width() { self.min_width = Some(d); }
-        if let Some(d) = style.max_width() { self.max_width = Some(d); }
-        if let Some(d) = style.min_height() { self.min_height = Some(d); }
-        if let Some(d) = style.max_height() { self.max_height = Some(d); }
+        if let Some(d) = style.width() {
+            self.width = Some(d);
+        }
+        if let Some(d) = style.height() {
+            self.height = Some(d);
+        }
+        if let Some(d) = style.min_width() {
+            self.min_width = Some(d);
+        }
+        if let Some(d) = style.max_width() {
+            self.max_width = Some(d);
+        }
+        if let Some(d) = style.min_height() {
+            self.min_height = Some(d);
+        }
+        if let Some(d) = style.max_height() {
+            self.max_height = Some(d);
+        }
 
         self.padding_left = style.get("padding-left").and_then(|v| v.as_px());
         self.padding_right = style.get("padding-right").and_then(|v| v.as_px());
@@ -545,18 +678,30 @@ impl MssFields {
             }
         }
 
-        if let Some(o) = style.opacity() { self.opacity = Some(o); }
-        if let Some(c) = style.cursor() { self.cursor = Some(c); }
-        if let Some(s) = style.box_shadow() { self.box_shadow = Some(s); }
-        if let Some(o) = style.overflow() { self.overflow = Some(o); }
+        if let Some(o) = style.opacity() {
+            self.opacity = Some(o);
+        }
+        if let Some(c) = style.cursor() {
+            self.cursor = Some(c);
+        }
+        if let Some(s) = style.box_shadow() {
+            self.box_shadow = Some(s);
+        }
+        if let Some(o) = style.overflow() {
+            self.overflow = Some(o);
+        }
 
         if let Some(s) = style.get("filter").and_then(|v| v.as_string()) {
             let effects = crate::effects::parse_filter_chain(s);
-            if !effects.is_empty() { self.filter = Some(effects); }
+            if !effects.is_empty() {
+                self.filter = Some(effects);
+            }
         }
         if let Some(s) = style.get("backdrop-filter").and_then(|v| v.as_string()) {
             let effects = crate::effects::parse_filter_chain(s);
-            if !effects.is_empty() { self.backdrop_filter = Some(effects); }
+            if !effects.is_empty() {
+                self.backdrop_filter = Some(effects);
+            }
         }
         if let Some(v) = style.get("outline-width").and_then(|v| v.as_px()) {
             self.outline_width = Some(v);
@@ -577,7 +722,9 @@ impl MssFields {
                     shadows.push(shadow);
                 }
             }
-            if !shadows.is_empty() { self.glow = Some(crate::core::Shadows(shadows)); }
+            if !shadows.is_empty() {
+                self.glow = Some(crate::core::Shadows(shadows));
+            }
         }
         if let Some(c) = style.get("color-tint").and_then(|v| v.as_color()) {
             self.color_tint = Some(Color::from_srgb(c.r, c.g, c.b, c.a as f32 / 255.0));
@@ -605,8 +752,12 @@ impl MssFields {
             };
         }
 
-        if let Some(a) = style.text_align() { self.text_align = Some(a); }
-        if let Some(d) = style.text_decoration() { self.text_decoration = Some(d); }
+        if let Some(a) = style.text_align() {
+            self.text_align = Some(a);
+        }
+        if let Some(d) = style.text_decoration() {
+            self.text_decoration = Some(d);
+        }
 
         if let Some(v) = style.get("letter-spacing").and_then(|v| v.as_px()) {
             self.letter_spacing = Some(v);
@@ -643,10 +794,17 @@ impl MssFields {
         if let Some(c) = style.get("scrollbar-color").and_then(|v| v.as_color()) {
             self.scrollbar_color = Some(Color::from_srgb(c.r, c.g, c.b, c.a as f32 / 255.0));
         }
-        if let Some(c) = style.get("scrollbar-thumb-hover-color").and_then(|v| v.as_color()) {
-            self.scrollbar_thumb_hover_color = Some(Color::from_srgb(c.r, c.g, c.b, c.a as f32 / 255.0));
+        if let Some(c) = style
+            .get("scrollbar-thumb-hover-color")
+            .and_then(|v| v.as_color())
+        {
+            self.scrollbar_thumb_hover_color =
+                Some(Color::from_srgb(c.r, c.g, c.b, c.a as f32 / 255.0));
         }
-        if let Some(c) = style.get("scrollbar-track-color").and_then(|v| v.as_color()) {
+        if let Some(c) = style
+            .get("scrollbar-track-color")
+            .and_then(|v| v.as_color())
+        {
             self.scrollbar_track_color = Some(Color::from_srgb(c.r, c.g, c.b, c.a as f32 / 255.0));
         }
         if let Some(v) = style.get("scrollbar-radius").and_then(|v| v.as_px()) {
@@ -679,7 +837,10 @@ impl MssFields {
             if !prop.starts_with("--") && !KNOWN_PROPERTIES.contains(&prop) {
                 if let Ok(mut set) = warned.lock() {
                     if set.insert(prop.to_string()) {
-                        log::warn!("[MSS] Свойство '{}' не поддерживается и будет проигнорировано", prop);
+                        log::warn!(
+                            "[MSS] Свойство '{}' не поддерживается и будет проигнорировано",
+                            prop
+                        );
                     }
                 }
             }
@@ -712,16 +873,13 @@ impl MssFields {
         self.style_focus = focus.map(ResolvedProps::from_style);
         self.style_selected = selected.map(ResolvedProps::from_style);
         let has_paint = |s: &ResolvedProps| {
-            s.background_color().is_some()
-                || s.color().is_some()
-                || s.border_color().is_some()
+            s.background_color().is_some() || s.color().is_some() || s.border_color().is_some()
         };
-        self.has_mss_styles =
-            self.style_normal.as_ref().map(has_paint).unwrap_or(false)
-                || self.style_hover.as_ref().map(has_paint).unwrap_or(false)
-                || self.style_active.as_ref().map(has_paint).unwrap_or(false)
-                || self.style_focus.as_ref().map(has_paint).unwrap_or(false)
-                || self.style_selected.as_ref().map(has_paint).unwrap_or(false);
+        self.has_mss_styles = self.style_normal.as_ref().map(has_paint).unwrap_or(false)
+            || self.style_hover.as_ref().map(has_paint).unwrap_or(false)
+            || self.style_active.as_ref().map(has_paint).unwrap_or(false)
+            || self.style_focus.as_ref().map(has_paint).unwrap_or(false)
+            || self.style_selected.as_ref().map(has_paint).unwrap_or(false);
 
         self.filter_normal = Self::extract_filter(base);
         self.filter_hover = hover.and_then(Self::extract_filter);
@@ -761,14 +919,16 @@ impl MssFields {
     }
 
     fn extract_filter(style: &ComputedStyle) -> Option<Vec<crate::effects::FilterEffect>> {
-        style.get("filter")
+        style
+            .get("filter")
             .and_then(|v| v.as_string())
             .map(|s| crate::effects::parse_filter_chain(s))
             .filter(|v| !v.is_empty())
     }
 
     fn extract_glow(style: &ComputedStyle) -> Option<crate::core::shadow::Shadows> {
-        style.get("glow")
+        style
+            .get("glow")
             .and_then(|v| v.as_string())
             .and_then(|s| crate::core::shadow::Shadows::parse(s))
     }
@@ -798,7 +958,11 @@ impl MssFields {
         self.border_radius_resolved(reference, 0.0)
     }
 
-    pub fn paint_background(&self, list: &mut crate::render::DisplayList, bounds: crate::core::Rect) {
+    pub fn paint_background(
+        &self,
+        list: &mut crate::render::DisplayList,
+        bounds: crate::core::Rect,
+    ) {
         if bounds.size.width <= 0.0 || bounds.size.height <= 0.0 {
             return;
         }
@@ -850,7 +1014,9 @@ impl MssFields {
 
         let uniform = sides.iter().all(|s| s.is_some()) && {
             let (w0, c0) = sides[0].unwrap();
-            sides.iter().all(|s| s.map(|(w, c)| w == w0 && c == c0).unwrap_or(false))
+            sides
+                .iter()
+                .all(|s| s.map(|(w, c)| w == w0 && c == c0).unwrap_or(false))
         };
         if uniform {
             let (w, c) = sides[0].unwrap();
@@ -877,7 +1043,10 @@ impl MssFields {
                 Color::TRANSPARENT,
                 radii,
                 None,
-                crate::render::PerSideBorder { widths: *widths, color: *color },
+                crate::render::PerSideBorder {
+                    widths: *widths,
+                    color: *color,
+                },
             );
         }
     }
@@ -889,20 +1058,36 @@ impl MssFields {
         }
     }
 
-    pub fn target_props(&self, hovered: bool, pressed: bool, focused: bool, selected: bool) -> &ResolvedProps {
+    pub fn target_props(
+        &self,
+        hovered: bool,
+        pressed: bool,
+        focused: bool,
+        selected: bool,
+    ) -> &ResolvedProps {
         if pressed {
-            if let Some(ref p) = self.style_active { return p; }
+            if let Some(ref p) = self.style_active {
+                return p;
+            }
         }
         if selected {
-            if let Some(ref p) = self.style_selected { return p; }
+            if let Some(ref p) = self.style_selected {
+                return p;
+            }
         }
         if focused {
-            if let Some(ref p) = self.style_focus { return p; }
+            if let Some(ref p) = self.style_focus {
+                return p;
+            }
         }
         if hovered {
-            if let Some(ref p) = self.style_hover { return p; }
+            if let Some(ref p) = self.style_hover {
+                return p;
+            }
         }
-        if let Some(ref p) = self.style_normal { return p; }
+        if let Some(ref p) = self.style_normal {
+            return p;
+        }
         static EMPTY: std::sync::OnceLock<ResolvedProps> = std::sync::OnceLock::new();
         EMPTY.get_or_init(ResolvedProps::new)
     }
@@ -911,7 +1096,10 @@ impl MssFields {
         self.transition
             .background_color()
             .or(target.background_color())
-            .or(self.style_normal.as_ref().and_then(|n| n.background_color()))
+            .or(self
+                .style_normal
+                .as_ref()
+                .and_then(|n| n.background_color()))
             .unwrap_or(fallback)
     }
 
@@ -939,7 +1127,13 @@ impl MssFields {
             .unwrap_or(1.0)
     }
 
-    pub fn start_transition_to(&mut self, hovered: bool, pressed: bool, focused: bool, selected: bool) {
+    pub fn start_transition_to(
+        &mut self,
+        hovered: bool,
+        pressed: bool,
+        focused: bool,
+        selected: bool,
+    ) {
         if !self.has_mss_styles || !self.transition.has_specs() {
             return;
         }
@@ -949,45 +1143,60 @@ impl MssFields {
             let current = self.transition.get_animated_value(prop).unwrap_or(val);
             from.set(prop, current);
         }
-        let target = self.target_props(hovered, pressed, focused, selected).clone();
+        let target = self
+            .target_props(hovered, pressed, focused, selected)
+            .clone();
         self.current_target = Some(target.clone());
         self.transition.start_transition(&from, &target);
 
         let old_filter = self.filter_normal.as_deref().unwrap_or(&[]);
         let new_filter = if hovered {
-            self.filter_hover.as_deref()
+            self.filter_hover
+                .as_deref()
                 .unwrap_or(self.filter_normal.as_deref().unwrap_or(&[]))
         } else {
             self.filter_normal.as_deref().unwrap_or(&[])
         };
-        self.transition.start_filter_transition(old_filter, new_filter);
+        self.transition
+            .start_filter_transition(old_filter, new_filter);
 
         let empty_shadows = crate::core::shadow::Shadows::new();
-        let old_shadow = self.transition.box_shadow()
+        let old_shadow = self
+            .transition
+            .box_shadow()
             .or_else(|| self.shadow_normal.clone())
             .unwrap_or_else(|| empty_shadows.clone());
         let new_shadow = if hovered {
-            self.shadow_hover.as_ref()
+            self.shadow_hover
+                .as_ref()
                 .or(self.shadow_normal.as_ref())
                 .cloned()
                 .unwrap_or_else(|| empty_shadows.clone())
         } else {
-            self.shadow_normal.as_ref().cloned().unwrap_or_else(|| empty_shadows.clone())
+            self.shadow_normal
+                .as_ref()
+                .cloned()
+                .unwrap_or_else(|| empty_shadows.clone())
         };
-        self.transition.start_shadow_transition("box-shadow", &old_shadow, &new_shadow);
+        self.transition
+            .start_shadow_transition("box-shadow", &old_shadow, &new_shadow);
 
-        let old_glow = self.transition.glow()
+        let old_glow = self
+            .transition
+            .glow()
             .or_else(|| self.glow_normal.clone())
             .unwrap_or_else(|| empty_shadows.clone());
         let new_glow = if hovered {
-            self.glow_hover.as_ref()
+            self.glow_hover
+                .as_ref()
                 .or(self.glow_normal.as_ref())
                 .cloned()
                 .unwrap_or(empty_shadows)
         } else {
             self.glow_normal.as_ref().cloned().unwrap_or(empty_shadows)
         };
-        self.transition.start_shadow_transition("glow", &old_glow, &new_glow);
+        self.transition
+            .start_shadow_transition("glow", &old_glow, &new_glow);
     }
 
     pub fn font_size_or(&self, default: f32) -> f32 {
@@ -1048,21 +1257,33 @@ impl MssFields {
 
     pub fn scrollbar_style(&self, fg: Color) -> crate::widgets::scroll::ScrollbarStyle {
         let mut style = crate::widgets::scroll::ScrollbarStyle::with_foreground(fg);
-        if let Some(w) = self.scrollbar_width { style.width = w; }
-        if let Some(c) = self.scrollbar_color { style.thumb_color = c; }
+        if let Some(w) = self.scrollbar_width {
+            style.width = w;
+        }
+        if let Some(c) = self.scrollbar_color {
+            style.thumb_color = c;
+        }
         if let Some(c) = self.scrollbar_thumb_hover_color {
             style.thumb_hover_color = c;
         } else if self.scrollbar_color.is_some() {
-            style.thumb_hover_color = style.thumb_color.with_alpha((style.thumb_color.a * 1.7).min(1.0));
+            style.thumb_hover_color = style
+                .thumb_color
+                .with_alpha((style.thumb_color.a * 1.7).min(1.0));
         }
-        if let Some(c) = self.scrollbar_track_color { style.track_color = c; }
+        if let Some(c) = self.scrollbar_track_color {
+            style.track_color = c;
+        }
         if let Some(r) = self.scrollbar_radius {
             style.corner_radius = r;
         } else {
             style.corner_radius = style.width / 2.0;
         }
-        if let Some(p) = self.scrollbar_policy { style.policy = p; }
-        if let Some(d) = self.scrollbar_fade_delay { style.fade_delay = d; }
+        if let Some(p) = self.scrollbar_policy {
+            style.policy = p;
+        }
+        if let Some(d) = self.scrollbar_fade_delay {
+            style.fade_delay = d;
+        }
         style
     }
 
@@ -1071,12 +1292,16 @@ impl MssFields {
         crate::core::Point::new(o.x.resolve(size.width), o.y.resolve(size.height))
     }
 
-    pub fn compute_active_transform(&self, bounds: crate::core::Rect) -> Option<crate::core::Transform> {
-        let resolve = |kf: Option<f32>, tr: Option<f32>, tg: Option<f32>| -> Option<f32> {
-            kf.or(tr).or(tg)
-        };
+    pub fn compute_active_transform(
+        &self,
+        bounds: crate::core::Rect,
+    ) -> Option<crate::core::Transform> {
+        let resolve =
+            |kf: Option<f32>, tr: Option<f32>, tg: Option<f32>| -> Option<f32> { kf.or(tr).or(tg) };
 
-        let kf_vals = self.keyframe_animation.as_ref()
+        let kf_vals = self
+            .keyframe_animation
+            .as_ref()
             .filter(|a| a.is_running())
             .map(|a| a.current_values());
 
@@ -1085,37 +1310,46 @@ impl MssFields {
             kf_vals.as_ref().and_then(|v| v.translate_x()),
             self.transition.translate_x(),
             tg.and_then(|t| t.translate_x()),
-        ).unwrap_or(0.0);
+        )
+        .unwrap_or(0.0);
         let ty = resolve(
             kf_vals.as_ref().and_then(|v| v.translate_y()),
             self.transition.translate_y(),
             tg.and_then(|t| t.translate_y()),
-        ).unwrap_or(0.0);
+        )
+        .unwrap_or(0.0);
         let rot_deg = resolve(
             kf_vals.as_ref().and_then(|v| v.rotate()),
             self.transition.rotate(),
             tg.and_then(|t| t.rotate()),
-        ).unwrap_or(0.0);
+        )
+        .unwrap_or(0.0);
         let su = resolve(
             kf_vals.as_ref().and_then(|v| v.scale()),
             self.transition.scale(),
             tg.and_then(|t| t.scale()),
-        ).unwrap_or(1.0);
+        )
+        .unwrap_or(1.0);
         let sxi = resolve(
             kf_vals.as_ref().and_then(|v| v.scale_x()),
             self.transition.scale_x(),
             tg.and_then(|t| t.scale_x()),
-        ).unwrap_or(1.0);
+        )
+        .unwrap_or(1.0);
         let syi = resolve(
             kf_vals.as_ref().and_then(|v| v.scale_y()),
             self.transition.scale_y(),
             tg.and_then(|t| t.scale_y()),
-        ).unwrap_or(1.0);
+        )
+        .unwrap_or(1.0);
         let sx = su * sxi;
         let sy = su * syi;
 
-        let has_transform = tx != 0.0 || ty != 0.0 || rot_deg != 0.0
-            || (sx - 1.0).abs() > f32::EPSILON || (sy - 1.0).abs() > f32::EPSILON;
+        let has_transform = tx != 0.0
+            || ty != 0.0
+            || rot_deg != 0.0
+            || (sx - 1.0).abs() > f32::EPSILON
+            || (sy - 1.0).abs() > f32::EPSILON;
         if !has_transform {
             return None;
         }
@@ -1237,8 +1471,7 @@ mod tests {
     #[test]
     fn test_effective_bg_target() {
         let f = MssFields::new();
-        let target = ResolvedProps::new()
-            .with_color("background-color", Color::RED);
+        let target = ResolvedProps::new().with_color("background-color", Color::RED);
         let c = f.effective_bg(&target, Color::WHITE);
         assert_eq!(c, Color::RED);
     }
@@ -1327,7 +1560,11 @@ mod tests {
         f.color = Some(Color::WHITE);
         f.icon_opacity = Some(0.5);
         let c = f.icon_color(IconState::Normal, Color::BLACK);
-        assert!((c.a - 0.5).abs() < 1e-6, "opacity multiplier ignored: a = {}", c.a);
+        assert!(
+            (c.a - 0.5).abs() < 1e-6,
+            "opacity multiplier ignored: a = {}",
+            c.a
+        );
     }
 
     #[test]
@@ -1335,20 +1572,34 @@ mod tests {
         let mut f = MssFields::new();
         f.color = Some(Color::WHITE);
         let c = f.icon_color(IconState::Disabled, Color::BLACK);
-        assert!((c.a - 0.38).abs() < 1e-6, "expected 0.38 alpha for disabled, got {}", c.a);
+        assert!(
+            (c.a - 0.38).abs() < 1e-6,
+            "expected 0.38 alpha for disabled, got {}",
+            c.a
+        );
         f.icon_color_disabled = Some(Color::RED);
         let c = f.icon_color(IconState::Disabled, Color::BLACK);
-        assert!((c.a - 1.0).abs() < 1e-6, "explicit disabled color should keep its alpha, got {}", c.a);
+        assert!(
+            (c.a - 1.0).abs() < 1e-6,
+            "explicit disabled color should keep its alpha, got {}",
+            c.a
+        );
     }
 
     #[test]
     fn test_apply_icon_color_from_style() {
         let mut style = ComputedStyle::new();
-        style.set("icon-color", crate::core::Color::new(0.2, 0.4, 0.6, 1.0).into());
+        style.set(
+            "icon-color",
+            crate::core::Color::new(0.2, 0.4, 0.6, 1.0).into(),
+        );
         style.set("icon-opacity", crate::mss::StyleValue::Number(0.5));
         let mut f = MssFields::new();
         f.apply(&style);
-        assert!(f.icon_color.is_some(), "icon-color не извлечён из ComputedStyle");
+        assert!(
+            f.icon_color.is_some(),
+            "icon-color не извлечён из ComputedStyle"
+        );
         assert_eq!(f.icon_opacity, Some(0.5));
     }
 
@@ -1375,7 +1626,10 @@ mod tests {
             "border-bottom-width",
             "border-left-width",
         ] {
-            style.set(side, crate::mss::StyleValue::Length(2.0, crate::mss::Unit::Px));
+            style.set(
+                side,
+                crate::mss::StyleValue::Length(2.0, crate::mss::Unit::Px),
+            );
         }
         let mut f = MssFields::new();
         f.apply(&style);
@@ -1426,7 +1680,10 @@ mod tests {
             "border-bottom-width",
             "border-left-width",
         ] {
-            style.set(side, crate::mss::StyleValue::Length(2.0, crate::mss::Unit::Px));
+            style.set(
+                side,
+                crate::mss::StyleValue::Length(2.0, crate::mss::Unit::Px),
+            );
         }
         style.set("border-style", StyleValue::String("none".to_string()));
         let mut f = MssFields::new();
@@ -1505,7 +1762,10 @@ mod tests {
     #[test]
     fn transform_origin_extracted_from_style() {
         let mut style = ComputedStyle::default();
-        style.set("transform-origin", StyleValue::String("top left".to_string()));
+        style.set(
+            "transform-origin",
+            StyleValue::String("top left".to_string()),
+        );
         let mut f = MssFields::new();
         f.apply(&style);
         let origin = f.transform_origin.expect("parsed");

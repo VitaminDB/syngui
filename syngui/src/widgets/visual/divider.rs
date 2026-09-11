@@ -4,7 +4,9 @@ use crate::layout::Constraints;
 use crate::mss::ComputedStyle;
 use crate::mss::MssFields;
 use crate::render::DisplayList;
-use crate::widget::{DirtyFlags, Element, ElementId, ElementTree, StyledElement, UpdateContext, Widget};
+use crate::widget::{
+    DirtyFlags, Element, ElementId, ElementTree, StyledElement, UpdateContext, Widget,
+};
 use std::any::Any;
 
 #[derive(Clone, Copy, Debug, Default)]
@@ -125,9 +127,7 @@ impl Element for DividerElement {
                 Size::new(width, height)
             }
             DividerDirection::Vertical => {
-                let width = mss_w
-                    .unwrap_or(thickness + pad2)
-                    .min(constraints.max_width);
+                let width = mss_w.unwrap_or(thickness + pad2).min(constraints.max_width);
                 let height = mss_h
                     .or(self.length)
                     .unwrap_or(constraints.max_height)
@@ -139,8 +139,7 @@ impl Element for DividerElement {
     }
 
     fn build_display_list(&self, list: &mut DisplayList, _clip: Rect) {
-        let color = self.mss.color
-            .unwrap_or_else(|| Color::from_hex("#E5E7EB"));
+        let color = self.mss.color.unwrap_or_else(|| Color::from_hex("#E5E7EB"));
         let thickness = self.mss.border_width_or(1.0);
         let padding = self.mss.padding_left.unwrap_or(0.0);
 
@@ -164,7 +163,11 @@ impl Element for DividerElement {
         }
     }
 
-    fn handle_event(&mut self, _event: &Event, _ctx: &mut crate::widget::context::EventContext) -> EventResult {
+    fn handle_event(
+        &mut self,
+        _event: &Event,
+        _ctx: &mut crate::widget::context::EventContext,
+    ) -> EventResult {
         EventResult::Ignored
     }
 
@@ -202,7 +205,9 @@ impl Element for DividerElement {
 
     fn mount(&mut self, _tree: &mut ElementTree) {}
 
-    fn element_type_name(&self) -> &str { "Divider" }
+    fn element_type_name(&self) -> &str {
+        "Divider"
+    }
 
     fn set_classes(&mut self, classes: Vec<String>) {
         self.classes = classes;
@@ -213,8 +218,12 @@ impl Element for DividerElement {
         &self.classes
     }
 
-    fn reset_mss_styles(&mut self) { self.mss.reset(); }
-    fn mss(&self) -> Option<&crate::mss::MssFields> { Some(&self.mss) }
+    fn reset_mss_styles(&mut self) {
+        self.mss.reset();
+    }
+    fn mss(&self) -> Option<&crate::mss::MssFields> {
+        Some(&self.mss)
+    }
     fn apply_computed_style(&mut self, style: &ComputedStyle) {
         self.mss.apply(style);
         self.mark_dirty(DirtyFlags::LAYOUT | DirtyFlags::RENDER);
@@ -229,7 +238,8 @@ impl Element for DividerElement {
         selected: Option<&ComputedStyle>,
         _checked: Option<&ComputedStyle>,
     ) {
-        self.mss.apply_transitions(base, hover, active, focus, selected);
+        self.mss
+            .apply_transitions(base, hover, active, focus, selected);
     }
 
     fn accessibility_info(&self) -> Option<crate::a11y::AccessibilityInfo> {

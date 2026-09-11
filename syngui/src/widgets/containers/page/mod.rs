@@ -128,7 +128,6 @@ impl Page {
     pub fn scroll_to_bottom(self) -> Self {
         self.scroll_to(ScrollTarget::Bottom)
     }
-
 }
 
 impl Default for Page {

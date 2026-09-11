@@ -182,7 +182,11 @@ fn env_override() -> Option<SystemAppearance> {
         .map(str::trim)
         .filter(|s| s.len() >= 6)
         .map(Color::from_hex);
-    Some(SystemAppearance { color_scheme, accent, ..Default::default() })
+    Some(SystemAppearance {
+        color_scheme,
+        accent,
+        ..Default::default()
+    })
 }
 
 #[cfg(test)]

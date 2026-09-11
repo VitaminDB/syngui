@@ -1,8 +1,8 @@
+use super::{GpuBackend, GpuPowerPreference};
 use crate::core::Color;
-use crate::mss::{StyleSheet, StyleEngine, load_stylesheet, parse_stylesheet_str};
+use crate::mss::{load_stylesheet, parse_stylesheet_str, StyleEngine, StyleSheet};
 use crate::signal::RwSignal;
 use crate::widget::{BuildContext, Widget};
-use super::{GpuBackend, GpuPowerPreference};
 
 #[derive(Clone, Debug)]
 pub struct WindowConfig {
@@ -101,7 +101,10 @@ pub struct AppBuilder {
     pub(super) splash_config: Option<super::splash::SplashConfig>,
     #[cfg(target_os = "android")]
     pub(super) android_app: Option<AndroidApp>,
-    pub(super) extra_windows: Vec<(WindowConfig, Box<dyn FnOnce(&mut BuildContext) -> Box<dyn Widget>>)>,
+    pub(super) extra_windows: Vec<(
+        WindowConfig,
+        Box<dyn FnOnce(&mut BuildContext) -> Box<dyn Widget>>,
+    )>,
     pub(super) sticky_threshold: Option<f32>,
     /// Явный override интервала двойного клика. `None` = взять из настройки
     /// ОС/DE в рантайме ([`crate::input::resolve_double_click_interval`]).
@@ -526,9 +529,7 @@ impl AppBuilder {
         let root_factory: std::sync::Arc<dyn Fn(&mut BuildContext) -> Box<dyn Widget> + 'static> =
             std::sync::Arc::new(build_root);
 
-        let initial_is_dark = self.theme_state
-            .map(|t| t.get_untracked())
-            .unwrap_or(false);
+        let initial_is_dark = self.theme_state.map(|t| t.get_untracked()).unwrap_or(false);
 
         let mut style_engine = if self.theme_state.is_some() {
             let ss = if initial_is_dark {
@@ -553,9 +554,17 @@ impl AppBuilder {
 
         #[cfg(target_os = "android")]
         {
-            let mut app_handler = super::handler::AppHandler::new(self, root_factory.clone(), style_engine, initial_is_dark);
+            let mut app_handler = super::handler::AppHandler::new(
+                self,
+                root_factory.clone(),
+                style_engine,
+                initial_is_dark,
+            );
             use winit::platform::android::EventLoopBuilderExtAndroid;
-            let android_app = app_handler.config.android_app.clone()
+            let android_app = app_handler
+                .config
+                .android_app
+                .clone()
                 .expect("AndroidApp must be provided via .with_android_app() on Android");
             app_handler.android_app = Some(android_app.clone());
             let event_loop = winit::event_loop::EventLoop::<super::user_event::SynGuiUserEvent>::with_user_event()
@@ -567,7 +576,9 @@ impl AppBuilder {
             crate::async_runtime::set_main_thread_waker(move || {
                 let _ = waker_proxy.send_event(super::user_event::SynGuiUserEvent::MainThreadWake);
             });
-            event_loop.run_app(&mut app_handler).expect("Event loop error");
+            event_loop
+                .run_app(&mut app_handler)
+                .expect("Event loop error");
         }
 
         #[cfg(all(not(target_arch = "wasm32"), not(target_os = "android")))]
@@ -577,43 +588,66 @@ impl AppBuilder {
                 .expect("Failed to create event loop");
             let proxy = event_loop.create_proxy();
 
-            #[cfg(all(feature = "single-instance", not(target_arch = "wasm32"), not(target_os = "android")))]
+            #[cfg(all(
+                feature = "single-instance",
+                not(target_arch = "wasm32"),
+                not(target_os = "android")
+            ))]
             let single_instance = match self.single_instance_id.as_deref() {
-                Some(id) => match super::single_instance::SingleInstanceLock::try_acquire(id, proxy.clone()) {
-                    Ok(Some(lock)) => Some(lock),
-                    Ok(None) => {
-                        if let Err(e) = super::single_instance::notify_running_instance(id) {
-                            eprintln!("[syngui] failed to notify running instance: {e}");
+                Some(id) => {
+                    match super::single_instance::SingleInstanceLock::try_acquire(id, proxy.clone())
+                    {
+                        Ok(Some(lock)) => Some(lock),
+                        Ok(None) => {
+                            if let Err(e) = super::single_instance::notify_running_instance(id) {
+                                eprintln!("[syngui] failed to notify running instance: {e}");
+                            }
+                            return;
                         }
-                        return;
+                        Err(e) => {
+                            eprintln!("[syngui] single-instance setup failed, continuing without lock: {e}");
+                            None
+                        }
                     }
-                    Err(e) => {
-                        eprintln!("[syngui] single-instance setup failed, continuing without lock: {e}");
-                        None
-                    }
-                },
+                }
                 None => None,
             };
 
-            let mut app_handler = super::handler::AppHandler::new(self, root_factory.clone(), style_engine, initial_is_dark);
+            let mut app_handler = super::handler::AppHandler::new(
+                self,
+                root_factory.clone(),
+                style_engine,
+                initial_is_dark,
+            );
             app_handler.event_loop_proxy = Some(proxy);
             let waker_proxy = event_loop.create_proxy();
             crate::async_runtime::set_main_thread_waker(move || {
                 let _ = waker_proxy.send_event(super::user_event::SynGuiUserEvent::MainThreadWake);
             });
 
-            #[cfg(all(feature = "single-instance", not(target_arch = "wasm32"), not(target_os = "android")))]
+            #[cfg(all(
+                feature = "single-instance",
+                not(target_arch = "wasm32"),
+                not(target_os = "android")
+            ))]
             {
                 app_handler.single_instance = single_instance;
             }
 
-            event_loop.run_app(&mut app_handler).expect("Event loop error");
+            event_loop
+                .run_app(&mut app_handler)
+                .expect("Event loop error");
         }
 
         #[cfg(target_arch = "wasm32")]
         {
             crate::input::set_captured_function_keys(self.captured_function_keys);
-            let mut app_handler = super::handler::AppHandler::new(self, root_factory.clone(), style_engine, initial_is_dark);
+            let mut app_handler = super::handler::AppHandler::new(
+                self,
+                root_factory.clone(),
+                style_engine,
+                initial_is_dark,
+            );
             use winit::platform::web::EventLoopExtWebSys;
             let event_loop = winit::event_loop::EventLoop::<super::user_event::SynGuiUserEvent>::with_user_event()
                 .build()

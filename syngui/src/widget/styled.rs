@@ -1,5 +1,5 @@
-use super::{Element, Widget, super::ElementTree, super::ElementId};
-use crate::mss::{StyleContext, ComputedStyle, StyleValue};
+use super::{super::ElementId, super::ElementTree, Element, Widget};
+use crate::mss::{ComputedStyle, StyleContext, StyleValue};
 use std::any::Any;
 
 pub trait WidgetExt: Widget + Sized + 'static {
@@ -73,17 +73,16 @@ impl<W: Widget> StyledWidget<W> {
     }
 
     pub fn style_context(&self, element_type: &str) -> StyleContext {
-        let mut ctx = StyleContext::default()
-            .with_element_type(element_type);
-        
+        let mut ctx = StyleContext::default().with_element_type(element_type);
+
         if let Some(id) = &self.id {
             ctx = ctx.with_id(id.clone());
         }
-        
+
         for class in &self.classes {
             ctx.add_class(class.clone());
         }
-        
+
         ctx
     }
 }

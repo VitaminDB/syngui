@@ -36,7 +36,9 @@ impl std::fmt::Display for AudioError {
             AudioError::Cpal(s) => write!(f, "Ошибка аудио-устройства: {s}"),
             AudioError::Wav(s) => write!(f, "Ошибка кодирования WAV: {s}"),
             AudioError::NoFrames => f.write_str("Не удалось захватить ни одного кадра"),
-            AudioError::SeekNotSupported => f.write_str("Перемотка не поддерживается в этом режиме"),
+            AudioError::SeekNotSupported => {
+                f.write_str("Перемотка не поддерживается в этом режиме")
+            }
         }
     }
 }
@@ -224,9 +226,7 @@ impl AudioRecorder {
         let preferred_owned = preferred.map(|s| s.to_string());
         let join = thread::Builder::new()
             .name("syngui-audio-recorder".into())
-            .spawn(move || {
-                run_audio_thread(state_thread, init_tx, stop_rx, preferred_owned)
-            })
+            .spawn(move || run_audio_thread(state_thread, init_tx, stop_rx, preferred_owned))
             .map_err(|e| AudioError::Cpal(format!("spawn thread: {e}")))?;
 
         match init_rx.recv_timeout(INIT_TIMEOUT) {
@@ -345,17 +345,13 @@ fn run_audio_thread(
                     match try_build_stream(&dev, &state) {
                         Ok(s) => return Some((s, name.to_string())),
                         Err(e) => {
-                            eprintln!(
-                                "[syngui/audio] preferred {name:?} не подошёл: {e}"
-                            );
+                            eprintln!("[syngui/audio] preferred {name:?} не подошёл: {e}");
                             last_err = Some(e);
                         }
                     }
                     already_tried.push(name.to_string());
                 } else {
-                    eprintln!(
-                        "[syngui/audio] preferred {name:?} не найден в системе"
-                    );
+                    eprintln!("[syngui/audio] preferred {name:?} не найден в системе");
                 }
             }
         }
@@ -370,9 +366,7 @@ fn run_audio_thread(
             match try_build_stream(&dev, &state) {
                 Ok(s) => return Some((s, (*name).to_string())),
                 Err(e) => {
-                    eprintln!(
-                        "[syngui/audio] {name:?} не подошёл: {e}"
-                    );
+                    eprintln!("[syngui/audio] {name:?} не подошёл: {e}");
                     last_err = Some(e);
                 }
             }
@@ -385,9 +379,7 @@ fn run_audio_thread(
                 match try_build_stream(&dev, &state) {
                     Ok(s) => return Some((s, dname)),
                     Err(e) => {
-                        eprintln!(
-                            "[syngui/audio] default device {dname:?} не подошёл: {e}"
-                        );
+                        eprintln!("[syngui/audio] default device {dname:?} не подошёл: {e}");
                         last_err = Some(e);
                     }
                 }
@@ -450,9 +442,7 @@ fn find_input_device_by_name(host: &cpal::Host, name: &str) -> Option<cpal::Devi
 pub fn list_input_devices() -> Vec<String> {
     let host = cpal::default_host();
     match host.input_devices() {
-        Ok(it) => it
-            .filter_map(|d| d.name().ok())
-            .collect(),
+        Ok(it) => it.filter_map(|d| d.name().ok()).collect(),
         Err(e) => {
             eprintln!("[syngui/audio] list_input_devices: {e}");
             Vec::new()
@@ -491,10 +481,7 @@ fn try_build_stream(
             device.build_input_stream(
                 &config,
                 move |data: &[i16], _: &cpal::InputCallbackInfo| {
-                    let f: Vec<f32> = data
-                        .iter()
-                        .map(|&x| x as f32 / i16::MAX as f32)
-                        .collect();
+                    let f: Vec<f32> = data.iter().map(|&x| x as f32 / i16::MAX as f32).collect();
                     st.push_frames(&f, channels);
                 },
                 err_fn,
@@ -507,10 +494,7 @@ fn try_build_stream(
                 &config,
                 move |data: &[u16], _: &cpal::InputCallbackInfo| {
                     let mid = u16::MAX as f32 / 2.0;
-                    let f: Vec<f32> = data
-                        .iter()
-                        .map(|&x| (x as f32 - mid) / mid)
-                        .collect();
+                    let f: Vec<f32> = data.iter().map(|&x| (x as f32 - mid) / mid).collect();
                     st.push_frames(&f, channels);
                 },
                 err_fn,
@@ -531,8 +515,7 @@ fn try_build_stream(
 
     state.sample_rate.store(sample_rate, Ordering::Release);
     state.channels.store(channels, Ordering::Release);
-    let warmup_frames =
-        (sample_rate as u64 * WARMUP_DURATION_MS as u64 / 1000) as u32;
+    let warmup_frames = (sample_rate as u64 * WARMUP_DURATION_MS as u64 / 1000) as u32;
     state
         .warmup_frames_left
         .store(warmup_frames, Ordering::Release);
@@ -649,7 +632,11 @@ mod tests {
 
         let decoded: Vec<i16> = reader.samples::<i16>().filter_map(Result::ok).collect();
         assert_eq!(decoded.len(), samples.len());
-        let max_abs = decoded.iter().map(|x| x.unsigned_abs() as i32).max().unwrap_or(0);
+        let max_abs = decoded
+            .iter()
+            .map(|x| x.unsigned_abs() as i32)
+            .max()
+            .unwrap_or(0);
         assert!(max_abs > i16::MAX as i32 / 4, "{max_abs}");
         assert!(max_abs <= i16::MAX as i32);
     }

@@ -28,8 +28,16 @@ impl Scaler {
                 "нулевой размер: in {in_w}x{in_h} → out {out_w}x{out_h}"
             )));
         }
-        let ctx = Context::get(in_fmt, in_w, in_h, Pixel::RGBA, out_w, out_h, Flags::BILINEAR)
-            .map_err(|e| VideoError::Scaler(format!("sws_getContext: {e}")))?;
+        let ctx = Context::get(
+            in_fmt,
+            in_w,
+            in_h,
+            Pixel::RGBA,
+            out_w,
+            out_h,
+            Flags::BILINEAR,
+        )
+        .map_err(|e| VideoError::Scaler(format!("sws_getContext: {e}")))?;
         Ok(Self {
             ctx,
             in_fmt,
@@ -40,12 +48,7 @@ impl Scaler {
         })
     }
 
-    fn ensure_input(
-        &mut self,
-        in_fmt: Pixel,
-        in_w: u32,
-        in_h: u32,
-    ) -> Result<(), VideoError> {
+    fn ensure_input(&mut self, in_fmt: Pixel, in_w: u32, in_h: u32) -> Result<(), VideoError> {
         if in_fmt == self.in_fmt && in_w == self.in_w && in_h == self.in_h {
             return Ok(());
         }
@@ -110,7 +113,10 @@ mod tests {
             let stride = yuv.stride(plane);
             let data = yuv.data_mut(plane);
             let val = if plane == 0 { 128u8 } else { 128u8 };
-            for byte in data.iter_mut().take(stride * if plane == 0 { 4 } else { 2 }) {
+            for byte in data
+                .iter_mut()
+                .take(stride * if plane == 0 { 4 } else { 2 })
+            {
                 *byte = val;
             }
         }

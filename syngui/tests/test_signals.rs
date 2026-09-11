@@ -28,7 +28,10 @@ fn memo_derives_from_signal() {
 
 #[test]
 fn effect_runs_on_signal_change() {
-    use std::sync::{Arc, atomic::{AtomicU32, Ordering}};
+    use std::sync::{
+        atomic::{AtomicU32, Ordering},
+        Arc,
+    };
 
     let count = use_signal(0u32);
     let run_count = Arc::new(AtomicU32::new(0));
@@ -52,7 +55,10 @@ fn effect_runs_on_signal_change() {
 
 #[test]
 fn effect_cleanup_runs_on_dispose() {
-    use std::sync::{Arc, atomic::{AtomicBool, Ordering}};
+    use std::sync::{
+        atomic::{AtomicBool, Ordering},
+        Arc,
+    };
 
     let cleanup_ran = Arc::new(AtomicBool::new(false));
     let cr = cleanup_ran.clone();
@@ -156,7 +162,10 @@ fn notifier_may_read_signals_during_redraw() {
     }
 
     let watched = use_signal(1i32);
-    let notifier = Arc::new(ReadingNotifier { watched, seen: AtomicU32::new(0) });
+    let notifier = Arc::new(ReadingNotifier {
+        watched,
+        seen: AtomicU32::new(0),
+    });
     syngui::signal::set_notifier(notifier.clone());
 
     let target = use_signal(Vec::<i32>::new());

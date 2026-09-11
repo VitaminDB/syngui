@@ -48,7 +48,6 @@ pub enum Easing {
 }
 
 impl Easing {
-
     pub const CSS_EASE: Self = Self::CubicBezier(0.25, 0.1, 0.25, 1.0);
     pub const CSS_EASE_IN: Self = Self::CubicBezier(0.42, 0.0, 1.0, 1.0);
     pub const CSS_EASE_OUT: Self = Self::CubicBezier(0.0, 0.0, 0.58, 1.0);
@@ -59,45 +58,63 @@ impl Easing {
         match self {
             Easing::Linear => t,
 
-            Easing::EaseInSine => {
-                1.0 - ((t * std::f32::consts::FRAC_PI_2).cos())
-            }
-            Easing::EaseOutSine => {
-                (t * std::f32::consts::FRAC_PI_2).sin()
-            }
-            Easing::EaseInOutSine => {
-                -(((std::f32::consts::PI * t).cos()) - 1.0) / 2.0
-            }
+            Easing::EaseInSine => 1.0 - ((t * std::f32::consts::FRAC_PI_2).cos()),
+            Easing::EaseOutSine => (t * std::f32::consts::FRAC_PI_2).sin(),
+            Easing::EaseInOutSine => -(((std::f32::consts::PI * t).cos()) - 1.0) / 2.0,
 
             Easing::EaseInQuad => t * t,
             Easing::EaseOutQuad => 1.0 - (1.0 - t) * (1.0 - t),
             Easing::EaseInOutQuad => {
-                if t < 0.5 { 2.0 * t * t } else { 1.0 - (-2.0 * t + 2.0).powi(2) / 2.0 }
+                if t < 0.5 {
+                    2.0 * t * t
+                } else {
+                    1.0 - (-2.0 * t + 2.0).powi(2) / 2.0
+                }
             }
 
             Easing::EaseInCubic => t * t * t,
             Easing::EaseOutCubic => 1.0 - (1.0 - t).powi(3),
             Easing::EaseInOutCubic => {
-                if t < 0.5 { 4.0 * t * t * t } else { 1.0 - (-2.0 * t + 2.0).powi(3) / 2.0 }
+                if t < 0.5 {
+                    4.0 * t * t * t
+                } else {
+                    1.0 - (-2.0 * t + 2.0).powi(3) / 2.0
+                }
             }
 
             Easing::EaseInQuart => t * t * t * t,
             Easing::EaseOutQuart => 1.0 - (1.0 - t).powi(4),
             Easing::EaseInOutQuart => {
-                if t < 0.5 { 8.0 * t * t * t * t } else { 1.0 - (-2.0 * t + 2.0).powi(4) / 2.0 }
+                if t < 0.5 {
+                    8.0 * t * t * t * t
+                } else {
+                    1.0 - (-2.0 * t + 2.0).powi(4) / 2.0
+                }
             }
 
             Easing::EaseInQuint => t * t * t * t * t,
             Easing::EaseOutQuint => 1.0 - (1.0 - t).powi(5),
             Easing::EaseInOutQuint => {
-                if t < 0.5 { 16.0 * t.powi(5) } else { 1.0 - (-2.0 * t + 2.0).powi(5) / 2.0 }
+                if t < 0.5 {
+                    16.0 * t.powi(5)
+                } else {
+                    1.0 - (-2.0 * t + 2.0).powi(5) / 2.0
+                }
             }
 
             Easing::EaseInExpo => {
-                if t == 0.0 { 0.0 } else { 2.0_f32.powf(10.0 * t - 10.0) }
+                if t == 0.0 {
+                    0.0
+                } else {
+                    2.0_f32.powf(10.0 * t - 10.0)
+                }
             }
             Easing::EaseOutExpo => {
-                if t == 1.0 { 1.0 } else { 1.0 - 2.0_f32.powf(-10.0 * t) }
+                if t == 1.0 {
+                    1.0
+                } else {
+                    1.0 - 2.0_f32.powf(-10.0 * t)
+                }
             }
             Easing::EaseInOutExpo => {
                 if t == 0.0 {
@@ -111,12 +128,8 @@ impl Easing {
                 }
             }
 
-            Easing::EaseInCirc => {
-                1.0 - (1.0 - t * t).sqrt()
-            }
-            Easing::EaseOutCirc => {
-                (1.0 - (t - 1.0).powi(2)).sqrt()
-            }
+            Easing::EaseInCirc => 1.0 - (1.0 - t * t).sqrt(),
+            Easing::EaseOutCirc => (1.0 - (t - 1.0).powi(2)).sqrt(),
             Easing::EaseInOutCirc => {
                 if t < 0.5 {
                     (1.0 - (1.0 - (2.0 * t).powi(2)).sqrt()) / 2.0
@@ -174,8 +187,7 @@ impl Easing {
                 } else if t < 0.5 {
                     -(2.0_f32.powf(20.0 * t - 10.0) * ((20.0 * t - 11.125) * C5).sin()) / 2.0
                 } else {
-                    (2.0_f32.powf(-20.0 * t + 10.0) * ((20.0 * t - 11.125) * C5).sin()) / 2.0
-                        + 1.0
+                    (2.0_f32.powf(-20.0 * t + 10.0) * ((20.0 * t - 11.125) * C5).sin()) / 2.0 + 1.0
                 }
             }
 
@@ -189,11 +201,13 @@ impl Easing {
                 }
             }
 
-            Easing::CubicBezier(x1, y1, x2, y2) => {
-                cubic_bezier_sample(t, *x1, *y1, *x2, *y2)
-            }
+            Easing::CubicBezier(x1, y1, x2, y2) => cubic_bezier_sample(t, *x1, *y1, *x2, *y2),
             Easing::Steps(n) => {
-                if *n == 0 { t } else { (t * *n as f32).floor() / (*n as f32 - 1.0).max(1.0) }
+                if *n == 0 {
+                    t
+                } else {
+                    (t * *n as f32).floor() / (*n as f32 - 1.0).max(1.0)
+                }
             }
         }
     }
@@ -267,16 +281,36 @@ mod tests {
     fn all_easings_zero_and_one() {
         let easings = [
             Easing::Linear,
-            Easing::EaseInSine, Easing::EaseOutSine, Easing::EaseInOutSine,
-            Easing::EaseInQuad, Easing::EaseOutQuad, Easing::EaseInOutQuad,
-            Easing::EaseInCubic, Easing::EaseOutCubic, Easing::EaseInOutCubic,
-            Easing::EaseInQuart, Easing::EaseOutQuart, Easing::EaseInOutQuart,
-            Easing::EaseInQuint, Easing::EaseOutQuint, Easing::EaseInOutQuint,
-            Easing::EaseInExpo, Easing::EaseOutExpo, Easing::EaseInOutExpo,
-            Easing::EaseInCirc, Easing::EaseOutCirc, Easing::EaseInOutCirc,
-            Easing::EaseInBounce, Easing::EaseOutBounce, Easing::EaseInOutBounce,
-            Easing::EaseInElastic, Easing::EaseOutElastic, Easing::EaseInOutElastic,
-            Easing::EaseInBack, Easing::EaseOutBack, Easing::EaseInOutBack,
+            Easing::EaseInSine,
+            Easing::EaseOutSine,
+            Easing::EaseInOutSine,
+            Easing::EaseInQuad,
+            Easing::EaseOutQuad,
+            Easing::EaseInOutQuad,
+            Easing::EaseInCubic,
+            Easing::EaseOutCubic,
+            Easing::EaseInOutCubic,
+            Easing::EaseInQuart,
+            Easing::EaseOutQuart,
+            Easing::EaseInOutQuart,
+            Easing::EaseInQuint,
+            Easing::EaseOutQuint,
+            Easing::EaseInOutQuint,
+            Easing::EaseInExpo,
+            Easing::EaseOutExpo,
+            Easing::EaseInOutExpo,
+            Easing::EaseInCirc,
+            Easing::EaseOutCirc,
+            Easing::EaseInOutCirc,
+            Easing::EaseInBounce,
+            Easing::EaseOutBounce,
+            Easing::EaseInOutBounce,
+            Easing::EaseInElastic,
+            Easing::EaseOutElastic,
+            Easing::EaseInOutElastic,
+            Easing::EaseInBack,
+            Easing::EaseOutBack,
+            Easing::EaseInOutBack,
         ];
         for e in &easings {
             assert_near(e.apply(0.0), 0.0, &format!("{:?} at 0", e));
@@ -407,18 +441,35 @@ mod tests {
     fn standard_easings_monotonic() {
         let monotonic = [
             Easing::Linear,
-            Easing::EaseInSine, Easing::EaseOutSine, Easing::EaseInOutSine,
-            Easing::EaseInQuad, Easing::EaseOutQuad, Easing::EaseInOutQuad,
-            Easing::EaseInCubic, Easing::EaseOutCubic, Easing::EaseInOutCubic,
-            Easing::EaseInExpo, Easing::EaseOutExpo, Easing::EaseInOutExpo,
-            Easing::EaseInCirc, Easing::EaseOutCirc, Easing::EaseInOutCirc,
+            Easing::EaseInSine,
+            Easing::EaseOutSine,
+            Easing::EaseInOutSine,
+            Easing::EaseInQuad,
+            Easing::EaseOutQuad,
+            Easing::EaseInOutQuad,
+            Easing::EaseInCubic,
+            Easing::EaseOutCubic,
+            Easing::EaseInOutCubic,
+            Easing::EaseInExpo,
+            Easing::EaseOutExpo,
+            Easing::EaseInOutExpo,
+            Easing::EaseInCirc,
+            Easing::EaseOutCirc,
+            Easing::EaseInOutCirc,
         ];
         for e in &monotonic {
             let mut prev = e.apply(0.0);
             for i in 1..=20 {
                 let t = i as f32 / 20.0;
                 let val = e.apply(t);
-                assert!(val >= prev - EPS, "{:?}: not monotonic at t={} (prev={}, cur={})", e, t, prev, val);
+                assert!(
+                    val >= prev - EPS,
+                    "{:?}: not monotonic at t={} (prev={}, cur={})",
+                    e,
+                    t,
+                    prev,
+                    val
+                );
                 prev = val;
             }
         }

@@ -19,6 +19,7 @@ pub use date::{civil_from_days, days_from_civil, Date};
 pub use locale::{default_locale, set_default_locale, CalendarLocale, DateOrder, LocaleStr};
 pub use panel::{CalendarTheme, CalendarVars, PanelHit, PanelMetrics, PanelMode, PanelState};
 
+use crate::core::sync::Mutex;
 use crate::core::{Point, Rect, Size};
 use crate::input::{CursorIcon, Event, EventResult, MouseButton};
 use crate::layout::Constraints;
@@ -26,8 +27,9 @@ use crate::mss::ComputedStyle;
 use crate::mss::MssFields;
 use crate::render::DisplayList;
 use crate::widget::context::{EventContext, EventContextExt, TextMeasure};
-use crate::widget::{DirtyFlags, Element, ElementId, ElementTree, StyledElement, UpdateContext, Widget};
-use crate::core::sync::Mutex;
+use crate::widget::{
+    DirtyFlags, Element, ElementId, ElementTree, StyledElement, UpdateContext, Widget,
+};
 use std::any::Any;
 use std::sync::Arc;
 
@@ -95,12 +97,17 @@ impl Calendar {
 }
 
 impl Default for Calendar {
-    fn default() -> Self { Self::new() }
+    fn default() -> Self {
+        Self::new()
+    }
 }
 
 impl Widget for Calendar {
     fn create_element(&self) -> Box<dyn Element> {
-        let state = self.selected.map(PanelState::from_date).unwrap_or_else(PanelState::today);
+        let state = self
+            .selected
+            .map(PanelState::from_date)
+            .unwrap_or_else(PanelState::today);
         Box::new(CalendarElement {
             id: ElementId::new(),
             selected: self.selected,
@@ -121,9 +128,15 @@ impl Widget for Calendar {
         })
     }
 
-    fn can_update(&self, other: &dyn Any) -> bool { other.is::<Self>() }
-    fn as_any(&self) -> &dyn Any { self }
-    fn as_any_mut(&mut self) -> &mut dyn Any { self }
+    fn can_update(&self, other: &dyn Any) -> bool {
+        other.is::<Self>()
+    }
+    fn as_any(&self) -> &dyn Any {
+        self
+    }
+    fn as_any_mut(&mut self) -> &mut dyn Any {
+        self
+    }
     fn mount(&self, _tree: &mut ElementTree, _parent_id: ElementId) {}
 }
 
@@ -155,7 +168,9 @@ impl CalendarElement {
 
     fn fire_select(&self, date: Date) {
         if let Some(ref cb) = self.on_select {
-            if let Ok(mut f) = cb.lock() { f(date); }
+            if let Ok(mut f) = cb.lock() {
+                f(date);
+            }
         }
     }
 }
@@ -231,11 +246,17 @@ impl Element for CalendarElement {
                     self.state.hover = hit;
                     ctx.request_paint();
                 }
-                ctx.set_cursor(if hit.is_some() { CursorIcon::Pointer } else { CursorIcon::Default });
+                ctx.set_cursor(if hit.is_some() {
+                    CursorIcon::Pointer
+                } else {
+                    CursorIcon::Default
+                });
                 EventResult::Handled
             }
             Event::MouseDown { button, position } if *button == MouseButton::Left => {
-                if !self.bounds.contains(*position) { return EventResult::Ignored; }
+                if !self.bounds.contains(*position) {
+                    return EventResult::Ignored;
+                }
                 if let Some(hit) = panel::hit_test(self.bounds, &input, *position) {
                     if panel::is_hit_enabled(&input, hit) {
                         if let Some(date) = self.state.apply(hit) {
@@ -252,14 +273,30 @@ impl Element for CalendarElement {
         }
     }
 
-    fn children(&self) -> &[ElementId] { &[] }
-    fn bounds(&self) -> Rect { self.bounds }
-    fn set_position(&mut self, pos: Point) { self.bounds.origin = pos; }
-    fn mark_dirty(&mut self, flags: DirtyFlags) { self.dirty_flags |= flags; }
-    fn clear_dirty(&mut self, flags: DirtyFlags) { self.dirty_flags.remove(flags); }
-    fn is_dirty(&self, flags: DirtyFlags) -> bool { self.dirty_flags.contains(flags) }
-    fn id(&self) -> ElementId { self.id }
-    fn set_id(&mut self, id: ElementId) { self.id = id; }
+    fn children(&self) -> &[ElementId] {
+        &[]
+    }
+    fn bounds(&self) -> Rect {
+        self.bounds
+    }
+    fn set_position(&mut self, pos: Point) {
+        self.bounds.origin = pos;
+    }
+    fn mark_dirty(&mut self, flags: DirtyFlags) {
+        self.dirty_flags |= flags;
+    }
+    fn clear_dirty(&mut self, flags: DirtyFlags) {
+        self.dirty_flags.remove(flags);
+    }
+    fn is_dirty(&self, flags: DirtyFlags) -> bool {
+        self.dirty_flags.contains(flags)
+    }
+    fn id(&self) -> ElementId {
+        self.id
+    }
+    fn set_id(&mut self, id: ElementId) {
+        self.id = id;
+    }
     fn mount(&mut self, tree: &mut ElementTree) {
         self.text_measure = tree.text_measure.clone();
     }
@@ -269,12 +306,20 @@ impl Element for CalendarElement {
         self.mark_dirty(DirtyFlags::RENDER);
     }
 
-    fn get_classes(&self) -> &[String] { &self.classes }
+    fn get_classes(&self) -> &[String] {
+        &self.classes
+    }
 
-    fn element_type_name(&self) -> &str { "Calendar" }
+    fn element_type_name(&self) -> &str {
+        "Calendar"
+    }
 
-    fn reset_mss_styles(&mut self) { self.mss.reset(); }
-    fn mss(&self) -> Option<&crate::mss::MssFields> { Some(&self.mss) }
+    fn reset_mss_styles(&mut self) {
+        self.mss.reset();
+    }
+    fn mss(&self) -> Option<&crate::mss::MssFields> {
+        Some(&self.mss)
+    }
     fn apply_computed_style(&mut self, style: &ComputedStyle) {
         self.mss.apply(style);
         self.vars = CalendarVars::read(style);
@@ -290,7 +335,8 @@ impl Element for CalendarElement {
         selected: Option<&ComputedStyle>,
         _checked: Option<&ComputedStyle>,
     ) {
-        self.mss.apply_transitions(base, hover, active, focus, selected);
+        self.mss
+            .apply_transitions(base, hover, active, focus, selected);
     }
 }
 
@@ -300,7 +346,9 @@ impl StyledElement for CalendarElement {
         self.mark_dirty(DirtyFlags::LAYOUT | DirtyFlags::RENDER);
     }
 
-    fn classes(&self) -> &[String] { &self.classes }
+    fn classes(&self) -> &[String] {
+        &self.classes
+    }
 
     fn set_classes(&mut self, classes: Vec<String>) {
         self.classes = classes;

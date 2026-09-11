@@ -127,8 +127,11 @@ pub fn label_of(block: &DocBlock) -> String {
         }
         BlockKind::Table { headers, rows, .. } => {
             let cols = headers.len();
-            let head: Vec<String> =
-                headers.iter().map(|h| h.text()).filter(|t| !t.trim().is_empty()).collect();
+            let head: Vec<String> = headers
+                .iter()
+                .map(|h| h.text())
+                .filter(|t| !t.trim().is_empty())
+                .collect();
             if head.is_empty() {
                 format!("{}×{}", rows.len() + 1, cols)
             } else {
@@ -136,7 +139,11 @@ pub fn label_of(block: &DocBlock) -> String {
             }
         }
         BlockKind::Media { url, alt, .. } => {
-            if alt.trim().is_empty() { url.chars().take(50).collect() } else { alt.clone() }
+            if alt.trim().is_empty() {
+                url.chars().take(50).collect()
+            } else {
+                alt.clone()
+            }
         }
         BlockKind::Embed { target } => target.clone(),
         BlockKind::Shape { shape } => shape.name().to_string(),
@@ -201,7 +208,10 @@ mod tests {
         let out = outline_of(&blocks);
         assert_eq!(out.len(), 3);
         assert_eq!(out[0].kind, "paragraph");
-        assert!(out[0].label.is_empty(), "пустой блок всё равно есть строкой");
+        assert!(
+            out[0].label.is_empty(),
+            "пустой блок всё равно есть строкой"
+        );
         assert_eq!(out[1].kind, "divider");
         assert_eq!(out[2].label, "2×2");
     }

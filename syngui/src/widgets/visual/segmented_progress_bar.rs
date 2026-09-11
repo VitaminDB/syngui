@@ -3,7 +3,9 @@ use crate::input::{Event, EventResult};
 use crate::layout::Constraints;
 use crate::mss::{ComputedStyle, MssFields};
 use crate::render::DisplayList;
-use crate::widget::{DirtyFlags, Element, ElementId, ElementTree, StyledElement, UpdateContext, Widget};
+use crate::widget::{
+    DirtyFlags, Element, ElementId, ElementTree, StyledElement, UpdateContext, Widget,
+};
 use std::any::Any;
 use std::time::Duration;
 
@@ -36,7 +38,13 @@ impl SegmentedProgressBar {
     pub fn from_bools(v: &[bool]) -> Self {
         Self::new(
             v.iter()
-                .map(|&b| if b { SegmentState::Filled } else { SegmentState::Empty })
+                .map(|&b| {
+                    if b {
+                        SegmentState::Filled
+                    } else {
+                        SegmentState::Empty
+                    }
+                })
                 .collect(),
         )
     }
@@ -181,7 +189,11 @@ impl Element for SegmentedProgressBarElement {
                 SegmentState::Disabled => neutral.with_alpha(0.30),
             };
 
-            let color = if alpha < 1.0 { color.with_alpha(color.a * alpha) } else { color };
+            let color = if alpha < 1.0 {
+                color.with_alpha(color.a * alpha)
+            } else {
+                color
+            };
             list.push_rect(rect, color, [radius; 4]);
         }
     }
@@ -276,7 +288,8 @@ impl Element for SegmentedProgressBarElement {
         selected: Option<&ComputedStyle>,
         _checked: Option<&ComputedStyle>,
     ) {
-        self.mss.apply_transitions(base, hover, active, focus, selected);
+        self.mss
+            .apply_transitions(base, hover, active, focus, selected);
     }
 
     fn accessibility_info(&self) -> Option<crate::a11y::AccessibilityInfo> {

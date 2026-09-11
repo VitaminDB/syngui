@@ -3,7 +3,9 @@ use crate::core::{Color, Point, Rect, Size};
 use crate::render::DisplayList;
 
 use crate::widgets::charts::math::{catmull_rom_to_bezier, segment_dashed};
-use crate::widgets::charts::types::{AreaFill, DataPoint, LineStyle, PointShape, SeriesStyle, VisualMapPiece};
+use crate::widgets::charts::types::{
+    AreaFill, DataPoint, LineStyle, PointShape, SeriesStyle, VisualMapPiece,
+};
 
 pub fn render_line_gpu(
     list: &mut DisplayList,
@@ -232,10 +234,7 @@ pub fn render_visual_map_legend(
             String::new()
         };
 
-        let label_rect = Rect::new(
-            Point::new(legend_x, y),
-            Size::new(64.0, swatch_size + 2.0),
-        );
+        let label_rect = Rect::new(Point::new(legend_x, y), Size::new(64.0, swatch_size + 2.0));
         list.push_text_aligned(
             &label,
             label_rect,

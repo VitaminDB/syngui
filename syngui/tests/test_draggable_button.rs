@@ -23,7 +23,11 @@ fn build(passthrough: bool) -> (TestHarness, Arc<AtomicUsize>) {
         .on_click(move || {
             clicks_cb.fetch_add(1, Ordering::SeqCst);
         })
-        .child(DropArea::new().accept_types(vec!["tile".to_string()]).child(btn));
+        .child(
+            DropArea::new()
+                .accept_types(vec!["tile".to_string()])
+                .child(btn),
+        );
     let mut harness = TestHarness::new(Box::new(widget));
     harness.layout(200.0, 100.0);
     (harness, clicks)
@@ -33,8 +37,14 @@ fn button_center(harness: &TestHarness) -> Point {
     let ids = harness.find_by_type_name("ToolButton");
     assert_eq!(ids.len(), 1, "ожидалась одна кнопка");
     let b = harness.element_bounds(ids[0]);
-    assert!(b.size.width > 0.0 && b.size.height > 0.0, "кнопка без размера: {b:?}");
-    Point::new(b.origin.x + b.size.width / 2.0, b.origin.y + b.size.height / 2.0)
+    assert!(
+        b.size.width > 0.0 && b.size.height > 0.0,
+        "кнопка без размера: {b:?}"
+    );
+    Point::new(
+        b.origin.x + b.size.width / 2.0,
+        b.origin.y + b.size.height / 2.0,
+    )
 }
 
 #[test]
@@ -42,10 +52,20 @@ fn passthrough_button_lets_draggable_click() {
     let (mut harness, clicks) = build(true);
     let at = button_center(&harness);
     harness.send_events(&[
-        Event::MouseDown { button: MouseButton::Left, position: at },
-        Event::MouseUp { button: MouseButton::Left, position: at },
+        Event::MouseDown {
+            button: MouseButton::Left,
+            position: at,
+        },
+        Event::MouseUp {
+            button: MouseButton::Left,
+            position: at,
+        },
     ]);
-    assert_eq!(clicks.load(Ordering::SeqCst), 1, "клик должен дойти до Draggable::on_click");
+    assert_eq!(
+        clicks.load(Ordering::SeqCst),
+        1,
+        "клик должен дойти до Draggable::on_click"
+    );
 }
 
 #[test]
@@ -53,15 +73,25 @@ fn passthrough_button_lets_draggable_start_drag() {
     let (mut harness, clicks) = build(true);
     let at = button_center(&harness);
     harness.send_events(&[
-        Event::MouseDown { button: MouseButton::Left, position: at },
+        Event::MouseDown {
+            button: MouseButton::Left,
+            position: at,
+        },
         Event::MouseMove(Point::new(at.x + 12.0, at.y + 12.0)),
     ]);
-    assert!(harness.tree.drag_state.is_some(), "смещение больше порога должно начать drag");
+    assert!(
+        harness.tree.drag_state.is_some(),
+        "смещение больше порога должно начать drag"
+    );
     harness.send_event(&Event::MouseUp {
         button: MouseButton::Left,
         position: Point::new(at.x + 12.0, at.y + 12.0),
     });
-    assert_eq!(clicks.load(Ordering::SeqCst), 0, "после drag клик не срабатывает");
+    assert_eq!(
+        clicks.load(Ordering::SeqCst),
+        0,
+        "после drag клик не срабатывает"
+    );
 }
 
 #[test]
@@ -71,8 +101,14 @@ fn plain_button_swallows_the_press() {
     let (mut harness, clicks) = build(false);
     let at = button_center(&harness);
     harness.send_events(&[
-        Event::MouseDown { button: MouseButton::Left, position: at },
-        Event::MouseUp { button: MouseButton::Left, position: at },
+        Event::MouseDown {
+            button: MouseButton::Left,
+            position: at,
+        },
+        Event::MouseUp {
+            button: MouseButton::Left,
+            position: at,
+        },
     ]);
     assert_eq!(clicks.load(Ordering::SeqCst), 0);
 }

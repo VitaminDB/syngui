@@ -1,3 +1,4 @@
+use super::IntoWidget;
 use crate::core::{Point, Rect, Size};
 use crate::input::{Event, EventResult};
 use crate::layout::Constraints;
@@ -5,8 +6,9 @@ use crate::mss::ComputedStyle;
 use crate::mss::MssFields;
 use crate::render::DisplayList;
 use crate::signal::RwSignal;
-use crate::widget::{DirtyFlags, Element, ElementId, ElementTree, LayoutHint, StyledElement, UpdateContext, Widget};
-use super::IntoWidget;
+use crate::widget::{
+    DirtyFlags, Element, ElementId, ElementTree, LayoutHint, StyledElement, UpdateContext, Widget,
+};
 use std::any::Any;
 
 pub struct ShowIf {
@@ -58,13 +60,17 @@ impl Widget for ShowIf {
     fn mount(&self, tree: &mut ElementTree, parent_id: ElementId) {
         if let Some(child) = &self.child {
             let child_element = child.create_element();
-            let child_id = tree.insert_with_type_id(child_element, Some(parent_id), child.as_any().type_id());
+            let child_id =
+                tree.insert_with_type_id(child_element, Some(parent_id), child.as_any().type_id());
             child.mount(tree, child_id);
         }
     }
 
     fn child_widgets(&self) -> Vec<&dyn Widget> {
-        self.child.as_ref().map(|c| vec![c.as_ref() as &dyn Widget]).unwrap_or_default()
+        self.child
+            .as_ref()
+            .map(|c| vec![c.as_ref() as &dyn Widget])
+            .unwrap_or_default()
     }
 }
 
@@ -89,16 +95,27 @@ impl Element for ShowIfElement {
     }
 
     fn layout(&mut self, constraints: Constraints) -> Size {
-        let w = if constraints.max_width.is_finite() { constraints.max_width } else { 0.0 };
-        let h = if constraints.max_height.is_finite() { constraints.max_height } else { 0.0 };
+        let w = if constraints.max_width.is_finite() {
+            constraints.max_width
+        } else {
+            0.0
+        };
+        let h = if constraints.max_height.is_finite() {
+            constraints.max_height
+        } else {
+            0.0
+        };
         self.bounds = Rect::new(Point::zero(), Size::new(w, h));
         Size::new(w, h)
     }
 
-    fn build_display_list(&self, _list: &mut DisplayList, _clip: Rect) {
-    }
+    fn build_display_list(&self, _list: &mut DisplayList, _clip: Rect) {}
 
-    fn handle_event(&mut self, _event: &Event, _ctx: &mut crate::widget::context::EventContext) -> EventResult {
+    fn handle_event(
+        &mut self,
+        _event: &Event,
+        _ctx: &mut crate::widget::context::EventContext,
+    ) -> EventResult {
         EventResult::Ignored
     }
 
@@ -106,31 +123,61 @@ impl Element for ShowIfElement {
         &[]
     }
 
-    fn bounds(&self) -> Rect { self.bounds }
-    fn set_position(&mut self, pos: Point) { self.bounds.origin = pos; }
-    fn mark_dirty(&mut self, flags: DirtyFlags) { self.dirty_flags |= flags; }
-    fn clear_dirty(&mut self, flags: DirtyFlags) { self.dirty_flags.remove(flags); }
-    fn is_dirty(&self, flags: DirtyFlags) -> bool { self.dirty_flags.contains(flags) }
-    fn id(&self) -> ElementId { self.id }
-    fn set_id(&mut self, id: ElementId) { self.id = id; }
+    fn bounds(&self) -> Rect {
+        self.bounds
+    }
+    fn set_position(&mut self, pos: Point) {
+        self.bounds.origin = pos;
+    }
+    fn mark_dirty(&mut self, flags: DirtyFlags) {
+        self.dirty_flags |= flags;
+    }
+    fn clear_dirty(&mut self, flags: DirtyFlags) {
+        self.dirty_flags.remove(flags);
+    }
+    fn is_dirty(&self, flags: DirtyFlags) -> bool {
+        self.dirty_flags.contains(flags)
+    }
+    fn id(&self) -> ElementId {
+        self.id
+    }
+    fn set_id(&mut self, id: ElementId) {
+        self.id = id;
+    }
     fn mount(&mut self, _tree: &mut ElementTree) {
         self.selected.subscribe_element(self.id);
     }
 
-    fn element_type_name(&self) -> &str { "ShowIf" }
+    fn element_type_name(&self) -> &str {
+        "ShowIf"
+    }
 
     fn layout_hint(&self) -> LayoutHint {
-        LayoutHint::Padding { left: 0.0, top: 0.0, right: 0.0, bottom: 0.0 }
+        LayoutHint::Padding {
+            left: 0.0,
+            top: 0.0,
+            right: 0.0,
+            bottom: 0.0,
+        }
     }
 
     fn is_visible(&self) -> bool {
         self.selected.get_untracked() == self.index
     }
 
-    fn set_classes(&mut self, classes: Vec<String>) { self.classes = classes; self.mark_dirty(DirtyFlags::RENDER); }
-    fn get_classes(&self) -> &[String] { &self.classes }
-    fn reset_mss_styles(&mut self) { self.mss.reset(); }
-    fn mss(&self) -> Option<&crate::mss::MssFields> { Some(&self.mss) }
+    fn set_classes(&mut self, classes: Vec<String>) {
+        self.classes = classes;
+        self.mark_dirty(DirtyFlags::RENDER);
+    }
+    fn get_classes(&self) -> &[String] {
+        &self.classes
+    }
+    fn reset_mss_styles(&mut self) {
+        self.mss.reset();
+    }
+    fn mss(&self) -> Option<&crate::mss::MssFields> {
+        Some(&self.mss)
+    }
     fn apply_computed_style(&mut self, style: &ComputedStyle) {
         self.mss.apply(style);
         self.mark_dirty(DirtyFlags::LAYOUT | DirtyFlags::RENDER);
@@ -145,12 +192,20 @@ impl Element for ShowIfElement {
         selected: Option<&ComputedStyle>,
         _checked: Option<&ComputedStyle>,
     ) {
-        self.mss.apply_transitions(base, hover, active, focus, selected);
+        self.mss
+            .apply_transitions(base, hover, active, focus, selected);
     }
 }
 
 impl StyledElement for ShowIfElement {
-    fn apply_style(&mut self, _style: &ComputedStyle) { self.mark_dirty(DirtyFlags::RENDER); }
-    fn classes(&self) -> &[String] { &self.classes }
-    fn set_classes(&mut self, classes: Vec<String>) { self.classes = classes; self.mark_dirty(DirtyFlags::RENDER); }
+    fn apply_style(&mut self, _style: &ComputedStyle) {
+        self.mark_dirty(DirtyFlags::RENDER);
+    }
+    fn classes(&self) -> &[String] {
+        &self.classes
+    }
+    fn set_classes(&mut self, classes: Vec<String>) {
+        self.classes = classes;
+        self.mark_dirty(DirtyFlags::RENDER);
+    }
 }

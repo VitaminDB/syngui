@@ -42,7 +42,11 @@ pub struct UndoStack {
 
 impl UndoStack {
     pub fn new() -> Self {
-        Self { undo: Vec::new(), redo: Vec::new(), last: None }
+        Self {
+            undo: Vec::new(),
+            redo: Vec::new(),
+            last: None,
+        }
     }
 
     /// Зовётся ПЕРЕД правкой: сохраняет текущее состояние, если правка
@@ -69,7 +73,10 @@ impl UndoStack {
         if coalesce {
             return;
         }
-        self.undo.push(Snapshot { model: model.clone(), selection });
+        self.undo.push(Snapshot {
+            model: model.clone(),
+            selection,
+        });
         if self.undo.len() > MAX_DEPTH {
             self.undo.remove(0);
         }
@@ -81,7 +88,10 @@ impl UndoStack {
         selection: Option<DocSelection>,
     ) -> Option<Snapshot> {
         let snap = self.undo.pop()?;
-        self.redo.push(Snapshot { model: current.clone(), selection });
+        self.redo.push(Snapshot {
+            model: current.clone(),
+            selection,
+        });
         self.last = None;
         Some(snap)
     }
@@ -92,7 +102,10 @@ impl UndoStack {
         selection: Option<DocSelection>,
     ) -> Option<Snapshot> {
         let snap = self.redo.pop()?;
-        self.undo.push(Snapshot { model: current.clone(), selection });
+        self.undo.push(Snapshot {
+            model: current.clone(),
+            selection,
+        });
         self.last = None;
         Some(snap)
     }

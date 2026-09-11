@@ -91,10 +91,10 @@ pub(crate) fn install(canvas: web_sys::HtmlCanvasElement) {
     let Some(document) = window.document() else {
         return;
     };
-    let Ok(input) = document
-        .create_element("input")
-        .and_then(|el| el.dyn_into::<web_sys::HtmlInputElement>().map_err(Into::into))
-    else {
+    let Ok(input) = document.create_element("input").and_then(|el| {
+        el.dyn_into::<web_sys::HtmlInputElement>()
+            .map_err(Into::into)
+    }) else {
         return;
     };
     input.set_type("text");
@@ -202,7 +202,10 @@ pub(crate) fn install(canvas: web_sys::HtmlCanvasElement) {
 
 fn add_listener(target: &web_sys::EventTarget, name: &str, callback: &web_sys::js_sys::Function) {
     if let Err(err) = target.add_event_listener_with_callback(name, callback) {
-        web_sys::console::warn_2(&format!("[syngui] text agent {name} listener:").into(), &err);
+        web_sys::console::warn_2(
+            &format!("[syngui] text agent {name} listener:").into(),
+            &err,
+        );
     }
 }
 
@@ -211,7 +214,11 @@ fn add_listener(target: &web_sys::EventTarget, name: &str, callback: &web_sys::j
 /// `rect` — его положение в CSS-пикселях.
 pub(crate) fn show(text: Option<&str>, numeric: bool, secret: bool, rect: Option<Rect>) {
     AGENT.with(|a| {
-        let Some(agent) = a.borrow().as_ref().map(|a| (a.input.clone(), a.canvas.clone())) else {
+        let Some(agent) = a
+            .borrow()
+            .as_ref()
+            .map(|a| (a.input.clone(), a.canvas.clone()))
+        else {
             return;
         };
         let (input, _canvas) = agent;
@@ -250,7 +257,11 @@ pub(crate) fn hide() {
     DISMISSED.with(|d| d.set(false));
     LAST_RECT.with(|r| r.set(None));
     AGENT.with(|a| {
-        let Some(agent) = a.borrow().as_ref().map(|a| (a.input.clone(), a.canvas.clone())) else {
+        let Some(agent) = a
+            .borrow()
+            .as_ref()
+            .map(|a| (a.input.clone(), a.canvas.clone()))
+        else {
             return;
         };
         let (input, canvas) = agent;
@@ -322,7 +333,11 @@ fn on_viewport_resize(viewport: &web_sys::VisualViewport) {
     let mut track = VIEWPORT.with(|v| v.get());
     if (width - track.width).abs() > 1.0 {
         // Поворот или зум: прежняя полная высота больше не показательна.
-        track = Viewport { width, full_height: height, last_height: height };
+        track = Viewport {
+            width,
+            full_height: height,
+            last_height: height,
+        };
         VIEWPORT.with(|v| v.set(track));
         return;
     }
@@ -332,7 +347,12 @@ fn on_viewport_resize(viewport: &web_sys::VisualViewport) {
     track.last_height = height;
     VIEWPORT.with(|v| v.set(track));
     if was_open && !now_open && SHOWN.with(|s| s.get()) {
-        let agent_focused = AGENT.with(|a| a.borrow().as_ref().map(|a| is_active(&a.input)).unwrap_or(false));
+        let agent_focused = AGENT.with(|a| {
+            a.borrow()
+                .as_ref()
+                .map(|a| is_active(&a.input))
+                .unwrap_or(false)
+        });
         if agent_focused {
             DISMISSED.with(|d| d.set(true));
         }
@@ -352,16 +372,24 @@ enum KeyRoute {
 fn route_key(key: &str, ctrl: bool, alt: bool, meta: bool, agent_has_text: bool) -> KeyRoute {
     // Как в AppHandler: Ctrl (кроме AltGr = Ctrl+Alt) и Cmd — не набор.
     let combo = (ctrl && !alt) || meta;
-    let printable = key.chars().count() == 1
-        || matches!(key, "Dead" | "Process" | "Unidentified");
+    let printable = key.chars().count() == 1 || matches!(key, "Dead" | "Process" | "Unidentified");
     if combo {
-        KeyRoute::Forward { mask: false, prevent: true }
+        KeyRoute::Forward {
+            mask: false,
+            prevent: true,
+        }
     } else if printable {
-        KeyRoute::Forward { mask: true, prevent: false }
+        KeyRoute::Forward {
+            mask: true,
+            prevent: false,
+        }
     } else if key == "Backspace" && !alt && agent_has_text {
         KeyRoute::Browser
     } else {
-        KeyRoute::Forward { mask: false, prevent: true }
+        KeyRoute::Forward {
+            mask: false,
+            prevent: true,
+        }
     }
 }
 
@@ -377,7 +405,13 @@ fn on_key(
         .flatten()
         .map(|start| start > 0)
         .unwrap_or_else(|| !input.value().is_empty());
-    match route_key(&key, event.ctrl_key(), event.alt_key(), event.meta_key(), agent_has_text) {
+    match route_key(
+        &key,
+        event.ctrl_key(),
+        event.alt_key(),
+        event.meta_key(),
+        agent_has_text,
+    ) {
         KeyRoute::Browser => {}
         KeyRoute::Forward { mask, prevent } => {
             let is_down = event.type_() == "keydown";

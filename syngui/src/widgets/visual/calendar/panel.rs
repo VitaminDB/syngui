@@ -74,7 +74,12 @@ pub struct PanelState {
 
 impl PanelState {
     pub fn new(year: i32, month: u32) -> Self {
-        Self { view_year: year, view_month: month.clamp(1, 12), mode: PanelMode::Days, hover: None }
+        Self {
+            view_year: year,
+            view_month: month.clamp(1, 12),
+            mode: PanelMode::Days,
+            hover: None,
+        }
     }
 
     /// Панель, открытая на текущем месяце.
@@ -131,14 +136,28 @@ impl PanelState {
     /// Применяет клик по зоне панели. Возвращает дату, если кликнули по дню.
     pub fn apply(&mut self, hit: PanelHit) -> Option<Date> {
         match hit {
-            PanelHit::Prev => { self.prev(); None }
-            PanelHit::Next => { self.next(); None }
+            PanelHit::Prev => {
+                self.prev();
+                None
+            }
+            PanelHit::Next => {
+                self.next();
+                None
+            }
             PanelHit::MonthLabel => {
-                self.mode = if self.mode == PanelMode::Months { PanelMode::Days } else { PanelMode::Months };
+                self.mode = if self.mode == PanelMode::Months {
+                    PanelMode::Days
+                } else {
+                    PanelMode::Months
+                };
                 None
             }
             PanelHit::YearLabel => {
-                self.mode = if self.mode == PanelMode::Years { PanelMode::Days } else { PanelMode::Years };
+                self.mode = if self.mode == PanelMode::Years {
+                    PanelMode::Days
+                } else {
+                    PanelMode::Years
+                };
                 None
             }
             PanelHit::Month(m) => {
@@ -161,7 +180,9 @@ impl PanelState {
 }
 
 impl Default for PanelState {
-    fn default() -> Self { Self::today() }
+    fn default() -> Self {
+        Self::today()
+    }
 }
 
 /// Цвета и размеры панели: MSS-поля виджета + переменные `--cal-*`.
@@ -254,9 +275,7 @@ impl CalendarTheme {
             muted: vars.muted.unwrap_or_else(|| text.with_alpha(0.45)),
             weekend: vars.weekend.unwrap_or_else(|| text.with_alpha(0.7)),
             today: vars.today.unwrap_or(accent),
-            selected_text: vars
-                .selected_text
-                .unwrap_or_else(|| accent.readable_on()),
+            selected_text: vars.selected_text.unwrap_or_else(|| accent.readable_on()),
             hover: vars.hover.unwrap_or_else(|| accent.with_alpha(0.14)),
             disabled: vars.disabled.unwrap_or_else(|| text.with_alpha(0.25)),
             outside: vars.outside.unwrap_or_else(|| text.with_alpha(0.32)),
@@ -286,7 +305,11 @@ pub struct PanelMetrics {
 impl PanelMetrics {
     pub fn new(cell: f32, show_week_numbers: bool) -> Self {
         let cell = cell.clamp(24.0, 72.0);
-        let week_col = if show_week_numbers { (cell * 0.8).round() } else { 0.0 };
+        let week_col = if show_week_numbers {
+            (cell * 0.8).round()
+        } else {
+            0.0
+        };
         let grid_w = 7.0 * cell + 6.0 * CELL_GAP;
         Self {
             cell,
@@ -369,7 +392,9 @@ impl<'a> PanelInput<'a> {
 
     fn text_width(&self, text: &str, font_size: f32) -> f32 {
         match self.measure {
-            Some(tm) => tm.measure_text_width_styled(text, font_size, text.chars().count(), true, None),
+            Some(tm) => {
+                tm.measure_text_width_styled(text, font_size, text.chars().count(), true, None)
+            }
             // Кириллица/латиница в среднем ~0.55em; запас нужен только для
             // hit-зоны, поэтому грубой оценки достаточно.
             None => text.chars().count() as f32 * font_size * 0.58,
@@ -430,7 +455,12 @@ fn header_rects(rect: Rect, input: &PanelInput) -> HeaderRects {
         Point::new(year_x, y),
         Size::new(year_w.min((avail_right - year_x).max(24.0)), NAV_SIZE),
     );
-    HeaderRects { prev, next, month, year }
+    HeaderRects {
+        prev,
+        next,
+        month,
+        year,
+    }
 }
 
 /// Дата в ячейке сетки дней (включая дни соседних месяцев).
@@ -446,7 +476,12 @@ pub fn draw(list: &mut DisplayList, rect: Rect, input: &PanelInput) {
     let t = input.theme;
     let panel = Rect::new(rect.origin, m.size());
 
-    list.push_rect_bordered(panel, t.background, [t.radius; 4], Border::new(1.0, t.border));
+    list.push_rect_bordered(
+        panel,
+        t.background,
+        [t.radius; 4],
+        Border::new(1.0, t.border),
+    );
     draw_header(list, panel, input);
 
     match input.state.mode {
@@ -477,14 +512,38 @@ fn draw_header(list: &mut DisplayList, rect: Rect, input: &PanelInput) {
         if hovered(PanelHit::MonthLabel) {
             list.push_rect(r, t.hover, [8.0; 4]);
         }
-        let color = if input.state.mode == PanelMode::Months { t.accent } else { t.text };
-        list.push_text_aligned(&label, r, color, fs, TextAlign::CENTER, Default::default(), 600);
+        let color = if input.state.mode == PanelMode::Months {
+            t.accent
+        } else {
+            t.text
+        };
+        list.push_text_aligned(
+            &label,
+            r,
+            color,
+            fs,
+            TextAlign::CENTER,
+            Default::default(),
+            600,
+        );
     }
     if hovered(PanelHit::YearLabel) {
         list.push_rect(h.year, t.hover, [8.0; 4]);
     }
-    let year_color = if input.state.mode == PanelMode::Years { t.accent } else { t.text };
-    list.push_text_aligned(&year_label, h.year, year_color, fs, TextAlign::CENTER, Default::default(), 600);
+    let year_color = if input.state.mode == PanelMode::Years {
+        t.accent
+    } else {
+        t.text
+    };
+    list.push_text_aligned(
+        &year_label,
+        h.year,
+        year_color,
+        fs,
+        TextAlign::CENTER,
+        Default::default(),
+        600,
+    );
 }
 
 fn draw_days(list: &mut DisplayList, rect: Rect, input: &PanelInput, m: &PanelMetrics) {
@@ -497,17 +556,34 @@ fn draw_days(list: &mut DisplayList, rect: Rect, input: &PanelInput, m: &PanelMe
             Point::new(rect.x() + PAD, m.body_y(rect)),
             Size::new(m.week_col, DOW_H),
         );
-        list.push_text_centered(locale.week_abbr.as_ref(), r, t.muted, (t.font_size - 3.0).max(9.0));
+        list.push_text_centered(
+            locale.week_abbr.as_ref(),
+            r,
+            t.muted,
+            (t.font_size - 3.0).max(9.0),
+        );
     }
 
     for col in 0..7u32 {
         let weekday = locale.weekday_at_column(col);
         let r = Rect::new(
-            Point::new(m.grid_x(rect) + col as f32 * (m.cell + CELL_GAP), m.body_y(rect)),
+            Point::new(
+                m.grid_x(rect) + col as f32 * (m.cell + CELL_GAP),
+                m.body_y(rect),
+            ),
             Size::new(m.cell, DOW_H),
         );
-        let color = if locale.is_weekend(weekday) { t.weekend.with_alpha(0.6) } else { t.muted };
-        list.push_text_centered(locale.weekday_short(weekday), r, color, (t.font_size - 2.0).max(10.0));
+        let color = if locale.is_weekend(weekday) {
+            t.weekend.with_alpha(0.6)
+        } else {
+            t.muted
+        };
+        list.push_text_centered(
+            locale.weekday_short(weekday),
+            r,
+            color,
+            (t.font_size - 2.0).max(10.0),
+        );
     }
 
     for index in 0..GRID_ROWS * 7 {
@@ -526,7 +602,12 @@ fn draw_days(list: &mut DisplayList, rect: Rect, input: &PanelInput, m: &PanelMe
             list.push_rect(cell, t.hover, [m.cell / 2.0; 4]);
         }
         if today && !selected {
-            list.push_rect_bordered(cell, Color::TRANSPARENT, [m.cell / 2.0; 4], Border::new(1.5, t.today));
+            list.push_rect_bordered(
+                cell,
+                Color::TRANSPARENT,
+                [m.cell / 2.0; 4],
+                Border::new(1.5, t.today),
+            );
         }
 
         let color = if selected {
@@ -562,7 +643,12 @@ fn draw_days(list: &mut DisplayList, rect: Rect, input: &PanelInput, m: &PanelMe
                 Point::new(rect.x() + PAD, m.grid_y(rect) + row as f32 * m.cell),
                 Size::new(m.week_col, m.cell),
             );
-            list.push_text_centered(&date.iso_week().to_string(), r, t.muted, (t.font_size - 3.0).max(9.0));
+            list.push_text_centered(
+                &date.iso_week().to_string(),
+                r,
+                t.muted,
+                (t.font_size - 3.0).max(9.0),
+            );
         }
     }
 }
@@ -573,7 +659,9 @@ fn draw_months(list: &mut DisplayList, rect: Rect, input: &PanelInput, m: &Panel
         let month = i + 1;
         let cell = m.quick_cell(rect, 3, 4, i);
         let inner = cell.inflate(-4.0, -4.0);
-        let selected = input.selected.map(|d| d.year == input.state.view_year && d.month == month)
+        let selected = input
+            .selected
+            .map(|d| d.year == input.state.view_year && d.month == month)
             .unwrap_or(false)
             || (input.selected.is_none() && month == input.state.view_month);
         let current = input.today.year == input.state.view_year && input.today.month == month;
@@ -585,9 +673,20 @@ fn draw_months(list: &mut DisplayList, rect: Rect, input: &PanelInput, m: &Panel
             list.push_rect(inner, t.hover, [10.0; 4]);
         }
         if current && !selected {
-            list.push_rect_bordered(inner, Color::TRANSPARENT, [10.0; 4], Border::new(1.5, t.today));
+            list.push_rect_bordered(
+                inner,
+                Color::TRANSPARENT,
+                [10.0; 4],
+                Border::new(1.5, t.today),
+            );
         }
-        let color = if selected { t.selected_text } else if current { t.today } else { t.text };
+        let color = if selected {
+            t.selected_text
+        } else if current {
+            t.today
+        } else {
+            t.text
+        };
         list.push_text_aligned(
             &input.locale.month_short(month),
             inner,
@@ -617,9 +716,20 @@ fn draw_years(list: &mut DisplayList, rect: Rect, input: &PanelInput, m: &PanelM
             list.push_rect(inner, t.hover, [10.0; 4]);
         }
         if current && !selected {
-            list.push_rect_bordered(inner, Color::TRANSPARENT, [10.0; 4], Border::new(1.5, t.today));
+            list.push_rect_bordered(
+                inner,
+                Color::TRANSPARENT,
+                [10.0; 4],
+                Border::new(1.5, t.today),
+            );
         }
-        let color = if selected { t.selected_text } else if current { t.today } else { t.text };
+        let color = if selected {
+            t.selected_text
+        } else if current {
+            t.today
+        } else {
+            t.text
+        };
         list.push_text_aligned(
             &year.to_string(),
             inner,
@@ -641,12 +751,20 @@ pub fn hit_test(rect: Rect, input: &PanelInput, pos: Point) -> Option<PanelHit> 
     }
 
     let h = header_rects(panel, input);
-    if h.prev.contains(pos) { return Some(PanelHit::Prev); }
-    if h.next.contains(pos) { return Some(PanelHit::Next); }
-    if let Some(r) = h.month {
-        if r.contains(pos) { return Some(PanelHit::MonthLabel); }
+    if h.prev.contains(pos) {
+        return Some(PanelHit::Prev);
     }
-    if h.year.contains(pos) { return Some(PanelHit::YearLabel); }
+    if h.next.contains(pos) {
+        return Some(PanelHit::Next);
+    }
+    if let Some(r) = h.month {
+        if r.contains(pos) {
+            return Some(PanelHit::MonthLabel);
+        }
+    }
+    if h.year.contains(pos) {
+        return Some(PanelHit::YearLabel);
+    }
 
     match input.state.mode {
         PanelMode::Days => {
@@ -679,7 +797,11 @@ pub fn is_hit_enabled(input: &PanelInput, hit: PanelHit) -> bool {
 mod tests {
     use super::*;
 
-    fn input<'a>(state: PanelState, locale: &'a CalendarLocale, theme: &'a CalendarTheme) -> PanelInput<'a> {
+    fn input<'a>(
+        state: PanelState,
+        locale: &'a CalendarLocale,
+        theme: &'a CalendarTheme,
+    ) -> PanelInput<'a> {
         PanelInput {
             state,
             theme,
@@ -716,8 +838,14 @@ mod tests {
         let h = header_rects(rect, &inp);
         let month = h.month.expect("в режиме дней есть подпись месяца");
         assert!(month.right() <= h.year.x());
-        assert_eq!(hit_test(rect, &inp, month.center()), Some(PanelHit::MonthLabel));
-        assert_eq!(hit_test(rect, &inp, h.year.center()), Some(PanelHit::YearLabel));
+        assert_eq!(
+            hit_test(rect, &inp, month.center()),
+            Some(PanelHit::MonthLabel)
+        );
+        assert_eq!(
+            hit_test(rect, &inp, h.year.center()),
+            Some(PanelHit::YearLabel)
+        );
         assert_eq!(hit_test(rect, &inp, h.prev.center()), Some(PanelHit::Prev));
     }
 
@@ -744,7 +872,10 @@ mod tests {
         state.apply(PanelHit::Next);
         assert_eq!(state.view_year, 2027);
         assert_eq!(state.apply(PanelHit::Month(2)), None);
-        assert_eq!((state.view_year, state.view_month, state.mode), (2027, 2, PanelMode::Days));
+        assert_eq!(
+            (state.view_year, state.view_month, state.mode),
+            (2027, 2, PanelMode::Days)
+        );
 
         state.apply(PanelHit::YearLabel);
         assert_eq!(state.mode, PanelMode::Years);

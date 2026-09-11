@@ -1,18 +1,20 @@
 use super::MultilineTextEdit;
+use crate::core::sync::Mutex;
 use crate::core::{Color, Point, Rect, RectExt, Size};
 use crate::input::{CursorIcon, Event, EventResult, Key, MouseButton};
 use crate::layout::Constraints;
 use crate::mss::ComputedStyle;
 use crate::mss::{MssFields, TextAlign, TextDecoration};
 use crate::render::{Border, DisplayList};
+use crate::signal::RwSignal;
 use crate::widget::context::{EventContext, EventContextExt, TextMeasure};
 use crate::widget::selection::TextSelectionState;
+use crate::widget::{
+    DirtyFlags, Element, ElementId, ElementTree, StyledElement, UpdateContext, Widget,
+};
 use crate::widgets::input::edit_menu::{edit_context_menu, EditMenuAction};
-use crate::signal::RwSignal;
-use crate::widget::{DirtyFlags, Element, ElementId, ElementTree, StyledElement, UpdateContext, Widget};
 use std::any::Any;
 use std::sync::Arc;
-use crate::core::sync::Mutex;
 
 impl Widget for MultilineTextEdit {
     fn create_element(&self) -> Box<dyn Element> {
@@ -114,13 +116,18 @@ struct MultilineTextEditElement {
 
 impl MultilineTextEditElement {
     fn start_transition_to_current_state(&mut self) {
-        self.mss.start_transition_to(self.hover, false, self.focused, false);
+        self.mss
+            .start_transition_to(self.hover, false, self.focused, false);
     }
 
     fn effective_border_color(&self) -> Option<Color> {
-        self.mss.transition.border_color()
+        self.mss
+            .transition
+            .border_color()
             .or_else(|| {
-                self.mss.target_props(self.hover, false, self.focused, false).border_color()
+                self.mss
+                    .target_props(self.hover, false, self.focused, false)
+                    .border_color()
             })
             .or(self.mss.border_color)
     }
@@ -149,7 +156,8 @@ impl MultilineTextEditElement {
         for (i, l) in self.text.split('\n').enumerate() {
             if i == line {
                 let c = col.min(l.chars().count());
-                offset += l.char_indices()
+                offset += l
+                    .char_indices()
                     .nth(c)
                     .map(|(idx, _)| idx)
                     .unwrap_or(l.len());
@@ -170,7 +178,10 @@ impl MultilineTextEditElement {
                 let safe_local = if line.is_char_boundary(local) {
                     local
                 } else {
-                    (0..local).rev().find(|&b| line.is_char_boundary(b)).unwrap_or(0)
+                    (0..local)
+                        .rev()
+                        .find(|&b| line.is_char_boundary(b))
+                        .unwrap_or(0)
                 };
                 let col = line[..safe_local].chars().count();
                 return (i, col);
@@ -178,11 +189,15 @@ impl MultilineTextEditElement {
             offset = line_end + 1;
         }
         let lc = self.line_count();
-        (lc.saturating_sub(1), self.line_char_count(lc.saturating_sub(1)))
+        (
+            lc.saturating_sub(1),
+            self.line_char_count(lc.saturating_sub(1)),
+        )
     }
 
     fn line_char_count(&self, line_idx: usize) -> usize {
-        self.text.split('\n')
+        self.text
+            .split('\n')
             .nth(line_idx)
             .map(|l| l.chars().count())
             .unwrap_or(0)
@@ -199,7 +214,8 @@ impl MultilineTextEditElement {
     /// Вставить текст в каретку (выделение заменяется) — как ввод символа.
     fn insert_at_caret(&mut self, text: &str) {
         let mut cursor_byte = self.cursor_byte_offset();
-        self.selection.replace_selection(&mut self.text, &mut cursor_byte, text);
+        self.selection
+            .replace_selection(&mut self.text, &mut cursor_byte, text);
         self.sync_cursor_from_byte(cursor_byte);
         self.recompute_wraps();
         self.trigger_change();
@@ -207,7 +223,9 @@ impl MultilineTextEditElement {
 
     /// Вычерпать очередь вставок хоста. `true` — текст изменился.
     fn drain_insert_queue(&mut self) -> bool {
-        let Some(queue) = self.insert_queue.clone() else { return false };
+        let Some(queue) = self.insert_queue.clone() else {
+            return false;
+        };
         let pending: Vec<String> = match queue.lock() {
             Ok(mut q) => std::mem::take(&mut *q),
             Err(_) => return false,
@@ -388,7 +406,10 @@ impl MultilineTextEditElement {
     }
 
     fn visual_lines_for(&self, logical_idx: usize) -> usize {
-        self.wrap_cache.get(logical_idx).map(|b| b.len() + 1).unwrap_or(1)
+        self.wrap_cache
+            .get(logical_idx)
+            .map(|b| b.len() + 1)
+            .unwrap_or(1)
     }
 
     fn logical_to_visual_line(&self, logical_line: usize, col: usize) -> usize {
@@ -413,8 +434,14 @@ impl MultilineTextEditElement {
         for (logical, breaks) in self.wrap_cache.iter().enumerate() {
             let vlines = breaks.len() + 1;
             if remaining < vlines {
-                let start = if remaining == 0 { 0 } else { breaks[remaining - 1] };
-                let end = breaks.get(remaining).copied()
+                let start = if remaining == 0 {
+                    0
+                } else {
+                    breaks[remaining - 1]
+                };
+                let end = breaks
+                    .get(remaining)
+                    .copied()
                     .unwrap_or_else(|| self.line_char_count(logical));
                 return (logical, start, end);
             }
@@ -424,9 +451,18 @@ impl MultilineTextEditElement {
         (last, 0, self.line_char_count(last))
     }
 
-    fn segment_text<'a>(&self, line: &'a str, logical_idx: usize, seg_start: usize, seg_end: usize) -> String {
+    fn segment_text<'a>(
+        &self,
+        line: &'a str,
+        logical_idx: usize,
+        seg_start: usize,
+        seg_end: usize,
+    ) -> String {
         let _ = logical_idx;
-        line.chars().skip(seg_start).take(seg_end - seg_start).collect()
+        line.chars()
+            .skip(seg_start)
+            .take(seg_end - seg_start)
+            .collect()
     }
 
     /// Выполняет выбранный в контекстном меню пункт. Вызывается из
@@ -448,7 +484,8 @@ impl MultilineTextEditElement {
                     .map(|s| s.to_string());
                 if let Some(selected) = selected {
                     crate::clipboard::copy(&selected);
-                    self.selection.delete_selection(&mut self.text, &mut cursor_byte);
+                    self.selection
+                        .delete_selection(&mut self.text, &mut cursor_byte);
                     self.sync_cursor_from_byte(cursor_byte);
                     self.recompute_wraps();
                     self.trigger_change();
@@ -486,7 +523,8 @@ impl MultilineTextEditElement {
         let segment = self.segment_text(line, logical_line, seg_start, seg_end);
         let rel_x = (pos.x - text_x).max(0.0);
 
-        let local_col = ctx.hit_test_char(&segment, Self::FONT_SIZE, rel_x)
+        let local_col = ctx
+            .hit_test_char(&segment, Self::FONT_SIZE, rel_x)
             .unwrap_or_else(|| {
                 let avg_advance = Self::FONT_SIZE * 0.52;
                 ((rel_x / avg_advance).round() as usize).min(segment.chars().count())
@@ -545,7 +583,9 @@ impl Element for MultilineTextEditElement {
         }
         let rows_height = self.visible_rows() as f32 * Self::LINE_HEIGHT + Self::PADDING * 2.0;
         let height = if constraints.max_height.is_finite() {
-            constraints.max_height.max(rows_height.min(constraints.max_height))
+            constraints
+                .max_height
+                .max(rows_height.min(constraints.max_height))
         } else {
             rows_height
         };
@@ -560,7 +600,9 @@ impl Element for MultilineTextEditElement {
         let fg = self.mss.color.unwrap_or(Color::from_hex("#374151"));
         let effective_bc = self.effective_border_color();
         let border_base = effective_bc.unwrap_or(Color::from_hex("#D1D5DB"));
-        let radius = self.mss.border_radius_uniform(self.bounds.size.width.min(self.bounds.size.height), 6.0);
+        let radius = self
+            .mss
+            .border_radius_uniform(self.bounds.size.width.min(self.bounds.size.height), 6.0);
 
         let border_color = if self.focused {
             effective_bc.map(|c| c.lighten(0.3)).unwrap_or(primary)
@@ -573,7 +615,10 @@ impl Element for MultilineTextEditElement {
             self.bounds,
             bg,
             [radius; 4],
-            Border { width: border_width, color: border_color },
+            Border {
+                width: border_width,
+                color: border_color,
+            },
         );
 
         if self.show_line_numbers {
@@ -584,7 +629,11 @@ impl Element for MultilineTextEditElement {
             );
             let gutter_bg = self.mss.gutter_color.unwrap_or_else(|| bg.darken(0.08));
             let inner_radius = (radius - bw).max(0.0);
-            list.push_rect(gutter_rect, gutter_bg, [inner_radius, 0.0, 0.0, inner_radius]);
+            list.push_rect(
+                gutter_rect,
+                gutter_bg,
+                [inner_radius, 0.0, 0.0, inner_radius],
+            );
         }
 
         let lines = self.lines();
@@ -595,7 +644,10 @@ impl Element for MultilineTextEditElement {
 
         let content_clip = Rect::new(
             Point::new(self.bounds.x(), self.bounds.y() + Self::PADDING),
-            Size::new(self.bounds.size.width, self.bounds.size.height - Self::PADDING * 2.0),
+            Size::new(
+                self.bounds.size.width,
+                self.bounds.size.height - Self::PADDING * 2.0,
+            ),
         );
         list.push_clip(content_clip);
 
@@ -604,22 +656,29 @@ impl Element for MultilineTextEditElement {
                 Point::new(text_x, self.bounds.y() + Self::PADDING),
                 Size::new(text_width, Self::LINE_HEIGHT),
             );
-            list.push_text(&self.placeholder, placeholder_rect, placeholder_color, Self::FONT_SIZE);
+            list.push_text(
+                &self.placeholder,
+                placeholder_rect,
+                placeholder_color,
+                Self::FONT_SIZE,
+            );
             list.pop_clip();
             return;
         }
 
         let sel_range = self.selection.range(self.cursor_byte_offset());
         let sel_color = self.mss.selection_color_or_default();
-        let cursor_color = self.mss.caret_color
-            .unwrap_or_else(|| self.effective_border_color()
+        let cursor_color = self.mss.caret_color.unwrap_or_else(|| {
+            self.effective_border_color()
                 .map(|c| c.lighten(0.3))
-                .unwrap_or(primary));
+                .unwrap_or(primary)
+        });
 
         let visible_end = (self.scroll_offset + self.visible_rows()).min(self.total_visual_lines);
         for vis_row in self.scroll_offset..visible_end {
             let (logical_line, seg_start, seg_end) = self.visual_to_logical(vis_row);
-            let y = self.bounds.y() + Self::PADDING
+            let y = self.bounds.y()
+                + Self::PADDING
                 + (vis_row - self.scroll_offset) as f32 * Self::LINE_HEIGHT;
 
             let line_text = lines.get(logical_line).copied().unwrap_or("");
@@ -630,46 +689,78 @@ impl Element for MultilineTextEditElement {
                     Point::new(self.bounds.x() + 4.0, y),
                     Size::new(Self::GUTTER_WIDTH - 12.0, Self::LINE_HEIGHT),
                 );
-                list.push_text_aligned(&num_str, num_rect, line_num_color, 12.0, TextAlign::RIGHT | TextAlign::VCENTER, TextDecoration::None, 400);
+                list.push_text_aligned(
+                    &num_str,
+                    num_rect,
+                    line_num_color,
+                    12.0,
+                    TextAlign::RIGHT | TextAlign::VCENTER,
+                    TextDecoration::None,
+                    400,
+                );
             }
 
             let segment = self.segment_text(line_text, logical_line, seg_start, seg_end);
 
             if let Some((sel_s, sel_e)) = sel_range {
                 let line_start_byte = self.line_start_byte(logical_line);
-                let seg_start_byte = line_text.char_indices()
-                    .nth(seg_start).map(|(i, _)| i).unwrap_or(line_text.len());
-                let seg_end_byte = line_text.char_indices()
-                    .nth(seg_end).map(|(i, _)| i).unwrap_or(line_text.len());
+                let seg_start_byte = line_text
+                    .char_indices()
+                    .nth(seg_start)
+                    .map(|(i, _)| i)
+                    .unwrap_or(line_text.len());
+                let seg_end_byte = line_text
+                    .char_indices()
+                    .nth(seg_end)
+                    .map(|(i, _)| i)
+                    .unwrap_or(line_text.len());
                 let abs_seg_start = line_start_byte + seg_start_byte;
                 let abs_seg_end = line_start_byte + seg_end_byte;
 
                 if sel_s < abs_seg_end && sel_e > abs_seg_start {
-                    let local_start = if sel_s > abs_seg_start { sel_s - abs_seg_start } else { 0 };
-                    let local_end = if sel_e < abs_seg_end { sel_e - abs_seg_start } else { segment.len() };
+                    let local_start = if sel_s > abs_seg_start {
+                        sel_s - abs_seg_start
+                    } else {
+                        0
+                    };
+                    let local_end = if sel_e < abs_seg_end {
+                        sel_e - abs_seg_start
+                    } else {
+                        segment.len()
+                    };
                     list.push_text_selection_styled(
-                        &segment, local_start, local_end,
-                        text_x, y, Self::LINE_HEIGHT, Self::FONT_SIZE, sel_color,
+                        &segment,
+                        local_start,
+                        local_end,
+                        text_x,
+                        y,
+                        Self::LINE_HEIGHT,
+                        Self::FONT_SIZE,
+                        sel_color,
                         self.mss.font_family.clone(),
                     );
                 }
             }
 
-            let seg_rect = Rect::new(
-                Point::new(text_x, y),
-                Size::new(10000.0, Self::LINE_HEIGHT),
-            );
+            let seg_rect = Rect::new(Point::new(text_x, y), Size::new(10000.0, Self::LINE_HEIGHT));
             list.push_text(&segment, seg_rect, fg, Self::FONT_SIZE);
 
-            if self.focused && self.cursor_line == logical_line
-                && self.cursor_col >= seg_start && self.cursor_col <= seg_end
+            if self.focused
+                && self.cursor_line == logical_line
+                && self.cursor_col >= seg_start
+                && self.cursor_col <= seg_end
             {
                 let local_col = self.cursor_col - seg_start;
                 let text_before: String = segment.chars().take(local_col).collect();
                 list.push_text_cursor_styled(
-                    &text_before, text_before.len(),
-                    text_x, y, Self::LINE_HEIGHT, Self::FONT_SIZE,
-                    self.mss.font_weight_or(400), cursor_color,
+                    &text_before,
+                    text_before.len(),
+                    text_x,
+                    y,
+                    Self::LINE_HEIGHT,
+                    Self::FONT_SIZE,
+                    self.mss.font_weight_or(400),
+                    cursor_color,
                     self.mss.font_family.clone(),
                 );
             }
@@ -682,7 +773,9 @@ impl Element for MultilineTextEditElement {
             let thumb_base = self.mss.color.unwrap_or(Color::from_hex("#9CA3AF"));
 
             if self.hover_scrollbar || self.dragging_scrollbar {
-                let track_color = self.mss.border_color
+                let track_color = self
+                    .mss
+                    .border_color
                     .unwrap_or(Color::from_hex("#808080"))
                     .with_alpha(0.2);
                 list.push_rect(self.scrollbar_track_rect(), track_color, radius);
@@ -733,12 +826,15 @@ impl Element for MultilineTextEditElement {
                     let thumb_h = self.scrollbar_thumb_rect().height();
                     let available = track.height() - thumb_h;
                     if available > 0.0 {
-                        let max_offset = self.total_visual_lines.saturating_sub(self.visible_rows());
+                        let max_offset =
+                            self.total_visual_lines.saturating_sub(self.visible_rows());
                         let dy = pos.y - self.drag_start_y;
-                        let new_offset = self.drag_start_offset as f32 + (dy / available) * max_offset as f32;
+                        let new_offset =
+                            self.drag_start_offset as f32 + (dy / available) * max_offset as f32;
                         self.scroll_offset = (new_offset.round() as isize)
                             .max(0)
-                            .min(max_offset as isize) as usize;
+                            .min(max_offset as isize)
+                            as usize;
                     }
                     ctx.request_paint();
                     return EventResult::Handled;
@@ -788,10 +884,11 @@ impl Element for MultilineTextEditElement {
                             self.drag_start_y = position.y;
                             self.drag_start_offset = self.scroll_offset;
                         } else {
-                            let max_offset = self.total_visual_lines.saturating_sub(self.visible_rows());
+                            let max_offset =
+                                self.total_visual_lines.saturating_sub(self.visible_rows());
                             let ratio = (position.y - track.y()) / track.height();
-                            self.scroll_offset = ((ratio * max_offset as f32).round() as usize)
-                                .min(max_offset);
+                            self.scroll_offset =
+                                ((ratio * max_offset as f32).round() as usize).min(max_offset);
                         }
                         ctx.request_paint();
                         return EventResult::Handled;
@@ -870,9 +967,13 @@ impl Element for MultilineTextEditElement {
                 }
                 EventResult::Ignored
             }
-            Event::MouseWheel { delta, position, .. } => {
+            Event::MouseWheel {
+                delta, position, ..
+            } => {
                 if self.bounds.contains(*position) {
-                    if *delta < 0.0 && self.scroll_offset + self.visible_rows() < self.total_visual_lines {
+                    if *delta < 0.0
+                        && self.scroll_offset + self.visible_rows() < self.total_visual_lines
+                    {
                         self.scroll_offset += 1;
                         ctx.request_paint();
                         return EventResult::Handled;
@@ -912,7 +1013,8 @@ impl Element for MultilineTextEditElement {
                     let mut cursor_byte = self.cursor_byte_offset();
                     if let Some(selected) = self.selection.selected_text(&self.text, cursor_byte) {
                         ctx.copy_to_clipboard(selected);
-                        self.selection.delete_selection(&mut self.text, &mut cursor_byte);
+                        self.selection
+                            .delete_selection(&mut self.text, &mut cursor_byte);
                         self.sync_cursor_from_byte(cursor_byte);
                         self.recompute_wraps();
                         self.trigger_change();
@@ -924,7 +1026,11 @@ impl Element for MultilineTextEditElement {
                 if ctrl && matches!(key, Key::V) && !self.read_only {
                     if let Some(paste_text) = ctx.paste_from_clipboard() {
                         let mut cursor_byte = self.cursor_byte_offset();
-                        self.selection.replace_selection(&mut self.text, &mut cursor_byte, &paste_text);
+                        self.selection.replace_selection(
+                            &mut self.text,
+                            &mut cursor_byte,
+                            &paste_text,
+                        );
                         self.sync_cursor_from_byte(cursor_byte);
                         self.recompute_wraps();
                         self.ensure_cursor_visible();
@@ -956,7 +1062,8 @@ impl Element for MultilineTextEditElement {
                         }
                         let cursor_byte = self.cursor_byte_offset();
                         if self.selection.has_selection(cursor_byte) {
-                            self.selection.delete_selection(&mut self.text, &mut { cursor_byte });
+                            self.selection
+                                .delete_selection(&mut self.text, &mut { cursor_byte });
                             self.sync_cursor_from_byte(cursor_byte);
                         }
                         let offset = self.cursor_byte_offset();
@@ -975,7 +1082,10 @@ impl Element for MultilineTextEditElement {
                             return EventResult::Ignored;
                         }
                         let mut cursor_byte = self.cursor_byte_offset();
-                        if self.selection.delete_selection(&mut self.text, &mut cursor_byte) {
+                        if self
+                            .selection
+                            .delete_selection(&mut self.text, &mut cursor_byte)
+                        {
                             self.sync_cursor_from_byte(cursor_byte);
                             self.recompute_wraps();
                             self.trigger_change();
@@ -1008,7 +1118,10 @@ impl Element for MultilineTextEditElement {
                             return EventResult::Ignored;
                         }
                         let mut cursor_byte = self.cursor_byte_offset();
-                        if self.selection.delete_selection(&mut self.text, &mut cursor_byte) {
+                        if self
+                            .selection
+                            .delete_selection(&mut self.text, &mut cursor_byte)
+                        {
                             self.sync_cursor_from_byte(cursor_byte);
                             self.recompute_wraps();
                             self.trigger_change();
@@ -1029,7 +1142,9 @@ impl Element for MultilineTextEditElement {
                         if shift {
                             self.selection.extend_or_start(self.cursor_byte_offset());
                         } else if self.selection.has_selection(self.cursor_byte_offset()) {
-                            if let Some((start, _)) = self.selection.range(self.cursor_byte_offset()) {
+                            if let Some((start, _)) =
+                                self.selection.range(self.cursor_byte_offset())
+                            {
                                 self.sync_cursor_from_byte(start);
                             }
                             self.selection.clear();
@@ -1043,7 +1158,9 @@ impl Element for MultilineTextEditElement {
                             self.cursor_line -= 1;
                             self.cursor_col = self.line_char_count(self.cursor_line);
                         }
-                        if !shift { self.selection.clear(); }
+                        if !shift {
+                            self.selection.clear();
+                        }
                         self.ensure_cursor_visible();
                         ctx.request_paint();
                         EventResult::Handled
@@ -1052,7 +1169,8 @@ impl Element for MultilineTextEditElement {
                         if shift {
                             self.selection.extend_or_start(self.cursor_byte_offset());
                         } else if self.selection.has_selection(self.cursor_byte_offset()) {
-                            if let Some((_, end)) = self.selection.range(self.cursor_byte_offset()) {
+                            if let Some((_, end)) = self.selection.range(self.cursor_byte_offset())
+                            {
                                 self.sync_cursor_from_byte(end);
                             }
                             self.selection.clear();
@@ -1067,7 +1185,9 @@ impl Element for MultilineTextEditElement {
                             self.cursor_line += 1;
                             self.cursor_col = 0;
                         }
-                        if !shift { self.selection.clear(); }
+                        if !shift {
+                            self.selection.clear();
+                        }
                         self.ensure_cursor_visible();
                         ctx.request_paint();
                         EventResult::Handled
@@ -1150,7 +1270,8 @@ impl Element for MultilineTextEditElement {
                 let mut cursor_byte = self.cursor_byte_offset();
                 let mut ch_buf = [0u8; 4];
                 let ch_str = ch.encode_utf8(&mut ch_buf);
-                self.selection.replace_selection(&mut self.text, &mut cursor_byte, ch_str);
+                self.selection
+                    .replace_selection(&mut self.text, &mut cursor_byte, ch_str);
                 self.sync_cursor_from_byte(cursor_byte);
                 self.recompute_wraps();
                 self.trigger_change();
@@ -1162,7 +1283,8 @@ impl Element for MultilineTextEditElement {
                     return EventResult::Ignored;
                 }
                 let mut cursor_byte = self.cursor_byte_offset();
-                self.selection.replace_selection(&mut self.text, &mut cursor_byte, text);
+                self.selection
+                    .replace_selection(&mut self.text, &mut cursor_byte, text);
                 self.sync_cursor_from_byte(cursor_byte);
                 self.recompute_wraps();
                 self.trigger_change();
@@ -1170,10 +1292,18 @@ impl Element for MultilineTextEditElement {
                 EventResult::Handled
             }
             Event::ImePreedit { .. } => {
-                if self.focused { EventResult::Handled } else { EventResult::Ignored }
+                if self.focused {
+                    EventResult::Handled
+                } else {
+                    EventResult::Ignored
+                }
             }
             Event::ImeEnabled | Event::ImeDisabled => {
-                if self.focused { EventResult::Handled } else { EventResult::Ignored }
+                if self.focused {
+                    EventResult::Handled
+                } else {
+                    EventResult::Ignored
+                }
             }
             _ => EventResult::Ignored,
         }
@@ -1267,10 +1397,16 @@ impl Element for MultilineTextEditElement {
         &self.classes
     }
 
-    fn element_type_name(&self) -> &str { "MultilineTextEdit" }
+    fn element_type_name(&self) -> &str {
+        "MultilineTextEdit"
+    }
 
-    fn reset_mss_styles(&mut self) { self.mss.reset(); }
-    fn mss(&self) -> Option<&crate::mss::MssFields> { Some(&self.mss) }
+    fn reset_mss_styles(&mut self) {
+        self.mss.reset();
+    }
+    fn mss(&self) -> Option<&crate::mss::MssFields> {
+        Some(&self.mss)
+    }
     fn apply_computed_style(&mut self, style: &ComputedStyle) {
         self.mss.apply(style);
         self.mark_dirty(DirtyFlags::LAYOUT | DirtyFlags::RENDER);
@@ -1285,7 +1421,8 @@ impl Element for MultilineTextEditElement {
         selected: Option<&ComputedStyle>,
         _checked: Option<&ComputedStyle>,
     ) {
-        self.mss.apply_transitions(base, hover, active, focus, selected);
+        self.mss
+            .apply_transitions(base, hover, active, focus, selected);
     }
 
     fn accessibility_info(&self) -> Option<crate::a11y::AccessibilityInfo> {
@@ -1296,8 +1433,16 @@ impl Element for MultilineTextEditElement {
                 ..Default::default()
             },
             properties: crate::a11y::NodeProperties {
-                value: if self.text.is_empty() { None } else { Some(self.text.clone()) },
-                placeholder: if self.placeholder.is_empty() { None } else { Some(self.placeholder.clone()) },
+                value: if self.text.is_empty() {
+                    None
+                } else {
+                    Some(self.text.clone())
+                },
+                placeholder: if self.placeholder.is_empty() {
+                    None
+                } else {
+                    Some(self.placeholder.clone())
+                },
                 ..Default::default()
             },
         })
@@ -1323,7 +1468,12 @@ impl StyledElement for MultilineTextEditElement {
 mod tests {
     use super::*;
 
-    fn make_element(rows: usize, auto_height: bool, max_rows: Option<usize>, total_visual_lines: usize) -> MultilineTextEditElement {
+    fn make_element(
+        rows: usize,
+        auto_height: bool,
+        max_rows: Option<usize>,
+        total_visual_lines: usize,
+    ) -> MultilineTextEditElement {
         MultilineTextEditElement {
             id: ElementId::new(),
             text: String::new(),
@@ -1365,9 +1515,12 @@ mod tests {
 
     #[test]
     fn auto_height_caps_visible_rows_at_max_rows() {
-        let el = make_element( 1,  true,  Some(15),  30);
+        let el = make_element(1, true, Some(15), 30);
         assert_eq!(el.visible_rows(), 15);
-        assert!(el.needs_scrollbar(), "scrollbar must engage when total > cap");
+        assert!(
+            el.needs_scrollbar(),
+            "scrollbar must engage when total > cap"
+        );
     }
 
     #[test]

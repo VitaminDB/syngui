@@ -1,9 +1,9 @@
-use crate::gpu::tile_atlas::TileKey;
 use super::tile_cache::TileCache;
-use hashbrown::HashMap;
-use std::sync::Arc;
-use std::sync::atomic::Ordering::Relaxed;
 use crate::core::sync::Mutex;
+use crate::gpu::tile_atlas::TileKey;
+use hashbrown::HashMap;
+use std::sync::atomic::Ordering::Relaxed;
+use std::sync::Arc;
 
 #[derive(Clone, Debug)]
 pub enum TileState {
@@ -54,7 +54,12 @@ impl TileLoader {
             return TileState::Loading;
         }
 
-        cache.insert(key, TileEntry { state: TileState::Loading });
+        cache.insert(
+            key,
+            TileEntry {
+                state: TileState::Loading,
+            },
+        );
 
         #[cfg(any(target_arch = "wasm32", feature = "map-native"))]
         {
@@ -69,7 +74,12 @@ impl TileLoader {
                 if let Some(ref tc) = tile_cache {
                     if let Some(rgba) = tc.get(&key).await {
                         if let Ok(mut cache) = cache_ref.lock() {
-                            cache.insert(key, TileEntry { state: TileState::Loaded(rgba) });
+                            cache.insert(
+                                key,
+                                TileEntry {
+                                    state: TileState::Loaded(rgba),
+                                },
+                            );
                         }
                         pending_ref.fetch_sub(1, Relaxed);
                         return;
@@ -105,7 +115,12 @@ impl TileLoader {
         #[cfg(not(any(target_arch = "wasm32", feature = "map-native")))]
         {
             let _ = url;
-            cache.insert(key, TileEntry { state: TileState::Failed });
+            cache.insert(
+                key,
+                TileEntry {
+                    state: TileState::Failed,
+                },
+            );
         }
 
         TileState::Loading
@@ -172,13 +187,13 @@ async fn fetch_png(url: &str) -> Result<Vec<u8>, String> {
 }
 
 pub(super) fn decode_to_rgba(bytes: &[u8]) -> Result<Vec<u8>, String> {
-    let img = image::load_from_memory(bytes)
-        .map_err(|e| format!("Decode error: {}", e))?;
+    let img = image::load_from_memory(bytes).map_err(|e| format!("Decode error: {}", e))?;
 
     let rgba = img.to_rgba8();
 
     if rgba.width() != 256 || rgba.height() != 256 {
-        let resized = image::imageops::resize(&rgba, 256, 256, image::imageops::FilterType::Lanczos3);
+        let resized =
+            image::imageops::resize(&rgba, 256, 256, image::imageops::FilterType::Lanczos3);
         Ok(resized.into_raw())
     } else {
         Ok(rgba.into_raw())

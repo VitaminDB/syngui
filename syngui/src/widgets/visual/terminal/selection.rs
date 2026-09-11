@@ -22,7 +22,11 @@ impl GridPos {
 }
 
 fn normalize_pair(a: GridPos, b: GridPos) -> (GridPos, GridPos) {
-    if (a.line, a.col) <= (b.line, b.col) { (a, b) } else { (b, a) }
+    if (a.line, a.col) <= (b.line, b.col) {
+        (a, b)
+    } else {
+        (b, a)
+    }
 }
 
 fn is_word_char(ch: char) -> bool {

@@ -1,3 +1,4 @@
+use crate::core::sync::Mutex;
 use crate::core::{Color, Point, Rect, RectExt, Size};
 use crate::input::{CursorIcon, Event, EventResult, MouseButton};
 use crate::layout::Constraints;
@@ -5,10 +6,11 @@ use crate::mss::ComputedStyle;
 use crate::mss::MssFields;
 use crate::render::DisplayList;
 use crate::widget::context::{EventContext, EventContextExt};
-use crate::widget::{DirtyFlags, Element, ElementId, ElementTree, StyledElement, UpdateContext, Widget};
+use crate::widget::{
+    DirtyFlags, Element, ElementId, ElementTree, StyledElement, UpdateContext, Widget,
+};
 use std::any::Any;
 use std::sync::Arc;
-use crate::core::sync::Mutex;
 
 pub struct Pagination {
     total_pages: usize,
@@ -55,9 +57,15 @@ impl Widget for Pagination {
         })
     }
 
-    fn can_update(&self, other: &dyn Any) -> bool { other.is::<Self>() }
-    fn as_any(&self) -> &dyn Any { self }
-    fn as_any_mut(&mut self) -> &mut dyn Any { self }
+    fn can_update(&self, other: &dyn Any) -> bool {
+        other.is::<Self>()
+    }
+    fn as_any(&self) -> &dyn Any {
+        self
+    }
+    fn as_any_mut(&mut self) -> &mut dyn Any {
+        self
+    }
     fn mount(&self, _tree: &mut ElementTree, _parent_id: ElementId) {}
 }
 
@@ -129,12 +137,17 @@ impl PaginationElement {
 
     fn btn_rect(&self, index: usize) -> Rect {
         let x = self.bounds.x() + index as f32 * (BTN_SIZE + BTN_GAP);
-        Rect::new(Point::new(x, self.bounds.y()), Size::new(BTN_SIZE, BTN_SIZE))
+        Rect::new(
+            Point::new(x, self.bounds.y()),
+            Size::new(BTN_SIZE, BTN_SIZE),
+        )
     }
 
     fn fire_change(&self, page: usize) {
         if let Some(ref cb) = self.on_page_change {
-            if let Ok(mut f) = cb.lock() { f(page); }
+            if let Ok(mut f) = cb.lock() {
+                f(page);
+            }
         }
     }
 }
@@ -168,37 +181,78 @@ impl Element for PaginationElement {
             let rect = self.btn_rect(i);
             let is_hovered = self.hover_index == Some(i);
 
-            let hover_bg = self.mss.background_color.unwrap_or(Color::from_hex("#F3F4F6"));
+            let hover_bg = self
+                .mss
+                .background_color
+                .unwrap_or(Color::from_hex("#F3F4F6"));
             let disabled_color = self.mss.border_color.unwrap_or(Color::from_hex("#D1D5DB"));
-            let active_arrow = self.mss.color.map(|c| c.with_alpha(0.6)).unwrap_or(Color::from_hex("#6B7280"));
+            let active_arrow = self
+                .mss
+                .color
+                .map(|c| c.with_alpha(0.6))
+                .unwrap_or(Color::from_hex("#6B7280"));
             let accent = self.mss.accent_color.unwrap_or(Color::from_hex("#3B82F6"));
             let text_color_base = self.mss.color.unwrap_or(Color::from_hex("#374151"));
-            let ellipsis_color = self.mss.color.map(|c| c.with_alpha(0.5)).unwrap_or(Color::from_hex("#9CA3AF"));
+            let ellipsis_color = self
+                .mss
+                .color
+                .map(|c| c.with_alpha(0.5))
+                .unwrap_or(Color::from_hex("#9CA3AF"));
 
             match btn {
                 PageButton::Prev => {
-                    let bg = if is_hovered { hover_bg } else { Color::TRANSPARENT };
+                    let bg = if is_hovered {
+                        hover_bg
+                    } else {
+                        Color::TRANSPARENT
+                    };
                     list.push_rect(rect, bg, [btn_radius; 4]);
                     let tr = Rect::new(
                         Point::new(rect.x() + 10.0, rect.y() + (BTN_SIZE - 14.0) / 2.0),
                         Size::new(16.0, 14.0),
                     );
-                    let color = if self.current_page <= 1 { disabled_color } else { active_arrow };
-                    list.push_text_styled("◀", tr, color, arrow_font_size,
-                        crate::mss::TextAlign::DEFAULT, crate::mss::TextDecoration::None,
-                        font_weight, self.mss.font_family.clone());
+                    let color = if self.current_page <= 1 {
+                        disabled_color
+                    } else {
+                        active_arrow
+                    };
+                    list.push_text_styled(
+                        "◀",
+                        tr,
+                        color,
+                        arrow_font_size,
+                        crate::mss::TextAlign::DEFAULT,
+                        crate::mss::TextDecoration::None,
+                        font_weight,
+                        self.mss.font_family.clone(),
+                    );
                 }
                 PageButton::Next => {
-                    let bg = if is_hovered { hover_bg } else { Color::TRANSPARENT };
+                    let bg = if is_hovered {
+                        hover_bg
+                    } else {
+                        Color::TRANSPARENT
+                    };
                     list.push_rect(rect, bg, [btn_radius; 4]);
                     let tr = Rect::new(
                         Point::new(rect.x() + 10.0, rect.y() + (BTN_SIZE - 14.0) / 2.0),
                         Size::new(16.0, 14.0),
                     );
-                    let color = if self.current_page >= self.total_pages { disabled_color } else { active_arrow };
-                    list.push_text_styled("▶", tr, color, arrow_font_size,
-                        crate::mss::TextAlign::DEFAULT, crate::mss::TextDecoration::None,
-                        font_weight, self.mss.font_family.clone());
+                    let color = if self.current_page >= self.total_pages {
+                        disabled_color
+                    } else {
+                        active_arrow
+                    };
+                    list.push_text_styled(
+                        "▶",
+                        tr,
+                        color,
+                        arrow_font_size,
+                        crate::mss::TextAlign::DEFAULT,
+                        crate::mss::TextDecoration::None,
+                        font_weight,
+                        self.mss.font_family.clone(),
+                    );
                 }
                 PageButton::Page(n) => {
                     let is_current = *n == self.current_page;
@@ -210,24 +264,42 @@ impl Element for PaginationElement {
                         Color::TRANSPARENT
                     };
                     list.push_rect(rect, bg, [btn_radius; 4]);
-                    let text_color = if is_current { Color::WHITE } else { text_color_base };
+                    let text_color = if is_current {
+                        Color::WHITE
+                    } else {
+                        text_color_base
+                    };
                     let label = n.to_string();
                     let tr = Rect::new(
                         Point::new(rect.x(), rect.y() + (BTN_SIZE - 14.0) / 2.0),
                         Size::new(BTN_SIZE, 14.0),
                     );
-                    list.push_text_styled(&label, tr, text_color, page_font_size,
-                        crate::mss::TextAlign::CENTER, crate::mss::TextDecoration::None,
-                        font_weight, self.mss.font_family.clone());
+                    list.push_text_styled(
+                        &label,
+                        tr,
+                        text_color,
+                        page_font_size,
+                        crate::mss::TextAlign::CENTER,
+                        crate::mss::TextDecoration::None,
+                        font_weight,
+                        self.mss.font_family.clone(),
+                    );
                 }
                 PageButton::Ellipsis => {
                     let tr = Rect::new(
                         Point::new(rect.x(), rect.y() + (BTN_SIZE - 14.0) / 2.0),
                         Size::new(BTN_SIZE, 14.0),
                     );
-                    list.push_text_styled("…", tr, ellipsis_color, page_font_size,
-                        crate::mss::TextAlign::CENTER, crate::mss::TextDecoration::None,
-                        font_weight, self.mss.font_family.clone());
+                    list.push_text_styled(
+                        "…",
+                        tr,
+                        ellipsis_color,
+                        page_font_size,
+                        crate::mss::TextAlign::CENTER,
+                        crate::mss::TextDecoration::None,
+                        font_weight,
+                        self.mss.font_family.clone(),
+                    );
                 }
             }
         }
@@ -246,10 +318,16 @@ impl Element for PaginationElement {
                 }
                 if found != self.hover_index {
                     self.hover_index = found;
-                    if found.is_some() { ctx.set_cursor(CursorIcon::Pointer); }
+                    if found.is_some() {
+                        ctx.set_cursor(CursorIcon::Pointer);
+                    }
                     ctx.request_paint();
                 }
-                if found.is_some() { EventResult::Handled } else { EventResult::Ignored }
+                if found.is_some() {
+                    EventResult::Handled
+                } else {
+                    EventResult::Ignored
+                }
             }
             Event::MouseDown { button, position } if *button == MouseButton::Left => {
                 for (i, btn) in btns.iter().enumerate() {
@@ -276,14 +354,30 @@ impl Element for PaginationElement {
         }
     }
 
-    fn children(&self) -> &[ElementId] { &[] }
-    fn bounds(&self) -> Rect { self.bounds }
-    fn set_position(&mut self, pos: Point) { self.bounds.origin = pos; }
-    fn mark_dirty(&mut self, flags: DirtyFlags) { self.dirty_flags |= flags; }
-    fn clear_dirty(&mut self, flags: DirtyFlags) { self.dirty_flags.remove(flags); }
-    fn is_dirty(&self, flags: DirtyFlags) -> bool { self.dirty_flags.contains(flags) }
-    fn id(&self) -> ElementId { self.id }
-    fn set_id(&mut self, id: ElementId) { self.id = id; }
+    fn children(&self) -> &[ElementId] {
+        &[]
+    }
+    fn bounds(&self) -> Rect {
+        self.bounds
+    }
+    fn set_position(&mut self, pos: Point) {
+        self.bounds.origin = pos;
+    }
+    fn mark_dirty(&mut self, flags: DirtyFlags) {
+        self.dirty_flags |= flags;
+    }
+    fn clear_dirty(&mut self, flags: DirtyFlags) {
+        self.dirty_flags.remove(flags);
+    }
+    fn is_dirty(&self, flags: DirtyFlags) -> bool {
+        self.dirty_flags.contains(flags)
+    }
+    fn id(&self) -> ElementId {
+        self.id
+    }
+    fn set_id(&mut self, id: ElementId) {
+        self.id = id;
+    }
     fn mount(&mut self, tree: &mut ElementTree) {
         self.text_measure = tree.text_measure.clone();
     }
@@ -293,12 +387,20 @@ impl Element for PaginationElement {
         self.mark_dirty(DirtyFlags::RENDER);
     }
 
-    fn get_classes(&self) -> &[String] { &self.classes }
+    fn get_classes(&self) -> &[String] {
+        &self.classes
+    }
 
-    fn element_type_name(&self) -> &str { "Pagination" }
+    fn element_type_name(&self) -> &str {
+        "Pagination"
+    }
 
-    fn reset_mss_styles(&mut self) { self.mss.reset(); }
-    fn mss(&self) -> Option<&crate::mss::MssFields> { Some(&self.mss) }
+    fn reset_mss_styles(&mut self) {
+        self.mss.reset();
+    }
+    fn mss(&self) -> Option<&crate::mss::MssFields> {
+        Some(&self.mss)
+    }
     fn apply_computed_style(&mut self, style: &ComputedStyle) {
         self.mss.apply(style);
         self.mark_dirty(DirtyFlags::RENDER);
@@ -313,7 +415,8 @@ impl Element for PaginationElement {
         selected: Option<&ComputedStyle>,
         _checked: Option<&ComputedStyle>,
     ) {
-        self.mss.apply_transitions(base, hover, active, focus, selected);
+        self.mss
+            .apply_transitions(base, hover, active, focus, selected);
     }
 }
 
@@ -322,7 +425,9 @@ impl StyledElement for PaginationElement {
         self.mark_dirty(DirtyFlags::RENDER);
     }
 
-    fn classes(&self) -> &[String] { &self.classes }
+    fn classes(&self) -> &[String] {
+        &self.classes
+    }
 
     fn set_classes(&mut self, classes: Vec<String>) {
         self.classes = classes;

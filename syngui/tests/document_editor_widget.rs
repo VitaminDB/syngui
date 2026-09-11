@@ -13,7 +13,6 @@ use syngui::widgets::input::document_editor::{
     ShapeKind, SlashAction, TableOp,
 };
 
-
 /// Значение ключа геометрии/свойства блока `idx` из служебного блока.
 fn geom_val(md: &str, idx: usize, key: &str) -> Option<f32> {
     let line = md.lines().find(|l| l.starts_with(&format!("{idx} ")))?;
@@ -100,7 +99,10 @@ fn builds_expected_elements() {
 fn layout_gives_heights_and_paint_does_not_panic() {
     let mut h = harness(SAMPLE);
     let size = h.layout(800.0, 4000.0);
-    assert!(size.height > 100.0, "документ должен иметь высоту: {size:?}");
+    assert!(
+        size.height > 100.0,
+        "документ должен иметь высоту: {size:?}"
+    );
 
     for id in h.find_by_type_name("doc-text-row") {
         let b = h.element_bounds(id);
@@ -111,7 +113,10 @@ fn layout_gives_heights_and_paint_does_not_panic() {
     // Регрессия: tight-layout контейнеров не должен терять высоту
     // (фоны callout'ов и хит-зона дропа рисуются по bounds).
     let root_bounds = h.element_bounds(h.root_id);
-    assert!(root_bounds.size.height > 100.0, "корень сжался: {root_bounds:?}");
+    assert!(
+        root_bounds.size.height > 100.0,
+        "корень сжался: {root_bounds:?}"
+    );
 
     let mut list = DisplayList::new();
     let clip = Rect::new(Point::zero(), Size::new(800.0, 4000.0));
@@ -147,8 +152,14 @@ fn editing_harness(md: &str, click: Point) -> (TestHarness, DocumentEditorHandle
     h.tree.text_measure = Some(Arc::new(Mono));
     h.rebuild();
     h.layout(800.0, 2000.0);
-    h.send_event(&Event::MouseDown { button: MouseButton::Left, position: click });
-    h.send_event(&Event::MouseUp { button: MouseButton::Left, position: click });
+    h.send_event(&Event::MouseDown {
+        button: MouseButton::Left,
+        position: click,
+    });
+    h.send_event(&Event::MouseUp {
+        button: MouseButton::Left,
+        position: click,
+    });
     (h, handle)
 }
 
@@ -240,7 +251,10 @@ fn arrows_navigate_between_blocks() {
 #[test]
 fn ime_commit_inserts() {
     let (mut h, handle) = editing_harness("аб\n", Point::new(X0 + 40.0, Y0 + 8.0));
-    h.send_event(&Event::ImePreedit { text: "ねこ".to_string(), cursor: None });
+    h.send_event(&Event::ImePreedit {
+        text: "ねこ".to_string(),
+        cursor: None,
+    });
     h.send_event(&Event::ImeCommit("猫".to_string()));
     settle(&mut h);
     assert_eq!(handle.serialize(), "аб猫\n");
@@ -265,9 +279,7 @@ fn gutter_click_toggles_todo() {
 fn toggle_chevron_wins_over_drag_handle() {
     let md = "> [!toggle]{open} Секция\n>\n> Внутри.\n";
     let handle = DocumentEditorHandle::new();
-    let mut h = TestHarness::new(Box::new(
-        DocumentEditor::new().markdown(md).handle(&handle),
-    ));
+    let mut h = TestHarness::new(Box::new(DocumentEditor::new().markdown(md).handle(&handle)));
     h.tree.text_measure = Some(Arc::new(Mono));
     h.rebuild();
     h.layout(800.0, 2000.0);
@@ -313,7 +325,11 @@ fn wide_layout_centers_content_column() {
         "контент должен быть ограничен колонкой: {:?}",
         b.size
     );
-    assert!(b.origin.x > 100.0, "колонка должна центрироваться: {:?}", b.origin);
+    assert!(
+        b.origin.x > 100.0,
+        "колонка должна центрироваться: {:?}",
+        b.origin
+    );
 }
 
 // ─── Undo/redo и отступы (S4) ───────────────────────────────────────────────
@@ -356,7 +372,10 @@ fn undo_structure_steps_separate() {
 #[test]
 fn tab_indents_list_item() {
     // Каретка во втором пункте.
-    let (mut h, handle) = editing_harness("- раз\n- два\n", Point::new(X0 + 26.0 + 20.0, Y0 + 23.0 * 1.0 + 8.0));
+    let (mut h, handle) = editing_harness(
+        "- раз\n- два\n",
+        Point::new(X0 + 26.0 + 20.0, Y0 + 23.0 * 1.0 + 8.0),
+    );
     // Уточняем позицию клика: вторая строка ниже первой на line_h (15*1.55 ≈ 23.25) + gap.
     let _ = &handle;
     h.send_event(&Event::KeyDown(Key::Tab));
@@ -389,11 +408,19 @@ fn host_op_nests_a_table_into_the_toggle_above() {
         handle.serialize(),
         "> [!toggle]{open} Полная таблица\n>\n> | A | B |\n> | --- | --- |\n> | 1 | 2 |\n"
     );
-    assert_eq!(handle.outline().len(), 1, "таблица осталась отдельным блоком");
+    assert_eq!(
+        handle.outline().len(),
+        1,
+        "таблица осталась отдельным блоком"
+    );
 
     handle.queue_op(DocOp::Indent { outdent: true });
     pump(&mut h, &handle, md, DocLayout::default());
-    assert_eq!(handle.outline().len(), 2, "Shift+Tab не вернул таблицу наружу");
+    assert_eq!(
+        handle.outline().len(),
+        2,
+        "Shift+Tab не вернул таблицу наружу"
+    );
 }
 
 // ─── Шорткаты, slash-меню, инлайн-стили (S5) ────────────────────────────────
@@ -492,7 +519,11 @@ fn divider_shortcut_inserts_divider() {
     // не переживает сериализацию, поэтому просто печатаем --- в начало.
     type_str(&mut h, "---");
     settle(&mut h);
-    assert!(handle.serialize().starts_with("---\n"), "{}", handle.serialize());
+    assert!(
+        handle.serialize().starts_with("---\n"),
+        "{}",
+        handle.serialize()
+    );
 }
 
 // ─── Перетаскивание блоков за ручку (S6) ────────────────────────────────────
@@ -504,14 +535,24 @@ fn drag_handle_reorders_blocks() {
     h.send_event(&Event::MouseMove(Point::new(X0 + 10.0, Y0 + 8.0)));
     // Перерисовка post-списка вычисляет хит-зону ручки.
     let mut list = DisplayList::new();
-    h.tree.build_display_list(h.root_id, &mut list, Rect::new(Point::zero(), Size::new(800.0, 2000.0)));
+    h.tree.build_display_list(
+        h.root_id,
+        &mut list,
+        Rect::new(Point::zero(), Size::new(800.0, 2000.0)),
+    );
     // Хватаем ручку (она слева от контента, кламп к краю контейнера).
     let grab = Point::new(4.0, Y0 + 8.0);
-    h.send_event(&Event::MouseDown { button: MouseButton::Left, position: grab });
+    h.send_event(&Event::MouseDown {
+        button: MouseButton::Left,
+        position: grab,
+    });
     // Тянем ниже третьего блока (строки ~23px + spacing 10).
     let drop = Point::new(X0 + 10.0, Y0 + 3.0 * 33.0);
     h.send_event(&Event::MouseMove(drop));
-    h.send_event(&Event::MouseUp { button: MouseButton::Left, position: drop });
+    h.send_event(&Event::MouseUp {
+        button: MouseButton::Left,
+        position: drop,
+    });
     settle(&mut h);
     assert_eq!(handle.serialize(), "два\n\nтри\n\nраз\n");
 }
@@ -542,7 +583,10 @@ impl syngui::widgets::input::document_editor::DocLinkProvider for StubLinks {
         ["Проект X", "Проект Y", "План"]
             .iter()
             .filter(|t| t.to_lowercase().contains(&prefix.to_lowercase()))
-            .map(|t| LinkCandidate { target: t.to_string(), label: t.to_string() })
+            .map(|t| LinkCandidate {
+                target: t.to_string(),
+                label: t.to_string(),
+            })
             .collect()
     }
     fn link_exists(&self, target: &str) -> bool {
@@ -564,8 +608,14 @@ fn wiki_autocomplete_inserts_link() {
     h.layout(800.0, 2000.0);
     // NB: хвостовой пробел срезан парсером; кликаем в конец «см.».
     let p = Point::new(X0 + 30.0, Y0 + 8.0);
-    h.send_event(&Event::MouseDown { button: MouseButton::Left, position: p });
-    h.send_event(&Event::MouseUp { button: MouseButton::Left, position: p });
+    h.send_event(&Event::MouseDown {
+        button: MouseButton::Left,
+        position: p,
+    });
+    h.send_event(&Event::MouseUp {
+        button: MouseButton::Left,
+        position: p,
+    });
     type_str(&mut h, " [[план");
     h.send_event(&Event::KeyDown(Key::Enter));
     settle(&mut h);
@@ -585,8 +635,14 @@ fn wiki_escape_leaves_literal() {
     h.rebuild();
     h.layout(800.0, 2000.0);
     let p = Point::new(X0 + 40.0, Y0 + 8.0);
-    h.send_event(&Event::MouseDown { button: MouseButton::Left, position: p });
-    h.send_event(&Event::MouseUp { button: MouseButton::Left, position: p });
+    h.send_event(&Event::MouseDown {
+        button: MouseButton::Left,
+        position: p,
+    });
+    h.send_event(&Event::MouseUp {
+        button: MouseButton::Left,
+        position: p,
+    });
     type_str(&mut h, " [[x");
     h.send_event(&Event::KeyDown(Key::Escape));
     type_str(&mut h, "!");
@@ -594,7 +650,9 @@ fn wiki_escape_leaves_literal() {
     // Литеральный `[[x!` при сериализации экранируется, при парсе он
     // остаётся текстом (не ссылкой) — проверяем содержимое.
     let m = parse_document(&handle.serialize());
-    let BlockKind::Paragraph(t) = &m.blocks[0].kind else { panic!() };
+    let BlockKind::Paragraph(t) = &m.blocks[0].kind else {
+        panic!()
+    };
     assert_eq!(t.text(), "аб [[x!");
 }
 
@@ -611,7 +669,10 @@ fn drop_file_inserts_pending_and_patch_resolves() {
             .markdown("абв\n")
             .handle(&handle)
             .on_drop_file(move |path, token| {
-                dropped_cb.lock().unwrap().push((path.display().to_string(), token));
+                dropped_cb
+                    .lock()
+                    .unwrap()
+                    .push((path.display().to_string(), token));
             }),
     ));
     h.tree.text_measure = Some(Arc::new(Mono));
@@ -632,7 +693,11 @@ fn drop_file_inserts_pending_and_patch_resolves() {
     // Хост «загрузил» файл и патчит url.
     assert!(handle.patch_media(&token, "blob:aa11.mp4"));
     settle(&mut h);
-    assert!(handle.serialize().contains("blob:aa11.mp4"), "{}", handle.serialize());
+    assert!(
+        handle.serialize().contains("blob:aa11.mp4"),
+        "{}",
+        handle.serialize()
+    );
     assert!(!handle.serialize().contains("pending:"));
 }
 
@@ -655,7 +720,11 @@ fn handle_keeps_edits_when_element_is_recreated() {
     again.tree.text_measure = Some(Arc::new(Mono));
     again.rebuild();
     again.layout(800.0, 2000.0);
-    assert_eq!(handle.serialize(), "абвг\n", "правки потерялись при пересборке элемента");
+    assert_eq!(
+        handle.serialize(),
+        "абвг\n",
+        "правки потерялись при пересборке элемента"
+    );
 
     // Другой исходник (перезагрузка страницы) модель всё ещё заменяет.
     let mut reload = TestHarness::new(Box::new(
@@ -673,9 +742,16 @@ fn free_layout_positions_blocks_by_coordinates() {
     let md = "Первый\n\nВторой\n\n~~~doc-layout\n0 40 300 200\n1 400 60 200\n~~~\n"
         .replace("~~~", "```");
     let handle = DocumentEditorHandle::new();
-    let layout = DocLayout { free: true, grid: DocGrid::Dots, ..DocLayout::default() };
+    let layout = DocLayout {
+        free: true,
+        grid: DocGrid::Dots,
+        ..DocLayout::default()
+    };
     let mut h = TestHarness::new(Box::new(
-        DocumentEditor::new().markdown(&md).handle(&handle).layout(layout),
+        DocumentEditor::new()
+            .markdown(&md)
+            .handle(&handle)
+            .layout(layout),
     ));
     h.tree.text_measure = Some(Arc::new(Mono));
     h.rebuild();
@@ -685,16 +761,43 @@ fn free_layout_positions_blocks_by_coordinates() {
     assert_eq!(rows.len(), 2, "должны быть два параграфа");
     let a = h.element_bounds(rows[0]);
     let b = h.element_bounds(rows[1]);
-    assert!((a.origin.x - 40.0).abs() < 1.0, "первый блок не по x=40: {:?}", a.origin);
-    assert!((a.origin.y - 300.0).abs() < 1.0, "первый блок не по y=300: {:?}", a.origin);
-    assert!((b.origin.x - 400.0).abs() < 1.0, "второй блок не по x=400: {:?}", b.origin);
-    assert!((b.origin.y - 60.0).abs() < 1.0, "второй блок не по y=60: {:?}", b.origin);
-    assert!(a.size.width <= 201.0, "ширина блока задаётся раскладкой: {:?}", a.size);
-    assert!(size.height >= 700.0, "холст должен закрывать вьюпорт: {size:?}");
+    assert!(
+        (a.origin.x - 40.0).abs() < 1.0,
+        "первый блок не по x=40: {:?}",
+        a.origin
+    );
+    assert!(
+        (a.origin.y - 300.0).abs() < 1.0,
+        "первый блок не по y=300: {:?}",
+        a.origin
+    );
+    assert!(
+        (b.origin.x - 400.0).abs() < 1.0,
+        "второй блок не по x=400: {:?}",
+        b.origin
+    );
+    assert!(
+        (b.origin.y - 60.0).abs() < 1.0,
+        "второй блок не по y=60: {:?}",
+        b.origin
+    );
+    assert!(
+        a.size.width <= 201.0,
+        "ширина блока задаётся раскладкой: {:?}",
+        a.size
+    );
+    assert!(
+        size.height >= 700.0,
+        "холст должен закрывать вьюпорт: {size:?}"
+    );
 
     // Геометрия переживает round-trip через markdown.
     let back = handle.serialize();
-    assert_eq!(geom_val(&back, 0, "x"), Some(40.0), "геометрия не сохранилась:\n{back}");
+    assert_eq!(
+        geom_val(&back, 0, "x"),
+        Some(40.0),
+        "геометрия не сохранилась:\n{back}"
+    );
     assert_eq!(geom_val(&back, 0, "y"), Some(300.0));
     assert_eq!(geom_val(&back, 0, "w"), Some(200.0));
 
@@ -712,7 +815,9 @@ fn free_layout_positions_blocks_by_coordinates() {
 fn switching_to_free_layout_pins_blocks_where_they_were() {
     let handle = DocumentEditorHandle::new();
     let mut h = TestHarness::new(Box::new(
-        DocumentEditor::new().markdown("Раз\n\nДва\n").handle(&handle),
+        DocumentEditor::new()
+            .markdown("Раз\n\nДва\n")
+            .handle(&handle),
     ));
     h.tree.text_measure = Some(Arc::new(Mono));
     h.rebuild();
@@ -723,7 +828,10 @@ fn switching_to_free_layout_pins_blocks_where_they_were() {
         DocumentEditor::new()
             .markdown("Раз\n\nДва\n")
             .handle(&handle)
-            .layout(DocLayout { free: true, ..DocLayout::default() }),
+            .layout(DocLayout {
+                free: true,
+                ..DocLayout::default()
+            }),
     ));
     h.rebuild();
     h.layout(800.0, 600.0);
@@ -748,9 +856,17 @@ fn switching_to_free_layout_pins_blocks_where_they_were() {
 #[test]
 fn dragging_by_the_handle_pins_the_block() {
     let handle = DocumentEditorHandle::new();
-    let layout = DocLayout { free: true, snap: true, snap_step: 5.0, ..DocLayout::default() };
+    let layout = DocLayout {
+        free: true,
+        snap: true,
+        snap_step: 5.0,
+        ..DocLayout::default()
+    };
     let mut h = TestHarness::new(Box::new(
-        DocumentEditor::new().markdown("Раз\n\nДва\n").handle(&handle).layout(layout),
+        DocumentEditor::new()
+            .markdown("Раз\n\nДва\n")
+            .handle(&handle)
+            .layout(layout),
     ));
     h.tree.text_measure = Some(Arc::new(Mono));
     h.rebuild();
@@ -759,8 +875,14 @@ fn dragging_by_the_handle_pins_the_block() {
     // Фокус и наведение — ручка рисуется только у блока под курсором.
     let row = h.element_bounds(h.find_by_type_name("doc-text-row")[1]);
     let inside = Point::new(row.origin.x + 5.0, row.origin.y + 5.0);
-    h.send_event(&Event::MouseDown { button: MouseButton::Left, position: inside });
-    h.send_event(&Event::MouseUp { button: MouseButton::Left, position: inside });
+    h.send_event(&Event::MouseDown {
+        button: MouseButton::Left,
+        position: inside,
+    });
+    h.send_event(&Event::MouseUp {
+        button: MouseButton::Left,
+        position: inside,
+    });
     h.send_event(&Event::MouseMove(inside));
     let mut list = DisplayList::new();
     h.tree.build_display_list(
@@ -770,9 +892,15 @@ fn dragging_by_the_handle_pins_the_block() {
     );
 
     let grip = Point::new(row.origin.x - 14.0, row.origin.y + 8.0);
-    h.send_event(&Event::MouseDown { button: MouseButton::Left, position: grip });
+    h.send_event(&Event::MouseDown {
+        button: MouseButton::Left,
+        position: grip,
+    });
     h.send_event(&Event::MouseMove(Point::new(grip.x + 103.0, grip.y + 47.0)));
-    h.send_event(&Event::MouseUp { button: MouseButton::Left, position: grip });
+    h.send_event(&Event::MouseUp {
+        button: MouseButton::Left,
+        position: grip,
+    });
     settle(&mut h);
 
     let md = handle.serialize();
@@ -780,7 +908,10 @@ fn dragging_by_the_handle_pins_the_block() {
     let x = geom_val(&md, 1, "x").expect("координаты второго блока");
     let y = geom_val(&md, 1, "y").expect("координаты второго блока");
     for v in [x, y] {
-        assert!((v % 5.0).abs() < 0.01, "координата не по шагу привязки: {v} в\n{md}");
+        assert!(
+            (v % 5.0).abs() < 0.01,
+            "координата не по шагу привязки: {v} в\n{md}"
+        );
     }
 }
 
@@ -793,9 +924,17 @@ fn new_free_block_goes_to_the_end_of_the_column() {
     let md = "Раз\n\nДва\n\nТри\n\n~~~doc-layout\n0 {x=40 y=40 w=300}\n1 {x=40 y=120 w=300}\n2 {x=40 y=200 w=300}\n~~~\n"
         .replace("~~~", "```");
     let handle = DocumentEditorHandle::new();
-    let layout = DocLayout { free: true, snap: true, snap_step: 5.0, ..DocLayout::default() };
+    let layout = DocLayout {
+        free: true,
+        snap: true,
+        snap_step: 5.0,
+        ..DocLayout::default()
+    };
     let mut h = TestHarness::new(Box::new(
-        DocumentEditor::new().markdown(&md).handle(&handle).layout(layout),
+        DocumentEditor::new()
+            .markdown(&md)
+            .handle(&handle)
+            .layout(layout),
     ));
     h.tree.text_measure = Some(Arc::new(Mono));
     h.rebuild();
@@ -803,8 +942,14 @@ fn new_free_block_goes_to_the_end_of_the_column() {
 
     // Каретка в конец первого блока, Enter — новый блок сразу за ним.
     let first = Point::new(40.0 + 25.0, 40.0 + 8.0);
-    h.send_event(&Event::MouseDown { button: MouseButton::Left, position: first });
-    h.send_event(&Event::MouseUp { button: MouseButton::Left, position: first });
+    h.send_event(&Event::MouseDown {
+        button: MouseButton::Left,
+        position: first,
+    });
+    h.send_event(&Event::MouseUp {
+        button: MouseButton::Left,
+        position: first,
+    });
     h.send_event(&Event::KeyDown(Key::Enter));
     type_str(&mut h, "новый");
     settle(&mut h);
@@ -825,9 +970,17 @@ fn new_free_block_goes_to_the_end_of_the_column() {
 fn pinned_block_is_registered_where_it_is_drawn() {
     let md = "Первый\n\nВторой\n\n~~~doc-layout\n1 520 300 200\n~~~\n".replace("~~~", "```");
     let handle = DocumentEditorHandle::new();
-    let layout = DocLayout { free: true, snap: true, snap_step: 5.0, ..DocLayout::default() };
+    let layout = DocLayout {
+        free: true,
+        snap: true,
+        snap_step: 5.0,
+        ..DocLayout::default()
+    };
     let mut h = TestHarness::new(Box::new(
-        DocumentEditor::new().markdown(&md).handle(&handle).layout(layout),
+        DocumentEditor::new()
+            .markdown(&md)
+            .handle(&handle)
+            .layout(layout),
     ));
     h.tree.text_measure = Some(Arc::new(Mono));
     h.rebuild();
@@ -842,8 +995,14 @@ fn pinned_block_is_registered_where_it_is_drawn() {
         .expect("закреплённый блок нарисован по своим координатам");
 
     let inside = Point::new(pinned.origin.x + 5.0, pinned.origin.y + 5.0);
-    h.send_event(&Event::MouseDown { button: MouseButton::Left, position: inside });
-    h.send_event(&Event::MouseUp { button: MouseButton::Left, position: inside });
+    h.send_event(&Event::MouseDown {
+        button: MouseButton::Left,
+        position: inside,
+    });
+    h.send_event(&Event::MouseUp {
+        button: MouseButton::Left,
+        position: inside,
+    });
     h.send_event(&Event::MouseMove(inside));
     let mut list = DisplayList::new();
     h.tree.build_display_list(
@@ -854,16 +1013,28 @@ fn pinned_block_is_registered_where_it_is_drawn() {
 
     // Ручка ⋮⋮ этого блока — слева от него; тянем вниз на 100 px.
     let grip = Point::new(pinned.origin.x - 14.0, pinned.origin.y + 8.0);
-    h.send_event(&Event::MouseDown { button: MouseButton::Left, position: grip });
+    h.send_event(&Event::MouseDown {
+        button: MouseButton::Left,
+        position: grip,
+    });
     h.send_event(&Event::MouseMove(Point::new(grip.x, grip.y + 100.0)));
-    h.send_event(&Event::MouseUp { button: MouseButton::Left, position: grip });
+    h.send_event(&Event::MouseUp {
+        button: MouseButton::Left,
+        position: grip,
+    });
     settle(&mut h);
 
     let md = handle.serialize();
     let x = geom_val(&md, 1, "x").expect("геометрия закреплённого блока");
     let y = geom_val(&md, 1, "y").expect("геометрия закреплённого блока");
-    assert!((y - 400.0).abs() < 6.0, "блок не поехал за своей ручкой: {y}\n{md}");
-    assert!((x - 520.0).abs() < 6.0, "блок уехал по горизонтали: {x}\n{md}");
+    assert!(
+        (y - 400.0).abs() < 6.0,
+        "блок не поехал за своей ручкой: {y}\n{md}"
+    );
+    assert!(
+        (x - 520.0).abs() < 6.0,
+        "блок уехал по горизонтали: {x}\n{md}"
+    );
 }
 
 /// Код-блок редактируется на месте: клик ставит каретку внутрь кода,
@@ -877,8 +1048,14 @@ fn code_block_is_editable_in_place() {
 
     // Клик в конец первой строки кода.
     let at = Point::new(b.origin.x + 400.0, b.origin.y + 14.0);
-    h.send_event(&Event::MouseDown { button: MouseButton::Left, position: at });
-    h.send_event(&Event::MouseUp { button: MouseButton::Left, position: at });
+    h.send_event(&Event::MouseDown {
+        button: MouseButton::Left,
+        position: at,
+    });
+    h.send_event(&Event::MouseUp {
+        button: MouseButton::Left,
+        position: at,
+    });
     type_str(&mut h, "!");
     settle(&mut h);
     assert!(
@@ -892,7 +1069,10 @@ fn code_block_is_editable_in_place() {
     type_str(&mut h, "x");
     settle(&mut h);
     let md = handle.serialize();
-    assert!(md.contains("fn a() {}!\nx"), "Enter не дал новую строку кода:\n{md}");
+    assert!(
+        md.contains("fn a() {}!\nx"),
+        "Enter не дал новую строку кода:\n{md}"
+    );
     assert_eq!(md.matches("```").count(), 2, "блок разорвался:\n{md}");
 }
 
@@ -902,11 +1082,21 @@ fn code_block_is_editable_in_place() {
 fn empty_callout_has_an_editable_row() {
     let (mut h, handle) = editing_harness("> [!note]\n>\n> Тело.\n", Point::new(X0, Y0));
     let rows = h.find_by_type_name("doc-text-row");
-    assert!(rows.len() >= 2, "у выноски должна быть строка заголовка: {}", rows.len());
+    assert!(
+        rows.len() >= 2,
+        "у выноски должна быть строка заголовка: {}",
+        rows.len()
+    );
     let b = h.element_bounds(rows[0]);
     let at = Point::new(b.origin.x + 2.0, b.origin.y + 4.0);
-    h.send_event(&Event::MouseDown { button: MouseButton::Left, position: at });
-    h.send_event(&Event::MouseUp { button: MouseButton::Left, position: at });
+    h.send_event(&Event::MouseDown {
+        button: MouseButton::Left,
+        position: at,
+    });
+    h.send_event(&Event::MouseUp {
+        button: MouseButton::Left,
+        position: at,
+    });
     type_str(&mut h, "Тема");
     settle(&mut h);
     assert!(
@@ -927,17 +1117,23 @@ fn context_insert_pins_the_real_block() {
         (SlashAction::Todo, "- [ ]"),
     ] {
         let handle = DocumentEditorHandle::new();
-        let layout = DocLayout { free: true, snap: true, snap_step: 5.0, ..DocLayout::default() };
-        let widget = |epoch: u64, handle: &DocumentEditorHandle| -> Box<dyn syngui::widget::Widget> {
-            Box::new(
-                DocumentEditor::new()
-                    .markdown("Текст\n")
-                    .handle(handle)
-                    .layout(layout)
-                    .model_epoch(epoch)
-                    .on_context_menu(|_| {}),
-            )
+        let layout = DocLayout {
+            free: true,
+            snap: true,
+            snap_step: 5.0,
+            ..DocLayout::default()
         };
+        let widget =
+            |epoch: u64, handle: &DocumentEditorHandle| -> Box<dyn syngui::widget::Widget> {
+                Box::new(
+                    DocumentEditor::new()
+                        .markdown("Текст\n")
+                        .handle(handle)
+                        .layout(layout)
+                        .model_epoch(epoch)
+                        .on_context_menu(|_| {}),
+                )
+            };
         let mut h = TestHarness::new(widget(0, &handle));
         h.tree.text_measure = Some(Arc::new(Mono));
         h.rebuild();
@@ -945,7 +1141,10 @@ fn context_insert_pins_the_real_block() {
 
         // Правый клик в пустое место → операция вставки из меню хоста.
         let at = Point::new(300.0, 400.0);
-        h.send_event(&Event::MouseDown { button: MouseButton::Right, position: at });
+        h.send_event(&Event::MouseDown {
+            button: MouseButton::Right,
+            position: at,
+        });
         handle.queue_op(DocOp::InsertBlock(action.clone()));
         h.update_widget(widget(1, &handle));
         settle(&mut h);
@@ -958,7 +1157,11 @@ fn context_insert_pins_the_real_block() {
             .skip(1)
             .take_while(|l| !l.starts_with("```"))
             .collect();
-        assert_eq!(geom.len(), 1, "{action:?}: закреплён не ровно один блок:\n{md}");
+        assert_eq!(
+            geom.len(),
+            1,
+            "{action:?}: закреплён не ровно один блок:\n{md}"
+        );
         let idx: usize = geom[0].split_whitespace().next().unwrap().parse().unwrap();
         let x = geom_val(&md, idx, "x").unwrap();
         let y = geom_val(&md, idx, "y").unwrap();
@@ -974,22 +1177,35 @@ fn context_insert_pins_the_real_block() {
 fn outline_and_block_props() {
     let handle = DocumentEditorHandle::new();
     let mut h = TestHarness::new(Box::new(
-        DocumentEditor::new().markdown("Текст\n\n---\n\n| a | b |\n| --- | --- |\n| 1 | 2 |\n").handle(&handle),
+        DocumentEditor::new()
+            .markdown("Текст\n\n---\n\n| a | b |\n| --- | --- |\n| 1 | 2 |\n")
+            .handle(&handle),
     ));
     h.tree.text_measure = Some(Arc::new(Mono));
     h.rebuild();
     h.layout(800.0, 600.0);
 
     let outline = handle.outline();
-    assert_eq!(outline.len(), 3, "в дереве должны быть все блоки: {outline:?}");
-    assert_eq!(outline[1].kind, "divider", "невидимый блок обязан быть в дереве");
+    assert_eq!(
+        outline.len(),
+        3,
+        "в дереве должны быть все блоки: {outline:?}"
+    );
+    assert_eq!(
+        outline[1].kind, "divider",
+        "невидимый блок обязан быть в дереве"
+    );
     assert_eq!(outline[2].kind, "table");
 
     // Свойство блока применяется к отрисовке: кегль заголовка из атрибута.
     let id = outline[0].id;
     let props = handle.block_props(id).expect("свойства блока");
     assert_eq!(props.kind, "paragraph");
-    handle.queue_op(DocOp::SetAttr { block: id, key: "size".into(), value: Some("40".into()) });
+    handle.queue_op(DocOp::SetAttr {
+        block: id,
+        key: "size".into(),
+        value: Some("40".into()),
+    });
     h.update_widget(Box::new(
         DocumentEditor::new()
             .markdown("Текст\n\n---\n\n| a | b |\n| --- | --- |\n| 1 | 2 |\n")
@@ -998,7 +1214,11 @@ fn outline_and_block_props() {
     ));
     settle(&mut h);
     let row = h.element_bounds(h.find_by_type_name("doc-text-row")[0]);
-    assert!(row.size.height > 40.0, "кегль из свойств не применился: {:?}", row.size);
+    assert!(
+        row.size.height > 40.0,
+        "кегль из свойств не применился: {:?}",
+        row.size
+    );
     assert!(
         handle.serialize().contains("size=40"),
         "свойство не сохранилось:\n{}",
@@ -1007,7 +1227,10 @@ fn outline_and_block_props() {
 
     // Колонка таблицы добавляется операцией панели свойств.
     let table = outline[2].id;
-    handle.queue_op(DocOp::Table { block: table, op: TableOp::AddColumn });
+    handle.queue_op(DocOp::Table {
+        block: table,
+        op: TableOp::AddColumn,
+    });
     h.update_widget(Box::new(
         DocumentEditor::new()
             .markdown("Текст\n\n---\n\n| a | b |\n| --- | --- |\n| 1 | 2 |\n")
@@ -1040,7 +1263,11 @@ fn pump(h: &mut TestHarness, handle: &DocumentEditorHandle, md: &str, layout: Do
 #[test]
 fn inserting_a_shape_places_it_at_the_click() {
     let handle = DocumentEditorHandle::new();
-    let layout = DocLayout { free: true, snap: false, ..DocLayout::default() };
+    let layout = DocLayout {
+        free: true,
+        snap: false,
+        ..DocLayout::default()
+    };
     let mut h = TestHarness::new(Box::new(
         DocumentEditor::new()
             .markdown("Текст\n")
@@ -1062,7 +1289,10 @@ fn inserting_a_shape_places_it_at_the_click() {
     pump(&mut h, &handle, "Текст\n", layout);
 
     let md = handle.serialize();
-    assert!(md.contains("![[shape:rect]]"), "фигура не вставилась:\n{md}");
+    assert!(
+        md.contains("![[shape:rect]]"),
+        "фигура не вставилась:\n{md}"
+    );
     // Индекс фигуры среди верхнеуровневых блоков — по служебному блоку.
     let idx: usize = md
         .lines()
@@ -1070,10 +1300,24 @@ fn inserting_a_shape_places_it_at_the_click() {
         .and_then(|l| l.split_whitespace().next())
         .and_then(|i| i.parse().ok())
         .unwrap_or_else(|| panic!("у фигуры нет геометрии:\n{md}"));
-    assert!(geom_val(&md, idx, "x").is_some(), "фигура не встала в точку клика:\n{md}");
-    assert_eq!(geom_val(&md, idx, "w"), Some(220.0), "ширина по умолчанию:\n{md}");
-    assert!(h.find_by_type_name("doc-shape").len() == 1, "фигура не отрисована");
-    assert_eq!(handle.selected().get_untracked().is_some(), true, "фигура не стала текущей");
+    assert!(
+        geom_val(&md, idx, "x").is_some(),
+        "фигура не встала в точку клика:\n{md}"
+    );
+    assert_eq!(
+        geom_val(&md, idx, "w"),
+        Some(220.0),
+        "ширина по умолчанию:\n{md}"
+    );
+    assert!(
+        h.find_by_type_name("doc-shape").len() == 1,
+        "фигура не отрисована"
+    );
+    assert_eq!(
+        handle.selected().get_untracked().is_some(),
+        true,
+        "фигура не стала текущей"
+    );
 }
 
 /// Свойства фигуры правятся панелью хоста через `SetAttr` и переживают
@@ -1082,22 +1326,49 @@ fn inserting_a_shape_places_it_at_the_click() {
 fn shape_properties_go_through_attrs() {
     let handle = DocumentEditorHandle::new();
     let mut h = TestHarness::new(Box::new(
-        DocumentEditor::new().markdown("![[shape:ellipse]]\n").handle(&handle),
+        DocumentEditor::new()
+            .markdown("![[shape:ellipse]]\n")
+            .handle(&handle),
     ));
     h.tree.text_measure = Some(Arc::new(Mono));
     h.rebuild();
     h.layout(800.0, 600.0);
 
     let block = handle.outline()[0].id;
-    handle.queue_op(DocOp::SetAttr { block, key: "fill".into(), value: Some("#4f8cff".into()) });
-    handle.queue_op(DocOp::SetAttr { block, key: "sw".into(), value: Some("4".into()) });
-    pump(&mut h, &handle, "![[shape:ellipse]]\n", DocLayout::default());
+    handle.queue_op(DocOp::SetAttr {
+        block,
+        key: "fill".into(),
+        value: Some("#4f8cff".into()),
+    });
+    handle.queue_op(DocOp::SetAttr {
+        block,
+        key: "sw".into(),
+        value: Some("4".into()),
+    });
+    pump(
+        &mut h,
+        &handle,
+        "![[shape:ellipse]]\n",
+        DocLayout::default(),
+    );
     let md = handle.serialize();
-    assert!(md.contains("fill=#4f8cff") && md.contains("sw=4"), "свойства не записались:\n{md}");
+    assert!(
+        md.contains("fill=#4f8cff") && md.contains("sw=4"),
+        "свойства не записались:\n{md}"
+    );
 
     // Пустое значение возвращает свойство к теме.
-    handle.queue_op(DocOp::SetAttr { block, key: "fill".into(), value: None });
-    pump(&mut h, &handle, "![[shape:ellipse]]\n", DocLayout::default());
+    handle.queue_op(DocOp::SetAttr {
+        block,
+        key: "fill".into(),
+        value: None,
+    });
+    pump(
+        &mut h,
+        &handle,
+        "![[shape:ellipse]]\n",
+        DocLayout::default(),
+    );
     assert!(!handle.serialize().contains("fill="), "свойство не снялось");
 }
 
@@ -1117,12 +1388,24 @@ fn turning_a_shape_keeps_its_look() {
     let block = handle.outline()[0].id;
     handle.queue_op(DocOp::Select(block));
     handle.queue_op(DocOp::TurnInto(SlashAction::Shape(ShapeKind::Diamond)));
-    pump(&mut h, &handle, "![[shape:rect]]{fill=#243149 sw=3}\n", DocLayout::default());
+    pump(
+        &mut h,
+        &handle,
+        "![[shape:rect]]{fill=#243149 sw=3}\n",
+        DocLayout::default(),
+    );
 
     let md = handle.serialize();
     assert!(md.contains("![[shape:diamond]]"), "вид не сменился:\n{md}");
-    assert!(md.contains("fill=#243149") && md.contains("sw=3"), "оформление потерялось:\n{md}");
-    assert_eq!(handle.outline().len(), 1, "вместо смены вида добавился блок");
+    assert!(
+        md.contains("fill=#243149") && md.contains("sw=3"),
+        "оформление потерялось:\n{md}"
+    );
+    assert_eq!(
+        handle.outline().len(),
+        1,
+        "вместо смены вида добавился блок"
+    );
 }
 
 /// Конец линии тянется мышью: концы пишутся в атрибуты, а рамка блока
@@ -1132,9 +1415,16 @@ fn dragging_a_line_endpoint_moves_it() {
     let md = "![[shape:arrow]]{x1=0 y1=0 x2=200 y2=0}\n\n~~~doc-layout\n0 {h=24 w=224 x=100 y=100}\n~~~\n"
         .replace("~~~", "```");
     let handle = DocumentEditorHandle::new();
-    let layout = DocLayout { free: true, snap: false, ..DocLayout::default() };
+    let layout = DocLayout {
+        free: true,
+        snap: false,
+        ..DocLayout::default()
+    };
     let mut h = TestHarness::new(Box::new(
-        DocumentEditor::new().markdown(&md).handle(&handle).layout(layout),
+        DocumentEditor::new()
+            .markdown(&md)
+            .handle(&handle)
+            .layout(layout),
     ));
     h.tree.text_measure = Some(Arc::new(Mono));
     h.rebuild();
@@ -1152,17 +1442,35 @@ fn dragging_a_line_endpoint_moves_it() {
     );
 
     // Правый конец отрезка: он на 12 px (поле) от правого края рамки.
-    let end = Point::new(shape.origin.x + shape.size.width - 12.0, shape.origin.y + 12.0);
-    h.send_event(&Event::MouseDown { button: MouseButton::Left, position: end });
+    let end = Point::new(
+        shape.origin.x + shape.size.width - 12.0,
+        shape.origin.y + 12.0,
+    );
+    h.send_event(&Event::MouseDown {
+        button: MouseButton::Left,
+        position: end,
+    });
     h.send_event(&Event::MouseMove(Point::new(end.x + 60.0, end.y + 80.0)));
-    h.send_event(&Event::MouseUp { button: MouseButton::Left, position: end });
+    h.send_event(&Event::MouseUp {
+        button: MouseButton::Left,
+        position: end,
+    });
     settle(&mut h);
 
     let out = handle.serialize();
     let val = |k: &str| attr_val(&out, k);
-    assert!(val("x2").unwrap_or(0.0) > 240.0, "конец не уехал вправо:\n{out}");
-    assert!(val("y2").unwrap_or(0.0) > 60.0, "конец не уехал вниз:\n{out}");
-    assert!(geom_val(&out, 0, "h").unwrap_or(0.0) > 80.0, "рамка не подтянулась:\n{out}");
+    assert!(
+        val("x2").unwrap_or(0.0) > 240.0,
+        "конец не уехал вправо:\n{out}"
+    );
+    assert!(
+        val("y2").unwrap_or(0.0) > 60.0,
+        "конец не уехал вниз:\n{out}"
+    );
+    assert!(
+        geom_val(&out, 0, "h").unwrap_or(0.0) > 80.0,
+        "рамка не подтянулась:\n{out}"
+    );
 }
 
 /// Клик по фигуре делает её текущим блоком — каретки внутри неё нет.
@@ -1171,9 +1479,15 @@ fn clicking_a_shape_selects_it() {
     let md = "Текст\n\n![[shape:rect]]\n\n~~~doc-layout\n1 {h=120 w=200 x=300 y=300}\n~~~\n"
         .replace("~~~", "```");
     let handle = DocumentEditorHandle::new();
-    let layout = DocLayout { free: true, ..DocLayout::default() };
+    let layout = DocLayout {
+        free: true,
+        ..DocLayout::default()
+    };
     let mut h = TestHarness::new(Box::new(
-        DocumentEditor::new().markdown(&md).handle(&handle).layout(layout),
+        DocumentEditor::new()
+            .markdown(&md)
+            .handle(&handle)
+            .layout(layout),
     ));
     h.tree.text_measure = Some(Arc::new(Mono));
     h.rebuild();
@@ -1181,10 +1495,19 @@ fn clicking_a_shape_selects_it() {
 
     let shape = h.element_bounds(h.find_by_type_name("doc-shape")[0]);
     let inside = Point::new(shape.origin.x + 40.0, shape.origin.y + 40.0);
-    h.send_event(&Event::MouseDown { button: MouseButton::Left, position: inside });
-    h.send_event(&Event::MouseUp { button: MouseButton::Left, position: inside });
+    h.send_event(&Event::MouseDown {
+        button: MouseButton::Left,
+        position: inside,
+    });
+    h.send_event(&Event::MouseUp {
+        button: MouseButton::Left,
+        position: inside,
+    });
 
-    let selected = handle.selected().get_untracked().expect("фигура должна стать текущей");
+    let selected = handle
+        .selected()
+        .get_untracked()
+        .expect("фигура должна стать текущей");
     let props = handle.block_props(selected).expect("свойства фигуры");
     assert_eq!(props.kind, "shape");
     assert_eq!(props.shape, Some(ShapeKind::Rect));
@@ -1197,9 +1520,16 @@ fn dragging_a_curve_control_bends_it() {
     let md = "![[shape:curve]]{x1=0 y1=0 x2=200 y2=0}\n\n~~~doc-layout\n0 {h=24 w=224 x=100 y=100}\n~~~\n"
         .replace("~~~", "```");
     let handle = DocumentEditorHandle::new();
-    let layout = DocLayout { free: true, snap: false, ..DocLayout::default() };
+    let layout = DocLayout {
+        free: true,
+        snap: false,
+        ..DocLayout::default()
+    };
     let mut h = TestHarness::new(Box::new(
-        DocumentEditor::new().markdown(&md).handle(&handle).layout(layout),
+        DocumentEditor::new()
+            .markdown(&md)
+            .handle(&handle)
+            .layout(layout),
     ));
     h.tree.text_measure = Some(Arc::new(Mono));
     h.rebuild();
@@ -1221,19 +1551,31 @@ fn dragging_a_curve_control_bends_it() {
     // Первая направляющая по умолчанию — правее первого конца на 45% длины
     // (у горизонтальной кривой она лежит на той же высоте).
     let ctrl = Point::new(shape.origin.x + 12.0 + 90.0, shape.origin.y + 12.0);
-    h.send_event(&Event::MouseDown { button: MouseButton::Left, position: ctrl });
+    h.send_event(&Event::MouseDown {
+        button: MouseButton::Left,
+        position: ctrl,
+    });
     h.send_event(&Event::MouseMove(Point::new(ctrl.x, ctrl.y + 120.0)));
-    h.send_event(&Event::MouseUp { button: MouseButton::Left, position: ctrl });
+    h.send_event(&Event::MouseUp {
+        button: MouseButton::Left,
+        position: ctrl,
+    });
     settle(&mut h);
 
     let out = handle.serialize();
     // Ключ ищется целиком: `x1=` — подстрока `cx1=`, и наивный split_once
     // возвращал бы значение направляющей вместо конца.
     let val = |k: &str| attr_val(&out, k);
-    assert!(val("cy1").unwrap_or(0.0) > 80.0, "направляющая не уехала вниз:\n{out}");
+    assert!(
+        val("cy1").unwrap_or(0.0) > 80.0,
+        "направляющая не уехала вниз:\n{out}"
+    );
     assert_eq!(val("x1"), Some(0.0), "конец кривой сдвинулся:\n{out}");
     assert_eq!(val("x2"), Some(200.0), "второй конец сдвинулся:\n{out}");
-    assert!(geom_val(&out, 0, "h").unwrap_or(0.0) > 100.0, "рамка не выросла:\n{out}");
+    assert!(
+        geom_val(&out, 0, "h").unwrap_or(0.0) > 100.0,
+        "рамка не выросла:\n{out}"
+    );
 }
 
 /// Холст свободной раскладки шире видимой области, когда блок ушёл за её
@@ -1247,7 +1589,10 @@ fn free_layout_canvas_grows_past_the_viewport_width() {
         DocumentEditor::new()
             .markdown(&md)
             .handle(&handle)
-            .layout(DocLayout { free: true, ..DocLayout::default() }),
+            .layout(DocLayout {
+                free: true,
+                ..DocLayout::default()
+            }),
     ));
     h.tree.text_measure = Some(Arc::new(Mono));
     h.rebuild();
@@ -1263,16 +1608,31 @@ fn free_layout_canvas_grows_past_the_viewport_width() {
             containing_block: viewport,
         },
     );
-    assert!(size.width >= 1500.0, "холст должен вместить блок за правым краем: {size:?}");
+    assert!(
+        size.width >= 1500.0,
+        "холст должен вместить блок за правым краем: {size:?}"
+    );
     assert!(size.height >= 700.0, "холст не ниже вьюпорта: {size:?}");
 
     let rows = h.find_by_type_name("doc-text-row");
     assert_eq!(rows.len(), 2);
     let flow = h.element_bounds(rows[0]);
     let far = h.element_bounds(rows[1]);
-    assert!((far.origin.x - 1200.0).abs() < 1.0, "закреплённый блок не по x=1200: {:?}", far.origin);
-    assert!(flow.size.width > 700.0, "колонка потока ужалась при бесконечной ширине: {:?}", flow.size);
-    assert!(flow.origin.x > 40.0, "колонка потока должна стоять по центру области: {:?}", flow.origin);
+    assert!(
+        (far.origin.x - 1200.0).abs() < 1.0,
+        "закреплённый блок не по x=1200: {:?}",
+        far.origin
+    );
+    assert!(
+        flow.size.width > 700.0,
+        "колонка потока ужалась при бесконечной ширине: {:?}",
+        flow.size
+    );
+    assert!(
+        flow.origin.x > 40.0,
+        "колонка потока должна стоять по центру области: {:?}",
+        flow.origin
+    );
 }
 
 /// Виджеты внутри живой врезки получают мышь: клик по кнопке доски
@@ -1311,7 +1671,10 @@ fn embed_children_receive_clicks() {
             .markdown("Текст\n\n![[kanban:abc]]\n")
             .handle(&handle)
             .embeds(Arc::new(ClickyFactory(clicks.clone())))
-            .layout(DocLayout { free: true, ..DocLayout::default() }),
+            .layout(DocLayout {
+                free: true,
+                ..DocLayout::default()
+            }),
     ));
     h.tree.text_measure = Some(Arc::new(Mono));
     h.rebuild();
@@ -1320,11 +1683,27 @@ fn embed_children_receive_clicks() {
     let gestures = h.find_by_type_name("GestureDetector");
     assert_eq!(gestures.len(), 1, "врезка не построилась");
     let b = h.element_bounds(gestures[0]);
-    assert!(b.size.width > 0.0 && b.size.height > 0.0, "у виджета врезки нет размера: {b:?}");
-    let inside = Point::new(b.origin.x + b.size.width / 2.0, b.origin.y + b.size.height / 2.0);
-    h.send_event(&Event::MouseDown { button: MouseButton::Left, position: inside });
-    h.send_event(&Event::MouseUp { button: MouseButton::Left, position: inside });
-    assert_eq!(clicks.load(Ordering::SeqCst), 1, "клик не дошёл до виджета врезки");
+    assert!(
+        b.size.width > 0.0 && b.size.height > 0.0,
+        "у виджета врезки нет размера: {b:?}"
+    );
+    let inside = Point::new(
+        b.origin.x + b.size.width / 2.0,
+        b.origin.y + b.size.height / 2.0,
+    );
+    h.send_event(&Event::MouseDown {
+        button: MouseButton::Left,
+        position: inside,
+    });
+    h.send_event(&Event::MouseUp {
+        button: MouseButton::Left,
+        position: inside,
+    });
+    assert_eq!(
+        clicks.load(Ordering::SeqCst),
+        1,
+        "клик не дошёл до виджета врезки"
+    );
 }
 
 /// Клик внутри врезки-объекта (доска) не оставляет каретку в блоке над
@@ -1353,7 +1732,10 @@ fn click_inside_embed_drops_caret_from_previous_block() {
             .markdown("# Заголовок\n\n![[kanban:abc]]{h=200}\n")
             .handle(&handle)
             .embeds(Arc::new(InertFactory))
-            .layout(DocLayout { free: true, ..DocLayout::default() }),
+            .layout(DocLayout {
+                free: true,
+                ..DocLayout::default()
+            }),
     ));
     h.tree.text_measure = Some(Arc::new(Mono));
     h.rebuild();
@@ -1362,37 +1744,84 @@ fn click_inside_embed_drops_caret_from_previous_block() {
     let texts = h.find_by_type_name("Text");
     assert_eq!(texts.len(), 1, "врезка не построилась");
     let b = h.element_bounds(texts[0]);
-    let inside = Point::new(b.origin.x + b.size.width / 2.0, b.origin.y + b.size.height / 2.0);
+    let inside = Point::new(
+        b.origin.x + b.size.width / 2.0,
+        b.origin.y + b.size.height / 2.0,
+    );
     let heading = Point::new(X0 + 1.0, Y0 + 1.0);
 
     // Правило для приложения: над врезкой редактор фокус не берёт.
     let editors = h.find_by_type_name("document-editor");
     assert_eq!(editors.len(), 1);
     let editor = h.tree.get(editors[0]).unwrap();
-    assert!(editor.text_input_hit(heading), "над заголовком фокус должен браться");
-    assert!(!editor.text_input_hit(inside), "над врезкой фокус браться не должен");
+    assert!(
+        editor.text_input_hit(heading),
+        "над заголовком фокус должен браться"
+    );
+    assert!(
+        !editor.text_input_hit(inside),
+        "над врезкой фокус браться не должен"
+    );
 
     // Каретка в заголовке: набор попадает в него.
-    h.send_event(&Event::MouseDown { button: MouseButton::Left, position: heading });
-    h.send_event(&Event::MouseUp { button: MouseButton::Left, position: heading });
+    h.send_event(&Event::MouseDown {
+        button: MouseButton::Left,
+        position: heading,
+    });
+    h.send_event(&Event::MouseUp {
+        button: MouseButton::Left,
+        position: heading,
+    });
     h.send_event(&Event::CharInput('A'));
-    assert!(handle.serialize().starts_with("# AЗаголовок"), "{}", handle.serialize());
+    assert!(
+        handle.serialize().starts_with("# AЗаголовок"),
+        "{}",
+        handle.serialize()
+    );
 
     // Клик по пустому месту врезки: объект — текущий блок, каретки и
     // фокуса у редактора нет — буква в заголовок не попадает.
-    h.send_event(&Event::MouseDown { button: MouseButton::Left, position: inside });
-    h.send_event(&Event::MouseUp { button: MouseButton::Left, position: inside });
-    let embed_id = handle.outline().iter().find(|b| b.kind == "embed").map(|b| b.id);
+    h.send_event(&Event::MouseDown {
+        button: MouseButton::Left,
+        position: inside,
+    });
+    h.send_event(&Event::MouseUp {
+        button: MouseButton::Left,
+        position: inside,
+    });
+    let embed_id = handle
+        .outline()
+        .iter()
+        .find(|b| b.kind == "embed")
+        .map(|b| b.id);
     assert!(embed_id.is_some());
-    assert_eq!(handle.selected().get(), embed_id, "врезка должна стать текущим блоком");
+    assert_eq!(
+        handle.selected().get(),
+        embed_id,
+        "врезка должна стать текущим блоком"
+    );
     h.send_event(&Event::CharInput('B'));
-    assert!(!handle.serialize().contains('B'), "набор ушёл в заголовок: {}", handle.serialize());
+    assert!(
+        !handle.serialize().contains('B'),
+        "набор ушёл в заголовок: {}",
+        handle.serialize()
+    );
 
     // Клик обратно в текст возвращает каретку.
-    h.send_event(&Event::MouseDown { button: MouseButton::Left, position: heading });
-    h.send_event(&Event::MouseUp { button: MouseButton::Left, position: heading });
+    h.send_event(&Event::MouseDown {
+        button: MouseButton::Left,
+        position: heading,
+    });
+    h.send_event(&Event::MouseUp {
+        button: MouseButton::Left,
+        position: heading,
+    });
     h.send_event(&Event::CharInput('C'));
-    assert!(handle.serialize().starts_with("# CAЗаголовок"), "{}", handle.serialize());
+    assert!(
+        handle.serialize().starts_with("# CAЗаголовок"),
+        "{}",
+        handle.serialize()
+    );
 }
 
 /// Ctrl+буква — не набор: в русской раскладке xkb на Ctrl+Z отдаёт «я»,
@@ -1419,18 +1848,37 @@ fn undo_op_from_host_and_history_signal() {
     assert_eq!(handle.history_state().get(), (true, false));
 
     // Элемент пересоздан заново (смена плитки) — история на месте.
-    let mut h = TestHarness::new(Box::new(DocumentEditor::new().markdown("аб\n").handle(&handle).model_epoch(1)));
+    let mut h = TestHarness::new(Box::new(
+        DocumentEditor::new()
+            .markdown("аб\n")
+            .handle(&handle)
+            .model_epoch(1),
+    ));
     h.tree.text_measure = Some(Arc::new(Mono));
     h.rebuild();
     h.layout(800.0, 2000.0);
-    assert_eq!(handle.serialize(), "абв\n", "модель ручки должна пережить пересоздание");
+    assert_eq!(
+        handle.serialize(),
+        "абв\n",
+        "модель ручки должна пережить пересоздание"
+    );
     handle.queue_op(DocOp::Undo);
-    h.update_widget(Box::new(DocumentEditor::new().markdown("аб\n").handle(&handle).model_epoch(2)));
+    h.update_widget(Box::new(
+        DocumentEditor::new()
+            .markdown("аб\n")
+            .handle(&handle)
+            .model_epoch(2),
+    ));
     settle(&mut h);
     assert_eq!(handle.serialize(), "аб\n");
     assert_eq!(handle.history_state().get(), (false, true));
     handle.queue_op(DocOp::Redo);
-    h.update_widget(Box::new(DocumentEditor::new().markdown("аб\n").handle(&handle).model_epoch(3)));
+    h.update_widget(Box::new(
+        DocumentEditor::new()
+            .markdown("аб\n")
+            .handle(&handle)
+            .model_epoch(3),
+    ));
     settle(&mut h);
     assert_eq!(handle.serialize(), "абв\n");
     assert_eq!(handle.history_state().get(), (true, false));
@@ -1448,11 +1896,24 @@ fn marquee_selects_blocks_and_delete_removes_them() {
     // Правое поле — вне колонки блоков.
     let start = Point::new(798.0, r0.origin.y + 2.0);
     let end = Point::new(2.0, r1.origin.y + r1.size.height - 2.0);
-    h.send_event(&Event::MouseDown { button: MouseButton::Left, position: start });
-    h.send_event(&Event::MouseMove(Point::new(start.x - 10.0, start.y + 10.0)));
+    h.send_event(&Event::MouseDown {
+        button: MouseButton::Left,
+        position: start,
+    });
+    h.send_event(&Event::MouseMove(Point::new(
+        start.x - 10.0,
+        start.y + 10.0,
+    )));
     h.send_event(&Event::MouseMove(end));
-    h.send_event(&Event::MouseUp { button: MouseButton::Left, position: end });
-    assert_eq!(handle.block_selection().get().len(), 2, "рамка должна выделить два блока");
+    h.send_event(&Event::MouseUp {
+        button: MouseButton::Left,
+        position: end,
+    });
+    assert_eq!(
+        handle.block_selection().get().len(),
+        2,
+        "рамка должна выделить два блока"
+    );
 
     h.send_event(&Event::KeyDown(Key::Delete));
     settle(&mut h);
@@ -1475,39 +1936,77 @@ fn ctrl_click_and_double_ctrl_a_select_blocks() {
     let r1 = h.element_bounds(rows[1]);
     let mid = Point::new(r1.origin.x + 5.0, r1.origin.y + r1.size.height / 2.0);
     h.tree.modifiers.ctrl = true;
-    h.send_event(&Event::MouseDown { button: MouseButton::Left, position: mid });
-    h.send_event(&Event::MouseUp { button: MouseButton::Left, position: mid });
+    h.send_event(&Event::MouseDown {
+        button: MouseButton::Left,
+        position: mid,
+    });
+    h.send_event(&Event::MouseUp {
+        button: MouseButton::Left,
+        position: mid,
+    });
     h.tree.modifiers.ctrl = false;
     let sel = handle.block_selection().get();
     assert_eq!(sel.len(), 1);
     assert_eq!(Some(sel[0]), handle.outline().get(1).map(|b| b.id));
 
     h.tree.modifiers.ctrl = true;
-    h.send_event(&Event::MouseDown { button: MouseButton::Left, position: mid });
-    h.send_event(&Event::MouseUp { button: MouseButton::Left, position: mid });
+    h.send_event(&Event::MouseDown {
+        button: MouseButton::Left,
+        position: mid,
+    });
+    h.send_event(&Event::MouseUp {
+        button: MouseButton::Left,
+        position: mid,
+    });
     h.tree.modifiers.ctrl = false;
-    assert!(handle.block_selection().get().is_empty(), "повторный Ctrl+клик снимает");
+    assert!(
+        handle.block_selection().get().is_empty(),
+        "повторный Ctrl+клик снимает"
+    );
 
     // Каретка в первый блок, затем Ctrl+A дважды.
     let p0 = Point::new(X0 + 5.0, Y0 + 5.0);
-    h.send_event(&Event::MouseDown { button: MouseButton::Left, position: p0 });
-    h.send_event(&Event::MouseUp { button: MouseButton::Left, position: p0 });
+    h.send_event(&Event::MouseDown {
+        button: MouseButton::Left,
+        position: p0,
+    });
+    h.send_event(&Event::MouseUp {
+        button: MouseButton::Left,
+        position: p0,
+    });
     h.tree.modifiers.ctrl = true;
     h.send_event(&Event::KeyDown(Key::A));
-    assert!(handle.block_selection().get().is_empty(), "первый Ctrl+A — текст");
+    assert!(
+        handle.block_selection().get().is_empty(),
+        "первый Ctrl+A — текст"
+    );
     h.send_event(&Event::KeyDown(Key::A));
     h.tree.modifiers.ctrl = false;
-    assert_eq!(handle.block_selection().get().len(), 3, "второй Ctrl+A — все блоки");
+    assert_eq!(
+        handle.block_selection().get().len(),
+        3,
+        "второй Ctrl+A — все блоки"
+    );
     h.send_event(&Event::KeyDown(Key::Escape));
     assert!(handle.block_selection().get().is_empty());
 
     // Клик в пустом месте без протяжки ставит каретку — набор идёт в текст.
     let empty = Point::new(798.0, Y0 + 5.0);
-    h.send_event(&Event::MouseDown { button: MouseButton::Left, position: empty });
-    h.send_event(&Event::MouseUp { button: MouseButton::Left, position: empty });
+    h.send_event(&Event::MouseDown {
+        button: MouseButton::Left,
+        position: empty,
+    });
+    h.send_event(&Event::MouseUp {
+        button: MouseButton::Left,
+        position: empty,
+    });
     type_str(&mut h, "х");
     settle(&mut h);
-    assert!(handle.serialize().starts_with("ах") || handle.serialize().starts_with("ха"), "{}", handle.serialize());
+    assert!(
+        handle.serialize().starts_with("ах") || handle.serialize().starts_with("ха"),
+        "{}",
+        handle.serialize()
+    );
 }
 
 /// Draggable внутри врезки → drag дерева → Drop в DropArea той же врезки
@@ -1551,7 +2050,10 @@ fn embed_drag_and_drop_reaches_drop_area() {
             .markdown("Текст\n\n![[kanban:abc]]{h=300}\n")
             .handle(&handle)
             .embeds(Arc::new(DndFactory(drops.clone())))
-            .layout(DocLayout { free: true, ..DocLayout::default() }),
+            .layout(DocLayout {
+                free: true,
+                ..DocLayout::default()
+            }),
     ));
     h.tree.text_measure = Some(Arc::new(Mono));
     h.rebuild();
@@ -1564,19 +2066,39 @@ fn embed_drag_and_drop_reaches_drop_area() {
     let ba = h.element_bounds(dra[0]);
     eprintln!("draggable {bd:?} droparea {ba:?}");
     assert!(bd.size.width > 0.0 && ba.size.height > 0.0);
-    let from = Point::new(bd.origin.x + bd.size.width / 2.0, bd.origin.y + bd.size.height / 2.0);
-    let to = Point::new(ba.origin.x + ba.size.width / 2.0, ba.origin.y + ba.size.height / 2.0);
+    let from = Point::new(
+        bd.origin.x + bd.size.width / 2.0,
+        bd.origin.y + bd.size.height / 2.0,
+    );
+    let to = Point::new(
+        ba.origin.x + ba.size.width / 2.0,
+        ba.origin.y + ba.size.height / 2.0,
+    );
 
-    h.send_event(&Event::MouseDown { button: MouseButton::Left, position: from });
+    h.send_event(&Event::MouseDown {
+        button: MouseButton::Left,
+        position: from,
+    });
     h.send_event(&Event::MouseMove(Point::new(from.x + 12.0, from.y + 12.0)));
-    assert!(h.tree.drag_state.is_some(), "drag не начался: MouseDown/MouseMove не дошли до Draggable");
+    assert!(
+        h.tree.drag_state.is_some(),
+        "drag не начался: MouseDown/MouseMove не дошли до Draggable"
+    );
     h.send_event(&Event::MouseMove(to));
     let data = h.tree.drag_state.as_ref().unwrap().data.clone();
-    h.tree.dispatch_drag_event(&Event::DragMove { position: to, data: data.clone() });
-    h.tree.dispatch_drag_event(&Event::Drop { position: to, data });
+    h.tree.dispatch_drag_event(&Event::DragMove {
+        position: to,
+        data: data.clone(),
+    });
+    h.tree
+        .dispatch_drag_event(&Event::Drop { position: to, data });
     h.send_event(&Event::DragEnd { cancelled: false });
     h.tree.drag_state = None;
-    assert_eq!(drops.load(Ordering::SeqCst), 1, "Drop не дошёл до DropArea врезки");
+    assert_eq!(
+        drops.load(Ordering::SeqCst),
+        1,
+        "Drop не дошёл до DropArea врезки"
+    );
 }
 
 /// Перенос блока за ⋮⋮ с `block_drag_type` — ещё и drag дерева: DropArea
@@ -1609,7 +2131,10 @@ fn block_drag_by_handle_drops_into_embed_drop_area() {
 
     let got = Arc::new(Mutex::new(Vec::new()));
     let handle = DocumentEditorHandle::new();
-    let layout = DocLayout { free: true, ..DocLayout::default() };
+    let layout = DocLayout {
+        free: true,
+        ..DocLayout::default()
+    };
     let mut h = TestHarness::new(Box::new(
         DocumentEditor::new()
             .markdown("Раз\n\nДва\n\n![[kanban:abc]]{h=120}\n")
@@ -1625,37 +2150,71 @@ fn block_drag_by_handle_drops_into_embed_drop_area() {
     let areas = h.find_by_type_name("DropArea");
     assert_eq!(areas.len(), 1);
     let area = h.element_bounds(areas[0]);
-    assert!(area.size.height > 0.0, "у DropArea врезки нет размера: {area:?}");
+    assert!(
+        area.size.height > 0.0,
+        "у DropArea врезки нет размера: {area:?}"
+    );
 
     // Наведение — ручка рисуется у блока под курсором.
     let row = h.element_bounds(h.find_by_type_name("doc-text-row")[1]);
     let inside = Point::new(row.origin.x + 5.0, row.origin.y + 5.0);
-    h.send_event(&Event::MouseDown { button: MouseButton::Left, position: inside });
-    h.send_event(&Event::MouseUp { button: MouseButton::Left, position: inside });
+    h.send_event(&Event::MouseDown {
+        button: MouseButton::Left,
+        position: inside,
+    });
+    h.send_event(&Event::MouseUp {
+        button: MouseButton::Left,
+        position: inside,
+    });
     h.send_event(&Event::MouseMove(inside));
     let mut list = DisplayList::new();
-    h.tree.build_display_list(h.root_id, &mut list, Rect::new(Point::zero(), Size::new(800.0, 600.0)));
+    h.tree.build_display_list(
+        h.root_id,
+        &mut list,
+        Rect::new(Point::zero(), Size::new(800.0, 600.0)),
+    );
 
     let grip = Point::new(row.origin.x - 14.0, row.origin.y + 8.0);
-    h.send_event(&Event::MouseDown { button: MouseButton::Left, position: grip });
+    h.send_event(&Event::MouseDown {
+        button: MouseButton::Left,
+        position: grip,
+    });
     h.send_event(&Event::MouseMove(Point::new(grip.x + 40.0, grip.y + 30.0)));
-    let drag = h.tree.drag_state.as_ref().expect("перенос блока должен объявить drag дерева");
+    let drag = h
+        .tree
+        .drag_state
+        .as_ref()
+        .expect("перенос блока должен объявить drag дерева");
     assert_eq!(drag.data.drag_type, "doc-block");
     assert!(!drag.data.ghost, "призрак не нужен — блок едет живьём");
     let block_id: u64 = drag.data.payload.parse().expect("payload — id блока");
     let data = drag.data.clone();
 
     // Как AppHandler: движение → DragMove целям, отпускание → Drop, DragEnd.
-    let to = Point::new(area.origin.x + area.size.width / 2.0, area.origin.y + area.size.height / 2.0);
+    let to = Point::new(
+        area.origin.x + area.size.width / 2.0,
+        area.origin.y + area.size.height / 2.0,
+    );
     h.send_event(&Event::MouseMove(to));
-    h.tree.dispatch_drag_event(&Event::DragMove { position: to, data: data.clone() });
-    h.tree.dispatch_drag_event(&Event::Drop { position: to, data });
+    h.tree.dispatch_drag_event(&Event::DragMove {
+        position: to,
+        data: data.clone(),
+    });
+    h.tree
+        .dispatch_drag_event(&Event::Drop { position: to, data });
     h.send_event(&Event::DragEnd { cancelled: false });
     h.tree.drag_state = None;
 
-    assert_eq!(got.lock().unwrap().as_slice(), [block_id.to_string()], "DropArea должна получить id блока");
+    assert_eq!(
+        got.lock().unwrap().as_slice(),
+        [block_id.to_string()],
+        "DropArea должна получить id блока"
+    );
     // Хост забрал блок — удаляет его из документа.
-    assert_eq!(handle.block_markdown(BlockId(block_id)).as_deref(), Some("Два\n"));
+    assert_eq!(
+        handle.block_markdown(BlockId(block_id)).as_deref(),
+        Some("Два\n")
+    );
     handle.queue_op(DocOp::DeleteBlock(BlockId(block_id)));
     h.update_widget(Box::new(
         DocumentEditor::new()
@@ -1664,7 +2223,10 @@ fn block_drag_by_handle_drops_into_embed_drop_area() {
             .embeds(Arc::new(SinkFactory(got.clone())))
             .block_drag_type("doc-block")
             .model_epoch(1)
-            .layout(DocLayout { free: true, ..DocLayout::default() }),
+            .layout(DocLayout {
+                free: true,
+                ..DocLayout::default()
+            }),
     ));
     settle(&mut h);
     let md = handle.serialize();
@@ -1683,22 +2245,41 @@ fn block_drag_by_handle_drops_into_embed_drop_area() {
 fn flow_block_drag_finishes_on_drag_end() {
     let handle = DocumentEditorHandle::new();
     let mut h = TestHarness::new(Box::new(
-        DocumentEditor::new().markdown("раз\n\nдва\n\nтри\n").handle(&handle).block_drag_type("doc-block"),
+        DocumentEditor::new()
+            .markdown("раз\n\nдва\n\nтри\n")
+            .handle(&handle)
+            .block_drag_type("doc-block"),
     ));
     h.tree.text_measure = Some(Arc::new(Mono));
     h.rebuild();
     h.layout(800.0, 600.0);
     let click = Point::new(X0 + 10.0, Y0 + 8.0);
-    h.send_event(&Event::MouseDown { button: MouseButton::Left, position: click });
-    h.send_event(&Event::MouseUp { button: MouseButton::Left, position: click });
+    h.send_event(&Event::MouseDown {
+        button: MouseButton::Left,
+        position: click,
+    });
+    h.send_event(&Event::MouseUp {
+        button: MouseButton::Left,
+        position: click,
+    });
     h.send_event(&Event::MouseMove(click));
     let mut list = DisplayList::new();
-    h.tree.build_display_list(h.root_id, &mut list, Rect::new(Point::zero(), Size::new(800.0, 2000.0)));
+    h.tree.build_display_list(
+        h.root_id,
+        &mut list,
+        Rect::new(Point::zero(), Size::new(800.0, 2000.0)),
+    );
     let grab = Point::new(4.0, Y0 + 8.0);
-    h.send_event(&Event::MouseDown { button: MouseButton::Left, position: grab });
+    h.send_event(&Event::MouseDown {
+        button: MouseButton::Left,
+        position: grab,
+    });
     let drop = Point::new(X0 + 10.0, Y0 + 3.0 * 33.0);
     h.send_event(&Event::MouseMove(drop));
-    assert!(h.tree.drag_state.is_some(), "перенос в потоке должен объявить drag дерева");
+    assert!(
+        h.tree.drag_state.is_some(),
+        "перенос в потоке должен объявить drag дерева"
+    );
     h.send_event(&Event::DragEnd { cancelled: false });
     h.tree.drag_state = None;
     settle(&mut h);
@@ -1724,20 +2305,39 @@ fn plain_editor_with_placeholders_renders_and_edits() {
     h.rebuild();
     h.layout(300.0, 200.0);
     let mut list = DisplayList::new();
-    h.tree.build_display_list(h.root_id, &mut list, Rect::new(Point::zero(), Size::new(300.0, 200.0)));
+    h.tree.build_display_list(
+        h.root_id,
+        &mut list,
+        Rect::new(Point::zero(), Size::new(300.0, 200.0)),
+    );
     // Клик в пустой заголовок (харнес фокус сам не переводит): набор +
     // Enter → абзац.
     let row = h.element_bounds(h.find_by_type_name("doc-text-row")[0]);
     let at = Point::new(row.origin.x + 4.0, row.origin.y + row.size.height / 2.0);
-    h.send_event(&Event::MouseDown { button: MouseButton::Left, position: at });
-    h.send_event(&Event::MouseUp { button: MouseButton::Left, position: at });
-    h.send_events(&[Event::CharInput('З'), Event::CharInput('а'), Event::KeyDown(Key::Enter), Event::KeyUp(Key::Enter)]);
+    h.send_event(&Event::MouseDown {
+        button: MouseButton::Left,
+        position: at,
+    });
+    h.send_event(&Event::MouseUp {
+        button: MouseButton::Left,
+        position: at,
+    });
+    h.send_events(&[
+        Event::CharInput('З'),
+        Event::CharInput('а'),
+        Event::KeyDown(Key::Enter),
+        Event::KeyUp(Key::Enter),
+    ]);
     settle(&mut h);
     h.send_events(&[Event::CharInput('т')]);
     settle(&mut h);
     assert_eq!(handle.serialize(), "## За\n\nт\n");
     let mut list = DisplayList::new();
-    h.tree.build_display_list(h.root_id, &mut list, Rect::new(Point::zero(), Size::new(300.0, 200.0)));
+    h.tree.build_display_list(
+        h.root_id,
+        &mut list,
+        Rect::new(Point::zero(), Size::new(300.0, 200.0)),
+    );
 }
 
 /// Замена документа хостом (`replace_markdown`, агент): каретка не
@@ -1755,25 +2355,47 @@ fn replace_markdown_from_host_survives_rebuild_and_undoes() {
     assert_eq!(handle.history_state().get(), (true, false));
     // Хост перестраивает элемент по model_epoch — с новым исходником.
     h.update_widget(Box::new(
-        DocumentEditor::new().markdown("# Новое\n\nтело\n").handle(&handle).model_epoch(1),
+        DocumentEditor::new()
+            .markdown("# Новое\n\nтело\n")
+            .handle(&handle)
+            .model_epoch(1),
     ));
     settle(&mut h);
-    assert_eq!(handle.serialize(), "# Новое\n\nтело\n", "перестройка перепарсила модель");
+    assert_eq!(
+        handle.serialize(),
+        "# Новое\n\nтело\n",
+        "перестройка перепарсила модель"
+    );
     // Набор после замены не падает на устаревшей каретке и идёт в документ.
     let rows = h.find_by_type_name("doc-text-row");
     let row = h.element_bounds(rows[rows.len() - 1]);
-    let at = Point::new(row.origin.x + row.size.width - 4.0, row.origin.y + row.size.height / 2.0);
-    h.send_event(&Event::MouseDown { button: MouseButton::Left, position: at });
-    h.send_event(&Event::MouseUp { button: MouseButton::Left, position: at });
+    let at = Point::new(
+        row.origin.x + row.size.width - 4.0,
+        row.origin.y + row.size.height / 2.0,
+    );
+    h.send_event(&Event::MouseDown {
+        button: MouseButton::Left,
+        position: at,
+    });
+    h.send_event(&Event::MouseUp {
+        button: MouseButton::Left,
+        position: at,
+    });
     type_str(&mut h, "!");
     settle(&mut h);
-    assert!(handle.serialize().contains("тело!"), "{}", handle.serialize());
+    assert!(
+        handle.serialize().contains("тело!"),
+        "{}",
+        handle.serialize()
+    );
 
     // Страница, которую ни разу не показывали: модель заменена до первого
     // элемента — он не должен перепарсить исходник поверх неё.
     let fresh = DocumentEditorHandle::new();
     fresh.replace_markdown("из агента\n");
-    let mut first = TestHarness::new(Box::new(DocumentEditor::new().markdown("из агента\n").handle(&fresh)));
+    let mut first = TestHarness::new(Box::new(
+        DocumentEditor::new().markdown("из агента\n").handle(&fresh),
+    ));
     first.tree.text_measure = Some(Arc::new(Mono));
     first.rebuild();
     first.layout(800.0, 400.0);
@@ -1782,12 +2404,18 @@ fn replace_markdown_from_host_survives_rebuild_and_undoes() {
     // Отмена из очереди хоста возвращает документ до замены.
     handle.queue_op(DocOp::Undo);
     h.update_widget(Box::new(
-        DocumentEditor::new().markdown("# Новое\n\nтело\n").handle(&handle).model_epoch(2),
+        DocumentEditor::new()
+            .markdown("# Новое\n\nтело\n")
+            .handle(&handle)
+            .model_epoch(2),
     ));
     settle(&mut h);
     handle.queue_op(DocOp::Undo);
     h.update_widget(Box::new(
-        DocumentEditor::new().markdown("# Новое\n\nтело\n").handle(&handle).model_epoch(3),
+        DocumentEditor::new()
+            .markdown("# Новое\n\nтело\n")
+            .handle(&handle)
+            .model_epoch(3),
     ));
     settle(&mut h);
     assert_eq!(handle.serialize(), "абв\n");
@@ -1805,7 +2433,10 @@ fn switching_to_free_layout_pins_blocks_where_the_flow_put_them() {
     h.rebuild();
     h.layout(800.0, 2000.0);
     let rows_of = |h: &mut TestHarness| -> Vec<Rect> {
-        h.find_by_type_name("doc-text-row").iter().map(|&e| h.element_bounds(e)).collect()
+        h.find_by_type_name("doc-text-row")
+            .iter()
+            .map(|&e| h.element_bounds(e))
+            .collect()
     };
     let before = rows_of(&mut h);
     assert!(before.len() >= 2, "{before:?}");
@@ -1815,12 +2446,18 @@ fn switching_to_free_layout_pins_blocks_where_the_flow_put_them() {
         DocumentEditor::new()
             .markdown(md)
             .handle(&handle)
-            .layout(DocLayout { free: true, ..DocLayout::default() }),
+            .layout(DocLayout {
+                free: true,
+                ..DocLayout::default()
+            }),
     ));
     h.rebuild();
     h.layout(800.0, 2000.0);
     let src = handle.serialize();
-    assert!(src.contains("```doc-layout") && src.contains("\n0 {") && src.contains("\n1 {"), "{src}");
+    assert!(
+        src.contains("```doc-layout") && src.contains("\n0 {") && src.contains("\n1 {"),
+        "{src}"
+    );
     let after = rows_of(&mut h);
     assert_eq!(before.len(), after.len(), "{after:?}");
     for (b, a) in before.iter().zip(&after) {
@@ -1847,15 +2484,27 @@ fn switching_to_free_layout_pins_blocks_where_the_flow_put_them() {
 fn background_is_painted_under_grid() {
     let handle = DocumentEditorHandle::new();
     let bg = syngui::core::Color::from_hex("#243149");
-    let layout = DocLayout { free: true, grid: DocGrid::Dots, background: Some(bg), ..DocLayout::default() };
+    let layout = DocLayout {
+        free: true,
+        grid: DocGrid::Dots,
+        background: Some(bg),
+        ..DocLayout::default()
+    };
     let mut h = TestHarness::new(Box::new(
-        DocumentEditor::new().markdown("Текст\n").handle(&handle).layout(layout),
+        DocumentEditor::new()
+            .markdown("Текст\n")
+            .handle(&handle)
+            .layout(layout),
     ));
     h.tree.text_measure = Some(Arc::new(Mono));
     h.rebuild();
     h.layout(900.0, 700.0);
     let mut list = DisplayList::new();
-    h.tree.build_display_list(h.root_id, &mut list, Rect::new(Point::zero(), Size::new(900.0, 700.0)));
+    h.tree.build_display_list(
+        h.root_id,
+        &mut list,
+        Rect::new(Point::zero(), Size::new(900.0, 700.0)),
+    );
     let first = list
         .iter_all_commands()
         .find_map(|c| match c {
@@ -1864,7 +2513,11 @@ fn background_is_painted_under_grid() {
         })
         .expect("хотя бы один прямоугольник");
     assert_eq!(first.1, bg, "первым должен идти фон страницы");
-    assert!(first.0.size.width >= 900.0 && first.0.size.height >= 700.0, "фон не на весь холст: {:?}", first.0);
+    assert!(
+        first.0.size.width >= 900.0 && first.0.size.height >= 700.0,
+        "фон не на весь холст: {:?}",
+        first.0
+    );
 }
 
 /// Выделение внутри кода: протяжка мышью берёт диапазон, Backspace стирает
@@ -1885,13 +2538,22 @@ fn code_block_selection_by_mouse_and_keyboard() {
     // Протяжка от «c» первой строки до «i» второй → выделено «cdef\ngh».
     let from = Point::new(col_x(2.0), line_y(0.0));
     let to = Point::new(col_x(2.0), line_y(1.0));
-    h.send_event(&Event::MouseDown { button: MouseButton::Left, position: from });
+    h.send_event(&Event::MouseDown {
+        button: MouseButton::Left,
+        position: from,
+    });
     h.send_event(&Event::MouseMove(to));
-    h.send_event(&Event::MouseUp { button: MouseButton::Left, position: to });
+    h.send_event(&Event::MouseUp {
+        button: MouseButton::Left,
+        position: to,
+    });
     h.send_event(&Event::KeyDown(Key::Backspace));
     settle(&mut h);
     let md = handle.serialize();
-    assert!(md.contains("```rust\nabij\n```"), "протяжка не выделила диапазон:\n{md}");
+    assert!(
+        md.contains("```rust\nabij\n```"),
+        "протяжка не выделила диапазон:\n{md}"
+    );
 
     // Shift+Right ×2 от каретки (после «ab») и набор — «ij» заменяется на «X».
     h.tree.modifiers.shift = true;
@@ -1901,7 +2563,10 @@ fn code_block_selection_by_mouse_and_keyboard() {
     type_str(&mut h, "X");
     settle(&mut h);
     let md = handle.serialize();
-    assert!(md.contains("```rust\nabX\n```"), "Shift+стрелки не выделили или набор не заменил:\n{md}");
+    assert!(
+        md.contains("```rust\nabX\n```"),
+        "Shift+стрелки не выделили или набор не заменил:\n{md}"
+    );
 
     // Ctrl+A внутри кода — весь текст блока, Delete стирает его; блок цел.
     h.tree.modifiers.ctrl = true;
@@ -1918,18 +2583,29 @@ fn code_block_selection_by_mouse_and_keyboard() {
 /// хит-тест смотрел только на Y, ставил каретку в код и глотал рамку.
 #[test]
 fn click_beside_code_block_does_not_enter_code() {
-    let (mut h, handle) =
-        editing_harness("пара\n\n```rust\nabc\n```\n", Point::new(X0 + 10.0, Y0 + 8.0));
+    let (mut h, handle) = editing_harness(
+        "пара\n\n```rust\nabc\n```\n",
+        Point::new(X0 + 10.0, Y0 + 8.0),
+    );
     let code = h.find_by_type_name("doc-code-block");
     assert_eq!(code.len(), 1);
     let b = h.element_bounds(code[0]);
     let beside = Point::new(b.origin.x - 8.0, b.origin.y + 14.0);
-    h.send_event(&Event::MouseDown { button: MouseButton::Left, position: beside });
-    h.send_event(&Event::MouseUp { button: MouseButton::Left, position: beside });
+    h.send_event(&Event::MouseDown {
+        button: MouseButton::Left,
+        position: beside,
+    });
+    h.send_event(&Event::MouseUp {
+        button: MouseButton::Left,
+        position: beside,
+    });
     type_str(&mut h, "z");
     settle(&mut h);
     let md = handle.serialize();
-    assert!(md.contains("```rust\nabc\n```"), "клик мимо блока попал в код:\n{md}");
+    assert!(
+        md.contains("```rust\nabc\n```"),
+        "клик мимо блока попал в код:\n{md}"
+    );
 }
 
 /// Выделение внутри ячейки таблицы — по образцу код-блока: протяжка мышью,
@@ -1951,13 +2627,22 @@ fn table_cell_selection_by_mouse_and_keyboard() {
     // Протяжка от «c» до «e» в первой ячейке данных → выделено «cd».
     let from = Point::new(col_x(2.0), y);
     let to = Point::new(col_x(4.0), y);
-    h.send_event(&Event::MouseDown { button: MouseButton::Left, position: from });
+    h.send_event(&Event::MouseDown {
+        button: MouseButton::Left,
+        position: from,
+    });
     h.send_event(&Event::MouseMove(to));
-    h.send_event(&Event::MouseUp { button: MouseButton::Left, position: to });
+    h.send_event(&Event::MouseUp {
+        button: MouseButton::Left,
+        position: to,
+    });
     h.send_event(&Event::KeyDown(Key::Backspace));
     settle(&mut h);
     let out = handle.serialize();
-    assert!(out.contains("| abef | gh |"), "протяжка не выделила диапазон:\n{out}");
+    assert!(
+        out.contains("| abef | gh |"),
+        "протяжка не выделила диапазон:\n{out}"
+    );
 
     // Shift+Right ×2 от каретки (после «ab») и набор — «ef» заменяется на «X».
     h.tree.modifiers.shift = true;
@@ -1967,7 +2652,10 @@ fn table_cell_selection_by_mouse_and_keyboard() {
     type_str(&mut h, "X");
     settle(&mut h);
     let out = handle.serialize();
-    assert!(out.contains("| abX | gh |"), "Shift+стрелки не выделили или набор не заменил:\n{out}");
+    assert!(
+        out.contains("| abX | gh |"),
+        "Shift+стрелки не выделили или набор не заменил:\n{out}"
+    );
 
     // Shift+Left выделяет «X», Tab уводит в соседнюю ячейку и снимает
     // выделение: набор там ничего не стирает.
@@ -1978,7 +2666,10 @@ fn table_cell_selection_by_mouse_and_keyboard() {
     type_str(&mut h, "!");
     settle(&mut h);
     let out = handle.serialize();
-    assert!(out.contains("| abX | gh! |"), "переход в ячейку не снял выделение:\n{out}");
+    assert!(
+        out.contains("| abX | gh! |"),
+        "переход в ячейку не снял выделение:\n{out}"
+    );
 
     // Ctrl+A внутри ячейки — весь её текст, Delete стирает его; таблица цела.
     h.tree.modifiers.ctrl = true;
@@ -1987,5 +2678,8 @@ fn table_cell_selection_by_mouse_and_keyboard() {
     h.send_event(&Event::KeyDown(Key::Delete));
     settle(&mut h);
     let out = handle.serialize();
-    assert!(out.contains("| abX |  |") || out.contains("| abX | |"), "Ctrl+A не выделил ячейку:\n{out}");
+    assert!(
+        out.contains("| abX |  |") || out.contains("| abX | |"),
+        "Ctrl+A не выделил ячейку:\n{out}"
+    );
 }

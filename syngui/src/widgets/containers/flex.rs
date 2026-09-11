@@ -1,12 +1,14 @@
+use super::IntoWidget;
 use crate::core::{Point, Rect, Size};
 use crate::input::{Event, EventResult};
 use crate::layout::Constraints;
-use crate::layout::{MainAxisAlignment, CrossAxisAlignment, FlexDirection};
+use crate::layout::{CrossAxisAlignment, FlexDirection, MainAxisAlignment};
 use crate::mss::ComputedStyle;
 use crate::mss::MssFields;
 use crate::render::DisplayList;
-use crate::widget::{DirtyFlags, Element, ElementId, ElementTree, LayoutHint, StyledElement, UpdateContext, Widget};
-use super::IntoWidget;
+use crate::widget::{
+    DirtyFlags, Element, ElementId, ElementTree, LayoutHint, StyledElement, UpdateContext, Widget,
+};
 use std::any::Any;
 
 pub struct Flex {
@@ -119,13 +121,17 @@ impl Widget for Flex {
     fn mount(&self, tree: &mut ElementTree, parent_id: ElementId) {
         for child in &self.children {
             let child_element = child.create_element();
-            let child_id = tree.insert_with_type_id(child_element, Some(parent_id), child.as_any().type_id());
+            let child_id =
+                tree.insert_with_type_id(child_element, Some(parent_id), child.as_any().type_id());
             child.mount(tree, child_id);
         }
     }
 
     fn child_widgets(&self) -> Vec<&dyn Widget> {
-        self.children.iter().map(|c| c.as_ref() as &dyn Widget).collect()
+        self.children
+            .iter()
+            .map(|c| c.as_ref() as &dyn Widget)
+            .collect()
     }
 
     fn widget_classes(&self) -> &[String] {
@@ -173,11 +179,34 @@ impl Element for FlexElement {
         let pr = self.mss.padding_right.unwrap_or(0.0);
         let pb = self.mss.padding_bottom.unwrap_or(0.0);
         if self.wrap {
-            return LayoutHint::Flex { col_gap: self.gap, row_gap: self.gap, justify: self.main_axis_alignment.clone(), align_items: self.cross_axis_alignment.clone() };
+            return LayoutHint::Flex {
+                col_gap: self.gap,
+                row_gap: self.gap,
+                justify: self.main_axis_alignment.clone(),
+                align_items: self.cross_axis_alignment.clone(),
+            };
         }
         match self.direction {
-            FlexDirection::Row => LayoutHint::Row { gap: self.gap, offset_x: 0.0, cross_align: CrossAxisAlignment::Start, main_align: MainAxisAlignment::Start, padding_left: pl, padding_top: pt, padding_right: pr, padding_bottom: pb },
-            FlexDirection::Column => LayoutHint::Column { gap: self.gap, cross_align: self.cross_axis_alignment, main_align: self.main_axis_alignment, padding_left: pl, padding_top: pt, padding_right: pr, padding_bottom: pb, expand: false },
+            FlexDirection::Row => LayoutHint::Row {
+                gap: self.gap,
+                offset_x: 0.0,
+                cross_align: CrossAxisAlignment::Start,
+                main_align: MainAxisAlignment::Start,
+                padding_left: pl,
+                padding_top: pt,
+                padding_right: pr,
+                padding_bottom: pb,
+            },
+            FlexDirection::Column => LayoutHint::Column {
+                gap: self.gap,
+                cross_align: self.cross_axis_alignment,
+                main_align: self.main_axis_alignment,
+                padding_left: pl,
+                padding_top: pt,
+                padding_right: pr,
+                padding_bottom: pb,
+                expand: false,
+            },
         }
     }
 
@@ -189,11 +218,17 @@ impl Element for FlexElement {
         self.mss.paint_border(list, self.bounds);
     }
 
-    fn handle_event(&mut self, _event: &Event, _ctx: &mut crate::widget::context::EventContext) -> EventResult {
+    fn handle_event(
+        &mut self,
+        _event: &Event,
+        _ctx: &mut crate::widget::context::EventContext,
+    ) -> EventResult {
         EventResult::Ignored
     }
 
-    fn passthrough_hit_test(&self) -> bool { true }
+    fn passthrough_hit_test(&self) -> bool {
+        true
+    }
 
     fn children(&self) -> &[ElementId] {
         &self.child_ids
@@ -229,7 +264,9 @@ impl Element for FlexElement {
 
     fn mount(&mut self, _tree: &mut ElementTree) {}
 
-    fn element_type_name(&self) -> &str { "Flex" }
+    fn element_type_name(&self) -> &str {
+        "Flex"
+    }
 
     fn set_classes(&mut self, classes: Vec<String>) {
         self.classes = classes;
@@ -240,8 +277,12 @@ impl Element for FlexElement {
         &self.classes
     }
 
-    fn reset_mss_styles(&mut self) { self.mss.reset(); }
-    fn mss(&self) -> Option<&crate::mss::MssFields> { Some(&self.mss) }
+    fn reset_mss_styles(&mut self) {
+        self.mss.reset();
+    }
+    fn mss(&self) -> Option<&crate::mss::MssFields> {
+        Some(&self.mss)
+    }
     fn apply_computed_style(&mut self, style: &ComputedStyle) {
         self.mss.apply(style);
         if let Some(g) = self.mss.gap {
@@ -259,7 +300,8 @@ impl Element for FlexElement {
         selected: Option<&ComputedStyle>,
         _checked: Option<&ComputedStyle>,
     ) {
-        self.mss.apply_transitions(base, hover, active, focus, selected);
+        self.mss
+            .apply_transitions(base, hover, active, focus, selected);
     }
 }
 

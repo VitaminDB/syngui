@@ -1,8 +1,8 @@
 //! Player window — transport controls, display, progress, volume
 
-use syngui::prelude::*;
-use syngui::mgui;
 use crate::{LinAmpCtx, TrackInfo};
+use syngui::mgui;
+use syngui::prelude::*;
 
 pub fn build_player() -> impl Widget {
     let ctx = use_context::<LinAmpCtx>();

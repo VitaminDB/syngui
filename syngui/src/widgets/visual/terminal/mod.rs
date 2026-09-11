@@ -47,7 +47,10 @@ impl Terminal {
         }
     }
 
-    pub fn command_signal(mut self, signal: crate::signal::RwSignal<Option<TerminalCommand>>) -> Self {
+    pub fn command_signal(
+        mut self,
+        signal: crate::signal::RwSignal<Option<TerminalCommand>>,
+    ) -> Self {
         self.command_signal = Some(signal);
         self
     }
@@ -146,5 +149,7 @@ impl Widget for Terminal {
     }
 
     fn mount(&self, _tree: &mut ElementTree, _parent_id: ElementId) {}
-    fn widget_classes(&self) -> &[String] { &self.classes }
+    fn widget_classes(&self) -> &[String] {
+        &self.classes
+    }
 }

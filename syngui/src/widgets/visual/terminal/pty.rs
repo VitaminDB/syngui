@@ -1,7 +1,7 @@
 use std::io::{Read, Write};
 use std::path::PathBuf;
-use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::Arc;
 use std::thread::{self, JoinHandle};
 
 use crossbeam_channel::{bounded, Receiver};

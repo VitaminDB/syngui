@@ -1,3 +1,4 @@
+use crate::core::sync::Mutex;
 use crate::core::{Color, Point, Rect, RectExt, Size};
 use crate::input::{CursorIcon, Event, EventResult, Key, MouseButton};
 use crate::layout::Constraints;
@@ -5,10 +6,11 @@ use crate::mss::ComputedStyle;
 use crate::mss::MssFields;
 use crate::render::{Border, DisplayList};
 use crate::widget::context::{EventContext, EventContextExt};
-use crate::widget::{DirtyFlags, Element, ElementId, ElementTree, StyledElement, UpdateContext, Widget};
+use crate::widget::{
+    DirtyFlags, Element, ElementId, ElementTree, StyledElement, UpdateContext, Widget,
+};
 use std::any::Any;
 use std::sync::Arc;
-use crate::core::sync::Mutex;
 
 pub struct OptionButton {
     pub text: String,
@@ -120,13 +122,29 @@ impl Element for OptionButtonElement {
         let padding_h: f32 = 12.0;
         let font_size = self.mss.font_size_or(14.0);
         let bold = self.mss.font_weight_or(400) >= 700;
-        let base_height = self.mss.height.map(|d| d.resolve(constraints.max_height)).unwrap_or(36.0);
+        let base_height = self
+            .mss
+            .height
+            .map(|d| d.resolve(constraints.max_height))
+            .unwrap_or(36.0);
 
-        let text_width = self.text_measure.as_ref()
-            .map(|tm| tm.measure_text_width_styled(&self.text, font_size, self.text.chars().count(), bold, self.mss.font_family.as_deref()))
+        let text_width = self
+            .text_measure
+            .as_ref()
+            .map(|tm| {
+                tm.measure_text_width_styled(
+                    &self.text,
+                    font_size,
+                    self.text.chars().count(),
+                    bold,
+                    self.mss.font_family.as_deref(),
+                )
+            })
             .unwrap_or(self.text.chars().count() as f32 * font_size * 0.6);
         let icon_width = if self.icon.is_some() { 16.0 + 6.0 } else { 0.0 };
-        let width = (text_width + icon_width + padding_h * 2.0).max(36.0).min(constraints.max_width);
+        let width = (text_width + icon_width + padding_h * 2.0)
+            .max(36.0)
+            .min(constraints.max_width);
         let height = base_height.min(constraints.max_height);
 
         self.bounds = Rect::new(Point::zero(), Size::new(width, height));
@@ -140,11 +158,20 @@ impl Element for OptionButtonElement {
         let accent = self.mss.accent_color.unwrap_or(Color::from_hex("#3B82F6"));
         let font_size = self.mss.font_size_or(14.0);
         let font_weight = self.mss.font_weight_or(400);
-        let border_radius = self.mss.border_radius_uniform(self.bounds.size.width.min(self.bounds.size.height), 6.0);
+        let border_radius = self
+            .mss
+            .border_radius_uniform(self.bounds.size.width.min(self.bounds.size.height), 6.0);
         let border_width = self.mss.border_width_or(1.0);
 
         let (bg_color, text_color, border) = if self.disabled {
-            (base_border.with_alpha(0.3), base_fg.with_alpha(0.4), Some(Border { width: border_width, color: base_border.with_alpha(0.5) }))
+            (
+                base_border.with_alpha(0.3),
+                base_fg.with_alpha(0.4),
+                Some(Border {
+                    width: border_width,
+                    color: base_border.with_alpha(0.5),
+                }),
+            )
         } else if self.pressed {
             if self.hover {
                 (accent.darken(0.1), Color::WHITE, None)
@@ -152,9 +179,23 @@ impl Element for OptionButtonElement {
                 (accent, Color::WHITE, None)
             }
         } else if self.hover {
-            (base_bg.darken(0.05), base_fg, Some(Border { width: border_width, color: base_border }))
+            (
+                base_bg.darken(0.05),
+                base_fg,
+                Some(Border {
+                    width: border_width,
+                    color: base_border,
+                }),
+            )
         } else {
-            (base_bg, base_fg, Some(Border { width: border_width, color: base_border }))
+            (
+                base_bg,
+                base_fg,
+                Some(Border {
+                    width: border_width,
+                    color: base_border,
+                }),
+            )
         };
 
         if let Some(border) = border {
@@ -167,7 +208,10 @@ impl Element for OptionButtonElement {
 
         if let Some(ref icon) = self.icon {
             let icon_rect = Rect::new(
-                Point::new(text_x, self.bounds.y() + (self.bounds.size.height - 16.0) / 2.0),
+                Point::new(
+                    text_x,
+                    self.bounds.y() + (self.bounds.size.height - 16.0) / 2.0,
+                ),
                 Size::new(16.0, 16.0),
             );
             list.push_text(icon, icon_rect, text_color, font_size);
@@ -175,13 +219,24 @@ impl Element for OptionButtonElement {
         }
 
         let text_rect = Rect::new(
-            Point::new(text_x, self.bounds.y() + (self.bounds.size.height - 18.0) / 2.0),
-            Size::new(self.bounds.size.width - (text_x - self.bounds.x()) - 12.0, 18.0),
+            Point::new(
+                text_x,
+                self.bounds.y() + (self.bounds.size.height - 18.0) / 2.0,
+            ),
+            Size::new(
+                self.bounds.size.width - (text_x - self.bounds.x()) - 12.0,
+                18.0,
+            ),
         );
         list.push_text_styled(
-            &self.text, text_rect, text_color, font_size,
-            crate::mss::TextAlign::DEFAULT, crate::mss::TextDecoration::None,
-            font_weight, self.mss.font_family.clone(),
+            &self.text,
+            text_rect,
+            text_color,
+            font_size,
+            crate::mss::TextAlign::DEFAULT,
+            crate::mss::TextDecoration::None,
+            font_weight,
+            self.mss.font_family.clone(),
         );
     }
 
@@ -194,12 +249,16 @@ impl Element for OptionButtonElement {
             Event::MouseMove(pos) => {
                 let was_hover = self.hover;
                 self.hover = self.bounds.contains(*pos);
-                if self.hover { ctx.set_cursor(CursorIcon::Pointer); }
+                if self.hover {
+                    ctx.set_cursor(CursorIcon::Pointer);
+                }
                 if self.hover != was_hover {
                     ctx.request_paint();
                     return EventResult::Handled;
                 }
-                if self.hover { return EventResult::Handled; }
+                if self.hover {
+                    return EventResult::Handled;
+                }
                 EventResult::Ignored
             }
             Event::MouseDown { button, position } => {
@@ -290,10 +349,16 @@ impl Element for OptionButtonElement {
         &self.classes
     }
 
-    fn element_type_name(&self) -> &str { "OptionButton" }
+    fn element_type_name(&self) -> &str {
+        "OptionButton"
+    }
 
-    fn reset_mss_styles(&mut self) { self.mss.reset(); }
-    fn mss(&self) -> Option<&crate::mss::MssFields> { Some(&self.mss) }
+    fn reset_mss_styles(&mut self) {
+        self.mss.reset();
+    }
+    fn mss(&self) -> Option<&crate::mss::MssFields> {
+        Some(&self.mss)
+    }
     fn apply_computed_style(&mut self, style: &ComputedStyle) {
         self.mss.apply(style);
         self.mark_dirty(DirtyFlags::LAYOUT | DirtyFlags::RENDER);
@@ -308,7 +373,8 @@ impl Element for OptionButtonElement {
         selected: Option<&ComputedStyle>,
         _checked: Option<&ComputedStyle>,
     ) {
-        self.mss.apply_transitions(base, hover, active, focus, selected);
+        self.mss
+            .apply_transitions(base, hover, active, focus, selected);
     }
 
     fn accessibility_info(&self) -> Option<crate::a11y::AccessibilityInfo> {

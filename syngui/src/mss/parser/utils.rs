@@ -6,7 +6,11 @@ pub(super) struct ParserCursor<'a> {
 
 impl<'a> ParserCursor<'a> {
     pub fn new(input: &'a str) -> Self {
-        Self { input, position: 0, line: 1 }
+        Self {
+            input,
+            position: 0,
+            line: 1,
+        }
     }
 
     pub fn skip_whitespace(&mut self) {

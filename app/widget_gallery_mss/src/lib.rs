@@ -7,10 +7,10 @@
 #[cfg(target_arch = "wasm32")]
 use wasm_bindgen::prelude::*;
 
+use std::sync::Arc;
 use syngui::core::sync::Mutex;
 use syngui::prelude::*;
 use syngui::widgets::*;
-use std::sync::Arc;
 
 mod sections;
 mod styles;
@@ -88,7 +88,10 @@ pub fn run_app() {
 
     let initial_mss = build_initial_mss();
     let theme_mss = use_signal(initial_mss.clone());
-    syngui::i18n::register_catalogs(&[include_str!("../i18n/en.lang"), include_str!("../i18n/ru.lang")]);
+    syngui::i18n::register_catalogs(&[
+        include_str!("../i18n/en.lang"),
+        include_str!("../i18n/ru.lang"),
+    ]);
     syngui::i18n::set_language(syngui::i18n::system_language());
 
     App::new()
@@ -135,8 +138,8 @@ fn make_ctx(theme_mss: RwSignal<String>) -> GalleryCtx {
 }
 
 const SECTION_ICONS: [&str; 25] = [
-    "🎛", "🔘", "⌨", "☑", "🎨", "📦", "🧭", "📜", "✨", "📐", "💬", "📋", "🔄",
-    "🖌", "📊", "💡", "📄", "🗺", "⚡", "🌟", "🎨", "📈", "🎬", "🖥", "⬜",
+    "🎛", "🔘", "⌨", "☑", "🎨", "📦", "🧭", "📜", "✨", "📐", "💬", "📋", "🔄", "🖌", "📊", "💡",
+    "📄", "🗺", "⚡", "🌟", "🎨", "📈", "🎬", "🖥", "⬜",
 ];
 
 fn section_items() -> Vec<ListItem> {
@@ -158,14 +161,14 @@ fn build_gallery() -> impl Widget {
                     Sidebar::new().class("gallery-sidebar").child(
                         DecoratedBox::new().class("grow").child(
                             ListView::new(section_items())
-                            .selection_mode(SelectionMode::Single)
-                            .selected(vec![sidebar_state.get()])
-                            .on_select(move |idx| {
-                                if let Some(key) = ROUTE_KEYS.get(idx) {
-                                    let ctx = use_context::<GalleryCtx>();
-                                    ctx.navigate_with_sidebar(key, idx);
-                                }
-                            }),
+                                .selection_mode(SelectionMode::Single)
+                                .selected(vec![sidebar_state.get()])
+                                .on_select(move |idx| {
+                                    if let Some(key) = ROUTE_KEYS.get(idx) {
+                                        let ctx = use_context::<GalleryCtx>();
+                                        ctx.navigate_with_sidebar(key, idx);
+                                    }
+                                }),
                         ),
                     ),
                 )

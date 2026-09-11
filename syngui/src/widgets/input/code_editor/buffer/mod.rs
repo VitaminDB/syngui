@@ -4,4 +4,4 @@ mod undo;
 
 pub use edit::{Edit, EditKind, InverseEdit};
 pub use rope::RopeBuffer;
-pub use undo::{UndoStack, UndoGroup};
+pub use undo::{UndoGroup, UndoStack};

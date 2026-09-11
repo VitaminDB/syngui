@@ -1,7 +1,7 @@
 use crate::signal::RwSignal;
+use crate::widget::Widget;
 use crate::widgets::buttons::ToolButton;
 use crate::widgets::containers::Row;
-use crate::widget::Widget;
 
 use super::widget::EditorMode;
 

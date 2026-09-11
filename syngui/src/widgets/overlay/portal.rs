@@ -1,28 +1,41 @@
+use crate::core::sync::Mutex;
 use crate::core::{Color, Point, Rect, Size};
 use crate::input::{Event, EventResult, MouseButton};
 use crate::layout::Constraints;
-use crate::mss::{ComputedStyle, Dimension};
 use crate::mss::MssFields;
+use crate::mss::{ComputedStyle, Dimension};
 use crate::render::DisplayList;
-use crate::signal::{RwSignal, use_signal};
+use crate::signal::{use_signal, RwSignal};
 use crate::widget::context::{EventContext, EventContextExt};
-use crate::widget::{DirtyFlags, Element, ElementId, ElementTree, LayoutHint, StyledElement, UpdateContext, Widget};
+use crate::widget::{
+    DirtyFlags, Element, ElementId, ElementTree, LayoutHint, StyledElement, UpdateContext, Widget,
+};
 use crate::widgets::containers::IntoWidget;
 use std::any::Any;
 use std::cell::Cell;
 use std::sync::Arc;
-use crate::core::sync::Mutex;
 
 #[derive(Clone, Copy, Debug)]
 pub enum PortalAnchor {
     Center,
-    BottomEnd { margin_bottom: f32, margin_right: f32 },
-    TopEnd { margin_top: f32, margin_right: f32 },
-    BottomStart { margin_bottom: f32, margin_left: f32 },
+    BottomEnd {
+        margin_bottom: f32,
+        margin_right: f32,
+    },
+    TopEnd {
+        margin_top: f32,
+        margin_right: f32,
+    },
+    BottomStart {
+        margin_bottom: f32,
+        margin_left: f32,
+    },
 }
 
 impl Default for PortalAnchor {
-    fn default() -> Self { Self::Center }
+    fn default() -> Self {
+        Self::Center
+    }
 }
 
 pub struct Portal {
@@ -130,8 +143,12 @@ impl Widget for Portal {
         other.is::<Self>()
     }
 
-    fn as_any(&self) -> &dyn Any { self }
-    fn as_any_mut(&mut self) -> &mut dyn Any { self }
+    fn as_any(&self) -> &dyn Any {
+        self
+    }
+    fn as_any_mut(&mut self) -> &mut dyn Any {
+        self
+    }
 
     fn mount(&self, tree: &mut ElementTree, parent_id: ElementId) {
         for child in &self.children {
@@ -142,7 +159,10 @@ impl Widget for Portal {
     }
 
     fn child_widgets(&self) -> Vec<&dyn Widget> {
-        self.children.iter().map(|c| c.as_ref() as &dyn Widget).collect()
+        self.children
+            .iter()
+            .map(|c| c.as_ref() as &dyn Widget)
+            .collect()
     }
 }
 
@@ -178,7 +198,9 @@ impl PortalElement {
             self.overlay_registered = false;
         }
         if let Some(ref cb) = self.on_close {
-            if let Ok(mut f) = cb.lock() { f(); }
+            if let Ok(mut f) = cb.lock() {
+                f();
+            }
         }
         ctx.request_paint();
     }
@@ -193,22 +215,22 @@ impl PortalElement {
         };
         let h = content.height;
         let (x, y) = match self.anchor {
-            PortalAnchor::Center => (
-                (viewport.width - w) / 2.0,
-                (viewport.height - h) / 2.0,
-            ),
-            PortalAnchor::BottomEnd { margin_bottom, margin_right } => (
+            PortalAnchor::Center => ((viewport.width - w) / 2.0, (viewport.height - h) / 2.0),
+            PortalAnchor::BottomEnd {
+                margin_bottom,
+                margin_right,
+            } => (
                 viewport.width - w - margin_right,
                 viewport.height - h - margin_bottom,
             ),
-            PortalAnchor::TopEnd { margin_top, margin_right } => (
-                viewport.width - w - margin_right,
+            PortalAnchor::TopEnd {
                 margin_top,
-            ),
-            PortalAnchor::BottomStart { margin_bottom, margin_left } => (
+                margin_right,
+            } => (viewport.width - w - margin_right, margin_top),
+            PortalAnchor::BottomStart {
+                margin_bottom,
                 margin_left,
-                viewport.height - h - margin_bottom,
-            ),
+            } => (margin_left, viewport.height - h - margin_bottom),
         };
         Rect::new(Point::new(x, y), Size::new(w, h))
     }
@@ -230,8 +252,16 @@ impl Element for PortalElement {
     }
 
     fn layout(&mut self, constraints: Constraints) -> Size {
-        let w = if constraints.max_width.is_finite() { constraints.max_width } else { 0.0 };
-        let h = if constraints.max_height.is_finite() { constraints.max_height } else { 0.0 };
+        let w = if constraints.max_width.is_finite() {
+            constraints.max_width
+        } else {
+            0.0
+        };
+        let h = if constraints.max_height.is_finite() {
+            constraints.max_height
+        } else {
+            0.0
+        };
         self.bounds = Rect::new(Point::zero(), Size::new(w, h));
         Size::zero()
     }
@@ -243,11 +273,24 @@ impl Element for PortalElement {
     fn layout_hint(&self) -> LayoutHint {
         let (anchor, margin_a, margin_b) = match self.anchor {
             PortalAnchor::Center => (0, 0.0, 0.0),
-            PortalAnchor::BottomEnd { margin_bottom, margin_right } => (1, margin_bottom, margin_right),
-            PortalAnchor::TopEnd { margin_top, margin_right } => (2, margin_top, margin_right),
-            PortalAnchor::BottomStart { margin_bottom, margin_left } => (3, margin_bottom, margin_left),
+            PortalAnchor::BottomEnd {
+                margin_bottom,
+                margin_right,
+            } => (1, margin_bottom, margin_right),
+            PortalAnchor::TopEnd {
+                margin_top,
+                margin_right,
+            } => (2, margin_top, margin_right),
+            PortalAnchor::BottomStart {
+                margin_bottom,
+                margin_left,
+            } => (3, margin_bottom, margin_left),
         };
-        LayoutHint::Portal { anchor, margin_a, margin_b }
+        LayoutHint::Portal {
+            anchor,
+            margin_a,
+            margin_b,
+        }
     }
 
     fn build_display_list(&self, list: &mut DisplayList, _clip: Rect) {
@@ -265,7 +308,6 @@ impl Element for PortalElement {
             let backdrop_rect = Rect::new(Point::zero(), viewport);
             list.push_rect(backdrop_rect, self.backdrop_color, [0.0; 4]);
         }
-
     }
 
     fn post_build_display_list(&self, list: &mut DisplayList, _clip: Rect) {
@@ -325,18 +367,28 @@ impl Element for PortalElement {
     }
 
     fn active_child_count(&self) -> usize {
-        if self.is_open() { usize::MAX } else { 0 }
+        if self.is_open() {
+            usize::MAX
+        } else {
+            0
+        }
     }
 
-    fn children(&self) -> &[ElementId] { &self.child_ids }
-    fn bounds(&self) -> Rect { self.bounds }
+    fn children(&self) -> &[ElementId] {
+        &self.child_ids
+    }
+    fn bounds(&self) -> Rect {
+        self.bounds
+    }
 
     fn hit_test(&self, _point: Point) -> bool {
         self.is_open()
     }
 
     fn overlay_request(&self) -> Option<(Rect, bool)> {
-        if !self.is_open() { return None; }
+        if !self.is_open() {
+            return None;
+        }
         let bounds = if self.modal {
             Rect::new(Point::zero(), self.viewport_size.get())
         } else {
@@ -344,12 +396,24 @@ impl Element for PortalElement {
         };
         Some((bounds, self.modal))
     }
-    fn set_position(&mut self, pos: Point) { self.bounds.origin = pos; }
-    fn mark_dirty(&mut self, flags: DirtyFlags) { self.dirty_flags |= flags; }
-    fn clear_dirty(&mut self, flags: DirtyFlags) { self.dirty_flags.remove(flags); }
-    fn is_dirty(&self, flags: DirtyFlags) -> bool { self.dirty_flags.contains(flags) }
-    fn id(&self) -> ElementId { self.id }
-    fn set_id(&mut self, id: ElementId) { self.id = id; }
+    fn set_position(&mut self, pos: Point) {
+        self.bounds.origin = pos;
+    }
+    fn mark_dirty(&mut self, flags: DirtyFlags) {
+        self.dirty_flags |= flags;
+    }
+    fn clear_dirty(&mut self, flags: DirtyFlags) {
+        self.dirty_flags.remove(flags);
+    }
+    fn is_dirty(&self, flags: DirtyFlags) -> bool {
+        self.dirty_flags.contains(flags)
+    }
+    fn id(&self) -> ElementId {
+        self.id
+    }
+    fn set_id(&mut self, id: ElementId) {
+        self.id = id;
+    }
     fn mount(&mut self, _tree: &mut ElementTree) {}
 
     fn set_classes(&mut self, classes: Vec<String>) {
@@ -357,8 +421,12 @@ impl Element for PortalElement {
         self.mark_dirty(DirtyFlags::RENDER);
     }
 
-    fn get_classes(&self) -> &[String] { &self.classes }
-    fn element_type_name(&self) -> &str { "Portal" }
+    fn get_classes(&self) -> &[String] {
+        &self.classes
+    }
+    fn element_type_name(&self) -> &str {
+        "Portal"
+    }
 
     fn set_content_size(&mut self, size: Size) {
         self.content_size.set(size);
@@ -368,16 +436,29 @@ impl Element for PortalElement {
         self.viewport_size.set(size);
     }
 
-    fn explicit_dimensions(&self, _parent_width: f32, _parent_height: f32) -> (Option<f32>, Option<f32>) {
-        let w = self.width.as_ref().map(|d| d.resolve(self.viewport_size.get().width));
+    fn explicit_dimensions(
+        &self,
+        _parent_width: f32,
+        _parent_height: f32,
+    ) -> (Option<f32>, Option<f32>) {
+        let w = self
+            .width
+            .as_ref()
+            .map(|d| d.resolve(self.viewport_size.get().width));
         (w, None)
     }
 
-    fn reset_mss_styles(&mut self) { self.mss.reset(); }
-    fn mss(&self) -> Option<&crate::mss::MssFields> { Some(&self.mss) }
+    fn reset_mss_styles(&mut self) {
+        self.mss.reset();
+    }
+    fn mss(&self) -> Option<&crate::mss::MssFields> {
+        Some(&self.mss)
+    }
     fn apply_computed_style(&mut self, style: &ComputedStyle) {
         self.mss.apply(style);
-        if let Some(d) = self.mss.width { self.width = Some(d); }
+        if let Some(d) = self.mss.width {
+            self.width = Some(d);
+        }
         self.mark_dirty(DirtyFlags::RENDER | DirtyFlags::LAYOUT);
     }
 
@@ -390,7 +471,8 @@ impl Element for PortalElement {
         selected: Option<&ComputedStyle>,
         _checked: Option<&ComputedStyle>,
     ) {
-        self.mss.apply_transitions(base, hover, active, focus, selected);
+        self.mss
+            .apply_transitions(base, hover, active, focus, selected);
     }
 
     fn accessibility_info(&self) -> Option<crate::a11y::AccessibilityInfo> {
@@ -409,7 +491,9 @@ impl StyledElement for PortalElement {
     fn apply_style(&mut self, _style: &ComputedStyle) {
         self.mark_dirty(DirtyFlags::RENDER | DirtyFlags::LAYOUT);
     }
-    fn classes(&self) -> &[String] { &self.classes }
+    fn classes(&self) -> &[String] {
+        &self.classes
+    }
     fn set_classes(&mut self, classes: Vec<String>) {
         self.classes = classes;
         self.mark_dirty(DirtyFlags::RENDER);

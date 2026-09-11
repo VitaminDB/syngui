@@ -28,11 +28,17 @@ impl fmt::Display for CatalogError {
 impl std::error::Error for CatalogError {}
 
 fn err(line: usize, message: impl Into<String>) -> CatalogError {
-    CatalogError { line, message: message.into() }
+    CatalogError {
+        line,
+        message: message.into(),
+    }
 }
 
 fn valid_key(key: &str) -> bool {
-    !key.is_empty() && key.bytes().all(|b| b.is_ascii_alphanumeric() || matches!(b, b'_' | b'.' | b'-'))
+    !key.is_empty()
+        && key
+            .bytes()
+            .all(|b| b.is_ascii_alphanumeric() || matches!(b, b'_' | b'.' | b'-'))
 }
 
 fn parse_quoted(rest: &str, line: usize) -> Result<String, CatalogError> {
@@ -91,7 +97,10 @@ impl Catalog {
                     "name" => name = Some(value),
                     "english" => english = Some(value),
                     "plural" => {
-                        plural = Some(PluralRule::parse(&value).ok_or_else(|| err(line, "unknown @plural rule"))?);
+                        plural = Some(
+                            PluralRule::parse(&value)
+                                .ok_or_else(|| err(line, "unknown @plural rule"))?,
+                        );
                     }
                     other => log::debug!("i18n: unknown metadata @{other} at line {line}"),
                 }
@@ -108,7 +117,13 @@ impl Catalog {
         let tag = tag.ok_or_else(|| err(0, "missing @tag"))?;
         let name = name.ok_or_else(|| err(0, "missing @name"))?;
         let plural = plural.unwrap_or_else(|| tag.plural_rule());
-        Ok(Catalog { tag, name, english, plural, entries })
+        Ok(Catalog {
+            tag,
+            name,
+            english,
+            plural,
+            entries,
+        })
     }
 
     pub fn get(&self, key: &str) -> Option<&str> {
@@ -169,7 +184,8 @@ files.many = "{n} файлов"
 
     #[test]
     fn plural_override_and_defaults() {
-        let c = Catalog::parse("@tag = \"en\"\n@name = \"English\"\n@plural = \"polish\"\n").unwrap();
+        let c =
+            Catalog::parse("@tag = \"en\"\n@name = \"English\"\n@plural = \"polish\"\n").unwrap();
         assert_eq!(c.plural, PluralRule::Polish);
         let c = Catalog::parse("@tag = \"zh-CN\"\n@name = \"中文\"\n").unwrap();
         assert_eq!(c.plural, PluralRule::OtherOnly);
@@ -177,7 +193,8 @@ files.many = "{n} файлов"
 
     #[test]
     fn duplicate_key_last_wins() {
-        let c = Catalog::parse("@tag = \"en\"\n@name = \"English\"\na = \"1\"\na = \"2\"\n").unwrap();
+        let c =
+            Catalog::parse("@tag = \"en\"\n@name = \"English\"\na = \"1\"\na = \"2\"\n").unwrap();
         assert_eq!(c.get("a"), Some("2"));
     }
 
@@ -193,17 +210,32 @@ files.many = "{n} файлов"
         assert_eq!(e.line, 3);
         let e = Catalog::parse("@tag = \"en\"\n@name = \"English\"\nk = \"\\q\"\n").unwrap_err();
         assert_eq!(e.line, 3);
-        let e = Catalog::parse("@tag = \"en\"\n@name = \"English\"\nbad key! = \"x\"\n").unwrap_err();
+        let e =
+            Catalog::parse("@tag = \"en\"\n@name = \"English\"\nbad key! = \"x\"\n").unwrap_err();
         assert_eq!(e.line, 3);
-        assert_eq!(Catalog::parse("@name = \"English\"\n").unwrap_err().message, "missing @tag");
-        assert_eq!(Catalog::parse("@tag = \"en\"\n").unwrap_err().message, "missing @name");
-        assert_eq!(Catalog::parse("@tag = \"C\"\n@name = \"x\"\n").unwrap_err().line, 1);
+        assert_eq!(
+            Catalog::parse("@name = \"English\"\n").unwrap_err().message,
+            "missing @tag"
+        );
+        assert_eq!(
+            Catalog::parse("@tag = \"en\"\n").unwrap_err().message,
+            "missing @name"
+        );
+        assert_eq!(
+            Catalog::parse("@tag = \"C\"\n@name = \"x\"\n")
+                .unwrap_err()
+                .line,
+            1
+        );
     }
 
     #[test]
     fn merge_overrides_entries() {
-        let mut base = Catalog::parse("@tag = \"en\"\n@name = \"English\"\na = \"1\"\nb = \"2\"\n").unwrap();
-        let over = Catalog::parse("@tag = \"en\"\n@name = \"English (app)\"\nb = \"3\"\nc = \"4\"\n").unwrap();
+        let mut base =
+            Catalog::parse("@tag = \"en\"\n@name = \"English\"\na = \"1\"\nb = \"2\"\n").unwrap();
+        let over =
+            Catalog::parse("@tag = \"en\"\n@name = \"English (app)\"\nb = \"3\"\nc = \"4\"\n")
+                .unwrap();
         base.merge_from(over);
         assert_eq!(base.get("a"), Some("1"));
         assert_eq!(base.get("b"), Some("3"));

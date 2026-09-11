@@ -1,11 +1,11 @@
 //! Layout benchmarks — measure_recursive + position_recursive performance
 
-use std::hint::black_box;
 use criterion::{criterion_group, criterion_main, BenchmarkId, Criterion};
+use std::hint::black_box;
 use syngui::core::{Color, Size};
 use syngui::layout::Constraints;
-use syngui::widget::{Text, Widget, ElementTree, DirtyFlags, ElementId, WidgetExt};
-use syngui::widgets::{Column, DecoratedBox, Row, Padding};
+use syngui::widget::{DirtyFlags, ElementId, ElementTree, Text, Widget, WidgetExt};
+use syngui::widgets::{Column, DecoratedBox, Padding, Row};
 
 // ── Helpers ─────────────────────────────────────────────────────────────
 
@@ -26,7 +26,12 @@ fn build_flat_column(n: usize) -> (ElementTree, ElementId) {
 fn build_flat_row(n: usize) -> (ElementTree, ElementId) {
     let mut row = Row::new().gap(8.0);
     for _ in 0..n {
-        row = row.child(DecoratedBox::new().style("width", 60.0_f32).style("height", 40.0_f32).style("background-color", Color::from_hex("#3B82F6")));
+        row = row.child(
+            DecoratedBox::new()
+                .style("width", 60.0_f32)
+                .style("height", 40.0_f32)
+                .style("background-color", Color::from_hex("#3B82F6")),
+        );
     }
     let mut tree = ElementTree::new();
     let root_elem = row.create_element();
@@ -45,7 +50,7 @@ fn build_deep_tree(depth: usize) -> (ElementTree, ElementId) {
                 Column::new()
                     .gap(2.0)
                     .child(Text::new(format!("Level {depth}")))
-                    .children(vec![make_widget(depth - 1)])
+                    .children(vec![make_widget(depth - 1)]),
             )
         }
     }
@@ -68,7 +73,7 @@ fn build_grid_tree(rows: usize, cols: usize) -> (ElementTree, ElementId) {
                 DecoratedBox::new()
                     .style("width", 80.0_f32)
                     .style("height", 32.0_f32)
-                    .style("background-color", Color::from_hex("#E5E7EB"))
+                    .style("background-color", Color::from_hex("#E5E7EB")),
             );
         }
         column = column.child(row);
@@ -89,25 +94,30 @@ fn build_realistic_ui() -> (ElementTree, ElementId) {
         Row::new()
             .gap(12.0)
             .child(Text::new("App Title").style("font-size", 24.0_f32))
-            .child(DecoratedBox::new().style("width", 1.0_f32).style("height", 24.0_f32))
+            .child(
+                DecoratedBox::new()
+                    .style("width", 1.0_f32)
+                    .style("height", 24.0_f32),
+            )
             .child(Text::new("Menu 1"))
             .child(Text::new("Menu 2"))
-            .child(Text::new("Menu 3"))
+            .child(Text::new("Menu 3")),
     );
 
     // Content: 3 columns of cards
     let mut content_row = Row::new().gap(16.0);
     for col_idx in 0..3 {
         let mut card_col = Column::new().gap(8.0);
-        card_col = card_col.child(Text::new(format!("Column {}", col_idx + 1)).style("font-size", 18.0_f32));
+        card_col = card_col
+            .child(Text::new(format!("Column {}", col_idx + 1)).style("font-size", 18.0_f32));
         for item_idx in 0..10 {
             card_col = card_col.child(
                 Padding::all(8.0).child(
                     Column::new()
                         .gap(4.0)
                         .child(Text::new(format!("Card {item_idx}")))
-                        .child(Text::new("Description text here").style("font-size", 12.0_f32))
-                )
+                        .child(Text::new("Description text here").style("font-size", 12.0_f32)),
+                ),
             );
         }
         content_row = content_row.child(card_col);
@@ -119,7 +129,7 @@ fn build_realistic_ui() -> (ElementTree, ElementId) {
         Row::new()
             .gap(8.0)
             .child(Text::new("Footer"))
-            .child(Text::new("v1.0.0"))
+            .child(Text::new("v1.0.0")),
     );
 
     let mut tree = ElementTree::new();
@@ -181,14 +191,18 @@ fn bench_layout_grid(c: &mut Criterion) {
     let mut group = c.benchmark_group("layout/grid");
     for (rows, cols) in [(5, 5), (10, 10), (20, 10), (10, 50), (20, 50), (40, 50)] {
         let label = format!("{rows}x{cols}");
-        group.bench_with_input(BenchmarkId::new("rows_cols", &label), &(rows, cols), |b, &(rows, cols)| {
-            let (mut tree, root_id) = build_grid_tree(rows, cols);
-            let constraints = Constraints::loose(Size::new(1280.0, 720.0));
-            b.iter(|| {
-                tree.mark_dirty(root_id, DirtyFlags::LAYOUT);
-                black_box(tree.layout(root_id, constraints))
-            });
-        });
+        group.bench_with_input(
+            BenchmarkId::new("rows_cols", &label),
+            &(rows, cols),
+            |b, &(rows, cols)| {
+                let (mut tree, root_id) = build_grid_tree(rows, cols);
+                let constraints = Constraints::loose(Size::new(1280.0, 720.0));
+                b.iter(|| {
+                    tree.mark_dirty(root_id, DirtyFlags::LAYOUT);
+                    black_box(tree.layout(root_id, constraints))
+                });
+            },
+        );
     }
     group.finish();
 }

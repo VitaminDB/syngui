@@ -1,16 +1,18 @@
+use crate::core::sync::Mutex;
 use crate::core::{Color, Point, Rect, RectExt, Size, Transform};
 use crate::input::{CursorIcon, Event, EventResult, MouseButton};
 use crate::layout::Constraints;
 use crate::mss::{ComputedStyle, Dimension, IconState, MssFields};
 use crate::render::{Border, DisplayList};
+use crate::signal::RwSignal;
 use crate::widget::context::{EventContext, EventContextExt};
-use crate::widget::{DirtyFlags, Element, ElementId, ElementTree, LayoutHint, StyledElement, UpdateContext, Widget};
+use crate::widget::{
+    DirtyFlags, Element, ElementId, ElementTree, LayoutHint, StyledElement, UpdateContext, Widget,
+};
 use std::any::Any;
 use std::collections::HashMap;
 use std::ops::Range;
 use std::sync::Arc;
-use crate::core::sync::Mutex;
-use crate::signal::RwSignal;
 use std::time::Duration;
 
 #[derive(Clone, Debug)]
@@ -64,7 +66,8 @@ pub enum SelectionMode {
 
 type ItemBuilderFn = Arc<dyn Fn(usize) -> ListItem + Send + Sync>;
 
-type ItemWidgetBuilderFn = Arc<dyn Fn(usize, &ListItem, bool, bool) -> Box<dyn Widget> + Send + Sync>;
+type ItemWidgetBuilderFn =
+    Arc<dyn Fn(usize, &ListItem, bool, bool) -> Box<dyn Widget> + Send + Sync>;
 
 enum ListDataSource {
     Eager(Vec<ListItem>),
@@ -199,11 +202,7 @@ impl ListView {
         self
     }
 
-    pub fn on_reach_top(
-        mut self,
-        threshold_px: f32,
-        f: impl FnMut() + Send + 'static,
-    ) -> Self {
+    pub fn on_reach_top(mut self, threshold_px: f32, f: impl FnMut() + Send + 'static) -> Self {
         self.reach_top_threshold = threshold_px.max(0.0);
         self.on_reach_top = Some(Arc::new(Mutex::new(f)));
         self
@@ -214,7 +213,10 @@ impl Widget for ListView {
     fn create_element(&self) -> Box<dyn Element> {
         let data = match &self.data {
             ListDataSource::Eager(items) => ListDataSource::Eager(items.clone()),
-            ListDataSource::Virtual { item_count, item_builder } => ListDataSource::Virtual {
+            ListDataSource::Virtual {
+                item_count,
+                item_builder,
+            } => ListDataSource::Virtual {
                 item_count: *item_count,
                 item_builder: item_builder.clone(),
             },
@@ -255,9 +257,15 @@ impl Widget for ListView {
         })
     }
 
-    fn can_update(&self, other: &dyn Any) -> bool { other.is::<Self>() }
-    fn as_any(&self) -> &dyn Any { self }
-    fn as_any_mut(&mut self) -> &mut dyn Any { self }
+    fn can_update(&self, other: &dyn Any) -> bool {
+        other.is::<Self>()
+    }
+    fn as_any(&self) -> &dyn Any {
+        self
+    }
+    fn as_any_mut(&mut self) -> &mut dyn Any {
+        self
+    }
     fn mount(&self, _tree: &mut ElementTree, _parent_id: ElementId) {}
 
     fn widget_classes(&self) -> &[String] {
@@ -322,7 +330,11 @@ impl ListViewElement {
         }
         let local_y = y - self.bounds.y() + self.scroll_offset;
         let idx = (local_y / self.item_height) as usize;
-        if idx < self.item_count() { Some(idx) } else { None }
+        if idx < self.item_count() {
+            Some(idx)
+        } else {
+            None
+        }
     }
 
     fn get_item(&self, index: usize) -> Option<&ListItem> {
@@ -381,7 +393,9 @@ impl ListViewElement {
     }
 
     fn compose_scrollbar_style(&self) -> crate::widgets::scroll::ScrollbarStyle {
-        let fg = self.mss.color
+        let fg = self
+            .mss
+            .color
             .or(self.mss.border_color)
             .unwrap_or(Color::from_hex("#9CA3AF"));
         self.mss.scrollbar_style(fg)
@@ -393,7 +407,9 @@ impl ListViewElement {
         }
         let style = self.compose_scrollbar_style();
         let opacity = crate::widgets::scroll::effective_opacity(&self.scrollbar_fader, &style);
-        if opacity <= 0.0 { return; }
+        if opacity <= 0.0 {
+            return;
+        }
         let mut fader = self.scrollbar_fader;
         fader.dragging = self.scrollbar_dragging;
         fader.hovered = self.scrollbar_hovered || fader.hovered;
@@ -409,7 +425,11 @@ impl ListViewElement {
     }
 
     fn ensure_cached_for_viewport(&mut self) {
-        if let ListDataSource::Virtual { item_count, ref item_builder } = self.data {
+        if let ListDataSource::Virtual {
+            item_count,
+            ref item_builder,
+        } = self.data
+        {
             let viewport_top = self.scroll_offset;
             let viewport_bottom = viewport_top + self.bounds.size.height;
             let vis_first = (viewport_top / self.item_height) as usize;
@@ -419,14 +439,17 @@ impl ListViewElement {
             let fetch_end = (vis_last + self.buffer_size).min(item_count);
             let fetch_range = fetch_start..fetch_end;
 
-            if fetch_range.start >= self.cache_range.start && fetch_range.end <= self.cache_range.end {
+            if fetch_range.start >= self.cache_range.start
+                && fetch_range.end <= self.cache_range.end
+            {
                 return;
             }
 
             let retain_start = vis_first.saturating_sub(self.buffer_size * 2);
             let retain_end = (vis_last + self.buffer_size * 2).min(item_count);
 
-            self.item_cache.retain(|k, _| *k >= retain_start && *k < retain_end);
+            self.item_cache
+                .retain(|k, _| *k >= retain_start && *k < retain_end);
 
             let builder = item_builder.clone();
             for i in fetch_range.clone() {
@@ -449,7 +472,10 @@ impl Element for ListViewElement {
                     self.item_cache.clear();
                     self.cache_range = 0..0;
                 }
-                ListDataSource::Virtual { item_count, item_builder } => {
+                ListDataSource::Virtual {
+                    item_count,
+                    item_builder,
+                } => {
                     let old_count = self.item_count();
                     self.data = ListDataSource::Virtual {
                         item_count: *item_count,
@@ -481,10 +507,22 @@ impl Element for ListViewElement {
     }
 
     fn layout(&mut self, constraints: Constraints) -> Size {
-        let w = self.width.map(|d| d.resolve(constraints.max_width)).unwrap_or(constraints.max_width).min(constraints.max_width);
-        let h = self.height.map(|d| d.resolve(constraints.max_height)).unwrap_or(constraints.max_height).min(constraints.max_height);
+        let w = self
+            .width
+            .map(|d| d.resolve(constraints.max_width))
+            .unwrap_or(constraints.max_width)
+            .min(constraints.max_width);
+        let h = self
+            .height
+            .map(|d| d.resolve(constraints.max_height))
+            .unwrap_or(constraints.max_height)
+            .min(constraints.max_height);
         let natural_h = self.content_height();
-        let h = if h.is_infinite() { natural_h } else { h.min(constraints.max_height) };
+        let h = if h.is_infinite() {
+            natural_h
+        } else {
+            h.min(constraints.max_height)
+        };
         self.bounds = Rect::new(Point::zero(), Size::new(w, h));
         if !self.compositional {
             self.ensure_cached_for_viewport();
@@ -499,24 +537,22 @@ impl Element for ListViewElement {
         let border_radius = self.mss.border_radius_resolved(resolve_base, 8.0);
         let border_width = self.mss.border_width_or(1.0);
 
-        let h_bg = self
-            .content_height()
-            .min(self.bounds.size.height)
-            .max(0.0);
-        let bg_rect = Rect::new(
-            self.bounds.origin,
-            Size::new(self.bounds.size.width, h_bg),
-        );
+        let h_bg = self.content_height().min(self.bounds.size.height).max(0.0);
+        let bg_rect = Rect::new(self.bounds.origin, Size::new(self.bounds.size.width, h_bg));
 
         if bg_color.a > 0.001 || border_color.a > 0.001 {
             if border_width > 0.0 && border_color.a > 0.001 {
                 list.push_rect_bordered(
-                    bg_rect, bg_color, border_radius,
+                    bg_rect,
+                    bg_color,
+                    border_radius,
                     Border::new(border_width, border_color),
                 );
             } else {
                 list.push_rect_bordered(
-                    bg_rect, bg_color, border_radius,
+                    bg_rect,
+                    bg_color,
+                    border_radius,
                     Border::new(0.0, Color::TRANSPARENT),
                 );
             }
@@ -614,7 +650,10 @@ impl Element for ListViewElement {
             };
             let primary_rect = Rect::new(
                 Point::new(text_x, primary_y),
-                Size::new(self.bounds.size.width - (text_x - self.bounds.x()) - 16.0, 16.0),
+                Size::new(
+                    self.bounds.size.width - (text_x - self.bounds.x()) - 16.0,
+                    16.0,
+                ),
             );
             list.push_text(&item.text, primary_rect, text_color, 14.0);
 
@@ -622,7 +661,10 @@ impl Element for ListViewElement {
                 let sec_y = y + self.item_height / 2.0 + 2.0;
                 let sec_rect = Rect::new(
                     Point::new(text_x, sec_y),
-                    Size::new(self.bounds.size.width - (text_x - self.bounds.x()) - 16.0, 14.0),
+                    Size::new(
+                        self.bounds.size.width - (text_x - self.bounds.x()) - 16.0,
+                        14.0,
+                    ),
                 );
                 let base = self.mss.icon_color(row_state, fg);
                 let sec_color = base.with_alpha(base.a * 0.75);
@@ -631,7 +673,10 @@ impl Element for ListViewElement {
 
             if let Some(ref trailing) = item.trailing {
                 let trail_rect = Rect::new(
-                    Point::new(self.bounds.x() + self.bounds.size.width - 60.0, y + (self.item_height - 12.0) / 2.0),
+                    Point::new(
+                        self.bounds.x() + self.bounds.size.width - 60.0,
+                        y + (self.item_height - 12.0) / 2.0,
+                    ),
                     Size::new(44.0, 14.0),
                 );
                 let base = self.mss.icon_color(row_state, fg);
@@ -646,14 +691,18 @@ impl Element for ListViewElement {
 
         if border_width > 0.0 && border_color.a > 0.001 {
             list.push_rect_bordered(
-                self.bounds, Color::TRANSPARENT, border_radius,
+                self.bounds,
+                Color::TRANSPARENT,
+                border_radius,
                 Border::new(border_width, border_color),
             );
         }
     }
 
     fn post_build_display_list(&self, list: &mut DisplayList, _clip: Rect) {
-        if !self.compositional { return; }
+        if !self.compositional {
+            return;
+        }
         let border_color = self.mss.border_color.unwrap_or(Color::from_hex("#E5E7EB"));
         let resolve_base = self.bounds.size.width.min(self.bounds.size.height);
         let border_radius = self.mss.border_radius_resolved(resolve_base, 8.0);
@@ -665,7 +714,9 @@ impl Element for ListViewElement {
         list.pop_clip();
         if border_width > 0.0 && border_color.a > 0.001 {
             list.push_rect_bordered(
-                self.bounds, Color::TRANSPARENT, border_radius,
+                self.bounds,
+                Color::TRANSPARENT,
+                border_radius,
                 Border::new(border_width, border_color),
             );
         }
@@ -707,7 +758,8 @@ impl Element for ListViewElement {
                 if self.scrollbar_dragging {
                     if let Some((_, _)) = self.scrollbar_rects() {
                         let track_h = self.bounds.size.height;
-                        let thumb_h = (self.bounds.size.height / self.content_height() * track_h).max(20.0);
+                        let thumb_h =
+                            (self.bounds.size.height / self.content_height() * track_h).max(20.0);
                         let max_s = self.max_scroll();
                         let relative_y = pos.y - self.bounds.y() - self.scrollbar_drag_offset;
                         let ratio = relative_y / (track_h - thumb_h);
@@ -737,7 +789,8 @@ impl Element for ListViewElement {
                     return EventResult::Ignored;
                 }
 
-                let sb_hovered = self.scrollbar_rects()
+                let sb_hovered = self
+                    .scrollbar_rects()
                     .map_or(false, |(track, _)| track.contains(*pos));
                 if sb_hovered != self.scrollbar_hovered {
                     self.scrollbar_hovered = sb_hovered;
@@ -765,7 +818,9 @@ impl Element for ListViewElement {
                 EventResult::Handled
             }
             Event::MouseDown { button, position } if *button == MouseButton::Left => {
-                if !self.bounds.contains(*position) { return EventResult::Ignored; }
+                if !self.bounds.contains(*position) {
+                    return EventResult::Ignored;
+                }
 
                 if let Some((track, thumb)) = self.scrollbar_rects() {
                     if thumb.contains(*position) {
@@ -811,7 +866,9 @@ impl Element for ListViewElement {
                             }
                         }
                         if let Some(ref cb) = self.on_select {
-                            if let Ok(mut f) = cb.lock() { f(idx); }
+                            if let Ok(mut f) = cb.lock() {
+                                f(idx);
+                            }
                         }
                         if self.compositional {
                             self.needs_child_rebuild = true;
@@ -829,8 +886,12 @@ impl Element for ListViewElement {
                 }
                 EventResult::Ignored
             }
-            Event::MouseWheel { delta, position, .. } => {
-                if !self.bounds.contains(*position) { return EventResult::Ignored; }
+            Event::MouseWheel {
+                delta, position, ..
+            } => {
+                if !self.bounds.contains(*position) {
+                    return EventResult::Ignored;
+                }
                 let scroll_amount = *delta;
                 let new_offset = (self.scroll_offset - scroll_amount).clamp(0.0, self.max_scroll());
                 if (new_offset - self.scroll_offset).abs() > 0.01 {
@@ -850,20 +911,39 @@ impl Element for ListViewElement {
         }
     }
 
-    fn children(&self) -> &[ElementId] { &[] }
-    fn bounds(&self) -> Rect { self.bounds }
-    fn set_position(&mut self, pos: Point) { self.bounds.origin = pos; }
-    fn mark_dirty(&mut self, flags: DirtyFlags) { self.dirty_flags |= flags; }
-    fn clear_dirty(&mut self, flags: DirtyFlags) { self.dirty_flags.remove(flags); }
-    fn is_dirty(&self, flags: DirtyFlags) -> bool { self.dirty_flags.contains(flags) }
-    fn id(&self) -> ElementId { self.id }
-    fn set_id(&mut self, id: ElementId) { self.id = id; }
+    fn children(&self) -> &[ElementId] {
+        &[]
+    }
+    fn bounds(&self) -> Rect {
+        self.bounds
+    }
+    fn set_position(&mut self, pos: Point) {
+        self.bounds.origin = pos;
+    }
+    fn mark_dirty(&mut self, flags: DirtyFlags) {
+        self.dirty_flags |= flags;
+    }
+    fn clear_dirty(&mut self, flags: DirtyFlags) {
+        self.dirty_flags.remove(flags);
+    }
+    fn is_dirty(&self, flags: DirtyFlags) -> bool {
+        self.dirty_flags.contains(flags)
+    }
+    fn id(&self) -> ElementId {
+        self.id
+    }
+    fn set_id(&mut self, id: ElementId) {
+        self.id = id;
+    }
     fn mount(&mut self, _tree: &mut ElementTree) {}
 
     fn layout_hint(&self) -> LayoutHint {
         if self.compositional {
             LayoutHint::Scroll {
-                left: 0.0, top: 0.0, right: 0.0, bottom: 0.0,
+                left: 0.0,
+                top: 0.0,
+                right: 0.0,
+                bottom: 0.0,
                 unbounded_width: false,
                 unbounded_height: true,
             }
@@ -934,16 +1014,28 @@ impl Element for ListViewElement {
         self.mark_dirty(DirtyFlags::RENDER);
     }
 
-    fn get_classes(&self) -> &[String] { &self.classes }
+    fn get_classes(&self) -> &[String] {
+        &self.classes
+    }
 
-    fn element_type_name(&self) -> &str { "ListView" }
+    fn element_type_name(&self) -> &str {
+        "ListView"
+    }
 
-    fn reset_mss_styles(&mut self) { self.mss.reset(); }
-    fn mss(&self) -> Option<&crate::mss::MssFields> { Some(&self.mss) }
+    fn reset_mss_styles(&mut self) {
+        self.mss.reset();
+    }
+    fn mss(&self) -> Option<&crate::mss::MssFields> {
+        Some(&self.mss)
+    }
     fn apply_computed_style(&mut self, style: &ComputedStyle) {
         self.mss.apply(style);
-        if let Some(w) = style.width() { self.width = Some(w); }
-        if let Some(h) = style.height() { self.height = Some(h); }
+        if let Some(w) = style.width() {
+            self.width = Some(w);
+        }
+        if let Some(h) = style.height() {
+            self.height = Some(h);
+        }
         if let Some(ih) = style.get("item-height").and_then(|v| v.as_px()) {
             self.item_height = ih;
         }
@@ -964,12 +1056,18 @@ impl Element for ListViewElement {
 
 impl StyledElement for ListViewElement {
     fn apply_style(&mut self, style: &ComputedStyle) {
-        if let Some(w) = style.width() { self.width = Some(w); }
-        if let Some(h) = style.height() { self.height = Some(h); }
+        if let Some(w) = style.width() {
+            self.width = Some(w);
+        }
+        if let Some(h) = style.height() {
+            self.height = Some(h);
+        }
         self.mark_dirty(DirtyFlags::LAYOUT | DirtyFlags::RENDER);
     }
 
-    fn classes(&self) -> &[String] { &self.classes }
+    fn classes(&self) -> &[String] {
+        &self.classes
+    }
 
     fn set_classes(&mut self, classes: Vec<String>) {
         self.classes = classes;

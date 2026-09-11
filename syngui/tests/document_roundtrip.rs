@@ -38,7 +38,12 @@ fn fixtures_roundtrip() {
 // ─── Структурные проверки парсера ───────────────────────────────────────────
 
 fn first_kind(src: &str) -> BlockKind {
-    parse_document(src).blocks.into_iter().next().expect("пустой документ").kind
+    parse_document(src)
+        .blocks
+        .into_iter()
+        .next()
+        .expect("пустой документ")
+        .kind
 }
 
 #[test]
@@ -61,7 +66,11 @@ fn callout_and_toggle() {
         "> [!warning]{color=#e0a030} Важно\n>\n> Тело.\n\n> [!toggle]{open} Секция\n>\n> Внутри.\n\n> [!toggle] Свёрнута\n",
     );
     match &m.blocks[0].kind {
-        BlockKind::Callout { kind, title, children } => {
+        BlockKind::Callout {
+            kind,
+            title,
+            children,
+        } => {
             assert_eq!(kind, "warning");
             assert_eq!(title.text(), "Важно");
             assert_eq!(children.len(), 1);
@@ -70,7 +79,11 @@ fn callout_and_toggle() {
     }
     assert_eq!(m.blocks[0].attrs.get("color"), Some("#e0a030"));
     match &m.blocks[1].kind {
-        BlockKind::Toggle { summary, collapsed, children } => {
+        BlockKind::Toggle {
+            summary,
+            collapsed,
+            children,
+        } => {
             assert_eq!(summary.text(), "Секция");
             assert!(!collapsed, "флаг open должен раскрывать");
             assert_eq!(children.len(), 1);
@@ -98,7 +111,9 @@ fn embed_paragraph() {
 #[test]
 fn wiki_links() {
     let m = parse_document("Ссылка на [[Проект X]] и [[Проект X|проект]].\n");
-    let BlockKind::Paragraph(text) = &m.blocks[0].kind else { panic!() };
+    let BlockKind::Paragraph(text) = &m.blocks[0].kind else {
+        panic!()
+    };
     let wikis: Vec<_> = text
         .0
         .iter()
@@ -146,7 +161,13 @@ fn media_attrs_and_kind() {
     assert_eq!(m.blocks[0].attrs.get("width"), Some("70%"));
     // Переопределение типа атрибутом.
     let m = parse_document("![отчёт](report.pdf){kind=file}\n");
-    assert!(matches!(&m.blocks[0].kind, BlockKind::Media { media: MediaKind::File, .. }));
+    assert!(matches!(
+        &m.blocks[0].kind,
+        BlockKind::Media {
+            media: MediaKind::File,
+            ..
+        }
+    ));
 }
 
 #[test]
@@ -160,10 +181,7 @@ fn lists_shapes() {
         other => panic!("не bullet: {other:?}"),
     }
     match (&m.blocks[2].kind, &m.blocks[3].kind) {
-        (
-            BlockKind::Numbered { number: n1, .. },
-            BlockKind::Numbered { number: n2, .. },
-        ) => {
+        (BlockKind::Numbered { number: n1, .. }, BlockKind::Numbered { number: n2, .. }) => {
             assert_eq!((*n1, *n2), (3, 4));
         }
         other => panic!("не нумерация: {other:?}"),
@@ -173,8 +191,14 @@ fn lists_shapes() {
 #[test]
 fn todos() {
     let m = parse_document("- [ ] раз\n- [x] два\n");
-    assert!(matches!(&m.blocks[0].kind, BlockKind::Todo { checked: false, .. }));
-    assert!(matches!(&m.blocks[1].kind, BlockKind::Todo { checked: true, .. }));
+    assert!(matches!(
+        &m.blocks[0].kind,
+        BlockKind::Todo { checked: false, .. }
+    ));
+    assert!(matches!(
+        &m.blocks[1].kind,
+        BlockKind::Todo { checked: true, .. }
+    ));
 }
 
 #[test]
@@ -187,12 +211,16 @@ fn hard_break_survives() {
 fn literal_specials_survive() {
     // Литеральные символы разметки не должны превращаться в разметку.
     let m1 = parse_document("Литеральные \\*звёздочки\\* и \\[скобки\\].\n");
-    let BlockKind::Paragraph(t) = &m1.blocks[0].kind else { panic!() };
+    let BlockKind::Paragraph(t) = &m1.blocks[0].kind else {
+        panic!()
+    };
     assert_eq!(t.text(), "Литеральные *звёздочки* и [скобки].");
     assert!(t.0.iter().all(|r| r.style.plain()));
     let s1 = serialize_document(&m1);
     let m2 = parse_document(&s1);
-    let BlockKind::Paragraph(t2) = &m2.blocks[0].kind else { panic!() };
+    let BlockKind::Paragraph(t2) = &m2.blocks[0].kind else {
+        panic!()
+    };
     assert_eq!(t2.text(), t.text());
 }
 
@@ -214,14 +242,21 @@ fn code_fence_with_backticks() {
         }
         other => panic!("не код: {other:?}"),
     }
-    assert!(s1.starts_with("````md\n"), "нужен более длинный fence: {s1:?}");
+    assert!(
+        s1.starts_with("````md\n"),
+        "нужен более длинный fence: {s1:?}"
+    );
 }
 
 #[test]
 fn table_alignment() {
     let m = parse_document("| a | b | c |\n| --- | :-: | --: |\n| 1 | 2 | 3 |\n");
     match &m.blocks[0].kind {
-        BlockKind::Table { aligns, headers, rows } => {
+        BlockKind::Table {
+            aligns,
+            headers,
+            rows,
+        } => {
             assert_eq!(aligns, &[DocAlign::Left, DocAlign::Center, DocAlign::Right]);
             assert_eq!(headers.len(), 3);
             assert_eq!(rows.len(), 1);
@@ -262,7 +297,10 @@ fn shape_blocks() {
         other => panic!("не фигура: {other:?}"),
     }
     assert_eq!(b.attrs.get("fill"), Some("#243149"));
-    assert_eq!(serialize_document(&m), "![[shape:rect]]{fill=#243149 sw=3}\n");
+    assert_eq!(
+        serialize_document(&m),
+        "![[shape:rect]]{fill=#243149 sw=3}\n"
+    );
 
     // Неизвестный вид остаётся обычной врезкой, а не теряется.
     match first_kind("![[shape:зигзаг]]\n") {
@@ -300,7 +338,10 @@ fn curve_shapes() {
     assert_eq!(roundtrip(src), src);
     // Синоним и прямой аналог вида.
     assert_eq!(ShapeKind::from_name("bezier"), Some(ShapeKind::Curve));
-    assert_eq!(ShapeKind::CurveDoubleArrow.straightened(), ShapeKind::DoubleArrow);
+    assert_eq!(
+        ShapeKind::CurveDoubleArrow.straightened(),
+        ShapeKind::DoubleArrow
+    );
 }
 
 #[test]
@@ -312,7 +353,9 @@ fn table_inside_toggle() {
     assert_eq!(m.blocks.len(), 1, "toggle с таблицей — один блок");
     match &m.blocks[0].kind {
         BlockKind::Toggle { children, .. } => {
-            assert!(matches!(children.as_slice(), [b] if matches!(b.kind, BlockKind::Table { .. })));
+            assert!(
+                matches!(children.as_slice(), [b] if matches!(b.kind, BlockKind::Table { .. }))
+            );
         }
         other => panic!("не toggle: {other:?}"),
     }

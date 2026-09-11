@@ -3,7 +3,12 @@ pub struct RenderPipeline {
 }
 
 impl RenderPipeline {
-    pub fn new(device: &wgpu::Device, surface_format: wgpu::TextureFormat, shader: &wgpu::ShaderModule, bind_group_layouts: &[&wgpu::BindGroupLayout]) -> Self {
+    pub fn new(
+        device: &wgpu::Device,
+        surface_format: wgpu::TextureFormat,
+        shader: &wgpu::ShaderModule,
+        bind_group_layouts: &[&wgpu::BindGroupLayout],
+    ) -> Self {
         let pipeline_layout = device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
             label: Some("UI Pipeline Layout"),
             bind_group_layouts,

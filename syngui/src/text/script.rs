@@ -52,14 +52,27 @@ mod tests {
 
     #[test]
     fn han_ranges() {
-        for ch in ['日', '本', '語', '\u{3400}', '\u{4DBF}', '\u{F900}', '\u{2E80}', '\u{2F00}', '\u{20000}', '\u{3134F}'] {
+        for ch in [
+            '日',
+            '本',
+            '語',
+            '\u{3400}',
+            '\u{4DBF}',
+            '\u{F900}',
+            '\u{2E80}',
+            '\u{2F00}',
+            '\u{20000}',
+            '\u{3134F}',
+        ] {
             assert_eq!(script_of(ch), Some(Script::Han), "{ch:?}");
         }
     }
 
     #[test]
     fn cjk_punctuation_and_fullwidth_map_to_han() {
-        for ch in ['。', '、', '「', '」', '\u{3000}', '！', '，', 'Ａ', '\u{FF65}'] {
+        for ch in [
+            '。', '、', '「', '」', '\u{3000}', '！', '，', 'Ａ', '\u{FF65}',
+        ] {
             assert_eq!(script_of(ch), Some(Script::Han), "{ch:?}");
         }
     }
@@ -73,7 +86,9 @@ mod tests {
 
     #[test]
     fn hangul_ranges() {
-        for ch in ['한', '국', '\u{1100}', '\u{3130}', '\u{A960}', '\u{D7B0}', '\u{D7FF}'] {
+        for ch in [
+            '한', '국', '\u{1100}', '\u{3130}', '\u{A960}', '\u{D7B0}', '\u{D7FF}',
+        ] {
             assert_eq!(script_of(ch), Some(Script::Hangul), "{ch:?}");
         }
     }

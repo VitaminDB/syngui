@@ -1,6 +1,6 @@
-use crate::mss::{StyleEngine, cascade};
-use crate::widget::{ElementTree, ElementId};
 use super::AppHandler;
+use crate::mss::{cascade, StyleEngine};
+use crate::widget::{ElementId, ElementTree};
 
 impl AppHandler {
     pub(super) fn apply_styles_to_tree(tree: &mut ElementTree, style_engine: &StyleEngine) {

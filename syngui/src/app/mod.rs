@@ -1,27 +1,27 @@
 mod builder;
-mod handler;
 mod event_handling;
+mod handler;
 pub(crate) mod input_mapping;
 #[cfg(feature = "splash")]
 mod splash;
 
-pub mod tray;
-pub mod user_event;
-#[cfg(all(feature = "wayland-dnd", target_os = "linux"))]
-pub(crate) mod wayland_dnd;
 #[cfg(all(
     feature = "single-instance",
     not(target_arch = "wasm32"),
     not(target_os = "android")
 ))]
 pub(crate) mod single_instance;
+pub mod tray;
+pub mod user_event;
+#[cfg(all(feature = "wayland-dnd", target_os = "linux"))]
+pub(crate) mod wayland_dnd;
 
 #[cfg(target_os = "android")]
 pub mod notification;
 #[cfg(target_arch = "wasm32")]
-pub(crate) mod web_keys;
-#[cfg(target_arch = "wasm32")]
 pub(crate) mod web_clipboard;
+#[cfg(target_arch = "wasm32")]
+pub(crate) mod web_keys;
 #[cfg(target_arch = "wasm32")]
 pub(crate) mod web_text_agent;
 

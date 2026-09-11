@@ -1,19 +1,21 @@
-pub mod tile_math;
+pub mod building_overlay;
+pub mod heat_overlay;
+pub mod marker;
 pub mod provider;
-pub mod tile_loader;
 pub mod tile_cache;
 #[cfg(all(target_arch = "wasm32", feature = "map"))]
 mod tile_cache_idb;
-pub mod marker;
-pub mod heat_overlay;
-pub mod building_overlay;
+pub mod tile_loader;
+pub mod tile_math;
 
-pub use provider::TileProvider;
-pub use marker::MapMarker;
-pub use tile_cache::TileCache;
-pub use heat_overlay::{HeatOverlay, HeatPoint};
 pub use building_overlay::{BuildingOverlay, BuildingShape};
-pub use tile_math::{geo_to_pixel, pixel_to_geo, lng_to_tile_x, lat_to_tile_y, tile_x_to_lng, tile_y_to_lat};
+pub use heat_overlay::{HeatOverlay, HeatPoint};
+pub use marker::MapMarker;
+pub use provider::TileProvider;
+pub use tile_cache::TileCache;
+pub use tile_math::{
+    geo_to_pixel, lat_to_tile_y, lng_to_tile_x, pixel_to_geo, tile_x_to_lng, tile_y_to_lat,
+};
 
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct MapViewport {
@@ -29,14 +31,14 @@ use crate::core::{Color, Point, Rect, Size};
 use crate::gpu::tile_atlas::{TileAtlas, TileKey};
 use crate::input::{CursorIcon, Event, EventResult};
 use crate::layout::Constraints;
-use crate::render::{DisplayList, TextureId};
 use crate::mss::{ComputedStyle, MssFields};
-use crate::widget::{DirtyFlags, Element, ElementId, ElementTree, Widget};
+use crate::render::{DisplayList, TextureId};
 use crate::widget::context::TextMeasure;
+use crate::widget::{DirtyFlags, Element, ElementId, ElementTree, Widget};
 
+use crate::core::sync::Mutex;
 use std::any::Any;
 use std::sync::Arc;
-use crate::core::sync::Mutex;
 use tile_loader::{TileLoader, TileState};
 
 pub struct MapView {
@@ -238,7 +240,10 @@ pub struct MapViewElement {
 }
 
 impl MapViewElement {
-    fn active_filter(&self, target: &crate::animation::transition::AnimatedPropertyMap) -> Option<Vec<crate::effects::FilterEffect>> {
+    fn active_filter(
+        &self,
+        target: &crate::animation::transition::AnimatedPropertyMap,
+    ) -> Option<Vec<crate::effects::FilterEffect>> {
         if let Some(ref anim) = self.mss.keyframe_animation {
             if anim.is_running() {
                 if let Some(filter) = anim.current_values().filter() {
@@ -247,17 +252,25 @@ impl MapViewElement {
             }
         }
         if let Some(chain) = self.mss.transition.filter_chain() {
-            if !chain.is_empty() { return Some(chain); }
+            if !chain.is_empty() {
+                return Some(chain);
+            }
             return None;
         }
         target.filter().or_else(|| self.mss.filter.clone())
     }
 
-    fn has_filter_effects(&self, target: &crate::animation::transition::AnimatedPropertyMap) -> bool {
+    fn has_filter_effects(
+        &self,
+        target: &crate::animation::transition::AnimatedPropertyMap,
+    ) -> bool {
         self.active_filter(target).map_or(false, |f| !f.is_empty())
     }
 
-    fn build_filter_effect(&self, target: &crate::animation::transition::AnimatedPropertyMap) -> crate::render::display_list::Effect {
+    fn build_filter_effect(
+        &self,
+        target: &crate::animation::transition::AnimatedPropertyMap,
+    ) -> crate::render::display_list::Effect {
         use crate::render::display_list::Effect;
         let mut effects: Vec<Effect> = Vec::new();
         if let Some(filters) = self.active_filter(target) {
@@ -282,7 +295,9 @@ impl MapViewElement {
     }
 
     fn emit_viewport(&mut self) {
-        let Some(cb) = self.on_viewport_change.clone() else { return };
+        let Some(cb) = self.on_viewport_change.clone() else {
+            return;
+        };
         let vp = MapViewport {
             center_lat: self.center_lat,
             center_lng: self.center_lng,
@@ -331,7 +346,7 @@ impl Element for MapViewElement {
                             .from(0.0)
                             .to(1.0)
                             .duration_ms(m.animate_duration_ms)
-                            .build()
+                            .build(),
                     );
                 }
             }
@@ -341,9 +356,19 @@ impl Element for MapViewElement {
     }
 
     fn layout(&mut self, constraints: Constraints) -> Size {
-        let w = self.preferred_width.unwrap_or(constraints.max_width).min(constraints.max_width);
-        let h = self.preferred_height
-            .unwrap_or_else(|| if constraints.max_height.is_finite() { constraints.max_height } else { 400.0 })
+        let w = self
+            .preferred_width
+            .unwrap_or(constraints.max_width)
+            .min(constraints.max_width);
+        let h = self
+            .preferred_height
+            .unwrap_or_else(|| {
+                if constraints.max_height.is_finite() {
+                    constraints.max_height
+                } else {
+                    400.0
+                }
+            })
             .min(constraints.max_height);
         self.bounds = Rect::new(Point::zero(), Size::new(w, h));
         Size::new(w, h)
@@ -371,7 +396,10 @@ impl Element for MapViewElement {
 
         let attr_text = self.provider.attribution;
         let attr_rect = Rect::new(
-            Point::new(bounds.origin.x + 4.0, bounds.origin.y + bounds.size.height - 16.0),
+            Point::new(
+                bounds.origin.x + 4.0,
+                bounds.origin.y + bounds.size.height - 16.0,
+            ),
             Size::new(bounds.size.width - 8.0, 14.0),
         );
         list.push_rect(
@@ -391,7 +419,11 @@ impl Element for MapViewElement {
         list.pop_clip();
     }
 
-    fn handle_event(&mut self, event: &Event, ctx: &mut crate::widget::context::EventContext) -> EventResult {
+    fn handle_event(
+        &mut self,
+        event: &Event,
+        ctx: &mut crate::widget::context::EventContext,
+    ) -> EventResult {
         match event {
             Event::MouseDown { position, .. } => {
                 if self.bounds.contains(*position) {
@@ -437,7 +469,9 @@ impl Element for MapViewElement {
                     return EventResult::Handled;
                 }
             }
-            Event::MouseWheel { position, delta, .. } => {
+            Event::MouseWheel {
+                position, delta, ..
+            } => {
                 if self.bounds.contains(*position) {
                     self.fly_animation = None;
                     const ZOOM_THRESHOLD: f32 = 12.0;
@@ -499,10 +533,8 @@ impl Element for MapViewElement {
                         let dx = pts[1].x - pts[0].x;
                         let dy = pts[1].y - pts[0].y;
                         self.pinch_distance = Some((dx * dx + dy * dy).sqrt());
-                        self.pinch_center = Point::new(
-                            (pts[0].x + pts[1].x) / 2.0,
-                            (pts[0].y + pts[1].y) / 2.0,
-                        );
+                        self.pinch_center =
+                            Point::new((pts[0].x + pts[1].x) / 2.0, (pts[0].y + pts[1].y) / 2.0);
                     }
                     return EventResult::Handled;
                 }
@@ -522,7 +554,8 @@ impl Element for MapViewElement {
                         let lng_per_pixel = 360.0 / total_pixels;
                         self.center_lng = self.drag_center_lng - (dx as f64) * lng_per_pixel;
 
-                        let center_tile_y = tile_math::lat_to_tile_y(self.drag_center_lat, self.zoom);
+                        let center_tile_y =
+                            tile_math::lat_to_tile_y(self.drag_center_lat, self.zoom);
                         let new_tile_y = center_tile_y - (dy as f64) / tile_size;
                         self.center_lat = tile_math::tile_y_to_lat(new_tile_y, self.zoom);
                         self.center_lat = self.center_lat.clamp(-85.05, 85.05);
@@ -535,10 +568,8 @@ impl Element for MapViewElement {
                         let dx = pts[1].x - pts[0].x;
                         let dy = pts[1].y - pts[0].y;
                         let new_distance = (dx * dx + dy * dy).sqrt();
-                        let center = Point::new(
-                            (pts[0].x + pts[1].x) / 2.0,
-                            (pts[0].y + pts[1].y) / 2.0,
-                        );
+                        let center =
+                            Point::new((pts[0].x + pts[1].x) / 2.0, (pts[0].y + pts[1].y) / 2.0);
 
                         if let Some(prev_dist) = self.pinch_distance {
                             let ratio = new_distance / prev_dist;
@@ -546,8 +577,11 @@ impl Element for MapViewElement {
                                 let (lat_c, lng_c) = tile_math::pixel_to_geo(
                                     center.x - self.bounds.origin.x,
                                     center.y - self.bounds.origin.y,
-                                    self.center_lat, self.center_lng,
-                                    self.zoom, self.bounds.size.width, self.bounds.size.height,
+                                    self.center_lat,
+                                    self.center_lng,
+                                    self.zoom,
+                                    self.bounds.size.width,
+                                    self.bounds.size.height,
                                 );
                                 let old_zoom = self.zoom;
                                 self.zoom = (self.zoom + 1).min(self.provider.max_zoom);
@@ -555,8 +589,11 @@ impl Element for MapViewElement {
                                     let (new_lat, new_lng) = tile_math::pixel_to_geo(
                                         center.x - self.bounds.origin.x,
                                         center.y - self.bounds.origin.y,
-                                        self.center_lat, self.center_lng,
-                                        self.zoom, self.bounds.size.width, self.bounds.size.height,
+                                        self.center_lat,
+                                        self.center_lng,
+                                        self.zoom,
+                                        self.bounds.size.width,
+                                        self.bounds.size.height,
                                     );
                                     self.center_lat += lat_c - new_lat;
                                     self.center_lng += lng_c - new_lng;
@@ -568,8 +605,11 @@ impl Element for MapViewElement {
                                 let (lat_c, lng_c) = tile_math::pixel_to_geo(
                                     center.x - self.bounds.origin.x,
                                     center.y - self.bounds.origin.y,
-                                    self.center_lat, self.center_lng,
-                                    self.zoom, self.bounds.size.width, self.bounds.size.height,
+                                    self.center_lat,
+                                    self.center_lng,
+                                    self.zoom,
+                                    self.bounds.size.width,
+                                    self.bounds.size.height,
                                 );
                                 let old_zoom = self.zoom;
                                 self.zoom = self.zoom.saturating_sub(1).max(1);
@@ -577,8 +617,11 @@ impl Element for MapViewElement {
                                     let (new_lat, new_lng) = tile_math::pixel_to_geo(
                                         center.x - self.bounds.origin.x,
                                         center.y - self.bounds.origin.y,
-                                        self.center_lat, self.center_lng,
-                                        self.zoom, self.bounds.size.width, self.bounds.size.height,
+                                        self.center_lat,
+                                        self.center_lng,
+                                        self.zoom,
+                                        self.bounds.size.width,
+                                        self.bounds.size.height,
                                     );
                                     self.center_lat += lat_c - new_lat;
                                     self.center_lng += lng_c - new_lng;
@@ -595,9 +638,11 @@ impl Element for MapViewElement {
                                     let total_pixels = n * tile_size;
                                     let lng_per_pixel = 360.0 / total_pixels;
                                     self.center_lng -= (pdx as f64) * lng_per_pixel;
-                                    let center_tile_y = tile_math::lat_to_tile_y(self.center_lat, self.zoom);
+                                    let center_tile_y =
+                                        tile_math::lat_to_tile_y(self.center_lat, self.zoom);
                                     let new_tile_y = center_tile_y - (pdy as f64) / tile_size;
-                                    self.center_lat = tile_math::tile_y_to_lat(new_tile_y, self.zoom);
+                                    self.center_lat =
+                                        tile_math::tile_y_to_lat(new_tile_y, self.zoom);
                                     self.center_lat = self.center_lat.clamp(-85.05, 85.05);
                                     self.pinch_center = center;
                                     self.mark_dirty(DirtyFlags::RENDER);
@@ -681,7 +726,9 @@ impl Element for MapViewElement {
         }
 
         let transition_active = self.mss.transition.tick(dt.as_secs_f32());
-        let keyframe_active = self.mss.keyframe_animation
+        let keyframe_active = self
+            .mss
+            .keyframe_animation
             .as_mut()
             .map(|a| a.tick(dt.as_secs_f32()))
             .unwrap_or(false);
@@ -700,8 +747,13 @@ impl Element for MapViewElement {
 
         self.emit_viewport();
 
-        needs_frame || tiles_pending || tiles_deferred || self.provider_source.is_some()
-            || transition_active || keyframe_active || markers_animating
+        needs_frame
+            || tiles_pending
+            || tiles_deferred
+            || self.provider_source.is_some()
+            || transition_active
+            || keyframe_active
+            || markers_animating
     }
 
     fn children(&self) -> &[ElementId] {
@@ -745,7 +797,9 @@ impl Element for MapViewElement {
         self.ensure_atlas(tree);
     }
 
-    fn element_type_name(&self) -> &str { "MapView" }
+    fn element_type_name(&self) -> &str {
+        "MapView"
+    }
 
     fn set_classes(&mut self, classes: Vec<String>) {
         self.classes = classes;
@@ -756,7 +810,9 @@ impl Element for MapViewElement {
         &self.classes
     }
 
-    fn mss(&self) -> Option<&crate::mss::MssFields> { Some(&self.mss) }
+    fn mss(&self) -> Option<&crate::mss::MssFields> {
+        Some(&self.mss)
+    }
 
     fn reset_mss_styles(&mut self) {
         self.mss.reset();
@@ -865,7 +921,13 @@ impl MapViewElement {
                         list.push_image(tile_rect, TextureId(0), uv_rect, Color::WHITE);
                     }
                     None => {
-                        if !Self::draw_parent_tile(list, &mut atlas, &key, tile_rect, self.provider.id) {
+                        if !Self::draw_parent_tile(
+                            list,
+                            &mut atlas,
+                            &key,
+                            tile_rect,
+                            self.provider.id,
+                        ) {
                             list.push_rect(tile_rect, Color::new(0.9, 0.9, 0.9, 1.0), [0.0; 4]);
                         }
                     }
@@ -889,12 +951,19 @@ impl MapViewElement {
         let orig_z = key.z;
 
         for _ in 0..3 {
-            if pz == 0 { break; }
+            if pz == 0 {
+                break;
+            }
             px /= 2;
             py /= 2;
             pz -= 1;
 
-            let parent_key = TileKey { x: px, y: py, z: pz, provider_id };
+            let parent_key = TileKey {
+                x: px,
+                y: py,
+                z: pz,
+                provider_id,
+            };
             if let Some(slot) = atlas.get_tile(&parent_key) {
                 let depth = orig_z - pz;
                 let scale = 1.0 / (1u32 << depth) as f32;
@@ -903,10 +972,7 @@ impl MapViewElement {
                 let sub_y = (orig_y % (1u32 << depth)) as f32 * scale;
 
                 let uv_rect = Rect::new(
-                    Point::new(
-                        slot.uv_x + sub_x * slot.uv_w,
-                        slot.uv_y + sub_y * slot.uv_h,
-                    ),
+                    Point::new(slot.uv_x + sub_x * slot.uv_w, slot.uv_y + sub_y * slot.uv_h),
                     Size::new(slot.uv_w * scale, slot.uv_h * scale),
                 );
                 list.push_image(tile_rect, TextureId(0), uv_rect, Color::WHITE);
@@ -921,10 +987,14 @@ impl MapViewElement {
         let now = web_time::Instant::now();
 
         for marker in &self.markers {
-            if marker.is_expired(now) { continue; }
+            if marker.is_expired(now) {
+                continue;
+            }
 
             let opacity = marker.current_opacity(now);
-            if opacity <= 0.001 { continue; }
+            if opacity <= 0.001 {
+                continue;
+            }
             let scale = marker.current_scale(now);
             let effective_size = marker.size * scale;
 
@@ -968,7 +1038,9 @@ impl MapViewElement {
 
             if let Some(ref label) = marker.label {
                 let label_font = 12.0;
-                let label_w = self.text_measure.as_ref()
+                let label_w = self
+                    .text_measure
+                    .as_ref()
                     .map(|tm| tm.measure_text_width(label, label_font, label.chars().count()))
                     .unwrap_or_else(|| label.chars().count() as f32 * label_font * 0.6)
                     + 8.0;
@@ -976,11 +1048,12 @@ impl MapViewElement {
                 let lx = screen_x - label_w / 2.0;
                 let ly = screen_y - r - label_h - 4.0;
 
-                let label_bg = Rect::new(
-                    Point::new(lx, ly),
-                    Size::new(label_w, label_h),
+                let label_bg = Rect::new(Point::new(lx, ly), Size::new(label_w, label_h));
+                list.push_rect(
+                    label_bg,
+                    Color::new(0.15, 0.15, 0.15, 0.85 * opacity),
+                    [4.0; 4],
                 );
-                list.push_rect(label_bg, Color::new(0.15, 0.15, 0.15, 0.85 * opacity), [4.0; 4]);
 
                 let text_rect = Rect::new(
                     Point::new(lx + 4.0, ly + 1.0),

@@ -1,5 +1,5 @@
-use crate::widget::{ElementId, ElementTree};
 use super::types::Role;
+use crate::widget::{ElementId, ElementTree};
 
 #[derive(Clone, Debug)]
 struct FocusScope {
@@ -32,8 +32,8 @@ impl FocusManager {
             self.collect_focusable(element_tree, root_id);
         }
 
-        self.current_index = prev_focus_id
-            .and_then(|id| self.tab_order.iter().position(|&t| t == id));
+        self.current_index =
+            prev_focus_id.and_then(|id| self.tab_order.iter().position(|&t| t == id));
     }
 
     pub fn push_focus_scope(&mut self, element_tree: &ElementTree, scope_root: ElementId) {
@@ -46,7 +46,11 @@ impl FocusManager {
         self.tab_order.clear();
         self.collect_focusable(element_tree, scope_root);
 
-        self.current_index = if self.tab_order.is_empty() { None } else { Some(0) };
+        self.current_index = if self.tab_order.is_empty() {
+            None
+        } else {
+            Some(0)
+        };
     }
 
     pub fn pop_focus_scope(

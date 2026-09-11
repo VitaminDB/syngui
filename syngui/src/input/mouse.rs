@@ -18,10 +18,22 @@ pub enum ScrollDelta {
 
 #[derive(Clone, Debug)]
 pub enum MouseEvent {
-    Moved { position: Point, delta: Point },
-    Down { button: MouseButton, position: Point },
-    Up { button: MouseButton, position: Point },
-    Wheel { delta: ScrollDelta, position: Point },
+    Moved {
+        position: Point,
+        delta: Point,
+    },
+    Down {
+        button: MouseButton,
+        position: Point,
+    },
+    Up {
+        button: MouseButton,
+        position: Point,
+    },
+    Wheel {
+        delta: ScrollDelta,
+        position: Point,
+    },
     Entered,
     Left,
 }

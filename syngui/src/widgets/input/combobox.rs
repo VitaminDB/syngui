@@ -1,14 +1,16 @@
 use crate::animation::transition::mss_color_to_core;
+use crate::core::sync::Mutex;
 use crate::core::{Color, Point, Rect, RectExt, Size};
 use crate::input::{CursorIcon, Event, EventResult, Key, MouseButton};
 use crate::layout::Constraints;
 use crate::mss::{ComputedStyle, Dimension, MssFields};
 use crate::render::{Border, DisplayList};
 use crate::widget::context::{EventContext, EventContextExt};
-use crate::widget::{DirtyFlags, Element, ElementId, ElementTree, StyledElement, UpdateContext, Widget};
+use crate::widget::{
+    DirtyFlags, Element, ElementId, ElementTree, StyledElement, UpdateContext, Widget,
+};
 use std::any::Any;
 use std::sync::Arc;
-use crate::core::sync::Mutex;
 
 use super::dropdown::DropdownItem;
 
@@ -97,9 +99,15 @@ impl Widget for Combobox {
         })
     }
 
-    fn can_update(&self, other: &dyn Any) -> bool { other.is::<Self>() }
-    fn as_any(&self) -> &dyn Any { self }
-    fn as_any_mut(&mut self) -> &mut dyn Any { self }
+    fn can_update(&self, other: &dyn Any) -> bool {
+        other.is::<Self>()
+    }
+    fn as_any(&self) -> &dyn Any {
+        self
+    }
+    fn as_any_mut(&mut self) -> &mut dyn Any {
+        self
+    }
     fn mount(&self, _tree: &mut ElementTree, _parent_id: ElementId) {}
 }
 
@@ -144,7 +152,8 @@ impl ComboboxElement {
         if self.text.is_char_boundary(self.cursor_pos) {
             self.cursor_pos
         } else {
-            self.text.char_indices()
+            self.text
+                .char_indices()
                 .map(|(i, _)| i)
                 .filter(|&i| i <= self.cursor_pos)
                 .last()
@@ -164,7 +173,9 @@ impl ComboboxElement {
         self.filtered_indices = if query.is_empty() {
             (0..self.items.len()).collect()
         } else {
-            self.items.iter().enumerate()
+            self.items
+                .iter()
+                .enumerate()
                 .filter(|(_, item)| item.label.to_lowercase().contains(&query))
                 .map(|(i, _)| i)
                 .collect()
@@ -186,7 +197,10 @@ impl ComboboxElement {
         } else {
             self.bounds.y() + INPUT_HEIGHT + popup_gap
         };
-        let min_w = self.popup_min_width.or(self.mss_popup_min_width).unwrap_or(0.0);
+        let min_w = self
+            .popup_min_width
+            .or(self.mss_popup_min_width)
+            .unwrap_or(0.0);
         let w = self.bounds.size.width.max(min_w);
         let mut x = self.bounds.x();
         if self.viewport_width > 0.0 && x + w > self.viewport_width - 8.0 {
@@ -197,7 +211,9 @@ impl ComboboxElement {
 
     fn fire_change(&self) {
         if let Some(ref cb) = self.on_change {
-            if let Ok(mut f) = cb.lock() { f(&self.text); }
+            if let Ok(mut f) = cb.lock() {
+                f(&self.text);
+            }
         }
     }
 }
@@ -217,7 +233,11 @@ impl Element for ComboboxElement {
     }
 
     fn layout(&mut self, constraints: Constraints) -> Size {
-        let w = self.width.map(|d| d.resolve(constraints.max_width)).unwrap_or(constraints.max_width).min(constraints.max_width);
+        let w = self
+            .width
+            .map(|d| d.resolve(constraints.max_width))
+            .unwrap_or(constraints.max_width)
+            .min(constraints.max_width);
         self.bounds = Rect::new(Point::zero(), Size::new(w, INPUT_HEIGHT));
         Size::new(w, INPUT_HEIGHT)
     }
@@ -228,27 +248,50 @@ impl Element for ComboboxElement {
         let border = self.mss.border_color.unwrap_or(Color::from_hex("#D1D5DB"));
         let muted = fg.with_alpha(0.5);
 
-        let border_color = if self.focused { self.mss.accent_color.unwrap_or(Color::from_hex("#3B82F6")) } else { border };
+        let border_color = if self.focused {
+            self.mss.accent_color.unwrap_or(Color::from_hex("#3B82F6"))
+        } else {
+            border
+        };
 
         list.push_rect_bordered(
-            self.bounds, bg, [8.0; 4],
+            self.bounds,
+            bg,
+            [8.0; 4],
             Border::new(if self.focused { 2.0 } else { 1.0 }, border_color),
         );
 
         let text_rect = Rect::new(
-            Point::new(self.bounds.x() + 12.0, self.bounds.y() + (INPUT_HEIGHT - 14.0) / 2.0),
+            Point::new(
+                self.bounds.x() + 12.0,
+                self.bounds.y() + (INPUT_HEIGHT - 14.0) / 2.0,
+            ),
             Size::new(self.bounds.size.width - 40.0, 16.0),
         );
         if self.text.is_empty() {
-            list.push_text_singleline(&self.placeholder, text_rect, muted, 14.0, crate::mss::TextAlign::LEFT | crate::mss::TextAlign::VCENTER, 400);
+            list.push_text_singleline(
+                &self.placeholder,
+                text_rect,
+                muted,
+                14.0,
+                crate::mss::TextAlign::LEFT | crate::mss::TextAlign::VCENTER,
+                400,
+            );
         } else {
-            list.push_text_singleline(&self.text, text_rect, fg, 14.0, crate::mss::TextAlign::LEFT | crate::mss::TextAlign::VCENTER, 400);
+            list.push_text_singleline(
+                &self.text,
+                text_rect,
+                fg,
+                14.0,
+                crate::mss::TextAlign::LEFT | crate::mss::TextAlign::VCENTER,
+                400,
+            );
         }
 
         if self.focused {
-            let caret = self.mss.caret_color_or(
-                self.mss.accent_color.unwrap_or(Color::from_hex("#3B82F6")),
-            );
+            let caret = self
+                .mss
+                .caret_color_or(self.mss.accent_color.unwrap_or(Color::from_hex("#3B82F6")));
             list.push_text_cursor_styled(
                 &self.text,
                 self.cursor_pos,
@@ -263,7 +306,10 @@ impl Element for ComboboxElement {
         }
 
         let arrow_rect = Rect::new(
-            Point::new(self.bounds.x() + self.bounds.size.width - 28.0, self.bounds.y() + (INPUT_HEIGHT - 10.0) / 2.0),
+            Point::new(
+                self.bounds.x() + self.bounds.size.width - 28.0,
+                self.bounds.y() + (INPUT_HEIGHT - 10.0) / 2.0,
+            ),
             Size::new(16.0, 12.0),
         );
         let arrow = if self.is_open { "\u{E5CE}" } else { "\u{E5CF}" };
@@ -273,19 +319,37 @@ impl Element for ComboboxElement {
             let dd = self.dropdown_rect();
             let popup_bg = self.mss_popup_bg.unwrap_or(bg);
             let popup_fg = self.mss_popup_fg.unwrap_or(fg);
-            let _popup_accent = self.mss_popup_accent.unwrap_or(self.mss.accent_color.unwrap_or(Color::from_hex("#3B82F6")));
+            let _popup_accent = self
+                .mss_popup_accent
+                .unwrap_or(self.mss.accent_color.unwrap_or(Color::from_hex("#3B82F6")));
             let popup_border_color = self.mss_popup_border.unwrap_or(border);
-            let popup_hover_bg = self.mss_popup_hover_bg.unwrap_or_else(|| popup_bg.darken(0.05));
+            let popup_hover_bg = self
+                .mss_popup_hover_bg
+                .unwrap_or_else(|| popup_bg.darken(0.05));
             let popup_muted = popup_fg.with_alpha(0.5);
 
             list.begin_overlay();
             let menu_radius: f32 = 8.0;
             let menu_bw: f32 = 1.0;
-            list.push_shadow(dd, Color::BLACK.with_alpha(0.12), 12.0, (0.0, 4.0), [menu_radius; 4]);
-            list.push_rect_bordered(dd, popup_bg, [menu_radius; 4], Border::new(menu_bw, popup_border_color));
+            list.push_shadow(
+                dd,
+                Color::BLACK.with_alpha(0.12),
+                12.0,
+                (0.0, 4.0),
+                [menu_radius; 4],
+            );
+            list.push_rect_bordered(
+                dd,
+                popup_bg,
+                [menu_radius; 4],
+                Border::new(menu_bw, popup_border_color),
+            );
             let inset = Rect::new(
                 Point::new(dd.x() + menu_bw, dd.y() + menu_bw),
-                Size::new((dd.size.width - menu_bw * 2.0).max(0.0), (dd.size.height - menu_bw * 2.0).max(0.0)),
+                Size::new(
+                    (dd.size.width - menu_bw * 2.0).max(0.0),
+                    (dd.size.height - menu_bw * 2.0).max(0.0),
+                ),
             );
             list.push_clip(inset);
             let inner_radius = (menu_radius - menu_bw).max(0.0);
@@ -296,24 +360,39 @@ impl Element for ComboboxElement {
             let mut last_visible: Option<usize> = None;
             for (vi, _) in self.filtered_indices.iter().enumerate() {
                 let y = dd.y() + vi as f32 * ITEM_HEIGHT - self.scroll_offset;
-                if y + ITEM_HEIGHT <= dd_top { continue; }
-                if y >= dd_bottom { break; }
-                if first_visible.is_none() { first_visible = Some(vi); }
+                if y + ITEM_HEIGHT <= dd_top {
+                    continue;
+                }
+                if y >= dd_bottom {
+                    break;
+                }
+                if first_visible.is_none() {
+                    first_visible = Some(vi);
+                }
                 last_visible = Some(vi);
             }
 
             for (vi, &item_idx) in self.filtered_indices.iter().enumerate() {
                 let y = dd.y() + vi as f32 * ITEM_HEIGHT - self.scroll_offset;
-                if y + ITEM_HEIGHT < dd_top || y > dd_bottom { continue; }
+                if y + ITEM_HEIGHT < dd_top || y > dd_bottom {
+                    continue;
+                }
 
                 let item = &self.items[item_idx];
-                let adjusted_rect = Rect::new(Point::new(dd.x() + menu_bw, y), Size::new(inset.size.width, ITEM_HEIGHT));
+                let adjusted_rect = Rect::new(
+                    Point::new(dd.x() + menu_bw, y),
+                    Size::new(inset.size.width, ITEM_HEIGHT),
+                );
 
                 let clamped_top = adjusted_rect.y().max(dd_top + menu_bw);
-                let clamped_bottom = (adjusted_rect.y() + adjusted_rect.size.height).min(dd_bottom - menu_bw);
+                let clamped_bottom =
+                    (adjusted_rect.y() + adjusted_rect.size.height).min(dd_bottom - menu_bw);
                 let clamped_rect = Rect::new(
                     Point::new(adjusted_rect.x(), clamped_top),
-                    Size::new(adjusted_rect.size.width, (clamped_bottom - clamped_top).max(0.0)),
+                    Size::new(
+                        adjusted_rect.size.width,
+                        (clamped_bottom - clamped_top).max(0.0),
+                    ),
                 );
 
                 let is_first = first_visible == Some(vi);
@@ -342,7 +421,14 @@ impl Element for ComboboxElement {
                 };
                 // Одна строка: длинная подпись обрезается клипом попапа, а не
                 // переносится поверх соседних пунктов.
-                list.push_text_singleline(&item.label, ir, color, 14.0, crate::mss::TextAlign::LEFT | crate::mss::TextAlign::VCENTER, 400);
+                list.push_text_singleline(
+                    &item.label,
+                    ir,
+                    color,
+                    14.0,
+                    crate::mss::TextAlign::LEFT | crate::mss::TextAlign::VCENTER,
+                    400,
+                );
             }
 
             list.pop_clip();
@@ -391,9 +477,11 @@ impl Element for ComboboxElement {
                     self.focused = true;
                     let text_x = self.bounds.x() + 12.0;
                     let rel_x = (position.x - text_x).max(0.0);
-                    self.cursor_pos = ctx.hit_test_char(&self.text, 14.0, rel_x)
+                    self.cursor_pos = ctx
+                        .hit_test_char(&self.text, 14.0, rel_x)
                         .map(|char_idx| {
-                            self.text.char_indices()
+                            self.text
+                                .char_indices()
                                 .nth(char_idx)
                                 .map(|(i, _)| i)
                                 .unwrap_or(self.text.len())
@@ -408,7 +496,8 @@ impl Element for ComboboxElement {
                         let popup_gap = 4.0;
                         let dd_h = self.effective_popup_height(self.filtered_indices.len());
                         self.viewport_width = ctx.viewport_size().width;
-                        self.opens_upward = self.bounds.y() + INPUT_HEIGHT + dd_h + popup_gap > ctx.viewport_size().height
+                        self.opens_upward = self.bounds.y() + INPUT_HEIGHT + dd_h + popup_gap
+                            > ctx.viewport_size().height
                             && self.bounds.y() >= dd_h + popup_gap;
                         let dd = self.dropdown_rect();
                         if let Some(vi) = self.filtered_indices.iter().position(|&i| {
@@ -422,7 +511,8 @@ impl Element for ComboboxElement {
                         // Область оверлея — объединение поля и попапа (попап
                         // может быть шире поля и сдвинут влево).
                         let left = self.bounds.x().min(dd.x());
-                        let right = (self.bounds.x() + self.bounds.size.width).max(dd.x() + dd.size.width);
+                        let right =
+                            (self.bounds.x() + self.bounds.size.width).max(dd.x() + dd.size.width);
                         let overlay_bounds = if self.opens_upward {
                             Rect::new(
                                 Point::new(left, dd.y()),
@@ -444,7 +534,8 @@ impl Element for ComboboxElement {
                 if self.is_open {
                     let dd = self.dropdown_rect();
                     if dd.contains(*position) {
-                        let vi = ((position.y - dd.y() + self.scroll_offset) / ITEM_HEIGHT) as usize;
+                        let vi =
+                            ((position.y - dd.y() + self.scroll_offset) / ITEM_HEIGHT) as usize;
                         if let Some(&item_idx) = self.filtered_indices.get(vi) {
                             let item = &self.items[item_idx];
                             if !item.disabled {
@@ -471,7 +562,9 @@ impl Element for ComboboxElement {
                 EventResult::Ignored
             }
             Event::CharInput(ch) if self.focused => {
-                if ch.is_control() || ctx.modifiers.ctrl { return EventResult::Ignored; }
+                if ch.is_control() || ctx.modifiers.ctrl {
+                    return EventResult::Ignored;
+                }
                 let pos = self.char_boundary_pos();
                 self.text.insert(pos, *ch);
                 self.cursor_pos = pos + ch.len_utf8();
@@ -482,90 +575,93 @@ impl Element for ComboboxElement {
                 ctx.request_paint();
                 EventResult::Handled
             }
-            Event::KeyDown(key) if self.focused => {
-                match key {
-                    Key::Backspace => {
-                        if self.cursor_pos > 0 {
-                            let safe_pos = self.char_boundary_pos();
-                            let prev = self.text[..safe_pos]
-                                .char_indices()
-                                .next_back()
-                                .map(|(i, _)| i)
-                                .unwrap_or(0);
-                            self.text.remove(prev);
-                            self.cursor_pos = prev;
-                            self.update_filter();
-                            self.is_open = true;
-                            self.fire_change();
-                            ctx.request_paint();
-                        }
-                        EventResult::Handled
-                    }
-                    Key::Left => {
-                        if self.cursor_pos > 0 {
-                            let safe_pos = self.char_boundary_pos();
-                            self.cursor_pos = self.text[..safe_pos]
-                                .char_indices()
-                                .next_back()
-                                .map(|(i, _)| i)
-                                .unwrap_or(0);
-                            ctx.request_paint();
-                        }
-                        EventResult::Handled
-                    }
-                    Key::Right => {
+            Event::KeyDown(key) if self.focused => match key {
+                Key::Backspace => {
+                    if self.cursor_pos > 0 {
                         let safe_pos = self.char_boundary_pos();
-                        if safe_pos < self.text.len() {
-                            let ch = self.text[safe_pos..].chars().next().unwrap();
-                            self.cursor_pos = safe_pos + ch.len_utf8();
-                            ctx.request_paint();
-                        }
-                        EventResult::Handled
-                    }
-                    Key::Escape => {
-                        self.is_open = false;
-                        self.focused = false;
-                        ctx.unregister_overlay();
+                        let prev = self.text[..safe_pos]
+                            .char_indices()
+                            .next_back()
+                            .map(|(i, _)| i)
+                            .unwrap_or(0);
+                        self.text.remove(prev);
+                        self.cursor_pos = prev;
+                        self.update_filter();
+                        self.is_open = true;
+                        self.fire_change();
                         ctx.request_paint();
-                        EventResult::Handled
                     }
-                    Key::Enter => {
-                        if self.is_open {
-                            if let Some(vi) = self.hover_index {
-                                if let Some(&item_idx) = self.filtered_indices.get(vi) {
-                                    let item = &self.items[item_idx];
-                                    if !item.disabled {
-                                        self.text = item.value.clone();
-                                        self.cursor_pos = self.text.len();
-                                        self.fire_change();
-                                    }
+                    EventResult::Handled
+                }
+                Key::Left => {
+                    if self.cursor_pos > 0 {
+                        let safe_pos = self.char_boundary_pos();
+                        self.cursor_pos = self.text[..safe_pos]
+                            .char_indices()
+                            .next_back()
+                            .map(|(i, _)| i)
+                            .unwrap_or(0);
+                        ctx.request_paint();
+                    }
+                    EventResult::Handled
+                }
+                Key::Right => {
+                    let safe_pos = self.char_boundary_pos();
+                    if safe_pos < self.text.len() {
+                        let ch = self.text[safe_pos..].chars().next().unwrap();
+                        self.cursor_pos = safe_pos + ch.len_utf8();
+                        ctx.request_paint();
+                    }
+                    EventResult::Handled
+                }
+                Key::Escape => {
+                    self.is_open = false;
+                    self.focused = false;
+                    ctx.unregister_overlay();
+                    ctx.request_paint();
+                    EventResult::Handled
+                }
+                Key::Enter => {
+                    if self.is_open {
+                        if let Some(vi) = self.hover_index {
+                            if let Some(&item_idx) = self.filtered_indices.get(vi) {
+                                let item = &self.items[item_idx];
+                                if !item.disabled {
+                                    self.text = item.value.clone();
+                                    self.cursor_pos = self.text.len();
+                                    self.fire_change();
                                 }
                             }
-                            self.is_open = false;
-                            ctx.unregister_overlay();
-                            ctx.request_paint();
                         }
-                        EventResult::Handled
-                    }
-                    Key::Down if self.is_open => {
-                        let max = self.filtered_indices.len();
-                        self.hover_index = Some(self.hover_index.map(|i| (i + 1).min(max - 1)).unwrap_or(0));
+                        self.is_open = false;
+                        ctx.unregister_overlay();
                         ctx.request_paint();
-                        EventResult::Handled
                     }
-                    Key::Up if self.is_open => {
-                        self.hover_index = self.hover_index.map(|i| if i > 0 { i - 1 } else { 0 });
-                        ctx.request_paint();
-                        EventResult::Handled
-                    }
-                    _ => EventResult::Ignored,
+                    EventResult::Handled
                 }
-            }
-            Event::MouseWheel { delta, position, .. } if self.is_open => {
+                Key::Down if self.is_open => {
+                    let max = self.filtered_indices.len();
+                    self.hover_index =
+                        Some(self.hover_index.map(|i| (i + 1).min(max - 1)).unwrap_or(0));
+                    ctx.request_paint();
+                    EventResult::Handled
+                }
+                Key::Up if self.is_open => {
+                    self.hover_index = self.hover_index.map(|i| if i > 0 { i - 1 } else { 0 });
+                    ctx.request_paint();
+                    EventResult::Handled
+                }
+                _ => EventResult::Ignored,
+            },
+            Event::MouseWheel {
+                delta, position, ..
+            } if self.is_open => {
                 let dd = self.dropdown_rect();
                 if dd.contains(*position) {
                     let total_height = self.filtered_indices.len() as f32 * ITEM_HEIGHT;
-                    let max_scroll = (total_height - self.effective_popup_height(self.filtered_indices.len())).max(0.0);
+                    let max_scroll = (total_height
+                        - self.effective_popup_height(self.filtered_indices.len()))
+                    .max(0.0);
                     self.scroll_offset = (self.scroll_offset - delta).clamp(0.0, max_scroll);
                     ctx.request_paint();
                     return EventResult::Handled;
@@ -576,20 +672,40 @@ impl Element for ComboboxElement {
         }
     }
 
-    fn children(&self) -> &[ElementId] { &[] }
-    fn bounds(&self) -> Rect { self.bounds }
+    fn children(&self) -> &[ElementId] {
+        &[]
+    }
+    fn bounds(&self) -> Rect {
+        self.bounds
+    }
 
-    fn explicit_dimensions(&self, _parent_width: f32, _parent_height: f32) -> (Option<f32>, Option<f32>) {
+    fn explicit_dimensions(
+        &self,
+        _parent_width: f32,
+        _parent_height: f32,
+    ) -> (Option<f32>, Option<f32>) {
         let w = self.width.map(|d| d.resolve(1000.0));
         (w, Some(INPUT_HEIGHT))
     }
 
-    fn set_position(&mut self, pos: Point) { self.bounds.origin = pos; }
-    fn mark_dirty(&mut self, flags: DirtyFlags) { self.dirty_flags |= flags; }
-    fn clear_dirty(&mut self, flags: DirtyFlags) { self.dirty_flags.remove(flags); }
-    fn is_dirty(&self, flags: DirtyFlags) -> bool { self.dirty_flags.contains(flags) }
-    fn id(&self) -> ElementId { self.id }
-    fn set_id(&mut self, id: ElementId) { self.id = id; }
+    fn set_position(&mut self, pos: Point) {
+        self.bounds.origin = pos;
+    }
+    fn mark_dirty(&mut self, flags: DirtyFlags) {
+        self.dirty_flags |= flags;
+    }
+    fn clear_dirty(&mut self, flags: DirtyFlags) {
+        self.dirty_flags.remove(flags);
+    }
+    fn is_dirty(&self, flags: DirtyFlags) -> bool {
+        self.dirty_flags.contains(flags)
+    }
+    fn id(&self) -> ElementId {
+        self.id
+    }
+    fn set_id(&mut self, id: ElementId) {
+        self.id = id;
+    }
     fn mount(&mut self, _tree: &mut ElementTree) {}
 
     fn set_classes(&mut self, classes: Vec<String>) {
@@ -597,24 +713,64 @@ impl Element for ComboboxElement {
         self.mark_dirty(DirtyFlags::RENDER);
     }
 
-    fn get_classes(&self) -> &[String] { &self.classes }
+    fn get_classes(&self) -> &[String] {
+        &self.classes
+    }
 
-    fn element_type_name(&self) -> &str { "Combobox" }
+    fn element_type_name(&self) -> &str {
+        "Combobox"
+    }
 
-    fn reset_mss_styles(&mut self) { self.mss.reset(); }
-    fn mss(&self) -> Option<&crate::mss::MssFields> { Some(&self.mss) }
+    fn reset_mss_styles(&mut self) {
+        self.mss.reset();
+    }
+    fn mss(&self) -> Option<&crate::mss::MssFields> {
+        Some(&self.mss)
+    }
     fn apply_computed_style(&mut self, style: &ComputedStyle) {
         self.mss.apply(style);
-        if let Some(w) = style.width() { self.width = Some(w); }
-        if let Some(c) = style.get("--popup-background").and_then(|v| v.as_color()) { self.mss_popup_bg = Some(mss_color_to_core(c)); }
-        if let Some(c) = style.get("--popup-color").and_then(|v| v.as_color()) { self.mss_popup_fg = Some(mss_color_to_core(c)); }
-        if let Some(c) = style.get("--popup-accent").and_then(|v| v.as_color()) { self.mss_popup_accent = Some(mss_color_to_core(c)); }
-        if let Some(c) = style.get("--popup-border").and_then(|v| v.as_color()) { self.mss_popup_border = Some(mss_color_to_core(c)); }
-        if let Some(c) = style.get("--popup-hover-background").and_then(|v| v.as_color()) { self.mss_popup_hover_bg = Some(mss_color_to_core(c)); }
-        if let Some(c) = style.get("--popup-hover-color").and_then(|v| v.as_color()) { self.mss_popup_hover_fg = Some(mss_color_to_core(c)); }
-        if let Some(d) = style.get("--popup-max-height").and_then(|v| v.as_dimension()) { self.mss_popup_max_height = Some(d.resolve(1000.0)); }
-        if let Some(d) = style.get("--popup-min-height").and_then(|v| v.as_dimension()) { self.mss_popup_min_height = Some(d.resolve(1000.0)); }
-        if let Some(d) = style.get("--popup-min-width").and_then(|v| v.as_dimension()) { self.mss_popup_min_width = Some(d.resolve(1000.0)); }
+        if let Some(w) = style.width() {
+            self.width = Some(w);
+        }
+        if let Some(c) = style.get("--popup-background").and_then(|v| v.as_color()) {
+            self.mss_popup_bg = Some(mss_color_to_core(c));
+        }
+        if let Some(c) = style.get("--popup-color").and_then(|v| v.as_color()) {
+            self.mss_popup_fg = Some(mss_color_to_core(c));
+        }
+        if let Some(c) = style.get("--popup-accent").and_then(|v| v.as_color()) {
+            self.mss_popup_accent = Some(mss_color_to_core(c));
+        }
+        if let Some(c) = style.get("--popup-border").and_then(|v| v.as_color()) {
+            self.mss_popup_border = Some(mss_color_to_core(c));
+        }
+        if let Some(c) = style
+            .get("--popup-hover-background")
+            .and_then(|v| v.as_color())
+        {
+            self.mss_popup_hover_bg = Some(mss_color_to_core(c));
+        }
+        if let Some(c) = style.get("--popup-hover-color").and_then(|v| v.as_color()) {
+            self.mss_popup_hover_fg = Some(mss_color_to_core(c));
+        }
+        if let Some(d) = style
+            .get("--popup-max-height")
+            .and_then(|v| v.as_dimension())
+        {
+            self.mss_popup_max_height = Some(d.resolve(1000.0));
+        }
+        if let Some(d) = style
+            .get("--popup-min-height")
+            .and_then(|v| v.as_dimension())
+        {
+            self.mss_popup_min_height = Some(d.resolve(1000.0));
+        }
+        if let Some(d) = style
+            .get("--popup-min-width")
+            .and_then(|v| v.as_dimension())
+        {
+            self.mss_popup_min_width = Some(d.resolve(1000.0));
+        }
         self.apply_style(style);
     }
 
@@ -632,11 +788,15 @@ impl Element for ComboboxElement {
 
 impl StyledElement for ComboboxElement {
     fn apply_style(&mut self, style: &ComputedStyle) {
-        if let Some(w) = style.width() { self.width = Some(w); }
+        if let Some(w) = style.width() {
+            self.width = Some(w);
+        }
         self.mark_dirty(DirtyFlags::LAYOUT | DirtyFlags::RENDER);
     }
 
-    fn classes(&self) -> &[String] { &self.classes }
+    fn classes(&self) -> &[String] {
+        &self.classes
+    }
 
     fn set_classes(&mut self, classes: Vec<String>) {
         self.classes = classes;

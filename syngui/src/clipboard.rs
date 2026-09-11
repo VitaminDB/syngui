@@ -92,7 +92,9 @@ mod imp {
         let Ok(f) = f.dyn_into::<js_sys::Function>() else {
             return;
         };
-        let Ok(promise) = f.call0(&clipboard) else { return };
+        let Ok(promise) = f.call0(&clipboard) else {
+            return;
+        };
         let Ok(promise) = promise.dyn_into::<js_sys::Promise>() else {
             return;
         };
@@ -100,7 +102,9 @@ mod imp {
             let Ok(value) = wasm_bindgen_futures::JsFuture::from(promise).await else {
                 return;
             };
-            let Some(text) = value.as_string() else { return };
+            let Some(text) = value.as_string() else {
+                return;
+            };
             if text.is_empty() {
                 return;
             }
@@ -143,7 +147,10 @@ mod imp {
         if vm.is_null() || activity.is_null() {
             None
         } else {
-            Some((vm as *mut std::ffi::c_void, activity as *mut std::ffi::c_void))
+            Some((
+                vm as *mut std::ffi::c_void,
+                activity as *mut std::ffi::c_void,
+            ))
         }
     }
 
@@ -163,7 +170,9 @@ mod imp {
     }
 
     pub fn copy(text: &str) {
-        let Some((vm_ptr, activity_ptr)) = ptrs() else { return };
+        let Some((vm_ptr, activity_ptr)) = ptrs() else {
+            return;
+        };
         let result = unsafe { copy_jni(vm_ptr, activity_ptr, text) };
         if let Err(e) = result {
             log::warn!("clipboard: setPrimaryClip не удался: {e}");

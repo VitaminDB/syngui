@@ -141,7 +141,9 @@ impl VideoDecoder {
 
     pub fn install_video_tee(&self) -> Option<Receiver<Arc<VideoFrame>>> {
         let (tx, rx) = mpsc::sync_channel::<Arc<VideoFrame>>(VIDEO_TEE_QUEUE_CAP);
-        self.cmd_tx.send(DecoderCmd::InstallVideoTee(Some(tx))).ok()?;
+        self.cmd_tx
+            .send(DecoderCmd::InstallVideoTee(Some(tx)))
+            .ok()?;
         Some(rx)
     }
 
@@ -150,7 +152,9 @@ impl VideoDecoder {
             return None;
         }
         let (tx, rx) = mpsc::sync_channel::<Vec<f32>>(AUDIO_TEE_QUEUE_CAP);
-        self.cmd_tx.send(DecoderCmd::InstallAudioTee(Some(tx))).ok()?;
+        self.cmd_tx
+            .send(DecoderCmd::InstallAudioTee(Some(tx)))
+            .ok()?;
         Some(rx)
     }
 
@@ -268,10 +272,7 @@ fn run_decoder_thread(
                 Some(h)
             }
             Err(e) => {
-                log::warn!(
-                    "hwaccel: init {} упал, fallback на sw: {e}",
-                    accel.label()
-                );
+                log::warn!("hwaccel: init {} упал, fallback на sw: {e}", accel.label());
                 None
             }
         }
@@ -334,12 +335,7 @@ fn run_decoder_thread(
         } else {
             a_dec.channel_layout()
         };
-        let resampler = Resampler::new(
-            a_dec.format(),
-            in_layout,
-            a_dec.rate(),
-            AUDIO_OUTPUT_SR,
-        )?;
+        let resampler = Resampler::new(a_dec.format(), in_layout, a_dec.rate(), AUDIO_OUTPUT_SR)?;
         Some(AudioState {
             stream_idx: idx,
             decoder: a_dec,
@@ -541,16 +537,18 @@ fn drain_video(
 
         let owned_sw_frame;
         let frame_for_scaler: &frame::Video = match hw {
-            Some(h) if decoded.format() == ffmpeg_next::format::Pixel::from(h.hw_pix_fmt()) => match h.transfer_to_cpu(&decoded) {
-                Ok(sw) => {
-                    owned_sw_frame = sw;
-                    &owned_sw_frame
+            Some(h) if decoded.format() == ffmpeg_next::format::Pixel::from(h.hw_pix_fmt()) => {
+                match h.transfer_to_cpu(&decoded) {
+                    Ok(sw) => {
+                        owned_sw_frame = sw;
+                        &owned_sw_frame
+                    }
+                    Err(e) => {
+                        eprintln!("[syngui/video] hwframe transfer: {e}");
+                        continue;
+                    }
                 }
-                Err(e) => {
-                    eprintln!("[syngui/video] hwframe transfer: {e}");
-                    continue;
-                }
-            },
+            }
             _ => &decoded,
         };
 

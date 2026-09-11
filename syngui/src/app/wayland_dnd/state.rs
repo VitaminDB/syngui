@@ -16,8 +16,7 @@ use smithay_client_toolkit::{
 use wayland_client::{
     protocol::{
         wl_data_device::WlDataDevice, wl_data_device_manager::DndAction,
-        wl_data_source::WlDataSource, wl_output::WlOutput, wl_seat::WlSeat,
-        wl_surface::WlSurface,
+        wl_data_source::WlDataSource, wl_output::WlOutput, wl_seat::WlSeat, wl_surface::WlSurface,
     },
     Connection, QueueHandle,
 };
@@ -79,7 +78,10 @@ impl DataDeviceHandler for DnDState {
         y: f64,
         _surface: &WlSurface,
     ) {
-        let Some(seat_entry) = self.seats.iter().find(|s| s.data_device.inner() == wl_data_device)
+        let Some(seat_entry) = self
+            .seats
+            .iter()
+            .find(|s| s.data_device.inner() == wl_data_device)
         else {
             return;
         };
@@ -91,13 +93,20 @@ impl DataDeviceHandler for DnDState {
             offer.accept_mime_type(self.accept_counter, None);
             return;
         }
-        let _ = self.proxy.send_event(SynGuiUserEvent::WaylandDnd(
-            WaylandDndEvent::Enter { x: x as f32, y: y as f32 },
-        ));
+        let _ = self
+            .proxy
+            .send_event(SynGuiUserEvent::WaylandDnd(WaylandDndEvent::Enter {
+                x: x as f32,
+                y: y as f32,
+            }));
     }
 
     fn leave(&mut self, _conn: &Connection, _qh: &QueueHandle<Self>, _wl_dd: &WlDataDevice) {
-        if self.proxy.send_event(SynGuiUserEvent::WaylandDnd(WaylandDndEvent::Leave)).is_err() {
+        if self
+            .proxy
+            .send_event(SynGuiUserEvent::WaylandDnd(WaylandDndEvent::Leave))
+            .is_err()
+        {
             self.exit = true;
         }
     }
@@ -122,8 +131,7 @@ impl DataDeviceHandler for DnDState {
         }
     }
 
-    fn selection(&mut self, _conn: &Connection, _qh: &QueueHandle<Self>, _wl_dd: &WlDataDevice) {
-    }
+    fn selection(&mut self, _conn: &Connection, _qh: &QueueHandle<Self>, _wl_dd: &WlDataDevice) {}
 
     fn drop_performed(
         &mut self,
@@ -131,7 +139,10 @@ impl DataDeviceHandler for DnDState {
         _qh: &QueueHandle<Self>,
         wl_data_device: &WlDataDevice,
     ) {
-        let Some(seat_entry) = self.seats.iter().find(|s| s.data_device.inner() == wl_data_device)
+        let Some(seat_entry) = self
+            .seats
+            .iter()
+            .find(|s| s.data_device.inner() == wl_data_device)
         else {
             return;
         };
@@ -198,14 +209,7 @@ impl DataSourceHandler for DnDState {
     fn cancelled(&mut self, _: &Connection, _: &QueueHandle<Self>, _: &WlDataSource) {}
     fn dnd_dropped(&mut self, _: &Connection, _: &QueueHandle<Self>, _: &WlDataSource) {}
     fn dnd_finished(&mut self, _: &Connection, _: &QueueHandle<Self>, _: &WlDataSource) {}
-    fn action(
-        &mut self,
-        _: &Connection,
-        _: &QueueHandle<Self>,
-        _: &WlDataSource,
-        _: DndAction,
-    ) {
-    }
+    fn action(&mut self, _: &Connection, _: &QueueHandle<Self>, _: &WlDataSource, _: DndAction) {}
 }
 
 impl DataOfferHandler for DnDState {

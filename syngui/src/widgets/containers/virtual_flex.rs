@@ -6,7 +6,7 @@ use crate::core::{Color, Point, Rect, Size, Transform};
 use crate::input::{Event, EventResult, Key, MouseButton};
 use crate::layout::Constraints;
 use crate::mss::{ComputedStyle, MssFields};
-use crate::render::{DisplayList, display_list::Border};
+use crate::render::{display_list::Border, DisplayList};
 use crate::widget::context::{EventContext, EventContextExt};
 use crate::widget::{
     DirtyFlags, Element, ElementId, ElementTree, LayoutHint, StyledElement, UpdateContext, Widget,
@@ -29,8 +29,12 @@ impl Widget for VirtualSpacer {
     fn can_update(&self, other: &dyn Any) -> bool {
         other.is::<Self>()
     }
-    fn as_any(&self) -> &dyn Any { self }
-    fn as_any_mut(&mut self) -> &mut dyn Any { self }
+    fn as_any(&self) -> &dyn Any {
+        self
+    }
+    fn as_any_mut(&mut self) -> &mut dyn Any {
+        self
+    }
     fn mount(&self, _tree: &mut ElementTree, _parent_id: ElementId) {}
 }
 
@@ -49,7 +53,11 @@ impl Element for VirtualSpacerElement {
         }
     }
     fn layout(&mut self, c: Constraints) -> Size {
-        let w = if c.max_width.is_finite() { c.max_width } else { 0.0 };
+        let w = if c.max_width.is_finite() {
+            c.max_width
+        } else {
+            0.0
+        };
         self.bounds.size = Size::new(w, self.height);
         Size::new(w, self.height)
     }
@@ -57,16 +65,34 @@ impl Element for VirtualSpacerElement {
     fn handle_event(&mut self, _event: &Event, _ctx: &mut EventContext) -> EventResult {
         EventResult::Ignored
     }
-    fn id(&self) -> ElementId { self.id }
-    fn set_id(&mut self, id: ElementId) { self.id = id; }
-    fn bounds(&self) -> Rect { self.bounds }
-    fn set_position(&mut self, pos: Point) { self.bounds.origin = pos; }
-    fn mark_dirty(&mut self, flags: DirtyFlags) { self.dirty_flags |= flags; }
-    fn clear_dirty(&mut self, flags: DirtyFlags) { self.dirty_flags.remove(flags); }
-    fn is_dirty(&self, flags: DirtyFlags) -> bool { self.dirty_flags.contains(flags) }
+    fn id(&self) -> ElementId {
+        self.id
+    }
+    fn set_id(&mut self, id: ElementId) {
+        self.id = id;
+    }
+    fn bounds(&self) -> Rect {
+        self.bounds
+    }
+    fn set_position(&mut self, pos: Point) {
+        self.bounds.origin = pos;
+    }
+    fn mark_dirty(&mut self, flags: DirtyFlags) {
+        self.dirty_flags |= flags;
+    }
+    fn clear_dirty(&mut self, flags: DirtyFlags) {
+        self.dirty_flags.remove(flags);
+    }
+    fn is_dirty(&self, flags: DirtyFlags) -> bool {
+        self.dirty_flags.contains(flags)
+    }
     fn mount(&mut self, _tree: &mut ElementTree) {}
-    fn element_type_name(&self) -> &str { "VirtualSpacer" }
-    fn children(&self) -> &[ElementId] { &[] }
+    fn element_type_name(&self) -> &str {
+        "VirtualSpacer"
+    }
+    fn children(&self) -> &[ElementId] {
+        &[]
+    }
 }
 
 pub struct VirtualFlex {
@@ -202,11 +228,14 @@ impl Widget for VirtualFlex {
         other.is::<Self>()
     }
 
-    fn as_any(&self) -> &dyn Any { self }
-    fn as_any_mut(&mut self) -> &mut dyn Any { self }
-
-    fn mount(&self, _tree: &mut ElementTree, _parent_id: ElementId) {
+    fn as_any(&self) -> &dyn Any {
+        self
     }
+    fn as_any_mut(&mut self) -> &mut dyn Any {
+        self
+    }
+
+    fn mount(&self, _tree: &mut ElementTree, _parent_id: ElementId) {}
 
     fn child_widgets(&self) -> Vec<&dyn Widget> {
         vec![]
@@ -265,15 +294,28 @@ impl VirtualFlexElement {
             return self.scrollbar_width;
         }
         let cols = if let Some(min_w) = self.min_item_width {
-            let available = (self.bounds.size.width - self.padding.left - self.padding.right).max(0.0);
-            if available <= 0.0 || min_w <= 0.0 { 1 } else {
-                ((available + self.gap) / (min_w + self.gap)).floor().max(1.0) as usize
+            let available =
+                (self.bounds.size.width - self.padding.left - self.padding.right).max(0.0);
+            if available <= 0.0 || min_w <= 0.0 {
+                1
+            } else {
+                ((available + self.gap) / (min_w + self.gap))
+                    .floor()
+                    .max(1.0) as usize
             }
         } else {
             self.cols
         };
-        let rows = if cols > 0 { (self.item_count + cols - 1) / cols } else { 0 };
-        let est_h = if rows > 0 { rows as f32 * (self.estimated_row_height + self.gap) - self.gap } else { 0.0 };
+        let rows = if cols > 0 {
+            (self.item_count + cols - 1) / cols
+        } else {
+            0
+        };
+        let est_h = if rows > 0 {
+            rows as f32 * (self.estimated_row_height + self.gap) - self.gap
+        } else {
+            0.0
+        };
         if est_h > self.viewport_height() {
             self.scrollbar_width
         } else {
@@ -283,8 +325,14 @@ impl VirtualFlexElement {
 
     fn effective_cols(&self) -> usize {
         if let Some(min_w) = self.min_item_width {
-            let available = (self.bounds.size.width - self.padding.left - self.padding.right - self.scrollbar_inset()).max(0.0);
-            if available <= 0.0 || min_w <= 0.0 { return 1; }
+            let available = (self.bounds.size.width
+                - self.padding.left
+                - self.padding.right
+                - self.scrollbar_inset())
+            .max(0.0);
+            if available <= 0.0 || min_w <= 0.0 {
+                return 1;
+            }
             let cols = ((available + self.gap) / (min_w + self.gap)).floor() as usize;
             cols.max(1)
         } else {
@@ -293,14 +341,18 @@ impl VirtualFlexElement {
     }
 
     fn total_rows(&self) -> usize {
-        if self.item_count == 0 { return 0; }
+        if self.item_count == 0 {
+            return 0;
+        }
         let cols = self.effective_cols();
         (self.item_count + cols - 1) / cols
     }
 
     fn content_height(&self) -> f32 {
         let rows = self.total_rows();
-        if rows == 0 { return 0.0; }
+        if rows == 0 {
+            return 0.0;
+        }
         rows as f32 * (self.estimated_row_height + self.gap) - self.gap
     }
 
@@ -319,10 +371,14 @@ impl VirtualFlexElement {
 
     fn compute_visible_range(&self) -> (usize, usize) {
         let total = self.total_rows();
-        if total == 0 { return (0, 0); }
+        if total == 0 {
+            return (0, 0);
+        }
 
         let row_step = self.estimated_row_height + self.gap;
-        if row_step <= 0.0 { return (0, total); }
+        if row_step <= 0.0 {
+            return (0, total);
+        }
 
         let first_visible = (self.scroll_offset / row_step).floor() as usize;
         let visible_count = (self.viewport_height() / row_step).ceil() as usize + 1;
@@ -354,11 +410,17 @@ impl VirtualFlexElement {
         let track = self.scrollbar_track();
         let ch = self.content_height();
         let vh = self.viewport_height();
-        if ch <= 0.0 || vh <= 0.0 { return Rect::zero(); }
+        if ch <= 0.0 || vh <= 0.0 {
+            return Rect::zero();
+        }
 
         let thumb_h = (vh / ch * track.size.height).clamp(20.0, track.size.height);
         let max = self.max_scroll();
-        let ratio = if max > 0.0 { self.scroll_offset.clamp(0.0, max) / max } else { 0.0 };
+        let ratio = if max > 0.0 {
+            self.scroll_offset.clamp(0.0, max) / max
+        } else {
+            0.0
+        };
         let thumb_y = ratio * (track.size.height - thumb_h);
 
         Rect::new(
@@ -407,8 +469,16 @@ impl Element for VirtualFlexElement {
     }
 
     fn layout(&mut self, constraints: Constraints) -> Size {
-        let w = if constraints.max_width.is_finite() { constraints.max_width } else { constraints.min_width.max(0.0) };
-        let h = if constraints.max_height.is_finite() { constraints.max_height } else { constraints.min_height.max(0.0) };
+        let w = if constraints.max_width.is_finite() {
+            constraints.max_width
+        } else {
+            constraints.min_width.max(0.0)
+        };
+        let h = if constraints.max_height.is_finite() {
+            constraints.max_height
+        } else {
+            constraints.min_height.max(0.0)
+        };
         self.bounds = Rect::new(self.bounds.origin, Size::new(w, h));
         Size::new(w, h)
     }
@@ -447,8 +517,12 @@ impl Element for VirtualFlexElement {
     }
 
     fn needs_rebuild(&self) -> bool {
-        if self.needs_child_rebuild { return true; }
-        if self.effective_cols() != self.built_cols { return true; }
+        if self.needs_child_rebuild {
+            return true;
+        }
+        if self.effective_cols() != self.built_cols {
+            return true;
+        }
         let (start, end) = self.compute_visible_range();
         start != self.visible_start_row || end != self.visible_end_row
     }
@@ -511,9 +585,9 @@ impl Element for VirtualFlexElement {
     }
 
     fn build_display_list(&self, list: &mut DisplayList, _clip: Rect) {
-        let br = self.mss.border_radius_resolved(
-            self.bounds.size.width.min(self.bounds.size.height), 0.0,
-        );
+        let br = self
+            .mss
+            .border_radius_resolved(self.bounds.size.width.min(self.bounds.size.height), 0.0);
         let bw = self.mss.border_width_or(0.0);
         let bc = self.mss.border_color;
 
@@ -570,7 +644,9 @@ impl Element for VirtualFlexElement {
 
     fn handle_event(&mut self, event: &Event, ctx: &mut EventContext) -> EventResult {
         match event {
-            Event::MouseWheel { delta, position, .. } => {
+            Event::MouseWheel {
+                delta, position, ..
+            } => {
                 if !self.bounds.contains(*position) {
                     return EventResult::Ignored;
                 }
@@ -581,8 +657,12 @@ impl Element for VirtualFlexElement {
                 let delta_y = -*delta;
                 let old = self.scroll_offset;
 
-                if delta_y < 0.0 && old <= 0.0 { return EventResult::Handled; }
-                if delta_y > 0.0 && old >= self.max_scroll() { return EventResult::Handled; }
+                if delta_y < 0.0 && old <= 0.0 {
+                    return EventResult::Handled;
+                }
+                if delta_y > 0.0 && old >= self.max_scroll() {
+                    return EventResult::Handled;
+                }
 
                 self.scroll_offset = (old + delta_y).clamp(0.0, self.max_scroll());
 
@@ -643,7 +723,8 @@ impl Element for VirtualFlexElement {
                     let thumb_h = self.scrollbar_thumb().size.height;
                     let track_h = track.size.height;
                     if track_h > thumb_h {
-                        let relative = (pos.y - track.origin.y - thumb_h / 2.0) / (track_h - thumb_h);
+                        let relative =
+                            (pos.y - track.origin.y - thumb_h / 2.0) / (track_h - thumb_h);
                         self.scroll_offset = (relative.clamp(0.0, 1.0) * self.max_scroll())
                             .clamp(0.0, self.max_scroll());
                     }
@@ -700,7 +781,9 @@ impl Element for VirtualFlexElement {
                 EventResult::Handled
             }
             Event::TouchMove { id, position } => {
-                if self.touch_id != Some(*id) { return EventResult::Ignored; }
+                if self.touch_id != Some(*id) {
+                    return EventResult::Ignored;
+                }
                 if let Some(start) = self.touch_drag_start {
                     let dy = start.y - position.y;
                     self.scroll_offset = (self.scroll_offset + dy).clamp(0.0, self.max_scroll());
@@ -716,7 +799,9 @@ impl Element for VirtualFlexElement {
                 }
             }
             Event::TouchEnd { id, .. } => {
-                if self.touch_id != Some(*id) { return EventResult::Ignored; }
+                if self.touch_id != Some(*id) {
+                    return EventResult::Ignored;
+                }
                 self.touch_drag_start = None;
                 self.touch_id = None;
                 if self.velocity.abs() > 1.0 {
@@ -732,7 +817,9 @@ impl Element for VirtualFlexElement {
 
     fn animate(&mut self, dt: Duration) -> bool {
         let dt_secs = dt.as_secs_f32();
-        if dt_secs <= 0.0 { return self.is_animating(); }
+        if dt_secs <= 0.0 {
+            return self.is_animating();
+        }
 
         let mut needs_repaint = false;
 
@@ -806,14 +893,20 @@ impl Element for VirtualFlexElement {
         true
     }
 
-    fn id(&self) -> ElementId { self.id }
-    fn set_id(&mut self, id: ElementId) { self.id = id; }
+    fn id(&self) -> ElementId {
+        self.id
+    }
+    fn set_id(&mut self, id: ElementId) {
+        self.id = id;
+    }
 
     fn children(&self) -> &[ElementId] {
         &[]
     }
 
-    fn bounds(&self) -> Rect { self.bounds }
+    fn bounds(&self) -> Rect {
+        self.bounds
+    }
 
     fn set_position(&mut self, pos: Point) {
         self.bounds.origin = pos;
@@ -837,7 +930,9 @@ impl Element for VirtualFlexElement {
         self.window_viewport_h = size.height;
     }
 
-    fn element_type_name(&self) -> &str { "VirtualFlex" }
+    fn element_type_name(&self) -> &str {
+        "VirtualFlex"
+    }
 
     fn set_classes(&mut self, classes: Vec<String>) {
         self.classes = classes;
@@ -848,18 +943,30 @@ impl Element for VirtualFlexElement {
         &self.classes
     }
 
-    fn reset_mss_styles(&mut self) { self.mss.reset(); }
-    fn mss(&self) -> Option<&crate::mss::MssFields> { Some(&self.mss) }
+    fn reset_mss_styles(&mut self) {
+        self.mss.reset();
+    }
+    fn mss(&self) -> Option<&crate::mss::MssFields> {
+        Some(&self.mss)
+    }
 
     fn apply_computed_style(&mut self, style: &ComputedStyle) {
         self.mss.apply(style);
         if let Some(bg) = self.mss.background_color {
             self.background = Some(bg);
         }
-        if let Some(pl) = self.mss.padding_left { self.padding.left = pl; }
-        if let Some(pr) = self.mss.padding_right { self.padding.right = pr; }
-        if let Some(pt) = self.mss.padding_top { self.padding.top = pt; }
-        if let Some(pb) = self.mss.padding_bottom { self.padding.bottom = pb; }
+        if let Some(pl) = self.mss.padding_left {
+            self.padding.left = pl;
+        }
+        if let Some(pr) = self.mss.padding_right {
+            self.padding.right = pr;
+        }
+        if let Some(pt) = self.mss.padding_top {
+            self.padding.top = pt;
+        }
+        if let Some(pb) = self.mss.padding_bottom {
+            self.padding.bottom = pb;
+        }
         if let Some(v) = style.get("scrollbar-width").and_then(|v| v.as_px()) {
             self.scrollbar_width = v;
         }

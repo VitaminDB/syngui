@@ -46,23 +46,29 @@ impl MapMarker {
     }
 
     pub fn fade_in_at(mut self, at: Instant) -> Self {
-        self.appear_at = Some(at); self
+        self.appear_at = Some(at);
+        self
     }
 
     pub fn fade_out_at(mut self, at: Instant) -> Self {
-        self.fade_out_at = Some(at); self
+        self.fade_out_at = Some(at);
+        self
     }
 
     pub fn animation_duration(mut self, d: Duration) -> Self {
-        self.animation_duration = d; self
+        self.animation_duration = d;
+        self
     }
 
     pub fn pulse(mut self) -> Self {
-        self.pulse = true; self
+        self.pulse = true;
+        self
     }
 
     pub fn is_animating(&self, now: Instant) -> bool {
-        if self.pulse { return true; }
+        if self.pulse {
+            return true;
+        }
         if let Some(at) = self.appear_at {
             if now.saturating_duration_since(at) < self.animation_duration {
                 return true;

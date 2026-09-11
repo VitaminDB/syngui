@@ -85,7 +85,9 @@ impl TerminalSession {
     }
 
     pub fn reset_autofocus(&self) {
-        self.inner.autofocus_consumed.store(false, Ordering::Release);
+        self.inner
+            .autofocus_consumed
+            .store(false, Ordering::Release);
     }
 
     fn ensure_spawned(&self, cols: u16, rows: u16) {

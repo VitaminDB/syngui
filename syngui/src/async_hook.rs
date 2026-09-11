@@ -1,12 +1,12 @@
 #[cfg(feature = "tokio")]
 use crate::async_runtime::{run_on_main_thread, spawn};
+use crate::core::sync::Mutex;
 #[cfg(feature = "tokio")]
 use crate::signal::{create_effect_with_cleanup, use_signal, RwSignal};
 #[cfg(feature = "tokio")]
 use std::future::Future;
 #[cfg(feature = "tokio")]
 use std::sync::Arc;
-use crate::core::sync::Mutex;
 
 #[cfg(feature = "tokio")]
 pub fn use_async<T, F, Fut>(factory: F) -> (RwSignal<Option<T>>, RwSignal<bool>)
@@ -18,8 +18,7 @@ where
     let data = use_signal::<Option<T>>(None);
     let loading = use_signal(false);
 
-    let abort_handle: Arc<Mutex<Option<tokio::task::AbortHandle>>> =
-        Arc::new(Mutex::new(None));
+    let abort_handle: Arc<Mutex<Option<tokio::task::AbortHandle>>> = Arc::new(Mutex::new(None));
 
     let abort_for_effect = abort_handle.clone();
 

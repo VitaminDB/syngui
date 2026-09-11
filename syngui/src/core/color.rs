@@ -66,12 +66,24 @@ impl Color {
         [self.r * self.a, self.g * self.a, self.b * self.a, self.a]
     }
 
-    pub const fn white() -> Self { Self::rgb(1.0, 1.0, 1.0) }
-    pub const fn black() -> Self { Self::rgb(0.0, 0.0, 0.0) }
-    pub const fn red() -> Self { Self::rgb(1.0, 0.0, 0.0) }
-    pub const fn green() -> Self { Self::rgb(0.0, 1.0, 0.0) }
-    pub const fn blue() -> Self { Self::rgb(0.0, 0.0, 1.0) }
-    pub const fn transparent() -> Self { Self::rgba(0.0, 0.0, 0.0, 0.0) }
+    pub const fn white() -> Self {
+        Self::rgb(1.0, 1.0, 1.0)
+    }
+    pub const fn black() -> Self {
+        Self::rgb(0.0, 0.0, 0.0)
+    }
+    pub const fn red() -> Self {
+        Self::rgb(1.0, 0.0, 0.0)
+    }
+    pub const fn green() -> Self {
+        Self::rgb(0.0, 1.0, 0.0)
+    }
+    pub const fn blue() -> Self {
+        Self::rgb(0.0, 0.0, 1.0)
+    }
+    pub const fn transparent() -> Self {
+        Self::rgba(0.0, 0.0, 0.0, 0.0)
+    }
 
     pub const WHITE: Self = Self::white();
     pub const BLACK: Self = Self::black();
@@ -155,6 +167,10 @@ impl Color {
     /// Чёрный или белый — тот, что контрастнее на этом фоне (порог 0.179 —
     /// точка равного контраста по WCAG).
     pub fn readable_on(&self) -> Color {
-        if self.relative_luminance() > 0.179 { Color::BLACK } else { Color::WHITE }
+        if self.relative_luminance() > 0.179 {
+            Color::BLACK
+        } else {
+            Color::WHITE
+        }
     }
 }

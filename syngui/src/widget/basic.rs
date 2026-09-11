@@ -1,16 +1,16 @@
-use super::{Element, Widget, styled::StyledElement};
+use super::{styled::StyledElement, Element, Widget};
+use crate::core::sync::Mutex;
 use crate::core::{Color, Point, Rect, Size};
 use crate::input::{CursorIcon, Event, EventResult, Key, MouseButton};
 use crate::layout::Constraints;
 use crate::mss::ComputedStyle;
 use crate::render::DisplayList;
 use crate::text::line_break::breaks_before;
-use crate::widget::{DirtyFlags, ElementId, UpdateContext, EventContext};
 use crate::widget::selection::TextSelectionState;
+use crate::widget::{DirtyFlags, ElementId, EventContext, UpdateContext};
 use std::any::Any;
 use std::sync::Arc;
 use std::time::Instant;
-use crate::core::sync::Mutex;
 
 const DEFAULT_FONT_SIZE: f32 = 16.0;
 /// Цвет подсветки выделения в [`Text`] по умолчанию — к нему возвращает
@@ -33,7 +33,8 @@ pub(crate) fn count_visual_lines_via_measure(
     }
     let mut total: usize = 0;
     for segment in text.split('\n') {
-        total += visual_lines_in_segment(segment, available_width, font_size, bold, font_family, tm);
+        total +=
+            visual_lines_in_segment(segment, available_width, font_size, bold, font_family, tm);
     }
     total.max(1)
 }
@@ -49,7 +50,8 @@ fn visual_lines_in_segment(
     if line.is_empty() {
         return 1;
     }
-    let full = tm.measure_text_width_styled(line, font_size, line.chars().count(), bold, font_family);
+    let full =
+        tm.measure_text_width_styled(line, font_size, line.chars().count(), bold, font_family);
     if full <= available_width {
         return 1;
     }
@@ -123,8 +125,13 @@ fn truncate_to_lines<'a>(
         return truncate_by_logical_lines(text, max_lines);
     }
 
-    let ellipsis_w =
-        tm.measure_text_width_styled(ELLIPSIS, font_size, ELLIPSIS.chars().count(), bold, font_family);
+    let ellipsis_w = tm.measure_text_width_styled(
+        ELLIPSIS,
+        font_size,
+        ELLIPSIS.chars().count(),
+        bold,
+        font_family,
+    );
     if ellipsis_w >= available_width {
         return std::borrow::Cow::Owned(ELLIPSIS.to_string());
     }
@@ -138,7 +145,13 @@ fn truncate_to_lines<'a>(
     let mut buf = [0u8; 4];
 
     let on_last = |idx: usize| idx == max_lines - 1;
-    let budget_for = |idx: usize| if on_last(idx) { last_budget } else { available_width };
+    let budget_for = |idx: usize| {
+        if on_last(idx) {
+            last_budget
+        } else {
+            available_width
+        }
+    };
 
     let mut prev: Option<char> = None;
     let mut iter = text.char_indices().peekable();
@@ -240,7 +253,10 @@ fn ellipsize(text: &str, cut: usize) -> std::borrow::Cow<'_, str> {
     if cut == 0 {
         return std::borrow::Cow::Owned(ELLIPSIS.to_string());
     }
-    debug_assert!(text.is_char_boundary(cut), "cut must be on a UTF-8 char boundary");
+    debug_assert!(
+        text.is_char_boundary(cut),
+        "cut must be on a UTF-8 char boundary"
+    );
     let trimmed = text[..cut].trim_end_matches(|c: char| c == ' ' || c == '\t');
     let mut s = String::with_capacity(trimmed.len() + ELLIPSIS.len());
     s.push_str(trimmed);
@@ -305,9 +321,8 @@ fn elide_middle<'a>(
     font_family: Option<&str>,
     tm: &dyn crate::widget::context::TextMeasure,
 ) -> std::borrow::Cow<'a, str> {
-    let measure = |s: &str| {
-        tm.measure_text_width_styled(s, font_size, s.chars().count(), bold, font_family)
-    };
+    let measure =
+        |s: &str| tm.measure_text_width_styled(s, font_size, s.chars().count(), bold, font_family);
     // Многострочный текст сжимать по середине бессмысленно — берём первую строку.
     let text = match text.split_once('\n') {
         Some((first, _)) => first,
@@ -344,7 +359,11 @@ fn elide_path_segments(
         return None;
     }
     let absolute = trimmed.starts_with(sep);
-    let root = if absolute { String::from(sep) } else { String::new() };
+    let root = if absolute {
+        String::from(sep)
+    } else {
+        String::new()
+    };
     let joined = |parts: &[&str]| parts.join(&sep.to_string());
 
     // Сначала держим первый сегмент («~», «home»), отдавая хвост по одному.
@@ -368,7 +387,11 @@ fn elide_path_segments(
         }
     }
     // Остался один сегмент, и тот длинный — режем его посимвольно.
-    Some(elide_chars(segments[segments.len() - 1], available_width, measure))
+    Some(elide_chars(
+        segments[segments.len() - 1],
+        available_width,
+        measure,
+    ))
 }
 
 /// Посимвольное сжатие середины: наращиваем начало и конец от `…`, пока влезает.
@@ -384,7 +407,11 @@ fn elide_chars(text: &str, available_width: f32, measure: &dyn Fn(&str) -> f32) 
     let mut tail = 0usize;
     loop {
         let grow_tail = tail <= head;
-        let (nh, nt) = if grow_tail { (head, tail + 1) } else { (head + 1, tail) };
+        let (nh, nt) = if grow_tail {
+            (head, tail + 1)
+        } else {
+            (head + 1, tail)
+        };
         if nh + nt >= n {
             break;
         }
@@ -537,8 +564,7 @@ impl Widget for Text {
         self
     }
 
-    fn mount(&self, _tree: &mut super::ElementTree, _parent_id: ElementId) {
-    }
+    fn mount(&self, _tree: &mut super::ElementTree, _parent_id: ElementId) {}
 }
 
 struct TextElement {
@@ -642,7 +668,11 @@ impl TextElement {
 
     fn effective_color(&self) -> Color {
         if let (Some(dark), Some(theme)) = (&self.dark_color, &self.theme) {
-            if *theme.lock().unwrap() { *dark } else { self.color }
+            if *theme.lock().unwrap() {
+                *dark
+            } else {
+                self.color
+            }
         } else {
             self.color
         }
@@ -698,8 +728,7 @@ impl Element for TextElement {
                 Elide::End => widget.max_lines,
             };
             self.base_max_lines = new_max_lines;
-            let max_lines_changed =
-                new_max_lines.is_some() && self.mss_max_lines != new_max_lines;
+            let max_lines_changed = new_max_lines.is_some() && self.mss_max_lines != new_max_lines;
             if let Some(n) = new_max_lines {
                 self.mss_max_lines = Some(n);
             }
@@ -722,12 +751,17 @@ impl Element for TextElement {
             .split('\n')
             .map(|line| self.measure_line(line, bold))
             .fold(0.0f32, f32::max);
-        let line_height = self.mss_line_height
+        let line_height = self
+            .mss_line_height
             .map(|lh| lh.resolve(self.font_size))
             .unwrap_or(self.font_size * 1.3);
         // Явные размеры (MSS width/height) резолвим относительно родителя.
-        let explicit_w = self.mss_width.and_then(|d| d.resolve_opt(constraints.containing_block.width));
-        let explicit_h = self.mss_height.and_then(|d| d.resolve_opt(constraints.containing_block.height));
+        let explicit_w = self
+            .mss_width
+            .and_then(|d| d.resolve_opt(constraints.containing_block.width));
+        let explicit_h = self
+            .mss_height
+            .and_then(|d| d.resolve_opt(constraints.containing_block.height));
         let available_width = if let Some(w) = explicit_w {
             (w - pad_h).max(1.0)
         } else if constraints.max_width.is_finite() {
@@ -800,40 +834,40 @@ impl Element for TextElement {
         let display_text = self.display_text();
 
         let bold = self.mss_font_weight >= 700;
-        let tm: Option<&dyn crate::widget::context::TextMeasure> =
-            self.text_measure.as_deref();
-        let display_text: std::borrow::Cow<str> = if let (Elide::Middle, Some(tm)) =
-            (self.mss_elide, tm)
-        {
-            match elide_middle(
-                display_text.as_ref(),
-                render_width,
-                self.font_size,
-                bold,
-                self.mss_font_family.as_deref(),
-                tm,
-            ) {
-                std::borrow::Cow::Borrowed(s) if s.len() == display_text.len() => display_text,
-                other => std::borrow::Cow::Owned(other.into_owned()),
-            }
-        } else if let Some(n) = self.mss_max_lines {
-            match truncate_to_lines(
-                display_text.as_ref(),
-                render_width,
-                n,
-                self.font_size,
-                bold,
-                self.mss_font_family.as_deref(),
-                tm,
-            ) {
-                std::borrow::Cow::Borrowed(_) => display_text,
-                std::borrow::Cow::Owned(s) => std::borrow::Cow::Owned(s),
-            }
-        } else {
-            display_text
-        };
+        let tm: Option<&dyn crate::widget::context::TextMeasure> = self.text_measure.as_deref();
+        let display_text: std::borrow::Cow<str> =
+            if let (Elide::Middle, Some(tm)) = (self.mss_elide, tm) {
+                match elide_middle(
+                    display_text.as_ref(),
+                    render_width,
+                    self.font_size,
+                    bold,
+                    self.mss_font_family.as_deref(),
+                    tm,
+                ) {
+                    std::borrow::Cow::Borrowed(s) if s.len() == display_text.len() => display_text,
+                    other => std::borrow::Cow::Owned(other.into_owned()),
+                }
+            } else if let Some(n) = self.mss_max_lines {
+                match truncate_to_lines(
+                    display_text.as_ref(),
+                    render_width,
+                    n,
+                    self.font_size,
+                    bold,
+                    self.mss_font_family.as_deref(),
+                    tm,
+                ) {
+                    std::borrow::Cow::Borrowed(_) => display_text,
+                    std::borrow::Cow::Owned(s) => std::borrow::Cow::Owned(s),
+                }
+            } else {
+                display_text
+            };
 
-        let align = self.mss_text_align.unwrap_or(crate::mss::TextAlign::DEFAULT);
+        let align = self
+            .mss_text_align
+            .unwrap_or(crate::mss::TextAlign::DEFAULT);
         // Однострочный режим (max_lines=1 / elide) рисуется без переноса:
         // строка уже усечена по ширине, а рисовать её с переносом опасно —
         // 1px расхождения измерений перекидывали бы хвост на вторую строку.
@@ -869,8 +903,13 @@ impl Element for TextElement {
             || self.mss_text_decoration != crate::mss::TextDecoration::None
         {
             list.push_text_full(
-                &display_text, render_bounds, self.effective_color(), self.font_size,
-                align, self.mss_text_decoration, self.mss_font_weight,
+                &display_text,
+                render_bounds,
+                self.effective_color(),
+                self.font_size,
+                align,
+                self.mss_text_decoration,
+                self.mss_font_weight,
                 self.mss_font_family.clone(),
                 self.mss_letter_spacing,
                 self.mss_text_shadow.clone(),
@@ -878,11 +917,20 @@ impl Element for TextElement {
             );
         } else if single_line {
             list.push_text_singleline(
-                &display_text, render_bounds, self.effective_color(), self.font_size,
-                align, self.mss_font_weight,
+                &display_text,
+                render_bounds,
+                self.effective_color(),
+                self.font_size,
+                align,
+                self.mss_font_weight,
             );
         } else {
-            list.push_text(&display_text, render_bounds, self.effective_color(), self.font_size);
+            list.push_text(
+                &display_text,
+                render_bounds,
+                self.effective_color(),
+                self.font_size,
+            );
         }
     }
 
@@ -904,7 +952,10 @@ impl Element for TextElement {
                 }
                 EventResult::Ignored
             }
-            Event::MouseDown { button: MouseButton::Left, position } => {
+            Event::MouseDown {
+                button: MouseButton::Left,
+                position,
+            } => {
                 if !self.bounds.contains(*position) {
                     return EventResult::Ignored;
                 }
@@ -924,7 +975,8 @@ impl Element for TextElement {
                 match self.click_count {
                     2 => {
                         self.selection.select_word(&self.text, byte);
-                        self.cursor_pos = self.selection.range(byte).map(|(_, e)| e).unwrap_or(byte);
+                        self.cursor_pos =
+                            self.selection.range(byte).map(|(_, e)| e).unwrap_or(byte);
                         self.mouse_selecting = false;
                     }
                     3 => {
@@ -941,7 +993,10 @@ impl Element for TextElement {
                 self.mark_dirty(DirtyFlags::RENDER);
                 EventResult::Handled
             }
-            Event::MouseUp { button: MouseButton::Left, .. } => {
+            Event::MouseUp {
+                button: MouseButton::Left,
+                ..
+            } => {
                 if self.mouse_selecting {
                     self.mouse_selecting = false;
                     return EventResult::Handled;
@@ -1007,7 +1062,9 @@ impl Element for TextElement {
         self.text_measure = tree.text_measure.clone();
     }
 
-    fn element_type_name(&self) -> &str { "Text" }
+    fn element_type_name(&self) -> &str {
+        "Text"
+    }
 
     fn set_classes(&mut self, classes: Vec<String>) {
         self.classes = classes;
@@ -1048,7 +1105,11 @@ impl Element for TextElement {
         self.mark_dirty(DirtyFlags::LAYOUT | DirtyFlags::RENDER);
     }
 
-    fn explicit_dimensions(&self, parent_width: f32, parent_height: f32) -> (Option<f32>, Option<f32>) {
+    fn explicit_dimensions(
+        &self,
+        parent_width: f32,
+        parent_height: f32,
+    ) -> (Option<f32>, Option<f32>) {
         (
             self.mss_width.and_then(|d| d.resolve_opt(parent_width)),
             self.mss_height.and_then(|d| d.resolve_opt(parent_height)),
@@ -1106,10 +1167,12 @@ impl StyledElement for TextElement {
         }
         if let Some(v) = style.get("line-height") {
             self.mss_line_height = match v {
-                crate::mss::StyleValue::Number(m) =>
-                    Some(crate::mss::fields::LineHeight::Multiplier(*m)),
-                crate::mss::StyleValue::Length(px, crate::mss::Unit::Px) =>
-                    Some(crate::mss::fields::LineHeight::Px(*px)),
+                crate::mss::StyleValue::Number(m) => {
+                    Some(crate::mss::fields::LineHeight::Multiplier(*m))
+                }
+                crate::mss::StyleValue::Length(px, crate::mss::Unit::Px) => {
+                    Some(crate::mss::fields::LineHeight::Px(*px))
+                }
                 _ => self.mss_line_height,
             };
         }
@@ -1137,8 +1200,7 @@ impl StyledElement for TextElement {
             self.mss_padding_bottom = v;
         }
         if let Some(c) = style.get("selection-color").and_then(|v| v.as_color()) {
-            self.mss_selection_color =
-                Color::from_srgb(c.r, c.g, c.b, c.a as f32 / 255.0);
+            self.mss_selection_color = Color::from_srgb(c.r, c.g, c.b, c.a as f32 / 255.0);
         }
         self.mark_dirty(DirtyFlags::LAYOUT | DirtyFlags::RENDER);
     }
@@ -1159,9 +1221,7 @@ pub struct Center {
 
 impl Center {
     pub fn new() -> Self {
-        Self {
-            child: None,
-        }
+        Self { child: None }
     }
 
     pub fn child(mut self, child: impl Widget + 'static) -> Self {
@@ -1201,13 +1261,17 @@ impl Widget for Center {
     fn mount(&self, tree: &mut super::ElementTree, parent_id: ElementId) {
         if let Some(child) = &self.child {
             let child_element = child.create_element();
-            let child_id = tree.insert_with_type_id(child_element, Some(parent_id), child.as_any().type_id());
+            let child_id =
+                tree.insert_with_type_id(child_element, Some(parent_id), child.as_any().type_id());
             child.mount(tree, child_id);
         }
     }
 
     fn child_widgets(&self) -> Vec<&dyn Widget> {
-        self.child.as_ref().map(|c| vec![c.as_ref() as &dyn Widget]).unwrap_or_default()
+        self.child
+            .as_ref()
+            .map(|c| vec![c.as_ref() as &dyn Widget])
+            .unwrap_or_default()
     }
 }
 
@@ -1244,14 +1308,15 @@ impl Element for CenterElement {
         Size::new(width, height)
     }
 
-    fn build_display_list(&self, _list: &mut DisplayList, _clip: Rect) {
-    }
+    fn build_display_list(&self, _list: &mut DisplayList, _clip: Rect) {}
 
     fn handle_event(&mut self, _event: &Event, _ctx: &mut EventContext) -> EventResult {
         EventResult::Ignored
     }
 
-    fn passthrough_hit_test(&self) -> bool { true }
+    fn passthrough_hit_test(&self) -> bool {
+        true
+    }
 
     fn children(&self) -> &[ElementId] {
         &[]
@@ -1285,10 +1350,11 @@ impl Element for CenterElement {
         self.id = id;
     }
 
-    fn mount(&mut self, _tree: &mut super::ElementTree) {
-    }
+    fn mount(&mut self, _tree: &mut super::ElementTree) {}
 
-    fn element_type_name(&self) -> &str { "Center" }
+    fn element_type_name(&self) -> &str {
+        "Center"
+    }
 
     fn set_classes(&mut self, classes: Vec<String>) {
         self.classes = classes;
@@ -1301,8 +1367,7 @@ impl Element for CenterElement {
 }
 
 impl StyledElement for CenterElement {
-    fn apply_style(&mut self, _style: &ComputedStyle) {
-    }
+    fn apply_style(&mut self, _style: &ComputedStyle) {}
 
     fn classes(&self) -> &[String] {
         &self.classes
@@ -1350,7 +1415,14 @@ mod tests {
 
     #[test]
     fn visual_lines_long_word_breaks_char_level() {
-        let n = count_visual_lines_via_measure("a".repeat(20).as_str(), 50.0, 12.0, false, None, &MonoMeasure);
+        let n = count_visual_lines_via_measure(
+            "a".repeat(20).as_str(),
+            50.0,
+            12.0,
+            false,
+            None,
+            &MonoMeasure,
+        );
         assert!(n >= 4, "expected ≥4 for 20-char word in 50px, got {n}");
     }
 
@@ -1448,13 +1520,27 @@ mod tests {
 
     #[test]
     fn visual_lines_hangul_without_spaces_wraps() {
-        let n = count_visual_lines_via_measure("한국어텍스트는띄어쓰기없이", 50.0, 12.0, false, None, &MonoMeasure);
+        let n = count_visual_lines_via_measure(
+            "한국어텍스트는띄어쓰기없이",
+            50.0,
+            12.0,
+            false,
+            None,
+            &MonoMeasure,
+        );
         assert_eq!(n, 3);
     }
 
     #[test]
     fn visual_lines_latin_word_after_cjk_stays_whole() {
-        let n = count_visual_lines_via_measure("日本語ですabcdefghijk", 100.0, 12.0, false, None, &MonoMeasure);
+        let n = count_visual_lines_via_measure(
+            "日本語ですabcdefghijk",
+            100.0,
+            12.0,
+            false,
+            None,
+            &MonoMeasure,
+        );
         assert_eq!(n, 3, "expected 日本語です / abcdefghij / k, got {n}");
     }
 
@@ -1487,7 +1573,10 @@ mod tests {
 
     #[test]
     fn elide_middle_keeps_text_that_fits() {
-        assert_eq!(mid("~/Projects/2027/synthos", 300.0), "~/Projects/2027/synthos");
+        assert_eq!(
+            mid("~/Projects/2027/synthos", 300.0),
+            "~/Projects/2027/synthos"
+        );
     }
 
     #[test]
@@ -1508,7 +1597,10 @@ mod tests {
 
     #[test]
     fn elide_middle_ignores_trailing_separator() {
-        assert_eq!(mid("/home/master/2027/synthos/", 190.0), "/home/\u{2026}/synthos");
+        assert_eq!(
+            mid("/home/master/2027/synthos/", 190.0),
+            "/home/\u{2026}/synthos"
+        );
     }
 
     /// Два сегмента: выкидывать из середины нечего, жертвуем головой.
@@ -1543,7 +1635,10 @@ mod tests {
 
     #[test]
     fn elide_middle_uses_first_line_only() {
-        assert_eq!(mid("~/Projects/2027/synthos\nвторая", 150.0), "~/\u{2026}/synthos");
+        assert_eq!(
+            mid("~/Projects/2027/synthos\nвторая", 150.0),
+            "~/\u{2026}/synthos"
+        );
     }
 
     #[test]
@@ -1582,7 +1677,10 @@ mod tests {
     #[test]
     fn center_does_not_return_infinity() {
         let size = center_layout(f32::INFINITY, f32::INFINITY);
-        assert!(size.width.is_finite() && size.height.is_finite(), "{size:?}");
+        assert!(
+            size.width.is_finite() && size.height.is_finite(),
+            "{size:?}"
+        );
         assert_eq!(size, Size::new(0.0, 0.0));
     }
 
@@ -1594,7 +1692,11 @@ mod tests {
 
     // --- ширина мерится по тому, что рисуется ---
 
-    fn measured_width(text: &str, transform: Option<crate::mss::fields::TextTransform>, spacing: f32) -> f32 {
+    fn measured_width(
+        text: &str,
+        transform: Option<crate::mss::fields::TextTransform>,
+        spacing: f32,
+    ) -> f32 {
         let widget = Text::new(text);
         let mut el = widget.element();
         el.text_measure = Some(Arc::new(MonoMeasure));

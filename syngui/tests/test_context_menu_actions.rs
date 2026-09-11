@@ -47,7 +47,10 @@ fn markdown_view_context_menu_copies_all() {
     // Правый клик открывает меню — с этого момента виджету нужны тики:
     // выбор пункта приходит отложенно, через сигнал menu_action.
     let at = Point::new(60.0, 20.0);
-    harness.send_event(&Event::MouseDown { button: MouseButton::Right, position: at });
+    harness.send_event(&Event::MouseDown {
+        button: MouseButton::Right,
+        position: at,
+    });
     harness.layout(800.0, 600.0);
     // Меню узнаёт размер поверхности при отрисовке — до неё оно не попадает
     // в overlay-стек и кликов не получает.
@@ -62,7 +65,10 @@ fn markdown_view_context_menu_copies_all() {
 
     // Третий пункт меню — «Копировать всё»: padding 4 + два пункта по 32.
     let item = Point::new(at.x + 20.0, at.y + 4.0 + 64.0 + 16.0);
-    harness.send_event(&Event::MouseDown { button: MouseButton::Left, position: item });
+    harness.send_event(&Event::MouseDown {
+        button: MouseButton::Left,
+        position: item,
+    });
     harness.animate(Duration::from_millis(16));
 
     // В headless-среде без дисплея буфер может быть недоступен — тогда
@@ -96,7 +102,10 @@ fn text_field_context_menu_pastes() {
     assert_eq!(ids.len(), 1);
 
     let at = Point::new(40.0, 20.0);
-    harness.send_event(&Event::MouseDown { button: MouseButton::Right, position: at });
+    harness.send_event(&Event::MouseDown {
+        button: MouseButton::Right,
+        position: at,
+    });
     harness.rebuild();
     harness.layout(800.0, 600.0);
     harness.paint();
@@ -108,12 +117,16 @@ fn text_field_context_menu_pastes() {
     // Пункты поля для чтения-записи без выделения: Вырезать (выкл),
     // Копировать (выкл), Вставить, ─, Выделить всё. Третий — «Вставить».
     let item = Point::new(at.x + 20.0, at.y + 4.0 + 64.0 + 16.0);
-    harness.send_event(&Event::MouseDown { button: MouseButton::Left, position: item });
+    harness.send_event(&Event::MouseDown {
+        button: MouseButton::Left,
+        position: item,
+    });
     harness.animate(Duration::from_millis(16));
 
-    let text = harness.tree.get(ids[0]).and_then(|e| {
-        e.accessibility_info().and_then(|i| i.properties.value)
-    });
+    let text = harness
+        .tree
+        .get(ids[0])
+        .and_then(|e| e.accessibility_info().and_then(|i| i.properties.value));
 
     if let Some(prev) = saved {
         syngui::clipboard::copy(&prev);
@@ -143,7 +156,10 @@ fn multiline_edit_context_menu_pastes() {
     assert_eq!(ids.len(), 1);
 
     let at = Point::new(30.0, 20.0);
-    harness.send_event(&Event::MouseDown { button: MouseButton::Right, position: at });
+    harness.send_event(&Event::MouseDown {
+        button: MouseButton::Right,
+        position: at,
+    });
     harness.rebuild();
     harness.layout(800.0, 600.0);
     harness.paint();
@@ -151,7 +167,10 @@ fn multiline_edit_context_menu_pastes() {
 
     // Третий пункт — «Вставить».
     let item = Point::new(at.x + 20.0, at.y + 4.0 + 64.0 + 16.0);
-    harness.send_event(&Event::MouseDown { button: MouseButton::Left, position: item });
+    harness.send_event(&Event::MouseDown {
+        button: MouseButton::Left,
+        position: item,
+    });
     harness.animate(Duration::from_millis(16));
 
     let text = harness

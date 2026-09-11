@@ -1,7 +1,7 @@
+use super::panel;
 use crate::core::{Point, Rect, Size};
 use crate::render::DisplayList;
 use crate::widget::{ElementId, ElementTree};
-use super::panel;
 
 pub fn render_highlight(
     list: &mut DisplayList,
@@ -29,7 +29,11 @@ pub fn render_highlight(
             let bounds = node.element.bounds();
             if bounds.size.width > 0.0 && bounds.size.height > 0.0 {
                 let margin = node.element.margin();
-                if margin.left > 0.0 || margin.top > 0.0 || margin.right > 0.0 || margin.bottom > 0.0 {
+                if margin.left > 0.0
+                    || margin.top > 0.0
+                    || margin.right > 0.0
+                    || margin.bottom > 0.0
+                {
                     let margin_color = crate::core::Color::new(0.976, 0.651, 0.286, 0.15);
                     if margin.top > 0.0 {
                         let r = Rect::new(
@@ -40,8 +44,14 @@ pub fn render_highlight(
                     }
                     if margin.bottom > 0.0 {
                         let r = Rect::new(
-                            Point::new(bounds.origin.x - margin.left, bounds.origin.y + bounds.size.height),
-                            Size::new(bounds.size.width + margin.left + margin.right, margin.bottom),
+                            Point::new(
+                                bounds.origin.x - margin.left,
+                                bounds.origin.y + bounds.size.height,
+                            ),
+                            Size::new(
+                                bounds.size.width + margin.left + margin.right,
+                                margin.bottom,
+                            ),
                         );
                         list.push_rect(r, margin_color, [0.0; 4]);
                     }
@@ -72,25 +82,35 @@ pub fn render_highlight(
 fn render_border(list: &mut DisplayList, bounds: Rect, color: crate::core::Color, thickness: f32) {
     list.push_rect(
         Rect::new(bounds.origin, Size::new(bounds.size.width, thickness)),
-        color, [0.0; 4],
+        color,
+        [0.0; 4],
     );
     list.push_rect(
         Rect::new(
-            Point::new(bounds.origin.x, bounds.origin.y + bounds.size.height - thickness),
+            Point::new(
+                bounds.origin.x,
+                bounds.origin.y + bounds.size.height - thickness,
+            ),
             Size::new(bounds.size.width, thickness),
         ),
-        color, [0.0; 4],
+        color,
+        [0.0; 4],
     );
     list.push_rect(
         Rect::new(bounds.origin, Size::new(thickness, bounds.size.height)),
-        color, [0.0; 4],
+        color,
+        [0.0; 4],
     );
     list.push_rect(
         Rect::new(
-            Point::new(bounds.origin.x + bounds.size.width - thickness, bounds.origin.y),
+            Point::new(
+                bounds.origin.x + bounds.size.width - thickness,
+                bounds.origin.y,
+            ),
             Size::new(thickness, bounds.size.height),
         ),
-        color, [0.0; 4],
+        color,
+        [0.0; 4],
     );
 }
 
@@ -102,9 +122,17 @@ fn render_element_label(
 ) {
     let type_name = element.element_type_name();
     let label = if type_name.is_empty() {
-        format!("#{} {:.0}x{:.0}", element.id().0, bounds.size.width, bounds.size.height)
+        format!(
+            "#{} {:.0}x{:.0}",
+            element.id().0,
+            bounds.size.width,
+            bounds.size.height
+        )
     } else {
-        format!("{} {:.0}x{:.0}", type_name, bounds.size.width, bounds.size.height)
+        format!(
+            "{} {:.0}x{:.0}",
+            type_name, bounds.size.width, bounds.size.height
+        )
     };
 
     let label_width = label.chars().count() as f32 * 6.5 + 8.0;
@@ -131,5 +159,10 @@ fn render_element_label(
         Point::new(label_rect.origin.x + 4.0, label_rect.origin.y + 2.0),
         Size::new(label_width - 8.0, 12.0),
     );
-    list.push_text(&label, text_rect, panel::TEXT_PRIMARY, panel::SMALL_FONT_SIZE);
+    list.push_text(
+        &label,
+        text_rect,
+        panel::TEXT_PRIMARY,
+        panel::SMALL_FONT_SIZE,
+    );
 }

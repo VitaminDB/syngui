@@ -144,13 +144,11 @@ pub fn build_ffmpeg_video_section() -> impl Widget {
                     .main_axis_alignment(MainAxisAlignment::Center)
                     .child(Icon::new(MI_MOVIE).class("ffmpeg-placeholder-icon"))
                     .child(Text::new("видео не загружено").class("ffmpeg-placeholder-text"));
-                vec![
-                    Box::new(
-                        DecoratedBox::new()
-                            .child(placeholder)
-                            .class("ffmpeg-placeholder"),
-                    ) as Box<dyn Widget>,
-                ]
+                vec![Box::new(
+                    DecoratedBox::new()
+                        .child(placeholder)
+                        .class("ffmpeg-placeholder"),
+                ) as Box<dyn Widget>]
             }
         }
     });

@@ -7,8 +7,11 @@ use crate::layout::Constraints;
 use crate::mss::{ComputedStyle, Dimension, TextAlign, TextDecoration};
 use crate::render::DisplayList;
 use crate::signal::{use_signal, RwSignal};
-use crate::widget::{DirtyFlags, Element, ElementId, ElementTree, EventContextExt, StyledElement, UpdateContext, Widget};
 use crate::widget::context::{EventContext, TextMeasure};
+use crate::widget::{
+    DirtyFlags, Element, ElementId, ElementTree, EventContextExt, StyledElement, UpdateContext,
+    Widget,
+};
 use crate::widgets::overlay::menu::{MenuItem, PopupMenu};
 use hashbrown::HashMap;
 use std::any::Any;
@@ -22,13 +25,12 @@ use super::highlight::SyntectHighlighter;
 use super::model::{MdBlock, MdInline};
 use super::parser::parse_markdown;
 use super::plain_text;
-use super::resolve::{resolve_link, resolve_ref, ResolvedRef};
 use super::renderer::{
     measure_blocks, measure_natural_width, MdImageEntry, MdImageProbe, MdRenderer, MdStyle,
 };
+use super::resolve::{resolve_link, resolve_ref, ResolvedRef};
 use super::selection_map::{
-    extract_selection_text, hit_test, select_all_pos, word_boundaries_in_run, SelPos,
-    SelectableRun,
+    extract_selection_text, hit_test, select_all_pos, word_boundaries_in_run, SelPos, SelectableRun,
 };
 
 const ICON_CONTENT_COPY: &str = "\u{E14D}";
@@ -183,7 +185,9 @@ fn block_to_source(b: &MdBlock, out: &mut String) {
         }
         MdBlock::UnorderedList { items } => {
             for (i, it) in items.iter().enumerate() {
-                if i > 0 { out.push('\n'); }
+                if i > 0 {
+                    out.push('\n');
+                }
                 out.push_str("- ");
                 let inner = inlines_to_source(&it.blocks);
                 out.push_str(&inner.replace('\n', "\n  "));
@@ -191,7 +195,9 @@ fn block_to_source(b: &MdBlock, out: &mut String) {
         }
         MdBlock::OrderedList { start, items } => {
             for (i, it) in items.iter().enumerate() {
-                if i > 0 { out.push('\n'); }
+                if i > 0 {
+                    out.push('\n');
+                }
                 out.push_str(&format!("{}. ", *start + i as u64));
                 let inner = inlines_to_source(&it.blocks);
                 out.push_str(&inner.replace('\n', "\n   "));
@@ -199,7 +205,9 @@ fn block_to_source(b: &MdBlock, out: &mut String) {
         }
         MdBlock::TaskList { items } => {
             for (i, it) in items.iter().enumerate() {
-                if i > 0 { out.push('\n'); }
+                if i > 0 {
+                    out.push('\n');
+                }
                 out.push_str(if it.checked { "- [x] " } else { "- [ ] " });
                 inlines_to_source_inner(&it.inlines, out);
             }
@@ -330,8 +338,12 @@ impl Widget for MarkdownView {
         other.is::<Self>()
     }
 
-    fn as_any(&self) -> &dyn Any { self }
-    fn as_any_mut(&mut self) -> &mut dyn Any { self }
+    fn as_any(&self) -> &dyn Any {
+        self
+    }
+    fn as_any_mut(&mut self) -> &mut dyn Any {
+        self
+    }
 
     fn mount(&self, _tree: &mut ElementTree, _parent_id: ElementId) {}
 }
@@ -346,11 +358,17 @@ fn context_menu(
             MenuItem::new("copy", crate::i18n::builtin("markdown_view.copy", "Copy"))
                 .icon(ICON_CONTENT_COPY)
                 .shortcut("Ctrl+C"),
-            MenuItem::new("select_all", crate::i18n::builtin("markdown_view.select_all", "Select all"))
-                .icon(ICON_SELECT_ALL)
-                .shortcut("Ctrl+A"),
-            MenuItem::new("copy_all", crate::i18n::builtin("markdown_view.copy_all", "Copy all"))
-                .icon(ICON_CONTENT_COPY),
+            MenuItem::new(
+                "select_all",
+                crate::i18n::builtin("markdown_view.select_all", "Select all"),
+            )
+            .icon(ICON_SELECT_ALL)
+            .shortcut("Ctrl+A"),
+            MenuItem::new(
+                "copy_all",
+                crate::i18n::builtin("markdown_view.copy_all", "Copy all"),
+            )
+            .icon(ICON_CONTENT_COPY),
         ])
         .is_open(menu_open)
         .position(menu_pos)
@@ -475,16 +493,14 @@ impl MarkdownViewElement {
         let (a, b) = self.selection_range()?;
         let runs = self.selectable_runs.lock().ok()?;
         let txt = extract_selection_text(&runs, a, b);
-        if txt.is_empty() { None } else { Some(txt) }
+        if txt.is_empty() {
+            None
+        } else {
+            Some(txt)
+        }
     }
 
-    fn draw_selection(
-        &self,
-        list: &mut DisplayList,
-        runs: &[SelectableRun],
-        a: SelPos,
-        b: SelPos,
-    ) {
+    fn draw_selection(&self, list: &mut DisplayList, runs: &[SelectableRun], a: SelPos, b: SelPos) {
         if runs.is_empty() {
             return;
         }
@@ -494,7 +510,11 @@ impl MarkdownViewElement {
         for ri in s_run..=e_run {
             let run = &runs[ri];
             let lo = if ri == s_run { a.byte_in_run } else { 0 };
-            let hi = if ri == e_run { b.byte_in_run } else { run.visible_text.len() };
+            let hi = if ri == e_run {
+                b.byte_in_run
+            } else {
+                run.visible_text.len()
+            };
             let lo = lo.min(run.visible_text.len());
             let hi = hi.min(run.visible_text.len());
             if hi <= lo {
@@ -551,17 +571,27 @@ impl MarkdownViewElement {
         let Ok(runs) = self.selectable_runs.lock() else {
             return;
         };
-        let Some(run) = runs.get(pos.run_idx) else { return };
+        let Some(run) = runs.get(pos.run_idx) else {
+            return;
+        };
         let (s, e) = word_boundaries_in_run(&run.visible_text, pos.byte_in_run);
-        self.selection_anchor = Some(SelPos { run_idx: pos.run_idx, byte_in_run: s });
-        self.selection_focus = SelPos { run_idx: pos.run_idx, byte_in_run: e };
+        self.selection_anchor = Some(SelPos {
+            run_idx: pos.run_idx,
+            byte_in_run: s,
+        });
+        self.selection_focus = SelPos {
+            run_idx: pos.run_idx,
+            byte_in_run: e,
+        };
     }
 
     fn select_whole_run(&mut self, pos: SelPos) {
         let Ok(runs) = self.selectable_runs.lock() else {
             return;
         };
-        let Some(run) = runs.get(pos.run_idx) else { return };
+        let Some(run) = runs.get(pos.run_idx) else {
+            return;
+        };
         let line_id = run.line_id;
         let mut start_idx = pos.run_idx;
         while start_idx > 0 && runs[start_idx - 1].line_id == line_id {
@@ -572,8 +602,14 @@ impl MarkdownViewElement {
             end_idx += 1;
         }
         let end_byte = runs[end_idx].visible_text.len();
-        self.selection_anchor = Some(SelPos { run_idx: start_idx, byte_in_run: 0 });
-        self.selection_focus = SelPos { run_idx: end_idx, byte_in_run: end_byte };
+        self.selection_anchor = Some(SelPos {
+            run_idx: start_idx,
+            byte_in_run: 0,
+        });
+        self.selection_focus = SelPos {
+            run_idx: end_idx,
+            byte_in_run: end_byte,
+        };
     }
 
     fn write_clipboard(&self, text: &str) {
@@ -613,7 +649,11 @@ impl MarkdownViewElement {
                 Point::new(btn.origin.x, btn.origin.y),
                 Size::new(btn.size.width, btn.size.height),
             );
-            let glyph = if flashed { ICON_CHECK } else { ICON_CONTENT_COPY };
+            let glyph = if flashed {
+                ICON_CHECK
+            } else {
+                ICON_CONTENT_COPY
+            };
             list.push_text_styled(
                 glyph,
                 icon_rect,
@@ -771,7 +811,11 @@ impl Element for MarkdownViewElement {
 
     fn build_children(&self) -> Vec<Box<dyn Widget>> {
         if self.selectable {
-            vec![Box::new(context_menu(self.menu_open, self.menu_pos, self.menu_action))]
+            vec![Box::new(context_menu(
+                self.menu_open,
+                self.menu_pos,
+                self.menu_action,
+            ))]
         } else {
             vec![]
         }
@@ -782,7 +826,8 @@ impl Element for MarkdownViewElement {
     }
 
     fn layout(&mut self, constraints: Constraints) -> Size {
-        let upper = self.max_width
+        let upper = self
+            .max_width
             .map(|d| d.resolve(constraints.max_width))
             .unwrap_or(constraints.max_width)
             .min(constraints.max_width);
@@ -803,7 +848,9 @@ impl Element for MarkdownViewElement {
             None
         };
         self.content_height = measure_blocks(&self.blocks, &self.style, w, tm, probe);
-        let h = self.content_height.max(self.style.text_size * self.style.line_height);
+        let h = self
+            .content_height
+            .max(self.style.text_size * self.style.line_height);
 
         self.bounds = Rect::new(Point::zero(), Size::new(w, h));
         Size::new(w, h)
@@ -932,11 +979,7 @@ impl Element for MarkdownViewElement {
         any_loading || self.flash_until.is_some()
     }
 
-    fn handle_event(
-        &mut self,
-        event: &Event,
-        ctx: &mut EventContext,
-    ) -> EventResult {
+    fn handle_event(&mut self, event: &Event, ctx: &mut EventContext) -> EventResult {
         // Метрика текста могла появиться в дереве уже после mount
         // (пересоздание рендера, headless-харнес). Без неё hit-тест
         // выделения возвращает нулевую позицию — тянешь мышью, а
@@ -946,7 +989,8 @@ impl Element for MarkdownViewElement {
         }
         let copy_buttons: Vec<(Rect, String)> = if self.copy_code {
             match self.copy_hotspots.lock() {
-                Ok(g) => g.iter()
+                Ok(g) => g
+                    .iter()
                     .map(|(rect, code)| (copy_button_rect(rect, &self.style), code.clone()))
                     .collect(),
                 Err(_) => Vec::new(),
@@ -1003,7 +1047,10 @@ impl Element for MarkdownViewElement {
                 }
                 EventResult::Ignored
             }
-            Event::MouseDown { button: MouseButton::Left, position } => {
+            Event::MouseDown {
+                button: MouseButton::Left,
+                position,
+            } => {
                 if let Some(idx) = copy_buttons.iter().position(|(r, _)| r.contains(*position)) {
                     let code = copy_buttons[idx].1.clone();
                     ctx.copy_to_clipboard(&code);
@@ -1064,7 +1111,10 @@ impl Element for MarkdownViewElement {
                 self.mark_dirty(DirtyFlags::RENDER);
                 EventResult::Handled
             }
-            Event::MouseUp { button: MouseButton::Left, position } => {
+            Event::MouseUp {
+                button: MouseButton::Left,
+                position,
+            } => {
                 if let Some((url, down_pos)) = self.pending_link.take() {
                     let dx = position.x - down_pos.x;
                     let dy = position.y - down_pos.y;
@@ -1079,7 +1129,10 @@ impl Element for MarkdownViewElement {
                 }
                 EventResult::Ignored
             }
-            Event::MouseDown { button: MouseButton::Right, position } => {
+            Event::MouseDown {
+                button: MouseButton::Right,
+                position,
+            } => {
                 if !self.selectable || !self.bounds.contains(*position) {
                     return EventResult::Ignored;
                 }
@@ -1112,21 +1165,41 @@ impl Element for MarkdownViewElement {
         }
     }
 
-    fn children(&self) -> &[ElementId] { &[] }
-    fn bounds(&self) -> Rect { self.bounds }
-    fn set_position(&mut self, pos: Point) { self.bounds.origin = pos; }
-    fn mark_dirty(&mut self, flags: DirtyFlags) { self.dirty_flags |= flags; }
-    fn clear_dirty(&mut self, flags: DirtyFlags) { self.dirty_flags.remove(flags); }
-    fn is_dirty(&self, flags: DirtyFlags) -> bool { self.dirty_flags.contains(flags) }
-    fn id(&self) -> ElementId { self.id }
-    fn set_id(&mut self, id: ElementId) { self.id = id; }
+    fn children(&self) -> &[ElementId] {
+        &[]
+    }
+    fn bounds(&self) -> Rect {
+        self.bounds
+    }
+    fn set_position(&mut self, pos: Point) {
+        self.bounds.origin = pos;
+    }
+    fn mark_dirty(&mut self, flags: DirtyFlags) {
+        self.dirty_flags |= flags;
+    }
+    fn clear_dirty(&mut self, flags: DirtyFlags) {
+        self.dirty_flags.remove(flags);
+    }
+    fn is_dirty(&self, flags: DirtyFlags) -> bool {
+        self.dirty_flags.contains(flags)
+    }
+    fn id(&self) -> ElementId {
+        self.id
+    }
+    fn set_id(&mut self, id: ElementId) {
+        self.id = id;
+    }
     fn mount(&mut self, tree: &mut ElementTree) {
         self.text_measure = tree.text_measure.clone();
         self.image_store = tree.image_store.clone();
     }
 
-    fn element_type_name(&self) -> &str { "MarkdownView" }
-    fn as_any_mut(&mut self) -> Option<&mut dyn Any> { Some(self) }
+    fn element_type_name(&self) -> &str {
+        "MarkdownView"
+    }
+    fn as_any_mut(&mut self) -> Option<&mut dyn Any> {
+        Some(self)
+    }
 
     fn set_classes(&mut self, classes: Vec<String>) {
         self.classes = classes;
@@ -1168,9 +1241,16 @@ impl StyledElement for MarkdownViewElement {
             self.style.heading_color = mss_color_to_core(c);
         }
         for (i, name) in [
-            "--md-h1-size", "--md-h2-size", "--md-h3-size",
-            "--md-h4-size", "--md-h5-size", "--md-h6-size",
-        ].iter().enumerate() {
+            "--md-h1-size",
+            "--md-h2-size",
+            "--md-h3-size",
+            "--md-h4-size",
+            "--md-h5-size",
+            "--md-h6-size",
+        ]
+        .iter()
+        .enumerate()
+        {
             if let Some(px) = style.get(name).and_then(|v| v.as_px()) {
                 self.style.heading_sizes[i] = px;
             }
@@ -1202,7 +1282,10 @@ impl StyledElement for MarkdownViewElement {
         if let Some(c) = style.get("--md-code-block-bg").and_then(|v| v.as_color()) {
             self.style.code_block_bg = mss_color_to_core(c);
         }
-        if let Some(c) = style.get("--md-code-block-color").and_then(|v| v.as_color()) {
+        if let Some(c) = style
+            .get("--md-code-block-color")
+            .and_then(|v| v.as_color())
+        {
             self.style.code_block_color = mss_color_to_core(c);
         }
         if let Some(px) = style.get("--md-code-block-radius").and_then(|v| v.as_px()) {
@@ -1215,10 +1298,16 @@ impl StyledElement for MarkdownViewElement {
         if let Some(c) = style.get("--md-quote-bg").and_then(|v| v.as_color()) {
             self.style.quote_bg = mss_color_to_core(c);
         }
-        if let Some(c) = style.get("--md-quote-text-color").and_then(|v| v.as_color()) {
+        if let Some(c) = style
+            .get("--md-quote-text-color")
+            .and_then(|v| v.as_color())
+        {
             self.style.quote_text_color = mss_color_to_core(c);
         }
-        if let Some(c) = style.get("--md-quote-border-color").and_then(|v| v.as_color()) {
+        if let Some(c) = style
+            .get("--md-quote-border-color")
+            .and_then(|v| v.as_color())
+        {
             self.style.quote_border_color = mss_color_to_core(c);
         }
         if let Some(px) = style.get("--md-quote-border-width").and_then(|v| v.as_px()) {
@@ -1243,17 +1332,26 @@ impl StyledElement for MarkdownViewElement {
         if let Some(c) = style.get("--md-checkbox-color").and_then(|v| v.as_color()) {
             self.style.checkbox_color = mss_color_to_core(c);
         }
-        if let Some(c) = style.get("--md-checkbox-check-color").and_then(|v| v.as_color()) {
+        if let Some(c) = style
+            .get("--md-checkbox-check-color")
+            .and_then(|v| v.as_color())
+        {
             self.style.checkbox_check_color = mss_color_to_core(c);
         }
 
-        if let Some(c) = style.get("--md-table-border-color").and_then(|v| v.as_color()) {
+        if let Some(c) = style
+            .get("--md-table-border-color")
+            .and_then(|v| v.as_color())
+        {
             self.style.table_border_color = mss_color_to_core(c);
         }
         if let Some(c) = style.get("--md-table-header-bg").and_then(|v| v.as_color()) {
             self.style.table_header_bg = mss_color_to_core(c);
         }
-        if let Some(c) = style.get("--md-table-header-color").and_then(|v| v.as_color()) {
+        if let Some(c) = style
+            .get("--md-table-header-color")
+            .and_then(|v| v.as_color())
+        {
             self.style.table_header_color = mss_color_to_core(c);
         }
         if let Some(c) = style.get("--md-table-stripe-bg").and_then(|v| v.as_color()) {
@@ -1270,13 +1368,22 @@ impl StyledElement for MarkdownViewElement {
         if let Some(px) = style.get("--md-block-spacing").and_then(|v| v.as_px()) {
             self.style.block_spacing = px;
         }
-        if let Some(c) = style.get("--md-strikethrough-color").and_then(|v| v.as_color()) {
+        if let Some(c) = style
+            .get("--md-strikethrough-color")
+            .and_then(|v| v.as_color())
+        {
             self.style.strikethrough_color = Some(mss_color_to_core(c));
         }
-        if let Some(c) = style.get("--md-image-placeholder-bg").and_then(|v| v.as_color()) {
+        if let Some(c) = style
+            .get("--md-image-placeholder-bg")
+            .and_then(|v| v.as_color())
+        {
             self.style.image_placeholder_bg = mss_color_to_core(c);
         }
-        if let Some(c) = style.get("--md-image-placeholder-color").and_then(|v| v.as_color()) {
+        if let Some(c) = style
+            .get("--md-image-placeholder-color")
+            .and_then(|v| v.as_color())
+        {
             self.style.image_placeholder_color = mss_color_to_core(c);
         }
         if let Some(px) = style.get("--md-image-height").and_then(|v| v.as_px()) {
@@ -1286,7 +1393,10 @@ impl StyledElement for MarkdownViewElement {
         if let Some(c) = style.get("--md-footnote-color").and_then(|v| v.as_color()) {
             self.style.footnote_color = mss_color_to_core(c);
         }
-        if let Some(c) = style.get("--md-footnote-divider-color").and_then(|v| v.as_color()) {
+        if let Some(c) = style
+            .get("--md-footnote-divider-color")
+            .and_then(|v| v.as_color())
+        {
             self.style.footnote_divider_color = mss_color_to_core(c);
         }
 
@@ -1313,8 +1423,7 @@ impl StyledElement for MarkdownViewElement {
         }
 
         if let Some(c) = style.get("selection-color").and_then(|v| v.as_color()) {
-            self.selection_color =
-                Color::from_srgb(c.r, c.g, c.b, c.a as f32 / 255.0);
+            self.selection_color = Color::from_srgb(c.r, c.g, c.b, c.a as f32 / 255.0);
         }
 
         self.mark_dirty(DirtyFlags::LAYOUT | DirtyFlags::RENDER);
@@ -1385,7 +1494,11 @@ mod rebuild_tests {
                 _f: Option<&str>,
             ) -> f32 {
                 let base = self.measure_text_width(t, font_size, chars);
-                if bold { base * 2.0 } else { base }
+                if bold {
+                    base * 2.0
+                } else {
+                    base
+                }
             }
             fn hit_test_char(&self, text: &str, font_size: f32, x: f32) -> usize {
                 ((x / (font_size * 0.5)).round() as usize).min(text.chars().count())
@@ -1412,7 +1525,11 @@ mod rebuild_tests {
             DrawCommand::TextSelection { font_weight, .. } => Some(*font_weight),
             _ => None,
         });
-        assert_eq!(weight, Some(700), "выделение жирного текста должно нести начертание");
+        assert_eq!(
+            weight,
+            Some(700),
+            "выделение жирного текста должно нести начертание"
+        );
     }
 
     /// Клик по свободному месту снимает выделение. Позиционная доставка
@@ -1437,7 +1554,10 @@ mod rebuild_tests {
         let md_bounds = harness.element_bounds(md);
         let btn = harness.find_by_type_name("Button")[0];
         let btn_bounds = harness.element_bounds(btn);
-        assert!(!btn_bounds.contains(md_bounds.center()), "кнопка должна стоять вне блока");
+        assert!(
+            !btn_bounds.contains(md_bounds.center()),
+            "кнопка должна стоять вне блока"
+        );
 
         let anchor = |h: &mut TestHarness| {
             h.tree
@@ -1448,13 +1568,29 @@ mod rebuild_tests {
                 .expect("MarkdownViewElement")
         };
 
-        harness.send_event(&Event::MouseDown { button: MouseButton::Left, position: md_bounds.center() });
-        harness.send_event(&Event::MouseUp { button: MouseButton::Left, position: md_bounds.center() });
+        harness.send_event(&Event::MouseDown {
+            button: MouseButton::Left,
+            position: md_bounds.center(),
+        });
+        harness.send_event(&Event::MouseUp {
+            button: MouseButton::Left,
+            position: md_bounds.center(),
+        });
         assert!(anchor(&mut harness), "клик по тексту начинает выделение");
-        assert_eq!(harness.tree.text_selection_owner, Some(md), "блок объявил себя владельцем выделения");
+        assert_eq!(
+            harness.tree.text_selection_owner,
+            Some(md),
+            "блок объявил себя владельцем выделения"
+        );
 
-        harness.send_event(&Event::MouseDown { button: MouseButton::Left, position: btn_bounds.center() });
-        harness.send_event(&Event::MouseUp { button: MouseButton::Left, position: btn_bounds.center() });
+        harness.send_event(&Event::MouseDown {
+            button: MouseButton::Left,
+            position: btn_bounds.center(),
+        });
+        harness.send_event(&Event::MouseUp {
+            button: MouseButton::Left,
+            position: btn_bounds.center(),
+        });
         assert!(!anchor(&mut harness), "клик вне блока снимает выделение");
         assert_eq!(harness.tree.text_selection_owner, None, "владелец отпущен");
     }

@@ -7,10 +7,10 @@ use crate::layout::Constraints;
 use crate::mss::{ComputedStyle, MssFields};
 use crate::render::DisplayList;
 use crate::signal::RwSignal;
+use crate::widget::context::EventContext;
 use crate::widget::{
     DirtyFlags, Element, ElementId, ElementTree, LayoutHint, StyledElement, UpdateContext, Widget,
 };
-use crate::widget::context::EventContext;
 
 use super::IntoWidget;
 
@@ -99,12 +99,18 @@ impl PanZoomViewport {
         self
     }
 
-    pub fn on_background_click(mut self, cb: impl Fn(Point, Point) + Send + Sync + 'static) -> Self {
+    pub fn on_background_click(
+        mut self,
+        cb: impl Fn(Point, Point) + Send + Sync + 'static,
+    ) -> Self {
         self.on_background_click = Some(Arc::new(cb));
         self
     }
 
-    pub fn on_background_context_menu(mut self, cb: impl Fn(Point, Point) + Send + Sync + 'static) -> Self {
+    pub fn on_background_context_menu(
+        mut self,
+        cb: impl Fn(Point, Point) + Send + Sync + 'static,
+    ) -> Self {
         self.on_background_context_menu = Some(Arc::new(cb));
         self
     }
@@ -220,7 +226,10 @@ impl PanZoomViewportElement {
     }
 
     fn screen_to_world(&self, screen: Point) -> Point {
-        let local = Point::new(screen.x - self.bounds.origin.x, screen.y - self.bounds.origin.y);
+        let local = Point::new(
+            screen.x - self.bounds.origin.x,
+            screen.y - self.bounds.origin.y,
+        );
         Point::new(
             (local.x - self.current_pan.x) / self.current_zoom,
             (local.y - self.current_pan.y) / self.current_zoom,
@@ -228,11 +237,15 @@ impl PanZoomViewportElement {
     }
 
     fn apply_zoom(&mut self, delta: f32, around_screen: Point) {
-        let Some(zoom_sig) = self.zoom else { return; };
+        let Some(zoom_sig) = self.zoom else {
+            return;
+        };
         let old_zoom = self.current_zoom.max(0.0001);
-        let new_zoom = (old_zoom * (delta * self.zoom_speed).exp())
-            .clamp(self.min_zoom, self.max_zoom);
-        if (new_zoom - old_zoom).abs() < 1e-5 { return; }
+        let new_zoom =
+            (old_zoom * (delta * self.zoom_speed).exp()).clamp(self.min_zoom, self.max_zoom);
+        if (new_zoom - old_zoom).abs() < 1e-5 {
+            return;
+        }
 
         let cursor_local = Point::new(
             around_screen.x - self.bounds.origin.x,
@@ -280,8 +293,16 @@ impl Element for PanZoomViewportElement {
     }
 
     fn layout(&mut self, constraints: Constraints) -> Size {
-        let w = if constraints.max_width.is_finite() { constraints.max_width } else { 0.0 };
-        let h = if constraints.max_height.is_finite() { constraints.max_height } else { 0.0 };
+        let w = if constraints.max_width.is_finite() {
+            constraints.max_width
+        } else {
+            0.0
+        };
+        let h = if constraints.max_height.is_finite() {
+            constraints.max_height
+        } else {
+            0.0
+        };
         self.bounds = Rect::new(self.bounds.origin, Size::new(w, h));
         self.refresh_state();
         Size::new(w, h)
@@ -303,11 +324,9 @@ impl Element for PanZoomViewportElement {
 
         list.push_clip(self.bounds);
 
-        let t = Transform::scale(self.current_zoom, self.current_zoom)
-            .then(&Transform::translation(
-                self.current_pan.x,
-                self.current_pan.y,
-            ));
+        let t = Transform::scale(self.current_zoom, self.current_zoom).then(
+            &Transform::translation(self.current_pan.x, self.current_pan.y),
+        );
         list.push_transform(t);
     }
 
@@ -320,7 +339,9 @@ impl Element for PanZoomViewportElement {
         const LMB_PAN_THRESHOLD: f32 = 4.0;
 
         match event {
-            Event::MouseWheel { delta, position, .. } => {
+            Event::MouseWheel {
+                delta, position, ..
+            } => {
                 if !self.bounds.contains(*position) {
                     return EventResult::Ignored;
                 }
@@ -328,7 +349,9 @@ impl Element for PanZoomViewportElement {
                 ctx.capture();
                 EventResult::Handled
             }
-            Event::MouseDown { button, position } if *button == self.pan_button && self.bounds.contains(*position) => {
+            Event::MouseDown { button, position }
+                if *button == self.pan_button && self.bounds.contains(*position) =>
+            {
                 self.pan_drag_start = Some((*position, self.current_pan));
                 ctx.set_cursor(CursorIcon::Grabbing);
                 ctx.capture();
@@ -377,12 +400,17 @@ impl Element for PanZoomViewportElement {
                 }
                 EventResult::Ignored
             }
-            Event::MouseUp { button, .. } if *button == self.pan_button && self.pan_drag_start.is_some() => {
+            Event::MouseUp { button, .. }
+                if *button == self.pan_button && self.pan_drag_start.is_some() =>
+            {
                 self.pan_drag_start = None;
                 ctx.set_cursor(CursorIcon::Default);
                 EventResult::Handled
             }
-            Event::MouseUp { button: MouseButton::Left, position } => {
+            Event::MouseUp {
+                button: MouseButton::Left,
+                position,
+            } => {
                 if self.lmb_pan_drag.take().is_some() {
                     ctx.set_cursor(CursorIcon::Default);
                     return EventResult::Handled;
@@ -400,7 +428,10 @@ impl Element for PanZoomViewportElement {
                 }
                 EventResult::Ignored
             }
-            Event::MouseDown { button: MouseButton::Left, position } if self.bounds.contains(*position) => {
+            Event::MouseDown {
+                button: MouseButton::Left,
+                position,
+            } if self.bounds.contains(*position) => {
                 if let Some(filter) = &self.pan_filter {
                     let world = self.screen_to_world(*position);
                     if !filter(world) {
@@ -411,7 +442,10 @@ impl Element for PanZoomViewportElement {
                 ctx.capture();
                 EventResult::Handled
             }
-            Event::MouseDown { button: MouseButton::Right, position } if self.bounds.contains(*position) => {
+            Event::MouseDown {
+                button: MouseButton::Right,
+                position,
+            } if self.bounds.contains(*position) => {
                 if let Some(cb) = &self.on_background_context_menu {
                     let world = self.screen_to_world(*position);
                     cb(world, *position);
@@ -483,7 +517,9 @@ impl Element for PanZoomViewportElement {
     }
 
     fn needs_repaint(&self) -> bool {
-        let pan_diff = self.pan.map_or(false, |s| s.get_untracked() != self.current_pan);
+        let pan_diff = self
+            .pan
+            .map_or(false, |s| s.get_untracked() != self.current_pan);
         let zoom_diff = self.zoom.map_or(false, |s| {
             (s.get_untracked().clamp(self.min_zoom, self.max_zoom) - self.current_zoom).abs() > 1e-5
         });
@@ -538,7 +574,8 @@ impl Element for PanZoomViewportElement {
         selected: Option<&ComputedStyle>,
         _checked: Option<&ComputedStyle>,
     ) {
-        self.mss.apply_transitions(base, hover, active, focus, selected);
+        self.mss
+            .apply_transitions(base, hover, active, focus, selected);
     }
 }
 
@@ -553,7 +590,9 @@ impl PanZoomViewportElement {
         }
         let _ = major_every;
 
-        let dot_color = self.mss.color
+        let dot_color = self
+            .mss
+            .color
             .unwrap_or(Color::from_srgb(0xC0, 0xC8, 0xD4, 0.55));
 
         let origin_x = self.bounds.origin.x + self.current_pan.x;

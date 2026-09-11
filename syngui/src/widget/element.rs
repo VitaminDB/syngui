@@ -1,33 +1,87 @@
 use crate::core::{Point, Rect, Size};
 use crate::input::{Event, EventResult};
-use crate::layout::{Constraints, MainAxisAlignment, CrossAxisAlignment};
+use crate::layout::{Constraints, CrossAxisAlignment, MainAxisAlignment};
 use crate::render::DisplayList;
-use crate::widget::{DirtyFlags, ElementId, UpdateContext, Widget};
 use crate::widget::context::EventContext;
+use crate::widget::{DirtyFlags, ElementId, UpdateContext, Widget};
 use std::any::Any;
 use std::time::Duration;
 
 #[derive(Debug, Clone)]
 pub enum LayoutHint {
     Center,
-    Column { gap: f32, cross_align: CrossAxisAlignment, main_align: MainAxisAlignment, padding_left: f32, padding_top: f32, padding_right: f32, padding_bottom: f32, expand: bool },
-    Row { gap: f32, offset_x: f32, cross_align: CrossAxisAlignment, main_align: MainAxisAlignment, padding_left: f32, padding_top: f32, padding_right: f32, padding_bottom: f32 },
-    Stack { expand: bool },
-    Padding { left: f32, top: f32, right: f32, bottom: f32 },
-    Grid { columns: usize, row_gap: f32, col_gap: f32, masonry: bool },
+    Column {
+        gap: f32,
+        cross_align: CrossAxisAlignment,
+        main_align: MainAxisAlignment,
+        padding_left: f32,
+        padding_top: f32,
+        padding_right: f32,
+        padding_bottom: f32,
+        expand: bool,
+    },
+    Row {
+        gap: f32,
+        offset_x: f32,
+        cross_align: CrossAxisAlignment,
+        main_align: MainAxisAlignment,
+        padding_left: f32,
+        padding_top: f32,
+        padding_right: f32,
+        padding_bottom: f32,
+    },
+    Stack {
+        expand: bool,
+    },
+    Padding {
+        left: f32,
+        top: f32,
+        right: f32,
+        bottom: f32,
+    },
+    Grid {
+        columns: usize,
+        row_gap: f32,
+        col_gap: f32,
+        masonry: bool,
+    },
     Scroll {
-        left: f32, top: f32, right: f32, bottom: f32,
+        left: f32,
+        top: f32,
+        right: f32,
+        bottom: f32,
         unbounded_width: bool,
         unbounded_height: bool,
     },
     HorizontalPages,
-    Split { horizontal: bool, ratio: f32, divider: f32 },
+    Split {
+        horizontal: bool,
+        ratio: f32,
+        divider: f32,
+    },
     AnimatedSize,
-    Container { left: f32, top: f32, right: f32, bottom: f32 },
+    Container {
+        left: f32,
+        top: f32,
+        right: f32,
+        bottom: f32,
+    },
     Loose,
-    Portal { anchor: u8, margin_a: f32, margin_b: f32 },
-    FloatingWindow { x: f32, y: f32 },
-    Flex { col_gap: f32, row_gap: f32, justify: MainAxisAlignment, align_items: CrossAxisAlignment },
+    Portal {
+        anchor: u8,
+        margin_a: f32,
+        margin_b: f32,
+    },
+    FloatingWindow {
+        x: f32,
+        y: f32,
+    },
+    Flex {
+        col_gap: f32,
+        row_gap: f32,
+        justify: MainAxisAlignment,
+        align_items: CrossAxisAlignment,
+    },
     Tooltip {
         position: u8,
         gap: f32,
@@ -36,8 +90,14 @@ pub enum LayoutHint {
         padding_r: f32,
         padding_b: f32,
     },
-    TabBar { equal_width: bool, gap: f32 },
-    Positioned { x: f32, y: f32 },
+    TabBar {
+        equal_width: bool,
+        gap: f32,
+    },
+    Positioned {
+        x: f32,
+        y: f32,
+    },
     PanZoom,
 }
 
@@ -118,14 +178,20 @@ pub trait Element: Send {
         LayoutHint::Center
     }
 
-    fn explicit_dimensions(&self, parent_width: f32, parent_height: f32) -> (Option<f32>, Option<f32>) {
+    fn explicit_dimensions(
+        &self,
+        parent_width: f32,
+        parent_height: f32,
+    ) -> (Option<f32>, Option<f32>) {
         let _ = (parent_width, parent_height);
         (None, None)
     }
 
-    fn min_max_dimensions(&self, parent_width: f32, parent_height: f32)
-        -> (Option<f32>, Option<f32>, Option<f32>, Option<f32>)
-    {
+    fn min_max_dimensions(
+        &self,
+        parent_width: f32,
+        parent_height: f32,
+    ) -> (Option<f32>, Option<f32>, Option<f32>, Option<f32>) {
         let _ = (parent_width, parent_height);
         (None, None, None, None)
     }
@@ -134,29 +200,25 @@ pub trait Element: Send {
         crate::core::EdgeInsets::default()
     }
 
-    fn set_classes(&mut self, _classes: Vec<String>) {
-    }
+    fn set_classes(&mut self, _classes: Vec<String>) {}
 
     fn get_classes(&self) -> &[String] {
         &[]
     }
 
-    fn set_inline_styles(&mut self, _styles: Vec<(String, crate::mss::StyleValue)>) {
-    }
+    fn set_inline_styles(&mut self, _styles: Vec<(String, crate::mss::StyleValue)>) {}
 
     fn get_inline_styles(&self) -> &[(String, crate::mss::StyleValue)] {
         &[]
     }
 
-    fn apply_computed_style(&mut self, _style: &crate::mss::ComputedStyle) {
-    }
+    fn apply_computed_style(&mut self, _style: &crate::mss::ComputedStyle) {}
 
     fn mss(&self) -> Option<&crate::mss::MssFields> {
         None
     }
 
-    fn reset_mss_styles(&mut self) {
-    }
+    fn reset_mss_styles(&mut self) {}
 
     fn element_type_name(&self) -> &str {
         ""
@@ -200,11 +262,9 @@ pub trait Element: Send {
         self.intercepts_child_events()
     }
 
-    fn set_content_size(&mut self, _size: Size) {
-    }
+    fn set_content_size(&mut self, _size: Size) {}
 
-    fn set_viewport_size(&mut self, _size: Size) {
-    }
+    fn set_viewport_size(&mut self, _size: Size) {}
 
     fn accessibility_info(&self) -> Option<crate::a11y::AccessibilityInfo> {
         None
@@ -367,8 +427,13 @@ impl Element for Box<dyn Element> {
         self.as_ref().layout_hint()
     }
 
-    fn explicit_dimensions(&self, parent_width: f32, parent_height: f32) -> (Option<f32>, Option<f32>) {
-        self.as_ref().explicit_dimensions(parent_width, parent_height)
+    fn explicit_dimensions(
+        &self,
+        parent_width: f32,
+        parent_height: f32,
+    ) -> (Option<f32>, Option<f32>) {
+        self.as_ref()
+            .explicit_dimensions(parent_width, parent_height)
     }
 
     fn margin(&self) -> crate::core::EdgeInsets {
@@ -416,7 +481,8 @@ impl Element for Box<dyn Element> {
         selected: Option<&crate::mss::ComputedStyle>,
         checked: Option<&crate::mss::ComputedStyle>,
     ) {
-        self.as_mut().apply_transition_styles(base, hover, active, focus, selected, checked)
+        self.as_mut()
+            .apply_transition_styles(base, hover, active, focus, selected, checked)
     }
 
     fn is_visible(&self) -> bool {
@@ -514,9 +580,9 @@ impl Element for Box<dyn Element> {
 
 pub trait EventContextExt {
     fn request_paint(&mut self);
-    
+
     fn request_layout(&mut self);
-    
+
     fn emit<E: Any>(&mut self, event: E);
 }
 
@@ -524,11 +590,11 @@ impl EventContextExt for EventContext {
     fn request_paint(&mut self) {
         self.capture();
     }
-    
+
     fn request_layout(&mut self) {
         self.capture();
     }
-    
+
     fn emit<E: Any>(&mut self, _event: E) {
         self.capture();
     }

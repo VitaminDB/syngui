@@ -45,13 +45,9 @@ fn build_accordion_section(title: &str, body: &str, state: RwSignal<usize>) -> i
     let b = body.to_string();
     Column::new()
         .gap(0.0)
-        .child(
-            Button::new(t)
-                .class("secondary")
-                .on_click(move || {
-                    state.set(if state.get_untracked() == 0 { 1 } else { 0 });
-                }),
-        )
+        .child(Button::new(t).class("secondary").on_click(move || {
+            state.set(if state.get_untracked() == 0 { 1 } else { 0 });
+        }))
         .child(
             AnimatedSize::new(
                 ShowIf::new(0, state).child(

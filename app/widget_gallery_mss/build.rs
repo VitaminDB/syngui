@@ -9,10 +9,16 @@ fn main() {
         }
         res.set_icon("assets/icon.ico");
         res.set("ProductName", "SYNGUI Widget Gallery");
-        res.set("FileDescription", "SYNGUI Widget Gallery — UI framework demo");
+        res.set(
+            "FileDescription",
+            "SYNGUI Widget Gallery — UI framework demo",
+        );
         res.set("ProductVersion", env!("CARGO_PKG_VERSION"));
         res.set("CompanyName", "Alexeyev Vitaly");
-        res.set("LegalCopyright", "Copyright \u{00A9} 2025-2026 Alexeyev Vitaly");
+        res.set(
+            "LegalCopyright",
+            "Copyright \u{00A9} 2025-2026 Alexeyev Vitaly",
+        );
         res.compile().expect("Failed to compile Windows resources");
     }
 }

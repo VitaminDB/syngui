@@ -92,7 +92,13 @@ impl Date {
         match month {
             1 | 3 | 5 | 7 | 8 | 10 | 12 => 31,
             4 | 6 | 9 | 11 => 30,
-            2 => if Self::is_leap_year(year) { 29 } else { 28 },
+            2 => {
+                if Self::is_leap_year(year) {
+                    29
+                } else {
+                    28
+                }
+            }
             _ => 30,
         }
     }
@@ -122,7 +128,9 @@ impl Date {
 }
 
 impl Default for Date {
-    fn default() -> Self { Self::today() }
+    fn default() -> Self {
+        Self::today()
+    }
 }
 
 impl std::fmt::Display for Date {
@@ -133,7 +141,11 @@ impl std::fmt::Display for Date {
 
 fn iso_weeks_in_year(year: i32) -> u32 {
     let p = |y: i32| (y + y / 4 - y / 100 + y / 400).rem_euclid(7);
-    if p(year) == 4 || p(year - 1) == 3 { 53 } else { 52 }
+    if p(year) == 4 || p(year - 1) == 3 {
+        53
+    } else {
+        52
+    }
 }
 
 /// Дней от 1970-01-01 (может быть отрицательным).
@@ -178,8 +190,16 @@ mod platform {
     #[cfg(target_arch = "wasm32")]
     pub fn local_ymd() -> (i32, u32, u32) {
         let d = js_sys::Date::new_0();
-        let (y, m, day) = (d.get_full_year() as i32, d.get_month() as u32 + 1, d.get_date() as u32);
-        if (1..=12).contains(&m) && day >= 1 { (y, m, day) } else { utc_ymd() }
+        let (y, m, day) = (
+            d.get_full_year() as i32,
+            d.get_month() as u32 + 1,
+            d.get_date() as u32,
+        );
+        if (1..=12).contains(&m) && day >= 1 {
+            (y, m, day)
+        } else {
+            utc_ymd()
+        }
     }
 
     #[cfg(all(not(target_arch = "wasm32"), unix))]

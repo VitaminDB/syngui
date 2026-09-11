@@ -671,13 +671,24 @@ mod tests {
     #[test]
     fn line_global_indexes_scrollback_then_viewport() {
         let mut g = Grid::new(5, 2);
-        for ch in "AAAAA".chars() { g.print(ch); }
-        g.cr(); g.lf();
-        for ch in "BBBBB".chars() { g.print(ch); }
-        g.cr(); g.lf();
-        for ch in "CCCCC".chars() { g.print(ch); }
-        g.cr(); g.lf();
-        for ch in "DDDDD".chars() { g.print(ch); }
+        for ch in "AAAAA".chars() {
+            g.print(ch);
+        }
+        g.cr();
+        g.lf();
+        for ch in "BBBBB".chars() {
+            g.print(ch);
+        }
+        g.cr();
+        g.lf();
+        for ch in "CCCCC".chars() {
+            g.print(ch);
+        }
+        g.cr();
+        g.lf();
+        for ch in "DDDDD".chars() {
+            g.print(ch);
+        }
         let total = g.total_lines();
         assert!(total >= 4);
         let last = g.line_global((total - 1) as i32).unwrap();
@@ -688,7 +699,9 @@ mod tests {
     #[test]
     fn wrap_flag_set_on_wraparound() {
         let mut g = Grid::new(3, 2);
-        for ch in "ABCD".chars() { g.print(ch); }
+        for ch in "ABCD".chars() {
+            g.print(ch);
+        }
         assert!(g.is_wrapped(0));
         assert!(!g.is_wrapped(1));
     }
@@ -698,9 +711,13 @@ mod tests {
         let mut g = Grid::new(5, 1);
         let id = g.intern_link("https://x.test");
         g.set_current_link(Some(id));
-        for ch in "abc".chars() { g.print(ch); }
+        for ch in "abc".chars() {
+            g.print(ch);
+        }
         g.set_current_link(None);
-        for ch in "de".chars() { g.print(ch); }
+        for ch in "de".chars() {
+            g.print(ch);
+        }
         let row = g.line(0);
         assert_eq!(row[0].link_id, Some(id));
         assert_eq!(row[1].link_id, Some(id));

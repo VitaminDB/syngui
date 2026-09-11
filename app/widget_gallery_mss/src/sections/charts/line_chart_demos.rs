@@ -1,10 +1,10 @@
 //! Line chart demo page: 8 examples showcasing different features.
 
 use syngui::prelude::*;
+use syngui::widgets::charts::{AxisConfig, LegendPosition, Series, VisualMapPiece};
 use syngui::widgets::*;
-use syngui::widgets::charts::{AxisConfig, Series, LegendPosition, VisualMapPiece};
 
-use crate::sections::{section_card, section_title, label};
+use crate::sections::{label, section_card, section_title};
 
 /// Build all line chart demos.
 pub fn build_line_chart_demos() -> impl Widget {
@@ -26,9 +26,18 @@ pub fn build_line_chart_demos() -> impl Widget {
 
 fn build_basic_demo() -> impl Widget {
     let data: Vec<(f64, f64)> = vec![
-        (1.0, 820.0), (2.0, 932.0), (3.0, 901.0), (4.0, 934.0),
-        (5.0, 1290.0), (6.0, 1330.0), (7.0, 1320.0), (8.0, 1520.0),
-        (9.0, 1210.0), (10.0, 1150.0), (11.0, 1320.0), (12.0, 1480.0),
+        (1.0, 820.0),
+        (2.0, 932.0),
+        (3.0, 901.0),
+        (4.0, 934.0),
+        (5.0, 1290.0),
+        (6.0, 1330.0),
+        (7.0, 1320.0),
+        (8.0, 1520.0),
+        (9.0, 1210.0),
+        (10.0, 1150.0),
+        (11.0, 1320.0),
+        (12.0, 1480.0),
     ];
 
     Column::new()
@@ -57,22 +66,40 @@ fn build_basic_demo() -> impl Widget {
 fn build_multi_series_demo() -> impl Widget {
     let months: Vec<f64> = (1..=12).map(|x| x as f64).collect();
 
-    let revenue: Vec<(f64, f64)> = months.iter().zip(
-        [150.0, 230.0, 224.0, 218.0, 335.0, 447.0, 510.0, 520.0, 601.0, 580.0, 620.0, 690.0].iter()
-    ).map(|(&x, &y)| (x, y)).collect();
+    let revenue: Vec<(f64, f64)> = months
+        .iter()
+        .zip(
+            [
+                150.0, 230.0, 224.0, 218.0, 335.0, 447.0, 510.0, 520.0, 601.0, 580.0, 620.0, 690.0,
+            ]
+            .iter(),
+        )
+        .map(|(&x, &y)| (x, y))
+        .collect();
 
-    let costs: Vec<(f64, f64)> = months.iter().zip(
-        [120.0, 160.0, 190.0, 200.0, 220.0, 280.0, 310.0, 350.0, 360.0, 380.0, 410.0, 440.0].iter()
-    ).map(|(&x, &y)| (x, y)).collect();
+    let costs: Vec<(f64, f64)> = months
+        .iter()
+        .zip(
+            [
+                120.0, 160.0, 190.0, 200.0, 220.0, 280.0, 310.0, 350.0, 360.0, 380.0, 410.0, 440.0,
+            ]
+            .iter(),
+        )
+        .map(|(&x, &y)| (x, y))
+        .collect();
 
-    let profit: Vec<(f64, f64)> = revenue.iter().zip(costs.iter())
+    let profit: Vec<(f64, f64)> = revenue
+        .iter()
+        .zip(costs.iter())
         .map(|((x, r), (_, c))| (*x, r - c))
         .collect();
 
     Column::new()
         .gap(12.0)
         .child(section_title("Multi-Series Chart"))
-        .child(label("Three series with interactive legend (click to toggle)"))
+        .child(label(
+            "Three series with interactive legend (click to toggle)",
+        ))
         .child(
             LineChart::new()
                 .title("Financial Overview")
@@ -97,15 +124,13 @@ fn build_multi_series_demo() -> impl Widget {
                         .smooth(true)
                         .line_width(2.5),
                 )
-                .x_axis(
-                    AxisConfig::new()
-                        .title("Month")
-                        .format(|v| {
-                            let names = ["", "Jan", "Feb", "Mar", "Apr", "May", "Jun",
-                                         "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
-                            names.get(v as usize).unwrap_or(&"").to_string()
-                        }),
-                )
+                .x_axis(AxisConfig::new().title("Month").format(|v| {
+                    let names = [
+                        "", "Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct",
+                        "Nov", "Dec",
+                    ];
+                    names.get(v as usize).unwrap_or(&"").to_string()
+                }))
                 .y_axis(AxisConfig::new().title("$ (thousands)"))
                 .legend(LegendPosition::Bottom)
                 .tooltip(true)
@@ -118,14 +143,22 @@ fn build_multi_series_demo() -> impl Widget {
 
 fn build_smooth_vs_straight_demo() -> impl Widget {
     let data: Vec<(f64, f64)> = vec![
-        (0.0, 5.0), (1.0, 20.0), (2.0, 36.0), (3.0, 10.0),
-        (4.0, 30.0), (5.0, 40.0), (6.0, 15.0), (7.0, 35.0),
+        (0.0, 5.0),
+        (1.0, 20.0),
+        (2.0, 36.0),
+        (3.0, 10.0),
+        (4.0, 30.0),
+        (5.0, 40.0),
+        (6.0, 15.0),
+        (7.0, 35.0),
     ];
 
     Column::new()
         .gap(12.0)
         .child(section_title("Smooth vs Straight Lines"))
-        .child(label("Comparison of Catmull-Rom smooth interpolation vs straight segments"))
+        .child(label(
+            "Comparison of Catmull-Rom smooth interpolation vs straight segments",
+        ))
         .child(
             Row::new()
                 .gap(16.0)
@@ -164,12 +197,24 @@ fn build_smooth_vs_straight_demo() -> impl Widget {
 
 fn build_area_chart_demo() -> impl Widget {
     let data1: Vec<(f64, f64)> = vec![
-        (1.0, 120.0), (2.0, 200.0), (3.0, 150.0), (4.0, 80.0),
-        (5.0, 170.0), (6.0, 220.0), (7.0, 190.0), (8.0, 230.0),
+        (1.0, 120.0),
+        (2.0, 200.0),
+        (3.0, 150.0),
+        (4.0, 80.0),
+        (5.0, 170.0),
+        (6.0, 220.0),
+        (7.0, 190.0),
+        (8.0, 230.0),
     ];
     let data2: Vec<(f64, f64)> = vec![
-        (1.0, 60.0), (2.0, 90.0), (3.0, 120.0), (4.0, 50.0),
-        (5.0, 80.0), (6.0, 110.0), (7.0, 150.0), (8.0, 130.0),
+        (1.0, 60.0),
+        (2.0, 90.0),
+        (3.0, 120.0),
+        (4.0, 50.0),
+        (5.0, 80.0),
+        (6.0, 110.0),
+        (7.0, 150.0),
+        (8.0, 130.0),
     ];
 
     Column::new()
@@ -209,9 +254,15 @@ fn build_area_chart_demo() -> impl Widget {
 // ─── 5. Line Styles ────────────────────────────────────────────────────────
 
 fn build_line_styles_demo() -> impl Widget {
-    let data1: Vec<(f64, f64)> = (0..10).map(|x| (x as f64, (x as f64 * 0.8).sin() * 30.0 + 50.0)).collect();
-    let data2: Vec<(f64, f64)> = (0..10).map(|x| (x as f64, (x as f64 * 0.8 + 1.0).sin() * 25.0 + 45.0)).collect();
-    let data3: Vec<(f64, f64)> = (0..10).map(|x| (x as f64, (x as f64 * 0.8 + 2.0).sin() * 20.0 + 40.0)).collect();
+    let data1: Vec<(f64, f64)> = (0..10)
+        .map(|x| (x as f64, (x as f64 * 0.8).sin() * 30.0 + 50.0))
+        .collect();
+    let data2: Vec<(f64, f64)> = (0..10)
+        .map(|x| (x as f64, (x as f64 * 0.8 + 1.0).sin() * 25.0 + 45.0))
+        .collect();
+    let data3: Vec<(f64, f64)> = (0..10)
+        .map(|x| (x as f64, (x as f64 * 0.8 + 2.0).sin() * 20.0 + 40.0))
+        .collect();
 
     Column::new()
         .gap(12.0)
@@ -260,7 +311,9 @@ fn build_interactive_demo() -> impl Widget {
     Column::new()
         .gap(12.0)
         .child(section_title("Interactive Chart (Zoom & Pan)"))
-        .child(label("Scroll to zoom, drag to pan. 50 data points with trend."))
+        .child(label(
+            "Scroll to zoom, drag to pan. 50 data points with trend.",
+        ))
         .child(
             LineChart::new()
                 .title("Zoomable Data")
@@ -317,14 +370,20 @@ fn build_large_dataset_demo() -> impl Widget {
 
 fn build_custom_format_demo() -> impl Widget {
     let data: Vec<(f64, f64)> = vec![
-        (2020.0, 45000.0), (2021.0, 52000.0), (2022.0, 61000.0),
-        (2023.0, 58000.0), (2024.0, 72000.0), (2025.0, 85000.0),
+        (2020.0, 45000.0),
+        (2021.0, 52000.0),
+        (2022.0, 61000.0),
+        (2023.0, 58000.0),
+        (2024.0, 72000.0),
+        (2025.0, 85000.0),
     ];
 
     Column::new()
         .gap(12.0)
         .child(section_title("Custom Axis Formatting"))
-        .child(label("Custom format functions for X (year) and Y (currency) axes"))
+        .child(label(
+            "Custom format functions for X (year) and Y (currency) axes",
+        ))
         .child(
             LineChart::new()
                 .title("Annual Revenue")
@@ -343,17 +402,13 @@ fn build_custom_format_demo() -> impl Widget {
                         .format(|v| format!("{:.0}", v))
                         .grid(false),
                 )
-                .y_axis(
-                    AxisConfig::new()
-                        .title("Revenue")
-                        .format(|v| {
-                            if v >= 1000.0 {
-                                format!("${:.0}K", v / 1000.0)
-                            } else {
-                                format!("${:.0}", v)
-                            }
-                        }),
-                )
+                .y_axis(AxisConfig::new().title("Revenue").format(|v| {
+                    if v >= 1000.0 {
+                        format!("${:.0}K", v / 1000.0)
+                    } else {
+                        format!("${:.0}", v)
+                    }
+                }))
                 .legend(LegendPosition::None)
                 .tooltip(true)
                 .size(700.0, 350.0)
@@ -367,61 +422,56 @@ fn build_rainfall_evaporation_demo() -> impl Widget {
     // Sampled from ECharts Rainfall vs Evaporation example (~100 points each)
     // Evaporation: time-series with spikes up to ~250 m³/s
     let evap_raw: &[f64] = &[
-        0.97, 0.94, 0.94, 0.94, 0.94, 0.86, 0.86, 0.86, 0.86, 0.93,
-        1.06, 1.20, 1.36, 1.49, 1.44, 1.27, 1.18, 1.11, 1.10, 1.10,
-        1.05, 1.00, 0.95, 0.94, 0.94, 0.86, 0.86, 0.78, 0.78, 0.78,
-        0.58, 0.58, 0.58, 0.46, 0.46, 0.46, 0.46, 0.46, 0.46, 0.67,
-        1.52, 3.22, 3.28, 3.28, 2.54, 1.62, 1.31, 1.31, 1.31, 1.31,
-        1.06, 0.74, 0.64, 0.64, 0.64, 0.53, 0.48, 0.46, 0.46, 0.46,
-        0.46, 0.46, 0.46, 0.64, 0.78, 0.78, 0.78, 0.78, 0.78, 0.78,
-        0.78, 0.78, 0.86, 0.94, 0.94, 0.86, 0.76, 0.71, 0.71, 0.71,
-        0.71, 0.71, 0.71, 0.71, 0.71, 0.78, 0.94, 0.89, 0.86, 0.71,
-        0.71, 0.71, 0.71, 1.14, 1.40, 1.40, 1.09, 0.78, 0.65, 0.64,
-        0.64, 0.64, 0.64, 0.94, 3.07, 14.0, 82.2, 226.0, 212.0, 151.6,
-        119.9, 105.4, 77.7, 50.6, 37.2, 25.5, 25.5, 22.5, 14.0, 14.2,
-        17.1, 17.9, 12.7, 3.5, 2.3, 1.6, 1.3, 1.2, 1.2, 1.2,
-        1.3, 1.3, 1.3, 1.3, 1.2, 0.95, 0.71, 0.71, 0.70, 0.68,
-        0.66, 0.65, 0.64, 0.64, 0.64, 0.64, 0.68, 0.78, 0.78, 0.86,
-        1.25, 5.40, 47.5, 252.1, 208.7, 165.3, 138.3, 106.7, 80.0, 62.5,
-        51.2, 68.2, 109.0, 121.0, 100.0, 99.8, 163.6, 164.6, 131.4, 104.9,
-        81.5, 64.9, 54.6, 42.7, 33.5, 27.2, 27.2, 22.8, 19.0, 18.0,
-        15.8, 12.8, 10.6, 8.5, 7.2, 6.0, 4.8, 3.6, 2.9, 2.1,
-        1.5, 1.1, 0.72, 0.52, 0.52, 0.45, 0.42, 0.40, 0.40, 0.40,
+        0.97, 0.94, 0.94, 0.94, 0.94, 0.86, 0.86, 0.86, 0.86, 0.93, 1.06, 1.20, 1.36, 1.49, 1.44,
+        1.27, 1.18, 1.11, 1.10, 1.10, 1.05, 1.00, 0.95, 0.94, 0.94, 0.86, 0.86, 0.78, 0.78, 0.78,
+        0.58, 0.58, 0.58, 0.46, 0.46, 0.46, 0.46, 0.46, 0.46, 0.67, 1.52, 3.22, 3.28, 3.28, 2.54,
+        1.62, 1.31, 1.31, 1.31, 1.31, 1.06, 0.74, 0.64, 0.64, 0.64, 0.53, 0.48, 0.46, 0.46, 0.46,
+        0.46, 0.46, 0.46, 0.64, 0.78, 0.78, 0.78, 0.78, 0.78, 0.78, 0.78, 0.78, 0.86, 0.94, 0.94,
+        0.86, 0.76, 0.71, 0.71, 0.71, 0.71, 0.71, 0.71, 0.71, 0.71, 0.78, 0.94, 0.89, 0.86, 0.71,
+        0.71, 0.71, 0.71, 1.14, 1.40, 1.40, 1.09, 0.78, 0.65, 0.64, 0.64, 0.64, 0.64, 0.94, 3.07,
+        14.0, 82.2, 226.0, 212.0, 151.6, 119.9, 105.4, 77.7, 50.6, 37.2, 25.5, 25.5, 22.5, 14.0,
+        14.2, 17.1, 17.9, 12.7, 3.5, 2.3, 1.6, 1.3, 1.2, 1.2, 1.2, 1.3, 1.3, 1.3, 1.3, 1.2, 0.95,
+        0.71, 0.71, 0.70, 0.68, 0.66, 0.65, 0.64, 0.64, 0.64, 0.64, 0.68, 0.78, 0.78, 0.86, 1.25,
+        5.40, 47.5, 252.1, 208.7, 165.3, 138.3, 106.7, 80.0, 62.5, 51.2, 68.2, 109.0, 121.0, 100.0,
+        99.8, 163.6, 164.6, 131.4, 104.9, 81.5, 64.9, 54.6, 42.7, 33.5, 27.2, 27.2, 22.8, 19.0,
+        18.0, 15.8, 12.8, 10.6, 8.5, 7.2, 6.0, 4.8, 3.6, 2.9, 2.1, 1.5, 1.1, 0.72, 0.52, 0.52,
+        0.45, 0.42, 0.40, 0.40, 0.40,
     ];
 
     // Rainfall: mostly near-zero with burst spikes
     let rain_raw: &[f64] = &[
-        0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0,
-        0.0, 0.0, 0.0, 0.0, 0.0, 0.02, 0.20, 0.04, 0.05, 0.08,
-        0.14, 0.23, 0.13, 0.0, 0.04, 0.05, 0.13, 0.69, 0.35, 0.13,
-        0.07, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0,
-        0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0,
-        0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0,
-        0.0, 0.0, 0.0, 0.01, 0.08, 0.28, 0.64, 1.80, 0.92, 0.0,
-        0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0,
-        0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.02, 0.0,
-        0.0, 0.0, 0.20, 1.03, 1.81, 1.41, 0.53, 0.94, 2.90, 0.13,
-        0.0, 0.0, 0.02, 0.0, 0.0, 0.10, 0.25, 0.49, 0.85, 2.39,
-        0.47, 0.0, 0.0, 0.0, 0.02, 0.11, 0.85, 0.10, 0.06, 0.0,
-        0.0, 0.01, 0.07, 0.25, 0.49, 0.25, 0.33, 0.09, 0.0, 0.0,
-        0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.02,
-        0.23, 0.0, 0.0, 0.0, 0.07, 0.50, 0.04, 0.02, 0.06, 0.19,
-        0.16, 0.09, 0.05, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0,
-        0.0, 0.0, 0.0, 0.0, 0.0, 0.02, 0.0, 0.0, 0.07, 0.27,
-        0.82, 0.50, 0.0, 0.0, 0.0, 0.0, 0.04, 0.22, 0.51, 0.88,
-        2.83, 5.96, 6.43, 3.35, 4.20, 1.02, 0.84, 0.62, 0.19, 0.0,
-        0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0,
+        0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.02, 0.20,
+        0.04, 0.05, 0.08, 0.14, 0.23, 0.13, 0.0, 0.04, 0.05, 0.13, 0.69, 0.35, 0.13, 0.07, 0.0,
+        0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0,
+        0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.01, 0.08, 0.28, 0.64,
+        1.80, 0.92, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0,
+        0.0, 0.0, 0.0, 0.02, 0.0, 0.0, 0.0, 0.20, 1.03, 1.81, 1.41, 0.53, 0.94, 2.90, 0.13, 0.0,
+        0.0, 0.02, 0.0, 0.0, 0.10, 0.25, 0.49, 0.85, 2.39, 0.47, 0.0, 0.0, 0.0, 0.02, 0.11, 0.85,
+        0.10, 0.06, 0.0, 0.0, 0.01, 0.07, 0.25, 0.49, 0.25, 0.33, 0.09, 0.0, 0.0, 0.0, 0.0, 0.0,
+        0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.02, 0.23, 0.0, 0.0, 0.0, 0.07, 0.50, 0.04, 0.02, 0.06,
+        0.19, 0.16, 0.09, 0.05, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.02,
+        0.0, 0.0, 0.07, 0.27, 0.82, 0.50, 0.0, 0.0, 0.0, 0.0, 0.04, 0.22, 0.51, 0.88, 2.83, 5.96,
+        6.43, 3.35, 4.20, 1.02, 0.84, 0.62, 0.19, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0,
+        0.0,
     ];
 
-    let evaporation: Vec<(f64, f64)> = evap_raw.iter().enumerate()
-        .map(|(i, &v)| (i as f64, v)).collect();
-    let rainfall: Vec<(f64, f64)> = rain_raw.iter().enumerate()
-        .map(|(i, &v)| (i as f64, v)).collect();
+    let evaporation: Vec<(f64, f64)> = evap_raw
+        .iter()
+        .enumerate()
+        .map(|(i, &v)| (i as f64, v))
+        .collect();
+    let rainfall: Vec<(f64, f64)> = rain_raw
+        .iter()
+        .enumerate()
+        .map(|(i, &v)| (i as f64, v))
+        .collect();
 
     Column::new()
         .gap(12.0)
         .child(section_title("Rainfall vs Evaporation"))
-        .child(label("Two stacked charts with mirrored axes — evaporation grows up, rainfall grows down"))
+        .child(label(
+            "Two stacked charts with mirrored axes — evaporation grows up, rainfall grows down",
+        ))
         .child(
             Column::new()
                 .gap(0.0)
@@ -517,7 +567,9 @@ fn build_beijing_aqi_demo() -> impl Widget {
         70.0, 55.0, 45.0, 60.0, 85.0, 120.0, 165.0, 210.0, 270.0, 195.0,
     ];
 
-    let aqi_data: Vec<(f64, f64)> = aqi_values.iter().enumerate()
+    let aqi_data: Vec<(f64, f64)> = aqi_values
+        .iter()
+        .enumerate()
         .map(|(i, &v)| (i as f64, v))
         .collect();
 
@@ -534,7 +586,9 @@ fn build_beijing_aqi_demo() -> impl Widget {
     Column::new()
         .gap(12.0)
         .child(section_title("Beijing AQI"))
-        .child(label("Single series with color varying by Y value (visual map) and horizontal mark lines"))
+        .child(label(
+            "Single series with color varying by Y value (visual map) and horizontal mark lines",
+        ))
         .child(
             LineChart::new()
                 .title("Beijing AQI")

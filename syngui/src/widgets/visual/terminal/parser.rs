@@ -44,10 +44,8 @@ impl<'a> Perform for Performer<'a> {
                 self.grid.lf();
             }
             0x0D => self.grid.cr(),
-            0x07 => {
-            }
-            _ => {
-            }
+            0x07 => {}
+            _ => {}
         }
     }
 
@@ -69,7 +67,10 @@ impl<'a> Perform for Performer<'a> {
                 }
             }
             "8" => {
-                let uri = params.get(2).and_then(|b| std::str::from_utf8(b).ok()).unwrap_or("");
+                let uri = params
+                    .get(2)
+                    .and_then(|b| std::str::from_utf8(b).ok())
+                    .unwrap_or("");
                 if uri.is_empty() {
                     self.grid.set_current_link(None);
                 } else {
@@ -81,13 +82,7 @@ impl<'a> Perform for Performer<'a> {
         }
     }
 
-    fn csi_dispatch(
-        &mut self,
-        params: &Params,
-        intermediates: &[u8],
-        _ignore: bool,
-        action: char,
-    ) {
+    fn csi_dispatch(&mut self, params: &Params, intermediates: &[u8], _ignore: bool, action: char) {
         let priv_marker = intermediates.first().copied();
         match action {
             'A' => self.grid.move_relative(-(nth(params, 0, 1) as i32), 0),
@@ -327,7 +322,10 @@ mod tests {
     #[test]
     fn osc_8_sets_link_then_clears() {
         let mut g = Grid::new(40, 5);
-        run(&mut g, b"\x1b]8;;https://example.com\x1b\\TEXT\x1b]8;;\x1b\\");
+        run(
+            &mut g,
+            b"\x1b]8;;https://example.com\x1b\\TEXT\x1b]8;;\x1b\\",
+        );
         let row = g.line(0);
         let id = row[0].link_id.expect("first cell should have link");
         assert_eq!(g.link(id), Some("https://example.com"));
@@ -367,13 +365,17 @@ mod tests {
     #[test]
     fn alt_screen_1049_save_switch_clear() {
         let mut g = Grid::new(10, 3);
-        for ch in "ABC".chars() { g.print(ch); }
+        for ch in "ABC".chars() {
+            g.print(ch);
+        }
         let main_cursor = g.cursor();
         run(&mut g, b"\x1b[?1049h");
         assert!(g.on_alt());
         assert_eq!(g.line(0)[0].ch, ' ');
         assert_eq!(g.cursor().col, 0);
-        for ch in "X".chars() { g.print(ch); }
+        for ch in "X".chars() {
+            g.print(ch);
+        }
         run(&mut g, b"\x1b[?1049l");
         assert!(!g.on_alt());
         assert_eq!(g.line(0)[0].ch, 'A');
@@ -385,10 +387,14 @@ mod tests {
     #[test]
     fn alt_screen_1047_no_save() {
         let mut g = Grid::new(10, 3);
-        for ch in "ABC".chars() { g.print(ch); }
+        for ch in "ABC".chars() {
+            g.print(ch);
+        }
         run(&mut g, b"\x1b[?1047h");
         assert!(g.on_alt());
-        for ch in "X".chars() { g.print(ch); }
+        for ch in "X".chars() {
+            g.print(ch);
+        }
         run(&mut g, b"\x1b[?1047l");
         assert!(!g.on_alt());
         assert_eq!(g.line(0)[0].ch, 'A');
@@ -407,10 +413,14 @@ mod tests {
     #[test]
     fn alt_scrollback_frozen_on_alt() {
         let mut g = Grid::new(3, 2);
-        for ch in "ABCDEF".chars() { g.print(ch); }
+        for ch in "ABCDEF".chars() {
+            g.print(ch);
+        }
         let sb_main = g.scrollback_len();
         run(&mut g, b"\x1b[?1049h");
-        for ch in "XYZ123456".chars() { g.print(ch); }
+        for ch in "XYZ123456".chars() {
+            g.print(ch);
+        }
         assert_eq!(g.scrollback_len(), sb_main);
         run(&mut g, b"\x1b[?1049l");
         assert_eq!(g.scrollback_len(), sb_main);
@@ -425,25 +435,49 @@ fn apply_dec_mode(grid: &mut Grid, mode: u16, on: bool) {
             grid.set_mouse_mode(if on { MouseMode::X10 } else { MouseMode::Off });
         }
         1000 => {
-            grid.set_mouse_mode(if on { MouseMode::Normal } else { MouseMode::Off });
+            grid.set_mouse_mode(if on {
+                MouseMode::Normal
+            } else {
+                MouseMode::Off
+            });
         }
         1002 => {
-            grid.set_mouse_mode(if on { MouseMode::ButtonEvent } else { MouseMode::Off });
+            grid.set_mouse_mode(if on {
+                MouseMode::ButtonEvent
+            } else {
+                MouseMode::Off
+            });
         }
         1003 => {
-            grid.set_mouse_mode(if on { MouseMode::AnyEvent } else { MouseMode::Off });
+            grid.set_mouse_mode(if on {
+                MouseMode::AnyEvent
+            } else {
+                MouseMode::Off
+            });
         }
 
         1004 => grid.set_focus_events(on),
 
         1005 => {
-            grid.set_mouse_encoding(if on { MouseEncoding::Utf8 } else { MouseEncoding::Default });
+            grid.set_mouse_encoding(if on {
+                MouseEncoding::Utf8
+            } else {
+                MouseEncoding::Default
+            });
         }
         1006 => {
-            grid.set_mouse_encoding(if on { MouseEncoding::Sgr } else { MouseEncoding::Default });
+            grid.set_mouse_encoding(if on {
+                MouseEncoding::Sgr
+            } else {
+                MouseEncoding::Default
+            });
         }
         1015 => {
-            grid.set_mouse_encoding(if on { MouseEncoding::Urxvt } else { MouseEncoding::Default });
+            grid.set_mouse_encoding(if on {
+                MouseEncoding::Urxvt
+            } else {
+                MouseEncoding::Default
+            });
         }
 
         2004 => grid.set_bracketed_paste(on),
@@ -478,16 +512,10 @@ fn apply_dec_mode(grid: &mut Grid, mode: u16, on: bool) {
     }
 }
 
-fn read_extended<'a>(
-    mode: u16,
-    iter: &mut std::iter::Peekable<vte::ParamsIter<'a>>,
-) -> CellColor {
+fn read_extended<'a>(mode: u16, iter: &mut std::iter::Peekable<vte::ParamsIter<'a>>) -> CellColor {
     match mode {
         5 => {
-            let idx = iter
-                .next()
-                .and_then(|p| p.first().copied())
-                .unwrap_or(0);
+            let idx = iter.next().and_then(|p| p.first().copied()).unwrap_or(0);
             CellColor::Indexed(idx.min(255) as u8)
         }
         2 => {

@@ -1,8 +1,8 @@
+use crate::core::sync::Mutex;
 use crate::gpu::tile_atlas::TileKey;
 use hashbrown::HashMap;
-use std::sync::Arc;
 use std::sync::atomic::{AtomicU64, Ordering};
-use crate::core::sync::Mutex;
+use std::sync::Arc;
 
 use super::tile_loader::decode_to_rgba;
 
@@ -85,7 +85,9 @@ impl TileCache {
     #[cfg(all(target_arch = "wasm32", feature = "map"))]
     pub fn indexed_db(db_name: impl Into<String>) -> Self {
         Self {
-            backend: CacheBackend::IndexedDb(super::tile_cache_idb::IdbBackend::new(db_name.into())),
+            backend: CacheBackend::IndexedDb(super::tile_cache_idb::IdbBackend::new(
+                db_name.into(),
+            )),
             max_tiles: 1000,
             max_bytes: None,
             current_bytes: Arc::new(AtomicU64::new(0)),
@@ -154,7 +156,8 @@ impl TileCache {
                 let new_size = data.len() as u64;
                 if let (Ok(mut t), Ok(mut ord)) = (mem.tiles.lock(), mem.order.lock()) {
                     if let Some(old) = t.insert(*key, data.to_vec()) {
-                        self.current_bytes.fetch_sub(old.len() as u64, Ordering::Relaxed);
+                        self.current_bytes
+                            .fetch_sub(old.len() as u64, Ordering::Relaxed);
                     }
                     self.current_bytes.fetch_add(new_size, Ordering::Relaxed);
                     ord.retain(|k| k != key);
@@ -174,15 +177,22 @@ impl TileCache {
                         }
                         let evicted = ord.remove(0);
                         if let Some(old) = t.remove(&evicted) {
-                            self.current_bytes.fetch_sub(old.len() as u64, Ordering::Relaxed);
+                            self.current_bytes
+                                .fetch_sub(old.len() as u64, Ordering::Relaxed);
                         }
                     }
                 }
             }
             #[cfg(all(target_arch = "wasm32", feature = "map"))]
             CacheBackend::IndexedDb(idb) => {
-                idb.put(key, data, self.max_tiles, self.max_bytes, &self.current_bytes)
-                    .await;
+                idb.put(
+                    key,
+                    data,
+                    self.max_tiles,
+                    self.max_bytes,
+                    &self.current_bytes,
+                )
+                .await;
             }
         }
     }
@@ -227,7 +237,8 @@ impl TileCache {
                     ord.retain(|k| {
                         if k.provider_id == provider_id {
                             if let Some(v) = t.remove(k) {
-                                self.current_bytes.fetch_sub(v.len() as u64, Ordering::Relaxed);
+                                self.current_bytes
+                                    .fetch_sub(v.len() as u64, Ordering::Relaxed);
                             }
                             false
                         } else {
@@ -268,7 +279,12 @@ impl TileCache {
             let y = u32::from_le_bytes([chunk[4], chunk[5], chunk[6], chunk[7]]);
             let z = chunk[8];
             let provider_id = chunk[9];
-            index.push(TileKey { x, y, z, provider_id });
+            index.push(TileKey {
+                x,
+                y,
+                z,
+                provider_id,
+            });
         }
         index
     }

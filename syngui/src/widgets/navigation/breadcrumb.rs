@@ -1,3 +1,4 @@
+use crate::core::sync::Mutex;
 use crate::core::{Color, Point, Rect, RectExt, Size};
 use crate::input::{Event, EventResult, MouseButton};
 use crate::layout::Constraints;
@@ -5,10 +6,11 @@ use crate::mss::ComputedStyle;
 use crate::mss::{IconState, MssFields};
 use crate::render::DisplayList;
 use crate::widget::context::{EventContext, EventContextExt};
-use crate::widget::{DirtyFlags, Element, ElementId, ElementTree, StyledElement, UpdateContext, Widget};
+use crate::widget::{
+    DirtyFlags, Element, ElementId, ElementTree, StyledElement, UpdateContext, Widget,
+};
 use std::any::Any;
 use std::sync::Arc;
-use crate::core::sync::Mutex;
 
 #[derive(Clone, Debug, Default)]
 pub struct BreadcrumbItem {
@@ -18,7 +20,10 @@ pub struct BreadcrumbItem {
 
 impl BreadcrumbItem {
     pub fn new(text: impl Into<String>) -> Self {
-        Self { text: text.into(), icon: None }
+        Self {
+            text: text.into(),
+            icon: None,
+        }
     }
 
     pub fn icon(mut self, icon: impl Into<String>) -> Self {
@@ -143,7 +148,8 @@ impl BreadcrumbElement {
     }
 
     fn icon_size(&self) -> f32 {
-        self.mss.icon_size
+        self.mss
+            .icon_size
             .unwrap_or_else(|| self.font_size() * Self::ICON_RATIO)
     }
 
@@ -159,8 +165,18 @@ impl BreadcrumbElement {
         let fs = self.font_size();
         self.text_measure
             .as_ref()
-            .map(|tm| tm.measure_text_width_styled(text, fs, text.chars().count(), bold, self.mss.font_family.as_deref()))
-            .unwrap_or_else(|| text.chars().count() as f32 * (fs * Self::CHAR_WIDTH / Self::FONT_SIZE))
+            .map(|tm| {
+                tm.measure_text_width_styled(
+                    text,
+                    fs,
+                    text.chars().count(),
+                    bold,
+                    self.mss.font_family.as_deref(),
+                )
+            })
+            .unwrap_or_else(|| {
+                text.chars().count() as f32 * (fs * Self::CHAR_WIDTH / Self::FONT_SIZE)
+            })
     }
 
     fn item_content_width(&self, item: &BreadcrumbItem, bold: bool) -> f32 {
@@ -218,10 +234,7 @@ impl Element for BreadcrumbElement {
 
         for (i, item) in self.items.iter().enumerate() {
             let item_width = self.item_box_width(item, bold);
-            let item_rect = Rect::new(
-                Point::new(total_width, 0.0),
-                Size::new(item_width, item_h),
-            );
+            let item_rect = Rect::new(Point::new(total_width, 0.0), Size::new(item_width, item_h));
             self.item_rects.push(item_rect);
             total_width += item_width;
 
@@ -230,7 +243,9 @@ impl Element for BreadcrumbElement {
             }
         }
 
-        let width = total_width.min(constraints.max_width).max(constraints.min_width);
+        let width = total_width
+            .min(constraints.max_width)
+            .max(constraints.min_width);
         let height = item_h.min(constraints.max_height);
 
         self.bounds = Rect::new(Point::zero(), Size::new(width, height));
@@ -238,11 +253,22 @@ impl Element for BreadcrumbElement {
     }
 
     fn build_display_list(&self, list: &mut DisplayList, _clip: Rect) {
-        let gray_500 = self.mss.color.map(|c| c.with_alpha(0.6)).unwrap_or(Color::from_hex("#6B7280"));
-        let gray_400 = self.mss.border_color.map(|c| c.with_alpha(0.7)).unwrap_or(Color::from_hex("#9CA3AF"));
+        let gray_500 = self
+            .mss
+            .color
+            .map(|c| c.with_alpha(0.6))
+            .unwrap_or(Color::from_hex("#6B7280"));
+        let gray_400 = self
+            .mss
+            .border_color
+            .map(|c| c.with_alpha(0.7))
+            .unwrap_or(Color::from_hex("#9CA3AF"));
         let gray_900 = self.mss.color.unwrap_or(Color::from_hex("#111827"));
         let primary = self.mss.accent_color.unwrap_or(Color::from_hex("#3B82F6"));
-        let hover_bg = self.mss.background_color.unwrap_or(Color::from_hex("#F3F4F6"));
+        let hover_bg = self
+            .mss
+            .background_color
+            .unwrap_or(Color::from_hex("#F3F4F6"));
         let font_size = self.font_size();
         let font_weight = self.mss.font_weight_or(400);
         let bold = font_weight >= 700;
@@ -250,7 +276,11 @@ impl Element for BreadcrumbElement {
         let item_h = self.item_height();
         let sep_w = self.separator_width();
 
-        let last_index = if self.items.is_empty() { 0 } else { self.items.len() - 1 };
+        let last_index = if self.items.is_empty() {
+            0
+        } else {
+            self.items.len() - 1
+        };
         let mut x = self.bounds.x();
 
         for (i, item) in self.items.iter().enumerate() {
@@ -305,7 +335,11 @@ impl Element for BreadcrumbElement {
                 font_size,
                 crate::mss::TextAlign::DEFAULT,
                 crate::mss::TextDecoration::None,
-                if is_last { font_weight.max(600) } else { font_weight },
+                if is_last {
+                    font_weight.max(600)
+                } else {
+                    font_weight
+                },
                 self.mss.font_family.clone(),
             );
 
@@ -406,7 +440,9 @@ impl Element for BreadcrumbElement {
         self.text_measure = tree.text_measure.clone();
     }
 
-    fn element_type_name(&self) -> &str { "Breadcrumb" }
+    fn element_type_name(&self) -> &str {
+        "Breadcrumb"
+    }
 
     fn set_classes(&mut self, classes: Vec<String>) {
         self.classes = classes;
@@ -417,8 +453,12 @@ impl Element for BreadcrumbElement {
         &self.classes
     }
 
-    fn reset_mss_styles(&mut self) { self.mss.reset(); }
-    fn mss(&self) -> Option<&crate::mss::MssFields> { Some(&self.mss) }
+    fn reset_mss_styles(&mut self) {
+        self.mss.reset();
+    }
+    fn mss(&self) -> Option<&crate::mss::MssFields> {
+        Some(&self.mss)
+    }
     fn apply_computed_style(&mut self, style: &ComputedStyle) {
         self.mss.apply(style);
         self.mark_dirty(DirtyFlags::LAYOUT | DirtyFlags::RENDER);
@@ -433,7 +473,8 @@ impl Element for BreadcrumbElement {
         selected: Option<&ComputedStyle>,
         _checked: Option<&ComputedStyle>,
     ) {
-        self.mss.apply_transitions(base, hover, active, focus, selected);
+        self.mss
+            .apply_transitions(base, hover, active, focus, selected);
     }
 }
 

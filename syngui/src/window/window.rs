@@ -1,4 +1,4 @@
-use raw_window_handle::{HasWindowHandle, HasDisplayHandle};
+use raw_window_handle::{HasDisplayHandle, HasWindowHandle};
 
 #[cfg(target_arch = "wasm32")]
 use winit::platform::web::WindowExtWebSys;
@@ -107,23 +107,24 @@ pub struct Window {
 }
 
 impl Window {
-    pub fn new(
-        event_loop: &winit::event_loop::ActiveEventLoop,
-        builder: WindowBuilder,
-    ) -> Self {
-        let attributes = winit::window::Window::default_attributes()
-            .with_title(builder.title);
+    pub fn new(event_loop: &winit::event_loop::ActiveEventLoop, builder: WindowBuilder) -> Self {
+        let attributes = winit::window::Window::default_attributes().with_title(builder.title);
 
         #[cfg(not(target_os = "android"))]
         let attributes = attributes
             .with_inner_size(winit::dpi::LogicalSize::new(builder.width, builder.height))
-            .with_min_inner_size(winit::dpi::LogicalSize::new(builder.min_width, builder.min_height))
+            .with_min_inner_size(winit::dpi::LogicalSize::new(
+                builder.min_width,
+                builder.min_height,
+            ))
             .with_resizable(builder.resizable)
             .with_maximized(builder.maximized)
             .with_decorations(builder.decorations)
             .with_transparent(builder.transparent);
 
-        let inner = event_loop.create_window(attributes).expect("Failed to create window");
+        let inner = event_loop
+            .create_window(attributes)
+            .expect("Failed to create window");
 
         inner.set_ime_allowed(true);
 
@@ -209,13 +210,17 @@ impl crate::signal::RedrawNotifier for Window {
 }
 
 impl HasWindowHandle for Window {
-    fn window_handle(&self) -> Result<raw_window_handle::WindowHandle<'_>, raw_window_handle::HandleError> {
+    fn window_handle(
+        &self,
+    ) -> Result<raw_window_handle::WindowHandle<'_>, raw_window_handle::HandleError> {
         self.inner.window_handle()
     }
 }
 
 impl HasDisplayHandle for Window {
-    fn display_handle(&self) -> Result<raw_window_handle::DisplayHandle<'_>, raw_window_handle::HandleError> {
+    fn display_handle(
+        &self,
+    ) -> Result<raw_window_handle::DisplayHandle<'_>, raw_window_handle::HandleError> {
         self.inner.display_handle()
     }
 }

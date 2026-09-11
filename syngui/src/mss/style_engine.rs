@@ -8,40 +8,60 @@ use std::ops::BitOr;
 pub struct TextAlign(u8);
 
 impl TextAlign {
-    pub const LEFT:    TextAlign = TextAlign(0b0000);
+    pub const LEFT: TextAlign = TextAlign(0b0000);
     pub const HCENTER: TextAlign = TextAlign(0b0001);
-    pub const RIGHT:   TextAlign = TextAlign(0b0010);
-    pub const TOP:     TextAlign = TextAlign(0b0000);
+    pub const RIGHT: TextAlign = TextAlign(0b0010);
+    pub const TOP: TextAlign = TextAlign(0b0000);
     pub const VCENTER: TextAlign = TextAlign(0b0100);
-    pub const BOTTOM:  TextAlign = TextAlign(0b1000);
-    pub const CENTER:  TextAlign = TextAlign(0b0101);
+    pub const BOTTOM: TextAlign = TextAlign(0b1000);
+    pub const CENTER: TextAlign = TextAlign(0b0101);
     pub const DEFAULT: TextAlign = TextAlign(0b0100);
 
     #[inline]
-    pub fn horizontal(self) -> TextAlign { TextAlign(self.0 & 0b0011) }
+    pub fn horizontal(self) -> TextAlign {
+        TextAlign(self.0 & 0b0011)
+    }
     #[inline]
-    pub fn vertical(self) -> TextAlign { TextAlign(self.0 & 0b1100) }
+    pub fn vertical(self) -> TextAlign {
+        TextAlign(self.0 & 0b1100)
+    }
     #[inline]
-    pub fn is_left(self) -> bool { self.0 & 0b0011 == 0 }
+    pub fn is_left(self) -> bool {
+        self.0 & 0b0011 == 0
+    }
     #[inline]
-    pub fn is_hcenter(self) -> bool { self.0 & 0b0011 == 1 }
+    pub fn is_hcenter(self) -> bool {
+        self.0 & 0b0011 == 1
+    }
     #[inline]
-    pub fn is_right(self) -> bool { self.0 & 0b0011 == 2 }
+    pub fn is_right(self) -> bool {
+        self.0 & 0b0011 == 2
+    }
     #[inline]
-    pub fn is_top(self) -> bool { self.0 & 0b1100 == 0 }
+    pub fn is_top(self) -> bool {
+        self.0 & 0b1100 == 0
+    }
     #[inline]
-    pub fn is_vcenter(self) -> bool { self.0 & 0b1100 == 4 }
+    pub fn is_vcenter(self) -> bool {
+        self.0 & 0b1100 == 4
+    }
     #[inline]
-    pub fn is_bottom(self) -> bool { self.0 & 0b1100 == 8 }
+    pub fn is_bottom(self) -> bool {
+        self.0 & 0b1100 == 8
+    }
 }
 
 impl Default for TextAlign {
-    fn default() -> Self { Self::DEFAULT }
+    fn default() -> Self {
+        Self::DEFAULT
+    }
 }
 
 impl BitOr for TextAlign {
     type Output = Self;
-    fn bitor(self, rhs: Self) -> Self { TextAlign(self.0 | rhs.0) }
+    fn bitor(self, rhs: Self) -> Self {
+        TextAlign(self.0 | rhs.0)
+    }
 }
 
 impl std::fmt::Debug for TextAlign {
@@ -103,7 +123,6 @@ impl StyleEngine {
     }
 
     pub fn compute_style(&mut self, ctx: &StyleContext) -> ComputedStyle {
-
         let key = StyleCacheKey {
             classes: ctx.classes.clone(),
         };
@@ -121,14 +140,14 @@ impl StyleEngine {
         }
 
         self.cache.insert(key, computed.clone());
-        
+
         computed
     }
 
     pub fn compute_style_with_state(
         &mut self,
         ctx: &StyleContext,
-        state: ElementState
+        state: ElementState,
     ) -> ComputedStyle {
         let mut computed = self.compute_style(ctx);
 
@@ -149,7 +168,10 @@ impl StyleEngine {
                 }
             }
             if !ctx.element_type.is_empty() {
-                if let Some(rule) = self.stylesheet.find_element_pseudo_styles(&ctx.element_type, pseudo) {
+                if let Some(rule) = self
+                    .stylesheet
+                    .find_element_pseudo_styles(&ctx.element_type, pseudo)
+                {
                     self.apply_rule(&mut computed, rule);
                 }
             }
@@ -161,12 +183,16 @@ impl StyleEngine {
                     continue;
                 }
                 for class in &ctx.classes {
-                    if let Some(rule) = self.stylesheet.find_class_pseudo_styles(class, pseudo_name) {
+                    if let Some(rule) = self.stylesheet.find_class_pseudo_styles(class, pseudo_name)
+                    {
                         self.apply_rule(&mut computed, rule);
                     }
                 }
                 if !ctx.element_type.is_empty() {
-                    if let Some(rule) = self.stylesheet.find_element_pseudo_styles(&ctx.element_type, pseudo_name) {
+                    if let Some(rule) = self
+                        .stylesheet
+                        .find_element_pseudo_styles(&ctx.element_type, pseudo_name)
+                    {
                         self.apply_rule(&mut computed, rule);
                     }
                 }
@@ -186,29 +212,33 @@ impl StyleEngine {
 
     fn resolve_value(&self, value: &StyleValue) -> StyleValue {
         match value {
-            StyleValue::Var(name) => {
-                self.stylesheet.get_variable(name)
-                    .cloned()
-                    .map(|v| self.resolve_value(&v))
-                    .unwrap_or(StyleValue::None)
-            }
-            StyleValue::VarWithFallback(name, fallback) => {
-                self.stylesheet.get_variable(name)
-                    .cloned()
-                    .map(|v| self.resolve_value(&v))
-                    .unwrap_or_else(|| self.resolve_value(fallback))
-            }
+            StyleValue::Var(name) => self
+                .stylesheet
+                .get_variable(name)
+                .cloned()
+                .map(|v| self.resolve_value(&v))
+                .unwrap_or(StyleValue::None),
+            StyleValue::VarWithFallback(name, fallback) => self
+                .stylesheet
+                .get_variable(name)
+                .cloned()
+                .map(|v| self.resolve_value(&v))
+                .unwrap_or_else(|| self.resolve_value(fallback)),
             StyleValue::String(s) if s.contains("var(--") => {
                 let mut result = s.clone();
                 while let Some(start) = result.find("var(--") {
                     let var_start = start + 4;
                     if let Some(end) = result[var_start..].find(')') {
                         let var_name = &result[var_start..var_start + end];
-                        let replacement = self.stylesheet.get_variable(var_name)
+                        let replacement = self
+                            .stylesheet
+                            .get_variable(var_name)
                             .cloned()
                             .map(|v| self.resolve_value(&v))
                             .map(|v| match v {
-                                StyleValue::Color(c) => format!("#{:02x}{:02x}{:02x}{:02x}", c.r, c.g, c.b, c.a),
+                                StyleValue::Color(c) => {
+                                    format!("#{:02x}{:02x}{:02x}{:02x}", c.r, c.g, c.b, c.a)
+                                }
                                 StyleValue::String(s) => s,
                                 StyleValue::Number(n) => format!("{}", n),
                                 StyleValue::Length(n, unit) => {
@@ -225,8 +255,12 @@ impl StyleEngine {
                                         | crate::mss::Unit::MinContent => {
                                             return match unit {
                                                 crate::mss::Unit::Auto => "auto".into(),
-                                                crate::mss::Unit::FitContent => "fit-content".into(),
-                                                crate::mss::Unit::MaxContent => "max-content".into(),
+                                                crate::mss::Unit::FitContent => {
+                                                    "fit-content".into()
+                                                }
+                                                crate::mss::Unit::MaxContent => {
+                                                    "max-content".into()
+                                                }
                                                 _ => "min-content".into(),
                                             };
                                         }
@@ -236,14 +270,20 @@ impl StyleEngine {
                                 _ => String::new(),
                             })
                             .unwrap_or_default();
-                        result = format!("{}{}{}", &result[..start], replacement, &result[var_start + end + 1..]);
+                        result = format!(
+                            "{}{}{}",
+                            &result[..start],
+                            replacement,
+                            &result[var_start + end + 1..]
+                        );
                     } else {
                         break;
                     }
                 }
                 if let Some(gradient) = crate::mss::parser::gradient::parse_gradient(&result) {
                     gradient
-                } else if let Some(color) = crate::mss::value::Color::parse_color_function(&result) {
+                } else if let Some(color) = crate::mss::value::Color::parse_color_function(&result)
+                {
                     StyleValue::Color(color)
                 } else if let Some(color) = crate::mss::value::Color::parse(&result) {
                     StyleValue::Color(color)
@@ -275,15 +315,15 @@ impl StyleEngine {
 }
 
 pub mod window_flags {
-    pub const MAXIMIZED:  u8 = 0b0000_0001;
+    pub const MAXIMIZED: u8 = 0b0000_0001;
     pub const FULLSCREEN: u8 = 0b0000_0010;
-    pub const FOCUSED:    u8 = 0b0000_0100;
+    pub const FOCUSED: u8 = 0b0000_0100;
 }
 
 const WINDOW_PSEUDOS: &[(u8, &str)] = &[
-    (window_flags::MAXIMIZED,  "window-maximized"),
+    (window_flags::MAXIMIZED, "window-maximized"),
     (window_flags::FULLSCREEN, "window-fullscreen"),
-    (window_flags::FOCUSED,    "window-focused"),
+    (window_flags::FOCUSED, "window-focused"),
 ];
 
 #[derive(Debug, Clone, Default)]
@@ -334,7 +374,9 @@ pub struct ComputedStyle {
 
 impl ComputedStyle {
     pub fn new() -> Self {
-        Self { properties: HashMap::new() }
+        Self {
+            properties: HashMap::new(),
+        }
     }
 
     pub fn with_color(color: crate::core::Color) -> Self {
@@ -429,7 +471,11 @@ impl ComputedStyle {
                 any = true;
             }
         }
-        if any { Some(out) } else { None }
+        if any {
+            Some(out)
+        } else {
+            None
+        }
     }
 
     pub fn font_size(&self) -> f32 {
@@ -478,7 +524,10 @@ impl ComputedStyle {
                 if s.ends_with("ms") {
                     s.trim_end_matches("ms").parse::<u32>().ok()
                 } else if s.ends_with('s') {
-                    s.trim_end_matches('s').parse::<f32>().ok().map(|v| (v * 1000.0) as u32)
+                    s.trim_end_matches('s')
+                        .parse::<f32>()
+                        .ok()
+                        .map(|v| (v * 1000.0) as u32)
                 } else {
                     s.parse::<u32>().ok()
                 }
@@ -489,11 +538,13 @@ impl ComputedStyle {
     }
 
     pub fn animation_easing(&self) -> Option<&str> {
-        self.get("animation-timing-function").and_then(|v| v.as_string())
+        self.get("animation-timing-function")
+            .and_then(|v| v.as_string())
     }
 
     pub fn animation_repeat(&self) -> Option<&str> {
-        self.get("animation-iteration-count").and_then(|v| v.as_string())
+        self.get("animation-iteration-count")
+            .and_then(|v| v.as_string())
     }
 
     pub fn animation_delay_ms(&self) -> Option<u32> {
@@ -502,7 +553,10 @@ impl ComputedStyle {
                 if s.ends_with("ms") {
                     s.trim_end_matches("ms").parse::<u32>().ok()
                 } else if s.ends_with('s') {
-                    s.trim_end_matches('s').parse::<f32>().ok().map(|v| (v * 1000.0) as u32)
+                    s.trim_end_matches('s')
+                        .parse::<f32>()
+                        .ok()
+                        .map(|v| (v * 1000.0) as u32)
                 } else {
                     s.parse::<u32>().ok()
                 }
@@ -533,19 +587,21 @@ impl ComputedStyle {
     }
 
     pub fn cursor(&self) -> Option<CursorIcon> {
-        self.get("cursor").and_then(|v| v.as_string()).and_then(|s| match s {
-            "pointer" => Some(CursorIcon::Pointer),
-            "text" => Some(CursorIcon::Text),
-            "move" => Some(CursorIcon::Move),
-            "grab" => Some(CursorIcon::Grab),
-            "grabbing" => Some(CursorIcon::Grabbing),
-            "not-allowed" => Some(CursorIcon::NotAllowed),
-            "crosshair" => Some(CursorIcon::Crosshair),
-            "col-resize" => Some(CursorIcon::ColResize),
-            "row-resize" => Some(CursorIcon::RowResize),
-            "default" | "auto" => Some(CursorIcon::Default),
-            _ => None,
-        })
+        self.get("cursor")
+            .and_then(|v| v.as_string())
+            .and_then(|s| match s {
+                "pointer" => Some(CursorIcon::Pointer),
+                "text" => Some(CursorIcon::Text),
+                "move" => Some(CursorIcon::Move),
+                "grab" => Some(CursorIcon::Grab),
+                "grabbing" => Some(CursorIcon::Grabbing),
+                "not-allowed" => Some(CursorIcon::NotAllowed),
+                "crosshair" => Some(CursorIcon::Crosshair),
+                "col-resize" => Some(CursorIcon::ColResize),
+                "row-resize" => Some(CursorIcon::RowResize),
+                "default" | "auto" => Some(CursorIcon::Default),
+                _ => None,
+            })
     }
 
     pub fn border_width(&self) -> f32 {
@@ -563,18 +619,24 @@ impl ComputedStyle {
     }
 
     pub fn text_align(&self) -> Option<TextAlign> {
-        let h = self.get("text-align").and_then(|v| v.as_string()).and_then(|s| match s {
-            "left" => Some(TextAlign::LEFT),
-            "center" => Some(TextAlign::HCENTER),
-            "right" => Some(TextAlign::RIGHT),
-            _ => None,
-        });
-        let v = self.get("text-vertical-align").and_then(|v| v.as_string()).and_then(|s| match s {
-            "top" => Some(TextAlign::TOP),
-            "center" => Some(TextAlign::VCENTER),
-            "bottom" => Some(TextAlign::BOTTOM),
-            _ => None,
-        });
+        let h = self
+            .get("text-align")
+            .and_then(|v| v.as_string())
+            .and_then(|s| match s {
+                "left" => Some(TextAlign::LEFT),
+                "center" => Some(TextAlign::HCENTER),
+                "right" => Some(TextAlign::RIGHT),
+                _ => None,
+            });
+        let v = self
+            .get("text-vertical-align")
+            .and_then(|v| v.as_string())
+            .and_then(|s| match s {
+                "top" => Some(TextAlign::TOP),
+                "center" => Some(TextAlign::VCENTER),
+                "bottom" => Some(TextAlign::BOTTOM),
+                _ => None,
+            });
         match (h, v) {
             (Some(h), Some(v)) => Some(h | v),
             (Some(h), None) => Some(h | TextAlign::VCENTER),
@@ -584,21 +646,25 @@ impl ComputedStyle {
     }
 
     pub fn text_decoration(&self) -> Option<TextDecoration> {
-        self.get("text-decoration").and_then(|v| v.as_string()).and_then(|s| match s {
-            "none" => Some(TextDecoration::None),
-            "underline" => Some(TextDecoration::Underline),
-            "line-through" => Some(TextDecoration::LineThrough),
-            _ => None,
-        })
+        self.get("text-decoration")
+            .and_then(|v| v.as_string())
+            .and_then(|s| match s {
+                "none" => Some(TextDecoration::None),
+                "underline" => Some(TextDecoration::Underline),
+                "line-through" => Some(TextDecoration::LineThrough),
+                _ => None,
+            })
     }
 
     pub fn overflow(&self) -> Option<Overflow> {
-        self.get("overflow").and_then(|v| v.as_string()).and_then(|s| match s {
-            "hidden" => Some(Overflow::Hidden),
-            "scroll" => Some(Overflow::Scroll),
-            "visible" => Some(Overflow::Visible),
-            _ => None,
-        })
+        self.get("overflow")
+            .and_then(|v| v.as_string())
+            .and_then(|s| match s {
+                "hidden" => Some(Overflow::Hidden),
+                "scroll" => Some(Overflow::Scroll),
+                "visible" => Some(Overflow::Visible),
+                _ => None,
+            })
     }
 
     pub fn has_margin(&self) -> bool {
@@ -610,15 +676,25 @@ impl ComputedStyle {
 
     pub fn margin(&self) -> EdgeInsets {
         EdgeInsets::new(
-            self.get("margin-left").and_then(|v| v.as_px()).unwrap_or(0.0),
-            self.get("margin-top").and_then(|v| v.as_px()).unwrap_or(0.0),
-            self.get("margin-right").and_then(|v| v.as_px()).unwrap_or(0.0),
-            self.get("margin-bottom").and_then(|v| v.as_px()).unwrap_or(0.0),
+            self.get("margin-left")
+                .and_then(|v| v.as_px())
+                .unwrap_or(0.0),
+            self.get("margin-top")
+                .and_then(|v| v.as_px())
+                .unwrap_or(0.0),
+            self.get("margin-right")
+                .and_then(|v| v.as_px())
+                .unwrap_or(0.0),
+            self.get("margin-bottom")
+                .and_then(|v| v.as_px())
+                .unwrap_or(0.0),
         )
     }
 
     pub fn flex_grow(&self) -> Option<f32> {
-        self.get("flex-grow").and_then(|v| v.as_px()).map(|v| v.max(0.0))
+        self.get("flex-grow")
+            .and_then(|v| v.as_px())
+            .map(|v| v.max(0.0))
     }
 
     pub fn font_weight(&self) -> Option<u16> {
@@ -636,38 +712,42 @@ impl ComputedStyle {
     }
 
     pub fn font_family(&self) -> Option<&str> {
-        self.get("font-family").and_then(|v| v.as_string()).map(|s| {
-            s.trim_matches('"').trim_matches('\'')
-        })
+        self.get("font-family")
+            .and_then(|v| v.as_string())
+            .map(|s| s.trim_matches('"').trim_matches('\''))
     }
 
     pub fn transition_property(&self) -> Option<&str> {
-        self.get("transition-property").and_then(|v| v.as_string())
+        self.get("transition-property")
+            .and_then(|v| v.as_string())
             .or_else(|| {
-                self.get("transition").and_then(|v| v.as_string()).and_then(|s| {
-                    s.split_whitespace().next()
-                })
+                self.get("transition")
+                    .and_then(|v| v.as_string())
+                    .and_then(|s| s.split_whitespace().next())
             })
     }
 
     pub fn transition_duration_ms(&self) -> Option<u32> {
-        self.get("transition-duration").and_then(|v| match v {
-            StyleValue::String(s) => Self::parse_duration(s),
-            StyleValue::Number(n) => Some(*n as u32),
-            _ => None,
-        }).or_else(|| {
-            self.get("transition").and_then(|v| v.as_string()).and_then(|s| {
-                s.split_whitespace().nth(1).and_then(Self::parse_duration)
+        self.get("transition-duration")
+            .and_then(|v| match v {
+                StyleValue::String(s) => Self::parse_duration(s),
+                StyleValue::Number(n) => Some(*n as u32),
+                _ => None,
             })
-        })
+            .or_else(|| {
+                self.get("transition")
+                    .and_then(|v| v.as_string())
+                    .and_then(|s| s.split_whitespace().nth(1).and_then(Self::parse_duration))
+            })
     }
 
     pub fn transition_easing(&self) -> Option<&str> {
-        self.get("transition-timing-function").and_then(|v| v.as_string())
+        self.get("transition-timing-function")
+            .and_then(|v| v.as_string())
             .or_else(|| {
-                self.get("transition").and_then(|v| v.as_string()).and_then(|s| {
-                    s.split_whitespace().nth(2)
-                })
+                self.get("transition")
+                    .and_then(|v| v.as_string())
+                    .and_then(|s| s.split_whitespace().nth(2))
             })
     }
 
@@ -675,7 +755,10 @@ impl ComputedStyle {
         if s.ends_with("ms") {
             s.trim_end_matches("ms").parse::<u32>().ok()
         } else if s.ends_with('s') {
-            s.trim_end_matches('s').parse::<f32>().ok().map(|v| (v * 1000.0) as u32)
+            s.trim_end_matches('s')
+                .parse::<f32>()
+                .ok()
+                .map(|v| (v * 1000.0) as u32)
         } else {
             s.parse::<u32>().ok()
         }
@@ -749,7 +832,9 @@ mod tests {
         let (sheet, _) = MssParser::new(
             ".shell { border-radius: 20px; } \
              .shell:window-maximized { border-radius: 0; }",
-        ).parse().expect("parse");
+        )
+        .parse()
+        .expect("parse");
         let rules = sheet.rules();
         assert_eq!(rules.len(), 2);
         match &rules[0].selector {

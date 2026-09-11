@@ -15,8 +15,8 @@
 //! `apply_styles_dirty` — the dirty-bypass main-loop path) so we catch
 //! divergence between them.
 
-use syngui::testing::*;
 use syngui::prelude::*;
+use syngui::testing::*;
 
 const STAT_CARD_TREE: &str = ".stat-card Icon";
 const STAT_CARD_ICON_SIZE: f32 = 22.0;
@@ -25,13 +25,11 @@ const STAT_CARD_ICON_SIZE: f32 = 22.0;
 /// a Column wrapper, and a leaf Icon. This mirrors `volna_plus::stat_card`.
 fn build_stat_card_tree() -> Box<dyn Widget> {
     Box::new(
-        DecoratedBox::new()
-            .class("stat-card")
-            .child(
-                Column::new()
-                    .child(Icon::new("MI_WAVES"))
-                    .child(Text::new("42"))
-            )
+        DecoratedBox::new().class("stat-card").child(
+            Column::new()
+                .child(Icon::new("MI_WAVES"))
+                .child(Text::new("42")),
+        ),
     )
 }
 
@@ -42,7 +40,8 @@ fn icon_size_of(harness: &TestHarness) -> Option<f32> {
 }
 
 fn font_size_of_text_with_class(harness: &TestHarness, class: &str) -> Option<f32> {
-    harness.find_by_class(class)
+    harness
+        .find_by_class(class)
         .into_iter()
         .next()
         .and_then(|id| harness.element_mss(id))
@@ -57,7 +56,10 @@ fn font_size_of_text_with_class(harness: &TestHarness, class: &str) -> Option<f3
 fn descendant_icon_size_first_apply_full_cascade() {
     // Direct mirror of card.mss:36 `.stat-card Icon { icon-size: 22 }`.
     // First-time application via the deterministic full-cascade entry point.
-    let mss = format!("{} {{ icon-size: {}; }}", STAT_CARD_TREE, STAT_CARD_ICON_SIZE);
+    let mss = format!(
+        "{} {{ icon-size: {}; }}",
+        STAT_CARD_TREE, STAT_CARD_ICON_SIZE
+    );
     let mut h = TestHarness::new(build_stat_card_tree());
     h.apply_mss(&mss);
     h.layout(800.0, 600.0);
@@ -73,7 +75,10 @@ fn descendant_icon_size_first_apply_full_cascade() {
 fn descendant_icon_size_first_apply_dirty_path() {
     // Same rule, but routed through the dirty-bypass main-loop cascade —
     // verifies the optimised path agrees with the full one.
-    let mss = format!("{} {{ icon-size: {}; }}", STAT_CARD_TREE, STAT_CARD_ICON_SIZE);
+    let mss = format!(
+        "{} {{ icon-size: {}; }}",
+        STAT_CARD_TREE, STAT_CARD_ICON_SIZE
+    );
     let mut h = TestHarness::new(build_stat_card_tree());
     h.apply_mss_dirty(&mss);
     h.layout(800.0, 600.0);
@@ -89,7 +94,10 @@ fn descendant_icon_size_first_apply_dirty_path() {
 fn child_combinator_is_not_descendant() {
     // `.stat-card > Icon` — strict child. Icon is grandchild via Column,
     // so this rule MUST NOT match (sanity-check matcher precision).
-    let mss = format!(".stat-card > Icon {{ icon-size: {}; }}", STAT_CARD_ICON_SIZE);
+    let mss = format!(
+        ".stat-card > Icon {{ icon-size: {}; }}",
+        STAT_CARD_ICON_SIZE
+    );
     let mut h = TestHarness::new(build_stat_card_tree());
     h.apply_mss(&mss);
     h.layout(800.0, 600.0);
@@ -109,23 +117,30 @@ fn descendant_padding_three_levels_deep() {
     let mss = ".root .panel Icon { padding: 5; }";
     let widget: Box<dyn Widget> = Box::new(
         DecoratedBox::new().class("root").child(
-            DecoratedBox::new().class("panel").child(
-                Column::new().child(Icon::new("MI_WAVES"))
-            )
-        )
+            DecoratedBox::new()
+                .class("panel")
+                .child(Column::new().child(Icon::new("MI_WAVES"))),
+        ),
     );
     let mut h = TestHarness::new(widget);
     h.apply_mss(mss);
     h.layout(800.0, 600.0);
 
     let pad = harness_icon_padding(&h);
-    assert!(pad > 4.5 && pad < 5.5, "expected padding≈5 from .root .panel Icon, got {}", pad);
+    assert!(
+        pad > 4.5 && pad < 5.5,
+        "expected padding≈5 from .root .panel Icon, got {}",
+        pad
+    );
 }
 
 #[test]
 fn group_selector_descendant_branch_applies() {
     // `.foo, .bar Icon { icon-size: 22 }` — the second branch should match.
-    let mss = format!(".foo, .stat-card Icon {{ icon-size: {}; }}", STAT_CARD_ICON_SIZE);
+    let mss = format!(
+        ".foo, .stat-card Icon {{ icon-size: {}; }}",
+        STAT_CARD_ICON_SIZE
+    );
     let mut h = TestHarness::new(build_stat_card_tree());
     h.apply_mss(&mss);
     h.layout(800.0, 600.0);
@@ -148,9 +163,9 @@ fn descendant_inherited_property_reaches_descendant_box() {
     // Use DecoratedBox.label (has MssFields) instead of Text (which keeps its
     // own private mss_* fields and isn't observable via element.mss()).
     let widget: Box<dyn Widget> = Box::new(
-        DecoratedBox::new().class("stat-card").child(
-            Column::new().child(DecoratedBox::new().class("label"))
-        )
+        DecoratedBox::new()
+            .class("stat-card")
+            .child(Column::new().child(DecoratedBox::new().class("label"))),
     );
     let mut h = TestHarness::new(widget);
     h.apply_mss(".stat-card .label { font-size: 12; }");
@@ -178,14 +193,20 @@ fn dirty_path_reapplies_after_class_change_on_ancestor() {
 
     let widget = build_stat_card_tree();
     let mut h = TestHarness::new(widget);
-    let engine = h.apply_mss_dirty(&format!(".stat-card Icon {{ icon-size: {}; }}", STAT_CARD_ICON_SIZE));
+    let engine = h.apply_mss_dirty(&format!(
+        ".stat-card Icon {{ icon-size: {}; }}",
+        STAT_CARD_ICON_SIZE
+    ));
     h.layout(800.0, 600.0);
     assert_eq!(icon_size_of(&h), Some(STAT_CARD_ICON_SIZE), "precondition");
 
     // Mutate ancestor's class. We do this directly on the element layer, the
     // same way reconcile_children_ref does, then propagate the dirty flag
     // down — which is what we want callers to do.
-    let card_id = *h.find_by_class("stat-card").first().expect("ancestor present");
+    let card_id = *h
+        .find_by_class("stat-card")
+        .first()
+        .expect("ancestor present");
     h.set_classes(card_id, vec!["other-card".to_string()]);
     mark_subtree_styles_dirty(&mut h.tree, card_id);
 
@@ -212,9 +233,11 @@ fn dirty_path_picks_up_new_descendant_rule_after_stylesheet_swap() {
     h.layout(800.0, 600.0);
     assert_eq!(icon_size_of(&h), None, "no rule yet → no icon-size");
 
-    let new_stylesheet = syngui::mss::parse_stylesheet_str(
-        &format!(".stat-card Icon {{ icon-size: {}; }}", STAT_CARD_ICON_SIZE)
-    ).expect("parse");
+    let new_stylesheet = syngui::mss::parse_stylesheet_str(&format!(
+        ".stat-card Icon {{ icon-size: {}; }}",
+        STAT_CARD_ICON_SIZE
+    ))
+    .expect("parse");
     let mut engine = syngui::mss::StyleEngine::new(new_stylesheet);
     // Caller must invalidate the entire tree on stylesheet swap.
     let root = h.root_id;
@@ -243,14 +266,18 @@ fn descendant_reapplies_when_ancestor_class_changes_via_set_classes() {
         STAT_CARD_ICON_SIZE
     );
     let widget: Box<dyn Widget> = Box::new(
-        DecoratedBox::new().class("old-card").child(
-            Column::new().child(Icon::new("MI_WAVES"))
-        )
+        DecoratedBox::new()
+            .class("old-card")
+            .child(Column::new().child(Icon::new("MI_WAVES"))),
     );
     let mut h = TestHarness::new(widget);
     let engine = h.apply_mss_dirty(&mss);
     h.layout(800.0, 600.0);
-    assert_eq!(icon_size_of(&h), Some(10.0), "precondition: .old-card Icon=10");
+    assert_eq!(
+        icon_size_of(&h),
+        Some(10.0),
+        "precondition: .old-card Icon=10"
+    );
 
     let card_id = *h.find_by_class("old-card").first().expect("ancestor");
     h.set_classes(card_id, vec!["new-card".to_string()]);
@@ -285,8 +312,11 @@ fn full_and_dirty_paths_agree_for_descendant_rule() {
     h_dirty.apply_mss_dirty(&mss);
     h_dirty.layout(800.0, 600.0);
 
-    assert_eq!(icon_size_of(&h_full), icon_size_of(&h_dirty),
-        "full and dirty cascade paths must produce identical icon-size");
+    assert_eq!(
+        icon_size_of(&h_full),
+        icon_size_of(&h_dirty),
+        "full and dirty cascade paths must produce identical icon-size"
+    );
 }
 
 // ─────────────────────────────────────────────────────────────────────────

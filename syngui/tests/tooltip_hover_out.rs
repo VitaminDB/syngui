@@ -35,7 +35,11 @@ fn harness(passthrough: bool) -> (TestHarness, ElementId) {
     h.layout(300.0, 200.0);
     let btn_id = h.find_by_type_name("ToolButton")[0];
     let b = h.element_bounds(btn_id);
-    assert_eq!((b.size.width, b.size.height), (40.0, 40.0), "стили кнопки применились: {b:?}");
+    assert_eq!(
+        (b.size.width, b.size.height),
+        (40.0, 40.0),
+        "стили кнопки применились: {b:?}"
+    );
     (h, btn_id)
 }
 
@@ -84,7 +88,10 @@ fn tooltip_hides_when_cursor_leaves_through_overlapping_sibling() {
     assert!(tip_drawn(&mut h));
     h.send_event(&Event::MouseMove(ON_BADGE));
     h.send_event(&Event::MouseMove(FAR));
-    assert!(!tip_drawn(&mut h), "подсказка висит после ухода через бейдж");
+    assert!(
+        !tip_drawn(&mut h),
+        "подсказка висит после ухода через бейдж"
+    );
     h.animate(DELAY);
     assert!(!tip_drawn(&mut h), "таймер дотикал без курсора");
     assert!(!h.is_animating(btn));
@@ -112,10 +119,16 @@ fn passthrough_press_hides_tooltip() {
     h.send_event(&Event::MouseMove(ON_BUTTON));
     h.animate(DELAY);
     assert!(tip_drawn(&mut h));
-    h.send_event(&Event::MouseDown { button: MouseButton::Left, position: ON_BUTTON });
+    h.send_event(&Event::MouseDown {
+        button: MouseButton::Left,
+        position: ON_BUTTON,
+    });
     assert!(!tip_drawn(&mut h));
     h.animate(DELAY);
-    assert!(!tip_drawn(&mut h), "после клика подсказка не возвращается, пока курсор на кнопке");
+    assert!(
+        !tip_drawn(&mut h),
+        "после клика подсказка не возвращается, пока курсор на кнопке"
+    );
     h.send_event(&Event::MouseMove(FAR));
     h.send_event(&Event::MouseMove(ON_BUTTON));
     h.animate(DELAY);

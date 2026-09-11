@@ -2,13 +2,13 @@ mod effects;
 mod pipelines;
 mod render;
 
-use crate::gpu::GpuShared;
+use crate::core::sync::Mutex;
 use crate::gpu::image_cache::ImageGpuCache;
 use crate::gpu::image_store::ImageStore;
+use crate::gpu::GpuShared;
 use crate::render::{Batcher, ShaderType};
 use crate::text::FontAtlas;
 use std::sync::Arc;
-use crate::core::sync::Mutex;
 use wgpu::util::DeviceExt;
 
 const MAX_CLIP_SLOTS: usize = 64;
@@ -62,7 +62,10 @@ pub struct RenderStats {
 
 impl Default for RenderStats {
     fn default() -> Self {
-        Self { draw_calls: 0, vertex_count: 0 }
+        Self {
+            draw_calls: 0,
+            vertex_count: 0,
+        }
     }
 }
 
@@ -96,7 +99,8 @@ pub struct Renderer {
     #[cfg(feature = "map")]
     tile_atlas_bind_group: Option<wgpu::BindGroup>,
     #[cfg(feature = "map")]
-    pub tile_atlas: Option<std::sync::Arc<crate::core::sync::Mutex<crate::gpu::tile_atlas::TileAtlas>>>,
+    pub tile_atlas:
+        Option<std::sync::Arc<crate::core::sync::Mutex<crate::gpu::tile_atlas::TileAtlas>>>,
 
     batcher: Batcher,
     width: u32,
@@ -124,9 +128,9 @@ pub struct Renderer {
 
 const FULLSCREEN_VERTICES: [[f32; 4]; 4] = [
     [-1.0, -1.0, 0.0, 1.0],
-    [ 1.0, -1.0, 1.0, 1.0],
-    [ 1.0,  1.0, 1.0, 0.0],
-    [-1.0,  1.0, 0.0, 0.0],
+    [1.0, -1.0, 1.0, 1.0],
+    [1.0, 1.0, 1.0, 0.0],
+    [-1.0, 1.0, 0.0, 0.0],
 ];
 
 const FULLSCREEN_INDICES: [u32; 6] = [0, 1, 2, 0, 2, 3];
@@ -206,19 +210,23 @@ impl Renderer {
             usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
             mapped_at_creation: false,
         });
-        let uniform_bgl = gpu.device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
-            label: Some("Uniform BGL"),
-            entries: &[wgpu::BindGroupLayoutEntry {
-                binding: 0,
-                visibility: wgpu::ShaderStages::VERTEX | wgpu::ShaderStages::FRAGMENT,
-                ty: wgpu::BindingType::Buffer {
-                    ty: wgpu::BufferBindingType::Uniform,
-                    has_dynamic_offset: true,
-                    min_binding_size: wgpu::BufferSize::new(std::mem::size_of::<Uniforms>() as u64),
-                },
-                count: None,
-            }],
-        });
+        let uniform_bgl = gpu
+            .device
+            .create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
+                label: Some("Uniform BGL"),
+                entries: &[wgpu::BindGroupLayoutEntry {
+                    binding: 0,
+                    visibility: wgpu::ShaderStages::VERTEX | wgpu::ShaderStages::FRAGMENT,
+                    ty: wgpu::BindingType::Buffer {
+                        ty: wgpu::BufferBindingType::Uniform,
+                        has_dynamic_offset: true,
+                        min_binding_size: wgpu::BufferSize::new(
+                            std::mem::size_of::<Uniforms>() as u64
+                        ),
+                    },
+                    count: None,
+                }],
+            });
         let uniform_bind_group = gpu.device.create_bind_group(&wgpu::BindGroupDescriptor {
             label: Some("Uniform BG"),
             layout: &uniform_bgl,
@@ -234,27 +242,29 @@ impl Renderer {
 
         let font_atlas = FontAtlas::with_config(&gpu.device, &gpu.queue, preferred_font_family);
 
-        let text_bgl = gpu.device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
-            label: Some("Text BGL"),
-            entries: &[
-                wgpu::BindGroupLayoutEntry {
-                    binding: 0,
-                    visibility: wgpu::ShaderStages::FRAGMENT,
-                    ty: wgpu::BindingType::Texture {
-                        sample_type: wgpu::TextureSampleType::Float { filterable: true },
-                        view_dimension: wgpu::TextureViewDimension::D2,
-                        multisampled: false,
+        let text_bgl = gpu
+            .device
+            .create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
+                label: Some("Text BGL"),
+                entries: &[
+                    wgpu::BindGroupLayoutEntry {
+                        binding: 0,
+                        visibility: wgpu::ShaderStages::FRAGMENT,
+                        ty: wgpu::BindingType::Texture {
+                            sample_type: wgpu::TextureSampleType::Float { filterable: true },
+                            view_dimension: wgpu::TextureViewDimension::D2,
+                            multisampled: false,
+                        },
+                        count: None,
                     },
-                    count: None,
-                },
-                wgpu::BindGroupLayoutEntry {
-                    binding: 1,
-                    visibility: wgpu::ShaderStages::FRAGMENT,
-                    ty: wgpu::BindingType::Sampler(wgpu::SamplerBindingType::Filtering),
-                    count: None,
-                },
-            ],
-        });
+                    wgpu::BindGroupLayoutEntry {
+                        binding: 1,
+                        visibility: wgpu::ShaderStages::FRAGMENT,
+                        ty: wgpu::BindingType::Sampler(wgpu::SamplerBindingType::Filtering),
+                        count: None,
+                    },
+                ],
+            });
         let text_bind_group = gpu.device.create_bind_group(&wgpu::BindGroupDescriptor {
             label: Some("Text BG"),
             layout: &text_bgl,
@@ -270,9 +280,8 @@ impl Renderer {
             ],
         });
 
-        let texture_pool = crate::gpu::texture_pool::TexturePool::new(
-            &gpu.device, surface_format, width, height,
-        );
+        let texture_pool =
+            crate::gpu::texture_pool::TexturePool::new(&gpu.device, surface_format, width, height);
 
         let blur_uniforms = BlurUniforms {
             resolution: [width as f32, height as f32],
@@ -281,24 +290,28 @@ impl Renderer {
             _padding: 0.0,
             _padding2: [0.0; 2],
         };
-        let blur_uniform_buffer = gpu.device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
-            label: Some("Blur Uniform Buffer"),
-            contents: bytemuck::cast_slice(&[blur_uniforms]),
-            usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
-        });
-        let blur_uniform_bgl = gpu.device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
-            label: Some("Blur Uniform BGL"),
-            entries: &[wgpu::BindGroupLayoutEntry {
-                binding: 0,
-                visibility: wgpu::ShaderStages::VERTEX | wgpu::ShaderStages::FRAGMENT,
-                ty: wgpu::BindingType::Buffer {
-                    ty: wgpu::BufferBindingType::Uniform,
-                    has_dynamic_offset: false,
-                    min_binding_size: None,
-                },
-                count: None,
-            }],
-        });
+        let blur_uniform_buffer =
+            gpu.device
+                .create_buffer_init(&wgpu::util::BufferInitDescriptor {
+                    label: Some("Blur Uniform Buffer"),
+                    contents: bytemuck::cast_slice(&[blur_uniforms]),
+                    usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
+                });
+        let blur_uniform_bgl =
+            gpu.device
+                .create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
+                    label: Some("Blur Uniform BGL"),
+                    entries: &[wgpu::BindGroupLayoutEntry {
+                        binding: 0,
+                        visibility: wgpu::ShaderStages::VERTEX | wgpu::ShaderStages::FRAGMENT,
+                        ty: wgpu::BindingType::Buffer {
+                            ty: wgpu::BufferBindingType::Uniform,
+                            has_dynamic_offset: false,
+                            min_binding_size: None,
+                        },
+                        count: None,
+                    }],
+                });
         let blur_uniform_bind_group = gpu.device.create_bind_group(&wgpu::BindGroupDescriptor {
             label: Some("Blur Uniform BG"),
             layout: &blur_uniform_bgl,
@@ -318,168 +331,257 @@ impl Renderer {
             params2: [0.0; 4],
             bounds: [0.0, 0.0, 1.0, 1.0],
         };
-        let postprocess_uniform_buffer = gpu.device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
-            label: Some("PostProcess Uniform Buffer"),
-            contents: bytemuck::cast_slice(&[pp_uniforms]),
-            usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
-        });
-        let pp_uniform_bgl = gpu.device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
-            label: Some("PostProcess Uniform BGL"),
-            entries: &[wgpu::BindGroupLayoutEntry {
-                binding: 0,
-                visibility: wgpu::ShaderStages::VERTEX | wgpu::ShaderStages::FRAGMENT,
-                ty: wgpu::BindingType::Buffer {
-                    ty: wgpu::BufferBindingType::Uniform,
-                    has_dynamic_offset: false,
-                    min_binding_size: None,
-                },
-                count: None,
-            }],
-        });
-        let postprocess_uniform_bind_group = gpu.device.create_bind_group(&wgpu::BindGroupDescriptor {
-            label: Some("PostProcess Uniform BG"),
-            layout: &pp_uniform_bgl,
-            entries: &[wgpu::BindGroupEntry {
-                binding: 0,
-                resource: postprocess_uniform_buffer.as_entire_binding(),
-            }],
-        });
+        let postprocess_uniform_buffer =
+            gpu.device
+                .create_buffer_init(&wgpu::util::BufferInitDescriptor {
+                    label: Some("PostProcess Uniform Buffer"),
+                    contents: bytemuck::cast_slice(&[pp_uniforms]),
+                    usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
+                });
+        let pp_uniform_bgl =
+            gpu.device
+                .create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
+                    label: Some("PostProcess Uniform BGL"),
+                    entries: &[wgpu::BindGroupLayoutEntry {
+                        binding: 0,
+                        visibility: wgpu::ShaderStages::VERTEX | wgpu::ShaderStages::FRAGMENT,
+                        ty: wgpu::BindingType::Buffer {
+                            ty: wgpu::BufferBindingType::Uniform,
+                            has_dynamic_offset: false,
+                            min_binding_size: None,
+                        },
+                        count: None,
+                    }],
+                });
+        let postprocess_uniform_bind_group =
+            gpu.device.create_bind_group(&wgpu::BindGroupDescriptor {
+                label: Some("PostProcess Uniform BG"),
+                layout: &pp_uniform_bgl,
+                entries: &[wgpu::BindGroupEntry {
+                    binding: 0,
+                    resource: postprocess_uniform_buffer.as_entire_binding(),
+                }],
+            });
 
-        let fullscreen_vertex_buffer = gpu.device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
-            label: Some("Fullscreen Vertex Buffer"),
-            contents: bytemuck::cast_slice(&FULLSCREEN_VERTICES),
-            usage: wgpu::BufferUsages::VERTEX,
-        });
-        let fullscreen_index_buffer = gpu.device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
-            label: Some("Fullscreen Index Buffer"),
-            contents: bytemuck::cast_slice(&FULLSCREEN_INDICES),
-            usage: wgpu::BufferUsages::INDEX,
-        });
+        let fullscreen_vertex_buffer =
+            gpu.device
+                .create_buffer_init(&wgpu::util::BufferInitDescriptor {
+                    label: Some("Fullscreen Vertex Buffer"),
+                    contents: bytemuck::cast_slice(&FULLSCREEN_VERTICES),
+                    usage: wgpu::BufferUsages::VERTEX,
+                });
+        let fullscreen_index_buffer =
+            gpu.device
+                .create_buffer_init(&wgpu::util::BufferInitDescriptor {
+                    label: Some("Fullscreen Index Buffer"),
+                    contents: bytemuck::cast_slice(&FULLSCREEN_INDICES),
+                    usage: wgpu::BufferUsages::INDEX,
+                });
 
-        let rect_shader = gpu.device.create_shader_module(wgpu::ShaderModuleDescriptor {
-            label: Some("Rect Shader"),
-            source: wgpu::ShaderSource::Wgsl(include_str!("../rect.wgsl").into()),
-        });
-        let rect_pipeline_layout = gpu.device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
-            label: Some("Rect Pipeline Layout"),
-            bind_group_layouts: &[&uniform_bgl],
-            immediate_size: 0,
-        });
+        let rect_shader = gpu
+            .device
+            .create_shader_module(wgpu::ShaderModuleDescriptor {
+                label: Some("Rect Shader"),
+                source: wgpu::ShaderSource::Wgsl(include_str!("../rect.wgsl").into()),
+            });
+        let rect_pipeline_layout =
+            gpu.device
+                .create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
+                    label: Some("Rect Pipeline Layout"),
+                    bind_group_layouts: &[&uniform_bgl],
+                    immediate_size: 0,
+                });
         let rect_pipeline = Self::create_pipeline(
-            &gpu.device, "Rect Pipeline", &rect_pipeline_layout, &rect_shader, surface_format,
+            &gpu.device,
+            "Rect Pipeline",
+            &rect_pipeline_layout,
+            &rect_shader,
+            surface_format,
         );
 
-        let text_shader = gpu.device.create_shader_module(wgpu::ShaderModuleDescriptor {
-            label: Some("Text Shader"),
-            source: wgpu::ShaderSource::Wgsl(include_str!("../text.wgsl").into()),
-        });
-        let text_pipeline_layout = gpu.device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
-            label: Some("Text Pipeline Layout"),
-            bind_group_layouts: &[&uniform_bgl, &text_bgl],
-            immediate_size: 0,
-        });
+        let text_shader = gpu
+            .device
+            .create_shader_module(wgpu::ShaderModuleDescriptor {
+                label: Some("Text Shader"),
+                source: wgpu::ShaderSource::Wgsl(include_str!("../text.wgsl").into()),
+            });
+        let text_pipeline_layout =
+            gpu.device
+                .create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
+                    label: Some("Text Pipeline Layout"),
+                    bind_group_layouts: &[&uniform_bgl, &text_bgl],
+                    immediate_size: 0,
+                });
         let text_pipeline = Self::create_pipeline(
-            &gpu.device, "Text Pipeline", &text_pipeline_layout, &text_shader, surface_format,
+            &gpu.device,
+            "Text Pipeline",
+            &text_pipeline_layout,
+            &text_shader,
+            surface_format,
         );
 
-        let shadow_shader = gpu.device.create_shader_module(wgpu::ShaderModuleDescriptor {
-            label: Some("Shadow Shader"),
-            source: wgpu::ShaderSource::Wgsl(include_str!("../shadow.wgsl").into()),
-        });
-        let shadow_pipeline_layout = gpu.device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
-            label: Some("Shadow Pipeline Layout"),
-            bind_group_layouts: &[&uniform_bgl],
-            immediate_size: 0,
-        });
+        let shadow_shader = gpu
+            .device
+            .create_shader_module(wgpu::ShaderModuleDescriptor {
+                label: Some("Shadow Shader"),
+                source: wgpu::ShaderSource::Wgsl(include_str!("../shadow.wgsl").into()),
+            });
+        let shadow_pipeline_layout =
+            gpu.device
+                .create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
+                    label: Some("Shadow Pipeline Layout"),
+                    bind_group_layouts: &[&uniform_bgl],
+                    immediate_size: 0,
+                });
         let shadow_pipeline = Self::create_pipeline(
-            &gpu.device, "Shadow Pipeline", &shadow_pipeline_layout, &shadow_shader, surface_format,
+            &gpu.device,
+            "Shadow Pipeline",
+            &shadow_pipeline_layout,
+            &shadow_shader,
+            surface_format,
         );
 
         let glow_shadow_pipeline = Self::create_pipeline_additive(
-            &gpu.device, "Glow Shadow Pipeline", &shadow_pipeline_layout, &shadow_shader, surface_format,
+            &gpu.device,
+            "Glow Shadow Pipeline",
+            &shadow_pipeline_layout,
+            &shadow_shader,
+            surface_format,
         );
 
-        let inner_shadow_shader = gpu.device.create_shader_module(wgpu::ShaderModuleDescriptor {
-            label: Some("Inner Shadow Shader"),
-            source: wgpu::ShaderSource::Wgsl(include_str!("../inner_shadow.wgsl").into()),
-        });
-        let inner_shadow_pipeline_layout = gpu.device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
-            label: Some("Inner Shadow Pipeline Layout"),
-            bind_group_layouts: &[&uniform_bgl],
-            immediate_size: 0,
-        });
+        let inner_shadow_shader = gpu
+            .device
+            .create_shader_module(wgpu::ShaderModuleDescriptor {
+                label: Some("Inner Shadow Shader"),
+                source: wgpu::ShaderSource::Wgsl(include_str!("../inner_shadow.wgsl").into()),
+            });
+        let inner_shadow_pipeline_layout =
+            gpu.device
+                .create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
+                    label: Some("Inner Shadow Pipeline Layout"),
+                    bind_group_layouts: &[&uniform_bgl],
+                    immediate_size: 0,
+                });
         let inner_shadow_pipeline = Self::create_pipeline(
-            &gpu.device, "Inner Shadow Pipeline", &inner_shadow_pipeline_layout, &inner_shadow_shader, surface_format,
+            &gpu.device,
+            "Inner Shadow Pipeline",
+            &inner_shadow_pipeline_layout,
+            &inner_shadow_shader,
+            surface_format,
         );
 
-        let line_shader = gpu.device.create_shader_module(wgpu::ShaderModuleDescriptor {
-            label: Some("Line Shader"),
-            source: wgpu::ShaderSource::Wgsl(include_str!("../line.wgsl").into()),
-        });
-        let line_pipeline_layout = gpu.device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
-            label: Some("Line Pipeline Layout"),
-            bind_group_layouts: &[&uniform_bgl],
-            immediate_size: 0,
-        });
+        let line_shader = gpu
+            .device
+            .create_shader_module(wgpu::ShaderModuleDescriptor {
+                label: Some("Line Shader"),
+                source: wgpu::ShaderSource::Wgsl(include_str!("../line.wgsl").into()),
+            });
+        let line_pipeline_layout =
+            gpu.device
+                .create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
+                    label: Some("Line Pipeline Layout"),
+                    bind_group_layouts: &[&uniform_bgl],
+                    immediate_size: 0,
+                });
         let line_pipeline = Self::create_pipeline(
-            &gpu.device, "Line Pipeline", &line_pipeline_layout, &line_shader, surface_format,
+            &gpu.device,
+            "Line Pipeline",
+            &line_pipeline_layout,
+            &line_shader,
+            surface_format,
         );
 
-        let blur_shader = gpu.device.create_shader_module(wgpu::ShaderModuleDescriptor {
-            label: Some("Blur Shader"),
-            source: wgpu::ShaderSource::Wgsl(include_str!("../blur.wgsl").into()),
-        });
-        let blur_pipeline_layout = gpu.device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
-            label: Some("Blur Pipeline Layout"),
-            bind_group_layouts: &[&blur_uniform_bgl, texture_pool.bind_group_layout()],
-            immediate_size: 0,
-        });
+        let blur_shader = gpu
+            .device
+            .create_shader_module(wgpu::ShaderModuleDescriptor {
+                label: Some("Blur Shader"),
+                source: wgpu::ShaderSource::Wgsl(include_str!("../blur.wgsl").into()),
+            });
+        let blur_pipeline_layout =
+            gpu.device
+                .create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
+                    label: Some("Blur Pipeline Layout"),
+                    bind_group_layouts: &[&blur_uniform_bgl, texture_pool.bind_group_layout()],
+                    immediate_size: 0,
+                });
         let blur_pipeline = Self::create_fullscreen_pipeline(
-            &gpu.device, "Blur Pipeline", &blur_pipeline_layout, &blur_shader, surface_format,
+            &gpu.device,
+            "Blur Pipeline",
+            &blur_pipeline_layout,
+            &blur_shader,
+            surface_format,
         );
 
-        let postprocess_shader = gpu.device.create_shader_module(wgpu::ShaderModuleDescriptor {
-            label: Some("PostProcess Shader"),
-            source: wgpu::ShaderSource::Wgsl(include_str!("../postprocess.wgsl").into()),
-        });
-        let postprocess_pipeline_layout = gpu.device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
-            label: Some("PostProcess Pipeline Layout"),
-            bind_group_layouts: &[&pp_uniform_bgl, texture_pool.bind_group_layout()],
-            immediate_size: 0,
-        });
+        let postprocess_shader = gpu
+            .device
+            .create_shader_module(wgpu::ShaderModuleDescriptor {
+                label: Some("PostProcess Shader"),
+                source: wgpu::ShaderSource::Wgsl(include_str!("../postprocess.wgsl").into()),
+            });
+        let postprocess_pipeline_layout =
+            gpu.device
+                .create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
+                    label: Some("PostProcess Pipeline Layout"),
+                    bind_group_layouts: &[&pp_uniform_bgl, texture_pool.bind_group_layout()],
+                    immediate_size: 0,
+                });
         let postprocess_pipeline = Self::create_fullscreen_pipeline(
-            &gpu.device, "PostProcess Pipeline", &postprocess_pipeline_layout, &postprocess_shader, surface_format,
+            &gpu.device,
+            "PostProcess Pipeline",
+            &postprocess_pipeline_layout,
+            &postprocess_shader,
+            surface_format,
         );
 
-        let blit_shader = gpu.device.create_shader_module(wgpu::ShaderModuleDescriptor {
-            label: Some("Blit Shader"),
-            source: wgpu::ShaderSource::Wgsl(include_str!("../blit.wgsl").into()),
-        });
-        let blit_pipeline_layout = gpu.device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
-            label: Some("Blit Pipeline Layout"),
-            bind_group_layouts: &[texture_pool.bind_group_layout()],
-            immediate_size: 0,
-        });
+        let blit_shader = gpu
+            .device
+            .create_shader_module(wgpu::ShaderModuleDescriptor {
+                label: Some("Blit Shader"),
+                source: wgpu::ShaderSource::Wgsl(include_str!("../blit.wgsl").into()),
+            });
+        let blit_pipeline_layout =
+            gpu.device
+                .create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
+                    label: Some("Blit Pipeline Layout"),
+                    bind_group_layouts: &[texture_pool.bind_group_layout()],
+                    immediate_size: 0,
+                });
         let blit_pipeline = Self::create_fullscreen_pipeline(
-            &gpu.device, "Blit Pipeline", &blit_pipeline_layout, &blit_shader, surface_format,
+            &gpu.device,
+            "Blit Pipeline",
+            &blit_pipeline_layout,
+            &blit_shader,
+            surface_format,
         );
 
         let glow_blit_pipeline = Self::create_fullscreen_pipeline_additive(
-            &gpu.device, "Glow Blit Pipeline", &blit_pipeline_layout, &blit_shader, surface_format,
+            &gpu.device,
+            "Glow Blit Pipeline",
+            &blit_pipeline_layout,
+            &blit_shader,
+            surface_format,
         );
 
         let image_gpu_cache = ImageGpuCache::new(&gpu.device);
-        let image_shader = gpu.device.create_shader_module(wgpu::ShaderModuleDescriptor {
-            label: Some("Image Shader"),
-            source: wgpu::ShaderSource::Wgsl(include_str!("../text.wgsl").into()),
-        });
-        let image_pipeline_layout = gpu.device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
-            label: Some("Image Pipeline Layout"),
-            bind_group_layouts: &[&uniform_bgl, image_gpu_cache.bind_group_layout()],
-            immediate_size: 0,
-        });
+        let image_shader = gpu
+            .device
+            .create_shader_module(wgpu::ShaderModuleDescriptor {
+                label: Some("Image Shader"),
+                source: wgpu::ShaderSource::Wgsl(include_str!("../text.wgsl").into()),
+            });
+        let image_pipeline_layout =
+            gpu.device
+                .create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
+                    label: Some("Image Pipeline Layout"),
+                    bind_group_layouts: &[&uniform_bgl, image_gpu_cache.bind_group_layout()],
+                    immediate_size: 0,
+                });
         let image_pipeline = Self::create_pipeline(
-            &gpu.device, "Image Pipeline", &image_pipeline_layout, &image_shader, surface_format,
+            &gpu.device,
+            "Image Pipeline",
+            &image_pipeline_layout,
+            &image_shader,
+            surface_format,
         );
 
         Self {
@@ -567,7 +669,9 @@ impl Renderer {
             &tile_atlas,
         );
 
-        self.tile_atlas = Some(std::sync::Arc::new(crate::core::sync::Mutex::new(tile_atlas)));
+        self.tile_atlas = Some(std::sync::Arc::new(crate::core::sync::Mutex::new(
+            tile_atlas,
+        )));
         self.tile_atlas_bind_group = Some(tile_bind_group);
     }
 
@@ -660,14 +764,14 @@ impl Renderer {
                 },
                 wgpu::BindGroupEntry {
                     binding: 1,
-                    resource: wgpu::BindingResource::Sampler(
-                        &device.create_sampler(&wgpu::SamplerDescriptor {
+                    resource: wgpu::BindingResource::Sampler(&device.create_sampler(
+                        &wgpu::SamplerDescriptor {
                             label: Some("Scene Sampler"),
                             mag_filter: wgpu::FilterMode::Linear,
                             min_filter: wgpu::FilterMode::Linear,
                             ..Default::default()
-                        }),
-                    ),
+                        },
+                    )),
                 },
             ],
         });

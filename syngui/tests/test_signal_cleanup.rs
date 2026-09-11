@@ -4,7 +4,7 @@
 //! See plan `encapsulated-painting-abelson.md`.
 
 use syngui::prelude::*;
-use syngui::signal::{begin_element_scope, end_element_scope, cleanup_element};
+use syngui::signal::{begin_element_scope, cleanup_element, end_element_scope};
 use syngui::widget::ElementId;
 
 #[test]
@@ -24,13 +24,18 @@ fn dispose_cleanup_can_mutate_signal_no_panic() {
 
 #[test]
 fn dispose_cleanup_can_dispose_another_effect() {
-    use std::sync::{Arc, atomic::{AtomicBool, Ordering}};
+    use std::sync::{
+        atomic::{AtomicBool, Ordering},
+        Arc,
+    };
 
     let b_cleanup_ran = Arc::new(AtomicBool::new(false));
     let bc = b_cleanup_ran.clone();
     let b_id = use_effect_with_cleanup(move || {
         let bc = bc.clone();
-        Some(Box::new(move || { bc.store(true, Ordering::Relaxed); }) as Box<dyn Fn()>)
+        Some(Box::new(move || {
+            bc.store(true, Ordering::Relaxed);
+        }) as Box<dyn Fn()>)
     });
 
     let a_id = use_effect_with_cleanup(move || {
@@ -46,7 +51,10 @@ fn dispose_cleanup_can_dispose_another_effect() {
 
 #[test]
 fn re_run_cleanup_can_mutate_signal_no_panic() {
-    use std::sync::{Arc, atomic::{AtomicU32, Ordering}};
+    use std::sync::{
+        atomic::{AtomicU32, Ordering},
+        Arc,
+    };
 
     let trigger = use_signal(0u32);
     let side = use_signal(0u32);

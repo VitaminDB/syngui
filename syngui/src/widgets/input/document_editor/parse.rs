@@ -18,8 +18,7 @@ use super::attrs::{split_leading_attrs, split_trailing_attrs};
 use super::model::*;
 
 pub fn parse_document(source: &str) -> DocModel {
-    let opts =
-        Options::ENABLE_TABLES | Options::ENABLE_TASKLISTS | Options::ENABLE_STRIKETHROUGH;
+    let opts = Options::ENABLE_TABLES | Options::ENABLE_TASKLISTS | Options::ENABLE_STRIKETHROUGH;
     let parser = Parser::new_ext(source, opts);
     let mut b = Builder::new();
     for event in parser {
@@ -40,7 +39,9 @@ fn take_layout_fence(blocks: &mut Vec<DocBlock>) {
     });
     let Some(idx) = idx else { return };
     let block = blocks.remove(idx);
-    let BlockKind::CodeBlock { code, .. } = block.kind else { return };
+    let BlockKind::CodeBlock { code, .. } = block.kind else {
+        return;
+    };
     super::free::apply_geometry(blocks, &code);
 }
 
@@ -77,19 +78,54 @@ impl StyleState {
 }
 
 enum Frame {
-    Para { parts: Vec<DocBlock>, text: InlineText },
-    Heading { level: u8, text: InlineText },
-    Code { lang: Option<String>, code: String },
-    Quote { blocks: Vec<DocBlock> },
-    List { ordered: bool, next_number: u64, items: Vec<DocBlock> },
-    Item { text: InlineText, blocks: Vec<DocBlock>, todo: Option<bool>, ordered: bool, number: u64 },
-    Table { aligns: Vec<DocAlign>, headers: Vec<InlineText>, rows: Vec<Vec<InlineText>>, in_head: bool },
-    Row { cells: Vec<InlineText> },
-    Cell { text: InlineText },
+    Para {
+        parts: Vec<DocBlock>,
+        text: InlineText,
+    },
+    Heading {
+        level: u8,
+        text: InlineText,
+    },
+    Code {
+        lang: Option<String>,
+        code: String,
+    },
+    Quote {
+        blocks: Vec<DocBlock>,
+    },
+    List {
+        ordered: bool,
+        next_number: u64,
+        items: Vec<DocBlock>,
+    },
+    Item {
+        text: InlineText,
+        blocks: Vec<DocBlock>,
+        todo: Option<bool>,
+        ordered: bool,
+        number: u64,
+    },
+    Table {
+        aligns: Vec<DocAlign>,
+        headers: Vec<InlineText>,
+        rows: Vec<Vec<InlineText>>,
+        in_head: bool,
+    },
+    Row {
+        cells: Vec<InlineText>,
+    },
+    Cell {
+        text: InlineText,
+    },
     /// Захват alt-текста картинки: пока фрейм на вершине, инлайн-события
     /// уходят в `alt`.
-    Image { url: String, alt: String },
-    Html { text: String },
+    Image {
+        url: String,
+        alt: String,
+    },
+    Html {
+        text: String,
+    },
 }
 
 impl Builder {
@@ -163,10 +199,16 @@ impl Builder {
     fn start(&mut self, tag: Tag) {
         match tag {
             Tag::Paragraph => {
-                self.stack.push(Frame::Para { parts: Vec::new(), text: InlineText::default() });
+                self.stack.push(Frame::Para {
+                    parts: Vec::new(),
+                    text: InlineText::default(),
+                });
             }
             Tag::Heading { level, .. } => {
-                self.stack.push(Frame::Heading { level: level as u8, text: InlineText::default() });
+                self.stack.push(Frame::Heading {
+                    level: level as u8,
+                    text: InlineText::default(),
+                });
             }
             Tag::CodeBlock(kind) => {
                 let lang = match kind {
@@ -175,7 +217,10 @@ impl Builder {
                     }
                     _ => None,
                 };
-                self.stack.push(Frame::Code { lang, code: String::new() });
+                self.stack.push(Frame::Code {
+                    lang,
+                    code: String::new(),
+                });
             }
             Tag::BlockQuote(_) => {
                 self.stack.push(Frame::Quote { blocks: Vec::new() });
@@ -185,11 +230,19 @@ impl Builder {
                     Some(n) => (true, n),
                     None => (false, 1),
                 };
-                self.stack.push(Frame::List { ordered, next_number: start, items: Vec::new() });
+                self.stack.push(Frame::List {
+                    ordered,
+                    next_number: start,
+                    items: Vec::new(),
+                });
             }
             Tag::Item => {
                 let (ordered, number) = match self.stack.last_mut() {
-                    Some(Frame::List { ordered, next_number, .. }) => {
+                    Some(Frame::List {
+                        ordered,
+                        next_number,
+                        ..
+                    }) => {
                         let n = *next_number;
                         *next_number += 1;
                         (*ordered, n)
@@ -227,7 +280,9 @@ impl Builder {
                 self.stack.push(Frame::Row { cells: Vec::new() });
             }
             Tag::TableRow => self.stack.push(Frame::Row { cells: Vec::new() }),
-            Tag::TableCell => self.stack.push(Frame::Cell { text: InlineText::default() }),
+            Tag::TableCell => self.stack.push(Frame::Cell {
+                text: InlineText::default(),
+            }),
 
             Tag::Emphasis => self.style.italic += 1,
             Tag::Strong => self.style.bold += 1,
@@ -236,9 +291,14 @@ impl Builder {
                 self.style.links.push(LinkTarget::Url(dest_url.to_string()));
             }
             Tag::Image { dest_url, .. } => {
-                self.stack.push(Frame::Image { url: dest_url.to_string(), alt: String::new() });
+                self.stack.push(Frame::Image {
+                    url: dest_url.to_string(),
+                    alt: String::new(),
+                });
             }
-            Tag::HtmlBlock => self.stack.push(Frame::Html { text: String::new() }),
+            Tag::HtmlBlock => self.stack.push(Frame::Html {
+                text: String::new(),
+            }),
             _ => {}
         }
     }
@@ -246,7 +306,11 @@ impl Builder {
     fn end(&mut self, tag: TagEnd) {
         match tag {
             TagEnd::Paragraph => {
-                if let Some(Frame::Para { mut parts, mut text }) = self.stack.pop() {
+                if let Some(Frame::Para {
+                    mut parts,
+                    mut text,
+                }) = self.stack.pop()
+                {
                     text.normalize();
                     if !parts.is_empty() {
                         // Хвост расколотого параграфа: пробел после картинки
@@ -287,7 +351,10 @@ impl Builder {
                     if code.ends_with('\n') {
                         code.pop();
                     }
-                    let b = self.block(BlockKind::CodeBlock { language: lang, code });
+                    let b = self.block(BlockKind::CodeBlock {
+                        language: lang,
+                        code,
+                    });
                     self.emit_block(b);
                 }
             }
@@ -305,8 +372,13 @@ impl Builder {
                 }
             }
             TagEnd::Item => {
-                if let Some(Frame::Item { mut text, mut blocks, todo, ordered, number }) =
-                    self.stack.pop()
+                if let Some(Frame::Item {
+                    mut text,
+                    mut blocks,
+                    todo,
+                    ordered,
+                    number,
+                }) = self.stack.pop()
                 {
                     text.normalize();
                     // Loose-список: текст пункта пришёл параграфом.
@@ -320,9 +392,20 @@ impl Builder {
                         }
                     }
                     let kind = match todo {
-                        Some(checked) => BlockKind::Todo { checked, text, children: blocks },
-                        None if ordered => BlockKind::Numbered { number, text, children: blocks },
-                        None => BlockKind::Bullet { text, children: blocks },
+                        Some(checked) => BlockKind::Todo {
+                            checked,
+                            text,
+                            children: blocks,
+                        },
+                        None if ordered => BlockKind::Numbered {
+                            number,
+                            text,
+                            children: blocks,
+                        },
+                        None => BlockKind::Bullet {
+                            text,
+                            children: blocks,
+                        },
                     };
                     let b = self.block(kind);
                     if let Some(Frame::List { items, .. }) = self.stack.last_mut() {
@@ -333,14 +416,27 @@ impl Builder {
                 }
             }
             TagEnd::Table => {
-                if let Some(Frame::Table { aligns, headers, rows, .. }) = self.stack.pop() {
-                    let b = self.block(BlockKind::Table { headers, rows, aligns });
+                if let Some(Frame::Table {
+                    aligns,
+                    headers,
+                    rows,
+                    ..
+                }) = self.stack.pop()
+                {
+                    let b = self.block(BlockKind::Table {
+                        headers,
+                        rows,
+                        aligns,
+                    });
                     self.emit_block(b);
                 }
             }
             TagEnd::TableHead => {
                 if let Some(Frame::Row { cells }) = self.stack.pop() {
-                    if let Some(Frame::Table { headers, in_head, .. }) = self.stack.last_mut() {
+                    if let Some(Frame::Table {
+                        headers, in_head, ..
+                    }) = self.stack.last_mut()
+                    {
                         *headers = cells;
                         *in_head = false;
                     }
@@ -377,8 +473,7 @@ impl Builder {
                 if let Some(Frame::Html { text }) = self.stack.pop() {
                     let trimmed = text.trim_end_matches('\n');
                     if !trimmed.is_empty() {
-                        let b =
-                            self.block(BlockKind::Paragraph(InlineText::plain(trimmed)));
+                        let b = self.block(BlockKind::Paragraph(InlineText::plain(trimmed)));
                         self.emit_block(b);
                     }
                 }
@@ -450,7 +545,11 @@ impl Builder {
                     Frame::Para { text, .. } => {
                         text.normalize();
                         trim_end_ws(text);
-                        if text.is_empty() { None } else { Some(std::mem::take(text)) }
+                        if text.is_empty() {
+                            None
+                        } else {
+                            Some(std::mem::take(text))
+                        }
                     }
                     _ => None,
                 };
@@ -539,7 +638,11 @@ impl Builder {
                 b
             }
             Some((kind, attrs, title)) => {
-                let mut b = self.block(BlockKind::Callout { kind, title, children: blocks });
+                let mut b = self.block(BlockKind::Callout {
+                    kind,
+                    title,
+                    children: blocks,
+                });
                 b.attrs = attrs;
                 b
             }
@@ -593,7 +696,9 @@ fn trim_end_ws(text: &mut InlineText) {
 /// Снимает маркер `[!kind]{attrs} Заголовок` с первого параграфа цитаты.
 fn parse_callout_marker(blocks: &mut Vec<DocBlock>) -> Option<(String, Attrs, InlineText)> {
     let first = blocks.first_mut()?;
-    let BlockKind::Paragraph(text) = &mut first.kind else { return None };
+    let BlockKind::Paragraph(text) = &mut first.kind else {
+        return None;
+    };
     let first_run = text.0.first()?;
     if !first_run.style.plain() {
         return None;
@@ -705,7 +810,9 @@ fn split_wiki_run(run: &InlineRun, out: &mut Vec<InlineRun>) {
     while let Some(open_rel) = s[cursor..].find("[[") {
         let mut open = cursor + open_rel;
         let inner_start = open + 2;
-        let Some(close_rel) = s[inner_start..].find("]]") else { break };
+        let Some(close_rel) = s[inner_start..].find("]]") else {
+            break;
+        };
         let close = inner_start + close_rel;
         let inner = &s[inner_start..close];
         let valid = !inner.is_empty()
@@ -730,14 +837,25 @@ fn split_wiki_run(run: &InlineRun, out: &mut Vec<InlineRun>) {
             continue;
         }
         if open > 0 {
-            out.push(InlineRun { text: s[..open].to_string(), style: run.style.clone() });
+            out.push(InlineRun {
+                text: s[..open].to_string(),
+                style: run.style.clone(),
+            });
         }
         let display = alias.filter(|a| !a.is_empty()).unwrap_or(target);
         let mut style = run.style.clone();
-        style.link = Some(LinkTarget::Wiki { target: target.to_string() });
-        out.push(InlineRun { text: display.to_string(), style });
+        style.link = Some(LinkTarget::Wiki {
+            target: target.to_string(),
+        });
+        out.push(InlineRun {
+            text: display.to_string(),
+            style,
+        });
         // Остаток обрабатываем рекурсивно тем же способом.
-        let rest = InlineRun { text: s[close + 2..].to_string(), style: run.style.clone() };
+        let rest = InlineRun {
+            text: s[close + 2..].to_string(),
+            style: run.style.clone(),
+        };
         split_wiki_run(&rest, out);
         return;
     }

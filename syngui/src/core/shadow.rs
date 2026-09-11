@@ -50,38 +50,67 @@ impl Shadow {
         let mut depth = 0;
         for c in s.chars() {
             match c {
-                '(' => { depth += 1; current.push(c); }
-                ')' => { depth -= 1; current.push(c); }
+                '(' => {
+                    depth += 1;
+                    current.push(c);
+                }
+                ')' => {
+                    depth -= 1;
+                    current.push(c);
+                }
                 ' ' | '\t' if depth == 0 => {
                     let trimmed = current.trim().to_string();
-                    if !trimmed.is_empty() { tokens.push(trimmed); }
+                    if !trimmed.is_empty() {
+                        tokens.push(trimmed);
+                    }
                     current.clear();
                 }
                 _ => current.push(c),
             }
         }
         let trimmed = current.trim().to_string();
-        if !trimmed.is_empty() { tokens.push(trimmed); }
-        if tokens.len() < 3 { return None; }
+        if !trimmed.is_empty() {
+            tokens.push(trimmed);
+        }
+        if tokens.len() < 3 {
+            return None;
+        }
         let mut inset = false;
-        let tokens: Vec<String> = tokens.into_iter().filter(|t| {
-            if t == "inset" { inset = true; false } else { true }
-        }).collect();
+        let tokens: Vec<String> = tokens
+            .into_iter()
+            .filter(|t| {
+                if t == "inset" {
+                    inset = true;
+                    false
+                } else {
+                    true
+                }
+            })
+            .collect();
         let mut color = None;
         let mut color_idx = 0;
         for (i, token) in tokens.iter().enumerate() {
             if token.starts_with("rgba(") || token.starts_with("rgb(") || token.starts_with('#') {
                 color = Self::parse_color(token);
-                if color.is_some() { color_idx = i; break; }
+                if color.is_some() {
+                    color_idx = i;
+                    break;
+                }
             }
         }
         let color = color?;
         let mut lengths = Vec::new();
         for (i, token) in tokens.iter().enumerate() {
-            if i == color_idx { continue; }
-            if let Some(val) = Self::parse_length(token) { lengths.push(val); }
+            if i == color_idx {
+                continue;
+            }
+            if let Some(val) = Self::parse_length(token) {
+                lengths.push(val);
+            }
         }
-        if lengths.len() < 2 { return None; }
+        if lengths.len() < 2 {
+            return None;
+        }
         Some(Self {
             color,
             offset_x: lengths[0],
@@ -139,7 +168,11 @@ impl Shadow {
 
     fn parse_length(s: &str) -> Option<f32> {
         let s = s.trim();
-        if s.ends_with("px") { s[..s.len()-2].parse().ok() } else { s.parse().ok() }
+        if s.ends_with("px") {
+            s[..s.len() - 2].parse().ok()
+        } else {
+            s.parse().ok()
+        }
     }
 
     pub fn lerp(&self, other: &Shadow, t: f32) -> Shadow {
@@ -158,10 +191,18 @@ impl Shadow {
 pub struct Shadows(pub Vec<Shadow>);
 
 impl Shadows {
-    pub fn new() -> Self { Self(Vec::new()) }
-    pub fn push(&mut self, shadow: Shadow) { self.0.push(shadow); }
-    pub fn is_empty(&self) -> bool { self.0.is_empty() }
-    pub fn as_slice(&self) -> &[Shadow] { &self.0 }
+    pub fn new() -> Self {
+        Self(Vec::new())
+    }
+    pub fn push(&mut self, shadow: Shadow) {
+        self.0.push(shadow);
+    }
+    pub fn is_empty(&self) -> bool {
+        self.0.is_empty()
+    }
+    pub fn as_slice(&self) -> &[Shadow] {
+        &self.0
+    }
 
     pub fn lerp(&self, other: &Shadows, t: f32) -> Shadows {
         let len = self.0.len().max(other.0.len());
@@ -180,30 +221,48 @@ impl Shadows {
         let mut current = String::new();
         for c in s.chars() {
             match c {
-                '(' => { depth += 1; current.push(c); }
-                ')' => { depth -= 1; current.push(c); }
+                '(' => {
+                    depth += 1;
+                    current.push(c);
+                }
+                ')' => {
+                    depth -= 1;
+                    current.push(c);
+                }
                 ',' if depth == 0 => {
-                    if let Some(shadow) = Shadow::parse(&current) { shadows.push(shadow); }
+                    if let Some(shadow) = Shadow::parse(&current) {
+                        shadows.push(shadow);
+                    }
                     current.clear();
                 }
                 _ => current.push(c),
             }
         }
         if !current.is_empty() {
-            if let Some(shadow) = Shadow::parse(&current) { shadows.push(shadow); }
+            if let Some(shadow) = Shadow::parse(&current) {
+                shadows.push(shadow);
+            }
         }
-        if shadows.is_empty() { None } else { Some(shadows) }
+        if shadows.is_empty() {
+            None
+        } else {
+            Some(shadows)
+        }
     }
 }
 
 impl IntoIterator for Shadows {
     type Item = Shadow;
     type IntoIter = std::vec::IntoIter<Shadow>;
-    fn into_iter(self) -> Self::IntoIter { self.0.into_iter() }
+    fn into_iter(self) -> Self::IntoIter {
+        self.0.into_iter()
+    }
 }
 
 impl<'a> IntoIterator for &'a Shadows {
     type Item = &'a Shadow;
     type IntoIter = std::slice::Iter<'a, Shadow>;
-    fn into_iter(self) -> Self::IntoIter { self.0.iter() }
+    fn into_iter(self) -> Self::IntoIter {
+        self.0.iter()
+    }
 }

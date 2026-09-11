@@ -1,11 +1,11 @@
 //! Render benchmarks — DisplayList construction from element trees
 
-use std::hint::black_box;
 use criterion::{criterion_group, criterion_main, BenchmarkId, Criterion};
+use std::hint::black_box;
 use syngui::core::{Color, Rect, Size};
 use syngui::layout::Constraints;
 use syngui::render::DisplayList;
-use syngui::widget::{Text, Widget, ElementTree, ElementId, WidgetExt};
+use syngui::widget::{ElementId, ElementTree, Text, Widget, WidgetExt};
 use syngui::widgets::{Column, DecoratedBox, Row};
 
 // ── Helpers ─────────────────────────────────────────────────────────────
@@ -29,7 +29,7 @@ fn build_colored_list(n: usize) -> Box<dyn Widget> {
                 .style("width", 200.0_f32)
                 .style("height", 40.0_f32)
                 .style("background-color", Color::from_hex("#3B82F6"))
-                .child(Text::new(format!("Item {i}")))
+                .child(Text::new(format!("Item {i}"))),
         );
     }
     Box::new(col)
@@ -47,7 +47,7 @@ fn build_rect_grid(rows: usize, cols: usize) -> Box<dyn Widget> {
                 DecoratedBox::new()
                     .style("width", 30.0_f32)
                     .style("height", 20.0_f32)
-                    .style("background-color", color)
+                    .style("background-color", color),
             );
         }
         column = column.child(row);
@@ -67,9 +67,13 @@ fn build_realistic_ui() -> Box<dyn Widget> {
             .child(
                 Row::new()
                     .gap(12.0)
-                    .child(Text::new("Dashboard").color(Color::from_hex("#FFFFFF")).style("font-size", 20.0_f32))
-                    .child(Text::new("Settings").color(Color::from_hex("#9CA3AF")))
-            )
+                    .child(
+                        Text::new("Dashboard")
+                            .color(Color::from_hex("#FFFFFF"))
+                            .style("font-size", 20.0_f32),
+                    )
+                    .child(Text::new("Settings").color(Color::from_hex("#9CA3AF"))),
+            ),
     );
 
     // Content cards
@@ -82,8 +86,12 @@ fn build_realistic_ui() -> Box<dyn Widget> {
                     Column::new()
                         .gap(4.0)
                         .child(Text::new(format!("Card Title {i}")))
-                        .child(Text::new("Lorem ipsum dolor sit amet, consectetur adipiscing elit.").color(Color::from_hex("#6B7280")).style("font-size", 12.0_f32))
-                )
+                        .child(
+                            Text::new("Lorem ipsum dolor sit amet, consectetur adipiscing elit.")
+                                .color(Color::from_hex("#6B7280"))
+                                .style("font-size", 12.0_f32),
+                        ),
+                ),
         );
     }
 
@@ -92,7 +100,7 @@ fn build_realistic_ui() -> Box<dyn Widget> {
         DecoratedBox::new()
             .style("height", 32.0_f32)
             .style("background-color", Color::from_hex("#F3F4F6"))
-            .child(Text::new("Footer text").style("font-size", 12.0_f32))
+            .child(Text::new("Footer text").style("font-size", 12.0_f32)),
     );
 
     Box::new(main_col)
@@ -122,17 +130,21 @@ fn bench_display_list_grid(c: &mut Criterion) {
     let mut group = c.benchmark_group("render/display_list_grid");
     for (rows, cols) in [(10, 10), (20, 20), (10, 50), (20, 50), (40, 50)] {
         let label = format!("{rows}x{cols}");
-        group.bench_with_input(BenchmarkId::new("size", &label), &(rows, cols), |b, &(rows, cols)| {
-            let widget = build_rect_grid(rows, cols);
-            let (tree, root_id) = build_and_layout(widget.as_ref());
-            let viewport = Rect::new(euclid::point2(0.0, 0.0), Size::new(1280.0, 720.0));
-            b.iter(|| {
-                let mut list = DisplayList::new();
-                list.set_surface_size(Size::new(1280.0, 720.0));
-                tree.build_display_list(root_id, &mut list, viewport);
-                black_box(list.commands().len())
-            });
-        });
+        group.bench_with_input(
+            BenchmarkId::new("size", &label),
+            &(rows, cols),
+            |b, &(rows, cols)| {
+                let widget = build_rect_grid(rows, cols);
+                let (tree, root_id) = build_and_layout(widget.as_ref());
+                let viewport = Rect::new(euclid::point2(0.0, 0.0), Size::new(1280.0, 720.0));
+                b.iter(|| {
+                    let mut list = DisplayList::new();
+                    list.set_surface_size(Size::new(1280.0, 720.0));
+                    tree.build_display_list(root_id, &mut list, viewport);
+                    black_box(list.commands().len())
+                });
+            },
+        );
     }
     group.finish();
 }

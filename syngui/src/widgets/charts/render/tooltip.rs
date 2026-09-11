@@ -119,10 +119,7 @@ pub fn render_tooltip(
     x = x.max(chart_bounds.origin.x);
     y = y.max(chart_bounds.origin.y);
 
-    let tooltip_rect = Rect::new(
-        Point::new(x, y),
-        Size::new(tooltip_width, tooltip_height),
-    );
+    let tooltip_rect = Rect::new(Point::new(x, y), Size::new(tooltip_width, tooltip_height));
 
     list.push_shadow(
         tooltip_rect,
@@ -154,9 +151,7 @@ pub fn render_tooltip(
 
     if let Some(s) = series.get(_si) {
         if let Some(dp) = s.data.get(pi) {
-            let crosshair_x = chart_bounds.origin.x
-                + (chart_bounds.size.width * 0.0)
-                ;
+            let crosshair_x = chart_bounds.origin.x + (chart_bounds.size.width * 0.0);
             let _ = (dp, crosshair_x);
         }
     }

@@ -1,13 +1,15 @@
+use crate::core::sync::Mutex;
 use crate::core::{Color, Point, Rect, RectExt, Size};
 use crate::input::{CursorIcon, Event, EventResult, Key, MouseButton};
 use crate::layout::Constraints;
 use crate::mss::{ComputedStyle, Dimension, MssFields};
 use crate::render::{Border, DisplayList};
 use crate::widget::context::{EventContext, EventContextExt, TextMeasure};
-use crate::widget::{DirtyFlags, Element, ElementId, ElementTree, StyledElement, UpdateContext, Widget};
+use crate::widget::{
+    DirtyFlags, Element, ElementId, ElementTree, StyledElement, UpdateContext, Widget,
+};
 use std::any::Any;
 use std::sync::Arc;
-use crate::core::sync::Mutex;
 
 type LabelFn = Arc<dyn Fn(f32) -> String + Send + Sync>;
 type ChangeFn = Arc<Mutex<dyn FnMut(f32) + Send>>;
@@ -357,12 +359,19 @@ impl Element for TickSliderElement {
     }
 
     fn layout(&mut self, constraints: Constraints) -> Size {
-        self.value_font = self.mss_value_font_size.or(self.mss.font_size).unwrap_or(16.0);
+        self.value_font = self
+            .mss_value_font_size
+            .or(self.mss.font_size)
+            .unwrap_or(16.0);
         self.tick_font = self.mss_tick_font_size.unwrap_or(11.0);
         self.tick_len = self.mss_tick_length.unwrap_or(8.0);
 
         let has_value = self.show_value_label && self.value_formatter.is_some();
-        self.value_label_h = if has_value { self.value_font * 1.4 + 8.0 } else { 0.0 };
+        self.value_label_h = if has_value {
+            self.value_font * 1.4 + 8.0
+        } else {
+            0.0
+        };
 
         let ticks = self.effective_ticks();
         self.tick_label_w = if let Some(ref f) = self.tick_labels {
@@ -425,20 +434,29 @@ impl Element for TickSliderElement {
             self.bounds = Rect::new(Point::zero(), Size::new(width, height));
 
             let track_top = self.value_label_h + (height - self.value_label_h - track_w) * 0.5;
-            self.track_bounds = Rect::new(
-                Point::new(8.0, track_top),
-                Size::new(width - 16.0, track_w),
-            );
+            self.track_bounds =
+                Rect::new(Point::new(8.0, track_top), Size::new(width - 16.0, track_w));
 
             Size::new(width, height)
         }
     }
 
     fn build_display_list(&self, list: &mut DisplayList, _clip: Rect) {
-        let track_base = self.mss.background_color.unwrap_or(Color::from_hex("#3F4147"));
+        let track_base = self
+            .mss
+            .background_color
+            .unwrap_or(Color::from_hex("#3F4147"));
         let fill_base = self.mss.color.unwrap_or(Color::from_hex("#00B4D8"));
-        let track_color = if self.disabled { track_base.darken(0.1) } else { track_base };
-        let fill_color = if self.disabled { track_base.darken(0.2) } else { fill_base };
+        let track_color = if self.disabled {
+            track_base.darken(0.1)
+        } else {
+            track_base
+        };
+        let fill_color = if self.disabled {
+            track_base.darken(0.2)
+        } else {
+            fill_base
+        };
         let tick_color = self.mss_tick_color.unwrap_or(Color::from_hex("#6B7280"));
         let tick_label_color = self
             .mss_tick_label_color
@@ -534,27 +552,48 @@ impl Element for TickSliderElement {
                 Size::new(THUMB_W, THUMB_H),
             );
             let radii = [THUMB_H * 0.5; 4];
-            list.push_shadow(thumb_rect, Color::new(0.0, 0.0, 0.0, 0.18), 3.0, (0.0, 1.0), radii);
+            list.push_shadow(
+                thumb_rect,
+                Color::new(0.0, 0.0, 0.0, 0.18),
+                3.0,
+                (0.0, 1.0),
+                radii,
+            );
             list.push_rect_bordered(
                 thumb_rect,
                 thumb_color,
                 radii,
-                Border { width: thumb_border_width, color: thumb_border },
+                Border {
+                    width: thumb_border_width,
+                    color: thumb_border,
+                },
             );
         } else {
             let track_center_y = self.track_bounds.y() + self.track_bounds.size.height * 0.5;
             let thumb_size = 16.0;
             let thumb_rect = Rect::new(
-                Point::new(thumb_pos - thumb_size * 0.5, track_center_y - thumb_size * 0.5),
+                Point::new(
+                    thumb_pos - thumb_size * 0.5,
+                    track_center_y - thumb_size * 0.5,
+                ),
                 Size::new(thumb_size, thumb_size),
             );
             let radii = [thumb_size * 0.5; 4];
-            list.push_shadow(thumb_rect, Color::new(0.0, 0.0, 0.0, 0.18), 3.0, (0.0, 1.0), radii);
+            list.push_shadow(
+                thumb_rect,
+                Color::new(0.0, 0.0, 0.0, 0.18),
+                3.0,
+                (0.0, 1.0),
+                radii,
+            );
             list.push_rect_bordered(
                 thumb_rect,
                 thumb_color,
                 radii,
-                Border { width: thumb_border_width, color: thumb_border },
+                Border {
+                    width: thumb_border_width,
+                    color: thumb_border,
+                },
             );
         }
 
@@ -607,7 +646,11 @@ impl Element for TickSliderElement {
             Event::MouseDown { button, position } => {
                 if *button == MouseButton::Left && self.bounds.contains(*position) {
                     self.dragging = true;
-                    let axis = if self.vertical { position.y } else { position.x };
+                    let axis = if self.vertical {
+                        position.y
+                    } else {
+                        position.x
+                    };
                     self.value = self.pos_to_value(axis).clamp(self.min, self.max);
                     self.trigger_change();
                     ctx.request_paint();
@@ -684,8 +727,10 @@ impl Element for TickSliderElement {
     fn set_position(&mut self, pos: Point) {
         let delta = Point::new(pos.x - self.bounds.origin.x, pos.y - self.bounds.origin.y);
         self.bounds.origin = pos;
-        self.track_bounds.origin =
-            Point::new(self.track_bounds.origin.x + delta.x, self.track_bounds.origin.y + delta.y);
+        self.track_bounds.origin = Point::new(
+            self.track_bounds.origin.x + delta.x,
+            self.track_bounds.origin.y + delta.y,
+        );
     }
 
     fn mark_dirty(&mut self, flags: DirtyFlags) {
@@ -771,7 +816,8 @@ impl Element for TickSliderElement {
         selected: Option<&ComputedStyle>,
         _checked: Option<&ComputedStyle>,
     ) {
-        self.mss.apply_transitions(base, hover, active, focus, selected);
+        self.mss
+            .apply_transitions(base, hover, active, focus, selected);
     }
 
     fn accessibility_info(&self) -> Option<crate::a11y::AccessibilityInfo> {
@@ -898,7 +944,10 @@ mod tests {
         e.layout(Constraints::tight(Size::new(120.0, 280.0)));
         let pos_min = e.value_to_pos(0.0);
         let pos_max = e.value_to_pos(100.0);
-        assert!(pos_max < pos_min, "max выше min: max={pos_max} min={pos_min}");
+        assert!(
+            pos_max < pos_min,
+            "max выше min: max={pos_max} min={pos_min}"
+        );
     }
 
     #[test]

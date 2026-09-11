@@ -11,8 +11,7 @@ use std::time::{Duration, Instant};
 use syngui::video::{VideoDecoder, VideoPlayer};
 
 fn fixture() -> PathBuf {
-    let p = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
-        .join("tests/fixtures/sample.mp4");
+    let p = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/sample.mp4");
     assert!(p.exists(), "fixture mp4 не найден: {p:?}");
     p
 }

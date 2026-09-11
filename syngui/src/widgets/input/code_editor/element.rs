@@ -105,7 +105,12 @@ impl CodeEditorElement {
                     },
                 )
             } else {
-                (Cursors::at_origin(), 0usize, 0.0f32, EditorPersistedState::default())
+                (
+                    Cursors::at_origin(),
+                    0usize,
+                    0.0f32,
+                    EditorPersistedState::default(),
+                )
             };
 
         let element = Self {
@@ -312,7 +317,8 @@ impl CodeEditorElement {
                 now,
             );
         } else {
-            self.undo.push_group(inverses, cursors_before, cursors_after);
+            self.undo
+                .push_group(inverses, cursors_before, cursors_after);
         }
 
         self.refresh_snapshot();
@@ -493,19 +499,25 @@ impl CodeEditorElement {
                 }
             }
             C::Cut => {
-                if self.read_only { return; }
+                if self.read_only {
+                    return;
+                }
                 let parts: Vec<String> = self
                     .cursors
                     .iter()
                     .filter_map(|c| c.selection_range().map(|r| self.buffer.byte_slice(r)))
                     .collect();
-                if parts.is_empty() { return; }
+                if parts.is_empty() {
+                    return;
+                }
                 crate::clipboard::copy(&parts.join("\n"));
                 self.apply_per_cursor(|c| c.selection_range().map(|r| Edit::replace(r, "")));
                 self.ensure_cursor_visible();
             }
             C::Paste => {
-                if self.read_only { return; }
+                if self.read_only {
+                    return;
+                }
                 if let Some(text) = crate::clipboard::paste() {
                     self.undo.commit_group();
                     self.apply_per_cursor(|c| {
@@ -693,9 +705,7 @@ impl CodeEditorElement {
                                 prev_char_boundary(&text_buf, cur_pos)
                             }
                         }
-                        MotionGranularity::Word => {
-                            next_word_boundary(&text_buf, cur_pos, forward)
-                        }
+                        MotionGranularity::Word => next_word_boundary(&text_buf, cur_pos, forward),
                         MotionGranularity::Line => {
                             let (line, col) = self.buffer.byte_to_line_col(cur_pos);
                             if self.soft_wrap {
@@ -751,8 +761,7 @@ impl CodeEditorElement {
                         );
                     } else {
                         let new_line = if down {
-                            (line as isize + delta)
-                                .clamp(0, total_lines.saturating_sub(1) as isize)
+                            (line as isize + delta).clamp(0, total_lines.saturating_sub(1) as isize)
                                 as usize
                         } else {
                             (line as isize - delta).max(0) as usize
@@ -805,7 +814,9 @@ impl CodeEditorElement {
         let local_col = self
             .text_measure
             .as_ref()
-            .map(|tm| tm.hit_test_char_styled(segment, self.font_size(), rel_x, self.font_family_str()))
+            .map(|tm| {
+                tm.hit_test_char_styled(segment, self.font_size(), rel_x, self.font_family_str())
+            })
             .unwrap_or_else(|| {
                 let approx = self.font_size() * 0.6;
                 ((rel_x / approx).round() as usize).min(segment.chars().count())
@@ -828,7 +839,8 @@ impl CodeEditorElement {
         let mut total = 0usize;
         for i in 0..total_lines {
             let line = self.buffer.line_str(i);
-            let breaks = Self::word_wrap_breaks(&line, avail, &*tm, font_size, font_family.as_deref());
+            let breaks =
+                Self::word_wrap_breaks(&line, avail, &*tm, font_size, font_family.as_deref());
             total += breaks.len() + 1;
             self.wrap_cache.push(breaks);
         }
@@ -886,7 +898,10 @@ impl CodeEditorElement {
     }
 
     fn visual_lines_for(&self, logical: usize) -> usize {
-        self.wrap_cache.get(logical).map(|b| b.len() + 1).unwrap_or(1)
+        self.wrap_cache
+            .get(logical)
+            .map(|b| b.len() + 1)
+            .unwrap_or(1)
     }
 
     fn logical_to_visual_line(&self, logical_line: usize, col: usize) -> usize {
@@ -911,7 +926,11 @@ impl CodeEditorElement {
         for (logical, breaks) in self.wrap_cache.iter().enumerate() {
             let vlines = breaks.len() + 1;
             if remaining < vlines {
-                let start = if remaining == 0 { 0 } else { breaks[remaining - 1] };
+                let start = if remaining == 0 {
+                    0
+                } else {
+                    breaks[remaining - 1]
+                };
                 let end = breaks
                     .get(remaining)
                     .copied()
@@ -927,8 +946,7 @@ impl CodeEditorElement {
 
     fn visual_line_y(&self, visual_row: usize) -> f32 {
         self.bounds.y()
-            + (visual_row as isize - self.scroll_offset_lines as isize) as f32
-                * self.line_height()
+            + (visual_row as isize - self.scroll_offset_lines as isize) as f32 * self.line_height()
     }
 
     fn measure_max_visible_line_width(&self, first_logical: usize, last_logical: usize) -> f32 {
@@ -957,7 +975,12 @@ impl CodeEditorElement {
         max_w
     }
 
-    fn segment_byte_range(&self, line_text: &str, seg_start: usize, seg_end: usize) -> (usize, usize) {
+    fn segment_byte_range(
+        &self,
+        line_text: &str,
+        seg_start: usize,
+        seg_end: usize,
+    ) -> (usize, usize) {
         let mut byte_start = 0usize;
         let mut byte_end = line_text.len();
         let mut start_found = seg_start == 0;
@@ -1165,7 +1188,9 @@ impl Element for CodeEditorElement {
     fn build_display_list(&self, list: &mut DisplayList, _clip: Rect) {
         let theme = self.theme();
         let bg = theme.bg(&self.mss);
-        let radius = self.mss.border_radius_uniform(self.bounds.size.width.min(self.bounds.size.height), 0.0);
+        let radius = self
+            .mss
+            .border_radius_uniform(self.bounds.size.width.min(self.bounds.size.height), 0.0);
         list.push_rect(self.bounds, bg, [radius; 4]);
 
         list.push_clip(self.bounds);
@@ -1192,8 +1217,7 @@ impl Element for CodeEditorElement {
         let font_family = self.font_family_str();
 
         let (first_logical, _, _) = self.visual_to_logical(first_visual);
-        let (last_logical_inc, _, _) =
-            self.visual_to_logical(last_visual.saturating_sub(1));
+        let (last_logical_inc, _, _) = self.visual_to_logical(last_visual.saturating_sub(1));
         let last_logical = (last_logical_inc + 1).min(self.buffer.len_lines());
         let highlights = if let Some(h) = &self.highlighter {
             h.highlight_lines(&self.text_snapshot, first_logical..last_logical)
@@ -1557,7 +1581,10 @@ impl Element for CodeEditorElement {
                 let sb_style = self.scrollbar_style_now();
 
                 if let Some((new_y, _)) = self.scrollbar_interaction.update_drag(
-                    &mut self.scrollbar_fader, &sb_geom, &sb_style, *pos,
+                    &mut self.scrollbar_fader,
+                    &sb_geom,
+                    &sb_style,
+                    *pos,
                 ) {
                     let line_h = self.line_height().max(1.0);
                     let visible = self.visible_lines_count();
@@ -1586,12 +1613,18 @@ impl Element for CodeEditorElement {
 
                 if self.hover {
                     if self.scrollbar_interaction.update_hover(
-                        &mut self.scrollbar_fader, &sb_geom, &sb_style, *pos,
+                        &mut self.scrollbar_fader,
+                        &sb_geom,
+                        &sb_style,
+                        *pos,
                         crate::widgets::scroll::SCROLLBAR_HIT_MARGIN,
                     ) {
                         ctx.request_paint();
                     }
-                } else if self.scrollbar_interaction.clear_hover(&mut self.scrollbar_fader) {
+                } else if self
+                    .scrollbar_interaction
+                    .clear_hover(&mut self.scrollbar_fader)
+                {
                     ctx.request_paint();
                 }
 
@@ -1609,7 +1642,10 @@ impl Element for CodeEditorElement {
                     let sb_geom = self.scrollbar_geom();
                     let sb_style = self.scrollbar_style_now();
                     if self.scrollbar_interaction.try_begin_drag(
-                        &mut self.scrollbar_fader, &sb_geom, &sb_style, *position,
+                        &mut self.scrollbar_fader,
+                        &sb_geom,
+                        &sb_style,
+                        *position,
                     ) {
                         ctx.request_paint();
                         return EventResult::Captured;
@@ -1647,7 +1683,10 @@ impl Element for CodeEditorElement {
             }
             Event::MouseUp { button, .. } => {
                 if *button == MouseButton::Left {
-                    if self.scrollbar_interaction.end_drag(&mut self.scrollbar_fader) {
+                    if self
+                        .scrollbar_interaction
+                        .end_drag(&mut self.scrollbar_fader)
+                    {
                         ctx.request_paint();
                         return EventResult::Handled;
                     }
@@ -1667,7 +1706,10 @@ impl Element for CodeEditorElement {
                     self.focused = true;
                     let click_pos = self.click_to_cursor(*position);
                     let text = self.snapshot_text();
-                    let (start, end) = crate::widget::selection::TextSelectionState::find_word_boundaries(text, click_pos);
+                    let (start, end) =
+                        crate::widget::selection::TextSelectionState::find_word_boundaries(
+                            text, click_pos,
+                        );
                     let pri = self.cursors.primary_mut();
                     pri.anchor = Some(start);
                     pri.pos = end;
@@ -1678,7 +1720,9 @@ impl Element for CodeEditorElement {
                 }
                 EventResult::Ignored
             }
-            Event::MouseWheel { delta, position, .. } => {
+            Event::MouseWheel {
+                delta, position, ..
+            } => {
                 if !self.bounds.contains(*position) {
                     return EventResult::Ignored;
                 }
@@ -1831,7 +1875,9 @@ impl Element for CodeEditorElement {
         "CodeEditor"
     }
 
-    fn mss(&self) -> Option<&crate::mss::MssFields> { Some(&self.mss) }
+    fn mss(&self) -> Option<&crate::mss::MssFields> {
+        Some(&self.mss)
+    }
 
     fn reset_mss_styles(&mut self) {
         self.mss.reset();
@@ -1853,7 +1899,8 @@ impl Element for CodeEditorElement {
         selected: Option<&ComputedStyle>,
         _checked: Option<&ComputedStyle>,
     ) {
-        self.mss.apply_transitions(base, hover, active, focus, selected);
+        self.mss
+            .apply_transitions(base, hover, active, focus, selected);
     }
 
     fn wants_tab(&self) -> bool {
@@ -1861,7 +1908,9 @@ impl Element for CodeEditorElement {
     }
 
     fn animate(&mut self, dt: std::time::Duration) -> bool {
-        let style = self.mss.scrollbar_style(self.mss.color.unwrap_or(Color::from_hex("#9CA3AF")));
+        let style = self
+            .mss
+            .scrollbar_style(self.mss.color.unwrap_or(Color::from_hex("#9CA3AF")));
         let mut needs_repaint = self.scrollbar_fader.tick(dt.as_secs_f32(), &style);
 
         if let Some(sig) = self.command_signal {

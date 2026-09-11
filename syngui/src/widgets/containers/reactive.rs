@@ -3,7 +3,9 @@ use crate::input::{Event, EventResult};
 use crate::layout::Constraints;
 use crate::render::DisplayList;
 use crate::signal;
-use crate::widget::{DirtyFlags, Element, ElementId, ElementTree, LayoutHint, UpdateContext, Widget};
+use crate::widget::{
+    DirtyFlags, Element, ElementId, ElementTree, LayoutHint, UpdateContext, Widget,
+};
 use std::any::Any;
 use std::sync::Arc;
 
@@ -27,7 +29,9 @@ where
     W: Widget + 'static,
 {
     fn into_widget(self) -> Box<dyn Widget> {
-        Box::new(Reactive::new(move || vec![Box::new(self()) as Box<dyn Widget>]))
+        Box::new(Reactive::new(move || {
+            vec![Box::new(self()) as Box<dyn Widget>]
+        }))
     }
 }
 
@@ -105,10 +109,13 @@ impl Element for ReactiveElement {
         LayoutHint::Loose
     }
 
-    fn build_display_list(&self, _list: &mut DisplayList, _clip: Rect) {
-    }
+    fn build_display_list(&self, _list: &mut DisplayList, _clip: Rect) {}
 
-    fn handle_event(&mut self, _event: &Event, _ctx: &mut crate::widget::context::EventContext) -> EventResult {
+    fn handle_event(
+        &mut self,
+        _event: &Event,
+        _ctx: &mut crate::widget::context::EventContext,
+    ) -> EventResult {
         EventResult::Ignored
     }
 
@@ -150,9 +157,13 @@ impl Element for ReactiveElement {
 
     fn mount(&mut self, _tree: &mut ElementTree) {}
 
-    fn element_type_name(&self) -> &str { "Reactive" }
+    fn element_type_name(&self) -> &str {
+        "Reactive"
+    }
 
-    fn manages_own_children(&self) -> bool { true }
+    fn manages_own_children(&self) -> bool {
+        true
+    }
 
     fn needs_rebuild(&self) -> bool {
         !self.mounted || self.needs_child_rebuild || signal::is_element_dirty(self.id)

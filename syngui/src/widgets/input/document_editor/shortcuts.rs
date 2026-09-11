@@ -74,7 +74,9 @@ pub fn try_inline_shortcut(text: &mut InlineText, caret: usize) -> Option<usize>
         }
         // Ищем открывающий маркер левее закрывающего.
         let before_close = &head[..head.len() - m_len];
-        let Some(open_rel) = before_close.rfind(marker) else { continue };
+        let Some(open_rel) = before_close.rfind(marker) else {
+            continue;
+        };
         let inner_start = open_rel + m_len;
         let inner = &before_close[inner_start..];
         // Содержимое непустое, без переводов строк, не начинается с пробела
@@ -127,7 +129,10 @@ mod tests {
         assert_eq!(t.text(), "это жирно");
         assert_eq!(new, "это жирно".len());
         let bold: String =
-            t.0.iter().filter(|r| r.style.bold).map(|r| r.text.as_str()).collect();
+            t.0.iter()
+                .filter(|r| r.style.bold)
+                .map(|r| r.text.as_str())
+                .collect();
         assert_eq!(bold, "жирно");
     }
 

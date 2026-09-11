@@ -1,3 +1,4 @@
+use crate::core::sync::Mutex;
 use crate::core::{Color, Point, Rect, RectExt, Size};
 use crate::input::{CursorIcon, Event, EventResult, MouseButton};
 use crate::layout::Constraints;
@@ -5,10 +6,11 @@ use crate::mss::{ComputedStyle, Dimension, TextAlign, TextDecoration};
 use crate::mss::{IconState, MssFields};
 use crate::render::{Border, DisplayList};
 use crate::widget::context::{EventContext, EventContextExt};
-use crate::widget::{DirtyFlags, Element, ElementId, ElementTree, StyledElement, UpdateContext, Widget};
+use crate::widget::{
+    DirtyFlags, Element, ElementId, ElementTree, StyledElement, UpdateContext, Widget,
+};
 use std::any::Any;
 use std::sync::Arc;
-use crate::core::sync::Mutex;
 
 use super::list_view::SelectionMode;
 
@@ -42,7 +44,11 @@ impl TreeNode {
         }
     }
 
-    pub fn branch(id: impl Into<String>, label: impl Into<String>, children: Vec<TreeNode>) -> Self {
+    pub fn branch(
+        id: impl Into<String>,
+        label: impl Into<String>,
+        children: Vec<TreeNode>,
+    ) -> Self {
         Self {
             id: id.into(),
             label: label.into(),
@@ -167,13 +173,34 @@ impl TreeView {
         self
     }
 
-    pub fn indent(mut self, indent: f32) -> Self { self.indent = indent; self }
-    pub fn item_height(mut self, h: f32) -> Self { self.item_height = h; self }
-    pub fn show_lines(mut self, show: bool) -> Self { self.show_lines = show; self }
-    pub fn selection_mode(mut self, mode: SelectionMode) -> Self { self.selection_mode = mode; self }
-    pub fn selected(mut self, ids: Vec<String>) -> Self { self.selected = ids; self }
-    pub fn width(mut self, w: f32) -> Self { self.width = Some(Dimension::Px(w)); self }
-    pub fn height(mut self, h: f32) -> Self { self.height = Some(Dimension::Px(h)); self }
+    pub fn indent(mut self, indent: f32) -> Self {
+        self.indent = indent;
+        self
+    }
+    pub fn item_height(mut self, h: f32) -> Self {
+        self.item_height = h;
+        self
+    }
+    pub fn show_lines(mut self, show: bool) -> Self {
+        self.show_lines = show;
+        self
+    }
+    pub fn selection_mode(mut self, mode: SelectionMode) -> Self {
+        self.selection_mode = mode;
+        self
+    }
+    pub fn selected(mut self, ids: Vec<String>) -> Self {
+        self.selected = ids;
+        self
+    }
+    pub fn width(mut self, w: f32) -> Self {
+        self.width = Some(Dimension::Px(w));
+        self
+    }
+    pub fn height(mut self, h: f32) -> Self {
+        self.height = Some(Dimension::Px(h));
+        self
+    }
 
     pub fn on_select(mut self, f: impl FnMut(&str) + Send + 'static) -> Self {
         self.on_select = Some(Arc::new(Mutex::new(f)));
@@ -225,11 +252,19 @@ impl Widget for TreeView {
         Box::new(self.element())
     }
 
-    fn can_update(&self, other: &dyn Any) -> bool { other.is::<Self>() }
-    fn as_any(&self) -> &dyn Any { self }
-    fn as_any_mut(&mut self) -> &mut dyn Any { self }
+    fn can_update(&self, other: &dyn Any) -> bool {
+        other.is::<Self>()
+    }
+    fn as_any(&self) -> &dyn Any {
+        self
+    }
+    fn as_any_mut(&mut self) -> &mut dyn Any {
+        self
+    }
     fn mount(&self, _tree: &mut ElementTree, _parent_id: ElementId) {}
-    fn widget_classes(&self) -> &[String] { &self.classes }
+    fn widget_classes(&self) -> &[String] {
+        &self.classes
+    }
 }
 
 const ARROW_ZONE_WIDTH: f32 = 20.0;
@@ -308,7 +343,11 @@ impl TreeViewElement {
     /// выделения: стрелка раскрытия, а у листьев — иконка типа.
     fn content_offset(&self, node: &FlatNode) -> f32 {
         let x = 8.0 + node.depth as f32 * self.indent;
-        if node.has_children { x } else { x + ARROW_ZONE_WIDTH }
+        if node.has_children {
+            x
+        } else {
+            x + ARROW_ZONE_WIDTH
+        }
     }
 
     /// Правый край текста: внутренняя граница плашки.
@@ -323,11 +362,9 @@ impl TreeViewElement {
     fn pill_rect(&self, node: &FlatNode, row_rect: Rect) -> Rect {
         let total_width = row_rect.size.width;
         let left = row_rect.x() + self.content_offset(node) - ROW_PILL_PAD;
-        let text_end = row_rect.x()
-            + self.label_offset(node)
-            + self.label_painted_width(node, total_width);
-        let right = (text_end + ROW_PILL_PAD)
-            .min(row_rect.x() + total_width - ROW_PILL_EDGE);
+        let text_end =
+            row_rect.x() + self.label_offset(node) + self.label_painted_width(node, total_width);
+        let right = (text_end + ROW_PILL_PAD).min(row_rect.x() + total_width - ROW_PILL_EDGE);
         Rect::new(
             Point::new(left, row_rect.y() + ROW_PILL_INSET_Y),
             Size::new(
@@ -445,12 +482,18 @@ impl TreeViewElement {
             return None;
         }
         let idx = self.row_index_at(local_y);
-        if idx < self.flat_nodes.len() { Some(idx) } else { None }
+        if idx < self.flat_nodes.len() {
+            Some(idx)
+        } else {
+            None
+        }
     }
 
     fn is_in_arrow_zone(&self, x: f32, flat_idx: usize) -> bool {
         let node = &self.flat_nodes[flat_idx];
-        if !node.has_children { return false; }
+        if !node.has_children {
+            return false;
+        }
         let arrow_x = self.bounds.x() + 8.0 + node.depth as f32 * self.indent;
         x >= arrow_x && x < arrow_x + ARROW_ZONE_WIDTH
     }
@@ -475,8 +518,20 @@ impl Element for TreeViewElement {
     }
 
     fn layout(&mut self, constraints: Constraints) -> Size {
-        let w = self.mss.width.or(self.fixed_width).map(|d| d.resolve(constraints.max_width)).unwrap_or(constraints.max_width).min(constraints.max_width);
-        let h = self.mss.height.or(self.fixed_height).map(|d| d.resolve(constraints.max_height)).unwrap_or(constraints.max_height).min(constraints.max_height);
+        let w = self
+            .mss
+            .width
+            .or(self.fixed_width)
+            .map(|d| d.resolve(constraints.max_width))
+            .unwrap_or(constraints.max_width)
+            .min(constraints.max_width);
+        let h = self
+            .mss
+            .height
+            .or(self.fixed_height)
+            .map(|d| d.resolve(constraints.max_height))
+            .unwrap_or(constraints.max_height)
+            .min(constraints.max_height);
         let h = if h.is_infinite() { 300.0 } else { h };
         self.bounds = Rect::new(Point::zero(), Size::new(w, h));
         // Ширина определяет, где переносится подпись, а значит и высоты строк.
@@ -530,11 +585,11 @@ impl Element for TreeViewElement {
             let x_base = self.bounds.x() + 8.0 + node.depth as f32 * self.indent;
 
             if self.show_lines && node.depth > 0 {
-                let line_x = self.bounds.x() + 8.0 + (node.depth as f32 - 1.0) * self.indent + ARROW_ZONE_WIDTH / 2.0;
-                let vl = Rect::new(
-                    Point::new(line_x, y),
-                    Size::new(1.0, geom.height),
-                );
+                let line_x = self.bounds.x()
+                    + 8.0
+                    + (node.depth as f32 - 1.0) * self.indent
+                    + ARROW_ZONE_WIDTH / 2.0;
+                let vl = Rect::new(Point::new(line_x, y), Size::new(1.0, geom.height));
                 list.push_rect(vl, border_color, [0.0; 4]);
                 let hl = Rect::new(
                     Point::new(line_x, y + geom.height / 2.0),
@@ -552,7 +607,11 @@ impl Element for TreeViewElement {
             };
 
             if node.has_children {
-                let arrow = if node.expanded { "\u{E5CF}" } else { "\u{E5CC}" };
+                let arrow = if node.expanded {
+                    "\u{E5CF}"
+                } else {
+                    "\u{E5CC}"
+                };
                 let arrow_rect = Rect::new(
                     Point::new(x_base, y + (geom.height - ICON_GLYPH_SIZE) / 2.0),
                     Size::new(18.0, ICON_GLYPH_SIZE),
@@ -586,10 +645,8 @@ impl Element for TreeViewElement {
                     let inset = glyph * BADGE_CORNER_INSET_RATIO;
                     let badge_x = text_x + glyph - badge_d - inset;
                     let badge_y = icon_top + glyph - badge_d - inset;
-                    let badge_rect = Rect::new(
-                        Point::new(badge_x, badge_y),
-                        Size::new(badge_d, badge_d),
-                    );
+                    let badge_rect =
+                        Rect::new(Point::new(badge_x, badge_y), Size::new(badge_d, badge_d));
                     if bg != Color::TRANSPARENT {
                         let halo_extra = glyph * BADGE_HALO_RATIO;
                         let halo_d = badge_d + halo_extra * 2.0;
@@ -662,12 +719,19 @@ impl Element for TreeViewElement {
         list.pop_clip();
 
         if border_color != Color::TRANSPARENT {
-            list.push_rect_bordered(self.bounds, Color::TRANSPARENT, [8.0; 4], Border::new(1.0, border_color));
+            list.push_rect_bordered(
+                self.bounds,
+                Color::TRANSPARENT,
+                [8.0; 4],
+                Border::new(1.0, border_color),
+            );
         }
     }
 
     fn handle_event(&mut self, event: &Event, ctx: &mut EventContext) -> EventResult {
-        let sb_style = self.mss.scrollbar_style(self.mss.color.unwrap_or(Color::from_hex("#9CA3AF")));
+        let sb_style = self
+            .mss
+            .scrollbar_style(self.mss.color.unwrap_or(Color::from_hex("#9CA3AF")));
         let sb_geom = crate::widgets::scroll::ScrollbarGeom {
             viewport: self.bounds,
             content_w: 0.0,
@@ -679,7 +743,10 @@ impl Element for TreeViewElement {
         match event {
             Event::MouseMove(pos) => {
                 if let Some((new_y, _)) = self.scrollbar_interaction.update_drag(
-                    &mut self.scrollbar_fader, &sb_geom, &sb_style, *pos,
+                    &mut self.scrollbar_fader,
+                    &sb_geom,
+                    &sb_style,
+                    *pos,
                 ) {
                     let max = self.max_scroll();
                     self.scroll_offset = new_y.clamp(0.0, max);
@@ -693,10 +760,15 @@ impl Element for TreeViewElement {
                         self.hovered_index = None;
                         changed = true;
                     }
-                    if self.scrollbar_interaction.clear_hover(&mut self.scrollbar_fader) {
+                    if self
+                        .scrollbar_interaction
+                        .clear_hover(&mut self.scrollbar_fader)
+                    {
                         changed = true;
                     }
-                    if changed { ctx.request_paint(); }
+                    if changed {
+                        ctx.request_paint();
+                    }
                     return EventResult::Ignored;
                 }
 
@@ -707,7 +779,10 @@ impl Element for TreeViewElement {
                 }
 
                 if self.scrollbar_interaction.update_hover(
-                    &mut self.scrollbar_fader, &sb_geom, &sb_style, *pos,
+                    &mut self.scrollbar_fader,
+                    &sb_geom,
+                    &sb_style,
+                    *pos,
                     crate::widgets::scroll::SCROLLBAR_HIT_MARGIN,
                 ) {
                     ctx.request_paint();
@@ -717,7 +792,9 @@ impl Element for TreeViewElement {
                 EventResult::Handled
             }
             Event::MouseDown { button, position } if *button == MouseButton::Right => {
-                if !self.bounds.contains(*position) { return EventResult::Ignored; }
+                if !self.bounds.contains(*position) {
+                    return EventResult::Ignored;
+                }
                 if let Some(idx) = self.row_at_y(position.y) {
                     let node_id = self.flat_nodes[idx].id.clone();
                     let changed = match self.selection_mode {
@@ -726,18 +803,24 @@ impl Element for TreeViewElement {
                             if self.selected.first().map(String::as_str) != Some(node_id.as_str()) {
                                 self.selected = vec![node_id.clone()];
                                 true
-                            } else { false }
+                            } else {
+                                false
+                            }
                         }
                         SelectionMode::Multiple => {
                             if !self.selected.iter().any(|s| s == &node_id) {
                                 self.selected.push(node_id.clone());
                                 true
-                            } else { false }
+                            } else {
+                                false
+                            }
                         }
                     };
                     if changed {
                         if let Some(ref cb) = self.on_select {
-                            if let Ok(mut f) = cb.lock() { f(&node_id); }
+                            if let Ok(mut f) = cb.lock() {
+                                f(&node_id);
+                            }
                         }
                         ctx.request_paint();
                     }
@@ -745,10 +828,15 @@ impl Element for TreeViewElement {
                 EventResult::Ignored
             }
             Event::MouseDown { button, position } if *button == MouseButton::Left => {
-                if !self.bounds.contains(*position) { return EventResult::Ignored; }
+                if !self.bounds.contains(*position) {
+                    return EventResult::Ignored;
+                }
 
                 if self.scrollbar_interaction.try_begin_drag(
-                    &mut self.scrollbar_fader, &sb_geom, &sb_style, *position,
+                    &mut self.scrollbar_fader,
+                    &sb_geom,
+                    &sb_style,
+                    *position,
                 ) {
                     ctx.request_paint();
                     return EventResult::Captured;
@@ -761,7 +849,9 @@ impl Element for TreeViewElement {
                         toggle_node(&mut self.nodes, &node_id);
                         self.reflatten();
                         if let Some(ref cb) = self.on_toggle {
-                            if let Ok(mut f) = cb.lock() { f(&node_id, !was_expanded); }
+                            if let Ok(mut f) = cb.lock() {
+                                f(&node_id, !was_expanded);
+                            }
                         }
                         ctx.request_paint();
                         ctx.request_layout();
@@ -783,7 +873,9 @@ impl Element for TreeViewElement {
                         }
                     }
                     if let Some(ref cb) = self.on_select {
-                        if let Ok(mut f) = cb.lock() { f(&node_id); }
+                        if let Ok(mut f) = cb.lock() {
+                            f(&node_id);
+                        }
                     }
                     ctx.request_paint();
                     return EventResult::Handled;
@@ -791,14 +883,21 @@ impl Element for TreeViewElement {
                 EventResult::Handled
             }
             Event::MouseUp { button, .. } if *button == MouseButton::Left => {
-                if self.scrollbar_interaction.end_drag(&mut self.scrollbar_fader) {
+                if self
+                    .scrollbar_interaction
+                    .end_drag(&mut self.scrollbar_fader)
+                {
                     ctx.request_paint();
                     return EventResult::Handled;
                 }
                 EventResult::Ignored
             }
-            Event::MouseWheel { delta, position, .. } => {
-                if !self.bounds.contains(*position) { return EventResult::Ignored; }
+            Event::MouseWheel {
+                delta, position, ..
+            } => {
+                if !self.bounds.contains(*position) {
+                    return EventResult::Ignored;
+                }
                 let scroll_amount = *delta;
                 let new_offset = (self.scroll_offset - scroll_amount).clamp(0.0, self.max_scroll());
                 if (new_offset - self.scroll_offset).abs() > 0.01 {
@@ -813,14 +912,30 @@ impl Element for TreeViewElement {
         }
     }
 
-    fn children(&self) -> &[ElementId] { &[] }
-    fn bounds(&self) -> Rect { self.bounds }
-    fn set_position(&mut self, pos: Point) { self.bounds.origin = pos; }
-    fn mark_dirty(&mut self, flags: DirtyFlags) { self.dirty_flags |= flags; }
-    fn clear_dirty(&mut self, flags: DirtyFlags) { self.dirty_flags.remove(flags); }
-    fn is_dirty(&self, flags: DirtyFlags) -> bool { self.dirty_flags.contains(flags) }
-    fn id(&self) -> ElementId { self.id }
-    fn set_id(&mut self, id: ElementId) { self.id = id; }
+    fn children(&self) -> &[ElementId] {
+        &[]
+    }
+    fn bounds(&self) -> Rect {
+        self.bounds
+    }
+    fn set_position(&mut self, pos: Point) {
+        self.bounds.origin = pos;
+    }
+    fn mark_dirty(&mut self, flags: DirtyFlags) {
+        self.dirty_flags |= flags;
+    }
+    fn clear_dirty(&mut self, flags: DirtyFlags) {
+        self.dirty_flags.remove(flags);
+    }
+    fn is_dirty(&self, flags: DirtyFlags) -> bool {
+        self.dirty_flags.contains(flags)
+    }
+    fn id(&self) -> ElementId {
+        self.id
+    }
+    fn set_id(&mut self, id: ElementId) {
+        self.id = id;
+    }
 
     /// Измеритель текста нужен, чтобы знать, на сколько строк развернётся
     /// подпись, и заложить под неё высоту строки.
@@ -834,16 +949,28 @@ impl Element for TreeViewElement {
         self.mark_dirty(DirtyFlags::RENDER);
     }
 
-    fn get_classes(&self) -> &[String] { &self.classes }
+    fn get_classes(&self) -> &[String] {
+        &self.classes
+    }
 
-    fn element_type_name(&self) -> &str { "TreeView" }
+    fn element_type_name(&self) -> &str {
+        "TreeView"
+    }
 
-    fn reset_mss_styles(&mut self) { self.mss.reset(); }
-    fn mss(&self) -> Option<&crate::mss::MssFields> { Some(&self.mss) }
+    fn reset_mss_styles(&mut self) {
+        self.mss.reset();
+    }
+    fn mss(&self) -> Option<&crate::mss::MssFields> {
+        Some(&self.mss)
+    }
     fn apply_computed_style(&mut self, style: &ComputedStyle) {
         self.mss.apply(style);
-        if let Some(w) = style.width() { self.fixed_width = Some(w); }
-        if let Some(h) = style.height() { self.fixed_height = Some(h); }
+        if let Some(w) = style.width() {
+            self.fixed_width = Some(w);
+        }
+        if let Some(h) = style.height() {
+            self.fixed_height = Some(h);
+        }
         self.mark_dirty(DirtyFlags::LAYOUT | DirtyFlags::RENDER);
     }
 
@@ -856,11 +983,14 @@ impl Element for TreeViewElement {
         selected: Option<&ComputedStyle>,
         _checked: Option<&ComputedStyle>,
     ) {
-        self.mss.apply_transitions(base, hover, active, focus, selected);
+        self.mss
+            .apply_transitions(base, hover, active, focus, selected);
     }
 
     fn animate(&mut self, dt: std::time::Duration) -> bool {
-        let style = self.mss.scrollbar_style(self.mss.color.unwrap_or(Color::from_hex("#9CA3AF")));
+        let style = self
+            .mss
+            .scrollbar_style(self.mss.color.unwrap_or(Color::from_hex("#9CA3AF")));
         self.scrollbar_fader.tick(dt.as_secs_f32(), &style)
     }
 
@@ -885,7 +1015,9 @@ impl StyledElement for TreeViewElement {
         self.mark_dirty(DirtyFlags::LAYOUT | DirtyFlags::RENDER);
     }
 
-    fn classes(&self) -> &[String] { &self.classes }
+    fn classes(&self) -> &[String] {
+        &self.classes
+    }
 
     fn set_classes(&mut self, classes: Vec<String>) {
         self.classes = classes;
@@ -953,13 +1085,9 @@ mod tests {
     fn flatten_preserves_decoration() {
         let yellow = Color::from_hex("#FFB454");
         let leaf = TreeNode::leaf("file", "file.rs").label_color(yellow);
-        let branch = TreeNode::branch(
-            "dir",
-            "src",
-            vec![leaf],
-        )
-        .badge(yellow)
-        .expanded(true);
+        let branch = TreeNode::branch("dir", "src", vec![leaf])
+            .badge(yellow)
+            .expanded(true);
 
         let mut flat = Vec::new();
         flatten_nodes(&[branch], 0, &mut flat);
@@ -1048,7 +1176,11 @@ mod tests {
     fn following_rows_shift_down_by_the_extra_height() {
         let el = element(&["synthos-0.1.0-100-x86_64.pkg.tar", "src"], 200.0);
         let first = el.row_geometry(0);
-        assert_eq!(el.row_geometry(1).top, first.height, "второй узел стоит под первым");
+        assert_eq!(
+            el.row_geometry(1).top,
+            first.height,
+            "второй узел стоит под первым"
+        );
         assert_eq!(el.row_geometry(1).height, 26.0);
     }
 
@@ -1071,7 +1203,11 @@ mod tests {
     #[test]
     fn wider_panel_collapses_the_row_back() {
         let el = element(&["synthos-0.1.0-100-x86_64.pkg.tar"], 600.0);
-        assert_eq!(el.row_geometry(0).height, 26.0, "в широкой панели переноса нет");
+        assert_eq!(
+            el.row_geometry(0).height,
+            26.0,
+            "в широкой панели переноса нет"
+        );
     }
 
     // --- геометрия плашки выделения ---
@@ -1093,7 +1229,10 @@ mod tests {
         let text_end = el.label_offset(node) + el.label_painted_width(node, 300.0);
         let left_gap = el.content_offset(node) - pill.x();
         let right_gap = (pill.x() + pill.size.width) - text_end;
-        assert_eq!(left_gap, right_gap, "воздух слева {left_gap} и справа {right_gap}");
+        assert_eq!(
+            left_gap, right_gap,
+            "воздух слева {left_gap} и справа {right_gap}"
+        );
         assert_eq!(left_gap, ROW_PILL_PAD);
         assert!(
             pill.x() + pill.size.width < 300.0 - ROW_PILL_EDGE,

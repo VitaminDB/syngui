@@ -1,12 +1,19 @@
 use crate::core::{Rect, Size};
 use crate::input::{CursorIcon, DragData};
-use crate::widget::{ElementId, DirtyFlags};
+use crate::widget::{DirtyFlags, ElementId};
 use std::sync::Arc;
 
 pub trait TextMeasure: Send + Sync {
     fn measure_text_width(&self, text: &str, font_size: f32, char_count: usize) -> f32;
 
-    fn measure_text_width_styled(&self, text: &str, font_size: f32, char_count: usize, bold: bool, font_family: Option<&str>) -> f32 {
+    fn measure_text_width_styled(
+        &self,
+        text: &str,
+        font_size: f32,
+        char_count: usize,
+        bold: bool,
+        font_family: Option<&str>,
+    ) -> f32 {
         let _ = (bold, font_family);
         self.measure_text_width(text, font_size, char_count)
     }
@@ -26,7 +33,13 @@ pub trait TextMeasure: Send + Sync {
 
     fn hit_test_char(&self, text: &str, font_size: f32, x_offset: f32) -> usize;
 
-    fn hit_test_char_styled(&self, text: &str, font_size: f32, x_offset: f32, font_family: Option<&str>) -> usize {
+    fn hit_test_char_styled(
+        &self,
+        text: &str,
+        font_size: f32,
+        x_offset: f32,
+        font_family: Option<&str>,
+    ) -> usize {
         let _ = font_family;
         self.hit_test_char(text, font_size, x_offset)
     }
@@ -308,7 +321,9 @@ impl EventContext {
     }
 
     pub fn measure_text_width(&self, text: &str, font_size: f32, char_count: usize) -> Option<f32> {
-        self.text_measure.as_ref().map(|tm| tm.measure_text_width(text, font_size, char_count))
+        self.text_measure
+            .as_ref()
+            .map(|tm| tm.measure_text_width(text, font_size, char_count))
     }
 
     pub fn measure_text_width_ls(
@@ -321,24 +336,33 @@ impl EventContext {
         letter_spacing: f32,
     ) -> Option<f32> {
         self.text_measure.as_ref().map(|tm| {
-            tm.measure_text_width_styled_ls(text, font_size, char_count, bold, font_family, letter_spacing)
+            tm.measure_text_width_styled_ls(
+                text,
+                font_size,
+                char_count,
+                bold,
+                font_family,
+                letter_spacing,
+            )
         })
     }
 
     pub fn hit_test_char(&self, text: &str, font_size: f32, x_offset: f32) -> Option<usize> {
-        self.text_measure.as_ref().map(|tm| tm.hit_test_char(text, font_size, x_offset))
+        self.text_measure
+            .as_ref()
+            .map(|tm| tm.hit_test_char(text, font_size, x_offset))
     }
 }
 
 pub trait EventContextExt {
     fn request_paint(&mut self);
-    
+
     fn request_layout(&mut self);
-    
+
     fn mark_dirty(&mut self, flags: DirtyFlags);
-    
+
     fn needs_paint(&self) -> bool;
-    
+
     fn needs_layout(&self) -> bool;
 }
 
@@ -347,12 +371,12 @@ impl EventContextExt for EventContext {
         self.needs_paint = true;
         self.dirty_flags |= DirtyFlags::RENDER;
     }
-    
+
     fn request_layout(&mut self) {
         self.needs_layout = true;
         self.dirty_flags |= DirtyFlags::LAYOUT;
     }
-    
+
     fn mark_dirty(&mut self, flags: DirtyFlags) {
         self.dirty_flags |= flags;
         if flags.contains(DirtyFlags::RENDER) {
@@ -362,11 +386,11 @@ impl EventContextExt for EventContext {
             self.needs_layout = true;
         }
     }
-    
+
     fn needs_paint(&self) -> bool {
         self.needs_paint
     }
-    
+
     fn needs_layout(&self) -> bool {
         self.needs_layout
     }

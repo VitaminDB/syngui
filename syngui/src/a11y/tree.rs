@@ -1,9 +1,9 @@
-use hashbrown::HashMap;
-use crate::widget::{ElementId, ElementTree};
-use super::types::*;
-use super::platform::PlatformAdapter;
 #[cfg(feature = "accessibility")]
 use super::accesskit_adapter::AccessKitAdapter;
+use super::platform::PlatformAdapter;
+use super::types::*;
+use crate::widget::{ElementId, ElementTree};
+use hashbrown::HashMap;
 
 pub struct A11yTree {
     nodes: HashMap<A11yId, A11yNode>,
@@ -145,8 +145,15 @@ impl A11yTree {
         }
     }
 
-    pub fn announce_state_change(&mut self, node_id: A11yId, old_state: &NodeState, new_state: &NodeState) {
-        let label = self.nodes.get(&node_id)
+    pub fn announce_state_change(
+        &mut self,
+        node_id: A11yId,
+        old_state: &NodeState,
+        new_state: &NodeState,
+    ) {
+        let label = self
+            .nodes
+            .get(&node_id)
             .and_then(|n| n.properties.label.clone())
             .unwrap_or_default();
 

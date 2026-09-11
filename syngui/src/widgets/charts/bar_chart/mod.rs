@@ -1,7 +1,9 @@
 mod element;
 
+use super::types::{
+    AxisConfig, BarMode, BarOrientation, BarSeries, LegendConfig, LegendPosition, TooltipConfig,
+};
 use crate::mss::Dimension;
-use super::types::{AxisConfig, BarMode, BarOrientation, BarSeries, LegendConfig, LegendPosition, TooltipConfig};
 
 pub struct BarChart {
     categories: Vec<String>,

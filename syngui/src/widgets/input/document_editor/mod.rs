@@ -14,11 +14,11 @@
 //! самодостаточны и покрыты round-trip корпусом в tests/document_roundtrip.rs.
 
 pub mod attrs;
-pub mod free;
-pub mod history;
-pub mod edit;
 mod build;
 mod chrome;
+pub mod edit;
+pub mod free;
+pub mod history;
 pub mod linebox;
 pub mod links;
 #[cfg(feature = "ffmpeg")]
@@ -35,16 +35,18 @@ pub mod state;
 pub mod style;
 mod widget;
 
+pub use free::{DocGrid, DocLayout};
+pub use links::{
+    DocLinkProvider, DocMediaResolver, EmbedCtx, EmbedFactory, LinkCandidate, ResolvedMedia,
+};
 pub use model::{
     Attrs, BlockId, BlockKind, DocAlign, DocBlock, DocModel, InlineRun, InlineStyle, InlineText,
     LinkTarget, MediaKind, ShapeKind,
 };
 pub use parse::parse_document;
-pub use serialize::serialize_document;
-pub use links::{DocLinkProvider, DocMediaResolver, EmbedCtx, EmbedFactory, LinkCandidate, ResolvedMedia};
-pub use free::{DocGrid, DocLayout};
 pub use props::{BlockOutline, TableOp};
+pub use serialize::serialize_document;
 pub use shape::ShapeStyle;
-pub use style::DocStyle;
 pub use slash::{SlashAction, SlashItem};
+pub use style::DocStyle;
 pub use widget::{BlockProps, DocOp, DocumentEditor, DocumentEditorHandle};

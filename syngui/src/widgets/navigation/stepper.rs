@@ -1,15 +1,17 @@
+use crate::core::sync::Mutex;
 use crate::core::{Color, Point, Rect, RectExt, Size};
 use crate::input::{Event, EventResult, MouseButton};
 use crate::layout::Constraints;
-use crate::mss::{ComputedStyle, TextAlign, TextDecoration};
 use crate::mss::MssFields;
+use crate::mss::{ComputedStyle, TextAlign, TextDecoration};
 use crate::render::display_list::Border;
 use crate::render::DisplayList;
 use crate::widget::context::{EventContext, EventContextExt};
-use crate::widget::{DirtyFlags, Element, ElementId, ElementTree, StyledElement, UpdateContext, Widget};
+use crate::widget::{
+    DirtyFlags, Element, ElementId, ElementTree, StyledElement, UpdateContext, Widget,
+};
 use std::any::Any;
 use std::sync::Arc;
-use crate::core::sync::Mutex;
 
 #[derive(Clone, Debug)]
 pub struct StepInfo {
@@ -65,7 +67,12 @@ impl Stepper {
         self
     }
 
-    pub fn step_with_icon(mut self, label: impl Into<String>, icon: impl Into<String>, support: Option<&str>) -> Self {
+    pub fn step_with_icon(
+        mut self,
+        label: impl Into<String>,
+        icon: impl Into<String>,
+        support: Option<&str>,
+    ) -> Self {
         self.steps.push(StepInfo {
             label: label.into(),
             support_text: support.map(|s| s.to_string()),
@@ -75,7 +82,12 @@ impl Stepper {
         self
     }
 
-    pub fn step_with_status(mut self, label: impl Into<String>, title: impl Into<String>, status: impl Into<String>) -> Self {
+    pub fn step_with_status(
+        mut self,
+        label: impl Into<String>,
+        title: impl Into<String>,
+        status: impl Into<String>,
+    ) -> Self {
         self.steps.push(StepInfo {
             label: title.into(),
             support_text: Some(label.into()),
@@ -135,8 +147,12 @@ impl Widget for Stepper {
         other.is::<Self>()
     }
 
-    fn as_any(&self) -> &dyn Any { self }
-    fn as_any_mut(&mut self) -> &mut dyn Any { self }
+    fn as_any(&self) -> &dyn Any {
+        self
+    }
+    fn as_any_mut(&mut self) -> &mut dyn Any {
+        self
+    }
     fn mount(&self, _tree: &mut ElementTree, _parent_id: ElementId) {}
 }
 
@@ -183,24 +199,61 @@ impl StepperElement {
         StepperVariant::Numbered
     }
 
-    fn accent(&self) -> Color { self.mss.accent_color.unwrap_or(Color::from_hex("#6366F1")) }
-    fn accent_light(&self) -> Color { self.accent().with_alpha(0.15) }
-    fn text_color(&self) -> Color { self.mss.color.unwrap_or(Color::from_hex("#1F2937")) }
-    fn text_muted(&self) -> Color { self.text_color().with_alpha(0.5) }
-    fn border_color(&self) -> Color { self.mss.border_color.unwrap_or(Color::from_hex("#D1D5DB")) }
-    fn bg_color(&self) -> Color { self.mss.background_color.unwrap_or(Color::from_hex("#F3F4F6")) }
-    fn white(&self) -> Color { Color::new(1.0, 1.0, 1.0, 1.0) }
-    fn completed_color(&self) -> Color { Color::from_hex("#10B981") }
+    fn accent(&self) -> Color {
+        self.mss.accent_color.unwrap_or(Color::from_hex("#6366F1"))
+    }
+    fn accent_light(&self) -> Color {
+        self.accent().with_alpha(0.15)
+    }
+    fn text_color(&self) -> Color {
+        self.mss.color.unwrap_or(Color::from_hex("#1F2937"))
+    }
+    fn text_muted(&self) -> Color {
+        self.text_color().with_alpha(0.5)
+    }
+    fn border_color(&self) -> Color {
+        self.mss.border_color.unwrap_or(Color::from_hex("#D1D5DB"))
+    }
+    fn bg_color(&self) -> Color {
+        self.mss
+            .background_color
+            .unwrap_or(Color::from_hex("#F3F4F6"))
+    }
+    fn white(&self) -> Color {
+        Color::new(1.0, 1.0, 1.0, 1.0)
+    }
+    fn completed_color(&self) -> Color {
+        Color::from_hex("#10B981")
+    }
 
-    fn font_size(&self) -> f32 { self.mss.font_size_or(13.0) }
-    fn font_weight(&self) -> u16 { self.mss.font_weight_or(400) }
-    fn icon_size(&self) -> f32 { self.mss.icon_size.unwrap_or(32.0) }
-    fn gap(&self) -> f32 { self.mss.gap.unwrap_or(16.0) }
-    fn border_width(&self) -> f32 { self.mss.border_width.unwrap_or(2.0) }
+    fn font_size(&self) -> f32 {
+        self.mss.font_size_or(13.0)
+    }
+    fn font_weight(&self) -> u16 {
+        self.mss.font_weight_or(400)
+    }
+    fn icon_size(&self) -> f32 {
+        self.mss.icon_size.unwrap_or(32.0)
+    }
+    fn gap(&self) -> f32 {
+        self.mss.gap.unwrap_or(16.0)
+    }
+    fn border_width(&self) -> f32 {
+        self.mss.border_width.unwrap_or(2.0)
+    }
 
     fn measure_text(&self, text: &str, size: f32, bold: bool) -> f32 {
-        self.text_measure.as_ref()
-            .map(|tm| tm.measure_text_width_styled(text, size, text.chars().count(), bold, self.mss.font_family.as_deref()))
+        self.text_measure
+            .as_ref()
+            .map(|tm| {
+                tm.measure_text_width_styled(
+                    text,
+                    size,
+                    text.chars().count(),
+                    bold,
+                    self.mss.font_family.as_deref(),
+                )
+            })
             .unwrap_or(text.chars().count() as f32 * size * 0.6)
     }
 
@@ -218,7 +271,9 @@ impl StepperElement {
 
         for (i, step) in self.steps.iter().enumerate() {
             let label_w = self.measure_text(&step.label, font_size, true);
-            let support_w = step.support_text.as_ref()
+            let support_w = step
+                .support_text
+                .as_ref()
                 .map(|s| self.measure_text(s, support_size, false))
                 .unwrap_or(0.0);
             let content_w = label_w.max(support_w);
@@ -241,8 +296,12 @@ impl StepperElement {
             }
         }
 
-        let w = total_w.min(constraints.max_width).max(constraints.min_width);
-        let h = max_h.min(constraints.max_height).max(constraints.min_height);
+        let w = total_w
+            .min(constraints.max_width)
+            .max(constraints.min_width);
+        let h = max_h
+            .min(constraints.max_height)
+            .max(constraints.min_height);
         self.bounds = Rect::new(Point::zero(), Size::new(w, h));
         Size::new(w, h)
     }
@@ -258,30 +317,51 @@ impl StepperElement {
         let mut step_widths: Vec<f32> = Vec::new();
         for step in &self.steps {
             let label_w = self.measure_text(&step.label, font_size, false);
-            let support_w = step.support_text.as_ref()
+            let support_w = step
+                .support_text
+                .as_ref()
                 .map(|s| self.measure_text(s, support_size, false))
                 .unwrap_or(0.0);
-            let status_w = step.status_text.as_ref()
+            let status_w = step
+                .status_text
+                .as_ref()
                 .map(|s| self.measure_text(s, support_size, false))
                 .unwrap_or(0.0);
             let text_w = label_w.max(support_w).max(status_w);
-            let w = if text_below { text_w.max(circle_d) } else { circle_d + 8.0 + label_w };
+            let w = if text_below {
+                text_w.max(circle_d)
+            } else {
+                circle_d + 8.0 + label_w
+            };
             step_widths.push(w);
         }
 
-        let total_w: f32 = step_widths.iter().sum::<f32>() + gap * (self.steps.len().saturating_sub(1)) as f32;
+        let total_w: f32 =
+            step_widths.iter().sum::<f32>() + gap * (self.steps.len().saturating_sub(1)) as f32;
         let text_height = if text_below {
             let base = font_size + 6.0;
-            let support_extra = if self.steps.iter().any(|s| s.support_text.is_some()) { support_size + 2.0 } else { 0.0 };
-            let status_extra = if self.steps.iter().any(|s| s.status_text.is_some()) { support_size + 2.0 } else { 0.0 };
+            let support_extra = if self.steps.iter().any(|s| s.support_text.is_some()) {
+                support_size + 2.0
+            } else {
+                0.0
+            };
+            let status_extra = if self.steps.iter().any(|s| s.status_text.is_some()) {
+                support_size + 2.0
+            } else {
+                0.0
+            };
             base + support_extra + status_extra
         } else {
             0.0
         };
         let total_h = circle_d + text_height;
 
-        let w = total_w.min(constraints.max_width).max(constraints.min_width);
-        let h = total_h.min(constraints.max_height).max(constraints.min_height);
+        let w = total_w
+            .min(constraints.max_width)
+            .max(constraints.min_width);
+        let h = total_h
+            .min(constraints.max_height)
+            .max(constraints.min_height);
 
         if w > total_w && self.steps.len() > 1 && text_below {
             let step_w = w / self.steps.len() as f32;
@@ -294,10 +374,8 @@ impl StepperElement {
         } else {
             let mut x: f32 = 0.0;
             for (i, sw) in step_widths.iter().enumerate() {
-                self.step_rects.push(Rect::new(
-                    Point::new(x, 0.0),
-                    Size::new(*sw, total_h),
-                ));
+                self.step_rects
+                    .push(Rect::new(Point::new(x, 0.0), Size::new(*sw, total_h)));
                 x += sw;
                 if i < self.steps.len() - 1 {
                     x += gap;
@@ -331,29 +409,34 @@ impl StepperElement {
         let font_weight = self.font_weight();
         let pad_h = self.mss.padding_left.unwrap_or(16.0);
         let pad_v = self.mss.padding_top.unwrap_or(8.0);
-        let radius = self.mss.border_radius.map(|r| r.map(|d| d.resolve(0.0))).unwrap_or([6.0; 4]);
+        let radius = self
+            .mss
+            .border_radius
+            .map(|r| r.map(|d| d.resolve(0.0)))
+            .unwrap_or([6.0; 4]);
         let ox = self.bounds.x();
         let oy = self.bounds.y();
 
         for (i, step) in self.steps.iter().enumerate() {
-            if i >= self.step_rects.len() { break; }
+            if i >= self.step_rects.len() {
+                break;
+            }
             let r = self.step_rects[i];
             let state = self.step_state(i);
             let is_hover = self.hover_index == Some(i);
 
-            let pill_rect = Rect::new(
-                Point::new(r.x() + ox, r.y() + oy),
-                r.size,
-            );
+            let pill_rect = Rect::new(Point::new(r.x() + ox, r.y() + oy), r.size);
 
             let (bg, text_col) = match state {
                 StepState::Active => (self.accent(), self.white()),
                 StepState::Completed => (self.accent_light(), self.accent()),
-                StepState::Pending => if is_hover {
-                    (self.bg_color(), self.text_color())
-                } else {
-                    (Color::TRANSPARENT, self.text_muted())
-                },
+                StepState::Pending => {
+                    if is_hover {
+                        (self.bg_color(), self.text_color())
+                    } else {
+                        (Color::TRANSPARENT, self.text_muted())
+                    }
+                }
                 StepState::Disabled => (Color::TRANSPARENT, self.text_muted().with_alpha(0.3)),
             };
 
@@ -363,8 +446,16 @@ impl StepperElement {
                 Point::new(pill_rect.x() + pad_h, pill_rect.y() + pad_v),
                 Size::new(pill_rect.width() - pad_h * 2.0, font_size + 2.0),
             );
-            list.push_text_styled(&step.label, label_rect, text_col, font_size,
-                TextAlign::DEFAULT, TextDecoration::None, 600, self.mss.font_family.clone());
+            list.push_text_styled(
+                &step.label,
+                label_rect,
+                text_col,
+                font_size,
+                TextAlign::DEFAULT,
+                TextDecoration::None,
+                600,
+                self.mss.font_family.clone(),
+            );
 
             if let Some(ref support) = step.support_text {
                 let support_col = match state {
@@ -375,8 +466,16 @@ impl StepperElement {
                     Point::new(pill_rect.x() + pad_h, label_rect.y() + font_size + 4.0),
                     Size::new(pill_rect.width() - pad_h * 2.0, support_size + 2.0),
                 );
-                list.push_text_styled(support, sup_rect, support_col, support_size,
-                    TextAlign::DEFAULT, TextDecoration::None, font_weight, self.mss.font_family.clone());
+                list.push_text_styled(
+                    support,
+                    sup_rect,
+                    support_col,
+                    support_size,
+                    TextAlign::DEFAULT,
+                    TextDecoration::None,
+                    font_weight,
+                    self.mss.font_family.clone(),
+                );
             }
 
             if i < self.steps.len() - 1 {
@@ -403,7 +502,9 @@ impl StepperElement {
 
         let connector_h = 2.0;
         for i in 0..self.steps.len().saturating_sub(1) {
-            if i >= self.step_rects.len() || i + 1 >= self.step_rects.len() { break; }
+            if i >= self.step_rects.len() || i + 1 >= self.step_rects.len() {
+                break;
+            }
             let r0 = self.step_rects[i];
             let r1 = self.step_rects[i + 1];
             let x0 = ox + r0.x() + circle_d;
@@ -422,15 +523,14 @@ impl StepperElement {
         }
 
         for (i, step) in self.steps.iter().enumerate() {
-            if i >= self.step_rects.len() { break; }
+            if i >= self.step_rects.len() {
+                break;
+            }
             let r = self.step_rects[i];
             let state = self.step_state(i);
             let cx = ox + r.x();
 
-            let circle_rect = Rect::new(
-                Point::new(cx, oy),
-                Size::new(circle_d, circle_d),
-            );
+            let circle_rect = Rect::new(Point::new(cx, oy), Size::new(circle_d, circle_d));
             let full_r = [circle_r; 4];
 
             match state {
@@ -448,7 +548,10 @@ impl StepperElement {
                     list.push_rect(dot_rect, self.white(), [dot_d / 2.0; 4]);
                 }
                 StepState::Pending | StepState::Disabled => {
-                    let border = Border { width: bw, color: self.border_color() };
+                    let border = Border {
+                        width: bw,
+                        color: self.border_color(),
+                    };
                     list.push_rect_bordered(circle_rect, Color::TRANSPARENT, full_r, border);
                 }
             }
@@ -458,11 +561,23 @@ impl StepperElement {
                 Point::new(label_x, oy + (circle_d - font_size) / 2.0),
                 Size::new(r.width() - circle_d - 8.0, font_size + 2.0),
             );
-            let label_col = if state == StepState::Disabled { self.text_muted().with_alpha(0.3) }
-                else if state == StepState::Pending { self.text_muted() }
-                else { self.text_color() };
-            list.push_text_styled(&step.label, label_rect, label_col, font_size,
-                TextAlign::DEFAULT, TextDecoration::None, font_weight, self.mss.font_family.clone());
+            let label_col = if state == StepState::Disabled {
+                self.text_muted().with_alpha(0.3)
+            } else if state == StepState::Pending {
+                self.text_muted()
+            } else {
+                self.text_color()
+            };
+            list.push_text_styled(
+                &step.label,
+                label_rect,
+                label_col,
+                font_size,
+                TextAlign::DEFAULT,
+                TextDecoration::None,
+                font_weight,
+                self.mss.font_family.clone(),
+            );
         }
     }
 
@@ -478,7 +593,9 @@ impl StepperElement {
 
         let connector_h = 2.0;
         for i in 0..self.steps.len().saturating_sub(1) {
-            if i >= self.step_rects.len() || i + 1 >= self.step_rects.len() { break; }
+            if i >= self.step_rects.len() || i + 1 >= self.step_rects.len() {
+                break;
+            }
             let r0 = self.step_rects[i];
             let r1 = self.step_rects[i + 1];
             let cx0 = ox + r0.x() + r0.width() / 2.0;
@@ -499,7 +616,9 @@ impl StepperElement {
         }
 
         for (i, step) in self.steps.iter().enumerate() {
-            if i >= self.step_rects.len() { break; }
+            if i >= self.step_rects.len() {
+                break;
+            }
             let r = self.step_rects[i];
             let state = self.step_state(i);
             let center_x = ox + r.x() + r.width() / 2.0;
@@ -516,17 +635,31 @@ impl StepperElement {
                     list.push_text_centered("\u{E5CA}", circle_rect, self.white(), circle_d * 0.45);
                 }
                 StepState::Active => {
-                    let border = Border { width: bw, color: self.accent() };
+                    let border = Border {
+                        width: bw,
+                        color: self.accent(),
+                    };
                     list.push_rect_bordered(circle_rect, self.accent_light(), full_r, border);
                     let num = format!("{:02}", i + 1);
                     list.push_text_centered(&num, circle_rect, self.accent(), circle_d * 0.4);
                 }
                 StepState::Pending | StepState::Disabled => {
-                    let border_col = if state == StepState::Disabled { self.border_color().with_alpha(0.3) } else { self.border_color() };
-                    let border = Border { width: bw, color: border_col };
+                    let border_col = if state == StepState::Disabled {
+                        self.border_color().with_alpha(0.3)
+                    } else {
+                        self.border_color()
+                    };
+                    let border = Border {
+                        width: bw,
+                        color: border_col,
+                    };
                     list.push_rect_bordered(circle_rect, Color::TRANSPARENT, full_r, border);
                     let num = format!("{:02}", i + 1);
-                    let text_col = if state == StepState::Disabled { self.text_muted().with_alpha(0.3) } else { self.text_muted() };
+                    let text_col = if state == StepState::Disabled {
+                        self.text_muted().with_alpha(0.3)
+                    } else {
+                        self.text_muted()
+                    };
                     list.push_text_centered(&num, circle_rect, text_col, circle_d * 0.4);
                 }
             }
@@ -542,18 +675,36 @@ impl StepperElement {
                 StepState::Disabled => self.text_muted().with_alpha(0.3),
                 StepState::Pending => self.text_muted(),
             };
-            list.push_text_styled(&step.label, label_rect, label_col, font_size,
-                TextAlign::HCENTER, TextDecoration::None,
-                if state == StepState::Active { 600 } else { font_weight },
-                self.mss.font_family.clone());
+            list.push_text_styled(
+                &step.label,
+                label_rect,
+                label_col,
+                font_size,
+                TextAlign::HCENTER,
+                TextDecoration::None,
+                if state == StepState::Active {
+                    600
+                } else {
+                    font_weight
+                },
+                self.mss.font_family.clone(),
+            );
 
             if let Some(ref support) = step.support_text {
                 let sup_rect = Rect::new(
                     Point::new(ox + r.x(), label_y + font_size + 4.0),
                     Size::new(r.width(), support_size + 2.0),
                 );
-                list.push_text_styled(support, sup_rect, self.text_muted(), support_size,
-                    TextAlign::HCENTER, TextDecoration::None, font_weight, self.mss.font_family.clone());
+                list.push_text_styled(
+                    support,
+                    sup_rect,
+                    self.text_muted(),
+                    support_size,
+                    TextAlign::HCENTER,
+                    TextDecoration::None,
+                    font_weight,
+                    self.mss.font_family.clone(),
+                );
             }
         }
     }
@@ -569,7 +720,9 @@ impl StepperElement {
 
         let connector_h = 4.0;
         for i in 0..self.steps.len().saturating_sub(1) {
-            if i >= self.step_rects.len() || i + 1 >= self.step_rects.len() { break; }
+            if i >= self.step_rects.len() || i + 1 >= self.step_rects.len() {
+                break;
+            }
             let r0 = self.step_rects[i];
             let r1 = self.step_rects[i + 1];
             let cx0 = ox + r0.x() + r0.width() / 2.0;
@@ -590,7 +743,9 @@ impl StepperElement {
         }
 
         for (i, step) in self.steps.iter().enumerate() {
-            if i >= self.step_rects.len() { break; }
+            if i >= self.step_rects.len() {
+                break;
+            }
             let r = self.step_rects[i];
             let state = self.step_state(i);
             let center_x = ox + r.x() + r.width() / 2.0;
@@ -607,13 +762,17 @@ impl StepperElement {
                     (self.accent(), ic)
                 }
                 StepState::Pending => {
-                    let ic = self.mss.icon_color
+                    let ic = self
+                        .mss
+                        .icon_color
                         .or(self.mss.color)
                         .unwrap_or_else(|| self.text_muted());
                     (self.bg_color(), ic)
                 }
                 StepState::Disabled => {
-                    let ic = self.mss.icon_color_disabled
+                    let ic = self
+                        .mss
+                        .icon_color_disabled
                         .unwrap_or_else(|| self.text_muted().with_alpha(0.3));
                     (self.bg_color().with_alpha(0.3), ic)
                 }
@@ -634,16 +793,32 @@ impl StepperElement {
                 StepState::Disabled => self.text_muted().with_alpha(0.3),
                 StepState::Pending => self.text_muted(),
             };
-            list.push_text_styled(&step.label, label_rect, label_col, font_size,
-                TextAlign::HCENTER, TextDecoration::None, 600, self.mss.font_family.clone());
+            list.push_text_styled(
+                &step.label,
+                label_rect,
+                label_col,
+                font_size,
+                TextAlign::HCENTER,
+                TextDecoration::None,
+                600,
+                self.mss.font_family.clone(),
+            );
 
             if let Some(ref support) = step.support_text {
                 let sup_rect = Rect::new(
                     Point::new(ox + r.x(), label_y + font_size + 4.0),
                     Size::new(r.width(), support_size + 2.0),
                 );
-                list.push_text_styled(support, sup_rect, self.text_muted(), support_size,
-                    TextAlign::HCENTER, TextDecoration::None, font_weight, self.mss.font_family.clone());
+                list.push_text_styled(
+                    support,
+                    sup_rect,
+                    self.text_muted(),
+                    support_size,
+                    TextAlign::HCENTER,
+                    TextDecoration::None,
+                    font_weight,
+                    self.mss.font_family.clone(),
+                );
             }
         }
     }
@@ -660,7 +835,9 @@ impl StepperElement {
 
         let connector_h = 2.0;
         for i in 0..self.steps.len().saturating_sub(1) {
-            if i >= self.step_rects.len() || i + 1 >= self.step_rects.len() { break; }
+            if i >= self.step_rects.len() || i + 1 >= self.step_rects.len() {
+                break;
+            }
             let r0 = self.step_rects[i];
             let r1 = self.step_rects[i + 1];
             let cx0 = ox + r0.x() + r0.width() / 2.0;
@@ -681,7 +858,9 @@ impl StepperElement {
         }
 
         for (i, step) in self.steps.iter().enumerate() {
-            if i >= self.step_rects.len() { break; }
+            if i >= self.step_rects.len() {
+                break;
+            }
             let r = self.step_rects[i];
             let state = self.step_state(i);
             let center_x = ox + r.x() + r.width() / 2.0;
@@ -698,7 +877,10 @@ impl StepperElement {
                     list.push_text_centered("\u{E5CA}", circle_rect, self.white(), circle_d * 0.6);
                 }
                 StepState::Active => {
-                    let border = Border { width: bw, color: self.accent() };
+                    let border = Border {
+                        width: bw,
+                        color: self.accent(),
+                    };
                     list.push_rect_bordered(circle_rect, Color::TRANSPARENT, full_r, border);
                     let dot_d = circle_d * 0.5;
                     let dot_rect = Rect::new(
@@ -708,8 +890,15 @@ impl StepperElement {
                     list.push_rect(dot_rect, self.accent(), [dot_d / 2.0; 4]);
                 }
                 StepState::Pending | StepState::Disabled => {
-                    let border_col = if state == StepState::Disabled { self.border_color().with_alpha(0.3) } else { self.border_color() };
-                    let border = Border { width: bw, color: border_col };
+                    let border_col = if state == StepState::Disabled {
+                        self.border_color().with_alpha(0.3)
+                    } else {
+                        self.border_color()
+                    };
+                    let border = Border {
+                        width: bw,
+                        color: border_col,
+                    };
                     list.push_rect_bordered(circle_rect, Color::TRANSPARENT, full_r, border);
                 }
             }
@@ -721,8 +910,16 @@ impl StepperElement {
                 Point::new(ox + r.x(), label_y),
                 Size::new(r.width(), support_size + 2.0),
             );
-            list.push_text_styled(step_label, step_label_rect, self.text_muted(), support_size,
-                TextAlign::HCENTER, TextDecoration::None, font_weight, self.mss.font_family.clone());
+            list.push_text_styled(
+                step_label,
+                step_label_rect,
+                self.text_muted(),
+                support_size,
+                TextAlign::HCENTER,
+                TextDecoration::None,
+                font_weight,
+                self.mss.font_family.clone(),
+            );
 
             let title_y = label_y + support_size + 4.0;
             let title_rect = Rect::new(
@@ -733,8 +930,16 @@ impl StepperElement {
                 StepState::Active | StepState::Completed => self.text_color(),
                 _ => self.text_muted(),
             };
-            list.push_text_styled(&step.label, title_rect, title_col, font_size,
-                TextAlign::HCENTER, TextDecoration::None, 600, self.mss.font_family.clone());
+            list.push_text_styled(
+                &step.label,
+                title_rect,
+                title_col,
+                font_size,
+                TextAlign::HCENTER,
+                TextDecoration::None,
+                600,
+                self.mss.font_family.clone(),
+            );
 
             if let Some(ref status) = step.status_text {
                 let status_y = title_y + font_size + 4.0;
@@ -747,8 +952,16 @@ impl StepperElement {
                     StepState::Active => self.accent(),
                     _ => self.text_muted(),
                 };
-                list.push_text_styled(status, status_rect, status_col, support_size,
-                    TextAlign::HCENTER, TextDecoration::None, font_weight, self.mss.font_family.clone());
+                list.push_text_styled(
+                    status,
+                    status_rect,
+                    status_col,
+                    support_size,
+                    TextAlign::HCENTER,
+                    TextDecoration::None,
+                    font_weight,
+                    self.mss.font_family.clone(),
+                );
             }
         }
     }
@@ -818,7 +1031,9 @@ impl Element for StepperElement {
                             Point::new(rect.x() + self.bounds.x(), rect.y() + self.bounds.y()),
                             rect.size,
                         );
-                        if offset_rect.contains(*position) && self.step_state(i) != StepState::Disabled {
+                        if offset_rect.contains(*position)
+                            && self.step_state(i) != StepState::Disabled
+                        {
                             if let Some(ref callback) = self.on_step_click {
                                 if let Ok(mut cb) = callback.lock() {
                                     cb(i);
@@ -835,34 +1050,58 @@ impl Element for StepperElement {
         }
     }
 
-    fn children(&self) -> &[ElementId] { &[] }
+    fn children(&self) -> &[ElementId] {
+        &[]
+    }
 
-    fn bounds(&self) -> Rect { self.bounds }
+    fn bounds(&self) -> Rect {
+        self.bounds
+    }
 
-    fn set_position(&mut self, pos: Point) { self.bounds.origin = pos; }
+    fn set_position(&mut self, pos: Point) {
+        self.bounds.origin = pos;
+    }
 
-    fn mark_dirty(&mut self, flags: DirtyFlags) { self.dirty_flags |= flags; }
-    fn clear_dirty(&mut self, flags: DirtyFlags) { self.dirty_flags.remove(flags); }
-    fn is_dirty(&self, flags: DirtyFlags) -> bool { self.dirty_flags.contains(flags) }
+    fn mark_dirty(&mut self, flags: DirtyFlags) {
+        self.dirty_flags |= flags;
+    }
+    fn clear_dirty(&mut self, flags: DirtyFlags) {
+        self.dirty_flags.remove(flags);
+    }
+    fn is_dirty(&self, flags: DirtyFlags) -> bool {
+        self.dirty_flags.contains(flags)
+    }
 
-    fn id(&self) -> ElementId { self.id }
-    fn set_id(&mut self, id: ElementId) { self.id = id; }
+    fn id(&self) -> ElementId {
+        self.id
+    }
+    fn set_id(&mut self, id: ElementId) {
+        self.id = id;
+    }
 
     fn mount(&mut self, tree: &mut ElementTree) {
         self.text_measure = tree.text_measure.clone();
     }
 
-    fn element_type_name(&self) -> &str { "Stepper" }
+    fn element_type_name(&self) -> &str {
+        "Stepper"
+    }
 
     fn set_classes(&mut self, classes: Vec<String>) {
         self.classes = classes;
         self.mark_dirty(DirtyFlags::LAYOUT | DirtyFlags::RENDER);
     }
 
-    fn get_classes(&self) -> &[String] { &self.classes }
+    fn get_classes(&self) -> &[String] {
+        &self.classes
+    }
 
-    fn reset_mss_styles(&mut self) { self.mss.reset(); }
-    fn mss(&self) -> Option<&crate::mss::MssFields> { Some(&self.mss) }
+    fn reset_mss_styles(&mut self) {
+        self.mss.reset();
+    }
+    fn mss(&self) -> Option<&crate::mss::MssFields> {
+        Some(&self.mss)
+    }
 
     fn apply_computed_style(&mut self, style: &ComputedStyle) {
         self.mss.apply(style);
@@ -878,7 +1117,8 @@ impl Element for StepperElement {
         selected: Option<&ComputedStyle>,
         _checked: Option<&ComputedStyle>,
     ) {
-        self.mss.apply_transitions(base, hover, active, focus, selected);
+        self.mss
+            .apply_transitions(base, hover, active, focus, selected);
     }
 }
 
@@ -887,7 +1127,9 @@ impl StyledElement for StepperElement {
         self.mark_dirty(DirtyFlags::RENDER);
     }
 
-    fn classes(&self) -> &[String] { &self.classes }
+    fn classes(&self) -> &[String] {
+        &self.classes
+    }
 
     fn set_classes(&mut self, classes: Vec<String>) {
         self.classes = classes;

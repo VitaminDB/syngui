@@ -1,8 +1,8 @@
+use crate::core::{Point, Rect, Size};
 use crate::input::{Event, EventResult, Key, MouseButton};
-use crate::core::{Point, Size, Rect};
 use crate::layout::Constraints;
-use crate::widget::{ElementId, ElementTree, Widget};
 use crate::signal;
+use crate::widget::{ElementId, ElementTree, Widget};
 
 pub struct TestHarness {
     pub tree: ElementTree,
@@ -22,12 +22,14 @@ impl TestHarness {
 
     pub fn layout(&mut self, width: f32, height: f32) -> Size {
         self.tree.viewport_size = Size::new(width, height);
-        self.tree.layout(self.root_id, Constraints::tight(Size::new(width, height)))
+        self.tree
+            .layout(self.root_id, Constraints::tight(Size::new(width, height)))
     }
 
     pub fn layout_loose(&mut self, width: f32, height: f32) -> Size {
         self.tree.viewport_size = Size::new(width, height);
-        self.tree.layout(self.root_id, Constraints::loose(Size::new(width, height)))
+        self.tree
+            .layout(self.root_id, Constraints::loose(Size::new(width, height)))
     }
 
     /// Прогнать `update` корневого элемента новым виджетом — как делает
@@ -58,13 +60,15 @@ impl TestHarness {
     }
 
     pub fn root_size(&self) -> Size {
-        self.tree.get(self.root_id)
+        self.tree
+            .get(self.root_id)
             .map(|e| e.bounds().size)
             .unwrap_or(Size::zero())
     }
 
     pub fn element_bounds(&self, id: ElementId) -> Rect {
-        self.tree.get(id)
+        self.tree
+            .get(id)
             .map(|e| e.bounds())
             .unwrap_or(Rect::zero())
     }
@@ -80,16 +84,14 @@ impl TestHarness {
     }
 
     pub fn apply_mss(&mut self, source: &str) -> crate::mss::StyleEngine {
-        let stylesheet = crate::mss::parse_stylesheet_str(source)
-            .expect("test mss must parse");
+        let stylesheet = crate::mss::parse_stylesheet_str(source).expect("test mss must parse");
         let engine = crate::mss::StyleEngine::new(stylesheet);
         crate::mss::cascade::apply_styles_to_tree(&mut self.tree, &engine);
         engine
     }
 
     pub fn apply_mss_dirty(&mut self, source: &str) -> crate::mss::StyleEngine {
-        let stylesheet = crate::mss::parse_stylesheet_str(source)
-            .expect("test mss must parse");
+        let stylesheet = crate::mss::parse_stylesheet_str(source).expect("test mss must parse");
         let engine = crate::mss::StyleEngine::new(stylesheet);
         crate::mss::cascade::apply_styles_dirty(&mut self.tree, &engine);
         engine
@@ -170,8 +172,14 @@ impl TestHarness {
 pub fn click_at(point: Point) -> Vec<Event> {
     vec![
         Event::MouseMove(point),
-        Event::MouseDown { button: MouseButton::Left, position: point },
-        Event::MouseUp { button: MouseButton::Left, position: point },
+        Event::MouseDown {
+            button: MouseButton::Left,
+            position: point,
+        },
+        Event::MouseUp {
+            button: MouseButton::Left,
+            position: point,
+        },
     ]
 }
 
@@ -190,7 +198,10 @@ macro_rules! assert_size {
         assert!(
             (size.width - $w as f32).abs() < 1.0 && (size.height - $h as f32).abs() < 1.0,
             "Expected size ({}, {}), got ({}, {})",
-            $w, $h, size.width, size.height
+            $w,
+            $h,
+            size.width,
+            size.height
         );
     }};
 }
@@ -205,8 +216,14 @@ macro_rules! assert_bounds {
                 && (bounds.size.width - $w as f32).abs() < 1.0
                 && (bounds.size.height - $h as f32).abs() < 1.0,
             "Expected bounds ({}, {}, {}, {}), got ({}, {}, {}, {})",
-            $x, $y, $w, $h,
-            bounds.origin.x, bounds.origin.y, bounds.size.width, bounds.size.height
+            $x,
+            $y,
+            $w,
+            $h,
+            bounds.origin.x,
+            bounds.origin.y,
+            bounds.size.width,
+            bounds.size.height
         );
     }};
 }

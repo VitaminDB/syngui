@@ -12,7 +12,9 @@ pub trait Widget: Any {
 
     fn mount(&self, tree: &mut super::ElementTree, parent_id: super::ElementId);
 
-    fn child_widgets(&self) -> Vec<&dyn Widget> { vec![] }
+    fn child_widgets(&self) -> Vec<&dyn Widget> {
+        vec![]
+    }
 
     fn widget_classes(&self) -> &[String] {
         static EMPTY: &[String] = &[];

@@ -16,7 +16,10 @@ pub fn text_insert(text: &mut InlineText, offset: usize, s: &str) {
         return;
     }
     if text.0.is_empty() {
-        text.0.push(InlineRun { text: s.to_string(), style: InlineStyle::default() });
+        text.0.push(InlineRun {
+            text: s.to_string(),
+            style: InlineStyle::default(),
+        });
         return;
     }
     let mut acc = 0usize;
@@ -124,7 +127,9 @@ pub fn replace_with_wiki_link(
     out.0.push(InlineRun {
         text: display.to_string(),
         style: InlineStyle {
-            link: Some(LinkTarget::Wiki { target: target.to_string() }),
+            link: Some(LinkTarget::Wiki {
+                target: target.to_string(),
+            }),
             ..InlineStyle::default()
         },
     });
@@ -136,12 +141,7 @@ pub fn replace_with_wiki_link(
 
 /// Применяет модификатор стиля к байтовому диапазону: раны разрезаются по
 /// границам, целевые получают `f`, соседние с одинаковым стилем сливаются.
-pub fn style_range(
-    text: &mut InlineText,
-    start: usize,
-    end: usize,
-    f: &dyn Fn(&mut InlineStyle),
-) {
+pub fn style_range(text: &mut InlineText, start: usize, end: usize, f: &dyn Fn(&mut InlineStyle)) {
     if end <= start {
         return;
     }
@@ -168,7 +168,10 @@ pub fn style_range(
         }
         let mut mid_style = run.style.clone();
         f(&mut mid_style);
-        text.0.push(InlineRun { text: run.text[local_s..local_e].to_string(), style: mid_style });
+        text.0.push(InlineRun {
+            text: run.text[local_s..local_e].to_string(),
+            style: mid_style,
+        });
         if local_e < len {
             text.0.push(InlineRun {
                 text: run.text[local_e..].to_string(),
@@ -212,9 +215,16 @@ pub fn word_bounds(s: &str, offset: usize) -> (usize, usize) {
         return (0, 0);
     }
     let at = offset.min(s.len());
-    let at = if s.is_char_boundary(at) { at } else { prev_char_boundary(s, at) };
+    let at = if s.is_char_boundary(at) {
+        at
+    } else {
+        prev_char_boundary(s, at)
+    };
     let is_word = |c: char| c.is_alphanumeric() || c == '_';
-    let ch = s[at..].chars().next().or_else(|| s[..at].chars().next_back());
+    let ch = s[at..]
+        .chars()
+        .next()
+        .or_else(|| s[..at].chars().next_back());
     let Some(ch) = ch else { return (at, at) };
     if !is_word(ch) {
         let end = next_char_boundary(s, at);
@@ -344,11 +354,15 @@ fn renumber(siblings: &mut [DocBlock]) {
 // ─── Операции редактирования ────────────────────────────────────────────────
 
 pub fn insert_text(model: &mut DocModel, caret: CaretPos, s: &str) -> CaretPos {
-    if let Some(text) = find_block_mut(&mut model.blocks, caret.block).and_then(|b| b.kind.text_mut())
+    if let Some(text) =
+        find_block_mut(&mut model.blocks, caret.block).and_then(|b| b.kind.text_mut())
     {
         text_insert(text, caret.offset, s);
         text.normalize();
-        CaretPos { block: caret.block, offset: caret.offset + s.len() }
+        CaretPos {
+            block: caret.block,
+            offset: caret.offset + s.len(),
+        }
     } else {
         caret
     }
@@ -376,7 +390,8 @@ pub fn delete_selection(model: &mut DocModel, order: &BlockOrder, sel: DocSelect
     for i in si + 1..ei {
         let id = order.ids[i];
         if end_ancestors.contains(&id) {
-            if let Some(text) = find_block_mut(&mut model.blocks, id).and_then(|b| b.kind.text_mut())
+            if let Some(text) =
+                find_block_mut(&mut model.blocks, id).and_then(|b| b.kind.text_mut())
             {
                 text.0.clear();
             }
@@ -427,7 +442,9 @@ pub fn split_block(model: &mut DocModel, caret: CaretPos) -> CaretPos {
     let new_id = model.alloc_id();
     let result = with_siblings(&mut model.blocks, caret.block, &mut |sibs, idx| {
         let block = &mut sibs[idx];
-        let Some(text) = block.kind.text() else { return caret };
+        let Some(text) = block.kind.text() else {
+            return caret;
+        };
         let (left, right) = text_split(text, caret.offset);
 
         let new_kind = match &mut block.kind {
@@ -441,33 +458,61 @@ pub fn split_block(model: &mut DocModel, caret: CaretPos) -> CaretPos {
             }
             BlockKind::Bullet { text, children } => {
                 *text = left;
-                BlockKind::Bullet { text: right, children: std::mem::take(children) }
+                BlockKind::Bullet {
+                    text: right,
+                    children: std::mem::take(children),
+                }
             }
-            BlockKind::Numbered { number, text, children } => {
+            BlockKind::Numbered {
+                number,
+                text,
+                children,
+            } => {
                 *text = left;
                 let n = *number + 1;
-                BlockKind::Numbered { number: n, text: right, children: std::mem::take(children) }
+                BlockKind::Numbered {
+                    number: n,
+                    text: right,
+                    children: std::mem::take(children),
+                }
             }
             BlockKind::Todo { text, children, .. } => {
                 *text = left;
-                BlockKind::Todo { checked: false, text: right, children: std::mem::take(children) }
+                BlockKind::Todo {
+                    checked: false,
+                    text: right,
+                    children: std::mem::take(children),
+                }
             }
-            BlockKind::Toggle { summary, children, .. } => {
+            BlockKind::Toggle {
+                summary, children, ..
+            } => {
                 // Enter в шапке toggle — новый параграф первым ребёнком.
                 *summary = left;
                 children.insert(0, DocBlock::new(new_id, BlockKind::Paragraph(right)));
-                return CaretPos { block: new_id, offset: 0 };
+                return CaretPos {
+                    block: new_id,
+                    offset: 0,
+                };
             }
-            BlockKind::Callout { title, children, .. } => {
+            BlockKind::Callout {
+                title, children, ..
+            } => {
                 *title = left;
                 children.insert(0, DocBlock::new(new_id, BlockKind::Paragraph(right)));
-                return CaretPos { block: new_id, offset: 0 };
+                return CaretPos {
+                    block: new_id,
+                    offset: 0,
+                };
             }
             _ => return caret,
         };
         sibs.insert(idx + 1, DocBlock::new(new_id, new_kind));
         renumber(sibs);
-        CaretPos { block: new_id, offset: 0 }
+        CaretPos {
+            block: new_id,
+            offset: 0,
+        }
     });
     result.unwrap_or(caret)
 }
@@ -485,9 +530,9 @@ pub fn backspace_at_start(model: &mut DocModel, order: &BlockOrder, caret: Caret
             | BlockKind::Todo { text, children, .. } => {
                 (std::mem::take(text), std::mem::take(children))
             }
-            BlockKind::Toggle { summary, children, .. } => {
-                (std::mem::take(summary), std::mem::take(children))
-            }
+            BlockKind::Toggle {
+                summary, children, ..
+            } => (std::mem::take(summary), std::mem::take(children)),
             _ => return false,
         };
         block.kind = BlockKind::Paragraph(text);
@@ -522,13 +567,18 @@ pub fn backspace_at_start(model: &mut DocModel, order: &BlockOrder, caret: Caret
 
     // 3. Склейка с предыдущим сиблингом.
     let parent = ancestors(&model.blocks, caret.block).last().copied();
-    let Some(prev_id) = order.prev(caret.block) else { return caret };
+    let Some(prev_id) = order.prev(caret.block) else {
+        return caret;
+    };
     let prev_parent = ancestors(&model.blocks, prev_id).last().copied();
 
     // Предыдущий в порядке обхода может быть на другом уровне — склеиваем
     // только сиблингов; иначе каретка просто уходит в конец предыдущего.
     if parent != prev_parent {
-        return CaretPos { block: prev_id, offset: block_text_len(model, prev_id) };
+        return CaretPos {
+            block: prev_id,
+            offset: block_text_len(model, prev_id),
+        };
     }
 
     let prev_len = block_text_len(model, prev_id);
@@ -565,7 +615,10 @@ pub fn backspace_at_start(model: &mut DocModel, order: &BlockOrder, caret: Caret
         sibs.remove(idx);
         renumber(sibs);
     });
-    CaretPos { block: prev_id, offset: prev_len }
+    CaretPos {
+        block: prev_id,
+        offset: prev_len,
+    }
 }
 
 /// Delete в конце блока: склейка следующего сиблинга в текущий.
@@ -638,7 +691,9 @@ pub fn indent_block(model: &mut DocModel, id: BlockId) -> bool {
 
 /// Shift+Tab: блок поднимается на уровень родителя, сразу после него.
 pub fn outdent_block(model: &mut DocModel, id: BlockId) -> bool {
-    let Some(&parent) = ancestors(&model.blocks, id).last() else { return false };
+    let Some(&parent) = ancestors(&model.blocks, id).last() else {
+        return false;
+    };
     let Some(block) = with_siblings(&mut model.blocks, id, &mut |sibs, idx| {
         let b = sibs.remove(idx);
         renumber(sibs);
@@ -711,7 +766,10 @@ mod tests {
     }
 
     fn caret_at(order: &BlockOrder, row: usize, offset: usize) -> CaretPos {
-        CaretPos { block: order.ids[row], offset }
+        CaretPos {
+            block: order.ids[row],
+            offset,
+        }
     }
 
     #[test]
@@ -720,7 +778,11 @@ mod tests {
         // Вставка сразу после «жирный» — в конец жирного рана.
         let bold_end = "до ".len() + "жирный".len();
         insert_text(&mut m, caret_at(&order, 0, bold_end), "!");
-        let text = find_block(&m.blocks, order.ids[0]).unwrap().kind.text().unwrap();
+        let text = find_block(&m.blocks, order.ids[0])
+            .unwrap()
+            .kind
+            .text()
+            .unwrap();
         let bold_run = text.0.iter().find(|r| r.style.bold).unwrap();
         assert_eq!(bold_run.text, "жирный!");
     }
@@ -760,7 +822,13 @@ mod tests {
     fn backspace_merges_paragraphs() {
         let (mut m, order) = model("раз\n\nдва\n");
         let caret = backspace_at_start(&mut m, &order, caret_at(&order, 1, 0));
-        assert_eq!(caret, CaretPos { block: order.ids[0], offset: "раз".len() });
+        assert_eq!(
+            caret,
+            CaretPos {
+                block: order.ids[0],
+                offset: "раз".len()
+            }
+        );
         assert_eq!(serialize_document(&m), "раздва\n");
     }
 
@@ -813,15 +881,25 @@ mod tests {
     fn indent_table_into_toggle() {
         // Агент часто пишет toggle и таблицу соседними блоками — Tab
         // (или пункт меню) убирает таблицу внутрь, Shift+Tab возвращает.
-        let (mut m, _) = model("> [!toggle] Полная таблица\n\n| A | B |\n| --- | --- |\n| 1 | 2 |\n");
+        let (mut m, _) =
+            model("> [!toggle] Полная таблица\n\n| A | B |\n| --- | --- |\n| 1 | 2 |\n");
         assert_eq!(m.blocks.len(), 2);
         let table = m.blocks[1].id;
         assert!(indent_block(&mut m, table));
         assert_eq!(m.blocks.len(), 1);
         match &m.blocks[0].kind {
-            BlockKind::Toggle { children, collapsed, .. } => {
-                assert!(matches!(children.as_slice(), [b] if matches!(b.kind, BlockKind::Table { .. })));
-                assert!(!collapsed, "вложение раскрывает toggle — иначе блок «пропал»");
+            BlockKind::Toggle {
+                children,
+                collapsed,
+                ..
+            } => {
+                assert!(
+                    matches!(children.as_slice(), [b] if matches!(b.kind, BlockKind::Table { .. }))
+                );
+                assert!(
+                    !collapsed,
+                    "вложение раскрывает toggle — иначе блок «пропал»"
+                );
             }
             other => panic!("не toggle: {other:?}"),
         }
@@ -842,7 +920,9 @@ mod tests {
         let para = m.blocks[1].id;
         super::super::free::set_pos(&mut m.blocks[1].attrs, 40.0, 120.0);
         assert!(indent_block(&mut m, para));
-        let BlockKind::Toggle { children, .. } = &m.blocks[0].kind else { panic!() };
+        let BlockKind::Toggle { children, .. } = &m.blocks[0].kind else {
+            panic!()
+        };
         assert!(super::super::free::pos_of(&children[0].attrs).is_none());
     }
 
@@ -880,8 +960,17 @@ pub fn table_op(
     at: (usize, usize),
 ) -> bool {
     use super::props::TableOp;
-    let Some(b) = find_block_mut(&mut model.blocks, block) else { return false };
-    let BlockKind::Table { headers, rows, aligns } = &mut b.kind else { return false };
+    let Some(b) = find_block_mut(&mut model.blocks, block) else {
+        return false;
+    };
+    let BlockKind::Table {
+        headers,
+        rows,
+        aligns,
+    } = &mut b.kind
+    else {
+        return false;
+    };
     let cols = headers.len().max(aligns.len()).max(1);
     match op {
         TableOp::AddRow => {

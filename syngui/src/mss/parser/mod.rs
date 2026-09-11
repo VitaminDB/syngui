@@ -1,9 +1,9 @@
-mod utils;
+pub mod gradient;
 mod rule;
 mod selector;
-mod value;
-pub mod gradient;
 pub mod transform;
+mod utils;
+mod value;
 
 #[cfg(test)]
 mod tests;
@@ -47,7 +47,9 @@ impl<'a> MssParser<'a> {
 
         while !self.cursor.is_eof() {
             self.cursor.skip_whitespace();
-            if self.cursor.is_eof() { break; }
+            if self.cursor.is_eof() {
+                break;
+            }
 
             if self.cursor.peek() == Some('/') && self.cursor.peek_next() == Some('*') {
                 self.cursor.skip_comment();
@@ -56,7 +58,10 @@ impl<'a> MssParser<'a> {
 
             if self.cursor.starts_with(":root") {
                 if let Err(e) = rule::parse_root_variables(&mut self.cursor, &mut stylesheet) {
-                    warnings.push(ParseWarning { message: format!("{:?}", e), line: self.cursor.line });
+                    warnings.push(ParseWarning {
+                        message: format!("{:?}", e),
+                        line: self.cursor.line,
+                    });
                     skip_to_next_rule(&mut self.cursor);
                 }
                 continue;
@@ -64,14 +69,20 @@ impl<'a> MssParser<'a> {
 
             if self.cursor.starts_with("@keyframes") {
                 if let Err(e) = rule::parse_keyframes(&mut self.cursor, &mut stylesheet) {
-                    warnings.push(ParseWarning { message: format!("{:?}", e), line: self.cursor.line });
+                    warnings.push(ParseWarning {
+                        message: format!("{:?}", e),
+                        line: self.cursor.line,
+                    });
                     skip_to_next_rule(&mut self.cursor);
                 }
                 continue;
             }
 
             if let Err(e) = rule::parse_rule(&mut self.cursor, &mut stylesheet, None) {
-                warnings.push(ParseWarning { message: format!("{:?}", e), line: self.cursor.line });
+                warnings.push(ParseWarning {
+                    message: format!("{:?}", e),
+                    line: self.cursor.line,
+                });
                 skip_to_next_rule(&mut self.cursor);
             }
         }
@@ -86,7 +97,9 @@ impl<'a> MssParser<'a> {
 
         while !self.cursor.is_eof() {
             self.cursor.skip_whitespace();
-            if self.cursor.is_eof() { break; }
+            if self.cursor.is_eof() {
+                break;
+            }
 
             if self.cursor.peek() == Some('/') && self.cursor.peek_next() == Some('*') {
                 self.cursor.skip_comment();
@@ -114,14 +127,24 @@ fn skip_to_next_rule(cursor: &mut ParserCursor) {
     let mut depth = 0i32;
     while !cursor.is_eof() {
         match cursor.peek() {
-            Some('{') => { depth += 1; cursor.advance(); }
+            Some('{') => {
+                depth += 1;
+                cursor.advance();
+            }
             Some('}') => {
                 cursor.advance();
-                if depth <= 1 { return; }
+                if depth <= 1 {
+                    return;
+                }
                 depth -= 1;
             }
-            Some('\n') => { cursor.line += 1; cursor.advance(); }
-            _ => { cursor.advance(); }
+            Some('\n') => {
+                cursor.line += 1;
+                cursor.advance();
+            }
+            _ => {
+                cursor.advance();
+            }
         }
     }
 }

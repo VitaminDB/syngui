@@ -6,26 +6,83 @@ use super::Batcher;
 impl Batcher {
     pub(super) fn process_command(&mut self, cmd: &DrawCommand, font_atlas: &mut FontAtlas) {
         match cmd {
-            DrawCommand::Rect { rect, color, corner_radius, border, per_side_border, clip_rect, .. } => {
+            DrawCommand::Rect {
+                rect,
+                color,
+                corner_radius,
+                border,
+                per_side_border,
+                clip_rect,
+                ..
+            } => {
                 self.ensure_batch(ShaderType::Rect, None, *clip_rect);
                 if let Some(psb) = per_side_border {
                     let bc = psb.color;
-                    self.add_rect_per_side_border(*rect, *color, *corner_radius, psb.widths, bc, border.as_ref());
+                    self.add_rect_per_side_border(
+                        *rect,
+                        *color,
+                        *corner_radius,
+                        psb.widths,
+                        bc,
+                        border.as_ref(),
+                    );
                 } else if let Some(border) = border {
-                    self.add_rect_with_border(*rect, *color, *corner_radius, border.width, border.color);
+                    self.add_rect_with_border(
+                        *rect,
+                        *color,
+                        *corner_radius,
+                        border.width,
+                        border.color,
+                    );
                 } else {
                     self.add_rect(*rect, *color, *corner_radius);
                 }
             }
-            DrawCommand::Outline { rect, color, ring_width, corner_radius, clip_rect, .. } => {
+            DrawCommand::Outline {
+                rect,
+                color,
+                ring_width,
+                corner_radius,
+                clip_rect,
+                ..
+            } => {
                 self.ensure_batch(ShaderType::Rect, None, *clip_rect);
                 self.add_outline(*rect, *color, *corner_radius, *ring_width);
             }
-            DrawCommand::GradientRect { rect, gradient, corner_radius, border, per_side_border, clip_rect, .. } => {
+            DrawCommand::GradientRect {
+                rect,
+                gradient,
+                corner_radius,
+                border,
+                per_side_border,
+                clip_rect,
+                ..
+            } => {
                 self.ensure_batch(ShaderType::Rect, None, *clip_rect);
-                self.add_linear_gradient_rect(*rect, gradient, *corner_radius, border.as_ref(), per_side_border.as_ref());
+                self.add_linear_gradient_rect(
+                    *rect,
+                    gradient,
+                    *corner_radius,
+                    border.as_ref(),
+                    per_side_border.as_ref(),
+                );
             }
-            DrawCommand::Text { text, rect, color, font_size, font_weight, text_align, decoration, font_family, letter_spacing, text_shadow, bbox_sample, clip_rect, no_wrap, .. } => {
+            DrawCommand::Text {
+                text,
+                rect,
+                color,
+                font_size,
+                font_weight,
+                text_align,
+                decoration,
+                font_family,
+                letter_spacing,
+                text_shadow,
+                bbox_sample,
+                clip_rect,
+                no_wrap,
+                ..
+            } => {
                 if text.is_empty() {
                     return;
                 }
@@ -34,7 +91,15 @@ impl Batcher {
                 let phys_max_width = if *no_wrap { 0.0 } else { rect.size.width * sf };
                 let bold = *font_weight >= 700;
                 let phys_letter_spacing = *letter_spacing * sf;
-                let glyphs = self.shape_text_cached_spacing(font_atlas, text, phys_font_size, phys_max_width, bold, font_family.as_deref(), phys_letter_spacing);
+                let glyphs = self.shape_text_cached_spacing(
+                    font_atlas,
+                    text,
+                    phys_font_size,
+                    phys_max_width,
+                    bold,
+                    font_family.as_deref(),
+                    phys_letter_spacing,
+                );
                 if glyphs.is_empty() {
                     return;
                 }
@@ -55,14 +120,18 @@ impl Batcher {
                         phys_letter_spacing,
                     );
                     for glyph in sample_glyphs.iter() {
-                        if glyph.glyph.width == 0 || glyph.glyph.height == 0 { continue; }
+                        if glyph.glyph.width == 0 || glyph.glyph.height == 0 {
+                            continue;
+                        }
                         let gy = glyph.y / sf;
                         let gh = glyph.glyph.height as f32 / sf;
                         glyph_min_y = glyph_min_y.min(gy);
                         glyph_max_y = glyph_max_y.max(gy + gh);
                     }
                     for glyph in glyphs.iter() {
-                        if glyph.glyph.width == 0 || glyph.glyph.height == 0 { continue; }
+                        if glyph.glyph.width == 0 || glyph.glyph.height == 0 {
+                            continue;
+                        }
                         let gx = glyph.x / sf;
                         let gw = glyph.glyph.width as f32 / sf;
                         glyph_min_x = glyph_min_x.min(gx);
@@ -70,7 +139,9 @@ impl Batcher {
                     }
                 } else {
                     for glyph in glyphs.iter() {
-                        if glyph.glyph.width == 0 || glyph.glyph.height == 0 { continue; }
+                        if glyph.glyph.width == 0 || glyph.glyph.height == 0 {
+                            continue;
+                        }
                         let gy = glyph.y / sf;
                         let gh = glyph.glyph.height as f32 / sf;
                         glyph_min_y = glyph_min_y.min(gy);
@@ -100,9 +171,13 @@ impl Batcher {
                     origin_y = (origin_y * sf).round() / sf;
                 }
 
-                let mut origin_x = if text_align.is_hcenter() && rect.size.width > text_width && text_width > 0.0 {
+                let mut origin_x = if text_align.is_hcenter()
+                    && rect.size.width > text_width
+                    && text_width > 0.0
+                {
                     rect.origin.x + (rect.size.width - text_width) / 2.0 - glyph_min_x
-                } else if text_align.is_right() && rect.size.width > text_width && text_width > 0.0 {
+                } else if text_align.is_right() && rect.size.width > text_width && text_width > 0.0
+                {
                     rect.origin.x + rect.size.width - text_width - glyph_min_x
                 } else {
                     rect.origin.x
@@ -127,7 +202,9 @@ impl Batcher {
                     let pad = blur.ceil();
 
                     for glyph in glyphs.iter() {
-                        if glyph.glyph.width == 0 || glyph.glyph.height == 0 { continue; }
+                        if glyph.glyph.width == 0 || glyph.glyph.height == 0 {
+                            continue;
+                        }
                         let (gx, gy) = if snap {
                             (
                                 ((origin_x + shadow_offset_x) * sf + glyph.x).round() / sf,
@@ -163,18 +240,48 @@ impl Batcher {
                         let is_color_flag = if glyph.glyph.is_color { 1.0 } else { 0.0 };
                         let d = [is_color_flag, blur, 0.0, 0.0];
                         let d2 = [uv_min_x, uv_min_y, uv_max_x, uv_max_y];
-                        let [p0, p1, p2, p3] = self.transform_quad([
-                            [x, y], [x + w, y], [x + w, y + h], [x, y + h],
-                        ]);
+                        let [p0, p1, p2, p3] =
+                            self.transform_quad([[x, y], [x + w, y], [x + w, y + h], [x, y + h]]);
                         let state = self.current_batch_mut();
                         let base = state.vertices.len() as u32;
                         state.vertices.extend_from_slice(&[
-                            Vertex { position: p0, uv: [uv_qx0, uv_qy0], color: shadow_color, data: d, data2: d2 },
-                            Vertex { position: p1, uv: [uv_qx0 + uv_qw, uv_qy0], color: shadow_color, data: d, data2: d2 },
-                            Vertex { position: p2, uv: [uv_qx0 + uv_qw, uv_qy0 + uv_qh], color: shadow_color, data: d, data2: d2 },
-                            Vertex { position: p3, uv: [uv_qx0, uv_qy0 + uv_qh], color: shadow_color, data: d, data2: d2 },
+                            Vertex {
+                                position: p0,
+                                uv: [uv_qx0, uv_qy0],
+                                color: shadow_color,
+                                data: d,
+                                data2: d2,
+                            },
+                            Vertex {
+                                position: p1,
+                                uv: [uv_qx0 + uv_qw, uv_qy0],
+                                color: shadow_color,
+                                data: d,
+                                data2: d2,
+                            },
+                            Vertex {
+                                position: p2,
+                                uv: [uv_qx0 + uv_qw, uv_qy0 + uv_qh],
+                                color: shadow_color,
+                                data: d,
+                                data2: d2,
+                            },
+                            Vertex {
+                                position: p3,
+                                uv: [uv_qx0, uv_qy0 + uv_qh],
+                                color: shadow_color,
+                                data: d,
+                                data2: d2,
+                            },
                         ]);
-                        state.indices.extend_from_slice(&[base, base + 1, base + 2, base, base + 2, base + 3]);
+                        state.indices.extend_from_slice(&[
+                            base,
+                            base + 1,
+                            base + 2,
+                            base,
+                            base + 2,
+                            base + 3,
+                        ]);
                     }
                 }
 
@@ -182,7 +289,9 @@ impl Batcher {
                 let color_array = self.apply_opacity(color.to_array());
 
                 for glyph in glyphs.iter() {
-                    if glyph.glyph.width == 0 || glyph.glyph.height == 0 { continue; }
+                    if glyph.glyph.width == 0 || glyph.glyph.height == 0 {
+                        continue;
+                    }
                     let (x, y) = if snap {
                         (
                             (origin_x * sf + glyph.x).round() / sf,
@@ -198,18 +307,48 @@ impl Batcher {
                     let uv_w = glyph.glyph.uv_w;
                     let uv_h = glyph.glyph.uv_h;
                     let is_color_flag = if glyph.glyph.is_color { 1.0 } else { 0.0 };
-                    let [p0, p1, p2, p3] = self.transform_quad([
-                        [x, y], [x + w, y], [x + w, y + h], [x, y + h],
-                    ]);
+                    let [p0, p1, p2, p3] =
+                        self.transform_quad([[x, y], [x + w, y], [x + w, y + h], [x, y + h]]);
                     let state = self.current_batch_mut();
                     let base = state.vertices.len() as u32;
                     state.vertices.extend_from_slice(&[
-                        Vertex { position: p0, uv: [uv_x, uv_y], color: color_array, data: [is_color_flag, 0.0, 0.0, 0.0], data2: [0.0; 4] },
-                        Vertex { position: p1, uv: [uv_x + uv_w, uv_y], color: color_array, data: [is_color_flag, 0.0, 0.0, 0.0], data2: [0.0; 4] },
-                        Vertex { position: p2, uv: [uv_x + uv_w, uv_y + uv_h], color: color_array, data: [is_color_flag, 0.0, 0.0, 0.0], data2: [0.0; 4] },
-                        Vertex { position: p3, uv: [uv_x, uv_y + uv_h], color: color_array, data: [is_color_flag, 0.0, 0.0, 0.0], data2: [0.0; 4] },
+                        Vertex {
+                            position: p0,
+                            uv: [uv_x, uv_y],
+                            color: color_array,
+                            data: [is_color_flag, 0.0, 0.0, 0.0],
+                            data2: [0.0; 4],
+                        },
+                        Vertex {
+                            position: p1,
+                            uv: [uv_x + uv_w, uv_y],
+                            color: color_array,
+                            data: [is_color_flag, 0.0, 0.0, 0.0],
+                            data2: [0.0; 4],
+                        },
+                        Vertex {
+                            position: p2,
+                            uv: [uv_x + uv_w, uv_y + uv_h],
+                            color: color_array,
+                            data: [is_color_flag, 0.0, 0.0, 0.0],
+                            data2: [0.0; 4],
+                        },
+                        Vertex {
+                            position: p3,
+                            uv: [uv_x, uv_y + uv_h],
+                            color: color_array,
+                            data: [is_color_flag, 0.0, 0.0, 0.0],
+                            data2: [0.0; 4],
+                        },
                     ]);
-                    state.indices.extend_from_slice(&[base, base + 1, base + 2, base, base + 2, base + 3]);
+                    state.indices.extend_from_slice(&[
+                        base,
+                        base + 1,
+                        base + 2,
+                        base,
+                        base + 2,
+                        base + 3,
+                    ]);
                 }
 
                 if *decoration != crate::mss::TextDecoration::None && text_width > 0.0 {
@@ -228,11 +367,25 @@ impl Batcher {
                         crate::core::Point::new(origin_x, line_y),
                         crate::core::Size::new(text_width, line_thickness),
                     );
-                    let line_color = crate::core::Color::new(color_array[0], color_array[1], color_array[2], color_array[3]);
+                    let line_color = crate::core::Color::new(
+                        color_array[0],
+                        color_array[1],
+                        color_array[2],
+                        color_array[3],
+                    );
                     self.add_rect(line_rect, line_color, [0.0; 4]);
                 }
             }
-            DrawCommand::Shadow { rect, color, blur_radius, offset, corner_radius, inset, clip_rect, .. } => {
+            DrawCommand::Shadow {
+                rect,
+                color,
+                blur_radius,
+                offset,
+                corner_radius,
+                inset,
+                clip_rect,
+                ..
+            } => {
                 if !self.buckets.is_empty() {
                     self.flush_all_buckets();
                 }
@@ -244,14 +397,35 @@ impl Batcher {
                     self.add_shadow(*rect, *color, *blur_radius, *offset, *corner_radius);
                 }
             }
-            DrawCommand::GlowShadow { rect, color, blur_radius, offset, corner_radius, clip_rect, .. } => {
+            DrawCommand::GlowShadow {
+                rect,
+                color,
+                blur_radius,
+                offset,
+                corner_radius,
+                clip_rect,
+                ..
+            } => {
                 if !self.buckets.is_empty() {
                     self.flush_all_buckets();
                 }
                 self.ensure_batch(ShaderType::GlowShadow, None, *clip_rect);
                 self.add_shadow(*rect, *color, *blur_radius, *offset, *corner_radius);
             }
-            DrawCommand::TextSelection { text, sel_start, sel_end, base_x, y, height, font_size, font_weight, color, font_family, clip_rect, .. } => {
+            DrawCommand::TextSelection {
+                text,
+                sel_start,
+                sel_end,
+                base_x,
+                y,
+                height,
+                font_size,
+                font_weight,
+                color,
+                font_family,
+                clip_rect,
+                ..
+            } => {
                 let sf = self.scale_factor;
                 let phys_font_size = ((*font_size * sf).round() as u16).max(1);
                 let ff = font_family.as_deref();
@@ -262,11 +436,23 @@ impl Batcher {
                 let sel_end = snap_boundary(text, *sel_end);
                 let start_char_count = text[..sel_start].chars().count();
                 let text_before_start = &text[..sel_start];
-                let start_x_offset = font_atlas.measure_text_width_styled(text_before_start, phys_font_size, start_char_count, bold, ff);
+                let start_x_offset = font_atlas.measure_text_width_styled(
+                    text_before_start,
+                    phys_font_size,
+                    start_char_count,
+                    bold,
+                    ff,
+                );
                 let start_x = *base_x + start_x_offset / sf;
                 let end_char_count = text[..sel_end].chars().count();
                 let text_before_end = &text[..sel_end];
-                let end_x_offset = font_atlas.measure_text_width_styled(text_before_end, phys_font_size, end_char_count, bold, ff);
+                let end_x_offset = font_atlas.measure_text_width_styled(
+                    text_before_end,
+                    phys_font_size,
+                    end_char_count,
+                    bold,
+                    ff,
+                );
                 let end_x = *base_x + end_x_offset / sf;
                 let sel_width = (end_x - start_x).max(1.0);
                 self.ensure_batch(ShaderType::Rect, None, *clip_rect);
@@ -276,14 +462,32 @@ impl Batcher {
                 );
                 self.add_rect(sel_rect, *color, [2.0; 4]);
             }
-            DrawCommand::TextCursor { text, cursor_pos, base_x, y, height, font_size, font_weight, color, font_family, clip_rect, .. } => {
+            DrawCommand::TextCursor {
+                text,
+                cursor_pos,
+                base_x,
+                y,
+                height,
+                font_size,
+                font_weight,
+                color,
+                font_family,
+                clip_rect,
+                ..
+            } => {
                 let sf = self.scale_factor;
                 let phys_font_size = ((*font_size * sf).round() as u16).max(1);
                 let bold = *font_weight >= 600;
                 let byte_pos = snap_boundary(text, *cursor_pos);
                 let text_before_cursor = &text[..byte_pos];
                 let char_count = text_before_cursor.chars().count();
-                let cursor_x_offset = font_atlas.measure_text_width_styled(text_before_cursor, phys_font_size, char_count, bold, font_family.as_deref());
+                let cursor_x_offset = font_atlas.measure_text_width_styled(
+                    text_before_cursor,
+                    phys_font_size,
+                    char_count,
+                    bold,
+                    font_family.as_deref(),
+                );
                 let cursor_x = *base_x + cursor_x_offset / sf;
                 self.ensure_batch(ShaderType::Rect, None, *clip_rect);
                 let cursor_rect = crate::core::Rect::new(
@@ -321,13 +525,21 @@ impl Batcher {
             }
             DrawCommand::BeginEffectLayer { effect, bounds } => {
                 self.flush_all_buckets();
-                self.ops.push(RenderOp::BeginEffect { effect: effect.clone(), bounds: *bounds });
+                self.ops.push(RenderOp::BeginEffect {
+                    effect: effect.clone(),
+                    bounds: *bounds,
+                });
             }
             DrawCommand::EndEffectLayer { .. } => {
                 self.flush_all_buckets();
                 self.ops.push(RenderOp::EndEffect);
             }
-            DrawCommand::Canvas { vertices, indices, clip_rect, .. } => {
+            DrawCommand::Canvas {
+                vertices,
+                indices,
+                clip_rect,
+                ..
+            } => {
                 self.ensure_batch(ShaderType::Rect, None, *clip_rect);
                 let opacity = self.current_opacity;
                 let transform = self.current_transform;
@@ -341,18 +553,29 @@ impl Batcher {
                     let pos = if is_identity {
                         v.position
                     } else {
-                        let p = transform.transform_point(
-                            euclid::Point2D::new(v.position[0], v.position[1]),
-                        );
+                        let p = transform
+                            .transform_point(euclid::Point2D::new(v.position[0], v.position[1]));
                         [p.x, p.y]
                     };
                     let mut color = v.color;
                     color[3] *= opacity;
-                    Vertex { position: pos, uv: v.uv, color, data: v.data, data2: v.data2 }
+                    Vertex {
+                        position: pos,
+                        uv: v.uv,
+                        color,
+                        data: v.data,
+                        data2: v.data2,
+                    }
                 }));
                 state.indices.extend(indices.iter().map(|idx| base + idx));
             }
-            DrawCommand::LineStrip { points, color, width, clip_rect, .. } => {
+            DrawCommand::LineStrip {
+                points,
+                color,
+                width,
+                clip_rect,
+                ..
+            } => {
                 self.ensure_batch(ShaderType::Line, None, *clip_rect);
                 let opacity = self.current_opacity;
                 let transform = self.current_transform;
@@ -375,7 +598,9 @@ impl Batcher {
                     let dx = b[0] - a[0];
                     let dy = b[1] - a[1];
                     let len = (dx * dx + dy * dy).sqrt();
-                    if len < 0.001 { continue; }
+                    if len < 0.001 {
+                        continue;
+                    }
                     let inv_len = 1.0 / len;
                     let dir = [dx * inv_len, dy * inv_len];
                     let norm = [-dir[1], dir[0]];
@@ -395,35 +620,95 @@ impl Batcher {
                         (corners, [a[0], a[1], b[0], b[1]])
                     } else {
                         use wide::f32x4;
-                        let xs = f32x4::new([corners[0][0], corners[1][0], corners[2][0], corners[3][0]]);
-                        let ys = f32x4::new([corners[0][1], corners[1][1], corners[2][1], corners[3][1]]);
-                        let xs_out = f32x4::splat(transform.m11) * xs + f32x4::splat(transform.m21) * ys + f32x4::splat(transform.m31);
-                        let ys_out = f32x4::splat(transform.m12) * xs + f32x4::splat(transform.m22) * ys + f32x4::splat(transform.m32);
+                        let xs = f32x4::new([
+                            corners[0][0],
+                            corners[1][0],
+                            corners[2][0],
+                            corners[3][0],
+                        ]);
+                        let ys = f32x4::new([
+                            corners[0][1],
+                            corners[1][1],
+                            corners[2][1],
+                            corners[3][1],
+                        ]);
+                        let xs_out = f32x4::splat(transform.m11) * xs
+                            + f32x4::splat(transform.m21) * ys
+                            + f32x4::splat(transform.m31);
+                        let ys_out = f32x4::splat(transform.m12) * xs
+                            + f32x4::splat(transform.m22) * ys
+                            + f32x4::splat(transform.m32);
                         let xo: [f32; 4] = xs_out.into();
                         let yo: [f32; 4] = ys_out.into();
                         let pa = transform.transform_point(euclid::Point2D::new(a[0], a[1]));
                         let pb = transform.transform_point(euclid::Point2D::new(b[0], b[1]));
                         (
-                            [[xo[0], yo[0]], [xo[1], yo[1]], [xo[2], yo[2]], [xo[3], yo[3]]],
+                            [
+                                [xo[0], yo[0]],
+                                [xo[1], yo[1]],
+                                [xo[2], yo[2]],
+                                [xo[3], yo[3]],
+                            ],
                             [pa.x, pa.y, pb.x, pb.y],
                         )
                     };
                     state.vertices.extend_from_slice(&[
-                        Vertex { position: transformed_corners[0], uv: [0.0, 0.0], color: color_array, data, data2 },
-                        Vertex { position: transformed_corners[1], uv: [0.0, 0.0], color: color_array, data, data2 },
-                        Vertex { position: transformed_corners[2], uv: [0.0, 0.0], color: color_array, data, data2 },
-                        Vertex { position: transformed_corners[3], uv: [0.0, 0.0], color: color_array, data, data2 },
+                        Vertex {
+                            position: transformed_corners[0],
+                            uv: [0.0, 0.0],
+                            color: color_array,
+                            data,
+                            data2,
+                        },
+                        Vertex {
+                            position: transformed_corners[1],
+                            uv: [0.0, 0.0],
+                            color: color_array,
+                            data,
+                            data2,
+                        },
+                        Vertex {
+                            position: transformed_corners[2],
+                            uv: [0.0, 0.0],
+                            color: color_array,
+                            data,
+                            data2,
+                        },
+                        Vertex {
+                            position: transformed_corners[3],
+                            uv: [0.0, 0.0],
+                            color: color_array,
+                            data,
+                            data2,
+                        },
                     ]);
-                    state.indices.extend_from_slice(&[base, base + 1, base + 2, base, base + 2, base + 3]);
+                    state.indices.extend_from_slice(&[
+                        base,
+                        base + 1,
+                        base + 2,
+                        base,
+                        base + 2,
+                        base + 3,
+                    ]);
                 }
             }
-            DrawCommand::Image { rect, texture_id, uv_rect, color, clip_rect, .. } => {
+            DrawCommand::Image {
+                rect,
+                texture_id,
+                uv_rect,
+                color,
+                clip_rect,
+                ..
+            } => {
                 self.ensure_batch(ShaderType::Image, Some(*texture_id), *clip_rect);
                 let color_array = self.apply_opacity(color.to_array());
                 let [p0, p1, p2, p3] = self.transform_quad([
                     [rect.origin.x, rect.origin.y],
                     [rect.origin.x + rect.size.width, rect.origin.y],
-                    [rect.origin.x + rect.size.width, rect.origin.y + rect.size.height],
+                    [
+                        rect.origin.x + rect.size.width,
+                        rect.origin.y + rect.size.height,
+                    ],
                     [rect.origin.x, rect.origin.y + rect.size.height],
                 ]);
                 let data = [2.0, 0.0, 0.0, 0.0];
@@ -431,12 +716,46 @@ impl Batcher {
                 let state = self.current_batch_mut();
                 let base = state.vertices.len() as u32;
                 state.vertices.extend_from_slice(&[
-                    Vertex { position: p0, uv: [uv_rect.origin.x, uv_rect.origin.y], color: color_array, data, data2: [0.0; 4] },
-                    Vertex { position: p1, uv: [uv_rect.origin.x + uv_rect.size.width, uv_rect.origin.y], color: color_array, data, data2: [0.0; 4] },
-                    Vertex { position: p2, uv: [uv_rect.origin.x + uv_rect.size.width, uv_rect.origin.y + uv_rect.size.height], color: color_array, data, data2: [0.0; 4] },
-                    Vertex { position: p3, uv: [uv_rect.origin.x, uv_rect.origin.y + uv_rect.size.height], color: color_array, data, data2: [0.0; 4] },
+                    Vertex {
+                        position: p0,
+                        uv: [uv_rect.origin.x, uv_rect.origin.y],
+                        color: color_array,
+                        data,
+                        data2: [0.0; 4],
+                    },
+                    Vertex {
+                        position: p1,
+                        uv: [uv_rect.origin.x + uv_rect.size.width, uv_rect.origin.y],
+                        color: color_array,
+                        data,
+                        data2: [0.0; 4],
+                    },
+                    Vertex {
+                        position: p2,
+                        uv: [
+                            uv_rect.origin.x + uv_rect.size.width,
+                            uv_rect.origin.y + uv_rect.size.height,
+                        ],
+                        color: color_array,
+                        data,
+                        data2: [0.0; 4],
+                    },
+                    Vertex {
+                        position: p3,
+                        uv: [uv_rect.origin.x, uv_rect.origin.y + uv_rect.size.height],
+                        color: color_array,
+                        data,
+                        data2: [0.0; 4],
+                    },
                 ]);
-                state.indices.extend_from_slice(&[base, base + 1, base + 2, base, base + 2, base + 3]);
+                state.indices.extend_from_slice(&[
+                    base,
+                    base + 1,
+                    base + 2,
+                    base,
+                    base + 2,
+                    base + 3,
+                ]);
             }
             DrawCommand::Cached(_) | DrawCommand::Custom { .. } => {}
         }

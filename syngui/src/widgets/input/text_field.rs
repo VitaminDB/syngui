@@ -1,17 +1,19 @@
+use crate::core::sync::Mutex;
 use crate::core::{Color, Point, Rect, RectExt, Size};
 use crate::input::{CursorIcon, Event, EventResult, Key, MouseButton};
 use crate::layout::Constraints;
 use crate::mss::{ComputedStyle, Dimension, MssFields, TextAlign, TextDecoration};
 use crate::render::{Border, DisplayList};
-use crate::widget::context::{EventContext, EventContextExt};
 use crate::signal::{use_signal, RwSignal};
+use crate::widget::context::{EventContext, EventContextExt};
 use crate::widget::selection::TextSelectionState;
-use crate::widgets::input::edit_menu::{edit_context_menu, EditMenuAction};
-use crate::widget::{DirtyFlags, Element, ElementId, ElementTree, StyledElement, UpdateContext, Widget};
+use crate::widget::{
+    DirtyFlags, Element, ElementId, ElementTree, StyledElement, UpdateContext, Widget,
+};
 use crate::widgets::containers::IntoWidget;
+use crate::widgets::input::edit_menu::{edit_context_menu, EditMenuAction};
 use std::any::Any;
 use std::sync::Arc;
-use crate::core::sync::Mutex;
 
 pub struct TextField {
     pub text: String,
@@ -116,14 +118,14 @@ impl TextField {
     }
 
     pub fn prefix_icon(self, icon: impl Into<String>) -> Self {
-        use crate::widgets::visual::icon::Icon;
         use crate::widget::styled::WidgetExt;
+        use crate::widgets::visual::icon::Icon;
         self.prefix(Icon::new(icon).style("icon-size", FONT_SIZE + 2.0))
     }
 
     pub fn suffix_icon(self, icon: impl Into<String>) -> Self {
-        use crate::widgets::visual::icon::Icon;
         use crate::widget::styled::WidgetExt;
+        use crate::widgets::visual::icon::Icon;
         self.suffix(Icon::new(icon).style("icon-size", FONT_SIZE + 2.0))
     }
 
@@ -363,7 +365,9 @@ impl TextFieldElement {
     }
 
     fn apply_input_filter(&mut self, s: &str) -> String {
-        let Some(ref f) = self.input_filter else { return s.to_string(); };
+        let Some(ref f) = self.input_filter else {
+            return s.to_string();
+        };
         let mut out = String::with_capacity(s.len());
         let mut first_rejected: Option<char> = None;
         for ch in s.chars() {
@@ -388,7 +392,8 @@ impl TextFieldElement {
     }
 
     fn char_idx_to_byte(&self, char_idx: usize) -> usize {
-        self.text.char_indices()
+        self.text
+            .char_indices()
             .nth(char_idx)
             .map(|(i, _)| i)
             .unwrap_or(self.text.len())
@@ -398,7 +403,8 @@ impl TextFieldElement {
         let font_size = self.mss.font_size_or(FONT_SIZE);
         let vis = self.visual_text();
         if let Some(ref tm) = self.text_measure {
-            let char_idx = tm.hit_test_char_styled(&vis, font_size, rel_x, self.mss.font_family.as_deref());
+            let char_idx =
+                tm.hit_test_char_styled(&vis, font_size, rel_x, self.mss.font_family.as_deref());
             self.char_idx_to_byte(char_idx)
         } else {
             let char_w = font_size * 0.6;
@@ -436,12 +442,25 @@ impl TextFieldElement {
     }
 
     fn text_left_offset(&self) -> f32 {
-        self.h_pad_left() + if self.prefix_width > 0.0 { self.prefix_width + 6.0 } else { 0.0 }
+        self.h_pad_left()
+            + if self.prefix_width > 0.0 {
+                self.prefix_width + 6.0
+            } else {
+                0.0
+            }
     }
 
     fn text_area_width(&self) -> f32 {
-        let prefix_gap = if self.prefix_width > 0.0 { self.prefix_width + 6.0 } else { 0.0 };
-        let suffix_gap = if self.suffix_width > 0.0 { self.suffix_width + 6.0 } else { 0.0 };
+        let prefix_gap = if self.prefix_width > 0.0 {
+            self.prefix_width + 6.0
+        } else {
+            0.0
+        };
+        let suffix_gap = if self.suffix_width > 0.0 {
+            self.suffix_width + 6.0
+        } else {
+            0.0
+        };
         (self.bounds.size.width - self.h_pad_left() - self.h_pad_right() - prefix_gap - suffix_gap)
             .max(0.0)
     }
@@ -452,7 +471,13 @@ impl TextFieldElement {
         let vis = self.visual_text();
         if let Some(ref tm) = self.text_measure {
             let bold = self.mss.font_weight_or(400) >= 700;
-            tm.measure_text_width_styled(&vis, font_size, char_count, bold, self.mss.font_family.as_deref())
+            tm.measure_text_width_styled(
+                &vis,
+                font_size,
+                char_count,
+                bold,
+                self.mss.font_family.as_deref(),
+            )
         } else {
             char_count as f32 * font_size * 0.6
         }
@@ -482,7 +507,10 @@ impl TextFieldElement {
         let extra = self.helper_extra();
         Rect::new(
             self.bounds.origin,
-            Size::new(self.bounds.size.width, (self.bounds.size.height - extra).max(0.0)),
+            Size::new(
+                self.bounds.size.width,
+                (self.bounds.size.height - extra).max(0.0),
+            ),
         )
     }
 
@@ -503,7 +531,10 @@ impl TextFieldElement {
                     .map(|s| s.to_string());
                 if let Some(selected) = selected {
                     crate::clipboard::copy(&selected);
-                    if self.selection.delete_selection(&mut self.text, &mut self.cursor_pos) {
+                    if self
+                        .selection
+                        .delete_selection(&mut self.text, &mut self.cursor_pos)
+                    {
                         self.trigger_change();
                         self.ensure_cursor_visible();
                     }
@@ -559,7 +590,13 @@ impl TextFieldElement {
         let mut s: String = trimmed
             .chars()
             .take(HINT_MAX_CHARS)
-            .map(|c| if c == '\n' || c == '\r' || c == '\t' { ' ' } else { c })
+            .map(|c| {
+                if c == '\n' || c == '\r' || c == '\t' {
+                    ' '
+                } else {
+                    c
+                }
+            })
             .collect();
         if trimmed.chars().count() > HINT_MAX_CHARS {
             s.push('…');
@@ -633,7 +670,8 @@ impl TextFieldElement {
             let text = text.replace('\n', " ").replace('\r', "");
             let filtered = self.apply_input_filter(&text);
             if !filtered.is_empty() || self.input_filter.is_none() {
-                self.selection.replace_selection(&mut self.text, &mut self.cursor_pos, &filtered);
+                self.selection
+                    .replace_selection(&mut self.text, &mut self.cursor_pos, &filtered);
                 self.trigger_change();
                 self.ensure_cursor_visible();
             }
@@ -696,10 +734,15 @@ impl Element for TextFieldElement {
     }
 
     fn layout(&mut self, constraints: Constraints) -> Size {
-        let field_height = self.mss.height.map(|d| d.resolve(constraints.max_height))
+        let field_height = self
+            .mss
+            .height
+            .map(|d| d.resolve(constraints.max_height))
             .unwrap_or(40.0_f32.max(constraints.min_height))
             .clamp(constraints.min_height, constraints.max_height);
-        let width = self.width.or(self.mss.width)
+        let width = self
+            .width
+            .or(self.mss.width)
             .map(|d| d.resolve(constraints.max_width))
             .unwrap_or(constraints.max_width)
             .clamp(constraints.min_width, constraints.max_width);
@@ -709,7 +752,8 @@ impl Element for TextFieldElement {
         } else {
             0.0
         };
-        let total_height = (field_height + extra).clamp(constraints.min_height, constraints.max_height);
+        let total_height =
+            (field_height + extra).clamp(constraints.min_height, constraints.max_height);
 
         let fg = self.mss.color.unwrap_or(Color::from_hex("#374151"));
         let affix_fg = fg.with_alpha(0.6);
@@ -746,7 +790,9 @@ impl Element for TextFieldElement {
         let radius = self.mss.border_radius_uniform(resolve_base, 6.0);
 
         let (bg_color, fg, border_color, draw_bw) = if self.mss.has_mss_styles {
-            let target = self.mss.target_props(self.hover, false, self.focused, false);
+            let target = self
+                .mss
+                .target_props(self.hover, false, self.focused, false);
             let mut bg = self.mss.effective_bg(&target, Color::WHITE);
             let mut fg = self.mss.effective_fg(&target, Color::from_hex("#374151"));
             let mut bc = self.mss.effective_border_color(&target, Color::TRANSPARENT);
@@ -754,7 +800,13 @@ impl Element for TextFieldElement {
             // это фокус-подсказка для полей без своего стиля, а не закон.
             let draw_bw = match self.mss.border_width {
                 Some(w) => w,
-                None => if self.focused { 2.0 } else { 1.0 },
+                None => {
+                    if self.focused {
+                        2.0
+                    } else {
+                        1.0
+                    }
+                }
             };
             if self.disabled {
                 bg = bg.with_alpha(bg.a * 0.5);
@@ -763,15 +815,25 @@ impl Element for TextFieldElement {
             }
             (bg, fg, bc, draw_bw)
         } else {
-            let has_custom_styles = self.mss.background_color.is_some() || self.mss.color.is_some() || self.mss.border_color.is_some();
-            let default_border = if has_custom_styles { Color::TRANSPARENT } else { Color::from_hex("#D1D5DB") };
+            let has_custom_styles = self.mss.background_color.is_some()
+                || self.mss.color.is_some()
+                || self.mss.border_color.is_some();
+            let default_border = if has_custom_styles {
+                Color::TRANSPARENT
+            } else {
+                Color::from_hex("#D1D5DB")
+            };
             let bg = self.mss.background_color.unwrap_or(Color::WHITE);
             let fg = self.mss.color.unwrap_or(Color::from_hex("#374151"));
             let border_base = self.mss.border_color.unwrap_or(default_border);
             let (bg_color, border_color) = if self.disabled {
                 (bg.darken(0.1), border_base)
             } else if self.focused {
-                let focus_color = if border_base.a < 0.01 { primary } else { primary.lerp(&border_base, 0.3) };
+                let focus_color = if border_base.a < 0.01 {
+                    primary
+                } else {
+                    primary.lerp(&border_base, 0.3)
+                };
                 (bg, focus_color)
             } else {
                 (bg, border_base)
@@ -780,7 +842,13 @@ impl Element for TextFieldElement {
             // это фокус-подсказка для полей без своего стиля, а не закон.
             let draw_bw = match self.mss.border_width {
                 Some(w) => w,
-                None => if self.focused { 2.0 } else { 1.0 },
+                None => {
+                    if self.focused {
+                        2.0
+                    } else {
+                        1.0
+                    }
+                }
             };
             (bg_color, fg, border_color, draw_bw)
         };
@@ -794,14 +862,25 @@ impl Element for TextFieldElement {
                 field,
                 bg_color,
                 [radius; 4],
-                Border { width: draw_bw, color: border_color },
+                Border {
+                    width: draw_bw,
+                    color: border_color,
+                },
             );
         } else {
             list.push_rect(field, bg_color, [radius; 4]);
         }
 
-        let prefix_gap = if self.prefix_width > 0.0 { self.prefix_width + 6.0 } else { 0.0 };
-        let _suffix_gap = if self.suffix_width > 0.0 { self.suffix_width + 6.0 } else { 0.0 };
+        let prefix_gap = if self.prefix_width > 0.0 {
+            self.prefix_width + 6.0
+        } else {
+            0.0
+        };
+        let _suffix_gap = if self.suffix_width > 0.0 {
+            self.suffix_width + 6.0
+        } else {
+            0.0
+        };
         let text_left = field.x() + self.h_pad_left() + prefix_gap;
         let text_w = self.text_area_width();
 
@@ -845,8 +924,16 @@ impl Element for TextFieldElement {
                 Point::new(text_left, text_y),
                 Size::new(text_w, text_height),
             );
-            list.push_text_styled(&self.placeholder, placeholder_rect, placeholder_color, font_size,
-                TextAlign::DEFAULT, TextDecoration::None, font_weight, self.mss.font_family.clone());
+            list.push_text_styled(
+                &self.placeholder,
+                placeholder_rect,
+                placeholder_color,
+                font_size,
+                TextAlign::DEFAULT,
+                TextDecoration::None,
+                font_weight,
+                self.mss.font_family.clone(),
+            );
         } else {
             let vis = self.visual_text();
 
@@ -892,15 +979,26 @@ impl Element for TextFieldElement {
                 display_text = vis.clone();
             }
 
-            list.push_text_styled(&display_text, text_rect, text_color, font_size,
-                TextAlign::DEFAULT, TextDecoration::None, font_weight, self.mss.font_family.clone());
+            list.push_text_styled(
+                &display_text,
+                text_rect,
+                text_color,
+                font_size,
+                TextAlign::DEFAULT,
+                TextDecoration::None,
+                font_weight,
+                self.mss.font_family.clone(),
+            );
 
-            if !self.obscure && self.preedit_text.is_some() && preedit_byte_end > preedit_byte_start {
+            if !self.obscure && self.preedit_text.is_some() && preedit_byte_end > preedit_byte_start
+            {
                 if let Some(ref tm) = self.text_measure {
                     let pre_preedit = &display_text[..preedit_byte_start];
                     let preedit_str = &display_text[preedit_byte_start..preedit_byte_end];
-                    let pre_w = tm.measure_text_width(pre_preedit, font_size, pre_preedit.chars().count());
-                    let preedit_w = tm.measure_text_width(preedit_str, font_size, preedit_str.chars().count());
+                    let pre_w =
+                        tm.measure_text_width(pre_preedit, font_size, pre_preedit.chars().count());
+                    let preedit_w =
+                        tm.measure_text_width(preedit_str, font_size, preedit_str.chars().count());
                     let underline_y = text_y + text_height - 1.0;
                     let underline_rect = Rect::new(
                         Point::new(scrolled_text_left + pre_w, underline_y),
@@ -940,7 +1038,10 @@ impl Element for TextFieldElement {
             let (text, color) = if let Some(ref e) = self.error_text {
                 (e.as_str(), Color::from_hex(ERROR_COLOR_HEX))
             } else {
-                (self.helper_text.as_deref().unwrap_or(""), fg.with_alpha(0.6))
+                (
+                    self.helper_text.as_deref().unwrap_or(""),
+                    fg.with_alpha(0.6),
+                )
             };
             list.push_text_styled(
                 text,
@@ -958,7 +1059,11 @@ impl Element for TextFieldElement {
         if self.focused && self.hint_visible && self.hint_text.is_some() {
             let chip = self.hint_chip_rect();
             let chip_radius = 10.0_f32.min(chip.size.height / 2.0);
-            let chip_bg = if self.hint_hover { bg_color.darken(0.05) } else { bg_color };
+            let chip_bg = if self.hint_hover {
+                bg_color.darken(0.05)
+            } else {
+                bg_color
+            };
             let chip_border = if border_color.a > 0.01 {
                 border_color
             } else {
@@ -977,7 +1082,10 @@ impl Element for TextFieldElement {
                 chip,
                 chip_bg,
                 [chip_radius; 4],
-                Border { width: 1.0, color: chip_border },
+                Border {
+                    width: 1.0,
+                    color: chip_border,
+                },
             );
 
             let icon_rect = Rect::new(
@@ -990,7 +1098,10 @@ impl Element for TextFieldElement {
             let hint_text_h = HINT_FONT_SIZE + 4.0;
             let hint_rect = Rect::new(
                 Point::new(text_x, chip.y() + (chip.size.height - hint_text_h) / 2.0),
-                Size::new((chip.x() + chip.size.width - HINT_PADDING_X - text_x).max(0.0), hint_text_h),
+                Size::new(
+                    (chip.x() + chip.size.width - HINT_PADDING_X - text_x).max(0.0),
+                    hint_text_h,
+                ),
             );
             list.push_text_styled_singleline(
                 &self.hint_display_text(),
@@ -1036,7 +1147,10 @@ impl Element for TextFieldElement {
                 }
                 if self.hover {
                     let over_prefix = self.on_prefix_click.is_some()
-                        && self.prefix_hit_rect().map(|r| r.contains(*pos)).unwrap_or(false);
+                        && self
+                            .prefix_hit_rect()
+                            .map(|r| r.contains(*pos))
+                            .unwrap_or(false);
                     if over_prefix {
                         ctx.set_cursor(CursorIcon::Pointer);
                     } else {
@@ -1044,7 +1158,8 @@ impl Element for TextFieldElement {
                     }
                 }
                 if self.hover != was_hover {
-                    self.mss.start_transition_to(self.hover, false, self.focused, false);
+                    self.mss
+                        .start_transition_to(self.hover, false, self.focused, false);
                     ctx.request_paint();
                 }
                 if self.hover {
@@ -1066,7 +1181,8 @@ impl Element for TextFieldElement {
             }
             Event::FocusLost => {
                 self.focused = false;
-                self.mss.start_transition_to(self.hover, false, false, false);
+                self.mss
+                    .start_transition_to(self.hover, false, false, false);
                 ctx.set_virtual_keyboard_visible(false);
                 self.dismiss_hint(ctx);
                 self.selection.clear();
@@ -1190,7 +1306,9 @@ impl Element for TextFieldElement {
 
                 if ctrl && matches!(key, Key::C) {
                     if !self.obscure {
-                        if let Some(selected) = self.selection.selected_text(&self.text, self.cursor_pos) {
+                        if let Some(selected) =
+                            self.selection.selected_text(&self.text, self.cursor_pos)
+                        {
                             ctx.copy_to_clipboard(selected);
                         }
                     }
@@ -1199,11 +1317,16 @@ impl Element for TextFieldElement {
 
                 if ctrl && matches!(key, Key::X) && !self.read_only {
                     if !self.obscure {
-                        if let Some(selected) = self.selection.selected_text(&self.text, self.cursor_pos) {
+                        if let Some(selected) =
+                            self.selection.selected_text(&self.text, self.cursor_pos)
+                        {
                             ctx.copy_to_clipboard(selected);
                         }
                     }
-                    if self.selection.delete_selection(&mut self.text, &mut self.cursor_pos) {
+                    if self
+                        .selection
+                        .delete_selection(&mut self.text, &mut self.cursor_pos)
+                    {
                         self.trigger_change();
                         self.ensure_cursor_visible();
                         ctx.request_paint();
@@ -1218,7 +1341,11 @@ impl Element for TextFieldElement {
                         if !filtered.is_empty()
                             || (filtered.is_empty() && self.input_filter.is_none())
                         {
-                            self.selection.replace_selection(&mut self.text, &mut self.cursor_pos, &filtered);
+                            self.selection.replace_selection(
+                                &mut self.text,
+                                &mut self.cursor_pos,
+                                &filtered,
+                            );
                             self.trigger_change();
                             self.ensure_cursor_visible();
                         }
@@ -1229,15 +1356,17 @@ impl Element for TextFieldElement {
 
                 if self.read_only {
                     match key {
-                        Key::Left | Key::Right | Key::Home | Key::End => {
-                        }
+                        Key::Left | Key::Right | Key::Home | Key::End => {}
                         _ => return EventResult::Ignored,
                     }
                 }
 
                 match key {
                     Key::Backspace => {
-                        if self.selection.delete_selection(&mut self.text, &mut self.cursor_pos) {
+                        if self
+                            .selection
+                            .delete_selection(&mut self.text, &mut self.cursor_pos)
+                        {
                             self.trigger_change();
                         } else if self.cursor_pos > 0 {
                             let prev = self.text[..self.cursor_pos]
@@ -1254,7 +1383,10 @@ impl Element for TextFieldElement {
                         EventResult::Handled
                     }
                     Key::Delete => {
-                        if self.selection.delete_selection(&mut self.text, &mut self.cursor_pos) {
+                        if self
+                            .selection
+                            .delete_selection(&mut self.text, &mut self.cursor_pos)
+                        {
                             self.trigger_change();
                         } else if self.cursor_pos < self.text.len() {
                             if self.text.is_char_boundary(self.cursor_pos) {
@@ -1360,7 +1492,8 @@ impl Element for TextFieldElement {
 
                 let mut ch_buf = [0u8; 4];
                 let ch_str = ch.encode_utf8(&mut ch_buf);
-                self.selection.replace_selection(&mut self.text, &mut self.cursor_pos, ch_str);
+                self.selection
+                    .replace_selection(&mut self.text, &mut self.cursor_pos, ch_str);
                 self.preedit_text = None;
                 self.preedit_cursor = None;
                 self.trigger_change();
@@ -1391,7 +1524,8 @@ impl Element for TextFieldElement {
                 self.preedit_text = None;
                 self.preedit_cursor = None;
                 let filtered = self.apply_input_filter(text);
-                self.selection.replace_selection(&mut self.text, &mut self.cursor_pos, &filtered);
+                self.selection
+                    .replace_selection(&mut self.text, &mut self.cursor_pos, &filtered);
                 self.trigger_change();
                 self.ensure_cursor_visible();
                 ctx.request_paint();
@@ -1412,7 +1546,11 @@ impl Element for TextFieldElement {
                 EventResult::Handled
             }
             Event::ImeEnabled | Event::ImeDisabled => {
-                if self.focused { EventResult::Handled } else { EventResult::Ignored }
+                if self.focused {
+                    EventResult::Handled
+                } else {
+                    EventResult::Ignored
+                }
             }
             _ => EventResult::Ignored,
         }
@@ -1463,7 +1601,9 @@ impl Element for TextFieldElement {
         &self.classes
     }
 
-    fn element_type_name(&self) -> &str { "TextField" }
+    fn element_type_name(&self) -> &str {
+        "TextField"
+    }
 
     /// Декларативный overlay для чипа подсказки буфера обмена: события в его
     /// границах маршрутизируются полю, а `sync_overlay_stack` держит границы
@@ -1520,8 +1660,12 @@ impl Element for TextFieldElement {
         self.menu_mounted = true;
     }
 
-    fn reset_mss_styles(&mut self) { self.mss.reset(); }
-    fn mss(&self) -> Option<&crate::mss::MssFields> { Some(&self.mss) }
+    fn reset_mss_styles(&mut self) {
+        self.mss.reset();
+    }
+    fn mss(&self) -> Option<&crate::mss::MssFields> {
+        Some(&self.mss)
+    }
     fn apply_computed_style(&mut self, style: &ComputedStyle) {
         self.mss.apply(style);
         self.apply_style(style);
@@ -1536,7 +1680,8 @@ impl Element for TextFieldElement {
         selected: Option<&ComputedStyle>,
         _checked: Option<&ComputedStyle>,
     ) {
-        self.mss.apply_transitions(base, hover, active, focus, selected);
+        self.mss
+            .apply_transitions(base, hover, active, focus, selected);
     }
 
     fn accessibility_info(&self) -> Option<crate::a11y::AccessibilityInfo> {
@@ -1548,8 +1693,16 @@ impl Element for TextFieldElement {
                 ..Default::default()
             },
             properties: crate::a11y::NodeProperties {
-                value: if self.text.is_empty() || self.obscure { None } else { Some(self.text.clone()) },
-                placeholder: if self.placeholder.is_empty() { None } else { Some(self.placeholder.clone()) },
+                value: if self.text.is_empty() || self.obscure {
+                    None
+                } else {
+                    Some(self.text.clone())
+                },
+                placeholder: if self.placeholder.is_empty() {
+                    None
+                } else {
+                    Some(self.placeholder.clone())
+                },
                 ..Default::default()
             },
         })

@@ -277,12 +277,7 @@ impl Element for ParticleElement {
                     let (c, si) = (p.rot.cos(), p.rot.sin());
                     let hw = s * 0.5;
                     let hh = s * 0.32;
-                    let corners = [
-                        (-hw, -hh),
-                        (hw, -hh),
-                        (hw, hh),
-                        (-hw, hh),
-                    ];
+                    let corners = [(-hw, -hh), (hw, -hh), (hw, hh), (-hw, hh)];
                     let pts: Vec<(f32, f32)> = corners
                         .iter()
                         .map(|&(dx, dy)| (p.x + dx * c - dy * si, p.y + dx * si + dy * c))
@@ -331,13 +326,16 @@ impl Element for ParticleElement {
             p.rot += p.vrot * dt;
             p.life -= dt;
         }
-        self.particles
-            .retain(|p| p.life > 0.0 && p.y < h + 40.0);
+        self.particles.retain(|p| p.life > 0.0 && p.y < h + 40.0);
 
         !self.particles.is_empty()
     }
 
-    fn handle_event(&mut self, _event: &Event, _ctx: &mut crate::widget::context::EventContext) -> EventResult {
+    fn handle_event(
+        &mut self,
+        _event: &Event,
+        _ctx: &mut crate::widget::context::EventContext,
+    ) -> EventResult {
         EventResult::Ignored
     }
 

@@ -1,8 +1,8 @@
 use std::collections::HashMap;
 
 use super::super::stylesheet::*;
-use super::super::ParseError;
 use super::super::value::StyleValue;
+use super::super::ParseError;
 use super::utils::ParserCursor;
 use super::value::*;
 
@@ -17,7 +17,12 @@ fn insert_with_shorthand_expansion(
             expand_border_side_shorthand(property.as_str(), &value)
         }
         "padding" => expand_edge_shorthand(
-            ["padding-top", "padding-right", "padding-bottom", "padding-left"],
+            [
+                "padding-top",
+                "padding-right",
+                "padding-bottom",
+                "padding-left",
+            ],
             &value,
         ),
         "margin" => expand_edge_shorthand(
@@ -49,14 +54,17 @@ fn insert_with_shorthand_expansion(
     }
 }
 
-pub(super) fn parse_root_variables(cursor: &mut ParserCursor, stylesheet: &mut StyleSheet) -> Result<(), ParseError> {
+pub(super) fn parse_root_variables(
+    cursor: &mut ParserCursor,
+    stylesheet: &mut StyleSheet,
+) -> Result<(), ParseError> {
     cursor.consume(":root");
     cursor.skip_whitespace();
 
     if cursor.peek() != Some('{') {
         return Err(ParseError::UnexpectedToken(
             format!("Expected '{{', got {:?}", cursor.peek()),
-            cursor.line
+            cursor.line,
         ));
     }
     cursor.consume("{");
@@ -64,7 +72,9 @@ pub(super) fn parse_root_variables(cursor: &mut ParserCursor, stylesheet: &mut S
 
     while cursor.peek() != Some('}') && !cursor.is_eof() {
         cursor.skip_whitespace();
-        if cursor.peek() == Some('}') || cursor.is_eof() { break; }
+        if cursor.peek() == Some('}') || cursor.is_eof() {
+            break;
+        }
 
         if cursor.peek() == Some('/') && cursor.peek_next() == Some('*') {
             cursor.skip_comment();
@@ -77,7 +87,7 @@ pub(super) fn parse_root_variables(cursor: &mut ParserCursor, stylesheet: &mut S
         if cursor.peek() != Some(':') {
             return Err(ParseError::UnexpectedToken(
                 format!("Expected ':', got {:?}", cursor.peek()),
-                cursor.line
+                cursor.line,
             ));
         }
         cursor.consume(":");
@@ -102,7 +112,10 @@ pub(super) fn parse_root_variables(cursor: &mut ParserCursor, stylesheet: &mut S
     Ok(())
 }
 
-pub(super) fn parse_keyframes(cursor: &mut ParserCursor, stylesheet: &mut StyleSheet) -> Result<(), ParseError> {
+pub(super) fn parse_keyframes(
+    cursor: &mut ParserCursor,
+    stylesheet: &mut StyleSheet,
+) -> Result<(), ParseError> {
     cursor.consume("@keyframes");
     cursor.skip_whitespace();
 
@@ -112,7 +125,7 @@ pub(super) fn parse_keyframes(cursor: &mut ParserCursor, stylesheet: &mut StyleS
     if cursor.peek() != Some('{') {
         return Err(ParseError::UnexpectedToken(
             format!("Expected '{{' after @keyframes {}", name),
-            cursor.line
+            cursor.line,
         ));
     }
     cursor.consume("{");
@@ -122,7 +135,9 @@ pub(super) fn parse_keyframes(cursor: &mut ParserCursor, stylesheet: &mut StyleS
 
     while cursor.peek() != Some('}') && !cursor.is_eof() {
         cursor.skip_whitespace();
-        if cursor.peek() == Some('}') || cursor.is_eof() { break; }
+        if cursor.peek() == Some('}') || cursor.is_eof() {
+            break;
+        }
 
         if cursor.peek() == Some('/') && cursor.peek_next() == Some('*') {
             cursor.skip_comment();
@@ -151,7 +166,11 @@ pub(super) fn parse_keyframes(cursor: &mut ParserCursor, stylesheet: &mut StyleS
                 }
                 let num_str = &cursor.input[start..cursor.position];
                 let pct: f32 = num_str.parse().map_err(|_| {
-                    ParseError::InvalidValue(num_str.to_string(), "keyframe percentage".to_string(), cursor.line)
+                    ParseError::InvalidValue(
+                        num_str.to_string(),
+                        "keyframe percentage".to_string(),
+                        cursor.line,
+                    )
                 })?;
                 if cursor.peek() == Some('%') {
                     cursor.consume("%");
@@ -171,7 +190,7 @@ pub(super) fn parse_keyframes(cursor: &mut ParserCursor, stylesheet: &mut StyleS
         if cursor.peek() != Some('{') {
             return Err(ParseError::UnexpectedToken(
                 format!("Expected '{{' in @keyframes step"),
-                cursor.line
+                cursor.line,
             ));
         }
         cursor.consume("{");
@@ -180,7 +199,9 @@ pub(super) fn parse_keyframes(cursor: &mut ParserCursor, stylesheet: &mut StyleS
         let mut declarations = std::collections::HashMap::new();
         while cursor.peek() != Some('}') && !cursor.is_eof() {
             cursor.skip_whitespace();
-            if cursor.peek() == Some('}') || cursor.is_eof() { break; }
+            if cursor.peek() == Some('}') || cursor.is_eof() {
+                break;
+            }
 
             if cursor.peek() == Some('/') && cursor.peek_next() == Some('*') {
                 cursor.skip_comment();
@@ -192,7 +213,7 @@ pub(super) fn parse_keyframes(cursor: &mut ParserCursor, stylesheet: &mut StyleS
             if cursor.peek() != Some(':') {
                 return Err(ParseError::UnexpectedToken(
                     format!("Expected ':' in @keyframes declaration"),
-                    cursor.line
+                    cursor.line,
                 ));
             }
             cursor.consume(":");
@@ -213,7 +234,10 @@ pub(super) fn parse_keyframes(cursor: &mut ParserCursor, stylesheet: &mut StyleS
         }
 
         for position in positions {
-            steps.push(KeyframeStep { position, declarations: declarations.clone() });
+            steps.push(KeyframeStep {
+                position,
+                declarations: declarations.clone(),
+            });
         }
         cursor.skip_whitespace();
     }
@@ -221,10 +245,17 @@ pub(super) fn parse_keyframes(cursor: &mut ParserCursor, stylesheet: &mut StyleS
     if cursor.peek() == Some('}') {
         cursor.consume("}");
     } else {
-        return Err(ParseError::UnclosedBlock(format!("@keyframes {}", name), cursor.line));
+        return Err(ParseError::UnclosedBlock(
+            format!("@keyframes {}", name),
+            cursor.line,
+        ));
     }
 
-    steps.sort_by(|a, b| a.position.partial_cmp(&b.position).unwrap_or(std::cmp::Ordering::Equal));
+    steps.sort_by(|a, b| {
+        a.position
+            .partial_cmp(&b.position)
+            .unwrap_or(std::cmp::Ordering::Equal)
+    });
 
     stylesheet.add_keyframes(KeyframesDefinition {
         name: name.clone(),
@@ -250,7 +281,7 @@ pub(super) fn parse_rule(
     if cursor.peek() != Some('{') {
         return Err(ParseError::UnexpectedToken(
             format!("Expected '{{', got {:?}", cursor.peek()),
-            cursor.line
+            cursor.line,
         ));
     }
     cursor.consume("{");
@@ -270,9 +301,7 @@ pub(super) fn parse_rule(
         }
 
         if is_nested_rule_start(cursor) {
-            let current_selector = build_selector_for_nesting(
-                cursor, &selector_str, parent_chain,
-            )?;
+            let current_selector = build_selector_for_nesting(cursor, &selector_str, parent_chain)?;
             if !declarations.is_empty() {
                 let selector = build_final_selector(cursor, &selector_str, parent_chain)?;
                 let selector_str_full = build_selector_str(cursor, &selector_str, parent_chain);
@@ -294,7 +323,7 @@ pub(super) fn parse_rule(
         if cursor.peek() != Some(':') {
             return Err(ParseError::UnexpectedToken(
                 format!("Expected ':', got {:?}", cursor.peek()),
-                cursor.line
+                cursor.line,
             ));
         }
         cursor.consume(":");
@@ -353,7 +382,9 @@ fn build_selector_for_nesting(
     parent_chain: Option<&SelectorChain>,
 ) -> Result<SelectorChain, ParseError> {
     let chains = super::selector::parse_selector_chains(cursor, selector_str)?;
-    let first_chain = chains.into_iter().next()
+    let first_chain = chains
+        .into_iter()
+        .next()
         .ok_or_else(|| ParseError::EmptySelector(cursor.line))?;
 
     if let Some(parent) = parent_chain {
@@ -373,7 +404,8 @@ fn build_final_selector(
     let chains = super::selector::parse_selector_chains(cursor, selector_str)?;
 
     if let Some(parent) = parent_chain {
-        let combined: Vec<SelectorChain> = chains.iter()
+        let combined: Vec<SelectorChain> = chains
+            .iter()
             .map(|c| combine_chains(cursor, parent, c))
             .collect();
 
@@ -417,13 +449,20 @@ fn chain_to_selector(chain: SelectorChain) -> Result<Selector, ParseError> {
     }
 }
 
-fn build_selector_str(cursor: &ParserCursor, selector_str: &str, parent_chain: Option<&SelectorChain>) -> String {
+fn build_selector_str(
+    cursor: &ParserCursor,
+    selector_str: &str,
+    parent_chain: Option<&SelectorChain>,
+) -> String {
     if let Some(parent) = parent_chain {
         let parent_str = chain_to_string(cursor, parent);
         let child_str = selector_str.trim();
         if child_str.starts_with('&') {
             format!("{}{}", parent_str, &child_str[1..])
-        } else if child_str.starts_with('>') || child_str.starts_with('+') || child_str.starts_with('~') {
+        } else if child_str.starts_with('>')
+            || child_str.starts_with('+')
+            || child_str.starts_with('~')
+        {
             format!("{} {}", parent_str, child_str)
         } else {
             format!("{} {}", parent_str, child_str)
@@ -447,14 +486,32 @@ fn chain_to_string(_cursor: &ParserCursor, chain: &SelectorChain) -> String {
             }
         }
         match seg {
-            SelectorPart::Class(c) => { result.push('.'); result.push_str(c); }
+            SelectorPart::Class(c) => {
+                result.push('.');
+                result.push_str(c);
+            }
             SelectorPart::Element(e) => result.push_str(e),
             SelectorPart::Universal => result.push('*'),
-            SelectorPart::Id(id) => { result.push('#'); result.push_str(id); }
-            SelectorPart::Compound { element, id, classes } => {
-                if let Some(e) = element { result.push_str(e); }
-                if let Some(i) = id { result.push('#'); result.push_str(i); }
-                for c in classes { result.push('.'); result.push_str(c); }
+            SelectorPart::Id(id) => {
+                result.push('#');
+                result.push_str(id);
+            }
+            SelectorPart::Compound {
+                element,
+                id,
+                classes,
+            } => {
+                if let Some(e) = element {
+                    result.push_str(e);
+                }
+                if let Some(i) = id {
+                    result.push('#');
+                    result.push_str(i);
+                }
+                for c in classes {
+                    result.push('.');
+                    result.push_str(c);
+                }
             }
         }
     }
@@ -465,7 +522,11 @@ fn chain_to_string(_cursor: &ParserCursor, chain: &SelectorChain) -> String {
     result
 }
 
-fn combine_chains(_cursor: &ParserCursor, parent: &SelectorChain, child: &SelectorChain) -> SelectorChain {
+fn combine_chains(
+    _cursor: &ParserCursor,
+    parent: &SelectorChain,
+    child: &SelectorChain,
+) -> SelectorChain {
     if child.segments.is_empty() {
         let mut combined = parent.clone();
         combined.pseudo = child.pseudo.clone();

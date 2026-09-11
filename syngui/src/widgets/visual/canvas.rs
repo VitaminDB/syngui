@@ -1,11 +1,13 @@
-use crate::core::{Color, Point, Rect, Size};
 use crate::core::canvas::CanvasContext;
+use crate::core::{Color, Point, Rect, Size};
 use crate::input::{Event, EventResult};
 use crate::layout::Constraints;
-use crate::mss::{ComputedStyle, Dimension};
 use crate::mss::MssFields;
+use crate::mss::{ComputedStyle, Dimension};
 use crate::render::DisplayList;
-use crate::widget::{DirtyFlags, Element, ElementId, ElementTree, StyledElement, UpdateContext, Widget};
+use crate::widget::{
+    DirtyFlags, Element, ElementId, ElementTree, StyledElement, UpdateContext, Widget,
+};
 use std::any::Any;
 use std::sync::Arc;
 
@@ -116,8 +118,18 @@ impl Element for CanvasElement {
     }
 
     fn layout(&mut self, constraints: Constraints) -> Size {
-        let width = self.width.or(self.mss.width).map(|d| d.resolve(constraints.max_width)).unwrap_or(constraints.max_width).min(constraints.max_width);
-        let height = self.height.or(self.mss.height).map(|d| d.resolve(constraints.max_height)).unwrap_or(200.0).min(constraints.max_height);
+        let width = self
+            .width
+            .or(self.mss.width)
+            .map(|d| d.resolve(constraints.max_width))
+            .unwrap_or(constraints.max_width)
+            .min(constraints.max_width);
+        let height = self
+            .height
+            .or(self.mss.height)
+            .map(|d| d.resolve(constraints.max_height))
+            .unwrap_or(200.0)
+            .min(constraints.max_height);
         self.bounds = Rect::new(Point::zero(), Size::new(width, height));
         Size::new(width, height)
     }
@@ -129,7 +141,11 @@ impl Element for CanvasElement {
         }
 
         let mut ctx = CanvasContext::new(self.bounds.origin, self.bounds.size);
-        ctx.set_mss_colors(self.mss.color, self.mss.background_color, self.mss.accent_color);
+        ctx.set_mss_colors(
+            self.mss.color,
+            self.mss.background_color,
+            self.mss.accent_color,
+        );
         (self.draw)(&mut ctx, self.elapsed);
 
         ctx.flush(list);
@@ -148,7 +164,11 @@ impl Element for CanvasElement {
         false
     }
 
-    fn handle_event(&mut self, _event: &Event, _ctx: &mut crate::widget::context::EventContext) -> EventResult {
+    fn handle_event(
+        &mut self,
+        _event: &Event,
+        _ctx: &mut crate::widget::context::EventContext,
+    ) -> EventResult {
         EventResult::Ignored
     }
 
@@ -199,12 +219,20 @@ impl Element for CanvasElement {
         &self.classes
     }
 
-    fn reset_mss_styles(&mut self) { self.mss.reset(); }
-    fn mss(&self) -> Option<&crate::mss::MssFields> { Some(&self.mss) }
+    fn reset_mss_styles(&mut self) {
+        self.mss.reset();
+    }
+    fn mss(&self) -> Option<&crate::mss::MssFields> {
+        Some(&self.mss)
+    }
     fn apply_computed_style(&mut self, style: &ComputedStyle) {
         self.mss.apply(style);
-        if let Some(d) = self.mss.width { self.width = Some(d); }
-        if let Some(d) = self.mss.height { self.height = Some(d); }
+        if let Some(d) = self.mss.width {
+            self.width = Some(d);
+        }
+        if let Some(d) = self.mss.height {
+            self.height = Some(d);
+        }
         self.mark_dirty(DirtyFlags::LAYOUT | DirtyFlags::RENDER);
     }
 
@@ -217,7 +245,8 @@ impl Element for CanvasElement {
         selected: Option<&ComputedStyle>,
         _checked: Option<&ComputedStyle>,
     ) {
-        self.mss.apply_transitions(base, hover, active, focus, selected);
+        self.mss
+            .apply_transitions(base, hover, active, focus, selected);
     }
 
     fn accessibility_info(&self) -> Option<crate::a11y::AccessibilityInfo> {

@@ -1,11 +1,13 @@
+use super::IntoWidget;
 use crate::core::{Point, Rect, Size};
 use crate::input::{Event, EventResult};
 use crate::layout::Constraints;
 use crate::mss::ComputedStyle;
 use crate::mss::MssFields;
 use crate::render::DisplayList;
-use crate::widget::{DirtyFlags, Element, ElementId, ElementTree, LayoutHint, StyledElement, UpdateContext, Widget};
-use super::IntoWidget;
+use crate::widget::{
+    DirtyFlags, Element, ElementId, ElementTree, LayoutHint, StyledElement, UpdateContext, Widget,
+};
 use std::any::Any;
 
 #[derive(Clone, Copy, Debug, Default)]
@@ -87,13 +89,17 @@ impl Widget for Stack {
     fn mount(&self, tree: &mut ElementTree, parent_id: ElementId) {
         for child in &self.children {
             let child_element = child.create_element();
-            let child_id = tree.insert_with_type_id(child_element, Some(parent_id), child.as_any().type_id());
+            let child_id =
+                tree.insert_with_type_id(child_element, Some(parent_id), child.as_any().type_id());
             child.mount(tree, child_id);
         }
     }
 
     fn child_widgets(&self) -> Vec<&dyn Widget> {
-        self.children.iter().map(|c| c.as_ref() as &dyn Widget).collect()
+        self.children
+            .iter()
+            .map(|c| c.as_ref() as &dyn Widget)
+            .collect()
     }
 }
 
@@ -118,15 +124,28 @@ impl Element for StackElement {
     }
 
     fn layout(&mut self, constraints: Constraints) -> Size {
-        let width = if constraints.max_width.is_finite() { constraints.max_width } else { 40.0 };
-        let height = constraints.min_height.max(40.0).min(if constraints.max_height.is_finite() { constraints.max_height } else { 40.0 });
+        let width = if constraints.max_width.is_finite() {
+            constraints.max_width
+        } else {
+            40.0
+        };
+        let height = constraints
+            .min_height
+            .max(40.0)
+            .min(if constraints.max_height.is_finite() {
+                constraints.max_height
+            } else {
+                40.0
+            });
 
         self.bounds = Rect::new(Point::zero(), Size::new(width, height));
         Size::new(width, height)
     }
 
     fn layout_hint(&self) -> LayoutHint {
-        LayoutHint::Stack { expand: matches!(self.fit, StackFit::Expand) }
+        LayoutHint::Stack {
+            expand: matches!(self.fit, StackFit::Expand),
+        }
     }
 
     fn build_display_list(&self, list: &mut DisplayList, _clip: Rect) {
@@ -137,11 +156,17 @@ impl Element for StackElement {
         self.mss.paint_border(list, self.bounds);
     }
 
-    fn handle_event(&mut self, _event: &Event, _ctx: &mut crate::widget::context::EventContext) -> EventResult {
+    fn handle_event(
+        &mut self,
+        _event: &Event,
+        _ctx: &mut crate::widget::context::EventContext,
+    ) -> EventResult {
         EventResult::Ignored
     }
 
-    fn passthrough_hit_test(&self) -> bool { true }
+    fn passthrough_hit_test(&self) -> bool {
+        true
+    }
 
     fn children(&self) -> &[ElementId] {
         &self.child_ids
@@ -177,9 +202,13 @@ impl Element for StackElement {
 
     fn mount(&mut self, _tree: &mut ElementTree) {}
 
-    fn element_type_name(&self) -> &str { "Stack" }
+    fn element_type_name(&self) -> &str {
+        "Stack"
+    }
 
-    fn clip_content(&self) -> bool { self.clip }
+    fn clip_content(&self) -> bool {
+        self.clip
+    }
 
     fn set_classes(&mut self, classes: Vec<String>) {
         self.classes = classes;
@@ -190,8 +219,12 @@ impl Element for StackElement {
         &self.classes
     }
 
-    fn reset_mss_styles(&mut self) { self.mss.reset(); }
-    fn mss(&self) -> Option<&crate::mss::MssFields> { Some(&self.mss) }
+    fn reset_mss_styles(&mut self) {
+        self.mss.reset();
+    }
+    fn mss(&self) -> Option<&crate::mss::MssFields> {
+        Some(&self.mss)
+    }
     fn apply_computed_style(&mut self, style: &ComputedStyle) {
         self.mss.apply(style);
         self.mark_dirty(DirtyFlags::LAYOUT | DirtyFlags::RENDER);
@@ -206,7 +239,8 @@ impl Element for StackElement {
         selected: Option<&ComputedStyle>,
         _checked: Option<&ComputedStyle>,
     ) {
-        self.mss.apply_transitions(base, hover, active, focus, selected);
+        self.mss
+            .apply_transitions(base, hover, active, focus, selected);
     }
 }
 

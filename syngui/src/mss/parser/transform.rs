@@ -68,7 +68,10 @@ fn parse_pair(a: &str, b: &str) -> Option<TransformOrigin> {
     let (a_axis, a_val) = classify(a)?;
     let (b_axis, b_val) = classify(b)?;
 
-    if matches!((a_axis, b_axis), (KeywordAxis::X, KeywordAxis::X) | (KeywordAxis::Y, KeywordAxis::Y)) {
+    if matches!(
+        (a_axis, b_axis),
+        (KeywordAxis::X, KeywordAxis::X) | (KeywordAxis::Y, KeywordAxis::Y)
+    ) {
         return None;
     }
 
@@ -80,7 +83,11 @@ fn parse_pair(a: &str, b: &str) -> Option<TransformOrigin> {
 }
 
 #[derive(Copy, Clone, PartialEq, Eq)]
-enum KeywordAxis { X, Y, Either }
+enum KeywordAxis {
+    X,
+    Y,
+    Either,
+}
 
 fn parse_origin_keyword_pair(kw: &str) -> Option<(TransformOriginAxis, TransformOriginAxis)> {
     use TransformOriginAxis::Percent;
@@ -100,11 +107,18 @@ fn parse_origin_keyword_pair(kw: &str) -> Option<(TransformOriginAxis, Transform
 fn parse_origin_axis(s: &str) -> Option<TransformOriginAxis> {
     let s = s.trim();
     if let Some(stripped) = s.strip_suffix('%') {
-        return stripped.trim().parse::<f32>().ok()
+        return stripped
+            .trim()
+            .parse::<f32>()
+            .ok()
             .map(|v| TransformOriginAxis::Percent(v / 100.0));
     }
     if let Some(stripped) = s.strip_suffix("px") {
-        return stripped.trim().parse::<f32>().ok().map(TransformOriginAxis::Px);
+        return stripped
+            .trim()
+            .parse::<f32>()
+            .ok()
+            .map(TransformOriginAxis::Px);
     }
     s.parse::<f32>().ok().map(TransformOriginAxis::Px)
 }
@@ -215,7 +229,9 @@ fn tokenize_transform_functions(s: &str) -> Option<Vec<(String, String)>> {
         if name.is_empty() {
             return None;
         }
-        while i < bytes.len() && bytes[i].is_ascii_whitespace() { i += 1; }
+        while i < bytes.len() && bytes[i].is_ascii_whitespace() {
+            i += 1;
+        }
         if i >= bytes.len() || bytes[i] != b'(' {
             return None;
         }
@@ -228,7 +244,9 @@ fn tokenize_transform_functions(s: &str) -> Option<Vec<(String, String)>> {
                 b')' => depth -= 1,
                 _ => {}
             }
-            if depth == 0 { break; }
+            if depth == 0 {
+                break;
+            }
             i += 1;
         }
         if depth != 0 {
@@ -249,7 +267,10 @@ fn parse_two_lengths(s: &str) -> Option<(f32, Option<f32>)> {
     let parts: Vec<&str> = s.split(',').map(|p| p.trim()).collect();
     match parts.len() {
         1 => Some((parse_length_value(parts[0])?, None)),
-        2 => Some((parse_length_value(parts[0])?, Some(parse_length_value(parts[1])?))),
+        2 => Some((
+            parse_length_value(parts[0])?,
+            Some(parse_length_value(parts[1])?),
+        )),
         _ => None,
     }
 }
@@ -265,7 +286,10 @@ fn parse_two_numbers(s: &str) -> Option<(f32, Option<f32>)> {
     let parts: Vec<&str> = s.split(',').map(|p| p.trim()).collect();
     match parts.len() {
         1 => Some((parse_one_number(parts[0])?, None)),
-        2 => Some((parse_one_number(parts[0])?, Some(parse_one_number(parts[1])?))),
+        2 => Some((
+            parse_one_number(parts[0])?,
+            Some(parse_one_number(parts[1])?),
+        )),
         _ => None,
     }
 }
@@ -284,12 +308,14 @@ fn parse_angle_deg(s: &str) -> Option<f32> {
         return stripped.trim().parse::<f32>().ok();
     }
     if let Some(stripped) = s.strip_suffix("rad") {
-        return stripped.trim().parse::<f32>().ok()
+        return stripped
+            .trim()
+            .parse::<f32>()
+            .ok()
             .map(|v: f32| v.to_degrees());
     }
     if let Some(stripped) = s.strip_suffix("turn") {
-        return stripped.trim().parse::<f32>().ok()
-            .map(|v: f32| v * 360.0);
+        return stripped.trim().parse::<f32>().ok().map(|v: f32| v * 360.0);
     }
     if let Ok(v) = s.parse::<f32>() {
         if v == 0.0 {
@@ -316,10 +342,13 @@ mod tests {
     #[test]
     fn scale_xy() {
         let v = expand("scale(1.5, 2.0)");
-        assert_eq!(v, vec![
-            ("scale-x".to_string(), StyleValue::Number(1.5)),
-            ("scale-y".to_string(), StyleValue::Number(2.0)),
-        ]);
+        assert_eq!(
+            v,
+            vec![
+                ("scale-x".to_string(), StyleValue::Number(1.5)),
+                ("scale-y".to_string(), StyleValue::Number(2.0)),
+            ]
+        );
     }
 
     #[test]
@@ -331,18 +360,31 @@ mod tests {
     #[test]
     fn translate_xy() {
         let v = expand("translate(10px, 20px)");
-        assert_eq!(v, vec![
-            ("translate-x".to_string(), StyleValue::Length(10.0, Unit::Px)),
-            ("translate-y".to_string(), StyleValue::Length(20.0, Unit::Px)),
-        ]);
+        assert_eq!(
+            v,
+            vec![
+                (
+                    "translate-x".to_string(),
+                    StyleValue::Length(10.0, Unit::Px)
+                ),
+                (
+                    "translate-y".to_string(),
+                    StyleValue::Length(20.0, Unit::Px)
+                ),
+            ]
+        );
     }
 
     #[test]
     fn translate_y_only() {
         let v = expand("translateY(-2px)");
-        assert_eq!(v, vec![
-            ("translate-y".to_string(), StyleValue::Length(-2.0, Unit::Px)),
-        ]);
+        assert_eq!(
+            v,
+            vec![(
+                "translate-y".to_string(),
+                StyleValue::Length(-2.0, Unit::Px)
+            ),]
+        );
     }
 
     #[test]
@@ -360,12 +402,21 @@ mod tests {
     #[test]
     fn combined_translate_rotate_scale() {
         let v = expand("translate(10px, 20px) rotate(45deg) scale(1.5)");
-        assert_eq!(v, vec![
-            ("translate-x".to_string(), StyleValue::Length(10.0, Unit::Px)),
-            ("translate-y".to_string(), StyleValue::Length(20.0, Unit::Px)),
-            ("rotate".to_string(), StyleValue::Number(45.0)),
-            ("scale".to_string(), StyleValue::Number(1.5)),
-        ]);
+        assert_eq!(
+            v,
+            vec![
+                (
+                    "translate-x".to_string(),
+                    StyleValue::Length(10.0, Unit::Px)
+                ),
+                (
+                    "translate-y".to_string(),
+                    StyleValue::Length(20.0, Unit::Px)
+                ),
+                ("rotate".to_string(), StyleValue::Number(45.0)),
+                ("scale".to_string(), StyleValue::Number(1.5)),
+            ]
+        );
     }
 
     #[test]
@@ -376,7 +427,9 @@ mod tests {
 
     #[test]
     fn unbalanced_parens_rejected() {
-        assert!(expand_transform_shorthand(&StyleValue::String("scale(1.05".to_string())).is_none());
+        assert!(
+            expand_transform_shorthand(&StyleValue::String("scale(1.05".to_string())).is_none()
+        );
     }
 
     #[test]
@@ -394,10 +447,13 @@ mod tests {
     #[test]
     fn transform_origin_top_left_pair() {
         let o = TransformOrigin::parse("top left").unwrap();
-        assert_eq!(o, TransformOrigin {
-            x: TransformOriginAxis::Percent(0.0),
-            y: TransformOriginAxis::Percent(0.0),
-        });
+        assert_eq!(
+            o,
+            TransformOrigin {
+                x: TransformOriginAxis::Percent(0.0),
+                y: TransformOriginAxis::Percent(0.0),
+            }
+        );
     }
 
     #[test]
@@ -409,19 +465,25 @@ mod tests {
     #[test]
     fn transform_origin_px_pair() {
         let o = TransformOrigin::parse("10px 20px").unwrap();
-        assert_eq!(o, TransformOrigin {
-            x: TransformOriginAxis::Px(10.0),
-            y: TransformOriginAxis::Px(20.0),
-        });
+        assert_eq!(
+            o,
+            TransformOrigin {
+                x: TransformOriginAxis::Px(10.0),
+                y: TransformOriginAxis::Px(20.0),
+            }
+        );
     }
 
     #[test]
     fn transform_origin_single_token_defaults_y_to_center() {
         let o = TransformOrigin::parse("25%").unwrap();
-        assert_eq!(o, TransformOrigin {
-            x: TransformOriginAxis::Percent(0.25),
-            y: TransformOriginAxis::Percent(0.5),
-        });
+        assert_eq!(
+            o,
+            TransformOrigin {
+                x: TransformOriginAxis::Percent(0.25),
+                y: TransformOriginAxis::Percent(0.5),
+            }
+        );
     }
 
     #[test]
@@ -441,7 +503,10 @@ mod tests {
 
         let rule = sheet.rules().first().expect("one rule");
         let decl = &rule.declarations;
-        assert!(decl.get("transform").is_none(), "shorthand `transform` should be expanded away");
+        assert!(
+            decl.get("transform").is_none(),
+            "shorthand `transform` should be expanded away"
+        );
         assert_eq!(decl.get("scale"), Some(&StyleValue::Number(1.05)));
         assert_eq!(
             decl.get("translate-y"),

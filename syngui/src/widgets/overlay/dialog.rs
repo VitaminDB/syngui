@@ -1,16 +1,18 @@
+use crate::core::sync::Mutex;
 use crate::core::{Color, Point, Rect, RectExt, Size};
 use crate::input::{Event, EventResult, MouseButton};
 use crate::layout::Constraints;
-use crate::mss::{ComputedStyle, Dimension};
 use crate::mss::MssFields;
+use crate::mss::{ComputedStyle, Dimension};
 use crate::render::{Border, DisplayList};
+use crate::signal::{use_signal, RwSignal};
 use crate::widget::context::{EventContext, EventContextExt};
-use crate::widget::{DirtyFlags, Element, ElementId, ElementTree, StyledElement, UpdateContext, Widget};
+use crate::widget::{
+    DirtyFlags, Element, ElementId, ElementTree, StyledElement, UpdateContext, Widget,
+};
 use std::any::Any;
 use std::cell::Cell;
 use std::sync::Arc;
-use crate::core::sync::Mutex;
-use crate::signal::{RwSignal, use_signal};
 
 /// Локализованные подписи кнопок встроенных диалогов: (подтвердить, отмена).
 static DIALOG_LABELS: std::sync::Mutex<Option<(String, String)>> = std::sync::Mutex::new(None);
@@ -28,7 +30,12 @@ fn dialog_labels() -> (String, String) {
         .lock()
         .ok()
         .and_then(|g| g.clone())
-        .unwrap_or_else(|| (crate::i18n::builtin("dialog.ok", "OK"), crate::i18n::builtin("dialog.cancel", "Cancel")))
+        .unwrap_or_else(|| {
+            (
+                crate::i18n::builtin("dialog.ok", "OK"),
+                crate::i18n::builtin("dialog.cancel", "Cancel"),
+            )
+        })
 }
 
 #[derive(Clone)]
@@ -143,8 +150,12 @@ impl Widget for Dialog {
         other.is::<Self>()
     }
 
-    fn as_any(&self) -> &dyn Any { self }
-    fn as_any_mut(&mut self) -> &mut dyn Any { self }
+    fn as_any(&self) -> &dyn Any {
+        self
+    }
+    fn as_any_mut(&mut self) -> &mut dyn Any {
+        self
+    }
     fn mount(&self, _tree: &mut ElementTree, _parent_id: ElementId) {}
 }
 
@@ -168,7 +179,9 @@ struct DialogElement {
 
 impl DialogElement {
     fn dialog_rect_for(&self, viewport: Size) -> Rect {
-        let resolved_width = self.mss.width
+        let resolved_width = self
+            .mss
+            .width
             .map(|d| d.resolve(viewport.width))
             .unwrap_or_else(|| self.width.resolve(viewport.width));
         let title_height = 48.0;
@@ -190,15 +203,20 @@ impl DialogElement {
         let actions_y = dialog.y() + dialog.size.height - 56.0;
         let button_width = 80.0;
         let gap = 8.0;
-        let total_width = self.actions.len() as f32 * button_width + (self.actions.len() as f32 - 1.0) * gap;
+        let total_width =
+            self.actions.len() as f32 * button_width + (self.actions.len() as f32 - 1.0) * gap;
         let start_x = dialog.x() + dialog.size.width - 16.0 - total_width;
 
-        self.actions.iter().enumerate().map(|(i, _)| {
-            Rect::new(
-                Point::new(start_x + i as f32 * (button_width + gap), actions_y + 8.0),
-                Size::new(button_width, 36.0),
-            )
-        }).collect()
+        self.actions
+            .iter()
+            .enumerate()
+            .map(|(i, _)| {
+                Rect::new(
+                    Point::new(start_x + i as f32 * (button_width + gap), actions_y + 8.0),
+                    Size::new(button_width, 36.0),
+                )
+            })
+            .collect()
     }
 
     fn close(&mut self, ctx: &mut EventContext) {
@@ -208,7 +226,9 @@ impl DialogElement {
             self.overlay_registered = false;
         }
         if let Some(ref cb) = self.on_close {
-            if let Ok(mut f) = cb.lock() { f(); }
+            if let Ok(mut f) = cb.lock() {
+                f();
+            }
         }
         ctx.request_paint();
     }
@@ -229,8 +249,16 @@ impl Element for DialogElement {
     }
 
     fn layout(&mut self, constraints: Constraints) -> Size {
-        let w = if constraints.max_width.is_finite() { constraints.max_width } else { 0.0 };
-        let h = if constraints.max_height.is_finite() { constraints.max_height } else { 0.0 };
+        let w = if constraints.max_width.is_finite() {
+            constraints.max_width
+        } else {
+            0.0
+        };
+        let h = if constraints.max_height.is_finite() {
+            constraints.max_height
+        } else {
+            0.0
+        };
         self.bounds = Rect::new(Point::zero(), Size::new(w, h));
         if w > 0.0 && h > 0.0 {
             self.viewport_size.set(Size::new(w, h));
@@ -270,7 +298,10 @@ impl Element for DialogElement {
             dialog,
             bg,
             [12.0; 4],
-            Border { width: 1.0, color: border },
+            Border {
+                width: 1.0,
+                color: border,
+            },
         );
 
         let title_x_offset = if let Some(ref icon) = self.icon {
@@ -304,11 +335,27 @@ impl Element for DialogElement {
                 let rect = action_rects[i];
                 let is_hover = self.hover_action == Some(i);
                 let (btn_bg, text_color) = if action.primary {
-                    if is_hover { (primary.darken(0.1), Color::WHITE) } else { (primary, Color::WHITE) }
+                    if is_hover {
+                        (primary.darken(0.1), Color::WHITE)
+                    } else {
+                        (primary, Color::WHITE)
+                    }
                 } else {
-                    if is_hover { (bg.darken(0.05), fg.with_alpha(0.7)) } else { (bg, fg.with_alpha(0.7)) }
+                    if is_hover {
+                        (bg.darken(0.05), fg.with_alpha(0.7))
+                    } else {
+                        (bg, fg.with_alpha(0.7))
+                    }
                 };
-                list.push_rect_bordered(rect, btn_bg, [6.0; 4], Border { width: 1.0, color: if action.primary { primary } else { border } });
+                list.push_rect_bordered(
+                    rect,
+                    btn_bg,
+                    [6.0; 4],
+                    Border {
+                        width: 1.0,
+                        color: if action.primary { primary } else { border },
+                    },
+                );
                 list.push_text_centered(&action.label, rect, text_color, 14.0);
             }
         }
@@ -382,8 +429,12 @@ impl Element for DialogElement {
         }
     }
 
-    fn children(&self) -> &[ElementId] { &[] }
-    fn bounds(&self) -> Rect { self.bounds }
+    fn children(&self) -> &[ElementId] {
+        &[]
+    }
+    fn bounds(&self) -> Rect {
+        self.bounds
+    }
 
     fn hit_test(&self, _point: Point) -> bool {
         self.is_open.get_untracked()
@@ -396,21 +447,46 @@ impl Element for DialogElement {
             None
         }
     }
-    fn set_position(&mut self, pos: Point) { self.bounds.origin = pos; }
-    fn mark_dirty(&mut self, flags: DirtyFlags) { self.dirty_flags |= flags; }
-    fn clear_dirty(&mut self, flags: DirtyFlags) { self.dirty_flags.remove(flags); }
-    fn is_dirty(&self, flags: DirtyFlags) -> bool { self.dirty_flags.contains(flags) }
-    fn id(&self) -> ElementId { self.id }
-    fn set_id(&mut self, id: ElementId) { self.id = id; }
+    fn set_position(&mut self, pos: Point) {
+        self.bounds.origin = pos;
+    }
+    fn mark_dirty(&mut self, flags: DirtyFlags) {
+        self.dirty_flags |= flags;
+    }
+    fn clear_dirty(&mut self, flags: DirtyFlags) {
+        self.dirty_flags.remove(flags);
+    }
+    fn is_dirty(&self, flags: DirtyFlags) -> bool {
+        self.dirty_flags.contains(flags)
+    }
+    fn id(&self) -> ElementId {
+        self.id
+    }
+    fn set_id(&mut self, id: ElementId) {
+        self.id = id;
+    }
     fn mount(&mut self, _tree: &mut ElementTree) {}
-    fn set_classes(&mut self, classes: Vec<String>) { self.classes = classes; self.mark_dirty(DirtyFlags::RENDER); }
-    fn get_classes(&self) -> &[String] { &self.classes }
-    fn element_type_name(&self) -> &str { "Dialog" }
-    fn reset_mss_styles(&mut self) { self.mss.reset(); }
-    fn mss(&self) -> Option<&crate::mss::MssFields> { Some(&self.mss) }
+    fn set_classes(&mut self, classes: Vec<String>) {
+        self.classes = classes;
+        self.mark_dirty(DirtyFlags::RENDER);
+    }
+    fn get_classes(&self) -> &[String] {
+        &self.classes
+    }
+    fn element_type_name(&self) -> &str {
+        "Dialog"
+    }
+    fn reset_mss_styles(&mut self) {
+        self.mss.reset();
+    }
+    fn mss(&self) -> Option<&crate::mss::MssFields> {
+        Some(&self.mss)
+    }
     fn apply_computed_style(&mut self, style: &ComputedStyle) {
         self.mss.apply(style);
-        if let Some(d) = style.width() { self.width = d; }
+        if let Some(d) = style.width() {
+            self.width = d;
+        }
         self.mark_dirty(DirtyFlags::RENDER | DirtyFlags::LAYOUT);
     }
 
@@ -423,7 +499,8 @@ impl Element for DialogElement {
         selected: Option<&ComputedStyle>,
         _checked: Option<&ComputedStyle>,
     ) {
-        self.mss.apply_transitions(base, hover, active, focus, selected);
+        self.mss
+            .apply_transitions(base, hover, active, focus, selected);
     }
 
     fn accessibility_info(&self) -> Option<crate::a11y::AccessibilityInfo> {
@@ -435,7 +512,11 @@ impl Element for DialogElement {
             },
             properties: crate::a11y::NodeProperties {
                 label: Some(self.title.clone()),
-                description: if self.body.is_empty() { None } else { Some(self.body.clone()) },
+                description: if self.body.is_empty() {
+                    None
+                } else {
+                    Some(self.body.clone())
+                },
                 ..Default::default()
             },
         })
@@ -449,22 +530,33 @@ impl Element for DialogElement {
 }
 
 impl StyledElement for DialogElement {
-    fn apply_style(&mut self, _style: &ComputedStyle) { self.mark_dirty(DirtyFlags::RENDER | DirtyFlags::LAYOUT); }
-    fn classes(&self) -> &[String] { &self.classes }
-    fn set_classes(&mut self, classes: Vec<String>) { self.classes = classes; self.mark_dirty(DirtyFlags::RENDER); }
+    fn apply_style(&mut self, _style: &ComputedStyle) {
+        self.mark_dirty(DirtyFlags::RENDER | DirtyFlags::LAYOUT);
+    }
+    fn classes(&self) -> &[String] {
+        &self.classes
+    }
+    fn set_classes(&mut self, classes: Vec<String>) {
+        self.classes = classes;
+        self.mark_dirty(DirtyFlags::RENDER);
+    }
 }
 
 pub struct AlertDialog;
 
 impl AlertDialog {
-    pub fn new(title: impl Into<String>, message: impl Into<String>, is_open: RwSignal<bool>) -> Dialog {
+    pub fn new(
+        title: impl Into<String>,
+        message: impl Into<String>,
+        is_open: RwSignal<bool>,
+    ) -> Dialog {
         let (ok_label, _) = dialog_labels();
-        Dialog::new(title)
-            .body(message)
-            .is_open(is_open)
-            .action(DialogAction::new(ok_label, move || {
+        Dialog::new(title).body(message).is_open(is_open).action(
+            DialogAction::new(ok_label, move || {
                 is_open.set(false);
-            }).primary())
+            })
+            .primary(),
+        )
     }
 }
 
@@ -487,11 +579,18 @@ impl ConfirmDialog {
             .is_open(is_open)
             .action(DialogAction::new(cancel_label, move || {
                 is_open.set(false);
-                if let Ok(mut cb) = on_confirm_cancel.lock() { cb(false); }
+                if let Ok(mut cb) = on_confirm_cancel.lock() {
+                    cb(false);
+                }
             }))
-            .action(DialogAction::new(ok_label, move || {
-                is_open.set(false);
-                if let Ok(mut cb) = on_confirm_ok.lock() { cb(true); }
-            }).primary())
+            .action(
+                DialogAction::new(ok_label, move || {
+                    is_open.set(false);
+                    if let Ok(mut cb) = on_confirm_ok.lock() {
+                        cb(true);
+                    }
+                })
+                .primary(),
+            )
     }
 }

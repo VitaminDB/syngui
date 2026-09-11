@@ -25,7 +25,11 @@ fn window_rect(harness: &mut TestHarness) -> Rect {
     list.commands()
         .iter()
         .find_map(|cmd| match cmd {
-            DrawCommand::Rect { rect, border: Some(_), .. } => Some(*rect),
+            DrawCommand::Rect {
+                rect,
+                border: Some(_),
+                ..
+            } => Some(*rect),
             _ => None,
         })
         .expect("окно не нарисовано")

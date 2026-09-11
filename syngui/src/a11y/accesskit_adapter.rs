@@ -1,9 +1,9 @@
 #[cfg(feature = "accessibility")]
 mod inner {
-    use std::any::Any;
-    use hashbrown::HashMap;
-    use crate::a11y::types::*;
     use crate::a11y::platform::PlatformAdapter;
+    use crate::a11y::types::*;
+    use hashbrown::HashMap;
+    use std::any::Any;
 
     fn map_role(role: &Role) -> accesskit::Role {
         match role {
@@ -83,9 +83,8 @@ mod inner {
             (b.origin.y + b.size.height) as f64,
         ));
 
-        let children: Vec<accesskit::NodeId> = node.children.iter()
-            .map(|id| to_node_id(*id))
-            .collect();
+        let children: Vec<accesskit::NodeId> =
+            node.children.iter().map(|id| to_node_id(*id)).collect();
         ak_node.set_children(children);
 
         if let Some(ref shortcut) = node.properties.keyboard_shortcut {
@@ -147,19 +146,16 @@ mod inner {
             }
         }
 
-        fn node_state_changed(&mut self, _node_id: A11yId, _state: &NodeState) {
-        }
+        fn node_state_changed(&mut self, _node_id: A11yId, _state: &NodeState) {}
 
         fn focus_moved(&mut self, node_id: A11yId) {
             let ak_id = to_node_id(node_id);
             self.focused_id = Some(ak_id);
         }
 
-        fn value_changed(&mut self, _node_id: A11yId, _value: &str) {
-        }
+        fn value_changed(&mut self, _node_id: A11yId, _value: &str) {}
 
-        fn announce(&mut self, _message: &str, _priority: LiveRegion) {
-        }
+        fn announce(&mut self, _message: &str, _priority: LiveRegion) {}
 
         fn as_any_mut(&mut self) -> &mut dyn Any {
             self

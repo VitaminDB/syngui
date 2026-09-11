@@ -2,7 +2,7 @@ use syngui::mgui;
 use syngui::prelude::*;
 
 use super::{shadow_card, surface_card};
-use crate::sections::{section_card, section_title, label};
+use crate::sections::{label, section_card, section_title};
 
 pub fn build() -> impl Widget {
     mgui! {

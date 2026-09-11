@@ -47,7 +47,9 @@ fn card_rects(count: usize, grow_up: bool, viewport: Size) -> Vec<Rect> {
     // Несколько тиков: первый забирает items в active, остальные докручивают
     // fade-in (карточки с opacity <= 0.01 не рисуются вовсе).
     for _ in 0..20 {
-        harness.tree.animate(harness.root_id, Duration::from_millis(16));
+        harness
+            .tree
+            .animate(harness.root_id, Duration::from_millis(16));
         harness.layout(viewport.width, viewport.height);
     }
 
@@ -82,7 +84,11 @@ fn viewport() -> Size {
 fn single_toast_sits_in_bottom_right_corner() {
     let vp = viewport();
     let rects = card_rects(1, true, vp);
-    assert_eq!(rects.len(), 1, "ожидалась одна карточка, получено {rects:?}");
+    assert_eq!(
+        rects.len(),
+        1,
+        "ожидалась одна карточка, получено {rects:?}"
+    );
     let r = rects[0];
     assert!(
         (r.origin.y + r.size.height - (vp.height - MARGIN_BOTTOM)).abs() < 1.0,
@@ -122,7 +128,11 @@ fn at_most_three_cards_stack_upwards() {
         .copied()
         .filter(|r| (r.size.width - last.size.width).abs() < 0.5)
         .collect();
-    assert_eq!(full_width.len(), 3, "видимых карточек должно остаться три: {many:?}");
+    assert_eq!(
+        full_width.len(),
+        3,
+        "видимых карточек должно остаться три: {many:?}"
+    );
 }
 
 /// Колода переполнения выглядывает НАД верхней карточкой и не вылезает за
@@ -131,12 +141,12 @@ fn at_most_three_cards_stack_upwards() {
 fn overflow_deck_peeks_above_and_stays_in_window() {
     let vp = viewport();
     let rects = card_rects(5, true, vp);
-    assert!(rects.len() > 3, "ожидалась колода за тремя карточками: {rects:?}");
+    assert!(
+        rects.len() > 3,
+        "ожидалась колода за тремя карточками: {rects:?}"
+    );
 
-    let widest = rects
-        .iter()
-        .map(|r| r.size.width)
-        .fold(0.0_f32, f32::max);
+    let widest = rects.iter().map(|r| r.size.width).fold(0.0_f32, f32::max);
     let top_visible = rects
         .iter()
         .filter(|r| (r.size.width - widest).abs() < 0.5)

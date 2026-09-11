@@ -1,12 +1,14 @@
+use super::IntoWidget;
 use crate::core::{Color, Point, Rect, Size};
 use crate::input::{Event, EventResult};
 use crate::layout::Constraints;
-use crate::mss::{ComputedStyle, Overflow};
 use crate::mss::MssFields;
+use crate::mss::{ComputedStyle, Overflow};
 use crate::render::{Border, DisplayList};
 use crate::widget::context::EventContextExt;
-use crate::widget::{DirtyFlags, Element, ElementId, ElementTree, LayoutHint, StyledElement, UpdateContext, Widget};
-use super::IntoWidget;
+use crate::widget::{
+    DirtyFlags, Element, ElementId, ElementTree, LayoutHint, StyledElement, UpdateContext, Widget,
+};
 use std::any::Any;
 use std::time::Duration;
 
@@ -84,13 +86,17 @@ impl Widget for DecoratedBox {
     fn mount(&self, tree: &mut ElementTree, parent_id: ElementId) {
         if let Some(child) = &self.child {
             let child_element = child.create_element();
-            let child_id = tree.insert_with_type_id(child_element, Some(parent_id), child.as_any().type_id());
+            let child_id =
+                tree.insert_with_type_id(child_element, Some(parent_id), child.as_any().type_id());
             child.mount(tree, child_id);
         }
     }
 
     fn child_widgets(&self) -> Vec<&dyn Widget> {
-        self.child.as_ref().map(|c| vec![c.as_ref() as &dyn Widget]).unwrap_or_default()
+        self.child
+            .as_ref()
+            .map(|c| vec![c.as_ref() as &dyn Widget])
+            .unwrap_or_default()
     }
 }
 
@@ -118,10 +124,14 @@ pub struct DecoratedBoxElement {
 
 impl DecoratedBoxElement {
     fn start_transition_to_current_state(&mut self) {
-        self.mss.start_transition_to(self.hover, false, false, false);
+        self.mss
+            .start_transition_to(self.hover, false, false, false);
     }
 
-    fn active_filter(&self, target: &crate::animation::transition::AnimatedPropertyMap) -> Option<Vec<crate::effects::FilterEffect>> {
+    fn active_filter(
+        &self,
+        target: &crate::animation::transition::AnimatedPropertyMap,
+    ) -> Option<Vec<crate::effects::FilterEffect>> {
         if let Some(ref anim) = self.mss.keyframe_animation {
             if anim.is_running() {
                 if let Some(filter) = anim.current_values().filter() {
@@ -130,19 +140,26 @@ impl DecoratedBoxElement {
             }
         }
         if let Some(chain) = self.mss.transition.filter_chain() {
-            if !chain.is_empty() { return Some(chain); }
+            if !chain.is_empty() {
+                return Some(chain);
+            }
             return None;
         }
         target.filter().or_else(|| self.mss.filter.clone())
     }
 
     fn keyframe_opacity(&self) -> Option<f32> {
-        self.mss.keyframe_animation.as_ref()
+        self.mss
+            .keyframe_animation
+            .as_ref()
             .filter(|a| a.is_running())
             .and_then(|a| a.current_values().opacity())
     }
 
-    fn active_box_shadow(&self, target: &crate::animation::transition::AnimatedPropertyMap) -> Option<crate::core::shadow::Shadows> {
+    fn active_box_shadow(
+        &self,
+        target: &crate::animation::transition::AnimatedPropertyMap,
+    ) -> Option<crate::core::shadow::Shadows> {
         if let Some(ref anim) = self.mss.keyframe_animation {
             if anim.is_running() {
                 if let Some(shadow) = anim.current_values().box_shadow() {
@@ -156,7 +173,10 @@ impl DecoratedBoxElement {
         target.box_shadow().or_else(|| self.mss.box_shadow.clone())
     }
 
-    fn active_glow(&self, target: &crate::animation::transition::AnimatedPropertyMap) -> Option<crate::core::shadow::Shadows> {
+    fn active_glow(
+        &self,
+        target: &crate::animation::transition::AnimatedPropertyMap,
+    ) -> Option<crate::core::shadow::Shadows> {
         if let Some(ref anim) = self.mss.keyframe_animation {
             if anim.is_running() {
                 if let Some(glow) = anim.current_values().glow() {
@@ -170,7 +190,10 @@ impl DecoratedBoxElement {
         target.glow().or_else(|| self.mss.glow.clone())
     }
 
-    fn has_filter_effects(&self, target: &crate::animation::transition::AnimatedPropertyMap) -> bool {
+    fn has_filter_effects(
+        &self,
+        target: &crate::animation::transition::AnimatedPropertyMap,
+    ) -> bool {
         self.active_filter(target).map_or(false, |f| !f.is_empty())
             || self.mss.noise.is_some()
             || self.mss.vignette.is_some()
@@ -199,7 +222,10 @@ impl DecoratedBoxElement {
             && self.mss.opacity.is_none()
     }
 
-    fn build_filter_effect(&self, target: &crate::animation::transition::AnimatedPropertyMap) -> crate::render::display_list::Effect {
+    fn build_filter_effect(
+        &self,
+        target: &crate::animation::transition::AnimatedPropertyMap,
+    ) -> crate::render::display_list::Effect {
         use crate::render::display_list::Effect;
         let mut effects: Vec<Effect> = Vec::new();
 
@@ -218,7 +244,10 @@ impl DecoratedBoxElement {
         }
         if let Some(radius) = self.mss.vignette {
             if radius > 0.0 {
-                effects.push(Effect::Vignette { radius, softness: 0.3 });
+                effects.push(Effect::Vignette {
+                    radius,
+                    softness: 0.3,
+                });
             }
         }
 
@@ -298,10 +327,18 @@ impl Element for DecoratedBoxElement {
                 }
             }
         };
-        if let Some(min_w) = self.mss.min_width { width = width.max(min_w.resolve(cb_w)); }
-        if let Some(max_w) = self.mss.max_width { width = width.min(max_w.resolve(cb_w)); }
-        if let Some(min_h) = self.mss.min_height { height = height.max(min_h.resolve(cb_h)); }
-        if let Some(max_h) = self.mss.max_height { height = height.min(max_h.resolve(cb_h)); }
+        if let Some(min_w) = self.mss.min_width {
+            width = width.max(min_w.resolve(cb_w));
+        }
+        if let Some(max_w) = self.mss.max_width {
+            width = width.min(max_w.resolve(cb_w));
+        }
+        if let Some(min_h) = self.mss.min_height {
+            height = height.max(min_h.resolve(cb_h));
+        }
+        if let Some(max_h) = self.mss.max_height {
+            height = height.min(max_h.resolve(cb_h));
+        }
         self.bounds = Rect::new(Point::zero(), Size::new(width, height));
         Size::new(width, height)
     }
@@ -309,7 +346,9 @@ impl Element for DecoratedBoxElement {
     fn build_display_list(&self, list: &mut DisplayList, _clip: Rect) {
         if self.is_plain_render() {
             let resolve_size = self.bounds.size.width.min(self.bounds.size.height);
-            let radii = self.mss.border_radius
+            let radii = self
+                .mss
+                .border_radius
                 .map(|dims| dims.map(|d| d.resolve(resolve_size)))
                 .unwrap_or(self.corner_radius);
             list.push_rect(self.bounds, self.background, radii);
@@ -318,19 +357,25 @@ impl Element for DecoratedBoxElement {
 
         let target = self.mss.target_props(self.hover, false, false, false);
 
-        let eff_opacity = self.keyframe_opacity()
+        let eff_opacity = self
+            .keyframe_opacity()
             .or(self.mss.transition.opacity())
             .or(target.opacity())
             .or(self.mss.opacity);
         if let Some(opacity) = eff_opacity {
             list.push_opacity(opacity);
         }
-        let bg = self.mss.transition.background_color()
+        let bg = self
+            .mss
+            .transition
+            .background_color()
             .or(target.background_color())
             .unwrap_or(self.background);
 
         let resolve_size = self.bounds.size.width.min(self.bounds.size.height);
-        let radii = self.mss.border_radius
+        let radii = self
+            .mss
+            .border_radius
             .map(|dims| dims.map(|d| d.resolve(resolve_size)))
             .unwrap_or(self.corner_radius);
 
@@ -375,7 +420,8 @@ impl Element for DecoratedBoxElement {
             list.push_effect_layer(self.build_filter_effect(&target), self.bounds);
         }
 
-        let inset_shadows: Vec<_> = active_shadows.as_ref()
+        let inset_shadows: Vec<_> = active_shadows
+            .as_ref()
             .or(self.mss.box_shadow.as_ref())
             .map(|s| s.0.iter().filter(|sh| sh.inset).copied().collect())
             .unwrap_or_default();
@@ -412,7 +458,8 @@ impl Element for DecoratedBoxElement {
         }
 
         let target = self.mss.target_props(self.hover, false, false, false);
-        let eff_opacity = self.keyframe_opacity()
+        let eff_opacity = self
+            .keyframe_opacity()
             .or(self.mss.transition.opacity())
             .or(target.opacity())
             .or(self.mss.opacity);
@@ -421,15 +468,24 @@ impl Element for DecoratedBoxElement {
             || self.border_sides.iter().any(|s| s.is_some())
             || self.mss.transition.border_color().is_some()
             || target.border_color().is_some()
-            || self.mss.keyframe_animation.as_ref().map_or(false, |a| a.is_running());
+            || self
+                .mss
+                .keyframe_animation
+                .as_ref()
+                .map_or(false, |a| a.is_running());
 
         if needs_border {
             let resolve_size = self.bounds.size.width.min(self.bounds.size.height);
-            let radii = self.mss.border_radius
+            let radii = self
+                .mss
+                .border_radius
                 .map(|dims| dims.map(|d| d.resolve(resolve_size)))
                 .unwrap_or(self.corner_radius);
 
-            let keyframe_bc = self.mss.keyframe_animation.as_ref()
+            let keyframe_bc = self
+                .mss
+                .keyframe_animation
+                .as_ref()
                 .filter(|a| a.is_running())
                 .and_then(|a| a.current_values().border_color());
             let border = if let Some(bc) = keyframe_bc
@@ -466,7 +522,10 @@ impl Element for DecoratedBoxElement {
                         Color::TRANSPARENT,
                         radii,
                         None,
-                        crate::render::PerSideBorder { widths: *widths, color: *color },
+                        crate::render::PerSideBorder {
+                            widths: *widths,
+                            color: *color,
+                        },
                     );
                 }
             } else if let Some(border) = border {
@@ -478,20 +537,33 @@ impl Element for DecoratedBoxElement {
         if self.has_filter_effects(&target) {
             list.pop_effect_layer();
         }
-        if self.mss.backdrop_filter.as_ref().map_or(false, |f| !f.is_empty()) {
+        if self
+            .mss
+            .backdrop_filter
+            .as_ref()
+            .map_or(false, |f| !f.is_empty())
+        {
             list.pop_effect_layer();
         }
 
-        let eff_outline_width = self.mss.transition.outline_width()
+        let eff_outline_width = self
+            .mss
+            .transition
+            .outline_width()
             .or(target.outline_width())
             .or(self.mss.outline_width);
         if let Some(outline_width) = eff_outline_width {
             if outline_width > 0.01 {
                 let resolve_size = self.bounds.size.width.min(self.bounds.size.height);
-                let radii = self.mss.border_radius
+                let radii = self
+                    .mss
+                    .border_radius
                     .map(|dims| dims.map(|d| d.resolve(resolve_size)))
                     .unwrap_or(self.corner_radius);
-                let eff_outline_color = self.mss.transition.outline_color()
+                let eff_outline_color = self
+                    .mss
+                    .transition
+                    .outline_color()
                     .or(target.outline_color())
                     .or(self.mss.outline_color)
                     .unwrap_or(crate::Color::new(0.0955, 0.3005, 0.9130, 1.0));
@@ -507,7 +579,11 @@ impl Element for DecoratedBoxElement {
         let _ = &target;
     }
 
-    fn handle_event(&mut self, event: &Event, ctx: &mut crate::widget::context::EventContext) -> EventResult {
+    fn handle_event(
+        &mut self,
+        event: &Event,
+        ctx: &mut crate::widget::context::EventContext,
+    ) -> EventResult {
         if let Event::MouseMove(pos) = event {
             if let Some(cursor) = self.mss.cursor {
                 if self.bounds.contains(*pos) {
@@ -530,7 +606,9 @@ impl Element for DecoratedBoxElement {
     fn animate(&mut self, dt: Duration) -> bool {
         let dt_secs = dt.as_secs_f32();
         let transition_active = self.mss.transition.tick(dt_secs);
-        let keyframe_active = self.mss.keyframe_animation
+        let keyframe_active = self
+            .mss
+            .keyframe_animation
             .as_mut()
             .map(|a| a.tick(dt_secs))
             .unwrap_or(false);
@@ -539,7 +617,11 @@ impl Element for DecoratedBoxElement {
 
     fn needs_repaint(&self) -> bool {
         self.mss.transition.is_animating()
-            || self.mss.keyframe_animation.as_ref().map_or(false, |a| a.is_running())
+            || self
+                .mss
+                .keyframe_animation
+                .as_ref()
+                .map_or(false, |a| a.is_running())
     }
 
     fn children(&self) -> &[ElementId] {
@@ -550,66 +632,109 @@ impl Element for DecoratedBoxElement {
         }
     }
 
-    fn bounds(&self) -> Rect { self.bounds }
-    fn set_position(&mut self, pos: Point) { self.bounds.origin = pos; }
-    fn mark_dirty(&mut self, flags: DirtyFlags) { self.dirty_flags |= flags; }
-    fn clear_dirty(&mut self, flags: DirtyFlags) { self.dirty_flags.remove(flags); }
-    fn is_dirty(&self, flags: DirtyFlags) -> bool { self.dirty_flags.contains(flags) }
-    fn id(&self) -> ElementId { self.id }
-    fn set_id(&mut self, id: ElementId) { self.id = id; }
+    fn bounds(&self) -> Rect {
+        self.bounds
+    }
+    fn set_position(&mut self, pos: Point) {
+        self.bounds.origin = pos;
+    }
+    fn mark_dirty(&mut self, flags: DirtyFlags) {
+        self.dirty_flags |= flags;
+    }
+    fn clear_dirty(&mut self, flags: DirtyFlags) {
+        self.dirty_flags.remove(flags);
+    }
+    fn is_dirty(&self, flags: DirtyFlags) -> bool {
+        self.dirty_flags.contains(flags)
+    }
+    fn id(&self) -> ElementId {
+        self.id
+    }
+    fn set_id(&mut self, id: ElementId) {
+        self.id = id;
+    }
     fn mount(&mut self, _tree: &mut ElementTree) {}
 
-    fn element_type_name(&self) -> &str { "DecoratedBox" }
+    fn element_type_name(&self) -> &str {
+        "DecoratedBox"
+    }
 
-    fn explicit_dimensions(&self, parent_width: f32, parent_height: f32) -> (Option<f32>, Option<f32>) {
+    fn explicit_dimensions(
+        &self,
+        parent_width: f32,
+        parent_height: f32,
+    ) -> (Option<f32>, Option<f32>) {
         (
             self.width.and_then(|d| d.resolve_opt(parent_width)),
             self.height.and_then(|d| d.resolve_opt(parent_height)),
         )
     }
 
-    fn min_max_dimensions(&self, parent_width: f32, parent_height: f32)
-        -> (Option<f32>, Option<f32>, Option<f32>, Option<f32>)
-    {
+    fn min_max_dimensions(
+        &self,
+        parent_width: f32,
+        parent_height: f32,
+    ) -> (Option<f32>, Option<f32>, Option<f32>, Option<f32>) {
         (
             self.mss.min_width.and_then(|d| d.resolve_opt(parent_width)),
             self.mss.max_width.and_then(|d| d.resolve_opt(parent_width)),
-            self.mss.min_height.and_then(|d| d.resolve_opt(parent_height)),
-            self.mss.max_height.and_then(|d| d.resolve_opt(parent_height)),
+            self.mss
+                .min_height
+                .and_then(|d| d.resolve_opt(parent_height)),
+            self.mss
+                .max_height
+                .and_then(|d| d.resolve_opt(parent_height)),
         )
     }
 
     fn layout_hint(&self) -> LayoutHint {
-        let has_padding = self.padding_left > 0.0 || self.padding_right > 0.0
-            || self.padding_top > 0.0 || self.padding_bottom > 0.0;
-        let has_size_constraints = self.width.is_some() || self.height.is_some()
-            || self.mss.min_width.is_some() || self.mss.max_width.is_some()
-            || self.mss.min_height.is_some() || self.mss.max_height.is_some();
+        let has_padding = self.padding_left > 0.0
+            || self.padding_right > 0.0
+            || self.padding_top > 0.0
+            || self.padding_bottom > 0.0;
+        let has_size_constraints = self.width.is_some()
+            || self.height.is_some()
+            || self.mss.min_width.is_some()
+            || self.mss.max_width.is_some()
+            || self.mss.min_height.is_some()
+            || self.mss.max_height.is_some();
         if has_size_constraints {
             LayoutHint::Container {
-                left: self.padding_left, top: self.padding_top,
-                right: self.padding_right, bottom: self.padding_bottom,
+                left: self.padding_left,
+                top: self.padding_top,
+                right: self.padding_right,
+                bottom: self.padding_bottom,
             }
         } else if has_padding {
             LayoutHint::Padding {
-                left: self.padding_left, top: self.padding_top,
-                right: self.padding_right, bottom: self.padding_bottom,
+                left: self.padding_left,
+                top: self.padding_top,
+                right: self.padding_right,
+                bottom: self.padding_bottom,
             }
         } else {
             LayoutHint::Padding {
-                left: 0.0, top: 0.0, right: 0.0, bottom: 0.0,
+                left: 0.0,
+                top: 0.0,
+                right: 0.0,
+                bottom: 0.0,
             }
         }
     }
 
     fn clip_content(&self) -> bool {
-        self.clip || matches!(self.mss.overflow, Some(Overflow::Hidden) | Some(Overflow::Scroll))
+        self.clip
+            || matches!(
+                self.mss.overflow,
+                Some(Overflow::Hidden) | Some(Overflow::Scroll)
+            )
     }
 
     fn clip_corner_radius(&self) -> [f32; 4] {
         if self.clip_content() {
             let resolve_size = self.bounds.size.width.min(self.bounds.size.height);
-            self.mss.border_radius
+            self.mss
+                .border_radius
                 .map(|dims| dims.map(|d| d.resolve(resolve_size)))
                 .unwrap_or(self.corner_radius)
         } else {
@@ -617,11 +742,22 @@ impl Element for DecoratedBoxElement {
         }
     }
 
-    fn set_classes(&mut self, classes: Vec<String>) { self.classes = classes; self.mark_dirty(DirtyFlags::RENDER); }
-    fn get_classes(&self) -> &[String] { &self.classes }
-    fn reset_mss_styles(&mut self) { self.mss.reset(); }
-    fn apply_computed_style(&mut self, style: &ComputedStyle) { self.apply_style(style); }
-    fn mss(&self) -> Option<&crate::mss::MssFields> { Some(&self.mss) }
+    fn set_classes(&mut self, classes: Vec<String>) {
+        self.classes = classes;
+        self.mark_dirty(DirtyFlags::RENDER);
+    }
+    fn get_classes(&self) -> &[String] {
+        &self.classes
+    }
+    fn reset_mss_styles(&mut self) {
+        self.mss.reset();
+    }
+    fn apply_computed_style(&mut self, style: &ComputedStyle) {
+        self.apply_style(style);
+    }
+    fn mss(&self) -> Option<&crate::mss::MssFields> {
+        Some(&self.mss)
+    }
 
     fn apply_transition_styles(
         &mut self,
@@ -656,11 +792,17 @@ impl StyledElement for DecoratedBoxElement {
         self.width = self.mss.width;
         self.height = self.mss.height;
 
-        self.shadow = self.mss.box_shadow.as_ref()
+        self.shadow = self
+            .mss
+            .box_shadow
+            .as_ref()
             .and_then(|s| s.0.first())
             .map(|s| (s.color, s.blur_radius, s.offset_x, s.offset_y))
             .filter(|_| {
-                !self.mss.box_shadow.as_ref()
+                !self
+                    .mss
+                    .box_shadow
+                    .as_ref()
                     .and_then(|s| s.0.first())
                     .map(|s| s.inset)
                     .unwrap_or(false)
@@ -677,20 +819,39 @@ impl StyledElement for DecoratedBoxElement {
         let default_bc = self.mss.border_color;
         let mut raw_sides: [Option<(f32, Color)>; 4] = [None; 4];
         let hidden = |prop: &str| {
-            matches!(style.get(prop).and_then(|v| v.as_string()), Some("none") | Some("hidden"))
+            matches!(
+                style.get(prop).and_then(|v| v.as_string()),
+                Some("none") | Some("hidden")
+            )
         };
         let all_hidden = hidden("border-style");
         for (i, (width_prop, color_prop, style_prop)) in [
-            ("border-left-width", "border-left-color", "border-left-style"),
+            (
+                "border-left-width",
+                "border-left-color",
+                "border-left-style",
+            ),
             ("border-top-width", "border-top-color", "border-top-style"),
-            ("border-right-width", "border-right-color", "border-right-style"),
-            ("border-bottom-width", "border-bottom-color", "border-bottom-style"),
-        ].iter().enumerate() {
+            (
+                "border-right-width",
+                "border-right-color",
+                "border-right-style",
+            ),
+            (
+                "border-bottom-width",
+                "border-bottom-color",
+                "border-bottom-style",
+            ),
+        ]
+        .iter()
+        .enumerate()
+        {
             if all_hidden || hidden(style_prop) {
                 continue;
             }
             if let Some(w) = style.get(width_prop).and_then(|v| v.as_px()) {
-                let color = style.get(color_prop)
+                let color = style
+                    .get(color_prop)
                     .and_then(|v| v.as_color())
                     .map(|c| Color::from_srgb(c.r, c.g, c.b, c.a as f32 / 255.0))
                     .or(default_bc)
@@ -700,8 +861,13 @@ impl StyledElement for DecoratedBoxElement {
         }
         let uniform_equivalent = raw_sides.iter().all(|s| s.is_some()) && {
             let (w0, c0) = raw_sides[0].unwrap();
-            raw_sides.iter().all(|s| s.map(|(w, c)| w == w0 && c == c0).unwrap_or(false))
-                && self.border.map(|b| b.width == w0 && b.color == c0).unwrap_or(false)
+            raw_sides
+                .iter()
+                .all(|s| s.map(|(w, c)| w == w0 && c == c0).unwrap_or(false))
+                && self
+                    .border
+                    .map(|b| b.width == w0 && b.color == c0)
+                    .unwrap_or(false)
         };
         if !uniform_equivalent {
             self.border_sides = raw_sides;
@@ -709,6 +875,11 @@ impl StyledElement for DecoratedBoxElement {
 
         self.mark_dirty(DirtyFlags::LAYOUT | DirtyFlags::RENDER);
     }
-    fn classes(&self) -> &[String] { &self.classes }
-    fn set_classes(&mut self, classes: Vec<String>) { self.classes = classes; self.mark_dirty(DirtyFlags::RENDER); }
+    fn classes(&self) -> &[String] {
+        &self.classes
+    }
+    fn set_classes(&mut self, classes: Vec<String>) {
+        self.classes = classes;
+        self.mark_dirty(DirtyFlags::RENDER);
+    }
 }

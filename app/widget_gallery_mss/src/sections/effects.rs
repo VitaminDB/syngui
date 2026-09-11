@@ -1,10 +1,10 @@
-use syngui::mgui;
-use syngui::prelude::*;
 use std::sync::atomic::{AtomicBool, AtomicU32, Ordering};
 use std::sync::Arc;
 use std::time::Duration;
+use syngui::mgui;
+use syngui::prelude::*;
 
-use super::{section_card, section_title, label};
+use super::{label, section_card, section_title};
 
 pub fn build_effects_section() -> impl Widget {
     // --- Demo 1: Auto-incrementing timer ---
@@ -19,7 +19,9 @@ pub fn build_effects_section() -> impl Widget {
         std::thread::spawn(move || {
             while flag.load(Ordering::Relaxed) {
                 std::thread::sleep(Duration::from_secs(1));
-                if !flag.load(Ordering::Relaxed) { break; }
+                if !flag.load(Ordering::Relaxed) {
+                    break;
+                }
                 let val = cnt.fetch_add(1, Ordering::Relaxed) + 1;
                 seconds.set(val);
             }
@@ -46,7 +48,9 @@ pub fn build_effects_section() -> impl Widget {
         std::thread::spawn(move || {
             while flag.load(Ordering::Relaxed) {
                 std::thread::sleep(Duration::from_millis(100));
-                if !flag.load(Ordering::Relaxed) { break; }
+                if !flag.load(Ordering::Relaxed) {
+                    break;
+                }
                 let val = cnt.fetch_add(1, Ordering::Relaxed) + 1;
                 stopwatch.set(val);
             }

@@ -1,9 +1,9 @@
 mod element;
 
+use crate::core::sync::Mutex;
 use crate::core::Color;
 use crate::mss::Dimension;
 use std::sync::Arc;
-use crate::core::sync::Mutex;
 
 #[derive(Clone, Debug)]
 pub enum PropertyValue {
@@ -19,11 +19,25 @@ impl PropertyValue {
         match self {
             PropertyValue::Text(s) => s.clone(),
             PropertyValue::Number(n) => {
-                if *n == (*n as i64) as f64 { format!("{}", *n as i64) } else { format!("{:.2}", n) }
+                if *n == (*n as i64) as f64 {
+                    format!("{}", *n as i64)
+                } else {
+                    format!("{:.2}", n)
+                }
             }
-            PropertyValue::Bool(b) => if *b { "true".to_string() } else { "false".to_string() },
-            PropertyValue::Color(c) => format!("#{:02X}{:02X}{:02X}",
-                (c.r * 255.0) as u8, (c.g * 255.0) as u8, (c.b * 255.0) as u8),
+            PropertyValue::Bool(b) => {
+                if *b {
+                    "true".to_string()
+                } else {
+                    "false".to_string()
+                }
+            }
+            PropertyValue::Color(c) => format!(
+                "#{:02X}{:02X}{:02X}",
+                (c.r * 255.0) as u8,
+                (c.g * 255.0) as u8,
+                (c.b * 255.0) as u8
+            ),
             PropertyValue::Choice(items, idx) => items.get(*idx).cloned().unwrap_or_default(),
         }
     }
@@ -37,23 +51,38 @@ pub struct Property {
 
 impl Property {
     pub fn text(name: impl Into<String>, value: impl Into<String>) -> Self {
-        Self { name: name.into(), value: PropertyValue::Text(value.into()) }
+        Self {
+            name: name.into(),
+            value: PropertyValue::Text(value.into()),
+        }
     }
 
     pub fn number(name: impl Into<String>, value: f64) -> Self {
-        Self { name: name.into(), value: PropertyValue::Number(value) }
+        Self {
+            name: name.into(),
+            value: PropertyValue::Number(value),
+        }
     }
 
     pub fn boolean(name: impl Into<String>, value: bool) -> Self {
-        Self { name: name.into(), value: PropertyValue::Bool(value) }
+        Self {
+            name: name.into(),
+            value: PropertyValue::Bool(value),
+        }
     }
 
     pub fn color(name: impl Into<String>, value: Color) -> Self {
-        Self { name: name.into(), value: PropertyValue::Color(value) }
+        Self {
+            name: name.into(),
+            value: PropertyValue::Color(value),
+        }
     }
 
     pub fn choice(name: impl Into<String>, items: Vec<String>, selected: usize) -> Self {
-        Self { name: name.into(), value: PropertyValue::Choice(items, selected) }
+        Self {
+            name: name.into(),
+            value: PropertyValue::Choice(items, selected),
+        }
     }
 }
 
@@ -143,5 +172,7 @@ impl PropertyGrid {
 }
 
 impl Default for PropertyGrid {
-    fn default() -> Self { Self::new() }
+    fn default() -> Self {
+        Self::new()
+    }
 }

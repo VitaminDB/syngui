@@ -1,9 +1,9 @@
+use super::AppHandler;
 use crate::a11y::FocusManager;
 use crate::core::{Point, Rect, Size};
 use crate::input::{CursorIcon, Event};
 use crate::mss::parse_stylesheet_str;
 use web_time::Instant;
-use super::AppHandler;
 
 /// Извлекает цвет переменной `--bg` из таблицы темы. Используется, чтобы
 /// clear-color окна (а с ним полоса статус-бара и любые непокрытые области)
@@ -13,7 +13,12 @@ pub(super) fn parse_theme_bg(ss: &crate::mss::StyleSheet) -> Option<crate::core:
     let c = v
         .as_color()
         .or_else(|| v.as_string().and_then(crate::mss::MssColor::parse))?;
-    Some(crate::core::Color::from_srgb(c.r, c.g, c.b, c.a as f32 / 255.0))
+    Some(crate::core::Color::from_srgb(
+        c.r,
+        c.g,
+        c.b,
+        c.a as f32 / 255.0,
+    ))
 }
 
 impl AppHandler {
@@ -125,12 +130,19 @@ impl AppHandler {
         self.process_virtual_keyboard_request();
     }
 
-    pub(in crate::app) fn find_text_input_at(&self, element_id: crate::widget::ElementId, pos: Point) -> Option<crate::widget::ElementId> {
+    pub(in crate::app) fn find_text_input_at(
+        &self,
+        element_id: crate::widget::ElementId,
+        pos: Point,
+    ) -> Option<crate::widget::ElementId> {
         let node = self.tree.elements.get(&element_id)?;
         if !node.element.is_visible() {
             return None;
         }
-        let is_portal = matches!(node.element.layout_hint(), crate::widget::LayoutHint::Portal { .. });
+        let is_portal = matches!(
+            node.element.layout_hint(),
+            crate::widget::LayoutHint::Portal { .. }
+        );
         let is_passthrough = is_portal || node.element.passthrough_hit_test();
         if !is_passthrough && !node.element.hit_test(pos) {
             return None;
@@ -171,12 +183,19 @@ impl AppHandler {
     }
 
     #[allow(dead_code)]
-    fn find_focusable_at(&self, element_id: crate::widget::ElementId, pos: Point) -> Option<crate::widget::ElementId> {
+    fn find_focusable_at(
+        &self,
+        element_id: crate::widget::ElementId,
+        pos: Point,
+    ) -> Option<crate::widget::ElementId> {
         let node = self.tree.elements.get(&element_id)?;
         if !node.element.is_visible() {
             return None;
         }
-        let is_portal = matches!(node.element.layout_hint(), crate::widget::LayoutHint::Portal { .. });
+        let is_portal = matches!(
+            node.element.layout_hint(),
+            crate::widget::LayoutHint::Portal { .. }
+        );
         let is_passthrough = is_portal || node.element.passthrough_hit_test();
         if !is_passthrough && !node.element.hit_test(pos) {
             return None;
@@ -222,8 +241,14 @@ impl AppHandler {
         #[cfg(target_arch = "wasm32")]
         if self.gpu.is_none() {
             let has_pending = self.pending_gpu.borrow().is_some();
-            web_sys::console::log_1(&format!("[syngui] render: gpu=None, pending_gpu.is_some()={}, Rc strong_count={}",
-                has_pending, std::rc::Rc::strong_count(&self.pending_gpu)).into());
+            web_sys::console::log_1(
+                &format!(
+                    "[syngui] render: gpu=None, pending_gpu.is_some()={}, Rc strong_count={}",
+                    has_pending,
+                    std::rc::Rc::strong_count(&self.pending_gpu)
+                )
+                .into(),
+            );
             let gpu = self.pending_gpu.borrow_mut().take();
             if let Some(gpu) = gpu {
                 web_sys::console::log_1(&"[syngui] render: GPU ready, completing init".into());
@@ -252,12 +277,20 @@ impl AppHandler {
                     font_changed = true;
                 }
                 if let Some(emoji_data) = self.pending_emoji_font.borrow_mut().take() {
-                    renderer.font_atlas.lock().unwrap().set_emoji_font_data(emoji_data);
+                    renderer
+                        .font_atlas
+                        .lock()
+                        .unwrap()
+                        .set_emoji_font_data(emoji_data);
                     font_changed = true;
                 }
                 let fallback_fonts = std::mem::take(&mut *self.pending_fallback_fonts.borrow_mut());
                 for data in fallback_fonts {
-                    renderer.font_atlas.lock().unwrap().add_fallback_font(data, 0);
+                    renderer
+                        .font_atlas
+                        .lock()
+                        .unwrap()
+                        .add_fallback_font(data, 0);
                     font_changed = true;
                 }
             }
@@ -292,13 +325,21 @@ impl AppHandler {
                     self.tree.root_offset =
                         crate::core::Point::new(safe.left, safe.top - self.tree.keyboard_pan);
                     let constraints = crate::layout::Constraints::new(
-                        0.0, logical_w - safe.left - safe.right,
-                        0.0, layout_h,
+                        0.0,
+                        logical_w - safe.left - safe.right,
+                        0.0,
+                        layout_h,
                     );
                     self.tree.layout(root_id, constraints);
                     self.a11y_tree.sync(&self.tree, root_id);
                     self.focus_manager.rebuild_tab_order(&self.tree, root_id);
-                    web_sys::console::log_1(&format!("[syngui] Widget tree built: {} elements", self.tree.elements.len()).into());
+                    web_sys::console::log_1(
+                        &format!(
+                            "[syngui] Widget tree built: {} elements",
+                            self.tree.elements.len()
+                        )
+                        .into(),
+                    );
                 }
             }
         }
@@ -335,7 +376,8 @@ impl AppHandler {
         #[cfg(target_os = "android")]
         {
             let kb = self.query_keyboard_height();
-            keyboard_height_changed = (kb - self.keyboard_height).abs() > 1.0 && kb > self.keyboard_height;
+            keyboard_height_changed =
+                (kb - self.keyboard_height).abs() > 1.0 && kb > self.keyboard_height;
             if (kb - self.keyboard_height).abs() > 1.0 {
                 self.keyboard_height = kb;
             }
@@ -359,10 +401,7 @@ impl AppHandler {
             // а set() дедуплицирует — подписчики будятся только при изменении.
             crate::viewport::publish(crate::core::Size::new(layout_w, layout_h));
             crate::viewport::publish_origin(self.tree.root_offset);
-            let constraints = crate::layout::Constraints::new(
-                0.0, layout_w,
-                0.0, layout_h,
-            );
+            let constraints = crate::layout::Constraints::new(0.0, layout_w, 0.0, layout_h);
 
             self.tree.set_pixel_snap_scale(0.0);
 
@@ -439,7 +478,9 @@ impl AppHandler {
             layout_elapsed = std::time::Duration::ZERO;
         }
 
-        if let (Some(root_id), Some(gpu), Some(renderer)) = (self.root_id, self.gpu.as_ref(), self.renderer.as_mut()) {
+        if let (Some(root_id), Some(gpu), Some(renderer)) =
+            (self.root_id, self.gpu.as_ref(), self.renderer.as_mut())
+        {
             let logical_w = (self.config.width as f64 / self.scale_factor) as f32;
             let logical_h = (self.config.height as f64 / self.scale_factor) as f32;
 
@@ -449,7 +490,8 @@ impl AppHandler {
             self.display_list.set_surface_size(surface_size);
             self.display_list.set_scale_factor(self.scale_factor as f32);
             let clip = Rect::new(Point::zero(), surface_size);
-            self.tree.build_display_list(root_id, &mut self.display_list, clip);
+            self.tree
+                .build_display_list(root_id, &mut self.display_list, clip);
             self.tree.build_drag_overlay(&mut self.display_list);
             let dl_elapsed = t_dl.elapsed();
 
@@ -462,12 +504,21 @@ impl AppHandler {
                     if devtools.expanded_nodes_count() == 0 {
                         devtools.auto_expand(&self.tree, 4);
                     }
-                    devtools.build_display_list(&mut self.display_list, &self.tree, &self.style_engine);
+                    devtools.build_display_list(
+                        &mut self.display_list,
+                        &self.tree,
+                        &self.style_engine,
+                    );
                 }
             }
 
             let t_render = Instant::now();
-            let render_stats = renderer.render(&gpu.shared, &gpu.window_surface, &self.display_list, self.config.background_color);
+            let render_stats = renderer.render(
+                &gpu.shared,
+                &gpu.window_surface,
+                &self.display_list,
+                self.config.background_color,
+            );
             let render_elapsed = t_render.elapsed();
 
             let font_stats = renderer.font_atlas_stats();
@@ -506,7 +557,8 @@ impl AppHandler {
                         vertex_count: render_stats.vertex_count,
                         font_atlas_glyphs: font_stats.glyph_count,
                         font_atlas_mem_kb: font_stats.total_bytes / 1024,
-                        display_list_commands: dl_stats.command_count + dl_stats.overlay_command_count,
+                        display_list_commands: dl_stats.command_count
+                            + dl_stats.overlay_command_count,
                     });
                 }
             }
@@ -528,7 +580,8 @@ impl AppHandler {
         if crate::clipboard::take_refreshed() {
             if let Some(focused) = self.tree.focused_element {
                 if self.tree.elements.contains_key(&focused) {
-                    self.tree.dispatch_event_to(focused, &crate::input::Event::FocusGained);
+                    self.tree
+                        .dispatch_event_to(focused, &crate::input::Event::FocusGained);
                     if let Some(window) = &self.window {
                         window.request_redraw();
                     }
@@ -571,7 +624,8 @@ impl AppHandler {
                 }
                 self.style_engine.load_stylesheet(new_ss);
                 for additional in &self.config.additional_stylesheets {
-                    self.style_engine.load_additional_stylesheet(additional.clone());
+                    self.style_engine
+                        .load_additional_stylesheet(additional.clone());
                 }
                 crate::signal::mark_all_reactive_dirty();
                 for node in self.tree.elements.values_mut() {
@@ -596,7 +650,8 @@ impl AppHandler {
                     self.style_engine.load_stylesheet(base.clone());
                 }
                 for additional in &self.config.additional_stylesheets {
-                    self.style_engine.load_additional_stylesheet(additional.clone());
+                    self.style_engine
+                        .load_additional_stylesheet(additional.clone());
                 }
                 if !new_mss.is_empty() {
                     match parse_stylesheet_str(&new_mss) {
@@ -606,7 +661,8 @@ impl AppHandler {
                         Err(e) => log::warn!("Failed to parse dynamic theme: {:?}", e),
                     }
                 }
-                let is_dark = new_mss.find("--bg:")
+                let is_dark = new_mss
+                    .find("--bg:")
                     .and_then(|pos| {
                         let after = &new_mss[pos + 5..];
                         let val = after.trim_start().split(';').next()?.trim();
@@ -702,9 +758,9 @@ impl AppHandler {
                             .last_paced_redraw
                             .map(|t| now.duration_since(t))
                             .unwrap_or(min_interval);
-                        let delay = min_interval.saturating_sub(elapsed).max(
-                            std::time::Duration::from_millis(1),
-                        );
+                        let delay = min_interval
+                            .saturating_sub(elapsed)
+                            .max(std::time::Duration::from_millis(1));
                         self.wakeup_after = Some(match self.wakeup_after {
                             Some(d) => d.min(delay),
                             None => delay,

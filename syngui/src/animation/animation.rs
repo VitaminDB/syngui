@@ -41,7 +41,14 @@ impl Animation {
     pub fn current_value(&self) -> f32 {
         match self {
             Self::Spring { current, .. } => *current,
-            Self::Tween { from, to, duration, elapsed, delay, easing } => {
+            Self::Tween {
+                from,
+                to,
+                duration,
+                elapsed,
+                delay,
+                easing,
+            } => {
                 if *elapsed <= *delay {
                     *from
                 } else if *elapsed >= *delay + *duration {
@@ -53,7 +60,10 @@ impl Animation {
                     from + (to - from) * eased
                 }
             }
-            Self::Sequence { animations, current_index } => {
+            Self::Sequence {
+                animations,
+                current_index,
+            } => {
                 if let Some(anim) = animations.get(*current_index) {
                     anim.current_value()
                 } else {
@@ -95,18 +105,32 @@ impl Animation {
 
     pub fn tick(&mut self, dt: Duration) -> bool {
         match self {
-            Self::Spring { spring, target, current, velocity, .. } => {
+            Self::Spring {
+                spring,
+                target,
+                current,
+                velocity,
+                ..
+            } => {
                 let dt_secs = dt.as_secs_f32();
                 let (new_pos, new_vel) = spring.update(*current, *target, *velocity, dt_secs);
                 *current = new_pos;
                 *velocity = new_vel;
                 !spring.is_at_rest(*current - *target, *velocity)
             }
-            Self::Tween { duration, elapsed, delay, .. } => {
+            Self::Tween {
+                duration,
+                elapsed,
+                delay,
+                ..
+            } => {
                 *elapsed += dt;
                 *elapsed < *delay + *duration
             }
-            Self::Sequence { animations, current_index } => {
+            Self::Sequence {
+                animations,
+                current_index,
+            } => {
                 if let Some(anim) = animations.get_mut(*current_index) {
                     if !anim.tick(dt) {
                         *current_index += 1;
@@ -120,18 +144,35 @@ impl Animation {
 
     pub fn is_complete(&self) -> bool {
         match self {
-            Self::Spring { spring, current, target, velocity, .. } => {
-                spring.is_at_rest(*current - *target, *velocity)
-            }
-            Self::Tween { duration, elapsed, delay, .. } => *elapsed >= *delay + *duration,
-            Self::Sequence { animations, current_index } => *current_index >= animations.len(),
+            Self::Spring {
+                spring,
+                current,
+                target,
+                velocity,
+                ..
+            } => spring.is_at_rest(*current - *target, *velocity),
+            Self::Tween {
+                duration,
+                elapsed,
+                delay,
+                ..
+            } => *elapsed >= *delay + *duration,
+            Self::Sequence {
+                animations,
+                current_index,
+            } => *current_index >= animations.len(),
             Self::Constant(_) => true,
         }
     }
 
     pub fn reset(&mut self) {
         match self {
-            Self::Spring { initial, current, velocity, .. } => {
+            Self::Spring {
+                initial,
+                current,
+                velocity,
+                ..
+            } => {
                 *current = *initial;
                 *velocity = 0.0;
             }
@@ -333,7 +374,11 @@ mod tests {
 
     #[test]
     fn tween_starts_at_from() {
-        let a = Animation::tween(Easing::Linear).from(10.0).to(20.0).duration_ms(300).build();
+        let a = Animation::tween(Easing::Linear)
+            .from(10.0)
+            .to(20.0)
+            .duration_ms(300)
+            .build();
         assert_eq!(a.current_value(), 10.0);
     }
 
@@ -346,16 +391,26 @@ mod tests {
     #[test]
     fn tween_linear_midpoint() {
         let mut a = Animation::tween(Easing::Linear)
-            .from(0.0).to(100.0).duration_ms(1000).build();
+            .from(0.0)
+            .to(100.0)
+            .duration_ms(1000)
+            .build();
         a.tick(ms(500));
         let val = a.current_value();
-        assert!((val - 50.0).abs() < 1.0, "midpoint should be ~50, got {}", val);
+        assert!(
+            (val - 50.0).abs() < 1.0,
+            "midpoint should be ~50, got {}",
+            val
+        );
     }
 
     #[test]
     fn tween_completes_at_duration() {
         let mut a = Animation::tween(Easing::Linear)
-            .from(0.0).to(100.0).duration_ms(300).build();
+            .from(0.0)
+            .to(100.0)
+            .duration_ms(300)
+            .build();
         let needs_more = a.tick(ms(300));
         assert!(!needs_more);
         assert!(a.is_complete());
@@ -365,7 +420,10 @@ mod tests {
     #[test]
     fn tween_past_duration_returns_to() {
         let mut a = Animation::tween(Easing::Linear)
-            .from(0.0).to(50.0).duration_ms(100).build();
+            .from(0.0)
+            .to(50.0)
+            .duration_ms(100)
+            .build();
         a.tick(ms(200));
         assert_eq!(a.current_value(), 50.0);
     }
@@ -373,7 +431,11 @@ mod tests {
     #[test]
     fn tween_with_delay() {
         let mut a = Animation::tween(Easing::Linear)
-            .from(0.0).to(100.0).duration_ms(100).delay_ms(50).build();
+            .from(0.0)
+            .to(100.0)
+            .duration_ms(100)
+            .delay_ms(50)
+            .build();
         a.tick(ms(25));
         assert_eq!(a.current_value(), 0.0);
         a.tick(ms(75));
@@ -391,7 +453,10 @@ mod tests {
     #[test]
     fn tween_reset() {
         let mut a = Animation::tween(Easing::Linear)
-            .from(0.0).to(100.0).duration_ms(100).build();
+            .from(0.0)
+            .to(100.0)
+            .duration_ms(100)
+            .build();
         a.tick(ms(50));
         assert!(a.current_value() > 0.0);
         a.reset();
@@ -402,14 +467,21 @@ mod tests {
     #[test]
     fn tween_set_target() {
         let mut a = Animation::tween(Easing::Linear)
-            .from(0.0).to(100.0).duration_ms(100).build();
+            .from(0.0)
+            .to(100.0)
+            .duration_ms(100)
+            .build();
         a.set_target(200.0);
         assert_eq!(a.target_value(), 200.0);
     }
 
     #[test]
     fn tween_from_builder_trait() {
-        let a: Animation = Animation::tween(Easing::Linear).from(0.0).to(1.0).duration_ms(100).into();
+        let a: Animation = Animation::tween(Easing::Linear)
+            .from(0.0)
+            .to(1.0)
+            .duration_ms(100)
+            .into();
         assert_eq!(a.initial_value(), 0.0);
     }
 
@@ -467,7 +539,11 @@ mod tests {
 
     #[test]
     fn spring_duration_ms_ignored() {
-        let a = Animation::spring().from(0.0).to(1.0).duration_ms(100).build();
+        let a = Animation::spring()
+            .from(0.0)
+            .to(1.0)
+            .duration_ms(100)
+            .build();
         assert_eq!(a.target_value(), 1.0);
     }
 
@@ -475,8 +551,16 @@ mod tests {
     fn sequence_plays_first_animation() {
         let a = Animation::Sequence {
             animations: vec![
-                Animation::tween(Easing::Linear).from(0.0).to(1.0).duration_ms(100).build(),
-                Animation::tween(Easing::Linear).from(1.0).to(2.0).duration_ms(100).build(),
+                Animation::tween(Easing::Linear)
+                    .from(0.0)
+                    .to(1.0)
+                    .duration_ms(100)
+                    .build(),
+                Animation::tween(Easing::Linear)
+                    .from(1.0)
+                    .to(2.0)
+                    .duration_ms(100)
+                    .build(),
             ],
             current_index: 0,
         };
@@ -488,8 +572,16 @@ mod tests {
     fn sequence_advances_after_first_completes() {
         let mut a = Animation::Sequence {
             animations: vec![
-                Animation::tween(Easing::Linear).from(0.0).to(1.0).duration_ms(100).build(),
-                Animation::tween(Easing::Linear).from(1.0).to(2.0).duration_ms(100).build(),
+                Animation::tween(Easing::Linear)
+                    .from(0.0)
+                    .to(1.0)
+                    .duration_ms(100)
+                    .build(),
+                Animation::tween(Easing::Linear)
+                    .from(1.0)
+                    .to(2.0)
+                    .duration_ms(100)
+                    .build(),
             ],
             current_index: 0,
         };
@@ -502,9 +594,11 @@ mod tests {
     #[test]
     fn sequence_completes_when_all_done() {
         let mut a = Animation::Sequence {
-            animations: vec![
-                Animation::tween(Easing::Linear).from(0.0).to(1.0).duration_ms(50).build(),
-            ],
+            animations: vec![Animation::tween(Easing::Linear)
+                .from(0.0)
+                .to(1.0)
+                .duration_ms(50)
+                .build()],
             current_index: 0,
         };
         a.tick(ms(50));
@@ -514,7 +608,10 @@ mod tests {
 
     #[test]
     fn sequence_empty_is_complete() {
-        let a = Animation::Sequence { animations: vec![], current_index: 0 };
+        let a = Animation::Sequence {
+            animations: vec![],
+            current_index: 0,
+        };
         assert!(a.is_complete());
         assert_eq!(a.current_value(), 0.0);
     }
@@ -522,9 +619,11 @@ mod tests {
     #[test]
     fn sequence_reset() {
         let mut a = Animation::Sequence {
-            animations: vec![
-                Animation::tween(Easing::Linear).from(0.0).to(1.0).duration_ms(50).build(),
-            ],
+            animations: vec![Animation::tween(Easing::Linear)
+                .from(0.0)
+                .to(1.0)
+                .duration_ms(50)
+                .build()],
             current_index: 1,
         };
         a.reset();

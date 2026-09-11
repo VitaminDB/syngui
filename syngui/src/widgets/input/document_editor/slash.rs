@@ -36,7 +36,11 @@ pub struct SlashItem {
 
 impl SlashItem {
     pub fn new(action: SlashAction, label: impl Into<String>, keywords: impl Into<String>) -> Self {
-        Self { action, label: label.into(), keywords: keywords.into() }
+        Self {
+            action,
+            label: label.into(),
+            keywords: keywords.into(),
+        }
     }
 }
 
@@ -59,11 +63,19 @@ pub fn default_items() -> Vec<SlashItem> {
         SlashItem::new(Divider, "Divider", "divider hr separator line"),
         SlashItem::new(Table, "Table", "table grid"),
         SlashItem::new(Shape(ShapeKind::Rect), "Rectangle", "rect shape box"),
-        SlashItem::new(Shape(ShapeKind::Ellipse), "Ellipse", "ellipse circle oval shape"),
+        SlashItem::new(
+            Shape(ShapeKind::Ellipse),
+            "Ellipse",
+            "ellipse circle oval shape",
+        ),
         SlashItem::new(Shape(ShapeKind::Line), "Line", "line shape"),
         SlashItem::new(Shape(ShapeKind::Arrow), "Arrow", "arrow shape"),
         SlashItem::new(Shape(ShapeKind::Curve), "Curve", "curve bezier shape"),
-        SlashItem::new(Shape(ShapeKind::CurveArrow), "Curved arrow", "curve bezier arrow"),
+        SlashItem::new(
+            Shape(ShapeKind::CurveArrow),
+            "Curved arrow",
+            "curve bezier arrow",
+        ),
     ]
 }
 

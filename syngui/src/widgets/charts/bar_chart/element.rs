@@ -3,23 +3,25 @@ use crate::core::canvas::CanvasContext;
 use crate::core::{Color, Point, Rect, Size};
 use crate::input::{Event, EventResult, MouseButton};
 use crate::layout::Constraints;
-use crate::widget::context::{EventContextExt, TextMeasure};
-use std::sync::Arc;
-use crate::mss::{ComputedStyle, Dimension};
 use crate::mss::MssFields;
+use crate::mss::{ComputedStyle, Dimension};
 use crate::render::DisplayList;
-use crate::widget::{DirtyFlags, Element, ElementId, ElementTree, StyledElement, UpdateContext, Widget};
+use crate::widget::context::{EventContextExt, TextMeasure};
+use crate::widget::{
+    DirtyFlags, Element, ElementId, ElementTree, StyledElement, UpdateContext, Widget,
+};
 use std::any::Any;
+use std::sync::Arc;
 use std::time::Duration;
 
 use super::super::animation::ChartAnimationState;
-use super::super::math::{LinearScale, compute_ticks, format_tick_value};
-use super::super::render::axis::{render_x_axis, render_y_axis, estimate_y_axis_width, AxisColors};
-use super::super::render::legend::{render_legend_items, legend_height};
+use super::super::math::{compute_ticks, format_tick_value, LinearScale};
+use super::super::render::axis::{estimate_y_axis_width, render_x_axis, render_y_axis, AxisColors};
+use super::super::render::legend::{legend_height, render_legend_items};
 use super::super::render::tooltip::TooltipColors;
 use super::super::types::{
-    AxisConfig, BarMode, BarOrientation, BarSeries, ChartLayout, LegendConfig, LegendPosition,
-    TooltipConfig, palette_color,
+    palette_color, AxisConfig, BarMode, BarOrientation, BarSeries, ChartLayout, LegendConfig,
+    LegendPosition, TooltipConfig,
 };
 
 impl Widget for BarChart {
@@ -94,7 +96,9 @@ impl Widget for BarChart {
     }
 
     fn mount(&self, _tree: &mut ElementTree, _parent_id: ElementId) {}
-    fn widget_classes(&self) -> &[String] { &self.classes }
+    fn widget_classes(&self) -> &[String] {
+        &self.classes
+    }
 }
 
 struct BarChartElement {
@@ -248,7 +252,13 @@ impl BarChartElement {
         match self.orientation {
             BarOrientation::Vertical => {
                 let x_axis_h = axis_font_size + 8.0;
-                let y_axis_w = estimate_y_axis_width(&self.y_axis, value_min, value_max, axis_font_size, self.text_measure.as_ref());
+                let y_axis_w = estimate_y_axis_width(
+                    &self.y_axis,
+                    value_min,
+                    value_max,
+                    axis_font_size,
+                    self.text_measure.as_ref(),
+                );
 
                 let plot_x = inner_x + y_axis_w;
                 let plot_y = inner_y + title_h + legend_top;
@@ -256,13 +266,19 @@ impl BarChartElement {
                 let plot_h = (inner_h - title_h - legend_top - legend_bottom - x_axis_h).max(0.0);
 
                 self.layout = ChartLayout {
-                    title_rect: Rect::new(Point::new(inner_x, inner_y), Size::new(inner_w, title_h)),
+                    title_rect: Rect::new(
+                        Point::new(inner_x, inner_y),
+                        Size::new(inner_w, title_h),
+                    ),
                     plot_rect: Rect::new(Point::new(plot_x, plot_y), Size::new(plot_w, plot_h)),
                     _x_axis_rect: Rect::new(
                         Point::new(plot_x, plot_y + plot_h),
                         Size::new(plot_w, x_axis_h),
                     ),
-                    _y_axis_rect: Rect::new(Point::new(inner_x, plot_y), Size::new(y_axis_w, plot_h)),
+                    _y_axis_rect: Rect::new(
+                        Point::new(inner_x, plot_y),
+                        Size::new(y_axis_w, plot_h),
+                    ),
                     legend_rect: Rect::new(
                         Point::new(
                             inner_x,
@@ -276,10 +292,7 @@ impl BarChartElement {
                     ),
                 };
 
-                self.value_scale = LinearScale::new(
-                    (value_min, value_max),
-                    (plot_h, 0.0),
-                );
+                self.value_scale = LinearScale::new((value_min, value_max), (plot_h, 0.0));
 
                 self.compute_bar_rects_vertical();
             }
@@ -288,9 +301,16 @@ impl BarChartElement {
                 let cat_axis_w = self
                     .categories
                     .iter()
-                    .map(|c| super::super::render::estimate_text_width(c, axis_font_size, self.text_measure.as_ref()))
+                    .map(|c| {
+                        super::super::render::estimate_text_width(
+                            c,
+                            axis_font_size,
+                            self.text_measure.as_ref(),
+                        )
+                    })
                     .fold(0.0_f32, f32::max)
-                    .max(20.0) + 8.0;
+                    .max(20.0)
+                    + 8.0;
 
                 let plot_x = inner_x + cat_axis_w;
                 let plot_y = inner_y + title_h + legend_top;
@@ -298,13 +318,19 @@ impl BarChartElement {
                 let plot_h = (inner_h - title_h - legend_top - legend_bottom - x_axis_h).max(0.0);
 
                 self.layout = ChartLayout {
-                    title_rect: Rect::new(Point::new(inner_x, inner_y), Size::new(inner_w, title_h)),
+                    title_rect: Rect::new(
+                        Point::new(inner_x, inner_y),
+                        Size::new(inner_w, title_h),
+                    ),
                     plot_rect: Rect::new(Point::new(plot_x, plot_y), Size::new(plot_w, plot_h)),
                     _x_axis_rect: Rect::new(
                         Point::new(plot_x, plot_y + plot_h),
                         Size::new(plot_w, x_axis_h),
                     ),
-                    _y_axis_rect: Rect::new(Point::new(inner_x, plot_y), Size::new(cat_axis_w, plot_h)),
+                    _y_axis_rect: Rect::new(
+                        Point::new(inner_x, plot_y),
+                        Size::new(cat_axis_w, plot_h),
+                    ),
                     legend_rect: Rect::new(
                         Point::new(
                             inner_x,
@@ -318,10 +344,7 @@ impl BarChartElement {
                     ),
                 };
 
-                self.value_scale = LinearScale::new(
-                    (value_min, value_max),
-                    (0.0, plot_w),
-                );
+                self.value_scale = LinearScale::new((value_min, value_max), (0.0, plot_w));
 
                 self.compute_bar_rects_horizontal();
             }
@@ -452,7 +475,8 @@ impl BarChartElement {
                         let val = self.bar_series[si].data.get(ci).copied().unwrap_or(0.0);
                         let val_x = self.value_scale.map(val);
 
-                        let group_start_y = ci as f32 * cat_height + (cat_height - group_height) * 0.5;
+                        let group_start_y =
+                            ci as f32 * cat_height + (cat_height - group_height) * 0.5;
                         let bar_y = group_start_y + si as f32 * (single_bar_height + gap_height);
 
                         let (rect_x, rect_w) = if val >= 0.0 {
@@ -513,13 +537,19 @@ impl BarChartElement {
     fn axis_colors(&self) -> AxisColors {
         let default = AxisColors::default();
         AxisColors {
-            grid_color: self.mss_grid_color
+            grid_color: self
+                .mss_grid_color
                 .or(self.mss.color.map(|c| c.with_alpha(0.15)))
                 .unwrap_or(default.grid_color),
-            axis_color: self.mss_axis_color
+            axis_color: self
+                .mss_axis_color
                 .or(self.mss.color.map(|c| c.with_alpha(0.4)))
                 .unwrap_or(default.axis_color),
-            label_color: self.mss.color.map(|c| c.with_alpha(0.6)).unwrap_or(default.label_color),
+            label_color: self
+                .mss
+                .color
+                .map(|c| c.with_alpha(0.6))
+                .unwrap_or(default.label_color),
             title_color: self.mss.color.unwrap_or(default.title_color),
             axis_font_size: self.mss_axis_font_size.unwrap_or(default.axis_font_size),
             title_font_size: self.mss_title_font_size.unwrap_or(default.title_font_size),
@@ -550,13 +580,7 @@ impl BarChartElement {
         None
     }
 
-    fn render_bar_tooltip(
-        &self,
-        list: &mut DisplayList,
-        mouse: Point,
-        si: usize,
-        ci: usize,
-    ) {
+    fn render_bar_tooltip(&self, list: &mut DisplayList, mouse: Point, si: usize, ci: usize) {
         let tc = self.tooltip_colors();
         let opacity = self.anim.tooltip_opacity;
         if opacity < 0.01 {
@@ -564,8 +588,17 @@ impl BarChartElement {
         }
 
         let cat_name = self.categories.get(ci).map(|s| s.as_str()).unwrap_or("?");
-        let series_name = self.bar_series.get(si).map(|s| s.name.as_str()).unwrap_or("?");
-        let value = self.bar_series.get(si).and_then(|s| s.data.get(ci)).copied().unwrap_or(0.0);
+        let series_name = self
+            .bar_series
+            .get(si)
+            .map(|s| s.name.as_str())
+            .unwrap_or("?");
+        let value = self
+            .bar_series
+            .get(si)
+            .and_then(|s| s.data.get(ci))
+            .copied()
+            .unwrap_or(0.0);
         let value_str = format_tick_value(value);
 
         let line1 = cat_name.to_string();
@@ -573,9 +606,17 @@ impl BarChartElement {
 
         let line_height = tc.font_size + 4.0;
         let padding = 8.0;
-        let max_text_width = super::super::render::estimate_text_width(&line1, tc.font_size, self.text_measure.as_ref())
-            .max(super::super::render::estimate_text_width(&line2, tc.font_size, self.text_measure.as_ref()))
-            .max(40.0);
+        let max_text_width = super::super::render::estimate_text_width(
+            &line1,
+            tc.font_size,
+            self.text_measure.as_ref(),
+        )
+        .max(super::super::render::estimate_text_width(
+            &line2,
+            tc.font_size,
+            self.text_measure.as_ref(),
+        ))
+        .max(40.0);
         let tooltip_width = max_text_width + padding * 2.0;
         let tooltip_height = 2.0 * line_height + padding * 2.0;
 
@@ -614,9 +655,18 @@ impl BarChartElement {
             Point::new(x + padding, y + padding),
             Size::new(max_text_width, line_height),
         );
-        list.push_text(&line1, text_rect1, tc.text_color.with_alpha(opacity * 0.7), tc.font_size);
+        list.push_text(
+            &line1,
+            text_rect1,
+            tc.text_color.with_alpha(opacity * 0.7),
+            tc.font_size,
+        );
 
-        let color = self.resolved_colors.get(si).copied().unwrap_or(Color::WHITE);
+        let color = self
+            .resolved_colors
+            .get(si)
+            .copied()
+            .unwrap_or(Color::WHITE);
         let text_rect2 = Rect::new(
             Point::new(x + padding, y + padding + line_height),
             Size::new(max_text_width, line_height),
@@ -725,7 +775,10 @@ impl Element for BarChartElement {
                         let cy = plot.origin.y + i as f32 * cat_height + cat_height * 0.5;
                         let label_width = 50.0;
                         let label_rect = Rect::new(
-                            Point::new(plot.origin.x - label_width - 4.0, cy - axis_font_size * 0.5),
+                            Point::new(
+                                plot.origin.x - label_width - 4.0,
+                                cy - axis_font_size * 0.5,
+                            ),
                             Size::new(label_width, axis_font_size + 2.0),
                         );
                         list.push_text_aligned(
@@ -802,7 +855,11 @@ impl Element for BarChartElement {
                 continue;
             }
 
-            let base_color = self.resolved_colors.get(si).copied().unwrap_or(Color::from_hex("#888888"));
+            let base_color = self
+                .resolved_colors
+                .get(si)
+                .copied()
+                .unwrap_or(Color::from_hex("#888888"));
             let color = base_color.with_alpha(opacity);
 
             for (ci, rect) in series_rects.iter().enumerate() {
@@ -816,7 +873,10 @@ impl Element for BarChartElement {
                         let animated_h = rect.size.height * appear;
                         if val >= 0.0 {
                             Rect::new(
-                                Point::new(rect.origin.x, rect.origin.y + rect.size.height - animated_h),
+                                Point::new(
+                                    rect.origin.x,
+                                    rect.origin.y + rect.size.height - animated_h,
+                                ),
                                 Size::new(rect.size.width, animated_h),
                             )
                         } else {
@@ -836,7 +896,10 @@ impl Element for BarChartElement {
                             )
                         } else {
                             Rect::new(
-                                Point::new(rect.origin.x + rect.size.width - animated_w, rect.origin.y),
+                                Point::new(
+                                    rect.origin.x + rect.size.width - animated_w,
+                                    rect.origin.y,
+                                ),
                                 Size::new(animated_w, rect.size.height),
                             )
                         }
@@ -870,13 +933,20 @@ impl Element for BarChartElement {
                     }
                     let val = self.bar_series[si].data.get(ci).copied().unwrap_or(0.0);
                     let label = format_tick_value(val);
-                    let label_w = super::super::render::estimate_text_width(&label, label_font, self.text_measure.as_ref());
+                    let label_w = super::super::render::estimate_text_width(
+                        &label,
+                        label_font,
+                        self.text_measure.as_ref(),
+                    );
 
                     match self.orientation {
                         BarOrientation::Vertical => {
                             let label_x = rect.origin.x + rect.size.width * 0.5 - label_w * 0.5;
                             let label_y = if val >= 0.0 {
-                                rect.origin.y + rect.size.height - rect.size.height * appear - label_font - 2.0
+                                rect.origin.y + rect.size.height
+                                    - rect.size.height * appear
+                                    - label_font
+                                    - 2.0
                             } else {
                                 rect.origin.y + rect.size.height * appear + 2.0
                             };
@@ -891,7 +961,10 @@ impl Element for BarChartElement {
                             let label_x = if val >= 0.0 {
                                 rect.origin.x + rect.size.width * appear + 2.0
                             } else {
-                                rect.origin.x + rect.size.width - rect.size.width * appear - label_w - 2.0
+                                rect.origin.x + rect.size.width
+                                    - rect.size.width * appear
+                                    - label_w
+                                    - 2.0
                             };
                             let label_rect = Rect::new(
                                 Point::new(label_x, label_y),
@@ -914,7 +987,12 @@ impl Element for BarChartElement {
                     let label_color = axis_colors.label_color;
                     for (i, cat) in self.categories.iter().enumerate() {
                         let x = plot.origin.x + i as f32 * cat_width + cat_width * 0.5;
-                        let label_w = super::super::render::estimate_text_width(cat, axis_font_size, self.text_measure.as_ref()).max(20.0);
+                        let label_w = super::super::render::estimate_text_width(
+                            cat,
+                            axis_font_size,
+                            self.text_measure.as_ref(),
+                        )
+                        .max(20.0);
                         let label_rect = Rect::new(
                             Point::new(x - label_w * 0.5, plot.origin.y + plot.size.height + 4.0),
                             Size::new(label_w, axis_font_size + 4.0),
@@ -947,7 +1025,11 @@ impl Element for BarChartElement {
 
         if self.legend_config.position != LegendPosition::None && self.bar_series.len() > 1 {
             let legend_font = 12.0;
-            let label_color = self.mss.color.map(|c| c.with_alpha(0.6)).unwrap_or(Color::from_hex("#64748b"));
+            let label_color = self
+                .mss
+                .color
+                .map(|c| c.with_alpha(0.6))
+                .unwrap_or(Color::from_hex("#64748b"));
             let names: Vec<&str> = self.bar_series.iter().map(|s| s.name.as_str()).collect();
             render_legend_items(
                 list,
@@ -1080,8 +1162,12 @@ impl Element for BarChartElement {
         "BarChart"
     }
 
-    fn reset_mss_styles(&mut self) { self.mss.reset(); }
-    fn mss(&self) -> Option<&crate::mss::MssFields> { Some(&self.mss) }
+    fn reset_mss_styles(&mut self) {
+        self.mss.reset();
+    }
+    fn mss(&self) -> Option<&crate::mss::MssFields> {
+        Some(&self.mss)
+    }
     fn apply_computed_style(&mut self, style: &ComputedStyle) {
         self.mss.apply(style);
 

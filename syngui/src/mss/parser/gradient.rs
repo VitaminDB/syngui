@@ -57,8 +57,10 @@ fn parse_radial_gradient(inner: &str) -> Option<crate::core::Gradient> {
     let mut center = (0.5f32, 0.5f32);
 
     let first = parts[0].trim().to_lowercase();
-    let is_descriptor = first.contains("circle") || first.contains("ellipse")
-        || first.starts_with("at ") || first.contains(" at ");
+    let is_descriptor = first.contains("circle")
+        || first.contains("ellipse")
+        || first.starts_with("at ")
+        || first.contains(" at ");
 
     if is_descriptor {
         idx = 1;
@@ -76,7 +78,12 @@ fn parse_radial_gradient(inner: &str) -> Option<crate::core::Gradient> {
         return None;
     }
 
-    Some(Gradient::Radial { shape, center, stops, quality: crate::core::GRADIENT_DEFAULT_QUALITY })
+    Some(Gradient::Radial {
+        shape,
+        center,
+        stops,
+        quality: crate::core::GRADIENT_DEFAULT_QUALITY,
+    })
 }
 
 fn parse_conic_gradient(inner: &str) -> Option<crate::core::Gradient> {
@@ -92,8 +99,8 @@ fn parse_conic_gradient(inner: &str) -> Option<crate::core::Gradient> {
     let mut center = (0.5f32, 0.5f32);
 
     let first = parts[0].trim().to_lowercase();
-    let is_descriptor = first.starts_with("from ") || first.starts_with("at ")
-        || first.contains(" at ");
+    let is_descriptor =
+        first.starts_with("from ") || first.starts_with("at ") || first.contains(" at ");
 
     if is_descriptor {
         idx = 1;
@@ -114,7 +121,12 @@ fn parse_conic_gradient(inner: &str) -> Option<crate::core::Gradient> {
         return None;
     }
 
-    Some(Gradient::Conic { from_angle, center, stops, quality: crate::core::GRADIENT_DEFAULT_QUALITY })
+    Some(Gradient::Conic {
+        from_angle,
+        center,
+        stops,
+        quality: crate::core::GRADIENT_DEFAULT_QUALITY,
+    })
 }
 
 fn split_gradient_args(s: &str) -> Vec<String> {
@@ -124,8 +136,14 @@ fn split_gradient_args(s: &str) -> Vec<String> {
 
     for c in s.chars() {
         match c {
-            '(' => { depth += 1; current.push(c); }
-            ')' => { depth -= 1; current.push(c); }
+            '(' => {
+                depth += 1;
+                current.push(c);
+            }
+            ')' => {
+                depth -= 1;
+                current.push(c);
+            }
             ',' if depth == 0 => {
                 parts.push(current.trim().to_string());
                 current.clear();
@@ -145,11 +163,23 @@ fn parse_angle_value(s: &str) -> Option<f32> {
     if s.ends_with("deg") {
         s[..s.len() - 3].trim().parse::<f32>().ok()
     } else if s.ends_with("turn") {
-        s[..s.len() - 4].trim().parse::<f32>().ok().map(|t| t * 360.0)
+        s[..s.len() - 4]
+            .trim()
+            .parse::<f32>()
+            .ok()
+            .map(|t| t * 360.0)
     } else if s.ends_with("grad") {
-        s[..s.len() - 4].trim().parse::<f32>().ok().map(|g| g * 360.0 / 400.0)
+        s[..s.len() - 4]
+            .trim()
+            .parse::<f32>()
+            .ok()
+            .map(|g| g * 360.0 / 400.0)
     } else if s.ends_with("rad") {
-        s[..s.len() - 3].trim().parse::<f32>().ok().map(|r| r.to_degrees())
+        s[..s.len() - 3]
+            .trim()
+            .parse::<f32>()
+            .ok()
+            .map(|r| r.to_degrees())
     } else {
         s.parse::<f32>().ok()
     }
@@ -239,7 +269,10 @@ fn parse_color_stops(parts: &[String]) -> Option<Vec<crate::core::ColorStop>> {
             }
         });
 
-        stops.push(ColorStop { color: core_color, position });
+        stops.push(ColorStop {
+            color: core_color,
+            position,
+        });
     }
 
     if stops.is_empty() {

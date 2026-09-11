@@ -123,13 +123,27 @@ impl NotificationBuilder {
 
     pub fn post(self) {
         if let Some(style) = &self.chronometer {
-            post_chronometer_jni(self.id, &self.channel_id, &self.title, style.base_time_ms, style.count_down);
+            post_chronometer_jni(
+                self.id,
+                &self.channel_id,
+                &self.title,
+                style.base_time_ms,
+                style.count_down,
+            );
         } else if let Some(style) = &self.progress {
             let (max, progress, indeterminate) = match style {
                 ProgressStyle::Determinate { max, progress } => (*max, *progress, false),
                 ProgressStyle::Indeterminate => (0, 0, true),
             };
-            post_progress_jni(self.id, &self.channel_id, &self.title, &self.text, max, progress, indeterminate);
+            post_progress_jni(
+                self.id,
+                &self.channel_id,
+                &self.title,
+                &self.text,
+                max,
+                progress,
+                indeterminate,
+            );
         } else {
             post_notify_jni(
                 self.id,
@@ -167,7 +181,9 @@ pub fn cancel_all() {
 }
 
 pub fn has_permission() -> bool {
-    let Some((vm, cls)) = get_ptrs() else { return false };
+    let Some((vm, cls)) = get_ptrs() else {
+        return false;
+    };
     unsafe { has_permission_jni(vm, cls) }
 }
 
@@ -177,13 +193,25 @@ pub fn request_permission() {
 }
 
 pub fn poll_action() -> Option<NotificationAction> {
-    let Some((vm, cls)) = get_ptrs() else { return None };
+    let Some((vm, cls)) = get_ptrs() else {
+        return None;
+    };
     unsafe { poll_action_jni(vm, cls) }
 }
 
 pub fn schedule_alarm(alarm_id: i32, delay_secs: u64, channel_id: &str, title: &str, text: &str) {
     let Some((vm, cls)) = get_ptrs() else { return };
-    unsafe { schedule_alarm_jni(vm, cls, alarm_id, delay_secs as i32, channel_id, title, text) };
+    unsafe {
+        schedule_alarm_jni(
+            vm,
+            cls,
+            alarm_id,
+            delay_secs as i32,
+            channel_id,
+            title,
+            text,
+        )
+    };
 }
 
 pub fn cancel_alarm(alarm_id: i32) {
@@ -207,7 +235,14 @@ pub fn start_foreground_timer(
     let Some((vm, cls)) = get_ptrs() else { return };
     unsafe {
         let _ = start_foreground_timer_jni(
-            vm, cls, channel_id, title, start_ms, deadline_ms, ready_text, wait_fmt,
+            vm,
+            cls,
+            channel_id,
+            title,
+            start_ms,
+            deadline_ms,
+            ready_text,
+            wait_fmt,
         );
     }
 }
@@ -219,20 +254,56 @@ pub fn stop_foreground_timer() {
 }
 
 fn post_notify_jni(
-    id: i32, channel_id: &str, title: &str, text: &str,
-    big_text: Option<&str>, priority: i32, auto_cancel: bool, ongoing: bool,
+    id: i32,
+    channel_id: &str,
+    title: &str,
+    text: &str,
+    big_text: Option<&str>,
+    priority: i32,
+    auto_cancel: bool,
+    ongoing: bool,
     actions: &[String],
 ) {
     let Some((vm, cls)) = get_ptrs() else { return };
     unsafe {
-        let _ = post_notify_jni_inner(vm, cls, id, channel_id, title, text, big_text, priority, auto_cancel, ongoing, actions);
+        let _ = post_notify_jni_inner(
+            vm,
+            cls,
+            id,
+            channel_id,
+            title,
+            text,
+            big_text,
+            priority,
+            auto_cancel,
+            ongoing,
+            actions,
+        );
     }
 }
 
-fn post_progress_jni(id: i32, channel_id: &str, title: &str, text: &str, max: i32, progress: i32, indeterminate: bool) {
+fn post_progress_jni(
+    id: i32,
+    channel_id: &str,
+    title: &str,
+    text: &str,
+    max: i32,
+    progress: i32,
+    indeterminate: bool,
+) {
     let Some((vm, cls)) = get_ptrs() else { return };
     unsafe {
-        let _ = post_progress_jni_inner(vm, cls, id, channel_id, title, text, max, progress, indeterminate);
+        let _ = post_progress_jni_inner(
+            vm,
+            cls,
+            id,
+            channel_id,
+            title,
+            text,
+            max,
+            progress,
+            indeterminate,
+        );
     }
 }
 
@@ -249,7 +320,8 @@ where
 {
     let vm = jni::JavaVM::from_raw(vm_ptr as *mut jni::sys::JavaVM)
         .map_err(|e| format!("JavaVM: {e}"))?;
-    let mut env = vm.attach_current_thread_permanently()
+    let mut env = vm
+        .attach_current_thread_permanently()
         .map_err(|e| format!("attach: {e}"))?;
     let result = f(&mut env);
     std::mem::forget(vm);
@@ -263,8 +335,12 @@ macro_rules! jclass {
 }
 
 unsafe fn create_channel_jni(
-    vm: *mut std::ffi::c_void, cls: *mut (),
-    id: &str, name: &str, desc: &str, importance: i32,
+    vm: *mut std::ffi::c_void,
+    cls: *mut (),
+    id: &str,
+    name: &str,
+    desc: &str,
+    importance: i32,
 ) {
     let _ = with_env(vm, |env| {
         let j_id = env.new_string(id).map_err(|e| format!("{e}"))?;
@@ -272,7 +348,8 @@ unsafe fn create_channel_jni(
         let j_desc = env.new_string(desc).map_err(|e| format!("{e}"))?;
         let cls = jclass!(cls);
         env.call_static_method(
-            &cls, "createChannel",
+            &cls,
+            "createChannel",
             "(Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;I)V",
             &[
                 jni::objects::JValue::Object(&j_id),
@@ -280,7 +357,8 @@ unsafe fn create_channel_jni(
                 jni::objects::JValue::Object(&j_desc),
                 jni::objects::JValue::Int(importance),
             ],
-        ).map_err(|e| format!("createChannel: {e}"))?;
+        )
+        .map_err(|e| format!("createChannel: {e}"))?;
         Ok(())
     });
 }
@@ -290,9 +368,12 @@ unsafe fn delete_channel_jni(vm: *mut std::ffi::c_void, cls: *mut (), id: &str) 
         let j_id = env.new_string(id).map_err(|e| format!("{e}"))?;
         let cls = jclass!(cls);
         env.call_static_method(
-            &cls, "deleteChannel", "(Ljava/lang/String;)V",
+            &cls,
+            "deleteChannel",
+            "(Ljava/lang/String;)V",
             &[jni::objects::JValue::Object(&j_id)],
-        ).map_err(|e| format!("deleteChannel: {e}"))?;
+        )
+        .map_err(|e| format!("deleteChannel: {e}"))?;
         Ok(())
     });
 }
@@ -300,10 +381,8 @@ unsafe fn delete_channel_jni(vm: *mut std::ffi::c_void, cls: *mut (), id: &str) 
 unsafe fn cancel_jni(vm: *mut std::ffi::c_void, cls: *mut (), id: i32) {
     let _ = with_env(vm, |env| {
         let cls = jclass!(cls);
-        env.call_static_method(
-            &cls, "cancel", "(I)V",
-            &[jni::objects::JValue::Int(id)],
-        ).map_err(|e| format!("cancel: {e}"))?;
+        env.call_static_method(&cls, "cancel", "(I)V", &[jni::objects::JValue::Int(id)])
+            .map_err(|e| format!("cancel: {e}"))?;
         Ok(())
     });
 }
@@ -320,11 +399,14 @@ unsafe fn cancel_all_jni(vm: *mut std::ffi::c_void, cls: *mut ()) {
 unsafe fn has_permission_jni(vm: *mut std::ffi::c_void, cls: *mut ()) -> bool {
     with_env(vm, |env| {
         let cls = jclass!(cls);
-        let result = env.call_static_method(&cls, "hasPermission", "()Z", &[])
+        let result = env
+            .call_static_method(&cls, "hasPermission", "()Z", &[])
             .map_err(|e| format!("hasPermission: {e}"))?
-            .z().map_err(|e| format!("cast: {e}"))?;
+            .z()
+            .map_err(|e| format!("cast: {e}"))?;
         Ok(result)
-    }).unwrap_or(false)
+    })
+    .unwrap_or(false)
 }
 
 unsafe fn request_permission_jni(vm: *mut std::ffi::c_void, cls: *mut ()) {
@@ -339,16 +421,19 @@ unsafe fn request_permission_jni(vm: *mut std::ffi::c_void, cls: *mut ()) {
 unsafe fn poll_action_jni(vm: *mut std::ffi::c_void, cls: *mut ()) -> Option<NotificationAction> {
     with_env(vm, |env| {
         let cls = jclass!(cls);
-        let result = env.call_static_method(&cls, "pollAction", "()Ljava/lang/String;", &[])
+        let result = env
+            .call_static_method(&cls, "pollAction", "()Ljava/lang/String;", &[])
             .map_err(|e| format!("pollAction: {e}"))?
-            .l().map_err(|e| format!("cast: {e}"))?;
+            .l()
+            .map_err(|e| format!("cast: {e}"))?;
 
         if result.is_null() {
             return Ok(None);
         }
 
         let jstr = jni::objects::JString::from(result);
-        let s: String = env.get_string(&jstr)
+        let s: String = env
+            .get_string(&jstr)
             .map_err(|e| format!("getString: {e}"))?
             .into();
 
@@ -364,13 +449,21 @@ unsafe fn poll_action_jni(vm: *mut std::ffi::c_void, cls: *mut ()) -> Option<Not
             }
         }
         Ok(None)
-    }).unwrap_or(None)
+    })
+    .unwrap_or(None)
 }
 
 unsafe fn post_notify_jni_inner(
-    vm: *mut std::ffi::c_void, cls_ptr: *mut (),
-    id: i32, channel_id: &str, title: &str, text: &str,
-    big_text: Option<&str>, priority: i32, auto_cancel: bool, ongoing: bool,
+    vm: *mut std::ffi::c_void,
+    cls_ptr: *mut (),
+    id: i32,
+    channel_id: &str,
+    title: &str,
+    text: &str,
+    big_text: Option<&str>,
+    priority: i32,
+    auto_cancel: bool,
+    ongoing: bool,
     actions: &[String],
 ) -> Result<(), String> {
     with_env(vm, |env| {
@@ -383,10 +476,16 @@ unsafe fn post_notify_jni_inner(
             jni::objects::JObject::null()
         };
 
-        let str_cls = env.find_class("java/lang/String").map_err(|e| format!("{e}"))?;
-        let action_arr = env.new_object_array(
-            actions.len() as i32, &str_cls, &jni::objects::JObject::null(),
-        ).map_err(|e| format!("{e}"))?;
+        let str_cls = env
+            .find_class("java/lang/String")
+            .map_err(|e| format!("{e}"))?;
+        let action_arr = env
+            .new_object_array(
+                actions.len() as i32,
+                &str_cls,
+                &jni::objects::JObject::null(),
+            )
+            .map_err(|e| format!("{e}"))?;
         for (i, label) in actions.iter().enumerate() {
             let j_label = env.new_string(label).map_err(|e| format!("{e}"))?;
             env.set_object_array_element(&action_arr, i as i32, j_label)
@@ -415,9 +514,15 @@ unsafe fn post_notify_jni_inner(
 }
 
 unsafe fn post_progress_jni_inner(
-    vm: *mut std::ffi::c_void, cls_ptr: *mut (),
-    id: i32, channel_id: &str, title: &str, text: &str,
-    max: i32, progress: i32, indeterminate: bool,
+    vm: *mut std::ffi::c_void,
+    cls_ptr: *mut (),
+    id: i32,
+    channel_id: &str,
+    title: &str,
+    text: &str,
+    max: i32,
+    progress: i32,
+    indeterminate: bool,
 ) -> Result<(), String> {
     with_env(vm, |env| {
         let j_channel = env.new_string(channel_id).map_err(|e| format!("{e}"))?;
@@ -426,7 +531,8 @@ unsafe fn post_progress_jni_inner(
         let cls = jclass!(cls_ptr);
 
         env.call_static_method(
-            &cls, "notifyProgress",
+            &cls,
+            "notifyProgress",
             "(ILjava/lang/String;Ljava/lang/String;Ljava/lang/String;IIZ)V",
             &[
                 jni::objects::JValue::Int(id),
@@ -437,14 +543,20 @@ unsafe fn post_progress_jni_inner(
                 jni::objects::JValue::Int(progress),
                 jni::objects::JValue::Bool(indeterminate as u8),
             ],
-        ).map_err(|e| format!("notifyProgress: {e}"))?;
+        )
+        .map_err(|e| format!("notifyProgress: {e}"))?;
         Ok(())
     })
 }
 
 unsafe fn post_chronometer_jni_inner(
-    vm: *mut std::ffi::c_void, cls_ptr: *mut (),
-    id: i32, channel_id: &str, title: &str, when_ms: i64, count_down: bool,
+    vm: *mut std::ffi::c_void,
+    cls_ptr: *mut (),
+    id: i32,
+    channel_id: &str,
+    title: &str,
+    when_ms: i64,
+    count_down: bool,
 ) -> Result<(), String> {
     with_env(vm, |env| {
         let j_channel = env.new_string(channel_id).map_err(|e| format!("{e}"))?;
@@ -452,7 +564,8 @@ unsafe fn post_chronometer_jni_inner(
         let cls = jclass!(cls_ptr);
 
         env.call_static_method(
-            &cls, "notifyChronometer",
+            &cls,
+            "notifyChronometer",
             "(ILjava/lang/String;Ljava/lang/String;JZ)V",
             &[
                 jni::objects::JValue::Int(id),
@@ -461,14 +574,20 @@ unsafe fn post_chronometer_jni_inner(
                 jni::objects::JValue::Long(when_ms),
                 jni::objects::JValue::Bool(count_down as u8),
             ],
-        ).map_err(|e| format!("notifyChronometer: {e}"))?;
+        )
+        .map_err(|e| format!("notifyChronometer: {e}"))?;
         Ok(())
     })
 }
 
 unsafe fn schedule_alarm_jni(
-    vm: *mut std::ffi::c_void, cls_ptr: *mut (),
-    alarm_id: i32, delay_secs: i32, channel_id: &str, title: &str, text: &str,
+    vm: *mut std::ffi::c_void,
+    cls_ptr: *mut (),
+    alarm_id: i32,
+    delay_secs: i32,
+    channel_id: &str,
+    title: &str,
+    text: &str,
 ) {
     let _ = with_env(vm, |env| {
         let j_channel = env.new_string(channel_id).map_err(|e| format!("{e}"))?;
@@ -477,7 +596,8 @@ unsafe fn schedule_alarm_jni(
         let cls = jclass!(cls_ptr);
 
         env.call_static_method(
-            &cls, "scheduleAlarm",
+            &cls,
+            "scheduleAlarm",
             "(IILjava/lang/String;Ljava/lang/String;Ljava/lang/String;)V",
             &[
                 jni::objects::JValue::Int(alarm_id),
@@ -486,7 +606,8 @@ unsafe fn schedule_alarm_jni(
                 jni::objects::JValue::Object(&j_title),
                 jni::objects::JValue::Object(&j_text),
             ],
-        ).map_err(|e| format!("scheduleAlarm: {e}"))?;
+        )
+        .map_err(|e| format!("scheduleAlarm: {e}"))?;
         Ok(())
     });
 }
@@ -495,18 +616,26 @@ unsafe fn cancel_alarm_jni(vm: *mut std::ffi::c_void, cls_ptr: *mut (), alarm_id
     let _ = with_env(vm, |env| {
         let cls = jclass!(cls_ptr);
         env.call_static_method(
-            &cls, "cancelAlarm", "(I)V",
+            &cls,
+            "cancelAlarm",
+            "(I)V",
             &[jni::objects::JValue::Int(alarm_id)],
-        ).map_err(|e| format!("cancelAlarm: {e}"))?;
+        )
+        .map_err(|e| format!("cancelAlarm: {e}"))?;
         Ok(())
     });
 }
 
 #[allow(clippy::too_many_arguments)]
 unsafe fn start_foreground_timer_jni(
-    vm: *mut std::ffi::c_void, cls_ptr: *mut (),
-    channel_id: &str, title: &str, start_ms: i64, deadline_ms: i64,
-    ready_text: &str, wait_fmt: &str,
+    vm: *mut std::ffi::c_void,
+    cls_ptr: *mut (),
+    channel_id: &str,
+    title: &str,
+    start_ms: i64,
+    deadline_ms: i64,
+    ready_text: &str,
+    wait_fmt: &str,
 ) -> Result<(), String> {
     with_env(vm, |env| {
         let j_channel = env.new_string(channel_id).map_err(|e| format!("{e}"))?;
@@ -515,7 +644,8 @@ unsafe fn start_foreground_timer_jni(
         let j_fmt = env.new_string(wait_fmt).map_err(|e| format!("{e}"))?;
         let cls = jclass!(cls_ptr);
         env.call_static_method(
-            &cls, "startForegroundTimer",
+            &cls,
+            "startForegroundTimer",
             "(Ljava/lang/String;Ljava/lang/String;JJLjava/lang/String;Ljava/lang/String;)V",
             &[
                 jni::objects::JValue::Object(&j_channel),
@@ -525,7 +655,8 @@ unsafe fn start_foreground_timer_jni(
                 jni::objects::JValue::Object(&j_ready),
                 jni::objects::JValue::Object(&j_fmt),
             ],
-        ).map_err(|e| format!("startForegroundTimer: {e}"))?;
+        )
+        .map_err(|e| format!("startForegroundTimer: {e}"))?;
         Ok(())
     })
 }

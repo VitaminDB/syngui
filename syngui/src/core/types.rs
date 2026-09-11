@@ -17,11 +17,21 @@ pub struct EdgeInsets {
 
 impl EdgeInsets {
     pub const fn zero() -> Self {
-        Self { left: 0.0, top: 0.0, right: 0.0, bottom: 0.0 }
+        Self {
+            left: 0.0,
+            top: 0.0,
+            right: 0.0,
+            bottom: 0.0,
+        }
     }
 
     pub const fn new(left: f32, top: f32, right: f32, bottom: f32) -> Self {
-        Self { left, top, right, bottom }
+        Self {
+            left,
+            top,
+            right,
+            bottom,
+        }
     }
 
     pub const fn all(value: f32) -> Self {
@@ -52,17 +62,27 @@ pub trait RectExt {
 }
 
 impl RectExt for Rect {
-    fn x(&self) -> f32 { self.origin.x }
-    fn y(&self) -> f32 { self.origin.y }
-    fn right(&self) -> f32 { self.origin.x + self.size.width }
-    fn bottom(&self) -> f32 { self.origin.y + self.size.height }
+    fn x(&self) -> f32 {
+        self.origin.x
+    }
+    fn y(&self) -> f32 {
+        self.origin.y
+    }
+    fn right(&self) -> f32 {
+        self.origin.x + self.size.width
+    }
+    fn bottom(&self) -> f32 {
+        self.origin.y + self.size.height
+    }
     fn center(&self) -> Point {
         Point::new(
             self.origin.x + self.size.width / 2.0,
             self.origin.y + self.size.height / 2.0,
         )
     }
-    fn zero() -> Self { Self::new(Point::zero(), Size::zero()) }
+    fn zero() -> Self {
+        Self::new(Point::zero(), Size::zero())
+    }
     fn from_size(width: f32, height: f32) -> Self {
         Self::new(Point::zero(), Size::new(width, height))
     }
@@ -427,9 +447,8 @@ mod tests {
 
     #[test]
     fn shadows_parse_multiple() {
-        let s = Shadows::parse(
-            "rgba(0,0,0,0.3) 0px 19px 38px, rgba(0,0,0,0.22) 0px 15px 12px"
-        ).unwrap();
+        let s = Shadows::parse("rgba(0,0,0,0.3) 0px 19px 38px, rgba(0,0,0,0.22) 0px 15px 12px")
+            .unwrap();
         assert_eq!(s.as_slice().len(), 2);
         assert_eq!(s.as_slice()[0].offset_y, 19.0);
         assert_eq!(s.as_slice()[1].offset_y, 15.0);
@@ -459,10 +478,7 @@ mod tests {
 
     #[test]
     fn gradient_resolve_stops_two() {
-        let stops = vec![
-            ColorStop::auto(Color::RED),
-            ColorStop::auto(Color::BLUE),
-        ];
+        let stops = vec![ColorStop::auto(Color::RED), ColorStop::auto(Color::BLUE)];
         let resolved = Gradient::resolve_stops(&stops);
         assert_eq!(resolved.len(), 2);
         assert_eq!(resolved[0].1, 0.0);

@@ -1,11 +1,16 @@
-use crate::core::Rect;
 use super::{ElementId, ElementTree, OverlayEntry};
+use crate::core::Rect;
 use std::time::Duration;
 
 impl ElementTree {
     pub fn register_overlay(&mut self, element_id: ElementId, bounds: Rect, modal: bool) {
         self.overlay_stack.retain(|e| e.element_id != element_id);
-        self.overlay_stack.push(OverlayEntry { element_id, bounds, modal, declarative: false });
+        self.overlay_stack.push(OverlayEntry {
+            element_id,
+            bounds,
+            modal,
+            declarative: false,
+        });
     }
 
     pub fn unregister_overlay(&mut self, element_id: ElementId) {
@@ -43,14 +48,18 @@ impl ElementTree {
                 crate::perf::incr(crate::perf::Counter::AnimateTrue);
                 needs_repaint = true;
             }
-            let needs_rebuild_now = self.elements.get(&id)
+            let needs_rebuild_now = self
+                .elements
+                .get(&id)
                 .map(|n| n.element.needs_rebuild())
                 .unwrap_or(false);
             if needs_rebuild_now {
                 self.rebuild_registry.insert(id);
                 needs_repaint = true;
             }
-            let keep = self.elements.get(&id)
+            let keep = self
+                .elements
+                .get(&id)
                 .map(|n| n.element.needs_repaint() || n.element.wants_animate_tick())
                 .unwrap_or(false);
             if keep {

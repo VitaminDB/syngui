@@ -20,32 +20,20 @@ pub fn build_feedback_section() -> impl Widget {
                         Row::new()
                             .gap(12.0)
                             .child(
-                                Tooltip::new(
-                                    Button::new("Below"),
-                                    "Tooltip appears below",
-                                )
-                                .position(TooltipPosition::Below),
+                                Tooltip::new(Button::new("Below"), "Tooltip appears below")
+                                    .position(TooltipPosition::Below),
                             )
                             .child(
-                                Tooltip::new(
-                                    Button::new("Above"),
-                                    "Tooltip appears above",
-                                )
-                                .position(TooltipPosition::Above),
+                                Tooltip::new(Button::new("Above"), "Tooltip appears above")
+                                    .position(TooltipPosition::Above),
                             )
                             .child(
-                                Tooltip::new(
-                                    Button::new("Left"),
-                                    "Tooltip appears left",
-                                )
-                                .position(TooltipPosition::Left),
+                                Tooltip::new(Button::new("Left"), "Tooltip appears left")
+                                    .position(TooltipPosition::Left),
                             )
                             .child(
-                                Tooltip::new(
-                                    Button::new("Right"),
-                                    "Tooltip appears right",
-                                )
-                                .position(TooltipPosition::Right),
+                                Tooltip::new(Button::new("Right"), "Tooltip appears right")
+                                    .position(TooltipPosition::Right),
                             ),
                     ),
             )

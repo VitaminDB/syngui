@@ -1,10 +1,10 @@
 //! Radar chart demo page: 5 examples showcasing different radar chart features.
 
 use syngui::prelude::*;
+use syngui::widgets::charts::{LegendPosition, RadarGridShape, RadarIndicator, RadarSeries};
 use syngui::widgets::*;
-use syngui::widgets::charts::{RadarIndicator, RadarSeries, RadarGridShape, LegendPosition};
 
-use crate::sections::{section_card, section_title, label};
+use crate::sections::{label, section_card, section_title};
 
 /// Build all radar chart demos.
 pub fn build_radar_chart_demos() -> impl Widget {
@@ -137,7 +137,9 @@ fn build_custom_indicators_demo() -> impl Widget {
     Column::new()
         .gap(12.0)
         .child(section_title("Custom Indicator Ranges"))
-        .child(label("Different max values per indicator for real-world metrics"))
+        .child(label(
+            "Different max values per indicator for real-world metrics",
+        ))
         .child(
             RadarChart::new()
                 .title("Product Evaluation")
@@ -176,7 +178,9 @@ fn build_styled_demo() -> impl Widget {
     Column::new()
         .gap(12.0)
         .child(section_title("Styled Radar Chart"))
-        .child(label("Different area opacities and line widths for emphasis"))
+        .child(label(
+            "Different area opacities and line widths for emphasis",
+        ))
         .child(
             RadarChart::new()
                 .title("Team Capabilities")

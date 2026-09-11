@@ -1,8 +1,8 @@
-use crate::input::{DragData, Event, Modifiers};
 use super::handler::AppHandler;
-use super::input_mapping::{map_mouse_button, map_key_code};
+use super::input_mapping::{map_key_code, map_mouse_button};
 use super::user_event::SynGuiUserEvent;
 use crate::core::Point;
+use crate::input::{DragData, Event, Modifiers};
 use web_time::Instant;
 
 impl winit::application::ApplicationHandler<SynGuiUserEvent> for AppHandler {
@@ -59,7 +59,9 @@ impl winit::application::ApplicationHandler<SynGuiUserEvent> for AppHandler {
 
         #[cfg(feature = "accessibility")]
         {
-            if let (Some(ref mut ak_adapter), Some(ref window)) = (&mut self.accesskit_adapter, &self.window) {
+            if let (Some(ref mut ak_adapter), Some(ref window)) =
+                (&mut self.accesskit_adapter, &self.window)
+            {
                 ak_adapter.process_event(window.winit_window(), &event);
             }
         }
@@ -84,16 +86,27 @@ impl winit::application::ApplicationHandler<SynGuiUserEvent> for AppHandler {
                     if self.should_hide_on_close() {
                         self.hide_main_window();
                     } else {
-                        #[cfg(all(feature = "tray", not(target_arch = "wasm32"), not(target_os = "android")))]
-                        { self.tray.take(); }
-                        #[cfg(all(feature = "single-instance", not(target_arch = "wasm32"), not(target_os = "android")))]
-                        { self.single_instance.take(); }
+                        #[cfg(all(
+                            feature = "tray",
+                            not(target_arch = "wasm32"),
+                            not(target_os = "android")
+                        ))]
+                        {
+                            self.tray.take();
+                        }
+                        #[cfg(all(
+                            feature = "single-instance",
+                            not(target_arch = "wasm32"),
+                            not(target_os = "android")
+                        ))]
+                        {
+                            self.single_instance.take();
+                        }
                         event_loop.exit();
                     }
                 }
             }
             winit::event::WindowEvent::Resized(physical_size) => {
-
                 if physical_size.width == 0 || physical_size.height == 0 {
                     return;
                 }
@@ -106,14 +119,22 @@ impl winit::application::ApplicationHandler<SynGuiUserEvent> for AppHandler {
                 if let Some(gpu) = self.gpu.as_mut() {
                     gpu.window_surface.surface_config.width = physical_size.width;
                     gpu.window_surface.surface_config.height = physical_size.height;
-                    gpu.window_surface.surface.configure(&gpu.shared.device, &gpu.window_surface.surface_config);
+                    gpu.window_surface
+                        .surface
+                        .configure(&gpu.shared.device, &gpu.window_surface.surface_config);
                 }
 
                 if let Some(renderer) = self.renderer.as_mut() {
                     let logical_w = (physical_size.width as f64 / self.scale_factor) as u32;
                     let logical_h = (physical_size.height as f64 / self.scale_factor) as u32;
                     if let Some(gpu) = self.gpu.as_ref() {
-                        renderer.resize(&gpu.shared.device, self.config.width, self.config.height, logical_w, logical_h);
+                        renderer.resize(
+                            &gpu.shared.device,
+                            self.config.width,
+                            self.config.height,
+                            logical_w,
+                            logical_h,
+                        );
                     }
                 }
 
@@ -126,10 +147,7 @@ impl winit::application::ApplicationHandler<SynGuiUserEvent> for AppHandler {
                     self.tree.root_offset =
                         crate::core::Point::new(safe.left, safe.top - self.tree.keyboard_pan);
                     crate::viewport::publish(crate::core::Size::new(layout_w, layout_h));
-                    let constraints = crate::layout::Constraints::new(
-                        0.0, layout_w,
-                        0.0, layout_h,
-                    );
+                    let constraints = crate::layout::Constraints::new(0.0, layout_w, 0.0, layout_h);
                     self.tree.layout(root_id, constraints);
                     self.a11y_dirty = true;
                 }
@@ -154,7 +172,13 @@ impl winit::application::ApplicationHandler<SynGuiUserEvent> for AppHandler {
                     let logical_w = (self.config.width as f64 / effective) as u32;
                     let logical_h = (self.config.height as f64 / effective) as u32;
                     if let Some(gpu) = self.gpu.as_ref() {
-                        renderer.resize(&gpu.shared.device, self.config.width, self.config.height, logical_w, logical_h);
+                        renderer.resize(
+                            &gpu.shared.device,
+                            self.config.width,
+                            self.config.height,
+                            logical_w,
+                            logical_h,
+                        );
                     }
                     if let Ok(mut atlas) = renderer.font_atlas.lock() {
                         atlas.set_scale_factor(effective as f32);
@@ -188,7 +212,10 @@ impl winit::application::ApplicationHandler<SynGuiUserEvent> for AppHandler {
                     crate::perf::incr(crate::perf::Counter::MmDispatch);
                     let _mm_t = web_time::Instant::now();
                     let result = self.tree.handle_event(root_id, &event);
-                    crate::perf::add_time(crate::perf::TimeKind::MouseMoveHandleEvent, _mm_t.elapsed());
+                    crate::perf::add_time(
+                        crate::perf::TimeKind::MouseMoveHandleEvent,
+                        _mm_t.elapsed(),
+                    );
                     if result.is_handled() {
                         if let Some(window) = &self.window {
                             window.request_redraw();
@@ -201,7 +228,10 @@ impl winit::application::ApplicationHandler<SynGuiUserEvent> for AppHandler {
                             drag.current_pos = pos;
                         }
                         let data = self.tree.drag_state.as_ref().unwrap().data.clone();
-                        let drag_move = Event::DragMove { position: pos, data };
+                        let drag_move = Event::DragMove {
+                            position: pos,
+                            data,
+                        };
                         self.tree.dispatch_drag_event(&drag_move);
                         if let Some(window) = &self.window {
                             window.request_redraw();
@@ -247,7 +277,10 @@ impl winit::application::ApplicationHandler<SynGuiUserEvent> for AppHandler {
                         };
 
                         if is_double {
-                            let dbl_event = Event::DoubleClick { button: mapped_button, position: pos };
+                            let dbl_event = Event::DoubleClick {
+                                button: mapped_button,
+                                position: pos,
+                            };
                             if let Some(root_id) = self.root_id {
                                 self.tree.handle_event(root_id, &dbl_event);
                             }
@@ -259,10 +292,16 @@ impl winit::application::ApplicationHandler<SynGuiUserEvent> for AppHandler {
                         } else {
                             self.last_click_time = Some(Instant::now());
                             self.last_click_pos = Some(pos);
-                            let event = Event::MouseDown { button: mapped_button, position: pos };
+                            let event = Event::MouseDown {
+                                button: mapped_button,
+                                position: pos,
+                            };
                             if let Some(root_id) = self.root_id {
                                 let result = self.tree.handle_event(root_id, &event);
-                                self.devtools_log_event(&format!("MouseDown({:?})", mapped_button), &result);
+                                self.devtools_log_event(
+                                    &format!("MouseDown({:?})", mapped_button),
+                                    &result,
+                                );
                                 let _ = result;
                                 if let Some(window) = &self.window {
                                     window.request_redraw();
@@ -270,10 +309,16 @@ impl winit::application::ApplicationHandler<SynGuiUserEvent> for AppHandler {
                             }
                         }
                     } else {
-                        let event = Event::MouseUp { button: mapped_button, position: pos };
+                        let event = Event::MouseUp {
+                            button: mapped_button,
+                            position: pos,
+                        };
                         if let Some(root_id) = self.root_id {
                             let result = self.tree.handle_event(root_id, &event);
-                            self.devtools_log_event(&format!("MouseUp({:?})", mapped_button), &result);
+                            self.devtools_log_event(
+                                &format!("MouseUp({:?})", mapped_button),
+                                &result,
+                            );
                             if result.is_handled() {
                                 if let Some(window) = &self.window {
                                     window.request_redraw();
@@ -296,10 +341,22 @@ impl winit::application::ApplicationHandler<SynGuiUserEvent> for AppHandler {
                     if self.should_hide_on_close() {
                         self.hide_main_window();
                     } else {
-                        #[cfg(all(feature = "tray", not(target_arch = "wasm32"), not(target_os = "android")))]
-                        { self.tray.take(); }
-                        #[cfg(all(feature = "single-instance", not(target_arch = "wasm32"), not(target_os = "android")))]
-                        { self.single_instance.take(); }
+                        #[cfg(all(
+                            feature = "tray",
+                            not(target_arch = "wasm32"),
+                            not(target_os = "android")
+                        ))]
+                        {
+                            self.tray.take();
+                        }
+                        #[cfg(all(
+                            feature = "single-instance",
+                            not(target_arch = "wasm32"),
+                            not(target_os = "android")
+                        ))]
+                        {
+                            self.single_instance.take();
+                        }
                         event_loop.exit();
                     }
                     return;
@@ -358,7 +415,9 @@ impl winit::application::ApplicationHandler<SynGuiUserEvent> for AppHandler {
                 }
 
                 if event.state == winit::event::ElementState::Pressed {
-                    if let winit::keyboard::Key::Named(winit::keyboard::NamedKey::BrowserBack) = &event.logical_key {
+                    if let winit::keyboard::Key::Named(winit::keyboard::NamedKey::BrowserBack) =
+                        &event.logical_key
+                    {
                         let back_event = Event::BackPressed;
                         if let Some(root_id) = self.root_id {
                             let result = self.tree.handle_event(root_id, &back_event);
@@ -395,7 +454,10 @@ impl winit::application::ApplicationHandler<SynGuiUserEvent> for AppHandler {
                         if let Some(ref mut devtools) = self.devtools {
                             let was_enabled = devtools.is_enabled();
                             devtools.toggle();
-                            if !was_enabled && devtools.is_enabled() && devtools.expanded_nodes_count() == 0 {
+                            if !was_enabled
+                                && devtools.is_enabled()
+                                && devtools.expanded_nodes_count() == 0
+                            {
                                 devtools.auto_expand(&self.tree, 4);
                             }
                         } else {
@@ -410,7 +472,9 @@ impl winit::application::ApplicationHandler<SynGuiUserEvent> for AppHandler {
                         return;
                     }
                     if self.modifiers.ctrl && self.modifiers.alt {
-                        if let PhysicalKey::Code(winit::keyboard::KeyCode::KeyC) = event.physical_key {
+                        if let PhysicalKey::Code(winit::keyboard::KeyCode::KeyC) =
+                            event.physical_key
+                        {
                             if let Some(ref mut devtools) = self.devtools {
                                 if devtools.is_enabled() {
                                     devtools.toggle_picking();
@@ -509,12 +573,16 @@ impl winit::application::ApplicationHandler<SynGuiUserEvent> for AppHandler {
             }
             winit::event::WindowEvent::Ime(ime_event) => {
                 #[cfg(target_os = "android")]
-                { let _ = ime_event; }
+                {
+                    let _ = ime_event;
+                }
                 #[cfg(not(target_os = "android"))]
                 {
                     let event = match ime_event {
                         winit::event::Ime::Commit(text) => Event::ImeCommit(text),
-                        winit::event::Ime::Preedit(text, cursor) => Event::ImePreedit { text, cursor },
+                        winit::event::Ime::Preedit(text, cursor) => {
+                            Event::ImePreedit { text, cursor }
+                        }
                         winit::event::Ime::Enabled => Event::ImeEnabled,
                         winit::event::Ime::Disabled => Event::ImeDisabled,
                     };
@@ -529,10 +597,8 @@ impl winit::application::ApplicationHandler<SynGuiUserEvent> for AppHandler {
 
             winit::event::WindowEvent::Touch(touch) => {
                 let sf = self.scale_factor as f32;
-                let position = Point::new(
-                    touch.location.x as f32 / sf,
-                    touch.location.y as f32 / sf,
-                );
+                let position =
+                    Point::new(touch.location.x as f32 / sf, touch.location.y as f32 / sf);
                 let id = touch.id;
 
                 // Порог, после которого жест считается скроллом, а не тапом.
@@ -575,8 +641,7 @@ impl winit::application::ApplicationHandler<SynGuiUserEvent> for AppHandler {
                         let is_tap = match self.touch_tap {
                             Some((tid, _, moved)) if tid == id => {
                                 self.touch_tap = None;
-                                !moved
-                                    && matches!(touch.phase, winit::event::TouchPhase::Ended)
+                                !moved && matches!(touch.phase, winit::event::TouchPhase::Ended)
                             }
                             _ => false,
                         };
@@ -604,12 +669,13 @@ impl winit::application::ApplicationHandler<SynGuiUserEvent> for AppHandler {
                 }
 
                 self.process_virtual_keyboard_request();
-
             }
 
             winit::event::WindowEvent::RedrawRequested => {
                 #[cfg(target_arch = "wasm32")]
-                web_sys::console::log_1(&format!("[syngui] RedrawRequested, gpu={}", self.gpu.is_some()).into());
+                web_sys::console::log_1(
+                    &format!("[syngui] RedrawRequested, gpu={}", self.gpu.is_some()).into(),
+                );
                 self.render();
             }
 
@@ -713,10 +779,22 @@ impl winit::application::ApplicationHandler<SynGuiUserEvent> for AppHandler {
                     self.show_main_window();
                     return;
                 }
-                #[cfg(all(feature = "tray", not(target_arch = "wasm32"), not(target_os = "android")))]
-                { self.tray.take(); }
-                #[cfg(all(feature = "single-instance", not(target_arch = "wasm32"), not(target_os = "android")))]
-                { self.single_instance.take(); }
+                #[cfg(all(
+                    feature = "tray",
+                    not(target_arch = "wasm32"),
+                    not(target_os = "android")
+                ))]
+                {
+                    self.tray.take();
+                }
+                #[cfg(all(
+                    feature = "single-instance",
+                    not(target_arch = "wasm32"),
+                    not(target_os = "android")
+                ))]
+                {
+                    self.single_instance.take();
+                }
                 event_loop.exit();
             }
             SynGuiUserEvent::MenuItem(id) => {
@@ -744,11 +822,7 @@ impl AppHandler {
         }
         match ev {
             WaylandDndEvent::Enter { x, y } => {
-                let data = crate::input::DragData::new(
-                    crate::input::DragData::TYPE_FILE,
-                    "",
-                    0,
-                );
+                let data = crate::input::DragData::new(crate::input::DragData::TYPE_FILE, "", 0);
                 self.cursor_position = Point::new(x, y);
                 self.tree.dispatch_drag_event(&Event::DragEnter {
                     position: Point::new(x, y),
@@ -757,11 +831,7 @@ impl AppHandler {
                 self.request_redraw();
             }
             WaylandDndEvent::Motion { x, y } => {
-                let data = crate::input::DragData::new(
-                    crate::input::DragData::TYPE_FILE,
-                    "",
-                    0,
-                );
+                let data = crate::input::DragData::new(crate::input::DragData::TYPE_FILE, "", 0);
                 self.cursor_position = Point::new(x, y);
                 self.tree.dispatch_drag_event(&Event::DragMove {
                     position: Point::new(x, y),
@@ -795,7 +865,11 @@ impl AppHandler {
 }
 
 impl AppHandler {
-    pub(super) fn devtools_log_event(&mut self, event_type: &str, result: &crate::input::EventResult) {
+    pub(super) fn devtools_log_event(
+        &mut self,
+        event_type: &str,
+        result: &crate::input::EventResult,
+    ) {
         if let Some(ref mut devtools) = self.devtools {
             if devtools.is_enabled() && !devtools.event_log_paused() {
                 let result_str = match result {
@@ -864,9 +938,15 @@ impl AppHandler {
         if devtools.contains_point(pos, surface) || devtools.is_resizing() {
             let mapped = map_mouse_button(button);
             let evt = if is_press {
-                Event::MouseDown { button: mapped, position: pos }
+                Event::MouseDown {
+                    button: mapped,
+                    position: pos,
+                }
             } else {
-                Event::MouseUp { button: mapped, position: pos }
+                Event::MouseUp {
+                    button: mapped,
+                    position: pos,
+                }
             };
             devtools.handle_mouse_event(&evt, surface, &self.tree);
             if let Some(window) = &self.window {
@@ -887,7 +967,11 @@ impl AppHandler {
         };
 
         if devtools.contains_point(pos, surface) {
-            let evt = Event::MouseWheel { delta: scroll_delta, delta_x: 0.0, position: pos };
+            let evt = Event::MouseWheel {
+                delta: scroll_delta,
+                delta_x: 0.0,
+                position: pos,
+            };
             devtools.handle_mouse_event(&evt, surface, &self.tree);
             if let Some(window) = &self.window {
                 window.request_redraw();

@@ -1,25 +1,40 @@
+use crate::text::script::Script;
 use font_kit::family_name::FamilyName;
 use font_kit::handle::Handle;
-use font_kit::properties::{Properties, Weight, Style};
+use font_kit::properties::{Properties, Style, Weight};
 use font_kit::source::SystemSource;
-use crate::text::script::Script;
 
 #[cfg(target_os = "windows")]
 const FALLBACK_FAMILIES: &[&str] = &[
-    "Segoe UI", "Arial", "Tahoma", "Verdana", "Microsoft Sans Serif",
-    "Calibri", "Trebuchet MS", "Lucida Sans Unicode",
+    "Segoe UI",
+    "Arial",
+    "Tahoma",
+    "Verdana",
+    "Microsoft Sans Serif",
+    "Calibri",
+    "Trebuchet MS",
+    "Lucida Sans Unicode",
 ];
 
 #[cfg(target_os = "macos")]
 const FALLBACK_FAMILIES: &[&str] = &[
-    "Helvetica Neue", "Helvetica", "Arial", "Lucida Grande",
-    "SF Pro", "San Francisco",
+    "Helvetica Neue",
+    "Helvetica",
+    "Arial",
+    "Lucida Grande",
+    "SF Pro",
+    "San Francisco",
 ];
 
 #[cfg(not(any(target_os = "windows", target_os = "macos")))]
 const FALLBACK_FAMILIES: &[&str] = &[
-    "DejaVu Sans", "Liberation Sans", "Noto Sans", "Ubuntu",
-    "Cantarell", "Droid Sans", "FreeSans",
+    "DejaVu Sans",
+    "Liberation Sans",
+    "Noto Sans",
+    "Ubuntu",
+    "Cantarell",
+    "Droid Sans",
+    "FreeSans",
 ];
 
 fn build_families(preferred: Option<&str>) -> Vec<FamilyName> {
@@ -98,7 +113,10 @@ fn load_font_bytes(families: &[FamilyName], props: &Properties) -> Option<(Vec<u
     handle_to_bytes(handle)
 }
 
-fn try_families_individually(families: &[FamilyName], props: &Properties) -> Option<(Vec<u8>, u32)> {
+fn try_families_individually(
+    families: &[FamilyName],
+    props: &Properties,
+) -> Option<(Vec<u8>, u32)> {
     let source = SystemSource::new();
     for family in families {
         if let Ok(handle) = source.select_best_match(std::slice::from_ref(family), props) {
@@ -112,9 +130,10 @@ fn try_families_individually(families: &[FamilyName], props: &Properties) -> Opt
 
 fn handle_to_bytes(handle: Handle) -> Option<(Vec<u8>, u32)> {
     match handle {
-        Handle::Path { ref path, font_index } => {
-            std::fs::read(path).ok().map(|data| (data, font_index))
-        }
+        Handle::Path {
+            ref path,
+            font_index,
+        } => std::fs::read(path).ok().map(|data| (data, font_index)),
         Handle::Memory { bytes, font_index } => Some(((*bytes).clone(), font_index)),
     }
 }
@@ -153,31 +172,77 @@ pub fn list_monospace_families() -> &'static [String] {
             out
         })
         .as_slice()
-    }
+}
 
 #[cfg(target_os = "windows")]
 const FALLBACK_BY_SCRIPT: &[(Script, &[&str])] = &[
-    (Script::Han, &["Microsoft YaHei", "Yu Gothic", "Malgun Gothic", "SimSun"]),
-    (Script::Kana, &["Yu Gothic", "Meiryo", "MS Gothic", "Microsoft YaHei"]),
-    (Script::Hangul, &["Malgun Gothic", "Gulim", "Microsoft YaHei"]),
+    (
+        Script::Han,
+        &["Microsoft YaHei", "Yu Gothic", "Malgun Gothic", "SimSun"],
+    ),
+    (
+        Script::Kana,
+        &["Yu Gothic", "Meiryo", "MS Gothic", "Microsoft YaHei"],
+    ),
+    (
+        Script::Hangul,
+        &["Malgun Gothic", "Gulim", "Microsoft YaHei"],
+    ),
 ];
 
 #[cfg(target_os = "macos")]
 const FALLBACK_BY_SCRIPT: &[(Script, &[&str])] = &[
-    (Script::Han, &["PingFang SC", "Hiragino Sans GB", "Hiragino Sans", "Apple SD Gothic Neo"]),
-    (Script::Kana, &["Hiragino Sans", "Hiragino Kaku Gothic ProN", "PingFang SC"]),
+    (
+        Script::Han,
+        &[
+            "PingFang SC",
+            "Hiragino Sans GB",
+            "Hiragino Sans",
+            "Apple SD Gothic Neo",
+        ],
+    ),
+    (
+        Script::Kana,
+        &["Hiragino Sans", "Hiragino Kaku Gothic ProN", "PingFang SC"],
+    ),
     (Script::Hangul, &["Apple SD Gothic Neo", "PingFang SC"]),
 ];
 
 #[cfg(not(any(target_os = "windows", target_os = "macos")))]
 const FALLBACK_BY_SCRIPT: &[(Script, &[&str])] = &[
-    (Script::Han, &[
-        "Noto Sans CJK SC", "Noto Sans CJK JP", "Noto Sans CJK KR", "Noto Sans CJK TC",
-        "Source Han Sans", "WenQuanYi Zen Hei", "WenQuanYi Micro Hei", "Droid Sans Fallback",
-        "AR PL UMing CN", "AR PL New Sung",
-    ]),
-    (Script::Kana, &["Noto Sans CJK JP", "Noto Sans CJK SC", "Source Han Sans", "Droid Sans Fallback"]),
-    (Script::Hangul, &["Noto Sans CJK KR", "Noto Sans CJK SC", "NanumGothic", "Droid Sans Fallback"]),
+    (
+        Script::Han,
+        &[
+            "Noto Sans CJK SC",
+            "Noto Sans CJK JP",
+            "Noto Sans CJK KR",
+            "Noto Sans CJK TC",
+            "Source Han Sans",
+            "WenQuanYi Zen Hei",
+            "WenQuanYi Micro Hei",
+            "Droid Sans Fallback",
+            "AR PL UMing CN",
+            "AR PL New Sung",
+        ],
+    ),
+    (
+        Script::Kana,
+        &[
+            "Noto Sans CJK JP",
+            "Noto Sans CJK SC",
+            "Source Han Sans",
+            "Droid Sans Fallback",
+        ],
+    ),
+    (
+        Script::Hangul,
+        &[
+            "Noto Sans CJK KR",
+            "Noto Sans CJK SC",
+            "NanumGothic",
+            "Droid Sans Fallback",
+        ],
+    ),
 ];
 
 fn fallback_families(script: Script) -> &'static [&'static str] {
@@ -188,7 +253,11 @@ fn fallback_families(script: Script) -> &'static [&'static str] {
         .unwrap_or(&[])
 }
 
-fn fallback_search_order(script: Script, prefer_japanese: bool, prefer_korean: bool) -> Vec<&'static str> {
+fn fallback_search_order(
+    script: Script,
+    prefer_japanese: bool,
+    prefer_korean: bool,
+) -> Vec<&'static str> {
     let mut order: Vec<&'static str> = Vec::new();
     let mut push_all = |names: &'static [&'static str]| {
         for name in names {
@@ -213,14 +282,21 @@ fn fallback_search_order(script: Script, prefer_japanese: bool, prefer_korean: b
 /// missing family never resolves to the default sans. For Han, the Japanese-
 /// or Korean-first families go ahead when the UI prefers those glyph shapes.
 /// Returns the file bytes and the face index inside them (non-zero for `.ttc`).
-pub fn discover_fallback_font(script: Script, prefer_japanese: bool, prefer_korean: bool) -> Option<(Vec<u8>, u32)> {
+pub fn discover_fallback_font(
+    script: Script,
+    prefer_japanese: bool,
+    prefer_korean: bool,
+) -> Option<(Vec<u8>, u32)> {
     let families: Vec<FamilyName> = fallback_search_order(script, prefer_japanese, prefer_korean)
         .into_iter()
         .map(|name| FamilyName::Title(name.to_string()))
         .collect();
     let found = try_families_individually(&families, &Properties::default());
     if found.is_none() {
-        log::warn!("No fallback font for {:?} — its characters will not render", script);
+        log::warn!(
+            "No fallback font for {:?} — its characters will not render",
+            script
+        );
     }
     found
 }
@@ -237,12 +313,18 @@ mod tests {
         let jp = fallback_search_order(Script::Han, true, false);
         let kana = fallback_families(Script::Kana);
         assert_eq!(&jp[..kana.len()], kana);
-        assert_eq!(jp.len(), kana.len() + plain.iter().filter(|n| !kana.contains(n)).count());
+        assert_eq!(
+            jp.len(),
+            kana.len() + plain.iter().filter(|n| !kana.contains(n)).count()
+        );
 
         let ko = fallback_search_order(Script::Han, false, true);
         assert_eq!(ko[0], fallback_families(Script::Hangul)[0]);
 
-        assert_eq!(fallback_search_order(Script::Kana, true, true), fallback_families(Script::Kana));
+        assert_eq!(
+            fallback_search_order(Script::Kana, true, true),
+            fallback_families(Script::Kana)
+        );
     }
 
     #[test]
@@ -255,12 +337,23 @@ mod tests {
             .collect();
         let found = discover_fallback_font(Script::Han, false, false);
         if installed.is_empty() {
-            eprintln!("no Han fallback family installed; discovery returned {}", if found.is_some() { "Some" } else { "None" });
+            eprintln!(
+                "no Han fallback family installed; discovery returned {}",
+                if found.is_some() { "Some" } else { "None" }
+            );
             return;
         }
-        let (data, face_index) = found.unwrap_or_else(|| panic!("{installed:?} installed but discovery returned None"));
+        let (data, face_index) =
+            found.unwrap_or_else(|| panic!("{installed:?} installed but discovery returned None"));
         let font = swash::FontRef::from_index(&data, face_index as usize).expect("loadable face");
-        eprintln!("Han fallback: {} bytes, face {face_index}, candidates {installed:?}", data.len());
-        assert_ne!(font.charmap().map('日'), 0, "face {face_index} does not cover U+65E5");
+        eprintln!(
+            "Han fallback: {} bytes, face {face_index}, candidates {installed:?}",
+            data.len()
+        );
+        assert_ne!(
+            font.charmap().map('日'),
+            0,
+            "face {face_index} does not cover U+65E5"
+        );
     }
 }

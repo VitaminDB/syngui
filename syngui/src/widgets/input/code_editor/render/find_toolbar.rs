@@ -32,11 +32,18 @@ pub fn paint_find_toolbar(
     let label = if find.query.is_empty() {
         crate::i18n::builtin("code_editor.find", "Find:")
     } else {
-        crate::i18n::builtin_args("code_editor.find_query", "Find: {query}", &[("query", &find.query)])
+        crate::i18n::builtin_args(
+            "code_editor.find_query",
+            "Find: {query}",
+            &[("query", &find.query)],
+        )
     };
     let label_rect = Rect::new(
         Point::new(toolbar_x + TOOLBAR_PADDING_X, toolbar_y),
-        Size::new(TOOLBAR_WIDTH - TOOLBAR_PADDING_X * 2.0 - 80.0, TOOLBAR_HEIGHT),
+        Size::new(
+            TOOLBAR_WIDTH - TOOLBAR_PADDING_X * 2.0 - 80.0,
+            TOOLBAR_HEIGHT,
+        ),
     );
     list.push_text_aligned(
         &label,
@@ -98,9 +105,17 @@ pub fn paint_goto_toolbar(
     list.push_rect(toolbar_rect, bg, [6.0; 4]);
 
     let label = if buffer.is_empty() {
-        crate::i18n::builtin_args("code_editor.goto_line", "Go to line (1..{total}):", &[("total", &total_lines)])
+        crate::i18n::builtin_args(
+            "code_editor.goto_line",
+            "Go to line (1..{total}):",
+            &[("total", &total_lines)],
+        )
     } else {
-        crate::i18n::builtin_args("code_editor.goto_line_input", "Go to line: {line}", &[("line", &buffer)])
+        crate::i18n::builtin_args(
+            "code_editor.goto_line_input",
+            "Go to line: {line}",
+            &[("line", &buffer)],
+        )
     };
     let label_rect = Rect::new(
         Point::new(toolbar_x + TOOLBAR_PADDING_X, toolbar_y),

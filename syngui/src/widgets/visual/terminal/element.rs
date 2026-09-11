@@ -10,9 +10,7 @@ use crate::layout::Constraints;
 use crate::mss::{ComputedStyle, MssFields};
 use crate::render::{Border, DisplayList};
 use crate::widget::context::{EventContext, EventContextExt, TextMeasure, UpdateContext};
-use crate::widget::{
-    DirtyFlags, Element, ElementId, ElementTree, StyledElement, Widget,
-};
+use crate::widget::{DirtyFlags, Element, ElementId, ElementTree, StyledElement, Widget};
 
 use super::clipboard_filter;
 use super::config::TerminalConfig;
@@ -214,7 +212,9 @@ impl TerminalElement {
     }
 
     fn link_at(s: &SessionState, pos: GridPos) -> Option<u32> {
-        s.grid.cell_at_global(pos.line, pos.col).and_then(|c| c.link_id)
+        s.grid
+            .cell_at_global(pos.line, pos.col)
+            .and_then(|c| c.link_id)
     }
 
     fn update_click_count(&mut self, pos: GridPos) -> u8 {
@@ -347,12 +347,14 @@ impl Element for TerminalElement {
         let radius = self
             .mss
             .border_radius
-            .map(|d| [
-                d[0].resolve(self.bounds.size.width),
-                d[1].resolve(self.bounds.size.width),
-                d[2].resolve(self.bounds.size.width),
-                d[3].resolve(self.bounds.size.width),
-            ])
+            .map(|d| {
+                [
+                    d[0].resolve(self.bounds.size.width),
+                    d[1].resolve(self.bounds.size.width),
+                    d[2].resolve(self.bounds.size.width),
+                    d[3].resolve(self.bounds.size.width),
+                ]
+            })
             .unwrap_or([0.0; 4]);
         let border = self
             .mss
@@ -398,15 +400,18 @@ impl Element for TerminalElement {
                     s.grid.line(line_idx - scrollback_len)
                 };
                 self.draw_line(
-                    list, cells, origin, row_in_view, cell_w, cell_h, default_fg, default_bg,
+                    list,
+                    cells,
+                    origin,
+                    row_in_view,
+                    cell_w,
+                    cell_h,
+                    default_fg,
+                    default_bg,
                 );
             }
 
-            let has_real_selection = s
-                .selection
-                .range()
-                .map(|(a, b)| a != b)
-                .unwrap_or(false);
+            let has_real_selection = s.selection.range().map(|(a, b)| a != b).unwrap_or(false);
             if has_real_selection {
                 let accent = self.mss.accent_color.unwrap_or(default_fg);
                 let overlay_color = accent.with_alpha(0.3);
@@ -442,14 +447,19 @@ impl Element for TerminalElement {
                 list.push_rect(cursor_rect, cursor_color.with_alpha(0.45), [0.0; 4]);
             }
 
-            let scrollback = if s.grid.on_alt() { 0 } else { s.grid.scrollback_len() };
+            let scrollback = if s.grid.on_alt() {
+                0
+            } else {
+                s.grid.scrollback_len()
+            };
             if scrollback > 0 {
                 let total = scrollback + s.grid.rows();
                 let content_h = total as f32 * cell_h;
                 let scroll_y = (scrollback - s.scroll_offset.min(scrollback)) as f32 * cell_h;
                 let fg = self.mss.color.unwrap_or(default_fg);
                 let style = self.mss.scrollbar_style(fg);
-                let opacity = crate::widgets::scroll::effective_opacity(&self.scrollbar_fader, &style);
+                let opacity =
+                    crate::widgets::scroll::effective_opacity(&self.scrollbar_fader, &style);
                 if opacity > 0.0 {
                     crate::widgets::scroll::render_vertical(
                         list,
@@ -531,8 +541,8 @@ impl Element for TerminalElement {
                 s.with_state(|st| {
                     if st.selection.mouse_selecting {
                         let max = st.grid.scrollback_len() as i32;
-                        let new = (st.scroll_offset as i32 + self.auto_scroll).clamp(0, max)
-                            as usize;
+                        let new =
+                            (st.scroll_offset as i32 + self.auto_scroll).clamp(0, max) as usize;
                         if new != st.scroll_offset {
                             st.scroll_offset = new;
                         }
@@ -543,7 +553,9 @@ impl Element for TerminalElement {
             }
         }
 
-        let style = self.mss.scrollbar_style(self.mss.color.unwrap_or(Color::from_hex("#9CA3AF")));
+        let style = self
+            .mss
+            .scrollbar_style(self.mss.color.unwrap_or(Color::from_hex("#9CA3AF")));
         if self.scrollbar_fader.tick(dt.as_secs_f32(), &style) {
             self.mark_dirty(DirtyFlags::RENDER);
             dirty = true;
@@ -559,11 +571,7 @@ impl Element for TerminalElement {
         }
 
         let _ = dirty;
-        let alive = self
-            .session
-            .as_ref()
-            .map(|s| s.is_alive())
-            .unwrap_or(false);
+        let alive = self.session.as_ref().map(|s| s.is_alive()).unwrap_or(false);
         let focused = self
             .session
             .as_ref()
@@ -632,7 +640,10 @@ impl Element for TerminalElement {
                 if let Some(geom) = self.scrollbar_geom_now() {
                     let style = self.scrollbar_style_now();
                     if self.scrollbar_interaction.try_begin_drag(
-                        &mut self.scrollbar_fader, &geom, &style, *position,
+                        &mut self.scrollbar_fader,
+                        &geom,
+                        &style,
+                        *position,
                     ) {
                         ctx.request_paint();
                         return EventResult::Captured;
@@ -690,7 +701,10 @@ impl Element for TerminalElement {
             }
 
             Event::MouseUp { button, position } if *button == MouseButton::Left => {
-                if self.scrollbar_interaction.end_drag(&mut self.scrollbar_fader) {
+                if self
+                    .scrollbar_interaction
+                    .end_drag(&mut self.scrollbar_fader)
+                {
                     self.left_button_held = false;
                     self.auto_scroll = 0;
                     ctx.request_paint();
@@ -707,16 +721,12 @@ impl Element for TerminalElement {
                     return EventResult::Handled;
                 }
 
-                let (pos, was_dragged, up_link, link_uri) = if let Some(s) = self.session.as_ref()
-                {
+                let (pos, was_dragged, up_link, link_uri) = if let Some(s) = self.session.as_ref() {
                     s.with_state_ref(|st| {
                         let pos = self.point_to_grid(st, *position).unwrap_or_default();
                         let up_link = Self::link_at(st, pos);
-                        let was_dragged = st
-                            .selection
-                            .range()
-                            .map(|(a, b)| a != b)
-                            .unwrap_or(false);
+                        let was_dragged =
+                            st.selection.range().map(|(a, b)| a != b).unwrap_or(false);
                         let uri = up_link.and_then(|id| st.grid.link(id).map(str::to_owned));
                         (pos, was_dragged, up_link, uri)
                     })
@@ -729,9 +739,7 @@ impl Element for TerminalElement {
                     if down == up && !was_dragged {
                         if let Some(uri) = link_uri {
                             if let Err(e) = crate::open_url(&uri) {
-                                log::warn!(
-                                    "[syngui terminal] open link `{uri}` failed: {e}"
-                                );
+                                log::warn!("[syngui terminal] open link `{uri}` failed: {e}");
                             }
                         }
                         if let Some(s) = self.session.as_ref() {
@@ -752,7 +760,10 @@ impl Element for TerminalElement {
                     if let Some(geom) = self.scrollbar_geom_now() {
                         let style = self.scrollbar_style_now();
                         if let Some((new_y, _)) = self.scrollbar_interaction.update_drag(
-                            &mut self.scrollbar_fader, &geom, &style, *pos,
+                            &mut self.scrollbar_fader,
+                            &geom,
+                            &style,
+                            *pos,
                         ) {
                             self.apply_scrollbar_drag_y(new_y);
                             ctx.request_paint();
@@ -769,12 +780,18 @@ impl Element for TerminalElement {
                     let style = self.scrollbar_style_now();
                     if self.bounds.contains(*pos) {
                         if self.scrollbar_interaction.update_hover(
-                            &mut self.scrollbar_fader, &geom, &style, *pos,
+                            &mut self.scrollbar_fader,
+                            &geom,
+                            &style,
+                            *pos,
                             crate::widgets::scroll::SCROLLBAR_HIT_MARGIN,
                         ) {
                             ctx.request_paint();
                         }
-                    } else if self.scrollbar_interaction.clear_hover(&mut self.scrollbar_fader) {
+                    } else if self
+                        .scrollbar_interaction
+                        .clear_hover(&mut self.scrollbar_fader)
+                    {
                         ctx.request_paint();
                     }
                 }
@@ -834,7 +851,9 @@ impl Element for TerminalElement {
                 EventResult::Ignored
             }
 
-            Event::MouseWheel { delta, position, .. } if self.bounds.contains(*position) => {
+            Event::MouseWheel {
+                delta, position, ..
+            } if self.bounds.contains(*position) => {
                 if self.try_forward_mouse(event, ctx) {
                     return EventResult::Handled;
                 }
@@ -999,7 +1018,9 @@ impl Element for TerminalElement {
         "Terminal"
     }
 
-    fn mss(&self) -> Option<&crate::mss::MssFields> { Some(&self.mss) }
+    fn mss(&self) -> Option<&crate::mss::MssFields> {
+        Some(&self.mss)
+    }
 
     fn reset_mss_styles(&mut self) {
         self.mss.reset();
@@ -1042,7 +1063,8 @@ impl Element for TerminalElement {
         selected: Option<&ComputedStyle>,
         _checked: Option<&ComputedStyle>,
     ) {
-        self.mss.apply_transitions(base, hover, active, focus, selected);
+        self.mss
+            .apply_transitions(base, hover, active, focus, selected);
     }
 }
 
@@ -1124,7 +1146,9 @@ impl TerminalElement {
     }
 
     fn do_paste(&mut self, ctx: &mut EventContext) {
-        let Some(text) = ctx.paste_from_clipboard() else { return };
+        let Some(text) = ctx.paste_from_clipboard() else {
+            return;
+        };
         let cleaned = clipboard_filter::sanitize_paste(&text);
         let bracketed = self
             .session
@@ -1167,7 +1191,8 @@ impl TerminalElement {
                     Some(v) => v,
                     None => return false,
                 };
-                if !mouse::should_report(mode, MouseAction::Release(*button), self.left_button_held) {
+                if !mouse::should_report(mode, MouseAction::Release(*button), self.left_button_held)
+                {
                     return false;
                 }
                 ((col, row), MouseAction::Release(*button))
@@ -1178,14 +1203,20 @@ impl TerminalElement {
                     None => return false,
                 };
                 let action = MouseAction::Motion {
-                    button: if self.left_button_held { Some(MouseButton::Left) } else { None },
+                    button: if self.left_button_held {
+                        Some(MouseButton::Left)
+                    } else {
+                        None
+                    },
                 };
                 if !mouse::should_report(mode, action, self.left_button_held) {
                     return false;
                 }
                 ((col, row), action)
             }
-            Event::MouseWheel { delta, position, .. } => {
+            Event::MouseWheel {
+                delta, position, ..
+            } => {
                 let (col, row) = match self.point_to_local(*position) {
                     Some(v) => v,
                     None => return false,
@@ -1259,8 +1290,7 @@ impl TerminalElement {
                 continue;
             }
             let mut fg = palette::resolve(cell.fg, default_fg, default_bg, true);
-            let mut bg_for_reverse =
-                palette::resolve(cell.bg, default_fg, default_bg, false);
+            let mut bg_for_reverse = palette::resolve(cell.bg, default_fg, default_bg, false);
             if cell.flags.contains(CellFlags::REVERSE) {
                 std::mem::swap(&mut fg, &mut bg_for_reverse);
             }

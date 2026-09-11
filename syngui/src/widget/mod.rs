@@ -8,12 +8,12 @@ pub mod tree;
 pub mod visitor;
 pub mod widget;
 
-pub use basic::{Text, Center, Elide};
 pub(crate) use basic::count_visual_lines_via_measure;
+pub use basic::{Center, Elide, Text};
 pub use context::{BuildContext, EventContext, UpdateContext};
 pub use dirty::DirtyFlags;
 pub use element::{ChildHit, Element, EventContextExt, LayoutHint};
-pub use styled::{StyledWidget, WidgetExt, StyledElement};
-pub use tree::{ElementId, ElementTree, RenderHandle, OverlayEntry, DragState};
+pub use styled::{StyledElement, StyledWidget, WidgetExt};
+pub use tree::{DragState, ElementId, ElementTree, OverlayEntry, RenderHandle};
 pub use visitor::ElementVisitor;
 pub use widget::Widget;

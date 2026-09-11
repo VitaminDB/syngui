@@ -21,17 +21,14 @@ pub fn build_menus_section() -> impl Widget {
                         Row::new()
                             .gap(8.0)
                             .child({
-                                Button::new("Open Menu")
-                                    
-                                    .on_click_at(move |click_pos| {
-                                        menu_pos.set(click_pos);
-                                        menu_open.set(true);
-                                    })
+                                Button::new("Open Menu").on_click_at(move |click_pos| {
+                                    menu_pos.set(click_pos);
+                                    menu_open.set(true);
+                                })
                             })
                             .child(move || {
                                 let result = menu_result.get();
-                                Text::new(format!("Selected: {}", result))
-                                    .class("label")
+                                Text::new(format!("Selected: {}", result)).class("label")
                             }),
                     )
                     .child(
@@ -43,9 +40,7 @@ pub fn build_menus_section() -> impl Widget {
                                 MenuItem::new("open", "Open...")
                                     .icon("📂")
                                     .shortcut("Ctrl+O"),
-                                MenuItem::new("save", "Save")
-                                    .icon("💾")
-                                    .shortcut("Ctrl+S"),
+                                MenuItem::new("save", "Save").icon("💾").shortcut("Ctrl+S"),
                                 MenuItem::separator(),
                                 MenuItem::new("export", "Export as PDF").icon("📑"),
                                 MenuItem::new("print", "Print...")
@@ -69,9 +64,7 @@ pub fn build_menus_section() -> impl Widget {
                     .child(Text::new("• Icons and keyboard shortcut hints").class("label"))
                     .child(Text::new("• Separator items for grouping").class("label"))
                     .child(Text::new("• Disabled items (greyed out)").class("label"))
-                    .child(
-                        Text::new("• Keyboard navigation (Up/Down/Enter/Escape)").class("label"),
-                    )
+                    .child(Text::new("• Keyboard navigation (Up/Down/Enter/Escape)").class("label"))
                     .child(Text::new("• Click outside to dismiss").class("label")),
             )
             // Context Menu
@@ -82,7 +75,8 @@ pub fn build_menus_section() -> impl Widget {
                     .child(
                         ContextMenu::new()
                             .child(
-                                DecoratedBox::new().style("background-color", Color::from_hex("#F3F4F6"))
+                                DecoratedBox::new()
+                                    .style("background-color", Color::from_hex("#F3F4F6"))
                                     .child(
                                         Padding::all(16.0).child(
                                             Text::new("Right-click me for a context menu")

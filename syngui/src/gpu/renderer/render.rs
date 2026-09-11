@@ -31,13 +31,15 @@ impl Renderer {
         };
         {
             let mut store = self.image_store.lock().unwrap();
-            self.image_gpu_cache.process_uploads(&gpu.device, &gpu.queue, &mut store);
+            self.image_gpu_cache
+                .process_uploads(&gpu.device, &gpu.queue, &mut store);
         }
         #[cfg(feature = "map")]
         self.sync_tile_atlas(gpu);
 
         let resolution = [self.logical_width as f32, self.logical_height as f32];
-        let clip_slot_map = self.write_clip_uniform_slots(gpu, &render_ops, resolution, elapsed, scale);
+        let clip_slot_map =
+            self.write_clip_uniform_slots(gpu, &render_ops, resolution, elapsed, scale);
 
         self.gpu_buffers.clear();
         for op in &render_ops {
@@ -46,20 +48,21 @@ impl Renderer {
                     continue;
                 }
                 let vertex_buffer =
-                    gpu.device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
-                        label: Some("Vertex Buffer"),
-                        contents: bytemuck::cast_slice(&batch.vertices),
-                        usage: wgpu::BufferUsages::VERTEX,
-                    });
+                    gpu.device
+                        .create_buffer_init(&wgpu::util::BufferInitDescriptor {
+                            label: Some("Vertex Buffer"),
+                            contents: bytemuck::cast_slice(&batch.vertices),
+                            usage: wgpu::BufferUsages::VERTEX,
+                        });
                 let index_buffer =
-                    gpu.device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
-                        label: Some("Index Buffer"),
-                        contents: bytemuck::cast_slice(&batch.indices),
-                        usage: wgpu::BufferUsages::INDEX,
-                    });
-                let uniform_offset = clip_slot_map.get(&batch.clip_rect)
-                    .copied()
-                    .unwrap_or(0) as u32;
+                    gpu.device
+                        .create_buffer_init(&wgpu::util::BufferInitDescriptor {
+                            label: Some("Index Buffer"),
+                            contents: bytemuck::cast_slice(&batch.indices),
+                            usage: wgpu::BufferUsages::INDEX,
+                        });
+                let uniform_offset =
+                    clip_slot_map.get(&batch.clip_rect).copied().unwrap_or(0) as u32;
                 self.gpu_buffers.push(GpuBatchBuffers {
                     vertex_buffer,
                     index_buffer,
@@ -83,17 +86,16 @@ impl Renderer {
             .texture
             .create_view(&wgpu::TextureViewDescriptor::default());
 
-        let mut encoder =
-            gpu.device
-                .create_command_encoder(&wgpu::CommandEncoderDescriptor {
-                    label: Some("Render Encoder"),
-                });
+        let mut encoder = gpu
+            .device
+            .create_command_encoder(&wgpu::CommandEncoderDescriptor {
+                label: Some("Render Encoder"),
+            });
 
         if self.staging_belt_enabled {
-            if let (Some(belt), Some(buf)) = (
-                self.staging_belt.as_mut(),
-                self.throughput_buffer.as_ref(),
-            ) {
+            if let (Some(belt), Some(buf)) =
+                (self.staging_belt.as_mut(), self.throughput_buffer.as_ref())
+            {
                 let size = std::num::NonZeroU64::new(4 * 1024 * 1024).unwrap();
                 let mut view = belt.write_buffer(&mut encoder, buf, 0, size);
                 let stamp: [u8; 4] = (elapsed as u32).to_le_bytes();
@@ -102,13 +104,18 @@ impl Renderer {
         }
 
         let pool_handles = {
-            let (plan, pool_handles) = self.build_render_plan(
-                &render_ops, &gpu.device, background_color, elapsed,
-            );
+            let (plan, pool_handles) =
+                self.build_render_plan(&render_ops, &gpu.device, background_color, elapsed);
             let scene_view = self.scene_view.as_ref().unwrap();
             let scene_texture = self.scene_texture.as_ref().unwrap();
             self.execute_render_plan(
-                &mut encoder, gpu, &plan, scene_view, scene_texture, elapsed, scale,
+                &mut encoder,
+                gpu,
+                &plan,
+                scene_view,
+                scene_texture,
+                elapsed,
+                scale,
             );
             pool_handles
         };
@@ -138,7 +145,8 @@ impl Renderer {
             render_pass.set_bind_group(0, self.scene_bind_group.as_ref().unwrap(), &[]);
             render_pass.set_vertex_buffer(0, self.fullscreen_vertex_buffer.slice(..));
             render_pass.set_index_buffer(
-                self.fullscreen_index_buffer.slice(..), wgpu::IndexFormat::Uint32,
+                self.fullscreen_index_buffer.slice(..),
+                wgpu::IndexFormat::Uint32,
             );
             render_pass.draw_indexed(0..6, 0, 0..1);
         }
@@ -159,8 +167,15 @@ impl Renderer {
         self.texture_pool.end_frame();
 
         let draw_calls = self.gpu_buffers.len();
-        let vertex_count = self.gpu_buffers.iter().map(|b| b.index_count as usize).sum();
-        RenderStats { draw_calls, vertex_count }
+        let vertex_count = self
+            .gpu_buffers
+            .iter()
+            .map(|b| b.index_count as usize)
+            .sum();
+        RenderStats {
+            draw_calls,
+            vertex_count,
+        }
     }
 
     pub fn render_to_view(
@@ -188,13 +203,15 @@ impl Renderer {
         };
         {
             let mut store = self.image_store.lock().unwrap();
-            self.image_gpu_cache.process_uploads(&gpu.device, &gpu.queue, &mut store);
+            self.image_gpu_cache
+                .process_uploads(&gpu.device, &gpu.queue, &mut store);
         }
         #[cfg(feature = "map")]
         self.sync_tile_atlas(gpu);
 
         let resolution = [self.logical_width as f32, self.logical_height as f32];
-        let clip_slot_map = self.write_clip_uniform_slots(gpu, &render_ops, resolution, elapsed, scale);
+        let clip_slot_map =
+            self.write_clip_uniform_slots(gpu, &render_ops, resolution, elapsed, scale);
 
         self.gpu_buffers.clear();
         for op in &render_ops {
@@ -203,20 +220,21 @@ impl Renderer {
                     continue;
                 }
                 let vertex_buffer =
-                    gpu.device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
-                        label: Some("Vertex Buffer"),
-                        contents: bytemuck::cast_slice(&batch.vertices),
-                        usage: wgpu::BufferUsages::VERTEX,
-                    });
+                    gpu.device
+                        .create_buffer_init(&wgpu::util::BufferInitDescriptor {
+                            label: Some("Vertex Buffer"),
+                            contents: bytemuck::cast_slice(&batch.vertices),
+                            usage: wgpu::BufferUsages::VERTEX,
+                        });
                 let index_buffer =
-                    gpu.device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
-                        label: Some("Index Buffer"),
-                        contents: bytemuck::cast_slice(&batch.indices),
-                        usage: wgpu::BufferUsages::INDEX,
-                    });
-                let uniform_offset = clip_slot_map.get(&batch.clip_rect)
-                    .copied()
-                    .unwrap_or(0) as u32;
+                    gpu.device
+                        .create_buffer_init(&wgpu::util::BufferInitDescriptor {
+                            label: Some("Index Buffer"),
+                            contents: bytemuck::cast_slice(&batch.indices),
+                            usage: wgpu::BufferUsages::INDEX,
+                        });
+                let uniform_offset =
+                    clip_slot_map.get(&batch.clip_rect).copied().unwrap_or(0) as u32;
                 self.gpu_buffers.push(GpuBatchBuffers {
                     vertex_buffer,
                     index_buffer,
@@ -229,8 +247,9 @@ impl Renderer {
             }
         }
 
-        let mut encoder =
-            gpu.device.create_command_encoder(&wgpu::CommandEncoderDescriptor {
+        let mut encoder = gpu
+            .device
+            .create_command_encoder(&wgpu::CommandEncoderDescriptor {
                 label: Some("Offscreen Render Encoder"),
             });
 
@@ -281,39 +300,50 @@ impl Renderer {
                                 match current_pipeline {
                                     ShaderType::Rect => {
                                         render_pass.set_pipeline(&self.rect_pipeline);
-                                        render_pass
-                                            .set_bind_group(0, &self.uniform_bind_group, &[batch.uniform_offset]);
+                                        render_pass.set_bind_group(
+                                            0,
+                                            &self.uniform_bind_group,
+                                            &[batch.uniform_offset],
+                                        );
                                     }
                                     ShaderType::Text => {
                                         render_pass.set_pipeline(&self.text_pipeline);
-                                        render_pass
-                                            .set_bind_group(0, &self.uniform_bind_group, &[batch.uniform_offset]);
-                                        render_pass
-                                            .set_bind_group(1, &self.text_bind_group, &[]);
+                                        render_pass.set_bind_group(
+                                            0,
+                                            &self.uniform_bind_group,
+                                            &[batch.uniform_offset],
+                                        );
+                                        render_pass.set_bind_group(1, &self.text_bind_group, &[]);
                                     }
                                     ShaderType::Shadow => {
                                         render_pass.set_pipeline(&self.shadow_pipeline);
-                                        render_pass
-                                            .set_bind_group(0, &self.uniform_bind_group, &[batch.uniform_offset]);
+                                        render_pass.set_bind_group(
+                                            0,
+                                            &self.uniform_bind_group,
+                                            &[batch.uniform_offset],
+                                        );
                                     }
                                     ShaderType::InnerShadow => {
                                         render_pass.set_pipeline(&self.inner_shadow_pipeline);
-                                        render_pass
-                                            .set_bind_group(0, &self.uniform_bind_group, &[batch.uniform_offset]);
+                                        render_pass.set_bind_group(
+                                            0,
+                                            &self.uniform_bind_group,
+                                            &[batch.uniform_offset],
+                                        );
                                     }
                                     ShaderType::Image => {
                                         render_pass.set_pipeline(&self.image_pipeline);
-                                        render_pass
-                                            .set_bind_group(0, &self.uniform_bind_group, &[batch.uniform_offset]);
+                                        render_pass.set_bind_group(
+                                            0,
+                                            &self.uniform_bind_group,
+                                            &[batch.uniform_offset],
+                                        );
                                         let mut bound = false;
                                         if let Some(tex_id) = batch.texture_id {
                                             if tex_id.0 == 0 {
                                                 #[cfg(feature = "map")]
-                                                if let Some(ref bg) =
-                                                    self.tile_atlas_bind_group
-                                                {
-                                                    render_pass
-                                                        .set_bind_group(1, bg, &[]);
+                                                if let Some(ref bg) = self.tile_atlas_bind_group {
+                                                    render_pass.set_bind_group(1, bg, &[]);
                                                     bound = true;
                                                 }
                                             } else if let Some(bg) =
@@ -330,42 +360,50 @@ impl Renderer {
                                     }
                                     ShaderType::Line => {
                                         render_pass.set_pipeline(&self.line_pipeline);
-                                        render_pass
-                                            .set_bind_group(0, &self.uniform_bind_group, &[batch.uniform_offset]);
+                                        render_pass.set_bind_group(
+                                            0,
+                                            &self.uniform_bind_group,
+                                            &[batch.uniform_offset],
+                                        );
                                     }
                                     ShaderType::GlowShadow => {
                                         render_pass.set_pipeline(&self.glow_shadow_pipeline);
-                                        render_pass
-                                            .set_bind_group(0, &self.uniform_bind_group, &[batch.uniform_offset]);
+                                        render_pass.set_bind_group(
+                                            0,
+                                            &self.uniform_bind_group,
+                                            &[batch.uniform_offset],
+                                        );
                                     }
                                     ShaderType::Effect => {
                                         render_pass.set_pipeline(&self.rect_pipeline);
-                                        render_pass
-                                            .set_bind_group(0, &self.uniform_bind_group, &[batch.uniform_offset]);
+                                        render_pass.set_bind_group(
+                                            0,
+                                            &self.uniform_bind_group,
+                                            &[batch.uniform_offset],
+                                        );
                                     }
                                 }
                             } else if need_offset_switch {
                                 current_uniform_offset = batch.uniform_offset;
-                                render_pass.set_bind_group(0, &self.uniform_bind_group, &[batch.uniform_offset]);
+                                render_pass.set_bind_group(
+                                    0,
+                                    &self.uniform_bind_group,
+                                    &[batch.uniform_offset],
+                                );
                             }
 
                             if batch.clip_rect.enabled {
                                 let sx = (batch.clip_rect.x as f32 * scale).floor() as u32;
                                 let sy = (batch.clip_rect.y as f32 * scale).floor() as u32;
-                                let sr = ((batch.clip_rect.x as f32
-                                    + batch.clip_rect.width as f32)
+                                let sr = ((batch.clip_rect.x as f32 + batch.clip_rect.width as f32)
                                     * scale)
                                     .ceil() as u32;
                                 let sb = ((batch.clip_rect.y as f32
                                     + batch.clip_rect.height as f32)
                                     * scale)
                                     .ceil() as u32;
-                                let sw = sr
-                                    .saturating_sub(sx)
-                                    .min(phys_w.saturating_sub(sx));
-                                let sh = sb
-                                    .saturating_sub(sy)
-                                    .min(phys_h.saturating_sub(sy));
+                                let sw = sr.saturating_sub(sx).min(phys_w.saturating_sub(sx));
+                                let sh = sb.saturating_sub(sy).min(phys_h.saturating_sub(sy));
                                 if sx >= phys_w || sy >= phys_h || sw == 0 || sh == 0 {
                                     buffer_index += 1;
                                     continue;
@@ -375,8 +413,7 @@ impl Renderer {
                                 render_pass.set_scissor_rect(0, 0, phys_w, phys_h);
                             }
 
-                            render_pass
-                                .set_vertex_buffer(0, batch.vertex_buffer.slice(..));
+                            render_pass.set_vertex_buffer(0, batch.vertex_buffer.slice(..));
                             render_pass.set_index_buffer(
                                 batch.index_buffer.slice(..),
                                 wgpu::IndexFormat::Uint32,
@@ -404,8 +441,15 @@ impl Renderer {
         }
 
         let draw_calls = self.gpu_buffers.len();
-        let vertex_count = self.gpu_buffers.iter().map(|b| b.index_count as usize).sum();
-        RenderStats { draw_calls, vertex_count }
+        let vertex_count = self
+            .gpu_buffers
+            .iter()
+            .map(|b| b.index_count as usize)
+            .sum();
+        RenderStats {
+            draw_calls,
+            vertex_count,
+        }
     }
 
     fn write_clip_uniform_slots(
@@ -440,7 +484,12 @@ impl Renderer {
             let radii = clip.corner_radius_f32();
             let (clip_rect, clip_corner_radius) = if clip.has_corner_radius() {
                 (
-                    [clip.x as f32, clip.y as f32, clip.width as f32, clip.height as f32],
+                    [
+                        clip.x as f32,
+                        clip.y as f32,
+                        clip.width as f32,
+                        clip.height as f32,
+                    ],
                     radii,
                 )
             } else {
@@ -459,7 +508,8 @@ impl Renderer {
             buffer_data[byte_offset..byte_offset + src.len()].copy_from_slice(src);
         }
 
-        gpu.queue.write_buffer(&self.uniform_buffer, 0, &buffer_data);
+        gpu.queue
+            .write_buffer(&self.uniform_buffer, 0, &buffer_data);
 
         clip_map
     }

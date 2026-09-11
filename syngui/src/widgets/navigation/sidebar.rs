@@ -99,7 +99,9 @@ impl Widget for Sidebar {
         }
     }
 
-    fn widget_classes(&self) -> &[String] { &self.classes }
+    fn widget_classes(&self) -> &[String] {
+        &self.classes
+    }
 
     fn child_widgets(&self) -> Vec<&dyn Widget> {
         let mut result: Vec<&dyn Widget> = Vec::new();
@@ -147,7 +149,11 @@ impl Element for SidebarElement {
         Size::new(width, height)
     }
 
-    fn explicit_dimensions(&self, _parent_width: f32, _parent_height: f32) -> (Option<f32>, Option<f32>) {
+    fn explicit_dimensions(
+        &self,
+        _parent_width: f32,
+        _parent_height: f32,
+    ) -> (Option<f32>, Option<f32>) {
         let w = self.mss.width.map(|d| d.resolve(0.0));
         (w, Some(f32::INFINITY))
     }
@@ -185,7 +191,6 @@ impl Element for SidebarElement {
             );
             list.push_rect(border_rect, bc, [0.0; 4]);
         }
-
     }
 
     fn handle_event(&mut self, _event: &Event, _ctx: &mut EventContext) -> EventResult {
@@ -234,8 +239,12 @@ impl Element for SidebarElement {
         "Sidebar"
     }
 
-    fn reset_mss_styles(&mut self) { self.mss.reset(); }
-    fn mss(&self) -> Option<&crate::mss::MssFields> { Some(&self.mss) }
+    fn reset_mss_styles(&mut self) {
+        self.mss.reset();
+    }
+    fn mss(&self) -> Option<&crate::mss::MssFields> {
+        Some(&self.mss)
+    }
     fn apply_computed_style(&mut self, style: &ComputedStyle) {
         self.mss.apply(style);
         if let Some(d) = style.width() {

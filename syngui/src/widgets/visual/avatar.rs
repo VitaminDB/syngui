@@ -4,7 +4,9 @@ use crate::layout::Constraints;
 use crate::mss::ComputedStyle;
 use crate::mss::MssFields;
 use crate::render::DisplayList;
-use crate::widget::{DirtyFlags, Element, ElementId, ElementTree, StyledElement, UpdateContext, Widget};
+use crate::widget::{
+    DirtyFlags, Element, ElementId, ElementTree, StyledElement, UpdateContext, Widget,
+};
 use std::any::Any;
 
 pub struct Avatar {
@@ -85,7 +87,9 @@ impl Element for AvatarElement {
     }
 
     fn layout(&mut self, constraints: Constraints) -> Size {
-        let s = self.mss.width
+        let s = self
+            .mss
+            .width
             .map(|d| d.resolve(self.size))
             .unwrap_or(self.size)
             .min(constraints.max_width)
@@ -96,20 +100,25 @@ impl Element for AvatarElement {
 
     fn build_display_list(&self, list: &mut DisplayList, _clip: Rect) {
         let radius = self.bounds.size.height / 2.0;
-        let bg = self.mss.background_color
+        let bg = self
+            .mss
+            .background_color
             .unwrap_or_else(|| Color::from_hex("#3B82F6"));
 
         list.push_rect(self.bounds, bg, [radius; 4]);
 
         if let Some(ref text) = self.text {
-            let text_color = self.mss.color
-                .unwrap_or(Color::WHITE);
+            let text_color = self.mss.color.unwrap_or(Color::WHITE);
             let font_size = self.mss.font_size.unwrap_or(self.bounds.size.height * 0.4);
             list.push_text_centered(text, self.bounds, text_color, font_size);
         }
     }
 
-    fn handle_event(&mut self, _event: &Event, _ctx: &mut crate::widget::context::EventContext) -> EventResult {
+    fn handle_event(
+        &mut self,
+        _event: &Event,
+        _ctx: &mut crate::widget::context::EventContext,
+    ) -> EventResult {
         EventResult::Ignored
     }
 
@@ -147,7 +156,9 @@ impl Element for AvatarElement {
 
     fn mount(&mut self, _tree: &mut ElementTree) {}
 
-    fn element_type_name(&self) -> &str { "Avatar" }
+    fn element_type_name(&self) -> &str {
+        "Avatar"
+    }
 
     fn set_classes(&mut self, classes: Vec<String>) {
         self.classes = classes;
@@ -158,8 +169,12 @@ impl Element for AvatarElement {
         &self.classes
     }
 
-    fn reset_mss_styles(&mut self) { self.mss.reset(); }
-    fn mss(&self) -> Option<&crate::mss::MssFields> { Some(&self.mss) }
+    fn reset_mss_styles(&mut self) {
+        self.mss.reset();
+    }
+    fn mss(&self) -> Option<&crate::mss::MssFields> {
+        Some(&self.mss)
+    }
     fn apply_computed_style(&mut self, style: &ComputedStyle) {
         self.mss.apply(style);
         if let Some(d) = self.mss.width {
@@ -177,7 +192,8 @@ impl Element for AvatarElement {
         selected: Option<&ComputedStyle>,
         _checked: Option<&ComputedStyle>,
     ) {
-        self.mss.apply_transitions(base, hover, active, focus, selected);
+        self.mss
+            .apply_transitions(base, hover, active, focus, selected);
     }
 
     fn accessibility_info(&self) -> Option<crate::a11y::AccessibilityInfo> {

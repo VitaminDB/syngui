@@ -1,7 +1,7 @@
+use super::paint::{LineCap, LineJoin, Paint};
+use super::tessellator::*;
 use crate::core::{Color, Point, Rect, Size};
 use crate::render::DisplayList;
-use super::paint::{Paint, LineCap, LineJoin};
-use super::tessellator::*;
 
 #[derive(Clone, Debug)]
 pub struct RectCmd {
@@ -57,11 +57,17 @@ impl CanvasContext {
         self.mss_accent = accent;
     }
 
-    pub fn mss_color(&self) -> Option<Color> { self.mss_color }
+    pub fn mss_color(&self) -> Option<Color> {
+        self.mss_color
+    }
 
-    pub fn mss_background(&self) -> Option<Color> { self.mss_background }
+    pub fn mss_background(&self) -> Option<Color> {
+        self.mss_background
+    }
 
-    pub fn mss_accent(&self) -> Option<Color> { self.mss_accent }
+    pub fn mss_accent(&self) -> Option<Color> {
+        self.mss_accent
+    }
 
     pub fn width(&self) -> f32 {
         self.size.width
@@ -107,10 +113,7 @@ impl CanvasContext {
 
     pub fn draw_line(&mut self, x1: f32, y1: f32, x2: f32, y2: f32) {
         self.line_strips.push(LineStripCmd {
-            points: vec![
-                self.to_screen_arr(x1, y1),
-                self.to_screen_arr(x2, y2),
-            ],
+            points: vec![self.to_screen_arr(x1, y1), self.to_screen_arr(x2, y2)],
             color: self.paint.color,
             width: self.paint.stroke_width,
         });
@@ -121,7 +124,10 @@ impl CanvasContext {
             return;
         }
         self.line_strips.push(LineStripCmd {
-            points: points.iter().map(|&(x, y)| self.to_screen_arr(x, y)).collect(),
+            points: points
+                .iter()
+                .map(|&(x, y)| self.to_screen_arr(x, y))
+                .collect(),
             color: self.paint.color,
             width: self.paint.stroke_width,
         });
@@ -145,10 +151,8 @@ impl CanvasContext {
         let segments = circle_segment_count(r);
         let center = Point::new(cx, cy);
         let pts = circle_points(center, r, segments);
-        let mut screen_pts: Vec<[f32; 2]> = pts
-            .iter()
-            .map(|p| self.to_screen_arr(p.x, p.y))
-            .collect();
+        let mut screen_pts: Vec<[f32; 2]> =
+            pts.iter().map(|p| self.to_screen_arr(p.x, p.y)).collect();
         if let Some(&first) = screen_pts.first() {
             screen_pts.push(first);
         }
@@ -165,10 +169,7 @@ impl CanvasContext {
         let segments = segments.max(4);
         let center = Point::new(cx, cy);
         let pts = arc_points(center, r, start_angle, end_angle, segments);
-        let screen_pts: Vec<[f32; 2]> = pts
-            .iter()
-            .map(|p| self.to_screen_arr(p.x, p.y))
-            .collect();
+        let screen_pts: Vec<[f32; 2]> = pts.iter().map(|p| self.to_screen_arr(p.x, p.y)).collect();
         self.line_strips.push(LineStripCmd {
             points: screen_pts,
             color: self.paint.color,
@@ -176,20 +177,12 @@ impl CanvasContext {
         });
     }
 
-    pub fn draw_quad_bezier(
-        &mut self,
-        x0: f32, y0: f32,
-        cpx: f32, cpy: f32,
-        x1: f32, y1: f32,
-    ) {
+    pub fn draw_quad_bezier(&mut self, x0: f32, y0: f32, cpx: f32, cpy: f32, x1: f32, y1: f32) {
         let p0 = Point::new(x0, y0);
         let cp = Point::new(cpx, cpy);
         let p1 = Point::new(x1, y1);
         let pts = flatten_quad_bezier(p0, cp, p1, 0.5);
-        let screen_pts: Vec<[f32; 2]> = pts
-            .iter()
-            .map(|p| self.to_screen_arr(p.x, p.y))
-            .collect();
+        let screen_pts: Vec<[f32; 2]> = pts.iter().map(|p| self.to_screen_arr(p.x, p.y)).collect();
         self.line_strips.push(LineStripCmd {
             points: screen_pts,
             color: self.paint.color,
@@ -199,20 +192,21 @@ impl CanvasContext {
 
     pub fn draw_cubic_bezier(
         &mut self,
-        x0: f32, y0: f32,
-        cp1x: f32, cp1y: f32,
-        cp2x: f32, cp2y: f32,
-        x1: f32, y1: f32,
+        x0: f32,
+        y0: f32,
+        cp1x: f32,
+        cp1y: f32,
+        cp2x: f32,
+        cp2y: f32,
+        x1: f32,
+        y1: f32,
     ) {
         let p0 = Point::new(x0, y0);
         let cp1 = Point::new(cp1x, cp1y);
         let cp2 = Point::new(cp2x, cp2y);
         let p1 = Point::new(x1, y1);
         let pts = flatten_cubic_bezier(p0, cp1, cp2, p1, 0.5);
-        let screen_pts: Vec<[f32; 2]> = pts
-            .iter()
-            .map(|p| self.to_screen_arr(p.x, p.y))
-            .collect();
+        let screen_pts: Vec<[f32; 2]> = pts.iter().map(|p| self.to_screen_arr(p.x, p.y)).collect();
         self.line_strips.push(LineStripCmd {
             points: screen_pts,
             color: self.paint.color,
@@ -259,7 +253,12 @@ impl CanvasContext {
         }
         let pts: Vec<Point> = points.iter().map(|&(x, y)| self.to_screen(x, y)).collect();
         if self.paint.feather > 0.0 {
-            tessellate_fill_polygon_aa(&pts, self.paint.color, self.paint.feather, &mut self.output);
+            tessellate_fill_polygon_aa(
+                &pts,
+                self.paint.color,
+                self.paint.feather,
+                &mut self.output,
+            );
         } else {
             tessellate_fill_polygon(&pts, self.paint.color, &mut self.output);
         }
@@ -287,7 +286,12 @@ impl CanvasContext {
             })
             .collect();
         let screen_baseline = self.origin.y + baseline_y;
-        tessellate_area_strip(&screen_pts, screen_baseline, self.paint.color, &mut self.output);
+        tessellate_area_strip(
+            &screen_pts,
+            screen_baseline,
+            self.paint.color,
+            &mut self.output,
+        );
     }
 
     pub fn clear(&mut self, color: Color) {

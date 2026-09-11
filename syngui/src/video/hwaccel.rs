@@ -134,12 +134,15 @@ impl HwContext {
             HwAccel::Auto => HwAccel::platform_default(),
             other => other,
         };
-        let device_type = resolved
-            .to_av_type()
-            .ok_or_else(|| VideoError::Other(format!("hwaccel: {} не поддерживается", resolved.label())))?;
-        let hw_pix_fmt = resolved
-            .hw_pix_fmt()
-            .ok_or_else(|| VideoError::Other(format!("hwaccel: pix_fmt для {} не найден", resolved.label())))?;
+        let device_type = resolved.to_av_type().ok_or_else(|| {
+            VideoError::Other(format!("hwaccel: {} не поддерживается", resolved.label()))
+        })?;
+        let hw_pix_fmt = resolved.hw_pix_fmt().ok_or_else(|| {
+            VideoError::Other(format!(
+                "hwaccel: pix_fmt для {} не найден",
+                resolved.label()
+            ))
+        })?;
 
         let mut device_ref: *mut ffi::AVBufferRef = ptr::null_mut();
         let rc = unsafe {
@@ -177,9 +180,8 @@ impl HwContext {
         hw_frame: &ffmpeg_next::frame::Video,
     ) -> Result<ffmpeg_next::frame::Video, VideoError> {
         let mut sw_frame = ffmpeg_next::frame::Video::empty();
-        let rc = unsafe {
-            ffi::av_hwframe_transfer_data(sw_frame.as_mut_ptr(), hw_frame.as_ptr(), 0)
-        };
+        let rc =
+            unsafe { ffi::av_hwframe_transfer_data(sw_frame.as_mut_ptr(), hw_frame.as_ptr(), 0) };
         if rc < 0 {
             return Err(VideoError::DecoderInit(format!(
                 "av_hwframe_transfer_data вернул {rc}"

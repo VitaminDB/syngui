@@ -1,5 +1,5 @@
-use hashbrown::HashMap;
 use super::{ElementId, ElementNode};
+use hashbrown::HashMap;
 
 pub(crate) struct ElementStorage {
     nodes: Vec<Option<ElementNode>>,
@@ -19,11 +19,15 @@ impl ElementStorage {
     }
 
     #[inline]
-    pub fn len(&self) -> usize { self.active }
+    pub fn len(&self) -> usize {
+        self.active
+    }
 
     #[allow(dead_code)]
     #[inline]
-    pub fn is_empty(&self) -> bool { self.active == 0 }
+    pub fn is_empty(&self) -> bool {
+        self.active == 0
+    }
 
     #[inline]
     pub fn contains_key(&self, id: &ElementId) -> bool {
@@ -87,19 +91,22 @@ impl ElementStorage {
     }
 
     pub fn iter(&self) -> impl Iterator<Item = (&ElementId, &ElementNode)> {
-        self.nodes.iter().filter_map(|slot| {
-            slot.as_ref().map(|n| (&n.id, n))
-        })
+        self.nodes
+            .iter()
+            .filter_map(|slot| slot.as_ref().map(|n| (&n.id, n)))
     }
 
     pub fn iter_idx(&self) -> impl Iterator<Item = (u32, &ElementNode)> {
-        self.nodes.iter().enumerate().filter_map(|(i, slot)| {
-            slot.as_ref().map(|n| (i as u32, n))
-        })
+        self.nodes
+            .iter()
+            .enumerate()
+            .filter_map(|(i, slot)| slot.as_ref().map(|n| (i as u32, n)))
     }
 
     pub fn keys(&self) -> impl Iterator<Item = &ElementId> {
-        self.nodes.iter().filter_map(|slot| slot.as_ref().map(|n| &n.id))
+        self.nodes
+            .iter()
+            .filter_map(|slot| slot.as_ref().map(|n| &n.id))
     }
 
     pub fn values_mut(&mut self) -> impl Iterator<Item = &mut ElementNode> {
@@ -107,18 +114,24 @@ impl ElementStorage {
     }
 
     #[allow(dead_code)]
-    pub fn par_values_mut(&mut self) -> impl rayon::iter::ParallelIterator<Item = &mut ElementNode> {
+    pub fn par_values_mut(
+        &mut self,
+    ) -> impl rayon::iter::ParallelIterator<Item = &mut ElementNode> {
         use rayon::iter::{IntoParallelRefMutIterator, ParallelIterator};
         self.nodes.par_iter_mut().filter_map(|slot| slot.as_mut())
     }
 
     #[allow(dead_code)]
     #[inline]
-    pub fn slot_count(&self) -> usize { self.nodes.len() }
+    pub fn slot_count(&self) -> usize {
+        self.nodes.len()
+    }
 }
 
 impl Default for ElementStorage {
-    fn default() -> Self { Self::new() }
+    fn default() -> Self {
+        Self::new()
+    }
 }
 
 impl<'a> IntoIterator for &'a ElementStorage {

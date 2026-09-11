@@ -1,16 +1,18 @@
+use crate::core::sync::Mutex;
 use crate::core::{Color, Point, Rect, RectExt, Size};
 use crate::input::{CursorIcon, Event, EventResult, MouseButton};
 use crate::layout::Constraints;
 use crate::mss::ComputedStyle;
 use crate::mss::MssFields;
 use crate::render::{Border, DisplayList};
+use crate::signal::{use_signal, RwSignal};
 use crate::widget::context::{EventContext, EventContextExt};
-use crate::widget::{DirtyFlags, Element, ElementId, ElementTree, LayoutHint, StyledElement, UpdateContext, Widget};
-use crate::signal::{RwSignal, use_signal};
+use crate::widget::{
+    DirtyFlags, Element, ElementId, ElementTree, LayoutHint, StyledElement, UpdateContext, Widget,
+};
 use crate::widgets::containers::IntoWidget;
 use std::any::Any;
 use std::sync::Arc;
-use crate::core::sync::Mutex;
 
 const TITLE_BAR_HEIGHT: f32 = 36.0;
 const DEFAULT_PADDING: f32 = 12.0;
@@ -210,9 +212,15 @@ impl Widget for FloatingWindow {
         })
     }
 
-    fn can_update(&self, other: &dyn Any) -> bool { other.is::<Self>() }
-    fn as_any(&self) -> &dyn Any { self }
-    fn as_any_mut(&mut self) -> &mut dyn Any { self }
+    fn can_update(&self, other: &dyn Any) -> bool {
+        other.is::<Self>()
+    }
+    fn as_any(&self) -> &dyn Any {
+        self
+    }
+    fn as_any_mut(&mut self) -> &mut dyn Any {
+        self
+    }
 
     fn mount(&self, tree: &mut ElementTree, parent_id: ElementId) {
         for child in &self.children {
@@ -223,7 +231,10 @@ impl Widget for FloatingWindow {
     }
 
     fn child_widgets(&self) -> Vec<&dyn Widget> {
-        self.children.iter().map(|c| c.as_ref() as &dyn Widget).collect()
+        self.children
+            .iter()
+            .map(|c| c.as_ref() as &dyn Widget)
+            .collect()
     }
 }
 
@@ -296,12 +307,20 @@ impl FloatingWindowElement {
     /// известен (до первого layout), тогда ограничения нет.
     fn fit_width(&self, w: f32) -> f32 {
         let vw = self.viewport_size.width;
-        if vw > 0.0 { w.min(vw) } else { w }
+        if vw > 0.0 {
+            w.min(vw)
+        } else {
+            w
+        }
     }
 
     fn fit_height(&self, h: f32) -> f32 {
         let vh = self.viewport_size.height;
-        if vh > 0.0 { h.min(vh) } else { h }
+        if vh > 0.0 {
+            h.min(vh)
+        } else {
+            h
+        }
     }
 
     fn resolved_width(&self) -> f32 {
@@ -309,9 +328,17 @@ impl FloatingWindowElement {
         if let Some(d) = self.mss.width {
             return self.fit_width(d.resolve(vw));
         }
-        let max_w = self.mss.max_width.map(|d| d.resolve(vw)).unwrap_or(f32::INFINITY);
+        let max_w = self
+            .mss
+            .max_width
+            .map(|d| d.resolve(vw))
+            .unwrap_or(f32::INFINITY);
         if self.user_resized {
-            let min_w = self.mss.min_width.map(|d| d.resolve(vw)).unwrap_or(RESIZE_MIN_FALLBACK);
+            let min_w = self
+                .mss
+                .min_width
+                .map(|d| d.resolve(vw))
+                .unwrap_or(RESIZE_MIN_FALLBACK);
             return self.fit_width(self.base_size.width.clamp(min_w, max_w));
         }
         // MSS `min-width` — нижняя граница для ресайза мышью, а не замена
@@ -340,13 +367,20 @@ impl FloatingWindowElement {
         let pad = self.padding();
         let needed = TITLE_BAR_HEIGHT + 2.0 * pad + self.content_size.height;
         let min_h = self.mss.min_height.map(|d| d.resolve(vh)).unwrap_or(0.0);
-        let max_h = self.mss.max_height.map(|d| d.resolve(vh)).unwrap_or(f32::INFINITY);
+        let max_h = self
+            .mss
+            .max_height
+            .map(|d| d.resolve(vh))
+            .unwrap_or(f32::INFINITY);
         self.fit_height(needed.clamp(min_h.min(max_h), max_h))
     }
 
     fn window_rect(&self) -> Rect {
         let pos = self.position.get_untracked();
-        Rect::new(pos, Size::new(self.resolved_width(), self.resolved_height()))
+        Rect::new(
+            pos,
+            Size::new(self.resolved_width(), self.resolved_height()),
+        )
     }
 
     fn title_bar_rect(&self) -> Rect {
@@ -384,7 +418,10 @@ impl FloatingWindowElement {
         let tb = self.title_bar_rect();
         Rect::new(
             tb.origin,
-            Size::new((tb.size.width - self.title_buttons_reserved()).max(0.0), tb.size.height),
+            Size::new(
+                (tb.size.width - self.title_buttons_reserved()).max(0.0),
+                tb.size.height,
+            ),
         )
     }
 
@@ -398,10 +435,10 @@ impl FloatingWindowElement {
             return false;
         }
         let grab = self.title_grab_rect();
-        let visible_w = (grab.x() + grab.size.width).min(vp.x() + vp.size.width)
-            - grab.x().max(vp.x());
-        let visible_h = (grab.y() + grab.size.height).min(vp.y() + vp.size.height)
-            - grab.y().max(vp.y());
+        let visible_w =
+            (grab.x() + grab.size.width).min(vp.x() + vp.size.width) - grab.x().max(vp.x());
+        let visible_h =
+            (grab.y() + grab.size.height).min(vp.y() + vp.size.height) - grab.y().max(vp.y());
         visible_w < MIN_GRAB_WIDTH || visible_h < MIN_GRAB_HEIGHT
     }
 
@@ -429,9 +466,15 @@ impl FloatingWindowElement {
 
     fn title_buttons_reserved(&self) -> f32 {
         let mut r = 0.0;
-        if self.closable { r += 32.0; }
-        if self.minimizable { r += 32.0; }
-        if r > 0.0 { r += 16.0; }
+        if self.closable {
+            r += 32.0;
+        }
+        if self.minimizable {
+            r += 32.0;
+        }
+        if r > 0.0 {
+            r += 16.0;
+        }
         r
     }
 
@@ -450,35 +493,52 @@ impl FloatingWindowElement {
     fn resize_min_max(&self) -> (f32, f32, f32, f32) {
         let vw = self.viewport_size.width;
         let vh = self.viewport_size.height;
-        let min_w = self.mss.min_width
+        let min_w = self
+            .mss
+            .min_width
             .map(|d| d.resolve(vw))
             .unwrap_or(RESIZE_MIN_FALLBACK);
-        let max_w = self.mss.max_width
+        let max_w = self
+            .mss
+            .max_width
             .map(|d| d.resolve(vw))
             .unwrap_or(vw.max(RESIZE_MIN_FALLBACK));
-        let min_h = self.mss.min_height
+        let min_h = self
+            .mss
+            .min_height
             .map(|d| d.resolve(vh))
             .unwrap_or(TITLE_BAR_HEIGHT + DEFAULT_PADDING * 2.0 + 20.0);
-        let max_h = self.mss.max_height
+        let max_h = self
+            .mss
+            .max_height
             .map(|d| d.resolve(vh))
             .unwrap_or(vh.max(RESIZE_MIN_FALLBACK));
         (min_w, max_w, min_h, max_h)
     }
 
     fn hit_test_resize_edge(&self, pos: Point) -> Option<ResizeEdge> {
-        if !self.resizable { return None; }
+        if !self.resizable {
+            return None;
+        }
         let win = self.window_rect();
         let g = RESIZE_GRAB_ZONE;
         let outer = Rect::new(
             Point::new(win.x() - g, win.y() - g),
             Size::new(win.size.width + 2.0 * g, win.size.height + 2.0 * g),
         );
-        if !outer.contains(pos) { return None; }
+        if !outer.contains(pos) {
+            return None;
+        }
         let inner = Rect::new(
             Point::new(win.x() + g, win.y() + g),
-            Size::new((win.size.width - 2.0 * g).max(0.0), (win.size.height - 2.0 * g).max(0.0)),
+            Size::new(
+                (win.size.width - 2.0 * g).max(0.0),
+                (win.size.height - 2.0 * g).max(0.0),
+            ),
         );
-        if inner.contains(pos) { return None; }
+        if inner.contains(pos) {
+            return None;
+        }
 
         let near_left = pos.x < win.x() + RESIZE_CORNER_ZONE;
         let near_right = pos.x > win.x() + win.size.width - RESIZE_CORNER_ZONE;
@@ -500,10 +560,15 @@ impl FloatingWindowElement {
                 let dt = (pos.y - win.y()).abs();
                 let db = (pos.y - (win.y() + win.size.height)).abs();
                 let min_dist = dl.min(dr).min(dt).min(db);
-                if min_dist == dt { Some(ResizeEdge::Top) }
-                else if min_dist == db { Some(ResizeEdge::Bottom) }
-                else if min_dist == dl { Some(ResizeEdge::Left) }
-                else { Some(ResizeEdge::Right) }
+                if min_dist == dt {
+                    Some(ResizeEdge::Top)
+                } else if min_dist == db {
+                    Some(ResizeEdge::Bottom)
+                } else if min_dist == dl {
+                    Some(ResizeEdge::Left)
+                } else {
+                    Some(ResizeEdge::Right)
+                }
             }
         }
     }
@@ -516,13 +581,13 @@ impl FloatingWindowElement {
 
         let (new_w, new_h, affects_left, affects_top) = match edge {
             ResizeEdge::BottomRight => (sw + dx, sh + dy, false, false),
-            ResizeEdge::BottomLeft  => (sw - dx, sh + dy, true,  false),
-            ResizeEdge::TopRight    => (sw + dx, sh - dy, false, true),
-            ResizeEdge::TopLeft     => (sw - dx, sh - dy, true,  true),
-            ResizeEdge::Right       => (sw + dx, sh,      false, false),
-            ResizeEdge::Left        => (sw - dx, sh,      true,  false),
-            ResizeEdge::Bottom      => (sw,      sh + dy, false, false),
-            ResizeEdge::Top         => (sw,      sh - dy, false, true),
+            ResizeEdge::BottomLeft => (sw - dx, sh + dy, true, false),
+            ResizeEdge::TopRight => (sw + dx, sh - dy, false, true),
+            ResizeEdge::TopLeft => (sw - dx, sh - dy, true, true),
+            ResizeEdge::Right => (sw + dx, sh, false, false),
+            ResizeEdge::Left => (sw - dx, sh, true, false),
+            ResizeEdge::Bottom => (sw, sh + dy, false, false),
+            ResizeEdge::Top => (sw, sh - dy, false, true),
         };
 
         let (min_w, max_w, min_h, max_h) = self.resize_min_max();
@@ -553,7 +618,9 @@ impl FloatingWindowElement {
             self.overlay_registered = false;
         }
         if let Some(ref cb) = self.on_close {
-            if let Ok(mut f) = cb.lock() { f(); }
+            if let Ok(mut f) = cb.lock() {
+                f();
+            }
         }
         self.dragging = false;
         self.resizing = None;
@@ -597,8 +664,16 @@ impl Element for FloatingWindowElement {
     }
 
     fn layout(&mut self, constraints: Constraints) -> Size {
-        let w = if constraints.max_width.is_finite() { constraints.max_width } else { 0.0 };
-        let h = if constraints.max_height.is_finite() { constraints.max_height } else { 0.0 };
+        let w = if constraints.max_width.is_finite() {
+            constraints.max_width
+        } else {
+            0.0
+        };
+        let h = if constraints.max_height.is_finite() {
+            constraints.max_height
+        } else {
+            0.0
+        };
         self.bounds = Rect::new(Point::zero(), Size::new(w, h));
 
         if self.resizing.is_none() {
@@ -668,7 +743,11 @@ impl Element for FloatingWindowElement {
         }
     }
 
-    fn explicit_dimensions(&self, _parent_width: f32, _parent_height: f32) -> (Option<f32>, Option<f32>) {
+    fn explicit_dimensions(
+        &self,
+        _parent_width: f32,
+        _parent_height: f32,
+    ) -> (Option<f32>, Option<f32>) {
         let pad = self.padding();
         let w = self.resolved_width();
         let content_h = if self.base_size.height > 0.0 {
@@ -676,10 +755,7 @@ impl Element for FloatingWindowElement {
         } else {
             None
         };
-        (
-            Some((w - 2.0 * pad).max(0.0)),
-            content_h,
-        )
+        (Some((w - 2.0 * pad).max(0.0)), content_h)
     }
 
     fn build_display_list(&self, list: &mut DisplayList, _clip: Rect) {
@@ -726,13 +802,24 @@ impl Element for FloatingWindowElement {
         }
 
         let border_width = self.mss.border_width_or(1.0);
-        list.push_rect_bordered(win, bg, [radius; 4], Border { width: border_width, color: border_color });
+        list.push_rect_bordered(
+            win,
+            bg,
+            [radius; 4],
+            Border {
+                width: border_width,
+                color: border_color,
+            },
+        );
 
         let tb = self.title_bar_rect();
         list.push_rect(tb, bg.darken(0.08), [radius, radius, 0.0, 0.0]);
 
         list.push_rect(
-            Rect::new(Point::new(tb.x(), tb.y() + tb.size.height - 1.0), Size::new(tb.size.width, 1.0)),
+            Rect::new(
+                Point::new(tb.x(), tb.y() + tb.size.height - 1.0),
+                Size::new(tb.size.width, 1.0),
+            ),
             border_color,
             [0.0; 4],
         );
@@ -751,7 +838,10 @@ impl Element for FloatingWindowElement {
         let reserved = self.title_buttons_reserved();
         let title_rect = Rect::new(
             Point::new(tb.x() + 12.0 + title_x_offset, tb.y()),
-            Size::new((tb.size.width - reserved - title_x_offset - 12.0).max(0.0), tb.size.height),
+            Size::new(
+                (tb.size.width - reserved - title_x_offset - 12.0).max(0.0),
+                tb.size.height,
+            ),
         );
         list.push_text(&self.title, title_rect, fg, title_fs);
 
@@ -773,12 +863,16 @@ impl Element for FloatingWindowElement {
             if self.hover_close {
                 list.push_rect(close_rect, red_500.with_alpha(0.1), [4.0; 4]);
             }
-            list.push_text_centered(DEFAULT_CLOSE_ICON, close_rect, if self.hover_close { red_500 } else { gray_500 }, title_fs);
+            list.push_text_centered(
+                DEFAULT_CLOSE_ICON,
+                close_rect,
+                if self.hover_close { red_500 } else { gray_500 },
+                title_fs,
+            );
         }
 
         let content = self.content_rect();
         list.push_clip(content);
-
     }
 
     fn post_build_display_list(&self, list: &mut DisplayList, _clip: Rect) {
@@ -831,10 +925,8 @@ impl Element for FloatingWindowElement {
                 }
 
                 if self.dragging {
-                    let new_pos = Point::new(
-                        pos.x - self.drag_offset.x,
-                        pos.y - self.drag_offset.y,
-                    );
+                    let new_pos =
+                        Point::new(pos.x - self.drag_offset.x, pos.y - self.drag_offset.y);
                     self.set_position_clamped(new_pos);
                     let win = self.window_rect();
                     ctx.register_overlay(win, false);
@@ -853,7 +945,8 @@ impl Element for FloatingWindowElement {
                 let was_hover_min = self.hover_minimize;
                 let was_hover_tb = self.hover_title_bar;
                 self.hover_close = self.closable && self.close_button_rect().contains(*pos);
-                self.hover_minimize = self.minimizable && self.minimize_button_rect().contains(*pos);
+                self.hover_minimize =
+                    self.minimizable && self.minimize_button_rect().contains(*pos);
                 self.hover_title_bar = self.title_bar_rect().contains(*pos);
 
                 if self.hover_close != was_hover_close
@@ -895,7 +988,8 @@ impl Element for FloatingWindowElement {
                     if let Some(edge) = self.hit_test_resize_edge(*position) {
                         self.resizing = Some(edge);
                         self.resize_start_mouse = *position;
-                        self.resize_start_size = Size::new(self.resolved_width(), self.resolved_height());
+                        self.resize_start_size =
+                            Size::new(self.resolved_width(), self.resolved_height());
                         self.resize_start_pos = self.position.get_untracked();
                         ctx.set_cursor(edge.cursor());
                         return EventResult::Handled;
@@ -912,10 +1006,8 @@ impl Element for FloatingWindowElement {
                     if drag_area {
                         let win_pos = self.position.get_untracked();
                         self.dragging = true;
-                        self.drag_offset = Point::new(
-                            position.x - win_pos.x,
-                            position.y - win_pos.y,
-                        );
+                        self.drag_offset =
+                            Point::new(position.x - win_pos.x, position.y - win_pos.y);
                         ctx.set_cursor(CursorIcon::Grabbing);
                         return EventResult::Handled;
                     }
@@ -956,7 +1048,8 @@ impl Element for FloatingWindowElement {
                 if let Some(edge) = self.hit_test_resize_edge(*position) {
                     self.resizing = Some(edge);
                     self.resize_start_mouse = *position;
-                    self.resize_start_size = Size::new(self.resolved_width(), self.resolved_height());
+                    self.resize_start_size =
+                        Size::new(self.resolved_width(), self.resolved_height());
                     self.resize_start_pos = self.position.get_untracked();
                     return EventResult::Handled;
                 }
@@ -968,10 +1061,7 @@ impl Element for FloatingWindowElement {
                 if drag_area {
                     let win_pos = self.position.get_untracked();
                     self.dragging = true;
-                    self.drag_offset = Point::new(
-                        position.x - win_pos.x,
-                        position.y - win_pos.y,
-                    );
+                    self.drag_offset = Point::new(position.x - win_pos.x, position.y - win_pos.y);
                     return EventResult::Handled;
                 }
                 if self.window_rect().contains(*position) {
@@ -1017,9 +1107,15 @@ impl Element for FloatingWindowElement {
         }
     }
 
-    fn children(&self) -> &[ElementId] { &self.child_ids }
-    fn bounds(&self) -> Rect { self.bounds }
-    fn hit_test(&self, _point: Point) -> bool { self.is_visible_window() }
+    fn children(&self) -> &[ElementId] {
+        &self.child_ids
+    }
+    fn bounds(&self) -> Rect {
+        self.bounds
+    }
+    fn hit_test(&self, _point: Point) -> bool {
+        self.is_visible_window()
+    }
     fn overlay_request(&self) -> Option<(Rect, bool)> {
         if self.is_visible_window() {
             Some((self.window_rect(), self.modal))
@@ -1027,12 +1123,24 @@ impl Element for FloatingWindowElement {
             None
         }
     }
-    fn set_position(&mut self, pos: Point) { self.bounds.origin = pos; }
-    fn mark_dirty(&mut self, flags: DirtyFlags) { self.dirty_flags |= flags; }
-    fn clear_dirty(&mut self, flags: DirtyFlags) { self.dirty_flags.remove(flags); }
-    fn is_dirty(&self, flags: DirtyFlags) -> bool { self.dirty_flags.contains(flags) }
-    fn id(&self) -> ElementId { self.id }
-    fn set_id(&mut self, id: ElementId) { self.id = id; }
+    fn set_position(&mut self, pos: Point) {
+        self.bounds.origin = pos;
+    }
+    fn mark_dirty(&mut self, flags: DirtyFlags) {
+        self.dirty_flags |= flags;
+    }
+    fn clear_dirty(&mut self, flags: DirtyFlags) {
+        self.dirty_flags.remove(flags);
+    }
+    fn is_dirty(&self, flags: DirtyFlags) -> bool {
+        self.dirty_flags.contains(flags)
+    }
+    fn id(&self) -> ElementId {
+        self.id
+    }
+    fn set_id(&mut self, id: ElementId) {
+        self.id = id;
+    }
     fn mount(&mut self, _tree: &mut ElementTree) {
         self.is_open.subscribe_element(self.id);
         self.is_minimized.subscribe_element(self.id);
@@ -1045,8 +1153,12 @@ impl Element for FloatingWindowElement {
         self.classes = classes;
         self.mark_dirty(DirtyFlags::RENDER);
     }
-    fn get_classes(&self) -> &[String] { &self.classes }
-    fn element_type_name(&self) -> &str { "FloatingWindow" }
+    fn get_classes(&self) -> &[String] {
+        &self.classes
+    }
+    fn element_type_name(&self) -> &str {
+        "FloatingWindow"
+    }
 
     fn set_content_size(&mut self, size: Size) {
         self.content_size = size;
@@ -1066,8 +1178,12 @@ impl Element for FloatingWindowElement {
         }
     }
 
-    fn reset_mss_styles(&mut self) { self.mss.reset(); }
-    fn mss(&self) -> Option<&crate::mss::MssFields> { Some(&self.mss) }
+    fn reset_mss_styles(&mut self) {
+        self.mss.reset();
+    }
+    fn mss(&self) -> Option<&crate::mss::MssFields> {
+        Some(&self.mss)
+    }
     fn apply_computed_style(&mut self, style: &ComputedStyle) {
         self.mss.apply(style);
         if let Some(fs) = self.mss.font_size {
@@ -1095,7 +1211,9 @@ impl StyledElement for FloatingWindowElement {
     fn apply_style(&mut self, _style: &ComputedStyle) {
         self.mark_dirty(DirtyFlags::RENDER | DirtyFlags::LAYOUT);
     }
-    fn classes(&self) -> &[String] { &self.classes }
+    fn classes(&self) -> &[String] {
+        &self.classes
+    }
     fn set_classes(&mut self, classes: Vec<String>) {
         self.classes = classes;
         self.mark_dirty(DirtyFlags::RENDER);

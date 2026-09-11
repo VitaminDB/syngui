@@ -1,7 +1,7 @@
-use std::collections::VecDeque;
+use super::panel;
 use crate::core::{Point, Rect, Size};
 use crate::render::DisplayList;
-use super::panel;
+use std::collections::VecDeque;
 
 #[derive(Clone, Debug, Default)]
 pub struct FrameTiming {
@@ -35,28 +35,68 @@ pub fn render_profiler(
 
     let smooth_window = timings.len().min(30);
     let smooth_fps = if smooth_window > 0 {
-        let sum_ms: f32 = timings.iter().rev().take(smooth_window)
-            .map(|t| t.total_us as f32 / 1000.0).sum();
+        let sum_ms: f32 = timings
+            .iter()
+            .rev()
+            .take(smooth_window)
+            .map(|t| t.total_us as f32 / 1000.0)
+            .sum();
         let avg_ms = sum_ms / smooth_window as f32;
-        if avg_ms > 0.0 { 1000.0 / avg_ms } else { 0.0 }
-    } else { 0.0 };
+        if avg_ms > 0.0 {
+            1000.0 / avg_ms
+        } else {
+            0.0
+        }
+    } else {
+        0.0
+    };
 
     let avg_fps = if !timings.is_empty() {
         let sum_ms: f32 = timings.iter().map(|t| t.total_us as f32 / 1000.0).sum();
         let avg_ms = sum_ms / timings.len() as f32;
-        if avg_ms > 0.0 { 1000.0 / avg_ms } else { 0.0 }
-    } else { 0.0 };
+        if avg_ms > 0.0 {
+            1000.0 / avg_ms
+        } else {
+            0.0
+        }
+    } else {
+        0.0
+    };
 
     let stats = [
         ("FPS", format!("{:.0}", smooth_fps), fps_color(smooth_fps)),
         ("Avg FPS", format!("{:.0}", avg_fps), fps_color(avg_fps)),
-        ("Layout", format!("{:.2} ms", current.layout_us as f32 / 1000.0), panel::PROF_LAYOUT),
-        ("DisplayList", format!("{:.2} ms", current.display_list_us as f32 / 1000.0), panel::PROF_DISPLAY_LIST),
-        ("Render", format!("{:.2} ms", current.batch_render_us as f32 / 1000.0), panel::PROF_RENDER),
+        (
+            "Layout",
+            format!("{:.2} ms", current.layout_us as f32 / 1000.0),
+            panel::PROF_LAYOUT,
+        ),
+        (
+            "DisplayList",
+            format!("{:.2} ms", current.display_list_us as f32 / 1000.0),
+            panel::PROF_DISPLAY_LIST,
+        ),
+        (
+            "Render",
+            format!("{:.2} ms", current.batch_render_us as f32 / 1000.0),
+            panel::PROF_RENDER,
+        ),
         ("Total", format!("{:.2} ms", total_ms), panel::TEXT_PRIMARY),
-        ("Elements", format!("{}", current.element_count), panel::TEXT_PRIMARY),
-        ("Draw calls", format!("{}", current.draw_calls), panel::TEXT_PRIMARY),
-        ("Vertices", format!("{}", current.vertex_count), panel::TEXT_PRIMARY),
+        (
+            "Elements",
+            format!("{}", current.element_count),
+            panel::TEXT_PRIMARY,
+        ),
+        (
+            "Draw calls",
+            format!("{}", current.draw_calls),
+            panel::TEXT_PRIMARY,
+        ),
+        (
+            "Vertices",
+            format!("{}", current.vertex_count),
+            panel::TEXT_PRIMARY,
+        ),
     ];
 
     for (label, value, color) in &stats {
@@ -81,15 +121,20 @@ pub fn render_profiler(
     y += 4.0;
 
     let chart_height = 120.0;
-    let chart_rect = Rect::new(
-        Point::new(x + 4.0, y),
-        Size::new(w - 8.0, chart_height),
+    let chart_rect = Rect::new(Point::new(x + 4.0, y), Size::new(w - 8.0, chart_height));
+
+    list.push_rect(
+        chart_rect,
+        crate::core::Color::new(0.08, 0.08, 0.08, 1.0),
+        [2.0; 4],
     );
 
-    list.push_rect(chart_rect, crate::core::Color::new(0.08, 0.08, 0.08, 1.0), [2.0; 4]);
-
     let max_frames = 240;
-    let start = if timings.len() > max_frames { timings.len() - max_frames } else { 0 };
+    let start = if timings.len() > max_frames {
+        timings.len() - max_frames
+    } else {
+        0
+    };
     let visible: Vec<&FrameTiming> = timings.iter().skip(start).collect();
 
     if !visible.is_empty() {
@@ -107,24 +152,37 @@ pub fn render_profiler(
                 Point::new(chart_rect.origin.x + 2.0, fps60_y - 12.0),
                 Size::new(60.0, 10.0),
             );
-            list.push_text("60fps", label_rect, panel::PROF_LINE_60FPS, panel::SMALL_FONT_SIZE);
+            list.push_text(
+                "60fps",
+                label_rect,
+                panel::PROF_LINE_60FPS,
+                panel::SMALL_FONT_SIZE,
+            );
         }
 
         for (i, timing) in visible.iter().enumerate() {
             let bx = chart_rect.origin.x + (max_frames - visible.len() + i) as f32 * bar_width;
             let by = chart_rect.origin.y + chart_rect.size.height;
 
-            let layout_h = (timing.layout_us as f32 / 1000.0 / max_ms * chart_rect.size.height).min(chart_rect.size.height);
-            let dl_h = (timing.display_list_us as f32 / 1000.0 / max_ms * chart_rect.size.height).min(chart_rect.size.height - layout_h);
-            let render_h = (timing.batch_render_us as f32 / 1000.0 / max_ms * chart_rect.size.height).min(chart_rect.size.height - layout_h - dl_h);
+            let layout_h = (timing.layout_us as f32 / 1000.0 / max_ms * chart_rect.size.height)
+                .min(chart_rect.size.height);
+            let dl_h = (timing.display_list_us as f32 / 1000.0 / max_ms * chart_rect.size.height)
+                .min(chart_rect.size.height - layout_h);
+            let render_h = (timing.batch_render_us as f32 / 1000.0 / max_ms
+                * chart_rect.size.height)
+                .min(chart_rect.size.height - layout_h - dl_h);
 
             let mut current_y = by;
 
             if layout_h > 0.5 {
                 current_y -= layout_h;
                 list.push_rect(
-                    Rect::new(Point::new(bx, current_y), Size::new(bar_width - 1.0, layout_h)),
-                    panel::PROF_LAYOUT, [0.0; 4],
+                    Rect::new(
+                        Point::new(bx, current_y),
+                        Size::new(bar_width - 1.0, layout_h),
+                    ),
+                    panel::PROF_LAYOUT,
+                    [0.0; 4],
                 );
             }
 
@@ -132,15 +190,20 @@ pub fn render_profiler(
                 current_y -= dl_h;
                 list.push_rect(
                     Rect::new(Point::new(bx, current_y), Size::new(bar_width - 1.0, dl_h)),
-                    panel::PROF_DISPLAY_LIST, [0.0; 4],
+                    panel::PROF_DISPLAY_LIST,
+                    [0.0; 4],
                 );
             }
 
             if render_h > 0.5 {
                 current_y -= render_h;
                 list.push_rect(
-                    Rect::new(Point::new(bx, current_y), Size::new(bar_width - 1.0, render_h)),
-                    panel::PROF_RENDER, [0.0; 4],
+                    Rect::new(
+                        Point::new(bx, current_y),
+                        Size::new(bar_width - 1.0, render_h),
+                    ),
+                    panel::PROF_RENDER,
+                    [0.0; 4],
                 );
             }
         }
@@ -154,10 +217,7 @@ pub fn render_profiler(
         (panel::PROF_RENDER, "Render"),
     ];
     for (color, label) in &legend_items {
-        let swatch = Rect::new(
-            Point::new(x + 8.0, y + 4.0),
-            Size::new(10.0, 10.0),
-        );
+        let swatch = Rect::new(Point::new(x + 8.0, y + 4.0), Size::new(10.0, 10.0));
         list.push_rect(swatch, *color, [2.0; 4]);
 
         let label_rect = Rect::new(
@@ -176,7 +236,8 @@ pub fn render_profiler(
         let count = timings.len() as f32;
         let avg_layout = timings.iter().map(|t| t.layout_us).sum::<u64>() as f32 / count / 1000.0;
         let avg_dl = timings.iter().map(|t| t.display_list_us).sum::<u64>() as f32 / count / 1000.0;
-        let avg_render = timings.iter().map(|t| t.batch_render_us).sum::<u64>() as f32 / count / 1000.0;
+        let avg_render =
+            timings.iter().map(|t| t.batch_render_us).sum::<u64>() as f32 / count / 1000.0;
         let avg_total = timings.iter().map(|t| t.total_us).sum::<u64>() as f32 / count / 1000.0;
 
         let avg_stats = [
@@ -231,15 +292,8 @@ pub fn render_profiler(
     list.pop_clip();
 }
 
-fn render_section_header(
-    list: &mut DisplayList,
-    x: f32, y: f32, w: f32,
-    title: &str,
-) -> f32 {
-    let header_rect = Rect::new(
-        Point::new(x, y),
-        Size::new(w, panel::LINE_HEIGHT),
-    );
+fn render_section_header(list: &mut DisplayList, x: f32, y: f32, w: f32, title: &str) -> f32 {
+    let header_rect = Rect::new(Point::new(x, y), Size::new(w, panel::LINE_HEIGHT));
     list.push_rect(header_rect, panel::TAB_BG, [0.0; 4]);
 
     let text_rect = Rect::new(

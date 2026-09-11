@@ -63,7 +63,11 @@ pub struct DocBlock {
 
 impl DocBlock {
     pub fn new(id: BlockId, kind: BlockKind) -> Self {
-        Self { id, kind, attrs: Attrs::default() }
+        Self {
+            id,
+            kind,
+            attrs: Attrs::default(),
+        }
     }
 }
 
@@ -360,7 +364,10 @@ impl InlineText {
         if text.is_empty() {
             Self::default()
         } else {
-            Self(vec![InlineRun { text, style: InlineStyle::default() }])
+            Self(vec![InlineRun {
+                text,
+                style: InlineStyle::default(),
+            }])
         }
     }
 

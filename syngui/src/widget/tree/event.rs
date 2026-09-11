@@ -1,7 +1,7 @@
+use super::{ElementId, ElementTree};
 use crate::core::Point;
 use crate::input::{Event, EventResult};
 use crate::widget::EventContext;
-use super::{ElementId, ElementTree};
 
 #[inline]
 fn is_identity_transform(s: Point, k: f32) -> bool {
@@ -22,7 +22,8 @@ impl ElementTree {
             }
             let result = node.element.handle_event(event, &mut ctx);
             let ctx_dirty = ctx.take_dirty_flags();
-            let did_something = result.is_handled() || !ctx_dirty.is_empty() || ctx.has_side_effects();
+            let did_something =
+                result.is_handled() || !ctx_dirty.is_empty() || ctx.has_side_effects();
             if !ctx_dirty.is_empty() {
                 node.element.mark_dirty(ctx_dirty);
                 if ctx_dirty.contains(crate::widget::DirtyFlags::LAYOUT) {
@@ -183,7 +184,9 @@ impl ElementTree {
             cur = self.elements.get(&id).and_then(|n| n.parent);
         }
         for id in chain {
-            if !self.elements.contains_key(&id) { continue; }
+            if !self.elements.contains_key(&id) {
+                continue;
+            }
             let r = self.dispatch_event_to(id, event);
             if r.is_handled() {
                 return r;
@@ -192,7 +195,12 @@ impl ElementTree {
         EventResult::Ignored
     }
 
-    fn dispatch_positional(&mut self, root_id: ElementId, event: &Event, pos: crate::core::Point) -> EventResult {
+    fn dispatch_positional(
+        &mut self,
+        root_id: ElementId,
+        event: &Event,
+        pos: crate::core::Point,
+    ) -> EventResult {
         // Touch-события тоже идут захватчику: на тачскринах MouseDown
         // синтезируется на TouchStart (ставит mouse_captor), а движение пальца
         // приходит только как TouchMove — без приоритета захватчика drag,
@@ -303,7 +311,9 @@ impl ElementTree {
                 continue;
             }
             if self.elements.contains_key(&id)
-                && self.dispatch_event_to(id, &Event::MouseMove(off_screen)).is_handled()
+                && self
+                    .dispatch_event_to(id, &Event::MouseMove(off_screen))
+                    .is_handled()
             {
                 any_handled = true;
             }
@@ -318,7 +328,11 @@ impl ElementTree {
         }
 
         self.last_hovered_path = new_path;
-        if any_handled { EventResult::Handled } else { EventResult::Ignored }
+        if any_handled {
+            EventResult::Handled
+        } else {
+            EventResult::Ignored
+        }
     }
 
     fn hit_test_path(&self, id: ElementId, pos: crate::core::Point, out: &mut Vec<ElementId>) {
@@ -329,7 +343,10 @@ impl ElementTree {
         if !node.element.is_visible() {
             return;
         }
-        let is_portal = matches!(node.element.layout_hint(), crate::widget::LayoutHint::Portal { .. });
+        let is_portal = matches!(
+            node.element.layout_hint(),
+            crate::widget::LayoutHint::Portal { .. }
+        );
         let is_passthrough = is_portal || node.element.passthrough_hit_test();
         if !is_passthrough && !node.element.hit_test(pos) {
             return;
@@ -339,9 +356,7 @@ impl ElementTree {
 
         let scroll = node.element.scroll_offset();
         let scale = node.element.event_scale();
-        let child_pos = if scroll.x == 0.0
-            && scroll.y == 0.0
-            && (scale - 1.0).abs() < f32::EPSILON
+        let child_pos = if scroll.x == 0.0 && scroll.y == 0.0 && (scale - 1.0).abs() < f32::EPSILON
         {
             pos
         } else {
@@ -422,10 +437,7 @@ impl ElementTree {
                 bounds
             } else {
                 crate::core::Rect::new(
-                    crate::core::Point::new(
-                        k * bounds.origin.x - s.x,
-                        k * bounds.origin.y - s.y,
-                    ),
+                    crate::core::Point::new(k * bounds.origin.x - s.x, k * bounds.origin.y - s.y),
                     crate::core::Size::new(k * bounds.size.width, k * bounds.size.height),
                 )
             };
@@ -445,7 +457,9 @@ impl ElementTree {
         if let Some(data) = ctx.start_drag.take() {
             let pos = ctx.cursor_position;
             let source_id = ElementId(data.source_id);
-            let source_bounds = self.elements.get(&source_id)
+            let source_bounds = self
+                .elements
+                .get(&source_id)
                 .map(|n| n.element.bounds())
                 .unwrap_or(crate::core::Rect::zero());
             let drag_offset = Point::new(
@@ -526,15 +540,21 @@ impl ElementTree {
             }
         }
 
-        let (scroll, scale) = self.elements.get(&id)
+        let (scroll, scale) = self
+            .elements
+            .get(&id)
             .map(|n| (n.element.scroll_offset(), n.element.event_scale()))
             .unwrap_or((Point::zero(), 1.0));
 
-        let intercepts = self.elements.get(&id)
+        let intercepts = self
+            .elements
+            .get(&id)
             .map(|n| n.element.intercepts_event(event))
             .unwrap_or(false);
 
-        let children = self.elements.get(&id)
+        let children = self
+            .elements
+            .get(&id)
             .map(|n| {
                 let active = n.element.active_child_count();
                 n.children.iter().take(active).copied().collect::<Vec<_>>()
@@ -551,7 +571,9 @@ impl ElementTree {
         let mut child_handled = false;
 
         for &child_id in children.iter().rev() {
-            if intercepts { break; }
+            if intercepts {
+                break;
+            }
             let result = self.dispatch_event(child_id, &child_event);
             if result.is_handled() {
                 if is_broadcast {
@@ -562,7 +584,11 @@ impl ElementTree {
             }
         }
 
-        let child_cursor = if child_handled { self.cursor_request } else { None };
+        let child_cursor = if child_handled {
+            self.cursor_request
+        } else {
+            None
+        };
 
         if let Some(node) = self.elements.get_mut(&id) {
             let mut ctx = EventContext::new(id);
@@ -574,7 +600,8 @@ impl ElementTree {
             }
             let result = node.element.handle_event(event, &mut ctx);
             let ctx_dirty = ctx.take_dirty_flags();
-            let did_something = result.is_handled() || !ctx_dirty.is_empty() || ctx.has_side_effects();
+            let did_something =
+                result.is_handled() || !ctx_dirty.is_empty() || ctx.has_side_effects();
             if !ctx_dirty.is_empty() {
                 node.element.mark_dirty(ctx_dirty);
                 if ctx_dirty.contains(crate::widget::DirtyFlags::LAYOUT) {
@@ -588,7 +615,11 @@ impl ElementTree {
             if let Some(cc) = child_cursor {
                 self.cursor_request = Some(cc);
             }
-            let final_result = if child_handled { EventResult::Handled } else { result };
+            let final_result = if child_handled {
+                EventResult::Handled
+            } else {
+                result
+            };
             if matches!(event, Event::MouseDown { .. }) && final_result.is_handled() {
                 self.last_mousedown_element = Some(id);
                 self.mouse_captor = Some(id);
@@ -598,7 +629,11 @@ impl ElementTree {
             }
             final_result
         } else {
-            if child_handled { EventResult::Handled } else { EventResult::Ignored }
+            if child_handled {
+                EventResult::Handled
+            } else {
+                EventResult::Ignored
+            }
         }
     }
 
@@ -629,7 +664,9 @@ impl ElementTree {
         let mut hits: Vec<(usize, usize, ElementId, Event)> = Vec::new();
         let mut misses: Vec<ElementId> = Vec::new();
         for (order, target_id) in targets.iter().enumerate() {
-            let Some(node) = self.elements.get(target_id) else { continue };
+            let Some(node) = self.elements.get(target_id) else {
+                continue;
+            };
             let (s, k) = self.accumulated_event_transform(*target_id);
             let adjusted = if is_identity_transform(s, k) {
                 event.clone()
@@ -675,10 +712,20 @@ impl ElementTree {
     /// фокусе не доходит, а ему надо снять захват и закончить жест) и
     /// дереву; состояние переноса и захват мыши снимаются (MouseUp дереву при
     /// drag'е не шлётся). `false` — переноса не было.
-    pub fn end_drag(&mut self, root_id: ElementId, position: crate::core::Point, cancelled: bool) -> bool {
-        let Some(data) = self.drag_state.as_ref().map(|d| d.data.clone()) else { return false };
+    pub fn end_drag(
+        &mut self,
+        root_id: ElementId,
+        position: crate::core::Point,
+        cancelled: bool,
+    ) -> bool {
+        let Some(data) = self.drag_state.as_ref().map(|d| d.data.clone()) else {
+            return false;
+        };
         if !cancelled {
-            self.dispatch_drag_event(&Event::Drop { position, data: data.clone() });
+            self.dispatch_drag_event(&Event::Drop {
+                position,
+                data: data.clone(),
+            });
         }
         let drag_end = Event::DragEnd { cancelled };
         let source = ElementId(data.source_id);
@@ -739,10 +786,8 @@ mod tests {
     use crate::input::{Event, EventResult, MouseButton};
     use crate::layout::Constraints;
     use crate::signal::use_signal;
-    use crate::widget::{
-        DirtyFlags, Element, ElementId, ElementTree, UpdateContext, Widget,
-    };
     use crate::widget::context::EventContext;
+    use crate::widget::{DirtyFlags, Element, ElementId, ElementTree, UpdateContext, Widget};
     use crate::widgets::containers::PanZoomViewport;
     use crate::widgets::ScrollView;
     use std::any::Any;
@@ -804,12 +849,7 @@ mod tests {
             self.bounds = Rect::new(self.bounds.origin, self.size);
             self.size
         }
-        fn build_display_list(
-            &self,
-            _list: &mut crate::render::DisplayList,
-            _clip: Rect,
-        ) {
-        }
+        fn build_display_list(&self, _list: &mut crate::render::DisplayList, _clip: Rect) {}
         fn handle_event(&mut self, event: &Event, _ctx: &mut EventContext) -> EventResult {
             if let Event::MouseDown { position, .. } = event {
                 *self.log.lock().unwrap() = Some(*position);
@@ -871,10 +911,7 @@ mod tests {
         );
     }
 
-    fn make_panzoom_with_spy(
-        zoom: f32,
-        pan: crate::core::Point,
-    ) -> (Box<dyn Widget>, SpyLog) {
+    fn make_panzoom_with_spy(zoom: f32, pan: crate::core::Point) -> (Box<dyn Widget>, SpyLog) {
         let (spy, log) = SpyTarget::new(Size::new(800.0, 600.0));
         let zoom_sig = use_signal(zoom);
         let pan_sig = use_signal(pan);
@@ -892,8 +929,12 @@ mod tests {
         let (mut tree, root_id, _w) = build_and_layout(widget);
         click_at(&mut tree, root_id, 220.0, 220.0);
         let pos = log.lock().unwrap().expect("spy must receive MouseDown");
-        assert!((pos.x - 110.0).abs() < 1e-3 && (pos.y - 110.0).abs() < 1e-3,
-            "expected (110, 110), got ({}, {})", pos.x, pos.y);
+        assert!(
+            (pos.x - 110.0).abs() < 1e-3 && (pos.y - 110.0).abs() < 1e-3,
+            "expected (110, 110), got ({}, {})",
+            pos.x,
+            pos.y
+        );
     }
 
     #[test]
@@ -902,8 +943,12 @@ mod tests {
         let (mut tree, root_id, _w) = build_and_layout(widget);
         click_at(&mut tree, root_id, 250.0, 250.0);
         let pos = log.lock().unwrap().expect("spy must receive MouseDown");
-        assert!((pos.x - 100.0).abs() < 1e-3 && (pos.y - 100.0).abs() < 1e-3,
-            "expected (100, 100), got ({}, {})", pos.x, pos.y);
+        assert!(
+            (pos.x - 100.0).abs() < 1e-3 && (pos.y - 100.0).abs() < 1e-3,
+            "expected (100, 100), got ({}, {})",
+            pos.x,
+            pos.y
+        );
     }
 
     #[test]
@@ -912,8 +957,12 @@ mod tests {
         let (mut tree, root_id, _w) = build_and_layout(widget);
         click_at(&mut tree, root_id, 200.0, 200.0);
         let pos = log.lock().unwrap().expect("spy must receive MouseDown");
-        assert!((pos.x - 400.0).abs() < 1e-3 && (pos.y - 400.0).abs() < 1e-3,
-            "expected (400, 400), got ({}, {})", pos.x, pos.y);
+        assert!(
+            (pos.x - 400.0).abs() < 1e-3 && (pos.y - 400.0).abs() < 1e-3,
+            "expected (400, 400), got ({}, {})",
+            pos.x,
+            pos.y
+        );
     }
 
     #[test]
@@ -930,10 +979,17 @@ mod tests {
         let (mut tree, root_id, _w) = build_and_layout(Box::new(viewport));
         click_at(&mut tree, root_id, 200.0, 200.0);
         let pos = log.lock().unwrap();
-        assert!(pos.is_some(), "spy must receive MouseDown through ScrollView+PanZoom");
+        assert!(
+            pos.is_some(),
+            "spy must receive MouseDown through ScrollView+PanZoom"
+        );
         let p = pos.unwrap();
-        assert!((p.x - 100.0).abs() < 1.0 && (p.y - 100.0).abs() < 1.0,
-            "expected ~(100, 100), got ({}, {})", p.x, p.y);
+        assert!(
+            (p.x - 100.0).abs() < 1.0 && (p.y - 100.0).abs() < 1.0,
+            "expected ~(100, 100), got ({}, {})",
+            p.x,
+            p.y
+        );
     }
 
     #[test]
@@ -942,8 +998,12 @@ mod tests {
         let (mut tree, root_id, _w) = build_and_layout(widget);
         click_at(&mut tree, root_id, 150.0, 130.0);
         let pos = log.lock().unwrap().expect("spy must receive MouseDown");
-        assert!((pos.x - 100.0).abs() < 1e-3 && (pos.y - 100.0).abs() < 1e-3,
-            "regression: expected (100, 100), got ({}, {})", pos.x, pos.y);
+        assert!(
+            (pos.x - 100.0).abs() < 1e-3 && (pos.y - 100.0).abs() < 1e-3,
+            "regression: expected (100, 100), got ({}, {})",
+            pos.x,
+            pos.y
+        );
     }
 
     #[test]
@@ -951,9 +1011,14 @@ mod tests {
         let (spy, log) = SpyTarget::new(Size::new(800.0, 600.0));
         let (mut tree, root_id, _w) = build_and_layout(Box::new(spy));
         click_at(&mut tree, root_id, 110.0, 110.0);
-        let pos = log.lock().unwrap().expect("regression: spy without transforms");
-        assert!((pos.x - 110.0).abs() < 1e-3 && (pos.y - 110.0).abs() < 1e-3,
-            "regression: identity transform must pass screen coords through");
+        let pos = log
+            .lock()
+            .unwrap()
+            .expect("regression: spy without transforms");
+        assert!(
+            (pos.x - 110.0).abs() < 1e-3 && (pos.y - 110.0).abs() < 1e-3,
+            "regression: identity transform must pass screen coords through"
+        );
     }
 
     #[test]
@@ -1005,6 +1070,11 @@ mod tests {
             .expect("PanZoom must have a child");
         let (s, k) = tree.accumulated_event_transform(child);
         assert!((k - 2.0).abs() < 1e-3, "expected K=2, got {}", k);
-        assert!(s.x.abs() < 1e-3 && s.y.abs() < 1e-3, "expected S=(0,0), got ({}, {})", s.x, s.y);
+        assert!(
+            s.x.abs() < 1e-3 && s.y.abs() < 1e-3,
+            "expected S=(0,0), got ({}, {})",
+            s.x,
+            s.y
+        );
     }
 }

@@ -1,6 +1,7 @@
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::Duration;
 
+use crate::core::sync::Mutex;
 use crate::core::{Point, Rect, Size};
 use crate::input::{Event, EventResult};
 use crate::layout::Constraints;
@@ -13,7 +14,6 @@ use crate::widget::{
 };
 use std::any::Any;
 use std::sync::Arc;
-use crate::core::sync::Mutex;
 
 #[derive(Debug, Clone)]
 pub struct Router {
@@ -269,8 +269,7 @@ impl Element for RouterViewElement {
         LayoutHint::Stack { expand: false }
     }
 
-    fn build_display_list(&self, _list: &mut DisplayList, _clip: Rect) {
-    }
+    fn build_display_list(&self, _list: &mut DisplayList, _clip: Rect) {}
 
     fn handle_event(&mut self, event: &Event, _ctx: &mut EventContext) -> EventResult {
         if self.handle_back && matches!(event, Event::BackPressed) {
@@ -311,7 +310,9 @@ impl Element for RouterViewElement {
     }
     fn mount(&mut self, _tree: &mut ElementTree) {}
 
-    fn element_type_name(&self) -> &str { "RouterView" }
+    fn element_type_name(&self) -> &str {
+        "RouterView"
+    }
 
     fn set_classes(&mut self, classes: Vec<String>) {
         self.classes = classes;
@@ -320,8 +321,12 @@ impl Element for RouterViewElement {
     fn get_classes(&self) -> &[String] {
         &self.classes
     }
-    fn reset_mss_styles(&mut self) { self.mss.reset(); }
-    fn mss(&self) -> Option<&crate::mss::MssFields> { Some(&self.mss) }
+    fn reset_mss_styles(&mut self) {
+        self.mss.reset();
+    }
+    fn mss(&self) -> Option<&crate::mss::MssFields> {
+        Some(&self.mss)
+    }
     fn apply_computed_style(&mut self, style: &ComputedStyle) {
         self.mss.apply(style);
         self.mark_dirty(DirtyFlags::LAYOUT | DirtyFlags::RENDER);
@@ -336,7 +341,8 @@ impl Element for RouterViewElement {
         selected: Option<&ComputedStyle>,
         _checked: Option<&ComputedStyle>,
     ) {
-        self.mss.apply_transitions(base, hover, active, focus, selected);
+        self.mss
+            .apply_transitions(base, hover, active, focus, selected);
     }
 }
 

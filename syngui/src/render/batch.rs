@@ -52,16 +52,22 @@ impl Batch {
         self.vertices.len()
     }
 
-    pub fn can_merge(&self, shader: ShaderType, texture: Option<TextureId>, clip: ClipRect) -> bool {
-        self.shader_type == shader &&
-        self.texture == texture &&
-        self.clip_rect == clip
+    pub fn can_merge(
+        &self,
+        shader: ShaderType,
+        texture: Option<TextureId>,
+        clip: ClipRect,
+    ) -> bool {
+        self.shader_type == shader && self.texture == texture && self.clip_rect == clip
     }
 }
 
 #[derive(Debug)]
 pub enum RenderOp {
     Draw(Batch),
-    BeginEffect { effect: crate::render::display_list::Effect, bounds: crate::core::Rect },
+    BeginEffect {
+        effect: crate::render::display_list::Effect,
+        bounds: crate::core::Rect,
+    },
     EndEffect,
 }

@@ -1,5 +1,5 @@
-use crate::render::Vertex;
 use super::Batcher;
+use crate::render::Vertex;
 
 impl Batcher {
     pub(super) fn add_rect(
@@ -31,14 +31,33 @@ impl Batcher {
         let [p0, p1, p2, p3] = self.transform_quad([
             [origin.x - expand, origin.y - expand],
             [origin.x + size.width + expand, origin.y - expand],
-            [origin.x + size.width + expand, origin.y + size.height + expand],
+            [
+                origin.x + size.width + expand,
+                origin.y + size.height + expand,
+            ],
             [origin.x - expand, origin.y + size.height + expand],
         ]);
 
-        let u_min = if expand > 0.0 { -expand / size.width } else { 0.0 };
-        let u_max = if expand > 0.0 { 1.0 + expand / size.width } else { 1.0 };
-        let v_min = if expand > 0.0 { -expand / size.height } else { 0.0 };
-        let v_max = if expand > 0.0 { 1.0 + expand / size.height } else { 1.0 };
+        let u_min = if expand > 0.0 {
+            -expand / size.width
+        } else {
+            0.0
+        };
+        let u_max = if expand > 0.0 {
+            1.0 + expand / size.width
+        } else {
+            1.0
+        };
+        let v_min = if expand > 0.0 {
+            -expand / size.height
+        } else {
+            0.0
+        };
+        let v_max = if expand > 0.0 {
+            1.0 + expand / size.height
+        } else {
+            1.0
+        };
 
         let sf = self.scale_factor;
         let scaled_radius = [
@@ -68,12 +87,38 @@ impl Batcher {
         let base = state.vertices.len() as u32;
 
         state.vertices.extend_from_slice(&[
-            Vertex { position: p0, uv: [u_min, v_min], color: color_array, data: scaled_radius, data2: scaled_border },
-            Vertex { position: p1, uv: [u_max, v_min], color: color_array, data: scaled_radius, data2: scaled_border },
-            Vertex { position: p2, uv: [u_max, v_max], color: color_array, data: scaled_radius, data2: scaled_border },
-            Vertex { position: p3, uv: [u_min, v_max], color: color_array, data: scaled_radius, data2: scaled_border },
+            Vertex {
+                position: p0,
+                uv: [u_min, v_min],
+                color: color_array,
+                data: scaled_radius,
+                data2: scaled_border,
+            },
+            Vertex {
+                position: p1,
+                uv: [u_max, v_min],
+                color: color_array,
+                data: scaled_radius,
+                data2: scaled_border,
+            },
+            Vertex {
+                position: p2,
+                uv: [u_max, v_max],
+                color: color_array,
+                data: scaled_radius,
+                data2: scaled_border,
+            },
+            Vertex {
+                position: p3,
+                uv: [u_min, v_max],
+                color: color_array,
+                data: scaled_radius,
+                data2: scaled_border,
+            },
         ]);
-        state.indices.extend_from_slice(&[base, base + 1, base + 2, base, base + 2, base + 3]);
+        state
+            .indices
+            .extend_from_slice(&[base, base + 1, base + 2, base, base + 2, base + 3]);
     }
 
     pub(super) fn add_outline(
@@ -101,12 +146,38 @@ impl Batcher {
         let state = self.current_batch_mut();
         let base = state.vertices.len() as u32;
         state.vertices.extend_from_slice(&[
-            Vertex { position: p0, uv: [0.0, 0.0], color: color_array, data: scaled_radius, data2 },
-            Vertex { position: p1, uv: [1.0, 0.0], color: color_array, data: scaled_radius, data2 },
-            Vertex { position: p2, uv: [1.0, 1.0], color: color_array, data: scaled_radius, data2 },
-            Vertex { position: p3, uv: [0.0, 1.0], color: color_array, data: scaled_radius, data2 },
+            Vertex {
+                position: p0,
+                uv: [0.0, 0.0],
+                color: color_array,
+                data: scaled_radius,
+                data2,
+            },
+            Vertex {
+                position: p1,
+                uv: [1.0, 0.0],
+                color: color_array,
+                data: scaled_radius,
+                data2,
+            },
+            Vertex {
+                position: p2,
+                uv: [1.0, 1.0],
+                color: color_array,
+                data: scaled_radius,
+                data2,
+            },
+            Vertex {
+                position: p3,
+                uv: [0.0, 1.0],
+                color: color_array,
+                data: scaled_radius,
+                data2,
+            },
         ]);
-        state.indices.extend_from_slice(&[base, base + 1, base + 2, base, base + 2, base + 3]);
+        state
+            .indices
+            .extend_from_slice(&[base, base + 1, base + 2, base, base + 2, base + 3]);
     }
 
     pub(super) fn add_rect_per_side_border(
@@ -151,9 +222,19 @@ impl Batcher {
         ]);
 
         let data_payload = if has_radius {
-            [radius[0] * sf, radius[1] * sf, radius[2] * sf, radius[3] * sf]
+            [
+                radius[0] * sf,
+                radius[1] * sf,
+                radius[2] * sf,
+                radius[3] * sf,
+            ]
         } else {
-            [(snapped_size.width * sf).round(), (snapped_size.height * sf).round(), 0.0, 0.0]
+            [
+                (snapped_size.width * sf).round(),
+                (snapped_size.height * sf).round(),
+                0.0,
+                0.0,
+            ]
         };
 
         let ri = (border_color.r * 255.0).round() as u32;
@@ -172,20 +253,62 @@ impl Batcher {
             (widths[2] * sf).round() * 256.0 + (widths[3] * sf).round(),
         ];
 
-        let u_min = if expand > 0.0 { -expand / size.width } else { 0.0 };
-        let u_max = if expand > 0.0 { 1.0 + expand / size.width } else { 1.0 };
-        let v_min = if expand > 0.0 { -expand / size.height } else { 0.0 };
-        let v_max = if expand > 0.0 { 1.0 + expand / size.height } else { 1.0 };
+        let u_min = if expand > 0.0 {
+            -expand / size.width
+        } else {
+            0.0
+        };
+        let u_max = if expand > 0.0 {
+            1.0 + expand / size.width
+        } else {
+            1.0
+        };
+        let v_min = if expand > 0.0 {
+            -expand / size.height
+        } else {
+            0.0
+        };
+        let v_max = if expand > 0.0 {
+            1.0 + expand / size.height
+        } else {
+            1.0
+        };
 
         let state = self.current_batch_mut();
         let base = state.vertices.len() as u32;
 
         state.vertices.extend_from_slice(&[
-            Vertex { position: p0, uv: [u_min, v_min], color: color_array, data: data_payload, data2: final_data2 },
-            Vertex { position: p1, uv: [u_max, v_min], color: color_array, data: data_payload, data2: final_data2 },
-            Vertex { position: p2, uv: [u_max, v_max], color: color_array, data: data_payload, data2: final_data2 },
-            Vertex { position: p3, uv: [u_min, v_max], color: color_array, data: data_payload, data2: final_data2 },
+            Vertex {
+                position: p0,
+                uv: [u_min, v_min],
+                color: color_array,
+                data: data_payload,
+                data2: final_data2,
+            },
+            Vertex {
+                position: p1,
+                uv: [u_max, v_min],
+                color: color_array,
+                data: data_payload,
+                data2: final_data2,
+            },
+            Vertex {
+                position: p2,
+                uv: [u_max, v_max],
+                color: color_array,
+                data: data_payload,
+                data2: final_data2,
+            },
+            Vertex {
+                position: p3,
+                uv: [u_min, v_max],
+                color: color_array,
+                data: data_payload,
+                data2: final_data2,
+            },
         ]);
-        state.indices.extend_from_slice(&[base, base + 1, base + 2, base, base + 2, base + 3]);
+        state
+            .indices
+            .extend_from_slice(&[base, base + 1, base + 2, base, base + 2, base + 3]);
     }
 }

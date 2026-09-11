@@ -4,10 +4,12 @@ use crate::layout::Constraints;
 use crate::mss::ComputedStyle;
 use crate::mss::MssFields;
 use crate::render::DisplayList;
-use crate::widget::context::EventContext;
-use crate::widget::{DirtyFlags, Element, ElementId, ElementTree, LayoutHint, StyledElement, UpdateContext, Widget};
-use std::any::Any;
 use crate::signal::use_signal;
+use crate::widget::context::EventContext;
+use crate::widget::{
+    DirtyFlags, Element, ElementId, ElementTree, LayoutHint, StyledElement, UpdateContext, Widget,
+};
+use std::any::Any;
 
 use super::tab::{Tab, TabState};
 
@@ -85,13 +87,17 @@ impl Widget for TabBar {
     fn mount(&self, tree: &mut ElementTree, parent_id: ElementId) {
         for tab in &self.tabs {
             let tab_element = tab.create_element();
-            let tab_id = tree.insert_with_type_id(tab_element, Some(parent_id), tab.as_any().type_id());
+            let tab_id =
+                tree.insert_with_type_id(tab_element, Some(parent_id), tab.as_any().type_id());
             tab.mount(tree, tab_id);
         }
     }
 
     fn child_widgets(&self) -> Vec<&dyn Widget> {
-        self.tabs.iter().map(|c| c.as_ref() as &dyn Widget).collect()
+        self.tabs
+            .iter()
+            .map(|c| c.as_ref() as &dyn Widget)
+            .collect()
     }
 }
 
@@ -116,7 +122,11 @@ impl Element for TabBarElement {
 
     fn layout(&mut self, constraints: Constraints) -> Size {
         // Как и у вкладок: высота из MSS или 44, но не выше, чем разрешил родитель.
-        let height = self.mss.height.map(|d| d.resolve(constraints.max_height)).unwrap_or(44.0);
+        let height = self
+            .mss
+            .height
+            .map(|d| d.resolve(constraints.max_height))
+            .unwrap_or(44.0);
         let height = constraints.constrain_height(height);
         let width = constraints.max_width;
 
@@ -130,7 +140,10 @@ impl Element for TabBarElement {
         }
         if let Some(border_color) = self.mss.border_color {
             let bottom_line = Rect::new(
-                Point::new(self.bounds.x(), self.bounds.y() + self.bounds.size.height - 1.0),
+                Point::new(
+                    self.bounds.x(),
+                    self.bounds.y() + self.bounds.size.height - 1.0,
+                ),
                 Size::new(self.bounds.size.width, 1.0),
             );
             list.push_rect(bottom_line, border_color, [0.0; 4]);
@@ -176,7 +189,10 @@ impl Element for TabBarElement {
     fn mount(&mut self, _tree: &mut ElementTree) {}
 
     fn layout_hint(&self) -> LayoutHint {
-        LayoutHint::TabBar { equal_width: self.equal_width, gap: 0.0 }
+        LayoutHint::TabBar {
+            equal_width: self.equal_width,
+            gap: 0.0,
+        }
     }
 
     fn set_classes(&mut self, classes: Vec<String>) {
@@ -188,22 +204,33 @@ impl Element for TabBarElement {
         &self.classes
     }
 
-    fn element_type_name(&self) -> &str { "TabBar" }
+    fn element_type_name(&self) -> &str {
+        "TabBar"
+    }
 
     /// `width`/`height` из MSS (в т.ч. проценты) — иначе движок раскладки
     /// считает полосу по сумме вкладок и `width: 100%` не действует.
-    fn explicit_dimensions(&self, parent_width: f32, parent_height: f32) -> (Option<f32>, Option<f32>) {
+    fn explicit_dimensions(
+        &self,
+        parent_width: f32,
+        parent_height: f32,
+    ) -> (Option<f32>, Option<f32>) {
         (
             self.mss.width.and_then(|d| d.resolve_opt(parent_width)),
             self.mss.height.and_then(|d| d.resolve_opt(parent_height)),
         )
     }
 
-    fn reset_mss_styles(&mut self) { self.mss.reset(); }
-    fn mss(&self) -> Option<&crate::mss::MssFields> { Some(&self.mss) }
+    fn reset_mss_styles(&mut self) {
+        self.mss.reset();
+    }
+    fn mss(&self) -> Option<&crate::mss::MssFields> {
+        Some(&self.mss)
+    }
     fn apply_computed_style(&mut self, style: &ComputedStyle) {
         self.mss.apply(style);
-        let fill = style.get("--tab-fill")
+        let fill = style
+            .get("--tab-fill")
             .and_then(|v| v.as_string())
             .map(|s| s.trim().to_ascii_lowercase());
         self.equal_width = matches!(fill.as_deref(), Some("equal"));
@@ -219,7 +246,8 @@ impl Element for TabBarElement {
         selected: Option<&ComputedStyle>,
         _checked: Option<&ComputedStyle>,
     ) {
-        self.mss.apply_transitions(base, hover, active, focus, selected);
+        self.mss
+            .apply_transitions(base, hover, active, focus, selected);
     }
 
     fn accessibility_info(&self) -> Option<crate::a11y::AccessibilityInfo> {

@@ -1,7 +1,7 @@
-use std::collections::VecDeque;
+use super::panel;
 use crate::core::{Point, Rect, Size};
 use crate::render::DisplayList;
-use super::panel;
+use std::collections::VecDeque;
 
 #[derive(Clone, Debug)]
 pub struct EventLogEntry {
@@ -23,24 +23,39 @@ pub fn render_event_log(
     let w = content_rect.size.width;
     let mut y = content_rect.origin.y;
 
-    let pause_rect = Rect::new(
-        Point::new(x, y),
-        Size::new(w, panel::LINE_HEIGHT),
-    );
+    let pause_rect = Rect::new(Point::new(x, y), Size::new(w, panel::LINE_HEIGHT));
     if paused {
-        list.push_rect(pause_rect, crate::core::Color::new(0.6, 0.2, 0.2, 0.3), [0.0; 4]);
+        list.push_rect(
+            pause_rect,
+            crate::core::Color::new(0.6, 0.2, 0.2, 0.3),
+            [0.0; 4],
+        );
         let text_rect = Rect::new(
             Point::new(x + 4.0, y + 2.0),
             Size::new(w - 8.0, panel::FONT_SIZE + 2.0),
         );
-        list.push_text("PAUSED (click to resume)", text_rect, crate::core::Color::new(1.0, 0.4, 0.4, 1.0), panel::FONT_SIZE);
+        list.push_text(
+            "PAUSED (click to resume)",
+            text_rect,
+            crate::core::Color::new(1.0, 0.4, 0.4, 1.0),
+            panel::FONT_SIZE,
+        );
     } else {
-        list.push_rect(pause_rect, crate::core::Color::new(0.2, 0.4, 0.2, 0.3), [0.0; 4]);
+        list.push_rect(
+            pause_rect,
+            crate::core::Color::new(0.2, 0.4, 0.2, 0.3),
+            [0.0; 4],
+        );
         let text_rect = Rect::new(
             Point::new(x + 4.0, y + 2.0),
             Size::new(w - 8.0, panel::FONT_SIZE + 2.0),
         );
-        list.push_text("RECORDING (click to pause)", text_rect, crate::core::Color::new(0.4, 0.8, 0.4, 1.0), panel::FONT_SIZE);
+        list.push_text(
+            "RECORDING (click to pause)",
+            text_rect,
+            crate::core::Color::new(0.4, 0.8, 0.4, 1.0),
+            panel::FONT_SIZE,
+        );
     }
     y += panel::LINE_HEIGHT + 2.0;
 
@@ -66,13 +81,23 @@ pub fn render_event_log(
                 Point::new(x + 2.0, y + 2.0),
                 Size::new(60.0, panel::FONT_SIZE + 2.0),
             );
-            list.push_text(&time_str, time_rect, panel::TEXT_SECONDARY, panel::SMALL_FONT_SIZE);
+            list.push_text(
+                &time_str,
+                time_rect,
+                panel::TEXT_SECONDARY,
+                panel::SMALL_FONT_SIZE,
+            );
 
             let type_rect = Rect::new(
                 Point::new(x + 62.0, y + 2.0),
                 Size::new(w - 130.0, panel::FONT_SIZE + 2.0),
             );
-            list.push_text(&entry.event_type, type_rect, panel::TEXT_PRIMARY, panel::FONT_SIZE);
+            list.push_text(
+                &entry.event_type,
+                type_rect,
+                panel::TEXT_PRIMARY,
+                panel::FONT_SIZE,
+            );
 
             let result_color = match entry.result.as_str() {
                 "Handled" => panel::EVENT_HANDLED,
@@ -83,7 +108,12 @@ pub fn render_event_log(
                 Point::new(x + w - 66.0, y + 2.0),
                 Size::new(62.0, panel::FONT_SIZE + 2.0),
             );
-            list.push_text(&entry.result, result_rect, result_color, panel::SMALL_FONT_SIZE);
+            list.push_text(
+                &entry.result,
+                result_rect,
+                result_color,
+                panel::SMALL_FONT_SIZE,
+            );
         }
 
         y += panel::LINE_HEIGHT;

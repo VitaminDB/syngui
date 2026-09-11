@@ -56,11 +56,8 @@ impl Widget for WindowDragRegion {
     fn mount(&self, tree: &mut ElementTree, parent_id: ElementId) {
         if let Some(child) = &self.child {
             let child_element = child.create_element();
-            let child_id = tree.insert_with_type_id(
-                child_element,
-                Some(parent_id),
-                child.as_any().type_id(),
-            );
+            let child_id =
+                tree.insert_with_type_id(child_element, Some(parent_id), child.as_any().type_id());
             child.mount(tree, child_id);
         }
     }

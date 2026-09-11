@@ -1,5 +1,5 @@
-use crate::render::Vertex;
 use super::Batcher;
+use crate::render::Vertex;
 
 impl Batcher {
     pub(super) fn add_linear_gradient_rect(
@@ -14,7 +14,10 @@ impl Batcher {
 
         let stops = gradient.resolved_stops();
         if stops.len() < 2 {
-            let c = stops.first().map(|(c, _)| *c).unwrap_or(crate::core::Color::TRANSPARENT);
+            let c = stops
+                .first()
+                .map(|(c, _)| *c)
+                .unwrap_or(crate::core::Color::TRANSPARENT);
             if let Some(b) = border {
                 self.add_rect_with_border(rect, c, corner_radius, b.width, b.color);
             } else {
@@ -25,7 +28,14 @@ impl Batcher {
 
         match gradient {
             Gradient::Linear { angle_deg, .. } => {
-                self.add_linear_gradient_strips(rect, &stops, *angle_deg, corner_radius, border, gradient);
+                self.add_linear_gradient_strips(
+                    rect,
+                    &stops,
+                    *angle_deg,
+                    corner_radius,
+                    border,
+                    gradient,
+                );
             }
             Gradient::Radial { .. } | Gradient::Conic { .. } => {
                 self.add_radial_gradient_approx(rect, gradient, corner_radius, border);
@@ -77,9 +87,17 @@ impl Batcher {
                     strip_uv_start = [start_t, 0.0];
                     strip_uv_end = [end_t, 1.0];
                     self.add_gradient_strip_quad(
-                        strip_rect, start_c, end_c, corner_radius,
-                        border, i, stops.len() - 1,
-                        strip_uv_start, strip_uv_end, true, size,
+                        strip_rect,
+                        start_c,
+                        end_c,
+                        corner_radius,
+                        border,
+                        i,
+                        stops.len() - 1,
+                        strip_uv_start,
+                        strip_uv_end,
+                        true,
+                        size,
                     );
                 } else {
                     let (start_t, end_t, start_c, end_c) = if dir_y > 0.0 {
@@ -96,9 +114,17 @@ impl Batcher {
                     strip_uv_start = [0.0, start_t];
                     strip_uv_end = [1.0, end_t];
                     self.add_gradient_strip_quad(
-                        strip_rect, start_c, end_c, corner_radius,
-                        border, i, stops.len() - 1,
-                        strip_uv_start, strip_uv_end, false, size,
+                        strip_rect,
+                        start_c,
+                        end_c,
+                        corner_radius,
+                        border,
+                        i,
+                        stops.len() - 1,
+                        strip_uv_start,
+                        strip_uv_end,
+                        false,
+                        size,
                     );
                 }
             }
@@ -152,12 +178,38 @@ impl Batcher {
             let state = self.current_batch_mut();
             let base = state.vertices.len() as u32;
             state.vertices.extend_from_slice(&[
-                Vertex { position: p0, uv: [0.0, 0.0], color: c_tl, data: scaled_radius, data2: border_data },
-                Vertex { position: p1, uv: [1.0, 0.0], color: c_tr, data: scaled_radius, data2: border_data },
-                Vertex { position: p2, uv: [1.0, 1.0], color: c_br, data: scaled_radius, data2: border_data },
-                Vertex { position: p3, uv: [0.0, 1.0], color: c_bl, data: scaled_radius, data2: border_data },
+                Vertex {
+                    position: p0,
+                    uv: [0.0, 0.0],
+                    color: c_tl,
+                    data: scaled_radius,
+                    data2: border_data,
+                },
+                Vertex {
+                    position: p1,
+                    uv: [1.0, 0.0],
+                    color: c_tr,
+                    data: scaled_radius,
+                    data2: border_data,
+                },
+                Vertex {
+                    position: p2,
+                    uv: [1.0, 1.0],
+                    color: c_br,
+                    data: scaled_radius,
+                    data2: border_data,
+                },
+                Vertex {
+                    position: p3,
+                    uv: [0.0, 1.0],
+                    color: c_bl,
+                    data: scaled_radius,
+                    data2: border_data,
+                },
             ]);
-            state.indices.extend_from_slice(&[base, base + 1, base + 2, base, base + 2, base + 3]);
+            state
+                .indices
+                .extend_from_slice(&[base, base + 1, base + 2, base, base + 2, base + 3]);
         }
     }
 
@@ -220,12 +272,38 @@ impl Batcher {
         let state = self.current_batch_mut();
         let base = state.vertices.len() as u32;
         state.vertices.extend_from_slice(&[
-            Vertex { position: p0, uv: [strip_uv_start[0], strip_uv_start[1]], color: c_tl, data: scaled_radius, data2: border_data },
-            Vertex { position: p1, uv: [strip_uv_end[0], strip_uv_start[1]], color: c_tr, data: scaled_radius, data2: border_data },
-            Vertex { position: p2, uv: [strip_uv_end[0], strip_uv_end[1]], color: c_br, data: scaled_radius, data2: border_data },
-            Vertex { position: p3, uv: [strip_uv_start[0], strip_uv_end[1]], color: c_bl, data: scaled_radius, data2: border_data },
+            Vertex {
+                position: p0,
+                uv: [strip_uv_start[0], strip_uv_start[1]],
+                color: c_tl,
+                data: scaled_radius,
+                data2: border_data,
+            },
+            Vertex {
+                position: p1,
+                uv: [strip_uv_end[0], strip_uv_start[1]],
+                color: c_tr,
+                data: scaled_radius,
+                data2: border_data,
+            },
+            Vertex {
+                position: p2,
+                uv: [strip_uv_end[0], strip_uv_end[1]],
+                color: c_br,
+                data: scaled_radius,
+                data2: border_data,
+            },
+            Vertex {
+                position: p3,
+                uv: [strip_uv_start[0], strip_uv_end[1]],
+                color: c_bl,
+                data: scaled_radius,
+                data2: border_data,
+            },
         ]);
-        state.indices.extend_from_slice(&[base, base + 1, base + 2, base, base + 2, base + 3]);
+        state
+            .indices
+            .extend_from_slice(&[base, base + 1, base + 2, base, base + 2, base + 3]);
     }
 
     pub(super) fn add_radial_gradient_approx(
@@ -242,7 +320,8 @@ impl Batcher {
             crate::core::Gradient::Radial { quality, .. } => *quality as usize,
             crate::core::Gradient::Conic { quality, .. } => *quality as usize,
             _ => crate::core::GRADIENT_DEFAULT_QUALITY as usize,
-        }.max(4);
+        }
+        .max(4);
         let cols = grid + 1;
 
         let (cx, cy) = match gradient {
@@ -251,8 +330,12 @@ impl Batcher {
             _ => (0.5, 0.5),
         };
 
-        let is_circle = matches!(gradient,
-            crate::core::Gradient::Radial { shape: crate::core::GradientShape::Circle, .. }
+        let is_circle = matches!(
+            gradient,
+            crate::core::Gradient::Radial {
+                shape: crate::core::GradientShape::Circle,
+                ..
+            }
         );
         let is_conic = matches!(gradient, crate::core::Gradient::Conic { .. });
         let conic_from_angle = match gradient {

@@ -89,56 +89,67 @@ fn build_content_resize_demo() -> impl Widget {
             Text::new("Click to cycle content — AnimatedSize smoothly transitions both axes.")
                 .class("label"),
         )
-        .child(
-            Button::new("Cycle Content").on_click(move || {
-                content_idx.set((content_idx.get_untracked() + 1) % 3);
-            }),
-        )
+        .child(Button::new("Cycle Content").on_click(move || {
+            content_idx.set((content_idx.get_untracked() + 1) % 3);
+        }))
         .child(
             AnimatedSize::new(
                 Stack::new()
-                    .child(ShowIf::new(0, content_idx).child(
-                        DecoratedBox::new()
-                            .style("width", 150.0_f32)
-                            .style("height", 40.0_f32)
-                            .child(Text::new("Small content").class("label"))
-                            .class("layout-anim-content"),
-                    ))
-                    .child(ShowIf::new(1, content_idx).child(
-                        DecoratedBox::new()
-                            .style("width", 250.0_f32)
-                            .style("height", 70.0_f32)
-                            .child(
-                                Column::new()
-                                    .gap(4.0)
-                                    .child(Text::new("Medium content with more text").class("label"))
-                                    .child(Text::new("Second line here").class("label")),
-                            )
-                            .class("layout-anim-content"),
-                    ))
-                    .child(ShowIf::new(2, content_idx).child(
-                        DecoratedBox::new()
-                            .style("width", 350.0_f32)
-                            .style("height", 150.0_f32)
-                            .child(
-                                Column::new()
-                                    .gap(4.0)
-                                    .child(Text::new("Large content block").class("label"))
-                                    .child(Text::new("With multiple lines of text").class("label"))
-                                    .child(Text::new("And even more content below").class("label"))
-                                    .child(
-                                        Row::new()
-                                            .gap(8.0)
-                                            .child(colored_box("layout-anim-box", 60.0, 60.0))
-                                            .child(colored_box(
-                                                "layout-anim-box-green",
-                                                60.0,
-                                                60.0,
-                                            )),
-                                    ),
-                            )
-                            .class("layout-anim-content"),
-                    )),
+                    .child(
+                        ShowIf::new(0, content_idx).child(
+                            DecoratedBox::new()
+                                .style("width", 150.0_f32)
+                                .style("height", 40.0_f32)
+                                .child(Text::new("Small content").class("label"))
+                                .class("layout-anim-content"),
+                        ),
+                    )
+                    .child(
+                        ShowIf::new(1, content_idx).child(
+                            DecoratedBox::new()
+                                .style("width", 250.0_f32)
+                                .style("height", 70.0_f32)
+                                .child(
+                                    Column::new()
+                                        .gap(4.0)
+                                        .child(
+                                            Text::new("Medium content with more text")
+                                                .class("label"),
+                                        )
+                                        .child(Text::new("Second line here").class("label")),
+                                )
+                                .class("layout-anim-content"),
+                        ),
+                    )
+                    .child(
+                        ShowIf::new(2, content_idx).child(
+                            DecoratedBox::new()
+                                .style("width", 350.0_f32)
+                                .style("height", 150.0_f32)
+                                .child(
+                                    Column::new()
+                                        .gap(4.0)
+                                        .child(Text::new("Large content block").class("label"))
+                                        .child(
+                                            Text::new("With multiple lines of text").class("label"),
+                                        )
+                                        .child(
+                                            Text::new("And even more content below").class("label"),
+                                        )
+                                        .child(
+                                            Row::new()
+                                                .gap(8.0)
+                                                .child(colored_box("layout-anim-box", 60.0, 60.0))
+                                                .child(colored_box(
+                                                    "layout-anim-box-green",
+                                                    60.0,
+                                                    60.0,
+                                                )),
+                                        ),
+                                )
+                                .class("layout-anim-content"),
+                        ),
+                    ),
             )
             .duration_ms(350)
             .easing(Easing::EaseOutCubic),
@@ -162,21 +173,15 @@ fn build_axis_demo() -> impl Widget {
         .child(
             Row::new()
                 .gap(8.0)
-                .child(
-                    Button::new("Toggle W").on_click(move || {
-                        idx_w.set(if idx_w.get_untracked() == 0 { 1 } else { 0 });
-                    }),
-                )
-                .child(
-                    Button::new("Toggle H").on_click(move || {
-                        idx_h.set(if idx_h.get_untracked() == 0 { 1 } else { 0 });
-                    }),
-                )
-                .child(
-                    Button::new("Toggle Both").on_click(move || {
-                        idx_b.set(if idx_b.get_untracked() == 0 { 1 } else { 0 });
-                    }),
-                ),
+                .child(Button::new("Toggle W").on_click(move || {
+                    idx_w.set(if idx_w.get_untracked() == 0 { 1 } else { 0 });
+                }))
+                .child(Button::new("Toggle H").on_click(move || {
+                    idx_h.set(if idx_h.get_untracked() == 0 { 1 } else { 0 });
+                }))
+                .child(Button::new("Toggle Both").on_click(move || {
+                    idx_b.set(if idx_b.get_untracked() == 0 { 1 } else { 0 });
+                })),
         )
         .child(
             Row::new()
@@ -186,10 +191,11 @@ fn build_axis_demo() -> impl Widget {
                         .gap(4.0)
                         .child(Text::new("Width only").class("label"))
                         .child(
-                            AnimatedSize::new(
-                                ShowIf::new(0, idx_w)
-                                    .child(colored_box("layout-anim-box", 120.0, 60.0)),
-                            )
+                            AnimatedSize::new(ShowIf::new(0, idx_w).child(colored_box(
+                                "layout-anim-box",
+                                120.0,
+                                60.0,
+                            )))
                             .axis(AnimationAxis::Width)
                             .duration_ms(400),
                         ),
@@ -199,10 +205,11 @@ fn build_axis_demo() -> impl Widget {
                         .gap(4.0)
                         .child(Text::new("Height only").class("label"))
                         .child(
-                            AnimatedSize::new(
-                                ShowIf::new(0, idx_h)
-                                    .child(colored_box("layout-anim-box-green", 120.0, 60.0)),
-                            )
+                            AnimatedSize::new(ShowIf::new(0, idx_h).child(colored_box(
+                                "layout-anim-box-green",
+                                120.0,
+                                60.0,
+                            )))
                             .axis(AnimationAxis::Height)
                             .duration_ms(400),
                         ),
@@ -212,10 +219,11 @@ fn build_axis_demo() -> impl Widget {
                         .gap(4.0)
                         .child(Text::new("Both axes").class("label"))
                         .child(
-                            AnimatedSize::new(
-                                ShowIf::new(0, idx_b)
-                                    .child(colored_box("layout-anim-box-purple", 120.0, 60.0)),
-                            )
+                            AnimatedSize::new(ShowIf::new(0, idx_b).child(colored_box(
+                                "layout-anim-box-purple",
+                                120.0,
+                                60.0,
+                            )))
                             .axis(AnimationAxis::Both)
                             .duration_ms(400),
                         ),
@@ -231,14 +239,10 @@ fn build_easing_demo() -> impl Widget {
     Column::new()
         .gap(8.0)
         .child(label("Easing Comparison"))
-        .child(
-            Text::new("Same expand/collapse with different easing functions.").class("label"),
-        )
-        .child(
-            Button::new("Toggle All").on_click(move || {
-                idx.set(if idx.get_untracked() == 0 { 1 } else { 0 });
-            }),
-        )
+        .child(Text::new("Same expand/collapse with different easing functions.").class("label"))
+        .child(Button::new("Toggle All").on_click(move || {
+            idx.set(if idx.get_untracked() == 0 { 1 } else { 0 });
+        }))
         .child(
             Row::new()
                 .gap(16.0)
@@ -269,22 +273,15 @@ fn build_easing_demo() -> impl Widget {
         )
 }
 
-fn easing_box(
-    name: &str,
-    easing: Easing,
-    class: &str,
-    idx: RwSignal<usize>,
-) -> impl Widget {
+fn easing_box(name: &str, easing: Easing, class: &str, idx: RwSignal<usize>) -> impl Widget {
     Column::new()
         .gap(4.0)
         .child(Text::new(name).class("label"))
         .child(
-            AnimatedSize::new(
-                ShowIf::new(0, idx).child(colored_box(class, 80.0, 80.0)),
-            )
-            .axis(AnimationAxis::Height)
-            .easing(easing)
-            .duration_ms(600),
+            AnimatedSize::new(ShowIf::new(0, idx).child(colored_box(class, 80.0, 80.0)))
+                .axis(AnimationAxis::Height)
+                .easing(easing)
+                .duration_ms(600),
         )
 }
 
@@ -322,19 +319,13 @@ fn build_accordion_demo() -> impl Widget {
         )
 }
 
-fn accordion_section(
-    title: &str,
-    body: &str,
-    state: RwSignal<usize>,
-) -> impl Widget {
+fn accordion_section(title: &str, body: &str, state: RwSignal<usize>) -> impl Widget {
     let t = title.to_string();
     Column::new()
         .gap(0.0)
-        .child(
-            Button::new(t).on_click(move || {
-                state.set(if state.get_untracked() == 0 { 1 } else { 0 });
-            }),
-        )
+        .child(Button::new(t).on_click(move || {
+            state.set(if state.get_untracked() == 0 { 1 } else { 0 });
+        }))
         .child(
             AnimatedSize::new(
                 ShowIf::new(0, state).child(

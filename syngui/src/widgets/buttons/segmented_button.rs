@@ -1,3 +1,4 @@
+use crate::core::sync::Mutex;
 use crate::core::{Color, Point, Rect, RectExt, Size};
 use crate::input::{CursorIcon, Event, EventResult, Key, MouseButton};
 use crate::layout::Constraints;
@@ -5,10 +6,11 @@ use crate::mss::ComputedStyle;
 use crate::mss::MssFields;
 use crate::render::{Border, DisplayList};
 use crate::widget::context::{EventContext, EventContextExt};
-use crate::widget::{DirtyFlags, Element, ElementId, ElementTree, StyledElement, UpdateContext, Widget};
+use crate::widget::{
+    DirtyFlags, Element, ElementId, ElementTree, StyledElement, UpdateContext, Widget,
+};
 use std::any::Any;
 use std::sync::Arc;
-use crate::core::sync::Mutex;
 
 #[derive(Clone, Debug)]
 pub struct Segment {
@@ -18,24 +20,37 @@ pub struct Segment {
 
 impl Segment {
     pub fn new(label: impl Into<String>) -> Self {
-        Self { label: label.into(), icon: None }
+        Self {
+            label: label.into(),
+            icon: None,
+        }
     }
 
     pub fn with_icon(label: impl Into<String>, icon: impl Into<String>) -> Self {
-        Self { label: label.into(), icon: Some(icon.into()) }
+        Self {
+            label: label.into(),
+            icon: Some(icon.into()),
+        }
     }
 
     pub fn icon_only(icon: impl Into<String>) -> Self {
-        Self { label: String::new(), icon: Some(icon.into()) }
+        Self {
+            label: String::new(),
+            icon: Some(icon.into()),
+        }
     }
 }
 
 impl From<String> for Segment {
-    fn from(s: String) -> Self { Segment::new(s) }
+    fn from(s: String) -> Self {
+        Segment::new(s)
+    }
 }
 
 impl From<&str> for Segment {
-    fn from(s: &str) -> Self { Segment::new(s) }
+    fn from(s: &str) -> Self {
+        Segment::new(s)
+    }
 }
 
 pub struct SegmentedButton {
@@ -154,23 +169,40 @@ impl Element for SegmentedButtonElement {
     }
 
     fn layout(&mut self, constraints: Constraints) -> Size {
-        let height = self.mss.height.map(|d| d.resolve(constraints.max_height)).unwrap_or(36.0);
+        let height = self
+            .mss
+            .height
+            .map(|d| d.resolve(constraints.max_height))
+            .unwrap_or(36.0);
         let font_size = self.mss.font_size_or(14.0);
         let bold = self.mss.font_weight_or(400) >= 700;
         let h_padding = self.segment_padding;
         let icon_extra = font_size * 1.2 + 6.0;
 
-        let content_widths: Vec<f32> = self.segments.iter().map(|seg| {
-            let text_w = if seg.label.is_empty() {
-                0.0
-            } else {
-                self.text_measure.as_ref()
-                    .map(|tm| tm.measure_text_width_styled(&seg.label, font_size, seg.label.chars().count(), bold, self.mss.font_family.as_deref()))
-                    .unwrap_or(seg.label.chars().count() as f32 * font_size * 0.6)
-            };
-            let extra = if seg.icon.is_some() { icon_extra } else { 0.0 };
-            text_w + extra + h_padding
-        }).collect();
+        let content_widths: Vec<f32> = self
+            .segments
+            .iter()
+            .map(|seg| {
+                let text_w = if seg.label.is_empty() {
+                    0.0
+                } else {
+                    self.text_measure
+                        .as_ref()
+                        .map(|tm| {
+                            tm.measure_text_width_styled(
+                                &seg.label,
+                                font_size,
+                                seg.label.chars().count(),
+                                bold,
+                                self.mss.font_family.as_deref(),
+                            )
+                        })
+                        .unwrap_or(seg.label.chars().count() as f32 * font_size * 0.6)
+                };
+                let extra = if seg.icon.is_some() { icon_extra } else { 0.0 };
+                text_w + extra + h_padding
+            })
+            .collect();
 
         let intrinsic: f32 = content_widths.iter().sum();
 
@@ -184,7 +216,11 @@ impl Element for SegmentedButtonElement {
             let scale = width / intrinsic;
             self.segment_widths = content_widths.iter().map(|w| w * scale).collect();
         } else {
-            let eq = if self.segments.is_empty() { 0.0 } else { width / self.segments.len() as f32 };
+            let eq = if self.segments.is_empty() {
+                0.0
+            } else {
+                width / self.segments.len() as f32
+            };
             self.segment_widths = vec![eq; self.segments.len()];
         }
 
@@ -204,7 +240,9 @@ impl Element for SegmentedButtonElement {
         let accent = self.mss.accent_color.unwrap_or(Color::from_hex("#3B82F6"));
         let font_size = self.mss.font_size_or(14.0);
         let font_weight = self.mss.font_weight_or(400);
-        let outer_radius = self.mss.border_radius_uniform(self.bounds.size.width.min(self.bounds.size.height), 8.0);
+        let outer_radius = self
+            .mss
+            .border_radius_uniform(self.bounds.size.width.min(self.bounds.size.height), 8.0);
         let border_width = self.mss.border_width_or(1.0);
 
         if border_width > 0.0 {
@@ -212,7 +250,10 @@ impl Element for SegmentedButtonElement {
                 self.bounds,
                 Color::TRANSPARENT,
                 [outer_radius; 4],
-                Border { width: border_width, color: border_color },
+                Border {
+                    width: border_width,
+                    color: border_color,
+                },
             );
         }
 
@@ -283,17 +324,25 @@ impl Element for SegmentedButtonElement {
 
             if has_icon && has_text {
                 let icon_str = seg.icon.as_deref().unwrap();
-                let text_w = self.text_measure.as_ref()
-                    .map(|tm| tm.measure_text_width_styled(&seg.label, font_size, seg.label.chars().count(), font_weight >= 700, self.mss.font_family.as_deref()))
+                let text_w = self
+                    .text_measure
+                    .as_ref()
+                    .map(|tm| {
+                        tm.measure_text_width_styled(
+                            &seg.label,
+                            font_size,
+                            seg.label.chars().count(),
+                            font_weight >= 700,
+                            self.mss.font_family.as_deref(),
+                        )
+                    })
                     .unwrap_or(seg.label.chars().count() as f32 * font_size * 0.6);
                 let total_w = icon_size + icon_gap + text_w;
                 let start_x = seg_rect.x() + (seg_rect.width() - total_w) / 2.0;
 
                 let icon_y = seg_rect.y() + (seg_rect.height() - icon_size) / 2.0;
-                let icon_rect = Rect::new(
-                    Point::new(start_x, icon_y),
-                    Size::new(icon_size, icon_size),
-                );
+                let icon_rect =
+                    Rect::new(Point::new(start_x, icon_y), Size::new(icon_size, icon_size));
                 list.push_text_centered(icon_str, icon_rect, text_col, icon_size);
 
                 let text_y = seg_rect.y() + (seg_rect.height() - font_size) / 2.0;
@@ -302,9 +351,14 @@ impl Element for SegmentedButtonElement {
                     Size::new(text_w, font_size),
                 );
                 list.push_text_styled(
-                    &seg.label, text_rect, text_col, font_size,
-                    crate::mss::TextAlign::LEFT, crate::mss::TextDecoration::None,
-                    font_weight, self.mss.font_family.clone(),
+                    &seg.label,
+                    text_rect,
+                    text_col,
+                    font_size,
+                    crate::mss::TextAlign::LEFT,
+                    crate::mss::TextDecoration::None,
+                    font_weight,
+                    self.mss.font_family.clone(),
                 );
             } else if has_icon {
                 let icon_str = seg.icon.as_deref().unwrap();
@@ -316,9 +370,14 @@ impl Element for SegmentedButtonElement {
                 list.push_text_centered(icon_str, icon_rect, text_col, icon_size);
             } else {
                 list.push_text_styled(
-                    &seg.label, seg_rect, text_col, font_size,
-                    crate::mss::TextAlign::CENTER, crate::mss::TextDecoration::None,
-                    font_weight, self.mss.font_family.clone(),
+                    &seg.label,
+                    seg_rect,
+                    text_col,
+                    font_size,
+                    crate::mss::TextAlign::CENTER,
+                    crate::mss::TextDecoration::None,
+                    font_weight,
+                    self.mss.font_family.clone(),
                 );
             }
 
@@ -400,7 +459,9 @@ impl Element for SegmentedButtonElement {
                 if self.selected > 0 {
                     self.selected -= 1;
                     if let Some(ref cb) = self.on_change {
-                        if let Ok(mut f) = cb.lock() { f(self.selected); }
+                        if let Ok(mut f) = cb.lock() {
+                            f(self.selected);
+                        }
                     }
                     ctx.request_paint();
                 }
@@ -410,7 +471,9 @@ impl Element for SegmentedButtonElement {
                 if self.selected + 1 < self.segments.len() {
                     self.selected += 1;
                     if let Some(ref cb) = self.on_change {
-                        if let Ok(mut f) = cb.lock() { f(self.selected); }
+                        if let Ok(mut f) = cb.lock() {
+                            f(self.selected);
+                        }
                     }
                     ctx.request_paint();
                 }
@@ -418,7 +481,9 @@ impl Element for SegmentedButtonElement {
             }
             Event::KeyDown(Key::Enter) | Event::KeyDown(Key::Space) if self.focused => {
                 if let Some(ref cb) = self.on_change {
-                    if let Ok(mut f) = cb.lock() { f(self.selected); }
+                    if let Ok(mut f) = cb.lock() {
+                        f(self.selected);
+                    }
                 }
                 ctx.request_paint();
                 EventResult::Handled
@@ -427,7 +492,11 @@ impl Element for SegmentedButtonElement {
         }
     }
 
-    fn explicit_dimensions(&self, _parent_width: f32, _parent_height: f32) -> (Option<f32>, Option<f32>) {
+    fn explicit_dimensions(
+        &self,
+        _parent_width: f32,
+        _parent_height: f32,
+    ) -> (Option<f32>, Option<f32>) {
         (None, self.mss.height.map(|d| d.resolve(f32::INFINITY)))
     }
 
@@ -476,10 +545,16 @@ impl Element for SegmentedButtonElement {
         &self.classes
     }
 
-    fn element_type_name(&self) -> &str { "SegmentedButton" }
+    fn element_type_name(&self) -> &str {
+        "SegmentedButton"
+    }
 
-    fn reset_mss_styles(&mut self) { self.mss.reset(); }
-    fn mss(&self) -> Option<&crate::mss::MssFields> { Some(&self.mss) }
+    fn reset_mss_styles(&mut self) {
+        self.mss.reset();
+    }
+    fn mss(&self) -> Option<&crate::mss::MssFields> {
+        Some(&self.mss)
+    }
     fn apply_computed_style(&mut self, style: &ComputedStyle) {
         self.mss.apply(style);
         if let Some(v) = style.get("segment-padding").and_then(|v| v.as_px()) {
@@ -497,7 +572,8 @@ impl Element for SegmentedButtonElement {
         selected: Option<&ComputedStyle>,
         _checked: Option<&ComputedStyle>,
     ) {
-        self.mss.apply_transitions(base, hover, active, focus, selected);
+        self.mss
+            .apply_transitions(base, hover, active, focus, selected);
     }
 
     fn accessibility_info(&self) -> Option<crate::a11y::AccessibilityInfo> {

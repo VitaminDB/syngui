@@ -1,5 +1,5 @@
+use crate::animation::transition::{easing_from_str, AnimatedPropertyMap, AnimatedValue};
 use crate::animation::Easing;
-use crate::animation::transition::{AnimatedPropertyMap, AnimatedValue, easing_from_str};
 use crate::mss::KeyframesDefinition;
 
 pub type KeyframeValues = AnimatedPropertyMap;
@@ -200,10 +200,18 @@ impl KeyframeAnimation {
             AnimDirection::Normal => local_t,
             AnimDirection::Reverse => 1.0 - local_t,
             AnimDirection::Alternate => {
-                if iter_idx % 2 == 0 { local_t } else { 1.0 - local_t }
+                if iter_idx % 2 == 0 {
+                    local_t
+                } else {
+                    1.0 - local_t
+                }
             }
             AnimDirection::AlternateReverse => {
-                if iter_idx % 2 == 0 { 1.0 - local_t } else { local_t }
+                if iter_idx % 2 == 0 {
+                    1.0 - local_t
+                } else {
+                    local_t
+                }
             }
         }
     }
@@ -223,19 +231,27 @@ impl KeyframeAnimation {
 
         let mut values = AnimatedPropertyMap::new();
 
-        let all_props: std::collections::HashSet<&str> = from_step.declarations.keys()
+        let all_props: std::collections::HashSet<&str> = from_step
+            .declarations
+            .keys()
             .chain(to_step.declarations.keys())
             .map(|s| s.as_str())
             .collect();
 
         for prop in all_props {
-            let from_val = from_step.declarations.get(prop)
+            let from_val = from_step
+                .declarations
+                .get(prop)
                 .map(|sv| AnimatedValue::from_style_value(sv, prop));
-            let to_val = to_step.declarations.get(prop)
+            let to_val = to_step
+                .declarations
+                .get(prop)
                 .map(|sv| AnimatedValue::from_style_value(sv, prop));
 
             let result = match (from_val, to_val) {
-                (Some(a), Some(b)) if !matches!(a, AnimatedValue::None) && !matches!(b, AnimatedValue::None) => {
+                (Some(a), Some(b))
+                    if !matches!(a, AnimatedValue::None) && !matches!(b, AnimatedValue::None) =>
+                {
                     a.lerp(&b, local_t)
                 }
                 (Some(a), _) if !matches!(a, AnimatedValue::None) => a,
@@ -255,7 +271,11 @@ impl KeyframeAnimation {
 fn find_bracket<'a>(
     steps: &'a [crate::mss::KeyframeStep],
     t: f32,
-) -> (&'a crate::mss::KeyframeStep, &'a crate::mss::KeyframeStep, f32) {
+) -> (
+    &'a crate::mss::KeyframeStep,
+    &'a crate::mss::KeyframeStep,
+    f32,
+) {
     if steps.len() == 1 {
         return (&steps[0], &steps[0], 0.0);
     }
@@ -276,7 +296,11 @@ fn find_bracket<'a>(
     let from_pos = steps[from_idx].position;
     let to_pos = steps[to_idx].position;
     let span = to_pos - from_pos;
-    let local_t = if span > 0.0 { ((t - from_pos) / span).clamp(0.0, 1.0) } else { 1.0 };
+    let local_t = if span > 0.0 {
+        ((t - from_pos) / span).clamp(0.0, 1.0)
+    } else {
+        1.0
+    };
 
     (&steps[from_idx], &steps[to_idx], local_t)
 }
@@ -307,8 +331,14 @@ pub(crate) fn parse_animation_shorthand(s: &str) -> Option<AnimationShorthand> {
 
         if let Some(secs) = parse_time(&lower) {
             match time_slot {
-                0 => { sh.duration_secs = Some(secs); time_slot = 1; }
-                1 => { sh.delay_secs = Some(secs); time_slot = 2; }
+                0 => {
+                    sh.duration_secs = Some(secs);
+                    time_slot = 1;
+                }
+                1 => {
+                    sh.delay_secs = Some(secs);
+                    time_slot = 2;
+                }
                 _ => {}
             }
             continue;
@@ -378,8 +408,14 @@ fn tokenize_shorthand(s: &str) -> Vec<String> {
 
     for ch in s.chars() {
         match ch {
-            '(' => { depth += 1; cur.push(ch); }
-            ')' => { depth = (depth - 1).max(0); cur.push(ch); }
+            '(' => {
+                depth += 1;
+                cur.push(ch);
+            }
+            ')' => {
+                depth = (depth - 1).max(0);
+                cur.push(ch);
+            }
             c if c.is_whitespace() && depth == 0 => {
                 if !cur.is_empty() {
                     out.push(std::mem::take(&mut cur));
@@ -463,7 +499,10 @@ mod tests {
     fn make_step(pos: f32, opacity: f32) -> KeyframeStep {
         let mut decls = HashMap::new();
         decls.insert("opacity".to_string(), StyleValue::Number(opacity));
-        KeyframeStep { position: pos, declarations: decls }
+        KeyframeStep {
+            position: pos,
+            declarations: decls,
+        }
     }
 
     #[test]
@@ -491,7 +530,11 @@ mod tests {
     fn keyframe_animation_infinite_loops() {
         let kf = KeyframesDefinition {
             name: "pulse".to_string(),
-            steps: vec![make_step(0.0, 1.0), make_step(0.5, 0.3), make_step(1.0, 1.0)],
+            steps: vec![
+                make_step(0.0, 1.0),
+                make_step(0.5, 0.3),
+                make_step(1.0, 1.0),
+            ],
         };
         let mut anim = KeyframeAnimation::new(kf, 1.0, Easing::Linear, f32::INFINITY);
 
@@ -558,10 +601,8 @@ mod tests {
 
     #[test]
     fn shorthand_full_spec_all_fields() {
-        let sh = parse_animation_shorthand(
-            "pop 300ms 100ms ease-out 2 reverse forwards paused",
-        )
-        .unwrap();
+        let sh = parse_animation_shorthand("pop 300ms 100ms ease-out 2 reverse forwards paused")
+            .unwrap();
         assert_eq!(sh.name.as_deref(), Some("pop"));
         assert!((sh.duration_secs.unwrap() - 0.3).abs() < 1e-6);
         assert!((sh.delay_secs.unwrap() - 0.1).abs() < 1e-6);

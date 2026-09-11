@@ -24,7 +24,9 @@ pub fn parse_attr_block(s: &str) -> Option<Attrs> {
         while matches!(chars.peek(), Some((_, c)) if c.is_whitespace()) {
             chars.next();
         }
-        let Some(&(key_start, _)) = chars.peek() else { break };
+        let Some(&(key_start, _)) = chars.peek() else {
+            break;
+        };
         // Ключ.
         let mut key_end = key_start;
         while let Some(&(i, c)) = chars.peek() {
@@ -144,8 +146,9 @@ pub fn serialize_attrs(attrs: &Attrs) -> String {
             continue; // Флаг.
         }
         out.push('=');
-        let needs_quotes =
-            value.chars().any(|c| c.is_whitespace() || matches!(c, '"' | '{' | '}' | '\\'));
+        let needs_quotes = value
+            .chars()
+            .any(|c| c.is_whitespace() || matches!(c, '"' | '{' | '}' | '\\'));
         if needs_quotes {
             out.push('"');
             for c in value.chars() {

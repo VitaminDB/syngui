@@ -15,9 +15,7 @@ impl RopeBuffer {
     }
 
     pub fn new() -> Self {
-        Self {
-            rope: Rope::new(),
-        }
+        Self { rope: Rope::new() }
     }
 
     pub fn len_bytes(&self) -> usize {
@@ -185,7 +183,12 @@ mod tests {
         let b = RopeBuffer::from_str("hello\nworld");
         for byte in [0, 3, 5, 6, 8, 11].iter().copied() {
             let (l, c) = b.byte_to_line_col(byte);
-            assert_eq!(b.line_col_to_byte(l, c), byte, "roundtrip for byte={}", byte);
+            assert_eq!(
+                b.line_col_to_byte(l, c),
+                byte,
+                "roundtrip for byte={}",
+                byte
+            );
         }
     }
 

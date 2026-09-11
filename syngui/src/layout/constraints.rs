@@ -59,8 +59,10 @@ impl Constraints {
 
     pub fn constrain(&self, size: Size) -> Size {
         Size::new(
-            size.width.clamp(self.min_width.min(self.max_width), self.max_width),
-            size.height.clamp(self.min_height.min(self.max_height), self.max_height),
+            size.width
+                .clamp(self.min_width.min(self.max_width), self.max_width),
+            size.height
+                .clamp(self.min_height.min(self.max_height), self.max_height),
         )
     }
 

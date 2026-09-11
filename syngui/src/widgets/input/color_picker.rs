@@ -1,15 +1,17 @@
+use crate::core::sync::Mutex;
 use crate::core::{Color, Point, Rect, RectExt, Size};
 use crate::input::{CursorIcon, Event, EventResult, MouseButton};
 use crate::layout::Constraints;
-use crate::mss::{ComputedStyle, Dimension, TextAlign, TextDecoration};
 use crate::mss::MssFields;
+use crate::mss::{ComputedStyle, Dimension, TextAlign, TextDecoration};
 use crate::render::{Border, DisplayList};
 use crate::widget::context::{EventContext, EventContextExt};
-use crate::widget::{DirtyFlags, Element, ElementId, ElementTree, LayoutHint, StyledElement, UpdateContext, Widget};
+use crate::widget::{
+    DirtyFlags, Element, ElementId, ElementTree, LayoutHint, StyledElement, UpdateContext, Widget,
+};
 use crate::widgets::containers::IntoWidget;
 use std::any::Any;
 use std::sync::Arc;
-use crate::core::sync::Mutex;
 
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct ColorValue {
@@ -165,7 +167,9 @@ impl ColorPicker {
 }
 
 impl Default for ColorPicker {
-    fn default() -> Self { Self::new() }
+    fn default() -> Self {
+        Self::new()
+    }
 }
 
 impl Widget for ColorPicker {
@@ -197,20 +201,30 @@ impl Widget for ColorPicker {
         })
     }
 
-    fn can_update(&self, other: &dyn Any) -> bool { other.is::<Self>() }
-    fn as_any(&self) -> &dyn Any { self }
-    fn as_any_mut(&mut self) -> &mut dyn Any { self }
+    fn can_update(&self, other: &dyn Any) -> bool {
+        other.is::<Self>()
+    }
+    fn as_any(&self) -> &dyn Any {
+        self
+    }
+    fn as_any_mut(&mut self) -> &mut dyn Any {
+        self
+    }
 
     fn mount(&self, tree: &mut ElementTree, parent_id: ElementId) {
         if let Some(child) = &self.child {
             let child_element = child.create_element();
-            let child_id = tree.insert_with_type_id(child_element, Some(parent_id), child.as_any().type_id());
+            let child_id =
+                tree.insert_with_type_id(child_element, Some(parent_id), child.as_any().type_id());
             child.mount(tree, child_id);
         }
     }
 
     fn child_widgets(&self) -> Vec<&dyn Widget> {
-        self.child.as_ref().map(|c| vec![c.as_ref() as &dyn Widget]).unwrap_or_default()
+        self.child
+            .as_ref()
+            .map(|c| vec![c.as_ref() as &dyn Widget])
+            .unwrap_or_default()
     }
 }
 
@@ -269,9 +283,12 @@ pub struct ColorPickerElement {
 
 impl ColorPickerElement {
     fn popup_height(&self) -> f32 {
-        POPUP_PADDING * 2.0 + SV_SIZE + SLIDER_GAP
+        POPUP_PADDING * 2.0
+            + SV_SIZE
+            + SLIDER_GAP
             + 3.0 * (SLIDER_HEIGHT + SLIDER_GAP)
-            + HEX_ROW_HEIGHT + SLIDER_GAP
+            + HEX_ROW_HEIGHT
+            + SLIDER_GAP
             + PREVIEW_HEIGHT
     }
 
@@ -288,10 +305,14 @@ impl ColorPickerElement {
             self.bounds.y() + trigger_h + 4.0
         };
         if self.viewport.width > 0.0 {
-            x = x.min(self.viewport.width - POPUP_WIDTH - VIEWPORT_MARGIN).max(VIEWPORT_MARGIN);
+            x = x
+                .min(self.viewport.width - POPUP_WIDTH - VIEWPORT_MARGIN)
+                .max(VIEWPORT_MARGIN);
         }
         if self.viewport.height > 0.0 {
-            y = y.min(self.viewport.height - h - VIEWPORT_MARGIN).max(VIEWPORT_MARGIN);
+            y = y
+                .min(self.viewport.height - h - VIEWPORT_MARGIN)
+                .max(VIEWPORT_MARGIN);
         }
         Rect::new(Point::new(x, y), Size::new(POPUP_WIDTH, h))
     }
@@ -315,13 +336,20 @@ impl ColorPickerElement {
 
     fn hue_bar_rect(&self, popup: Rect) -> Rect {
         Rect::new(
-            Point::new(popup.x() + POPUP_PADDING + SV_SIZE + HUE_BAR_GAP, popup.y() + POPUP_PADDING),
+            Point::new(
+                popup.x() + POPUP_PADDING + SV_SIZE + HUE_BAR_GAP,
+                popup.y() + POPUP_PADDING,
+            ),
             Size::new(HUE_BAR_WIDTH, SV_SIZE),
         )
     }
 
     fn rgb_slider_rect(&self, popup: Rect, index: usize) -> Rect {
-        let y = popup.y() + POPUP_PADDING + SV_SIZE + SLIDER_GAP + index as f32 * (SLIDER_HEIGHT + SLIDER_GAP);
+        let y = popup.y()
+            + POPUP_PADDING
+            + SV_SIZE
+            + SLIDER_GAP
+            + index as f32 * (SLIDER_HEIGHT + SLIDER_GAP);
         Rect::new(
             Point::new(popup.x() + POPUP_PADDING, y),
             Size::new(POPUP_WIDTH - POPUP_PADDING * 2.0, SLIDER_HEIGHT),
@@ -329,7 +357,8 @@ impl ColorPickerElement {
     }
 
     fn hex_row_rect(&self, popup: Rect) -> Rect {
-        let y = popup.y() + POPUP_PADDING + SV_SIZE + SLIDER_GAP + 3.0 * (SLIDER_HEIGHT + SLIDER_GAP);
+        let y =
+            popup.y() + POPUP_PADDING + SV_SIZE + SLIDER_GAP + 3.0 * (SLIDER_HEIGHT + SLIDER_GAP);
         Rect::new(
             Point::new(popup.x() + POPUP_PADDING, y),
             Size::new(POPUP_WIDTH - POPUP_PADDING * 2.0, HEX_ROW_HEIGHT),
@@ -337,9 +366,13 @@ impl ColorPickerElement {
     }
 
     fn preview_rect(&self, popup: Rect) -> Rect {
-        let y = popup.y() + POPUP_PADDING + SV_SIZE + SLIDER_GAP
+        let y = popup.y()
+            + POPUP_PADDING
+            + SV_SIZE
+            + SLIDER_GAP
             + 3.0 * (SLIDER_HEIGHT + SLIDER_GAP)
-            + HEX_ROW_HEIGHT + SLIDER_GAP;
+            + HEX_ROW_HEIGHT
+            + SLIDER_GAP;
         Rect::new(
             Point::new(popup.x() + POPUP_PADDING, y),
             Size::new(POPUP_WIDTH - POPUP_PADDING * 2.0, PREVIEW_HEIGHT),
@@ -360,7 +393,9 @@ impl ColorPickerElement {
 
     fn fire_change(&self) {
         if let Some(ref cb) = self.on_change {
-            if let Ok(mut f) = cb.lock() { f(self.color); }
+            if let Ok(mut f) = cb.lock() {
+                f(self.color);
+            }
         }
     }
 
@@ -405,14 +440,26 @@ impl ColorPickerElement {
             Point::new(cx - cursor_r, cy - cursor_r),
             Size::new(cursor_r * 2.0, cursor_r * 2.0),
         );
-        list.push_rect_bordered(cursor_rect, Color::TRANSPARENT, [cursor_r; 4], Border::new(2.0, Color::WHITE));
-        list.push_rect_bordered(cursor_rect, Color::TRANSPARENT, [cursor_r; 4], Border::new(1.0, Color::BLACK.with_alpha(0.3)));
+        list.push_rect_bordered(
+            cursor_rect,
+            Color::TRANSPARENT,
+            [cursor_r; 4],
+            Border::new(2.0, Color::WHITE),
+        );
+        list.push_rect_bordered(
+            cursor_rect,
+            Color::TRANSPARENT,
+            [cursor_r; 4],
+            Border::new(1.0, Color::BLACK.with_alpha(0.3)),
+        );
     }
 
     fn draw_hue_bar(&self, list: &mut DisplayList, rect: Rect) {
         let steps = 12;
         let cell_h = rect.size.height / steps as f32;
-        let hues = [0.0, 30.0, 60.0, 90.0, 120.0, 150.0, 180.0, 210.0, 240.0, 270.0, 300.0, 330.0];
+        let hues = [
+            0.0, 30.0, 60.0, 90.0, 120.0, 150.0, 180.0, 210.0, 240.0, 270.0, 300.0, 330.0,
+        ];
 
         for (i, &h) in hues.iter().enumerate() {
             let c = ColorValue::from_hsv(h, 1.0, 1.0);
@@ -428,10 +475,23 @@ impl ColorPickerElement {
             Point::new(rect.x() - 2.0, cy - 3.0),
             Size::new(rect.size.width + 4.0, 6.0),
         );
-        list.push_rect_bordered(cursor_rect, Color::TRANSPARENT, [3.0; 4], Border::new(2.0, Color::WHITE));
+        list.push_rect_bordered(
+            cursor_rect,
+            Color::TRANSPARENT,
+            [3.0; 4],
+            Border::new(2.0, Color::WHITE),
+        );
     }
 
-    fn draw_rgb_slider(&self, list: &mut DisplayList, rect: Rect, label: &str, value: u8, channel_color: Color, fg: Color) {
+    fn draw_rgb_slider(
+        &self,
+        list: &mut DisplayList,
+        rect: Rect,
+        label: &str,
+        value: u8,
+        channel_color: Color,
+        fg: Color,
+    ) {
         let label_w = 20.0;
         let value_w = 36.0;
         let bar_x = rect.x() + label_w;
@@ -440,7 +500,16 @@ impl ColorPickerElement {
         // Подпись и значение — строго одной строкой: перенос в узкой
         // ячейке уводил число под слайдер.
         let label_rect = Rect::new(rect.origin, Size::new(label_w, rect.size.height));
-        list.push_text_styled_singleline(label, label_rect, fg.with_alpha(0.6), 11.0, TextAlign::DEFAULT, TextDecoration::None, 500, None);
+        list.push_text_styled_singleline(
+            label,
+            label_rect,
+            fg.with_alpha(0.6),
+            11.0,
+            TextAlign::DEFAULT,
+            TextDecoration::None,
+            500,
+            None,
+        );
 
         let bar_rect = Rect::new(
             Point::new(bar_x, rect.y() + (rect.size.height - 8.0) / 2.0),
@@ -458,13 +527,30 @@ impl ColorPickerElement {
             Point::new(thumb_x, rect.y() + (rect.size.height - 14.0) / 2.0),
             Size::new(10.0, 14.0),
         );
-        list.push_rect_bordered(thumb_rect, Color::WHITE, [5.0; 4], Border::new(2.0, channel_color));
+        list.push_rect_bordered(
+            thumb_rect,
+            Color::WHITE,
+            [5.0; 4],
+            Border::new(2.0, channel_color),
+        );
 
         let val_rect = Rect::new(
-            Point::new(rect.x() + rect.size.width - value_w, rect.y() + (rect.size.height - 13.0) / 2.0),
+            Point::new(
+                rect.x() + rect.size.width - value_w,
+                rect.y() + (rect.size.height - 13.0) / 2.0,
+            ),
             Size::new(value_w, 13.0),
         );
-        list.push_text_styled_singleline(&value.to_string(), val_rect, fg, 11.0, TextAlign::RIGHT, TextDecoration::None, 500, None);
+        list.push_text_styled_singleline(
+            &value.to_string(),
+            val_rect,
+            fg,
+            11.0,
+            TextAlign::RIGHT,
+            TextDecoration::None,
+            500,
+            None,
+        );
     }
 }
 
@@ -487,13 +573,29 @@ impl Element for ColorPickerElement {
 
     fn layout(&mut self, constraints: Constraints) -> Size {
         if self.has_child {
-            let w = if constraints.max_width.is_finite() { constraints.max_width } else { 0.0 };
-            let h = if constraints.max_height.is_finite() { constraints.max_height } else { 0.0 };
+            let w = if constraints.max_width.is_finite() {
+                constraints.max_width
+            } else {
+                0.0
+            };
+            let h = if constraints.max_height.is_finite() {
+                constraints.max_height
+            } else {
+                0.0
+            };
             self.bounds = Rect::new(Point::zero(), Size::new(w, h));
             Size::new(w, h)
         } else {
-            let w = self.width.map(|d| d.resolve(constraints.max_width)).unwrap_or(POPUP_WIDTH).min(constraints.max_width);
-            let h = self.mss.height.map(|d| d.resolve(constraints.max_height.max(0.0))).unwrap_or(INPUT_HEIGHT);
+            let w = self
+                .width
+                .map(|d| d.resolve(constraints.max_width))
+                .unwrap_or(POPUP_WIDTH)
+                .min(constraints.max_width);
+            let h = self
+                .mss
+                .height
+                .map(|d| d.resolve(constraints.max_height.max(0.0)))
+                .unwrap_or(INPUT_HEIGHT);
             self.bounds = Rect::new(Point::zero(), Size::new(w, h));
             Size::new(w, h)
         }
@@ -515,7 +617,9 @@ impl Element for ColorPickerElement {
             let radius = if h < 32.0 { 6.0 } else { 8.0 };
 
             list.push_rect_bordered(
-                self.bounds, bg_color, [radius; 4],
+                self.bounds,
+                bg_color,
+                [radius; 4],
                 Border::new(if self.is_open { 2.0 } else { 1.0 }, border_color),
             );
 
@@ -530,7 +634,10 @@ impl Element for ColorPickerElement {
             let text_x = self.bounds.x() + h_pad + swatch_size + h_pad;
             let text_rect = Rect::new(
                 Point::new(text_x, self.bounds.y() + (h - font_size) / 2.0),
-                Size::new((self.bounds.right() - h_pad - text_x).max(0.0), font_size + 2.0),
+                Size::new(
+                    (self.bounds.right() - h_pad - text_x).max(0.0),
+                    font_size + 2.0,
+                ),
             );
             let text_color = self.mss.color.unwrap_or(Color::from_hex("#1F2937"));
             // `#RRGGBB` в узком контроле (96 px в панели свойств) переносился
@@ -547,15 +654,29 @@ impl Element for ColorPickerElement {
             );
         }
 
-        if !self.is_open { return; }
+        if !self.is_open {
+            return;
+        }
 
         let popup = self.popup_rect();
 
         list.begin_overlay();
 
-        list.push_shadow(popup, Color::BLACK.with_alpha(0.15), 16.0, (0.0, 4.0), [12.0; 4]);
-        let popup_bg = self.mss_popup_bg.or(self.mss.background_color).unwrap_or(Color::WHITE);
-        let popup_fg = self.mss_popup_fg.or(self.mss.color).unwrap_or(Color::from_hex("#1F2937"));
+        list.push_shadow(
+            popup,
+            Color::BLACK.with_alpha(0.15),
+            16.0,
+            (0.0, 4.0),
+            [12.0; 4],
+        );
+        let popup_bg = self
+            .mss_popup_bg
+            .or(self.mss.background_color)
+            .unwrap_or(Color::WHITE);
+        let popup_fg = self
+            .mss_popup_fg
+            .or(self.mss.color)
+            .unwrap_or(Color::from_hex("#1F2937"));
         let popup_border = self
             .mss_popup_border
             .or_else(|| self.mss.border_color.map(|c| c.lighten(0.2)))
@@ -563,21 +684,52 @@ impl Element for ColorPickerElement {
         list.push_rect_bordered(popup, popup_bg, [12.0; 4], Border::new(1.0, popup_border));
 
         let sv_rect = self.sv_field_rect(popup);
-        list.push_rect_bordered(sv_rect, Color::TRANSPARENT, [4.0; 4], Border::new(1.0, popup_border));
+        list.push_rect_bordered(
+            sv_rect,
+            Color::TRANSPARENT,
+            [4.0; 4],
+            Border::new(1.0, popup_border),
+        );
         self.draw_sv_field(list, sv_rect);
 
         let hue_rect = self.hue_bar_rect(popup);
-        list.push_rect_bordered(hue_rect, Color::TRANSPARENT, [4.0; 4], Border::new(1.0, popup_border));
+        list.push_rect_bordered(
+            hue_rect,
+            Color::TRANSPARENT,
+            [4.0; 4],
+            Border::new(1.0, popup_border),
+        );
         self.draw_hue_bar(list, hue_rect);
 
         let r_rect = self.rgb_slider_rect(popup, 0);
-        self.draw_rgb_slider(list, r_rect, "R", self.color.r, Color::from_hex("#EF4444"), popup_fg);
+        self.draw_rgb_slider(
+            list,
+            r_rect,
+            "R",
+            self.color.r,
+            Color::from_hex("#EF4444"),
+            popup_fg,
+        );
 
         let g_rect = self.rgb_slider_rect(popup, 1);
-        self.draw_rgb_slider(list, g_rect, "G", self.color.g, Color::from_hex("#22C55E"), popup_fg);
+        self.draw_rgb_slider(
+            list,
+            g_rect,
+            "G",
+            self.color.g,
+            Color::from_hex("#22C55E"),
+            popup_fg,
+        );
 
         let b_rect = self.rgb_slider_rect(popup, 2);
-        self.draw_rgb_slider(list, b_rect, "B", self.color.b, Color::from_hex(CHANNEL_B), popup_fg);
+        self.draw_rgb_slider(
+            list,
+            b_rect,
+            "B",
+            self.color.b,
+            Color::from_hex(CHANNEL_B),
+            popup_fg,
+        );
 
         let hex_rect = self.hex_row_rect(popup);
         let hex_label_rect = Rect::new(hex_rect.origin, Size::new(36.0, hex_rect.size.height));
@@ -601,13 +753,33 @@ impl Element for ColorPickerElement {
             .or(self.mss.background_color)
             .map(|c| c.darken(0.03))
             .unwrap_or(Color::from_hex("#F9FAFB"));
-        let hex_input_border = self.mss_popup_border.or(self.mss.border_color).unwrap_or(Color::from_hex("#D1D5DB"));
-        list.push_rect_bordered(hex_input_rect, hex_input_bg, [4.0; 4], Border::new(1.0, hex_input_border));
+        let hex_input_border = self
+            .mss_popup_border
+            .or(self.mss.border_color)
+            .unwrap_or(Color::from_hex("#D1D5DB"));
+        list.push_rect_bordered(
+            hex_input_rect,
+            hex_input_bg,
+            [4.0; 4],
+            Border::new(1.0, hex_input_border),
+        );
         let hex_text_rect = Rect::new(
-            Point::new(hex_input_rect.x() + 8.0, hex_input_rect.y() + (hex_input_rect.size.height - 12.0) / 2.0),
+            Point::new(
+                hex_input_rect.x() + 8.0,
+                hex_input_rect.y() + (hex_input_rect.size.height - 12.0) / 2.0,
+            ),
             Size::new(hex_input_rect.size.width - 16.0, 14.0),
         );
-        list.push_text_styled_singleline(&self.hex_input, hex_text_rect, popup_fg, 12.0, TextAlign::DEFAULT, TextDecoration::None, 400, None);
+        list.push_text_styled_singleline(
+            &self.hex_input,
+            hex_text_rect,
+            popup_fg,
+            12.0,
+            TextAlign::DEFAULT,
+            TextDecoration::None,
+            400,
+            None,
+        );
 
         let preview = self.preview_rect(popup);
         let half_w = preview.size.width / 2.0;
@@ -659,7 +831,8 @@ impl Element for ColorPickerElement {
                         let popup_h = self.popup_height();
                         let trigger_h = self.bounds.size.height;
                         self.viewport = ctx.viewport_size();
-                        self.opens_upward = self.bounds.y() + trigger_h + 4.0 + popup_h > self.viewport.height
+                        self.opens_upward = self.bounds.y() + trigger_h + 4.0 + popup_h
+                            > self.viewport.height
                             && self.bounds.y() >= popup_h + 4.0;
                         ctx.register_overlay(self.overlay_rect(), false);
                     } else {
@@ -770,19 +943,40 @@ impl Element for ColorPickerElement {
         }
     }
 
-    fn children(&self) -> &[ElementId] { &self.child_ids }
-    fn bounds(&self) -> Rect { self.bounds }
-    fn set_position(&mut self, pos: Point) { self.bounds.origin = pos; }
-    fn mark_dirty(&mut self, flags: DirtyFlags) { self.dirty_flags |= flags; }
-    fn clear_dirty(&mut self, flags: DirtyFlags) { self.dirty_flags.remove(flags); }
-    fn is_dirty(&self, flags: DirtyFlags) -> bool { self.dirty_flags.contains(flags) }
-    fn id(&self) -> ElementId { self.id }
-    fn set_id(&mut self, id: ElementId) { self.id = id; }
+    fn children(&self) -> &[ElementId] {
+        &self.child_ids
+    }
+    fn bounds(&self) -> Rect {
+        self.bounds
+    }
+    fn set_position(&mut self, pos: Point) {
+        self.bounds.origin = pos;
+    }
+    fn mark_dirty(&mut self, flags: DirtyFlags) {
+        self.dirty_flags |= flags;
+    }
+    fn clear_dirty(&mut self, flags: DirtyFlags) {
+        self.dirty_flags.remove(flags);
+    }
+    fn is_dirty(&self, flags: DirtyFlags) -> bool {
+        self.dirty_flags.contains(flags)
+    }
+    fn id(&self) -> ElementId {
+        self.id
+    }
+    fn set_id(&mut self, id: ElementId) {
+        self.id = id;
+    }
     fn mount(&mut self, _tree: &mut ElementTree) {}
 
     fn layout_hint(&self) -> LayoutHint {
         if self.has_child {
-            LayoutHint::Padding { left: 0.0, top: 0.0, right: 0.0, bottom: 0.0 }
+            LayoutHint::Padding {
+                left: 0.0,
+                top: 0.0,
+                right: 0.0,
+                bottom: 0.0,
+            }
         } else {
             LayoutHint::default()
         }
@@ -793,16 +987,31 @@ impl Element for ColorPickerElement {
         self.mark_dirty(DirtyFlags::RENDER);
     }
 
-    fn get_classes(&self) -> &[String] { &self.classes }
+    fn get_classes(&self) -> &[String] {
+        &self.classes
+    }
 
-    fn element_type_name(&self) -> &str { "ColorPicker" }
+    fn element_type_name(&self) -> &str {
+        "ColorPicker"
+    }
 
-    fn reset_mss_styles(&mut self) { self.mss.reset(); }
-    fn mss(&self) -> Option<&crate::mss::MssFields> { Some(&self.mss) }
+    fn reset_mss_styles(&mut self) {
+        self.mss.reset();
+    }
+    fn mss(&self) -> Option<&crate::mss::MssFields> {
+        Some(&self.mss)
+    }
     fn apply_computed_style(&mut self, style: &ComputedStyle) {
         self.mss.apply(style);
-        if let Some(w) = self.mss.width { self.width = Some(w); }
-        let color_of = |key: &str| style.get(key).and_then(|v| v.as_color()).map(crate::animation::transition::mss_color_to_core);
+        if let Some(w) = self.mss.width {
+            self.width = Some(w);
+        }
+        let color_of = |key: &str| {
+            style
+                .get(key)
+                .and_then(|v| v.as_color())
+                .map(crate::animation::transition::mss_color_to_core)
+        };
         self.mss_popup_bg = color_of("--popup-background");
         self.mss_popup_fg = color_of("--popup-color");
         self.mss_popup_border = color_of("--popup-border");
@@ -818,7 +1027,8 @@ impl Element for ColorPickerElement {
         selected: Option<&ComputedStyle>,
         _checked: Option<&ComputedStyle>,
     ) {
-        self.mss.apply_transitions(base, hover, active, focus, selected);
+        self.mss
+            .apply_transitions(base, hover, active, focus, selected);
     }
 }
 
@@ -827,7 +1037,9 @@ impl StyledElement for ColorPickerElement {
         self.mark_dirty(DirtyFlags::LAYOUT | DirtyFlags::RENDER);
     }
 
-    fn classes(&self) -> &[String] { &self.classes }
+    fn classes(&self) -> &[String] {
+        &self.classes
+    }
 
     fn set_classes(&mut self, classes: Vec<String>) {
         self.classes = classes;
@@ -874,20 +1086,36 @@ mod tests {
     #[test]
     fn popup_is_kept_inside_the_viewport() {
         let viewport = Size::new(1200.0, 800.0);
-        let el = element(Rect::new(Point::new(1090.0, 100.0), Size::new(96.0, 28.0)), viewport);
+        let el = element(
+            Rect::new(Point::new(1090.0, 100.0), Size::new(96.0, 28.0)),
+            viewport,
+        );
         let popup = el.popup_rect();
-        assert!(popup.right() <= viewport.width - VIEWPORT_MARGIN + 0.01, "правый край: {popup:?}");
+        assert!(
+            popup.right() <= viewport.width - VIEWPORT_MARGIN + 0.01,
+            "правый край: {popup:?}"
+        );
         assert!(popup.x() >= VIEWPORT_MARGIN - 0.01);
         assert_eq!(popup.size.width, POPUP_WIDTH, "ширина попапа не меняется");
 
         // Снизу не влезает — попап уходит вверх и всё равно внутри окна.
-        let mut low = element(Rect::new(Point::new(20.0, 700.0), Size::new(96.0, 28.0)), viewport);
+        let mut low = element(
+            Rect::new(Point::new(20.0, 700.0), Size::new(96.0, 28.0)),
+            viewport,
+        );
         low.opens_upward = true;
         let popup = low.popup_rect();
-        assert!(popup.y() >= VIEWPORT_MARGIN - 0.01 && popup.bottom() <= viewport.height - VIEWPORT_MARGIN + 0.01, "{popup:?}");
+        assert!(
+            popup.y() >= VIEWPORT_MARGIN - 0.01
+                && popup.bottom() <= viewport.height - VIEWPORT_MARGIN + 0.01,
+            "{popup:?}"
+        );
 
         // Оверлей накрывает и кнопку, и попап, где бы тот ни оказался.
-        let el = element(Rect::new(Point::new(1090.0, 100.0), Size::new(96.0, 28.0)), viewport);
+        let el = element(
+            Rect::new(Point::new(1090.0, 100.0), Size::new(96.0, 28.0)),
+            viewport,
+        );
         let (overlay, popup) = (el.overlay_rect(), el.popup_rect());
         assert!(overlay.x() <= popup.x().min(el.bounds.x()) + 0.01);
         assert!(overlay.right() >= popup.right().max(el.bounds.right()) - 0.01);
@@ -898,7 +1126,10 @@ mod tests {
     /// считается от контрола, как и раньше.
     #[test]
     fn popup_without_a_viewport_follows_the_trigger() {
-        let el = element(Rect::new(Point::new(40.0, 60.0), Size::new(96.0, 28.0)), Size::zero());
+        let el = element(
+            Rect::new(Point::new(40.0, 60.0), Size::new(96.0, 28.0)),
+            Size::zero(),
+        );
         let popup = el.popup_rect();
         assert_eq!((popup.x(), popup.y()), (40.0, 60.0 + 28.0 + 4.0));
     }

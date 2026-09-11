@@ -1,13 +1,15 @@
+use crate::core::sync::Mutex;
 use crate::core::{Color, Point, Rect, RectExt, Size};
 use crate::input::{CursorIcon, Event, EventResult, Key, MouseButton};
 use crate::layout::Constraints;
 use crate::mss::{ComputedStyle, MssFields, TextAlign, TextDecoration};
 use crate::render::{Border, DisplayList};
 use crate::widget::context::{EventContext, EventContextExt};
-use crate::widget::{DirtyFlags, Element, ElementId, ElementTree, StyledElement, UpdateContext, Widget};
+use crate::widget::{
+    DirtyFlags, Element, ElementId, ElementTree, StyledElement, UpdateContext, Widget,
+};
 use std::any::Any;
 use std::sync::Arc;
-use crate::core::sync::Mutex;
 
 pub type RadioGroupState = Arc<Mutex<String>>;
 
@@ -137,12 +139,30 @@ impl Element for RadioButtonElement {
 
         let font_size = self.mss.font_size.unwrap_or(14.0);
         let bold = self.mss.font_weight.unwrap_or(400) >= 700;
-        let label_width = self.label.as_ref().map(|l| {
-            self.text_measure.as_ref()
-                .map(|tm| tm.measure_text_width_styled(l, font_size, l.chars().count(), bold, self.mss.font_family.as_deref()))
-                .unwrap_or(l.chars().count() as f32 * font_size * 0.65)
-        }).unwrap_or(0.0);
-        let width = radio_size + if self.label.is_some() { gap + label_width } else { 0.0 };
+        let label_width = self
+            .label
+            .as_ref()
+            .map(|l| {
+                self.text_measure
+                    .as_ref()
+                    .map(|tm| {
+                        tm.measure_text_width_styled(
+                            l,
+                            font_size,
+                            l.chars().count(),
+                            bold,
+                            self.mss.font_family.as_deref(),
+                        )
+                    })
+                    .unwrap_or(l.chars().count() as f32 * font_size * 0.65)
+            })
+            .unwrap_or(0.0);
+        let width = radio_size
+            + if self.label.is_some() {
+                gap + label_width
+            } else {
+                0.0
+            };
         let height = radio_size.max(20.0);
 
         self.radio_bounds = Rect::new(
@@ -180,7 +200,10 @@ impl Element for RadioButtonElement {
             self.radio_bounds,
             bg_color,
             [10.0; 4],
-            Border { width: border_width, color: border_color },
+            Border {
+                width: border_width,
+                color: border_color,
+            },
         );
 
         if self.is_selected {
@@ -201,18 +224,36 @@ impl Element for RadioButtonElement {
             let font_weight = self.mss.font_weight.unwrap_or(400);
             let text_x = self.radio_bounds.x() + self.radio_bounds.size.width + 8.0;
             let bold = font_weight >= 700;
-            let label_w = self.text_measure.as_ref()
-                .map(|tm| tm.measure_text_width_styled(label, font_size, label.chars().count(), bold, self.mss.font_family.as_deref()))
-                .unwrap_or(label.chars().count() as f32 * font_size * 0.65) + 4.0;
+            let label_w = self
+                .text_measure
+                .as_ref()
+                .map(|tm| {
+                    tm.measure_text_width_styled(
+                        label,
+                        font_size,
+                        label.chars().count(),
+                        bold,
+                        self.mss.font_family.as_deref(),
+                    )
+                })
+                .unwrap_or(label.chars().count() as f32 * font_size * 0.65)
+                + 4.0;
             let label_rect = Rect::new(
                 Point::new(text_x, self.radio_bounds.y() + 2.0),
                 Size::new(label_w, font_size + 2.0),
             );
             let label_color = if self.disabled { disabled_fg } else { fg };
-            list.push_text_styled(label, label_rect, label_color, font_size,
-                TextAlign::DEFAULT, TextDecoration::None, font_weight, self.mss.font_family.clone());
+            list.push_text_styled(
+                label,
+                label_rect,
+                label_color,
+                font_size,
+                TextAlign::DEFAULT,
+                TextDecoration::None,
+                font_weight,
+                self.mss.font_family.clone(),
+            );
         }
-
     }
 
     fn handle_event(&mut self, event: &Event, ctx: &mut EventContext) -> EventResult {
@@ -224,12 +265,16 @@ impl Element for RadioButtonElement {
             Event::MouseMove(pos) => {
                 let was_hover = self.hover;
                 self.hover = self.bounds.contains(*pos);
-                if self.hover { ctx.set_cursor(CursorIcon::Pointer); }
+                if self.hover {
+                    ctx.set_cursor(CursorIcon::Pointer);
+                }
                 if self.hover != was_hover {
                     ctx.request_paint();
                     return EventResult::Handled;
                 }
-                if self.hover { return EventResult::Handled; }
+                if self.hover {
+                    return EventResult::Handled;
+                }
                 EventResult::Ignored
             }
             Event::MouseDown { button, position } => {
@@ -274,10 +319,8 @@ impl Element for RadioButtonElement {
 
     fn set_position(&mut self, pos: Point) {
         self.bounds.origin = pos;
-        self.radio_bounds.origin = Point::new(
-            pos.x,
-            pos.y + (self.bounds.size.height - 20.0) / 2.0,
-        );
+        self.radio_bounds.origin =
+            Point::new(pos.x, pos.y + (self.bounds.size.height - 20.0) / 2.0);
     }
 
     fn mark_dirty(&mut self, flags: DirtyFlags) {
@@ -313,13 +356,22 @@ impl Element for RadioButtonElement {
         &self.classes
     }
 
-    fn element_type_name(&self) -> &str { "RadioButton" }
+    fn element_type_name(&self) -> &str {
+        "RadioButton"
+    }
 
-    fn reset_mss_styles(&mut self) { self.mss.reset(); }
-    fn mss(&self) -> Option<&crate::mss::MssFields> { Some(&self.mss) }
+    fn reset_mss_styles(&mut self) {
+        self.mss.reset();
+    }
+    fn mss(&self) -> Option<&crate::mss::MssFields> {
+        Some(&self.mss)
+    }
     fn apply_computed_style(&mut self, style: &ComputedStyle) {
         self.mss.apply(style);
-        if let Some(f) = style.get("font-family").and_then(|v| v.as_string().map(|s| s.to_string())) {
+        if let Some(f) = style
+            .get("font-family")
+            .and_then(|v| v.as_string().map(|s| s.to_string()))
+        {
             self.mss.font_family = Some(f);
         }
         self.apply_style(style);

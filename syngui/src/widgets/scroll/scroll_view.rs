@@ -170,16 +170,22 @@ impl Widget for ScrollView {
     fn mount(&self, tree: &mut ElementTree, parent_id: ElementId) {
         if let Some(child) = &self.child {
             let child_element = child.create_element();
-            let child_id = tree.insert_with_type_id(child_element, Some(parent_id), child.as_any().type_id());
+            let child_id =
+                tree.insert_with_type_id(child_element, Some(parent_id), child.as_any().type_id());
             child.mount(tree, child_id);
         }
     }
 
     fn child_widgets(&self) -> Vec<&dyn Widget> {
-        self.child.as_ref().map(|c| vec![c.as_ref() as &dyn Widget]).unwrap_or_default()
+        self.child
+            .as_ref()
+            .map(|c| vec![c.as_ref() as &dyn Widget])
+            .unwrap_or_default()
     }
 
-    fn widget_classes(&self) -> &[String] { &self.classes }
+    fn widget_classes(&self) -> &[String] {
+        &self.classes
+    }
 }
 
 pub struct ScrollViewElement {
@@ -330,7 +336,8 @@ impl ScrollViewElement {
         if content_h <= 0.0 || track_h <= 0.0 {
             return Rect::zero();
         }
-        let thumb_h = (self.bounds.size.height / content_h * track_h).clamp(20.0_f32.min(track_h), track_h);
+        let thumb_h =
+            (self.bounds.size.height / content_h * track_h).clamp(20.0_f32.min(track_h), track_h);
         let ratio = if self.max_scroll_y() > 0.0 {
             self.scroll_offset.y.clamp(0.0, self.max_scroll_y()) / self.max_scroll_y()
         } else {
@@ -352,7 +359,8 @@ impl ScrollViewElement {
         if content_w <= 0.0 || track_w <= 0.0 {
             return Rect::zero();
         }
-        let thumb_w = (self.bounds.size.width / content_w * track_w).clamp(20.0_f32.min(track_w), track_w);
+        let thumb_w =
+            (self.bounds.size.width / content_w * track_w).clamp(20.0_f32.min(track_w), track_w);
         let ratio = if self.max_scroll_x() > 0.0 {
             self.scroll_offset.x.clamp(0.0, self.max_scroll_x()) / self.max_scroll_x()
         } else {
@@ -394,7 +402,6 @@ impl ScrollViewElement {
         style
     }
 
-
     fn handle_key(&mut self, key: &Key, vp_h: f32, ctx: &mut EventContext) -> EventResult {
         match key {
             Key::Home if self.can_scroll_y() => {
@@ -414,29 +421,25 @@ impl ScrollViewElement {
                 EventResult::Handled
             }
             Key::PageUp if self.can_scroll_y() => {
-                self.scroll_offset.y =
-                    (self.scroll_offset.y - vp_h).max(0.0);
+                self.scroll_offset.y = (self.scroll_offset.y - vp_h).max(0.0);
                 self.flash_scrollbar();
                 ctx.request_paint();
                 EventResult::Handled
             }
             Key::PageDown if self.can_scroll_y() => {
-                self.scroll_offset.y =
-                    (self.scroll_offset.y + vp_h).min(self.max_scroll_y());
+                self.scroll_offset.y = (self.scroll_offset.y + vp_h).min(self.max_scroll_y());
                 self.flash_scrollbar();
                 ctx.request_paint();
                 EventResult::Handled
             }
             Key::Up if self.can_scroll_y() => {
-                self.scroll_offset.y =
-                    (self.scroll_offset.y - 40.0).max(0.0);
+                self.scroll_offset.y = (self.scroll_offset.y - 40.0).max(0.0);
                 self.flash_scrollbar();
                 ctx.request_paint();
                 EventResult::Handled
             }
             Key::Down if self.can_scroll_y() => {
-                self.scroll_offset.y =
-                    (self.scroll_offset.y + 40.0).min(self.max_scroll_y());
+                self.scroll_offset.y = (self.scroll_offset.y + 40.0).min(self.max_scroll_y());
                 self.flash_scrollbar();
                 ctx.request_paint();
                 EventResult::Handled
@@ -552,7 +555,11 @@ impl Element for ScrollViewElement {
 
     fn handle_event(&mut self, event: &Event, ctx: &mut EventContext) -> EventResult {
         match event {
-            Event::MouseWheel { delta, delta_x: ev_dx, position } => {
+            Event::MouseWheel {
+                delta,
+                delta_x: ev_dx,
+                position,
+            } => {
                 if !self.bounds.contains(*position) {
                     return EventResult::Ignored;
                 }
@@ -648,11 +655,10 @@ impl Element for ScrollViewElement {
                     let thumb_h = self.vertical_thumb_rect().size.height;
                     let track_h = self.bounds.size.height;
                     if track_h > thumb_h {
-                        let rel = (pos.y - self.bounds.origin.y - thumb_h / 2.0)
-                            / (track_h - thumb_h);
-                        self.scroll_offset.y = (rel.clamp(0.0, 1.0)
-                            * self.max_scroll_y())
-                        .clamp(0.0, self.max_scroll_y());
+                        let rel =
+                            (pos.y - self.bounds.origin.y - thumb_h / 2.0) / (track_h - thumb_h);
+                        self.scroll_offset.y = (rel.clamp(0.0, 1.0) * self.max_scroll_y())
+                            .clamp(0.0, self.max_scroll_y());
                     }
                     self.refresh_stick();
                     self.flash_scrollbar();
@@ -663,11 +669,10 @@ impl Element for ScrollViewElement {
                     let thumb_w = self.horizontal_thumb_rect().size.width;
                     let track_w = self.bounds.size.width;
                     if track_w > thumb_w {
-                        let rel = (pos.x - self.bounds.origin.x - thumb_w / 2.0)
-                            / (track_w - thumb_w);
-                        self.scroll_offset.x = (rel.clamp(0.0, 1.0)
-                            * self.max_scroll_x())
-                        .clamp(0.0, self.max_scroll_x());
+                        let rel =
+                            (pos.x - self.bounds.origin.x - thumb_w / 2.0) / (track_w - thumb_w);
+                        self.scroll_offset.x = (rel.clamp(0.0, 1.0) * self.max_scroll_x())
+                            .clamp(0.0, self.max_scroll_x());
                     }
                     self.flash_scrollbar();
                     ctx.request_paint();
@@ -777,10 +782,8 @@ impl Element for ScrollViewElement {
                     }
 
                     let alpha = 0.3;
-                    self.velocity.y =
-                        self.velocity.y * (1.0 - alpha) + dy * VELOCITY_SCALE * alpha;
-                    self.velocity.x =
-                        self.velocity.x * (1.0 - alpha) + dx * VELOCITY_SCALE * alpha;
+                    self.velocity.y = self.velocity.y * (1.0 - alpha) + dy * VELOCITY_SCALE * alpha;
+                    self.velocity.x = self.velocity.x * (1.0 - alpha) + dx * VELOCITY_SCALE * alpha;
 
                     self.touch_drag_start = Some(*position);
                     self.refresh_stick();
@@ -799,9 +802,7 @@ impl Element for ScrollViewElement {
                 self.touch_drag_start = None;
                 self.touch_id = None;
 
-                if self.velocity.y.abs() > MIN_VELOCITY
-                    || self.velocity.x.abs() > MIN_VELOCITY
-                {
+                if self.velocity.y.abs() > MIN_VELOCITY || self.velocity.x.abs() > MIN_VELOCITY {
                     self.is_coasting = true;
                 }
                 EventResult::Handled
@@ -837,9 +838,7 @@ impl Element for ScrollViewElement {
                 self.velocity.x = 0.0;
             }
 
-            if self.velocity.y.abs() < MIN_VELOCITY
-                && self.velocity.x.abs() < MIN_VELOCITY
-            {
+            if self.velocity.y.abs() < MIN_VELOCITY && self.velocity.x.abs() < MIN_VELOCITY {
                 self.velocity = Point::zero();
                 self.is_coasting = false;
             }
@@ -985,11 +984,19 @@ impl Element for ScrollViewElement {
     fn child_at_position(&self, pos: Point) -> crate::widget::ChildHit {
         let on_thumb = (self.show_vertical_thumb() && self.vertical_thumb_rect().contains(pos))
             || (self.show_horizontal_thumb() && self.horizontal_thumb_rect().contains(pos));
-        if on_thumb { crate::widget::ChildHit::None } else { crate::widget::ChildHit::Unknown }
+        if on_thumb {
+            crate::widget::ChildHit::None
+        } else {
+            crate::widget::ChildHit::Unknown
+        }
     }
 
-    fn reset_mss_styles(&mut self) { self.mss.reset(); }
-    fn mss(&self) -> Option<&crate::mss::MssFields> { Some(&self.mss) }
+    fn reset_mss_styles(&mut self) {
+        self.mss.reset();
+    }
+    fn mss(&self) -> Option<&crate::mss::MssFields> {
+        Some(&self.mss)
+    }
     fn apply_computed_style(&mut self, style: &ComputedStyle) {
         self.mss.apply(style);
         self.mark_dirty(DirtyFlags::LAYOUT | DirtyFlags::RENDER);
@@ -1004,7 +1011,8 @@ impl Element for ScrollViewElement {
         selected: Option<&ComputedStyle>,
         _checked: Option<&ComputedStyle>,
     ) {
-        self.mss.apply_transitions(base, hover, active, focus, selected);
+        self.mss
+            .apply_transitions(base, hover, active, focus, selected);
     }
 
     fn accessibility_info(&self) -> Option<crate::a11y::AccessibilityInfo> {
@@ -1076,17 +1084,32 @@ mod tests {
         el.set_content_size(Size::new(400.0, 2000.0));
         assert_eq!(el.scroll_offset().y, 1400.0, "первый показ — в самом низу");
         el.set_content_size(Size::new(400.0, 2600.0));
-        assert_eq!(el.scroll_offset().y, 2000.0, "стрим растит содержимое — низ держится");
+        assert_eq!(
+            el.scroll_offset().y,
+            2000.0,
+            "стрим растит содержимое — низ держится"
+        );
         // Пользователь листает вверх колесом.
         let mut ctx = crate::widget::context::EventContext::new(el.id());
-        let up = Event::MouseWheel { delta: 120.0, delta_x: 0.0, position: Point::new(100.0, 100.0) };
+        let up = Event::MouseWheel {
+            delta: 120.0,
+            delta_x: 0.0,
+            position: Point::new(100.0, 100.0),
+        };
         assert_eq!(el.handle_event(&up, &mut ctx), EventResult::Handled);
         let scrolled = el.scroll_offset().y;
         assert!(scrolled < 2000.0);
         el.set_content_size(Size::new(400.0, 3000.0));
-        assert_eq!(el.scroll_offset().y, scrolled, "ушёл вверх — новые сообщения не дёргают ленту");
+        assert_eq!(
+            el.scroll_offset().y,
+            scrolled,
+            "ушёл вверх — новые сообщения не дёргают ленту"
+        );
         // Клавиша End возвращает к низу — и прилипание снова работает.
-        assert_eq!(el.handle_event(&Event::KeyDown(Key::End), &mut ctx), EventResult::Handled);
+        assert_eq!(
+            el.handle_event(&Event::KeyDown(Key::End), &mut ctx),
+            EventResult::Handled
+        );
         assert_eq!(el.scroll_offset().y, 2400.0);
         el.set_content_size(Size::new(400.0, 3300.0));
         assert_eq!(el.scroll_offset().y, 2700.0);

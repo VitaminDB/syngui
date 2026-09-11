@@ -1,7 +1,7 @@
-use crate::core::{Point, Color};
-use crate::core::geometry::Bezier;
-use crate::render::Vertex;
 use super::paint::Paint;
+use crate::core::geometry::Bezier;
+use crate::core::{Color, Point};
+use crate::render::Vertex;
 
 #[derive(Debug, Default, Clone)]
 pub struct TessOutput {
@@ -33,12 +33,7 @@ impl TessOutput {
 const ZERO_DATA: [f32; 4] = [0.0, 0.0, 0.0, 0.0];
 const ZERO_UV: [f32; 2] = [0.0, 0.0];
 
-pub fn tessellate_line_segment(
-    p0: Point,
-    p1: Point,
-    paint: &Paint,
-    output: &mut TessOutput,
-) {
+pub fn tessellate_line_segment(p0: Point, p1: Point, paint: &Paint, output: &mut TessOutput) {
     let dx = p1.x - p0.x;
     let dy = p1.y - p0.y;
     let len = (dx * dx + dy * dy).sqrt();
@@ -59,8 +54,8 @@ pub fn tessellate_line_segment(
 
     let offsets = [
         (hw + f, color_transparent),
-        (hw,     color),
-        (-hw,    color),
+        (hw, color),
+        (-hw, color),
         (-(hw + f), color_transparent),
     ];
 
@@ -76,18 +71,17 @@ pub fn tessellate_line_segment(
     for i in 0..3u32 {
         let row = i * 2;
         output.indices.extend_from_slice(&[
-            base + row,     base + row + 1, base + row + 3,
-            base + row,     base + row + 3, base + row + 2,
+            base + row,
+            base + row + 1,
+            base + row + 3,
+            base + row,
+            base + row + 3,
+            base + row + 2,
         ]);
     }
 }
 
-pub fn tessellate_polyline(
-    points: &[Point],
-    paint: &Paint,
-    closed: bool,
-    output: &mut TessOutput,
-) {
+pub fn tessellate_polyline(points: &[Point], paint: &Paint, closed: bool, output: &mut TessOutput) {
     if points.len() < 2 {
         return;
     }
@@ -107,7 +101,11 @@ pub fn tessellate_polyline(
         let dx = b.x - a.x;
         let dy = b.y - a.y;
         let len = (dx * dx + dy * dy).sqrt();
-        if len < 1e-6 { (0.0, 1.0) } else { (-dy / len, dx / len) }
+        if len < 1e-6 {
+            (0.0, 1.0)
+        } else {
+            (-dy / len, dx / len)
+        }
     };
 
     for i in 0..n {
@@ -120,32 +118,60 @@ pub fn tessellate_polyline(
             let (n1x, n1y) = seg_normal(prev, curr);
             let (n2x, n2y) = seg_normal(curr, next);
             let r = miter_normal(n1x, n1y, n2x, n2y);
-            nx = r.0; ny = r.1; scale = r.2;
+            nx = r.0;
+            ny = r.1;
+            scale = r.2;
         } else if i == 0 {
             let (snx, sny) = seg_normal(points[0], points[1]);
-            nx = snx; ny = sny; scale = 1.0;
+            nx = snx;
+            ny = sny;
+            scale = 1.0;
         } else if i == n - 1 {
             let (snx, sny) = seg_normal(points[n - 2], points[n - 1]);
-            nx = snx; ny = sny; scale = 1.0;
+            nx = snx;
+            ny = sny;
+            scale = 1.0;
         } else {
             let (n1x, n1y) = seg_normal(points[i - 1], points[i]);
             let (n2x, n2y) = seg_normal(points[i], points[i + 1]);
             let r = miter_normal(n1x, n1y, n2x, n2y);
-            nx = r.0; ny = r.1; scale = r.2;
+            nx = r.0;
+            ny = r.1;
+            scale = r.2;
         }
 
         let p = points[i];
         let offsets: [(f32, [f32; 4]); 4] = [
             ((hw + f) * scale, color_t),
-            (hw * scale,       color),
-            (-hw * scale,      color),
+            (hw * scale, color),
+            (-hw * scale, color),
             (-(hw + f) * scale, color_t),
         ];
         output.vertices.extend_from_slice(&[
-            Vertex::new([p.x + nx * offsets[0].0, p.y + ny * offsets[0].0], ZERO_UV, offsets[0].1, ZERO_DATA),
-            Vertex::new([p.x + nx * offsets[1].0, p.y + ny * offsets[1].0], ZERO_UV, offsets[1].1, ZERO_DATA),
-            Vertex::new([p.x + nx * offsets[2].0, p.y + ny * offsets[2].0], ZERO_UV, offsets[2].1, ZERO_DATA),
-            Vertex::new([p.x + nx * offsets[3].0, p.y + ny * offsets[3].0], ZERO_UV, offsets[3].1, ZERO_DATA),
+            Vertex::new(
+                [p.x + nx * offsets[0].0, p.y + ny * offsets[0].0],
+                ZERO_UV,
+                offsets[0].1,
+                ZERO_DATA,
+            ),
+            Vertex::new(
+                [p.x + nx * offsets[1].0, p.y + ny * offsets[1].0],
+                ZERO_UV,
+                offsets[1].1,
+                ZERO_DATA,
+            ),
+            Vertex::new(
+                [p.x + nx * offsets[2].0, p.y + ny * offsets[2].0],
+                ZERO_UV,
+                offsets[2].1,
+                ZERO_DATA,
+            ),
+            Vertex::new(
+                [p.x + nx * offsets[3].0, p.y + ny * offsets[3].0],
+                ZERO_UV,
+                offsets[3].1,
+                ZERO_DATA,
+            ),
         ]);
     }
 
@@ -154,8 +180,12 @@ pub fn tessellate_polyline(
         let nx = base + (((i + 1) % n) as u32) * 4;
         for q in 0..3u32 {
             output.indices.extend_from_slice(&[
-                c + q,     nx + q,     nx + q + 1,
-                c + q,     nx + q + 1, c + q + 1,
+                c + q,
+                nx + q,
+                nx + q + 1,
+                c + q,
+                nx + q + 1,
+                c + q + 1,
             ]);
         }
     }
@@ -171,16 +201,16 @@ fn miter_normal(n1x: f32, n1y: f32, n2x: f32, n2y: f32) -> (f32, f32, f32) {
         let nx = mx / mlen;
         let ny = my / mlen;
         let dot = nx * n1x + ny * n1y;
-        let scale = if dot > 0.15 { (1.0 / dot).min(3.0) } else { 3.0 };
+        let scale = if dot > 0.15 {
+            (1.0 / dot).min(3.0)
+        } else {
+            3.0
+        };
         (nx, ny, scale)
     }
 }
 
-pub fn tessellate_fill_polygon(
-    points: &[Point],
-    color: Color,
-    output: &mut TessOutput,
-) {
+pub fn tessellate_fill_polygon(points: &[Point], color: Color, output: &mut TessOutput) {
     if points.len() < 3 {
         return;
     }
@@ -191,12 +221,16 @@ pub fn tessellate_fill_polygon(
     output.vertices.reserve(points.len());
     output.indices.reserve((points.len() - 2) * 3);
 
-    output.vertices.extend(points.iter().map(|p| {
-        Vertex::new([p.x, p.y], ZERO_UV, col, ZERO_DATA)
-    }));
+    output.vertices.extend(
+        points
+            .iter()
+            .map(|p| Vertex::new([p.x, p.y], ZERO_UV, col, ZERO_DATA)),
+    );
 
     for i in 1..points.len() as u32 - 1 {
-        output.indices.extend_from_slice(&[base, base + i, base + i + 1]);
+        output
+            .indices
+            .extend_from_slice(&[base, base + i, base + i + 1]);
     }
 }
 
@@ -271,16 +305,24 @@ pub fn tessellate_fill_polygon_concave(points: &[Point], color: Color, output: &
 
     let base = output.vertices.len() as u32;
     let col = color.to_array();
-    output.vertices.extend(points.iter().map(|p| {
-        Vertex::new([p.x, p.y], ZERO_UV, col, ZERO_DATA)
-    }));
+    output.vertices.extend(
+        points
+            .iter()
+            .map(|p| Vertex::new([p.x, p.y], ZERO_UV, col, ZERO_DATA)),
+    );
 
     if n == 3 {
-        output.indices.extend_from_slice(&[base, base + 1, base + 2]);
+        output
+            .indices
+            .extend_from_slice(&[base, base + 1, base + 2]);
         return;
     }
 
-    let ws = if polygon_signed_area(points) >= 0.0 { 1.0 } else { -1.0 };
+    let ws = if polygon_signed_area(points) >= 0.0 {
+        1.0
+    } else {
+        -1.0
+    };
 
     let mut idx: Vec<usize> = (0..n).collect();
     let mut guard = 0;
@@ -355,17 +397,29 @@ pub fn tessellate_fill_polygon_aa(
     output.vertices.reserve(n * 2);
     output.indices.reserve((n - 2) * 3 + n * 6);
 
-    output.vertices.extend(points.iter().map(|p| {
-        Vertex::new([p.x, p.y], ZERO_UV, col, ZERO_DATA)
-    }));
+    output.vertices.extend(
+        points
+            .iter()
+            .map(|p| Vertex::new([p.x, p.y], ZERO_UV, col, ZERO_DATA)),
+    );
 
     {
         use wide::f32x4;
         let chunks = points.chunks_exact(4);
         let remainder = chunks.remainder();
         for chunk in chunks {
-            let dxs = f32x4::new([chunk[0].x - cx, chunk[1].x - cx, chunk[2].x - cx, chunk[3].x - cx]);
-            let dys = f32x4::new([chunk[0].y - cy, chunk[1].y - cy, chunk[2].y - cy, chunk[3].y - cy]);
+            let dxs = f32x4::new([
+                chunk[0].x - cx,
+                chunk[1].x - cx,
+                chunk[2].x - cx,
+                chunk[3].x - cx,
+            ]);
+            let dys = f32x4::new([
+                chunk[0].y - cy,
+                chunk[1].y - cy,
+                chunk[2].y - cy,
+                chunk[3].y - cy,
+            ]);
             let dist_sq = dxs * dxs + dys * dys;
             let dists = dist_sq.sqrt();
             let d: [f32; 4] = dists.into();
@@ -373,10 +427,20 @@ pub fn tessellate_fill_polygon_aa(
             let dy: [f32; 4] = dys.into();
             for j in 0..4 {
                 if d[j] < 0.001 {
-                    output.vertices.push(Vertex::new([chunk[j].x, chunk[j].y], ZERO_UV, col_transparent, ZERO_DATA));
+                    output.vertices.push(Vertex::new(
+                        [chunk[j].x, chunk[j].y],
+                        ZERO_UV,
+                        col_transparent,
+                        ZERO_DATA,
+                    ));
                 } else {
                     let scale = feather / d[j];
-                    output.vertices.push(Vertex::new([chunk[j].x + dx[j] * scale, chunk[j].y + dy[j] * scale], ZERO_UV, col_transparent, ZERO_DATA));
+                    output.vertices.push(Vertex::new(
+                        [chunk[j].x + dx[j] * scale, chunk[j].y + dy[j] * scale],
+                        ZERO_UV,
+                        col_transparent,
+                        ZERO_DATA,
+                    ));
                 }
             }
         }
@@ -385,17 +449,26 @@ pub fn tessellate_fill_polygon_aa(
             let dy = p.y - cy;
             let dist = (dx * dx + dy * dy).sqrt();
             if dist < 0.001 {
-                output.vertices.push(Vertex::new([p.x, p.y], ZERO_UV, col_transparent, ZERO_DATA));
+                output
+                    .vertices
+                    .push(Vertex::new([p.x, p.y], ZERO_UV, col_transparent, ZERO_DATA));
             } else {
                 let scale = feather / dist;
-                output.vertices.push(Vertex::new([p.x + dx * scale, p.y + dy * scale], ZERO_UV, col_transparent, ZERO_DATA));
+                output.vertices.push(Vertex::new(
+                    [p.x + dx * scale, p.y + dy * scale],
+                    ZERO_UV,
+                    col_transparent,
+                    ZERO_DATA,
+                ));
             }
         }
     }
 
     let n = n as u32;
     for i in 1..n - 1 {
-        output.indices.extend_from_slice(&[base, base + i, base + i + 1]);
+        output
+            .indices
+            .extend_from_slice(&[base, base + i, base + i + 1]);
     }
 
     for i in 0..n {
@@ -405,8 +478,7 @@ pub fn tessellate_fill_polygon_aa(
         let outer_i = base + n + i;
         let outer_next = base + n + next;
         output.indices.extend_from_slice(&[
-            inner_i, inner_next, outer_next,
-            inner_i, outer_next, outer_i,
+            inner_i, inner_next, outer_next, inner_i, outer_next, outer_i,
         ]);
     }
 }
@@ -448,24 +520,13 @@ pub fn circle_segment_count(radius: f32) -> usize {
     count.clamp(32, 512)
 }
 
-pub fn flatten_quad_bezier(
-    p0: Point,
-    p1: Point,
-    p2: Point,
-    tolerance: f32,
-) -> Vec<Point> {
+pub fn flatten_quad_bezier(p0: Point, p1: Point, p2: Point, tolerance: f32) -> Vec<Point> {
     let mut points = vec![p0];
     flatten_quad_recursive(p0, p1, p2, tolerance * tolerance, &mut points);
     points
 }
 
-fn flatten_quad_recursive(
-    p0: Point,
-    p1: Point,
-    p2: Point,
-    tol_sq: f32,
-    output: &mut Vec<Point>,
-) {
+fn flatten_quad_recursive(p0: Point, p1: Point, p2: Point, tol_sq: f32, output: &mut Vec<Point>) {
     let mid = Bezier::quad(p0, p1, p2, 0.5);
     let chord_mid = Point::new((p0.x + p2.x) * 0.5, (p0.y + p2.y) * 0.5);
     let dx = mid.x - chord_mid.x;
@@ -566,7 +627,8 @@ mod tests {
     #[test]
     fn tess_output_clear() {
         let mut o = TessOutput::new();
-        o.vertices.push(Vertex::new([0.0, 0.0], [0.0, 0.0], [1.0; 4], [0.0; 4]));
+        o.vertices
+            .push(Vertex::new([0.0, 0.0], [0.0, 0.0], [1.0; 4], [0.0; 4]));
         o.indices.push(0);
         o.clear();
         assert!(o.is_empty());
@@ -575,12 +637,15 @@ mod tests {
     #[test]
     fn tess_output_merge() {
         let mut a = TessOutput::new();
-        a.vertices.push(Vertex::new([0.0, 0.0], [0.0, 0.0], [1.0; 4], [0.0; 4]));
-        a.vertices.push(Vertex::new([1.0, 0.0], [0.0, 0.0], [1.0; 4], [0.0; 4]));
+        a.vertices
+            .push(Vertex::new([0.0, 0.0], [0.0, 0.0], [1.0; 4], [0.0; 4]));
+        a.vertices
+            .push(Vertex::new([1.0, 0.0], [0.0, 0.0], [1.0; 4], [0.0; 4]));
         a.indices.extend_from_slice(&[0, 1]);
 
         let mut b = TessOutput::new();
-        b.vertices.push(Vertex::new([2.0, 0.0], [0.0, 0.0], [1.0; 4], [0.0; 4]));
+        b.vertices
+            .push(Vertex::new([2.0, 0.0], [0.0, 0.0], [1.0; 4], [0.0; 4]));
         b.indices.push(0);
 
         a.merge(&b);
@@ -657,8 +722,16 @@ mod tests {
         paint.stroke_width = 10.0;
         let mut out = TessOutput::new();
         tessellate_line_segment(p(0.0, 0.0), p(100.0, 0.0), &paint, &mut out);
-        let min_y = out.vertices.iter().map(|v| v.position[1]).fold(f32::MAX, f32::min);
-        let max_y = out.vertices.iter().map(|v| v.position[1]).fold(f32::MIN, f32::max);
+        let min_y = out
+            .vertices
+            .iter()
+            .map(|v| v.position[1])
+            .fold(f32::MAX, f32::min);
+        let max_y = out
+            .vertices
+            .iter()
+            .map(|v| v.position[1])
+            .fold(f32::MIN, f32::max);
         let span = max_y - min_y;
         assert!(span > 11.0 && span < 13.0);
     }
@@ -673,7 +746,12 @@ mod tests {
     #[test]
     fn polyline_open_2_points() {
         let mut out = TessOutput::new();
-        tessellate_polyline(&[p(0.0, 0.0), p(10.0, 0.0)], &default_paint(), false, &mut out);
+        tessellate_polyline(
+            &[p(0.0, 0.0), p(10.0, 0.0)],
+            &default_paint(),
+            false,
+            &mut out,
+        );
         assert_eq!(out.vertices.len(), 8);
         assert_eq!(out.indices.len(), 18);
     }
@@ -755,7 +833,11 @@ mod tests {
         let mut out = TessOutput::new();
         tessellate_fill_polygon_aa(&pts, Color::RED, 1.0, &mut out);
         for i in 3..6 {
-            assert_eq!(out.vertices[i].color[3], 0.0, "outer vertex {} should have alpha=0", i);
+            assert_eq!(
+                out.vertices[i].color[3], 0.0,
+                "outer vertex {} should have alpha=0",
+                i
+            );
         }
     }
 
@@ -774,7 +856,11 @@ mod tests {
             let dx = pt.x - center.x;
             let dy = pt.y - center.y;
             let dist = (dx * dx + dy * dy).sqrt();
-            assert!((dist - r).abs() < 1e-4, "point should be on circle, dist={}", dist);
+            assert!(
+                (dist - r).abs() < 1e-4,
+                "point should be on circle, dist={}",
+                dist
+            );
         }
     }
 
@@ -848,7 +934,11 @@ mod tests {
     #[test]
     fn flatten_quad_straight_line_few_points() {
         let pts = flatten_quad_bezier(p(0.0, 0.0), p(50.0, 50.0), p(100.0, 100.0), 0.5);
-        assert!(pts.len() <= 3, "straight quad should flatten to few points, got {}", pts.len());
+        assert!(
+            pts.len() <= 3,
+            "straight quad should flatten to few points, got {}",
+            pts.len()
+        );
     }
 
     #[test]
@@ -860,7 +950,11 @@ mod tests {
     #[test]
     fn flatten_cubic_starts_and_ends_correctly() {
         let pts = flatten_cubic_bezier(
-            p(0.0, 0.0), p(30.0, 100.0), p(70.0, 100.0), p(100.0, 0.0), 0.5,
+            p(0.0, 0.0),
+            p(30.0, 100.0),
+            p(70.0, 100.0),
+            p(100.0, 0.0),
+            0.5,
         );
         assert!((pts[0].x).abs() < 1e-5);
         let last = pts.last().unwrap();
@@ -871,7 +965,11 @@ mod tests {
     #[test]
     fn flatten_cubic_straight_line_few_points() {
         let pts = flatten_cubic_bezier(
-            p(0.0, 0.0), p(33.0, 33.0), p(66.0, 66.0), p(100.0, 100.0), 0.5,
+            p(0.0, 0.0),
+            p(33.0, 33.0),
+            p(66.0, 66.0),
+            p(100.0, 100.0),
+            0.5,
         );
         assert!(pts.len() <= 4);
     }
@@ -879,16 +977,22 @@ mod tests {
     #[test]
     fn flatten_cubic_s_curve() {
         let pts = flatten_cubic_bezier(
-            p(0.0, 0.0), p(0.0, 100.0), p(100.0, -100.0), p(100.0, 0.0), 0.5,
+            p(0.0, 0.0),
+            p(0.0, 100.0),
+            p(100.0, -100.0),
+            p(100.0, 0.0),
+            0.5,
         );
-        assert!(pts.len() > 4, "S-curve should produce many points, got {}", pts.len());
+        assert!(
+            pts.len() > 4,
+            "S-curve should produce many points, got {}",
+            pts.len()
+        );
     }
 
     #[test]
     fn flatten_cubic_degenerate_point() {
-        let pts = flatten_cubic_bezier(
-            p(5.0, 5.0), p(5.0, 5.0), p(5.0, 5.0), p(5.0, 5.0), 0.5,
-        );
+        let pts = flatten_cubic_bezier(p(5.0, 5.0), p(5.0, 5.0), p(5.0, 5.0), p(5.0, 5.0), 0.5);
         assert!(pts.len() >= 2);
     }
 

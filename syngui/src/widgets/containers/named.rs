@@ -2,8 +2,10 @@ use crate::core::{Point, Rect, Size};
 use crate::input::{Event, EventResult};
 use crate::layout::Constraints;
 use crate::render::DisplayList;
-use crate::widget::{DirtyFlags, Element, ElementId, ElementTree, LayoutHint, UpdateContext, Widget};
 use crate::widget::context::EventContext;
+use crate::widget::{
+    DirtyFlags, Element, ElementId, ElementTree, LayoutHint, UpdateContext, Widget,
+};
 use std::any::Any;
 
 pub struct Named {
@@ -45,7 +47,8 @@ impl Widget for Named {
         tree.set_debug_name(parent_id, self.name.clone());
 
         let element = self.child.create_element();
-        let child_id = tree.insert_with_type_id(element, Some(parent_id), self.child.as_any().type_id());
+        let child_id =
+            tree.insert_with_type_id(element, Some(parent_id), self.child.as_any().type_id());
         self.child.mount(tree, child_id);
     }
 
@@ -71,15 +74,13 @@ impl Element for NamedElement {
         Size::new(constraints.max_width, constraints.max_height)
     }
 
-    fn build_display_list(&self, _list: &mut DisplayList, _clip: Rect) {
-    }
+    fn build_display_list(&self, _list: &mut DisplayList, _clip: Rect) {}
 
     fn handle_event(&mut self, _event: &Event, _ctx: &mut EventContext) -> EventResult {
         EventResult::Ignored
     }
 
-    fn mount(&mut self, _tree: &mut crate::widget::ElementTree) {
-    }
+    fn mount(&mut self, _tree: &mut crate::widget::ElementTree) {}
 
     fn bounds(&self) -> Rect {
         self.bounds

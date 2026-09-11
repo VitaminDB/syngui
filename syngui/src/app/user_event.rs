@@ -16,8 +16,14 @@ pub enum SynGuiUserEvent {
 #[cfg(feature = "wayland-dnd")]
 #[derive(Debug, Clone)]
 pub enum WaylandDndEvent {
-    Enter { x: f32, y: f32 },
-    Motion { x: f32, y: f32 },
+    Enter {
+        x: f32,
+        y: f32,
+    },
+    Motion {
+        x: f32,
+        y: f32,
+    },
     Leave,
     Drop {
         x: f32,

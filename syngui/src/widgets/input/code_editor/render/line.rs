@@ -45,35 +45,17 @@ pub fn paint_line(
 
         if cursor_byte < span_start {
             let chunk = byte_substr(text, cursor_byte..span_start);
-            let chunk_w =
-                measure_chunk(text_measure, chunk, font_size, font_family);
+            let chunk_w = measure_chunk(text_measure, chunk, font_size, font_family);
             let pos = Point::new(text_origin.x + x_offset, text_origin.y);
-            push_segment(
-                list,
-                chunk,
-                pos,
-                line_height,
-                font_size,
-                fg,
-                font_family,
-            );
+            push_segment(list, chunk, pos, line_height, font_size, fg, font_family);
             x_offset += chunk_w;
         }
 
         let chunk = byte_substr(text, span_start..span_end);
         let color = theme.token(span.class, mss);
-        let chunk_w =
-            measure_chunk(text_measure, chunk, font_size, font_family);
+        let chunk_w = measure_chunk(text_measure, chunk, font_size, font_family);
         let pos = Point::new(text_origin.x + x_offset, text_origin.y);
-        push_segment(
-            list,
-            chunk,
-            pos,
-            line_height,
-            font_size,
-            color,
-            font_family,
-        );
+        push_segment(list, chunk, pos, line_height, font_size, color, font_family);
         x_offset += chunk_w;
 
         cursor_byte = span_end;
@@ -82,15 +64,7 @@ pub fn paint_line(
     if cursor_byte < bytes.len() {
         let chunk = byte_substr(text, cursor_byte..bytes.len());
         let pos = Point::new(text_origin.x + x_offset, text_origin.y);
-        push_segment(
-            list,
-            chunk,
-            pos,
-            line_height,
-            font_size,
-            fg,
-            font_family,
-        );
+        push_segment(list, chunk, pos, line_height, font_size, fg, font_family);
     }
 }
 
@@ -162,7 +136,10 @@ fn clamp_to_char_boundary(text: &str, byte: usize) -> usize {
     if text.is_char_boundary(byte) {
         byte
     } else {
-        (0..=byte).rev().find(|&b| text.is_char_boundary(b)).unwrap_or(0)
+        (0..=byte)
+            .rev()
+            .find(|&b| text.is_char_boundary(b))
+            .unwrap_or(0)
     }
 }
 

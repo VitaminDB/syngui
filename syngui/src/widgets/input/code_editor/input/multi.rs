@@ -57,7 +57,11 @@ impl Cursors {
     }
 
     pub fn add_cursor(&mut self, pos: usize) -> CursorId {
-        if let Some(existing) = self.inner.iter().find(|c| c.cursor.pos == pos && c.cursor.anchor.is_none()) {
+        if let Some(existing) = self
+            .inner
+            .iter()
+            .find(|c| c.cursor.pos == pos && c.cursor.anchor.is_none())
+        {
             return existing.id;
         }
         let id = self.next_id;
@@ -90,12 +94,7 @@ impl Cursors {
 
     pub fn indices_descending(&self) -> SmallVec<[usize; 4]> {
         let mut idxs: SmallVec<[usize; 4]> = (0..self.inner.len()).collect();
-        idxs.sort_by(|&a, &b| {
-            self.inner[b]
-                .cursor
-                .pos
-                .cmp(&self.inner[a].cursor.pos)
-        });
+        idxs.sort_by(|&a, &b| self.inner[b].cursor.pos.cmp(&self.inner[a].cursor.pos));
         idxs
     }
 
@@ -113,7 +112,11 @@ impl Cursors {
             if let Some(a) = ic.cursor.anchor {
                 let mut new_a = a;
                 shift_one(&mut new_a, from_byte, edit_end_old, delta);
-                ic.cursor.anchor = if new_a == ic.cursor.pos { None } else { Some(new_a) };
+                ic.cursor.anchor = if new_a == ic.cursor.pos {
+                    None
+                } else {
+                    Some(new_a)
+                };
             }
         }
     }

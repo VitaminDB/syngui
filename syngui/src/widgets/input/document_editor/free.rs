@@ -214,9 +214,15 @@ pub fn serialize_geometry(blocks: &[DocBlock]) -> Option<String> {
 pub fn apply_geometry(blocks: &mut [DocBlock], body: &str) {
     for line in body.lines() {
         let line = line.trim();
-        let Some((head, rest)) = line.split_once(char::is_whitespace) else { continue };
-        let Ok(i) = head.parse::<usize>() else { continue };
-        let Some(block) = blocks.get_mut(i) else { continue };
+        let Some((head, rest)) = line.split_once(char::is_whitespace) else {
+            continue;
+        };
+        let Ok(i) = head.parse::<usize>() else {
+            continue;
+        };
+        let Some(block) = blocks.get_mut(i) else {
+            continue;
+        };
         let rest = rest.trim();
         if let Some(attrs) = super::attrs::parse_attr_block(rest) {
             for (k, v) in attrs.0 {
@@ -226,8 +232,12 @@ pub fn apply_geometry(blocks: &mut [DocBlock], body: &str) {
         }
         // Старый формат: `x y w`.
         let mut it = rest.split_whitespace();
-        let (Some(x), Some(y)) = (it.next(), it.next()) else { continue };
-        let (Ok(x), Ok(y)) = (x.parse::<f32>(), y.parse::<f32>()) else { continue };
+        let (Some(x), Some(y)) = (it.next(), it.next()) else {
+            continue;
+        };
+        let (Ok(x), Ok(y)) = (x.parse::<f32>(), y.parse::<f32>()) else {
+            continue;
+        };
         set_pos(&mut block.attrs, x, y);
         if let Some(Ok(w)) = it.next().map(str::parse::<f32>) {
             if w > 1.0 {
@@ -277,7 +287,11 @@ mod tests {
 
     #[test]
     fn snapping() {
-        let l = DocLayout { snap: true, snap_step: 5.0, ..DocLayout::default() };
+        let l = DocLayout {
+            snap: true,
+            snap_step: 5.0,
+            ..DocLayout::default()
+        };
         assert_eq!(l.snapped(13.0), 15.0);
         assert_eq!(l.snapped(-2.0), -0.0);
         let off = DocLayout { snap: false, ..l };

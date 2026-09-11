@@ -1,35 +1,36 @@
-mod parser;
-mod stylesheet;
-mod style_engine;
-pub mod matching;
-mod value;
-pub mod fields;
-pub mod inheritance;
 pub mod cascade;
 pub mod code_editor;
+pub mod fields;
+pub mod inheritance;
+pub mod matching;
+mod parser;
+mod style_engine;
+mod stylesheet;
+mod value;
 
-pub use parser::{MssParser, ParseError, ParseWarning};
-pub use stylesheet::{
-    StyleSheet, StyleRule, Selector, KeyframeStep, KeyframesDefinition,
-    SelectorPart, Combinator, SelectorChain,
-};
-pub use matching::{SelectorMatchContext, selector_matches, selector_pseudo};
-pub use style_engine::{StyleEngine, ComputedStyle, StyleContext, ElementState, TextAlign, TextDecoration, Overflow, window_flags};
-pub use value::{StyleValue, Color as MssColor, Unit, Dimension};
-pub use fields::{IconState, MssFields, TextTransform, TextShadow};
+pub use fields::{IconState, MssFields, TextShadow, TextTransform};
 pub use inheritance::{
-    INHERITED_PROPERTIES, is_inherited, resolve_cascade_keyword, extract_inherited,
+    extract_inherited, is_inherited, resolve_cascade_keyword, INHERITED_PROPERTIES,
 };
+pub use matching::{selector_matches, selector_pseudo, SelectorMatchContext};
+pub use parser::{MssParser, ParseError, ParseWarning};
+pub use style_engine::{
+    window_flags, ComputedStyle, ElementState, Overflow, StyleContext, StyleEngine, TextAlign,
+    TextDecoration,
+};
+pub use stylesheet::{
+    Combinator, KeyframeStep, KeyframesDefinition, Selector, SelectorChain, SelectorPart,
+    StyleRule, StyleSheet,
+};
+pub use value::{Color as MssColor, Dimension, StyleValue, Unit};
 
 use std::path::Path;
 
 pub fn load_stylesheet<P: AsRef<Path>>(path: P) -> Result<StyleSheet, MssError> {
-    let content = std::fs::read_to_string(path)
-        .map_err(|e| MssError::Io(e))?;
+    let content = std::fs::read_to_string(path).map_err(|e| MssError::Io(e))?;
 
     let mut parser = MssParser::new(&content);
-    let (stylesheet, warnings) = parser.parse()
-        .map_err(|e| MssError::Parse(e))?;
+    let (stylesheet, warnings) = parser.parse().map_err(|e| MssError::Parse(e))?;
     for w in &warnings {
         eprintln!("[MSS warning] line {}: {}", w.line, w.message);
     }

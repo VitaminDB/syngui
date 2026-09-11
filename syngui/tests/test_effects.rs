@@ -1,8 +1,11 @@
 //! Integration tests for effect lifecycle (W1 fix verification).
 
-use syngui::testing::*;
+use std::sync::{
+    atomic::{AtomicU32, Ordering},
+    Arc,
+};
 use syngui::prelude::*;
-use std::sync::{Arc, atomic::{AtomicU32, Ordering}};
+use syngui::testing::*;
 
 #[test]
 fn effect_created_in_reactive_is_tracked() {
@@ -10,28 +13,31 @@ fn effect_created_in_reactive_is_tracked() {
     let effect_ran = Arc::new(AtomicU32::new(0));
     let er = effect_ran.clone();
 
-    let widget = Column::new()
-        .child(move || {
-            let _t = trigger.get();
-            let er = er.clone();
-            use_effect(move || {
-                er.fetch_add(1, Ordering::Relaxed);
-            });
-            Text::new("test")
+    let widget = Column::new().child(move || {
+        let _t = trigger.get();
+        let er = er.clone();
+        use_effect(move || {
+            er.fetch_add(1, Ordering::Relaxed);
         });
+        Text::new("test")
+    });
 
     let mut harness = TestHarness::new(Box::new(widget));
     harness.layout(800.0, 600.0);
     harness.rebuild();
 
-    assert!(effect_ran.load(Ordering::Relaxed) >= 1,
-        "Effect should have run at least once");
+    assert!(
+        effect_ran.load(Ordering::Relaxed) >= 1,
+        "Effect should have run at least once"
+    );
 }
 
 #[test]
 fn context_provide_and_use() {
     #[derive(Clone)]
-    struct TestCtx { value: i32 }
+    struct TestCtx {
+        value: i32,
+    }
 
     provide_context(TestCtx { value: 42 });
     let ctx = use_context::<TestCtx>();

@@ -23,7 +23,12 @@ const MAX_POOL_SIZE: usize = 6;
 const EVICTION_FRAMES: u64 = 120;
 
 impl TexturePool {
-    pub fn new(device: &wgpu::Device, format: wgpu::TextureFormat, width: u32, height: u32) -> Self {
+    pub fn new(
+        device: &wgpu::Device,
+        format: wgpu::TextureFormat,
+        width: u32,
+        height: u32,
+    ) -> Self {
         let bind_group_layout = device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
             label: Some("TexturePool BGL"),
             entries: &[
@@ -78,7 +83,11 @@ impl TexturePool {
         }
 
         if self.entries.len() >= MAX_POOL_SIZE {
-            log::warn!("TexturePool: growing beyond target size {} (now {})", MAX_POOL_SIZE, self.entries.len() + 1);
+            log::warn!(
+                "TexturePool: growing beyond target size {} (now {})",
+                MAX_POOL_SIZE,
+                self.entries.len() + 1
+            );
         }
 
         let entry = self.create_entry(device);

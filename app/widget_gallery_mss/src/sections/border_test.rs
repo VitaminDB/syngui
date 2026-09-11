@@ -26,11 +26,10 @@ const BORDER_COLOR: &str = "#1E293B";
 /// линия на стыке (если есть) была видна на однотонном фоне без шумового
 /// перепада соседних ячеек.
 const PALETTE: [&str; 25] = [
-    "#FCA5A5", "#FCD34D", "#86EFAC", "#7DD3FC", "#C4B5FD",
-    "#FDA4AF", "#FBBF24", "#34D399", "#38BDF8", "#A78BFA",
-    "#F87171", "#F59E0B", "#10B981", "#0EA5E9", "#8B5CF6",
-    "#EF4444", "#D97706", "#059669", "#0284C7", "#7C3AED",
-    "#DC2626", "#B45309", "#047857", "#0369A1", "#6D28D9",
+    "#FCA5A5", "#FCD34D", "#86EFAC", "#7DD3FC", "#C4B5FD", "#FDA4AF", "#FBBF24", "#34D399",
+    "#38BDF8", "#A78BFA", "#F87171", "#F59E0B", "#10B981", "#0EA5E9", "#8B5CF6", "#EF4444",
+    "#D97706", "#059669", "#0284C7", "#7C3AED", "#DC2626", "#B45309", "#047857", "#0369A1",
+    "#6D28D9",
 ];
 
 /// Описание per-side widths (logical px) для одной ячейки.
@@ -43,14 +42,70 @@ struct Sides {
 }
 
 impl Sides {
-    const fn none() -> Self { Self { left: 0.0, top: 0.0, right: 0.0, bottom: 0.0 } }
-    const fn only_top() -> Self { Self { left: 0.0, top: 1.0, right: 0.0, bottom: 0.0 } }
-    const fn only_bottom() -> Self { Self { left: 0.0, top: 0.0, right: 0.0, bottom: 1.0 } }
-    const fn only_left() -> Self { Self { left: 1.0, top: 0.0, right: 0.0, bottom: 0.0 } }
-    const fn only_right() -> Self { Self { left: 0.0, top: 0.0, right: 1.0, bottom: 0.0 } }
-    const fn top_left() -> Self { Self { left: 1.0, top: 1.0, right: 0.0, bottom: 0.0 } }
-    const fn bottom_right() -> Self { Self { left: 0.0, top: 0.0, right: 1.0, bottom: 1.0 } }
-    const fn all() -> Self { Self { left: 1.0, top: 1.0, right: 1.0, bottom: 1.0 } }
+    const fn none() -> Self {
+        Self {
+            left: 0.0,
+            top: 0.0,
+            right: 0.0,
+            bottom: 0.0,
+        }
+    }
+    const fn only_top() -> Self {
+        Self {
+            left: 0.0,
+            top: 1.0,
+            right: 0.0,
+            bottom: 0.0,
+        }
+    }
+    const fn only_bottom() -> Self {
+        Self {
+            left: 0.0,
+            top: 0.0,
+            right: 0.0,
+            bottom: 1.0,
+        }
+    }
+    const fn only_left() -> Self {
+        Self {
+            left: 1.0,
+            top: 0.0,
+            right: 0.0,
+            bottom: 0.0,
+        }
+    }
+    const fn only_right() -> Self {
+        Self {
+            left: 0.0,
+            top: 0.0,
+            right: 1.0,
+            bottom: 0.0,
+        }
+    }
+    const fn top_left() -> Self {
+        Self {
+            left: 1.0,
+            top: 1.0,
+            right: 0.0,
+            bottom: 0.0,
+        }
+    }
+    const fn bottom_right() -> Self {
+        Self {
+            left: 0.0,
+            top: 0.0,
+            right: 1.0,
+            bottom: 1.0,
+        }
+    }
+    const fn all() -> Self {
+        Self {
+            left: 1.0,
+            top: 1.0,
+            right: 1.0,
+            bottom: 1.0,
+        }
+    }
 }
 
 fn cell(sides: Sides) -> impl Widget {
@@ -59,10 +114,18 @@ fn cell(sides: Sides) -> impl Widget {
         .style("width", CELL)
         .style("height", CELL)
         .style("border-color", Color::from_hex(BORDER_COLOR));
-    if sides.left > 0.0 { b = b.style("border-left-width", sides.left); }
-    if sides.top > 0.0 { b = b.style("border-top-width", sides.top); }
-    if sides.right > 0.0 { b = b.style("border-right-width", sides.right); }
-    if sides.bottom > 0.0 { b = b.style("border-bottom-width", sides.bottom); }
+    if sides.left > 0.0 {
+        b = b.style("border-left-width", sides.left);
+    }
+    if sides.top > 0.0 {
+        b = b.style("border-top-width", sides.top);
+    }
+    if sides.right > 0.0 {
+        b = b.style("border-right-width", sides.right);
+    }
+    if sides.bottom > 0.0 {
+        b = b.style("border-bottom-width", sides.bottom);
+    }
     b
 }
 
@@ -72,9 +135,9 @@ fn grid_5x5(sides: Sides) -> impl Widget {
         .cross_axis_alignment(CrossAxisAlignment::Start)
         .children((0..5).map(|_row| {
             Box::new(
-                Row::new().gap(0.0).children((0..5).map(|_col| {
-                    Box::new(cell(sides)) as Box<dyn Widget>
-                })),
+                Row::new()
+                    .gap(0.0)
+                    .children((0..5).map(|_col| Box::new(cell(sides)) as Box<dyn Widget>)),
             ) as Box<dyn Widget>
         }))
 }
@@ -93,16 +156,14 @@ fn colored_grid_no_border() -> impl Widget {
         .gap(0.0)
         .cross_axis_alignment(CrossAxisAlignment::Start)
         .children((0..5).map(|row| {
-            Box::new(
-                Row::new().gap(0.0).children((0..5).map(move |col| {
-                    Box::new(
-                        DecoratedBox::new()
-                            .style("background-color", Color::from_hex(PALETTE[row * 5 + col]))
-                            .style("width", CELL)
-                            .style("height", CELL),
-                    ) as Box<dyn Widget>
-                })),
-            ) as Box<dyn Widget>
+            Box::new(Row::new().gap(0.0).children((0..5).map(move |col| {
+                Box::new(
+                    DecoratedBox::new()
+                        .style("background-color", Color::from_hex(PALETTE[row * 5 + col]))
+                        .style("width", CELL)
+                        .style("height", CELL),
+                ) as Box<dyn Widget>
+            }))) as Box<dyn Widget>
         }))
 }
 
@@ -111,11 +172,14 @@ pub fn build_border_test_section() -> impl Widget {
         Column::new()
             .gap(24.0)
             .child(section_title("Pixel-perfect grid (5×5, gap=0)"))
-            .child(Text::new(
-                "Каждая ячейка 80×80 px. На стыках должна быть ровная 1 px линия \
+            .child(
+                Text::new(
+                    "Каждая ячейка 80×80 px. На стыках должна быть ровная 1 px линия \
                  (или ничего, для случая «no border»). Двойная толщина или halo \
                  на стыках = паразитный артефакт.",
-            ).class("label"))
+                )
+                .class("label"),
+            )
             .child(
                 Column::new()
                     .gap(8.0)

@@ -180,7 +180,10 @@ impl Widget for Chrome {
     }
 
     fn child_widgets(&self) -> Vec<&dyn Widget> {
-        self.children.iter().map(|c| c.as_ref() as &dyn Widget).collect()
+        self.children
+            .iter()
+            .map(|c| c.as_ref() as &dyn Widget)
+            .collect()
     }
 }
 
@@ -203,7 +206,9 @@ pub struct ChromeElement {
 
 impl Element for ChromeElement {
     fn update(&mut self, widget: &dyn Widget, ctx: &mut UpdateContext) {
-        let Some(w) = widget.as_any().downcast_ref::<Chrome>() else { return };
+        let Some(w) = widget.as_any().downcast_ref::<Chrome>() else {
+            return;
+        };
         let layout_changed = self.gap != w.gap
             || self.padding != w.padding
             || self.absolute != w.absolute
@@ -262,8 +267,16 @@ impl Element for ChromeElement {
         self.bounds.size
     }
 
-    fn explicit_dimensions(&self, parent_width: f32, _parent_height: f32) -> (Option<f32>, Option<f32>) {
-        if self.fixed_width.is_none() && self.fill_width && parent_width.is_finite() && parent_width > 0.0 {
+    fn explicit_dimensions(
+        &self,
+        parent_width: f32,
+        _parent_height: f32,
+    ) -> (Option<f32>, Option<f32>) {
+        if self.fixed_width.is_none()
+            && self.fill_width
+            && parent_width.is_finite()
+            && parent_width > 0.0
+        {
             return (Some(parent_width), None);
         }
         (self.fixed_width, None)

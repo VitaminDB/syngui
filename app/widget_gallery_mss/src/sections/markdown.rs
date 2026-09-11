@@ -1,7 +1,7 @@
+use super::{label, section_card, section_title};
 use syngui::prelude::*;
 use syngui::signal::use_signal;
 use syngui::widgets::*;
-use super::{section_card, section_title, label};
 
 const DEMO_MARKDOWN: &str = r#"# SYNGUI Markdown Viewer
 

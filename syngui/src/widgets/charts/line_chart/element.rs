@@ -11,9 +11,9 @@ use crate::widget::{
     DirtyFlags, Element, ElementId, ElementTree, StyledElement, UpdateContext, Widget,
 };
 
+use crate::core::sync::Mutex;
 use std::any::Any;
 use std::sync::Arc;
-use crate::core::sync::Mutex;
 use std::time::Duration;
 
 use super::super::animation::ChartAnimationState;
@@ -88,7 +88,9 @@ impl Widget for LineChart {
     }
 
     fn mount(&self, _tree: &mut ElementTree, _parent_id: ElementId) {}
-    fn widget_classes(&self) -> &[String] { &self.classes }
+    fn widget_classes(&self) -> &[String] {
+        &self.classes
+    }
 }
 
 struct LineChartElement {
@@ -196,7 +198,13 @@ impl LineChartElement {
         let y_min = self.y_axis.min.unwrap_or(y_min);
         let y_max = self.y_axis.max.unwrap_or(y_max);
 
-        let y_axis_w = axis::estimate_y_axis_width(&self.y_axis, y_min, y_max, axis_font_size, self.text_measure.as_ref());
+        let y_axis_w = axis::estimate_y_axis_width(
+            &self.y_axis,
+            y_min,
+            y_max,
+            axis_font_size,
+            self.text_measure.as_ref(),
+        );
 
         let (legend_top, legend_bottom) = match self.legend_config.position {
             LegendPosition::Top => (legend_h, 0.0),
@@ -292,13 +300,19 @@ impl LineChartElement {
     fn axis_colors(&self) -> axis::AxisColors {
         let default = axis::AxisColors::default();
         axis::AxisColors {
-            grid_color: self.mss_grid_color
+            grid_color: self
+                .mss_grid_color
                 .or(self.mss.color.map(|c| c.with_alpha(0.15)))
                 .unwrap_or(default.grid_color),
-            axis_color: self.mss_axis_color
+            axis_color: self
+                .mss_axis_color
                 .or(self.mss.color.map(|c| c.with_alpha(0.4)))
                 .unwrap_or(default.axis_color),
-            label_color: self.mss.color.map(|c| c.with_alpha(0.6)).unwrap_or(default.label_color),
+            label_color: self
+                .mss
+                .color
+                .map(|c| c.with_alpha(0.6))
+                .unwrap_or(default.label_color),
             title_color: self.mss.color.unwrap_or(default.title_color),
             axis_font_size: self.mss_axis_font_size.unwrap_or(default.axis_font_size),
             title_font_size: self.mss_title_font_size.unwrap_or(default.title_font_size),
@@ -478,7 +492,8 @@ impl Element for LineChartElement {
                         ctx.set_stroke_width(1.0);
                         let dash_segments = crate::widgets::charts::math::segment_dashed(
                             &[(0.0, y), (plot.size.width, y)],
-                            6.0, 4.0,
+                            6.0,
+                            4.0,
                         );
                         for seg in &dash_segments {
                             ctx.draw_polyline(seg);
@@ -492,14 +507,26 @@ impl Element for LineChartElement {
                         ctx.restore();
                     }
                     if !has_visual_map {
-                        let label_text = ml.label.as_deref()
-                            .map(|s| s.to_string())
-                            .unwrap_or_else(|| crate::widgets::charts::math::format_tick_value(ml.value));
+                        let label_text =
+                            ml.label
+                                .as_deref()
+                                .map(|s| s.to_string())
+                                .unwrap_or_else(|| {
+                                    crate::widgets::charts::math::format_tick_value(ml.value)
+                                });
                         let label_rect = Rect::new(
-                            Point::new(plot.origin.x + plot.size.width + 4.0, plot.origin.y + y - 6.0),
+                            Point::new(
+                                plot.origin.x + plot.size.width + 4.0,
+                                plot.origin.y + y - 6.0,
+                            ),
                             Size::new(40.0, 12.0),
                         );
-                        list.push_text(&label_text, label_rect, ml_color, axis_colors.axis_font_size);
+                        list.push_text(
+                            &label_text,
+                            label_rect,
+                            ml_color,
+                            axis_colors.axis_font_size,
+                        );
                     }
                 }
             }
@@ -522,7 +549,15 @@ impl Element for LineChartElement {
                         } else {
                             self.y_scale.map(d_min)
                         };
-                        series::render_area(&mut ctx, pts, baseline_y, color, fill, appear, s.style.smooth);
+                        series::render_area(
+                            &mut ctx,
+                            pts,
+                            baseline_y,
+                            color,
+                            fill,
+                            appear,
+                            s.style.smooth,
+                        );
                     }
                 }
             }
@@ -542,7 +577,13 @@ impl Element for LineChartElement {
                         line_ctx.flush(list);
                     } else {
                         series::render_line_gpu(
-                            list, pts, &s.style, color, appear, plot.origin, s.style.smooth,
+                            list,
+                            pts,
+                            &s.style,
+                            color,
+                            appear,
+                            plot.origin,
+                            s.style.smooth,
                         );
                     }
                 }
@@ -596,7 +637,11 @@ impl Element for LineChartElement {
 
         if self.legend_config.position != LegendPosition::None && self.series.len() > 1 {
             let legend_font = self.mss_legend_font_size.unwrap_or(12.0);
-            let label_color = self.mss.color.map(|c| c.with_alpha(0.6)).unwrap_or(Color::from_hex("#64748b"));
+            let label_color = self
+                .mss
+                .color
+                .map(|c| c.with_alpha(0.6))
+                .unwrap_or(Color::from_hex("#64748b"));
             legend::render_legend(
                 list,
                 &self.layout.legend_rect,
@@ -611,9 +656,19 @@ impl Element for LineChartElement {
 
         for s in &self.series {
             if let Some(ref vm) = s.style.visual_map {
-                let label_color = self.mss.color.map(|c| c.with_alpha(0.6)).unwrap_or(Color::from_hex("#64748b"));
+                let label_color = self
+                    .mss
+                    .color
+                    .map(|c| c.with_alpha(0.6))
+                    .unwrap_or(Color::from_hex("#64748b"));
                 let font_size = self.mss_legend_font_size.unwrap_or(11.0);
-                series::render_visual_map_legend(list, vm, &self.layout.plot_rect, font_size, label_color);
+                series::render_visual_map_legend(
+                    list,
+                    vm,
+                    &self.layout.plot_rect,
+                    font_size,
+                    label_color,
+                );
                 break;
             }
         }
@@ -781,7 +836,8 @@ impl Element for LineChartElement {
                     (self.x_scale.domain.0 + self.x_scale.domain.1) / 2.0,
                     (self.y_scale.domain.0 + self.y_scale.domain.1) / 2.0,
                 );
-                self.anim.zoom_at(focal_x, focal_y, zoom_factor, view_center);
+                self.anim
+                    .zoom_at(focal_x, focal_y, zoom_factor, view_center);
                 self.compute_layout();
                 ctx.request_paint();
 
@@ -852,8 +908,12 @@ impl Element for LineChartElement {
         "LineChart"
     }
 
-    fn reset_mss_styles(&mut self) { self.mss.reset(); }
-    fn mss(&self) -> Option<&crate::mss::MssFields> { Some(&self.mss) }
+    fn reset_mss_styles(&mut self) {
+        self.mss.reset();
+    }
+    fn mss(&self) -> Option<&crate::mss::MssFields> {
+        Some(&self.mss)
+    }
     fn apply_computed_style(&mut self, style: &ComputedStyle) {
         self.mss.apply(style);
 

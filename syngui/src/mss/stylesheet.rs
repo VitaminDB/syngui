@@ -33,7 +33,11 @@ impl SelectorPart {
             SelectorPart::Class(_) => (0, 1, 0),
             SelectorPart::Element(_) => (0, 0, 1),
             SelectorPart::Universal => (0, 0, 0),
-            SelectorPart::Compound { element, id, classes } => {
+            SelectorPart::Compound {
+                element,
+                id,
+                classes,
+            } => {
                 let ids = if id.is_some() { 1 } else { 0 };
                 let cls = classes.len() as u32;
                 let elems = if element.is_some() { 1 } else { 0 };
@@ -93,7 +97,9 @@ impl SelectorChain {
     }
 
     pub fn target(&self) -> &SelectorPart {
-        self.segments.last().expect("SelectorChain must have at least one segment")
+        self.segments
+            .last()
+            .expect("SelectorChain must have at least one segment")
     }
 
     pub fn is_simple(&self) -> bool {
@@ -138,21 +144,28 @@ impl StyleSheet {
     }
 
     pub fn find_class_styles(&self, class: &str) -> Option<&StyleRule> {
-        self.rules.iter()
+        self.rules
+            .iter()
             .find(|r| matches!(&r.selector, Selector::Class(c) if c == class))
     }
 
     pub fn find_class_pseudo_styles(&self, class: &str, pseudo: &str) -> Option<&StyleRule> {
-        self.rules.iter()
-            .find(|r| matches!(&r.selector, Selector::ClassPseudo(c, p) if c == class && p == pseudo))
+        self.rules.iter().find(
+            |r| matches!(&r.selector, Selector::ClassPseudo(c, p) if c == class && p == pseudo),
+        )
     }
 
     pub fn find_element_styles(&self, element_type: &str) -> Option<&StyleRule> {
-        self.rules.iter()
+        self.rules
+            .iter()
             .find(|r| matches!(&r.selector, Selector::Element(e) if e == element_type))
     }
 
-    pub fn find_element_pseudo_styles(&self, element_type: &str, pseudo: &str) -> Option<&StyleRule> {
+    pub fn find_element_pseudo_styles(
+        &self,
+        element_type: &str,
+        pseudo: &str,
+    ) -> Option<&StyleRule> {
         self.rules.iter()
             .find(|r| matches!(&r.selector, Selector::ElementPseudo(e, p) if e == element_type && p == pseudo))
     }
@@ -215,12 +228,11 @@ impl Selector {
             Selector::ElementPseudo(_, _) => (0, 1, 1),
             Selector::Universal => (0, 0, 0),
             Selector::Complex(chain) => chain.specificity(),
-            Selector::Group(chains) => {
-                chains.iter()
-                    .map(|c| c.specificity())
-                    .max()
-                    .unwrap_or((0, 0, 0))
-            }
+            Selector::Group(chains) => chains
+                .iter()
+                .map(|c| c.specificity())
+                .max()
+                .unwrap_or((0, 0, 0)),
         }
     }
 
@@ -244,11 +256,13 @@ impl Selector {
         match self {
             Selector::Class(c) => Some(SelectorChain::simple(SelectorPart::Class(c.clone()))),
             Selector::ClassPseudo(c, p) => Some(SelectorChain::simple_pseudo(
-                SelectorPart::Class(c.clone()), p.clone(),
+                SelectorPart::Class(c.clone()),
+                p.clone(),
             )),
             Selector::Element(e) => Some(SelectorChain::simple(SelectorPart::Element(e.clone()))),
             Selector::ElementPseudo(e, p) => Some(SelectorChain::simple_pseudo(
-                SelectorPart::Element(e.clone()), p.clone(),
+                SelectorPart::Element(e.clone()),
+                p.clone(),
             )),
             Selector::Universal => Some(SelectorChain::simple(SelectorPart::Universal)),
             Selector::Id(id) => Some(SelectorChain::simple(SelectorPart::Id(id.clone()))),

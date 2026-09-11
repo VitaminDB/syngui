@@ -105,7 +105,13 @@ impl Biquad {
         q: f32,
         gain_db: f32,
     ) {
-        let new = BiquadParams { mode, sample_rate, cutoff_hz, q, gain_db };
+        let new = BiquadParams {
+            mode,
+            sample_rate,
+            cutoff_hz,
+            q,
+            gain_db,
+        };
         if new == self.cached {
             return;
         }
@@ -622,5 +628,4 @@ mod tests {
         r.set_mix(-0.5);
         assert_eq!(r.mix, 0.0);
     }
-
 }

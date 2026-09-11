@@ -210,10 +210,7 @@ mod tests {
         assert_eq!(e.language, Some(Language::Rust));
         assert!(e.read_only);
         assert_eq!(e.tab_width, 2);
-        assert_eq!(
-            e.classes,
-            vec!["code-editor", "editor", "theme-one-dark"]
-        );
+        assert_eq!(e.classes, vec!["code-editor", "editor", "theme-one-dark"]);
     }
 
     #[test]

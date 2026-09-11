@@ -16,7 +16,9 @@ pub enum PathCommand {
 
 impl Path {
     pub fn new() -> Self {
-        Self { commands: Vec::new() }
+        Self {
+            commands: Vec::new(),
+        }
     }
 
     pub fn move_to(mut self, p: Point) -> Self {
@@ -42,7 +44,7 @@ impl Bezier {
         let t2 = t * t;
         let mt = 1.0 - t;
         let mt2 = mt * mt;
-        
+
         Point::new(
             mt2 * p0.x + 2.0 * mt * t * p1.x + t2 * p2.x,
             mt2 * p0.y + 2.0 * mt * t * p1.y + t2 * p2.y,

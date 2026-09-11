@@ -1,8 +1,8 @@
-use compact_str::CompactString;
 use crate::core::Color;
 use crate::mss::{TextAlign, TextDecoration};
 use crate::render::{ClipRect, TextureId};
 use crate::widget::RenderHandle;
+use compact_str::CompactString;
 
 #[derive(Clone, Copy, Debug)]
 pub struct Border {
@@ -67,7 +67,9 @@ pub enum DrawCommand {
         clip_rect: ClipRect,
         z_index: u32,
     },
-    PushClip { rect: crate::core::Rect },
+    PushClip {
+        rect: crate::core::Rect,
+    },
     PopClip,
     Cached(RenderHandle),
     Shadow {
@@ -97,8 +99,13 @@ pub enum DrawCommand {
         clip_rect: ClipRect,
         z_index: u32,
     },
-    BeginEffectLayer { effect: Effect, bounds: crate::core::Rect },
-    EndEffectLayer { texture_id: TextureId },
+    BeginEffectLayer {
+        effect: Effect,
+        bounds: crate::core::Rect,
+    },
+    EndEffectLayer {
+        texture_id: TextureId,
+    },
     PushTransform(crate::core::Transform),
     PopTransform,
     PushOpacity(f32),
@@ -180,45 +187,130 @@ pub enum BlendModeType {
 #[derive(Clone, Debug)]
 pub enum Effect {
     None,
-    Blur { radius: f32 },
-    BackdropBlur { radius: f32 },
+    Blur {
+        radius: f32,
+    },
+    BackdropBlur {
+        radius: f32,
+    },
     Shadow {
         color: Color,
         blur_radius: f32,
         offset_x: f32,
         offset_y: f32,
     },
-    Opacity { value: f32 },
-    Grayscale { amount: f32 },
-    Sepia { amount: f32 },
-    Invert { amount: f32 },
-    HsbAdjust { hue: f32, saturation: f32, brightness: f32 },
-    Brightness { amount: f32 },
-    Contrast { amount: f32 },
-    Pixelate { block_size: f32 },
-    EdgeDetection { threshold: f32 },
-    ChromaticAberration { offset: f32 },
-    Displacement { amplitude: f32, frequency: f32 },
-    Scanlines { density: f32, opacity: f32 },
-    Vignette { radius: f32, softness: f32 },
-    Noise { intensity: f32 },
-    Glitch { intensity: f32, block_size: f32 },
-    Dissolve { threshold: f32 },
-    Swirl { angle: f32, radius: f32 },
-    Bulge { strength: f32, radius: f32 },
-    GradientMap { dark: Color, light: Color },
-    Duotone { shadow: Color, highlight: Color },
-    Silhouette { color: Color },
-    HeatHaze { amplitude: f32, speed: f32 },
-    DirectionalBlur { angle: f32, radius: f32 },
-    RadialBlur { intensity: f32 },
-    ColorGrade { lift: f32, gamma: f32, gain: f32 },
-    Hologram { color: Color, intensity: f32 },
-    Refraction { distortion: f32, ior: f32 },
-    LensFlare { threshold: f32, intensity: f32 },
-    MaskReveal { progress: f32, direction: f32 },
-    Glow { radius: f32, intensity: f32 },
-    BlendMode { mode: BlendModeType },
+    Opacity {
+        value: f32,
+    },
+    Grayscale {
+        amount: f32,
+    },
+    Sepia {
+        amount: f32,
+    },
+    Invert {
+        amount: f32,
+    },
+    HsbAdjust {
+        hue: f32,
+        saturation: f32,
+        brightness: f32,
+    },
+    Brightness {
+        amount: f32,
+    },
+    Contrast {
+        amount: f32,
+    },
+    Pixelate {
+        block_size: f32,
+    },
+    EdgeDetection {
+        threshold: f32,
+    },
+    ChromaticAberration {
+        offset: f32,
+    },
+    Displacement {
+        amplitude: f32,
+        frequency: f32,
+    },
+    Scanlines {
+        density: f32,
+        opacity: f32,
+    },
+    Vignette {
+        radius: f32,
+        softness: f32,
+    },
+    Noise {
+        intensity: f32,
+    },
+    Glitch {
+        intensity: f32,
+        block_size: f32,
+    },
+    Dissolve {
+        threshold: f32,
+    },
+    Swirl {
+        angle: f32,
+        radius: f32,
+    },
+    Bulge {
+        strength: f32,
+        radius: f32,
+    },
+    GradientMap {
+        dark: Color,
+        light: Color,
+    },
+    Duotone {
+        shadow: Color,
+        highlight: Color,
+    },
+    Silhouette {
+        color: Color,
+    },
+    HeatHaze {
+        amplitude: f32,
+        speed: f32,
+    },
+    DirectionalBlur {
+        angle: f32,
+        radius: f32,
+    },
+    RadialBlur {
+        intensity: f32,
+    },
+    ColorGrade {
+        lift: f32,
+        gamma: f32,
+        gain: f32,
+    },
+    Hologram {
+        color: Color,
+        intensity: f32,
+    },
+    Refraction {
+        distortion: f32,
+        ior: f32,
+    },
+    LensFlare {
+        threshold: f32,
+        intensity: f32,
+    },
+    MaskReveal {
+        progress: f32,
+        direction: f32,
+    },
+    Glow {
+        radius: f32,
+        intensity: f32,
+    },
+    BlendMode {
+        mode: BlendModeType,
+    },
     Chain(Vec<Effect>),
 }
 
@@ -232,7 +324,12 @@ impl Effect {
     }
 
     pub fn shadow(color: Color, blur_radius: f32, offset_x: f32, offset_y: f32) -> Self {
-        Effect::Shadow { color, blur_radius, offset_x, offset_y }
+        Effect::Shadow {
+            color,
+            blur_radius,
+            offset_x,
+            offset_y,
+        }
     }
 
     pub fn opacity(value: f32) -> Self {
@@ -272,7 +369,10 @@ impl Effect {
     }
 
     pub fn glitch(intensity: f32, block_size: f32) -> Self {
-        Effect::Glitch { intensity, block_size }
+        Effect::Glitch {
+            intensity,
+            block_size,
+        }
     }
 
     pub fn dissolve(threshold: f32) -> Self {
@@ -324,11 +424,17 @@ impl Effect {
     }
 
     pub fn lens_flare(threshold: f32, intensity: f32) -> Self {
-        Effect::LensFlare { threshold, intensity }
+        Effect::LensFlare {
+            threshold,
+            intensity,
+        }
     }
 
     pub fn mask_reveal(progress: f32, direction: f32) -> Self {
-        Effect::MaskReveal { progress, direction }
+        Effect::MaskReveal {
+            progress,
+            direction,
+        }
     }
 
     pub fn glow(radius: f32, intensity: f32) -> Self {
@@ -342,7 +448,9 @@ impl Effect {
             Effect::BackdropBlur { radius } => *radius <= 0.0,
             Effect::Glow { radius, .. } => *radius <= 0.0,
             Effect::Opacity { value } => (*value - 1.0).abs() < 0.001,
-            Effect::Grayscale { amount } | Effect::Sepia { amount } | Effect::Invert { amount } => *amount <= 0.0,
+            Effect::Grayscale { amount } | Effect::Sepia { amount } | Effect::Invert { amount } => {
+                *amount <= 0.0
+            }
             Effect::Brightness { amount } => (*amount - 1.0).abs() < 0.001,
             Effect::Contrast { amount } => (*amount - 1.0).abs() < 0.001,
             Effect::Pixelate { block_size } => *block_size <= 1.0,
@@ -354,7 +462,9 @@ impl Effect {
             Effect::HeatHaze { amplitude, .. } => *amplitude <= 0.0,
             Effect::DirectionalBlur { radius, .. } => *radius <= 0.0,
             Effect::RadialBlur { intensity } => *intensity <= 0.0,
-            Effect::ColorGrade { lift, gamma, gain } => lift.abs() < 0.001 && (*gamma - 1.0).abs() < 0.001 && (*gain - 1.0).abs() < 0.001,
+            Effect::ColorGrade { lift, gamma, gain } => {
+                lift.abs() < 0.001 && (*gamma - 1.0).abs() < 0.001 && (*gain - 1.0).abs() < 0.001
+            }
             Effect::Hologram { intensity, .. } => *intensity <= 0.0,
             Effect::Refraction { distortion, .. } => distortion.abs() < 0.001,
             Effect::LensFlare { intensity, .. } => *intensity <= 0.0,
@@ -370,49 +480,55 @@ impl Effect {
             Effect::Grayscale { amount } => Some((0.0, *amount, z, z)),
             Effect::Sepia { amount } => Some((1.0, *amount, z, z)),
             Effect::Invert { amount } => Some((2.0, *amount, z, z)),
-            Effect::HsbAdjust { hue, saturation, brightness } => {
-                Some((3.0, 1.0, [*hue, *saturation, *brightness, 0.0], z))
-            }
+            Effect::HsbAdjust {
+                hue,
+                saturation,
+                brightness,
+            } => Some((3.0, 1.0, [*hue, *saturation, *brightness, 0.0], z)),
             Effect::Brightness { amount } => Some((4.0, *amount, z, z)),
             Effect::Contrast { amount } => Some((5.0, *amount, z, z)),
             Effect::Pixelate { block_size } => Some((6.0, 1.0, [*block_size, 0.0, 0.0, 0.0], z)),
             Effect::EdgeDetection { threshold } => Some((7.0, *threshold, z, z)),
             Effect::ChromaticAberration { offset } => Some((8.0, 1.0, [*offset, 0.0, 0.0, 0.0], z)),
-            Effect::Scanlines { density, opacity } => Some((9.0, *opacity, [*density, 0.0, 0.0, 0.0], z)),
-            Effect::Displacement { amplitude, frequency } => {
-                Some((10.0, 1.0, [*amplitude, *frequency, 0.0, 0.0], z))
+            Effect::Scanlines { density, opacity } => {
+                Some((9.0, *opacity, [*density, 0.0, 0.0, 0.0], z))
             }
-            Effect::Vignette { radius, softness } => Some((11.0, 1.0, [*radius, *softness, 0.0, 0.0], z)),
+            Effect::Displacement {
+                amplitude,
+                frequency,
+            } => Some((10.0, 1.0, [*amplitude, *frequency, 0.0, 0.0], z)),
+            Effect::Vignette { radius, softness } => {
+                Some((11.0, 1.0, [*radius, *softness, 0.0, 0.0], z))
+            }
             Effect::Noise { intensity } => Some((12.0, *intensity, z, z)),
-            Effect::Glitch { intensity, block_size } => {
-                Some((13.0, *intensity, [*block_size, 0.0, 0.0, 0.0], z))
-            }
+            Effect::Glitch {
+                intensity,
+                block_size,
+            } => Some((13.0, *intensity, [*block_size, 0.0, 0.0, 0.0], z)),
             Effect::Dissolve { threshold } => Some((14.0, *threshold, z, z)),
-            Effect::Swirl { angle, radius } => {
-                Some((15.0, 1.0, [0.5, 0.5, *angle, *radius], z))
-            }
+            Effect::Swirl { angle, radius } => Some((15.0, 1.0, [0.5, 0.5, *angle, *radius], z)),
             Effect::Bulge { strength, radius } => {
                 Some((16.0, 1.0, [0.5, 0.5, *strength, *radius], z))
             }
-            Effect::GradientMap { dark, light } => {
-                Some((17.0, 1.0,
-                    [dark.r, dark.g, dark.b, 0.0],
-                    [light.r, light.g, light.b, 0.0]))
-            }
-            Effect::Duotone { shadow, highlight } => {
-                Some((18.0, 1.0,
-                    [shadow.r, shadow.g, shadow.b, 0.0],
-                    [highlight.r, highlight.g, highlight.b, 0.0]))
-            }
+            Effect::GradientMap { dark, light } => Some((
+                17.0,
+                1.0,
+                [dark.r, dark.g, dark.b, 0.0],
+                [light.r, light.g, light.b, 0.0],
+            )),
+            Effect::Duotone { shadow, highlight } => Some((
+                18.0,
+                1.0,
+                [shadow.r, shadow.g, shadow.b, 0.0],
+                [highlight.r, highlight.g, highlight.b, 0.0],
+            )),
             Effect::Silhouette { color } => {
                 Some((19.0, 1.0, [color.r, color.g, color.b, color.a], z))
             }
             Effect::HeatHaze { amplitude, speed } => {
                 Some((20.0, 1.0, [*amplitude, *speed, 0.0, 0.0], z))
             }
-            Effect::RadialBlur { intensity } => {
-                Some((21.0, *intensity, z, z))
-            }
+            Effect::RadialBlur { intensity } => Some((21.0, *intensity, z, z)),
             Effect::ColorGrade { lift, gamma, gain } => {
                 Some((22.0, 1.0, [*lift, *gamma, *gain, 0.0], z))
             }
@@ -422,12 +538,14 @@ impl Effect {
             Effect::Refraction { distortion, ior } => {
                 Some((24.0, 1.0, [*distortion, *ior, 0.0, 0.0], z))
             }
-            Effect::LensFlare { threshold, intensity } => {
-                Some((25.0, *intensity, [*threshold, 0.0, 0.0, 0.0], z))
-            }
-            Effect::MaskReveal { progress, direction } => {
-                Some((26.0, *progress, [*direction, 0.0, 0.0, 0.0], z))
-            }
+            Effect::LensFlare {
+                threshold,
+                intensity,
+            } => Some((25.0, *intensity, [*threshold, 0.0, 0.0, 0.0], z)),
+            Effect::MaskReveal {
+                progress,
+                direction,
+            } => Some((26.0, *progress, [*direction, 0.0, 0.0, 0.0], z)),
             _ => None,
         }
     }

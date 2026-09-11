@@ -4,8 +4,10 @@ use crate::layout::Constraints;
 use crate::mss::ComputedStyle;
 use crate::mss::MssFields;
 use crate::render::{Border, DisplayList};
-use crate::widget::{DirtyFlags, Element, ElementId, ElementTree, StyledElement, UpdateContext, Widget};
 use crate::widget::context::TextMeasure;
+use crate::widget::{
+    DirtyFlags, Element, ElementId, ElementTree, StyledElement, UpdateContext, Widget,
+};
 use std::any::Any;
 use std::sync::Arc;
 
@@ -128,7 +130,9 @@ impl Element for BadgeElement {
         let width = if self.is_dot {
             8.0
         } else {
-            let text_width = self.text_measure.as_ref()
+            let text_width = self
+                .text_measure
+                .as_ref()
                 .map(|tm| tm.measure_text_width(&self.text, font_h, self.text.chars().count()))
                 .unwrap_or_else(|| self.text.chars().count() as f32 * font_h * 0.65);
             (text_width + pad * 2.0).max(height)
@@ -144,13 +148,15 @@ impl Element for BadgeElement {
     fn build_display_list(&self, list: &mut DisplayList, _clip: Rect) {
         let radius = self.bounds.size.height / 2.0;
         let cr = [radius; 4];
-        let bg = self.mss.background_color.unwrap_or_else(|| Color::from_hex("#EF4444"));
+        let bg = self
+            .mss
+            .background_color
+            .unwrap_or_else(|| Color::from_hex("#EF4444"));
         let text_color = self.mss.color.unwrap_or(Color::WHITE);
         let bw = self.mss.border_width_or(1.5);
 
         if bw > 0.0 {
-            let bc = self.mss.border_color
-                .unwrap_or_else(|| bg.darken(0.15));
+            let bc = self.mss.border_color.unwrap_or_else(|| bg.darken(0.15));
             list.push_rect_bordered(self.bounds, bg, cr, Border::new(bw, bc));
         } else {
             list.push_rect(self.bounds, bg, cr);
@@ -162,7 +168,11 @@ impl Element for BadgeElement {
         }
     }
 
-    fn handle_event(&mut self, _event: &Event, _ctx: &mut crate::widget::context::EventContext) -> EventResult {
+    fn handle_event(
+        &mut self,
+        _event: &Event,
+        _ctx: &mut crate::widget::context::EventContext,
+    ) -> EventResult {
         EventResult::Ignored
     }
 
@@ -202,7 +212,9 @@ impl Element for BadgeElement {
         self.text_measure = tree.text_measure.clone();
     }
 
-    fn element_type_name(&self) -> &str { "Badge" }
+    fn element_type_name(&self) -> &str {
+        "Badge"
+    }
 
     fn set_classes(&mut self, classes: Vec<String>) {
         self.classes = classes;
@@ -213,8 +225,12 @@ impl Element for BadgeElement {
         &self.classes
     }
 
-    fn reset_mss_styles(&mut self) { self.mss.reset(); }
-    fn mss(&self) -> Option<&crate::mss::MssFields> { Some(&self.mss) }
+    fn reset_mss_styles(&mut self) {
+        self.mss.reset();
+    }
+    fn mss(&self) -> Option<&crate::mss::MssFields> {
+        Some(&self.mss)
+    }
     fn apply_computed_style(&mut self, style: &ComputedStyle) {
         self.mss.apply(style);
         self.mark_dirty(DirtyFlags::RENDER | DirtyFlags::LAYOUT);
@@ -229,7 +245,8 @@ impl Element for BadgeElement {
         selected: Option<&ComputedStyle>,
         _checked: Option<&ComputedStyle>,
     ) {
-        self.mss.apply_transitions(base, hover, active, focus, selected);
+        self.mss
+            .apply_transitions(base, hover, active, focus, selected);
     }
 
     fn accessibility_info(&self) -> Option<crate::a11y::AccessibilityInfo> {

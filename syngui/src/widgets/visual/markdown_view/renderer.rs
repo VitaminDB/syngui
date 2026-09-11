@@ -1,7 +1,7 @@
 use crate::core::{Color, Point, Rect, Size};
 use crate::gpu::image_store::ImageLoadState;
-use crate::render::{Border, DisplayList, TextureId};
 use crate::mss::{TextAlign, TextDecoration};
+use crate::render::{Border, DisplayList, TextureId};
 use crate::widget::context::TextMeasure;
 
 use std::sync::Arc;
@@ -349,7 +349,8 @@ impl<'a> MdRenderer<'a> {
             Point::new(self.origin_x, self.y),
             Size::new(self.max_width, divider_h),
         );
-        self.list.push_rect(divider_rect, self.style.footnote_divider_color, [0.0; 4]);
+        self.list
+            .push_rect(divider_rect, self.style.footnote_divider_color, [0.0; 4]);
         self.y += divider_h + self.style.block_spacing;
 
         let entries = std::mem::take(&mut self.footnotes);
@@ -360,7 +361,12 @@ impl<'a> MdRenderer<'a> {
                 Point::new(self.origin_x, self.y),
                 Size::new(prefix_w, self.style.text_size + 2.0),
             );
-            self.list.push_text(&prefix, prefix_rect, self.style.footnote_color, self.style.text_size);
+            self.list.push_text(
+                &prefix,
+                prefix_rect,
+                self.style.footnote_color,
+                self.style.text_size,
+            );
 
             let saved_x = self.origin_x;
             let saved_w = self.max_width;
@@ -385,7 +391,11 @@ impl<'a> MdRenderer<'a> {
             MdBlock::UnorderedList { items } => self.render_unordered_list(items),
             MdBlock::OrderedList { start, items } => self.render_ordered_list(*start, items),
             MdBlock::TaskList { items } => self.render_task_list(items),
-            MdBlock::Table { headers, rows, alignments } => self.render_table(headers, rows, alignments),
+            MdBlock::Table {
+                headers,
+                rows,
+                alignments,
+            } => self.render_table(headers, rows, alignments),
             MdBlock::HorizontalRule => self.render_hr(),
             MdBlock::FootnoteDefinition { .. } => {}
         }
@@ -417,7 +427,8 @@ impl<'a> MdRenderer<'a> {
                 Point::new(self.origin_x, self.y),
                 Size::new(self.max_width, 1.0),
             );
-            self.list.push_rect(line_rect, self.style.hr_color, [0.0; 4]);
+            self.list
+                .push_rect(line_rect, self.style.hr_color, [0.0; 4]);
             self.y += 1.0 + 4.0;
         }
     }
@@ -504,7 +515,10 @@ impl<'a> MdRenderer<'a> {
         let rect = Rect::new(Point::new(self.origin_x, self.y), Size::new(max_w, h));
         self.list.push_rect(rect, bg, [8.0; 4]);
         let label = if error {
-            format!("[Не загружено: {}]", if alt.is_empty() { "image" } else { alt })
+            format!(
+                "[Не загружено: {}]",
+                if alt.is_empty() { "image" } else { alt }
+            )
         } else {
             format!("[{}]", if alt.is_empty() { "image" } else { alt })
         };
@@ -542,8 +556,7 @@ impl<'a> MdRenderer<'a> {
         {
             let mut line_byte_offset = 0usize;
             for line in lines {
-                for (a, b) in
-                    wrap_code_line(line, avail_w, &mut |t| self.text_width(t, font_size))
+                for (a, b) in wrap_code_line(line, avail_w, &mut |t| self.text_width(t, font_size))
                 {
                     display.push((line_byte_offset + a, line_byte_offset + b));
                 }
@@ -559,7 +572,8 @@ impl<'a> MdRenderer<'a> {
             Size::new(self.max_width, total_h),
         );
         let r = self.style.code_block_radius;
-        self.list.push_rect(bg_rect, self.style.code_block_bg, [r, r, r, r]);
+        self.list
+            .push_rect(bg_rect, self.style.code_block_bg, [r, r, r, r]);
 
         let tokens = self
             .highlighter
@@ -583,7 +597,8 @@ impl<'a> MdRenderer<'a> {
                     Point::new(self.origin_x + padding, line_y),
                     Size::new(self.max_width - padding * 2.0, font_size + 2.0),
                 );
-                self.list.push_text(line, text_rect, default_color, font_size);
+                self.list
+                    .push_text(line, text_rect, default_color, font_size);
             } else {
                 let mut x = self.origin_x + padding;
                 let mut cursor = line_start;
@@ -669,13 +684,15 @@ impl<'a> MdRenderer<'a> {
             Point::new(self.origin_x, self.y),
             Size::new(self.max_width, total_h),
         );
-        self.list.push_rect(bg_rect, self.style.quote_bg, [r, r, r, r]);
+        self.list
+            .push_rect(bg_rect, self.style.quote_bg, [r, r, r, r]);
 
         let border_rect = Rect::new(
             Point::new(self.origin_x, self.y),
             Size::new(border_w, total_h),
         );
-        self.list.push_rect(border_rect, self.style.quote_border_color, [r, 0.0, 0.0, r]);
+        self.list
+            .push_rect(border_rect, self.style.quote_border_color, [r, 0.0, 0.0, r]);
 
         let saved_x = self.origin_x;
         let saved_w = self.max_width;
@@ -724,14 +741,16 @@ impl<'a> MdRenderer<'a> {
                 self.y += 4.0;
                 self.bump_line();
             }
-            let bullet_y = self.y + self.style.text_size * self.style.line_height / 2.0 - self.style.bullet_radius;
+            let bullet_y = self.y + self.style.text_size * self.style.line_height / 2.0
+                - self.style.bullet_radius;
             let bullet_x = self.origin_x + indent / 2.0 - self.style.bullet_radius;
             let br = self.style.bullet_radius;
             let bullet_rect = Rect::new(
                 Point::new(bullet_x, bullet_y),
                 Size::new(br * 2.0, br * 2.0),
             );
-            self.list.push_rect(bullet_rect, self.style.bullet_color, [br, br, br, br]);
+            self.list
+                .push_rect(bullet_rect, self.style.bullet_color, [br, br, br, br]);
 
             let saved_x = self.origin_x;
             let saved_w = self.max_width;
@@ -757,7 +776,12 @@ impl<'a> MdRenderer<'a> {
                 Point::new(num_x, self.y),
                 Size::new(num_w, self.style.text_size + 2.0),
             );
-            self.list.push_text(&num, num_rect, self.style.bullet_color, self.style.text_size);
+            self.list.push_text(
+                &num,
+                num_rect,
+                self.style.bullet_color,
+                self.style.text_size,
+            );
 
             let saved_x = self.origin_x;
             let saved_w = self.max_width;
@@ -788,14 +812,12 @@ impl<'a> MdRenderer<'a> {
             }
 
             let cb_y = self.y + (self.style.text_size * self.style.line_height - cb_size) / 2.0;
-            let cb_rect = Rect::new(
-                Point::new(self.origin_x, cb_y),
-                Size::new(cb_size, cb_size),
-            );
+            let cb_rect = Rect::new(Point::new(self.origin_x, cb_y), Size::new(cb_size, cb_size));
             let r = self.style.checkbox_radius;
 
             if item.checked {
-                self.list.push_rect(cb_rect, self.style.checkbox_color, [r, r, r, r]);
+                self.list
+                    .push_rect(cb_rect, self.style.checkbox_color, [r, r, r, r]);
                 let check_rect = Rect::new(
                     Point::new(self.origin_x + 1.0, cb_y - 1.0),
                     Size::new(cb_size, cb_size + 2.0),
@@ -923,7 +945,11 @@ impl<'a> MdRenderer<'a> {
                 Point::new(self.origin_x, self.y),
                 Size::new(table_w, header_h),
             );
-            self.list.push_rect(header_rect, self.style.table_header_bg, [4.0, 4.0, 0.0, 0.0]);
+            self.list.push_rect(
+                header_rect,
+                self.style.table_header_bg,
+                [4.0, 4.0, 0.0, 0.0],
+            );
 
             let mut cx = self.origin_x;
             for (j, flat) in header_flat.iter().enumerate() {
@@ -955,12 +981,15 @@ impl<'a> MdRenderer<'a> {
             }
 
             if ri % 2 == 1 {
-                let stripe_rect = Rect::new(
-                    Point::new(self.origin_x, self.y),
-                    Size::new(table_w, row_h),
-                );
-                let radius = if ri == rows.len() - 1 { [0.0, 0.0, 4.0, 4.0] } else { [0.0; 4] };
-                self.list.push_rect(stripe_rect, self.style.table_stripe_bg, radius);
+                let stripe_rect =
+                    Rect::new(Point::new(self.origin_x, self.y), Size::new(table_w, row_h));
+                let radius = if ri == rows.len() - 1 {
+                    [0.0, 0.0, 4.0, 4.0]
+                } else {
+                    [0.0; 4]
+                };
+                self.list
+                    .push_rect(stripe_rect, self.style.table_stripe_bg, radius);
             }
 
             let mut cx = self.origin_x;
@@ -989,8 +1018,11 @@ impl<'a> MdRenderer<'a> {
     fn render_table_cell_flat(
         &mut self,
         flat: &[FlatSpan],
-        x: f32, y: f32, width: f32,
-        pad_h: f32, pad_v: f32,
+        x: f32,
+        y: f32,
+        width: f32,
+        pad_h: f32,
+        pad_v: f32,
         align: MdAlign,
     ) {
         let avail = (width - pad_h * 2.0).max(1.0);
@@ -1125,10 +1157,7 @@ impl<'a> MdRenderer<'a> {
         } else {
             self.text_width(text, span.font_size)
         };
-        let text_rect = Rect::new(
-            Point::new(x, self.y),
-            Size::new(sw, 0.0),
-        );
+        let text_rect = Rect::new(Point::new(x, self.y), Size::new(sw, 0.0));
 
         if span.is_code {
             if let Some(bg) = span.code_bg {
@@ -1142,11 +1171,26 @@ impl<'a> MdRenderer<'a> {
         }
 
         let font_weight: u16 = if span.bold { 700 } else { 400 };
-        self.list.push_text_aligned(text, text_rect, span.color, span.font_size, TextAlign::DEFAULT, TextDecoration::None, font_weight);
+        self.list.push_text_aligned(
+            text,
+            text_rect,
+            span.color,
+            span.font_size,
+            TextAlign::DEFAULT,
+            TextDecoration::None,
+            font_weight,
+        );
 
         let row_h = span.font_size * self.style.line_height;
         let sel_rect = Rect::new(Point::new(x, self.y), Size::new(sw, row_h));
-        self.emit_selectable(sel_rect, text, span.font_size, None, span.bold, span.link.clone());
+        self.emit_selectable(
+            sel_rect,
+            text,
+            span.font_size,
+            None,
+            span.bold,
+            span.link.clone(),
+        );
 
         if span.underline {
             let underline_rect = Rect::new(
@@ -1158,10 +1202,7 @@ impl<'a> MdRenderer<'a> {
 
         if span.strikethrough {
             let strike_y = self.y + span.font_size * 0.55;
-            let strike_rect = Rect::new(
-                Point::new(x, strike_y),
-                Size::new(sw, 1.0),
-            );
+            let strike_rect = Rect::new(Point::new(x, strike_y), Size::new(sw, 1.0));
             let strike_color = self.style.strikethrough_color.unwrap_or(span.color);
             self.list.push_rect(strike_rect, strike_color, [0.0; 4]);
         }
@@ -1218,15 +1259,24 @@ fn flatten_recursive(
                 });
             }
             MdInline::Bold(children) => {
-                let is = InlineStyle { bold: true, ..style.clone() };
+                let is = InlineStyle {
+                    bold: true,
+                    ..style.clone()
+                };
                 flatten_recursive(children, &is, md_style, out);
             }
             MdInline::Italic(children) => {
-                let is = InlineStyle { italic: true, ..style.clone() };
+                let is = InlineStyle {
+                    italic: true,
+                    ..style.clone()
+                };
                 flatten_recursive(children, &is, md_style, out);
             }
             MdInline::Strikethrough(children) => {
-                let is = InlineStyle { strikethrough: true, ..style.clone() };
+                let is = InlineStyle {
+                    strikethrough: true,
+                    ..style.clone()
+                };
                 flatten_recursive(children, &is, md_style, out);
             }
             MdInline::Code(text) => {
@@ -1482,7 +1532,9 @@ fn measure_inlines_width_tm(
                     measure_inlines_width_tm(c, font_size, tm) * 1.05
                 }
             }
-            MdInline::Italic(c) | MdInline::Strikethrough(c) => measure_inlines_width_tm(c, font_size, tm),
+            MdInline::Italic(c) | MdInline::Strikethrough(c) => {
+                measure_inlines_width_tm(c, font_size, tm)
+            }
             MdInline::Code(t) => tw(t),
             MdInline::Link { children, .. } => measure_inlines_width_tm(children, font_size, tm),
             MdInline::Image { alt, .. } => tw(alt) + tw("[Image: ]"),
@@ -1578,19 +1630,13 @@ pub fn measure_natural_width(
     w
 }
 
-fn natural_width_of_block(
-    block: &MdBlock,
-    style: &MdStyle,
-    tm: Option<&dyn TextMeasure>,
-) -> f32 {
+fn natural_width_of_block(block: &MdBlock, style: &MdStyle, tm: Option<&dyn TextMeasure>) -> f32 {
     match block {
         MdBlock::Heading { level, inlines, .. } => {
             let idx = (*level as usize).saturating_sub(1).min(5);
             measure_inlines_width_tm(inlines, style.heading_sizes[idx], tm)
         }
-        MdBlock::Paragraph { inlines } => {
-            measure_inlines_width_tm(inlines, style.text_size, tm)
-        }
+        MdBlock::Paragraph { inlines } => measure_inlines_width_tm(inlines, style.text_size, tm),
         MdBlock::CodeBlock { code, .. } => {
             let pad = style.code_block_padding * 2.0;
             let tw = |t: &str| -> f32 {
@@ -1606,39 +1652,47 @@ fn natural_width_of_block(
             measure_natural_width(blocks, style, tm) + extra
         }
         MdBlock::UnorderedList { items } | MdBlock::OrderedList { items, .. } => {
-            items.iter()
+            items
+                .iter()
                 .map(|it| measure_natural_width(&it.blocks, style, tm))
                 .fold(0.0f32, f32::max)
                 + style.list_indent
         }
-        MdBlock::TaskList { items } => {
-            items.iter()
-                .map(|it| measure_inlines_width_tm(&it.inlines, style.text_size, tm) + style.list_indent)
-                .fold(0.0f32, f32::max)
-        }
+        MdBlock::TaskList { items } => items
+            .iter()
+            .map(|it| {
+                measure_inlines_width_tm(&it.inlines, style.text_size, tm) + style.list_indent
+            })
+            .fold(0.0f32, f32::max),
         MdBlock::Table { headers, rows, .. } => {
             let cell_pad = style.table_cell_padding_h * 2.0;
-            let cols = headers.len().max(rows.iter().map(|r| r.len()).max().unwrap_or(0));
-            if cols == 0 { return 0.0; }
+            let cols = headers
+                .len()
+                .max(rows.iter().map(|r| r.len()).max().unwrap_or(0));
+            if cols == 0 {
+                return 0.0;
+            }
             let mut col_w = vec![0.0f32; cols];
             for (i, cell) in headers.iter().enumerate() {
                 if i < cols {
-                    col_w[i] = col_w[i].max(measure_inlines_width_tm(&cell.inlines, style.text_size, tm) + cell_pad);
+                    col_w[i] = col_w[i].max(
+                        measure_inlines_width_tm(&cell.inlines, style.text_size, tm) + cell_pad,
+                    );
                 }
             }
             for row in rows {
                 for (i, cell) in row.iter().enumerate() {
                     if i < cols {
-                        col_w[i] = col_w[i].max(measure_inlines_width_tm(&cell.inlines, style.text_size, tm) + cell_pad);
+                        col_w[i] = col_w[i].max(
+                            measure_inlines_width_tm(&cell.inlines, style.text_size, tm) + cell_pad,
+                        );
                     }
                 }
             }
             col_w.iter().sum::<f32>()
         }
         MdBlock::HorizontalRule => 0.0,
-        MdBlock::FootnoteDefinition { blocks, .. } => {
-            measure_natural_width(blocks, style, tm)
-        }
+        MdBlock::FootnoteDefinition { blocks, .. } => measure_natural_width(blocks, style, tm),
     }
 }
 
@@ -1658,8 +1712,7 @@ pub fn measure_blocks(
             footnote_count += 1;
             let prefix_w = style.text_size * 0.6 * 4.0;
             let inner_w = (max_width - prefix_w).max(40.0);
-            footnotes_h += measure_blocks(fb, style, inner_w, tm, images)
-                + style.block_spacing;
+            footnotes_h += measure_blocks(fb, style, inner_w, tm, images) + style.block_spacing;
             continue;
         }
         if !first {
@@ -1688,7 +1741,8 @@ fn measure_block(
         MdBlock::Heading { level, inlines, .. } => {
             let idx = (*level as usize).saturating_sub(1).min(5);
             let font_size = style.heading_sizes[idx];
-            let content_w = measure_inlines_wrapped_height(inlines, font_size, max_width, style, tm);
+            let content_w =
+                measure_inlines_wrapped_height(inlines, font_size, max_width, style, tm);
             let mut h = style.heading_spacing_above + content_w;
             if *level <= 2 {
                 h += 4.0 + 1.0 + 4.0;
@@ -1721,7 +1775,9 @@ fn measure_block(
             let inner_w = max_width - style.list_indent;
             let mut h = 0.0f32;
             for (i, item) in items.iter().enumerate() {
-                if i > 0 { h += 4.0; }
+                if i > 0 {
+                    h += 4.0;
+                }
                 h += measure_blocks(&item.blocks, style, inner_w, tm, images);
             }
             h
@@ -1730,7 +1786,9 @@ fn measure_block(
             let inner_w = max_width - style.list_indent;
             let mut h = 0.0f32;
             for (i, item) in items.iter().enumerate() {
-                if i > 0 { h += 4.0; }
+                if i > 0 {
+                    h += 4.0;
+                }
                 h += measure_blocks(&item.blocks, style, inner_w, tm, images);
             }
             h
@@ -1739,7 +1797,9 @@ fn measure_block(
             let line_h = style.text_size * style.line_height;
             let mut h = 0.0f32;
             for (i, _) in items.iter().enumerate() {
-                if i > 0 { h += 6.0; }
+                if i > 0 {
+                    h += 6.0;
+                }
                 h += line_h;
             }
             h
@@ -1827,7 +1887,9 @@ fn simulate_wrap_lines(
 
     let measure_text = |text: &str, span_fs: f32, bold: bool| -> f32 {
         match tm {
-            Some(tm) if bold => tm.measure_text_width_styled(text, span_fs, text.chars().count(), true, None),
+            Some(tm) if bold => {
+                tm.measure_text_width_styled(text, span_fs, text.chars().count(), true, None)
+            }
             Some(tm) => tm.measure_text_width(text, span_fs, text.chars().count()),
             None => text.chars().count() as f32 * span_fs * if bold { BOLD_CHAR_W } else { CHAR_W },
         }

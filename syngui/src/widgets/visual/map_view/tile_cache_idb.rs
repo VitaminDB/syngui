@@ -211,11 +211,7 @@ async fn idb_get(db: &idb::Database, key: &str) -> Option<JsValue> {
     use idb::TransactionMode;
     let tx = db.transaction(&[STORE], TransactionMode::ReadOnly).ok()?;
     let store = tx.object_store(STORE).ok()?;
-    let val = store
-        .get(JsValue::from_str(key))
-        .ok()?
-        .await
-        .ok()?;
+    let val = store.get(JsValue::from_str(key)).ok()?.await.ok()?;
     val
 }
 
@@ -224,7 +220,9 @@ async fn idb_put(db: &idb::Database, key: &str, data: &[u8]) -> Result<(), Strin
     let tx = db
         .transaction(&[STORE], TransactionMode::ReadWrite)
         .map_err(|e| format!("tx: {:?}", e))?;
-    let store = tx.object_store(STORE).map_err(|e| format!("store: {:?}", e))?;
+    let store = tx
+        .object_store(STORE)
+        .map_err(|e| format!("store: {:?}", e))?;
     let arr = js_sys::Uint8Array::from(data);
     let key_js = JsValue::from_str(key);
     store
@@ -244,7 +242,9 @@ async fn idb_put_str(db: &idb::Database, key: &str, value: &str) -> Result<(), S
     let tx = db
         .transaction(&[STORE], TransactionMode::ReadWrite)
         .map_err(|e| format!("tx: {:?}", e))?;
-    let store = tx.object_store(STORE).map_err(|e| format!("store: {:?}", e))?;
+    let store = tx
+        .object_store(STORE)
+        .map_err(|e| format!("store: {:?}", e))?;
     let key_js = JsValue::from_str(key);
     store
         .put(&JsValue::from_str(value), Some(&key_js))
@@ -263,7 +263,9 @@ async fn idb_delete(db: &idb::Database, key: &str) -> Result<(), String> {
     let tx = db
         .transaction(&[STORE], TransactionMode::ReadWrite)
         .map_err(|e| format!("tx: {:?}", e))?;
-    let store = tx.object_store(STORE).map_err(|e| format!("store: {:?}", e))?;
+    let store = tx
+        .object_store(STORE)
+        .map_err(|e| format!("store: {:?}", e))?;
     store
         .delete(JsValue::from_str(key))
         .map_err(|e| format!("delete: {:?}", e))?

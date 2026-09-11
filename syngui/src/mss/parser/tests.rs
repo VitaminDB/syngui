@@ -1,14 +1,17 @@
 mod tests {
+    use super::super::super::stylesheet::{Combinator, Selector, SelectorPart};
+    use super::super::super::value::{Dimension, StyleValue, Unit};
     use super::super::MssParser;
-    use super::super::super::stylesheet::{Selector, SelectorPart, Combinator};
-    use super::super::super::value::{StyleValue, Unit, Dimension};
 
     #[test]
     fn test_parse_simple_class() {
         let mut parser = MssParser::new(".card { background: #fff; }");
         let (sheet, _) = parser.parse().unwrap();
         assert_eq!(sheet.rules().len(), 1);
-        assert_eq!(sheet.rules()[0].selector, Selector::Class("card".to_string()));
+        assert_eq!(
+            sheet.rules()[0].selector,
+            Selector::Class("card".to_string())
+        );
     }
 
     #[test]
@@ -16,7 +19,10 @@ mod tests {
         let mut parser = MssParser::new("Button { border-radius: 8px; }");
         let (sheet, _) = parser.parse().unwrap();
         assert_eq!(sheet.rules().len(), 1);
-        assert_eq!(sheet.rules()[0].selector, Selector::Element("Button".to_string()));
+        assert_eq!(
+            sheet.rules()[0].selector,
+            Selector::Element("Button".to_string())
+        );
     }
 
     #[test]
@@ -49,8 +55,14 @@ mod tests {
         match &sheet.rules()[0].selector {
             Selector::Group(chains) => {
                 assert_eq!(chains.len(), 2);
-                assert_eq!(chains[0].target(), &SelectorPart::Class("input".to_string()));
-                assert_eq!(chains[1].target(), &SelectorPart::Class("textarea".to_string()));
+                assert_eq!(
+                    chains[0].target(),
+                    &SelectorPart::Class("input".to_string())
+                );
+                assert_eq!(
+                    chains[1].target(),
+                    &SelectorPart::Class("textarea".to_string())
+                );
             }
             other => panic!("Expected Group, got {:?}", other),
         }
@@ -80,7 +92,10 @@ mod tests {
         match &sheet.rules()[0].selector {
             Selector::Complex(chain) => {
                 assert_eq!(chain.segments.len(), 2);
-                assert_eq!(chain.segments[0], SelectorPart::Class("sidebar".to_string()));
+                assert_eq!(
+                    chain.segments[0],
+                    SelectorPart::Class("sidebar".to_string())
+                );
                 assert_eq!(chain.segments[1], SelectorPart::Class("item".to_string()));
                 assert_eq!(chain.combinators, vec![Combinator::Child]);
             }
@@ -115,7 +130,10 @@ mod tests {
         let mut parser = MssParser::new(input);
         let (sheet, _) = parser.parse().unwrap();
         assert_eq!(sheet.rules().len(), 2);
-        assert_eq!(sheet.rules()[0].selector, Selector::Class("card".to_string()));
+        assert_eq!(
+            sheet.rules()[0].selector,
+            Selector::Class("card".to_string())
+        );
         match &sheet.rules()[1].selector {
             Selector::Complex(chain) => {
                 assert_eq!(chain.segments.len(), 2);
@@ -140,7 +158,10 @@ mod tests {
         let mut parser = MssParser::new(input);
         let (sheet, _) = parser.parse().unwrap();
         assert_eq!(sheet.rules().len(), 2);
-        assert_eq!(sheet.rules()[0].selector, Selector::Element("Button".to_string()));
+        assert_eq!(
+            sheet.rules()[0].selector,
+            Selector::Element("Button".to_string())
+        );
         assert_eq!(
             sheet.rules()[1].selector,
             Selector::ElementPseudo("Button".to_string(), "hover".to_string())
@@ -163,7 +184,10 @@ mod tests {
         match &sheet.rules()[1].selector {
             Selector::Complex(chain) => {
                 assert_eq!(chain.segments.len(), 2);
-                assert_eq!(chain.segments[0], SelectorPart::Class("sidebar".to_string()));
+                assert_eq!(
+                    chain.segments[0],
+                    SelectorPart::Class("sidebar".to_string())
+                );
                 assert_eq!(chain.segments[1], SelectorPart::Class("item".to_string()));
                 assert_eq!(chain.combinators, vec![Combinator::Child]);
             }
@@ -179,9 +203,18 @@ mod tests {
         match &sheet.rules()[0].selector {
             Selector::Group(chains) => {
                 assert_eq!(chains.len(), 3);
-                assert_eq!(chains[0].target(), &SelectorPart::Element("TextField".to_string()));
-                assert_eq!(chains[1].target(), &SelectorPart::Element("SpinBox".to_string()));
-                assert_eq!(chains[2].target(), &SelectorPart::Element("DatePicker".to_string()));
+                assert_eq!(
+                    chains[0].target(),
+                    &SelectorPart::Element("TextField".to_string())
+                );
+                assert_eq!(
+                    chains[1].target(),
+                    &SelectorPart::Element("SpinBox".to_string())
+                );
+                assert_eq!(
+                    chains[2].target(),
+                    &SelectorPart::Element("DatePicker".to_string())
+                );
             }
             other => panic!("Expected Group, got {:?}", other),
         }
@@ -208,7 +241,10 @@ mod tests {
         match &sheet.rules()[0].selector {
             Selector::Complex(chain) => {
                 assert_eq!(chain.segments.len(), 3);
-                assert_eq!(chain.combinators, vec![Combinator::Child, Combinator::Descendant]);
+                assert_eq!(
+                    chain.combinators,
+                    vec![Combinator::Child, Combinator::Descendant]
+                );
             }
             other => panic!("Expected Complex, got {:?}", other),
         }
@@ -270,9 +306,18 @@ mod tests {
         let (sheet, _) = parser.parse().unwrap();
 
         assert_eq!(sheet.rules().len(), 3);
-        assert_eq!(sheet.rules()[0].selector, Selector::Element("Button".to_string()));
-        assert_eq!(sheet.rules()[1].selector, Selector::ElementPseudo("Button".to_string(), "hover".to_string()));
-        assert_eq!(sheet.rules()[2].selector, Selector::ElementPseudo("Button".to_string(), "pressed".to_string()));
+        assert_eq!(
+            sheet.rules()[0].selector,
+            Selector::Element("Button".to_string())
+        );
+        assert_eq!(
+            sheet.rules()[1].selector,
+            Selector::ElementPseudo("Button".to_string(), "hover".to_string())
+        );
+        assert_eq!(
+            sheet.rules()[2].selector,
+            Selector::ElementPseudo("Button".to_string(), "pressed".to_string())
+        );
     }
 
     #[test]
@@ -363,7 +408,11 @@ mod tests {
         let mut parser = MssParser::new(input);
         match parser.parse() {
             Ok((sheet, _warnings)) => {
-                assert!(sheet.rules().len() >= 6, "Expected at least 6 rules, got {}", sheet.rules().len());
+                assert!(
+                    sheet.rules().len() >= 6,
+                    "Expected at least 6 rules, got {}",
+                    sheet.rules().len()
+                );
             }
             Err(e) => panic!("Failed to parse configurator style1: {:?}", e),
         }
@@ -401,7 +450,8 @@ mod tests {
 
     #[test]
     fn test_parse_linear_gradient_multi_stop() {
-        let input = r#".box { background: linear-gradient(135deg, #ef4444, #f97316, #eab308, #22c55e); }"#;
+        let input =
+            r#".box { background: linear-gradient(135deg, #ef4444, #f97316, #eab308, #22c55e); }"#;
         let mut parser = MssParser::new(input);
         let (sheet, _) = parser.parse().unwrap();
         let val = sheet.rules()[0].declarations.get("background").unwrap();
@@ -436,7 +486,12 @@ mod tests {
         let (sheet, _) = parser.parse().unwrap();
         let val = sheet.rules()[0].declarations.get("background").unwrap();
         match val {
-            StyleValue::Gradient(crate::core::Gradient::Radial { shape, center, stops, .. }) => {
+            StyleValue::Gradient(crate::core::Gradient::Radial {
+                shape,
+                center,
+                stops,
+                ..
+            }) => {
                 assert_eq!(*shape, crate::core::GradientShape::Circle);
                 assert_eq!(*center, (0.5, 0.5));
                 assert_eq!(stops.len(), 2);
@@ -447,12 +502,18 @@ mod tests {
 
     #[test]
     fn test_parse_radial_gradient_ellipse() {
-        let input = r#".box { background: radial-gradient(ellipse at 30% 70%, #fde68a, #f59e0b); }"#;
+        let input =
+            r#".box { background: radial-gradient(ellipse at 30% 70%, #fde68a, #f59e0b); }"#;
         let mut parser = MssParser::new(input);
         let (sheet, _) = parser.parse().unwrap();
         let val = sheet.rules()[0].declarations.get("background").unwrap();
         match val {
-            StyleValue::Gradient(crate::core::Gradient::Radial { shape, center, stops, .. }) => {
+            StyleValue::Gradient(crate::core::Gradient::Radial {
+                shape,
+                center,
+                stops,
+                ..
+            }) => {
                 assert_eq!(*shape, crate::core::GradientShape::Ellipse);
                 assert!((center.0 - 0.3).abs() < 0.01);
                 assert!((center.1 - 0.7).abs() < 0.01);
@@ -467,10 +528,20 @@ mod tests {
         let input = include_str!("../../../../app/widget_gallery_mss/styles/pages/gradients.mss");
         let mut parser = MssParser::new(input);
         let (sheet, _warnings) = parser.parse().unwrap();
-        let gradient_rules: Vec<_> = sheet.rules().iter()
-            .filter(|r| r.declarations.values().any(|v| matches!(v, StyleValue::Gradient(_))))
+        let gradient_rules: Vec<_> = sheet
+            .rules()
+            .iter()
+            .filter(|r| {
+                r.declarations
+                    .values()
+                    .any(|v| matches!(v, StyleValue::Gradient(_)))
+            })
             .collect();
-        assert!(gradient_rules.len() >= 10, "Expected at least 10 gradient rules, got {}", gradient_rules.len());
+        assert!(
+            gradient_rules.len() >= 10,
+            "Expected at least 10 gradient rules, got {}",
+            gradient_rules.len()
+        );
     }
 
     #[test]
@@ -481,11 +552,14 @@ mod tests {
         match &sheet.rules()[0].selector {
             Selector::Complex(chain) => {
                 assert_eq!(chain.segments.len(), 1);
-                assert_eq!(chain.segments[0], SelectorPart::Compound {
-                    element: Some("Button".to_string()),
-                    id: None,
-                    classes: vec!["btn-number".to_string()],
-                });
+                assert_eq!(
+                    chain.segments[0],
+                    SelectorPart::Compound {
+                        element: Some("Button".to_string()),
+                        id: None,
+                        classes: vec!["btn-number".to_string()],
+                    }
+                );
                 assert_eq!(chain.pseudo, None);
             }
             other => panic!("Expected Complex with compound, got {:?}", other),
@@ -499,11 +573,14 @@ mod tests {
         match &sheet.rules()[0].selector {
             Selector::Complex(chain) => {
                 assert_eq!(chain.segments.len(), 1);
-                assert_eq!(chain.segments[0], SelectorPart::Compound {
-                    element: Some("Button".to_string()),
-                    id: None,
-                    classes: vec!["btn-number".to_string()],
-                });
+                assert_eq!(
+                    chain.segments[0],
+                    SelectorPart::Compound {
+                        element: Some("Button".to_string()),
+                        id: None,
+                        classes: vec!["btn-number".to_string()],
+                    }
+                );
                 assert_eq!(chain.pseudo, Some("hover".to_string()));
             }
             other => panic!("Expected Complex with compound+pseudo, got {:?}", other),
@@ -517,11 +594,14 @@ mod tests {
         match &sheet.rules()[0].selector {
             Selector::Complex(chain) => {
                 assert_eq!(chain.segments.len(), 1);
-                assert_eq!(chain.segments[0], SelectorPart::Compound {
-                    element: None,
-                    id: None,
-                    classes: vec!["foo".to_string(), "bar".to_string()],
-                });
+                assert_eq!(
+                    chain.segments[0],
+                    SelectorPart::Compound {
+                        element: None,
+                        id: None,
+                        classes: vec!["foo".to_string(), "bar".to_string()],
+                    }
+                );
             }
             other => panic!("Expected Complex with compound, got {:?}", other),
         }
@@ -535,11 +615,14 @@ mod tests {
             Selector::Complex(chain) => {
                 assert_eq!(chain.segments.len(), 2);
                 assert_eq!(chain.segments[0], SelectorPart::Class("card".to_string()));
-                assert_eq!(chain.segments[1], SelectorPart::Compound {
-                    element: Some("Button".to_string()),
-                    id: None,
-                    classes: vec!["active".to_string()],
-                });
+                assert_eq!(
+                    chain.segments[1],
+                    SelectorPart::Compound {
+                        element: Some("Button".to_string()),
+                        id: None,
+                        classes: vec!["active".to_string()],
+                    }
+                );
                 assert_eq!(chain.combinators, vec![Combinator::Descendant]);
             }
             other => panic!("Expected Complex, got {:?}", other),
@@ -553,7 +636,10 @@ mod tests {
         match &sheet.rules()[0].selector {
             Selector::Complex(chain) => {
                 assert_eq!(chain.segments.len(), 2);
-                assert_eq!(chain.segments[0], SelectorPart::Element("Button".to_string()));
+                assert_eq!(
+                    chain.segments[0],
+                    SelectorPart::Element("Button".to_string())
+                );
                 assert_eq!(chain.segments[1], SelectorPart::Class("inner".to_string()));
                 assert_eq!(chain.combinators, vec![Combinator::Descendant]);
             }
@@ -567,7 +653,11 @@ mod tests {
         let mut parser = MssParser::new(input);
         let (sheet, warnings) = parser.parse().unwrap();
         assert!(warnings.is_empty(), "Unexpected warnings: {:?}", warnings);
-        assert!(sheet.rules().len() >= 10, "Expected at least 10 rules, got {}", sheet.rules().len());
+        assert!(
+            sheet.rules().len() >= 10,
+            "Expected at least 10 rules, got {}",
+            sheet.rules().len()
+        );
     }
 
     #[test]
@@ -576,12 +666,20 @@ mod tests {
         let (sheet, warnings) = parser.parse().unwrap();
         assert!(warnings.is_empty(), "Unexpected warnings: {:?}", warnings);
         let rule = &sheet.rules()[0];
-        assert!(!rule.declarations.contains_key("border"), "raw `border` should be gone");
+        assert!(
+            !rule.declarations.contains_key("border"),
+            "raw `border` should be gone"
+        );
         assert!(
             !rule.declarations.contains_key("border-width"),
             "`border-width` must be expanded into per-side longhand"
         );
-        for side in ["border-top-width", "border-right-width", "border-bottom-width", "border-left-width"] {
+        for side in [
+            "border-top-width",
+            "border-right-width",
+            "border-bottom-width",
+            "border-left-width",
+        ] {
             match rule.declarations.get(side) {
                 Some(StyleValue::Length(v, Unit::Px)) => assert_eq!(*v, 2.0, "{side}"),
                 other => panic!("{side} missing/not px: {:?}", other),
@@ -695,7 +793,10 @@ mod tests {
     #[test]
     fn border_side_shorthand_expands_to_longhands() {
         let d = decl("border-bottom: 1px solid #ff0000;");
-        assert!(!d.contains_key("border-bottom"), "raw `border-bottom` should be gone");
+        assert!(
+            !d.contains_key("border-bottom"),
+            "raw `border-bottom` should be gone"
+        );
         assert_eq!(px(&d, "border-bottom-width"), 1.0);
         match d.get("border-bottom-style").unwrap() {
             StyleValue::String(s) => assert_eq!(s, "solid"),
@@ -737,7 +838,12 @@ mod tests {
     fn border_none_zeroes_all_sides() {
         let d = decl("border: none;");
         assert!(!d.contains_key("border"));
-        for side in ["border-top-width", "border-right-width", "border-bottom-width", "border-left-width"] {
+        for side in [
+            "border-top-width",
+            "border-right-width",
+            "border-bottom-width",
+            "border-left-width",
+        ] {
             assert_eq!(px(&d, side), 0.0, "{side}");
         }
     }
@@ -773,7 +879,12 @@ mod tests {
     #[test]
     fn padding_shorthand_with_var_expands_to_four_vars() {
         let d = decl("padding: var(--p);");
-        for side in ["padding-top", "padding-right", "padding-bottom", "padding-left"] {
+        for side in [
+            "padding-top",
+            "padding-right",
+            "padding-bottom",
+            "padding-left",
+        ] {
             match d.get(side) {
                 Some(StyleValue::Var(n)) => assert_eq!(n, "--p"),
                 other => panic!("{side} should be Var(--p), got {:?}", other),
@@ -798,10 +909,15 @@ mod tests {
 
     #[test]
     fn test_border_shorthand_with_var_keeps_var() {
-        let mut parser = MssParser::new(":root { --c: #00ff00; } Button { border: 1px solid var(--c); }");
+        let mut parser =
+            MssParser::new(":root { --c: #00ff00; } Button { border: 1px solid var(--c); }");
         let (sheet, warnings) = parser.parse().unwrap();
         assert!(warnings.is_empty(), "Unexpected warnings: {:?}", warnings);
-        let rule = sheet.rules().iter().find(|r| matches!(&r.selector, Selector::Element(n) if n == "Button")).unwrap();
+        let rule = sheet
+            .rules()
+            .iter()
+            .find(|r| matches!(&r.selector, Selector::Element(n) if n == "Button"))
+            .unwrap();
         assert!(rule.declarations.contains_key("border-color"));
         match rule.declarations.get("border-color").unwrap() {
             StyleValue::Var(name) => assert_eq!(name, "--c"),
@@ -814,7 +930,11 @@ mod tests {
         let mut parser = MssParser::new("Button { background-color: var(--missing, #f44336); }");
         let (sheet, warnings) = parser.parse().unwrap();
         assert!(warnings.is_empty(), "Unexpected warnings: {:?}", warnings);
-        let rule = sheet.rules().iter().find(|r| matches!(&r.selector, Selector::Element(n) if n == "Button")).unwrap();
+        let rule = sheet
+            .rules()
+            .iter()
+            .find(|r| matches!(&r.selector, Selector::Element(n) if n == "Button"))
+            .unwrap();
         match rule.declarations.get("background-color").unwrap() {
             StyleValue::VarWithFallback(name, fallback) => {
                 assert_eq!(name, "--missing");
@@ -834,7 +954,11 @@ mod tests {
         let mut parser = MssParser::new("Button { color: var(--c, rgba(255, 0, 0, 0.5)); }");
         let (sheet, warnings) = parser.parse().unwrap();
         assert!(warnings.is_empty(), "Unexpected warnings: {:?}", warnings);
-        let rule = sheet.rules().iter().find(|r| matches!(&r.selector, Selector::Element(n) if n == "Button")).unwrap();
+        let rule = sheet
+            .rules()
+            .iter()
+            .find(|r| matches!(&r.selector, Selector::Element(n) if n == "Button"))
+            .unwrap();
         match rule.declarations.get("color").unwrap() {
             StyleValue::VarWithFallback(_, fallback) => match fallback.as_ref() {
                 StyleValue::Color(c) => {
@@ -849,11 +973,14 @@ mod tests {
 
     #[test]
     fn test_var_with_fallback_resolves_to_fallback_when_var_missing() {
-        use crate::mss::style_engine::{StyleEngine, StyleContext};
+        use crate::mss::style_engine::{StyleContext, StyleEngine};
         let mut parser = MssParser::new(".btn { background-color: var(--missing, #abcdef); }");
         let (sheet, _w) = parser.parse().unwrap();
         let mut engine = StyleEngine::new(sheet);
-        let ctx = StyleContext { classes: vec!["btn".into()], ..Default::default() };
+        let ctx = StyleContext {
+            classes: vec!["btn".into()],
+            ..Default::default()
+        };
         let computed = engine.compute_style(&ctx);
         match computed.get("background-color").unwrap() {
             StyleValue::Color(c) => assert_eq!((c.r, c.g, c.b), (0xab, 0xcd, 0xef)),
@@ -863,13 +990,16 @@ mod tests {
 
     #[test]
     fn test_var_with_fallback_prefers_root_when_var_present() {
-        use crate::mss::style_engine::{StyleEngine, StyleContext};
+        use crate::mss::style_engine::{StyleContext, StyleEngine};
         let mut parser = MssParser::new(
-            ":root { --bg: #112233; } .btn { background-color: var(--bg, #abcdef); }"
+            ":root { --bg: #112233; } .btn { background-color: var(--bg, #abcdef); }",
         );
         let (sheet, _w) = parser.parse().unwrap();
         let mut engine = StyleEngine::new(sheet);
-        let ctx = StyleContext { classes: vec!["btn".into()], ..Default::default() };
+        let ctx = StyleContext {
+            classes: vec!["btn".into()],
+            ..Default::default()
+        };
         let computed = engine.compute_style(&ctx);
         match computed.get("background-color").unwrap() {
             StyleValue::Color(c) => assert_eq!((c.r, c.g, c.b), (0x11, 0x22, 0x33)),
@@ -880,11 +1010,19 @@ mod tests {
     #[test]
     fn test_border_style_parses_without_warnings() {
         let mut parser = MssParser::new(
-            "Button { border-style: dashed; border-top-style: solid; border-left-style: none; }"
+            "Button { border-style: dashed; border-top-style: solid; border-left-style: none; }",
         );
         let (sheet, warnings) = parser.parse().unwrap();
-        assert!(warnings.is_empty(), "Unexpected parser warnings: {:?}", warnings);
-        let rule = sheet.rules().iter().find(|r| matches!(&r.selector, Selector::Element(n) if n == "Button")).unwrap();
+        assert!(
+            warnings.is_empty(),
+            "Unexpected parser warnings: {:?}",
+            warnings
+        );
+        let rule = sheet
+            .rules()
+            .iter()
+            .find(|r| matches!(&r.selector, Selector::Element(n) if n == "Button"))
+            .unwrap();
         assert!(rule.declarations.contains_key("border-style"));
         assert!(rule.declarations.contains_key("border-top-style"));
         assert!(rule.declarations.contains_key("border-left-style"));
@@ -901,7 +1039,7 @@ mod tests {
     fn test_checked_pseudo_parses_separately_from_hover() {
         let mut parser = MssParser::new(
             "Toggle:hover { background: #ff0000; } \
-             Toggle:checked { background: #00ff00; }"
+             Toggle:checked { background: #00ff00; }",
         );
         let (sheet, warnings) = parser.parse().unwrap();
         assert!(warnings.is_empty(), "Unexpected warnings: {:?}", warnings);

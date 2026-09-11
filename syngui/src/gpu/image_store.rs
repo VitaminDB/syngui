@@ -1,6 +1,6 @@
+use crate::core::sync::Mutex;
 use hashbrown::HashMap;
 use std::sync::Arc;
-use crate::core::sync::Mutex;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub struct ImageHandle(pub u32);
@@ -8,8 +8,16 @@ pub struct ImageHandle(pub u32);
 #[derive(Clone)]
 pub enum ImageSource {
     Path(String),
-    Bytes { key: String, data: Arc<Vec<u8>> },
-    RawRgba { key: String, width: u32, height: u32, rgba: Arc<Vec<u8>> },
+    Bytes {
+        key: String,
+        data: Arc<Vec<u8>>,
+    },
+    RawRgba {
+        key: String,
+        width: u32,
+        height: u32,
+        rgba: Arc<Vec<u8>>,
+    },
     Url(String),
 }
 
@@ -46,8 +54,14 @@ struct ImageEntry {
 
 #[allow(dead_code)]
 enum LoadResult {
-    Success { key: String, handle: ImageHandle, data: ImageData },
-    Failed { key: String },
+    Success {
+        key: String,
+        handle: ImageHandle,
+        data: ImageData,
+    },
+    Failed {
+        key: String,
+    },
 }
 
 pub struct ImageStore {
@@ -81,54 +95,80 @@ impl ImageStore {
         self.handle_to_key.insert(handle.0, key.clone());
 
         match source {
-            ImageSource::RawRgba { width, height, rgba, .. } => {
-                self.images.insert(key, ImageEntry {
+            ImageSource::RawRgba {
+                width,
+                height,
+                rgba,
+                ..
+            } => {
+                self.images.insert(
+                    key,
+                    ImageEntry {
+                        handle,
+                        state: ImageLoadState::Ready,
+                        width: *width,
+                        height: *height,
+                    },
+                );
+                self.pending_uploads.push((
                     handle,
-                    state: ImageLoadState::Ready,
-                    width: *width,
-                    height: *height,
-                });
-                self.pending_uploads.push((handle, ImageData {
-                    width: *width,
-                    height: *height,
-                    rgba: Arc::from(rgba.as_slice()),
-                }));
+                    ImageData {
+                        width: *width,
+                        height: *height,
+                        rgba: Arc::from(rgba.as_slice()),
+                    },
+                ));
                 (handle, ImageLoadState::Ready)
             }
             ImageSource::Bytes { data, .. } => {
-                self.images.insert(key.clone(), ImageEntry {
-                    handle,
-                    state: ImageLoadState::Loading,
-                    width: 0,
-                    height: 0,
-                });
+                self.images.insert(
+                    key.clone(),
+                    ImageEntry {
+                        handle,
+                        state: ImageLoadState::Loading,
+                        width: 0,
+                        height: 0,
+                    },
+                );
                 self.spawn_decode(key, handle, data.clone());
                 (handle, ImageLoadState::Loading)
             }
             ImageSource::Path(path) => {
-                self.images.insert(key.clone(), ImageEntry {
-                    handle,
-                    state: ImageLoadState::Loading,
-                    width: 0,
-                    height: 0,
-                });
+                self.images.insert(
+                    key.clone(),
+                    ImageEntry {
+                        handle,
+                        state: ImageLoadState::Loading,
+                        width: 0,
+                        height: 0,
+                    },
+                );
                 self.spawn_load(key, handle, path.clone());
                 (handle, ImageLoadState::Loading)
             }
             ImageSource::Url(url) => {
-                self.images.insert(key.clone(), ImageEntry {
-                    handle,
-                    state: ImageLoadState::Loading,
-                    width: 0,
-                    height: 0,
-                });
+                self.images.insert(
+                    key.clone(),
+                    ImageEntry {
+                        handle,
+                        state: ImageLoadState::Loading,
+                        width: 0,
+                        height: 0,
+                    },
+                );
                 self.spawn_url_load(key, handle, url.clone());
                 (handle, ImageLoadState::Loading)
             }
         }
     }
 
-    pub fn request_rgba(&mut self, key: &str, width: u32, height: u32, rgba: Vec<u8>) -> (ImageHandle, ImageLoadState) {
+    pub fn request_rgba(
+        &mut self,
+        key: &str,
+        width: u32,
+        height: u32,
+        rgba: Vec<u8>,
+    ) -> (ImageHandle, ImageLoadState) {
         let source = ImageSource::RawRgba {
             key: key.to_string(),
             width,
@@ -154,7 +194,14 @@ impl ImageStore {
             entry.width = width;
             entry.height = height;
         }
-        self.pending_uploads.push((handle, ImageData { width, height, rgba }));
+        self.pending_uploads.push((
+            handle,
+            ImageData {
+                width,
+                height,
+                rgba,
+            },
+        ));
     }
 
     pub fn take_pending_uploads(&mut self) -> Vec<(ImageHandle, ImageData)> {
@@ -199,14 +246,45 @@ impl ImageStore {
     }
 
     pub fn has_loading(&self) -> bool {
-        self.images.values().any(|e| e.state == ImageLoadState::Loading)
+        self.images
+            .values()
+            .any(|e| e.state == ImageLoadState::Loading)
     }
 
     #[cfg(feature = "image")]
     fn spawn_decode(&self, key: String, handle: ImageHandle, data: Arc<Vec<u8>>) {
         let results = self.bg_results.clone();
-        std::thread::spawn(move || {
-            match decode_image_bytes(&data) {
+        std::thread::spawn(move || match decode_image_bytes(&data) {
+            Ok(image_data) => {
+                results.lock().unwrap().push(LoadResult::Success {
+                    key,
+                    handle,
+                    data: image_data,
+                });
+            }
+            Err(_e) => {
+                log::error!("Failed to decode image '{}': {}", key, _e);
+                results.lock().unwrap().push(LoadResult::Failed { key });
+            }
+        });
+    }
+
+    #[cfg(not(feature = "image"))]
+    fn spawn_decode(&mut self, key: String, _handle: ImageHandle, _data: Arc<Vec<u8>>) {
+        log::warn!(
+            "Image decoding requires 'image' feature. Image '{}' will not load.",
+            key
+        );
+        if let Some(entry) = self.images.get_mut(&key) {
+            entry.state = ImageLoadState::Failed;
+        }
+    }
+
+    #[cfg(feature = "image")]
+    fn spawn_load(&self, key: String, handle: ImageHandle, path: String) {
+        let results = self.bg_results.clone();
+        std::thread::spawn(move || match std::fs::read(&path) {
+            Ok(bytes) => match decode_image_bytes(&bytes) {
                 Ok(image_data) => {
                     results.lock().unwrap().push(LoadResult::Success {
                         key,
@@ -218,47 +296,20 @@ impl ImageStore {
                     log::error!("Failed to decode image '{}': {}", key, _e);
                     results.lock().unwrap().push(LoadResult::Failed { key });
                 }
-            }
-        });
-    }
-
-    #[cfg(not(feature = "image"))]
-    fn spawn_decode(&mut self, key: String, _handle: ImageHandle, _data: Arc<Vec<u8>>) {
-        log::warn!("Image decoding requires 'image' feature. Image '{}' will not load.", key);
-        if let Some(entry) = self.images.get_mut(&key) {
-            entry.state = ImageLoadState::Failed;
-        }
-    }
-
-    #[cfg(feature = "image")]
-    fn spawn_load(&self, key: String, handle: ImageHandle, path: String) {
-        let results = self.bg_results.clone();
-        std::thread::spawn(move || {
-            match std::fs::read(&path) {
-                Ok(bytes) => match decode_image_bytes(&bytes) {
-                    Ok(image_data) => {
-                        results.lock().unwrap().push(LoadResult::Success {
-                            key,
-                            handle,
-                            data: image_data,
-                        });
-                    }
-                    Err(_e) => {
-                        log::error!("Failed to decode image '{}': {}", key, _e);
-                        results.lock().unwrap().push(LoadResult::Failed { key });
-                    }
-                },
-                Err(_e) => {
-                    log::error!("Failed to read image file '{}': {}", path, _e);
-                    results.lock().unwrap().push(LoadResult::Failed { key });
-                }
+            },
+            Err(_e) => {
+                log::error!("Failed to read image file '{}': {}", path, _e);
+                results.lock().unwrap().push(LoadResult::Failed { key });
             }
         });
     }
 
     #[cfg(not(feature = "image"))]
     fn spawn_load(&mut self, key: String, _handle: ImageHandle, _path: String) {
-        log::warn!("Image loading requires 'image' feature. Image '{}' will not load.", key);
+        log::warn!(
+            "Image loading requires 'image' feature. Image '{}' will not load.",
+            key
+        );
         if let Some(entry) = self.images.get_mut(&key) {
             entry.state = ImageLoadState::Failed;
         }
@@ -360,9 +411,7 @@ fn trim_ascii_start(bytes: &[u8]) -> &[u8] {
 
 #[cfg(feature = "svg")]
 fn find(haystack: &[u8], needle: &[u8]) -> Option<usize> {
-    haystack
-        .windows(needle.len())
-        .position(|w| w == needle)
+    haystack.windows(needle.len()).position(|w| w == needle)
 }
 
 #[cfg(feature = "svg")]
@@ -382,8 +431,8 @@ fn decode_svg(bytes: &[u8]) -> Result<ImageData, String> {
     };
     let w_px = ((size.width() * scale).round() as u32).max(1);
     let h_px = ((size.height() * scale).round() as u32).max(1);
-    let mut pixmap = tiny_skia::Pixmap::new(w_px, h_px)
-        .ok_or_else(|| format!("pixmap alloc {w_px}x{h_px}"))?;
+    let mut pixmap =
+        tiny_skia::Pixmap::new(w_px, h_px).ok_or_else(|| format!("pixmap alloc {w_px}x{h_px}"))?;
     let transform = tiny_skia::Transform::from_scale(scale, scale);
     resvg::render(&tree, transform, &mut pixmap.as_mut());
 

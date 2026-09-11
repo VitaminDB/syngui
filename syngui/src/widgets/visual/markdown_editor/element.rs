@@ -1,17 +1,17 @@
 use std::any::Any;
 use std::sync::Arc;
 
-use crate::core::{Point, Rect, Size};
 use crate::core::sync::Mutex;
+use crate::core::{Point, Rect, Size};
 use crate::input::{Event, EventResult};
 use crate::layout::Constraints;
 use crate::render::DisplayList;
 use crate::signal::{self, RwSignal};
+use crate::widget::styled::WidgetExt;
 use crate::widget::{
     DirtyFlags, Element, ElementId, ElementTree, LayoutHint, UpdateContext, Widget,
 };
-use crate::widget::styled::WidgetExt;
-use crate::widgets::containers::{Column, SplitView, SplitDirection};
+use crate::widgets::containers::{Column, SplitDirection, SplitView};
 use crate::widgets::input::MultilineTextEdit;
 use crate::widgets::scroll::ScrollView;
 use crate::widgets::visual::MarkdownView;
@@ -124,10 +124,18 @@ impl MarkdownEditorElement {
 struct BoxedWidget(Box<dyn Widget>);
 
 impl Widget for BoxedWidget {
-    fn create_element(&self) -> Box<dyn Element> { self.0.create_element() }
-    fn can_update(&self, other: &dyn Any) -> bool { self.0.can_update(other) }
-    fn as_any(&self) -> &dyn Any { self.0.as_any() }
-    fn as_any_mut(&mut self) -> &mut dyn Any { self.0.as_any_mut() }
+    fn create_element(&self) -> Box<dyn Element> {
+        self.0.create_element()
+    }
+    fn can_update(&self, other: &dyn Any) -> bool {
+        self.0.can_update(other)
+    }
+    fn as_any(&self) -> &dyn Any {
+        self.0.as_any()
+    }
+    fn as_any_mut(&mut self) -> &mut dyn Any {
+        self.0.as_any_mut()
+    }
     fn mount(&self, tree: &mut ElementTree, parent_id: ElementId) {
         self.0.mount(tree, parent_id);
     }
@@ -179,22 +187,46 @@ impl Element for MarkdownEditorElement {
 
     fn build_display_list(&self, _list: &mut DisplayList, _clip: Rect) {}
 
-    fn handle_event(&mut self, _event: &Event, _ctx: &mut crate::widget::context::EventContext) -> EventResult {
+    fn handle_event(
+        &mut self,
+        _event: &Event,
+        _ctx: &mut crate::widget::context::EventContext,
+    ) -> EventResult {
         EventResult::Ignored
     }
 
-    fn children(&self) -> &[ElementId] { &self.child_ids }
-    fn bounds(&self) -> Rect { self.bounds }
-    fn set_position(&mut self, pos: Point) { self.bounds.origin = pos; }
-    fn mark_dirty(&mut self, flags: DirtyFlags) { self.dirty_flags |= flags; }
-    fn clear_dirty(&mut self, flags: DirtyFlags) { self.dirty_flags.remove(flags); }
-    fn is_dirty(&self, flags: DirtyFlags) -> bool { self.dirty_flags.contains(flags) }
-    fn id(&self) -> ElementId { self.id }
-    fn set_id(&mut self, id: ElementId) { self.id = id; }
+    fn children(&self) -> &[ElementId] {
+        &self.child_ids
+    }
+    fn bounds(&self) -> Rect {
+        self.bounds
+    }
+    fn set_position(&mut self, pos: Point) {
+        self.bounds.origin = pos;
+    }
+    fn mark_dirty(&mut self, flags: DirtyFlags) {
+        self.dirty_flags |= flags;
+    }
+    fn clear_dirty(&mut self, flags: DirtyFlags) {
+        self.dirty_flags.remove(flags);
+    }
+    fn is_dirty(&self, flags: DirtyFlags) -> bool {
+        self.dirty_flags.contains(flags)
+    }
+    fn id(&self) -> ElementId {
+        self.id
+    }
+    fn set_id(&mut self, id: ElementId) {
+        self.id = id;
+    }
     fn mount(&mut self, _tree: &mut ElementTree) {}
-    fn element_type_name(&self) -> &str { "MarkdownEditor" }
+    fn element_type_name(&self) -> &str {
+        "MarkdownEditor"
+    }
 
-    fn manages_own_children(&self) -> bool { true }
+    fn manages_own_children(&self) -> bool {
+        true
+    }
 
     fn needs_rebuild(&self) -> bool {
         !self.mounted || self.needs_child_rebuild || signal::is_element_dirty(self.id)
@@ -204,10 +236,7 @@ impl Element for MarkdownEditorElement {
         signal::begin_tracking(self.id);
         signal::begin_element_scope(self.id);
 
-        let mut col = Column::new()
-            .gap(8.0)
-            .class("markdown-editor")
-            .expand();
+        let mut col = Column::new().gap(8.0).class("markdown-editor").expand();
 
         if self.show_toolbar {
             col = col.children(std::iter::once(build_toolbar(self.mode)));

@@ -1,13 +1,13 @@
-pub mod display_list;
-pub mod batcher;
 pub mod batch;
-pub mod vertex;
+pub mod batcher;
 pub mod clip;
+pub mod display_list;
 pub mod focus_ring;
+pub mod vertex;
 
-pub use display_list::*;
-pub use batcher::*;
 pub use batch::*;
-pub use vertex::*;
+pub use batcher::*;
 pub use clip::*;
+pub use display_list::*;
 pub use focus_ring::*;
+pub use vertex::*;

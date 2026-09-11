@@ -100,7 +100,11 @@ impl Widget for AnimatedSize {
 
     fn mount(&self, tree: &mut ElementTree, parent_id: ElementId) {
         let child_element = self.child.create_element();
-        let child_id = tree.insert_with_type_id(child_element, Some(parent_id), self.child.as_any().type_id());
+        let child_id = tree.insert_with_type_id(
+            child_element,
+            Some(parent_id),
+            self.child.as_any().type_id(),
+        );
         self.child.mount(tree, child_id);
     }
 
@@ -139,8 +143,14 @@ impl Element for AnimatedSizeElement {
     }
 
     fn layout(&mut self, constraints: Constraints) -> Size {
-        let w = self.current_width.clamp(constraints.min_width.min(constraints.max_width), constraints.max_width);
-        let h = self.current_height.clamp(constraints.min_height.min(constraints.max_height), constraints.max_height);
+        let w = self.current_width.clamp(
+            constraints.min_width.min(constraints.max_width),
+            constraints.max_width,
+        );
+        let h = self.current_height.clamp(
+            constraints.min_height.min(constraints.max_height),
+            constraints.max_height,
+        );
         self.bounds.size = Size::new(w, h);
         Size::new(w, h)
     }
@@ -282,8 +292,12 @@ impl Element for AnimatedSizeElement {
         &self.classes
     }
 
-    fn reset_mss_styles(&mut self) { self.mss.reset(); }
-    fn mss(&self) -> Option<&crate::mss::MssFields> { Some(&self.mss) }
+    fn reset_mss_styles(&mut self) {
+        self.mss.reset();
+    }
+    fn mss(&self) -> Option<&crate::mss::MssFields> {
+        Some(&self.mss)
+    }
     fn apply_computed_style(&mut self, style: &ComputedStyle) {
         self.mss.apply(style);
         self.mark_dirty(DirtyFlags::LAYOUT | DirtyFlags::RENDER);
@@ -298,7 +312,8 @@ impl Element for AnimatedSizeElement {
         selected: Option<&ComputedStyle>,
         _checked: Option<&ComputedStyle>,
     ) {
-        self.mss.apply_transitions(base, hover, active, focus, selected);
+        self.mss
+            .apply_transitions(base, hover, active, focus, selected);
     }
 }
 

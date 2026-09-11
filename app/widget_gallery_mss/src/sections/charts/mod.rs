@@ -1,20 +1,26 @@
 //! Charts section with sub-sidebar for chart type navigation.
 
-mod line_chart_demos;
-mod gauge_chart_demos;
-mod pie_chart_demos;
 mod bar_chart_demos;
+mod gauge_chart_demos;
+mod line_chart_demos;
+mod pie_chart_demos;
 mod radar_chart_demos;
 
-use syngui::prelude::*;
-use syngui::widgets::*;
 use std::sync::Arc;
 use syngui::core::sync::Mutex;
+use syngui::prelude::*;
+use syngui::widgets::*;
 /// Build the Charts page with a sub-sidebar (three-panel layout).
 pub fn build_charts_section() -> impl Widget {
     let chart_type = use_signal(0usize);
 
-    let route_keys = ["line-chart", "gauge-chart", "pie-chart", "bar-chart", "radar-chart"];
+    let route_keys = [
+        "line-chart",
+        "gauge-chart",
+        "pie-chart",
+        "bar-chart",
+        "radar-chart",
+    ];
     let router = Arc::new(Mutex::new(Router::new(
         route_keys.iter().map(|s| s.to_string()).collect::<Vec<_>>(),
         "line-chart",
@@ -24,29 +30,27 @@ pub fn build_charts_section() -> impl Widget {
         .gap(0.0)
         // Left sub-sidebar for chart types
         .child(
-            Sidebar::new()
-                .class("charts-sidebar")
-                .child(
-                    DecoratedBox::new().class("grow").child(
-                        ListView::new(vec![
-                            ListItem::new("Line Chart").icon("📈"),
-                            ListItem::new("Gauge Chart").icon("⏱"),
-                            ListItem::new("Pie Chart").icon("🥧"),
-                            ListItem::new("Bar Chart").icon("📊"),
-                            ListItem::new("Radar Chart").icon("🕸"),
-                        ])
-                        .selection_mode(SelectionMode::Single)
-                        .selected(vec![chart_type.get()])
-                        .on_select({
-                            let r = router.clone();
-                            move |idx| {
-                                if let Some(key) = route_keys.get(idx) {
-                                    r.lock().unwrap().navigate(*key);
-                                }
+            Sidebar::new().class("charts-sidebar").child(
+                DecoratedBox::new().class("grow").child(
+                    ListView::new(vec![
+                        ListItem::new("Line Chart").icon("📈"),
+                        ListItem::new("Gauge Chart").icon("⏱"),
+                        ListItem::new("Pie Chart").icon("🥧"),
+                        ListItem::new("Bar Chart").icon("📊"),
+                        ListItem::new("Radar Chart").icon("🕸"),
+                    ])
+                    .selection_mode(SelectionMode::Single)
+                    .selected(vec![chart_type.get()])
+                    .on_select({
+                        let r = router.clone();
+                        move |idx| {
+                            if let Some(key) = route_keys.get(idx) {
+                                r.lock().unwrap().navigate(*key);
                             }
-                        })
-                    )
+                        }
+                    }),
                 ),
+            ),
         )
         // Right content area
         .child(

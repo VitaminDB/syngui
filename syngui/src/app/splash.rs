@@ -61,10 +61,16 @@ impl SplashWindow {
 
     pub fn can_close(&self) -> bool {
         match self {
-            Self::Cpu { created_at, min_display, .. } |
-            Self::Gpu { created_at, min_display, .. } => {
-                created_at.elapsed() >= *min_display
+            Self::Cpu {
+                created_at,
+                min_display,
+                ..
             }
+            | Self::Gpu {
+                created_at,
+                min_display,
+                ..
+            } => created_at.elapsed() >= *min_display,
         }
     }
 
@@ -88,7 +94,10 @@ impl SplashWindow {
             .with_inner_size(winit::dpi::PhysicalSize::new(win_w, win_h))
             .with_title("Splash");
 
-        if let Some(monitor) = event_loop.primary_monitor().or_else(|| event_loop.available_monitors().next()) {
+        if let Some(monitor) = event_loop
+            .primary_monitor()
+            .or_else(|| event_loop.available_monitors().next())
+        {
             let screen = monitor.size();
             let pos_x = (screen.width.saturating_sub(win_w)) / 2;
             let pos_y = (screen.height.saturating_sub(win_h)) / 2;
@@ -141,7 +150,9 @@ impl SplashWindow {
                 let src_x = ((x as f32 / scale) as u32).min(img_w - 1);
                 let si = ((src_y * img_w + src_x) * 4) as usize;
                 let a = src[si + 3] as u32;
-                if a == 0 { continue; }
+                if a == 0 {
+                    continue;
+                }
 
                 let di = (((offset_y + y) * buf_w + offset_x + x) * 4) as usize;
                 if a == 255 || bg.is_none() {
@@ -152,8 +163,10 @@ impl SplashWindow {
                 } else {
                     let inv = 255 - a;
                     rgba[di] = ((src[si] as u32 * a + rgba[di] as u32 * inv) / 255) as u8;
-                    rgba[di + 1] = ((src[si + 1] as u32 * a + rgba[di + 1] as u32 * inv) / 255) as u8;
-                    rgba[di + 2] = ((src[si + 2] as u32 * a + rgba[di + 2] as u32 * inv) / 255) as u8;
+                    rgba[di + 1] =
+                        ((src[si + 1] as u32 * a + rgba[di + 1] as u32 * inv) / 255) as u8;
+                    rgba[di + 2] =
+                        ((src[si + 2] as u32 * a + rgba[di + 2] as u32 * inv) / 255) as u8;
                     rgba[di + 3] = 255;
                 }
             }
@@ -222,41 +235,54 @@ impl SplashWindow {
             power_preference: wgpu::PowerPreference::LowPower,
             compatible_surface: Some(&surface),
             force_fallback_adapter: false,
-        })).ok()?;
+        }))
+        .ok()?;
 
-        let (device, queue) = pollster::block_on(adapter.request_device(
-            &wgpu::DeviceDescriptor {
-                label: Some("Splash GPU"),
-                required_features: wgpu::Features::empty(),
-                required_limits: wgpu::Limits::default(),
-                memory_hints: wgpu::MemoryHints::MemoryUsage,
-                trace: wgpu::Trace::Off,
-                experimental_features: wgpu::ExperimentalFeatures::disabled(),
-            },
-        )).ok()?;
+        let (device, queue) = pollster::block_on(adapter.request_device(&wgpu::DeviceDescriptor {
+            label: Some("Splash GPU"),
+            required_features: wgpu::Features::empty(),
+            required_limits: wgpu::Limits::default(),
+            memory_hints: wgpu::MemoryHints::MemoryUsage,
+            trace: wgpu::Trace::Off,
+            experimental_features: wgpu::ExperimentalFeatures::disabled(),
+        }))
+        .ok()?;
 
         let caps = surface.get_capabilities(&adapter);
-        let format = caps.formats.iter().find(|f| f.is_srgb()).copied()
+        let format = caps
+            .formats
+            .iter()
+            .find(|f| f.is_srgb())
+            .copied()
             .unwrap_or(caps.formats[0]);
 
-        let alpha_mode = if caps.alpha_modes.contains(&wgpu::CompositeAlphaMode::PreMultiplied) {
+        let alpha_mode = if caps
+            .alpha_modes
+            .contains(&wgpu::CompositeAlphaMode::PreMultiplied)
+        {
             wgpu::CompositeAlphaMode::PreMultiplied
-        } else if caps.alpha_modes.contains(&wgpu::CompositeAlphaMode::PostMultiplied) {
+        } else if caps
+            .alpha_modes
+            .contains(&wgpu::CompositeAlphaMode::PostMultiplied)
+        {
             wgpu::CompositeAlphaMode::PostMultiplied
         } else {
             caps.alpha_modes[0]
         };
 
-        surface.configure(&device, &wgpu::SurfaceConfiguration {
-            usage: wgpu::TextureUsages::RENDER_ATTACHMENT,
-            format,
-            width: buf_w,
-            height: buf_h,
-            present_mode: wgpu::PresentMode::AutoVsync,
-            alpha_mode,
-            view_formats: vec![],
-            desired_maximum_frame_latency: 1,
-        });
+        surface.configure(
+            &device,
+            &wgpu::SurfaceConfiguration {
+                usage: wgpu::TextureUsages::RENDER_ATTACHMENT,
+                format,
+                width: buf_w,
+                height: buf_h,
+                present_mode: wgpu::PresentMode::AutoVsync,
+                alpha_mode,
+                view_formats: vec![],
+                desired_maximum_frame_latency: 1,
+            },
+        );
 
         let texture_size = wgpu::Extent3d {
             width: buf_w,
@@ -322,8 +348,14 @@ impl SplashWindow {
             label: Some("Splash BG"),
             layout: &bind_group_layout,
             entries: &[
-                wgpu::BindGroupEntry { binding: 0, resource: wgpu::BindingResource::TextureView(&texture_view) },
-                wgpu::BindGroupEntry { binding: 1, resource: wgpu::BindingResource::Sampler(&sampler) },
+                wgpu::BindGroupEntry {
+                    binding: 0,
+                    resource: wgpu::BindingResource::TextureView(&texture_view),
+                },
+                wgpu::BindGroupEntry {
+                    binding: 1,
+                    resource: wgpu::BindingResource::Sampler(&sampler),
+                },
             ],
         });
 
@@ -369,7 +401,9 @@ impl SplashWindow {
         });
 
         let output = surface.get_current_texture().ok()?;
-        let view = output.texture.create_view(&wgpu::TextureViewDescriptor::default());
+        let view = output
+            .texture
+            .create_view(&wgpu::TextureViewDescriptor::default());
 
         let mut encoder = device.create_command_encoder(&wgpu::CommandEncoderDescriptor {
             label: Some("Splash Encoder"),

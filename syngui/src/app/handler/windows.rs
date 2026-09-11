@@ -1,12 +1,12 @@
-use std::sync::Arc;
+use super::{AppHandler, SecondaryWindow};
 use crate::a11y::FocusManager;
 use crate::core::Point;
+use crate::gpu::Renderer;
 use crate::input::CursorIcon;
 use crate::render::DisplayList;
 use crate::widget::{ElementTree, Widget};
 use crate::window::{Window, WindowBuilder};
-use crate::gpu::Renderer;
-use super::{AppHandler, SecondaryWindow};
+use std::sync::Arc;
 
 impl AppHandler {
     pub(super) fn create_secondary_window(
@@ -24,7 +24,11 @@ impl AppHandler {
         };
 
         let mut wb = WindowBuilder::new()
-            .with_title(if wc.title.is_empty() { &wc.name } else { &wc.title })
+            .with_title(if wc.title.is_empty() {
+                &wc.name
+            } else {
+                &wc.title
+            })
             .with_size(wc.width, wc.height)
             .with_min_size(wc.min_width, wc.min_height);
 
@@ -36,20 +40,26 @@ impl AppHandler {
         let win_id = window.winit_window().id();
 
         if let Some((x, y)) = wc.position {
-            window.winit_window().set_outer_position(winit::dpi::PhysicalPosition::new(x, y));
+            window
+                .winit_window()
+                .set_outer_position(winit::dpi::PhysicalPosition::new(x, y));
         } else if let Some((dx, dy)) = wc.offset_from_main {
             if let Some(ref main_win) = self.window {
                 if let Ok(main_pos) = main_win.winit_window().outer_position() {
                     let x = main_pos.x + dx;
                     let y = main_pos.y + dy;
-                    window.winit_window().set_outer_position(winit::dpi::PhysicalPosition::new(x, y));
+                    window
+                        .winit_window()
+                        .set_outer_position(winit::dpi::PhysicalPosition::new(x, y));
                 }
             }
         }
 
         crate::signal::add_window(window.clone());
 
-        let surface = gpu.shared.instance
+        let surface = gpu
+            .shared
+            .instance
             .create_surface(window.clone())
             .expect("Failed to create surface for secondary window");
 
@@ -82,21 +92,42 @@ impl AppHandler {
         };
         surface.configure(&gpu.shared.device, &surface_config);
 
-        let win_surface = crate::gpu::WindowSurface { surface, surface_config };
+        let win_surface = crate::gpu::WindowSurface {
+            surface,
+            surface_config,
+        };
 
         let logical_w = (phys_w as f64 / scale).max(1.0) as u32;
         let logical_h = (phys_h as f64 / scale).max(1.0) as u32;
-        let renderer = Renderer::new(&gpu.shared, surface_format, phys_w, phys_h, logical_w, logical_h, self.config.font_family.clone());
+        let renderer = Renderer::new(
+            &gpu.shared,
+            surface_format,
+            phys_w,
+            phys_h,
+            logical_w,
+            logical_h,
+            self.config.font_family.clone(),
+        );
 
         if let Some(icon_data) = self.config.icon_font_data {
-            renderer.font_atlas.lock().unwrap().set_icon_font_data(icon_data.to_vec());
+            renderer
+                .font_atlas
+                .lock()
+                .unwrap()
+                .set_icon_font_data(icon_data.to_vec());
         }
 
         let mut build_ctx = crate::widget::BuildContext::root();
         let widget = build_fn(&mut build_ctx);
         let mut tree = ElementTree::new();
-        tree.text_measure = Some(renderer.font_atlas.clone() as std::sync::Arc<dyn crate::widget::context::TextMeasure>);
-        renderer.font_atlas.lock().unwrap().set_scale_factor(self.scale_factor as f32);
+        tree.text_measure =
+            Some(renderer.font_atlas.clone()
+                as std::sync::Arc<dyn crate::widget::context::TextMeasure>);
+        renderer
+            .font_atlas
+            .lock()
+            .unwrap()
+            .set_scale_factor(self.scale_factor as f32);
         tree.image_store = Some(renderer.image_store.clone());
 
         let element = widget.create_element();
@@ -108,7 +139,9 @@ impl AppHandler {
         Self::apply_styles_to_tree(&mut tree, &style_engine);
 
         loop {
-            if !tree.rebuild_if_needed(root_id) { break; }
+            if !tree.rebuild_if_needed(root_id) {
+                break;
+            }
             Self::apply_styles_to_tree(&mut tree, &style_engine);
         }
 
@@ -145,8 +178,8 @@ impl AppHandler {
         window_id: winit::window::WindowId,
         event: &winit::event::WindowEvent,
     ) {
-        use winit::event::WindowEvent;
         use crate::input::Event as UiEvent;
+        use winit::event::WindowEvent;
 
         match event {
             WindowEvent::CloseRequested => {
@@ -160,10 +193,20 @@ impl AppHandler {
                     if let Some(gpu) = self.gpu.as_ref() {
                         sw.width = physical_size.width;
                         sw.height = physical_size.height;
-                        sw.surface.resize(&gpu.shared.device, physical_size.width, physical_size.height);
+                        sw.surface.resize(
+                            &gpu.shared.device,
+                            physical_size.width,
+                            physical_size.height,
+                        );
                         let logical_w = (physical_size.width as f64 / sw.scale_factor) as u32;
                         let logical_h = (physical_size.height as f64 / sw.scale_factor) as u32;
-                        sw.renderer.resize(&gpu.shared.device, physical_size.width, physical_size.height, logical_w, logical_h);
+                        sw.renderer.resize(
+                            &gpu.shared.device,
+                            physical_size.width,
+                            physical_size.height,
+                            logical_w,
+                            logical_h,
+                        );
                     }
                 }
             }
@@ -190,10 +233,12 @@ impl AppHandler {
                     let evt = match state {
                         winit::event::ElementState::Pressed => {
                             let now = web_time::Instant::now();
-                            let is_double = sw.last_click_time
+                            let is_double = sw
+                                .last_click_time
                                 .map(|t| now.duration_since(t) < sw.double_click_interval)
                                 .unwrap_or(false)
-                                && sw.last_click_pos
+                                && sw
+                                    .last_click_pos
                                     .map(|p| (p.x - pos.x).abs() < 5.0 && (p.y - pos.y).abs() < 5.0)
                                     .unwrap_or(false);
                             if is_double {
@@ -202,16 +247,23 @@ impl AppHandler {
                                 // хендлере event_handling.rs).
                                 sw.last_click_time = None;
                                 sw.last_click_pos = None;
-                                UiEvent::DoubleClick { position: pos, button: btn }
+                                UiEvent::DoubleClick {
+                                    position: pos,
+                                    button: btn,
+                                }
                             } else {
                                 sw.last_click_time = Some(now);
                                 sw.last_click_pos = Some(pos);
-                                UiEvent::MouseDown { position: pos, button: btn }
+                                UiEvent::MouseDown {
+                                    position: pos,
+                                    button: btn,
+                                }
                             }
                         }
-                        winit::event::ElementState::Released => {
-                            UiEvent::MouseUp { position: pos, button: btn }
-                        }
+                        winit::event::ElementState::Released => UiEvent::MouseUp {
+                            position: pos,
+                            button: btn,
+                        },
                     };
                     if let Some(root_id) = sw.root_id {
                         sw.tree.handle_event(root_id, &evt);
@@ -219,7 +271,9 @@ impl AppHandler {
                     sw.window.request_redraw();
                 }
             }
-            WindowEvent::KeyboardInput { event: key_event, .. } => {
+            WindowEvent::KeyboardInput {
+                event: key_event, ..
+            } => {
                 if let Some(sw) = self.secondary_windows.get_mut(&window_id) {
                     if key_event.state == winit::event::ElementState::Pressed {
                         if let Some(ref text) = key_event.text {
@@ -234,7 +288,9 @@ impl AppHandler {
                         }
                     }
                     let key = match key_event.physical_key {
-                        winit::keyboard::PhysicalKey::Code(code) => super::super::input_mapping::map_key_code(code),
+                        winit::keyboard::PhysicalKey::Code(code) => {
+                            super::super::input_mapping::map_key_code(code)
+                        }
                         winit::keyboard::PhysicalKey::Unidentified(_) => return,
                     };
                     let evt = match key_event.state {
@@ -251,10 +307,16 @@ impl AppHandler {
                 if let Some(sw) = self.secondary_windows.get_mut(&window_id) {
                     let (dx, dy) = match delta {
                         winit::event::MouseScrollDelta::LineDelta(x, y) => (*x * 40.0, *y * 40.0),
-                        winit::event::MouseScrollDelta::PixelDelta(pos) => (pos.x as f32, pos.y as f32),
+                        winit::event::MouseScrollDelta::PixelDelta(pos) => {
+                            (pos.x as f32, pos.y as f32)
+                        }
                     };
                     let pos = sw.cursor_position;
-                    let evt = UiEvent::MouseWheel { delta: dy, delta_x: dx, position: pos };
+                    let evt = UiEvent::MouseWheel {
+                        delta: dy,
+                        delta_x: dx,
+                        position: pos,
+                    };
                     if let Some(root_id) = sw.root_id {
                         sw.tree.handle_event(root_id, &evt);
                     }
@@ -294,7 +356,9 @@ impl AppHandler {
         if let Some(root_id) = sw.root_id {
             let mut any_rebuilt = false;
             for _ in 0..8 {
-                if !sw.tree.rebuild_if_needed(root_id) { break; }
+                if !sw.tree.rebuild_if_needed(root_id) {
+                    break;
+                }
                 any_rebuilt = true;
                 Self::apply_styles_to_tree(&mut sw.tree, &sw.style_engine);
             }
@@ -314,13 +378,24 @@ impl AppHandler {
             sw.display_list.set_surface_size(surface_size);
             sw.display_list.set_scale_factor(sw.scale_factor as f32);
             let clip = crate::core::Rect::new(crate::core::Point::zero(), surface_size);
-            sw.tree.build_display_list(root_id, &mut sw.display_list, clip);
+            sw.tree
+                .build_display_list(root_id, &mut sw.display_list, clip);
 
-            sw.renderer.render(&gpu.shared, &sw.surface, &sw.display_list, self.config.background_color);
+            sw.renderer.render(
+                &gpu.shared,
+                &sw.surface,
+                &sw.display_list,
+                self.config.background_color,
+            );
         }
     }
 
-    pub(in crate::app) fn handle_window_moved(&mut self, moved_id: winit::window::WindowId, new_x: i32, new_y: i32) {
+    pub(in crate::app) fn handle_window_moved(
+        &mut self,
+        moved_id: winit::window::WindowId,
+        new_x: i32,
+        new_y: i32,
+    ) {
         let threshold = match self.sticky_threshold {
             Some(t) => t as i32,
             None => return,
@@ -347,7 +422,9 @@ impl AppHandler {
         }
 
         let moved_idx = all_windows.iter().position(|(id, _, _)| *id == moved_id);
-        if moved_idx.is_none() { return; }
+        if moved_idx.is_none() {
+            return;
+        }
         let moved_idx = moved_idx.unwrap();
         let (_, moved_pos, moved_size) = all_windows[moved_idx];
 
@@ -358,10 +435,16 @@ impl AppHandler {
         };
 
         if delta.0 != 0 || delta.1 != 0 {
-            let group = self.sticky_groups.iter().find(|g| g.contains(&moved_id)).cloned();
+            let group = self
+                .sticky_groups
+                .iter()
+                .find(|g| g.contains(&moved_id))
+                .cloned();
             if let Some(group) = group {
                 for &gid in &group {
-                    if gid == moved_id { continue; }
+                    if gid == moved_id {
+                        continue;
+                    }
                     if let Some(&(gx, gy)) = self.window_positions.get(&gid) {
                         let new_gx = gx + delta.0;
                         let new_gy = gy + delta.1;
@@ -377,23 +460,39 @@ impl AppHandler {
         let mut snapped_to: Option<winit::window::WindowId> = None;
 
         for (i, &(other_id, other_pos, other_size)) in all_windows.iter().enumerate() {
-            if i == moved_idx { continue; }
+            if i == moved_idx {
+                continue;
+            }
 
             let r2l = (moved_pos.0 + moved_size.0 - other_pos.0).abs();
             let l2r = (moved_pos.0 - (other_pos.0 + other_size.0)).abs();
             let b2t = (moved_pos.1 + moved_size.1 - other_pos.1).abs();
             let t2b = (moved_pos.1 - (other_pos.1 + other_size.1)).abs();
 
-            let v_overlap = moved_pos.1 < other_pos.1 + other_size.1 && moved_pos.1 + moved_size.1 > other_pos.1;
-            let h_overlap = moved_pos.0 < other_pos.0 + other_size.0 && moved_pos.0 + moved_size.0 > other_pos.0;
+            let v_overlap = moved_pos.1 < other_pos.1 + other_size.1
+                && moved_pos.1 + moved_size.1 > other_pos.1;
+            let h_overlap = moved_pos.0 < other_pos.0 + other_size.0
+                && moved_pos.0 + moved_size.0 > other_pos.0;
 
             if v_overlap {
-                if r2l < threshold { snap_x = other_pos.0 - moved_size.0; snapped_to = Some(other_id); }
-                if l2r < threshold { snap_x = other_pos.0 + other_size.0; snapped_to = Some(other_id); }
+                if r2l < threshold {
+                    snap_x = other_pos.0 - moved_size.0;
+                    snapped_to = Some(other_id);
+                }
+                if l2r < threshold {
+                    snap_x = other_pos.0 + other_size.0;
+                    snapped_to = Some(other_id);
+                }
             }
             if h_overlap {
-                if b2t < threshold { snap_y = other_pos.1 - moved_size.1; snapped_to = Some(other_id); }
-                if t2b < threshold { snap_y = other_pos.1 + other_size.1; snapped_to = Some(other_id); }
+                if b2t < threshold {
+                    snap_y = other_pos.1 - moved_size.1;
+                    snapped_to = Some(other_id);
+                }
+                if t2b < threshold {
+                    snap_y = other_pos.1 + other_size.1;
+                    snapped_to = Some(other_id);
+                }
             }
 
             if v_overlap && (r2l < threshold || l2r < threshold) {
@@ -417,19 +516,20 @@ impl AppHandler {
             }
         } else {
             let detach_threshold = threshold * 3;
-            let should_detach = if let Some(group) = self.sticky_groups.iter().find(|g| g.contains(&moved_id)) {
-                group.iter().filter(|&&gid| gid != moved_id).all(|&gid| {
-                    if let Some(&(gx, gy)) = self.window_positions.get(&gid) {
-                        let dx = (moved_pos.0 - gx).abs();
-                        let dy = (moved_pos.1 - gy).abs();
-                        dx > detach_threshold * 3 || dy > detach_threshold * 3
-                    } else {
-                        true
-                    }
-                })
-            } else {
-                false
-            };
+            let should_detach =
+                if let Some(group) = self.sticky_groups.iter().find(|g| g.contains(&moved_id)) {
+                    group.iter().filter(|&&gid| gid != moved_id).all(|&gid| {
+                        if let Some(&(gx, gy)) = self.window_positions.get(&gid) {
+                            let dx = (moved_pos.0 - gx).abs();
+                            let dy = (moved_pos.1 - gy).abs();
+                            dx > detach_threshold * 3 || dy > detach_threshold * 3
+                        } else {
+                            true
+                        }
+                    })
+                } else {
+                    false
+                };
             if should_detach {
                 self.remove_from_sticky_group(moved_id);
             }
@@ -439,12 +539,15 @@ impl AppHandler {
     fn set_window_position(&self, id: winit::window::WindowId, x: i32, y: i32) {
         if let Some(ref win) = self.window {
             if win.winit_window().id() == id {
-                win.winit_window().set_outer_position(winit::dpi::PhysicalPosition::new(x, y));
+                win.winit_window()
+                    .set_outer_position(winit::dpi::PhysicalPosition::new(x, y));
                 return;
             }
         }
         if let Some(sw) = self.secondary_windows.get(&id) {
-            sw.window.winit_window().set_outer_position(winit::dpi::PhysicalPosition::new(x, y));
+            sw.window
+                .winit_window()
+                .set_outer_position(winit::dpi::PhysicalPosition::new(x, y));
         }
     }
 

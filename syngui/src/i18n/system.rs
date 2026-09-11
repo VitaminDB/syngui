@@ -4,7 +4,9 @@ const ENV_VARS: &[&str] = &["LC_ALL", "LC_MESSAGES", "LANG", "LANGUAGE"];
 
 /// Язык системы: переменные окружения, затем платформенный источник; при неудаче `en`.
 pub fn system_language() -> Lang {
-    from_env().or_else(platform::detect).unwrap_or_else(Lang::en)
+    from_env()
+        .or_else(platform::detect)
+        .unwrap_or_else(Lang::en)
 }
 
 fn from_env() -> Option<Lang> {
@@ -34,7 +36,10 @@ mod platform {
 
     pub fn detect() -> Option<Lang> {
         PROPS.iter().find_map(|prop| {
-            let out = std::process::Command::new("getprop").arg(prop).output().ok()?;
+            let out = std::process::Command::new("getprop")
+                .arg(prop)
+                .output()
+                .ok()?;
             Lang::parse(String::from_utf8_lossy(&out.stdout).trim())
         })
     }

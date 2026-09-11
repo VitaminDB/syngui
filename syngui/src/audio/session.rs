@@ -194,12 +194,7 @@ impl RecordingSession {
         }
         self.stop_elapsed_ticker();
 
-        let recorder = self
-            .inner
-            .recorder
-            .lock()
-            .ok()
-            .and_then(|mut g| g.take());
+        let recorder = self.inner.recorder.lock().ok().and_then(|mut g| g.take());
         let Some(recorder) = recorder else {
             self.inner.error.set(Some("recorder уже отдан".into()));
             self.inner.state.set(RecordingState::Failed);
@@ -274,7 +269,9 @@ impl RecordingSession {
                     Err(mpsc::RecvTimeoutError::Disconnected) => break,
                     Err(mpsc::RecvTimeoutError::Timeout) => {}
                 }
-                let Some(inner) = weak.upgrade() else { break; };
+                let Some(inner) = weak.upgrade() else {
+                    break;
+                };
                 let secs = inner
                     .recorder
                     .lock()
@@ -343,10 +340,7 @@ fn decode_pcm_wav(bytes: &[u8]) -> Result<AudioBuffer, AudioError> {
                 .map(|x| (x as f32 / max).clamp(-1.0, 1.0))
                 .collect()
         }
-        hound::SampleFormat::Float => reader
-            .samples::<f32>()
-            .filter_map(Result::ok)
-            .collect(),
+        hound::SampleFormat::Float => reader.samples::<f32>().filter_map(Result::ok).collect(),
     };
     if pcm.is_empty() {
         return Err(AudioError::Wav("decode: пустой PCM".into()));

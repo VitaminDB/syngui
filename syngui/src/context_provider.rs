@@ -9,7 +9,9 @@ thread_local! {
 
 pub fn provide_context<T: Clone + 'static>(value: T) {
     CONTEXT_STORE.with(|store| {
-        store.borrow_mut().insert(TypeId::of::<T>(), Box::new(value));
+        store
+            .borrow_mut()
+            .insert(TypeId::of::<T>(), Box::new(value));
     });
 }
 

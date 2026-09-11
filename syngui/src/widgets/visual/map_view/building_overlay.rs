@@ -5,7 +5,9 @@ use crate::layout::Constraints;
 use crate::mss::{ComputedStyle, MssFields};
 use crate::render::DisplayList;
 use crate::widget::context::EventContext;
-use crate::widget::{DirtyFlags, Element, ElementId, ElementTree, StyledElement, UpdateContext, Widget};
+use crate::widget::{
+    DirtyFlags, Element, ElementId, ElementTree, StyledElement, UpdateContext, Widget,
+};
 use std::any::Any;
 
 use super::{tile_math, MapViewport};
@@ -19,7 +21,11 @@ pub struct BuildingShape {
 
 impl BuildingShape {
     pub fn new(polygon: Vec<(f64, f64)>, fill: Color, has_data: bool) -> Self {
-        Self { polygon, fill, has_data }
+        Self {
+            polygon,
+            fill,
+            has_data,
+        }
     }
 }
 
@@ -127,8 +133,16 @@ impl Element for BuildingOverlayElement {
     }
 
     fn layout(&mut self, constraints: Constraints) -> Size {
-        let w = if constraints.max_width.is_finite() { constraints.max_width } else { 400.0 };
-        let h = if constraints.max_height.is_finite() { constraints.max_height } else { 400.0 };
+        let w = if constraints.max_width.is_finite() {
+            constraints.max_width
+        } else {
+            400.0
+        };
+        let h = if constraints.max_height.is_finite() {
+            constraints.max_height
+        } else {
+            400.0
+        };
         self.bounds = Rect::new(self.bounds.origin, Size::new(w, h));
         Size::new(w, h)
     }
@@ -151,8 +165,13 @@ impl Element for BuildingOverlayElement {
                 .iter()
                 .map(|&(lat, lng)| {
                     tile_math::geo_to_pixel(
-                        lat, lng, vp.center_lat, vp.center_lng, vp.zoom,
-                        vp.viewport_w, vp.viewport_h,
+                        lat,
+                        lng,
+                        vp.center_lat,
+                        vp.center_lng,
+                        vp.zoom,
+                        vp.viewport_w,
+                        vp.viewport_h,
                     )
                 })
                 .collect();

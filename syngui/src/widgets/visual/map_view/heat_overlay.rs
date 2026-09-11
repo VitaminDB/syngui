@@ -1,3 +1,4 @@
+use crate::core::sync::Mutex;
 use crate::core::{Color, Gradient, Point, Rect, Size};
 use crate::gpu::image_store::{ImageHandle, ImageStore};
 use crate::input::{Event, EventResult};
@@ -5,10 +6,11 @@ use crate::layout::Constraints;
 use crate::mss::{ComputedStyle, MssFields};
 use crate::render::{DisplayList, TextureId};
 use crate::widget::context::EventContext;
-use crate::widget::{DirtyFlags, Element, ElementId, ElementTree, StyledElement, UpdateContext, Widget};
+use crate::widget::{
+    DirtyFlags, Element, ElementId, ElementTree, StyledElement, UpdateContext, Widget,
+};
 use std::any::Any;
 use std::sync::Arc;
-use crate::core::sync::Mutex;
 
 use super::{tile_math, MapViewport};
 
@@ -372,7 +374,8 @@ impl HeatOverlayElement {
                     den += w;
                 }
 
-                let value = exact.unwrap_or_else(|| if den > 0.0 { num / den } else { self.color_min });
+                let value =
+                    exact.unwrap_or_else(|| if den > 0.0 { num / den } else { self.color_min });
                 let o = self.lut_index(value) * 4;
 
                 let p = ((j * bw + i) * 4) as usize;
@@ -446,8 +449,16 @@ impl Element for HeatOverlayElement {
     }
 
     fn layout(&mut self, constraints: Constraints) -> Size {
-        let w = if constraints.max_width.is_finite() { constraints.max_width } else { 400.0 };
-        let h = if constraints.max_height.is_finite() { constraints.max_height } else { 400.0 };
+        let w = if constraints.max_width.is_finite() {
+            constraints.max_width
+        } else {
+            400.0
+        };
+        let h = if constraints.max_height.is_finite() {
+            constraints.max_height
+        } else {
+            400.0
+        };
         self.bounds = Rect::new(self.bounds.origin, Size::new(w, h));
         self.maybe_generate();
         Size::new(w, h)
@@ -605,12 +616,22 @@ mod tests {
         let e = element(vec![hot, cold], 5.0, 90.0);
 
         let (hx, hy) = tile_math::geo_to_pixel(
-            hot.lat, hot.lng, e.viewport.center_lat, e.viewport.center_lng,
-            e.viewport.zoom, e.viewport.viewport_w, e.viewport.viewport_h,
+            hot.lat,
+            hot.lng,
+            e.viewport.center_lat,
+            e.viewport.center_lng,
+            e.viewport.zoom,
+            e.viewport.viewport_w,
+            e.viewport.viewport_h,
         );
         let (cx, cy) = tile_math::geo_to_pixel(
-            cold.lat, cold.lng, e.viewport.center_lat, e.viewport.center_lng,
-            e.viewport.zoom, e.viewport.viewport_w, e.viewport.viewport_h,
+            cold.lat,
+            cold.lng,
+            e.viewport.center_lat,
+            e.viewport.center_lng,
+            e.viewport.zoom,
+            e.viewport.viewport_w,
+            e.viewport.viewport_h,
         );
 
         let bw = 64u32;
@@ -636,11 +657,16 @@ mod tests {
     fn halo_kernel_full_at_point_and_empty_far_away() {
         let k = HaloKernel::new(40.0);
         let pts = [(100.0, 100.0, 50.0)];
-        let (v, c) = k.sample(100.0, 100.0, &pts).expect("центр точки внутри ореола");
+        let (v, c) = k
+            .sample(100.0, 100.0, &pts)
+            .expect("центр точки внутри ореола");
         assert_eq!(v, 50.0);
         assert!((c - 1.0).abs() < 1e-6, "в центре покрытие 1, получили {c}");
         let (_, edge) = k.sample(140.0, 100.0, &pts).expect("радиус — ещё внутри");
-        assert!(edge > 0.05 && edge < 0.5, "на радиусе покрытие спадает: {edge}");
+        assert!(
+            edge > 0.05 && edge < 0.5,
+            "на радиусе покрытие спадает: {edge}"
+        );
         assert!(k.sample(300.0, 100.0, &pts).is_none(), "вдали ореола нет");
     }
 
@@ -649,10 +675,16 @@ mod tests {
         let k = HaloKernel::new(40.0);
         let pts = [(100.0, 100.0, 10.0), (140.0, 100.0, 90.0)];
         let (mid, _) = k.sample(120.0, 100.0, &pts).unwrap();
-        assert!((mid - 50.0).abs() < 1e-3, "посередине — среднее, получили {mid}");
+        assert!(
+            (mid - 50.0).abs() < 1e-3,
+            "посередине — среднее, получили {mid}"
+        );
         let (near_cold, _) = k.sample(105.0, 100.0, &pts).unwrap();
         let (near_hot, _) = k.sample(135.0, 100.0, &pts).unwrap();
-        assert!(near_cold < 30.0 && near_hot > 70.0, "{near_cold} / {near_hot}");
+        assert!(
+            near_cold < 30.0 && near_hot > 70.0,
+            "{near_cold} / {near_hot}"
+        );
         let (_, cluster) = k.sample(120.0, 100.0, &pts).unwrap();
         assert!(cluster <= 1.0);
     }
@@ -674,7 +706,10 @@ mod tests {
         };
         // Точка в центре viewport'а: там альфа близка к opacity, в углу — ноль.
         let centre = alpha_at(200.0, 150.0);
-        assert!(centre >= (0.7 * 255.0 * 0.8) as u8, "в центре ореола альфа {centre}");
+        assert!(
+            centre >= (0.7 * 255.0 * 0.8) as u8,
+            "в центре ореола альфа {centre}"
+        );
         assert_eq!(alpha_at(5.0, 5.0), 0);
         assert_eq!(alpha_at(395.0, 295.0), 0);
         // Прозрачные пиксели окрашены низом шкалы (не чёрные) — без каймы.

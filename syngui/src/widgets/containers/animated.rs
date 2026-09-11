@@ -103,7 +103,11 @@ impl Animated {
     }
 
     pub fn repeat(mut self, repeat: bool) -> Self {
-        self.repeat_mode = if repeat { RepeatMode::Count(0) } else { RepeatMode::None };
+        self.repeat_mode = if repeat {
+            RepeatMode::Count(0)
+        } else {
+            RepeatMode::None
+        };
         self
     }
 
@@ -159,7 +163,11 @@ impl Widget for Animated {
 
     fn mount(&self, tree: &mut ElementTree, parent_id: ElementId) {
         let child_element = self.child.create_element();
-        let child_id = tree.insert_with_type_id(child_element, Some(parent_id), self.child.as_any().type_id());
+        let child_id = tree.insert_with_type_id(
+            child_element,
+            Some(parent_id),
+            self.child.as_any().type_id(),
+        );
         self.child.mount(tree, child_id);
     }
 
@@ -270,22 +278,38 @@ impl Element for AnimatedElement {
 
         let su = self.scale.as_ref().map_or(1.0, |a| {
             let v = a.current_value();
-            if rev { a.initial_value() + a.target_value() - v } else { v }
+            if rev {
+                a.initial_value() + a.target_value() - v
+            } else {
+                v
+            }
         });
         let sxi = self.scale_x.as_ref().map_or(1.0, |a| {
             let v = a.current_value();
-            if rev { a.initial_value() + a.target_value() - v } else { v }
+            if rev {
+                a.initial_value() + a.target_value() - v
+            } else {
+                v
+            }
         });
         let syi = self.scale_y.as_ref().map_or(1.0, |a| {
             let v = a.current_value();
-            if rev { a.initial_value() + a.target_value() - v } else { v }
+            if rev {
+                a.initial_value() + a.target_value() - v
+            } else {
+                v
+            }
         });
         let sx = su * sxi;
         let sy = su * syi;
 
         let rot_deg = self.rotate.as_ref().map_or(0.0, |a| {
             let v = a.current_value();
-            if rev { a.initial_value() + a.target_value() - v } else { v }
+            if rev {
+                a.initial_value() + a.target_value() - v
+            } else {
+                v
+            }
         });
 
         let has_transform = self.translate_x.is_some()
@@ -442,10 +466,17 @@ impl Element for AnimatedElement {
 
     fn mount(&mut self, _tree: &mut ElementTree) {}
 
-    fn element_type_name(&self) -> &str { "Animated" }
+    fn element_type_name(&self) -> &str {
+        "Animated"
+    }
 
     fn layout_hint(&self) -> LayoutHint {
-        LayoutHint::Padding { left: 0.0, top: 0.0, right: 0.0, bottom: 0.0 }
+        LayoutHint::Padding {
+            left: 0.0,
+            top: 0.0,
+            right: 0.0,
+            bottom: 0.0,
+        }
     }
 
     fn set_classes(&mut self, classes: Vec<String>) {
@@ -457,8 +488,12 @@ impl Element for AnimatedElement {
         &self.classes
     }
 
-    fn reset_mss_styles(&mut self) { self.mss.reset(); }
-    fn mss(&self) -> Option<&crate::mss::MssFields> { Some(&self.mss) }
+    fn reset_mss_styles(&mut self) {
+        self.mss.reset();
+    }
+    fn mss(&self) -> Option<&crate::mss::MssFields> {
+        Some(&self.mss)
+    }
     fn apply_computed_style(&mut self, style: &ComputedStyle) {
         self.mss.apply(style);
         self.mark_dirty(DirtyFlags::LAYOUT | DirtyFlags::RENDER);
@@ -473,7 +508,8 @@ impl Element for AnimatedElement {
         selected: Option<&ComputedStyle>,
         _checked: Option<&ComputedStyle>,
     ) {
-        self.mss.apply_transitions(base, hover, active, focus, selected);
+        self.mss
+            .apply_transitions(base, hover, active, focus, selected);
     }
 }
 

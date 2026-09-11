@@ -14,11 +14,10 @@ use super::chrome::Chrome;
 use super::links::{DocLinkProvider, DocMediaResolver, EmbedCtx, EmbedFactory};
 use super::model::{Attrs, BlockKind, DocBlock, InlineText, MediaKind};
 use super::props;
-use super::state::{CodeGeomMap, GeomMap, TableGeomMap};
 use super::rows::{
-    CodeBlockView, DividerView, EmbedCard, MediaCard, MediaGlyph, RowDecor, TableBlockView,
-    TextRow,
+    CodeBlockView, DividerView, EmbedCard, MediaCard, MediaGlyph, RowDecor, TableBlockView, TextRow,
 };
+use super::state::{CodeGeomMap, GeomMap, TableGeomMap};
 use super::style::DocStyle;
 
 /// Окружение сборки блоков: стиль, реестр геометрии, инъекции хоста.
@@ -54,18 +53,34 @@ pub fn block_widget(block: &DocBlock, env: &BuildEnv) -> Box<dyn Widget> {
         BlockKind::Bullet { text, children } => {
             item_widget(block, text, children, env, RowDecor::Bullet)
         }
-        BlockKind::Numbered { number, text, children } => {
-            item_widget(block, text, children, env, RowDecor::Number(*number))
-        }
-        BlockKind::Todo { checked, text, children } => {
-            item_widget(block, text, children, env, RowDecor::Checkbox { checked: *checked })
-        }
-        BlockKind::Toggle { summary, children, collapsed } => {
+        BlockKind::Numbered {
+            number,
+            text,
+            children,
+        } => item_widget(block, text, children, env, RowDecor::Number(*number)),
+        BlockKind::Todo {
+            checked,
+            text,
+            children,
+        } => item_widget(
+            block,
+            text,
+            children,
+            env,
+            RowDecor::Checkbox { checked: *checked },
+        ),
+        BlockKind::Toggle {
+            summary,
+            children,
+            collapsed,
+        } => {
             let row = text_row(
                 block,
                 summary,
                 env,
-                RowDecor::Toggle { collapsed: *collapsed },
+                RowDecor::Toggle {
+                    collapsed: *collapsed,
+                },
                 style.indent,
                 None,
             );
@@ -83,11 +98,20 @@ pub fn block_widget(block: &DocBlock, env: &BuildEnv) -> Box<dyn Widget> {
         BlockKind::Quote(children) => Box::new(
             Chrome::new()
                 .gap(style.child_spacing)
-                .padding(style.quote_border_width + style.quote_padding_left, 4.0, 4.0, 4.0)
+                .padding(
+                    style.quote_border_width + style.quote_padding_left,
+                    4.0,
+                    4.0,
+                    4.0,
+                )
                 .border_left(style.quote_border_width, style.quote_border_color)
                 .children(children.iter().map(|b| block_widget(b, env))),
         ),
-        BlockKind::Callout { kind, title, children } => {
+        BlockKind::Callout {
+            kind,
+            title,
+            children,
+        } => {
             let accent = attr_color(&block.attrs).unwrap_or_else(|| style.callout_color(kind));
             let mut chrome = Chrome::new()
                 .gap(style.child_spacing)
@@ -125,7 +149,9 @@ pub fn block_widget(block: &DocBlock, env: &BuildEnv) -> Box<dyn Widget> {
             style: style.clone(),
             tables: Some(env.tables.clone()),
         }),
-        BlockKind::Divider => Box::new(DividerView { style: style.clone() }),
+        BlockKind::Divider => Box::new(DividerView {
+            style: style.clone(),
+        }),
         BlockKind::Shape { shape } => Box::new(super::shape::ShapeView {
             block_id: block.id,
             shape: *shape,
@@ -237,7 +263,9 @@ fn style_row(row: &mut TextRow, attrs: &Attrs) {
 
 /// Подложка блока (`{bg=#…}`) — обёрткой вокруг готового виджета.
 fn with_background(widget: Box<dyn Widget>, attrs: &Attrs, env: &BuildEnv) -> Box<dyn Widget> {
-    let Some(bg) = props::color_of(attrs, props::BG) else { return widget };
+    let Some(bg) = props::color_of(attrs, props::BG) else {
+        return widget;
+    };
     Box::new(
         Chrome::new()
             .bg(bg)
@@ -295,9 +323,7 @@ fn media_widget(
                 // картинка занимает место по своим пропорциям.
                 let sized = |img: Image| -> Box<dyn Widget> {
                     match super::free::height_of(&block.attrs) {
-                        Some(h) => Box::new(
-                            img.style("height", crate::mss::StyleValue::px(h)),
-                        ),
+                        Some(h) => Box::new(img.style("height", crate::mss::StyleValue::px(h))),
                         None => Box::new(img),
                     }
                 };
@@ -336,7 +362,11 @@ fn media_widget(
         MediaKind::Image => MediaGlyph::Image,
         MediaKind::File => MediaGlyph::File,
     };
-    let title = if alt.is_empty() { url.to_string() } else { alt.to_string() };
+    let title = if alt.is_empty() {
+        url.to_string()
+    } else {
+        alt.to_string()
+    };
     Box::new(MediaCard {
         block_id: block.id,
         glyph,

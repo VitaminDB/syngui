@@ -1,9 +1,9 @@
 //! Playlist window — track list with selection
 
+use crate::{LinAmpCtx, TrackInfo};
+use syngui::mgui;
 use syngui::prelude::*;
 use syngui::widgets::*;
-use syngui::mgui;
-use crate::{LinAmpCtx, TrackInfo};
 
 pub fn build_playlist() -> impl Widget {
     let ctx = use_context::<LinAmpCtx>();

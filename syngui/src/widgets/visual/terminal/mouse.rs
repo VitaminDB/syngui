@@ -23,9 +23,7 @@ pub enum MouseEncoding {
 pub enum MouseAction {
     Press(MouseButton),
     Release(MouseButton),
-    Motion {
-        button: Option<MouseButton>,
-    },
+    Motion { button: Option<MouseButton> },
     Wheel(i8),
 }
 
@@ -65,7 +63,11 @@ fn encode_button_raw(action: MouseAction, mods: Modifiers, encoding: MouseEncodi
             base | 0b10_0000
         }
         MouseAction::Wheel(dir) => {
-            if dir > 0 { 64 } else { 65 }
+            if dir > 0 {
+                64
+            } else {
+                65
+            }
         }
     };
 
@@ -204,7 +206,10 @@ mod tests {
 
     #[test]
     fn sgr_right_with_shift() {
-        let mods = Modifiers { shift: true, ..Default::default() };
+        let mods = Modifiers {
+            shift: true,
+            ..Default::default()
+        };
         let bytes = encode_event(
             MouseEncoding::Sgr,
             MouseAction::Press(MouseButton::Right),
@@ -220,7 +225,9 @@ mod tests {
     fn sgr_drag_left_button() {
         let bytes = encode_event(
             MouseEncoding::Sgr,
-            MouseAction::Motion { button: Some(MouseButton::Left) },
+            MouseAction::Motion {
+                button: Some(MouseButton::Left),
+            },
             5,
             5,
             no_mods(),
@@ -231,27 +238,15 @@ mod tests {
 
     #[test]
     fn sgr_wheel_up() {
-        let bytes = encode_event(
-            MouseEncoding::Sgr,
-            MouseAction::Wheel(1),
-            5,
-            5,
-            no_mods(),
-        )
-        .unwrap();
+        let bytes =
+            encode_event(MouseEncoding::Sgr, MouseAction::Wheel(1), 5, 5, no_mods()).unwrap();
         assert_eq!(bytes, b"\x1b[<64;5;5M");
     }
 
     #[test]
     fn sgr_wheel_down() {
-        let bytes = encode_event(
-            MouseEncoding::Sgr,
-            MouseAction::Wheel(-1),
-            5,
-            5,
-            no_mods(),
-        )
-        .unwrap();
+        let bytes =
+            encode_event(MouseEncoding::Sgr, MouseAction::Wheel(-1), 5, 5, no_mods()).unwrap();
         assert_eq!(bytes, b"\x1b[<65;5;5M");
     }
 
@@ -296,7 +291,9 @@ mod tests {
         ));
         assert!(!should_report(
             MouseMode::X10,
-            MouseAction::Motion { button: Some(MouseButton::Left) },
+            MouseAction::Motion {
+                button: Some(MouseButton::Left)
+            },
             true
         ));
     }
@@ -305,7 +302,9 @@ mod tests {
     fn button_event_reports_drag_only() {
         assert!(should_report(
             MouseMode::ButtonEvent,
-            MouseAction::Motion { button: Some(MouseButton::Left) },
+            MouseAction::Motion {
+                button: Some(MouseButton::Left)
+            },
             true
         ));
         assert!(!should_report(

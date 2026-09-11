@@ -1,11 +1,14 @@
+use super::IntoWidget;
 use crate::core::{Point, Rect, Size};
 use crate::input::{Event, EventResult};
 use crate::layout::Constraints;
 use crate::mss::ComputedStyle;
 use crate::mss::MssFields;
 use crate::render::DisplayList;
-use crate::widget::{ChildHit, DirtyFlags, Element, ElementId, ElementTree, LayoutHint, StyledElement, UpdateContext, Widget};
-use super::IntoWidget;
+use crate::widget::{
+    ChildHit, DirtyFlags, Element, ElementId, ElementTree, LayoutHint, StyledElement,
+    UpdateContext, Widget,
+};
 use std::any::Any;
 
 pub struct Grid {
@@ -105,13 +108,17 @@ impl Widget for Grid {
     fn mount(&self, tree: &mut ElementTree, parent_id: ElementId) {
         for child in &self.children {
             let child_element = child.create_element();
-            let child_id = tree.insert_with_type_id(child_element, Some(parent_id), child.as_any().type_id());
+            let child_id =
+                tree.insert_with_type_id(child_element, Some(parent_id), child.as_any().type_id());
             child.mount(tree, child_id);
         }
     }
 
     fn child_widgets(&self) -> Vec<&dyn Widget> {
-        self.children.iter().map(|c| c.as_ref() as &dyn Widget).collect()
+        self.children
+            .iter()
+            .map(|c| c.as_ref() as &dyn Widget)
+            .collect()
     }
 }
 
@@ -161,8 +168,14 @@ impl Element for GridElement {
     }
 
     fn layout(&mut self, constraints: Constraints) -> Size {
-        let width = if constraints.max_width.is_finite() { constraints.max_width } else { constraints.min_width.max(40.0) };
-        let height = self.mss.height
+        let width = if constraints.max_width.is_finite() {
+            constraints.max_width
+        } else {
+            constraints.min_width.max(40.0)
+        };
+        let height = self
+            .mss
+            .height
             .map(|d| d.resolve(constraints.max_height))
             .unwrap_or(constraints.min_height);
 
@@ -187,11 +200,17 @@ impl Element for GridElement {
         self.mss.paint_border(list, self.bounds);
     }
 
-    fn handle_event(&mut self, _event: &Event, _ctx: &mut crate::widget::context::EventContext) -> EventResult {
+    fn handle_event(
+        &mut self,
+        _event: &Event,
+        _ctx: &mut crate::widget::context::EventContext,
+    ) -> EventResult {
         EventResult::Ignored
     }
 
-    fn passthrough_hit_test(&self) -> bool { true }
+    fn passthrough_hit_test(&self) -> bool {
+        true
+    }
 
     fn children(&self) -> &[ElementId] {
         &self.child_ids
@@ -227,9 +246,13 @@ impl Element for GridElement {
 
     fn mount(&mut self, _tree: &mut ElementTree) {}
 
-    fn element_type_name(&self) -> &str { "Grid" }
+    fn element_type_name(&self) -> &str {
+        "Grid"
+    }
 
-    fn clip_content(&self) -> bool { self.clip }
+    fn clip_content(&self) -> bool {
+        self.clip
+    }
 
     fn set_classes(&mut self, classes: Vec<String>) {
         self.classes = classes;
@@ -240,8 +263,12 @@ impl Element for GridElement {
         &self.classes
     }
 
-    fn reset_mss_styles(&mut self) { self.mss.reset(); }
-    fn mss(&self) -> Option<&crate::mss::MssFields> { Some(&self.mss) }
+    fn reset_mss_styles(&mut self) {
+        self.mss.reset();
+    }
+    fn mss(&self) -> Option<&crate::mss::MssFields> {
+        Some(&self.mss)
+    }
     fn apply_computed_style(&mut self, style: &ComputedStyle) {
         self.mss.apply(style);
         if let Some(gap) = self.mss.gap {
@@ -260,7 +287,8 @@ impl Element for GridElement {
         selected: Option<&ComputedStyle>,
         _checked: Option<&ComputedStyle>,
     ) {
-        self.mss.apply_transitions(base, hover, active, focus, selected);
+        self.mss
+            .apply_transitions(base, hover, active, focus, selected);
     }
 
     fn as_any_mut(&mut self) -> Option<&mut dyn Any> {
@@ -283,7 +311,11 @@ impl Element for GridElement {
         const OVERSCAN: usize = 1;
 
         let col_step = cache.col_width + cache.col_gap;
-        let col_start = if col_step > 0.0 { (min_x / col_step).floor().max(0.0) as usize } else { 0 };
+        let col_start = if col_step > 0.0 {
+            (min_x / col_step).floor().max(0.0) as usize
+        } else {
+            0
+        };
         let col_end_excl = if col_step > 0.0 {
             (max_x / col_step).ceil().max(0.0) as usize
         } else {
@@ -363,7 +395,9 @@ impl GridElement {
         }
         let rows = offsets.len() - 1;
         let row_start = offsets.partition_point(|&y| y <= min_y).saturating_sub(1);
-        let row_end_excl = offsets[1..].partition_point(|&y| y - cache.row_gap < max_y).min(rows);
+        let row_end_excl = offsets[1..]
+            .partition_point(|&y| y - cache.row_gap < max_y)
+            .min(rows);
         let row_start = row_start.saturating_sub(overscan).min(rows);
         let row_end_excl = row_end_excl.saturating_add(overscan).min(rows);
         if row_start >= row_end_excl {
@@ -418,7 +452,9 @@ impl GridElement {
             let mut trailing = overscan;
             for cell in &cells[first..] {
                 if cell.y_start >= max_y {
-                    if trailing == 0 { break; }
+                    if trailing == 0 {
+                        break;
+                    }
                     trailing -= 1;
                 }
                 out.push(cell.child_idx);
@@ -432,7 +468,9 @@ impl GridElement {
             Some(v) => v,
             None => return ChildHit::Unknown,
         };
-        let idx = cells.partition_point(|c| c.y_start <= local_y).saturating_sub(1);
+        let idx = cells
+            .partition_point(|c| c.y_start <= local_y)
+            .saturating_sub(1);
         if idx >= cells.len() {
             return ChildHit::Unknown;
         }

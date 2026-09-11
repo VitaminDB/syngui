@@ -1,7 +1,9 @@
-use super::utils::ParserCursor;
 use super::super::value::*;
+use super::utils::ParserCursor;
 
-pub(super) fn parse_identifier(cursor: &mut ParserCursor) -> Result<String, super::super::ParseError> {
+pub(super) fn parse_identifier(
+    cursor: &mut ParserCursor,
+) -> Result<String, super::super::ParseError> {
     let start = cursor.position;
 
     while !cursor.is_eof() {
@@ -16,18 +18,20 @@ pub(super) fn parse_identifier(cursor: &mut ParserCursor) -> Result<String, supe
     if start == cursor.position {
         return Err(super::super::ParseError::UnexpectedToken(
             "Expected identifier".to_string(),
-            cursor.line
+            cursor.line,
         ));
     }
 
     Ok(cursor.input[start..cursor.position].to_string())
 }
 
-pub(super) fn parse_variable_name(cursor: &mut ParserCursor) -> Result<String, super::super::ParseError> {
+pub(super) fn parse_variable_name(
+    cursor: &mut ParserCursor,
+) -> Result<String, super::super::ParseError> {
     if !cursor.starts_with("--") {
         return Err(super::super::ParseError::InvalidProperty(
             "Expected CSS variable (--name)".to_string(),
-            cursor.line
+            cursor.line,
         ));
     }
 
@@ -47,7 +51,9 @@ pub(super) fn parse_length(_cursor: &ParserCursor, s: &str) -> Option<StyleValue
     Some(StyleValue::Length(value, unit))
 }
 
-pub(super) fn parse_var_function(cursor: &mut ParserCursor) -> Result<StyleValue, super::super::ParseError> {
+pub(super) fn parse_var_function(
+    cursor: &mut ParserCursor,
+) -> Result<StyleValue, super::super::ParseError> {
     cursor.consume("var(");
     cursor.skip_whitespace();
 
@@ -55,7 +61,7 @@ pub(super) fn parse_var_function(cursor: &mut ParserCursor) -> Result<StyleValue
         return Err(super::super::ParseError::InvalidValue(
             "var()".to_string(),
             "Expected --variable".to_string(),
-            cursor.line
+            cursor.line,
         ));
     }
 
@@ -75,9 +81,15 @@ pub(super) fn parse_var_function(cursor: &mut ParserCursor) -> Result<StyleValue
             let mut depth = 0i32;
             while !cursor.is_eof() {
                 match cursor.peek() {
-                    Some('(') => { depth += 1; cursor.advance(); }
+                    Some('(') => {
+                        depth += 1;
+                        cursor.advance();
+                    }
                     Some(')') if depth == 0 => break,
-                    Some(')') => { depth -= 1; cursor.advance(); }
+                    Some(')') => {
+                        depth -= 1;
+                        cursor.advance();
+                    }
                     _ => cursor.advance(),
                 }
             }
@@ -86,7 +98,7 @@ pub(super) fn parse_var_function(cursor: &mut ParserCursor) -> Result<StyleValue
             if cursor.peek() != Some(')') {
                 return Err(super::super::ParseError::UnexpectedToken(
                     format!("Expected ')' after var() fallback, got {:?}", cursor.peek()),
-                    cursor.line
+                    cursor.line,
                 ));
             }
             cursor.consume(")");
@@ -95,7 +107,7 @@ pub(super) fn parse_var_function(cursor: &mut ParserCursor) -> Result<StyleValue
                 return Err(super::super::ParseError::InvalidValue(
                     "var()".to_string(),
                     "Empty fallback after ','".to_string(),
-                    cursor.line
+                    cursor.line,
                 ));
             }
 
@@ -105,12 +117,14 @@ pub(super) fn parse_var_function(cursor: &mut ParserCursor) -> Result<StyleValue
         }
         _ => Err(super::super::ParseError::UnexpectedToken(
             format!("Expected ')' or ',', got {:?}", cursor.peek()),
-            cursor.line
+            cursor.line,
         )),
     }
 }
 
-pub(super) fn parse_value(cursor: &mut ParserCursor) -> Result<StyleValue, super::super::ParseError> {
+pub(super) fn parse_value(
+    cursor: &mut ParserCursor,
+) -> Result<StyleValue, super::super::ParseError> {
     cursor.skip_whitespace();
 
     if cursor.starts_with("var(") {
@@ -142,19 +156,19 @@ pub(super) fn parse_value(cursor: &mut ParserCursor) -> Result<StyleValue, super
         return Err(super::super::ParseError::InvalidValue(
             "empty".to_string(),
             "value expected".to_string(),
-            cursor.line
+            cursor.line,
         ));
     }
 
     match value_str {
         "inherit" => return Ok(StyleValue::Inherit),
         "initial" => return Ok(StyleValue::Initial),
-        "unset"   => return Ok(StyleValue::Unset),
+        "unset" => return Ok(StyleValue::Unset),
         _ => {}
     }
 
     match value_str {
-        "auto"        => return Ok(StyleValue::Length(0.0, Unit::Auto)),
+        "auto" => return Ok(StyleValue::Length(0.0, Unit::Auto)),
         "fit-content" => return Ok(StyleValue::Length(0.0, Unit::FitContent)),
         "max-content" => return Ok(StyleValue::Length(0.0, Unit::MaxContent)),
         "min-content" => return Ok(StyleValue::Length(0.0, Unit::MinContent)),
@@ -170,7 +184,10 @@ pub(super) fn parse_value(cursor: &mut ParserCursor) -> Result<StyleValue, super
     }
 
     if let Some(color) = Color::parse(value_str) {
-        if !value_str.contains(' ') || value_str.starts_with("rgb(") || value_str.starts_with("rgba(") {
+        if !value_str.contains(' ')
+            || value_str.starts_with("rgb(")
+            || value_str.starts_with("rgba(")
+        {
             return Ok(StyleValue::Color(color));
         }
     }
@@ -208,10 +225,18 @@ fn parse_border_parts(value: &StyleValue) -> Option<BorderParts> {
     let s = match value {
         StyleValue::String(s) => s.clone(),
         StyleValue::Length(_, _) | StyleValue::Number(_) => {
-            return Some(BorderParts { width: Some(value.clone()), style: None, color: None });
+            return Some(BorderParts {
+                width: Some(value.clone()),
+                style: None,
+                color: None,
+            });
         }
         StyleValue::Color(_) | StyleValue::Gradient(_) => {
-            return Some(BorderParts { width: None, style: None, color: Some(value.clone()) });
+            return Some(BorderParts {
+                width: None,
+                style: None,
+                color: Some(value.clone()),
+            });
         }
         _ => return None,
     };
@@ -253,7 +278,11 @@ fn parse_border_parts(value: &StyleValue) -> Option<BorderParts> {
         return None;
     }
 
-    Some(BorderParts { width, style, color })
+    Some(BorderParts {
+        width,
+        style,
+        color,
+    })
 }
 
 fn border_parts_to_declarations(
@@ -368,9 +397,10 @@ pub(super) fn expand_edge_shorthand(
             .collect::<Vec<_>>()
     };
     match value {
-        StyleValue::Length(_, _) | StyleValue::Number(_) | StyleValue::Var(_) | StyleValue::VarWithFallback(_, _) => {
-            Some(same(value))
-        }
+        StyleValue::Length(_, _)
+        | StyleValue::Number(_)
+        | StyleValue::Var(_)
+        | StyleValue::VarWithFallback(_, _) => Some(same(value)),
         StyleValue::String(s) => {
             let tokens = tokenize_shorthand(s);
             if tokens.is_empty() {
@@ -381,10 +411,30 @@ pub(super) fn expand_edge_shorthand(
                 return None;
             }
             let (t, r, b, l) = match parsed.len() {
-                1 => (parsed[0].clone(), parsed[0].clone(), parsed[0].clone(), parsed[0].clone()),
-                2 => (parsed[0].clone(), parsed[1].clone(), parsed[0].clone(), parsed[1].clone()),
-                3 => (parsed[0].clone(), parsed[1].clone(), parsed[2].clone(), parsed[1].clone()),
-                4 => (parsed[0].clone(), parsed[1].clone(), parsed[2].clone(), parsed[3].clone()),
+                1 => (
+                    parsed[0].clone(),
+                    parsed[0].clone(),
+                    parsed[0].clone(),
+                    parsed[0].clone(),
+                ),
+                2 => (
+                    parsed[0].clone(),
+                    parsed[1].clone(),
+                    parsed[0].clone(),
+                    parsed[1].clone(),
+                ),
+                3 => (
+                    parsed[0].clone(),
+                    parsed[1].clone(),
+                    parsed[2].clone(),
+                    parsed[1].clone(),
+                ),
+                4 => (
+                    parsed[0].clone(),
+                    parsed[1].clone(),
+                    parsed[2].clone(),
+                    parsed[3].clone(),
+                ),
                 _ => return None,
             };
             let values = [t, r, b, l];
@@ -427,10 +477,30 @@ pub(super) fn expand_border_radius_shorthand(
                 return None;
             }
             let (tl, tr, br, bl) = match parsed.len() {
-                1 => (parsed[0].clone(), parsed[0].clone(), parsed[0].clone(), parsed[0].clone()),
-                2 => (parsed[0].clone(), parsed[1].clone(), parsed[0].clone(), parsed[1].clone()),
-                3 => (parsed[0].clone(), parsed[1].clone(), parsed[2].clone(), parsed[1].clone()),
-                4 => (parsed[0].clone(), parsed[1].clone(), parsed[2].clone(), parsed[3].clone()),
+                1 => (
+                    parsed[0].clone(),
+                    parsed[0].clone(),
+                    parsed[0].clone(),
+                    parsed[0].clone(),
+                ),
+                2 => (
+                    parsed[0].clone(),
+                    parsed[1].clone(),
+                    parsed[0].clone(),
+                    parsed[1].clone(),
+                ),
+                3 => (
+                    parsed[0].clone(),
+                    parsed[1].clone(),
+                    parsed[2].clone(),
+                    parsed[1].clone(),
+                ),
+                4 => (
+                    parsed[0].clone(),
+                    parsed[1].clone(),
+                    parsed[2].clone(),
+                    parsed[3].clone(),
+                ),
                 _ => return None,
             };
             Some(vec![
@@ -444,7 +514,9 @@ pub(super) fn expand_border_radius_shorthand(
     }
 }
 
-pub(super) fn parse_selector_string(cursor: &mut ParserCursor) -> Result<String, super::super::ParseError> {
+pub(super) fn parse_selector_string(
+    cursor: &mut ParserCursor,
+) -> Result<String, super::super::ParseError> {
     let mut result = String::new();
 
     while !cursor.is_eof() && cursor.peek() != Some('{') {

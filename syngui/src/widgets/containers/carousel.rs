@@ -1,3 +1,5 @@
+use super::IntoWidget;
+use crate::core::sync::Mutex;
 use crate::core::{Color, Point, Rect, RectExt, Size, Transform};
 use crate::input::{CursorIcon, Event, EventResult, MouseButton};
 use crate::layout::Constraints;
@@ -5,11 +7,11 @@ use crate::mss::ComputedStyle;
 use crate::mss::MssFields;
 use crate::render::DisplayList;
 use crate::widget::context::{EventContext, EventContextExt};
-use crate::widget::{DirtyFlags, Element, ElementId, ElementTree, LayoutHint, StyledElement, UpdateContext, Widget};
-use super::IntoWidget;
+use crate::widget::{
+    DirtyFlags, Element, ElementId, ElementTree, LayoutHint, StyledElement, UpdateContext, Widget,
+};
 use std::any::Any;
 use std::sync::Arc;
-use crate::core::sync::Mutex;
 use std::time::Duration;
 
 pub struct Carousel {
@@ -65,7 +67,9 @@ impl Carousel {
 }
 
 impl Default for Carousel {
-    fn default() -> Self { Self::new() }
+    fn default() -> Self {
+        Self::new()
+    }
 }
 
 impl Widget for Carousel {
@@ -96,9 +100,15 @@ impl Widget for Carousel {
         })
     }
 
-    fn can_update(&self, other: &dyn Any) -> bool { other.is::<Self>() }
-    fn as_any(&self) -> &dyn Any { self }
-    fn as_any_mut(&mut self) -> &mut dyn Any { self }
+    fn can_update(&self, other: &dyn Any) -> bool {
+        other.is::<Self>()
+    }
+    fn as_any(&self) -> &dyn Any {
+        self
+    }
+    fn as_any_mut(&mut self) -> &mut dyn Any {
+        self
+    }
 
     fn mount(&self, tree: &mut ElementTree, parent_id: ElementId) {
         for child in &self.children {
@@ -109,7 +119,10 @@ impl Widget for Carousel {
     }
 
     fn child_widgets(&self) -> Vec<&dyn Widget> {
-        self.children.iter().map(|c| c.as_ref() as &dyn Widget).collect()
+        self.children
+            .iter()
+            .map(|c| c.as_ref() as &dyn Widget)
+            .collect()
     }
 }
 
@@ -146,7 +159,9 @@ pub struct CarouselElement {
 impl CarouselElement {
     fn fire_page_change(&self) {
         if let Some(ref cb) = self.on_page_change {
-            if let Ok(mut f) = cb.lock() { f(self.current_page); }
+            if let Ok(mut f) = cb.lock() {
+                f(self.current_page);
+            }
         }
     }
 
@@ -180,14 +195,20 @@ impl CarouselElement {
 
     fn prev_arrow_rect(&self) -> Rect {
         Rect::new(
-            Point::new(self.bounds.x() + 8.0, self.bounds.y() + (self.content_height() - ARROW_SIZE) / 2.0),
+            Point::new(
+                self.bounds.x() + 8.0,
+                self.bounds.y() + (self.content_height() - ARROW_SIZE) / 2.0,
+            ),
             Size::new(ARROW_SIZE, ARROW_SIZE),
         )
     }
 
     fn next_arrow_rect(&self) -> Rect {
         Rect::new(
-            Point::new(self.bounds.x() + self.bounds.size.width - ARROW_SIZE - 8.0, self.bounds.y() + (self.content_height() - ARROW_SIZE) / 2.0),
+            Point::new(
+                self.bounds.x() + self.bounds.size.width - ARROW_SIZE - 8.0,
+                self.bounds.y() + (self.content_height() - ARROW_SIZE) / 2.0,
+            ),
             Size::new(ARROW_SIZE, ARROW_SIZE),
         )
     }
@@ -209,7 +230,11 @@ impl Element for CarouselElement {
 
     fn layout(&mut self, constraints: Constraints) -> Size {
         let w = constraints.max_width;
-        let h = if constraints.max_height.is_finite() { constraints.max_height } else { 300.0 };
+        let h = if constraints.max_height.is_finite() {
+            constraints.max_height
+        } else {
+            300.0
+        };
         let old_width = self.bounds.size.width;
         self.bounds = Rect::new(Point::zero(), Size::new(w, h));
         self.target_offset = self.current_page as f32 * w;
@@ -235,7 +260,6 @@ impl Element for CarouselElement {
 
         let offset = self.visible_offset();
         list.push_transform(Transform::translation(-offset, 0.0));
-
     }
 
     fn post_build_display_list(&self, list: &mut DisplayList, _clip: Rect) {
@@ -245,22 +269,32 @@ impl Element for CarouselElement {
         if self.page_count > 1 {
             if self.current_page > 0 {
                 let prev = self.prev_arrow_rect();
-                let bg = if self.prev_hover { Color::BLACK.with_alpha(0.15) } else { Color::BLACK.with_alpha(0.06) };
+                let bg = if self.prev_hover {
+                    Color::BLACK.with_alpha(0.15)
+                } else {
+                    Color::BLACK.with_alpha(0.06)
+                };
                 list.push_rect(prev, bg, [ARROW_SIZE / 2.0; 4]);
                 list.push_text_centered("\u{25C0}", prev, Color::WHITE, 14.0);
             }
             if self.current_page < self.page_count - 1 {
                 let next = self.next_arrow_rect();
-                let bg = if self.next_hover { Color::BLACK.with_alpha(0.15) } else { Color::BLACK.with_alpha(0.06) };
+                let bg = if self.next_hover {
+                    Color::BLACK.with_alpha(0.15)
+                } else {
+                    Color::BLACK.with_alpha(0.06)
+                };
                 list.push_rect(next, bg, [ARROW_SIZE / 2.0; 4]);
                 list.push_text_centered("\u{25B6}", next, Color::WHITE, 14.0);
             }
         }
 
         if self.show_indicators && self.page_count > 1 {
-            let total_w = self.page_count as f32 * INDICATOR_SIZE + (self.page_count as f32 - 1.0) * INDICATOR_GAP;
+            let total_w = self.page_count as f32 * INDICATOR_SIZE
+                + (self.page_count as f32 - 1.0) * INDICATOR_GAP;
             let start_x = self.bounds.x() + (self.bounds.size.width - total_w) / 2.0;
-            let y = self.bounds.y() + self.bounds.size.height - INDICATOR_AREA_HEIGHT + (INDICATOR_AREA_HEIGHT - INDICATOR_SIZE) / 2.0;
+            let y = self.bounds.y() + self.bounds.size.height - INDICATOR_AREA_HEIGHT
+                + (INDICATOR_AREA_HEIGHT - INDICATOR_SIZE) / 2.0;
 
             let active_color = self.mss.accent_color.unwrap_or(Color::from_hex("#3B82F6"));
             let inactive_color = self.mss.border_color.unwrap_or(Color::from_hex("#D1D5DB"));
@@ -295,8 +329,8 @@ impl Element for CarouselElement {
             } else {
                 let t = self.anim_progress;
                 let ease = 1.0 - (1.0 - t) * (1.0 - t) * (1.0 - t);
-                self.slide_offset = self.anim_start_offset
-                    + (self.target_offset - self.anim_start_offset) * ease;
+                self.slide_offset =
+                    self.anim_start_offset + (self.target_offset - self.anim_start_offset) * ease;
             }
             needs_redraw = true;
         }
@@ -324,36 +358,48 @@ impl Element for CarouselElement {
                     }
 
                     let prev_h = self.prev_arrow_rect().contains(*pos) && self.current_page > 0;
-                    let next_h = self.next_arrow_rect().contains(*pos) && self.current_page < self.page_count - 1;
+                    let next_h = self.next_arrow_rect().contains(*pos)
+                        && self.current_page < self.page_count - 1;
                     if prev_h != self.prev_hover || next_h != self.next_hover {
                         self.prev_hover = prev_h;
                         self.next_hover = next_h;
-                        if prev_h || next_h { ctx.set_cursor(CursorIcon::Pointer); }
+                        if prev_h || next_h {
+                            ctx.set_cursor(CursorIcon::Pointer);
+                        }
                         ctx.request_paint();
                     }
                     return EventResult::Handled;
                 }
                 EventResult::Ignored
             }
-            Event::MouseDown { button, position } if *button == MouseButton::Left && self.bounds.contains(*position) => {
+            Event::MouseDown { button, position }
+                if *button == MouseButton::Left && self.bounds.contains(*position) =>
+            {
                 if self.prev_arrow_rect().contains(*position) && self.current_page > 0 {
                     self.go_to_page(self.current_page - 1);
                     ctx.request_paint();
                     return EventResult::Handled;
                 }
-                if self.next_arrow_rect().contains(*position) && self.current_page < self.page_count - 1 {
+                if self.next_arrow_rect().contains(*position)
+                    && self.current_page < self.page_count - 1
+                {
                     self.go_to_page(self.current_page + 1);
                     ctx.request_paint();
                     return EventResult::Handled;
                 }
 
                 if self.show_indicators && self.page_count > 1 {
-                    let total_w = self.page_count as f32 * INDICATOR_SIZE + (self.page_count as f32 - 1.0) * INDICATOR_GAP;
+                    let total_w = self.page_count as f32 * INDICATOR_SIZE
+                        + (self.page_count as f32 - 1.0) * INDICATOR_GAP;
                     let start_x = self.bounds.x() + (self.bounds.size.width - total_w) / 2.0;
                     let ind_y = self.bounds.y() + self.bounds.size.height - INDICATOR_AREA_HEIGHT;
-                    let ind_rect = Rect::new(Point::new(start_x, ind_y), Size::new(total_w, INDICATOR_AREA_HEIGHT));
+                    let ind_rect = Rect::new(
+                        Point::new(start_x, ind_y),
+                        Size::new(total_w, INDICATOR_AREA_HEIGHT),
+                    );
                     if ind_rect.contains(*position) {
-                        let idx = ((position.x - start_x) / (INDICATOR_SIZE + INDICATOR_GAP)) as usize;
+                        let idx =
+                            ((position.x - start_x) / (INDICATOR_SIZE + INDICATOR_GAP)) as usize;
                         if idx < self.page_count {
                             self.go_to_page(idx);
                             ctx.request_paint();
@@ -366,15 +412,21 @@ impl Element for CarouselElement {
                 self.drag_offset = 0.0;
                 EventResult::Handled
             }
-            Event::MouseUp { button, .. } if *button == MouseButton::Left && self.drag_start_x.is_some() => {
+            Event::MouseUp { button, .. }
+                if *button == MouseButton::Left && self.drag_start_x.is_some() =>
+            {
                 let threshold = self.bounds.size.width * 0.2;
                 self.slide_offset += self.drag_offset;
                 self.drag_start_x = None;
                 self.drag_offset = 0.0;
 
-                if self.slide_offset - self.target_offset > threshold && self.current_page < self.page_count - 1 {
+                if self.slide_offset - self.target_offset > threshold
+                    && self.current_page < self.page_count - 1
+                {
                     self.go_to_page(self.current_page + 1);
-                } else if self.target_offset - self.slide_offset > threshold && self.current_page > 0 {
+                } else if self.target_offset - self.slide_offset > threshold
+                    && self.current_page > 0
+                {
                     self.go_to_page(self.current_page - 1);
                 } else {
                     self.anim_start_offset = self.slide_offset;
@@ -389,14 +441,30 @@ impl Element for CarouselElement {
         }
     }
 
-    fn children(&self) -> &[ElementId] { &self.child_ids }
-    fn bounds(&self) -> Rect { self.bounds }
-    fn set_position(&mut self, pos: Point) { self.bounds.origin = pos; }
-    fn mark_dirty(&mut self, flags: DirtyFlags) { self.dirty_flags |= flags; }
-    fn clear_dirty(&mut self, flags: DirtyFlags) { self.dirty_flags.remove(flags); }
-    fn is_dirty(&self, flags: DirtyFlags) -> bool { self.dirty_flags.contains(flags) }
-    fn id(&self) -> ElementId { self.id }
-    fn set_id(&mut self, id: ElementId) { self.id = id; }
+    fn children(&self) -> &[ElementId] {
+        &self.child_ids
+    }
+    fn bounds(&self) -> Rect {
+        self.bounds
+    }
+    fn set_position(&mut self, pos: Point) {
+        self.bounds.origin = pos;
+    }
+    fn mark_dirty(&mut self, flags: DirtyFlags) {
+        self.dirty_flags |= flags;
+    }
+    fn clear_dirty(&mut self, flags: DirtyFlags) {
+        self.dirty_flags.remove(flags);
+    }
+    fn is_dirty(&self, flags: DirtyFlags) -> bool {
+        self.dirty_flags.contains(flags)
+    }
+    fn id(&self) -> ElementId {
+        self.id
+    }
+    fn set_id(&mut self, id: ElementId) {
+        self.id = id;
+    }
     fn mount(&mut self, _tree: &mut ElementTree) {}
 
     fn clip_content(&self) -> bool {
@@ -412,12 +480,20 @@ impl Element for CarouselElement {
         self.mark_dirty(DirtyFlags::RENDER);
     }
 
-    fn get_classes(&self) -> &[String] { &self.classes }
+    fn get_classes(&self) -> &[String] {
+        &self.classes
+    }
 
-    fn element_type_name(&self) -> &str { "Carousel" }
+    fn element_type_name(&self) -> &str {
+        "Carousel"
+    }
 
-    fn reset_mss_styles(&mut self) { self.mss.reset(); }
-    fn mss(&self) -> Option<&crate::mss::MssFields> { Some(&self.mss) }
+    fn reset_mss_styles(&mut self) {
+        self.mss.reset();
+    }
+    fn mss(&self) -> Option<&crate::mss::MssFields> {
+        Some(&self.mss)
+    }
     fn apply_computed_style(&mut self, style: &ComputedStyle) {
         self.mss.apply(style);
         self.mark_dirty(DirtyFlags::RENDER);
@@ -432,7 +508,8 @@ impl Element for CarouselElement {
         selected: Option<&ComputedStyle>,
         _checked: Option<&ComputedStyle>,
     ) {
-        self.mss.apply_transitions(base, hover, active, focus, selected);
+        self.mss
+            .apply_transitions(base, hover, active, focus, selected);
     }
 }
 
@@ -442,7 +519,9 @@ impl StyledElement for CarouselElement {
         self.mark_dirty(DirtyFlags::RENDER);
     }
 
-    fn classes(&self) -> &[String] { &self.classes }
+    fn classes(&self) -> &[String] {
+        &self.classes
+    }
 
     fn set_classes(&mut self, classes: Vec<String>) {
         self.classes = classes;
