@@ -19,6 +19,7 @@ pub mod split_view;
 pub mod stack;
 pub mod transform_box;
 pub mod virtual_flex;
+pub mod virtual_list;
 
 pub use animated::{Animated, RepeatMode, TransformOrigin};
 pub use animated_size::{AnimatedSize, AnimationAxis};
@@ -41,3 +42,4 @@ pub use split_view::{SplitDirection, SplitView};
 pub use stack::{Stack, StackFit};
 pub use transform_box::{TransformBox, TransformState};
 pub use virtual_flex::VirtualFlex;
+pub use virtual_list::{VirtualList, VirtualRow};
