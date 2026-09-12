@@ -32,6 +32,8 @@ pub(crate) struct ElementNode {
     pub(crate) children_idx: Vec<u32>,
     pub(crate) id: ElementId,
     pub(crate) widget_type_id: std::any::TypeId,
+    /// Ключ виджета, если он его дал: по нему идёт keyed-сверка детей.
+    pub(crate) widget_key: Option<u64>,
     pub(crate) mss_margin: crate::core::EdgeInsets,
     pub(crate) mss_margin_set: bool,
     pub(crate) mss_flex_grow: f32,
@@ -366,6 +368,7 @@ impl ElementTree {
             children_idx: Vec::new(),
             id,
             widget_type_id,
+            widget_key: None,
             mss_margin: crate::core::EdgeInsets::default(),
             mss_margin_set: false,
             mss_flex_grow: 0.0,
@@ -712,12 +715,149 @@ impl ElementTree {
         any_rebuilt
     }
 
+    /// Создать элемент ребёнка и вставить его под `parent_id`. Запись в
+    /// `children` родителя делает вызывающий: порядок детей он собирает сам.
+    fn create_child_element(&mut self, parent_id: ElementId, new_widget: &dyn Widget) -> ElementId {
+        let new_type_id = new_widget.as_any().type_id();
+        let child_element = new_widget.create_element();
+        let inline = new_widget.widget_inline_styles().to_vec();
+        let child_id =
+            self.insert_with_type_id_and_inline(child_element, Some(parent_id), new_type_id, inline);
+        let widget_classes = new_widget.widget_classes();
+        if let Some(node) = self.elements.get_mut(&child_id) {
+            node.widget_key = new_widget.widget_key();
+            if !widget_classes.is_empty() {
+                node.element.set_classes(widget_classes.to_vec());
+                node.styles_dirty = true;
+            }
+        }
+        new_widget.mount(self, child_id);
+        if let Some(node) = self.elements.get_mut(&parent_id) {
+            if let Some(pos) = node.children.iter().position(|&c| c == child_id) {
+                node.children.remove(pos);
+                if pos < node.children_idx.len() {
+                    node.children_idx.remove(pos);
+                }
+            }
+        }
+        child_id
+    }
+
+    /// Какой старый элемент достаётся каждому новому ребёнку при сверке по
+    /// ключам. `None` — сверка по ключам неприменима: ключ есть не у всех
+    /// или ключи повторяются.
+    fn keyed_plan(
+        &self,
+        old_ids: &[ElementId],
+        widgets: &[&dyn Widget],
+    ) -> Option<Vec<Option<ElementId>>> {
+        if widgets.is_empty() {
+            return None;
+        }
+        let mut keys = Vec::with_capacity(widgets.len());
+        for w in widgets {
+            keys.push(w.widget_key()?);
+        }
+        let mut seen = std::collections::HashSet::with_capacity(keys.len());
+        if !keys.iter().all(|k| seen.insert(*k)) {
+            return None;
+        }
+
+        let mut by_key: std::collections::HashMap<u64, ElementId> =
+            std::collections::HashMap::with_capacity(old_ids.len());
+        for &id in old_ids {
+            if let Some(key) = self.elements.get(&id).and_then(|n| n.widget_key) {
+                by_key.entry(key).or_insert(id);
+            }
+        }
+
+        let mut used: std::collections::HashSet<ElementId> = std::collections::HashSet::new();
+        let mut plan = Vec::with_capacity(widgets.len());
+        for (i, w) in widgets.iter().enumerate() {
+            let type_id = w.as_any().type_id();
+            let hit = by_key.get(&keys[i]).copied().filter(|id| {
+                !used.contains(id)
+                    && self
+                        .elements
+                        .get(id)
+                        .map(|n| n.widget_type_id == type_id)
+                        .unwrap_or(false)
+            });
+            if let Some(id) = hit {
+                used.insert(id);
+            }
+            plan.push(hit);
+        }
+        Some(plan)
+    }
+
+    /// Применить план сверки по ключам: совпавшие элементы обновляются на
+    /// месте (в том числе переезжая на другую позицию), остальные создаются,
+    /// непригодившиеся удаляются.
+    fn apply_keyed_plan(
+        &mut self,
+        parent_id: ElementId,
+        old_ids: &[ElementId],
+        widgets: &[&dyn Widget],
+        plan: Vec<Option<ElementId>>,
+    ) {
+        let mut kept: Vec<ElementId> = Vec::with_capacity(widgets.len());
+        for (i, w) in widgets.iter().enumerate() {
+            match plan[i] {
+                Some(old_id) => {
+                    self.update_element(old_id, *w);
+                    let manages_children = self
+                        .elements
+                        .get(&old_id)
+                        .map(|n| n.element.manages_own_children())
+                        .unwrap_or(false);
+                    if !manages_children {
+                        let needs_own_rebuild = self
+                            .elements
+                            .get(&old_id)
+                            .map(|n| n.element.needs_rebuild())
+                            .unwrap_or(false);
+                        if !needs_own_rebuild {
+                            self.reconcile_children_ref(old_id, w.child_widgets());
+                        }
+                    }
+                    kept.push(old_id);
+                }
+                None => {
+                    let child_id = self.create_child_element(parent_id, *w);
+                    kept.push(child_id);
+                }
+            }
+        }
+
+        for &old in old_ids {
+            if !kept.contains(&old) {
+                self.remove_subtree(old);
+            }
+        }
+
+        let kept_idx: Vec<u32> = kept
+            .iter()
+            .filter_map(|id| self.elements.resolve(*id))
+            .collect();
+        if let Some(node) = self.elements.get_mut(&parent_id) {
+            node.children = kept;
+            node.children_idx = kept_idx;
+        }
+    }
+
     fn reconcile_children_of(&mut self, parent_id: ElementId, new_widgets: &[Box<dyn Widget>]) {
         let old_child_ids: Vec<ElementId> = self
             .elements
             .get(&parent_id)
             .map(|n| n.children.clone())
             .unwrap_or_default();
+
+        let refs: Vec<&dyn Widget> = new_widgets.iter().map(|w| w.as_ref()).collect();
+        if let Some(plan) = self.keyed_plan(&old_child_ids, &refs) {
+            self.apply_keyed_plan(parent_id, &old_child_ids, &refs, plan);
+            return;
+        }
 
         let new_len = new_widgets.len();
         let old_len = old_child_ids.len();
@@ -813,6 +953,11 @@ impl ElementTree {
             .map(|n| n.children.clone())
             .unwrap_or_default();
 
+        if let Some(plan) = self.keyed_plan(&old_child_ids, &new_child_widgets) {
+            self.apply_keyed_plan(parent_id, &old_child_ids, &new_child_widgets, plan);
+            return;
+        }
+
         let new_len = new_child_widgets.len();
         let old_len = old_child_ids.len();
 
@@ -883,6 +1028,8 @@ impl ElementTree {
 
         if let Some(node) = self.elements.get_mut(&id) {
             node.element.update(widget, &mut ctx);
+            // Ключ мог появиться у виджета, который раньше его не давал.
+            node.widget_key = widget.widget_key();
 
             let new_classes = widget.widget_classes();
             let old_classes = node.element.get_classes();
