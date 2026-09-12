@@ -214,6 +214,9 @@ pub struct MdRenderer<'a> {
     current_block_id: u32,
     current_line_id: u32,
     footnotes: Vec<FootnoteCollected>,
+    /// Видимая область и высоты верхнеуровневых блоков из раскладки:
+    /// блоки за её пределами не рисуются.
+    cull: Option<(Rect, Vec<f32>)>,
 }
 
 struct FootnoteCollected {
@@ -243,6 +246,7 @@ impl<'a> MdRenderer<'a> {
             current_block_id: 0,
             current_line_id: 0,
             footnotes: Vec::new(),
+            cull: None,
         }
     }
 
@@ -318,7 +322,38 @@ impl<'a> MdRenderer<'a> {
         span_text_width(text, font_size, true, self.text_measure.as_deref())
     }
 
+    /// Не рисовать блоки за пределами `clip`: их высоты берутся из
+    /// раскладки, поэтому пропуск стоит сложение, а не измерение. Пустые
+    /// `heights` (или их несовпадение с числом блоков) выключают отсечение.
+    pub fn with_cull(mut self, clip: Rect, heights: Vec<f32>) -> Self {
+        self.cull = Some((clip, heights));
+        self
+    }
+
     pub fn render_blocks(&mut self, blocks: &[MdBlock]) {
+        let cull = match self.cull.take() {
+            Some((clip, heights)) if heights.len() == blocks.len() => Some((clip, heights)),
+            _ => None,
+        };
+        if let Some((clip, heights)) = cull {
+            let mut first = true;
+            for (i, block) in blocks.iter().enumerate() {
+                if !first {
+                    self.y += self.style.block_spacing;
+                    self.bump_block();
+                }
+                first = false;
+                let h = heights[i];
+                let top = self.y;
+                if top + h < clip.origin.y || top > clip.origin.y + clip.size.height {
+                    // Блок целиком за экраном: сдвигаем перо и идём дальше.
+                    self.y += h;
+                    continue;
+                }
+                self.render_block(block);
+            }
+            return;
+        }
         let mut first = true;
         for block in blocks.iter() {
             if let MdBlock::FootnoteDefinition { label, blocks } = block {
@@ -1705,6 +1740,23 @@ pub fn measure_blocks(
     tm: Option<&dyn TextMeasure>,
     images: Option<&dyn MdImageProbe>,
 ) -> f32 {
+    measure_blocks_each(blocks, style, max_width, tm, images, &mut Vec::new())
+}
+
+/// То же измерение, но с высотами верхнеуровневых блоков: по ним отрисовка
+/// пропускает блоки за пределами видимой области, не меряя их заново.
+/// Сноски (`FootnoteDefinition`) идут отдельным хвостом и высоты не
+/// получают — при них отсечение выключается.
+pub fn measure_blocks_each(
+    blocks: &[MdBlock],
+    style: &MdStyle,
+    max_width: f32,
+    tm: Option<&dyn TextMeasure>,
+    images: Option<&dyn MdImageProbe>,
+    heights: &mut Vec<f32>,
+) -> f32 {
+    heights.clear();
+    heights.reserve(blocks.len());
     let mut y = 0.0f32;
     let mut first = true;
     let mut footnote_count: usize = 0;
@@ -1721,9 +1773,13 @@ pub fn measure_blocks(
             y += style.block_spacing;
         }
         first = false;
-        y += measure_block(block, style, max_width, tm, images);
+        let h = measure_block(block, style, max_width, tm, images);
+        heights.push(h);
+        y += h;
     }
     if footnote_count > 0 {
+        // Со сносками высоты не совпадают с блоками — отсечение не годится.
+        heights.clear();
         y += style.block_spacing * 2.0
             + style.hr_thickness.max(1.0)
             + style.block_spacing
@@ -2057,5 +2113,65 @@ mod code_highlight_cache_tests {
             calls.push(snapshot().since(&start).highlight_calls);
         }
         assert_eq!(calls, vec![1, 0, 0], "syntect гоняется один раз на блок");
+    }
+}
+
+#[cfg(test)]
+mod cull_tests {
+    use super::super::parser::parse_markdown;
+    use super::{measure_blocks_each, MdRenderer, MdStyle};
+    use crate::core::{Point, Rect, Size};
+    use crate::render::DisplayList;
+
+    fn long_doc() -> String {
+        (0..40)
+            .map(|i| format!("## Заголовок {i}\n\nАбзац номер {i} с текстом подлиннее.\n"))
+            .collect::<Vec<_>>()
+            .join("\n")
+    }
+
+    /// Длинное сообщение рисуется только в видимой части: раньше в display
+    /// list уходили все блоки, даже когда на экране был хвост.
+    #[test]
+    fn blocks_outside_the_clip_are_not_drawn() {
+        let blocks = parse_markdown(&long_doc());
+        let style = MdStyle::default();
+        let mut heights = Vec::new();
+        let total = measure_blocks_each(&blocks, &style, 600.0, None, None, &mut heights);
+        assert_eq!(heights.len(), blocks.len());
+        assert!(total > 1000.0, "документ вышел слишком коротким: {total}");
+
+        let mut full = DisplayList::new();
+        MdRenderer::new(&mut full, &style, Point::zero(), 600.0).render_blocks(&blocks);
+
+        // Видимое окно — 200 px в середине документа.
+        let clip = Rect::new(Point::new(0.0, total / 2.0), Size::new(600.0, 200.0));
+        let mut culled = DisplayList::new();
+        MdRenderer::new(&mut culled, &style, Point::zero(), 600.0)
+            .with_cull(clip, heights.clone())
+            .render_blocks(&blocks);
+
+        assert!(
+            culled.commands().len() * 4 < full.commands().len(),
+            "отсечение почти ничего не сняло: {} из {}",
+            culled.commands().len(),
+            full.commands().len()
+        );
+        assert!(!culled.commands().is_empty(), "видимая часть не нарисована");
+    }
+
+    /// Высоты не совпали с блоками (например пришли сноски) — рисуем всё.
+    #[test]
+    fn mismatched_heights_disable_culling() {
+        let blocks = parse_markdown(&long_doc());
+        let style = MdStyle::default();
+        let mut full = DisplayList::new();
+        MdRenderer::new(&mut full, &style, Point::zero(), 600.0).render_blocks(&blocks);
+
+        let mut same = DisplayList::new();
+        MdRenderer::new(&mut same, &style, Point::zero(), 600.0)
+            .with_cull(Rect::new(Point::zero(), Size::new(600.0, 10.0)), Vec::new())
+            .render_blocks(&blocks);
+        assert_eq!(same.commands().len(), full.commands().len());
     }
 }

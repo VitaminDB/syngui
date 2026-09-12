@@ -326,6 +326,7 @@ impl Widget for MarkdownView {
             click_count: 0,
             last_click_run: None,
             source: self.source.clone(),
+            block_heights: Vec::new(),
             menu_open: use_signal(false),
             menu_pos: use_signal(Point::zero()),
             menu_action: use_signal(None),
@@ -421,6 +422,9 @@ pub struct MarkdownViewElement {
     blocks: std::sync::Arc<Vec<MdBlock>>,
     /// Исходник последнего применённого виджета — ключ сверки в update.
     source: String,
+    /// Высоты верхнеуровневых блоков, посчитанные раскладкой: по ним
+    /// отрисовка пропускает то, что за экраном.
+    block_heights: Vec<f32>,
     style: MdStyle,
     max_width: Option<Dimension>,
     bounds: Rect,
@@ -874,12 +878,24 @@ impl Element for MarkdownViewElement {
             .max(constraints.min_width)
             .min(constraints.max_width);
 
-        let probe: Option<&dyn MdImageProbe> = if self.image_store.is_some() {
-            Some(self)
-        } else {
-            None
+        let mut heights: Vec<f32> = Vec::with_capacity(self.blocks.len());
+        let content_height = {
+            let probe: Option<&dyn MdImageProbe> = if self.image_store.is_some() {
+                Some(self)
+            } else {
+                None
+            };
+            super::renderer::measure_blocks_each(
+                &self.blocks,
+                &self.style,
+                w,
+                tm,
+                probe,
+                &mut heights,
+            )
         };
-        self.content_height = measure_blocks(&self.blocks, &self.style, w, tm, probe);
+        self.content_height = content_height;
+        self.block_heights = heights;
         let h = self
             .content_height
             .max(self.style.text_size * self.style.line_height);
@@ -888,7 +904,7 @@ impl Element for MarkdownViewElement {
         Size::new(w, h)
     }
 
-    fn build_display_list(&self, list: &mut DisplayList, _clip: Rect) {
+    fn build_display_list(&self, list: &mut DisplayList, clip: Rect) {
         if self.blocks.is_empty() {
             return;
         }
@@ -912,6 +928,15 @@ impl Element for MarkdownViewElement {
                 .with_copy_hotspots(&mut sink);
             if self.selectable {
                 renderer = renderer.with_selection_sink(&mut sel_sink);
+            }
+            // Пока выделения нет, длинное сообщение рисуется только в
+            // видимой части: позиции выделения — индексы в списке участков,
+            // который собирается прямо здесь, и пропуск блоков сдвинул бы их.
+            if self.selection_anchor.is_none()
+                && !self.block_heights.is_empty()
+                && clip.size.height > 0.0
+            {
+                renderer = renderer.with_cull(clip, self.block_heights.clone());
             }
             renderer.render_blocks(&self.blocks);
         }
