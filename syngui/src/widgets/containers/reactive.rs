@@ -170,6 +170,7 @@ impl Element for ReactiveElement {
     }
 
     fn build_children(&self) -> Vec<Box<dyn Widget>> {
+        crate::perf::counters::incr(crate::perf::counters::Tally::ReactiveBuilds);
         signal::begin_tracking(self.id);
         signal::begin_element_scope(self.id);
         let children = (self.builder)();

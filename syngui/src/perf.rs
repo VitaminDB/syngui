@@ -283,3 +283,226 @@ pub enum TimeKind {
     MouseMoveHandleEvent,
     ButtonTextMeasure,
 }
+
+/// Счётчики работы дерева для тестов и бенчей: сколько элементов создано и
+/// удалено, сколько раз пересобирались `Reactive`, сколько markdown
+/// разобрано, сколько раз звалась подсветка кода. В отличие от профиля
+/// `MGUI_PROFILE` считают всегда: инкремент — `Cell` потока без проверок и
+/// блокировок. Счётчики потоковые, как и runtime сигналов: дерево, сигналы и
+/// отрисовка живут в UI-потоке, а параллельные тесты не сбивают друг другу
+/// числа.
+pub mod counters {
+    use std::cell::Cell;
+    use std::fmt;
+
+    #[derive(Clone, Copy)]
+    pub enum Tally {
+        /// Элемент вставлен в дерево (`ElementTree::insert*`).
+        ElementsCreated,
+        /// Элемент удалён из дерева вместе с поддеревом.
+        ElementsRemoved,
+        /// `Reactive` вызвал свой builder.
+        ReactiveBuilds,
+        /// Вызов `parse_markdown`.
+        MdParseCalls,
+        /// Байт исходника, отданных `parse_markdown`.
+        MdParseBytes,
+        /// Вызов `SyntectHighlighter::highlight`.
+        HighlightCalls,
+        /// Байт кода, отданных подсветке.
+        HighlightBytes,
+        /// Вызов `ElementTree::rebuild_if_needed`.
+        RebuildCalls,
+        /// Проход внутри `rebuild_if_needed` с непустым реестром пересборки.
+        RebuildPasses,
+    }
+
+    const TALLIES: usize = 9;
+    const ZERO: Cell<u64> = Cell::new(0);
+
+    thread_local! {
+        static TALLY: [Cell<u64>; TALLIES] = const { [ZERO; TALLIES] };
+    }
+
+    #[inline]
+    pub fn add(tally: Tally, n: u64) {
+        TALLY.with(|t| {
+            let c = &t[tally as usize];
+            c.set(c.get().wrapping_add(n));
+        });
+    }
+
+    #[inline]
+    pub fn incr(tally: Tally) {
+        add(tally, 1);
+    }
+
+    /// Снимок счётчиков потока. Разница двух снимков — [`Snapshot::since`].
+    #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+    pub struct Snapshot {
+        pub elements_created: u64,
+        pub elements_removed: u64,
+        pub reactive_builds: u64,
+        pub md_parse_calls: u64,
+        pub md_parse_bytes: u64,
+        pub highlight_calls: u64,
+        pub highlight_bytes: u64,
+        pub rebuild_calls: u64,
+        pub rebuild_passes: u64,
+        /// Слотов сигналов в runtime потока. Слоты не освобождаются, так что
+        /// в разнице снимков это число заведённых за интервал сигналов.
+        pub signal_slots: u64,
+    }
+
+    impl Snapshot {
+        /// Сколько набежало с `earlier`.
+        pub fn since(&self, earlier: &Snapshot) -> Snapshot {
+            Snapshot {
+                elements_created: self.elements_created.saturating_sub(earlier.elements_created),
+                elements_removed: self.elements_removed.saturating_sub(earlier.elements_removed),
+                reactive_builds: self.reactive_builds.saturating_sub(earlier.reactive_builds),
+                md_parse_calls: self.md_parse_calls.saturating_sub(earlier.md_parse_calls),
+                md_parse_bytes: self.md_parse_bytes.saturating_sub(earlier.md_parse_bytes),
+                highlight_calls: self.highlight_calls.saturating_sub(earlier.highlight_calls),
+                highlight_bytes: self.highlight_bytes.saturating_sub(earlier.highlight_bytes),
+                rebuild_calls: self.rebuild_calls.saturating_sub(earlier.rebuild_calls),
+                rebuild_passes: self.rebuild_passes.saturating_sub(earlier.rebuild_passes),
+                signal_slots: self.signal_slots.saturating_sub(earlier.signal_slots),
+            }
+        }
+
+        /// Сложить интервалы (сумма по нескольким кадрам).
+        pub fn plus(&self, other: &Snapshot) -> Snapshot {
+            Snapshot {
+                elements_created: self.elements_created + other.elements_created,
+                elements_removed: self.elements_removed + other.elements_removed,
+                reactive_builds: self.reactive_builds + other.reactive_builds,
+                md_parse_calls: self.md_parse_calls + other.md_parse_calls,
+                md_parse_bytes: self.md_parse_bytes + other.md_parse_bytes,
+                highlight_calls: self.highlight_calls + other.highlight_calls,
+                highlight_bytes: self.highlight_bytes + other.highlight_bytes,
+                rebuild_calls: self.rebuild_calls + other.rebuild_calls,
+                rebuild_passes: self.rebuild_passes + other.rebuild_passes,
+                signal_slots: self.signal_slots + other.signal_slots,
+            }
+        }
+    }
+
+    impl fmt::Display for Snapshot {
+        fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+            write!(
+                f,
+                "elem +{} -{} | reactive {} | md {}x {:.1}KB | hl {}x {:.1}KB | rebuild {}/{} | slots +{}",
+                self.elements_created,
+                self.elements_removed,
+                self.reactive_builds,
+                self.md_parse_calls,
+                self.md_parse_bytes as f64 / 1024.0,
+                self.highlight_calls,
+                self.highlight_bytes as f64 / 1024.0,
+                self.rebuild_calls,
+                self.rebuild_passes,
+                self.signal_slots,
+            )
+        }
+    }
+
+    pub fn snapshot() -> Snapshot {
+        let v = TALLY.with(|t| std::array::from_fn::<u64, TALLIES, _>(|i| t[i].get()));
+        Snapshot {
+            elements_created: v[Tally::ElementsCreated as usize],
+            elements_removed: v[Tally::ElementsRemoved as usize],
+            reactive_builds: v[Tally::ReactiveBuilds as usize],
+            md_parse_calls: v[Tally::MdParseCalls as usize],
+            md_parse_bytes: v[Tally::MdParseBytes as usize],
+            highlight_calls: v[Tally::HighlightCalls as usize],
+            highlight_bytes: v[Tally::HighlightBytes as usize],
+            rebuild_calls: v[Tally::RebuildCalls as usize],
+            rebuild_passes: v[Tally::RebuildPasses as usize],
+            signal_slots: crate::signal::signal_slot_count() as u64,
+        }
+    }
+
+    /// Обнулить счётчики потока. Число слотов сигналов — состояние runtime,
+    /// оно не сбрасывается.
+    pub fn reset() {
+        TALLY.with(|t| t.iter().for_each(|c| c.set(0)));
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::counters::{self, snapshot};
+    use crate::prelude::*;
+    use crate::signal::use_signal;
+    use crate::testing::TestHarness;
+    use crate::widgets::containers::reactive::Reactive;
+
+    /// Счётчики видят работу дерева: пересборку `Reactive`, созданные и
+    /// удалённые элементы, вызовы и проходы пересборки, новые слоты сигналов.
+    #[test]
+    fn counters_track_tree_work() {
+        crate::signal::allow_signal_reads_on_this_thread();
+        let before = snapshot();
+        let n = use_signal(1usize);
+        assert_eq!(snapshot().since(&before).signal_slots, 1);
+
+        let mut h = TestHarness::new(Box::new(Reactive::new(move || -> Vec<Box<dyn Widget>> {
+            (0..n.get())
+                .map(|i| Box::new(Text::new(format!("{i}"))) as Box<dyn Widget>)
+                .collect()
+        })));
+        let start = snapshot();
+        h.rebuild();
+        let d = snapshot().since(&start);
+        assert_eq!(d.reactive_builds, 1);
+        assert_eq!(d.elements_created, 1);
+        assert_eq!((d.rebuild_calls, d.rebuild_passes), (1, 1));
+
+        let start = snapshot();
+        n.set(3);
+        h.rebuild();
+        let d = snapshot().since(&start);
+        assert_eq!((d.reactive_builds, d.elements_created, d.elements_removed), (1, 2, 0));
+
+        let start = snapshot();
+        n.set(0);
+        h.rebuild();
+        let d = snapshot().since(&start);
+        assert_eq!((d.elements_created, d.elements_removed), (0, 3));
+
+        // Без изменений пересборки нет: вызов есть, проходов нет.
+        let start = snapshot();
+        h.rebuild();
+        let d = snapshot().since(&start);
+        assert_eq!((d.rebuild_calls, d.rebuild_passes, d.reactive_builds), (1, 0, 0));
+
+        counters::reset();
+        let z = snapshot();
+        assert_eq!((z.elements_created, z.reactive_builds, z.rebuild_calls), (0, 0, 0));
+        assert!(z.signal_slots > 0, "слоты сигналов — состояние runtime, reset их не трогает");
+    }
+
+    #[cfg(feature = "markdown")]
+    #[test]
+    fn counters_count_markdown_parse() {
+        let src = "# Заголовок\n\nабзац с `кодом`\n";
+        let start = snapshot();
+        let _ = crate::widgets::visual::markdown_view::parse_markdown(src);
+        let d = snapshot().since(&start);
+        assert_eq!((d.md_parse_calls, d.md_parse_bytes), (1, src.len() as u64));
+    }
+
+    #[cfg(feature = "markdown-syntax")]
+    #[test]
+    fn counters_count_highlight_calls() {
+        use crate::widgets::visual::markdown_view::{CodeHighlighter, SyntectHighlighter};
+        let code = "fn main() {\n    println!(\"hi\");\n}\n";
+        let h = SyntectHighlighter::new();
+        let start = snapshot();
+        let _ = h.highlight(code, Some("rust"));
+        let _ = h.highlight(code, None);
+        let d = snapshot().since(&start);
+        assert_eq!((d.highlight_calls, d.highlight_bytes), (2, 2 * code.len() as u64));
+    }
+}

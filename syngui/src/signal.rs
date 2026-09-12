@@ -149,17 +149,8 @@ impl<T: 'static + Clone> RwSignal<T> {
         assert_main_thread_for_read::<T>("get");
         RUNTIME.with(|rt| {
             let mut rt = rt.borrow_mut();
-            let idx = self.id.0 as usize;
-            if let Some(&element_id) = rt.tracking_stack.last() {
-                rt.slots[idx].subscribers.insert(element_id);
-            }
-            if let Some(effect_id) = rt.effect_tracking {
-                rt.slots[idx].effect_subscribers.insert(effect_id);
-                rt.effects[effect_id.0 as usize]
-                    .dependencies
-                    .insert(self.id);
-            }
-            read_slot::<T>(&rt.slots[idx], "get").clone()
+            track_read(&mut rt, self.id);
+            read_slot::<T>(&rt.slots[self.id.0 as usize], "get").clone()
         })
     }
 
@@ -244,19 +235,8 @@ impl<T: 'static + Clone> RwSignal<T> {
              or wrap in run_on_main_thread()."
         );
         let idx = self.id.0 as usize;
-        let taken: Box<T> = RUNTIME.with(|rt| {
-            let mut rt = rt.borrow_mut();
-            let value = std::mem::replace(
-                &mut rt.slots[idx].value,
-                Box::new(TakenDuringUpdate) as Box<dyn Any>,
-            );
-            value.downcast::<T>().unwrap_or_else(|_| {
-                panic!(
-                    "RwSignal::<{ty}>::update(): signal type mismatch",
-                    ty = std::any::type_name::<T>()
-                )
-            })
-        });
+        let taken: Box<T> =
+            RUNTIME.with(|rt| take_slot::<T>(&mut rt.borrow_mut().slots[idx], "update"));
         // Guard возвращает значение в слот, даже если `f` запаникует:
         // иначе сигнал навсегда остался бы с плейсхолдером.
         let mut guard = UpdateGuard {
@@ -275,6 +255,76 @@ impl<T: 'static + Clone> RwSignal<T> {
     }
 }
 
+impl<T: 'static> RwSignal<T> {
+    /// Читает значение по ссылке, без клона, и подписывает текущий
+    /// элемент/эффект, как [`RwSignal::get`]. Для больших значений (лента
+    /// чата) это разница между «посчитать длину» и «скопировать всю историю».
+    ///
+    /// Как и в [`RwSignal::update`], значение на время `f` вынимается из
+    /// слота, а `RUNTIME` не заимствован: внутри `f` можно читать и писать
+    /// другие сигналы и дёргать `tr!`. Нельзя читать или менять **этот же**
+    /// сигнал — это понятная паника, а не «RefCell already borrowed».
+    /// Если `f` перезаписала этот сигнал через `set_always`, остаётся новое
+    /// значение.
+    pub fn with<R>(&self, f: impl FnOnce(&T) -> R) -> R {
+        assert_main_thread_for_read::<T>("with");
+        let idx = self.id.0 as usize;
+        let taken: Box<T> = RUNTIME.with(|rt| {
+            let mut rt = rt.borrow_mut();
+            track_read(&mut rt, self.id);
+            take_slot::<T>(&mut rt.slots[idx], "with")
+        });
+        lend(idx, taken, f)
+    }
+
+    /// [`RwSignal::with`] без подписки — аналог `get_untracked`.
+    pub fn with_untracked<R>(&self, f: impl FnOnce(&T) -> R) -> R {
+        assert_main_thread_for_read::<T>("with_untracked");
+        let idx = self.id.0 as usize;
+        let taken: Box<T> =
+            RUNTIME.with(|rt| take_slot::<T>(&mut rt.borrow_mut().slots[idx], "with_untracked"));
+        lend(idx, taken, f)
+    }
+}
+
+/// Отдаёт вынутое значение в `f` и возвращает его в слот (через guard — и
+/// при панике внутри `f`).
+fn lend<T: 'static, R>(idx: usize, taken: Box<T>, f: impl FnOnce(&T) -> R) -> R {
+    let guard = UpdateGuard {
+        idx,
+        value: Some(taken),
+    };
+    f(guard.value.as_deref().expect("with value present"))
+}
+
+/// Подписывает на сигнал элемент, который сейчас строится, и эффект,
+/// который сейчас выполняется.
+fn track_read(rt: &mut SignalRuntime, id: SignalId) {
+    let idx = id.0 as usize;
+    if let Some(&element_id) = rt.tracking_stack.last() {
+        rt.slots[idx].subscribers.insert(element_id);
+    }
+    if let Some(effect_id) = rt.effect_tracking {
+        rt.slots[idx].effect_subscribers.insert(effect_id);
+        rt.effects[effect_id.0 as usize].dependencies.insert(id);
+    }
+}
+
+/// Вынимает значение из слота, оставляя [`TakenDuringUpdate`]. Если слот уже
+/// пуст (сигнал читают или меняют изнутри его же `update`/`with`), паникует
+/// понятным сообщением `read_slot`.
+fn take_slot<T: 'static>(slot: &mut SignalSlot, method: &'static str) -> Box<T> {
+    let _ = read_slot::<T>(slot, method);
+    std::mem::replace(&mut slot.value, Box::new(TakenDuringUpdate) as Box<dyn Any>)
+        .downcast::<T>()
+        .unwrap_or_else(|_| unreachable!("slot type checked by read_slot"))
+}
+
+/// Держит значение, вынутое из слота на время замыкания `update`/`with`, и
+/// возвращает его на место в `Drop` — даже если замыкание запаникует, иначе
+/// сигнал навсегда остался бы с плейсхолдером. Если за это время в слот
+/// записали новое значение (`set_always` изнутри `with`), затирать его не
+/// нужно.
 struct UpdateGuard<T: 'static> {
     idx: usize,
     value: Option<Box<T>>,
@@ -288,7 +338,10 @@ impl<T: 'static> Drop for UpdateGuard<T> {
         let idx = self.idx;
         let _ = RUNTIME.try_with(|rt| {
             if let Ok(mut rt) = rt.try_borrow_mut() {
-                rt.slots[idx].value = value;
+                let slot = &mut rt.slots[idx];
+                if slot.value.is::<TakenDuringUpdate>() {
+                    slot.value = value;
+                }
             }
         });
     }
@@ -301,9 +354,9 @@ fn read_slot<'a, T: 'static>(slot: &'a SignalSlot, method: &'static str) -> &'a 
     }
     if slot.value.is::<TakenDuringUpdate>() {
         panic!(
-            "RwSignal::<{ty}>::{method}() called from inside this signal's own update(). \
-             The value is currently held by the update closure. Read it before update(), \
-             or mutate through the `&mut` the closure already has.",
+            "RwSignal::<{ty}>::{method}() called from inside this signal's own update()/with(). \
+             The value is currently held by that closure. Read it before update()/with(), \
+             or use the reference the closure already has.",
             ty = std::any::type_name::<T>(),
         );
     }
@@ -349,6 +402,13 @@ pub fn use_signal<T: 'static + Clone>(initial: T) -> RwSignal<T> {
             _marker: PhantomData,
         }
     })
+}
+
+/// Сколько слотов сигналов заведено в runtime потока. Слоты не
+/// освобождаются, поэтому число только растёт — счётчик для замеров
+/// (`perf::counters`).
+pub fn signal_slot_count() -> usize {
+    RUNTIME.with(|rt| rt.borrow().slots.len())
 }
 
 pub struct Memo<T> {

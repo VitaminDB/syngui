@@ -346,6 +346,7 @@ impl ElementTree {
     ) -> ElementId {
         let id = ElementId(self.next_id);
         self.next_id += 1;
+        crate::perf::counters::incr(crate::perf::counters::Tally::ElementsCreated);
 
         element.set_id(id);
 
@@ -662,6 +663,8 @@ impl ElementTree {
     }
 
     pub fn rebuild_if_needed(&mut self, _root_id: ElementId) -> bool {
+        use crate::perf::counters::{incr, Tally};
+        incr(Tally::RebuildCalls);
         let mut any_rebuilt = false;
 
         for dirty_id in crate::signal::dirty_element_ids() {
@@ -674,6 +677,7 @@ impl ElementTree {
             if self.rebuild_registry.is_empty() {
                 break;
             }
+            incr(Tally::RebuildPasses);
             let rebuild_ids: Vec<ElementId> = self.rebuild_registry.iter().copied().collect();
             self.rebuild_registry.clear();
 
@@ -970,6 +974,7 @@ impl ElementTree {
             self.remove_subtree(*child_id);
         }
         self.elements.remove(&id);
+        crate::perf::counters::incr(crate::perf::counters::Tally::ElementsRemoved);
         self.cache_remove(&id);
         self.overlay_stack.retain(|e| e.element_id != id);
         self.drop_targets.retain(|&dt| dt != id);

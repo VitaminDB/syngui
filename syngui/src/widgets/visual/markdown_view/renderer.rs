@@ -6,7 +6,7 @@ use crate::widget::context::TextMeasure;
 
 use std::sync::Arc;
 
-use super::highlight::CodeHighlighter;
+use super::highlight::{highlight_cached, CodeHighlighter, HighlightToken};
 use super::model::*;
 use super::selection_map::SelectableRun;
 
@@ -575,11 +575,13 @@ impl<'a> MdRenderer<'a> {
         self.list
             .push_rect(bg_rect, self.style.code_block_bg, [r, r, r, r]);
 
-        let tokens = self
+        // Через кэш: без него syntect гонялся по каждому видимому блоку
+        // в каждом кадре.
+        let cached = self
             .highlighter
             .as_deref()
-            .map(|h| h.highlight(code, language))
-            .unwrap_or_default();
+            .map(|h| highlight_cached(h, code, language));
+        let tokens: &[HighlightToken] = cached.as_deref().unwrap_or(&[]);
 
         let default_color = self.style.code_block_color;
         let mut line_y = self.y + padding;
@@ -2026,5 +2028,34 @@ mod table_measure_tests {
             (wide - single_row * 3.0).abs() < 1.0,
             "без переноса — три однострочных ряда: wide={wide}, row={single_row}"
         );
+    }
+}
+
+#[cfg(all(test, feature = "markdown-syntax"))]
+mod code_highlight_cache_tests {
+    use super::super::highlight::{clear_highlight_caches, SyntectHighlighter};
+    use super::super::parser::parse_markdown;
+    use super::{CodeHighlighter, DisplayList, MdRenderer, MdStyle, Point};
+    use crate::perf::counters::snapshot;
+    use std::sync::Arc;
+
+    /// Перерисовка ленты не гоняет syntect заново: раньше подсветка
+    /// считалась по каждому видимому код-блоку в каждом кадре.
+    #[test]
+    fn repeated_paint_highlights_once() {
+        clear_highlight_caches();
+        let blocks = parse_markdown("```rust\nfn main() {\n    println!(\"hi\");\n}\n```\n");
+        let style = MdStyle::default();
+        let h: Arc<dyn CodeHighlighter> = Arc::new(SyntectHighlighter::new());
+        let mut calls = Vec::new();
+        for _ in 0..3 {
+            let start = snapshot();
+            let mut list = DisplayList::new();
+            let mut r = MdRenderer::new(&mut list, &style, Point::new(0.0, 0.0), 400.0)
+                .with_highlighter(Some(h.clone()));
+            r.render_blocks(&blocks);
+            calls.push(snapshot().since(&start).highlight_calls);
+        }
+        assert_eq!(calls, vec![1, 0, 0], "syntect гоняется один раз на блок");
     }
 }

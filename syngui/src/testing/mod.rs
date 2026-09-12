@@ -1,3 +1,8 @@
+use std::time::Duration;
+
+use web_time::Instant;
+
+use crate::a11y::{A11yTree, FocusManager, NullAdapter};
 use crate::core::{Point, Rect, Size};
 use crate::input::{Event, EventResult, Key, MouseButton};
 use crate::layout::Constraints;
@@ -7,6 +12,42 @@ use crate::widget::{ElementId, ElementTree, Widget};
 pub struct TestHarness {
     pub tree: ElementTree,
     pub root_id: ElementId,
+    /// Дерево доступности и порядок Tab для [`frame`](Self::frame): живут
+    /// между кадрами, как у окна приложения. Заводятся первым кадром.
+    frame_a11y: Option<Box<(A11yTree, FocusManager)>>,
+    /// Дерево пересобиралось — следующий кадр синхронизирует a11y.
+    a11y_dirty: bool,
+}
+
+/// Время фаз одного кадра [`TestHarness::frame`].
+#[derive(Debug, Clone, Copy, Default)]
+pub struct FrameTimings {
+    /// Проходы пересборки (без стилей — они в `styles`).
+    pub rebuild: Duration,
+    /// Стили новых и изменённых элементов после пересборок
+    /// (`apply_styles_dirty`), в обоих местах кадра.
+    pub styles: Duration,
+    /// Эффекты (`drain_and_run_effects`).
+    pub effects: Duration,
+    /// Раскладка вместе с пересборкой и раскладкой, которые она заявила.
+    pub layout: Duration,
+    /// Синхронизация a11y и порядка Tab.
+    pub a11y: Duration,
+    /// Display list; здесь же подсветка кода `MarkdownView`.
+    pub paint: Duration,
+    /// Сколько проходов цикла пересборки что-то пересобрали (до 8).
+    pub rebuild_rounds: u32,
+    /// После раскладки понадобилась пересборка, и дерево раскладывалось
+    /// второй раз.
+    pub relayout: bool,
+    /// Команд в display list (с оверлеями).
+    pub commands: usize,
+}
+
+impl FrameTimings {
+    pub fn total(&self) -> Duration {
+        self.rebuild + self.styles + self.effects + self.layout + self.a11y + self.paint
+    }
 }
 
 impl TestHarness {
@@ -17,7 +58,12 @@ impl TestHarness {
         let root_id = tree.insert(element, None);
         widget.mount(&mut tree, root_id);
         tree.set_root(root_id);
-        Self { tree, root_id }
+        Self {
+            tree,
+            root_id,
+            frame_a11y: None,
+            a11y_dirty: true,
+        }
     }
 
     pub fn layout(&mut self, width: f32, height: f32) -> Size {
@@ -47,6 +93,98 @@ impl TestHarness {
     pub fn rebuild(&mut self) {
         self.tree.rebuild_if_needed(self.root_id);
         signal::drain_and_run_effects();
+    }
+
+    /// Полный кадр приложения без GPU — как `AppHandler::render`
+    /// (`app/handler/render.rs`): до 8 проходов пересборки, после каждого —
+    /// стили новых элементов (`apply_styles_dirty`, если передан `engine`);
+    /// эффекты; раскладка по свободным ограничениям окна; пересборка и
+    /// повторная раскладка, если раскладка их заявила; синхронизация a11y и
+    /// порядка Tab, если дерево пересобиралось; display list и overlay-стек.
+    ///
+    /// Анимации кадр не тикает: в приложении это делает цикл событий, в
+    /// тесте — [`animate`](Self::animate). Атласа шрифтов без GPU нет —
+    /// измеритель текста тест ставит сам (`tree.text_measure`), иначе текст
+    /// меряется оценкой.
+    pub fn frame(
+        &mut self,
+        engine: Option<&crate::mss::StyleEngine>,
+        width: f32,
+        height: f32,
+    ) -> FrameTimings {
+        let root = self.root_id;
+        let mut t = FrameTimings::default();
+
+        let started = Instant::now();
+        let mut any_rebuilt = false;
+        for _ in 0..8 {
+            if !self.tree.rebuild_if_needed(root) {
+                break;
+            }
+            any_rebuilt = true;
+            t.rebuild_rounds += 1;
+            if let Some(engine) = engine {
+                let styled = Instant::now();
+                crate::mss::cascade::apply_styles_dirty(&mut self.tree, engine);
+                t.styles += styled.elapsed();
+            }
+        }
+        if any_rebuilt {
+            self.tree.force_full_measure = true;
+            self.a11y_dirty = true;
+        }
+        t.rebuild = started.elapsed().saturating_sub(t.styles);
+
+        let started = Instant::now();
+        signal::drain_and_run_effects();
+        t.effects = started.elapsed();
+
+        let started = Instant::now();
+        let size = Size::new(width, height);
+        self.tree.viewport_size = size;
+        crate::viewport::publish(size);
+        self.tree.set_pixel_snap_scale(0.0);
+        let constraints = Constraints::new(0.0, width, 0.0, height);
+        self.tree.layout(root, constraints);
+        let mut relayout_styles = Duration::ZERO;
+        if self.tree.rebuild_if_needed(root) {
+            if let Some(engine) = engine {
+                let styled = Instant::now();
+                crate::mss::cascade::apply_styles_dirty(&mut self.tree, engine);
+                relayout_styles = styled.elapsed();
+                t.styles += relayout_styles;
+            }
+            self.tree.force_full_measure = true;
+            self.tree.layout(root, constraints);
+            self.a11y_dirty = true;
+            t.relayout = true;
+        }
+        self.tree.force_full_measure = false;
+        t.layout = started.elapsed().saturating_sub(relayout_styles);
+
+        let started = Instant::now();
+        if self.a11y_dirty {
+            let (a11y, focus) = &mut **self.frame_a11y.get_or_insert_with(|| {
+                Box::new((A11yTree::new(Box::new(NullAdapter)), FocusManager::new()))
+            });
+            a11y.sync(&self.tree, root);
+            focus.rebuild_tab_order(&self.tree, root);
+            self.a11y_dirty = false;
+        }
+        t.a11y = started.elapsed();
+
+        let started = Instant::now();
+        let mut list = crate::render::DisplayList::new();
+        list.set_surface_size(size);
+        list.set_scale_factor(1.0);
+        self.tree
+            .build_display_list(root, &mut list, Rect::new(Point::zero(), size));
+        self.tree.build_drag_overlay(&mut list);
+        self.tree.sync_overlay_stack();
+        t.paint = started.elapsed();
+        let stats = list.stats();
+        t.commands = stats.command_count + stats.overlay_command_count;
+        t
     }
 
     pub fn send_event(&mut self, event: &Event) -> EventResult {
@@ -226,4 +364,55 @@ macro_rules! assert_bounds {
             bounds.size.height
         );
     }};
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::prelude::*;
+    use crate::signal::{create_effect, use_signal};
+    use crate::widgets::containers::reactive::Reactive;
+
+    /// Кадр харнесса повторяет кадр приложения: новые элементы получают
+    /// стили до раскладки, а сигнал, выставленный эффектом, пересобирает
+    /// ветку в том же кадре — пересборкой после раскладки. `rebuild()` так
+    /// не умеет: запись эффекта он увидел бы только следующим вызовом.
+    #[test]
+    fn frame_styles_new_children_and_catches_effect_writes() {
+        signal::allow_signal_reads_on_this_thread();
+        let shown = use_signal(false);
+        let label = use_signal(String::new());
+        create_effect(move || {
+            let text = if shown.get() { "есть" } else { "" };
+            label.set(text.to_string());
+        });
+        let mut h = TestHarness::new(Box::new(Reactive::new(move || -> Vec<Box<dyn Widget>> {
+            let mut out: Vec<Box<dyn Widget>> = Vec::new();
+            if shown.get() {
+                out.push(Box::new(DecoratedBox::new().class("box")));
+            }
+            let text = label.get();
+            if !text.is_empty() {
+                out.push(Box::new(Text::new(text).class("label")));
+            }
+            out
+        })));
+        let engine = h.apply_mss(".box { width: 30px; height: 40px; }");
+        h.frame(Some(&engine), 200.0, 100.0);
+        assert!(h.find_by_class("box").is_empty());
+
+        shown.set(true);
+        let t = h.frame(Some(&engine), 200.0, 100.0);
+        let boxes = h.find_by_class("box");
+        assert_eq!(boxes.len(), 1);
+        let b = h.element_bounds(boxes[0]);
+        assert!(
+            (b.size.height - 40.0).abs() < 0.5,
+            "новый элемент раскладывался без стилей: {b:?}"
+        );
+        assert_eq!(h.find_by_class("label").len(), 1, "запись эффекта не дошла до дерева в том же кадре");
+        assert!(t.relayout, "ветку, пересобранную эффектом, кадр обязан разложить заново");
+        assert!(t.rebuild_rounds >= 1);
+        assert!(t.commands > 0, "текст метки должен попасть в display list");
+    }
 }

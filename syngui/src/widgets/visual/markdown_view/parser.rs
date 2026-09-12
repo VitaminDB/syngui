@@ -4,6 +4,11 @@ use super::anchors::{apply_autolinks_to_blocks, assign_heading_ids};
 use super::model::*;
 
 pub fn parse_markdown(source: &str) -> Vec<MdBlock> {
+    {
+        use crate::perf::counters::{add, incr, Tally};
+        incr(Tally::MdParseCalls);
+        add(Tally::MdParseBytes, source.len() as u64);
+    }
     let opts = Options::ENABLE_TABLES
         | Options::ENABLE_TASKLISTS
         | Options::ENABLE_STRIKETHROUGH

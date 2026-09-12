@@ -175,3 +175,166 @@ fn notifier_may_read_signals_during_redraw() {
     assert_eq!(notifier.seen.load(Ordering::Relaxed), 2);
     syngui::signal::clear_window();
 }
+
+/// Значение со счётчиком клонов: `with` обязан читать по ссылке.
+struct CloneCounted {
+    clones: std::rc::Rc<std::cell::Cell<u32>>,
+    payload: Vec<i32>,
+}
+
+impl Clone for CloneCounted {
+    fn clone(&self) -> Self {
+        self.clones.set(self.clones.get() + 1);
+        Self {
+            clones: self.clones.clone(),
+            payload: self.payload.clone(),
+        }
+    }
+}
+
+#[test]
+fn with_reads_by_reference_without_clone() {
+    let clones = std::rc::Rc::new(std::cell::Cell::new(0u32));
+    let value = use_signal(CloneCounted {
+        clones: clones.clone(),
+        payload: vec![1, 2, 3],
+    });
+
+    assert_eq!(value.with(|v| v.payload.len()), 3);
+    assert_eq!(value.with_untracked(|v| v.payload.iter().sum::<i32>()), 6);
+    assert_eq!(clones.get(), 0, "with/with_untracked не клонируют");
+
+    let _ = value.get();
+    assert_eq!(clones.get(), 1, "а get клонирует — счётчик рабочий");
+}
+
+/// `with` подписывает строящийся элемент и эффект так же, как `get`.
+#[test]
+fn with_tracks_element_and_effect() {
+    use std::sync::{
+        atomic::{AtomicU32, Ordering},
+        Arc,
+    };
+    use syngui::signal::{begin_tracking, clear_element_dirty, end_tracking, is_element_dirty};
+    use syngui::widget::ElementId;
+
+    let items = use_signal(vec![1i32, 2, 3]);
+    let elem = ElementId::new();
+    begin_tracking(elem);
+    assert_eq!(items.with(|v| v.len()), 3);
+    end_tracking();
+    assert!(!is_element_dirty(elem));
+    items.update(|v| v.push(4));
+    assert!(is_element_dirty(elem), "with обязан подписать элемент");
+    clear_element_dirty(elem);
+
+    let runs = Arc::new(AtomicU32::new(0));
+    let r = runs.clone();
+    use_effect(move || {
+        items.with(|v| assert!(!v.is_empty()));
+        r.fetch_add(1, Ordering::Relaxed);
+    });
+    assert_eq!(runs.load(Ordering::Relaxed), 1);
+    items.update(|v| v.push(5));
+    syngui::signal::drain_and_run_effects();
+    assert_eq!(runs.load(Ordering::Relaxed), 2, "with обязан подписать эффект");
+}
+
+#[test]
+fn with_untracked_does_not_track() {
+    use std::sync::{
+        atomic::{AtomicU32, Ordering},
+        Arc,
+    };
+    use syngui::signal::{begin_tracking, end_tracking, is_element_dirty};
+    use syngui::widget::ElementId;
+
+    let items = use_signal(vec![1i32]);
+    let elem = ElementId::new();
+    begin_tracking(elem);
+    assert_eq!(items.with_untracked(|v| v.len()), 1);
+    end_tracking();
+    items.update(|v| v.push(2));
+    assert!(
+        !is_element_dirty(elem),
+        "with_untracked не подписывает элемент"
+    );
+
+    let runs = Arc::new(AtomicU32::new(0));
+    let r = runs.clone();
+    use_effect(move || {
+        items.with_untracked(|v| assert!(!v.is_empty()));
+        r.fetch_add(1, Ordering::Relaxed);
+    });
+    items.update(|v| v.push(3));
+    syngui::signal::drain_and_run_effects();
+    assert_eq!(
+        runs.load(Ordering::Relaxed),
+        1,
+        "with_untracked не подписывает эффект"
+    );
+}
+
+/// Внутри `with` можно читать и менять другие сигналы и переводить строки:
+/// runtime на это время не заимствован (как в `update`).
+#[test]
+fn with_closure_may_touch_other_signals() {
+    let source = use_signal(vec![String::from("a"), String::from("b")]);
+    let total = use_signal(0usize);
+    let log = use_signal(Vec::<String>::new());
+
+    let n = source.with(|v| {
+        total.update(|t| *t += v.len());
+        log.set(v.clone());
+        log.update(|l| l.push(syngui::tr!("some.missing.key")));
+        let inner = total.with(|t| *t);
+        inner + log.get_untracked().len()
+    });
+
+    assert_eq!(n, 5);
+    assert_eq!(total.get(), 2);
+    assert_eq!(source.get(), vec!["a".to_string(), "b".to_string()]);
+}
+
+/// Чтение этого же сигнала внутри `with` — понятная паника, а не
+/// «RefCell already borrowed».
+#[test]
+#[should_panic(expected = "own update()/with()")]
+fn with_panics_on_reading_same_signal_inside() {
+    let value = use_signal(vec![1i32]);
+    value.with(|_| value.get_untracked());
+}
+
+/// После такой паники значение на месте: guard вернул его в слот.
+#[test]
+fn with_restores_value_after_panic_in_closure() {
+    let value = use_signal(vec![1i32, 2]);
+
+    let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+        value.with(|_| value.with_untracked(|v| v.len()))
+    }));
+
+    assert!(result.is_err());
+    assert_eq!(value.get(), vec![1, 2]);
+}
+
+/// Вложенный `update` этого же сигнала — та же понятная паника (раньше
+/// сообщение было «signal type mismatch»).
+#[test]
+#[should_panic(expected = "own update()/with()")]
+fn update_panics_on_updating_same_signal_inside() {
+    let value = use_signal(0i32);
+    value.update(|_| value.update(|v| *v += 1));
+}
+
+/// `set_always` этого же сигнала изнутри `with` не теряется: guard не
+/// затирает новое значение старым.
+#[test]
+fn set_always_inside_with_keeps_new_value() {
+    let value = use_signal(1i32);
+    value.with(|v| {
+        assert_eq!(*v, 1);
+        value.set_always(2);
+    });
+    assert_eq!(value.get(), 2);
+}
