@@ -40,27 +40,32 @@ fn window_pseudo_matches(pseudo: &str, window_flags: u8) -> Option<bool> {
 /// Индекс раскладывает правила по вёдрам: класс/тип правого сегмента —
 /// кандидаты для элемента берутся только из вёдер его классов, его типа и
 /// catch-all. Полная проверка совпадения остаётся за selector_matches.
-struct RuleIndex<'a> {
-    by_class: std::collections::HashMap<&'a str, Vec<u32>>,
-    by_type: std::collections::HashMap<&'a str, Vec<u32>>,
+/// Индекс правил по классу и типу элемента. Ключи — собственные строки, а
+/// не заимствованные у stylesheet: индекс переживает вызов и лежит в кэше
+/// [`rule_index`] до смены стилей.
+struct RuleIndex {
+    by_class: std::collections::HashMap<String, Vec<u32>>,
+    by_type: std::collections::HashMap<String, Vec<u32>>,
     catch_all: Vec<u32>,
 }
 
-impl<'a> RuleIndex<'a> {
-    fn build(rules: &'a [StyleRule]) -> Self {
+impl RuleIndex {
+    fn build(rules: &[StyleRule]) -> Self {
         use super::stylesheet::{Selector, SelectorChain, SelectorPart};
 
-        let mut by_class: std::collections::HashMap<&str, Vec<u32>> =
+        crate::perf::counters::incr(crate::perf::counters::Tally::StyleIndexBuilds);
+
+        let mut by_class: std::collections::HashMap<String, Vec<u32>> =
             std::collections::HashMap::new();
-        let mut by_type: std::collections::HashMap<&str, Vec<u32>> =
+        let mut by_type: std::collections::HashMap<String, Vec<u32>> =
             std::collections::HashMap::new();
         let mut catch_all: Vec<u32> = Vec::new();
 
-        fn slot_chain<'a>(
-            chain: &'a SelectorChain,
+        fn slot_chain(
+            chain: &SelectorChain,
             i: u32,
-            by_class: &mut std::collections::HashMap<&'a str, Vec<u32>>,
-            by_type: &mut std::collections::HashMap<&'a str, Vec<u32>>,
+            by_class: &mut std::collections::HashMap<String, Vec<u32>>,
+            by_type: &mut std::collections::HashMap<String, Vec<u32>>,
             catch_all: &mut Vec<u32>,
         ) {
             // Пустая цепочка (битый селектор, напр. утёкший keyframe-фрейм)
@@ -70,17 +75,17 @@ impl<'a> RuleIndex<'a> {
                 return;
             }
             match chain.target() {
-                SelectorPart::Class(c) => by_class.entry(c.as_str()).or_default().push(i),
-                SelectorPart::Element(e) => by_type.entry(e.as_str()).or_default().push(i),
+                SelectorPart::Class(c) => by_class.entry(c.clone()).or_default().push(i),
+                SelectorPart::Element(e) => by_type.entry(e.clone()).or_default().push(i),
                 SelectorPart::Compound {
                     classes, element, ..
                 } => {
                     // Compound требует ВСЕ свои классы, поэтому ведро любого
                     // из них корректно сужает кандидатов; берём первый.
                     if let Some(c) = classes.first() {
-                        by_class.entry(c.as_str()).or_default().push(i);
+                        by_class.entry(c.clone()).or_default().push(i);
                     } else if let Some(e) = element {
-                        by_type.entry(e.as_str()).or_default().push(i);
+                        by_type.entry(e.clone()).or_default().push(i);
                     } else {
                         catch_all.push(i);
                     }
@@ -93,10 +98,10 @@ impl<'a> RuleIndex<'a> {
             let i = i as u32;
             match &rule.selector {
                 Selector::Class(c) | Selector::ClassPseudo(c, _) => {
-                    by_class.entry(c.as_str()).or_default().push(i)
+                    by_class.entry(c.clone()).or_default().push(i)
                 }
                 Selector::Element(e) | Selector::ElementPseudo(e, _) => {
-                    by_type.entry(e.as_str()).or_default().push(i)
+                    by_type.entry(e.clone()).or_default().push(i)
                 }
                 Selector::Universal | Selector::Id(_) => catch_all.push(i),
                 Selector::Complex(chain) => {
@@ -141,6 +146,30 @@ impl<'a> RuleIndex<'a> {
     }
 }
 
+thread_local! {
+    /// Индекс строится по всему stylesheet (в synthos это около 1900 блоков
+    /// правил), а `apply_styles` вызывается после каждого прохода пересборки
+    /// — до девяти раз за кадр. Держим его до смены стилей: ключ — версия
+    /// таблицы, глобально уникальная, так что движки разных окон не путают
+    /// кэш.
+    static RULE_INDEX: std::cell::RefCell<Option<(u64, std::rc::Rc<RuleIndex>)>> =
+        const { std::cell::RefCell::new(None) };
+}
+
+fn rule_index(style_engine: &StyleEngine) -> std::rc::Rc<RuleIndex> {
+    let version = style_engine.stylesheet_version();
+    RULE_INDEX.with(|cell| {
+        if let Some((v, index)) = cell.borrow().as_ref() {
+            if *v == version {
+                return index.clone();
+            }
+        }
+        let index = std::rc::Rc::new(RuleIndex::build(style_engine.stylesheet().rules()));
+        *cell.borrow_mut() = Some((version, index.clone()));
+        index
+    })
+}
+
 fn dfs_order(tree: &ElementTree, root: ElementId) -> Vec<ElementId> {
     let mut order = Vec::with_capacity(tree.elements.len());
     let mut stack: Vec<ElementId> = vec![root];
@@ -162,7 +191,7 @@ pub fn apply_styles_to_tree(tree: &mut ElementTree, style_engine: &StyleEngine) 
     };
     let order = dfs_order(tree, root_id);
     let rules: &[StyleRule] = style_engine.stylesheet().rules();
-    let index = RuleIndex::build(rules);
+    let index = rule_index(style_engine);
     let mut cand: Vec<u32> = Vec::new();
     let window_flags = tree.window_flags;
 
@@ -404,7 +433,7 @@ pub fn apply_styles_dirty(tree: &mut ElementTree, style_engine: &StyleEngine) ->
 
     let order = dfs_order(tree, root_id);
     let rules: &[StyleRule] = style_engine.stylesheet().rules();
-    let index = RuleIndex::build(rules);
+    let index = rule_index(style_engine);
     let mut cand: Vec<u32> = Vec::new();
     let window_flags = tree.window_flags;
 
@@ -680,5 +709,49 @@ pub fn mark_subtree_styles_dirty(tree: &mut ElementTree, id: ElementId) {
                 stack.push(c);
             }
         }
+    }
+}
+
+#[cfg(all(test, feature = "testing"))]
+mod index_cache_tests {
+    use crate::perf::counters::snapshot;
+    use crate::prelude::*;
+    use crate::testing::TestHarness;
+
+    /// Индекс правил строится один раз на таблицу стилей: `apply_styles`
+    /// зовётся после каждого прохода пересборки, и раньше каждый вызов
+    /// перебирал весь stylesheet.
+    #[test]
+    fn rule_index_is_built_once_per_stylesheet() {
+        let mut h = TestHarness::new(Box::new(
+            DecoratedBox::new()
+                .class("card")
+                .child(DecoratedBox::new().class("label")),
+        ));
+        h.layout(800.0, 600.0);
+        let engine = h.apply_mss(".card { padding: 8; } .label { font-size: 14; }");
+        h.layout(800.0, 600.0);
+        let id = *h
+            .find_by_class("label")
+            .first()
+            .expect("в дереве есть .label");
+        assert_eq!(h.element_mss(id).and_then(|m| m.font_size), Some(14.0));
+
+        let start = snapshot();
+        for _ in 0..5 {
+            h.apply_styles(&engine);
+        }
+        assert_eq!(
+            snapshot().since(&start).style_index_builds,
+            0,
+            "индекс собрался заново на неизменных стилях"
+        );
+
+        // Новая таблица — новый индекс, и значения из неё доезжают.
+        let start = snapshot();
+        h.apply_mss(".label { font-size: 22; }");
+        assert_eq!(snapshot().since(&start).style_index_builds, 1);
+        h.layout(800.0, 600.0);
+        assert_eq!(h.element_mss(id).and_then(|m| m.font_size), Some(22.0));
     }
 }

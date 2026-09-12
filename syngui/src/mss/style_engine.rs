@@ -96,9 +96,20 @@ pub enum Overflow {
     Scroll,
 }
 
+/// Номер версии таблицы стилей: свежий на каждую загрузку или
+/// дополнение. Клон движка версию сохраняет — стили у него те же.
+fn next_stylesheet_version() -> u64 {
+    use std::sync::atomic::{AtomicU64, Ordering};
+    static NEXT: AtomicU64 = AtomicU64::new(1);
+    NEXT.fetch_add(1, Ordering::Relaxed)
+}
+
 #[derive(Debug, Clone)]
 pub struct StyleEngine {
     stylesheet: StyleSheet,
+    /// Версия таблицы стилей — ключ кэша индекса правил в `cascade`.
+    /// Глобально уникальна, поэтому кэш не путает движки разных окон.
+    version: u64,
     cache: HashMap<StyleCacheKey, ComputedStyle>,
 }
 
@@ -111,6 +122,7 @@ impl StyleEngine {
     pub fn new(stylesheet: StyleSheet) -> Self {
         Self {
             stylesheet,
+            version: next_stylesheet_version(),
             cache: HashMap::new(),
         }
     }
@@ -118,6 +130,7 @@ impl StyleEngine {
     pub fn empty() -> Self {
         Self {
             stylesheet: StyleSheet::new(),
+            version: next_stylesheet_version(),
             cache: HashMap::new(),
         }
     }
@@ -306,11 +319,18 @@ impl StyleEngine {
     pub fn load_stylesheet(&mut self, stylesheet: StyleSheet) {
         self.stylesheet = stylesheet;
         self.cache.clear();
+        self.version = next_stylesheet_version();
     }
 
     pub fn load_additional_stylesheet(&mut self, additional: StyleSheet) {
         self.stylesheet.merge(&additional);
         self.cache.clear();
+        self.version = next_stylesheet_version();
+    }
+
+    /// Версия таблицы стилей: меняется при любой её замене или дополнении.
+    pub(crate) fn stylesheet_version(&self) -> u64 {
+        self.version
     }
 }
 
