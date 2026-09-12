@@ -3,6 +3,84 @@ use pulldown_cmark::{Alignment, Event, Options, Parser, Tag, TagEnd};
 use super::anchors::{apply_autolinks_to_blocks, assign_heading_ids};
 use super::model::*;
 
+/// Разбор с кэшем по содержимому.
+///
+/// Лента чата пересобирается целиком на каждое событие агентного хода, и
+/// без кэша каждый пузырёк разбирался заново: при 300 сообщениях это ~300
+/// разборов и около 290 КБ текста на кадр. Разбор чистый, поэтому один и
+/// тот же текст всегда даёт одни и те же блоки.
+pub fn parse_markdown_cached(source: &str) -> std::sync::Arc<Vec<MdBlock>> {
+    use std::cell::RefCell;
+    use std::collections::HashMap;
+    use std::sync::Arc;
+
+    /// Потолки кэша: записей и суммарного исходника. Лента держит десятки
+    /// видимых сообщений, остальное вытесняется по давности обращения.
+    const MAX_ENTRIES: usize = 512;
+    const MAX_BYTES: usize = 4 * 1024 * 1024;
+
+    struct Entry {
+        source: String,
+        blocks: Arc<Vec<MdBlock>>,
+        used: u64,
+    }
+
+    #[derive(Default)]
+    struct Cache {
+        entries: HashMap<u64, Entry>,
+        bytes: usize,
+        tick: u64,
+    }
+
+    thread_local! {
+        static CACHE: RefCell<Cache> = RefCell::new(Cache::default());
+    }
+
+    let key = {
+        use std::hash::{Hash, Hasher};
+        let mut h = std::collections::hash_map::DefaultHasher::new();
+        source.hash(&mut h);
+        h.finish()
+    };
+
+    CACHE.with(|cell| {
+        let mut cache = cell.borrow_mut();
+        cache.tick += 1;
+        let tick = cache.tick;
+        // Сверяем и сам текст: хэш может совпасть у разных исходников.
+        if let Some(entry) = cache.entries.get_mut(&key) {
+            if entry.source == source {
+                entry.used = tick;
+                return entry.blocks.clone();
+            }
+        }
+        let blocks = Arc::new(parse_markdown(source));
+        if let Some(old) = cache.entries.insert(
+            key,
+            Entry {
+                source: source.to_string(),
+                blocks: blocks.clone(),
+                used: tick,
+            },
+        ) {
+            cache.bytes -= old.source.len();
+        }
+        cache.bytes += source.len();
+        while cache.entries.len() > MAX_ENTRIES || cache.bytes > MAX_BYTES {
+            let Some((&oldest, _)) = cache.entries.iter().min_by_key(|(_, e)| e.used) else {
+                break;
+            };
+            if oldest == key {
+                break;
+            }
+            if let Some(e) = cache.entries.remove(&oldest) {
+                cache.bytes -= e.source.len();
+            }
+        }
+        blocks
+    })
+}
+
 pub fn parse_markdown(source: &str) -> Vec<MdBlock> {
     {
         use crate::perf::counters::{add, incr, Tally};

@@ -49,17 +49,16 @@ const DEFAULT_SELECTION_COLOR: Color = Color::new(0.231, 0.510, 0.965, 0.30);
 const MULTI_CLICK_WINDOW_MS: u128 = 300;
 
 pub struct MarkdownView {
-    blocks: Vec<MdBlock>,
+    /// Исходник: по нему сверяется update — тот же текст не должен
+    /// стоить ни разбора, ни перемера, ни сброса выделения.
+    source: String,
+    blocks: std::sync::Arc<Vec<MdBlock>>,
     max_width: Option<Dimension>,
     copy_code: bool,
     syntax_highlight: bool,
     syntax_theme: Option<String>,
     highlighter: Option<Arc<dyn CodeHighlighter>>,
     selectable: bool,
-
-    menu_open: RwSignal<bool>,
-    menu_pos: RwSignal<Point>,
-    menu_action: RwSignal<Option<MdMenuAction>>,
 
     on_link_click: Option<Arc<dyn Fn(&str) + Send + Sync>>,
     base_url: Option<String>,
@@ -68,8 +67,12 @@ pub struct MarkdownView {
 impl MarkdownView {
     pub fn new(source: impl Into<String>) -> Self {
         let source = source.into();
-        let blocks = parse_markdown(&source);
+        // Разбор — через кэш по содержимому: виджеты ленты создаются на
+        // каждую её пересборку. Сигналы меню заводит элемент: слоты
+        // сигналов не освобождаются, а виджетов создаётся много.
+        let blocks = super::parser::parse_markdown_cached(&source);
         Self {
+            source,
             blocks,
             max_width: None,
             copy_code: false,
@@ -77,9 +80,6 @@ impl MarkdownView {
             syntax_theme: None,
             highlighter: None,
             selectable: true,
-            menu_open: use_signal(false),
-            menu_pos: use_signal(Point::zero()),
-            menu_action: use_signal(None),
             on_link_click: None,
             base_url: None,
         }
@@ -310,6 +310,7 @@ impl Widget for MarkdownView {
                 self.syntax_theme.as_deref(),
                 self.highlighter.clone(),
             ),
+            requested_highlighter: self.highlighter.clone(),
             copy_hotspots: Mutex::new(Vec::new()),
             hover_hotspot: None,
             flash_until: None,
@@ -324,9 +325,10 @@ impl Widget for MarkdownView {
             last_click_at: None,
             click_count: 0,
             last_click_run: None,
-            menu_open: self.menu_open,
-            menu_pos: self.menu_pos,
-            menu_action: self.menu_action,
+            source: self.source.clone(),
+            menu_open: use_signal(false),
+            menu_pos: use_signal(Point::zero()),
+            menu_action: use_signal(None),
             menu_mounted: false,
             on_link_click: self.on_link_click.clone(),
             pending_link: None,
@@ -416,7 +418,9 @@ fn build_highlighter(
 
 pub struct MarkdownViewElement {
     id: ElementId,
-    blocks: Vec<MdBlock>,
+    blocks: std::sync::Arc<Vec<MdBlock>>,
+    /// Исходник последнего применённого виджета — ключ сверки в update.
+    source: String,
     style: MdStyle,
     max_width: Option<Dimension>,
     bounds: Rect,
@@ -432,6 +436,10 @@ pub struct MarkdownViewElement {
     syntax_highlight: bool,
     syntax_theme: Option<String>,
     highlighter: Option<Arc<dyn CodeHighlighter>>,
+    /// Подсветчик, как его передал виджет (до build_highlighter): по нему
+    /// сверяется update, иначе каждый заново собранный виджет считался
+    /// бы изменившимся.
+    requested_highlighter: Option<Arc<dyn CodeHighlighter>>,
 
     copy_hotspots: Mutex<Vec<(Rect, String)>>,
     hover_hotspot: Option<usize>,
@@ -761,13 +769,37 @@ fn collect_image_urls_in_inlines(inlines: &[MdInline], out: &mut Vec<String>) {
 impl Element for MarkdownViewElement {
     fn update(&mut self, widget: &dyn Widget, _ctx: &mut UpdateContext) {
         if let Some(w) = widget.as_any().downcast_ref::<MarkdownView>() {
+            // Тот же документ с теми же настройками: не трогаем ни
+            // раскладку, ни выделение, ни меню. Раньше любая пересборка
+            // ленты перемеряла все пузырьки и сбрасывала выделение.
+            let same_highlighter = match (&self.requested_highlighter, &w.highlighter) {
+                (None, None) => true,
+                (Some(a), Some(b)) => std::sync::Arc::ptr_eq(a, b),
+                _ => false,
+            };
+            if self.source == w.source
+                && self.max_width == w.max_width
+                && self.copy_code == w.copy_code
+                && self.selectable == w.selectable
+                && self.syntax_highlight == w.syntax_highlight
+                && self.syntax_theme.as_deref() == w.syntax_theme.as_deref()
+                && same_highlighter
+                && self.base_url.as_deref() == w.base_url.as_deref()
+                && self.on_link_click.is_some() == w.on_link_click.is_some()
+            {
+                self.on_link_click = w.on_link_click.clone();
+                return;
+            }
+            crate::perf::counters::incr(crate::perf::counters::Tally::MdViewFullUpdates);
+            self.source = w.source.clone();
             self.blocks = w.blocks.clone();
             self.max_width = w.max_width;
             self.copy_code = w.copy_code;
             let theme_changed = self.syntax_theme.as_deref() != w.syntax_theme.as_deref();
-            let highlighter_changed = w.highlighter.is_some()
+            let highlighter_changed = !same_highlighter
                 || self.syntax_highlight != w.syntax_highlight
                 || theme_changed;
+            self.requested_highlighter = w.highlighter.clone();
             if highlighter_changed {
                 self.syntax_highlight = w.syntax_highlight;
                 self.syntax_theme = w.syntax_theme.clone();
@@ -1593,5 +1625,72 @@ mod rebuild_tests {
         });
         assert!(!anchor(&mut harness), "клик вне блока снимает выделение");
         assert_eq!(harness.tree.text_selection_owner, None, "владелец отпущен");
+    }
+}
+
+#[cfg(all(test, feature = "testing"))]
+mod update_tests {
+    use crate::perf::counters::snapshot;
+    use crate::prelude::*;
+    use crate::signal::use_signal;
+    use crate::testing::TestHarness;
+    use crate::widgets::containers::reactive::Reactive;
+    use crate::widgets::visual::MarkdownView;
+
+    const DOC: &str = "# Заголовок\n\nАбзац с `кодом` и **жирным**.\n\n- пункт\n- пункт\n";
+
+    /// Пересборка ленты отдаёт элементу тот же документ: ни разбора, ни
+    /// настоящего update (то есть ни перемера, ни сброса выделения, ни
+    /// пересборки контекстного меню).
+    #[test]
+    fn same_document_costs_nothing_on_rebuild() {
+        crate::signal::allow_signal_reads_on_this_thread();
+        let gen = use_signal(0u32);
+        let mut h = TestHarness::new(Box::new(Reactive::new(move || -> Vec<Box<dyn Widget>> {
+            // Поколение читаем, чтобы пересборка случилась, а документ —
+            // тот же.
+            let _ = gen.get();
+            vec![Box::new(MarkdownView::new(DOC))]
+        })));
+        // Первая сборка: харнесс строит дерево на rebuild, а не при new.
+        h.rebuild();
+        h.layout(800.0, 600.0);
+
+        let start = snapshot();
+        gen.set(1);
+        h.rebuild();
+        h.layout(800.0, 600.0);
+        let d = snapshot().since(&start);
+        assert_eq!(d.md_parse_calls, 0, "документ разобрали заново");
+        assert_eq!(d.md_view_full_updates, 0, "элемент обновили впустую");
+        assert_eq!((d.elements_created, d.elements_removed), (0, 0));
+
+        // Другой документ — работа настоящая.
+        let start = snapshot();
+        let gen2 = use_signal(0u32);
+        let mut h2 = TestHarness::new(Box::new(Reactive::new(move || -> Vec<Box<dyn Widget>> {
+            let n = gen2.get();
+            vec![Box::new(MarkdownView::new(format!("{DOC}\n\nхвост {n}")))]
+        })));
+        h2.rebuild();
+        h2.layout(800.0, 600.0);
+        gen2.set(1);
+        h2.rebuild();
+        h2.layout(800.0, 600.0);
+        let d = snapshot().since(&start);
+        assert_eq!(d.md_view_full_updates, 1);
+        assert!(d.md_parse_calls >= 1);
+    }
+
+    /// Кэш разбора: один и тот же текст разбирается один раз.
+    #[test]
+    fn parse_cache_serves_repeated_sources() {
+        let start = snapshot();
+        let _a = MarkdownView::new(DOC);
+        let first = snapshot().since(&start);
+        let start = snapshot();
+        let _b = MarkdownView::new(DOC);
+        assert_eq!(first.md_parse_calls, 1);
+        assert_eq!(snapshot().since(&start).md_parse_calls, 0);
     }
 }

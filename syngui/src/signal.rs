@@ -45,6 +45,12 @@ struct SignalRuntime {
     effect_tracking: Option<EffectId>,
     element_scope_stack: Vec<ElementId>,
     element_effects: HashMap<ElementId, Vec<EffectId>>,
+    /// Обратный индекс подписок: какие слоты читал элемент. Без него
+    /// отписка (`begin_tracking` на каждой пересборке `Reactive`,
+    /// `cleanup_element` при его удалении) перебирала ВСЕ слоты приложения,
+    /// а их число растёт за сессию — пересборка ленты чата дорожала со
+    /// временем.
+    element_signals: HashMap<ElementId, std::collections::HashSet<usize>>,
 }
 
 impl SignalRuntime {
@@ -59,6 +65,7 @@ impl SignalRuntime {
             effect_tracking: None,
             element_scope_stack: Vec::new(),
             element_effects: HashMap::new(),
+            element_signals: HashMap::new(),
         }
     }
 }
@@ -166,8 +173,8 @@ impl<T: 'static + Clone> RwSignal<T> {
         RUNTIME.with(|rt| {
             let mut rt = rt.borrow_mut();
             let idx = self.id.0 as usize;
-            if idx < rt.slots.len() {
-                rt.slots[idx].subscribers.insert(element_id);
+            if idx < rt.slots.len() && rt.slots[idx].subscribers.insert(element_id) {
+                rt.element_signals.entry(element_id).or_default().insert(idx);
             }
         });
     }
@@ -302,7 +309,9 @@ fn lend<T: 'static, R>(idx: usize, taken: Box<T>, f: impl FnOnce(&T) -> R) -> R 
 fn track_read(rt: &mut SignalRuntime, id: SignalId) {
     let idx = id.0 as usize;
     if let Some(&element_id) = rt.tracking_stack.last() {
-        rt.slots[idx].subscribers.insert(element_id);
+        if rt.slots[idx].subscribers.insert(element_id) {
+            rt.element_signals.entry(element_id).or_default().insert(idx);
+        }
     }
     if let Some(effect_id) = rt.effect_tracking {
         rt.slots[idx].effect_subscribers.insert(effect_id);
@@ -498,17 +507,46 @@ pub fn add_window(window: Arc<crate::window::Window>) {
 pub fn begin_tracking(element_id: ElementId) {
     RUNTIME.with(|rt| {
         let mut rt = rt.borrow_mut();
-        for slot in &mut rt.slots {
-            slot.subscribers.remove(&element_id);
-        }
+        unsubscribe_element(&mut rt, element_id);
         rt.tracking_stack.push(element_id);
     });
+}
+
+/// Снять подписки элемента по обратному индексу.
+fn unsubscribe_element(rt: &mut SignalRuntime, element_id: ElementId) {
+    if let Some(slots) = rt.element_signals.remove(&element_id) {
+        for idx in slots {
+            if let Some(slot) = rt.slots.get_mut(idx) {
+                slot.subscribers.remove(&element_id);
+            }
+        }
+    }
 }
 
 pub fn end_tracking() {
     RUNTIME.with(|rt| {
         rt.borrow_mut().tracking_stack.pop();
     });
+}
+
+/// Сколько подписок числится за элементом в обратном индексе и сколько их
+/// на самом деле в слотах. Числа обязаны совпадать — на этом стоит тест
+/// согласованности индекса.
+#[cfg(any(test, feature = "testing"))]
+pub fn subscription_counts(element_id: ElementId) -> (usize, usize) {
+    RUNTIME.with(|rt| {
+        let rt = rt.borrow();
+        let by_index = rt
+            .element_signals
+            .get(&element_id)
+            .map_or(0, |slots| slots.len());
+        let by_scan = rt
+            .slots
+            .iter()
+            .filter(|slot| slot.subscribers.contains(&element_id))
+            .count();
+        (by_index, by_scan)
+    })
 }
 
 pub fn has_dirty_elements() -> bool {
@@ -558,9 +596,7 @@ pub fn cleanup_element(element_id: ElementId) {
                 return Vec::new();
             };
             rt.dirty_elements.remove(&element_id);
-            for slot in &mut rt.slots {
-                slot.subscribers.remove(&element_id);
-            }
+            unsubscribe_element(&mut rt, element_id);
             let mut taken: Vec<Box<dyn Fn()>> = Vec::new();
             if let Some(effect_ids) = rt.element_effects.remove(&element_id) {
                 for eid in effect_ids {

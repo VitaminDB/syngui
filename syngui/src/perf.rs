@@ -317,9 +317,12 @@ pub mod counters {
         RebuildPasses,
         /// Построение индекса правил MSS (`RuleIndex`) по всему stylesheet.
         StyleIndexBuilds,
+        /// `MarkdownView::update` с настоящей работой: документ или
+        /// настройки изменились (перемер, сброс выделения, пересборка меню).
+        MdViewFullUpdates,
     }
 
-    const TALLIES: usize = 10;
+    const TALLIES: usize = 11;
     const ZERO: Cell<u64> = Cell::new(0);
 
     thread_local! {
@@ -352,6 +355,7 @@ pub mod counters {
         pub rebuild_calls: u64,
         pub rebuild_passes: u64,
         pub style_index_builds: u64,
+        pub md_view_full_updates: u64,
         /// Слотов сигналов в runtime потока. Слоты не освобождаются, так что
         /// в разнице снимков это число заведённых за интервал сигналов.
         pub signal_slots: u64,
@@ -373,6 +377,9 @@ pub mod counters {
                 style_index_builds: self
                     .style_index_builds
                     .saturating_sub(earlier.style_index_builds),
+                md_view_full_updates: self
+                    .md_view_full_updates
+                    .saturating_sub(earlier.md_view_full_updates),
                 signal_slots: self.signal_slots.saturating_sub(earlier.signal_slots),
             }
         }
@@ -390,6 +397,7 @@ pub mod counters {
                 rebuild_calls: self.rebuild_calls + other.rebuild_calls,
                 rebuild_passes: self.rebuild_passes + other.rebuild_passes,
                 style_index_builds: self.style_index_builds + other.style_index_builds,
+                md_view_full_updates: self.md_view_full_updates + other.md_view_full_updates,
                 signal_slots: self.signal_slots + other.signal_slots,
             }
         }
@@ -399,7 +407,7 @@ pub mod counters {
         fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
             write!(
                 f,
-                "elem +{} -{} | reactive {} | md {}x {:.1}KB | hl {}x {:.1}KB | rebuild {}/{} | mss-idx {} | slots +{}",
+                "elem +{} -{} | reactive {} | md {}x {:.1}KB | hl {}x {:.1}KB | rebuild {}/{} | mss-idx {} | md-upd {} | slots +{}",
                 self.elements_created,
                 self.elements_removed,
                 self.reactive_builds,
@@ -410,6 +418,7 @@ pub mod counters {
                 self.rebuild_calls,
                 self.rebuild_passes,
                 self.style_index_builds,
+                self.md_view_full_updates,
                 self.signal_slots,
             )
         }
@@ -428,6 +437,7 @@ pub mod counters {
             rebuild_calls: v[Tally::RebuildCalls as usize],
             rebuild_passes: v[Tally::RebuildPasses as usize],
             style_index_builds: v[Tally::StyleIndexBuilds as usize],
+            md_view_full_updates: v[Tally::MdViewFullUpdates as usize],
             signal_slots: crate::signal::signal_slot_count() as u64,
         }
     }

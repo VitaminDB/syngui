@@ -338,3 +338,43 @@ fn set_always_inside_with_keeps_new_value() {
     });
     assert_eq!(value.get(), 2);
 }
+
+/// Пересборка снимает старые подписки по обратному индексу: элемент,
+/// переставший читать сигнал, больше им не будится, а индекс совпадает с
+/// тем, что лежит в слотах. Раньше отписка перебирала все слоты приложения.
+#[test]
+fn rebuild_drops_stale_subscriptions_and_index_matches_slots() {
+    use syngui::signal::{
+        begin_tracking, cleanup_element, clear_element_dirty, end_tracking, is_element_dirty,
+        subscription_counts,
+    };
+    use syngui::widget::ElementId;
+
+    let a = use_signal(1i32);
+    let b = use_signal(2i32);
+    let elem = ElementId::new();
+
+    begin_tracking(elem);
+    let _ = a.get();
+    let _ = b.get();
+    end_tracking();
+    assert_eq!(subscription_counts(elem), (2, 2));
+
+    // Следующая сборка читает только b.
+    begin_tracking(elem);
+    let _ = b.get();
+    end_tracking();
+    assert_eq!(subscription_counts(elem), (1, 1));
+
+    clear_element_dirty(elem);
+    a.set(10);
+    assert!(!is_element_dirty(elem), "элемент больше не читает a");
+    b.set(20);
+    assert!(is_element_dirty(elem), "подписка на b осталась");
+
+    cleanup_element(elem);
+    assert_eq!(subscription_counts(elem), (0, 0));
+    clear_element_dirty(elem);
+    b.set(30);
+    assert!(!is_element_dirty(elem), "удалённый элемент не будится");
+}
