@@ -437,6 +437,10 @@ name = "repro_tool_wrap"
 required-features = ["testing", "markdown"]
 
 [[test]]
+name = "markdown_cull_scrolled"
+required-features = ["testing", "markdown"]
+
+[[test]]
 name = "test_layout"
 required-features = ["testing"]
 

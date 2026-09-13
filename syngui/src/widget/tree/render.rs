@@ -63,8 +63,13 @@ impl ElementTree {
             let hint = &node.hint_cache;
             let is_tooltip = matches!(hint, LayoutHint::Tooltip { .. });
             let is_portal = matches!(hint, LayoutHint::Portal { .. });
+            // Элементу — прямоугольник в координатах его раскладки
+            // (`cull_clip`: сдвинут на прокрутку предков), а не экранный
+            // `clip`. Детей дерево отсекает по нему же; с экранным
+            // MarkdownView в прокрученной ленте сравнивал свои блоки не с тем
+            // окном и пропускал видимые — сообщения рисовались пустыми.
             if !is_tooltip {
-                node.element.build_display_list(list, clip);
+                node.element.build_display_list(list, cull_clip);
             }
 
             let child_clip = if do_clip {
@@ -160,7 +165,7 @@ impl ElementTree {
                         list.push_z_barrier();
                     }
                     if child_i == 1 && is_tooltip {
-                        node.element.build_display_list(list, clip);
+                        node.element.build_display_list(list, cull_clip);
                     }
                     if is_tooltip_content {
                         if let Some(child_node) = self.elements.get_by_idx(child_idx) {
@@ -195,7 +200,7 @@ impl ElementTree {
                 list.pop_clip();
             }
 
-            node.element.post_build_display_list(list, clip);
+            node.element.post_build_display_list(list, cull_clip);
 
             if pushed_transform.is_some() {
                 list.pop_transform();
