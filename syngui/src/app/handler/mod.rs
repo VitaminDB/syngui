@@ -440,6 +440,29 @@ impl AppHandler {
         self.system_scale_factor * crate::scale::ui_scale() as f64
     }
 
+    /// Подобрать пользовательский масштаб под [`AppBuilder::design_size`]:
+    /// логический вьюпорт (физика / системный DPI) делится на дизайнерское
+    /// разрешение, берётся меньшее отношение сторон. Вызывается при создании
+    /// окна, resize и смене системного DPI; применяется следующим кадром
+    /// через [`AppHandler::apply_ui_scale`].
+    pub(in crate::app) fn apply_design_scale(&mut self) {
+        let Some((dw, dh)) = self.config.design_size else {
+            return;
+        };
+        if self.config.width == 0 || self.config.height == 0 || self.system_scale_factor <= 0.0 {
+            return;
+        }
+        let lw = self.config.width as f64 / self.system_scale_factor;
+        let lh = self.config.height as f64 / self.system_scale_factor;
+        let scale = (lw / dw as f64).min(lh / dh as f64) as f32;
+        if (scale - crate::scale::ui_scale()).abs() > 1e-4 {
+            log::info!(
+                "design_size {dw}×{dh}: логический экран {lw:.0}×{lh:.0} → ui_scale {scale:.3}"
+            );
+            crate::scale::set_ui_scale(scale);
+        }
+    }
+
     /// Применить сменившийся масштаб интерфейса: перенастроить рендерер и
     /// атлас шрифта под новый размер физического пикселя и запросить полный
     /// пересчёт раскладки. Сам layout и публикация вьюпорта происходят

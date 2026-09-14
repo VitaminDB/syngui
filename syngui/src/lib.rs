@@ -19,6 +19,17 @@ pub mod gpu;
 pub mod i18n;
 #[cfg(feature = "ffmpeg")]
 pub mod video;
+
+// Статический FFmpeg под Android (`ffmpeg-static` + FFMPEG_DIR) тянет
+// системные библиотеки NDK, о которых ffmpeg-sys-next не знает: zlib для
+// avformat, android/mediandk для MediaCodec-декодеров, atomic для 64-битных
+// атомиков на armv7 (EXTRALIBS из ffbuild/config.mak).
+#[cfg(all(target_os = "android", feature = "ffmpeg"))]
+#[link(name = "z")]
+#[link(name = "android")]
+#[link(name = "mediandk")]
+#[link(name = "atomic")]
+extern "C" {}
 #[cfg(not(feature = "i18n"))]
 pub(crate) mod i18n {
     pub(crate) fn builtin(_key: &str, fallback: &str) -> String {

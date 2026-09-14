@@ -67,5 +67,14 @@ pub enum Key {
     Alt,
     Meta,
     Space,
+    /// Медиа-клавиши (пульт Android TV, мультимедийная клавиатура).
+    MediaPlayPause,
+    MediaStop,
+    MediaNext,
+    MediaPrevious,
+    MediaRewind,
+    MediaFastForward,
+    /// Клавиша «меню»/ContextMenu.
+    ContextMenu,
     Unknown(u32),
 }

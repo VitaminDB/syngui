@@ -39,11 +39,13 @@ pub use feedback::{
 #[cfg(feature = "code-editor")]
 pub use input::CodeEditor;
 pub use input::{
+    EventHook, KeyReply, RemoteKey,
     Autocomplete, Checkbox, ColorPicker, ColorValue, Combobox, Date, DatePicker, Dropdown,
     DropdownItem, DropdownState, MultilineTextEdit, Multiselect, RadioButton, RadioGroup, Slider,
     SpinBox, TextField, TickSlider, Time, TimePicker, Toggle,
 };
 pub use navigation::{
+    shelf_offset, GridFocus,
     Breadcrumb, Pagination, Router, RouterView, Sidebar, StepInfo, Stepper, Tab, TabBar,
     TabPosition, TabState, Toolbar, TopAppBar,
 };

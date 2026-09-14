@@ -126,6 +126,14 @@ impl Window {
             .create_window(attributes)
             .expect("Failed to create window");
 
+        // На Android winit транслирует set_ime_allowed(true) в
+        // GameActivity_showSoftInput → GameTextInput ставит mSoftKeyboardActive
+        // и его InputConnection начинает съедать DPAD_LEFT/RIGHT (курсор в
+        // невидимом Editable) — пульт Android TV перестаёт работать по
+        // горизонтали. Текст на Android идёт через собственный
+        // SynGuiInputView (app/android/SynGuiInputHandler.java), IME winit'а
+        // не нужен.
+        #[cfg(not(target_os = "android"))]
         inner.set_ime_allowed(true);
 
         #[cfg(not(any(target_arch = "wasm32", target_os = "android")))]

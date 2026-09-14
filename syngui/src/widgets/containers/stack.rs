@@ -222,6 +222,31 @@ impl Element for StackElement {
     fn reset_mss_styles(&mut self) {
         self.mss.reset();
     }
+    // MSS-переходы и keyframe-анимации контейнера (transition: translate-y …):
+    // без собственного тика transition не продвигается, а без
+    // apply_transition_styles не выставляется current_target, и
+    // compute_active_transform в рендере ничего не видит.
+    fn animate(&mut self, dt: std::time::Duration) -> bool {
+        let dt_secs = dt.as_secs_f32();
+        let transition_active = self.mss.transition.tick(dt_secs);
+        let keyframe_active = self
+            .mss
+            .keyframe_animation
+            .as_mut()
+            .map(|a| a.tick(dt_secs))
+            .unwrap_or(false);
+        transition_active || keyframe_active
+    }
+
+    fn needs_repaint(&self) -> bool {
+        self.mss.transition.is_animating()
+            || self
+                .mss
+                .keyframe_animation
+                .as_ref()
+                .map_or(false, |a| a.is_running())
+    }
+
     fn mss(&self) -> Option<&crate::mss::MssFields> {
         Some(&self.mss)
     }

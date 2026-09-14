@@ -1325,6 +1325,42 @@ EventHook::new()
     .child(app_shell)
 ```
 
+**Пульт / D-pad (Android TV, геймпад, клавиатура)** — встроенный `EventHook`
+(`syngui/src/widgets/input/event_hook.rs`) и модель фокуса `GridFocus`
+(`syngui/src/widgets/navigation/grid_focus.rs`), оба в `syngui::widgets::*`:
+
+```rust
+// Стрелки/DPAD → Up/Down/Left/Right, Enter/DPAD_CENTER → Select,
+// KEYCODE_BACK/Escape/Backspace → Back, пробел → PlayPause, M → Menu.
+let focus = use_signal(GridFocus::new(vec![12, 10, 8]));   // полки × карточки
+EventHook::new()
+    .on_remote(move |key: RemoteKey| {
+        let mut f = focus.get_untracked();
+        if f.step(key) { focus.set(f); return true; }       // true = съедено
+        matches!(key, RemoteKey::Back) && router.back()
+    })
+    .on_key_down(|key, mods| if mods.ctrl && key == Key::K { KeyReply::Handled } else { KeyReply::Ignore })
+    .child(screen)
+
+focus.get().row() / .col() / .is_focused(r, c) / .set(r, c) / .resize(lens)
+shelf_offset(col, visible, keep_left)   // на сколько карточек сдвинуть полку
+```
+
+Ставится у корня экрана: события, не обработанные ниже, всплывают в него.
+На Android аппаратные клавиши (D-pad, медиа, внешняя клавиатура) доходят до
+виджетов как `KeyDown/KeyUp`, пока не открыта экранная клавиатура (тогда —
+только IME-канал); winit-овский IME на Android не включается, иначе
+GameTextInput съедает DPAD_LEFT/RIGHT. `Key` содержит `MediaPlayPause`,
+`MediaRewind/FastForward`, `MediaNext/Previous`, `MediaStop`, `ContextMenu`.
+Сдвиг полки — inline `translate-x` + MSS `transition: translate-x 260ms ease-out`
+(`Column`/`Row`/`Flex`/`Stack` тикают MSS-переходы и keyframes так же, как
+`DecoratedBox`; нужен `.class("x")` с правилом `transition` в MSS).
+
+**Дизайнерское разрешение (TV/киоск):** `App::new().design_size(1920.0, 1080.0)`
+— фреймворк сам подбирает `ui_scale` при создании окна/resize, чтобы
+логический вьюпорт вмещал 1920×1080 (на ТВ с DPI 2.0 и 960×540 → 0.5).
+Эталон: `/home/master/Projects/2027/tv_rezka`.
+
 **Функциональные клавиши в web:**
 
 ```rust
@@ -1690,7 +1726,21 @@ assert_bounds!(b, 0.0, 0.0, 120.0, 32.0);
 **Android** — `#[no_mangle] fn android_main(app: AndroidApp)`,
 `.with_android_app(app)`, `.gpu_backend(GpuBackend::Gl)`; фича `android`.
 Эталон: `synthos: src/lib.rs:145`. Клавиатура — `ctx.set_virtual_keyboard_visible(..)`;
-кнопка «назад» — `Event::BackPressed` / `GestureDetector::on_back`.
+кнопка «назад» — `Event::BackPressed` / `GestureDetector::on_back` / `EventHook::on_back`.
+
+**FFmpeg на Android** (фича `ffmpeg-static`, эталон `tv_rezka/run-tv.sh`):
+1. `scripts/build-ffmpeg-android.sh armeabi-v7a` — статический FFmpeg 9.0.x
+   (decode-only, network, mediacodec+jni) в `android-deps/ffmpeg/<abi>/`;
+2. `FFMPEG_DIR=<этот префикс> cargo ndk -t armeabi-v7a … --features "android ffmpeg-static"`;
+3. в `.cargo/config.toml` приложения — `[env] BINDGEN_EXTRA_CLANG_ARGS_<target>`
+   с `--sysroot=… --target=armv7a-linux-androideabi30` и `force = true`
+   (cargo-ndk перезаписывает переменную из окружения, а NDK r30 отвергает
+   неверсионный triple).
+Системные библиотеки (`z`, `android`, `mediandk`, `atomic`) линкует блок `#[link]`
+в `src/lib.rs`; `with_android_app` передаёт JavaVM в libavcodec
+(`video/android.rs`), поэтому `HwAccel::Auto` на Android = `HwAccel::MediaCodec`
+(`h264_mediacodec` и др., кадры приходят в CPU-память, hw-device-контекст не нужен).
+Без TLS-библиотеки `https://` в FFmpeg не работает — только `http://`.
 
 **WASM** — цель `wasm32-unknown-unknown`; шрифты не берутся из системы,
 задавай `.with_font_url(..)` и `.with_fallback_font_url(..)`;

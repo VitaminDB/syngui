@@ -26,3 +26,6 @@ Thumbs.db
 
 # WASM build output (regenerable via web/build.sh)
 **/web/pkg/
+
+# Статический FFmpeg под Android (scripts/build-ffmpeg-android.sh)
+android-deps/

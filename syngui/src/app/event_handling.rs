@@ -115,6 +115,7 @@ impl winit::application::ApplicationHandler<SynGuiUserEvent> for AppHandler {
 
                 self.config.width = physical_size.width;
                 self.config.height = physical_size.height;
+                self.apply_design_scale();
 
                 if let Some(gpu) = self.gpu.as_mut() {
                     gpu.window_surface.surface_config.width = physical_size.width;
@@ -164,6 +165,7 @@ impl winit::application::ApplicationHandler<SynGuiUserEvent> for AppHandler {
             }
             winit::event::WindowEvent::ScaleFactorChanged { scale_factor, .. } => {
                 self.system_scale_factor = scale_factor;
+                self.apply_design_scale();
                 // Пользовательский масштаб множится поверх системного DPI.
                 let effective = self.effective_scale_factor();
                 self.scale_factor = effective;
@@ -400,18 +402,26 @@ impl winit::application::ApplicationHandler<SynGuiUserEvent> for AppHandler {
 
                 #[cfg(target_os = "android")]
                 {
-                    // Текст на Android идёт через IME-канал, клавиши здесь не
-                    // обрабатываются — кроме «назад»: без OnBackInvokedDispatcher
-                    // (Android < 13 или enableOnBackInvokedCallback=false) жест
-                    // приходит legacy-путём KEYCODE_BACK → BrowserBack.
-                    if event.state == winit::event::ElementState::Pressed {
-                        if let winit::keyboard::Key::Named(winit::keyboard::NamedKey::BrowserBack) =
-                            &event.logical_key
-                        {
+                    // «Назад»: без OnBackInvokedDispatcher (Android < 13 или
+                    // enableOnBackInvokedCallback=false) жест приходит
+                    // legacy-путём KEYCODE_BACK → BrowserBack.
+                    if let winit::keyboard::Key::Named(winit::keyboard::NamedKey::BrowserBack) =
+                        &event.logical_key
+                    {
+                        if event.state == winit::event::ElementState::Pressed {
                             self.dispatch_back();
                         }
+                        return;
                     }
-                    return;
+                    // Пока открыта экранная клавиатура, текст и Enter/Backspace
+                    // идут через IME-канал (handler/android.rs) — аппаратные
+                    // клавиши тут не дублируем. Без клавиатуры D-pad пульта,
+                    // медиа-кнопки и внешняя клавиатура доходят до виджетов
+                    // обычным путём KeyDown/KeyUp ниже (текст — CharInput —
+                    // на Android не синтезируется).
+                    if self.keyboard_shown {
+                        return;
+                    }
                 }
 
                 if event.state == winit::event::ElementState::Pressed {
@@ -551,9 +561,22 @@ impl winit::application::ApplicationHandler<SynGuiUserEvent> for AppHandler {
                     }
                 }
 
+                // Физический код — основной путь; для клавиш без него (медиа-
+                // кнопки пульта: перемотка) и для кодов, которых нет в `Key`,
+                // берём логическое имя.
+                let named = match &event.logical_key {
+                    winit::keyboard::Key::Named(n) => super::input_mapping::map_named_key(n),
+                    _ => None,
+                };
                 let key = match event.physical_key {
-                    PhysicalKey::Code(code) => map_key_code(code),
-                    PhysicalKey::Unidentified(_) => return,
+                    PhysicalKey::Code(code) => match map_key_code(code) {
+                        crate::input::Key::Unknown(_) if named.is_some() => named.unwrap(),
+                        k => k,
+                    },
+                    PhysicalKey::Unidentified(_) => match named {
+                        Some(k) => k,
+                        None => return,
+                    },
                 };
 
                 let evt = match event.state {

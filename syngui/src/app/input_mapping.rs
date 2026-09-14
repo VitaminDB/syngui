@@ -79,8 +79,37 @@ pub(super) fn map_key_code(code: winit::keyboard::KeyCode) -> Key {
         KeyCode::F10 => Key::F10,
         KeyCode::F11 => Key::F11,
         KeyCode::F12 => Key::F12,
+        KeyCode::MediaPlayPause => Key::MediaPlayPause,
+        KeyCode::MediaStop => Key::MediaStop,
+        KeyCode::MediaTrackNext => Key::MediaNext,
+        KeyCode::MediaTrackPrevious => Key::MediaPrevious,
+        KeyCode::ContextMenu => Key::ContextMenu,
         _ => Key::Unknown(code as u32),
     }
+}
+
+/// Клавиши, у которых нет физического кода (winit отдаёт
+/// `PhysicalKey::Unidentified`), но есть логическое имя: перемотка на пульте
+/// Android TV (KEYCODE_MEDIA_REWIND / FAST_FORWARD) и т.п.
+pub(super) fn map_named_key(key: &winit::keyboard::NamedKey) -> Option<Key> {
+    use winit::keyboard::NamedKey;
+    Some(match key {
+        NamedKey::MediaPlayPause => Key::MediaPlayPause,
+        NamedKey::MediaPlay | NamedKey::MediaPause => Key::MediaPlayPause,
+        NamedKey::MediaStop => Key::MediaStop,
+        NamedKey::MediaTrackNext => Key::MediaNext,
+        NamedKey::MediaTrackPrevious => Key::MediaPrevious,
+        NamedKey::MediaRewind => Key::MediaRewind,
+        NamedKey::MediaFastForward => Key::MediaFastForward,
+        NamedKey::ContextMenu => Key::ContextMenu,
+        NamedKey::ArrowUp => Key::Up,
+        NamedKey::ArrowDown => Key::Down,
+        NamedKey::ArrowLeft => Key::Left,
+        NamedKey::ArrowRight => Key::Right,
+        NamedKey::Enter => Key::Enter,
+        NamedKey::Escape => Key::Escape,
+        _ => return None,
+    })
 }
 
 #[cfg(target_arch = "wasm32")]

@@ -255,6 +255,13 @@ audio = ["dep:cpal", "dep:hound", "dep:rubato"]
 # `VideoPlayer::open` принимает path или URL без отдельного API.
 ffmpeg = ["dep:ffmpeg-next", "audio"]
 
+# Статическая линковка FFmpeg — для Android, где системных libav* нет.
+# Библиотеки собираются `scripts/build-ffmpeg-android.sh`, путь к префиксу
+# передаётся через FFMPEG_DIR (см. комментарий в скрипте). Системные
+# зависимости статических libav* (z, android, mediandk, atomic) линкует
+# блок `#[link]` в src/lib.rs.
+ffmpeg-static = ["ffmpeg", "ffmpeg-next/static"]
+
 # Icon fonts (embedded via include_bytes)
 material-icons = []
 font-awesome = []

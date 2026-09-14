@@ -124,6 +124,10 @@ pub struct AppBuilder {
     /// Стартовый масштаб интерфейса поверх системного DPI — см.
     /// [`crate::scale`].
     pub(super) ui_scale: f32,
+    /// «Дизайнерское» разрешение (TV/киоск): интерфейс масштабируется так,
+    /// чтобы логический вьюпорт целиком вмещал эти размеры — см.
+    /// [`AppBuilder::design_size`].
+    pub(super) design_size: Option<(f32, f32)>,
 }
 
 /// Проверка перед закрытием окна. Вызывается на главном потоке, поэтому
@@ -179,6 +183,7 @@ impl AppBuilder {
             close_guard: None,
             captured_function_keys: crate::input::FunctionKeys::NONE,
             ui_scale: 1.0,
+            design_size: None,
         }
     }
 
@@ -219,6 +224,17 @@ impl AppBuilder {
     /// В рантайме меняется через [`crate::scale::set_ui_scale`].
     pub fn ui_scale(mut self, scale: f32) -> Self {
         self.ui_scale = scale;
+        self
+    }
+
+    /// Разрешение, под которое свёрстан интерфейс (например 1920×1080 для
+    /// Android TV). Пользовательский масштаб подбирается автоматически при
+    /// создании окна и каждом resize так, чтобы логический вьюпорт вмещал
+    /// `width`×`height` (по меньшей из сторон): на 4K-панели с DPI 2.0 и
+    /// логическими 960×540 масштаб станет 0.5, и раскладка в «дизайнерских»
+    /// пикселях займёт весь экран. Перекрывает [`AppBuilder::ui_scale`].
+    pub fn design_size(mut self, width: f32, height: f32) -> Self {
+        self.design_size = Some((width.max(1.0), height.max(1.0)));
         self
     }
 
@@ -466,6 +482,8 @@ impl AppBuilder {
 
     #[cfg(target_os = "android")]
     pub fn with_android_app(mut self, app: AndroidApp) -> Self {
+        #[cfg(feature = "ffmpeg")]
+        crate::video::android::set_java_vm(app.vm_as_ptr());
         self.android_app = Some(app);
         self
     }

@@ -19,6 +19,11 @@ pub enum HwAccel {
     D3D11Va,
     Dxva2,
     Vulkan,
+    /// Android MediaCodec: декодер `*_mediacodec` без hw-device-контекста —
+    /// кадры приходят уже в системной памяти (yuv420p/nv12), передача через
+    /// `av_hwframe_transfer_data` не нужна. Требует `av_jni_set_java_vm`
+    /// (делает `AppBuilder::with_android_app`).
+    MediaCodec,
 }
 
 impl Default for HwAccel {
@@ -44,6 +49,10 @@ impl HwAccel {
         {
             return Self::D3D11Va;
         }
+        #[cfg(target_os = "android")]
+        {
+            return Self::MediaCodec;
+        }
         #[allow(unreachable_code)]
         Self::None
     }
@@ -54,7 +63,7 @@ impl HwAccel {
             other => other,
         };
         match resolved {
-            Self::None | Self::Auto => None,
+            Self::None | Self::Auto | Self::MediaCodec => None,
             Self::Vaapi => Some(ffi::AVHWDeviceType::AV_HWDEVICE_TYPE_VAAPI),
             Self::Nvdec => Some(ffi::AVHWDeviceType::AV_HWDEVICE_TYPE_CUDA),
             Self::VideoToolbox => Some(ffi::AVHWDeviceType::AV_HWDEVICE_TYPE_VIDEOTOOLBOX),
@@ -70,7 +79,7 @@ impl HwAccel {
             other => other,
         };
         match resolved {
-            Self::None | Self::Auto => None,
+            Self::None | Self::Auto | Self::MediaCodec => None,
             Self::Vaapi => Some(ffi::AVPixelFormat::AV_PIX_FMT_VAAPI),
             Self::Nvdec => Some(ffi::AVPixelFormat::AV_PIX_FMT_CUDA),
             Self::VideoToolbox => Some(ffi::AVPixelFormat::AV_PIX_FMT_VIDEOTOOLBOX),
@@ -80,6 +89,47 @@ impl HwAccel {
         }
     }
 
+    /// Нужен ли этому ускорению hw-device-контекст (`av_hwdevice_ctx_create`)
+    /// и обратная выгрузка кадров в CPU. `MediaCodec` и `None` — нет.
+    pub fn uses_hw_device(self) -> bool {
+        self.to_av_type().is_some()
+    }
+
+    /// Имя отдельного декодера libavcodec для ускорений, которые живут не
+    /// как hwaccel-обёртка над sw-декодером, а как самостоятельный кодек:
+    /// NVDEC (`*_cuvid`) и Android MediaCodec (`*_mediacodec`).
+    pub fn hw_codec_name(self, codec_id: ffi::AVCodecID) -> Option<&'static str> {
+        let resolved = match self {
+            Self::Auto => Self::platform_default(),
+            other => other,
+        };
+        match resolved {
+            Self::Nvdec => Some(match codec_id {
+                ffi::AVCodecID::AV_CODEC_ID_H264 => "h264_cuvid",
+                ffi::AVCodecID::AV_CODEC_ID_HEVC => "hevc_cuvid",
+                ffi::AVCodecID::AV_CODEC_ID_AV1 => "av1_cuvid",
+                ffi::AVCodecID::AV_CODEC_ID_VP9 => "vp9_cuvid",
+                ffi::AVCodecID::AV_CODEC_ID_VP8 => "vp8_cuvid",
+                ffi::AVCodecID::AV_CODEC_ID_MPEG4 => "mpeg4_cuvid",
+                ffi::AVCodecID::AV_CODEC_ID_MPEG2VIDEO => "mpeg2_cuvid",
+                ffi::AVCodecID::AV_CODEC_ID_MPEG1VIDEO => "mpeg1_cuvid",
+                ffi::AVCodecID::AV_CODEC_ID_VC1 => "vc1_cuvid",
+                _ => return None,
+            }),
+            Self::MediaCodec => Some(match codec_id {
+                ffi::AVCodecID::AV_CODEC_ID_H264 => "h264_mediacodec",
+                ffi::AVCodecID::AV_CODEC_ID_HEVC => "hevc_mediacodec",
+                ffi::AVCodecID::AV_CODEC_ID_AV1 => "av1_mediacodec",
+                ffi::AVCodecID::AV_CODEC_ID_VP9 => "vp9_mediacodec",
+                ffi::AVCodecID::AV_CODEC_ID_VP8 => "vp8_mediacodec",
+                ffi::AVCodecID::AV_CODEC_ID_MPEG4 => "mpeg4_mediacodec",
+                _ => return None,
+            }),
+            _ => None,
+        }
+    }
+
+    /// Старое имя для NVDEC — оставлено для совместимости.
     pub fn nvdec_codec_name(self, codec_id: ffi::AVCodecID) -> Option<&'static str> {
         let resolved = match self {
             Self::Auto => Self::platform_default(),
@@ -88,18 +138,7 @@ impl HwAccel {
         if !matches!(resolved, Self::Nvdec) {
             return None;
         }
-        Some(match codec_id {
-            ffi::AVCodecID::AV_CODEC_ID_H264 => "h264_cuvid",
-            ffi::AVCodecID::AV_CODEC_ID_HEVC => "hevc_cuvid",
-            ffi::AVCodecID::AV_CODEC_ID_AV1 => "av1_cuvid",
-            ffi::AVCodecID::AV_CODEC_ID_VP9 => "vp9_cuvid",
-            ffi::AVCodecID::AV_CODEC_ID_VP8 => "vp8_cuvid",
-            ffi::AVCodecID::AV_CODEC_ID_MPEG4 => "mpeg4_cuvid",
-            ffi::AVCodecID::AV_CODEC_ID_MPEG2VIDEO => "mpeg2_cuvid",
-            ffi::AVCodecID::AV_CODEC_ID_MPEG1VIDEO => "mpeg1_cuvid",
-            ffi::AVCodecID::AV_CODEC_ID_VC1 => "vc1_cuvid",
-            _ => return None,
-        })
+        self.hw_codec_name(codec_id)
     }
 
     pub fn label(self) -> &'static str {
@@ -112,6 +151,7 @@ impl HwAccel {
             Self::D3D11Va => "d3d11va",
             Self::Dxva2 => "dxva2",
             Self::Vulkan => "vulkan",
+            Self::MediaCodec => "mediacodec",
         }
     }
 }
@@ -291,6 +331,7 @@ mod tests {
                 | HwAccel::Nvdec
                 | HwAccel::VideoToolbox
                 | HwAccel::D3D11Va
+                | HwAccel::MediaCodec
                 | HwAccel::None
         ));
     }

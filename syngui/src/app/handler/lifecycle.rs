@@ -57,6 +57,14 @@ impl AppHandler {
             }
         }
         self.system_scale_factor = window.scale_factor();
+        self.apply_design_scale();
+        // Сбросить mSoftKeyboardActive у GameTextInput: пока он взведён,
+        // InputConnection GameActivity перехватывает DPAD_LEFT/RIGHT пульта
+        // (см. window/window.rs, set_ime_allowed).
+        #[cfg(target_os = "android")]
+        if let Some(app) = self.android_app.as_ref() {
+            app.hide_soft_input(true);
+        }
         self.scale_factor = self.effective_scale_factor();
         self.main_window_id = Some(window.winit_window().id());
         self.window = Some(window.clone());

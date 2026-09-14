@@ -262,7 +262,7 @@ fn run_decoder_thread(
         };
     }
 
-    let hw: Option<HwContext> = if matches!(accel, HwAccel::None) {
+    let hw: Option<HwContext> = if !accel.uses_hw_device() {
         None
     } else {
         match HwContext::try_init(accel) {
@@ -278,20 +278,49 @@ fn run_decoder_thread(
         }
     };
 
-    let mut v_dec = if let Some(name) = accel.nvdec_codec_name(codec_id.into()) {
+    // Отдельные hw-кодеки (NVDEC, MediaCodec): если кодек есть, но открыть
+    // не удалось (нет JavaVM, устройство не поддерживает профиль) — не
+    // роняем плеер, а пересоздаём контекст и открываем sw-декодер.
+    let mut hw_codec_active = false;
+    let hw_label = accel.label();
+    let mut v_dec = if let Some(name) = accel.hw_codec_name(codec_id.into()) {
         match ffmpeg_next::codec::decoder::find_by_name(name) {
-            Some(cuvid) => {
-                log::info!("hwaccel: открываю NVDEC-декодер «{name}»");
-                codec_ctx
-                    .decoder()
-                    .open_as(cuvid)
-                    .map_err(|e| VideoError::DecoderInit(format!("{name}: {e}")))?
-                    .video()
-                    .map_err(|e| VideoError::DecoderInit(format!("video decoder: {e}")))?
+            Some(hw_codec) => {
+                log::info!("hwaccel: открываю {}-декодер «{name}»", accel.label());
+                match codec_ctx.decoder().open_as(hw_codec) {
+                    Ok(opened) => {
+                        hw_codec_active = true;
+                        opened
+                            .video()
+                            .map_err(|e| VideoError::DecoderInit(format!("video decoder: {e}")))?
+                    }
+                    Err(e) => {
+                        log::warn!("hwaccel: «{name}» не открылся ({e}) — fallback на sw");
+                        let v_params = ictx
+                            .stream(v_idx)
+                            .ok_or(VideoError::NoVideoStream)?
+                            .parameters();
+                        let mut sw_ctx =
+                            ffmpeg_next::codec::context::Context::from_parameters(v_params)
+                                .map_err(|e| {
+                                    VideoError::DecoderInit(format!("video params: {e}"))
+                                })?;
+                        unsafe {
+                            (*sw_ctx.as_mut_ptr()).pkt_timebase = ffi::AVRational {
+                                num: v_tb_av.numerator(),
+                                den: v_tb_av.denominator(),
+                            };
+                        }
+                        sw_ctx
+                            .decoder()
+                            .video()
+                            .map_err(|e| VideoError::DecoderInit(format!("video decoder: {e}")))?
+                    }
+                }
             }
             None => {
                 log::warn!(
-                    "hwaccel: NVDEC-декодер «{name}» отсутствует в libavcodec — fallback на sw"
+                    "hwaccel: декодер «{name}» отсутствует в libavcodec — fallback на sw"
                 );
                 codec_ctx
                     .decoder()
@@ -309,8 +338,14 @@ fn run_decoder_thread(
     let v_tb = ictx.stream(v_idx).unwrap().time_base();
     let v_tb_f64 = v_tb.numerator() as f64 / v_tb.denominator() as f64;
 
+    // До первого кадра формат может быть неизвестен (MediaCodec выставляет
+    // pix_fmt только после старта кодека): sws_getContext с `None` падает,
+    // поэтому стартуем с YUV420P, а `Scaler::convert` пересоздаст контекст
+    // по фактическому формату кадра.
     let scaler_in_fmt = if hw.is_some() {
         ffmpeg_next::format::Pixel::NV12
+    } else if v_dec.format() == ffmpeg_next::format::Pixel::None {
+        ffmpeg_next::format::Pixel::YUV420P
     } else {
         v_dec.format()
     };
@@ -409,6 +444,7 @@ fn run_decoder_thread(
                     tee_video.as_ref(),
                     v_tb_f64,
                     &mut logged_first_format,
+                    hw_codec_active.then_some(hw_label),
                 );
                 if let Some(a) = audio.as_mut() {
                     let _ = a.decoder.send_eof();
@@ -460,6 +496,7 @@ fn run_decoder_thread(
                         tee_video.as_ref(),
                         v_tb_f64,
                         &mut logged_first_format,
+                        hw_codec_active.then_some(hw_label),
                     );
                 }
                 Err(e) => {
@@ -490,6 +527,7 @@ fn drain_video(
     tee_tx: Option<&SyncSender<Arc<VideoFrame>>>,
     tb_sec: f64,
     logged_first_format: &mut bool,
+    hw_codec: Option<&'static str>,
 ) {
     let mut decoded = frame::Video::empty();
     loop {
@@ -527,7 +565,14 @@ fn drain_video(
                     }
                 }
                 None => {
-                    log::info!("hwaccel: первый кадр в {:?} — sw-decode", fmt);
+                    if let Some(label) = hw_codec {
+                        log::info!(
+                            "hwaccel: первый кадр в {:?} — hw-кодек {label} (кадры в CPU-памяти)",
+                            fmt
+                        );
+                    } else {
+                        log::info!("hwaccel: первый кадр в {:?} — sw-decode", fmt);
+                    }
                 }
             }
         }

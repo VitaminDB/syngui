@@ -55,8 +55,16 @@ impl ElementTree {
                 .element
                 .mss()
                 .and_then(|m| m.compute_active_transform(node.element.bounds()));
+            // Отсечение детей считается в координатах раскладки, а MSS-transform
+            // двигает поддерево на экране: окно отсечения переводим в локальные
+            // координаты обратной матрицей. Иначе полка, вдвинутая в экран
+            // через translate-y/-x, отсекается как «за пределами вьюпорта».
+            let mut cull_clip = cull_clip;
             if let Some(t) = pushed_transform {
                 list.push_transform(t);
+                if let Some(inv) = t.inverse() {
+                    cull_clip = inv.outer_transformed_rect(&cull_clip);
+                }
             }
 
             let do_clip = node.element.clip_content();

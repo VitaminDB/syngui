@@ -14,7 +14,7 @@
 use std::cell::Cell;
 
 /// Нижняя граница масштаба: мельче интерфейс уже не читается.
-pub const MIN_UI_SCALE: f32 = 0.5;
+pub const MIN_UI_SCALE: f32 = 0.25;
 /// Верхняя граница масштаба.
 pub const MAX_UI_SCALE: f32 = 3.0;
 
