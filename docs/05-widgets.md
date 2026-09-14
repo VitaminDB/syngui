@@ -725,6 +725,20 @@ TableView::new(columns, data)
 TableView::virtual_new(columns, row_count, |index| vec!["col1".into(), "col2".into()])
 ```
 
+Порядок столбцов задаётся отдельно от их описания: `column_order_state`
+принимает физические индексы слева направо, а `reorderable_columns(true)`
+разрешает переставлять столбцы перетаскиванием заголовка. Ширины,
+видимость, сортировка и данные строк по-прежнему адресуются физическими
+индексами, поэтому сохранённые настройки таблицы не зависят от порядка.
+
+```rust
+let order = Arc::new(Mutex::new(vec![2, 0, 1]));
+TableView::new(columns, rows)
+    .column_order_state(order.clone())   // перечитывается на каждом update()
+    .reorderable_columns(true)           // щелчок сортирует, перенос переставляет
+    .on_column_reorder(|order| save(order))
+```
+
 ### TreeView
 
 ```rust

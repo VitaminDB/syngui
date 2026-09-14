@@ -140,6 +140,18 @@ impl Widget for TableView {
             column_visibility: initial_visibility,
             column_visibility_state: self.column_visibility_state.clone(),
             on_column_visibility_change: self.on_column_visibility_change.clone(),
+            column_order: normalize_column_order(
+                &self
+                    .column_order_state
+                    .as_ref()
+                    .and_then(|s| s.lock().ok().map(|g| g.clone()))
+                    .unwrap_or_default(),
+                self.columns.len(),
+            ),
+            column_order_state: self.column_order_state.clone(),
+            reorderable_columns: self.reorderable_columns,
+            on_column_reorder: self.on_column_reorder.clone(),
+            header_press: None,
             resize_state: None,
             on_column_resize: self.on_column_resize.clone(),
             keyboard_nav: self.keyboard_nav,
@@ -247,6 +259,13 @@ pub struct TableViewElement {
     column_visibility: Vec<bool>,
     column_visibility_state: Option<Arc<Mutex<Vec<bool>>>>,
     on_column_visibility_change: Option<Arc<Mutex<dyn FnMut(usize, bool) + Send>>>,
+    /// Порядок показа: перестановка физических индексов `0..columns.len()`.
+    column_order: Vec<usize>,
+    column_order_state: Option<Arc<Mutex<Vec<usize>>>>,
+    reorderable_columns: bool,
+    on_column_reorder: Option<Arc<Mutex<dyn FnMut(Vec<usize>) + Send>>>,
+    /// Нажатие на заголовок, которое ещё может стать переносом столбца.
+    header_press: Option<HeaderPress>,
     resize_state: Option<ColumnResizeState>,
     on_column_resize: Option<Arc<Mutex<dyn FnMut(usize, f32) + Send>>>,
     keyboard_nav: bool,
@@ -320,6 +339,40 @@ struct ColumnResizeState {
 
 const RESIZE_HANDLE_WIDTH: f32 = 4.0;
 
+/// На сколько пикселей нужно сдвинуть нажатый заголовок, чтобы щелчок
+/// превратился в перенос столбца.
+const COLUMN_DRAG_THRESHOLD: f32 = 5.0;
+/// Полоса у края таблицы, в которой перенос столбца прокручивает её вбок.
+const COLUMN_DRAG_EDGE: f32 = 24.0;
+
+#[derive(Debug, Clone, Copy)]
+struct HeaderPress {
+    /// Физический индекс нажатого столбца.
+    col: usize,
+    start_x: f32,
+    /// Последнее положение курсора.
+    x: f32,
+    /// Расстояние от левого края столбца до точки нажатия — «призрак»
+    /// заголовка едет, держась за то же место.
+    grab_dx: f32,
+    dragging: bool,
+}
+
+/// Приводит порядок к перестановке `0..n`: индексы вне диапазона и повторы
+/// отбрасываются, недостающие столбцы дописываются в конец по возрастанию.
+fn normalize_column_order(order: &[usize], n: usize) -> Vec<usize> {
+    let mut seen = vec![false; n];
+    let mut out = Vec::with_capacity(n);
+    for &i in order {
+        if i < n && !seen[i] {
+            seen[i] = true;
+            out.push(i);
+        }
+    }
+    out.extend((0..n).filter(|i| !seen[*i]));
+    out
+}
+
 impl TableViewElement {
     fn has_hideable_columns(&self) -> bool {
         self.columns.iter().any(|c| c.hideable)
@@ -329,8 +382,116 @@ impl TableViewElement {
         self.column_visibility.get(col_idx).copied().unwrap_or(true)
     }
 
+    /// Видимые столбцы в порядке показа (физические индексы).
     fn visible_columns(&self) -> impl Iterator<Item = usize> + '_ {
-        (0..self.columns.len()).filter(|i| self.is_col_visible(*i))
+        self.column_order
+            .iter()
+            .copied()
+            .filter(|i| *i < self.columns.len() && self.is_col_visible(*i))
+    }
+
+    /// Куда встанет переносимый столбец: позиция среди видимых, перед
+    /// которой он окажется (`len` — в самый конец). Граница — середина
+    /// столбца под курсором.
+    fn column_drop_slot(&self, x: f32) -> usize {
+        let mut cx = self.bounds.x() - self.scroll_offset_x;
+        let mut slot = 0;
+        for phys_i in self.visible_columns() {
+            let w = self.column_widths.get(phys_i).copied().unwrap_or(0.0);
+            if x < cx + w / 2.0 {
+                return slot;
+            }
+            cx += w;
+            slot += 1;
+        }
+        slot
+    }
+
+    /// Порядок после переноса столбца `col` на позицию `slot` среди видимых.
+    /// Скрытые столбцы остаются на своих местах относительно соседей.
+    fn reordered_columns(&self, col: usize, slot: usize) -> Vec<usize> {
+        let visible: Vec<usize> = self.visible_columns().collect();
+        let mut order: Vec<usize> = self
+            .column_order
+            .iter()
+            .copied()
+            .filter(|i| *i != col)
+            .collect();
+        let before = visible
+            .get(slot..)
+            .unwrap_or(&[])
+            .iter()
+            .copied()
+            .find(|i| *i != col);
+        let at = match before {
+            Some(b) => order.iter().position(|i| *i == b).unwrap_or(order.len()),
+            // В конец — сразу за последним видимым столбцом.
+            None => visible
+                .iter()
+                .rev()
+                .find(|i| **i != col)
+                .and_then(|last| order.iter().position(|i| i == last))
+                .map(|p| p + 1)
+                .unwrap_or(order.len()),
+        };
+        order.insert(at, col);
+        order
+    }
+
+    fn move_column(&mut self, col: usize, slot: usize) {
+        let order = self.reordered_columns(col, slot);
+        if order == self.column_order {
+            return;
+        }
+        self.column_order = order;
+        if let Some(ref state) = self.column_order_state {
+            if let Ok(mut g) = state.lock() {
+                *g = self.column_order.clone();
+            }
+        }
+        if let Some(ref cb) = self.on_column_reorder {
+            if let Ok(mut f) = cb.lock() {
+                f(self.column_order.clone());
+            }
+        }
+        self.needs_child_rebuild = self.compositional;
+        self.dirty_flags |= DirtyFlags::LAYOUT | DirtyFlags::RENDER;
+    }
+
+    /// Щелчок по заголовку: по кругу «по возрастанию → по убыванию → без
+    /// сортировки». `false` — столбец не сортируется.
+    fn toggle_sort(&mut self, col_idx: usize) -> bool {
+        if !self.sortable || !self.columns.get(col_idx).map_or(false, |c| c.sortable) {
+            return false;
+        }
+        let new_dir = if self.sort_column == Some(col_idx) {
+            match self.sort_direction {
+                SortDirection::None => SortDirection::Ascending,
+                SortDirection::Ascending => SortDirection::Descending,
+                SortDirection::Descending => SortDirection::None,
+            }
+        } else {
+            SortDirection::Ascending
+        };
+        self.sort_direction = new_dir;
+        self.sort_column = if new_dir == SortDirection::None {
+            None
+        } else {
+            Some(col_idx)
+        };
+        if let Some(ref cb) = self.on_sort {
+            if let Ok(mut f) = cb.lock() {
+                f(col_idx, new_dir);
+            }
+            self.sorted_indices = None;
+            self.row_cache.clear();
+            self.cache_range = 0..0;
+            self.ensure_cached_for_viewport();
+        } else {
+            self.refresh_sorted_indices();
+        }
+        self.needs_child_rebuild = self.compositional;
+        true
     }
 
     fn settings_reserved_width(&self) -> f32 {
@@ -382,8 +543,10 @@ impl TableViewElement {
     }
 
     fn hideable_columns(&self) -> Vec<usize> {
-        (0..self.columns.len())
-            .filter(|i| self.columns[*i].hideable)
+        self.column_order
+            .iter()
+            .copied()
+            .filter(|i| self.columns.get(*i).map_or(false, |c| c.hideable))
             .collect()
     }
 
@@ -1658,6 +1821,91 @@ impl TableViewElement {
             );
         }
     }
+
+    /// Перенос столбца: подсветка переносимого столбца, черта на месте
+    /// вставки во всю высоту таблицы и «призрак» заголовка под курсором.
+    fn draw_column_drag(&self, list: &mut DisplayList) {
+        let Some(press) = self.header_press.filter(|p| p.dragging) else {
+            return;
+        };
+        let Some(col) = self.columns.get(press.col) else {
+            return;
+        };
+        let bg = self.mss.background_color.unwrap_or(Color::WHITE);
+        let fg = self.mss.color.unwrap_or(Color::from_hex("#334155"));
+        let primary = self.mss.accent_color.unwrap_or(Color::from_hex("#3B82F6"));
+        let header_bg = self.header_bg_custom.unwrap_or_else(|| bg.darken(0.04));
+        let header_fg = self.header_color_custom.unwrap_or(fg);
+        let w = self.column_widths.get(press.col).copied().unwrap_or(0.0);
+
+        if let Some((src_x, src_w)) = self.col_x_screen(press.col) {
+            list.push_rect(
+                Rect::new(
+                    Point::new(src_x, self.bounds.y()),
+                    Size::new(src_w, self.bounds.size.height),
+                ),
+                primary.with_alpha(0.08),
+                [0.0; 4],
+            );
+        }
+
+        let slot = self.column_drop_slot(press.x);
+        let line_x = self.bounds.x() - self.scroll_offset_x
+            + self
+                .visible_columns()
+                .take(slot)
+                .map(|i| self.column_widths.get(i).copied().unwrap_or(0.0))
+                .sum::<f32>();
+        let line_x = line_x.clamp(
+            self.bounds.x(),
+            self.bounds.x() + self.bounds.size.width - 2.0,
+        );
+        list.push_rect(
+            Rect::new(
+                Point::new(line_x - 1.0, self.bounds.y()),
+                Size::new(2.0, self.bounds.size.height),
+            ),
+            primary,
+            [1.0; 4],
+        );
+
+        let ghost = Rect::new(
+            Point::new(press.x - press.grab_dx, self.bounds.y() + 2.0),
+            Size::new(w, self.header_height - 4.0),
+        );
+        list.push_rect(
+            Rect::new(Point::new(ghost.x() + 2.0, ghost.y() + 3.0), ghost.size),
+            Color::from_hex("#000000").with_alpha(0.16),
+            [6.0; 4],
+        );
+        list.push_rect_bordered(
+            ghost,
+            header_bg.with_alpha(0.96),
+            [6.0; 4],
+            Border::new(1.0, primary),
+        );
+        let h_font_size = self.header_font_size;
+        let text_rect = Rect::new(
+            Point::new(
+                ghost.x() + self.header_padding,
+                self.bounds.y() + (self.header_height - h_font_size) / 2.0,
+            ),
+            Size::new(
+                (w - self.header_padding * 2.0).max(0.0),
+                h_font_size + 2.0,
+            ),
+        );
+        list.push_clip(ghost);
+        list.push_text_singleline(
+            &col.header,
+            text_rect,
+            header_fg,
+            h_font_size,
+            col.align.to_text_align(),
+            600,
+        );
+        list.pop_clip();
+    }
 }
 
 impl Element for TableViewElement {
@@ -1748,6 +1996,27 @@ impl Element for TableViewElement {
                 self.row_cache.clear();
                 self.cache_range = 0..0;
                 self.needs_child_rebuild = self.compositional;
+            }
+            self.reorderable_columns = tv.reorderable_columns;
+            self.on_column_reorder = tv.on_column_reorder.clone();
+            self.column_order_state = tv.column_order_state.clone();
+            // Без общего состояния порядок живёт в самом элементе: столбцы,
+            // переставленные мышью, не возвращаются на место при пересборке.
+            let wanted = self
+                .column_order_state
+                .as_ref()
+                .and_then(|s| s.lock().ok().map(|g| g.clone()))
+                .unwrap_or_else(|| self.column_order.clone());
+            let order = normalize_column_order(&wanted, self.columns.len());
+            if order != self.column_order {
+                self.column_order = order;
+                self.needs_child_rebuild = self.compositional;
+            }
+            if self
+                .header_press
+                .map_or(false, |p| p.col >= self.columns.len() || !self.reorderable_columns)
+            {
+                self.header_press = None;
             }
             self.selected_rows = tv.selected_rows.clone();
             self.cell_cursor = tv.cell_cursor;
@@ -2173,6 +2442,7 @@ impl Element for TableViewElement {
         self.draw_scrollbar(list);
         self.draw_h_scrollbar(list);
         list.pop_clip();
+        self.draw_column_drag(list);
         list.pop_clip();
         list.push_rect_bordered(
             self.bounds,
@@ -2201,6 +2471,7 @@ impl Element for TableViewElement {
         self.draw_scrollbar(list);
         self.draw_h_scrollbar(list);
         list.pop_clip();
+        self.draw_column_drag(list);
         list.pop_clip();
         list.push_rect_bordered(
             self.bounds,
@@ -2275,6 +2546,30 @@ impl Element for TableViewElement {
                         }
                     }
                     ctx.set_cursor(CursorIcon::Text);
+                    return EventResult::Handled;
+                }
+
+                if let Some(mut press) = self.header_press {
+                    press.x = pos.x;
+                    if !press.dragging && (pos.x - press.start_x).abs() >= COLUMN_DRAG_THRESHOLD {
+                        press.dragging = true;
+                    }
+                    self.header_press = Some(press);
+                    if press.dragging {
+                        // У края таблица, которая сама прокручивается вбок,
+                        // подвигается навстречу — иначе столбец не донести
+                        // до скрытой за краем позиции.
+                        if self.max_scroll_x() > 0.0 {
+                            let body = self.body_rect();
+                            if pos.x < body.x() + COLUMN_DRAG_EDGE {
+                                self.set_scroll_offset_x(self.scroll_offset_x - 16.0);
+                            } else if pos.x > body.x() + body.size.width - COLUMN_DRAG_EDGE {
+                                self.set_scroll_offset_x(self.scroll_offset_x + 16.0);
+                            }
+                        }
+                        ctx.set_cursor(CursorIcon::Grabbing);
+                        ctx.request_paint();
+                    }
                     return EventResult::Handled;
                 }
 
@@ -2545,37 +2840,25 @@ impl Element for TableViewElement {
                     return EventResult::Handled;
                 }
 
-                if position.y < self.bounds.y() + self.header_height && self.sortable {
+                if position.y < self.bounds.y() + self.header_height {
                     if let Some(col_idx) = self.col_at_x(position.x) {
-                        let col = &self.columns[col_idx];
-                        if col.sortable {
-                            let new_dir = if self.sort_column == Some(col_idx) {
-                                match self.sort_direction {
-                                    SortDirection::None => SortDirection::Ascending,
-                                    SortDirection::Ascending => SortDirection::Descending,
-                                    SortDirection::Descending => SortDirection::None,
-                                }
-                            } else {
-                                SortDirection::Ascending
-                            };
-                            self.sort_direction = new_dir;
-                            self.sort_column = if new_dir == SortDirection::None {
-                                None
-                            } else {
-                                Some(col_idx)
-                            };
-                            if let Some(ref cb) = self.on_sort {
-                                if let Ok(mut f) = cb.lock() {
-                                    f(col_idx, new_dir);
-                                }
-                                self.sorted_indices = None;
-                                self.row_cache.clear();
-                                self.cache_range = 0..0;
-                                self.ensure_cached_for_viewport();
-                            } else {
-                                self.refresh_sorted_indices();
-                            }
-                            self.needs_child_rebuild = self.compositional;
+                        if self.reorderable_columns {
+                            // Щелчок это или перенос, станет ясно по движению
+                            // мыши, поэтому сортировка ждёт отпускания кнопки.
+                            let left = self
+                                .col_x_screen(col_idx)
+                                .map(|(x, _)| x)
+                                .unwrap_or(position.x);
+                            self.header_press = Some(HeaderPress {
+                                col: col_idx,
+                                start_x: position.x,
+                                x: position.x,
+                                grab_dx: position.x - left,
+                                dragging: false,
+                            });
+                            return EventResult::Handled;
+                        }
+                        if self.toggle_sort(col_idx) {
                             ctx.request_paint();
                             return EventResult::Handled;
                         }
@@ -2781,6 +3064,16 @@ impl Element for TableViewElement {
             Event::MouseUp { button, .. } if *button == MouseButton::Left => {
                 if self.text_selecting {
                     self.text_selecting = false;
+                }
+                if let Some(press) = self.header_press.take() {
+                    if press.dragging {
+                        let slot = self.column_drop_slot(press.x);
+                        self.move_column(press.col, slot);
+                    } else {
+                        self.toggle_sort(press.col);
+                    }
+                    ctx.request_paint();
+                    return EventResult::Handled;
                 }
                 if let Some(rs) = self.resize_state.take() {
                     let new_w = self
@@ -2994,10 +3287,8 @@ impl Element for TableViewElement {
             let mut pending_px = 0.0f32;
             let mut pending_flex = 0.0f32;
 
-            for (col_idx, col) in self.columns.iter().enumerate() {
-                if !self.is_col_visible(col_idx) {
-                    continue;
-                }
+            for col_idx in self.visible_columns() {
+                let col = &self.columns[col_idx];
                 let computed_w = self.column_widths.get(col_idx).copied();
 
                 let has_renderer =
@@ -3303,6 +3594,108 @@ mod tests {
         )
         .row_height(20.0)
         .header_height(20.0)
+    }
+
+    /// Нажать заголовок в `from_x`, протащить до `to_x` и отпустить.
+    fn drag_header(h: &mut TestHarness, from_x: f32, to_x: f32) {
+        h.send_event(&Event::MouseDown {
+            button: MouseButton::Left,
+            position: Point::new(from_x, 10.0),
+        });
+        h.send_event(&Event::MouseMove(Point::new(to_x, 10.0)));
+        h.send_event(&Event::MouseUp {
+            button: MouseButton::Left,
+            position: Point::new(to_x, 10.0),
+        });
+    }
+
+    #[test]
+    fn normalize_column_order_fills_gaps_and_drops_junk() {
+        assert_eq!(super::normalize_column_order(&[], 3), vec![0, 1, 2]);
+        assert_eq!(
+            super::normalize_column_order(&[2, 2, 7, 0], 3),
+            vec![2, 0, 1]
+        );
+    }
+
+    #[test]
+    fn dragging_header_reorders_columns() {
+        let seen = Arc::new(Mutex::new(Vec::<Vec<usize>>::new()));
+        let sink = seen.clone();
+        let cells = Arc::new(Mutex::new(Vec::<(usize, usize)>::new()));
+        let cell_sink = cells.clone();
+        let table = sample_table()
+            .reorderable_columns(true)
+            .on_column_reorder(move |order| sink.lock().unwrap().push(order))
+            .on_cell_select(move |r, c| cell_sink.lock().unwrap().push((r, c)));
+        let mut h = TestHarness::new(Box::new(table));
+        h.layout(400.0, 200.0);
+
+        // Две колонки по 180px (40px справа — под кнопку настройки):
+        // A переносится за середину B.
+        drag_header(&mut h, 50.0, 300.0);
+        assert_eq!(*seen.lock().unwrap(), vec![vec![1, 0]]);
+
+        // Слева теперь B: щелчок по первой ячейке приходится на столбец 1.
+        h.send_event(&Event::MouseDown {
+            button: MouseButton::Left,
+            position: Point::new(50.0, 30.0),
+        });
+        assert_eq!(*cells.lock().unwrap(), vec![(0, 1)]);
+    }
+
+    #[test]
+    fn header_click_without_drag_still_sorts() {
+        let sorts = Arc::new(Mutex::new(Vec::<usize>::new()));
+        let sink = sorts.clone();
+        let reorders = Arc::new(Mutex::new(0usize));
+        let reorder_sink = reorders.clone();
+        let table = sample_table()
+            .reorderable_columns(true)
+            .on_sort(move |col, _| sink.lock().unwrap().push(col))
+            .on_column_reorder(move |_| *reorder_sink.lock().unwrap() += 1);
+        let mut h = TestHarness::new(Box::new(table));
+        h.layout(400.0, 200.0);
+
+        // Сдвиг меньше порога — это щелчок, а не перенос.
+        drag_header(&mut h, 200.0, 202.0);
+        assert_eq!(*sorts.lock().unwrap(), vec![1]);
+        assert_eq!(*reorders.lock().unwrap(), 0);
+    }
+
+    #[test]
+    fn column_order_state_keeps_hidden_columns_in_place() {
+        let order = Arc::new(crate::core::sync::Mutex::new(vec![2, 1, 0]));
+        let visibility = Arc::new(crate::core::sync::Mutex::new(vec![true, false, true]));
+        let cells = Arc::new(Mutex::new(Vec::<(usize, usize)>::new()));
+        let cell_sink = cells.clone();
+        let table = TableView::new(
+            vec![
+                TableColumn::fixed("A", 120.0).hideable(false),
+                TableColumn::fixed("B", 120.0).hideable(false),
+                TableColumn::fixed("C", 120.0).hideable(false),
+            ],
+            vec![vec!["a".into(), "b".into(), "c".into()]],
+        )
+        .row_height(20.0)
+        .header_height(20.0)
+        .column_order_state(order.clone())
+        .column_visibility_state(visibility)
+        .reorderable_columns(true)
+        .on_cell_select(move |r, c| cell_sink.lock().unwrap().push((r, c)));
+        let mut h = TestHarness::new(Box::new(table));
+        h.layout(400.0, 200.0);
+
+        // Видны C (0..120) и A (120..240), скрытая B между ними не занимает места.
+        h.send_event(&Event::MouseDown {
+            button: MouseButton::Left,
+            position: Point::new(50.0, 30.0),
+        });
+        assert_eq!(*cells.lock().unwrap(), vec![(0, 2)]);
+
+        // A в самое начало: скрытая B остаётся сразу за C.
+        drag_header(&mut h, 180.0, 10.0);
+        assert_eq!(*order.lock().unwrap(), vec![0, 2, 1]);
     }
 
     #[test]

@@ -327,6 +327,9 @@ pub struct TableView {
     pub(super) table_id: Option<String>,
     pub(super) column_visibility_state: Option<Arc<Mutex<Vec<bool>>>>,
     pub(super) on_column_visibility_change: Option<Arc<Mutex<dyn FnMut(usize, bool) + Send>>>,
+    pub(super) column_order_state: Option<Arc<Mutex<Vec<usize>>>>,
+    pub(super) reorderable_columns: bool,
+    pub(super) on_column_reorder: Option<Arc<Mutex<dyn FnMut(Vec<usize>) + Send>>>,
     pub(super) keyboard_nav: bool,
     pub(super) editable: bool,
     pub(super) on_cell_select: Option<Arc<Mutex<dyn FnMut(usize, usize) + Send>>>,
@@ -371,6 +374,9 @@ impl TableView {
             table_id: None,
             column_visibility_state: None,
             on_column_visibility_change: None,
+            column_order_state: None,
+            reorderable_columns: false,
+            on_column_reorder: None,
             keyboard_nav: false,
             editable: false,
             on_cell_select: None,
@@ -422,6 +428,9 @@ impl TableView {
             table_id: None,
             column_visibility_state: None,
             on_column_visibility_change: None,
+            column_order_state: None,
+            reorderable_columns: false,
+            on_column_reorder: None,
             keyboard_nav: false,
             editable: false,
             on_cell_select: None,
@@ -509,6 +518,32 @@ impl TableView {
         f: impl FnMut(usize, bool) + Send + 'static,
     ) -> Self {
         self.on_column_visibility_change = Some(Arc::new(Mutex::new(f)));
+        self
+    }
+
+    /// Порядок показа столбцов — физические индексы слева направо.
+    ///
+    /// Ширины, видимость, сортировка и данные строк по-прежнему адресуются
+    /// физическими индексами, порядок меняет только раскладку. Неизвестные
+    /// и повторные индексы отбрасываются, недостающие столбцы встают в
+    /// конец. Состояние перечитывается на каждом `update()`, а перенос
+    /// заголовка мышью записывает сюда новый порядок.
+    pub fn column_order_state(mut self, state: Arc<Mutex<Vec<usize>>>) -> Self {
+        self.column_order_state = Some(state);
+        self
+    }
+
+    /// Столбцы переставляются перетаскиванием заголовка. Короткий щелчок
+    /// без сдвига по-прежнему сортирует — сортировка срабатывает на
+    /// отпускании кнопки, а не на нажатии.
+    pub fn reorderable_columns(mut self, enabled: bool) -> Self {
+        self.reorderable_columns = enabled;
+        self
+    }
+
+    /// Пользователь перенёс столбец: новый порядок физических индексов.
+    pub fn on_column_reorder(mut self, f: impl FnMut(Vec<usize>) + Send + 'static) -> Self {
+        self.on_column_reorder = Some(Arc::new(Mutex::new(f)));
         self
     }
 
