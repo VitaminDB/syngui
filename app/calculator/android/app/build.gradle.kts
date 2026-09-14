@@ -38,7 +38,9 @@ android {
 }
 
 dependencies {
-    implementation("androidx.games:games-activity:2.0.2")
+    // Версия обязана совпадать с GameActivity, вшитой в android-activity (0.6.1 → 4.4.0),
+    // иначе RegisterNatives падает на старте: NoSuchMethodError onTouchEventNative.
+    implementation("androidx.games:games-activity:4.4.0")
     implementation("androidx.appcompat:appcompat:1.7.0")
     implementation(platform("org.jetbrains.kotlin:kotlin-bom:2.1.10"))
 }
