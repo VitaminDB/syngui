@@ -790,6 +790,48 @@ fn handle_keeps_edits_when_element_is_recreated() {
     assert_eq!(handle.serialize(), "другое\n");
 }
 
+/// Таблица занимает всю ширину своего блока: столбцы растягиваются
+/// пропорционально содержимому (14.09.2026, MyLife: закреплённая таблица
+/// шириной 1480 рисовала сетку на треть блока).
+#[test]
+fn table_columns_stretch_to_the_block_width() {
+    let md = "| A | B | C |\n| --- | --- | --- |\n| 1 | 2 | 3 |\n\n~~~doc-layout\n0 40 40 900\n~~~\n"
+        .replace("~~~", "```");
+    let handle = DocumentEditorHandle::new();
+    let mut h = TestHarness::new(Box::new(
+        DocumentEditor::new()
+            .markdown(&md)
+            .handle(&handle)
+            .layout(DocLayout {
+                free: true,
+                ..DocLayout::default()
+            }),
+    ));
+    h.tree.text_measure = Some(Arc::new(Mono));
+    h.rebuild();
+    h.layout(1200.0, 700.0);
+    let b = h.element_bounds(h.find_by_type_name("doc-table")[0]);
+    assert!((b.size.width - 900.0).abs() < 1.0, "таблица не по ширине блока: {b:?}");
+
+    // Три одинаковых столбца по 300 px: точка в 150 px от края — первая
+    // ячейка данных. При естественной ширине (~45 px на столбец) она
+    // лежала за сеткой.
+    let row_h = (b.size.height - 2.0) / 2.0;
+    let at = Point::new(b.origin.x + 150.0, b.origin.y + row_h * 1.5);
+    h.send_event(&Event::MouseDown {
+        button: MouseButton::Left,
+        position: at,
+    });
+    h.send_event(&Event::MouseUp {
+        button: MouseButton::Left,
+        position: at,
+    });
+    type_str(&mut h, "!");
+    settle(&mut h);
+    let out = handle.serialize();
+    assert!(out.contains("| 1! | 2 | 3 |"), "клик не попал в первую ячейку:\n{out}");
+}
+
 /// Свободная раскладка: блоки стоят по своим координатам, а не колонкой.
 #[test]
 fn free_layout_positions_blocks_by_coordinates() {

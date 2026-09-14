@@ -670,6 +670,7 @@ impl Widget for DocumentEditor {
             classes: self.classes.clone(),
             model,
             style: Arc::new(DocStyle::default()),
+            pinned_style: pinned_style(&DocStyle::default()),
             source_fp: Some(fp),
             read_only: self.read_only,
             rebuild: true,
@@ -776,6 +777,10 @@ pub struct DocumentEditorElement {
     classes: Vec<String>,
     model: Arc<Mutex<DocModel>>,
     style: Arc<DocStyle>,
+    /// Стиль закреплённых блоков свободной раскладки (см. [`pinned_style`]).
+    /// Держится рядом со `style`: листья сверяют стиль по указателю, и
+    /// новый Arc на каждой пересборке заставлял бы их перемерять текст.
+    pinned_style: Arc<DocStyle>,
     /// Отпечаток исходника, из которого разобрана текущая модель.
     source_fp: Option<u64>,
     read_only: bool,
@@ -2894,9 +2899,24 @@ fn estimate_height(block: &DocBlock, style: &DocStyle) -> f32 {
         BlockKind::Media { .. } => free::height_of(&block.attrs).unwrap_or(220.0),
         BlockKind::Divider => 17.0,
         BlockKind::Embed { .. } => free::height_of(&block.attrs).unwrap_or(200.0),
-        BlockKind::Table { rows, .. } => (rows.len() as f32 + 1.0) * 30.0,
+        // Как `TableBlockElement::layout`: шапка + строки, рамка 2 px.
+        BlockKind::Table { rows, .. } => {
+            let row_h = style.line_h(style.text_size) + style.table_cell_padding_v * 2.0;
+            (rows.len() as f32 + 1.0) * row_h + 2.0
+        }
         _ => style.line_h(style.text_size) * 2.0,
     }
+}
+
+/// Стиль закреплённого блока: без потолка `max_content_width`. Потолок
+/// держит читаемую колонку потока, а у блока на холсте ширина задана явно —
+/// таблица, код и текст в блоке шире 760 px упирались в него и занимали
+/// часть своей рамки.
+fn pinned_style(style: &DocStyle) -> Arc<DocStyle> {
+    Arc::new(DocStyle {
+        max_content_width: None,
+        ..style.clone()
+    })
 }
 
 // ─── Свободная раскладка ────────────────────────────────────────────────────
@@ -5245,8 +5265,8 @@ impl Element for DocumentEditorElement {
     }
 
     fn build_children(&self) -> Vec<Box<dyn Widget>> {
-        let env = BuildEnv {
-            style: self.style.clone(),
+        let env_for = |style: &Arc<DocStyle>| BuildEnv {
+            style: style.clone(),
             geom: self.geom.clone(),
             tables: self.tables.clone(),
             codes: self.codes.clone(),
@@ -5257,6 +5277,7 @@ impl Element for DocumentEditorElement {
             placeholder: self.placeholder.clone(),
             heading_placeholder: self.heading_placeholder.clone(),
         };
+        let env = env_for(&self.style);
         let model = self.model();
         // Каждый верхнеуровневый блок обёрнут Chrome'ом, который публикует
         // свой прямоугольник: у таблицы, кода, медиа и разделителя нет
@@ -5286,6 +5307,7 @@ impl Element for DocumentEditorElement {
         let mut flow: Vec<Box<dyn Widget>> = Vec::new();
         let mut pinned: Vec<Box<dyn Widget>> = Vec::new();
         let mut extent = (pad, pad);
+        let pinned_env = env_for(&self.pinned_style);
         for b in model.blocks.iter() {
             let Some((x, y)) = free::pos_of(&b.attrs) else {
                 flow.push(wrap(b));
@@ -5304,7 +5326,7 @@ impl Element for DocumentEditorElement {
                     .absolute(x, y)
                     .fixed_width(w)
                     .track(b.id, self.blocks.clone())
-                    .child(block_widget(b, &env)),
+                    .child(block_widget(b, &pinned_env)),
             ));
         }
         let mut out: Vec<Box<dyn Widget>> = Vec::with_capacity(pinned.len() + 2);
@@ -6650,6 +6672,7 @@ impl StyledElement for DocumentEditorElement {
         doc_style.apply(style);
         // Дети перестраиваются только при реальном изменении стиля.
         if doc_style != *self.style {
+            self.pinned_style = pinned_style(&doc_style);
             self.style = Arc::new(doc_style);
             self.rebuild = true;
             self.mark_dirty(DirtyFlags::LAYOUT | DirtyFlags::RENDER);
