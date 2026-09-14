@@ -739,6 +739,7 @@ impl Widget for DocumentEditor {
             block_anchor: None,
             block_sel_sig: self.handle.as_ref().map(|h| h.block_selection),
             marquee: None,
+            fold_shift: None,
         })
     }
 
@@ -866,7 +867,30 @@ pub struct DocumentEditorElement {
     block_sel_sig: Option<RwSignal<Vec<super::model::BlockId>>>,
     /// Рамка выделения: нажатие в пустом месте и протяжка.
     marquee: Option<Marquee>,
+    /// Toggle на холсте свернули/развернули — ждём новую высоту блока,
+    /// чтобы сдвинуть блоки под ним (см. [`FoldShift`]).
+    fold_shift: Option<FoldShift>,
 }
+
+/// Отложенный сдвиг соседей после переключения toggle в свободной
+/// раскладке. Высота блока известна только после раскладки, а хука «после
+/// раскладки» у элемента нет: прежний прямоугольник снимается из
+/// `BlockRectMap`, и ближайший `animate`, увидевший его опубликованным
+/// заново, сдвигает закреплённые блоки под ним на разницу высот.
+struct FoldShift {
+    /// Верхнеуровневый закреплённый блок, в котором переключили toggle.
+    block: super::model::BlockId,
+    /// Его прямоугольник до переключения.
+    before: Rect,
+    /// Тики без новой раскладки (предел — [`FOLD_SETTLE_TICKS`]).
+    ticks: u32,
+}
+
+/// Сколько тиков ждать публикации прямоугольника после переключения toggle.
+const FOLD_SETTLE_TICKS: u32 = 30;
+/// Зазор, до которого сворачивание подтягивает блоки к оставшемуся на месте
+/// соседу (например, к более длинной соседней колонке), px.
+const FOLD_MIN_GAP: f32 = 16.0;
 
 /// Рамка выделения блоков. До порога движения — обычный клик (каретка
 /// ставится на отпускании), после — прямоугольник, выделяющий все блоки,
@@ -3094,6 +3118,144 @@ impl DocumentEditorElement {
             free::set_width(&mut b.attrs, geom.2);
         }
         Some(geom)
+    }
+
+    /// Toggle свернули или развернули: у закреплённого блока высота по
+    /// содержимому, а у блоков под ним координаты фиксированы — без сдвига
+    /// развёрнутое содержимое ложится поверх них, а под свёрнутым остаётся
+    /// пустота. Новая высота появится только после раскладки: прежний
+    /// прямоугольник снимается из карты, сдвиг делает [`Self::settle_fold_shift`].
+    fn arm_fold_shift(&mut self, toggle: super::model::BlockId) {
+        if !self.layout.free {
+            return;
+        }
+        let Some(top) = self.top_level_of(toggle) else {
+            return;
+        };
+        let pinned = self
+            .model()
+            .blocks
+            .iter()
+            .any(|b| b.id == top && free::pos_of(&b.attrs).is_some());
+        if !pinned {
+            return;
+        }
+        // Повторный клик до раскладки: прямоугольника уже нет в карте, в
+        // силе остаётся первый снимок — сдвиг посчитается от исходной высоты.
+        let Some(before) = self.blocks.lock().ok().and_then(|mut m| m.remove(&top)) else {
+            return;
+        };
+        self.fold_shift = Some(FoldShift {
+            block: top,
+            before,
+            ticks: 0,
+        });
+    }
+
+    /// Тик после переключения toggle. `true` — нужен кадр: либо раскладка
+    /// ещё не опубликовала блок, либо блоки только что сдвинуты.
+    fn settle_fold_shift(&mut self) -> bool {
+        let Some(fs) = self.fold_shift.as_mut() else {
+            return false;
+        };
+        let published = self.blocks.lock().ok().and_then(|m| m.get(&fs.block).copied());
+        let Some(after) = published else {
+            fs.ticks += 1;
+            if fs.ticks < FOLD_SETTLE_TICKS {
+                return true;
+            }
+            self.fold_shift = None;
+            return false;
+        };
+        let (block, before) = (fs.block, fs.before);
+        self.fold_shift = None;
+        let delta = after.size.height - before.size.height;
+        delta.abs() >= 0.5 && self.shift_blocks_below(block, before, delta)
+    }
+
+    /// Сдвинуть закреплённые блоки под блоком `top` на `delta` px (вниз при
+    /// развороте, вверх при сворачивании). Двигаются блоки, что начинаются не
+    /// выше прежнего низа `top` и перекрываются с ним по горизонтали, и по
+    /// цепочке — стоящие под уже сдвинутыми; соседняя колонка на месте.
+    /// Вверх группа не заходит на оставшиеся на месте блоки ближе
+    /// [`FOLD_MIN_GAP`]. Правка без своего checkpoint'а — в истории она одним
+    /// шагом с переключением toggle.
+    fn shift_blocks_below(
+        &mut self,
+        top: super::model::BlockId,
+        before: Rect,
+        delta: f32,
+    ) -> bool {
+        let Some(rects) = self.blocks.lock().ok().map(|m| m.clone()) else {
+            return false;
+        };
+        let pinned: Vec<(super::model::BlockId, Rect)> = self
+            .model()
+            .blocks
+            .iter()
+            .filter(|b| b.id != top && free::pos_of(&b.attrs).is_some())
+            .filter_map(|b| rects.get(&b.id).map(|r| (b.id, *r)))
+            .collect();
+        let overlaps_x = |a: &Rect, b: &Rect| {
+            a.origin.x < b.origin.x + b.size.width - 1.0
+                && b.origin.x < a.origin.x + a.size.width - 1.0
+        };
+        let bottom = |r: &Rect| r.origin.y + r.size.height;
+        // Опоры цепочки: прямоугольник и граница, ниже которой блок «под ним».
+        let mut anchors = vec![(before, bottom(&before))];
+        let mut moved: Vec<(super::model::BlockId, Rect)> = Vec::new();
+        loop {
+            let next: Vec<(super::model::BlockId, Rect)> = pinned
+                .iter()
+                .filter(|(id, r)| {
+                    !moved.iter().any(|(m, _)| m == id)
+                        && anchors
+                            .iter()
+                            .any(|(a, edge)| r.origin.y >= edge - 1.0 && overlaps_x(a, r))
+                })
+                .copied()
+                .collect();
+            if next.is_empty() {
+                break;
+            }
+            anchors.extend(next.iter().map(|(_, r)| (*r, bottom(r))));
+            moved.extend(next);
+        }
+        if moved.is_empty() {
+            return false;
+        }
+        let mut shift = delta;
+        if delta < 0.0 {
+            for (_, m) in &moved {
+                for (id, n) in &pinned {
+                    if moved.iter().any(|(k, _)| k == id)
+                        || !overlaps_x(m, n)
+                        || bottom(n) > m.origin.y + 1.0
+                    {
+                        continue;
+                    }
+                    let room = (m.origin.y - bottom(n) - FOLD_MIN_GAP).max(0.0);
+                    shift = shift.max(-room);
+                }
+            }
+        }
+        let shift = shift.round();
+        if shift == 0.0 {
+            return false;
+        }
+        {
+            let mut model = self.model();
+            for b in model.blocks.iter_mut() {
+                if !moved.iter().any(|(id, _)| *id == b.id) {
+                    continue;
+                }
+                if let Some((x, y)) = free::pos_of(&b.attrs) {
+                    free::set_pos(&mut b.attrs, x, (y + shift).max(0.0));
+                }
+            }
+        }
+        self.after_edit();
+        true
     }
 
     /// Вид фигуры блока (если блок — примитив).
@@ -5564,6 +5726,9 @@ impl Element for DocumentEditorElement {
                             GutterAction::ToggleCollapse => edit::toggle_collapse(&mut model, id),
                         }
                         drop(model);
+                        if action == GutterAction::ToggleCollapse {
+                            self.arm_fold_shift(id);
+                        }
                         self.after_edit();
                         return EventResult::Handled;
                     }
@@ -6571,11 +6736,12 @@ impl Element for DocumentEditorElement {
     }
 
     fn animate(&mut self, dt: Duration) -> bool {
+        let folding = self.settle_fold_shift();
         if !self.focused
             || self.read_only
             || (self.selection.is_none() && self.table_caret.is_none() && self.code_caret.is_none())
         {
-            return false;
+            return folding;
         }
         self.blink_ms += dt.as_secs_f32() * 1000.0;
         if self.blink_ms >= 530.0 {
@@ -6587,9 +6753,12 @@ impl Element for DocumentEditorElement {
     }
 
     fn wants_animate_tick(&self) -> bool {
-        self.focused
-            && !self.read_only
-            && (self.selection.is_some() || self.table_caret.is_some() || self.code_caret.is_some())
+        self.fold_shift.is_some()
+            || (self.focused
+                && !self.read_only
+                && (self.selection.is_some()
+                    || self.table_caret.is_some()
+                    || self.code_caret.is_some()))
     }
 
     fn wants_tab(&self) -> bool {

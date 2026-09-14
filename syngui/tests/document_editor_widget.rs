@@ -2574,6 +2574,98 @@ fn switching_to_free_layout_pins_blocks_where_the_flow_put_them() {
     assert_eq!(kept, src);
 }
 
+/// Toggle на холсте: развернули — закреплённый блок под ним уезжает вниз на
+/// прирост высоты, свернули — возвращается на место; блок соседней колонки
+/// не двигается. Сдвиг отложенный (высота известна только после раскладки)
+/// и отменяется одним шагом вместе с переключением.
+#[test]
+fn folding_toggle_on_canvas_moves_blocks_below() {
+    let handle = DocumentEditorHandle::new();
+    let md = "> [!toggle] Секция\n>\n> раз\n>\n> два\n>\n> три\n\nПод секцией\n\nСоседняя колонка\n\n\
+              ```doc-layout\n0 {w=300 x=40 y=40}\n1 {w=300 x=40 y=100}\n2 {w=300 x=400 y=100}\n```\n";
+    let free = DocLayout {
+        free: true,
+        ..DocLayout::default()
+    };
+    let editor = |epoch: u64| {
+        Box::new(
+            DocumentEditor::new()
+                .markdown(md)
+                .handle(&handle)
+                .layout(free)
+                .model_epoch(epoch),
+        )
+    };
+    let mut h = TestHarness::new(editor(0));
+    h.tree.text_measure = Some(Arc::new(Mono));
+    h.rebuild();
+    h.layout(800.0, 2000.0);
+    let rows_of = |h: &TestHarness| -> Vec<Rect> {
+        let mut rows: Vec<Rect> = h
+            .find_by_type_name("doc-text-row")
+            .iter()
+            .map(|&e| h.element_bounds(e))
+            .collect();
+        rows.sort_by(|a, b| a.origin.y.total_cmp(&b.origin.y));
+        rows
+    };
+    let header = rows_of(&h)[0];
+    assert!(header.origin.y < 60.0, "{header:?}");
+    let chevron = Point::new(header.origin.x + 4.0, header.origin.y + 4.0);
+    // Кадр приложения: клик → перестройка и раскладка → тик анимаций
+    // (сдвиг) → снова раскладка.
+    let click = |h: &mut TestHarness| {
+        h.send_event(&Event::MouseDown {
+            button: MouseButton::Left,
+            position: chevron,
+        });
+        h.send_event(&Event::MouseUp {
+            button: MouseButton::Left,
+            position: chevron,
+        });
+        for _ in 0..2 {
+            h.rebuild();
+            h.layout(800.0, 2000.0);
+            h.animate(std::time::Duration::from_millis(16));
+        }
+        h.rebuild();
+        h.layout(800.0, 2000.0);
+    };
+
+    click(&mut h);
+    let open = handle.serialize();
+    assert!(open.contains("[!toggle]{open}"), "шеврон не развернул: {open}");
+    let below = geom_val(&open, 1, "y").unwrap();
+    assert!(below > 100.0 + 40.0, "блок под toggle не сдвинулся: {open}");
+    assert_eq!(geom_val(&open, 2, "y"), Some(100.0), "соседняя колонка: {open}");
+    // Под развёрнутым содержимым, а не поверх него.
+    let left: Vec<Rect> = rows_of(&h)
+        .into_iter()
+        .filter(|r| r.origin.x < 380.0)
+        .collect();
+    let (last_child, under) = (left[left.len() - 2], left[left.len() - 1]);
+    assert!(
+        under.origin.y >= last_child.origin.y + last_child.size.height,
+        "{last_child:?} {under:?}"
+    );
+
+    click(&mut h);
+    let closed = handle.serialize();
+    assert!(!closed.contains("{open}"), "{closed}");
+    assert_eq!(geom_val(&closed, 1, "y"), Some(100.0), "не вернулся: {closed}");
+
+    // Отмена снимает и разворот, и сдвиг разом.
+    click(&mut h);
+    assert!(geom_val(&handle.serialize(), 1, "y").unwrap() > 140.0);
+    handle.queue_op(DocOp::Undo);
+    h.update_widget(editor(1));
+    h.rebuild();
+    h.layout(800.0, 2000.0);
+    let undone = handle.serialize();
+    assert!(!undone.contains("{open}"), "{undone}");
+    assert_eq!(geom_val(&undone, 1, "y"), Some(100.0), "{undone}");
+}
+
 /// Фон страницы из раскладки рисуется первым прямоугольником — на весь
 /// холст, под сеткой (свойство страницы, а не режима).
 #[test]
