@@ -42,6 +42,8 @@ pub struct VideoPlayer {
     paused_at: Option<Instant>,
     input_path: String,
     has_audio: bool,
+    /// Когда пришёл последний кадр — для индикатора буферизации.
+    last_frame_at: Instant,
 }
 
 impl VideoPlayer {
@@ -94,6 +96,7 @@ impl VideoPlayer {
             paused_at: None,
             input_path: input.to_string(),
             has_audio,
+            last_frame_at: Instant::now(),
         })
     }
 
@@ -113,6 +116,7 @@ impl VideoPlayer {
         if let Some(at) = self.paused_at.take() {
             self.paused_accum += at.elapsed();
         }
+        self.last_frame_at = Instant::now();
         self.decoder.resume();
     }
 
@@ -182,6 +186,7 @@ impl VideoPlayer {
         }
 
         self.shared.set_seek_offset_sec(target);
+        self.last_frame_at = Instant::now();
         self.wall_start = Some(Instant::now());
         self.paused_accum = WebDuration::ZERO;
         if self.is_paused() {
@@ -190,6 +195,19 @@ impl VideoPlayer {
             self.paused_at = None;
         }
         Ok(())
+    }
+
+    /// Кадры не приходят дольше 0,7 с при воспроизведении и не в конце —
+    /// сеть/декодер не успевают, UI может показать «буферизация».
+    pub fn is_buffering(&self) -> bool {
+        if self.is_paused() {
+            return false;
+        }
+        let dur = self.shared.duration_sec;
+        if dur > 0.0 && self.position_sec() >= dur - 0.5 {
+            return false;
+        }
+        self.last_frame_at.elapsed() > WebDuration::from_millis(700)
     }
 
     pub fn poll_frame(&mut self) -> Option<VideoFrame> {
@@ -222,6 +240,7 @@ impl VideoPlayer {
             }
         }
 
+        self.last_frame_at = Instant::now();
         Some(candidate)
     }
 

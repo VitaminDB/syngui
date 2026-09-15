@@ -63,6 +63,78 @@ const AUDIO_TEE_QUEUE_CAP: usize = 32;
 
 const AV_TIME_BASE_F64: f64 = 1_000_000.0;
 
+/// Упреждающее чтение: отдельный поток тянет пакеты из демуксера в очередь,
+/// пока она не заполнится. Для HLS с CDN это буфер ~20–30 с сжатого видео
+/// (пакет ≈ кадр или аудиофрейм, ~70 шт./с; 1080p ≈ 15 МБ на 2000 пакетов):
+/// зависший сегмент или мёртвый edge-хост не останавливают картинку.
+const READAHEAD_PACKETS: usize = 2000;
+
+enum ReaderCmd {
+    /// Перемотка: после `ictx.seek` ридер шлёт `Flushed(gen)`, и декодер
+    /// выбрасывает всё, что пришло до этого маркера.
+    Seek(f64, u64),
+    Stop,
+}
+
+enum ReaderItem {
+    Packet(ffmpeg_next::Packet),
+    Flushed(u64, Option<String>),
+    Eof,
+}
+
+/// Поток чтения пакетов (владеет `Input`). На EOF ждёт команду (seek/stop).
+fn run_reader_thread(
+    mut ictx: Input,
+    item_tx: SyncSender<ReaderItem>,
+    cmd_rx: Receiver<ReaderCmd>,
+) {
+    let mut at_eof = false;
+    loop {
+        let cmd = if at_eof {
+            match cmd_rx.recv() {
+                Ok(c) => Some(c),
+                Err(_) => return,
+            }
+        } else {
+            cmd_rx.try_recv().ok()
+        };
+        match cmd {
+            Some(ReaderCmd::Stop) => return,
+            Some(ReaderCmd::Seek(sec, gen)) => {
+                let target_ts = (sec * AV_TIME_BASE_F64) as i64;
+                let err = ictx
+                    .seek(target_ts, ..target_ts)
+                    .err()
+                    .map(|e| format!("ictx.seek({sec:.3}s): {e}"));
+                at_eof = false;
+                if item_tx.send(ReaderItem::Flushed(gen, err)).is_err() {
+                    return;
+                }
+                continue;
+            }
+            None => {}
+        }
+        let mut packet = ffmpeg_next::Packet::empty();
+        match packet.read(&mut ictx) {
+            Ok(()) => {
+                if item_tx.send(ReaderItem::Packet(packet)).is_err() {
+                    return;
+                }
+            }
+            Err(ffmpeg_next::Error::Eof) => {
+                at_eof = true;
+                if item_tx.send(ReaderItem::Eof).is_err() {
+                    return;
+                }
+            }
+            Err(e) => {
+                log::debug!("video: read packet: {e}");
+                thread::sleep(Duration::from_millis(5));
+            }
+        }
+    }
+}
+
 impl VideoDecoder {
     pub fn open(input: &str) -> Result<Self, VideoError> {
         Self::open_with_hwaccel(input, HwAccel::None)
@@ -250,7 +322,7 @@ fn read_meta(ictx: &Input) -> Result<VideoMeta, VideoError> {
 }
 
 fn run_decoder_thread(
-    mut ictx: Input,
+    ictx: Input,
     _meta: VideoMeta,
     accel: HwAccel,
     video_tx: SyncSender<VideoFrame>,
@@ -405,13 +477,27 @@ fn run_decoder_thread(
     let mut tee_video: Option<SyncSender<Arc<VideoFrame>>> = None;
     let mut tee_audio: Option<SyncSender<Vec<f32>>> = None;
 
+    // Демуксер уезжает в поток чтения; декодеру остаётся очередь пакетов.
+    let (item_tx, item_rx) = mpsc::sync_channel::<ReaderItem>(READAHEAD_PACKETS);
+    let (reader_tx, reader_rx) = mpsc::channel::<ReaderCmd>();
+    let reader_join = thread::Builder::new()
+        .name("syngui-video-reader".into())
+        .spawn(move || run_reader_thread(ictx, item_tx, reader_rx))
+        .map_err(|e| VideoError::Other(format!("spawn reader: {e}")))?;
+    let mut seek_gen: u64 = 0;
+    let mut reader = ReaderLink {
+        cmd_tx: reader_tx,
+        item_rx,
+        join: Some(reader_join),
+    };
+
     'main: loop {
         if !paused {
             match cmd_rx.try_recv() {
                 Ok(DecoderCmd::Pause) => paused = true,
                 Ok(DecoderCmd::Resume) => {}
                 Ok(DecoderCmd::SeekSec(t)) => {
-                    perform_seek(&mut ictx, &mut v_dec, audio.as_mut(), t)?;
+                    perform_seek(&mut reader, &mut seek_gen, &mut v_dec, audio.as_mut(), t)?;
                 }
                 Ok(DecoderCmd::ReAttachAudio(new_tx)) => {
                     audio_tx = Some(new_tx);
@@ -433,7 +519,7 @@ fn run_decoder_thread(
                 Ok(DecoderCmd::Resume) => paused = false,
                 Ok(DecoderCmd::Pause) => {}
                 Ok(DecoderCmd::SeekSec(t)) => {
-                    perform_seek(&mut ictx, &mut v_dec, audio.as_mut(), t)?;
+                    perform_seek(&mut reader, &mut seek_gen, &mut v_dec, audio.as_mut(), t)?;
                     paused = false;
                 }
                 Ok(DecoderCmd::ReAttachAudio(new_tx)) => {
@@ -451,10 +537,12 @@ fn run_decoder_thread(
             continue;
         }
 
-        let mut packet = ffmpeg_next::Packet::empty();
-        match packet.read(&mut ictx) {
-            Ok(()) => {}
-            Err(ffmpeg_next::Error::Eof) => {
+        let packet = match reader.item_rx.recv() {
+            Ok(ReaderItem::Packet(p)) => p,
+            // Маркер устаревшей перемотки — пропускаем.
+            Ok(ReaderItem::Flushed(..)) => continue,
+            Err(_) => break 'main,
+            Ok(ReaderItem::Eof) => {
                 let _ = v_dec.send_eof();
                 drain_video(
                     &mut v_dec,
@@ -482,7 +570,7 @@ fn run_decoder_thread(
                 }
                 match cmd_rx.recv() {
                     Ok(DecoderCmd::SeekSec(t)) => {
-                        perform_seek(&mut ictx, &mut v_dec, audio.as_mut(), t)?;
+                        perform_seek(&mut reader, &mut seek_gen, &mut v_dec, audio.as_mut(), t)?;
                     }
                     Ok(DecoderCmd::ReAttachAudio(new_tx)) => {
                         audio_tx = Some(new_tx);
@@ -498,10 +586,7 @@ fn run_decoder_thread(
                 }
                 continue;
             }
-            Err(_e) => {
-                continue;
-            }
-        }
+        };
 
         let pkt_idx = packet.stream();
 
@@ -530,7 +615,32 @@ fn run_decoder_thread(
         }
     }
 
+    reader.stop();
     Ok(())
+}
+
+/// Связь декодера с потоком чтения.
+struct ReaderLink {
+    cmd_tx: Sender<ReaderCmd>,
+    item_rx: Receiver<ReaderItem>,
+    join: Option<JoinHandle<()>>,
+}
+
+impl ReaderLink {
+    fn stop(&mut self) {
+        let _ = self.cmd_tx.send(ReaderCmd::Stop);
+        // Ридер может стоять на send в полную очередь — освобождаем её.
+        while self.item_rx.try_recv().is_ok() {}
+        if let Some(j) = self.join.take() {
+            let _ = j.join();
+        }
+    }
+}
+
+impl Drop for ReaderLink {
+    fn drop(&mut self) {
+        self.stop();
+    }
 }
 
 struct AudioState {
@@ -666,16 +776,30 @@ fn drain_audio(
 }
 
 fn perform_seek(
-    ictx: &mut Input,
+    reader: &mut ReaderLink,
+    seek_gen: &mut u64,
     v_dec: &mut ffmpeg_next::decoder::Video,
     audio: Option<&mut AudioState>,
     target_sec: f64,
 ) -> Result<(), VideoError> {
-    let target_ts = (target_sec * AV_TIME_BASE_F64) as i64;
-    if let Err(e) = ictx.seek(target_ts, ..target_ts) {
-        return Err(VideoError::Seek(format!(
-            "ictx.seek({target_sec:.3}s): {e}"
-        )));
+    *seek_gen += 1;
+    let gen = *seek_gen;
+    reader
+        .cmd_tx
+        .send(ReaderCmd::Seek(target_sec, gen))
+        .map_err(|_| VideoError::Seek("поток чтения завершился".into()))?;
+    // Выбрасываем упреждающий буфер до маркера нашей перемотки.
+    loop {
+        match reader.item_rx.recv() {
+            Ok(ReaderItem::Flushed(g, err)) if g == gen => {
+                if let Some(e) = err {
+                    return Err(VideoError::Seek(e));
+                }
+                break;
+            }
+            Ok(_) => continue,
+            Err(_) => return Err(VideoError::Seek("поток чтения завершился".into())),
+        }
     }
     v_dec.flush();
     if let Some(a) = audio {
