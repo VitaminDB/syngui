@@ -98,12 +98,14 @@ pub enum KeyReply {
 type KeyHandler = Arc<dyn Fn(Key, Modifiers) -> KeyReply + Send + Sync>;
 type RemoteHandler = Arc<dyn Fn(RemoteKey) -> bool + Send + Sync>;
 type BackHandler = Arc<dyn Fn() -> bool + Send + Sync>;
+type CharHandler = Arc<dyn Fn(char) -> bool + Send + Sync>;
 
 pub struct EventHook {
     on_key_down: Option<KeyHandler>,
     on_key_up: Option<KeyHandler>,
     on_remote: Option<RemoteHandler>,
     on_back: Option<BackHandler>,
+    on_char: Option<CharHandler>,
     bounds_out: Option<Arc<crate::core::sync::Mutex<Rect>>>,
     child: Option<Box<dyn Widget>>,
 }
@@ -115,9 +117,17 @@ impl EventHook {
             on_key_up: None,
             on_remote: None,
             on_back: None,
+            on_char: None,
             bounds_out: None,
             child: None,
         }
+    }
+
+    /// Ввод символа (`Event::CharInput`): физическая клавиатура на desktop.
+    /// Backspace приходит как `'\u{8}'`, Enter — как `'\r'`/`'\n'`.
+    pub fn on_char(mut self, handler: impl Fn(char) -> bool + Send + Sync + 'static) -> Self {
+        self.on_char = Some(Arc::new(handler));
+        self
     }
 
     /// Любая клавиша (с модификаторами) — для хоткеев вроде Ctrl+K.
@@ -178,6 +188,7 @@ impl Widget for EventHook {
             on_key_up: self.on_key_up.clone(),
             on_remote: self.on_remote.clone(),
             on_back: self.on_back.clone(),
+            on_char: self.on_char.clone(),
             bounds_out: self.bounds_out.clone(),
             has_child: self.child.is_some(),
             bounds: Rect::zero(),
@@ -222,6 +233,7 @@ struct EventHookElement {
     on_key_up: Option<KeyHandler>,
     on_remote: Option<RemoteHandler>,
     on_back: Option<BackHandler>,
+    on_char: Option<CharHandler>,
     bounds_out: Option<Arc<crate::core::sync::Mutex<Rect>>>,
     has_child: bool,
     bounds: Rect,
@@ -247,6 +259,7 @@ impl Element for EventHookElement {
             self.on_key_up = hook.on_key_up.clone();
             self.on_remote = hook.on_remote.clone();
             self.on_back = hook.on_back.clone();
+            self.on_char = hook.on_char.clone();
             self.bounds_out = hook.bounds_out.clone();
             self.has_child = hook.child.is_some();
             self.publish_bounds();
@@ -275,6 +288,19 @@ impl Element for EventHookElement {
     fn build_display_list(&self, _list: &mut DisplayList, _clip: Rect) {}
 
     fn handle_event(&mut self, event: &Event, ctx: &mut EventContext) -> EventResult {
+        if let Event::CharInput(c) = event {
+            return match self.on_char.as_ref() {
+                Some(h) if h(*c) => EventResult::Handled,
+                _ => EventResult::Ignored,
+            };
+        }
+        // Backspace/Enter с физической клавиатуры — тоже в on_char, чтобы
+        // экранная клавиатура на desktop правила текст, а не закрывала экран.
+        if let (Event::KeyDown(Key::Backspace), Some(h)) = (event, self.on_char.as_ref()) {
+            if h('\u{8}') {
+                return EventResult::Handled;
+            }
+        }
         let raw = match event {
             Event::KeyDown(key) => self.on_key_down.as_ref().map(|h| h(*key, ctx.modifiers)),
             Event::KeyUp(key) => self.on_key_up.as_ref().map(|h| h(*key, ctx.modifiers)),

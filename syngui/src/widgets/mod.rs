@@ -39,7 +39,8 @@ pub use feedback::{
 #[cfg(feature = "code-editor")]
 pub use input::CodeEditor;
 pub use input::{
-    EventHook, KeyReply, RemoteKey,
+    input_field, on_screen_keyboard, EventHook, KeyAction, KeyDef, KeyReply, KeyboardController,
+    KeyboardLayout, KeyboardState, OnScreenKeyboard, RemoteKey,
     Autocomplete, Checkbox, ColorPicker, ColorValue, Combobox, Date, DatePicker, Dropdown,
     DropdownItem, DropdownState, MultilineTextEdit, Multiselect, RadioButton, RadioGroup, Slider,
     SpinBox, TextField, TickSlider, Time, TimePicker, Toggle,

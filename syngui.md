@@ -1356,6 +1356,32 @@ GameTextInput съедает DPAD_LEFT/RIGHT. `Key` содержит `MediaPlayP
 (`Column`/`Row`/`Flex`/`Stack` тикают MSS-переходы и keyframes так же, как
 `DecoratedBox`; нужен `.class("x")` с правилом `transition` в MSS).
 
+**Экранная клавиатура** (`syngui/src/widgets/input/on_screen_keyboard.rs`,
+`syngui::widgets::*`): раскладки — `KeyboardLayout::text_ru_en("Найти")`,
+`text_en_ru(..)` (латиница первой — логин/пароль), `url_set("Открыть")`, или
+свои из `KeyDef::ch / text / action` + `KeyAction`. Состояние —
+`KeyboardState::new("")` (сигналы `text/layout/focus/shift/active`), создаётся
+один раз в контексте приложения.
+
+```rust
+let kbw = on_screen_keyboard(ctx.kb, KeyboardLayout::text_ru_en("Найти"))
+    .on_change(move |t| query.set(t.to_string()))
+    .on_submit(move |t| run_search(t))
+    .gap(8.0);
+let ctl = kbw.controller();     // press(RemoteKey) / type_char / apply — отладка, скрипты
+let keyboard = kbw.build();
+input_field(ctx.kb.text, "Название…", /*masked*/ false, /*focused*/ true)
+```
+
+Клавиатура сама ходит по сетке D-pad'ом, пока `state.active` = true;
+на краю сетки событие не поглощается — родительский `EventHook` переводит
+фокус в другую зону (поле, список, кнопку). Физическая клавиатура на desktop
+печатает через `EventHook::on_char` (Backspace — `'\u{8}'`, Enter — `'\r'`).
+Стили: `DEFAULT_MSS` (подключить через `with_styles_str`, переопределить
+`.osk-key`, `.osk-key-focused`, `.osk-key-w2..6`, `.osk-field*`). Ширина
+клавиши в n юнитов = n·width + (n−1)·gap. Эталон: `tv_rezka/src/screens/search.rs`,
+`login.rs`, `open_url.rs`.
+
 **Дизайнерское разрешение (TV/киоск):** `App::new().design_size(1920.0, 1080.0)`
 — фреймворк сам подбирает `ui_scale` при создании окна/resize, чтобы
 логический вьюпорт вмещал 1920×1080 (на ТВ с DPI 2.0 и 960×540 → 0.5).
