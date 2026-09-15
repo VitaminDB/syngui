@@ -202,9 +202,25 @@ fn write_all_levels(queue: &wgpu::Queue, texture: &wgpu::Texture, data: &ImageDa
 const UPLOADS_PER_FRAME: usize = 2;
 
 struct GpuImage {
-    texture: wgpu::Texture,
-    bind_group: wgpu::BindGroup,
+    /// Для статичных картинок — одна текстура. Для потоковых кадров
+    /// (`ImageData::single_level`) — кольцо из [`STREAM_RING`] текстур: запись
+    /// идёт в ту, которую GPU уже не читает. Иначе драйвер (Mali) делает
+    /// copy-on-write всей текстуры на каждый кадр, и второй поток
+    /// mali-utility-worker съедает ядро.
+    ring: Vec<(wgpu::Texture, wgpu::BindGroup)>,
+    cur: usize,
 }
+
+impl GpuImage {
+    fn texture(&self) -> &wgpu::Texture {
+        &self.ring[self.cur].0
+    }
+    fn bind_group(&self) -> &wgpu::BindGroup {
+        &self.ring[self.cur].1
+    }
+}
+
+const STREAM_RING: usize = 3;
 
 pub struct ImageGpuCache {
     images: HashMap<u32, GpuImage>,
@@ -265,69 +281,66 @@ impl ImageGpuCache {
         handle: ImageHandle,
         data: &ImageData,
     ) {
+        let ring_len = if data.single_level { STREAM_RING } else { 1 };
         let same_size = self
             .images
             .get(&handle.0)
             .map(|img| {
-                let s = img.texture.size();
+                let s = img.texture().size();
                 s.width == data.width
                     && s.height == data.height
-                    && img.texture.mip_level_count() == levels_for(data)
+                    && img.texture().mip_level_count() == levels_for(data)
+                    && img.ring.len() == ring_len
             })
             .unwrap_or(false);
 
         if same_size {
             // Перезапись содержимого обязана обновить и мипы: сэмплер
             // трилинейный, устаревшие уровни всплыли бы при минификации.
-            let img = self.images.get(&handle.0).expect("checked above");
-            write_all_levels(queue, &img.texture, data);
+            let img = self.images.get_mut(&handle.0).expect("checked above");
+            img.cur = (img.cur + 1) % img.ring.len();
+            write_all_levels(queue, img.texture(), data);
             return;
         }
 
         // Полная цепочка мипов: UI рисует картинки сильно меньше натурала
         // (SVG-логотип растеризуется в 512, а плитка в рейле — ~30 px), и
         // один уровень под трилинейным сэмплером давал рваные края.
-        let texture = device.create_texture(&wgpu::TextureDescriptor {
-            label: Some("Image Texture"),
-            size: wgpu::Extent3d {
-                width: data.width,
-                height: data.height,
-                depth_or_array_layers: 1,
-            },
-            mip_level_count: levels_for(data),
-            sample_count: 1,
-            dimension: wgpu::TextureDimension::D2,
-            format: wgpu::TextureFormat::Rgba8UnormSrgb,
-            usage: wgpu::TextureUsages::TEXTURE_BINDING | wgpu::TextureUsages::COPY_DST,
-            view_formats: &[],
-        });
-
-        write_all_levels(queue, &texture, data);
-
-        let texture_view = texture.create_view(&wgpu::TextureViewDescriptor::default());
-
-        let bind_group = device.create_bind_group(&wgpu::BindGroupDescriptor {
-            label: Some("Image BG"),
-            layout: &self.bind_group_layout,
-            entries: &[
-                wgpu::BindGroupEntry {
-                    binding: 0,
-                    resource: wgpu::BindingResource::TextureView(&texture_view),
+        let mut ring = Vec::with_capacity(ring_len);
+        for _ in 0..ring_len {
+            let texture = device.create_texture(&wgpu::TextureDescriptor {
+                label: Some("Image Texture"),
+                size: wgpu::Extent3d {
+                    width: data.width,
+                    height: data.height,
+                    depth_or_array_layers: 1,
                 },
-                wgpu::BindGroupEntry {
-                    binding: 1,
-                    resource: wgpu::BindingResource::Sampler(&self.sampler),
-                },
-            ],
-        });
-
-        self.images.insert(
-            handle.0,
-            GpuImage {
-                texture,
-                bind_group,
-            },
-        );
+                mip_level_count: levels_for(data),
+                sample_count: 1,
+                dimension: wgpu::TextureDimension::D2,
+                format: wgpu::TextureFormat::Rgba8UnormSrgb,
+                usage: wgpu::TextureUsages::TEXTURE_BINDING | wgpu::TextureUsages::COPY_DST,
+                view_formats: &[],
+            });
+            let texture_view = texture.create_view(&wgpu::TextureViewDescriptor::default());
+            let bind_group = device.create_bind_group(&wgpu::BindGroupDescriptor {
+                label: Some("Image BG"),
+                layout: &self.bind_group_layout,
+                entries: &[
+                    wgpu::BindGroupEntry {
+                        binding: 0,
+                        resource: wgpu::BindingResource::TextureView(&texture_view),
+                    },
+                    wgpu::BindGroupEntry {
+                        binding: 1,
+                        resource: wgpu::BindingResource::Sampler(&self.sampler),
+                    },
+                ],
+            });
+            ring.push((texture, bind_group));
+        }
+        write_all_levels(queue, &ring[0].0, data);
+        self.images.insert(handle.0, GpuImage { ring, cur: 0 });
     }
 
     pub fn process_uploads(
@@ -348,7 +361,7 @@ impl ImageGpuCache {
     }
 
     pub fn get_bind_group(&self, handle_id: u32) -> Option<&wgpu::BindGroup> {
-        self.images.get(&handle_id).map(|img| &img.bind_group)
+        self.images.get(&handle_id).map(|img| img.bind_group())
     }
 }
 
