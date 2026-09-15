@@ -69,10 +69,30 @@ impl VideoDecoder {
     }
 
     pub fn open_with_hwaccel(input: &str, accel: HwAccel) -> Result<Self, VideoError> {
+        Self::open_with_options(input, accel, &[])
+    }
+
+    /// Открыть с опциями демуксера/протокола libavformat: `user_agent`,
+    /// `headers` («Referer: …\r\n»), `timeout`, `rw_timeout`,
+    /// `reconnect`… — то, что принимает `avformat_open_input` через
+    /// AVDictionary. Нужны для HLS с CDN, требующих Referer/UA.
+    pub fn open_with_options(
+        input: &str,
+        accel: HwAccel,
+        options: &[(&str, &str)],
+    ) -> Result<Self, VideoError> {
         ffmpeg_next::init().ok();
 
-        let ictx = ffmpeg_next::format::input(&input.to_string())
-            .map_err(|e| VideoError::Open(format!("{input}: {e}")))?;
+        let ictx = if options.is_empty() {
+            ffmpeg_next::format::input(&input.to_string())
+        } else {
+            let mut dict = ffmpeg_next::Dictionary::new();
+            for (k, v) in options {
+                dict.set(k, v);
+            }
+            ffmpeg_next::format::input_with_dictionary(&input.to_string(), dict)
+        }
+        .map_err(|e| VideoError::Open(format!("{input}: {e}")))?;
 
         let meta = read_meta(&ictx)?;
 

@@ -50,7 +50,17 @@ impl VideoPlayer {
     }
 
     pub fn open_with_hwaccel(input: &str, accel: HwAccel) -> Result<Self, VideoError> {
-        let mut decoder = VideoDecoder::open_with_hwaccel(input, accel)?;
+        Self::open_with_options(input, accel, &[])
+    }
+
+    /// См. [`VideoDecoder::open_with_options`]: опции libavformat
+    /// (`user_agent`, `headers`, таймауты) для сетевых источников.
+    pub fn open_with_options(
+        input: &str,
+        accel: HwAccel,
+        options: &[(&str, &str)],
+    ) -> Result<Self, VideoError> {
+        let mut decoder = VideoDecoder::open_with_options(input, accel, options)?;
         let has_audio = decoder.meta().has_audio;
         let audio = if has_audio {
             match decoder.take_audio_rx() {
