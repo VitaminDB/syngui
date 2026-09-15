@@ -11,7 +11,9 @@ use crate::text::FontAtlas;
 use std::sync::Arc;
 use wgpu::util::DeviceExt;
 
-const MAX_CLIP_SLOTS: usize = 64;
+/// Уникальных клипов за кадр (uniform-слот на каждый, 256 байт). Свыше —
+/// батч теряет скругление клипа, прямоугольный scissor остаётся.
+const MAX_CLIP_SLOTS: usize = 256;
 
 const UNIFORM_ALIGN: usize = 256;
 

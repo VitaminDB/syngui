@@ -15,7 +15,7 @@ impl Batcher {
                 clip_rect,
                 ..
             } => {
-                self.ensure_batch(ShaderType::Rect, None, *clip_rect);
+                self.ensure_batch_rect(ShaderType::Rect, None, *clip_rect, rect.inflate(1.0, 1.0));
                 if let Some(psb) = per_side_border {
                     let bc = psb.color;
                     self.add_rect_per_side_border(
@@ -46,7 +46,8 @@ impl Batcher {
                 clip_rect,
                 ..
             } => {
-                self.ensure_batch(ShaderType::Rect, None, *clip_rect);
+                let pad = ring_width + 2.0;
+                self.ensure_batch_rect(ShaderType::Rect, None, *clip_rect, rect.inflate(pad, pad));
                 self.add_outline(*rect, *color, *corner_radius, *ring_width);
             }
             DrawCommand::GradientRect {
@@ -58,7 +59,7 @@ impl Batcher {
                 clip_rect,
                 ..
             } => {
-                self.ensure_batch(ShaderType::Rect, None, *clip_rect);
+                self.ensure_batch_rect(ShaderType::Rect, None, *clip_rect, rect.inflate(1.0, 1.0));
                 self.add_linear_gradient_rect(
                     *rect,
                     gradient,
@@ -193,8 +194,25 @@ impl Batcher {
                 // ломает; см. `transform_keeps_pixel_grid`.
                 let snap = sf > 0.0 && self.transform_keeps_pixel_grid();
 
+                // Bbox текста: от origin на ширину строк; высота — по rect и
+                // фактической высоте строк (текст может выходить за rect).
+                let text_bbox_rect = crate::core::Rect::new(
+                    crate::core::Point::new(origin_x.min(rect.origin.x), origin_y.min(rect.origin.y)),
+                    crate::core::Size::new(
+                        text_width.max(rect.size.width) + (origin_x - rect.origin.x).abs(),
+                        text_height.max(rect.size.height) + (origin_y - rect.origin.y).abs(),
+                    ),
+                );
                 if let Some(shadow) = text_shadow {
-                    self.ensure_batch(ShaderType::Text, None, *clip_rect);
+                    let pad = shadow.blur_radius.max(0.0).ceil()
+                        + shadow.offset_x.abs()
+                        + shadow.offset_y.abs();
+                    self.ensure_batch_rect(
+                        ShaderType::Text,
+                        None,
+                        *clip_rect,
+                        text_bbox_rect.inflate(pad, pad),
+                    );
                     let shadow_color = self.apply_opacity(shadow.color.to_array());
                     let shadow_offset_x = shadow.offset_x;
                     let shadow_offset_y = shadow.offset_y;
@@ -285,7 +303,7 @@ impl Batcher {
                     }
                 }
 
-                self.ensure_batch(ShaderType::Text, None, *clip_rect);
+                self.ensure_batch_rect(ShaderType::Text, None, *clip_rect, text_bbox_rect);
                 let color_array = self.apply_opacity(color.to_array());
 
                 for glyph in glyphs.iter() {
@@ -352,7 +370,6 @@ impl Batcher {
                 }
 
                 if *decoration != crate::mss::TextDecoration::None && text_width > 0.0 {
-                    self.ensure_batch(ShaderType::Rect, None, *clip_rect);
                     let mut line_thickness = (*font_size * 0.07).max(1.0);
                     let mut line_y = match decoration {
                         crate::mss::TextDecoration::Underline => origin_y + text_height + 2.0,
@@ -373,6 +390,7 @@ impl Batcher {
                         color_array[2],
                         color_array[3],
                     );
+                    self.ensure_batch_rect(ShaderType::Rect, None, *clip_rect, line_rect);
                     self.add_rect(line_rect, line_color, [0.0; 4]);
                 }
             }
@@ -386,14 +404,13 @@ impl Batcher {
                 clip_rect,
                 ..
             } => {
-                if !self.buckets.is_empty() {
-                    self.flush_all_buckets();
-                }
+                let pad = blur_radius.max(0.0) + offset.0.abs().max(offset.1.abs());
+                let shadow_rect = rect.inflate(pad, pad);
                 if *inset {
-                    self.ensure_batch(ShaderType::InnerShadow, None, *clip_rect);
+                    self.ensure_batch_rect(ShaderType::InnerShadow, None, *clip_rect, shadow_rect);
                     self.add_inner_shadow(*rect, *color, *blur_radius, *offset, *corner_radius);
                 } else {
-                    self.ensure_batch(ShaderType::Shadow, None, *clip_rect);
+                    self.ensure_batch_rect(ShaderType::Shadow, None, *clip_rect, shadow_rect);
                     self.add_shadow(*rect, *color, *blur_radius, *offset, *corner_radius);
                 }
             }
@@ -406,10 +423,13 @@ impl Batcher {
                 clip_rect,
                 ..
             } => {
-                if !self.buckets.is_empty() {
-                    self.flush_all_buckets();
-                }
-                self.ensure_batch(ShaderType::GlowShadow, None, *clip_rect);
+                let pad = blur_radius.max(0.0) + offset.0.abs().max(offset.1.abs());
+                self.ensure_batch_rect(
+                    ShaderType::GlowShadow,
+                    None,
+                    *clip_rect,
+                    rect.inflate(pad, pad),
+                );
                 self.add_shadow(*rect, *color, *blur_radius, *offset, *corner_radius);
             }
             DrawCommand::TextSelection {
@@ -455,11 +475,11 @@ impl Batcher {
                 );
                 let end_x = *base_x + end_x_offset / sf;
                 let sel_width = (end_x - start_x).max(1.0);
-                self.ensure_batch(ShaderType::Rect, None, *clip_rect);
                 let sel_rect = crate::core::Rect::new(
                     crate::core::Point::new(start_x, *y),
                     crate::core::Size::new(sel_width, *height),
                 );
+                self.ensure_batch_rect(ShaderType::Rect, None, *clip_rect, sel_rect.inflate(1.0, 1.0));
                 self.add_rect(sel_rect, *color, [2.0; 4]);
             }
             DrawCommand::TextCursor {
@@ -489,22 +509,19 @@ impl Batcher {
                     font_family.as_deref(),
                 );
                 let cursor_x = *base_x + cursor_x_offset / sf;
-                self.ensure_batch(ShaderType::Rect, None, *clip_rect);
                 let cursor_rect = crate::core::Rect::new(
                     crate::core::Point::new(cursor_x, *y),
                     crate::core::Size::new(1.5, *height),
                 );
+                self.ensure_batch_rect(ShaderType::Rect, None, *clip_rect, cursor_rect);
                 self.add_rect(cursor_rect, *color, [0.0; 4]);
             }
-            DrawCommand::PushClip { .. } => {
-                self.flush_all_buckets();
-            }
-            DrawCommand::PopClip => {
-                self.flush_all_buckets();
-            }
-            DrawCommand::ZBarrier => {
-                self.flush_all_buckets();
-            }
+            // Клип входит в ключ батча; порядок между батчами разных клипов
+            // хранит bbox-упорядочивание — рвать группу не нужно.
+            DrawCommand::PushClip { .. } | DrawCommand::PopClip => {}
+            // Порядок слоёв Stack гарантирует bbox-упорядочивание батчей
+            // (пересекающиеся примитивы не переставляются) — барьер не нужен.
+            DrawCommand::ZBarrier => {}
             DrawCommand::PushTransform(transform) => {
                 self.transform_stack.push(self.current_transform);
                 self.current_transform = transform.then(&self.current_transform);
@@ -540,10 +557,25 @@ impl Batcher {
                 clip_rect,
                 ..
             } => {
-                self.ensure_batch(ShaderType::Rect, None, *clip_rect);
                 let opacity = self.current_opacity;
                 let transform = self.current_transform;
                 let is_identity = transform == crate::core::Transform::identity();
+                let mut bbox = [f32::MAX, f32::MAX, f32::MIN, f32::MIN];
+                for v in vertices.iter() {
+                    let p = if is_identity {
+                        v.position
+                    } else {
+                        let p = transform
+                            .transform_point(euclid::Point2D::new(v.position[0], v.position[1]));
+                        [p.x, p.y]
+                    };
+                    bbox[0] = bbox[0].min(p[0]);
+                    bbox[1] = bbox[1].min(p[1]);
+                    bbox[2] = bbox[2].max(p[0]);
+                    bbox[3] = bbox[3].max(p[1]);
+                }
+                let bbox = if vertices.is_empty() { None } else { Some(bbox) };
+                self.ensure_batch_bbox(ShaderType::Rect, None, *clip_rect, bbox);
                 let state = self.current_batch_mut();
                 let base = state.vertices.len() as u32;
                 use crate::render::Vertex;
@@ -576,7 +608,6 @@ impl Batcher {
                 clip_rect,
                 ..
             } => {
-                self.ensure_batch(ShaderType::Line, None, *clip_rect);
                 let opacity = self.current_opacity;
                 let transform = self.current_transform;
                 let is_identity = transform == crate::core::Transform::identity();
@@ -587,6 +618,21 @@ impl Batcher {
                 };
                 let feather = 1.0_f32;
                 let half_w = *width * 0.5 + feather;
+                let mut bbox = [f32::MAX, f32::MAX, f32::MIN, f32::MIN];
+                for pt in points.iter() {
+                    let p = if is_identity {
+                        *pt
+                    } else {
+                        let p = transform.transform_point(euclid::Point2D::new(pt[0], pt[1]));
+                        [p.x, p.y]
+                    };
+                    bbox[0] = bbox[0].min(p[0] - half_w);
+                    bbox[1] = bbox[1].min(p[1] - half_w);
+                    bbox[2] = bbox[2].max(p[0] + half_w);
+                    bbox[3] = bbox[3].max(p[1] + half_w);
+                }
+                let bbox = if points.is_empty() { None } else { Some(bbox) };
+                self.ensure_batch_bbox(ShaderType::Line, None, *clip_rect, bbox);
                 let state = self.current_batch_mut();
                 use crate::render::Vertex;
                 let seg_count = points.len().saturating_sub(1);
@@ -700,7 +746,7 @@ impl Batcher {
                 clip_rect,
                 ..
             } => {
-                self.ensure_batch(ShaderType::Image, Some(*texture_id), *clip_rect);
+                self.ensure_batch_rect(ShaderType::Image, Some(*texture_id), *clip_rect, *rect);
                 let color_array = self.apply_opacity(color.to_array());
                 let [p0, p1, p2, p3] = self.transform_quad([
                     [rect.origin.x, rect.origin.y],

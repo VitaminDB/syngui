@@ -130,7 +130,6 @@ impl TestHarness {
             }
         }
         if any_rebuilt {
-            self.tree.force_full_measure = true;
             self.a11y_dirty = true;
         }
         t.rebuild = started.elapsed().saturating_sub(t.styles);
@@ -154,7 +153,6 @@ impl TestHarness {
                 relayout_styles = styled.elapsed();
                 t.styles += relayout_styles;
             }
-            self.tree.force_full_measure = true;
             self.tree.layout(root, constraints);
             self.a11y_dirty = true;
             t.relayout = true;

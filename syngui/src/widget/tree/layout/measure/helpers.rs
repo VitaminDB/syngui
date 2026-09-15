@@ -27,11 +27,17 @@ macro_rules! layout_log {
 }
 
 impl ElementTree {
+    /// Оценка размера ребёнка далеко за пределами вьюпорта прокрутки по
+    /// кэшу измерений — без обхода поддерева. Кэш годится, только если
+    /// ограничения те же (`constraints_hash`): иначе после ресайза
+    /// невидимые дети сохраняли бы размеры под старую ширину. Именно поэтому
+    /// rebuild больше не взводит `force_full_measure`: изменившиеся дети
+    /// теряют кэш через `mark_dirty`, а неизменившиеся оцениваются верно.
     fn scroll_estimate(
         &self,
         child_id: ElementId,
         current_y: f32,
-        _avg_height: f32,
+        constraints_hash: u64,
     ) -> Option<Size> {
         if self.scroll_cull_stack.is_empty() {
             return None;
@@ -46,7 +52,7 @@ impl ElementTree {
         let buffer = ctx.viewport_height;
 
         if let Some(cache) = self.cache_get(&child_id) {
-            if cache.visible {
+            if cache.visible && cache.constraints_hash == constraints_hash {
                 let child_bottom = current_y + cache.size.height;
                 if child_bottom < (view_top - buffer) || current_y > (view_bottom + buffer) {
                     return Some(cache.size);
@@ -164,8 +170,6 @@ impl ElementTree {
         };
 
         let scroll_active = !self.scroll_cull_stack.is_empty() || self.force_full_measure;
-        let mut measured_count = 0usize;
-        let mut measured_height_sum = 0.0f32;
 
         // Gap считается только между детьми ненулевой высоты: скрытые
         // попапы/диалоги меряются в 0 и не должны раздвигать соседей.
@@ -176,13 +180,18 @@ impl ElementTree {
                 total_flex += flex;
                 expanded_idx.push((probe.idx, flex));
             } else {
+                let c = if matches!(
+                    probe.hint,
+                    LayoutHint::Container { .. } | LayoutHint::Aligned { .. } | LayoutHint::Loose
+                ) {
+                    container_constraints
+                } else {
+                    non_expanded_constraints
+                };
                 if scroll_active {
-                    let avg_h = if measured_count > 0 {
-                        measured_height_sum / measured_count as f32
-                    } else {
-                        50.0
-                    };
-                    if let Some(est) = self.scroll_estimate(probe.id, total_fixed_height, avg_h) {
+                    if let Some(est) =
+                        self.scroll_estimate(probe.id, total_fixed_height, c.hash_key())
+                    {
                         total_fixed_height += est.height;
                         if est.height > 0.0 {
                             gap_participants += 1;
@@ -192,14 +201,6 @@ impl ElementTree {
                     }
                 }
 
-                let c = if matches!(
-                    probe.hint,
-                    LayoutHint::Container { .. } | LayoutHint::Aligned { .. } | LayoutHint::Loose
-                ) {
-                    container_constraints
-                } else {
-                    non_expanded_constraints
-                };
                 let child_size = self.measure_recursive_by_idx(probe.idx, c);
                 let m = probe.margin;
                 let h = child_size.height + m.top + m.bottom;
@@ -208,8 +209,6 @@ impl ElementTree {
                     gap_participants += 1;
                 }
                 max_width = max_width.max(child_size.width + m.left + m.right);
-                measured_count += 1;
-                measured_height_sum += h;
             }
         }
         gap_participants += expanded_idx.len();
@@ -1519,8 +1518,6 @@ impl ElementTree {
         } else {
             let mut row_heights: Vec<f32> = Vec::new();
             let mut cumulative_y = 0.0f32;
-            let mut measured_rows = 0usize;
-            let mut measured_h_sum = 0.0f32;
 
             for (i, &child_id) in children.iter().enumerate() {
                 crate::perf::incr(crate::perf::Counter::MeasureGridChild);
@@ -1531,12 +1528,9 @@ impl ElementTree {
                     cumulative_y += row_heights[row - 1] + row_gap;
                 }
 
-                let avg_h = if measured_rows > 0 {
-                    measured_h_sum / measured_rows as f32
-                } else {
-                    50.0
-                };
-                if let Some(est) = self.scroll_estimate(child_id, cumulative_y, avg_h) {
+                if let Some(est) =
+                    self.scroll_estimate(child_id, cumulative_y, child_constraints.hash_key())
+                {
                     crate::perf::incr(crate::perf::Counter::MeasureGridEstimated);
                     if row >= row_heights.len() {
                         row_heights.push(est.height);
@@ -1549,8 +1543,6 @@ impl ElementTree {
                 let child_size = self.measure_recursive(child_id, child_constraints);
                 if row >= row_heights.len() {
                     row_heights.push(child_size.height);
-                    measured_rows += 1;
-                    measured_h_sum += child_size.height;
                 } else {
                     row_heights[row] = row_heights[row].max(child_size.height);
                 }

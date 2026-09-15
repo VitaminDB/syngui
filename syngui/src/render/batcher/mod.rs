@@ -11,7 +11,20 @@ use std::collections::HashMap;
 use std::hash::{Hash, Hasher};
 use std::sync::Arc;
 
-const MAX_VERTICES_PER_BATCH: usize = 65536;
+/// Ограничивающий прямоугольник батча в логических координатах после
+/// трансформации: `[min_x, min_y, max_x, max_y]`.
+type Bbox = [f32; 4];
+
+fn bbox_overlaps(a: &Bbox, b: &Bbox) -> bool {
+    a[0] < b[2] && b[0] < a[2] && a[1] < b[3] && b[1] < a[3]
+}
+
+fn bbox_union(a: &mut Bbox, b: &Bbox) {
+    a[0] = a[0].min(b[0]);
+    a[1] = a[1].min(b[1]);
+    a[2] = a[2].max(b[2]);
+    a[3] = a[3].max(b[3]);
+}
 
 #[derive(Clone, PartialEq, Eq)]
 struct ShapedTextKey {
@@ -34,6 +47,9 @@ impl Hash for ShapedTextKey {
     }
 }
 
+/// Ключ батча: пайплайн, текстура и клип. Клип — uniform на батч плюс
+/// scissor (на Mali это бесплатно; вариант с клипом в вершинах давал два
+/// лишних varying на фрагмент и +30 % времени GPU).
 #[derive(Clone, Copy, PartialEq, Eq, Hash)]
 struct BatchKey {
     shader_type: ShaderType,
@@ -41,25 +57,26 @@ struct BatchKey {
     clip_rect: ClipRect,
 }
 
-impl BatchKey {
-    fn shader_order(&self) -> u8 {
-        match self.shader_type {
-            ShaderType::Shadow => 0,
-            ShaderType::InnerShadow => 1,
-            ShaderType::Rect => 2,
-            ShaderType::Line => 3,
-            ShaderType::Image => 4,
-            ShaderType::Text => 5,
-            ShaderType::GlowShadow => 6,
-            ShaderType::Effect => 7,
-        }
-    }
+/// Открытый батч текущей группы. Батчи хранятся в порядке отрисовки;
+/// новый примитив уходит в ближайший с конца батч с тем же ключом, если
+/// между ними нет батча, чей bbox пересекает примитив (иначе порядок
+/// художника нарушился бы). Внешние тени (`Shadow`) — исключение: они всегда
+/// собираются в первый теневой батч группы и не блокируют слияние — тень под
+/// соседней карточкой визуально неотличима от тени над её краем, а draw
+/// call'ов это экономит по одному на элемент.
+struct OpenBatch {
+    key: BatchKey,
+    state: BatchState,
+    bbox: Bbox,
+    /// bbox неизвестен (примитив без геометрии заранее) — считается
+    /// бесконечным: и блокирует, и пересекается со всем.
+    bbox_unknown: bool,
 }
 
 pub struct Batcher {
     pub(self) ops: Vec<RenderOp>,
-    pub(self) buckets: HashMap<BatchKey, BatchState>,
-    pub(self) current_key: Option<BatchKey>,
+    pub(self) buckets: Vec<OpenBatch>,
+    pub(self) current: Option<usize>,
     pub(self) scale_factor: f32,
     pub(self) opacity_stack: Vec<f32>,
     pub(self) current_opacity: f32,
@@ -79,8 +96,8 @@ impl Batcher {
     pub fn new() -> Self {
         Self {
             ops: Vec::new(),
-            buckets: HashMap::new(),
-            current_key: None,
+            buckets: Vec::new(),
+            current: None,
             scale_factor: 1.0,
             opacity_stack: Vec::new(),
             current_opacity: 1.0,
@@ -103,7 +120,7 @@ impl Batcher {
     ) -> Vec<RenderOp> {
         self.ops.clear();
         self.buckets.clear();
-        self.current_key = None;
+        self.current = None;
         self.opacity_stack.clear();
         self.current_opacity = 1.0;
         self.transform_stack.clear();
@@ -184,90 +201,131 @@ impl Batcher {
         ]
     }
 
+    /// Bbox прямоугольника после текущей трансформации.
+    pub(self) fn rect_bbox(&self, rect: crate::core::Rect) -> Bbox {
+        let o = rect.origin;
+        let sz = rect.size;
+        let q = self.transform_quad([
+            [o.x, o.y],
+            [o.x + sz.width, o.y],
+            [o.x + sz.width, o.y + sz.height],
+            [o.x, o.y + sz.height],
+        ]);
+        let mut b = [f32::MAX, f32::MAX, f32::MIN, f32::MIN];
+        for p in q {
+            b[0] = b[0].min(p[0]);
+            b[1] = b[1].min(p[1]);
+            b[2] = b[2].max(p[0]);
+            b[3] = b[3].max(p[1]);
+        }
+        b
+    }
+
+    /// Батч для примитива с известным прямоугольником (до трансформации).
+    pub(self) fn ensure_batch_rect(
+        &mut self,
+        shader: ShaderType,
+        texture: Option<TextureId>,
+        clip: ClipRect,
+        rect: crate::core::Rect,
+    ) {
+        let bbox = self.rect_bbox(rect);
+        self.ensure_batch_bbox(shader, texture, clip, Some(bbox));
+    }
+
+    /// Батч для примитива без известной геометрии: сливается только с
+    /// последним батчем того же ключа, иначе открывает новый.
     pub(self) fn ensure_batch(
         &mut self,
         shader: ShaderType,
         texture: Option<TextureId>,
         clip: ClipRect,
     ) {
+        self.ensure_batch_bbox(shader, texture, clip, None);
+    }
+
+    pub(self) fn ensure_batch_bbox(
+        &mut self,
+        shader: ShaderType,
+        texture: Option<TextureId>,
+        clip: ClipRect,
+        bbox: Option<Bbox>,
+    ) {
         let key = BatchKey {
             shader_type: shader,
             texture,
             clip_rect: clip,
         };
-        self.buckets.entry(key).or_insert_with(|| BatchState {
-            vertices: Vec::with_capacity(256),
-            indices: Vec::with_capacity(384),
-        });
-        self.current_key = Some(key);
-    }
-
-    pub(self) fn current_batch_mut(&mut self) -> &mut BatchState {
-        self.buckets.get_mut(&self.current_key.unwrap()).unwrap()
-    }
-
-    pub(self) fn flush_all_buckets(&mut self) {
-        let mut entries: Vec<(BatchKey, BatchState)> = self.buckets.drain().collect();
-        if entries.is_empty() {
-            return;
-        }
-
-        entries.sort_by(|(a, _), (b, _)| {
-            a.clip_rect
-                .enabled
-                .cmp(&b.clip_rect.enabled)
-                .then(a.clip_rect.x.cmp(&b.clip_rect.x))
-                .then(a.clip_rect.y.cmp(&b.clip_rect.y))
-                .then(a.clip_rect.width.cmp(&b.clip_rect.width))
-                .then(a.clip_rect.height.cmp(&b.clip_rect.height))
-                .then(a.shader_order().cmp(&b.shader_order()))
-                .then(a.texture.map(|t| t.0).cmp(&b.texture.map(|t| t.0)))
-        });
-
-        for (key, state) in entries {
-            if state.vertices.is_empty() {
-                continue;
-            }
-            if state.vertices.len() <= MAX_VERTICES_PER_BATCH {
-                self.ops.push(RenderOp::Draw(Batch {
-                    vertices: state.vertices,
-                    indices: state.indices,
-                    shader_type: key.shader_type,
-                    texture: key.texture,
-                    clip_rect: key.clip_rect,
-                    vertex_offset: 0,
-                    index_offset: 0,
-                }));
-            } else {
-                let mut v_offset = 0;
-                let mut i_offset = 0;
-                while v_offset < state.vertices.len() {
-                    let v_end = (v_offset + MAX_VERTICES_PER_BATCH).min(state.vertices.len());
-                    let base_vertex = v_offset as u32;
-                    let max_vertex = v_end as u32;
-                    let mut i_end = i_offset;
-                    while i_end < state.indices.len() && state.indices[i_end] < max_vertex {
-                        i_end += 1;
-                    }
-                    let chunk_indices: Vec<u32> = state.indices[i_offset..i_end]
-                        .iter()
-                        .map(|&idx| idx - base_vertex)
-                        .collect();
-                    self.ops.push(RenderOp::Draw(Batch {
-                        vertices: state.vertices[v_offset..v_end].to_vec(),
-                        indices: chunk_indices,
-                        shader_type: key.shader_type,
-                        texture: key.texture,
-                        clip_rect: key.clip_rect,
-                        vertex_offset: 0,
-                        index_offset: 0,
-                    }));
-                    v_offset = v_end;
-                    i_offset = i_end;
+        let mut target: Option<usize> = None;
+        if shader == ShaderType::Shadow {
+            target = self.buckets.iter().position(|b| b.key == key);
+        } else {
+            for i in (0..self.buckets.len()).rev() {
+                let b = &self.buckets[i];
+                if b.key == key {
+                    target = Some(i);
+                    break;
+                }
+                if b.key.shader_type == ShaderType::Shadow {
+                    continue;
+                }
+                let blocks = match (&bbox, b.bbox_unknown) {
+                    (Some(bb), false) => bbox_overlaps(&b.bbox, bb),
+                    _ => true,
+                };
+                if blocks {
+                    break;
                 }
             }
         }
-        self.current_key = None;
+        let idx = match target {
+            Some(i) => i,
+            None => {
+                self.buckets.push(OpenBatch {
+                    key,
+                    state: BatchState {
+                        vertices: Vec::with_capacity(256),
+                        indices: Vec::with_capacity(384),
+                    },
+                    bbox: [f32::MAX, f32::MAX, f32::MIN, f32::MIN],
+                    bbox_unknown: false,
+                });
+                self.buckets.len() - 1
+            }
+        };
+        let b = &mut self.buckets[idx];
+        match bbox {
+            Some(bb) => bbox_union(&mut b.bbox, &bb),
+            None => b.bbox_unknown = true,
+        }
+        self.current = Some(idx);
+    }
+
+    pub(self) fn current_batch_mut(&mut self) -> &mut BatchState {
+        let idx = self.current.expect("ensure_batch перед добавлением геометрии");
+        &mut self.buckets[idx].state
+    }
+
+    /// Выдать все открытые батчи группы в порядке отрисовки.
+    pub(self) fn flush_all_buckets(&mut self) {
+        if self.buckets.is_empty() {
+            return;
+        }
+        for OpenBatch { key, state, .. } in self.buckets.drain(..) {
+            if state.vertices.is_empty() {
+                continue;
+            }
+            self.ops.push(RenderOp::Draw(Batch {
+                vertices: state.vertices,
+                indices: state.indices,
+                shader_type: key.shader_type,
+                texture: key.texture,
+                clip_rect: key.clip_rect,
+                vertex_offset: 0,
+                index_offset: 0,
+            }));
+        }
+        self.current = None;
     }
 
     pub(self) fn shape_text_cached_spacing(

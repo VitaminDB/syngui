@@ -360,7 +360,9 @@ impl AppHandler {
                 self.apply_styles(root_id);
             }
             if any_rebuilt {
-                self.tree.force_full_measure = true;
+                // Полный перемер после rebuild не нужен: изменившиеся элементы
+                // теряют кэш измерений, а scroll-culling проверяет хэш
+                // ограничений (см. scroll_estimate).
                 self.a11y_dirty = true;
             }
             self.process_pending_autofocus(root_id);
@@ -411,7 +413,6 @@ impl AppHandler {
 
             if self.tree.rebuild_if_needed(root_id) {
                 self.apply_styles(root_id);
-                self.tree.force_full_measure = true;
                 self.tree.layout(root_id, constraints);
                 self.a11y_dirty = true;
             }
