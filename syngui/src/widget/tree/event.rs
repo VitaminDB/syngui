@@ -78,15 +78,20 @@ impl ElementTree {
                     // только у Portal (который DoubleClick игнорирует), и
                     // двойной клик по контенту модалки терялся. `dispatch_event`
                     // спускается по поддереву target'а до реального элемента под
-                    // курсором. Если поддерево не обработало (курсор ушёл) —
-                    // фолбэк на позиционный обход от корня.
+                    // курсором. Если поддерево не обработало (курсор ушёл, или
+                    // первый клик закрыл попап — Dropdown/Combobox после выбора
+                    // снимают overlay, и второе нажатие им уже не нужно) —
+                    // фолбэк на обычный позиционный путь НИЖЕ, через стек
+                    // оверлеев. Раньше здесь был прямой `dispatch_event(root)`:
+                    // он обходит всё дерево, минуя FloatingWindow/Portal, и
+                    // двойной клик по пункту выпадающего списка внутри окна
+                    // долетал до таблицы под окном.
                     let r = self.dispatch_event(target, &adjusted);
                     if r.is_handled() {
                         return r;
                     }
                 }
             }
-            return self.dispatch_event(root_id, event);
         }
 
         if matches!(event, Event::MouseDown { .. }) {
@@ -795,20 +800,32 @@ mod tests {
 
     type SpyLog = Arc<Mutex<Option<crate::core::Point>>>;
 
+    type DblLog = Arc<Mutex<u32>>;
+
     struct SpyTarget {
         size: Size,
         log: SpyLog,
+        dbl: DblLog,
     }
 
     impl SpyTarget {
         fn new(size: Size) -> (Self, SpyLog) {
+            let (spy, log, _dbl) = Self::with_double_click(size);
+            (spy, log)
+        }
+
+        /// Как [`new`](Self::new), но ещё и счётчик полученных DoubleClick.
+        fn with_double_click(size: Size) -> (Self, SpyLog, DblLog) {
             let log: SpyLog = Arc::new(Mutex::new(None));
+            let dbl: DblLog = Arc::new(Mutex::new(0));
             (
                 SpyTarget {
                     size,
                     log: log.clone(),
+                    dbl: dbl.clone(),
                 },
                 log,
+                dbl,
             )
         }
     }
@@ -820,6 +837,7 @@ mod tests {
                 bounds: Rect::zero(),
                 size: self.size,
                 log: self.log.clone(),
+                dbl: self.dbl.clone(),
                 dirty_flags: DirtyFlags::LAYOUT | DirtyFlags::RENDER,
             })
         }
@@ -840,6 +858,7 @@ mod tests {
         bounds: Rect,
         size: Size,
         log: SpyLog,
+        dbl: DblLog,
         dirty_flags: DirtyFlags,
     }
 
@@ -854,6 +873,12 @@ mod tests {
             if let Event::MouseDown { position, .. } = event {
                 *self.log.lock().unwrap() = Some(*position);
                 return EventResult::Handled;
+            }
+            if let Event::DoubleClick { position, .. } = event {
+                if self.bounds.contains(*position) {
+                    *self.dbl.lock().unwrap() += 1;
+                    return EventResult::Handled;
+                }
             }
             EventResult::Ignored
         }
@@ -1076,5 +1101,58 @@ mod tests {
             s.x,
             s.y
         );
+    }
+
+    fn double_click_at(tree: &mut ElementTree, root_id: ElementId, x: f32, y: f32) -> EventResult {
+        tree.handle_event(
+            root_id,
+            &Event::DoubleClick {
+                button: MouseButton::Left,
+                position: Point::new(x, y),
+            },
+        )
+    }
+
+    /// Двойной клик по пункту выпадающего списка внутри плавающего окна:
+    /// первое нажатие выбрало пункт и закрыло попап, второе синтезируется как
+    /// DoubleClick, цель первого нажатия его игнорирует. Событие не должно
+    /// проваливаться сквозь окно-оверлей к таблице под ним.
+    #[test]
+    fn double_click_fallback_respects_overlay_stack() {
+        let (table, _log, table_dbl) = SpyTarget::with_double_click(Size::new(800.0, 600.0));
+        let (mut tree, root_id, _w) = build_and_layout(Box::new(table));
+
+        // «Окно» — оверлей поверх всей таблицы; MouseDown принимает,
+        // DoubleClick вне своих (нулевых) границ игнорирует, как Dropdown
+        // после закрытия попапа.
+        let (window, _wlog) = SpyTarget::new(Size::zero());
+        let window_id = tree.insert(window.create_element(), Some(root_id));
+        tree.register_overlay(
+            window_id,
+            Rect::new(Point::zero(), Size::new(800.0, 600.0)),
+            false,
+        );
+        tree.last_mousedown_element = Some(window_id);
+
+        let r = double_click_at(&mut tree, root_id, 300.0, 200.0);
+        assert!(!r.is_handled(), "никто под оверлеем не должен получить DoubleClick");
+        assert_eq!(
+            *table_dbl.lock().unwrap(),
+            0,
+            "DoubleClick не должен проваливаться сквозь оверлей к таблице"
+        );
+    }
+
+    /// Без оверлеев фолбэк по-прежнему доносит DoubleClick по позиции —
+    /// например, когда первый клик пересобрал поддерево и цель исчезла.
+    #[test]
+    fn double_click_fallback_reaches_element_by_position() {
+        let (table, _log, table_dbl) = SpyTarget::with_double_click(Size::new(800.0, 600.0));
+        let (mut tree, root_id, _w) = build_and_layout(Box::new(table));
+        tree.last_mousedown_element = Some(ElementId::new());
+
+        let r = double_click_at(&mut tree, root_id, 300.0, 200.0);
+        assert!(r.is_handled());
+        assert_eq!(*table_dbl.lock().unwrap(), 1);
     }
 }
