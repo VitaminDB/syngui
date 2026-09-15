@@ -357,6 +357,7 @@ impl AppHandler {
             if let Some(window) = self.window.as_ref() {
                 window.set_visible(true);
                 window.focus();
+                crate::perf::redraw_from(file!(), line!());
                 window.request_redraw();
             }
             self.main_window_visible = true;
@@ -522,6 +523,7 @@ impl AppHandler {
         }
 
         if let Some(window) = &self.window {
+            crate::perf::redraw_from(file!(), line!());
             window.request_redraw();
         }
     }

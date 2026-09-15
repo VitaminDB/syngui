@@ -42,6 +42,8 @@ pub(crate) struct ElementNode {
     pub(crate) had_mss_rules: bool,
     pub(crate) styles_dirty: bool,
     pub(crate) hint_cache: crate::widget::LayoutHint,
+    /// Результат последнего каскада (см. `mss::cascade::CascadeCache`).
+    pub(crate) cascade_cache: Option<Box<crate::mss::cascade::CascadeCache>>,
 }
 
 impl ElementNode {
@@ -377,6 +379,7 @@ impl ElementTree {
             had_mss_rules: false,
             styles_dirty: true,
             hint_cache,
+            cascade_cache: None,
         };
 
         self.elements.insert(id, node);
@@ -1024,7 +1027,8 @@ impl ElementTree {
             needs_layout: false,
             needs_render: false,
         };
-        let mut cascade_context_changed = false;
+        let mut class_scope = crate::mss::cascade::ClassChangeScope::SelfOnly;
+        let mut parent_for_scope: Option<ElementId> = None;
 
         if let Some(node) = self.elements.get_mut(&id) {
             node.element.update(widget, &mut ctx);
@@ -1034,25 +1038,43 @@ impl ElementTree {
             let new_classes = widget.widget_classes();
             let old_classes = node.element.get_classes();
             if new_classes != old_classes {
+                // Потомков/сиблингов трогаем только если изменившийся класс
+                // участвует в контексте какого-то селектора (`.a .b`, `.a + .b`).
+                let changed = old_classes
+                    .iter()
+                    .filter(|c| !new_classes.contains(c))
+                    .chain(new_classes.iter().filter(|c| !old_classes.contains(c)))
+                    .flat_map(|c| c.split_whitespace());
+                class_scope = crate::mss::cascade::class_change_scope(changed);
+                parent_for_scope = node.parent;
                 let classes = new_classes.to_vec();
                 node.element.set_classes(classes);
                 node.styles_dirty = true;
                 ctx.needs_layout = true;
                 ctx.needs_render = true;
-                cascade_context_changed = true;
             }
 
+            // Inline-стили: только сам элемент. Потомки пересчитаются в
+            // каскаде сами, если изменился унаследованный набор (color…).
             let new_inline = widget.widget_inline_styles();
             if node.inline_styles != new_inline {
                 node.inline_styles = new_inline.to_vec();
                 node.styles_dirty = true;
                 ctx.needs_layout = true;
                 ctx.needs_render = true;
-                cascade_context_changed = true;
             }
         }
-        if cascade_context_changed {
-            crate::mss::cascade::mark_subtree_styles_dirty(self, id);
+        match class_scope {
+            crate::mss::cascade::ClassChangeScope::SelfOnly => {}
+            crate::mss::cascade::ClassChangeScope::Subtree => {
+                crate::mss::cascade::mark_subtree_styles_dirty(self, id);
+            }
+            crate::mss::cascade::ClassChangeScope::ParentSubtree => {
+                crate::mss::cascade::mark_subtree_styles_dirty(
+                    self,
+                    parent_for_scope.unwrap_or(id),
+                );
+            }
         }
         if ctx.needs_layout || ctx.needs_render {
             let mut flags = DirtyFlags::empty();

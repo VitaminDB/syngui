@@ -455,6 +455,7 @@ impl AppHandler {
                 };
                 if changed {
                     if let Some(window) = &self.window {
+                        crate::perf::redraw_from(file!(), line!());
                         window.request_redraw();
                     }
                 }
@@ -583,6 +584,7 @@ impl AppHandler {
                     self.tree
                         .dispatch_event_to(focused, &crate::input::Event::FocusGained);
                     if let Some(window) = &self.window {
+                        crate::perf::redraw_from(file!(), line!());
                         window.request_redraw();
                     }
                 }
@@ -637,6 +639,7 @@ impl AppHandler {
                 #[cfg(target_os = "android")]
                 self.set_status_bar_light_icons(is_dark);
                 if let Some(window) = &self.window {
+                    crate::perf::redraw_from(file!(), line!());
                     window.request_redraw();
                 }
             }
@@ -690,6 +693,7 @@ impl AppHandler {
                     self.apply_styles(root_id);
                 }
                 if let Some(window) = &self.window {
+                    crate::perf::redraw_from(file!(), line!());
                     window.request_redraw();
                 }
             }
@@ -697,7 +701,9 @@ impl AppHandler {
 
         if let Some(ref image_store) = self.tree.image_store {
             if image_store.lock().unwrap().has_loading() {
+                crate::perf::incr(crate::perf::Counter::RedrawImages);
                 if let Some(window) = &self.window {
+                    crate::perf::redraw_from(file!(), line!());
                     window.request_redraw();
                 }
             }
@@ -722,7 +728,9 @@ impl AppHandler {
             // подстраивается под её высоту (query в render), а высота меняется
             // без событий — анимация IME.
             if self.keyboard_shown {
+                crate::perf::incr(crate::perf::Counter::RedrawKeyboard);
                 if let Some(window) = &self.window {
+                    crate::perf::redraw_from(file!(), line!());
                     window.request_redraw();
                 }
             }
@@ -743,9 +751,11 @@ impl AppHandler {
             // В простое update() не трогает дерево вовсе.
             if self.tree.animations_armed {
                 if self.tree.animate(root_id, dt) {
+                    crate::perf::incr(crate::perf::Counter::RedrawAnimate);
                     if paced_allowed {
                         self.last_paced_redraw = Some(now);
                         if let Some(window) = &self.window {
+                            crate::perf::redraw_from(file!(), line!());
                             window.request_redraw();
                         }
                     } else if frame_limit > 0 {
@@ -773,7 +783,9 @@ impl AppHandler {
         }
 
         if crate::signal::has_dirty_elements() {
+            crate::perf::incr(crate::perf::Counter::RedrawSignals);
             if let Some(window) = &self.window {
+                crate::perf::redraw_from(file!(), line!());
                 window.request_redraw();
             }
         }
@@ -783,6 +795,7 @@ impl AppHandler {
         if needs_continuous && paced_allowed {
             self.last_paced_redraw = Some(now);
             if let Some(window) = &self.window {
+                crate::perf::redraw_from(file!(), line!());
                 window.request_redraw();
             }
         }

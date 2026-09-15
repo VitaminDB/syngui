@@ -14,6 +14,18 @@ pub fn enable() {
     let _ = ENABLED.set(true);
 }
 
+/// Учёт места вызова `request_redraw` (файл:строка) — в профиле строка
+/// «redraw sites». Вызывать перед `window.request_redraw()`.
+#[inline]
+pub fn redraw_from(file: &'static str, line: u32) {
+    if !is_enabled() {
+        return;
+    }
+    PERF.with(|p| {
+        *p.borrow_mut().redraw_sites.entry((file, line)).or_insert(0) += 1;
+    });
+}
+
 #[inline]
 pub fn is_enabled() -> bool {
     *ENABLED.get_or_init(|| std::env::var("MGUI_PROFILE").is_ok())
@@ -66,6 +78,14 @@ struct PerfCounters {
     vertex_count: u64,
     dl_commands: u64,
 
+    redraw_images: u64,
+    redraw_animate: u64,
+    redraw_signals: u64,
+    redraw_keyboard: u64,
+    redraw_events: u64,
+    /// Кто запросил кадр: (file, line) → число вызовов request_redraw.
+    redraw_sites: std::collections::HashMap<(&'static str, u32), u64>,
+
     last_flush: Option<Instant>,
 }
 
@@ -102,6 +122,11 @@ pub fn add(counter: Counter, n: u64) {
             Counter::ApplyStylesCall => p.apply_styles_calls += n,
             Counter::ApplyStylesIter => p.apply_styles_iter += n,
             Counter::ApplyStylesRuleTest => p.apply_styles_rule_test += n,
+            Counter::RedrawImages => p.redraw_images += n,
+            Counter::RedrawAnimate => p.redraw_animate += n,
+            Counter::RedrawSignals => p.redraw_signals += n,
+            Counter::RedrawKeyboard => p.redraw_keyboard += n,
+            Counter::RedrawEvents => p.redraw_events += n,
         }
     });
 }
@@ -135,6 +160,11 @@ pub fn incr(counter: Counter) {
             Counter::ApplyStylesCall => p.apply_styles_calls += 1,
             Counter::ApplyStylesIter => p.apply_styles_iter += 1,
             Counter::ApplyStylesRuleTest => p.apply_styles_rule_test += 1,
+            Counter::RedrawImages => p.redraw_images += 1,
+            Counter::RedrawAnimate => p.redraw_animate += 1,
+            Counter::RedrawSignals => p.redraw_signals += 1,
+            Counter::RedrawKeyboard => p.redraw_keyboard += 1,
+            Counter::RedrawEvents => p.redraw_events += 1,
         }
     });
 }
@@ -228,7 +258,8 @@ fn flush(p: &mut PerfCounters, now: Instant) {
          dl:      {}us tot ({}us/frame, visits={}, culled={}, invisible={}, commands={})\n  \
          render:  {}us tot ({}us/frame, draws={}, verts={})\n  \
          events:  mousemove_dispatches={} ({}us tot, {}us/event, dfs_visits={}, avg_visits/event={})\n  \
-         total_dispatch_visits={}",
+         total_dispatch_visits={}\n  \
+         redraw:  images={} animate={} signals={} keyboard={} events={}",
         frames, avg, p50, p95, p99,
         p.rebuild_us, p.rebuild_us / frames, p.rebuild_visits,
         p.animate_us, p.animate_us / frames, p.animate_visits, p.animate_ticking, p.animate_true,
@@ -243,7 +274,22 @@ fn flush(p: &mut PerfCounters, now: Instant) {
             p.mm_dispatch_visits,
             p.mm_dispatch_visits / p.mm_dispatches.max(1),
         p.dispatch_visits,
+        p.redraw_images, p.redraw_animate, p.redraw_signals, p.redraw_keyboard, p.redraw_events,
     );
+
+    if !p.redraw_sites.is_empty() {
+        let mut sites: Vec<_> = p.redraw_sites.iter().collect();
+        sites.sort_by(|a, b| b.1.cmp(a.1));
+        let list: Vec<String> = sites
+            .iter()
+            .take(6)
+            .map(|((f, l), n)| {
+                let short = f.rsplit('/').next().unwrap_or(f);
+                format!("{short}:{l}={n}")
+            })
+            .collect();
+        eprintln!("  redraw sites: {}", list.join(" "));
+    }
 
     *p = PerfCounters {
         first_frame_printed: true,
@@ -283,6 +329,12 @@ pub enum Counter {
     ApplyStylesCall,
     ApplyStylesIter,
     ApplyStylesRuleTest,
+    /// Причины запроса кадра из `update()` (см. [PROFILE] «redraw:»).
+    RedrawImages,
+    RedrawAnimate,
+    RedrawSignals,
+    RedrawKeyboard,
+    RedrawEvents,
 }
 
 #[derive(Clone, Copy)]

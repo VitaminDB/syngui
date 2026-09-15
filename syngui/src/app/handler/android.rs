@@ -171,6 +171,7 @@ impl AppHandler {
             }
             self.process_virtual_keyboard_request();
             if let Some(ref window) = self.window {
+                crate::perf::redraw_from(file!(), line!());
                 window.request_redraw();
             }
             return;
@@ -183,6 +184,7 @@ impl AppHandler {
             .unwrap_or(false);
         if handled {
             if let Some(ref window) = self.window {
+                crate::perf::redraw_from(file!(), line!());
                 window.request_redraw();
             }
         } else {
@@ -542,6 +544,7 @@ impl AppHandler {
 
         if had_events {
             if let Some(ref window) = self.window {
+                crate::perf::redraw_from(file!(), line!());
                 window.request_redraw();
             }
         }
@@ -705,6 +708,7 @@ impl AppHandler {
         self.tree.virtual_keyboard_request = Some(false);
         self.process_virtual_keyboard_request();
         if let Some(ref window) = self.window {
+            crate::perf::redraw_from(file!(), line!());
             window.request_redraw();
         }
     }

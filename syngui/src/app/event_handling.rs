@@ -24,6 +24,7 @@ impl winit::application::ApplicationHandler<SynGuiUserEvent> for AppHandler {
             event_loop.set_control_flow(winit::event_loop::ControlFlow::Wait);
         }
         if let Some(window) = &self.window {
+            crate::perf::redraw_from(file!(), line!());
             window.request_redraw();
         }
     }
@@ -79,6 +80,7 @@ impl winit::application::ApplicationHandler<SynGuiUserEvent> for AppHandler {
                 {
                     if !self.close_allowed() {
                         if let Some(window) = &self.window {
+                            crate::perf::redraw_from(file!(), line!());
                             window.request_redraw();
                         }
                         return;
@@ -154,6 +156,7 @@ impl winit::application::ApplicationHandler<SynGuiUserEvent> for AppHandler {
                 }
 
                 if let Some(window) = &self.window {
+                    crate::perf::redraw_from(file!(), line!());
                     window.request_redraw();
                 }
             }
@@ -189,6 +192,7 @@ impl winit::application::ApplicationHandler<SynGuiUserEvent> for AppHandler {
                 }
 
                 if let Some(window) = &self.window {
+                    crate::perf::redraw_from(file!(), line!());
                     window.request_redraw();
                 }
             }
@@ -197,6 +201,7 @@ impl winit::application::ApplicationHandler<SynGuiUserEvent> for AppHandler {
                     let off_screen = Event::MouseMove(Point::new(-1.0, -1.0));
                     let _ = self.tree.handle_event(root_id, &off_screen);
                     if let Some(window) = &self.window {
+                        crate::perf::redraw_from(file!(), line!());
                         window.request_redraw();
                     }
                 }
@@ -220,6 +225,7 @@ impl winit::application::ApplicationHandler<SynGuiUserEvent> for AppHandler {
                     );
                     if result.is_handled() {
                         if let Some(window) = &self.window {
+                            crate::perf::redraw_from(file!(), line!());
                             window.request_redraw();
                         }
                     }
@@ -236,6 +242,7 @@ impl winit::application::ApplicationHandler<SynGuiUserEvent> for AppHandler {
                         };
                         self.tree.dispatch_drag_event(&drag_move);
                         if let Some(window) = &self.window {
+                            crate::perf::redraw_from(file!(), line!());
                             window.request_redraw();
                         }
                     }
@@ -259,6 +266,7 @@ impl winit::application::ApplicationHandler<SynGuiUserEvent> for AppHandler {
                     if let Some(root_id) = self.root_id {
                         self.tree.end_drag(root_id, pos, false);
                         if let Some(window) = &self.window {
+                            crate::perf::redraw_from(file!(), line!());
                             window.request_redraw();
                         }
                     }
@@ -289,6 +297,7 @@ impl winit::application::ApplicationHandler<SynGuiUserEvent> for AppHandler {
                             self.last_click_time = None;
                             self.last_click_pos = None;
                             if let Some(window) = &self.window {
+                                crate::perf::redraw_from(file!(), line!());
                                 window.request_redraw();
                             }
                         } else {
@@ -306,6 +315,7 @@ impl winit::application::ApplicationHandler<SynGuiUserEvent> for AppHandler {
                                 );
                                 let _ = result;
                                 if let Some(window) = &self.window {
+                                    crate::perf::redraw_from(file!(), line!());
                                     window.request_redraw();
                                 }
                             }
@@ -323,6 +333,7 @@ impl winit::application::ApplicationHandler<SynGuiUserEvent> for AppHandler {
                             );
                             if result.is_handled() {
                                 if let Some(window) = &self.window {
+                                    crate::perf::redraw_from(file!(), line!());
                                     window.request_redraw();
                                 }
                             }
@@ -336,6 +347,7 @@ impl winit::application::ApplicationHandler<SynGuiUserEvent> for AppHandler {
                 if self.take_window_close_request() {
                     if !self.close_allowed() {
                         if let Some(window) = &self.window {
+                            crate::perf::redraw_from(file!(), line!());
                             window.request_redraw();
                         }
                         return;
@@ -383,6 +395,7 @@ impl winit::application::ApplicationHandler<SynGuiUserEvent> for AppHandler {
                     let result = self.tree.handle_event(root_id, &event);
                     if result.is_handled() {
                         if let Some(window) = &self.window {
+                            crate::perf::redraw_from(file!(), line!());
                             window.request_redraw();
                         }
                     }
@@ -453,6 +466,7 @@ impl winit::application::ApplicationHandler<SynGuiUserEvent> for AppHandler {
                             } else {
                                 Some(winit::window::Fullscreen::Borderless(None))
                             });
+                            crate::perf::redraw_from(file!(), line!());
                             window.request_redraw();
                         }
                         return;
@@ -477,6 +491,7 @@ impl winit::application::ApplicationHandler<SynGuiUserEvent> for AppHandler {
                             self.devtools = Some(dt);
                         }
                         if let Some(window) = &self.window {
+                            crate::perf::redraw_from(file!(), line!());
                             window.request_redraw();
                         }
                         return;
@@ -489,6 +504,7 @@ impl winit::application::ApplicationHandler<SynGuiUserEvent> for AppHandler {
                                 if devtools.is_enabled() {
                                     devtools.toggle_picking();
                                     if let Some(window) = &self.window {
+                                        crate::perf::redraw_from(file!(), line!());
                                         window.request_redraw();
                                     }
                                     return;
@@ -531,6 +547,7 @@ impl winit::application::ApplicationHandler<SynGuiUserEvent> for AppHandler {
                                 self.process_virtual_keyboard_request();
 
                                 if let Some(window) = &self.window {
+                                    crate::perf::redraw_from(file!(), line!());
                                     window.request_redraw();
                                 }
                             }
@@ -556,6 +573,7 @@ impl winit::application::ApplicationHandler<SynGuiUserEvent> for AppHandler {
                             }
                         }
                         if let Some(window) = &self.window {
+                            crate::perf::redraw_from(file!(), line!());
                             window.request_redraw();
                         }
                     }
@@ -589,6 +607,7 @@ impl winit::application::ApplicationHandler<SynGuiUserEvent> for AppHandler {
                     self.devtools_log_event(&format!("{:?}", evt), &result);
                     if result.is_handled() {
                         if let Some(window) = &self.window {
+                            crate::perf::redraw_from(file!(), line!());
                             window.request_redraw();
                         }
                     }
@@ -613,6 +632,7 @@ impl winit::application::ApplicationHandler<SynGuiUserEvent> for AppHandler {
                         self.tree.handle_event(root_id, &event);
                     }
                     if let Some(window) = &self.window {
+                        crate::perf::redraw_from(file!(), line!());
                         window.request_redraw();
                     }
                 }
@@ -688,6 +708,7 @@ impl winit::application::ApplicationHandler<SynGuiUserEvent> for AppHandler {
                 }
 
                 if let Some(window) = &self.window {
+                    crate::perf::redraw_from(file!(), line!());
                     window.request_redraw();
                 }
 
@@ -711,6 +732,7 @@ impl winit::application::ApplicationHandler<SynGuiUserEvent> for AppHandler {
                         data,
                     });
                     if let Some(window) = &self.window {
+                        crate::perf::redraw_from(file!(), line!());
                         window.request_redraw();
                     }
                 }
@@ -719,6 +741,7 @@ impl winit::application::ApplicationHandler<SynGuiUserEvent> for AppHandler {
                 if self.root_id.is_some() {
                     self.tree.dispatch_drag_event(&Event::DragLeave);
                     if let Some(window) = &self.window {
+                        crate::perf::redraw_from(file!(), line!());
                         window.request_redraw();
                     }
                 }
@@ -732,6 +755,7 @@ impl winit::application::ApplicationHandler<SynGuiUserEvent> for AppHandler {
                         data,
                     });
                     if let Some(window) = &self.window {
+                        crate::perf::redraw_from(file!(), line!());
                         window.request_redraw();
                     }
                 }
@@ -748,6 +772,7 @@ impl winit::application::ApplicationHandler<SynGuiUserEvent> for AppHandler {
             self.main_window_visible = true;
             if let Some(window) = self.window.as_ref() {
                 window.focus();
+                crate::perf::redraw_from(file!(), line!());
                 window.request_redraw();
             }
         }
@@ -755,6 +780,7 @@ impl winit::application::ApplicationHandler<SynGuiUserEvent> for AppHandler {
         self.update();
         #[cfg(target_arch = "wasm32")]
         if let Some(window) = &self.window {
+            crate::perf::redraw_from(file!(), line!());
             window.request_redraw();
         }
         // Отложенное пробуждение из update(): продолжение анимации в окне
@@ -882,6 +908,7 @@ impl AppHandler {
 
     fn request_redraw(&self) {
         if let Some(window) = &self.window {
+            crate::perf::redraw_from(file!(), line!());
             window.request_redraw();
         }
     }
@@ -922,6 +949,7 @@ impl AppHandler {
         if devtools.is_picking() && !devtools.contains_point(cursor, surface) {
             devtools.update_picking_hover(&self.tree, cursor);
             if let Some(window) = &self.window {
+                crate::perf::redraw_from(file!(), line!());
                 window.request_redraw();
             }
         }
@@ -930,6 +958,7 @@ impl AppHandler {
             let move_event = Event::MouseMove(cursor);
             devtools.handle_mouse_event(&move_event, surface, &self.tree);
             if let Some(window) = &self.window {
+                crate::perf::redraw_from(file!(), line!());
                 window.request_redraw();
             }
             return true;
@@ -953,6 +982,7 @@ impl AppHandler {
         if is_press && devtools.is_picking() && !devtools.contains_point(pos, surface) {
             devtools.complete_pick(&self.tree, pos);
             if let Some(window) = &self.window {
+                crate::perf::redraw_from(file!(), line!());
                 window.request_redraw();
             }
             return true;
@@ -973,6 +1003,7 @@ impl AppHandler {
             };
             devtools.handle_mouse_event(&evt, surface, &self.tree);
             if let Some(window) = &self.window {
+                crate::perf::redraw_from(file!(), line!());
                 window.request_redraw();
             }
             return true;
@@ -997,6 +1028,7 @@ impl AppHandler {
             };
             devtools.handle_mouse_event(&evt, surface, &self.tree);
             if let Some(window) = &self.window {
+                crate::perf::redraw_from(file!(), line!());
                 window.request_redraw();
             }
             return true;
