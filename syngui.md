@@ -1784,6 +1784,29 @@ crate вклеивает `libav*.a` в свой rlib и изменения `.a` 
 Метки wgpu в GL-драйвер не передаются (`gpu::instance_flags()` добавляет
 `DISCARD_HAL_LABELS`): Mali читает за границей строки метки и падает SIGSEGV.
 
+**Видео на Android TV** — `HwAccel::MediaCodecSurface`: MediaCodec выводит
+кадры прямо в `android.view.Surface` под GL-слоем, без копирования (на Mali
+загрузка RGBA-кадра 1280×688 в текстуру стоила ~50 ms CPU драйвера — 12 fps).
+Что нужно приложению (эталон `tv_rezka/android/.../TvActivity.java`):
+1. активити-наследник `GameActivity` с `SurfaceView` под `mSurfaceView`
+   (`setZOrderMediaOverlay(true)` + `PixelFormat.TRANSLUCENT` у GL-слоя) и
+   методами `Surface getVideoSurface()` / `void setVideoRect(float x, y, w, h)`
+   (доли окна) — их зовёт `video::android` через JNI;
+2. `App::transparent(true)` и `.background(Color::TRANSPARENT)`; корневой
+   контейнер и подложка плеера в MSS прозрачные (`.root-video { background:
+   transparent }`), иначе видео закрыто фоном UI;
+3. `VideoPlayer::open_with_options(url, HwAccel::MediaCodecSurface, …)`.
+`VideoView` в этом режиме ничего не рисует (дырка), передаёт fit-прямоугольник
+в `setVideoRect`, а показ кадров планирует кодеку на 0,4 с вперёд
+(`av_mediacodec_render_buffer_at_time`) и тикает без перерисовки через
+`syngui::app::request_tick` — UI не рендерится на каждый кадр видео.
+
+**Производительность UI на ТВ** (Mali-G52, armv7): `AppBuilder::keep_warm_interval(250 ms)`
+держит GPU в тонусе (иначе первые кадры после нажатия пульта в 3–4 раза
+дольше); `gpu::image_store::set_max_bitmap_side(1024)` ограничивает
+декодируемые растры; профиль `[PROFILE 1s]` показывает фазы кадра и
+максимумы, `redraw sites` — кто запросил кадр.
+
 **WASM** — цель `wasm32-unknown-unknown`; шрифты не берутся из системы,
 задавай `.with_font_url(..)` и `.with_fallback_font_url(..)`;
 `capture_function_keys` определяет, какие F-клавиши забирает приложение;

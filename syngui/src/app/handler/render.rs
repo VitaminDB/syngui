@@ -783,6 +783,15 @@ impl AppHandler {
                 }
             }
         }
+        // Тик без кадра (см. crate::app::request_tick): обход анимаций
+        // продолжается, кадр — только если они пометят что-то грязным.
+        if let Some(delay) = crate::app::take_tick_request() {
+            self.tree.animations_armed = true;
+            self.wakeup_after = Some(match self.wakeup_after {
+                Some(d) => d.min(delay),
+                None => delay,
+            });
+        }
 
         if crate::signal::has_dirty_elements() {
             crate::perf::incr(crate::perf::Counter::RedrawSignals);

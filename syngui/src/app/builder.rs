@@ -497,7 +497,10 @@ impl AppBuilder {
     #[cfg(target_os = "android")]
     pub fn with_android_app(mut self, app: AndroidApp) -> Self {
         #[cfg(feature = "ffmpeg")]
-        crate::video::android::set_java_vm(app.vm_as_ptr());
+        {
+            crate::video::android::set_java_vm(app.vm_as_ptr());
+            crate::video::android::set_activity(app.vm_as_ptr(), app.activity_as_ptr());
+        }
         self.android_app = Some(app);
         self
     }

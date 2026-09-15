@@ -67,6 +67,8 @@ impl Widget for VideoView {
             natural_size: (0, 0),
             mss: MssFields::new(),
             position_signal: self.position_signal,
+            surface_mode: false,
+            surface_rect_sent: std::cell::Cell::new(None),
         })
     }
 
@@ -100,6 +102,21 @@ pub struct VideoViewElement {
     natural_size: (u32, u32),
     mss: MssFields,
     position_signal: Option<RwSignal<f32>>,
+    /// Кадры показывает сам кодек на системном Surface под окном
+    /// (`HwAccel::MediaCodecSurface`): элемент ничего не рисует — оставляет
+    /// прозрачную «дырку» — и сообщает платформе, где расположить видео.
+    surface_mode: bool,
+    /// Последний переданный платформе прямоугольник (доли окна).
+    surface_rect_sent: std::cell::Cell<Option<[u32; 4]>>,
+}
+
+impl Drop for VideoViewElement {
+    fn drop(&mut self) {
+        if self.surface_mode {
+            #[cfg(all(target_os = "android", feature = "ffmpeg"))]
+            crate::video::android::set_surface_video_active(false);
+        }
+    }
 }
 
 impl VideoViewElement {
@@ -176,6 +193,28 @@ impl Element for VideoViewElement {
     }
 
     fn build_display_list(&self, list: &mut DisplayList, _clip: Rect) {
+        if self.surface_mode {
+            // Дырка под системный Surface: ничего не рисуем, только
+            // сообщаем платформе положение видео в долях окна.
+            let fit = self.compute_fit_rect();
+            let vp = crate::viewport::viewport_size().get_untracked();
+            if vp.width > 0.0 && vp.height > 0.0 {
+                let origin = crate::viewport::viewport_origin();
+                let x = (fit.x() + origin.x) / vp.width;
+                let y = (fit.y() + origin.y) / vp.height;
+                let w = fit.size.width / vp.width;
+                let h = fit.size.height / vp.height;
+                // Квантуем до 1/4096, чтобы не дёргать JNI на каждом кадре.
+                let q = |v: f32| (v.clamp(0.0, 1.0) * 4096.0).round() as u32;
+                let key = [q(x), q(y), q(w), q(h)];
+                if self.surface_rect_sent.get() != Some(key) {
+                    self.surface_rect_sent.set(Some(key));
+                    #[cfg(all(target_os = "android", feature = "ffmpeg"))]
+                    crate::video::android::set_video_rect(x, y, w, h);
+                }
+            }
+            return;
+        }
         if let Some(handle) = self.image_handle {
             let bg = self
                 .mss
@@ -205,17 +244,30 @@ impl Element for VideoViewElement {
         } else {
             (None, 0.0, false)
         };
+        let mut changed = false;
         if let Some(frame) = frame_opt {
             let new_size = (frame.width, frame.height);
-            if let (Some(handle), Some(store)) = (self.image_handle, self.image_store.as_ref()) {
+            if frame.surface.is_some() {
+                if !self.surface_mode {
+                    self.surface_mode = true;
+                    changed = true;
+                    #[cfg(all(target_os = "android", feature = "ffmpeg"))]
+                    crate::video::android::set_surface_video_active(true);
+                    self.mark_dirty(DirtyFlags::LAYOUT | DirtyFlags::RENDER);
+                }
+            } else if let (Some(handle), Some(store)) =
+                (self.image_handle, self.image_store.as_ref())
+            {
+                changed = true;
                 if let Ok(mut s) = store.lock() {
                     s.update_rgba(handle, frame.width, frame.height, frame.rgba);
                 }
             }
             if new_size != self.natural_size {
                 self.natural_size = new_size;
+                changed = true;
                 self.mark_dirty(DirtyFlags::LAYOUT | DirtyFlags::RENDER);
-            } else {
+            } else if changed {
                 self.mark_dirty(DirtyFlags::RENDER);
             }
         }
@@ -223,6 +275,14 @@ impl Element for VideoViewElement {
             if (sig.get_untracked() - pos_sec).abs() > 0.05 {
                 sig.set(pos_sec);
             }
+        }
+        if self.surface_mode {
+            // Кадры рисует кодек: UI не перерисовываем, но продолжаем тикать,
+            // чтобы планировать показ следующих кадров.
+            if !paused {
+                crate::app::request_tick(Duration::from_millis(40));
+            }
+            return changed;
         }
         !paused
     }

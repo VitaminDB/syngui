@@ -24,6 +24,12 @@ pub enum HwAccel {
     /// `av_hwframe_transfer_data` не нужна. Требует `av_jni_set_java_vm`
     /// (делает `AppBuilder::with_android_app`).
     MediaCodec,
+    /// Android MediaCodec с выводом прямо в `android.view.Surface`: кадры
+    /// (`AV_PIX_FMT_MEDIACODEC`) не копируются ни в CPU, ни в GPU-текстуру —
+    /// их показывает сам кодек, а UI рисуется прозрачным слоем поверх.
+    /// Нужны `video::android::video_surface()` (метод `getVideoSurface()`
+    /// у активити) и прозрачное окно. Без Surface — как `MediaCodec`.
+    MediaCodecSurface,
 }
 
 impl Default for HwAccel {
@@ -63,7 +69,7 @@ impl HwAccel {
             other => other,
         };
         match resolved {
-            Self::None | Self::Auto | Self::MediaCodec => None,
+            Self::None | Self::Auto | Self::MediaCodec | Self::MediaCodecSurface => None,
             Self::Vaapi => Some(ffi::AVHWDeviceType::AV_HWDEVICE_TYPE_VAAPI),
             Self::Nvdec => Some(ffi::AVHWDeviceType::AV_HWDEVICE_TYPE_CUDA),
             Self::VideoToolbox => Some(ffi::AVHWDeviceType::AV_HWDEVICE_TYPE_VIDEOTOOLBOX),
@@ -79,7 +85,7 @@ impl HwAccel {
             other => other,
         };
         match resolved {
-            Self::None | Self::Auto | Self::MediaCodec => None,
+            Self::None | Self::Auto | Self::MediaCodec | Self::MediaCodecSurface => None,
             Self::Vaapi => Some(ffi::AVPixelFormat::AV_PIX_FMT_VAAPI),
             Self::Nvdec => Some(ffi::AVPixelFormat::AV_PIX_FMT_CUDA),
             Self::VideoToolbox => Some(ffi::AVPixelFormat::AV_PIX_FMT_VIDEOTOOLBOX),
@@ -116,7 +122,7 @@ impl HwAccel {
                 ffi::AVCodecID::AV_CODEC_ID_VC1 => "vc1_cuvid",
                 _ => return None,
             }),
-            Self::MediaCodec => Some(match codec_id {
+            Self::MediaCodec | Self::MediaCodecSurface => Some(match codec_id {
                 ffi::AVCodecID::AV_CODEC_ID_H264 => "h264_mediacodec",
                 ffi::AVCodecID::AV_CODEC_ID_HEVC => "hevc_mediacodec",
                 ffi::AVCodecID::AV_CODEC_ID_AV1 => "av1_mediacodec",
@@ -152,6 +158,7 @@ impl HwAccel {
             Self::Dxva2 => "dxva2",
             Self::Vulkan => "vulkan",
             Self::MediaCodec => "mediacodec",
+            Self::MediaCodecSurface => "mediacodec-surface",
         }
     }
 }

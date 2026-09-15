@@ -221,6 +221,10 @@ impl VideoPlayer {
             .take()
             .or_else(|| self.decoder.try_recv_video().ok())?;
 
+        if candidate.surface.is_some() {
+            return self.schedule_surface_frames(candidate, clock);
+        }
+
         if candidate.pts_sec > clock + LATE_PEEK_SEC {
             self.pending_frame = Some(candidate);
             return None;
@@ -241,7 +245,49 @@ impl VideoPlayer {
         }
 
         self.last_frame_at = Instant::now();
+        // Кадр в буфере кодека показывается сейчас, в момент выбора.
+        if let Some(surface) = candidate.surface.as_ref() {
+            surface.render();
+        }
         Some(candidate)
+    }
+
+    /// Кадры на Surface (MediaCodec): показ планируется кодеку на
+    /// `SURFACE_LOOKAHEAD_SEC` вперёд по мастер-часам — UI-поток не обязан
+    /// тикать на каждый кадр. Опоздавшие кадры возвращаются кодеку без
+    /// показа. Возвращает последний запланированный кадр (без пикселей) —
+    /// по нему `VideoView` узнаёт о режиме Surface.
+    fn schedule_surface_frames(&mut self, first: VideoFrame, clock: f64) -> Option<VideoFrame> {
+        const SURFACE_LOOKAHEAD_SEC: f64 = 0.4;
+        const SURFACE_LATE_SEC: f64 = 0.08;
+        #[cfg(target_os = "android")]
+        let now_ns = crate::video::android::monotonic_ns();
+        #[cfg(not(target_os = "android"))]
+        let now_ns = 0i64;
+        let mut last: Option<VideoFrame> = None;
+        let mut frame = first;
+        loop {
+            if frame.pts_sec > clock + SURFACE_LOOKAHEAD_SEC {
+                self.pending_frame = Some(frame);
+                break;
+            }
+            if frame.pts_sec >= clock - SURFACE_LATE_SEC {
+                if let Some(s) = frame.surface.as_ref() {
+                    let delay_ns = ((frame.pts_sec - clock).max(0.0) * 1e9) as i64;
+                    s.render_at(now_ns + delay_ns);
+                }
+                last = Some(frame);
+            }
+            // Иначе опоздал: drop вернёт буфер кодеку без показа.
+            match self.decoder.try_recv_video() {
+                Ok(next) => frame = next,
+                Err(_) => break,
+            }
+        }
+        if last.is_some() {
+            self.last_frame_at = Instant::now();
+        }
+        last
     }
 
     fn master_clock_sec(&self) -> f64 {

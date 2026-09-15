@@ -18,8 +18,71 @@ use super::scaler::Scaler;
 pub struct VideoFrame {
     pub width: u32,
     pub height: u32,
+    /// RGBA8; пусто у кадров, которые показывает сам кодек (`surface`).
     pub rgba: Arc<[u8]>,
     pub pts_sec: f64,
+    /// Кадр в выходном буфере MediaCodec (`HwAccel::MediaCodecSurface`):
+    /// показывается вызовом [`SurfaceBuffer::render`] в момент показа,
+    /// пикселей в `rgba` нет.
+    pub surface: Option<Arc<SurfaceBuffer>>,
+}
+
+/// Выходной буфер аппаратного декодера, который показывает сам кодек
+/// (Android MediaCodec → Surface). Держит ссылку на AVFrame: пока она жива,
+/// буфер не возвращён кодеку; `render()` отдаёт его на экран, а drop без
+/// render — возвращает кодеку без показа (пропущенный кадр).
+pub struct SurfaceBuffer {
+    frame: std::sync::Mutex<Option<ffmpeg_next::frame::Video>>,
+    rendered: std::sync::atomic::AtomicBool,
+}
+
+impl SurfaceBuffer {
+    fn new(frame: ffmpeg_next::frame::Video) -> Self {
+        Self {
+            frame: std::sync::Mutex::new(Some(frame)),
+            rendered: std::sync::atomic::AtomicBool::new(false),
+        }
+    }
+
+    /// Показать кадр (один раз; повторные вызовы — no-op).
+    pub fn render(&self) {
+        self.render_impl(None);
+    }
+
+    /// Запланировать показ на момент `time_ns` (часы `CLOCK_MONOTONIC`,
+    /// см. `video::android::monotonic_ns`): кодек выведет кадр сам на
+    /// ближайшем vsync, UI-поток может не тикать на каждый кадр.
+    pub fn render_at(&self, time_ns: i64) {
+        self.render_impl(Some(time_ns));
+    }
+
+    fn render_impl(&self, at_ns: Option<i64>) {
+        if self.rendered.swap(true, std::sync::atomic::Ordering::AcqRel) {
+            return;
+        }
+        let Ok(mut slot) = self.frame.lock() else { return };
+        if let Some(frame) = slot.take() {
+            #[cfg(target_os = "android")]
+            unsafe {
+                let buffer = (*frame.as_ptr()).data[3] as *mut std::ffi::c_void;
+                match at_ns {
+                    Some(t) => super::android::render_mediacodec_buffer_at(buffer, t),
+                    None => super::android::release_mediacodec_buffer(buffer, true),
+                }
+            }
+            #[cfg(not(target_os = "android"))]
+            let _ = at_ns;
+            drop(frame);
+        }
+    }
+}
+
+impl std::fmt::Debug for SurfaceBuffer {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("SurfaceBuffer")
+            .field("rendered", &self.rendered.load(std::sync::atomic::Ordering::Relaxed))
+            .finish()
+    }
 }
 
 #[derive(Clone, Debug)]
@@ -56,6 +119,10 @@ pub struct VideoDecoder {
 const AUDIO_OUTPUT_SR: u32 = 48_000;
 
 const VIDEO_QUEUE_CAP: usize = 8;
+/// Очередь кадров в буферах MediaCodec: показ планируется на ~0,4 с
+/// вперёд (`VideoPlayer::poll_frame`), больше держать незачем, а кодек с
+/// ~8–16 выходными буферами не должен остаться без них.
+const SURFACE_QUEUE_CAP: usize = 6;
 const AUDIO_QUEUE_CAP: usize = 64;
 
 const VIDEO_TEE_QUEUE_CAP: usize = 4;
@@ -168,7 +235,14 @@ impl VideoDecoder {
 
         let meta = read_meta(&ictx)?;
 
-        let (video_tx, video_rx) = mpsc::sync_channel::<VideoFrame>(VIDEO_QUEUE_CAP);
+        // Кадры на Surface держат выходные буферы MediaCodec (их немного):
+        // очередь короче, иначе кодек остаётся без буферов и встаёт.
+        let video_cap = if accel == HwAccel::MediaCodecSurface {
+            SURFACE_QUEUE_CAP
+        } else {
+            VIDEO_QUEUE_CAP
+        };
+        let (video_tx, video_rx) = mpsc::sync_channel::<VideoFrame>(video_cap);
         let (audio_tx_opt, audio_rx_opt) = if meta.has_audio {
             let (tx, rx) = mpsc::sync_channel::<Vec<f32>>(AUDIO_QUEUE_CAP);
             (Some(tx), Some(rx))
@@ -181,7 +255,11 @@ impl VideoDecoder {
         let join = thread::Builder::new()
             .name("syngui-video-decoder".into())
             .spawn(move || {
-                run_decoder_thread(ictx, meta_thread, accel, video_tx, audio_tx_opt, cmd_rx)
+                let r = run_decoder_thread(ictx, meta_thread, accel, video_tx, audio_tx_opt, cmd_rx);
+                if let Err(e) = &r {
+                    log::error!("video: поток декодера завершился с ошибкой: {e}");
+                }
+                r
             })
             .map_err(|e| VideoError::Other(format!("spawn decoder: {e}")))?;
 
@@ -370,6 +448,30 @@ fn run_decoder_thread(
         }
     };
 
+    // MediaCodec → Surface: hw-device-контекст с Surface подвешивается на
+    // кодек до открытия; без Surface декодер работает как обычный MediaCodec.
+    #[cfg(target_os = "android")]
+    let mut surface_output = false;
+    #[cfg(target_os = "android")]
+    if accel == HwAccel::MediaCodecSurface {
+        match super::android::video_surface() {
+            Some(surface) => {
+                // SAFETY: codec_ctx ещё не открыт.
+                match unsafe { super::android::attach_surface_device(codec_ctx.as_mut_ptr(), surface) } {
+                    Ok(()) => {
+                        surface_output = true;
+                        log::info!("hwaccel: MediaCodec выводит в Surface (без копирования кадров)");
+                    }
+                    Err(e) => log::warn!("hwaccel: mediacodec surface device: {e} — кадры пойдут через CPU"),
+                }
+            }
+            None => log::warn!("hwaccel: video Surface недоступен — кадры пойдут через CPU"),
+        }
+    }
+    #[cfg(not(target_os = "android"))]
+    let surface_output = false;
+    let _ = surface_output;
+
     // Отдельные hw-кодеки (NVDEC, MediaCodec): если кодек есть, но открыть
     // не удалось (нет JavaVM, устройство не поддерживает профиль) — не
     // роняем плеер, а пересоздаём контекст и открываем sw-декодер.
@@ -436,7 +538,12 @@ fn run_decoder_thread(
     // по фактическому формату кадра.
     let scaler_in_fmt = if hw.is_some() {
         ffmpeg_next::format::Pixel::NV12
-    } else if v_dec.format() == ffmpeg_next::format::Pixel::None {
+    } else if matches!(
+        v_dec.format(),
+        ffmpeg_next::format::Pixel::None | ffmpeg_next::format::Pixel::MEDIACODEC
+    ) {
+        // MEDIACODEC — кадры на Surface, скейлер им не нужен; заглушка,
+        // чтобы sws_getContext не падал на аппаратном формате.
         ffmpeg_next::format::Pixel::YUV420P
     } else {
         v_dec.format()
@@ -708,6 +815,34 @@ fn drain_video(
         }
         let pts = decoded.pts().unwrap_or(0);
         let pts_sec = pts as f64 * tb_sec;
+
+        // Кадр в буфере MediaCodec: показывает сам кодек, пикселей не берём.
+        if decoded.format() == ffmpeg_next::format::Pixel::MEDIACODEC {
+            // SAFETY: av_frame_clone добавляет ссылку на буфер кадра; кадр
+            // живёт в SurfaceBuffer до показа или сброса.
+            let cloned = unsafe {
+                let ptr = ffi::av_frame_clone(decoded.as_ptr());
+                if ptr.is_null() {
+                    continue;
+                }
+                frame::Video::wrap(ptr)
+            };
+            let frame = VideoFrame {
+                width: decoded.width(),
+                height: decoded.height(),
+                rgba: Arc::from(Vec::new().into_boxed_slice()),
+                pts_sec,
+                surface: Some(Arc::new(SurfaceBuffer::new(cloned))),
+            };
+            if let Some(t) = tee_tx {
+                let _ = t.try_send(Arc::new(frame.clone()));
+            }
+            if tx.send(frame).is_err() {
+                return;
+            }
+            continue;
+        }
+
         let (w, h) = scaler.out_size();
 
         let owned_sw_frame;
@@ -734,6 +869,7 @@ fn drain_video(
                     height: h,
                     rgba,
                     pts_sec,
+                    surface: None,
                 };
                 if let Some(t) = tee_tx {
                     let _ = t.try_send(Arc::new(frame.clone()));
