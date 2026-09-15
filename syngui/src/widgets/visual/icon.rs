@@ -79,7 +79,13 @@ impl Element for IconElement {
     }
 
     fn build_display_list(&self, list: &mut DisplayList, _clip: Rect) {
-        let color = self.mss.color.unwrap_or_else(|| Color::from_hex("#374151"));
+        // MSS `icon-color` — основной цвет глифа; `color` (наследуемый текстовый)
+        // — запасной, чтобы иконка внутри окрашенного текста не выпадала.
+        let color = self
+            .mss
+            .icon_color
+            .or(self.mss.color)
+            .unwrap_or_else(|| Color::from_hex("#374151"));
         let icon_size = self.icon_size();
 
         let text_rect = Rect::new(
