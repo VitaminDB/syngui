@@ -265,6 +265,11 @@ impl VideoPlayer {
         #[cfg(not(target_os = "android"))]
         let now_ns = 0i64;
         let mut last: Option<VideoFrame> = None;
+        // Самый свежий опоздавший кадр: если вовремя не успел ни один
+        // (после перемотки декодер отстаёт от аудио-часов), показываем его
+        // сразу — иначе все кадры отбрасывались бы бесконечно и на экране
+        // висела бы «буферизация» при идущем звуке.
+        let mut late: Option<VideoFrame> = None;
         let mut frame = first;
         loop {
             if frame.pts_sec > clock + SURFACE_LOOKAHEAD_SEC {
@@ -277,11 +282,21 @@ impl VideoPlayer {
                     s.render_at(now_ns + delay_ns);
                 }
                 last = Some(frame);
+            } else {
+                // Предыдущий опоздавший — drop вернёт буфер кодеку без показа.
+                late = Some(frame);
             }
-            // Иначе опоздал: drop вернёт буфер кодеку без показа.
             match self.decoder.try_recv_video() {
                 Ok(next) => frame = next,
                 Err(_) => break,
+            }
+        }
+        if last.is_none() {
+            if let Some(frame) = late {
+                if let Some(s) = frame.surface.as_ref() {
+                    s.render();
+                }
+                last = Some(frame);
             }
         }
         if last.is_some() {

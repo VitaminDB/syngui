@@ -20,8 +20,12 @@ impl winit::application::ApplicationHandler<SynGuiUserEvent> for AppHandler {
         }
         #[cfg(target_os = "android")]
         {
+            let was_suspended = self.android_suspended;
             self.android_suspended = false;
             event_loop.set_control_flow(winit::event_loop::ControlFlow::Wait);
+            if was_suspended {
+                self.dispatch_lifecycle(Event::AppResumed);
+            }
         }
         if let Some(window) = &self.window {
             crate::perf::redraw_from(file!(), line!());
@@ -30,6 +34,7 @@ impl winit::application::ApplicationHandler<SynGuiUserEvent> for AppHandler {
     }
 
     fn suspended(&mut self, _event_loop: &winit::event_loop::ActiveEventLoop) {
+        self.dispatch_lifecycle(Event::AppSuspended);
         self.drop_surface();
         // Android: в suspended winit игнорирует wake-up'ы EventLoopProxy, и
         // run_on_main_thread-колбэки (фоновые тики плеера, команды медиа-сессии)
@@ -1035,5 +1040,16 @@ impl AppHandler {
         }
 
         false
+    }
+}
+
+impl AppHandler {
+    /// Событие жизненного цикла всем элементам дерева (EventHook::on_suspend /
+    /// on_resume): рассылка по всему дереву, а не до первого Handled.
+    fn dispatch_lifecycle(&mut self, event: Event) {
+        let ids: Vec<crate::widget::ElementId> = self.tree.elements.keys().copied().collect();
+        for id in ids {
+            self.tree.dispatch_event_to(id, &event);
+        }
     }
 }

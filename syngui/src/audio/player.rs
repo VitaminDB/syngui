@@ -218,6 +218,8 @@ impl AudioPlayer {
     }
 
     pub fn start_streaming(rx: Receiver<Vec<f32>>, sample_rate: u32) -> Result<Self, AudioError> {
+        /// Предел очереди вывода (~10 с при 48 кГц моно).
+        const MAX_QUEUED_SAMPLES: usize = 48_000 * 10;
         let host = cpal::default_host();
         let (device, supported) = pick_output_device(&host)?;
         let native_sr = supported.sample_rate().0;
@@ -247,8 +249,17 @@ impl AudioPlayer {
                     }
                 }
                 let _guard = DoneGuard(input_done_drainer);
+                // Обратное давление: если вывод остановился (поток
+                // отключён в фоне), очередь не растёт без предела — ждём,
+                // пока её разберут, а декодер упирается в свой канал.
+                let wait_for_room = |q: &Arc<Mutex<VecDeque<f32>>>| {
+                    while q.lock().map(|g| g.len() > MAX_QUEUED_SAMPLES).unwrap_or(false) {
+                        thread::sleep(Duration::from_millis(10));
+                    }
+                };
                 if !needs_resample {
                     while let Ok(chunk) = rx.recv() {
+                        wait_for_room(&q_drainer);
                         written_drainer.fetch_add(chunk.len(), Ordering::AcqRel);
                         if let Ok(mut q) = q_drainer.lock() {
                             q.extend(chunk.into_iter());
@@ -288,6 +299,7 @@ impl AudioPlayer {
                     }
                 };
                 while let Ok(chunk) = rx.recv() {
+                    wait_for_room(&q_drainer);
                     accum.extend_from_slice(&chunk);
                     while accum.len() >= in_chunk {
                         let block: Vec<f32> = accum.drain(..in_chunk).collect();

@@ -119,6 +119,8 @@ pub struct VideoDecoder {
 const AUDIO_OUTPUT_SR: u32 = 48_000;
 
 const VIDEO_QUEUE_CAP: usize = 8;
+/// Столько ошибок send_packet подряд — поток декодера завершается.
+const MAX_CONSECUTIVE_VIDEO_ERRORS: u32 = 200;
 /// Очередь кадров в буферах MediaCodec: показ планируется на ~0,4 с
 /// вперёд (`VideoPlayer::poll_frame`), больше держать незачем, а кодек с
 /// ~8–16 выходными буферами не должен остаться без них.
@@ -338,10 +340,11 @@ impl Drop for VideoDecoder {
     fn drop(&mut self) {
         let _ = self.cmd_tx.send(DecoderCmd::Stop);
         if let Some(j) = self.join.take() {
-            while self.video_rx.try_recv().is_ok() {}
-            if let Some(rx) = &self.audio_rx {
-                while rx.try_recv().is_ok() {}
-            }
+            // Отпускаем приёмники: поток декодера, стоящий в `send` на полной
+            // очереди, получит ошибку и выйдет — иначе join ждал бы вечно.
+            let (_dummy_tx, dummy_rx) = mpsc::sync_channel::<VideoFrame>(1);
+            drop(std::mem::replace(&mut self.video_rx, dummy_rx));
+            drop(self.audio_rx.take());
             let _ = j.join();
         }
     }
@@ -598,6 +601,7 @@ fn run_decoder_thread(
         join: Some(reader_join),
     };
 
+    let mut video_errors: u32 = 0;
     'main: loop {
         if !paused {
             match cmd_rx.try_recv() {
@@ -700,6 +704,7 @@ fn run_decoder_thread(
         if pkt_idx == v_idx {
             match v_dec.send_packet(&packet) {
                 Ok(()) => {
+                    video_errors = 0;
                     drain_video(
                         &mut v_dec,
                         &mut scaler,
@@ -712,7 +717,16 @@ fn run_decoder_thread(
                     );
                 }
                 Err(e) => {
-                    log::warn!("video: send_packet вернул ошибку: {e}");
+                    video_errors += 1;
+                    if video_errors == 1 || video_errors % 100 == 0 {
+                        log::warn!("video: send_packet вернул ошибку ({video_errors} подряд): {e}");
+                    }
+                    // Кодек мёртв (например, у MediaCodec отняли Surface):
+                    // молотить сеть и аудио на полной скорости бессмысленно.
+                    if video_errors >= MAX_CONSECUTIVE_VIDEO_ERRORS {
+                        log::error!("video: декодер не восстанавливается — останавливаю поток");
+                        break 'main;
+                    }
                 }
             }
         } else if let Some(a) = audio.as_mut() {

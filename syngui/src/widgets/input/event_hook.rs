@@ -100,12 +100,16 @@ type RemoteHandler = Arc<dyn Fn(RemoteKey) -> bool + Send + Sync>;
 type BackHandler = Arc<dyn Fn() -> bool + Send + Sync>;
 type CharHandler = Arc<dyn Fn(char) -> bool + Send + Sync>;
 
+type LifecycleHandler = Arc<dyn Fn() + Send + Sync>;
+
 pub struct EventHook {
     on_key_down: Option<KeyHandler>,
     on_key_up: Option<KeyHandler>,
     on_remote: Option<RemoteHandler>,
     on_back: Option<BackHandler>,
     on_char: Option<CharHandler>,
+    on_suspend: Option<LifecycleHandler>,
+    on_resume: Option<LifecycleHandler>,
     bounds_out: Option<Arc<crate::core::sync::Mutex<Rect>>>,
     child: Option<Box<dyn Widget>>,
 }
@@ -118,9 +122,25 @@ impl EventHook {
             on_remote: None,
             on_back: None,
             on_char: None,
+            on_suspend: None,
+            on_resume: None,
             bounds_out: None,
             child: None,
         }
+    }
+
+    /// Приложение уходит в фон (`Event::AppSuspended`): на Android
+    /// пропадают поверхность окна, видео-Surface и аудио-поток — самое
+    /// время остановить плеер и запомнить позицию.
+    pub fn on_suspend(mut self, handler: impl Fn() + Send + Sync + 'static) -> Self {
+        self.on_suspend = Some(Arc::new(handler));
+        self
+    }
+
+    /// Приложение вернулось на экран (`Event::AppResumed`).
+    pub fn on_resume(mut self, handler: impl Fn() + Send + Sync + 'static) -> Self {
+        self.on_resume = Some(Arc::new(handler));
+        self
     }
 
     /// Ввод символа (`Event::CharInput`): физическая клавиатура на desktop.
@@ -189,6 +209,8 @@ impl Widget for EventHook {
             on_remote: self.on_remote.clone(),
             on_back: self.on_back.clone(),
             on_char: self.on_char.clone(),
+            on_suspend: self.on_suspend.clone(),
+            on_resume: self.on_resume.clone(),
             bounds_out: self.bounds_out.clone(),
             has_child: self.child.is_some(),
             bounds: Rect::zero(),
@@ -234,6 +256,8 @@ struct EventHookElement {
     on_remote: Option<RemoteHandler>,
     on_back: Option<BackHandler>,
     on_char: Option<CharHandler>,
+    on_suspend: Option<LifecycleHandler>,
+    on_resume: Option<LifecycleHandler>,
     bounds_out: Option<Arc<crate::core::sync::Mutex<Rect>>>,
     has_child: bool,
     bounds: Rect,
@@ -260,6 +284,8 @@ impl Element for EventHookElement {
             self.on_remote = hook.on_remote.clone();
             self.on_back = hook.on_back.clone();
             self.on_char = hook.on_char.clone();
+            self.on_suspend = hook.on_suspend.clone();
+            self.on_resume = hook.on_resume.clone();
             self.bounds_out = hook.bounds_out.clone();
             self.has_child = hook.child.is_some();
             self.publish_bounds();
@@ -288,6 +314,22 @@ impl Element for EventHookElement {
     fn build_display_list(&self, _list: &mut DisplayList, _clip: Rect) {}
 
     fn handle_event(&mut self, event: &Event, ctx: &mut EventContext) -> EventResult {
+        match event {
+            Event::AppSuspended => {
+                if let Some(h) = self.on_suspend.as_ref() {
+                    h();
+                }
+                // Не Handled: событие должны увидеть все хуки дерева.
+                return EventResult::Ignored;
+            }
+            Event::AppResumed => {
+                if let Some(h) = self.on_resume.as_ref() {
+                    h();
+                }
+                return EventResult::Ignored;
+            }
+            _ => {}
+        }
         if let Event::CharInput(c) = event {
             return match self.on_char.as_ref() {
                 Some(h) if h(*c) => EventResult::Handled,

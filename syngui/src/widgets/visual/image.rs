@@ -27,6 +27,8 @@ pub struct Image {
     tint: Option<Color>,
     /// Рисовать ли встроенные заглушки «загрузка»/«ошибка».
     placeholder: bool,
+    /// Область исходной картинки в пикселях (спрайт-лист): x, y, w, h.
+    crop: Option<[f32; 4]>,
 }
 
 impl Image {
@@ -36,6 +38,7 @@ impl Image {
             fit: ImageFit::default(),
             tint: None,
             placeholder: true,
+            crop: None,
         }
     }
 
@@ -48,6 +51,7 @@ impl Image {
             fit: ImageFit::default(),
             tint: None,
             placeholder: true,
+            crop: None,
         }
     }
 
@@ -57,6 +61,7 @@ impl Image {
             fit: ImageFit::default(),
             tint: None,
             placeholder: true,
+            crop: None,
         }
     }
 
@@ -71,6 +76,7 @@ impl Image {
             fit: ImageFit::default(),
             tint: None,
             placeholder: true,
+            crop: None,
         }
     }
 
@@ -88,6 +94,14 @@ impl Image {
     /// не загрузилась (серый/розовый прямоугольник со значком). `false` — до
     /// готовности не рисуется ничего: подложку даёт родитель (обложка с
     /// градиентом, аватар с инициалами), и битая ссылка не портит вид.
+    /// Показывать только область `x, y, w, h` (пиксели исходной картинки):
+    /// кадр из спрайт-листа миниатюр, тайл атласа. Область масштабируется
+    /// по `fit` так же, как целая картинка.
+    pub fn crop(mut self, x: f32, y: f32, w: f32, h: f32) -> Self {
+        self.crop = Some([x, y, w, h]);
+        self
+    }
+
     pub fn placeholder(mut self, show: bool) -> Self {
         self.placeholder = show;
         self
@@ -104,6 +118,7 @@ impl Widget for Image {
             fit: self.fit,
             tint: self.tint,
             placeholder: self.placeholder,
+            crop: self.crop,
             opacity: 1.0,
             bounds: Rect::zero(),
             classes: Vec::new(),
@@ -140,6 +155,7 @@ pub struct ImageElement {
     fit: ImageFit,
     tint: Option<Color>,
     placeholder: bool,
+    crop: Option<[f32; 4]>,
     opacity: f32,
     bounds: Rect,
     classes: Vec<String>,
@@ -169,8 +185,10 @@ impl ImageElement {
     }
 
     fn compute_fit_rect(&self) -> Rect {
-        let (nw, nh) = match (self.natural_width, self.natural_height) {
-            (Some(w), Some(h)) if w > 0 && h > 0 => (w as f32, h as f32),
+        // Пропорции — от показываемой области (crop), а не всего спрайта.
+        let (nw, nh) = match (self.crop, self.natural_width, self.natural_height) {
+            (Some([_, _, w, h]), _, _) if w > 0.0 && h > 0.0 => (w, h),
+            (_, Some(w), Some(h)) if w > 0 && h > 0 => (w as f32, h as f32),
             _ => return self.bounds,
         };
 
@@ -231,6 +249,10 @@ impl Element for ImageElement {
             }
             self.tint = image.tint;
             self.placeholder = image.placeholder;
+            if self.crop != image.crop {
+                self.crop = image.crop;
+                self.mark_dirty(DirtyFlags::LAYOUT);
+            }
             self.mark_dirty(DirtyFlags::RENDER);
         }
     }
@@ -288,7 +310,13 @@ impl Element for ImageElement {
                         list.push_opacity(self.opacity);
                     }
 
-                    let uv_rect = Rect::new(Point::new(0.0, 0.0), Size::new(1.0, 1.0));
+                    let uv_rect = match (self.crop, self.natural_width, self.natural_height) {
+                        (Some([x, y, w, h]), Some(nw), Some(nh)) if nw > 0 && nh > 0 => {
+                            let (nw, nh) = (nw as f32, nh as f32);
+                            Rect::new(Point::new(x / nw, y / nh), Size::new(w / nw, h / nh))
+                        }
+                        _ => Rect::new(Point::new(0.0, 0.0), Size::new(1.0, 1.0)),
+                    };
                     list.push_image(fit_rect, TextureId(handle.0), uv_rect, tint);
 
                     if self.opacity < 1.0 {

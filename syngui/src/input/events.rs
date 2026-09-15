@@ -53,6 +53,13 @@ pub enum Event {
     FocusGained,
     FocusLost,
     BackPressed,
+    /// Приложение уходит в фон (Android `onPause`/surface destroyed):
+    /// поверхность окна пропадает, видео-Surface и аудио-поток системы
+    /// будут закрыты — приложение останавливает плеер и запоминает позицию.
+    AppSuspended,
+    /// Приложение вернулось на экран: поверхности пересозданы, можно
+    /// возобновить плеер (`EventHook::on_resume`).
+    AppResumed,
     Custom(String),
     DragStart {
         position: Point,

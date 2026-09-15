@@ -124,6 +124,25 @@ impl VideoViewElement {
         format!("video:{:p}", Arc::as_ptr(&self.player))
     }
 
+    /// Текстура под кадры текущего плеера (натуральный размер из метаданных).
+    fn bind_player(&mut self) {
+        let (w, h) = if let Ok(p) = self.player.lock() {
+            let m = p.meta();
+            (m.width.max(1), m.height.max(1))
+        } else {
+            (1, 1)
+        };
+        self.natural_size = (w, h);
+        let starter = vec![0u8; (w as usize) * (h as usize) * 4];
+        if let Some(store) = self.image_store.as_ref() {
+            if let Ok(mut s) = store.lock() {
+                let key = self.key();
+                let (handle, _) = s.request_rgba(&key, w, h, starter);
+                self.image_handle = Some(handle);
+            }
+        }
+    }
+
     fn compute_fit_rect(&self) -> Rect {
         let (nw, nh) = self.natural_size;
         if nw == 0 || nh == 0 {
@@ -165,6 +184,21 @@ impl Element for VideoViewElement {
         if let Some(v) = widget.as_any().downcast_ref::<VideoView>() {
             self.fit = v.fit;
             self.classes = v.classes.clone();
+            self.position_signal = v.position_signal;
+            // Виджет пересобрали с другим плеером (переоткрытие после
+            // сворачивания, смена серии): старый Arc отпускаем, иначе его
+            // декодер и аудио живут дальше и грузят CPU.
+            if !Arc::ptr_eq(&self.player, &v.player) {
+                self.player = v.player.clone();
+                if self.surface_mode {
+                    self.surface_mode = false;
+                    #[cfg(all(target_os = "android", feature = "ffmpeg"))]
+                    crate::video::android::set_surface_video_active(false);
+                }
+                self.surface_rect_sent.set(None);
+                self.bind_player();
+                self.mark_dirty(DirtyFlags::LAYOUT);
+            }
             self.mark_dirty(DirtyFlags::RENDER);
         }
     }
@@ -329,21 +363,7 @@ impl Element for VideoViewElement {
 
     fn mount(&mut self, tree: &mut ElementTree) {
         self.image_store = tree.image_store.clone();
-        let (w, h) = if let Ok(p) = self.player.lock() {
-            let m = p.meta();
-            (m.width.max(1), m.height.max(1))
-        } else {
-            (1, 1)
-        };
-        self.natural_size = (w, h);
-        let starter = vec![0u8; (w as usize) * (h as usize) * 4];
-        if let Some(store) = self.image_store.as_ref() {
-            if let Ok(mut s) = store.lock() {
-                let key = self.key();
-                let (handle, _) = s.request_rgba(&key, w, h, starter);
-                self.image_handle = Some(handle);
-            }
-        }
+        self.bind_player();
     }
 
     fn set_classes(&mut self, classes: Vec<String>) {
