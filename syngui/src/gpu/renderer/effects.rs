@@ -709,7 +709,14 @@ impl Renderer {
         let mut current_pipeline = crate::render::ShaderType::Rect;
         let mut current_texture_id: Option<crate::render::TextureId> = None;
         let mut current_uniform_offset = u32::MAX;
+        let mut current_scissor: (u32, u32, u32, u32) = (0, 0, self.width, self.height);
         render_pass.set_pipeline(&self.rect_pipeline);
+        let geom = &self.frame_geom[self.frame_geom_idx];
+        let (Some(vb), Some(ib)) = (geom.vertex.as_ref(), geom.index.as_ref()) else {
+            return;
+        };
+        render_pass.set_vertex_buffer(0, vb.slice(..));
+        render_pass.set_index_buffer(ib.slice(..), wgpu::IndexFormat::Uint32);
 
         for batch in &self.gpu_buffers[buf_range] {
             let need_pipeline_switch = batch.shader_type != current_pipeline;
@@ -821,14 +828,20 @@ impl Renderer {
                 if sx >= self.width || sy >= self.height || sw == 0 || sh == 0 {
                     continue;
                 }
-                render_pass.set_scissor_rect(sx, sy, sw, sh);
-            } else {
+                if current_scissor != (sx, sy, sw, sh) {
+                    current_scissor = (sx, sy, sw, sh);
+                    render_pass.set_scissor_rect(sx, sy, sw, sh);
+                }
+            } else if current_scissor != (0, 0, self.width, self.height) {
+                current_scissor = (0, 0, self.width, self.height);
                 render_pass.set_scissor_rect(0, 0, self.width, self.height);
             }
 
-            render_pass.set_vertex_buffer(0, batch.vertex_buffer.slice(..));
-            render_pass.set_index_buffer(batch.index_buffer.slice(..), wgpu::IndexFormat::Uint32);
-            render_pass.draw_indexed(0..batch.index_count, 0, 0..1);
+            render_pass.draw_indexed(
+                batch.index_start..batch.index_start + batch.index_count,
+                0,
+                0..1,
+            );
         }
     }
 }

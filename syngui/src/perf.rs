@@ -78,6 +78,13 @@ struct PerfCounters {
     vertex_count: u64,
     dl_commands: u64,
 
+    render_batch_us: u64,
+    render_upload_us: u64,
+    render_acquire_us: u64,
+    render_encode_us: u64,
+    render_submit_us: u64,
+    render_present_us: u64,
+
     redraw_images: u64,
     redraw_animate: u64,
     redraw_signals: u64,
@@ -180,6 +187,12 @@ pub fn add_time(kind: TimeKind, dur: Duration) {
         match kind {
             TimeKind::ApplyStyles => p.apply_styles_us += us,
             TimeKind::Animate => p.animate_us += us,
+            TimeKind::RenderBatch => p.render_batch_us += us,
+            TimeKind::RenderUpload => p.render_upload_us += us,
+            TimeKind::RenderAcquire => p.render_acquire_us += us,
+            TimeKind::RenderEncode => p.render_encode_us += us,
+            TimeKind::RenderSubmit => p.render_submit_us += us,
+            TimeKind::RenderPresent => p.render_present_us += us,
             TimeKind::MouseMoveHandleEvent => p.mm_handle_event_us += us,
             TimeKind::ButtonTextMeasure => p.button_text_measure_us += us,
         }
@@ -256,7 +269,7 @@ fn flush(p: &mut PerfCounters, now: Instant) {
          layout:  {}us tot ({}us/frame, measure_visits={}, cache_hit={}, Button_layouts={}, text_measures={}[{}us], grid_calls={}, grid_children={}, grid_estimated={}, grid_probe={})\n  \
          styles:  {}us tot ({}us/frame, calls={}, iter={}, rule_test={})\n  \
          dl:      {}us tot ({}us/frame, visits={}, culled={}, invisible={}, commands={})\n  \
-         render:  {}us tot ({}us/frame, draws={}, verts={})\n  \
+         render:  {}us tot ({}us/frame, draws={}, verts={}) [batch={} upload={} acquire={} encode={} submit={} present={}]\n  \
          events:  mousemove_dispatches={} ({}us tot, {}us/event, dfs_visits={}, avg_visits/event={})\n  \
          total_dispatch_visits={}\n  \
          redraw:  images={} animate={} signals={} keyboard={} events={}",
@@ -269,6 +282,8 @@ fn flush(p: &mut PerfCounters, now: Instant) {
         p.apply_styles_us, p.apply_styles_us / frames, p.apply_styles_calls, p.apply_styles_iter, p.apply_styles_rule_test,
         p.dl_us, p.dl_us / frames, p.dl_visits, p.dl_culled, p.dl_invisible_skip, p.dl_commands,
         p.render_us, p.render_us / frames, p.draw_calls, p.vertex_count,
+            p.render_batch_us / frames, p.render_upload_us / frames, p.render_acquire_us / frames,
+            p.render_encode_us / frames, p.render_submit_us / frames, p.render_present_us / frames,
         p.mm_dispatches, p.mm_handle_event_us,
             p.mm_handle_event_us / p.mm_dispatches.max(1),
             p.mm_dispatch_visits,
@@ -343,6 +358,14 @@ pub enum TimeKind {
     Animate,
     MouseMoveHandleEvent,
     ButtonTextMeasure,
+    /// Фазы `Renderer::render`: батчинг (CPU), заливки текстур/буферов,
+    /// ожидание swapchain, кодирование команд, submit, present.
+    RenderBatch,
+    RenderUpload,
+    RenderAcquire,
+    RenderEncode,
+    RenderSubmit,
+    RenderPresent,
 }
 
 /// Счётчики работы дерева для тестов и бенчей: сколько элементов создано и

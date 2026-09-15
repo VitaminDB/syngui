@@ -2,7 +2,6 @@ use crate::core::Color;
 use crate::gpu::GpuShared;
 use crate::gpu::WindowSurface;
 use crate::render::{RenderOp, ShaderType};
-use wgpu::util::DeviceExt;
 
 use super::{GpuBatchBuffers, RenderStats, Renderer, Uniforms, MAX_CLIP_SLOTS, UNIFORM_ALIGN};
 
@@ -23,12 +22,15 @@ impl Renderer {
             1.0
         };
         self.batcher.set_scale_factor(scale);
+        let t = web_time::Instant::now();
         let render_ops = {
             let mut atlas = self.font_atlas.lock().unwrap();
             let ops = self.batcher.process(display_list, &mut atlas);
+            crate::perf::add_time(crate::perf::TimeKind::RenderBatch, t.elapsed());
             atlas.upload(&gpu.queue);
             ops
         };
+        let t = web_time::Instant::now();
         {
             let mut store = self.image_store.lock().unwrap();
             self.image_gpu_cache
@@ -41,40 +43,10 @@ impl Renderer {
         let clip_slot_map =
             self.write_clip_uniform_slots(gpu, &render_ops, resolution, elapsed, scale);
 
-        self.gpu_buffers.clear();
-        for op in &render_ops {
-            if let RenderOp::Draw(batch) = op {
-                if batch.vertices.is_empty() {
-                    continue;
-                }
-                let vertex_buffer =
-                    gpu.device
-                        .create_buffer_init(&wgpu::util::BufferInitDescriptor {
-                            label: Some("Vertex Buffer"),
-                            contents: bytemuck::cast_slice(&batch.vertices),
-                            usage: wgpu::BufferUsages::VERTEX,
-                        });
-                let index_buffer =
-                    gpu.device
-                        .create_buffer_init(&wgpu::util::BufferInitDescriptor {
-                            label: Some("Index Buffer"),
-                            contents: bytemuck::cast_slice(&batch.indices),
-                            usage: wgpu::BufferUsages::INDEX,
-                        });
-                let uniform_offset =
-                    clip_slot_map.get(&batch.clip_rect).copied().unwrap_or(0) as u32;
-                self.gpu_buffers.push(GpuBatchBuffers {
-                    vertex_buffer,
-                    index_buffer,
-                    index_count: batch.indices.len() as u32,
-                    shader_type: batch.shader_type,
-                    clip_rect: batch.clip_rect,
-                    texture_id: batch.texture,
-                    uniform_offset,
-                });
-            }
-        }
+        self.collect_frame_geometry(gpu, &render_ops, &clip_slot_map);
+        crate::perf::add_time(crate::perf::TimeKind::RenderUpload, t.elapsed());
 
+        let t = web_time::Instant::now();
         let surface_texture = match surface.surface.get_current_texture() {
             Ok(texture) => texture,
             Err(e) => {
@@ -82,6 +54,8 @@ impl Renderer {
                 return RenderStats::default();
             }
         };
+        crate::perf::add_time(crate::perf::TimeKind::RenderAcquire, t.elapsed());
+        let t = web_time::Instant::now();
         let surface_view = surface_texture
             .texture
             .create_view(&wgpu::TextureViewDescriptor::default());
@@ -156,13 +130,18 @@ impl Renderer {
                 belt.finish();
             }
         }
+        crate::perf::add_time(crate::perf::TimeKind::RenderEncode, t.elapsed());
+        let t = web_time::Instant::now();
         gpu.queue.submit(std::iter::once(encoder.finish()));
         if self.staging_belt_enabled {
             if let Some(belt) = self.staging_belt.as_mut() {
                 belt.recall();
             }
         }
+        crate::perf::add_time(crate::perf::TimeKind::RenderSubmit, t.elapsed());
+        let t = web_time::Instant::now();
         surface_texture.present();
+        crate::perf::add_time(crate::perf::TimeKind::RenderPresent, t.elapsed());
 
         self.texture_pool.end_frame();
 
@@ -213,39 +192,7 @@ impl Renderer {
         let clip_slot_map =
             self.write_clip_uniform_slots(gpu, &render_ops, resolution, elapsed, scale);
 
-        self.gpu_buffers.clear();
-        for op in &render_ops {
-            if let RenderOp::Draw(batch) = op {
-                if batch.vertices.is_empty() {
-                    continue;
-                }
-                let vertex_buffer =
-                    gpu.device
-                        .create_buffer_init(&wgpu::util::BufferInitDescriptor {
-                            label: Some("Vertex Buffer"),
-                            contents: bytemuck::cast_slice(&batch.vertices),
-                            usage: wgpu::BufferUsages::VERTEX,
-                        });
-                let index_buffer =
-                    gpu.device
-                        .create_buffer_init(&wgpu::util::BufferInitDescriptor {
-                            label: Some("Index Buffer"),
-                            contents: bytemuck::cast_slice(&batch.indices),
-                            usage: wgpu::BufferUsages::INDEX,
-                        });
-                let uniform_offset =
-                    clip_slot_map.get(&batch.clip_rect).copied().unwrap_or(0) as u32;
-                self.gpu_buffers.push(GpuBatchBuffers {
-                    vertex_buffer,
-                    index_buffer,
-                    index_count: batch.indices.len() as u32,
-                    shader_type: batch.shader_type,
-                    clip_rect: batch.clip_rect,
-                    texture_id: batch.texture,
-                    uniform_offset,
-                });
-            }
-        }
+        self.collect_frame_geometry(gpu, &render_ops, &clip_slot_map);
 
         let mut encoder = gpu
             .device
@@ -279,7 +226,13 @@ impl Renderer {
             let mut current_pipeline = ShaderType::Rect;
             let mut current_texture_id: Option<crate::render::TextureId> = None;
             let mut current_uniform_offset = u32::MAX;
+            let mut current_scissor: (u32, u32, u32, u32) = (0, 0, phys_w, phys_h);
             render_pass.set_pipeline(&self.rect_pipeline);
+            let geom = &self.frame_geom[self.frame_geom_idx];
+            if let (Some(vb), Some(ib)) = (geom.vertex.as_ref(), geom.index.as_ref()) {
+                render_pass.set_vertex_buffer(0, vb.slice(..));
+                render_pass.set_index_buffer(ib.slice(..), wgpu::IndexFormat::Uint32);
+            }
 
             let mut buffer_index = 0;
             for op in &render_ops {
@@ -408,17 +361,20 @@ impl Renderer {
                                     buffer_index += 1;
                                     continue;
                                 }
-                                render_pass.set_scissor_rect(sx, sy, sw, sh);
-                            } else {
+                                if current_scissor != (sx, sy, sw, sh) {
+                                    current_scissor = (sx, sy, sw, sh);
+                                    render_pass.set_scissor_rect(sx, sy, sw, sh);
+                                }
+                            } else if current_scissor != (0, 0, phys_w, phys_h) {
+                                current_scissor = (0, 0, phys_w, phys_h);
                                 render_pass.set_scissor_rect(0, 0, phys_w, phys_h);
                             }
 
-                            render_pass.set_vertex_buffer(0, batch.vertex_buffer.slice(..));
-                            render_pass.set_index_buffer(
-                                batch.index_buffer.slice(..),
-                                wgpu::IndexFormat::Uint32,
+                            render_pass.draw_indexed(
+                                batch.index_start..batch.index_start + batch.index_count,
+                                0,
+                                0..1,
                             );
-                            render_pass.draw_indexed(0..batch.index_count, 0, 0..1);
 
                             buffer_index += 1;
                         }
@@ -449,6 +405,70 @@ impl Renderer {
         RenderStats {
             draw_calls,
             vertex_count,
+        }
+    }
+
+    /// Собирает вершины/индексы всех батчей в общие буферы кадра и
+    /// заполняет `gpu_buffers` диапазонами индексов.
+    fn collect_frame_geometry(
+        &mut self,
+        gpu: &GpuShared,
+        render_ops: &[RenderOp],
+        clip_slot_map: &std::collections::HashMap<crate::render::ClipRect, usize>,
+    ) {
+        self.gpu_buffers.clear();
+        self.frame_vertices.clear();
+        self.frame_indices.clear();
+        for op in render_ops {
+            if let RenderOp::Draw(batch) = op {
+                if batch.vertices.is_empty() {
+                    continue;
+                }
+                let base = self.frame_vertices.len() as u32;
+                let index_start = self.frame_indices.len() as u32;
+                self.frame_vertices.extend_from_slice(&batch.vertices);
+                self.frame_indices
+                    .extend(batch.indices.iter().map(|&i| i + base));
+                let uniform_offset =
+                    clip_slot_map.get(&batch.clip_rect).copied().unwrap_or(0) as u32;
+                self.gpu_buffers.push(GpuBatchBuffers {
+                    index_start,
+                    index_count: batch.indices.len() as u32,
+                    shader_type: batch.shader_type,
+                    clip_rect: batch.clip_rect,
+                    texture_id: batch.texture,
+                    uniform_offset,
+                });
+            }
+        }
+        if self.frame_vertices.is_empty() {
+            return;
+        }
+        self.frame_geom_idx = (self.frame_geom_idx + 1) % self.frame_geom.len();
+        let geom = &mut self.frame_geom[self.frame_geom_idx];
+        let vbytes: &[u8] = bytemuck::cast_slice(&self.frame_vertices);
+        let ibytes: &[u8] = bytemuck::cast_slice(&self.frame_indices);
+        super::FrameGeometry::ensure(
+            &gpu.device,
+            &mut geom.vertex,
+            &mut geom.vertex_cap,
+            vbytes.len() as u64,
+            wgpu::BufferUsages::VERTEX,
+            "Frame Vertex Buffer",
+        );
+        super::FrameGeometry::ensure(
+            &gpu.device,
+            &mut geom.index,
+            &mut geom.index_cap,
+            ibytes.len() as u64,
+            wgpu::BufferUsages::INDEX,
+            "Frame Index Buffer",
+        );
+        if let Some(vb) = geom.vertex.as_ref() {
+            gpu.queue.write_buffer(vb, 0, vbytes);
+        }
+        if let Some(ib) = geom.index.as_ref() {
+            gpu.queue.write_buffer(ib, 0, ibytes);
         }
     }
 

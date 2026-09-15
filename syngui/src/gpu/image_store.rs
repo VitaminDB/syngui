@@ -36,6 +36,63 @@ pub struct ImageData {
     pub width: u32,
     pub height: u32,
     pub rgba: Arc<[u8]>,
+    /// Готовые mip-уровни 1..n (считаются в потоке декодирования, а не в
+    /// кадре). Пусто у потоковых кадров (`single_level`) и у данных, для
+    /// которых цепочку достроит загрузчик.
+    pub mips: Vec<MipLevel>,
+    /// Только нулевой уровень: видеокадры и прочие потоковые обновления
+    /// не минифицируются, а строить им мипы каждый кадр — десятки мс CPU.
+    pub single_level: bool,
+}
+
+/// Один mip-уровень (RGBA8, premultiplied как и `ImageData::rgba`).
+#[derive(Clone, Debug)]
+pub struct MipLevel {
+    pub width: u32,
+    pub height: u32,
+    pub rgba: Arc<[u8]>,
+}
+
+impl ImageData {
+    /// Статичная картинка: цепочка мипов строится сразу (вызывать из
+    /// фонового потока — для большого фото это десятки миллисекунд).
+    pub fn with_mips(width: u32, height: u32, rgba: impl Into<Arc<[u8]>>) -> Self {
+        let rgba: Arc<[u8]> = rgba.into();
+        let mips = crate::gpu::image_cache::build_mips(width, height, &rgba);
+        Self {
+            width,
+            height,
+            rgba,
+            mips,
+            single_level: false,
+        }
+    }
+
+    /// Потоковый кадр: без мипов, текстура с одним уровнем.
+    pub fn single_level(width: u32, height: u32, rgba: impl Into<Arc<[u8]>>) -> Self {
+        Self {
+            width,
+            height,
+            rgba: rgba.into(),
+            mips: Vec::new(),
+            single_level: true,
+        }
+    }
+}
+
+/// Предел большей стороны декодированных растров (0 — без предела):
+/// превышающие уменьшаются вдвое, пока не впишутся, ещё в потоке
+/// декодирования. Для UI, показывающего постеры 200×300, декодировать
+/// 1000×1500 и грузить 7 МБ мипов на кадр незачем. Задавать до первого
+/// запроса картинки, например перед `start`.
+static MAX_BITMAP_SIDE: std::sync::atomic::AtomicU32 = std::sync::atomic::AtomicU32::new(0);
+
+pub fn set_max_bitmap_side(px: u32) {
+    MAX_BITMAP_SIDE.store(px, std::sync::atomic::Ordering::Relaxed);
+}
+
+pub fn max_bitmap_side() -> u32 {
+    MAX_BITMAP_SIDE.load(std::sync::atomic::Ordering::Relaxed)
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -112,11 +169,7 @@ impl ImageStore {
                 );
                 self.pending_uploads.push((
                     handle,
-                    ImageData {
-                        width: *width,
-                        height: *height,
-                        rgba: Arc::from(rgba.as_slice()),
-                    },
+                    ImageData::with_mips(*width, *height, Arc::<[u8]>::from(rgba.as_slice())),
                 ));
                 (handle, ImageLoadState::Ready)
             }
@@ -194,18 +247,26 @@ impl ImageStore {
             entry.width = width;
             entry.height = height;
         }
-        self.pending_uploads.push((
-            handle,
-            ImageData {
-                width,
-                height,
-                rgba,
-            },
-        ));
+        self.pending_uploads.push((handle, ImageData::single_level(width, height, rgba)));
     }
 
     pub fn take_pending_uploads(&mut self) -> Vec<(ImageHandle, ImageData)> {
         std::mem::take(&mut self.pending_uploads)
+    }
+
+    /// До `limit` ожидающих загрузок (в порядке поступления); остальные
+    /// остаются в очереди — см. [`Self::has_pending_uploads`].
+    pub fn take_pending_uploads_limited(&mut self, limit: usize) -> Vec<(ImageHandle, ImageData)> {
+        if self.pending_uploads.len() <= limit {
+            return std::mem::take(&mut self.pending_uploads);
+        }
+        // Потоковые кадры одного handle: оставляем только последний.
+        let n = limit.min(self.pending_uploads.len());
+        self.pending_uploads.drain(..n).collect()
+    }
+
+    pub fn has_pending_uploads(&self) -> bool {
+        !self.pending_uploads.is_empty()
     }
 
     pub fn state_of(&self, handle: ImageHandle) -> Option<ImageLoadState> {
@@ -359,12 +420,16 @@ fn decode_image_bytes(bytes: &[u8]) -> Result<ImageData, String> {
     match image::load_from_memory(bytes) {
         Ok(img) => {
             let rgba = img.to_rgba8();
-            let (w, h) = rgba.dimensions();
-            Ok(ImageData {
-                width: w,
-                height: h,
-                rgba: Arc::from(rgba.into_raw().into_boxed_slice()),
-            })
+            let (mut w, mut h) = rgba.dimensions();
+            let mut data: Arc<[u8]> = Arc::from(rgba.into_raw().into_boxed_slice());
+            let limit = max_bitmap_side();
+            while limit > 0 && w.max(h) > limit && w.max(h) > 1 {
+                let (nw, nh, next) = crate::gpu::image_cache::downscale_half(w, h, &data);
+                w = nw;
+                h = nh;
+                data = Arc::from(next.into_boxed_slice());
+            }
+            Ok(ImageData::with_mips(w, h, data))
         }
         #[cfg(feature = "svg")]
         Err(_) if looks_like_svg(bytes) => decode_svg(bytes),
@@ -446,11 +511,7 @@ fn decode_svg(bytes: &[u8]) -> Result<ImageData, String> {
             px[2] = ((px[2] as f32 * inv).round() as u32).min(255) as u8;
         }
     }
-    Ok(ImageData {
-        width: w_px,
-        height: h_px,
-        rgba: Arc::from(rgba.into_boxed_slice()),
-    })
+    Ok(ImageData::with_mips(w_px, h_px, Arc::from(rgba.into_boxed_slice())))
 }
 
 #[cfg(feature = "image-network")]

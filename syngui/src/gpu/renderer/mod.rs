@@ -120,10 +120,56 @@ pub struct Renderer {
     start_time: web_time::Instant,
 
     gpu_buffers: Vec<GpuBatchBuffers>,
+    /// Геометрия всего кадра в двух общих буферах (вершины + индексы),
+    /// заливаемых одним write_buffer: раньше на каждый draw call
+    /// создавались и уничтожались два wgpu-буфера — на GL это ~900
+    /// glGenBuffers/glBufferData за кадр. Две пары чередуются по кадрам,
+    /// чтобы запись не ждала GPU, читающего предыдущий кадр.
+    frame_geom: [FrameGeometry; 2],
+    frame_geom_idx: usize,
+    frame_vertices: Vec<crate::render::Vertex>,
+    frame_indices: Vec<u32>,
 
     staging_belt: Option<wgpu::util::StagingBelt>,
     throughput_buffer: Option<wgpu::Buffer>,
     staging_belt_enabled: bool,
+}
+
+#[derive(Default)]
+struct FrameGeometry {
+    vertex: Option<wgpu::Buffer>,
+    vertex_cap: u64,
+    index: Option<wgpu::Buffer>,
+    index_cap: u64,
+}
+
+impl FrameGeometry {
+    /// Гарантирует буфер ёмкостью ≥ `needed` байт (рост степенями двойки,
+    /// минимум 64 КБ) и возвращает его.
+    fn ensure(
+        device: &wgpu::Device,
+        slot: &mut Option<wgpu::Buffer>,
+        cap: &mut u64,
+        needed: u64,
+        usage: wgpu::BufferUsages,
+        label: &str,
+    ) -> bool {
+        if slot.is_some() && *cap >= needed {
+            return false;
+        }
+        let mut size = (*cap).max(64 * 1024);
+        while size < needed {
+            size *= 2;
+        }
+        *slot = Some(device.create_buffer(&wgpu::BufferDescriptor {
+            label: Some(label),
+            size,
+            usage: usage | wgpu::BufferUsages::COPY_DST,
+            mapped_at_creation: false,
+        }));
+        *cap = size;
+        true
+    }
 }
 
 const FULLSCREEN_VERTICES: [[f32; 4]; 4] = [
@@ -135,9 +181,10 @@ const FULLSCREEN_VERTICES: [[f32; 4]; 4] = [
 
 const FULLSCREEN_INDICES: [u32; 6] = [0, 1, 2, 0, 2, 3];
 
+/// Один draw call кадра: диапазон индексов в общем буфере кадра
+/// (`FrameGeometry`); вершины уже смещены базой при сборке.
 struct GpuBatchBuffers {
-    vertex_buffer: wgpu::Buffer,
-    index_buffer: wgpu::Buffer,
+    index_start: u32,
     index_count: u32,
     shader_type: ShaderType,
     clip_rect: crate::render::ClipRect,
@@ -624,6 +671,10 @@ impl Renderer {
             fullscreen_index_buffer,
             start_time: web_time::Instant::now(),
             gpu_buffers: Vec::new(),
+            frame_geom: [FrameGeometry::default(), FrameGeometry::default()],
+            frame_geom_idx: 0,
+            frame_vertices: Vec::new(),
+            frame_indices: Vec::new(),
             staging_belt: None,
             throughput_buffer: None,
             staging_belt_enabled: false,

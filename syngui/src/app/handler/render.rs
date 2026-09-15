@@ -700,7 +700,8 @@ impl AppHandler {
         }
 
         if let Some(ref image_store) = self.tree.image_store {
-            if image_store.lock().unwrap().has_loading() {
+            let store = image_store.lock().unwrap();
+            if store.has_loading() || store.has_pending_uploads() {
                 crate::perf::incr(crate::perf::Counter::RedrawImages);
                 if let Some(window) = &self.window {
                     crate::perf::redraw_from(file!(), line!());

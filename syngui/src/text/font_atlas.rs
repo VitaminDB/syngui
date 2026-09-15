@@ -93,6 +93,9 @@ pub struct FontAtlas {
     charmap_cache: HashMap<(char, u8), u16>,
     pixels: Vec<u8>,
     dirty: bool,
+    /// Область атласа, изменённая с последней заливки: x0, y0, x1, y1
+    /// (в пикселях, правая/нижняя границы исключительно).
+    dirty_rect: [u32; 4],
     overflowed: bool,
     generation: u64,
     scale_factor: f32,
@@ -197,6 +200,7 @@ impl FontAtlas {
             charmap_cache: HashMap::new(),
             pixels,
             dirty: false,
+            dirty_rect: [u32::MAX, u32::MAX, 0, 0],
             overflowed: false,
             generation: 0,
             scale_factor: 1.0,
@@ -332,6 +336,17 @@ impl FontAtlas {
         self.row_height = 0;
         self.generation += 1;
         self.dirty = true;
+        self.dirty_rect = [0, 0, self.atlas_width, self.atlas_height];
+    }
+
+    #[inline]
+    fn mark_dirty(&mut self, x: u32, y: u32, w: u32, h: u32) {
+        self.dirty = true;
+        let r = &mut self.dirty_rect;
+        r[0] = r[0].min(x);
+        r[1] = r[1].min(y);
+        r[2] = r[2].max(x + w);
+        r[3] = r[3].max(y + h);
     }
 
     fn face(&self, font_index: u8) -> Option<FontFace> {
@@ -692,7 +707,7 @@ impl FontAtlas {
 
         self.cursor_x += glyph_w + padding;
         self.row_height = self.row_height.max(glyph_h);
-        self.dirty = true;
+        self.mark_dirty(atlas_x, atlas_y, glyph_w, glyph_h);
 
         let cached = CachedGlyph {
             uv_x: atlas_x as f32 / self.atlas_width as f32,
@@ -732,28 +747,41 @@ impl FontAtlas {
         }
     }
 
+    /// Заливает в GPU только изменённую область: новая буква — это десятки
+    /// килобайт, а не 16 МБ всего атласа (на Mali такая заливка стоила
+    /// десятки миллисекунд на каждом кадре с новым текстом).
     pub fn upload(&mut self, queue: &wgpu::Queue) {
         if !self.dirty {
             return;
         }
         self.dirty = false;
+        let [x0, y0, x1, y1] = self.dirty_rect;
+        self.dirty_rect = [u32::MAX, u32::MAX, 0, 0];
+        let x1 = x1.min(self.atlas_width);
+        let y1 = y1.min(self.atlas_height);
+        if x0 >= x1 || y0 >= y1 {
+            return;
+        }
+        let stride = (self.atlas_width * 4) as usize;
+        let start = (y0 as usize) * stride + (x0 as usize) * 4;
+        let end = ((y1 - 1) as usize) * stride + (x1 as usize) * 4;
 
         queue.write_texture(
             wgpu::TexelCopyTextureInfo {
                 texture: &self.texture,
                 mip_level: 0,
-                origin: wgpu::Origin3d::ZERO,
+                origin: wgpu::Origin3d { x: x0, y: y0, z: 0 },
                 aspect: wgpu::TextureAspect::All,
             },
-            &self.pixels,
+            &self.pixels[start..end],
             wgpu::TexelCopyBufferLayout {
                 offset: 0,
                 bytes_per_row: Some(self.atlas_width * 4),
                 rows_per_image: None,
             },
             wgpu::Extent3d {
-                width: self.atlas_width,
-                height: self.atlas_height,
+                width: x1 - x0,
+                height: y1 - y0,
                 depth_or_array_layers: 1,
             },
         );
