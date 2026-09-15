@@ -192,7 +192,10 @@ impl ElementTree {
                     }
                 }
 
-                let c = if matches!(probe.hint, LayoutHint::Container { .. } | LayoutHint::Loose) {
+                let c = if matches!(
+                    probe.hint,
+                    LayoutHint::Container { .. } | LayoutHint::Aligned { .. } | LayoutHint::Loose
+                ) {
                     container_constraints
                 } else {
                     non_expanded_constraints
@@ -414,7 +417,10 @@ impl ElementTree {
                 total_flex += flex;
                 expanded_idx.push((probe.idx, flex));
             } else {
-                let c = if matches!(probe.hint, LayoutHint::Container { .. }) {
+                let c = if matches!(
+                    probe.hint,
+                    LayoutHint::Container { .. } | LayoutHint::Aligned { .. }
+                ) {
                     container_constraints
                 } else {
                     non_expanded_constraints
@@ -910,6 +916,38 @@ impl ElementTree {
         bottom: f32,
         id: ElementId,
     ) -> Size {
+        self.measure_container_impl(children, constraints, left, top, right, bottom, id, false)
+    }
+
+    /// `LayoutHint::Aligned`: как `Container`, но дети получают свободные
+    /// ограничения (min 0) — иначе бокс с явным размером растягивал бы
+    /// ребёнка до себя и выравнивать было бы нечего.
+    #[allow(clippy::too_many_arguments)]
+    pub(super) fn measure_aligned(
+        &mut self,
+        children: &[ElementId],
+        constraints: Constraints,
+        left: f32,
+        top: f32,
+        right: f32,
+        bottom: f32,
+        id: ElementId,
+    ) -> Size {
+        self.measure_container_impl(children, constraints, left, top, right, bottom, id, true)
+    }
+
+    #[allow(clippy::too_many_arguments)]
+    fn measure_container_impl(
+        &mut self,
+        children: &[ElementId],
+        constraints: Constraints,
+        left: f32,
+        top: f32,
+        right: f32,
+        bottom: f32,
+        id: ElementId,
+        loose_children: bool,
+    ) -> Size {
         let pad_h = left + right;
         let pad_v = top + bottom;
 
@@ -984,7 +1022,7 @@ impl ElementTree {
         let needs_intrinsic_pass =
             shrink_w && (min_w.is_some() || max_w.is_some() || mss_intrinsic_w || mss_intrinsic_h);
         let (mut width, mut height, mut content) = if needs_intrinsic_pass {
-            let child_min_h = if !shrink_h { child_max_h } else { 0.0 };
+            let child_min_h = if !shrink_h && !loose_children { child_max_h } else { 0.0 };
             let probe_constraints = Constraints {
                 min_width: 0.0,
                 max_width: f32::INFINITY,
@@ -1007,7 +1045,7 @@ impl ElementTree {
                 w = w.min(max);
             }
             let final_max_w = (w - pad_h).max(0.0);
-            let final_min_h = if !shrink_h { child_max_h } else { 0.0 };
+            let final_min_h = if !shrink_h && !loose_children { child_max_h } else { 0.0 };
             let final_cb = Size::new(final_max_w, probe_cb.height);
             let final_constraints = Constraints {
                 min_width: 0.0,
@@ -1034,8 +1072,8 @@ impl ElementTree {
             } else {
                 (constraints.max_width - pad_h).max(0.0)
             };
-            let child_min_w = if !shrink_w { child_max_w } else { 0.0 };
-            let child_min_h = if !shrink_h { child_max_h } else { 0.0 };
+            let child_min_w = if !shrink_w && !loose_children { child_max_w } else { 0.0 };
+            let child_min_h = if !shrink_h && !loose_children { child_max_h } else { 0.0 };
             let single_cb = Size::new(
                 if child_max_w.is_finite() {
                     child_max_w

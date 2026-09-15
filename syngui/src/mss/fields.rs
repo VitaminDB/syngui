@@ -80,6 +80,8 @@ const KNOWN_PROPERTIES: &[&str] = &[
     "box-shadow",
     "overflow",
     "text-align",
+    "justify-content",
+    "align-items",
     "text-vertical-align",
     "text-decoration",
     "letter-spacing",
@@ -341,6 +343,10 @@ pub struct MssFields {
     pub blend_mode: Option<crate::render::display_list::BlendModeType>,
 
     pub text_align: Option<TextAlign>,
+    /// Выравнивание ребёнка `DecoratedBox` с явным размером (MSS
+    /// `justify-content` — горизонталь, `align-items` — вертикаль).
+    pub justify_content: Option<crate::widget::BoxAlign>,
+    pub align_items: Option<crate::widget::BoxAlign>,
     pub text_decoration: Option<TextDecoration>,
     pub letter_spacing: Option<f32>,
     pub text_transform: Option<TextTransform>,
@@ -435,6 +441,8 @@ impl MssFields {
             vignette: None,
             blend_mode: None,
             text_align: None,
+            justify_content: None,
+            align_items: None,
             text_decoration: None,
             letter_spacing: None,
             text_transform: None,
@@ -517,6 +525,8 @@ impl MssFields {
         self.vignette = None;
         self.blend_mode = None;
         self.text_align = None;
+        self.justify_content = None;
+        self.align_items = None;
         self.text_decoration = None;
         self.letter_spacing = None;
         self.text_transform = None;
@@ -754,6 +764,20 @@ impl MssFields {
 
         if let Some(a) = style.text_align() {
             self.text_align = Some(a);
+        }
+        if let Some(a) = style
+            .get("justify-content")
+            .and_then(|v| v.as_string())
+            .and_then(crate::widget::BoxAlign::parse)
+        {
+            self.justify_content = Some(a);
+        }
+        if let Some(a) = style
+            .get("align-items")
+            .and_then(|v| v.as_string())
+            .and_then(crate::widget::BoxAlign::parse)
+        {
+            self.align_items = Some(a);
         }
         if let Some(d) = style.text_decoration() {
             self.text_decoration = Some(d);

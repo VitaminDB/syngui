@@ -56,7 +56,7 @@
 12. **Растянуть по поперечной оси** = `.cross_axis_alignment(CrossAxisAlignment::Stretch)`
     у родителя или `Stack::new().fit(StackFit::Expand)`.
 13. **MSS ≈ CSS, но:** нет `!important`, нет `@media`, нет `calc()`,
-    нет `display`/`position`/`z-index`/`justify-content`/`align-items`,
+    нет `display`/`position`/`z-index` (`justify-content`/`align-items` — только у `DecoratedBox` с явным размером),
     **не работают единицы `em`, `rem`, `vw`, `vh`** (парсятся и молча теряются).
     Живут только `px`, `%` и безразмерные числа.
 14. **`:root { }` — ТОЛЬКО переменные.** Обычные свойства там игнорируются.
@@ -648,7 +648,7 @@ App::new()
 | Один псевдокласс на цепочку | `A:hover:focus` — не сработает |
 | Нет `:nth-child`, `:not()`, `::before/::after` | |
 | Нет `display`, `position`, `float`, `z-index` | раскладку задают виджеты |
-| Нет `justify-content`, `align-items`, `flex-direction` | это `.main_axis_alignment()` и т.д. в коде |
+| `justify-content` / `align-items` — только у `DecoratedBox` с явным размером | `start\|center\|end`: выравнивание единственного ребёнка внутри бокса (иконка в круглой кнопке, бейдж по центру слоя `width/height: 100%`). У `Column`/`Row` — `.main_axis_alignment()` и т.д. в коде |
 | Есть `flex-grow`, но нет `flex-shrink`/`flex-basis` | |
 | `var()` только в начале значения | `rgba(0,0,var(--x),1)` — не раскроется |
 | Неизвестное свойство молча игнорируется | один `log::warn!` на свойство |
@@ -699,7 +699,7 @@ App::new()
 `animation-delay`, `animation-direction`, `animation-fill-mode`,
 `animation-play-state`
 
-**Раскладка:** `flex-grow`
+**Раскладка:** `flex-grow`, `justify-content`, `align-items` (последние два — выравнивание ребёнка `DecoratedBox` с явным размером: `start|center|end`)
 
 **Чарты:** `grid-color`, `axis-color`, `axis-font-size`, `title-font-size`,
 `legend-font-size`, `tooltip-background`, `tooltip-border-color`,

@@ -698,7 +698,27 @@ impl Element for DecoratedBoxElement {
             || self.mss.max_width.is_some()
             || self.mss.min_height.is_some()
             || self.mss.max_height.is_some();
-        if has_size_constraints {
+        if has_size_constraints
+            && (self.mss.justify_content.is_some() || self.mss.align_items.is_some())
+        {
+            // MSS `justify-content` / `align-items`: ребёнок выравнивается во
+            // внутренней области. Только при явном размере — без него бокс
+            // равен ребёнку и выравнивать нечего.
+            LayoutHint::Aligned {
+                left: self.padding_left,
+                top: self.padding_top,
+                right: self.padding_right,
+                bottom: self.padding_bottom,
+                h: self
+                    .mss
+                    .justify_content
+                    .unwrap_or(crate::widget::BoxAlign::Start),
+                v: self
+                    .mss
+                    .align_items
+                    .unwrap_or(crate::widget::BoxAlign::Start),
+            }
+        } else if has_size_constraints {
             LayoutHint::Container {
                 left: self.padding_left,
                 top: self.padding_top,

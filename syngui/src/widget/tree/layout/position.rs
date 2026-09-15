@@ -46,6 +46,7 @@ impl ElementTree {
                 crate::widget::LayoutHint::Scroll { .. }
                     | crate::widget::LayoutHint::AnimatedSize
                     | crate::widget::LayoutHint::Container { .. }
+                    | crate::widget::LayoutHint::Aligned { .. }
                     | crate::widget::LayoutHint::Portal { .. }
                     | crate::widget::LayoutHint::FloatingWindow { .. }
                     | crate::widget::LayoutHint::Tooltip { .. }
@@ -206,6 +207,18 @@ impl ElementTree {
             }
             crate::widget::LayoutHint::Container { left, top, .. } => {
                 self.position_padding_children(&children, parent_pos, left, top);
+            }
+            crate::widget::LayoutHint::Aligned {
+                left,
+                top,
+                right,
+                bottom,
+                h,
+                v,
+            } => {
+                self.position_aligned_children(
+                    &children, parent_pos, own_size, left, top, right, bottom, h, v,
+                );
             }
             crate::widget::LayoutHint::Loose => {
                 self.position_padding_children(&children, parent_pos, 0.0, 0.0);
@@ -521,6 +534,35 @@ impl ElementTree {
     fn position_stack_children(&mut self, children: &[ElementId], parent_pos: Point) {
         for &child_id in children {
             self.position_recursive(child_id, parent_pos);
+        }
+    }
+
+    /// Ребёнок во внутренней области бокса (за вычетом padding) по
+    /// выравниванию `h`/`v`; свободное место = внутренняя область минус
+    /// размер ребёнка.
+    #[allow(clippy::too_many_arguments)]
+    fn position_aligned_children(
+        &mut self,
+        children: &[ElementId],
+        parent_pos: Point,
+        parent_size: Size,
+        left: f32,
+        top: f32,
+        right: f32,
+        bottom: f32,
+        h: crate::widget::BoxAlign,
+        v: crate::widget::BoxAlign,
+    ) {
+        let inner_w = (parent_size.width - left - right).max(0.0);
+        let inner_h = (parent_size.height - top - bottom).max(0.0);
+        for &child_id in children {
+            let child_size = self
+                .cache_get(&child_id)
+                .map(|c| c.size)
+                .unwrap_or(Size::zero());
+            let x = parent_pos.x + left + h.offset((inner_w - child_size.width).max(0.0));
+            let y = parent_pos.y + top + v.offset((inner_h - child_size.height).max(0.0));
+            self.position_recursive(child_id, Point::new(x, y));
         }
     }
 

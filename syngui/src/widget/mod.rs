@@ -12,7 +12,7 @@ pub(crate) use basic::count_visual_lines_via_measure;
 pub use basic::{Center, Elide, Text};
 pub use context::{BuildContext, EventContext, UpdateContext};
 pub use dirty::DirtyFlags;
-pub use element::{ChildHit, Element, EventContextExt, LayoutHint};
+pub use element::{BoxAlign, ChildHit, Element, EventContextExt, LayoutHint};
 pub use styled::{StyledElement, StyledWidget, WidgetExt};
 pub use tree::{DragState, ElementId, ElementTree, OverlayEntry, RenderHandle};
 pub use visitor::ElementVisitor;

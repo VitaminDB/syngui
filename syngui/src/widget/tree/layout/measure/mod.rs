@@ -360,6 +360,15 @@ impl ElementTree {
                 } => {
                     self.measure_container(&children, constraints, *left, *top, *right, *bottom, id)
                 }
+                LayoutHint::Aligned {
+                    left,
+                    top,
+                    right,
+                    bottom,
+                    ..
+                } => {
+                    self.measure_aligned(&children, constraints, *left, *top, *right, *bottom, id)
+                }
                 LayoutHint::Portal { .. } => self.measure_portal(&children, constraints, id),
                 LayoutHint::FloatingWindow { .. } => {
                     self.measure_floating_window(&children, constraints, id)
@@ -394,6 +403,7 @@ impl ElementTree {
                 hint,
                 LayoutHint::AnimatedSize
                     | LayoutHint::Container { .. }
+                    | LayoutHint::Aligned { .. }
                     | LayoutHint::Portal { .. }
                     | LayoutHint::FloatingWindow { .. }
                     | LayoutHint::Tooltip { .. }

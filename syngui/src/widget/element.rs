@@ -7,9 +7,50 @@ use crate::widget::{DirtyFlags, ElementId, UpdateContext, Widget};
 use std::any::Any;
 use std::time::Duration;
 
+/// Выравнивание единственного ребёнка внутри бокса с явным размером
+/// (MSS `justify-content` — по горизонтали, `align-items` — по вертикали).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum BoxAlign {
+    Start,
+    Center,
+    End,
+}
+
+impl BoxAlign {
+    /// Разбор значения MSS: `start|flex-start|left|top`, `center`,
+    /// `end|flex-end|right|bottom`.
+    pub fn parse(s: &str) -> Option<Self> {
+        Some(match s.trim() {
+            "start" | "flex-start" | "left" | "top" => Self::Start,
+            "center" => Self::Center,
+            "end" | "flex-end" | "right" | "bottom" => Self::End,
+            _ => return None,
+        })
+    }
+
+    pub fn offset(self, free: f32) -> f32 {
+        match self {
+            Self::Start => 0.0,
+            Self::Center => free / 2.0,
+            Self::End => free,
+        }
+    }
+}
+
 #[derive(Debug, Clone)]
 pub enum LayoutHint {
     Center,
+    /// Бокс с явным размером (как `Container`), ребёнок выравнивается во
+    /// внутренней области по `h`/`v`. Даёт `DecoratedBox` с MSS
+    /// `justify-content` / `align-items`.
+    Aligned {
+        left: f32,
+        top: f32,
+        right: f32,
+        bottom: f32,
+        h: BoxAlign,
+        v: BoxAlign,
+    },
     Column {
         gap: f32,
         cross_align: CrossAxisAlignment,
