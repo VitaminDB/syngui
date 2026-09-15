@@ -1766,7 +1766,10 @@ assert_bounds!(b, 0.0, 0.0, 120.0, 32.0);
 в `src/lib.rs`; `with_android_app` передаёт JavaVM в libavcodec
 (`video/android.rs`), поэтому `HwAccel::Auto` на Android = `HwAccel::MediaCodec`
 (`h264_mediacodec` и др., кадры приходят в CPU-память, hw-device-контекст не нужен).
-Без TLS-библиотеки `https://` в FFmpeg не работает — только `http://`.
+`https://` даёт статический mbedTLS (`scripts/build-mbedtls-android.sh`, вызывается
+из ffmpeg-скрипта сам; библиотеки копируются в префикс FFmpeg и линкуются
+блоком `#[link]`). Опции сети (User-Agent, Referer, таймауты) —
+`VideoPlayer::open_with_options(url, accel, &[("user_agent", ..), ("headers", "Referer: …\r\n")])`.
 
 **WASM** — цель `wasm32-unknown-unknown`; шрифты не берутся из системы,
 задавай `.with_font_url(..)` и `.with_fallback_font_url(..)`;

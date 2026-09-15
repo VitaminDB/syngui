@@ -69,6 +69,13 @@ if [[ "$CLEAN" == 1 ]]; then
 fi
 mkdir -p "$BUILD_DIR" "$PREFIX"
 
+# TLS: статический mbedTLS из build-mbedtls-android.sh (https для потоков).
+MBEDTLS_PREFIX="$ROOT/android-deps/mbedtls/$ABI"
+if [[ ! -f "$MBEDTLS_PREFIX/lib/libmbedtls.a" ]]; then
+    echo "==> mbedTLS ($ABI) не найден, собираю..."
+    "$SCRIPT_DIR/build-mbedtls-android.sh" "$ABI"
+fi
+
 CC="$TOOLCHAIN/bin/${TRIPLE}${API}-clang"
 CXX="$TOOLCHAIN/bin/${TRIPLE}${API}-clang++"
 [[ -x "$CC" ]] || { echo "Компилятор не найден: $CC" >&2; exit 1; }
@@ -78,7 +85,7 @@ cd "$BUILD_DIR"
 
 # Что включено и почему:
 #  * только декодирование + demux + protocols: приложению нужен playback;
-#  * network + http/https(без TLS)/tcp/udp/rtsp/hls: сетевые источники;
+#  * network + http/https (TLS через статический mbedTLS)/tcp/udp/hls;
 #  * mediacodec + jni: аппаратное декодирование h264/hevc/vp8/vp9/av1
 #    (требует av_jni_set_java_vm на старте — syngui делает это в
 #    app/handler/android.rs при фиче ffmpeg);
@@ -97,8 +104,10 @@ cd "$BUILD_DIR"
     --nm="$TOOLCHAIN/bin/llvm-nm" \
     --ranlib="$TOOLCHAIN/bin/llvm-ranlib" \
     --strip="$TOOLCHAIN/bin/llvm-strip" \
-    --extra-cflags="-O3 -fPIC -DANDROID -D__ANDROID_API__=$API $EXTRA_CFLAGS" \
-    --extra-ldflags="-fPIC" \
+    --extra-cflags="-O3 -fPIC -DANDROID -D__ANDROID_API__=$API $EXTRA_CFLAGS -I$MBEDTLS_PREFIX/include" \
+    --extra-ldflags="-fPIC -L$MBEDTLS_PREFIX/lib" \
+    --enable-version3 \
+    --enable-mbedtls \
     --enable-static \
     --disable-shared \
     --enable-pic \
@@ -125,7 +134,7 @@ cd "$BUILD_DIR"
     --enable-decoder=av1_mediacodec \
     --enable-decoder=mpeg4_mediacodec \
     --enable-hwaccels \
-    --enable-protocol=file,http,httpproxy,tcp,udp,rtp,rtmp,hls,data,crypto,concat,pipe
+    --enable-protocol=file,http,https,tls,httpproxy,tcp,udp,rtp,rtmp,hls,data,crypto,concat,pipe
 
 echo "==> make -j$(nproc)"
 make -j"$(nproc)" >/dev/null
@@ -145,6 +154,11 @@ done
 # `#[link]` под cfg(target_os = "android", feature = "ffmpeg")). Список
 # сохраняем рядом для справки.
 grep '^EXTRALIBS' ffbuild/config.mak > "$PREFIX/extralibs.txt" || true
+
+# Статические mbedTLS кладём рядом с libav*: ffmpeg-sys-next добавляет в
+# link-search только $FFMPEG_DIR/lib, а syngui линкует их через #[link].
+cp "$MBEDTLS_PREFIX"/lib/libmbed*.a "$PREFIX/lib/"
+grep -q '#define CONFIG_MBEDTLS 1' config.h || { echo "mbedTLS не подхвачен configure" >&2; exit 1; }
 
 echo "==> Готово: $PREFIX"
 ls "$PREFIX/lib"

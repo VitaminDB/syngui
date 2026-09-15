@@ -29,6 +29,11 @@ pub mod video;
 #[link(name = "android")]
 #[link(name = "mediandk")]
 #[link(name = "atomic")]
+// TLS для https: статический mbedTLS из scripts/build-mbedtls-android.sh
+// (порядок важен: tls → x509 → crypto).
+#[link(name = "mbedtls", kind = "static")]
+#[link(name = "mbedx509", kind = "static")]
+#[link(name = "mbedcrypto", kind = "static")]
 extern "C" {}
 #[cfg(not(feature = "i18n"))]
 pub(crate) mod i18n {
