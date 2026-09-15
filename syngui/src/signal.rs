@@ -199,7 +199,7 @@ impl<T: 'static + Clone> RwSignal<T> {
             request_redraws(notifiers);
         } else {
             let signal = *self;
-            crate::async_runtime::run_on_main_thread(move || {
+            crate::async_runtime::run_on_main_thread_wake_only(move || {
                 signal.set(new_value);
             });
         }
@@ -219,7 +219,7 @@ impl<T: 'static + Clone> RwSignal<T> {
             request_redraws(notifiers);
         } else {
             let signal = *self;
-            crate::async_runtime::run_on_main_thread(move || {
+            crate::async_runtime::run_on_main_thread_wake_only(move || {
                 signal.set_always(new_value);
             });
         }

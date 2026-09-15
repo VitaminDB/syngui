@@ -77,6 +77,7 @@ pub struct AppBuilder {
     pub(super) background_color: Color,
     pub(super) vsync: bool,
     pub(super) frame_limit: u32,
+    pub(super) keep_warm: Option<std::time::Duration>,
     pub(super) stylesheet: Option<StyleSheet>,
     pub(super) light_stylesheet: Option<StyleSheet>,
     pub(super) dark_stylesheet: Option<StyleSheet>,
@@ -145,6 +146,7 @@ impl AppBuilder {
             background_color: Color::from_hex("#F9FAFB"),
             vsync: true,
             frame_limit: 0,
+            keep_warm: None,
             stylesheet: None,
             light_stylesheet: None,
             dark_stylesheet: None,
@@ -216,6 +218,18 @@ impl AppBuilder {
 
     pub fn frame_limit(mut self, fps: u32) -> Self {
         self.frame_limit = fps;
+        self
+    }
+
+    /// «Подогрев» GPU: если кадров не было дольше `interval`, рисуется
+    /// пустой кадр. Нужен на устройствах с агрессивным DVFS (Android TV):
+    /// после паузы в несколько сотен миллисекунд GPU уходит на низкую
+    /// частоту, и первые кадры после нажатия пульта рисуются в 3–4 раза
+    /// дольше (на Mali-G52 — 90 ms вместо 25). Для tv_rezka — 250 ms:
+    /// ~6 % GPU в простое против отзывчивости навигации. На батарейных
+    /// устройствах не включать.
+    pub fn keep_warm_interval(mut self, interval: std::time::Duration) -> Self {
+        self.keep_warm = Some(interval);
         self
     }
 

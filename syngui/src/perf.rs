@@ -78,6 +78,12 @@ struct PerfCounters {
     vertex_count: u64,
     dl_commands: u64,
 
+    rebuild_max_us: u64,
+    layout_max_us: u64,
+    dl_max_us: u64,
+    render_max_us: u64,
+    render_phase_max_us: [u64; 6],
+
     render_batch_us: u64,
     render_upload_us: u64,
     render_acquire_us: u64,
@@ -90,6 +96,7 @@ struct PerfCounters {
     redraw_signals: u64,
     redraw_keyboard: u64,
     redraw_events: u64,
+    redraw_keep_warm: u64,
     /// Кто запросил кадр: (file, line) → число вызовов request_redraw.
     redraw_sites: std::collections::HashMap<(&'static str, u32), u64>,
 
@@ -134,6 +141,7 @@ pub fn add(counter: Counter, n: u64) {
             Counter::RedrawSignals => p.redraw_signals += n,
             Counter::RedrawKeyboard => p.redraw_keyboard += n,
             Counter::RedrawEvents => p.redraw_events += n,
+            Counter::RedrawKeepWarm => p.redraw_keep_warm += n,
         }
     });
 }
@@ -172,6 +180,7 @@ pub fn incr(counter: Counter) {
             Counter::RedrawSignals => p.redraw_signals += 1,
             Counter::RedrawKeyboard => p.redraw_keyboard += 1,
             Counter::RedrawEvents => p.redraw_events += 1,
+            Counter::RedrawKeepWarm => p.redraw_keep_warm += 1,
         }
     });
 }
@@ -187,12 +196,30 @@ pub fn add_time(kind: TimeKind, dur: Duration) {
         match kind {
             TimeKind::ApplyStyles => p.apply_styles_us += us,
             TimeKind::Animate => p.animate_us += us,
-            TimeKind::RenderBatch => p.render_batch_us += us,
-            TimeKind::RenderUpload => p.render_upload_us += us,
-            TimeKind::RenderAcquire => p.render_acquire_us += us,
-            TimeKind::RenderEncode => p.render_encode_us += us,
-            TimeKind::RenderSubmit => p.render_submit_us += us,
-            TimeKind::RenderPresent => p.render_present_us += us,
+            TimeKind::RenderBatch => {
+                p.render_batch_us += us;
+                p.render_phase_max_us[0] = p.render_phase_max_us[0].max(us);
+            }
+            TimeKind::RenderUpload => {
+                p.render_upload_us += us;
+                p.render_phase_max_us[1] = p.render_phase_max_us[1].max(us);
+            }
+            TimeKind::RenderAcquire => {
+                p.render_acquire_us += us;
+                p.render_phase_max_us[2] = p.render_phase_max_us[2].max(us);
+            }
+            TimeKind::RenderEncode => {
+                p.render_encode_us += us;
+                p.render_phase_max_us[3] = p.render_phase_max_us[3].max(us);
+            }
+            TimeKind::RenderSubmit => {
+                p.render_submit_us += us;
+                p.render_phase_max_us[4] = p.render_phase_max_us[4].max(us);
+            }
+            TimeKind::RenderPresent => {
+                p.render_present_us += us;
+                p.render_phase_max_us[5] = p.render_phase_max_us[5].max(us);
+            }
             TimeKind::MouseMoveHandleEvent => p.mm_handle_event_us += us,
             TimeKind::ButtonTextMeasure => p.button_text_measure_us += us,
         }
@@ -219,6 +246,10 @@ pub fn record_frame(
         p.layout_us += layout.as_micros() as u64;
         p.dl_us += dl.as_micros() as u64;
         p.render_us += render.as_micros() as u64;
+        p.rebuild_max_us = p.rebuild_max_us.max(rebuild.as_micros() as u64);
+        p.layout_max_us = p.layout_max_us.max(layout.as_micros() as u64);
+        p.dl_max_us = p.dl_max_us.max(dl.as_micros() as u64);
+        p.render_max_us = p.render_max_us.max(render.as_micros() as u64);
         p.draw_calls += draw_calls as u64;
         p.vertex_count += vertex_count as u64;
         p.dl_commands += dl_commands as u64;
@@ -272,7 +303,8 @@ fn flush(p: &mut PerfCounters, now: Instant) {
          render:  {}us tot ({}us/frame, draws={}, verts={}) [batch={} upload={} acquire={} encode={} submit={} present={}]\n  \
          events:  mousemove_dispatches={} ({}us tot, {}us/event, dfs_visits={}, avg_visits/event={})\n  \
          total_dispatch_visits={}\n  \
-         redraw:  images={} animate={} signals={} keyboard={} events={}",
+         redraw:  images={} animate={} signals={} keyboard={} events={} keep_warm={}\n  \
+         max/frame: rebuild={} layout={} dl={} render={} [batch={} upload={} acquire={} encode={} submit={} present={}]",
         frames, avg, p50, p95, p99,
         p.rebuild_us, p.rebuild_us / frames, p.rebuild_visits,
         p.animate_us, p.animate_us / frames, p.animate_visits, p.animate_ticking, p.animate_true,
@@ -290,6 +322,10 @@ fn flush(p: &mut PerfCounters, now: Instant) {
             p.mm_dispatch_visits / p.mm_dispatches.max(1),
         p.dispatch_visits,
         p.redraw_images, p.redraw_animate, p.redraw_signals, p.redraw_keyboard, p.redraw_events,
+        p.redraw_keep_warm,
+        p.rebuild_max_us, p.layout_max_us, p.dl_max_us, p.render_max_us,
+            p.render_phase_max_us[0], p.render_phase_max_us[1], p.render_phase_max_us[2],
+            p.render_phase_max_us[3], p.render_phase_max_us[4], p.render_phase_max_us[5],
     );
 
     if !p.redraw_sites.is_empty() {
@@ -350,6 +386,7 @@ pub enum Counter {
     RedrawSignals,
     RedrawKeyboard,
     RedrawEvents,
+    RedrawKeepWarm,
 }
 
 #[derive(Clone, Copy)]

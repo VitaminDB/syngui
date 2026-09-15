@@ -39,6 +39,26 @@ pub fn run_on_main_thread(f: impl FnOnce() + Send + 'static) {
     }
 }
 
+/// То же, но без запроса кадра: колбэк сам решает, нужен ли он (так работают
+/// кросс-поточные `RwSignal::set` — сигнал запрашивает кадр только если
+/// значение изменилось). Иначе фоновый поток, ставящий одно и то же
+/// значение по таймеру, рендерил бы полный кадр на каждый тик.
+pub(crate) fn run_on_main_thread_wake_only(f: impl FnOnce() + Send + 'static) {
+    let ch = channel();
+    let _ = ch.tx.send(Box::new(f));
+    let woke = WAKER
+        .lock()
+        .ok()
+        .and_then(|g| g.as_ref().map(|wake| wake()))
+        .is_some();
+    if !woke {
+        // Пробудителя нет (раннер без event loop) — как раньше, через кадр.
+        if let Some(window) = WINDOW.lock().ok().and_then(|g| g.clone()) {
+            window.request_redraw();
+        }
+    }
+}
+
 /// Установить пробудитель event loop'а для `run_on_main_thread` (обычно
 /// замыкание над `EventLoopProxy::send_event`). Ставится раннером при старте.
 pub fn set_main_thread_waker(wake: impl Fn() + Send + 'static) {

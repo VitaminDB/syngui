@@ -73,6 +73,8 @@ pub(super) struct AppHandler {
     pub(super) root_id: Option<crate::widget::ElementId>,
     pub(super) last_frame_time: Instant,
     pub(super) last_paced_redraw: Option<Instant>,
+    /// Момент последнего отрисованного кадра — для `keep_warm_interval`.
+    pub(super) last_render_at: Instant,
     /// Запрос «разбудить цикл через N» из update(): анимация ждёт окна
     /// frame-limit'а, либо Android-мост ввода ждёт следующего опроса.
     /// Потребляется в about_to_wait → ControlFlow::WaitUntil.
@@ -249,6 +251,7 @@ impl AppHandler {
             root_id: None,
             last_frame_time: Instant::now(),
             last_paced_redraw: None,
+            last_render_at: Instant::now(),
             wakeup_after: None,
             cursor_position: Point::zero(),
             scale_factor: crate::scale::ui_scale() as f64,

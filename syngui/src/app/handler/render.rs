@@ -237,6 +237,7 @@ impl AppHandler {
         // Кадр может применить стили или собрать новые элементы — то и другое
         // способно запустить анимацию; взводим обход в следующем update().
         self.tree.animations_armed = true;
+        self.last_render_at = Instant::now();
 
         #[cfg(target_arch = "wasm32")]
         if self.gpu.is_none() {
@@ -788,6 +789,25 @@ impl AppHandler {
             if let Some(window) = &self.window {
                 crate::perf::redraw_from(file!(), line!());
                 window.request_redraw();
+            }
+        }
+
+        // Подогрев GPU (см. AppBuilder::keep_warm_interval): пустой кадр,
+        // если давно не рисовали; иначе — пробуждение к нужному моменту.
+        if let Some(interval) = self.config.keep_warm {
+            let since = self.last_render_at.elapsed();
+            if since >= interval {
+                crate::perf::incr(crate::perf::Counter::RedrawKeepWarm);
+                if let Some(window) = &self.window {
+                    crate::perf::redraw_from(file!(), line!());
+                    window.request_redraw();
+                }
+            } else {
+                let delay = interval - since;
+                self.wakeup_after = Some(match self.wakeup_after {
+                    Some(d) => d.min(delay),
+                    None => delay,
+                });
             }
         }
 

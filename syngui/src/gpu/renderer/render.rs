@@ -77,27 +77,39 @@ impl Renderer {
             }
         }
 
-        let pool_handles = {
+        let (pool_handles, direct) = {
             let (plan, pool_handles) =
                 self.build_render_plan(&render_ops, &gpu.device, background_color, elapsed);
+            // Без эффектов (обычный кадр) рисуем сразу в surface: scene-текстура
+            // и полноэкранный blit — лишний проход 1920×1080 и resolve на
+            // тайловом GPU.
+            let direct = std::env::var_os("SYNGUI_NO_DIRECT").is_none() && plan.iter().all(|s| {
+                matches!(
+                    s,
+                    super::EffectRenderStep::DrawBatches {
+                        target: super::EffectTarget::Scene,
+                        ..
+                    }
+                )
+            });
             let scene_view = self.scene_view.as_ref().unwrap();
             let scene_texture = self.scene_texture.as_ref().unwrap();
             self.execute_render_plan(
                 &mut encoder,
                 gpu,
                 &plan,
-                scene_view,
+                if direct { &surface_view } else { scene_view },
                 scene_texture,
                 elapsed,
                 scale,
             );
-            pool_handles
+            (pool_handles, direct)
         };
         for h in pool_handles {
             self.texture_pool.release(h);
         }
 
-        {
+        if !direct {
             let mut render_pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
                 label: Some("Blit Pass"),
                 color_attachments: &[Some(wgpu::RenderPassColorAttachment {
