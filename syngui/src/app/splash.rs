@@ -226,6 +226,7 @@ impl SplashWindow {
 
         let instance = wgpu::Instance::new(&wgpu::InstanceDescriptor {
             backends: wgpu::Backends::all(),
+            flags: crate::gpu::instance_flags(),
             ..Default::default()
         });
 

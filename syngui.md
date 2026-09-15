@@ -1770,6 +1770,19 @@ assert_bounds!(b, 0.0, 0.0, 120.0, 32.0);
 из ffmpeg-скрипта сам; библиотеки копируются в префикс FFmpeg и линкуются
 блоком `#[link]`). Опции сети (User-Agent, Referer, таймауты) —
 `VideoPlayer::open_with_options(url, accel, &[("user_agent", ..), ("headers", "Referer: …\r\n")])`.
+Корневые сертификаты для mbedTLS: в `android_main` до первого https вызвать
+`video::android::system_ca_bundle(&data_dir.join("cache"))` — склеивает
+системные CA в один PEM и выставляет `SSL_CERT_FILE`; FFmpeg из скрипта
+пропатчен брать его как `ca_file` по умолчанию (HLS/DASH открывают сегменты
+новыми соединениями, опция `ca_file` из `open_with_options` до них не доходит).
+После пересборки FFmpeg обязателен `cargo clean -p ffmpeg-sys-next --target <triple>`:
+crate вклеивает `libav*.a` в свой rlib и изменения `.a` не отслеживает
+(`run-tv.sh` делает это сам по mtime). Логи libav* — `video::set_ffmpeg_log_level(FfmpegLogLevel::Verbose)`.
+Профиль кадра (`[PROFILE 1s]` в logcat, тег `RustStdoutStderr`) на Android
+включается `syngui::perf::enable()` до первого кадра — окружения `MGUI_PROFILE`
+у apk нет; `tv_rezka` включает его по файлу-маркеру `files/profile`.
+Метки wgpu в GL-драйвер не передаются (`gpu::instance_flags()` добавляет
+`DISCARD_HAL_LABELS`): Mali читает за границей строки метки и падает SIGSEGV.
 
 **WASM** — цель `wasm32-unknown-unknown`; шрифты не берутся из системы,
 задавай `.with_font_url(..)` и `.with_fallback_font_url(..)`;

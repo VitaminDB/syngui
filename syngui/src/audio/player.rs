@@ -229,12 +229,24 @@ impl AudioPlayer {
         let queue: Arc<Mutex<VecDeque<f32>>> = Arc::new(Mutex::new(VecDeque::new()));
         let total_written = Arc::new(AtomicUsize::new(0));
         let total_played = Arc::new(AtomicUsize::new(0));
+        // Источник закрыт (отправитель `rx` уронен): только после этого пустая
+        // очередь означает конец потока. Временное опустошение очереди (сеть,
+        // медленный декодер, инициализация hw-кодека) — буферизация, а не конец.
+        let input_done = Arc::new(AtomicBool::new(false));
 
         let q_drainer = queue.clone();
         let written_drainer = total_written.clone();
+        let input_done_drainer = input_done.clone();
         let _drainer = thread::Builder::new()
             .name("syngui-audio-player-drainer".into())
             .spawn(move || {
+                struct DoneGuard(Arc<AtomicBool>);
+                impl Drop for DoneGuard {
+                    fn drop(&mut self) {
+                        self.0.store(true, Ordering::Release);
+                    }
+                }
+                let _guard = DoneGuard(input_done_drainer);
                 if !needs_resample {
                     while let Ok(chunk) = rx.recv() {
                         written_drainer.fetch_add(chunk.len(), Ordering::AcqRel);
@@ -318,6 +330,7 @@ impl AudioPlayer {
         let queue_cb = queue.clone();
         let written_cb = total_written.clone();
         let played_cb = total_played.clone();
+        let input_done_cb = input_done.clone();
         let join = thread::Builder::new()
             .name("syngui-audio-player-streaming".into())
             .spawn(move || {
@@ -326,6 +339,7 @@ impl AudioPlayer {
                     queue_cb,
                     written_cb,
                     played_cb,
+                    input_done_cb,
                     init_tx,
                     stop_rx,
                     &device,
@@ -612,6 +626,7 @@ fn run_player_thread_streaming(
     queue: Arc<Mutex<VecDeque<f32>>>,
     total_written: Arc<AtomicUsize>,
     total_played: Arc<AtomicUsize>,
+    input_done: Arc<AtomicBool>,
     init_tx: mpsc::SyncSender<Result<(), AudioError>>,
     stop_rx: mpsc::Receiver<()>,
     device: &cpal::Device,
@@ -688,13 +703,14 @@ fn run_player_thread_streaming(
         if state.done.load(Ordering::Acquire) {
             break;
         }
-        let written = total_written.load(Ordering::Acquire);
+        // Конец — только когда источник закрыт и всё записанное проиграно.
+        // Пустая очередь при живом источнике — буферизация: callback пишет
+        // тишину, `played` не растёт, и мастер-часы видео стоят на месте.
         let played = total_played.load(Ordering::Acquire);
-        let q_len = queue.lock().map(|q| q.len()).unwrap_or(0);
-        if q_len == 0 && played >= written && written > 0 {
-            thread::sleep(Duration::from_millis(40));
-            let written2 = total_written.load(Ordering::Acquire);
-            if written2 == written {
+        if input_done.load(Ordering::Acquire) {
+            let written = total_written.load(Ordering::Acquire);
+            let q_len = queue.lock().map(|q| q.len()).unwrap_or(0);
+            if q_len == 0 && played >= written {
                 state.done.store(true, Ordering::Release);
                 break;
             }

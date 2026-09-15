@@ -5,6 +5,15 @@ use web_time::Instant;
 
 static ENABLED: OnceLock<bool> = OnceLock::new();
 
+/// Включить профиль кадра программно (эквивалент переменной окружения
+/// `MGUI_PROFILE`): для платформ без окружения запуска — Android, где
+/// приложение само решает по файлу-маркеру или системному свойству. Вызывать
+/// до первого кадра; после первого обращения к [`is_enabled`] значение
+/// зафиксировано и вызов игнорируется.
+pub fn enable() {
+    let _ = ENABLED.set(true);
+}
+
 #[inline]
 pub fn is_enabled() -> bool {
     *ENABLED.get_or_init(|| std::env::var("MGUI_PROFILE").is_ok())

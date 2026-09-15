@@ -604,6 +604,7 @@ impl AppHandler {
 
         let instance = wgpu::Instance::new(&wgpu::InstanceDescriptor {
             backends,
+            flags: crate::gpu::instance_flags(),
             ..Default::default()
         });
 

@@ -9,6 +9,12 @@
 #   FFMPEG_DIR=$SYNGUI/android-deps/ffmpeg/armeabi-v7a \
 #   cargo ndk -t armeabi-v7a -P 30 build --features "android ffmpeg-static"
 #
+# ВАЖНО: ffmpeg-sys-next вклеивает статические libav*.a в свой rlib при
+# компиляции crate и не отслеживает их изменения. После пересборки FFmpeg
+# нужно `cargo clean -p ffmpeg-sys-next --target <triple>` (или удалить
+# target/<triple>/*/deps/libffmpeg_sys_next-*), иначе в приложение уедут
+# старые библиотеки.
+#
 # Требуется: ANDROID_NDK_HOME (или /opt/android-ndk), make, yasm не нужен
 # (ARM-ассемблер собирает clang). Исходники берутся из ffmpeg.org, версия
 # должна совпадать с major ffmpeg-next (9.x → FFmpeg 9.0.x), иначе bindgen
@@ -62,6 +68,34 @@ if [[ ! -d "$SRC_DIR" ]]; then
     echo "==> Скачиваю ffmpeg-$FFMPEG_VERSION..."
     curl -sL -o "$SRC_DIR.tar.xz" "https://ffmpeg.org/releases/ffmpeg-$FFMPEG_VERSION.tar.xz"
     tar xf "$SRC_DIR.tar.xz" -C "$(dirname "$SRC_DIR")"
+fi
+
+# Патч: HLS/DASH открывают сегменты новыми https-соединениями, и опции
+# ca_file/tls_verify, переданные при открытии источника, до них не доходят
+# (ffio_copy_url_options копирует только headers/user_agent/cookies/…, а
+# дочерний TLS-контекст к моменту hls_read_header уже закрыт после chunked-
+# ответа). На Android у mbedTLS нет системного хранилища корней, и каждый
+# сегмент падал с «certificate not correctly signed». Даём TLS-контексту
+# fallback: если ca_file не задан, берём его из переменной окружения
+# SSL_CERT_FILE (syngui выставляет её в video::android::system_ca_bundle).
+TLSC="$SRC_DIR/libavformat/tls.c"
+if ! grep -q 'SSL_CERT_FILE' "$TLSC"; then
+    python3 - "$TLSC" <<'PY'
+import sys
+p = sys.argv[1]
+s = open(p).read()
+old = "    p = strchr(uri, '?');\n    if (p) {\n        ret = ff_parse_opts_from_query_string(c, p, 1);"
+new = ("    if (!c->ca_file) {\n"
+       "        char *env_ca = getenv_utf8(\"SSL_CERT_FILE\");\n"
+       "        if (env_ca && *env_ca)\n"
+       "            c->ca_file = av_strdup(env_ca);\n"
+       "        freeenv_utf8(env_ca);\n"
+       "    }\n"
+       "    av_log(parent, AV_LOG_VERBOSE, \"tls: ca_file=%s verify=%d\\n\", c->ca_file ? c->ca_file : \"(none)\", c->verify);\n\n" + old)
+assert s.count(old) == 1, "ff_tls_open_underlying: точка вставки не найдена"
+open(p, "w").write(s.replace(old, new))
+PY
+    grep -q 'SSL_CERT_FILE' "$TLSC" || { echo "патч tls.c не применился" >&2; exit 1; }
 fi
 
 if [[ "$CLEAN" == 1 ]]; then
