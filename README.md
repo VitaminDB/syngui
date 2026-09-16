@@ -1,11 +1,13 @@
 # syngui
 
 [![Donate via PayPal](https://img.shields.io/badge/donate-PayPal-0070ba?logo=paypal&logoColor=white)](https://paypal.me/vitamindbnfkz)
+[![Licence: MIT OR Apache-2.0](https://img.shields.io/badge/licence-MIT%20OR%20Apache--2.0-blue)](#license)
+[![Rendering: wgpu](https://img.shields.io/badge/rendering-wgpu%2028-orange)](#rendering)
 
 A retained-mode GUI framework for Rust — GPU-rendered via wgpu, styled with CSS-like
 stylesheets, wired with reactive signals.
 
-![The widget_gallery_mss example running natively — MarkdownView with syntax highlighting, one of 70+ widgets](docs/widget-gallery.png)
+![The widget_gallery_mss example running natively — MarkdownView with syntax highlighting, one of 110+ widgets](docs/widget-gallery.png)
 
 ```rust
 use syngui::prelude::*;
@@ -28,19 +30,56 @@ that's the point:
 
 - **Real stylesheets.** Not a Rust-typed style struct — an actual cascade. Variables and
   `var()`, type/class/compound selectors, pseudo-classes (`:hover`, `:active`, `:focus`,
-  `:checked`, `:disabled`), CSS nesting, descendant selectors, transitions, inheritance.
-  Plus window-level pseudo-classes — `:window-maximized`, `:window-fullscreen`,
-  `:window-focused` — synced to the window state.
+  `:checked`, `:disabled`), CSS nesting, descendant selectors, transitions, `@keyframes`,
+  inheritance. Plus window-level pseudo-classes — `:window-maximized`,
+  `:window-fullscreen`, `:window-focused` — synced to the window state.
 - **Fine-grained reactivity.** SolidJS-style `use_signal` / `use_effect` / `create_memo` /
   `use_context`, with automatic dependency tracking. Signals are `Copy`; subtrees rebuild
   granularly instead of re-running the whole view.
-- **Batteries genuinely included.** 70+ widgets across 10 categories, including things
+- **Batteries genuinely included.** 110+ widgets across 10 categories, including things
   you normally vendor yourself: charts (line/bar/pie/radar/gauge), a tile map widget with
   pan-zoom, an embedded terminal (PTY + VT100), a markdown view with syntax highlighting,
-  a rope-backed code editor, audio and video playback, and a devtools inspector.
+  a rope-backed code editor, a block document editor, audio and video playback, and a
+  devtools inspector.
 - **Retained-mode architecture.** Immutable `Widget` → stateful `Element`, diffed via
   `can_update()`, with dirty-flag propagation (layout / paint / state / children /
   animation). Familiar if you've used Flutter or React.
+
+## DocumentEditor
+
+A Notion-style block editor, in the framework rather than in your app:
+
+- Markdown is the model *and* the file format — flat style runs, inline attributes `{k=v}`,
+  `[[wiki-links]]`, `![[embeds]]`, callouts and toggles as first-class blocks.
+- Editing: caret and selection with IME, undo/redo history exposed to the host
+  (`history_state`, `DocOp::Undo`), markdown shortcuts, a slash menu, an inline toolbar,
+  multi-block selection, multi-format clipboard, Tab to nest.
+- Blocks: headings, lists, checklists, tables with editable cells, syntax-highlighted code
+  edited in place, media blocks with real players, charts, and **live embeds** through an
+  `EmbedFactory` (your own widget inside the document, recursion-guarded).
+- **Two layout modes**: flow, or a free canvas — pin any block at coordinates, snap to a
+  grid, set width and height, and draw vector primitives (rectangle, ellipse, triangle,
+  diamond, lines, arrows, Bézier curves with direction handles) alongside the text.
+- Host API: `replace_markdown` / `append_markdown`, `on_block_drop`, block properties
+  (colour, background, size, weight, alignment), a block tree, drag handles with a live
+  ghost of the dragged element.
+
+## Performance
+
+The framework is used in a chat app with thousand-message histories, so the hot paths are
+measured rather than assumed:
+
+- **VirtualList** — variable row heights, anchoring and stick-to-bottom; a long feed mounts
+  a window of rows instead of the whole history (3.4 s → 5.8 ms per frame in the app that
+  drove this work).
+- **Keyed children** — inserting in the middle does not recreate the neighbours.
+- **MSS cascade** — the rule index is built once per stylesheet, the cascade result is
+  cached per element with a style diff, and dirtiness is marked point-wise on class changes.
+- **Reactivity** — a reverse subscription index, markdown parse and syntax-highlight caches,
+  and a point-wise animation registry (invisible animators no longer tick).
+- **Rendering** — batches ordered by bbox without flushing on clips and shadows, culling by
+  constraint hash, shared frame geometry buffers, dirty-rect font-atlas uploads, a texture
+  ring for streaming video frames, and mipmaps generated on the decode thread.
 
 ## Rendering
 
@@ -53,6 +92,12 @@ shader/texture/clip into a handful of draw calls in a single render pass.
 Linux (X11 and Wayland — including a hand-rolled Wayland drag-and-drop implementation on
 top of `wl_data_device`, since [winit#1881](https://github.com/rust-windowing/winit/issues/1881)
 is still open), Windows, macOS, Android, and WebAssembly.
+
+**Android and Android TV** are first-class targets: a D-pad/remote focus model, an on-screen
+keyboard (`OnScreenKeyboard`, also on the web through a hidden `<input>` agent), hardware
+video through `MediaCodec` rendering straight into an Android `Surface`, a statically linked
+FFmpeg with mbedTLS for HTTPS streams, `AppSuspended` / `AppResumed` lifecycle events, safe-area
+aware overlays, and back-button handling.
 
 ## Styling
 
@@ -99,22 +144,25 @@ fn build_ui() -> impl Widget {
 
 ## Status and honest limitations
 
-This is a young framework built by one person. It is used in production by its author,
-has 880+ tests, and carries no `todo!()` stubs — but you should know what's missing
-before you adopt it:
+This is a young framework built by one person. It is used in production by its author
+(see [synthos](https://github.com/VitaminDB/synthos), a desktop AI studio built on it), has
+1 350+ tests, and carries no `todo!()` stubs — but you should know what's missing before you
+adopt it:
 
 - **Text shaping is simple.** Glyph advances are summed per-character. Latin, Cyrillic and
   CJK render correctly (CJK through a system-font fallback chain with ideographic line
   breaks); there is no kerning, no ligatures, no GSUB/GPOS, no bidirectional text, and no
   complex-script support (Arabic joining, Devanagari reordering). If you need those, this
   framework is not ready for you yet.
+- **Colour emoji are drawn without a shaper.** ZWJ sequences and VS16 can render as separate
+  glyphs.
 - **Accessibility is behind a non-default feature.** AccessKit integration exists
   (AT-SPI / UIA / NSAccessibility) but is not enabled by default and is not continuously
   tested.
 - **No CI yet.** Windows, macOS, and Android builds are verified manually.
-- **i18n is minimal by design.** `syngui::i18n` gives you `key = "value"` catalogs, `tr!`/`trn!`
-  with CLDR-style plural rules, live language switching and OS locale detection — but no
-  number/date formatting beyond the calendar widget.
+- **i18n is deliberately small.** `syngui::i18n` gives you `key = "value"` catalogs,
+  `tr!`/`trn!` with CLDR-style plural rules, live language switching and OS locale detection
+  — but no number/date formatting beyond the calendar widget.
 - **API is not stable.** Expect breaking changes.
 
 ## Building
@@ -125,7 +173,8 @@ cargo test -p syngui
 ```
 
 The `ffmpeg` feature (video playback) is **not** enabled by default and requires system
-FFmpeg 7+ development libraries. Without it, no FFmpeg linkage occurs.
+FFmpeg 7+ development libraries (9.x is what current builds track). Without it, no FFmpeg
+linkage occurs.
 
 ## Examples
 
