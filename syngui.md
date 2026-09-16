@@ -1249,6 +1249,8 @@ PanZoomViewport::new()
 // frameless-окно
 WindowDragRegion::new().child(titlebar)
 WindowResizeRegion::new().inset(24.0).enabled(true).child(shell)
+    .over_content(true)   // нет прозрачного отступа: нажатие у края — зоне, а не детям
+                          // (в развёрнутом/полноэкранном окне — детям)
 SystemWindowControls::right().button_size(16.0).spacing(8.0).active(true).maximized(m)
 WindowControl::close() / ::minimize() / ::toggle_maximize()
 ```

@@ -10,6 +10,12 @@
 //! (`.window-backdrop { padding }`): тогда зона захвата лежит в отступе и не
 //! перекрывает содержимое. Дочерние элементы обрабатывают события первыми, так
 //! что кнопки на самом краю продолжают работать.
+//!
+//! Если «воздуха» нет и содержимое доходит до края окна (фон, шапка-регион
+//! перетаскивания), края перехватывали бы дети — тогда
+//! [`over_content`](WindowResizeRegion::over_content): нажатие в полосе
+//! захвата достаётся зоне раньше детей (в развёрнутом и полноэкранном окне —
+//! как обычно, детям).
 
 use crate::core::{Point, Rect, Size};
 use crate::input::{Event, EventResult, MouseButton, ResizeDirection};
@@ -35,6 +41,7 @@ pub struct WindowResizeRegion {
     pub child: Option<Box<dyn Widget>>,
     inset: f32,
     enabled: bool,
+    over_content: bool,
 }
 
 impl Default for WindowResizeRegion {
@@ -49,6 +56,7 @@ impl WindowResizeRegion {
             child: None,
             inset: DEFAULT_INSET,
             enabled: true,
+            over_content: false,
         }
     }
 
@@ -69,6 +77,13 @@ impl WindowResizeRegion {
         self.enabled = enabled;
         self
     }
+
+    /// Полоса захвата поверх содержимого: нажатие у края забирает зона, не
+    /// пуская к детям. Для окна без отступа вокруг шелла.
+    pub fn over_content(mut self, over: bool) -> Self {
+        self.over_content = over;
+        self
+    }
 }
 
 impl Widget for WindowResizeRegion {
@@ -78,6 +93,8 @@ impl Widget for WindowResizeRegion {
             bounds: Rect::zero(),
             inset: self.inset,
             enabled: self.enabled,
+            over_content: self.over_content,
+            window_flags: 0,
             classes: Vec::new(),
             dirty_flags: DirtyFlags::LAYOUT | DirtyFlags::RENDER,
             mss: MssFields::new(),
@@ -116,6 +133,10 @@ struct WindowResizeRegionElement {
     bounds: Rect,
     inset: f32,
     enabled: bool,
+    over_content: bool,
+    /// Флаги окна из последнего события: `intercepts_event` контекста не
+    /// получает, а перехват в развёрнутом окне отнял бы клики у кнопок в углу.
+    window_flags: u8,
     classes: Vec<String>,
     dirty_flags: DirtyFlags,
     mss: MssFields,
@@ -169,6 +190,7 @@ impl Element for WindowResizeRegionElement {
         if let Some(w) = widget.as_any().downcast_ref::<WindowResizeRegion>() {
             self.inset = w.inset;
             self.enabled = w.enabled;
+            self.over_content = w.over_content;
         }
     }
 
@@ -193,6 +215,7 @@ impl Element for WindowResizeRegionElement {
         // В развёрнутом и полноэкранном окне менять размер нечему — зона
         // захвата легла бы прямо на содержимое у края экрана.
         let flags = ctx.window_flags();
+        self.window_flags = flags;
         if flags & (window_flags::MAXIMIZED | window_flags::FULLSCREEN) != 0 {
             return EventResult::Ignored;
         }
@@ -268,6 +291,20 @@ impl Element for WindowResizeRegionElement {
         false
     }
 
+    fn intercepts_event(&self, event: &Event) -> bool {
+        if !self.over_content
+            || self.window_flags & (window_flags::MAXIMIZED | window_flags::FULLSCREEN) != 0
+        {
+            return false;
+        }
+        match event {
+            Event::MouseDown { button, position } if *button == MouseButton::Left => {
+                self.direction_at(*position).is_some()
+            }
+            _ => false,
+        }
+    }
+
     fn set_classes(&mut self, classes: Vec<String>) {
         self.classes = classes;
         self.mark_dirty(DirtyFlags::RENDER);
@@ -320,6 +357,8 @@ mod tests {
             bounds: Rect::new(Point::zero(), Size::new(w, h)),
             inset,
             enabled: true,
+            over_content: false,
+            window_flags: 0,
             classes: Vec::new(),
             dirty_flags: DirtyFlags::empty(),
             mss: MssFields::new(),
@@ -364,6 +403,21 @@ mod tests {
             r.direction_at(Point::new(790.0, 2.0)),
             Some(ResizeDirection::NorthEast)
         );
+    }
+
+    #[test]
+    fn over_content_intercepts_edge_press_unless_maximized() {
+        let mut r = region(800.0, 600.0, 8.0);
+        let press = |x: f32, y: f32| Event::MouseDown {
+            button: MouseButton::Left,
+            position: Point::new(x, y),
+        };
+        assert!(!r.intercepts_event(&press(2.0, 300.0)), "без over_content — детям");
+        r.over_content = true;
+        assert!(r.intercepts_event(&press(2.0, 300.0)));
+        assert!(!r.intercepts_event(&press(400.0, 300.0)), "середина — детям");
+        r.window_flags = window_flags::MAXIMIZED;
+        assert!(!r.intercepts_event(&press(797.0, 2.0)), "кнопка закрытия в углу");
     }
 
     #[test]
