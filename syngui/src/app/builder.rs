@@ -70,6 +70,7 @@ pub use android_activity::AndroidApp;
 
 pub struct AppBuilder {
     pub(super) title: String,
+    pub(super) app_id: Option<String>,
     pub(super) width: u32,
     pub(super) height: u32,
     pub(super) min_width: u32,
@@ -139,6 +140,7 @@ impl AppBuilder {
     pub fn new() -> Self {
         Self {
             title: "SYNGUI Application".to_string(),
+            app_id: None,
             width: 1280,
             height: 720,
             min_width: 400,
@@ -191,6 +193,14 @@ impl AppBuilder {
 
     pub fn title(mut self, title: impl Into<String>) -> Self {
         self.title = title.into();
+        self
+    }
+
+    /// Идентификатор приложения для рабочего стола (`app_id` на Wayland,
+    /// `WM_CLASS` на X11): имя `.desktop`-файла без расширения. По нему
+    /// панель задач берёт иконку и группирует окна.
+    pub fn app_id(mut self, app_id: impl Into<String>) -> Self {
+        self.app_id = Some(app_id.into());
         self
     }
 

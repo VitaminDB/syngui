@@ -14,6 +14,10 @@ pub enum WindowEvent {
 
 pub struct WindowBuilder {
     title: String,
+    /// Идентификатор приложения для оконной системы: `app_id` на Wayland,
+    /// `WM_CLASS` на X11. По нему рабочий стол находит `.desktop`-файл и
+    /// иконку окна; без него в панели задач — заглушка.
+    app_id: Option<String>,
     width: u32,
     height: u32,
     min_width: u32,
@@ -29,6 +33,7 @@ impl WindowBuilder {
     pub fn new() -> Self {
         Self {
             title: "SYNGUI".to_string(),
+            app_id: None,
             width: 1280,
             height: 720,
             min_width: 400,
@@ -39,6 +44,13 @@ impl WindowBuilder {
             transparent: false,
             fullscreen: false,
         }
+    }
+
+    /// `app_id` (Wayland) / `WM_CLASS` (X11) — совпадает с именем
+    /// `.desktop`-файла приложения, например `tv-rezka`.
+    pub fn with_app_id(mut self, app_id: impl Into<String>) -> Self {
+        self.app_id = Some(app_id.into());
+        self
     }
 
     pub fn with_title(mut self, title: impl Into<String>) -> Self {
@@ -121,6 +133,23 @@ impl Window {
             .with_maximized(builder.maximized)
             .with_decorations(builder.decorations)
             .with_transparent(builder.transparent);
+
+        #[cfg(all(
+            unix,
+            not(target_os = "android"),
+            not(target_os = "macos"),
+            not(target_arch = "wasm32")
+        ))]
+        let attributes = match &builder.app_id {
+            Some(id) => {
+                // Оба расширения (Wayland и X11) пишут одно и то же поле
+                // `name` в атрибутах; на X11 `general` — класс, `instance` —
+                // экземпляр WM_CLASS.
+                use winit::platform::wayland::WindowAttributesExtWayland;
+                WindowAttributesExtWayland::with_name(attributes, id.clone(), id.clone())
+            }
+            None => attributes,
+        };
 
         let inner = event_loop
             .create_window(attributes)

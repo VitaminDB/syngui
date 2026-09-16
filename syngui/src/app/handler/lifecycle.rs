@@ -30,7 +30,7 @@ impl AppHandler {
             self.config.height_ratio,
         );
         #[cfg(not(target_os = "android"))]
-        let window_builder = WindowBuilder::new()
+        let mut window_builder = WindowBuilder::new()
             .with_title(&self.config.title)
             .with_size(init_w, init_h)
             .with_min_size(self.config.min_width, self.config.min_height)
@@ -38,6 +38,10 @@ impl AppHandler {
             .with_decorations(self.config.decorations)
             .with_transparent(self.config.transparent)
             .with_fullscreen(self.config.fullscreen);
+        #[cfg(not(target_os = "android"))]
+        if let Some(id) = &self.config.app_id {
+            window_builder = window_builder.with_app_id(id.clone());
+        }
 
         #[cfg(target_os = "android")]
         let window_builder = WindowBuilder::new().with_title(&self.config.title);
