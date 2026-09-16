@@ -1,9 +1,18 @@
+//! Область обрезки (`overflow: hidden`) и её перевод в ножницы GPU.
+
+/// Прямоугольник обрезки в логических пикселях.
+///
+/// Координаты хранятся точно (биты `f32`), а не округляются до целых: клип
+/// приходит из раскладки, а раскладка при дробном DPI или `ui_scale` даёт
+/// дробные границы. Округление тут складывалось с округлением при переводе в
+/// физические пиксели и расширяло область наружу — по краю оставался пиксель,
+/// который сами квады содержимого уже не закрашивают.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, Default)]
 pub struct ClipRect {
-    pub x: u32,
-    pub y: u32,
-    pub width: u32,
-    pub height: u32,
+    x_bits: u32,
+    y_bits: u32,
+    width_bits: u32,
+    height_bits: u32,
     pub enabled: bool,
     corner_radius_bits: [u32; 4],
 }
@@ -11,45 +20,69 @@ pub struct ClipRect {
 impl ClipRect {
     pub fn full_screen() -> Self {
         Self {
-            x: 0,
-            y: 0,
-            width: u32::MAX,
-            height: u32::MAX,
+            x_bits: 0f32.to_bits(),
+            y_bits: 0f32.to_bits(),
+            width_bits: f32::INFINITY.to_bits(),
+            height_bits: f32::INFINITY.to_bits(),
             enabled: false,
             corner_radius_bits: [0; 4],
         }
     }
 
-    pub fn new(x: u32, y: u32, width: u32, height: u32) -> Self {
+    pub fn new(x: f32, y: f32, width: f32, height: f32) -> Self {
         Self {
-            x,
-            y,
-            width,
-            height,
+            x_bits: x.to_bits(),
+            y_bits: y.to_bits(),
+            width_bits: width.to_bits(),
+            height_bits: height.to_bits(),
             enabled: true,
             corner_radius_bits: [0; 4],
         }
     }
 
     pub fn from_rect(rect: crate::core::Rect) -> Self {
-        let x = rect.origin.x.floor() as u32;
-        let y = rect.origin.y.floor() as u32;
-        let right = (rect.origin.x + rect.size.width).ceil() as u32;
-        let bottom = (rect.origin.y + rect.size.height).ceil() as u32;
-        Self {
-            x,
-            y,
-            width: right - x,
-            height: bottom - y,
-            enabled: true,
-            corner_radius_bits: [0; 4],
-        }
+        Self::new(
+            rect.origin.x,
+            rect.origin.y,
+            rect.size.width,
+            rect.size.height,
+        )
     }
 
     pub fn from_rect_rounded(rect: crate::core::Rect, corner_radius: [f32; 4]) -> Self {
         let mut clip = Self::from_rect(rect);
         clip.set_corner_radius(corner_radius);
         clip
+    }
+
+    #[inline]
+    pub fn x(&self) -> f32 {
+        f32::from_bits(self.x_bits)
+    }
+
+    #[inline]
+    pub fn y(&self) -> f32 {
+        f32::from_bits(self.y_bits)
+    }
+
+    #[inline]
+    pub fn width(&self) -> f32 {
+        f32::from_bits(self.width_bits)
+    }
+
+    #[inline]
+    pub fn height(&self) -> f32 {
+        f32::from_bits(self.height_bits)
+    }
+
+    /// Ножницы для этого клипа; `None` — область пуста, батч рисовать не нужно.
+    pub fn scissor(&self, scale: f32, phys_w: u32, phys_h: u32) -> Option<(u32, u32, u32, u32)> {
+        scissor_px(
+            [self.x(), self.y(), self.width(), self.height()],
+            scale,
+            phys_w,
+            phys_h,
+        )
     }
 
     pub fn corner_radius_f32(&self) -> [f32; 4] {
@@ -69,21 +102,21 @@ impl ClipRect {
             return Self::from_rect(other);
         }
 
-        let x1 = self.x.max(other.origin.x.floor() as u32);
-        let y1 = self.y.max(other.origin.y.floor() as u32);
-        let x2 = (self.x + self.width).min((other.origin.x + other.size.width).ceil() as u32);
-        let y2 = (self.y + self.height).min((other.origin.y + other.size.height).ceil() as u32);
+        let x1 = self.x().max(other.origin.x);
+        let y1 = self.y().max(other.origin.y);
+        let x2 = (self.x() + self.width()).min(other.origin.x + other.size.width);
+        let y2 = (self.y() + self.height()).min(other.origin.y + other.size.height);
 
         if x2 <= x1 || y2 <= y1 {
-            return Self::new(x1, y1, 0, 0);
+            return Self::new(x1, y1, 0.0, 0.0);
         }
 
         let mut result = Self::new(x1, y1, x2 - x1, y2 - y1);
         result.corner_radius_bits = child_corner_bits_from_parent(
-            self.x,
-            self.y,
-            self.width,
-            self.height,
+            self.x(),
+            self.y(),
+            self.width(),
+            self.height(),
             self.corner_radius_bits,
             x1,
             y1,
@@ -103,16 +136,51 @@ impl ClipRect {
     }
 }
 
+/// Перевод логического прямоугольника в ножницы GPU (физические пиксели).
+///
+/// Пиксель попадает внутрь, если внутри прямоугольника лежит его центр, — то
+/// же правило, по которому растеризатор закрашивает квады содержимого.
+/// Округление наружу открывало краевой пиксель, который содержимое покрывает
+/// лишь на доли процента: на границе `overflow: hidden` оставалась полоска в
+/// 1 px из того, что должно быть обрезано. Прямоугольник тоньше половины
+/// пикселя сохраняет один пиксель, иначе содержимое исчезло бы совсем.
+pub fn scissor_px(
+    rect: [f32; 4],
+    scale: f32,
+    phys_w: u32,
+    phys_h: u32,
+) -> Option<(u32, u32, u32, u32)> {
+    let [x, y, w, h] = rect;
+    if !(w > 0.0) || !(h > 0.0) {
+        return None;
+    }
+    let to_px = |v: f32, max: u32| (v * scale).round().clamp(0.0, max as f32) as u32;
+    let sx = to_px(x, phys_w);
+    let sy = to_px(y, phys_h);
+    let mut sr = to_px(x + w, phys_w);
+    let mut sb = to_px(y + h, phys_h);
+    if sr == sx && sx < phys_w {
+        sr = sx + 1;
+    }
+    if sb == sy && sy < phys_h {
+        sb = sy + 1;
+    }
+    if sr <= sx || sb <= sy {
+        return None;
+    }
+    Some((sx, sy, sr - sx, sb - sy))
+}
+
 fn child_corner_bits_from_parent(
-    parent_x: u32,
-    parent_y: u32,
-    parent_w: u32,
-    parent_h: u32,
+    parent_x: f32,
+    parent_y: f32,
+    parent_w: f32,
+    parent_h: f32,
     parent_radius_bits: [u32; 4],
-    child_x1: u32,
-    child_y1: u32,
-    child_x2: u32,
-    child_y2: u32,
+    child_x1: f32,
+    child_y1: f32,
+    child_x2: f32,
+    child_y2: f32,
 ) -> [u32; 4] {
     if parent_radius_bits == [0; 4] {
         return [0; 4];
@@ -184,9 +252,37 @@ mod tests {
 
     #[test]
     fn parent_without_radius_never_propagates() {
-        let parent = ClipRect::new(0, 0, 500, 400);
+        let parent = ClipRect::new(0.0, 0.0, 500.0, 400.0);
         let child = parent.intersect(r(0.0, 0.0, 500.0, 400.0));
         assert_eq!(child.corner_radius_f32(), [0.0; 4]);
+    }
+
+    #[test]
+    fn scissor_rounds_to_pixel_centers() {
+        // 480 лог. × 1.0417 = 499.99998: округление наружу открывало пиксель
+        // 499, который квады содержимого уже не закрашивают, — по краю
+        // области оставалась полоска шириной в 1 px.
+        let clip = ClipRect::new(480.0, 0.0, 1440.0, 918.0);
+        let (x, _y, w, _h) = clip.scissor(1.0416666, 2000, 1125).unwrap();
+        assert_eq!(x, 500);
+        assert_eq!(x + w, 2000);
+    }
+
+    #[test]
+    fn scissor_keeps_one_pixel_for_thin_clip() {
+        let clip = ClipRect::new(10.0, 10.0, 0.2, 0.2);
+        let (_x, _y, w, h) = clip.scissor(1.0, 100, 100).unwrap();
+        assert_eq!(
+            (w, h),
+            (1, 1),
+            "содержимое тоньше пикселя не должно пропадать"
+        );
+    }
+
+    #[test]
+    fn scissor_is_none_for_empty_clip() {
+        let clip = ClipRect::new(10.0, 10.0, 0.0, 5.0);
+        assert!(clip.scissor(1.0, 100, 100).is_none());
     }
 
     #[test]

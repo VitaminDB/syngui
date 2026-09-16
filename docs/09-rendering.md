@@ -154,10 +154,16 @@ struct Vertex {
 
 ```rust
 ClipRect::full_screen()
-ClipRect::new(x, y, width, height)    // u32 pixel coords
+ClipRect::new(x, y, width, height)    // f32 logical coords
 ClipRect::from_rect(rect)             // From Rect (f32)
 clip.intersect(other_rect)            // Intersect with another rect
+clip.scissor(scale, phys_w, phys_h)   // -> Option<(x, y, w, h)> in physical px
 ```
+
+Coords stay exact (f32) — layout gives fractional edges under fractional DPI or
+`ui_scale`. `scissor()` rounds to pixel centers, the same rule the rasterizer
+applies to content quads; rounding outward used to open a 1 px edge pixel that
+the quads no longer cover, leaking clipped content along the border.
 
 **Critical**: Renderer scissor rect persists between batches — must reset to full surface when `clip_rect.enabled == false`.
 

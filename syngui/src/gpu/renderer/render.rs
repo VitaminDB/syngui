@@ -358,24 +358,16 @@ impl Renderer {
                             }
 
                             if batch.clip_rect.enabled {
-                                let sx = (batch.clip_rect.x as f32 * scale).floor() as u32;
-                                let sy = (batch.clip_rect.y as f32 * scale).floor() as u32;
-                                let sr = ((batch.clip_rect.x as f32 + batch.clip_rect.width as f32)
-                                    * scale)
-                                    .ceil() as u32;
-                                let sb = ((batch.clip_rect.y as f32
-                                    + batch.clip_rect.height as f32)
-                                    * scale)
-                                    .ceil() as u32;
-                                let sw = sr.saturating_sub(sx).min(phys_w.saturating_sub(sx));
-                                let sh = sb.saturating_sub(sy).min(phys_h.saturating_sub(sy));
-                                if sx >= phys_w || sy >= phys_h || sw == 0 || sh == 0 {
+                                let Some(scissor) = batch.clip_rect.scissor(scale, phys_w, phys_h)
+                                else {
                                     buffer_index += 1;
                                     continue;
-                                }
-                                if current_scissor != (sx, sy, sw, sh) {
-                                    current_scissor = (sx, sy, sw, sh);
-                                    render_pass.set_scissor_rect(sx, sy, sw, sh);
+                                };
+                                if current_scissor != scissor {
+                                    current_scissor = scissor;
+                                    render_pass.set_scissor_rect(
+                                        scissor.0, scissor.1, scissor.2, scissor.3,
+                                    );
                                 }
                             } else if current_scissor != (0, 0, phys_w, phys_h) {
                                 current_scissor = (0, 0, phys_w, phys_h);
@@ -515,15 +507,7 @@ impl Renderer {
         for (&clip, &byte_offset) in &clip_map {
             let radii = clip.corner_radius_f32();
             let (clip_rect, clip_corner_radius) = if clip.has_corner_radius() {
-                (
-                    [
-                        clip.x as f32,
-                        clip.y as f32,
-                        clip.width as f32,
-                        clip.height as f32,
-                    ],
-                    radii,
-                )
+                ([clip.x(), clip.y(), clip.width(), clip.height()], radii)
             } else {
                 ([0.0; 4], [0.0; 4])
             };

@@ -656,13 +656,11 @@ impl Renderer {
                         occlusion_query_set: None,
                         multiview_mask: None,
                     });
-                    let sx = (bounds[0] * scale) as u32;
-                    let sy = (bounds[1] * scale) as u32;
-                    let sw = (bounds[2] * scale).ceil() as u32;
-                    let sh = (bounds[3] * scale).ceil() as u32;
-                    let sw = sw.min(self.width.saturating_sub(sx));
-                    let sh = sh.min(self.height.saturating_sub(sy));
-                    if sw > 0 && sh > 0 {
+                    // Границы области эффекта округляются так же, как клип, —
+                    // иначе размытый слой лёг бы на пиксель за краем.
+                    if let Some((sx, sy, sw, sh)) =
+                        crate::render::scissor_px(*bounds, scale, self.width, self.height)
+                    {
                         rp.set_scissor_rect(sx, sy, sw, sh);
                         rp.set_pipeline(&self.blit_pipeline);
                         rp.set_bind_group(0, self.texture_pool.bind_group(*source), &[]);
@@ -817,20 +815,12 @@ impl Renderer {
             }
 
             if batch.clip_rect.enabled {
-                let sx = (batch.clip_rect.x as f32 * scale) as u32;
-                let sy = (batch.clip_rect.y as f32 * scale) as u32;
-                let sr = ((batch.clip_rect.x as f32 + batch.clip_rect.width as f32) * scale).ceil()
-                    as u32;
-                let sb = ((batch.clip_rect.y as f32 + batch.clip_rect.height as f32) * scale).ceil()
-                    as u32;
-                let sw = sr.saturating_sub(sx).min(self.width.saturating_sub(sx));
-                let sh = sb.saturating_sub(sy).min(self.height.saturating_sub(sy));
-                if sx >= self.width || sy >= self.height || sw == 0 || sh == 0 {
+                let Some(scissor) = batch.clip_rect.scissor(scale, self.width, self.height) else {
                     continue;
-                }
-                if current_scissor != (sx, sy, sw, sh) {
-                    current_scissor = (sx, sy, sw, sh);
-                    render_pass.set_scissor_rect(sx, sy, sw, sh);
+                };
+                if current_scissor != scissor {
+                    current_scissor = scissor;
+                    render_pass.set_scissor_rect(scissor.0, scissor.1, scissor.2, scissor.3);
                 }
             } else if current_scissor != (0, 0, self.width, self.height) {
                 current_scissor = (0, 0, self.width, self.height);
