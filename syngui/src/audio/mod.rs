@@ -1,3 +1,5 @@
+#[cfg(target_os = "android")]
+mod android_out;
 pub mod dsp;
 mod player;
 mod recorder;

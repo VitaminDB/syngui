@@ -1,7 +1,7 @@
 use std::sync::mpsc::{self, Receiver, Sender, SyncSender, TryRecvError};
 use std::sync::Arc;
 use std::thread::{self, JoinHandle};
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
 use ffmpeg_next::ffi;
 use ffmpeg_next::format::context::Input;
@@ -602,6 +602,7 @@ fn run_decoder_thread(
     };
 
     let mut video_errors: u32 = 0;
+    let mut stages = StageStats::new();
     'main: loop {
         if !paused {
             match cmd_rx.try_recv() {
@@ -664,6 +665,7 @@ fn run_decoder_thread(
                     v_tb_f64,
                     &mut logged_first_format,
                     hw_codec_active.then_some(hw_label),
+                    &mut stages,
                 );
                 if let Some(a) = audio.as_mut() {
                     let _ = a.decoder.send_eof();
@@ -714,6 +716,7 @@ fn run_decoder_thread(
                         v_tb_f64,
                         &mut logged_first_format,
                         hw_codec_active.then_some(hw_label),
+                        &mut stages,
                     );
                 }
                 Err(e) => {
@@ -770,6 +773,50 @@ struct AudioState {
     resampler: Resampler,
 }
 
+/// Профиль конвейера кадра (`SYNGUI_VIDEO_STATS=1`): сколько времени уходит
+/// на выгрузку кадра из GPU и на конверсию в RGBA. Оба этапа — на CPU, и на
+/// 4K они и есть потолок частоты кадров.
+struct StageStats {
+    enabled: bool,
+    window_start: Instant,
+    frames: u32,
+    transfer_us: u64,
+    convert_us: u64,
+    send_block_us: u64,
+}
+
+impl StageStats {
+    fn new() -> Self {
+        Self {
+            enabled: std::env::var("SYNGUI_VIDEO_STATS").is_ok(),
+            window_start: Instant::now(),
+            frames: 0,
+            transfer_us: 0,
+            convert_us: 0,
+            send_block_us: 0,
+        }
+    }
+
+    fn report_if_due(&mut self) {
+        if !self.enabled || self.window_start.elapsed() < Duration::from_secs(1) {
+            return;
+        }
+        let n = self.frames.max(1) as u64;
+        log::info!(
+            "[VIDEO PIPE 1s] кадров={} выгрузка из GPU={}us/кадр конверсия RGBA={}us/кадр ожидание очереди={}us/кадр",
+            self.frames,
+            self.transfer_us / n,
+            self.convert_us / n,
+            self.send_block_us / n,
+        );
+        self.window_start = Instant::now();
+        self.frames = 0;
+        self.transfer_us = 0;
+        self.convert_us = 0;
+        self.send_block_us = 0;
+    }
+}
+
 fn drain_video(
     dec: &mut ffmpeg_next::decoder::Video,
     scaler: &mut Scaler,
@@ -779,6 +826,7 @@ fn drain_video(
     tb_sec: f64,
     logged_first_format: &mut bool,
     hw_codec: Option<&'static str>,
+    stages: &mut StageStats,
 ) {
     let mut decoded = frame::Video::empty();
     loop {
@@ -862,7 +910,10 @@ fn drain_video(
         let owned_sw_frame;
         let frame_for_scaler: &frame::Video = match hw {
             Some(h) if decoded.format() == ffmpeg_next::format::Pixel::from(h.hw_pix_fmt()) => {
-                match h.transfer_to_cpu(&decoded) {
+                let t = Instant::now();
+                let r = h.transfer_to_cpu(&decoded);
+                stages.transfer_us += t.elapsed().as_micros() as u64;
+                match r {
                     Ok(sw) => {
                         owned_sw_frame = sw;
                         &owned_sw_frame
@@ -876,7 +927,11 @@ fn drain_video(
             _ => &decoded,
         };
 
-        match scaler.convert(frame_for_scaler) {
+        let t_convert = Instant::now();
+        let converted = scaler.convert(frame_for_scaler);
+        stages.convert_us += t_convert.elapsed().as_micros() as u64;
+        stages.frames += 1;
+        match converted {
             Ok(rgba) => {
                 let frame = VideoFrame {
                     width: w,
@@ -888,7 +943,11 @@ fn drain_video(
                 if let Some(t) = tee_tx {
                     let _ = t.try_send(Arc::new(frame.clone()));
                 }
-                if tx.send(frame).is_err() {
+                let t_send = Instant::now();
+                let sent = tx.send(frame);
+                stages.send_block_us += t_send.elapsed().as_micros() as u64;
+                stages.report_if_due();
+                if sent.is_err() {
                     return;
                 }
             }

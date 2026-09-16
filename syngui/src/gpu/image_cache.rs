@@ -138,6 +138,13 @@ fn write_level(
     h: u32,
     rgba: &[u8],
 ) {
+    // Буфер может быть длиннее кадра (в кадрах видео за последней строкой
+    // остаётся запас под SIMD-хвост swscale) — берём ровно `w×h`.
+    let needed = (4 * w as usize) * h as usize;
+    let Some(rgba) = rgba.get(..needed) else {
+        log::warn!("image: буфер {} байт меньше кадра {w}×{h}", rgba.len());
+        return;
+    };
     queue.write_texture(
         wgpu::TexelCopyTextureInfo {
             texture,

@@ -247,7 +247,18 @@ impl ImageStore {
             entry.width = width;
             entry.height = height;
         }
-        self.pending_uploads.push((handle, ImageData::single_level(width, height, rgba)));
+        let data = ImageData::single_level(width, height, rgba);
+        // Потоковые кадры (видео) идут в один и тот же handle: если
+        // предыдущий ещё не залит, показывать его уже незачем — заменяем,
+        // иначе картинка отстаёт от звука на длину очереди загрузок.
+        match self
+            .pending_uploads
+            .iter_mut()
+            .find(|(h, _)| *h == handle)
+        {
+            Some(slot) => slot.1 = data,
+            None => self.pending_uploads.push((handle, data)),
+        }
     }
 
     pub fn take_pending_uploads(&mut self) -> Vec<(ImageHandle, ImageData)> {
@@ -260,7 +271,6 @@ impl ImageStore {
         if self.pending_uploads.len() <= limit {
             return std::mem::take(&mut self.pending_uploads);
         }
-        // Потоковые кадры одного handle: оставляем только последний.
         let n = limit.min(self.pending_uploads.len());
         self.pending_uploads.drain(..n).collect()
     }
@@ -612,6 +622,22 @@ mod tests {
         assert_eq!(uploads[0].0, handle);
         assert!(uploads[0].1.rgba.iter().all(|&b| b == 0xAA));
         assert_eq!(store.state_of(handle), Some(ImageLoadState::Ready));
+    }
+
+    #[test]
+    fn update_rgba_keeps_only_latest_frame_per_handle() {
+        let mut store = ImageStore::new();
+        let (handle, _) = store.request_rgba("video", 2, 2, solid(2, 2, 0x10));
+        let _ = store.take_pending_uploads();
+
+        store.update_rgba(handle, 2, 2, solid(2, 2, 0x20));
+        store.update_rgba(handle, 2, 2, solid(2, 2, 0x30));
+        let uploads = store.take_pending_uploads();
+        assert_eq!(uploads.len(), 1, "устаревший кадр не должен ждать в очереди");
+        assert!(
+            uploads[0].1.rgba.iter().all(|&b| b == 0x30),
+            "залиться должен последний кадр"
+        );
     }
 
     #[test]

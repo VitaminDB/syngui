@@ -10,9 +10,12 @@ use super::hwaccel::HwAccel;
 use super::stream::VideoStream;
 use crate::audio::{AudioPlayer, AudioStream};
 
-const EARLY_TOLERANCE_SEC: f64 = 0.005;
-
-const LATE_PEEK_SEC: f64 = 0.100;
+/// Границы допуска «время кадра наступило»: половина периода опроса
+/// (кадра UI), зажатая в эти пределы. Кадр, чей pts попадает между двумя
+/// опросами, показывается на ближайшем к нему — иначе каденция гуляет на
+/// целый кадр UI.
+const MIN_TOLERANCE_SEC: f64 = 0.002;
+const MAX_TOLERANCE_SEC: f64 = 0.020;
 
 struct PlayerShared {
     paused: AtomicBool,
@@ -44,6 +47,11 @@ pub struct VideoPlayer {
     has_audio: bool,
     /// Когда пришёл последний кадр — для индикатора буферизации.
     last_frame_at: Instant,
+    /// Период опроса `poll_frame` (кадр UI), сглаженный — по нему считается
+    /// допуск показа кадра.
+    poll_period_sec: f64,
+    last_poll_at: Option<Instant>,
+    stats: FrameStats,
 }
 
 impl VideoPlayer {
@@ -97,6 +105,9 @@ impl VideoPlayer {
             input_path: input.to_string(),
             has_audio,
             last_frame_at: Instant::now(),
+            poll_period_sec: 0.0,
+            last_poll_at: None,
+            stats: FrameStats::new(),
         })
     }
 
@@ -215,6 +226,8 @@ impl VideoPlayer {
             return None;
         }
         let clock = self.master_clock_sec();
+        self.stats.on_poll(clock);
+        let tolerance = self.poll_tolerance_sec();
 
         let mut candidate = self
             .pending_frame
@@ -225,7 +238,8 @@ impl VideoPlayer {
             return self.schedule_surface_frames(candidate, clock);
         }
 
-        if candidate.pts_sec > clock + LATE_PEEK_SEC {
+        // Время кадра ещё не пришло — придерживаем его до следующего опроса.
+        if candidate.pts_sec > clock + tolerance {
             self.pending_frame = Some(candidate);
             return None;
         }
@@ -233,7 +247,8 @@ impl VideoPlayer {
         loop {
             match self.decoder.try_recv_video() {
                 Ok(next) => {
-                    if next.pts_sec <= clock + EARLY_TOLERANCE_SEC {
+                    if next.pts_sec <= clock + tolerance {
+                        self.stats.on_dropped();
                         candidate = next;
                     } else {
                         self.pending_frame = Some(next);
@@ -245,6 +260,7 @@ impl VideoPlayer {
         }
 
         self.last_frame_at = Instant::now();
+        self.stats.on_shown(candidate.pts_sec, clock);
         // Кадр в буфере кодека показывается сейчас, в момент выбора.
         if let Some(surface) = candidate.surface.as_ref() {
             surface.render();
@@ -299,18 +315,38 @@ impl VideoPlayer {
                 last = Some(frame);
             }
         }
-        if last.is_some() {
+        if let Some(f) = last.as_ref() {
             self.last_frame_at = Instant::now();
+            self.stats.on_shown(f.pts_sec, clock);
         }
         last
     }
 
+    /// Допуск «пора показывать»: половина периода опроса. Опрос идёт из
+    /// `animate` виджета, то есть раз в кадр UI; период меряем сами, чтобы
+    /// не зависеть от частоты экрана.
+    fn poll_tolerance_sec(&mut self) -> f64 {
+        let now = Instant::now();
+        if let Some(prev) = self.last_poll_at {
+            let dt = now.duration_since(prev).as_secs_f64();
+            // Промежутки длиннее четверти секунды — не кадр UI, а пауза или
+            // переключение экрана: в оценку периода они не идут.
+            if dt > 0.0 && dt < 0.25 {
+                self.poll_period_sec = if self.poll_period_sec > 0.0 {
+                    self.poll_period_sec * 0.9 + dt * 0.1
+                } else {
+                    dt
+                };
+            }
+        }
+        self.last_poll_at = Some(now);
+        (self.poll_period_sec * 0.5).clamp(MIN_TOLERANCE_SEC, MAX_TOLERANCE_SEC)
+    }
+
     fn master_clock_sec(&self) -> f64 {
         if let Some(audio) = self.audio.as_ref() {
-            let played = audio.samples_played() as f64;
-            let sr = audio.sample_rate() as f64;
-            if sr > 0.0 {
-                return played / sr + self.shared.seek_offset_sec();
+            if let Some(sec) = audio.playback_clock_sec() {
+                return sec + self.shared.seek_offset_sec();
             }
         }
         let elapsed = match (self.wall_start, self.paused_at) {
@@ -356,5 +392,144 @@ impl VideoPlayer {
 
     pub fn uninstall_tees(&self) {
         self.decoder.uninstall_tees();
+    }
+}
+
+/// Диагностика равномерности показа кадров: `SYNGUI_VIDEO_STATS=1` — раз в
+/// секунду в лог уходит сводка по интервалам между показанными кадрами,
+/// опережению кадра относительно мастер-часов и шагу самих часов. Рывки
+/// видео при ровном UI видно именно здесь: интервалы min/max вместо
+/// одинаковых и «ступеньки» часов больше периода кадра.
+struct FrameStats {
+    enabled: bool,
+    window_start: Instant,
+    shown: u32,
+    dropped: u32,
+    polls: u32,
+    clock_stalls: u32,
+    last_shown_at: Option<Instant>,
+    interval_ms: MinMaxSum,
+    lead_ms: MinMaxSum,
+    clock_step_ms: MinMaxSum,
+    last_clock: f64,
+}
+
+#[derive(Default, Clone, Copy)]
+struct MinMaxSum {
+    min: f64,
+    max: f64,
+    sum: f64,
+    n: u32,
+}
+
+impl MinMaxSum {
+    fn add(&mut self, v: f64) {
+        if self.n == 0 {
+            self.min = v;
+            self.max = v;
+        } else {
+            self.min = self.min.min(v);
+            self.max = self.max.max(v);
+        }
+        self.sum += v;
+        self.n += 1;
+    }
+
+    fn avg(&self) -> f64 {
+        if self.n == 0 {
+            0.0
+        } else {
+            self.sum / self.n as f64
+        }
+    }
+}
+
+impl FrameStats {
+    fn new() -> Self {
+        Self {
+            enabled: std::env::var("SYNGUI_VIDEO_STATS").is_ok(),
+            window_start: Instant::now(),
+            shown: 0,
+            dropped: 0,
+            polls: 0,
+            clock_stalls: 0,
+            last_shown_at: None,
+            interval_ms: MinMaxSum::default(),
+            lead_ms: MinMaxSum::default(),
+            clock_step_ms: MinMaxSum::default(),
+            last_clock: f64::NAN,
+        }
+    }
+
+    fn on_poll(&mut self, clock: f64) {
+        if !self.enabled {
+            return;
+        }
+        self.polls += 1;
+        if self.last_clock.is_finite() {
+            let step = (clock - self.last_clock) * 1000.0;
+            if step.abs() < 0.000_5 {
+                self.clock_stalls += 1;
+            } else {
+                self.clock_step_ms.add(step);
+            }
+        }
+        self.last_clock = clock;
+        if self.window_start.elapsed() >= WebDuration::from_secs(1) {
+            self.report();
+        }
+    }
+
+    fn on_shown(&mut self, pts_sec: f64, clock: f64) {
+        if !self.enabled {
+            return;
+        }
+        self.shown += 1;
+        let now = Instant::now();
+        if let Some(prev) = self.last_shown_at {
+            self.interval_ms.add(now.duration_since(prev).as_secs_f64() * 1000.0);
+        }
+        self.last_shown_at = Some(now);
+        self.lead_ms.add((pts_sec - clock) * 1000.0);
+    }
+
+    fn on_dropped(&mut self) {
+        if self.enabled {
+            self.dropped += 1;
+        }
+    }
+
+    fn report(&mut self) {
+        let secs = self.window_start.elapsed().as_secs_f64().max(0.001);
+        log::info!(
+            "[VIDEO STATS {secs:.1}s] показано={} ({:.1}/с) отброшено={} опросов={} часы стояли={}% \
+             интервал(мс avg/min/max)={:.1}/{:.1}/{:.1} опережение(мс avg/min/max)={:.0}/{:.0}/{:.0} \
+             шаг часов(мс avg/max)={:.1}/{:.1}",
+            self.shown,
+            self.shown as f64 / secs,
+            self.dropped,
+            self.polls,
+            if self.polls > 0 {
+                self.clock_stalls * 100 / self.polls
+            } else {
+                0
+            },
+            self.interval_ms.avg(),
+            self.interval_ms.min,
+            self.interval_ms.max,
+            self.lead_ms.avg(),
+            self.lead_ms.min,
+            self.lead_ms.max,
+            self.clock_step_ms.avg(),
+            self.clock_step_ms.max,
+        );
+        self.window_start = Instant::now();
+        self.shown = 0;
+        self.dropped = 0;
+        self.polls = 0;
+        self.clock_stalls = 0;
+        self.interval_ms = MinMaxSum::default();
+        self.lead_ms = MinMaxSum::default();
+        self.clock_step_ms = MinMaxSum::default();
     }
 }

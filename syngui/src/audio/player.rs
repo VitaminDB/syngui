@@ -1,15 +1,30 @@
+// Очередь вывода нужна только cpal-пути: на Android звук идёт через oboe.
+#[cfg(not(target_os = "android"))]
 use std::collections::VecDeque;
-use std::sync::atomic::{AtomicBool, AtomicU16, AtomicU32, AtomicUsize, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU16, AtomicU32, AtomicU64, AtomicUsize, Ordering};
 use std::sync::mpsc::{self, Receiver, Sender};
-use std::sync::{Arc, Mutex};
+use std::sync::{Arc, Mutex, OnceLock};
 use std::thread::{self, JoinHandle};
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
 use cpal::traits::{DeviceTrait, HostTrait, StreamTrait};
 
 use super::recorder::AudioError;
 
 const INIT_TIMEOUT: Duration = Duration::from_secs(3);
+
+/// Насколько часы воспроизведения разрешено вести по системному времени
+/// без нового якоря. Колбэк вывода приходит раз в 10–45 мс; больше этого —
+/// вывод встал (устройство отключили, поток замер), и часы лучше
+/// остановить, чем уводить видео вперёд звука.
+const CLOCK_EXTRAPOLATION_LIMIT: Duration = Duration::from_millis(120);
+
+/// Монотонное время процесса в наносекундах — общая шкала для якоря часов
+/// (колбэк вывода ставит, видео читает).
+pub(super) fn monotonic_nanos() -> u64 {
+    static BASE: OnceLock<Instant> = OnceLock::new();
+    BASE.get_or_init(Instant::now).elapsed().as_nanos() as u64
+}
 
 pub(super) struct PlayerState {
     cursor: AtomicUsize,
@@ -22,10 +37,21 @@ pub(super) struct PlayerState {
     audio_channels: AtomicU16,
     volume_bits: AtomicU32,
     streaming: AtomicBool,
+    /// Сколько сэмплов из отданных ещё не прозвучало: буферы устройства и
+    /// тракта. Ноль там, где вывод задержку не сообщает (cpal); Android
+    /// заполняет её из oboe, иначе мастер-часы видео опережают звук.
+    latency_samples: AtomicUsize,
+    /// Якорь часов воспроизведения: в момент `anchor_at_nanos` будет слышно
+    /// ровно `anchor_samples` сэмплов. Ставится в колбэке вывода, между
+    /// колбэками часы идут по системному времени — см.
+    /// [`AudioPlayer::playback_clock_sec`].
+    anchor_samples: AtomicUsize,
+    anchor_at_nanos: AtomicU64,
+    anchor_valid: AtomicBool,
 }
 
 impl PlayerState {
-    fn new_pending() -> Self {
+    pub(super) fn new_pending() -> Self {
         Self {
             cursor: AtomicUsize::new(0),
             total: AtomicUsize::new(0),
@@ -37,10 +63,14 @@ impl PlayerState {
             audio_channels: AtomicU16::new(1),
             volume_bits: AtomicU32::new(1.0_f32.to_bits()),
             streaming: AtomicBool::new(false),
+            latency_samples: AtomicUsize::new(0),
+            anchor_samples: AtomicUsize::new(0),
+            anchor_at_nanos: AtomicU64::new(0),
+            anchor_valid: AtomicBool::new(false),
         }
     }
 
-    fn is_paused(&self) -> bool {
+    pub(super) fn is_paused(&self) -> bool {
         self.paused.load(Ordering::Acquire)
     }
 
@@ -52,8 +82,63 @@ impl PlayerState {
         self.audio_channels.load(Ordering::Relaxed)
     }
 
-    fn volume(&self) -> f32 {
+    pub(super) fn volume(&self) -> f32 {
         f32::from_bits(self.volume_bits.load(Ordering::Relaxed))
+    }
+
+    #[cfg(target_os = "android")]
+    pub(super) fn set_audio_channels(&self, ch: u16) {
+        self.audio_channels.store(ch, Ordering::Release);
+    }
+
+    #[cfg(target_os = "android")]
+    pub(super) fn set_sample_rate(&self, sr: u32) {
+        self.sample_rate.store(sr, Ordering::Release);
+    }
+
+    #[cfg(target_os = "android")]
+    pub(super) fn set_ready(&self) {
+        self.ready.store(true, Ordering::Release);
+    }
+
+    #[cfg(target_os = "android")]
+    pub(super) fn set_streaming(&self) {
+        self.streaming.store(true, Ordering::Release);
+    }
+
+    #[cfg(target_os = "android")]
+    pub(super) fn set_cursor(&self, v: usize) {
+        self.cursor.store(v, Ordering::Release);
+    }
+
+    #[cfg(target_os = "android")]
+    pub(super) fn set_latency_samples(&self, v: usize) {
+        self.latency_samples.store(v, Ordering::Relaxed);
+    }
+
+    #[cfg(target_os = "android")]
+    pub(super) fn latency_samples(&self) -> usize {
+        self.latency_samples.load(Ordering::Relaxed)
+    }
+
+    #[cfg(target_os = "android")]
+    pub(super) fn is_done(&self) -> bool {
+        self.done.load(Ordering::Acquire)
+    }
+
+    #[cfg(target_os = "android")]
+    pub(super) fn mark_done(&self) {
+        self.done.store(true, Ordering::Release);
+    }
+
+    /// Отметить: в момент `at_nanos` (см. [`monotonic_nanos`]) слышно ровно
+    /// `audible_samples` сэмплов. Вызывается из колбэка вывода — и когда
+    /// сэмплов не нашлось (буферизация): тогда якорь не двигается, и часы
+    /// стоят вместе со звуком.
+    pub(super) fn set_clock_anchor(&self, audible_samples: usize, at_nanos: u64) {
+        self.anchor_samples.store(audible_samples, Ordering::Relaxed);
+        self.anchor_at_nanos.store(at_nanos, Ordering::Relaxed);
+        self.anchor_valid.store(true, Ordering::Release);
     }
 
     fn set_error(&self, e: &AudioError) {
@@ -72,6 +157,19 @@ pub struct AudioPlayer {
 }
 
 impl AudioPlayer {
+    #[cfg(target_os = "android")]
+    pub(super) fn from_parts(
+        state: Arc<PlayerState>,
+        stop_tx: Sender<()>,
+        join: JoinHandle<()>,
+    ) -> Self {
+        Self {
+            state,
+            stop_tx: Some(stop_tx),
+            join: Some(join),
+        }
+    }
+
     pub fn start(pcm: Arc<[f32]>, sample_rate: u32) -> Result<Self, AudioError> {
         if pcm.is_empty() {
             return Err(AudioError::NoFrames);
@@ -144,8 +242,42 @@ impl AudioPlayer {
         self.state.sample_rate.load(Ordering::Acquire)
     }
 
+    /// Сколько сэмплов уже слышно (не «отдано в буфер»): курсор минус то,
+    /// что висит в тракте вывода. По этому счётчику идут мастер-часы
+    /// видео — с задержкой в буфере картинка ушла бы вперёд звука.
     pub fn samples_played(&self) -> u64 {
-        self.state.cursor.load(Ordering::Relaxed) as u64
+        let cur = self.state.cursor.load(Ordering::Relaxed) as u64;
+        let lat = self.state.latency_samples.load(Ordering::Relaxed) as u64;
+        cur.saturating_sub(lat)
+    }
+
+    /// Часы воспроизведения в секундах: сколько звука уже слышно. Между
+    /// колбэками вывода значение продолжается по системному времени, а не
+    /// стоит ступенькой размером с буфер устройства (42 мс при 2048
+    /// сэмплах) — по такой ступеньке видео показывало бы кадры пачками.
+    /// `None` — вывод ещё не начался (нет ни одного колбэка).
+    pub fn playback_clock_sec(&self) -> Option<f64> {
+        let sr = self.state.sample_rate.load(Ordering::Acquire) as f64;
+        if sr <= 0.0 || !self.state.anchor_valid.load(Ordering::Acquire) {
+            return None;
+        }
+        let anchor_sec = self.state.anchor_samples.load(Ordering::Relaxed) as f64 / sr;
+        if self.state.is_paused() {
+            return Some(anchor_sec);
+        }
+        let at = self.state.anchor_at_nanos.load(Ordering::Relaxed);
+        let elapsed = monotonic_nanos().saturating_sub(at) as f64 / 1e9;
+        Some(anchor_sec + elapsed.min(CLOCK_EXTRAPOLATION_LIMIT.as_secs_f64()))
+    }
+
+    /// Задержка вывода в секундах, как её сообщает бэкенд (0, если он не
+    /// умеет).
+    pub fn output_latency_sec(&self) -> f64 {
+        let sr = self.state.sample_rate.load(Ordering::Acquire) as f64;
+        if sr <= 0.0 {
+            return 0.0;
+        }
+        self.state.latency_samples.load(Ordering::Relaxed) as f64 / sr
     }
 
     pub fn stop(mut self) {
@@ -217,6 +349,17 @@ impl AudioPlayer {
         self.state.volume()
     }
 
+    /// Потоковый вывод: моно-чанки f32 частоты `sample_rate` из канала.
+    ///
+    /// На Android идёт мимо cpal (`super::android_out`): там нужен не
+    /// только звук, но и задержка тракта — по ней мастер-часы видео узнают,
+    /// что уже слышно (см. `samples_played`).
+    #[cfg(target_os = "android")]
+    pub fn start_streaming(rx: Receiver<Vec<f32>>, sample_rate: u32) -> Result<Self, AudioError> {
+        super::android_out::start_streaming(rx, sample_rate)
+    }
+
+    #[cfg(not(target_os = "android"))]
     pub fn start_streaming(rx: Receiver<Vec<f32>>, sample_rate: u32) -> Result<Self, AudioError> {
         /// Предел очереди вывода (~10 с при 48 кГц моно).
         const MAX_QUEUED_SAMPLES: usize = 48_000 * 10;
@@ -633,6 +776,7 @@ fn pick_output_device(
     )))
 }
 
+#[cfg(not(target_os = "android"))]
 fn run_player_thread_streaming(
     state: Arc<PlayerState>,
     queue: Arc<Mutex<VecDeque<f32>>>,
@@ -655,8 +799,8 @@ fn run_player_thread_streaming(
             let st = state.clone();
             device.build_output_stream(
                 config,
-                move |data: &mut [f32], _: &cpal::OutputCallbackInfo| {
-                    write_streaming_f32(&q, &played, data, channels, st.volume(), st.is_paused());
+                move |data: &mut [f32], info: &cpal::OutputCallbackInfo| {
+                    write_streaming_f32(&q, &played, data, channels, &st, info);
                 },
                 err_fn,
                 None,
@@ -668,8 +812,8 @@ fn run_player_thread_streaming(
             let st = state.clone();
             device.build_output_stream(
                 config,
-                move |data: &mut [i16], _: &cpal::OutputCallbackInfo| {
-                    write_streaming_i16(&q, &played, data, channels, st.volume(), st.is_paused());
+                move |data: &mut [i16], info: &cpal::OutputCallbackInfo| {
+                    write_streaming_i16(&q, &played, data, channels, &st, info);
                 },
                 err_fn,
                 None,
@@ -681,8 +825,8 @@ fn run_player_thread_streaming(
             let st = state.clone();
             device.build_output_stream(
                 config,
-                move |data: &mut [u16], _: &cpal::OutputCallbackInfo| {
-                    write_streaming_u16(&q, &played, data, channels, st.volume(), st.is_paused());
+                move |data: &mut [u16], info: &cpal::OutputCallbackInfo| {
+                    write_streaming_u16(&q, &played, data, channels, &st, info);
                 },
                 err_fn,
                 None,
@@ -741,14 +885,41 @@ fn run_player_thread_streaming(
     Ok(())
 }
 
+/// Якорь часов из колбэка cpal: сэмплы, отданные до этого буфера, будут
+/// слышны в момент, когда устройство начнёт его играть (`playback` в
+/// timestamp колбэка). Без поправки на эту задержку картинка уходит вперёд
+/// звука на размер буферов тракта.
+#[cfg(not(target_os = "android"))]
+fn anchor_from_cpal(state: &PlayerState, played_before: usize, info: &cpal::OutputCallbackInfo) {
+    let ts = info.timestamp();
+    let delay = ts
+        .playback
+        .duration_since(&ts.callback)
+        .unwrap_or_default()
+        .min(Duration::from_millis(500));
+    state.set_clock_anchor(played_before, monotonic_nanos() + delay.as_nanos() as u64);
+    // Та же задержка в сэмплах — для `samples_played`/`output_latency_sec`
+    // (на Android её сообщает oboe, здесь берём из timestamp колбэка).
+    let sr = state.sample_rate.load(Ordering::Acquire) as f64;
+    if sr > 0.0 {
+        state
+            .latency_samples
+            .store((delay.as_secs_f64() * sr) as usize, Ordering::Relaxed);
+    }
+}
+
+#[cfg(not(target_os = "android"))]
 fn write_streaming_f32(
     queue: &Mutex<VecDeque<f32>>,
     played: &AtomicUsize,
     data: &mut [f32],
     channels: u16,
-    volume: f32,
-    paused: bool,
+    state: &PlayerState,
+    info: &cpal::OutputCallbackInfo,
 ) {
+    let volume = state.volume();
+    let paused = state.is_paused();
+    anchor_from_cpal(state, played.load(Ordering::Acquire), info);
     let ch = channels.max(1) as usize;
     if paused {
         for v in data.iter_mut() {
@@ -777,14 +948,18 @@ fn write_streaming_f32(
     }
 }
 
+#[cfg(not(target_os = "android"))]
 fn write_streaming_i16(
     queue: &Mutex<VecDeque<f32>>,
     played: &AtomicUsize,
     data: &mut [i16],
     channels: u16,
-    volume: f32,
-    paused: bool,
+    state: &PlayerState,
+    info: &cpal::OutputCallbackInfo,
 ) {
+    let volume = state.volume();
+    let paused = state.is_paused();
+    anchor_from_cpal(state, played.load(Ordering::Acquire), info);
     let ch = channels.max(1) as usize;
     if paused {
         for v in data.iter_mut() {
@@ -814,14 +989,18 @@ fn write_streaming_i16(
     }
 }
 
+#[cfg(not(target_os = "android"))]
 fn write_streaming_u16(
     queue: &Mutex<VecDeque<f32>>,
     played: &AtomicUsize,
     data: &mut [u16],
     channels: u16,
-    volume: f32,
-    paused: bool,
+    state: &PlayerState,
+    info: &cpal::OutputCallbackInfo,
 ) {
+    let volume = state.volume();
+    let paused = state.is_paused();
+    anchor_from_cpal(state, played.load(Ordering::Acquire), info);
     let ch = channels.max(1) as usize;
     let mid_u16 = u16::MAX / 2;
     if paused {

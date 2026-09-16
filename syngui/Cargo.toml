@@ -247,10 +247,10 @@ svg = ["image", "dep:resvg"]
 
 # Захват звука с микрофона + WAV энкодер. Включает виджет AudioWaveform
 # для визуализации входного сигнала.
-audio = ["dep:cpal", "dep:hound", "dep:rubato"]
+audio = ["dep:cpal", "dep:hound", "dep:rubato", "dep:oboe"]
 
 # Видео-плеер на базе FFmpeg (libavcodec/format/swscale/swresample).
-# Тянет audio (для AudioPlayer streaming) — A/V sync завязан на samples_played.
+# Тянет audio (для AudioPlayer streaming) — A/V sync идёт по playback_clock_sec.
 # Сетевые URL (http/rtsp/rtmp) поддерживаются автоматически libavformat'ом —
 # `VideoPlayer::open` принимает path или URL без отдельного API.
 ffmpeg = ["dep:ffmpeg-next", "audio"]
@@ -348,6 +348,10 @@ libc = "0.2"
 [target.'cfg(target_os = "android")'.dependencies]
 android-activity = { version = "0.6", features = ["game-activity"] }
 android_logger = "0.15.1"
+# Вывод звука на Android идёт через oboe напрямую (см. audio/android_out.rs):
+# cpal сообщает только отданные в буфер сэмплы, а для A/V-синхронизации нужна
+# задержка тракта. Версия — та же, что тянет cpal, чтобы C++ собирался один раз.
+oboe = { version = "0.6", optional = true }
 # 0.21.1 — последняя СТАБИЛЬНАЯ версия jni; 0.22.x — предрелизная ветка с полностью
 # переписанным (несовместимым) API, под который JNI-мост фреймворка не рассчитан.
 jni = "0.21.1"
