@@ -95,6 +95,23 @@ pub fn max_bitmap_side() -> u32 {
     MAX_BITMAP_SIDE.load(std::sync::atomic::Ordering::Relaxed)
 }
 
+/// Бюджет памяти (байт RGBA с мипами) на картинки, которые никто не
+/// показывает (0 — без предела, ничего не выгружается). Картинка
+/// становится «простаивающей», когда её отпустил последний `Image`
+/// (размонтирован или сменил источник); сверх бюджета самые давние такие
+/// удаляются из стора и из GPU, а при новом запросе грузятся заново. Нужен
+/// экранам, листающим большие фото (фон-кадр под каждым тайтлом): без него
+/// каждая показанная картинка остаётся в видеопамяти до выхода.
+static IDLE_IMAGE_BUDGET: std::sync::atomic::AtomicUsize = std::sync::atomic::AtomicUsize::new(0);
+
+pub fn set_idle_image_budget(bytes: usize) {
+    IDLE_IMAGE_BUDGET.store(bytes, std::sync::atomic::Ordering::Relaxed);
+}
+
+pub fn idle_image_budget() -> usize {
+    IDLE_IMAGE_BUDGET.load(std::sync::atomic::Ordering::Relaxed)
+}
+
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum ImageLoadState {
     Loading,
@@ -107,6 +124,17 @@ struct ImageEntry {
     state: ImageLoadState,
     width: u32,
     height: u32,
+    /// Сколько держателей запросили картинку и ещё не отпустили
+    /// ([`ImageStore::release`]). Держатели, которые не отпускают (видео,
+    /// markdown), оставляют её в сторе навсегда, как и раньше.
+    refs: u32,
+}
+
+impl ImageEntry {
+    /// Занимаемая память: RGBA и цепочка мипов (≈ +1/3).
+    fn bytes(&self) -> usize {
+        self.width as usize * self.height as usize * 4 * 4 / 3
+    }
 }
 
 #[allow(dead_code)]
@@ -127,6 +155,11 @@ pub struct ImageStore {
     next_handle: u32,
     pending_uploads: Vec<(ImageHandle, ImageData)>,
     bg_results: Arc<Mutex<Vec<LoadResult>>>,
+    /// Готовые картинки без держателей, от давних к свежим.
+    idle: std::collections::VecDeque<String>,
+    idle_bytes: usize,
+    /// Выгруженные handle — рендерер освобождает их текстуры.
+    pending_frees: Vec<ImageHandle>,
 }
 
 impl ImageStore {
@@ -137,14 +170,27 @@ impl ImageStore {
             next_handle: 1,
             pending_uploads: Vec::new(),
             bg_results: Arc::new(Mutex::new(Vec::new())),
+            idle: std::collections::VecDeque::new(),
+            idle_bytes: 0,
+            pending_frees: Vec::new(),
         }
     }
 
+    /// Запросить картинку; каждый запрос — ссылка, которую держатель
+    /// отпускает через [`Self::release`] (иначе картинка не выгружается).
     pub fn request(&mut self, source: &ImageSource) -> (ImageHandle, ImageLoadState) {
         let key = source.key().to_string();
 
-        if let Some(entry) = self.images.get(&key) {
-            return (entry.handle, entry.state);
+        if let Some(entry) = self.images.get_mut(&key) {
+            entry.refs = entry.refs.saturating_add(1);
+            let (handle, state, bytes) = (entry.handle, entry.state, entry.bytes());
+            if entry.refs == 1 && state == ImageLoadState::Ready {
+                if let Some(i) = self.idle.iter().position(|k| *k == key) {
+                    self.idle.remove(i);
+                    self.idle_bytes = self.idle_bytes.saturating_sub(bytes);
+                }
+            }
+            return (handle, state);
         }
 
         let handle = ImageHandle(self.next_handle);
@@ -165,6 +211,7 @@ impl ImageStore {
                         state: ImageLoadState::Ready,
                         width: *width,
                         height: *height,
+                        refs: 1,
                     },
                 );
                 self.pending_uploads.push((
@@ -181,6 +228,7 @@ impl ImageStore {
                         state: ImageLoadState::Loading,
                         width: 0,
                         height: 0,
+                        refs: 1,
                     },
                 );
                 self.spawn_decode(key, handle, data.clone());
@@ -194,6 +242,7 @@ impl ImageStore {
                         state: ImageLoadState::Loading,
                         width: 0,
                         height: 0,
+                        refs: 1,
                     },
                 );
                 self.spawn_load(key, handle, path.clone());
@@ -207,6 +256,7 @@ impl ImageStore {
                         state: ImageLoadState::Loading,
                         width: 0,
                         height: 0,
+                        refs: 1,
                     },
                 );
                 self.spawn_url_load(key, handle, url.clone());
@@ -229,6 +279,53 @@ impl ImageStore {
             rgba: Arc::new(rgba),
         };
         self.request(&source)
+    }
+
+    /// Отпустить ссылку, взятую [`Self::request`]. Готовая картинка без
+    /// держателей становится простаивающей и может быть выгружена по
+    /// бюджету [`set_idle_image_budget`].
+    pub fn release(&mut self, handle: ImageHandle) {
+        let Some(key) = self.handle_to_key.get(&handle.0) else {
+            return;
+        };
+        let Some(entry) = self.images.get_mut(key) else {
+            return;
+        };
+        if entry.refs == 0 {
+            return;
+        }
+        entry.refs -= 1;
+        if entry.refs == 0 && entry.state == ImageLoadState::Ready {
+            self.idle_bytes += entry.bytes();
+            self.idle.push_back(key.clone());
+            self.evict_idle();
+        }
+    }
+
+    /// Выгрузить самые давние простаивающие картинки сверх бюджета.
+    fn evict_idle(&mut self) {
+        let budget = idle_image_budget();
+        if budget == 0 {
+            return;
+        }
+        while self.idle_bytes > budget {
+            let Some(key) = self.idle.pop_front() else {
+                self.idle_bytes = 0;
+                break;
+            };
+            let Some(entry) = self.images.remove(&key) else {
+                continue;
+            };
+            self.idle_bytes = self.idle_bytes.saturating_sub(entry.bytes());
+            self.handle_to_key.remove(&entry.handle.0);
+            self.pending_uploads.retain(|(h, _)| *h != entry.handle);
+            self.pending_frees.push(entry.handle);
+        }
+    }
+
+    /// Handle выгруженных картинок, чьи текстуры пора освободить.
+    pub fn take_pending_frees(&mut self) -> Vec<ImageHandle> {
+        std::mem::take(&mut self.pending_frees)
     }
 
     pub fn update_rgba(
@@ -297,13 +394,21 @@ impl ImageStore {
             let mut guard = self.bg_results.lock().unwrap();
             std::mem::take(&mut *guard)
         };
+        let mut became_idle = false;
         for result in results {
             match result {
                 LoadResult::Success { key, handle, data } => {
-                    if let Some(entry) = self.images.get_mut(&key) {
-                        entry.state = ImageLoadState::Ready;
-                        entry.width = data.width;
-                        entry.height = data.height;
+                    let Some(entry) = self.images.get_mut(&key) else {
+                        continue;
+                    };
+                    entry.state = ImageLoadState::Ready;
+                    entry.width = data.width;
+                    entry.height = data.height;
+                    // Все держатели ушли, пока картинка грузилась.
+                    if entry.refs == 0 {
+                        self.idle_bytes += entry.bytes();
+                        self.idle.push_back(key);
+                        became_idle = true;
                     }
                     self.pending_uploads.push((handle, data));
                 }
@@ -313,6 +418,9 @@ impl ImageStore {
                     }
                 }
             }
+        }
+        if became_idle {
+            self.evict_idle();
         }
     }
 
@@ -595,6 +703,42 @@ mod tests {
 
     fn solid(width: u32, height: u32, byte: u8) -> Vec<u8> {
         vec![byte; (width * height * 4) as usize]
+    }
+
+    /// Бюджет — глобальный, поэтому все проверки выгрузки в одном тесте.
+    #[test]
+    fn idle_images_evicted_over_budget_oldest_first() {
+        let mut store = ImageStore::new();
+        // 8×8 RGBA с мипами = 341 байт; бюджет вмещает одну картинку.
+        set_idle_image_budget(400);
+        let (a, _) = store.request_rgba("a", 8, 8, solid(8, 8, 1));
+        let (b, _) = store.request_rgba("b", 8, 8, solid(8, 8, 2));
+        let (c, _) = store.request_rgba("c", 8, 8, solid(8, 8, 3));
+        let _ = store.take_pending_uploads();
+
+        // Держатель есть — не выгружается.
+        assert!(store.take_pending_frees().is_empty());
+        store.release(a);
+        assert!(store.take_pending_frees().is_empty(), "одна простаивающая влезает");
+        store.release(b);
+        assert_eq!(store.take_pending_frees(), vec![a], "выгружается самая давняя");
+        assert_eq!(store.state_of(a), None);
+
+        // Повторный запрос простаивающей снимает её с очереди выгрузки.
+        let (b2, state) = store.request_rgba("b", 8, 8, solid(8, 8, 2));
+        assert_eq!((b2, state), (b, ImageLoadState::Ready));
+        store.release(c);
+        assert!(store.take_pending_frees().is_empty());
+
+        // Выгруженная грузится заново под новым handle.
+        let (a2, _) = store.request_rgba("a", 8, 8, solid(8, 8, 1));
+        assert_ne!(a2, a);
+
+        // Двойной release не уводит счётчик в минус и не дублирует очередь.
+        store.release(b2);
+        store.release(b2);
+        assert_eq!(store.take_pending_frees(), vec![c]);
+        set_idle_image_budget(0);
     }
 
     #[test]

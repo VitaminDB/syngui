@@ -21,6 +21,9 @@ pub enum ImageFit {
     None,
 }
 
+/// Колбэк готовности картинки: `true` — загружена, `false` — ошибка.
+type LoadCb = Arc<dyn Fn(bool) + Send + Sync>;
+
 pub struct Image {
     source: ImageSource,
     fit: ImageFit,
@@ -29,6 +32,7 @@ pub struct Image {
     placeholder: bool,
     /// Область исходной картинки в пикселях (спрайт-лист): x, y, w, h.
     crop: Option<[f32; 4]>,
+    on_load: Option<LoadCb>,
 }
 
 impl Image {
@@ -39,6 +43,7 @@ impl Image {
             tint: None,
             placeholder: true,
             crop: None,
+            on_load: None,
         }
     }
 
@@ -52,6 +57,7 @@ impl Image {
             tint: None,
             placeholder: true,
             crop: None,
+            on_load: None,
         }
     }
 
@@ -62,6 +68,7 @@ impl Image {
             tint: None,
             placeholder: true,
             crop: None,
+            on_load: None,
         }
     }
 
@@ -77,6 +84,7 @@ impl Image {
             tint: None,
             placeholder: true,
             crop: None,
+            on_load: None,
         }
     }
 
@@ -106,6 +114,15 @@ impl Image {
         self.placeholder = show;
         self
     }
+
+    /// Вызвать `f` один раз на источник, когда картинка готова (`true`) или
+    /// не загрузилась (`false`); уже загруженная сообщает на ближайшем тике.
+    /// Позволяет подгрузить картинку скрытым элементом и показать её только
+    /// готовой — без пустого кадра на время загрузки (смена фона).
+    pub fn on_load(mut self, f: impl Fn(bool) + Send + Sync + 'static) -> Self {
+        self.on_load = Some(Arc::new(f));
+        self
+    }
 }
 
 impl Widget for Image {
@@ -119,6 +136,8 @@ impl Widget for Image {
             tint: self.tint,
             placeholder: self.placeholder,
             crop: self.crop,
+            on_load: self.on_load.clone(),
+            load_notified: false,
             opacity: 1.0,
             bounds: Rect::zero(),
             classes: Vec::new(),
@@ -156,6 +175,9 @@ pub struct ImageElement {
     tint: Option<Color>,
     placeholder: bool,
     crop: Option<[f32; 4]>,
+    on_load: Option<LoadCb>,
+    /// `on_load` уже вызван для текущего источника.
+    load_notified: bool,
     opacity: f32,
     bounds: Rect,
     classes: Vec<String>,
@@ -173,7 +195,11 @@ impl ImageElement {
         if let Some(ref store) = self.image_store {
             let mut store = store.lock().unwrap();
             let (handle, state) = store.request(&self.source);
-            self.image_handle = Some(handle);
+            // Прежнюю картинку отпускаем после запроса новой: при том же
+            // ключе она не успеет попасть в очередь выгрузки.
+            if let Some(old) = self.image_handle.replace(handle) {
+                store.release(old);
+            }
             self.image_state = state;
             if state == ImageLoadState::Ready {
                 if let Some((w, h)) = store.dimensions(handle) {
@@ -222,6 +248,18 @@ impl ImageElement {
     }
 }
 
+impl Drop for ImageElement {
+    /// Отпустить картинку, чтобы стор мог выгрузить её по бюджету
+    /// простаивающих ([`crate::gpu::image_store::set_idle_image_budget`]).
+    fn drop(&mut self) {
+        if let (Some(store), Some(handle)) = (&self.image_store, self.image_handle) {
+            if let Ok(mut store) = store.lock() {
+                store.release(handle);
+            }
+        }
+    }
+}
+
 impl Element for ImageElement {
     fn update(&mut self, widget: &dyn Widget, _ctx: &mut UpdateContext) {
         if let Some(image) = widget.as_any().downcast_ref::<Image>() {
@@ -234,9 +272,10 @@ impl Element for ImageElement {
                 (ImageSource::Url(a), ImageSource::Url(b)) => a != b,
                 _ => true,
             };
+            self.on_load = image.on_load.clone();
             if source_changed {
                 self.source = image.source.clone();
-                self.image_handle = None;
+                self.load_notified = false;
                 self.image_state = ImageLoadState::Loading;
                 self.natural_width = None;
                 self.natural_height = None;
@@ -403,7 +442,8 @@ impl Element for ImageElement {
     }
 
     fn animate(&mut self, _dt: std::time::Duration) -> bool {
-        if self.image_state == ImageLoadState::Loading {
+        let was_loading = self.image_state == ImageLoadState::Loading;
+        if was_loading {
             let mut new_state = None;
             let mut new_dims = None;
             if let Some(ref store) = self.image_store {
@@ -427,9 +467,14 @@ impl Element for ImageElement {
                 }
                 self.mark_dirty(DirtyFlags::LAYOUT | DirtyFlags::RENDER);
             }
-            return true;
         }
-        false
+        if self.image_state != ImageLoadState::Loading && !self.load_notified {
+            self.load_notified = true;
+            if let Some(cb) = &self.on_load {
+                cb(self.image_state == ImageLoadState::Ready);
+            }
+        }
+        was_loading
     }
 
     /// Пока картинка грузится/декодится, элемент обязан числиться в
@@ -437,8 +482,10 @@ impl Element for ImageElement {
     /// [`Self::animate`]. Без этого реестр не звал `animate` вовсе, и уже
     /// декодированная картинка навсегда оставалась плейсхолдером 🖼
     /// (логотип в рейле synthos).
+    /// С `on_load` — и до вызова колбэка (картинка из кэша готова сразу).
     fn wants_animate_tick(&self) -> bool {
         self.image_state == ImageLoadState::Loading
+            || (self.on_load.is_some() && !self.load_notified)
     }
 
     fn clip_content(&self) -> bool {

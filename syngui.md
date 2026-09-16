@@ -1124,6 +1124,8 @@ Image::from_bytes("key", bytes)
 Image::from_rgba("key", w, h, rgba)
     .fit(ImageFit::Cover)                 // Contain | Cover | Fill | None
     .tint(Color::WHITE).placeholder(true)
+    .on_load(|ok| {})                     // один раз на источник: готова / ошибка;
+                                          // скрытый Image как предзагрузка перед показом
 
 Canvas::new(|ctx: &mut CanvasContext, t: f32| { /* Path, Paint, LineCap… */ })
     .size(200.0, 120.0).animated(true).background(Color::TRANSPARENT)
@@ -1878,7 +1880,10 @@ YUV420P. Поэтому `Scaler` режет кадр на полосы по чи
 **Производительность UI на ТВ** (Mali-G52, armv7): `AppBuilder::keep_warm_interval(250 ms)`
 держит GPU в тонусе (иначе первые кадры после нажатия пульта в 3–4 раза
 дольше); `gpu::image_store::set_max_bitmap_side(1024)` ограничивает
-декодируемые растры; профиль `[PROFILE 1s]` показывает фазы кадра и
+декодируемые растры; `gpu::image_store::set_idle_image_budget(bytes)` — бюджет
+на картинки, которые не показывает ни один `Image` (размонтированные, сменившие
+источник): сверх него самые давние выгружаются из стора и GPU (по умолчанию 0 —
+не выгружать; нужен, если листаются большие фото); профиль `[PROFILE 1s]` показывает фазы кадра и
 максимумы, `redraw sites` — кто запросил кадр.
 
 Что стоит дорого на слабом GPU (кадр упирается в заливку, а не в draw calls;

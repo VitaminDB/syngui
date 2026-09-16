@@ -357,6 +357,9 @@ impl ImageGpuCache {
         store: &mut ImageStore,
     ) {
         store.poll_bg();
+        for handle in store.take_pending_frees() {
+            self.images.remove(&handle.0);
+        }
         // Бюджет на кадр: одна загрузка большого постера с мипами — единицы
         // миллисекунд на слабом GPU; пачка из десятка — заметный рывок.
         // Остаток ждёт следующего кадра (`ImageStore::has_pending_uploads`
