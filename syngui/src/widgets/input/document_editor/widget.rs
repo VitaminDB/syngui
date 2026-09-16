@@ -416,6 +416,8 @@ pub struct DocumentEditor {
     /// Без обвязки блоков: ни ручки ⋮⋮, ни подсветки/рамки блока, ни зон
     /// растяжения — для маленьких встроенных редакторов (карточка доски).
     plain: bool,
+    /// Мини-тулбар инлайн-стилей (B / I / S / <>) над выделением текста.
+    inline_toolbar: bool,
     /// Подсказка в пустом абзаце / пустом заголовке.
     placeholder: Option<String>,
     heading_placeholder: Option<String>,
@@ -443,6 +445,7 @@ impl DocumentEditor {
             on_drop_data: None,
             block_drag_type: None,
             plain: false,
+            inline_toolbar: true,
             placeholder: None,
             heading_placeholder: None,
             on_context_menu: None,
@@ -507,6 +510,14 @@ impl DocumentEditor {
     /// растяжения): маленький встроенный редактор — карточка доски.
     pub fn plain(mut self, plain: bool) -> Self {
         self.plain = plain;
+        self
+    }
+
+    /// Всплывающий тулбар инлайн-стилей над выделением (по умолчанию
+    /// включён). Выключенный — выделение остаётся просто выделением,
+    /// стили — сочетаниями клавиш.
+    pub fn inline_toolbar(mut self, show: bool) -> Self {
+        self.inline_toolbar = show;
         self
     }
 
@@ -719,6 +730,7 @@ impl Widget for DocumentEditor {
             on_drop_data: self.on_drop_data.clone(),
             block_drag_type: self.block_drag_type.clone(),
             plain: self.plain,
+            inline_toolbar: self.inline_toolbar,
             placeholder: self.placeholder.clone(),
             heading_placeholder: self.heading_placeholder.clone(),
             on_context_menu: self.on_context_menu.clone(),
@@ -770,6 +782,7 @@ pub struct DocumentEditorElement {
     on_drop_data: Option<Arc<dyn Fn(Point, &crate::input::DragData) -> bool + Send + Sync>>,
     block_drag_type: Option<String>,
     plain: bool,
+    inline_toolbar: bool,
     placeholder: Option<String>,
     heading_placeholder: Option<String>,
     id: ElementId,
@@ -2100,7 +2113,7 @@ impl DocumentEditorElement {
         self.after_edit();
     }
 
-    /// Переключение инлайн-стиля выделения (тулбар и Ctrl+B/I/E/Shift+S).
+    /// Переключение инлайн-стиля выделения (тулбар и Ctrl+B/I/E).
     fn toggle_inline(&mut self, pred: fn(&InlineStyle) -> bool, apply: fn(&mut InlineStyle, bool)) {
         let Some(sel) = self.selection else { return };
         if sel.is_caret() {
@@ -5266,6 +5279,7 @@ impl Element for DocumentEditorElement {
         self.on_drop_data = w.on_drop_data.clone();
         self.block_drag_type = w.block_drag_type.clone();
         self.plain = w.plain;
+        self.inline_toolbar = w.inline_toolbar;
         if self.placeholder != w.placeholder || self.heading_placeholder != w.heading_placeholder {
             self.placeholder = w.placeholder.clone();
             self.heading_placeholder = w.heading_placeholder.clone();
@@ -5590,7 +5604,9 @@ impl Element for DocumentEditorElement {
         }
         self.draw_slash_menu(list);
         self.draw_wiki_menu(list);
-        self.draw_toolbar(list);
+        if self.inline_toolbar {
+            self.draw_toolbar(list);
+        }
         self.draw_table_caret(list);
         self.draw_code_caret(list);
         let Some(pos) = self.caret() else { return };
@@ -6539,10 +6555,6 @@ impl Element for DocumentEditorElement {
                     }
                     Key::E if ctrl && editable => {
                         self.toggle_inline(|s| s.code, |s, v| s.code = v);
-                        true
-                    }
-                    Key::S if ctrl && shift && editable => {
-                        self.toggle_inline(|s| s.strike, |s, v| s.strike = v);
                         true
                     }
                     Key::Tab if editable => self.tab_indent_checkpointed(shift),
