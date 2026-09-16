@@ -209,6 +209,12 @@ The web build omits desktop-only widgets (terminal, video, native clipboard).
 `app/calculator/android/local.properties` pointing at your SDK, then build with the
 included `gradlew` (requires the Android SDK/NDK and `cargo-ndk`).
 
+## How it is built
+
+One developer, with Claude (Anthropic) as a daily coding assistant. The architecture, the
+rendering and layout work and the performance numbers above are mine; the assistant carries
+a large share of the typing, the tests and the refactors.
+
 ## Support
 
 syngui is free and open source. If it is useful to you, you can support its development with a donation via [PayPal](https://paypal.me/vitamindbnfkz).
