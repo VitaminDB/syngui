@@ -620,6 +620,16 @@ impl AppHandler {
             })
             .await
             .expect("Failed to find suitable adapter");
+        {
+            let info = adapter.get_info();
+            log::info!(
+                "gpu: адаптер «{}» ({:?}, {:?}), предпочтение {:?}",
+                info.name,
+                info.device_type,
+                info.backend,
+                power
+            );
+        }
 
         let limits = if cfg!(target_arch = "wasm32") {
             wgpu::Limits::downlevel_webgl2_defaults().using_resolution(adapter.limits())

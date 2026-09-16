@@ -191,12 +191,23 @@ impl HwContext {
             ))
         })?;
 
+        // Устройство по умолчанию выбирает FFmpeg (у VAAPI — первый render-узел,
+        // который инициализируется). На гибридной графике это может оказаться
+        // дискретная карта: `SYNGUI_HW_DEVICE` (например `/dev/dri/renderD129`)
+        // указывает узел явно.
+        let device = std::env::var("SYNGUI_HW_DEVICE")
+            .ok()
+            .filter(|d| !d.is_empty())
+            .and_then(|d| CString::new(d).ok());
+        if let Some(d) = &device {
+            log::info!("hwaccel: устройство из SYNGUI_HW_DEVICE: {}", d.to_string_lossy());
+        }
         let mut device_ref: *mut ffi::AVBufferRef = ptr::null_mut();
         let rc = unsafe {
             ffi::av_hwdevice_ctx_create(
                 &mut device_ref,
                 device_type,
-                ptr::null(),
+                device.as_ref().map_or(ptr::null(), |d| d.as_ptr()),
                 ptr::null_mut(),
                 0,
             )
