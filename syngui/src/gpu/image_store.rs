@@ -521,7 +521,7 @@ fn decode_svg(bytes: &[u8]) -> Result<ImageData, String> {
             px[2] = ((px[2] as f32 * inv).round() as u32).min(255) as u8;
         }
     }
-    Ok(ImageData::with_mips(w_px, h_px, Arc::from(rgba.into_boxed_slice())))
+    Ok(ImageData::with_mips(w_px, h_px, Arc::<[u8]>::from(rgba.into_boxed_slice())))
 }
 
 #[cfg(feature = "image-network")]
