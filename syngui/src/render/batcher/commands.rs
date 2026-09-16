@@ -16,6 +16,7 @@ impl Batcher {
                 ..
             } => {
                 self.ensure_batch_rect(ShaderType::Rect, None, *clip_rect, rect.inflate(1.0, 1.0));
+                self.set_clip_expand(clip_rect);
                 if let Some(psb) = per_side_border {
                     let bc = psb.color;
                     self.add_rect_per_side_border(
@@ -60,6 +61,7 @@ impl Batcher {
                 ..
             } => {
                 self.ensure_batch_rect(ShaderType::Rect, None, *clip_rect, rect.inflate(1.0, 1.0));
+                self.set_clip_expand(clip_rect);
                 self.add_linear_gradient_rect(
                     *rect,
                     gradient,

@@ -68,11 +68,14 @@ fn rounded_clip_sdf(pos: vec2<f32>, rect_min: vec2<f32>, rect_size: vec2<f32>, r
 }
 
 fn apply_rounded_clip(color: vec4<f32>, logical_pos: vec2<f32>) -> vec4<f32> {
-    let cr = uniforms.clip_corner_radius;
-    if cr.x <= 0.0 && cr.y <= 0.0 && cr.z <= 0.0 && cr.w <= 0.0 {
+    // Пустой clip_rect — обрезать нечего: границы легли на границы пикселей,
+    // и всё сделали ножницы (см. `write_clip_uniform_slots`).
+    let clip_size = uniforms.clip_rect.zw;
+    if clip_size.x <= 0.0 || clip_size.y <= 0.0 {
         return color;
     }
-    let d = rounded_clip_sdf(logical_pos, uniforms.clip_rect.xy, uniforms.clip_rect.zw, cr);
+    let cr = uniforms.clip_corner_radius;
+    let d = rounded_clip_sdf(logical_pos, uniforms.clip_rect.xy, clip_size, cr);
     let aa = fwidth(d) * 0.75;
     let clip_alpha = 1.0 - smoothstep(-aa, aa, d);
     if color.a * clip_alpha < 0.001 {

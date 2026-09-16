@@ -26,7 +26,11 @@ impl Batcher {
 
         let has_radius = radius.iter().any(|r| *r > 0.5);
 
-        let expand = if has_radius { 1.0_f32 } else { 0.0 };
+        let expand = if has_radius {
+            1.0_f32
+        } else {
+            self.clip_expand
+        };
 
         let [p0, p1, p2, p3] = self.transform_quad([
             [origin.x - expand, origin.y - expand],

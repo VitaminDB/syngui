@@ -43,8 +43,15 @@ fn vs_main(in: VertexInput) -> VertexOutput {
     //   - В остальных режимах (rounded SDF, simple rect, uniform border)
     //     оставляем half-pixel shift: vertex corner align'ится с pixel
     //     center, что даёт корректную derivative-аппроксимацию dpdx/dpdy.
+    //   - Простая заливка (без скруглений и рамки) SDF не считает, и
+    //     производные ей не нужны. Сдвиг же уводил её на полпикселя вправо
+    //     и вниз от собственных границ: картинки и обрезка (`ClipRect`)
+    //     рисуются без него, и по краю обрезанного бокса оставалась полоска
+    //     того, что заливка должна была закрыть.
     let is_sharp_per_side = in.data2.x < -10.0;
-    let shift = select(0.5 / uniforms.scale_factor, 0.0, is_sharp_per_side);
+    let max_corner = max(max(in.data.x, in.data.y), max(in.data.z, in.data.w));
+    let is_plain_fill = max_corner < 0.5 && in.data2.x >= 0.0 && in.data2.x < 0.5;
+    let shift = select(0.5 / uniforms.scale_factor, 0.0, is_sharp_per_side || is_plain_fill);
     let ndc_x = ((in.position.x + shift) / uniforms.resolution.x) * 2.0 - 1.0;
     let ndc_y = 1.0 - ((in.position.y + shift) / uniforms.resolution.y) * 2.0;
 
@@ -76,11 +83,14 @@ fn rounded_clip_sdf(pos: vec2<f32>, rect_min: vec2<f32>, rect_size: vec2<f32>, r
 
 // Apply rounded clip mask to output color
 fn apply_rounded_clip(color: vec4<f32>, logical_pos: vec2<f32>) -> vec4<f32> {
-    let cr = uniforms.clip_corner_radius;
-    if cr.x <= 0.0 && cr.y <= 0.0 && cr.z <= 0.0 && cr.w <= 0.0 {
+    // Пустой clip_rect — обрезать нечего: границы легли на границы пикселей,
+    // и всё сделали ножницы (см. `write_clip_uniform_slots`).
+    let clip_size = uniforms.clip_rect.zw;
+    if clip_size.x <= 0.0 || clip_size.y <= 0.0 {
         return color;
     }
-    let d = rounded_clip_sdf(logical_pos, uniforms.clip_rect.xy, uniforms.clip_rect.zw, cr);
+    let cr = uniforms.clip_corner_radius;
+    let d = rounded_clip_sdf(logical_pos, uniforms.clip_rect.xy, clip_size, cr);
     let aa = fwidth(d) * 0.75;
     let clip_alpha = 1.0 - smoothstep(-aa, aa, d);
     if color.a * clip_alpha < 0.001 {

@@ -506,7 +506,11 @@ impl Renderer {
         let mut buffer_data = vec![0u8; slot_index * UNIFORM_ALIGN];
         for (&clip, &byte_offset) in &clip_map {
             let radii = clip.corner_radius_f32();
-            let (clip_rect, clip_corner_radius) = if clip.has_corner_radius() {
+            // Маска в шейдере — только для скруглённых углов. Прямоугольный
+            // клип целиком отдан ножницам: маска применяется к каждому слою
+            // по отдельности, и на краевом пикселе верхний слой перестаёт
+            // полностью закрывать нижний — из-под него проступает полоска.
+            let (clip_rect, clip_corner_radius) = if clip.enabled && clip.has_corner_radius() {
                 ([clip.x(), clip.y(), clip.width(), clip.height()], radii)
             } else {
                 ([0.0; 4], [0.0; 4])

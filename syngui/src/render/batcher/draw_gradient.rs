@@ -234,12 +234,27 @@ impl Batcher {
         let origin = rect.origin;
         let size = rect.size;
 
-        let [p0, p1, p2, p3] = self.transform_quad([
-            [origin.x, origin.y],
-            [origin.x + size.width, origin.y],
-            [origin.x + size.width, origin.y + size.height],
-            [origin.x, origin.y + size.height],
-        ]);
+        // Полоса выходит за границы бокса, раз её край всё равно обрежут
+        // ножницы: поперёк градиента — всегда, вдоль — только крайние полосы
+        // (внутри полосы стыкуются друг с другом, там расширять нечего).
+        let e = if corner_radius.iter().any(|r| *r > 0.5) {
+            0.0
+        } else {
+            self.clip_expand
+        };
+        let first = strip_idx == 0;
+        let last = strip_idx + 1 >= total_strips.max(1);
+        let head = if first { e } else { 0.0 };
+        let tail = if last { e } else { 0.0 };
+        let (ex0, ex1, ey0, ey1) = if horizontal {
+            (head, tail, e, e)
+        } else {
+            (e, e, head, tail)
+        };
+        let (x0, y0) = (origin.x - ex0, origin.y - ey0);
+        let (x1, y1) = (origin.x + size.width + ex1, origin.y + size.height + ey1);
+
+        let [p0, p1, p2, p3] = self.transform_quad([[x0, y0], [x1, y0], [x1, y1], [x0, y1]]);
 
         let scaled_radius = corner_radius.map(|r| r * sf);
 

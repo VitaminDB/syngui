@@ -78,6 +78,9 @@ pub struct Batcher {
     pub(self) buckets: Vec<OpenBatch>,
     pub(self) current: Option<usize>,
     pub(self) scale_factor: f32,
+    /// На сколько логических пикселей растягивать сплошную заливку за
+    /// границы клипа (см. `set_clip_expand`).
+    pub(self) clip_expand: f32,
     pub(self) opacity_stack: Vec<f32>,
     pub(self) current_opacity: f32,
     pub(self) transform_stack: Vec<Transform>,
@@ -99,6 +102,7 @@ impl Batcher {
             buckets: Vec::new(),
             current: None,
             scale_factor: 1.0,
+            clip_expand: 0.0,
             opacity_stack: Vec::new(),
             current_opacity: 1.0,
             transform_stack: Vec::new(),
@@ -222,6 +226,19 @@ impl Batcher {
     }
 
     /// Батч для примитива с известным прямоугольником (до трансформации).
+    /// Заливка, которую обрезает клип с дробными (в физических пикселях)
+    /// границами, растягивается на пиксель наружу — точный край ей всё равно
+    /// задают ножницы. Без этого на краевом пикселе заливка покрывает лишь
+    /// часть площади, а содержимое под ней (картинка шире бокса) — всю, и
+    /// из-под заливки выглядывает полоска.
+    pub(self) fn set_clip_expand(&mut self, clip: &ClipRect) {
+        self.clip_expand = if clip.enabled && !clip.is_pixel_aligned(self.scale_factor) {
+            1.0
+        } else {
+            0.0
+        };
+    }
+
     pub(self) fn ensure_batch_rect(
         &mut self,
         shader: ShaderType,
