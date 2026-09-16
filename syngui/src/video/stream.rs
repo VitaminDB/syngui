@@ -53,6 +53,7 @@ mod tests {
             height: 2,
             rgba: Arc::from(vec![0u8; 16].into_boxed_slice()),
             pts_sec: 0.0,
+            seek_generation: 0,
             surface: None,
         })
     }

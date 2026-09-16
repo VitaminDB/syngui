@@ -17,6 +17,11 @@ use crate::audio::{AudioPlayer, AudioStream};
 const MIN_TOLERANCE_SEC: f64 = 0.002;
 const MAX_TOLERANCE_SEC: f64 = 0.020;
 
+/// Сколько после открытия или перемотки ждать первого звука, прежде чем
+/// пустить картинку по системным часам. В сети первый сегмент грузится
+/// секундами; а поток, где звук так и не пошёл, не должен висеть вечно.
+const AUDIO_START_GRACE: WebDuration = WebDuration::from_secs(10);
+
 struct PlayerShared {
     paused: AtomicBool,
     duration_sec: f64,
@@ -51,6 +56,9 @@ pub struct VideoPlayer {
     /// допуск показа кадра.
     poll_period_sec: f64,
     last_poll_at: Option<Instant>,
+    /// Сколько перемоток отдано декодеру — кадры с меньшим
+    /// `VideoFrame::seek_generation` устарели.
+    seek_generation: u64,
     stats: FrameStats,
 }
 
@@ -107,6 +115,7 @@ impl VideoPlayer {
             last_frame_at: Instant::now(),
             poll_period_sec: 0.0,
             last_poll_at: None,
+            seek_generation: 0,
             stats: FrameStats::new(),
         })
     }
@@ -129,6 +138,12 @@ impl VideoPlayer {
         }
         self.last_frame_at = Instant::now();
         self.decoder.resume();
+        // Звук — мастер-часы: без него после паузы (и особенно после
+        // перемотки на паузе, где вывод создаётся уже приостановленным) часы
+        // стоят и картинка не идёт.
+        if let Some(audio) = self.audio.as_ref() {
+            audio.resume();
+        }
     }
 
     pub fn pause(&mut self) {
@@ -138,6 +153,10 @@ impl VideoPlayer {
         self.shared.paused.store(true, Ordering::Relaxed);
         self.paused_at = Some(Instant::now());
         self.decoder.pause();
+        // Иначе звук доигрывает всё, что декодер успел отдать в очередь.
+        if let Some(audio) = self.audio.as_ref() {
+            audio.pause();
+        }
     }
 
     pub fn duration_sec(&self) -> f64 {
@@ -167,6 +186,7 @@ impl VideoPlayer {
         self.pending_frame = None;
         while self.decoder.try_recv_video().is_ok() {}
 
+        self.seek_generation += 1;
         self.decoder.seek(target);
 
         if self.decoder.meta().has_audio {
@@ -225,14 +245,19 @@ impl VideoPlayer {
         if self.is_paused() {
             return None;
         }
+        // Звук в новый канал ещё не пошёл — часов нет, и кадр показать не к
+        // чему (иначе картинка убежала бы вперёд и потом ждала звук).
+        if self.awaiting_audio_clock() {
+            return None;
+        }
         let clock = self.master_clock_sec();
         self.stats.on_poll(clock);
         let tolerance = self.poll_tolerance_sec();
 
-        let mut candidate = self
-            .pending_frame
-            .take()
-            .or_else(|| self.decoder.try_recv_video().ok())?;
+        let mut candidate = match self.pending_frame.take() {
+            Some(f) => f,
+            None => self.recv_current_frame()?,
+        };
 
         if candidate.surface.is_some() {
             return self.schedule_surface_frames(candidate, clock);
@@ -245,8 +270,8 @@ impl VideoPlayer {
         }
 
         loop {
-            match self.decoder.try_recv_video() {
-                Ok(next) => {
+            match self.recv_current_frame() {
+                Some(next) => {
                     if next.pts_sec <= clock + tolerance {
                         self.stats.on_dropped();
                         candidate = next;
@@ -255,12 +280,13 @@ impl VideoPlayer {
                         break;
                     }
                 }
-                Err(_) => break,
+                None => break,
             }
         }
 
         self.last_frame_at = Instant::now();
-        self.stats.on_shown(candidate.pts_sec, clock);
+        let audible = if self.stats.enabled { self.audible_pts_sec() } else { None };
+        self.stats.on_shown(candidate.pts_sec, clock, audible);
         // Кадр в буфере кодека показывается сейчас, в момент выбора.
         if let Some(surface) = candidate.surface.as_ref() {
             surface.render();
@@ -302,9 +328,9 @@ impl VideoPlayer {
                 // Предыдущий опоздавший — drop вернёт буфер кодеку без показа.
                 late = Some(frame);
             }
-            match self.decoder.try_recv_video() {
-                Ok(next) => frame = next,
-                Err(_) => break,
+            match self.recv_current_frame() {
+                Some(next) => frame = next,
+                None => break,
             }
         }
         if last.is_none() {
@@ -317,9 +343,21 @@ impl VideoPlayer {
         }
         if let Some(f) = last.as_ref() {
             self.last_frame_at = Instant::now();
-            self.stats.on_shown(f.pts_sec, clock);
+            let audible = if self.stats.enabled { self.audible_pts_sec() } else { None };
+            self.stats.on_shown(f.pts_sec, clock, audible);
         }
         last
+    }
+
+    /// Следующий кадр из очереди, пропуская декодированные до последней
+    /// перемотки.
+    fn recv_current_frame(&mut self) -> Option<VideoFrame> {
+        loop {
+            let frame = self.decoder.try_recv_video().ok()?;
+            if frame.seek_generation >= self.seek_generation {
+                return Some(frame);
+            }
+        }
     }
 
     /// Допуск «пора показывать»: половина периода опроса. Опрос идёт из
@@ -343,11 +381,32 @@ impl VideoPlayer {
         (self.poll_period_sec * 0.5).clamp(MIN_TOLERANCE_SEC, MAX_TOLERANCE_SEC)
     }
 
+    /// pts звука, который слышен прямо сейчас: база канала плюс часы вывода.
+    fn audible_pts_sec(&self) -> Option<f64> {
+        let audio = self.audio.as_ref()?;
+        Some(self.decoder.audio_base_pts_sec()? + audio.playback_clock_sec()?)
+    }
+
+    /// Звук есть, но часы по нему ещё не заведены (нет ни одного чанка в
+    /// новом канале или ни одного колбэка вывода) — и ждём не слишком долго.
+    fn awaiting_audio_clock(&self) -> bool {
+        self.audio.is_some()
+            && self.audible_pts_sec().is_none()
+            && self
+                .wall_start
+                .is_some_and(|t| t.elapsed() < AUDIO_START_GRACE)
+    }
+
+    /// Мастер-часы в шкале pts видео. Со звуком — pts слышимого сэмпла: база
+    /// канала (pts первого отправленного звука) плюс проигранное. Отсчёт от
+    /// цели перемотки вместо базы разводил картинку и звук на расстояние от
+    /// ключевого кадра до цели — в HLS до 10 с.
     fn master_clock_sec(&self) -> f64 {
-        if let Some(audio) = self.audio.as_ref() {
-            if let Some(sec) = audio.playback_clock_sec() {
-                return sec + self.shared.seek_offset_sec();
-            }
+        if let Some(pts) = self.audible_pts_sec() {
+            return pts;
+        }
+        if self.awaiting_audio_clock() {
+            return self.shared.seek_offset_sec();
         }
         let elapsed = match (self.wall_start, self.paused_at) {
             (Some(start), Some(at)) => {
@@ -411,6 +470,8 @@ struct FrameStats {
     interval_ms: MinMaxSum,
     lead_ms: MinMaxSum,
     clock_step_ms: MinMaxSum,
+    /// pts кадра минус pts слышимого звука: > 0 — картинка впереди звука.
+    av_ms: MinMaxSum,
     last_clock: f64,
 }
 
@@ -457,6 +518,7 @@ impl FrameStats {
             interval_ms: MinMaxSum::default(),
             lead_ms: MinMaxSum::default(),
             clock_step_ms: MinMaxSum::default(),
+            av_ms: MinMaxSum::default(),
             last_clock: f64::NAN,
         }
     }
@@ -480,9 +542,12 @@ impl FrameStats {
         }
     }
 
-    fn on_shown(&mut self, pts_sec: f64, clock: f64) {
+    fn on_shown(&mut self, pts_sec: f64, clock: f64, audible_pts: Option<f64>) {
         if !self.enabled {
             return;
+        }
+        if let Some(a) = audible_pts {
+            self.av_ms.add((pts_sec - a) * 1000.0);
         }
         self.shown += 1;
         let now = Instant::now();
@@ -504,7 +569,7 @@ impl FrameStats {
         log::info!(
             "[VIDEO STATS {secs:.1}s] показано={} ({:.1}/с) отброшено={} опросов={} часы стояли={}% \
              интервал(мс avg/min/max)={:.1}/{:.1}/{:.1} опережение(мс avg/min/max)={:.0}/{:.0}/{:.0} \
-             шаг часов(мс avg/max)={:.1}/{:.1}",
+             шаг часов(мс avg/max)={:.1}/{:.1} кадр−звук(мс avg/min/max)={:.0}/{:.0}/{:.0}",
             self.shown,
             self.shown as f64 / secs,
             self.dropped,
@@ -522,6 +587,9 @@ impl FrameStats {
             self.lead_ms.max,
             self.clock_step_ms.avg(),
             self.clock_step_ms.max,
+            self.av_ms.avg(),
+            self.av_ms.min,
+            self.av_ms.max,
         );
         self.window_start = Instant::now();
         self.shown = 0;
@@ -531,5 +599,6 @@ impl FrameStats {
         self.interval_ms = MinMaxSum::default();
         self.lead_ms = MinMaxSum::default();
         self.clock_step_ms = MinMaxSum::default();
+        self.av_ms = MinMaxSum::default();
     }
 }

@@ -1,3 +1,4 @@
+use std::sync::atomic::{AtomicI64, Ordering};
 use std::sync::mpsc::{self, Receiver, Sender, SyncSender, TryRecvError};
 use std::sync::Arc;
 use std::thread::{self, JoinHandle};
@@ -21,6 +22,11 @@ pub struct VideoFrame {
     /// RGBA8; пусто у кадров, которые показывает сам кодек (`surface`).
     pub rgba: Arc<[u8]>,
     pub pts_sec: f64,
+    /// Номер перемотки, после которой декодирован кадр. Кадр старого номера,
+    /// проскочивший в очередь между её очисткой и перемоткой в потоке
+    /// декодера, плеер выбрасывает: после перемотки назад его pts «в будущем»,
+    /// и картинка ждала бы его секундами.
+    pub seek_generation: u64,
     /// Кадр в выходном буфере MediaCodec (`HwAccel::MediaCodecSurface`):
     /// показывается вызовом [`SurfaceBuffer::render`] в момент показа,
     /// пикселей в `rgba` нет.
@@ -114,7 +120,11 @@ pub struct VideoDecoder {
     audio_rx: Option<Receiver<Vec<f32>>>,
     cmd_tx: Sender<DecoderCmd>,
     join: Option<JoinHandle<Result<(), VideoError>>>,
+    audio_base_pts: Arc<AtomicI64>,
 }
+
+/// «pts ещё неизвестен» в [`VideoDecoder::audio_base_pts_sec`].
+const PTS_UNKNOWN: i64 = i64::MIN;
 
 const AUDIO_OUTPUT_SR: u32 = 48_000;
 
@@ -254,10 +264,20 @@ impl VideoDecoder {
         let (cmd_tx, cmd_rx) = mpsc::channel::<DecoderCmd>();
 
         let meta_thread = meta.clone();
+        let audio_base_pts = Arc::new(AtomicI64::new(PTS_UNKNOWN));
+        let audio_base_thread = audio_base_pts.clone();
         let join = thread::Builder::new()
             .name("syngui-video-decoder".into())
             .spawn(move || {
-                let r = run_decoder_thread(ictx, meta_thread, accel, video_tx, audio_tx_opt, cmd_rx);
+                let r = run_decoder_thread(
+                    ictx,
+                    meta_thread,
+                    accel,
+                    video_tx,
+                    audio_tx_opt,
+                    cmd_rx,
+                    &audio_base_thread,
+                );
                 if let Err(e) = &r {
                     log::error!("video: поток декодера завершился с ошибкой: {e}");
                 }
@@ -271,11 +291,24 @@ impl VideoDecoder {
             audio_rx: audio_rx_opt,
             cmd_tx,
             join: Some(join),
+            audio_base_pts,
         })
     }
 
     pub fn meta(&self) -> &VideoMeta {
         &self.meta
+    }
+
+    /// pts (в секундах, шкала видео) первого сэмпла, ушедшего в текущий
+    /// аудио-канал — после открытия или `re_attach_audio`. Проигранные
+    /// сэмплы отсчитываются от него: не от нуля и не от цели перемотки,
+    /// потому что поток начинается не с нуля, а перемотка встаёт на ключевой
+    /// кадр раньше цели. `None` — звук в новый канал ещё не пошёл.
+    pub fn audio_base_pts_sec(&self) -> Option<f64> {
+        match self.audio_base_pts.load(Ordering::Acquire) {
+            PTS_UNKNOWN => None,
+            micros => Some(micros as f64 / 1_000_000.0),
+        }
     }
 
     pub fn try_recv_video(&self) -> Result<VideoFrame, TryRecvError> {
@@ -409,6 +442,7 @@ fn run_decoder_thread(
     video_tx: SyncSender<VideoFrame>,
     mut audio_tx: Option<SyncSender<Vec<f32>>>,
     cmd_rx: Receiver<DecoderCmd>,
+    audio_base: &AtomicI64,
 ) -> Result<(), VideoError> {
     let v_idx = ictx
         .streams()
@@ -573,10 +607,15 @@ fn run_decoder_thread(
             a_dec.channel_layout()
         };
         let resampler = Resampler::new(a_dec.format(), in_layout, a_dec.rate(), AUDIO_OUTPUT_SR)?;
+        let tb = ictx.stream(idx).unwrap().time_base();
         Some(AudioState {
             stream_idx: idx,
             decoder: a_dec,
             resampler,
+            tb_sec: tb.numerator() as f64 / tb.denominator().max(1) as f64,
+            base_pending: true,
+            skip_before: None,
+            timeline: AudioTimeline::new(),
         })
     } else {
         None
@@ -603,6 +642,8 @@ fn run_decoder_thread(
 
     let mut video_errors: u32 = 0;
     let mut stages = StageStats::new();
+    // Цель последней перемотки, пока до неё не дошли кадры.
+    let mut video_skip_before: Option<f64> = None;
     'main: loop {
         if !paused {
             match cmd_rx.try_recv() {
@@ -610,9 +651,16 @@ fn run_decoder_thread(
                 Ok(DecoderCmd::Resume) => {}
                 Ok(DecoderCmd::SeekSec(t)) => {
                     perform_seek(&mut reader, &mut seek_gen, &mut v_dec, audio.as_mut(), t)?;
+                    reset_audio_base(audio.as_mut(), audio_base);
+                    stages.first_frame_pending = true;
+                    video_skip_before = Some(t);
+                    if let Some(a) = audio.as_mut() {
+                        a.skip_before = Some(t);
+                    }
                 }
                 Ok(DecoderCmd::ReAttachAudio(new_tx)) => {
                     audio_tx = Some(new_tx);
+                    reset_audio_base(audio.as_mut(), audio_base);
                 }
                 Ok(DecoderCmd::InstallVideoTee(tx)) => {
                     tee_video = tx;
@@ -632,10 +680,17 @@ fn run_decoder_thread(
                 Ok(DecoderCmd::Pause) => {}
                 Ok(DecoderCmd::SeekSec(t)) => {
                     perform_seek(&mut reader, &mut seek_gen, &mut v_dec, audio.as_mut(), t)?;
+                    reset_audio_base(audio.as_mut(), audio_base);
+                    stages.first_frame_pending = true;
+                    video_skip_before = Some(t);
+                    if let Some(a) = audio.as_mut() {
+                        a.skip_before = Some(t);
+                    }
                     paused = false;
                 }
                 Ok(DecoderCmd::ReAttachAudio(new_tx)) => {
                     audio_tx = Some(new_tx);
+                    reset_audio_base(audio.as_mut(), audio_base);
                 }
                 Ok(DecoderCmd::InstallVideoTee(tx)) => {
                     tee_video = tx;
@@ -666,10 +721,12 @@ fn run_decoder_thread(
                     &mut logged_first_format,
                     hw_codec_active.then_some(hw_label),
                     &mut stages,
+                    &mut video_skip_before,
+                    seek_gen,
                 );
                 if let Some(a) = audio.as_mut() {
                     let _ = a.decoder.send_eof();
-                    drain_audio(a, audio_tx.as_ref(), tee_audio.as_ref());
+                    drain_audio(a, audio_tx.as_ref(), tee_audio.as_ref(), audio_base);
                     if let Ok(tail) = a.resampler.flush() {
                         if !tail.is_empty() {
                             if let Some(tx) = tee_audio.as_ref() {
@@ -684,9 +741,16 @@ fn run_decoder_thread(
                 match cmd_rx.recv() {
                     Ok(DecoderCmd::SeekSec(t)) => {
                         perform_seek(&mut reader, &mut seek_gen, &mut v_dec, audio.as_mut(), t)?;
+                    reset_audio_base(audio.as_mut(), audio_base);
+                    stages.first_frame_pending = true;
+                    video_skip_before = Some(t);
+                    if let Some(a) = audio.as_mut() {
+                        a.skip_before = Some(t);
+                    }
                     }
                     Ok(DecoderCmd::ReAttachAudio(new_tx)) => {
                         audio_tx = Some(new_tx);
+                        reset_audio_base(audio.as_mut(), audio_base);
                     }
                     Ok(DecoderCmd::InstallVideoTee(tx)) => {
                         tee_video = tx;
@@ -717,6 +781,8 @@ fn run_decoder_thread(
                         &mut logged_first_format,
                         hw_codec_active.then_some(hw_label),
                         &mut stages,
+                        &mut video_skip_before,
+                        seek_gen,
                     );
                 }
                 Err(e) => {
@@ -734,7 +800,7 @@ fn run_decoder_thread(
             }
         } else if let Some(a) = audio.as_mut() {
             if pkt_idx == a.stream_idx && a.decoder.send_packet(&packet).is_ok() {
-                drain_audio(a, audio_tx.as_ref(), tee_audio.as_ref());
+                drain_audio(a, audio_tx.as_ref(), tee_audio.as_ref(), audio_base);
             }
         }
     }
@@ -771,6 +837,98 @@ struct AudioState {
     stream_idx: usize,
     decoder: ffmpeg_next::decoder::Audio,
     resampler: Resampler,
+    tb_sec: f64,
+    /// Следующий отправленный чанк — первый в новом канале: его pts станет
+    /// базой часов (`audio_base`).
+    base_pending: bool,
+    /// Цель точной перемотки: звук до неё не отправляется, кадр на границе
+    /// обрезается по сэмплам.
+    skip_before: Option<f64>,
+    timeline: AudioTimeline,
+}
+
+/// Новый аудио-канал (открытие, перемотка): база часов неизвестна до
+/// первого отправленного в него чанка.
+fn reset_audio_base(audio: Option<&mut AudioState>, audio_base: &AtomicI64) {
+    audio_base.store(PTS_UNKNOWN, Ordering::Release);
+    if let Some(a) = audio {
+        a.base_pending = true;
+    }
+}
+
+/// Звуковая дорожка текущего канала: pts первого сэмпла и сколько сэмплов
+/// отправлено с тех пор. Сэмплы обязаны идти вровень с pts: часы плеера
+/// считают время по ним. Дыра в звуке (потерянный сегмент, ошибка
+/// декодирования) иначе сдвигает звук относительно картинки, а когда звук
+/// кончается раньше кадров — видео-очередь полна, часы стоят, декодер ждёт
+/// места в очереди, и воспроизведение встаёт насовсем.
+struct AudioTimeline {
+    first_pts: f64,
+    samples: u64,
+    stats: bool,
+    window_start: Instant,
+}
+
+/// Расхождение pts и сэмплов, которое выравниваем. Меньше — дрожание pts
+/// контейнера; больше `AUDIO_GAP_MAX_SEC` — разрыв шкалы времени, а не дыра,
+/// его тишиной не заполнить.
+const AUDIO_GAP_MIN_SEC: f64 = 0.040;
+const AUDIO_GAP_MAX_SEC: f64 = 2.0;
+
+impl AudioTimeline {
+    fn new() -> Self {
+        Self {
+            first_pts: 0.0,
+            samples: 0,
+            stats: std::env::var("SYNGUI_VIDEO_STATS").is_ok(),
+            window_start: Instant::now(),
+        }
+    }
+
+    fn reset(&mut self, pts: f64) {
+        self.first_pts = pts;
+        self.samples = 0;
+        if self.stats {
+            log::info!("[AUDIO SYNC] первый звук в канале: pts={pts:.3}s");
+        }
+    }
+
+    /// Где должен начаться следующий чанк, если звук идёт без дыр.
+    fn expected_pts(&self) -> f64 {
+        self.first_pts + self.samples as f64 / AUDIO_OUTPUT_SR as f64
+    }
+
+    /// Подогнать чанк с этим `pts` к дорожке: дыру перед ним заполнить
+    /// тишиной, перекрытие с уже отправленным — обрезать.
+    fn align(&mut self, pts: f64, chunk: &mut Vec<f32>) {
+        let gap = pts - self.expected_pts();
+        if gap.abs() < AUDIO_GAP_MIN_SEC || gap.abs() > AUDIO_GAP_MAX_SEC {
+            if gap.abs() > AUDIO_GAP_MAX_SEC {
+                log::warn!("audio: разрыв шкалы pts {gap:+.3}s — не выравниваю");
+            }
+            return;
+        }
+        let n = (gap.abs() * AUDIO_OUTPUT_SR as f64).round() as usize;
+        if gap > 0.0 {
+            log::debug!("audio: дыра {:.0} мс — вставляю тишину", gap * 1000.0);
+            chunk.splice(0..0, std::iter::repeat(0.0).take(n));
+        } else {
+            log::debug!("audio: перекрытие {:.0} мс — обрезаю", -gap * 1000.0);
+            chunk.drain(..n.min(chunk.len()));
+        }
+    }
+
+    fn on_sent(&mut self, samples: usize) {
+        self.samples += samples as u64;
+        if self.stats && self.window_start.elapsed() >= Duration::from_secs(1) {
+            log::info!(
+                "[AUDIO SYNC] отправлено звука {:.3}s с pts {:.3}s",
+                self.samples as f64 / AUDIO_OUTPUT_SR as f64,
+                self.first_pts
+            );
+            self.window_start = Instant::now();
+        }
+    }
 }
 
 /// Профиль конвейера кадра (`SYNGUI_VIDEO_STATS=1`): сколько времени уходит
@@ -783,6 +941,8 @@ struct StageStats {
     transfer_us: u64,
     convert_us: u64,
     send_block_us: u64,
+    /// Залогировать pts первого кадра после открытия/перемотки.
+    first_frame_pending: bool,
 }
 
 impl StageStats {
@@ -794,6 +954,7 @@ impl StageStats {
             transfer_us: 0,
             convert_us: 0,
             send_block_us: 0,
+            first_frame_pending: true,
         }
     }
 
@@ -827,6 +988,8 @@ fn drain_video(
     logged_first_format: &mut bool,
     hw_codec: Option<&'static str>,
     stages: &mut StageStats,
+    skip_before: &mut Option<f64>,
+    seek_generation: u64,
 ) {
     let mut decoded = frame::Video::empty();
     loop {
@@ -875,8 +1038,23 @@ fn drain_video(
                 }
             }
         }
-        let pts = decoded.pts().unwrap_or(0);
+        let pts = decoded.pts().or_else(|| decoded.timestamp()).unwrap_or(0);
         let pts_sec = pts as f64 * tb_sec;
+        // Точная перемотка: демуксер встаёт на ключевой кадр до цели (в HLS —
+        // на начало сегмента, до 10 с раньше). Кадры до цели декодируются —
+        // без них не собрать следующие, — но не выгружаются и не показываются.
+        if let Some(target) = *skip_before {
+            if decoded.pts().or_else(|| decoded.timestamp()).is_some() && pts_sec < target {
+                continue;
+            }
+            *skip_before = None;
+        }
+        if stages.first_frame_pending {
+            stages.first_frame_pending = false;
+            if stages.enabled {
+                log::info!("[VIDEO PIPE] первый кадр в очереди: pts={pts_sec:.3}s");
+            }
+        }
 
         // Кадр в буфере MediaCodec: показывает сам кодек, пикселей не берём.
         if decoded.format() == ffmpeg_next::format::Pixel::MEDIACODEC {
@@ -894,6 +1072,7 @@ fn drain_video(
                 height: decoded.height(),
                 rgba: Arc::from(Vec::new().into_boxed_slice()),
                 pts_sec,
+                seek_generation,
                 surface: Some(Arc::new(SurfaceBuffer::new(cloned))),
             };
             if let Some(t) = tee_tx {
@@ -938,6 +1117,7 @@ fn drain_video(
                     height: h,
                     rgba,
                     pts_sec,
+                    seek_generation,
                     surface: None,
                 };
                 if let Some(t) = tee_tx {
@@ -962,11 +1142,41 @@ fn drain_audio(
     state: &mut AudioState,
     tx: Option<&SyncSender<Vec<f32>>>,
     tee_tx: Option<&SyncSender<Vec<f32>>>,
+    audio_base: &AtomicI64,
 ) {
     let mut decoded = frame::Audio::empty();
     while state.decoder.receive_frame(&mut decoded).is_ok() {
+        let pts_sec = decoded
+            .pts()
+            .or_else(|| decoded.timestamp())
+            .map(|p| p as f64 * state.tb_sec);
         match state.resampler.convert(&decoded) {
-            Ok(chunk) if !chunk.is_empty() => {
+            Ok(mut chunk) if !chunk.is_empty() => {
+                let mut pts_sec = pts_sec;
+                if let (Some(target), Some(pts)) = (state.skip_before, pts_sec) {
+                    let skip = ((target - pts) * AUDIO_OUTPUT_SR as f64).round();
+                    if skip >= chunk.len() as f64 {
+                        continue;
+                    }
+                    if skip > 0.0 {
+                        chunk.drain(..skip as usize);
+                        pts_sec = Some(target);
+                    }
+                    state.skip_before = None;
+                }
+                if let Some(pts) = pts_sec {
+                    if state.base_pending && tx.is_some() {
+                        state.base_pending = false;
+                        audio_base.store((pts * 1_000_000.0) as i64, Ordering::Release);
+                        state.timeline.reset(pts);
+                    } else {
+                        state.timeline.align(pts, &mut chunk);
+                    }
+                }
+                if chunk.is_empty() {
+                    continue;
+                }
+                state.timeline.on_sent(chunk.len());
                 if let Some(t) = tee_tx {
                     let _ = t.try_send(chunk.clone());
                 }

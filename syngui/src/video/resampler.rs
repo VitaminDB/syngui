@@ -1,3 +1,4 @@
+use ffmpeg_next::ffi;
 use ffmpeg_next::format::sample::{Sample, Type};
 use ffmpeg_next::frame;
 use ffmpeg_next::software::resampling::Context as ResampleCtx;
@@ -39,7 +40,19 @@ impl Resampler {
     }
 
     pub fn convert(&mut self, frame: &frame::Audio) -> Result<Vec<f32>, VideoError> {
-        let mut out = frame::Audio::empty();
+        // Выходной кадр — под столько сэмплов, сколько swr может отдать.
+        // `Context::run` из ffmpeg-next с пустым кадром выделяет его размером
+        // входа: при 44,1 → 48 кГц в него не влезают 8 % сэмплов, они копятся
+        // внутри swr, и звук выходит короче своих pts — часы видео уезжают,
+        // а звук кончается раньше картинки.
+        // SAFETY: контекст инициализирован в `new`, функция только считает.
+        let capacity =
+            unsafe { ffi::swr_get_out_samples(self.ctx.as_mut_ptr(), frame.samples() as i32) };
+        let mut out = frame::Audio::new(
+            Sample::F32(Type::Packed),
+            capacity.max(frame.samples() as i32).max(1) as usize,
+            ChannelLayout::MONO,
+        );
         self.ctx
             .run(frame, &mut out)
             .map_err(|e| VideoError::Resampler(format!("swr_convert: {e}")))?;
@@ -102,5 +115,35 @@ mod tests {
             expected
         );
         assert!(out.iter().any(|&s| s.abs() > 0.01));
+    }
+
+    #[test]
+    fn upsampling_keeps_every_sample() {
+        ffmpeg_next::init().ok();
+        let (in_rate, out_rate, n) = (44_100u32, 48_000u32, 1024usize);
+        let mut r = Resampler::new(
+            Sample::F32(Type::Packed),
+            ChannelLayout::MONO,
+            in_rate,
+            out_rate,
+        )
+        .expect("new");
+        let mut produced = 0usize;
+        let frames = 200;
+        for _ in 0..frames {
+            let mut f = frame::Audio::new(Sample::F32(Type::Packed), n, ChannelLayout::MONO);
+            unsafe {
+                (*f.as_mut_ptr()).sample_rate = in_rate as i32;
+            }
+            f.plane_mut::<f32>(0).fill(0.25);
+            produced += r.convert(&f).expect("convert").len();
+        }
+        let expected = (frames * n) as f64 * out_rate as f64 / in_rate as f64;
+        // Внутри swr остаётся хвост фильтра — не больше пары сотен сэмплов,
+        // а не 8 % потока.
+        assert!(
+            (expected - produced as f64).abs() < 400.0,
+            "44,1 → 48 кГц: ожидалось ~{expected:.0} сэмплов, получено {produced}"
+        );
     }
 }
