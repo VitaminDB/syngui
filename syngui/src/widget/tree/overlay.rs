@@ -46,6 +46,11 @@ impl ElementTree {
             let animated = node.element.animate(dt);
             if animated {
                 crate::perf::incr(crate::perf::Counter::AnimateTrue);
+            }
+            // Перерисовать нужно и когда анимация закончилась именно на этом
+            // тике: последний кадр показывал промежуточное значение, а
+            // конечное без кадра так и осталось бы ненарисованным.
+            if animated || was_repainting {
                 needs_repaint = true;
             }
             let needs_rebuild_now = self

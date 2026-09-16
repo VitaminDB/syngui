@@ -246,9 +246,33 @@ impl TestHarness {
     }
 
     pub fn set_classes(&mut self, id: ElementId, classes: Vec<String>) {
-        if let Some(node) = self.tree.elements.get_mut(&id) {
-            node.element.set_classes(classes);
-            node.styles_dirty = true;
+        let Some(node) = self.tree.elements.get_mut(&id) else {
+            return;
+        };
+        let old: Vec<String> = node.element.get_classes().to_vec();
+        node.element.set_classes(classes.clone());
+        node.styles_dirty = true;
+        // Как в `ElementTree::update_element`: класс, участвующий в селекторе
+        // с потомком, меняет стиль всего поддерева.
+        let changed = old
+            .iter()
+            .filter(|c| !classes.contains(c))
+            .chain(classes.iter().filter(|c| !old.contains(c)))
+            .flat_map(|c| c.split_whitespace());
+        match crate::mss::cascade::class_change_scope(changed) {
+            crate::mss::cascade::ClassChangeScope::SelfOnly => {}
+            crate::mss::cascade::ClassChangeScope::Subtree => {
+                crate::mss::cascade::mark_subtree_styles_dirty(&mut self.tree, id)
+            }
+            crate::mss::cascade::ClassChangeScope::ParentSubtree => {
+                let target = self
+                    .tree
+                    .elements
+                    .get(&id)
+                    .and_then(|n| n.parent)
+                    .unwrap_or(id);
+                crate::mss::cascade::mark_subtree_styles_dirty(&mut self.tree, target)
+            }
         }
     }
 

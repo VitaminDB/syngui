@@ -753,7 +753,12 @@ impl AppHandler {
             // события, рендер и новые элементы взводят, пустой обход даёт отбой.
             // В простое update() не трогает дерево вовсе.
             if self.tree.animations_armed {
-                if self.tree.animate(root_id, dt) {
+                // Простой без кадров (окно в фоне, ожидание события) не должен
+                // проматывать анимацию целиком: переход в 160 мс при dt в
+                // несколько секунд завершался бы на первом же тике, а увидеть
+                // его было бы нечем.
+                let anim_dt = dt.min(std::time::Duration::from_millis(64));
+                if self.tree.animate(root_id, anim_dt) {
                     crate::perf::incr(crate::perf::Counter::RedrawAnimate);
                     if paced_allowed {
                         self.last_paced_redraw = Some(now);
