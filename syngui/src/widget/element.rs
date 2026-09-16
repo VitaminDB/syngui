@@ -351,6 +351,18 @@ pub trait Element: Send {
 
     fn set_row_bounds(&mut self, _bounds: Vec<(f32, f32)>) {}
 
+    /// Нужны ли контейнеру с `LayoutHint::Scroll` прямоугольники элементов
+    /// содержимого (детей его ребёнка) после позиционирования — см.
+    /// [`Self::set_content_child_rects`]. По умолчанию нет: сбор не бесплатен.
+    fn wants_content_child_rects(&self) -> bool {
+        false
+    }
+
+    /// Абсолютные прямоугольники детей содержимого (например, ячеек `Row`
+    /// внутри ленты), в порядке детей; зовётся после позиционирования, если
+    /// [`Self::wants_content_child_rects`].
+    fn set_content_child_rects(&mut self, _rects: &[Rect]) {}
+
     fn is_relayout_boundary(&self) -> bool {
         false
     }
@@ -596,6 +608,14 @@ impl Element for Box<dyn Element> {
 
     fn set_row_bounds(&mut self, bounds: Vec<(f32, f32)>) {
         self.as_mut().set_row_bounds(bounds)
+    }
+
+    fn wants_content_child_rects(&self) -> bool {
+        self.as_ref().wants_content_child_rects()
+    }
+
+    fn set_content_child_rects(&mut self, rects: &[Rect]) {
+        self.as_mut().set_content_child_rects(rects)
     }
 
     fn is_relayout_boundary(&self) -> bool {

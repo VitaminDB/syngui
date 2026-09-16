@@ -1346,6 +1346,10 @@ EventHook::new()
 
 focus.get().row() / .col() / .is_focused(r, c) / .set(r, c) / .resize(lens)
 shelf_offset(col, visible, keep_left)   // на сколько карточек сдвинуть полку
+
+// Лента из элементов разной ширины (озвучки, сезоны, серии): держит в виду
+// ребёнка содержимого с индексом focus, сдвигаясь только когда он за краем.
+FocusScroll::new().focus(col).peek(120.0).child(Row::new().gap(8.0)…).class("strip")
 ```
 
 Ставится у корня экрана: события, не обработанные ниже, всплывают в него.
@@ -1354,6 +1358,12 @@ shelf_offset(col, visible, keep_left)   // на сколько карточек 
 только IME-канал); winit-овский IME на Android не включается, иначе
 GameTextInput съедает DPAD_LEFT/RIGHT. `Key` содержит `MediaPlayPause`,
 `MediaRewind/FastForward`, `MediaNext/Previous`, `MediaStop`, `ContextMenu`.
+`FocusScroll` (`navigation/focus_scroll.rs`) берёт позиции элементов из
+раскладки (хук `Element::set_content_child_rects` у контейнеров с
+`LayoutHint::Scroll`), клипует свою область, прокручивает плавно (~150 мс,
+`.smooth(false)` — прыжком); мышью не листается. Высота как у `ScrollView`: в
+колонке — по содержимому, в ограниченной по высоте области — вся доступная
+(тогда `height` в MSS).
 Сдвиг полки — inline `translate-x` + MSS `transition: translate-x 260ms ease-out`
 (`Column`/`Row`/`Flex`/`Stack` тикают MSS-переходы и keyframes так же, как
 `DecoratedBox`; нужен `.class("x")` с правилом `transition` в MSS).

@@ -161,6 +161,24 @@ impl ElementTree {
                         node.element.set_row_bounds(gc_bounds);
                     }
                 }
+                let wants_rects = self
+                    .elements
+                    .get(&id)
+                    .is_some_and(|n| n.element.wants_content_child_rects());
+                if wants_rects {
+                    let rects: Vec<crate::core::Rect> = children
+                        .iter()
+                        .filter_map(|c| self.elements.get(c))
+                        .flat_map(|n| n.children.iter())
+                        .filter_map(|gc| self.elements.get(gc))
+                        .map(|gc| gc.element.bounds())
+                        .collect();
+                    if let Some(node) = self.elements.get_mut(&id) {
+                        node.element.set_content_child_rects(&rects);
+                    }
+                    // Новая цель сдвига может запустить плавную прокрутку.
+                    self.note_animation_started(id);
+                }
             }
             crate::widget::LayoutHint::HorizontalPages => {
                 let page_width = own_size.width;

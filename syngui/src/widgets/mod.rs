@@ -46,7 +46,7 @@ pub use input::{
     SpinBox, TextField, TickSlider, Time, TimePicker, Toggle,
 };
 pub use navigation::{
-    shelf_offset, GridFocus,
+    shelf_offset, FocusScroll, GridFocus,
     Breadcrumb, Pagination, Router, RouterView, Sidebar, StepInfo, Stepper, Tab, TabBar,
     TabPosition, TabState, Toolbar, TopAppBar,
 };
