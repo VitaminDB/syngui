@@ -342,6 +342,26 @@ Canvas::new(|ctx: &mut CanvasContext, elapsed: Duration| {
 
 Geographic map with tile rendering and markers.
 
+```rust
+MapView::new()
+    .center(53.2144, 63.6246)
+    .zoom(12)
+    .tile_cache_arc(cache)
+    .markers(vec![
+        MapMarker::new(53.21, 63.62).id(7).color(color).size(12.0).label("Школа"),
+    ])
+    .on_marker_click(|id| { /* id from MapMarker::id */ })
+    .on_viewport_change(|vp| { /* center, zoom, size */ })
+    .animate_to(53.2, 63.6, 17)           // fly once: pass only on explicit request
+```
+
+A press that moves less than a few pixels counts as a click: the topmost
+marker with an `id` under the pointer is reported (hit radius is the marker
+radius, at least 10 px for small markers); markers without an `id` are not
+clickable and the cursor turns into a pointer only over clickable ones.
+`MapView { filter: … }` from MSS (e.g. a dark theme's `invert`) applies to
+tiles only — markers keep their exact colors.
+
 ### MarkdownView (feature: `markdown`)
 
 Renders markdown content with code highlighting, inline images and clickable links.

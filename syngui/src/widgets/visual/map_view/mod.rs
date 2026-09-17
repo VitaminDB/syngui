@@ -55,7 +55,11 @@ pub struct MapView {
     animate_duration_ms: u32,
     animate_easing: Easing,
     on_viewport_change: Option<Arc<Mutex<dyn FnMut(MapViewport) + Send>>>,
+    on_marker_click: Option<Arc<Mutex<dyn FnMut(u64) + Send>>>,
 }
+
+const CLICK_SLOP: f32 = 4.0;
+const MIN_MARKER_HIT_RADIUS: f32 = 10.0;
 
 impl MapView {
     pub fn new() -> Self {
@@ -73,6 +77,7 @@ impl MapView {
             animate_duration_ms: 1000,
             animate_easing: Easing::EaseInOutCubic,
             on_viewport_change: None,
+            on_marker_click: None,
         }
     }
 
@@ -152,6 +157,11 @@ impl MapView {
         self.on_viewport_change = Some(Arc::new(Mutex::new(cb)));
         self
     }
+
+    pub fn on_marker_click(mut self, cb: impl FnMut(u64) + Send + 'static) -> Self {
+        self.on_marker_click = Some(Arc::new(Mutex::new(cb)));
+        self
+    }
 }
 
 impl Widget for MapView {
@@ -188,6 +198,8 @@ impl Widget for MapView {
             mss: MssFields::new(),
             text_measure: None,
             on_viewport_change: self.on_viewport_change.clone(),
+            on_marker_click: self.on_marker_click.clone(),
+            press_position: None,
             last_viewport: None,
         })
     }
@@ -236,6 +248,8 @@ pub struct MapViewElement {
     mss: MssFields,
     text_measure: Option<Arc<dyn TextMeasure>>,
     on_viewport_change: Option<Arc<Mutex<dyn FnMut(MapViewport) + Send>>>,
+    on_marker_click: Option<Arc<Mutex<dyn FnMut(u64) + Send>>>,
+    press_position: Option<Point>,
     last_viewport: Option<MapViewport>,
 }
 
@@ -313,6 +327,76 @@ impl MapViewElement {
             f(vp);
         };
     }
+
+    fn clickable_marker_at(&self, position: Point) -> Option<u64> {
+        self.on_marker_click.as_ref()?;
+        marker_at(
+            &self.markers,
+            Point::new(
+                position.x - self.bounds.origin.x,
+                position.y - self.bounds.origin.y,
+            ),
+            self.center_lat,
+            self.center_lng,
+            self.zoom,
+            self.bounds.size,
+            web_time::Instant::now(),
+        )
+    }
+
+    fn track_press_movement(&mut self, position: Point) {
+        if let Some(origin) = self.press_position {
+            let dx = position.x - origin.x;
+            let dy = position.y - origin.y;
+            if dx * dx + dy * dy > CLICK_SLOP * CLICK_SLOP {
+                self.press_position = None;
+            }
+        }
+    }
+
+    fn finish_press(&mut self) {
+        let Some(position) = self.press_position.take() else {
+            return;
+        };
+        let Some(id) = self.clickable_marker_at(position) else {
+            return;
+        };
+        if let Some(cb) = self.on_marker_click.clone() {
+            if let Ok(mut f) = cb.lock() {
+                f(id);
+            }
+        }
+    }
+}
+
+pub fn marker_at(
+    markers: &[MapMarker],
+    position: Point,
+    center_lat: f64,
+    center_lng: f64,
+    zoom: u8,
+    viewport: Size,
+    now: web_time::Instant,
+) -> Option<u64> {
+    markers.iter().rev().find_map(|marker| {
+        let id = marker.id?;
+        if marker.is_expired(now) || marker.current_opacity(now) <= 0.001 {
+            return None;
+        }
+        let (px, py) = tile_math::geo_to_pixel(
+            marker.lat,
+            marker.lng,
+            center_lat,
+            center_lng,
+            zoom,
+            viewport.width,
+            viewport.height,
+        );
+        let radius = (marker.size * marker.current_scale(now) / 2.0).max(MIN_MARKER_HIT_RADIUS);
+        let dx = position.x - px;
+        let dy = position.y - py;
+        (dx * dx + dy * dy <= radius * radius).then_some(id)
+    })
 }
 
 impl Element for MapViewElement {
@@ -331,6 +415,7 @@ impl Element for MapViewElement {
             self.preferred_width = m.width;
             self.preferred_height = m.height;
             self.on_viewport_change = m.on_viewport_change.clone();
+            self.on_marker_click = m.on_marker_click.clone();
 
             if let Some((target_lat, target_lng, target_zoom)) = m.animate_target {
                 let needs_anim = (target_lat - self.fly_to.0).abs() > 1e-8
@@ -380,7 +465,8 @@ impl Element for MapViewElement {
         list.push_clip(bounds);
 
         let target = self.mss.target_props(false, false, false, false);
-        if self.has_filter_effects(&target) {
+        let filtered = self.has_filter_effects(&target);
+        if filtered {
             list.push_effect_layer(self.build_filter_effect(&target), bounds);
         }
 
@@ -389,10 +475,6 @@ impl Element for MapViewElement {
         if let Some(ref tile_atlas) = self.tile_atlas {
             self.render_tiles(list, tile_atlas);
         }
-
-        list.push_z_barrier();
-
-        self.render_markers(list);
 
         let attr_text = self.provider.attribution;
         let attr_rect = Rect::new(
@@ -412,9 +494,13 @@ impl Element for MapViewElement {
         );
         list.push_text(attr_text, attr_rect, Color::new(0.2, 0.2, 0.2, 1.0), 10.0);
 
-        if self.has_filter_effects(&target) {
+        if filtered {
             list.pop_effect_layer();
         }
+
+        list.push_z_barrier();
+
+        self.render_markers(list);
 
         list.pop_clip();
     }
@@ -432,12 +518,14 @@ impl Element for MapViewElement {
                     self.drag_start = *position;
                     self.drag_center_lat = self.center_lat;
                     self.drag_center_lng = self.center_lng;
+                    self.press_position = Some(*position);
                     ctx.set_cursor(CursorIcon::Grabbing);
                     return EventResult::Handled;
                 }
             }
             Event::MouseMove(position) => {
                 if self.dragging {
+                    self.track_press_movement(*position);
                     let dx = position.x - self.drag_start.x;
                     let dy = position.y - self.drag_start.y;
 
@@ -459,13 +547,18 @@ impl Element for MapViewElement {
                     self.emit_viewport();
                     return EventResult::Handled;
                 } else if self.bounds.contains(*position) {
-                    ctx.set_cursor(CursorIcon::Grab);
+                    if self.clickable_marker_at(*position).is_some() {
+                        ctx.set_cursor(CursorIcon::Pointer);
+                    } else {
+                        ctx.set_cursor(CursorIcon::Grab);
+                    }
                 }
             }
             Event::MouseUp { .. } => {
                 if self.dragging {
                     self.dragging = false;
                     ctx.set_cursor(CursorIcon::Default);
+                    self.finish_press();
                     return EventResult::Handled;
                 }
             }
@@ -527,8 +620,10 @@ impl Element for MapViewElement {
                         self.drag_start = *position;
                         self.drag_center_lat = self.center_lat;
                         self.drag_center_lng = self.center_lng;
+                        self.press_position = Some(*position);
                     } else if self.touches.len() == 2 {
                         self.dragging = false;
+                        self.press_position = None;
                         let pts: Vec<&Point> = self.touches.values().collect();
                         let dx = pts[1].x - pts[0].x;
                         let dy = pts[1].y - pts[0].y;
@@ -544,6 +639,7 @@ impl Element for MapViewElement {
                     self.touches.insert(*id, *position);
 
                     if self.touches.len() == 1 && self.dragging {
+                        self.track_press_movement(*position);
                         let dx = position.x - self.drag_start.x;
                         let dy = position.y - self.drag_start.y;
 
@@ -659,6 +755,7 @@ impl Element for MapViewElement {
                     if self.touches.is_empty() {
                         self.dragging = false;
                         self.pinch_distance = None;
+                        self.finish_press();
                     } else if self.touches.len() == 1 {
                         self.pinch_distance = None;
                         self.dragging = true;
@@ -1062,5 +1159,53 @@ impl MapViewElement {
                 list.push_text_centered(label, text_rect, Color::new(1.0, 1.0, 1.0, opacity), 11.0);
             }
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    const VIEWPORT: Size = Size::new(400.0, 300.0);
+    const CENTER: (f64, f64) = (53.2144, 63.6246);
+    const ZOOM: u8 = 15;
+
+    fn hit(markers: &[MapMarker], x: f32, y: f32) -> Option<u64> {
+        marker_at(
+            markers,
+            Point::new(x, y),
+            CENTER.0,
+            CENTER.1,
+            ZOOM,
+            VIEWPORT,
+            web_time::Instant::now(),
+        )
+    }
+
+    #[test]
+    fn marker_at_finds_marker_under_cursor() {
+        let markers = vec![MapMarker::new(CENTER.0, CENTER.1).id(7).size(16.0)];
+        assert_eq!(hit(&markers, 200.0, 150.0), Some(7));
+        assert_eq!(hit(&markers, 207.0, 150.0), Some(7));
+        assert_eq!(hit(&markers, 230.0, 150.0), None);
+    }
+
+    #[test]
+    fn marker_at_skips_markers_without_id_and_prefers_topmost() {
+        let markers = vec![
+            MapMarker::new(CENTER.0, CENTER.1).id(1),
+            MapMarker::new(CENTER.0, CENTER.1).id(2),
+            MapMarker::new(CENTER.0, CENTER.1),
+        ];
+        assert_eq!(hit(&markers, 200.0, 150.0), Some(2));
+    }
+
+    #[test]
+    fn marker_at_keeps_small_markers_reachable() {
+        let markers = vec![MapMarker::new(CENTER.0, CENTER.1).id(3).size(4.0)];
+        assert_eq!(
+            hit(&markers, 200.0 + MIN_MARKER_HIT_RADIUS - 1.0, 150.0),
+            Some(3)
+        );
     }
 }

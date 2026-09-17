@@ -4,6 +4,7 @@ use web_time::Instant;
 
 #[derive(Clone, Debug)]
 pub struct MapMarker {
+    pub id: Option<u64>,
     pub lat: f64,
     pub lng: f64,
     pub label: Option<String>,
@@ -18,6 +19,7 @@ pub struct MapMarker {
 impl MapMarker {
     pub fn new(lat: f64, lng: f64) -> Self {
         Self {
+            id: None,
             lat,
             lng,
             label: None,
@@ -28,6 +30,11 @@ impl MapMarker {
             animation_duration: Duration::from_millis(400),
             pulse: false,
         }
+    }
+
+    pub fn id(mut self, id: u64) -> Self {
+        self.id = Some(id);
+        self
     }
 
     pub fn label(mut self, label: impl Into<String>) -> Self {
