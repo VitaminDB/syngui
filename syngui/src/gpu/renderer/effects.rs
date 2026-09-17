@@ -4,6 +4,15 @@ use wgpu::util::DeviceExt;
 
 use super::{BlurUniforms, EffectRenderStep, EffectTarget, PostProcessUniforms, Renderer};
 
+/// На сколько физических пикселей ядро размытия читает в сторону: в
+/// `blur.wgsl` не больше 32 отсчётов на сторону, плюс запас на округление.
+const BLUR_KERNEL_REACH_PX: u32 = 34;
+
+/// Эффект-цепочка цветовых операций в `postprocess.wgsl` и сколько операций
+/// помещается в один проход (коды и величины едут в двух vec4).
+const COLOR_CHAIN_EFFECT: f32 = 24.0;
+const COLOR_CHAIN_MAX_OPS: usize = 4;
+
 impl Renderer {
     pub(super) fn build_render_plan(
         &mut self,
@@ -176,12 +185,14 @@ impl Renderer {
                     dest: temp,
                     radius: *radius,
                     direction: [1.0, 0.0],
+                    region: None,
                 });
                 plan.push(EffectRenderStep::BlurPass {
                     source: temp,
                     dest: source,
                     radius: *radius,
                     direction: [0.0, 1.0],
+                    region: None,
                 });
                 plan.push(EffectRenderStep::CompositeAdditive { source, dest });
             }
@@ -195,12 +206,14 @@ impl Renderer {
                     dest: temp,
                     radius: *radius,
                     direction: [cos_a, sin_a],
+                    region: None,
                 });
                 plan.push(EffectRenderStep::BlurPass {
                     source: temp,
                     dest: source,
                     radius: *radius,
                     direction: [-sin_a, cos_a],
+                    region: None,
                 });
                 plan.push(EffectRenderStep::Composite { source, dest });
             }
@@ -213,12 +226,14 @@ impl Renderer {
                     dest: temp,
                     radius: *radius,
                     direction: [1.0, 0.0],
+                    region: None,
                 });
                 plan.push(EffectRenderStep::BlurPass {
                     source: temp,
                     dest: source,
                     radius: *radius,
                     direction: [0.0, 1.0],
+                    region: None,
                 });
                 plan.push(EffectRenderStep::Composite { source, dest });
             }
@@ -229,17 +244,23 @@ impl Renderer {
                 plan.push(EffectRenderStep::CopySceneToPool { dest: snapshot });
                 let temp = texture_pool.acquire(device);
                 handles.push(temp);
+                // Размытый фон виден только внутри границ элемента
+                // (`CompositeBounded`), поэтому и размывать весь кадр
+                // незачем: второй проход идёт по границам, первый — с
+                // запасом на вылет ядра, откуда второй читает соседей.
                 plan.push(EffectRenderStep::BlurPass {
                     source: snapshot,
                     dest: temp,
                     radius: *radius,
                     direction: [1.0, 0.0],
+                    region: Some((bounds_px, BLUR_KERNEL_REACH_PX)),
                 });
                 plan.push(EffectRenderStep::BlurPass {
                     source: temp,
                     dest: snapshot,
                     radius: *radius,
                     direction: [0.0, 1.0],
+                    region: Some((bounds_px, 0)),
                 });
                 plan.push(EffectRenderStep::CompositeBounded {
                     source: snapshot,
@@ -255,8 +276,47 @@ impl Renderer {
                     plan.push(EffectRenderStep::Composite { source, dest });
                     return;
                 }
+                // Подряд идущие цветовые фильтры (invert, hue-rotate,
+                // brightness, contrast…) сливаются в один проход: каждый
+                // отдельный — это полноэкранная отрисовка, а тёмная карта
+                // навешивает их четыре на каждый кадр.
                 let mut current = source;
+                let mut pending: Vec<(f32, f32)> = Vec::new();
+                let mut flush =
+                    |pending: &mut Vec<(f32, f32)>,
+                     current: &mut crate::gpu::texture_pool::PoolHandle,
+                     texture_pool: &mut crate::gpu::texture_pool::TexturePool,
+                     plan: &mut Vec<EffectRenderStep>,
+                     handles: &mut Vec<crate::gpu::texture_pool::PoolHandle>| {
+                        for chunk in pending.chunks(COLOR_CHAIN_MAX_OPS) {
+                            let mut codes = [0.0; 4];
+                            let mut amounts = [0.0; 4];
+                            for (i, (code, amount)) in chunk.iter().enumerate() {
+                                codes[i] = *code;
+                                amounts[i] = *amount;
+                            }
+                            let output = texture_pool.acquire(device);
+                            handles.push(output);
+                            plan.push(EffectRenderStep::PostProcess {
+                                source: *current,
+                                dest: output,
+                                effect_type: COLOR_CHAIN_EFFECT,
+                                intensity: chunk.len() as f32,
+                                params: codes,
+                                params2: amounts,
+                                time: elapsed,
+                                bounds: bounds_px,
+                            });
+                            *current = output;
+                        }
+                        pending.clear();
+                    };
                 for eff in &active {
+                    if let Some(ops) = eff.color_ops() {
+                        pending.extend(ops);
+                        continue;
+                    }
+                    flush(&mut pending, &mut current, texture_pool, plan, handles);
                     current = Self::apply_single_effect(
                         texture_pool,
                         device,
@@ -268,6 +328,7 @@ impl Renderer {
                         bounds_px,
                     );
                 }
+                flush(&mut pending, &mut current, texture_pool, plan, handles);
                 plan.push(EffectRenderStep::Composite {
                     source: current,
                     dest,
@@ -319,12 +380,14 @@ impl Renderer {
                     dest: temp,
                     radius: *radius,
                     direction: [1.0, 0.0],
+                    region: None,
                 });
                 plan.push(EffectRenderStep::BlurPass {
                     source: temp,
                     dest: input,
                     radius: *radius,
                     direction: [0.0, 1.0],
+                    region: None,
                 });
                 input
             }
@@ -337,12 +400,14 @@ impl Renderer {
                     dest: temp,
                     radius: *radius,
                     direction: [cos_a, sin_a],
+                    region: None,
                 });
                 plan.push(EffectRenderStep::BlurPass {
                     source: temp,
                     dest: input,
                     radius: *radius,
                     direction: [-sin_a, cos_a],
+                    region: None,
                 });
                 input
             }
@@ -447,7 +512,22 @@ impl Renderer {
                     dest,
                     radius,
                     direction,
+                    region,
                 } => {
+                    let scissor = match region {
+                        None => Some((0, 0, self.width, self.height)),
+                        Some((rect, grow)) => {
+                            crate::render::scissor_px(*rect, scale, self.width, self.height).map(
+                                |(x, y, w, h)| {
+                                    let x0 = x.saturating_sub(*grow);
+                                    let y0 = y.saturating_sub(*grow);
+                                    let x1 = (x + w + grow).min(self.width);
+                                    let y1 = (y + h + grow).min(self.height);
+                                    (x0, y0, x1 - x0, y1 - y0)
+                                },
+                            )
+                        }
+                    };
                     let uniforms = BlurUniforms {
                         resolution: [self.width as f32, self.height as f32],
                         direction: *direction,
@@ -486,6 +566,10 @@ impl Renderer {
                         occlusion_query_set: None,
                         multiview_mask: None,
                     });
+                    let Some((sx, sy, sw, sh)) = scissor else {
+                        continue;
+                    };
+                    rp.set_scissor_rect(sx, sy, sw, sh);
                     rp.set_pipeline(&self.blur_pipeline);
                     rp.set_bind_group(0, &self.blur_uniform_bind_group, &[]);
                     rp.set_bind_group(1, self.texture_pool.bind_group(*source), &[]);

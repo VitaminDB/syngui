@@ -213,6 +213,10 @@ enum EffectRenderStep {
         dest: crate::gpu::texture_pool::PoolHandle,
         radius: f32,
         direction: [f32; 2],
+        /// Область (логические px), за пределами которой результат прохода
+        /// не нужен, и запас в физических пикселях вокруг неё. `None` —
+        /// проход на весь кадр.
+        region: Option<([f32; 4], u32)>,
     },
     PostProcess {
         source: crate::gpu::texture_pool::PoolHandle,

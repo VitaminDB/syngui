@@ -124,10 +124,61 @@ fn hash21(p: vec2<f32>) -> f32 {
     return fract((p3.x + p3.y) * p3.z);
 }
 
+// Одна попиксельная цветовая операция цепочки (эффект 24). Коды 0–5
+// совпадают с одноимёнными эффектами ниже; HSB-коррекция разложена на
+// сдвиг тона (3), насыщенность (6) и яркость в HSV (7).
+fn color_op(rgb: vec3<f32>, op: i32, amount: f32) -> vec3<f32> {
+    if op == 0 {
+        let lum = dot(rgb, vec3<f32>(0.299, 0.587, 0.114));
+        return mix(rgb, vec3<f32>(lum), amount);
+    }
+    if op == 1 {
+        let lum = dot(rgb, vec3<f32>(0.299, 0.587, 0.114));
+        return mix(rgb, vec3<f32>(lum * 1.2, lum * 1.0, lum * 0.8), amount);
+    }
+    if op == 2 {
+        return mix(rgb, 1.0 - rgb, amount);
+    }
+    if op == 3 {
+        var hsv = rgb_to_hsv(rgb);
+        hsv.x = fract(hsv.x + amount);
+        return hsv_to_rgb(hsv);
+    }
+    if op == 4 {
+        return clamp(rgb * amount, vec3<f32>(0.0), vec3<f32>(1.0));
+    }
+    if op == 5 {
+        return clamp((rgb - 0.5) * amount + 0.5, vec3<f32>(0.0), vec3<f32>(1.0));
+    }
+    if op == 6 {
+        var hsv = rgb_to_hsv(rgb);
+        hsv.y = clamp(hsv.y * amount, 0.0, 1.0);
+        return hsv_to_rgb(hsv);
+    }
+    if op == 7 {
+        var hsv = rgb_to_hsv(rgb);
+        hsv.z = clamp(hsv.z * amount, 0.0, 1.0);
+        return hsv_to_rgb(hsv);
+    }
+    return rgb;
+}
+
 @fragment
 fn fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
     let effect = i32(pp.effect_type);
     let amount = pp.intensity;
+
+    // ── 24: цепочка цветовых операций за один проход ──
+    // params — коды операций, params2 — их величины, intensity — сколько их.
+    if effect == 24 {
+        let c = textureSample(input_texture, input_sampler, in.uv);
+        var rgb = c.rgb;
+        let count = i32(amount);
+        for (var i = 0; i < count; i++) {
+            rgb = color_op(rgb, i32(pp.params[i]), pp.params2[i]);
+        }
+        return vec4<f32>(rgb, c.a);
+    }
 
     // ── 0: Grayscale ──
     if effect == 0 {

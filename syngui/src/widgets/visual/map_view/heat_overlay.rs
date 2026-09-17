@@ -323,25 +323,25 @@ impl HeatOverlayElement {
         let screen_pts = self.screen_points(vp);
         let kernel = HaloKernel::new(self.halo_radius);
 
+        let (num, den) = kernel.accumulate(bw, bh, vp.viewport_w, vp.viewport_h, &screen_pts);
+
         let mut rgba = vec![0u8; (bw * bh * 4) as usize];
-        for j in 0..bh {
-            let sy = (j as f32 + 0.5) / bh as f32 * vp.viewport_h;
-            for i in 0..bw {
-                let sx = (i as f32 + 0.5) / bw as f32 * vp.viewport_w;
-                // Вне ореолов пиксель полностью прозрачный, но цвет ему всё
-                // равно задаём (низ шкалы), а не оставляем чёрным: текстура
-                // сэмплируется линейно с обычной (не premultiplied) альфой,
-                // и чёрный сосед дал бы тёмную кайму по краю ореола.
-                let (value, coverage) = kernel
-                    .sample(sx, sy, &screen_pts)
-                    .unwrap_or((self.color_min, 0.0));
-                let o = self.lut_index(value) * 4;
-                let p = ((j * bw + i) * 4) as usize;
-                rgba[p] = lut[o];
-                rgba[p + 1] = lut[o + 1];
-                rgba[p + 2] = lut[o + 2];
-                rgba[p + 3] = (self.opacity * coverage * 255.0).round().clamp(0.0, 255.0) as u8;
-            }
+        for cell in 0..(bw * bh) as usize {
+            // Вне ореолов пиксель полностью прозрачный, но цвет ему всё
+            // равно задаём (низ шкалы), а не оставляем чёрным: текстура
+            // сэмплируется линейно с обычной (не premultiplied) альфой,
+            // и чёрный сосед дал бы тёмную кайму по краю ореола.
+            let (value, coverage) = if den[cell] <= 1e-6 {
+                (self.color_min, 0.0)
+            } else {
+                (num[cell] / den[cell], den[cell].min(1.0))
+            };
+            let o = self.lut_index(value) * 4;
+            let p = cell * 4;
+            rgba[p] = lut[o];
+            rgba[p + 1] = lut[o + 1];
+            rgba[p + 2] = lut[o + 2];
+            rgba[p + 3] = (self.opacity * coverage * 255.0).round().clamp(0.0, 255.0) as u8;
         }
         rgba
     }
@@ -406,10 +406,65 @@ impl HaloKernel {
         }
     }
 
+    /// Суммы `значение × вес` и `вес` по клеткам растра `bw × bh`,
+    /// натянутого на область `view_w × view_h`. Результат тот же, что у
+    /// [`sample`](Self::sample) в центре каждой клетки, но обход обратный:
+    /// не «каждая клетка перебирает все точки», а каждая точка красит клетки
+    /// в радиусе отсечки своего ядра. Растр пересчитывается на каждый кадр
+    /// панорамирования, и на тысяче точек перебор стоил десятков миллионов
+    /// проверок расстояния за кадр. Точки идут в исходном порядке, поэтому
+    /// суммы в клетке складываются в том же порядке, что и в `sample`.
+    fn accumulate(
+        &self,
+        bw: u32,
+        bh: u32,
+        view_w: f32,
+        view_h: f32,
+        pts: &[(f32, f32, f32)],
+    ) -> (Vec<f32>, Vec<f32>) {
+        let cells = (bw * bh) as usize;
+        let mut num = vec![0.0f32; cells];
+        let mut den = vec![0.0f32; cells];
+        let cell_w = view_w / bw as f32;
+        let cell_h = view_h / bh as f32;
+        let reach = self.cutoff2.sqrt();
+        // Клетки, чей центр `(i + 0.5) * cell` может попасть в радиус ядра.
+        let span = |center: f32, cell: f32, count: u32| -> Option<(u32, u32)> {
+            let first = ((center - reach) / cell - 0.5).ceil().max(0.0);
+            let last = ((center + reach) / cell - 0.5)
+                .floor()
+                .min(count as f32 - 1.0);
+            (first <= last).then_some((first as u32, last as u32))
+        };
+        for &(px, py, val) in pts {
+            let (Some((i0, i1)), Some((j0, j1))) = (span(px, cell_w, bw), span(py, cell_h, bh))
+            else {
+                continue;
+            };
+            for j in j0..=j1 {
+                let dy = (j as f32 + 0.5) * cell_h - py;
+                for i in i0..=i1 {
+                    let dx = (i as f32 + 0.5) * cell_w - px;
+                    let d2 = dx * dx + dy * dy;
+                    if d2 > self.cutoff2 {
+                        continue;
+                    }
+                    let w = (-d2 * self.inv_2s2).exp();
+                    let cell = (j * bw + i) as usize;
+                    num[cell] += val * w;
+                    den[cell] += w;
+                }
+            }
+        }
+        (num, den)
+    }
+
     /// `(значение, покрытие 0..1)` в экранной точке; `None` — вне ореолов.
     /// Покрытие одиночной точки в её центре равно 1 и спадает по Гауссу;
     /// у скопления точек суммы весов больше единицы обрезаются — внутри
     /// кластера ровная заливка, по краю плавный спад.
+    /// Эталон для [`accumulate`](Self::accumulate) — живёт только в тестах.
+    #[cfg(test)]
     fn sample(&self, sx: f32, sy: f32, pts: &[(f32, f32, f32)]) -> Option<(f32, f32)> {
         let mut num = 0.0f32;
         let mut den = 0.0f32;
@@ -668,6 +723,44 @@ mod tests {
             "на радиусе покрытие спадает: {edge}"
         );
         assert!(k.sample(300.0, 100.0, &pts).is_none(), "вдали ореола нет");
+    }
+
+    /// Разброс от точек даёт по клеткам те же суммы, что и перебор всех
+    /// точек из центра каждой клетки, — включая точки у края и за краем.
+    #[test]
+    fn halo_accumulate_matches_per_cell_sampling() {
+        let k = HaloKernel::new(45.0);
+        let (bw, bh, vw, vh) = (40u32, 25u32, 800.0f32, 500.0f32);
+        let mut pts = Vec::new();
+        let mut seed = 12345u32;
+        for _ in 0..60 {
+            seed = seed.wrapping_mul(1664525).wrapping_add(1013904223);
+            let x = (seed >> 8) as f32 / (1 << 24) as f32 * 1000.0 - 100.0;
+            seed = seed.wrapping_mul(1664525).wrapping_add(1013904223);
+            let y = (seed >> 8) as f32 / (1 << 24) as f32 * 700.0 - 100.0;
+            pts.push((x, y, (seed % 90) as f32));
+        }
+        let (num, den) = k.accumulate(bw, bh, vw, vh, &pts);
+        for j in 0..bh {
+            for i in 0..bw {
+                let sx = (i as f32 + 0.5) / bw as f32 * vw;
+                let sy = (j as f32 + 0.5) / bh as f32 * vh;
+                let cell = (j * bw + i) as usize;
+                match k.sample(sx, sy, &pts) {
+                    None => assert!(den[cell] <= 1e-6, "клетка {i},{j}: лишний вес"),
+                    Some((value, coverage)) => {
+                        assert!(
+                            (num[cell] / den[cell] - value).abs() < 1e-3,
+                            "клетка {i},{j}"
+                        );
+                        assert!(
+                            (den[cell].min(1.0) - coverage).abs() < 1e-5,
+                            "клетка {i},{j}"
+                        );
+                    }
+                }
+            }
+        }
     }
 
     #[test]

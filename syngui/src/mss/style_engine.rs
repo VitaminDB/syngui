@@ -389,13 +389,41 @@ impl StyleContext {
 
 #[derive(Debug, Clone, Default, PartialEq)]
 pub struct ComputedStyle {
-    properties: HashMap<String, StyleValue>,
+    properties: HashMap<String, StyleValue, PropertyHashBuilder>,
 }
+
+/// Хэш имён свойств — FNV-1a вместо SipHash по умолчанию. Имена короткие
+/// (`padding`, `border-radius`) и приходят из таблицы стилей, а не извне:
+/// стойкость к подбору коллизий не нужна, зато каскад пишет и читает эти
+/// карты на каждое свойство каждого элемента.
+#[derive(Debug, Clone, Copy, Default)]
+pub struct PropertyHasher(u64);
+
+impl std::hash::Hasher for PropertyHasher {
+    fn write(&mut self, bytes: &[u8]) {
+        let mut hash = if self.0 == 0 {
+            0xcbf2_9ce4_8422_2325
+        } else {
+            self.0
+        };
+        for byte in bytes {
+            hash ^= u64::from(*byte);
+            hash = hash.wrapping_mul(0x0000_0100_0000_01b3);
+        }
+        self.0 = hash;
+    }
+
+    fn finish(&self) -> u64 {
+        self.0
+    }
+}
+
+type PropertyHashBuilder = std::hash::BuildHasherDefault<PropertyHasher>;
 
 impl ComputedStyle {
     pub fn new() -> Self {
         Self {
-            properties: HashMap::new(),
+            properties: HashMap::default(),
         }
     }
 

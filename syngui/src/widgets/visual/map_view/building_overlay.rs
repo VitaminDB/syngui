@@ -30,7 +30,9 @@ impl BuildingShape {
 }
 
 pub struct BuildingOverlay {
-    buildings: Vec<BuildingShape>,
+    /// Под `Arc`: оверлей пересоздаётся на каждый кадр панорамирования, а
+    /// контуров — тысячи; копировать их на каждый кадр незачем.
+    buildings: std::sync::Arc<Vec<BuildingShape>>,
     viewport: MapViewport,
     outline: Color,
     opacity: f32,
@@ -39,7 +41,7 @@ pub struct BuildingOverlay {
 impl BuildingOverlay {
     pub fn new() -> Self {
         Self {
-            buildings: Vec::new(),
+            buildings: std::sync::Arc::new(Vec::new()),
             viewport: MapViewport {
                 center_lat: 0.0,
                 center_lng: 0.0,
@@ -53,6 +55,13 @@ impl BuildingOverlay {
     }
 
     pub fn buildings(mut self, buildings: Vec<BuildingShape>) -> Self {
+        self.buildings = std::sync::Arc::new(buildings);
+        self
+    }
+
+    /// То же, что [`buildings`](Self::buildings), но без копии списка: набор
+    /// контуров живёт у вызывающего и разделяется с оверлеем.
+    pub fn buildings_arc(mut self, buildings: std::sync::Arc<Vec<BuildingShape>>) -> Self {
         self.buildings = buildings;
         self
     }
@@ -111,7 +120,7 @@ impl Widget for BuildingOverlay {
 
 pub struct BuildingOverlayElement {
     id: ElementId,
-    buildings: Vec<BuildingShape>,
+    buildings: std::sync::Arc<Vec<BuildingShape>>,
     viewport: MapViewport,
     outline: Color,
     opacity: f32,
@@ -156,7 +165,7 @@ impl Element for BuildingOverlayElement {
         list.push_clip(self.bounds);
         let mut ctx = CanvasContext::new(self.bounds.origin, self.bounds.size);
 
-        for b in &self.buildings {
+        for b in self.buildings.iter() {
             if b.polygon.len() < 3 {
                 continue;
             }

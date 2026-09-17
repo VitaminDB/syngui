@@ -474,6 +474,38 @@ impl Effect {
         }
     }
 
+    /// Разложение на попиксельные цветовые операции `(код, величина)` для
+    /// эффекта-цепочки (24 в `postprocess.wgsl`). `None` — эффект не чисто
+    /// цветовой (читает соседние пиксели, зависит от времени или области).
+    /// Нейтральные составляющие HSB-коррекции опускаются.
+    pub fn color_ops(&self) -> Option<Vec<(f32, f32)>> {
+        match self {
+            Effect::Grayscale { amount } => Some(vec![(0.0, *amount)]),
+            Effect::Sepia { amount } => Some(vec![(1.0, *amount)]),
+            Effect::Invert { amount } => Some(vec![(2.0, *amount)]),
+            Effect::HsbAdjust {
+                hue,
+                saturation,
+                brightness,
+            } => {
+                let mut ops = Vec::new();
+                if hue.abs() > f32::EPSILON {
+                    ops.push((3.0, *hue));
+                }
+                if (*saturation - 1.0).abs() > f32::EPSILON {
+                    ops.push((6.0, *saturation));
+                }
+                if (*brightness - 1.0).abs() > f32::EPSILON {
+                    ops.push((7.0, *brightness));
+                }
+                Some(ops)
+            }
+            Effect::Brightness { amount } => Some(vec![(4.0, *amount)]),
+            Effect::Contrast { amount } => Some(vec![(5.0, *amount)]),
+            _ => None,
+        }
+    }
+
     pub fn postprocess_type(&self) -> Option<(f32, f32, [f32; 4], [f32; 4])> {
         let z = [0.0; 4];
         match self {
