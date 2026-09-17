@@ -66,6 +66,10 @@ pub enum SelectionMode {
 
 type ItemBuilderFn = Arc<dyn Fn(usize) -> ListItem + Send + Sync>;
 
+/// Высота видимой области, пока список ни разу не раскладывался: по ней
+/// режим `item_widget` собирает первое окно строк.
+const UNKNOWN_VIEWPORT_HEIGHT: f32 = 1200.0;
+
 type ItemWidgetBuilderFn =
     Arc<dyn Fn(usize, &ListItem, bool, bool) -> Box<dyn Widget> + Send + Sync>;
 
@@ -260,6 +264,7 @@ impl Widget for ListView {
             item_widget_builder: self.item_widget.clone(),
             compositional,
             needs_child_rebuild: compositional,
+            built_window: None,
             actual_content_height: 0.0,
             selected_signal: self.selected_signal,
             selected_signal_offset: self.selected_signal_offset,
@@ -313,6 +318,9 @@ pub struct ListViewElement {
     item_widget_builder: Option<ItemWidgetBuilderFn>,
     compositional: bool,
     needs_child_rebuild: bool,
+    /// Окно строк `first..last`, собранное последней пересборкой в режиме
+    /// `item_widget`. Прокрутка за его пределы запрашивает новую пересборку.
+    built_window: Option<(usize, usize)>,
     actual_content_height: f32,
     selected_signal: Option<RwSignal<usize>>,
     selected_signal_offset: usize,
@@ -340,6 +348,24 @@ impl ListViewElement {
         (self.content_height() - self.bounds.size.height).max(0.0)
     }
 
+    /// Строки `first..last`, попадающие в видимую область с запасом `margin`
+    /// строк с каждой стороны. До первой раскладки высота области неизвестна —
+    /// берётся запас на высокий экран, лишнее уйдёт следующей пересборкой.
+    fn window_with_margin(&self, margin: usize) -> (usize, usize) {
+        let count = self.item_count();
+        let row = self.item_height.max(1.0);
+        let viewport = self.bounds.size.height;
+        let viewport = if viewport > 0.0 && viewport.is_finite() {
+            viewport
+        } else {
+            UNKNOWN_VIEWPORT_HEIGHT
+        };
+        let top = self.scroll_offset.max(0.0);
+        let first = ((top / row) as usize).saturating_sub(margin);
+        let last = (((top + viewport) / row) as usize + 1 + margin).min(count);
+        (first.min(last), last)
+    }
+
     fn item_at_y(&self, y: f32) -> Option<usize> {
         if y < self.bounds.y() || y > self.bounds.y() + self.bounds.size.height {
             return None;
@@ -360,8 +386,20 @@ impl ListViewElement {
         }
     }
 
+    /// Строки виртуального источника лежат в кэше только вокруг последней
+    /// известной видимой области. Строку вне кэша спрашиваем у источника
+    /// напрямую: иначе она считалась бы отключённой, и клик по ней (после
+    /// прокрутки, до первой пересборки) молча пропадал бы.
     fn is_item_disabled(&self, index: usize) -> bool {
-        self.get_item(index).map_or(true, |i| i.disabled)
+        if let Some(item) = self.get_item(index) {
+            return item.disabled;
+        }
+        match &self.data {
+            ListDataSource::Virtual { item_builder, .. } if index < self.item_count() => {
+                item_builder(index).disabled
+            }
+            _ => true,
+        }
     }
 
     fn check_reach_top(&mut self) {
@@ -1028,7 +1066,23 @@ impl Element for ListViewElement {
     }
 
     fn needs_rebuild(&self) -> bool {
-        self.compositional && self.needs_child_rebuild
+        if !self.compositional {
+            return false;
+        }
+        if self.needs_child_rebuild {
+            return true;
+        }
+        let Some((first, last)) = self.built_window else {
+            return self.item_count() > 0;
+        };
+        let (need_first, need_last) = self.window_with_margin(1);
+        if need_first < first || need_last > last {
+            return true;
+        }
+        // Первое окно собиралось без известной высоты области и могло выйти
+        // намного шире нужного — лишние строки снимаются.
+        let (want_first, want_last) = self.window_with_margin(self.buffer_size.max(1));
+        last - first > (want_last - want_first) * 2
     }
 
     fn build_children(&self) -> Vec<Box<dyn Widget>> {
@@ -1039,27 +1093,51 @@ impl Element for ListViewElement {
             Some(b) => b,
             None => return Vec::new(),
         };
+        // Собирается только окно строк вокруг видимой области: список на
+        // тысячи записей не должен стоить тысяч поддеревьев. Строки выше и
+        // ниже окна замещают распорки той же высоты, а сама строка получает
+        // ровно `item_height` — на этой высоте держатся попадание курсора,
+        // `scroll_to` и положение окна.
         let count = self.item_count();
+        let (first, last) = self.window_with_margin(self.buffer_size.max(1));
+        let row_box = |height: f32, child: Option<Box<dyn Widget>>| -> Box<dyn Widget> {
+            let mut holder = crate::widgets::DecoratedBox::new();
+            if let Some(child) = child {
+                holder = holder.child(child);
+            }
+            Box::new(crate::widget::styled::WidgetExt::style(
+                holder,
+                "height",
+                height.max(0.0),
+            ))
+        };
         let mut column = crate::widgets::containers::Column::new()
             .cross_axis_alignment(crate::layout::CrossAxisAlignment::Stretch);
+        column
+            .children
+            .push(row_box(first as f32 * self.item_height, None));
         let effective_sel = self.effective_selected();
-        for i in 0..count {
+        for i in first..last {
             let item = match &self.data {
                 ListDataSource::Eager(items) => items.get(i).cloned(),
                 ListDataSource::Virtual { item_builder, .. } => Some(item_builder(i)),
             };
-            if let Some(item) = item {
+            let row = item.map(|item| {
                 let is_selected = effective_sel.contains(&i);
                 let is_hovered = self.hovered_index == Some(i);
-                let child_widget = builder(i, &item, is_selected, is_hovered);
-                column.children.push(child_widget);
-            }
+                builder(i, &item, is_selected, is_hovered)
+            });
+            column.children.push(row_box(self.item_height, row));
         }
+        column
+            .children
+            .push(row_box((count - last) as f32 * self.item_height, None));
         vec![Box::new(column)]
     }
 
     fn clear_rebuild(&mut self) {
         self.needs_child_rebuild = false;
+        self.built_window = Some(self.window_with_margin(self.buffer_size.max(1)));
     }
 
     fn set_classes(&mut self, classes: Vec<String>) {
@@ -1208,6 +1286,81 @@ mod tests {
         request.set((40, 1));
         h.frame(Some(&engine), 300.0, VIEW_H);
         assert_eq!(offset(&h), 0.0);
+    }
+
+    /// Режим `item_widget` держит в дереве только окно строк вокруг видимой
+    /// области, а не весь список, и двигает окно вслед за прокруткой.
+    #[test]
+    fn item_widget_builds_only_visible_window() {
+        let request = use_signal((0usize, 0u64));
+        let mut h = harness(request, true);
+        let engine = h.apply_mss(MSS);
+        h.frame(Some(&engine), 300.0, VIEW_H);
+        h.frame(Some(&engine), 300.0, VIEW_H);
+        let visible = (VIEW_H / ROW_H) as usize;
+        let built = h.find_by_class("row").len();
+        assert!(built >= visible, "видимые строки собраны: {built}");
+        assert!(built < ROWS / 2, "собрано окно, а не весь список: {built}");
+
+        request.set((45, 1));
+        h.frame(Some(&engine), 300.0, VIEW_H);
+        h.frame(Some(&engine), 300.0, VIEW_H);
+        let list = h.find_by_type_name("ListView")[0];
+        let top = h.element_bounds(list).origin.y;
+        let shown: Vec<f32> = h
+            .find_by_class("row")
+            .into_iter()
+            .map(|id| h.element_bounds(id).origin.y)
+            .collect();
+        assert!(
+            shown.len() < ROWS / 2,
+            "после прокрутки окно, а не весь список"
+        );
+        // Строка 45 стоит на своём месте в содержимом списка.
+        assert!(
+            shown.iter().any(|y| (y - top - 45.0 * ROW_H).abs() < 0.5),
+            "строка 45 не на своём месте: {shown:?}"
+        );
+    }
+
+    /// Клик по строке в режиме `item_widget` доходит до `on_select` — и в
+    /// начале списка, и после прокрутки к строкам, которых не было в первом
+    /// окне.
+    #[test]
+    fn item_widget_click_selects_row_after_scroll() {
+        use std::sync::{Arc, Mutex};
+        let picked: Arc<Mutex<Vec<usize>>> = Arc::new(Mutex::new(Vec::new()));
+        let sink = picked.clone();
+        let mut h = TestHarness::new(Box::new(
+            ListView::virtual_new(ROWS, |i| ListItem::new(format!("{i}")))
+                .item_height(ROW_H)
+                .height(VIEW_H)
+                .item_widget(|_, _, _, _| {
+                    Box::new(DecoratedBox::new().class("row")) as Box<dyn Widget>
+                })
+                .on_select(move |i| sink.lock().unwrap().push(i)),
+        ));
+        let engine = h.apply_mss(MSS);
+        h.frame(Some(&engine), 300.0, VIEW_H);
+        h.frame(Some(&engine), 300.0, VIEW_H);
+
+        h.send_events(&crate::testing::click_at(crate::core::Point::new(
+            50.0,
+            1.5 * ROW_H,
+        )));
+        assert_eq!(*picked.lock().unwrap(), vec![1]);
+
+        h.send_event(&crate::input::Event::MouseWheel {
+            delta: -30.0 * ROW_H,
+            delta_x: 0.0,
+            position: crate::core::Point::new(50.0, 10.0),
+        });
+        h.frame(Some(&engine), 300.0, VIEW_H);
+        h.send_events(&crate::testing::click_at(crate::core::Point::new(
+            50.0,
+            1.5 * ROW_H,
+        )));
+        assert_eq!(*picked.lock().unwrap(), vec![1, 31]);
     }
 
     /// Обычный список (без `item_widget`) прокручивается так же и

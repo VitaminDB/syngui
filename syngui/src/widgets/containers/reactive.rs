@@ -13,6 +13,10 @@ pub struct WidgetMarker;
 
 pub struct ReactiveMarker;
 
+/// Маркер уже упакованного виджета: `.child(boxed)` принимает
+/// `Box<dyn Widget>` как есть, без повторной упаковки.
+pub struct BoxedMarker;
+
 pub trait IntoWidget<Marker> {
     fn into_widget(self) -> Box<dyn Widget>;
 }
@@ -20,6 +24,12 @@ pub trait IntoWidget<Marker> {
 impl<W: Widget + 'static> IntoWidget<WidgetMarker> for W {
     fn into_widget(self) -> Box<dyn Widget> {
         Box::new(self)
+    }
+}
+
+impl IntoWidget<BoxedMarker> for Box<dyn Widget> {
+    fn into_widget(self) -> Box<dyn Widget> {
+        self
     }
 }
 

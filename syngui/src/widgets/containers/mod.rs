@@ -35,7 +35,7 @@ pub use padding::Padding;
 pub use page::{Page, ScrollPhysics, ScrollTarget, ScrollbarPolicy};
 pub use pan_zoom::PanZoomViewport;
 pub use positioned::Positioned;
-pub use reactive::{IntoWidget, Reactive, ReactiveMarker, WidgetMarker};
+pub use reactive::{BoxedMarker, IntoWidget, Reactive, ReactiveMarker, WidgetMarker};
 pub use row::Row;
 pub use show_if::ShowIf;
 pub use split_view::{SplitDirection, SplitView};
