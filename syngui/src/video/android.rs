@@ -86,7 +86,12 @@ pub fn set_video_rect(x: f32, y: f32, w: f32, h: f32) {
             activity,
             "setVideoRect",
             "(FFFF)V",
-            &[JValue::Float(x), JValue::Float(y), JValue::Float(w), JValue::Float(h)],
+            &[
+                JValue::Float(x),
+                JValue::Float(y),
+                JValue::Float(w),
+                JValue::Float(h),
+            ],
         )
         .ok()
         .map(|_| ())
@@ -122,7 +127,10 @@ pub(crate) unsafe fn render_mediacodec_buffer_at(buffer: *mut c_void, time_ns: i
 
 /// Текущее время часов `CLOCK_MONOTONIC` в наносекундах.
 pub fn monotonic_ns() -> i64 {
-    let mut ts = libc::timespec { tv_sec: 0, tv_nsec: 0 };
+    let mut ts = libc::timespec {
+        tv_sec: 0,
+        tv_nsec: 0,
+    };
     // SAFETY: обычный вызов clock_gettime с валидным указателем.
     unsafe { libc::clock_gettime(libc::CLOCK_MONOTONIC, &mut ts) };
     ts.tv_sec as i64 * 1_000_000_000 + ts.tv_nsec as i64
@@ -219,7 +227,10 @@ pub fn system_ca_bundle(cache_dir: &std::path::Path) -> Option<std::path::PathBu
     let _ = std::fs::create_dir_all(cache_dir);
     match std::fs::write(&out, bundle) {
         Ok(()) => {
-            log::info!("ffmpeg: CA bundle: {count} сертификатов → {}", out.display());
+            log::info!(
+                "ffmpeg: CA bundle: {count} сертификатов → {}",
+                out.display()
+            );
             export_ca_env(&out);
             Some(out)
         }

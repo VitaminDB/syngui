@@ -45,7 +45,11 @@ fn ancestor_class_change_restyles_descendant() {
         let c = h.element_mss(icon).and_then(|m| m.icon_color).unwrap();
         (c.r, c.g, c.b)
     };
-    assert_eq!(color(&h), (1.0, 0.0, 0.0), "пока предок только .pill-active");
+    assert_eq!(
+        color(&h),
+        (1.0, 0.0, 0.0),
+        "пока предок только .pill-active"
+    );
 
     let pill = h.find_by_class("pill")[0];
     h.set_classes(

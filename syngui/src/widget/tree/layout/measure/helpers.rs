@@ -1021,7 +1021,11 @@ impl ElementTree {
         let needs_intrinsic_pass =
             shrink_w && (min_w.is_some() || max_w.is_some() || mss_intrinsic_w || mss_intrinsic_h);
         let (mut width, mut height, mut content) = if needs_intrinsic_pass {
-            let child_min_h = if !shrink_h && !loose_children { child_max_h } else { 0.0 };
+            let child_min_h = if !shrink_h && !loose_children {
+                child_max_h
+            } else {
+                0.0
+            };
             let probe_constraints = Constraints {
                 min_width: 0.0,
                 max_width: f32::INFINITY,
@@ -1044,7 +1048,11 @@ impl ElementTree {
                 w = w.min(max);
             }
             let final_max_w = (w - pad_h).max(0.0);
-            let final_min_h = if !shrink_h && !loose_children { child_max_h } else { 0.0 };
+            let final_min_h = if !shrink_h && !loose_children {
+                child_max_h
+            } else {
+                0.0
+            };
             let final_cb = Size::new(final_max_w, probe_cb.height);
             let final_constraints = Constraints {
                 min_width: 0.0,
@@ -1071,8 +1079,16 @@ impl ElementTree {
             } else {
                 (constraints.max_width - pad_h).max(0.0)
             };
-            let child_min_w = if !shrink_w && !loose_children { child_max_w } else { 0.0 };
-            let child_min_h = if !shrink_h && !loose_children { child_max_h } else { 0.0 };
+            let child_min_w = if !shrink_w && !loose_children {
+                child_max_w
+            } else {
+                0.0
+            };
+            let child_min_h = if !shrink_h && !loose_children {
+                child_max_h
+            } else {
+                0.0
+            };
             let single_cb = Size::new(
                 if child_max_w.is_finite() {
                     child_max_w

@@ -412,12 +412,21 @@ mod tests {
             button: MouseButton::Left,
             position: Point::new(x, y),
         };
-        assert!(!r.intercepts_event(&press(2.0, 300.0)), "без over_content — детям");
+        assert!(
+            !r.intercepts_event(&press(2.0, 300.0)),
+            "без over_content — детям"
+        );
         r.over_content = true;
         assert!(r.intercepts_event(&press(2.0, 300.0)));
-        assert!(!r.intercepts_event(&press(400.0, 300.0)), "середина — детям");
+        assert!(
+            !r.intercepts_event(&press(400.0, 300.0)),
+            "середина — детям"
+        );
         r.window_flags = window_flags::MAXIMIZED;
-        assert!(!r.intercepts_event(&press(797.0, 2.0)), "кнопка закрытия в углу");
+        assert!(
+            !r.intercepts_event(&press(797.0, 2.0)),
+            "кнопка закрытия в углу"
+        );
     }
 
     #[test]

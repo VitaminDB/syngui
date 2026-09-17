@@ -1135,7 +1135,10 @@ mod tests {
         tree.last_mousedown_element = Some(window_id);
 
         let r = double_click_at(&mut tree, root_id, 300.0, 200.0);
-        assert!(!r.is_handled(), "никто под оверлеем не должен получить DoubleClick");
+        assert!(
+            !r.is_handled(),
+            "никто под оверлеем не должен получить DoubleClick"
+        );
         assert_eq!(
             *table_dbl.lock().unwrap(),
             0,

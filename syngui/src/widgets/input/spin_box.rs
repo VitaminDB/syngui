@@ -460,7 +460,14 @@ impl Element for SpinBoxElement {
                 Point::new(vr.x() + 2.0, vr.y() + (vr.size.height - val_fs) / 2.0),
                 Size::new(vr.size.width - 4.0, val_fs + 2.0),
             );
-            list.push_text_singleline(&self.edit_text, text_rect, text_color, val_fs, crate::mss::TextAlign::DEFAULT, 400);
+            list.push_text_singleline(
+                &self.edit_text,
+                text_rect,
+                text_color,
+                val_fs,
+                crate::mss::TextAlign::DEFAULT,
+                400,
+            );
 
             let blink_phase = (self.cursor_blink * CURSOR_BLINK_RATE * 2.0) % 2.0;
             if blink_phase < 1.0 {
@@ -476,7 +483,14 @@ impl Element for SpinBoxElement {
         } else {
             // Однострочно: значение в узком поле иначе переносится по
             // символам («24» → «2» и «4»).
-            list.push_text_singleline(&self.formatted_value(), vr, text_color, val_fs, crate::mss::TextAlign::CENTER, 400);
+            list.push_text_singleline(
+                &self.formatted_value(),
+                vr,
+                text_color,
+                val_fs,
+                crate::mss::TextAlign::CENTER,
+                400,
+            );
         }
     }
 
@@ -854,8 +868,15 @@ mod tests {
     #[test]
     fn narrow_spin_box_keeps_room_for_the_value() {
         let e = element(72.0);
-        assert!(e.value_rect().size.width >= MIN_VALUE_WIDTH, "поле значения {} px", e.value_rect().size.width);
-        assert!(e.button_width() >= MIN_BUTTON_WIDTH, "кнопка не уже {MIN_BUTTON_WIDTH} px");
+        assert!(
+            e.value_rect().size.width >= MIN_VALUE_WIDTH,
+            "поле значения {} px",
+            e.value_rect().size.width
+        );
+        assert!(
+            e.button_width() >= MIN_BUTTON_WIDTH,
+            "кнопка не уже {MIN_BUTTON_WIDTH} px"
+        );
         // Широкому полю кнопки остаются штатными.
         assert_eq!(element(200.0).button_width(), DEFAULT_BUTTON_WIDTH);
     }

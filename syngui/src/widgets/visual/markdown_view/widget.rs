@@ -800,9 +800,8 @@ impl Element for MarkdownViewElement {
             self.max_width = w.max_width;
             self.copy_code = w.copy_code;
             let theme_changed = self.syntax_theme.as_deref() != w.syntax_theme.as_deref();
-            let highlighter_changed = !same_highlighter
-                || self.syntax_highlight != w.syntax_highlight
-                || theme_changed;
+            let highlighter_changed =
+                !same_highlighter || self.syntax_highlight != w.syntax_highlight || theme_changed;
             self.requested_highlighter = w.highlighter.clone();
             if highlighter_changed {
                 self.syntax_highlight = w.syntax_highlight;

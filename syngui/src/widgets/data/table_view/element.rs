@@ -1459,7 +1459,10 @@ impl TableViewElement {
     /// и закрывает меню.
     fn run_context_menu_item(&mut self, index: usize, ctx: &mut EventContext) {
         if index >= BUILTIN_CONTEXT_ITEMS {
-            let action = self.context_actions.get(index - BUILTIN_CONTEXT_ITEMS).cloned();
+            let action = self
+                .context_actions
+                .get(index - BUILTIN_CONTEXT_ITEMS)
+                .cloned();
             let row = self.context_menu.as_ref().map(|m| m.row);
             self.context_menu = None;
             ctx.request_paint();
@@ -1890,10 +1893,7 @@ impl TableViewElement {
                 ghost.x() + self.header_padding,
                 self.bounds.y() + (self.header_height - h_font_size) / 2.0,
             ),
-            Size::new(
-                (w - self.header_padding * 2.0).max(0.0),
-                h_font_size + 2.0,
-            ),
+            Size::new((w - self.header_padding * 2.0).max(0.0), h_font_size + 2.0),
         );
         list.push_clip(ghost);
         list.push_text_singleline(
@@ -2012,10 +2012,9 @@ impl Element for TableViewElement {
                 self.column_order = order;
                 self.needs_child_rebuild = self.compositional;
             }
-            if self
-                .header_press
-                .map_or(false, |p| p.col >= self.columns.len() || !self.reorderable_columns)
-            {
+            if self.header_press.map_or(false, |p| {
+                p.col >= self.columns.len() || !self.reorderable_columns
+            }) {
                 self.header_press = None;
             }
             self.selected_rows = tv.selected_rows.clone();

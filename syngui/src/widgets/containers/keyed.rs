@@ -223,10 +223,7 @@ mod tests {
 
     /// Лента из строк `(ключ, версия)`; счётчик считает, сколько строк
     /// действительно собрано.
-    fn feed(
-        rows: RwSignal<Vec<(u64, u64)>>,
-        builds: Arc<AtomicUsize>,
-    ) -> (TestHarness, ) {
+    fn feed(rows: RwSignal<Vec<(u64, u64)>>, builds: Arc<AtomicUsize>) -> (TestHarness,) {
         let h = TestHarness::new(Box::new(Reactive::new(move || -> Vec<Box<dyn Widget>> {
             rows.get()
                 .into_iter()
@@ -267,9 +264,16 @@ mod tests {
 
         let after = ids(&h);
         assert_eq!(after.len(), 4);
-        assert_eq!(builds.load(Ordering::Relaxed), 1, "собрана только новая строка");
+        assert_eq!(
+            builds.load(Ordering::Relaxed),
+            1,
+            "собрана только новая строка"
+        );
         assert_eq!(after[0], before[0]);
-        assert_eq!(after[2], before[1], "сосед переехал вместе со своим элементом");
+        assert_eq!(
+            after[2], before[1],
+            "сосед переехал вместе со своим элементом"
+        );
         assert_eq!(after[3], before[2]);
         let d = snapshot().since(&start);
         assert_eq!(d.elements_removed, 0, "соседей не удаляли");
@@ -294,7 +298,11 @@ mod tests {
         let after = ids(&h);
 
         assert_eq!(after, vec![before[2], before[0], before[1]]);
-        assert_eq!(builds.load(Ordering::Relaxed), 0, "строки не пересобирались");
+        assert_eq!(
+            builds.load(Ordering::Relaxed),
+            0,
+            "строки не пересобирались"
+        );
         let d = snapshot().since(&start);
         assert_eq!((d.elements_created, d.elements_removed), (0, 0));
     }

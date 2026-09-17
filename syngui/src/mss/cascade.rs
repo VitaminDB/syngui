@@ -101,9 +101,7 @@ pub(crate) enum ClassChangeScope {
 
 /// Кого нужно пометить `styles_dirty` при смене классов элемента.
 /// `changed` — классы, которые появились или пропали.
-pub(crate) fn class_change_scope<'a>(
-    changed: impl Iterator<Item = &'a str>,
-) -> ClassChangeScope {
+pub(crate) fn class_change_scope<'a>(changed: impl Iterator<Item = &'a str>) -> ClassChangeScope {
     CONTEXT_CLASSES.with(|cell| {
         let cell = cell.borrow();
         let Some((ancestors, siblings)) = cell.as_ref() else {
@@ -147,7 +145,9 @@ impl RuleIndex {
             // segments[i] связан с segments[i+1] через combinators[i];
             // последний сегмент — цель, контекстом не является.
             for (i, comb) in chain.combinators.iter().enumerate() {
-                let Some(part) = chain.segments.get(i) else { break };
+                let Some(part) = chain.segments.get(i) else {
+                    break;
+                };
                 let set: &mut std::collections::HashSet<String> = match comb {
                     Combinator::Descendant | Combinator::Child => &mut *ancestors,
                     Combinator::AdjacentSibling | Combinator::GeneralSibling => &mut *siblings,
@@ -608,9 +608,7 @@ pub fn apply_styles_dirty(tree: &mut ElementTree, style_engine: &StyleEngine) ->
                     .as_ref()
                     .map(|c| c.base == *parent_inh)
                     .unwrap_or(false);
-                if !unchanged
-                    && (node.had_mss_rules || parent_inh.properties().next().is_some())
-                {
+                if !unchanged && (node.had_mss_rules || parent_inh.properties().next().is_some()) {
                     node.element.reset_mss_styles();
                     node.element.apply_computed_style(&parent_inh);
                     node.had_mss_rules = parent_inh.properties().next().is_some();
@@ -672,7 +670,10 @@ pub fn apply_styles_dirty(tree: &mut ElementTree, style_engine: &StyleEngine) ->
             };
             *flag = true;
             for (prop, val) in &rule.declarations {
-                layer.set(prop, resolve_for_cascade(style_engine, val, prop, &parent_inh));
+                layer.set(
+                    prop,
+                    resolve_for_cascade(style_engine, val, prop, &parent_inh),
+                );
             }
         }
 

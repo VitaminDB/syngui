@@ -237,7 +237,11 @@ fn with_tracks_element_and_effect() {
     assert_eq!(runs.load(Ordering::Relaxed), 1);
     items.update(|v| v.push(5));
     syngui::signal::drain_and_run_effects();
-    assert_eq!(runs.load(Ordering::Relaxed), 2, "with обязан подписать эффект");
+    assert_eq!(
+        runs.load(Ordering::Relaxed),
+        2,
+        "with обязан подписать эффект"
+    );
 }
 
 #[test]

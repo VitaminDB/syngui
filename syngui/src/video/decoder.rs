@@ -63,10 +63,15 @@ impl SurfaceBuffer {
     }
 
     fn render_impl(&self, at_ns: Option<i64>) {
-        if self.rendered.swap(true, std::sync::atomic::Ordering::AcqRel) {
+        if self
+            .rendered
+            .swap(true, std::sync::atomic::Ordering::AcqRel)
+        {
             return;
         }
-        let Ok(mut slot) = self.frame.lock() else { return };
+        let Ok(mut slot) = self.frame.lock() else {
+            return;
+        };
         if let Some(frame) = slot.take() {
             #[cfg(target_os = "android")]
             unsafe {
@@ -86,7 +91,10 @@ impl SurfaceBuffer {
 impl std::fmt::Debug for SurfaceBuffer {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("SurfaceBuffer")
-            .field("rendered", &self.rendered.load(std::sync::atomic::Ordering::Relaxed))
+            .field(
+                "rendered",
+                &self.rendered.load(std::sync::atomic::Ordering::Relaxed),
+            )
             .finish()
     }
 }
@@ -494,12 +502,18 @@ fn run_decoder_thread(
         match super::android::video_surface() {
             Some(surface) => {
                 // SAFETY: codec_ctx ещё не открыт.
-                match unsafe { super::android::attach_surface_device(codec_ctx.as_mut_ptr(), surface) } {
+                match unsafe {
+                    super::android::attach_surface_device(codec_ctx.as_mut_ptr(), surface)
+                } {
                     Ok(()) => {
                         surface_output = true;
-                        log::info!("hwaccel: MediaCodec выводит в Surface (без копирования кадров)");
+                        log::info!(
+                            "hwaccel: MediaCodec выводит в Surface (без копирования кадров)"
+                        );
                     }
-                    Err(e) => log::warn!("hwaccel: mediacodec surface device: {e} — кадры пойдут через CPU"),
+                    Err(e) => log::warn!(
+                        "hwaccel: mediacodec surface device: {e} — кадры пойдут через CPU"
+                    ),
                 }
             }
             None => log::warn!("hwaccel: video Surface недоступен — кадры пойдут через CPU"),
@@ -550,9 +564,7 @@ fn run_decoder_thread(
                 }
             }
             None => {
-                log::warn!(
-                    "hwaccel: декодер «{name}» отсутствует в libavcodec — fallback на sw"
-                );
+                log::warn!("hwaccel: декодер «{name}» отсутствует в libavcodec — fallback на sw");
                 codec_ctx
                     .decoder()
                     .video()
@@ -741,12 +753,12 @@ fn run_decoder_thread(
                 match cmd_rx.recv() {
                     Ok(DecoderCmd::SeekSec(t)) => {
                         perform_seek(&mut reader, &mut seek_gen, &mut v_dec, audio.as_mut(), t)?;
-                    reset_audio_base(audio.as_mut(), audio_base);
-                    stages.first_frame_pending = true;
-                    video_skip_before = Some(t);
-                    if let Some(a) = audio.as_mut() {
-                        a.skip_before = Some(t);
-                    }
+                        reset_audio_base(audio.as_mut(), audio_base);
+                        stages.first_frame_pending = true;
+                        video_skip_before = Some(t);
+                        if let Some(a) = audio.as_mut() {
+                            a.skip_before = Some(t);
+                        }
                     }
                     Ok(DecoderCmd::ReAttachAudio(new_tx)) => {
                         audio_tx = Some(new_tx);

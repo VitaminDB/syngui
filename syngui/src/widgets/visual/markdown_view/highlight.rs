@@ -769,7 +769,9 @@ mod cache_tests {
     fn evicts_by_entry_limit() {
         clear_highlight_caches();
         let h = Counting::new(1);
-        let codes: Vec<String> = (0..MAX_ENTRIES + 1).map(|i| format!("fn f{i}() {{}}")).collect();
+        let codes: Vec<String> = (0..MAX_ENTRIES + 1)
+            .map(|i| format!("fn f{i}() {{}}"))
+            .collect();
         for code in &codes {
             let _ = highlight_cached(&h, code, Some("rust"));
         }
@@ -851,7 +853,11 @@ mod cache_tests {
 
         let start = snapshot();
         let c = highlight_cached(&light, code, Some("rust"));
-        assert_eq!(snapshot().since(&start).highlight_calls, 1, "смена темы — промах");
+        assert_eq!(
+            snapshot().since(&start).highlight_calls,
+            1,
+            "смена темы — промах"
+        );
         assert!(!Arc::ptr_eq(&a, &c));
 
         // Другой экземпляр той же темы бьёт в ту же запись.

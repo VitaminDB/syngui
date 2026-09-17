@@ -15,7 +15,9 @@ use crate::mss::MssFields;
 use crate::mss::{ComputedStyle, Dimension, TextAlign};
 use crate::render::{Border, DisplayList};
 use crate::widget::context::{EventContext, EventContextExt};
-use crate::widget::{DirtyFlags, Element, ElementId, ElementTree, StyledElement, UpdateContext, Widget};
+use crate::widget::{
+    DirtyFlags, Element, ElementId, ElementTree, StyledElement, UpdateContext, Widget,
+};
 use std::any::Any;
 use std::sync::Arc;
 
@@ -99,7 +101,11 @@ impl TimePicker {
     /// Шаг колонки минут в минутах (1..=60); значение вне диапазона —
     /// умолчание.
     pub fn minute_step(mut self, m: u32) -> Self {
-        self.minute_step = if (1..=60).contains(&m) { m } else { DEFAULT_MINUTE_STEP };
+        self.minute_step = if (1..=60).contains(&m) {
+            m
+        } else {
+            DEFAULT_MINUTE_STEP
+        };
         self
     }
 }
@@ -220,7 +226,10 @@ pub struct TimePickerElement {
 
 impl TimePickerElement {
     fn input_height(&self) -> f32 {
-        self.mss.height.map(|d| d.resolve(f32::INFINITY)).unwrap_or(DEFAULT_INPUT_HEIGHT)
+        self.mss
+            .height
+            .map(|d| d.resolve(f32::INFINITY))
+            .unwrap_or(DEFAULT_INPUT_HEIGHT)
     }
 
     fn font_size(&self) -> f32 {
@@ -228,8 +237,17 @@ impl TimePickerElement {
     }
 
     fn popup_size(&self) -> Size {
-        let cols = COL_W * 2.0 + COL_GAP + if self.use_24h { 0.0 } else { COL_GAP + PERIOD_COL_W };
-        Size::new(cols + POPUP_PAD * 2.0, ROW_H * VISIBLE_ROWS + POPUP_PAD * 2.0)
+        let cols = COL_W * 2.0
+            + COL_GAP
+            + if self.use_24h {
+                0.0
+            } else {
+                COL_GAP + PERIOD_COL_W
+            };
+        Size::new(
+            cols + POPUP_PAD * 2.0,
+            ROW_H * VISIBLE_ROWS + POPUP_PAD * 2.0,
+        )
     }
 
     fn popup_rect(&self) -> Rect {
@@ -244,13 +262,22 @@ impl TimePickerElement {
 
     fn col_rect(&self, col: Col) -> Rect {
         let popup = self.popup_rect();
-        let x = popup.x() + POPUP_PAD + match col {
-            Col::Hour => 0.0,
-            Col::Minute => COL_W + COL_GAP,
-            Col::Period => (COL_W + COL_GAP) * 2.0,
+        let x = popup.x()
+            + POPUP_PAD
+            + match col {
+                Col::Hour => 0.0,
+                Col::Minute => COL_W + COL_GAP,
+                Col::Period => (COL_W + COL_GAP) * 2.0,
+            };
+        let w = if col == Col::Period {
+            PERIOD_COL_W
+        } else {
+            COL_W
         };
-        let w = if col == Col::Period { PERIOD_COL_W } else { COL_W };
-        Rect::new(Point::new(x, popup.y() + POPUP_PAD), Size::new(w, ROW_H * VISIBLE_ROWS))
+        Rect::new(
+            Point::new(x, popup.y() + POPUP_PAD),
+            Size::new(w, ROW_H * VISIBLE_ROWS),
+        )
     }
 
     /// Часы колонки: 0..23 в 24-часовом режиме, 12,1..11 в 12-часовом.
@@ -317,7 +344,9 @@ impl TimePickerElement {
     }
 
     fn col_at(&self, p: Point) -> Option<Col> {
-        self.cols().into_iter().find(|&c| self.col_rect(c).contains(p))
+        self.cols()
+            .into_iter()
+            .find(|&c| self.col_rect(c).contains(p))
     }
 
     fn row_at(&self, col: Col, p: Point) -> Option<usize> {
@@ -356,7 +385,11 @@ impl TimePickerElement {
             }
             Col::Minute => self.view_minute = self.minute_values()[row],
             Col::Period => {
-                self.view_hour = if row == 0 { self.view_hour % 12 } else { self.view_hour % 12 + 12 };
+                self.view_hour = if row == 0 {
+                    self.view_hour % 12
+                } else {
+                    self.view_hour % 12 + 12
+                };
             }
         }
         self.digits.clear();
@@ -382,16 +415,30 @@ impl TimePickerElement {
     fn open(&mut self, ctx: &mut EventContext) {
         let size = self.popup_size();
         let input_h = self.input_height();
-        self.opens_upward = self.bounds.y() + input_h + 4.0 + size.height > ctx.viewport_size().height && self.bounds.y() >= size.height + 4.0;
+        self.opens_upward = self.bounds.y() + input_h + 4.0 + size.height
+            > ctx.viewport_size().height
+            && self.bounds.y() >= size.height + 4.0;
         self.is_open = true;
         self.digits.clear();
         self.active_col = Col::Hour;
         self.center_all();
         let popup = self.popup_rect();
         let overlay = if self.opens_upward {
-            Rect::new(Point::new(self.bounds.x(), popup.y()), Size::new(size.width.max(self.bounds.size.width), popup.size.height + 4.0 + input_h))
+            Rect::new(
+                Point::new(self.bounds.x(), popup.y()),
+                Size::new(
+                    size.width.max(self.bounds.size.width),
+                    popup.size.height + 4.0 + input_h,
+                ),
+            )
         } else {
-            Rect::new(self.bounds.origin, Size::new(size.width.max(self.bounds.size.width), input_h + 4.0 + popup.size.height))
+            Rect::new(
+                self.bounds.origin,
+                Size::new(
+                    size.width.max(self.bounds.size.width),
+                    input_h + 4.0 + popup.size.height,
+                ),
+            )
         };
         ctx.register_overlay(overlay, false);
         self.focus_requested = true;
@@ -440,7 +487,13 @@ impl TimePickerElement {
             time.format()
         } else {
             let period = period_label(time.hour);
-            let h12 = if time.hour == 0 { 12 } else if time.hour > 12 { time.hour - 12 } else { time.hour };
+            let h12 = if time.hour == 0 {
+                12
+            } else if time.hour > 12 {
+                time.hour - 12
+            } else {
+                time.hour
+            };
             format!("{}:{:02} {}", h12, time.minute, period)
         }
     }
@@ -478,8 +531,16 @@ impl Element for TimePickerElement {
     }
 
     fn layout(&mut self, constraints: Constraints) -> Size {
-        let default_w = if constraints.max_width.is_finite() { constraints.max_width } else { self.popup_size().width };
-        let w = self.width.map(|d| d.resolve(constraints.max_width)).unwrap_or(default_w).min(constraints.max_width);
+        let default_w = if constraints.max_width.is_finite() {
+            constraints.max_width
+        } else {
+            self.popup_size().width
+        };
+        let w = self
+            .width
+            .map(|d| d.resolve(constraints.max_width))
+            .unwrap_or(default_w)
+            .min(constraints.max_width);
         let h = self.input_height();
         self.bounds = Rect::new(Point::zero(), Size::new(w, h));
         Size::new(w, h)
@@ -495,25 +556,50 @@ impl Element for TimePickerElement {
         let input_h = self.input_height();
         let radius = self.mss.border_radius_uniform(input_h, 8.0);
 
-        list.push_rect_bordered(self.bounds, bg, [radius; 4], Border::new(if self.is_open { 2.0 } else { 1.0 }, border_color));
+        list.push_rect_bordered(
+            self.bounds,
+            bg,
+            [radius; 4],
+            Border::new(if self.is_open { 2.0 } else { 1.0 }, border_color),
+        );
 
         let text_rect = Rect::new(
             Point::new(self.bounds.x() + 10.0, self.bounds.y()),
             Size::new((self.bounds.size.width - 34.0).max(4.0), input_h),
         );
         match self.input_text() {
-            Some(text) => list.push_text_singleline(&text, text_rect, fg, font, TextAlign::DEFAULT, 400),
+            Some(text) => {
+                list.push_text_singleline(&text, text_rect, fg, font, TextAlign::DEFAULT, 400)
+            }
             None => {
-                let ph = self.mss.color.map(|c| c.with_alpha(0.5)).unwrap_or(Color::from_hex("#9CA3AF"));
-                list.push_text_singleline(&self.placeholder, text_rect, ph, font, TextAlign::DEFAULT, 400);
+                let ph = self
+                    .mss
+                    .color
+                    .map(|c| c.with_alpha(0.5))
+                    .unwrap_or(Color::from_hex("#9CA3AF"));
+                list.push_text_singleline(
+                    &self.placeholder,
+                    text_rect,
+                    ph,
+                    font,
+                    TextAlign::DEFAULT,
+                    400,
+                );
             }
         }
 
         let icon_rect = Rect::new(
-            Point::new(self.bounds.x() + self.bounds.size.width - 22.0, self.bounds.y()),
+            Point::new(
+                self.bounds.x() + self.bounds.size.width - 22.0,
+                self.bounds.y(),
+            ),
             Size::new(14.0, input_h),
         );
-        let icon_color = self.mss.color.map(|c| c.with_alpha(0.6)).unwrap_or(Color::from_hex("#6B7280"));
+        let icon_color = self
+            .mss
+            .color
+            .map(|c| c.with_alpha(0.6))
+            .unwrap_or(Color::from_hex("#6B7280"));
         list.push_text("\u{E8B5}", icon_rect, icon_color, font);
 
         if !self.is_open {
@@ -521,14 +607,29 @@ impl Element for TimePickerElement {
         }
 
         let popup = self.popup_rect();
-        let popup_bg = self.popup_bg.or(self.mss.background_color).unwrap_or(Color::WHITE);
-        let popup_fg = self.popup_fg.or(self.mss.color).unwrap_or(Color::from_hex("#111827"));
-        let popup_border = self.popup_border.or(self.mss.border_color).unwrap_or(Color::from_hex("#E5E7EB"));
+        let popup_bg = self
+            .popup_bg
+            .or(self.mss.background_color)
+            .unwrap_or(Color::WHITE);
+        let popup_fg = self
+            .popup_fg
+            .or(self.mss.color)
+            .unwrap_or(Color::from_hex("#111827"));
+        let popup_border = self
+            .popup_border
+            .or(self.mss.border_color)
+            .unwrap_or(Color::from_hex("#E5E7EB"));
         let selected_bg = self.popup_selected_bg.unwrap_or(accent.with_alpha(0.22));
         let hover_bg = self.popup_hover_bg.unwrap_or(popup_fg.with_alpha(0.08));
 
         list.begin_overlay();
-        list.push_shadow(popup, Color::BLACK.with_alpha(0.15), 16.0, (0.0, 4.0), [12.0; 4]);
+        list.push_shadow(
+            popup,
+            Color::BLACK.with_alpha(0.15),
+            16.0,
+            (0.0, 4.0),
+            [12.0; 4],
+        );
         list.push_rect_bordered(popup, popup_bg, [12.0; 4], Border::new(1.0, popup_border));
 
         for col in self.cols() {
@@ -541,7 +642,10 @@ impl Element for TimePickerElement {
             for row in first..last {
                 let y = r.y() + row as f32 * ROW_H - scroll;
                 let row_rect = Rect::new(Point::new(r.x(), y), Size::new(r.size.width, ROW_H));
-                let fill = Rect::new(Point::new(row_rect.x() + 1.0, row_rect.y() + 2.0), Size::new((row_rect.size.width - 2.0).max(0.0), ROW_H - 4.0));
+                let fill = Rect::new(
+                    Point::new(row_rect.x() + 1.0, row_rect.y() + 2.0),
+                    Size::new((row_rect.size.width - 2.0).max(0.0), ROW_H - 4.0),
+                );
                 if row == sel {
                     list.push_rect(fill, selected_bg, [6.0; 4]);
                 } else if self.hover == Some((col, row)) {
@@ -566,7 +670,9 @@ impl Element for TimePickerElement {
         match event {
             Event::MouseMove(pos) => {
                 if self.is_open {
-                    let hover = self.col_at(*pos).and_then(|c| self.row_at(c, *pos).map(|r| (c, r)));
+                    let hover = self
+                        .col_at(*pos)
+                        .and_then(|c| self.row_at(c, *pos).map(|r| (c, r)));
                     if hover != self.hover {
                         self.hover = hover;
                         ctx.request_paint();
@@ -617,7 +723,9 @@ impl Element for TimePickerElement {
                 }
                 EventResult::Ignored
             }
-            Event::MouseWheel { delta, position, .. } => {
+            Event::MouseWheel {
+                delta, position, ..
+            } => {
                 if !self.is_open {
                     return EventResult::Ignored;
                 }
@@ -755,7 +863,12 @@ impl Element for TimePickerElement {
         }
         // Попап красится своими переменными — как у Dropdown, иначе в
         // тёмной теме список падал на светлые умолчания виджета.
-        let color = |name: &str| style.get(name).and_then(|v| v.as_color()).map(crate::animation::transition::mss_color_to_core);
+        let color = |name: &str| {
+            style
+                .get(name)
+                .and_then(|v| v.as_color())
+                .map(crate::animation::transition::mss_color_to_core)
+        };
         if let Some(c) = color("--popup-background") {
             self.popup_bg = Some(c);
         }
@@ -783,7 +896,8 @@ impl Element for TimePickerElement {
         selected: Option<&ComputedStyle>,
         _checked: Option<&ComputedStyle>,
     ) {
-        self.mss.apply_transitions(base, hover, active, focus, selected);
+        self.mss
+            .apply_transitions(base, hover, active, focus, selected);
     }
 }
 
@@ -821,10 +935,18 @@ mod tests {
         let mut e = open_element(TimePicker::new().selected(Time::new(9, 30)).minute_step(15));
         let hours = e.col_rect(Col::Hour);
         // Строка выбранного часа — по центру колонки.
-        let sel_y = hours.y() + e.selected_row(Col::Hour) as f32 * ROW_H - e.scroll[0] + ROW_H / 2.0;
-        assert_eq!(e.row_at(Col::Hour, Point::new(hours.x() + 10.0, sel_y)), Some(9));
+        let sel_y =
+            hours.y() + e.selected_row(Col::Hour) as f32 * ROW_H - e.scroll[0] + ROW_H / 2.0;
+        assert_eq!(
+            e.row_at(Col::Hour, Point::new(hours.x() + 10.0, sel_y)),
+            Some(9)
+        );
         // Строкой ниже — 10 часов.
-        e.pick(Col::Hour, e.row_at(Col::Hour, Point::new(hours.x() + 10.0, sel_y + ROW_H)).unwrap());
+        e.pick(
+            Col::Hour,
+            e.row_at(Col::Hour, Point::new(hours.x() + 10.0, sel_y + ROW_H))
+                .unwrap(),
+        );
         assert_eq!(e.selected, Some(Time::new(10, 30)));
         // Колонка минут идёт шагом 15: третья строка — 45 минут.
         e.pick(Col::Minute, 3);

@@ -28,5 +28,8 @@ fn finished_transition_still_asks_for_a_frame() {
         h.animate(Duration::from_millis(500)),
         "тик, доигравший переход до конца, обязан запросить кадр"
     );
-    assert!(!h.is_animating(id), "переход закончился — реестр его отпускает");
+    assert!(
+        !h.is_animating(id),
+        "переход закончился — реестр его отпускает"
+    );
 }

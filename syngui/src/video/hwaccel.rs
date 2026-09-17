@@ -200,7 +200,10 @@ impl HwContext {
             .filter(|d| !d.is_empty())
             .and_then(|d| CString::new(d).ok());
         if let Some(d) = &device {
-            log::info!("hwaccel: устройство из SYNGUI_HW_DEVICE: {}", d.to_string_lossy());
+            log::info!(
+                "hwaccel: устройство из SYNGUI_HW_DEVICE: {}",
+                d.to_string_lossy()
+            );
         }
         let mut device_ref: *mut ffi::AVBufferRef = ptr::null_mut();
         let rc = unsafe {

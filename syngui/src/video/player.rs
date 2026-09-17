@@ -285,7 +285,11 @@ impl VideoPlayer {
         }
 
         self.last_frame_at = Instant::now();
-        let audible = if self.stats.enabled { self.audible_pts_sec() } else { None };
+        let audible = if self.stats.enabled {
+            self.audible_pts_sec()
+        } else {
+            None
+        };
         self.stats.on_shown(candidate.pts_sec, clock, audible);
         // Кадр в буфере кодека показывается сейчас, в момент выбора.
         if let Some(surface) = candidate.surface.as_ref() {
@@ -343,7 +347,11 @@ impl VideoPlayer {
         }
         if let Some(f) = last.as_ref() {
             self.last_frame_at = Instant::now();
-            let audible = if self.stats.enabled { self.audible_pts_sec() } else { None };
+            let audible = if self.stats.enabled {
+                self.audible_pts_sec()
+            } else {
+                None
+            };
             self.stats.on_shown(f.pts_sec, clock, audible);
         }
         last
@@ -552,7 +560,8 @@ impl FrameStats {
         self.shown += 1;
         let now = Instant::now();
         if let Some(prev) = self.last_shown_at {
-            self.interval_ms.add(now.duration_since(prev).as_secs_f64() * 1000.0);
+            self.interval_ms
+                .add(now.duration_since(prev).as_secs_f64() * 1000.0);
         }
         self.last_shown_at = Some(now);
         self.lead_ms.add((pts_sec - clock) * 1000.0);

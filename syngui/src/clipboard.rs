@@ -397,10 +397,7 @@ mod tests {
             file_uri(std::path::Path::new("/tmp/a b/я.txt")),
             "file:///tmp/a%20b/%D1%8F.txt"
         );
-        assert_eq!(
-            uri_list(&["/a", "/b#c"]),
-            "file:///a\r\nfile:///b%23c"
-        );
+        assert_eq!(uri_list(&["/a", "/b#c"]), "file:///a\r\nfile:///b%23c");
     }
 }
 

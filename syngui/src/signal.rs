@@ -174,7 +174,10 @@ impl<T: 'static + Clone> RwSignal<T> {
             let mut rt = rt.borrow_mut();
             let idx = self.id.0 as usize;
             if idx < rt.slots.len() && rt.slots[idx].subscribers.insert(element_id) {
-                rt.element_signals.entry(element_id).or_default().insert(idx);
+                rt.element_signals
+                    .entry(element_id)
+                    .or_default()
+                    .insert(idx);
             }
         });
     }
@@ -310,7 +313,10 @@ fn track_read(rt: &mut SignalRuntime, id: SignalId) {
     let idx = id.0 as usize;
     if let Some(&element_id) = rt.tracking_stack.last() {
         if rt.slots[idx].subscribers.insert(element_id) {
-            rt.element_signals.entry(element_id).or_default().insert(idx);
+            rt.element_signals
+                .entry(element_id)
+                .or_default()
+                .insert(idx);
         }
     }
     if let Some(effect_id) = rt.effect_tracking {

@@ -16,16 +16,16 @@
 //! Мышь и колесо не прокручивают: это лента для D-pad (фокус хранит
 //! приложение, например в [`super::GridFocus`]).
 
-use crate::widgets::containers::IntoWidget;
+use crate::core::Transform;
 use crate::core::{Point, Rect, Size};
 use crate::input::{Event, EventResult};
 use crate::layout::Constraints;
 use crate::mss::{ComputedStyle, MssFields};
-use crate::core::Transform;
 use crate::render::DisplayList;
 use crate::widget::{
     DirtyFlags, Element, ElementId, ElementTree, LayoutHint, StyledElement, UpdateContext, Widget,
 };
+use crate::widgets::containers::IntoWidget;
 use std::any::Any;
 use std::time::Duration;
 
@@ -205,7 +205,14 @@ impl Element for FocusScrollElement {
         let target = match self.focus.and_then(|i| rects.get(i)) {
             Some(r) => {
                 let start = r.origin.x - self.bounds.origin.x;
-                sticky_offset(self.target, viewport, self.content_width, start, start + r.size.width, self.peek)
+                sticky_offset(
+                    self.target,
+                    viewport,
+                    self.content_width,
+                    start,
+                    start + r.size.width,
+                    self.peek,
+                )
             }
             None => self.target.clamp(0.0, max),
         };
@@ -247,7 +254,10 @@ impl Element for FocusScrollElement {
     fn build_display_list(&self, list: &mut DisplayList, _clip: Rect) {
         list.push_clip(self.bounds);
         let sf = list.scale_factor().max(1.0);
-        list.push_transform(Transform::translation((-self.offset * sf).round() / sf, 0.0));
+        list.push_transform(Transform::translation(
+            (-self.offset * sf).round() / sf,
+            0.0,
+        ));
     }
 
     fn post_build_display_list(&self, list: &mut DisplayList, _clip: Rect) {
@@ -351,20 +361,32 @@ mod tests {
     #[test]
     fn stays_while_focus_visible() {
         assert_eq!(sticky_offset(0.0, 1000.0, 3000.0, 400.0, 500.0, 50.0), 0.0);
-        assert_eq!(sticky_offset(700.0, 1000.0, 3000.0, 900.0, 1000.0, 50.0), 700.0);
+        assert_eq!(
+            sticky_offset(700.0, 1000.0, 3000.0, 900.0, 1000.0, 50.0),
+            700.0
+        );
     }
 
     #[test]
     fn scrolls_just_enough_past_edges() {
         // Вправо: конец элемента + запас встаёт к правому краю.
-        assert_eq!(sticky_offset(0.0, 1000.0, 3000.0, 1000.0, 1100.0, 50.0), 150.0);
+        assert_eq!(
+            sticky_offset(0.0, 1000.0, 3000.0, 1000.0, 1100.0, 50.0),
+            150.0
+        );
         // Влево: начало элемента − запас встаёт к левому краю.
-        assert_eq!(sticky_offset(800.0, 1000.0, 3000.0, 600.0, 700.0, 50.0), 550.0);
+        assert_eq!(
+            sticky_offset(800.0, 1000.0, 3000.0, 600.0, 700.0, 50.0),
+            550.0
+        );
     }
 
     #[test]
     fn clamped_to_content() {
-        assert_eq!(sticky_offset(0.0, 1000.0, 3000.0, 2900.0, 3000.0, 50.0), 2000.0);
+        assert_eq!(
+            sticky_offset(0.0, 1000.0, 3000.0, 2900.0, 3000.0, 50.0),
+            2000.0
+        );
         assert_eq!(sticky_offset(500.0, 1000.0, 3000.0, 0.0, 100.0, 50.0), 0.0);
         // Содержимое уже области — не двигается.
         assert_eq!(sticky_offset(0.0, 1000.0, 600.0, 500.0, 600.0, 50.0), 0.0);
@@ -373,6 +395,9 @@ mod tests {
     #[test]
     fn wide_item_limits_peek() {
         // Элемент 980 px в ленте 1000: запас ужимается до 10, иначе дёргалось бы.
-        assert_eq!(sticky_offset(0.0, 1000.0, 3000.0, 1000.0, 1980.0, 50.0), 990.0);
+        assert_eq!(
+            sticky_offset(0.0, 1000.0, 3000.0, 1000.0, 1980.0, 50.0),
+            990.0
+        );
     }
 }

@@ -319,7 +319,9 @@ impl Batcher {
     }
 
     pub(self) fn current_batch_mut(&mut self) -> &mut BatchState {
-        let idx = self.current.expect("ensure_batch перед добавлением геометрии");
+        let idx = self
+            .current
+            .expect("ensure_batch перед добавлением геометрии");
         &mut self.buckets[idx].state
     }
 

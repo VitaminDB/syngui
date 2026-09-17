@@ -11,8 +11,8 @@
 use syngui::core::Point;
 use syngui::prelude::*;
 use syngui::testing::*;
-use syngui::widgets::visual::MarkdownView;
 use syngui::widgets::containers::{VirtualList, VirtualRow};
+use syngui::widgets::visual::MarkdownView;
 use syngui::widgets::ScrollView;
 
 const NEEDLE: &str = "ИГОЛКА";
@@ -58,7 +58,11 @@ fn markdown_below_the_first_screen_is_painted_when_scrolled() {
         delta_x: 0.0,
         position: Point::new(200.0, 300.0),
     };
-    assert_eq!(h.send_event(&wheel), EventResult::Handled, "лента не прокрутилась");
+    assert_eq!(
+        h.send_event(&wheel),
+        EventResult::Handled,
+        "лента не прокрутилась"
+    );
     h.layout(400.0, 600.0);
 
     let texts = painted_texts(&mut h);
@@ -103,7 +107,9 @@ fn markdown_in_scrolled_virtual_list_is_painted() {
                     .style("height", 2000.0_f32),
             ) as Box<dyn Widget>
         }),
-        VirtualRow::new(2, 1, move || Box::new(MarkdownView::new(md.clone())) as Box<dyn Widget>),
+        VirtualRow::new(2, 1, move || {
+            Box::new(MarkdownView::new(md.clone())) as Box<dyn Widget>
+        }),
     ];
     let list = VirtualList::new(rows).estimated_row_height(100.0);
     let mut h = TestHarness::new(Box::new(DecoratedBox::new().child(list)));
@@ -123,7 +129,11 @@ fn markdown_in_scrolled_virtual_list_is_painted() {
         delta_x: 0.0,
         position: Point::new(200.0, 300.0),
     };
-    assert_eq!(h.send_event(&wheel), EventResult::Handled, "список не прокрутился");
+    assert_eq!(
+        h.send_event(&wheel),
+        EventResult::Handled,
+        "список не прокрутился"
+    );
     settle(&mut h);
 
     let texts = painted_texts(&mut h);

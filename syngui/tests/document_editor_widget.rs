@@ -795,8 +795,9 @@ fn handle_keeps_edits_when_element_is_recreated() {
 /// шириной 1480 рисовала сетку на треть блока).
 #[test]
 fn table_columns_stretch_to_the_block_width() {
-    let md = "| A | B | C |\n| --- | --- | --- |\n| 1 | 2 | 3 |\n\n~~~doc-layout\n0 40 40 900\n~~~\n"
-        .replace("~~~", "```");
+    let md =
+        "| A | B | C |\n| --- | --- | --- |\n| 1 | 2 | 3 |\n\n~~~doc-layout\n0 40 40 900\n~~~\n"
+            .replace("~~~", "```");
     let handle = DocumentEditorHandle::new();
     let mut h = TestHarness::new(Box::new(
         DocumentEditor::new()
@@ -811,7 +812,10 @@ fn table_columns_stretch_to_the_block_width() {
     h.rebuild();
     h.layout(1200.0, 700.0);
     let b = h.element_bounds(h.find_by_type_name("doc-table")[0]);
-    assert!((b.size.width - 900.0).abs() < 1.0, "таблица не по ширине блока: {b:?}");
+    assert!(
+        (b.size.width - 900.0).abs() < 1.0,
+        "таблица не по ширине блока: {b:?}"
+    );
 
     // Три одинаковых столбца по 300 px: точка в 150 px от края — первая
     // ячейка данных. При естественной ширине (~45 px на столбец) она
@@ -829,7 +833,10 @@ fn table_columns_stretch_to_the_block_width() {
     type_str(&mut h, "!");
     settle(&mut h);
     let out = handle.serialize();
-    assert!(out.contains("| 1! | 2 | 3 |"), "клик не попал в первую ячейку:\n{out}");
+    assert!(
+        out.contains("| 1! | 2 | 3 |"),
+        "клик не попал в первую ячейку:\n{out}"
+    );
 }
 
 /// Свободная раскладка: блоки стоят по своим координатам, а не колонкой.
@@ -2634,10 +2641,17 @@ fn folding_toggle_on_canvas_moves_blocks_below() {
 
     click(&mut h);
     let open = handle.serialize();
-    assert!(open.contains("[!toggle]{open}"), "шеврон не развернул: {open}");
+    assert!(
+        open.contains("[!toggle]{open}"),
+        "шеврон не развернул: {open}"
+    );
     let below = geom_val(&open, 1, "y").unwrap();
     assert!(below > 100.0 + 40.0, "блок под toggle не сдвинулся: {open}");
-    assert_eq!(geom_val(&open, 2, "y"), Some(100.0), "соседняя колонка: {open}");
+    assert_eq!(
+        geom_val(&open, 2, "y"),
+        Some(100.0),
+        "соседняя колонка: {open}"
+    );
     // Под развёрнутым содержимым, а не поверх него.
     let left: Vec<Rect> = rows_of(&h)
         .into_iter()
@@ -2652,7 +2666,11 @@ fn folding_toggle_on_canvas_moves_blocks_below() {
     click(&mut h);
     let closed = handle.serialize();
     assert!(!closed.contains("{open}"), "{closed}");
-    assert_eq!(geom_val(&closed, 1, "y"), Some(100.0), "не вернулся: {closed}");
+    assert_eq!(
+        geom_val(&closed, 1, "y"),
+        Some(100.0),
+        "не вернулся: {closed}"
+    );
 
     // Отмена снимает и разворот, и сдвиг разом.
     click(&mut h);

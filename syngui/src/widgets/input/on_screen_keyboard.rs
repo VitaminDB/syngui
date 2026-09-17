@@ -338,7 +338,13 @@ impl KeyboardController {
         if !self.state.active.get_untracked() {
             return false;
         }
-        handle_remote(self.state, &self.layouts, key, &self.on_change, &self.on_submit)
+        handle_remote(
+            self.state,
+            &self.layouts,
+            key,
+            &self.on_change,
+            &self.on_submit,
+        )
     }
 
     /// Символ с физической клавиатуры.
@@ -353,7 +359,13 @@ impl KeyboardController {
     }
 
     pub fn apply(&self, action: &KeyAction) {
-        apply_action(self.state, &self.layouts, action, &self.on_change, &self.on_submit);
+        apply_action(
+            self.state,
+            &self.layouts,
+            action,
+            &self.on_change,
+            &self.on_submit,
+        );
     }
 
     pub fn state(&self) -> KeyboardState {
@@ -462,9 +474,7 @@ impl OnScreenKeyboard {
                             cls.push_str(" osk-key-on");
                         }
                         let label = match &key.action {
-                            KeyAction::Char(s) if shift && !key.is_action() => {
-                                uppercase_first(s)
-                            }
+                            KeyAction::Char(s) if shift && !key.is_action() => uppercase_first(s),
                             _ => key.label.clone(),
                         };
                         let action = key.action.clone();
@@ -477,15 +487,13 @@ impl OnScreenKeyboard {
                                     state.focus.set((r, c));
                                     apply_action(state, &layouts_c, &action, &change_c, &submit_c);
                                 })
-                                .child(
-                                    DecoratedBox::new().class(cls.as_str()).child(
-                                        Text::new(label).max_lines(1).class(if focused {
-                                            "osk-key-text osk-key-text-focused"
-                                        } else {
-                                            "osk-key-text"
-                                        }),
-                                    ),
-                                ),
+                                .child(DecoratedBox::new().class(cls.as_str()).child(
+                                    Text::new(label).max_lines(1).class(if focused {
+                                        "osk-key-text osk-key-text-focused"
+                                    } else {
+                                        "osk-key-text"
+                                    }),
+                                )),
                         );
                     }
                     col = col.child(row_w.class("osk-row"));
@@ -657,7 +665,11 @@ pub fn input_field(
             .gap(2.0)
             .cross_axis_alignment(CrossAxisAlignment::Center);
         if shown.is_empty() {
-            row = row.child(Text::new(placeholder).max_lines(1).class("osk-field-placeholder"));
+            row = row.child(
+                Text::new(placeholder)
+                    .max_lines(1)
+                    .class("osk-field-placeholder"),
+            );
         } else {
             row = row.child(
                 Text::new(shown)

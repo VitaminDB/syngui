@@ -416,7 +416,10 @@ impl VirtualListElement {
             0.0
         };
         Rect::new(
-            Point::new(track.origin.x, track.origin.y + ratio * (track.size.height - thumb_h)),
+            Point::new(
+                track.origin.x,
+                track.origin.y + ratio * (track.size.height - thumb_h),
+            ),
             Size::new(self.scrollbar_width, thumb_h),
         )
     }
@@ -552,7 +555,11 @@ impl Element for VirtualListElement {
             if start + i >= end {
                 break;
             }
-            if self.heights.get(&row.key).map_or(true, |old| (old - h).abs() > 0.5) {
+            if self
+                .heights
+                .get(&row.key)
+                .map_or(true, |old| (old - h).abs() > 0.5)
+            {
                 self.heights.insert(row.key, *h);
                 changed = true;
             }
@@ -618,7 +625,9 @@ impl Element for VirtualListElement {
         let bw = self.mss.border_width_or(0.0);
         if let Some(bg) = self.background {
             match (bw > 0.0, self.mss.border_color) {
-                (true, Some(bc)) => list.push_rect_bordered(self.bounds, bg, br, Border::new(bw, bc)),
+                (true, Some(bc)) => {
+                    list.push_rect_bordered(self.bounds, bg, br, Border::new(bw, bc))
+                }
                 _ => list.push_rect(self.bounds, bg, br),
             }
         } else if bw > 0.0 {
@@ -641,7 +650,11 @@ impl Element for VirtualListElement {
         let thumb_base = self.mss.color.unwrap_or(Color::from_hex("#9CA3AF"));
         let radius = [self.scrollbar_width / 2.0; 4];
         if self.hover_scrollbar_area {
-            list.push_rect(self.scrollbar_track(), thumb_base.with_alpha(opacity * 0.15), radius);
+            list.push_rect(
+                self.scrollbar_track(),
+                thumb_base.with_alpha(opacity * 0.15),
+                radius,
+            );
         }
         let color = if self.dragging_scrollbar {
             thumb_base.darken(0.5).with_alpha(opacity)
@@ -655,7 +668,9 @@ impl Element for VirtualListElement {
 
     fn handle_event(&mut self, event: &Event, ctx: &mut EventContext) -> EventResult {
         match event {
-            Event::MouseWheel { delta, position, .. } => {
+            Event::MouseWheel {
+                delta, position, ..
+            } => {
                 if !self.bounds.contains(*position) || self.max_scroll() <= 0.0 {
                     return EventResult::Ignored;
                 }
@@ -718,8 +733,10 @@ impl Element for VirtualListElement {
                     let track = self.scrollbar_track();
                     let thumb_h = self.scrollbar_thumb().size.height;
                     if track.size.height > thumb_h {
-                        let rel = (pos.y - track.origin.y - thumb_h / 2.0) / (track.size.height - thumb_h);
-                        self.scroll_y = (rel.clamp(0.0, 1.0) * self.max_scroll()).clamp(0.0, self.max_scroll());
+                        let rel = (pos.y - track.origin.y - thumb_h / 2.0)
+                            / (track.size.height - thumb_h);
+                        self.scroll_y =
+                            (rel.clamp(0.0, 1.0) * self.max_scroll()).clamp(0.0, self.max_scroll());
                     }
                     self.refresh_stick();
                     self.flash_scrollbar();
@@ -1020,7 +1037,11 @@ mod tests {
         // нет; настоящее окно строится во втором.
         let calls = builds.load(Ordering::Relaxed);
         assert!(calls <= rows + 4, "сборок {calls} на окно из {rows} строк");
-        assert!(h.element_count() < 100, "в дереве вся лента: {}", h.element_count());
+        assert!(
+            h.element_count() < 100,
+            "в дереве вся лента: {}",
+            h.element_count()
+        );
     }
 
     /// Прокрутка колесом сдвигает окно: дальние строки собираются, ближние
@@ -1044,7 +1065,10 @@ mod tests {
         }
         h.frame(Some(&engine), 600.0, VIEW_H);
 
-        assert!(builds.load(Ordering::Relaxed) > 0, "новые строки не собрались");
+        assert!(
+            builds.load(Ordering::Relaxed) > 0,
+            "новые строки не собрались"
+        );
         // У верхнего края запас только снизу, в середине — с обеих сторон,
         // поэтому окно чуть больше, но всё равно далеко от длины ленты.
         let now = built_rows(&h);

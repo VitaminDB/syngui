@@ -348,11 +348,7 @@ impl ImageStore {
         // Потоковые кадры (видео) идут в один и тот же handle: если
         // предыдущий ещё не залит, показывать его уже незачем — заменяем,
         // иначе картинка отстаёт от звука на длину очереди загрузок.
-        match self
-            .pending_uploads
-            .iter_mut()
-            .find(|(h, _)| *h == handle)
-        {
+        match self.pending_uploads.iter_mut().find(|(h, _)| *h == handle) {
             Some(slot) => slot.1 = data,
             None => self.pending_uploads.push((handle, data)),
         }
@@ -629,7 +625,11 @@ fn decode_svg(bytes: &[u8]) -> Result<ImageData, String> {
             px[2] = ((px[2] as f32 * inv).round() as u32).min(255) as u8;
         }
     }
-    Ok(ImageData::with_mips(w_px, h_px, Arc::<[u8]>::from(rgba.into_boxed_slice())))
+    Ok(ImageData::with_mips(
+        w_px,
+        h_px,
+        Arc::<[u8]>::from(rgba.into_boxed_slice()),
+    ))
 }
 
 #[cfg(feature = "image-network")]
@@ -719,9 +719,16 @@ mod tests {
         // Держатель есть — не выгружается.
         assert!(store.take_pending_frees().is_empty());
         store.release(a);
-        assert!(store.take_pending_frees().is_empty(), "одна простаивающая влезает");
+        assert!(
+            store.take_pending_frees().is_empty(),
+            "одна простаивающая влезает"
+        );
         store.release(b);
-        assert_eq!(store.take_pending_frees(), vec![a], "выгружается самая давняя");
+        assert_eq!(
+            store.take_pending_frees(),
+            vec![a],
+            "выгружается самая давняя"
+        );
         assert_eq!(store.state_of(a), None);
 
         // Повторный запрос простаивающей снимает её с очереди выгрузки.
@@ -777,7 +784,11 @@ mod tests {
         store.update_rgba(handle, 2, 2, solid(2, 2, 0x20));
         store.update_rgba(handle, 2, 2, solid(2, 2, 0x30));
         let uploads = store.take_pending_uploads();
-        assert_eq!(uploads.len(), 1, "устаревший кадр не должен ждать в очереди");
+        assert_eq!(
+            uploads.len(),
+            1,
+            "устаревший кадр не должен ждать в очереди"
+        );
         assert!(
             uploads[0].1.rgba.iter().all(|&b| b == 0x30),
             "залиться должен последний кадр"

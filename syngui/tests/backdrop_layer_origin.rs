@@ -16,16 +16,14 @@ const MSS: &str = "
 
 #[test]
 fn stack_layers_start_at_box_origin() {
-    let widget = Row::new()
-        .child(DecoratedBox::new().class("gap"))
-        .child(
-            DecoratedBox::new().class("box").child(
-                Stack::new()
-                    .fit(StackFit::Expand)
-                    .child(DecoratedBox::new().class("layer"))
-                    .child(DecoratedBox::new().class("layer")),
-            ),
-        );
+    let widget = Row::new().child(DecoratedBox::new().class("gap")).child(
+        DecoratedBox::new().class("box").child(
+            Stack::new()
+                .fit(StackFit::Expand)
+                .child(DecoratedBox::new().class("layer"))
+                .child(DecoratedBox::new().class("layer")),
+        ),
+    );
     let mut h = TestHarness::new(Box::new(widget));
     h.apply_mss(MSS);
     h.layout(1920.0, 1080.0);

@@ -10,9 +10,9 @@ pub mod document_editor;
 pub mod dropdown;
 pub mod edit_menu;
 pub mod event_hook;
-pub mod on_screen_keyboard;
 pub mod multiline_edit;
 pub mod multiselect;
+pub mod on_screen_keyboard;
 pub mod radio;
 pub mod slider;
 pub mod spin_box;
@@ -31,12 +31,12 @@ pub use date_picker::{Date, DatePicker};
 pub use dropdown::{Dropdown, DropdownItem, DropdownState};
 pub use edit_menu::EditMenuAction;
 pub use event_hook::{EventHook, KeyReply, RemoteKey};
+pub use multiline_edit::MultilineTextEdit;
+pub use multiselect::Multiselect;
 pub use on_screen_keyboard::{
     input_field, on_screen_keyboard, KeyAction, KeyDef, KeyboardController, KeyboardLayout,
     KeyboardState, OnScreenKeyboard,
 };
-pub use multiline_edit::MultilineTextEdit;
-pub use multiselect::Multiselect;
 pub use radio::{RadioButton, RadioGroup};
 pub use slider::Slider;
 pub use spin_box::SpinBox;

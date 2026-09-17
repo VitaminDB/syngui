@@ -351,7 +351,14 @@ impl Element for MultiselectElement {
             } else {
                 self.placeholder.clone()
             };
-            list.push_text_singleline(&placeholder, text_rect, muted, 14.0, crate::mss::TextAlign::DEFAULT, 400);
+            list.push_text_singleline(
+                &placeholder,
+                text_rect,
+                muted,
+                14.0,
+                crate::mss::TextAlign::DEFAULT,
+                400,
+            );
         } else {
             let (visible, extra) = self.visible_chips();
             let available_w = self.bounds.size.width - 40.0;
@@ -388,7 +395,14 @@ impl Element for MultiselectElement {
                     Point::new(x + 8.0, y + (CHIP_HEIGHT - 11.0) / 2.0),
                     Size::new(chip_w - 24.0, 12.0),
                 );
-                list.push_text_singleline(label, text_rect, fg, CHIP_FONT_SIZE, crate::mss::TextAlign::DEFAULT, 400);
+                list.push_text_singleline(
+                    label,
+                    text_rect,
+                    fg,
+                    CHIP_FONT_SIZE,
+                    crate::mss::TextAlign::DEFAULT,
+                    400,
+                );
 
                 let close_rect = Rect::new(
                     Point::new(x + chip_w - 16.0, y + (CHIP_HEIGHT - 10.0) / 2.0),

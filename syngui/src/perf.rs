@@ -486,8 +486,12 @@ pub mod counters {
         /// Сколько набежало с `earlier`.
         pub fn since(&self, earlier: &Snapshot) -> Snapshot {
             Snapshot {
-                elements_created: self.elements_created.saturating_sub(earlier.elements_created),
-                elements_removed: self.elements_removed.saturating_sub(earlier.elements_removed),
+                elements_created: self
+                    .elements_created
+                    .saturating_sub(earlier.elements_created),
+                elements_removed: self
+                    .elements_removed
+                    .saturating_sub(earlier.elements_removed),
                 reactive_builds: self.reactive_builds.saturating_sub(earlier.reactive_builds),
                 md_parse_calls: self.md_parse_calls.saturating_sub(earlier.md_parse_calls),
                 md_parse_bytes: self.md_parse_bytes.saturating_sub(earlier.md_parse_bytes),
@@ -603,7 +607,10 @@ mod tests {
         n.set(3);
         h.rebuild();
         let d = snapshot().since(&start);
-        assert_eq!((d.reactive_builds, d.elements_created, d.elements_removed), (1, 2, 0));
+        assert_eq!(
+            (d.reactive_builds, d.elements_created, d.elements_removed),
+            (1, 2, 0)
+        );
 
         let start = snapshot();
         n.set(0);
@@ -615,12 +622,21 @@ mod tests {
         let start = snapshot();
         h.rebuild();
         let d = snapshot().since(&start);
-        assert_eq!((d.rebuild_calls, d.rebuild_passes, d.reactive_builds), (1, 0, 0));
+        assert_eq!(
+            (d.rebuild_calls, d.rebuild_passes, d.reactive_builds),
+            (1, 0, 0)
+        );
 
         counters::reset();
         let z = snapshot();
-        assert_eq!((z.elements_created, z.reactive_builds, z.rebuild_calls), (0, 0, 0));
-        assert!(z.signal_slots > 0, "слоты сигналов — состояние runtime, reset их не трогает");
+        assert_eq!(
+            (z.elements_created, z.reactive_builds, z.rebuild_calls),
+            (0, 0, 0)
+        );
+        assert!(
+            z.signal_slots > 0,
+            "слоты сигналов — состояние runtime, reset их не трогает"
+        );
     }
 
     #[cfg(feature = "markdown")]
@@ -643,6 +659,9 @@ mod tests {
         let _ = h.highlight(code, Some("rust"));
         let _ = h.highlight(code, None);
         let d = snapshot().since(&start);
-        assert_eq!((d.highlight_calls, d.highlight_bytes), (2, 2 * code.len() as u64));
+        assert_eq!(
+            (d.highlight_calls, d.highlight_bytes),
+            (2, 2 * code.len() as u64)
+        );
     }
 }

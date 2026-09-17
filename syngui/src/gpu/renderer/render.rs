@@ -83,15 +83,16 @@ impl Renderer {
             // Без эффектов (обычный кадр) рисуем сразу в surface: scene-текстура
             // и полноэкранный blit — лишний проход 1920×1080 и resolve на
             // тайловом GPU.
-            let direct = std::env::var_os("SYNGUI_NO_DIRECT").is_none() && plan.iter().all(|s| {
-                matches!(
-                    s,
-                    super::EffectRenderStep::DrawBatches {
-                        target: super::EffectTarget::Scene,
-                        ..
-                    }
-                )
-            });
+            let direct = std::env::var_os("SYNGUI_NO_DIRECT").is_none()
+                && plan.iter().all(|s| {
+                    matches!(
+                        s,
+                        super::EffectRenderStep::DrawBatches {
+                            target: super::EffectTarget::Scene,
+                            ..
+                        }
+                    )
+                });
             let scene_view = self.scene_view.as_ref().unwrap();
             let scene_texture = self.scene_texture.as_ref().unwrap();
             self.execute_render_plan(

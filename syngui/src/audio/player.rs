@@ -136,7 +136,8 @@ impl PlayerState {
     /// сэмплов не нашлось (буферизация): тогда якорь не двигается, и часы
     /// стоят вместе со звуком.
     pub(super) fn set_clock_anchor(&self, audible_samples: usize, at_nanos: u64) {
-        self.anchor_samples.store(audible_samples, Ordering::Relaxed);
+        self.anchor_samples
+            .store(audible_samples, Ordering::Relaxed);
         self.anchor_at_nanos.store(at_nanos, Ordering::Relaxed);
         self.anchor_valid.store(true, Ordering::Release);
     }

@@ -573,10 +573,7 @@ impl TableView {
 
     /// Обработчик пользовательского пункта меню: `id` пункта и индекс
     /// строки, на которой меню открыли.
-    pub fn on_context_action(
-        mut self,
-        callback: impl FnMut(&str, usize) + Send + 'static,
-    ) -> Self {
+    pub fn on_context_action(mut self, callback: impl FnMut(&str, usize) + Send + 'static) -> Self {
         self.on_context_action = Some(Arc::new(Mutex::new(callback)));
         self
     }

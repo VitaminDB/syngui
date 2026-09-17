@@ -199,7 +199,10 @@ impl Batcher {
                 // Bbox текста: от origin на ширину строк; высота — по rect и
                 // фактической высоте строк (текст может выходить за rect).
                 let text_bbox_rect = crate::core::Rect::new(
-                    crate::core::Point::new(origin_x.min(rect.origin.x), origin_y.min(rect.origin.y)),
+                    crate::core::Point::new(
+                        origin_x.min(rect.origin.x),
+                        origin_y.min(rect.origin.y),
+                    ),
                     crate::core::Size::new(
                         text_width.max(rect.size.width) + (origin_x - rect.origin.x).abs(),
                         text_height.max(rect.size.height) + (origin_y - rect.origin.y).abs(),
@@ -481,7 +484,12 @@ impl Batcher {
                     crate::core::Point::new(start_x, *y),
                     crate::core::Size::new(sel_width, *height),
                 );
-                self.ensure_batch_rect(ShaderType::Rect, None, *clip_rect, sel_rect.inflate(1.0, 1.0));
+                self.ensure_batch_rect(
+                    ShaderType::Rect,
+                    None,
+                    *clip_rect,
+                    sel_rect.inflate(1.0, 1.0),
+                );
                 self.add_rect(sel_rect, *color, [2.0; 4]);
             }
             DrawCommand::TextCursor {
@@ -576,7 +584,11 @@ impl Batcher {
                     bbox[2] = bbox[2].max(p[0]);
                     bbox[3] = bbox[3].max(p[1]);
                 }
-                let bbox = if vertices.is_empty() { None } else { Some(bbox) };
+                let bbox = if vertices.is_empty() {
+                    None
+                } else {
+                    Some(bbox)
+                };
                 self.ensure_batch_bbox(ShaderType::Rect, None, *clip_rect, bbox);
                 let state = self.current_batch_mut();
                 let base = state.vertices.len() as u32;

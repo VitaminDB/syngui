@@ -169,7 +169,10 @@ impl EventHook {
 
     /// Кнопки пульта (см. [`RemoteKey`]). Вернуть `true` — событие съедено.
     /// Проверяется после `on_key_down`, если тот вернул `Ignore`.
-    pub fn on_remote(mut self, handler: impl Fn(RemoteKey) -> bool + Send + Sync + 'static) -> Self {
+    pub fn on_remote(
+        mut self,
+        handler: impl Fn(RemoteKey) -> bool + Send + Sync + 'static,
+    ) -> Self {
         self.on_remote = Some(Arc::new(handler));
         self
     }

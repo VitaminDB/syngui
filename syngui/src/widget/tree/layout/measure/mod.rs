@@ -366,9 +366,7 @@ impl ElementTree {
                     right,
                     bottom,
                     ..
-                } => {
-                    self.measure_aligned(&children, constraints, *left, *top, *right, *bottom, id)
-                }
+                } => self.measure_aligned(&children, constraints, *left, *top, *right, *bottom, id),
                 LayoutHint::Portal { .. } => self.measure_portal(&children, constraints, id),
                 LayoutHint::FloatingWindow { .. } => {
                     self.measure_floating_window(&children, constraints, id)

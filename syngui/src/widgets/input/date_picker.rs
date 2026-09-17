@@ -280,8 +280,22 @@ impl Element for DatePickerElement {
         );
         match self.selected {
             // Однострочно: в узком поле дата иначе ломается на две строки.
-            Some(d) => list.push_text_singleline(&self.locale.format_date(&d), text_rect, theme.text, font_size, crate::mss::TextAlign::DEFAULT, 400),
-            None => list.push_text_singleline(self.placeholder_text(), text_rect, placeholder_color, font_size, crate::mss::TextAlign::DEFAULT, 400),
+            Some(d) => list.push_text_singleline(
+                &self.locale.format_date(&d),
+                text_rect,
+                theme.text,
+                font_size,
+                crate::mss::TextAlign::DEFAULT,
+                400,
+            ),
+            None => list.push_text_singleline(
+                self.placeholder_text(),
+                text_rect,
+                placeholder_color,
+                font_size,
+                crate::mss::TextAlign::DEFAULT,
+                400,
+            ),
         }
 
         let icon_rect = Rect::new(

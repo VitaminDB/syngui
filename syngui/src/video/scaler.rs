@@ -138,8 +138,16 @@ impl Scaler {
             if rows == 0 {
                 break;
             }
-            let ctx = Context::get(in_fmt, in_w, rows, Pixel::RGBA, out_w, rows, Flags::BILINEAR)
-                .map_err(|e| VideoError::Scaler(format!("sws_getContext: {e}")))?;
+            let ctx = Context::get(
+                in_fmt,
+                in_w,
+                rows,
+                Pixel::RGBA,
+                out_w,
+                rows,
+                Flags::BILINEAR,
+            )
+            .map_err(|e| VideoError::Scaler(format!("sws_getContext: {e}")))?;
             slices.push(Slice { ctx, y0, rows });
             y0 += rows;
         }
@@ -281,7 +289,11 @@ mod tests {
         let mut yuv = frame::Video::new(Pixel::YUV420P, w, h);
         for plane in 0..3 {
             let stride = yuv.stride(plane);
-            let rows = if plane == 0 { h as usize } else { (h as usize) / 2 };
+            let rows = if plane == 0 {
+                h as usize
+            } else {
+                (h as usize) / 2
+            };
             let data = yuv.data_mut(plane);
             for byte in data.iter_mut().take(stride * rows) {
                 *byte = 128;
@@ -379,6 +391,9 @@ mod tests {
             assert_eq!(px[3], 255, "строка {y}: альфа должна быть 255");
             prev = px[0];
         }
-        assert!(prev > 200, "низ кадра должен быть светлее верха, получено {prev}");
+        assert!(
+            prev > 200,
+            "низ кадра должен быть светлее верха, получено {prev}"
+        );
     }
 }

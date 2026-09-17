@@ -724,8 +724,12 @@ impl ElementTree {
         let new_type_id = new_widget.as_any().type_id();
         let child_element = new_widget.create_element();
         let inline = new_widget.widget_inline_styles().to_vec();
-        let child_id =
-            self.insert_with_type_id_and_inline(child_element, Some(parent_id), new_type_id, inline);
+        let child_id = self.insert_with_type_id_and_inline(
+            child_element,
+            Some(parent_id),
+            new_type_id,
+            inline,
+        );
         let widget_classes = new_widget.widget_classes();
         if let Some(node) = self.elements.get_mut(&child_id) {
             node.widget_key = new_widget.widget_key();

@@ -3171,7 +3171,11 @@ impl DocumentEditorElement {
         let Some(fs) = self.fold_shift.as_mut() else {
             return false;
         };
-        let published = self.blocks.lock().ok().and_then(|m| m.get(&fs.block).copied());
+        let published = self
+            .blocks
+            .lock()
+            .ok()
+            .and_then(|m| m.get(&fs.block).copied());
         let Some(after) = published else {
             fs.ticks += 1;
             if fs.ticks < FOLD_SETTLE_TICKS {
@@ -3193,12 +3197,7 @@ impl DocumentEditorElement {
     /// Вверх группа не заходит на оставшиеся на месте блоки ближе
     /// [`FOLD_MIN_GAP`]. Правка без своего checkpoint'а — в истории она одним
     /// шагом с переключением toggle.
-    fn shift_blocks_below(
-        &mut self,
-        top: super::model::BlockId,
-        before: Rect,
-        delta: f32,
-    ) -> bool {
+    fn shift_blocks_below(&mut self, top: super::model::BlockId, before: Rect, delta: f32) -> bool {
         let Some(rects) = self.blocks.lock().ok().map(|m| m.clone()) else {
             return false;
         };

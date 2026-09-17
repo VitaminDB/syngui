@@ -96,7 +96,11 @@ pub fn downscale_half(w: u32, h: u32, src: &[u8]) -> (u32, u32, Vec<u8>) {
             let i10 = ((sy0 * w + sx1) * 4) as usize;
             let i01 = ((sy1 * w + sx0) * 4) as usize;
             let i11 = ((sy1 * w + sx1) * 4) as usize;
-            if src[i00 + 3] == 255 && src[i10 + 3] == 255 && src[i01 + 3] == 255 && src[i11 + 3] == 255 {
+            if src[i00 + 3] == 255
+                && src[i10 + 3] == 255
+                && src[i01 + 3] == 255
+                && src[i11 + 3] == 255
+            {
                 let o = ((dy * dw + dx) * 4) as usize;
                 for c in 0..3 {
                     let sum = srgb_to_linear_q12(src[i00 + c]) as u32

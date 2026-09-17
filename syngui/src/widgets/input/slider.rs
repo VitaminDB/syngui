@@ -571,7 +571,14 @@ impl Element for SliderElement {
                     Point::new(vr.x() + 4.0, vr.y() + (vr.size.height - fs) / 2.0),
                     Size::new((vr.size.width - 8.0).max(0.0), fs + 2.0),
                 );
-                list.push_text_singleline(&self.edit_text, text_rect, text_color, fs, crate::mss::TextAlign::DEFAULT, 400);
+                list.push_text_singleline(
+                    &self.edit_text,
+                    text_rect,
+                    text_color,
+                    fs,
+                    crate::mss::TextAlign::DEFAULT,
+                    400,
+                );
 
                 let blink_phase = (self.cursor_blink * CURSOR_BLINK_RATE * 2.0) % 2.0;
                 if blink_phase < 1.0 {
@@ -586,7 +593,14 @@ impl Element for SliderElement {
                 }
             } else {
                 // Однострочно: узкая зона значения иначе переносит число.
-                list.push_text_singleline(&self.formatted_value(), vr, text_color, fs, crate::mss::TextAlign::CENTER, 400);
+                list.push_text_singleline(
+                    &self.formatted_value(),
+                    vr,
+                    text_color,
+                    fs,
+                    crate::mss::TextAlign::CENTER,
+                    400,
+                );
             }
         }
     }

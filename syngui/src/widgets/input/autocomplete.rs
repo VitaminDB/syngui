@@ -297,7 +297,14 @@ impl Element for AutocompleteElement {
             Size::new(self.bounds.size.width - 24.0, 16.0),
         );
         if self.text.is_empty() {
-            list.push_text_singleline(&self.placeholder, text_rect, placeholder_color, 14.0, crate::mss::TextAlign::DEFAULT, 400);
+            list.push_text_singleline(
+                &self.placeholder,
+                text_rect,
+                placeholder_color,
+                14.0,
+                crate::mss::TextAlign::DEFAULT,
+                400,
+            );
         } else {
             if let Some((sel_start, sel_end)) = self.selection.range(self.cursor_pos) {
                 let sel_color = self.mss.selection_color_or_default();
@@ -313,7 +320,14 @@ impl Element for AutocompleteElement {
                     self.mss.font_family.clone(),
                 );
             }
-            list.push_text_singleline(&self.text, text_rect, fg, 14.0, crate::mss::TextAlign::DEFAULT, 400);
+            list.push_text_singleline(
+                &self.text,
+                text_rect,
+                fg,
+                14.0,
+                crate::mss::TextAlign::DEFAULT,
+                400,
+            );
         }
 
         if self.focused {
@@ -445,7 +459,14 @@ impl Element for AutocompleteElement {
                 } else {
                     popup_fg
                 };
-                list.push_text_singleline(text, ir, text_color, 14.0, crate::mss::TextAlign::DEFAULT, 400);
+                list.push_text_singleline(
+                    text,
+                    ir,
+                    text_color,
+                    14.0,
+                    crate::mss::TextAlign::DEFAULT,
+                    400,
+                );
             }
 
             list.pop_clip();
