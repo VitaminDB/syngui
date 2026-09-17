@@ -17,13 +17,13 @@ pub enum StyleValue {
 }
 
 impl From<crate::core::Color> for StyleValue {
+    /// `core::Color` хранит линейные компоненты, MSS — sRGB-байты, которые
+    /// линеаризуются при применении. Линейные значения байтами как есть
+    /// проходили гамму дважды: `.style("background-color",
+    /// Color::from_hex("#243149"))` рисовался почти чёрным.
     fn from(c: crate::core::Color) -> Self {
-        StyleValue::Color(Color::rgba(
-            (c.r * 255.0) as u8,
-            (c.g * 255.0) as u8,
-            (c.b * 255.0) as u8,
-            (c.a * 255.0) as u8,
-        ))
+        let [r, g, b] = c.to_srgb_u8();
+        StyleValue::Color(Color::rgba(r, g, b, (c.a.clamp(0.0, 1.0) * 255.0).round() as u8))
     }
 }
 
@@ -336,5 +336,18 @@ impl Color {
 impl Default for Color {
     fn default() -> Self {
         Self::rgb(0, 0, 0)
+    }
+}
+
+#[cfg(test)]
+mod core_color_tests {
+    use super::*;
+
+    #[test]
+    fn core_color_keeps_its_hex_in_inline_style() {
+        let v = StyleValue::from(crate::core::Color::from_hex("#243149"));
+        assert_eq!(v, StyleValue::Color(Color::rgba(0x24, 0x31, 0x49, 255)));
+        let v = StyleValue::from(crate::core::Color::from_hex("#EE5E4833"));
+        assert_eq!(v, StyleValue::Color(Color::rgba(0xEE, 0x5E, 0x48, 0x33)));
     }
 }
