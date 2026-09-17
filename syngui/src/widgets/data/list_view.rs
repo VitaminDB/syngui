@@ -101,6 +101,7 @@ pub struct ListView {
     selected_signal_offset: usize,
     on_reach_top: Option<Arc<Mutex<dyn FnMut() + Send>>>,
     reach_top_threshold: f32,
+    scroll_to: Option<(usize, u64)>,
 }
 
 impl ListView {
@@ -120,6 +121,7 @@ impl ListView {
             selected_signal_offset: 0,
             on_reach_top: None,
             reach_top_threshold: 0.0,
+            scroll_to: None,
         }
     }
 
@@ -145,6 +147,7 @@ impl ListView {
             selected_signal_offset: 0,
             on_reach_top: None,
             reach_top_threshold: 0.0,
+            scroll_to: None,
         }
     }
 
@@ -202,6 +205,15 @@ impl ListView {
         self
     }
 
+    /// Прокрутить так, чтобы строка `index` целиком попала в видимую
+    /// область; видимая строка остаётся на месте. `generation` отличает
+    /// новый запрос от повтора того же: пока номер не изменился,
+    /// перестроение списка не возвращает прокрутку к строке.
+    pub fn scroll_to(mut self, index: usize, generation: u64) -> Self {
+        self.scroll_to = Some((index, generation));
+        self
+    }
+
     pub fn on_reach_top(mut self, threshold_px: f32, f: impl FnMut() + Send + 'static) -> Self {
         self.reach_top_threshold = threshold_px.max(0.0);
         self.on_reach_top = Some(Arc::new(Mutex::new(f)));
@@ -254,6 +266,8 @@ impl Widget for ListView {
             on_reach_top: self.on_reach_top.clone(),
             reach_top_threshold: self.reach_top_threshold,
             was_above_reach_top: true,
+            scroll_to_generation: self.scroll_to.map_or(0, |(_, generation)| generation),
+            pending_scroll_to: self.scroll_to.map(|(index, _)| index),
         })
     }
 
@@ -305,6 +319,8 @@ pub struct ListViewElement {
     on_reach_top: Option<Arc<Mutex<dyn FnMut() + Send>>>,
     reach_top_threshold: f32,
     was_above_reach_top: bool,
+    scroll_to_generation: u64,
+    pending_scroll_to: Option<usize>,
 }
 
 impl ListViewElement {
@@ -361,6 +377,29 @@ impl ListViewElement {
             }
         }
         self.was_above_reach_top = above;
+    }
+
+    fn scroll_row_into_view(&mut self, index: usize) {
+        if index >= self.item_count() {
+            return;
+        }
+        let top = index as f32 * self.item_height;
+        let bottom = top + self.item_height;
+        let viewport = self.bounds.size.height;
+        let target = if top < self.scroll_offset {
+            top
+        } else if bottom > self.scroll_offset + viewport {
+            bottom - viewport
+        } else {
+            return;
+        };
+        self.scroll_offset = target.clamp(0.0, self.max_scroll());
+        self.velocity = 0.0;
+        if !self.compositional {
+            self.ensure_cached_for_viewport();
+        }
+        self.check_reach_top();
+        self.scrollbar_fader.flash();
     }
 
     fn effective_selected(&self) -> Vec<usize> {
@@ -498,6 +537,12 @@ impl Element for ListViewElement {
             self.selected_signal_offset = lv.selected_signal_offset;
             self.item_widget_builder = lv.item_widget.clone();
             self.compositional = lv.item_widget.is_some();
+            if let Some((index, generation)) = lv.scroll_to {
+                if generation != self.scroll_to_generation {
+                    self.scroll_to_generation = generation;
+                    self.pending_scroll_to = Some(index);
+                }
+            }
             if self.compositional {
                 self.needs_child_rebuild = true;
             }
@@ -525,6 +570,9 @@ impl Element for ListViewElement {
         };
         self.bounds = Rect::new(Point::zero(), Size::new(w, h));
         if !self.compositional {
+            if let Some(index) = self.pending_scroll_to.take() {
+                self.scroll_row_into_view(index);
+            }
             self.ensure_cached_for_viewport();
         }
         Size::new(w, h)
@@ -964,9 +1012,14 @@ impl Element for ListViewElement {
         }
     }
 
+    /// В режиме `item_widget` высота содержимого известна только здесь,
+    /// после раскладки строк, — поэтому и прокрутка к строке здесь.
     fn set_content_size(&mut self, size: Size) {
         if self.compositional {
             self.actual_content_height = size.height;
+            if let Some(index) = self.pending_scroll_to.take() {
+                self.scroll_row_into_view(index);
+            }
         }
     }
 
@@ -1072,5 +1125,117 @@ impl StyledElement for ListViewElement {
     fn set_classes(&mut self, classes: Vec<String>) {
         self.classes = classes;
         self.mark_dirty(DirtyFlags::RENDER);
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{ListItem, ListView};
+    use crate::prelude::*;
+    use crate::signal::use_signal;
+    use crate::testing::TestHarness;
+    use crate::widgets::containers::reactive::Reactive;
+
+    const ROW_H: f32 = 20.0;
+    const VIEW_H: f32 = 100.0;
+    const ROWS: usize = 50;
+    const MSS: &str = ".row { height: 20px; }";
+
+    fn harness(request: RwSignal<(usize, u64)>, compositional: bool) -> TestHarness {
+        TestHarness::new(Box::new(Reactive::new(move || -> Vec<Box<dyn Widget>> {
+            let (index, generation) = request.get();
+            let mut list = ListView::virtual_new(ROWS, |i| ListItem::new(format!("{i}")))
+                .item_height(ROW_H)
+                .height(VIEW_H);
+            if compositional {
+                list = list.item_widget(|_, _, _, _| {
+                    Box::new(DecoratedBox::new().class("row")) as Box<dyn Widget>
+                });
+            }
+            if generation > 0 {
+                list = list.scroll_to(index, generation);
+            }
+            vec![Box::new(list) as Box<dyn Widget>]
+        })))
+    }
+
+    fn offset(h: &TestHarness) -> f32 {
+        let id = h.find_by_type_name("ListView")[0];
+        h.tree.get(id).expect("ListView").scroll_offset().y
+    }
+
+    /// Строка ниже видимой области встаёт к нижнему краю, выше — к верхнему,
+    /// видимая строка прокрутку не двигает.
+    #[test]
+    fn scroll_to_reveals_row_with_minimal_scroll() {
+        let request = use_signal((0usize, 0u64));
+        let mut h = harness(request, true);
+        let engine = h.apply_mss(MSS);
+        h.frame(Some(&engine), 300.0, VIEW_H);
+        assert_eq!(offset(&h), 0.0);
+
+        request.set((30, 1));
+        h.frame(Some(&engine), 300.0, VIEW_H);
+        assert_eq!(offset(&h), 31.0 * ROW_H - VIEW_H);
+
+        request.set((28, 2));
+        h.frame(Some(&engine), 300.0, VIEW_H);
+        assert_eq!(offset(&h), 31.0 * ROW_H - VIEW_H);
+
+        request.set((3, 3));
+        h.frame(Some(&engine), 300.0, VIEW_H);
+        assert_eq!(offset(&h), 3.0 * ROW_H);
+    }
+
+    /// Перестроение с тем же номером запроса не возвращает прокрутку к
+    /// строке — пользователь мог уже прокрутить список сам.
+    #[test]
+    fn same_generation_does_not_scroll_again() {
+        let request = use_signal((40usize, 1u64));
+        let mut h = harness(request, true);
+        let engine = h.apply_mss(MSS);
+        h.frame(Some(&engine), 300.0, VIEW_H);
+        let revealed = offset(&h);
+        assert_eq!(revealed, 41.0 * ROW_H - VIEW_H);
+
+        h.send_event(&crate::input::Event::MouseWheel {
+            delta: revealed,
+            delta_x: 0.0,
+            position: crate::core::Point::new(10.0, 10.0),
+        });
+        assert_eq!(offset(&h), 0.0);
+
+        request.set((40, 1));
+        h.frame(Some(&engine), 300.0, VIEW_H);
+        assert_eq!(offset(&h), 0.0);
+    }
+
+    /// Обычный список (без `item_widget`) прокручивается так же и
+    /// подгружает строки новой видимой области.
+    #[test]
+    fn scroll_to_works_without_item_widget() {
+        let request = use_signal((0usize, 0u64));
+        let mut h = harness(request, false);
+        h.frame(None, 300.0, VIEW_H);
+        request.set((45, 1));
+        h.frame(None, 300.0, VIEW_H);
+        let painted: Vec<String> = h
+            .paint()
+            .iter_all_commands()
+            .filter_map(|command| match command {
+                crate::render::display_list::DrawCommand::Text { text, .. } => {
+                    Some(text.to_string())
+                }
+                _ => None,
+            })
+            .collect();
+        assert!(
+            painted.iter().any(|t| t == "45"),
+            "строка 45 не видна: {painted:?}"
+        );
+        assert!(
+            !painted.iter().any(|t| t == "0"),
+            "список не прокрутился: {painted:?}"
+        );
     }
 }

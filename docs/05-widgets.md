@@ -735,7 +735,15 @@ ListView::virtual_new(10_000, |index| {
 })
 .item_height(48.0)
 .buffer_size(5)                       // Items buffered outside viewport
+.scroll_to(row, generation)           // Reveal a row once per generation
 ```
+
+`scroll_to(index, generation)` scrolls the minimum needed to show the whole
+row: a row below the viewport lands at the bottom edge, above — at the top, a
+visible row stays put. The request runs again only when `generation` changes,
+so rebuilding the list does not pull the user back after they scrolled away.
+With `item_widget` rows are positioned by `item_height`, so each row widget
+must be exactly that tall.
 
 ### TableView
 
