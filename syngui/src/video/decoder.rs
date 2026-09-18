@@ -1,4 +1,4 @@
-use std::sync::atomic::{AtomicI64, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicI64, Ordering};
 use std::sync::mpsc::{self, Receiver, Sender, SyncSender, TryRecvError};
 use std::sync::Arc;
 use std::thread::{self, JoinHandle};
@@ -129,6 +129,9 @@ pub struct VideoDecoder {
     cmd_tx: Sender<DecoderCmd>,
     join: Option<JoinHandle<Result<(), VideoError>>>,
     audio_base_pts: Arc<AtomicI64>,
+    /// Демуксер дошёл до конца, и декодер отдал всё, что в нём было;
+    /// сбрасывается перемоткой.
+    eof: Arc<AtomicBool>,
 }
 
 /// «pts ещё неизвестен» в [`VideoDecoder::audio_base_pts_sec`].
@@ -274,6 +277,8 @@ impl VideoDecoder {
         let meta_thread = meta.clone();
         let audio_base_pts = Arc::new(AtomicI64::new(PTS_UNKNOWN));
         let audio_base_thread = audio_base_pts.clone();
+        let eof = Arc::new(AtomicBool::new(false));
+        let eof_thread = eof.clone();
         let join = thread::Builder::new()
             .name("syngui-video-decoder".into())
             .spawn(move || {
@@ -285,6 +290,7 @@ impl VideoDecoder {
                     audio_tx_opt,
                     cmd_rx,
                     &audio_base_thread,
+                    &eof_thread,
                 );
                 if let Err(e) = &r {
                     log::error!("video: поток декодера завершился с ошибкой: {e}");
@@ -300,6 +306,7 @@ impl VideoDecoder {
             cmd_tx,
             join: Some(join),
             audio_base_pts,
+            eof,
         })
     }
 
@@ -340,7 +347,14 @@ impl VideoDecoder {
     }
 
     pub fn seek(&self, sec: f64) {
+        self.eof.store(false, Ordering::Release);
         let _ = self.cmd_tx.send(DecoderCmd::SeekSec(sec));
+    }
+
+    /// Поток прочитан до конца и всё декодированное отдано в очереди (кадры
+    /// могут ещё ждать показа). Перемотка сбрасывает флаг.
+    pub fn reached_eof(&self) -> bool {
+        self.eof.load(Ordering::Acquire)
     }
 
     pub fn re_attach_audio(&self) -> Option<Receiver<Vec<f32>>> {
@@ -473,6 +487,7 @@ fn run_decoder_thread(
     mut audio_tx: Option<SyncSender<Vec<f32>>>,
     cmd_rx: Receiver<DecoderCmd>,
     audio_base: &AtomicI64,
+    eof: &AtomicBool,
 ) -> Result<(), VideoError> {
     let v_idx = ictx
         .streams()
@@ -772,6 +787,7 @@ fn run_decoder_thread(
                         }
                     }
                 }
+                eof.store(true, Ordering::Release);
                 // На EOF поток чтения сам ждёт команду и пакетов больше не
                 // пришлёт: из ожидания выходим только перемоткой (она заново
                 // запускает чтение) или остановкой. Раньше Pause/Resume и
@@ -782,6 +798,9 @@ fn run_decoder_thread(
                 loop {
                     match cmd_rx.recv() {
                         Ok(DecoderCmd::SeekSec(t)) => {
+                            // `VideoDecoder::seek` сбросил флаг до команды, но
+                            // EOF мог выставиться уже после — сбрасываем снова.
+                            eof.store(false, Ordering::Release);
                             perform_seek(
                                 &mut reader,
                                 &mut seek_gen,

@@ -27,6 +27,10 @@ const AUDIO_START_GRACE: WebDuration = WebDuration::from_secs(10);
 /// иначе `VideoView` тикал бы на паузе бесконечно.
 const SEEK_PREVIEW_WAIT: WebDuration = WebDuration::from_secs(2);
 
+/// Столько без кадров после EOF — и ролик считается доигранным
+/// (`VideoPlayer::is_ended`): последние кадры очереди успевают показаться.
+const ENDED_AFTER: WebDuration = WebDuration::from_secs(1);
+
 struct PlayerShared {
     paused: AtomicBool,
     duration_sec: f64,
@@ -249,7 +253,7 @@ impl VideoPlayer {
     /// Кадры не приходят дольше 0,7 с при воспроизведении и не в конце —
     /// сеть/декодер не успевают, UI может показать «буферизация».
     pub fn is_buffering(&self) -> bool {
-        if self.is_paused() {
+        if self.is_paused() || self.decoder.reached_eof() {
             return false;
         }
         let dur = self.shared.duration_sec;
@@ -257,6 +261,20 @@ impl VideoPlayer {
             return false;
         }
         self.last_frame_at.elapsed() > WebDuration::from_millis(700)
+    }
+
+    /// Воспроизведение дошло до конца: поток прочитан до EOF, а кадров нет
+    /// дольше `ENDED_AFTER` — очередь пуста, либо звук кончился раньше
+    /// картинки и часы встали. На паузе — `false`. По нему приложение
+    /// запускает следующий ролик (серию, трек плейлиста).
+    ///
+    /// EOF у сетевого потока бывает и преждевременным (HLS после
+    /// исчерпанных повторов сегмента), поэтому решение «досмотрено» стоит
+    /// сверять ещё и с `position_sec` / `duration_sec`.
+    pub fn is_ended(&self) -> bool {
+        !self.is_paused()
+            && self.decoder.reached_eof()
+            && self.last_frame_at.elapsed() > ENDED_AFTER
     }
 
     pub fn poll_frame(&mut self) -> Option<VideoFrame> {
