@@ -135,3 +135,30 @@ fn seek_while_paused_yields_one_preview_frame() {
     std::thread::sleep(Duration::from_millis(100));
     assert!(player.poll_frame().is_none(), "дальше на паузе кадров нет");
 }
+
+/// Пауза в конце ролика не вешает остановку декодера. На EOF поток чтения
+/// ждёт команду и пакетов больше не шлёт, а декодер после Pause возвращался
+/// к `item_rx.recv()` и вставал навсегда: Stop из `Drop` он не видел, и
+/// `join` вешал поток, отпускавший плеер, — UI при закрытии просмотра
+/// (плеер synthos ставит паузу в конце ролика). Теперь на EOF декодер ждёт
+/// только перемотку или остановку; проверка — `drop` быстрее своего
+/// фолбэка (`DROP_JOIN_WAIT`, 300 мс), то есть поток действительно вышел.
+#[test]
+fn drop_after_pause_at_eof_is_quick() {
+    let path = fixture();
+    let mut player = VideoPlayer::open(path.to_str().unwrap()).expect("open");
+    player.set_volume(0.0);
+    // Остаток в 0,2 с влезает в очередь кадров: декодер дочитывает до EOF и
+    // ждёт команду, даже если кадры никто не забирает.
+    player.seek(1.8).expect("seek");
+    std::thread::sleep(Duration::from_millis(500));
+    player.pause();
+    std::thread::sleep(Duration::from_millis(50));
+    let started = Instant::now();
+    drop(player);
+    let took = started.elapsed();
+    assert!(
+        took < Duration::from_millis(250),
+        "drop плеера после паузы на EOF занял {took:?}"
+    );
+}

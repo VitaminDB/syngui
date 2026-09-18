@@ -377,6 +377,11 @@ impl VideoDecoder {
     }
 }
 
+/// Сколько `Drop` декодера ждёт выхода его потока. Отпускает плеер чаще
+/// всего UI-поток (виджет удалили из дерева): обычно поток выходит за
+/// миллисекунды, а если нет — ждать дальше значит повесить окно.
+const DROP_JOIN_WAIT: Duration = Duration::from_millis(300);
+
 impl Drop for VideoDecoder {
     fn drop(&mut self) {
         let _ = self.cmd_tx.send(DecoderCmd::Stop);
@@ -386,7 +391,24 @@ impl Drop for VideoDecoder {
             let (_dummy_tx, dummy_rx) = mpsc::sync_channel::<VideoFrame>(1);
             drop(std::mem::replace(&mut self.video_rx, dummy_rx));
             drop(self.audio_rx.take());
-            let _ = j.join();
+            let deadline = Instant::now() + DROP_JOIN_WAIT;
+            while !j.is_finished() && Instant::now() < deadline {
+                thread::sleep(Duration::from_millis(2));
+            }
+            if j.is_finished() {
+                let _ = j.join();
+            } else {
+                // Поток не вышел (сеть, зависший ffmpeg, ошибка логики) —
+                // дожидаемся его в фоне: лучше повисший поток, чем окно.
+                log::warn!(
+                    "[syngui/video] декодер не остановился за {DROP_JOIN_WAIT:?}, join в фоне"
+                );
+                let _ = thread::Builder::new()
+                    .name("syngui-video-join".into())
+                    .spawn(move || {
+                        let _ = j.join();
+                    });
+            }
         }
     }
 }
@@ -750,28 +772,49 @@ fn run_decoder_thread(
                         }
                     }
                 }
-                match cmd_rx.recv() {
-                    Ok(DecoderCmd::SeekSec(t)) => {
-                        perform_seek(&mut reader, &mut seek_gen, &mut v_dec, audio.as_mut(), t)?;
-                        reset_audio_base(audio.as_mut(), audio_base);
-                        stages.first_frame_pending = true;
-                        video_skip_before = Some(t);
-                        if let Some(a) = audio.as_mut() {
-                            a.skip_before = Some(t);
+                // На EOF поток чтения сам ждёт команду и пакетов больше не
+                // пришлёт: из ожидания выходим только перемоткой (она заново
+                // запускает чтение) или остановкой. Раньше Pause/Resume и
+                // подмена звука/tee возвращали цикл к `item_rx.recv()`, где
+                // декодер вставал навсегда: Stop из `Drop` он уже не видел, и
+                // `join` вешал поток, который отпускал плеер (UI — при
+                // закрытии просмотра в конце ролика).
+                loop {
+                    match cmd_rx.recv() {
+                        Ok(DecoderCmd::SeekSec(t)) => {
+                            perform_seek(
+                                &mut reader,
+                                &mut seek_gen,
+                                &mut v_dec,
+                                audio.as_mut(),
+                                t,
+                            )?;
+                            reset_audio_base(audio.as_mut(), audio_base);
+                            stages.first_frame_pending = true;
+                            video_skip_before = Some(t);
+                            if let Some(a) = audio.as_mut() {
+                                a.skip_before = Some(t);
+                            }
+                            // Как перемотка на паузе выше: кадры новой
+                            // позиции декодируются сразу (превью под
+                            // ползунком), дальше очередь держит темп.
+                            paused = false;
+                            break;
                         }
+                        Ok(DecoderCmd::ReAttachAudio(new_tx)) => {
+                            audio_tx = Some(new_tx);
+                            reset_audio_base(audio.as_mut(), audio_base);
+                        }
+                        Ok(DecoderCmd::InstallVideoTee(tx)) => {
+                            tee_video = tx;
+                        }
+                        Ok(DecoderCmd::InstallAudioTee(tx)) => {
+                            tee_audio = tx;
+                        }
+                        Ok(DecoderCmd::Pause) => paused = true,
+                        Ok(DecoderCmd::Resume) => paused = false,
+                        Ok(DecoderCmd::Stop) | Err(_) => break 'main,
                     }
-                    Ok(DecoderCmd::ReAttachAudio(new_tx)) => {
-                        audio_tx = Some(new_tx);
-                        reset_audio_base(audio.as_mut(), audio_base);
-                    }
-                    Ok(DecoderCmd::InstallVideoTee(tx)) => {
-                        tee_video = tx;
-                    }
-                    Ok(DecoderCmd::InstallAudioTee(tx)) => {
-                        tee_audio = tx;
-                    }
-                    Ok(DecoderCmd::Stop) | Err(_) => break 'main,
-                    _ => {}
                 }
                 continue;
             }
