@@ -167,9 +167,11 @@ const TOOLTIP_MAX_WIDTH: f32 = 320.0;
 const TOOLTIP_FONT_SIZE: f32 = 12.0;
 
 impl ToolButtonElement {
+    /// `active` — MSS-состояние `:selected`: включённая кнопка-переключатель
+    /// перекрашивается правилами темы, а не только захардкоженным акцентом.
     fn start_transition_to_current_state(&mut self) {
         self.mss
-            .start_transition_to(self.hover, self.pressed, false, false);
+            .start_transition_to(self.hover, self.pressed, false, self.active);
     }
 
     fn hide_tip(&mut self) {
@@ -235,7 +237,10 @@ impl Element for ToolButtonElement {
             self.tooltip = btn.tooltip.clone();
             self.text = btn.text.clone();
             self.disabled = btn.disabled;
-            self.active = btn.active;
+            if self.active != btn.active {
+                self.active = btn.active;
+                self.start_transition_to_current_state();
+            }
             self.press_passthrough = btn.press_passthrough;
             // Кнопка стала disabled под курсором: событий она больше не
             // разбирает, hover и таймер подсказки замёрзли бы.
@@ -316,12 +321,12 @@ impl Element for ToolButtonElement {
         let fg = self.mss.color.unwrap_or(Color::from_hex("#374151"));
         let accent = self.mss.accent_color.unwrap_or(Color::from_hex("#3B82F6"));
 
+        let target = self
+            .mss
+            .target_props(self.hover, self.pressed, false, self.active);
         let (bg, icon_color) = if self.mss.has_mss_styles {
-            let target = self
-                .mss
-                .target_props(self.hover, self.pressed, false, false);
-            let bg = self.mss.effective_bg(&target, Color::TRANSPARENT);
-            let ic = self.mss.effective_fg(&target, fg);
+            let bg = self.mss.effective_bg(target, Color::TRANSPARENT);
+            let ic = self.mss.effective_fg(target, fg);
             (bg, ic)
         } else {
             let bg = if self.disabled {
@@ -347,10 +352,16 @@ impl Element for ToolButtonElement {
             .mss
             .border_radius_resolved(self.bounds.size.width.min(self.bounds.size.height), 6.0);
         let border_width = self.mss.border_width.unwrap_or(0.0);
+        // Цвет рамки — из текущего состояния (`:hover`, `:selected`) с
+        // переходом, как у фона; раньше бралась только базовая рамка.
         let border = if border_width > 0.0 {
             self.mss.border_color.map(|c| crate::Border {
                 width: border_width,
-                color: c,
+                color: if self.mss.has_mss_styles {
+                    self.mss.effective_border_color(target, c)
+                } else {
+                    c
+                },
             })
         } else {
             None
@@ -512,7 +523,6 @@ impl Element for ToolButtonElement {
                 EventResult::Handled
             }
             Event::KeyDown(Key::Enter) | Event::KeyDown(Key::Space) if self.focused => {
-                self.active = !self.active;
                 if let Some(ref cb) = self.on_click {
                     if let Ok(mut f) = cb.lock() {
                         f();
@@ -775,5 +785,61 @@ mod tooltip_geometry_tests {
         let el = element();
         let r = el.tooltip_rect(&"a".repeat(200), clip());
         assert_eq!(r.size.width, TOOLTIP_MAX_WIDTH + 16.0);
+    }
+}
+
+#[cfg(test)]
+mod active_style_tests {
+    use super::*;
+    use crate::render::DrawCommand;
+    use crate::testing::TestHarness;
+    use crate::widget::WidgetExt;
+
+    const MSS: &str = ".tb { background: #101010; color: #202020; border: 1 solid #303030; }
+         .tb:selected { background: #0000FF; color: #FFFFFF; border-color: #00FF00; }";
+
+    /// Фон, цвет рамки и цвет иконки кнопки по её отрисовке.
+    fn paint(active: bool) -> (Color, Option<Color>, Color) {
+        let mut h = TestHarness::new(Box::new(
+            ToolButton::new("x").active(active).class("tb"),
+        ));
+        h.apply_mss(MSS);
+        h.layout_loose(200.0, 200.0);
+        let dl = h.paint();
+        let (bg, border) = dl
+            .commands()
+            .iter()
+            .find_map(|c| match c {
+                DrawCommand::Rect { color, border, .. } => Some((*color, border.map(|b| b.color))),
+                _ => None,
+            })
+            .expect("фон кнопки");
+        let icon = dl
+            .commands()
+            .iter()
+            .find_map(|c| match c {
+                DrawCommand::Text { color, .. } => Some(*color),
+                _ => None,
+            })
+            .expect("иконка кнопки");
+        (bg, border, icon)
+    }
+
+    /// `active` у кнопки со стилями — это `:selected`: раньше он учитывался
+    /// только без MSS, и включённый переключатель выглядел как выключенный.
+    #[test]
+    fn active_button_uses_selected_style() {
+        let (bg, border, icon) = paint(true);
+        assert_eq!(bg, Color::from_hex("#0000FF"));
+        assert_eq!(border, Some(Color::from_hex("#00FF00")));
+        assert_eq!(icon, Color::from_hex("#FFFFFF"));
+    }
+
+    #[test]
+    fn inactive_button_keeps_base_style() {
+        let (bg, border, icon) = paint(false);
+        assert_eq!(bg, Color::from_hex("#101010"));
+        assert_eq!(border, Some(Color::from_hex("#303030")));
+        assert_eq!(icon, Color::from_hex("#202020"));
     }
 }
