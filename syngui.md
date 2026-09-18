@@ -1372,7 +1372,8 @@ GameTextInput съедает DPAD_LEFT/RIGHT. `Key` содержит `MediaPlayP
 
 **Экранная клавиатура** (`syngui/src/widgets/input/on_screen_keyboard.rs`,
 `syngui::widgets::*`): раскладки — `KeyboardLayout::text_ru_en("Найти")`,
-`text_en_ru(..)` (латиница первой — логин/пароль), `url_set("Открыть")`, или
+`text_en_ru(..)` (латиница первой — логин/пароль), `url_set("Открыть")`,
+`vec![KeyboardLayout::code("Сохранить")]` (токены и коды: цифры, A–Z, дефис), или
 свои из `KeyDef::ch / text / action` + `KeyAction`. Состояние —
 `KeyboardState::new("")` (сигналы `text/layout/focus/shift/active`), создаётся
 один раз в контексте приложения.

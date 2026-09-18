@@ -187,6 +187,25 @@ impl KeyboardLayout {
         Self::new("URL", rows)
     }
 
+    /// Коды и ключи (токены API, коды активации): цифры, заглавная латиница,
+    /// дефис. Одна раскладка, без регистра и пробела.
+    pub fn code(submit: &str) -> Self {
+        Self::new(
+            "CODE",
+            vec![
+                Self::row_of_chars("1234567890"),
+                Self::row_of_chars("QWERTYUIOP"),
+                Self::row_of_chars("ASDFGHJKL-"),
+                Self::row_of_chars("ZXCVBNM"),
+                vec![
+                    KeyDef::action("Стереть", KeyAction::Backspace, 2),
+                    KeyDef::action("Очистить", KeyAction::Clear, 2),
+                    KeyDef::action(submit, KeyAction::Submit, 3),
+                ],
+            ],
+        )
+    }
+
     /// Знаки для URL-набора (индекс 0 — обратно к URL).
     fn url_symbols(submit: &str) -> Self {
         let mut bottom = vec![KeyDef::action("URL", KeyAction::Layout(0), 2)];
