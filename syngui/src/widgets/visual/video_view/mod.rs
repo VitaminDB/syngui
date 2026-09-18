@@ -273,10 +273,15 @@ impl Element for VideoViewElement {
     }
 
     fn animate(&mut self, _dt: Duration) -> bool {
-        let (frame_opt, pos_sec, paused) = if let Ok(mut p) = self.player.lock() {
-            (p.poll_frame(), p.position_sec() as f32, p.is_paused())
+        // `ticking` — на паузе тоже, пока ждём кадр после перемотки
+        // (`VideoPlayer::wants_seek_preview`): иначе он придёт, а кадр UI,
+        // который его покажет, — нет.
+        let (frame_opt, pos_sec, ticking) = if let Ok(mut p) = self.player.lock() {
+            let frame = p.poll_frame();
+            let ticking = !p.is_paused() || p.wants_seek_preview();
+            (frame, p.position_sec() as f32, ticking)
         } else {
-            (None, 0.0, false)
+            (None, 0.0, true)
         };
         let mut changed = false;
         if let Some(frame) = frame_opt {
@@ -313,12 +318,12 @@ impl Element for VideoViewElement {
         if self.surface_mode {
             // Кадры рисует кодек: UI не перерисовываем, но продолжаем тикать,
             // чтобы планировать показ следующих кадров.
-            if !paused {
+            if ticking {
                 crate::app::request_tick(Duration::from_millis(40));
             }
             return changed;
         }
-        !paused
+        ticking
     }
 
     fn wants_animate_tick(&self) -> bool {

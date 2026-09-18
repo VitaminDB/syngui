@@ -22,6 +22,11 @@ const MAX_TOLERANCE_SEC: f64 = 0.020;
 /// секундами; а поток, где звук так и не пошёл, не должен висеть вечно.
 const AUDIO_START_GRACE: WebDuration = WebDuration::from_secs(10);
 
+/// Сколько ждать кадр новой позиции после перемотки на паузе. Перемотка в
+/// самый конец может не дать ни одного кадра — тогда ожидание снимается,
+/// иначе `VideoView` тикал бы на паузе бесконечно.
+const SEEK_PREVIEW_WAIT: WebDuration = WebDuration::from_secs(2);
+
 struct PlayerShared {
     paused: AtomicBool,
     duration_sec: f64,
@@ -59,6 +64,9 @@ pub struct VideoPlayer {
     /// Сколько перемоток отдано декодеру — кадры с меньшим
     /// `VideoFrame::seek_generation` устарели.
     seek_generation: u64,
+    /// Перемотка на паузе: до этого момента ждём первый кадр новой позиции,
+    /// чтобы показать его, не дожидаясь Play.
+    seek_preview_until: Option<Instant>,
     stats: FrameStats,
 }
 
@@ -116,6 +124,7 @@ impl VideoPlayer {
             poll_period_sec: 0.0,
             last_poll_at: None,
             seek_generation: 0,
+            seek_preview_until: None,
             stats: FrameStats::new(),
         })
     }
@@ -133,6 +142,7 @@ impl VideoPlayer {
             return;
         }
         self.shared.paused.store(false, Ordering::Relaxed);
+        self.seek_preview_until = None;
         if let Some(at) = self.paused_at.take() {
             self.paused_accum += at.elapsed();
         }
@@ -222,10 +232,18 @@ impl VideoPlayer {
         self.paused_accum = WebDuration::ZERO;
         if self.is_paused() {
             self.paused_at = Some(Instant::now());
+            self.seek_preview_until = Some(Instant::now() + SEEK_PREVIEW_WAIT);
         } else {
             self.paused_at = None;
         }
         Ok(())
+    }
+
+    /// После перемотки на паузе ещё не показан кадр новой позиции: пока это
+    /// так, `VideoView` продолжает опрашивать плеер (см. `poll_frame`).
+    pub fn wants_seek_preview(&self) -> bool {
+        self.seek_preview_until
+            .is_some_and(|until| Instant::now() < until)
     }
 
     /// Кадры не приходят дольше 0,7 с при воспроизведении и не в конце —
@@ -243,7 +261,7 @@ impl VideoPlayer {
 
     pub fn poll_frame(&mut self) -> Option<VideoFrame> {
         if self.is_paused() {
-            return None;
+            return self.poll_seek_preview();
         }
         // Звук в новый канал ещё не пошёл — часов нет, и кадр показать не к
         // чему (иначе картинка убежала бы вперёд и потом ждала звук).
@@ -355,6 +373,29 @@ impl VideoPlayer {
             self.stats.on_shown(f.pts_sec, clock, audible);
         }
         last
+    }
+
+    /// Кадр под ползунком после перемотки на паузе. Декодер после `seek` идёт
+    /// к цели и на паузе (кадры раньше цели он отбрасывает сам), а часы стоят
+    /// — обычный путь `poll_frame` ничего бы не показал, и картинка застыла
+    /// бы на старом месте до Play. Первый кадр новой позиции отдаём сразу;
+    /// остальные ждут в очереди продолжения воспроизведения.
+    fn poll_seek_preview(&mut self) -> Option<VideoFrame> {
+        let until = self.seek_preview_until?;
+        if Instant::now() >= until {
+            self.seek_preview_until = None;
+            return None;
+        }
+        let frame = match self.pending_frame.take() {
+            Some(f) => f,
+            None => self.recv_current_frame()?,
+        };
+        self.seek_preview_until = None;
+        self.last_frame_at = Instant::now();
+        if let Some(surface) = frame.surface.as_ref() {
+            surface.render();
+        }
+        Some(frame)
     }
 
     /// Следующий кадр из очереди, пропуская декодированные до последней

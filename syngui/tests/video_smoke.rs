@@ -102,3 +102,36 @@ fn player_polls_frames_after_play() {
         player.position_sec()
     );
 }
+
+/// Перемотка на паузе показывает кадр новой позиции, не дожидаясь Play:
+/// раньше `poll_frame` на паузе всегда отдавал `None`, и картинка под
+/// ползунком застывала на старом месте.
+#[test]
+fn seek_while_paused_yields_one_preview_frame() {
+    let path = fixture();
+    let mut player = VideoPlayer::open(path.to_str().unwrap()).expect("open");
+    player.set_volume(0.0);
+    player.pause();
+    player.seek(1.0).expect("seek");
+    assert!(player.wants_seek_preview());
+
+    let deadline = Instant::now() + Duration::from_millis(2000);
+    let mut frame = None;
+    while Instant::now() < deadline {
+        if let Some(f) = player.poll_frame() {
+            frame = Some(f);
+            break;
+        }
+        std::thread::sleep(Duration::from_millis(10));
+    }
+    let frame = frame.expect("кадр после перемотки на паузе");
+    assert!(
+        frame.pts_sec >= 0.9,
+        "кадр новой позиции, pts={}",
+        frame.pts_sec
+    );
+    assert!(player.is_paused(), "превью не снимает паузу");
+    assert!(!player.wants_seek_preview(), "превью — один кадр");
+    std::thread::sleep(Duration::from_millis(100));
+    assert!(player.poll_frame().is_none(), "дальше на паузе кадров нет");
+}
