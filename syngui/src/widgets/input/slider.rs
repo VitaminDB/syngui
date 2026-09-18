@@ -890,7 +890,14 @@ impl Element for SliderElement {
                 pos.y + 8.0,
             );
         } else {
-            self.track_bounds.origin = Point::new(pos.x + 8.0, pos.y + 10.0);
+            // По центру высоты, как в `layout`: жёсткие 10 px верны только
+            // для высоты 24 и дорожки 4 — при своей высоте из MSS ползунок
+            // (он центрируется по `bounds`) висел над дорожкой.
+            let track_h = self.track_bounds.size.height;
+            self.track_bounds.origin = Point::new(
+                pos.x + 8.0,
+                pos.y + (self.bounds.size.height - track_h) / 2.0,
+            );
         }
     }
 
@@ -1056,6 +1063,27 @@ mod tests {
         assert!(
             pos_max < pos_min,
             "max value должен быть выше: max_y={pos_max} min_y={pos_min}"
+        );
+    }
+
+    /// Дорожка по центру высоты и после `set_position`: ползунок рисуется
+    /// по центру `bounds`, и при своей высоте (MSS `height`, толщина
+    /// `min-height`) дорожка не должна уезжать от него.
+    #[test]
+    fn horizontal_track_centered_after_position() {
+        let s = Slider::new().range(0.0, 1.0).value(0.5);
+        let mut elem = direct(&s);
+        elem.mss.height = Some(Dimension::Px(18.0));
+        elem.mss.min_height = Some(Dimension::Px(4.0));
+        elem.layout(Constraints::tight(Size::new(300.0, 18.0)));
+        elem.set_position(Point::new(40.0, 100.0));
+        let track_mid = elem.track_bounds.y() + elem.track_bounds.size.height / 2.0;
+        let bounds_mid = elem.bounds.y() + elem.bounds.size.height / 2.0;
+        assert!(
+            (track_mid - bounds_mid).abs() < 0.01,
+            "дорожка {:?} не по центру {:?}",
+            elem.track_bounds,
+            elem.bounds
         );
     }
 

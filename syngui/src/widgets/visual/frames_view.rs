@@ -34,6 +34,7 @@ pub struct FramesView {
     position_signal: Option<RwSignal<f32>>,
     autoplay: bool,
     loop_playback: bool,
+    click_to_toggle: bool,
 }
 
 impl FramesView {
@@ -47,6 +48,7 @@ impl FramesView {
             position_signal: None,
             autoplay: false,
             loop_playback: true,
+            click_to_toggle: true,
         }
     }
 
@@ -83,6 +85,14 @@ impl FramesView {
         self
     }
 
+    /// `false` — клик по кадру не переключает play/pause: воспроизведением
+    /// управляет внешний плеер (часы, кнопки), а кадр лишь показывает
+    /// позицию из `position_signal`.
+    pub fn click_to_toggle(mut self, on: bool) -> Self {
+        self.click_to_toggle = on;
+        self
+    }
+
     fn natural_size(&self) -> (u32, u32) {
         self.frames
             .first()
@@ -109,6 +119,7 @@ impl Widget for FramesView {
             position_signal: self.position_signal,
             playing: self.autoplay,
             loop_playback: self.loop_playback,
+            click_to_toggle: self.click_to_toggle,
             t_sec: 0.0,
             last_idx: usize::MAX,
         })
@@ -148,6 +159,7 @@ pub struct FramesViewElement {
     position_signal: Option<RwSignal<f32>>,
     playing: bool,
     loop_playback: bool,
+    click_to_toggle: bool,
     t_sec: f64,
     last_idx: usize,
 }
@@ -240,6 +252,7 @@ impl Element for FramesViewElement {
             self.fps = v.fps;
             self.fit = v.fit;
             self.loop_playback = v.loop_playback;
+            self.click_to_toggle = v.click_to_toggle;
             self.classes = v.classes.clone();
             self.mark_dirty(DirtyFlags::RENDER);
         }
@@ -287,7 +300,10 @@ impl Element for FramesViewElement {
         ctx: &mut crate::widget::context::EventContext,
     ) -> EventResult {
         if let Event::MouseDown { button, position } = event {
-            if *button == MouseButton::Left && self.bounds.contains(*position) {
+            if self.click_to_toggle
+                && *button == MouseButton::Left
+                && self.bounds.contains(*position)
+            {
                 let on = !self.playing;
                 self.set_playing(on);
                 ctx.request_paint();
