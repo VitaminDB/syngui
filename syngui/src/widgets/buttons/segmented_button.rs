@@ -1,3 +1,4 @@
+use crate::animation::transition::mss_color_to_core;
 use crate::core::sync::Mutex;
 use crate::core::{Color, Point, Rect, RectExt, Size};
 use crate::input::{CursorIcon, Event, EventResult, Key, MouseButton};
@@ -104,6 +105,8 @@ impl Widget for SegmentedButton {
             text_measure: None,
             segment_padding: 16.0,
             segment_widths: Vec::new(),
+            selected_bg: None,
+            selected_fg: None,
         })
     }
 
@@ -138,6 +141,10 @@ pub struct SegmentedButtonElement {
     text_measure: Option<std::sync::Arc<dyn crate::widget::context::TextMeasure>>,
     segment_padding: f32,
     segment_widths: Vec<f32>,
+    /// `--selected-background`: заливка выбранного сегмента (по умолчанию `accent-color`).
+    selected_bg: Option<Color>,
+    /// `--selected-color`: текст и иконка выбранного сегмента (по умолчанию белый).
+    selected_fg: Option<Color>,
 }
 
 impl SegmentedButtonElement {
@@ -298,10 +305,16 @@ impl Element for SegmentedButtonElement {
             } else {
                 base_bg.darken(0.08)
             };
+            let selected_bg = self.selected_bg.unwrap_or(accent);
             let bg = if self.disabled {
                 base_bg.darken(0.02)
             } else if i == self.selected {
-                accent
+                // Полупрозрачная подложка ложится на фон сегмента, а не на то,
+                // что под виджетом.
+                if selected_bg.a < 1.0 {
+                    list.push_rect(seg_rect, base_bg, radius);
+                }
+                selected_bg
             } else if self.pressed_index == Some(i) || self.hovered_index == Some(i) {
                 hover_bg
             } else {
@@ -313,7 +326,7 @@ impl Element for SegmentedButtonElement {
             let text_col = if self.disabled {
                 base_fg.with_alpha(0.4)
             } else if i == self.selected {
-                Color::WHITE
+                self.selected_fg.unwrap_or(Color::WHITE)
             } else {
                 base_fg
             };
@@ -551,6 +564,8 @@ impl Element for SegmentedButtonElement {
 
     fn reset_mss_styles(&mut self) {
         self.mss.reset();
+        self.selected_bg = None;
+        self.selected_fg = None;
     }
     fn mss(&self) -> Option<&crate::mss::MssFields> {
         Some(&self.mss)
@@ -559,6 +574,15 @@ impl Element for SegmentedButtonElement {
         self.mss.apply(style);
         if let Some(v) = style.get("segment-padding").and_then(|v| v.as_px()) {
             self.segment_padding = v;
+        }
+        if let Some(c) = style
+            .get("--selected-background")
+            .and_then(|v| v.as_color())
+        {
+            self.selected_bg = Some(mss_color_to_core(c));
+        }
+        if let Some(c) = style.get("--selected-color").and_then(|v| v.as_color()) {
+            self.selected_fg = Some(mss_color_to_core(c));
         }
         self.mark_dirty(DirtyFlags::LAYOUT | DirtyFlags::RENDER);
     }
@@ -605,5 +629,71 @@ impl StyledElement for SegmentedButtonElement {
     fn set_classes(&mut self, classes: Vec<String>) {
         self.classes = classes;
         self.mark_dirty(DirtyFlags::RENDER);
+    }
+}
+
+#[cfg(test)]
+mod selected_style_tests {
+    use super::*;
+    use crate::render::DrawCommand;
+    use crate::testing::TestHarness;
+    use crate::widget::WidgetExt;
+
+    const BASE: &str = ".sb { background: #101010; color: #202020; accent-color: #0000FF; }";
+
+    /// Заливки прямоугольников и цвета текста, в порядке отрисовки.
+    fn paint(mss: &str) -> (Vec<Color>, Vec<Color>) {
+        let mut h = TestHarness::new(Box::new(
+            SegmentedButton::new(vec!["a", "b"]).selected(0).class("sb"),
+        ));
+        h.apply_mss(mss);
+        h.layout_loose(300.0, 100.0);
+        let dl = h.paint();
+        let mut rects = Vec::new();
+        let mut texts = Vec::new();
+        for c in dl.commands().iter() {
+            match c {
+                DrawCommand::Rect { color, .. } => rects.push(*color),
+                DrawCommand::Text { color, .. } => texts.push(*color),
+                _ => {}
+            }
+        }
+        (rects, texts)
+    }
+
+    /// Без своих свойств выбранный сегмент — `accent-color` и белый текст.
+    #[test]
+    fn default_selected_is_accent_with_white_text() {
+        let (rects, texts) = paint(BASE);
+        assert!(rects.contains(&Color::from_hex("#0000FF")));
+        assert_eq!(texts[0], Color::WHITE);
+        assert_eq!(texts[1], Color::from_hex("#202020"));
+    }
+
+    /// `--selected-background` / `--selected-color` задают выбранный сегмент:
+    /// белый текст на светлом акценте темы не читался.
+    #[test]
+    fn selected_custom_properties_override_accent() {
+        let mss =
+            format!("{BASE} .sb {{ --selected-background: #334455; --selected-color: #AABBCC; }}");
+        let (rects, texts) = paint(&mss);
+        assert!(rects.contains(&Color::from_hex("#334455")));
+        assert!(!rects.contains(&Color::from_hex("#0000FF")));
+        assert_eq!(texts[0], Color::from_hex("#AABBCC"));
+        assert_eq!(texts[1], Color::from_hex("#202020"));
+    }
+
+    /// Полупрозрачная подложка ложится на фон сегмента, а не на то, что под
+    /// виджетом.
+    #[test]
+    fn translucent_selected_background_sits_on_segment_background() {
+        let mss = format!("{BASE} .sb {{ --selected-background: rgba(0, 0, 255, 0.25); }}");
+        let (rects, _) = paint(&mss);
+        let sel = rects
+            .iter()
+            .position(|c| (c.a - 0.25).abs() < 0.01)
+            .expect("подложка выбранного сегмента");
+        assert!(sel > 0);
+        assert_eq!(rects[sel - 1], Color::from_hex("#101010"));
     }
 }

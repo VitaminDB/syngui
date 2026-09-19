@@ -426,6 +426,44 @@ mod tests {
         assert!(!b.transform_keeps_pixel_grid());
     }
 
+    fn shadow_data2(cutout: bool) -> Vec<[f32; 4]> {
+        let mut b = Batcher::new();
+        let rect = crate::core::Rect::new(
+            crate::core::Point::new(10.0, 10.0),
+            crate::core::Size::new(40.0, 20.0),
+        );
+        b.ensure_batch_rect(ShaderType::Shadow, None, ClipRect::full_screen(), rect);
+        b.add_shadow(
+            rect,
+            crate::core::Color::BLACK,
+            4.0,
+            (1.0, 2.0),
+            [4.0; 4],
+            cutout,
+        );
+        b.current_batch_mut()
+            .vertices
+            .iter()
+            .map(|v| v.data2)
+            .collect()
+    }
+
+    /// Внешняя тень несёт смещение и флаг выреза бокса элемента: шейдер не
+    /// рисует её под самим элементом, даже если теневой батч лёг после его
+    /// заливки (иначе тень затемняла кнопку).
+    #[test]
+    fn outer_shadow_cuts_out_own_box() {
+        let data2 = shadow_data2(true);
+        assert_eq!(data2.len(), 4);
+        assert!(data2.iter().all(|d| *d == [1.0, 2.0, 1.0, 0.0]));
+    }
+
+    /// Свечение рисуется и поверх элемента — без выреза.
+    #[test]
+    fn glow_shadow_has_no_cutout() {
+        assert!(shadow_data2(false).iter().all(|d| d[2] == 0.0));
+    }
+
     /// Масштаб и поворот сетку не сохраняют при любом смещении.
     #[test]
     fn scale_breaks_pixel_grid() {

@@ -416,7 +416,7 @@ impl Batcher {
                     self.add_inner_shadow(*rect, *color, *blur_radius, *offset, *corner_radius);
                 } else {
                     self.ensure_batch_rect(ShaderType::Shadow, None, *clip_rect, shadow_rect);
-                    self.add_shadow(*rect, *color, *blur_radius, *offset, *corner_radius);
+                    self.add_shadow(*rect, *color, *blur_radius, *offset, *corner_radius, true);
                 }
             }
             DrawCommand::GlowShadow {
@@ -435,7 +435,7 @@ impl Batcher {
                     *clip_rect,
                     rect.inflate(pad, pad),
                 );
-                self.add_shadow(*rect, *color, *blur_radius, *offset, *corner_radius);
+                self.add_shadow(*rect, *color, *blur_radius, *offset, *corner_radius, false);
             }
             DrawCommand::TextSelection {
                 text,

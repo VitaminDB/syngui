@@ -1,5 +1,7 @@
 // Shadow shader - SDF-based soft box shadow with Gaussian falloff
 // Vertex data: [blur_radius, corner_radius, rect_width, rect_height]
+// Vertex data2: [offset_x, offset_y, cutout, 0] — cutout > 0.5: не рисовать
+// внутри бокса самого элемента (он смещён от тени на -offset), как box-shadow в CSS.
 // The quad is expanded by blur_radius on all sides beyond the inner rect.
 // UV [0,1] maps over the expanded quad.
 
@@ -28,6 +30,7 @@ struct VertexOutput {
     @location(1) uv: vec2<f32>,
     @location(2) data: vec4<f32>,
     @location(3) logical_pos: vec2<f32>,
+    @location(4) data2: vec4<f32>,
 };
 
 @vertex
@@ -41,6 +44,7 @@ fn vs_main(in: VertexInput) -> VertexOutput {
     out.color = in.color;
     out.uv = in.uv;
     out.data = in.data;
+    out.data2 = in.data2;
     out.logical_pos = in.position;
 
     return out;
@@ -115,6 +119,13 @@ fn fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
         alpha = 1.0;
     } else {
         alpha = falloff;
+    }
+
+    // Вырез бокса элемента: гаснет на последнем пикселе внутрь от края, чтобы
+    // под сглаженной кромкой заливки не просвечивала щель.
+    if in.data2.z > 0.5 {
+        let d_elem = rounded_box_sdf(p + in.data2.xy, half_size, corner_radius);
+        alpha = alpha * smoothstep(-1.0, 0.0, d_elem);
     }
 
     return apply_rounded_clip(vec4<f32>(in.color.rgb, in.color.a * alpha), in.logical_pos);

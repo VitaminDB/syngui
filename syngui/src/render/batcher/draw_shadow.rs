@@ -2,6 +2,11 @@ use super::Batcher;
 use crate::render::Vertex;
 
 impl Batcher {
+    /// Внешняя тень. `cutout` — не рисовать её внутри бокса самого элемента
+    /// (как `box-shadow` в CSS): тени собираются в первый теневой батч группы
+    /// и могут лечь после заливки элемента — без выреза они затемняли бы его,
+    /// а сквозь полупрозрачный фон просвечивали бы. Свечение (`GlowShadow`)
+    /// рисуется и поверх элемента, ему вырез не нужен.
     pub(super) fn add_shadow(
         &mut self,
         rect: crate::core::Rect,
@@ -9,8 +14,10 @@ impl Batcher {
         blur_radius: f32,
         offset: (f32, f32),
         corner_radius: [f32; 4],
+        cutout: bool,
     ) {
         let color_array = self.apply_opacity(color.to_array());
+        let data2 = [offset.0, offset.1, if cutout { 1.0 } else { 0.0 }, 0.0];
 
         let expanded_x = rect.origin.x - blur_radius + offset.0;
         let expanded_y = rect.origin.y - blur_radius + offset.1;
@@ -36,28 +43,28 @@ impl Batcher {
                 uv: [0.0, 0.0],
                 color: color_array,
                 data,
-                data2: [0.0; 4],
+                data2,
             },
             Vertex {
                 position: p1,
                 uv: [1.0, 0.0],
                 color: color_array,
                 data,
-                data2: [0.0; 4],
+                data2,
             },
             Vertex {
                 position: p2,
                 uv: [1.0, 1.0],
                 color: color_array,
                 data,
-                data2: [0.0; 4],
+                data2,
             },
             Vertex {
                 position: p3,
                 uv: [0.0, 1.0],
                 color: color_array,
                 data,
-                data2: [0.0; 4],
+                data2,
             },
         ]);
         state
