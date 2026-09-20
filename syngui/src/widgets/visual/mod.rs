@@ -12,6 +12,7 @@ pub mod divider;
 pub mod frames_view;
 pub mod icon;
 pub mod image;
+pub mod image_viewport;
 #[cfg(feature = "map")]
 pub mod map_view;
 #[cfg(feature = "markdown")]
@@ -44,6 +45,7 @@ pub use divider::{Divider, DividerDirection};
 pub use frames_view::FramesView;
 pub use icon::Icon;
 pub use image::{Image, ImageFit};
+pub use image_viewport::{ImageViewCommand, ImageViewInfo, ImageViewport};
 #[cfg(feature = "map")]
 pub use map_view::{
     BuildingOverlay, BuildingShape, HeatOverlay, HeatPoint, MapMarker, MapView, MapViewport,

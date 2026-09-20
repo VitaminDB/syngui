@@ -58,7 +58,8 @@ pub use scroll::{ScrollDirection, ScrollView};
 pub use visual::{
     default_locale, set_default_locale, Avatar, Badge, BadgeSize, Calendar, CalendarLocale,
     CalendarTheme, Canvas, Card, Chip, CircularProgress, DateOrder, Divider, DividerDirection,
-    EmitKind, Icon, Image, ImageFit, ParticleSystem, ProgressBar, RichText, TextSpan,
+    EmitKind, Icon, Image, ImageFit, ImageViewCommand, ImageViewInfo, ImageViewport,
+    ParticleSystem, ProgressBar, RichText, TextSpan,
 };
 #[cfg(feature = "ffmpeg")]
 pub use visual::{video_player_view, VideoView};

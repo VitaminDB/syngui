@@ -851,7 +851,7 @@ TextField { width: 240px; background-color: var(--bg-search); … }
 `Column`, `Combobox`, `ContextMenu`, `DatePicker`, `DecoratedBox`, `Dialog`,
 `Divider`, `Draggable`, `DropArea`, `Dropdown`, `Flex`, `FloatingWindow`,
 `FramesView`, `GaugeChart`, `GestureDetector`, `Grid`, `HeatOverlay`, `Icon`,
-`Image`, `LineChart`, `ListView`, `MapView`, `MarkdownEditor`, `MarkdownView`,
+`Image`, `ImageViewport`, `LineChart`, `ListView`, `MapView`, `MarkdownEditor`, `MarkdownView`,
 `MultilineTextEdit`, `Multiselect`, `Named`, `Notification`, `OptionButton`,
 `Padding`, `Page`, `Pagination`, `PanZoomViewport`, `PieChart`, `PopupMenu`,
 `PopupPanel`, `Portal`, `Positioned`, `ProgressBar`, `PropertyGrid`,
@@ -1245,6 +1245,18 @@ PanZoomViewport::new()
     .grid(true).grid_step(24.0).pan_button(MouseButton::Middle)
     .on_background_click(|screen, world| {}).on_background_context_menu(..)
     .child(canvas)
+
+// Просмотр одной картинки: знает её размер, поэтому 100 % = пиксель в пиксель,
+// панорама ограничена краями, при переполнении — полосы прокрутки; колесо —
+// масштаб к курсору (плавно), двойной щелчок — вписать ↔ 100 %.
+// Команды снаружи — свойством с растущим номером (элемент исполняет её в
+// update при пересборке через Reactive), состояние наружу — сигналом info.
+ImageViewport::new(path)
+    .natural_size(w, h)                       // из метаданных: вид верен до декодирования
+    .command(seq, ImageViewCommand::Fit)      // ZoomIn/ZoomOut/Fit/Fill/Actual/ToggleFit/PanBy
+    .quarter_turns(1).flip(false, false)      // поворот четвертями, отражение
+    .insets(16.0, 16.0, 78.0, 16.0)           // поля под панели поверх области
+    .max_scale(16.0).info(info_sig)           // RwSignal<ImageViewInfo>
 
 // frameless-окно
 WindowDragRegion::new().child(titlebar)
