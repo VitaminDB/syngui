@@ -262,9 +262,10 @@ impl ElementTree {
                     ),
                     2 => (viewport.width - max_width - margin_b, margin_a),
                     3 => (margin_b, viewport.height - total_height - margin_a),
+                    // По центру поля значат смещение (окно двигают мышью).
                     _ => (
-                        (viewport.width - max_width) / 2.0,
-                        (viewport.height - total_height) / 2.0,
+                        (viewport.width - max_width) / 2.0 + margin_b,
+                        (viewport.height - total_height) / 2.0 + margin_a,
                     ),
                 };
                 let mut cy = y;

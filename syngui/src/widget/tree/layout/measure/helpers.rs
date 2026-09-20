@@ -1237,6 +1237,8 @@ impl ElementTree {
 
         if let Some(node) = self.elements.get_mut(&id) {
             node.element.set_content_size(content_size);
+            // Смещение от центра живёт в сигнале и попадает в подсказку.
+            node.refresh_hint_cache();
         }
 
         layout_log!(

@@ -47,6 +47,7 @@ pub struct Portal {
     backdrop_color: Color,
     width: Option<Dimension>,
     anchor: PortalAnchor,
+    offset: Option<RwSignal<Point>>,
     on_close: Option<Arc<Mutex<dyn FnMut() + Send>>>,
 }
 
@@ -61,8 +62,18 @@ impl Portal {
             backdrop_color: Color::new(0.0, 0.0, 0.0, 0.4),
             width: None,
             anchor: PortalAnchor::Center,
+            offset: None,
             on_close: None,
         }
+    }
+
+    /// Смещение содержимого от центра (только для [`PortalAnchor::Center`]):
+    /// окно, которое пользователь двигает мышью. Сигнал читается при
+    /// раскладке — чтобы она случилась, содержимое должно пересобираться по
+    /// этому же сигналу (прочитать его в замыкании-ребёнке).
+    pub fn offset(mut self, offset: RwSignal<Point>) -> Self {
+        self.offset = Some(offset);
+        self
     }
 
     pub fn child<M>(mut self, widget: impl IntoWidget<M>) -> Self {
@@ -127,6 +138,7 @@ impl Widget for Portal {
             backdrop_color: self.backdrop_color,
             width: self.width,
             anchor: self.anchor,
+            offset: self.offset,
             on_close: self.on_close.clone(),
             child_ids: Vec::new(),
             bounds: Rect::zero(),
@@ -175,6 +187,7 @@ struct PortalElement {
     backdrop_color: Color,
     width: Option<Dimension>,
     anchor: PortalAnchor,
+    offset: Option<RwSignal<Point>>,
     on_close: Option<Arc<Mutex<dyn FnMut() + Send>>>,
     child_ids: Vec<ElementId>,
     bounds: Rect,
@@ -205,6 +218,10 @@ impl PortalElement {
         ctx.request_paint();
     }
 
+    fn center_offset(&self) -> Point {
+        self.offset.map(|s| s.get_untracked()).unwrap_or(Point::zero())
+    }
+
     fn content_rect(&self) -> Rect {
         let viewport = self.viewport_size.get();
         let content = self.content_size.get();
@@ -215,7 +232,13 @@ impl PortalElement {
         };
         let h = content.height;
         let (x, y) = match self.anchor {
-            PortalAnchor::Center => ((viewport.width - w) / 2.0, (viewport.height - h) / 2.0),
+            PortalAnchor::Center => {
+                let o = self.center_offset();
+                (
+                    (viewport.width - w) / 2.0 + o.x,
+                    (viewport.height - h) / 2.0 + o.y,
+                )
+            }
             PortalAnchor::BottomEnd {
                 margin_bottom,
                 margin_right,
@@ -246,6 +269,7 @@ impl Element for PortalElement {
             self.backdrop_color = p.backdrop_color;
             self.width = p.width;
             self.anchor = p.anchor;
+            self.offset = p.offset;
             self.on_close = p.on_close.clone();
             self.mark_dirty(DirtyFlags::RENDER);
         }
@@ -272,7 +296,10 @@ impl Element for PortalElement {
 
     fn layout_hint(&self) -> LayoutHint {
         let (anchor, margin_a, margin_b) = match self.anchor {
-            PortalAnchor::Center => (0, 0.0, 0.0),
+            PortalAnchor::Center => {
+                let o = self.center_offset();
+                (0, o.y, o.x)
+            }
             PortalAnchor::BottomEnd {
                 margin_bottom,
                 margin_right,
