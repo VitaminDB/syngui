@@ -38,9 +38,11 @@ that's the point:
   granularly instead of re-running the whole view.
 - **Batteries genuinely included.** 110+ widgets across 10 categories, including things
   you normally vendor yourself: charts (line/bar/pie/radar/gauge), a tile map widget with
-  pan-zoom, an embedded terminal (PTY + VT100), a markdown view with syntax highlighting,
-  a rope-backed code editor, a block document editor, audio and video playback, and a
-  devtools inspector.
+  pan-zoom and clickable markers, an embedded terminal (PTY + VT100), a markdown view
+  with syntax highlighting,
+  a rope-backed code editor, a block document editor, a real video player (audio-clocked
+  playback, frame-accurate seeking including on a paused frame, hardware decode where
+  the system offers it), audio playback, and a devtools inspector.
 - **Retained-mode architecture.** Immutable `Widget` → stateful `Element`, diffed via
   `can_update()`, with dirty-flag propagation (layout / paint / state / children /
   animation). Familiar if you've used Flutter or React.
@@ -62,7 +64,7 @@ A Notion-style block editor, in the framework rather than in your app:
   diamond, lines, arrows, Bézier curves with direction handles) alongside the text.
 - Host API: `replace_markdown` / `append_markdown`, `on_block_drop`, block properties
   (colour, background, size, weight, alignment), a block tree, drag handles with a live
-  ghost of the dragged element.
+  ghost of the dragged element, and a selection toolbar the host can switch off.
 
 ## Performance
 
@@ -71,7 +73,8 @@ measured rather than assumed:
 
 - **VirtualList** — variable row heights, anchoring and stick-to-bottom; a long feed mounts
   a window of rows instead of the whole history (3.4 s → 5.8 ms per frame in the app that
-  drove this work).
+  drove this work). `ListView` does the same for widget-per-row lists, with
+  `scroll_to(index)`.
 - **Keyed children** — inserting in the middle does not recreate the neighbours.
 - **MSS cascade** — the rule index is built once per stylesheet, the cascade result is
   cached per element with a style diff, and dirtiness is marked point-wise on class changes.
@@ -146,7 +149,7 @@ fn build_ui() -> impl Widget {
 
 This is a young framework built by one person. It is used in production by its author
 (see [synthos](https://github.com/VitaminDB/synthos), a desktop AI studio built on it), has
-1 350+ tests, and carries no `todo!()` stubs — but you should know what's missing before you
+1 400+ tests, and carries no `todo!()` stubs — but you should know what's missing before you
 adopt it:
 
 - **Text shaping is simple.** Glyph advances are summed per-character. Latin, Cyrillic and
