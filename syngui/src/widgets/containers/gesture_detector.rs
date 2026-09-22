@@ -328,6 +328,13 @@ impl Element for GestureDetectorElement {
     fn set_position(&mut self, pos: Point) {
         self.bounds.origin = pos;
     }
+    /// Итоговый размер из раскладки. Собственный `layout` знает только
+    /// ограничения, и при неограниченной высоте (так контейнер измеряет
+    /// ребёнка, прежде чем раздать ему место по flex-grow) он даёт ноль —
+    /// область оставалась нулевой, и нажатия сквозь неё не проходили.
+    fn set_content_size(&mut self, size: Size) {
+        self.bounds.size = size;
+    }
     fn mark_dirty(&mut self, flags: DirtyFlags) {
         self.dirty_flags |= flags;
     }
