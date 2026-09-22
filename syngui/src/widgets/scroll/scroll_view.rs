@@ -15,8 +15,23 @@ use std::time::Duration;
 const FRICTION: f32 = 0.98;
 const MIN_VELOCITY: f32 = 0.3;
 const VELOCITY_SCALE: f32 = 25.0;
+/// Сдвиг пальца, после которого у жеста появляется ось. Меньше — случайное
+/// дрожание при касании решало бы направление.
+const TOUCH_AXIS_SLOP: f32 = 6.0;
 const SCROLLBAR_FADE_DELAY: f32 = 1.5;
 const SCROLLBAR_FADE_RATE: f32 = 3.0;
+
+/// Ось тач-жеста. Пока палец не сдвинулся заметно — `Undecided`; дальше жест
+/// принадлежит одной оси, а `Foreign` значит, что по этой оси область не
+/// прокручивается и жест отдан наружу: так вертикальный палец на
+/// горизонтальной ленте двигает страницу, а не ленту.
+#[derive(Clone, Copy, PartialEq)]
+enum TouchAxis {
+    Undecided,
+    X,
+    Y,
+    Foreign,
+}
 
 #[derive(Clone, Copy, Debug, Default)]
 pub enum ScrollDirection {
@@ -152,6 +167,7 @@ impl Widget for ScrollView {
 
             touch_drag_start: None,
             touch_id: None,
+            touch_axis: TouchAxis::Undecided,
         })
     }
 
@@ -222,6 +238,7 @@ pub struct ScrollViewElement {
 
     touch_drag_start: Option<Point>,
     touch_id: Option<u64>,
+    touch_axis: TouchAxis,
 }
 
 impl ScrollViewElement {
@@ -249,6 +266,21 @@ impl ScrollViewElement {
             ((self.bounds.size.width - self.content_size.width) * 0.5).max(0.0),
             ((self.bounds.size.height - self.content_size.height) * 0.5).max(0.0),
         )
+    }
+
+    /// Начало (или подхват) тач-жеста: дальше ось решается первым сдвигом.
+    fn begin_touch(&mut self, id: u64, position: Point) {
+        self.touch_drag_start = Some(position);
+        self.touch_id = Some(id);
+        self.touch_axis = TouchAxis::Undecided;
+        self.velocity = Point::zero();
+        self.is_coasting = false;
+    }
+
+    /// Есть ли куда двигать содержимое пальцем — хоть по одной оси.
+    fn touch_scrollable(&self) -> bool {
+        (self.can_scroll_y() && self.max_scroll_y() > 0.0)
+            || (self.can_scroll_x() && self.max_scroll_x() > 0.0)
     }
 
     fn max_scroll_x(&self) -> f32 {
@@ -749,60 +781,87 @@ impl Element for ScrollViewElement {
             }
 
             Event::TouchStart { id, position } => {
-                if !self.bounds.contains(*position) {
+                if !self.bounds.contains(*position) || !self.touch_scrollable() {
                     return EventResult::Ignored;
                 }
-                let can_y = self.can_scroll_y() && self.max_scroll_y() > 0.0;
-                let can_x = self.can_scroll_x() && self.max_scroll_x() > 0.0;
-                if !can_y && !can_x {
-                    return EventResult::Ignored;
-                }
-                self.touch_drag_start = Some(*position);
-                self.touch_id = Some(*id);
-                self.velocity = Point::zero();
-                self.is_coasting = false;
+                self.begin_touch(*id, *position);
                 EventResult::Handled
             }
 
             Event::TouchMove { id, position } => {
                 if self.touch_id != Some(*id) {
+                    // Жест мог начаться во вложенной ленте, которая по этой
+                    // оси не двигается и отдала его наружу — подхватываем на
+                    // лету, с текущей точки, чтобы содержимое не прыгнуло.
+                    if !self.bounds.contains(*position) || !self.touch_scrollable() {
+                        return EventResult::Ignored;
+                    }
+                    self.begin_touch(*id, *position);
+                    return EventResult::Handled;
+                }
+                if self.touch_axis == TouchAxis::Foreign {
                     return EventResult::Ignored;
                 }
-                if let Some(start) = self.touch_drag_start {
-                    let dy = start.y - position.y;
-                    let dx = start.x - position.x;
+                let Some(start) = self.touch_drag_start else {
+                    return EventResult::Ignored;
+                };
+                let dy = start.y - position.y;
+                let dx = start.x - position.x;
 
-                    if self.can_scroll_y() {
-                        self.scroll_offset.y =
-                            (self.scroll_offset.y + dy).clamp(0.0, self.max_scroll_y());
+                if self.touch_axis == TouchAxis::Undecided {
+                    // Ось жеста — по первому заметному сдвигу. Без этого
+                    // горизонтальная лента съедала бы вертикальные жесты
+                    // просто потому, что палец опустили на неё.
+                    if dx.abs().max(dy.abs()) < TOUCH_AXIS_SLOP {
+                        return EventResult::Handled;
                     }
-                    if self.can_scroll_x() {
-                        self.scroll_offset.x =
-                            (self.scroll_offset.x + dx).clamp(0.0, self.max_scroll_x());
+                    let horizontal = dx.abs() > dy.abs();
+                    let ours = if horizontal {
+                        self.can_scroll_x() && self.max_scroll_x() > 0.0
+                    } else {
+                        self.can_scroll_y() && self.max_scroll_y() > 0.0
+                    };
+                    if !ours {
+                        self.touch_axis = TouchAxis::Foreign;
+                        self.touch_drag_start = None;
+                        return EventResult::Ignored;
                     }
-
-                    let alpha = 0.3;
-                    self.velocity.y = self.velocity.y * (1.0 - alpha) + dy * VELOCITY_SCALE * alpha;
-                    self.velocity.x = self.velocity.x * (1.0 - alpha) + dx * VELOCITY_SCALE * alpha;
-
-                    self.touch_drag_start = Some(*position);
-                    self.refresh_stick();
-                    self.flash_scrollbar();
-                    ctx.request_paint();
-                    EventResult::Handled
-                } else {
-                    EventResult::Ignored
+                    self.touch_axis = if horizontal { TouchAxis::X } else { TouchAxis::Y };
                 }
+
+                // По обеим осям сразу двигается только `Both`: там жест
+                // свободный, и запирать его в одну ось незачем.
+                let free = matches!(self.direction, ScrollDirection::Both);
+                if self.can_scroll_y() && (free || self.touch_axis == TouchAxis::Y) {
+                    self.scroll_offset.y =
+                        (self.scroll_offset.y + dy).clamp(0.0, self.max_scroll_y());
+                    self.velocity.y = self.velocity.y * 0.7 + dy * VELOCITY_SCALE * 0.3;
+                }
+                if self.can_scroll_x() && (free || self.touch_axis == TouchAxis::X) {
+                    self.scroll_offset.x =
+                        (self.scroll_offset.x + dx).clamp(0.0, self.max_scroll_x());
+                    self.velocity.x = self.velocity.x * 0.7 + dx * VELOCITY_SCALE * 0.3;
+                }
+
+                self.touch_drag_start = Some(*position);
+                self.refresh_stick();
+                self.flash_scrollbar();
+                ctx.request_paint();
+                EventResult::Handled
             }
 
             Event::TouchEnd { id, .. } => {
                 if self.touch_id != Some(*id) {
                     return EventResult::Ignored;
                 }
+                let foreign = self.touch_axis == TouchAxis::Foreign;
                 self.touch_drag_start = None;
                 self.touch_id = None;
+                self.touch_axis = TouchAxis::Undecided;
 
-                if self.velocity.y.abs() > MIN_VELOCITY || self.velocity.x.abs() > MIN_VELOCITY {
+                if !foreign
+                    && (self.velocity.y.abs() > MIN_VELOCITY || self.velocity.x.abs() > MIN_VELOCITY)
+                {
                     self.is_coasting = true;
                 }
                 EventResult::Handled
