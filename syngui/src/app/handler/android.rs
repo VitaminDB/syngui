@@ -2,7 +2,7 @@ use super::AppHandler;
 
 impl AppHandler {
     #[cfg(target_os = "android")]
-    pub(super) fn update_safe_area(&mut self) {
+    pub(in crate::app) fn update_safe_area(&mut self) {
         use crate::core::EdgeInsets;
 
         let Some(ref android_app) = self.android_app else {
@@ -15,6 +15,15 @@ impl AppHandler {
         let result = unsafe { self.query_safe_area_jni(vm_ptr, activity_ptr) };
         match result {
             Ok(insets) => {
+                log::info!(
+                    "безопасная область: слева {:.0}, сверху {:.0}, справа {:.0}, снизу {:.0} \
+                     (масштаб {:.3})",
+                    insets.left,
+                    insets.top,
+                    insets.right,
+                    insets.bottom,
+                    self.effective_scale_factor()
+                );
                 self.tree.safe_area = insets;
             }
             Err(e) => {
@@ -39,6 +48,22 @@ impl AppHandler {
             .map_err(|e| format!("attach_thread: {}", e))?;
 
         let activity = JObject::from_raw(activity_ptr as jni::sys::jobject);
+
+        // Сначала — настоящие отступы окна: они знают, что строка состояния
+        // скрыта (в полноэкранном режиме её инсет нулевой), и учитывают вырез
+        // камеры, который в альбомной ориентации приходит сбоку. Статические
+        // dimen'ы ниже — запасной путь: они всегда резервируют полосу под
+        // строку состояния, даже когда её на экране нет.
+        // Пиксели окна делим на текущий эффективный масштаб: `scale_factor`
+        // обновляется позже по кадру (apply_ui_scale), и на старте он ещё
+        // старый — отступы уезжали во столько же раз, во сколько сменился
+        // масштаб интерфейса.
+        let sf = self.effective_scale_factor() as f32;
+        let cutout = !self.config.draw_under_cutout;
+        match Self::window_insets_jni(&mut env, &activity, sf, cutout) {
+            Ok(insets) => return Ok(insets),
+            Err(e) => log::debug!("отступы окна недоступны ({e}), беру dimen'ы системы"),
+        }
 
         let resources = env
             .call_method(
@@ -126,12 +151,89 @@ impl AppHandler {
             0
         };
 
-        let sf = self.scale_factor as f32;
         Ok(crate::core::EdgeInsets::new(
             0.0,
             status_px as f32 / sf,
             0.0,
             nav_px as f32 / sf,
+        ))
+    }
+
+    /// Отступы системных панелей и выреза камеры, как их видит само окно
+    /// (`View.getRootWindowInsets`, API 30+). Скрытая панель даёт ноль —
+    /// в отличие от `status_bar_height`/`navigation_bar_height`, которые
+    /// описывают панель безотносительно того, показана ли она.
+    #[cfg(target_os = "android")]
+    unsafe fn window_insets_jni(
+        env: &mut jni::JNIEnv,
+        activity: &jni::objects::JObject,
+        scale: f32,
+        cutout: bool,
+    ) -> Result<crate::core::EdgeInsets, String> {
+        use jni::objects::JValue;
+
+        let window = env
+            .call_method(activity, "getWindow", "()Landroid/view/Window;", &[])
+            .map_err(|e| format!("getWindow: {e}"))?
+            .l()
+            .map_err(|e| format!("getWindow cast: {e}"))?;
+        let decor = env
+            .call_method(&window, "getDecorView", "()Landroid/view/View;", &[])
+            .map_err(|e| format!("getDecorView: {e}"))?
+            .l()
+            .map_err(|e| format!("getDecorView cast: {e}"))?;
+        let insets = env
+            .call_method(
+                &decor,
+                "getRootWindowInsets",
+                "()Landroid/view/WindowInsets;",
+                &[],
+            )
+            .map_err(|e| format!("getRootWindowInsets: {e}"))?
+            .l()
+            .map_err(|e| format!("getRootWindowInsets cast: {e}"))?;
+        if insets.is_null() {
+            return Err("окно ещё не прикреплено к экрану".to_string());
+        }
+
+        // systemBars — строка состояния и панель навигации; вырез камеры
+        // добавляется к ним, если приложение не рисует под ним.
+        let mut mask = 0i32;
+        let kinds: &[&str] = if cutout {
+            &["systemBars", "displayCutout"]
+        } else {
+            &["systemBars"]
+        };
+        for kind in kinds {
+            mask |= env
+                .call_static_method("android/view/WindowInsets$Type", kind, "()I", &[])
+                .map_err(|e| format!("Type.{kind}: {e}"))?
+                .i()
+                .map_err(|e| format!("Type.{kind} cast: {e}"))?;
+        }
+        let rect = env
+            .call_method(
+                &insets,
+                "getInsets",
+                "(I)Landroid/graphics/Insets;",
+                &[JValue::Int(mask)],
+            )
+            .map_err(|e| format!("getInsets: {e}"))?
+            .l()
+            .map_err(|e| format!("getInsets cast: {e}"))?;
+
+        let mut side = |name: &str| -> Result<f32, String> {
+            env.get_field(&rect, name, "I")
+                .map_err(|e| format!("{name}: {e}"))?
+                .i()
+                .map(|v| v as f32 / scale)
+                .map_err(|e| format!("{name} cast: {e}"))
+        };
+        Ok(crate::core::EdgeInsets::new(
+            side("left")?,
+            side("top")?,
+            side("right")?,
+            side("bottom")?,
         ))
     }
 

@@ -53,6 +53,16 @@ pub use user_event::SynGuiUserEvent;
 #[cfg(target_os = "android")]
 pub use android_activity::AndroidApp;
 
+/// Телевизор ли устройство (`ui_mode = television` в конфигурации Android).
+/// Раскладку для ТВ смотрят с дивана, и то же дизайнерское разрешение
+/// ([`AppBuilder::design_size`]) на телефоне в руке даёт вдвое-втрое более
+/// мелкий интерфейс — приложению нужно выбрать своё.
+#[cfg(target_os = "android")]
+pub fn is_television(app: &AndroidApp) -> bool {
+    use android_activity::ndk::configuration::UiModeType;
+    app.config().ui_mode_type() == UiModeType::Television
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum GpuBackend {
     Auto,

@@ -124,6 +124,12 @@ impl winit::application::ApplicationHandler<SynGuiUserEvent> for AppHandler {
                 self.config.height = physical_size.height;
                 self.apply_design_scale();
 
+                // Поворот экрана, скрытие системных панелей и переход в
+                // многооконный режим меняют безопасную область — на Android
+                // её приходится спрашивать заново (см. update_safe_area).
+                #[cfg(target_os = "android")]
+                self.update_safe_area();
+
                 if let Some(gpu) = self.gpu.as_mut() {
                     gpu.window_surface.surface_config.width = physical_size.width;
                     gpu.window_surface.surface_config.height = physical_size.height;

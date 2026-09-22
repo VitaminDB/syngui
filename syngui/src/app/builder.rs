@@ -113,6 +113,8 @@ pub struct AppBuilder {
     pub(super) double_click_interval: Option<std::time::Duration>,
     pub(super) decorations: bool,
     pub(super) transparent: bool,
+    /// Android: рисовать ли под вырезом камеры (см. [`AppBuilder::draw_under_cutout`]).
+    pub(super) draw_under_cutout: bool,
     pub(super) fullscreen: bool,
     pub(super) width_ratio: Option<f32>,
     pub(super) height_ratio: Option<f32>,
@@ -178,6 +180,7 @@ impl AppBuilder {
             double_click_interval: None,
             decorations: true,
             transparent: false,
+            draw_under_cutout: false,
             fullscreen: false,
             width_ratio: None,
             height_ratio: None,
@@ -426,6 +429,16 @@ impl AppBuilder {
 
     pub fn transparent(mut self, transparent: bool) -> Self {
         self.transparent = transparent;
+        self
+    }
+
+    /// Android: занимать ли полосу с вырезом камеры. По умолчанию вырез
+    /// исключается из безопасной области — в альбомной ориентации это
+    /// чёрное поле во весь бок экрана. Полноэкранным приложениям (плеер,
+    /// галерея, игра) оно не нужно: картинка идёт от края до края, а
+    /// «дырка» камеры приходится на фон.
+    pub fn draw_under_cutout(mut self, under: bool) -> Self {
+        self.draw_under_cutout = under;
         self
     }
 
