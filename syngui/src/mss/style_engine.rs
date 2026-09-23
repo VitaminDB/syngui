@@ -753,6 +753,14 @@ impl ComputedStyle {
             .map(|v| v.max(0.0))
     }
 
+    /// `flex-shrink` — во сколько раз охотнее ребёнок `Column` отдаёт
+    /// высоту, когда дети не помещаются в конечную высоту колонки.
+    pub fn flex_shrink(&self) -> Option<f32> {
+        self.get("flex-shrink")
+            .and_then(|v| v.as_px())
+            .map(|v| v.max(0.0))
+    }
+
     pub fn font_weight(&self) -> Option<u16> {
         self.get("font-weight").and_then(|v| match v {
             StyleValue::Number(n) => Some(*n as u16),

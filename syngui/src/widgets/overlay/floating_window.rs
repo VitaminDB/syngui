@@ -722,6 +722,20 @@ impl Element for FloatingWindowElement {
         Size::zero()
     }
 
+    fn content_max_height(&self) -> Option<f32> {
+        let vh = self.viewport_size.height;
+        if vh <= 0.0 {
+            return None;
+        }
+        let max_h = self
+            .mss
+            .max_height
+            .map(|d| d.resolve(vh))
+            .unwrap_or(f32::INFINITY)
+            .min(vh);
+        Some((max_h - TITLE_BAR_HEIGHT - 2.0 * self.padding()).max(0.0))
+    }
+
     fn set_viewport_size(&mut self, size: Size) {
         self.viewport_size = size;
     }
@@ -750,8 +764,11 @@ impl Element for FloatingWindowElement {
     ) -> (Option<f32>, Option<f32>) {
         let pad = self.padding();
         let w = self.resolved_width();
+        // Высота окна с явным размером уже ужата по вьюпорту
+        // (`resolved_height`) — содержимое получает ту же, а не исходную
+        // высоту, иначе на маленьком экране низ окна (кнопки) обрезается.
         let content_h = if self.base_size.height > 0.0 {
-            Some((self.base_size.height - TITLE_BAR_HEIGHT - 2.0 * pad).max(0.0))
+            Some((self.resolved_height() - TITLE_BAR_HEIGHT - 2.0 * pad).max(0.0))
         } else {
             None
         };

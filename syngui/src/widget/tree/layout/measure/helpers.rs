@@ -11,6 +11,7 @@ struct ChildProbe {
     hint: LayoutHint,
     margin: EdgeInsets,
     mss_flex_grow: f32,
+    mss_flex_shrink: f32,
 }
 
 #[inline]
@@ -143,6 +144,7 @@ impl ElementTree {
                         hint,
                         margin,
                         mss_flex_grow: n.mss_flex_grow,
+                        mss_flex_shrink: n.mss_flex_shrink,
                     }
                 } else {
                     ChildProbe {
@@ -151,6 +153,7 @@ impl ElementTree {
                         hint: LayoutHint::default(),
                         margin: EdgeInsets::default(),
                         mss_flex_grow: 0.0,
+                        mss_flex_shrink: 0.0,
                     }
                 }
             })
@@ -175,6 +178,8 @@ impl ElementTree {
         // попапы/диалоги меряются в 0 и не должны раздвигать соседей.
         // Flex-дети — всегда участники: им ещё раздадут остаток.
         let mut gap_participants = 0usize;
+        // Дети с `flex-shrink`: (индекс, высота без полей, коэффициент).
+        let mut shrinkable: Vec<(u32, f32, f32)> = Vec::new();
         for probe in &child_probes {
             if let Some(flex) = probe_flex(probe) {
                 total_flex += flex;
@@ -208,12 +213,40 @@ impl ElementTree {
                 if h > 0.0 {
                     gap_participants += 1;
                 }
+                if probe.mss_flex_shrink > 0.0 && child_size.height > 0.0 {
+                    shrinkable.push((probe.idx, child_size.height, probe.mss_flex_shrink));
+                }
                 max_width = max_width.max(child_size.width + m.left + m.right);
             }
         }
         gap_participants += expanded_idx.len();
 
         let gap_space = gap * gap_participants.saturating_sub(1) as f32;
+
+        // `flex-shrink`, как в CSS: если дети не помещаются в конечную
+        // высоту колонки, недостающее забирается у сжимаемых детей
+        // пропорционально коэффициенту × высоте. Так диалог «по содержимому»
+        // остаётся не выше экрана: прокручиваемая середина сжимается, шапка
+        // и кнопки снизу остаются видны.
+        if !shrinkable.is_empty() && effective_max_height.is_finite() {
+            let overflow = total_fixed_height + gap_space - effective_max_height;
+            let weight: f32 = shrinkable.iter().map(|(_, h, k)| h * k).sum();
+            if overflow > 0.5 && weight > 0.0 {
+                for (cidx, h, k) in shrinkable {
+                    let cut = (overflow * h * k / weight).min(h);
+                    let target = (h - cut).max(0.0);
+                    let shrunk = Constraints {
+                        min_width: child_min_width,
+                        max_width: effective_max_width,
+                        min_height: target,
+                        max_height: target,
+                        containing_block: Size::new(child_cb.width, target),
+                    };
+                    let size = self.measure_recursive_by_idx(cidx, shrunk);
+                    total_fixed_height += size.height - h;
+                }
+            }
+        }
 
         // Главный размер колонки для flex-детей. Конечный максимум — как
         // раньше: колонка занимает его целиком. Если максимум бесконечен
@@ -380,6 +413,7 @@ impl ElementTree {
                         hint,
                         margin,
                         mss_flex_grow: n.mss_flex_grow,
+                        mss_flex_shrink: n.mss_flex_shrink,
                     }
                 } else {
                     ChildProbe {
@@ -388,6 +422,7 @@ impl ElementTree {
                         hint: LayoutHint::default(),
                         margin: EdgeInsets::default(),
                         mss_flex_grow: 0.0,
+                        mss_flex_shrink: 0.0,
                     }
                 }
             })
@@ -1279,11 +1314,35 @@ impl ElementTree {
                 explicit_h.unwrap_or(self.viewport_size.height),
             ),
         };
-        let mut content_size = Size::zero();
-        for &child_id in children {
-            let cs = self.measure_recursive(child_id, child_constraints);
-            content_size.width = content_size.width.max(cs.width);
-            content_size.height += cs.height;
+        let measure_children = |tree: &mut Self, c: Constraints| {
+            let mut size = Size::zero();
+            for &child_id in children {
+                let cs = tree.measure_recursive(child_id, c);
+                size.width = size.width.max(cs.width);
+                size.height += cs.height;
+            }
+            size
+        };
+        let mut content_size = measure_children(self, child_constraints);
+        // Окно «по содержимому» выше экрана: перемерить содержимое с
+        // конечной высотой, чтобы сжимаемая (`flex-shrink`) середина
+        // уступила место, а кнопки внизу не ушли за край. Окна, которые
+        // помещаются, меряются как раньше — без конечного максимума, иначе
+        // их flex-grow-дети растянулись бы на весь экран.
+        let content_max = if explicit_h.is_none() {
+            self.elements
+                .get(&id)
+                .and_then(|n| n.element.content_max_height())
+        } else {
+            None
+        };
+        if let Some(max_h) = content_max.filter(|m| content_size.height > *m + 0.5) {
+            let bounded = Constraints {
+                max_height: max_h,
+                containing_block: Size::new(child_constraints.containing_block.width, max_h),
+                ..child_constraints
+            };
+            content_size = measure_children(self, bounded);
         }
 
         if let Some(node) = self.elements.get_mut(&id) {

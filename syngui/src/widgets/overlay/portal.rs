@@ -43,6 +43,7 @@ pub struct Portal {
     is_open: RwSignal<bool>,
     modal: bool,
     close_on_outside_click: bool,
+    close_on_escape: bool,
     backdrop: bool,
     backdrop_color: Color,
     width: Option<Dimension>,
@@ -58,6 +59,7 @@ impl Portal {
             is_open: use_signal(false),
             modal: true,
             close_on_outside_click: true,
+            close_on_escape: true,
             backdrop: true,
             backdrop_color: Color::new(0.0, 0.0, 0.0, 0.4),
             width: None,
@@ -101,6 +103,14 @@ impl Portal {
         self
     }
 
+    /// Закрываться ли по Esc (по умолчанию да). Постоянные слои — хост
+    /// уведомлений, плавающие панели — Esc не глотают: иначе он не доходил
+    /// до приложения, а сам слой закрывался навсегда.
+    pub fn close_on_escape(mut self, close: bool) -> Self {
+        self.close_on_escape = close;
+        self
+    }
+
     pub fn backdrop(mut self, backdrop: bool) -> Self {
         self.backdrop = backdrop;
         self
@@ -134,6 +144,7 @@ impl Widget for Portal {
             is_open: self.is_open,
             modal: self.modal,
             close_on_outside_click: self.close_on_outside_click,
+            close_on_escape: self.close_on_escape,
             backdrop: self.backdrop,
             backdrop_color: self.backdrop_color,
             width: self.width,
@@ -183,6 +194,7 @@ struct PortalElement {
     is_open: RwSignal<bool>,
     modal: bool,
     close_on_outside_click: bool,
+    close_on_escape: bool,
     backdrop: bool,
     backdrop_color: Color,
     width: Option<Dimension>,
@@ -219,7 +231,9 @@ impl PortalElement {
     }
 
     fn center_offset(&self) -> Point {
-        self.offset.map(|s| s.get_untracked()).unwrap_or(Point::zero())
+        self.offset
+            .map(|s| s.get_untracked())
+            .unwrap_or(Point::zero())
     }
 
     fn content_rect(&self) -> Rect {
@@ -265,6 +279,7 @@ impl Element for PortalElement {
             self.is_open = p.is_open;
             self.modal = p.modal;
             self.close_on_outside_click = p.close_on_outside_click;
+            self.close_on_escape = p.close_on_escape;
             self.backdrop = p.backdrop;
             self.backdrop_color = p.backdrop_color;
             self.width = p.width;
@@ -384,7 +399,7 @@ impl Element for PortalElement {
                 }
                 EventResult::Ignored
             }
-            Event::KeyDown(crate::input::Key::Escape) => {
+            Event::KeyDown(crate::input::Key::Escape) if self.close_on_escape => {
                 self.close(ctx);
                 EventResult::Handled
             }

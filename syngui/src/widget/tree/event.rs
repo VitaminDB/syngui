@@ -21,6 +21,15 @@ impl ElementTree {
                 ctx.set_text_measure(tm.clone());
             }
             let result = node.element.handle_event(event, &mut ctx);
+            if result.is_handled()
+                && matches!(event, Event::KeyDown(_))
+                && std::env::var_os("SYNGUI_TRACE_KEYS").is_some()
+            {
+                eprintln!(
+                    "{event:?} поглощён элементом {} ({id:?})",
+                    node.element.element_type_name()
+                );
+            }
             let ctx_dirty = ctx.take_dirty_flags();
             let did_something =
                 result.is_handled() || !ctx_dirty.is_empty() || ctx.has_side_effects();
@@ -194,10 +203,25 @@ impl ElementTree {
             }
             let r = self.dispatch_event_to(id, event);
             if r.is_handled() {
+                self.trace_key_consumer(id, event, "focus");
                 return r;
             }
         }
         EventResult::Ignored
+    }
+
+    /// `SYNGUI_TRACE_KEYS=1` — в журнал пишется, какой элемент поглотил
+    /// клавишу: без этого «клавиша не доходит до обработчика» ищется вслепую.
+    fn trace_key_consumer(&self, id: ElementId, event: &Event, path: &str) {
+        if !matches!(event, Event::KeyDown(_)) || std::env::var_os("SYNGUI_TRACE_KEYS").is_none() {
+            return;
+        }
+        let name = self
+            .elements
+            .get(&id)
+            .map(|n| n.element.element_type_name().to_string())
+            .unwrap_or_default();
+        eprintln!("{event:?} поглощён элементом {name} ({id:?}), путь {path}");
     }
 
     fn dispatch_positional(
@@ -604,6 +628,15 @@ impl ElementTree {
                 ctx.set_text_measure(tm.clone());
             }
             let result = node.element.handle_event(event, &mut ctx);
+            if result.is_handled()
+                && matches!(event, Event::KeyDown(_))
+                && std::env::var_os("SYNGUI_TRACE_KEYS").is_some()
+            {
+                eprintln!(
+                    "{event:?} поглощён элементом {} ({id:?})",
+                    node.element.element_type_name()
+                );
+            }
             let ctx_dirty = ctx.take_dirty_flags();
             let did_something =
                 result.is_handled() || !ctx_dirty.is_empty() || ctx.has_side_effects();

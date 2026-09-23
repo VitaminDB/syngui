@@ -307,6 +307,12 @@ pub trait Element: Send {
 
     fn set_viewport_size(&mut self, _size: Size) {}
 
+    /// Наибольшая высота содержимого оверлея с высотой «по содержимому»
+    /// (окно не выше вьюпорта). `None` — не ограничено.
+    fn content_max_height(&self) -> Option<f32> {
+        None
+    }
+
     fn accessibility_info(&self) -> Option<crate::a11y::AccessibilityInfo> {
         None
     }
@@ -556,6 +562,10 @@ impl Element for Box<dyn Element> {
 
     fn set_content_size(&mut self, size: Size) {
         self.as_mut().set_content_size(size)
+    }
+
+    fn content_max_height(&self) -> Option<f32> {
+        self.as_ref().content_max_height()
     }
 
     fn set_viewport_size(&mut self, size: Size) {

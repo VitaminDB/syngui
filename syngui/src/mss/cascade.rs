@@ -505,6 +505,7 @@ pub fn apply_styles_to_tree(tree: &mut ElementTree, style_engine: &StyleEngine) 
                 node.mss_margin_set = base.has_margin();
                 node.mss_margin = base.margin();
                 node.mss_flex_grow = base.flex_grow().unwrap_or(0.0);
+                node.mss_flex_shrink = base.flex_shrink().unwrap_or(0.0);
                 node.had_mss_rules = true;
                 node.styles_dirty = false;
                 node.refresh_hint_cache();
@@ -777,6 +778,7 @@ pub fn apply_styles_dirty(tree: &mut ElementTree, style_engine: &StyleEngine) ->
         node.mss_margin_set = base.has_margin();
         node.mss_margin = base.margin();
         node.mss_flex_grow = base.flex_grow().unwrap_or(0.0);
+        node.mss_flex_shrink = base.flex_shrink().unwrap_or(0.0);
         node.had_mss_rules = true;
         node.styles_dirty = false;
         node.refresh_hint_cache();
