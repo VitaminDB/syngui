@@ -268,6 +268,15 @@ impl Element for ComboboxElement {
             ),
             Size::new(self.bounds.size.width - 40.0, 16.0),
         );
+        // Текст длиннее поля обрезается по его краю, а не рисуется поверх
+        // соседних виджетов.
+        list.push_clip(Rect::new(
+            Point::new(self.bounds.x() + 8.0, self.bounds.y()),
+            Size::new(
+                (self.bounds.size.width - 36.0).max(0.0),
+                self.bounds.size.height,
+            ),
+        ));
         if self.text.is_empty() {
             list.push_text_singleline(
                 &self.placeholder,
@@ -304,6 +313,7 @@ impl Element for ComboboxElement {
                 self.mss.font_family.clone(),
             );
         }
+        list.pop_clip();
 
         let arrow_rect = Rect::new(
             Point::new(

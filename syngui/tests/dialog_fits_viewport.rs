@@ -31,7 +31,11 @@ fn dialog(body_rows: usize, window: Size) -> TestHarness {
                 .clip(true)
                 .child(ScrollView::new().vertical().child(rows(body_rows))),
         )
-        .child(DecoratedBox::new().class("buttons").style("height", 40.0_f32));
+        .child(
+            DecoratedBox::new()
+                .class("buttons")
+                .style("height", 40.0_f32),
+        );
     let widget = Stack::new().clip(false).child(
         FloatingWindow::new("Диалог")
             .is_open(open)
