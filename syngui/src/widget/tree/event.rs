@@ -22,7 +22,7 @@ impl ElementTree {
             }
             let result = node.element.handle_event(event, &mut ctx);
             if result.is_handled()
-                && matches!(event, Event::KeyDown(_))
+                && matches!(event, Event::KeyDown(_) | Event::MouseWheel { .. })
                 && std::env::var_os("SYNGUI_TRACE_KEYS").is_some()
             {
                 eprintln!(
@@ -629,7 +629,7 @@ impl ElementTree {
             }
             let result = node.element.handle_event(event, &mut ctx);
             if result.is_handled()
-                && matches!(event, Event::KeyDown(_))
+                && matches!(event, Event::KeyDown(_) | Event::MouseWheel { .. })
                 && std::env::var_os("SYNGUI_TRACE_KEYS").is_some()
             {
                 eprintln!(

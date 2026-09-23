@@ -150,6 +150,7 @@ impl Widget for ScrollView {
             scroll_offset: Point::zero(),
             velocity: Point::zero(),
             is_coasting: false,
+            coast_friction: FRICTION,
 
             dragging_vertical: false,
             dragging_horizontal: false,
@@ -221,6 +222,9 @@ pub struct ScrollViewElement {
     scroll_offset: Point,
     velocity: Point,
     is_coasting: bool,
+    /// Трение текущего доката: у свайпа — `FRICTION`, у колеса — по
+    /// настройке `WheelMomentum`.
+    coast_friction: f32,
 
     dragging_vertical: bool,
     dragging_horizontal: bool,
@@ -359,6 +363,30 @@ impl ScrollViewElement {
             ScrollbarPolicy::Always => overflow,
             ScrollbarPolicy::Never => false,
             ScrollbarPolicy::Auto => overflow,
+        }
+    }
+
+    /// Полоса вертикальной прокрутки по всей высоте — зона захвата мышью.
+    /// Чуть шире самого ползунка: тонкую полоску трудно поймать курсором.
+    fn vertical_track_hit_rect(&self) -> Rect {
+        let grab = self.scrollbar_width + 4.0;
+        Rect::new(
+            Point::new(
+                self.bounds.origin.x + self.bounds.size.width - grab,
+                self.bounds.origin.y,
+            ),
+            Size::new(grab, self.bounds.size.height),
+        )
+    }
+
+    /// Прокрутить так, чтобы центр ползунка встал под курсор.
+    fn drag_vertical_to(&mut self, y: f32) {
+        let thumb_h = self.vertical_thumb_rect().size.height;
+        let track_h = self.bounds.size.height;
+        if track_h > thumb_h {
+            let rel = (y - self.bounds.origin.y - thumb_h / 2.0) / (track_h - thumb_h);
+            self.scroll_offset.y =
+                (rel.clamp(0.0, 1.0) * self.max_scroll_y()).clamp(0.0, self.max_scroll_y());
         }
     }
 
@@ -585,6 +613,19 @@ impl Element for ScrollViewElement {
         }
     }
 
+    /// Нажатие на полосе прокрутки забирает сама область, а не строка под
+    /// ползунком: ползунок рисуется поверх содержимого, и без перехвата клик
+    /// по нему выбирал элемент списка.
+    fn intercepts_event(&self, event: &Event) -> bool {
+        match event {
+            Event::MouseDown {
+                button: MouseButton::Left,
+                position,
+            } => self.show_vertical_thumb() && self.vertical_track_hit_rect().contains(*position),
+            _ => false,
+        }
+    }
+
     fn handle_event(&mut self, event: &Event, ctx: &mut EventContext) -> EventResult {
         match event {
             Event::MouseWheel {
@@ -640,10 +681,21 @@ impl Element for ScrollViewElement {
                     self.velocity.x = 0.0;
                 }
 
-                let alpha = 0.3;
-                self.velocity.y = self.velocity.y * (1.0 - alpha) + dy * VELOCITY_SCALE * alpha;
-                self.velocity.x = self.velocity.x * (1.0 - alpha) + dx * VELOCITY_SCALE * alpha;
-                self.is_coasting = true;
+                match super::wheel_coast(FRICTION) {
+                    Some((scale, friction)) => {
+                        let alpha = 0.3;
+                        self.velocity.y =
+                            self.velocity.y * (1.0 - alpha) + dy * VELOCITY_SCALE * scale * alpha;
+                        self.velocity.x =
+                            self.velocity.x * (1.0 - alpha) + dx * VELOCITY_SCALE * scale * alpha;
+                        self.coast_friction = friction;
+                        self.is_coasting = true;
+                    }
+                    None => {
+                        self.velocity = Point::zero();
+                        self.is_coasting = false;
+                    }
+                }
 
                 self.refresh_stick();
                 self.flash_scrollbar();
@@ -661,13 +713,20 @@ impl Element for ScrollViewElement {
             }
 
             Event::MouseDown { button, position } if *button == MouseButton::Left => {
-                if self.show_vertical_thumb() {
-                    let thumb = self.vertical_thumb_rect();
-                    if thumb.contains(*position) {
-                        self.dragging_vertical = true;
-                        ctx.request_paint();
-                        return EventResult::Captured;
+                if self.show_vertical_thumb() && self.vertical_track_hit_rect().contains(*position)
+                {
+                    // Нажатие на полосе мимо ползунка переносит его под
+                    // курсор — и сразу можно тянуть.
+                    if !self.vertical_thumb_rect().contains(*position) {
+                        self.velocity = Point::zero();
+                        self.is_coasting = false;
+                        self.drag_vertical_to(position.y);
+                        self.refresh_stick();
                     }
+                    self.dragging_vertical = true;
+                    self.flash_scrollbar();
+                    ctx.request_paint();
+                    return EventResult::Captured;
                 }
                 if self.show_horizontal_thumb() {
                     let thumb = self.horizontal_thumb_rect();
@@ -826,7 +885,11 @@ impl Element for ScrollViewElement {
                         self.touch_drag_start = None;
                         return EventResult::Ignored;
                     }
-                    self.touch_axis = if horizontal { TouchAxis::X } else { TouchAxis::Y };
+                    self.touch_axis = if horizontal {
+                        TouchAxis::X
+                    } else {
+                        TouchAxis::Y
+                    };
                 }
 
                 // По обеим осям сразу двигается только `Both`: там жест
@@ -860,8 +923,10 @@ impl Element for ScrollViewElement {
                 self.touch_axis = TouchAxis::Undecided;
 
                 if !foreign
-                    && (self.velocity.y.abs() > MIN_VELOCITY || self.velocity.x.abs() > MIN_VELOCITY)
+                    && (self.velocity.y.abs() > MIN_VELOCITY
+                        || self.velocity.x.abs() > MIN_VELOCITY)
                 {
+                    self.coast_friction = FRICTION;
                     self.is_coasting = true;
                 }
                 EventResult::Handled
@@ -876,7 +941,7 @@ impl Element for ScrollViewElement {
         let mut needs_repaint = false;
 
         if self.is_coasting {
-            let friction = FRICTION.powf(dt_secs * 60.0);
+            let friction = self.coast_friction.powf(dt_secs * 60.0);
             self.velocity.x *= friction;
             self.velocity.y *= friction;
 

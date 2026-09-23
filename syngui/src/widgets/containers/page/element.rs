@@ -33,6 +33,7 @@ impl Widget for Page {
             scroll_offset: Point::zero(),
             velocity: Point::zero(),
             is_coasting: false,
+            coast_friction: 0.98,
             bounce_allowed: false,
 
             overscroll_x: 0.0,
@@ -108,6 +109,9 @@ pub struct PageElement {
     scroll_offset: Point,
     velocity: Point,
     is_coasting: bool,
+    /// Трение текущего доката: у свайпа — из `ScrollPhysics`, у колеса — по
+    /// настройке `WheelMomentum`.
+    coast_friction: f32,
     /// Можно ли уводить содержимое за край и возвращать «резинкой».
     /// Разрешено для касания: палец тянет лист, и отскок читается как
     /// продолжение жеста. Для колеса — нет: у края мышь должна упираться
@@ -574,12 +578,21 @@ impl Element for PageElement {
                     self.velocity.x = 0.0;
                 }
 
-                let alpha = 0.3;
-                self.velocity.y =
-                    self.velocity.y * (1.0 - alpha) + delta_y * VELOCITY_SCALE * alpha;
-                self.velocity.x =
-                    self.velocity.x * (1.0 - alpha) + delta_x * VELOCITY_SCALE * alpha;
-                self.is_coasting = true;
+                match crate::widgets::scroll::wheel_coast(self.physics.friction) {
+                    Some((scale, friction)) => {
+                        let alpha = 0.3;
+                        self.velocity.y = self.velocity.y * (1.0 - alpha)
+                            + delta_y * VELOCITY_SCALE * scale * alpha;
+                        self.velocity.x = self.velocity.x * (1.0 - alpha)
+                            + delta_x * VELOCITY_SCALE * scale * alpha;
+                        self.coast_friction = friction;
+                        self.is_coasting = true;
+                    }
+                    None => {
+                        self.velocity = Point::zero();
+                        self.is_coasting = false;
+                    }
+                }
                 self.bounce_allowed = false;
 
                 self.scroll_animation = None;
@@ -816,6 +829,7 @@ impl Element for PageElement {
                     self.bounce_velocity_x = self.velocity.x;
                     self.velocity = Point::zero();
                 } else if self.velocity.y.abs() > 1.0 || self.velocity.x.abs() > 1.0 {
+                    self.coast_friction = self.physics.friction;
                     self.is_coasting = true;
                     self.bounce_allowed = true;
                 }
@@ -841,7 +855,7 @@ impl Element for PageElement {
         let mut needs_repaint = false;
 
         if self.is_coasting {
-            let decay = physics.friction.powf(dt_secs * 60.0);
+            let decay = self.coast_friction.powf(dt_secs * 60.0);
 
             if self.can_scroll_y() {
                 self.velocity.y *= decay;
