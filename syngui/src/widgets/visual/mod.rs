@@ -49,7 +49,7 @@ pub use image_viewport::{ImageViewCommand, ImageViewInfo, ImageViewport};
 #[cfg(feature = "map")]
 pub use map_view::{
     BuildingOverlay, BuildingShape, HeatOverlay, HeatPoint, MapMarker, MapView, MapViewport,
-    TileCache, TileProvider,
+    MarkerOverlay, TileCache, TileProvider,
 };
 #[cfg(feature = "markdown")]
 pub use markdown_editor::{EditorMode, MarkdownEditor};

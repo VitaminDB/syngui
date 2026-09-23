@@ -1,6 +1,7 @@
 pub mod building_overlay;
 pub mod heat_overlay;
 pub mod marker;
+pub mod marker_overlay;
 pub mod provider;
 pub mod tile_cache;
 #[cfg(all(target_arch = "wasm32", feature = "map"))]
@@ -11,6 +12,7 @@ pub mod tile_math;
 pub use building_overlay::{BuildingOverlay, BuildingShape};
 pub use heat_overlay::{HeatOverlay, HeatPoint};
 pub use marker::MapMarker;
+pub use marker_overlay::MarkerOverlay;
 pub use provider::TileProvider;
 pub use tile_cache::TileCache;
 pub use tile_math::{
@@ -456,6 +458,11 @@ impl Element for MapViewElement {
             })
             .min(constraints.max_height);
         self.bounds = Rect::new(Point::zero(), Size::new(w, h));
+        // Размер области известен только после раскладки. Кадр `tick` мог
+        // сообщить положение ещё с нулевым размером, а неподвижная карта
+        // новых кадров не просит — оверлеи (облако, метки поверх него) так
+        // и остались бы без размера до первого жеста.
+        self.emit_viewport();
         Size::new(w, h)
     }
 
@@ -1080,84 +1087,100 @@ impl MapViewElement {
     }
 
     fn render_markers(&self, list: &mut DisplayList) {
-        let bounds = self.bounds;
-        let now = web_time::Instant::now();
+        paint_markers(
+            list,
+            &self.markers,
+            self.bounds,
+            (self.center_lat, self.center_lng, self.zoom),
+            self.text_measure.as_deref(),
+        );
+    }
+}
 
-        for marker in &self.markers {
-            if marker.is_expired(now) {
-                continue;
-            }
+/// Метки на области `bounds` при центре и масштабе `view` — общая отрисовка
+/// для [`MapView`] и [`MarkerOverlay`].
+pub(crate) fn paint_markers(
+    list: &mut DisplayList,
+    markers: &[MapMarker],
+    bounds: Rect,
+    view: (f64, f64, u8),
+    text_measure: Option<&dyn TextMeasure>,
+) {
+    let (center_lat, center_lng, zoom) = view;
+    let now = web_time::Instant::now();
 
-            let opacity = marker.current_opacity(now);
-            if opacity <= 0.001 {
-                continue;
-            }
-            let scale = marker.current_scale(now);
-            let effective_size = marker.size * scale;
+    for marker in markers {
+        if marker.is_expired(now) {
+            continue;
+        }
 
-            let (px, py) = tile_math::geo_to_pixel(
-                marker.lat,
-                marker.lng,
-                self.center_lat,
-                self.center_lng,
-                self.zoom,
-                bounds.size.width,
-                bounds.size.height,
+        let opacity = marker.current_opacity(now);
+        if opacity <= 0.001 {
+            continue;
+        }
+        let scale = marker.current_scale(now);
+        let effective_size = marker.size * scale;
+
+        let (px, py) = tile_math::geo_to_pixel(
+            marker.lat,
+            marker.lng,
+            center_lat,
+            center_lng,
+            zoom,
+            bounds.size.width,
+            bounds.size.height,
+        );
+
+        let screen_x = bounds.origin.x + px;
+        let screen_y = bounds.origin.y + py;
+
+        if screen_x < bounds.origin.x - effective_size
+            || screen_x > bounds.origin.x + bounds.size.width + effective_size
+            || screen_y < bounds.origin.y - effective_size
+            || screen_y > bounds.origin.y + bounds.size.height + effective_size
+        {
+            continue;
+        }
+
+        let r = effective_size / 2.0;
+
+        let pin_color = marker.color.with_alpha(marker.color.a * opacity);
+        let pin_rect = Rect::new(
+            Point::new(screen_x - r, screen_y - r),
+            Size::new(effective_size, effective_size),
+        );
+        list.push_rect(pin_rect, pin_color, [r, r, r, r]);
+
+        let dot_r = r * 0.4;
+        let dot_rect = Rect::new(
+            Point::new(screen_x - dot_r, screen_y - dot_r),
+            Size::new(dot_r * 2.0, dot_r * 2.0),
+        );
+        let dot_color = Color::new(1.0, 1.0, 1.0, opacity);
+        list.push_rect(dot_rect, dot_color, [dot_r, dot_r, dot_r, dot_r]);
+
+        if let Some(ref label) = marker.label {
+            let label_font = 12.0;
+            let label_w = text_measure
+                .map(|tm| tm.measure_text_width(label, label_font, label.chars().count()))
+                .unwrap_or_else(|| label.chars().count() as f32 * label_font * 0.6)
+                + 8.0;
+            let label_h = 18.0;
+            let lx = screen_x - label_w / 2.0;
+            let ly = screen_y - r - label_h - 4.0;
+
+            let label_bg = Rect::new(Point::new(lx, ly), Size::new(label_w, label_h));
+            list.push_rect(
+                label_bg,
+                Color::new(0.15, 0.15, 0.15, 0.85 * opacity),
+                [4.0; 4],
             );
 
-            let screen_x = bounds.origin.x + px;
-            let screen_y = bounds.origin.y + py;
-
-            if screen_x < bounds.origin.x - effective_size
-                || screen_x > bounds.origin.x + bounds.size.width + effective_size
-                || screen_y < bounds.origin.y - effective_size
-                || screen_y > bounds.origin.y + bounds.size.height + effective_size
-            {
-                continue;
-            }
-
-            let r = effective_size / 2.0;
-
-            let pin_color = marker.color.with_alpha(marker.color.a * opacity);
-            let pin_rect = Rect::new(
-                Point::new(screen_x - r, screen_y - r),
-                Size::new(effective_size, effective_size),
+            let text_rect = Rect::new(
+                Point::new(lx + 4.0, ly + 1.0),
+                Size::new(label_w - 8.0, label_h - 2.0),
             );
-            list.push_rect(pin_rect, pin_color, [r, r, r, r]);
-
-            let dot_r = r * 0.4;
-            let dot_rect = Rect::new(
-                Point::new(screen_x - dot_r, screen_y - dot_r),
-                Size::new(dot_r * 2.0, dot_r * 2.0),
-            );
-            let dot_color = Color::new(1.0, 1.0, 1.0, opacity);
-            list.push_rect(dot_rect, dot_color, [dot_r, dot_r, dot_r, dot_r]);
-
-            if let Some(ref label) = marker.label {
-                let label_font = 12.0;
-                let label_w = self
-                    .text_measure
-                    .as_ref()
-                    .map(|tm| tm.measure_text_width(label, label_font, label.chars().count()))
-                    .unwrap_or_else(|| label.chars().count() as f32 * label_font * 0.6)
-                    + 8.0;
-                let label_h = 18.0;
-                let lx = screen_x - label_w / 2.0;
-                let ly = screen_y - r - label_h - 4.0;
-
-                let label_bg = Rect::new(Point::new(lx, ly), Size::new(label_w, label_h));
-                list.push_rect(
-                    label_bg,
-                    Color::new(0.15, 0.15, 0.15, 0.85 * opacity),
-                    [4.0; 4],
-                );
-
-                let text_rect = Rect::new(
-                    Point::new(lx + 4.0, ly + 1.0),
-                    Size::new(label_w - 8.0, label_h - 2.0),
-                );
-                list.push_text_centered(label, text_rect, Color::new(1.0, 1.0, 1.0, opacity), 11.0);
-            }
+            list.push_text_centered(label, text_rect, Color::new(1.0, 1.0, 1.0, opacity), 11.0);
         }
     }
 }
