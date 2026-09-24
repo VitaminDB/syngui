@@ -218,6 +218,7 @@ impl MultilineTextEditElement {
             .replace_selection(&mut self.text, &mut cursor_byte, text);
         self.sync_cursor_from_byte(cursor_byte);
         self.recompute_wraps();
+        self.ensure_cursor_visible();
         self.trigger_change();
     }
 
@@ -363,6 +364,11 @@ impl MultilineTextEditElement {
         if self.auto_height && self.total_visual_lines != old_visual_lines {
             self.mark_dirty(DirtyFlags::LAYOUT);
         }
+        // Текст стал короче (хост очистил поле после отправки длинной
+        // вставки) — прокрутка не должна указывать за его конец: иначе
+        // видимый диапазон строк пуст, и набранное дальше не рисуется.
+        let max_offset = self.total_visual_lines.saturating_sub(self.visible_rows());
+        self.scroll_offset = self.scroll_offset.min(max_offset);
     }
 
     fn word_wrap_breaks(line: &str, avail_width: f32, tm: &dyn TextMeasure) -> Vec<usize> {
@@ -1274,6 +1280,7 @@ impl Element for MultilineTextEditElement {
                     .replace_selection(&mut self.text, &mut cursor_byte, ch_str);
                 self.sync_cursor_from_byte(cursor_byte);
                 self.recompute_wraps();
+                self.ensure_cursor_visible();
                 self.trigger_change();
                 ctx.request_paint();
                 EventResult::Handled
@@ -1287,6 +1294,7 @@ impl Element for MultilineTextEditElement {
                     .replace_selection(&mut self.text, &mut cursor_byte, text);
                 self.sync_cursor_from_byte(cursor_byte);
                 self.recompute_wraps();
+                self.ensure_cursor_visible();
                 self.trigger_change();
                 ctx.request_paint();
                 EventResult::Handled
@@ -1547,5 +1555,32 @@ mod tests {
     fn fixed_height_ignores_max_rows() {
         let el = make_element(3, false, Some(15), 100);
         assert_eq!(el.visible_rows(), 3);
+    }
+
+    /// Поле прокручено вглубь длинной вставки, хост очистил текст после
+    /// отправки: прокрутка обязана вернуться к началу, иначе новый ввод
+    /// рисуется за пределами видимых строк (поле выглядит пустым).
+    #[test]
+    fn clearing_long_text_resets_scroll() {
+        let mut el = make_element(2, true, Some(8), 1);
+        el.text = "line\n".repeat(200);
+        el.recompute_wraps();
+        el.cursor_line = 200;
+        el.ensure_cursor_visible();
+        assert!(el.scroll_offset > 0);
+
+        el.text.clear();
+        el.cursor_line = 0;
+        el.recompute_wraps();
+        assert_eq!(el.scroll_offset, 0);
+    }
+
+    /// Ввод символа держит каретку в видимой области.
+    #[test]
+    fn typing_keeps_caret_visible() {
+        let mut el = make_element(2, true, Some(8), 1);
+        el.scroll_offset = 50;
+        el.insert_at_caret("x");
+        assert_eq!(el.scroll_offset, 0);
     }
 }
