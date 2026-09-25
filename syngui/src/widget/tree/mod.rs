@@ -87,7 +87,13 @@ impl LayoutCache {
 #[derive(Debug, Clone)]
 pub struct OverlayEntry {
     pub element_id: ElementId,
+    /// Границы в координатах окна — по ним идёт попадание курсора.
+    /// Пересчитываются из `local` перед маршрутизацией (`refresh_overlay_bounds`):
+    /// предок с прокруткой мог сдвинуться после регистрации.
     pub bounds: Rect,
+    /// Границы в координатах элемента, как их задал сам элемент
+    /// (у декларативных — совпадают с `bounds`).
+    pub local: Rect,
     pub modal: bool,
     pub declarative: bool,
 }

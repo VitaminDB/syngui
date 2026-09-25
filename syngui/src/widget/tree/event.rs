@@ -69,6 +69,7 @@ impl ElementTree {
 
     fn do_handle_event(&mut self, root_id: ElementId, event: &Event) -> EventResult {
         self.cursor_request = None;
+        self.refresh_overlay_bounds();
 
         if matches!(event, Event::DoubleClick { .. }) {
             if let Some(target) = self.last_mousedown_element {
@@ -436,7 +437,7 @@ impl ElementTree {
         self.dispatch_event(id, &adj)
     }
 
-    fn accumulated_event_transform(&self, id: ElementId) -> (crate::core::Point, f32) {
+    pub(crate) fn accumulated_event_transform(&self, id: ElementId) -> (crate::core::Point, f32) {
         let mut chain: Vec<(crate::core::Point, f32)> = Vec::new();
         let mut current = self.elements.get(&id).and_then(|n| n.parent);
         while let Some(parent_id) = current {
@@ -461,16 +462,7 @@ impl ElementTree {
 
     fn process_overlay_commands(&mut self, element_id: ElementId, ctx: &mut EventContext) {
         if let Some((bounds, modal)) = ctx.overlay_register.take() {
-            let (s, k) = self.accumulated_event_transform(element_id);
-            let adjusted = if is_identity_transform(s, k) {
-                bounds
-            } else {
-                crate::core::Rect::new(
-                    crate::core::Point::new(k * bounds.origin.x - s.x, k * bounds.origin.y - s.y),
-                    crate::core::Size::new(k * bounds.size.width, k * bounds.size.height),
-                )
-            };
-            self.register_overlay(element_id, adjusted, modal);
+            self.register_overlay(element_id, bounds, modal);
         }
         if ctx.overlay_unregister {
             self.unregister_overlay(element_id);
@@ -1018,6 +1010,45 @@ mod tests {
         assert!(
             (pos.x - 400.0).abs() < 1e-3 && (pos.y - 400.0).abs() < 1e-3,
             "expected (400, 400), got ({}, {})",
+            pos.x,
+            pos.y
+        );
+    }
+
+    /// Overlay, открытый внутри прокручиваемого предка, ловит клики там,
+    /// где он виден после прокрутки, а не там, где был при открытии (#54
+    /// volna: пункты списка в прокрученном окне кликали виджеты под ним).
+    #[test]
+    fn overlay_follows_ancestor_scroll_after_registration() {
+        // Нулевой размер: обычный hit-test элемент не находит, клик
+        // доходит до него только через стек оверлеев.
+        let (spy, log) = SpyTarget::new(Size::zero());
+        let pan_sig = use_signal(Point::zero());
+        let viewport = PanZoomViewport::new()
+            .pan(pan_sig)
+            .zoom(use_signal(1.0_f32))
+            .zoom_range(0.1, 10.0)
+            .child(spy);
+        let (mut tree, root_id, _w) = build_and_layout(Box::new(viewport));
+        let spy_id = tree.elements.get(&root_id).unwrap().children[0];
+        tree.register_overlay(
+            spy_id,
+            Rect::new(Point::new(100.0, 100.0), Size::new(50.0, 50.0)),
+            false,
+        );
+
+        // Предок сдвинул содержимое на 80 вниз (как прокрутка окна).
+        pan_sig.set(Point::new(0.0, 80.0));
+        if let Some(node) = tree.elements.get_mut(&root_id) {
+            node.element.animate(std::time::Duration::ZERO);
+        }
+        click_at(&mut tree, root_id, 125.0, 205.0);
+        // Попадание, а не рассылка «клик снаружи»: overlay захватил мышь.
+        assert_eq!(tree.mouse_captor, Some(spy_id));
+        let pos = log.lock().unwrap().expect("overlay must receive MouseDown");
+        assert!(
+            (pos.x - 125.0).abs() < 1e-3 && (pos.y - 125.0).abs() < 1e-3,
+            "expected (125, 125), got ({}, {})",
             pos.x,
             pos.y
         );

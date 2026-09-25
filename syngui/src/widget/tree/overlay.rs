@@ -3,14 +3,39 @@ use crate::core::Rect;
 use std::time::Duration;
 
 impl ElementTree {
+    /// Зарегистрировать overlay: `bounds` — в координатах элемента.
     pub fn register_overlay(&mut self, element_id: ElementId, bounds: Rect, modal: bool) {
         self.overlay_stack.retain(|e| e.element_id != element_id);
         self.overlay_stack.push(OverlayEntry {
             element_id,
-            bounds,
+            bounds: self.overlay_window_rect(element_id, bounds),
+            local: bounds,
             modal,
             declarative: false,
         });
+    }
+
+    /// Пересчитать оконные границы оверлеев по текущей прокрутке предков.
+    /// Без этого список, открытый в окне, которое потом прокрутили колесом,
+    /// ловил клики на старом месте, а по видимым пунктам они уходили в
+    /// виджеты под ним.
+    pub(crate) fn refresh_overlay_bounds(&mut self) {
+        for i in 0..self.overlay_stack.len() {
+            if self.overlay_stack[i].declarative {
+                continue;
+            }
+            let (id, local) = (self.overlay_stack[i].element_id, self.overlay_stack[i].local);
+            self.overlay_stack[i].bounds = self.overlay_window_rect(id, local);
+        }
+    }
+
+    /// Прямоугольник в координатах элемента → координаты окна.
+    pub(crate) fn overlay_window_rect(&self, element_id: ElementId, local: Rect) -> Rect {
+        let (s, k) = self.accumulated_event_transform(element_id);
+        Rect::new(
+            crate::core::Point::new(k * local.origin.x - s.x, k * local.origin.y - s.y),
+            crate::core::Size::new(k * local.size.width, k * local.size.height),
+        )
     }
 
     pub fn unregister_overlay(&mut self, element_id: ElementId) {

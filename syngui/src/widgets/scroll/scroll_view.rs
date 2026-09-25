@@ -999,13 +999,11 @@ impl Element for ScrollViewElement {
         if self.follow_end && self.stick_to_end && self.can_scroll_y() {
             self.scroll_offset.y = max_y;
         }
-        if self.scroll_offset.y > max_y {
-            self.scroll_offset.y = max_y;
-        }
-        let max_x = self.max_scroll_x();
-        if self.scroll_offset.x > max_x {
-            self.scroll_offset.x = max_x;
-        }
+        // Смещение здесь не обрезается: измерение бывает промежуточным —
+        // колонка со `flex-shrink` сначала меряет прокрутку в полную высоту,
+        // потом ужатой, — и обрезка по промежуточному окну сбрасывала
+        // прокрутку диалога при любой перестройке его содержимого. Обрезка —
+        // в `set_position`, когда размеры окончательные.
     }
 
     /// Смещение содержимого для попадания курсора. Центрирующий сдвиг —
@@ -1067,6 +1065,10 @@ impl Element for ScrollViewElement {
 
     fn set_position(&mut self, pos: Point) {
         self.bounds.origin = pos;
+        // Позиционирование идёт после всех проходов измерения: окно и
+        // содержимое уже окончательные.
+        self.scroll_offset.y = self.scroll_offset.y.min(self.max_scroll_y()).max(0.0);
+        self.scroll_offset.x = self.scroll_offset.x.min(self.max_scroll_x()).max(0.0);
     }
 
     fn mark_dirty(&mut self, flags: DirtyFlags) {

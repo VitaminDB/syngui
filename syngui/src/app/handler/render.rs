@@ -41,6 +41,7 @@ impl AppHandler {
         if let Some(root_id) = self.root_id {
             let mut new_focus = None;
             let mut in_nonmodal_overlay = false;
+            self.tree.refresh_overlay_bounds();
             for entry in self.tree.overlay_stack.iter().rev() {
                 if entry.modal {
                     new_focus = self.find_text_input_at(entry.element_id, pos);

@@ -109,15 +109,20 @@ impl ElementTree {
             desired.iter().map(|(id, _, _)| *id).collect();
         self.overlay_stack
             .retain(|e| !e.declarative || desired_set.contains(&e.element_id));
-        for (id, bounds, modal) in desired {
+        for (id, local, modal) in desired {
+            // Декларативные оверлеи (Dialog, Menu, Portal…) задают границы
+            // сразу в координатах окна.
+            let bounds = local;
             if let Some(entry) = self.overlay_stack.iter_mut().find(|e| e.element_id == id) {
                 entry.bounds = bounds;
+                entry.local = local;
                 entry.modal = modal;
                 entry.declarative = true;
             } else {
                 self.overlay_stack.push(super::super::OverlayEntry {
                     element_id: id,
                     bounds,
+                    local,
                     modal,
                     declarative: true,
                 });
