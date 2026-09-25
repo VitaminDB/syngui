@@ -70,7 +70,14 @@ impl ElementTree {
             let do_clip = node.element.clip_content();
             let hint = &node.hint_cache;
             let is_tooltip = matches!(hint, LayoutHint::Tooltip { .. });
-            let is_portal = matches!(hint, LayoutHint::Portal { .. });
+            // Portal и плавающее окно рисуются в оверлее поверх всего: их
+            // содержимое отсекается по собственным границам, а не по
+            // обрезающим предкам. Иначе окно, объявленное в панели с
+            // `clip`, теряло всё, что ниже её края (#61 volna).
+            let is_portal = matches!(
+                hint,
+                LayoutHint::Portal { .. } | LayoutHint::FloatingWindow { .. }
+            );
             // Элементу — прямоугольник в координатах его раскладки
             // (`cull_clip`: сдвинут на прокрутку предков), а не экранный
             // `clip`. Детей дерево отсекает по нему же; с экранным
@@ -293,5 +300,45 @@ impl ElementTree {
 
         list.pop_opacity();
         list.end_overlay();
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use crate::prelude::*;
+    use crate::testing::TestHarness;
+    use crate::widgets::*;
+
+    /// Окно внутри обрезающей панели высотой 50: текст окна ниже её края
+    /// всё равно рисуется.
+    #[test]
+    fn floating_window_content_not_culled_by_clipping_ancestor() {
+        let open = use_signal(true);
+        let w = Column::new().child(
+            DecoratedBox::new()
+                .class("panel")
+                .clip(true)
+                .child(
+                    FloatingWindow::new("Окно")
+                        .is_open(open)
+                        .size(Size::new(300.0, 400.0))
+                        .child(move || {
+                            Column::new()
+                                .gap(200.0)
+                                .child(Text::new("верх"))
+                                .child(Text::new("НИЗ"))
+                        }),
+                ),
+        );
+        let mut h = TestHarness::new(Box::new(w));
+        h.apply_mss(".panel { height: 50; width: 400; }");
+        for _ in 0..3 {
+            h.layout_loose(800.0, 800.0);
+            h.rebuild();
+        }
+        h.layout_loose(800.0, 800.0);
+        let dl = format!("{:?}", h.paint());
+        assert!(dl.contains("верх"));
+        assert!(dl.contains("НИЗ"), "содержимое окна ниже края панели отсечено");
     }
 }
