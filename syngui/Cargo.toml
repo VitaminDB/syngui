@@ -432,6 +432,10 @@ name = "cascade_descendant"
 required-features = ["testing"]
 
 [[test]]
+name = "cascade_disabled"
+required-features = ["testing"]
+
+[[test]]
 name = "mss_text_reset"
 required-features = ["testing"]
 

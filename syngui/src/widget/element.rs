@@ -276,6 +276,10 @@ pub trait Element: Send {
     ) {
     }
 
+    /// Слой `:disabled` (база + правила с `:disabled`). Элементы, у которых
+    /// есть выключенное состояние, берут из него цвета, пока выключены.
+    fn apply_disabled_style(&mut self, _disabled: Option<&crate::mss::ComputedStyle>) {}
+
     fn setup_keyframe_animation(
         &mut self,
         _style: &crate::mss::ComputedStyle,
@@ -542,6 +546,10 @@ impl Element for Box<dyn Element> {
     ) {
         self.as_mut()
             .apply_transition_styles(base, hover, active, focus, selected, checked)
+    }
+
+    fn apply_disabled_style(&mut self, disabled: Option<&crate::mss::ComputedStyle>) {
+        self.as_mut().apply_disabled_style(disabled)
     }
 
     fn is_visible(&self) -> bool {

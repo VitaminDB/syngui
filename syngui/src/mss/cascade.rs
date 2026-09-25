@@ -70,6 +70,7 @@ pub(crate) struct CascadeCache {
     focus: Option<ComputedStyle>,
     selected: Option<ComputedStyle>,
     checked: Option<ComputedStyle>,
+    disabled: Option<ComputedStyle>,
 }
 
 impl std::fmt::Debug for CascadeCache {
@@ -342,11 +343,13 @@ pub fn apply_styles_to_tree(tree: &mut ElementTree, style_engine: &StyleEngine) 
         let mut focus = ComputedStyle::default();
         let mut selected = ComputedStyle::default();
         let mut checked = ComputedStyle::default();
+        let mut disabled = ComputedStyle::default();
         let mut has_hover = false;
         let mut has_active = false;
         let mut has_focus = false;
         let mut has_selected = false;
         let mut has_checked = false;
+        let mut has_disabled = false;
         let mut has_base = base.properties().next().is_some();
 
         if has_identity || has_inline {
@@ -416,6 +419,15 @@ pub fn apply_styles_to_tree(tree: &mut ElementTree, style_engine: &StyleEngine) 
                             );
                         }
                     }
+                    Some("disabled") => {
+                        has_disabled = true;
+                        for (prop, val) in &rule.declarations {
+                            disabled.set(
+                                prop,
+                                resolve_for_cascade(style_engine, val, prop, &parent_inh),
+                            );
+                        }
+                    }
                     Some(p) => match window_pseudo_matches(p, window_flags) {
                         Some(true) => {
                             has_base = true;
@@ -463,7 +475,14 @@ pub fn apply_styles_to_tree(tree: &mut ElementTree, style_engine: &StyleEngine) 
 
         let _ = (has_active, has_focus, has_selected, has_checked);
 
-        if has_base || has_hover || has_active || has_focus || has_selected || has_checked {
+        if has_base
+            || has_hover
+            || has_active
+            || has_focus
+            || has_selected
+            || has_checked
+            || has_disabled
+        {
             if let Some(node) = tree.elements.get_mut(&id) {
                 node.element.reset_mss_styles();
                 node.element.apply_computed_style(&base);
@@ -500,6 +519,8 @@ pub fn apply_styles_to_tree(tree: &mut ElementTree, style_engine: &StyleEngine) 
                     selected_full.as_ref(),
                     checked_full.as_ref(),
                 );
+                let disabled_full = has_disabled.then(|| merge_layer(&base, &disabled));
+                node.element.apply_disabled_style(disabled_full.as_ref());
                 node.element
                     .setup_keyframe_animation(&base, style_engine.stylesheet());
                 node.mss_margin_set = base.has_margin();
@@ -625,6 +646,7 @@ pub fn apply_styles_dirty(tree: &mut ElementTree, style_engine: &StyleEngine) ->
                     focus: None,
                     selected: None,
                     checked: None,
+                    disabled: None,
                 }));
             }
             // parent_inh уже отфильтрован extract_inherited у предка —
@@ -639,11 +661,13 @@ pub fn apply_styles_dirty(tree: &mut ElementTree, style_engine: &StyleEngine) ->
         let mut focus = ComputedStyle::default();
         let mut selected = ComputedStyle::default();
         let mut checked = ComputedStyle::default();
+        let mut disabled = ComputedStyle::default();
         let mut has_hover = false;
         let mut has_active = false;
         let mut has_focus = false;
         let mut has_selected = false;
         let mut has_checked = false;
+        let mut has_disabled = false;
         let mut has_base = base.properties().next().is_some();
 
         crate::perf::add(crate::perf::Counter::ApplyStylesRuleTest, cand.len() as u64);
@@ -664,6 +688,7 @@ pub fn apply_styles_dirty(tree: &mut ElementTree, style_engine: &StyleEngine) ->
                 Some("active") | Some("pressed") => (&mut active, &mut has_active),
                 Some("focus") => (&mut focus, &mut has_focus),
                 Some("selected") => (&mut selected, &mut has_selected),
+                Some("disabled") => (&mut disabled, &mut has_disabled),
                 Some(p) => match window_pseudo_matches(p, window_flags) {
                     Some(false) => continue,
                     Some(true) | None => (&mut base, &mut has_base),
@@ -690,6 +715,7 @@ pub fn apply_styles_dirty(tree: &mut ElementTree, style_engine: &StyleEngine) ->
             || has_focus
             || has_selected
             || has_checked
+            || has_disabled
             || has_inline;
 
         if !has_any_rules {
@@ -700,6 +726,7 @@ pub fn apply_styles_dirty(tree: &mut ElementTree, style_engine: &StyleEngine) ->
                     node.element.apply_computed_style(&empty);
                     node.element
                         .apply_transition_styles(&empty, None, None, None, None, None);
+                    node.element.apply_disabled_style(None);
                     node.had_mss_rules = false;
                     node.refresh_hint_cache();
                 }
@@ -713,6 +740,7 @@ pub fn apply_styles_dirty(tree: &mut ElementTree, style_engine: &StyleEngine) ->
                     focus: None,
                     selected: None,
                     checked: None,
+                    disabled: None,
                 }));
             }
             inherited_for.insert(id, empty_inh.clone());
@@ -734,6 +762,7 @@ pub fn apply_styles_dirty(tree: &mut ElementTree, style_engine: &StyleEngine) ->
         let focus_full = has_focus.then(|| merge_layer(&base, &focus));
         let selected_full = has_selected.then(|| merge_layer(&base, &selected));
         let checked_full = has_checked.then(|| merge_layer(&base, &checked));
+        let disabled_full = has_disabled.then(|| merge_layer(&base, &disabled));
 
         // Дифф с прошлым результатом: тот же стиль — ничего не применяем
         // (и не перезапускаем transition/keyframe-анимации).
@@ -747,6 +776,7 @@ pub fn apply_styles_dirty(tree: &mut ElementTree, style_engine: &StyleEngine) ->
                     && c.focus == focus_full
                     && c.selected == selected_full
                     && c.checked == checked_full
+                    && c.disabled == disabled_full
             })
             .unwrap_or(false);
         if unchanged {
@@ -773,6 +803,7 @@ pub fn apply_styles_dirty(tree: &mut ElementTree, style_engine: &StyleEngine) ->
             selected_full.as_ref(),
             checked_full.as_ref(),
         );
+        node.element.apply_disabled_style(disabled_full.as_ref());
         node.element
             .setup_keyframe_animation(&base, style_engine.stylesheet());
         node.mss_margin_set = base.has_margin();
@@ -793,6 +824,7 @@ pub fn apply_styles_dirty(tree: &mut ElementTree, style_engine: &StyleEngine) ->
             focus: focus_full,
             selected: selected_full,
             checked: checked_full,
+            disabled: disabled_full,
         }));
         // Стили могли запустить keyframe-анимацию или transition.
         tree.note_animation_started(id);

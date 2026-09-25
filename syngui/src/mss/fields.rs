@@ -372,6 +372,8 @@ pub struct MssFields {
     pub style_active: Option<ResolvedProps>,
     pub style_focus: Option<ResolvedProps>,
     pub style_selected: Option<ResolvedProps>,
+    /// Слой `:disabled`; `None` — правил с `:disabled` нет.
+    pub style_disabled: Option<ResolvedProps>,
     pub has_mss_styles: bool,
     pub filter_normal: Option<Vec<crate::effects::FilterEffect>>,
     pub filter_hover: Option<Vec<crate::effects::FilterEffect>>,
@@ -464,6 +466,7 @@ impl MssFields {
             style_active: None,
             style_focus: None,
             style_selected: None,
+            style_disabled: None,
             has_mss_styles: false,
             filter_normal: None,
             filter_hover: None,
@@ -1081,6 +1084,29 @@ impl MssFields {
             Some(dims) => dims[0].resolve(reference_size),
             None => default,
         }
+    }
+
+    /// Запомнить слой `:disabled` из каскада.
+    pub fn set_disabled_style(&mut self, disabled: Option<&ComputedStyle>) {
+        self.style_disabled = disabled.map(ResolvedProps::from_style);
+    }
+
+    /// Стили текущего состояния с учётом выключенности: у выключенного
+    /// элемента слой `:disabled` главнее hover/pressed/focus/selected.
+    pub fn state_props(
+        &self,
+        disabled: bool,
+        hovered: bool,
+        pressed: bool,
+        focused: bool,
+        selected: bool,
+    ) -> &ResolvedProps {
+        if disabled {
+            if let Some(ref p) = self.style_disabled {
+                return p;
+            }
+        }
+        self.target_props(hovered, pressed, focused, selected)
     }
 
     pub fn target_props(

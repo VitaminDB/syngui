@@ -323,10 +323,14 @@ impl Element for ToolButtonElement {
 
         let target = self
             .mss
-            .target_props(self.hover, self.pressed, false, self.active);
+            .state_props(self.disabled, self.hover, self.pressed, false, self.active);
         let (bg, icon_color) = if self.mss.has_mss_styles {
             let bg = self.mss.effective_bg(target, Color::TRANSPARENT);
-            let ic = self.mss.effective_fg(target, fg);
+            let mut ic = self.mss.effective_fg(target, fg);
+            // Без правил `:disabled` выключенная кнопка просто бледнеет.
+            if self.disabled && self.mss.style_disabled.is_none() {
+                ic = ic.with_alpha(ic.a * 0.4);
+            }
             (bg, ic)
         } else {
             let bg = if self.disabled {
@@ -688,6 +692,10 @@ impl Element for ToolButtonElement {
     ) {
         self.mss
             .apply_transitions(base, hover, active, focus, selected);
+    }
+
+    fn apply_disabled_style(&mut self, disabled: Option<&ComputedStyle>) {
+        self.mss.set_disabled_style(disabled);
     }
 
     fn accessibility_info(&self) -> Option<crate::a11y::AccessibilityInfo> {

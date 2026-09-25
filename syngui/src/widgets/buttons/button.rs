@@ -190,9 +190,13 @@ impl ButtonElement {
     }
 
     fn get_colors(&self) -> (Color, Color, Option<Border>) {
-        let target = self
-            .mss
-            .target_props(self.hover, self.pressed, self.focused, self.selected);
+        let target = self.mss.state_props(
+            self.disabled,
+            self.hover,
+            self.pressed,
+            self.focused,
+            self.selected,
+        );
         let bg = self.mss.effective_bg(&target, Color::TRANSPARENT);
         let fg = self.mss.effective_fg(&target, Color::WHITE);
         let bc = self
@@ -329,7 +333,8 @@ impl Element for ButtonElement {
 
     fn build_display_list(&self, list: &mut DisplayList, clip: Rect) {
         let (mut bg_color, mut text_color, mut border) = self.get_colors();
-        if self.disabled {
+        // Без правил `:disabled` выключенная кнопка просто бледнеет.
+        if self.disabled && self.mss.style_disabled.is_none() {
             bg_color = bg_color.with_alpha(bg_color.a * 0.5);
             text_color = text_color.with_alpha(text_color.a * 0.5);
             if let Some(ref mut b) = border {
@@ -674,6 +679,10 @@ impl Element for ButtonElement {
         self.mss
             .apply_transitions(base, hover, active, focus, selected);
         self.update_selected_state();
+    }
+
+    fn apply_disabled_style(&mut self, disabled: Option<&ComputedStyle>) {
+        self.mss.set_disabled_style(disabled);
     }
 
     fn accessibility_info(&self) -> Option<crate::a11y::AccessibilityInfo> {
