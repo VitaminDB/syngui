@@ -225,7 +225,7 @@ impl Window {
         &self,
         #[allow(unused_variables)] bytes: &[u8],
     ) -> Result<(), Box<dyn std::error::Error>> {
-        #[cfg(feature = "image-support")]
+        #[cfg(feature = "image")]
         {
             let img = image::load_from_memory(bytes)?.to_rgba8();
             let (w, h) = img.dimensions();
@@ -233,9 +233,9 @@ impl Window {
             self.inner.set_window_icon(Some(icon));
             Ok(())
         }
-        #[cfg(not(feature = "image-support"))]
+        #[cfg(not(feature = "image"))]
         {
-            Err("image-support feature is required for set_window_icon_from_png".into())
+            Err("`image` feature is required for set_window_icon_from_png".into())
         }
     }
 }
