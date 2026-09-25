@@ -13,6 +13,9 @@
 //!     .class("opt-strip")            // в колонке высота по содержимому, иначе — height в MSS
 //! ```
 //!
+//! `.vertical()` — то же по вертикали: колонка строк (списки настроек,
+//! меню), фокус — индекс строки.
+//!
 //! Мышь и колесо не прокручивают: это лента для D-pad (фокус хранит
 //! приложение, например в [`super::GridFocus`]).
 
@@ -34,6 +37,7 @@ pub struct FocusScroll {
     focus: Option<usize>,
     peek: f32,
     smooth: bool,
+    vertical: bool,
 }
 
 impl Default for FocusScroll {
@@ -49,7 +53,14 @@ impl FocusScroll {
             focus: None,
             peek: 48.0,
             smooth: true,
+            vertical: false,
         }
+    }
+
+    /// Прокрутка по вертикали (содержимое — колонка).
+    pub fn vertical(mut self) -> Self {
+        self.vertical = true;
+        self
     }
 
     /// Какой элемент содержимого держать в виду; `None` — не двигать ленту.
@@ -84,6 +95,7 @@ impl Widget for FocusScroll {
             focus: self.focus,
             peek: self.peek,
             smooth: self.smooth,
+            vertical: self.vertical,
             content_width: 0.0,
             offset: 0.0,
             target: 0.0,
@@ -145,6 +157,8 @@ pub struct FocusScrollElement {
     focus: Option<usize>,
     peek: f32,
     smooth: bool,
+    vertical: bool,
+    /// Размер содержимого вдоль оси прокрутки.
     content_width: f32,
     /// Текущий сдвиг содержимого влево и цель плавной прокрутки.
     offset: f32,
@@ -171,6 +185,10 @@ impl Element for FocusScrollElement {
                 self.mark_dirty(DirtyFlags::LAYOUT | DirtyFlags::RENDER);
             }
             self.smooth = fs.smooth;
+            if self.vertical != fs.vertical {
+                self.vertical = fs.vertical;
+                self.mark_dirty(DirtyFlags::LAYOUT | DirtyFlags::RENDER);
+            }
         }
     }
 
@@ -186,13 +204,13 @@ impl Element for FocusScrollElement {
             top: 0.0,
             right: 0.0,
             bottom: 0.0,
-            unbounded_width: true,
-            unbounded_height: false,
+            unbounded_width: !self.vertical,
+            unbounded_height: self.vertical,
         }
     }
 
     fn set_content_size(&mut self, size: Size) {
-        self.content_width = size.width;
+        self.content_width = if self.vertical { size.height } else { size.width };
     }
 
     fn wants_content_child_rects(&self) -> bool {
@@ -200,17 +218,25 @@ impl Element for FocusScrollElement {
     }
 
     fn set_content_child_rects(&mut self, rects: &[Rect]) {
-        let viewport = self.bounds.size.width;
+        let viewport = if self.vertical {
+            self.bounds.size.height
+        } else {
+            self.bounds.size.width
+        };
         let max = (self.content_width - viewport).max(0.0);
         let target = match self.focus.and_then(|i| rects.get(i)) {
             Some(r) => {
-                let start = r.origin.x - self.bounds.origin.x;
+                let (start, len) = if self.vertical {
+                    (r.origin.y - self.bounds.origin.y, r.size.height)
+                } else {
+                    (r.origin.x - self.bounds.origin.x, r.size.width)
+                };
                 sticky_offset(
                     self.target,
                     viewport,
                     self.content_width,
                     start,
-                    start + r.size.width,
+                    start + len,
                     self.peek,
                 )
             }
@@ -254,10 +280,12 @@ impl Element for FocusScrollElement {
     fn build_display_list(&self, list: &mut DisplayList, _clip: Rect) {
         list.push_clip(self.bounds);
         let sf = list.scale_factor().max(1.0);
-        list.push_transform(Transform::translation(
-            (-self.offset * sf).round() / sf,
-            0.0,
-        ));
+        let d = (-self.offset * sf).round() / sf;
+        list.push_transform(if self.vertical {
+            Transform::translation(0.0, d)
+        } else {
+            Transform::translation(d, 0.0)
+        });
     }
 
     fn post_build_display_list(&self, list: &mut DisplayList, _clip: Rect) {
@@ -266,7 +294,11 @@ impl Element for FocusScrollElement {
     }
 
     fn scroll_offset(&self) -> Point {
-        Point::new(self.offset, 0.0)
+        if self.vertical {
+            Point::new(0.0, self.offset)
+        } else {
+            Point::new(self.offset, 0.0)
+        }
     }
 
     fn handle_event(

@@ -28,6 +28,9 @@ pub struct Slider {
     pub width: Option<Dimension>,
     pub vertical: bool,
     pub bipolar: bool,
+    /// Отмеченные диапазоны значений (загружено/буферизовано) — полосы
+    /// между дорожкой и заливкой, цвет `outline-color`.
+    pub marked: Vec<(f32, f32)>,
     pub show_value: bool,
     pub decimals: u8,
     pub value_width: Option<f32>,
@@ -45,6 +48,7 @@ impl Slider {
             width: None,
             vertical: false,
             bipolar: false,
+            marked: Vec::new(),
             show_value: false,
             decimals: 0,
             value_width: None,
@@ -94,6 +98,20 @@ impl Slider {
     /// Escape — отменить. Только для горизонтального слайдера.
     /// Стилизация через MSS: `label-color` (цвет числа), `value-font-size`
     /// или `font-size` (кегль), `caret-color` (курсор ввода).
+    /// Отметить на дорожке диапазоны значений `(от, до)` — например,
+    /// загруженную часть видео. Рисуются под заливкой цветом
+    /// `outline-color` (по умолчанию — цвет заливки с прозрачностью 40 %).
+    pub fn marked(mut self, ranges: Vec<(f32, f32)>) -> Self {
+        self.marked = ranges;
+        self
+    }
+
+    /// Отметить один диапазон от начала шкалы до `value` (см. [`Slider::marked`]).
+    pub fn buffered(self, value: f32) -> Self {
+        let min = self.min;
+        self.marked(vec![(min, value)])
+    }
+
     pub fn show_value(mut self, decimals: u8) -> Self {
         self.show_value = true;
         self.decimals = decimals;
@@ -130,6 +148,7 @@ impl Widget for Slider {
             width: self.width,
             vertical: self.vertical,
             bipolar: self.bipolar,
+            marked: self.marked.clone(),
             show_value: self.show_value,
             decimals: self.decimals,
             value_width: self.value_width,
@@ -177,6 +196,7 @@ pub struct SliderElement {
     width: Option<Dimension>,
     vertical: bool,
     bipolar: bool,
+    marked: Vec<(f32, f32)>,
     show_value: bool,
     decimals: u8,
     value_width: Option<f32>,
@@ -338,6 +358,7 @@ impl Element for SliderElement {
             self.width = slider.width;
             self.vertical = slider.vertical;
             self.bipolar = slider.bipolar;
+            self.marked = slider.marked.clone();
             self.on_change = slider.on_change.clone();
             self.mark_dirty(DirtyFlags::RENDER);
         }
@@ -421,6 +442,35 @@ impl Element for SliderElement {
         }
 
         let thumb_pos = self.value_to_pos(self.value);
+
+        if !self.marked.is_empty() {
+            let mark_color = self
+                .mss
+                .outline_color
+                .unwrap_or_else(|| fill_base.with_alpha(0.4));
+            for &(from, to) in &self.marked {
+                let (from, to) = (
+                    from.clamp(self.min, self.max),
+                    to.clamp(self.min, self.max),
+                );
+                if to <= from {
+                    continue;
+                }
+                let (a, b) = (self.value_to_pos(from), self.value_to_pos(to));
+                let rect = if self.vertical {
+                    Rect::new(
+                        Point::new(self.track_bounds.x(), a.min(b)),
+                        Size::new(self.track_bounds.size.width, (a - b).abs()),
+                    )
+                } else {
+                    Rect::new(
+                        Point::new(a, self.track_bounds.y()),
+                        Size::new(b - a, self.track_bounds.size.height),
+                    )
+                };
+                list.push_rect(rect, mark_color, track_radius);
+            }
+        }
 
         if self.mss.background_gradient.is_none() {
             let bipolar_ok = self.bipolar && self.min < 0.0 && self.max > 0.0;
@@ -1015,6 +1065,7 @@ mod tests {
             width: s.width,
             vertical: s.vertical,
             bipolar: s.bipolar,
+            marked: s.marked.clone(),
             show_value: s.show_value,
             decimals: s.decimals,
             value_width: s.value_width,

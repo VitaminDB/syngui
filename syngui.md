@@ -993,6 +993,10 @@ RadioButton::new("a", &group).label("A")
 Slider::new().value(0.5).range(0.0, 1.0).step(0.01)
     .vertical().bipolar().show_value(2).value_width(48.0).width(200.0)
     .on_change(|v: f32| {})
+// Отмеченные диапазоны под заливкой (загружено/буферизовано), цвет —
+// `outline-color` в MSS; `buffered(v)` = `marked(vec![(min, v)])`, после `range`.
+Slider::new().range(0.0, dur).value(pos).buffered(downloaded)
+Slider::new().marked(vec![(0.0, 30.0), (60.0, 90.0)])
 
 TickSlider::new().ticks(vec![0.0, 0.5, 1.0]).tick_count(5)
     .tick_labels(|v| format!("{v:.0}")).snap_to_ticks(true)
@@ -1364,6 +1368,8 @@ shelf_offset(col, visible, keep_left)   // на сколько карточек 
 // Лента из элементов разной ширины (озвучки, сезоны, серии): держит в виду
 // ребёнка содержимого с индексом focus, сдвигаясь только когда он за краем.
 FocusScroll::new().focus(col).peek(120.0).child(Row::new().gap(8.0)…).class("strip")
+// По вертикали: список строк (настройки, меню), focus — индекс строки колонки.
+FocusScroll::new().vertical().focus(row).peek(80.0).child(Column::new()…).class("list")
 ```
 
 Ставится у корня экрана: события, не обработанные ниже, всплывают в него.
