@@ -15,12 +15,17 @@ pub enum SegmentState {
     Partial(f32),
     Filled,
     Disabled,
+    /// Отметка события (красный сегмент с белой точкой — различим и без
+    /// цвета). `pulse` — событие не просмотрено: яркость плавно пульсирует.
+    Alert { pulse: bool },
 }
 
 const DEFAULT_HEIGHT: f32 = 10.0;
 const DEFAULT_GAP: f32 = 2.0;
 const DEFAULT_RADIUS: f32 = 2.0;
 const APPEAR_DURATION_SECS: f32 = 0.18;
+/// Период пульсации непросмотренной отметки.
+const PULSE_PERIOD_SECS: f32 = 1.0;
 
 pub struct SegmentedProgressBar {
     segments: Vec<SegmentState>,
@@ -85,6 +90,7 @@ impl Widget for SegmentedProgressBar {
             segments: self.segments.clone(),
             bounds: Rect::zero(),
             appear_t: 0.0,
+            pulse_t: 0.0,
             classes: self.classes.clone(),
             dirty_flags: DirtyFlags::LAYOUT | DirtyFlags::RENDER,
             mss: MssFields::new(),
@@ -111,9 +117,19 @@ pub struct SegmentedProgressBarElement {
     segments: Vec<SegmentState>,
     bounds: Rect,
     appear_t: f32,
+    /// Фаза пульсации отметок, секунды.
+    pulse_t: f32,
     classes: Vec<String>,
     dirty_flags: DirtyFlags,
     mss: MssFields,
+}
+
+impl SegmentedProgressBarElement {
+    fn has_pulse(&self) -> bool {
+        self.segments
+            .iter()
+            .any(|s| matches!(s, SegmentState::Alert { pulse: true }))
+    }
 }
 
 impl Element for SegmentedProgressBarElement {
@@ -163,6 +179,14 @@ impl Element for SegmentedProgressBarElement {
             .background_color
             .unwrap_or_else(|| Color::from_hex("#E5E7EB"));
         let neutral = self.mss.color.unwrap_or_else(|| Color::from_hex("#9CA3AF"));
+        // Цвет отметки — `outline-color` (по умолчанию красный).
+        let alert = self
+            .mss
+            .outline_color
+            .unwrap_or_else(|| Color::from_hex("#ef4444"));
+        // Плавная пульсация 0.35…1 вместо жёсткого мигания.
+        let wave = 0.5 - 0.5 * (self.pulse_t / PULSE_PERIOD_SECS * std::f32::consts::TAU).cos();
+        let pulse_alpha = 1.0 - 0.65 * wave;
 
         let alpha = self.appear_t.clamp(0.0, 1.0);
         if alpha <= 0.001 {
@@ -187,6 +211,13 @@ impl Element for SegmentedProgressBarElement {
                     track.lerp(&accent, f)
                 }
                 SegmentState::Disabled => neutral.with_alpha(0.30),
+                SegmentState::Alert { pulse } => {
+                    if *pulse {
+                        alert.with_alpha(alert.a * pulse_alpha)
+                    } else {
+                        alert
+                    }
+                }
             };
 
             let color = if alpha < 1.0 {
@@ -195,20 +226,38 @@ impl Element for SegmentedProgressBarElement {
                 color
             };
             list.push_rect(rect, color, [radius; 4]);
+            if matches!(seg, SegmentState::Alert { .. }) {
+                let d = (seg_w.min(h) * 0.4).max(2.0);
+                let dot = Rect::new(
+                    Point::new(x + (seg_w - d) / 2.0, y + (h - d) / 2.0),
+                    Size::new(d, d),
+                );
+                let white = Color::from_hex("#ffffff");
+                list.push_rect(dot, white.with_alpha(white.a * alpha), [d / 2.0; 4]);
+            }
         }
     }
 
-    /// Тик нужен, пока не доиграло появление.
+    /// Тик нужен, пока не доиграло появление или есть пульсирующие
+    /// отметки; без них полоса кадров не требует.
     fn wants_animate_tick(&self) -> bool {
-        self.appear_t < 1.0
+        self.appear_t < 1.0 || self.has_pulse()
     }
 
     fn animate(&mut self, dt: Duration) -> bool {
+        let mut changed = false;
         if self.appear_t < 1.0 {
             self.appear_t = (self.appear_t + dt.as_secs_f32() / APPEAR_DURATION_SECS).min(1.0);
-            return true;
+            changed = true;
         }
-        false
+        if self.has_pulse() {
+            self.pulse_t = (self.pulse_t + dt.as_secs_f32()) % PULSE_PERIOD_SECS;
+            changed = true;
+        }
+        if changed {
+            self.mark_dirty(DirtyFlags::RENDER);
+        }
+        changed
     }
 
     fn handle_event(
