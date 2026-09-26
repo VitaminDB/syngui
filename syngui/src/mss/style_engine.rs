@@ -879,6 +879,19 @@ mod tests {
     }
 
     #[test]
+    fn hover_in_comma_group_not_applied_at_rest() {
+        let mut eng = engine_from(
+            ".btn { padding: 10px; } \
+             .other:hover, .btn:hover { padding: 20px; }",
+        );
+        let ctx = StyleContext::with_class("btn");
+        let s = eng.compute_style_with_state(&ctx, ElementState::Normal);
+        assert_eq!(s.padding(), 10.0);
+        let s = eng.compute_style_with_state(&ctx, ElementState::Hover);
+        assert_eq!(s.padding(), 20.0);
+    }
+
+    #[test]
     fn window_pseudo_applied_after_state_pseudo() {
         let mut eng = engine_from(
             ".btn { padding: 10px; } \

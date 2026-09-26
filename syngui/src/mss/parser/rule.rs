@@ -303,14 +303,13 @@ pub(super) fn parse_rule(
         if is_nested_rule_start(cursor) {
             let current_selector = build_selector_for_nesting(cursor, &selector_str, parent_chain)?;
             if !declarations.is_empty() {
-                let selector = build_final_selector(cursor, &selector_str, parent_chain)?;
-                let selector_str_full = build_selector_str(cursor, &selector_str, parent_chain);
-                stylesheet.add_rule(StyleRule {
-                    selector,
-                    selector_str: selector_str_full,
-                    declarations: declarations.clone(),
-                });
-                declarations.clear();
+                add_rules(
+                    cursor,
+                    stylesheet,
+                    &selector_str,
+                    parent_chain,
+                    std::mem::take(&mut declarations),
+                )?;
             }
             parse_rule(cursor, stylesheet, Some(&current_selector))?;
             cursor.skip_whitespace();
@@ -346,13 +345,7 @@ pub(super) fn parse_rule(
     }
 
     if !declarations.is_empty() {
-        let selector = build_final_selector(cursor, &selector_str, parent_chain)?;
-        let selector_str_full = build_selector_str(cursor, &selector_str, parent_chain);
-        stylesheet.add_rule(StyleRule {
-            selector,
-            selector_str: selector_str_full,
-            declarations,
-        });
+        add_rules(cursor, stylesheet, &selector_str, parent_chain, declarations)?;
     }
 
     Ok(())
@@ -396,33 +389,60 @@ fn build_selector_for_nesting(
     }
 }
 
-fn build_final_selector(
+/// Правило со списком селекторов через запятую раскладывается на отдельные
+/// правила — по одному на цепочку, как в CSS. Иначе у группы не было бы
+/// своего псевдокласса и специфичности: `.a:hover, .b:hover {}` попадало в
+/// базовый слой каскада и действовало без наведения.
+fn add_rules(
     cursor: &ParserCursor,
+    stylesheet: &mut StyleSheet,
     selector_str: &str,
     parent_chain: Option<&SelectorChain>,
-) -> Result<Selector, ParseError> {
+    declarations: HashMap<String, StyleValue>,
+) -> Result<(), ParseError> {
+    let selector_str_full = build_selector_str(cursor, selector_str, parent_chain);
     let chains = super::selector::parse_selector_chains(cursor, selector_str)?;
-
-    if let Some(parent) = parent_chain {
-        let combined: Vec<SelectorChain> = chains
+    let chains: Vec<SelectorChain> = match parent_chain {
+        Some(parent) => chains
             .iter()
             .map(|c| combine_chains(cursor, parent, c))
-            .collect();
-
-        if combined.len() == 1 {
-            let chain = combined.into_iter().next().unwrap();
-            chain_to_selector(chain)
-        } else {
-            Ok(Selector::Group(combined))
+            .collect(),
+        None => chains,
+    };
+    for chain in chains {
+        if let Some(p) = chain.pseudo() {
+            if !is_known_pseudo(p) {
+                log::warn!(
+                    "MSS: неизвестный псевдокласс :{p} в «{selector_str_full}» — правило пропущено"
+                );
+                continue;
+            }
         }
-    } else {
-        if chains.len() == 1 {
-            let chain = chains.into_iter().next().unwrap();
-            chain_to_selector(chain)
-        } else {
-            Ok(Selector::Group(chains))
-        }
+        stylesheet.add_rule(StyleRule {
+            selector: chain_to_selector(chain)?,
+            selector_str: selector_str_full.clone(),
+            declarations: declarations.clone(),
+        });
     }
+    Ok(())
+}
+
+/// Псевдоклассы, которые знает каскад (`cascade.rs`). Правило с любым другим
+/// раньше уходило в базовый слой и действовало всегда.
+pub(crate) fn is_known_pseudo(p: &str) -> bool {
+    matches!(
+        p,
+        "hover"
+            | "active"
+            | "pressed"
+            | "focus"
+            | "selected"
+            | "checked"
+            | "disabled"
+            | "window-maximized"
+            | "window-fullscreen"
+            | "window-focused"
+    )
 }
 
 fn chain_to_selector(chain: SelectorChain) -> Result<Selector, ParseError> {

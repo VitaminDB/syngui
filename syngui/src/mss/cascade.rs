@@ -438,16 +438,9 @@ pub fn apply_styles_to_tree(tree: &mut ElementTree, style_engine: &StyleEngine) 
                                 );
                             }
                         }
-                        Some(false) => {}
-                        None => {
-                            has_base = true;
-                            for (prop, val) in &rule.declarations {
-                                base.set(
-                                    prop,
-                                    resolve_for_cascade(style_engine, val, prop, &parent_inh),
-                                );
-                            }
-                        }
+                        // Неизвестный псевдокласс — правило не действует
+                        // (парсер такие и не пропускает, см. is_known_pseudo).
+                        Some(false) | None => {}
                     },
                 }
             }
@@ -690,8 +683,8 @@ pub fn apply_styles_dirty(tree: &mut ElementTree, style_engine: &StyleEngine) ->
                 Some("selected") => (&mut selected, &mut has_selected),
                 Some("disabled") => (&mut disabled, &mut has_disabled),
                 Some(p) => match window_pseudo_matches(p, window_flags) {
-                    Some(false) => continue,
-                    Some(true) | None => (&mut base, &mut has_base),
+                    Some(false) | None => continue,
+                    Some(true) => (&mut base, &mut has_base),
                 },
             };
             *flag = true;

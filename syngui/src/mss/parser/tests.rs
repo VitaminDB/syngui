@@ -51,21 +51,27 @@ mod tests {
     fn test_parse_comma_group() {
         let mut parser = MssParser::new(".input, .textarea { border: 1px; }");
         let (sheet, _) = parser.parse().unwrap();
+        // Группа раскладывается на правила по одному на селектор.
+        assert_eq!(sheet.rules().len(), 2);
+        assert_eq!(sheet.rules()[0].selector, Selector::Class("input".into()));
+        assert_eq!(sheet.rules()[1].selector, Selector::Class("textarea".into()));
+    }
+
+    #[test]
+    fn test_comma_group_keeps_pseudo_per_selector() {
+        let mut parser = MssParser::new(".a:hover, .b:hover, .c { color: red; }");
+        let (sheet, _) = parser.parse().unwrap();
+        let pseudos: Vec<Option<&str>> =
+            sheet.rules().iter().map(|r| r.selector.pseudo()).collect();
+        assert_eq!(pseudos, vec![Some("hover"), Some("hover"), None]);
+    }
+
+    #[test]
+    fn test_unknown_pseudo_rule_dropped() {
+        let mut parser = MssParser::new(".a:focus-visible, .b { color: red; }");
+        let (sheet, _) = parser.parse().unwrap();
         assert_eq!(sheet.rules().len(), 1);
-        match &sheet.rules()[0].selector {
-            Selector::Group(chains) => {
-                assert_eq!(chains.len(), 2);
-                assert_eq!(
-                    chains[0].target(),
-                    &SelectorPart::Class("input".to_string())
-                );
-                assert_eq!(
-                    chains[1].target(),
-                    &SelectorPart::Class("textarea".to_string())
-                );
-            }
-            other => panic!("Expected Group, got {:?}", other),
-        }
+        assert_eq!(sheet.rules()[0].selector, Selector::Class("b".into()));
     }
 
     #[test]
@@ -199,25 +205,15 @@ mod tests {
     fn test_parse_comma_elements() {
         let mut parser = MssParser::new("TextField, SpinBox, DatePicker { border-radius: 8px; }");
         let (sheet, _) = parser.parse().unwrap();
-        assert_eq!(sheet.rules().len(), 1);
-        match &sheet.rules()[0].selector {
-            Selector::Group(chains) => {
-                assert_eq!(chains.len(), 3);
-                assert_eq!(
-                    chains[0].target(),
-                    &SelectorPart::Element("TextField".to_string())
-                );
-                assert_eq!(
-                    chains[1].target(),
-                    &SelectorPart::Element("SpinBox".to_string())
-                );
-                assert_eq!(
-                    chains[2].target(),
-                    &SelectorPart::Element("DatePicker".to_string())
-                );
-            }
-            other => panic!("Expected Group, got {:?}", other),
-        }
+        let sels: Vec<&Selector> = sheet.rules().iter().map(|r| &r.selector).collect();
+        assert_eq!(
+            sels,
+            vec![
+                &Selector::Element("TextField".into()),
+                &Selector::Element("SpinBox".into()),
+                &Selector::Element("DatePicker".into()),
+            ]
+        );
     }
 
     #[test]
