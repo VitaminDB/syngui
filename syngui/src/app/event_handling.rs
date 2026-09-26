@@ -862,8 +862,13 @@ impl winit::application::ApplicationHandler<SynGuiUserEvent> for AppHandler {
             }
             #[cfg(feature = "accessibility")]
             SynGuiUserEvent::A11yActivated => {
+                self.a11y_tree.set_accesskit_active(true);
                 self.a11y_dirty = true;
                 self.request_redraw();
+            }
+            #[cfg(feature = "accessibility")]
+            SynGuiUserEvent::A11yDeactivated => {
+                self.a11y_tree.set_accesskit_active(false);
             }
             #[cfg(feature = "accessibility")]
             SynGuiUserEvent::A11yAction(req) => {

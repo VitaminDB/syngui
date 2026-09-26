@@ -118,6 +118,9 @@ mod inner {
     }
 
     pub struct AccessKitAdapter {
+        /// Подключён ли скринридер. Без него дерево узлов не строится — на
+        /// тысячах элементов это заметная работа на каждом «грязном» кадре.
+        active: bool,
         pending_update: Option<accesskit::TreeUpdate>,
         focused_id: Option<accesskit::NodeId>,
         root_id: Option<accesskit::NodeId>,
@@ -126,9 +129,17 @@ mod inner {
     impl AccessKitAdapter {
         pub fn new() -> Self {
             Self {
+                active: false,
                 pending_update: None,
                 focused_id: None,
                 root_id: None,
+            }
+        }
+
+        pub fn set_active(&mut self, on: bool) {
+            self.active = on;
+            if !on {
+                self.pending_update = None;
             }
         }
 
@@ -147,6 +158,9 @@ mod inner {
 
     impl PlatformAdapter for AccessKitAdapter {
         fn tree_updated(&mut self, nodes: &HashMap<A11yId, A11yNode>, root: Option<A11yId>) {
+            if !self.active {
+                return;
+            }
             let mut ak_nodes = Vec::with_capacity(nodes.len());
 
             for (a11y_id, node) in nodes.iter() {

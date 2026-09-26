@@ -569,9 +569,15 @@ impl accesskit::ActionHandler for SynGuiActionHandler {
 }
 
 #[cfg(feature = "accessibility")]
-pub(super) struct SynGuiDeactivationHandler;
+pub(super) struct SynGuiDeactivationHandler(
+    pub(super) Option<winit::event_loop::EventLoopProxy<super::user_event::SynGuiUserEvent>>,
+);
 
 #[cfg(feature = "accessibility")]
 impl accesskit::DeactivationHandler for SynGuiDeactivationHandler {
-    fn deactivate_accessibility(&mut self) {}
+    fn deactivate_accessibility(&mut self) {
+        if let Some(p) = &self.0 {
+            let _ = p.send_event(super::user_event::SynGuiUserEvent::A11yDeactivated);
+        }
+    }
 }

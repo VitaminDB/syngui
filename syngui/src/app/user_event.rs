@@ -13,6 +13,9 @@ pub enum SynGuiUserEvent {
     /// кадром (AccessKit ждёт его после `request_initial_tree() == None`).
     #[cfg(feature = "accessibility")]
     A11yActivated,
+    /// Скринридер отключился — дерево доступности больше не строится.
+    #[cfg(feature = "accessibility")]
+    A11yDeactivated,
     /// Действие скринридера над узлом (нажать, фокус, ввести текст).
     #[cfg(feature = "accessibility")]
     A11yAction(accesskit::ActionRequest),

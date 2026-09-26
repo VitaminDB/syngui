@@ -268,6 +268,14 @@ impl A11yTree {
     }
 
     #[cfg(feature = "accessibility")]
+    /// Скринридер подключился/отключился: без него узлы AccessKit не строятся.
+    pub fn set_accesskit_active(&mut self, on: bool) {
+        if let Some(ak) = self.platform.as_any_mut().downcast_mut::<AccessKitAdapter>() {
+            ak.set_active(on);
+        }
+    }
+
+    #[cfg(feature = "accessibility")]
     pub fn take_accesskit_update(&mut self) -> Option<accesskit::TreeUpdate> {
         let adapter = self.platform.as_any_mut();
         if let Some(ak_adapter) = adapter.downcast_mut::<AccessKitAdapter>() {

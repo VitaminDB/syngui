@@ -98,7 +98,7 @@ impl AppHandler {
                 window.winit_window(),
                 SynGuiActivationHandler(self.event_loop_proxy.clone()),
                 SynGuiActionHandler(self.event_loop_proxy.clone()),
-                SynGuiDeactivationHandler,
+                SynGuiDeactivationHandler(self.event_loop_proxy.clone()),
             );
             self.accesskit_adapter = Some(ak_adapter);
             window.set_visible(true);
