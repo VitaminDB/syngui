@@ -355,8 +355,12 @@ impl ElementTree {
         widget_type_id: std::any::TypeId,
         inline_styles: Vec<(String, crate::mss::StyleValue)>,
     ) -> ElementId {
-        let id = ElementId(self.next_id);
-        self.next_id += 1;
+        // Идентификаторы общие на процесс: грязные элементы сигналов
+        // хранятся глобально, и одинаковые id в двух деревьях (окна,
+        // поверхности оболочки) снимали пометку чужого элемента.
+        static NEXT_ELEMENT_ID: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(1);
+        let id = ElementId(NEXT_ELEMENT_ID.fetch_add(1, std::sync::atomic::Ordering::Relaxed));
+        self.next_id = id.0 + 1;
         crate::perf::counters::incr(crate::perf::counters::Tally::ElementsCreated);
 
         element.set_id(id);

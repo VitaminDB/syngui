@@ -14,6 +14,7 @@ pub mod core;
 pub mod debug;
 pub mod devtools;
 pub mod effects;
+pub mod embed;
 pub mod gpu;
 #[cfg(feature = "i18n")]
 pub mod i18n;
