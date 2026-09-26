@@ -50,6 +50,36 @@ pub struct FontAtlasStats {
     pub row_height: u32,
 }
 
+/// Вес начертания (100–900). `From<bool>` — старые вызовы с флагом «жирный»
+/// (700 / 400) продолжают работать.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+pub struct FontWeight(pub u16);
+
+impl From<bool> for FontWeight {
+    fn from(bold: bool) -> Self {
+        FontWeight(if bold { 700 } else { 400 })
+    }
+}
+
+impl From<u16> for FontWeight {
+    fn from(w: u16) -> Self {
+        FontWeight(w)
+    }
+}
+
+impl FontWeight {
+    /// Класс, под который ищется начертание: 400, 500, 600 или 700. Тоньше
+    /// 400 и тяжелее 700 отдельных начертаний не грузим.
+    pub fn class(self) -> u16 {
+        match self.0 {
+            0..=449 => 400,
+            450..=549 => 500,
+            550..=649 => 600,
+            _ => 700,
+        }
+    }
+}
+
 #[derive(Clone)]
 struct FontFace {
     data: Arc<[u8]>,
@@ -102,6 +132,10 @@ pub struct FontAtlas {
     /// Контекст растеризации swash — переиспользуется между глифами (у него
     /// свои кэши), а не создаётся на каждый новый глиф.
     scale_ctx: swash::scale::ScaleContext,
+    /// Начертания 500/600 (Medium/SemiBold) по семейству (`None` — основное):
+    /// индекс грани или `None`, если отдельного начертания нет (тогда берётся
+    /// ближайшее: 500 → обычное, 600 → жирное).
+    weight_faces: HashMap<(Option<String>, u16), Option<u8>>,
 }
 
 impl FontAtlas {
@@ -208,6 +242,7 @@ impl FontAtlas {
             generation: 0,
             scale_factor: 1.0,
             scale_ctx: swash::scale::ScaleContext::new(),
+            weight_faces: HashMap::new(),
         }
     }
 
@@ -490,6 +525,63 @@ impl FontAtlas {
             script
         );
         self.ensure_glyph_in(ch, size_px, font_index)
+    }
+
+    /// Глиф нужного веса: своё начертание семейства/основного шрифта, при
+    /// его отсутствии — ближайшее (обычное или жирное) со всей цепочкой
+    /// фолбэков (эмодзи, иконки, CJK).
+    fn ensure_glyph_weighted(
+        &mut self,
+        ch: char,
+        size_px: u16,
+        weight: FontWeight,
+        font_family: Option<&str>,
+    ) -> Option<GlyphKey> {
+        let class = weight.class();
+        if matches!(class, 500 | 600) {
+            if let Some(idx) = self.weight_face(font_family, class) {
+                if let Some(k) = self.ensure_glyph_in(ch, size_px, idx) {
+                    return Some(k);
+                }
+            }
+        }
+        let bold = class >= 600;
+        match font_family {
+            Some(fam) => self.ensure_glyph_family(ch, size_px, bold, fam),
+            None if bold => self.ensure_glyph_bold(ch, size_px),
+            None => self.ensure_glyph(ch, size_px),
+        }
+    }
+
+    /// Отдельное начертание 500/600, лениво. Если шрифт такого не несёт,
+    /// подбор font-kit (правила CSS) вернёт ближайшее — обычное или жирное;
+    /// такое совпадение не дублируем, а отвечаем `None` (сработает фолбэк).
+    fn weight_face(&mut self, family: Option<&str>, class: u16) -> Option<u8> {
+        let key = (family.map(str::to_string), class);
+        if let Some(&idx) = self.weight_faces.get(&key) {
+            return idx;
+        }
+        let idx = self.discover_weight_face(family, class);
+        self.weight_faces.insert(key, idx);
+        idx
+    }
+
+    #[cfg(all(not(target_arch = "wasm32"), not(target_os = "android")))]
+    fn discover_weight_face(&mut self, family: Option<&str>, class: u16) -> Option<u8> {
+        let (data, face_index) = crate::text::font_discovery::discover_weight_font(family, class);
+        let face = FontFace::new(data, face_index)?;
+        // Тот же файл, что уже загружен (обычное/жирное) — отдельной грани нет.
+        let same = |f: &FontFace| f.face_index == face.face_index && f.data[..] == face.data[..];
+        if self.faces.iter().flatten().any(same) {
+            return None;
+        }
+        log::info!("font_atlas: начертание {class} для {:?} загружено", family.unwrap_or("основного шрифта"));
+        Some(self.push_face(Some(face)))
+    }
+
+    #[cfg(any(target_arch = "wasm32", target_os = "android"))]
+    fn discover_weight_face(&mut self, _family: Option<&str>, _class: u16) -> Option<u8> {
+        None
     }
 
     fn ensure_glyph_bold(&mut self, ch: char, size_px: u16) -> Option<GlyphKey> {
@@ -806,9 +898,10 @@ impl FontAtlas {
         text: &str,
         size_px: u16,
         max_width: f32,
-        bold: bool,
+        weight: impl Into<FontWeight>,
         font_family: Option<&str>,
     ) -> Vec<ShapedGlyph> {
+        let weight: FontWeight = weight.into();
         let mut result = Vec::new();
         let mut x = 0.0f32;
         let line_height = size_px as f32 * 1.3;
@@ -829,7 +922,7 @@ impl FontAtlas {
 
             if ch == '\n' {
                 for &(wch, _) in &word_glyphs {
-                    self.emit_glyph(wch, size_px, bold, font_family, &mut x, y, &mut result);
+                    self.emit_glyph(wch, size_px, weight, font_family, &mut x, y, &mut result);
                 }
                 word_glyphs.clear();
                 word_width = 0.0;
@@ -840,17 +933,17 @@ impl FontAtlas {
 
             if ch == ' ' || breaks_before(prev_ch, ch) {
                 for &(wch, _) in &word_glyphs {
-                    self.emit_glyph(wch, size_px, bold, font_family, &mut x, y, &mut result);
+                    self.emit_glyph(wch, size_px, weight, font_family, &mut x, y, &mut result);
                 }
                 word_glyphs.clear();
                 word_width = 0.0;
                 if ch == ' ' {
-                    self.emit_glyph(ch, size_px, bold, font_family, &mut x, y, &mut result);
+                    self.emit_glyph(ch, size_px, weight, font_family, &mut x, y, &mut result);
                     continue;
                 }
             }
 
-            let advance = self.glyph_advance(ch, size_px, bold, font_family);
+            let advance = self.glyph_advance(ch, size_px, weight, font_family);
             word_glyphs.push((ch, advance));
             word_width += advance;
 
@@ -862,7 +955,7 @@ impl FontAtlas {
             if max_width > 0.0 && word_width > max_width + wrap_eps && word_glyphs.len() > 1 {
                 let last = word_glyphs.pop().unwrap();
                 for &(wch, _) in &word_glyphs {
-                    self.emit_glyph(wch, size_px, bold, font_family, &mut x, y, &mut result);
+                    self.emit_glyph(wch, size_px, weight, font_family, &mut x, y, &mut result);
                 }
                 word_glyphs.clear();
                 x = 0.0;
@@ -873,7 +966,7 @@ impl FontAtlas {
         }
 
         for &(wch, _) in &word_glyphs {
-            self.emit_glyph(wch, size_px, bold, font_family, &mut x, y, &mut result);
+            self.emit_glyph(wch, size_px, weight, font_family, &mut x, y, &mut result);
         }
 
         result
@@ -883,14 +976,10 @@ impl FontAtlas {
         &mut self,
         ch: char,
         size_px: u16,
-        bold: bool,
+        weight: FontWeight,
         font_family: Option<&str>,
     ) -> f32 {
-        let key = match font_family {
-            Some(fam) => self.ensure_glyph_family(ch, size_px, bold, fam),
-            None if bold => self.ensure_glyph_bold(ch, size_px),
-            None => self.ensure_glyph(ch, size_px),
-        };
+        let key = self.ensure_glyph_weighted(ch, size_px, weight, font_family);
         let key = match key {
             Some(k) => k,
             None => return 0.0,
@@ -903,12 +992,13 @@ impl FontAtlas {
         text: &str,
         size_px: u16,
         max_width: f32,
-        bold: bool,
+        weight: impl Into<FontWeight>,
         font_family: Option<&str>,
         letter_spacing: f32,
     ) -> Vec<ShapedGlyph> {
+        let weight: FontWeight = weight.into();
         if letter_spacing.abs() < 0.01 {
-            return self.shape_text(text, size_px, max_width, bold, font_family);
+            return self.shape_text(text, size_px, max_width, weight, font_family);
         }
         let mut result = Vec::new();
         let mut x = 0.0f32;
@@ -932,7 +1022,7 @@ impl FontAtlas {
                     self.emit_glyph_spaced(
                         wch,
                         size_px,
-                        bold,
+                        weight,
                         font_family,
                         &mut x,
                         y,
@@ -952,7 +1042,7 @@ impl FontAtlas {
                     self.emit_glyph_spaced(
                         wch,
                         size_px,
-                        bold,
+                        weight,
                         font_family,
                         &mut x,
                         y,
@@ -966,7 +1056,7 @@ impl FontAtlas {
                     self.emit_glyph_spaced(
                         ch,
                         size_px,
-                        bold,
+                        weight,
                         font_family,
                         &mut x,
                         y,
@@ -977,7 +1067,7 @@ impl FontAtlas {
                 }
             }
 
-            let advance = self.glyph_advance(ch, size_px, bold, font_family) + letter_spacing;
+            let advance = self.glyph_advance(ch, size_px, weight, font_family) + letter_spacing;
             word_glyphs.push((ch, advance));
             word_width += advance;
 
@@ -991,7 +1081,7 @@ impl FontAtlas {
                     self.emit_glyph_spaced(
                         wch,
                         size_px,
-                        bold,
+                        weight,
                         font_family,
                         &mut x,
                         y,
@@ -1011,7 +1101,7 @@ impl FontAtlas {
             self.emit_glyph_spaced(
                 wch,
                 size_px,
-                bold,
+                weight,
                 font_family,
                 &mut x,
                 y,
@@ -1026,18 +1116,14 @@ impl FontAtlas {
         &mut self,
         ch: char,
         size_px: u16,
-        bold: bool,
+        weight: FontWeight,
         font_family: Option<&str>,
         x: &mut f32,
         y: f32,
         letter_spacing: f32,
         result: &mut Vec<ShapedGlyph>,
     ) {
-        let key = match font_family {
-            Some(fam) => self.ensure_glyph_family(ch, size_px, bold, fam),
-            None if bold => self.ensure_glyph_bold(ch, size_px),
-            None => self.ensure_glyph(ch, size_px),
-        };
+        let key = self.ensure_glyph_weighted(ch, size_px, weight, font_family);
         let key = match key {
             Some(k) => k,
             None => return,
@@ -1060,17 +1146,13 @@ impl FontAtlas {
         &mut self,
         ch: char,
         size_px: u16,
-        bold: bool,
+        weight: FontWeight,
         font_family: Option<&str>,
         x: &mut f32,
         y: f32,
         result: &mut Vec<ShapedGlyph>,
     ) {
-        let key = match font_family {
-            Some(fam) => self.ensure_glyph_family(ch, size_px, bold, fam),
-            None if bold => self.ensure_glyph_bold(ch, size_px),
-            None => self.ensure_glyph(ch, size_px),
-        };
+        let key = self.ensure_glyph_weighted(ch, size_px, weight, font_family);
         let key = match key {
             Some(k) => k,
             None => return,
@@ -1107,9 +1189,10 @@ impl FontAtlas {
         text: &str,
         size_px: u16,
         pos: usize,
-        bold: bool,
+        weight: impl Into<FontWeight>,
         font_family: Option<&str>,
     ) -> f32 {
+        let weight: FontWeight = weight.into();
         let mut x = 0.0f32;
         let mut char_count = 0;
 
@@ -1118,16 +1201,7 @@ impl FontAtlas {
                 break;
             }
 
-            let key = match font_family {
-                Some(fam) => self.ensure_glyph_family(ch, size_px, bold, fam),
-                None => {
-                    if bold {
-                        self.ensure_glyph_bold(ch, size_px)
-                    } else {
-                        self.ensure_glyph(ch, size_px)
-                    }
-                }
-            };
+            let key = self.ensure_glyph_weighted(ch, size_px, weight, font_family);
             let key = match key {
                 Some(k) => k,
                 None => {
@@ -1166,23 +1240,15 @@ impl FontAtlas {
         text: &str,
         size_px: u16,
         x_offset: f32,
-        bold: bool,
+        weight: impl Into<FontWeight>,
         font_family: Option<&str>,
     ) -> usize {
+        let weight: FontWeight = weight.into();
         let mut x = 0.0f32;
         let mut best_idx = 0;
 
         for (idx, ch) in text.chars().enumerate() {
-            let key = match font_family {
-                Some(fam) => self.ensure_glyph_family(ch, size_px, bold, fam),
-                None => {
-                    if bold {
-                        self.ensure_glyph_bold(ch, size_px)
-                    } else {
-                        self.ensure_glyph(ch, size_px)
-                    }
-                }
-            };
+            let key = self.ensure_glyph_weighted(ch, size_px, weight, font_family);
             let key = match key {
                 Some(k) => k,
                 None => {
@@ -1250,6 +1316,50 @@ impl crate::widget::context::TextMeasure for crate::core::sync::Mutex<FontAtlas>
         let visible = text.chars().take(char_count).count();
         let phys = phys_base + (letter_spacing * sf) * (visible as f32);
         phys / sf
+    }
+
+    fn measure_text_width_weight(
+        &self,
+        text: &str,
+        font_size: f32,
+        char_count: usize,
+        weight: u16,
+        font_family: Option<&str>,
+    ) -> f32 {
+        let mut atlas = self.lock().unwrap_or_else(|e| e.into_inner());
+        let sf = atlas.scale_factor();
+        let size_px = ((font_size * sf).round() as u16).max(1);
+        atlas.measure_text_width_styled(text, size_px, char_count, weight, font_family) / sf
+    }
+
+    fn measure_text_width_weight_ls(
+        &self,
+        text: &str,
+        font_size: f32,
+        char_count: usize,
+        weight: u16,
+        font_family: Option<&str>,
+        letter_spacing: f32,
+    ) -> f32 {
+        let base = self.measure_text_width_weight(text, font_size, char_count, weight, font_family);
+        if letter_spacing.abs() < 0.01 {
+            return base;
+        }
+        base + letter_spacing * text.chars().take(char_count).count() as f32
+    }
+
+    fn hit_test_char_weight(
+        &self,
+        text: &str,
+        font_size: f32,
+        x_offset: f32,
+        weight: u16,
+        font_family: Option<&str>,
+    ) -> usize {
+        let mut atlas = self.lock().unwrap_or_else(|e| e.into_inner());
+        let sf = atlas.scale_factor();
+        let size_px = ((font_size * sf).round() as u16).max(1);
+        atlas.hit_test_char_position_styled(text, size_px, x_offset * sf, weight, font_family)
     }
 
     fn hit_test_char(&self, text: &str, font_size: f32, x_offset: f32) -> usize {

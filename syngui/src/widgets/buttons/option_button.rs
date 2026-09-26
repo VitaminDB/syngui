@@ -121,7 +121,7 @@ impl Element for OptionButtonElement {
     fn layout(&mut self, constraints: Constraints) -> Size {
         let padding_h: f32 = 12.0;
         let font_size = self.mss.font_size_or(14.0);
-        let bold = self.mss.font_weight_or(400) >= 700;
+        let bold: u16 = self.mss.font_weight_or(400);
         let base_height = self
             .mss
             .height
@@ -132,7 +132,7 @@ impl Element for OptionButtonElement {
             .text_measure
             .as_ref()
             .map(|tm| {
-                tm.measure_text_width_styled(
+                tm.measure_text_width_weight(
                     &self.text,
                     font_size,
                     self.text.chars().count(),

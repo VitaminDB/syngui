@@ -11,7 +11,7 @@ pub mod font_discovery_android;
 #[cfg(any(feature = "material-icons", feature = "font-awesome"))]
 pub mod icon_fonts;
 
-pub use font_atlas::{FontAtlas, FontAtlasStats};
+pub use font_atlas::{FontAtlas, FontAtlasStats, FontWeight};
 pub use line_break::{break_class, breaks_before, BreakClass};
 pub use script::{script_of, Script};
 

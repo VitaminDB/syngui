@@ -224,7 +224,7 @@ impl Element for TabElement {
     fn layout(&mut self, constraints: Constraints) -> Size {
         let (pad_l, pad_r) = self.horizontal_padding();
         let font_size = self.mss.font_size_or(14.0);
-        let bold = self.mss.font_weight_or(400) >= 700;
+        let bold: u16 = self.mss.font_weight_or(400);
         let icon_width = if self.icon.is_some() {
             self.icon_box() + ICON_GAP
         } else {
@@ -235,7 +235,7 @@ impl Element for TabElement {
             .text_measure
             .as_ref()
             .map(|tm| {
-                tm.measure_text_width_styled(
+                tm.measure_text_width_weight(
                     &self.title,
                     font_size,
                     self.title.chars().count(),

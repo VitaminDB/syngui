@@ -250,7 +250,7 @@ impl Element for ButtonElement {
         let pad_r = self.mss.padding_right.unwrap_or(16.0);
         let pad_t = self.mss.padding_top.unwrap_or(8.0);
         let pad_b = self.mss.padding_bottom.unwrap_or(8.0);
-        let bold = self.mss.font_weight.unwrap_or(400) >= 700;
+        let bold: u16 = self.mss.font_weight.unwrap_or(400);
         let icon_size = self.mss.icon_size.unwrap_or(DEFAULT_ICON_SIZE);
         let icon_space = if self.icon.is_some() {
             if self.text.is_empty() {
@@ -269,7 +269,7 @@ impl Element for ButtonElement {
                 .map(|tm| {
                     crate::perf::incr(crate::perf::Counter::ButtonTextMeasure);
                     let t = web_time::Instant::now();
-                    let w = tm.measure_text_width_styled(
+                    let w = tm.measure_text_width_weight(
                         &self.text,
                         font_size,
                         self.text.chars().count(),

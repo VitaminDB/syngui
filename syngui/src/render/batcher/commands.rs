@@ -96,14 +96,14 @@ impl Batcher {
                 let sf = self.scale_factor;
                 let phys_font_size = ((*font_size * sf).round() as u16).max(1);
                 let phys_max_width = if *no_wrap { 0.0 } else { rect.size.width * sf };
-                let bold = *font_weight >= 700;
+                let weight = *font_weight;
                 let phys_letter_spacing = *letter_spacing * sf;
                 let glyphs = self.shape_text_cached_spacing(
                     font_atlas,
                     text,
                     phys_font_size,
                     phys_max_width,
-                    bold,
+                    weight,
                     font_family.as_deref(),
                     phys_letter_spacing,
                 );
@@ -122,7 +122,7 @@ impl Batcher {
                         sample.as_str(),
                         phys_font_size,
                         f32::INFINITY,
-                        false,
+                        400,
                         font_family.as_deref(),
                         phys_letter_spacing,
                     );
@@ -462,7 +462,7 @@ impl Batcher {
                 let ff = font_family.as_deref();
                 // Меряем тем же начертанием, каким рисуется текст: у жирных
                 // глифов advance шире, и подсветка обрывалась до конца слова.
-                let bold = *font_weight >= 600;
+                let bold = *font_weight;
                 let sel_start = snap_boundary(text, *sel_start);
                 let sel_end = snap_boundary(text, *sel_end);
                 let start_char_count = text[..sel_start].chars().count();
@@ -513,7 +513,7 @@ impl Batcher {
             } => {
                 let sf = self.scale_factor;
                 let phys_font_size = ((*font_size * sf).round() as u16).max(1);
-                let bold = *font_weight >= 600;
+                let bold = *font_weight;
                 let byte_pos = snap_boundary(text, *cursor_pos);
                 let text_before_cursor = &text[..byte_pos];
                 let char_count = text_before_cursor.chars().count();

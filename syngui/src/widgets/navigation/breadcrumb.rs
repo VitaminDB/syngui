@@ -161,12 +161,13 @@ impl BreadcrumbElement {
         self.mss.gap.unwrap_or(Self::ICON_GAP)
     }
 
-    fn text_width(&self, text: &str, bold: bool) -> f32 {
+    fn text_width(&self, text: &str, bold: impl Into<crate::text::FontWeight>) -> f32 {
+        let bold: u16 = bold.into().0;
         let fs = self.font_size();
         self.text_measure
             .as_ref()
             .map(|tm| {
-                tm.measure_text_width_styled(
+                tm.measure_text_width_weight(
                     text,
                     fs,
                     text.chars().count(),
@@ -179,7 +180,8 @@ impl BreadcrumbElement {
             })
     }
 
-    fn item_content_width(&self, item: &BreadcrumbItem, bold: bool) -> f32 {
+    fn item_content_width(&self, item: &BreadcrumbItem, bold: impl Into<crate::text::FontWeight>) -> f32 {
+    let bold: u16 = bold.into().0;
         let text_w = self.text_width(&item.text, bold);
         if item.icon.is_some() {
             self.icon_size() + self.icon_gap() + text_w
@@ -188,7 +190,8 @@ impl BreadcrumbElement {
         }
     }
 
-    fn item_box_width(&self, item: &BreadcrumbItem, bold: bool) -> f32 {
+    fn item_box_width(&self, item: &BreadcrumbItem, bold: impl Into<crate::text::FontWeight>) -> f32 {
+    let bold: u16 = bold.into().0;
         self.item_content_width(item, bold) + Self::PADDING_H * 2.0
     }
 
@@ -228,7 +231,7 @@ impl Element for BreadcrumbElement {
     fn layout(&mut self, constraints: Constraints) -> Size {
         let mut total_width: f32 = 0.0;
         self.item_rects.clear();
-        let bold = self.mss.font_weight_or(400) >= 700;
+        let bold: u16 = self.mss.font_weight_or(400);
         let sep_w = self.separator_width();
         let item_h = self.item_height();
 
@@ -271,7 +274,7 @@ impl Element for BreadcrumbElement {
             .unwrap_or(Color::from_hex("#F3F4F6"));
         let font_size = self.font_size();
         let font_weight = self.mss.font_weight_or(400);
-        let bold = font_weight >= 700;
+        let bold: u16 = font_weight;
         let icon_size = self.icon_size();
         let item_h = self.item_height();
         let sep_w = self.separator_width();

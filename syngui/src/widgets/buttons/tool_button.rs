@@ -259,7 +259,7 @@ impl Element for ToolButtonElement {
         let gap = 6.0_f32;
         let [pad_l, pad_t, pad_r, pad_b] = self.mss.padding_ltrb([4.0; 4]);
         let font_size = self.mss.font_size_or(12.0);
-        let bold = self.mss.font_weight_or(400) >= 700;
+        let bold: u16 = self.mss.font_weight_or(400);
         let icon_size = self.mss.icon_size.unwrap_or(DEFAULT_ICON_SIZE);
 
         let content_w = if let Some(ref text) = self.text {
@@ -267,7 +267,7 @@ impl Element for ToolButtonElement {
                 .text_measure
                 .as_ref()
                 .map(|tm| {
-                    tm.measure_text_width_styled(
+                    tm.measure_text_width_weight(
                         text,
                         font_size,
                         text.chars().count(),

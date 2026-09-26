@@ -171,7 +171,7 @@ impl Element for CheckboxElement {
         let checkbox_size: f32 = 20.0;
         let gap = 8.0;
         let font_size = self.mss.font_size.unwrap_or(14.0);
-        let bold = self.mss.font_weight.unwrap_or(400) >= 700;
+        let bold: u16 = self.mss.font_weight.unwrap_or(400);
         let label_width = self
             .label
             .as_ref()
@@ -179,7 +179,7 @@ impl Element for CheckboxElement {
                 self.text_measure
                     .as_ref()
                     .map(|tm| {
-                        tm.measure_text_width_styled(
+                        tm.measure_text_width_weight(
                             l,
                             font_size,
                             l.chars().count(),
@@ -272,12 +272,12 @@ impl Element for CheckboxElement {
             let font_size = self.mss.font_size.unwrap_or(14.0);
             let font_weight = self.mss.font_weight.unwrap_or(400);
             let text_x = self.checkbox_bounds.x() + self.checkbox_bounds.size.width + 8.0;
-            let bold = font_weight >= 700;
+            let bold: u16 = font_weight;
             let label_w = self
                 .text_measure
                 .as_ref()
                 .map(|tm| {
-                    tm.measure_text_width_styled(
+                    tm.measure_text_width_weight(
                         label,
                         font_size,
                         label.chars().count(),

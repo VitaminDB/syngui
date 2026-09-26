@@ -31,6 +31,43 @@ pub trait TextMeasure: Send + Sync {
         self.measure_text_width_styled(text, font_size, char_count, bold, font_family)
     }
 
+    /// Ширина с учётом веса начертания (500/600 — свои Medium/SemiBold, если
+    /// шрифт их несёт). По умолчанию — через флаг «жирный» (≥ 700).
+    fn measure_text_width_weight(
+        &self,
+        text: &str,
+        font_size: f32,
+        char_count: usize,
+        weight: u16,
+        font_family: Option<&str>,
+    ) -> f32 {
+        self.measure_text_width_styled(text, font_size, char_count, weight >= 700, font_family)
+    }
+
+    fn measure_text_width_weight_ls(
+        &self,
+        text: &str,
+        font_size: f32,
+        char_count: usize,
+        weight: u16,
+        font_family: Option<&str>,
+        letter_spacing: f32,
+    ) -> f32 {
+        self.measure_text_width_styled_ls(text, font_size, char_count, weight >= 700, font_family, letter_spacing)
+    }
+
+    /// Попадание символа с учётом веса начертания.
+    fn hit_test_char_weight(
+        &self,
+        text: &str,
+        font_size: f32,
+        x_offset: f32,
+        weight: u16,
+        font_family: Option<&str>,
+    ) -> usize {
+        self.hit_test_char_weighted(text, font_size, x_offset, weight >= 700, font_family)
+    }
+
     fn hit_test_char(&self, text: &str, font_size: f32, x_offset: f32) -> usize;
 
     fn hit_test_char_styled(

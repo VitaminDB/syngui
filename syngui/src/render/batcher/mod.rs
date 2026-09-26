@@ -31,7 +31,7 @@ struct ShapedTextKey {
     text_hash: u64,
     font_size: u16,
     max_width_bits: u32,
-    bold: bool,
+    weight: u16,
     font_family_hash: u64,
     letter_spacing_bits: u32,
 }
@@ -41,7 +41,7 @@ impl Hash for ShapedTextKey {
         self.text_hash.hash(state);
         self.font_size.hash(state);
         self.max_width_bits.hash(state);
-        self.bold.hash(state);
+        self.weight.hash(state);
         self.font_family_hash.hash(state);
         self.letter_spacing_bits.hash(state);
     }
@@ -353,7 +353,7 @@ impl Batcher {
         text: &str,
         font_size: u16,
         max_width: f32,
-        bold: bool,
+        weight: u16,
         font_family: Option<&str>,
         letter_spacing: f32,
     ) -> Arc<Vec<ShapedGlyph>> {
@@ -370,7 +370,7 @@ impl Batcher {
             text_hash,
             font_size,
             max_width_bits: max_width.to_bits(),
-            bold,
+            weight,
             font_family_hash,
             letter_spacing_bits: letter_spacing.to_bits(),
         };
@@ -384,7 +384,7 @@ impl Batcher {
             text,
             font_size,
             max_width,
-            bold,
+            weight,
             font_family,
             letter_spacing,
         ));

@@ -84,6 +84,19 @@ pub fn discover_bold_font(preferred_family: Option<&str>) -> (Vec<u8>, u32) {
     }
 }
 
+/// Начертание заданного веса (500 Medium, 600 SemiBold…). Подбор font-kit
+/// идёт по правилам CSS: нет точного веса — вернётся ближайший (для 500 —
+/// обычный, для 600 — жирный); атлас такое совпадение распознаёт сам.
+pub fn discover_weight_font(preferred_family: Option<&str>, weight: u16) -> (Vec<u8>, u32) {
+    let families = build_families(preferred_family);
+    let props = Properties {
+        weight: Weight(weight as f32),
+        style: Style::Normal,
+        ..Properties::default()
+    };
+    load_font_bytes(&families, &props).unwrap_or_default()
+}
+
 pub fn discover_emoji_font() -> (Vec<u8>, u32) {
     let families = [
         FamilyName::Title("Segoe UI Emoji".to_string()),
@@ -355,5 +368,23 @@ mod tests {
             0,
             "face {face_index} does not cover U+65E5"
         );
+    }
+}
+
+#[cfg(test)]
+mod weight_tests {
+    /// На машине с системным шрифтом, где есть Medium/SemiBold, подбор по весу
+    /// даёт отдельные файлы; где их нет — совпадёт с обычным/жирным (атлас это
+    /// распознаёт). Печатает размеры, не падает без шрифтов.
+    #[test]
+    fn weight_faces_resolve() {
+        let (reg, _) = super::discover_font(None);
+        let (bold, _) = super::discover_bold_font(None);
+        let (w500, _) = super::discover_weight_font(None, 500);
+        let (w600, _) = super::discover_weight_font(None, 600);
+        eprintln!("regular {} bold {} 500 {} 600 {}", reg.len(), bold.len(), w500.len(), w600.len());
+        if !reg.is_empty() && !w600.is_empty() {
+            assert!(w600 != reg, "600 не должен падать на обычное начертание");
+        }
     }
 }

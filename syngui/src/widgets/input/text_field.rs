@@ -473,8 +473,8 @@ impl TextFieldElement {
         let char_count = self.text[..self.cursor_pos].chars().count();
         let vis = self.visual_text();
         if let Some(ref tm) = self.text_measure {
-            let bold = self.mss.font_weight_or(400) >= 700;
-            tm.measure_text_width_styled(
+            let bold: u16 = self.mss.font_weight_or(400);
+            tm.measure_text_width_weight(
                 &vis,
                 font_size,
                 char_count,

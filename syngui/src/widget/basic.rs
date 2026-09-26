@@ -24,10 +24,11 @@ pub(crate) fn count_visual_lines_via_measure(
     text: &str,
     available_width: f32,
     font_size: f32,
-    bold: bool,
+    bold: impl Into<crate::text::FontWeight>,
     font_family: Option<&str>,
     tm: &dyn crate::widget::context::TextMeasure,
 ) -> usize {
+    let bold: u16 = bold.into().0;
     if text.is_empty() {
         return 1;
     }
@@ -43,15 +44,16 @@ fn visual_lines_in_segment(
     line: &str,
     available_width: f32,
     font_size: f32,
-    bold: bool,
+    bold: impl Into<crate::text::FontWeight>,
     font_family: Option<&str>,
     tm: &dyn crate::widget::context::TextMeasure,
 ) -> usize {
+    let bold: u16 = bold.into().0;
     if line.is_empty() {
         return 1;
     }
     let full =
-        tm.measure_text_width_styled(line, font_size, line.chars().count(), bold, font_family);
+        tm.measure_text_width_weight(line, font_size, line.chars().count(), bold, font_family);
     if full <= available_width {
         return 1;
     }
@@ -65,7 +67,7 @@ fn visual_lines_in_segment(
 
     for ch in line.chars() {
         let ch_str = ch.encode_utf8(&mut buf);
-        let advance = tm.measure_text_width_styled(ch_str, font_size, 1, bold, font_family);
+        let advance = tm.measure_text_width_weight(ch_str, font_size, 1, bold, font_family);
         let prev_ch = prev.replace(ch);
 
         if (ch == ' ' || breaks_before(prev_ch, ch)) && word_chars > 0 {
@@ -110,10 +112,11 @@ fn truncate_to_lines<'a>(
     available_width: f32,
     max_lines: usize,
     font_size: f32,
-    bold: bool,
+    bold: impl Into<crate::text::FontWeight>,
     font_family: Option<&str>,
     tm: Option<&dyn crate::widget::context::TextMeasure>,
 ) -> std::borrow::Cow<'a, str> {
+    let bold: u16 = bold.into().0;
     let max_lines = max_lines.max(1);
     if text.is_empty() {
         return std::borrow::Cow::Borrowed(text);
@@ -125,7 +128,7 @@ fn truncate_to_lines<'a>(
         return truncate_by_logical_lines(text, max_lines);
     }
 
-    let ellipsis_w = tm.measure_text_width_styled(
+    let ellipsis_w = tm.measure_text_width_weight(
         ELLIPSIS,
         font_size,
         ELLIPSIS.chars().count(),
@@ -186,7 +189,7 @@ fn truncate_to_lines<'a>(
         }
 
         let ch_str = ch.encode_utf8(&mut buf);
-        let advance = tm.measure_text_width_styled(ch_str, font_size, 1, bold, font_family);
+        let advance = tm.measure_text_width_weight(ch_str, font_size, 1, bold, font_family);
 
         if (ch == ' ' || breaks_before(prev_ch, ch)) && word_chars > 0 {
             if x + word_width > budget_for(line_idx) && x > 0.0 {
@@ -317,12 +320,13 @@ fn elide_middle<'a>(
     text: &'a str,
     available_width: f32,
     font_size: f32,
-    bold: bool,
+    bold: impl Into<crate::text::FontWeight>,
     font_family: Option<&str>,
     tm: &dyn crate::widget::context::TextMeasure,
 ) -> std::borrow::Cow<'a, str> {
+    let bold: u16 = bold.into().0;
     let measure =
-        |s: &str| tm.measure_text_width_styled(s, font_size, s.chars().count(), bold, font_family);
+        |s: &str| tm.measure_text_width_weight(s, font_size, s.chars().count(), bold, font_family);
     // Многострочный текст сжимать по середине бессмысленно — берём первую строку.
     let text = match text.split_once('\n') {
         Some((first, _)) => first,
@@ -651,13 +655,14 @@ impl TextElement {
 
     /// Ширина строки с учётом разрядки: `FontAtlas::emit_glyph_spaced`
     /// добавляет `letter-spacing` после каждого глифа, последний включительно.
-    fn measure_line(&self, line: &str, bold: bool) -> f32 {
+    fn measure_line(&self, line: &str, bold: impl Into<crate::text::FontWeight>) -> f32 {
+    let bold: u16 = bold.into().0;
         let chars = line.chars().count();
         let base = self
             .text_measure
             .as_ref()
             .map(|tm| {
-                tm.measure_text_width_styled(
+                tm.measure_text_width_weight(
                     line,
                     self.font_size,
                     chars,
@@ -748,7 +753,7 @@ impl Element for TextElement {
     fn layout(&mut self, constraints: Constraints) -> Size {
         let pad_h = self.mss_padding_left + self.mss_padding_right;
         let pad_v = self.mss_padding_top + self.mss_padding_bottom;
-        let bold = self.mss_font_weight >= 700;
+        let bold: u16 = self.mss_font_weight;
         let measured = self.display_text();
         let text_width = measured
             .split('\n')
@@ -836,7 +841,7 @@ impl Element for TextElement {
         // и надпись расходятся.
         let display_text = self.display_text();
 
-        let bold = self.mss_font_weight >= 700;
+        let bold: u16 = self.mss_font_weight;
         let tm: Option<&dyn crate::widget::context::TextMeasure> = self.text_measure.as_deref();
         let display_text: std::borrow::Cow<str> =
             if let (Elide::Middle, Some(tm)) = (self.mss_elide, tm) {

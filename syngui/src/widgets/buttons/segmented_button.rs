@@ -182,7 +182,7 @@ impl Element for SegmentedButtonElement {
             .map(|d| d.resolve(constraints.max_height))
             .unwrap_or(36.0);
         let font_size = self.mss.font_size_or(14.0);
-        let bold = self.mss.font_weight_or(400) >= 700;
+        let bold: u16 = self.mss.font_weight_or(400);
         let h_padding = self.segment_padding;
         let icon_extra = font_size * 1.2 + 6.0;
 
@@ -196,7 +196,7 @@ impl Element for SegmentedButtonElement {
                     self.text_measure
                         .as_ref()
                         .map(|tm| {
-                            tm.measure_text_width_styled(
+                            tm.measure_text_width_weight(
                                 &seg.label,
                                 font_size,
                                 seg.label.chars().count(),
@@ -341,11 +341,11 @@ impl Element for SegmentedButtonElement {
                     .text_measure
                     .as_ref()
                     .map(|tm| {
-                        tm.measure_text_width_styled(
+                        tm.measure_text_width_weight(
                             &seg.label,
                             font_size,
                             seg.label.chars().count(),
-                            font_weight >= 700,
+                            font_weight,
                             self.mss.font_family.as_deref(),
                         )
                     })
