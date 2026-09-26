@@ -49,6 +49,20 @@ impl Renderer {
         let t = web_time::Instant::now();
         let surface_texture = match surface.surface.get_current_texture() {
             Ok(texture) => texture,
+            // Потерянная/устаревшая поверхность (смена режима, выход из сна,
+            // пересоздание выхода композитором) сама не оживает: без
+            // переконфигурации окно замирало навсегда. Конфиг прежний — размер
+            // поправит обычный resize.
+            Err(wgpu::SurfaceError::Lost | wgpu::SurfaceError::Outdated) => {
+                surface.surface.configure(&gpu.device, &surface.surface_config);
+                match surface.surface.get_current_texture() {
+                    Ok(texture) => texture,
+                    Err(e) => {
+                        log::warn!("surface texture after reconfigure: {:?}", e);
+                        return RenderStats::default();
+                    }
+                }
+            }
             Err(e) => {
                 log::error!("Failed to get surface texture: {:?}", e);
                 return RenderStats::default();
