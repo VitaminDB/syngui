@@ -1109,3 +1109,212 @@ mod overlay_transform_tests {
         assert_eq!(overlay_transform(&list), None);
     }
 }
+
+// ── Подпись кадра ──────────────────────────────────────────────────────────
+
+fn h_f32(h: &mut impl std::hash::Hasher, x: f32) {
+    h.write_u32(x.to_bits());
+}
+
+fn h_rect(h: &mut impl std::hash::Hasher, r: &crate::core::Rect) {
+    h_f32(h, r.origin.x);
+    h_f32(h, r.origin.y);
+    h_f32(h, r.size.width);
+    h_f32(h, r.size.height);
+}
+
+fn h_color(h: &mut impl std::hash::Hasher, c: &Color) {
+    h_f32(h, c.r);
+    h_f32(h, c.g);
+    h_f32(h, c.b);
+    h_f32(h, c.a);
+}
+
+fn h_f4(h: &mut impl std::hash::Hasher, v: &[f32; 4]) {
+    v.iter().for_each(|x| h_f32(h, *x));
+}
+
+/// Хэш команды; `false` — команда, чей вид может меняться без изменения
+/// самой команды (картинки/видео по тому же `TextureId`, свои шейдеры и
+/// эффекты со временем, кэшированные поддеревья, canvas) — такой кадр
+/// пропускать нельзя.
+fn hash_command(h: &mut impl std::hash::Hasher, cmd: &DrawCommand) -> bool {
+    use std::hash::Hash;
+    std::mem::discriminant(cmd).hash(h);
+    match cmd {
+        DrawCommand::Rect { rect, color, corner_radius, border, per_side_border, clip_rect, z_index } => {
+            h_rect(h, rect);
+            h_color(h, color);
+            h_f4(h, corner_radius);
+            if let Some(b) = border {
+                h_f32(h, b.width);
+                h_color(h, &b.color);
+            }
+            if let Some(b) = per_side_border {
+                h_f4(h, &b.widths);
+                h_color(h, &b.color);
+            }
+            clip_rect.hash(h);
+            z_index.hash(h);
+        }
+        DrawCommand::Text {
+            text, rect, color, font_size, font_weight, text_align, decoration, font_family,
+            letter_spacing, text_shadow, bbox_sample, clip_rect, z_index, no_wrap, italic,
+        } => {
+            text.hash(h);
+            h_rect(h, rect);
+            h_color(h, color);
+            h_f32(h, *font_size);
+            font_weight.hash(h);
+            text_align.hash(h);
+            std::mem::discriminant(decoration).hash(h);
+            font_family.hash(h);
+            h_f32(h, *letter_spacing);
+            if let Some(s) = text_shadow {
+                h_f32(h, s.offset_x);
+                h_f32(h, s.offset_y);
+                h_f32(h, s.blur_radius);
+                h_color(h, &s.color);
+            }
+            bbox_sample.hash(h);
+            clip_rect.hash(h);
+            z_index.hash(h);
+            no_wrap.hash(h);
+            italic.hash(h);
+        }
+        DrawCommand::PushClip { rect } => h_rect(h, rect),
+        DrawCommand::PopClip
+        | DrawCommand::PopTransform
+        | DrawCommand::PopOpacity
+        | DrawCommand::ZBarrier => {}
+        DrawCommand::Shadow { rect, color, blur_radius, offset, corner_radius, inset, clip_rect, z_index } => {
+            h_rect(h, rect);
+            h_color(h, color);
+            h_f32(h, *blur_radius);
+            h_f32(h, offset.0);
+            h_f32(h, offset.1);
+            h_f4(h, corner_radius);
+            inset.hash(h);
+            clip_rect.hash(h);
+            z_index.hash(h);
+        }
+        DrawCommand::GlowShadow { rect, color, blur_radius, offset, corner_radius, clip_rect, z_index } => {
+            h_rect(h, rect);
+            h_color(h, color);
+            h_f32(h, *blur_radius);
+            h_f32(h, offset.0);
+            h_f32(h, offset.1);
+            h_f4(h, corner_radius);
+            clip_rect.hash(h);
+            z_index.hash(h);
+        }
+        DrawCommand::Outline { rect, color, ring_width, corner_radius, clip_rect, z_index } => {
+            h_rect(h, rect);
+            h_color(h, color);
+            h_f32(h, *ring_width);
+            h_f4(h, corner_radius);
+            clip_rect.hash(h);
+            z_index.hash(h);
+        }
+        DrawCommand::PushTransform(t) => t.to_array().iter().for_each(|x| h_f32(h, *x)),
+        DrawCommand::PushOpacity(o) => h_f32(h, *o),
+        DrawCommand::TextCursor {
+            text, cursor_pos, base_x, y, height, font_size, font_weight, color, font_family, clip_rect, z_index,
+        } => {
+            text.hash(h);
+            cursor_pos.hash(h);
+            h_f32(h, *base_x);
+            h_f32(h, *y);
+            h_f32(h, *height);
+            h_f32(h, *font_size);
+            font_weight.hash(h);
+            h_color(h, color);
+            font_family.hash(h);
+            clip_rect.hash(h);
+            z_index.hash(h);
+        }
+        DrawCommand::TextSelection {
+            text, sel_start, sel_end, base_x, y, height, font_size, font_weight, color, font_family,
+            clip_rect, z_index,
+        } => {
+            text.hash(h);
+            sel_start.hash(h);
+            sel_end.hash(h);
+            h_f32(h, *base_x);
+            h_f32(h, *y);
+            h_f32(h, *height);
+            h_f32(h, *font_size);
+            font_weight.hash(h);
+            h_color(h, color);
+            font_family.hash(h);
+            clip_rect.hash(h);
+            z_index.hash(h);
+        }
+        DrawCommand::LineStrip { points, color, width, clip_rect, z_index } => {
+            points.iter().for_each(|p| {
+                h_f32(h, p[0]);
+                h_f32(h, p[1]);
+            });
+            h_color(h, color);
+            h_f32(h, *width);
+            clip_rect.hash(h);
+            z_index.hash(h);
+        }
+        _ => return false,
+    }
+    true
+}
+
+impl DisplayList {
+    /// Подпись кадра: одинаковая у двух кадров — картинка на экране та же, и
+    /// GPU-кадр можно не рисовать (движение мыши по статичному интерфейсу
+    /// будило полную перерисовку). `None` — в кадре есть команды, чей вид
+    /// меняется без изменения самих команд (см. `hash_command`).
+    pub fn frame_signature(&self) -> Option<u64> {
+        use std::hash::Hasher;
+        let mut h = std::collections::hash_map::DefaultHasher::new();
+        h_f32(&mut h, self.surface_size.width);
+        h_f32(&mut h, self.surface_size.height);
+        h_f32(&mut h, self.scale_factor);
+        h.write_usize(self.commands.len());
+        for level in &self.overlay_levels {
+            h.write_usize(level.len());
+        }
+        for cmd in self.iter_all_commands() {
+            if !hash_command(&mut h, cmd) {
+                return None;
+            }
+        }
+        Some(h.finish())
+    }
+}
+
+#[cfg(test)]
+mod signature_tests {
+    use super::*;
+
+    fn list(color: Color) -> DisplayList {
+        let mut l = DisplayList::new();
+        l.set_surface_size(Size::new(100.0, 100.0));
+        l.push_rect(Rect::new(Point::new(1.0, 2.0), Size::new(10.0, 10.0)), color, [0.0; 4]);
+        l.push_text("hi", Rect::new(Point::new(0.0, 0.0), Size::new(50.0, 10.0)), color, 12.0);
+        l
+    }
+
+    #[test]
+    fn same_frame_same_signature() {
+        let a = list(Color::rgb(1.0, 0.0, 0.0)).frame_signature();
+        let b = list(Color::rgb(1.0, 0.0, 0.0)).frame_signature();
+        assert!(a.is_some());
+        assert_eq!(a, b);
+        assert_ne!(a, list(Color::rgb(0.0, 1.0, 0.0)).frame_signature());
+    }
+
+    #[test]
+    fn frames_with_images_are_never_skipped() {
+        let mut l = list(Color::rgb(1.0, 0.0, 0.0));
+        let r = Rect::new(Point::new(0.0, 0.0), Size::new(4.0, 4.0));
+        l.push_image(r, TextureId(7), r, Color::rgb(1.0, 1.0, 1.0));
+        assert_eq!(l.frame_signature(), None);
+    }
+}

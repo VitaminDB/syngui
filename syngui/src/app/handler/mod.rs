@@ -72,6 +72,9 @@ pub(super) struct AppHandler {
     pub(super) window: Option<Arc<Window>>,
     /// Последняя отданная IME область каретки — не дёргать winit каждый кадр.
     pub(super) last_ime_area: Option<Rect>,
+    /// Подпись последнего отрисованного кадра (`DisplayList::frame_signature`):
+    /// совпала — GPU-кадр не рисуется.
+    pub(super) last_frame_sig: Option<u64>,
     pub(super) root_id: Option<crate::widget::ElementId>,
     pub(super) last_frame_time: Instant,
     pub(super) last_paced_redraw: Option<Instant>,
@@ -249,6 +252,7 @@ impl AppHandler {
             gpu: None,
             window: None,
             last_ime_area: None,
+            last_frame_sig: None,
             tree: ElementTree::new(),
             style_engine,
             root_id: None,
@@ -359,6 +363,7 @@ impl AppHandler {
     }
 
     pub(super) fn show_main_window(&mut self) {
+        self.last_frame_sig = None;
         if self.window.is_some() {
             if let Some(window) = self.window.as_ref() {
                 window.set_visible(true);
@@ -382,6 +387,7 @@ impl AppHandler {
     }
 
     pub(super) fn destroy_window_and_gpu(&mut self) {
+        self.last_frame_sig = None;
         self.tree = crate::widget::ElementTree::new();
         self.root_id = None;
         self.surface_valid = false;

@@ -114,6 +114,8 @@ impl winit::application::ApplicationHandler<SynGuiUserEvent> for AppHandler {
                 }
             }
             winit::event::WindowEvent::Resized(physical_size) => {
+                // Новая поверхность — последний кадр на ней не показан.
+                self.last_frame_sig = None;
                 if physical_size.width == 0 || physical_size.height == 0 {
                     return;
                 }
@@ -178,6 +180,8 @@ impl winit::application::ApplicationHandler<SynGuiUserEvent> for AppHandler {
                 self.handle_theme_changed(theme);
             }
             winit::event::WindowEvent::ScaleFactorChanged { scale_factor, .. } => {
+                // Новая поверхность — последний кадр на ней не показан.
+                self.last_frame_sig = None;
                 self.system_scale_factor = scale_factor;
                 self.apply_design_scale();
                 // Пользовательский масштаб множится поверх системного DPI.

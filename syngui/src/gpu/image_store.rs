@@ -372,6 +372,11 @@ impl ImageStore {
         !self.pending_uploads.is_empty()
     }
 
+    /// Есть ли освобождения, которые рендер ещё не выполнил.
+    pub fn has_pending_frees(&self) -> bool {
+        !self.pending_frees.is_empty()
+    }
+
     pub fn state_of(&self, handle: ImageHandle) -> Option<ImageLoadState> {
         let key = self.handle_to_key.get(&handle.0)?;
         self.images.get(key).map(|e| e.state)

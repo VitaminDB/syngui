@@ -530,6 +530,28 @@ impl AppHandler {
                 }
             }
 
+            // Тот же кадр, что уже на экране: не рисуем. Отладочные оверлеи
+            // живут своим временем — с ними подпись не берём.
+            let overlays_on = self.debug_overlay.is_some()
+                || self.devtools.as_ref().is_some_and(|d| d.is_enabled());
+            let sig = if overlays_on { None } else { self.display_list.frame_signature() };
+            let images_busy = {
+                let st = renderer.image_store.lock().unwrap_or_else(|e| e.into_inner());
+                st.has_pending_uploads() || st.has_pending_frees()
+            };
+            if sig.is_some() && sig == self.last_frame_sig && !images_busy {
+                crate::perf::record_frame(
+                    rebuild_elapsed,
+                    layout_elapsed,
+                    dl_elapsed,
+                    std::time::Duration::ZERO,
+                    0,
+                    0,
+                    0,
+                );
+                return;
+            }
+
             let t_render = Instant::now();
             let render_stats = renderer.render(
                 &gpu.shared,
@@ -538,6 +560,10 @@ impl AppHandler {
                 self.config.background_color,
             );
             let render_elapsed = t_render.elapsed();
+            // Запоминаем только действительно показанный кадр: при ошибке
+            // поверхности рендер ничего не рисует, и следующий такой же кадр
+            // пропускать нельзя.
+            self.last_frame_sig = if render_stats.draw_calls > 0 { sig } else { None };
 
             let font_stats = renderer.font_atlas_stats();
             let dl_stats = self.display_list.stats();
