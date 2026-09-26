@@ -46,6 +46,8 @@ impl AppHandler {
         #[cfg(target_os = "android")]
         let window_builder = WindowBuilder::new().with_title(&self.config.title);
 
+        #[cfg(feature = "accessibility")]
+        let window_builder = window_builder.with_visible(false);
         let window = Arc::new(Window::new(event_loop, window_builder));
         // Веб: пропуск F-клавиш браузеру — до того, как canvas получит фокус.
         #[cfg(target_arch = "wasm32")]
@@ -92,12 +94,14 @@ impl AppHandler {
         #[cfg(feature = "accessibility")]
         {
             let ak_adapter = accesskit_winit::Adapter::with_direct_handlers(
+                event_loop,
                 window.winit_window(),
                 SynGuiActivationHandler,
                 SynGuiActionHandler,
                 SynGuiDeactivationHandler,
             );
             self.accesskit_adapter = Some(ak_adapter);
+            window.set_visible(true);
         }
 
         #[cfg(not(target_arch = "wasm32"))]

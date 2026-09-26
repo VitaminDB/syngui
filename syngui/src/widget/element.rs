@@ -209,6 +209,13 @@ pub trait Element: Send {
         None
     }
 
+    /// Прямоугольник каретки в координатах окна — туда IME ставит окно
+    /// кандидатов (`Window::set_ime_cursor_area`). `None` — элемент текст
+    /// не вводит или каретки сейчас нет.
+    fn ime_cursor_area(&self) -> Option<Rect> {
+        None
+    }
+
     fn mount(&mut self, tree: &mut super::ElementTree);
 
     fn take_focus_request(&mut self) -> bool {
@@ -456,6 +463,10 @@ impl Element for Box<dyn Element> {
 
     fn overlay_request(&self) -> Option<(Rect, bool)> {
         self.as_ref().overlay_request()
+    }
+
+    fn ime_cursor_area(&self) -> Option<Rect> {
+        self.as_ref().ime_cursor_area()
     }
 
     fn set_position(&mut self, pos: Point) {

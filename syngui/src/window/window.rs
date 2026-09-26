@@ -27,6 +27,7 @@ pub struct WindowBuilder {
     decorations: bool,
     transparent: bool,
     fullscreen: bool,
+    visible: bool,
 }
 
 impl WindowBuilder {
@@ -43,6 +44,7 @@ impl WindowBuilder {
             decorations: true,
             transparent: false,
             fullscreen: false,
+            visible: true,
         }
     }
 
@@ -50,6 +52,13 @@ impl WindowBuilder {
     /// `.desktop`-файла приложения, например `tv-rezka`.
     pub fn with_app_id(mut self, app_id: impl Into<String>) -> Self {
         self.app_id = Some(app_id.into());
+        self
+    }
+
+    /// Создать окно скрытым: AccessKit-адаптер надо поднять до первого
+    /// показа окна, иначе он паникует.
+    pub fn with_visible(mut self, visible: bool) -> Self {
+        self.visible = visible;
         self
     }
 
@@ -120,7 +129,9 @@ pub struct Window {
 
 impl Window {
     pub fn new(event_loop: &winit::event_loop::ActiveEventLoop, builder: WindowBuilder) -> Self {
-        let attributes = winit::window::Window::default_attributes().with_title(builder.title);
+        let attributes = winit::window::Window::default_attributes()
+            .with_title(builder.title)
+            .with_visible(builder.visible);
 
         #[cfg(not(target_os = "android"))]
         let attributes = attributes
@@ -191,6 +202,14 @@ impl Window {
     pub fn size(&self) -> (u32, u32) {
         let size = self.inner.inner_size();
         (size.width, size.height)
+    }
+
+    /// Где IME показывает окно кандидатов (логические координаты окна).
+    pub fn set_ime_cursor_area(&self, rect: crate::core::Rect) {
+        self.inner.set_ime_cursor_area(
+            winit::dpi::LogicalPosition::new(rect.origin.x as f64, rect.origin.y as f64),
+            winit::dpi::LogicalSize::new(rect.size.width.max(1.0) as f64, rect.size.height.max(1.0) as f64),
+        );
     }
 
     pub fn scale_factor(&self) -> f64 {

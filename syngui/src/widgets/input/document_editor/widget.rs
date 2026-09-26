@@ -637,7 +637,7 @@ impl DocumentEditor {
     }
 
     pub fn class(mut self, class: impl Into<String>) -> Self {
-        self.classes.push(class.into());
+        crate::widget::push_classes(&mut self.classes, class.into());
         self
     }
 }
@@ -6804,6 +6804,13 @@ impl Element for DocumentEditorElement {
     /// Над врезкой редактор фокус по клику не берёт: там чужие виджеты
     /// (доска, диаграмма), и каретка в прежнем блоке иначе оставалась бы
     /// живой — приложение снимает фокус, а клик уходит виджету врезки.
+    fn ime_cursor_area(&self) -> Option<Rect> {
+        if !self.focused {
+            return None;
+        }
+        self.caret().and_then(|p| self.caret_rect(p))
+    }
+
     fn text_input_hit(&self, point: Point) -> bool {
         self.embed_at(point).is_none()
     }

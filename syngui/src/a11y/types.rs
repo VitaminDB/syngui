@@ -6,12 +6,18 @@ pub struct A11yId(pub u64);
 
 impl A11yId {
     pub fn new() -> Self {
-        static mut COUNTER: u64 = 0;
-        unsafe {
-            COUNTER += 1;
-            A11yId(COUNTER)
-        }
+        static COUNTER: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(1 << 62);
+        A11yId(COUNTER.fetch_add(1, std::sync::atomic::Ordering::Relaxed))
     }
+
+    /// Стабильный id узла элемента: тот же между `sync`, иначе скринридер
+    /// терял фокус и позицию на каждом обновлении дерева.
+    pub fn for_element(id: ElementId) -> Self {
+        A11yId(id.0)
+    }
+
+    /// Синтетический корень, когда верхних узлов несколько.
+    pub const SYNTHETIC_ROOT: A11yId = A11yId(u64::MAX);
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]

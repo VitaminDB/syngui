@@ -11,7 +11,7 @@ use crate::a11y::AccessKitAdapter;
 #[cfg(not(feature = "accessibility"))]
 use crate::a11y::LoggingAdapter;
 use crate::a11y::{A11yTree, FocusManager};
-use crate::core::Point;
+use crate::core::{Point, Rect};
 use crate::gpu::{GpuContext, Renderer, WindowSurface};
 use crate::input::{CursorIcon, Modifiers};
 use crate::mss::StyleEngine;
@@ -70,6 +70,8 @@ pub(super) struct AppHandler {
     pub(super) renderer: Option<Renderer>,
     pub(super) gpu: Option<GpuContext>,
     pub(super) window: Option<Arc<Window>>,
+    /// Последняя отданная IME область каретки — не дёргать winit каждый кадр.
+    pub(super) last_ime_area: Option<Rect>,
     pub(super) root_id: Option<crate::widget::ElementId>,
     pub(super) last_frame_time: Instant,
     pub(super) last_paced_redraw: Option<Instant>,
@@ -246,6 +248,7 @@ impl AppHandler {
             renderer: None,
             gpu: None,
             window: None,
+            last_ime_area: None,
             tree: ElementTree::new(),
             style_engine,
             root_id: None,

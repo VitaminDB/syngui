@@ -499,6 +499,20 @@ impl AppHandler {
             self.tree.build_drag_overlay(&mut self.display_list);
             let dl_elapsed = t_dl.elapsed();
 
+            // Окно кандидатов IME (fcitx/ibus) — у каретки поля в фокусе.
+            // Каретку элементы запоминают при отрисовке, поэтому после неё.
+            let ime_area = self
+                .tree
+                .focused_element
+                .and_then(|id| self.tree.elements.get(&id))
+                .and_then(|n| n.element.ime_cursor_area());
+            if ime_area.is_some() && ime_area != self.last_ime_area {
+                if let (Some(window), Some(rect)) = (&self.window, ime_area) {
+                    window.set_ime_cursor_area(rect);
+                }
+            }
+            self.last_ime_area = ime_area;
+
             if let Some(ref debug) = self.debug_overlay {
                 debug.build_display_list(&mut self.display_list);
             }

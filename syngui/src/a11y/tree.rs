@@ -34,7 +34,7 @@ impl A11yTree {
         self.root = if top_level.len() == 1 {
             Some(top_level[0])
         } else if top_level.len() > 1 {
-            let root_a11y = A11yId::new();
+            let root_a11y = A11yId::SYNTHETIC_ROOT;
             for &child_id in &top_level {
                 if let Some(node) = self.nodes.get_mut(&child_id) {
                     node.parent = Some(root_a11y);
@@ -87,7 +87,7 @@ impl A11yTree {
 
         match &info {
             Some(info) if info.role != Role::None && info.role != Role::Presentation => {
-                let a11y_id = A11yId::new();
+                let a11y_id = A11yId::for_element(element_id);
 
                 let mut a11y_children = Vec::new();
                 for child_id in &children_ids {

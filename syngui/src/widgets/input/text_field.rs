@@ -203,6 +203,7 @@ impl Default for TextField {
 impl Widget for TextField {
     fn create_element(&self) -> Box<dyn Element> {
         Box::new(TextFieldElement {
+            ime_caret: std::cell::Cell::new(None),
             id: ElementId::new(),
             text: self.text.clone(),
             placeholder: self.placeholder.clone(),
@@ -266,6 +267,8 @@ impl Widget for TextField {
 
 pub struct TextFieldElement {
     id: ElementId,
+    /// Каретка с последней отрисовки (координаты окна) — для IME.
+    ime_caret: std::cell::Cell<Option<Rect>>,
     text: String,
     placeholder: String,
     disabled: bool,
@@ -782,6 +785,10 @@ impl Element for TextFieldElement {
         Size::new(width, total_height)
     }
 
+    fn ime_cursor_area(&self) -> Option<Rect> {
+        if self.focused { self.ime_caret.get() } else { None }
+    }
+
     fn build_display_list(&self, list: &mut DisplayList, _clip: Rect) {
         let primary = self.mss.accent_color.unwrap_or(Color::from_hex("#3B82F6"));
 
@@ -1008,7 +1015,12 @@ impl Element for TextFieldElement {
                 }
             }
 
+            self.ime_caret.set(None);
             if self.focused && !self.disabled {
+                self.ime_caret.set(Some(Rect::new(
+                    Point::new(scrolled_text_left + self.cursor_x(), text_y - 1.0),
+                    Size::new(1.0, text_height + 2.0),
+                )));
                 let cursor_color = self.mss.caret_color_or(primary);
                 let vis_cursor = self.map_pos_to_visual(self.cursor_pos);
                 list.push_text_cursor_styled(

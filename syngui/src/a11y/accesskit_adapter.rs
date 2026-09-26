@@ -28,6 +28,7 @@ mod inner {
             Role::Paragraph => accesskit::Role::Paragraph,
             Role::Link => accesskit::Role::Link,
             Role::Image => accesskit::Role::Image,
+            Role::Terminal => accesskit::Role::Terminal,
             Role::None | Role::Presentation => accesskit::Role::Unknown,
         }
     }
@@ -140,6 +141,7 @@ mod inner {
                 let update = accesskit::TreeUpdate {
                     nodes: ak_nodes,
                     tree: Some(accesskit::Tree::new(root_id)),
+                    tree_id: accesskit::TreeId::ROOT,
                     focus,
                 };
                 self.pending_update = Some(update);

@@ -28,6 +28,8 @@ pub struct CodeEditorElement {
     mss: MssFields,
     palette: CodeEditorPalette,
     text_measure: Option<Arc<dyn TextMeasure>>,
+    /// Главная каретка с последней отрисовки (координаты окна) — для IME.
+    ime_caret: std::cell::Cell<Option<Rect>>,
 
     focused: bool,
     hover: bool,
@@ -121,6 +123,7 @@ impl CodeEditorElement {
             mss: MssFields::new(),
             palette: CodeEditorPalette::default(),
             text_measure: None,
+            ime_caret: std::cell::Cell::new(None),
 
             focused: false,
             hover: false,
@@ -1185,6 +1188,10 @@ impl Element for CodeEditorElement {
         Size::new(w, h)
     }
 
+    fn ime_cursor_area(&self) -> Option<Rect> {
+        if self.focused { self.ime_caret.get() } else { None }
+    }
+
     fn build_display_list(&self, list: &mut DisplayList, _clip: Rect) {
         let theme = self.theme();
         let bg = theme.bg(&self.mss);
@@ -1375,7 +1382,7 @@ impl Element for CodeEditorElement {
             }
 
             if self.focused {
-                for (c_line, c_pos) in &cursor_lines {
+                for (ci, (c_line, c_pos)) in cursor_lines.iter().enumerate() {
                     if *c_line != logical {
                         continue;
                     }
@@ -1387,6 +1394,17 @@ impl Element for CodeEditorElement {
                     };
                     if in_seg {
                         let local = c_byte_in_line - seg_byte_start;
+                        if ci == 0 {
+                            let before = &segment[..local.min(segment.len())];
+                            let w = match &self.text_measure {
+                                Some(tm) => tm.measure_text_width(before, font_size, before.chars().count()),
+                                None => before.chars().count() as f32 * font_size * 0.6,
+                            };
+                            self.ime_caret.set(Some(Rect::new(
+                                Point::new(text_origin.x + w, text_origin.y),
+                                Size::new(1.0, line_height),
+                            )));
+                        }
                         overlay::paint_cursor(
                             list,
                             segment,

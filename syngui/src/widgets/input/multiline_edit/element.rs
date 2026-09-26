@@ -24,6 +24,8 @@ impl Widget for MultilineTextEdit {
 
         Box::new(MultilineTextEditElement {
             id: ElementId::new(),
+            preedit: None,
+            ime_caret: std::cell::Cell::new(None),
             text: self.text.clone(),
             placeholder: self.placeholder.clone(),
             rows: self.rows,
@@ -78,6 +80,10 @@ impl Widget for MultilineTextEdit {
 
 struct MultilineTextEditElement {
     id: ElementId,
+    /// Набираемый через IME текст (preedit) — рисуется у каретки.
+    preedit: Option<String>,
+    /// Каретка с последней отрисовки (координаты окна) — для IME.
+    ime_caret: std::cell::Cell<Option<Rect>>,
     text: String,
     placeholder: String,
     rows: usize,
@@ -599,6 +605,10 @@ impl Element for MultilineTextEditElement {
         Size::new(width, height)
     }
 
+    fn ime_cursor_area(&self) -> Option<Rect> {
+        if self.focused { self.ime_caret.get() } else { None }
+    }
+
     fn build_display_list(&self, list: &mut DisplayList, _clip: Rect) {
         let primary = self.mss.accent_color.unwrap_or(Color::from_hex("#3B82F6"));
 
@@ -758,6 +768,39 @@ impl Element for MultilineTextEditElement {
             {
                 let local_col = self.cursor_col - seg_start;
                 let text_before: String = segment.chars().take(local_col).collect();
+                let caret_x = text_x
+                    + match &self.text_measure {
+                        Some(tm) => tm.measure_text_width(&text_before, Self::FONT_SIZE, local_col),
+                        None => local_col as f32 * Self::FONT_SIZE * 0.6,
+                    };
+                self.ime_caret.set(Some(Rect::new(
+                    Point::new(caret_x, y),
+                    Size::new(1.0, Self::LINE_HEIGHT),
+                )));
+                // Набираемый через IME текст — поверх строки у каретки, на
+                // подложке и с подчёркиванием (раньше не рисовался вовсе).
+                if let Some(pre) = self.preedit.as_deref().filter(|p| !p.is_empty()) {
+                    let w = match &self.text_measure {
+                        Some(tm) => tm.measure_text_width(pre, Self::FONT_SIZE, pre.chars().count()),
+                        None => pre.chars().count() as f32 * Self::FONT_SIZE * 0.6,
+                    };
+                    list.push_rect(
+                        Rect::new(Point::new(caret_x, y), Size::new(w, Self::LINE_HEIGHT)),
+                        bg,
+                        [0.0; 4],
+                    );
+                    list.push_text(
+                        pre,
+                        Rect::new(Point::new(caret_x, y), Size::new(w + 4.0, Self::LINE_HEIGHT)),
+                        fg,
+                        Self::FONT_SIZE,
+                    );
+                    list.push_rect(
+                        Rect::new(Point::new(caret_x, y + Self::LINE_HEIGHT - 2.0), Size::new(w, 1.0)),
+                        fg,
+                        [0.0; 4],
+                    );
+                }
                 list.push_text_cursor_styled(
                     &text_before,
                     text_before.len(),
@@ -1286,6 +1329,7 @@ impl Element for MultilineTextEditElement {
                 EventResult::Handled
             }
             Event::ImeCommit(text) => {
+                self.preedit = None;
                 if !self.focused || self.read_only {
                     return EventResult::Ignored;
                 }
@@ -1299,8 +1343,10 @@ impl Element for MultilineTextEditElement {
                 ctx.request_paint();
                 EventResult::Handled
             }
-            Event::ImePreedit { .. } => {
+            Event::ImePreedit { text, .. } => {
                 if self.focused {
+                    self.preedit = (!text.is_empty()).then(|| text.clone());
+                    ctx.request_paint();
                     EventResult::Handled
                 } else {
                     EventResult::Ignored
@@ -1484,6 +1530,8 @@ mod tests {
     ) -> MultilineTextEditElement {
         MultilineTextEditElement {
             id: ElementId::new(),
+            preedit: None,
+            ime_caret: std::cell::Cell::new(None),
             text: String::new(),
             placeholder: String::new(),
             rows,
