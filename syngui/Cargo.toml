@@ -33,6 +33,8 @@ wide = "0.7"
 
 # Text rendering
 swash = { version = "0.2.7" }
+# Шейпинг кластеров эмодзи (ZWJ, VS16, тон кожи, флаги) — один глиф-лигатура.
+rustybuzz = { version = "0.20.1" }
 
 # Collections
 hashbrown = "0.16.1"

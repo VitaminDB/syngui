@@ -102,6 +102,65 @@ impl FontFace {
     }
 }
 
+/// Единица раскладки: обычный символ или кластер эмодзи, который шейпер
+/// свёл к глифам шрифта эмодзи (обычно к одной лигатуре).
+enum Unit {
+    Char(char),
+    Cluster { keys: Vec<GlyphKey>, len: usize, first: char },
+}
+
+impl Unit {
+    fn first_char(&self) -> char {
+        match self {
+            Unit::Char(c) => *c,
+            Unit::Cluster { first, .. } => *first,
+        }
+    }
+
+    /// Сколько символов исходного текста покрывает единица.
+    fn len(&self) -> usize {
+        match self {
+            Unit::Char(_) => 1,
+            Unit::Cluster { len, .. } => *len,
+        }
+    }
+}
+
+/// Длина кластера эмодзи, начинающегося с `chars[i]` (1 — не кластер):
+/// базовый символ + VS16 / модификаторы тона кожи / теги (флаги областей) /
+/// `ZWJ + эмодзи`; пара региональных индикаторов (флаг); keycap `1️⃣`.
+fn emoji_cluster_len(chars: &[char], i: usize) -> usize {
+    let c = chars[i] as u32;
+    let at = |j: usize| chars.get(j).map(|&ch| ch as u32);
+    let is_ri = |v: u32| (0x1F1E6..=0x1F1FF).contains(&v);
+    if is_ri(c) {
+        return if at(i + 1).is_some_and(is_ri) { 2 } else { 1 };
+    }
+    if matches!(chars[i], '0'..='9' | '#' | '*') {
+        let mut j = i + 1;
+        if at(j) == Some(0xFE0F) {
+            j += 1;
+        }
+        return if at(j) == Some(0x20E3) { j + 1 - i } else { 1 };
+    }
+    let base = (0x1F000..=0x1FAFF).contains(&c) || (0x2600..=0x27BF).contains(&c) || (0x2300..=0x23FF).contains(&c)
+        || (0x2B00..=0x2BFF).contains(&c) || (0x3297..=0x3299).contains(&c) || c == 0x00A9 || c == 0x00AE;
+    if !base {
+        return 1;
+    }
+    let mut j = i + 1;
+    while let Some(v) = at(j) {
+        if v == 0xFE0F || (0x1F3FB..=0x1F3FF).contains(&v) || (0xE0020..=0xE007F).contains(&v) {
+            j += 1;
+        } else if v == 0x200D && at(j + 1).is_some() {
+            j += 2;
+        } else {
+            break;
+        }
+    }
+    j - i
+}
+
 pub struct FontAtlas {
     faces: Vec<Option<FontFace>>,
     extra_fonts: HashMap<String, Option<(u8, u8)>>,
@@ -136,6 +195,8 @@ pub struct FontAtlas {
     /// индекс грани или `None`, если отдельного начертания нет (тогда берётся
     /// ближайшее: 500 → обычное, 600 → жирное).
     weight_faces: HashMap<(Option<String>, u16), Option<u8>>,
+    /// Шейпленные кластеры эмодзи: строка кластера и кегль → глифы.
+    emoji_clusters: HashMap<(String, u16), Option<Vec<GlyphKey>>>,
 }
 
 impl FontAtlas {
@@ -243,6 +304,7 @@ impl FontAtlas {
             scale_factor: 1.0,
             scale_ctx: swash::scale::ScaleContext::new(),
             weight_faces: HashMap::new(),
+            emoji_clusters: HashMap::new(),
         }
     }
 
@@ -480,6 +542,131 @@ impl FontAtlas {
         let face = self.face(font_index)?;
         self.rasterize_glyph(face, glyph_id, size_px, key)
             .map(|_| key)
+    }
+
+    /// Глиф по его id в грани (результат шейпера).
+    fn ensure_glyph_id(&mut self, glyph_id: u16, size_px: u16, font_index: u8) -> Option<GlyphKey> {
+        let key = GlyphKey { glyph_id, size_px, font_index };
+        if self.glyphs.contains_key(&key) {
+            return Some(key);
+        }
+        let face = self.face(font_index)?;
+        self.rasterize_glyph(face, glyph_id, size_px, key).map(|_| key)
+    }
+
+    /// Кластер эмодзи через rustybuzz на шрифте эмодзи: `🧑‍💻` становится одним
+    /// глифом-лигатурой, а не 🧑 + 💻, VS16 не даёт лишнего аванса. `None` —
+    /// шрифт кластер не знает (тогда посимвольно, как раньше).
+    fn shape_emoji_cluster(&mut self, cluster: &str, size_px: u16) -> Option<Vec<GlyphKey>> {
+        let key = (cluster.to_string(), size_px);
+        if let Some(v) = self.emoji_clusters.get(&key) {
+            return v.clone();
+        }
+        let shaped = (|| {
+            let face = self.face(FONT_EMOJI)?;
+            let ids: Vec<u16> = {
+                let rb = rustybuzz::Face::from_slice(&face.data, face.face_index)?;
+                let mut buf = rustybuzz::UnicodeBuffer::new();
+                buf.push_str(cluster);
+                let out = rustybuzz::shape(&rb, &[], buf);
+                out.glyph_infos().iter().map(|g| g.glyph_id as u16).collect()
+            };
+            if ids.is_empty() || ids.contains(&0) {
+                return None;
+            }
+            ids.into_iter()
+                .map(|id| self.ensure_glyph_id(id, size_px, FONT_EMOJI))
+                .collect::<Option<Vec<_>>>()
+        })();
+        self.emoji_clusters.insert(key, shaped.clone());
+        shaped
+    }
+
+    /// Текст в единицы раскладки: кластеры эмодзи — шейпером, остальное —
+    /// посимвольно.
+    fn text_units(&mut self, text: &str, size_px: u16) -> Vec<Unit> {
+        let chars: Vec<char> = text.chars().collect();
+        let mut out = Vec::with_capacity(chars.len());
+        let mut i = 0;
+        while i < chars.len() {
+            let n = emoji_cluster_len(&chars, i);
+            if n > 1 {
+                let cluster: String = chars[i..i + n].iter().collect();
+                if let Some(keys) = self.shape_emoji_cluster(&cluster, size_px) {
+                    out.push(Unit::Cluster { keys, len: n, first: chars[i] });
+                    i += n;
+                    continue;
+                }
+            }
+            out.push(Unit::Char(chars[i]));
+            i += 1;
+        }
+        out
+    }
+
+    fn cluster_advance(&self, keys: &[GlyphKey]) -> f32 {
+        keys.iter().filter_map(|k| self.glyphs.get(k)).map(|g| g.advance).sum()
+    }
+
+    fn unit_advance(&mut self, unit: &Unit, size_px: u16, weight: FontWeight, font_family: Option<&str>) -> f32 {
+        match unit {
+            Unit::Char(c) => self.glyph_advance(*c, size_px, weight, font_family),
+            Unit::Cluster { keys, .. } => self.cluster_advance(keys),
+        }
+    }
+
+    fn emit_keys(&self, keys: &[GlyphKey], size_px: u16, x: &mut f32, y: f32, result: &mut Vec<ShapedGlyph>) {
+        for k in keys {
+            let Some(glyph) = self.glyphs.get(k).copied() else { continue };
+            if glyph.width > 0 && glyph.height > 0 {
+                result.push(ShapedGlyph {
+                    x: *x + glyph.bearing_x,
+                    y: y - glyph.bearing_y + size_px as f32,
+                    glyph,
+                });
+            }
+            *x += glyph.advance;
+        }
+    }
+
+    #[allow(clippy::too_many_arguments)]
+    fn emit_unit(
+        &mut self,
+        unit: &Unit,
+        size_px: u16,
+        weight: FontWeight,
+        font_family: Option<&str>,
+        x: &mut f32,
+        y: f32,
+        result: &mut Vec<ShapedGlyph>,
+    ) {
+        match unit {
+            Unit::Char(c) => self.emit_glyph(*c, size_px, weight, font_family, x, y, result),
+            Unit::Cluster { keys, .. } => self.emit_keys(keys, size_px, x, y, result),
+        }
+    }
+
+    #[allow(clippy::too_many_arguments)]
+    fn emit_unit_spaced(
+        &mut self,
+        unit: &Unit,
+        size_px: u16,
+        weight: FontWeight,
+        font_family: Option<&str>,
+        x: &mut f32,
+        y: f32,
+        letter_spacing: f32,
+        result: &mut Vec<ShapedGlyph>,
+    ) {
+        match unit {
+            Unit::Char(c) => {
+                self.emit_glyph_spaced(*c, size_px, weight, font_family, x, y, letter_spacing, result)
+            }
+            Unit::Cluster { keys, .. } => {
+                self.emit_keys(keys, size_px, x, y, result);
+                *x += letter_spacing;
+            }
+        }
     }
 
     fn ensure_glyph(&mut self, ch: char, size_px: u16) -> Option<GlyphKey> {
@@ -908,21 +1095,22 @@ impl FontAtlas {
         let mut y = 0.0f32;
         let wrap_eps = f32::EPSILON * max_width.abs() * 64.0;
 
-        let mut word_glyphs: Vec<(char, f32)> = Vec::new();
+        let mut word_glyphs: Vec<(usize, f32)> = Vec::new();
         let mut word_width = 0.0f32;
 
-        let chars: Vec<char> = text.chars().collect();
+        let units = self.text_units(text, size_px);
         let mut i = 0;
         let mut prev: Option<char> = None;
 
-        while i < chars.len() {
-            let ch = chars[i];
+        while i < units.len() {
+            let unit_idx = i;
+            let ch = units[i].first_char();
             i += 1;
             let prev_ch = prev.replace(ch);
 
             if ch == '\n' {
                 for &(wch, _) in &word_glyphs {
-                    self.emit_glyph(wch, size_px, weight, font_family, &mut x, y, &mut result);
+                    self.emit_unit(&units[wch], size_px, weight, font_family, &mut x, y, &mut result);
                 }
                 word_glyphs.clear();
                 word_width = 0.0;
@@ -933,18 +1121,18 @@ impl FontAtlas {
 
             if ch == ' ' || breaks_before(prev_ch, ch) {
                 for &(wch, _) in &word_glyphs {
-                    self.emit_glyph(wch, size_px, weight, font_family, &mut x, y, &mut result);
+                    self.emit_unit(&units[wch], size_px, weight, font_family, &mut x, y, &mut result);
                 }
                 word_glyphs.clear();
                 word_width = 0.0;
                 if ch == ' ' {
-                    self.emit_glyph(ch, size_px, weight, font_family, &mut x, y, &mut result);
+                    self.emit_unit(&units[unit_idx], size_px, weight, font_family, &mut x, y, &mut result);
                     continue;
                 }
             }
 
-            let advance = self.glyph_advance(ch, size_px, weight, font_family);
-            word_glyphs.push((ch, advance));
+            let advance = self.unit_advance(&units[unit_idx], size_px, weight, font_family);
+            word_glyphs.push((unit_idx, advance));
             word_width += advance;
 
             if max_width > 0.0 && x + word_width > max_width + wrap_eps && x > 0.0 {
@@ -955,7 +1143,7 @@ impl FontAtlas {
             if max_width > 0.0 && word_width > max_width + wrap_eps && word_glyphs.len() > 1 {
                 let last = word_glyphs.pop().unwrap();
                 for &(wch, _) in &word_glyphs {
-                    self.emit_glyph(wch, size_px, weight, font_family, &mut x, y, &mut result);
+                    self.emit_unit(&units[wch], size_px, weight, font_family, &mut x, y, &mut result);
                 }
                 word_glyphs.clear();
                 x = 0.0;
@@ -966,7 +1154,7 @@ impl FontAtlas {
         }
 
         for &(wch, _) in &word_glyphs {
-            self.emit_glyph(wch, size_px, weight, font_family, &mut x, y, &mut result);
+            self.emit_unit(&units[wch], size_px, weight, font_family, &mut x, y, &mut result);
         }
 
         result
@@ -1006,21 +1194,22 @@ impl FontAtlas {
         let mut y = 0.0f32;
         let wrap_eps = f32::EPSILON * max_width.abs() * 64.0;
 
-        let mut word_glyphs: Vec<(char, f32)> = Vec::new();
+        let mut word_glyphs: Vec<(usize, f32)> = Vec::new();
         let mut word_width = 0.0f32;
-        let chars: Vec<char> = text.chars().collect();
+        let units = self.text_units(text, size_px);
         let mut i = 0;
         let mut prev: Option<char> = None;
 
-        while i < chars.len() {
-            let ch = chars[i];
+        while i < units.len() {
+            let unit_idx = i;
+            let ch = units[i].first_char();
             i += 1;
             let prev_ch = prev.replace(ch);
 
             if ch == '\n' {
                 for &(wch, _) in &word_glyphs {
-                    self.emit_glyph_spaced(
-                        wch,
+                    self.emit_unit_spaced(
+                        &units[wch],
                         size_px,
                         weight,
                         font_family,
@@ -1039,8 +1228,8 @@ impl FontAtlas {
 
             if ch == ' ' || breaks_before(prev_ch, ch) {
                 for &(wch, _) in &word_glyphs {
-                    self.emit_glyph_spaced(
-                        wch,
+                    self.emit_unit_spaced(
+                        &units[wch],
                         size_px,
                         weight,
                         font_family,
@@ -1053,8 +1242,8 @@ impl FontAtlas {
                 word_glyphs.clear();
                 word_width = 0.0;
                 if ch == ' ' {
-                    self.emit_glyph_spaced(
-                        ch,
+                    self.emit_unit_spaced(
+                        &units[unit_idx],
                         size_px,
                         weight,
                         font_family,
@@ -1067,8 +1256,8 @@ impl FontAtlas {
                 }
             }
 
-            let advance = self.glyph_advance(ch, size_px, weight, font_family) + letter_spacing;
-            word_glyphs.push((ch, advance));
+            let advance = self.unit_advance(&units[unit_idx], size_px, weight, font_family) + letter_spacing;
+            word_glyphs.push((unit_idx, advance));
             word_width += advance;
 
             if max_width > 0.0 && x + word_width > max_width + wrap_eps && x > 0.0 {
@@ -1078,8 +1267,8 @@ impl FontAtlas {
             if max_width > 0.0 && word_width > max_width + wrap_eps && word_glyphs.len() > 1 {
                 let last = word_glyphs.pop().unwrap();
                 for &(wch, _) in &word_glyphs {
-                    self.emit_glyph_spaced(
-                        wch,
+                    self.emit_unit_spaced(
+                        &units[wch],
                         size_px,
                         weight,
                         font_family,
@@ -1098,8 +1287,8 @@ impl FontAtlas {
         }
 
         for &(wch, _) in &word_glyphs {
-            self.emit_glyph_spaced(
-                wch,
+            self.emit_unit_spaced(
+                        &units[wch],
                 size_px,
                 weight,
                 font_family,
@@ -1193,35 +1382,16 @@ impl FontAtlas {
         font_family: Option<&str>,
     ) -> f32 {
         let weight: FontWeight = weight.into();
+        // `pos` — в символах исходного текста; кластер эмодзи идёт целиком.
         let mut x = 0.0f32;
         let mut char_count = 0;
-
-        for ch in text.chars() {
+        for unit in self.text_units(text, size_px) {
             if char_count >= pos {
                 break;
             }
-
-            let key = self.ensure_glyph_weighted(ch, size_px, weight, font_family);
-            let key = match key {
-                Some(k) => k,
-                None => {
-                    char_count += 1;
-                    continue;
-                }
-            };
-
-            let glyph = match self.glyphs.get(&key) {
-                Some(g) => *g,
-                None => {
-                    char_count += 1;
-                    continue;
-                }
-            };
-
-            x += glyph.advance;
-            char_count += 1;
+            x += self.unit_advance(&unit, size_px, weight, font_family);
+            char_count += unit.len();
         }
-
         x
     }
 
@@ -1244,31 +1414,19 @@ impl FontAtlas {
         font_family: Option<&str>,
     ) -> usize {
         let weight: FontWeight = weight.into();
+        // Индекс символа, перед которым встанет каретка: внутрь кластера
+        // эмодзи она не попадает.
         let mut x = 0.0f32;
-        let mut best_idx = 0;
-
-        for (idx, ch) in text.chars().enumerate() {
-            let key = self.ensure_glyph_weighted(ch, size_px, weight, font_family);
-            let key = match key {
-                Some(k) => k,
-                None => {
-                    continue;
-                }
-            };
-            let advance = match self.glyphs.get(&key) {
-                Some(g) => g.advance,
-                None => {
-                    continue;
-                }
-            };
-            let mid = x + advance * 0.5;
-            if x_offset < mid {
+        let mut idx = 0;
+        for unit in self.text_units(text, size_px) {
+            let advance = self.unit_advance(&unit, size_px, weight, font_family);
+            if x_offset < x + advance * 0.5 {
                 return idx;
             }
             x += advance;
-            best_idx = idx + 1;
+            idx += unit.len();
         }
-        best_idx
+        idx
     }
 }
 
@@ -1394,5 +1552,45 @@ impl crate::widget::context::TextMeasure for crate::core::sync::Mutex<FontAtlas>
         let sf = atlas.scale_factor();
         let size_px = ((font_size * sf).round() as u16).max(1);
         atlas.hit_test_char_position_styled(text, size_px, x_offset * sf, bold, font_family)
+    }
+}
+
+#[cfg(test)]
+mod cluster_tests {
+    use super::emoji_cluster_len;
+
+    fn len(s: &str) -> usize {
+        let chars: Vec<char> = s.chars().collect();
+        emoji_cluster_len(&chars, 0)
+    }
+
+    #[test]
+    fn clusters_are_detected() {
+        assert_eq!(len("🧑\u{200D}💻x"), 3, "ZWJ-последовательность");
+        assert_eq!(len("❤\u{FE0F}!"), 2, "VS16");
+        assert_eq!(len("👍🏽"), 2, "тон кожи");
+        assert_eq!(len("🇰🇿"), 2, "флаг");
+        assert_eq!(len("1\u{FE0F}\u{20E3}"), 3, "keycap");
+        assert_eq!(len("👨\u{200D}👩\u{200D}👧"), 5, "семья");
+        assert_eq!(len("🙂 "), 1);
+        assert_eq!(len("a"), 1);
+        assert_eq!(len("1a"), 1);
+    }
+
+    /// Системный шрифт эмодзи сводит ZWJ-последовательность к одному глифу.
+    #[cfg(all(not(target_arch = "wasm32"), not(target_os = "android")))]
+    #[test]
+    fn zwj_sequence_shapes_to_one_glyph() {
+        let (data, idx) = crate::text::font_discovery::discover_emoji_font();
+        if data.is_empty() {
+            return;
+        }
+        let face = rustybuzz::Face::from_slice(&data, idx).expect("шрифт эмодзи");
+        let mut buf = rustybuzz::UnicodeBuffer::new();
+        buf.push_str("🧑\u{200D}💻");
+        let out = rustybuzz::shape(&face, &[], buf);
+        let ids: Vec<u32> = out.glyph_infos().iter().map(|g| g.glyph_id).collect();
+        assert_eq!(ids.len(), 1, "ожидали лигатуру, получили {ids:?}");
+        assert_ne!(ids[0], 0);
     }
 }
