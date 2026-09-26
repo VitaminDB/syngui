@@ -33,7 +33,6 @@ wide = "0.7"
 
 # Text rendering
 swash = { version = "0.2.7" }
-rustybuzz = { version = "0.20.1" }
 
 # Collections
 hashbrown = "0.16.1"
@@ -66,9 +65,6 @@ syntect = { version = "5", optional = true, default-features = false, features =
 # Accessibility (AccessKit for real screen reader support)
 accesskit = { version = "0.24.0", optional = true }
 accesskit_winit = { version = "0.32.2", optional = true }
-
-# For LRU font cache (04_text_rendering.md)
-lru = { version = "0.16.3", optional = true }
 
 # Image loading (09_project_structure.md)
 # default-features = false убирает редкие декодеры (avif/exr/tiff/webp/dds/...).
@@ -103,9 +99,6 @@ tokio = { version = "1", features = [
 
 # Tracing (alternative to log)
 tracing = { version = "0.1.44", optional = true }
-
-# SlotMap (alternative to hashbrown)
-slotmap = { version = "1.1.1", optional = true }
 
 # Splash screen (CPU software rendering for splash window)
 softbuffer = { version = "0.4", optional = true }
@@ -168,6 +161,8 @@ system-theme = ["dep:zbus"]
 system-blur = ["winit", "dep:wayland-protocols-plasma", "dep:wayland-scanner", "dep:x11rb", "dep:wayland-client", "dep:wayland-backend"]
 
 # Text rendering
+# msdf/effects/blur/shadow — маркеры совместимости: код под ними не
+# ветвится (всё собирается всегда), но их включают приложения.
 msdf = []
 color-emoji = ["image"]
 
@@ -192,10 +187,6 @@ wayland-dnd = [
 
 # Localization: catalogs `key = "value"`, `tr!`/`trn!`, current language as a signal
 i18n = []
-
-# Debug
-debug = ["inspector"]
-inspector = []
 
 # Clipboard
 clipboard = ["arboard", "wl-clipboard-rs"]
@@ -273,11 +264,8 @@ tokio = ["dep:tokio"]
 testing = []
 
 # Additional features
-lru-cache = ["lru"]
-image-support = ["image"]
 splash = ["softbuffer", "image", "winit"]
 tracing-support = ["tracing"]
-slotmap-support = ["slotmap"]
 
 # Системный трей (TrayConfig + сворачивание окна вместо exit). Использует
 # tray-icon (Tauri); image для декодирования PNG-иконки → RGBA. Только desktop.

@@ -4,7 +4,6 @@ use syngui::prelude::*;
 use syngui::testing::*;
 
 #[test]
-#[ignore]
 fn column_with_gap_sizes_correctly() {
     let widget = Column::new()
         .gap(10.0)
@@ -20,6 +19,8 @@ fn column_with_gap_sizes_correctly() {
         );
 
     let mut harness = TestHarness::new(Box::new(widget));
+    // Инлайн-стили (`.style(..)`) доходят до элементов только через каскад.
+    harness.apply_mss("");
     let size = harness.layout_loose(800.0, 600.0);
 
     // Two children of height 50 + gap 10 = 110
@@ -31,7 +32,6 @@ fn column_with_gap_sizes_correctly() {
 }
 
 #[test]
-#[ignore]
 fn row_with_gap_sizes_correctly() {
     let widget = Row::new()
         .gap(10.0)
@@ -47,6 +47,8 @@ fn row_with_gap_sizes_correctly() {
         );
 
     let mut harness = TestHarness::new(Box::new(widget));
+    // Инлайн-стили (`.style(..)`) доходят до элементов только через каскад.
+    harness.apply_mss("");
     let size = harness.layout_loose(800.0, 600.0);
 
     // Two children of width 100 + gap 10 = 210
@@ -58,7 +60,6 @@ fn row_with_gap_sizes_correctly() {
 }
 
 #[test]
-#[ignore]
 fn padding_adds_to_child_size() {
     let widget = Padding::all(20.0).child(
         DecoratedBox::new()
@@ -67,6 +68,8 @@ fn padding_adds_to_child_size() {
     );
 
     let mut harness = TestHarness::new(Box::new(widget));
+    // Инлайн-стили (`.style(..)`) доходят до элементов только через каскад.
+    harness.apply_mss("");
     let size = harness.layout_loose(800.0, 600.0);
 
     assert!(
@@ -82,13 +85,14 @@ fn padding_adds_to_child_size() {
 }
 
 #[test]
-#[ignore]
 fn decorated_box_with_explicit_size() {
     let widget = DecoratedBox::new()
         .style("width", 200.0_f32)
         .style("height", 100.0_f32);
 
     let mut harness = TestHarness::new(Box::new(widget));
+    // Инлайн-стили (`.style(..)`) доходят до элементов только через каскад.
+    harness.apply_mss("");
     let size = harness.layout_loose(800.0, 600.0);
 
     assert!((size.width - 200.0).abs() < 1.0);
@@ -107,6 +111,8 @@ fn find_elements_by_type() {
         );
 
     let mut harness = TestHarness::new(Box::new(widget));
+    // Инлайн-стили (`.style(..)`) доходят до элементов только через каскад.
+    harness.apply_mss("");
     harness.layout(800.0, 600.0);
 
     let texts = harness.find_by_type_name("Text");
