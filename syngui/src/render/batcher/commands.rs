@@ -84,8 +84,12 @@ impl Batcher {
                 bbox_sample,
                 clip_rect,
                 no_wrap,
+                italic,
                 ..
             } => {
+                // Наклон курсива: верх глифа сдвигается вправо на 0.21·h
+                // (~12°), низ на месте.
+                let shear = if *italic { 0.21_f32 } else { 0.0 };
                 if text.is_empty() {
                     return;
                 }
@@ -263,8 +267,9 @@ impl Batcher {
                         let is_color_flag = if glyph.glyph.is_color { 1.0 } else { 0.0 };
                         let d = [is_color_flag, blur, 0.0, 0.0];
                         let d2 = [uv_min_x, uv_min_y, uv_max_x, uv_max_y];
-                        let [p0, p1, p2, p3] =
-                            self.transform_quad([[x, y], [x + w, y], [x + w, y + h], [x, y + h]]);
+                        let s = shear * h;
+                        let [p0, p1, p2, p3] = self
+                            .transform_quad([[x + s, y], [x + w + s, y], [x + w, y + h], [x, y + h]]);
                         let state = self.current_batch_mut();
                         let base = state.vertices.len() as u32;
                         state.vertices.extend_from_slice(&[
@@ -330,8 +335,9 @@ impl Batcher {
                     let uv_w = glyph.glyph.uv_w;
                     let uv_h = glyph.glyph.uv_h;
                     let is_color_flag = if glyph.glyph.is_color { 1.0 } else { 0.0 };
+                    let s = shear * h;
                     let [p0, p1, p2, p3] =
-                        self.transform_quad([[x, y], [x + w, y], [x + w, y + h], [x, y + h]]);
+                        self.transform_quad([[x + s, y], [x + w + s, y], [x + w, y + h], [x, y + h]]);
                     let state = self.current_batch_mut();
                     let base = state.vertices.len() as u32;
                     state.vertices.extend_from_slice(&[

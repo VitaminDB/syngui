@@ -21,9 +21,17 @@ pub struct DisplayList {
     current_z: u32,
     surface_size: Size,
     scale_factor: f32,
+    /// Текущее начертание текста — курсив ли (см. [`Self::set_text_italic`]).
+    text_italic: bool,
 }
 
 impl DisplayList {
+    /// Курсив для последующих текстовых команд. Возвращает прежнее значение —
+    /// его и надо восстановить после курсивного куска.
+    pub fn set_text_italic(&mut self, on: bool) -> bool {
+        std::mem::replace(&mut self.text_italic, on)
+    }
+
     pub fn new() -> Self {
         Self {
             commands: Vec::with_capacity(1024),
@@ -38,6 +46,7 @@ impl DisplayList {
             current_z: 0,
             surface_size: Size::zero(),
             scale_factor: 1.0,
+            text_italic: false,
         }
     }
 
@@ -86,6 +95,7 @@ impl DisplayList {
         let height = font_size * 1.2;
         let size = Size::new(width, height);
         let rect = Rect::new(pos, size);
+        let italic = self.text_italic;
 
         self.commands.push(DrawCommand::Text {
             text: CompactString::from(text),
@@ -102,6 +112,7 @@ impl DisplayList {
             clip_rect: ClipRect::from_rect(clip),
             z_index: self.current_z,
             no_wrap: false,
+            italic,
         });
         self.current_z += 1;
     }
@@ -236,6 +247,7 @@ impl DisplayList {
     pub fn push_text(&mut self, text: &str, rect: crate::core::Rect, color: Color, font_size: f32) {
         let clip = *self.current_clip();
         let z = self.current_z;
+        let italic = self.text_italic;
         self.target().push(DrawCommand::Text {
             text: CompactString::from(text),
             rect,
@@ -251,6 +263,7 @@ impl DisplayList {
             clip_rect: clip,
             z_index: z,
             no_wrap: false,
+            italic,
         });
         self.current_z += 1;
     }
@@ -264,6 +277,7 @@ impl DisplayList {
     ) {
         let clip = *self.current_clip();
         let z = self.current_z;
+        let italic = self.text_italic;
         self.target().push(DrawCommand::Text {
             text: CompactString::from(text),
             rect,
@@ -279,6 +293,7 @@ impl DisplayList {
             clip_rect: clip,
             z_index: z,
             no_wrap: false,
+            italic,
         });
         self.current_z += 1;
     }
@@ -295,6 +310,7 @@ impl DisplayList {
     ) {
         let clip = *self.current_clip();
         let z = self.current_z;
+        let italic = self.text_italic;
         self.target().push(DrawCommand::Text {
             text: CompactString::from(text),
             rect,
@@ -310,6 +326,7 @@ impl DisplayList {
             clip_rect: clip,
             z_index: z,
             no_wrap: false,
+            italic,
         });
         self.current_z += 1;
     }
@@ -328,6 +345,7 @@ impl DisplayList {
     ) {
         let clip = *self.current_clip();
         let z = self.current_z;
+        let italic = self.text_italic;
         self.target().push(DrawCommand::Text {
             text: CompactString::from(text),
             rect,
@@ -343,6 +361,7 @@ impl DisplayList {
             clip_rect: clip,
             z_index: z,
             no_wrap: true,
+            italic,
         });
         self.current_z += 1;
     }
@@ -364,6 +383,7 @@ impl DisplayList {
     ) {
         let clip = *self.current_clip();
         let z = self.current_z;
+        let italic = self.text_italic;
         self.target().push(DrawCommand::Text {
             text: CompactString::from(text),
             rect,
@@ -379,6 +399,7 @@ impl DisplayList {
             clip_rect: clip,
             z_index: z,
             no_wrap: true,
+            italic,
         });
         self.current_z += 1;
     }
@@ -396,6 +417,7 @@ impl DisplayList {
     ) {
         let clip = *self.current_clip();
         let z = self.current_z;
+        let italic = self.text_italic;
         self.target().push(DrawCommand::Text {
             text: CompactString::from(text),
             rect,
@@ -411,6 +433,7 @@ impl DisplayList {
             clip_rect: clip,
             z_index: z,
             no_wrap: false,
+            italic,
         });
         self.current_z += 1;
     }
@@ -432,6 +455,7 @@ impl DisplayList {
     ) {
         let clip = *self.current_clip();
         let z = self.current_z;
+        let italic = self.text_italic;
         self.target().push(DrawCommand::Text {
             text: CompactString::from(text),
             rect,
@@ -447,6 +471,7 @@ impl DisplayList {
             clip_rect: clip,
             z_index: z,
             no_wrap,
+            italic,
         });
         self.current_z += 1;
     }
@@ -466,6 +491,7 @@ impl DisplayList {
     ) {
         let clip = *self.current_clip();
         let z = self.current_z;
+        let italic = self.text_italic;
         self.target().push(DrawCommand::Text {
             text: CompactString::from(text),
             rect,
@@ -481,6 +507,7 @@ impl DisplayList {
             clip_rect: clip,
             z_index: z,
             no_wrap: false,
+            italic,
         });
         self.current_z += 1;
     }
@@ -943,6 +970,7 @@ impl DisplayList {
     }
 
     pub fn clear(&mut self) {
+        self.text_italic = false;
         self.commands.clear();
         self.overlay_levels.clear();
         self.overlay_depth = 0;

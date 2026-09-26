@@ -57,6 +57,7 @@ const KNOWN_PROPERTIES: &[&str] = &[
     "margin-bottom",
     "font-size",
     "font-weight",
+    "font-style",
     "font-family",
     "icon-size",
     "icon-color",

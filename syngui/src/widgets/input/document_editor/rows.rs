@@ -433,6 +433,7 @@ impl Element for TextRowElement {
                     list.push_rect(bg, s.code_bg, [r, r, r, r]);
                 }
                 let rect = Rect::new(Point::new(x, y), Size::new(seg.width, 0.0));
+                let prev_italic = list.set_text_italic(seg.style.italic);
                 list.push_text_aligned(
                     &seg.text,
                     rect,
@@ -442,6 +443,7 @@ impl Element for TextRowElement {
                     TextDecoration::None,
                     if seg.style.bold { 700 } else { 400 },
                 );
+                list.set_text_italic(prev_italic);
                 if matches!(
                     seg.style.link,
                     Some(LinkTarget::Url(_) | LinkTarget::Wiki { .. })

@@ -300,6 +300,7 @@ impl Element for RichTextElement {
                 let font_weight: u16 = if span.bold { 700 } else { 400 };
                 let baseline_y = y + (line_h - fs) / 2.0;
                 let rect = Rect::new(Point::new(x, baseline_y), Size::new(sw, 0.0));
+                let prev_italic = list.set_text_italic(span.italic);
                 list.push_text_aligned(
                     &span.text,
                     rect,
@@ -309,6 +310,7 @@ impl Element for RichTextElement {
                     TextDecoration::None,
                     font_weight,
                 );
+                list.set_text_italic(prev_italic);
 
                 if span.underline {
                     let underline_y = text_y + fs + 1.0;

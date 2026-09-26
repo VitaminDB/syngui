@@ -181,7 +181,6 @@ struct InlineStyle {
     color: Color,
     font_size: f32,
     bold: bool,
-    #[allow(dead_code)]
     italic: bool,
     strikethrough: bool,
     link: bool,
@@ -193,6 +192,7 @@ struct FlatSpan {
     color: Color,
     font_size: f32,
     bold: bool,
+    italic: bool,
     underline: bool,
     strikethrough: bool,
     is_code: bool,
@@ -1208,6 +1208,7 @@ impl<'a> MdRenderer<'a> {
         }
 
         let font_weight: u16 = if span.bold { 700 } else { 400 };
+        let prev_italic = self.list.set_text_italic(span.italic);
         self.list.push_text_aligned(
             text,
             text_rect,
@@ -1217,6 +1218,7 @@ impl<'a> MdRenderer<'a> {
             TextDecoration::None,
             font_weight,
         );
+        self.list.set_text_italic(prev_italic);
 
         let row_h = span.font_size * self.style.line_height;
         let sel_rect = Rect::new(Point::new(x, self.y), Size::new(sw, row_h));
@@ -1288,6 +1290,7 @@ fn flatten_recursive(
                     color: style.color,
                     font_size: style.font_size,
                     bold: style.bold,
+                    italic: style.italic,
                     underline: style.link,
                     strikethrough: style.strikethrough,
                     is_code: false,
@@ -1322,6 +1325,7 @@ fn flatten_recursive(
                     color: md_style.code_color,
                     font_size: md_style.code_font_size,
                     bold: false,
+                    italic: false,
                     underline: false,
                     strikethrough: false,
                     is_code: true,
@@ -1344,6 +1348,7 @@ fn flatten_recursive(
                     color: md_style.image_placeholder_color,
                     font_size: style.font_size,
                     bold: false,
+                    italic: false,
                     underline: false,
                     strikethrough: false,
                     is_code: false,
@@ -1357,6 +1362,7 @@ fn flatten_recursive(
                     color: style.color,
                     font_size: style.font_size,
                     bold: style.bold,
+                    italic: style.italic,
                     underline: false,
                     strikethrough: false,
                     is_code: false,
@@ -1370,6 +1376,7 @@ fn flatten_recursive(
                     color: style.color,
                     font_size: style.font_size,
                     bold: style.bold,
+                    italic: style.italic,
                     underline: false,
                     strikethrough: false,
                     is_code: false,
@@ -1384,6 +1391,7 @@ fn flatten_recursive(
                     color: md_style.footnote_color,
                     font_size: small,
                     bold: false,
+                    italic: false,
                     underline: true,
                     strikethrough: false,
                     is_code: false,

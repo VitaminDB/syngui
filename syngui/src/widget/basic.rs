@@ -516,6 +516,7 @@ impl Text {
             classes: Vec::new(),
             dirty_flags: DirtyFlags::LAYOUT | DirtyFlags::RENDER,
             mss_font_weight: self.font_weight.unwrap_or(400),
+            mss_italic: false,
             mss_text_align: None,
             mss_text_decoration: crate::mss::TextDecoration::None,
             mss_font_family: None,
@@ -585,6 +586,8 @@ struct TextElement {
     classes: Vec<String>,
     dirty_flags: DirtyFlags,
     mss_font_weight: u16,
+    /// MSS `font-style: italic|oblique` — наклонные глифы.
+    mss_italic: bool,
     mss_text_align: Option<crate::mss::TextAlign>,
     mss_text_decoration: crate::mss::TextDecoration,
     mss_font_family: Option<String>,
@@ -896,6 +899,7 @@ impl Element for TextElement {
             }
         }
 
+        let prev_italic = list.set_text_italic(self.mss_italic);
         if has_extra
             || self.mss_text_align.is_some()
             || self.mss_font_family.is_some()
@@ -932,6 +936,7 @@ impl Element for TextElement {
                 self.font_size,
             );
         }
+        list.set_text_italic(prev_italic);
     }
 
     fn handle_event(&mut self, event: &Event, ctx: &mut EventContext) -> EventResult {
@@ -1087,6 +1092,7 @@ impl Element for TextElement {
         self.color = self.base_color.unwrap_or(Color::rgb(0.0, 0.0, 0.0));
         self.font_size = DEFAULT_FONT_SIZE;
         self.mss_font_weight = self.base_font_weight.unwrap_or(400);
+        self.mss_italic = false;
         self.mss_text_align = None;
         self.mss_text_decoration = crate::mss::TextDecoration::None;
         self.mss_font_family = None;
@@ -1136,6 +1142,9 @@ impl StyledElement for TextElement {
         self.font_size = style.font_size();
         if let Some(fw) = style.font_weight() {
             self.mss_font_weight = fw;
+        }
+        if let Some(fs) = style.get("font-style").and_then(|v| v.as_string()) {
+            self.mss_italic = matches!(fs, "italic" | "oblique");
         }
         if let Some(ta) = style.text_align() {
             self.mss_text_align = Some(ta);
