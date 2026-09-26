@@ -88,11 +88,33 @@ mod inner {
             node.children.iter().map(|id| to_node_id(*id)).collect();
         ak_node.set_children(children);
 
+        // Что скринридер может сделать с узлом: без объявленных действий он
+        // не предлагает «активировать» даже кнопку.
+        match node.role {
+            Role::Button | Role::CheckBox | Role::RadioButton | Role::Link | Role::ComboBox => {
+                ak_node.add_action(accesskit::Action::Click);
+                ak_node.add_action(accesskit::Action::Focus);
+            }
+            Role::TextField | Role::Terminal => {
+                ak_node.add_action(accesskit::Action::Focus);
+                ak_node.add_action(accesskit::Action::ReplaceSelectedText);
+            }
+            Role::Slider | Role::ListBox | Role::Tree | Role::TabList => {
+                ak_node.add_action(accesskit::Action::Focus);
+            }
+            _ => {}
+        }
+
         if let Some(ref shortcut) = node.properties.keyboard_shortcut {
             ak_node.set_keyboard_shortcut(shortcut.as_str());
         }
 
         ak_node
+    }
+
+    #[cfg(test)]
+    pub(super) fn build_accesskit_node_for_test(node: &A11yNode) -> accesskit::Node {
+        build_accesskit_node(node)
     }
 
     pub struct AccessKitAdapter {
@@ -167,3 +189,39 @@ mod inner {
 
 #[cfg(feature = "accessibility")]
 pub use inner::AccessKitAdapter;
+
+#[cfg(all(test, feature = "accessibility"))]
+mod tests {
+    use crate::a11y::types::*;
+
+    fn node(role: Role) -> A11yNode {
+        A11yNode {
+            id: A11yId(5),
+            role,
+            state: NodeState::default(),
+            properties: NodeProperties::default(),
+            parent: None,
+            children: vec![],
+            element_id: crate::widget::ElementId(5),
+            bounds: crate::core::Rect::default(),
+        }
+    }
+
+    #[test]
+    fn buttons_and_fields_declare_actions() {
+        use accesskit::Action;
+        let b = super::inner::build_accesskit_node_for_test(&node(Role::Button));
+        assert!(b.supports_action(Action::Click) && b.supports_action(Action::Focus));
+        let t = super::inner::build_accesskit_node_for_test(&node(Role::TextField));
+        assert!(t.supports_action(Action::ReplaceSelectedText) && !t.supports_action(Action::Click));
+        let g = super::inner::build_accesskit_node_for_test(&node(Role::Group));
+        assert!(!g.supports_action(Action::Click));
+    }
+
+    #[test]
+    fn a11y_id_is_stable_element_id() {
+        let e = crate::widget::ElementId(42);
+        assert_eq!(A11yId::for_element(e), A11yId::for_element(e));
+        assert_eq!(A11yId::for_element(e).0, 42);
+    }
+}

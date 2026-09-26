@@ -535,22 +535,37 @@ impl AppHandler {
     }
 }
 
+// Обработчики AccessKit зовутся с его собственного потока (AT-SPI на Linux):
+// дерево и элементы живут в цикле событий, поэтому запросы уходят туда через
+// прокси, а не выполняются здесь.
 #[cfg(feature = "accessibility")]
-pub(super) struct SynGuiActivationHandler;
+pub(super) struct SynGuiActivationHandler(
+    pub(super) Option<winit::event_loop::EventLoopProxy<super::user_event::SynGuiUserEvent>>,
+);
 
 #[cfg(feature = "accessibility")]
 impl accesskit::ActivationHandler for SynGuiActivationHandler {
     fn request_initial_tree(&mut self) -> Option<accesskit::TreeUpdate> {
+        // Синхронно дерево отсюда не собрать — отдаём его ближайшим кадром.
+        if let Some(p) = &self.0 {
+            let _ = p.send_event(super::user_event::SynGuiUserEvent::A11yActivated);
+        }
         None
     }
 }
 
 #[cfg(feature = "accessibility")]
-pub(super) struct SynGuiActionHandler;
+pub(super) struct SynGuiActionHandler(
+    pub(super) Option<winit::event_loop::EventLoopProxy<super::user_event::SynGuiUserEvent>>,
+);
 
 #[cfg(feature = "accessibility")]
 impl accesskit::ActionHandler for SynGuiActionHandler {
-    fn do_action(&mut self, _request: accesskit::ActionRequest) {}
+    fn do_action(&mut self, request: accesskit::ActionRequest) {
+        if let Some(p) = &self.0 {
+            let _ = p.send_event(super::user_event::SynGuiUserEvent::A11yAction(request));
+        }
+    }
 }
 
 #[cfg(feature = "accessibility")]

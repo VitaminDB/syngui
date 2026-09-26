@@ -860,6 +860,15 @@ impl winit::application::ApplicationHandler<SynGuiUserEvent> for AppHandler {
             SynGuiUserEvent::MenuItem(id) => {
                 log::debug!("[syngui] tray menu item: {id}");
             }
+            #[cfg(feature = "accessibility")]
+            SynGuiUserEvent::A11yActivated => {
+                self.a11y_dirty = true;
+                self.request_redraw();
+            }
+            #[cfg(feature = "accessibility")]
+            SynGuiUserEvent::A11yAction(req) => {
+                self.handle_a11y_action(req);
+            }
             SynGuiUserEvent::MainThreadWake => {
                 // Очередь run_on_main_thread: дренируем прямо здесь — рендера
                 // (и его дренажа) в фоне может не быть вовсе.
@@ -1057,5 +1066,47 @@ impl AppHandler {
         for id in ids {
             self.tree.dispatch_event_to(id, &event);
         }
+    }
+}
+
+#[cfg(feature = "accessibility")]
+impl AppHandler {
+    /// Действие скринридера. Узел доступности — это `ElementId` элемента
+    /// (`A11yId::for_element`), так что цель находится напрямую. «Нажать» —
+    /// тот же клик мышью по центру элемента, что и у зрячего пользователя:
+    /// у виджетов один путь обработки, отдельной «активации» им не нужно.
+    fn handle_a11y_action(&mut self, req: accesskit::ActionRequest) {
+        use accesskit::{Action, ActionData};
+        let id = crate::widget::ElementId(req.target_node.0);
+        let Some(bounds) = self.tree.elements.get(&id).map(|n| n.element.bounds()) else {
+            return;
+        };
+        let Some(root_id) = self.root_id else { return };
+        let center = Point::new(
+            bounds.origin.x + bounds.size.width / 2.0,
+            bounds.origin.y + bounds.size.height / 2.0,
+        );
+        match req.action {
+            Action::Click => {
+                let button = crate::input::MouseButton::Left;
+                self.cursor_position = center;
+                self.tree.handle_event(root_id, &Event::MouseMove(center));
+                self.update_focus_from_click(center);
+                self.tree.handle_event(root_id, &Event::MouseDown { button, position: center });
+                self.tree.handle_event(root_id, &Event::MouseUp { button, position: center });
+            }
+            Action::Focus => {
+                self.update_focus_from_click(center);
+            }
+            Action::ReplaceSelectedText => {
+                if let Some(ActionData::Value(text)) = req.data {
+                    self.update_focus_from_click(center);
+                    self.tree.handle_event(root_id, &Event::ImeCommit(text.to_string()));
+                }
+            }
+            _ => return,
+        }
+        self.a11y_dirty = true;
+        self.request_redraw();
     }
 }

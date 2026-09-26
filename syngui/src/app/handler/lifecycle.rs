@@ -96,8 +96,8 @@ impl AppHandler {
             let ak_adapter = accesskit_winit::Adapter::with_direct_handlers(
                 event_loop,
                 window.winit_window(),
-                SynGuiActivationHandler,
-                SynGuiActionHandler,
+                SynGuiActivationHandler(self.event_loop_proxy.clone()),
+                SynGuiActionHandler(self.event_loop_proxy.clone()),
                 SynGuiDeactivationHandler,
             );
             self.accesskit_adapter = Some(ak_adapter);
