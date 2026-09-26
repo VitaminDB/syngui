@@ -76,6 +76,7 @@ impl Widget for TableView {
             sort_column: None,
             sort_direction: SortDirection::None,
             sorted_indices: None,
+            sorted_inverse: None,
             on_sort: self.on_sort.clone(),
             on_row_click: self.on_row_click.clone(),
             on_selection_change: self.on_selection_change.clone(),
@@ -201,6 +202,9 @@ pub struct TableViewElement {
     sort_column: Option<usize>,
     sort_direction: SortDirection,
     sorted_indices: Option<Vec<usize>>,
+    /// Обратная перестановка: физическая строка → видимая. Без неё
+    /// `visible_row` искал позицию линейно.
+    sorted_inverse: Option<Vec<usize>>,
     on_sort: Option<Arc<Mutex<dyn FnMut(usize, SortDirection) + Send>>>,
     on_row_click: Option<Arc<Mutex<dyn FnMut(usize) + Send>>>,
     /// Выбор изменился: список выделенных строк целиком.
@@ -483,7 +487,7 @@ impl TableViewElement {
             if let Ok(mut f) = cb.lock() {
                 f(col_idx, new_dir);
             }
-            self.sorted_indices = None;
+            self.set_sort_perm(None);
             self.row_cache.clear();
             self.cache_range = 0..0;
             self.ensure_cached_for_viewport();
@@ -577,13 +581,24 @@ impl TableViewElement {
     }
 
     fn visible_row(&self, physical_idx: usize) -> usize {
-        match &self.sorted_indices {
-            Some(perm) => perm
-                .iter()
-                .position(|&i| i == physical_idx)
-                .unwrap_or(physical_idx),
+        match &self.sorted_inverse {
+            Some(inv) => inv.get(physical_idx).copied().unwrap_or(physical_idx),
             None => physical_idx,
         }
+    }
+
+    fn set_sort_perm(&mut self, perm: Option<Vec<usize>>) {
+        self.sorted_inverse = perm.as_ref().map(|p| {
+            let len = p.iter().copied().max().map_or(0, |m| m + 1).max(p.len());
+            let mut inv: Vec<usize> = (0..len).collect();
+            for (vis, &phys) in p.iter().enumerate() {
+                if let Some(slot) = inv.get_mut(phys) {
+                    *slot = vis;
+                }
+            }
+            inv
+        });
+        self.sorted_indices = perm;
     }
 
     fn compute_sort_perm(&self, col_idx: usize, dir: SortDirection) -> Option<Vec<usize>> {
@@ -622,11 +637,11 @@ impl TableViewElement {
             || self.sort_column.is_none()
             || self.on_sort.is_some()
         {
-            self.sorted_indices = None;
+            self.set_sort_perm(None);
             return;
         }
         if !matches!(self.data, TableDataSource::Eager(_)) {
-            self.sorted_indices = None;
+            self.set_sort_perm(None);
             if !self.sort_warned_virtual {
                 log::warn!(
                     "TableView: sortable=true on a Virtual data source without on_sort \
@@ -638,7 +653,7 @@ impl TableViewElement {
         }
         let col = self.sort_column.unwrap();
         let dir = self.sort_direction;
-        self.sorted_indices = self.compute_sort_perm(col, dir);
+        self.set_sort_perm(self.compute_sort_perm(col, dir));
     }
 
     fn compute_column_widths(&mut self, available: f32) {
