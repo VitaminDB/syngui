@@ -104,7 +104,6 @@ const KNOWN_PROPERTIES: &[&str] = &[
     "animation-play-state",
     "filter",
     "backdrop-filter",
-    "mix-blend-mode",
     "outline",
     "outline-width",
     "outline-color",
@@ -341,7 +340,6 @@ pub struct MssFields {
     pub gutter_color: Option<Color>,
     pub noise: Option<f32>,
     pub vignette: Option<f32>,
-    pub blend_mode: Option<crate::render::display_list::BlendModeType>,
 
     pub text_align: Option<TextAlign>,
     /// Выравнивание ребёнка `DecoratedBox` с явным размером (MSS
@@ -442,7 +440,6 @@ impl MssFields {
             color_tint: None,
             noise: None,
             vignette: None,
-            blend_mode: None,
             text_align: None,
             justify_content: None,
             align_items: None,
@@ -527,7 +524,6 @@ impl MssFields {
         self.color_tint = None;
         self.noise = None;
         self.vignette = None;
-        self.blend_mode = None;
         self.text_align = None;
         self.justify_content = None;
         self.align_items = None;
@@ -748,22 +744,6 @@ impl MssFields {
         }
         if let Some(v) = style.get("vignette").and_then(|v| v.as_px()) {
             self.vignette = Some(v.clamp(0.0, 1.0));
-        }
-        if let Some(s) = style.get("mix-blend-mode").and_then(|v| v.as_string()) {
-            self.blend_mode = match s {
-                "multiply" => Some(crate::render::display_list::BlendModeType::Multiply),
-                "screen" => Some(crate::render::display_list::BlendModeType::Screen),
-                "overlay" => Some(crate::render::display_list::BlendModeType::Overlay),
-                "darken" => Some(crate::render::display_list::BlendModeType::Darken),
-                "lighten" => Some(crate::render::display_list::BlendModeType::Lighten),
-                "color-dodge" => Some(crate::render::display_list::BlendModeType::ColorDodge),
-                "color-burn" => Some(crate::render::display_list::BlendModeType::ColorBurn),
-                "hard-light" => Some(crate::render::display_list::BlendModeType::HardLight),
-                "soft-light" => Some(crate::render::display_list::BlendModeType::SoftLight),
-                "difference" => Some(crate::render::display_list::BlendModeType::Difference),
-                "exclusion" => Some(crate::render::display_list::BlendModeType::Exclusion),
-                _ => None,
-            };
         }
 
         if let Some(a) = style.text_align() {

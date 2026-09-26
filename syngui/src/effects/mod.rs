@@ -9,6 +9,9 @@ pub fn backdrop_blur(radius: f32) -> Effect {
     Effect::BackdropBlur { radius }
 }
 
+/// Не реализован: рендерер рисует `Effect::Shadow` обычным композитом, без
+/// тени. Для тени элемента — MSS `box-shadow`.
+#[deprecated(note = "Effect::Shadow не рисуется — используйте MSS box-shadow")]
 pub fn shadow(color: crate::core::Color, blur_radius: f32, offset_x: f32, offset_y: f32) -> Effect {
     Effect::Shadow {
         color,
