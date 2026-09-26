@@ -99,6 +99,9 @@ pub struct FontAtlas {
     overflowed: bool,
     generation: u64,
     scale_factor: f32,
+    /// Контекст растеризации swash — переиспользуется между глифами (у него
+    /// свои кэши), а не создаётся на каждый новый глиф.
+    scale_ctx: swash::scale::ScaleContext,
 }
 
 impl FontAtlas {
@@ -204,6 +207,7 @@ impl FontAtlas {
             overflowed: false,
             generation: 0,
             scale_factor: 1.0,
+            scale_ctx: swash::scale::ScaleContext::new(),
         }
     }
 
@@ -585,12 +589,22 @@ impl FontAtlas {
         size_px: u16,
         key: GlyphKey,
     ) -> Option<()> {
+        let mut context = std::mem::take(&mut self.scale_ctx);
+        let rasterized = self.rasterize_with(&mut context, face, glyph_id, size_px, key);
+        self.scale_ctx = context;
+        rasterized
+    }
+
+    fn rasterize_with(
+        &mut self,
+        context: &mut swash::scale::ScaleContext,
+        face: FontFace,
+        glyph_id: u16,
+        size_px: u16,
+        key: GlyphKey,
+    ) -> Option<()> {
         let font_ref = face.font_ref()?;
-
-        use swash::scale::ScaleContext;
         use swash::zeno::Format;
-
-        let mut context = ScaleContext::new();
         let mut scaler = context
             .builder(font_ref)
             .size(size_px as f32)

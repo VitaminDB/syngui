@@ -23,7 +23,7 @@ impl ElementTree {
             let result = node.element.handle_event(event, &mut ctx);
             if result.is_handled()
                 && matches!(event, Event::KeyDown(_) | Event::MouseWheel { .. })
-                && std::env::var_os("SYNGUI_TRACE_KEYS").is_some()
+                && trace_keys()
             {
                 eprintln!(
                     "{event:?} поглощён элементом {} ({id:?})",
@@ -1222,4 +1222,10 @@ mod tests {
         assert!(r.is_handled());
         assert_eq!(*table_dbl.lock().unwrap(), 1);
     }
+}
+
+/// `SYNGUI_TRACE_KEYS` читается один раз, а не на каждое поглощённое нажатие.
+fn trace_keys() -> bool {
+    static ON: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
+    *ON.get_or_init(|| std::env::var_os("SYNGUI_TRACE_KEYS").is_some())
 }
