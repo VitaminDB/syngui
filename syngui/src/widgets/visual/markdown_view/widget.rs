@@ -1281,8 +1281,9 @@ impl StyledElement for MarkdownViewElement {
         if let Some(c) = style.color() {
             self.style.text_color = mss_color_to_core(c);
         }
-        let fs = style.font_size();
-        if fs != 16.0 {
+        // Явный `font-size` из каскада. Раньше проверка `!= 16.0` (значение по
+        // умолчанию) не давала задать ровно 16px.
+        if let Some(fs) = style.get("font-size").and_then(|v| v.as_px()) {
             self.style.text_size = fs;
             self.style.code_font_size = (fs - 1.0).max(10.0);
         }

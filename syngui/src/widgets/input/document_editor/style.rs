@@ -185,8 +185,8 @@ impl DocStyle {
         if let Some(c) = style.color() {
             self.text_color = mss_color_to_core(c);
         }
-        let fs = style.font_size();
-        if fs != 16.0 {
+        // Явный `font-size`; `!= 16.0` не давал задать ровно 16px.
+        if let Some(fs) = style.get("font-size").and_then(|v| v.as_px()) {
             self.text_size = fs;
         }
         let color = |name: &str| {
