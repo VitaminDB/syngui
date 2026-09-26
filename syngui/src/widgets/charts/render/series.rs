@@ -116,7 +116,7 @@ fn render_line_visual_mapped(
             thresholds.push(piece.lte);
         }
     }
-    thresholds.sort_by(|a, b| a.partial_cmp(b).unwrap());
+    thresholds.sort_by(|a, b| a.total_cmp(b));
     thresholds.dedup();
 
     let color_for_y = |y: f64| -> Color {
@@ -150,7 +150,7 @@ fn render_line_visual_mapped(
             crossings.sort_by(|a, b| {
                 let ta = (a - dy0) / (dy1 - dy0);
                 let tb = (b - dy0) / (dy1 - dy0);
-                ta.partial_cmp(&tb).unwrap()
+                ta.total_cmp(&tb)
             });
 
             for th in crossings {
