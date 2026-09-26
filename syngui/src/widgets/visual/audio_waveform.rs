@@ -53,7 +53,7 @@ impl AudioWaveform {
 
         Canvas::new(move |ctx, _t| {
             let target = handle.snapshot_bars(bars);
-            let mut prev_g = prev.lock().expect("waveform smoothing lock poisoned");
+            let mut prev_g = prev.lock().unwrap_or_else(|e| e.into_inner());
             if prev_g.len() != target.len() {
                 prev_g.clear();
                 prev_g.resize(target.len(), 0.0);

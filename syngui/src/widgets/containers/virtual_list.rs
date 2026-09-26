@@ -1151,7 +1151,7 @@ mod tests {
                 .map(|i| {
                     let keys = keys.clone();
                     VirtualRow::new(i, 1, move || {
-                        keys.lock().expect("ключи").push(i);
+                        keys.lock().unwrap_or_else(|e| e.into_inner()).push(i);
                         Box::new(DecoratedBox::new().class("row")) as Box<dyn Widget>
                     })
                 })
@@ -1165,10 +1165,10 @@ mod tests {
         let engine = h.apply_mss(MSS);
         h.frame(Some(&engine), 600.0, VIEW_H);
 
-        built_keys.lock().expect("ключи").clear();
+        built_keys.lock().unwrap_or_else(|e| e.into_inner()).clear();
         target.set(150);
         h.frame(Some(&engine), 600.0, VIEW_H);
-        let seen = built_keys.lock().expect("ключи").clone();
+        let seen = built_keys.lock().unwrap_or_else(|e| e.into_inner()).clone();
         assert!(seen.contains(&150), "строка 150 не собрана: {seen:?}");
     }
 }

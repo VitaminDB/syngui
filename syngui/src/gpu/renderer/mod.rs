@@ -856,6 +856,6 @@ impl Renderer {
     }
 
     pub fn font_atlas_stats(&self) -> crate::text::FontAtlasStats {
-        self.font_atlas.lock().unwrap().memory_stats()
+        self.font_atlas.lock().unwrap_or_else(|e| e.into_inner()).memory_stats()
     }
 }

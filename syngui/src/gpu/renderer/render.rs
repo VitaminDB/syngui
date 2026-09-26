@@ -24,7 +24,7 @@ impl Renderer {
         self.batcher.set_scale_factor(scale);
         let t = web_time::Instant::now();
         let render_ops = {
-            let mut atlas = self.font_atlas.lock().unwrap();
+            let mut atlas = self.font_atlas.lock().unwrap_or_else(|e| e.into_inner());
             let ops = self.batcher.process(display_list, &mut atlas);
             crate::perf::add_time(crate::perf::TimeKind::RenderBatch, t.elapsed());
             atlas.upload(&gpu.queue);
@@ -32,7 +32,7 @@ impl Renderer {
         };
         let t = web_time::Instant::now();
         {
-            let mut store = self.image_store.lock().unwrap();
+            let mut store = self.image_store.lock().unwrap_or_else(|e| e.into_inner());
             self.image_gpu_cache
                 .process_uploads(&gpu.device, &gpu.queue, &mut store);
         }
@@ -188,13 +188,13 @@ impl Renderer {
         };
         self.batcher.set_scale_factor(scale);
         let render_ops = {
-            let mut atlas = self.font_atlas.lock().unwrap();
+            let mut atlas = self.font_atlas.lock().unwrap_or_else(|e| e.into_inner());
             let ops = self.batcher.process(display_list, &mut atlas);
             atlas.upload(&gpu.queue);
             ops
         };
         {
-            let mut store = self.image_store.lock().unwrap();
+            let mut store = self.image_store.lock().unwrap_or_else(|e| e.into_inner());
             self.image_gpu_cache
                 .process_uploads(&gpu.device, &gpu.queue, &mut store);
         }

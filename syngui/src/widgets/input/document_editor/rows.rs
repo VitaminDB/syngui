@@ -243,7 +243,7 @@ impl TextRowElement {
             })
             .collect();
 
-        let mut map = geom.lock().unwrap();
+        let mut map = geom.lock().unwrap_or_else(|e| e.into_inner());
         let entry = map.entry(self.block_id).or_default();
         entry.gutter = self.gutter;
         entry.line_h = self.style.line_h(self.font_size);

@@ -690,7 +690,7 @@ impl MarkdownViewElement {
         if urls.is_empty() {
             return;
         }
-        let mut store_g = store.lock().unwrap();
+        let mut store_g = store.lock().unwrap_or_else(|e| e.into_inner());
         for url in urls {
             if self.images.contains_key(&url) {
                 continue;
@@ -1006,7 +1006,7 @@ impl Element for MarkdownViewElement {
         };
         let mut any_loading = false;
         let mut updated_any = false;
-        let store_g = store.lock().unwrap();
+        let store_g = store.lock().unwrap_or_else(|e| e.into_inner());
         for (_url, entry) in self.images.iter_mut() {
             if entry.state != ImageLoadState::Loading {
                 continue;

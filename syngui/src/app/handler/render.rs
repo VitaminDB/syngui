@@ -275,7 +275,7 @@ impl AppHandler {
             let mut font_changed = false;
             if let Some(renderer) = self.renderer.as_mut() {
                 if let Some(font_data) = self.pending_font.borrow_mut().take() {
-                    renderer.font_atlas.lock().unwrap().set_font_data(font_data);
+                    renderer.font_atlas.lock().unwrap_or_else(|e| e.into_inner()).set_font_data(font_data);
                     font_changed = true;
                 }
                 if let Some(emoji_data) = self.pending_emoji_font.borrow_mut().take() {
@@ -300,7 +300,7 @@ impl AppHandler {
                 web_sys::console::log_1(&"[syngui] Font data received".into());
             }
             let all_fonts_ready = {
-                let atlas = self.renderer.as_ref().unwrap().font_atlas.lock().unwrap();
+                let atlas = self.renderer.as_ref().unwrap().font_atlas.lock().unwrap_or_else(|e| e.into_inner());
                 let has_primary = atlas.has_font();
                 let has_emoji = atlas.has_emoji_font();
                 let emoji_configured = self.config.emoji_font_url.is_some();
@@ -703,7 +703,7 @@ impl AppHandler {
         }
 
         if let Some(ref image_store) = self.tree.image_store {
-            let store = image_store.lock().unwrap();
+            let store = image_store.lock().unwrap_or_else(|e| e.into_inner());
             if store.has_loading() || store.has_pending_uploads() {
                 crate::perf::incr(crate::perf::Counter::RedrawImages);
                 if let Some(window) = &self.window {

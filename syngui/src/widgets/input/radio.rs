@@ -27,7 +27,7 @@ impl RadioGroup {
     }
 
     pub fn selected(self, value: impl Into<String>) -> Self {
-        *self.selected.lock().unwrap() = value.into();
+        *self.selected.lock().unwrap_or_else(|e| e.into_inner()) = value.into();
         self
     }
 }
@@ -64,7 +64,7 @@ impl RadioButton {
 
 impl Widget for RadioButton {
     fn create_element(&self) -> Box<dyn Element> {
-        let selected = self.group_state.lock().unwrap().clone();
+        let selected = self.group_state.lock().unwrap_or_else(|e| e.into_inner()).clone();
         Box::new(RadioButtonElement {
             id: ElementId::new(),
             value: self.value.clone(),
@@ -126,7 +126,7 @@ impl Element for RadioButtonElement {
             self.label = rb.label.clone();
             self.disabled = rb.disabled;
 
-            let selected = self.group_state.lock().unwrap().clone();
+            let selected = self.group_state.lock().unwrap_or_else(|e| e.into_inner()).clone();
             self.is_selected = selected == self.value;
 
             self.mark_dirty(DirtyFlags::RENDER);
@@ -279,7 +279,7 @@ impl Element for RadioButtonElement {
             }
             Event::MouseDown { button, position } => {
                 if *button == MouseButton::Left && self.bounds.contains(*position) {
-                    *self.group_state.lock().unwrap() = self.value.clone();
+                    *self.group_state.lock().unwrap_or_else(|e| e.into_inner()) = self.value.clone();
                     self.is_selected = true;
                     ctx.request_paint();
                     return EventResult::Handled;
@@ -288,7 +288,7 @@ impl Element for RadioButtonElement {
             }
             Event::KeyDown(Key::Enter) | Event::KeyDown(Key::Space) => {
                 if self.focused {
-                    *self.group_state.lock().unwrap() = self.value.clone();
+                    *self.group_state.lock().unwrap_or_else(|e| e.into_inner()) = self.value.clone();
                     self.is_selected = true;
                     ctx.request_paint();
                     return EventResult::Handled;

@@ -193,7 +193,7 @@ pub struct ImageElement {
 impl ImageElement {
     fn request_load(&mut self) {
         if let Some(ref store) = self.image_store {
-            let mut store = store.lock().unwrap();
+            let mut store = store.lock().unwrap_or_else(|e| e.into_inner());
             let (handle, state) = store.request(&self.source);
             // Прежнюю картинку отпускаем после запроса новой: при том же
             // ключе она не успеет попасть в очередь выгрузки.
@@ -448,7 +448,7 @@ impl Element for ImageElement {
             let mut new_dims = None;
             if let Some(ref store) = self.image_store {
                 if let Some(handle) = self.image_handle {
-                    let store = store.lock().unwrap();
+                    let store = store.lock().unwrap_or_else(|e| e.into_inner());
                     if let Some(state) = store.state_of(handle) {
                         if state != self.image_state {
                             new_state = Some(state);

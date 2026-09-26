@@ -88,7 +88,7 @@ impl Dropdown {
     }
 
     pub fn selected(self, value: impl Into<String>) -> Self {
-        *self.selected.lock().unwrap() = Some(value.into());
+        *self.selected.lock().unwrap_or_else(|e| e.into_inner()) = Some(value.into());
         self
     }
 
@@ -219,7 +219,7 @@ pub struct DropdownElement {
 
 impl DropdownElement {
     fn get_selected_label(&self) -> Option<String> {
-        let selected_value = self.selected.lock().unwrap();
+        let selected_value = self.selected.lock().unwrap_or_else(|e| e.into_inner());
         if let Some(ref value) = *selected_value {
             for item in &self.items {
                 if &item.value == value {
@@ -571,7 +571,7 @@ impl Element for DropdownElement {
                 }
 
                 let item = &self.items[*idx];
-                let is_selected = *self.selected.lock().unwrap() == Some(item.value.clone());
+                let is_selected = *self.selected.lock().unwrap_or_else(|e| e.into_inner()) == Some(item.value.clone());
                 let is_hover = self.hover_item == Some(*idx);
 
                 let item_bg = if item.disabled {
@@ -735,7 +735,7 @@ impl Element for DropdownElement {
                             if adjusted_rect.contains(*position) {
                                 let item = &self.items[*idx];
                                 if !item.disabled {
-                                    *self.selected.lock().unwrap() = Some(item.value.clone());
+                                    *self.selected.lock().unwrap_or_else(|e| e.into_inner()) = Some(item.value.clone());
                                     if let Some(ref callback) = self.on_change {
                                         if let Ok(mut cb) = callback.lock() {
                                             cb(&item.value);
@@ -801,7 +801,7 @@ impl Element for DropdownElement {
                             if let Some(hover) = self.hover_item {
                                 let item = &self.items[hover];
                                 if !item.disabled {
-                                    *self.selected.lock().unwrap() = Some(item.value.clone());
+                                    *self.selected.lock().unwrap_or_else(|e| e.into_inner()) = Some(item.value.clone());
                                     if let Some(ref callback) = self.on_change {
                                         if let Ok(mut cb) = callback.lock() {
                                             cb(&item.value);

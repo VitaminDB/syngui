@@ -138,7 +138,7 @@ impl RouterView {
 
 impl Widget for RouterView {
     fn create_element(&self) -> Box<dyn Element> {
-        let router_lock = self.router.lock().unwrap();
+        let router_lock = self.router.lock().unwrap_or_else(|e| e.into_inner());
         let active_key = router_lock.current().to_string();
         let changed_flag = router_lock.changed_flag();
         drop(router_lock);
@@ -171,7 +171,7 @@ impl Widget for RouterView {
     }
 
     fn mount(&self, tree: &mut ElementTree, parent_id: ElementId) {
-        let active_key = self.router.lock().unwrap().current().to_string();
+        let active_key = self.router.lock().unwrap_or_else(|e| e.into_inner()).current().to_string();
         if let Some((_, builder)) = self.builders.iter().find(|(k, _)| k == &active_key) {
             let child_widget = builder();
             let child_element = child_widget.create_element();
@@ -204,10 +204,10 @@ impl Element for RouterViewElement {
         if let Some(rv) = widget.as_any().downcast_ref::<RouterView>() {
             self.router = rv.router.clone();
             self.builders = rv.builders.clone();
-            let router_lock = rv.router.lock().unwrap();
+            let router_lock = rv.router.lock().unwrap_or_else(|e| e.into_inner());
             self.changed_flag = router_lock.changed_flag();
             drop(router_lock);
-            self.active_key = self.router.lock().unwrap().current().to_string();
+            self.active_key = self.router.lock().unwrap_or_else(|e| e.into_inner()).current().to_string();
             self.handle_back = rv.handle_back;
             self.pending_rebuild = true;
             self.mark_dirty(DirtyFlags::LAYOUT | DirtyFlags::RENDER);
@@ -220,7 +220,7 @@ impl Element for RouterViewElement {
 
     fn animate(&mut self, _dt: Duration) -> bool {
         if self.changed_flag.swap(false, Ordering::Relaxed) {
-            let current = self.router.lock().unwrap().current().to_string();
+            let current = self.router.lock().unwrap_or_else(|e| e.into_inner()).current().to_string();
             if current != self.active_key {
                 self.active_key = current;
                 self.pending_rebuild = true;

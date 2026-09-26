@@ -43,7 +43,7 @@ impl TileLoader {
     }
 
     pub fn request_tile(&self, key: TileKey, url: String) -> TileState {
-        let mut cache = self.cache.lock().unwrap();
+        let mut cache = self.cache.lock().unwrap_or_else(|e| e.into_inner());
 
         if let Some(entry) = cache.get(&key) {
             return entry.state.clone();
@@ -127,7 +127,7 @@ impl TileLoader {
     }
 
     pub fn get_tile(&self, key: &TileKey) -> Option<TileState> {
-        let cache = self.cache.lock().unwrap();
+        let cache = self.cache.lock().unwrap_or_else(|e| e.into_inner());
         cache.get(key).map(|e| e.state.clone())
     }
 
@@ -140,7 +140,7 @@ impl TileLoader {
     }
 
     pub fn clear_provider(&self, provider_id: u8) {
-        let mut cache = self.cache.lock().unwrap();
+        let mut cache = self.cache.lock().unwrap_or_else(|e| e.into_inner());
         cache.retain(|k, _| k.provider_id != provider_id);
     }
 }

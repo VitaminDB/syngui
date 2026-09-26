@@ -387,7 +387,7 @@ impl ImageStore {
 
     pub fn poll_bg(&mut self) {
         let results: Vec<LoadResult> = {
-            let mut guard = self.bg_results.lock().unwrap();
+            let mut guard = self.bg_results.lock().unwrap_or_else(|e| e.into_inner());
             std::mem::take(&mut *guard)
         };
         let mut became_idle = false;
@@ -431,7 +431,7 @@ impl ImageStore {
         let results = self.bg_results.clone();
         std::thread::spawn(move || match decode_image_bytes(&data) {
             Ok(image_data) => {
-                results.lock().unwrap().push(LoadResult::Success {
+                results.lock().unwrap_or_else(|e| e.into_inner()).push(LoadResult::Success {
                     key,
                     handle,
                     data: image_data,
@@ -439,7 +439,7 @@ impl ImageStore {
             }
             Err(_e) => {
                 log::error!("Failed to decode image '{}': {}", key, _e);
-                results.lock().unwrap().push(LoadResult::Failed { key });
+                results.lock().unwrap_or_else(|e| e.into_inner()).push(LoadResult::Failed { key });
             }
         });
     }
@@ -461,7 +461,7 @@ impl ImageStore {
         std::thread::spawn(move || match std::fs::read(&path) {
             Ok(bytes) => match decode_image_bytes(&bytes) {
                 Ok(image_data) => {
-                    results.lock().unwrap().push(LoadResult::Success {
+                    results.lock().unwrap_or_else(|e| e.into_inner()).push(LoadResult::Success {
                         key,
                         handle,
                         data: image_data,
@@ -469,12 +469,12 @@ impl ImageStore {
                 }
                 Err(_e) => {
                     log::error!("Failed to decode image '{}': {}", key, _e);
-                    results.lock().unwrap().push(LoadResult::Failed { key });
+                    results.lock().unwrap_or_else(|e| e.into_inner()).push(LoadResult::Failed { key });
                 }
             },
             Err(_e) => {
                 log::error!("Failed to read image file '{}': {}", path, _e);
-                results.lock().unwrap().push(LoadResult::Failed { key });
+                results.lock().unwrap_or_else(|e| e.into_inner()).push(LoadResult::Failed { key });
             }
         });
     }
@@ -498,7 +498,7 @@ impl ImageStore {
             match bytes_result {
                 Ok(bytes) => match decode_image_bytes(&bytes) {
                     Ok(image_data) => {
-                        results.lock().unwrap().push(LoadResult::Success {
+                        results.lock().unwrap_or_else(|e| e.into_inner()).push(LoadResult::Success {
                             key,
                             handle,
                             data: image_data,
@@ -506,12 +506,12 @@ impl ImageStore {
                     }
                     Err(e) => {
                         log::error!("Failed to decode image '{}': {}", key, e);
-                        results.lock().unwrap().push(LoadResult::Failed { key });
+                        results.lock().unwrap_or_else(|e| e.into_inner()).push(LoadResult::Failed { key });
                     }
                 },
                 Err(e) => {
                     log::error!("Failed to fetch image '{}': {}", key, e);
-                    results.lock().unwrap().push(LoadResult::Failed { key });
+                    results.lock().unwrap_or_else(|e| e.into_inner()).push(LoadResult::Failed { key });
                 }
             }
         });

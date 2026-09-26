@@ -1194,7 +1194,7 @@ impl FontAtlas {
 
 impl crate::widget::context::TextMeasure for crate::core::sync::Mutex<FontAtlas> {
     fn measure_text_width(&self, text: &str, font_size: f32, char_count: usize) -> f32 {
-        let mut atlas = self.lock().unwrap();
+        let mut atlas = self.lock().unwrap_or_else(|e| e.into_inner());
         let sf = atlas.scale_factor();
         let size_px = ((font_size * sf).round() as u16).max(1);
         let phys = atlas.measure_text_width(text, size_px, char_count, None);
@@ -1209,7 +1209,7 @@ impl crate::widget::context::TextMeasure for crate::core::sync::Mutex<FontAtlas>
         bold: bool,
         font_family: Option<&str>,
     ) -> f32 {
-        let mut atlas = self.lock().unwrap();
+        let mut atlas = self.lock().unwrap_or_else(|e| e.into_inner());
         let sf = atlas.scale_factor();
         let size_px = ((font_size * sf).round() as u16).max(1);
         let phys = atlas.measure_text_width_styled(text, size_px, char_count, bold, font_family);
@@ -1228,7 +1228,7 @@ impl crate::widget::context::TextMeasure for crate::core::sync::Mutex<FontAtlas>
         if letter_spacing.abs() < 0.01 {
             return self.measure_text_width_styled(text, font_size, char_count, bold, font_family);
         }
-        let mut atlas = self.lock().unwrap();
+        let mut atlas = self.lock().unwrap_or_else(|e| e.into_inner());
         let sf = atlas.scale_factor();
         let size_px = ((font_size * sf).round() as u16).max(1);
         let phys_base =
@@ -1239,7 +1239,7 @@ impl crate::widget::context::TextMeasure for crate::core::sync::Mutex<FontAtlas>
     }
 
     fn hit_test_char(&self, text: &str, font_size: f32, x_offset: f32) -> usize {
-        let mut atlas = self.lock().unwrap();
+        let mut atlas = self.lock().unwrap_or_else(|e| e.into_inner());
         let sf = atlas.scale_factor();
         let size_px = ((font_size * sf).round() as u16).max(1);
         atlas.hit_test_char_position(text, size_px, x_offset * sf, None)
@@ -1252,7 +1252,7 @@ impl crate::widget::context::TextMeasure for crate::core::sync::Mutex<FontAtlas>
         x_offset: f32,
         font_family: Option<&str>,
     ) -> usize {
-        let mut atlas = self.lock().unwrap();
+        let mut atlas = self.lock().unwrap_or_else(|e| e.into_inner());
         let sf = atlas.scale_factor();
         let size_px = ((font_size * sf).round() as u16).max(1);
         atlas.hit_test_char_position_styled(text, size_px, x_offset * sf, false, font_family)
@@ -1266,7 +1266,7 @@ impl crate::widget::context::TextMeasure for crate::core::sync::Mutex<FontAtlas>
         bold: bool,
         font_family: Option<&str>,
     ) -> usize {
-        let mut atlas = self.lock().unwrap();
+        let mut atlas = self.lock().unwrap_or_else(|e| e.into_inner());
         let sf = atlas.scale_factor();
         let size_px = ((font_size * sf).round() as u16).max(1);
         atlas.hit_test_char_position_styled(text, size_px, x_offset * sf, bold, font_family)

@@ -668,7 +668,7 @@ impl TextElement {
 
     fn effective_color(&self) -> Color {
         if let (Some(dark), Some(theme)) = (&self.dark_color, &self.theme) {
-            if *theme.lock().unwrap() {
+            if *theme.lock().unwrap_or_else(|e| e.into_inner()) {
                 *dark
             } else {
                 self.color

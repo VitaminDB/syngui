@@ -816,7 +816,7 @@ impl Element for MapViewElement {
         }
 
         if let Some(ref source) = self.provider_source {
-            let new_provider = source.lock().unwrap().clone();
+            let new_provider = source.lock().unwrap_or_else(|e| e.into_inner()).clone();
             if new_provider.id != self.provider.id {
                 self.tile_loader.clear_provider(self.provider.id);
                 if let Some(ref atlas) = self.tile_atlas {

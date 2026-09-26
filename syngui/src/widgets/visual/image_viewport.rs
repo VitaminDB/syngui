@@ -329,7 +329,7 @@ pub struct ImageViewportElement {
 impl ImageViewportElement {
     fn request_load(&mut self) {
         if let Some(ref store) = self.image_store {
-            let mut store = store.lock().unwrap();
+            let mut store = store.lock().unwrap_or_else(|e| e.into_inner());
             let (handle, state) = store.request(&self.source);
             if let Some(old) = self.image_handle.replace(handle) {
                 store.release(old);
@@ -885,7 +885,7 @@ impl Element for ImageViewportElement {
             active = true;
             let mut next = None;
             if let (Some(store), Some(handle)) = (&self.image_store, self.image_handle) {
-                let store = store.lock().unwrap();
+                let store = store.lock().unwrap_or_else(|e| e.into_inner());
                 if let Some(state) = store.state_of(handle) {
                     if state != self.image_state {
                         next = Some((state, store.dimensions(handle)));

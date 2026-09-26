@@ -85,7 +85,7 @@ impl Widget for TableView {
             scroll_offset: self
                 .scroll_state
                 .as_ref()
-                .map(|s| *s.lock().unwrap())
+                .map(|s| *s.lock().unwrap_or_else(|e| e.into_inner()))
                 .unwrap_or(0.0),
             scroll_state: self.scroll_state.clone(),
             scroll_offset_x: 0.0,
