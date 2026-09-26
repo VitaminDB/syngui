@@ -78,7 +78,7 @@ impl SegmentedProgressBar {
     }
 
     pub fn class(mut self, name: &str) -> Self {
-        self.classes.push(name.to_string());
+        crate::widget::push_classes(&mut self.classes, name.to_string());
         self
     }
 }

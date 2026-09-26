@@ -17,3 +17,15 @@ pub use styled::{StyledElement, StyledWidget, WidgetExt};
 pub use tree::{DragState, ElementId, ElementTree, OverlayEntry, RenderHandle};
 pub use visitor::ElementVisitor;
 pub use widget::Widget;
+
+/// Добавить классы из строки `"a b c"` — как `StyledWidget::class`: строка
+/// делится по пробелам, повторы пропускаются. Раньше у большинства виджетов
+/// `.class("a b")` становился одним классом `"a b"`, и селекторы `.a`/`.b`
+/// его не видели.
+pub fn push_classes(classes: &mut Vec<String>, input: String) {
+    for c in input.split_whitespace() {
+        if !classes.iter().any(|x| x == c) {
+            classes.push(c.to_string());
+        }
+    }
+}

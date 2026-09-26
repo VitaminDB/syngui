@@ -102,7 +102,7 @@ impl GestureDetector {
     }
 
     pub fn class(mut self, class: impl Into<String>) -> Self {
-        self.classes.push(class.into());
+        crate::widget::push_classes(&mut self.classes, class.into());
         self
     }
 }

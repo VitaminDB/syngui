@@ -90,8 +90,20 @@ impl<W: Widget> StyledWidget<W> {
 impl<W: Widget> Widget for StyledWidget<W> {
     fn create_element(&self) -> Box<dyn Element> {
         let mut element = self.inner.create_element();
-        if !self.classes.is_empty() {
-            element.set_classes(self.classes.clone());
+        // Классы, заданные билдером самого виджета (`Column::new().class("a")
+        // .style(..)`), остаются: `.class("b")` обёртки добавляет, а не
+        // заменяет. `#id`-селекторы сопоставляются по служебному классу `#id`.
+        let mut classes = element.get_classes().to_vec();
+        for c in &self.classes {
+            if !classes.contains(c) {
+                classes.push(c.clone());
+            }
+        }
+        if let Some(id) = &self.id {
+            classes.push(crate::mss::matching::id_class(id));
+        }
+        if !classes.is_empty() {
+            element.set_classes(classes);
         }
         if !self.inline_styles.is_empty() {
             element.set_inline_styles(self.inline_styles.clone());

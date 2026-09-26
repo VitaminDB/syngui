@@ -84,7 +84,7 @@ impl PopupPanel {
     }
 
     pub fn class(mut self, class: &str) -> Self {
-        self.classes.push(class.to_string());
+        crate::widget::push_classes(&mut self.classes, class.to_string());
         self
     }
 }

@@ -9,19 +9,36 @@ pub trait SelectorMatchContext {
     fn previous_siblings(&self, id: ElementId) -> Vec<ElementId>;
 }
 
+/// `#id` хранится у элемента служебным классом `#id` ([`id_class`]) —
+/// у парсера в имени класса `#` не бывает, коллизий нет.
+pub fn id_class(id: &str) -> String {
+    format!("#{id}")
+}
+
+fn has_id(id_str: &str, id: ElementId, ctx: &impl SelectorMatchContext) -> bool {
+    ctx.element_classes(id)
+        .iter()
+        .any(|c| c.strip_prefix('#') == Some(id_str))
+}
+
 fn part_matches(part: &SelectorPart, id: ElementId, ctx: &impl SelectorMatchContext) -> bool {
     match part {
         SelectorPart::Class(class) => ctx.element_classes(id).contains(class),
         SelectorPart::Element(elem) => ctx.element_type_name(id) == elem.as_str(),
         SelectorPart::Universal => true,
-        SelectorPart::Id(_) => false,
+        SelectorPart::Id(want) => has_id(want, id, ctx),
         SelectorPart::Compound {
             element,
-            id: _id,
+            id: want_id,
             classes,
         } => {
             if let Some(elem) = element {
                 if ctx.element_type_name(id) != elem.as_str() {
+                    return false;
+                }
+            }
+            if let Some(want) = want_id {
+                if !has_id(want, id, ctx) {
                     return false;
                 }
             }
@@ -39,67 +56,50 @@ fn chain_matches(chain: &SelectorChain, id: ElementId, ctx: &impl SelectorMatchC
     if chain.segments.is_empty() {
         return false;
     }
-
-    let target = chain.target();
-    if !part_matches(target, id, ctx) {
+    if !part_matches(chain.target(), id, ctx) {
         return false;
     }
+    match_left(chain, chain.combinators.len(), id, ctx)
+}
 
-    if chain.segments.len() == 1 {
+/// Сегменты `0..=upto-1` левее уже совпавшего `current`. С возвратом: для
+/// `.x > .y .z` мало найти ближайшего предка `.y` — если у него родитель не
+/// `.x`, надо пробовать следующего `.y` выше.
+fn match_left(
+    chain: &SelectorChain,
+    upto: usize,
+    current: ElementId,
+    ctx: &impl SelectorMatchContext,
+) -> bool {
+    if upto == 0 {
         return true;
     }
-
-    let mut current_id = id;
-    for i in (0..chain.combinators.len()).rev() {
-        let combinator = &chain.combinators[i];
-        let required_part = &chain.segments[i];
-
-        match combinator {
-            Combinator::Descendant => {
-                let mut found = false;
-                let mut ancestor = ctx.parent_id(current_id);
-                while let Some(anc_id) = ancestor {
-                    if part_matches(required_part, anc_id, ctx) {
-                        current_id = anc_id;
-                        found = true;
-                        break;
-                    }
-                    ancestor = ctx.parent_id(anc_id);
+    let i = upto - 1;
+    let part = &chain.segments[i];
+    match &chain.combinators[i] {
+        Combinator::Descendant => {
+            let mut ancestor = ctx.parent_id(current);
+            while let Some(anc) = ancestor {
+                if part_matches(part, anc, ctx) && match_left(chain, i, anc, ctx) {
+                    return true;
                 }
-                if !found {
-                    return false;
-                }
+                ancestor = ctx.parent_id(anc);
             }
-            Combinator::Child => match ctx.parent_id(current_id) {
-                Some(parent) if part_matches(required_part, parent, ctx) => {
-                    current_id = parent;
-                }
-                _ => return false,
-            },
-            Combinator::AdjacentSibling => match ctx.previous_sibling(current_id) {
-                Some(prev) if part_matches(required_part, prev, ctx) => {
-                    current_id = prev;
-                }
-                _ => return false,
-            },
-            Combinator::GeneralSibling => {
-                let siblings = ctx.previous_siblings(current_id);
-                let mut found = false;
-                for sib_id in siblings {
-                    if part_matches(required_part, sib_id, ctx) {
-                        current_id = sib_id;
-                        found = true;
-                        break;
-                    }
-                }
-                if !found {
-                    return false;
-                }
-            }
+            false
         }
+        Combinator::Child => match ctx.parent_id(current) {
+            Some(parent) => part_matches(part, parent, ctx) && match_left(chain, i, parent, ctx),
+            None => false,
+        },
+        Combinator::AdjacentSibling => match ctx.previous_sibling(current) {
+            Some(prev) => part_matches(part, prev, ctx) && match_left(chain, i, prev, ctx),
+            None => false,
+        },
+        Combinator::GeneralSibling => ctx
+            .previous_siblings(current)
+            .into_iter()
+            .any(|sib| part_matches(part, sib, ctx) && match_left(chain, i, sib, ctx)),
     }
-
-    true
 }
 
 pub fn selector_matches(
@@ -113,7 +113,7 @@ pub fn selector_matches(
         Selector::Element(e) => ctx.element_type_name(id) == e.as_str(),
         Selector::ElementPseudo(e, _) => ctx.element_type_name(id) == e.as_str(),
         Selector::Universal => true,
-        Selector::Id(_) => false,
+        Selector::Id(want) => has_id(want, id, ctx),
         Selector::Complex(chain) => chain_matches(chain, id, ctx),
         Selector::Group(chains) => chains.iter().any(|c| chain_matches(c, id, ctx)),
     }
@@ -219,6 +219,38 @@ mod tests {
         t.add(5, &["card"], "", Some(1));
         t.add(6, &["item"], "Button", Some(5));
         t
+    }
+
+    fn parsed(sel: &str) -> Selector {
+        let css = format!("{sel} {{ color: red; }}");
+        let (sheet, _) = crate::mss::MssParser::new(&css).parse().unwrap();
+        sheet.rules()[0].selector.clone()
+    }
+
+    #[test]
+    fn descendant_backtracks_to_farther_ancestor() {
+        // x > y > (div) > y > z: ближайший `.y` к `.z` — у него родитель не `.x`,
+        // совпадение даёт дальний `.y`.
+        let mut t = MockTree::new();
+        t.add(1, &["x"], "", None);
+        t.add(2, &["y"], "", Some(1));
+        t.add(3, &[], "", Some(2));
+        t.add(4, &["y"], "", Some(3));
+        t.add(5, &["z"], "", Some(4));
+        assert!(selector_matches(&parsed(".x > .y .z"), ElementId(5), &t));
+        assert!(!selector_matches(&parsed(".q > .y .z"), ElementId(5), &t));
+    }
+
+    #[test]
+    fn id_selector_matches_id_class() {
+        let mut t = MockTree::new();
+        let idc = id_class("main");
+        t.add(1, &["panel", idc.as_str()], "Column", None);
+        t.add(2, &["label"], "Text", Some(1));
+        assert!(selector_matches(&parsed("#main"), ElementId(1), &t));
+        assert!(!selector_matches(&parsed("#other"), ElementId(1), &t));
+        assert!(selector_matches(&parsed("#main .label"), ElementId(2), &t));
+        assert!(selector_matches(&parsed("Column#main.panel"), ElementId(1), &t));
     }
 
     #[test]

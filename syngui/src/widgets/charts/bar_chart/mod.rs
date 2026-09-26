@@ -155,7 +155,7 @@ impl BarChart {
     }
 
     pub fn class(mut self, cls: impl Into<String>) -> Self {
-        self.classes.push(cls.into());
+        crate::widget::push_classes(&mut self.classes, cls.into());
         self
     }
 }

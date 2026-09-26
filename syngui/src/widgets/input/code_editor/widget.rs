@@ -146,7 +146,7 @@ impl CodeEditor {
     }
 
     pub fn class(mut self, c: impl Into<String>) -> Self {
-        self.classes.push(c.into());
+        crate::widget::push_classes(&mut self.classes, c.into());
         self
     }
 }
