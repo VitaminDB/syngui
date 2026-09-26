@@ -242,15 +242,17 @@ impl StepperElement {
         self.mss.border_width.unwrap_or(2.0)
     }
 
-    fn measure_text(&self, text: &str, size: f32, bold: bool) -> f32 {
+    /// Меряем тем весом, каким рисуем (все подписи — `font_weight()` из MSS).
+    fn measure_text(&self, text: &str, size: f32) -> f32 {
+        let weight = self.font_weight();
         self.text_measure
             .as_ref()
             .map(|tm| {
-                tm.measure_text_width_styled(
+                tm.measure_text_width_weight(
                     text,
                     size,
                     text.chars().count(),
-                    bold,
+                    weight,
                     self.mss.font_family.as_deref(),
                 )
             })
@@ -270,11 +272,11 @@ impl StepperElement {
         self.step_rects.clear();
 
         for (i, step) in self.steps.iter().enumerate() {
-            let label_w = self.measure_text(&step.label, font_size, true);
+            let label_w = self.measure_text(&step.label, font_size);
             let support_w = step
                 .support_text
                 .as_ref()
-                .map(|s| self.measure_text(s, support_size, false))
+                .map(|s| self.measure_text(s, support_size))
                 .unwrap_or(0.0);
             let content_w = label_w.max(support_w);
             let pill_w = content_w + pad_h * 2.0;
@@ -316,16 +318,16 @@ impl StepperElement {
 
         let mut step_widths: Vec<f32> = Vec::new();
         for step in &self.steps {
-            let label_w = self.measure_text(&step.label, font_size, false);
+            let label_w = self.measure_text(&step.label, font_size);
             let support_w = step
                 .support_text
                 .as_ref()
-                .map(|s| self.measure_text(s, support_size, false))
+                .map(|s| self.measure_text(s, support_size))
                 .unwrap_or(0.0);
             let status_w = step
                 .status_text
                 .as_ref()
-                .map(|s| self.measure_text(s, support_size, false))
+                .map(|s| self.measure_text(s, support_size))
                 .unwrap_or(0.0);
             let text_w = label_w.max(support_w).max(status_w);
             let w = if text_below {

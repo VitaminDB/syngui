@@ -281,27 +281,35 @@ impl NotificationHostElement {
         self.mss.font_family.as_deref()
     }
 
-    fn measure_width(&self, text: &str, font_size: f32, bold: bool) -> f32 {
+    /// Вес заголовка/текста — тот же, каким они рисуются (MSS, иначе 600/400).
+    fn title_weight(&self) -> u16 {
+        self.mss.font_weight_or(600)
+    }
+    fn message_weight(&self) -> u16 {
+        self.mss.font_weight_or(400)
+    }
+
+    fn measure_width(&self, text: &str, font_size: f32, weight: u16) -> f32 {
         self.text_measure
             .as_ref()
             .map(|tm| {
-                tm.measure_text_width_styled(
+                tm.measure_text_width_weight(
                     text,
                     font_size,
                     text.chars().count(),
-                    bold,
+                    weight,
                     self.font_family_str(),
                 )
             })
             .unwrap_or_else(|| text.chars().count() as f32 * font_size * 0.6)
     }
 
-    fn count_visual_lines(&self, text: &str, max_w: f32, font_size: f32, bold: bool) -> usize {
+    fn count_visual_lines(&self, text: &str, max_w: f32, font_size: f32, weight: u16) -> usize {
         if text.is_empty() {
             return 1;
         }
         let space_w = self
-            .measure_width(" ", font_size, bold)
+            .measure_width(" ", font_size, weight)
             .max(font_size * 0.25);
         let mut total = 0usize;
         for paragraph in text.split('\n') {
@@ -316,7 +324,7 @@ impl NotificationHostElement {
                     x += space_w;
                     continue;
                 }
-                let w = self.measure_width(word, font_size, bold);
+                let w = self.measure_width(word, font_size, weight);
                 if x > 0.0 {
                     if x + space_w + w > max_w {
                         lines += 1;
@@ -360,13 +368,13 @@ impl NotificationHostElement {
         let title_avail = (max_w - pad * 2.0 - icon_slot - close_slot).max(40.0);
 
         let title_line_h = font_size * 1.4;
-        let title_lines = self.count_visual_lines(&item.title, title_avail, font_size, true);
+        let title_lines = self.count_visual_lines(&item.title, title_avail, font_size, self.title_weight());
         let title_h = title_line_h * title_lines as f32;
 
         let (msg_h, msg_gap) = if let Some(ref m) = item.message {
             let msg_font = (font_size - 1.0).max(11.0);
             let line_h = msg_font * 1.4;
-            let lines = self.count_visual_lines(m, title_avail, msg_font, false);
+            let lines = self.count_visual_lines(m, title_avail, msg_font, self.message_weight());
             (line_h * lines as f32, 4.0)
         } else {
             (0.0, 0.0)
@@ -375,11 +383,11 @@ impl NotificationHostElement {
         let content_h = title_h + msg_gap + msg_h;
         let h = pad * 2.0 + content_h.max(ICON_SIZE);
 
-        let title_w = self.measure_width(&item.title, font_size, true);
+        let title_w = self.measure_width(&item.title, font_size, self.title_weight());
         let msg_w = item
             .message
             .as_ref()
-            .map(|m| self.measure_width(m, (font_size - 1.0).max(11.0), false))
+            .map(|m| self.measure_width(m, (font_size - 1.0).max(11.0), self.message_weight()))
             .unwrap_or(0.0);
         let content_w = title_w.max(msg_w).min(title_avail);
         let w = (pad * 2.0 + icon_slot + close_slot + content_w).min(max_w);
@@ -785,7 +793,7 @@ impl NotificationHostElement {
         let title_w =
             (rect.size.width - (title_x - rect.x()) - pad - CLOSE_ICON_SIZE - 8.0).max(40.0);
         let title_line_h = font_size * 1.4;
-        let title_lines = self.count_visual_lines(&n.item.title, title_w, font_size, true);
+        let title_lines = self.count_visual_lines(&n.item.title, title_w, font_size, self.title_weight());
         let title_rect = Rect::new(
             Point::new(title_x, rect.y() + pad),
             Size::new(title_w, title_line_h * title_lines as f32),
@@ -797,14 +805,14 @@ impl NotificationHostElement {
             font_size,
             crate::mss::TextAlign::DEFAULT,
             crate::mss::TextDecoration::None,
-            self.mss.font_weight_or(600),
+            self.title_weight(),
             font_family.map(|s| s.to_string()),
         );
 
         if let Some(ref msg) = n.item.message {
             let msg_font_size = (font_size - 1.0).max(11.0);
             let msg_line_h = msg_font_size * 1.4;
-            let msg_lines = self.count_visual_lines(msg, title_w, msg_font_size, false);
+            let msg_lines = self.count_visual_lines(msg, title_w, msg_font_size, self.message_weight());
             let msg_y = title_rect.y() + title_rect.size.height + 4.0;
             let msg_rect = Rect::new(
                 Point::new(title_x, msg_y),
@@ -817,7 +825,7 @@ impl NotificationHostElement {
                 msg_font_size,
                 crate::mss::TextAlign::DEFAULT,
                 crate::mss::TextDecoration::None,
-                self.mss.font_weight_or(400),
+                self.message_weight(),
                 font_family.map(|s| s.to_string()),
             );
         }

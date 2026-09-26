@@ -141,6 +141,12 @@ impl ChipElement {
         self.mss.icon_size.unwrap_or(DEFAULT_ICON_SIZE)
     }
 
+    /// Вес подписи: из MSS, иначе 600 у выбранного и 400 у обычного.
+    fn font_weight(&self) -> u16 {
+        self.mss
+            .font_weight_or(if self.selected { 600 } else { 400 })
+    }
+
     fn background_color(&self) -> Color {
         let base_bg = self.mss.background_color.unwrap_or(Color::TRANSPARENT);
         let accent = self
@@ -214,16 +220,19 @@ impl Element for ChipElement {
             width += icon_size + DEFAULT_ICON_GAP;
         }
 
-        let bold = self.selected;
+        // Меряем тем же весом, каким рисуем (500/600 — свои начертания
+        // Medium/SemiBold, они шире обычного): иначе подпись не влезает в
+        // чип и переносится по буквам.
+        let font_weight = self.font_weight();
         let text_width = self
             .text_measure
             .as_ref()
             .map(|tm| {
-                tm.measure_text_width_styled(
+                tm.measure_text_width_weight(
                     &self.label,
                     font_size,
                     self.label.chars().count(),
-                    bold,
+                    font_weight,
                     self.mss.font_family.as_deref(),
                 )
             })
@@ -247,9 +256,7 @@ impl Element for ChipElement {
 
     fn build_display_list(&self, list: &mut DisplayList, _clip: Rect) {
         let font_size = self.mss.font_size_or(DEFAULT_FONT_SIZE);
-        let font_weight = self
-            .mss
-            .font_weight_or(if self.selected { 600 } else { 400 });
+        let font_weight = self.font_weight();
         let height = self.height();
         let pad_h = self.padding_h();
         let icon_size = self.icon_size();
@@ -289,11 +296,11 @@ impl Element for ChipElement {
             .text_measure
             .as_ref()
             .map(|tm| {
-                tm.measure_text_width_styled(
+                tm.measure_text_width_weight(
                     &self.label,
                     font_size,
                     self.label.chars().count(),
-                    self.selected,
+                    font_weight,
                     self.mss.font_family.as_deref(),
                 )
             })
