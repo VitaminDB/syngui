@@ -117,6 +117,27 @@ fn truncate_to_lines<'a>(
     tm: Option<&dyn crate::widget::context::TextMeasure>,
 ) -> std::borrow::Cow<'a, str> {
     let bold: u16 = bold.into().0;
+    // Место под многоточие нужно, только если текст не влезает: сначала
+    // пробуем уложить его целиком в полную ширину последней строки. Иначе
+    // текст ровно в свою ширину (кнопка по содержимому) обрезался бы зря.
+    let whole = truncate_to_lines_budget(text, available_width, max_lines, font_size, bold, font_family, tm, false);
+    if matches!(whole, std::borrow::Cow::Borrowed(_)) {
+        return whole;
+    }
+    truncate_to_lines_budget(text, available_width, max_lines, font_size, bold, font_family, tm, true)
+}
+
+#[allow(clippy::too_many_arguments)]
+fn truncate_to_lines_budget<'a>(
+    text: &'a str,
+    available_width: f32,
+    max_lines: usize,
+    font_size: f32,
+    bold: u16,
+    font_family: Option<&str>,
+    tm: Option<&dyn crate::widget::context::TextMeasure>,
+    reserve_ellipsis: bool,
+) -> std::borrow::Cow<'a, str> {
     let max_lines = max_lines.max(1);
     if text.is_empty() {
         return std::borrow::Cow::Borrowed(text);
@@ -135,10 +156,10 @@ fn truncate_to_lines<'a>(
         bold,
         font_family,
     );
-    if ellipsis_w >= available_width {
+    if reserve_ellipsis && ellipsis_w >= available_width {
         return std::borrow::Cow::Owned(ELLIPSIS.to_string());
     }
-    let last_budget = available_width - ellipsis_w;
+    let last_budget = if reserve_ellipsis { available_width - ellipsis_w } else { available_width };
 
     let mut line_idx: usize = 0;
     let mut x: f32 = 0.0;
@@ -1472,6 +1493,18 @@ mod tests {
         assert_eq!(out.as_ref(), "aaa\nbbb\nccc");
     }
 
+    /// Текст ровно в доступную ширину не обрезается: место под многоточие
+    /// резервируется, только когда текст всё равно не влезает.
+    #[test]
+    fn truncate_exact_width_single_line_returns_borrowed() {
+        let out = trunc("Synthos v0", 100.0, 1);
+        assert!(matches!(out, std::borrow::Cow::Borrowed(_)), "{out:?}");
+        let out = trunc("aaaa bbbb cccc", 140.0, 2);
+        assert_eq!(out.as_ref(), "aaaa bbbb cccc");
+        let out = trunc("Synthos v0", 95.0, 1);
+        assert!(out.ends_with('\u{2026}'), "{out:?}");
+    }
+
     #[test]
     fn truncate_above_limit_appends_ellipsis() {
         let out = trunc("aaa\nbbb\nccc\nddd", 30.0, 2);
@@ -1572,9 +1605,16 @@ mod tests {
 
     #[test]
     fn truncate_latin_word_after_cjk_wraps_as_a_word() {
+        // «Hello» переносится целиком и ровно занимает вторую строку —
+        // обрезать нечего.
         let out = trunc("日本語Hello", 50.0, 2);
-        assert_eq!(out.as_ref(), "日本語Hell\u{2026}");
+        assert_eq!(out.as_ref(), "日本語Hello");
         let latin = trunc("abc Hello", 50.0, 2);
+        assert_eq!(latin.as_ref(), "abc Hello");
+        // Не влезает — режется с многоточием на последней строке.
+        let out = trunc("日本語Helloo", 50.0, 2);
+        assert_eq!(out.as_ref(), "日本語Hell\u{2026}");
+        let latin = trunc("abc Helloo", 50.0, 2);
         assert_eq!(latin.as_ref(), "abc Hell\u{2026}");
     }
 

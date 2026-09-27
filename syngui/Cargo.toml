@@ -454,6 +454,10 @@ name = "aligned_box"
 required-features = ["testing"]
 
 [[test]]
+name = "flex_row_alignment"
+required-features = ["testing"]
+
+[[test]]
 name = "test_effects"
 required-features = ["testing"]
 

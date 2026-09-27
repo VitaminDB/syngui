@@ -166,7 +166,8 @@ impl Element for FlexElement {
     }
 
     fn layout(&mut self, constraints: Constraints) -> Size {
-        let width = constraints.max_width;
+        // Как у Row: без ограничения по ширине — не бесконечность.
+        let width = if constraints.max_width.is_finite() { constraints.max_width } else { constraints.min_width.max(0.0) };
         let height = constraints.min_height.max(40.0).min(constraints.max_height);
 
         self.bounds = Rect::new(Point::zero(), Size::new(width, height));
@@ -190,8 +191,8 @@ impl Element for FlexElement {
             FlexDirection::Row => LayoutHint::Row {
                 gap: self.gap,
                 offset_x: 0.0,
-                cross_align: CrossAxisAlignment::Start,
-                main_align: MainAxisAlignment::Start,
+                cross_align: self.cross_axis_alignment,
+                main_align: self.main_axis_alignment,
                 padding_left: pl,
                 padding_top: pt,
                 padding_right: pr,
