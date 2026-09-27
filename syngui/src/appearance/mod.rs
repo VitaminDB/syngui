@@ -5,7 +5,8 @@
 //! же и выставил, под Wayland. Поэтому на Linux источник правды —
 //! XDG Desktop Portal (`org.freedesktop.portal.Settings`, namespace
 //! `org.freedesktop.appearance`), а при его отсутствии — конфиги DE
-//! (`kdeglobals` у KDE, `gsettings` у GNOME).
+//! (`kdeglobals` у KDE, `gsettings` у GNOME). В сеансе syndesktop портал
+//! отвечает за KDE/GTK, поэтому первым читается конфиг самого syndesktop.
 //!
 //! Приложение обычно не вызывает этот модуль напрямую: `AppBuilder`
 //! [`with_system_appearance`](crate::app::AppBuilder::with_system_appearance)
@@ -17,6 +18,8 @@
 pub mod decorations;
 #[cfg(target_os = "linux")]
 mod desktop;
+#[cfg(target_os = "linux")]
+pub(crate) mod syndesktop;
 #[cfg(all(target_os = "linux", feature = "system-theme"))]
 mod portal;
 
@@ -80,12 +83,14 @@ pub fn read_system_appearance() -> SystemAppearance {
 
 #[cfg(all(target_os = "linux", feature = "system-theme"))]
 fn read_platform() -> Option<SystemAppearance> {
-    portal::read().or_else(desktop::read)
+    syndesktop::read_appearance()
+        .or_else(portal::read)
+        .or_else(desktop::read)
 }
 
 #[cfg(all(target_os = "linux", not(feature = "system-theme")))]
 fn read_platform() -> Option<SystemAppearance> {
-    desktop::read()
+    syndesktop::read_appearance().or_else(desktop::read)
 }
 
 // Windows/macOS: light/dark приходит из winit (`WindowEvent::ThemeChanged` и
@@ -134,8 +139,11 @@ where
             #[cfg(all(target_os = "linux", feature = "system-theme"))]
             {
                 // Возвращает `None`, если портала нет или соединение оборвалось —
-                // тогда доигрываем опросом.
-                if portal::watch(&on_change, &thread_stop).is_some() {
+                // тогда доигрываем опросом. В сеансе syndesktop портал говорит
+                // от имени KDE/GTK, а правда — в конфиге syndesktop: только опрос.
+                if !syndesktop::is_session()
+                    && portal::watch(&on_change, &thread_stop).is_some()
+                {
                     return;
                 }
             }

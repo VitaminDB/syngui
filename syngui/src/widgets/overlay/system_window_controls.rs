@@ -4,17 +4,19 @@
 //! Набор, порядок и метрики берутся из настроек рабочего стола
 //! ([`crate::appearance::decorations`]). На KDE с темой Aurorae кнопки
 //! растеризуются прямо из SVG темы, поэтому выглядят ровно так же, как у всех
-//! остальных окон, включая состояния hover/pressed/inactive. В остальных
-//! окружениях рисуется встроенный вектор, который красится из MSS (`color`,
-//! `background-color` — подложка под курсором).
+//! остальных окон, включая состояния hover/pressed/inactive. В сеансе
+//! syndesktop кнопки повторяют рамки его композитора: круглая подложка под
+//! курсором, крестик и шевроны. В остальных окружениях рисуется встроенный
+//! вектор. Оба вектора красятся из MSS (`color` — глиф, `background-color` —
+//! подложка под курсором).
 
 use std::any::Any;
 use std::collections::HashMap;
 use std::sync::Arc;
 
 use crate::appearance::decorations::{
-    read_system_decorations, ButtonState, DecorationMetrics, DecorationStyle, SystemDecorations,
-    WindowButton,
+    read_system_decorations, ButtonState, DecorationMetrics, DecorationStyle, SyndesktopButtons,
+    SystemDecorations, WindowButton,
 };
 use crate::core::sync::Mutex;
 use crate::core::{Color, Point, Rect, RectExt, Size};
@@ -115,8 +117,9 @@ impl SystemWindowControls {
     }
 }
 
-impl Widget for SystemWindowControls {
-    fn create_element(&self) -> Box<dyn Element> {
+impl SystemWindowControls {
+    /// Кнопки своей стороны, метрики с переопределениями и стиль.
+    fn resolve(&self) -> (Vec<WindowButton>, DecorationMetrics, DecorationStyle) {
         let decorations = self
             .decorations
             .clone()
@@ -136,12 +139,20 @@ impl Widget for SystemWindowControls {
         if let Some(spacing) = self.spacing {
             metrics.button_spacing = spacing;
         }
+        (buttons, metrics, decorations.style)
+    }
+}
 
+impl Widget for SystemWindowControls {
+    fn create_element(&self) -> Box<dyn Element> {
+        let (buttons, metrics, style) = self.resolve();
         Box::new(SystemWindowControlsElement {
             id: ElementId::new(),
             buttons,
             metrics,
-            style: decorations.style,
+            style,
+            size_cap: f32::INFINITY,
+            source: self.decorations.clone(),
             active: self.active,
             maximized: self.maximized,
             images: HashMap::new(),
@@ -173,6 +184,11 @@ pub struct SystemWindowControlsElement {
     buttons: Vec<WindowButton>,
     metrics: DecorationMetrics,
     style: DecorationStyle,
+    /// Декорации, которые передало приложение, — по ним видно, что оно их
+    /// перечитало.
+    source: Option<SystemDecorations>,
+    /// Потолок размера кнопки — высота титлбара (только у syndesktop).
+    size_cap: f32,
     active: bool,
     maximized: bool,
     /// Растеризованные состояния: ключ — (индекс кнопки, состояние).
@@ -189,8 +205,12 @@ pub struct SystemWindowControlsElement {
 }
 
 impl SystemWindowControlsElement {
+    fn button_size(&self) -> f32 {
+        self.metrics.button_size.min(self.size_cap)
+    }
+
     fn button_rect(&self, index: usize) -> Rect {
-        let size = self.metrics.button_size;
+        let size = self.button_size();
         let step = size + self.metrics.button_spacing;
         let y = self.bounds.y() + (self.bounds.size.height - size).max(0.0) / 2.0;
         Rect::new(
@@ -346,6 +366,98 @@ impl SystemWindowControlsElement {
         }
     }
 
+    /// Кнопки рамок syndesktop (`deco.rs::draw_button` композитора): круг
+    /// радиусом 30% высоты под курсором, глифы линиями толщиной 1.35 px.
+    fn draw_syndesktop(
+        &self,
+        list: &mut DisplayList,
+        index: usize,
+        rect: Rect,
+        theme: &SyndesktopButtons,
+    ) {
+        let state = self.state_of(index);
+        let button = self.buttons[index];
+        let is_close = button == WindowButton::Close;
+        let fg = self.mss.color.unwrap_or(Color::from_hex("#1C1D22"));
+        let hot = matches!(state, ButtonState::Hover | ButtonState::Pressed);
+
+        let cx = rect.x() + rect.size.width / 2.0;
+        let cy = rect.y() + rect.size.height / 2.0;
+        let radius = (rect.size.height * 0.30).min(11.0);
+
+        let circle = if is_close && hot {
+            Some(if state == ButtonState::Pressed {
+                theme.danger.darken(0.2)
+            } else {
+                theme.danger
+            })
+        } else {
+            match state {
+                ButtonState::Pressed => Some(fg.with_alpha(0.28)),
+                ButtonState::Hover => Some(
+                    self.mss
+                        .background_color
+                        .unwrap_or_else(|| fg.with_alpha(0.16)),
+                ),
+                _ => None,
+            }
+        };
+        if let Some(c) = circle {
+            let r = Rect::new(
+                Point::new(cx - radius, cy - radius),
+                Size::new(radius * 2.0, radius * 2.0),
+            );
+            list.push_rect(r, c, [radius; 4]);
+        }
+
+        let glyph = if is_close && hot {
+            Color::WHITE
+        } else if state == ButtonState::Inactive {
+            fg.with_alpha(0.65)
+        } else {
+            fg
+        };
+        let g = radius * 0.42;
+        let width = 1.35;
+        match button {
+            WindowButton::Close => {
+                list.push_line_strip(vec![[cx - g, cy - g], [cx + g, cy + g]], glyph, width);
+                list.push_line_strip(vec![[cx + g, cy - g], [cx - g, cy + g]], glyph, width);
+            }
+            WindowButton::Minimize => list.push_line_strip(
+                vec![
+                    [cx - g, cy - g * 0.35],
+                    [cx, cy + g * 0.55],
+                    [cx + g, cy - g * 0.35],
+                ],
+                glyph,
+                width,
+            ),
+            // Развёрнутое окно — ромб «восстановить».
+            WindowButton::Maximize if self.maximized => list.push_line_strip(
+                vec![
+                    [cx, cy - g],
+                    [cx + g, cy],
+                    [cx, cy + g],
+                    [cx - g, cy],
+                    [cx, cy - g],
+                ],
+                glyph,
+                width,
+            ),
+            WindowButton::Maximize => list.push_line_strip(
+                vec![
+                    [cx - g, cy + g * 0.35],
+                    [cx, cy - g * 0.55],
+                    [cx + g, cy + g * 0.35],
+                ],
+                glyph,
+                width,
+            ),
+            _ => {}
+        }
+    }
+
     fn activate(&self, index: usize, ctx: &mut EventContext) {
         match self.buttons[index] {
             WindowButton::Close => ctx.close_window(),
@@ -364,6 +476,25 @@ impl Element for SystemWindowControlsElement {
         let maximized_changed = self.maximized != w.maximized;
         self.active = w.active;
         self.maximized = w.maximized;
+        // Приложение перечитало декорации (рабочий стол сменил раскладку или
+        // тему на лету) — пересобираем кнопки.
+        if w.decorations.is_some() && w.decorations != self.source {
+            self.source = w.decorations.clone();
+            let (buttons, metrics, style) = w.resolve();
+            {
+                let theme_changed = style != self.style || buttons != self.buttons;
+                self.buttons = buttons;
+                self.metrics = metrics;
+                self.style = style;
+                self.hovered = None;
+                self.pressed = None;
+                if theme_changed && !maximized_changed {
+                    self.images.clear();
+                    self.load_theme_images();
+                }
+                self.mark_dirty(DirtyFlags::LAYOUT);
+            }
+        }
         if maximized_changed {
             // Иконка «развернуть/восстановить» — другой файл темы.
             self.images.clear();
@@ -379,20 +510,30 @@ impl Element for SystemWindowControlsElement {
             self.images.clear();
             self.load_theme_images();
         }
+        // Кнопки syndesktop — квадраты высотой в его заголовок; титлбар
+        // приложения может быть ниже, тогда кнопка сжимается до его высоты.
+        self.size_cap = if matches!(self.style, DecorationStyle::Syndesktop(_))
+            && constraints.max_height.is_finite()
+            && constraints.max_height > 0.0
+        {
+            constraints.max_height
+        } else {
+            f32::INFINITY
+        };
         let count = self.buttons.len();
         let width = if count == 0 {
             0.0
         } else {
-            count as f32 * self.metrics.button_size
+            count as f32 * self.button_size()
                 + (count - 1) as f32 * self.metrics.button_spacing
         };
         // Занимаем всю высоту титлбара и центрируем кнопки внутри себя: иначе
         // группа кнопок оказывается ростом с саму кнопку и прижимается к
         // верхнему краю полосы.
         let height = if constraints.max_height.is_finite() {
-            constraints.max_height.max(self.metrics.button_size)
+            constraints.max_height.max(self.button_size())
         } else {
-            self.metrics.button_size.max(constraints.min_height)
+            self.button_size().max(constraints.min_height)
         };
         let size = Size::new(width.min(constraints.max_width), height);
         self.bounds = Rect::new(self.bounds.origin, size);
@@ -408,7 +549,12 @@ impl Element for SystemWindowControlsElement {
                     let uv = Rect::new(Point::new(0.0, 0.0), Size::new(1.0, 1.0));
                     list.push_image(rect, TextureId(handle.0), uv, Color::WHITE);
                 }
-                None => self.draw_builtin(list, index, rect),
+                None => match &self.style {
+                    DecorationStyle::Syndesktop(theme) => {
+                        self.draw_syndesktop(list, index, rect, theme)
+                    }
+                    _ => self.draw_builtin(list, index, rect),
+                },
             }
         }
     }

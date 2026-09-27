@@ -10,6 +10,8 @@
 //!   ключи `ButtonsOnLeft`/`ButtonsOnRight`, `library`, `theme`; метрики и
 //!   резервная раскладка — из `<тема>rc` самой Aurorae-темы.
 //! * GNOME — `gsettings org.gnome.desktop.wm.preferences button-layout`.
+//! * syndesktop — `[decorations]` его `config.toml` (см. [`super::syndesktop`]);
+//!   в его сеансе читается первым, `kwinrc` там описывает чужие рамки.
 
 use std::path::{Path, PathBuf};
 
@@ -61,6 +63,20 @@ impl WindowButton {
             "maximize" => Self::Maximize,
             "close" => Self::Close,
             "spacer" => Self::Spacer,
+            _ => return None,
+        })
+    }
+
+    /// Имя кнопки в `[decorations] buttons` syndesktop — те же, что понимает
+    /// его композитор, включая буквы KWin.
+    pub(crate) fn from_syndesktop_name(name: &str) -> Option<Self> {
+        Some(match name.trim() {
+            "close" | "X" => Self::Close,
+            "maximize" | "A" => Self::Maximize,
+            "minimize" | "I" => Self::Minimize,
+            "sticky" | "S" | "on_all_desktops" => Self::OnAllDesktops,
+            "above" | "keep_above" | "F" => Self::KeepAbove,
+            "icon" | "menu" | "M" => Self::Menu,
             _ => return None,
         })
     }
@@ -168,13 +184,25 @@ impl Default for DecorationMetrics {
 }
 
 /// Откуда берётся внешний вид кнопок.
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq)]
 pub enum DecorationStyle {
     /// KDE Aurorae: SVG-тема на диске, кнопки можно нарисовать точно как в системе.
     Aurorae(AuroraeTheme),
+    /// Серверные рамки syndesktop: круглая подложка под курсором и глифы
+    /// линиями (крестик, шевроны), как рисует его композитор.
+    Syndesktop(SyndesktopButtons),
     /// Декорации рисуются кодом самого DE (Breeze, Adwaita, Windows, macOS) —
     /// приложение отрисует кнопки своим встроенным стилем.
     Native,
+}
+
+/// То, что кнопкам syndesktop нужно из его палитры. Цвет глифа и подложки
+/// приходит из MSS приложения — он должен читаться на фоне его собственного
+/// титлбара, а не на заголовке композитора.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct SyndesktopButtons {
+    /// Подложка «закрыть» под курсором (`danger` палитры).
+    pub danger: crate::core::Color,
 }
 
 /// Каталог темы Aurorae со SVG-кнопками.
@@ -230,7 +258,9 @@ pub fn read_system_decorations() -> SystemDecorations {
 
 #[cfg(target_os = "linux")]
 fn read_platform() -> Option<SystemDecorations> {
-    kde().or_else(gnome)
+    super::syndesktop::read_decorations()
+        .or_else(kde)
+        .or_else(gnome)
 }
 
 #[cfg(not(target_os = "linux"))]
