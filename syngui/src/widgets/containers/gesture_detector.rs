@@ -30,6 +30,8 @@ pub struct GestureDetector {
     on_mouse_down: Option<MouseBtnCb>,
     on_mouse_up: Option<MouseBtnCb>,
     on_back: Option<BackCb>,
+    on_secondary_click: Option<MouseBtnCb>,
+    on_middle_click: Option<MouseBtnCb>,
     cursor: CursorIcon,
     classes: Vec<String>,
 }
@@ -46,6 +48,8 @@ impl GestureDetector {
             on_mouse_down: None,
             on_mouse_up: None,
             on_back: None,
+            on_secondary_click: None,
+            on_middle_click: None,
             cursor: CursorIcon::Pointer,
             classes: Vec::new(),
         }
@@ -53,6 +57,18 @@ impl GestureDetector {
 
     pub fn child<M>(mut self, child: impl IntoWidget<M>) -> Self {
         self.child = Some(child.into_widget());
+        self
+    }
+
+    /// Правая кнопка (на нажатии): точка в координатах окна — для меню.
+    pub fn on_secondary_click(mut self, cb: impl FnMut(Point) + Send + 'static) -> Self {
+        self.on_secondary_click = Some(Arc::new(Mutex::new(cb)));
+        self
+    }
+
+    /// Средняя кнопка (на нажатии).
+    pub fn on_middle_click(mut self, cb: impl FnMut(Point) + Send + 'static) -> Self {
+        self.on_middle_click = Some(Arc::new(Mutex::new(cb)));
         self
     }
 
@@ -128,6 +144,8 @@ impl Widget for GestureDetector {
             on_mouse_down: self.on_mouse_down.clone(),
             on_mouse_up: self.on_mouse_up.clone(),
             on_back: self.on_back.clone(),
+            on_secondary_click: self.on_secondary_click.clone(),
+            on_middle_click: self.on_middle_click.clone(),
             cursor: self.cursor,
             child_id: None,
             classes: self.classes.clone(),
@@ -179,6 +197,8 @@ pub struct GestureDetectorElement {
     on_mouse_down: Option<MouseBtnCb>,
     on_mouse_up: Option<MouseBtnCb>,
     on_back: Option<BackCb>,
+    on_secondary_click: Option<MouseBtnCb>,
+    on_middle_click: Option<MouseBtnCb>,
     cursor: CursorIcon,
     child_id: Option<ElementId>,
     classes: Vec<String>,
@@ -197,6 +217,8 @@ impl Element for GestureDetectorElement {
             self.on_mouse_down = gd.on_mouse_down.clone();
             self.on_mouse_up = gd.on_mouse_up.clone();
             self.on_back = gd.on_back.clone();
+            self.on_secondary_click = gd.on_secondary_click.clone();
+            self.on_middle_click = gd.on_middle_click.clone();
             self.cursor = gd.cursor;
         }
     }
@@ -243,6 +265,18 @@ impl Element for GestureDetectorElement {
                 }
                 if inside {
                     ctx.set_cursor(self.cursor);
+                    return EventResult::Handled;
+                }
+                EventResult::Ignored
+            }
+            Event::MouseDown { button, position }
+                if matches!(button, MouseButton::Right | MouseButton::Middle) =>
+            {
+                let cb = if *button == MouseButton::Right { &self.on_secondary_click } else { &self.on_middle_click };
+                if let (Some(cb), true) = (cb, self.bounds.contains(*position)) {
+                    if let Ok(mut f) = cb.lock() {
+                        f(*position);
+                    }
                     return EventResult::Handled;
                 }
                 EventResult::Ignored

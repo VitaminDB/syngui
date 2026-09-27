@@ -1,7 +1,9 @@
+pub mod item_view;
 pub mod list_view;
 pub mod table_view;
 pub mod tree_view;
 
+pub use item_view::{ItemDrop, ItemLayout, ItemSelection, ItemState, ItemView};
 pub use list_view::{ListItem, ListView, SelectionMode};
 pub use table_view::{
     CellRendererFn, ColumnAlign, ColumnWidth, SortDirection, SortKey, SortKeyFn, TableColumn,

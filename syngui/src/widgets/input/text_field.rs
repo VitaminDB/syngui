@@ -39,6 +39,9 @@ pub struct TextField {
     /// Показывать при фокусе всплывашку с текстом из буфера обмена: тап по
     /// ней вставляет текст. Также включается из MSS: `clipboard-hint: on`.
     pub clipboard_hint: bool,
+    /// Начальное выделение (байтовые смещения): переименование файла
+    /// выделяет имя без расширения.
+    pub initial_selection: Option<(usize, usize)>,
     /// Состояние контекстного меню «Вырезать/Копировать/Вставить».
     pub(crate) menu_open: RwSignal<bool>,
     pub(crate) menu_pos: RwSignal<Point>,
@@ -67,6 +70,7 @@ impl TextField {
             on_filter_reject: None,
             autofocus: false,
             clipboard_hint: false,
+            initial_selection: None,
             menu_open: use_signal(false),
             menu_pos: use_signal(Point::zero()),
             menu_action: use_signal(None),
@@ -152,6 +156,13 @@ impl TextField {
         self
     }
 
+    /// Выделить `start..end` (байты) при создании поля; курсор — в `end`.
+    /// Смещения подгоняются к границам символов.
+    pub fn select_range(mut self, start: usize, end: usize) -> Self {
+        self.initial_selection = Some((start, end));
+        self
+    }
+
     /// Поле забирает клавиатурный фокус сразу при появлении на экране.
     pub fn autofocus(mut self, on: bool) -> Self {
         self.autofocus = on;
@@ -200,6 +211,31 @@ impl Default for TextField {
     }
 }
 
+impl TextField {
+    fn clamp_boundary(&self, mut i: usize) -> usize {
+        i = i.min(self.text.len());
+        while i > 0 && !self.text.is_char_boundary(i) {
+            i -= 1;
+        }
+        i
+    }
+
+    fn initial_cursor(&self) -> usize {
+        match self.initial_selection {
+            Some((_, end)) => self.clamp_boundary(end),
+            None => self.text.len(),
+        }
+    }
+
+    fn initial_selection_state(&self) -> TextSelectionState {
+        let mut s = TextSelectionState::new();
+        if let Some((start, _)) = self.initial_selection {
+            s.start(self.clamp_boundary(start));
+        }
+        s
+    }
+}
+
 impl Widget for TextField {
     fn create_element(&self) -> Box<dyn Element> {
         Box::new(TextFieldElement {
@@ -220,8 +256,8 @@ impl Widget for TextField {
             focused: self.autofocus,
             autofocus: self.autofocus,
             focus_request_pending: self.autofocus,
-            cursor_pos: self.text.len(),
-            selection: TextSelectionState::new(),
+            cursor_pos: self.initial_cursor(),
+            selection: self.initial_selection_state(),
             on_change: self.on_change.clone(),
             on_submit: self.on_submit.clone(),
             submit_on_focus_lost: self.submit_on_focus_lost,

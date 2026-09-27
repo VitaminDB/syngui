@@ -74,6 +74,37 @@ mod imp {
         let _ = formats;
         copy(text);
     }
+
+    /// Содержимое буфера в первом из предложенных форматов, который в нём
+    /// есть: `(mime, байты)`. Только Wayland (data-control); иначе `None`.
+    pub fn paste_mime(mimes: &[&str]) -> Option<(String, Vec<u8>)> {
+        #[cfg(all(target_os = "linux", feature = "wl-clipboard-rs"))]
+        if std::env::var_os("WAYLAND_DISPLAY").is_some() {
+            use std::io::Read;
+            use wl_clipboard_rs::paste::{get_contents, get_mime_types, ClipboardType, MimeType, Seat};
+            let offered = get_mime_types(ClipboardType::Regular, Seat::Unspecified).ok()?;
+            let mime = mimes.iter().find(|m| offered.contains(**m))?;
+            let (mut pipe, _) =
+                get_contents(ClipboardType::Regular, Seat::Unspecified, MimeType::Specific(mime)).ok()?;
+            let mut buf = Vec::new();
+            pipe.read_to_end(&mut buf).ok()?;
+            return Some((mime.to_string(), buf));
+        }
+        let _ = mimes;
+        None
+    }
+
+    /// Какие форматы предлагает буфер (Wayland; иначе пусто).
+    pub fn available_mimes() -> Vec<String> {
+        #[cfg(all(target_os = "linux", feature = "wl-clipboard-rs"))]
+        if std::env::var_os("WAYLAND_DISPLAY").is_some() {
+            use wl_clipboard_rs::paste::{get_mime_types, ClipboardType, Seat};
+            return get_mime_types(ClipboardType::Regular, Seat::Unspecified)
+                .map(|s| s.into_iter().collect())
+                .unwrap_or_default();
+        }
+        Vec::new()
+    }
 }
 
 #[cfg(target_arch = "wasm32")]
@@ -343,7 +374,7 @@ pub use imp::{copy, paste};
     not(target_arch = "wasm32"),
     not(target_os = "android")
 ))]
-pub use imp::copy_rich;
+pub use imp::{available_mimes, copy_rich, paste_mime};
 
 /// Без системного буфера с форматами — только текст.
 #[cfg(not(all(
@@ -353,6 +384,25 @@ pub use imp::copy_rich;
 )))]
 pub fn copy_rich(text: &str, _formats: &[(&str, &[u8])]) {
     copy(text);
+}
+
+/// Без системного буфера с форматами — ничего.
+#[cfg(not(all(
+    feature = "clipboard",
+    not(target_arch = "wasm32"),
+    not(target_os = "android")
+)))]
+pub fn paste_mime(_mimes: &[&str]) -> Option<(String, Vec<u8>)> {
+    None
+}
+
+#[cfg(not(all(
+    feature = "clipboard",
+    not(target_arch = "wasm32"),
+    not(target_os = "android")
+)))]
+pub fn available_mimes() -> Vec<String> {
+    Vec::new()
 }
 
 /// `text/uri-list` для файлов (RFC 2483): по `file://`-URI на строку, CRLF.
