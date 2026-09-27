@@ -315,6 +315,11 @@ pub enum Effect {
         mode: BlendModeType,
     },
     Chain(Vec<Effect>),
+    /// Слой выводится четырёхугольниками в однородных координатах —
+    /// 3D-поворот с перспективой и отражение
+    /// ([`crate::core::transform3d::project_layer`]). Пустой список — слой
+    /// не виден (обратная сторона при `backface-visibility: hidden`).
+    Projected(Vec<crate::core::ProjectedQuad>),
 }
 
 impl Effect {

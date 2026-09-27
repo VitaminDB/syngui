@@ -47,6 +47,30 @@ impl Renderer {
             background_color.a as f64,
         ];
 
+        // Текстура слоя очищается один раз — при первой отрисовке в неё.
+        // Раньше каждая порция батчей слоя шла с очисткой: вложенный слой
+        // (3D-поворот значка с отражением внутри) накладывался в текстуру
+        // внешнего, а следующая порция внешнего стирала его — значок пропадал.
+        // И наоборот: внешний слой без своих батчей до вложенного не
+        // очищался вовсе и нёс мусор прошлого кадра.
+        let mut cleared_pools: Vec<usize> = Vec::new();
+        let mut first_draw = |target: EffectTarget, scene_cleared: &mut bool| -> (bool, [f64; 4]) {
+            match target {
+                EffectTarget::Scene => {
+                    let first = !*scene_cleared;
+                    *scene_cleared = true;
+                    (first, bg)
+                }
+                EffectTarget::Pool(h) => {
+                    let first = !cleared_pools.contains(&h.0);
+                    if first {
+                        cleared_pools.push(h.0);
+                    }
+                    (first, [0.0; 4])
+                }
+            }
+        };
+
         for op in render_ops {
             match op {
                 RenderOp::Draw(batch) => {
@@ -61,29 +85,14 @@ impl Renderer {
                         bounds.width(),
                         bounds.height(),
                     ];
-                    if buf_idx > seg_start {
-                        let (clear, cc) = match current_target {
-                            EffectTarget::Scene => {
-                                let first = !scene_cleared;
-                                scene_cleared = true;
-                                (first, bg)
-                            }
-                            EffectTarget::Pool(_) => (true, [0.0; 4]),
-                        };
+                    let (clear, cc) = first_draw(current_target, &mut scene_cleared);
+                    if buf_idx > seg_start || clear {
                         plan.push(EffectRenderStep::DrawBatches {
                             target: current_target,
-                            buf_range: seg_start..buf_idx,
+                            buf_range: if buf_idx > seg_start { seg_start..buf_idx } else { 0..0 },
                             clear,
                             clear_color: cc,
                         });
-                    } else if matches!(current_target, EffectTarget::Scene) && !scene_cleared {
-                        plan.push(EffectRenderStep::DrawBatches {
-                            target: EffectTarget::Scene,
-                            buf_range: 0..0,
-                            clear: true,
-                            clear_color: bg,
-                        });
-                        scene_cleared = true;
                     }
                     seg_start = buf_idx;
 
@@ -93,25 +102,30 @@ impl Renderer {
                     current_target = EffectTarget::Pool(pool);
                 }
                 RenderOp::EndEffect => {
-                    if buf_idx > seg_start {
+                    let (clear, cc) = first_draw(current_target, &mut scene_cleared);
+                    if buf_idx > seg_start || clear {
                         plan.push(EffectRenderStep::DrawBatches {
                             target: current_target,
-                            buf_range: seg_start..buf_idx,
-                            clear: true,
-                            clear_color: [0.0; 4],
-                        });
-                    } else {
-                        plan.push(EffectRenderStep::DrawBatches {
-                            target: current_target,
-                            buf_range: 0..0,
-                            clear: true,
-                            clear_color: [0.0; 4],
+                            buf_range: if buf_idx > seg_start { seg_start..buf_idx } else { 0..0 },
+                            clear,
+                            clear_color: cc,
                         });
                     }
                     seg_start = buf_idx;
 
                     if let Some((parent_target, effect, pool, bounds_px)) = effect_stack.pop() {
                         current_target = parent_target;
+                        // Слой накладывается в родителя — тот должен быть
+                        // очищен до этого.
+                        let (clear, cc) = first_draw(parent_target, &mut scene_cleared);
+                        if clear {
+                            plan.push(EffectRenderStep::DrawBatches {
+                                target: parent_target,
+                                buf_range: 0..0,
+                                clear,
+                                clear_color: cc,
+                            });
+                        }
                         Self::apply_effect_steps(
                             &mut self.texture_pool,
                             device,
@@ -128,27 +142,13 @@ impl Renderer {
             }
         }
 
-        if buf_idx > seg_start {
-            let (clear, cc) = match current_target {
-                EffectTarget::Scene => {
-                    let first = !scene_cleared;
-                    scene_cleared = true;
-                    (first, bg)
-                }
-                EffectTarget::Pool(_) => (true, [0.0; 4]),
-            };
+        let (clear, cc) = first_draw(current_target, &mut scene_cleared);
+        if buf_idx > seg_start || clear {
             plan.push(EffectRenderStep::DrawBatches {
                 target: current_target,
-                buf_range: seg_start..buf_idx,
+                buf_range: if buf_idx > seg_start { seg_start..buf_idx } else { 0..0 },
                 clear,
                 clear_color: cc,
-            });
-        } else if !scene_cleared {
-            plan.push(EffectRenderStep::DrawBatches {
-                target: EffectTarget::Scene,
-                buf_range: 0..0,
-                clear: true,
-                clear_color: bg,
             });
         }
 
@@ -170,6 +170,14 @@ impl Renderer {
         use crate::render::display_list::Effect;
 
         match effect {
+            Effect::Projected(quads) => {
+                plan.push(EffectRenderStep::CompositeProjected {
+                    source,
+                    dest,
+                    quads: quads.clone(),
+                });
+            }
+
             Effect::None
             | Effect::Opacity { .. }
             | Effect::BlendMode { .. }
@@ -755,6 +763,77 @@ impl Renderer {
                         );
                         rp.draw_indexed(0..6, 0, 0..1);
                     }
+                }
+
+                EffectRenderStep::CompositeProjected {
+                    source,
+                    dest,
+                    quads,
+                } => {
+                    if quads.is_empty() {
+                        continue;
+                    }
+                    let lw = (self.logical_width as f32).max(1.0);
+                    let lh = (self.logical_height as f32).max(1.0);
+                    // [X, Y, W] в логических px → clip space (x·W, y·W, 0, W):
+                    // ndc = 2·(X/W)/lw − 1, clip = ndc·W.
+                    let mut verts: Vec<f32> = Vec::with_capacity(quads.len() * 28);
+                    let mut indices: Vec<u32> = Vec::with_capacity(quads.len() * 6);
+                    for (qi, q) in quads.iter().enumerate() {
+                        for i in 0..4 {
+                            let [x, y, w] = q.pos[i];
+                            verts.extend_from_slice(&[
+                                2.0 * x / lw - w,
+                                w - 2.0 * y / lh,
+                                0.0,
+                                w,
+                                q.src[i][0] / lw,
+                                q.src[i][1] / lh,
+                                q.alpha[i],
+                            ]);
+                        }
+                        let b = qi as u32 * 4;
+                        indices.extend_from_slice(&[b, b + 1, b + 2, b, b + 2, b + 3]);
+                    }
+                    let vb = gpu
+                        .device
+                        .create_buffer_init(&wgpu::util::BufferInitDescriptor {
+                            label: Some("Projected Quads"),
+                            contents: bytemuck::cast_slice(&verts),
+                            usage: wgpu::BufferUsages::VERTEX,
+                        });
+                    let ib = gpu
+                        .device
+                        .create_buffer_init(&wgpu::util::BufferInitDescriptor {
+                            label: Some("Projected Quad Indices"),
+                            contents: bytemuck::cast_slice(&indices),
+                            usage: wgpu::BufferUsages::INDEX,
+                        });
+                    let view = match dest {
+                        EffectTarget::Scene => scene_view,
+                        EffectTarget::Pool(h) => self.texture_pool.view(*h),
+                    };
+                    let mut rp = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
+                        label: Some("Composite Projected Pass"),
+                        color_attachments: &[Some(wgpu::RenderPassColorAttachment {
+                            view,
+                            resolve_target: None,
+                            ops: wgpu::Operations {
+                                load: wgpu::LoadOp::Load,
+                                store: wgpu::StoreOp::Store,
+                            },
+                            depth_slice: None,
+                        })],
+                        depth_stencil_attachment: None,
+                        timestamp_writes: None,
+                        occlusion_query_set: None,
+                        multiview_mask: None,
+                    });
+                    rp.set_pipeline(&self.projected_pipeline);
+                    rp.set_bind_group(0, self.texture_pool.bind_group(*source), &[]);
+                    rp.set_vertex_buffer(0, vb.slice(..));
+                    rp.set_index_buffer(ib.slice(..), wgpu::IndexFormat::Uint32);
+                    rp.draw_indexed(0..indices.len() as u32, 0, 0..1);
                 }
 
                 EffectRenderStep::CopySceneToPool { dest } => {

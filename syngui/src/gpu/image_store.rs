@@ -43,6 +43,9 @@ pub struct ImageData {
     /// Только нулевой уровень: видеокадры и прочие потоковые обновления
     /// не минифицируются, а строить им мипы каждый кадр — десятки мс CPU.
     pub single_level: bool,
+    /// Естественный размер для раскладки, если растр крупнее (SVG
+    /// растеризуется с запасом, чтобы оставаться чётким при увеличении).
+    pub natural: Option<(u32, u32)>,
 }
 
 /// Один mip-уровень (RGBA8, premultiplied как и `ImageData::rgba`).
@@ -65,6 +68,7 @@ impl ImageData {
             rgba,
             mips,
             single_level: false,
+            natural: None,
         }
     }
 
@@ -76,6 +80,7 @@ impl ImageData {
             rgba: rgba.into(),
             mips: Vec::new(),
             single_level: true,
+            natural: None,
         }
     }
 }
@@ -403,8 +408,7 @@ impl ImageStore {
                         continue;
                     };
                     entry.state = ImageLoadState::Ready;
-                    entry.width = data.width;
-                    entry.height = data.height;
+                    (entry.width, entry.height) = data.natural.unwrap_or((data.width, data.height));
                     // Все держатели ушли, пока картинка грузилась.
                     if entry.refs == 0 {
                         self.idle_bytes += entry.bytes();
@@ -575,8 +579,14 @@ fn looks_like_svg(bytes: &[u8]) -> bool {
         } else if rest.starts_with(b"<!--") {
             b"-->"
         } else if rest.starts_with(b"<!") {
-            // DOCTYPE без внутреннего подмножества — до первого '>'.
-            b">"
+            // DOCTYPE: внутреннее подмножество `[ … ]` (сущности Adobe
+            // Illustrator) может содержать '>' — пропускаем до `]>`.
+            let bracket = rest.iter().position(|&b| b == b'[');
+            let gt = rest.iter().position(|&b| b == b'>');
+            match (bracket, gt) {
+                (Some(b), Some(g)) if b < g => b"]>",
+                _ => b">",
+            }
         } else {
             return rest.len() >= 4 && rest[..4].eq_ignore_ascii_case(b"<svg");
         };
@@ -608,8 +618,13 @@ fn decode_svg(bytes: &[u8]) -> Result<ImageData, String> {
     let size = tree.size();
     let max_side = size.width().max(size.height());
     const MAX_PX: f32 = 2048.0;
+    // Мелкие SVG (значки 16–48 px) растеризуются минимум в 192 px: увеличение
+    // (док, масштаб интерфейса) не мылит, уменьшение сглаживают мипы.
+    const MIN_PX: f32 = 192.0;
     let scale = if max_side > MAX_PX {
         MAX_PX / max_side
+    } else if max_side > 0.0 && max_side < MIN_PX {
+        MIN_PX / max_side
     } else {
         1.0
     };
@@ -630,11 +645,14 @@ fn decode_svg(bytes: &[u8]) -> Result<ImageData, String> {
             px[2] = ((px[2] as f32 * inv).round() as u32).min(255) as u8;
         }
     }
-    Ok(ImageData::with_mips(
-        w_px,
-        h_px,
-        Arc::<[u8]>::from(rgba.into_boxed_slice()),
-    ))
+    let mut data = ImageData::with_mips(w_px, h_px, Arc::<[u8]>::from(rgba.into_boxed_slice()));
+    if scale > 1.0 {
+        data.natural = Some((
+            (size.width().round() as u32).max(1),
+            (size.height().round() as u32).max(1),
+        ));
+    }
+    Ok(data)
 }
 
 #[cfg(feature = "image-network")]
@@ -866,6 +884,14 @@ mod tests {
 
     #[cfg(feature = "svg")]
     #[test]
+    fn looks_like_svg_skips_doctype_internal_subset() {
+        assert!(looks_like_svg(
+            b"<?xml version=\"1.0\"?>\n<!DOCTYPE svg PUBLIC \"-//W3C//DTD SVG 1.0//EN\" \"svg10.dtd\" [\n\t<!ENTITY ns_flows \"http://ns.adobe.com/Flows/1.0/\">\n]>\n<svg/>"
+        ));
+    }
+
+    #[cfg(feature = "svg")]
+    #[test]
     fn looks_like_svg_rejects_unterminated_comment() {
         assert!(!looks_like_svg(b"<!-- comment never closed <svg/>"));
     }
@@ -875,9 +901,11 @@ mod tests {
     fn decode_image_bytes_renders_svg_to_rgba() {
         let svg = br##"<?xml version="1.0"?><svg xmlns="http://www.w3.org/2000/svg" width="32" height="32"><rect width="32" height="32" fill="#ff0000"/></svg>"##;
         let data = decode_image_bytes(svg).expect("должен распарсить и отрендерить SVG");
-        assert_eq!(data.width, 32);
-        assert_eq!(data.height, 32);
-        assert_eq!(data.rgba.len(), 32 * 32 * 4);
+        // Растр — с запасом под увеличение, размер для раскладки — исходный.
+        assert_eq!(data.width, 192);
+        assert_eq!(data.height, 192);
+        assert_eq!(data.natural, Some((32, 32)));
+        assert_eq!(data.rgba.len(), 192 * 192 * 4);
         let has_red = data
             .rgba
             .chunks_exact(4)

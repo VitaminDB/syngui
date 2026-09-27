@@ -8,6 +8,13 @@ fn is_identity_transform(s: Point, k: f32) -> bool {
     s.x == 0.0 && s.y == 0.0 && (k - 1.0).abs() < f32::EPSILON
 }
 
+/// `SYNGUI_TRACE_HIT=1` — печатать путь попадания каждого нажатия
+/// (какие элементы под точкой и в каком порядке получат событие).
+fn trace_hits() -> bool {
+    static ON: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
+    *ON.get_or_init(|| std::env::var_os("SYNGUI_TRACE_HIT").is_some())
+}
+
 impl ElementTree {
     pub fn dispatch_event_to(&mut self, id: ElementId, event: &Event) -> EventResult {
         // Событие может запустить transition (hover и т.п.) — взводим обход анимаций.
@@ -262,6 +269,13 @@ impl ElementTree {
 
         let mut path: Vec<ElementId> = Vec::new();
         self.hit_test_path(root_id, pos, &mut path);
+        if trace_hits() {
+            let names: Vec<String> = path
+                .iter()
+                .filter_map(|id| self.elements.get(id).map(|n| format!("{}{:?}", n.element.element_type_name(), n.element.bounds())))
+                .collect();
+            eprintln!("hit {event:?}: {}", names.join(" > "));
+        }
 
         if let Some(cut) = path.iter().position(|id| {
             self.elements

@@ -4,6 +4,7 @@ pub mod fields;
 pub mod inheritance;
 pub mod matching;
 mod parser;
+pub(crate) use parser::transform::normalize_angle;
 mod style_engine;
 mod stylesheet;
 mod value;

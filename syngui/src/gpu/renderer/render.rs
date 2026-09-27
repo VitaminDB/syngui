@@ -227,6 +227,73 @@ impl Renderer {
                 label: Some("Offscreen Render Encoder"),
             });
 
+        // Кадр с эффектами (размытие, 3D-слои) — через scene-текстуру и
+        // план эффектов, как на экране; иначе снимки без композитора
+        // (headless-оболочка, тесты) теряли 3D и фильтры.
+        let (plan, pool_handles) =
+            self.build_render_plan(&render_ops, &gpu.device, background_color, elapsed);
+        let direct = plan.iter().all(|s| {
+            matches!(
+                s,
+                super::EffectRenderStep::DrawBatches {
+                    target: super::EffectTarget::Scene,
+                    ..
+                }
+            )
+        });
+        if !direct && (self.width, self.height) == (phys_w, phys_h) {
+            self.ensure_scene_texture(&gpu.device);
+            let scene_view = self.scene_view.as_ref().unwrap();
+            let scene_texture = self.scene_texture.as_ref().unwrap();
+            self.execute_render_plan(
+                &mut encoder,
+                gpu,
+                &plan,
+                scene_view,
+                scene_texture,
+                elapsed,
+                scale,
+            );
+            {
+                let mut rp = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
+                    label: Some("Offscreen Blit Pass"),
+                    color_attachments: &[Some(wgpu::RenderPassColorAttachment {
+                        view: target_view,
+                        resolve_target: None,
+                        ops: wgpu::Operations {
+                            load: wgpu::LoadOp::Clear(wgpu::Color::TRANSPARENT),
+                            store: wgpu::StoreOp::Store,
+                        },
+                        depth_slice: None,
+                    })],
+                    depth_stencil_attachment: None,
+                    timestamp_writes: None,
+                    occlusion_query_set: None,
+                    multiview_mask: None,
+                });
+                rp.set_pipeline(&self.blit_pipeline);
+                rp.set_bind_group(0, self.scene_bind_group.as_ref().unwrap(), &[]);
+                rp.set_vertex_buffer(0, self.fullscreen_vertex_buffer.slice(..));
+                rp.set_index_buffer(
+                    self.fullscreen_index_buffer.slice(..),
+                    wgpu::IndexFormat::Uint32,
+                );
+                rp.draw_indexed(0..6, 0, 0..1);
+            }
+            for h in pool_handles {
+                self.texture_pool.release(h);
+            }
+            gpu.queue.submit(std::iter::once(encoder.finish()));
+            self.texture_pool.end_frame();
+            return RenderStats {
+                draw_calls: self.gpu_buffers.len(),
+                vertex_count: self.gpu_buffers.iter().map(|b| b.index_count as usize).sum(),
+            };
+        }
+        for h in pool_handles {
+            self.texture_pool.release(h);
+        }
+
         {
             let mut render_pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
                 label: Some("Offscreen UI Render Pass"),

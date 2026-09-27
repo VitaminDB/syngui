@@ -22,7 +22,8 @@ pub use charts::{
     SeriesStyle, TooltipConfig, VisualMapPiece,
 };
 pub use containers::{
-    Animated, AnimatedSize, AnimationAxis, Carousel, Column, DecoratedBox, Flex, GestureDetector,
+    Animated, AnimatedSize, AnimationAxis, Carousel, Column, DecoratedBox, Falloff, Fisheye,
+    FisheyeAnchor, Flex, GestureDetector, ScaleBox,
     Grid, IntoWidget, Named, Padding, Page, Reactive, RepeatMode, Row, ScrollPhysics, ScrollTarget,
     ScrollbarPolicy, ShowIf, SplitDirection, SplitView, Stack, StackFit, TransformBox,
     TransformOrigin, TransformState, VirtualFlex,
@@ -59,7 +60,8 @@ pub use visual::{
     default_locale, set_default_locale, Avatar, Badge, BadgeSize, Calendar, CalendarLocale,
     CalendarTheme, Canvas, Card, Chip, CircularProgress, DateOrder, Divider, DividerDirection,
     EmitKind, Icon, Image, ImageFit, ImageViewCommand, ImageViewInfo, ImageViewport,
-    ParticleSystem, ProgressBar, RichText, TextSpan,
+    EmitterConfig, EmitterShape, ParticleEmitter, ParticlePreset, ParticleShape, ParticleSystem,
+    ProgressBar, RichText, TextSpan,
 };
 #[cfg(feature = "ffmpeg")]
 pub use visual::{video_player_view, VideoView};

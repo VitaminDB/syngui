@@ -114,6 +114,11 @@ Animated::new(my_widget)
     .repeat_mode(RepeatMode::PingPong(3))
 ```
 
+3D: `.rotate_x(anim)`, `.rotate_y(anim)`, `.translate_z(anim)`, `.perspective(px)`,
+`.backface_visible(false)`. В MSS — `rotate-x`, `rotate-y`, `translate-z`, `perspective`
+анимируются `transition` и `@keyframes`
+([17-3d-particles-fisheye.md](17-3d-particles-fisheye.md)).
+
 ### TransformOrigin
 
 - `TopLeft` — transform pivot at top-left corner

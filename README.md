@@ -47,6 +47,21 @@ that's the point:
   `can_update()`, with dirty-flag propagation (layout / paint / state / children /
   animation). Familiar if you've used Flutter or React.
 
+## 3D, particles, fisheye
+
+- **3D transforms from MSS.** `rotate-x`, `rotate-y`, `translate-z`, `perspective`,
+  `backface-visibility`, `rotateX()/rotateY()/translateZ()/perspective()` in `transform`,
+  all animatable with transitions and `@keyframes`. Flat elements are projected on the GPU
+  with homogeneous coordinates, so textures stay perspective-correct. Plus `box-reflect`
+  (mirror reflections) and `background-rotate-x` — tilt only an element's backdrop.
+- **Particles.** `ParticleEmitter` with 15 presets (sparkle, fire, smoke, snow, confetti,
+  fireworks, hearts…), continuous emission, bursts, hover-only emission and a pointer trail —
+  every parameter settable from MSS (`particle-*`).
+- **Fisheye.** `Fisheye` / `ScaleBox` — a row whose items magnify under the pointer like
+  the macOS dock, with layout-aware scaling and correct hit-testing of the magnified items.
+
+See [docs/17-3d-particles-fisheye.md](docs/17-3d-particles-fisheye.md).
+
 ## DocumentEditor
 
 A Notion-style block editor, in the framework rather than in your app:

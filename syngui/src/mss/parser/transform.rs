@@ -140,6 +140,10 @@ pub(super) fn expand_transform_shorthand(value: &StyleValue) -> Option<Vec<(Stri
     let mut rotate_deg = 0.0f32;
     let mut sx = 1.0f32;
     let mut sy = 1.0f32;
+    let mut rx = 0.0f32;
+    let mut ry = 0.0f32;
+    let mut tz = 0.0f32;
+    let mut perspective: Option<f32> = None;
     let mut any = false;
 
     for (name, args) in funcs {
@@ -174,8 +178,34 @@ pub(super) fn expand_transform_shorthand(value: &StyleValue) -> Option<Vec<(Stri
                 sy *= parse_one_number(&args)?;
                 any = true;
             }
-            "rotate" => {
+            "rotate" | "rotatez" => {
                 rotate_deg += parse_angle_deg(&args)?;
+                any = true;
+            }
+            "rotatex" => {
+                rx += parse_angle_deg(&args)?;
+                any = true;
+            }
+            "rotatey" => {
+                ry += parse_angle_deg(&args)?;
+                any = true;
+            }
+            "translatez" => {
+                tz += parse_one_length(&args)?;
+                any = true;
+            }
+            "translate3d" => {
+                let parts: Vec<&str> = args.split(',').map(|p| p.trim()).collect();
+                if parts.len() != 3 {
+                    return None;
+                }
+                tx += parse_length_value(parts[0])?;
+                ty += parse_length_value(parts[1])?;
+                tz += parse_length_value(parts[2])?;
+                any = true;
+            }
+            "perspective" => {
+                perspective = Some(parse_one_length(&args)?);
                 any = true;
             }
             _ => {}
@@ -195,6 +225,18 @@ pub(super) fn expand_transform_shorthand(value: &StyleValue) -> Option<Vec<(Stri
     }
     if rotate_deg != 0.0 {
         out.push(("rotate".to_string(), StyleValue::Number(rotate_deg)));
+    }
+    if rx != 0.0 {
+        out.push(("rotate-x".to_string(), StyleValue::Number(rx)));
+    }
+    if ry != 0.0 {
+        out.push(("rotate-y".to_string(), StyleValue::Number(ry)));
+    }
+    if tz != 0.0 {
+        out.push(("translate-z".to_string(), StyleValue::Length(tz, Unit::Px)));
+    }
+    if let Some(p) = perspective {
+        out.push(("perspective".to_string(), StyleValue::Length(p, Unit::Px)));
     }
     if (sx - 1.0).abs() > f32::EPSILON || (sy - 1.0).abs() > f32::EPSILON {
         if (sx - sy).abs() <= f32::EPSILON {
@@ -302,6 +344,21 @@ fn parse_length_value(s: &str) -> Option<f32> {
     s.parse::<f32>().ok()
 }
 
+/// Угол свойства `rotate`/`rotate-x`/`rotate-y`/`rotate-z` → градусы
+/// числом: `45deg`, `0.5turn`, `1.2rad` или голое число (градусы).
+pub(crate) fn normalize_angle(value: &StyleValue) -> Option<StyleValue> {
+    match value {
+        StyleValue::Number(_) => None,
+        StyleValue::String(s) => {
+            let s = s.trim();
+            parse_angle_deg(s)
+                .or_else(|| s.parse::<f32>().ok())
+                .map(StyleValue::Number)
+        }
+        _ => None,
+    }
+}
+
 fn parse_angle_deg(s: &str) -> Option<f32> {
     let s = s.trim();
     if let Some(stripped) = s.strip_suffix("deg") {
@@ -385,6 +442,27 @@ mod tests {
                 StyleValue::Length(-2.0, Unit::Px)
             ),]
         );
+    }
+
+    #[test]
+    fn rotate_3d_functions() {
+        let v = expand("perspective(400px) rotateX(30deg) rotateY(-0.25turn) translateZ(12px)");
+        assert!(v.contains(&("rotate-x".to_string(), StyleValue::Number(30.0))));
+        assert!(v.contains(&("rotate-y".to_string(), StyleValue::Number(-90.0))));
+        assert!(v.contains(&("translate-z".to_string(), StyleValue::Length(12.0, Unit::Px))));
+        assert!(v.contains(&("perspective".to_string(), StyleValue::Length(400.0, Unit::Px))));
+        let v = expand("rotateZ(10deg) translate3d(1px, 2px, 3px)");
+        assert!(v.contains(&("rotate".to_string(), StyleValue::Number(10.0))));
+        assert!(v.contains(&("translate-x".to_string(), StyleValue::Length(1.0, Unit::Px))));
+        assert!(v.contains(&("translate-z".to_string(), StyleValue::Length(3.0, Unit::Px))));
+    }
+
+    #[test]
+    fn normalize_angles() {
+        assert_eq!(normalize_angle(&StyleValue::String("45deg".into())), Some(StyleValue::Number(45.0)));
+        assert_eq!(normalize_angle(&StyleValue::String("0.5turn".into())), Some(StyleValue::Number(180.0)));
+        assert_eq!(normalize_angle(&StyleValue::String("30".into())), Some(StyleValue::Number(30.0)));
+        assert_eq!(normalize_angle(&StyleValue::Number(30.0)), None);
     }
 
     #[test]

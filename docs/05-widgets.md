@@ -459,6 +459,25 @@ Animated::new(widget)
     .origin(TransformOrigin::Center)  // TopLeft | Center | Custom(x, y)
 ```
 
+3D-повороты: `.rotate_x(anim)`, `.rotate_y(anim)`, `.translate_z(anim)`,
+`.perspective(px)`, `.backface_visible(bool)` — см. [17-3d-particles-fisheye.md](17-3d-particles-fisheye.md).
+
+### ScaleBox / Fisheye
+
+```rust
+ScaleBox::new(icon).scale(1.5)          // место в раскладке растёт вместе с рисунком
+Fisheye::new().zoom(1.8).range(3.0).overflow(true).children(icons)  // увеличение под указателем, как в доке macOS
+```
+
+### ParticleEmitter
+
+```rust
+ParticleEmitter::new().preset(ParticlePreset::Sparkle).hover_rate(16.0).child(icon)
+ParticleEmitter::new().preset(ParticlePreset::Stars).burst(30).burst_token(n)
+```
+
+Пресеты, формы и MSS-свойства `particle-*` — [17-3d-particles-fisheye.md](17-3d-particles-fisheye.md).
+
 ### AnimatedSize
 
 ```rust

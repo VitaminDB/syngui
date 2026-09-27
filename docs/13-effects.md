@@ -133,6 +133,16 @@ list.end_effect_layer();
 
 **BlendModeType values:** `Normal`, `Multiply`, `Screen`, `Overlay`, `Darken`, `Lighten`, `ColorDodge`, `ColorBurn`, `SoftLight`, `HardLight`, `Difference`, `Exclusion`
 
+### Projection (3D и отражения)
+
+`Effect::Projected(Vec<ProjectedQuad>)` — слой выводится четырёхугольниками в
+однородных координатах (`blit3d.wgsl`): 3D-поворот с перспективно-корректной
+текстурой и зеркальное отражение с затуханием. Обычно его ставят MSS-свойства
+`rotate-x`/`rotate-y`/`translate-z`/`box-reflect` или
+`DisplayList::push_projected_layer`. Слои вкладываются друг в друга (3D-поворот
+значка с отражением внутри): текстура слоя очищается один раз — при первой
+отрисовке в неё.
+
 ## Effect Chaining
 
 Apply multiple effects in sequence:

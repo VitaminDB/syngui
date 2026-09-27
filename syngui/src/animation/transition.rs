@@ -44,7 +44,13 @@ impl AnimatedValue {
                     .map(|c| AnimatedValue::Color(mss_color_to_core(c)))
                     .unwrap_or(AnimatedValue::None),
                 PropertyType::Float => {
-                    let s = s.trim().trim_end_matches("px");
+                    let s = s.trim();
+                    if let Some(StyleValue::Number(deg)) = crate::mss::normalize_angle(
+                        &StyleValue::String(s.to_string()),
+                    ) {
+                        return AnimatedValue::Float(deg);
+                    }
+                    let s = s.trim_end_matches("px");
                     s.trim_end_matches('%')
                         .parse::<f32>()
                         .ok()
@@ -104,7 +110,8 @@ fn classify_property(name: &str) -> PropertyType {
         | "padding-top" | "padding-bottom" | "margin" | "margin-left" | "margin-right"
         | "margin-top" | "margin-bottom" | "width" | "height" | "min-width" | "max-width"
         | "min-height" | "max-height" | "noise" | "vignette" | "border-radius" | "translate-x"
-        | "translate-y" | "rotate" | "scale" | "scale-x" | "scale-y" => PropertyType::Float,
+        | "translate-y" | "rotate" | "scale" | "scale-x" | "scale-y" | "rotate-x" | "rotate-y"
+        | "translate-z" | "perspective" => PropertyType::Float,
 
         "box-shadow" | "glow" => PropertyType::Shadows,
         "filter" | "backdrop-filter" => PropertyType::FilterChain,
@@ -734,9 +741,8 @@ impl TransitionState {
         let alias = match property {
             "background-color" => Some("background"),
             "background" => Some("background-color"),
-            "translate-x" | "translate-y" | "rotate" | "scale" | "scale-x" | "scale-y" => {
-                Some("transform")
-            }
+            "translate-x" | "translate-y" | "rotate" | "scale" | "scale-x" | "scale-y"
+            | "rotate-x" | "rotate-y" | "translate-z" | "perspective" => Some("transform"),
             _ => None,
         };
         if let Some(alias) = alias {

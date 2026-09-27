@@ -40,6 +40,16 @@ fn insert_with_shorthand_expansion(
         ),
         "border-radius" => expand_border_radius_shorthand(&value),
         "transform" => super::transform::expand_transform_shorthand(&value),
+        // Углы — в градусы числом (иначе `45deg` не анимируется), `rotate-z`
+        // — то же, что `rotate`.
+        "rotate" | "rotate-x" | "rotate-y" | "rotate-z" => {
+            let name = if property == "rotate-z" { "rotate" } else { property.as_str() };
+            match super::transform::normalize_angle(&value) {
+                Some(v) => Some(vec![(name.to_string(), v)]),
+                None if name != property => Some(vec![(name.to_string(), value.clone())]),
+                None => None,
+            }
+        }
         _ => None,
     };
     match expanded {

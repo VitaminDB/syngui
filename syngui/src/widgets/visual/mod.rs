@@ -19,6 +19,7 @@ pub mod map_view;
 pub mod markdown_editor;
 #[cfg(feature = "markdown")]
 pub mod markdown_view;
+pub mod emitter;
 pub mod particles;
 pub mod progress_bar;
 pub mod rich_text;
@@ -55,6 +56,7 @@ pub use map_view::{
 pub use markdown_editor::{EditorMode, MarkdownEditor};
 #[cfg(feature = "markdown")]
 pub use markdown_view::{MarkdownView, MdStyle};
+pub use emitter::{EmitterConfig, EmitterShape, ParticleEmitter, ParticlePreset, ParticleShape};
 pub use particles::{EmitKind, ParticleSystem};
 pub use progress_bar::ProgressBar;
 pub use rich_text::{RichText, TextSpan};

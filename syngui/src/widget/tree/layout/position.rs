@@ -52,8 +52,10 @@ impl ElementTree {
                     | crate::widget::LayoutHint::Tooltip { .. }
             ) {
                 node.element.set_content_size(own_size);
-                anim_started = node.element.needs_repaint() || node.element.wants_animate_tick();
             }
+            // Анимацию проверяем у всех: ScaleBox (hint AnimatedSize) узнаёт
+            // новую цель масштаба из соседнего элемента и сам в тик не встанет.
+            anim_started = node.element.needs_repaint() || node.element.wants_animate_tick();
         }
         if anim_started {
             self.animation_registry.insert(id);

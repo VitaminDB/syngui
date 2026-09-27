@@ -847,6 +847,28 @@ impl DisplayList {
         });
     }
 
+    /// Действующая 2D-трансформация (предков и уже запушенная элемента).
+    pub fn current_transform(&self) -> crate::core::Transform {
+        self.current_transform
+    }
+
+    /// Слой с 3D-трансформацией и/или отражением элемента с границами
+    /// `bounds` (координаты раскладки). Закрывать — [`Self::pop_effect_layer`].
+    pub fn push_projected_layer(
+        &mut self,
+        bounds: crate::core::Rect,
+        t3d: Option<&crate::core::Transform3D>,
+        reflection: Option<&crate::core::Reflection>,
+    ) {
+        let quads = crate::core::transform3d::project_layer(
+            bounds,
+            &self.current_transform,
+            t3d,
+            reflection,
+        );
+        self.push_effect_layer(Effect::Projected(quads), bounds);
+    }
+
     pub fn pop_effect_layer(&mut self) {
         self.target().push(DrawCommand::EndEffectLayer {
             texture_id: TextureId(0),

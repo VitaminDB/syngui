@@ -66,6 +66,15 @@ impl ElementTree {
                     cull_clip = inv.outer_transformed_rect(&cull_clip);
                 }
             }
+            // 3D-поворот / отражение: поддерево рисуется в слой, слой
+            // выводится спроецированным четырёхугольником.
+            let projected = node
+                .element
+                .mss()
+                .and_then(|m| m.projected_layer_params(node.element.bounds()));
+            if let Some((t3d, refl)) = &projected {
+                list.push_projected_layer(node.element.bounds(), t3d.as_ref(), refl.as_ref());
+            }
 
             let do_clip = node.element.clip_content();
             let hint = &node.hint_cache;
@@ -120,6 +129,18 @@ impl ElementTree {
                 )
             } else {
                 cull_clip
+            };
+            // Масштабирующий элемент (PanZoom, ScaleBox): дети в своих
+            // координатах, окно отсечения переводим так же, как события —
+            // (p + scroll) / k.
+            let k = node.element.event_scale();
+            let child_cull = if (k - 1.0).abs() > f32::EPSILON && k > f32::EPSILON {
+                Rect::new(
+                    Point::new(child_cull.origin.x / k, child_cull.origin.y / k),
+                    Size::new(child_cull.size.width / k, child_cull.size.height / k),
+                )
+            } else {
+                child_cull
             };
 
             let is_stack = matches!(hint, LayoutHint::Stack { .. });
@@ -217,6 +238,9 @@ impl ElementTree {
 
             node.element.post_build_display_list(list, cull_clip);
 
+            if projected.is_some() {
+                list.pop_effect_layer();
+            }
             if pushed_transform.is_some() {
                 list.pop_transform();
             }
@@ -340,5 +364,55 @@ mod tests {
         let dl = format!("{:?}", h.paint());
         assert!(dl.contains("верх"));
         assert!(dl.contains("НИЗ"), "содержимое окна ниже края панели отсечено");
+    }
+
+    /// `rotate-y` в MSS: поддерево элемента уходит в слой, который
+    /// выводится спроецированным четырёхугольником (уже, чем элемент).
+    #[test]
+    fn mss_rotate_y_wraps_subtree_in_projected_layer() {
+        let w = Column::new().child(DecoratedBox::new().class("card").child(Text::new("лицо")));
+        let mut h = TestHarness::new(Box::new(w));
+        h.apply_mss(".card { width: 100; height: 60; rotate-y: 60deg; perspective: 0; }");
+        h.layout_loose(400.0, 400.0);
+        let dl = h.paint();
+        let quads = dl
+            .commands()
+            .into_iter()
+            .find_map(|c| match c {
+                crate::render::DrawCommand::BeginEffectLayer {
+                    effect: crate::render::Effect::Projected(q),
+                    ..
+                } => Some(q),
+                _ => None,
+            })
+            .expect("слой проекции");
+        let q = &quads[0];
+        let x = |i: usize| q.pos[i][0] / q.pos[i][2];
+        // 100 px + запас 25 px с каждой стороны, cos 60° = 0.5.
+        assert!(((x(1) - x(0)) - 75.0).abs() < 0.5, "{:?}", q.pos);
+        let text = format!("{:?}", dl);
+        assert!(text.contains("лицо"));
+    }
+
+    /// `box-reflect` без 3D тоже даёт слой — с четырёхугольником отражения.
+    #[test]
+    fn mss_box_reflect_adds_reflection_quad() {
+        let w = Column::new().child(DecoratedBox::new().class("icon"));
+        let mut h = TestHarness::new(Box::new(w));
+        h.apply_mss(".icon { width: 40; height: 40; box-reflect: below 2px 0.5; }");
+        h.layout_loose(200.0, 200.0);
+        let dl = h.paint();
+        let n = dl
+            .commands()
+            .into_iter()
+            .find_map(|c| match c {
+                crate::render::DrawCommand::BeginEffectLayer {
+                    effect: crate::render::Effect::Projected(q),
+                    ..
+                } => Some(q.len()),
+                _ => None,
+            })
+            .expect("слой проекции");
+        assert_eq!(n, 2);
     }
 }

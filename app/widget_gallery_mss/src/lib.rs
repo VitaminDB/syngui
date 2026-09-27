@@ -53,7 +53,7 @@ fn build_initial_mss() -> String {
     format!("{}\n{}", theme.to_mss(), styles::component_styles())
 }
 
-const ROUTE_KEYS: [&str; 25] = [
+const ROUTE_KEYS: [&str; 26] = [
     "mss-properties",
     "buttons",
     "input",
@@ -74,6 +74,7 @@ const ROUTE_KEYS: [&str; 25] = [
     "map",
     "effects",
     "effects-showcase",
+    "three-d",
     "gradients",
     "charts",
     "ffmpeg-video",
@@ -137,9 +138,9 @@ fn make_ctx(theme_mss: RwSignal<String>) -> GalleryCtx {
     }
 }
 
-const SECTION_ICONS: [&str; 25] = [
+const SECTION_ICONS: [&str; 26] = [
     "🎛", "🔘", "⌨", "☑", "🎨", "📦", "🧭", "📜", "✨", "📐", "💬", "📋", "🔄", "🖌", "📊", "💡",
-    "📄", "🗺", "⚡", "🌟", "🎨", "📈", "🎬", "🖥", "⬜",
+    "📄", "🗺", "⚡", "🌟", "🧊", "🎨", "📈", "🎬", "🖥", "⬜",
 ];
 
 fn section_items() -> Vec<ListItem> {
@@ -292,6 +293,9 @@ fn build_content() -> impl Widget {
         })
         .route("effects-showcase", || {
             Box::new(sections::effects_showcase::build_effects_showcase())
+        })
+        .route("three-d", || {
+            Box::new(page_wrap(sections::three_d::build_three_d_section()))
         })
         .route("gradients", || {
             Box::new(page_wrap(sections::gradients::build_gradients_section()))

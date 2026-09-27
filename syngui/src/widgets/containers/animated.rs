@@ -46,6 +46,11 @@ pub struct Animated {
     scale_x: Option<Animation>,
     scale_y: Option<Animation>,
     rotate: Option<Animation>,
+    rotate_x: Option<Animation>,
+    rotate_y: Option<Animation>,
+    translate_z: Option<Animation>,
+    perspective: Option<f32>,
+    backface_visible: bool,
     opacity_anim: Option<Animation>,
     repeat_mode: RepeatMode,
     origin: TransformOrigin,
@@ -61,10 +66,47 @@ impl Animated {
             scale_x: None,
             scale_y: None,
             rotate: None,
+            rotate_x: None,
+            rotate_y: None,
+            translate_z: None,
+            perspective: None,
+            backface_visible: true,
             opacity_anim: None,
             repeat_mode: RepeatMode::None,
             origin: TransformOrigin::default(),
         }
+    }
+
+    /// 3D-поворот вокруг горизонтальной оси, градусы.
+    pub fn rotate_x(mut self, anim: Animation) -> Self {
+        self.rotate_x = Some(anim);
+        self
+    }
+
+    /// 3D-поворот вокруг вертикальной оси, градусы (переворот карточки,
+    /// вращение значка).
+    pub fn rotate_y(mut self, anim: Animation) -> Self {
+        self.rotate_y = Some(anim);
+        self
+    }
+
+    /// Сдвиг к зрителю, px (с перспективой — увеличение).
+    pub fn translate_z(mut self, anim: Animation) -> Self {
+        self.translate_z = Some(anim);
+        self
+    }
+
+    /// Расстояние до зрителя для 3D, px (`0` — без перспективы). По
+    /// умолчанию — 4 × больший размер элемента.
+    pub fn perspective(mut self, px: f32) -> Self {
+        self.perspective = Some(px);
+        self
+    }
+
+    /// Показывать ли обратную сторону при 3D-повороте.
+    pub fn backface_visible(mut self, visible: bool) -> Self {
+        self.backface_visible = visible;
+        self
     }
 
     pub fn translate_x(mut self, anim: Animation) -> Self {
@@ -134,6 +176,11 @@ impl Widget for Animated {
             scale_x: self.scale_x.clone(),
             scale_y: self.scale_y.clone(),
             rotate: self.rotate.clone(),
+            rotate_x: self.rotate_x.clone(),
+            rotate_y: self.rotate_y.clone(),
+            translate_z: self.translate_z.clone(),
+            perspective: self.perspective,
+            backface_visible: self.backface_visible,
             opacity_anim: self.opacity_anim.clone(),
             repeat_mode: self.repeat_mode,
             origin: self.origin,
@@ -186,6 +233,11 @@ pub struct AnimatedElement {
     scale_x: Option<Animation>,
     scale_y: Option<Animation>,
     rotate: Option<Animation>,
+    rotate_x: Option<Animation>,
+    rotate_y: Option<Animation>,
+    translate_z: Option<Animation>,
+    perspective: Option<f32>,
+    backface_visible: bool,
     opacity_anim: Option<Animation>,
     repeat_mode: RepeatMode,
     origin: TransformOrigin,
@@ -205,7 +257,32 @@ impl AnimatedElement {
             || check(&self.scale_x)
             || check(&self.scale_y)
             || check(&self.rotate)
+            || check(&self.rotate_x)
+            || check(&self.rotate_y)
+            || check(&self.translate_z)
             || check(&self.opacity_anim)
+    }
+
+    fn has_3d(&self) -> bool {
+        self.rotate_x.is_some() || self.rotate_y.is_some() || self.translate_z.is_some()
+    }
+
+    fn transform_3d(&self) -> crate::core::Transform3D {
+        let rev = self.reverse;
+        let (ox, oy) = self.transform_origin();
+        crate::core::Transform3D {
+            rotate_x: Self::anim_value(&self.rotate_x, rev),
+            rotate_y: Self::anim_value(&self.rotate_y, rev),
+            rotate_z: 0.0,
+            translate_z: Self::anim_value(&self.translate_z, rev),
+            perspective: self.perspective,
+            origin: Point::new(ox - self.bounds.origin.x, oy - self.bounds.origin.y),
+            backface_visible: self.backface_visible,
+        }
+    }
+
+    fn layer_bounds(&self) -> Rect {
+        Rect::new(self.bounds.origin, self.child_size)
     }
 
     fn has_repeats_left(&self) -> bool {
@@ -247,6 +324,11 @@ impl Element for AnimatedElement {
             self.scale_x = w.scale_x.clone();
             self.scale_y = w.scale_y.clone();
             self.rotate = w.rotate.clone();
+            self.rotate_x = w.rotate_x.clone();
+            self.rotate_y = w.rotate_y.clone();
+            self.translate_z = w.translate_z.clone();
+            self.perspective = w.perspective;
+            self.backface_visible = w.backface_visible;
             self.opacity_anim = w.opacity_anim.clone();
             self.repeat_mode = w.repeat_mode;
             self.origin = w.origin;
@@ -347,6 +429,11 @@ impl Element for AnimatedElement {
             list.push_transform(transform);
         }
 
+        if self.has_3d() {
+            let t = self.transform_3d();
+            list.push_projected_layer(self.layer_bounds(), Some(&t), None);
+        }
+
         if self.opacity_anim.is_some() {
             let opacity = Self::anim_value(&self.opacity_anim, rev).max(0.0).min(1.0);
             list.push_opacity(opacity);
@@ -356,6 +443,10 @@ impl Element for AnimatedElement {
     fn post_build_display_list(&self, list: &mut DisplayList, _clip: Rect) {
         if self.opacity_anim.is_some() {
             list.pop_opacity();
+        }
+
+        if self.has_3d() {
+            list.pop_effect_layer();
         }
 
         if self.translate_x.is_some()
@@ -372,13 +463,16 @@ impl Element for AnimatedElement {
     fn animate(&mut self, dt: Duration) -> bool {
         let mut all_complete = true;
 
-        let anims: [&mut Option<Animation>; 7] = [
+        let anims: [&mut Option<Animation>; 10] = [
             &mut self.translate_x,
             &mut self.translate_y,
             &mut self.scale,
             &mut self.scale_x,
             &mut self.scale_y,
             &mut self.rotate,
+            &mut self.rotate_x,
+            &mut self.rotate_y,
+            &mut self.translate_z,
             &mut self.opacity_anim,
         ];
 
@@ -400,13 +494,16 @@ impl Element for AnimatedElement {
                     self.reverse = !self.reverse;
                 }
 
-                let reset_anims: [&mut Option<Animation>; 7] = [
+                let reset_anims: [&mut Option<Animation>; 10] = [
                     &mut self.translate_x,
                     &mut self.translate_y,
                     &mut self.scale,
                     &mut self.scale_x,
                     &mut self.scale_y,
                     &mut self.rotate,
+                    &mut self.rotate_x,
+                    &mut self.rotate_y,
+                    &mut self.translate_z,
                     &mut self.opacity_anim,
                 ];
                 for anim in reset_anims {

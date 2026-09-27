@@ -23,6 +23,7 @@ pub mod mss_properties;
 pub mod navigation;
 pub mod scroll;
 pub mod selection;
+pub mod three_d;
 #[cfg(feature = "terminal")]
 pub mod terminal;
 pub mod visual;

@@ -206,6 +206,24 @@ Each widget has a type name used in MSS selectors:
 }
 ```
 
+### 3D, отражения, частицы, увеличение
+
+```css
+.card {
+    rotate-x: 20deg;             /* 3D-наклон; rotate-y — поворот вокруг вертикали */
+    translate-z: 12px;
+    perspective: 400px;          /* по умолчанию — 4 × размер элемента */
+    backface-visibility: hidden;
+    box-reflect: below 3px 0.3 45%;
+    transform: perspective(400px) rotateY(30deg);   /* то же функциями */
+}
+.shelf { background-rotate-x: 56deg; background-perspective: 420px; }  /* наклон только подложки */
+.row { magnification: 1.8; magnification-range: 3; }                  /* Fisheye */
+.fx { particle-preset: sparkle; particle-hover-rate: 16; }            /* ParticleEmitter */
+```
+
+Подробно — [17-3d-particles-fisheye.md](17-3d-particles-fisheye.md).
+
 ### Text Inputs
 
 ```css

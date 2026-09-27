@@ -82,6 +82,7 @@ pub struct Renderer {
     blit_pipeline: wgpu::RenderPipeline,
     glow_shadow_pipeline: wgpu::RenderPipeline,
     glow_blit_pipeline: wgpu::RenderPipeline,
+    projected_pipeline: wgpu::RenderPipeline,
     image_pipeline: wgpu::RenderPipeline,
 
     uniform_buffer: wgpu::Buffer,
@@ -243,6 +244,12 @@ enum EffectRenderStep {
     },
     CopySceneToPool {
         dest: crate::gpu::texture_pool::PoolHandle,
+    },
+    /// Слой четырёхугольниками в однородных координатах (3D, отражение).
+    CompositeProjected {
+        source: crate::gpu::texture_pool::PoolHandle,
+        dest: EffectTarget,
+        quads: Vec<crate::core::ProjectedQuad>,
     },
 }
 
@@ -615,6 +622,20 @@ impl Renderer {
             surface_format,
         );
 
+        let projected_shader = gpu
+            .device
+            .create_shader_module(wgpu::ShaderModuleDescriptor {
+                label: Some("Projected Blit Shader"),
+                source: wgpu::ShaderSource::Wgsl(include_str!("../blit3d.wgsl").into()),
+            });
+        let projected_pipeline = Self::create_projected_pipeline(
+            &gpu.device,
+            "Projected Blit Pipeline",
+            &blit_pipeline_layout,
+            &projected_shader,
+            surface_format,
+        );
+
         let image_gpu_cache = ImageGpuCache::new(&gpu.device);
         let image_shader = gpu
             .device
@@ -648,6 +669,7 @@ impl Renderer {
             blit_pipeline,
             glow_shadow_pipeline,
             glow_blit_pipeline,
+            projected_pipeline,
             image_pipeline,
             uniform_buffer,
             uniform_bind_group,

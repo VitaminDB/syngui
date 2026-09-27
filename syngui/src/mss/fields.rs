@@ -73,6 +73,43 @@ const KNOWN_PROPERTIES: &[&str] = &[
     "translate-x",
     "translate-y",
     "rotate",
+    "rotate-x",
+    "rotate-y",
+    "rotate-z",
+    "translate-z",
+    "perspective",
+    "backface-visibility",
+    "box-reflect",
+    "background-rotate-x",
+    "background-rotate-y",
+    "background-perspective",
+    "magnification",
+    "magnification-range",
+    "magnification-falloff",
+    "magnification-speed",
+    "particle-preset",
+    "particle-rate",
+    "particle-hover-rate",
+    "particle-burst",
+    "particle-lifetime",
+    "particle-speed",
+    "particle-direction",
+    "particle-spread",
+    "particle-gravity",
+    "particle-drag",
+    "particle-size",
+    "particle-size-end",
+    "particle-color",
+    "particle-colors",
+    "particle-color-end",
+    "particle-shape",
+    "particle-spin",
+    "particle-glow",
+    "particle-wobble",
+    "particle-twinkle",
+    "particle-emitter",
+    "particle-layer",
+    "particle-max",
     "scale",
     "scale-x",
     "scale-y",
@@ -325,6 +362,16 @@ pub struct MssFields {
     pub line_height: Option<LineHeight>,
 
     pub transform_origin: Option<TransformOrigin>,
+    /// `backface-visibility: hidden` — не рисовать элемент, повёрнутый
+    /// в 3D обратной стороной.
+    pub backface_hidden: bool,
+    /// `box-reflect` — зеркальное отражение элемента.
+    pub box_reflect: Option<crate::core::Reflection>,
+    /// Наклон только подложки (фон, тень, рамка) — `background-rotate-x`,
+    /// `background-rotate-y`, `background-perspective`: 3D-«полка» дока под
+    /// ровными значками. Поддерживают контейнеры, рисующие подложку через
+    /// [`MssFields::paint_box`].
+    pub background_rotate: Option<(f32, f32, Option<f32>)>,
 
     pub opacity: Option<f32>,
     pub cursor: Option<CursorIcon>,
@@ -427,6 +474,9 @@ impl MssFields {
             clipboard_hint: None,
             line_height: None,
             transform_origin: None,
+            backface_hidden: false,
+            box_reflect: None,
+            background_rotate: None,
             opacity: None,
             cursor: None,
             box_shadow: None,
@@ -511,6 +561,9 @@ impl MssFields {
         self.caret_color = None;
         self.line_height = None;
         self.transform_origin = None;
+        self.backface_hidden = false;
+        self.box_reflect = None;
+        self.background_rotate = None;
         self.opacity = None;
         self.cursor = None;
         self.box_shadow = None;
@@ -686,6 +739,27 @@ impl MssFields {
         if let Some(s) = style.get("transform-origin").and_then(|v| v.as_string()) {
             if let Some(origin) = TransformOrigin::parse(s) {
                 self.transform_origin = Some(origin);
+            }
+        }
+        if let Some(s) = style.get("backface-visibility").and_then(|v| v.as_string()) {
+            self.backface_hidden = s.trim().eq_ignore_ascii_case("hidden");
+        }
+        if let Some(s) = style.get("box-reflect").and_then(|v| v.as_string()) {
+            self.box_reflect = crate::core::Reflection::parse(s);
+        }
+        {
+            let angle = |k: &str| -> Option<f32> {
+                let v = style.get(k)?;
+                match crate::mss::normalize_angle(v) {
+                    Some(StyleValue::Number(n)) => Some(n),
+                    _ => v.as_px(),
+                }
+            };
+            let rx = angle("background-rotate-x");
+            let ry = angle("background-rotate-y");
+            let persp = style.get("background-perspective").and_then(|v| v.as_px());
+            if rx.is_some() || ry.is_some() {
+                self.background_rotate = Some((rx.unwrap_or(0.0), ry.unwrap_or(0.0), persp));
             }
         }
 
@@ -965,6 +1039,46 @@ impl MssFields {
     pub fn resolved_corner_radii(&self, bounds: crate::core::Rect) -> [f32; 4] {
         let reference = bounds.size.width.min(bounds.size.height);
         self.border_radius_resolved(reference, 0.0)
+    }
+
+    /// Подложка целиком: внешние тени, фон, рамка — с наклоном
+    /// `background-rotate-x/y`, если он задан (содержимое не наклоняется).
+    pub fn paint_box(&self, list: &mut crate::render::DisplayList, bounds: crate::core::Rect) {
+        if bounds.size.width <= 0.0 || bounds.size.height <= 0.0 {
+            return;
+        }
+        let tilt = self.background_rotate.map(|(rx, ry, persp)| crate::core::Transform3D {
+            rotate_x: rx,
+            rotate_y: ry,
+            perspective: persp,
+            origin: self.transform_origin_or_center(bounds.size),
+            ..Default::default()
+        });
+        let tilt = tilt.filter(|t| t.is_active());
+        if let Some(t) = &tilt {
+            list.push_projected_layer(bounds, Some(t), None);
+        }
+        let radii = self.resolved_corner_radii(bounds);
+        if let Some(shadows) = &self.box_shadow {
+            for sh in shadows.0.iter().filter(|sh| !sh.inset) {
+                list.push_shadow(bounds, sh.color, sh.blur_radius, (sh.offset_x, sh.offset_y), radii);
+            }
+        }
+        if let Some(glow) = &self.glow {
+            for sh in &glow.0 {
+                list.push_glow_shadow(bounds, sh.color, sh.blur_radius, (sh.offset_x, sh.offset_y), radii);
+            }
+        }
+        self.paint_background(list, bounds);
+        if let Some(shadows) = &self.box_shadow {
+            for sh in shadows.0.iter().filter(|sh| sh.inset) {
+                list.push_inner_shadow(bounds, sh.color, sh.blur_radius, (sh.offset_x, sh.offset_y), radii);
+            }
+        }
+        self.paint_border(list, bounds);
+        if tilt.is_some() {
+            list.pop_effect_layer();
+        }
     }
 
     pub fn paint_background(
@@ -1408,6 +1522,55 @@ impl MssFields {
             t = t.then_translate(euclid::Vector2D::new(tx, ty));
         }
         Some(t)
+    }
+
+    /// Текущее значение анимируемого числового свойства: keyframe-анимация,
+    /// идущий переход, целевое значение стиля (с учётом `:hover` и т.п.).
+    fn active_float(&self, property: &str) -> Option<f32> {
+        use crate::animation::transition::AnimatedValue;
+        let float = |v: AnimatedValue| match v {
+            AnimatedValue::Float(f) => Some(f),
+            _ => None,
+        };
+        self.keyframe_animation
+            .as_ref()
+            .filter(|a| a.is_running())
+            .and_then(|a| float(a.current_values().get(property)))
+            .or_else(|| self.transition.get_animated_value(property).and_then(float))
+            .or_else(|| self.current_target.as_ref().and_then(|t| float(t.get(property))))
+    }
+
+    /// 3D-трансформация (`rotate-x`, `rotate-y`, `translate-z`,
+    /// `perspective`, `backface-visibility`) — `None`, если элемент плоский.
+    pub fn compute_active_transform_3d(
+        &self,
+        bounds: crate::core::Rect,
+    ) -> Option<crate::core::Transform3D> {
+        let rx = self.active_float("rotate-x").unwrap_or(0.0);
+        let ry = self.active_float("rotate-y").unwrap_or(0.0);
+        let tz = self.active_float("translate-z").unwrap_or(0.0);
+        let t = crate::core::Transform3D {
+            rotate_x: rx,
+            rotate_y: ry,
+            rotate_z: 0.0,
+            translate_z: tz,
+            perspective: self.active_float("perspective"),
+            origin: self.transform_origin_or_center(bounds.size),
+            backface_visible: !self.backface_hidden,
+        };
+        t.is_active().then_some(t)
+    }
+
+    /// Нужен ли элементу слой проекции (3D или отражение).
+    pub fn projected_layer_params(
+        &self,
+        bounds: crate::core::Rect,
+    ) -> Option<(Option<crate::core::Transform3D>, Option<crate::core::Reflection>)> {
+        let t3d = self.compute_active_transform_3d(bounds);
+        if t3d.is_none() && self.box_reflect.is_none() {
+            return None;
+        }
+        Some((t3d, self.box_reflect))
     }
 
     pub fn transform_text<'a>(&self, text: &'a str) -> Cow<'a, str> {

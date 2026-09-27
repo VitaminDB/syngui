@@ -33,6 +33,8 @@ pub fn component_styles() -> &'static str {
         "\n",
         include_str!("../styles/pages/gradients.mss"),
         "\n",
+        include_str!("../styles/pages/three_d.mss"),
+        "\n",
         include_str!("../styles/pages/charts.mss"),
         "\n",
         include_str!("../styles/pages/visual_effects.mss"),
