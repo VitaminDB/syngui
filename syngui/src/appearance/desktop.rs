@@ -4,7 +4,7 @@
 //! опрашивается через `gsettings` (dconf — бинарный формат), ровно как это уже
 //! делает [`crate::input::resolve_double_click_interval`].
 
-use super::{ColorScheme, SystemAppearance};
+use super::{ColorScheme, SystemAppearance, SystemPalette};
 use crate::core::Color;
 
 pub(super) fn read() -> Option<SystemAppearance> {
@@ -18,7 +18,7 @@ pub(super) fn read() -> Option<SystemAppearance> {
 /// а если он не задан (акцент берётся из схемы) — `[Colors:Selection]
 /// BackgroundNormal`.
 fn kde() -> Option<SystemAppearance> {
-    let text = std::fs::read_to_string(config_dir()?.join("kdeglobals")).ok()?;
+    let text = read_kdeglobals()?;
     let ini = Ini::parse(&text);
 
     let scheme_mode = ini.get("General", "ColorSchemeMode");
@@ -49,7 +49,88 @@ fn kde() -> Option<SystemAppearance> {
         accent,
         high_contrast: false,
         reduced_motion: false,
+        palette: kde_palette(&ini),
     })
+}
+
+fn read_kdeglobals() -> Option<String> {
+    std::fs::read_to_string(config_dir()?.join("kdeglobals")).ok()
+}
+
+/// Сеанс KDE Plasma (по `XDG_CURRENT_DESKTOP`).
+fn is_kde_session() -> bool {
+    std::env::var("XDG_CURRENT_DESKTOP")
+        .map(|v| v.split(':').any(|d| d.eq_ignore_ascii_case("KDE")))
+        .unwrap_or(false)
+}
+
+/// Портал сообщает только схему и акцент — палитру у KDE добираем из
+/// `kdeglobals`. В чужих сеансах файл может остаться от давнего запуска
+/// Plasma и не иметь к текущей теме отношения, поэтому только в KDE.
+pub(super) fn with_kde_palette(mut appearance: SystemAppearance) -> SystemAppearance {
+    if appearance.palette.is_none() && is_kde_session() {
+        appearance.palette = kde_palette_file();
+    }
+    appearance
+}
+
+/// Палитра из `kdeglobals` на диске.
+pub(super) fn kde_palette_file() -> Option<SystemPalette> {
+    kde_palette(&Ini::parse(&read_kdeglobals()?))
+}
+
+/// Палитра из `kdeglobals`, если его цвета записал syndesktop (схема
+/// `Syndesktop`). Иначе там цвета, к теме syndesktop не относящиеся.
+pub(super) fn syndesktop_palette() -> Option<SystemPalette> {
+    let text = read_kdeglobals()?;
+    let ini = Ini::parse(&text);
+    if ini.get("General", "ColorScheme") != Some("Syndesktop") {
+        return None;
+    }
+    kde_palette(&ini)
+}
+
+/// Роли палитры из групп `[Colors:*]`. Без `[Colors:Window]` и
+/// `[Colors:View]` палитры нет; остальное достраивается от них.
+fn kde_palette(ini: &Ini) -> Option<SystemPalette> {
+    let get = |group: &str, key: &str| ini.get(group, key).and_then(parse_rgb);
+    let window = get("Colors:Window", "BackgroundNormal")?;
+    let view = get("Colors:View", "BackgroundNormal")?;
+    let fg = get("Colors:Window", "ForegroundNormal")
+        .or_else(|| get("Colors:View", "ForegroundNormal"))?;
+    let muted = get("Colors:Window", "ForegroundInactive").unwrap_or_else(|| mix(fg, window, 0.4));
+    let accent = ini
+        .get("General", "AccentColor")
+        .and_then(parse_rgb)
+        .or_else(|| get("Colors:Selection", "BackgroundNormal"))
+        .or_else(|| get("Colors:Window", "DecorationFocus"))
+        .unwrap_or_else(|| Color::from_hex("#3D8BFD"));
+    Some(SystemPalette {
+        window,
+        view,
+        view_alt: get("Colors:View", "BackgroundAlternate").unwrap_or_else(|| mix(view, fg, 0.04)),
+        button: get("Colors:Button", "BackgroundNormal").unwrap_or(window),
+        header: get("Colors:Header", "BackgroundNormal").unwrap_or(window),
+        tooltip: get("Colors:Tooltip", "BackgroundNormal").unwrap_or(window),
+        fg,
+        muted,
+        // Отдельного цвета рамок у KDE нет: Breeze смешивает текст с фоном.
+        border: mix(window, fg, 0.2),
+        accent,
+        accent_fg: get("Colors:Selection", "ForegroundNormal").unwrap_or_else(|| accent.readable_on()),
+        link: get("Colors:View", "ForegroundLink").unwrap_or(accent),
+        danger: get("Colors:View", "ForegroundNegative").unwrap_or_else(|| Color::from_hex("#DA4453")),
+        success: get("Colors:View", "ForegroundPositive").unwrap_or_else(|| Color::from_hex("#27AE60")),
+        warning: get("Colors:View", "ForegroundNeutral").unwrap_or_else(|| Color::from_hex("#F67400")),
+    })
+}
+
+/// Смесь в sRGB, как у тем KDE: `t = 0` — `a`, `t = 1` — `b`.
+fn mix(a: Color, b: Color, t: f32) -> Color {
+    let [ar, ag, ab] = a.to_srgb_u8();
+    let [br, bg, bb] = b.to_srgb_u8();
+    let m = |x: u8, y: u8| ((x as f32 + (y as f32 - x as f32) * t) / 255.0).clamp(0.0, 1.0);
+    Color::from_srgb_f32(m(ar, br), m(ag, bg), m(ab, bb))
 }
 
 /// `R,G,B` (Plasma хранит компоненты как десятичные байты).
@@ -79,6 +160,7 @@ fn gnome() -> Option<SystemAppearance> {
         accent,
         high_contrast: false,
         reduced_motion: false,
+        palette: None,
     })
 }
 
@@ -167,6 +249,23 @@ mod tests {
             Some("50,50,50")
         );
         assert_eq!(ini.get("General", "BackgroundNormal"), None);
+    }
+
+    #[test]
+    fn palette_from_color_groups() {
+        let ini = Ini::parse(
+            "[General]\nColorScheme=Syndesktop\n\n[Colors:Selection]\nBackgroundNormal=94,234,212\nForegroundNormal=0,0,0\n\n[Colors:View]\nBackgroundNormal=10,20,30\nForegroundNegative=251,113,133\n\n[Colors:Window]\nBackgroundNormal=15,32,51\nForegroundNormal=234,246,255\nForegroundInactive=167,192,214\n",
+        );
+        let p = kde_palette(&ini).expect("палитра");
+        assert!(p.is_dark());
+        assert_eq!(p.window.to_hex(), "#0F2033");
+        assert_eq!(p.view.to_hex(), "#0A141E");
+        assert_eq!(p.accent.to_hex(), "#5EEAD4");
+        assert_eq!(p.accent_fg.to_hex(), "#000000");
+        assert_eq!(p.muted.to_hex(), "#A7C0D6");
+        assert_eq!(p.danger.to_hex(), "#FB7185");
+        // Без фона содержимого палитры нет.
+        assert!(kde_palette(&Ini::parse("[Colors:Window]\nBackgroundNormal=1,2,3\n")).is_none());
     }
 
     #[test]

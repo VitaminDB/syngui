@@ -53,7 +53,20 @@ fn read_config() -> Option<String> {
 
 pub(super) fn read_appearance() -> Option<SystemAppearance> {
     let text = read_config()?;
-    Some(appearance_from(&Toml::parse(&text)))
+    let mut appearance = appearance_from(&Toml::parse(&text));
+    // Итоговую палитру темы (вместе с её акцентом и светлотой — у темы с
+    // одним вариантом схема из конфига не решает) syndesktop пишет в
+    // `kdeglobals` для Qt и GTK; оттуда её берём и мы.
+    if let Some(palette) = super::desktop::syndesktop_palette() {
+        appearance.color_scheme = if palette.is_dark() {
+            ColorScheme::Dark
+        } else {
+            ColorScheme::Light
+        };
+        appearance.accent = Some(palette.accent);
+        appearance.palette = Some(palette);
+    }
+    Some(appearance)
 }
 
 pub(super) fn read_decorations() -> Option<SystemDecorations> {
@@ -74,6 +87,7 @@ fn appearance_from(cfg: &Toml) -> SystemAppearance {
         reduced_motion: cfg
             .get("animations", "enabled")
             .is_some_and(|v| v == "false"),
+        palette: None,
     }
 }
 

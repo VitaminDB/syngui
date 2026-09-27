@@ -64,6 +64,47 @@ pub struct SystemAppearance {
     pub high_contrast: bool,
     /// `reduced-motion` из портала: анимации стоит сократить.
     pub reduced_motion: bool,
+    /// Полная палитра рабочего стола — те же цвета, что получают программы
+    /// GTK и Qt. `None` — система сообщает только схему и акцент.
+    pub palette: Option<SystemPalette>,
+}
+
+/// Цвета рабочего стола по ролям — как их видят программы GTK и Qt.
+///
+/// Источник — группы `[Colors:*]` из `kdeglobals`: их пишет KDE, а в сеансе
+/// syndesktop — сам syndesktop из своей темы (`[appearance] app_colors`),
+/// чтобы Qt и GTK красились под неё. Поэтому палитра одна и та же у всех
+/// программ сеанса.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct SystemPalette {
+    /// Фон окна: панели инструментов, боковые панели, диалоги.
+    pub window: Color,
+    /// Фон содержимого: списки, поля ввода, редакторы.
+    pub view: Color,
+    /// Чередующиеся строки / приподнятые участки содержимого.
+    pub view_alt: Color,
+    pub button: Color,
+    /// Заголовок активного окна.
+    pub header: Color,
+    pub tooltip: Color,
+    pub fg: Color,
+    /// Второстепенный текст.
+    pub muted: Color,
+    pub border: Color,
+    pub accent: Color,
+    /// Текст на акценте.
+    pub accent_fg: Color,
+    pub link: Color,
+    pub danger: Color,
+    pub success: Color,
+    pub warning: Color,
+}
+
+impl SystemPalette {
+    /// Тёмная ли палитра — по яркости фона окна.
+    pub fn is_dark(&self) -> bool {
+        self.window.relative_luminance() < 0.18
+    }
 }
 
 impl SystemAppearance {
@@ -84,7 +125,7 @@ pub fn read_system_appearance() -> SystemAppearance {
 #[cfg(all(target_os = "linux", feature = "system-theme"))]
 fn read_platform() -> Option<SystemAppearance> {
     syndesktop::read_appearance()
-        .or_else(portal::read)
+        .or_else(|| portal::read().map(desktop::with_kde_palette))
         .or_else(desktop::read)
 }
 

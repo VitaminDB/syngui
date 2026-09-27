@@ -38,7 +38,7 @@ where
 {
     let connection = connect()?;
     let proxy = proxy(&connection)?;
-    let mut current = read_all(&proxy)?;
+    let mut current = super::desktop::with_kde_palette(read_all(&proxy)?);
 
     let signals = match proxy.receive_signal("SettingChanged") {
         Ok(s) => s,
@@ -56,11 +56,16 @@ where
         let Ok((namespace, key, value)) = body.deserialize::<(String, String, Value<'_>)>() else {
             continue;
         };
-        if namespace != NAMESPACE {
+        let previous = current;
+        if namespace == NAMESPACE {
+            apply(&mut current, &key, &value);
+        } else if namespace.starts_with("org.kde.kdeglobals") && current.palette.is_some() {
+            // KDE оповещает о правке цветовых групп `kdeglobals` через тот
+            // же сигнал; сам файл к этому моменту уже записан.
+            current.palette = super::desktop::kde_palette_file();
+        } else {
             continue;
         }
-        let previous = current;
-        apply(&mut current, &key, &value);
         if current != previous {
             on_change(current);
         }
