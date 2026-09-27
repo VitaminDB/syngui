@@ -669,6 +669,10 @@ impl FontAtlas {
         }
     }
 
+    fn is_private_use(ch: char) -> bool {
+        matches!(ch as u32, 0xE000..=0xF8FF | 0xF0000..=0xFFFFD | 0x100000..=0x10FFFD)
+    }
+
     fn ensure_glyph(&mut self, ch: char, size_px: u16) -> Option<GlyphKey> {
         if Self::is_likely_emoji(ch) {
             if let Some(key) = self.ensure_glyph_in(ch, size_px, FONT_EMOJI) {
@@ -724,6 +728,14 @@ impl FontAtlas {
         weight: FontWeight,
         font_family: Option<&str>,
     ) -> Option<GlyphKey> {
+        // Приватная область Unicode — это значки зарегистрированного
+        // иконочного шрифта. Текстовые шрифты бывают со своими глифами там же
+        // (у Inter — U+E000…), и основной шрифт подменял бы значок.
+        if Self::is_private_use(ch) {
+            if let Some(k) = self.ensure_glyph_in(ch, size_px, FONT_ICON) {
+                return Some(k);
+            }
+        }
         let class = weight.class();
         if matches!(class, 500 | 600) {
             if let Some(idx) = self.weight_face(font_family, class) {
@@ -1592,5 +1604,31 @@ mod cluster_tests {
         let ids: Vec<u32> = out.glyph_infos().iter().map(|g| g.glyph_id).collect();
         assert_eq!(ids.len(), 1, "ожидали лигатуру, получили {ids:?}");
         assert_ne!(ids[0], 0);
+    }
+}
+
+#[cfg(all(test, feature = "material-icons", not(target_arch = "wasm32"), not(target_os = "android")))]
+mod private_use_tests {
+    use super::*;
+
+    /// Значок из приватной области берётся из иконочного шрифта, даже если
+    /// основной шрифт несёт свой глиф на той же позиции (Inter: U+E000…).
+    #[test]
+    fn icon_font_wins_in_private_use_area() {
+        let instance = wgpu::Instance::default();
+        let Ok(adapter) = pollster::block_on(instance.request_adapter(&wgpu::RequestAdapterOptions::default())) else {
+            return; // нет GPU — нечего проверять
+        };
+        let Ok((device, queue)) = pollster::block_on(adapter.request_device(&wgpu::DeviceDescriptor::default())) else {
+            return;
+        };
+        let mut atlas = FontAtlas::with_config(&device, &queue, Some("Inter".into()));
+        atlas.set_icon_font_data(crate::text::icon_fonts::material::FONT_DATA.to_vec());
+        let volume_up = '\u{E050}';
+        let key = atlas.ensure_glyph_weighted(volume_up, 20, FontWeight(400), None).expect("глиф значка");
+        assert_eq!(key.font_index, FONT_ICON);
+        // Обычный текст — по-прежнему из основного шрифта.
+        let key = atlas.ensure_glyph_weighted('A', 20, FontWeight(400), None).expect("глиф буквы");
+        assert_ne!(key.font_index, FONT_ICON);
     }
 }
