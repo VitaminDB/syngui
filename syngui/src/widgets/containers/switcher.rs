@@ -425,23 +425,9 @@ impl Element for SwitcherElement {
     fn build_children(&self) -> Vec<Box<dyn Widget>> {
         let mut out: Vec<Box<dyn Widget>> = Vec::with_capacity(2);
         if let Some((key, version, builder)) = &self.outgoing {
-            out.push(Box::new(Slot {
-                key: *key,
-                version: *version,
-                role: Role::Exit,
-                direction: self.direction,
-                params: self.params,
-                builder: builder.clone(),
-            }));
+            out.push(Box::new(Slot::new(*key, *version, Role::Exit, self.direction, self.params, builder.clone())));
         }
-        out.push(Box::new(Slot {
-            key: self.current.0,
-            version: self.current.1,
-            role: Role::Enter,
-            direction: self.direction,
-            params: self.params,
-            builder: self.current.2.clone(),
-        }));
+        out.push(Box::new(Slot::new(self.current.0, self.current.1, Role::Enter, self.direction, self.params, self.current.2.clone())));
         out
     }
 
@@ -510,11 +496,18 @@ enum Role {
 
 struct Slot {
     key: u64,
-    version: u64,
     role: Role,
     direction: f32,
     params: Params,
-    builder: Builder,
+    /// Содержимое: `Keyed` с постоянными ключом и версией — строится один
+    /// раз, при сверке дерева остаётся на месте.
+    keyed: Keyed,
+}
+
+impl Slot {
+    fn new(key: u64, version: u64, role: Role, direction: f32, params: Params, builder: Builder) -> Self {
+        Self { key, role, direction, params, keyed: Keyed::from_arc(key, version, builder) }
+    }
 }
 
 impl Widget for Slot {
@@ -545,10 +538,13 @@ impl Widget for Slot {
     }
 
     fn mount(&self, tree: &mut ElementTree, parent_id: ElementId) {
-        let keyed = Keyed::from_arc(self.key, self.version, self.builder.clone());
-        let el = keyed.create_element();
-        let id = tree.insert_with_type_id(el, Some(parent_id), keyed.as_any().type_id());
-        keyed.mount(tree, id);
+        let el = self.keyed.create_element();
+        let id = tree.insert_with_type_id(el, Some(parent_id), self.keyed.as_any().type_id());
+        self.keyed.mount(tree, id);
+    }
+
+    fn child_widgets(&self) -> Vec<&dyn Widget> {
+        vec![&self.keyed as &dyn Widget]
     }
 
     fn widget_key(&self) -> Option<u64> {

@@ -1012,11 +1012,14 @@ impl MssFields {
         let has_paint = |s: &ResolvedProps| {
             s.background_color().is_some() || s.color().is_some() || s.border_color().is_some()
         };
+        // Следить за наведением/нажатием нужно и когда у состояния нет
+        // цветов, но есть что-то другое (rotate-y, translate-z, opacity):
+        // иначе `:hover { rotate-x: 22deg }` у плитки с градиентом не срабатывал.
         self.has_mss_styles = self.style_normal.as_ref().map(has_paint).unwrap_or(false)
-            || self.style_hover.as_ref().map(has_paint).unwrap_or(false)
-            || self.style_active.as_ref().map(has_paint).unwrap_or(false)
-            || self.style_focus.as_ref().map(has_paint).unwrap_or(false)
-            || self.style_selected.as_ref().map(has_paint).unwrap_or(false);
+            || hover.is_some()
+            || active.is_some()
+            || focus.is_some()
+            || selected.is_some();
 
         self.filter_normal = Self::extract_filter(base);
         self.filter_hover = hover.and_then(Self::extract_filter);
