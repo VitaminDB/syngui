@@ -40,6 +40,9 @@
 .nav-item:hover { background: rgba(255, 255, 255, 0.09); }
 /* Активная вкладка перетекает в карточку. */
 .nav-item-active { background: var(--bg-base); flow-color: var(--bg-base); }
+/* Наведение на активную не превращает её в призрак: `.nav-item:hover`
+ * специфичнее `.nav-item-active`, и вкладка серела при ушках цвета карточки. */
+.nav-item-active:hover { background: var(--bg-base); }
 .nav-icon { icon-size: 18px; icon-color: var(--header-text); icon-opacity: 0.8; transition: icon-color 160ms ease-out; }
 .nav-item-active .nav-icon { icon-color: var(--accent); icon-opacity: 1; }
 .nav-text { color: var(--header-text); font-size: 13px; }
