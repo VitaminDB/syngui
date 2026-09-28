@@ -17,7 +17,7 @@
     padding: 14px 10px 4px 10px;
 }
 .nav-item {
-    padding: 7px 10px 7px 10px;
+    padding: 8px 10px 8px 10px;
     margin-right: 10px;
     border-radius: 10px;
     transition: background-color 160ms ease-out, margin-right 220ms emphasized;

@@ -1165,6 +1165,41 @@ impl MssFields {
         }
     }
 
+    /// Фон перетекающего бокса тем же жёстким многоугольником, что и
+    /// «ушки»: шейдер скруглённого прямоугольника размывает кромку на
+    /// пиксель внутрь, и между боксом и ушками оставался полупрозрачный шов.
+    pub fn paint_flow_box(&self, list: &mut crate::render::DisplayList, bounds: crate::core::Rect, bg: Color, radii: [f32; 4]) {
+        if bg.a <= 0.0 || bounds.size.width <= 0.0 || bounds.size.height <= 0.0 {
+            return;
+        }
+        let (x0, y0) = (bounds.origin.x, bounds.origin.y);
+        let (x1, y1) = (x0 + bounds.size.width, y0 + bounds.size.height);
+        let max_r = bounds.size.width.min(bounds.size.height) / 2.0;
+        let r = radii.map(|v| v.clamp(0.0, max_r));
+        let mut pts: Vec<(f32, f32)> = Vec::with_capacity(52);
+        // Углы по часовой: TL, TR, BR, BL; дуга — 12 отрезков.
+        let arc = |pts: &mut Vec<(f32, f32)>, cx: f32, cy: f32, rr: f32, a0: f32| {
+            if rr <= 0.0 {
+                pts.push((cx, cy));
+                return;
+            }
+            for i in 0..=12 {
+                let a = a0 + i as f32 / 12.0 * std::f32::consts::FRAC_PI_2;
+                pts.push((cx + rr * a.cos(), cy + rr * a.sin()));
+            }
+        };
+        arc(&mut pts, x0 + r[0], y0 + r[0], r[0], std::f32::consts::PI);
+        arc(&mut pts, x1 - r[1], y0 + r[1], r[1], -std::f32::consts::FRAC_PI_2);
+        arc(&mut pts, x1 - r[2], y1 - r[2], r[2], 0.0);
+        arc(&mut pts, x0 + r[3], y1 - r[3], r[3], std::f32::consts::FRAC_PI_2);
+        let mut ctx = crate::core::canvas::CanvasContext::new(crate::core::Point::zero(), bounds.size);
+        ctx.set_color(bg);
+        ctx.set_anti_alias(0.0);
+        ctx.fill_polygon(&pts);
+        ctx.flush(list);
+        self.paint_flow(list, bounds, bg);
+    }
+
     /// Вогнутые «ушки» снаружи края `flow-edge`: карточка перетекает в
     /// панель, к которой примыкает. Рисуются за пределами `bounds`, поэтому
     /// родитель не должен обрезать содержимое по краю.

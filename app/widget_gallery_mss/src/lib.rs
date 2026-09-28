@@ -184,7 +184,9 @@ fn build_sidebar() -> impl Widget {
         Page::new().vertical().scrollbar_policy(ScrollbarPolicy::Auto).child(
             Column::new().gap(0.0).cross_axis_alignment(CrossAxisAlignment::Stretch).class("nav-list").child(move || {
                 let cur = current.get();
-                let mut col = Column::new().gap(2.0).cross_axis_alignment(CrossAxisAlignment::Stretch);
+                // Без зазора между пунктами: у активной вкладки, перетекающей
+                // в карточку, зазор читался бы тёмной линией по краю.
+                let mut col = Column::new().gap(0.0).cross_axis_alignment(CrossAxisAlignment::Stretch);
                 for group in GROUPS {
                     col = col.child(Text::new(tr!(&format!("gallery.group.{group}"))).class("nav-group"));
                     for s in SECTIONS.iter().filter(|s| s.group == *group) {

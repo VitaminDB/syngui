@@ -433,10 +433,25 @@ impl Element for DecoratedBoxElement {
         if use_gradient {
             let grad = self.mss.background_gradient.as_ref().unwrap().clone();
             list.push_gradient_rect(self.bounds, grad, radii);
-        } else {
+        } else if self.mss.flow_edge.is_none() {
             list.push_rect(self.bounds, bg, radii);
         }
-        self.mss.paint_flow(list, self.bounds, bg);
+        if self.mss.flow_edge.is_some() {
+            // Перетекающий бокс: границы на дробных координатах дали бы
+            // полупрозрачную кромку сверху и снизу — шов между вкладкой и
+            // её «ушками». Фон и ушки рисуются по целым пикселям.
+            let o = self.bounds.origin;
+            let e = Point::new(o.x + self.bounds.size.width, o.y + self.bounds.size.height);
+            let snapped = Rect::new(
+                Point::new(o.x.round(), o.y.round()),
+                Size::new(e.x.round() - o.x.round(), e.y.round() - o.y.round()),
+            );
+            if use_gradient {
+                self.mss.paint_flow(list, snapped, bg);
+            } else {
+                self.mss.paint_flow_box(list, snapped, bg, radii);
+            }
+        }
 
         if let Some(tint) = self.mss.color_tint {
             list.push_rect(self.bounds, tint, radii);
