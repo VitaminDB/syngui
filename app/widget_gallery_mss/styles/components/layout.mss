@@ -9,6 +9,8 @@
     /* Область прокрутки начинается ниже скругления карточки: вкладка,
      * доехавшая до верха, перетекает в прямой край карточки, а не в её угол. */
     padding-top: 18px;
+    /* Снизу так же: нижний угол карточки (18 px) плюс отступ рамки (12 px). */
+    padding-bottom: 30px;
 }
 .nav-page { padding: 8px 0px 12px 8px; }
 .nav-list { padding: 0px; }
@@ -19,23 +21,25 @@
     font-weight: 600;
     padding: 14px 10px 4px 10px;
 }
+/* Пункт навигации в форме вкладки: скруглён слева, плоский справа у
+ * карточки; ушки у карточки красятся текущим фоном пункта — при наведении
+ * это полупрозрачный «призрак» вкладки, у активного — цвет карточки. */
 .nav-item {
     padding: 8px 10px 8px 10px;
-    margin-right: 10px;
-    border-radius: 10px;
-    transition: background-color 160ms ease-out, margin-right 220ms emphasized;
-}
-.nav-item:hover { background: rgba(255, 255, 255, 0.08); }
-/* Активная вкладка вырастает до края панели и перетекает в карточку. */
-.nav-item-active {
-    background: var(--bg-base);
-    margin-right: 0px;
+    border-top-left-radius: 10px;
+    border-bottom-left-radius: 10px;
     border-top-right-radius: 0px;
     border-bottom-right-radius: 0px;
     flow-edge: right;
     flow-radius: 12px;
-    flow-color: var(--bg-base);
+    flow-color: #00000000;
+    transition: background-color 160ms ease-out;
 }
+/* Наведение — призрак вкладки: та же форма, плоский край у карточки,
+ * без ушек (ушки соседних пунктов спорили бы с ушками активной). */
+.nav-item:hover { background: rgba(255, 255, 255, 0.09); }
+/* Активная вкладка перетекает в карточку. */
+.nav-item-active { background: var(--bg-base); flow-color: var(--bg-base); }
 .nav-icon { icon-size: 18px; icon-color: var(--header-text); icon-opacity: 0.8; transition: icon-color 160ms ease-out; }
 .nav-item-active .nav-icon { icon-color: var(--accent); icon-opacity: 1; }
 .nav-text { color: var(--header-text); font-size: 13px; }
