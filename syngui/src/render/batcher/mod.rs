@@ -273,26 +273,25 @@ impl Batcher {
             texture,
             clip_rect: clip,
         };
+        // Слить с последним батчем того же ключа, если между ними нет
+        // батча, перекрывающего геометрию: иначе примитив ушёл бы под то,
+        // что рисуется после него. Правило одно для всех шейдеров, тени в
+        // том числе: тень плитки, слитая в первый батч теней (тень карточки
+        // раздела, созданная до её фона), оказывалась под фоном карточки; а
+        // фон плитки, слитый мимо батча её тени, ложился под собственную тень.
         let mut target: Option<usize> = None;
-        if shader == ShaderType::Shadow {
-            target = self.buckets.iter().position(|b| b.key == key);
-        } else {
-            for i in (0..self.buckets.len()).rev() {
-                let b = &self.buckets[i];
-                if b.key == key {
-                    target = Some(i);
-                    break;
-                }
-                if b.key.shader_type == ShaderType::Shadow {
-                    continue;
-                }
-                let blocks = match (&bbox, b.bbox_unknown) {
-                    (Some(bb), false) => bbox_overlaps(&b.bbox, bb),
-                    _ => true,
-                };
-                if blocks {
-                    break;
-                }
+        for i in (0..self.buckets.len()).rev() {
+            let b = &self.buckets[i];
+            if b.key == key {
+                target = Some(i);
+                break;
+            }
+            let blocks = match (&bbox, b.bbox_unknown) {
+                (Some(bb), false) => bbox_overlaps(&b.bbox, bb),
+                _ => true,
+            };
+            if blocks {
+                break;
             }
         }
         let idx = match target {
@@ -462,6 +461,32 @@ mod tests {
     #[test]
     fn glow_shadow_has_no_cutout() {
         assert!(shadow_data2(false).iter().all(|d| d[2] == 0.0));
+    }
+
+    /// Тень плитки внутри карточки рисуется после фона карточки: слиться с
+    /// более ранним батчем теней (тень самой карточки) ей нельзя — между
+    /// ними батч фона, который её перекрывает.
+    #[test]
+    fn shadow_does_not_merge_under_covering_rect() {
+        use crate::core::{Color, Point, Rect, Size};
+        let mut b = Batcher::new();
+        let clip = ClipRect::full_screen();
+        let card = Rect::new(Point::new(0.0, 0.0), Size::new(400.0, 300.0));
+        let tile = Rect::new(Point::new(40.0, 40.0), Size::new(100.0, 100.0));
+        b.ensure_batch_rect(ShaderType::Shadow, None, clip, card.inflate(20.0, 20.0));
+        b.add_shadow(card, Color::BLACK, 8.0, (0.0, 4.0), [12.0; 4], true);
+        b.ensure_batch_rect(ShaderType::Rect, None, clip, card);
+        b.add_rect(card, Color::WHITE, [12.0; 4]);
+        b.ensure_batch_rect(ShaderType::Shadow, None, clip, tile.inflate(30.0, 30.0));
+        b.add_shadow(tile, Color::BLACK, 26.0, (0.0, 10.0), [18.0; 4], true);
+        b.ensure_batch_rect(ShaderType::Rect, None, clip, tile);
+        b.add_rect(tile, Color::BLUE, [18.0; 4]);
+        let order: Vec<ShaderType> = b.buckets.iter().map(|k| k.key.shader_type).collect();
+        assert_eq!(
+            order,
+            vec![ShaderType::Shadow, ShaderType::Rect, ShaderType::Shadow, ShaderType::Rect],
+            "тень плитки и её фон идут после фона карточки"
+        );
     }
 
     /// Масштаб и поворот сетку не сохраняют при любом смещении.
