@@ -242,9 +242,17 @@ impl StepperElement {
         self.mss.border_width.unwrap_or(2.0)
     }
 
-    /// Меряем тем весом, каким рисуем (все подписи — `font_weight()` из MSS).
+    /// Меряем тем весом, каким рисуем: подписи шагов — полужирным (600,
+    /// как у активного шага и у таблеток), вспомогательный текст — весом из MSS.
     fn measure_text(&self, text: &str, size: f32) -> f32 {
-        let weight = self.font_weight();
+        self.measure_text_weight(text, size, self.font_weight())
+    }
+
+    fn measure_label(&self, text: &str, size: f32) -> f32 {
+        self.measure_text_weight(text, size, self.font_weight().max(600))
+    }
+
+    fn measure_text_weight(&self, text: &str, size: f32, weight: u16) -> f32 {
         self.text_measure
             .as_ref()
             .map(|tm| {
@@ -272,7 +280,7 @@ impl StepperElement {
         self.step_rects.clear();
 
         for (i, step) in self.steps.iter().enumerate() {
-            let label_w = self.measure_text(&step.label, font_size);
+            let label_w = self.measure_label(&step.label, font_size);
             let support_w = step
                 .support_text
                 .as_ref()
@@ -318,7 +326,7 @@ impl StepperElement {
 
         let mut step_widths: Vec<f32> = Vec::new();
         for step in &self.steps {
-            let label_w = self.measure_text(&step.label, font_size);
+            let label_w = self.measure_label(&step.label, font_size);
             let support_w = step
                 .support_text
                 .as_ref()

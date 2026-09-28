@@ -234,9 +234,11 @@ impl Element for BreadcrumbElement {
         let bold: u16 = self.mss.font_weight_or(400);
         let sep_w = self.separator_width();
         let item_h = self.item_height();
+        let last_index = self.items.len().saturating_sub(1);
 
         for (i, item) in self.items.iter().enumerate() {
-            let item_width = self.item_box_width(item, bold);
+            // Последняя крошка рисуется полужирной — мерить её тем же весом.
+            let item_width = self.item_box_width(item, if i == last_index { bold.max(600) } else { bold });
             let item_rect = Rect::new(Point::new(total_width, 0.0), Size::new(item_width, item_h));
             self.item_rects.push(item_rect);
             total_width += item_width;
@@ -290,7 +292,7 @@ impl Element for BreadcrumbElement {
             let is_last = i == last_index;
             let is_hover = self.hover_index == Some(i) && !is_last;
 
-            let item_width = self.item_box_width(item, bold);
+            let item_width = self.item_box_width(item, if is_last { bold.max(600) } else { bold });
             let item_rect = Rect::new(
                 Point::new(x, self.bounds.y()),
                 Size::new(item_width, item_h),
