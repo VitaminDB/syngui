@@ -1010,3 +1010,26 @@ mod tests {
         assert_eq!(m.y, 5.0);
     }
 }
+
+#[cfg(test)]
+mod heart_tests {
+    use super::*;
+
+    /// Контур сердечка (частицы `hearts`): невыпуклый, с выемкой сверху —
+    /// ear-clipping обязан его залить, иначе всплеск невидим.
+    #[test]
+    fn heart_outline_is_filled() {
+        let size = 10.0f32;
+        let mut pts = Vec::new();
+        for i in 0..24 {
+            let a = i as f32 / 24.0 * std::f32::consts::TAU;
+            let x = 16.0 * a.sin().powi(3);
+            let y = -(13.0 * a.cos() - 5.0 * (2.0 * a).cos() - 2.0 * (3.0 * a).cos() - (4.0 * a).cos());
+            pts.push(Point::new(x / 32.0 * size, y / 32.0 * size));
+        }
+        let mut out = TessOutput::new();
+        tessellate_fill_polygon_concave(&pts, Color::WHITE, &mut out);
+        assert_eq!(out.vertices.len(), 24);
+        assert!(out.indices.len() >= 3 * 20, "треугольников: {}", out.indices.len() / 3);
+    }
+}

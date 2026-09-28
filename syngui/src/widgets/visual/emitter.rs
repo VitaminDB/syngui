@@ -321,17 +321,20 @@ impl ParticlePreset {
                 burst: 30,
                 ..base
             },
+            // Сердечки взлетают с верхней грани и разлетаются веером —
+            // с нижней грани и малой скоростью они всплывали под фоном
+            // элемента и блёкли раньше, чем показывались над ним.
             Self::Hearts => EmitterConfig {
                 shape: ParticleShape::Heart,
                 colors: vec![c("#ff4d6d"), c("#ff8fa3"), c("#ffccd5")],
-                size: (6.0, 12.0),
-                size_end: 0.6,
-                lifetime: (1.0, 2.0),
-                speed: (20.0, 60.0),
-                spread: 40.0,
-                gravity: (0.0, -20.0),
-                spin: 30.0,
-                emitter: EmitterShape::Line(2),
+                size: (8.0, 14.0),
+                size_end: 0.7,
+                lifetime: (1.2, 2.2),
+                speed: (60.0, 130.0),
+                spread: 70.0,
+                gravity: (0.0, -30.0),
+                spin: 40.0,
+                emitter: EmitterShape::Line(0),
                 burst: 24,
                 ..base
             },
@@ -904,7 +907,12 @@ impl EmitterElement {
         }
         let o = self.bounds.origin;
         let c = &self.config;
-        let mut canvas = CanvasContext::new(o, self.bounds.size);
+        // Точки фигур ниже уже экранные (`cx`, `cy` включают `o`), поэтому
+        // холст — с нулевым началом: с началом в `o` смещение прибавлялось
+        // дважды, и все фигуры из полигонов (звёзды, сердечки, конфетти,
+        // искры) улетали за пределы экрана — видны были только круги и
+        // свечение, которые рисуются прямоугольниками.
+        let mut canvas = CanvasContext::new(Point::zero(), self.bounds.size);
         let mut canvas_used = false;
         for p in &self.particles {
             let t = (p.age / p.life).clamp(0.0, 1.0);

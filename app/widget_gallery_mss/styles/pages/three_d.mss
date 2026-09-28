@@ -48,9 +48,12 @@
 .td-burst {
     padding: 10px 16px;
     border-radius: 12px;
-    background-color: var(--surface-alt, #2b2d31);
+    background-color: var(--bg-elevated);
+    border: 1px solid var(--border);
+    transition: background-color 120ms ease-out;
 }
-.td-burst-text { font-size: 13px; }
+.td-burst:hover { background-color: var(--section-hover); }
+.td-burst-text { font-size: 13px; color: var(--text); }
 
 .td-stream {
     width: 150px;
@@ -62,4 +65,8 @@
 .td-snow { particle-preset: snow; particle-rate: 18; }
 .td-smoke { particle-preset: smoke; particle-rate: 10; particle-emitter: point 50% 95%; }
 .td-hover-fx { particle-preset: sparkle; particle-hover-rate: 40; particle-emitter: pointer; particle-lifetime: 0.4s 0.9s; }
-.td-hover-box { background: linear-gradient(135deg, #2b2d55, #14151c); }
+.td-hover-box {
+    background: linear-gradient(135deg, #2b2d55, #14151c);
+    justify-content: center;
+    align-items: center;
+}
