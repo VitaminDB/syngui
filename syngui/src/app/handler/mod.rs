@@ -199,6 +199,18 @@ pub(super) fn is_wayland_session() -> bool {
 }
 
 impl AppHandler {
+    /// Отступы корневого layout: safe area, либо нули в режиме edge-to-edge
+    /// (корень на всё окно). Заодно публикует настоящую safe area для
+    /// [`crate::viewport::safe_area`].
+    pub(in crate::app) fn layout_insets(&self) -> crate::core::EdgeInsets {
+        crate::viewport::publish_safe_area(self.tree.safe_area);
+        if self.config.edge_to_edge {
+            crate::core::EdgeInsets::zero()
+        } else {
+            self.tree.safe_area
+        }
+    }
+
     pub(super) fn new(
         mut config: AppBuilder,
         root_factory: RootFactory,

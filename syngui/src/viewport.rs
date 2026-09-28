@@ -11,12 +11,13 @@
 
 use std::cell::Cell;
 
-use crate::core::{Point, Size};
+use crate::core::{EdgeInsets, Point, Size};
 use crate::signal::{create_effect, use_signal, RwSignal};
 
 thread_local! {
     static VIEWPORT: Cell<Option<RwSignal<Size>>> = const { Cell::new(None) };
     static ORIGIN: Cell<(f32, f32)> = const { Cell::new((0.0, 0.0)) };
+    static SAFE: Cell<EdgeInsets> = const { Cell::new(EdgeInsets::zero()) };
 }
 
 /// Логический размер вьюпорта главного окна. Сигнал живёт в runtime главного
@@ -68,4 +69,19 @@ pub fn viewport_origin() -> Point {
 /// Публикация смещения layout-области фреймворком (вместе с [`publish`]).
 pub(crate) fn publish_origin(origin: Point) {
     ORIGIN.with(|c| c.set((origin.x, origin.y)));
+}
+
+/// Safe area окна: отступы от краёв, под которыми системный UI (вырез камеры,
+/// статусбар, жестовая панель). На десктопе — нули. Без
+/// [`AppBuilder::edge_to_edge`](crate::app::AppBuilder::edge_to_edge) корень
+/// уже отодвинут на эти отступы; с ним — корень занимает всё окно, и по этим
+/// отступам приложение само сдвигает интерактивное содержимое.
+/// Не сигнал: изменение всегда сопровождается общим relayout.
+pub fn safe_area() -> EdgeInsets {
+    SAFE.with(|c| c.get())
+}
+
+/// Публикация safe area фреймворком.
+pub(crate) fn publish_safe_area(insets: EdgeInsets) {
+    SAFE.with(|c| c.set(insets));
 }

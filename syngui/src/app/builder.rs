@@ -76,6 +76,7 @@ pub struct AppBuilder {
     pub(super) min_width: u32,
     pub(super) min_height: u32,
     pub(super) background_color: Color,
+    pub(super) edge_to_edge: bool,
     pub(super) vsync: bool,
     pub(super) frame_limit: u32,
     pub(super) keep_warm: Option<std::time::Duration>,
@@ -149,6 +150,7 @@ impl AppBuilder {
             min_width: 400,
             min_height: 300,
             background_color: Color::from_hex("#F9FAFB"),
+            edge_to_edge: false,
             vsync: true,
             frame_limit: 0,
             keep_warm: None,
@@ -223,6 +225,18 @@ impl AppBuilder {
 
     pub fn background(mut self, color: Color) -> Self {
         self.background_color = color;
+        self
+    }
+
+    /// Корневой элемент занимает всё окно, включая safe area (вырез камеры,
+    /// статусбар, жестовую панель Android). По умолчанию корень отодвинут на
+    /// safe area, а полосы под ней заливаются цветом [`background`](Self::background),
+    /// который не может меняться вместе с фоном приложения (градиент, тема
+    /// уровня в игре). В режиме edge-to-edge приложение само рисует фон на
+    /// весь экран, а интерактивное содержимое держит внутри
+    /// [`crate::viewport::safe_area`].
+    pub fn edge_to_edge(mut self, enabled: bool) -> Self {
+        self.edge_to_edge = enabled;
         self
     }
 

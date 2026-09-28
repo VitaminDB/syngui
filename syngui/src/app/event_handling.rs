@@ -157,12 +157,13 @@ impl winit::application::ApplicationHandler<SynGuiUserEvent> for AppHandler {
                 if let Some(root_id) = self.root_id {
                     let logical_w = (physical_size.width as f64 / self.scale_factor) as f32;
                     let logical_h = (physical_size.height as f64 / self.scale_factor) as f32;
-                    let safe = &self.tree.safe_area;
+                    let safe = self.layout_insets();
                     let layout_h = (logical_h - safe.top - safe.bottom).max(0.0);
                     let layout_w = logical_w - safe.left - safe.right;
                     self.tree.root_offset =
                         crate::core::Point::new(safe.left, safe.top - self.tree.keyboard_pan);
                     crate::viewport::publish(crate::core::Size::new(layout_w, layout_h));
+                    crate::viewport::publish_origin(self.tree.root_offset);
                     let constraints = crate::layout::Constraints::new(0.0, layout_w, 0.0, layout_h);
                     self.tree.layout(root_id, constraints);
                     self.a11y_dirty = true;

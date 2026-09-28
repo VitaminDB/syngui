@@ -547,9 +547,10 @@ impl AppHandler {
 
             let logical_w = (self.config.width as f64 / self.scale_factor) as f32;
             let logical_h = (self.config.height as f64 / self.scale_factor) as f32;
-            let safe = &self.tree.safe_area;
+            let safe = self.layout_insets();
             let layout_h = (logical_h - safe.top - safe.bottom).max(0.0);
             self.tree.root_offset = crate::core::Point::new(safe.left, safe.top);
+            crate::viewport::publish_origin(self.tree.root_offset);
             crate::viewport::publish(crate::core::Size::new(
                 logical_w - safe.left - safe.right,
                 layout_h,
