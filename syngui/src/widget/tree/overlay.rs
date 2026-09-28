@@ -103,7 +103,41 @@ impl ElementTree {
             self.animation_registry.remove(&id);
         }
 
+        if self.tick_theme_fades(dt) {
+            needs_repaint = true;
+        }
+
         crate::perf::add_time(crate::perf::TimeKind::Animate, _t.elapsed());
         needs_repaint
+    }
+
+    /// Перетекание темы у элементов без своих переходов: каждый кадр им
+    /// применяется стиль с цветами на пути от старого к новому. Элемент,
+    /// которому уже назначен новый каскад (`styles_dirty`), из перетекания
+    /// выбывает — иначе оно затёрло бы свежий стиль.
+    fn tick_theme_fades(&mut self, dt: Duration) -> bool {
+        if self.theme_fades.is_empty() {
+            return false;
+        }
+        let dt_s = dt.as_secs_f32();
+        let mut fades = std::mem::take(&mut self.theme_fades);
+        let mut keep = Vec::with_capacity(fades.len());
+        for mut f in fades.drain(..) {
+            f.elapsed += dt_s;
+            let t = if f.duration > 0.0 { (f.elapsed / f.duration).clamp(0.0, 1.0) } else { 1.0 };
+            let Some(node) = self.elements.get_mut(&f.id) else { continue };
+            if node.styles_dirty {
+                continue;
+            }
+            let style = crate::mss::cascade::lerp_style(&f.from, &f.to, f.easing.apply(t));
+            node.element.reset_mss_styles();
+            node.element.apply_computed_style(&style);
+            node.element.mark_dirty(crate::widget::DirtyFlags::RENDER);
+            if t < 1.0 {
+                keep.push(f);
+            }
+        }
+        self.theme_fades = keep;
+        true
     }
 }

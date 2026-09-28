@@ -133,6 +133,7 @@ pub struct ItemView {
     on_background_double_click: Option<Cb<()>>,
     on_drop: Option<Cb<ItemDrop>>,
     on_scroll: Option<Cb<f32>>,
+    on_zoom: Option<Cb<i32>>,
     item_label: Option<LabelFn>,
     drag_start: Option<DragStartFn>,
     drop_filter: Option<DropFilter>,
@@ -157,6 +158,7 @@ impl ItemView {
             on_background_double_click: None,
             on_drop: None,
             on_scroll: None,
+            on_zoom: None,
             item_label: None,
             drag_start: None,
             drop_filter: None,
@@ -230,6 +232,13 @@ impl ItemView {
         self
     }
 
+    /// Ctrl+колесо над видом: `+1` — крупнее, `-1` — мельче (как в
+    /// проводниках). Пока не задан, Ctrl+колесо прокручивает, как обычно.
+    pub fn on_zoom(mut self, f: impl FnMut(i32) + Send + 'static) -> Self {
+        self.on_zoom = Some(Arc::new(Mutex::new(f)));
+        self
+    }
+
     /// Подпись элемента для поиска по первым буквам.
     pub fn item_label(mut self, f: impl Fn(usize) -> String + Send + Sync + 'static) -> Self {
         self.item_label = Some(Arc::new(f));
@@ -280,6 +289,7 @@ impl Widget for ItemView {
             on_background_double_click: None,
             on_drop: None,
             on_scroll: None,
+            on_zoom: None,
             item_label: None,
             drag_start: None,
             drop_filter: None,
@@ -360,6 +370,7 @@ struct ItemViewElement {
     on_background_double_click: Option<Cb<()>>,
     on_drop: Option<Cb<ItemDrop>>,
     on_scroll: Option<Cb<f32>>,
+    on_zoom: Option<Cb<i32>>,
     item_label: Option<LabelFn>,
     drag_start: Option<DragStartFn>,
     drop_filter: Option<DropFilter>,
@@ -416,6 +427,7 @@ impl ItemViewElement {
         self.on_background_double_click = w.on_background_double_click.clone();
         self.on_drop = w.on_drop.clone();
         self.on_scroll = w.on_scroll.clone();
+        self.on_zoom = w.on_zoom.clone();
         self.item_label = w.item_label.clone();
         self.drag_start = w.drag_start.clone();
         self.drop_filter = w.drop_filter.clone();
@@ -948,6 +960,12 @@ impl Element for ItemViewElement {
             Event::MouseWheel { delta, position, .. } => {
                 if !self.bounds.contains(*position) {
                     return EventResult::Ignored;
+                }
+                if m.ctrl && self.on_zoom.is_some() {
+                    if *delta != 0.0 {
+                        call(&self.on_zoom, if *delta > 0.0 { 1 } else { -1 });
+                    }
+                    return EventResult::Handled;
                 }
                 if self.max_scroll() <= 0.0 {
                     return EventResult::Ignored;

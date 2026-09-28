@@ -166,6 +166,8 @@ pub struct ElementTree {
     pub(crate) scroll_cull_stack: Vec<ScrollCullContext>,
     pub(crate) force_full_measure: bool,
     pub(crate) animation_registry: std::collections::HashSet<ElementId>,
+    /// Перетекания темы у элементов, которые сами переходы не тикают.
+    pub(crate) theme_fades: Vec<crate::mss::cascade::ThemeFade>,
     /// «Взведено»: с последнего обхода animate() могли начаться анимации
     /// (были события, рендер или новые элементы). Пустой обход снимает флаг —
     /// в простое update() не гоняет O(все элементы) каждый тик.
@@ -231,6 +233,7 @@ impl ElementTree {
             scroll_cull_stack: Vec::new(),
             force_full_measure: false,
             animation_registry: std::collections::HashSet::new(),
+            theme_fades: Vec::new(),
             animations_armed: true,
             rebuild_registry: std::collections::HashSet::new(),
             last_hovered_path: Vec::new(),

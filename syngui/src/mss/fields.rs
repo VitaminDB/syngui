@@ -1148,14 +1148,16 @@ impl MssFields {
             return;
         }
         let radii = self.resolved_corner_radii(bounds);
+        // Идущий переход (смена темы, hover) важнее статичного цвета.
+        let bg = self.transition.background_color().or(self.background_color);
         if let Some(ref gradient) = self.background_gradient {
             list.push_gradient_rect(bounds, gradient.clone(), radii);
-        } else if let Some(bg) = self.background_color {
+        } else if let Some(bg) = bg {
             if bg.a > 0.0 {
                 list.push_rect(bounds, bg, radii);
             }
         }
-        if let Some(bg) = self.background_color {
+        if let Some(bg) = bg {
             self.paint_flow(list, bounds, bg);
         }
         if let Some(tint) = self.color_tint {

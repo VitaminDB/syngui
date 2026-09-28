@@ -99,6 +99,46 @@ pub fn with_theme_transition<R>(
     out
 }
 
+/// Перетекание темы для элемента, который сам переходы не тикает: дерево
+/// применяет ему промежуточный стиль каждый кадр (см.
+/// `ElementTree::tick_theme_fades`).
+pub(crate) struct ThemeFade {
+    pub id: ElementId,
+    pub from: ComputedStyle,
+    pub to: ComputedStyle,
+    pub elapsed: f32,
+    pub duration: f32,
+    pub easing: crate::animation::Easing,
+}
+
+/// Отличаются ли цвета двух стилей (только цвета и перетекают).
+fn colors_differ(a: &ComputedStyle, b: &ComputedStyle) -> bool {
+    b.properties().any(|(prop, v)| {
+        v.as_color().is_some() && a.get(prop).and_then(|x| x.as_color()) != v.as_color()
+    })
+}
+
+/// Стиль `to`, у которого цветовые свойства взяты на `t` пути от `from`.
+pub(crate) fn lerp_style(from: &ComputedStyle, to: &ComputedStyle, t: f32) -> ComputedStyle {
+    let mut out = to.clone();
+    if t >= 1.0 {
+        return out;
+    }
+    for (prop, v) in to.properties() {
+        let (Some(b), Some(a)) = (v.as_color(), from.get(prop).and_then(|x| x.as_color())) else { continue };
+        if a == b {
+            continue;
+        }
+        let ca = crate::core::Color::from_srgb(a.r, a.g, a.b, a.a as f32 / 255.0);
+        let cb = crate::core::Color::from_srgb(b.r, b.g, b.b, b.a as f32 / 255.0);
+        let mixed = ca.lerp(&cb, t);
+        let [r, g, bl] = mixed.to_srgb_u8();
+        let al = (mixed.a.clamp(0.0, 1.0) * 255.0).round() as u8;
+        out.set(prop, StyleValue::Color(super::MssColor { r, g, b: bl, a: al }));
+    }
+    out
+}
+
 fn arm_theme_transition(element: &dyn crate::widget::Element) {
     let t = THEME_TRANSITION.with(|c| c.get()).filter(|_| element.ticks_mss_transitions());
     super::fields::set_element_theme_transition(t);
@@ -601,6 +641,7 @@ pub fn apply_styles_dirty(tree: &mut ElementTree, style_engine: &StyleEngine) ->
     let empty_inh: std::sync::Arc<ComputedStyle> = std::sync::Arc::new(ComputedStyle::default());
     let mut inherited_for: std::collections::HashMap<ElementId, std::sync::Arc<ComputedStyle>> =
         std::collections::HashMap::with_capacity(order.len());
+    let mut new_fades: Vec<ThemeFade> = Vec::new();
 
     for id in order {
         let parent_id = tree.elements.get(&id).and_then(|n| n.parent);
@@ -815,9 +856,21 @@ pub fn apply_styles_dirty(tree: &mut ElementTree, style_engine: &StyleEngine) ->
             continue;
         }
 
+        // Элемент, который переходы не тикает, при смене темы перетекает
+        // силами дерева: запомнить старый и новый стиль, показать пока старый.
+        let fade = THEME_TRANSITION
+            .with(|c| c.get())
+            .filter(|_| !node.element.ticks_mss_transitions())
+            .and_then(|(secs, easing)| {
+                let old = node.cascade_cache.as_ref().map(|c| c.base.clone())?;
+                colors_differ(&old, &base).then(|| ThemeFade { id, from: old, to: base.clone(), elapsed: 0.0, duration: secs, easing })
+            });
         arm_theme_transition(&*node.element);
-                node.element.reset_mss_styles();
-        node.element.apply_computed_style(&base);
+        node.element.reset_mss_styles();
+        match &fade {
+            Some(f) => node.element.apply_computed_style(&lerp_style(&f.from, &f.to, 0.0)),
+            None => node.element.apply_computed_style(&base),
+        }
         node.element.apply_transition_styles(
             &base,
             hover_full.as_ref(),
@@ -829,6 +882,9 @@ pub fn apply_styles_dirty(tree: &mut ElementTree, style_engine: &StyleEngine) ->
         node.element.apply_disabled_style(disabled_full.as_ref());
         node.element
             .setup_keyframe_animation(&base, style_engine.stylesheet());
+        if let Some(f) = fade {
+            new_fades.push(f);
+        }
         node.mss_margin_set = base.has_margin();
         node.mss_margin = base.margin();
         node.mss_flex_grow = base.flex_grow().unwrap_or(0.0);
@@ -855,6 +911,13 @@ pub fn apply_styles_dirty(tree: &mut ElementTree, style_engine: &StyleEngine) ->
         inherited_for.insert(id, out_inh);
     }
 
+    if !new_fades.is_empty() {
+        // Свежие перетекания заменяют прежние у тех же элементов.
+        let ids: std::collections::HashSet<ElementId> = new_fades.iter().map(|f| f.id).collect();
+        tree.theme_fades.retain(|f| !ids.contains(&f.id));
+        tree.theme_fades.extend(new_fades);
+        tree.animations_armed = true;
+    }
     true
 }
 

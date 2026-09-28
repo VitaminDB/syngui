@@ -175,13 +175,16 @@ fn section_name(key: &str) -> String {
 }
 
 /// Боковая панель: группы разделов, значки Material, активный пункт.
+/// Активный пункт перетекает в карточку содержимого: его правый край
+/// без скруглений, а `flow-edge: right` дорисовывает вогнутые углы цветом
+/// карточки — вкладка и страница становятся одной поверхностью.
 fn build_sidebar() -> impl Widget {
     let current = use_context::<GalleryCtx>().current_route;
-    Sidebar::new().class("gallery-sidebar").child(
+    DecoratedBox::new().class("gallery-sidebar").child(
         Page::new().vertical().scrollbar_policy(ScrollbarPolicy::Auto).child(
-            Column::new().gap(0.0).class("nav-list").child(move || {
+            Column::new().gap(0.0).cross_axis_alignment(CrossAxisAlignment::Stretch).class("nav-list").child(move || {
                 let cur = current.get();
-                let mut col = Column::new().gap(2.0);
+                let mut col = Column::new().gap(2.0).cross_axis_alignment(CrossAxisAlignment::Stretch);
                 for group in GROUPS {
                     col = col.child(Text::new(tr!(&format!("gallery.group.{group}"))).class("nav-group"));
                     for s in SECTIONS.iter().filter(|s| s.group == *group) {
@@ -211,17 +214,25 @@ fn build_sidebar() -> impl Widget {
                 }
                 col
             }),
-        ),
+        ).class("nav-page"),
     )
 }
 
+/// Оболочка галереи: шапка и боковая панель — одна тёмная рамка, в которой
+/// лежит скруглённая карточка содержимого; активная вкладка перетекает в
+/// карточку.
 fn build_gallery() -> impl Widget {
     Column::new().gap(0.0).child(build_header()).child(
-        DecoratedBox::new().class("grow").child(
+        DecoratedBox::new().class("grow gallery-frame").child(
             Row::new()
                 .gap(0.0)
+                .cross_axis_alignment(CrossAxisAlignment::Stretch)
                 .child(build_sidebar())
-                .child(DecoratedBox::new().class("grow").child(build_content())),
+                .child(
+                    DecoratedBox::new()
+                        .class("grow content-frame")
+                        .child(DecoratedBox::new().class("content-card").child(build_content())),
+                ),
         ),
     )
 }
@@ -282,7 +293,7 @@ fn page_wrap(child: impl Widget + 'static) -> impl Widget {
 /// новая въезжает снизу (AnimatedSwitcher по номеру раздела).
 fn build_content() -> impl Widget {
     let current = use_context::<GalleryCtx>().current_route;
-    DecoratedBox::new().class("grow content-switch").child(move || {
+    DecoratedBox::new().class("grow").child(move || {
         let key = current.get();
         let idx = SECTIONS.iter().position(|s| s.key == key).unwrap_or(0) as u64;
         AnimatedSwitcher::new(idx, move || section_page(&key))
