@@ -171,6 +171,7 @@ const KNOWN_PROPERTIES: &[&str] = &[
     "noise",
     "vignette",
     "flex-grow",
+    "flex",
     "flex-shrink",
     "grid-color",
     "axis-color",

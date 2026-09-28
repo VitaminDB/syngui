@@ -353,6 +353,9 @@ pub struct TextFieldElement {
     menu_mounted: bool,
 }
 
+/// Ширина поля, когда родитель не ограничивает её (строка меряет детей
+/// без предела).
+const DEFAULT_WIDTH: f32 = 240.0;
 const FONT_SIZE: f32 = 14.0;
 const TEXT_PADDING: f32 = 12.0;
 
@@ -779,11 +782,16 @@ impl Element for TextFieldElement {
             .map(|d| d.resolve(constraints.max_height))
             .unwrap_or(40.0_f32.max(constraints.min_height))
             .clamp(constraints.min_height, constraints.max_height);
+        // Без явной ширины поле занимает всю доступную; в строке без
+        // предела (Row меряет детей неограниченно) — разумную ширину по
+        // умолчанию, иначе получалось бесконечное поле, а строка с ним
+        // схлопывалась до заглушки в 100 px.
+        let default_width = if constraints.max_width.is_finite() { constraints.max_width } else { DEFAULT_WIDTH };
         let width = self
             .width
             .or(self.mss.width)
-            .map(|d| d.resolve(constraints.max_width))
-            .unwrap_or(constraints.max_width)
+            .map(|d| d.resolve(if constraints.max_width.is_finite() { constraints.max_width } else { DEFAULT_WIDTH }))
+            .unwrap_or(default_width)
             .clamp(constraints.min_width, constraints.max_width);
 
         let extra = if self.helper_text.is_some() || self.error_text.is_some() {

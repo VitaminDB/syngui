@@ -517,7 +517,9 @@ impl StepperElement {
             }
             let r0 = self.step_rects[i];
             let r1 = self.step_rects[i + 1];
-            let x0 = ox + r0.x() + circle_d;
+            // Подпись стоит справа от кружка — соединитель идёт после неё,
+            // а не сквозь неё.
+            let x0 = ox + r0.x() + r0.width();
             let x1 = ox + r1.x();
             let state = self.step_state(i + 1);
             let color = if state == StepState::Completed || state == StepState::Active {

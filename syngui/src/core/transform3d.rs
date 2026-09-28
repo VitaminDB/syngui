@@ -161,6 +161,16 @@ pub struct ProjectedQuad {
 /// W уходит в ноль и четырёхугольник «выворачивается».
 const MIN_W: f32 = 0.05;
 
+/// Область слоя для элемента: его границы с запасом под тени и свечение.
+/// Тот же прямоугольник должен покрывать и текстура слоя — иначе за краем
+/// текстуры сэмплируются крайние пиксели, и тень размазывается
+/// прямоугольником с жёсткими краями.
+pub fn layer_rect(bounds: Rect) -> Rect {
+    let size = bounds.size.width.max(bounds.size.height).max(1.0);
+    let m = (size * 0.25).max(16.0);
+    bounds.inflate(m, m)
+}
+
 /// Четырёхугольники слоя элемента: отражение (если есть), затем сам элемент.
 ///
 /// `bounds` — границы элемента в координатах раскладки, `screen` — уже
@@ -253,8 +263,7 @@ pub fn project_layer(
     }
 
     // Сам элемент — с запасом под тени и свечение, вылезающие за границы.
-    let m = (size * 0.25).max(16.0);
-    let r = bounds.inflate(m, m);
+    let r = layer_rect(bounds);
     let corners = [
         (r.origin.x, r.origin.y),
         (r.origin.x + r.size.width, r.origin.y),

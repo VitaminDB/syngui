@@ -14,12 +14,14 @@
 .td-tilt:hover { rotate-x: 22deg; rotate-y: -24deg; }
 .td-lift { background: linear-gradient(135deg, #ff8a5c, #ff5e8a); perspective: 400px; }
 .td-lift:hover { translate-z: 60px; }
-.td-coin { background: linear-gradient(135deg, #ffd24d, #ff9a1f); border-radius: 65px; animation: td-spin 2.4s linear infinite; }
+.td-coin { background: linear-gradient(135deg, #ffd24d, #ff9a1f); border-radius: 65px; animation: td-spin 2.4s linear infinite; perspective: 400px; }
+.td-coin:hover { translate-z: 50px; }
 @keyframes td-spin {
     from { rotate-y: 0deg; }
     to { rotate-y: 360deg; }
 }
-.td-reflect { background: linear-gradient(135deg, #2fd6a8, #2f8bd6); box-reflect: below 6px 0.4 60%; }
+.td-reflect { background: linear-gradient(135deg, #2fd6a8, #2f8bd6); box-reflect: below 6px 0.4 60%; perspective: 400px; }
+.td-reflect:hover { rotate-x: 18deg; translate-z: 20px; }
 .td-anim { background: linear-gradient(135deg, #7dff9a, #2fbf71); }
 
 .td-dock-area { height: 170px; padding-bottom: 10px; }

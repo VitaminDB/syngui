@@ -866,7 +866,8 @@ impl DisplayList {
             t3d,
             reflection,
         );
-        self.push_effect_layer(Effect::Projected(quads), bounds);
+        // Текстура слоя — с тем же запасом, что и проецируемый четырёхугольник.
+        self.push_effect_layer(Effect::Projected(quads), crate::core::transform3d::layer_rect(bounds));
     }
 
     pub fn pop_effect_layer(&mut self) {

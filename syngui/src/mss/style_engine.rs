@@ -748,7 +748,9 @@ impl ComputedStyle {
     }
 
     pub fn flex_grow(&self) -> Option<f32> {
+        // `flex: 1` — сокращение CSS, здесь читается как flex-grow.
         self.get("flex-grow")
+            .or_else(|| self.get("flex"))
             .and_then(|v| v.as_px())
             .map(|v| v.max(0.0))
     }

@@ -151,9 +151,14 @@ pub fn run_app() {
 fn make_ctx(theme_mss: RwSignal<String>) -> GalleryCtx {
     let is_dark = use_signal(false);
     let current_theme_id = use_signal("clean_modern".to_string());
-    let sidebar_state = use_signal(0usize);
-    let current_route = use_signal("mss-properties".to_string());
-    let router = Arc::new(Mutex::new(Router::new(route_keys(), "mss-properties")));
+    // GALLERY_ROUTE=motion — открыть раздел сразу (снимки, проверка вёрстки).
+    let initial = std::env::var("GALLERY_ROUTE")
+        .ok()
+        .filter(|r| SECTIONS.iter().any(|s| s.key == r))
+        .unwrap_or_else(|| "mss-properties".to_string());
+    let sidebar_state = use_signal(SECTIONS.iter().position(|s| s.key == initial).unwrap_or(0));
+    let current_route = use_signal(initial.clone());
+    let router = Arc::new(Mutex::new(Router::new(route_keys(), &initial)));
 
     GalleryCtx {
         is_dark,
