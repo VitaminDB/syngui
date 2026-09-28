@@ -6,6 +6,9 @@
 .gallery-sidebar {
     width: 244px;
     background: var(--header-bg);
+    /* Область прокрутки начинается ниже скругления карточки: вкладка,
+     * доехавшая до верха, перетекает в прямой край карточки, а не в её угол. */
+    padding-top: 18px;
 }
 .nav-page { padding: 8px 0px 12px 8px; }
 .nav-list { padding: 0px; }
