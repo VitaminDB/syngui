@@ -78,9 +78,11 @@ pub struct Batcher {
     pub(self) buckets: Vec<OpenBatch>,
     pub(self) current: Option<usize>,
     pub(self) scale_factor: f32,
-    /// На сколько логических пикселей растягивать сплошную заливку за
-    /// границы клипа (см. `set_clip_expand`).
-    pub(self) clip_expand: f32,
+    /// Края текущего клипа `[x0, y0, x1, y1]` (в координатах окна), если его
+    /// границы не лежат на физических пикселях; сплошная заливка, доходящая
+    /// до такого края, растягивается за него на пиксель (см.
+    /// `set_clip_expand`). `None` — клип целый, расширять нечего.
+    pub(self) clip_expand: Option<Bbox>,
     pub(self) opacity_stack: Vec<f32>,
     pub(self) current_opacity: f32,
     pub(self) transform_stack: Vec<Transform>,
@@ -102,7 +104,7 @@ impl Batcher {
             buckets: Vec::new(),
             current: None,
             scale_factor: 1.0,
-            clip_expand: 0.0,
+            clip_expand: None,
             opacity_stack: Vec::new(),
             current_opacity: 1.0,
             transform_stack: Vec::new(),
@@ -231,12 +233,40 @@ impl Batcher {
     /// задают ножницы. Без этого на краевом пикселе заливка покрывает лишь
     /// часть площади, а содержимое под ней (картинка шире бокса) — всю, и
     /// из-под заливки выглядывает полоска.
+    ///
+    /// Растягиваются только стороны, лежащие на крае клипа: у полоски в
+    /// глубине области обрезки (разделитель в прокручиваемой панели с дробным
+    /// смещением) ножниц на её границах нет, и расширение всех сторон делало
+    /// однопиксельную линию трёхпиксельной.
     pub(self) fn set_clip_expand(&mut self, clip: &ClipRect) {
         self.clip_expand = if clip.enabled && !clip.is_pixel_aligned(self.scale_factor) {
-            1.0
+            Some([
+                clip.x(),
+                clip.y(),
+                clip.x() + clip.width(),
+                clip.y() + clip.height(),
+            ])
         } else {
-            0.0
+            None
         };
+    }
+
+    /// На сколько логических пикселей растянуть каждую сторону заливки
+    /// `[left, top, right, bottom]`: 1 у стороны, доходящей до дробного края
+    /// клипа (или выходящей за него), 0 у остальных.
+    pub(self) fn clip_expand_sides(&self, rect: crate::core::Rect) -> [f32; 4] {
+        let Some(clip) = self.clip_expand else {
+            return [0.0; 4];
+        };
+        let bb = self.rect_bbox(rect);
+        // Допуск на накопленную ошибку раскладки — доли пикселя, но не пиксель.
+        let eps = 0.01;
+        [
+            if bb[0] <= clip[0] + eps { 1.0 } else { 0.0 },
+            if bb[1] <= clip[1] + eps { 1.0 } else { 0.0 },
+            if bb[2] >= clip[2] - eps { 1.0 } else { 0.0 },
+            if bb[3] >= clip[3] - eps { 1.0 } else { 0.0 },
+        ]
     }
 
     pub(self) fn ensure_batch_rect(
@@ -487,6 +517,45 @@ mod tests {
             vec![ShaderType::Shadow, ShaderType::Rect, ShaderType::Shadow, ShaderType::Rect],
             "тень плитки и её фон идут после фона карточки"
         );
+    }
+
+    fn rect_quad_height(b: &mut Batcher, clip: ClipRect, rect: crate::core::Rect) -> f32 {
+        b.ensure_batch_rect(ShaderType::Rect, None, clip, rect.inflate(1.0, 1.0));
+        b.set_clip_expand(&clip);
+        let before = b.current_batch_mut().vertices.len();
+        b.add_rect(rect, crate::core::Color::WHITE, [0.0; 4]);
+        let v = &b.current_batch_mut().vertices[before..];
+        v[2].position[1] - v[0].position[1]
+    }
+
+    /// Однопиксельный разделитель в глубине клипа с дробными границами
+    /// (панель с дробным смещением прокрутки) остаётся однопиксельным:
+    /// расширение под ножницы касается только сторон, лежащих на крае клипа.
+    #[test]
+    fn thin_rect_inside_fractional_clip_keeps_height() {
+        use crate::core::{Point, Rect, Size};
+        let mut b = Batcher::new();
+        b.set_scale_factor(1.0);
+        let clip = ClipRect::new(0.0, 10.3, 200.0, 400.0);
+        let divider = Rect::new(Point::new(16.0, 120.0), Size::new(168.0, 1.0));
+        assert_eq!(rect_quad_height(&mut b, clip, divider), 1.0);
+    }
+
+    /// Заливка, лежащая ровно по дробному клипу, по-прежнему выходит за него
+    /// на пиксель со всех сторон — край ей задают ножницы, и картинка шире
+    /// бокса из-под неё не выглядывает.
+    #[test]
+    fn fill_on_fractional_clip_expands_outward() {
+        use crate::core::{Point, Rect, Size};
+        let mut b = Batcher::new();
+        b.set_scale_factor(1.0);
+        let clip = ClipRect::new(0.0, 10.3, 200.0, 400.0);
+        let fill = Rect::new(Point::new(0.0, 10.3), Size::new(200.0, 400.0));
+        assert_eq!(rect_quad_height(&mut b, clip, fill), 402.0);
+        assert_eq!(b.clip_expand_sides(fill), [1.0; 4]);
+        // Полоса у верхнего края клипа: расширяется только вверх.
+        let top_bar = Rect::new(Point::new(20.0, 10.3), Size::new(100.0, 24.0));
+        assert_eq!(b.clip_expand_sides(top_bar), [0.0, 1.0, 0.0, 0.0]);
     }
 
     /// Масштаб и поворот сетку не сохраняют при любом смещении.

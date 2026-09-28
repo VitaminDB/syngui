@@ -26,42 +26,26 @@ impl Batcher {
 
         let has_radius = radius.iter().any(|r| *r > 0.5);
 
-        let expand = if has_radius {
-            1.0_f32
+        // Скруглённой заливке нужен пиксель запаса под сглаживание кромки со
+        // всех сторон; прямой — только на дробном крае клипа, где точную
+        // границу задают ножницы.
+        let [el, et, er, eb] = if has_radius {
+            [1.0_f32; 4]
         } else {
-            self.clip_expand
+            self.clip_expand_sides(rect)
         };
 
         let [p0, p1, p2, p3] = self.transform_quad([
-            [origin.x - expand, origin.y - expand],
-            [origin.x + size.width + expand, origin.y - expand],
-            [
-                origin.x + size.width + expand,
-                origin.y + size.height + expand,
-            ],
-            [origin.x - expand, origin.y + size.height + expand],
+            [origin.x - el, origin.y - et],
+            [origin.x + size.width + er, origin.y - et],
+            [origin.x + size.width + er, origin.y + size.height + eb],
+            [origin.x - el, origin.y + size.height + eb],
         ]);
 
-        let u_min = if expand > 0.0 {
-            -expand / size.width
-        } else {
-            0.0
-        };
-        let u_max = if expand > 0.0 {
-            1.0 + expand / size.width
-        } else {
-            1.0
-        };
-        let v_min = if expand > 0.0 {
-            -expand / size.height
-        } else {
-            0.0
-        };
-        let v_max = if expand > 0.0 {
-            1.0 + expand / size.height
-        } else {
-            1.0
-        };
+        let u_min = -el / size.width;
+        let u_max = 1.0 + er / size.width;
+        let v_min = -et / size.height;
+        let v_max = 1.0 + eb / size.height;
 
         let sf = self.scale_factor;
         let scaled_radius = [
