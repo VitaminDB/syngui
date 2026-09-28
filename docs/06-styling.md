@@ -348,6 +348,28 @@ Button:hover {
 | `ease-out-bounce` | Bounce end |
 | `cubic-bezier(x1, y1, x2, y2)` | Custom curve |
 | `steps(n)` | Step function |
+| `emphasized`, `emphasized-decelerate`, `emphasized-accelerate` | Material 3: движения, на которые смотрят (открытие панелей, вкладки) |
+| `standard`, `standard-decelerate`, `standard-accelerate` | Material 3: мелкие утилитарные переходы |
+| `spring(stiffness, damping)`, `spring`, `spring-bouncy` | Затухающая пружина; с малым демпфированием перелетает цель |
+
+Пробелы и запятые внутри скобок допустимы: `transition: size 320ms spring(420, 40), opacity 200ms emphasized`.
+
+### Размер и перетекание в панель
+
+```css
+/* AnimatedSize / AnimatedSwitcher: длительность и кривая размера из темы */
+.popup-morph { transition: size 320ms spring(420, 40); }   /* или width / height */
+
+/* Карточка, примыкающая к панели: снаружи края рисуются вогнутые скругления
+ * цветом панели — карточка «перетекает» в неё (edge: top|right|bottom|left) */
+.popup-card.popup-flow-top {
+    border-top-left-radius: 0px; border-top-right-radius: 0px; border-top-width: 0px;
+    flow-edge: top; flow-radius: 14px; flow-color: var(--panel-bg);   /* flow-color по умолчанию — фон бокса */
+}
+```
+
+`flow-*` рисуются за пределами бокса, поэтому родитель не должен обрезать
+содержимое по этому краю.
 
 ## Keyframes
 

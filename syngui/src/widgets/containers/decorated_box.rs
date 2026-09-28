@@ -436,6 +436,7 @@ impl Element for DecoratedBoxElement {
         } else {
             list.push_rect(self.bounds, bg, radii);
         }
+        self.mss.paint_flow(list, self.bounds, bg);
 
         if let Some(tint) = self.mss.color_tint {
             list.push_rect(self.bounds, tint, radii);
@@ -654,6 +655,10 @@ impl Element for DecoratedBoxElement {
         self.id = id;
     }
     fn mount(&mut self, _tree: &mut ElementTree) {}
+
+    fn ticks_mss_transitions(&self) -> bool {
+        true
+    }
 
     fn element_type_name(&self) -> &str {
         "DecoratedBox"

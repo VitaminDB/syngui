@@ -45,6 +45,7 @@ impl ElementTree {
                 hint,
                 crate::widget::LayoutHint::Scroll { .. }
                     | crate::widget::LayoutHint::AnimatedSize
+                    | crate::widget::LayoutHint::Switcher
                     | crate::widget::LayoutHint::Container { .. }
                     | crate::widget::LayoutHint::Aligned { .. }
                     | crate::widget::LayoutHint::Portal { .. }
@@ -222,7 +223,7 @@ impl ElementTree {
                     }
                 }
             }
-            crate::widget::LayoutHint::AnimatedSize => {
+            crate::widget::LayoutHint::AnimatedSize | crate::widget::LayoutHint::Switcher => {
                 self.position_stack_children(&children, parent_pos);
             }
             crate::widget::LayoutHint::Container { left, top, .. } => {

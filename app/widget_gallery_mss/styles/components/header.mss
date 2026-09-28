@@ -31,12 +31,7 @@ TopAppBar {
     }
 }
 
-/* Back-compat: class-based selectors kept for any existing callers. */
-.header-title {
-    color: var(--header-text);
-    font-size: 18px;
-    font-weight: 600;
-}
+.header-toggle { color: var(--header-text); }
 
 .header-badge {
     background: rgba(255, 255, 255, 0.12);

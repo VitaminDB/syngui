@@ -31,6 +31,8 @@ pub fn component_styles() -> &'static str {
         "\n",
         include_str!("../styles/pages/layout_animation.mss"),
         "\n",
+        include_str!("../styles/pages/motion.mss"),
+        "\n",
         include_str!("../styles/pages/gradients.mss"),
         "\n",
         include_str!("../styles/pages/three_d.mss"),

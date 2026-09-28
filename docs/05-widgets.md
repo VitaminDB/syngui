@@ -486,6 +486,19 @@ AnimatedSize::new(widget)
     .easing(Easing::EaseOutCubic)
     .clip(true)
     .axis(AnimationAxis::Both)        // Width | Height | Both
+    .spring(420.0, 40.0)              // пружина: перенацеливание без рывка; MSS: transition: size …
+```
+
+### Presence / AnimatedSwitcher / AnimatedPosition
+
+Перетекания (см. [07-animation.md](07-animation.md#перетекания-material-3-expressive)):
+
+```rust
+Presence::new(visible, card).enter(Motion::fade().slide(0.0, -12.0)).exit(Motion::fade())
+    .collapse(AnimationAxis::Height).on_exit_complete(|| ..)
+Presence::signal(open_signal, || Box::new(card()))     // содержимое строится один раз
+AnimatedSwitcher::new(key, || Box::new(page())).slide(24.0, 0.0).size_spring(Some((420.0, 40.0)))
+AnimatedPosition::new(row)                              // FLIP-сдвиг при смене места в раскладке
 ```
 
 ### Carousel

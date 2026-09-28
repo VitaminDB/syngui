@@ -45,6 +45,12 @@ pub enum Easing {
     CubicBezier(f32, f32, f32, f32),
 
     Steps(u32),
+
+    /// Затухающая пружина: жёсткость и демпфирование как у
+    /// [`Spring`](crate::animation::Spring). Кривая нормирована так, что к
+    /// `t = 1` пружина успокаивается; при малом демпфировании она
+    /// перелетает цель и возвращается (в MSS — `spring(k, c)`).
+    Spring { stiffness: f32, damping: f32 },
 }
 
 impl Easing {
@@ -53,10 +59,107 @@ impl Easing {
     pub const CSS_EASE_OUT: Self = Self::CubicBezier(0.0, 0.0, 0.58, 1.0);
     pub const CSS_EASE_IN_OUT: Self = Self::CubicBezier(0.42, 0.0, 0.58, 1.0);
 
+    /// Material 3 «emphasized»: медленный разгон, резкое торможение —
+    /// для движений, на которые смотрят (открытие панелей, смена вкладок).
+    pub const EMPHASIZED: Self = Self::CubicBezier(0.2, 0.0, 0.0, 1.0);
+    /// Material 3 «emphasized decelerate»: появление на экране.
+    pub const EMPHASIZED_DECELERATE: Self = Self::CubicBezier(0.05, 0.7, 0.1, 1.0);
+    /// Material 3 «emphasized accelerate»: уход с экрана.
+    pub const EMPHASIZED_ACCELERATE: Self = Self::CubicBezier(0.3, 0.0, 0.8, 0.15);
+    /// Material 3 «standard»: мелкие утилитарные переходы.
+    pub const STANDARD: Self = Self::CubicBezier(0.2, 0.0, 0.0, 1.0);
+    pub const STANDARD_DECELERATE: Self = Self::CubicBezier(0.0, 0.0, 0.0, 1.0);
+    pub const STANDARD_ACCELERATE: Self = Self::CubicBezier(0.3, 0.0, 1.0, 1.0);
+    /// Мягкая пружина без перелёта — «перетекание» размера и положения.
+    pub const SPRING_SMOOTH: Self = Self::Spring { stiffness: 380.0, damping: 38.0 };
+    /// Пружина с лёгким перелётом — появление карточек, значков.
+    pub const SPRING_BOUNCY: Self = Self::Spring { stiffness: 320.0, damping: 22.0 };
+
+    /// Кривая по имени из MSS: `ease-out-cubic`, `emphasized`,
+    /// `cubic-bezier(x1,y1,x2,y2)`, `steps(n)`, `spring(k, c)`.
+    /// `None` — имя неизвестно.
+    pub fn parse(s: &str) -> Option<Self> {
+        let s = s.trim();
+        if let Some(inner) = s.strip_prefix("cubic-bezier(").and_then(|r| r.strip_suffix(')')) {
+            let v: Vec<f32> = inner.split(',').filter_map(|x| x.trim().parse().ok()).collect();
+            return (v.len() == 4).then(|| Easing::CubicBezier(v[0], v[1], v[2], v[3]));
+        }
+        if let Some(inner) = s.strip_prefix("steps(").and_then(|r| r.strip_suffix(')')) {
+            return inner.split(',').next()?.trim().parse().ok().map(Easing::Steps);
+        }
+        if let Some(inner) = s.strip_prefix("spring(").and_then(|r| r.strip_suffix(')')) {
+            let v: Vec<f32> = inner.split(',').filter_map(|x| x.trim().parse().ok()).collect();
+            return match v.as_slice() {
+                [] => Some(Easing::SPRING_SMOOTH),
+                [k] => Some(Easing::Spring { stiffness: *k, damping: 2.0 * k.sqrt() }),
+                [k, c, ..] => Some(Easing::Spring { stiffness: *k, damping: *c }),
+            };
+        }
+        Some(match s {
+            "linear" => Easing::Linear,
+            "ease" => Easing::CSS_EASE,
+            "ease-in" => Easing::CSS_EASE_IN,
+            "ease-out" => Easing::CSS_EASE_OUT,
+            "ease-in-out" => Easing::CSS_EASE_IN_OUT,
+            "ease-in-sine" => Easing::EaseInSine,
+            "ease-out-sine" => Easing::EaseOutSine,
+            "ease-in-out-sine" => Easing::EaseInOutSine,
+            "ease-in-quad" => Easing::EaseInQuad,
+            "ease-out-quad" => Easing::EaseOutQuad,
+            "ease-in-out-quad" => Easing::EaseInOutQuad,
+            "ease-in-cubic" => Easing::EaseInCubic,
+            "ease-out-cubic" => Easing::EaseOutCubic,
+            "ease-in-out-cubic" => Easing::EaseInOutCubic,
+            "ease-in-quart" => Easing::EaseInQuart,
+            "ease-out-quart" => Easing::EaseOutQuart,
+            "ease-in-out-quart" => Easing::EaseInOutQuart,
+            "ease-in-quint" => Easing::EaseInQuint,
+            "ease-out-quint" => Easing::EaseOutQuint,
+            "ease-in-out-quint" => Easing::EaseInOutQuint,
+            "ease-in-expo" => Easing::EaseInExpo,
+            "ease-out-expo" => Easing::EaseOutExpo,
+            "ease-in-out-expo" => Easing::EaseInOutExpo,
+            "ease-in-circ" => Easing::EaseInCirc,
+            "ease-out-circ" => Easing::EaseOutCirc,
+            "ease-in-out-circ" => Easing::EaseInOutCirc,
+            "ease-in-back" => Easing::EaseInBack,
+            "ease-out-back" => Easing::EaseOutBack,
+            "ease-in-out-back" => Easing::EaseInOutBack,
+            "ease-in-elastic" => Easing::EaseInElastic,
+            "ease-out-elastic" => Easing::EaseOutElastic,
+            "ease-in-out-elastic" => Easing::EaseInOutElastic,
+            "ease-in-bounce" => Easing::EaseInBounce,
+            "ease-out-bounce" => Easing::EaseOutBounce,
+            "ease-in-out-bounce" => Easing::EaseInOutBounce,
+            "emphasized" => Easing::EMPHASIZED,
+            "emphasized-decelerate" => Easing::EMPHASIZED_DECELERATE,
+            "emphasized-accelerate" => Easing::EMPHASIZED_ACCELERATE,
+            "standard" => Easing::STANDARD,
+            "standard-decelerate" => Easing::STANDARD_DECELERATE,
+            "standard-accelerate" => Easing::STANDARD_ACCELERATE,
+            "spring" => Easing::SPRING_SMOOTH,
+            "spring-bouncy" => Easing::SPRING_BOUNCY,
+            _ => return None,
+        })
+    }
+
+    /// Перелетает ли кривая за цель (значения вне 0..1): такому переходу
+    /// нельзя обрезать содержимое по промежуточному размеру «в ноль».
+    pub fn overshoots(&self) -> bool {
+        match self {
+            Easing::EaseInBack | Easing::EaseOutBack | Easing::EaseInOutBack => true,
+            Easing::EaseInElastic | Easing::EaseOutElastic | Easing::EaseInOutElastic => true,
+            Easing::CubicBezier(_, y1, _, y2) => *y1 < 0.0 || *y1 > 1.0 || *y2 < 0.0 || *y2 > 1.0,
+            Easing::Spring { stiffness, damping } => *damping < 2.0 * stiffness.max(0.0).sqrt(),
+            _ => false,
+        }
+    }
+
     pub fn apply(&self, t: f32) -> f32 {
         let t = t.clamp(0.0, 1.0);
         match self {
             Easing::Linear => t,
+            Easing::Spring { stiffness, damping } => spring_response(t, *stiffness, *damping),
 
             Easing::EaseInSine => 1.0 - ((t * std::f32::consts::FRAC_PI_2).cos()),
             Easing::EaseOutSine => (t * std::f32::consts::FRAC_PI_2).sin(),
@@ -225,6 +328,34 @@ fn ease_out_bounce(t: f32) -> f32 {
     } else {
         let t = t - 2.625 / 2.75;
         7.5625 * t * t + 0.984375
+    }
+}
+
+/// Отклик пружины `x'' = -k·(x-1) - c·x'` из покоя в нуле, время
+/// растянуто так, чтобы к `t = 1` огибающая колебаний затухла до 0,1 %.
+fn spring_response(t: f32, stiffness: f32, damping: f32) -> f32 {
+    if t >= 1.0 {
+        return 1.0;
+    }
+    let k = stiffness.max(1e-3);
+    let c = damping.max(0.0);
+    let w0 = k.sqrt();
+    let zeta = c / (2.0 * w0);
+    // ln(1000) ≈ 6.9: за это время огибающая e^(-ζω₀τ) падает в 1000 раз.
+    let settle = 6.9 / (zeta.max(0.05) * w0);
+    let tau = t * settle;
+    if zeta < 1.0 {
+        let wd = w0 * (1.0 - zeta * zeta).sqrt();
+        let e = (-zeta * w0 * tau).exp();
+        1.0 - e * ((wd * tau).cos() + zeta * w0 / wd * (wd * tau).sin())
+    } else if (zeta - 1.0).abs() < 1e-3 {
+        let e = (-w0 * tau).exp();
+        1.0 - e * (1.0 + w0 * tau)
+    } else {
+        let s = (zeta * zeta - 1.0).sqrt();
+        let r1 = -w0 * (zeta - s);
+        let r2 = -w0 * (zeta + s);
+        1.0 - (r2 * (r1 * tau).exp() - r1 * (r2 * tau).exp()) / (r2 - r1)
     }
 }
 

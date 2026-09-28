@@ -101,6 +101,9 @@ pub enum LayoutHint {
         divider: f32,
     },
     AnimatedSize,
+    /// Переключатель содержимого: дети лежат друг на друге, размер
+    /// контейнера — анимированный размер последнего ребёнка (входящего).
+    Switcher,
     Container {
         left: f32,
         top: f32,
@@ -286,6 +289,14 @@ pub trait Element: Send {
     /// Слой `:disabled` (база + правила с `:disabled`). Элементы, у которых
     /// есть выключенное состояние, берут из него цвета, пока выключены.
     fn apply_disabled_style(&mut self, _disabled: Option<&crate::mss::ComputedStyle>) {}
+
+    /// Тикает ли элемент переходы своих `MssFields` в `animate()` и рисует
+    /// ли промежуточные цвета. Только таким элементам каскад включает
+    /// перетекание цветов при смене темы: у остальных переход застрял бы на
+    /// первом кадре.
+    fn ticks_mss_transitions(&self) -> bool {
+        false
+    }
 
     fn setup_keyframe_animation(
         &mut self,
@@ -561,6 +572,10 @@ impl Element for Box<dyn Element> {
 
     fn apply_disabled_style(&mut self, disabled: Option<&crate::mss::ComputedStyle>) {
         self.as_mut().apply_disabled_style(disabled)
+    }
+
+    fn ticks_mss_transitions(&self) -> bool {
+        self.as_ref().ticks_mss_transitions()
     }
 
     fn is_visible(&self) -> bool {

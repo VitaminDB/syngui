@@ -140,18 +140,19 @@ pub mod prelude {
     pub use crate::{tr, trn};
 
     pub use crate::widgets::{
-        set_dialog_labels, AlertDialog, Autocomplete, Avatar, Badge, BadgeSize, Button, Calendar,
+        set_dialog_labels, AlertDialog, Animated, AnimatedPosition, AnimatedSize, AnimatedSwitcher,
+        AnimationAxis, Autocomplete, Avatar, Badge, BadgeSize, Button, Calendar,
         Canvas, Card, Carousel, Checkbox, Chip, CircularProgress, ColorPicker, ColorValue, Column,
         Combobox, ConfirmDialog, ContextMenu, CrossAxisAlignment, Date, DatePicker, DecoratedBox,
         Dialog, DialogAction, Divider, DividerDirection, Draggable, DropArea, Dropdown,
         DropdownItem, Flex, FlexDirection, FloatingWindow, Grid, Icon, Image, ImageFit, ListItem,
-        ListView, MainAxisAlignment, MenuItem, Multiselect, NotificationCtx, NotificationHost,
-        NotificationItem, NotificationSeverity, Padding, Pagination, PopupMenu, Portal,
+        ListView, MainAxisAlignment, MenuItem, Motion, Multiselect, NotificationCtx, NotificationHost,
+        NotificationItem, NotificationSeverity, Padding, Pagination, PopupMenu, Portal, Presence,
         ProgressBar, Property, PropertyGrid, PropertyValue, RadioButton, RadioGroup, Reactive,
         RichText, Router, RouterView, Row, ScrollDirection, ScrollView, SegmentedButton,
         SelectionMode, Slider, Snackbar, SnackbarPosition, SpinBox, SplitDirection, SplitView,
         Stack, StackFit, Tab, TabBar, TabPosition, TabState, TableColumn, TableView, TextField,
         TextSpan, Time, TimePicker, Toggle, ToolButton, Toolbar, Tooltip, TooltipPosition,
-        TopAppBar, TreeNode, TreeView,
+        TopAppBar, TransformOrigin, TreeNode, TreeView,
     };
 }

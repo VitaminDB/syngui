@@ -447,11 +447,7 @@ fn parse_time(token: &str) -> Option<f32> {
 }
 
 fn is_timing_function(token: &str) -> bool {
-    matches!(
-        token,
-        "linear" | "ease" | "ease-in" | "ease-out" | "ease-in-out" | "step-start" | "step-end"
-    ) || token.starts_with("cubic-bezier(")
-        || token.starts_with("steps(")
+    matches!(token, "step-start" | "step-end") || Easing::parse(token).is_some()
 }
 
 pub(crate) fn parse_direction(s: &str) -> Option<AnimDirection> {

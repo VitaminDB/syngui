@@ -378,6 +378,10 @@ impl Element for ColumnElement {
         self.mark_dirty(DirtyFlags::LAYOUT | DirtyFlags::RENDER);
     }
 
+    fn ticks_mss_transitions(&self) -> bool {
+        true
+    }
+
     fn element_type_name(&self) -> &str {
         "Column"
     }

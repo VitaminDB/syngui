@@ -147,6 +147,13 @@ impl<T> Clone for RwSignal<T> {
 }
 impl<T> Copy for RwSignal<T> {}
 
+impl<T> PartialEq for RwSignal<T> {
+    fn eq(&self, other: &Self) -> bool {
+        self.id == other.id
+    }
+}
+impl<T> Eq for RwSignal<T> {}
+
 // SAFETY: RwSignal is just a SignalId (u64) + PhantomData<T>.
 unsafe impl<T> Send for RwSignal<T> {}
 unsafe impl<T> Sync for RwSignal<T> {}

@@ -13,22 +13,22 @@
 }
 
 .layout-anim-box {
-    background: #3b82f6;
+    background: var(--accent);
     border-radius: 6px;
 }
 
 .layout-anim-box-green {
-    background: #10b981;
+    background: var(--success);
     border-radius: 6px;
 }
 
 .layout-anim-box-purple {
-    background: #8b5cf6;
+    background: var(--purple);
     border-radius: 6px;
 }
 
 .layout-anim-box-amber {
-    background: #f59e0b;
+    background: var(--warning);
     border-radius: 6px;
 }
 

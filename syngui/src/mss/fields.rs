@@ -7,8 +7,25 @@ use crate::mss::parser::transform::TransformOrigin;
 use crate::mss::style_engine::{ComputedStyle, Overflow, TextAlign, TextDecoration};
 use crate::mss::value::{Dimension, StyleValue, Unit};
 use std::borrow::Cow;
+use std::cell::Cell;
 use std::collections::HashSet;
 use std::sync::{Mutex, OnceLock};
+
+thread_local! {
+    /// Перетекание цветов при смене темы для элемента, который каскад
+    /// обрабатывает прямо сейчас: (секунды, кривая). Ставит каскад, читает
+    /// [`MssFields::apply_transitions`] и виджеты со своим цветом (`Text`).
+    static ELEMENT_THEME_TRANSITION: Cell<Option<(f32, crate::animation::Easing)>> = const { Cell::new(None) };
+}
+
+pub(crate) fn set_element_theme_transition(t: Option<(f32, crate::animation::Easing)>) {
+    ELEMENT_THEME_TRANSITION.with(|c| c.set(t));
+}
+
+/// Активное перетекание темы для текущего элемента каскада.
+pub fn element_theme_transition() -> Option<(f32, crate::animation::Easing)> {
+    ELEMENT_THEME_TRANSITION.with(|c| c.get())
+}
 
 #[cfg(test)]
 pub const KNOWN_PROPERTIES_FOR_TESTS: &[&str] = KNOWN_PROPERTIES;
@@ -60,6 +77,9 @@ const KNOWN_PROPERTIES: &[&str] = &[
     "font-style",
     "font-family",
     "icon-size",
+    "flow-edge",
+    "flow-radius",
+    "flow-color",
     "icon-color",
     "icon-color-selected",
     "icon-color-hover",
@@ -345,6 +365,13 @@ pub struct MssFields {
     pub font_family: Option<String>,
 
     pub icon_size: Option<f32>,
+
+    /// Край, в который бокс «перетекает»: у примыкающей к панели карточки
+    /// снаружи этого края рисуются вогнутые скругления цветом фона, и она
+    /// выглядит выросшей из панели. 0 — top, 1 — right, 2 — bottom, 3 — left.
+    pub flow_edge: Option<u8>,
+    pub flow_radius: Option<f32>,
+    pub flow_color: Option<Color>,
     pub icon_color: Option<Color>,
     pub icon_color_selected: Option<Color>,
     pub icon_color_hover: Option<Color>,
@@ -464,6 +491,9 @@ impl MssFields {
             font_weight: None,
             font_family: None,
             icon_size: None,
+            flow_edge: None,
+            flow_radius: None,
+            flow_color: None,
             icon_color: None,
             icon_color_selected: None,
             icon_color_hover: None,
@@ -552,6 +582,9 @@ impl MssFields {
         self.font_weight = None;
         self.font_family = None;
         self.icon_size = None;
+        self.flow_edge = None;
+        self.flow_radius = None;
+        self.flow_color = None;
         self.icon_color = None;
         self.icon_color_selected = None;
         self.icon_color_hover = None;
@@ -700,6 +733,21 @@ impl MssFields {
         }
         if let Some(v) = style.get("icon-size").and_then(|v| v.as_px()) {
             self.icon_size = Some(v);
+        }
+        if let Some(e) = style.get("flow-edge").and_then(|v| v.as_string()) {
+            self.flow_edge = match e.trim() {
+                "top" => Some(0),
+                "right" => Some(1),
+                "bottom" => Some(2),
+                "left" => Some(3),
+                _ => None,
+            };
+        }
+        if let Some(v) = style.get("flow-radius").and_then(|v| v.as_px()) {
+            self.flow_radius = Some(v);
+        }
+        if let Some(c) = style.get("flow-color").and_then(|v| v.as_color()) {
+            self.flow_color = Some(mss_color_to_core(c));
         }
         if let Some(c) = style.get("icon-color").and_then(|v| v.as_color()) {
             self.icon_color = Some(Color::from_srgb(c.r, c.g, c.b, c.a as f32 / 255.0));
@@ -943,7 +991,13 @@ impl MssFields {
         self.transition = TransitionState::parse_from_style(base);
         let new_normal = ResolvedProps::from_style(base);
 
-        if self.transition.has_specs() {
+        if let (Some((secs, easing)), Some(old)) = (element_theme_transition(), prev_normal.as_ref()) {
+            // Смена темы: цвета перетекают и там, где `transition` не
+            // объявлен; свои правила элемента остаются в силе.
+            self.transition.add_theme_specs(secs, easing);
+            self.transition.start_transition(old, &new_normal);
+            self.transition.clear_theme_specs();
+        } else if self.transition.has_specs() {
             if let Some(ref old) = prev_normal {
                 self.transition.start_transition(old, &new_normal);
             }
@@ -1097,9 +1151,59 @@ impl MssFields {
                 list.push_rect(bounds, bg, radii);
             }
         }
+        if let Some(bg) = self.background_color {
+            self.paint_flow(list, bounds, bg);
+        }
         if let Some(tint) = self.color_tint {
             list.push_rect(bounds, tint, radii);
         }
+    }
+
+    /// Вогнутые «ушки» снаружи края `flow-edge`: карточка перетекает в
+    /// панель, к которой примыкает. Рисуются за пределами `bounds`, поэтому
+    /// родитель не должен обрезать содержимое по краю.
+    pub fn paint_flow(&self, list: &mut crate::render::DisplayList, bounds: crate::core::Rect, bg: Color) {
+        let (Some(edge), Some(r)) = (self.flow_edge, self.flow_radius) else { return };
+        if r <= 0.5 {
+            return;
+        }
+        let color = self.flow_color.unwrap_or(bg);
+        if color.a <= 0.0 {
+            return;
+        }
+        let x0 = bounds.origin.x;
+        let y0 = bounds.origin.y;
+        let x1 = x0 + bounds.size.width;
+        let y1 = y0 + bounds.size.height;
+        // Ушко: квадрат r×r рядом с углом вдоль края (снаружи бокса) минус
+        // четверть круга. `corner` — угол бокса, `a` — вдоль края прочь от
+        // бокса, `d` — от края внутрь бокса.
+        let ear = |corner: (f32, f32), a: (f32, f32), d: (f32, f32)| -> Vec<(f32, f32)> {
+            let center = (corner.0 + (a.0 + d.0) * r, corner.1 + (a.1 + d.1) * r);
+            let mut pts = Vec::with_capacity(16);
+            pts.push((corner.0 + a.0 * r, corner.1 + a.1 * r));
+            pts.push(corner);
+            let steps = 12;
+            for i in 0..=steps {
+                let t = i as f32 / steps as f32 * std::f32::consts::FRAC_PI_2;
+                let (c, sn) = (t.cos(), t.sin());
+                pts.push((center.0 - a.0 * r * c - d.0 * r * sn, center.1 - a.1 * r * c - d.1 * r * sn));
+            }
+            pts
+        };
+        let ears = match edge {
+            0 => [ear((x0, y0), (-1.0, 0.0), (0.0, 1.0)), ear((x1, y0), (1.0, 0.0), (0.0, 1.0))],
+            1 => [ear((x1, y0), (0.0, -1.0), (-1.0, 0.0)), ear((x1, y1), (0.0, 1.0), (-1.0, 0.0))],
+            2 => [ear((x0, y1), (-1.0, 0.0), (0.0, -1.0)), ear((x1, y1), (1.0, 0.0), (0.0, -1.0))],
+            _ => [ear((x0, y0), (0.0, -1.0), (1.0, 0.0)), ear((x0, y1), (0.0, 1.0), (1.0, 0.0))],
+        };
+        let mut ctx = crate::core::canvas::CanvasContext::new(crate::core::Point::zero(), bounds.size);
+        ctx.set_color(color);
+        ctx.set_anti_alias(0.0);
+        for pts in ears {
+            ctx.fill_polygon_concave(&pts);
+        }
+        ctx.flush(list);
     }
 
     fn resolved_border_sides(&self) -> [Option<(f32, Color)>; 4] {

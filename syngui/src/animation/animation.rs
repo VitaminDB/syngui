@@ -74,6 +74,32 @@ impl Animation {
         }
     }
 
+    /// Та же анимация по параметрам (без учёта пройденного времени):
+    /// перестройка дерева с тем же описанием не перезапускает идущую.
+    pub fn same_spec(&self, other: &Animation) -> bool {
+        match (self, other) {
+            (
+                Self::Tween { from, to, duration, delay, easing, .. },
+                Self::Tween { from: f2, to: t2, duration: d2, delay: dl2, easing: e2, .. },
+            ) => from == f2 && to == t2 && duration == d2 && delay == dl2 && easing == e2,
+            (
+                Self::Spring { spring, target, initial, .. },
+                Self::Spring { spring: s2, target: t2, initial: i2, .. },
+            ) => {
+                spring.stiffness == s2.stiffness
+                    && spring.damping == s2.damping
+                    && spring.mass == s2.mass
+                    && target == t2
+                    && initial == i2
+            }
+            (Self::Sequence { animations: a, .. }, Self::Sequence { animations: b, .. }) => {
+                a.len() == b.len() && a.iter().zip(b).all(|(x, y)| x.same_spec(y))
+            }
+            (Self::Constant(a), Self::Constant(b)) => a == b,
+            _ => false,
+        }
+    }
+
     pub fn initial_value(&self) -> f32 {
         match self {
             Self::Spring { initial, .. } => *initial,

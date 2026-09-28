@@ -202,6 +202,10 @@ impl Element for StackElement {
 
     fn mount(&mut self, _tree: &mut ElementTree) {}
 
+    fn ticks_mss_transitions(&self) -> bool {
+        true
+    }
+
     fn element_type_name(&self) -> &str {
         "Stack"
     }

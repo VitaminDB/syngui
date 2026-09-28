@@ -19,6 +19,7 @@ pub mod layout_animation;
 pub mod map;
 pub mod markdown;
 pub mod menus;
+pub mod motion;
 pub mod mss_properties;
 pub mod navigation;
 pub mod scroll;
@@ -43,4 +44,10 @@ pub(crate) fn section_title(title: &str) -> impl Widget {
 
 pub(crate) fn label(text: &str) -> impl Widget {
     Text::new(text).class("label")
+}
+
+/// Реактивный ребёнок из замыкания, возвращающего `Box<dyn Widget>`
+/// (разные типы виджетов в ветках).
+pub(crate) fn rx(f: impl Fn() -> Box<dyn Widget> + Send + Sync + 'static) -> Reactive {
+    Reactive::new(move || vec![f()])
 }

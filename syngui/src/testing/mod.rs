@@ -233,6 +233,24 @@ impl TestHarness {
         engine
     }
 
+    /// Заменить таблицу стилей целиком, как при смене темы: все элементы
+    /// пересчитываются; с `transition` изменившиеся цвета перетекают.
+    pub fn restyle(
+        &mut self,
+        source: &str,
+        transition: Option<(std::time::Duration, crate::animation::Easing)>,
+    ) -> crate::mss::StyleEngine {
+        let stylesheet = crate::mss::parse_stylesheet_str(source).expect("test mss must parse");
+        let engine = crate::mss::StyleEngine::new(stylesheet);
+        for node in self.tree.elements.values_mut() {
+            node.styles_dirty = true;
+        }
+        crate::mss::cascade::with_theme_transition(transition, || {
+            crate::mss::cascade::apply_styles_dirty(&mut self.tree, &engine)
+        });
+        engine
+    }
+
     pub fn apply_styles(&mut self, engine: &crate::mss::StyleEngine) {
         crate::mss::cascade::apply_styles_to_tree(&mut self.tree, engine);
     }

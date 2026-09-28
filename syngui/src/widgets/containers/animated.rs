@@ -10,7 +10,10 @@ use crate::widget::{
     DirtyFlags, Element, ElementId, ElementTree, LayoutHint, StyledElement, UpdateContext, Widget,
 };
 use std::any::Any;
+use std::sync::Arc;
 use std::time::Duration;
+
+type CompleteCb = Arc<dyn Fn() + Send + Sync>;
 
 #[derive(Clone, Copy, Debug)]
 pub enum TransformOrigin {
@@ -54,6 +57,7 @@ pub struct Animated {
     opacity_anim: Option<Animation>,
     repeat_mode: RepeatMode,
     origin: TransformOrigin,
+    on_complete: Option<CompleteCb>,
 }
 
 impl Animated {
@@ -74,7 +78,15 @@ impl Animated {
             opacity_anim: None,
             repeat_mode: RepeatMode::None,
             origin: TransformOrigin::default(),
+            on_complete: None,
         }
+    }
+
+    /// Вызывается один раз, когда все анимации доиграли (без повторов).
+    /// Удобно убирать элемент после анимации ухода.
+    pub fn on_complete(mut self, f: impl Fn() + Send + Sync + 'static) -> Self {
+        self.on_complete = Some(Arc::new(f));
+        self
     }
 
     /// 3D-поворот вокруг горизонтальной оси, градусы.
@@ -184,6 +196,8 @@ impl Widget for Animated {
             opacity_anim: self.opacity_anim.clone(),
             repeat_mode: self.repeat_mode,
             origin: self.origin,
+            on_complete: self.on_complete.clone(),
+            completed: false,
             reverse: false,
             remaining_repeats: match self.repeat_mode {
                 RepeatMode::None => 0,
@@ -241,6 +255,8 @@ pub struct AnimatedElement {
     opacity_anim: Option<Animation>,
     repeat_mode: RepeatMode,
     origin: TransformOrigin,
+    on_complete: Option<CompleteCb>,
+    completed: bool,
     reverse: bool,
     remaining_repeats: u32,
     classes: Vec<String>,
@@ -318,20 +334,45 @@ impl AnimatedElement {
 impl Element for AnimatedElement {
     fn update(&mut self, widget: &dyn Widget, _ctx: &mut UpdateContext) {
         if let Some(w) = widget.as_any().downcast_ref::<Animated>() {
-            self.translate_x = w.translate_x.clone();
-            self.translate_y = w.translate_y.clone();
-            self.scale = w.scale.clone();
-            self.scale_x = w.scale_x.clone();
-            self.scale_y = w.scale_y.clone();
-            self.rotate = w.rotate.clone();
-            self.rotate_x = w.rotate_x.clone();
-            self.rotate_y = w.rotate_y.clone();
-            self.translate_z = w.translate_z.clone();
+            // Перестройка дерева с тем же описанием (сигнал соседа, смена
+            // темы) не перезапускает идущую анимацию: иначе появление
+            // карточки дёргалось бы при каждом обновлении содержимого.
+            fn take(cur: &mut Option<Animation>, new: &Option<Animation>, restarted: &mut bool) {
+                match (cur.as_ref(), new) {
+                    (Some(c), Some(n)) if c.same_spec(n) => {}
+                    (None, None) => {}
+                    _ => {
+                        *cur = new.clone();
+                        *restarted = true;
+                    }
+                }
+            }
+            let mut restarted = false;
+            take(&mut self.translate_x, &w.translate_x, &mut restarted);
+            take(&mut self.translate_y, &w.translate_y, &mut restarted);
+            take(&mut self.scale, &w.scale, &mut restarted);
+            take(&mut self.scale_x, &w.scale_x, &mut restarted);
+            take(&mut self.scale_y, &w.scale_y, &mut restarted);
+            take(&mut self.rotate, &w.rotate, &mut restarted);
+            take(&mut self.rotate_x, &w.rotate_x, &mut restarted);
+            take(&mut self.rotate_y, &w.rotate_y, &mut restarted);
+            take(&mut self.translate_z, &w.translate_z, &mut restarted);
+            take(&mut self.opacity_anim, &w.opacity_anim, &mut restarted);
             self.perspective = w.perspective;
             self.backface_visible = w.backface_visible;
-            self.opacity_anim = w.opacity_anim.clone();
             self.repeat_mode = w.repeat_mode;
             self.origin = w.origin;
+            self.on_complete = w.on_complete.clone();
+            if restarted {
+                self.completed = false;
+                self.reverse = false;
+                self.remaining_repeats = match w.repeat_mode {
+                    RepeatMode::None => 0,
+                    RepeatMode::Count(0) | RepeatMode::PingPong(0) => u32::MAX,
+                    RepeatMode::Count(n) | RepeatMode::PingPong(n) => n,
+                };
+                self.mark_dirty(DirtyFlags::ANIMATION);
+            }
             self.mark_dirty(DirtyFlags::LAYOUT | DirtyFlags::RENDER);
         }
     }
@@ -517,6 +558,12 @@ impl Element for AnimatedElement {
 
         if !all_complete {
             self.mark_dirty(DirtyFlags::RENDER);
+        } else if !self.completed {
+            self.completed = true;
+            self.mark_dirty(DirtyFlags::RENDER);
+            if let Some(cb) = self.on_complete.clone() {
+                cb();
+            }
         }
         !all_complete
     }

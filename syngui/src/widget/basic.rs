@@ -541,6 +541,8 @@ impl Text {
             classes: Vec::new(),
             dirty_flags: DirtyFlags::LAYOUT | DirtyFlags::RENDER,
             mss_font_weight: self.font_weight.unwrap_or(400),
+            color_anim: None,
+            color_before_reset: None,
             mss_italic: false,
             mss_text_align: None,
             mss_text_decoration: crate::mss::TextDecoration::None,
@@ -598,6 +600,10 @@ struct TextElement {
     bounds: Rect,
     text: String,
     color: Color,
+    /// Перетекание цвета при смене темы: (откуда, прошло с, длительность с, кривая).
+    color_anim: Option<(Color, f32, f32, crate::animation::Easing)>,
+    /// Цвет до сброса каскадом — начало перетекания.
+    color_before_reset: Option<Color>,
     /// Значения, заданные самим виджетом (`Text::color`, `font_weight`,
     /// `max_lines`). Text хранит стили плоскими полями, а не `MssFields`,
     /// поэтому сбрасывать их в `reset_mss_styles` надо не в ноль, а сюда —
@@ -696,7 +702,7 @@ impl TextElement {
     }
 
     fn effective_color(&self) -> Color {
-        if let (Some(dark), Some(theme)) = (&self.dark_color, &self.theme) {
+        let base = if let (Some(dark), Some(theme)) = (&self.dark_color, &self.theme) {
             if *theme.lock().unwrap_or_else(|e| e.into_inner()) {
                 *dark
             } else {
@@ -704,6 +710,12 @@ impl TextElement {
             }
         } else {
             self.color
+        };
+        match self.color_anim {
+            Some((from, elapsed, dur, easing)) if dur > 0.0 => {
+                from.lerp(&base, easing.apply((elapsed / dur).clamp(0.0, 1.0)))
+            }
+            _ => base,
         }
     }
 
@@ -1108,6 +1120,33 @@ impl Element for TextElement {
 
     fn apply_computed_style(&mut self, style: &ComputedStyle) {
         self.apply_style(style);
+        if let (Some(from), Some((secs, easing))) =
+            (self.color_before_reset.take(), crate::mss::fields::element_theme_transition())
+        {
+            if from != self.color && secs > 0.0 {
+                self.color_anim = Some((from, 0.0, secs, easing));
+                self.mark_dirty(DirtyFlags::RENDER | DirtyFlags::ANIMATION);
+            }
+        }
+    }
+
+    fn animate(&mut self, dt: std::time::Duration) -> bool {
+        let Some((_, elapsed, dur, _)) = self.color_anim.as_mut() else { return false };
+        *elapsed += dt.as_secs_f32();
+        let running = *elapsed < *dur;
+        if !running {
+            self.color_anim = None;
+        }
+        self.mark_dirty(DirtyFlags::RENDER);
+        running
+    }
+
+    fn needs_repaint(&self) -> bool {
+        self.color_anim.is_some()
+    }
+
+    fn ticks_mss_transitions(&self) -> bool {
+        true
     }
 
     /// Каскад зовёт это перед тем, как применить новый набор правил. Без
@@ -1115,6 +1154,7 @@ impl Element for TextElement {
     /// letter-spacing), оставалось бы от старого: `Text.class(if err {"err"}
     /// else {"ok"})` так и оставался бы красным после ухода ошибки.
     fn reset_mss_styles(&mut self) {
+        self.color_before_reset = crate::mss::fields::element_theme_transition().map(|_| self.effective_color());
         self.color = self.base_color.unwrap_or(Color::rgb(0.0, 0.0, 0.0));
         self.font_size = DEFAULT_FONT_SIZE;
         self.mss_font_weight = self.base_font_weight.unwrap_or(400);

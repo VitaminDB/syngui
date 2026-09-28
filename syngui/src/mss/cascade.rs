@@ -80,6 +80,31 @@ impl std::fmt::Debug for CascadeCache {
 }
 
 thread_local! {
+    /// Перетекание цветов на время одного каскада после смены темы.
+    static THEME_TRANSITION: std::cell::Cell<Option<(f32, crate::animation::Easing)>> = const { std::cell::Cell::new(None) };
+}
+
+/// Выполнить `f` (обычно каскад после замены таблицы стилей) так, чтобы
+/// изменившиеся цвета у элементов перетекали за `duration` по кривой
+/// `easing`, а не менялись скачком. Действует только на элементы, которые
+/// сами тикают свои MSS-переходы ([`Element::ticks_mss_transitions`]).
+pub fn with_theme_transition<R>(
+    transition: Option<(std::time::Duration, crate::animation::Easing)>,
+    f: impl FnOnce() -> R,
+) -> R {
+    let prev = THEME_TRANSITION.with(|c| c.replace(transition.map(|(d, e)| (d.as_secs_f32(), e))));
+    let out = f();
+    THEME_TRANSITION.with(|c| c.set(prev));
+    super::fields::set_element_theme_transition(None);
+    out
+}
+
+fn arm_theme_transition(element: &dyn crate::widget::Element) {
+    let t = THEME_TRANSITION.with(|c| c.get()).filter(|_| element.ticks_mss_transitions());
+    super::fields::set_element_theme_transition(t);
+}
+
+thread_local! {
     /// Объединение контекстных классов всех построенных индексов (никогда
     /// не сужается): `update_element` спрашивает его без доступа к движку
     /// стилей. Пока ни один индекс не построен — ответ консервативный.
@@ -477,6 +502,7 @@ pub fn apply_styles_to_tree(tree: &mut ElementTree, style_engine: &StyleEngine) 
             || has_disabled
         {
             if let Some(node) = tree.elements.get_mut(&id) {
+                arm_theme_transition(&*node.element);
                 node.element.reset_mss_styles();
                 node.element.apply_computed_style(&base);
                 let hover_full = if has_hover {
@@ -529,7 +555,8 @@ pub fn apply_styles_to_tree(tree: &mut ElementTree, style_engine: &StyleEngine) 
         } else {
             if let Some(node) = tree.elements.get_mut(&id) {
                 if node.had_mss_rules || base.properties().next().is_some() {
-                    node.element.reset_mss_styles();
+                    arm_theme_transition(&*node.element);
+                node.element.reset_mss_styles();
                     node.element.apply_computed_style(&base);
                     node.had_mss_rules = base.properties().next().is_some();
                     node.styles_dirty = false;
@@ -624,7 +651,8 @@ pub fn apply_styles_dirty(tree: &mut ElementTree, style_engine: &StyleEngine) ->
                     .map(|c| c.base == *parent_inh)
                     .unwrap_or(false);
                 if !unchanged && (node.had_mss_rules || parent_inh.properties().next().is_some()) {
-                    node.element.reset_mss_styles();
+                    arm_theme_transition(&*node.element);
+                node.element.reset_mss_styles();
                     node.element.apply_computed_style(&parent_inh);
                     node.had_mss_rules = parent_inh.properties().next().is_some();
                     node.refresh_hint_cache();
@@ -714,7 +742,8 @@ pub fn apply_styles_dirty(tree: &mut ElementTree, style_engine: &StyleEngine) ->
         if !has_any_rules {
             if let Some(node) = tree.elements.get_mut(&id) {
                 if node.had_mss_rules {
-                    node.element.reset_mss_styles();
+                    arm_theme_transition(&*node.element);
+                node.element.reset_mss_styles();
                     let empty = ComputedStyle::default();
                     node.element.apply_computed_style(&empty);
                     node.element
@@ -786,7 +815,8 @@ pub fn apply_styles_dirty(tree: &mut ElementTree, style_engine: &StyleEngine) ->
             continue;
         }
 
-        node.element.reset_mss_styles();
+        arm_theme_transition(&*node.element);
+                node.element.reset_mss_styles();
         node.element.apply_computed_style(&base);
         node.element.apply_transition_styles(
             &base,

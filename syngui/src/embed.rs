@@ -109,11 +109,22 @@ impl EmbedView {
 
     /// Сменилась таблица стилей: пересчитать стили всех элементов.
     pub fn restyle_all(&mut self, engine: &StyleEngine) {
+        self.restyle_all_with_transition(engine, None);
+    }
+
+    /// То же, но изменившиеся цвета перетекают за `transition`
+    /// (длительность, кривая), а не меняются скачком — плавная смена темы.
+    pub fn restyle_all_with_transition(
+        &mut self,
+        engine: &StyleEngine,
+        transition: Option<(Duration, crate::animation::Easing)>,
+    ) {
         for node in self.tree.elements.values_mut() {
             node.styles_dirty = true;
         }
-        cascade::apply_styles_dirty(&mut self.tree, engine);
+        cascade::with_theme_transition(transition, || cascade::apply_styles_dirty(&mut self.tree, engine));
         self.tree.mark_all_dirty(crate::widget::DirtyFlags::LAYOUT | crate::widget::DirtyFlags::RENDER);
+        self.tree.animations_armed = true;
         self.last_frame_sig = None;
     }
 

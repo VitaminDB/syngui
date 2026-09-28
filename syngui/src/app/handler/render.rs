@@ -677,7 +677,9 @@ impl AppHandler {
                     node.styles_dirty = true;
                 }
                 if let Some(root_id) = self.root_id {
-                    self.apply_styles(root_id);
+                    let transition = self.config.theme_transition;
+                    crate::mss::cascade::with_theme_transition(transition, || self.apply_styles(root_id));
+                    self.tree.animations_armed = true;
                 }
                 #[cfg(target_os = "android")]
                 self.set_status_bar_light_icons(is_dark);
@@ -733,7 +735,9 @@ impl AppHandler {
                     node.styles_dirty = true;
                 }
                 if let Some(root_id) = self.root_id {
-                    self.apply_styles(root_id);
+                    let transition = self.config.theme_transition;
+                    crate::mss::cascade::with_theme_transition(transition, || self.apply_styles(root_id));
+                    self.tree.animations_armed = true;
                 }
                 if let Some(window) = &self.window {
                     crate::perf::redraw_from(file!(), line!());

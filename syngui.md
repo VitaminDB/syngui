@@ -899,7 +899,13 @@ Button:hover { background-color: #1E88E5; }
 
 Easing: `linear`, `ease`, `ease-in`, `ease-out`, `ease-in-out`,
 `ease-in|out|in-out-{sine,quad,cubic,quart,quint,expo,circ,back,elastic,bounce}`,
-`cubic-bezier(x1,y1,x2,y2)`, `steps(n)`.
+`cubic-bezier(x1,y1,x2,y2)`, `steps(n)`, Material 3 `emphasized[-decelerate|-accelerate]`,
+`standard[-decelerate|-accelerate]`, пружина `spring(k, c)` / `spring` / `spring-bouncy`
+(скобки и запятые внутри — допустимы).
+
+`transition: size 320ms spring(420, 40)` на `AnimatedSize`/`AnimatedSwitcher` — кривая
+и длительность размера из темы. `flow-edge: top|right|bottom|left`, `flow-radius`,
+`flow-color` — вогнутые скругления снаружи края: карточка перетекает в панель.
 
 Анимируются: цвета, `opacity`, размеры/отступы, `box-shadow`, `glow`,
 `noise`, `vignette`, `filter`.
@@ -1282,7 +1288,15 @@ Animated::new(child)
     .repeat(true).repeat_mode(RepeatMode::PingPong(0))   // 0 = бесконечно
 
 AnimatedSize::new(child).duration_ms(250).easing(Easing::EaseOutCubic)
-    .clip(true).axis(AnimationAxis::Height)
+    .clip(true).axis(AnimationAxis::Height).spring(420.0, 40.0)
+
+// Перетекания (Material 3 Expressive): docs/07-animation.md
+Presence::new(visible, card).enter(Motion::fade().slide(0.0, -12.0)).exit(Motion::fade().scale(0.96))
+    .collapse(AnimationAxis::Height).origin(TransformOrigin::Custom(0.5, 0.0)).on_exit_complete(|| ..)
+Presence::signal(open, || Box::new(card()))          // видимость из сигнала, содержимое один раз
+AnimatedSwitcher::new(key, || Box::new(page())).slide(24.0, 0.0).directional(true)
+    .size_spring(Some((420.0, 40.0))).version(v).exit_fade(false)
+AnimatedPosition::new(row)                            // FLIP: догоняет новое место на пружине
 
 Carousel::new().child(a).child(b).current_page(0)
     .auto_play(true).auto_play_interval_ms(4000).show_indicators(true).on_page_change(|i| {})
@@ -1443,11 +1457,18 @@ a.current_value(); a.set_target(v); a.tick(dt) -> bool; a.is_complete(); a.reset
 ```
 
 Easing: 30+ вариантов (`Linear`, `EaseIn|Out|InOut` × `Sine|Quad|Cubic|Quart|Quint|Expo|Circ|Back|Elastic|Bounce`,
-`CubicBezier(..)`, `Steps(n)`), плюс `CSS_EASE*`.
+`CubicBezier(..)`, `Steps(n)`, `Spring { stiffness, damping }`), плюс `CSS_EASE*`,
+Material 3 `EMPHASIZED[_DECELERATE|_ACCELERATE]`, `STANDARD[_…]`, `SPRING_SMOOTH`, `SPRING_BOUNCY`;
+`Easing::parse("spring(420, 40)")` — грамматика MSS.
 
 Практика: для состояний (`hover`, `selected`) — MSS `transition`;
-для входа/выхода и «живых» элементов — `Animated` / `AnimatedSize`;
+для входа/выхода — `Presence`, для смены содержимого — `AnimatedSwitcher`,
+для сдвига соседей — `AnimatedPosition`, для «живых» элементов — `Animated` / `AnimatedSize`;
 для сложного — `Canvas::new(|ctx, t| ..).animated(true)`.
+
+Плавная смена темы: `App::with_theme_transition(ms)` — при замене таблицы стилей цвета
+перетекают у элементов, которые тикают MSS-переходы (`Element::ticks_mss_transitions`);
+embed: `restyle_all_with_transition`.
 
 ---
 

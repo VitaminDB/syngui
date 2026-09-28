@@ -31,6 +31,7 @@ pub struct AnimatedSize {
     easing: Easing,
     clip: bool,
     axis: AnimationAxis,
+    spring: Option<(f32, f32)>,
 }
 
 impl AnimatedSize {
@@ -41,7 +42,16 @@ impl AnimatedSize {
             easing: Easing::EaseOutCubic,
             clip: true,
             axis: AnimationAxis::Both,
+            spring: None,
         }
+    }
+
+    /// Пружина вместо tween: новая цель во время движения подхватывается
+    /// без рывка (скорость сохраняется). Жёсткость 300–500 и демпфирование
+    /// 30–45 — плавное «перетекание» без перелёта.
+    pub fn spring(mut self, stiffness: f32, damping: f32) -> Self {
+        self.spring = Some((stiffness, damping));
+        self
     }
 
     pub fn duration_ms(mut self, ms: u32) -> Self {
@@ -79,6 +89,8 @@ impl Widget for AnimatedSize {
             easing: self.easing,
             clip: self.clip,
             axis: self.axis,
+            spring: self.spring,
+            mss_transition: None,
             initialized: false,
             classes: Vec::new(),
             dirty_flags: DirtyFlags::LAYOUT | DirtyFlags::RENDER,
@@ -125,10 +137,34 @@ pub struct AnimatedSizeElement {
     easing: Easing,
     clip: bool,
     axis: AnimationAxis,
+    spring: Option<(f32, f32)>,
+    /// `transition: size|width|height … ` из MSS: длительность и кривая
+    /// (`spring(k, c)` — пружина) перекрывают заданные в коде.
+    mss_transition: Option<(u32, Easing)>,
     initialized: bool,
     classes: Vec<String>,
     dirty_flags: DirtyFlags,
     mss: MssFields,
+}
+
+impl AnimatedSizeElement {
+    /// Начать или перенацелить движение одной оси.
+    fn retarget(&self, anim: &mut Option<Animation>, current: f32, target: f32) {
+        let (duration_ms, easing) = self.mss_transition.unwrap_or((self.duration_ms, self.easing));
+        let spring = match easing {
+            Easing::Spring { stiffness, damping } => Some((stiffness, damping)),
+            _ => self.spring,
+        };
+        if let Some((k, c)) = spring {
+            if let Some(a @ Animation::Spring { .. }) = anim.as_mut() {
+                a.set_target(target);
+                return;
+            }
+            *anim = Some(Animation::spring().from(current).to(target).stiffness(k).damping(c).build());
+        } else {
+            *anim = Some(Animation::tween(easing).from(current).to(target).duration_ms(duration_ms).build());
+        }
+    }
 }
 
 impl Element for AnimatedSizeElement {
@@ -138,6 +174,7 @@ impl Element for AnimatedSizeElement {
             self.easing = w.easing;
             self.clip = w.clip;
             self.axis = w.axis;
+            self.spring = w.spring;
             self.mark_dirty(DirtyFlags::LAYOUT | DirtyFlags::RENDER);
         }
     }
@@ -171,13 +208,9 @@ impl Element for AnimatedSizeElement {
 
         if width_changed {
             if matches!(self.axis, AnimationAxis::Width | AnimationAxis::Both) {
-                self.width_anim = Some(
-                    Animation::tween(self.easing)
-                        .from(self.current_width)
-                        .to(size.width)
-                        .duration_ms(self.duration_ms)
-                        .build(),
-                );
+                let mut anim = self.width_anim.take();
+                self.retarget(&mut anim, self.current_width, size.width);
+                self.width_anim = anim;
             } else {
                 self.current_width = size.width;
             }
@@ -185,13 +218,9 @@ impl Element for AnimatedSizeElement {
 
         if height_changed {
             if matches!(self.axis, AnimationAxis::Height | AnimationAxis::Both) {
-                self.height_anim = Some(
-                    Animation::tween(self.easing)
-                        .from(self.current_height)
-                        .to(size.height)
-                        .duration_ms(self.duration_ms)
-                        .build(),
-                );
+                let mut anim = self.height_anim.take();
+                self.retarget(&mut anim, self.current_height, size.height);
+                self.height_anim = anim;
             } else {
                 self.current_height = size.height;
             }
@@ -300,6 +329,11 @@ impl Element for AnimatedSizeElement {
     }
     fn apply_computed_style(&mut self, style: &ComputedStyle) {
         self.mss.apply(style);
+        let ts = crate::animation::TransitionState::parse_from_style(style);
+        self.mss_transition = ["size", "width", "height"]
+            .iter()
+            .find_map(|p| ts.spec_for(p))
+            .map(|sp| ((sp.duration_secs * 1000.0).round() as u32, sp.easing));
         self.mark_dirty(DirtyFlags::LAYOUT | DirtyFlags::RENDER);
     }
 
@@ -350,6 +384,8 @@ mod tests {
             easing: Easing::EaseOutCubic,
             clip: true,
             axis: AnimationAxis::Both,
+            spring: None,
+            mss_transition: None,
             initialized: false,
             classes: Vec::new(),
             dirty_flags: DirtyFlags::empty(),
@@ -378,6 +414,8 @@ mod tests {
             easing: Easing::Linear,
             clip: true,
             axis: AnimationAxis::Both,
+            spring: None,
+            mss_transition: None,
             initialized: false,
             classes: Vec::new(),
             dirty_flags: DirtyFlags::empty(),
@@ -406,6 +444,8 @@ mod tests {
             easing: Easing::Linear,
             clip: true,
             axis: AnimationAxis::Height,
+            spring: None,
+            mss_transition: None,
             initialized: false,
             classes: Vec::new(),
             dirty_flags: DirtyFlags::empty(),
@@ -435,6 +475,8 @@ mod tests {
             easing: Easing::Linear,
             clip: true,
             axis: AnimationAxis::Both,
+            spring: None,
+            mss_transition: None,
             initialized: false,
             classes: Vec::new(),
             dirty_flags: DirtyFlags::empty(),

@@ -493,6 +493,9 @@ impl PropertyTransition {
 #[derive(Clone, Debug, Default)]
 pub struct TransitionState {
     specs: Vec<TransitionSpec>,
+    /// Временные правила на смену темы: цвета перетекают у элементов, у
+    /// которых своего `transition` нет. Ставятся каскадом на один запуск.
+    theme_specs: Vec<TransitionSpec>,
     active: Vec<PropertyTransition>,
 }
 
@@ -505,8 +508,8 @@ impl TransitionState {
         let mut specs = Vec::new();
 
         if let Some(transition_str) = style.get("transition").and_then(|v| v.as_string()) {
-            for part in transition_str.split(',') {
-                if let Some(spec) = parse_transition_shorthand(part.trim()) {
+            for part in split_top_level(transition_str, ',') {
+                if let Some(spec) = parse_transition_shorthand(part) {
                     specs.push(spec);
                 }
             }
@@ -526,12 +529,31 @@ impl TransitionState {
 
         Self {
             specs,
+            theme_specs: Vec::new(),
             active: Vec::new(),
         }
     }
 
     pub fn has_specs(&self) -> bool {
         !self.specs.is_empty()
+    }
+
+    /// Правила для перетекания цветов при смене темы; свои правила
+    /// элемента имеют приоритет.
+    pub fn add_theme_specs(&mut self, duration_secs: f32, easing: Easing) {
+        self.theme_specs.clear();
+        for prop in ["background-color", "color", "border-color", "outline-color", "accent-color", "color-tint"] {
+            self.theme_specs.push(TransitionSpec {
+                property: prop.to_string(),
+                duration_secs,
+                easing,
+                delay_secs: 0.0,
+            });
+        }
+    }
+
+    pub fn clear_theme_specs(&mut self) {
+        self.theme_specs.clear();
     }
 
     pub fn add_default_specs(&mut self, duration_ms: f32) {
@@ -734,6 +756,11 @@ impl TransitionState {
         }
     }
 
+    /// Описание перехода для свойства (с учётом псевдонимов и `all`).
+    pub fn spec_for(&self, property: &str) -> Option<&TransitionSpec> {
+        self.find_spec(property)
+    }
+
     fn find_spec(&self, property: &str) -> Option<&TransitionSpec> {
         if let Some(spec) = self.specs.iter().find(|s| s.property == property) {
             return Some(spec);
@@ -750,7 +777,10 @@ impl TransitionState {
                 return Some(spec);
             }
         }
-        self.specs.iter().find(|s| s.property == "all")
+        self.specs
+            .iter()
+            .find(|s| s.property == "all")
+            .or_else(|| self.theme_specs.iter().find(|s| s.property == property))
     }
 }
 
@@ -759,36 +789,63 @@ pub fn mss_color_to_core(c: crate::mss::MssColor) -> Color {
 }
 
 pub fn easing_from_str(s: &str) -> Easing {
-    match s.trim() {
-        "linear" => Easing::Linear,
-        "ease" => Easing::CSS_EASE,
-        "ease-in" => Easing::CSS_EASE_IN,
-        "ease-out" => Easing::CSS_EASE_OUT,
-        "ease-in-out" => Easing::CSS_EASE_IN_OUT,
-        "ease-in-sine" => Easing::EaseInSine,
-        "ease-out-sine" => Easing::EaseOutSine,
-        "ease-in-out-sine" => Easing::EaseInOutSine,
-        "ease-in-quad" => Easing::EaseInQuad,
-        "ease-out-quad" => Easing::EaseOutQuad,
-        "ease-in-out-quad" => Easing::EaseInOutQuad,
-        "ease-in-cubic" => Easing::EaseInCubic,
-        "ease-out-cubic" => Easing::EaseOutCubic,
-        "ease-in-out-cubic" => Easing::EaseInOutCubic,
-        "ease-in-back" => Easing::EaseInBack,
-        "ease-out-back" => Easing::EaseOutBack,
-        "ease-in-out-back" => Easing::EaseInOutBack,
-        "ease-in-bounce" => Easing::EaseInBounce,
-        "ease-out-bounce" => Easing::EaseOutBounce,
-        "ease-in-out-bounce" => Easing::EaseInOutBounce,
-        "ease-in-elastic" => Easing::EaseInElastic,
-        "ease-out-elastic" => Easing::EaseOutElastic,
-        "ease-in-out-elastic" => Easing::EaseInOutElastic,
-        _ => Easing::CSS_EASE,
+    Easing::parse(s).unwrap_or(Easing::CSS_EASE)
+}
+
+/// Разрезать список по разделителю на нулевой глубине скобок:
+/// `opacity 200ms cubic-bezier(0.2, 0, 0, 1), color 100ms` → два элемента.
+pub(crate) fn split_top_level(s: &str, sep: char) -> Vec<&str> {
+    let mut out = Vec::new();
+    let mut depth = 0i32;
+    let mut start = 0;
+    for (i, ch) in s.char_indices() {
+        match ch {
+            '(' => depth += 1,
+            ')' => depth -= 1,
+            c if c == sep && depth == 0 => {
+                out.push(&s[start..i]);
+                start = i + c.len_utf8();
+            }
+            _ => {}
+        }
     }
+    out.push(&s[start..]);
+    out.into_iter().map(str::trim).filter(|p| !p.is_empty()).collect()
+}
+
+/// Токены шорхенда: пробелы внутри скобок не разделяют
+/// (`spring(300, 20)` — один токен).
+pub(crate) fn tokenize_top_level(s: &str) -> Vec<String> {
+    let mut out = Vec::new();
+    let mut depth = 0i32;
+    let mut cur = String::new();
+    for ch in s.chars() {
+        match ch {
+            '(' => {
+                depth += 1;
+                cur.push(ch);
+            }
+            ')' => {
+                depth -= 1;
+                cur.push(ch);
+            }
+            c if c.is_whitespace() && depth == 0 => {
+                if !cur.is_empty() {
+                    out.push(std::mem::take(&mut cur));
+                }
+            }
+            c if c.is_whitespace() => {}
+            c => cur.push(c),
+        }
+    }
+    if !cur.is_empty() {
+        out.push(cur);
+    }
+    out
 }
 
 fn parse_transition_shorthand(s: &str) -> Option<TransitionSpec> {
-    let parts: Vec<&str> = s.split_whitespace().collect();
+    let parts = tokenize_top_level(s);
     if parts.is_empty() {
         return None;
     }
@@ -799,13 +856,13 @@ fn parse_transition_shorthand(s: &str) -> Option<TransitionSpec> {
     let mut delay_secs = 0.0;
 
     if parts.len() > 1 {
-        duration_secs = parse_duration_secs(parts[1]).unwrap_or(0.2);
+        duration_secs = parse_duration_secs(&parts[1]).unwrap_or(0.2);
     }
     if parts.len() > 2 {
-        easing = easing_from_str(parts[2]);
+        easing = easing_from_str(&parts[2]);
     }
     if parts.len() > 3 {
-        delay_secs = parse_duration_secs(parts[3]).unwrap_or(0.0);
+        delay_secs = parse_duration_secs(&parts[3]).unwrap_or(0.0);
     }
 
     Some(TransitionSpec {
@@ -835,6 +892,7 @@ mod tests {
 
     fn make_ts() -> TransitionState {
         TransitionState {
+            theme_specs: Vec::new(),
             specs: vec![TransitionSpec {
                 property: "all".to_string(),
                 duration_secs: 0.1,

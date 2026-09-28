@@ -96,6 +96,7 @@ pub struct AppBuilder {
     pub(super) staging_belt: bool,
     pub(super) devtools: bool,
     pub(super) dynamic_theme_mss: Option<RwSignal<String>>,
+    pub(super) theme_transition: Option<(std::time::Duration, crate::animation::Easing)>,
     pub(super) system_appearance: Option<RwSignal<crate::appearance::SystemAppearance>>,
     pub(super) backdrop: Option<RwSignal<crate::window::BackdropConfig>>,
     pub(super) window_state: Option<RwSignal<crate::window::WindowState>>,
@@ -168,6 +169,7 @@ impl AppBuilder {
             staging_belt: false,
             devtools: false,
             dynamic_theme_mss: None,
+            theme_transition: None,
             system_appearance: None,
             backdrop: None,
             window_state: None,
@@ -337,6 +339,15 @@ impl AppBuilder {
 
     pub fn with_dynamic_theme(mut self, signal: RwSignal<String>) -> Self {
         self.dynamic_theme_mss = Some(signal);
+        self
+    }
+
+    /// Плавная смена темы: при замене таблицы стилей (`with_theme_styles`,
+    /// `with_dynamic_theme`) изменившиеся цвета перетекают за `ms`
+    /// миллисекунд, а не меняются скачком.
+    pub fn with_theme_transition(mut self, ms: u32) -> Self {
+        self.theme_transition =
+            Some((std::time::Duration::from_millis(ms as u64), crate::animation::Easing::EMPHASIZED));
         self
     }
 

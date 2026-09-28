@@ -2017,6 +2017,30 @@ impl ElementTree {
         viewport_size
     }
 
+    /// Переключатель: дети меряются в те же ограничения, целевой размер —
+    /// у последнего ребёнка (входящего); уходящий на цель не влияет, его
+    /// лишь обрезает контейнер.
+    pub(super) fn measure_switcher(
+        &mut self,
+        children: &[ElementId],
+        constraints: Constraints,
+        id: ElementId,
+    ) -> Size {
+        let mut last = Size::zero();
+        for &child_id in children {
+            last = self.measure_recursive(child_id, constraints);
+        }
+        if let Some(node) = self.elements.get_mut(&id) {
+            node.element.set_content_size(last);
+        }
+        let animated = if let Some(node) = self.elements.get_mut(&id) {
+            node.element.layout(constraints)
+        } else {
+            last
+        };
+        clamp_finite(animated, constraints)
+    }
+
     pub(super) fn measure_animated_size(
         &mut self,
         children: &[ElementId],

@@ -357,6 +357,7 @@ impl ElementTree {
                     id,
                 ),
                 LayoutHint::AnimatedSize => self.measure_animated_size(&children, constraints, id),
+                LayoutHint::Switcher => self.measure_switcher(&children, constraints, id),
                 LayoutHint::Container {
                     left,
                     top,
@@ -405,6 +406,7 @@ impl ElementTree {
             && !matches!(
                 hint,
                 LayoutHint::AnimatedSize
+                    | LayoutHint::Switcher
                     | LayoutHint::Container { .. }
                     | LayoutHint::Aligned { .. }
                     | LayoutHint::Portal { .. }

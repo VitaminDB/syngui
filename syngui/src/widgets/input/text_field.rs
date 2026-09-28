@@ -1649,6 +1649,10 @@ impl Element for TextFieldElement {
         &self.classes
     }
 
+    fn ticks_mss_transitions(&self) -> bool {
+        true
+    }
+
     fn element_type_name(&self) -> &str {
         "TextField"
     }

@@ -667,6 +667,10 @@ impl Element for ToolButtonElement {
     fn get_classes(&self) -> &[String] {
         &self.classes
     }
+    fn ticks_mss_transitions(&self) -> bool {
+        true
+    }
+
     fn element_type_name(&self) -> &str {
         "ToolButton"
     }

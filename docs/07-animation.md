@@ -55,8 +55,15 @@ All 30+ easing variants:
 | Elastic | `EaseInElastic`, `EaseOutElastic`, `EaseInOutElastic` |
 | Bounce | `EaseInBounce`, `EaseOutBounce`, `EaseInOutBounce` |
 | Custom | `CubicBezier(x1, y1, x2, y2)`, `Steps(n)` |
+| Material 3 | `EMPHASIZED`, `EMPHASIZED_DECELERATE`, `EMPHASIZED_ACCELERATE`, `STANDARD`, `STANDARD_DECELERATE`, `STANDARD_ACCELERATE` |
+| Spring | `Spring { stiffness, damping }` (пресеты `SPRING_SMOOTH`, `SPRING_BOUNCY`) |
 
 CSS presets: `CSS_EASE`, `CSS_EASE_IN`, `CSS_EASE_OUT`, `CSS_EASE_IN_OUT`
+
+`Easing::parse("emphasized")`, `"cubic-bezier(0.2,0,0,1)"`, `"steps(4)"`,
+`"spring(420, 40)"` — та же грамматика, что в MSS. `Easing::Spring` — отклик
+затухающей пружины, нормированный так, что к `t = 1` она успокаивается: с
+малым демпфированием перелетает цель и возвращается (`overshoots()`).
 
 ```rust
 easing.apply(t)  // t ∈ [0,1] → eased value ∈ [0,1]
@@ -149,7 +156,92 @@ AnimatedSize::new(
 .easing(Easing::EaseOutCubic)
 .clip(true)
 .axis(AnimationAxis::Both)  // Width | Height | Both
+.spring(420.0, 40.0)        // пружина вместо tween: новая цель подхватывается без рывка
 ```
+
+Из MSS: `transition: size 320ms spring(420, 40)` (или `width`/`height`) на
+самом `AnimatedSize` перекрывает длительность и кривую из кода.
+
+## Перетекания (Material 3 Expressive)
+
+Три контейнера для интерфейса, который не подменяет состояния скачком.
+
+### Presence — появление и уход
+
+`ShowIf` убирает поддерево мгновенно; `Presence` держит ребёнка, пока идёт
+анимация ухода, и лишь потом прячет его (нулевой размер, без событий).
+
+```rust
+Presence::new(open.get(), card)                  // visible: bool — внутри реактивного замыкания
+    .enter(Motion::fade().scale(0.92).slide(0.0, -12.0))
+    .exit(Motion::fade().scale(0.96))
+    .duration_ms(240).exit_duration_ms(160)
+    .easing(Easing::EMPHASIZED_DECELERATE)       // уход — EMPHASIZED_ACCELERATE по умолчанию
+    .origin(TransformOrigin::Custom(0.5, 0.0))
+    .collapse(AnimationAxis::Height)             // размер по оси × прогресс: соседи сдвигаются
+    .initial(false)                              // не играть появление при первом монтировании
+    .on_exit_complete(|| remove_from_list())
+
+Presence::signal(open_signal, || Box::new(card())) // видимость из сигнала: содержимое строится один раз
+```
+
+`Motion` — откуда приходит (и куда уходит) элемент: `opacity`, `scale`,
+`scale_x/y`, `slide(dx, dy)`; `Motion::none()` — только схлопывание.
+
+### AnimatedSwitcher — смена содержимого по ключу
+
+Старое содержимое уезжает и растворяется, новое въезжает, размер контейнера
+перетекает к новому на пружине. Ввод во время перехода — только новому.
+
+```rust
+AnimatedSwitcher::new(tab as u64, move || Box::new(page(tab)))
+    .slide(24.0, 0.0)            // новое въезжает справа, старое уезжает влево
+    .directional(true)           // ключ уменьшился — наоборот (вкладки назад)
+    .scale(0.92)                 // «fade through»: новое чуть растёт
+    .duration_ms(260).exit_duration_ms(160)
+    .size_spring(Some((420.0, 40.0)))   // None — tween с easing
+    .animate_size(false)         // не трогать размер
+    .exit_fade(false)            // уходящее не растворять (кроссфейд картинок без просвета)
+    .version(items_version)      // при том же ключе — пересобрать содержимое на месте
+```
+
+Сборщик вызывается один раз на ключ (как у `Keyed`); содержимое читает
+сигналы само. Хинт раскладки — `LayoutHint::Switcher`.
+
+### AnimatedPosition — плавный сдвиг на новое место
+
+FLIP: раскладка уже новая, а на экране элемент догоняет её на пружине.
+Первое появление не анимируется (для него — `Presence`).
+
+```rust
+Column::new().children(items.iter().map(|it| Keyed::new(it.id, it.version, move || {
+    Box::new(AnimatedPosition::new(Presence::new(it.alive, row(it))
+        .collapse(AnimationAxis::Height)
+        .on_exit_complete(move || remove(it.id))))
+})))
+```
+
+### Плавная смена темы
+
+Замена таблицы стилей может перетекать: изменившиеся цвета (`background`,
+`color`, `border-color`, `outline-color`, `accent-color`) интерполируются у
+всех элементов, которые тикают свои MSS-переходы (`DecoratedBox`, `Text`,
+`Column`/`Row`/`Stack`/`Flex`, кнопки, поля ввода, `Tab`, `Chip`). Свои
+`transition` элемента имеют приоритет.
+
+```rust
+App::new().with_dynamic_theme(theme_mss).with_theme_transition(360)   // мс
+// embed / syngui-layer:
+view.restyle_all_with_transition(&engine, Some((Duration::from_millis(360), Easing::EMPHASIZED)));
+```
+
+Внутри: `cascade::with_theme_transition(Some((dur, easing)), || cascade::apply_styles_dirty(..))`.
+
+### Animated
+
+`Animated::update` не перезапускает идущую анимацию, если её параметры не
+изменились (перестройка дерева по сигналу соседа больше не дёргает
+появление); `.on_complete(|| ..)` вызывается, когда всё доиграло.
 
 ## CSS Transitions (MSS)
 
