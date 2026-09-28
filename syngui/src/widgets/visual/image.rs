@@ -88,6 +88,25 @@ impl Image {
         }
     }
 
+    /// Как [`Self::from_rgba`], но пиксели общие: перестройка дерева с той
+    /// же картинкой (застывший экран, кадр холста) не копирует мегабайты —
+    /// хранилище берёт данные только при первом запросе ключа.
+    pub fn from_rgba_shared(key: impl Into<String>, width: u32, height: u32, rgba: Arc<Vec<u8>>) -> Self {
+        Self {
+            source: ImageSource::RawRgba {
+                key: key.into(),
+                width,
+                height,
+                rgba,
+            },
+            fit: ImageFit::default(),
+            tint: None,
+            placeholder: true,
+            crop: None,
+            on_load: None,
+        }
+    }
+
     pub fn fit(mut self, fit: ImageFit) -> Self {
         self.fit = fit;
         self
