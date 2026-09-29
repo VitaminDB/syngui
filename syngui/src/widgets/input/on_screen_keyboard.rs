@@ -27,7 +27,7 @@ use crate::signal::{use_signal, RwSignal};
 use crate::widget::{Text, Widget, WidgetExt};
 use crate::widgets::containers::gesture_detector::GestureDetector;
 use crate::widgets::input::event_hook::{EventHook, RemoteKey};
-use crate::widgets::{Column, CrossAxisAlignment, DecoratedBox, Reactive, Row};
+use crate::widgets::{Column, CrossAxisAlignment, DecoratedBox, MainAxisAlignment, Reactive, Row};
 
 /// Что делает клавиша.
 #[derive(Clone, Debug, PartialEq)]
@@ -338,6 +338,9 @@ pub struct OnScreenKeyboard {
     /// Зазор между клавишами и рядами (px). MSS `margin` контейнеры не
     /// учитывают, поэтому расстояние задаётся здесь.
     gap: f32,
+    /// Режим телефона: клавиши растягиваются на всю ширину (доля — `width`
+    /// клавиши), высота ряда фиксирована.
+    stretch: Option<f32>,
 }
 
 /// Управление клавиатурой снаружи виджета: те же действия, что и по D-pad
@@ -401,6 +404,7 @@ pub fn on_screen_keyboard(state: KeyboardState, layouts: Vec<KeyboardLayout>) ->
         on_change: None,
         on_submit: None,
         gap: 10.0,
+        stretch: None,
     }
 }
 
@@ -420,6 +424,15 @@ impl OnScreenKeyboard {
     /// Зазор между клавишами и рядами (по умолчанию 10 px).
     pub fn gap(mut self, gap: f32) -> Self {
         self.gap = gap.max(0.0);
+        self
+    }
+
+    /// Растянуть клавиатуру на всю ширину родителя (сенсорный экран):
+    /// клавиши делят ряд пропорционально `KeyDef::width`, ряд высотой
+    /// `key_height`. По умолчанию клавиши фиксированной ширины (MSS
+    /// `.osk-key-wN`, управление с пульта).
+    pub fn stretch(mut self, key_height: f32) -> Self {
+        self.stretch = Some(key_height.max(1.0));
         self
     }
 
@@ -443,6 +456,7 @@ impl OnScreenKeyboard {
         let ctl = self.controller();
         let ctl_chars = ctl.clone();
         let gap = self.gap;
+        let stretch = self.stretch;
 
         EventHook::new()
             .on_remote(move |key| ctl.press(key))
@@ -470,13 +484,20 @@ impl OnScreenKeyboard {
                     return vec![Box::new(DecoratedBox::new())];
                 };
 
-                let mut col = Column::new()
-                    .gap(gap)
-                    .cross_axis_alignment(CrossAxisAlignment::Start);
+                let mut col = Column::new().gap(gap).cross_axis_alignment(if stretch.is_some() {
+                    CrossAxisAlignment::Stretch
+                } else {
+                    CrossAxisAlignment::Start
+                });
                 for (r, row) in layout.rows.iter().enumerate() {
-                    let mut row_w = Row::new()
-                        .gap(gap)
-                        .cross_axis_alignment(CrossAxisAlignment::Center);
+                    let mut row_w = Row::new().gap(gap).cross_axis_alignment(if stretch.is_some() {
+                        CrossAxisAlignment::Stretch
+                    } else {
+                        CrossAxisAlignment::Center
+                    });
+                    if let Some(h) = stretch {
+                        row_w = row_w.height(h);
+                    }
                     for (c, key) in row.iter().enumerate() {
                         let focused = active && (fr, fc) == (r, c);
                         let mut cls = String::from("osk-key");
@@ -497,23 +518,38 @@ impl OnScreenKeyboard {
                             _ => key.label.clone(),
                         };
                         let action = key.action.clone();
+                        let width = key.width.max(1);
                         let layouts_c = layouts.clone();
                         let change_c = on_change.clone();
                         let submit_c = on_submit.clone();
-                        row_w = row_w.child(
-                            GestureDetector::new()
+                        let key_w = GestureDetector::new()
                                 .on_click(move || {
                                     state.focus.set((r, c));
                                     apply_action(state, &layouts_c, &action, &change_c, &submit_c);
                                 })
-                                .child(DecoratedBox::new().class(cls.as_str()).child(
-                                    Text::new(label).max_lines(1).class(if focused {
+                                .child({
+                                    let text = Text::new(label).max_lines(1).class(if focused {
                                         "osk-key-text osk-key-text-focused"
                                     } else {
                                         "osk-key-text"
-                                    }),
-                                )),
-                        );
+                                    });
+                                    let b = DecoratedBox::new().class(cls.as_str());
+                                    if stretch.is_some() {
+                                        b.child(
+                                            Row::new()
+                                                .main_axis_alignment(MainAxisAlignment::Center)
+                                                .cross_axis_alignment(CrossAxisAlignment::Center)
+                                                .child(text),
+                                        )
+                                    } else {
+                                        b.child(text)
+                                    }
+                                });
+                        row_w = if stretch.is_some() {
+                            row_w.child(key_w.style("flex-grow", width as f32))
+                        } else {
+                            row_w.child(key_w)
+                        };
                     }
                     col = col.child(row_w.class("osk-row"));
                 }
