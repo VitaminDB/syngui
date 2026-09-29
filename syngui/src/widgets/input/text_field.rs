@@ -776,6 +776,11 @@ impl Element for TextFieldElement {
     }
 
     fn layout(&mut self, constraints: Constraints) -> Size {
+        // Родитель мог отдать отрицательное место (отступы больше ширины на
+        // первом кадре) — f32::clamp с min > max паникует.
+        let mut constraints = constraints;
+        constraints.max_width = constraints.max_width.max(constraints.min_width);
+        constraints.max_height = constraints.max_height.max(constraints.min_height);
         let field_height = self
             .mss
             .height
@@ -1804,5 +1809,17 @@ mod boundary_tests {
         assert_eq!(floor_char_boundary(s, 28), 28);
         assert_eq!(floor_char_boundary(s, 100), s.len());
         assert_eq!(floor_char_boundary("", 5), 0);
+    }
+}
+
+#[cfg(test)]
+mod negative_space_tests {
+    use super::*;
+
+    #[test]
+    fn layout_with_negative_space_does_not_panic() {
+        let mut el = TextField::new().create_element();
+        let s = el.layout(Constraints::new(0.0, -32.0, 0.0, 40.0));
+        assert!(s.width >= 0.0);
     }
 }
