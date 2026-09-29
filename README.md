@@ -1,8 +1,8 @@
 # syngui
 
-[![Donate via PayPal](https://img.shields.io/badge/donate-PayPal-0070ba?logo=paypal&logoColor=white)](https://paypal.me/vitamindbnfkz)
 [![Licence: MIT OR Apache-2.0](https://img.shields.io/badge/licence-MIT%20OR%20Apache--2.0-blue)](#license)
 [![Rendering: wgpu](https://img.shields.io/badge/rendering-wgpu%2028-orange)](#rendering)
+[![Vibe-coded with Claude Code](https://img.shields.io/badge/vibe--coded-Claude%20Code-d97757)](#how-it-is-built)
 
 A retained-mode GUI framework for Rust — GPU-rendered via wgpu, styled with CSS-like
 stylesheets, wired with reactive signals.
@@ -229,9 +229,12 @@ included `gradlew` (requires the Android SDK/NDK and `cargo-ndk`).
 
 ## How it is built
 
-One developer, with Claude (Anthropic) as a daily coding assistant. The architecture, the
-rendering and layout work and the performance numbers above are mine; the assistant carries
-a large share of the typing, the tests and the refactors.
+This project is vibe-coded. Since spring 2026 I write all of my projects with [Claude
+Code](https://claude.com/claude-code): I decide what to build and how it fits together,
+describe each task, and review, run and measure the result on my own hardware — the model
+writes the code, the tests and most of the documentation. The performance numbers above were
+measured on my machine, and every app I have built since — synthos, syndesktop, linux-legion,
+ardor-mouse — runs on this framework, so its bugs get found by real use.
 
 ## Support
 
