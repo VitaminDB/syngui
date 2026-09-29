@@ -246,7 +246,7 @@ that matches a `Text` therefore applies only from this list:
 |-------|------------|
 | Color | `color`, `selection-color` |
 | Font | `font-size`, `font-weight`, `font-family` |
-| Text | `text-align`, `text-decoration`, `text-transform`, `text-shadow`, `letter-spacing`, `line-height`, `line-clamp` |
+| Text | `text-align`, `text-decoration`, `text-transform`, `text-shadow`, `letter-spacing`, `line-height`, `line-clamp`, `text-box-edge` |
 | Box | `padding`, `padding-left/right/top/bottom`, `width`, `height` |
 | Layout | `margin`, `flex-grow` — resolved by the parent from the cascade, not by `Text` itself |
 

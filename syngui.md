@@ -678,7 +678,9 @@ App::new()
 
 **Текст:** `font-size`, `font-weight`, `font-family`, `line-height`,
 `text-align`, `text-vertical-align`, `text-decoration`, `letter-spacing`,
-`text-transform` (`uppercase|lowercase|capitalize|none`), `text-shadow`, `line-clamp`
+`text-transform` (`uppercase|lowercase|capitalize|none`), `text-shadow`, `line-clamp`,
+`text-box-edge` (`ink` — по умолчанию, вертикаль по контуру глифов; `text` — по метрикам
+шрифта: одиночные `_`, `.` остаются на базовой линии, как на клавишах клавиатуры)
 
 **Иконки:** `icon-size`, `icon-color`, `icon-color-selected`,
 `icon-color-hover`, `icon-color-disabled`, `icon-opacity`

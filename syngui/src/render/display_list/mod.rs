@@ -23,6 +23,8 @@ pub struct DisplayList {
     scale_factor: f32,
     /// Текущее начертание текста — курсив ли (см. [`Self::set_text_italic`]).
     text_italic: bool,
+    /// Образец для вертикальных границ текста (см. [`Self::set_text_bbox_sample`]).
+    text_bbox_sample: Option<CompactString>,
 }
 
 impl DisplayList {
@@ -30,6 +32,14 @@ impl DisplayList {
     /// его и надо восстановить после курсивного куска.
     pub fn set_text_italic(&mut self, on: bool) -> bool {
         std::mem::replace(&mut self.text_italic, on)
+    }
+
+    /// Образец, по глифам которого считаются вертикальные границы последующих
+    /// текстовых команд (вместо глифов самого текста): одиночные `_`, `.`
+    /// остаются на своей базовой линии, а не центрируются по своему контуру.
+    /// Возвращает прежнее значение — его и надо восстановить.
+    pub fn set_text_bbox_sample(&mut self, sample: Option<CompactString>) -> Option<CompactString> {
+        std::mem::replace(&mut self.text_bbox_sample, sample)
     }
 
     pub fn new() -> Self {
@@ -47,6 +57,7 @@ impl DisplayList {
             surface_size: Size::zero(),
             scale_factor: 1.0,
             text_italic: false,
+            text_bbox_sample: None,
         }
     }
 
@@ -96,6 +107,7 @@ impl DisplayList {
         let size = Size::new(width, height);
         let rect = Rect::new(pos, size);
         let italic = self.text_italic;
+        let bbox_sample = self.text_bbox_sample.clone();
 
         self.commands.push(DrawCommand::Text {
             text: CompactString::from(text),
@@ -108,7 +120,7 @@ impl DisplayList {
             font_family: None,
             letter_spacing: 0.0,
             text_shadow: None,
-            bbox_sample: None,
+            bbox_sample: bbox_sample.clone(),
             clip_rect: ClipRect::from_rect(clip),
             z_index: self.current_z,
             no_wrap: false,
@@ -248,6 +260,7 @@ impl DisplayList {
         let clip = *self.current_clip();
         let z = self.current_z;
         let italic = self.text_italic;
+        let bbox_sample = self.text_bbox_sample.clone();
         self.target().push(DrawCommand::Text {
             text: CompactString::from(text),
             rect,
@@ -259,7 +272,7 @@ impl DisplayList {
             font_family: None,
             letter_spacing: 0.0,
             text_shadow: None,
-            bbox_sample: None,
+            bbox_sample: bbox_sample.clone(),
             clip_rect: clip,
             z_index: z,
             no_wrap: false,
@@ -278,6 +291,7 @@ impl DisplayList {
         let clip = *self.current_clip();
         let z = self.current_z;
         let italic = self.text_italic;
+        let bbox_sample = self.text_bbox_sample.clone();
         self.target().push(DrawCommand::Text {
             text: CompactString::from(text),
             rect,
@@ -289,7 +303,7 @@ impl DisplayList {
             font_family: None,
             letter_spacing: 0.0,
             text_shadow: None,
-            bbox_sample: None,
+            bbox_sample: bbox_sample.clone(),
             clip_rect: clip,
             z_index: z,
             no_wrap: false,
@@ -311,6 +325,7 @@ impl DisplayList {
         let clip = *self.current_clip();
         let z = self.current_z;
         let italic = self.text_italic;
+        let bbox_sample = self.text_bbox_sample.clone();
         self.target().push(DrawCommand::Text {
             text: CompactString::from(text),
             rect,
@@ -322,7 +337,7 @@ impl DisplayList {
             font_family: None,
             letter_spacing: 0.0,
             text_shadow: None,
-            bbox_sample: None,
+            bbox_sample: bbox_sample.clone(),
             clip_rect: clip,
             z_index: z,
             no_wrap: false,
@@ -346,6 +361,7 @@ impl DisplayList {
         let clip = *self.current_clip();
         let z = self.current_z;
         let italic = self.text_italic;
+        let bbox_sample = self.text_bbox_sample.clone();
         self.target().push(DrawCommand::Text {
             text: CompactString::from(text),
             rect,
@@ -357,7 +373,7 @@ impl DisplayList {
             font_family: None,
             letter_spacing: 0.0,
             text_shadow: None,
-            bbox_sample: None,
+            bbox_sample: bbox_sample.clone(),
             clip_rect: clip,
             z_index: z,
             no_wrap: true,
@@ -384,6 +400,7 @@ impl DisplayList {
         let clip = *self.current_clip();
         let z = self.current_z;
         let italic = self.text_italic;
+        let bbox_sample = self.text_bbox_sample.clone();
         self.target().push(DrawCommand::Text {
             text: CompactString::from(text),
             rect,
@@ -395,7 +412,7 @@ impl DisplayList {
             font_family: font_family.map(CompactString::from),
             letter_spacing: 0.0,
             text_shadow: None,
-            bbox_sample: None,
+            bbox_sample: bbox_sample.clone(),
             clip_rect: clip,
             z_index: z,
             no_wrap: true,
@@ -418,6 +435,7 @@ impl DisplayList {
         let clip = *self.current_clip();
         let z = self.current_z;
         let italic = self.text_italic;
+        let bbox_sample = self.text_bbox_sample.clone();
         self.target().push(DrawCommand::Text {
             text: CompactString::from(text),
             rect,
@@ -429,7 +447,7 @@ impl DisplayList {
             font_family: font_family.map(CompactString::from),
             letter_spacing: 0.0,
             text_shadow: None,
-            bbox_sample: None,
+            bbox_sample: bbox_sample.clone(),
             clip_rect: clip,
             z_index: z,
             no_wrap: false,
@@ -456,6 +474,7 @@ impl DisplayList {
         let clip = *self.current_clip();
         let z = self.current_z;
         let italic = self.text_italic;
+        let bbox_sample = self.text_bbox_sample.clone();
         self.target().push(DrawCommand::Text {
             text: CompactString::from(text),
             rect,
@@ -467,7 +486,7 @@ impl DisplayList {
             font_family: font_family.map(CompactString::from),
             letter_spacing,
             text_shadow,
-            bbox_sample: None,
+            bbox_sample: bbox_sample.clone(),
             clip_rect: clip,
             z_index: z,
             no_wrap,

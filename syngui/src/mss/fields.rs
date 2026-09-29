@@ -75,6 +75,7 @@ const KNOWN_PROPERTIES: &[&str] = &[
     "font-size",
     "font-weight",
     "font-style",
+    "text-box-edge",
     "font-family",
     "icon-size",
     "flow-edge",
