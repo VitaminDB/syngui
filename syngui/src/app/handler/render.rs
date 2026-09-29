@@ -506,6 +506,15 @@ impl AppHandler {
                 .focused_element
                 .and_then(|id| self.tree.elements.get(&id))
                 .and_then(|n| n.element.ime_cursor_area());
+            // Поле ввода получило или потеряло фокус — включить/выключить IME
+            // (на телефоне это показывает/прячет экранную клавиатуру).
+            #[cfg(not(any(target_os = "android", target_arch = "wasm32")))]
+            if ime_area.is_some() != self.ime_allowed {
+                self.ime_allowed = ime_area.is_some();
+                if let Some(window) = &self.window {
+                    window.winit_window().set_ime_allowed(self.ime_allowed);
+                }
+            }
             if ime_area.is_some() && ime_area != self.last_ime_area {
                 if let (Some(window), Some(rect)) = (&self.window, ime_area) {
                     window.set_ime_cursor_area(rect);

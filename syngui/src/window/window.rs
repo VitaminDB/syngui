@@ -173,8 +173,11 @@ impl Window {
         // горизонтали. Текст на Android идёт через собственный
         // SynGuiInputView (app/android/SynGuiInputHandler.java), IME winit'а
         // не нужен.
+        // IME включается, только пока в фокусе текстовое поле (см.
+        // app/handler/render.rs): на телефоне включённый text-input окна
+        // поднимает экранную клавиатуру, даже если поле не выбрано.
         #[cfg(not(target_os = "android"))]
-        inner.set_ime_allowed(true);
+        inner.set_ime_allowed(false);
 
         #[cfg(not(any(target_arch = "wasm32", target_os = "android")))]
         if builder.fullscreen {

@@ -72,6 +72,8 @@ pub(super) struct AppHandler {
     pub(super) window: Option<Arc<Window>>,
     /// Последняя отданная IME область каретки — не дёргать winit каждый кадр.
     pub(super) last_ime_area: Option<Rect>,
+    /// IME окна включён (есть поле ввода в фокусе).
+    pub(super) ime_allowed: bool,
     /// Подпись последнего отрисованного кадра (`DisplayList::frame_signature`):
     /// совпала — GPU-кадр не рисуется.
     pub(super) last_frame_sig: Option<u64>,
@@ -282,6 +284,7 @@ impl AppHandler {
             gpu: None,
             window: None,
             last_ime_area: None,
+            ime_allowed: false,
             last_frame_sig: None,
             tree: ElementTree::new(),
             style_engine,
