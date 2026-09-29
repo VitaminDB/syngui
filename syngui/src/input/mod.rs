@@ -13,5 +13,5 @@ pub use events::*;
 pub use function_keys::{captured_function_keys, set_captured_function_keys, FunctionKeys};
 pub use keyboard::*;
 pub use mouse::*;
-pub use touch::{set_touch_config, touch_config, TouchConfig, TouchTracker};
+pub use touch::{is_synthesized_mouse, set_touch_config, touch_config, TouchConfig, TouchTracker};
 pub use velocity::VelocityTracker;

@@ -53,6 +53,24 @@ impl Default for TouchConfig {
     }
 }
 
+thread_local! {
+    static SYNTHESIZING: std::cell::Cell<bool> = const { std::cell::Cell::new(false) };
+}
+
+/// Идёт доставка кнопки мыши, синтезированной из касания (тап, долгое
+/// нажатие). Виджетам, которые сами разбирают `Touch*` (мгновенное
+/// `on_press`), так видно, что это то же касание, а не второе нажатие.
+pub fn is_synthesized_mouse() -> bool {
+    SYNTHESIZING.with(|s| s.get())
+}
+
+fn synthesized(dispatch: &mut dyn FnMut(&Event) -> EventResult, e: &Event) -> EventResult {
+    SYNTHESIZING.with(|s| s.set(true));
+    let r = dispatch(e);
+    SYNTHESIZING.with(|s| s.set(false));
+    r
+}
+
 static CONFIG: std::sync::Mutex<Option<TouchConfig>> = std::sync::Mutex::new(None);
 
 /// Пороги для всех хостов процесса (например, из настроек оболочки).
@@ -176,12 +194,12 @@ impl TouchTracker {
         let button = MouseButton::Left;
         if double {
             self.last_tap = None;
-            dispatch(&Event::DoubleClick { button, position: pos });
+            synthesized(dispatch, &Event::DoubleClick { button, position: pos });
         } else {
             self.last_tap = Some((Instant::now(), pos));
-            dispatch(&Event::MouseDown { button, position: pos });
+            synthesized(dispatch, &Event::MouseDown { button, position: pos });
         }
-        dispatch(&Event::MouseUp { button, position: pos });
+        synthesized(dispatch, &Event::MouseUp { button, position: pos });
     }
 
     /// Когда хосту проснуться, чтобы проверить долгое нажатие.
@@ -207,8 +225,8 @@ impl TouchTracker {
         let r = dispatch(&Event::LongPress { position: pos });
         if !r.is_handled() && touch_config().long_press_as_secondary {
             let button = MouseButton::Right;
-            dispatch(&Event::MouseDown { button, position: pos });
-            dispatch(&Event::MouseUp { button, position: pos });
+            synthesized(dispatch, &Event::MouseDown { button, position: pos });
+            synthesized(dispatch, &Event::MouseUp { button, position: pos });
         }
         true
     }
