@@ -4,6 +4,8 @@ pub mod events;
 pub mod function_keys;
 pub mod keyboard;
 pub mod mouse;
+pub mod touch;
+pub mod velocity;
 
 pub use double_click::resolve_double_click_interval;
 pub use edit_diff::{edit_diff, EditDiff};
@@ -11,3 +13,5 @@ pub use events::*;
 pub use function_keys::{captured_function_keys, set_captured_function_keys, FunctionKeys};
 pub use keyboard::*;
 pub use mouse::*;
+pub use touch::{set_touch_config, touch_config, TouchConfig, TouchTracker};
+pub use velocity::VelocityTracker;

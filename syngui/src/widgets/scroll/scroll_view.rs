@@ -922,10 +922,12 @@ impl Element for ScrollViewElement {
                 self.touch_id = None;
                 self.touch_axis = TouchAxis::Undecided;
 
-                if !foreign
-                    && (self.velocity.y.abs() > MIN_VELOCITY
-                        || self.velocity.x.abs() > MIN_VELOCITY)
-                {
+                if foreign {
+                    // Жест отдан по чужой оси — отпускание тоже чужое: его
+                    // ждёт подхвативший (внешняя лента, карусель).
+                    return EventResult::Ignored;
+                }
+                if self.velocity.y.abs() > MIN_VELOCITY || self.velocity.x.abs() > MIN_VELOCITY {
                     self.coast_friction = FRICTION;
                     self.is_coasting = true;
                 }

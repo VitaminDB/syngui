@@ -185,7 +185,7 @@ pub(super) struct AppHandler {
     /// Отложенный tap-синтез для тача: (id первого пальца, точка старта,
     /// превышен ли slop). Клик синтезируется на отпускании и только если палец
     /// не сдвинулся — иначе скролл списка «проваливался» в строку под пальцем.
-    pub(super) touch_tap: Option<(u64, crate::core::Point, bool)>,
+    pub(super) touch: crate::input::TouchTracker,
 
     #[cfg(all(feature = "wayland-dnd", target_os = "linux"))]
     pub(super) wayland_dnd_handle: Option<std::thread::JoinHandle<()>>,
@@ -199,6 +199,24 @@ pub(super) fn is_wayland_session() -> bool {
 }
 
 impl AppHandler {
+    /// Таймер долгого нажатия: сработал — кадр; ещё ждём — проснуться к
+    /// сроку (`wakeup_after`), даже если анимаций нет.
+    pub(in crate::app) fn poll_touch(&mut self) {
+        let Some(root_id) = self.root_id else { return };
+        let tree = &mut self.tree;
+        let fired = self.touch.poll(&mut |e| tree.handle_event(root_id, e));
+        if fired {
+            if let Some(window) = &self.window {
+                crate::perf::redraw_from(file!(), line!());
+                window.request_redraw();
+            }
+        }
+        if let Some(deadline) = self.touch.deadline() {
+            let delay = deadline.saturating_duration_since(web_time::Instant::now());
+            self.wakeup_after = Some(self.wakeup_after.map_or(delay, |d| d.min(delay)));
+        }
+    }
+
     /// Отступы корневого layout: safe area, либо нули в режиме edge-to-edge
     /// (корень на всё окно). Заодно публикует настоящую safe area для
     /// [`crate::viewport::safe_area`].
@@ -343,7 +361,7 @@ impl AppHandler {
             pending_show: false,
             #[cfg(target_os = "android")]
             android_suspended: false,
-            touch_tap: None,
+            touch: crate::input::TouchTracker::new(),
             #[cfg(all(feature = "wayland-dnd", target_os = "linux"))]
             wayland_dnd_handle: None,
         }

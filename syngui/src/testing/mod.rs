@@ -17,6 +17,7 @@ pub struct TestHarness {
     frame_a11y: Option<Box<(A11yTree, FocusManager)>>,
     /// Дерево пересобиралось — следующий кадр синхронизирует a11y.
     a11y_dirty: bool,
+    touch: crate::input::TouchTracker,
 }
 
 /// Время фаз одного кадра [`TestHarness::frame`].
@@ -63,7 +64,31 @@ impl TestHarness {
             root_id,
             frame_a11y: None,
             a11y_dirty: true,
+            touch: crate::input::TouchTracker::new(),
         }
+    }
+
+    /// Палец коснулся — через тот же автомат касаний, что и у окон
+    /// (тап, долгое нажатие синтезируются).
+    pub fn touch_down(&mut self, id: u64, pos: Point) {
+        let (tree, root) = (&mut self.tree, self.root_id);
+        self.touch.down(id, pos, &mut |e| tree.handle_event(root, e));
+    }
+
+    pub fn touch_move(&mut self, id: u64, pos: Point) {
+        let (tree, root) = (&mut self.tree, self.root_id);
+        self.touch.motion(id, pos, &mut |e| tree.handle_event(root, e));
+    }
+
+    pub fn touch_up(&mut self, id: u64) {
+        let (tree, root) = (&mut self.tree, self.root_id);
+        self.touch.up(id, None, &mut |e| tree.handle_event(root, e));
+    }
+
+    /// Проверить таймер долгого нажатия (см. `input::touch`).
+    pub fn touch_poll(&mut self) -> bool {
+        let (tree, root) = (&mut self.tree, self.root_id);
+        self.touch.poll(&mut |e| tree.handle_event(root, e))
     }
 
     pub fn layout(&mut self, width: f32, height: f32) -> Size {

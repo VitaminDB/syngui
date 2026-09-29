@@ -1245,6 +1245,30 @@ GestureDetector::new()
     .cursor(CursorIcon::Pointer)
     .child(w)
 
+// Тач-жесты (и мышь с зажатой кнопкой для панорамы — `.pan_mouse(false)` выключает)
+GestureDetector::new()
+    .on_long_press(|p| {})              // удержание; без него удержание = правая кнопка
+    .pan_axis(PanAxis::Horizontal)      // чужая ось уходит родителю (прокрутке, карусели)
+    .on_pan_start(|p| {}).on_pan_update(|u: PanUpdate| {}).on_pan_end(|velocity| {})
+    .on_swipe(|dir: SwipeDirection, speed| {})
+    .on_pinch(|p: PinchUpdate| {}).on_pinch_end(|| {})   // p.scale от начала жеста
+    .child(w)
+// Carousel листается пальцем (ось, бросок, сопротивление на краях):
+Carousel::new().page_signal(page).show_arrows(false).show_indicators(true)
+```
+
+Касания разбирает общий автомат `input::touch::TouchTracker` (окно winit,
+`EmbedView::touch_*`, `TestHarness::touch_*`): дерево получает сырые
+`TouchStart/Move/End` всех пальцев, а тап (`MouseDown+MouseUp` на отпускании),
+двойной тап (`DoubleClick`) и долгое нажатие (`Event::LongPress`, не взятое —
+правая кнопка: `ContextMenu`, `on_secondary_click`, меню правки полей работают
+удержанием) синтезируются. Пороги — `input::set_touch_config(TouchConfig{..})`.
+Скорость броска — `input::VelocityTracker`. Захват: кто взял `TouchStart`, тот
+получает `TouchMove/End`; вернул `Ignored` на `TouchMove` — жест уходит по пути
+попадания, и родитель подхватывает его на лету (так вложенные прокрутки,
+карусель и панорамы делят жесты по осям). Отдавший жест `TouchEnd` не берёт.
+```rust
+
 Draggable::new("task", payload_json).label("Move").threshold(6.0)
     .on_click(|| {}).on_double_click(|| {}).child(w)
 DropArea::new().accept_types(vec!["task".into()])

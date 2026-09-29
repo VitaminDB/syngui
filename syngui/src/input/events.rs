@@ -50,6 +50,11 @@ pub enum Event {
         button: MouseButton,
         position: Point,
     },
+    /// Палец удерживали на месте (см. [`crate::input::touch`]). Не взятое
+    /// никем становится нажатием правой кнопки.
+    LongPress {
+        position: Point,
+    },
     FocusGained,
     FocusLost,
     BackPressed,
@@ -120,6 +125,9 @@ impl Event {
                 id: *id,
                 position: Point::new(position.x + dx, position.y + dy),
             },
+            Event::LongPress { position } => Event::LongPress {
+                position: Point::new(position.x + dx, position.y + dy),
+            },
             Event::TouchMove { id, position } => Event::TouchMove {
                 id: *id,
                 position: Point::new(position.x + dx, position.y + dy),
@@ -179,6 +187,7 @@ impl Event {
                 id: *id,
                 position: map(*position),
             },
+            Event::LongPress { position } => Event::LongPress { position: map(*position) },
             Event::TouchMove { id, position } => Event::TouchMove {
                 id: *id,
                 position: map(*position),
@@ -215,6 +224,7 @@ impl Event {
             Event::DoubleClick { position, .. } => Some(*position),
             Event::MouseWheel { position, .. } => Some(*position),
             Event::TouchStart { position, .. } => Some(*position),
+            Event::LongPress { position } => Some(*position),
             Event::TouchMove { position, .. } => Some(*position),
             Event::TouchEnd { position, .. } => Some(*position),
             Event::DragStart { position, .. } => Some(*position),

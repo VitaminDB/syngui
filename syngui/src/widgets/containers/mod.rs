@@ -33,7 +33,7 @@ pub use column::Column;
 pub use decorated_box::DecoratedBox;
 pub use fisheye::{Falloff, Fisheye, FisheyeAnchor, ScaleBox};
 pub use flex::Flex;
-pub use gesture_detector::GestureDetector;
+pub use gesture_detector::{GestureDetector, PanAxis, PanUpdate, PinchUpdate, SwipeDirection};
 pub use grid::Grid;
 pub use keyed::Keyed;
 pub use named::Named;

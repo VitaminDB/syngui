@@ -21,6 +21,8 @@ pub struct Carousel {
     auto_play_interval_ms: u32,
     show_indicators: bool,
     on_page_change: Option<Arc<Mutex<dyn FnMut(usize) + Send>>>,
+    page_signal: Option<crate::signal::RwSignal<usize>>,
+    show_arrows: bool,
 }
 
 impl Carousel {
@@ -32,7 +34,23 @@ impl Carousel {
             auto_play_interval_ms: 5000,
             show_indicators: true,
             on_page_change: None,
+            page_signal: None,
+            show_arrows: true,
         }
+    }
+
+    /// Текущая страница в сигнале: запись в него листает (при пересборке —
+    /// оберните в `Reactive`), пролистывание пальцем пишет в него.
+    pub fn page_signal(mut self, sig: crate::signal::RwSignal<usize>) -> Self {
+        self.current_page = sig.get_untracked();
+        self.page_signal = Some(sig);
+        self
+    }
+
+    /// Стрелки по бокам (на сенсорных экранах обычно не нужны).
+    pub fn show_arrows(mut self, show: bool) -> Self {
+        self.show_arrows = show;
+        self
     }
 
     pub fn child<M>(mut self, child: impl IntoWidget<M>) -> Self {
@@ -82,6 +100,10 @@ impl Widget for Carousel {
             auto_play_interval_ms: self.auto_play_interval_ms,
             show_indicators: self.show_indicators,
             on_page_change: self.on_page_change.clone(),
+            page_signal: self.page_signal,
+            show_arrows: self.show_arrows,
+            requested_page: self.current_page,
+            touch: None,
             slide_offset: 0.0,
             target_offset: 0.0,
             anim_start_offset: 0.0,
@@ -139,6 +161,12 @@ pub struct CarouselElement {
     auto_play_interval_ms: u32,
     show_indicators: bool,
     on_page_change: Option<Arc<Mutex<dyn FnMut(usize) + Send>>>,
+    page_signal: Option<crate::signal::RwSignal<usize>>,
+    show_arrows: bool,
+    /// Страница, которую последней просил виджет: пересборка с той же
+    /// страницей не сбрасывает пролистанное пальцем.
+    requested_page: usize,
+    touch: Option<CarouselTouch>,
     slide_offset: f32,
     target_offset: f32,
     anim_start_offset: f32,
@@ -156,8 +184,65 @@ pub struct CarouselElement {
     mss: MssFields,
 }
 
+#[derive(Debug)]
+struct CarouselTouch {
+    id: u64,
+    start: Point,
+    /// `None` — ось ещё не ясна; `Some(false)` — жест не наш (вертикальный).
+    ours: Option<bool>,
+    velocity: crate::input::VelocityTracker,
+}
+
+/// Бросок быстрее — листаем, даже если протащили меньше порога.
+const FLING_VELOCITY: f32 = 400.0;
+
 impl CarouselElement {
+    /// Сдвиг пальцем с сопротивлением за крайними страницами.
+    fn rubber_band(&self, raw: f32) -> f32 {
+        let max = (self.page_count.saturating_sub(1)) as f32 * self.bounds.size.width;
+        let pos = self.slide_offset + raw;
+        if pos < 0.0 {
+            -self.slide_offset + pos * 0.35
+        } else if pos > max {
+            max - self.slide_offset + (pos - max) * 0.35
+        } else {
+            raw
+        }
+    }
+
+    /// Палец отпущен: листать по пути или броску, иначе вернуться.
+    fn settle(&mut self, velocity: f32) {
+        let threshold = self.bounds.size.width * 0.2;
+        self.slide_offset += self.drag_offset;
+        self.drag_start_x = None;
+        self.drag_offset = 0.0;
+        let moved = self.slide_offset - self.target_offset;
+        let forward = moved > threshold || (velocity < -FLING_VELOCITY && moved > 0.0);
+        let backward = -moved > threshold || (velocity > FLING_VELOCITY && moved < 0.0);
+        if forward && self.current_page + 1 < self.page_count {
+            self.go_to_page(self.current_page + 1);
+        } else if backward && self.current_page > 0 {
+            self.go_to_page(self.current_page - 1);
+        } else {
+            self.anim_start_offset = self.slide_offset;
+            self.target_offset = self.current_page as f32 * self.bounds.size.width;
+            self.anim_progress = 0.0;
+            self.animating = true;
+        }
+    }
+
+    fn begin_touch(&mut self, id: u64, at: Point) {
+        let mut velocity = crate::input::VelocityTracker::new();
+        velocity.add(at);
+        self.touch = Some(CarouselTouch { id, start: at, ours: None, velocity });
+    }
+
     fn fire_page_change(&self) {
+        if let Some(sig) = self.page_signal {
+            if sig.get_untracked() != self.current_page {
+                sig.set(self.current_page);
+            }
+        }
         if let Some(ref cb) = self.on_page_change {
             if let Ok(mut f) = cb.lock() {
                 f(self.current_page);
@@ -218,12 +303,29 @@ impl Element for CarouselElement {
     fn update(&mut self, widget: &dyn Widget, _ctx: &mut UpdateContext) {
         if let Some(c) = widget.as_any().downcast_ref::<Carousel>() {
             self.page_count = c.children.len();
-            self.current_page = c.current_page;
             self.auto_play = c.auto_play;
             self.auto_play_interval_ms = c.auto_play_interval_ms;
             self.show_indicators = c.show_indicators;
+            self.show_arrows = c.show_arrows;
             self.on_page_change = c.on_page_change.clone();
-            self.target_offset = c.current_page as f32 * self.bounds.size.width;
+            self.page_signal = c.page_signal;
+            let want = c.page_signal.map(|s| s.get_untracked()).unwrap_or(c.current_page);
+            if want != self.requested_page {
+                self.requested_page = want;
+                // Листаем с анимацией, а не прыжком.
+                if want < self.page_count && want != self.current_page {
+                    self.current_page = want;
+                    self.anim_start_offset = self.slide_offset;
+                    self.target_offset = want as f32 * self.bounds.size.width;
+                    self.anim_progress = 0.0;
+                    self.animating = true;
+                }
+            }
+            if self.current_page >= self.page_count {
+                self.current_page = self.page_count.saturating_sub(1);
+                self.target_offset = self.current_page as f32 * self.bounds.size.width;
+                self.slide_offset = self.target_offset;
+            }
             self.mark_dirty(DirtyFlags::LAYOUT | DirtyFlags::RENDER);
         }
     }
@@ -266,7 +368,7 @@ impl Element for CarouselElement {
         list.pop_transform();
         list.pop_clip();
 
-        if self.page_count > 1 {
+        if self.page_count > 1 && self.show_arrows {
             if self.current_page > 0 {
                 let prev = self.prev_arrow_rect();
                 let bg = if self.prev_hover {
@@ -352,13 +454,14 @@ impl Element for CarouselElement {
             Event::MouseMove(pos) => {
                 if self.bounds.contains(*pos) {
                     if let Some(start) = self.drag_start_x {
-                        self.drag_offset = start - pos.x;
+                        self.drag_offset = self.rubber_band(start - pos.x);
                         ctx.request_paint();
                         return EventResult::Handled;
                     }
 
-                    let prev_h = self.prev_arrow_rect().contains(*pos) && self.current_page > 0;
-                    let next_h = self.next_arrow_rect().contains(*pos)
+                    let prev_h = self.show_arrows && self.prev_arrow_rect().contains(*pos) && self.current_page > 0;
+                    let next_h = self.show_arrows
+                        && self.next_arrow_rect().contains(*pos)
                         && self.current_page < self.page_count - 1;
                     if prev_h != self.prev_hover || next_h != self.next_hover {
                         self.prev_hover = prev_h;
@@ -375,12 +478,13 @@ impl Element for CarouselElement {
             Event::MouseDown { button, position }
                 if *button == MouseButton::Left && self.bounds.contains(*position) =>
             {
-                if self.prev_arrow_rect().contains(*position) && self.current_page > 0 {
+                if self.show_arrows && self.prev_arrow_rect().contains(*position) && self.current_page > 0 {
                     self.go_to_page(self.current_page - 1);
                     ctx.request_paint();
                     return EventResult::Handled;
                 }
-                if self.next_arrow_rect().contains(*position)
+                if self.show_arrows
+                    && self.next_arrow_rect().contains(*position)
                     && self.current_page < self.page_count - 1
                 {
                     self.go_to_page(self.current_page + 1);
@@ -413,27 +517,62 @@ impl Element for CarouselElement {
                 EventResult::Handled
             }
             Event::MouseUp { button, .. }
-                if *button == MouseButton::Left && self.drag_start_x.is_some() =>
+                if *button == MouseButton::Left && self.drag_start_x.is_some() && self.touch.is_none() =>
             {
-                let threshold = self.bounds.size.width * 0.2;
-                self.slide_offset += self.drag_offset;
-                self.drag_start_x = None;
-                self.drag_offset = 0.0;
-
-                if self.slide_offset - self.target_offset > threshold
-                    && self.current_page < self.page_count - 1
-                {
-                    self.go_to_page(self.current_page + 1);
-                } else if self.target_offset - self.slide_offset > threshold
-                    && self.current_page > 0
-                {
-                    self.go_to_page(self.current_page - 1);
-                } else {
-                    self.anim_start_offset = self.slide_offset;
-                    self.target_offset = self.current_page as f32 * self.bounds.size.width;
-                    self.anim_progress = 0.0;
-                    self.animating = true;
+                self.settle(0.0);
+                ctx.request_paint();
+                EventResult::Handled
+            }
+            Event::TouchStart { id, position } => {
+                if self.page_count < 2 || !self.bounds.contains(*position) || self.touch.is_some() {
+                    return EventResult::Ignored;
                 }
+                self.begin_touch(*id, *position);
+                EventResult::Handled
+            }
+            Event::TouchMove { id, position } => {
+                if self.touch.as_ref().map(|t| t.id) != Some(*id) {
+                    // Жест отдала вложенная вертикальная прокрутка — подхватываем.
+                    if self.page_count < 2 || self.touch.is_some() || !self.bounds.contains(*position) {
+                        return EventResult::Ignored;
+                    }
+                    self.begin_touch(*id, *position);
+                    return EventResult::Handled;
+                }
+                let slop = crate::input::touch_config().tap_slop;
+                let t = self.touch.as_mut().unwrap();
+                t.velocity.add(*position);
+                let (dx, dy) = (position.x - t.start.x, position.y - t.start.y);
+                if t.ours.is_none() {
+                    if dx.abs().max(dy.abs()) < slop {
+                        return EventResult::Handled;
+                    }
+                    t.ours = Some(dx.abs() > dy.abs());
+                    if t.ours == Some(true) {
+                        // Отсчёт от точки, где ось стала ясна, — без рывка на пороге.
+                        t.start = *position;
+                        self.drag_start_x = Some(position.x);
+                        self.drag_offset = 0.0;
+                        self.animating = false;
+                    }
+                }
+                if t.ours != Some(true) {
+                    return EventResult::Ignored;
+                }
+                let raw = t.start.x - position.x;
+                self.drag_offset = self.rubber_band(raw);
+                ctx.request_paint();
+                EventResult::Handled
+            }
+            Event::TouchEnd { id, .. } => {
+                if self.touch.as_ref().map(|t| t.id) != Some(*id) {
+                    return EventResult::Ignored;
+                }
+                let t = self.touch.take().unwrap();
+                if t.ours != Some(true) {
+                    return EventResult::Ignored;
+                }
+                self.settle(t.velocity.velocity().x);
                 ctx.request_paint();
                 EventResult::Handled
             }
@@ -526,5 +665,64 @@ impl StyledElement for CarouselElement {
     fn set_classes(&mut self, classes: Vec<String>) {
         self.classes = classes;
         self.mark_dirty(DirtyFlags::RENDER);
+    }
+}
+
+#[cfg(test)]
+mod touch_tests {
+    use super::*;
+    use crate::testing::TestHarness;
+    use crate::widgets::{Column, DecoratedBox, ScrollView};
+
+    fn pages(sig: crate::signal::RwSignal<usize>) -> Carousel {
+        Carousel::new()
+            .page_signal(sig)
+            .show_indicators(false)
+            .child(ScrollView::new().vertical().child(Column::new().height(3000.0)))
+            .child(DecoratedBox::new())
+            .child(DecoratedBox::new())
+    }
+
+    #[test]
+    fn swipe_left_goes_to_next_page_through_vertical_scroll() {
+        crate::signal::allow_signal_reads_on_this_thread();
+        let sig = crate::signal::use_signal(0usize);
+        let mut h = TestHarness::new(Box::new(pages(sig)));
+        h.layout(400.0, 800.0);
+        h.touch_down(1, Point::new(300.0, 400.0));
+        for i in 1..=8 {
+            std::thread::sleep(std::time::Duration::from_millis(4));
+            h.touch_move(1, Point::new(300.0 - i as f32 * 25.0, 402.0));
+        }
+        h.touch_up(1);
+        assert_eq!(sig.get_untracked(), 1);
+    }
+
+    #[test]
+    fn vertical_gesture_stays_in_scroll() {
+        crate::signal::allow_signal_reads_on_this_thread();
+        let sig = crate::signal::use_signal(0usize);
+        let mut h = TestHarness::new(Box::new(pages(sig)));
+        h.layout(400.0, 800.0);
+        h.touch_down(1, Point::new(200.0, 600.0));
+        for i in 1..=8 {
+            h.touch_move(1, Point::new(201.0, 600.0 - i as f32 * 30.0));
+        }
+        h.touch_up(1);
+        assert_eq!(sig.get_untracked(), 0);
+    }
+
+    #[test]
+    fn edge_page_does_not_overflow() {
+        crate::signal::allow_signal_reads_on_this_thread();
+        let sig = crate::signal::use_signal(0usize);
+        let mut h = TestHarness::new(Box::new(pages(sig)));
+        h.layout(400.0, 800.0);
+        h.touch_down(1, Point::new(50.0, 400.0));
+        for i in 1..=8 {
+            h.touch_move(1, Point::new(50.0 + i as f32 * 40.0, 400.0));
+        }
+        h.touch_up(1);
+        assert_eq!(sig.get_untracked(), 0);
     }
 }

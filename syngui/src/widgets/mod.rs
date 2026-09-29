@@ -23,7 +23,7 @@ pub use charts::{
 };
 pub use containers::{
     Animated, AnimatedPosition, AnimatedSize, AnimatedSwitcher, AnimationAxis, Carousel, Column, DecoratedBox, Falloff, Fisheye,
-    FisheyeAnchor, Flex, GestureDetector, ScaleBox,
+    FisheyeAnchor, Flex, GestureDetector, PanAxis, PanUpdate, PinchUpdate, SwipeDirection, ScaleBox,
     Grid, IntoWidget, Motion, Named, Padding, Page, Presence, Reactive, RepeatMode, Row, ScrollPhysics, ScrollTarget,
     ScrollbarPolicy, ShowIf, SplitDirection, SplitView, Stack, StackFit, TransformBox,
     TransformOrigin, TransformState, VirtualFlex,

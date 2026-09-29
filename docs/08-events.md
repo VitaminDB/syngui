@@ -222,6 +222,34 @@ the mouse is the exception: it always gets the real position.
 
 When an element returns `EventResult::Captured`, subsequent mouse events are delivered directly to that element until mouse button is released.
 
+## Touch and gestures
+
+A shared state machine (`input::touch::TouchTracker`) turns fingers into tree
+events for every host — the winit window, `EmbedView::touch_down/motion/up/cancel`
+(layer-shell surfaces) and `TestHarness::touch_*`:
+
+- all fingers are delivered raw as `TouchStart/TouchMove/TouchEnd`;
+- a **tap** becomes `MouseDown` + `MouseUp` (left) on release if the finger
+  stayed within `tap_slop` and no second finger touched;
+- a second tap nearby within `double_tap` becomes `DoubleClick`;
+- holding still for `long_press` dispatches `Event::LongPress { position }`;
+  if nobody handles it and `long_press_as_secondary` is on, a right-button
+  press follows, so context menus open by holding. The host wakes up at
+  `TouchTracker::deadline()` and calls `poll()`.
+
+Thresholds: `input::set_touch_config(TouchConfig { .. })`.
+
+**Arbitration.** Whoever returns `Handled` on `TouchStart` becomes the captor
+and gets the following `TouchMove/TouchEnd`. A captor that returns `Ignored` on
+`TouchMove` (e.g. a vertical `ScrollView` seeing a horizontal move) hands the
+gesture over: the event continues along the hit path and an ancestor may pick
+it up mid-flight (`Carousel`, `GestureDetector` with `pan_axis`). The element
+that handed a gesture over also ignores its `TouchEnd`.
+
+`GestureDetector`: `on_long_press`, `on_pan_start/update/end` (with fling
+velocity from `input::VelocityTracker`), `pan_axis`, `on_swipe`, `on_pinch`,
+`on_pinch_end`; panning also works with a mouse drag (`pan_mouse`).
+
 ## EventContext
 
 Provided to `handle_event()` with utilities for side effects:

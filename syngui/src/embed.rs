@@ -32,6 +32,7 @@ pub struct EmbedView {
     pub double_click_interval: Duration,
     modifiers: Modifiers,
     last_frame_sig: Option<u64>,
+    touch: crate::input::TouchTracker,
 }
 
 impl Default for EmbedView {
@@ -52,6 +53,7 @@ impl EmbedView {
             double_click_interval: crate::input::resolve_double_click_interval(),
             modifiers: Modifiers::empty(),
             last_frame_sig: None,
+            touch: crate::input::TouchTracker::new(),
         }
     }
 
@@ -262,6 +264,69 @@ impl EmbedView {
         } else {
             self.dispatch(&Event::MouseUp { button, position: pos })
         }
+    }
+
+    /// Палец коснулся поверхности (`id` — номер касания у хоста).
+    /// Прокрутки, слайдеры и жесты получают сырые `Touch*`, тап и долгое
+    /// нажатие синтезируются (см. [`crate::input::touch`]).
+    pub fn touch_down(&mut self, id: u64, pos: Point) -> EventResult {
+        self.cursor = pos;
+        let Some(root) = self.root_id else { return EventResult::Ignored };
+        self.tree.animations_armed = true;
+        let tree = &mut self.tree;
+        self.touch.down(id, pos, &mut |e| tree.handle_event(root, e));
+        EventResult::Handled
+    }
+
+    pub fn touch_motion(&mut self, id: u64, pos: Point) -> EventResult {
+        self.cursor = pos;
+        let Some(root) = self.root_id else { return EventResult::Ignored };
+        self.tree.animations_armed = true;
+        let tree = &mut self.tree;
+        self.touch.motion(id, pos, &mut |e| tree.handle_event(root, e));
+        EventResult::Handled
+    }
+
+    /// Палец поднят; `pos` — `None`, если хост точку не знает (`wl_touch.up`
+    /// её не передаёт) — берётся последняя.
+    pub fn touch_up(&mut self, id: u64, pos: Option<Point>) -> EventResult {
+        let Some(root) = self.root_id else { return EventResult::Ignored };
+        self.tree.animations_armed = true;
+        if self.touch.would_tap(id) {
+            self.update_focus_from_click(pos.unwrap_or(self.cursor));
+        }
+        let tree = &mut self.tree;
+        self.touch.up(id, pos, &mut |e| tree.handle_event(root, e));
+        EventResult::Handled
+    }
+
+    /// Хост отменил касания (жест забрал композитор).
+    pub fn touch_cancel(&mut self) {
+        let Some(root) = self.root_id else { return };
+        self.tree.animations_armed = true;
+        let tree = &mut self.tree;
+        self.touch.cancel(&mut |e| tree.handle_event(root, e));
+    }
+
+    /// Когда проверить долгое нажатие ([`Self::touch_poll`]); `None` — не нужно.
+    pub fn touch_deadline(&self) -> Option<Instant> {
+        self.touch.deadline()
+    }
+
+    /// Проверить таймер долгого нажатия; `true` — сработало, нужен кадр.
+    pub fn touch_poll(&mut self) -> bool {
+        let Some(root) = self.root_id else { return false };
+        let tree = &mut self.tree;
+        let fired = self.touch.poll(&mut |e| tree.handle_event(root, e));
+        if fired {
+            self.tree.animations_armed = true;
+        }
+        fired
+    }
+
+    /// Сколько пальцев сейчас на поверхности.
+    pub fn touch_count(&self) -> usize {
+        self.touch.active()
     }
 
     /// Прокрутка: `dy > 0` — вверх (как `LineDelta` winit, уже в пикселях).

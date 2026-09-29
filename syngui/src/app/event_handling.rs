@@ -659,66 +659,27 @@ impl winit::application::ApplicationHandler<SynGuiUserEvent> for AppHandler {
                 let position =
                     Point::new(touch.location.x as f32 / sf, touch.location.y as f32 / sf);
                 let id = touch.id;
-
-                // Порог, после которого жест считается скроллом, а не тапом.
-                const TAP_SLOP: f32 = 8.0;
-
-                match touch.phase {
-                    winit::event::TouchPhase::Started => {
-                        self.cursor_position = position;
-                        // Клик НЕ синтезируется здесь: жест ещё может оказаться
-                        // скроллом. Тап синтезируется на отпускании (ниже).
-                        if self.touch_tap.is_none() {
-                            self.touch_tap = Some((id, position, false));
+                self.cursor_position = position;
+                // Тап, двойной тап и долгое нажатие синтезирует общий автомат
+                // (`input::touch`); сырые Touch* получают все пальцы.
+                if matches!(touch.phase, winit::event::TouchPhase::Ended) && self.touch.would_tap(id) {
+                    self.update_focus_from_click(position);
+                }
+                if let Some(root_id) = self.root_id {
+                    let tree = &mut self.tree;
+                    let mut dispatch = |e: &Event| tree.handle_event(root_id, e);
+                    match touch.phase {
+                        winit::event::TouchPhase::Started => {
+                            self.touch.down(id, position, &mut dispatch);
                         }
-                        if let Some(root_id) = self.root_id {
-                            let touch_event = Event::TouchStart { id, position };
-                            self.tree.handle_event(root_id, &touch_event);
+                        winit::event::TouchPhase::Moved => {
+                            self.touch.motion(id, position, &mut dispatch);
                         }
-                    }
-                    winit::event::TouchPhase::Moved => {
-                        self.cursor_position = position;
-                        if let Some((tid, start, moved)) = &mut self.touch_tap {
-                            if *tid == id
-                                && !*moved
-                                && ((position.x - start.x).abs() > TAP_SLOP
-                                    || (position.y - start.y).abs() > TAP_SLOP)
-                            {
-                                *moved = true;
-                            }
+                        winit::event::TouchPhase::Ended => {
+                            self.touch.up(id, Some(position), &mut dispatch);
                         }
-                        if let Some(root_id) = self.root_id {
-                            let touch_event = Event::TouchMove { id, position };
-                            self.tree.handle_event(root_id, &touch_event);
-                        }
-                    }
-                    winit::event::TouchPhase::Ended | winit::event::TouchPhase::Cancelled => {
-                        if let Some(root_id) = self.root_id {
-                            let touch_event = Event::TouchEnd { id, position };
-                            self.tree.handle_event(root_id, &touch_event);
-                        }
-                        let is_tap = match self.touch_tap {
-                            Some((tid, _, moved)) if tid == id => {
-                                self.touch_tap = None;
-                                !moved && matches!(touch.phase, winit::event::TouchPhase::Ended)
-                            }
-                            _ => false,
-                        };
-                        if is_tap {
-                            // Палец не сдвинулся — это клик: down+up в точке отпускания.
-                            self.update_focus_from_click(position);
-                            if let Some(root_id) = self.root_id {
-                                let down = Event::MouseDown {
-                                    button: crate::input::MouseButton::Left,
-                                    position,
-                                };
-                                self.tree.handle_event(root_id, &down);
-                                let up = Event::MouseUp {
-                                    button: crate::input::MouseButton::Left,
-                                    position,
-                                };
-                                self.tree.handle_event(root_id, &up);
-                            }
+                        winit::event::TouchPhase::Cancelled => {
+                            self.touch.cancel(&mut dispatch);
                         }
                     }
                 }
@@ -793,6 +754,7 @@ impl winit::application::ApplicationHandler<SynGuiUserEvent> for AppHandler {
             }
         }
 
+        self.poll_touch();
         self.update();
         #[cfg(target_arch = "wasm32")]
         if let Some(window) = &self.window {
