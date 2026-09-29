@@ -461,9 +461,17 @@ impl winit::application::ApplicationHandler<SynGuiUserEvent> for AppHandler {
                         let back_event = Event::BackPressed;
                         if let Some(root_id) = self.root_id {
                             let result = self.tree.handle_event(root_id, &back_event);
+                            // Необработанный «назад» закрывает приложение только
+                            // на Android (как системная кнопка). На Linux это
+                            // клавиша XF86Back — её шлёт и жест «назад» телефона
+                            // (synshell), — выход на корневом экране был бы
+                            // сюрпризом.
+                            #[cfg(target_os = "android")]
                             if !result.is_handled() {
                                 event_loop.exit();
                             }
+                            #[cfg(not(target_os = "android"))]
+                            let _ = (result, &event_loop);
                         }
                         return;
                     }
