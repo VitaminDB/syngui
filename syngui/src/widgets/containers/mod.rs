@@ -36,7 +36,7 @@ pub use flex::Flex;
 pub use gesture_detector::{GestureDetector, PanAxis, PanUpdate, PinchUpdate, SwipeDirection};
 pub use grid::Grid;
 pub use keyed::Keyed;
-pub use named::Named;
+pub use named::{scroll_to_named, Named};
 pub use padding::Padding;
 pub use page::{Page, ScrollPhysics, ScrollTarget, ScrollbarPolicy};
 pub use pan_zoom::PanZoomViewport;

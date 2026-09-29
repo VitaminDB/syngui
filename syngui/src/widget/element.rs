@@ -363,6 +363,13 @@ pub trait Element: Send {
         false
     }
 
+    /// Прокрутить так, чтобы начало `child_rect` (в координатах
+    /// содержимого) встало к началу области — плавно, если контейнер умеет.
+    /// По умолчанию — как `ensure_visible`.
+    fn scroll_to_start_of(&mut self, child_rect: Rect) -> bool {
+        self.ensure_visible(child_rect)
+    }
+
     fn manages_own_children(&self) -> bool {
         false
     }
@@ -632,6 +639,10 @@ impl Element for Box<dyn Element> {
 
     fn ensure_visible(&mut self, child_rect: Rect) -> bool {
         self.as_mut().ensure_visible(child_rect)
+    }
+
+    fn scroll_to_start_of(&mut self, child_rect: Rect) -> bool {
+        self.as_mut().scroll_to_start_of(child_rect)
     }
 
     fn manages_own_children(&self) -> bool {

@@ -1252,6 +1252,50 @@ impl crate::mss::SelectorMatchContext for ElementTree {
 }
 
 impl ElementTree {
+    /// Элемент с именем (`Named`) — к началу ближайшей прокрутки, плавно.
+    /// `false` — такого элемента в дереве нет.
+    pub fn scroll_named_to_start(&mut self, name: &str) -> bool {
+        let Some(id) = self.elements.iter().find(|(_, n)| n.debug_name.as_deref() == Some(name)).map(|(id, _)| *id) else {
+            return false;
+        };
+        let bounds = match self.elements.get(&id) {
+            Some(n) => n.element.bounds(),
+            None => return false,
+        };
+        let (mut x, mut y) = (bounds.origin.x, bounds.origin.y);
+        let mut cur = id;
+        while let Some(parent) = self.elements.get(&cur).and_then(|n| n.parent) {
+            let is_scroll = self.elements.get(&parent).is_some_and(|n| n.element.is_scroll_container());
+            if is_scroll {
+                let rect = crate::core::Rect::new(crate::core::Point::new(x, y), bounds.size);
+                if let Some(node) = self.elements.get_mut(&parent) {
+                    node.element.scroll_to_start_of(rect);
+                }
+                self.note_animation_started(parent);
+                return true;
+            }
+            if let Some(n) = self.elements.get(&parent) {
+                x += n.element.bounds().origin.x;
+                y += n.element.bounds().origin.y;
+            }
+            cur = parent;
+        }
+        false
+    }
+
+    /// Выполнить отложенные [`crate::widgets::scroll_to_named`], чьи имена
+    /// есть в этом дереве (после раскладки — позиции уже известны).
+    pub fn process_scroll_requests(&mut self) {
+        let pending = crate::widgets::containers::named::take_scroll_requests();
+        let mut left = Vec::new();
+        for name in pending {
+            if !self.scroll_named_to_start(&name) {
+                left.push(name);
+            }
+        }
+        crate::widgets::containers::named::return_scroll_requests(left);
+    }
+
     pub fn scroll_element_into_view(
         &mut self,
         element_id: ElementId,

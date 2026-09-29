@@ -1253,6 +1253,9 @@ GestureDetector::new()
     .on_swipe(|dir: SwipeDirection, speed| {})
     .on_pinch(|p: PinchUpdate| {}).on_pinch_end(|| {})   // p.scale от начала жеста
     .child(w)
+// Прокрутка к якорю (алфавитный указатель, оглавление): элемент в Named —
+// ближайшая прокрутка плавно ставит его к началу на следующем кадре.
+syngui::widgets::containers::scroll_to_named("letter-K");   // Named::new("letter-K", header)
 // Carousel листается пальцем (ось, бросок, сопротивление на краях):
 Carousel::new().page_signal(page).show_arrows(false).show_indicators(true)
 ```

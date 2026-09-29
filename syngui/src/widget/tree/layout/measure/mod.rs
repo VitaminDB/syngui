@@ -17,6 +17,13 @@ macro_rules! layout_log {
 
 impl ElementTree {
     pub fn layout(&mut self, root_id: ElementId, constraints: Constraints) -> Size {
+        let size = self.layout_pass(root_id, constraints);
+        // Позиции известны — отложенные прокрутки к именованным элементам.
+        self.process_scroll_requests();
+        size
+    }
+
+    fn layout_pass(&mut self, root_id: ElementId, constraints: Constraints) -> Size {
         if constraints.max_width.is_finite() && constraints.max_height.is_finite() {
             self.viewport_size = Size::new(constraints.max_width, constraints.max_height);
         }

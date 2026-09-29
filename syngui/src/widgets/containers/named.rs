@@ -8,6 +8,38 @@ use crate::widget::{
 };
 use std::any::Any;
 
+thread_local! {
+    static SCROLL_REQUESTS: std::cell::RefCell<Vec<String>> = const { std::cell::RefCell::new(Vec::new()) };
+}
+
+/// Прокрутить ближайшую прокрутку так, чтобы элемент `Named::new(name, ..)`
+/// встал к её началу (плавно). Выполняется на следующем кадре — после
+/// раскладки; удобно для алфавитных указателей («A», «Б»…) и якорей.
+pub fn scroll_to_named(name: impl Into<String>) {
+    SCROLL_REQUESTS.with(|r| r.borrow_mut().push(name.into()));
+}
+
+pub(crate) fn take_scroll_requests() -> Vec<String> {
+    SCROLL_REQUESTS.with(|r| std::mem::take(&mut *r.borrow_mut()))
+}
+
+/// Имена, которых нет в этом дереве, ждут другого окна или следующего кадра
+/// (не дольше пары кадров — чтобы не копились).
+pub(crate) fn return_scroll_requests(mut left: Vec<String>) {
+    if left.is_empty() {
+        return;
+    }
+    SCROLL_REQUESTS.with(|r| {
+        let mut r = r.borrow_mut();
+        left.truncate(8);
+        r.extend(left);
+        let n = r.len();
+        if n > 16 {
+            r.drain(..n - 16);
+        }
+    });
+}
+
 pub struct Named {
     name: String,
     child: Box<dyn Widget>,
@@ -120,5 +152,30 @@ impl Element for NamedElement {
 
     fn children(&self) -> &[ElementId] {
         &[]
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::testing::TestHarness;
+    use crate::widgets::{Column, ScrollView};
+
+    #[test]
+    fn scroll_to_named_glides_to_start() {
+        let mut col = Column::new();
+        for i in 0..20 {
+            col = col.child(Named::new(format!("row{i}"), Column::new().height(100.0)));
+        }
+        let mut h = TestHarness::new(Box::new(ScrollView::new().vertical().child(col)));
+        h.layout(300.0, 400.0);
+        scroll_to_named("row10");
+        h.layout(300.0, 400.0);
+        for _ in 0..60 {
+            h.animate(std::time::Duration::from_millis(16));
+        }
+        let sv = h.find_by_type_name("ScrollView")[0];
+        let y = h.tree.get(sv).unwrap().scroll_offset().y;
+        assert!((y - 1000.0).abs() < 1.0, "{y}");
     }
 }

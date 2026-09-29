@@ -150,6 +150,7 @@ impl Widget for ScrollView {
             scroll_offset: Point::zero(),
             velocity: Point::zero(),
             is_coasting: false,
+            glide_to: None,
             coast_friction: FRICTION,
 
             dragging_vertical: false,
@@ -222,6 +223,8 @@ pub struct ScrollViewElement {
     scroll_offset: Point,
     velocity: Point,
     is_coasting: bool,
+    /// Плавная прокрутка к цели (`scroll_to_named`).
+    glide_to: Option<Point>,
     /// Трение текущего доката: у свайпа — `FRICTION`, у колеса — по
     /// настройке `WheelMomentum`.
     coast_friction: f32,
@@ -512,7 +515,7 @@ impl ScrollViewElement {
         let fading = self.scrollbar_policy == ScrollbarPolicy::Auto
             && self.scrollbar_opacity > 0.0
             && !self.hover_scrollbar_area;
-        self.is_coasting || fading
+        self.is_coasting || fading || self.glide_to.is_some()
     }
 }
 
@@ -942,6 +945,21 @@ impl Element for ScrollViewElement {
         let dt_secs = dt.as_secs_f32();
         let mut needs_repaint = false;
 
+        if let Some(target) = self.glide_to {
+            // Экспоненциальное сближение: быстро в начале, мягко в конце.
+            let k = (dt_secs * 14.0).min(1.0);
+            let t = self.clamp_offset(target);
+            self.scroll_offset.x += (t.x - self.scroll_offset.x) * k;
+            self.scroll_offset.y += (t.y - self.scroll_offset.y) * k;
+            if (t.x - self.scroll_offset.x).abs() < 0.5 && (t.y - self.scroll_offset.y).abs() < 0.5 {
+                self.scroll_offset = t;
+                self.glide_to = None;
+            }
+            self.refresh_stick();
+            self.flash_scrollbar();
+            needs_repaint = true;
+        }
+
         if self.is_coasting {
             let friction = self.coast_friction.powf(dt_secs * 60.0);
             self.velocity.x *= friction;
@@ -1043,6 +1061,20 @@ impl Element for ScrollViewElement {
             }
         }
         false
+    }
+
+    fn scroll_to_start_of(&mut self, child_rect: Rect) -> bool {
+        let mut target = self.scroll_offset;
+        if self.can_scroll_y() {
+            target.y = child_rect.origin.y.clamp(0.0, self.max_scroll_y());
+        }
+        if self.can_scroll_x() && !self.can_scroll_y() {
+            target.x = child_rect.origin.x.clamp(0.0, self.max_scroll_x());
+        }
+        self.is_coasting = false;
+        self.velocity = Point::zero();
+        self.glide_to = Some(target);
+        true
     }
 
     fn clip_content(&self) -> bool {
