@@ -54,7 +54,20 @@ impl Default for TouchConfig {
 }
 
 thread_local! {
+    static LAST_PRESS: std::cell::Cell<Option<Point>> = const { std::cell::Cell::new(None) };
     static SYNTHESIZING: std::cell::Cell<bool> = const { std::cell::Cell::new(false) };
+}
+
+/// Где последний раз коснулись пальцем или нажали кнопку мыши — в
+/// координатах корня окна (поверхности). Контекстное меню, открытое из
+/// глубины дерева (плитка в прокрутке, страница карусели), ставится сюда.
+pub fn last_press() -> Option<Point> {
+    LAST_PRESS.with(|p| p.get())
+}
+
+/// Запомнить точку нажатия (хосты: касание, кнопка мыши).
+pub fn set_last_press(p: Point) {
+    LAST_PRESS.with(|c| c.set(Some(p)));
 }
 
 /// Идёт доставка кнопки мыши, синтезированной из касания (тап, долгое
@@ -127,6 +140,7 @@ impl TouchTracker {
             self.tap_cancelled = true;
         }
         self.fingers.insert(id, Finger { start: pos, pos, moved: false });
+        set_last_press(pos);
         dispatch(&Event::TouchStart { id, position: pos });
     }
 

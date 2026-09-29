@@ -275,6 +275,7 @@ impl winit::application::ApplicationHandler<SynGuiUserEvent> for AppHandler {
                 }
 
                 if is_press {
+                    crate::input::set_last_press(pos);
                     self.update_focus_from_click(pos);
                 }
 

@@ -241,6 +241,7 @@ impl EmbedView {
     pub fn pointer_button(&mut self, button: MouseButton, pressed: bool) -> EventResult {
         let pos = self.cursor;
         if pressed {
+            crate::input::set_last_press(pos);
             self.update_focus_from_click(pos);
         }
         if !pressed && self.tree.drag_state.is_some() {
