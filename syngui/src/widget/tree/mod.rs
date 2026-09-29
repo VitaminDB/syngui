@@ -1262,21 +1262,22 @@ impl ElementTree {
             Some(n) => n.element.bounds(),
             None => return false,
         };
-        let (mut x, mut y) = (bounds.origin.x, bounds.origin.y);
+        // Границы элементов — в координатах дерева (без сдвига прокрутки):
+        // начало относительно содержимого прокрутки — разность с её началом.
         let mut cur = id;
         while let Some(parent) = self.elements.get(&cur).and_then(|n| n.parent) {
             let is_scroll = self.elements.get(&parent).is_some_and(|n| n.element.is_scroll_container());
             if is_scroll {
-                let rect = crate::core::Rect::new(crate::core::Point::new(x, y), bounds.size);
+                let origin = self.elements.get(&parent).map(|n| n.element.bounds().origin).unwrap_or_default();
+                let rect = crate::core::Rect::new(
+                    crate::core::Point::new(bounds.origin.x - origin.x, bounds.origin.y - origin.y),
+                    bounds.size,
+                );
                 if let Some(node) = self.elements.get_mut(&parent) {
                     node.element.scroll_to_start_of(rect);
                 }
                 self.note_animation_started(parent);
                 return true;
-            }
-            if let Some(n) = self.elements.get(&parent) {
-                x += n.element.bounds().origin.x;
-                y += n.element.bounds().origin.y;
             }
             cur = parent;
         }
