@@ -105,7 +105,10 @@ pub struct ListView {
     selected_signal_offset: usize,
     on_reach_top: Option<Arc<Mutex<dyn FnMut() + Send>>>,
     reach_top_threshold: f32,
+    on_reach_bottom: Option<Arc<Mutex<dyn FnMut() + Send>>>,
+    reach_bottom_threshold: f32,
     scroll_to: Option<(usize, u64)>,
+    prepended: Option<u64>,
 }
 
 impl ListView {
@@ -125,7 +128,10 @@ impl ListView {
             selected_signal_offset: 0,
             on_reach_top: None,
             reach_top_threshold: 0.0,
+            on_reach_bottom: None,
+            reach_bottom_threshold: 0.0,
             scroll_to: None,
+            prepended: None,
         }
     }
 
@@ -151,7 +157,10 @@ impl ListView {
             selected_signal_offset: 0,
             on_reach_top: None,
             reach_top_threshold: 0.0,
+            on_reach_bottom: None,
+            reach_bottom_threshold: 0.0,
             scroll_to: None,
+            prepended: None,
         }
     }
 
@@ -223,6 +232,25 @@ impl ListView {
         self.on_reach_top = Some(Arc::new(Mutex::new(f)));
         self
     }
+
+    /// Колбэк при подходе прокрутки к нижнему краю ближе `threshold_px`
+    /// (подгрузка следующей страницы). Срабатывает один раз на пересечение
+    /// порога; после роста списка порог снова взводится.
+    pub fn on_reach_bottom(mut self, threshold_px: f32, f: impl FnMut() + Send + 'static) -> Self {
+        self.reach_bottom_threshold = threshold_px.max(0.0);
+        self.on_reach_bottom = Some(Arc::new(Mutex::new(f)));
+        self
+    }
+
+    /// Сколько строк всего вставлено в начало списка (растущий счётчик).
+    /// Прирост с прошлой сборки сдвигает прокрутку на столько же строк
+    /// вниз, и видимые строки остаются на месте — лента «новые сверху» не
+    /// уезжает из-под читающего. Чтобы показать новые строки, вместе с
+    /// приростом передаётся `scroll_to(0, …)`.
+    pub fn prepended(mut self, total: u64) -> Self {
+        self.prepended = Some(total);
+        self
+    }
 }
 
 impl Widget for ListView {
@@ -271,6 +299,10 @@ impl Widget for ListView {
             on_reach_top: self.on_reach_top.clone(),
             reach_top_threshold: self.reach_top_threshold,
             was_above_reach_top: true,
+            on_reach_bottom: self.on_reach_bottom.clone(),
+            reach_bottom_threshold: self.reach_bottom_threshold,
+            was_far_from_bottom: true,
+            prepended: self.prepended.unwrap_or(0),
             scroll_to_generation: self.scroll_to.map_or(0, |(_, generation)| generation),
             pending_scroll_to: self.scroll_to.map(|(index, _)| index),
         })
@@ -327,6 +359,10 @@ pub struct ListViewElement {
     on_reach_top: Option<Arc<Mutex<dyn FnMut() + Send>>>,
     reach_top_threshold: f32,
     was_above_reach_top: bool,
+    on_reach_bottom: Option<Arc<Mutex<dyn FnMut() + Send>>>,
+    reach_bottom_threshold: f32,
+    was_far_from_bottom: bool,
+    prepended: u64,
     scroll_to_generation: u64,
     pending_scroll_to: Option<usize>,
 }
@@ -403,6 +439,7 @@ impl ListViewElement {
     }
 
     fn check_reach_top(&mut self) {
+        self.check_reach_bottom();
         if self.on_reach_top.is_none() {
             return;
         }
@@ -415,6 +452,29 @@ impl ListViewElement {
             }
         }
         self.was_above_reach_top = above;
+    }
+
+    /// Список подрос (подгрузилась страница) — порог снова взводится, но
+    /// колбэк без прокрутки не вызывается.
+    fn rearm_reach_bottom(&mut self) {
+        if self.max_scroll() - self.scroll_offset > self.reach_bottom_threshold {
+            self.was_far_from_bottom = true;
+        }
+    }
+
+    fn check_reach_bottom(&mut self) {
+        if self.on_reach_bottom.is_none() {
+            return;
+        }
+        let far = self.max_scroll() - self.scroll_offset > self.reach_bottom_threshold;
+        if self.was_far_from_bottom && !far {
+            if let Some(cb) = self.on_reach_bottom.as_ref() {
+                if let Ok(mut f) = cb.lock() {
+                    f();
+                }
+            }
+        }
+        self.was_far_from_bottom = far;
     }
 
     fn scroll_row_into_view(&mut self, index: usize) {
@@ -575,6 +635,21 @@ impl Element for ListViewElement {
             self.selected_signal_offset = lv.selected_signal_offset;
             self.item_widget_builder = lv.item_widget.clone();
             self.compositional = lv.item_widget.is_some();
+            self.on_reach_top = lv.on_reach_top.clone();
+            self.reach_top_threshold = lv.reach_top_threshold;
+            self.on_reach_bottom = lv.on_reach_bottom.clone();
+            self.reach_bottom_threshold = lv.reach_bottom_threshold;
+            if let Some(total) = lv.prepended {
+                let added = total.saturating_sub(self.prepended);
+                self.prepended = total;
+                if added > 0 {
+                    self.scroll_offset += added as f32 * self.item_height;
+                    // Строки сдвинулись — окно собранных строк устарело.
+                    if self.compositional {
+                        self.built_window = None;
+                    }
+                }
+            }
             if let Some((index, generation)) = lv.scroll_to {
                 if generation != self.scroll_to_generation {
                     self.scroll_to_generation = generation;
@@ -608,6 +683,7 @@ impl Element for ListViewElement {
         };
         self.bounds = Rect::new(Point::zero(), Size::new(w, h));
         if !self.compositional {
+            self.rearm_reach_bottom();
             if let Some(index) = self.pending_scroll_to.take() {
                 self.scroll_row_into_view(index);
             }
@@ -1055,6 +1131,7 @@ impl Element for ListViewElement {
     fn set_content_size(&mut self, size: Size) {
         if self.compositional {
             self.actual_content_height = size.height;
+            self.rearm_reach_bottom();
             if let Some(index) = self.pending_scroll_to.take() {
                 self.scroll_row_into_view(index);
             }
@@ -1390,5 +1467,78 @@ mod tests {
             !painted.iter().any(|t| t == "0"),
             "список не прокрутился: {painted:?}"
         );
+    }
+
+    /// Вставка строк в начало с `prepended` не сдвигает видимые строки;
+    /// вместе с `scroll_to(0, …)` список возвращается к началу.
+    #[test]
+    fn prepended_rows_keep_view_in_place() {
+        // (строк вставлено всего, номер запроса прокрутки к началу)
+        let state = use_signal((0u64, 0u64));
+        let mut h = TestHarness::new(Box::new(Reactive::new(move || -> Vec<Box<dyn Widget>> {
+            let (added, generation) = state.get();
+            let mut list =
+                ListView::virtual_new(ROWS + added as usize, |i| ListItem::new(format!("{i}")))
+                    .item_height(ROW_H)
+                    .height(VIEW_H)
+                    .item_widget(|_, _, _, _| {
+                        Box::new(DecoratedBox::new().class("row")) as Box<dyn Widget>
+                    })
+                    .prepended(added);
+            if generation > 0 {
+                list = list.scroll_to(0, generation);
+            }
+            vec![Box::new(list) as Box<dyn Widget>]
+        })));
+        let engine = h.apply_mss(MSS);
+        h.frame(Some(&engine), 300.0, VIEW_H);
+        assert_eq!(offset(&h), 0.0);
+
+        state.set((3, 0));
+        h.frame(Some(&engine), 300.0, VIEW_H);
+        assert_eq!(offset(&h), 3.0 * ROW_H);
+
+        state.set((5, 1));
+        h.frame(Some(&engine), 300.0, VIEW_H);
+        assert_eq!(offset(&h), 0.0);
+    }
+
+    /// `on_reach_bottom` срабатывает один раз при подходе к нижнему краю
+    /// и снова — после того как список подрос.
+    #[test]
+    fn reach_bottom_fires_once_per_approach() {
+        let rows = use_signal(ROWS);
+        let hits = std::sync::Arc::new(std::sync::atomic::AtomicUsize::new(0));
+        let hits2 = hits.clone();
+        let mut h = TestHarness::new(Box::new(Reactive::new(move || -> Vec<Box<dyn Widget>> {
+            let hits = hits2.clone();
+            let list = ListView::virtual_new(rows.get(), |i| ListItem::new(format!("{i}")))
+                .item_height(ROW_H)
+                .height(VIEW_H)
+                .item_widget(|_, _, _, _| {
+                    Box::new(DecoratedBox::new().class("row")) as Box<dyn Widget>
+                })
+                .on_reach_bottom(2.0 * ROW_H, move || {
+                    hits.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+                });
+            vec![Box::new(list) as Box<dyn Widget>]
+        })));
+        let engine = h.apply_mss(MSS);
+        h.frame(Some(&engine), 300.0, VIEW_H);
+        let wheel = |h: &mut TestHarness, delta: f32| {
+            h.send_event(&crate::input::Event::MouseWheel {
+                delta,
+                delta_x: 0.0,
+                position: crate::core::Point::new(10.0, 10.0),
+            });
+        };
+        wheel(&mut h, -(ROWS as f32 * ROW_H));
+        wheel(&mut h, -ROW_H);
+        assert_eq!(hits.load(std::sync::atomic::Ordering::Relaxed), 1);
+
+        rows.set(ROWS * 2);
+        h.frame(Some(&engine), 300.0, VIEW_H);
+        wheel(&mut h, -(ROWS as f32 * ROW_H * 2.0));
+        assert_eq!(hits.load(std::sync::atomic::Ordering::Relaxed), 2);
     }
 }

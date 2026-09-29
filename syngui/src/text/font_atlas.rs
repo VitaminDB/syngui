@@ -731,7 +731,10 @@ impl FontAtlas {
         // Приватная область Unicode — это значки зарегистрированного
         // иконочного шрифта. Текстовые шрифты бывают со своими глифами там же
         // (у Inter — U+E000…), и основной шрифт подменял бы значок.
-        if Self::is_private_use(ch) {
+        // Исключение — явно заданное моноширинное семейство: глифы там у него
+        // свои по замыслу (Nerd Font, powerline в терминале), а значки
+        // Material на тех же позициях ломали приглашение shell.
+        if Self::is_private_use(ch) && !font_family.is_some_and(|f| self.family_is_monospace(f)) {
             if let Some(k) = self.ensure_glyph_in(ch, size_px, FONT_ICON) {
                 return Some(k);
             }
@@ -847,6 +850,18 @@ impl FontAtlas {
     #[cfg(target_arch = "wasm32")]
     fn discover_fallback(&self, _script: Script) -> Option<(Vec<u8>, u32)> {
         None
+    }
+
+    /// Семейство моноширинное (по метрикам его обычного начертания).
+    fn family_is_monospace(&mut self, family: &str) -> bool {
+        let Some((idx_regular, _)) = self.load_font_family(family) else {
+            return false;
+        };
+        self.faces
+            .get(idx_regular as usize)
+            .and_then(|f| f.as_ref())
+            .and_then(|f| f.font_ref())
+            .is_some_and(|r| r.metrics(&[]).is_monospace)
     }
 
     fn ensure_glyph_family(
@@ -1630,5 +1645,30 @@ mod private_use_tests {
         // Обычный текст — по-прежнему из основного шрифта.
         let key = atlas.ensure_glyph_weighted('A', 20, FontWeight(400), None).expect("глиф буквы");
         assert_ne!(key.font_index, FONT_ICON);
+    }
+
+    /// Явное моноширинное семейство (Nerd Font в терминале) отвечает за
+    /// приватную область само: стрелка powerline U+E0B0 — его глиф, а не
+    /// значок Material на той же позиции.
+    #[test]
+    fn monospace_family_keeps_own_private_use_glyphs() {
+        let instance = wgpu::Instance::default();
+        let Ok(adapter) = pollster::block_on(instance.request_adapter(&wgpu::RequestAdapterOptions::default())) else {
+            return;
+        };
+        let Ok((device, queue)) = pollster::block_on(adapter.request_device(&wgpu::DeviceDescriptor::default())) else {
+            return;
+        };
+        let mut atlas = FontAtlas::with_config(&device, &queue, Some("Inter".into()));
+        atlas.set_icon_font_data(crate::text::icon_fonts::material::FONT_DATA.to_vec());
+        let family = "NotoMono Nerd Font Mono";
+        if !atlas.family_is_monospace(family) {
+            return; // Nerd Font на машине нет
+        }
+        let key = atlas.ensure_glyph_weighted('\u{E0B0}', 20, FontWeight(400), Some(family)).expect("глиф powerline");
+        assert_ne!(key.font_index, FONT_ICON);
+        // Без семейства значок по-прежнему из иконочного шрифта.
+        let key = atlas.ensure_glyph_weighted('\u{E0B0}', 20, FontWeight(400), None).expect("глиф значка");
+        assert_eq!(key.font_index, FONT_ICON);
     }
 }
