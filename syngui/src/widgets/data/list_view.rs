@@ -683,6 +683,9 @@ impl Element for ListViewElement {
         };
         self.bounds = Rect::new(Point::zero(), Size::new(w, h));
         if !self.compositional {
+            // Список стал короче (фильтр) — прокрутка не остаётся за концом,
+            // иначе видна пустая область вместо оставшихся строк.
+            self.scroll_offset = self.scroll_offset.min(self.max_scroll());
             self.rearm_reach_bottom();
             if let Some(index) = self.pending_scroll_to.take() {
                 self.scroll_row_into_view(index);
@@ -1131,6 +1134,7 @@ impl Element for ListViewElement {
     fn set_content_size(&mut self, size: Size) {
         if self.compositional {
             self.actual_content_height = size.height;
+            self.scroll_offset = self.scroll_offset.min(self.max_scroll());
             self.rearm_reach_bottom();
             if let Some(index) = self.pending_scroll_to.take() {
                 self.scroll_row_into_view(index);
@@ -1540,5 +1544,53 @@ mod tests {
         h.frame(Some(&engine), 300.0, VIEW_H);
         wheel(&mut h, -(ROWS as f32 * ROW_H * 2.0));
         assert_eq!(hits.load(std::sync::atomic::Ordering::Relaxed), 2);
+    }
+
+    /// Список стал короче видимой прокрутки (фильтр) — прокрутка
+    /// возвращается к концу нового списка, а не показывает пустоту.
+    #[test]
+    fn shrinking_list_clamps_scroll() {
+        for compositional in [false, true] {
+            let rows = use_signal(ROWS);
+            let mut h = TestHarness::new(Box::new(Reactive::new(move || -> Vec<Box<dyn Widget>> {
+                let mut list = ListView::virtual_new(rows.get(), |i| ListItem::new(format!("{i}")))
+                    .item_height(ROW_H)
+                    .height(VIEW_H);
+                if compositional {
+                    list = list.item_widget(|_, _, _, _| {
+                        Box::new(DecoratedBox::new().class("row")) as Box<dyn Widget>
+                    });
+                }
+                vec![Box::new(list) as Box<dyn Widget>]
+            })));
+            let engine = h.apply_mss(MSS);
+            h.frame(Some(&engine), 300.0, VIEW_H);
+            h.send_event(&crate::input::Event::MouseWheel {
+                delta: -(ROWS as f32 * ROW_H),
+                delta_x: 0.0,
+                position: crate::core::Point::new(10.0, 10.0),
+            });
+            rows.set(2);
+            h.frame(Some(&engine), 300.0, VIEW_H);
+            h.frame(Some(&engine), 300.0, VIEW_H);
+            if compositional {
+                assert_eq!(offset(&h), 0.0);
+            } else {
+                let painted: Vec<String> = h
+                    .paint()
+                    .iter_all_commands()
+                    .filter_map(|command| match command {
+                        crate::render::display_list::DrawCommand::Text { text, .. } => {
+                            Some(text.to_string())
+                        }
+                        _ => None,
+                    })
+                    .collect();
+                assert!(
+                    painted.iter().any(|t| t == "0"),
+                    "строки короткого списка не видны: {painted:?}"
+                );
+            }
+        }
     }
 }
