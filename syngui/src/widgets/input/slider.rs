@@ -19,6 +19,9 @@ const VALUE_GAP: f32 = 6.0;
 /// Скорость мигания caret'а в режиме текстового ввода (циклов/сек).
 const CURSOR_BLINK_RATE: f32 = 1.0;
 
+/// Наименьшая высота зоны попадания поперёк дорожки (палец).
+const MIN_HIT: f32 = 32.0;
+
 pub struct Slider {
     pub value: f32,
     pub min: f32,
@@ -231,13 +234,31 @@ impl SliderElement {
 
     fn value_rect(&self) -> Rect {
         let w = self.value_zone_width();
+        let hit = self.hit_rect();
         Rect::new(
-            Point::new(
-                self.bounds.x() + self.bounds.size.width - w,
-                self.bounds.y(),
-            ),
-            Size::new(w, self.bounds.size.height),
+            Point::new(self.bounds.x() + self.bounds.size.width - w, hit.y()),
+            Size::new(w, hit.size.height),
         )
+    }
+
+    /// Зона попадания: границы, расширенные поперёк дорожки до ручки и
+    /// пальца ([`MIN_HIT`]) и вдоль — на полручки за концами.
+    fn hit_rect(&self) -> Rect {
+        let thumb = self.mss.max_height.map(|d| d.resolve(0.0)).unwrap_or(16.0);
+        let b = self.bounds;
+        if self.vertical {
+            let w = b.size.width.max(thumb).max(MIN_HIT);
+            Rect::new(
+                Point::new(b.x() + (b.size.width - w) / 2.0, b.y() - thumb / 2.0),
+                Size::new(w, b.size.height + thumb),
+            )
+        } else {
+            let h = b.size.height.max(thumb).max(MIN_HIT);
+            Rect::new(
+                Point::new(b.x() - thumb / 2.0, b.y() + (b.size.height - h) / 2.0),
+                Size::new(b.size.width + thumb, h),
+            )
+        }
     }
 
     fn formatted_value(&self) -> String {
@@ -655,6 +676,13 @@ impl Element for SliderElement {
         }
     }
 
+    /// Слайдер ловит нажатие по всей дорожке (значение прыгает под палец),
+    /// а сама дорожка в стилях тонкая — несколько px. Поперёк неё зона
+    /// попадания не уже ручки и пальца.
+    fn hit_test(&self, point: Point) -> bool {
+        self.hit_rect().contains(point)
+    }
+
     fn handle_event(&mut self, event: &Event, ctx: &mut EventContext) -> EventResult {
         if self.disabled {
             return EventResult::Ignored;
@@ -663,7 +691,7 @@ impl Element for SliderElement {
         match event {
             Event::MouseMove(pos) => {
                 let was_hover = self.hover;
-                self.hover = self.bounds.contains(*pos);
+                self.hover = self.hit_rect().contains(*pos);
                 if self.hover {
                     if self.value_zone_width() > 0.0 && self.value_rect().contains(*pos) {
                         ctx.set_cursor(CursorIcon::Text);
@@ -702,7 +730,7 @@ impl Element for SliderElement {
                         ctx.request_paint();
                         return EventResult::Handled;
                     }
-                    if self.bounds.contains(*position) {
+                    if self.hit_rect().contains(*position) {
                         if self.editing {
                             self.commit_editing();
                         }
@@ -738,7 +766,7 @@ impl Element for SliderElement {
             // не даёт родительскому ScrollView начать прокрутку этим жестом;
             // значение и dragging выставит синтезированный MouseDown следом.
             Event::TouchStart { id, position } => {
-                if self.bounds.contains(*position) {
+                if self.hit_rect().contains(*position) {
                     if self.editing {
                         self.commit_editing();
                     }
@@ -1238,6 +1266,22 @@ mod tests {
 
     // Тачскрины: TouchStart в границах клеймит жест (Handled), движение пальца
     // ведёт drag по TouchMove (MouseMove на таче не синтезируется).
+    #[test]
+    fn thin_track_catches_press_beside_it() {
+        // Дорожка в стилях — 4 px: нажатие рядом с ней, а не точно в
+        // полоску или ручку, тоже ставит значение.
+        let s = Slider::new().range(0.0, 1.0).step(0.01).value(1.0);
+        let mut elem = direct(&s);
+        elem.layout(Constraints::tight(Size::new(200.0, 4.0)));
+        let mut ctx = crate::widget::context::EventContext::new(elem.id);
+        let at = Point::new(elem.track_bounds.x() + elem.track_bounds.size.width / 2.0, elem.bounds.y() + 13.0);
+        assert!(elem.hit_test(at));
+        let r = elem.handle_event(&Event::MouseDown { button: MouseButton::Left, position: at }, &mut ctx);
+        assert!(r.is_handled());
+        assert!((elem.value - 0.5).abs() < 0.05, "значение под нажатием: {}", elem.value);
+        assert!(!elem.hit_test(Point::new(at.x, elem.bounds.y() + 40.0)));
+    }
+
     #[test]
     fn touch_drag_moves_value() {
         let s = Slider::new().range(0.0, 1.0).step(0.01).value(1.0);
