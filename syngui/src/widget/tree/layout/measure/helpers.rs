@@ -512,8 +512,11 @@ impl ElementTree {
             total_width = total_fixed_width + gap_space;
         }
 
+        // Stretch, как `align-items: stretch` в CSS: все дети тянутся до
+        // высоты строки (самого высокого ребёнка), а не только flex-дети до
+        // предела родителя. Иначе боковая панель рядом с растущим списком
+        // остаётся высотой в своё содержимое.
         if cross_align == CrossAxisAlignment::Stretch
-            && !effective_max_height.is_finite()
             && max_height.is_finite()
             && max_height > 0.0
         {
@@ -524,11 +527,12 @@ impl ElementTree {
                     .map(|p| p.margin)
                     .unwrap_or_default();
                 let target = (max_height - margin.top - margin.bottom).max(0.0);
+                let target = target.min(effective_max_height);
                 let stretch_constraints = Constraints {
                     min_width: *width,
                     max_width: *width,
                     min_height: target,
-                    max_height: f32::INFINITY,
+                    max_height: if effective_max_height.is_finite() { target } else { f32::INFINITY },
                     containing_block: Size::new(*width, target),
                 };
                 self.measure_recursive_by_idx(*cidx, stretch_constraints);

@@ -480,3 +480,27 @@ mod root_offset_tests {
         assert_eq!(h.element_bounds(inner).origin, Point::new(10.0, 10.0));
     }
 }
+
+#[cfg(test)]
+mod row_stretch_tests {
+    use crate::layout::CrossAxisAlignment;
+    use crate::testing::TestHarness;
+    use crate::widgets::{DecoratedBox, Padding, Row};
+
+    /// Row со Stretch при конечной высоте тянет и не-flex детей до высоты
+    /// строки — как `align-items: stretch` (боковая панель рядом со списком).
+    #[test]
+    fn stretch_non_flex_children_to_line_height() {
+        let row = Row::new()
+            .cross_axis_alignment(CrossAxisAlignment::Stretch)
+            .child(Padding::all(40.0).child(DecoratedBox::new()))
+            .child(DecoratedBox::new().child(Padding::all(5.0).child(DecoratedBox::new())));
+        let mut h = TestHarness::new(Box::new(row));
+        h.layout(300.0, 200.0);
+        let boxes = h.find_by_type_name("DecoratedBox");
+        let tallest = boxes.iter().map(|&b| h.element_bounds(b).size.height).fold(0.0f32, f32::max);
+        let side = boxes.iter().map(|&b| h.element_bounds(b)).find(|b| b.origin.x >= 80.0 && b.size.width >= 10.0).expect("второй ребёнок");
+        assert!(tallest <= 200.0);
+        assert_eq!(side.size.height, 80.0, "второй ребёнок растянут до высоты первого");
+    }
+}
