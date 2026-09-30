@@ -878,10 +878,20 @@ impl Element for ScrollViewElement {
                         return EventResult::Handled;
                     }
                     let horizontal = dx.abs() > dy.abs();
+                    // Упёрлись в край в сторону жеста — двигать нечего, жест
+                    // отдаётся наружу (вложенная прокрутка): список в начале
+                    // тянут вниз — закрыть лист, обновить, открыть шторку.
+                    const EDGE: f32 = 0.5;
                     let ours = if horizontal {
-                        self.can_scroll_x() && self.max_scroll_x() > 0.0
+                        self.can_scroll_x()
+                            && self.max_scroll_x() > 0.0
+                            && !(dx < 0.0 && self.scroll_offset.x <= EDGE)
+                            && !(dx > 0.0 && self.scroll_offset.x >= self.max_scroll_x() - EDGE)
                     } else {
-                        self.can_scroll_y() && self.max_scroll_y() > 0.0
+                        self.can_scroll_y()
+                            && self.max_scroll_y() > 0.0
+                            && !(dy < 0.0 && self.scroll_offset.y <= EDGE)
+                            && !(dy > 0.0 && self.scroll_offset.y >= self.max_scroll_y() - EDGE)
                     };
                     if !ours {
                         self.touch_axis = TouchAxis::Foreign;

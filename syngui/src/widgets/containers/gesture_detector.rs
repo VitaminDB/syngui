@@ -981,6 +981,41 @@ mod tests {
         assert!(off.y > 100.0, "прокрутка подхватила жест: {off:?}");
     }
 
+    /// Список в начале: тянут вниз — жест у внешнего детектора (закрыть
+    /// лист), вверх — прокрутка списка.
+    #[test]
+    fn scroll_at_top_gives_pull_down_to_parent() {
+        let downs = counter();
+        let d = downs.clone();
+        let gd = GestureDetector::new()
+            .pan_axis(PanAxis::Vertical)
+            .on_swipe(move |dir, _| {
+                if dir == SwipeDirection::Down {
+                    d.fetch_add(1, Ordering::SeqCst);
+                }
+            })
+            .child(ScrollView::new().vertical().child(crate::widgets::Column::new().height(2000.0)));
+        let mut h = TestHarness::new(Box::new(gd));
+        h.layout(400.0, 400.0);
+        let swipe = |h: &mut TestHarness, dir: f32| {
+            h.touch_down(1, Point::new(200.0, 200.0));
+            for i in 1..=8 {
+                std::thread::sleep(std::time::Duration::from_millis(4));
+                h.touch_move(1, Point::new(200.0, 200.0 + dir * i as f32 * 20.0));
+            }
+            h.touch_up(1);
+        };
+        swipe(&mut h, 1.0);
+        assert_eq!(downs.load(Ordering::SeqCst), 1, "вниз от начала — наружу");
+        let sv = h.find_by_type_name("ScrollView")[0];
+        assert_eq!(h.tree.get(sv).unwrap().scroll_offset().y, 0.0);
+        swipe(&mut h, -1.0);
+        let off = h.tree.get(sv).unwrap().scroll_offset().y;
+        assert!(off > 100.0, "вверх — прокрутка: {off}");
+        swipe(&mut h, 1.0);
+        assert_eq!(downs.load(Ordering::SeqCst), 1, "не в начале — вниз прокручивает список");
+    }
+
     #[test]
     fn long_press_and_tap() {
         let longs = counter();
