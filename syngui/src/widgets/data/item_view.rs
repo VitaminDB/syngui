@@ -14,6 +14,12 @@
 //!   правая кнопка — меню (выделяет элемент под курсором), средняя — отдельный
 //!   колбэк, перетаскивание выделенного (`on_drag_start`), приём переноса на
 //!   элемент или фон (`drop_filter`, `on_drop`), автопрокрутка у краёв.
+//! - Палец: прокрутка с инерцией (вертикальный жест; горизонтальный отдаётся
+//!   наружу). Касание, остановившее инерцию, — не тап. В сенсорном режиме
+//!   (`touch_mode`, телефон) тап открывает элемент, удержание выделяет его
+//!   (режим выбора), тап в режиме выбора — переключает; удержание на фоне —
+//!   меню. Без него касания ведут себя как мышь (тап — щелчок, удержание —
+//!   правая кнопка).
 //! - Клавиатура (когда `keyboard_active` и фокус не в поле ввода): стрелки
 //!   с учётом сетки, Home/End, PgUp/PgDn, Shift — расширить, Ctrl — двигать
 //!   курсор без выделения, Ctrl+Space — переключить, Ctrl+A, Escape, поиск
@@ -28,7 +34,7 @@ use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
 use crate::core::{Color, Point, Rect, Size, Transform};
-use crate::input::{DragData, Event, EventResult, Key, Modifiers, MouseButton};
+use crate::input::{DragData, Event, EventResult, Key, Modifiers, MouseButton, VelocityTracker};
 use crate::layout::Constraints;
 use crate::mss::{ComputedStyle, MssFields};
 use crate::render::{display_list::Border, DisplayList};
@@ -113,6 +119,12 @@ const BUFFER_ROWS: usize = 2;
 /// Скорость автопрокрутки у края при рамке/переносе (px/с на px заступа).
 const AUTOSCROLL_GAIN: f32 = 14.0;
 const AUTOSCROLL_EDGE: f32 = 28.0;
+/// Сдвиг пальца, после которого жест — прокрутка (или чужой, если вбок).
+const TOUCH_SLOP: f32 = 6.0;
+/// Слабее этого (px/с) бросок не начинается и инерция гаснет.
+const FLING_MIN: f32 = 60.0;
+/// Затухание инерции: скорость × e^(−k·t).
+const FLING_DECAY: f32 = 3.2;
 
 pub struct ItemView {
     count: usize,
@@ -137,6 +149,8 @@ pub struct ItemView {
     item_label: Option<LabelFn>,
     drag_start: Option<DragStartFn>,
     drop_filter: Option<DropFilter>,
+    touch_mode: bool,
+    stretch: bool,
     classes: Vec<String>,
 }
 
@@ -162,6 +176,8 @@ impl ItemView {
             item_label: None,
             drag_start: None,
             drop_filter: None,
+            touch_mode: false,
+            stretch: false,
             classes: Vec::new(),
         }
     }
@@ -262,6 +278,21 @@ impl ItemView {
         self
     }
 
+    /// Сенсорный режим (телефон): тап открывает элемент, удержание выделяет
+    /// (режим выбора), тап при непустом выделении переключает элемент. Мышь
+    /// ведёт себя как обычно.
+    pub fn touch_mode(mut self, on: bool) -> Self {
+        self.touch_mode = on;
+        self
+    }
+
+    /// Сетка: растянуть ячейки, чтобы столбцы заняли всю ширину без пустого
+    /// хвоста справа (`item_width` — наименьшая ширина ячейки).
+    pub fn stretch(mut self, on: bool) -> Self {
+        self.stretch = on;
+        self
+    }
+
     pub fn class(mut self, c: impl Into<String>) -> Self {
         crate::widget::push_classes(&mut self.classes, c.into());
         self
@@ -306,6 +337,12 @@ impl Widget for ItemView {
             typeahead_at: None,
             scrollbar_drag: None,
             scrollbar_hover: false,
+            touch_mode: self.touch_mode,
+            stretch: self.stretch,
+            touch: None,
+            velocity: VelocityTracker::new(),
+            fling: 0.0,
+            swallow_tap: false,
             classes: self.classes.clone(),
             dirty: DirtyFlags::LAYOUT | DirtyFlags::RENDER,
             mss: MssFields::new(),
@@ -341,6 +378,15 @@ struct Press {
     item: Option<usize>,
     deferred_single: bool,
     dragging: bool,
+}
+
+/// Палец на виде: прокрутка начинается, когда он сдвинулся вертикально.
+#[derive(Clone, Copy)]
+struct TouchPan {
+    id: u64,
+    start: Point,
+    last: Point,
+    panning: bool,
 }
 
 struct Marquee {
@@ -390,6 +436,14 @@ struct ItemViewElement {
     /// Захват ползунка: смещение указателя от верха ползунка.
     scrollbar_drag: Option<f32>,
     scrollbar_hover: bool,
+    touch_mode: bool,
+    stretch: bool,
+    touch: Option<TouchPan>,
+    velocity: VelocityTracker,
+    /// Скорость инерции после броска (px/с, «+» — вниз по содержимому).
+    fling: f32,
+    /// Касание остановило инерцию — его тап не открывает элемент.
+    swallow_tap: bool,
 
     classes: Vec<String>,
     dirty: DirtyFlags,
@@ -404,12 +458,13 @@ impl ItemViewElement {
         if w.count != self.count || w.layout != self.layout || w.selection != self.selection {
             self.rebuild = true;
         }
-        if !Arc::ptr_eq(&w.builder, &self.builder) {
+        if !Arc::ptr_eq(&w.builder, &self.builder) || w.stretch != self.stretch {
             self.rebuild = true;
         }
         if w.reset_key != self.reset_key {
             self.reset_key = w.reset_key;
             self.scroll = 0.0;
+            self.fling = 0.0;
             self.press = None;
             self.marquee = None;
             self.rebuild = true;
@@ -419,6 +474,8 @@ impl ItemViewElement {
         self.layout = w.layout;
         self.selection = w.selection.clone();
         self.keyboard_active = w.keyboard_active;
+        self.touch_mode = w.touch_mode;
+        self.stretch = w.stretch;
         self.on_selection_change = w.on_selection_change.clone();
         self.on_activate = w.on_activate.clone();
         self.on_context_menu = w.on_context_menu.clone();
@@ -460,17 +517,29 @@ impl ItemViewElement {
         }
     }
 
+    /// Ширина ячейки сетки (с `stretch` — поровну на всю ширину).
+    fn cell_width(&self) -> f32 {
+        match self.layout {
+            ItemLayout::Rows { .. } => self.viewport().width,
+            ItemLayout::Grid { item_width, gap, .. } if self.stretch => {
+                let cols = self.cols() as f32;
+                ((self.viewport().width - gap * (cols - 1.0)) / cols).max(item_width)
+            }
+            ItemLayout::Grid { item_width, .. } => item_width,
+        }
+    }
+
     fn step(&self) -> (f32, f32) {
         match self.layout {
             ItemLayout::Rows { row_height } => (self.viewport().width, row_height),
-            ItemLayout::Grid { item_width, item_height, gap } => (item_width + gap, item_height + gap),
+            ItemLayout::Grid { item_height, gap, .. } => (self.cell_width() + gap, item_height + gap),
         }
     }
 
     fn item_size(&self) -> Size {
         match self.layout {
             ItemLayout::Rows { row_height } => Size::new(self.viewport().width, row_height),
-            ItemLayout::Grid { item_width, item_height, .. } => Size::new(item_width, item_height),
+            ItemLayout::Grid { item_height, .. } => Size::new(self.cell_width(), item_height),
         }
     }
 
@@ -748,6 +817,27 @@ impl ItemViewElement {
         self.drop_allowed(None, data).then_some(None)
     }
 
+    /// Тап пальцем в сенсорном режиме: в режиме выбора — переключить
+    /// элемент, иначе — открыть его.
+    fn touch_tap(&mut self, item: Option<usize>) {
+        let Some(i) = item else { return };
+        if self.selection.selected.is_empty() {
+            call(&self.on_activate, i);
+            return;
+        }
+        let mut s = self.selection.clone();
+        if !s.selected.remove(&i) {
+            s.selected.insert(i);
+        }
+        s.cursor = Some(i);
+        s.anchor = Some(i);
+        self.emit(s);
+    }
+
+    fn touch_scrollable(&self) -> bool {
+        self.max_scroll() > 0.0
+    }
+
     fn autoscroll_speed(&self) -> f32 {
         let top = self.bounds.origin.y + AUTOSCROLL_EDGE;
         let bottom = self.bounds.origin.y + self.bounds.size.height - AUTOSCROLL_EDGE;
@@ -970,6 +1060,7 @@ impl Element for ItemViewElement {
                 if self.max_scroll() <= 0.0 {
                     return EventResult::Ignored;
                 }
+                self.fling = 0.0;
                 self.set_scroll(self.scroll - *delta);
                 ctx.request_layout();
                 EventResult::Handled
@@ -988,6 +1079,17 @@ impl Element for ItemViewElement {
                     return EventResult::Captured;
                 }
                 let item = self.item_at(*position);
+                if *button == MouseButton::Left && crate::input::is_synthesized_mouse() {
+                    // Касание, остановившее инерцию, только останавливает её.
+                    if std::mem::take(&mut self.swallow_tap) {
+                        return EventResult::Handled;
+                    }
+                    if self.touch_mode {
+                        self.touch_tap(item);
+                        ctx.request_layout();
+                        return EventResult::Handled;
+                    }
+                }
                 match button {
                     MouseButton::Left => {
                         let mut deferred = false;
@@ -1042,6 +1144,14 @@ impl Element for ItemViewElement {
                 }
                 self.press = None;
                 self.marquee = None;
+                if self.touch_mode && crate::input::is_synthesized_mouse() {
+                    // Второй тап подряд — тоже просто тап.
+                    if !std::mem::take(&mut self.swallow_tap) {
+                        self.touch_tap(self.item_at(*position));
+                    }
+                    ctx.request_layout();
+                    return EventResult::Handled;
+                }
                 match self.item_at(*position) {
                     Some(i) => {
                         if !self.selection.is_selected(i) {
@@ -1176,6 +1286,72 @@ impl Element for ItemViewElement {
                     None => EventResult::Ignored,
                 }
             }
+            Event::TouchStart { id, position } => {
+                if self.touch.is_some() || !self.bounds.contains(*position) {
+                    return EventResult::Ignored;
+                }
+                self.swallow_tap = self.fling.abs() > FLING_MIN * 2.0;
+                self.fling = 0.0;
+                if !self.touch_scrollable() {
+                    return EventResult::Ignored;
+                }
+                self.velocity.reset();
+                self.velocity.add(*position);
+                self.touch = Some(TouchPan { id: *id, start: *position, last: *position, panning: false });
+                EventResult::Handled
+            }
+            Event::TouchMove { id, position } => {
+                let Some(mut t) = self.touch.filter(|t| t.id == *id) else { return EventResult::Ignored };
+                self.velocity.add(*position);
+                if !t.panning {
+                    let (dx, dy) = (position.x - t.start.x, position.y - t.start.y);
+                    if dx.abs().max(dy.abs()) < TOUCH_SLOP {
+                        return EventResult::Handled;
+                    }
+                    if dx.abs() > dy.abs() {
+                        // Жест вбок — не наш (листание страниц, «назад»).
+                        self.touch = None;
+                        return EventResult::Ignored;
+                    }
+                    t.panning = true;
+                    self.swallow_tap = false;
+                    self.press = None;
+                    self.marquee = None;
+                }
+                let dy = position.y - t.last.y;
+                t.last = *position;
+                self.touch = Some(t);
+                self.set_scroll(self.scroll - dy);
+                ctx.request_layout();
+                EventResult::Handled
+            }
+            Event::TouchEnd { id, .. } => {
+                let Some(t) = self.touch.filter(|t| t.id == *id) else { return EventResult::Ignored };
+                self.touch = None;
+                if !t.panning {
+                    return EventResult::Ignored;
+                }
+                let v = -self.velocity.velocity().y;
+                if v.abs() > FLING_MIN {
+                    self.fling = v;
+                    ctx.request_paint();
+                }
+                EventResult::Handled
+            }
+            Event::LongPress { position } if self.touch_mode => {
+                if self.touch.is_some_and(|t| t.panning) || !self.bounds.contains(*position) {
+                    return EventResult::Ignored;
+                }
+                // На фоне — меню (хост превратит удержание в правую кнопку).
+                let Some(i) = self.item_at(*position) else { return EventResult::Ignored };
+                let mut s = self.selection.clone();
+                s.selected.insert(i);
+                s.cursor = Some(i);
+                s.anchor = Some(i);
+                self.emit(s);
+                ctx.request_layout();
+                EventResult::Handled
+            }
             Event::KeyDown(key) if self.keyboard_active => {
                 let handled = match key {
                     Key::Up | Key::Down | Key::Left | Key::Right | Key::Home | Key::End | Key::PageUp | Key::PageDown => {
@@ -1254,6 +1430,17 @@ impl Element for ItemViewElement {
     }
 
     fn animate(&mut self, dt: Duration) -> bool {
+        if self.fling != 0.0 {
+            let t = dt.as_secs_f32();
+            let old = self.scroll;
+            self.set_scroll(self.scroll + self.fling * t);
+            self.fling *= (-FLING_DECAY * t).exp();
+            if self.fling.abs() < FLING_MIN || (t > 0.0 && (self.scroll - old).abs() < 0.01) {
+                self.fling = 0.0;
+            }
+            self.mark_dirty(DirtyFlags::LAYOUT | DirtyFlags::RENDER);
+            return true;
+        }
         if !self.wants_autoscroll() {
             return false;
         }
@@ -1272,11 +1459,11 @@ impl Element for ItemViewElement {
     }
 
     fn wants_animate_tick(&self) -> bool {
-        self.wants_autoscroll()
+        self.fling != 0.0 || self.wants_autoscroll()
     }
 
     fn needs_repaint(&self) -> bool {
-        self.wants_autoscroll()
+        self.fling != 0.0 || self.wants_autoscroll()
     }
 
     fn scroll_offset(&self) -> Point {
@@ -1464,6 +1651,64 @@ mod tests {
         h.send_event(&Event::MouseMove(Point::new(20.0, 10.0)));
         assert_eq!(last(&seen), vec![0, 1, 2, 3, 4]);
         h.send_event(&Event::MouseUp { button: MouseButton::Left, position: Point::new(20.0, 10.0) });
+    }
+
+    fn touch_view(count: usize, sink: Arc<Mutex<Vec<ItemSelection>>>, opened: Arc<Mutex<Vec<usize>>>) -> TestHarness {
+        let view = ItemView::new(count, |i, _| Box::new(Text::new(format!("{i}"))))
+            .layout(ItemLayout::Rows { row_height: 50.0 })
+            .touch_mode(true)
+            .on_activate(move |i| opened.lock().unwrap().push(i))
+            .on_selection_change(move |s| sink.lock().unwrap().push(s));
+        let mut h = TestHarness::new(Box::new(view));
+        h.layout(308.0, 200.0);
+        h
+    }
+
+    #[test]
+    fn touch_tap_opens_long_press_selects() {
+        let seen = Arc::new(Mutex::new(Vec::new()));
+        let opened = Arc::new(Mutex::new(Vec::new()));
+        let mut h = touch_view(20, seen.clone(), opened.clone());
+        h.touch_down(1, Point::new(100.0, 75.0));
+        h.touch_up(1);
+        assert_eq!(*opened.lock().unwrap(), vec![1], "тап открывает");
+        assert!(seen.lock().unwrap().is_empty(), "и не выделяет");
+        h.send_event(&Event::LongPress { position: Point::new(100.0, 125.0) });
+        assert_eq!(last(&seen), vec![2], "удержание выделяет");
+        // Режим выбора: тап переключает, а не открывает.
+        std::thread::sleep(std::time::Duration::from_millis(350));
+        h.touch_down(2, Point::new(100.0, 25.0));
+        h.touch_up(2);
+        assert_eq!(last(&seen), vec![0, 2]);
+        std::thread::sleep(std::time::Duration::from_millis(350));
+        h.touch_down(3, Point::new(100.0, 125.0));
+        h.touch_up(3);
+        assert_eq!(last(&seen), vec![0]);
+        assert_eq!(*opened.lock().unwrap(), vec![1]);
+    }
+
+    #[test]
+    fn touch_pan_scrolls_without_tap() {
+        let seen = Arc::new(Mutex::new(Vec::new()));
+        let opened = Arc::new(Mutex::new(Vec::new()));
+        let mut h = touch_view(20, seen.clone(), opened.clone());
+        h.touch_down(1, Point::new(100.0, 150.0));
+        h.touch_move(1, Point::new(100.0, 120.0));
+        h.touch_move(1, Point::new(100.0, 50.0));
+        h.touch_up(1);
+        assert!(opened.lock().unwrap().is_empty(), "прокрутка — не тап");
+        let el = h.tree.get(h.root_id).unwrap();
+        assert!((el.scroll_offset().y - 100.0).abs() < 0.5, "содержимое идёт за пальцем: {}", el.scroll_offset().y);
+    }
+
+    #[test]
+    fn stretch_fills_width() {
+        let seen = Arc::new(Mutex::new(Vec::new()));
+        let view = grid(20, seen.clone()).stretch(true);
+        let mut h = TestHarness::new(Box::new(view));
+        h.layout(338.0, 200.0); // 330 px без полосы: 3 столбца по 110
+        press(&mut h, 325.0, 25.0, Modifiers::default());
+        assert_eq!(last(&seen), vec![2]);
     }
 
     #[test]
