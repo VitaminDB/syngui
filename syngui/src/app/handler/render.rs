@@ -545,7 +545,13 @@ impl AppHandler {
                 || self.devtools.as_ref().is_some_and(|d| d.is_enabled());
             let sig = if overlays_on { None } else { self.display_list.frame_signature() };
             let images_busy = {
-                let st = renderer.image_store.lock().unwrap_or_else(|e| e.into_inner());
+                let mut st = renderer.image_store.lock().unwrap_or_else(|e| e.into_inner());
+                // Готовые в фоне картинки забираются до решения о пропуске
+                // кадра: иначе их забирал только рендер (`process_uploads`),
+                // а он пропускался, пока кадр не менялся, — и картинка, ради
+                // которой кадры и шли (заглушка «Loading…»), не появлялась
+                // никогда, цикл крутился вхолостую на 100 % CPU.
+                st.poll_bg();
                 st.has_pending_uploads() || st.has_pending_frees()
             };
             if sig.is_some() && sig == self.last_frame_sig && !images_busy && !crate::signal::take_force_frame() {
