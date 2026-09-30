@@ -272,6 +272,10 @@ impl Element for ToggleElement {
                 if *button == MouseButton::Left && self.bounds.contains(*position) {
                     self.is_on = !self.is_on;
                     self.start_transition_to_current_state();
+                    // Пальцем — лёгкий щелчок вибрацией.
+                    if crate::input::is_synthesized_mouse() {
+                        crate::input::haptic(crate::input::Haptic::Tick);
+                    }
                     if let Some(ref callback) = self.on_change {
                         if let Ok(mut cb) = callback.lock() {
                             cb(self.is_on);

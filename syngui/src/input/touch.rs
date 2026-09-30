@@ -237,10 +237,16 @@ impl TouchTracker {
         self.long_press_fired = true;
         self.tap_cancelled = true;
         let r = dispatch(&Event::LongPress { position: pos });
-        if !r.is_handled() && touch_config().long_press_as_secondary {
+        // Удержание что-то сделало (выбор, меню) — виброотклик.
+        let mut done = r.is_handled();
+        if !done && touch_config().long_press_as_secondary {
             let button = MouseButton::Right;
-            synthesized(dispatch, &Event::MouseDown { button, position: pos });
-            synthesized(dispatch, &Event::MouseUp { button, position: pos });
+            let d = synthesized(dispatch, &Event::MouseDown { button, position: pos });
+            let u = synthesized(dispatch, &Event::MouseUp { button, position: pos });
+            done = d.is_handled() || u.is_handled();
+        }
+        if done {
+            super::haptic(super::Haptic::LongPress);
         }
         true
     }
