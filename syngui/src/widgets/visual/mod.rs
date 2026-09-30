@@ -10,6 +10,7 @@ pub mod circular_progress;
 pub mod divider;
 #[cfg(feature = "ffmpeg")]
 pub mod frames_view;
+pub mod live_view;
 pub mod icon;
 pub mod image;
 pub mod image_viewport;
@@ -44,6 +45,7 @@ pub use circular_progress::CircularProgress;
 pub use divider::{Divider, DividerDirection};
 #[cfg(feature = "ffmpeg")]
 pub use frames_view::FramesView;
+pub use live_view::{LiveFrame, LiveInput, LiveView};
 pub use icon::Icon;
 pub use image::{Image, ImageFit};
 pub use image_viewport::{ImageViewCommand, ImageViewInfo, ImageViewport};

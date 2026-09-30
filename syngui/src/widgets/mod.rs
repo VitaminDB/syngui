@@ -65,6 +65,7 @@ pub use visual::{
 };
 #[cfg(feature = "ffmpeg")]
 pub use visual::{video_player_view, VideoView};
+pub use visual::{LiveFrame, LiveInput, LiveView};
 #[cfg(feature = "map")]
 pub use visual::{
     BuildingOverlay, BuildingShape, HeatOverlay, HeatPoint, MapMarker, MapView, MapViewport,
