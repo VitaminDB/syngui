@@ -21,6 +21,7 @@ pub struct Carousel {
     auto_play_interval_ms: u32,
     show_indicators: bool,
     on_page_change: Option<Arc<Mutex<dyn FnMut(usize) + Send>>>,
+    on_overscroll: Option<Arc<Mutex<dyn FnMut(i32) + Send>>>,
     page_signal: Option<crate::signal::RwSignal<usize>>,
     show_arrows: bool,
 }
@@ -34,6 +35,7 @@ impl Carousel {
             auto_play_interval_ms: 5000,
             show_indicators: true,
             on_page_change: None,
+            on_overscroll: None,
             page_signal: None,
             show_arrows: true,
         }
@@ -82,6 +84,14 @@ impl Carousel {
         self.on_page_change = Some(Arc::new(Mutex::new(f)));
         self
     }
+
+    /// Пролистали пальцем за край: `1` — дальше последней страницы, `-1` —
+    /// назад с первой (например, переход на соседний рабочий стол). С ним
+    /// карусель ловит горизонтальный свайп и при одной странице.
+    pub fn on_overscroll(mut self, f: impl FnMut(i32) + Send + 'static) -> Self {
+        self.on_overscroll = Some(Arc::new(Mutex::new(f)));
+        self
+    }
 }
 
 impl Default for Carousel {
@@ -100,6 +110,7 @@ impl Widget for Carousel {
             auto_play_interval_ms: self.auto_play_interval_ms,
             show_indicators: self.show_indicators,
             on_page_change: self.on_page_change.clone(),
+            on_overscroll: self.on_overscroll.clone(),
             page_signal: self.page_signal,
             show_arrows: self.show_arrows,
             requested_page: self.current_page,
@@ -161,6 +172,7 @@ pub struct CarouselElement {
     auto_play_interval_ms: u32,
     show_indicators: bool,
     on_page_change: Option<Arc<Mutex<dyn FnMut(usize) + Send>>>,
+    on_overscroll: Option<Arc<Mutex<dyn FnMut(i32) + Send>>>,
     page_signal: Option<crate::signal::RwSignal<usize>>,
     show_arrows: bool,
     /// Страница, которую последней просил виджет: пересборка с той же
@@ -224,11 +236,33 @@ impl CarouselElement {
         } else if backward && self.current_page > 0 {
             self.go_to_page(self.current_page - 1);
         } else {
+            // За краем — сообщить (страница остаётся, резинка возвращается).
+            // Путь за краем ужат резинкой, поэтому порог — по броску или
+            // по уменьшенному пути.
+            let over = if moved > threshold * 0.35 || (velocity < -FLING_VELOCITY && moved > 0.0) {
+                1
+            } else if -moved > threshold * 0.35 || (velocity > FLING_VELOCITY && moved < 0.0) {
+                -1
+            } else {
+                0
+            };
+            if over != 0 {
+                if let Some(ref cb) = self.on_overscroll {
+                    if let Ok(mut f) = cb.lock() {
+                        f(over);
+                    }
+                }
+            }
             self.anim_start_offset = self.slide_offset;
             self.target_offset = self.current_page as f32 * self.bounds.size.width;
             self.anim_progress = 0.0;
             self.animating = true;
         }
+    }
+
+    /// Ловить свайп пальцем: есть куда листать или слушают выход за край.
+    fn swipeable(&self) -> bool {
+        self.page_count >= 2 || (self.page_count == 1 && self.on_overscroll.is_some())
     }
 
     fn begin_touch(&mut self, id: u64, at: Point) {
@@ -321,6 +355,7 @@ impl Element for CarouselElement {
             self.show_indicators = c.show_indicators;
             self.show_arrows = c.show_arrows;
             self.on_page_change = c.on_page_change.clone();
+            self.on_overscroll = c.on_overscroll.clone();
             self.page_signal = c.page_signal;
             let want = c.page_signal.map(|s| s.get_untracked()).unwrap_or(c.current_page);
             if want != self.requested_page {
@@ -535,7 +570,7 @@ impl Element for CarouselElement {
                 EventResult::Handled
             }
             Event::TouchStart { id, position } => {
-                if self.page_count < 2 || !self.bounds.contains(*position) || self.touch.is_some() {
+                if !self.swipeable() || !self.bounds.contains(*position) || self.touch.is_some() {
                     return EventResult::Ignored;
                 }
                 self.begin_touch(*id, *position);
@@ -544,7 +579,7 @@ impl Element for CarouselElement {
             Event::TouchMove { id, position } => {
                 if self.touch.as_ref().map(|t| t.id) != Some(*id) {
                     // Жест отдала вложенная вертикальная прокрутка — подхватываем.
-                    if self.page_count < 2 || self.touch.is_some() || !self.bounds.contains(*position) {
+                    if !self.swipeable() || self.touch.is_some() || !self.bounds.contains(*position) {
                         return EventResult::Ignored;
                     }
                     self.begin_touch(*id, *position);
