@@ -1669,12 +1669,24 @@ impl ElementTree {
         constraints: Constraints,
         id: ElementId,
     ) -> Size {
+        // Сначала сама карусель (её высота может быть задана MSS), страницы —
+        // в её пределах.
+        let element_size = if let Some(node) = self.elements.get_mut(&id) {
+            node.element.layout(constraints)
+        } else {
+            Size::zero()
+        };
+        let page_max_height = if element_size.height > 0.0 {
+            element_size.height.min(constraints.max_height)
+        } else {
+            constraints.max_height
+        };
         let child_constraints = Constraints {
             min_width: 0.0,
             max_width: constraints.max_width,
             min_height: 0.0,
-            max_height: constraints.max_height,
-            containing_block: constraints.containing_block,
+            max_height: page_max_height,
+            containing_block: Size::new(constraints.containing_block.width, page_max_height),
         };
 
         let mut max_height = 0.0f32;
@@ -1682,12 +1694,6 @@ impl ElementTree {
             let child_size = self.measure_recursive(child_id, child_constraints);
             max_height = max_height.max(child_size.height);
         }
-
-        let element_size = if let Some(node) = self.elements.get_mut(&id) {
-            node.element.layout(constraints)
-        } else {
-            Size::zero()
-        };
 
         let width = element_size.width.min(constraints.max_width);
         let height = element_size

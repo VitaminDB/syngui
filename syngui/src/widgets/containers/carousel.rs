@@ -262,6 +262,19 @@ impl CarouselElement {
         }
     }
 
+    /// Точки страниц: размер, шаг и левый край. Если страниц много, точки
+    /// и зазоры ужимаются, чтобы ряд помещался в ширину карусели.
+    fn indicator_metrics(&self) -> (f32, f32, f32) {
+        let n = self.page_count.max(1) as f32;
+        let natural = n * INDICATOR_SIZE + (n - 1.0) * INDICATOR_GAP;
+        let avail = (self.bounds.size.width - 16.0).max(0.0);
+        let k = if natural > avail && natural > 0.0 { avail / natural } else { 1.0 };
+        let size = (INDICATOR_SIZE * k).max(2.0);
+        let step = (INDICATOR_SIZE + INDICATOR_GAP) * k;
+        let total = (n - 1.0) * step + size;
+        (size, step, self.bounds.x() + (self.bounds.size.width - total) / 2.0)
+    }
+
     fn content_height(&self) -> f32 {
         if self.show_indicators {
             self.bounds.size.height - INDICATOR_AREA_HEIGHT
@@ -332,10 +345,11 @@ impl Element for CarouselElement {
 
     fn layout(&mut self, constraints: Constraints) -> Size {
         let w = constraints.max_width;
-        let h = if constraints.max_height.is_finite() {
-            constraints.max_height
-        } else {
-            300.0
+        // Высота из MSS (`height`), иначе — всё доступное место.
+        let h = match self.mss.height.and_then(|d| d.resolve_opt(constraints.containing_block.height)) {
+            Some(h) => h.max(constraints.min_height).min(constraints.max_height),
+            None if constraints.max_height.is_finite() => constraints.max_height,
+            None => 300.0,
         };
         let old_width = self.bounds.size.width;
         self.bounds = Rect::new(Point::zero(), Size::new(w, h));
@@ -392,23 +406,21 @@ impl Element for CarouselElement {
         }
 
         if self.show_indicators && self.page_count > 1 {
-            let total_w = self.page_count as f32 * INDICATOR_SIZE
-                + (self.page_count as f32 - 1.0) * INDICATOR_GAP;
-            let start_x = self.bounds.x() + (self.bounds.size.width - total_w) / 2.0;
+            let (size, step, start_x) = self.indicator_metrics();
             let y = self.bounds.y() + self.bounds.size.height - INDICATOR_AREA_HEIGHT
-                + (INDICATOR_AREA_HEIGHT - INDICATOR_SIZE) / 2.0;
+                + (INDICATOR_AREA_HEIGHT - size) / 2.0;
 
             let active_color = self.mss.accent_color.unwrap_or(Color::from_hex("#3B82F6"));
             let inactive_color = self.mss.border_color.unwrap_or(Color::from_hex("#D1D5DB"));
             for i in 0..self.page_count {
-                let x = start_x + i as f32 * (INDICATOR_SIZE + INDICATOR_GAP);
-                let r = Rect::new(Point::new(x, y), Size::new(INDICATOR_SIZE, INDICATOR_SIZE));
+                let x = start_x + i as f32 * step;
+                let r = Rect::new(Point::new(x, y), Size::new(size, size));
                 let color = if i == self.current_page {
                     active_color
                 } else {
                     inactive_color
                 };
-                list.push_rect(r, color, [INDICATOR_SIZE / 2.0; 4]);
+                list.push_rect(r, color, [size / 2.0; 4]);
             }
         }
     }
@@ -493,9 +505,8 @@ impl Element for CarouselElement {
                 }
 
                 if self.show_indicators && self.page_count > 1 {
-                    let total_w = self.page_count as f32 * INDICATOR_SIZE
-                        + (self.page_count as f32 - 1.0) * INDICATOR_GAP;
-                    let start_x = self.bounds.x() + (self.bounds.size.width - total_w) / 2.0;
+                    let (size, step, start_x) = self.indicator_metrics();
+                    let total_w = (self.page_count as f32 - 1.0) * step + size;
                     let ind_y = self.bounds.y() + self.bounds.size.height - INDICATOR_AREA_HEIGHT;
                     let ind_rect = Rect::new(
                         Point::new(start_x, ind_y),
@@ -503,7 +514,7 @@ impl Element for CarouselElement {
                     );
                     if ind_rect.contains(*position) {
                         let idx =
-                            ((position.x - start_x) / (INDICATOR_SIZE + INDICATOR_GAP)) as usize;
+                            ((position.x - start_x) / step) as usize;
                         if idx < self.page_count {
                             self.go_to_page(idx);
                             ctx.request_paint();
