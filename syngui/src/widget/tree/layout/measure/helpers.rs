@@ -671,6 +671,31 @@ impl ElementTree {
         )
     }
 
+    pub(super) fn measure_aspect_ratio(
+        &mut self,
+        children: &[ElementId],
+        constraints: Constraints,
+        ratio: f32,
+        max_height: f32,
+        id: ElementId,
+    ) -> Size {
+        let size = crate::widgets::containers::aspect_ratio::aspect_size(ratio, max_height, constraints);
+        let tight = Constraints {
+            min_width: size.width,
+            max_width: size.width,
+            min_height: size.height,
+            max_height: size.height,
+            containing_block: size,
+        };
+        for &child_id in children {
+            self.measure_recursive(child_id, tight);
+        }
+        if let Some(node) = self.elements.get_mut(&id) {
+            node.element.layout(constraints);
+        }
+        size
+    }
+
     pub(super) fn measure_loose(
         &mut self,
         children: &[ElementId],

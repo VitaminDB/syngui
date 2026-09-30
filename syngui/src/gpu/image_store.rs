@@ -538,9 +538,44 @@ impl ImageStore {
     }
 }
 
+/// Декодировать с поворотом по EXIF (снимки с камеры телефона хранятся
+/// «боком» с тегом ориентации).
+#[cfg(feature = "image")]
+fn load_oriented(bytes: &[u8]) -> image::ImageResult<image::DynamicImage> {
+    use image::ImageDecoder;
+    let reader = image::ImageReader::new(std::io::Cursor::new(bytes)).with_guessed_format()?;
+    let mut decoder = reader.into_decoder()?;
+    let orientation = decoder.orientation().ok();
+    let mut img = image::DynamicImage::from_decoder(decoder)?;
+    if let Some(o) = orientation {
+        img.apply_orientation(o);
+    }
+    Ok(img)
+}
+
+/// Размер картинки в файле (по заголовку, без декодирования) с учётом
+/// поворота по EXIF — такой, какой её покажет [`crate::widgets::Image`].
+#[cfg(feature = "image")]
+pub fn image_file_size(path: &str) -> Option<(u32, u32)> {
+    use image::ImageDecoder;
+    let reader = image::ImageReader::open(path).ok()?.with_guessed_format().ok()?;
+    let mut decoder = reader.into_decoder().ok()?;
+    let (w, h) = decoder.dimensions();
+    let turned = matches!(
+        decoder.orientation().ok(),
+        Some(
+            image::metadata::Orientation::Rotate90
+                | image::metadata::Orientation::Rotate270
+                | image::metadata::Orientation::Rotate90FlipH
+                | image::metadata::Orientation::Rotate270FlipH
+        )
+    );
+    Some(if turned { (h, w) } else { (w, h) })
+}
+
 #[cfg(feature = "image")]
 fn decode_image_bytes(bytes: &[u8]) -> Result<ImageData, String> {
-    match image::load_from_memory(bytes) {
+    match load_oriented(bytes) {
         Ok(img) => {
             let rgba = img.to_rgba8();
             let (mut w, mut h) = rgba.dimensions();

@@ -323,6 +323,9 @@ impl ElementTree {
                     self.measure_stack(&children, constraints, id, *expand)
                 }
                 LayoutHint::Center => self.measure_center(&children, constraints, id),
+                LayoutHint::AspectRatio { ratio, max_height } => {
+                    self.measure_aspect_ratio(&children, constraints, *ratio, *max_height, id)
+                }
                 LayoutHint::Grid {
                     columns,
                     row_gap,

@@ -18,6 +18,12 @@
 //! ней), один палец двигает приближенную картинку, двойной тап — «вписать ↔
 //! 1:1». Смахивание вбок по картинке, которую некуда двигать по горизонтали,
 //! уходит в [`ImageViewport::on_swipe`] — листать соседние.
+//!
+//! Режим кадрирования ([`ImageViewport::crop_mode`]) — выбор кадра обоев или
+//! аватара, как в Android и iOS: картинка всегда закрывает область целиком
+//! (меньше «заполнить» не уменьшить, за край не утащить), без полос и тени;
+//! кадр наружу — [`ImageViewInfo::zoom`] и [`ImageViewInfo::center`],
+//! начальный — [`ImageViewport::crop`].
 
 use crate::core::sync::Mutex;
 use crate::core::{Color, Point, Rect, Size, Transform};
@@ -77,6 +83,10 @@ pub struct ImageViewInfo {
     pub natural: (u32, u32),
     pub ready: bool,
     pub failed: bool,
+    /// Масштаб относительно «заполнить» (1 — картинка ровно закрывает область).
+    pub zoom: f32,
+    /// Точка картинки в центре области, в долях её размера (0..1).
+    pub center: (f32, f32),
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -162,6 +172,8 @@ pub struct ImageViewport {
     insets: [f32; 4],
     info: Option<RwSignal<ImageViewInfo>>,
     on_swipe: Option<SwipeCb>,
+    crop_mode: bool,
+    crop: Option<(f32, (f32, f32))>,
     classes: Vec<String>,
 }
 
@@ -180,8 +192,25 @@ impl ImageViewport {
             insets: [0.0; 4],
             info: None,
             on_swipe: None,
+            crop_mode: false,
+            crop: None,
             classes: Vec::new(),
         }
+    }
+
+    /// Режим кадрирования: картинка всегда закрывает область, масштаб — от
+    /// «заполнить» до `max_scale` × «заполнить», без полос и тени.
+    pub fn crop_mode(mut self, on: bool) -> Self {
+        self.crop_mode = on;
+        self
+    }
+
+    /// Начальный кадр (режим кадрирования): масштаб относительно
+    /// «заполнить» и точка картинки в центре области в долях (0..1).
+    /// Применяется при загрузке картинки; дальше кадр меняет пользователь.
+    pub fn crop(mut self, zoom: f32, center_x: f32, center_y: f32) -> Self {
+        self.crop = Some((zoom.max(1.0), (center_x.clamp(0.0, 1.0), center_y.clamp(0.0, 1.0))));
+        self
     }
 
     /// Смахивание пальцем вбок, когда картинку некуда сдвигать по
@@ -261,6 +290,9 @@ impl Widget for ImageViewport {
             insets: self.insets,
             info: self.info,
             on_swipe: self.on_swipe.clone(),
+            crop_mode: self.crop_mode,
+            crop: self.crop,
+            crop_applied: false,
             fingers: Vec::new(),
             pinch: None,
             touch_pan: None,
@@ -323,6 +355,11 @@ pub struct ImageViewportElement {
     insets: [f32; 4],
     info: Option<RwSignal<ImageViewInfo>>,
     on_swipe: Option<SwipeCb>,
+    crop_mode: bool,
+    /// Кадр, который надо поставить (начальный или сохранённый при смене
+    /// размера области), и поставлен ли он.
+    crop: Option<(f32, (f32, f32))>,
+    crop_applied: bool,
     /// Пальцы на картинке (не больше двух): id и последняя точка.
     fingers: Vec<(u64, Point)>,
     /// Щипок: расстояние между пальцами и масштаб в начале, прошлая середина.
@@ -426,6 +463,10 @@ impl ImageViewportElement {
     }
 
     fn scale_limits(&self, img: Size) -> (f32, f32) {
+        if self.crop_mode {
+            let fill = fill_scale(self.view(), img);
+            return (fill, fill * self.max_scale.max(1.0));
+        }
         let fit = fit_scale(self.view(), img);
         ((fit * 0.25).max(0.01), self.max_scale.max(fit))
     }
@@ -453,6 +494,19 @@ impl ImageViewportElement {
             return;
         };
         let view = self.view();
+        if self.crop_mode {
+            let fill = fill_scale(view, img);
+            match command {
+                ImageViewCommand::Fit | ImageViewCommand::Fill => {
+                    return self.set_target(fill, Point::zero(), false)
+                }
+                ImageViewCommand::ToggleFit => {
+                    let next = if self.target_scale <= fill * 1.01 { fill * 2.0 } else { fill };
+                    return self.set_target(next, anchor, false);
+                }
+                _ => {}
+            }
+        }
         let fit = fit_scale(view, img);
         match command {
             ImageViewCommand::ZoomIn => self.set_target(self.target_scale * BUTTON_STEP, anchor, false),
@@ -480,8 +534,43 @@ impl ImageViewportElement {
                 );
                 self.offset = clamp_offset(moved, self.scale, view, img);
                 self.mark_dirty(DirtyFlags::RENDER);
+                self.publish();
             }
         }
+    }
+
+    /// Кадр `(zoom, center)` сейчас (для режима кадрирования).
+    fn crop_now(&self) -> Option<(f32, (f32, f32))> {
+        let img = self.img_size()?;
+        let fill = fill_scale(self.view(), img);
+        let (cw, ch) = (img.width * self.target_scale, img.height * self.target_scale);
+        if cw <= 0.0 || ch <= 0.0 {
+            return None;
+        }
+        Some((
+            self.target_scale / fill.max(1e-6),
+            (
+                (0.5 - self.offset.x / cw).clamp(0.0, 1.0),
+                (0.5 - self.offset.y / ch).clamp(0.0, 1.0),
+            ),
+        ))
+    }
+
+    /// Поставить кадр `(zoom, center)` сразу, без анимации.
+    fn apply_crop(&mut self, zoom: f32, center: (f32, f32)) {
+        let Some(img) = self.img_size() else { return };
+        let view = self.view();
+        let (lo, hi) = self.scale_limits(img);
+        let scale = (fill_scale(view, img) * zoom).clamp(lo, hi);
+        self.scale = scale;
+        self.target_scale = scale;
+        self.anchor = Point::zero();
+        self.fit_mode = false;
+        let off = Point::new(
+            (0.5 - center.0) * img.width * scale,
+            (0.5 - center.1) * img.height * scale,
+        );
+        self.offset = clamp_offset(off, scale, view, img);
     }
 
     /// Вид под новую геометрию (размер области, поворот, загрузка).
@@ -491,6 +580,19 @@ impl ImageViewportElement {
         };
         let view = self.view();
         if view.width <= 0.0 || view.height <= 0.0 {
+            return;
+        }
+        if self.crop_mode {
+            // Кадр держится при смене размера области: тот же масштаб
+            // относительно «заполнить» и та же точка в центре.
+            let (zoom, center) = match (self.crop_applied, self.crop) {
+                (false, Some(c)) => c,
+                (false, None) => (1.0, (0.5, 0.5)),
+                (true, _) => self.crop.unwrap_or((1.0, (0.5, 0.5))),
+            };
+            self.apply_crop(zoom, center);
+            self.crop_applied = true;
+            self.publish();
             return;
         }
         if self.fit_mode {
@@ -511,7 +613,13 @@ impl ImageViewportElement {
         self.publish();
     }
 
-    fn publish(&self) {
+    fn publish(&mut self) {
+        if self.crop_mode && self.crop_applied && self.image_state == ImageLoadState::Ready {
+            // Запомнить кадр: при смене размера области он восстановится.
+            if let Some(c) = self.crop_now() {
+                self.crop = Some(c);
+            }
+        }
         let Some(sig) = self.info else {
             return;
         };
@@ -519,6 +627,7 @@ impl ImageViewportElement {
             .img_size()
             .map(|img| fit_scale(self.view(), img))
             .unwrap_or(1.0);
+        let (zoom, center) = self.crop_now().unwrap_or((1.0, (0.5, 0.5)));
         let next = ImageViewInfo {
             scale: self.target_scale,
             fit_scale: fit,
@@ -526,6 +635,8 @@ impl ImageViewportElement {
             natural: self.natural_size().unwrap_or((0, 0)),
             ready: self.image_state == ImageLoadState::Ready,
             failed: self.image_state == ImageLoadState::Failed,
+            zoom,
+            center,
         };
         if sig.get_untracked() != next {
             sig.set(next);
@@ -577,6 +688,9 @@ impl ImageViewportElement {
     }
 
     fn thumb_rect(&self, axis: Axis) -> Option<Rect> {
+        if self.crop_mode {
+            return None;
+        }
         let (track_len, content, view, offset) = self.axis_metrics(axis)?;
         let (pos, len) = bar_thumb(track_len, content, view, offset)?;
         let track = self.track(axis);
@@ -620,6 +734,7 @@ impl ImageViewportElement {
         };
         self.offset = clamp_offset(next, self.scale, self.view(), img);
         self.mark_dirty(DirtyFlags::RENDER);
+        self.publish();
     }
 
     /// Начать жест заново по текущим пальцам (палец добавили или убрали).
@@ -631,6 +746,9 @@ impl ImageViewportElement {
             [(_, a), (_, b)] => {
                 let d = ((a.x - b.x).powi(2) + (a.y - b.y).powi(2)).sqrt().max(1.0);
                 self.pinch = Some((d, self.scale, Point::new((a.x + b.x) * 0.5, (a.y + b.y) * 0.5)));
+            }
+            [(_, p)] if self.crop_mode => {
+                self.touch_pan = Some((*p, self.offset));
             }
             [(_, p)] => {
                 if self.thumb_rect(Axis::X).is_some() || self.thumb_rect(Axis::Y).is_some() {
@@ -673,11 +791,12 @@ impl ImageViewportElement {
             self.anchor = Point::zero();
             self.fit_mode = false;
             self.mark_dirty(DirtyFlags::RENDER);
+            self.publish();
         }
     }
 
     fn pannable(&self) -> bool {
-        self.thumb_rect(Axis::X).is_some() || self.thumb_rect(Axis::Y).is_some()
+        self.crop_mode || self.thumb_rect(Axis::X).is_some() || self.thumb_rect(Axis::Y).is_some()
     }
 
     fn draw_bars(&self, list: &mut DisplayList) {
@@ -716,6 +835,7 @@ impl Element for ImageViewportElement {
         };
         self.info = w.info;
         self.on_swipe = w.on_swipe.clone();
+        self.crop_mode = w.crop_mode;
         self.max_scale = w.max_scale;
         if self.insets != w.insets {
             self.insets = w.insets;
@@ -739,6 +859,9 @@ impl Element for ImageViewportElement {
             self.offset = Point::zero();
             self.pan_drag = None;
             self.bar_drag = None;
+            // Новая картинка — её начальный кадр.
+            self.crop = w.crop;
+            self.crop_applied = false;
         }
         if self.quarter_turns != w.quarter_turns {
             self.quarter_turns = w.quarter_turns;
@@ -802,7 +925,7 @@ impl Element for ImageViewportElement {
             let rect = Rect::new(Point::new(c.x - dw * 0.5, c.y - dh * 0.5), Size::new(dw, dh));
 
             let turning = (self.angle - self.target_angle()).abs() > 0.2;
-            if !turning {
+            if !turning && !self.crop_mode {
                 // Тень — в экранных координатах, по габариту уже повёрнутой
                 // картинки: внутри поворота она легла бы не с той стороны.
                 if let Some(img) = self.img_size() {
@@ -896,7 +1019,7 @@ impl Element for ImageViewportElement {
                 let pinched = self.pinch.is_some();
                 self.restart_touch();
                 // Щипком сжали мельче «вписать» — вернуть вписанной.
-                if pinched {
+                if pinched && !self.crop_mode {
                     if let Some(img) = self.img_size() {
                         let fit = fit_scale(self.view(), img);
                         if self.scale <= fit * 1.02 {
@@ -977,6 +1100,7 @@ impl Element for ImageViewportElement {
                         self.anchor = Point::zero();
                         self.fit_mode = false;
                         self.mark_dirty(DirtyFlags::RENDER);
+                        self.publish();
                     }
                     ctx.set_cursor(CursorIcon::Grabbing);
                     return EventResult::Handled;
@@ -1062,6 +1186,10 @@ impl Element for ImageViewportElement {
                 self.offset = clamp_offset(self.offset, self.scale, self.view(), img);
             }
             self.mark_dirty(DirtyFlags::RENDER);
+            if !self.is_animating() {
+                // Масштаб доехал — центр кадра окончательный.
+                self.publish();
+            }
         }
         active
     }

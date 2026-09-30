@@ -32,7 +32,16 @@ pub struct Image {
     placeholder: bool,
     /// Область исходной картинки в пикселях (спрайт-лист): x, y, w, h.
     crop: Option<[f32; 4]>,
+    /// Область в долях картинки (0..1): x, y, w, h.
+    uv: Option<[f32; 4]>,
+    /// Плавный переход к новой `uv`, мс (0 — сразу).
+    uv_ms: u32,
     on_load: Option<LoadCb>,
+}
+
+/// Область `uv` между `a` и `b` при доле пути `t`.
+fn lerp_uv(a: [f32; 4], b: [f32; 4], t: f32) -> [f32; 4] {
+    std::array::from_fn(|i| a[i] + (b[i] - a[i]) * t)
 }
 
 impl Image {
@@ -43,6 +52,8 @@ impl Image {
             tint: None,
             placeholder: true,
             crop: None,
+            uv: None,
+            uv_ms: 0,
             on_load: None,
         }
     }
@@ -57,6 +68,8 @@ impl Image {
             tint: None,
             placeholder: true,
             crop: None,
+            uv: None,
+            uv_ms: 0,
             on_load: None,
         }
     }
@@ -68,6 +81,8 @@ impl Image {
             tint: None,
             placeholder: true,
             crop: None,
+            uv: None,
+            uv_ms: 0,
             on_load: None,
         }
     }
@@ -84,6 +99,8 @@ impl Image {
             tint: None,
             placeholder: true,
             crop: None,
+            uv: None,
+            uv_ms: 0,
             on_load: None,
         }
     }
@@ -103,6 +120,8 @@ impl Image {
             tint: None,
             placeholder: true,
             crop: None,
+            uv: None,
+            uv_ms: 0,
             on_load: None,
         }
     }
@@ -126,6 +145,22 @@ impl Image {
     /// по `fit` так же, как целая картинка.
     pub fn crop(mut self, x: f32, y: f32, w: f32, h: f32) -> Self {
         self.crop = Some([x, y, w, h]);
+        self
+    }
+
+    /// Показывать только область картинки в долях её размера (0..1):
+    /// кадрирование, не зависящее от разрешения декодированной картинки
+    /// (стор может уменьшить большую). Смена области между пересборками
+    /// идёт плавно, если задан [`Self::crop_transition_ms`] — так двигают
+    /// кадр обоев при смене рабочего стола.
+    pub fn crop_uv(mut self, x: f32, y: f32, w: f32, h: f32) -> Self {
+        self.uv = Some([x, y, w.max(1e-4), h.max(1e-4)]);
+        self
+    }
+
+    /// Длительность перехода к новой области [`Self::crop_uv`], мс.
+    pub fn crop_transition_ms(mut self, ms: u32) -> Self {
+        self.uv_ms = ms;
         self
     }
 
@@ -155,6 +190,10 @@ impl Widget for Image {
             tint: self.tint,
             placeholder: self.placeholder,
             crop: self.crop,
+            uv: self.uv,
+            uv_from: self.uv,
+            uv_t: 1.0,
+            uv_ms: self.uv_ms,
             on_load: self.on_load.clone(),
             load_notified: false,
             opacity: 1.0,
@@ -194,6 +233,11 @@ pub struct ImageElement {
     tint: Option<Color>,
     placeholder: bool,
     crop: Option<[f32; 4]>,
+    /// Целевая область в долях, откуда к ней идём и доля пройденного пути.
+    uv: Option<[f32; 4]>,
+    uv_from: Option<[f32; 4]>,
+    uv_t: f32,
+    uv_ms: u32,
     on_load: Option<LoadCb>,
     /// `on_load` уже вызван для текущего источника.
     load_notified: bool,
@@ -229,11 +273,24 @@ impl ImageElement {
         }
     }
 
+    /// Показываемая сейчас область в долях (с учётом перехода).
+    fn current_uv(&self) -> Option<[f32; 4]> {
+        let to = self.uv?;
+        match self.uv_from {
+            Some(from) if self.uv_t < 1.0 => {
+                let t = 1.0 - (1.0 - self.uv_t).powi(3);
+                Some(lerp_uv(from, to, t))
+            }
+            _ => Some(to),
+        }
+    }
+
     fn compute_fit_rect(&self) -> Rect {
         // Пропорции — от показываемой области (crop), а не всего спрайта.
-        let (nw, nh) = match (self.crop, self.natural_width, self.natural_height) {
-            (Some([_, _, w, h]), _, _) if w > 0.0 && h > 0.0 => (w, h),
-            (_, Some(w), Some(h)) if w > 0 && h > 0 => (w as f32, h as f32),
+        let (nw, nh) = match (self.current_uv(), self.crop, self.natural_width, self.natural_height) {
+            (Some([_, _, u, v]), _, Some(w), Some(h)) if w > 0 && h > 0 => (u * w as f32, v * h as f32),
+            (None, Some([_, _, w, h]), _, _) if w > 0.0 && h > 0.0 => (w, h),
+            (_, _, Some(w), Some(h)) if w > 0 && h > 0 => (w as f32, h as f32),
             _ => return self.bounds,
         };
 
@@ -311,6 +368,22 @@ impl Element for ImageElement {
                 self.crop = image.crop;
                 self.mark_dirty(DirtyFlags::LAYOUT);
             }
+            self.uv_ms = image.uv_ms;
+            if self.uv != image.uv {
+                // Переход — от того, что на экране сейчас (в том числе с
+                // середины прошлого перехода).
+                let shown = self.current_uv();
+                let animate = self.uv_ms > 0
+                    && shown.is_some()
+                    && image.uv.is_some()
+                    && self.image_state == ImageLoadState::Ready
+                    && !source_changed;
+                self.uv_from = if animate { shown } else { image.uv };
+                self.uv_t = if animate { 0.0 } else { 1.0 };
+                self.uv = image.uv;
+                // LAYOUT — чтобы дерево перечитало заявку на кадры анимации.
+                self.mark_dirty(DirtyFlags::LAYOUT);
+            }
             self.mark_dirty(DirtyFlags::RENDER);
         }
     }
@@ -369,6 +442,10 @@ impl Element for ImageElement {
                     }
 
                     let uv_rect = match (self.crop, self.natural_width, self.natural_height) {
+                        _ if self.uv.is_some() => {
+                            let [x, y, w, h] = self.current_uv().unwrap_or([0.0, 0.0, 1.0, 1.0]);
+                            Rect::new(Point::new(x, y), Size::new(w, h))
+                        }
                         (Some([x, y, w, h]), Some(nw), Some(nh)) if nw > 0 && nh > 0 => {
                             let (nw, nh) = (nw as f32, nh as f32);
                             Rect::new(Point::new(x / nw, y / nh), Size::new(w / nw, h / nh))
@@ -460,7 +537,14 @@ impl Element for ImageElement {
         EventResult::Ignored
     }
 
-    fn animate(&mut self, _dt: std::time::Duration) -> bool {
+    fn animate(&mut self, dt: std::time::Duration) -> bool {
+        let mut moving = false;
+        if self.uv_t < 1.0 {
+            let step = dt.as_secs_f32() * 1000.0 / self.uv_ms.max(1) as f32;
+            self.uv_t = (self.uv_t + step).min(1.0);
+            self.mark_dirty(DirtyFlags::LAYOUT | DirtyFlags::RENDER);
+            moving = self.uv_t < 1.0;
+        }
         let was_loading = self.image_state == ImageLoadState::Loading;
         if was_loading {
             let mut new_state = None;
@@ -493,7 +577,7 @@ impl Element for ImageElement {
                 cb(self.image_state == ImageLoadState::Ready);
             }
         }
-        was_loading
+        was_loading || moving
     }
 
     /// Пока картинка грузится/декодится, элемент обязан числиться в
@@ -505,6 +589,7 @@ impl Element for ImageElement {
     fn wants_animate_tick(&self) -> bool {
         self.image_state == ImageLoadState::Loading
             || (self.on_load.is_some() && !self.load_notified)
+            || self.uv_t < 1.0
     }
 
     fn clip_content(&self) -> bool {

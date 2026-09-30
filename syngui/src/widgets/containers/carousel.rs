@@ -23,6 +23,7 @@ pub struct Carousel {
     on_page_change: Option<Arc<Mutex<dyn FnMut(usize) + Send>>>,
     on_overscroll: Option<Arc<Mutex<dyn FnMut(i32) + Send>>>,
     page_signal: Option<crate::signal::RwSignal<usize>>,
+    position_signal: Option<crate::signal::RwSignal<f32>>,
     show_arrows: bool,
 }
 
@@ -37,8 +38,17 @@ impl Carousel {
             on_page_change: None,
             on_overscroll: None,
             page_signal: None,
+            position_signal: None,
             show_arrows: true,
         }
+    }
+
+    /// Положение ленты в страницах, дробное (1.5 — посередине между второй
+    /// и третьей): и пока тянут пальцем, и во время доводки. Для параллакса —
+    /// сдвига фона вслед за страницами.
+    pub fn position_signal(mut self, sig: crate::signal::RwSignal<f32>) -> Self {
+        self.position_signal = Some(sig);
+        self
     }
 
     /// Текущая страница в сигнале: запись в него листает (при пересборке —
@@ -112,6 +122,7 @@ impl Widget for Carousel {
             on_page_change: self.on_page_change.clone(),
             on_overscroll: self.on_overscroll.clone(),
             page_signal: self.page_signal,
+            position_signal: self.position_signal,
             show_arrows: self.show_arrows,
             requested_page: self.current_page,
             touch: None,
@@ -174,6 +185,7 @@ pub struct CarouselElement {
     on_page_change: Option<Arc<Mutex<dyn FnMut(usize) + Send>>>,
     on_overscroll: Option<Arc<Mutex<dyn FnMut(i32) + Send>>>,
     page_signal: Option<crate::signal::RwSignal<usize>>,
+    position_signal: Option<crate::signal::RwSignal<f32>>,
     show_arrows: bool,
     /// Страница, которую последней просил виджет: пересборка с той же
     /// страницей не сбрасывает пролистанное пальцем.
@@ -346,157 +358,8 @@ impl CarouselElement {
     }
 }
 
-impl Element for CarouselElement {
-    fn update(&mut self, widget: &dyn Widget, _ctx: &mut UpdateContext) {
-        if let Some(c) = widget.as_any().downcast_ref::<Carousel>() {
-            self.page_count = c.children.len();
-            self.auto_play = c.auto_play;
-            self.auto_play_interval_ms = c.auto_play_interval_ms;
-            self.show_indicators = c.show_indicators;
-            self.show_arrows = c.show_arrows;
-            self.on_page_change = c.on_page_change.clone();
-            self.on_overscroll = c.on_overscroll.clone();
-            self.page_signal = c.page_signal;
-            let want = c.page_signal.map(|s| s.get_untracked()).unwrap_or(c.current_page);
-            if want != self.requested_page {
-                self.requested_page = want;
-                // Листаем с анимацией, а не прыжком.
-                if want < self.page_count && want != self.current_page {
-                    self.current_page = want;
-                    self.anim_start_offset = self.slide_offset;
-                    self.target_offset = want as f32 * self.bounds.size.width;
-                    self.anim_progress = 0.0;
-                    self.animating = true;
-                }
-            }
-            if self.current_page >= self.page_count {
-                self.current_page = self.page_count.saturating_sub(1);
-                self.target_offset = self.current_page as f32 * self.bounds.size.width;
-                self.slide_offset = self.target_offset;
-            }
-            self.mark_dirty(DirtyFlags::LAYOUT | DirtyFlags::RENDER);
-        }
-    }
-
-    fn layout(&mut self, constraints: Constraints) -> Size {
-        let w = constraints.max_width;
-        // Высота из MSS (`height`), иначе — всё доступное место.
-        let h = match self.mss.height.and_then(|d| d.resolve_opt(constraints.containing_block.height)) {
-            Some(h) => h.max(constraints.min_height).min(constraints.max_height),
-            None if constraints.max_height.is_finite() => constraints.max_height,
-            None => 300.0,
-        };
-        let old_width = self.bounds.size.width;
-        self.bounds = Rect::new(Point::zero(), Size::new(w, h));
-        self.target_offset = self.current_page as f32 * w;
-        if (old_width - w).abs() > 0.5 || old_width == 0.0 {
-            self.slide_offset = self.target_offset;
-        }
-        Size::new(w, h)
-    }
-
-    fn layout_hint(&self) -> LayoutHint {
-        LayoutHint::HorizontalPages
-    }
-
-    fn build_display_list(&self, list: &mut DisplayList, _clip: Rect) {
-        let bg = self.mss.background_color.unwrap_or(Color::TRANSPARENT);
-        list.push_rect(self.bounds, bg, [0.0; 4]);
-
-        let content_rect = Rect::new(
-            self.bounds.origin,
-            Size::new(self.bounds.size.width, self.content_height()),
-        );
-        list.push_clip(content_rect);
-
-        let offset = self.visible_offset();
-        list.push_transform(Transform::translation(-offset, 0.0));
-    }
-
-    fn post_build_display_list(&self, list: &mut DisplayList, _clip: Rect) {
-        list.pop_transform();
-        list.pop_clip();
-
-        if self.page_count > 1 && self.show_arrows {
-            if self.current_page > 0 {
-                let prev = self.prev_arrow_rect();
-                let bg = if self.prev_hover {
-                    Color::BLACK.with_alpha(0.15)
-                } else {
-                    Color::BLACK.with_alpha(0.06)
-                };
-                list.push_rect(prev, bg, [ARROW_SIZE / 2.0; 4]);
-                list.push_text_centered("\u{25C0}", prev, Color::WHITE, 14.0);
-            }
-            if self.current_page < self.page_count - 1 {
-                let next = self.next_arrow_rect();
-                let bg = if self.next_hover {
-                    Color::BLACK.with_alpha(0.15)
-                } else {
-                    Color::BLACK.with_alpha(0.06)
-                };
-                list.push_rect(next, bg, [ARROW_SIZE / 2.0; 4]);
-                list.push_text_centered("\u{25B6}", next, Color::WHITE, 14.0);
-            }
-        }
-
-        if self.show_indicators && self.page_count > 1 {
-            let (size, step, start_x) = self.indicator_metrics();
-            let y = self.bounds.y() + self.bounds.size.height - INDICATOR_AREA_HEIGHT
-                + (INDICATOR_AREA_HEIGHT - size) / 2.0;
-
-            let active_color = self.mss.accent_color.unwrap_or(Color::from_hex("#3B82F6"));
-            let inactive_color = self.mss.border_color.unwrap_or(Color::from_hex("#D1D5DB"));
-            for i in 0..self.page_count {
-                let x = start_x + i as f32 * step;
-                let r = Rect::new(Point::new(x, y), Size::new(size, size));
-                let color = if i == self.current_page {
-                    active_color
-                } else {
-                    inactive_color
-                };
-                list.push_rect(r, color, [size / 2.0; 4]);
-            }
-        }
-    }
-
-    /// Кадры нужны на время переезда слайда и постоянно — при автопрокрутке.
-    fn wants_animate_tick(&self) -> bool {
-        self.animating || (self.auto_play && self.page_count > 1)
-    }
-
-    fn animate(&mut self, dt: Duration) -> bool {
-        let mut needs_redraw = false;
-        const SLIDE_DURATION: f32 = 0.35;
-
-        if self.animating {
-            self.anim_progress += dt.as_secs_f32() / SLIDE_DURATION;
-            if self.anim_progress >= 1.0 {
-                self.anim_progress = 1.0;
-                self.animating = false;
-                self.slide_offset = self.target_offset;
-            } else {
-                let t = self.anim_progress;
-                let ease = 1.0 - (1.0 - t) * (1.0 - t) * (1.0 - t);
-                self.slide_offset =
-                    self.anim_start_offset + (self.target_offset - self.anim_start_offset) * ease;
-            }
-            needs_redraw = true;
-        }
-
-        if self.auto_play && self.page_count > 1 && self.drag_start_x.is_none() {
-            self.auto_play_elapsed += dt;
-            if self.auto_play_elapsed >= Duration::from_millis(self.auto_play_interval_ms as u64) {
-                let next = (self.current_page + 1) % self.page_count;
-                self.go_to_page(next);
-                needs_redraw = true;
-            }
-        }
-
-        needs_redraw || self.auto_play
-    }
-
-    fn handle_event(&mut self, event: &Event, ctx: &mut EventContext) -> EventResult {
+impl CarouselElement {
+    fn handle_event_inner(&mut self, event: &Event, ctx: &mut EventContext) -> EventResult {
         match event {
             Event::MouseMove(pos) => {
                 if self.bounds.contains(*pos) {
@@ -626,6 +489,181 @@ impl Element for CarouselElement {
         }
     }
 
+
+    /// Положение ленты в страницах (дробное) — в сигнал, если задан.
+    fn publish_position(&self) {
+        let Some(sig) = self.position_signal else { return };
+        let w = self.bounds.size.width;
+        if w <= 0.0 {
+            return;
+        }
+        let pos = self.visible_offset() / w;
+        if (sig.get_untracked() - pos).abs() > 0.0005 {
+            sig.set(pos);
+        }
+    }
+}
+
+impl Element for CarouselElement {
+    fn update(&mut self, widget: &dyn Widget, _ctx: &mut UpdateContext) {
+        if let Some(c) = widget.as_any().downcast_ref::<Carousel>() {
+            self.page_count = c.children.len();
+            self.auto_play = c.auto_play;
+            self.auto_play_interval_ms = c.auto_play_interval_ms;
+            self.show_indicators = c.show_indicators;
+            self.show_arrows = c.show_arrows;
+            self.on_page_change = c.on_page_change.clone();
+            self.on_overscroll = c.on_overscroll.clone();
+            self.page_signal = c.page_signal;
+            self.position_signal = c.position_signal;
+            let want = c.page_signal.map(|s| s.get_untracked()).unwrap_or(c.current_page);
+            if want != self.requested_page {
+                self.requested_page = want;
+                // Листаем с анимацией, а не прыжком.
+                if want < self.page_count && want != self.current_page {
+                    self.current_page = want;
+                    self.anim_start_offset = self.slide_offset;
+                    self.target_offset = want as f32 * self.bounds.size.width;
+                    self.anim_progress = 0.0;
+                    self.animating = true;
+                }
+            }
+            if self.current_page >= self.page_count {
+                self.current_page = self.page_count.saturating_sub(1);
+                self.target_offset = self.current_page as f32 * self.bounds.size.width;
+                self.slide_offset = self.target_offset;
+            }
+            self.mark_dirty(DirtyFlags::LAYOUT | DirtyFlags::RENDER);
+        }
+    }
+
+    fn layout(&mut self, constraints: Constraints) -> Size {
+        let w = constraints.max_width;
+        // Высота из MSS (`height`), иначе — всё доступное место.
+        let h = match self.mss.height.and_then(|d| d.resolve_opt(constraints.containing_block.height)) {
+            Some(h) => h.max(constraints.min_height).min(constraints.max_height),
+            None if constraints.max_height.is_finite() => constraints.max_height,
+            None => 300.0,
+        };
+        let old_width = self.bounds.size.width;
+        self.bounds = Rect::new(Point::zero(), Size::new(w, h));
+        self.target_offset = self.current_page as f32 * w;
+        if (old_width - w).abs() > 0.5 || old_width == 0.0 {
+            self.slide_offset = self.target_offset;
+        }
+        self.publish_position();
+        Size::new(w, h)
+    }
+
+    fn layout_hint(&self) -> LayoutHint {
+        LayoutHint::HorizontalPages
+    }
+
+    fn build_display_list(&self, list: &mut DisplayList, _clip: Rect) {
+        let bg = self.mss.background_color.unwrap_or(Color::TRANSPARENT);
+        list.push_rect(self.bounds, bg, [0.0; 4]);
+
+        let content_rect = Rect::new(
+            self.bounds.origin,
+            Size::new(self.bounds.size.width, self.content_height()),
+        );
+        list.push_clip(content_rect);
+
+        let offset = self.visible_offset();
+        list.push_transform(Transform::translation(-offset, 0.0));
+    }
+
+    fn post_build_display_list(&self, list: &mut DisplayList, _clip: Rect) {
+        list.pop_transform();
+        list.pop_clip();
+
+        if self.page_count > 1 && self.show_arrows {
+            if self.current_page > 0 {
+                let prev = self.prev_arrow_rect();
+                let bg = if self.prev_hover {
+                    Color::BLACK.with_alpha(0.15)
+                } else {
+                    Color::BLACK.with_alpha(0.06)
+                };
+                list.push_rect(prev, bg, [ARROW_SIZE / 2.0; 4]);
+                list.push_text_centered("\u{25C0}", prev, Color::WHITE, 14.0);
+            }
+            if self.current_page < self.page_count - 1 {
+                let next = self.next_arrow_rect();
+                let bg = if self.next_hover {
+                    Color::BLACK.with_alpha(0.15)
+                } else {
+                    Color::BLACK.with_alpha(0.06)
+                };
+                list.push_rect(next, bg, [ARROW_SIZE / 2.0; 4]);
+                list.push_text_centered("\u{25B6}", next, Color::WHITE, 14.0);
+            }
+        }
+
+        if self.show_indicators && self.page_count > 1 {
+            let (size, step, start_x) = self.indicator_metrics();
+            let y = self.bounds.y() + self.bounds.size.height - INDICATOR_AREA_HEIGHT
+                + (INDICATOR_AREA_HEIGHT - size) / 2.0;
+
+            let active_color = self.mss.accent_color.unwrap_or(Color::from_hex("#3B82F6"));
+            let inactive_color = self.mss.border_color.unwrap_or(Color::from_hex("#D1D5DB"));
+            for i in 0..self.page_count {
+                let x = start_x + i as f32 * step;
+                let r = Rect::new(Point::new(x, y), Size::new(size, size));
+                let color = if i == self.current_page {
+                    active_color
+                } else {
+                    inactive_color
+                };
+                list.push_rect(r, color, [size / 2.0; 4]);
+            }
+        }
+    }
+
+    /// Кадры нужны на время переезда слайда и постоянно — при автопрокрутке.
+    fn wants_animate_tick(&self) -> bool {
+        self.animating || (self.auto_play && self.page_count > 1)
+    }
+
+    fn animate(&mut self, dt: Duration) -> bool {
+        let mut needs_redraw = false;
+        const SLIDE_DURATION: f32 = 0.35;
+
+        if self.animating {
+            self.anim_progress += dt.as_secs_f32() / SLIDE_DURATION;
+            if self.anim_progress >= 1.0 {
+                self.anim_progress = 1.0;
+                self.animating = false;
+                self.slide_offset = self.target_offset;
+            } else {
+                let t = self.anim_progress;
+                let ease = 1.0 - (1.0 - t) * (1.0 - t) * (1.0 - t);
+                self.slide_offset =
+                    self.anim_start_offset + (self.target_offset - self.anim_start_offset) * ease;
+            }
+            needs_redraw = true;
+        }
+
+        if self.auto_play && self.page_count > 1 && self.drag_start_x.is_none() {
+            self.auto_play_elapsed += dt;
+            if self.auto_play_elapsed >= Duration::from_millis(self.auto_play_interval_ms as u64) {
+                let next = (self.current_page + 1) % self.page_count;
+                self.go_to_page(next);
+                needs_redraw = true;
+            }
+        }
+
+        if needs_redraw {
+            self.publish_position();
+        }
+        needs_redraw || self.auto_play
+    }
+
+    fn handle_event(&mut self, event: &Event, ctx: &mut EventContext) -> EventResult {
+        let r = self.handle_event_inner(event, ctx);
+        self.publish_position();
+        r
+    }
     fn children(&self) -> &[ElementId] {
         &self.child_ids
     }

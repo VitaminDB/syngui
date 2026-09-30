@@ -314,7 +314,7 @@ impl ElementTree {
                     self.position_recursive(child_id, child_pos);
                 }
             }
-            crate::widget::LayoutHint::PanZoom => {
+            crate::widget::LayoutHint::PanZoom | crate::widget::LayoutHint::AspectRatio { .. } => {
                 self.position_stack_children(&children, parent_pos);
             }
             crate::widget::LayoutHint::Tooltip {

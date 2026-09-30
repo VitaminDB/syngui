@@ -74,6 +74,11 @@ pub enum LayoutHint {
     Stack {
         expand: bool,
     },
+    /// Бокс с пропорциями ширина/высота; ребёнок — на весь бокс.
+    AspectRatio {
+        ratio: f32,
+        max_height: f32,
+    },
     Padding {
         left: f32,
         top: f32,

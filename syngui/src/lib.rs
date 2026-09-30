@@ -141,7 +141,7 @@ pub mod prelude {
 
     pub use crate::widgets::{
         set_dialog_labels, AlertDialog, Animated, AnimatedPosition, AnimatedSize, AnimatedSwitcher,
-        AnimationAxis, Autocomplete, Avatar, Badge, BadgeSize, Button, Calendar,
+        AnimationAxis, AspectRatio, Autocomplete, Avatar, Badge, BadgeSize, Button, Calendar,
         Canvas, Card, Carousel, Checkbox, Chip, CircularProgress, ColorPicker, ColorValue, Column,
         Combobox, ConfirmDialog, ContextMenu, CrossAxisAlignment, Date, DatePicker, DecoratedBox,
         Dialog, DialogAction, Divider, DividerDirection, Draggable, DropArea, Dropdown,
