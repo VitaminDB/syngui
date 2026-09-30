@@ -855,8 +855,11 @@ impl winit::application::ApplicationHandler<SynGuiUserEvent> for AppHandler {
                 // (и его дренажа) в фоне может не быть вовсе.
                 crate::async_runtime::poll_main_thread_callbacks();
                 if let Some((w, h)) = crate::window::take_pending_size() {
-                    if let Some(window) = &self.window {
-                        window.request_inner_size(w, h);
+                    // Wayland применяет размер сразу и не присылает Resized —
+                    // перестраиваем поверхность и раскладку сами.
+                    let applied = self.window.as_ref().and_then(|win| win.request_inner_size(w, h).map(|s| (win.id(), s)));
+                    if let Some((id, size)) = applied {
+                        self.window_event(event_loop, id, winit::event::WindowEvent::Resized(size));
                     }
                 }
             }
