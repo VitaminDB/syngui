@@ -512,6 +512,24 @@ pub fn toggle_fullscreen() {
     }
 }
 
+/// Рамка главного окна на лету: `true` — просить у композитора системную
+/// (серверную) рамку, `false` — без рамки (своя в интерфейсе). Приложению,
+/// у которого раскладка меняется с шириной окна (десктоп ↔ телефон), так
+/// можно отдавать управление окном композитору там, где своего заголовка нет.
+#[cfg(feature = "winit")]
+pub fn set_decorations(on: bool) {
+    #[cfg(not(target_os = "android"))]
+    if let Some(window) = primary_window() {
+        let win = window.winit_window();
+        if win.is_decorated() != on {
+            win.set_decorations(on);
+            window.request_redraw();
+        }
+    }
+    #[cfg(target_os = "android")]
+    let _ = on;
+}
+
 #[cfg(feature = "winit")]
 pub fn add_window(window: Arc<crate::window::Window>) {
     add_notifier(window as Arc<dyn RedrawNotifier>);
