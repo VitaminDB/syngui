@@ -258,7 +258,45 @@ impl ElementTree {
             } else {
                 (Size::zero(), (None, None))
             };
+            // Пустые Column/Row — натурального размера (только поля), а не
+            // на все ограничения, как отвечает их `layout`: пустой список
+            // (уведомлений и т. п.) в свободных ограничениях иначе занимал
+            // всю высоту и выталкивал соседей за край. Явные width/height и
+            // `Column::expand` — как раньше.
+            // Только сами Column/Row: свои элементы с той же подсказкой
+            // раскладки (холст редактора документов) считают размер в `layout`.
+            let plain = self
+                .elements
+                .get_by_idx(idx)
+                .is_some_and(|n| matches!(n.element.element_type_name(), "Column" | "Row"));
+            let pad = match &hint {
+                _ if !plain => None,
+                LayoutHint::Column { padding_left, padding_top, padding_right, padding_bottom, expand: false, .. }
+                | LayoutHint::Row { padding_left, padding_top, padding_right, padding_bottom, .. } => {
+                    Some(Size::new(padding_left + padding_right, padding_top + padding_bottom))
+                }
+                _ => None,
+            };
+            let size = match pad {
+                Some(p) => Size::new(
+                    if explicit.0.is_some() { size.width } else { p.width },
+                    if explicit.1.is_some() { size.height } else { p.height },
+                ),
+                None => size,
+            };
             let clamped = clamp_finite_explicit(size, constraints, explicit);
+            if pad.is_some() {
+                // Границы элемента — по итоговому размеру (фон, попадания).
+                if let Some(node) = self.elements.get_mut_by_idx(idx) {
+                    node.element.layout(Constraints {
+                        min_width: clamped.width,
+                        max_width: clamped.width,
+                        min_height: clamped.height,
+                        max_height: clamped.height,
+                        containing_block: constraints.containing_block,
+                    });
+                }
+            }
             layout_log!(
                 self,
                 "leaf: {:.1}x{:.1} -> clamped: {:.1}x{:.1}",

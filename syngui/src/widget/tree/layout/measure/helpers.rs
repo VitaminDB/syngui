@@ -1565,6 +1565,21 @@ impl ElementTree {
     ) -> Size {
         crate::perf::incr(crate::perf::Counter::MeasureGridCall);
 
+        // Явная ширина сетки (MSS `width`) — ширина колонок считается от
+        // неё, а не от всей доступной (кнопки цифровой панели иначе
+        // расползались по ширине экрана, прижатые к левым краям ячеек).
+        let explicit_w = self
+            .elements
+            .get(&id)
+            .and_then(|n| n.element.explicit_dimensions(constraints.containing_block.width, constraints.containing_block.height).0);
+        let constraints = match explicit_w {
+            Some(w) => {
+                let w = if constraints.max_width.is_finite() { w.min(constraints.max_width) } else { w };
+                Constraints { min_width: constraints.min_width.min(w), max_width: w, ..constraints }
+            }
+            None => constraints,
+        };
+
         if let Some(node) = self.elements.get_mut(&id) {
             if let Some(grid) = node
                 .element

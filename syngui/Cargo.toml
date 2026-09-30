@@ -470,3 +470,11 @@ name = "test_notification_stack"
 required-features = ["testing"]
 
 # Profiles moved to workspace root Cargo.toml
+
+[[test]]
+name = "empty_column_height"
+required-features = ["testing"]
+
+[[test]]
+name = "grid_explicit_width"
+required-features = ["testing"]
