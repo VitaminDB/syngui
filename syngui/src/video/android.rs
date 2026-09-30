@@ -25,6 +25,7 @@ static VM_PTR: AtomicPtr<c_void> = AtomicPtr::new(std::ptr::null_mut());
 static ACTIVITY_PTR: AtomicPtr<c_void> = AtomicPtr::new(std::ptr::null_mut());
 static SURFACE_REF: Mutex<Option<jni::objects::GlobalRef>> = Mutex::new(None);
 static SURFACE_ACTIVE: AtomicBool = AtomicBool::new(false);
+static KEEP_SCREEN_ON: AtomicBool = AtomicBool::new(false);
 
 /// Запомнить JavaVM и Activity для JNI-вызовов видео-Surface
 /// ([`video_surface`], [`set_video_rect`]). Делает `with_android_app`.
@@ -95,6 +96,22 @@ pub fn set_video_rect(x: f32, y: f32, w: f32, h: f32) {
         )
         .ok()
         .map(|_| ())
+    });
+}
+
+/// Не гасить экран, пока идёт видео: вызывает `setKeepScreenOn(boolean)`
+/// активити (эталон — `TvActivity`: `FLAG_KEEP_SCREEN_ON` окна). Зовёт
+/// `VideoView` при смене «играет / пауза / закрыт»; повтор того же значения
+/// JNI не дёргает.
+pub fn set_keep_screen_on(on: bool) {
+    use jni::objects::JValue;
+    if KEEP_SCREEN_ON.swap(on, Ordering::AcqRel) == on {
+        return;
+    }
+    let _ = with_env(|env, activity| {
+        env.call_method(activity, "setKeepScreenOn", "(Z)V", &[JValue::Bool(on as u8)])
+            .ok()
+            .map(|_| ())
     });
 }
 

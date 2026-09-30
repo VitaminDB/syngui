@@ -112,6 +112,8 @@ pub struct VideoViewElement {
 
 impl Drop for VideoViewElement {
     fn drop(&mut self) {
+        #[cfg(all(target_os = "android", feature = "ffmpeg"))]
+        crate::video::android::set_keep_screen_on(false);
         if self.surface_mode {
             #[cfg(all(target_os = "android", feature = "ffmpeg"))]
             crate::video::android::set_surface_video_active(false);
@@ -276,13 +278,19 @@ impl Element for VideoViewElement {
         // `ticking` — на паузе тоже, пока ждём кадр после перемотки
         // (`VideoPlayer::wants_seek_preview`): иначе он придёт, а кадр UI,
         // который его покажет, — нет.
-        let (frame_opt, pos_sec, ticking) = if let Ok(mut p) = self.player.lock() {
+        let (frame_opt, pos_sec, ticking, playing) = if let Ok(mut p) = self.player.lock() {
             let frame = p.poll_frame();
             let ticking = !p.is_paused() || p.wants_seek_preview();
-            (frame, p.position_sec() as f32, ticking)
+            let playing = !p.is_paused() && !p.is_ended();
+            (frame, p.position_sec() as f32, ticking, playing)
         } else {
-            (None, 0.0, true)
+            (None, 0.0, true, false)
         };
+        // Пока видео идёт, система не должна гасить и блокировать экран.
+        #[cfg(all(target_os = "android", feature = "ffmpeg"))]
+        crate::video::android::set_keep_screen_on(playing);
+        #[cfg(not(all(target_os = "android", feature = "ffmpeg")))]
+        let _ = playing;
         let mut changed = false;
         if let Some(frame) = frame_opt {
             let new_size = (frame.width, frame.height);
