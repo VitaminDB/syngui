@@ -18,6 +18,7 @@ pub mod panel;
 pub use date::{civil_from_days, days_from_civil, Date};
 pub use locale::{default_locale, set_default_locale, CalendarLocale, DateOrder, LocaleStr};
 pub use panel::{CalendarTheme, CalendarVars, PanelHit, PanelMetrics, PanelMode, PanelState};
+use panel::{CELL_GAP, PAD};
 
 use crate::core::sync::Mutex;
 use crate::core::{Point, Rect, Size};
@@ -41,6 +42,7 @@ pub struct Calendar {
     selected: Option<Date>,
     on_select: Option<Arc<Mutex<dyn FnMut(Date) + Send>>>,
     show_week_numbers: bool,
+    fill_width: bool,
     min_date: Option<Date>,
     max_date: Option<Date>,
     locale: Option<CalendarLocale>,
@@ -52,6 +54,7 @@ impl Calendar {
             selected: Some(Date::today()),
             on_select: None,
             show_week_numbers: false,
+            fill_width: false,
             min_date: None,
             max_date: None,
             locale: None,
@@ -76,6 +79,13 @@ impl Calendar {
 
     pub fn show_week_numbers(mut self, v: bool) -> Self {
         self.show_week_numbers = v;
+        self
+    }
+
+    /// Растянуть сетку на всю доступную ширину: размер ячейки считается из
+    /// ширины родителя (не больше предельного), а не из `--cal-cell-size`.
+    pub fn fill_width(mut self, v: bool) -> Self {
+        self.fill_width = v;
         self
     }
 
@@ -114,6 +124,8 @@ impl Widget for Calendar {
             widget_selected: self.selected,
             on_select: self.on_select.clone(),
             show_week_numbers: self.show_week_numbers,
+            fill_width: self.fill_width,
+            fill_cell: None,
             min_date: self.min_date,
             max_date: self.max_date,
             locale: self.locale.clone().unwrap_or_else(default_locale),
@@ -148,6 +160,9 @@ pub struct CalendarElement {
     widget_selected: Option<Date>,
     on_select: Option<Arc<Mutex<dyn FnMut(Date) + Send>>>,
     show_week_numbers: bool,
+    fill_width: bool,
+    /// Ячейка, посчитанная раскладкой из ширины (`fill_width`).
+    fill_cell: Option<f32>,
     min_date: Option<Date>,
     max_date: Option<Date>,
     locale: CalendarLocale,
@@ -163,7 +178,11 @@ pub struct CalendarElement {
 
 impl CalendarElement {
     fn theme(&self) -> CalendarTheme {
-        CalendarTheme::resolve(&self.mss, &self.vars)
+        let mut t = CalendarTheme::resolve(&self.mss, &self.vars);
+        if let Some(c) = self.fill_cell {
+            t.cell = c;
+        }
+        t
     }
 
     fn fire_select(&self, date: Date) {
@@ -180,6 +199,10 @@ impl Element for CalendarElement {
         if let Some(cal) = widget.as_any().downcast_ref::<Calendar>() {
             self.on_select = cal.on_select.clone();
             self.show_week_numbers = cal.show_week_numbers;
+            if self.fill_width != cal.fill_width {
+                self.fill_width = cal.fill_width;
+                self.fill_cell = None;
+            }
             self.min_date = cal.min_date;
             self.max_date = cal.max_date;
             self.locale = cal.locale.clone().unwrap_or_else(default_locale);
@@ -196,6 +219,11 @@ impl Element for CalendarElement {
     }
 
     fn layout(&mut self, constraints: Constraints) -> Size {
+        if self.fill_width && constraints.max_width.is_finite() {
+            let week = if self.show_week_numbers { 0.8 } else { 0.0 };
+            let cell = (constraints.max_width - 2.0 * PAD - 6.0 * CELL_GAP) / (7.0 + week);
+            self.fill_cell = Some(cell.floor());
+        }
         let metrics = PanelMetrics::new(self.theme().cell, self.show_week_numbers);
         let w = metrics.width.min(constraints.max_width);
         let h = metrics.height.min(constraints.max_height);

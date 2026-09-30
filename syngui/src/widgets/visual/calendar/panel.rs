@@ -30,8 +30,8 @@ pub const ICON_CALENDAR: &str = "\u{E935}";
 #[cfg(not(feature = "material-icons"))]
 pub const ICON_CALENDAR: &str = "\u{25A6}";
 
-const PAD: f32 = 8.0;
-const CELL_GAP: f32 = 2.0;
+pub(super) const PAD: f32 = 8.0;
+pub(super) const CELL_GAP: f32 = 2.0;
 const HEADER_H: f32 = 44.0;
 const DOW_H: f32 = 28.0;
 const GRID_ROWS: u32 = 6;
