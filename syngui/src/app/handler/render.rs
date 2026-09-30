@@ -548,7 +548,7 @@ impl AppHandler {
                 let st = renderer.image_store.lock().unwrap_or_else(|e| e.into_inner());
                 st.has_pending_uploads() || st.has_pending_frees()
             };
-            if sig.is_some() && sig == self.last_frame_sig && !images_busy {
+            if sig.is_some() && sig == self.last_frame_sig && !images_busy && !crate::signal::take_force_frame() {
                 crate::perf::record_frame(
                     rebuild_elapsed,
                     layout_elapsed,

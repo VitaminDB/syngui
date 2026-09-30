@@ -512,6 +512,14 @@ pub fn toggle_fullscreen() {
     }
 }
 
+static FORCE_FRAME: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
+
+/// Следующий кадр отправить, даже если он не отличается от прошлого
+/// (снимает флаг): коммит нужен ради состояния окна, а не картинки.
+pub fn take_force_frame() -> bool {
+    FORCE_FRAME.swap(false, std::sync::atomic::Ordering::Relaxed)
+}
+
 /// Рамка главного окна на лету: `true` — просить у композитора системную
 /// (серверную) рамку, `false` — без рамки (своя в интерфейсе). Приложению,
 /// у которого раскладка меняется с шириной окна (десктоп ↔ телефон), так
@@ -524,6 +532,21 @@ pub fn set_decorations(on: bool) {
         if win.is_decorated() != on {
             win.set_decorations(on);
             window.request_redraw();
+            // winit сперва ставит геометрию окна под свою рамку (со сдвигом
+            // на заголовок), а после ответа композитора («рамка моя»)
+            // исправляет её — но уходит это лишь с коммитом следующего кадра.
+            // Кадр без изменений рендер пропускает, и между системной рамкой
+            // и содержимым оставалась щель до первой перерисовки: несколько
+            // кадров отправляем принудительно.
+            std::thread::spawn(|| {
+                for ms in [60u64, 200, 500] {
+                    std::thread::sleep(std::time::Duration::from_millis(ms));
+                    crate::async_runtime::run_on_main_thread(|| {
+                        FORCE_FRAME.store(true, std::sync::atomic::Ordering::Relaxed);
+                        request_redraw();
+                    });
+                }
+            });
         }
     }
     #[cfg(target_os = "android")]
