@@ -173,15 +173,11 @@ impl Element for ProgressBarElement {
         list.push_rect(bar_rect, track_color, [radius; 4]);
 
         if self.indeterminate {
-            let strip_width = bar_rect.size.width * 0.3;
-            let x = bar_rect.x() + self.animation_offset * bar_rect.size.width;
-            let fill_rect = Rect::new(
-                Point::new(x, bar_rect.y()),
-                Size::new(strip_width, bar_rect.size.height),
-            );
-            list.push_rect(fill_rect, fill_color, [radius; 4]);
+            if let Some(fill_rect) = indeterminate_strip(bar_rect, self.animation_offset) {
+                list.push_rect(fill_rect, fill_color, [radius; 4]);
+            }
         } else if self.value > 0.0 {
-            let fill_width = bar_rect.size.width * self.value;
+            let fill_width = bar_rect.size.width * self.value.min(1.0);
             let fill_rect = Rect::new(bar_rect.origin, Size::new(fill_width, bar_rect.size.height));
             list.push_rect(fill_rect, fill_color, [radius; 4]);
         }
@@ -319,5 +315,34 @@ impl StyledElement for ProgressBarElement {
     fn set_classes(&mut self, classes: Vec<String>) {
         self.classes = classes;
         self.mark_dirty(DirtyFlags::RENDER);
+    }
+}
+
+/// Бегущая полоса неопределённого прогресса: 30 % ширины, въезжает слева
+/// (`offset` от −0.3) и уезжает вправо (до 1.0) — обрезана по дорожке, иначе
+/// на краях вылезала за неё.
+fn indeterminate_strip(bar: Rect, offset: f32) -> Option<Rect> {
+    let w = bar.size.width;
+    let x0 = (bar.x() + offset * w).max(bar.x());
+    let x1 = (bar.x() + (offset + 0.3) * w).min(bar.x() + w);
+    (x1 - x0 > 0.5).then(|| Rect::new(Point::new(x0, bar.y()), Size::new(x1 - x0, bar.size.height)))
+}
+
+#[cfg(test)]
+mod strip_tests {
+    use super::*;
+
+    #[test]
+    fn strip_stays_inside_track() {
+        let bar = Rect::new(Point::new(10.0, 0.0), Size::new(100.0, 4.0));
+        for i in 0..=130 {
+            let off = -0.3 + i as f32 / 100.0;
+            if let Some(r) = indeterminate_strip(bar, off) {
+                assert!(r.x() >= bar.x() && r.x() + r.size.width <= bar.x() + bar.size.width + 1e-3, "offset {off}: {r:?}");
+            }
+        }
+        let mid = indeterminate_strip(bar, 0.35).unwrap();
+        assert!((mid.size.width - 30.0).abs() < 1e-3);
+        assert!(indeterminate_strip(bar, -0.3).is_none());
     }
 }
