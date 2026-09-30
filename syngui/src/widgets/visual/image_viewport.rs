@@ -13,6 +13,11 @@
 //! пересобирают через `Reactive`, элемент видит новый номер в `update` и
 //! исполняет команду. Сигналом команды не передать: элемент вне реестра
 //! анимаций о чужом сигнале не узнает (см. docs/10-custom-widgets.md).
+//!
+//! Пальцы: щипок — масштаб вокруг середины между пальцами (и сдвиг вслед за
+//! ней), один палец двигает приближенную картинку, двойной тап — «вписать ↔
+//! 1:1». Смахивание вбок по картинке, которую некуда двигать по горизонтали,
+//! уходит в [`ImageViewport::on_swipe`] — листать соседние.
 
 use crate::core::sync::Mutex;
 use crate::core::{Color, Point, Rect, Size, Transform};
@@ -40,6 +45,8 @@ const EASE_RATE: f32 = 18.0;
 const BAR_THICKNESS: f32 = 8.0;
 const BAR_MARGIN: f32 = 4.0;
 const BAR_MIN_THUMB: f32 = 28.0;
+/// Смахивание: путь пальца вбок, после которого листаем.
+const SWIPE_DISTANCE: f32 = 64.0;
 
 /// Команда виду снаружи.
 #[derive(Clone, Copy, Debug, PartialEq)]
@@ -154,8 +161,11 @@ pub struct ImageViewport {
     max_scale: f32,
     insets: [f32; 4],
     info: Option<RwSignal<ImageViewInfo>>,
+    on_swipe: Option<SwipeCb>,
     classes: Vec<String>,
 }
+
+type SwipeCb = Arc<Mutex<dyn FnMut(i32) + Send>>;
 
 impl ImageViewport {
     pub fn new(path: impl Into<String>) -> Self {
@@ -169,8 +179,16 @@ impl ImageViewport {
             max_scale: DEFAULT_MAX_SCALE,
             insets: [0.0; 4],
             info: None,
+            on_swipe: None,
             classes: Vec::new(),
         }
+    }
+
+    /// Смахивание пальцем вбок, когда картинку некуда сдвигать по
+    /// горизонтали: `+1` — палец ушёл влево (следующая), `-1` — вправо.
+    pub fn on_swipe(mut self, f: impl FnMut(i32) + Send + 'static) -> Self {
+        self.on_swipe = Some(Arc::new(Mutex::new(f)));
+        self
     }
 
     /// Поля области (сверху, справа, снизу, слева), занятые чем-то поверх
@@ -242,6 +260,11 @@ impl Widget for ImageViewport {
             max_scale: self.max_scale,
             insets: self.insets,
             info: self.info,
+            on_swipe: self.on_swipe.clone(),
+            fingers: Vec::new(),
+            pinch: None,
+            touch_pan: None,
+            swipe: None,
             classes: self.classes.clone(),
             bounds: Rect::zero(),
             dirty_flags: DirtyFlags::LAYOUT | DirtyFlags::RENDER,
@@ -299,6 +322,15 @@ pub struct ImageViewportElement {
     max_scale: f32,
     insets: [f32; 4],
     info: Option<RwSignal<ImageViewInfo>>,
+    on_swipe: Option<SwipeCb>,
+    /// Пальцы на картинке (не больше двух): id и последняя точка.
+    fingers: Vec<(u64, Point)>,
+    /// Щипок: расстояние между пальцами и масштаб в начале, прошлая середина.
+    pinch: Option<(f32, f32, Point)>,
+    /// Один палец двигает картинку: точка и сдвиг в начале.
+    touch_pan: Option<(Point, Point)>,
+    /// Один палец по картинке, которую некуда двигать: начало смахивания.
+    swipe: Option<Point>,
     classes: Vec<String>,
     bounds: Rect,
     dirty_flags: DirtyFlags,
@@ -590,6 +622,60 @@ impl ImageViewportElement {
         self.mark_dirty(DirtyFlags::RENDER);
     }
 
+    /// Начать жест заново по текущим пальцам (палец добавили или убрали).
+    fn restart_touch(&mut self) {
+        self.pinch = None;
+        self.touch_pan = None;
+        self.swipe = None;
+        match self.fingers.as_slice() {
+            [(_, a), (_, b)] => {
+                let d = ((a.x - b.x).powi(2) + (a.y - b.y).powi(2)).sqrt().max(1.0);
+                self.pinch = Some((d, self.scale, Point::new((a.x + b.x) * 0.5, (a.y + b.y) * 0.5)));
+            }
+            [(_, p)] => {
+                if self.thumb_rect(Axis::X).is_some() || self.thumb_rect(Axis::Y).is_some() {
+                    self.touch_pan = Some((*p, self.offset));
+                }
+                // Вбок картинку не сдвинуть — горизонтальный жест листает.
+                if self.thumb_rect(Axis::X).is_none() {
+                    self.swipe = Some(*p);
+                }
+            }
+            _ => {}
+        }
+    }
+
+    fn touch_moved(&mut self) {
+        let Some(img) = self.img_size() else { return };
+        let view = self.view();
+        if let (Some((d0, s0, mid0)), [(_, a), (_, b)]) = (self.pinch, self.fingers.as_slice()) {
+            let d = ((a.x - b.x).powi(2) + (a.y - b.y).powi(2)).sqrt().max(1.0);
+            let mid = Point::new((a.x + b.x) * 0.5, (a.y + b.y) * 0.5);
+            let (lo, hi) = self.scale_limits(img);
+            let next = (s0 * d / d0).clamp(lo, hi);
+            let c = self.center();
+            let anchor = Point::new(mid.x - c.x, mid.y - c.y);
+            let mut off = zoom_offset(self.offset, self.scale, next, anchor);
+            off.x += mid.x - mid0.x;
+            off.y += mid.y - mid0.y;
+            self.scale = next;
+            self.target_scale = next;
+            self.anchor = Point::zero();
+            self.fit_mode = false;
+            self.offset = clamp_offset(off, next, view, img);
+            self.pinch = Some((d0, s0, mid));
+            self.publish();
+            return;
+        }
+        if let (Some((start, off0)), [(_, p)]) = (self.touch_pan, self.fingers.as_slice()) {
+            let moved = Point::new(off0.x + p.x - start.x, off0.y + p.y - start.y);
+            self.offset = clamp_offset(moved, self.scale, view, img);
+            self.anchor = Point::zero();
+            self.fit_mode = false;
+            self.mark_dirty(DirtyFlags::RENDER);
+        }
+    }
+
     fn pannable(&self) -> bool {
         self.thumb_rect(Axis::X).is_some() || self.thumb_rect(Axis::Y).is_some()
     }
@@ -629,6 +715,7 @@ impl Element for ImageViewportElement {
             return;
         };
         self.info = w.info;
+        self.on_swipe = w.on_swipe.clone();
         self.max_scale = w.max_scale;
         if self.insets != w.insets {
             self.insets = w.insets;
@@ -775,6 +862,50 @@ impl Element for ImageViewportElement {
 
     fn handle_event(&mut self, event: &Event, ctx: &mut EventContext) -> EventResult {
         match event {
+            Event::TouchStart { id, position } => {
+                if !self.bounds.contains(*position) || self.fingers.len() >= 2 {
+                    return EventResult::Ignored;
+                }
+                self.fingers.push((*id, *position));
+                self.restart_touch();
+                EventResult::Handled
+            }
+            Event::TouchMove { id, position } => {
+                let Some(f) = self.fingers.iter_mut().find(|f| f.0 == *id) else {
+                    return EventResult::Ignored;
+                };
+                f.1 = *position;
+                self.touch_moved();
+                EventResult::Handled
+            }
+            Event::TouchEnd { id, position } => {
+                let Some(i) = self.fingers.iter().position(|f| f.0 == *id) else {
+                    return EventResult::Ignored;
+                };
+                self.fingers.remove(i);
+                if let (Some(start), true) = (self.swipe, self.fingers.is_empty()) {
+                    let (dx, dy) = (position.x - start.x, position.y - start.y);
+                    if dx.abs() > SWIPE_DISTANCE && dx.abs() > dy.abs() * 1.5 {
+                        if let Some(cb) = &self.on_swipe {
+                            if let Ok(mut f) = cb.lock() {
+                                f(if dx < 0.0 { 1 } else { -1 });
+                            }
+                        }
+                    }
+                }
+                let pinched = self.pinch.is_some();
+                self.restart_touch();
+                // Щипком сжали мельче «вписать» — вернуть вписанной.
+                if pinched {
+                    if let Some(img) = self.img_size() {
+                        let fit = fit_scale(self.view(), img);
+                        if self.scale <= fit * 1.02 {
+                            self.set_target(fit, Point::zero(), true);
+                        }
+                    }
+                }
+                EventResult::Handled
+            }
             Event::MouseWheel {
                 delta, position, ..
             } if self.bounds.contains(*position) => {
@@ -1250,5 +1381,38 @@ mod tests {
         settle(&mut h);
         h.send_event(&dbl);
         assert!(info.get_untracked().fit);
+    }
+
+    #[test]
+    fn pinch_zooms_and_swipe_flips_when_fit() {
+        let info = crate::signal::use_signal(ImageViewInfo::default());
+        let swiped = Arc::new(std::sync::Mutex::new(Vec::new()));
+        let sink = swiped.clone();
+        let (mut h, _) = harness(
+            ImageViewport::new("/nonexistent.png")
+                .natural_size(1600, 1200)
+                .info(info)
+                .on_swipe(move |d| sink.lock().unwrap().push(d)),
+        );
+        let fit = info.get_untracked().scale;
+        // Вписанная: смахивание влево — следующая.
+        h.send_event(&Event::TouchStart { id: 1, position: Point::new(600.0, 300.0) });
+        h.send_event(&Event::TouchMove { id: 1, position: Point::new(400.0, 310.0) });
+        h.send_event(&Event::TouchEnd { id: 1, position: Point::new(400.0, 310.0) });
+        assert_eq!(*swiped.lock().unwrap(), vec![1]);
+        // Щипок: пальцы разошлись вдвое — масштаб вдвое.
+        h.send_event(&Event::TouchStart { id: 2, position: Point::new(350.0, 300.0) });
+        h.send_event(&Event::TouchStart { id: 3, position: Point::new(450.0, 300.0) });
+        h.send_event(&Event::TouchMove { id: 2, position: Point::new(300.0, 300.0) });
+        h.send_event(&Event::TouchMove { id: 3, position: Point::new(500.0, 300.0) });
+        assert!((info.get_untracked().scale - fit * 2.0).abs() < 1e-3, "{} vs {}", info.get_untracked().scale, fit * 2.0);
+        h.send_event(&Event::TouchEnd { id: 2, position: Point::new(300.0, 300.0) });
+        h.send_event(&Event::TouchEnd { id: 3, position: Point::new(500.0, 300.0) });
+        assert!(!info.get_untracked().fit);
+        // Приближенную палец двигает, а не листает.
+        h.send_event(&Event::TouchStart { id: 4, position: Point::new(600.0, 300.0) });
+        h.send_event(&Event::TouchMove { id: 4, position: Point::new(400.0, 300.0) });
+        h.send_event(&Event::TouchEnd { id: 4, position: Point::new(400.0, 300.0) });
+        assert_eq!(*swiped.lock().unwrap(), vec![1]);
     }
 }
