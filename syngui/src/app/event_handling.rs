@@ -854,6 +854,11 @@ impl winit::application::ApplicationHandler<SynGuiUserEvent> for AppHandler {
                 // Очередь run_on_main_thread: дренируем прямо здесь — рендера
                 // (и его дренажа) в фоне может не быть вовсе.
                 crate::async_runtime::poll_main_thread_callbacks();
+                if let Some((w, h)) = crate::window::take_pending_size() {
+                    if let Some(window) = &self.window {
+                        window.request_inner_size(w, h);
+                    }
+                }
             }
             #[cfg(feature = "wayland-dnd")]
             SynGuiUserEvent::WaylandDnd(ev) => {

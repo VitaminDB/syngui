@@ -202,6 +202,11 @@ impl Window {
         self.inner.request_redraw();
     }
 
+    /// Запросить новый размер окна (логические пиксели).
+    pub fn request_inner_size(&self, width: u32, height: u32) {
+        let _ = self.inner.request_inner_size(winit::dpi::LogicalSize::new(width, height));
+    }
+
     pub fn size(&self) -> (u32, u32) {
         let size = self.inner.inner_size();
         (size.width, size.height)
