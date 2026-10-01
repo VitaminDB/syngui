@@ -149,6 +149,7 @@ impl Widget for Dropdown {
             hover_button: false,
             hover_item: None,
             scroll_offset: 0.0,
+            touch_drag: None,
             opens_upward: false,
             classes: Vec::new(),
             dirty_flags: DirtyFlags::LAYOUT | DirtyFlags::RENDER,
@@ -200,6 +201,10 @@ pub struct DropdownElement {
     hover_button: bool,
     hover_item: Option<usize>,
     scroll_offset: f32,
+    /// Палец, тянущий открытый список, и его последняя точка. Тап пальцем
+    /// приходит синтезированным `MouseDown` при отпускании, а перетаскивание —
+    /// только как `TouchMove`, поэтому прокрутка пальцем — отдельный путь.
+    touch_drag: Option<(u64, Point)>,
     opens_upward: bool,
     classes: Vec<String>,
     dirty_flags: DirtyFlags,
@@ -865,6 +870,36 @@ impl Element for DropdownElement {
                 ctx.request_paint();
                 EventResult::Handled
             }
+            Event::TouchStart { id, position } => {
+                if self.is_open && self.compute_overlay_bounds().contains(*position) {
+                    self.touch_drag = Some((*id, *position));
+                    return EventResult::Handled;
+                }
+                EventResult::Ignored
+            }
+            Event::TouchMove { id, position } => match self.touch_drag {
+                Some((tid, last)) if tid == *id => {
+                    if self.is_open {
+                        let new_offset =
+                            (self.scroll_offset + last.y - position.y).clamp(0.0, self.max_scroll());
+                        if new_offset != self.scroll_offset {
+                            self.scroll_offset = new_offset;
+                            self.hover_item = None;
+                            ctx.request_paint();
+                        }
+                    }
+                    self.touch_drag = Some((tid, *position));
+                    EventResult::Handled
+                }
+                _ => EventResult::Ignored,
+            },
+            Event::TouchEnd { id, .. } => match self.touch_drag {
+                Some((tid, _)) if tid == *id => {
+                    self.touch_drag = None;
+                    EventResult::Handled
+                }
+                _ => EventResult::Ignored,
+            },
             Event::MouseWheel { delta, .. } => {
                 if self.is_open {
                     let new_offset = (self.scroll_offset - delta).clamp(0.0, self.max_scroll());

@@ -154,6 +154,12 @@ impl ElementTree {
                         self.last_mousedown_element = Some(entry.element_id);
                         self.mouse_captor = Some(entry.element_id);
                     }
+                    // Жест пальцем, начатый в оверлее (прокрутка списка
+                    // Dropdown), остаётся за ним и когда палец выходит за
+                    // его край — как захват в `dispatch_positional`.
+                    if matches!(event, Event::TouchStart { .. }) && result.is_handled() {
+                        self.mouse_captor = Some(entry.element_id);
+                    }
                     return result;
                 } else if matches!(event, Event::MouseDown { .. }) {
                     self.dispatch_event_to_element(entry.element_id, event);
@@ -1052,6 +1058,41 @@ mod tests {
     /// Overlay, открытый внутри прокручиваемого предка, ловит клики там,
     /// где он виден после прокрутки, а не там, где был при открытии (#54
     /// volna: пункты списка в прокрученном окне кликали виджеты под ним).
+    /// Открытый список Dropdown прокручивается пальцем: тап пальцем приходит
+    /// синтезированным `MouseDown` при отпускании, а перетаскивание — только
+    /// `TouchMove` (раньше список прокручивался лишь колесом, и на телефоне
+    /// длинный выбор был недоступен).
+    #[test]
+    fn dropdown_list_scrolls_by_touch() {
+        use crate::core::RectExt;
+        use crate::widgets::input::dropdown::{Dropdown, DropdownItem};
+        let pick = |drag: f32| -> String {
+            let chosen = std::sync::Arc::new(std::sync::Mutex::new(String::new()));
+            let c = chosen.clone();
+            let mut dd = Dropdown::new().width(200.0).max_height(100.0);
+            for i in 0..10 {
+                dd = dd.item(DropdownItem::new(i.to_string(), format!("пункт {i}")));
+            }
+            let dd = dd.on_change(move |v: &str| *c.lock().unwrap() = v.to_string());
+            let (mut tree, root_id, _w) = build_and_layout(Box::new(dd));
+            let b = tree.elements.get(&root_id).unwrap().element.bounds();
+            click_at(&mut tree, root_id, b.x() + 10.0, b.y() + 10.0);
+            let p = Point::new(b.x() + 20.0, b.y() + b.size.height + 20.0);
+            if drag != 0.0 {
+                tree.handle_event(root_id, &Event::TouchStart { id: 1, position: p });
+                let q = Point::new(p.x, p.y - drag);
+                tree.handle_event(root_id, &Event::TouchMove { id: 1, position: q });
+                tree.handle_event(root_id, &Event::TouchEnd { id: 1, position: q });
+            }
+            click_at(&mut tree, root_id, p.x, p.y);
+            let v = chosen.lock().unwrap().clone();
+            v
+        };
+        let still: i32 = pick(0.0).parse().expect("тап без прокрутки выбирает пункт");
+        let scrolled: i32 = pick(72.0).parse().expect("тап после прокрутки выбирает пункт");
+        assert_eq!(scrolled, still + 2, "сдвиг пальцем на две строки (72 px)");
+    }
+
     #[test]
     fn overlay_follows_ancestor_scroll_after_registration() {
         // Нулевой размер: обычный hit-test элемент не находит, клик
