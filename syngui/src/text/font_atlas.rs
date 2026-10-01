@@ -35,6 +35,9 @@ pub struct CachedGlyph {
 pub struct ShapedGlyph {
     pub x: f32,
     pub y: f32,
+    /// Верх строки, в которой стоит глиф: по нему рендерер выравнивает каждую строку переноса
+    /// отдельно (`text-align: center/right`).
+    pub line_top: f32,
     pub glyph: CachedGlyph,
 }
 
@@ -622,6 +625,7 @@ impl FontAtlas {
                 result.push(ShapedGlyph {
                     x: *x + glyph.bearing_x,
                     y: y - glyph.bearing_y + size_px as f32,
+                    line_top: y,
                     glyph,
                 });
             }
@@ -1352,6 +1356,7 @@ impl FontAtlas {
             result.push(ShapedGlyph {
                 x: *x + glyph.bearing_x,
                 y: y - glyph.bearing_y + size_px as f32,
+                line_top: y,
                 glyph,
             });
         }
@@ -1381,6 +1386,7 @@ impl FontAtlas {
             result.push(ShapedGlyph {
                 x: *x + glyph.bearing_x,
                 y: y - glyph.bearing_y + size_px as f32,
+                line_top: y,
                 glyph,
             });
         }

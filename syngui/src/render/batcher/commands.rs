@@ -178,16 +178,47 @@ impl Batcher {
                     origin_y = (origin_y * sf).round() / sf;
                 }
 
-                let mut origin_x = if text_align.is_hcenter()
-                    && rect.size.width > text_width
-                    && text_width > 0.0
-                {
-                    rect.origin.x + (rect.size.width - text_width) / 2.0 - glyph_min_x
-                } else if text_align.is_right() && rect.size.width > text_width && text_width > 0.0
-                {
-                    rect.origin.x + rect.size.width - text_width - glyph_min_x
+                // Доля свободного места слева: 0 — влево, ½ — по центру, 1 — вправо.
+                let h_frac = if text_align.is_hcenter() && rect.size.width > text_width && text_width > 0.0 {
+                    0.5
+                } else if text_align.is_right() && rect.size.width > text_width && text_width > 0.0 {
+                    1.0
+                } else {
+                    0.0
+                };
+                let mut origin_x = if h_frac > 0.0 {
+                    rect.origin.x + (rect.size.width - text_width) * h_frac - glyph_min_x
                 } else {
                     rect.origin.x
+                };
+                // Строки переноса выравниваются каждая сама: блок стоит по самой широкой, а
+                // короткие сдвигаются внутри него (иначе вторая строка центрированного текста
+                // прижата к левому краю первой).
+                let mut lines: Vec<(f32, f32, f32)> = Vec::new();
+                if h_frac > 0.0 {
+                    for glyph in glyphs.iter() {
+                        if glyph.glyph.width == 0 || glyph.glyph.height == 0 {
+                            continue;
+                        }
+                        let (x0, x1) = (glyph.x / sf, (glyph.x + glyph.glyph.width as f32) / sf);
+                        match lines.iter_mut().find(|l| l.0 == glyph.line_top) {
+                            Some(l) => {
+                                l.1 = l.1.min(x0);
+                                l.2 = l.2.max(x1);
+                            }
+                            None => lines.push((glyph.line_top, x0, x1)),
+                        }
+                    }
+                    if lines.len() < 2 {
+                        lines.clear();
+                    }
+                }
+                let line_shift = |line_top: f32| -> f32 {
+                    lines
+                        .iter()
+                        .find(|l| l.0 == line_top)
+                        .map(|l| (text_width - (l.2 - l.1)) * h_frac - (l.1 - glyph_min_x))
+                        .unwrap_or(0.0)
                 };
 
                 if bbox_sample.is_some() && sf > 0.0 {
@@ -232,6 +263,7 @@ impl Batcher {
                         if glyph.glyph.width == 0 || glyph.glyph.height == 0 {
                             continue;
                         }
+                        let origin_x = origin_x + line_shift(glyph.line_top);
                         let (gx, gy) = if snap {
                             (
                                 ((origin_x + shadow_offset_x) * sf + glyph.x).round() / sf,
@@ -320,6 +352,7 @@ impl Batcher {
                     if glyph.glyph.width == 0 || glyph.glyph.height == 0 {
                         continue;
                     }
+                    let origin_x = origin_x + line_shift(glyph.line_top);
                     let (x, y) = if snap {
                         (
                             (origin_x * sf + glyph.x).round() / sf,
