@@ -1,3 +1,4 @@
+use crate::animation::{Animation, Easing};
 use crate::core::sync::Mutex;
 use crate::core::{Color, Point, Rect, Size};
 use crate::input::{Event, EventResult, MouseButton};
@@ -9,12 +10,17 @@ use crate::widget::context::{EventContext, EventContextExt};
 use crate::widget::{
     DirtyFlags, Element, ElementId, ElementTree, LayoutHint, StyledElement, UpdateContext, Widget,
 };
-use crate::widgets::containers::IntoWidget;
+use crate::widgets::containers::{AnimationAxis, IntoWidget};
 use crate::widgets::overlay::menu::PopupAnchor;
 use crate::widgets::overlay::placement::{clamp_span, fit_span};
 use std::any::Any;
 use std::cell::Cell;
 use std::sync::Arc;
+use std::time::Duration;
+
+/// Длительность и кривая появления по умолчанию (`.reveal`); MSS
+/// `transition: size|width|height …` их перекрывает.
+const REVEAL_MS: u32 = 280;
 
 pub struct PopupPanel {
     children: Vec<Box<dyn Widget>>,
@@ -26,6 +32,7 @@ pub struct PopupPanel {
     max_height: f32,
     on_close: Option<Arc<Mutex<dyn FnMut() + Send>>>,
     classes: Vec<String>,
+    reveal: Option<AnimationAxis>,
 }
 
 impl PopupPanel {
@@ -40,7 +47,20 @@ impl PopupPanel {
             max_height: 600.0,
             on_close: None,
             classes: Vec::new(),
+            reveal: None,
         }
+    }
+
+    /// Панель выезжает и уезжает обратно: по ширине — от стороны якоря
+    /// (у `EndCenter`/`BottomStart`/`Position` слева направо, у `BottomEnd`
+    /// справа налево), по высоте — сверху вниз. Закрытие (клик мимо,
+    /// Escape, `is_open = false` снаружи) проигрывается в обратную сторону;
+    /// всё это время панель видна, но ввод уже не принимает. Длительность
+    /// и кривая — из MSS `transition: size …` (`spring(k, c)` — пружина),
+    /// по умолчанию 280 мс `emphasized-decelerate`.
+    pub fn reveal(mut self, axis: AnimationAxis) -> Self {
+        self.reveal = Some(axis);
+        self
     }
 
     pub fn child<M>(mut self, widget: impl IntoWidget<M>) -> Self {
@@ -115,6 +135,11 @@ impl Widget for PopupPanel {
             dirty_flags: DirtyFlags::LAYOUT | DirtyFlags::RENDER,
             overlay_registered: false,
             mss: MssFields::new(),
+            reveal: self.reveal,
+            reveal_transition: None,
+            reveal_anim: None,
+            shown: if self.reveal.is_some() { 0.0 } else { 1.0 },
+            was_open: false,
         })
     }
 
@@ -167,6 +192,13 @@ struct PopupPanelElement {
     dirty_flags: DirtyFlags,
     overlay_registered: bool,
     mss: MssFields,
+    reveal: Option<AnimationAxis>,
+    reveal_transition: Option<(u32, Easing)>,
+    reveal_anim: Option<Animation>,
+    /// Доля показа 0..1 (у пружины — с перелётом за 1).
+    shown: f32,
+    /// Состояние `is_open`, под которое уже запущено движение.
+    was_open: bool,
 }
 
 impl PopupPanelElement {
@@ -174,8 +206,75 @@ impl PopupPanelElement {
         self.is_open.get_untracked()
     }
 
+    /// Панель на экране: открыта либо ещё уезжает.
+    fn is_shown(&self) -> bool {
+        self.is_open() || (self.reveal.is_some() && self.shown > 0.001)
+    }
+
+    /// Запустить появление/уход, если `is_open` сменился. Зовётся отовсюду,
+    /// где элемент получает управление: сигнал могут переключить и клик по
+    /// самой панели, и код приложения.
+    fn sync_reveal(&mut self) -> bool {
+        let open = self.is_open();
+        if open == self.was_open {
+            return false;
+        }
+        self.was_open = open;
+        if self.reveal.is_none() {
+            self.shown = if open { 1.0 } else { 0.0 };
+            return true;
+        }
+        let target = if open { 1.0 } else { 0.0 };
+        let (ms, easing) = self.reveal_transition.unwrap_or((REVEAL_MS, Easing::EMPHASIZED_DECELERATE));
+        let from = self.shown;
+        self.reveal_anim = Some(match easing {
+            Easing::Spring { stiffness, damping } => {
+                Animation::spring().from(from).to(target).stiffness(stiffness).damping(damping).build()
+            }
+            e => {
+                // Уход быстрее и с разгоном, как у Presence.
+                let (e, ms) = if open {
+                    (e, ms)
+                } else {
+                    let e = match e {
+                        Easing::EMPHASIZED | Easing::EMPHASIZED_DECELERATE => Easing::EMPHASIZED_ACCELERATE,
+                        Easing::STANDARD_DECELERATE => Easing::STANDARD_ACCELERATE,
+                        e => e,
+                    };
+                    (e, ms.saturating_mul(3) / 4)
+                };
+                let span = (target - from).abs().min(1.0);
+                Animation::tween(e)
+                    .from(from)
+                    .to(target)
+                    .duration_ms(((ms as f32) * span).round().max(1.0) as u32)
+                    .build()
+            }
+        });
+        self.mark_dirty(DirtyFlags::RENDER | DirtyFlags::LAYOUT | DirtyFlags::ANIMATION);
+        true
+    }
+
+    /// Видимая часть панели при доле показа `shown`.
+    fn revealed_rect(&self, panel: Rect) -> Rect {
+        let Some(axis) = self.reveal else { return panel };
+        let p = self.shown.max(0.0);
+        let mut r = panel;
+        if matches!(axis, AnimationAxis::Width | AnimationAxis::Both) {
+            r.size.width = panel.size.width * p;
+            if matches!(self.anchor, PopupAnchor::BottomEnd) {
+                r.origin.x = panel.origin.x + panel.size.width - r.size.width;
+            }
+        }
+        if matches!(axis, AnimationAxis::Height | AnimationAxis::Both) {
+            r.size.height = panel.size.height * p;
+        }
+        r
+    }
+
     fn close(&mut self, ctx: &mut EventContext) {
         self.is_open.set(false);
+        self.sync_reveal();
         if self.overlay_registered {
             ctx.unregister_overlay();
             self.overlay_registered = false;
@@ -221,6 +320,12 @@ impl PopupPanelElement {
                 ar.origin.y,
             ),
             PopupAnchor::Position => (ar.origin.x, ar.origin.y, ar.origin.y),
+            PopupAnchor::EndCenter => {
+                let y = ar.origin.y + (ar.size.height - height) / 2.0;
+                let origin = crate::viewport::viewport_origin();
+                let y = origin.y + clamp_span(y - origin.y, height, viewport.height);
+                (ar.origin.x + ar.size.width, y, y)
+            }
         };
 
         // Координаты якоря глобальные (включают safe area), а viewport_size —
@@ -268,6 +373,7 @@ impl Element for PopupPanelElement {
             self.max_width = p.max_width;
             self.max_height = p.max_height;
             self.on_close = p.on_close.clone();
+            self.reveal = p.reveal;
             self.is_open.subscribe_element(self.id);
             self.mark_dirty(DirtyFlags::RENDER | DirtyFlags::LAYOUT);
         }
@@ -285,7 +391,38 @@ impl Element for PopupPanelElement {
             0.0
         };
         self.bounds = Rect::new(Point::zero(), Size::new(w, h));
+        self.sync_reveal();
         Size::zero()
+    }
+
+    fn on_signal_change(&mut self) -> bool {
+        self.sync_reveal()
+    }
+
+    fn animate(&mut self, dt: Duration) -> bool {
+        self.sync_reveal();
+        let Some(anim) = self.reveal_anim.as_mut() else { return false };
+        let running = anim.tick(dt);
+        self.shown = anim.current_value();
+        if !running {
+            self.reveal_anim = None;
+            self.shown = if self.was_open { 1.0 } else { 0.0 };
+        }
+        self.mark_dirty(DirtyFlags::RENDER);
+        running
+    }
+
+    fn needs_repaint(&self) -> bool {
+        self.reveal_anim.is_some()
+    }
+
+    fn child_at_position(&self, _pos: Point) -> crate::widget::ChildHit {
+        // Уезжающая панель ввод не принимает.
+        if self.is_open() {
+            crate::widget::ChildHit::Unknown
+        } else {
+            crate::widget::ChildHit::None
+        }
     }
 
     fn is_relayout_boundary(&self) -> bool {
@@ -307,7 +444,7 @@ impl Element for PopupPanelElement {
     }
 
     fn is_visible(&self) -> bool {
-        self.is_open()
+        self.is_shown()
     }
 
     fn explicit_dimensions(
@@ -331,7 +468,7 @@ impl Element for PopupPanelElement {
     }
 
     fn build_display_list(&self, list: &mut DisplayList, _clip: Rect) {
-        if !self.is_open() {
+        if !self.is_shown() {
             list.push_clip(Rect::zero());
             return;
         }
@@ -339,42 +476,61 @@ impl Element for PopupPanelElement {
         list.begin_overlay_absolute();
 
         let bg = self.mss.background_color.unwrap_or(Color::WHITE);
-        let border_color = self.mss.border_color.unwrap_or(Color::from_hex("#E5E7EB"));
         let radii = self.border_radius();
 
-        let panel = self.placed_rect();
+        let panel = self.revealed_rect(self.placed_rect());
+        let revealing = self.reveal.is_some() && (self.shown - 1.0).abs() > 1e-3;
+        if revealing {
+            // Вместе с выездом панель проявляется: в начале движения узкая
+            // полоска со скруглениями не мелькает плотным пятном.
+            list.push_opacity((self.shown * 1.6).clamp(0.0, 1.0));
+        }
 
-        list.push_shadow(
-            panel,
-            Color::new(0.0, 0.0, 0.0, 0.15),
-            16.0,
-            (0.0, 4.0),
-            radii,
-        );
-
-        list.push_rect_bordered(
-            panel,
-            bg,
-            radii,
-            Border {
-                width: 1.0,
-                color: border_color,
-            },
-        );
+        // Тень и рамка — из MSS, если заданы (`box-shadow`, `border-width:
+        // 0` убирает рамку), иначе прежние: мягкая тень и рамка в 1 px.
+        match &self.mss.box_shadow {
+            Some(shadows) => {
+                for sh in shadows.0.iter().filter(|sh| !sh.inset) {
+                    list.push_shadow(panel, sh.color, sh.blur_radius, (sh.offset_x, sh.offset_y), radii);
+                }
+            }
+            None => list.push_shadow(panel, Color::new(0.0, 0.0, 0.0, 0.15), 16.0, (0.0, 4.0), radii),
+        }
+        let border_width = self.mss.border_width.unwrap_or(1.0);
+        if self.mss.flow_edge.is_some() {
+            // Панель перетекает в соседнюю поверхность (`flow-edge`): фон и
+            // «ушки» одним жёстким многоугольником по целым пикселям, без шва.
+            let o = panel.origin;
+            let e = Point::new(o.x + panel.size.width, o.y + panel.size.height);
+            let snapped = Rect::new(
+                Point::new(o.x.round(), o.y.round()),
+                Size::new(e.x.round() - o.x.round(), e.y.round() - o.y.round()),
+            );
+            self.mss.paint_flow_box(list, snapped, bg, radii);
+        } else if border_width > 0.0 {
+            let border_color = self.mss.border_color.unwrap_or(Color::from_hex("#E5E7EB"));
+            list.push_rect_bordered(panel, bg, radii, Border { width: border_width, color: border_color });
+        } else {
+            list.push_rect(panel, bg, radii);
+        }
 
         list.push_clip(panel);
     }
 
     fn post_build_display_list(&self, list: &mut DisplayList, _clip: Rect) {
-        if !self.is_open() {
+        if !self.is_shown() {
             list.pop_clip();
             return;
         }
         list.pop_clip();
+        if self.reveal.is_some() && (self.shown - 1.0).abs() > 1e-3 {
+            list.pop_opacity();
+        }
         list.end_overlay();
     }
 
     fn handle_event(&mut self, event: &Event, ctx: &mut EventContext) -> EventResult {
+        self.sync_reveal();
         let is_open = self.is_open();
 
         if is_open && !self.overlay_registered {
@@ -414,6 +570,10 @@ impl Element for PopupPanelElement {
 
     fn children(&self) -> &[ElementId] {
         &self.child_ids
+    }
+
+    fn as_any_mut(&mut self) -> Option<&mut dyn Any> {
+        Some(self)
     }
     fn bounds(&self) -> Rect {
         self.bounds
@@ -478,6 +638,11 @@ impl Element for PopupPanelElement {
 
     fn apply_computed_style(&mut self, style: &ComputedStyle) {
         self.mss.apply(style);
+        let ts = crate::animation::TransitionState::parse_from_style(style);
+        self.reveal_transition = ["size", "width", "height"]
+            .iter()
+            .find_map(|p| ts.spec_for(p))
+            .map(|sp| ((sp.duration_secs * 1000.0).round() as u32, sp.easing));
         self.mark_dirty(DirtyFlags::RENDER | DirtyFlags::LAYOUT);
     }
 
@@ -516,5 +681,104 @@ impl StyledElement for PopupPanelElement {
     fn set_classes(&mut self, classes: Vec<String>) {
         self.classes = classes;
         self.mark_dirty(DirtyFlags::RENDER);
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::testing::TestHarness;
+    use crate::widgets::{Column, Stack};
+
+    fn with_el<R>(h: &mut TestHarness, f: impl FnOnce(&PopupPanelElement) -> R) -> R {
+        let id = h.find_by_type_name("PopupPanel")[0];
+        let el = h.tree.get_mut(id).unwrap();
+        f(el.as_any_mut().unwrap().downcast_ref::<PopupPanelElement>().unwrap())
+    }
+
+    fn panel_rect(h: &mut TestHarness) -> Rect {
+        with_el(h, |p| p.revealed_rect(p.placed_rect()))
+    }
+
+    fn shown(h: &mut TestHarness) -> f32 {
+        with_el(h, |p| p.shown)
+    }
+
+    fn harness(open: RwSignal<bool>, anchor: RwSignal<Rect>) -> TestHarness {
+        let panel = PopupPanel::new()
+            .is_open(open)
+            .anchor_rect(anchor)
+            .anchor(PopupAnchor::EndCenter)
+            .min_width(0.0)
+            .max_width(400.0)
+            .reveal(AnimationAxis::Width)
+            .child(Column::new().width(200.0).height(80.0));
+        TestHarness::new(Box::new(Stack::new().child(Column::new().width(800.0).height(600.0)).child(panel)))
+    }
+
+    /// Выезд справа от якоря по центру его высоты, уход по сигналу снаружи
+    /// проигрывается до конца, и только потом панель скрывается.
+    #[test]
+    fn reveal_from_anchor_and_back() {
+        let open = use_signal(false);
+        let anchor = use_signal(Rect::new(Point::new(10.0, 300.0), Size::new(60.0, 40.0)));
+        let mut h = harness(open, anchor);
+        h.frame(None, 800.0, 600.0);
+        let id = h.find_by_type_name("PopupPanel")[0];
+        assert!(!h.tree.get(id).unwrap().is_visible());
+
+        open.set(true);
+        h.frame(None, 800.0, 600.0);
+        assert!(h.is_animating(id), "выезд тикает");
+        h.animate(Duration::from_millis(60));
+        let mid = panel_rect(&mut h);
+        assert!(mid.size.width > 0.0 && mid.size.width < 200.0, "наполовину: {mid:?}");
+        assert_eq!(mid.origin.x, 70.0, "от правого края якоря");
+        assert!((mid.origin.y + mid.size.height / 2.0 - 320.0).abs() < 0.5, "по центру якоря: {mid:?}");
+        for _ in 0..20 {
+            h.animate(Duration::from_millis(30));
+        }
+        assert_eq!(shown(&mut h), 1.0);
+        assert_eq!(panel_rect(&mut h).size.width, 200.0);
+
+        // Закрыли снаружи (выбор пункта): панель уезжает, не исчезая сразу.
+        open.set(false);
+        h.frame(None, 800.0, 600.0);
+        assert!(h.is_animating(id), "уход тикает");
+        h.animate(Duration::from_millis(40));
+        assert!(h.tree.get(id).unwrap().is_visible(), "ещё видна, пока уезжает");
+        assert!(shown(&mut h) < 1.0 && shown(&mut h) > 0.0);
+        for _ in 0..20 {
+            h.animate(Duration::from_millis(30));
+        }
+        assert_eq!(shown(&mut h), 0.0);
+        assert!(!h.tree.get(id).unwrap().is_visible());
+    }
+
+    /// Тень и рамка из MSS: `box-shadow` и `border-width: 0` заменяют
+    /// прежние жёсткие тень и рамку в 1 px.
+    #[test]
+    fn mss_border_zero_drops_border() {
+        let open = use_signal(true);
+        let anchor = use_signal(Rect::new(Point::new(10.0, 300.0), Size::new(60.0, 40.0)));
+        let panel = PopupPanel::new()
+            .is_open(open)
+            .anchor_rect(anchor)
+            .anchor(PopupAnchor::EndCenter)
+            .class("fly")
+            .child(Column::new().width(200.0).height(80.0));
+        let mut h = TestHarness::new(Box::new(Stack::new().child(Column::new().width(800.0).height(600.0)).child(panel)));
+        h.apply_mss(".fly { background-color: #336699; border-width: 0px; }");
+        h.frame(None, 800.0, 600.0);
+        let list = h.paint();
+        let bordered = list
+            .iter_all_commands()
+            .filter(|c| matches!(c, crate::render::DrawCommand::Rect { border: Some(_), .. }))
+            .count();
+        assert_eq!(bordered, 0, "без рамки");
+        assert!(
+            list.iter_all_commands().any(|c| matches!(c, crate::render::DrawCommand::Rect { border: None, .. })),
+            "фон нарисован"
+        );
     }
 }

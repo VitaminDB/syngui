@@ -171,6 +171,16 @@ pub trait Element: Send {
         false
     }
 
+    /// Сигнал, на который элемент подписан (`subscribe_element`),
+    /// изменился, а пересборки детей элементу не нужно. `true` — элемент
+    /// сменил состояние (например, запустил анимацию): дерево отметит ему
+    /// раскладку и перерисовку и возьмёт в реестр анимаций. Без этого
+    /// элемент узнавал о сигнале только со следующим своим событием или
+    /// раскладкой.
+    fn on_signal_change(&mut self) -> bool {
+        false
+    }
+
     fn needs_repaint(&self) -> bool {
         false
     }
@@ -458,6 +468,10 @@ impl Element for Box<dyn Element> {
 
     fn animate(&mut self, dt: Duration) -> bool {
         self.as_mut().animate(dt)
+    }
+
+    fn on_signal_change(&mut self) -> bool {
+        self.as_mut().on_signal_change()
     }
 
     fn needs_repaint(&self) -> bool {

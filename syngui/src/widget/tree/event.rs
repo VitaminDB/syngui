@@ -19,11 +19,13 @@ impl ElementTree {
     pub fn dispatch_event_to(&mut self, id: ElementId, event: &Event) -> EventResult {
         // Событие может запустить transition (hover и т.п.) — взводим обход анимаций.
         self.animations_armed = true;
+        let (xs, xk) = self.accumulated_event_transform(id);
         if let Some(node) = self.elements.get_mut(&id) {
             let mut ctx = EventContext::new(id);
             ctx.modifiers = self.modifiers;
             ctx.set_viewport_size(self.viewport_size);
             ctx.set_window_flags(self.window_flags);
+            ctx.set_window_transform(xs, xk);
             if let Some(ref tm) = self.text_measure {
                 ctx.set_text_measure(tm.clone());
             }
@@ -448,7 +450,10 @@ impl ElementTree {
         } else {
             event.with_inverse_transform(s, k)
         };
-        self.dispatch_event(id, &adj)
+        let saved = std::mem::replace(&mut self.event_xform, (s, k));
+        let result = self.dispatch_event(id, &adj);
+        self.event_xform = saved;
+        result
     }
 
     pub(crate) fn accumulated_event_transform(&self, id: ElementId) -> (crate::core::Point, f32) {
@@ -605,6 +610,16 @@ impl ElementTree {
         let is_broadcast = matches!(event, Event::MouseMove(_));
         let mut child_handled = false;
 
+        // Дети живут в сдвинутых прокруткой/масштабом координатах: их
+        // перевод в окно — наш, дополненный своей прокруткой и масштабом.
+        let own_xform = self.event_xform;
+        if !is_identity_transform(scroll, scale) {
+            let (s0, k0) = own_xform;
+            self.event_xform = (
+                Point::new(s0.x + scroll.x * k0, s0.y + scroll.y * k0),
+                k0 * scale.max(f32::EPSILON),
+            );
+        }
         for &child_id in children.iter().rev() {
             if intercepts {
                 break;
@@ -614,10 +629,12 @@ impl ElementTree {
                 if is_broadcast {
                     child_handled = true;
                 } else {
+                    self.event_xform = own_xform;
                     return result;
                 }
             }
         }
+        self.event_xform = own_xform;
 
         let child_cursor = if child_handled {
             self.cursor_request
@@ -630,6 +647,7 @@ impl ElementTree {
             ctx.modifiers = self.modifiers;
             ctx.set_viewport_size(self.viewport_size);
             ctx.set_window_flags(self.window_flags);
+            ctx.set_window_transform(own_xform.0, own_xform.1);
             if let Some(ref tm) = self.text_measure {
                 ctx.set_text_measure(tm.clone());
             }
@@ -798,6 +816,8 @@ impl ElementTree {
             return EventResult::Ignored;
         }
         let mut ctx = EventContext::new(target_id);
+        let (s, k) = self.accumulated_event_transform(target_id);
+        ctx.set_window_transform(s, k);
         ctx.modifiers = self.modifiers;
         ctx.set_viewport_size(self.viewport_size);
         ctx.set_window_flags(self.window_flags);

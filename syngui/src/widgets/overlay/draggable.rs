@@ -20,6 +20,8 @@ pub struct Draggable {
     pub payload: String,
     pub threshold: f32,
     pub on_click: Option<Arc<Mutex<dyn FnMut() + Send>>>,
+    /// Клик с границами источника в координатах окна (поповер у плитки).
+    pub on_click_with_bounds: Option<Arc<Mutex<dyn FnMut(Rect) + Send>>>,
     pub on_double_click: Option<Arc<Mutex<dyn FnMut() + Send>>>,
     /// Перенос начался (порог пройден) — с границами источника.
     pub on_drag_start: Option<Arc<Mutex<dyn FnMut(Rect) + Send>>>,
@@ -34,6 +36,7 @@ impl Draggable {
             payload: payload.into(),
             threshold: 5.0,
             on_click: None,
+            on_click_with_bounds: None,
             on_double_click: None,
             on_drag_start: None,
             label: None,
@@ -52,6 +55,14 @@ impl Draggable {
 
     pub fn on_click(mut self, cb: impl FnMut() + Send + 'static) -> Self {
         self.on_click = Some(Arc::new(Mutex::new(cb)));
+        self
+    }
+
+    /// Клик (без переноса) с границами источника **в координатах окна** —
+    /// с поправкой на прокрутку предков: по ним ставят поповер рядом с
+    /// плиткой, лежащей в `ScrollView`.
+    pub fn on_click_with_bounds(mut self, cb: impl FnMut(Rect) + Send + 'static) -> Self {
+        self.on_click_with_bounds = Some(Arc::new(Mutex::new(cb)));
         self
     }
 
@@ -80,10 +91,12 @@ impl Widget for Draggable {
             payload: self.payload.clone(),
             threshold: self.threshold,
             on_click: self.on_click.clone(),
+            on_click_with_bounds: self.on_click_with_bounds.clone(),
             on_double_click: self.on_double_click.clone(),
             on_drag_start: self.on_drag_start.clone(),
             label: self.label.clone(),
             bounds: Rect::zero(),
+            click_window_bounds: Rect::zero(),
             mouse_down_pos: None,
             drag_started: false,
             pending_click_time: None,
@@ -126,16 +139,35 @@ struct DraggableElement {
     payload: String,
     threshold: f32,
     on_click: Option<Arc<Mutex<dyn FnMut() + Send>>>,
+    on_click_with_bounds: Option<Arc<Mutex<dyn FnMut(Rect) + Send>>>,
     on_double_click: Option<Arc<Mutex<dyn FnMut() + Send>>>,
     on_drag_start: Option<Arc<Mutex<dyn FnMut(Rect) + Send>>>,
     label: Option<String>,
     bounds: Rect,
+    /// Границы в окне на момент отпускания — для клика, отложенного
+    /// ожиданием двойного.
+    click_window_bounds: Rect,
     mouse_down_pos: Option<Point>,
     drag_started: bool,
     pending_click_time: Option<f32>,
     classes: Vec<String>,
     dirty_flags: DirtyFlags,
     mss: MssFields,
+}
+
+impl DraggableElement {
+    fn fire_click(&self) {
+        if let Some(ref cb) = self.on_click {
+            if let Ok(mut f) = cb.lock() {
+                f();
+            }
+        }
+        if let Some(ref cb) = self.on_click_with_bounds {
+            if let Ok(mut f) = cb.lock() {
+                f(self.click_window_bounds);
+            }
+        }
+    }
 }
 
 impl Element for DraggableElement {
@@ -145,6 +177,7 @@ impl Element for DraggableElement {
             self.payload = d.payload.clone();
             self.threshold = d.threshold;
             self.on_click = d.on_click.clone();
+            self.on_click_with_bounds = d.on_click_with_bounds.clone();
             self.on_double_click = d.on_double_click.clone();
             self.on_drag_start = d.on_drag_start.clone();
             self.label = d.label.clone();
@@ -215,15 +248,12 @@ impl Element for DraggableElement {
                     self.mouse_down_pos = None;
                     self.drag_started = false;
                     if !was_dragging {
+                        self.click_window_bounds = ctx.to_window_rect(self.bounds);
                         if self.on_double_click.is_some() {
                             self.pending_click_time =
                                 Some(crate::input::DOUBLE_CLICK_INTERVAL.as_secs_f32());
                         } else {
-                            if let Some(ref cb) = self.on_click {
-                                if let Ok(mut f) = cb.lock() {
-                                    f();
-                                }
-                            }
+                            self.fire_click();
                         }
                     }
                     return EventResult::Handled;
@@ -256,11 +286,7 @@ impl Element for DraggableElement {
             *time -= dt.as_secs_f32();
             if *time <= 0.0 {
                 self.pending_click_time = None;
-                if let Some(ref cb) = self.on_click {
-                    if let Ok(mut f) = cb.lock() {
-                        f();
-                    }
-                }
+                self.fire_click();
                 return false;
             }
             return true;
@@ -356,5 +382,48 @@ impl StyledElement for DraggableElement {
     fn set_classes(&mut self, classes: Vec<String>) {
         self.classes = classes;
         self.mark_dirty(DirtyFlags::RENDER);
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::core::sync::Mutex as SyncMutex;
+    use crate::testing::TestHarness;
+    use crate::widgets::{Column, ScrollView};
+
+    /// Плитка в прокрученном списке: `on_click_with_bounds` отдаёт
+    /// границы в координатах окна — с поправкой на прокрутку, иначе
+    /// поповер у плитки уезжал на величину прокрутки.
+    #[test]
+    fn click_bounds_are_in_window_coordinates_inside_scroll() {
+        let got: Arc<SyncMutex<Option<Rect>>> = Arc::new(SyncMutex::new(None));
+        let g = got.clone();
+        let mut col = Column::new().gap(0.0);
+        for i in 0..20 {
+            let g = g.clone();
+            let mut d = Draggable::new("t", format!("{i}"))
+                .child(Column::new().width(100.0).height(50.0));
+            if i == 10 {
+                d = d.on_click_with_bounds(move |r| *g.lock().unwrap() = Some(r));
+            }
+            col = col.child(d);
+        }
+        let mut h = TestHarness::new(Box::new(ScrollView::new().vertical().child(col)));
+        h.layout(200.0, 200.0);
+        h.send_event(&Event::MouseWheel { delta: -400.0, delta_x: 0.0, position: Point::new(50.0, 100.0) });
+        h.layout(200.0, 200.0);
+        let sv = h.find_by_type_name("ScrollView")[0];
+        let off = h.tree.get(sv).unwrap().scroll_offset().y;
+        assert!(off > 0.0, "список прокрутился: {off}");
+        // Плитка 10 в контенте на y = 500; на экране — 500 − off.
+        let screen_y = 500.0 - off + 25.0;
+        assert!((0.0..200.0).contains(&screen_y), "плитка видна: {screen_y}");
+        let at = Point::new(50.0, screen_y);
+        h.send_event(&Event::MouseDown { button: MouseButton::Left, position: at });
+        h.send_event(&Event::MouseUp { button: MouseButton::Left, position: at });
+        let r = got.lock().unwrap().expect("клик дошёл");
+        assert!((r.origin.y - (500.0 - off)).abs() < 0.5, "y в окне: {r:?}, off {off}");
+        assert_eq!(r.size.height, 50.0);
     }
 }

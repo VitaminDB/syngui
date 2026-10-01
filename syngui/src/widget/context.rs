@@ -156,6 +156,8 @@ pub struct EventContext {
     /// свободному месту снимал выделение (см. `ElementTree::text_selection_owner`).
     pub(crate) text_selection_claim: Option<bool>,
     window_flags: u8,
+    /// Координаты элемента → окно: `окно = p·k − s` (см. `to_window_rect`).
+    window_xform: (crate::core::Point, f32),
 }
 
 impl EventContext {
@@ -190,7 +192,24 @@ impl EventContext {
             toggle_window_visibility: false,
             text_selection_claim: None,
             window_flags: 0,
+            window_xform: (crate::core::Point::zero(), 1.0),
         }
+    }
+
+    pub(crate) fn set_window_transform(&mut self, offset: crate::core::Point, scale: f32) {
+        self.window_xform = (offset, scale);
+    }
+
+    /// Прямоугольник в координатах элемента (`bounds()`, позиция события) —
+    /// в координатах окна. Внутри `ScrollView` и масштабирующих предков
+    /// координаты элемента сдвинуты прокруткой: поповер, привязанный к
+    /// элементу, без пересчёта уезжал бы на величину прокрутки.
+    pub fn to_window_rect(&self, r: Rect) -> Rect {
+        let (s, k) = self.window_xform;
+        Rect::new(
+            crate::core::Point::new(r.origin.x * k - s.x, r.origin.y * k - s.y),
+            Size::new(r.size.width * k, r.size.height * k),
+        )
     }
 
     /// Элемент выделил текст мышью/клавиатурой и хочет узнать о клике в

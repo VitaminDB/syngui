@@ -179,6 +179,11 @@ pub struct ElementTree {
     /// Получает `MouseDown` вне своих границ — по hit-test событие до него не
     /// дошло бы, и выделение оставалось бы висеть после клика по пустому месту.
     pub(crate) text_selection_owner: Option<ElementId>,
+    /// Перевод координат элемента, которому сейчас доставляется событие, в
+    /// координаты окна: `окно = p·k − s` (прокрутка и масштаб предков).
+    /// Ведётся по ходу `dispatch_event`, отдаётся элементу в
+    /// `EventContext::to_window_rect`.
+    pub(crate) event_xform: (Point, f32),
     pub(crate) post_layout_sync_registry: std::collections::HashSet<ElementId>,
 }
 
@@ -239,6 +244,7 @@ impl ElementTree {
             last_hovered_path: Vec::new(),
             mouse_captor: None,
             text_selection_owner: None,
+            event_xform: (Point::zero(), 1.0),
             post_layout_sync_registry: std::collections::HashSet::new(),
         }
     }
@@ -689,7 +695,11 @@ impl ElementTree {
         let mut any_rebuilt = false;
 
         for dirty_id in crate::signal::dirty_element_ids() {
-            if self.elements.contains_key(&dirty_id) {
+            if let Some(node) = self.elements.get_mut(&dirty_id) {
+                if node.element.on_signal_change() {
+                    node.element.mark_dirty(DirtyFlags::LAYOUT | DirtyFlags::RENDER);
+                    self.note_animation_started(dirty_id);
+                }
                 self.rebuild_registry.insert(dirty_id);
             }
         }

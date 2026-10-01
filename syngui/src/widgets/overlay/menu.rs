@@ -82,6 +82,8 @@ pub enum PopupAnchor {
     Position,
     BottomStart,
     BottomEnd,
+    /// Справа от якоря, по центру его высоты (выезжающая из рейла панель).
+    EndCenter,
 }
 
 pub struct PopupMenu {
@@ -356,6 +358,11 @@ impl PopupMenuElement {
                     r.origin.y + r.size.height,
                     r.origin.y,
                 )
+            }
+            PopupAnchor::EndCenter => {
+                let r = self.anchor_rect.get_untracked();
+                let y = r.origin.y + (r.size.height - height) / 2.0;
+                (r.origin.x + r.size.width, y, y)
             }
         };
 
