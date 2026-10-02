@@ -524,8 +524,7 @@ impl Element for SystemWindowControlsElement {
         let width = if count == 0 {
             0.0
         } else {
-            count as f32 * self.button_size()
-                + (count - 1) as f32 * self.metrics.button_spacing
+            count as f32 * self.button_size() + (count - 1) as f32 * self.metrics.button_spacing
         };
         // Занимаем всю высоту титлбара и центрируем кнопки внутри себя: иначе
         // группа кнопок оказывается ростом с саму кнопку и прижимается к

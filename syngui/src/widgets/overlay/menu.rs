@@ -84,6 +84,10 @@ pub enum PopupAnchor {
     BottomEnd,
     /// Справа от якоря, по центру его высоты (выезжающая из рейла панель).
     EndCenter,
+    /// Под якорем, по центру его ширины — панель, в которую «перетекает»
+    /// кнопка (`flow-edge: bottom` у кнопки дорисовывает вогнутые углы с
+    /// обеих сторон).
+    BottomCenter,
 }
 
 pub struct PopupMenu {
@@ -363,6 +367,14 @@ impl PopupMenuElement {
                 let r = self.anchor_rect.get_untracked();
                 let y = r.origin.y + (r.size.height - height) / 2.0;
                 (r.origin.x + r.size.width, y, y)
+            }
+            PopupAnchor::BottomCenter => {
+                let r = self.anchor_rect.get_untracked();
+                (
+                    r.origin.x + (r.size.width - width) / 2.0,
+                    r.origin.y + r.size.height,
+                    r.origin.y,
+                )
             }
         };
 
