@@ -494,6 +494,17 @@ pub fn primary_window() -> Option<Arc<crate::window::Window>> {
     PRIMARY_WINDOW.with(|cell| cell.borrow().clone())
 }
 
+/// Завершить приложение (как закрытие окна, но из любого кода — например,
+/// по подтверждению выхода с пульта, где нет `EventContext::close_window`).
+/// Цикл событий выходит на ближайшем пробуждении.
+pub fn quit_app() {
+    QUIT_REQUESTED.store(true, std::sync::atomic::Ordering::SeqCst);
+    crate::async_runtime::run_on_main_thread(|| {});
+}
+
+pub(crate) static QUIT_REQUESTED: std::sync::atomic::AtomicBool =
+    std::sync::atomic::AtomicBool::new(false);
+
 /// Переключить полноэкранный режим главного окна. В браузере — Fullscreen
 /// API для canvas: вызывать из обработчика действия пользователя (клик,
 /// клавиша), иначе браузер отклонит запрос.

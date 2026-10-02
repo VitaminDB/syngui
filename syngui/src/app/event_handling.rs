@@ -854,6 +854,10 @@ impl winit::application::ApplicationHandler<SynGuiUserEvent> for AppHandler {
                 // Очередь run_on_main_thread: дренируем прямо здесь — рендера
                 // (и его дренажа) в фоне может не быть вовсе.
                 crate::async_runtime::poll_main_thread_callbacks();
+                if crate::signal::QUIT_REQUESTED.load(std::sync::atomic::Ordering::SeqCst) {
+                    event_loop.exit();
+                    return;
+                }
                 if let Some((w, h)) = crate::window::take_pending_size() {
                     // Wayland применяет размер сразу и не присылает Resized —
                     // перестраиваем поверхность и раскладку сами.
