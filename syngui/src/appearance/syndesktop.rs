@@ -17,25 +17,36 @@ use super::decorations::{
 use super::{ColorScheme, SystemAppearance};
 use crate::core::Color;
 
-/// Приложение запущено в сеансе syndesktop. Композитор выставляет детям
-/// `SYNDESKTOP_SOCKET`, сеанс из менеджера входа — `XDG_CURRENT_DESKTOP`.
+/// Приложение запущено в сеансе syndesktop (теперь synshell). Композитор
+/// выставляет детям `SYNSHELL_SOCKET` (до переименования —
+/// `SYNDESKTOP_SOCKET`), сеанс из менеджера входа — `XDG_CURRENT_DESKTOP`.
 pub(crate) fn is_session() -> bool {
     let in_list = |var: &str| {
         std::env::var(var)
-            .map(|v| v.split(':').any(|d| d.eq_ignore_ascii_case("syndesktop")))
+            .map(|v| {
+                v.split(':').any(|d| {
+                    d.eq_ignore_ascii_case("synshell") || d.eq_ignore_ascii_case("syndesktop")
+                })
+            })
             .unwrap_or(false)
     };
-    in_list("XDG_CURRENT_DESKTOP")
-        || std::env::var_os("SYNDESKTOP_SOCKET").is_some_and(|v| !v.is_empty())
+    let set = |var: &str| std::env::var_os(var).is_some_and(|v| !v.is_empty());
+    in_list("XDG_CURRENT_DESKTOP") || set("SYNSHELL_SOCKET") || set("SYNDESKTOP_SOCKET")
 }
 
-/// `$SYNDESKTOP_CONFIG_DIR/config.toml`, иначе `$XDG_CONFIG_HOME/syndesktop/…`
-/// — тот же порядок, что у самого syndesktop.
+/// `$SYNSHELL_CONFIG_DIR/config.toml` (`$SYNDESKTOP_CONFIG_DIR`), иначе
+/// `$XDG_CONFIG_HOME/synshell/…`, а пока его нет — старый
+/// `$XDG_CONFIG_HOME/syndesktop/…`: тот же порядок, что у самого synshell.
 fn config_path() -> Option<PathBuf> {
-    if let Some(dir) = std::env::var_os("SYNDESKTOP_CONFIG_DIR").filter(|v| !v.is_empty()) {
-        return Some(PathBuf::from(dir).join("config.toml"));
+    for var in ["SYNSHELL_CONFIG_DIR", "SYNDESKTOP_CONFIG_DIR"] {
+        if let Some(dir) = std::env::var_os(var).filter(|v| !v.is_empty()) {
+            return Some(PathBuf::from(dir).join("config.toml"));
+        }
     }
-    Some(super::desktop::config_dir()?.join("syndesktop/config.toml"))
+    let base = super::desktop::config_dir()?;
+    let (new, old) = (base.join("synshell"), base.join("syndesktop"));
+    let dir = if !new.exists() && old.exists() { old } else { new };
+    Some(dir.join("config.toml"))
 }
 
 /// Конфиг сеанса. Файла нет (syndesktop ещё не записал его) — пустой конфиг,
