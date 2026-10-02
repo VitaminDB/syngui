@@ -63,6 +63,34 @@ pub fn is_television(app: &AndroidApp) -> bool {
     app.config().ui_mode_type() == UiModeType::Television
 }
 
+/// Есть ли сенсорный экран (Linux): устройство ввода с `INPUT_PROP_DIRECT`
+/// и мультитач-координатами `ABS_MT_POSITION_X`. Тачпад ноутбука (без
+/// DIRECT) не считается. Телефону с Linux нужна раскладка под палец —
+/// прокрутка перетаскиванием вместо фокуса пульта или колеса мыши.
+#[cfg(target_os = "linux")]
+pub fn has_touchscreen() -> bool {
+    const INPUT_PROP_DIRECT: usize = 0x01;
+    const ABS_MT_POSITION_X: usize = 0x35;
+    // Битовая карта sysfs: слова unsigned long в hex через пробел, старшее первым.
+    fn bit(text: &str, n: usize) -> bool {
+        let bits = usize::BITS as usize;
+        text.split_whitespace()
+            .rev()
+            .nth(n / bits)
+            .and_then(|w| usize::from_str_radix(w, 16).ok())
+            .is_some_and(|w| w >> (n % bits) & 1 == 1)
+    }
+    let Ok(dir) = std::fs::read_dir("/sys/class/input") else {
+        return false;
+    };
+    dir.flatten().any(|e| {
+        let p = e.path();
+        let read = |f: &str| std::fs::read_to_string(p.join(f)).unwrap_or_default();
+        bit(&read("properties"), INPUT_PROP_DIRECT)
+            && bit(&read("capabilities/abs"), ABS_MT_POSITION_X)
+    })
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum GpuBackend {
     Auto,
