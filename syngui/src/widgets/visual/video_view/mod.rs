@@ -5,7 +5,7 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use crate::core::sync::Mutex;
-use crate::core::{Color, Point, Rect, RectExt, Size};
+use crate::core::{Color, Point, Rect, RectExt, Size, Transform};
 use crate::gpu::image_store::{ImageHandle, ImageStore};
 use crate::input::{Event, EventResult};
 use crate::layout::Constraints;
@@ -65,6 +65,7 @@ impl Widget for VideoView {
             image_handle: None,
             image_store: None,
             natural_size: (0, 0),
+            rotation: 0,
             mss: MssFields::new(),
             position_signal: self.position_signal,
             surface_mode: false,
@@ -100,6 +101,8 @@ pub struct VideoViewElement {
     image_handle: Option<ImageHandle>,
     image_store: Option<Arc<Mutex<ImageStore>>>,
     natural_size: (u32, u32),
+    /// Поворот показа по часовой из метаданных видео (0, 90, 180, 270).
+    rotation: u32,
     mss: MssFields,
     position_signal: Option<RwSignal<f32>>,
     /// Кадры показывает сам кодек на системном Surface под окном
@@ -128,12 +131,13 @@ impl VideoViewElement {
 
     /// Текстура под кадры текущего плеера (натуральный размер из метаданных).
     fn bind_player(&mut self) {
-        let (w, h) = if let Ok(p) = self.player.lock() {
+        let (w, h, rot) = if let Ok(p) = self.player.lock() {
             let m = p.meta();
-            (m.width.max(1), m.height.max(1))
+            (m.width.max(1), m.height.max(1), m.rotation)
         } else {
-            (1, 1)
+            (1, 1, 0)
         };
+        self.rotation = rot;
         self.natural_size = (w, h);
         let starter = vec![0u8; (w as usize) * (h as usize) * 4];
         if let Some(store) = self.image_store.as_ref() {
@@ -145,8 +149,18 @@ impl VideoViewElement {
         }
     }
 
+    /// Размер кадра на экране (после поворота).
+    fn shown_size(&self) -> (u32, u32) {
+        let (w, h) = self.natural_size;
+        if self.rotation % 180 == 90 {
+            (h, w)
+        } else {
+            (w, h)
+        }
+    }
+
     fn compute_fit_rect(&self) -> Rect {
-        let (nw, nh) = self.natural_size;
+        let (nw, nh) = self.shown_size();
         if nw == 0 || nh == 0 {
             return self.bounds;
         }
@@ -206,7 +220,7 @@ impl Element for VideoViewElement {
     }
 
     fn layout(&mut self, constraints: Constraints) -> Size {
-        let (nw, nh) = self.natural_size;
+        let (nw, nh) = self.shown_size();
         let max_w = constraints.max_width;
         let max_h = constraints.max_height;
         let width = if let Some(d) = self.mss.width {
@@ -259,7 +273,24 @@ impl Element for VideoViewElement {
             list.push_rect(self.bounds, bg, [0.0; 4]);
             let fit_rect = self.compute_fit_rect();
             let uv_rect = Rect::new(Point::new(0.0, 0.0), Size::new(1.0, 1.0));
-            list.push_image(fit_rect, TextureId(handle.0), uv_rect, Color::WHITE);
+            if self.rotation == 0 {
+                list.push_image(fit_rect, TextureId(handle.0), uv_rect, Color::WHITE);
+            } else {
+                // кадр без поворота (стороны fit-прямоугольника — до поворота) вокруг центра
+                let c = fit_rect.center();
+                let (w, h) = if self.rotation % 180 == 90 {
+                    (fit_rect.size.height, fit_rect.size.width)
+                } else {
+                    (fit_rect.size.width, fit_rect.size.height)
+                };
+                let r = Rect::new(Point::new(c.x - w / 2.0, c.y - h / 2.0), Size::new(w, h));
+                let t = Transform::translation(-c.x, -c.y)
+                    .then_rotate(euclid::Angle::degrees(self.rotation as f32))
+                    .then_translate(euclid::Vector2D::new(c.x, c.y));
+                list.push_transform(t);
+                list.push_image(r, TextureId(handle.0), uv_rect, Color::WHITE);
+                list.pop_transform();
+            }
         } else {
             let bg = Color::from_hex("#000000");
             list.push_rect(self.bounds, bg, [0.0; 4]);

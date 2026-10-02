@@ -109,6 +109,9 @@ pub struct VideoMeta {
     pub has_audio: bool,
     pub audio_sample_rate: u32,
     pub audio_channels: u16,
+    /// Поворот кадра для показа по часовой (0, 90, 180, 270) — матрица отображения потока
+    /// (`AV_PKT_DATA_DISPLAYMATRIX`, `tkhd` в MP4): так пишут видео камеры телефонов.
+    pub rotation: u32,
 }
 
 #[derive(Debug)]
@@ -427,12 +430,35 @@ impl Drop for VideoDecoder {
     }
 }
 
+/// Поворот по часовой из матрицы отображения потока (ffmpeg хранит угол против часовой).
+fn display_rotation(p: &ffmpeg_next::codec::Parameters) -> u32 {
+    // SAFETY: codecpar живёт вместе с потоком; читаем массив coded_side_data его длины
+    unsafe {
+        let par = p.as_ptr();
+        let n = (*par).nb_coded_side_data.max(0) as usize;
+        let sd = (*par).coded_side_data;
+        for i in 0..n {
+            let e = &*sd.add(i);
+            if e.type_ == ffi::AVPacketSideDataType::AV_PKT_DATA_DISPLAYMATRIX && e.size >= 36 {
+                let ccw = ffi::av_display_rotation_get(e.data as *const i32);
+                if ccw.is_nan() {
+                    return 0;
+                }
+                let cw = (-ccw).rem_euclid(360.0);
+                return (((cw / 90.0).round() as u32) % 4) * 90;
+            }
+        }
+    }
+    0
+}
+
 fn read_meta(ictx: &Input) -> Result<VideoMeta, VideoError> {
     let v = ictx
         .streams()
         .best(MediaType::Video)
         .ok_or(VideoError::NoVideoStream)?;
     let v_params = v.parameters();
+    let rotation = display_rotation(&v_params);
     let v_dec = ffmpeg_next::codec::context::Context::from_parameters(v_params)
         .map_err(|e| VideoError::DecoderInit(format!("video params: {e}")))?
         .decoder()
@@ -468,6 +494,7 @@ fn read_meta(ictx: &Input) -> Result<VideoMeta, VideoError> {
     };
 
     Ok(VideoMeta {
+        rotation,
         width: v_dec.width(),
         height: v_dec.height(),
         duration_sec,
