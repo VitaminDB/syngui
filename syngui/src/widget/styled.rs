@@ -31,15 +31,22 @@ pub struct StyledWidget<W: Widget> {
     classes: Vec<String>,
     id: Option<String>,
     inline_styles: Vec<(String, StyleValue)>,
+    /// Все классы элемента: заданные билдером внутреннего виджета, свои и служебный `#id` — то же, что
+    /// получает элемент в `create_element`. Их отдаёт `widget_classes`: по нему дерево обновляет классы
+    /// элемента на месте, и одних своих классов там мало — `Column::new().class("a").style(..)` при
+    /// пересборке терял `a`.
+    all_classes: Vec<String>,
 }
 
 impl<W: Widget> StyledWidget<W> {
     pub fn new(inner: W) -> Self {
+        let all_classes = inner.widget_classes().to_vec();
         Self {
             inner,
             classes: Vec::new(),
             id: None,
             inline_styles: Vec::new(),
+            all_classes,
         }
     }
 
@@ -47,6 +54,9 @@ impl<W: Widget> StyledWidget<W> {
         let input = class.into();
         for c in input.split_whitespace() {
             let s = c.to_string();
+            if !self.all_classes.contains(&s) {
+                self.all_classes.push(s.clone());
+            }
             if !self.classes.contains(&s) {
                 self.classes.push(s);
             }
@@ -55,7 +65,13 @@ impl<W: Widget> StyledWidget<W> {
     }
 
     pub fn id(mut self, id: impl Into<String>) -> Self {
-        self.id = Some(id.into());
+        if let Some(old) = &self.id {
+            let old = crate::mss::matching::id_class(old);
+            self.all_classes.retain(|c| *c != old);
+        }
+        let id = id.into();
+        self.all_classes.push(crate::mss::matching::id_class(&id));
+        self.id = Some(id);
         self
     }
 
@@ -139,7 +155,7 @@ impl<W: Widget> Widget for StyledWidget<W> {
     }
 
     fn widget_classes(&self) -> &[String] {
-        &self.classes
+        &self.all_classes
     }
 
     fn widget_inline_styles(&self) -> &[(String, StyleValue)] {
@@ -169,4 +185,21 @@ pub trait StyledElement {
 
 pub fn apply_computed_style(element: &mut dyn StyledElement, style: &ComputedStyle) {
     element.apply_style(style);
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::widgets::containers::Column;
+
+    #[test]
+    fn widget_classes_keep_inner_builder_classes() {
+        // Класс билдера внутреннего виджета не пропадает при обновлении элемента на месте
+        let w = Column::new().class("a").style("width", 10.0_f32).class("b");
+        let cls = w.widget_classes();
+        assert!(cls.contains(&"a".to_string()), "{cls:?}");
+        assert!(cls.contains(&"b".to_string()), "{cls:?}");
+        let w = Column::new().style("height", 5.0_f32).id("x");
+        assert!(w.widget_classes().contains(&crate::mss::matching::id_class("x")));
+    }
 }
