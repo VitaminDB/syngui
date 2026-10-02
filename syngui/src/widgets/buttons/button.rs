@@ -230,6 +230,11 @@ impl ButtonElement {
 impl Element for ButtonElement {
     fn update(&mut self, widget: &dyn Widget, _ctx: &mut UpdateContext) {
         if let Some(btn) = widget.as_any().downcast_ref::<Button>() {
+            // Другой текст или значок — другая ширина: «Далее» → «Импортировать (1297)»
+            // без перераскладки оставалась в прежней ширине и переносилась по буквам.
+            let resized = self.text != btn.text
+                || self.icon != btn.icon
+                || self.icon_position != btn.icon_position;
             self.text = btn.text.clone();
             self.disabled = btn.disabled;
             self.on_click = btn.on_click.clone();
@@ -239,7 +244,7 @@ impl Element for ButtonElement {
             self.icon = btn.icon.clone();
             self.icon_position = btn.icon_position;
             self.update_selected_state();
-            self.mark_dirty(DirtyFlags::RENDER);
+            self.mark_dirty(if resized { DirtyFlags::RENDER | DirtyFlags::LAYOUT } else { DirtyFlags::RENDER });
         }
     }
 
@@ -754,5 +759,29 @@ mod tests {
             .unwrap();
         assert!(!el.pressed, "нажатие залипло после ухода курсора");
         assert!(!el.hover, "наведение залипло после ухода курсора");
+    }
+
+    /// Кнопка, обновлённая на месте с более длинной подписью, перераскладывается:
+    /// раньше `update` помечал только перерисовку, ширина оставалась от прежнего
+    /// текста, и «Далее» → «Импортировать (1297)» переносилось по буквам.
+    #[test]
+    fn longer_label_widens_button() {
+        use crate::prelude::*;
+        let long = use_signal(false);
+        let row = Row::new().child(DecoratedBox::new().child(move || {
+            Button::new(if long.get() { "Импортировать (1297)" } else { "Далее" })
+        }));
+        let mut h = TestHarness::new(Box::new(row));
+        h.rebuild();
+        h.layout(800.0, 60.0);
+        let id = h.find_by_type_name("Button")[0];
+        let short_w = h.element_bounds(id).size.width;
+
+        long.set(true);
+        h.rebuild();
+        h.layout(800.0, 60.0);
+        let id = h.find_by_type_name("Button")[0];
+        let long_w = h.element_bounds(id).size.width;
+        assert!(long_w > short_w * 2.0, "ширина не выросла: {short_w} → {long_w}");
     }
 }
