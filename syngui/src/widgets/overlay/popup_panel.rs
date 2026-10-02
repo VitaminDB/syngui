@@ -225,26 +225,19 @@ impl PopupPanelElement {
             return true;
         }
         let target = if open { 1.0 } else { 0.0 };
-        let (ms, easing) = self
-            .reveal_transition
-            .unwrap_or((REVEAL_MS, Easing::EMPHASIZED_DECELERATE));
+        let (ms, easing) = self.reveal_transition.unwrap_or((REVEAL_MS, Easing::EMPHASIZED_DECELERATE));
         let from = self.shown;
         self.reveal_anim = Some(match easing {
-            Easing::Spring { stiffness, damping } => Animation::spring()
-                .from(from)
-                .to(target)
-                .stiffness(stiffness)
-                .damping(damping)
-                .build(),
+            Easing::Spring { stiffness, damping } => {
+                Animation::spring().from(from).to(target).stiffness(stiffness).damping(damping).build()
+            }
             e => {
                 // Уход быстрее и с разгоном, как у Presence.
                 let (e, ms) = if open {
                     (e, ms)
                 } else {
                     let e = match e {
-                        Easing::EMPHASIZED | Easing::EMPHASIZED_DECELERATE => {
-                            Easing::EMPHASIZED_ACCELERATE
-                        }
+                        Easing::EMPHASIZED | Easing::EMPHASIZED_DECELERATE => Easing::EMPHASIZED_ACCELERATE,
                         Easing::STANDARD_DECELERATE => Easing::STANDARD_ACCELERATE,
                         e => e,
                     };
@@ -264,20 +257,14 @@ impl PopupPanelElement {
 
     /// Видимая часть панели при доле показа `shown`.
     fn revealed_rect(&self, panel: Rect) -> Rect {
-        let Some(axis) = self.reveal else {
-            return panel;
-        };
+        let Some(axis) = self.reveal else { return panel };
         let p = self.shown.max(0.0);
         let mut r = panel;
         if matches!(axis, AnimationAxis::Width | AnimationAxis::Both) {
             r.size.width = panel.size.width * p;
             match self.anchor {
-                PopupAnchor::BottomEnd => {
-                    r.origin.x = panel.origin.x + panel.size.width - r.size.width;
-                }
-                PopupAnchor::BottomCenter => {
-                    r.origin.x = panel.origin.x + (panel.size.width - r.size.width) / 2.0;
-                }
+                PopupAnchor::BottomEnd => r.origin.x = panel.origin.x + panel.size.width - r.size.width,
+                PopupAnchor::BottomCenter => r.origin.x = panel.origin.x + (panel.size.width - r.size.width) / 2.0,
                 _ => {}
             }
         }
@@ -334,11 +321,9 @@ impl PopupPanelElement {
                 ar.origin.y + ar.size.height,
                 ar.origin.y,
             ),
-            PopupAnchor::BottomCenter => (
-                ar.origin.x + (ar.size.width - width) / 2.0,
-                ar.origin.y + ar.size.height,
-                ar.origin.y,
-            ),
+            PopupAnchor::BottomCenter => {
+                (ar.origin.x + (ar.size.width - width) / 2.0, ar.origin.y + ar.size.height, ar.origin.y)
+            }
             PopupAnchor::Position => (ar.origin.x, ar.origin.y, ar.origin.y),
             PopupAnchor::EndCenter => {
                 let y = ar.origin.y + (ar.size.height - height) / 2.0;
@@ -421,9 +406,7 @@ impl Element for PopupPanelElement {
 
     fn animate(&mut self, dt: Duration) -> bool {
         self.sync_reveal();
-        let Some(anim) = self.reveal_anim.as_mut() else {
-            return false;
-        };
+        let Some(anim) = self.reveal_anim.as_mut() else { return false };
         let running = anim.tick(dt);
         self.shown = anim.current_value();
         if !running {
@@ -513,22 +496,10 @@ impl Element for PopupPanelElement {
         match &self.mss.box_shadow {
             Some(shadows) => {
                 for sh in shadows.0.iter().filter(|sh| !sh.inset) {
-                    list.push_shadow(
-                        panel,
-                        sh.color,
-                        sh.blur_radius,
-                        (sh.offset_x, sh.offset_y),
-                        radii,
-                    );
+                    list.push_shadow(panel, sh.color, sh.blur_radius, (sh.offset_x, sh.offset_y), radii);
                 }
             }
-            None => list.push_shadow(
-                panel,
-                Color::new(0.0, 0.0, 0.0, 0.15),
-                16.0,
-                (0.0, 4.0),
-                radii,
-            ),
+            None => list.push_shadow(panel, Color::new(0.0, 0.0, 0.0, 0.15), 16.0, (0.0, 4.0), radii),
         }
         let border_width = self.mss.border_width.unwrap_or(1.0);
         if self.mss.flow_edge.is_some() {
@@ -543,15 +514,7 @@ impl Element for PopupPanelElement {
             self.mss.paint_flow_box(list, snapped, bg, radii);
         } else if border_width > 0.0 {
             let border_color = self.mss.border_color.unwrap_or(Color::from_hex("#E5E7EB"));
-            list.push_rect_bordered(
-                panel,
-                bg,
-                radii,
-                Border {
-                    width: border_width,
-                    color: border_color,
-                },
-            );
+            list.push_rect_bordered(panel, bg, radii, Border { width: border_width, color: border_color });
         } else {
             list.push_rect(panel, bg, radii);
         }
@@ -735,10 +698,7 @@ mod tests {
     fn with_el<R>(h: &mut TestHarness, f: impl FnOnce(&PopupPanelElement) -> R) -> R {
         let id = h.find_by_type_name("PopupPanel")[0];
         let el = h.tree.get_mut(id).unwrap();
-        f(el.as_any_mut()
-            .unwrap()
-            .downcast_ref::<PopupPanelElement>()
-            .unwrap())
+        f(el.as_any_mut().unwrap().downcast_ref::<PopupPanelElement>().unwrap())
     }
 
     fn panel_rect(h: &mut TestHarness) -> Rect {
@@ -758,11 +718,7 @@ mod tests {
             .max_width(400.0)
             .reveal(AnimationAxis::Width)
             .child(Column::new().width(200.0).height(80.0));
-        TestHarness::new(Box::new(
-            Stack::new()
-                .child(Column::new().width(800.0).height(600.0))
-                .child(panel),
-        ))
+        TestHarness::new(Box::new(Stack::new().child(Column::new().width(800.0).height(600.0)).child(panel)))
     }
 
     /// Выезд справа от якоря по центру его высоты, уход по сигналу снаружи
@@ -781,15 +737,9 @@ mod tests {
         assert!(h.is_animating(id), "выезд тикает");
         h.animate(Duration::from_millis(60));
         let mid = panel_rect(&mut h);
-        assert!(
-            mid.size.width > 0.0 && mid.size.width < 200.0,
-            "наполовину: {mid:?}"
-        );
+        assert!(mid.size.width > 0.0 && mid.size.width < 200.0, "наполовину: {mid:?}");
         assert_eq!(mid.origin.x, 70.0, "от правого края якоря");
-        assert!(
-            (mid.origin.y + mid.size.height / 2.0 - 320.0).abs() < 0.5,
-            "по центру якоря: {mid:?}"
-        );
+        assert!((mid.origin.y + mid.size.height / 2.0 - 320.0).abs() < 0.5, "по центру якоря: {mid:?}");
         for _ in 0..20 {
             h.animate(Duration::from_millis(30));
         }
@@ -801,10 +751,7 @@ mod tests {
         h.frame(None, 800.0, 600.0);
         assert!(h.is_animating(id), "уход тикает");
         h.animate(Duration::from_millis(40));
-        assert!(
-            h.tree.get(id).unwrap().is_visible(),
-            "ещё видна, пока уезжает"
-        );
+        assert!(h.tree.get(id).unwrap().is_visible(), "ещё видна, пока уезжает");
         assert!(shown(&mut h) < 1.0 && shown(&mut h) > 0.0);
         for _ in 0..20 {
             h.animate(Duration::from_millis(30));
@@ -825,30 +772,17 @@ mod tests {
             .anchor(PopupAnchor::EndCenter)
             .class("fly")
             .child(Column::new().width(200.0).height(80.0));
-        let mut h = TestHarness::new(Box::new(
-            Stack::new()
-                .child(Column::new().width(800.0).height(600.0))
-                .child(panel),
-        ));
+        let mut h = TestHarness::new(Box::new(Stack::new().child(Column::new().width(800.0).height(600.0)).child(panel)));
         h.apply_mss(".fly { background-color: #336699; border-width: 0px; }");
         h.frame(None, 800.0, 600.0);
         let list = h.paint();
         let bordered = list
             .iter_all_commands()
-            .filter(|c| {
-                matches!(
-                    c,
-                    crate::render::DrawCommand::Rect {
-                        border: Some(_),
-                        ..
-                    }
-                )
-            })
+            .filter(|c| matches!(c, crate::render::DrawCommand::Rect { border: Some(_), .. }))
             .count();
         assert_eq!(bordered, 0, "без рамки");
         assert!(
-            list.iter_all_commands()
-                .any(|c| matches!(c, crate::render::DrawCommand::Rect { border: None, .. })),
+            list.iter_all_commands().any(|c| matches!(c, crate::render::DrawCommand::Rect { border: None, .. })),
             "фон нарисован"
         );
     }
@@ -867,11 +801,7 @@ mod tests {
             .max_width(400.0)
             .reveal(AnimationAxis::Height)
             .child(Column::new().width(240.0).height(120.0));
-        let mut h = TestHarness::new(Box::new(
-            Stack::new()
-                .child(Column::new().width(800.0).height(600.0))
-                .child(panel),
-        ));
+        let mut h = TestHarness::new(Box::new(Stack::new().child(Column::new().width(800.0).height(600.0)).child(panel)));
         h.frame(None, 800.0, 600.0);
         open.set(true);
         h.frame(None, 800.0, 600.0);
@@ -879,10 +809,7 @@ mod tests {
         let mid = panel_rect(&mut h);
         assert_eq!(mid.origin.x, 230.0, "по центру якоря: {mid:?}");
         assert_eq!(mid.origin.y, 136.0, "под якорем: {mid:?}");
-        assert!(
-            mid.size.height > 0.0 && mid.size.height < 120.0,
-            "выезжает: {mid:?}"
-        );
+        assert!(mid.size.height > 0.0 && mid.size.height < 120.0, "выезжает: {mid:?}");
         assert_eq!(mid.size.width, 240.0);
         for _ in 0..20 {
             h.animate(Duration::from_millis(30));
