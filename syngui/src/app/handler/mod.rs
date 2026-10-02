@@ -77,6 +77,12 @@ pub(super) struct AppHandler {
     /// Подпись последнего отрисованного кадра (`DisplayList::frame_signature`):
     /// совпала — GPU-кадр не рисуется.
     pub(super) last_frame_sig: Option<u64>,
+    /// Последний кадр совпал с показанным и не рисовался: present не было,
+    /// frame callback не придёт — анимация, которая визуально почти ничего не
+    /// меняет (затухание полосы прокрутки, хвост инерции), без паузы крутила
+    /// бы цикл вхолостую (десятки тысяч итераций в секунду). Следующий кадр
+    /// анимации — через период обновления экрана.
+    pub(super) last_frame_skipped: bool,
     pub(super) root_id: Option<crate::widget::ElementId>,
     pub(super) last_frame_time: Instant,
     pub(super) last_paced_redraw: Option<Instant>,
@@ -286,6 +292,7 @@ impl AppHandler {
             last_ime_area: None,
             ime_allowed: false,
             last_frame_sig: None,
+            last_frame_skipped: false,
             tree: ElementTree::new(),
             style_engine,
             root_id: None,

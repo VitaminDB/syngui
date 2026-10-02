@@ -234,11 +234,25 @@ impl AppHandler {
         None
     }
 
+    /// Период обновления экрана окна (для темпа кадров без vsync); нет
+    /// сведений — 60 Гц.
+    fn frame_period(&self) -> std::time::Duration {
+        let mhz = self
+            .window
+            .as_ref()
+            .and_then(|w| w.winit_window().current_monitor())
+            .and_then(|m| m.refresh_rate_millihertz())
+            .filter(|&r| r >= 10_000)
+            .unwrap_or(60_000);
+        std::time::Duration::from_micros(1_000_000_000 / mhz as u64)
+    }
+
     pub(in crate::app) fn render(&mut self) {
         // Кадр может применить стили или собрать новые элементы — то и другое
         // способно запустить анимацию; взводим обход в следующем update().
         self.tree.animations_armed = true;
         self.last_render_at = Instant::now();
+        self.last_frame_skipped = false;
 
         #[cfg(target_arch = "wasm32")]
         if self.gpu.is_none() {
@@ -555,6 +569,7 @@ impl AppHandler {
                 st.has_pending_uploads() || st.has_pending_frees()
             };
             if sig.is_some() && sig == self.last_frame_sig && !images_busy && !crate::signal::take_force_frame() {
+                self.last_frame_skipped = true;
                 crate::perf::record_frame(
                     rebuild_elapsed,
                     layout_elapsed,
@@ -820,7 +835,16 @@ impl AppHandler {
                 let anim_dt = dt.min(std::time::Duration::from_millis(64));
                 if self.tree.animate(root_id, anim_dt) {
                     crate::perf::incr(crate::perf::Counter::RedrawAnimate);
-                    if paced_allowed {
+                    if self.last_frame_skipped {
+                        // Прошлый кадр не показан (не изменился) — vsync не
+                        // задаёт темп; следующий — через период обновления.
+                        self.last_frame_skipped = false;
+                        let period = self.frame_period();
+                        self.wakeup_after = Some(match self.wakeup_after {
+                            Some(d) => d.min(period),
+                            None => period,
+                        });
+                    } else if paced_allowed {
                         self.last_paced_redraw = Some(now);
                         if let Some(window) = &self.window {
                             crate::perf::redraw_from(file!(), line!());
