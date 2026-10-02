@@ -512,6 +512,22 @@ pub fn toggle_fullscreen() {
     }
 }
 
+/// Полноэкранный режим главного окна — явно (`toggle_fullscreen` — переключить). Окна ещё нет
+/// (вызов при сборке интерфейса) — повторить после создания: `run_on_main_thread`.
+#[cfg(feature = "winit")]
+pub fn set_fullscreen(on: bool) {
+    #[cfg(not(target_os = "android"))]
+    if let Some(window) = primary_window() {
+        let win = window.winit_window();
+        if win.fullscreen().is_some() != on {
+            win.set_fullscreen(on.then_some(winit::window::Fullscreen::Borderless(None)));
+            window.request_redraw();
+        }
+    }
+    #[cfg(target_os = "android")]
+    let _ = on;
+}
+
 static FORCE_FRAME: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
 
 /// Следующий кадр отправить, даже если он не отличается от прошлого
