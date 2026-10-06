@@ -68,6 +68,23 @@ impl Renderer {
                 return RenderStats::default();
             }
         };
+        // Swapchain «субоптимален»: композитор сменил обратную связь dmabuf (окно во
+        // весь экран — форматы плана дисплея; обратно — форматы отрисовки). Без
+        // пересоздания Mesa оставляет прежние буферы — например UBWC, которых дисплей
+        // не берёт, и композитор рисует окно сам вместо вывода прямо на план.
+        let surface_texture = if surface_texture.suboptimal && suboptimal_reconfigure_due() {
+            drop(surface_texture);
+            surface.surface.configure(&gpu.device, &surface.surface_config);
+            match surface.surface.get_current_texture() {
+                Ok(texture) => texture,
+                Err(e) => {
+                    log::warn!("surface texture after suboptimal reconfigure: {:?}", e);
+                    return RenderStats::default();
+                }
+            }
+        } else {
+            surface_texture
+        };
         crate::perf::add_time(crate::perf::TimeKind::RenderAcquire, t.elapsed());
         let t = web_time::Instant::now();
         let surface_view = surface_texture
@@ -619,4 +636,17 @@ impl Renderer {
 
         clip_map
     }
+}
+
+/// Пересоздавать «субоптимальный» swapchain не чаще раза в секунду: если
+/// драйвер считает его таким и после пересоздания, кадры не должны тратиться
+/// на бесконечную переконфигурацию.
+fn suboptimal_reconfigure_due() -> bool {
+    static LAST: std::sync::Mutex<Option<web_time::Instant>> = std::sync::Mutex::new(None);
+    let mut last = LAST.lock().unwrap_or_else(|e| e.into_inner());
+    let due = last.is_none_or(|t| t.elapsed() >= std::time::Duration::from_secs(1));
+    if due {
+        *last = Some(web_time::Instant::now());
+    }
+    due
 }
