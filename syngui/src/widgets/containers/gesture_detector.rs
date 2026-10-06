@@ -80,7 +80,7 @@ pub struct GestureDetector {
     on_back: Option<BackCb>,
     on_secondary_click: Option<MouseBtnCb>,
     on_middle_click: Option<MouseBtnCb>,
-    on_press: Option<MouseBtnCb>,
+    on_press: Option<ClickBoundsCb>,
     on_release: Option<ReleaseCb>,
     on_long_press: Option<MouseBtnCb>,
     on_pan_start: Option<MouseBtnCb>,
@@ -129,7 +129,14 @@ impl GestureDetector {
     /// Нажатие — сразу, как палец коснулся (или нажата левая кнопка), а не
     /// на отпускании, как `on_click`. Для клавиш экранной клавиатуры,
     /// автоповтора, кнопок «удерживайте».
-    pub fn on_press(mut self, cb: impl FnMut(Point) + Send + 'static) -> Self {
+    pub fn on_press(self, mut cb: impl FnMut(Point) + Send + 'static) -> Self {
+        self.on_press_with_bounds(move |p, _| cb(p))
+    }
+
+    /// Как [`Self::on_press`], плюс прямоугольник элемента (в тех же
+    /// координатах, что и точка) — показать что-то над нажатым элементом
+    /// (буква над клавишей экранной клавиатуры).
+    pub fn on_press_with_bounds(mut self, cb: impl FnMut(Point, Rect) + Send + 'static) -> Self {
         self.on_press = Some(Arc::new(Mutex::new(cb)));
         self
     }
@@ -367,7 +374,7 @@ pub struct GestureDetectorElement {
     on_back: Option<BackCb>,
     on_secondary_click: Option<MouseBtnCb>,
     on_middle_click: Option<MouseBtnCb>,
-    on_press: Option<MouseBtnCb>,
+    on_press: Option<ClickBoundsCb>,
     on_release: Option<ReleaseCb>,
     on_long_press: Option<MouseBtnCb>,
     on_pan_start: Option<MouseBtnCb>,
@@ -427,6 +434,14 @@ fn call<T>(cb: &Option<Arc<Mutex<dyn FnMut(T) + Send>>>, v: T) {
     if let Some(cb) = cb {
         if let Ok(mut f) = cb.lock() {
             f(v);
+        }
+    }
+}
+
+fn call_bounds(cb: &Option<ClickBoundsCb>, p: Point, r: Rect) {
+    if let Some(cb) = cb {
+        if let Ok(mut f) = cb.lock() {
+            f(p, r);
         }
     }
 }
@@ -540,7 +555,7 @@ impl GestureDetectorElement {
                 self.fingers.push((*id, *position));
                 if self.press_touch.is_none() && (self.on_press.is_some() || self.on_release.is_some()) {
                     self.press_touch = Some(*id);
-                    call(&self.on_press, *position);
+                    call_bounds(&self.on_press, *position, self.bounds);
                     ctx.request_paint();
                 }
                 if self.fingers.len() == 1 {
@@ -751,7 +766,7 @@ impl Element for GestureDetectorElement {
                     self.pressed = true;
                     if !crate::input::is_synthesized_mouse() && (self.on_press.is_some() || self.on_release.is_some()) {
                         self.mouse_pressed = true;
-                        call(&self.on_press, *position);
+                        call_bounds(&self.on_press, *position, self.bounds);
                     }
                     if self.pan_mouse && self.wants_pan() {
                         self.mouse_pan = Some(PanState::new(u64::MAX, *position));

@@ -67,6 +67,7 @@ impl Widget for DecoratedBox {
             classes: Vec::new(),
             dirty_flags: DirtyFlags::LAYOUT | DirtyFlags::RENDER,
             hover: false,
+            press: None,
             mss: MssFields::new(),
         })
     }
@@ -119,13 +120,20 @@ pub struct DecoratedBoxElement {
     classes: Vec<String>,
     dirty_flags: DirtyFlags,
     hover: bool,
+    /// Нажатие для `:active`: палец (`Some(id)`) или левая кнопка (`u64::MAX`)
+    /// и точка начала — сдвиг дальше [`PRESS_SLOP`] (прокрутка) снимает его.
+    press: Option<(u64, Point)>,
     mss: MssFields,
 }
+
+/// Насколько может сдвинуться палец, пока элемент считается нажатым.
+const PRESS_SLOP: f32 = 12.0;
+const PRESS_MOUSE: u64 = u64::MAX;
 
 impl DecoratedBoxElement {
     fn start_transition_to_current_state(&mut self) {
         self.mss
-            .start_transition_to(self.hover, false, false, false);
+            .start_transition_to(self.hover, self.press.is_some(), false, false);
     }
 
     fn active_filter(
@@ -355,7 +363,7 @@ impl Element for DecoratedBoxElement {
             return;
         }
 
-        let target = self.mss.target_props(self.hover, false, false, false);
+        let target = self.mss.target_props(self.hover, self.press.is_some(), false, false);
 
         let eff_opacity = self
             .keyframe_opacity()
@@ -473,7 +481,7 @@ impl Element for DecoratedBoxElement {
             return;
         }
 
-        let target = self.mss.target_props(self.hover, false, false, false);
+        let target = self.mss.target_props(self.hover, self.press.is_some(), false, false);
         let eff_opacity = self
             .keyframe_opacity()
             .or(self.mss.transition.opacity())
@@ -600,6 +608,45 @@ impl Element for DecoratedBoxElement {
         event: &Event,
         ctx: &mut crate::widget::context::EventContext,
     ) -> EventResult {
+        // `:active` — только наблюдение: событие остаётся необработанным,
+        // нажатие обрабатывают родители (GestureDetector, кнопки).
+        if self.mss.style_active.is_some() {
+            let was = self.press.is_some();
+            match event {
+                Event::TouchStart { id, position } if self.bounds.contains(*position) => self.press = Some((*id, *position)),
+                // Мышь, синтезированная из тапа (после TouchEnd), — не нажатие.
+                Event::MouseDown { button: crate::input::MouseButton::Left, position }
+                    if self.bounds.contains(*position) && !crate::input::is_synthesized_mouse() =>
+                {
+                    self.press = Some((PRESS_MOUSE, *position))
+                }
+                Event::TouchMove { id, position } => {
+                    if let Some((pid, start)) = self.press {
+                        if pid == *id && (!self.bounds.contains(*position) || (position.x - start.x).hypot(position.y - start.y) > PRESS_SLOP) {
+                            self.press = None;
+                        }
+                    }
+                }
+                Event::MouseMove(position) => {
+                    if let Some((PRESS_MOUSE, start)) = self.press {
+                        if !self.bounds.contains(*position) || (position.x - start.x).hypot(position.y - start.y) > PRESS_SLOP {
+                            self.press = None;
+                        }
+                    }
+                }
+                Event::TouchEnd { id, .. } if self.press.is_some_and(|(pid, _)| pid == *id) => self.press = None,
+                Event::MouseUp { button: crate::input::MouseButton::Left, .. } if self.press.is_some_and(|(pid, _)| pid == PRESS_MOUSE) => {
+                    self.press = None
+                }
+                Event::FocusLost => self.press = None,
+                _ => {}
+            }
+            if self.press.is_some() != was {
+                self.start_transition_to_current_state();
+                self.mark_dirty(DirtyFlags::RENDER);
+                ctx.request_paint();
+            }
+        }
         if let Event::MouseMove(pos) = event {
             if let Some(cursor) = self.mss.cursor {
                 if self.bounds.contains(*pos) {
@@ -803,12 +850,12 @@ impl Element for DecoratedBoxElement {
         &mut self,
         base: &ComputedStyle,
         hover: Option<&ComputedStyle>,
-        _active: Option<&ComputedStyle>,
+        active: Option<&ComputedStyle>,
         _focus: Option<&ComputedStyle>,
         _selected: Option<&ComputedStyle>,
         _checked: Option<&ComputedStyle>,
     ) {
-        self.mss.apply_transitions(base, hover, None, None, None);
+        self.mss.apply_transitions(base, hover, active, None, None);
     }
 
     fn setup_keyframe_animation(
