@@ -30,6 +30,10 @@ pub enum HwAccel {
     /// Нужны `video::android::video_surface()` (метод `getVideoSurface()`
     /// у активити) и прозрачное окно. Без Surface — как `MediaCodec`.
     MediaCodecSurface,
+    /// Linux: V4L2 stateful-декодер SoC (Qualcomm `msm_vidc`/venus и др.) —
+    /// свой декодер в `video::v4l2` (буферы DMABUF), кадры NV12 в CPU-памяти.
+    /// `Auto` на Linux пробует его первым.
+    V4l2,
 }
 
 impl Default for HwAccel {
@@ -69,7 +73,7 @@ impl HwAccel {
             other => other,
         };
         match resolved {
-            Self::None | Self::Auto | Self::MediaCodec | Self::MediaCodecSurface => None,
+            Self::None | Self::Auto | Self::MediaCodec | Self::MediaCodecSurface | Self::V4l2 => None,
             Self::Vaapi => Some(ffi::AVHWDeviceType::AV_HWDEVICE_TYPE_VAAPI),
             Self::Nvdec => Some(ffi::AVHWDeviceType::AV_HWDEVICE_TYPE_CUDA),
             Self::VideoToolbox => Some(ffi::AVHWDeviceType::AV_HWDEVICE_TYPE_VIDEOTOOLBOX),
@@ -85,7 +89,7 @@ impl HwAccel {
             other => other,
         };
         match resolved {
-            Self::None | Self::Auto | Self::MediaCodec | Self::MediaCodecSurface => None,
+            Self::None | Self::Auto | Self::MediaCodec | Self::MediaCodecSurface | Self::V4l2 => None,
             Self::Vaapi => Some(ffi::AVPixelFormat::AV_PIX_FMT_VAAPI),
             Self::Nvdec => Some(ffi::AVPixelFormat::AV_PIX_FMT_CUDA),
             Self::VideoToolbox => Some(ffi::AVPixelFormat::AV_PIX_FMT_VIDEOTOOLBOX),
@@ -159,6 +163,7 @@ impl HwAccel {
             Self::Vulkan => "vulkan",
             Self::MediaCodec => "mediacodec",
             Self::MediaCodecSurface => "mediacodec-surface",
+            Self::V4l2 => "v4l2",
         }
     }
 }

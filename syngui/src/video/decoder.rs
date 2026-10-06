@@ -431,7 +431,7 @@ impl Drop for VideoDecoder {
 }
 
 /// Поворот по часовой из матрицы отображения потока (ffmpeg хранит угол против часовой).
-fn display_rotation(p: &ffmpeg_next::codec::Parameters) -> u32 {
+pub(crate) fn display_rotation(p: &ffmpeg_next::codec::Parameters) -> u32 {
     // SAFETY: codecpar живёт вместе с потоком; читаем массив coded_side_data его длины
     unsafe {
         let par = p.as_ptr();
@@ -506,6 +506,79 @@ fn read_meta(ictx: &Input) -> Result<VideoMeta, VideoError> {
     })
 }
 
+/// Видеодекодер: libavcodec (sw, hwaccel, hw-кодеки) или свой V4L2.
+enum VDec {
+    Ff(ffmpeg_next::decoder::Video),
+    #[cfg(target_os = "linux")]
+    V4l2(super::v4l2::V4l2Decoder),
+}
+
+impl VDec {
+    fn send_packet(&mut self, p: &ffmpeg_next::Packet) -> Result<(), VideoError> {
+        match self {
+            Self::Ff(d) => d.send_packet(p).map_err(Into::into),
+            #[cfg(target_os = "linux")]
+            Self::V4l2(d) => d.send_packet(p),
+        }
+    }
+
+    fn send_eof(&mut self) -> Result<(), VideoError> {
+        match self {
+            Self::Ff(d) => d.send_eof().map_err(Into::into),
+            #[cfg(target_os = "linux")]
+            Self::V4l2(d) => d.send_eof(),
+        }
+    }
+
+    fn receive_frame(&mut self, f: &mut frame::Video) -> Result<(), ffmpeg_next::Error> {
+        match self {
+            Self::Ff(d) => d.receive_frame(f),
+            #[cfg(target_os = "linux")]
+            Self::V4l2(d) => d.receive_frame(f),
+        }
+    }
+
+    fn flush(&mut self) {
+        match self {
+            Self::Ff(d) => d.flush(),
+            #[cfg(target_os = "linux")]
+            Self::V4l2(d) => {
+                if let Err(e) = d.flush() {
+                    log::warn!("v4l2: сброс декодера: {e}");
+                }
+            }
+        }
+    }
+
+    fn format(&self) -> ffmpeg_next::format::Pixel {
+        match self {
+            Self::Ff(d) => d.format(),
+            #[cfg(target_os = "linux")]
+            Self::V4l2(_) => ffmpeg_next::format::Pixel::NV12,
+        }
+    }
+
+    fn width(&self) -> u32 {
+        match self {
+            Self::Ff(d) => d.width(),
+            #[cfg(target_os = "linux")]
+            Self::V4l2(d) => d.width(),
+        }
+    }
+
+    fn height(&self) -> u32 {
+        match self {
+            Self::Ff(d) => d.height(),
+            #[cfg(target_os = "linux")]
+            Self::V4l2(d) => d.height(),
+        }
+    }
+}
+
+fn codec_ctx_time_base(tb: ffmpeg_next::Rational) -> ffi::AVRational {
+    ffi::AVRational { num: tb.numerator(), den: tb.denominator() }
+}
+
 fn run_decoder_thread(
     ictx: Input,
     _meta: VideoMeta,
@@ -540,6 +613,39 @@ fn run_decoder_thread(
             den: v_tb_av.denominator(),
         };
     }
+
+    // V4L2-декодер SoC: явно или первым при `Auto` на Linux; если устройства
+    // нет или кодек не поддержан — обычный путь (hwaccel/sw).
+    #[cfg(target_os = "linux")]
+    let v4l2_dec = if matches!(accel, HwAccel::V4l2 | HwAccel::Auto) {
+        let par = ictx.stream(v_idx).ok_or(VideoError::NoVideoStream)?.parameters();
+        // SAFETY: параметры потока живы на время вызова, декодер копирует их.
+        match super::v4l2::V4l2Decoder::new(unsafe { par.as_ptr() }, codec_ctx_time_base(v_tb_av)) {
+            Ok(d) => {
+                log::info!("hwaccel: V4L2-декодер для {:?}", d.codec_id());
+                Some(d)
+            }
+            Err(e) => {
+                if accel == HwAccel::V4l2 {
+                    log::warn!("hwaccel: {e} — fallback на sw");
+                } else {
+                    log::debug!("hwaccel: {e}");
+                }
+                None
+            }
+        }
+    } else {
+        None
+    };
+    #[cfg(not(target_os = "linux"))]
+    let v4l2_dec: Option<std::convert::Infallible> = None;
+    let accel = if v4l2_dec.is_some() {
+        HwAccel::V4l2
+    } else if accel == HwAccel::V4l2 {
+        HwAccel::None
+    } else {
+        accel
+    };
 
     let hw: Option<HwContext> = if !accel.uses_hw_device() {
         None
@@ -592,8 +698,15 @@ fn run_decoder_thread(
     // роняем плеер, а пересоздаём контекст и открываем sw-декодер.
     let mut hw_codec_active = false;
     let hw_label = accel.label();
-    let mut v_dec = if let Some(name) = accel.hw_codec_name(codec_id.into()) {
-        match ffmpeg_next::codec::decoder::find_by_name(name) {
+    #[cfg(target_os = "linux")]
+    let v4l2_dec = v4l2_dec.map(VDec::V4l2);
+    #[cfg(not(target_os = "linux"))]
+    let v4l2_dec: Option<VDec> = v4l2_dec.map(|never| match never {});
+    let mut v_dec = if let Some(d) = v4l2_dec {
+        hw_codec_active = true;
+        d
+    } else if let Some(name) = accel.hw_codec_name(codec_id.into()) {
+        VDec::Ff(match ffmpeg_next::codec::decoder::find_by_name(name) {
             Some(hw_codec) => {
                 log::info!("hwaccel: открываю {}-декодер «{name}»", accel.label());
                 match codec_ctx.decoder().open_as(hw_codec) {
@@ -634,12 +747,14 @@ fn run_decoder_thread(
                     .video()
                     .map_err(|e| VideoError::DecoderInit(format!("video decoder: {e}")))?
             }
-        }
+        })
     } else {
-        codec_ctx
-            .decoder()
-            .video()
-            .map_err(|e| VideoError::DecoderInit(format!("video decoder: {e}")))?
+        VDec::Ff(
+            codec_ctx
+                .decoder()
+                .video()
+                .map_err(|e| VideoError::DecoderInit(format!("video decoder: {e}")))?,
+        )
     };
 
     let v_tb = ictx.stream(v_idx).unwrap().time_base();
@@ -1080,7 +1195,7 @@ impl StageStats {
 }
 
 fn drain_video(
-    dec: &mut ffmpeg_next::decoder::Video,
+    dec: &mut VDec,
     scaler: &mut Scaler,
     hw: Option<&HwContext>,
     tx: &SyncSender<VideoFrame>,
@@ -1096,13 +1211,10 @@ fn drain_video(
     loop {
         match dec.receive_frame(&mut decoded) {
             Ok(()) => {}
+            Err(ffmpeg_next::Error::Eof) => break,
+            Err(ffmpeg_next::Error::Other { errno }) if errno == libc::EAGAIN => break,
             Err(e) => {
-                let s = format!("{e:?}");
-                let is_eagain = s.contains("11:") || s.contains("EAGAIN");
-                let is_eof = s.contains("Eof");
-                if !is_eagain && !is_eof {
-                    log::warn!("video: receive_frame: {s}");
-                }
+                log::warn!("video: receive_frame: {e:?}");
                 break;
             }
         }
@@ -1298,7 +1410,7 @@ fn drain_audio(
 fn perform_seek(
     reader: &mut ReaderLink,
     seek_gen: &mut u64,
-    v_dec: &mut ffmpeg_next::decoder::Video,
+    v_dec: &mut VDec,
     audio: Option<&mut AudioState>,
     target_sec: f64,
 ) -> Result<(), VideoError> {

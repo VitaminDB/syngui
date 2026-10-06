@@ -7,12 +7,16 @@ pub mod player;
 pub mod resampler;
 pub mod scaler;
 pub mod stream;
+pub mod thumbnail;
+#[cfg(target_os = "linux")]
+pub mod v4l2;
 
 pub use decoder::{VideoDecoder, VideoFrame, VideoMeta};
 pub use error::VideoError;
 pub use hwaccel::HwAccel;
 pub use player::VideoPlayer;
 pub use stream::VideoStream;
+pub use thumbnail::{thumbnail, Thumbnail};
 
 /// Уровень подробности логов libav* (уходят в stderr / logcat как
 /// `RustStdoutStderr`). По умолчанию FFmpeg пишет `Info`; для разбора
