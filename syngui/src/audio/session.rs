@@ -355,10 +355,11 @@ fn decode_pcm_wav(bytes: &[u8]) -> Result<AudioBuffer, AudioError> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::signal::init_main_thread;
-
+    /// Сигналы читаются из потока теста. Не `init_main_thread`: тот
+    /// навсегда назначает главным поток первого теста, и тесты в других
+    /// потоках (дерево событий) падали «чтение сигнала не из главного потока».
     fn ensure_main_thread() {
-        init_main_thread();
+        crate::signal::allow_signal_reads_on_this_thread();
     }
 
     #[test]
