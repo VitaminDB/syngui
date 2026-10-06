@@ -7,7 +7,7 @@ pub mod texture_pool;
 #[cfg(feature = "map")]
 pub mod tile_atlas;
 
-pub use context::{GpuContext, GpuShared, WindowSurface};
+pub use context::{preferred_surface_format, GpuContext, GpuShared, WindowSurface};
 pub use image_cache::ImageGpuCache;
 pub use image_store::{ImageData, ImageHandle, ImageLoadState, ImageSource, ImageStore, YuvFrame, YuvLayout, YuvMatrix};
 #[cfg(feature = "image")]

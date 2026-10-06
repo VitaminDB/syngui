@@ -661,12 +661,7 @@ impl AppHandler {
             .expect("Failed to create device");
 
         let surface_caps = surface.get_capabilities(&adapter);
-        let surface_format = surface_caps
-            .formats
-            .iter()
-            .find(|f| f.is_srgb())
-            .copied()
-            .unwrap_or(surface_caps.formats[0]);
+        let surface_format = crate::gpu::preferred_surface_format(&surface_caps, &adapter);
 
         let (width, height) = window.size();
         let width = width.max(1);

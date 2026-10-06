@@ -250,12 +250,7 @@ impl SplashWindow {
         .ok()?;
 
         let caps = surface.get_capabilities(&adapter);
-        let format = caps
-            .formats
-            .iter()
-            .find(|f| f.is_srgb())
-            .copied()
-            .unwrap_or(caps.formats[0]);
+        let format = crate::gpu::preferred_surface_format(&caps, &adapter);
 
         let alpha_mode = if caps
             .alpha_modes

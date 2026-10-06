@@ -64,12 +64,7 @@ impl AppHandler {
             .expect("Failed to create surface for secondary window");
 
         let surface_caps = surface.get_capabilities(&gpu.shared.adapter);
-        let surface_format = surface_caps
-            .formats
-            .iter()
-            .find(|f| f.is_srgb())
-            .copied()
-            .unwrap_or(surface_caps.formats[0]);
+        let surface_format = crate::gpu::preferred_surface_format(&surface_caps, &gpu.shared.adapter);
 
         let scale = window.scale_factor() * crate::scale::ui_scale() as f64;
         let (phys_w, phys_h) = window.size();
