@@ -121,7 +121,7 @@ struct StyleCacheKey {
 impl StyleEngine {
     pub fn new(stylesheet: StyleSheet) -> Self {
         Self {
-            stylesheet,
+            stylesheet: super::defaults::with_widget_defaults(stylesheet),
             version: next_stylesheet_version(),
             cache: HashMap::new(),
         }
@@ -129,7 +129,7 @@ impl StyleEngine {
 
     pub fn empty() -> Self {
         Self {
-            stylesheet: StyleSheet::new(),
+            stylesheet: super::defaults::with_widget_defaults(StyleSheet::new()),
             version: next_stylesheet_version(),
             cache: HashMap::new(),
         }
@@ -316,8 +316,10 @@ impl StyleEngine {
         self.resolve_value(value)
     }
 
+    /// Заменить таблицу приложения; встроенные стили виджетов остаются под
+    /// ней (см. `mss::defaults`).
     pub fn load_stylesheet(&mut self, stylesheet: StyleSheet) {
-        self.stylesheet = stylesheet;
+        self.stylesheet = super::defaults::with_widget_defaults(stylesheet);
         self.cache.clear();
         self.version = next_stylesheet_version();
     }

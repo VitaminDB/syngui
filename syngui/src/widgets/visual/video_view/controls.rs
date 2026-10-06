@@ -13,6 +13,9 @@ const MI_PAUSE: &str = "\u{E034}";
 const MI_VOLUME_UP: &str = "\u{E050}";
 const MI_VOLUME_OFF: &str = "\u{E04F}";
 
+/// Простой плеер: кадр и под ним ряд кнопок (классы `ffmpeg-*`, стили — у
+/// приложения). Полноценный плеер с панелью поверх кадра, клавишами и
+/// касаниями — [`super::VideoPlayerView`].
 pub fn video_player_view(player: Arc<Mutex<VideoPlayer>>) -> impl Widget {
     let duration = player
         .lock()

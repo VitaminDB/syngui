@@ -1,4 +1,5 @@
 pub mod controls;
+pub mod player;
 
 use std::any::Any;
 use std::sync::Arc;
@@ -19,6 +20,9 @@ use crate::widget::{
 use crate::widgets::ImageFit;
 
 pub use controls::video_player_view;
+pub use player::{
+    frames_preview, FileSource, FramesSource, FullscreenCtl, MediaSource, VideoPlayerView,
+};
 
 pub struct VideoView {
     player: Arc<Mutex<VideoPlayer>>,

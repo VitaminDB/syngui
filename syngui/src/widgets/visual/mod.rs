@@ -68,4 +68,7 @@ pub use static_waveform::StaticWaveform;
 #[cfg(feature = "terminal")]
 pub use terminal::{Terminal, TerminalConfig, TerminalSession};
 #[cfg(feature = "ffmpeg")]
-pub use video_view::{video_player_view, VideoView};
+pub use video_view::{
+    frames_preview, video_player_view, FileSource, FramesSource, FullscreenCtl, MediaSource,
+    VideoPlayerView, VideoView,
+};

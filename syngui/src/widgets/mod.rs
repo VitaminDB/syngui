@@ -64,7 +64,10 @@ pub use visual::{
     ProgressBar, RichText, TextSpan,
 };
 #[cfg(feature = "ffmpeg")]
-pub use visual::{video_player_view, VideoView};
+pub use visual::{
+    frames_preview, video_player_view, FileSource, FramesSource, FullscreenCtl, MediaSource,
+    VideoPlayerView, VideoView,
+};
 pub use visual::{LiveFrame, LiveInput, LiveView};
 #[cfg(feature = "map")]
 pub use visual::{

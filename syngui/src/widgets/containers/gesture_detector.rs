@@ -73,6 +73,7 @@ pub struct GestureDetector {
     on_click_at: Option<ClickAtCb>,
     on_click_with_bounds: Option<ClickBoundsCb>,
     on_double_click: Option<ClickCb>,
+    on_double_click_with_bounds: Option<ClickBoundsCb>,
     on_hover_change: Option<HoverCb>,
     on_mouse_down: Option<MouseBtnCb>,
     on_mouse_up: Option<MouseBtnCb>,
@@ -102,6 +103,7 @@ impl GestureDetector {
             on_click_at: None,
             on_click_with_bounds: None,
             on_double_click: None,
+            on_double_click_with_bounds: None,
             on_hover_change: None,
             on_mouse_down: None,
             on_mouse_up: None,
@@ -232,6 +234,13 @@ impl GestureDetector {
         self
     }
 
+    /// Двойной щелчок (двойной тап) с точкой и границами детектора — в
+    /// одних координатах: так видно, по какой части пришлось нажатие.
+    pub fn on_double_click_with_bounds(mut self, cb: impl FnMut(Point, Rect) + Send + 'static) -> Self {
+        self.on_double_click_with_bounds = Some(Arc::new(Mutex::new(cb)));
+        self
+    }
+
     pub fn on_hover_change(mut self, cb: impl FnMut(bool) + Send + 'static) -> Self {
         self.on_hover_change = Some(Arc::new(Mutex::new(cb)));
         self
@@ -280,6 +289,7 @@ impl Widget for GestureDetector {
             on_click_at: self.on_click_at.clone(),
             on_click_with_bounds: self.on_click_with_bounds.clone(),
             on_double_click: self.on_double_click.clone(),
+            on_double_click_with_bounds: self.on_double_click_with_bounds.clone(),
             on_hover_change: self.on_hover_change.clone(),
             on_mouse_down: self.on_mouse_down.clone(),
             on_mouse_up: self.on_mouse_up.clone(),
@@ -350,6 +360,7 @@ pub struct GestureDetectorElement {
     on_click_at: Option<ClickAtCb>,
     on_click_with_bounds: Option<ClickBoundsCb>,
     on_double_click: Option<ClickCb>,
+    on_double_click_with_bounds: Option<ClickBoundsCb>,
     on_hover_change: Option<HoverCb>,
     on_mouse_down: Option<MouseBtnCb>,
     on_mouse_up: Option<MouseBtnCb>,
@@ -628,6 +639,7 @@ impl Element for GestureDetectorElement {
             self.on_click_at = gd.on_click_at.clone();
             self.on_click_with_bounds = gd.on_click_with_bounds.clone();
             self.on_double_click = gd.on_double_click.clone();
+            self.on_double_click_with_bounds = gd.on_double_click_with_bounds.clone();
             self.on_hover_change = gd.on_hover_change.clone();
             self.on_mouse_down = gd.on_mouse_down.clone();
             self.on_mouse_up = gd.on_mouse_up.clone();
@@ -805,6 +817,11 @@ impl Element for GestureDetectorElement {
                     if let Some(ref cb) = self.on_double_click {
                         if let Ok(mut f) = cb.lock() {
                             f();
+                        }
+                    }
+                    if let Some(ref cb) = self.on_double_click_with_bounds {
+                        if let Ok(mut f) = cb.lock() {
+                            f(*position, self.bounds);
                         }
                     }
                     return EventResult::Handled;

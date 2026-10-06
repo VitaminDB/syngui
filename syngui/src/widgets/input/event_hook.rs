@@ -99,6 +99,8 @@ type KeyHandler = Arc<dyn Fn(Key, Modifiers) -> KeyReply + Send + Sync>;
 type RemoteHandler = Arc<dyn Fn(RemoteKey) -> bool + Send + Sync>;
 type BackHandler = Arc<dyn Fn() -> bool + Send + Sync>;
 type CharHandler = Arc<dyn Fn(char) -> bool + Send + Sync>;
+type KeyFilter = Arc<dyn Fn(Key) -> bool + Send + Sync>;
+type MoveHandler = Arc<dyn Fn(bool) + Send + Sync>;
 
 type LifecycleHandler = Arc<dyn Fn() + Send + Sync>;
 
@@ -110,6 +112,8 @@ pub struct EventHook {
     on_char: Option<CharHandler>,
     on_suspend: Option<LifecycleHandler>,
     on_resume: Option<LifecycleHandler>,
+    capture_keys: Option<KeyFilter>,
+    on_mouse_move: Option<MoveHandler>,
     bounds_out: Option<Arc<crate::core::sync::Mutex<Rect>>>,
     child: Option<Box<dyn Widget>>,
 }
@@ -124,6 +128,8 @@ impl EventHook {
             on_char: None,
             on_suspend: None,
             on_resume: None,
+            capture_keys: None,
+            on_mouse_move: None,
             bounds_out: None,
             child: None,
         }
@@ -185,6 +191,22 @@ impl EventHook {
         self
     }
 
+    /// Клавиши, которые обёртка забирает раньше своих детей: без этого
+    /// сфокусированный ребёнок (слайдер, кнопка) съел бы их первым — стрелки
+    /// у `Slider`, пробел у `ToolButton`. Забранная клавиша идёт в
+    /// `on_key_down`/`on_key_up`.
+    pub fn capture_keys(mut self, filter: impl Fn(Key) -> bool + Send + Sync + 'static) -> Self {
+        self.capture_keys = Some(Arc::new(filter));
+        self
+    }
+
+    /// Движение мыши: `true` — курсор над обёрткой, `false` — ушёл с неё.
+    /// Событие не поглощается — дети получают его как обычно.
+    pub fn on_mouse_move(mut self, handler: impl Fn(bool) + Send + Sync + 'static) -> Self {
+        self.on_mouse_move = Some(Arc::new(handler));
+        self
+    }
+
     /// Публиковать собственные границы (для позиционирования поповеров).
     pub fn report_bounds(mut self, out: Arc<crate::core::sync::Mutex<Rect>>) -> Self {
         self.bounds_out = Some(out);
@@ -214,6 +236,8 @@ impl Widget for EventHook {
             on_char: self.on_char.clone(),
             on_suspend: self.on_suspend.clone(),
             on_resume: self.on_resume.clone(),
+            capture_keys: self.capture_keys.clone(),
+            on_mouse_move: self.on_mouse_move.clone(),
             bounds_out: self.bounds_out.clone(),
             has_child: self.child.is_some(),
             bounds: Rect::zero(),
@@ -261,6 +285,8 @@ struct EventHookElement {
     on_char: Option<CharHandler>,
     on_suspend: Option<LifecycleHandler>,
     on_resume: Option<LifecycleHandler>,
+    capture_keys: Option<KeyFilter>,
+    on_mouse_move: Option<MoveHandler>,
     bounds_out: Option<Arc<crate::core::sync::Mutex<Rect>>>,
     has_child: bool,
     bounds: Rect,
@@ -289,6 +315,8 @@ impl Element for EventHookElement {
             self.on_char = hook.on_char.clone();
             self.on_suspend = hook.on_suspend.clone();
             self.on_resume = hook.on_resume.clone();
+            self.capture_keys = hook.capture_keys.clone();
+            self.on_mouse_move = hook.on_mouse_move.clone();
             self.bounds_out = hook.bounds_out.clone();
             self.has_child = hook.child.is_some();
             self.publish_bounds();
@@ -318,6 +346,12 @@ impl Element for EventHookElement {
 
     fn handle_event(&mut self, event: &Event, ctx: &mut EventContext) -> EventResult {
         match event {
+            Event::MouseMove(pos) => {
+                if let Some(h) = self.on_mouse_move.as_ref() {
+                    h(self.bounds.contains(*pos));
+                }
+                return EventResult::Ignored;
+            }
             Event::AppSuspended => {
                 if let Some(h) = self.on_suspend.as_ref() {
                     h();
@@ -376,6 +410,13 @@ impl Element for EventHookElement {
             }
         }
         EventResult::Ignored
+    }
+
+    fn intercepts_event(&self, event: &Event) -> bool {
+        match (event, &self.capture_keys) {
+            (Event::KeyDown(key) | Event::KeyUp(key), Some(filter)) => filter(*key),
+            _ => false,
+        }
     }
 
     fn animate(&mut self, _dt: Duration) -> bool {
