@@ -39,6 +39,9 @@ impl ElementTree {
                     node.element.element_type_name()
                 );
             }
+            if ctx.watch_pointer && !self.pointer_watchers.contains(&id) {
+                self.pointer_watchers.push(id);
+            }
             let ctx_dirty = ctx.take_dirty_flags();
             let did_something =
                 result.is_handled() || !ctx_dirty.is_empty() || ctx.has_side_effects();
@@ -73,6 +76,7 @@ impl ElementTree {
             self.press_owner = None;
         }
         let result = self.do_handle_event(root_id, event);
+        self.notify_pointer_watchers(event);
         if is_release {
             self.mouse_captor = None;
             if matches!(event, Event::MouseUp { .. }) {
@@ -80,6 +84,26 @@ impl ElementTree {
             }
         }
         result
+    }
+
+    /// Дослать движение и отпускание тем, кто следит за указателем
+    /// (`EventContext::watch_pointer`): обычный путь отдаёт их только
+    /// захватчику. Повтор для элемента, уже получившего событие, безвреден —
+    /// наблюдатели только обновляют своё состояние.
+    fn notify_pointer_watchers(&mut self, event: &Event) {
+        if self.pointer_watchers.is_empty()
+            || !matches!(event, Event::TouchMove { .. } | Event::TouchEnd { .. } | Event::MouseMove(_) | Event::MouseUp { .. })
+        {
+            return;
+        }
+        for id in std::mem::take(&mut self.pointer_watchers) {
+            if !self.elements.contains_key(&id) {
+                continue;
+            }
+            let (s, k) = self.accumulated_event_transform(id);
+            let adj = if is_identity_transform(s, k) { event.clone() } else { event.with_inverse_transform(s, k) };
+            self.dispatch_event_to(id, &adj);
+        }
     }
 
     fn do_handle_event(&mut self, root_id: ElementId, event: &Event) -> EventResult {
@@ -726,6 +750,9 @@ impl ElementTree {
                     node.element.element_type_name()
                 );
             }
+            if ctx.watch_pointer && !self.pointer_watchers.contains(&id) {
+                self.pointer_watchers.push(id);
+            }
             let ctx_dirty = ctx.take_dirty_flags();
             let did_something =
                 result.is_handled() || !ctx_dirty.is_empty() || ctx.has_side_effects();
@@ -893,6 +920,9 @@ impl ElementTree {
         let mut result = EventResult::Ignored;
         if let Some(node) = self.elements.get_mut(&target_id) {
             let r = node.element.handle_event(event, &mut ctx);
+            if ctx.watch_pointer && !self.pointer_watchers.contains(&target_id) {
+                self.pointer_watchers.push(target_id);
+            }
             let ctx_dirty = ctx.take_dirty_flags();
             let did_something = r.is_handled() || !ctx_dirty.is_empty();
             if !ctx_dirty.is_empty() {

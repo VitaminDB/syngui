@@ -268,6 +268,10 @@ impl DecoratedBoxElement {
 }
 
 impl Element for DecoratedBoxElement {
+    fn as_any_mut(&mut self) -> Option<&mut dyn Any> {
+        Some(self)
+    }
+
     fn update(&mut self, widget: &dyn Widget, _ctx: &mut UpdateContext) {
         if let Some(db) = widget.as_any().downcast_ref::<DecoratedBox>() {
             self.clip = db.clip;
@@ -641,6 +645,11 @@ impl Element for DecoratedBoxElement {
                 Event::FocusLost => self.press = None,
                 _ => {}
             }
+            // Отпускание и сдвиг пальца уходят захватчику (родителю с
+            // жестом) — попросить дерево дослать их и нам.
+            if self.press.is_some() {
+                ctx.watch_pointer();
+            }
             if self.press.is_some() != was {
                 self.start_transition_to_current_state();
                 self.mark_dirty(DirtyFlags::RENDER);
@@ -968,5 +977,38 @@ impl StyledElement for DecoratedBoxElement {
     fn set_classes(&mut self, classes: Vec<String>) {
         self.classes = classes;
         self.mark_dirty(DirtyFlags::RENDER);
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::testing::TestHarness;
+    use crate::widgets::containers::gesture_detector::GestureDetector;
+    use crate::widget::WidgetExt;
+
+    fn pressed(h: &mut TestHarness) -> bool {
+        let id = h.find_by_class("k")[0];
+        let node = h.tree.elements.get_mut(&id).unwrap();
+        node.element.as_any_mut().unwrap().downcast_mut::<DecoratedBoxElement>().unwrap().press.is_some()
+    }
+
+    /// Клавиша экранной клавиатуры: касание забирает родитель-GestureDetector
+    /// (захватчик), а `:active` вложенного блока должен сниматься отпусканием.
+    #[test]
+    fn active_released_when_parent_captures_touch() {
+        let w = GestureDetector::new().on_press(|_| {}).on_release(|_| {}).child(DecoratedBox::new().class("k"));
+        let mut h = TestHarness::new(Box::new(w));
+        h.apply_mss(".k { width: 40; height: 40; background-color: #333333; } .k:active { background-color: #ff0000; }");
+        h.layout(40.0, 40.0);
+        h.touch_down(1, Point::new(20.0, 20.0));
+        assert!(pressed(&mut h));
+        h.touch_up(1);
+        assert!(!pressed(&mut h), ":active остался после отпускания");
+        // Палец уехал (прокрутка) — подсветка снимается и до отпускания.
+        h.touch_down(2, Point::new(20.0, 20.0));
+        h.touch_move(2, Point::new(20.0, 38.0));
+        assert!(!pressed(&mut h));
+        h.touch_up(2);
     }
 }

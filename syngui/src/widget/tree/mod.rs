@@ -175,6 +175,9 @@ pub struct ElementTree {
     pub(crate) rebuild_registry: std::collections::HashSet<ElementId>,
     pub(crate) last_hovered_path: Vec<ElementId>,
     pub(crate) mouse_captor: Option<ElementId>,
+    /// Элементы, попросившие следующие события указателя
+    /// ([`EventContext::watch_pointer`]).
+    pub(crate) pointer_watchers: Vec<ElementId>,
     /// Самый глубокий элемент, принявший последнее нажатие. Захват
     /// (`mouse_captor`) в окне-оверлее ставится на корень оверлея, и
     /// отпускание кнопки вне перетаскиваемого виджета до него не доходило:
@@ -248,6 +251,7 @@ impl ElementTree {
             rebuild_registry: std::collections::HashSet::new(),
             last_hovered_path: Vec::new(),
             mouse_captor: None,
+            pointer_watchers: Vec::new(),
             press_owner: None,
             text_selection_owner: None,
             event_xform: (Point::zero(), 1.0),

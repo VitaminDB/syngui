@@ -155,18 +155,31 @@ pub struct EventContext {
     /// владельца и доставляет ему MouseDown вне его границ, чтобы клик по
     /// свободному месту снимал выделение (см. `ElementTree::text_selection_owner`).
     pub(crate) text_selection_claim: Option<bool>,
+    /// Элемент следит за пальцем/кнопкой (подсветка `:active`): дерево
+    /// дошлёт ему следующие движения и отпускание, даже если их забрал
+    /// захватчик ([`Self::watch_pointer`]).
+    pub(crate) watch_pointer: bool,
     window_flags: u8,
     /// Координаты элемента → окно: `окно = p·k − s` (см. `to_window_rect`).
     window_xform: (crate::core::Point, f32),
 }
 
 impl EventContext {
+    /// Прислать этому элементу следующее `TouchMove`/`TouchEnd`/`MouseMove`/
+    /// `MouseUp`, даже если событие заберёт захватчик (нажатие разбирает
+    /// родитель-GestureDetector, а вложенный элемент подсвечивает `:active`).
+    /// Действует на одно событие — дальше вызывать снова, пока нужно.
+    pub fn watch_pointer(&mut self) {
+        self.watch_pointer = true;
+    }
+
     pub fn new(element_id: ElementId) -> Self {
         Self {
             element_id,
             cursor_position: crate::core::Point::zero(),
             modifiers: crate::input::Modifiers::empty(),
             captured: false,
+            watch_pointer: false,
             needs_paint: false,
             needs_layout: false,
             dirty_flags: DirtyFlags::empty(),
