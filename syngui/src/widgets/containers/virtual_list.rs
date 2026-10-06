@@ -666,6 +666,19 @@ impl Element for VirtualListElement {
         list.push_rect(self.scrollbar_thumb(), color, radius);
     }
 
+    fn scrollbar_hit(&self, event: &Event) -> bool {
+        match event {
+            Event::MouseDown {
+                button: MouseButton::Left,
+                position,
+            } => {
+                let thumb = self.scrollbar_thumb();
+                thumb.size.height > 0.0 && thumb.contains(*position)
+            }
+            _ => false,
+        }
+    }
+
     fn handle_event(&mut self, event: &Event, ctx: &mut EventContext) -> EventResult {
         match event {
             Event::MouseWheel {

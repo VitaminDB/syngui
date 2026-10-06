@@ -223,6 +223,12 @@ pub trait Element: Send {
         true
     }
 
+    /// Щелчок в этой точке отдаёт элементу фокус клавиатуры, хотя сам он
+    /// не текстовое поле: например, таблица со строкой ввода в заголовке.
+    fn keyboard_focus_hit(&self, _point: Point) -> bool {
+        false
+    }
+
     fn overlay_request(&self) -> Option<(Rect, bool)> {
         None
     }
@@ -338,6 +344,13 @@ pub trait Element: Send {
     /// остальные (наведение, колесо) ребёнку по-прежнему нужны.
     fn intercepts_event(&self, _event: &Event) -> bool {
         self.intercepts_child_events()
+    }
+
+    /// Нажатие `event` (в координатах элемента) попадает на собственную
+    /// полосу прокрутки элемента. Нужен для вложенных прокручиваемых
+    /// областей: полосу внутреннего списка внешняя область не перехватывает.
+    fn scrollbar_hit(&self, _event: &Event) -> bool {
+        false
     }
 
     fn set_content_size(&mut self, _size: Size) {}
@@ -498,6 +511,10 @@ impl Element for Box<dyn Element> {
         self.as_ref().text_input_hit(point)
     }
 
+    fn keyboard_focus_hit(&self, point: Point) -> bool {
+        self.as_ref().keyboard_focus_hit(point)
+    }
+
     fn overlay_request(&self) -> Option<(Rect, bool)> {
         self.as_ref().overlay_request()
     }
@@ -618,6 +635,10 @@ impl Element for Box<dyn Element> {
 
     fn intercepts_event(&self, event: &Event) -> bool {
         self.as_ref().intercepts_event(event)
+    }
+
+    fn scrollbar_hit(&self, event: &Event) -> bool {
+        self.as_ref().scrollbar_hit(event)
     }
 
     fn set_content_size(&mut self, size: Size) {

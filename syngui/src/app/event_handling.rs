@@ -213,6 +213,13 @@ impl winit::application::ApplicationHandler<SynGuiUserEvent> for AppHandler {
                 }
             }
             winit::event::WindowEvent::CursorLeft { .. } => {
+                // Во время перетаскивания (кнопка зажата, есть захватчик)
+                // уход курсора за окно — не «мышь ушла»: координаты (−1, −1)
+                // захватчик принял бы за движение и, например, прокрутил бы
+                // список в начало. Отпускание придёт обычным MouseInput.
+                if self.tree.mouse_captor.is_some() {
+                    return;
+                }
                 if let Some(root_id) = self.root_id {
                     let off_screen = Event::MouseMove(Point::new(-1.0, -1.0));
                     let _ = self.tree.handle_event(root_id, &off_screen);

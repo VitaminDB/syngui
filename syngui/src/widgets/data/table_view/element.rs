@@ -95,6 +95,7 @@ impl Widget for TableView {
             h_scrollbar_hovered: false,
             velocity: 0.0,
             hovered_row: None,
+            kb_anchor: None,
             hovered_header_col: None,
             settings_button_hovered: false,
             popover_open: false,
@@ -152,6 +153,9 @@ impl Widget for TableView {
             column_order_state: self.column_order_state.clone(),
             reorderable_columns: self.reorderable_columns,
             on_column_reorder: self.on_column_reorder.clone(),
+            header_filters: self.header_filter_values.clone(),
+            on_header_filter: self.on_header_filter.clone(),
+            header_filter_edit: None,
             header_press: None,
             resize_state: None,
             on_column_resize: self.on_column_resize.clone(),
@@ -221,6 +225,9 @@ pub struct TableViewElement {
     h_scrollbar_hovered: bool,
     velocity: f32,
     hovered_row: Option<usize>,
+    /// Опорная строка для Shift+стрелок (физический индекс): от неё
+    /// выделяется промежуток.
+    kb_anchor: Option<usize>,
     hovered_header_col: Option<usize>,
     settings_button_hovered: bool,
     popover_open: bool,
@@ -267,6 +274,10 @@ pub struct TableViewElement {
     column_order: Vec<usize>,
     column_order_state: Option<Arc<Mutex<Vec<usize>>>>,
     reorderable_columns: bool,
+    header_filters: Vec<String>,
+    on_header_filter: Option<Arc<Mutex<dyn FnMut(usize, String) + Send>>>,
+    /// Столбец, в заголовке которого сейчас вводится фильтр.
+    header_filter_edit: Option<usize>,
     on_column_reorder: Option<Arc<Mutex<dyn FnMut(Vec<usize>) + Send>>>,
     /// Нажатие на заголовок, которое ещё может стать переносом столбца.
     header_press: Option<HeaderPress>,
@@ -360,6 +371,8 @@ struct HeaderPress {
     /// заголовка едет, держась за то же место.
     grab_dx: f32,
     dragging: bool,
+    /// Нажали на название, а не на стрелки: без переноса это ввод фильтра.
+    filter: bool,
 }
 
 /// Приводит порядок к перестановке `0..n`: индексы вне диапазона и повторы
@@ -948,6 +961,130 @@ impl TableViewElement {
                 }
             }
             _ => return EventResult::Ignored,
+        }
+        ctx.request_paint();
+        EventResult::Handled
+    }
+
+    /// Нажатие пришлось на стрелки сортировки в заголовке столбца.
+    fn header_sort_icon_hit(&self, col_idx: usize, x: f32) -> bool {
+        let Some(col) = self.columns.get(col_idx) else {
+            return false;
+        };
+        if !(self.sortable && col.sortable) {
+            return false;
+        }
+        let Some((cx, w)) = self.col_x_screen(col_idx) else {
+            return false;
+        };
+        x >= cx + w - self.header_padding - SORT_ICON_SIZE - SORT_ICON_PADDING
+    }
+
+    fn header_filter_text(&self, col: usize) -> &str {
+        self.header_filters.get(col).map(String::as_str).unwrap_or("")
+    }
+
+    fn start_header_filter(&mut self, col: usize) {
+        self.header_filter_edit = Some(col);
+        self.focused = true;
+    }
+
+    fn set_header_filter(&mut self, col: usize, text: String) {
+        if self.header_filters.len() <= col {
+            self.header_filters.resize(self.columns.len().max(col + 1), String::new());
+        }
+        self.header_filters[col] = text.clone();
+        if let Some(ref cb) = self.on_header_filter {
+            if let Ok(mut f) = cb.lock() {
+                f(col, text);
+            }
+        }
+    }
+
+    fn handle_header_filter_key(&mut self, key: Key, ctx: &mut EventContext) -> EventResult {
+        let Some(col) = self.header_filter_edit else {
+            return EventResult::Ignored;
+        };
+        match key {
+            Key::Escape => {
+                self.set_header_filter(col, String::new());
+                self.header_filter_edit = None;
+            }
+            Key::Enter | Key::Tab => self.header_filter_edit = None,
+            Key::Backspace => {
+                let mut text = self.header_filter_text(col).to_string();
+                text.pop();
+                self.set_header_filter(col, text);
+            }
+            // Стрелки и прочее — не листают таблицу, пока идёт ввод.
+            _ => {}
+        }
+        ctx.request_paint();
+        EventResult::Handled
+    }
+
+    /// Клавиши таблицы со строковым выделением (без навигации по ячейкам):
+    /// стрелки и PageUp/PageDown/Home/End двигают выделение, с Shift —
+    /// расширяют его от опорной строки. Без выделения строк — прокрутка.
+    fn handle_row_keys(&mut self, key: Key, ctx: &mut EventContext) -> EventResult {
+        let n = self.row_count();
+        if n == 0 {
+            return EventResult::Ignored;
+        }
+        let page = self.visible_row_count().max(1);
+        let last = n - 1;
+        if self.on_selection_change.is_none() {
+            let body_h = self.body_rect().size.height;
+            let rh = self.row_height.max(1.0);
+            let max_s = self.max_scroll();
+            let to = match key {
+                Key::Up => self.scroll_offset - rh,
+                Key::Down => self.scroll_offset + rh,
+                Key::PageUp => self.scroll_offset - body_h,
+                Key::PageDown => self.scroll_offset + body_h,
+                Key::Home => 0.0,
+                Key::End => max_s,
+                _ => return EventResult::Ignored,
+            };
+            self.set_scroll_offset(to.clamp(0.0, max_s));
+            self.ensure_cached_for_viewport();
+            ctx.request_paint();
+            return EventResult::Handled;
+        }
+        let cur = self.selected_rows.last().map(|&r| self.visible_row(r));
+        let target = match key {
+            Key::Up => cur.map_or(0, |v| v.saturating_sub(1)),
+            Key::Down => cur.map_or(0, |v| (v + 1).min(last)),
+            Key::PageUp => cur.map_or(0, |v| v.saturating_sub(page)),
+            Key::PageDown => cur.map_or(page.min(last), |v| (v + page).min(last)),
+            Key::Home => 0,
+            Key::End => last,
+            _ => return EventResult::Ignored,
+        };
+        let phys = self.physical_row(target);
+        if ctx.modifiers.shift {
+            let anchor = self
+                .kb_anchor
+                .or_else(|| self.selected_rows.first().copied())
+                .unwrap_or(phys);
+            let a = self.visible_row(anchor);
+            // Опорная — первой, текущая — последней: следующее нажатие
+            // продолжает от неё.
+            self.selected_rows = if a <= target {
+                (a..=target).map(|v| self.physical_row(v)).collect()
+            } else {
+                (target..=a).rev().map(|v| self.physical_row(v)).collect()
+            };
+            self.kb_anchor = Some(anchor);
+        } else {
+            self.selected_rows = vec![phys];
+            self.kb_anchor = Some(phys);
+        }
+        self.scroll_to_visible_row(target);
+        if let Some(ref cb) = self.on_selection_change {
+            if let Ok(mut f) = cb.lock() {
+                f(self.selected_rows.clone());
+            }
         }
         ctx.request_paint();
         EventResult::Handled
@@ -1680,14 +1817,57 @@ impl TableViewElement {
                 Point::new(cx, self.bounds.y()),
                 Size::new(w, self.header_height),
             ));
-            list.push_text_singleline(
-                &col.header,
-                text_rect,
-                cell_fg,
-                h_font_size,
-                col.align.to_text_align(),
-                600,
-            );
+            let filter_text = self
+                .header_filters
+                .get(phys_i)
+                .map(String::as_str)
+                .unwrap_or("");
+            let filter_editing = self.header_filter_edit == Some(phys_i);
+            if filter_editing || !filter_text.is_empty() {
+                // Поле фильтра — подсвеченная плашка на месте названия.
+                let accent = self.mss.accent_color.unwrap_or(Color::from_hex("#3B82F6"));
+                let pill = Rect::new(
+                    Point::new(cx + 4.0, self.bounds.y() + 6.0),
+                    Size::new(
+                        (w - 8.0 - icon_w).max(0.0),
+                        (self.header_height - 12.0).max(0.0),
+                    ),
+                );
+                if filter_editing {
+                    list.push_rect_bordered(
+                        pill,
+                        accent.with_alpha(0.22),
+                        [6.0; 4],
+                        Border::new(1.0, accent.with_alpha(0.7)),
+                    );
+                } else {
+                    list.push_rect(pill, accent.with_alpha(0.12), [6.0; 4]);
+                }
+                let (text, color) = if filter_editing && filter_text.is_empty() {
+                    (format!("{}…|", col.header), header_fg.with_alpha(0.5))
+                } else if filter_editing {
+                    (format!("{filter_text}|"), accent)
+                } else {
+                    (filter_text.to_string(), accent)
+                };
+                list.push_text_singleline(
+                    &text,
+                    text_rect,
+                    color,
+                    h_font_size,
+                    TextAlign::LEFT,
+                    600,
+                );
+            } else {
+                list.push_text_singleline(
+                    &col.header,
+                    text_rect,
+                    cell_fg,
+                    h_font_size,
+                    col.align.to_text_align(),
+                    600,
+                );
+            }
             list.pop_clip();
 
             if icon_w > 0.0 {
@@ -2013,6 +2193,15 @@ impl Element for TableViewElement {
                 self.needs_child_rebuild = self.compositional;
             }
             self.reorderable_columns = tv.reorderable_columns;
+            self.on_header_filter = tv.on_header_filter.clone();
+            // Пока идёт ввод, свой буфер главнее: значение приложения
+            // догоняет его через on_change.
+            if self.header_filter_edit.is_none() || self.on_header_filter.is_none() {
+                self.header_filters = tv.header_filter_values.clone();
+                if self.on_header_filter.is_none() {
+                    self.header_filter_edit = None;
+                }
+            }
             self.on_column_reorder = tv.on_column_reorder.clone();
             self.column_order_state = tv.column_order_state.clone();
             // Без общего состояния порядок живёт в самом элементе: столбцы,
@@ -2531,6 +2720,42 @@ impl Element for TableViewElement {
         needs_repaint
     }
 
+    /// Щелчок по названию столбца с быстрым фильтром — ввод текста, ему
+    /// нужен фокус клавиатуры.
+    fn keyboard_focus_hit(&self, point: Point) -> bool {
+        if self.on_header_filter.is_none()
+            || point.y < self.bounds.y()
+            || point.y >= self.bounds.y() + self.header_height
+        {
+            return false;
+        }
+        if self
+            .settings_button_rect()
+            .is_some_and(|r| r.contains(point))
+            || self.hit_resize_handle(point).is_some()
+        {
+            return false;
+        }
+        self.col_at_x(point.x)
+            .is_some_and(|col| !self.header_sort_icon_hit(col, point.x))
+    }
+
+    fn scrollbar_hit(&self, event: &Event) -> bool {
+        match event {
+            Event::MouseDown {
+                button: MouseButton::Left,
+                position,
+            } => {
+                self.scrollbar_rects()
+                    .is_some_and(|(track, _)| track.contains(*position))
+                    || self
+                        .h_scrollbar_rects()
+                        .is_some_and(|(track, _)| track.contains(*position))
+            }
+            _ => false,
+        }
+    }
+
     fn handle_event(&mut self, event: &Event, ctx: &mut EventContext) -> EventResult {
         match event {
             Event::MouseMove(pos) => {
@@ -2854,8 +3079,16 @@ impl Element for TableViewElement {
                     return EventResult::Handled;
                 }
 
+                // Щелчок мимо заголовка (или по другому столбцу) заканчивает
+                // ввод фильтра; текст остаётся.
+                if self.header_filter_edit.is_some() {
+                    self.header_filter_edit = None;
+                    ctx.request_paint();
+                }
                 if position.y < self.bounds.y() + self.header_height {
                     if let Some(col_idx) = self.col_at_x(position.x) {
+                        let filter_click = self.on_header_filter.is_some()
+                            && !self.header_sort_icon_hit(col_idx, position.x);
                         if self.reorderable_columns {
                             // Щелчок это или перенос, станет ясно по движению
                             // мыши, поэтому сортировка ждёт отпускания кнопки.
@@ -2869,7 +3102,13 @@ impl Element for TableViewElement {
                                 x: position.x,
                                 grab_dx: position.x - left,
                                 dragging: false,
+                                filter: filter_click,
                             });
+                            return EventResult::Handled;
+                        }
+                        if filter_click {
+                            self.start_header_filter(col_idx);
+                            ctx.request_paint();
                             return EventResult::Handled;
                         }
                         if self.toggle_sort(col_idx) {
@@ -2986,6 +3225,7 @@ impl Element for TableViewElement {
                         }
                     } else if let Some(pos) = self.selected_rows.iter().position(|&r| r == phys_row)
                     {
+                        self.kb_anchor = Some(phys_row);
                         if self.selected_rows.len() == 1 {
                             self.selected_rows.remove(pos);
                         } else {
@@ -2993,6 +3233,7 @@ impl Element for TableViewElement {
                         }
                     } else {
                         self.selected_rows = vec![phys_row];
+                        self.kb_anchor = Some(phys_row);
                     }
                     if let Some(ref cb) = self.on_selection_change {
                         if let Ok(mut f) = cb.lock() {
@@ -3028,6 +3269,23 @@ impl Element for TableViewElement {
                     && (self.focused || self.popover_open) =>
             {
                 self.handle_key_nav(*key, ctx)
+            }
+            Event::KeyDown(key) if self.header_filter_edit.is_some() => {
+                self.handle_header_filter_key(*key, ctx)
+            }
+            Event::CharInput(ch) if self.header_filter_edit.is_some() => {
+                if !ch.is_control() {
+                    if let Some(col) = self.header_filter_edit {
+                        let mut text = self.header_filter_text(col).to_string();
+                        text.push(*ch);
+                        self.set_header_filter(col, text);
+                    }
+                    ctx.request_paint();
+                }
+                EventResult::Handled
+            }
+            Event::KeyDown(key) if self.focused && self.edit_state.is_none() => {
+                self.handle_row_keys(*key, ctx)
             }
             Event::CharInput(ch) if self.edit_state.is_some() => {
                 if !ch.is_control() {
@@ -3066,6 +3324,7 @@ impl Element for TableViewElement {
             }
             Event::FocusLost => {
                 self.focused = false;
+                self.header_filter_edit = None;
                 if self.edit_state.is_some() {
                     self.commit_edit();
                 }
@@ -3083,6 +3342,8 @@ impl Element for TableViewElement {
                     if press.dragging {
                         let slot = self.column_drop_slot(press.x);
                         self.move_column(press.col, slot);
+                    } else if press.filter {
+                        self.start_header_filter(press.col);
                     } else {
                         self.toggle_sort(press.col);
                     }

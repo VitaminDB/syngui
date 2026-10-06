@@ -69,9 +69,15 @@ impl ElementTree {
         // TouchEnd снимает захват так же, как MouseUp: при скролле синтезиро-
         // ванного MouseUp не будет, и захватчик повис бы до следующего клика.
         let is_release = matches!(event, Event::MouseUp { .. } | Event::TouchEnd { .. });
+        if matches!(event, Event::MouseDown { .. }) {
+            self.press_owner = None;
+        }
         let result = self.do_handle_event(root_id, event);
         if is_release {
             self.mouse_captor = None;
+            if matches!(event, Event::MouseUp { .. }) {
+                self.release_press_owner(event);
+            }
         }
         result
     }
@@ -153,6 +159,7 @@ impl ElementTree {
                     if matches!(event, Event::MouseDown { .. }) && result.is_handled() {
                         self.last_mousedown_element = Some(entry.element_id);
                         self.mouse_captor = Some(entry.element_id);
+                        self.press_owner.get_or_insert(entry.element_id);
                     }
                     // Жест пальцем, начатый в оверлее (прокрутка списка
                     // Dropdown), остаётся за ним и когда палец выходит за
@@ -285,12 +292,23 @@ impl ElementTree {
             eprintln!("hit {event:?}: {}", names.join(" > "));
         }
 
-        if let Some(cut) = path.iter().position(|id| {
+        let mut cut = path.iter().position(|id| {
             self.elements
                 .get(id)
                 .map(|n| n.element.intercepts_event(event))
                 .unwrap_or(false)
-        }) {
+        });
+        // Внешняя прокручиваемая область перехватывает нажатие на своей
+        // полосе, но если под курсором и полоса вложенного списка (список
+        // с прокруткой внутри прокручиваемого окна), тянуть надо её.
+        if let Some(c) = cut {
+            if self.scrollbar_hit_at(path[c], event) {
+                if let Some(inner) = path.iter().rposition(|id| self.scrollbar_hit_at(*id, event)) {
+                    cut = Some(inner);
+                }
+            }
+        }
+        if let Some(cut) = cut {
             path.truncate(cut + 1);
         }
 
@@ -309,6 +327,7 @@ impl ElementTree {
                 if matches!(event, Event::MouseDown { .. }) {
                     self.last_mousedown_element = Some(id);
                     self.mouse_captor = Some(id);
+                    self.press_owner.get_or_insert(id);
                 }
                 // Захват тач-жеста: кто заклеймил TouchStart (слайдер,
                 // ScrollView), тот получает и последующие TouchMove/TouchEnd,
@@ -320,6 +339,46 @@ impl ElementTree {
             }
         }
         EventResult::Ignored
+    }
+
+    /// Отпускание кнопки вне границ элемента, принявшего нажатие, отдаётся
+    /// ему напрямую: обычная доставка (захватчик — корень оверлея, или
+    /// hit-test под курсором) могла до него не дойти, и он остался бы в
+    /// состоянии перетаскивания. Внутри границ он уже получил отпускание
+    /// обычным путём — повтор вызвал бы второй щелчок.
+    fn release_press_owner(&mut self, event: &Event) {
+        let Some(owner) = self.press_owner.take() else {
+            return;
+        };
+        let Some(node) = self.elements.get(&owner) else {
+            return;
+        };
+        let (s, k) = self.accumulated_event_transform(owner);
+        let adj = if is_identity_transform(s, k) {
+            event.clone()
+        } else {
+            event.with_inverse_transform(s, k)
+        };
+        let inside = adj
+            .position()
+            .is_some_and(|p| node.element.bounds().contains(p));
+        if !inside {
+            self.dispatch_event_to(owner, &adj);
+        }
+    }
+
+    /// Нажатие попадает на полосу прокрутки элемента `id` (событие
+    /// переводится в его координаты).
+    fn scrollbar_hit_at(&self, id: ElementId, event: &Event) -> bool {
+        let Some(node) = self.elements.get(&id) else {
+            return false;
+        };
+        let (s, k) = self.accumulated_event_transform(id);
+        if is_identity_transform(s, k) {
+            node.element.scrollbar_hit(event)
+        } else {
+            node.element.scrollbar_hit(&event.with_inverse_transform(s, k))
+        }
     }
 
     fn dispatch_mouse_move(&mut self, root_id: ElementId, pos: crate::core::Point) -> EventResult {
@@ -691,6 +750,7 @@ impl ElementTree {
             if matches!(event, Event::MouseDown { .. }) && final_result.is_handled() {
                 self.last_mousedown_element = Some(id);
                 self.mouse_captor = Some(id);
+                self.press_owner.get_or_insert(id);
             }
             if did_something {
                 self.sync_registries_for(id);
@@ -1303,4 +1363,41 @@ mod tests {
 fn trace_keys() -> bool {
     static ON: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
     *ON.get_or_init(|| std::env::var_os("SYNGUI_TRACE_KEYS").is_some())
+}
+
+#[cfg(test)]
+mod nested_scrollbar_tests {
+    use crate::core::Point;
+    use crate::input::{Event, MouseButton};
+    use crate::testing::TestHarness;
+    use crate::widgets::data::{ListItem, ListView};
+    use crate::widgets::{Column, ScrollView};
+
+    /// Список со своей полосой прокрутки внутри прокручиваемого окна: нажатие
+    /// на полосе списка достаётся списку, а не внешней области (раньше
+    /// внешняя перехватывала его — полосу списка нельзя было тянуть).
+    #[test]
+    fn inner_list_scrollbar_wins() {
+        let items: Vec<ListItem> = (0..100).map(|i| ListItem::new(format!("строка {i}"))).collect();
+        // Сверху — отступ: ползунок внешней области остаётся выше списка,
+        // нажатие попадает только в её полосу.
+        let page = Column::new()
+            .child(ListView::new(vec![ListItem::new("шапка")]).height(300.0))
+            .child(ListView::new(items).height(200.0))
+            .child(ListView::new(vec![ListItem::new("хвост")]).height(2000.0));
+        let mut h = TestHarness::new(Box::new(ScrollView::new().vertical().child(page)));
+        h.layout(300.0, 400.0);
+        let list = h.find_by_type_name("ListView")[1];
+        let b = h.element_bounds(list);
+        let pos = Point::new(b.origin.x + b.size.width - 3.0, b.origin.y + 20.0);
+        h.send_event(&Event::MouseDown {
+            button: MouseButton::Left,
+            position: pos,
+        });
+        assert_eq!(h.tree.press_owner, Some(list), "нажатие досталось списку");
+        h.send_event(&Event::MouseUp {
+            button: MouseButton::Left,
+            position: pos,
+        });
+    }
 }

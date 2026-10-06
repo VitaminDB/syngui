@@ -175,6 +175,11 @@ pub struct ElementTree {
     pub(crate) rebuild_registry: std::collections::HashSet<ElementId>,
     pub(crate) last_hovered_path: Vec<ElementId>,
     pub(crate) mouse_captor: Option<ElementId>,
+    /// Самый глубокий элемент, принявший последнее нажатие. Захват
+    /// (`mouse_captor`) в окне-оверлее ставится на корень оверлея, и
+    /// отпускание кнопки вне перетаскиваемого виджета до него не доходило:
+    /// полоса прокрутки так и тянулась за мышью до следующего клика.
+    pub(crate) press_owner: Option<ElementId>,
     /// Элемент, владеющий текстовым выделением (`EventContext::claim_text_selection`).
     /// Получает `MouseDown` вне своих границ — по hit-test событие до него не
     /// дошло бы, и выделение оставалось бы висеть после клика по пустому месту.
@@ -243,6 +248,7 @@ impl ElementTree {
             rebuild_registry: std::collections::HashSet::new(),
             last_hovered_path: Vec::new(),
             mouse_captor: None,
+            press_owner: None,
             text_selection_owner: None,
             event_xform: (Point::zero(), 1.0),
             post_layout_sync_registry: std::collections::HashSet::new(),

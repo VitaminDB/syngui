@@ -329,6 +329,10 @@ pub struct TableView {
     pub(super) on_column_visibility_change: Option<Arc<Mutex<dyn FnMut(usize, bool) + Send>>>,
     pub(super) column_order_state: Option<Arc<Mutex<Vec<usize>>>>,
     pub(super) reorderable_columns: bool,
+    /// Быстрый фильтр в заголовке: тексты по физическим столбцам и
+    /// обработчик изменения.
+    pub(super) header_filter_values: Vec<String>,
+    pub(super) on_header_filter: Option<Arc<Mutex<dyn FnMut(usize, String) + Send>>>,
     pub(super) on_column_reorder: Option<Arc<Mutex<dyn FnMut(Vec<usize>) + Send>>>,
     pub(super) keyboard_nav: bool,
     pub(super) editable: bool,
@@ -376,6 +380,8 @@ impl TableView {
             on_column_visibility_change: None,
             column_order_state: None,
             reorderable_columns: false,
+            header_filter_values: Vec::new(),
+            on_header_filter: None,
             on_column_reorder: None,
             keyboard_nav: false,
             editable: false,
@@ -430,6 +436,8 @@ impl TableView {
             on_column_visibility_change: None,
             column_order_state: None,
             reorderable_columns: false,
+            header_filter_values: Vec::new(),
+            on_header_filter: None,
             on_column_reorder: None,
             keyboard_nav: false,
             editable: false,
@@ -538,6 +546,21 @@ impl TableView {
     /// отпускании кнопки, а не на нажатии.
     pub fn reorderable_columns(mut self, enabled: bool) -> Self {
         self.reorderable_columns = enabled;
+        self
+    }
+
+    /// Быстрый фильтр в заголовке: щелчок по названию столбца превращает
+    /// его в поле ввода (сортировка — по стрелкам справа). `values` —
+    /// текущие тексты фильтра по физическим столбцам, `on_change` получает
+    /// столбец и новый текст на каждое нажатие. Esc очищает фильтр
+    /// столбца, Enter и щелчок мимо заголовка заканчивают ввод.
+    pub fn header_filter(
+        mut self,
+        values: Vec<String>,
+        on_change: impl FnMut(usize, String) + Send + 'static,
+    ) -> Self {
+        self.header_filter_values = values;
+        self.on_header_filter = Some(Arc::new(Mutex::new(on_change)));
         self
     }
 

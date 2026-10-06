@@ -917,6 +917,18 @@ impl Element for ListViewElement {
         needs_repaint
     }
 
+    fn scrollbar_hit(&self, event: &Event) -> bool {
+        match event {
+            Event::MouseDown {
+                button: MouseButton::Left,
+                position,
+            } => self
+                .scrollbar_rects()
+                .is_some_and(|(track, _)| track.contains(*position)),
+            _ => false,
+        }
+    }
+
     fn handle_event(&mut self, event: &Event, ctx: &mut EventContext) -> EventResult {
         match event {
             Event::MouseMove(pos) => {

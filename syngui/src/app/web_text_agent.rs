@@ -107,6 +107,13 @@ pub(crate) fn install(canvas: web_sys::HtmlCanvasElement) {
         ("aria-hidden", "true"),
         ("tabindex", "-1"),
         ("data-syngui", "text-agent"),
+        // Менеджеры паролей браузера и расширений: агент — не поле формы
+        // входа, подсказки сохранённых логинов над приложением не нужны.
+        ("name", "syngui-text-agent"),
+        ("data-form-type", "other"),
+        ("data-lpignore", "true"),
+        ("data-1p-ignore", "true"),
+        ("data-bwignore", "true"),
     ] {
         let _ = input.set_attribute(name, value);
     }
@@ -222,9 +229,14 @@ pub(crate) fn show(text: Option<&str>, numeric: bool, secret: bool, rect: Option
             return;
         };
         let (input, _canvas) = agent;
-        let kind = if secret { "password" } else { "text" };
-        if input.type_() != kind {
-            input.set_type(kind);
+        // Тип всегда «text», и для секретного поля тоже: увидев
+        // `type="password"`, браузер принимает страницу за форму входа и
+        // показывает сохранённые логины (поверх приложения и потом в любом
+        // поле — агент один на все поля). Агент невидим, символы рисует
+        // холст, так что маскировать нечего.
+        let _ = secret;
+        if input.type_() != "text" {
+            input.set_type("text");
         }
         let _ = input.set_attribute("inputmode", if numeric { "numeric" } else { "text" });
         if let Some(text) = text {

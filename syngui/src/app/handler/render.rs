@@ -180,6 +180,9 @@ impl AppHandler {
                 return Some(element_id);
             }
         }
+        if node.element.keyboard_focus_hit(pos) {
+            return Some(element_id);
+        }
         None
     }
 

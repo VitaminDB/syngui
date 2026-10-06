@@ -620,6 +620,10 @@ impl Element for ScrollViewElement {
     /// ползунком: ползунок рисуется поверх содержимого, и без перехвата клик
     /// по нему выбирал элемент списка.
     fn intercepts_event(&self, event: &Event) -> bool {
+        self.scrollbar_hit(event)
+    }
+
+    fn scrollbar_hit(&self, event: &Event) -> bool {
         match event {
             Event::MouseDown {
                 button: MouseButton::Left,
