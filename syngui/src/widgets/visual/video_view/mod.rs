@@ -136,6 +136,8 @@ impl VideoViewElement {
     /// Текстура под кадры текущего плеера (натуральный размер из метаданных).
     fn bind_player(&mut self) {
         let (w, h, rot) = if let Ok(p) = self.player.lock() {
+            // Показ рисует YUV шейдером — декодеру не нужен swscale в RGBA.
+            p.set_yuv_frames(true);
             let m = p.meta();
             (m.width.max(1), m.height.max(1), m.rotation)
         } else {
@@ -342,7 +344,10 @@ impl Element for VideoViewElement {
             {
                 changed = true;
                 if let Ok(mut s) = store.lock() {
-                    s.update_rgba(handle, frame.width, frame.height, frame.rgba);
+                    match frame.yuv {
+                        Some(y) => s.update_yuv(handle, y),
+                        None => s.update_rgba(handle, frame.width, frame.height, frame.rgba),
+                    }
                 }
             }
             if new_size != self.natural_size {

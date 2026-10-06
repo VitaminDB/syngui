@@ -73,6 +73,8 @@ pub struct Scaler {
     /// page fault (на 4K это 15–20 ms вместо 3). Буфер возвращается в оборот,
     /// как только показ отпустил свой `Arc`.
     pool: Vec<Arc<[u8]>>,
+    /// Оборот буферов кадров YUV ([`Scaler::pack_yuv`]) — отдельно от RGBA.
+    yuv_pool: Vec<Arc<[u8]>>,
 }
 
 impl Scaler {
@@ -97,6 +99,7 @@ impl Scaler {
             out_w,
             out_h,
             pool: Vec::new(),
+            yuv_pool: Vec::new(),
         })
     }
 
@@ -219,6 +222,57 @@ impl Scaler {
             Some(i) => self.pool.swap_remove(i),
             None => Arc::from(vec![0u8; len].into_boxed_slice()),
         }
+    }
+
+    /// Кадр 4:2:0 8 бит (NV12, yuv420p, yuvj420p) — плоскостями подряд для
+    /// перевода цвета на GPU, без swscale: только копирование строк. `None` —
+    /// другой формат (10 бит, 4:2:2…), его переводит [`Self::convert`].
+    pub fn pack_yuv(&mut self, f: &frame::Video) -> Option<crate::gpu::YuvFrame> {
+        use crate::gpu::{YuvFrame, YuvLayout, YuvMatrix};
+        use ffmpeg_next::color::{Range, Space};
+        let layout = match f.format() {
+            Pixel::NV12 => YuvLayout::Nv12,
+            Pixel::YUV420P | Pixel::YUVJ420P => YuvLayout::I420,
+            _ => return None,
+        };
+        let (w, h) = (f.width(), f.height());
+        if w == 0 || h == 0 {
+            return None;
+        }
+        let len = YuvFrame::byte_len(layout, w, h);
+        self.yuv_pool.retain(|b| b.len() == len);
+        let mut buf = match self.yuv_pool.iter().position(|b| Arc::strong_count(b) == 1 && Arc::weak_count(b) == 0) {
+            Some(i) => self.yuv_pool.swap_remove(i),
+            None => Arc::from(vec![0u8; len].into_boxed_slice()),
+        };
+        let out = Arc::get_mut(&mut buf).expect("буфер из оборота никто не держит");
+        let (cw, ch) = (w.div_ceil(2) as usize, h.div_ceil(2) as usize);
+        let planes: &[(usize, usize, usize)] = match layout {
+            // (плоскость AVFrame, байт в строке, строк)
+            YuvLayout::Nv12 => &[(0, w as usize, h as usize), (1, cw * 2, ch)],
+            YuvLayout::I420 => &[(0, w as usize, h as usize), (1, cw, ch), (2, cw, ch)],
+        };
+        let mut o = 0;
+        for &(i, row, rows) in planes {
+            let (src, stride) = (f.data(i), f.stride(i));
+            for r in 0..rows {
+                out[o..o + row].copy_from_slice(&src[r * stride..r * stride + row]);
+                o += row;
+            }
+        }
+        if self.yuv_pool.len() < BUFFER_POOL_CAP && (self.yuv_pool.len() + 1) * len <= BUFFER_POOL_BYTES {
+            self.yuv_pool.push(buf.clone());
+        }
+        let matrix = match f.color_space() {
+            Space::BT709 => YuvMatrix::Bt709,
+            Space::BT2020NCL | Space::BT2020CL => YuvMatrix::Bt2020,
+            Space::BT470BG | Space::SMPTE170M | Space::SMPTE240M | Space::FCC => YuvMatrix::Bt601,
+            // Не указано: HD и выше — BT.709, как считают плееры.
+            _ if h >= 720 => YuvMatrix::Bt709,
+            _ => YuvMatrix::Bt601,
+        };
+        let full_range = f.format() == Pixel::YUVJ420P || f.color_range() == Range::JPEG;
+        Some(YuvFrame { layout, matrix, full_range, width: w, height: h, data: buf })
     }
 
     pub fn out_size(&self) -> (u32, u32) {
@@ -395,5 +449,40 @@ mod tests {
             prev > 200,
             "низ кадра должен быть светлее верха, получено {prev}"
         );
+    }
+}
+
+#[cfg(test)]
+mod yuv_pack_tests {
+    use super::*;
+
+    /// Плоскости AVFrame с выравниванием строк (stride > ширины) пакуются
+    /// подряд, без хвостов строк.
+    #[test]
+    fn nv12_rows_without_stride_padding() {
+        ffmpeg_next::init().ok();
+        let (w, h) = (6u32, 4u32);
+        let mut f = frame::Video::new(Pixel::NV12, w, h);
+        let (s0, s1) = (f.stride(0), f.stride(1));
+        assert!(s0 >= w as usize);
+        for r in 0..h as usize {
+            for c in 0..w as usize {
+                f.data_mut(0)[r * s0 + c] = (r * 10 + c) as u8;
+            }
+        }
+        for r in 0..(h / 2) as usize {
+            for c in 0..w as usize {
+                f.data_mut(1)[r * s1 + c] = (100 + r * 10 + c) as u8;
+            }
+        }
+        let mut sc = Scaler::new(Pixel::NV12, w, h, w, h).unwrap();
+        let y = sc.pack_yuv(&f).expect("NV12 пакуется");
+        assert_eq!(y.layout, crate::gpu::YuvLayout::Nv12);
+        assert_eq!(y.data.len(), 24 + 12);
+        assert_eq!(&y.y_plane()[6..12], &[10, 11, 12, 13, 14, 15]);
+        assert_eq!(&y.chroma_planes().0[6..12], &[110, 111, 112, 113, 114, 115]);
+        // 10-битный формат — не наш путь.
+        let f10 = frame::Video::new(Pixel::P010LE, w, h);
+        assert!(sc.pack_yuv(&f10).is_none());
     }
 }

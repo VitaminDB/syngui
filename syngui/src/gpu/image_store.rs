@@ -46,6 +46,91 @@ pub struct ImageData {
     /// Естественный размер для раскладки, если растр крупнее (SVG
     /// растеризуется с запасом, чтобы оставаться чётким при увеличении).
     pub natural: Option<(u32, u32)>,
+    /// Кадр видео в YUV (`rgba` пуст): цвет переводит шейдер, см. [`YuvFrame`].
+    pub yuv: Option<Arc<YuvFrame>>,
+}
+
+/// Раскладка плоскостей YUV 4:2:0 в [`YuvFrame::data`].
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum YuvLayout {
+    /// Y, затем UV через байт (аппаратные декодеры: V4L2, VAAPI, NVDEC).
+    Nv12,
+    /// Y, затем U, затем V (программные декодеры, `yuv420p`).
+    I420,
+}
+
+/// Матрица перевода YUV → RGB.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum YuvMatrix {
+    Bt601,
+    Bt709,
+    Bt2020,
+}
+
+/// Видеокадр 4:2:0, 8 бит, плоскости подряд без выравнивания строк:
+/// Y — `width×height`, цветность — по [`YuvFrame::chroma_size`]. Перевод в
+/// RGB (несколько мс на кадр 4K даже в несколько потоков) делает GPU.
+#[derive(Clone, Debug)]
+pub struct YuvFrame {
+    pub layout: YuvLayout,
+    pub matrix: YuvMatrix,
+    /// Полный диапазон 0..255 (JPEG); иначе ТВ-диапазон 16..235/240.
+    pub full_range: bool,
+    pub width: u32,
+    pub height: u32,
+    pub data: Arc<[u8]>,
+}
+
+impl YuvFrame {
+    pub fn chroma_size(&self) -> (u32, u32) {
+        (self.width.div_ceil(2), self.height.div_ceil(2))
+    }
+
+    /// Сколько байт нужно кадру этого размера и раскладки.
+    pub fn byte_len(layout: YuvLayout, width: u32, height: u32) -> usize {
+        let (cw, ch) = (width.div_ceil(2) as usize, height.div_ceil(2) as usize);
+        let _ = layout; // NV12: cw*2 байт на строку цветности, I420: две плоскости по cw
+        width as usize * height as usize + cw * ch * 2
+    }
+
+    pub fn y_plane(&self) -> &[u8] {
+        &self.data[..(self.width * self.height) as usize]
+    }
+
+    /// Плоскости цветности: NV12 — одна (UV), I420 — U и V.
+    pub fn chroma_planes(&self) -> (&[u8], Option<&[u8]>) {
+        let y = (self.width * self.height) as usize;
+        let (cw, ch) = self.chroma_size();
+        let c = (cw * ch) as usize;
+        match self.layout {
+            YuvLayout::Nv12 => (&self.data[y..y + 2 * c], None),
+            YuvLayout::I420 => (&self.data[y..y + c], Some(&self.data[y + c..y + 2 * c])),
+        }
+    }
+
+    /// Униформа шейдера: строки матрицы (с учётом диапазона) и сдвиги —
+    /// `rgb = M · (yuv − off)`; `w` последней строки — раскладка (1 — NV12).
+    pub fn shader_uniform(&self) -> [f32; 16] {
+        let (kr, kb) = match self.matrix {
+            YuvMatrix::Bt601 => (0.299, 0.114),
+            YuvMatrix::Bt709 => (0.2126, 0.0722),
+            YuvMatrix::Bt2020 => (0.2627, 0.0593),
+        };
+        let kg = 1.0 - kr - kb;
+        let (ys, cs, yo) = if self.full_range { (1.0, 1.0, 0.0) } else { (255.0 / 219.0, 255.0 / 224.0, 16.0 / 255.0) };
+        let co = 128.0 / 255.0;
+        let crr = 2.0 * (1.0 - kr) * cs;
+        let cbb = 2.0 * (1.0 - kb) * cs;
+        let cbg = -2.0 * kb * (1.0 - kb) / kg * cs;
+        let crg = -2.0 * kr * (1.0 - kr) / kg * cs;
+        let nv12 = if self.layout == YuvLayout::Nv12 { 1.0 } else { 0.0 };
+        [
+            ys, 0.0, crr, 0.0, //
+            ys, cbg, crg, 0.0, //
+            ys, cbb, 0.0, 0.0, //
+            yo, co, co, nv12,
+        ]
+    }
 }
 
 /// Один mip-уровень (RGBA8, premultiplied как и `ImageData::rgba`).
@@ -69,6 +154,7 @@ impl ImageData {
             mips,
             single_level: false,
             natural: None,
+            yuv: None,
         }
     }
 
@@ -81,6 +167,20 @@ impl ImageData {
             mips: Vec::new(),
             single_level: true,
             natural: None,
+            yuv: None,
+        }
+    }
+
+    /// Видеокадр в YUV: перевод цвета — в шейдере.
+    pub fn yuv(frame: Arc<YuvFrame>) -> Self {
+        Self {
+            width: frame.width,
+            height: frame.height,
+            rgba: Arc::from(Vec::new()),
+            mips: Vec::new(),
+            single_level: true,
+            natural: None,
+            yuv: Some(frame),
         }
     }
 }
@@ -353,6 +453,23 @@ impl ImageStore {
         // Потоковые кадры (видео) идут в один и тот же handle: если
         // предыдущий ещё не залит, показывать его уже незачем — заменяем,
         // иначе картинка отстаёт от звука на длину очереди загрузок.
+        match self.pending_uploads.iter_mut().find(|(h, _)| *h == handle) {
+            Some(slot) => slot.1 = data,
+            None => self.pending_uploads.push((handle, data)),
+        }
+    }
+
+    /// Как [`Self::update_rgba`], но кадр в YUV — без перевода в RGBA на CPU.
+    pub fn update_yuv(&mut self, handle: ImageHandle, frame: Arc<YuvFrame>) {
+        let Some(key) = self.handle_to_key.get(&handle.0) else {
+            return;
+        };
+        if let Some(entry) = self.images.get_mut(key) {
+            entry.state = ImageLoadState::Ready;
+            entry.width = frame.width;
+            entry.height = frame.height;
+        }
+        let data = ImageData::yuv(frame);
         match self.pending_uploads.iter_mut().find(|(h, _)| *h == handle) {
             Some(slot) => slot.1 = data,
             None => self.pending_uploads.push((handle, data)),
@@ -955,5 +1072,53 @@ mod tests {
         let data = decode_image_bytes(svg).expect("oversized svg должен растеризоваться");
         assert_eq!(data.width, 2048);
         assert_eq!(data.height, 2048);
+    }
+}
+
+#[cfg(test)]
+mod yuv_tests {
+    use super::*;
+
+    /// Перевод, как в `yuv.wgsl`: rgb = M · (yuv − off).
+    fn rgb(f: &YuvFrame, y: u8, cb: u8, cr: u8) -> [f32; 3] {
+        let u = f.shader_uniform();
+        let v = [y as f32 / 255.0 - u[12], cb as f32 / 255.0 - u[13], cr as f32 / 255.0 - u[14]];
+        let row = |i: usize| (u[i * 4] * v[0] + u[i * 4 + 1] * v[1] + u[i * 4 + 2] * v[2]).clamp(0.0, 1.0);
+        [row(0), row(1), row(2)]
+    }
+
+    fn frame(matrix: YuvMatrix, full_range: bool) -> YuvFrame {
+        YuvFrame { layout: YuvLayout::Nv12, matrix, full_range, width: 2, height: 2, data: Arc::from(vec![0u8; 6]) }
+    }
+
+    fn near(a: [f32; 3], b: [f32; 3]) -> bool {
+        a.iter().zip(b).all(|(x, y)| (x - y).abs() < 0.02)
+    }
+
+    #[test]
+    fn tv_range_white_black_and_bt709_red() {
+        let f = frame(YuvMatrix::Bt709, false);
+        assert!(near(rgb(&f, 235, 128, 128), [1.0, 1.0, 1.0]));
+        assert!(near(rgb(&f, 16, 128, 128), [0.0, 0.0, 0.0]));
+        // Красный BT.709 в ТВ-диапазоне: Y 63, Cb 102, Cr 240.
+        assert!(near(rgb(&f, 63, 102, 240), [1.0, 0.0, 0.0]), "{:?}", rgb(&f, 63, 102, 240));
+        assert_eq!(f.shader_uniform()[15], 1.0, "NV12 помечен для шейдера");
+    }
+
+    #[test]
+    fn full_range_bt601_green() {
+        let f = frame(YuvMatrix::Bt601, true);
+        // Зелёный BT.601 полного диапазона: Y 150, Cb 44, Cr 21.
+        assert!(near(rgb(&f, 150, 44, 21), [0.0, 1.0, 0.0]), "{:?}", rgb(&f, 150, 44, 21));
+    }
+
+    #[test]
+    fn planes_split() {
+        let f = YuvFrame { layout: YuvLayout::I420, matrix: YuvMatrix::Bt601, full_range: false, width: 3, height: 3, data: Arc::from((0..17u8).collect::<Vec<_>>()) };
+        assert_eq!(YuvFrame::byte_len(YuvLayout::I420, 3, 3), 17);
+        assert_eq!(f.y_plane(), &(0..9).collect::<Vec<u8>>()[..]);
+        let (u, v) = f.chroma_planes();
+        assert_eq!(u, &[9, 10, 11, 12]);
+        assert_eq!(v.unwrap(), &[13, 14, 15, 16]);
     }
 }

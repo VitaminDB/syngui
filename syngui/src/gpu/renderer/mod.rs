@@ -84,6 +84,8 @@ pub struct Renderer {
     glow_blit_pipeline: wgpu::RenderPipeline,
     projected_pipeline: wgpu::RenderPipeline,
     image_pipeline: wgpu::RenderPipeline,
+    /// Видеокадры в YUV (`ImageData::yuv`): перевод цвета в шейдере.
+    yuv_pipeline: wgpu::RenderPipeline,
 
     uniform_buffer: wgpu::Buffer,
     uniform_bind_group: wgpu::BindGroup,
@@ -657,6 +659,16 @@ impl Renderer {
             &image_shader,
             surface_format,
         );
+        let yuv_shader = gpu.device.create_shader_module(wgpu::ShaderModuleDescriptor {
+            label: Some("YUV Shader"),
+            source: wgpu::ShaderSource::Wgsl(include_str!("../yuv.wgsl").into()),
+        });
+        let yuv_pipeline_layout = gpu.device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
+            label: Some("YUV Pipeline Layout"),
+            bind_group_layouts: &[&uniform_bgl, image_gpu_cache.yuv_bind_group_layout()],
+            immediate_size: 0,
+        });
+        let yuv_pipeline = Self::create_pipeline(&gpu.device, "YUV Pipeline", &yuv_pipeline_layout, &yuv_shader, surface_format);
 
         Self {
             rect_pipeline,
@@ -671,6 +683,7 @@ impl Renderer {
             glow_blit_pipeline,
             projected_pipeline,
             image_pipeline,
+            yuv_pipeline,
             uniform_buffer,
             uniform_bind_group,
             blur_uniform_buffer,

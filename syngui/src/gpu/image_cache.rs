@@ -1,4 +1,4 @@
-use super::image_store::{ImageData, ImageHandle, ImageStore};
+use super::image_store::{ImageData, ImageHandle, ImageStore, YuvFrame, YuvLayout};
 use hashbrown::HashMap;
 
 /// Сколько mip-уровней нужно стороне `max(w, h)` — вплоть до 1×1.
@@ -233,10 +233,52 @@ impl GpuImage {
 
 const STREAM_RING: usize = 3;
 
+/// Текстуры кадра YUV: яркость (R8), цветность (NV12 — RG8, I420 — две R8)
+/// и униформа с матрицей; цвет переводит `yuv.wgsl`.
+struct YuvSlot {
+    y: wgpu::Texture,
+    c1: wgpu::Texture,
+    c2: Option<wgpu::Texture>,
+    uniform: wgpu::Buffer,
+    bind_group: wgpu::BindGroup,
+}
+
+struct GpuYuv {
+    ring: Vec<YuvSlot>,
+    cur: usize,
+    width: u32,
+    height: u32,
+    layout: YuvLayout,
+}
+
 pub struct ImageGpuCache {
     images: HashMap<u32, GpuImage>,
+    yuv: HashMap<u32, GpuYuv>,
     sampler: wgpu::Sampler,
     bind_group_layout: wgpu::BindGroupLayout,
+    yuv_layout: wgpu::BindGroupLayout,
+}
+
+fn write_plane(queue: &wgpu::Queue, texture: &wgpu::Texture, bpp: u32, w: u32, h: u32, data: &[u8]) {
+    queue.write_texture(
+        wgpu::TexelCopyTextureInfo { texture, mip_level: 0, origin: wgpu::Origin3d::ZERO, aspect: wgpu::TextureAspect::All },
+        data,
+        wgpu::TexelCopyBufferLayout { offset: 0, bytes_per_row: Some(bpp * w), rows_per_image: Some(h) },
+        wgpu::Extent3d { width: w, height: h, depth_or_array_layers: 1 },
+    );
+}
+
+fn plane_texture(device: &wgpu::Device, format: wgpu::TextureFormat, w: u32, h: u32) -> wgpu::Texture {
+    device.create_texture(&wgpu::TextureDescriptor {
+        label: Some("YUV Plane"),
+        size: wgpu::Extent3d { width: w, height: h, depth_or_array_layers: 1 },
+        mip_level_count: 1,
+        sample_count: 1,
+        dimension: wgpu::TextureDimension::D2,
+        format,
+        usage: wgpu::TextureUsages::TEXTURE_BINDING | wgpu::TextureUsages::COPY_DST,
+        view_formats: &[],
+    })
 }
 
 impl ImageGpuCache {
@@ -274,11 +316,114 @@ impl ImageGpuCache {
             ],
         });
 
+        let tex = |binding| wgpu::BindGroupLayoutEntry {
+            binding,
+            visibility: wgpu::ShaderStages::FRAGMENT,
+            ty: wgpu::BindingType::Texture {
+                sample_type: wgpu::TextureSampleType::Float { filterable: true },
+                view_dimension: wgpu::TextureViewDimension::D2,
+                multisampled: false,
+            },
+            count: None,
+        };
+        let yuv_layout = device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
+            label: Some("YUV BGL"),
+            entries: &[
+                tex(0),
+                tex(1),
+                tex(2),
+                wgpu::BindGroupLayoutEntry {
+                    binding: 3,
+                    visibility: wgpu::ShaderStages::FRAGMENT,
+                    ty: wgpu::BindingType::Sampler(wgpu::SamplerBindingType::Filtering),
+                    count: None,
+                },
+                wgpu::BindGroupLayoutEntry {
+                    binding: 4,
+                    visibility: wgpu::ShaderStages::FRAGMENT,
+                    ty: wgpu::BindingType::Buffer {
+                        ty: wgpu::BufferBindingType::Uniform,
+                        has_dynamic_offset: false,
+                        min_binding_size: None,
+                    },
+                    count: None,
+                },
+            ],
+        });
+
         Self {
             images: HashMap::new(),
+            yuv: HashMap::new(),
             sampler,
             bind_group_layout,
+            yuv_layout,
         }
+    }
+
+    pub fn yuv_bind_group_layout(&self) -> &wgpu::BindGroupLayout {
+        &self.yuv_layout
+    }
+
+    /// Bind group кадра YUV (`yuv.wgsl`), если у handle сейчас кадр в YUV.
+    pub fn get_yuv_bind_group(&self, handle_id: u32) -> Option<&wgpu::BindGroup> {
+        self.yuv.get(&handle_id).map(|y| &y.ring[y.cur].bind_group)
+    }
+
+    fn upload_yuv(&mut self, device: &wgpu::Device, queue: &wgpu::Queue, handle: ImageHandle, f: &YuvFrame) {
+        self.images.remove(&handle.0);
+        let (cw, ch) = f.chroma_size();
+        let fits = self.yuv.get(&handle.0).is_some_and(|g| g.width == f.width && g.height == f.height && g.layout == f.layout);
+        if !fits {
+            let mut ring = Vec::with_capacity(STREAM_RING);
+            for _ in 0..STREAM_RING {
+                let y = plane_texture(device, wgpu::TextureFormat::R8Unorm, f.width, f.height);
+                let (c1, c2) = match f.layout {
+                    YuvLayout::Nv12 => (plane_texture(device, wgpu::TextureFormat::Rg8Unorm, cw, ch), None),
+                    YuvLayout::I420 => (
+                        plane_texture(device, wgpu::TextureFormat::R8Unorm, cw, ch),
+                        Some(plane_texture(device, wgpu::TextureFormat::R8Unorm, cw, ch)),
+                    ),
+                };
+                let uniform = device.create_buffer(&wgpu::BufferDescriptor {
+                    label: Some("YUV Uniform"),
+                    size: 64,
+                    usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
+                    mapped_at_creation: false,
+                });
+                let yv = y.create_view(&Default::default());
+                let c1v = c1.create_view(&Default::default());
+                // NV12: вторая плоскость не нужна шейдеру, но слот занят — та же UV.
+                let c2v = c2.as_ref().unwrap_or(&c1).create_view(&Default::default());
+                let bind_group = device.create_bind_group(&wgpu::BindGroupDescriptor {
+                    label: Some("YUV BG"),
+                    layout: &self.yuv_layout,
+                    entries: &[
+                        wgpu::BindGroupEntry { binding: 0, resource: wgpu::BindingResource::TextureView(&yv) },
+                        wgpu::BindGroupEntry { binding: 1, resource: wgpu::BindingResource::TextureView(&c1v) },
+                        wgpu::BindGroupEntry { binding: 2, resource: wgpu::BindingResource::TextureView(&c2v) },
+                        wgpu::BindGroupEntry { binding: 3, resource: wgpu::BindingResource::Sampler(&self.sampler) },
+                        wgpu::BindGroupEntry { binding: 4, resource: uniform.as_entire_binding() },
+                    ],
+                });
+                ring.push(YuvSlot { y, c1, c2, uniform, bind_group });
+            }
+            self.yuv.insert(handle.0, GpuYuv { ring, cur: STREAM_RING - 1, width: f.width, height: f.height, layout: f.layout });
+        }
+        let g = self.yuv.get_mut(&handle.0).expect("создано выше");
+        g.cur = (g.cur + 1) % g.ring.len();
+        let slot = &g.ring[g.cur];
+        write_plane(queue, &slot.y, 1, f.width, f.height, f.y_plane());
+        let (c1, c2) = f.chroma_planes();
+        match (&slot.c2, c2) {
+            (Some(t2), Some(c2)) => {
+                write_plane(queue, &slot.c1, 1, cw, ch, c1);
+                write_plane(queue, t2, 1, cw, ch, c2);
+            }
+            _ => write_plane(queue, &slot.c1, 2, cw, ch, c1),
+        }
+        let u = f.shader_uniform();
+        let bytes: Vec<u8> = u.iter().flat_map(|v| v.to_le_bytes()).collect();
+        queue.write_buffer(&slot.uniform, 0, &bytes);
     }
 
     pub fn bind_group_layout(&self) -> &wgpu::BindGroupLayout {
@@ -292,6 +437,11 @@ impl ImageGpuCache {
         handle: ImageHandle,
         data: &ImageData,
     ) {
+        if let Some(f) = &data.yuv {
+            self.upload_yuv(device, queue, handle, f);
+            return;
+        }
+        self.yuv.remove(&handle.0);
         let ring_len = if data.single_level { STREAM_RING } else { 1 };
         let same_size = self
             .images
@@ -363,6 +513,7 @@ impl ImageGpuCache {
         store.poll_bg();
         for handle in store.take_pending_frees() {
             self.images.remove(&handle.0);
+            self.yuv.remove(&handle.0);
         }
         // Бюджет на кадр: одна загрузка большого постера с мипами — единицы
         // миллисекунд на слабом GPU; пачка из десятка — заметный рывок.

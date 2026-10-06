@@ -507,7 +507,10 @@ impl Element for MediaBlockElement {
         if let Some(frame) = frame {
             if let (Some(h), Some(store)) = (self.frame_handle, self.image_store.as_ref()) {
                 if let Ok(mut s) = store.lock() {
-                    s.update_rgba(h, frame.width, frame.height, frame.rgba.to_vec());
+                    match frame.yuv {
+                        Some(y) => s.update_yuv(h, y),
+                        None => s.update_rgba(h, frame.width, frame.height, frame.rgba.to_vec()),
+                    }
                 }
             }
             let new_size = (frame.width, frame.height);

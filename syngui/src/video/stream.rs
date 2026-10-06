@@ -55,6 +55,7 @@ mod tests {
             pts_sec: 0.0,
             seek_generation: 0,
             surface: None,
+            yuv: None,
         })
     }
 

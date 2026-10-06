@@ -1566,6 +1566,7 @@ mod tests {
                         pts_sec: i as f64 / 24.0,
                         seek_generation: 0,
                         surface: None,
+                        yuv: None,
                     })
                 })
                 .collect(),

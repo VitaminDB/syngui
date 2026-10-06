@@ -427,6 +427,16 @@ struct Capture {
     visible_h: u32,
 }
 
+/// Кадр декодера: AVFrame NV12 или (в упакованном режиме) плоскости подряд
+/// для перевода цвета на GPU — одним копированием из dma-buf, без AVFrame.
+pub enum V4l2Frame {
+    Av(frame::Video),
+    Packed(crate::gpu::YuvFrame, Option<i64>),
+}
+
+/// Сколько упакованных буферов держать в обороте (очередь плеера + показ).
+const PACKED_POOL: usize = 12;
+
 /// V4L2 stateful-декодер с кадрами NV12 в CPU-памяти.
 pub struct V4l2Decoder {
     fd: File,
@@ -435,7 +445,11 @@ pub struct V4l2Decoder {
     inputs: Vec<DmaBuf>,
     input_free: Vec<bool>,
     capture: Option<Capture>,
-    ready: VecDeque<frame::Video>,
+    ready: VecDeque<V4l2Frame>,
+    /// Кадры сразу упакованными плоскостями для GPU ([`Self::set_packed`]).
+    packed: bool,
+    /// Оборот буферов упакованных кадров.
+    pool: Vec<std::sync::Arc<[u8]>>,
     /// Метка входного буфера → pts пакета (драйвер копирует метку в кадр).
     pts_by_tag: HashMap<u64, Option<i64>>,
     next_tag: u64,
@@ -509,6 +523,8 @@ impl V4l2Decoder {
             input_free: vec![true; n],
             capture: None,
             ready: VecDeque::new(),
+            packed: false,
+            pool: Vec::new(),
             pts_by_tag: HashMap::new(),
             next_tag: 1,
             eos_sent: false,
@@ -651,7 +667,11 @@ impl V4l2Decoder {
             if pl.bytesused > 0 && b.flags & BUF_FLAG_ERROR == 0 {
                 let tag = b.timestamp.tv_sec as u64;
                 let pts = self.pts_by_tag.remove(&tag).flatten();
-                let f = self.copy_frame(b.index as usize, pts);
+                let f = if self.packed {
+                    V4l2Frame::Packed(self.copy_packed(b.index as usize), pts)
+                } else {
+                    V4l2Frame::Av(self.copy_frame(b.index as usize, pts))
+                };
                 self.ready.push_back(f);
             }
             if last {
@@ -688,6 +708,64 @@ impl V4l2Decoder {
         c.bufs[idx].sync(SYNC_READ | SYNC_END);
         f.set_pts(pts);
         f
+    }
+
+    /// Кадры NV12 сразу упакованными плоскостями (`receive` отдаёт
+    /// [`V4l2Frame::Packed`]): перевод цвета — на GPU.
+    pub fn set_packed(&mut self, on: bool) {
+        self.packed = on;
+    }
+
+    fn copy_packed(&mut self, idx: usize) -> crate::gpu::YuvFrame {
+        use crate::gpu::{YuvFrame, YuvLayout, YuvMatrix};
+        let c = self.capture.as_ref().unwrap();
+        let (w, h) = (c.visible_w, c.visible_h);
+        let len = YuvFrame::byte_len(YuvLayout::Nv12, w, h);
+        self.pool.retain(|b| b.len() == len);
+        let mut buf = match self.pool.iter().position(|b| std::sync::Arc::strong_count(b) == 1 && std::sync::Arc::weak_count(b) == 0) {
+            Some(i) => self.pool.swap_remove(i),
+            None => std::sync::Arc::from(vec![0u8; len].into_boxed_slice()),
+        };
+        let out = std::sync::Arc::get_mut(&mut buf).expect("буфер из оборота никто не держит");
+        c.bufs[idx].sync(SYNC_READ);
+        let src = c.bufs[idx].slice();
+        let stride = c.stride as usize;
+        let uv_off = stride * c.y_lines as usize;
+        let row = (w as usize).min(stride);
+        let (wu, ch) = (w as usize, (h as usize).div_ceil(2));
+        let uv_row = (wu.div_ceil(2) * 2).min(stride);
+        let mut o = 0;
+        for (base, rows, n, dst_row) in [(0, h as usize, row, wu), (uv_off, ch, uv_row, wu.div_ceil(2) * 2)] {
+            for r in 0..rows {
+                let s = base + r * stride;
+                if s + n <= src.len() {
+                    out[o..o + n].copy_from_slice(&src[s..s + n]);
+                }
+                o += dst_row;
+            }
+        }
+        c.bufs[idx].sync(SYNC_READ | SYNC_END);
+        if self.pool.len() < PACKED_POOL {
+            self.pool.push(buf.clone());
+        }
+        // Цветовое пространство — из параметров потока (VUI); не указано — по высоте.
+        // SAFETY: params — наша копия параметров потока, жива вместе с декодером.
+        let (space, range) = unsafe { ((*self.params).color_space, (*self.params).color_range) };
+        let matrix = match space {
+            ffi::AVColorSpace::AVCOL_SPC_BT709 => YuvMatrix::Bt709,
+            ffi::AVColorSpace::AVCOL_SPC_BT2020_NCL | ffi::AVColorSpace::AVCOL_SPC_BT2020_CL => YuvMatrix::Bt2020,
+            ffi::AVColorSpace::AVCOL_SPC_BT470BG | ffi::AVColorSpace::AVCOL_SPC_SMPTE170M => YuvMatrix::Bt601,
+            _ if h >= 720 => YuvMatrix::Bt709,
+            _ => YuvMatrix::Bt601,
+        };
+        YuvFrame {
+            layout: YuvLayout::Nv12,
+            matrix,
+            full_range: range == ffi::AVColorRange::AVCOL_RANGE_JPEG,
+            width: w,
+            height: h,
+            data: buf,
+        }
     }
 
     fn requeue_capture(&mut self, idx: usize) -> Result<(), VideoError> {
@@ -754,6 +832,44 @@ impl V4l2Decoder {
 
     /// Готовый кадр, если есть. После `send_eof` ждёт последних кадров.
     pub fn receive_frame(&mut self, out: &mut frame::Video) -> Result<(), ffmpeg_next::Error> {
+        self.fill_ready();
+        match self.ready.pop_front() {
+            Some(V4l2Frame::Av(f)) => {
+                *out = f;
+                Ok(())
+            }
+            // Упакованный режим выключили, а кадры остались в очереди.
+            Some(V4l2Frame::Packed(y, pts)) => {
+                let mut f = frame::Video::new(Pixel::NV12, y.width, y.height);
+                let (yp, (uv, _)) = (y.y_plane(), y.chroma_planes());
+                for (plane, src, row) in [(0, yp, y.width as usize), (1, uv, y.chroma_size().0 as usize * 2)] {
+                    let st = f.stride(plane);
+                    let dst = f.data_mut(plane);
+                    for (r, line) in src.chunks_exact(row).enumerate() {
+                        dst[r * st..r * st + row].copy_from_slice(line);
+                    }
+                }
+                f.set_pts(pts);
+                *out = f;
+                Ok(())
+            }
+            None if self.eos_sent => Err(ffmpeg_next::Error::Eof),
+            None => Err(ffmpeg_next::Error::Other { errno: libc::EAGAIN }),
+        }
+    }
+
+    /// Готовый кадр как есть (в упакованном режиме — [`V4l2Frame::Packed`]).
+    pub fn receive(&mut self) -> Result<V4l2Frame, ffmpeg_next::Error> {
+        self.fill_ready();
+        match self.ready.pop_front() {
+            Some(f) => Ok(f),
+            None if self.eos_sent => Err(ffmpeg_next::Error::Eof),
+            None => Err(ffmpeg_next::Error::Other { errno: libc::EAGAIN }),
+        }
+    }
+
+    /// Забрать готовые кадры; после `send_eof` — дождаться последних.
+    fn fill_ready(&mut self) {
         if self.ready.is_empty() {
             let _ = self.service(false);
         }
@@ -763,14 +879,6 @@ impl V4l2Decoder {
                 self.wait(50);
                 let _ = self.service(false);
             }
-        }
-        match self.ready.pop_front() {
-            Some(f) => {
-                *out = f;
-                Ok(())
-            }
-            None if self.eos_sent => Err(ffmpeg_next::Error::Eof),
-            None => Err(ffmpeg_next::Error::Other { errno: libc::EAGAIN }),
         }
     }
 

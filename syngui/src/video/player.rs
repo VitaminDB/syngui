@@ -493,6 +493,12 @@ impl VideoPlayer {
         &self.input_path
     }
 
+    /// См. [`VideoDecoder::set_yuv_frames`]: кадры 4:2:0 — в YUV, цвет
+    /// переводит шейдер (включает виджет показа).
+    pub fn set_yuv_frames(&self, on: bool) {
+        self.decoder.set_yuv_frames(on);
+    }
+
     pub fn install_video_tee(&self) -> Option<Arc<VideoStream>> {
         let rx = self.decoder.install_video_tee()?;
         let meta = self.decoder.meta();

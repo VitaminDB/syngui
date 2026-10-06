@@ -31,6 +31,9 @@ pub struct VideoFrame {
     /// показывается вызовом [`SurfaceBuffer::render`] в момент показа,
     /// пикселей в `rgba` нет.
     pub surface: Option<Arc<SurfaceBuffer>>,
+    /// Кадр в YUV для перевода цвета на GPU (`rgba` тогда пуст): только
+    /// после [`VideoDecoder::set_yuv_frames`] и пока нет отвода кадров (tee).
+    pub yuv: Option<Arc<crate::gpu::YuvFrame>>,
 }
 
 /// Выходной буфер аппаратного декодера, который показывает сам кодек
@@ -135,6 +138,8 @@ pub struct VideoDecoder {
     /// Демуксер дошёл до конца, и декодер отдал всё, что в нём было;
     /// сбрасывается перемоткой.
     eof: Arc<AtomicBool>,
+    /// Отдавать кадры 4:2:0 в YUV ([`VideoFrame::yuv`]), а не RGBA.
+    yuv_frames: Arc<AtomicBool>,
 }
 
 /// «pts ещё неизвестен» в [`VideoDecoder::audio_base_pts_sec`].
@@ -282,6 +287,8 @@ impl VideoDecoder {
         let audio_base_thread = audio_base_pts.clone();
         let eof = Arc::new(AtomicBool::new(false));
         let eof_thread = eof.clone();
+        let yuv_frames = Arc::new(AtomicBool::new(false));
+        let yuv_thread = yuv_frames.clone();
         let join = thread::Builder::new()
             .name("syngui-video-decoder".into())
             .spawn(move || {
@@ -294,6 +301,7 @@ impl VideoDecoder {
                     cmd_rx,
                     &audio_base_thread,
                     &eof_thread,
+                    &yuv_thread,
                 );
                 if let Err(e) = &r {
                     log::error!("video: поток декодера завершился с ошибкой: {e}");
@@ -310,6 +318,7 @@ impl VideoDecoder {
             join: Some(join),
             audio_base_pts,
             eof,
+            yuv_frames,
         })
     }
 
@@ -367,6 +376,13 @@ impl VideoDecoder {
         let (tx, rx) = mpsc::sync_channel::<Vec<f32>>(AUDIO_QUEUE_CAP);
         self.cmd_tx.send(DecoderCmd::ReAttachAudio(tx)).ok()?;
         Some(rx)
+    }
+
+    /// Кадры 4:2:0 8 бит отдавать в YUV ([`VideoFrame::yuv`]): перевод
+    /// цвета делает шейдер, а не swscale (на 4K это ~13 мс CPU на кадр).
+    /// Включает виджет показа; отвод кадров (tee) по-прежнему получает RGBA.
+    pub fn set_yuv_frames(&self, on: bool) {
+        self.yuv_frames.store(on, Ordering::Relaxed);
     }
 
     pub fn install_video_tee(&self) -> Option<Receiver<Arc<VideoFrame>>> {
@@ -530,11 +546,25 @@ impl VDec {
         }
     }
 
-    fn receive_frame(&mut self, f: &mut frame::Video) -> Result<(), ffmpeg_next::Error> {
+    /// Следующий кадр в `f`; V4L2 в упакованном режиме (`yuv`) отдаёт
+    /// плоскости для GPU сразу — тогда в `f` только pts.
+    fn receive(&mut self, f: &mut frame::Video, yuv: bool) -> Result<Option<crate::gpu::YuvFrame>, ffmpeg_next::Error> {
         match self {
-            Self::Ff(d) => d.receive_frame(f),
+            Self::Ff(d) => d.receive_frame(f).map(|_| None),
             #[cfg(target_os = "linux")]
-            Self::V4l2(d) => d.receive_frame(f),
+            Self::V4l2(d) => {
+                d.set_packed(yuv);
+                match d.receive()? {
+                    super::v4l2::V4l2Frame::Av(av) => {
+                        *f = av;
+                        Ok(None)
+                    }
+                    super::v4l2::V4l2Frame::Packed(y, pts) => {
+                        f.set_pts(pts);
+                        Ok(Some(y))
+                    }
+                }
+            }
         }
     }
 
@@ -588,6 +618,7 @@ fn run_decoder_thread(
     cmd_rx: Receiver<DecoderCmd>,
     audio_base: &AtomicI64,
     eof: &AtomicBool,
+    yuv_frames: &AtomicBool,
 ) -> Result<(), VideoError> {
     let v_idx = ictx
         .streams()
@@ -914,6 +945,7 @@ fn run_decoder_thread(
                     &mut stages,
                     &mut video_skip_before,
                     seek_gen,
+                    yuv_frames.load(Ordering::Relaxed),
                 );
                 if let Some(a) = audio.as_mut() {
                     let _ = a.decoder.send_eof();
@@ -999,6 +1031,7 @@ fn run_decoder_thread(
                         &mut stages,
                         &mut video_skip_before,
                         seek_gen,
+                        yuv_frames.load(Ordering::Relaxed),
                     );
                 }
                 Err(e) => {
@@ -1206,21 +1239,24 @@ fn drain_video(
     stages: &mut StageStats,
     skip_before: &mut Option<f64>,
     seek_generation: u64,
+    yuv_frames: bool,
 ) {
     let mut decoded = frame::Video::empty();
+    // Показ берёт YUV, отводу кадров (tee) нужен RGBA.
+    let want_yuv = yuv_frames && tee_tx.is_none();
     loop {
-        match dec.receive_frame(&mut decoded) {
-            Ok(()) => {}
+        let packed = match dec.receive(&mut decoded, want_yuv) {
+            Ok(p) => p,
             Err(ffmpeg_next::Error::Eof) => break,
             Err(ffmpeg_next::Error::Other { errno }) if errno == libc::EAGAIN => break,
             Err(e) => {
                 log::warn!("video: receive_frame: {e:?}");
                 break;
             }
-        }
+        };
         if !*logged_first_format {
             *logged_first_format = true;
-            let fmt = decoded.format();
+            let fmt = if packed.is_some() { ffmpeg_next::format::Pixel::NV12 } else { decoded.format() };
             match hw {
                 Some(h) => {
                     let expected = ffmpeg_next::format::Pixel::from(h.hw_pix_fmt());
@@ -1269,6 +1305,28 @@ fn drain_video(
             }
         }
 
+        // V4L2 уже отдал плоскости для GPU — одним копированием из dma-buf.
+        if let Some(y) = packed {
+            stages.frames += 1;
+            let frame = VideoFrame {
+                width: y.width,
+                height: y.height,
+                rgba: Arc::from(Vec::new().into_boxed_slice()),
+                pts_sec,
+                seek_generation,
+                surface: None,
+                yuv: Some(Arc::new(y)),
+            };
+            let t_send = Instant::now();
+            let sent = tx.send(frame);
+            stages.send_block_us += t_send.elapsed().as_micros() as u64;
+            stages.report_if_due();
+            if sent.is_err() {
+                return;
+            }
+            continue;
+        }
+
         // Кадр в буфере MediaCodec: показывает сам кодек, пикселей не берём.
         if decoded.format() == ffmpeg_next::format::Pixel::MEDIACODEC {
             // SAFETY: av_frame_clone добавляет ссылку на буфер кадра; кадр
@@ -1287,6 +1345,7 @@ fn drain_video(
                 pts_sec,
                 seek_generation,
                 surface: Some(Arc::new(SurfaceBuffer::new(cloned))),
+                yuv: None,
             };
             if let Some(t) = tee_tx {
                 let _ = t.try_send(Arc::new(frame.clone()));
@@ -1319,6 +1378,32 @@ fn drain_video(
             _ => &decoded,
         };
 
+        // Показ умеет YUV — без swscale (отводу кадров нужен RGBA).
+        if want_yuv {
+            let t_convert = Instant::now();
+            if let Some(y) = scaler.pack_yuv(frame_for_scaler) {
+                stages.convert_us += t_convert.elapsed().as_micros() as u64;
+                stages.frames += 1;
+                let frame = VideoFrame {
+                    width: y.width,
+                    height: y.height,
+                    rgba: Arc::from(Vec::new().into_boxed_slice()),
+                    pts_sec,
+                    seek_generation,
+                    surface: None,
+                    yuv: Some(Arc::new(y)),
+                };
+                let t_send = Instant::now();
+                let sent = tx.send(frame);
+                stages.send_block_us += t_send.elapsed().as_micros() as u64;
+                stages.report_if_due();
+                if sent.is_err() {
+                    return;
+                }
+                continue;
+            }
+        }
+
         let t_convert = Instant::now();
         let converted = scaler.convert(frame_for_scaler);
         stages.convert_us += t_convert.elapsed().as_micros() as u64;
@@ -1332,6 +1417,7 @@ fn drain_video(
                     pts_sec,
                     seek_generation,
                     surface: None,
+                    yuv: None,
                 };
                 if let Some(t) = tee_tx {
                     let _ = t.try_send(Arc::new(frame.clone()));

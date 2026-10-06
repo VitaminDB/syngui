@@ -379,14 +379,18 @@ impl Renderer {
                                         );
                                     }
                                     ShaderType::Image => {
-                                        render_pass.set_pipeline(&self.image_pipeline);
+                                        let yuv = batch.texture_id.and_then(|t| self.image_gpu_cache.get_yuv_bind_group(t.0));
+                                        render_pass.set_pipeline(if yuv.is_some() { &self.yuv_pipeline } else { &self.image_pipeline });
                                         render_pass.set_bind_group(
                                             0,
                                             &self.uniform_bind_group,
                                             &[batch.uniform_offset],
                                         );
                                         let mut bound = false;
-                                        if let Some(tex_id) = batch.texture_id {
+                                        if let Some(bg) = yuv {
+                                            render_pass.set_bind_group(1, bg, &[]);
+                                            bound = true;
+                                        } else if let Some(tex_id) = batch.texture_id {
                                             if tex_id.0 == 0 {
                                                 #[cfg(feature = "map")]
                                                 if let Some(ref bg) = self.tile_atlas_bind_group {
