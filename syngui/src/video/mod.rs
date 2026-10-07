@@ -1,5 +1,6 @@
 #[cfg(target_os = "android")]
 pub mod android;
+pub mod audio_file;
 pub mod decoder;
 pub mod error;
 pub mod hwaccel;
@@ -11,6 +12,7 @@ pub mod thumbnail;
 #[cfg(target_os = "linux")]
 pub mod v4l2;
 
+pub use audio_file::{probe_audio, AudioFilePlayer, AudioTrackMeta};
 pub use decoder::{VideoDecoder, VideoFrame, VideoMeta};
 pub use error::VideoError;
 pub use hwaccel::HwAccel;

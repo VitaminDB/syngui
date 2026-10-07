@@ -355,13 +355,38 @@ impl AudioPlayer {
     /// На Android идёт мимо cpal (`super::android_out`): там нужен не
     /// только звук, но и задержка тракта — по ней мастер-часы видео узнают,
     /// что уже слышно (см. `samples_played`).
-    #[cfg(target_os = "android")]
     pub fn start_streaming(rx: Receiver<Vec<f32>>, sample_rate: u32) -> Result<Self, AudioError> {
-        super::android_out::start_streaming(rx, sample_rate)
+        Self::start_streaming_channels(rx, sample_rate, 1)
+    }
+
+    /// Потоковый вывод с числом каналов источника `src_channels` (1 — моно, 2 — interleaved-стерео L,R):
+    /// стерео раскладывается по каналам устройства (на моно-устройстве — сводится). Позиция, `samples_played`
+    /// и т. п. считаются в кадрах, как для моно.
+    #[cfg(target_os = "android")]
+    pub fn start_streaming_channels(rx: Receiver<Vec<f32>>, sample_rate: u32, src_channels: u16) -> Result<Self, AudioError> {
+        if src_channels <= 1 {
+            return super::android_out::start_streaming(rx, sample_rate);
+        }
+        // вывод Android — моно: сводим каналы
+        let (tx, mono_rx) = mpsc::sync_channel::<Vec<f32>>(8);
+        let ch = src_channels as usize;
+        thread::Builder::new()
+            .name("syngui-audio-downmix".into())
+            .spawn(move || {
+                while let Ok(chunk) = rx.recv() {
+                    let m: Vec<f32> = chunk.chunks(ch).map(|f| f.iter().sum::<f32>() / ch as f32).collect();
+                    if tx.send(m).is_err() {
+                        break;
+                    }
+                }
+            })
+            .map_err(|e| AudioError::Cpal(format!("spawn downmix: {e}")))?;
+        super::android_out::start_streaming(mono_rx, sample_rate)
     }
 
     #[cfg(not(target_os = "android"))]
-    pub fn start_streaming(rx: Receiver<Vec<f32>>, sample_rate: u32) -> Result<Self, AudioError> {
+    pub fn start_streaming_channels(rx: Receiver<Vec<f32>>, sample_rate: u32, src_channels: u16) -> Result<Self, AudioError> {
+        let src_ch = src_channels.clamp(1, 2) as usize;
         /// Предел очереди вывода (~10 с при 48 кГц моно).
         const MAX_QUEUED_SAMPLES: usize = 48_000 * 10;
         let host = cpal::default_host();
@@ -404,7 +429,7 @@ impl AudioPlayer {
                 if !needs_resample {
                     while let Ok(chunk) = rx.recv() {
                         wait_for_room(&q_drainer);
-                        written_drainer.fetch_add(chunk.len(), Ordering::AcqRel);
+                        written_drainer.fetch_add(chunk.len() / src_ch, Ordering::AcqRel);
                         if let Ok(mut q) = q_drainer.lock() {
                             q.extend(chunk.into_iter());
                         }
@@ -424,7 +449,7 @@ impl AudioPlayer {
                 };
                 let in_chunk: usize = 1024;
                 let ratio = native_sr as f64 / sample_rate as f64;
-                let mut resampler = match SincFixedIn::<f32>::new(ratio, 2.0, params, in_chunk, 1) {
+                let mut resampler = match SincFixedIn::<f32>::new(ratio, 2.0, params, in_chunk, src_ch) {
                     Ok(r) => r,
                     Err(e) => {
                         eprintln!(
@@ -433,22 +458,34 @@ impl AudioPlayer {
                         return;
                     }
                 };
-                let mut accum: Vec<f32> = Vec::with_capacity(in_chunk * 4);
+                let mut accum: Vec<f32> = Vec::with_capacity(in_chunk * src_ch * 4);
+                // каналы rubato (раздельные) ↔ interleaved очереди
+                let split = |block: &[f32]| -> Vec<Vec<f32>> {
+                    (0..src_ch).map(|c| block.iter().skip(c).step_by(src_ch).copied().collect()).collect()
+                };
                 let push_resampled = |q: &Arc<Mutex<VecDeque<f32>>>,
                                       written: &Arc<AtomicUsize>,
-                                      out: &[f32]| {
-                    written.fetch_add(out.len(), Ordering::AcqRel);
+                                      out: &[Vec<f32>],
+                                      frames: usize| {
+                    written.fetch_add(frames, Ordering::AcqRel);
                     if let Ok(mut g) = q.lock() {
-                        g.extend(out.iter().copied());
+                        for i in 0..frames {
+                            for ch in out.iter() {
+                                g.push_back(ch[i]);
+                            }
+                        }
                     }
                 };
                 while let Ok(chunk) = rx.recv() {
                     wait_for_room(&q_drainer);
                     accum.extend_from_slice(&chunk);
-                    while accum.len() >= in_chunk {
-                        let block: Vec<f32> = accum.drain(..in_chunk).collect();
-                        match resampler.process(&[block], None) {
-                            Ok(out) => push_resampled(&q_drainer, &written_drainer, &out[0]),
+                    while accum.len() >= in_chunk * src_ch {
+                        let block: Vec<f32> = accum.drain(..in_chunk * src_ch).collect();
+                        match resampler.process(&split(&block), None) {
+                            Ok(out) => {
+                                let n = out[0].len();
+                                push_resampled(&q_drainer, &written_drainer, &out, n)
+                            }
                             Err(e) => {
                                 eprintln!("[AudioPlayer streaming] rubato process: {e}");
                                 return;
@@ -457,17 +494,13 @@ impl AudioPlayer {
                     }
                 }
                 if !accum.is_empty() {
-                    let remaining = accum.len();
-                    accum.resize(in_chunk, 0.0);
-                    if let Ok(out) = resampler.process(&[accum.clone()], None) {
+                    let remaining = accum.len() / src_ch;
+                    accum.resize(in_chunk * src_ch, 0.0);
+                    if let Ok(out) = resampler.process(&split(&accum), None) {
                         let out_chunk = out[0].len();
                         let take = ((out_chunk as f64) * (remaining as f64) / (in_chunk as f64))
                             .round() as usize;
-                        push_resampled(
-                            &q_drainer,
-                            &written_drainer,
-                            &out[0][..take.min(out_chunk)],
-                        );
+                        push_resampled(&q_drainer, &written_drainer, &out, take.min(out_chunk));
                     }
                 }
             })
@@ -502,6 +535,7 @@ impl AudioPlayer {
                     &config,
                     sample_format,
                     channels,
+                    src_ch,
                 );
             })
             .map_err(|e| AudioError::Cpal(format!("spawn thread: {e}")))?;
@@ -790,6 +824,7 @@ fn run_player_thread_streaming(
     config: &cpal::StreamConfig,
     sample_format: cpal::SampleFormat,
     channels: u16,
+    src_ch: usize,
 ) -> Result<(), AudioError> {
     let err_fn = |e| eprintln!("[syngui/audio/player streaming] stream error: {e}");
 
@@ -801,7 +836,7 @@ fn run_player_thread_streaming(
             device.build_output_stream(
                 config,
                 move |data: &mut [f32], info: &cpal::OutputCallbackInfo| {
-                    write_streaming_f32(&q, &played, data, channels, &st, info);
+                    write_streaming_f32(&q, &played, data, channels, src_ch, &st, info);
                 },
                 err_fn,
                 None,
@@ -814,7 +849,7 @@ fn run_player_thread_streaming(
             device.build_output_stream(
                 config,
                 move |data: &mut [i16], info: &cpal::OutputCallbackInfo| {
-                    write_streaming_i16(&q, &played, data, channels, &st, info);
+                    write_streaming_i16(&q, &played, data, channels, src_ch, &st, info);
                 },
                 err_fn,
                 None,
@@ -827,7 +862,7 @@ fn run_player_thread_streaming(
             device.build_output_stream(
                 config,
                 move |data: &mut [u16], info: &cpal::OutputCallbackInfo| {
-                    write_streaming_u16(&q, &played, data, channels, &st, info);
+                    write_streaming_u16(&q, &played, data, channels, src_ch, &st, info);
                 },
                 err_fn,
                 None,
@@ -909,44 +944,75 @@ fn anchor_from_cpal(state: &PlayerState, played_before: usize, info: &cpal::Outp
     }
 }
 
+/// Колбэк потокового вывода: кадры источника (`src_ch` = 1 или 2 канала, interleaved) → каналы устройства.
+/// Моно — во все каналы; стерео — L/R в первые два, в остальные (и на моно-устройстве) — среднее.
+#[cfg(not(target_os = "android"))]
+#[allow(clippy::too_many_arguments)]
+fn fill_streaming<T: Copy>(
+    queue: &Mutex<VecDeque<f32>>,
+    played: &AtomicUsize,
+    data: &mut [T],
+    channels: u16,
+    src_ch: usize,
+    state: &PlayerState,
+    info: &cpal::OutputCallbackInfo,
+    silence: T,
+    conv: impl Fn(f32) -> T,
+) {
+    let volume = state.volume();
+    anchor_from_cpal(state, played.load(Ordering::Acquire), info);
+    let ch = channels.max(1) as usize;
+    let src_ch = src_ch.max(1);
+    if state.is_paused() {
+        data.fill(silence);
+        return;
+    }
+    let frames = data.len() / ch;
+    let Ok(mut q) = queue.lock() else {
+        data.fill(silence);
+        return;
+    };
+    let take = frames.min(q.len() / src_ch);
+    for i in 0..frames {
+        let (l, r) = if i >= take {
+            (0.0, 0.0)
+        } else if src_ch >= 2 {
+            let l = q.pop_front().unwrap_or(0.0);
+            let r = q.pop_front().unwrap_or(0.0);
+            for _ in 2..src_ch {
+                q.pop_front();
+            }
+            (l, r)
+        } else {
+            let s = q.pop_front().unwrap_or(0.0);
+            (s, s)
+        };
+        let (l, r) = (l * volume, r * volume);
+        let out = &mut data[i * ch..(i + 1) * ch];
+        if ch == 1 {
+            out[0] = conv((l + r) * 0.5);
+        } else {
+            out[0] = conv(l);
+            out[1] = conv(r);
+            for v in &mut out[2..] {
+                *v = conv((l + r) * 0.5);
+            }
+        }
+    }
+    played.fetch_add(take, Ordering::AcqRel);
+}
+
 #[cfg(not(target_os = "android"))]
 fn write_streaming_f32(
     queue: &Mutex<VecDeque<f32>>,
     played: &AtomicUsize,
     data: &mut [f32],
     channels: u16,
+    src_ch: usize,
     state: &PlayerState,
     info: &cpal::OutputCallbackInfo,
 ) {
-    let volume = state.volume();
-    let paused = state.is_paused();
-    anchor_from_cpal(state, played.load(Ordering::Acquire), info);
-    let ch = channels.max(1) as usize;
-    if paused {
-        for v in data.iter_mut() {
-            *v = 0.0;
-        }
-        return;
-    }
-    let frames = data.len() / ch;
-    if let Ok(mut q) = queue.lock() {
-        let take = frames.min(q.len());
-        for i in 0..frames {
-            let s = if i < take {
-                q.pop_front().unwrap_or(0.0)
-            } else {
-                0.0
-            } * volume;
-            for c in 0..ch {
-                data[i * ch + c] = s;
-            }
-        }
-        played.fetch_add(take, Ordering::AcqRel);
-    } else {
-        for v in data.iter_mut() {
-            *v = 0.0;
-        }
-    }
+    fill_streaming(queue, played, data, channels, src_ch, state, info, 0.0, |s| s);
 }
 
 #[cfg(not(target_os = "android"))]
@@ -955,39 +1021,11 @@ fn write_streaming_i16(
     played: &AtomicUsize,
     data: &mut [i16],
     channels: u16,
+    src_ch: usize,
     state: &PlayerState,
     info: &cpal::OutputCallbackInfo,
 ) {
-    let volume = state.volume();
-    let paused = state.is_paused();
-    anchor_from_cpal(state, played.load(Ordering::Acquire), info);
-    let ch = channels.max(1) as usize;
-    if paused {
-        for v in data.iter_mut() {
-            *v = 0;
-        }
-        return;
-    }
-    let frames = data.len() / ch;
-    if let Ok(mut q) = queue.lock() {
-        let take = frames.min(q.len());
-        for i in 0..frames {
-            let s = if i < take {
-                q.pop_front().unwrap_or(0.0)
-            } else {
-                0.0
-            } * volume;
-            let v = (s.clamp(-1.0, 1.0) * i16::MAX as f32) as i16;
-            for c in 0..ch {
-                data[i * ch + c] = v;
-            }
-        }
-        played.fetch_add(take, Ordering::AcqRel);
-    } else {
-        for v in data.iter_mut() {
-            *v = 0;
-        }
-    }
+    fill_streaming(queue, played, data, channels, src_ch, state, info, 0, |s| (s.clamp(-1.0, 1.0) * i16::MAX as f32) as i16);
 }
 
 #[cfg(not(target_os = "android"))]
@@ -996,41 +1034,12 @@ fn write_streaming_u16(
     played: &AtomicUsize,
     data: &mut [u16],
     channels: u16,
+    src_ch: usize,
     state: &PlayerState,
     info: &cpal::OutputCallbackInfo,
 ) {
-    let volume = state.volume();
-    let paused = state.is_paused();
-    anchor_from_cpal(state, played.load(Ordering::Acquire), info);
-    let ch = channels.max(1) as usize;
-    let mid_u16 = u16::MAX / 2;
-    if paused {
-        for v in data.iter_mut() {
-            *v = mid_u16;
-        }
-        return;
-    }
-    let frames = data.len() / ch;
-    let mid = mid_u16 as f32;
-    if let Ok(mut q) = queue.lock() {
-        let take = frames.min(q.len());
-        for i in 0..frames {
-            let s = if i < take {
-                q.pop_front().unwrap_or(0.0)
-            } else {
-                0.0
-            } * volume;
-            let v = ((s.clamp(-1.0, 1.0) * mid) + mid) as u16;
-            for c in 0..ch {
-                data[i * ch + c] = v;
-            }
-        }
-        played.fetch_add(take, Ordering::AcqRel);
-    } else {
-        for v in data.iter_mut() {
-            *v = mid_u16;
-        }
-    }
+    let mid = (u16::MAX / 2) as f32;
+    fill_streaming(queue, played, data, channels, src_ch, state, info, u16::MAX / 2, |s| ((s.clamp(-1.0, 1.0) * mid) + mid) as u16);
 }
 
 fn run_mono_prep_and_play(
