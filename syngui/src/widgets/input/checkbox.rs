@@ -112,13 +112,24 @@ fn ease_out_cubic(t: f32) -> f32 {
 }
 
 impl CheckboxElement {
+    /// Цвета невыбранного квадратика. Без `background` в MSS он прозрачный, а рамка — цвет текста (`color`)
+    /// вполпрозрачности: так флажок следует теме приложения (раньше по умолчанию был белый фон и светлая рамка,
+    /// и в тёмных темах, где задают только `color` и `accent-color`, он выглядел чужим).
+    fn base_colors(&self) -> (Color, Color) {
+        let bg = self.mss.background_color.unwrap_or(Color::TRANSPARENT);
+        let border = self.mss.border_color.unwrap_or_else(|| match self.mss.color {
+            Some(fg) => fg.with_alpha(fg.a * 0.55),
+            None => Color::from_hex("#D1D5DB"),
+        });
+        (bg, border)
+    }
+
     fn start_transition_to_current_state(&mut self) {
-        let base_bg = self.mss.background_color.unwrap_or(Color::WHITE);
-        let base_border = self.mss.border_color.unwrap_or(Color::from_hex("#D1D5DB"));
+        let (base_bg, base_border) = self.base_colors();
         let primary = self.mss.accent_color.unwrap_or(Color::from_hex("#3B82F6"));
 
         let (target_bg, target_border) = if self.disabled {
-            (base_bg.darken(0.05), base_border)
+            (base_bg, base_border.with_alpha(base_border.a * 0.5))
         } else if self.checked {
             (
                 self.style_checked
@@ -208,13 +219,12 @@ impl Element for CheckboxElement {
     }
 
     fn build_display_list(&self, list: &mut DisplayList, _clip: Rect) {
-        let base_bg = self.mss.background_color.unwrap_or(Color::WHITE);
+        let (base_bg, base_border) = self.base_colors();
         let base_fg = self.mss.color.unwrap_or(Color::from_hex("#374151"));
-        let base_border = self.mss.border_color.unwrap_or(Color::from_hex("#D1D5DB"));
         let primary = self.mss.accent_color.unwrap_or(Color::from_hex("#3B82F6"));
 
         let (target_bg, target_border) = if self.disabled {
-            (base_bg.darken(0.05), base_border)
+            (base_bg, base_border.with_alpha(base_border.a * 0.5))
         } else if self.checked {
             (primary, primary)
         } else if self.hover {

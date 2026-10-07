@@ -179,21 +179,26 @@ impl Element for RadioButtonElement {
 
     fn build_display_list(&self, list: &mut DisplayList, _clip: Rect) {
         let fg = self.mss.color.unwrap_or(Color::from_hex("#374151"));
-        let default_border = self.mss.border_color.unwrap_or(Color::from_hex("#D1D5DB"));
+        // Как у Checkbox: без `background`/`border-color` в MSS кружок прозрачный, рамка — цвет текста
+        // вполпрозрачности, чтобы следовать теме приложения (а не белый круг в тёмной теме).
+        let default_border = self.mss.border_color.unwrap_or_else(|| match self.mss.color {
+            Some(c) => c.with_alpha(c.a * 0.55),
+            None => Color::from_hex("#D1D5DB"),
+        });
         let disabled_fg = fg.with_alpha(0.5);
         let primary = self.mss.accent_color.unwrap_or(Color::from_hex("#3B82F6"));
-        let white = Color::WHITE;
-        let disabled_bg = default_border.lighten(0.4);
+        let base_bg = self.mss.background_color.unwrap_or(Color::TRANSPARENT);
+        let disabled_bg = base_bg;
         let border_width = self.mss.border_width_or(2.0);
 
         let (bg_color, border_color) = if self.disabled {
-            (disabled_bg, default_border)
+            (disabled_bg, default_border.with_alpha(default_border.a * 0.5))
         } else if self.is_selected {
-            (white, primary)
+            (base_bg, primary)
         } else if self.hover {
-            (white, primary)
+            (base_bg, primary)
         } else {
-            (white, default_border)
+            (base_bg, default_border)
         };
 
         list.push_rect_bordered(
