@@ -130,6 +130,10 @@ impl Animation {
     }
 
     pub fn tick(&mut self, dt: Duration) -> bool {
+        if !super::enabled() {
+            self.finish();
+            return false;
+        }
         match self {
             Self::Spring {
                 spring,
@@ -165,6 +169,24 @@ impl Animation {
                 *current_index < animations.len()
             }
             Self::Constant(_) => false,
+        }
+    }
+
+    /// Сразу в конечное состояние (анимации выключены глобально — [`super::set_enabled`]).
+    pub fn finish(&mut self) {
+        match self {
+            Self::Spring { target, current, velocity, .. } => {
+                *current = *target;
+                *velocity = 0.0;
+            }
+            Self::Tween { duration, elapsed, delay, .. } => *elapsed = *delay + *duration,
+            Self::Sequence { animations, current_index } => {
+                for a in animations.iter_mut() {
+                    a.finish();
+                }
+                *current_index = animations.len();
+            }
+            Self::Constant(_) => {}
         }
     }
 

@@ -572,6 +572,11 @@ impl TransitionState {
         old_props: &AnimatedPropertyMap,
         new_props: &AnimatedPropertyMap,
     ) {
+        // анимации выключены глобально — без перехода (сразу новое значение, без кадра старого)
+        if !super::enabled() {
+            self.active.clear();
+            return;
+        }
         let all_keys: HashSet<&str> = old_props.keys().chain(new_props.keys()).collect();
 
         for prop_name in all_keys {
@@ -618,6 +623,8 @@ impl TransitionState {
     }
 
     pub fn tick(&mut self, dt_secs: f32) -> bool {
+        // анимации выключены глобально — переходы сразу в конечное значение
+        let dt_secs = if super::enabled() { dt_secs } else { 1.0e6 };
         for t in &mut self.active {
             t.elapsed += dt_secs;
         }

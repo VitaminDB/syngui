@@ -146,6 +146,12 @@ impl KeyframeAnimation {
             self.ticked = true;
             return self.is_running();
         }
+        // анимации выключены глобально — конечные ключевые кадры сразу в конец, бесконечные (индикаторы) идут
+        let dt_secs = if !super::enabled() && self.iterations.is_finite() {
+            self.delay_secs + self.duration_secs * self.iterations + 1.0
+        } else {
+            dt_secs
+        };
         self.elapsed += dt_secs;
         let active = (self.elapsed - self.delay_secs).max(0.0);
         let total_iterations = active / self.duration_secs;
