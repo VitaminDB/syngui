@@ -446,6 +446,11 @@ impl ElementTree {
         // попапы/оверлеи меряются в 0 и не должны раздвигать соседей.
         // Flex-дети — всегда участники: им ещё раздадут остаток.
         let mut gap_participants = 0usize;
+        // Дети с `flex-shrink`: (индекс, ширина без полей, коэффициент).
+        let mut shrinkable: Vec<(u32, f32, f32)> = Vec::new();
+        // Высота каждого нефлекс-ребёнка с полями: после сжатия высота
+        // строки пересчитывается (перенесённый текст становится выше).
+        let mut fixed_heights: Vec<(u32, f32)> = Vec::new();
         for probe in &child_probes {
             if let Some(flex) = probe_flex(probe) {
                 total_flex += flex;
@@ -466,13 +471,50 @@ impl ElementTree {
                 if extent > 0.0 {
                     gap_participants += 1;
                 }
-                max_height = max_height.max(child_size.height + m.top + m.bottom);
+                if probe.mss_flex_shrink > 0.0 && child_size.width > 0.0 {
+                    shrinkable.push((probe.idx, child_size.width, probe.mss_flex_shrink));
+                }
+                fixed_heights.push((probe.idx, child_size.height + m.top + m.bottom));
                 measured_widths.push((probe.idx, child_size.width));
             }
         }
         gap_participants += expanded_idx.len();
 
         let gap_space = gap * gap_participants.saturating_sub(1) as f32;
+
+        // `flex-shrink`, как в CSS: если дети не помещаются в конечную
+        // ширину строки, недостающее забирается у сжимаемых детей
+        // пропорционально коэффициенту × ширине. Подпись рядом со значком
+        // тогда переносится, а не вылезает за край карточки.
+        if !shrinkable.is_empty() && effective_max_width.is_finite() {
+            let overflow = total_fixed_width + gap_space - effective_max_width;
+            let weight: f32 = shrinkable.iter().map(|(_, w, k)| w * k).sum();
+            if overflow > 0.5 && weight > 0.0 {
+                for (cidx, w, k) in shrinkable {
+                    let cut = (overflow * w * k / weight).min(w);
+                    let target = (w - cut).max(0.0);
+                    let shrunk = Constraints {
+                        min_width: 0.0,
+                        max_width: target,
+                        min_height: 0.0,
+                        max_height: effective_max_height,
+                        containing_block: Size::new(target, child_cb.height),
+                    };
+                    let size = self.measure_recursive_by_idx(cidx, shrunk);
+                    total_fixed_width += size.width - w;
+                    let m = child_probes.iter().find(|p| p.idx == cidx).map(|p| p.margin).unwrap_or_default();
+                    if let Some(e) = measured_widths.iter_mut().find(|e| e.0 == cidx) {
+                        e.1 = size.width;
+                    }
+                    if let Some(e) = fixed_heights.iter_mut().find(|e| e.0 == cidx) {
+                        e.1 = size.height + m.top + m.bottom;
+                    }
+                }
+            }
+        }
+        for (_, h) in &fixed_heights {
+            max_height = max_height.max(*h);
+        }
 
         let total_width;
         if !expanded_idx.is_empty() && effective_max_width.is_finite() {
