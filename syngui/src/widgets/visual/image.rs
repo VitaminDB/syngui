@@ -538,6 +538,8 @@ impl Element for ImageElement {
     }
 
     fn animate(&mut self, dt: std::time::Duration) -> bool {
+        // анимации выключены глобально — переход за один кадр
+        let dt = crate::animation::effective_dt(dt);
         let mut moving = false;
         if self.uv_t < 1.0 {
             let step = dt.as_secs_f32() * 1000.0 / self.uv_ms.max(1) as f32;

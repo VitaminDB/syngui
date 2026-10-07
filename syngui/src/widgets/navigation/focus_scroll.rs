@@ -253,6 +253,8 @@ impl Element for FocusScrollElement {
     }
 
     fn animate(&mut self, dt: Duration) -> bool {
+        // анимации выключены глобально — переход за один кадр
+        let dt = crate::animation::effective_dt(dt);
         if !self.animating() {
             self.offset = self.target;
             return false;

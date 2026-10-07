@@ -626,6 +626,8 @@ impl Element for CarouselElement {
     }
 
     fn animate(&mut self, dt: Duration) -> bool {
+        // анимации выключены глобально — переход за один кадр
+        let dt = crate::animation::effective_dt(dt);
         let mut needs_redraw = false;
         const SLIDE_DURATION: f32 = 0.35;
 

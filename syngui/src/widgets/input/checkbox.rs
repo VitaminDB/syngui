@@ -382,6 +382,8 @@ impl Element for CheckboxElement {
     }
 
     fn animate(&mut self, dt: Duration) -> bool {
+        // анимации выключены глобально — переход за один кадр
+        let dt = crate::animation::effective_dt(dt);
         let target = if self.checked { 1.0 } else { 0.0 };
         let mut changed = false;
         if (self.check_reveal - target).abs() > 1e-4 {

@@ -280,6 +280,8 @@ impl Element for ScaleBoxElement {
     }
 
     fn animate(&mut self, dt: Duration) -> bool {
+        // анимации выключены глобально — переход за один кадр
+        let dt = crate::animation::effective_dt(dt);
         let target = self.target();
         if (target - self.current).abs() <= 1e-3 {
             if self.current != target {

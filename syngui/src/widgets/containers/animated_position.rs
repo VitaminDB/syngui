@@ -151,6 +151,14 @@ impl Element for AnimatedPositionElement {
         if !self.active {
             return false;
         }
+        // анимации выключены глобально — сразу на место (пружина шагает не больше 0,25 с за кадр)
+        if !crate::animation::enabled() {
+            self.offset = (0.0, 0.0);
+            self.velocity = (0.0, 0.0);
+            self.active = false;
+            self.mark_dirty(DirtyFlags::RENDER);
+            return true;
+        }
         let dt = dt.as_secs_f32();
         let (x, vx) = self.spring.update(self.offset.0, 0.0, self.velocity.0, dt);
         let (y, vy) = self.spring.update(self.offset.1, 0.0, self.velocity.1, dt);

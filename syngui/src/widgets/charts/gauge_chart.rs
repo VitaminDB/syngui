@@ -587,6 +587,8 @@ impl Element for GaugeChartElement {
     }
 
     fn animate(&mut self, dt: Duration) -> bool {
+        // анимации выключены глобально — переход за один кадр
+        let dt = crate::animation::effective_dt(dt);
         if !self.anim_started {
             return false;
         }

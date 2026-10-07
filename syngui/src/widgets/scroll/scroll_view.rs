@@ -956,6 +956,8 @@ impl Element for ScrollViewElement {
     }
 
     fn animate(&mut self, dt: Duration) -> bool {
+        // анимации выключены глобально — переход за один кадр
+        let dt = crate::animation::effective_dt(dt);
         let dt_secs = dt.as_secs_f32();
         let mut needs_repaint = false;
 
