@@ -15,6 +15,8 @@ use std::sync::Arc;
 use std::time::Duration;
 
 pub struct Carousel {
+    /// Длительность перелистывания, мс (0 — мгновенно).
+    slide_ms: u32,
     children: Vec<Box<dyn Widget>>,
     current_page: usize,
     auto_play: bool,
@@ -30,6 +32,7 @@ pub struct Carousel {
 impl Carousel {
     pub fn new() -> Self {
         Self {
+            slide_ms: 350,
             children: Vec::new(),
             current_page: 0,
             auto_play: false,
@@ -60,6 +63,12 @@ impl Carousel {
     }
 
     /// Стрелки по бокам (на сенсорных экранах обычно не нужны).
+    /// Длительность перелистывания страницы, мс; 0 — без анимации (системная настройка «домашний экран» и т. п.).
+    pub fn slide_duration_ms(mut self, ms: u32) -> Self {
+        self.slide_ms = ms;
+        self
+    }
+
     pub fn show_arrows(mut self, show: bool) -> Self {
         self.show_arrows = show;
         self
@@ -124,6 +133,7 @@ impl Widget for Carousel {
             page_signal: self.page_signal,
             position_signal: self.position_signal,
             show_arrows: self.show_arrows,
+            slide_ms: self.slide_ms,
             requested_page: self.current_page,
             touch: None,
             slide_offset: 0.0,
@@ -177,6 +187,8 @@ const ARROW_SIZE: f32 = 36.0;
 
 pub struct CarouselElement {
     id: ElementId,
+    /// Длительность перелистывания, мс (0 — мгновенно).
+    slide_ms: u32,
     page_count: usize,
     current_page: usize,
     auto_play: bool,
@@ -629,10 +641,11 @@ impl Element for CarouselElement {
         // анимации выключены глобально — переход за один кадр
         let dt = crate::animation::effective_dt(dt);
         let mut needs_redraw = false;
-        const SLIDE_DURATION: f32 = 0.35;
+        // 0 — без анимации: шаг больше любой длительности
+        let slide_duration: f32 = (self.slide_ms as f32 / 1000.0).max(1e-4);
 
         if self.animating {
-            self.anim_progress += dt.as_secs_f32() / SLIDE_DURATION;
+            self.anim_progress += dt.as_secs_f32() / slide_duration;
             if self.anim_progress >= 1.0 {
                 self.anim_progress = 1.0;
                 self.animating = false;
