@@ -620,15 +620,15 @@ impl Element for PopupMenuElement {
         let bg = self
             .mss_popup_bg
             .or(self.mss.background_color)
-            .unwrap_or(Color::WHITE);
+            .unwrap_or_else(crate::theme_fallback::fallback_surface);
         let fg = self
             .mss_popup_fg
             .or(self.mss.color)
-            .unwrap_or(Color::from_hex("#374151"));
+            .unwrap_or_else(crate::theme_fallback::fallback_fg);
         let border = self
             .mss_popup_border
             .or(self.mss.border_color)
-            .unwrap_or(Color::from_hex("#E5E7EB"));
+            .unwrap_or_else(crate::theme_fallback::fallback_divider);
         let hover_bg = self.mss_popup_hover_bg.unwrap_or_else(|| bg.darken(0.05));
         let arrow = self.mss_popup_arrow.unwrap_or_else(|| fg.with_alpha(0.55));
 

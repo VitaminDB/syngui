@@ -262,18 +262,18 @@ impl Element for BreadcrumbElement {
             .mss
             .color
             .map(|c| c.with_alpha(0.6))
-            .unwrap_or(Color::from_hex("#6B7280"));
+            .unwrap_or_else(crate::theme_fallback::fallback_muted);
         let gray_400 = self
             .mss
             .border_color
             .map(|c| c.with_alpha(0.7))
             .unwrap_or(Color::from_hex("#9CA3AF"));
-        let gray_900 = self.mss.color.unwrap_or(Color::from_hex("#111827"));
+        let gray_900 = self.mss.color.unwrap_or_else(crate::theme_fallback::fallback_fg_strong);
         let primary = self.mss.accent_color.unwrap_or(Color::from_hex("#3B82F6"));
         let hover_bg = self
             .mss
             .background_color
-            .unwrap_or(Color::from_hex("#F3F4F6"));
+            .unwrap_or_else(crate::theme_fallback::fallback_hover);
         let font_size = self.font_size();
         let font_weight = self.mss.font_weight_or(400);
         let bold: u16 = font_weight;

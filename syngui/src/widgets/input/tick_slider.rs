@@ -445,7 +445,7 @@ impl Element for TickSliderElement {
         let track_base = self
             .mss
             .background_color
-            .unwrap_or(Color::from_hex("#3F4147"));
+            .unwrap_or_else(crate::theme_fallback::fallback_border);
         let fill_base = self.mss.color.unwrap_or(Color::from_hex("#00B4D8"));
         let track_color = if self.disabled {
             track_base.darken(0.1)
@@ -457,13 +457,13 @@ impl Element for TickSliderElement {
         } else {
             fill_base
         };
-        let tick_color = self.mss_tick_color.unwrap_or(Color::from_hex("#6B7280"));
+        let tick_color = self.mss_tick_color.unwrap_or_else(crate::theme_fallback::fallback_muted);
         let tick_label_color = self
             .mss_tick_label_color
-            .unwrap_or_else(|| self.mss.color.unwrap_or(Color::from_hex("#B5BAC1")));
+            .unwrap_or_else(|| self.mss.color.unwrap_or_else(crate::theme_fallback::fallback_muted));
         let value_color = self
             .mss_value_color
-            .unwrap_or_else(|| self.mss.color.unwrap_or(Color::from_hex("#F2F3F5")));
+            .unwrap_or_else(|| self.mss.color.unwrap_or_else(crate::theme_fallback::fallback_fg));
 
         let radius_basis = if self.vertical {
             self.track_bounds.size.width

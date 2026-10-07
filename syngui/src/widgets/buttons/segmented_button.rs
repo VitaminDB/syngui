@@ -241,9 +241,9 @@ impl Element for SegmentedButtonElement {
             return;
         }
 
-        let base_bg = self.mss.background_color.unwrap_or(Color::WHITE);
-        let base_fg = self.mss.color.unwrap_or(Color::from_hex("#374151"));
-        let border_color = self.mss.border_color.unwrap_or(Color::from_hex("#D1D5DB"));
+        let base_bg = self.mss.background_color.unwrap_or_else(crate::theme_fallback::fallback_surface);
+        let base_fg = self.mss.color.unwrap_or_else(crate::theme_fallback::fallback_fg);
+        let border_color = self.mss.border_color.unwrap_or_else(crate::theme_fallback::fallback_border);
         let accent = self.mss.accent_color.unwrap_or(Color::from_hex("#3B82F6"));
         let font_size = self.mss.font_size_or(14.0);
         let font_weight = self.mss.font_weight_or(400);

@@ -254,8 +254,8 @@ impl Element for DatePickerElement {
 
     fn build_display_list(&self, list: &mut DisplayList, _clip: Rect) {
         let theme = self.theme();
-        let bg_color = self.mss.background_color.unwrap_or(Color::WHITE);
-        let base_border = self.mss.border_color.unwrap_or(Color::from_hex("#D1D5DB"));
+        let bg_color = self.mss.background_color.unwrap_or_else(crate::theme_fallback::fallback_surface);
+        let base_border = self.mss.border_color.unwrap_or_else(crate::theme_fallback::fallback_border);
         let border_color = if self.is_open {
             theme.accent
         } else {

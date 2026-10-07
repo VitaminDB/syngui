@@ -256,7 +256,7 @@ impl Element for SplitViewElement {
         };
 
         let accent = self.mss.accent_color.unwrap_or(Color::from_hex("#3B82F6"));
-        let border = self.mss.border_color.unwrap_or(Color::from_hex("#E5E7EB"));
+        let border = self.mss.border_color.unwrap_or_else(crate::theme_fallback::fallback_divider);
         let fg = self.mss.color.unwrap_or(Color::from_hex("#9CA3AF"));
 
         let bg = if self.dragging {

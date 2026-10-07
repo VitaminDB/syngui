@@ -61,6 +61,7 @@ pub mod render;
 pub mod scale;
 pub mod signal;
 pub mod text;
+pub mod theme_fallback;
 pub mod viewport;
 pub mod widget;
 pub mod widgets;
@@ -124,6 +125,7 @@ pub mod prelude {
     };
 
     pub use crate::scale::{set_ui_scale, ui_scale, MAX_UI_SCALE, MIN_UI_SCALE};
+    pub use crate::theme_fallback::{is_dark_theme, set_dark_theme};
     pub use crate::viewport::{viewport_below, viewport_size};
 
     #[cfg(feature = "tokio")]

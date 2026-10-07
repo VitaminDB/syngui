@@ -294,7 +294,7 @@ impl SystemWindowControlsElement {
     /// плюс глиф кнопки линиями.
     fn draw_builtin(&self, list: &mut DisplayList, index: usize, rect: Rect) {
         let state = self.state_of(index);
-        let color = self.mss.color.unwrap_or(Color::from_hex("#1C1D22"));
+        let color = self.mss.color.unwrap_or_else(crate::theme_fallback::fallback_fg_strong);
         let is_close = self.buttons[index] == WindowButton::Close;
 
         // Подложка: у «закрыть» — красная, у остальных — из MSS.
@@ -303,7 +303,7 @@ impl SystemWindowControlsElement {
         } else {
             self.mss
                 .background_color
-                .unwrap_or(Color::from_hex("#00000018"))
+                .unwrap_or_else(crate::theme_fallback::fallback_hover)
         };
         match state {
             ButtonState::Hover => list.push_rect(rect, hover_bg, [rect.size.width * 0.5; 4]),
@@ -378,7 +378,7 @@ impl SystemWindowControlsElement {
         let state = self.state_of(index);
         let button = self.buttons[index];
         let is_close = button == WindowButton::Close;
-        let fg = self.mss.color.unwrap_or(Color::from_hex("#1C1D22"));
+        let fg = self.mss.color.unwrap_or_else(crate::theme_fallback::fallback_fg_strong);
         let hot = matches!(state, ButtonState::Hover | ButtonState::Pressed);
 
         let cx = rect.x() + rect.size.width / 2.0;

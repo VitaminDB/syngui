@@ -547,9 +547,9 @@ impl Element for TimePickerElement {
     }
 
     fn build_display_list(&self, list: &mut DisplayList, _clip: Rect) {
-        let bg = self.mss.background_color.unwrap_or(Color::WHITE);
-        let fg = self.mss.color.unwrap_or(Color::from_hex("#1F2937"));
-        let border_base = self.mss.border_color.unwrap_or(Color::from_hex("#D1D5DB"));
+        let bg = self.mss.background_color.unwrap_or_else(crate::theme_fallback::fallback_surface);
+        let fg = self.mss.color.unwrap_or_else(crate::theme_fallback::fallback_fg);
+        let border_base = self.mss.border_color.unwrap_or_else(crate::theme_fallback::fallback_border);
         let accent = self.mss.accent_color.unwrap_or(Color::from_hex("#3B82F6"));
         let border_color = if self.is_open { accent } else { border_base };
         let font = self.font_size();
@@ -599,7 +599,7 @@ impl Element for TimePickerElement {
             .mss
             .color
             .map(|c| c.with_alpha(0.6))
-            .unwrap_or(Color::from_hex("#6B7280"));
+            .unwrap_or_else(crate::theme_fallback::fallback_muted);
         list.push_text("\u{E8B5}", icon_rect, icon_color, font);
 
         if !self.is_open {
@@ -610,15 +610,15 @@ impl Element for TimePickerElement {
         let popup_bg = self
             .popup_bg
             .or(self.mss.background_color)
-            .unwrap_or(Color::WHITE);
+            .unwrap_or_else(crate::theme_fallback::fallback_surface);
         let popup_fg = self
             .popup_fg
             .or(self.mss.color)
-            .unwrap_or(Color::from_hex("#111827"));
+            .unwrap_or_else(crate::theme_fallback::fallback_fg_strong);
         let popup_border = self
             .popup_border
             .or(self.mss.border_color)
-            .unwrap_or(Color::from_hex("#E5E7EB"));
+            .unwrap_or_else(crate::theme_fallback::fallback_divider);
         let selected_bg = self.popup_selected_bg.unwrap_or(accent.with_alpha(0.22));
         let hover_bg = self.popup_hover_bg.unwrap_or(popup_fg.with_alpha(0.08));
 

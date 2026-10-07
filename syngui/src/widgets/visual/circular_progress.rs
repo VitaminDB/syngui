@@ -132,7 +132,7 @@ impl Element for CircularProgressElement {
         let track_color = self
             .mss
             .border_color
-            .unwrap_or_else(|| Color::from_hex("#E5E7EB"));
+            .unwrap_or_else(crate::theme_fallback::fallback_track);
         ctx.set_color(track_color);
         ctx.set_stroke_width(self.stroke_width);
         ctx.stroke_circle(cx, cy, radius);

@@ -466,7 +466,7 @@ impl Element for ImageElement {
                 let bg_color = self
                     .mss
                     .background_color
-                    .unwrap_or_else(|| Color::from_hex("#F3F4F6"));
+                    .unwrap_or_else(crate::theme_fallback::fallback_hover);
                 list.push_rect(self.bounds, bg_color, [4.0; 4]);
 
                 let icon_color = self
@@ -506,7 +506,7 @@ impl Element for ImageElement {
                 if !self.placeholder {
                     return;
                 }
-                let bg_color = Color::from_hex("#FEE2E2");
+                let bg_color = Color::from_hex("#EF4444").with_alpha(0.15);
                 list.push_rect(self.bounds, bg_color, [4.0; 4]);
 
                 let icon_size = 20.0f32

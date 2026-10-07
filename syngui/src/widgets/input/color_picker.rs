@@ -383,7 +383,7 @@ impl ColorPickerElement {
     fn slider_track(&self) -> Color {
         self.mss_popup_border
             .or_else(|| self.mss.border_color.map(|c| c.lighten(0.2)))
-            .unwrap_or(Color::from_hex("#E5E7EB"))
+            .unwrap_or_else(crate::theme_fallback::fallback_divider)
     }
 
     fn update_from_hsv(&mut self) {
@@ -606,9 +606,9 @@ impl Element for ColorPickerElement {
             let border_color = if self.is_open {
                 self.mss.accent_color.unwrap_or(Color::from_hex("#3B82F6"))
             } else {
-                self.mss.border_color.unwrap_or(Color::from_hex("#D1D5DB"))
+                self.mss.border_color.unwrap_or_else(crate::theme_fallback::fallback_border)
             };
-            let bg_color = self.mss.background_color.unwrap_or(Color::WHITE);
+            let bg_color = self.mss.background_color.unwrap_or_else(crate::theme_fallback::fallback_surface);
 
             let h = self.bounds.size.height;
             let v_pad = if h < 32.0 { 4.0 } else { 8.0 };
@@ -639,7 +639,7 @@ impl Element for ColorPickerElement {
                     font_size + 2.0,
                 ),
             );
-            let text_color = self.mss.color.unwrap_or(Color::from_hex("#1F2937"));
+            let text_color = self.mss.color.unwrap_or_else(crate::theme_fallback::fallback_fg);
             // `#RRGGBB` в узком контроле (96 px в панели свойств) переносился
             // на вторую строку и вылезал за кнопку — только одна строка.
             list.push_text_styled_singleline(
@@ -672,15 +672,15 @@ impl Element for ColorPickerElement {
         let popup_bg = self
             .mss_popup_bg
             .or(self.mss.background_color)
-            .unwrap_or(Color::WHITE);
+            .unwrap_or_else(crate::theme_fallback::fallback_surface);
         let popup_fg = self
             .mss_popup_fg
             .or(self.mss.color)
-            .unwrap_or(Color::from_hex("#1F2937"));
+            .unwrap_or_else(crate::theme_fallback::fallback_fg);
         let popup_border = self
             .mss_popup_border
             .or_else(|| self.mss.border_color.map(|c| c.lighten(0.2)))
-            .unwrap_or(Color::from_hex("#E5E7EB"));
+            .unwrap_or_else(crate::theme_fallback::fallback_divider);
         list.push_rect_bordered(popup, popup_bg, [12.0; 4], Border::new(1.0, popup_border));
 
         let sv_rect = self.sv_field_rect(popup);
@@ -752,11 +752,11 @@ impl Element for ColorPickerElement {
             .mss_popup_bg
             .or(self.mss.background_color)
             .map(|c| c.darken(0.03))
-            .unwrap_or(Color::from_hex("#F9FAFB"));
+            .unwrap_or_else(crate::theme_fallback::fallback_bg);
         let hex_input_border = self
             .mss_popup_border
             .or(self.mss.border_color)
-            .unwrap_or(Color::from_hex("#D1D5DB"));
+            .unwrap_or_else(crate::theme_fallback::fallback_border);
         list.push_rect_bordered(
             hex_input_rect,
             hex_input_bg,

@@ -1,4 +1,4 @@
-use crate::core::{Color, Point, Rect, RectExt, Size};
+use crate::core::{Point, Rect, RectExt, Size};
 use crate::input::{Event, EventResult};
 use crate::layout::Constraints;
 use crate::mss::ComputedStyle;
@@ -85,7 +85,7 @@ impl Element for IconElement {
             .mss
             .icon_color
             .or(self.mss.color)
-            .unwrap_or_else(|| Color::from_hex("#374151"));
+            .unwrap_or_else(crate::theme_fallback::fallback_fg);
         let icon_size = self.icon_size();
 
         let text_rect = Rect::new(

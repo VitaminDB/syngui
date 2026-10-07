@@ -432,7 +432,7 @@ impl Element for SliderElement {
         let track_base = self
             .mss
             .background_color
-            .unwrap_or(Color::from_hex("#D1D5DB"));
+            .unwrap_or_else(crate::theme_fallback::fallback_border);
         let fill_base = self.mss.color.unwrap_or(Color::from_hex("#3B82F6"));
         let track_color = if self.disabled {
             track_base.darken(0.1)
@@ -625,7 +625,7 @@ impl Element for SliderElement {
             let fs = self.value_font_size.or(self.mss.font_size).unwrap_or(11.0);
             let text_color = self
                 .label_color
-                .unwrap_or_else(|| Color::from_hex("#98A0AD"));
+                .unwrap_or_else(crate::theme_fallback::fallback_muted);
 
             if self.editing {
                 let accent = self.mss.caret_color.unwrap_or(fill_base);

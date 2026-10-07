@@ -612,10 +612,10 @@ impl Element for MultilineTextEditElement {
     fn build_display_list(&self, list: &mut DisplayList, _clip: Rect) {
         let primary = self.mss.accent_color.unwrap_or(Color::from_hex("#3B82F6"));
 
-        let bg = self.mss.background_color.unwrap_or(Color::WHITE);
-        let fg = self.mss.color.unwrap_or(Color::from_hex("#374151"));
+        let bg = self.mss.background_color.unwrap_or_else(crate::theme_fallback::fallback_surface);
+        let fg = self.mss.color.unwrap_or_else(crate::theme_fallback::fallback_fg);
         let effective_bc = self.effective_border_color();
-        let border_base = effective_bc.unwrap_or(Color::from_hex("#D1D5DB"));
+        let border_base = effective_bc.unwrap_or_else(crate::theme_fallback::fallback_border);
         let radius = self
             .mss
             .border_radius_uniform(self.bounds.size.width.min(self.bounds.size.height), 6.0);

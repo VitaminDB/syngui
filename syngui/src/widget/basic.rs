@@ -528,7 +528,7 @@ impl Text {
             id: ElementId::new(),
             bounds: Rect::zero(),
             text: self.text.clone(),
-            color: self.color.unwrap_or(Color::rgb(0.0, 0.0, 0.0)),
+            color: self.color.unwrap_or_else(crate::theme_fallback::fallback_fg_strong),
             base_color: self.color,
             base_font_weight: self.font_weight,
             base_max_lines: match self.elide {
@@ -1165,7 +1165,7 @@ impl Element for TextElement {
     /// else {"ok"})` так и оставался бы красным после ухода ошибки.
     fn reset_mss_styles(&mut self) {
         self.color_before_reset = crate::mss::fields::element_theme_transition().map(|_| self.effective_color());
-        self.color = self.base_color.unwrap_or(Color::rgb(0.0, 0.0, 0.0));
+        self.color = self.base_color.unwrap_or_else(crate::theme_fallback::fallback_fg_strong);
         self.font_size = DEFAULT_FONT_SIZE;
         self.mss_font_weight = self.base_font_weight.unwrap_or(400);
         self.mss_italic = false;

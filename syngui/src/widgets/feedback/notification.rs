@@ -456,14 +456,14 @@ impl Element for NotificationHostElement {
         let radius = self.effective_border_radius();
         let font_size = self.effective_font_size();
         let font_family_owned = self.mss.font_family.clone();
-        let title_color = self.mss.color.unwrap_or(Color::from_hex("#1F2937"));
+        let title_color = self.mss.color.unwrap_or_else(crate::theme_fallback::fallback_fg);
         let msg_color = title_color.with_alpha(0.7);
         let close_color_idle = title_color.with_alpha(0.4);
         let close_color_hover = title_color;
         let bg_default = self
             .mss
             .background_color
-            .unwrap_or(Color::from_hex("#FFFFFF"));
+            .unwrap_or_else(crate::theme_fallback::fallback_surface);
         let host_w = self.bounds.size.width;
         let origin_x = self.bounds.origin.x;
         let origin_y = self.bounds.origin.y;

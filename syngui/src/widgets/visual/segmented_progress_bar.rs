@@ -177,7 +177,7 @@ impl Element for SegmentedProgressBarElement {
         let track = self
             .mss
             .background_color
-            .unwrap_or_else(|| Color::from_hex("#E5E7EB"));
+            .unwrap_or_else(crate::theme_fallback::fallback_track);
         let neutral = self.mss.color.unwrap_or_else(|| Color::from_hex("#9CA3AF"));
         // Цвет отметки — `outline-color` (по умолчанию красный).
         let alert = self

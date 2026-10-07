@@ -175,7 +175,7 @@ impl ChipElement {
     }
 
     fn text_color(&self) -> Color {
-        let base_fg = self.mss.color.unwrap_or_else(|| Color::from_hex("#374151"));
+        let base_fg = self.mss.color.unwrap_or_else(crate::theme_fallback::fallback_fg);
         if self.disabled {
             base_fg.with_alpha(0.5)
         } else if self.selected {

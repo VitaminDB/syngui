@@ -323,9 +323,9 @@ impl Element for MultiselectElement {
     }
 
     fn build_display_list(&self, list: &mut DisplayList, _clip: Rect) {
-        let bg = self.mss.background_color.unwrap_or(Color::WHITE);
-        let fg = self.mss.color.unwrap_or(Color::from_hex("#1F2937"));
-        let border = self.mss.border_color.unwrap_or(Color::from_hex("#D1D5DB"));
+        let bg = self.mss.background_color.unwrap_or_else(crate::theme_fallback::fallback_surface);
+        let fg = self.mss.color.unwrap_or_else(crate::theme_fallback::fallback_fg);
+        let border = self.mss.border_color.unwrap_or_else(crate::theme_fallback::fallback_border);
         let muted = fg.with_alpha(0.5);
         let primary = self.mss.accent_color.unwrap_or(Color::from_hex("#3B82F6"));
 

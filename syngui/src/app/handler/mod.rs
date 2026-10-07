@@ -1,7 +1,7 @@
 mod android;
 mod appearance;
 mod lifecycle;
-mod render;
+pub(in crate::app) mod render;
 mod styling;
 mod windows;
 

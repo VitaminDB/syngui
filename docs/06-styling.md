@@ -421,6 +421,18 @@ App::new()
 set_theme_mss.set(new_mss_string);
 ```
 
+### Запасные цвета без MSS (`theme_fallback`)
+
+Когда виджету не задали `background`/`color`/`border-color` в MSS, он берёт запасной цвет из
+`syngui::theme_fallback` — и этот цвет зависит от темы: `fallback_surface()` (непрозрачная поверхность
+меню, диалогов, полей, карточек: `#FFFFFF` / `#262A33`), `fallback_bg()`, `fallback_fg()` /
+`fallback_fg_strong()` (текст: `#374151` / `#E8EAEF`), `fallback_muted()`, `fallback_border()`
+(`#D1D5DB` / `#3A3F4B`), `fallback_divider()`, `fallback_hover()` и `fallback_track()` (полупрозрачный
+цвет текста — заливка при наведении и дорожка прогресса/слайдера поверх любого фона).
+Признак «тёмная» `App` выставляет сам: из сигнала `with_theme_styles`, иначе по `--bg` таблицы стилей или
+яркости `.background(...)`, иначе из системного оформления; приложение может вызвать `set_dark_theme(bool)`.
+Акцент (`#3B82F6`) и цвета «на акценте» (белая галочка, бегунок) от темы не зависят.
+
 ## Applying Classes in Code
 
 ```rust

@@ -606,7 +606,7 @@ impl Element for CarouselElement {
                 + (INDICATOR_AREA_HEIGHT - size) / 2.0;
 
             let active_color = self.mss.accent_color.unwrap_or(Color::from_hex("#3B82F6"));
-            let inactive_color = self.mss.border_color.unwrap_or(Color::from_hex("#D1D5DB"));
+            let inactive_color = self.mss.border_color.unwrap_or_else(crate::theme_fallback::fallback_border);
             for i in 0..self.page_count {
                 let x = start_x + i as f32 * step;
                 let r = Rect::new(Point::new(x, y), Size::new(size, size));

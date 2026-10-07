@@ -178,12 +178,12 @@ impl Element for RadioButtonElement {
     }
 
     fn build_display_list(&self, list: &mut DisplayList, _clip: Rect) {
-        let fg = self.mss.color.unwrap_or(Color::from_hex("#374151"));
+        let fg = self.mss.color.unwrap_or_else(crate::theme_fallback::fallback_fg);
         // Как у Checkbox: без `background`/`border-color` в MSS кружок прозрачный, рамка — цвет текста
         // вполпрозрачности, чтобы следовать теме приложения (а не белый круг в тёмной теме).
         let default_border = self.mss.border_color.unwrap_or_else(|| match self.mss.color {
             Some(c) => c.with_alpha(c.a * 0.55),
-            None => Color::from_hex("#D1D5DB"),
+            None => crate::theme_fallback::fallback_border(),
         });
         let disabled_fg = fg.with_alpha(0.5);
         let primary = self.mss.accent_color.unwrap_or(Color::from_hex("#3B82F6"));

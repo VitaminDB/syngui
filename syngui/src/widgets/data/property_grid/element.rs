@@ -514,9 +514,9 @@ impl Element for PropertyGridElement {
     }
 
     fn build_display_list(&self, list: &mut DisplayList, _clip: Rect) {
-        let bg = self.mss.background_color.unwrap_or(Color::WHITE);
-        let border_color = self.mss.border_color.unwrap_or(Color::from_hex("#E5E7EB"));
-        let fg = self.mss.color.unwrap_or(Color::from_hex("#374151"));
+        let bg = self.mss.background_color.unwrap_or_else(crate::theme_fallback::fallback_surface);
+        let border_color = self.mss.border_color.unwrap_or_else(crate::theme_fallback::fallback_divider);
+        let fg = self.mss.color.unwrap_or_else(crate::theme_fallback::fallback_fg);
         let primary = self.mss.accent_color.unwrap_or(Color::from_hex("#3B82F6"));
 
         list.push_rect_bordered(self.bounds, bg, [8.0; 4], Border::new(1.0, border_color));

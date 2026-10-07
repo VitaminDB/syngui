@@ -68,7 +68,7 @@ impl RichText {
     pub fn new() -> Self {
         Self {
             spans: Vec::new(),
-            default_color: Color::from_hex("#1F2937"),
+            default_color: crate::theme_fallback::fallback_fg(),
             default_font_size: 14.0,
             line_height: 1.4,
             wrap: true,

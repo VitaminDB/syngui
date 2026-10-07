@@ -184,15 +184,15 @@ impl Element for PaginationElement {
             let hover_bg = self
                 .mss
                 .background_color
-                .unwrap_or(Color::from_hex("#F3F4F6"));
-            let disabled_color = self.mss.border_color.unwrap_or(Color::from_hex("#D1D5DB"));
+                .unwrap_or_else(crate::theme_fallback::fallback_hover);
+            let disabled_color = self.mss.border_color.unwrap_or_else(crate::theme_fallback::fallback_border);
             let active_arrow = self
                 .mss
                 .color
                 .map(|c| c.with_alpha(0.6))
-                .unwrap_or(Color::from_hex("#6B7280"));
+                .unwrap_or_else(crate::theme_fallback::fallback_muted);
             let accent = self.mss.accent_color.unwrap_or(Color::from_hex("#3B82F6"));
-            let text_color_base = self.mss.color.unwrap_or(Color::from_hex("#374151"));
+            let text_color_base = self.mss.color.unwrap_or_else(crate::theme_fallback::fallback_fg);
             let ellipsis_color = self
                 .mss
                 .color

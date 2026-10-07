@@ -181,8 +181,11 @@ impl Element for ToggleElement {
         let gray_200 = self
             .mss
             .background_color
-            .unwrap_or(Color::from_hex("#E5E7EB"));
-        let gray_300 = self.mss.border_color.unwrap_or(Color::from_hex("#D1D5DB"));
+            .unwrap_or_else(crate::theme_fallback::fallback_track);
+        let gray_300 = self
+            .mss
+            .border_color
+            .unwrap_or_else(|| crate::theme_fallback::fallback_fg().with_alpha(0.25));
         let gray_400 = self
             .mss
             .color
@@ -190,7 +193,6 @@ impl Element for ToggleElement {
             .with_alpha(0.6);
         let primary = self.mss.accent_color.unwrap_or(Color::from_hex("#3B82F6"));
         let primary_dark = primary.darken(0.15);
-        let _white = Color::WHITE;
         let track_radius = self.mss.border_radius_uniform(24.0, 12.0);
         let thumb_radius = (track_radius - 2.0).max(0.0);
 

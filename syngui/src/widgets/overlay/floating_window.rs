@@ -783,9 +783,9 @@ impl Element for FloatingWindowElement {
 
         list.begin_overlay_absolute();
 
-        let bg = self.mss.background_color.unwrap_or(Color::WHITE);
-        let fg = self.mss.color.unwrap_or(Color::from_hex("#111827"));
-        let border_color = self.mss.border_color.unwrap_or(Color::from_hex("#E5E7EB"));
+        let bg = self.mss.background_color.unwrap_or_else(crate::theme_fallback::fallback_surface);
+        let fg = self.mss.color.unwrap_or_else(crate::theme_fallback::fallback_fg_strong);
+        let border_color = self.mss.border_color.unwrap_or_else(crate::theme_fallback::fallback_divider);
         let radius = self.border_radius();
         let title_fs = self.title_font_size();
         let gray_500 = fg.with_alpha(0.5);

@@ -480,7 +480,7 @@ impl Element for PopupPanelElement {
 
         list.begin_overlay_absolute();
 
-        let bg = self.mss.background_color.unwrap_or(Color::WHITE);
+        let bg = self.mss.background_color.unwrap_or_else(crate::theme_fallback::fallback_surface);
         let radii = self.border_radius();
 
         let panel = self.revealed_rect(self.placed_rect());
@@ -513,7 +513,7 @@ impl Element for PopupPanelElement {
             );
             self.mss.paint_flow_box(list, snapped, bg, radii);
         } else if border_width > 0.0 {
-            let border_color = self.mss.border_color.unwrap_or(Color::from_hex("#E5E7EB"));
+            let border_color = self.mss.border_color.unwrap_or_else(crate::theme_fallback::fallback_divider);
             list.push_rect_bordered(panel, bg, radii, Border { width: border_width, color: border_color });
         } else {
             list.push_rect(panel, bg, radii);

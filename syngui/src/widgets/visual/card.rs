@@ -41,7 +41,6 @@ impl Widget for Card {
             padding_right: 16.0,
             padding_top: 16.0,
             padding_bottom: 16.0,
-            color: Color::WHITE,
             bounds: Rect::zero(),
             child_id: None,
             classes: Vec::new(),
@@ -87,7 +86,6 @@ pub struct CardElement {
     padding_right: f32,
     padding_top: f32,
     padding_bottom: f32,
-    color: Color,
     bounds: Rect,
     child_id: Option<ElementId>,
     classes: Vec<String>,
@@ -137,7 +135,7 @@ impl Element for CardElement {
             list.push_shadow(self.bounds, shadow_color, blur, (0.0, offset_y), radii);
         }
 
-        let bg = self.mss.background_color.unwrap_or(self.color);
+        let bg = self.mss.background_color.unwrap_or_else(crate::theme_fallback::fallback_surface);
         list.push_rect(self.bounds, bg, radii);
     }
 
@@ -220,9 +218,6 @@ impl Element for CardElement {
     }
     fn apply_computed_style(&mut self, style: &ComputedStyle) {
         self.mss.apply(style);
-        if let Some(bg) = self.mss.background_color {
-            self.color = bg;
-        }
         if let Some(p) = self.mss.padding_left {
             self.padding_left = p;
         }

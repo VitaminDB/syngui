@@ -8,7 +8,7 @@ use web_time::Instant;
 /// Извлекает цвет переменной `--bg` из таблицы темы. Используется, чтобы
 /// clear-color окна (а с ним полоса статус-бара и любые непокрытые области)
 /// совпадал с фоном темы.
-pub(super) fn parse_theme_bg(ss: &crate::mss::StyleSheet) -> Option<crate::core::Color> {
+pub(in crate::app) fn parse_theme_bg(ss: &crate::mss::StyleSheet) -> Option<crate::core::Color> {
     let v = ss.get_variable("--bg")?;
     let c = v
         .as_color()
@@ -690,6 +690,7 @@ impl AppHandler {
             let is_dark = theme_state.get_untracked();
             if is_dark != self.current_theme_is_dark {
                 self.current_theme_is_dark = is_dark;
+                crate::theme_fallback::set_dark_theme(is_dark);
                 let new_ss = if is_dark {
                     self.config.dark_stylesheet.clone().unwrap_or_default()
                 } else {
@@ -760,6 +761,7 @@ impl AppHandler {
                     .unwrap_or(false);
                 if is_dark != self.current_theme_is_dark {
                     self.current_theme_is_dark = is_dark;
+                    crate::theme_fallback::set_dark_theme(is_dark);
                     #[cfg(target_os = "android")]
                     self.set_status_bar_light_icons(is_dark);
                 }

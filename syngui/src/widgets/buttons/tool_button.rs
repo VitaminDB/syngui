@@ -317,8 +317,8 @@ impl Element for ToolButtonElement {
         let default_bg = self
             .mss
             .background_color
-            .unwrap_or(Color::from_hex("#F3F4F6"));
-        let fg = self.mss.color.unwrap_or(Color::from_hex("#374151"));
+            .unwrap_or_else(crate::theme_fallback::fallback_hover);
+        let fg = self.mss.color.unwrap_or_else(crate::theme_fallback::fallback_fg);
         let accent = self.mss.accent_color.unwrap_or(Color::from_hex("#3B82F6"));
 
         let target = self

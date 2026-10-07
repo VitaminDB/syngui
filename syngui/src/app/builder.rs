@@ -76,6 +76,8 @@ pub struct AppBuilder {
     pub(super) min_width: u32,
     pub(super) min_height: u32,
     pub(super) background_color: Color,
+    /// `.background(...)` вызван явно — его яркость годится как запасной признак тёмной темы.
+    pub(super) background_explicit: bool,
     pub(super) edge_to_edge: bool,
     pub(super) vsync: bool,
     pub(super) frame_limit: u32,
@@ -150,6 +152,7 @@ impl AppBuilder {
             min_width: 400,
             min_height: 300,
             background_color: Color::from_hex("#F9FAFB"),
+            background_explicit: false,
             edge_to_edge: false,
             vsync: true,
             frame_limit: 0,
@@ -225,6 +228,7 @@ impl AppBuilder {
 
     pub fn background(mut self, color: Color) -> Self {
         self.background_color = color;
+        self.background_explicit = true;
         self
     }
 
@@ -613,6 +617,22 @@ impl AppBuilder {
             std::sync::Arc::new(build_root);
 
         let initial_is_dark = self.theme_state.map(|t| t.get_untracked()).unwrap_or(false);
+        // Признак тёмной темы для запасных цветов виджетов (crate::theme_fallback): сигнал темы →
+        // `--bg` единственной таблицы стилей → явный `.background(...)` → системное оформление.
+        let fallback_dark = if self.theme_state.is_some() {
+            initial_is_dark
+        } else if let Some(bg) = self
+            .stylesheet
+            .as_ref()
+            .and_then(super::handler::render::parse_theme_bg)
+        {
+            crate::theme_fallback::color_is_dark(bg)
+        } else if self.background_explicit {
+            crate::theme_fallback::color_is_dark(self.background_color)
+        } else {
+            crate::appearance::read_system_appearance().is_dark()
+        };
+        crate::theme_fallback::set_dark_theme(fallback_dark);
 
         let mut style_engine = if self.theme_state.is_some() {
             let ss = if initial_is_dark {

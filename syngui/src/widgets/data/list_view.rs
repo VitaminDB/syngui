@@ -696,8 +696,8 @@ impl Element for ListViewElement {
     }
 
     fn build_display_list(&self, list: &mut DisplayList, _clip: Rect) {
-        let bg_color = self.mss.background_color.unwrap_or(Color::WHITE);
-        let border_color = self.mss.border_color.unwrap_or(Color::from_hex("#E5E7EB"));
+        let bg_color = self.mss.background_color.unwrap_or_else(crate::theme_fallback::fallback_surface);
+        let border_color = self.mss.border_color.unwrap_or_else(crate::theme_fallback::fallback_divider);
         let resolve_base = self.bounds.size.width.min(self.bounds.size.height);
         let border_radius = self.mss.border_radius_resolved(resolve_base, 8.0);
         let border_width = self.mss.border_width_or(1.0);
@@ -730,7 +730,7 @@ impl Element for ListViewElement {
             return;
         }
 
-        let fg = self.mss.color.unwrap_or(Color::from_hex("#1F2937"));
+        let fg = self.mss.color.unwrap_or_else(crate::theme_fallback::fallback_fg);
         let primary = self.mss.accent_color.unwrap_or(Color::from_hex("#3B82F6"));
 
         list.push_clip(self.bounds);
@@ -868,7 +868,7 @@ impl Element for ListViewElement {
         if !self.compositional {
             return;
         }
-        let border_color = self.mss.border_color.unwrap_or(Color::from_hex("#E5E7EB"));
+        let border_color = self.mss.border_color.unwrap_or_else(crate::theme_fallback::fallback_divider);
         let resolve_base = self.bounds.size.width.min(self.bounds.size.height);
         let border_radius = self.mss.border_radius_resolved(resolve_base, 8.0);
         let border_width = self.mss.border_width_or(1.0);

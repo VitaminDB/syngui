@@ -807,7 +807,7 @@ impl Element for TextFieldElement {
         let total_height =
             (field_height + extra).clamp(constraints.min_height, constraints.max_height);
 
-        let fg = self.mss.color.unwrap_or(Color::from_hex("#374151"));
+        let fg = self.mss.color.unwrap_or_else(crate::theme_fallback::fallback_fg);
         let affix_fg = fg.with_alpha(0.6);
         let mut inherited = crate::mss::ComputedStyle::with_color(affix_fg);
         if let Some(icon_sz) = self.mss.icon_size {
@@ -849,8 +849,8 @@ impl Element for TextFieldElement {
             let target = self
                 .mss
                 .target_props(self.hover, false, self.focused, false);
-            let mut bg = self.mss.effective_bg(&target, Color::WHITE);
-            let mut fg = self.mss.effective_fg(&target, Color::from_hex("#374151"));
+            let mut bg = self.mss.effective_bg(&target, crate::theme_fallback::fallback_surface());
+            let mut fg = self.mss.effective_fg(&target, crate::theme_fallback::fallback_fg());
             let mut bc = self.mss.effective_border_color(&target, Color::TRANSPARENT);
             // Явная ширина из MSS уважается и в фокусе: утолщение до 2px —
             // это фокус-подсказка для полей без своего стиля, а не закон.
@@ -877,10 +877,10 @@ impl Element for TextFieldElement {
             let default_border = if has_custom_styles {
                 Color::TRANSPARENT
             } else {
-                Color::from_hex("#D1D5DB")
+                crate::theme_fallback::fallback_border()
             };
-            let bg = self.mss.background_color.unwrap_or(Color::WHITE);
-            let fg = self.mss.color.unwrap_or(Color::from_hex("#374151"));
+            let bg = self.mss.background_color.unwrap_or_else(crate::theme_fallback::fallback_surface);
+            let fg = self.mss.color.unwrap_or_else(crate::theme_fallback::fallback_fg);
             let border_base = self.mss.border_color.unwrap_or(default_border);
             let (bg_color, border_color) = if self.disabled {
                 (bg.darken(0.1), border_base)

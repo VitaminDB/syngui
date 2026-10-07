@@ -1565,9 +1565,9 @@ impl TableViewElement {
         let Some(rect) = self.context_menu_rect() else {
             return;
         };
-        let bg = self.mss.background_color.unwrap_or(Color::WHITE);
-        let border_color = self.mss.border_color.unwrap_or(Color::from_hex("#CBD5E1"));
-        let fg = self.mss.color.unwrap_or(Color::from_hex("#1E293B"));
+        let bg = self.mss.background_color.unwrap_or_else(crate::theme_fallback::fallback_surface);
+        let border_color = self.mss.border_color.unwrap_or_else(crate::theme_fallback::fallback_border);
+        let fg = self.mss.color.unwrap_or_else(crate::theme_fallback::fallback_fg_strong);
         let hover_bg = self.row_hover_bg.unwrap_or_else(|| bg.darken(0.06));
 
         let shadow = Rect::new(Point::new(rect.x() + 2.0, rect.y() + 4.0), rect.size);
@@ -1762,9 +1762,9 @@ impl TableViewElement {
     }
 
     fn draw_header(&self, list: &mut DisplayList) {
-        let bg = self.mss.background_color.unwrap_or(Color::WHITE);
-        let border_color = self.mss.border_color.unwrap_or(Color::from_hex("#E2E8F0"));
-        let fg = self.mss.color.unwrap_or(Color::from_hex("#334155"));
+        let bg = self.mss.background_color.unwrap_or_else(crate::theme_fallback::fallback_surface);
+        let border_color = self.mss.border_color.unwrap_or_else(crate::theme_fallback::fallback_divider);
+        let fg = self.mss.color.unwrap_or_else(crate::theme_fallback::fallback_fg);
         let header_bg = self.header_bg_custom.unwrap_or_else(|| bg.darken(0.04));
         let header_fg = self.header_color_custom.unwrap_or(fg);
         let h_font_size = self.header_font_size;
@@ -1940,9 +1940,9 @@ impl TableViewElement {
         let Some(pop_rect) = self.popover_rect() else {
             return;
         };
-        let bg = self.mss.background_color.unwrap_or(Color::WHITE);
-        let border_color = self.mss.border_color.unwrap_or(Color::from_hex("#CBD5E1"));
-        let fg = self.mss.color.unwrap_or(Color::from_hex("#1E293B"));
+        let bg = self.mss.background_color.unwrap_or_else(crate::theme_fallback::fallback_surface);
+        let border_color = self.mss.border_color.unwrap_or_else(crate::theme_fallback::fallback_border);
+        let fg = self.mss.color.unwrap_or_else(crate::theme_fallback::fallback_fg_strong);
         let primary = self.mss.accent_color.unwrap_or(Color::from_hex("#3B82F6"));
         let hover_bg = self.row_hover_bg.unwrap_or_else(|| bg.darken(0.06));
 
@@ -2029,8 +2029,8 @@ impl TableViewElement {
         let Some(col) = self.columns.get(press.col) else {
             return;
         };
-        let bg = self.mss.background_color.unwrap_or(Color::WHITE);
-        let fg = self.mss.color.unwrap_or(Color::from_hex("#334155"));
+        let bg = self.mss.background_color.unwrap_or_else(crate::theme_fallback::fallback_surface);
+        let fg = self.mss.color.unwrap_or_else(crate::theme_fallback::fallback_fg);
         let primary = self.mss.accent_color.unwrap_or(Color::from_hex("#3B82F6"));
         let header_bg = self.header_bg_custom.unwrap_or_else(|| bg.darken(0.04));
         let header_fg = self.header_color_custom.unwrap_or(fg);
@@ -2311,9 +2311,9 @@ impl Element for TableViewElement {
     }
 
     fn build_display_list(&self, list: &mut DisplayList, _clip: Rect) {
-        let bg = self.mss.background_color.unwrap_or(Color::WHITE);
-        let border_color = self.mss.border_color.unwrap_or(Color::from_hex("#E2E8F0"));
-        let fg = self.mss.color.unwrap_or(Color::from_hex("#334155"));
+        let bg = self.mss.background_color.unwrap_or_else(crate::theme_fallback::fallback_surface);
+        let border_color = self.mss.border_color.unwrap_or_else(crate::theme_fallback::fallback_divider);
+        let fg = self.mss.color.unwrap_or_else(crate::theme_fallback::fallback_fg);
         let primary = self.mss.accent_color.unwrap_or(Color::from_hex("#3B82F6"));
         let radius_ref = self.bounds.size.width.min(self.bounds.size.height);
         let radii = self.mss.border_radius_resolved(radius_ref, 8.0);
@@ -2665,7 +2665,7 @@ impl Element for TableViewElement {
         if !self.compositional {
             return;
         }
-        let border_color = self.mss.border_color.unwrap_or(Color::from_hex("#E2E8F0"));
+        let border_color = self.mss.border_color.unwrap_or_else(crate::theme_fallback::fallback_divider);
         let radius_ref = self.bounds.size.width.min(self.bounds.size.height);
         let radii = self.mss.border_radius_resolved(radius_ref, 8.0);
         list.pop_transform();

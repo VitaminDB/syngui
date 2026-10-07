@@ -206,18 +206,18 @@ impl StepperElement {
         self.accent().with_alpha(0.15)
     }
     fn text_color(&self) -> Color {
-        self.mss.color.unwrap_or(Color::from_hex("#1F2937"))
+        self.mss.color.unwrap_or_else(crate::theme_fallback::fallback_fg)
     }
     fn text_muted(&self) -> Color {
         self.text_color().with_alpha(0.5)
     }
     fn border_color(&self) -> Color {
-        self.mss.border_color.unwrap_or(Color::from_hex("#D1D5DB"))
+        self.mss.border_color.unwrap_or_else(crate::theme_fallback::fallback_border)
     }
     fn bg_color(&self) -> Color {
         self.mss
             .background_color
-            .unwrap_or(Color::from_hex("#F3F4F6"))
+            .unwrap_or_else(crate::theme_fallback::fallback_hover)
     }
     fn white(&self) -> Color {
         Color::new(1.0, 1.0, 1.0, 1.0)

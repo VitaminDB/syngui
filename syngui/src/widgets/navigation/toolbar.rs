@@ -78,7 +78,7 @@ impl Widget for Toolbar {
 
     fn mount(&self, tree: &mut ElementTree, parent_id: ElementId) {
         if let Some(ref title) = self.title {
-            let title_widget = Text::new(title).color(Color::from_hex("#1F2937"));
+            let title_widget = Text::new(title).color(crate::theme_fallback::fallback_fg());
             let el = title_widget.create_element();
             let id = tree.insert_with_type_id(el, Some(parent_id), title_widget.as_any().type_id());
             title_widget.mount(tree, id);
@@ -133,7 +133,7 @@ impl Element for ToolbarElement {
         let bg = self
             .mss
             .background_color
-            .unwrap_or(Color::from_hex("#FFFFFF"));
+            .unwrap_or_else(crate::theme_fallback::fallback_surface);
         list.push_rect(self.bounds, bg, [0.0; 4]);
 
         list.push_shadow(
@@ -151,7 +151,7 @@ impl Element for ToolbarElement {
             ),
             Size::new(self.bounds.size.width, 1.0),
         );
-        let border_color = self.mss.border_color.unwrap_or(Color::from_hex("#E5E7EB"));
+        let border_color = self.mss.border_color.unwrap_or_else(crate::theme_fallback::fallback_divider);
         list.push_rect(bottom_line, border_color, [0.0; 4]);
     }
 

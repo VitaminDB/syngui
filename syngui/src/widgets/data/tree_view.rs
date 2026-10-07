@@ -544,7 +544,7 @@ impl Element for TreeViewElement {
     fn build_display_list(&self, list: &mut DisplayList, _clip: Rect) {
         let bg = self.mss.background_color.unwrap_or(Color::TRANSPARENT);
         let border_color = self.mss.border_color.unwrap_or(Color::TRANSPARENT);
-        let fg = self.mss.color.unwrap_or(Color::from_hex("#1F2937"));
+        let fg = self.mss.color.unwrap_or_else(crate::theme_fallback::fallback_fg);
         let primary = self.mss.accent_color.unwrap_or(Color::from_hex("#3B82F6"));
 
         if bg != Color::TRANSPARENT || border_color != Color::TRANSPARENT {

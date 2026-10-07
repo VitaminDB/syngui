@@ -1,4 +1,4 @@
-use crate::core::{Color, Point, Rect, RectExt, Size};
+use crate::core::{Point, Rect, RectExt, Size};
 use crate::input::{Event, EventResult};
 use crate::layout::Constraints;
 use crate::mss::ComputedStyle;
@@ -139,7 +139,7 @@ impl Element for DividerElement {
     }
 
     fn build_display_list(&self, list: &mut DisplayList, _clip: Rect) {
-        let color = self.mss.color.unwrap_or_else(|| Color::from_hex("#E5E7EB"));
+        let color = self.mss.color.unwrap_or_else(crate::theme_fallback::fallback_divider);
         let thickness = self.mss.border_width_or(1.0);
         let padding = self.mss.padding_left.unwrap_or(0.0);
 

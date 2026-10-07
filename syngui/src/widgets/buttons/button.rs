@@ -198,7 +198,7 @@ impl ButtonElement {
             self.selected,
         );
         let bg = self.mss.effective_bg(&target, Color::TRANSPARENT);
-        let fg = self.mss.effective_fg(&target, Color::WHITE);
+        let fg = self.mss.effective_fg(&target, crate::theme_fallback::fallback_fg());
         let bc = self
             .mss
             .transition

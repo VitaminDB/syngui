@@ -183,7 +183,7 @@ impl Element for TopAppBarElement {
 
         let border_width = self.mss.border_width_or(0.0);
         if border_width > 0.0 {
-            let bc = self.mss.border_color.unwrap_or(Color::from_hex("#E0E0E0"));
+            let bc = self.mss.border_color.unwrap_or_else(crate::theme_fallback::fallback_divider);
             let b = self.bounds;
             list.push_rect(
                 Rect::new(

@@ -137,7 +137,7 @@ impl Element for ProgressBarElement {
         let track_color = self
             .mss
             .background_color
-            .unwrap_or_else(|| Color::from_hex("#E5E7EB"));
+            .unwrap_or_else(crate::theme_fallback::fallback_track);
         // Заливка: accent-color, затем color (как у Slider). Фолбэк на
         // background-color был багом — заливка цветом дорожки невидима.
         let fill_color = self
@@ -191,7 +191,7 @@ impl Element for ProgressBarElement {
                 ),
                 Size::new(pct_zone - 6.0, self.bounds.size.height),
             );
-            let pct_color = self.mss.color.unwrap_or_else(|| Color::from_hex("#374151"));
+            let pct_color = self.mss.color.unwrap_or_else(crate::theme_fallback::fallback_fg);
             list.push_text_centered(&percentage, text_rect, pct_color, fs);
         }
     }

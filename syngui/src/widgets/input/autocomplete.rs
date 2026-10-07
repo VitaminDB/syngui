@@ -263,12 +263,12 @@ impl Element for AutocompleteElement {
     }
 
     fn build_display_list(&self, list: &mut DisplayList, _clip: Rect) {
-        let bg = self.mss.background_color.unwrap_or(Color::WHITE);
-        let fg = self.mss.color.unwrap_or_else(|| Color::from_hex("#1F2937"));
+        let bg = self.mss.background_color.unwrap_or_else(crate::theme_fallback::fallback_surface);
+        let fg = self.mss.color.unwrap_or_else(crate::theme_fallback::fallback_fg);
         let border_base = self
             .mss
             .border_color
-            .unwrap_or_else(|| Color::from_hex("#D1D5DB"));
+            .unwrap_or_else(crate::theme_fallback::fallback_border);
         let accent = self
             .mss
             .border_color
@@ -364,7 +364,7 @@ impl Element for AutocompleteElement {
                     .unwrap_or(if self.mss.border_color.is_some() {
                         border_base
                     } else {
-                        Color::from_hex("#E5E7EB")
+                        crate::theme_fallback::fallback_divider()
                     });
             let popup_hover_bg = self
                 .mss_popup_hover_bg

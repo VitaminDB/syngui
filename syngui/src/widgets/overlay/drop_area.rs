@@ -219,12 +219,12 @@ impl Element for DropAreaElement {
         let primary_bg = self
             .mss
             .background_color
-            .unwrap_or(Color::from_hex("#EFF6FF"));
+            .unwrap_or_else(|| primary.with_alpha(0.1));
         let item_text_color = self
             .mss
             .color
             .map(|c| c.darken(0.1))
-            .unwrap_or(Color::from_hex("#374151"));
+            .unwrap_or_else(crate::theme_fallback::fallback_fg);
 
         if self.drag_over {
             list.push_rect_bordered(
@@ -237,7 +237,7 @@ impl Element for DropAreaElement {
                 },
             );
         } else {
-            let idle_border = self.mss.border_color.unwrap_or(Color::from_hex("#D1D5DB"));
+            let idle_border = self.mss.border_color.unwrap_or_else(crate::theme_fallback::fallback_border);
             list.push_rect_bordered(
                 self.bounds,
                 Color::new(0.0, 0.0, 0.0, 0.0),

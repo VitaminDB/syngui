@@ -261,15 +261,15 @@ impl CalendarTheme {
         let background = vars
             .panel_bg
             .or(mss.background_color)
-            .unwrap_or(Color::WHITE);
-        let text = mss.color.unwrap_or(Color::from_hex("#1F2937"));
+            .unwrap_or_else(crate::theme_fallback::fallback_surface);
+        let text = mss.color.unwrap_or_else(crate::theme_fallback::fallback_fg);
         let accent = mss.accent_color.unwrap_or(Color::from_hex("#3B82F6"));
         Self {
             background,
             border: vars
                 .panel_border
                 .or(mss.border_color)
-                .unwrap_or(Color::from_hex("#E5E7EB")),
+                .unwrap_or_else(crate::theme_fallback::fallback_divider),
             text,
             accent,
             muted: vars.muted.unwrap_or_else(|| text.with_alpha(0.45)),

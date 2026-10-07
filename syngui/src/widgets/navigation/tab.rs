@@ -279,24 +279,24 @@ impl Element for TabElement {
         let gray_100 = self
             .mss
             .background_color
-            .unwrap_or(Color::from_hex("#F3F4F6"));
+            .unwrap_or_else(crate::theme_fallback::fallback_hover);
         let gray_200 = self
             .mss
             .border_color
             .map(|c| c.lighten(0.1))
-            .unwrap_or(Color::from_hex("#E5E7EB"));
-        let gray_300 = self.mss.border_color.unwrap_or(Color::from_hex("#D1D5DB"));
+            .unwrap_or_else(crate::theme_fallback::fallback_divider);
+        let gray_300 = self.mss.border_color.unwrap_or_else(crate::theme_fallback::fallback_border);
         let gray_500 = self
             .mss
             .color
             .map(|c| c.with_alpha(0.6))
-            .unwrap_or(Color::from_hex("#6B7280"));
-        let gray_700 = self.mss.color.unwrap_or(Color::from_hex("#374151"));
+            .unwrap_or_else(crate::theme_fallback::fallback_muted);
+        let gray_700 = self.mss.color.unwrap_or_else(crate::theme_fallback::fallback_fg);
         let gray_900 = self
             .mss
             .color
             .map(|c| c.darken(0.3))
-            .unwrap_or(Color::from_hex("#111827"));
+            .unwrap_or_else(crate::theme_fallback::fallback_fg_strong);
         let target = self
             .mss
             .target_props(self.hover, false, false, self.is_selected);
@@ -307,11 +307,10 @@ impl Element for TabElement {
         let primary = target_accent
             .or(self.mss.accent_color)
             .unwrap_or(Color::from_hex("#3B82F6"));
-        let white = Color::WHITE;
         let bg_color = if self.mss.has_mss_styles {
             self.mss.effective_bg(&target, Color::TRANSPARENT)
         } else if self.is_selected {
-            white
+            crate::theme_fallback::fallback_surface()
         } else if self.hover {
             gray_100
         } else {
