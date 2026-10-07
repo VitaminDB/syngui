@@ -134,6 +134,7 @@ impl Animation {
             self.finish();
             return false;
         }
+        let dt = Duration::from_secs_f32(super::scaled_secs(dt.as_secs_f32()));
         match self {
             Self::Spring {
                 spring,

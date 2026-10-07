@@ -149,6 +149,8 @@ impl KeyframeAnimation {
         // анимации выключены глобально — конечные ключевые кадры сразу в конец, бесконечные (индикаторы) идут
         let dt_secs = if !super::enabled() && self.iterations.is_finite() {
             self.delay_secs + self.duration_secs * self.iterations + 1.0
+        } else if self.iterations.is_finite() {
+            super::scaled_secs(dt_secs)
         } else {
             dt_secs
         };

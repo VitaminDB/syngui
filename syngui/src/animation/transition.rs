@@ -624,7 +624,7 @@ impl TransitionState {
 
     pub fn tick(&mut self, dt_secs: f32) -> bool {
         // анимации выключены глобально — переходы сразу в конечное значение
-        let dt_secs = if super::enabled() { dt_secs } else { 1.0e6 };
+        let dt_secs = if super::enabled() { super::scaled_secs(dt_secs) } else { 1.0e6 };
         for t in &mut self.active {
             t.elapsed += dt_secs;
         }
