@@ -209,8 +209,8 @@ fn write_all_levels(queue: &wgpu::Queue, texture: &wgpu::Texture, data: &ImageDa
     }
 }
 
-/// Сколько картинок заливать в GPU за кадр.
-const UPLOADS_PER_FRAME: usize = 2;
+/// Сколько байт картинок заливать в GPU за кадр (но не меньше двух картинок).
+const UPLOAD_BYTES_PER_FRAME: usize = 4 << 20;
 
 struct GpuImage {
     /// Для статичных картинок — одна текстура. Для потоковых кадров
@@ -626,11 +626,12 @@ impl ImageGpuCache {
             self.images.remove(&handle.0);
             self.yuv.remove(&handle.0);
         }
-        // Бюджет на кадр: одна загрузка большого постера с мипами — единицы
-        // миллисекунд на слабом GPU; пачка из десятка — заметный рывок.
-        // Остаток ждёт следующего кадра (`ImageStore::has_pending_uploads`
-        // держит цикл кадров живым).
-        let uploads = store.take_pending_uploads_limited(UPLOADS_PER_FRAME);
+        // Бюджет на кадр в байтах: одна загрузка большого постера с мипами —
+        // единицы миллисекунд на слабом GPU, пачка из десятка — заметный
+        // рывок; а значки по ~200 КБ идут десятками (по две штуки за кадр
+        // меню приложений проявлялось секунду). Остаток ждёт следующего
+        // кадра (`ImageStore::has_pending_uploads` держит цикл кадров живым).
+        let uploads = store.take_pending_uploads_budget(UPLOAD_BYTES_PER_FRAME);
         for (handle, data) in &uploads {
             self.upload(device, queue, *handle, data);
         }

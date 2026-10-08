@@ -32,6 +32,7 @@ impl ImageSource {
     }
 }
 
+#[derive(Clone)]
 pub struct ImageData {
     pub width: u32,
     pub height: u32,
@@ -244,6 +245,142 @@ pub fn idle_image_budget() -> usize {
     IDLE_IMAGE_BUDGET.load(std::sync::atomic::Ordering::Relaxed)
 }
 
+/// Бюджет общего для процесса кэша декодированных файлов (байт RGBA с
+/// мипами; 0 — кэш выключен). Стор живёт в рендерере, а рендерер — в
+/// поверхности: всплывающее окно (меню приложений, «Пуск») при каждом
+/// открытии получает пустой стор, и без этого кэша все значки заново
+/// читаются, растеризуются и строят мипы — каждый в своём потоке, и
+/// появляются вразнобой по мере готовности. Кэш помнит декодированное по
+/// пути и времени изменения файла; повторный запрос готов сразу.
+static DECODED_BUDGET: std::sync::atomic::AtomicUsize = std::sync::atomic::AtomicUsize::new(32 << 20);
+
+pub fn set_decoded_cache_budget(bytes: usize) {
+    DECODED_BUDGET.store(bytes, std::sync::atomic::Ordering::Relaxed);
+    if let Some(c) = DECODED.get() {
+        c.lock().unwrap_or_else(|e| e.into_inner()).evict(bytes);
+    }
+}
+
+pub fn decoded_cache_budget() -> usize {
+    DECODED_BUDGET.load(std::sync::atomic::Ordering::Relaxed)
+}
+
+/// Отметка файла: картинка из кэша годна, пока файл не менялся.
+type FileStamp = (Option<std::time::SystemTime>, u64);
+
+fn file_stamp(path: &str) -> Option<FileStamp> {
+    let m = std::fs::metadata(path).ok()?;
+    Some((m.modified().ok(), m.len()))
+}
+
+#[derive(Default)]
+struct DecodedCache {
+    map: HashMap<String, (FileStamp, ImageData)>,
+    /// Ключи от давно использованных к недавним.
+    order: std::collections::VecDeque<String>,
+    bytes: usize,
+}
+
+static DECODED: std::sync::OnceLock<Mutex<DecodedCache>> = std::sync::OnceLock::new();
+
+fn decoded() -> &'static Mutex<DecodedCache> {
+    DECODED.get_or_init(|| Mutex::new(DecodedCache::default()))
+}
+
+impl ImageData {
+    /// Память под данные в кэше и объём загрузки в GPU.
+    fn byte_len(&self) -> usize {
+        let yuv = self.yuv.as_ref().map_or(0, |f| f.data.len());
+        self.rgba.len() + self.mips.iter().map(|m| m.rgba.len()).sum::<usize>() + yuv
+    }
+}
+
+impl DecodedCache {
+    fn touch(&mut self, key: &str) {
+        if let Some(i) = self.order.iter().position(|k| k == key) {
+            if let Some(k) = self.order.remove(i) {
+                self.order.push_back(k);
+            }
+        }
+    }
+
+    fn remove(&mut self, key: &str) {
+        if let Some((_, data)) = self.map.remove(key) {
+            self.bytes = self.bytes.saturating_sub(data.byte_len());
+            self.order.retain(|k| k != key);
+        }
+    }
+
+    fn evict(&mut self, budget: usize) {
+        while self.bytes > budget {
+            let Some(key) = self.order.pop_front() else {
+                self.bytes = 0;
+                break;
+            };
+            if let Some((_, data)) = self.map.remove(&key) {
+                self.bytes = self.bytes.saturating_sub(data.byte_len());
+            }
+        }
+    }
+}
+
+/// Декодированный файл из кэша, если файл с тех пор не менялся.
+fn decoded_get(path: &str) -> Option<ImageData> {
+    if decoded_cache_budget() == 0 {
+        return None;
+    }
+    let stamp = file_stamp(path)?;
+    let mut c = decoded().lock().unwrap_or_else(|e| e.into_inner());
+    match c.map.get(path) {
+        Some((s, data)) if *s == stamp => {
+            let data = data.clone();
+            c.touch(path);
+            Some(data)
+        }
+        Some(_) => {
+            c.remove(path);
+            None
+        }
+        None => None,
+    }
+}
+
+/// Запомнить декодированный файл. Крупные (фото, постеры — больше
+/// четверти бюджета) не кэшируются: вытеснили бы десятки значков.
+#[cfg_attr(not(feature = "image"), allow(dead_code))]
+fn decoded_put(path: &str, stamp: FileStamp, data: &ImageData) {
+    let budget = decoded_cache_budget();
+    let len = data.byte_len();
+    if budget == 0 || data.yuv.is_some() || len > budget / 4 {
+        return;
+    }
+    let mut c = decoded().lock().unwrap_or_else(|e| e.into_inner());
+    c.remove(path);
+    c.map.insert(path.to_string(), (stamp, data.clone()));
+    c.order.push_back(path.to_string());
+    c.bytes += len;
+    c.evict(budget);
+}
+
+/// Заранее декодировать файлы в общий кэш (по одному, в фоновом потоке):
+/// первое открытие окна со значками тогда тоже не ждёт растеризации.
+pub fn preload_paths(paths: Vec<String>) {
+    #[cfg(feature = "image")]
+    std::thread::spawn(move || {
+        for path in paths {
+            if decoded_get(&path).is_some() {
+                continue;
+            }
+            let Some(stamp) = file_stamp(&path) else { continue };
+            if let Ok(data) = std::fs::read(&path).map_err(|e| e.to_string()).and_then(|b| decode_image_bytes(&b)) {
+                decoded_put(&path, stamp, &data);
+            }
+        }
+    });
+    #[cfg(not(feature = "image"))]
+    let _ = paths;
+}
+
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum ImageLoadState {
     Loading,
@@ -367,6 +504,21 @@ impl ImageStore {
                 (handle, ImageLoadState::Loading)
             }
             ImageSource::Path(path) => {
+                if let Some(data) = decoded_get(path) {
+                    let (width, height) = data.natural.unwrap_or((data.width, data.height));
+                    self.images.insert(
+                        key,
+                        ImageEntry {
+                            handle,
+                            state: ImageLoadState::Ready,
+                            width,
+                            height,
+                            refs: 1,
+                        },
+                    );
+                    self.pending_uploads.push((handle, data));
+                    return (handle, ImageLoadState::Ready);
+                }
                 self.images.insert(
                     key.clone(),
                     ImageEntry {
@@ -517,6 +669,23 @@ impl ImageStore {
         self.pending_uploads.drain(..n).collect()
     }
 
+    /// Ожидающие загрузки в порядке поступления, пока их сумма не превысит
+    /// `bytes` (но не меньше двух — как прежний предел в штуках, чтобы два
+    /// видеопотока не обновлялись через кадр): десятки значков уходят за
+    /// кадр-другой, а большие постеры — по паре.
+    pub fn take_pending_uploads_budget(&mut self, bytes: usize) -> Vec<(ImageHandle, ImageData)> {
+        let mut sum = 0;
+        let mut n = 0;
+        for (_, data) in &self.pending_uploads {
+            sum += data.byte_len();
+            if n >= 2 && sum > bytes {
+                break;
+            }
+            n += 1;
+        }
+        self.pending_uploads.drain(..n).collect()
+    }
+
     pub fn has_pending_uploads(&self) -> bool {
         !self.pending_uploads.is_empty()
     }
@@ -614,6 +783,11 @@ impl ImageStore {
         std::thread::spawn(move || match std::fs::read(&path) {
             Ok(bytes) => match decode_image_bytes(&bytes) {
                 Ok(image_data) => {
+                    // Отметка — после чтения: файл, переписанный во время
+                    // декодирования, при следующем запросе прочтётся заново.
+                    if let Some(stamp) = file_stamp(&path) {
+                        decoded_put(&path, stamp, &image_data);
+                    }
                     results.lock().unwrap_or_else(|e| e.into_inner()).push(LoadResult::Success {
                         key,
                         handle,
@@ -961,6 +1135,51 @@ mod tests {
         assert_eq!(uploads.len(), 1);
         assert_eq!(uploads[0].0, handle);
         assert_eq!(uploads[0].1.rgba.len(), 64);
+    }
+
+    /// Новый стор (новая поверхность — меню открыто заново) получает уже
+    /// декодированный файл сразу, а изменённый файл декодируется заново.
+    #[cfg(feature = "svg")]
+    #[test]
+    fn decoded_file_is_shared_between_stores() {
+        let dir = std::env::temp_dir().join(format!("syngui-decoded-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let path = dir.join("icon.svg");
+        let svg = br##"<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16"><rect width="16" height="16" fill="#0f0"/></svg>"##;
+        std::fs::write(&path, svg).unwrap();
+        let src = ImageSource::Path(path.to_string_lossy().into_owned());
+
+        let mut first = ImageStore::new();
+        let (h, state) = first.request(&src);
+        assert_eq!(state, ImageLoadState::Loading);
+        let t = std::time::Instant::now();
+        while first.state_of(h) != Some(ImageLoadState::Ready) && t.elapsed().as_secs() < 10 {
+            std::thread::sleep(std::time::Duration::from_millis(5));
+            first.poll_bg();
+        }
+
+        let mut second = ImageStore::new();
+        let (h2, state) = second.request(&src);
+        assert_eq!(state, ImageLoadState::Ready, "из кэша — сразу готово");
+        assert_eq!(second.dimensions(h2), Some((16, 16)));
+        assert_eq!(second.take_pending_uploads().len(), 1);
+
+        // Другой размер файла — отметка не совпала, грузится заново.
+        std::fs::write(&path, [svg.as_slice(), b"\n"].concat()).unwrap();
+        let mut third = ImageStore::new();
+        assert_eq!(third.request(&src).1, ImageLoadState::Loading);
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn upload_budget_takes_at_least_two_then_by_bytes() {
+        let mut store = ImageStore::new();
+        for i in 0..5 {
+            store.request_rgba(&format!("k{i}"), 8, 8, solid(8, 8, 1));
+        }
+        // 8×8 с мипами ≈ 340 байт: в 10 байт — всё равно две.
+        assert_eq!(store.take_pending_uploads_budget(10).len(), 2);
+        assert_eq!(store.take_pending_uploads_budget(1 << 20).len(), 3);
     }
 
     #[test]
