@@ -8,6 +8,18 @@ impl super::Renderer {
         shader: &wgpu::ShaderModule,
         format: wgpu::TextureFormat,
     ) -> wgpu::RenderPipeline {
+        Self::create_pipeline_fs(device, label, layout, shader, format, "fs_main")
+    }
+
+    /// То же со своей точкой входа фрагментного шейдера.
+    pub(super) fn create_pipeline_fs(
+        device: &wgpu::Device,
+        label: &str,
+        layout: &wgpu::PipelineLayout,
+        shader: &wgpu::ShaderModule,
+        format: wgpu::TextureFormat,
+        fs_entry: &str,
+    ) -> wgpu::RenderPipeline {
         device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
             label: Some(label),
             layout: Some(layout),
@@ -19,7 +31,7 @@ impl super::Renderer {
             },
             fragment: Some(wgpu::FragmentState {
                 module: shader,
-                entry_point: Some("fs_main"),
+                entry_point: Some(fs_entry),
                 targets: &[Some(wgpu::ColorTargetState {
                     format,
                     blend: Some(wgpu::BlendState::ALPHA_BLENDING),

@@ -4,6 +4,11 @@ use crate::render::{ClipRect, Vertex};
 pub enum ShaderType {
     #[default]
     Rect,
+    /// Заливка без скруглений и рамки (`fs_flat`): тяжёлый общий шейдер прямоугольников на тайловых GPU
+    /// (Adreno 5xx) исполнялся с регистрами самой сложной ветки — даже простой фон стоил как рамка со скруглением.
+    RectFlat,
+    /// Скруглённая заливка без рамки (`fs_rounded`).
+    RectRounded,
     Text,
     Shadow,
     InnerShadow,

@@ -15,7 +15,8 @@ impl Batcher {
                 clip_rect,
                 ..
             } => {
-                self.ensure_batch_rect(ShaderType::Rect, None, *clip_rect, rect.inflate(1.0, 1.0));
+                let shader = fill_shader(corner_radius, border.as_ref(), per_side_border.is_some());
+                self.ensure_batch_rect(shader, None, *clip_rect, rect.inflate(1.0, 1.0));
                 self.set_clip_expand(clip_rect);
                 if let Some(psb) = per_side_border {
                     let bc = psb.color;
@@ -60,7 +61,8 @@ impl Batcher {
                 clip_rect,
                 ..
             } => {
-                self.ensure_batch_rect(ShaderType::Rect, None, *clip_rect, rect.inflate(1.0, 1.0));
+                let shader = fill_shader(corner_radius, border.as_ref(), per_side_border.is_some());
+                self.ensure_batch_rect(shader, None, *clip_rect, rect.inflate(1.0, 1.0));
                 self.set_clip_expand(clip_rect);
                 self.add_linear_gradient_rect(
                     *rect,
@@ -869,4 +871,16 @@ fn snap_boundary(text: &str, i: usize) -> usize {
         i -= 1;
     }
     i
+}
+
+/// Шейдер заливки: без рамки — лёгкие `fs_flat` (без скруглений) и `fs_rounded`, общий `Rect` — только для рамок.
+/// На тайловых GPU (Adreno 5xx) общий шейдер исполнялся с регистрами самой тяжёлой ветки: фон стоил как рамка.
+fn fill_shader(corner_radius: &[f32; 4], border: Option<&crate::render::Border>, per_side_border: bool) -> ShaderType {
+    if per_side_border || border.is_some_and(|b| b.width > 0.0) {
+        ShaderType::Rect
+    } else if corner_radius.iter().any(|r| *r > 0.5) {
+        ShaderType::RectRounded
+    } else {
+        ShaderType::RectFlat
+    }
 }

@@ -351,6 +351,10 @@ impl Renderer {
                     RenderOp::Draw(_) => {
                         if buffer_index < self.gpu_buffers.len() {
                             let batch = &self.gpu_buffers[buffer_index];
+                            if super::debug_skip(batch.shader_type) {
+                                buffer_index += 1;
+                                continue;
+                            }
 
                             let need_pipeline_switch = batch.shader_type != current_pipeline;
                             let need_texture_switch = batch.shader_type == ShaderType::Image
@@ -364,6 +368,18 @@ impl Renderer {
                                 match current_pipeline {
                                     ShaderType::Rect => {
                                         render_pass.set_pipeline(&self.rect_pipeline);
+                                        render_pass.set_bind_group(
+                                            0,
+                                            &self.uniform_bind_group,
+                                            &[batch.uniform_offset],
+                                        );
+                                    }
+                                    ShaderType::RectFlat | ShaderType::RectRounded => {
+                                        render_pass.set_pipeline(if current_pipeline == ShaderType::RectFlat {
+                                            &self.rect_flat_pipeline
+                                        } else {
+                                            &self.rect_rounded_pipeline
+                                        });
                                         render_pass.set_bind_group(
                                             0,
                                             &self.uniform_bind_group,

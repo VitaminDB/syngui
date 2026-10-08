@@ -73,6 +73,8 @@ impl Default for RenderStats {
 
 pub struct Renderer {
     rect_pipeline: wgpu::RenderPipeline,
+    rect_flat_pipeline: wgpu::RenderPipeline,
+    rect_rounded_pipeline: wgpu::RenderPipeline,
     text_pipeline: wgpu::RenderPipeline,
     shadow_pipeline: wgpu::RenderPipeline,
     inner_shadow_pipeline: wgpu::RenderPipeline,
@@ -444,7 +446,7 @@ impl Renderer {
             .device
             .create_shader_module(wgpu::ShaderModuleDescriptor {
                 label: Some("Rect Shader"),
-                source: wgpu::ShaderSource::Wgsl(include_str!("../rect.wgsl").into()),
+                source: wgpu::ShaderSource::Wgsl(rect_shader_source().into()),
             });
         let rect_pipeline_layout =
             gpu.device
@@ -459,6 +461,22 @@ impl Renderer {
             &rect_pipeline_layout,
             &rect_shader,
             surface_format,
+        );
+        let rect_flat_pipeline = Self::create_pipeline_fs(
+            &gpu.device,
+            "Rect Flat Pipeline",
+            &rect_pipeline_layout,
+            &rect_shader,
+            surface_format,
+            "fs_flat",
+        );
+        let rect_rounded_pipeline = Self::create_pipeline_fs(
+            &gpu.device,
+            "Rect Rounded Pipeline",
+            &rect_pipeline_layout,
+            &rect_shader,
+            surface_format,
+            "fs_rounded",
         );
 
         let text_shader = gpu
@@ -672,6 +690,8 @@ impl Renderer {
 
         Self {
             rect_pipeline,
+            rect_flat_pipeline,
+            rect_rounded_pipeline,
             text_pipeline,
             shadow_pipeline,
             inner_shadow_pipeline,
@@ -893,4 +913,45 @@ impl Renderer {
     pub fn font_atlas_stats(&self) -> crate::text::FontAtlasStats {
         self.font_atlas.lock().unwrap_or_else(|e| e.into_inner()).memory_stats()
     }
+}
+
+/// Отладка скорости GPU: `SYNGUI_DEBUG_SKIP=rect[_general|_flat|_rounded],text,shadow,inner_shadow,image,effect,line,glow_shadow`
+/// (или `all`) — пакеты этих видов не рисуются; по разнице времени кадра видно, что дорого.
+pub(super) fn debug_skip(t: crate::render::ShaderType) -> bool {
+    use crate::render::ShaderType as S;
+    static MASK: std::sync::OnceLock<u32> = std::sync::OnceLock::new();
+    let mask = *MASK.get_or_init(|| {
+        let v = std::env::var("SYNGUI_DEBUG_SKIP").unwrap_or_default();
+        let mut m = 0u32;
+        for name in v.split(',').map(str::trim) {
+            m |= match name {
+                "all" => u32::MAX,
+                "rect" => 1 << S::Rect as u32 | 1 << S::RectFlat as u32 | 1 << S::RectRounded as u32,
+                "rect_general" => 1 << S::Rect as u32,
+                "rect_flat" => 1 << S::RectFlat as u32,
+                "rect_rounded" => 1 << S::RectRounded as u32,
+                "text" => 1 << S::Text as u32,
+                "shadow" => 1 << S::Shadow as u32,
+                "inner_shadow" => 1 << S::InnerShadow as u32,
+                "image" => 1 << S::Image as u32,
+                "effect" => 1 << S::Effect as u32,
+                "line" => 1 << S::Line as u32,
+                "glow_shadow" => 1 << S::GlowShadow as u32,
+                _ => 0,
+            };
+        }
+        m
+    });
+    mask != 0 && mask & (1 << t as u32) != 0
+}
+
+/// Шейдер прямоугольников; `SYNGUI_DEBUG_FLAT_RECT=1` (отладка скорости GPU) — заливка без SDF, рамок и обрезки.
+fn rect_shader_source() -> std::borrow::Cow<'static, str> {
+    let src = include_str!("../rect.wgsl");
+    if std::env::var_os("SYNGUI_DEBUG_FLAT_RECT").is_none() {
+        return src.into();
+    }
+    (src.replacen("fn fs_main(", "fn fs_main_full(", 1)
+        + "\n@fragment\nfn fs_main(in: VertexOutput) -> @location(0) vec4<f32> { return in.color; }\n")
+        .into()
 }

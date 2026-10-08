@@ -880,6 +880,9 @@ impl Renderer {
         render_pass.set_index_buffer(ib.slice(..), wgpu::IndexFormat::Uint32);
 
         for batch in &self.gpu_buffers[buf_range] {
+            if super::debug_skip(batch.shader_type) {
+                continue;
+            }
             let need_pipeline_switch = batch.shader_type != current_pipeline;
             let need_texture_switch = batch.shader_type == crate::render::ShaderType::Image
                 && batch.texture_id != current_texture_id;
@@ -892,6 +895,18 @@ impl Renderer {
                 match current_pipeline {
                     crate::render::ShaderType::Rect => {
                         render_pass.set_pipeline(&self.rect_pipeline);
+                        render_pass.set_bind_group(
+                            0,
+                            &self.uniform_bind_group,
+                            &[batch.uniform_offset],
+                        );
+                    }
+                    crate::render::ShaderType::RectFlat | crate::render::ShaderType::RectRounded => {
+                        render_pass.set_pipeline(if current_pipeline == crate::render::ShaderType::RectFlat {
+                            &self.rect_flat_pipeline
+                        } else {
+                            &self.rect_rounded_pipeline
+                        });
                         render_pass.set_bind_group(
                             0,
                             &self.uniform_bind_group,

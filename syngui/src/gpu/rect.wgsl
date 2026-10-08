@@ -425,3 +425,27 @@ fn fs_per_side_border_sharp(in: VertexOutput) -> vec4<f32> {
 
     return apply_rounded_clip(vec4<f32>(rgb, alpha), in.logical_pos);
 }
+
+// Простая заливка (без скруглений и рамки) — конвейер `RectFlat`. Отдельная точка входа: в общей `fs_main`
+// компилятор выделяет регистры по самой тяжёлой ветке, и на Adreno 5xx даже простой фон стоил как рамка
+// со скруглением (кадр оболочки SM-T295: 49 мс → 17 мс с простой заливкой).
+@fragment
+fn fs_flat(in: VertexOutput) -> @location(0) vec4<f32> {
+    return apply_rounded_clip(in.color, in.logical_pos);
+}
+
+// Скруглённая заливка без рамки — конвейер `RectRounded`. Размер прямоугольника — из data2.zw
+// (физические пиксели), нет его — по производным, как в `fs_main`.
+@fragment
+fn fs_rounded(in: VertexOutput) -> @location(0) vec4<f32> {
+    var rect_size = vec2<f32>(in.data2.z, floor(in.data2.w / 256.0));
+    if in.data2.z <= 0.5 {
+        let dx = dpdx(in.uv);
+        let dy = dpdy(in.uv);
+        rect_size = vec2<f32>(1.0 / max(abs(dx.x), 0.0001), 1.0 / max(abs(dy.y), 0.0001));
+    }
+    let d = rounded_rect_sdf(in.uv, rect_size, in.data);
+    let aa = fwidth(d) * 0.75;
+    let alpha = 1.0 - smoothstep(-aa, aa, d);
+    return apply_rounded_clip(vec4<f32>(in.color.rgb, in.color.a * alpha), in.logical_pos);
+}
