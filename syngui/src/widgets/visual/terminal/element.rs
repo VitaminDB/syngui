@@ -23,6 +23,10 @@ use super::session::{SessionState, TerminalSession};
 use super::Terminal;
 
 const CURSOR_BLINK_PERIOD: f32 = 1.0;
+/// Пикселей дельты колеса на один шаг. Щелчок колеса мыши приходит как
+/// 40 px (`LineDelta * 40`) — ровно шаг; тачпад копит мелкие `PixelDelta`,
+/// поэтому системная скорость прокрутки на нём действует.
+const WHEEL_STEP_PX: f32 = 40.0;
 const FALLBACK_BG: Color = Color::new(0.067, 0.067, 0.078, 1.0);
 const FALLBACK_FG: Color = Color::new(0.9, 0.91, 0.93, 1.0);
 const MIN_CELL_WIDTH: f32 = 4.0;
@@ -55,6 +59,10 @@ pub struct TerminalElement {
     hovered_link: Option<u32>,
     last_click: Option<(Instant, GridPos, u8)>,
     auto_scroll: i32,
+    /// Накопленная дельта колеса в пикселях: тачпад шлёт много мелких
+    /// событий, и шаг (строка прокрутки, событие колеса в PTY, стрелка)
+    /// выдаётся только на каждые `WHEEL_STEP_PX`.
+    wheel_acc: f32,
 
     pub(super) scrollbar_fader: crate::widgets::scroll::ScrollbarFader,
     pub(super) scrollbar_interaction: crate::widgets::scroll::ScrollbarInteraction,
@@ -87,6 +95,7 @@ impl TerminalElement {
             hovered_link: None,
             last_click: None,
             auto_scroll: 0,
+            wheel_acc: 0.0,
             scrollbar_fader: crate::widgets::scroll::ScrollbarFader::default(),
             scrollbar_interaction: crate::widgets::scroll::ScrollbarInteraction::default(),
             command_signal: None,
@@ -854,11 +863,22 @@ impl Element for TerminalElement {
             Event::MouseWheel {
                 delta, position, ..
             } if self.bounds.contains(*position) => {
+                if *delta == 0.0 {
+                    return EventResult::Ignored;
+                }
+                if self.wheel_acc != 0.0 && self.wheel_acc.signum() != delta.signum() {
+                    self.wheel_acc = 0.0;
+                }
+                self.wheel_acc += *delta;
                 if self.try_forward_mouse(event, ctx) {
                     return EventResult::Handled;
                 }
-                let lines = (delta.abs() / 30.0).max(1.0) as i32;
-                let dir_up = *delta > 0.0;
+                let lines = self.take_wheel_steps();
+                if lines == 0 {
+                    return EventResult::Handled;
+                }
+                let dir_up = lines > 0;
+                let lines = lines.abs();
 
                 let (on_alt, alt_scroll, scrollback_len, cur_off) =
                     if let Some(s) = self.session.as_ref() {
@@ -1163,6 +1183,14 @@ impl TerminalElement {
         self.write_pty(&bytes);
     }
 
+    /// Забирает из накопителя колеса целые шаги (знак — направление,
+    /// плюс — вверх); остаток копится до следующего события.
+    fn take_wheel_steps(&mut self) -> i32 {
+        let steps = (self.wheel_acc / WHEEL_STEP_PX).trunc();
+        self.wheel_acc -= steps * WHEEL_STEP_PX;
+        steps as i32
+    }
+
     fn try_forward_mouse(&mut self, event: &Event, ctx: &EventContext) -> bool {
         let (mode, encoding) = if let Some(s) = self.session.as_ref() {
             s.with_state_ref(|st| (st.grid.mouse_mode(), st.grid.mouse_encoding()))
@@ -1214,19 +1242,25 @@ impl TerminalElement {
                 }
                 ((col, row), action)
             }
-            Event::MouseWheel {
-                delta, position, ..
-            } => {
+            Event::MouseWheel { position, .. } => {
                 let (col, row) = match self.point_to_local(*position) {
                     Some(v) => v,
                     None => return false,
                 };
-                let dir = if *delta > 0.0 { 1 } else { -1 };
+                let dir = if self.wheel_acc > 0.0 { 1 } else { -1 };
                 let action = MouseAction::Wheel(dir);
                 if !mouse::should_report(mode, action, self.left_button_held) {
                     return false;
                 }
-                ((col, row), action)
+                let steps = self.take_wheel_steps().unsigned_abs();
+                for _ in 0..steps {
+                    if let Some(bytes) =
+                        mouse::encode_event(encoding, action, col, row, ctx.modifiers)
+                    {
+                        self.write_pty(&bytes);
+                    }
+                }
+                return true;
             }
             _ => return false,
         };
