@@ -117,6 +117,64 @@ pub struct VideoMeta {
     pub rotation: u32,
 }
 
+/// Как идёт воспроизведение — для показа пользователю (чип плеера): кодеки,
+/// размер, аппаратно ли декодируется видео и чем.
+#[derive(Clone, Debug, Default, PartialEq)]
+pub struct DecodeInfo {
+    /// Кодек видео: «H.264», «HEVC», «VP9», «AV1»…
+    pub codec: String,
+    /// Кодек звука («AAC», «Opus»…), если звук есть.
+    pub audio_codec: Option<String>,
+    pub width: u32,
+    pub height: u32,
+    /// Аппаратный декодер («V4L2», «VA-API», «NVDEC», «MediaCodec»…); `None` — программно.
+    pub hardware: Option<String>,
+    /// Кадры идут на экран прямо из памяти декодера, без копии через процессор.
+    pub zero_copy: bool,
+    /// Пришёл первый кадр — `hardware` известно точно.
+    pub known: bool,
+}
+
+/// Имя кодека для людей.
+pub fn codec_display_name(id: ffmpeg_next::codec::Id) -> String {
+    use ffmpeg_next::codec::Id;
+    match id {
+        Id::H264 => "H.264".into(),
+        Id::HEVC => "HEVC".into(),
+        Id::VP8 => "VP8".into(),
+        Id::VP9 => "VP9".into(),
+        Id::AV1 => "AV1".into(),
+        Id::MPEG4 => "MPEG-4".into(),
+        Id::MPEG2VIDEO => "MPEG-2".into(),
+        Id::MPEG1VIDEO => "MPEG-1".into(),
+        Id::THEORA => "Theora".into(),
+        Id::AAC => "AAC".into(),
+        Id::OPUS => "Opus".into(),
+        Id::MP3 => "MP3".into(),
+        Id::VORBIS => "Vorbis".into(),
+        Id::FLAC => "FLAC".into(),
+        Id::AC3 => "AC-3".into(),
+        Id::EAC3 => "E-AC-3".into(),
+        Id::DTS => "DTS".into(),
+        other => other.name().to_uppercase(),
+    }
+}
+
+/// Имя аппаратного декодера для людей по метке [`HwAccel::label`].
+fn hw_display_name(label: &str) -> String {
+    match label {
+        "v4l2" => "V4L2".into(),
+        "vaapi" => "VA-API".into(),
+        "nvdec" => "NVDEC".into(),
+        "vulkan" => "Vulkan".into(),
+        "videotoolbox" => "VideoToolbox".into(),
+        "d3d11va" => "D3D11VA".into(),
+        "dxva2" => "DXVA2".into(),
+        l if l.starts_with("mediacodec") => "MediaCodec".into(),
+        l => l.to_uppercase(),
+    }
+}
+
 #[derive(Debug)]
 pub(crate) enum DecoderCmd {
     Pause,
@@ -140,6 +198,7 @@ pub struct VideoDecoder {
     eof: Arc<AtomicBool>,
     /// Отдавать кадры 4:2:0 в YUV ([`VideoFrame::yuv`]), а не RGBA.
     yuv_frames: Arc<AtomicBool>,
+    info: Arc<std::sync::Mutex<DecodeInfo>>,
 }
 
 /// «pts ещё неизвестен» в [`VideoDecoder::audio_base_pts_sec`].
@@ -289,6 +348,14 @@ impl VideoDecoder {
         let eof_thread = eof.clone();
         let yuv_frames = Arc::new(AtomicBool::new(false));
         let yuv_thread = yuv_frames.clone();
+        let info = Arc::new(std::sync::Mutex::new(DecodeInfo {
+            codec: ictx.streams().best(MediaType::Video).map(|s| codec_display_name(s.parameters().id())).unwrap_or_default(),
+            audio_codec: ictx.streams().best(MediaType::Audio).map(|s| codec_display_name(s.parameters().id())),
+            width: meta.width,
+            height: meta.height,
+            ..Default::default()
+        }));
+        let info_thread = info.clone();
         let join = thread::Builder::new()
             .name("syngui-video-decoder".into())
             .spawn(move || {
@@ -302,6 +369,7 @@ impl VideoDecoder {
                     &audio_base_thread,
                     &eof_thread,
                     &yuv_thread,
+                    info_thread,
                 );
                 if let Err(e) = &r {
                     log::error!("video: поток декодера завершился с ошибкой: {e}");
@@ -319,7 +387,13 @@ impl VideoDecoder {
             audio_base_pts,
             eof,
             yuv_frames,
+            info,
         })
+    }
+
+    /// Как идёт декодирование (см. [`DecodeInfo`]).
+    pub fn decode_info(&self) -> DecodeInfo {
+        self.info.lock().map(|i| i.clone()).unwrap_or_default()
     }
 
     pub fn meta(&self) -> &VideoMeta {
@@ -619,6 +693,7 @@ fn run_decoder_thread(
     audio_base: &AtomicI64,
     eof: &AtomicBool,
     yuv_frames: &AtomicBool,
+    info: Arc<std::sync::Mutex<DecodeInfo>>,
 ) -> Result<(), VideoError> {
     let v_idx = ictx
         .streams()
@@ -863,7 +938,7 @@ fn run_decoder_thread(
     };
 
     let mut video_errors: u32 = 0;
-    let mut stages = StageStats::new();
+    let mut stages = StageStats::new(info);
     // Цель последней перемотки, пока до неё не дошли кадры.
     let mut video_skip_before: Option<f64> = None;
     'main: loop {
@@ -1192,10 +1267,12 @@ struct StageStats {
     send_block_us: u64,
     /// Залогировать pts первого кадра после открытия/перемотки.
     first_frame_pending: bool,
+    /// Сводка для показа (аппаратно ли, без копии ли).
+    info: Arc<std::sync::Mutex<DecodeInfo>>,
 }
 
 impl StageStats {
-    fn new() -> Self {
+    fn new(info: Arc<std::sync::Mutex<DecodeInfo>>) -> Self {
         Self {
             enabled: std::env::var("SYNGUI_VIDEO_STATS").is_ok(),
             window_start: Instant::now(),
@@ -1204,6 +1281,13 @@ impl StageStats {
             convert_us: 0,
             send_block_us: 0,
             first_frame_pending: true,
+            info,
+        }
+    }
+
+    fn set_info(&self, f: impl FnOnce(&mut DecodeInfo)) {
+        if let Ok(mut i) = self.info.lock() {
+            f(&mut i);
         }
     }
 
@@ -1257,6 +1341,15 @@ fn drain_video(
         if !*logged_first_format {
             *logged_first_format = true;
             let fmt = if packed.is_some() { ffmpeg_next::format::Pixel::NV12 } else { decoded.format() };
+            let hardware = match (hw, hw_codec) {
+                (Some(h), _) if fmt == ffmpeg_next::format::Pixel::from(h.hw_pix_fmt()) => Some(hw_display_name(h.label())),
+                (_, Some(label)) => Some(hw_display_name(label)),
+                _ => None,
+            };
+            stages.set_info(|i| {
+                i.hardware = hardware;
+                i.known = true;
+            });
             match hw {
                 Some(h) => {
                     let expected = ffmpeg_next::format::Pixel::from(h.hw_pix_fmt());
@@ -1305,8 +1398,12 @@ fn drain_video(
             }
         }
 
-        // V4L2 уже отдал плоскости для GPU — одним копированием из dma-buf.
+        // V4L2 уже отдал плоскости для GPU — из dma-buf без копии или одной копией.
         if let Some(y) = packed {
+            let zero_copy = y.dmabuf.is_some();
+            if stages.info.lock().is_ok_and(|i| i.zero_copy != zero_copy) {
+                stages.set_info(|i| i.zero_copy = zero_copy);
+            }
             stages.frames += 1;
             let frame = VideoFrame {
                 width: y.width,

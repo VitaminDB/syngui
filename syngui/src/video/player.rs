@@ -133,6 +133,11 @@ impl VideoPlayer {
         })
     }
 
+    /// Как идёт декодирование: кодеки, аппаратно ли и чем ([`DecodeInfo`]).
+    pub fn decode_info(&self) -> super::DecodeInfo {
+        self.decoder.decode_info()
+    }
+
     pub fn meta(&self) -> &VideoMeta {
         self.decoder.meta()
     }

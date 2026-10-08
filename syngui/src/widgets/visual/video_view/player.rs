@@ -77,6 +77,24 @@ const MI_PAUSE: &str = "\u{E034}";
 const MI_REPLAY: &str = "\u{E042}";
 const MI_REPLAY_10: &str = "\u{E059}";
 const MI_FORWARD_10: &str = "\u{E056}";
+
+/// Значок кнопки перемотки на `step` секунд (Material: 5/10/30, иначе общий).
+fn step_icon(step: f64, forward: bool) -> &'static str {
+    match (step.round() as i64, forward) {
+        (5, false) => "\u{E05B}",
+        (5, true) => "\u{E058}",
+        (10, false) => MI_REPLAY_10,
+        (10, true) => MI_FORWARD_10,
+        (30, false) => "\u{E05A}",
+        (30, true) => "\u{E057}",
+        (_, false) => "\u{E020}",
+        (_, true) => "\u{E01F}",
+    }
+}
+
+fn step_label(step: f64) -> String {
+    format!("{}", step.round() as i64)
+}
 const MI_VOLUME_UP: &str = "\u{E050}";
 const MI_VOLUME_DOWN: &str = "\u{E04D}";
 const MI_VOLUME_OFF: &str = "\u{E04F}";
@@ -127,7 +145,7 @@ pub trait MediaSource: Send + Sync + 'static {
     fn set_volume(&self, v: f32);
     fn has_audio(&self) -> bool;
     /// Холст с кадром. `pos` — позиция плеера в секундах.
-    fn canvas(self: Arc<Self>, pos: RwSignal<f32>) -> Box<dyn Widget>;
+    fn canvas(self: Arc<Self>, pos: RwSignal<f32>, fit: ImageFit) -> Box<dyn Widget>;
     /// Холст сам пишет позицию в `pos` (как `VideoView`); иначе её раз в
     /// кадр переносят часы плеера ([`ClockTicker`]).
     fn drives_position(&self) -> bool;
@@ -189,10 +207,10 @@ impl MediaSource for FileSource {
         self.0.lock().map(|p| p.meta().has_audio).unwrap_or(false)
     }
 
-    fn canvas(self: Arc<Self>, pos: RwSignal<f32>) -> Box<dyn Widget> {
+    fn canvas(self: Arc<Self>, pos: RwSignal<f32>, fit: ImageFit) -> Box<dyn Widget> {
         Box::new(
             VideoView::new(self.0.clone())
-                .fit(ImageFit::Contain)
+                .fit(fit)
                 .position_signal(pos)
                 .class("vp-canvas"),
         )
@@ -382,10 +400,10 @@ impl MediaSource for FramesSource {
         self.audio.is_some()
     }
 
-    fn canvas(self: Arc<Self>, pos: RwSignal<f32>) -> Box<dyn Widget> {
+    fn canvas(self: Arc<Self>, pos: RwSignal<f32>, fit: ImageFit) -> Box<dyn Widget> {
         Box::new(
             FramesView::new(self.frames.clone(), self.fps)
-                .fit(ImageFit::Contain)
+                .fit(fit)
                 .position_signal(pos)
                 .loop_playback(false)
                 .click_to_toggle(false)
@@ -426,6 +444,8 @@ pub struct VideoPlayerView {
     volume: Option<RwSignal<f32>>,
     position: Option<RwSignal<f32>>,
     header: Option<HeaderFn>,
+    fit: ImageFit,
+    seek_step: f64,
 }
 
 /// Строит содержимое верхней полосы (см. [`VideoPlayerView::header`]).
@@ -440,6 +460,8 @@ impl VideoPlayerView {
             volume: None,
             position: None,
             header: None,
+            fit: ImageFit::Contain,
+            seek_step: BUTTON_STEP,
         }
     }
 
@@ -478,6 +500,20 @@ impl VideoPlayerView {
     /// Содержимое строится заново при каждом показе.
     pub fn header(mut self, f: impl Fn() -> Box<dyn Widget> + Send + Sync + 'static) -> Self {
         self.header = Some(Arc::new(f));
+        self
+    }
+
+    /// Как кадр ложится в окно: `Contain` (вписать, по умолчанию) или `Cover`
+    /// (заполнить, края обрезаются).
+    pub fn fit(mut self, fit: ImageFit) -> Self {
+        self.fit = fit;
+        self
+    }
+
+    /// Шаг перемотки кнопками, клавишами J/L и двойным тапом по краям (с;
+    /// по умолчанию 10).
+    pub fn seek_step(mut self, sec: f64) -> Self {
+        self.seek_step = sec.max(1.0);
         self
     }
 
@@ -555,6 +591,8 @@ struct Ctl {
     /// Цель перемотки, пока её тащат (см. [`Scrub::active`]).
     scrub: RwSignal<Option<f32>>,
     fullscreen: Option<FullscreenCtl>,
+    /// Шаг перемотки ([`VideoPlayerView::seek_step`]).
+    seek_step: f64,
 }
 
 impl Ctl {
@@ -569,6 +607,7 @@ impl Ctl {
 }
 
 fn build(view: VideoPlayerView) -> impl Widget {
+    let view_fit = view.fit;
     let source = view.source;
     let duration = source.duration();
     let volume = match view.volume {
@@ -587,6 +626,7 @@ fn build(view: VideoPlayerView) -> impl Widget {
             touch: std::sync::Mutex::new(TouchState::default()),
         }),
         duration,
+        seek_step: view.seek_step,
         compact: view.compact,
         has_audio: source.has_audio(),
         pos: {
@@ -631,7 +671,7 @@ fn build(view: VideoPlayerView) -> impl Widget {
                     dbl.toggle_fullscreen();
                 }
             })
-            .child(source.clone().canvas(ctl.pos))
+            .child(source.clone().canvas(ctl.pos, view_fit))
     };
 
     let mut stage = Stack::new()
@@ -873,16 +913,16 @@ fn bottom_row(ctl: Ctl) -> impl Widget {
     }
     center = center
         .child(
-            ToolButton::new(MI_REPLAY_10)
-                .tooltip(builtin("video_player.back.tooltip", "Back 10 s (J)"))
-                .on_click(move || back.seek_by(-BUTTON_STEP))
+            ToolButton::new(step_icon(ctl.seek_step, false))
+                .tooltip(builtin("video_player.back.tooltip", "Back 10 s (J)").replace("10", &step_label(ctl.seek_step)))
+                .on_click(move || back.seek_by(-back.seek_step))
                 .class(ctl.cls("vp-btn")),
         )
         .child(play_button(ctl.clone()))
         .child(
-            ToolButton::new(MI_FORWARD_10)
-                .tooltip(builtin("video_player.forward.tooltip", "Forward 10 s (L)"))
-                .on_click(move || fwd.seek_by(BUTTON_STEP))
+            ToolButton::new(step_icon(ctl.seek_step, true))
+                .tooltip(builtin("video_player.forward.tooltip", "Forward 10 s (L)").replace("10", &step_label(ctl.seek_step)))
+                .on_click(move || fwd.seek_by(fwd.seek_step))
                 .class(ctl.cls("vp-btn")),
         );
     if !narrow {
@@ -1080,7 +1120,7 @@ impl Ctl {
             t.pending = None;
             t.series = Some((Instant::now(), side));
         }
-        self.seek_by(side as f64 * BUTTON_STEP);
+        self.seek_by(side as f64 * self.seek_step);
     }
 
     fn toggle_fullscreen(&self) {
@@ -1189,8 +1229,8 @@ impl Ctl {
             Key::Space | Key::K | Key::MediaPlayPause => self.toggle(),
             Key::Left => self.seek_by(-arrow),
             Key::Right => self.seek_by(arrow),
-            Key::J => self.seek_by(-BUTTON_STEP),
-            Key::L => self.seek_by(BUTTON_STEP),
+            Key::J => self.seek_by(-self.seek_step),
+            Key::L => self.seek_by(self.seek_step),
             Key::Up => self.set_volume(self.volume.get_untracked() + VOLUME_STEP),
             Key::Down => self.set_volume(self.volume.get_untracked() - VOLUME_STEP),
             Key::M => self.toggle_mute(),
