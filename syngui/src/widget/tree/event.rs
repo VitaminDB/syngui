@@ -316,10 +316,11 @@ impl ElementTree {
             eprintln!("hit {event:?}: {}", names.join(" > "));
         }
 
+        let mods = self.modifiers;
         let mut cut = path.iter().position(|id| {
             self.elements
                 .get(id)
-                .map(|n| n.element.intercepts_event(event))
+                .map(|n| n.element.intercepts_event_with(event, mods))
                 .unwrap_or(false)
         });
         // Внешняя прокручиваемая область перехватывает нажатие на своей
@@ -675,10 +676,11 @@ impl ElementTree {
             .map(|n| (n.element.scroll_offset(), n.element.event_scale()))
             .unwrap_or((Point::zero(), 1.0));
 
+        let mods = self.modifiers;
         let intercepts = self
             .elements
             .get(&id)
-            .map(|n| n.element.intercepts_event(event))
+            .map(|n| n.element.intercepts_event_with(event, mods))
             .unwrap_or(false);
 
         let children = self

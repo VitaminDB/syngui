@@ -95,6 +95,7 @@ pub enum KeyReply {
     ScrollIntoView,
 }
 
+type ShortcutFilter = Arc<dyn Fn(Key, Modifiers) -> bool + Send + Sync>;
 type KeyHandler = Arc<dyn Fn(Key, Modifiers) -> KeyReply + Send + Sync>;
 type RemoteHandler = Arc<dyn Fn(RemoteKey) -> bool + Send + Sync>;
 type BackHandler = Arc<dyn Fn() -> bool + Send + Sync>;
@@ -113,6 +114,7 @@ pub struct EventHook {
     on_suspend: Option<LifecycleHandler>,
     on_resume: Option<LifecycleHandler>,
     capture_keys: Option<KeyFilter>,
+    capture_shortcuts: Option<ShortcutFilter>,
     on_mouse_move: Option<MoveHandler>,
     bounds_out: Option<Arc<crate::core::sync::Mutex<Rect>>>,
     child: Option<Box<dyn Widget>>,
@@ -129,6 +131,7 @@ impl EventHook {
             on_suspend: None,
             on_resume: None,
             capture_keys: None,
+            capture_shortcuts: None,
             on_mouse_move: None,
             bounds_out: None,
             child: None,
@@ -200,6 +203,14 @@ impl EventHook {
         self
     }
 
+    /// Сочетания, которые обёртка забирает раньше детей, с учётом
+    /// модификаторов: `|k, m| m.ctrl && k == Key::N` — Ctrl+N уходит в
+    /// `on_key_down`, даже когда фокус в поле ввода, а сама «n» — в поле.
+    pub fn capture_shortcuts(mut self, filter: impl Fn(Key, Modifiers) -> bool + Send + Sync + 'static) -> Self {
+        self.capture_shortcuts = Some(Arc::new(filter));
+        self
+    }
+
     /// Движение мыши: `true` — курсор над обёрткой, `false` — ушёл с неё.
     /// Событие не поглощается — дети получают его как обычно.
     pub fn on_mouse_move(mut self, handler: impl Fn(bool) + Send + Sync + 'static) -> Self {
@@ -237,6 +248,7 @@ impl Widget for EventHook {
             on_suspend: self.on_suspend.clone(),
             on_resume: self.on_resume.clone(),
             capture_keys: self.capture_keys.clone(),
+            capture_shortcuts: self.capture_shortcuts.clone(),
             on_mouse_move: self.on_mouse_move.clone(),
             bounds_out: self.bounds_out.clone(),
             has_child: self.child.is_some(),
@@ -286,6 +298,7 @@ struct EventHookElement {
     on_suspend: Option<LifecycleHandler>,
     on_resume: Option<LifecycleHandler>,
     capture_keys: Option<KeyFilter>,
+    capture_shortcuts: Option<ShortcutFilter>,
     on_mouse_move: Option<MoveHandler>,
     bounds_out: Option<Arc<crate::core::sync::Mutex<Rect>>>,
     has_child: bool,
@@ -316,6 +329,7 @@ impl Element for EventHookElement {
             self.on_suspend = hook.on_suspend.clone();
             self.on_resume = hook.on_resume.clone();
             self.capture_keys = hook.capture_keys.clone();
+            self.capture_shortcuts = hook.capture_shortcuts.clone();
             self.on_mouse_move = hook.on_mouse_move.clone();
             self.bounds_out = hook.bounds_out.clone();
             self.has_child = hook.child.is_some();
@@ -417,6 +431,15 @@ impl Element for EventHookElement {
             (Event::KeyDown(key) | Event::KeyUp(key), Some(filter)) => filter(*key),
             _ => false,
         }
+    }
+
+    fn intercepts_event_with(&self, event: &Event, mods: Modifiers) -> bool {
+        if let (Event::KeyDown(key) | Event::KeyUp(key), Some(filter)) = (event, &self.capture_shortcuts) {
+            if filter(*key, mods) {
+                return true;
+            }
+        }
+        self.intercepts_event(event)
     }
 
     fn animate(&mut self, _dt: Duration) -> bool {

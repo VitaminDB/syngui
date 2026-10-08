@@ -346,6 +346,13 @@ pub trait Element: Send {
         self.intercepts_child_events()
     }
 
+    /// То же с текущими модификаторами клавиатуры — для перехвата сочетаний
+    /// (Ctrl+N), не отнимая у поля ввода саму букву. По умолчанию —
+    /// [`Element::intercepts_event`].
+    fn intercepts_event_with(&self, event: &Event, _mods: crate::input::Modifiers) -> bool {
+        self.intercepts_event(event)
+    }
+
     /// Нажатие `event` (в координатах элемента) попадает на собственную
     /// полосу прокрутки элемента. Нужен для вложенных прокручиваемых
     /// областей: полосу внутреннего списка внешняя область не перехватывает.
@@ -635,6 +642,10 @@ impl Element for Box<dyn Element> {
 
     fn intercepts_event(&self, event: &Event) -> bool {
         self.as_ref().intercepts_event(event)
+    }
+
+    fn intercepts_event_with(&self, event: &Event, mods: crate::input::Modifiers) -> bool {
+        self.as_ref().intercepts_event_with(event, mods)
     }
 
     fn scrollbar_hit(&self, event: &Event) -> bool {

@@ -864,7 +864,12 @@ impl Element for TextElement {
         let pb = self.mss_padding_bottom;
         let pad_h = pl + pr;
         let pad_v = pt + pb;
-        let render_width = if self.max_render_width.is_finite() {
+        // Выравнивание (`text-align`) — внутри своей ширины: в `Row` текст
+        // меряется с бесконечной max_width, и центр «10000-пиксельной» полосы
+        // уносил надпись за край (кнопка «значок + подпись» без подписи).
+        let render_width = if self.mss_text_align.is_some() && self.bounds.size.width > 0.0 {
+            (self.bounds.size.width - pad_h).max(0.0)
+        } else if self.max_render_width.is_finite() {
             (self.max_render_width - pad_h).max(self.bounds.size.width - pad_h)
         } else {
             (self.bounds.size.width - pad_h).max(10000.0)
