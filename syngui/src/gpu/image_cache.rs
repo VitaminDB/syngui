@@ -249,6 +249,13 @@ struct GpuYuv {
     width: u32,
     height: u32,
     layout: YuvLayout,
+    /// Кадры из dma-buf: текстуры, импортированные по буферу декодера (`YuvDmaBuf::id`).
+    imported: HashMap<u64, YuvSlot>,
+    /// Показывается импортированный буфер (иначе — `ring[cur]`).
+    cur_import: Option<u64>,
+    /// Последние показанные кадры из dma-buf: GPU может ещё читать их буферы —
+    /// декодеру они вернутся, только когда выйдут отсюда.
+    held: std::collections::VecDeque<std::sync::Arc<YuvFrame>>,
 }
 
 pub struct ImageGpuCache {
@@ -351,6 +358,8 @@ impl ImageGpuCache {
             ],
         });
 
+        #[cfg(all(target_os = "linux", not(target_arch = "wasm32")))]
+        super::dmabuf::detect(device);
         Self {
             images: HashMap::new(),
             yuv: HashMap::new(),
@@ -366,13 +375,101 @@ impl ImageGpuCache {
 
     /// Bind group кадра YUV (`yuv.wgsl`), если у handle сейчас кадр в YUV.
     pub fn get_yuv_bind_group(&self, handle_id: u32) -> Option<&wgpu::BindGroup> {
-        self.yuv.get(&handle_id).map(|y| &y.ring[y.cur].bind_group)
+        self.yuv.get(&handle_id).map(|y| match y.cur_import.and_then(|id| y.imported.get(&id)) {
+            Some(s) => &s.bind_group,
+            None => &y.ring[y.cur].bind_group,
+        })
     }
 
-    fn upload_yuv(&mut self, device: &wgpu::Device, queue: &wgpu::Queue, handle: ImageHandle, f: &YuvFrame) {
+    fn yuv_bind_group(&self, device: &wgpu::Device, y: &wgpu::Texture, c1: &wgpu::Texture, c2: Option<&wgpu::Texture>, uniform: &wgpu::Buffer) -> wgpu::BindGroup {
+        let yv = y.create_view(&Default::default());
+        let c1v = c1.create_view(&Default::default());
+        // NV12: вторая плоскость не нужна шейдеру, но слот занят — та же UV.
+        let c2v = c2.unwrap_or(c1).create_view(&Default::default());
+        device.create_bind_group(&wgpu::BindGroupDescriptor {
+            label: Some("YUV BG"),
+            layout: &self.yuv_layout,
+            entries: &[
+                wgpu::BindGroupEntry { binding: 0, resource: wgpu::BindingResource::TextureView(&yv) },
+                wgpu::BindGroupEntry { binding: 1, resource: wgpu::BindingResource::TextureView(&c1v) },
+                wgpu::BindGroupEntry { binding: 2, resource: wgpu::BindingResource::TextureView(&c2v) },
+                wgpu::BindGroupEntry { binding: 3, resource: wgpu::BindingResource::Sampler(&self.sampler) },
+                wgpu::BindGroupEntry { binding: 4, resource: uniform.as_entire_binding() },
+            ],
+        })
+    }
+
+    /// Кадр NV12 из dma-buf: плоскости импортируются (один раз на буфер декодера)
+    /// и показываются без копии. `false` — импорт не удался, кадр надо копировать.
+    #[cfg(all(target_os = "linux", not(target_arch = "wasm32")))]
+    fn show_dmabuf(&mut self, device: &wgpu::Device, queue: &wgpu::Queue, handle: ImageHandle, f: &std::sync::Arc<YuvFrame>) -> bool {
+        use super::dmabuf::{import_plane, FOURCC_GR88, FOURCC_R8};
+        let Some(d) = f.dmabuf.as_ref() else { return false };
+        if !super::dmabuf::import_supported() {
+            return false;
+        }
+        self.images.remove(&handle.0);
+        let fits = self.yuv.get(&handle.0).is_some_and(|g| g.width == f.width && g.height == f.height && g.layout == f.layout);
+        if !fits {
+            self.yuv.remove(&handle.0);
+        }
+        let need = !self.yuv.get(&handle.0).is_some_and(|g| g.imported.contains_key(&d.id));
+        if need {
+            let (cw, ch) = f.chroma_size();
+            let y = import_plane(device, d.fd, d.y_offset, d.y_pitch, f.width, f.height, FOURCC_R8, wgpu::TextureFormat::R8Unorm);
+            let uv = import_plane(device, d.fd, d.uv_offset, d.uv_pitch, cw, ch, FOURCC_GR88, wgpu::TextureFormat::Rg8Unorm);
+            let (Some(y), Some(uv)) = (y, uv) else { return false };
+            let uniform = device.create_buffer(&wgpu::BufferDescriptor {
+                label: Some("YUV Uniform"),
+                size: 64,
+                usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
+                mapped_at_creation: false,
+            });
+            let bind_group = self.yuv_bind_group(device, &y, &uv, None, &uniform);
+            let g = self.yuv.entry(handle.0).or_insert_with(|| GpuYuv {
+                ring: Vec::new(),
+                cur: 0,
+                width: f.width,
+                height: f.height,
+                layout: f.layout,
+                imported: HashMap::new(),
+                cur_import: None,
+                held: Default::default(),
+            });
+            // Буферы прошлых декодеров (перемотка пересоздаёт декодер) — не копить.
+            if g.imported.len() >= 32 {
+                let keep = g.cur_import;
+                g.imported.retain(|id, _| Some(*id) == keep);
+            }
+            g.imported.insert(d.id, YuvSlot { y, c1: uv, c2: None, uniform, bind_group });
+        }
+        let g = self.yuv.get_mut(&handle.0).expect("создано выше");
+        let slot = &g.imported[&d.id];
+        let u = f.shader_uniform();
+        let bytes: Vec<u8> = u.iter().flat_map(|v| v.to_le_bytes()).collect();
+        queue.write_buffer(&slot.uniform, 0, &bytes);
+        g.cur_import = Some(d.id);
+        g.held.push_back(f.clone());
+        while g.held.len() > 3 {
+            g.held.pop_front();
+        }
+        true
+    }
+
+    fn upload_yuv(&mut self, device: &wgpu::Device, queue: &wgpu::Queue, handle: ImageHandle, f: &std::sync::Arc<YuvFrame>) {
+        #[cfg(all(target_os = "linux", not(target_arch = "wasm32")))]
+        if f.dmabuf.is_some() {
+            if self.show_dmabuf(device, queue, handle, f) {
+                return;
+            }
+            // GPU не импортирует: та же картинка, скопированная в память.
+            let d = f.dmabuf.as_ref().expect("проверено");
+            let copy = YuvFrame { data: (d.copy)(), dmabuf: None, ..(**f).clone() };
+            return self.upload_yuv(device, queue, handle, &std::sync::Arc::new(copy));
+        }
         self.images.remove(&handle.0);
         let (cw, ch) = f.chroma_size();
-        let fits = self.yuv.get(&handle.0).is_some_and(|g| g.width == f.width && g.height == f.height && g.layout == f.layout);
+        let fits = self.yuv.get(&handle.0).is_some_and(|g| g.width == f.width && g.height == f.height && g.layout == f.layout && !g.ring.is_empty());
         if !fits {
             let mut ring = Vec::with_capacity(STREAM_RING);
             for _ in 0..STREAM_RING {
@@ -407,9 +504,23 @@ impl ImageGpuCache {
                 });
                 ring.push(YuvSlot { y, c1, c2, uniform, bind_group });
             }
-            self.yuv.insert(handle.0, GpuYuv { ring, cur: STREAM_RING - 1, width: f.width, height: f.height, layout: f.layout });
+            self.yuv.insert(
+                handle.0,
+                GpuYuv {
+                    ring,
+                    cur: STREAM_RING - 1,
+                    width: f.width,
+                    height: f.height,
+                    layout: f.layout,
+                    imported: HashMap::new(),
+                    cur_import: None,
+                    held: Default::default(),
+                },
+            );
         }
         let g = self.yuv.get_mut(&handle.0).expect("создано выше");
+        g.cur_import = None;
+        g.held.clear();
         g.cur = (g.cur + 1) % g.ring.len();
         let slot = &g.ring[g.cur];
         write_plane(queue, &slot.y, 1, f.width, f.height, f.y_plane());

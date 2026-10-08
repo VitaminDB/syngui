@@ -78,7 +78,34 @@ pub struct YuvFrame {
     pub full_range: bool,
     pub width: u32,
     pub height: u32,
+    /// Плоскости в памяти. У кадра в dma-buf ([`Self::dmabuf`]) — пусто.
     pub data: Arc<[u8]>,
+    /// Кадр NV12 прямо в буфере аппаратного декодера: GPU берёт плоскости из
+    /// dma-buf без копии ([`crate::gpu::dmabuf`]).
+    pub dmabuf: Option<Arc<YuvDmaBuf>>,
+}
+
+/// Буфер аппаратного декодера с кадром NV12 (dma-buf). Пока жив, декодер не
+/// пишет в него новый кадр; освобождение возвращает буфер декодеру.
+pub struct YuvDmaBuf {
+    /// Свой у буфера декодера (не у кадра): GPU кэширует импорт по нему.
+    pub id: u64,
+    pub fd: std::os::fd::RawFd,
+    pub y_offset: u32,
+    pub y_pitch: u32,
+    pub uv_offset: u32,
+    pub uv_pitch: u32,
+    /// Копия плоскостей в память — упакованный NV12 `width × height`
+    /// (GPU без импорта dma-buf).
+    pub copy: Box<dyn Fn() -> Arc<[u8]> + Send + Sync>,
+    /// Держит буфер; освобождение возвращает его декодеру.
+    pub hold: Box<dyn std::any::Any + Send + Sync>,
+}
+
+impl std::fmt::Debug for YuvDmaBuf {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("YuvDmaBuf").field("id", &self.id).field("fd", &self.fd).finish_non_exhaustive()
+    }
 }
 
 impl YuvFrame {
@@ -1088,7 +1115,7 @@ mod yuv_tests {
     }
 
     fn frame(matrix: YuvMatrix, full_range: bool) -> YuvFrame {
-        YuvFrame { layout: YuvLayout::Nv12, matrix, full_range, width: 2, height: 2, data: Arc::from(vec![0u8; 6]) }
+        YuvFrame { layout: YuvLayout::Nv12, matrix, full_range, width: 2, height: 2, data: Arc::from(vec![0u8; 6]), dmabuf: None }
     }
 
     fn near(a: [f32; 3], b: [f32; 3]) -> bool {
@@ -1114,7 +1141,7 @@ mod yuv_tests {
 
     #[test]
     fn planes_split() {
-        let f = YuvFrame { layout: YuvLayout::I420, matrix: YuvMatrix::Bt601, full_range: false, width: 3, height: 3, data: Arc::from((0..17u8).collect::<Vec<_>>()) };
+        let f = YuvFrame { layout: YuvLayout::I420, matrix: YuvMatrix::Bt601, full_range: false, width: 3, height: 3, data: Arc::from((0..17u8).collect::<Vec<_>>()), dmabuf: None };
         assert_eq!(YuvFrame::byte_len(YuvLayout::I420, 3, 3), 17);
         assert_eq!(f.y_plane(), &(0..9).collect::<Vec<u8>>()[..]);
         let (u, v) = f.chroma_planes();

@@ -315,6 +315,10 @@ interprocess = { version = "2", optional = true }
 # сигналов). Подключается только под feature `tray`. Версия совпадает
 # с той, что тянет libappindicator 0.9.
 [target.'cfg(all(target_os = "linux", not(target_arch = "wasm32")))'.dependencies]
+# Кадры видео из dma-buf прямо в текстуры (gpu/dmabuf.rs): GL и EGL — те же,
+# что у wgpu-hal (версии — как у wgpu 28).
+glow = "0.16"
+khronos-egl = "6"
 gtk = { version = "0.18", optional = true }
 # XDG Desktop Portal (`org.freedesktop.appearance`) под feature `system-theme`.
 # Блокирующий API: слежение живёт в отдельном потоке, async-рантайм не нужен.

@@ -1,4 +1,6 @@
 pub mod context;
+#[cfg(all(target_os = "linux", not(target_arch = "wasm32")))]
+pub mod dmabuf;
 pub mod image_cache;
 pub mod image_store;
 pub mod pipeline;
@@ -9,7 +11,7 @@ pub mod tile_atlas;
 
 pub use context::{preferred_surface_format, GpuContext, GpuShared, WindowSurface};
 pub use image_cache::ImageGpuCache;
-pub use image_store::{ImageData, ImageHandle, ImageLoadState, ImageSource, ImageStore, YuvFrame, YuvLayout, YuvMatrix};
+pub use image_store::{ImageData, ImageHandle, ImageLoadState, ImageSource, ImageStore, YuvDmaBuf, YuvFrame, YuvLayout, YuvMatrix};
 #[cfg(feature = "image")]
 pub use image_store::image_file_size;
 pub use pipeline::RenderPipeline;

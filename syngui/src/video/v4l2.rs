@@ -269,6 +269,8 @@ struct DmaBuf {
 }
 
 unsafe impl Send for DmaBuf {}
+// SAFETY: буфер выхода только читается (кадр отдаётся GPU или копируется); пишет в него устройство.
+unsafe impl Sync for DmaBuf {}
 
 impl DmaBuf {
     fn alloc(len: usize) -> Result<Self, VideoError> {
@@ -418,7 +420,14 @@ const N_INPUT: usize = 8;
 const INPUT_SIZE: u32 = 8 << 20;
 
 struct Capture {
-    bufs: Vec<DmaBuf>,
+    bufs: Vec<std::sync::Arc<DmaBuf>>,
+    /// Свой номер у каждого буфера на всё время работы процесса (кэш импорта на GPU).
+    ids: Vec<u64>,
+    /// Поколение буферов: возвращённые кадрами буферы прошлых поколений в очередь не идут.
+    gen: u64,
+    /// Кадры отдаются прямо в dma-buf (GPU импортирует их без копии); буфер
+    /// возвращается в очередь, когда кадр больше не нужен.
+    zero_copy: bool,
     stride: u32,
     /// Строк в плоскости Y (дальше — UV): высота формата, выровненная драйвером
     /// (у `msm_vidc` для 4K — 2176), а не видимая.
@@ -436,6 +445,11 @@ pub enum V4l2Frame {
 
 /// Сколько упакованных буферов держать в обороте (очередь плеера + показ).
 const PACKED_POOL: usize = 12;
+/// Сколько пакетов может ждать входного буфера, прежде чем `send_packet` начнёт ждать декодер.
+const PENDING_MAX: usize = 16;
+/// Сверх минимума драйвера при кадрах без копии: очередь кадров плеера
+/// (`VIDEO_QUEUE_CAP` декодера) + показанные (держит GPU-кэш) + запас.
+const ZERO_COPY_EXTRA: i32 = 8 + 3 + 2;
 
 /// V4L2 stateful-декодер с кадрами NV12 в CPU-памяти.
 pub struct V4l2Decoder {
@@ -455,6 +469,15 @@ pub struct V4l2Decoder {
     next_tag: u64,
     eos_sent: bool,
     eos_done: bool,
+    /// Пакеты, ждущие свободного входного буфера: `send_packet` не ждёт —
+    /// иначе при кадрах без копии он ждал бы входа, пока все буферы выхода
+    /// держат готовые кадры, которые разбирают только после его возврата.
+    pending_in: VecDeque<(Vec<u8>, Option<i64>)>,
+    /// Конец потока — после того, как все ждущие пакеты уйдут в декодер.
+    stop_pending: bool,
+    /// Буферы выхода, освобождённые кадрами (поколение, индекс), — в очередь снова.
+    returned: std::sync::Arc<std::sync::Mutex<Vec<(u64, usize)>>>,
+    capture_gen: u64,
     // для пересоздания
     codec_id: ffi::AVCodecID,
     params: *mut ffi::AVCodecParameters,
@@ -529,6 +552,10 @@ impl V4l2Decoder {
             next_tag: 1,
             eos_sent: false,
             eos_done: false,
+            pending_in: VecDeque::new(),
+            stop_pending: false,
+            returned: Default::default(),
+            capture_gen: 0,
             codec_id,
             params,
             time_base,
@@ -584,17 +611,41 @@ impl V4l2Decoder {
     }
 
     fn queue_input(&mut self, data: &[u8], pts: Option<i64>) -> Result<(), VideoError> {
+        self.pending_in.push_back((data.to_vec(), pts));
+        self.service(false)?;
+        // Ждать декодер — только если пакетов накопилось много, а готовых кадров
+        // нет (их разберут после возврата, и это освободит буферы).
         let deadline = Instant::now() + Duration::from_secs(5);
-        let idx = loop {
-            self.service(false)?;
-            if let Some(i) = self.input_free.iter().position(|f| *f) {
-                break i;
-            }
+        while self.pending_in.len() > PENDING_MAX && self.ready.is_empty() {
             if Instant::now() > deadline {
                 return Err(VideoError::Other("v4l2: декодер не принимает поток".into()));
             }
             self.wait(50);
-        };
+            self.service(false)?;
+        }
+        Ok(())
+    }
+
+    /// Ждущие пакеты — в свободные входные буферы; затем, если просили, конец потока.
+    fn feed(&mut self) -> Result<(), VideoError> {
+        while !self.pending_in.is_empty() {
+            let Some(idx) = self.input_free.iter().position(|f| *f) else { break };
+            let (data, pts) = self.pending_in.pop_front().expect("не пусто");
+            self.submit_input(idx, &data, pts)?;
+        }
+        if self.stop_pending && self.pending_in.is_empty() {
+            self.stop_pending = false;
+            let mut c: DecoderCmd = zeroed();
+            c.cmd = DEC_CMD_STOP;
+            if let Err(e) = xioctl(self.fd.as_raw_fd(), DECODER_CMD, &mut c) {
+                log::warn!("v4l2: DEC_CMD_STOP: {e}");
+                self.eos_done = true;
+            }
+        }
+        Ok(())
+    }
+
+    fn submit_input(&mut self, idx: usize, data: &[u8], pts: Option<i64>) -> Result<(), VideoError> {
         let buf = &mut self.inputs[idx];
         if data.len() > buf.len {
             return Err(VideoError::Other(format!("v4l2: пакет {} байт больше буфера", data.len())));
@@ -653,6 +704,16 @@ impl V4l2Decoder {
                 *f = true;
             }
         }
+        self.feed()?;
+        // Буферы, освобождённые кадрами без копии, — снова декодеру.
+        let back: Vec<(u64, usize)> = std::mem::take(&mut *self.returned.lock().unwrap_or_else(|e| e.into_inner()));
+        if let Some(gen) = self.capture.as_ref().map(|c| c.gen) {
+            for (g, idx) in back {
+                if g == gen {
+                    self.requeue_capture(idx)?;
+                }
+            }
+        }
         while self.capture.is_some() {
             let mut pl: Plane = zeroed();
             let mut b: Buffer = zeroed();
@@ -667,12 +728,23 @@ impl V4l2Decoder {
             if pl.bytesused > 0 && b.flags & BUF_FLAG_ERROR == 0 {
                 let tag = b.timestamp.tv_sec as u64;
                 let pts = self.pts_by_tag.remove(&tag).flatten();
-                let f = if self.packed {
+                let zero_copy = self.capture.as_ref().is_some_and(|c| c.zero_copy);
+                let f = if self.packed && zero_copy {
+                    V4l2Frame::Packed(self.dmabuf_frame(b.index as usize), pts)
+                } else if self.packed {
                     V4l2Frame::Packed(self.copy_packed(b.index as usize), pts)
                 } else {
                     V4l2Frame::Av(self.copy_frame(b.index as usize, pts))
                 };
                 self.ready.push_back(f);
+                if last {
+                    self.eos_done = true;
+                    break;
+                }
+                if self.packed && zero_copy {
+                    // буфер вернёт кадр (CaptureHold), когда станет не нужен
+                    continue;
+                }
             }
             if last {
                 self.eos_done = true;
@@ -708,6 +780,47 @@ impl V4l2Decoder {
         c.bufs[idx].sync(SYNC_READ | SYNC_END);
         f.set_pts(pts);
         f
+    }
+
+    /// Кадр в буфере выхода как есть — GPU возьмёт плоскости из dma-buf без копии.
+    fn dmabuf_frame(&mut self, idx: usize) -> crate::gpu::YuvFrame {
+        use crate::gpu::{YuvDmaBuf, YuvFrame, YuvLayout};
+        let c = self.capture.as_ref().unwrap();
+        let (w, h) = (c.visible_w, c.visible_h);
+        let buf = c.bufs[idx].clone();
+        let stride = c.stride;
+        let uv_offset = stride * c.y_lines;
+        let hold = CaptureHold { idx, gen: c.gen, returned: self.returned.clone() };
+        let copy_src = buf.clone();
+        let copy = move || pack_nv12(&copy_src, stride as usize, uv_offset as usize, w, h);
+        let d = YuvDmaBuf {
+            id: c.ids[idx],
+            fd: buf.fd.as_raw_fd(),
+            y_offset: 0,
+            y_pitch: stride,
+            uv_offset,
+            uv_pitch: stride,
+            copy: Box::new(copy),
+            hold: Box::new((hold, buf)),
+        };
+        let (matrix, full_range) = self.color();
+        YuvFrame { layout: YuvLayout::Nv12, matrix, full_range, width: w, height: h, data: std::sync::Arc::from(Vec::new().into_boxed_slice()), dmabuf: Some(std::sync::Arc::new(d)) }
+    }
+
+    /// Цветовое пространство — из параметров потока (VUI); не указано — по высоте.
+    fn color(&self) -> (crate::gpu::YuvMatrix, bool) {
+        use crate::gpu::YuvMatrix;
+        let h = self.capture.as_ref().map(|c| c.visible_h).unwrap_or(0);
+        // SAFETY: params — наша копия параметров потока, жива вместе с декодером.
+        let (space, range) = unsafe { ((*self.params).color_space, (*self.params).color_range) };
+        let matrix = match space {
+            ffi::AVColorSpace::AVCOL_SPC_BT709 => YuvMatrix::Bt709,
+            ffi::AVColorSpace::AVCOL_SPC_BT2020_NCL | ffi::AVColorSpace::AVCOL_SPC_BT2020_CL => YuvMatrix::Bt2020,
+            ffi::AVColorSpace::AVCOL_SPC_BT470BG | ffi::AVColorSpace::AVCOL_SPC_SMPTE170M => YuvMatrix::Bt601,
+            _ if h >= 720 => YuvMatrix::Bt709,
+            _ => YuvMatrix::Bt601,
+        };
+        (matrix, range == ffi::AVColorRange::AVCOL_RANGE_JPEG)
     }
 
     /// Кадры NV12 сразу упакованными плоскостями (`receive` отдаёт
@@ -765,6 +878,7 @@ impl V4l2Decoder {
             width: w,
             height: h,
             data: buf,
+            dmabuf: None,
         }
     }
 
@@ -820,16 +934,26 @@ impl V4l2Decoder {
         }
         let mut mb = Control { id: CID_MIN_BUFFERS_FOR_CAPTURE, value: 4 };
         let _ = xioctl(raw, G_CTRL, &mut mb);
-        let want = (mb.value.max(2) + 4) as u32;
+        // Без копий кадры держат буферы, пока ждут в очереди плеера и на экране —
+        // буферов нужно больше на эту очередь (иначе декодер встанет). Решение —
+        // по рендереру, не по `packed`: режим YUV плеер включает уже после
+        // открытия, когда буферы выделены первым пакетом.
+        let zero_copy = crate::gpu::dmabuf::import_supported();
+        let extra = if zero_copy { ZERO_COPY_EXTRA } else { 4 };
+        let want = (mb.value.max(2) + extra) as u32;
         let mut rb = RequestBuffers { count: want, type_: BUF_TYPE_CAPTURE_MPLANE, memory: MEMORY_DMABUF, capabilities: 0, flags: 0, reserved: [0; 3] };
         xioctl(raw, REQBUFS, &mut rb).map_err(|e| VideoError::Other(format!("v4l2: REQBUFS выход: {e}")))?;
-        let bufs = (0..rb.count).map(|_| DmaBuf::alloc(size)).collect::<Result<Vec<_>, _>>()?;
+        let bufs = (0..rb.count).map(|_| DmaBuf::alloc(size).map(std::sync::Arc::new)).collect::<Result<Vec<_>, _>>()?;
         log::info!(
-            "v4l2: поток {width}x{height} (видно {vw}x{vh}), NV12 stride {stride}, буферов {} ({} МБ)",
+            "v4l2: поток {width}x{height} (видно {vw}x{vh}), NV12 stride {stride}, буферов {} ({} МБ){}",
             bufs.len(),
-            bufs.len() * size >> 20
+            bufs.len() * size >> 20,
+            if zero_copy { ", кадры в GPU без копии (в режиме YUV)" } else { "" }
         );
-        self.capture = Some(Capture { bufs, stride, y_lines: height, visible_w: vw, visible_h: vh });
+        static NEXT_ID: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(1);
+        let ids = bufs.iter().map(|_| NEXT_ID.fetch_add(1, std::sync::atomic::Ordering::Relaxed)).collect();
+        self.capture_gen += 1;
+        self.capture = Some(Capture { bufs, ids, gen: self.capture_gen, zero_copy, stride, y_lines: height, visible_w: vw, visible_h: vh });
         for i in 0..rb.count as usize {
             self.requeue_capture(i)?;
         }
@@ -895,13 +1019,8 @@ impl V4l2Decoder {
             return Ok(());
         }
         self.eos_sent = true;
-        let mut c: DecoderCmd = zeroed();
-        c.cmd = DEC_CMD_STOP;
-        if let Err(e) = xioctl(self.fd.as_raw_fd(), DECODER_CMD, &mut c) {
-            log::warn!("v4l2: DEC_CMD_STOP: {e}");
-            self.eos_done = true;
-        }
-        Ok(())
+        self.stop_pending = true;
+        self.feed()
     }
 
     /// Сброс (перемотка): декодер создаётся заново — надёжнее, чем сброс очередей
@@ -938,4 +1057,43 @@ impl Drop for V4l2Decoder {
         unsafe { ffi::avcodec_parameters_free(&mut self.params) };
         let _ = self.v4l2_fmt;
     }
+}
+
+/// Держит буфер выхода, пока кадр без копии нужен плеру или GPU; освобождение
+/// возвращает буфер декодеру (в очередь — при следующем обслуживании).
+struct CaptureHold {
+    idx: usize,
+    gen: u64,
+    returned: std::sync::Arc<std::sync::Mutex<Vec<(u64, usize)>>>,
+}
+
+impl Drop for CaptureHold {
+    fn drop(&mut self) {
+        if let Ok(mut r) = self.returned.lock() {
+            r.push((self.gen, self.idx));
+        }
+    }
+}
+
+/// Плоскости NV12 буфера выхода → упакованный NV12 `w × h` (GPU без импорта dma-buf).
+fn pack_nv12(buf: &DmaBuf, stride: usize, uv_off: usize, w: u32, h: u32) -> std::sync::Arc<[u8]> {
+    let len = crate::gpu::YuvFrame::byte_len(crate::gpu::YuvLayout::Nv12, w, h);
+    let mut out = vec![0u8; len];
+    buf.sync(SYNC_READ);
+    let src = buf.slice();
+    let (wu, ch) = (w as usize, (h as usize).div_ceil(2));
+    let row = wu.min(stride);
+    let uv_row = (wu.div_ceil(2) * 2).min(stride);
+    let mut o = 0;
+    for (base, rows, n, dst_row) in [(0, h as usize, row, wu), (uv_off, ch, uv_row, wu.div_ceil(2) * 2)] {
+        for r in 0..rows {
+            let s = base + r * stride;
+            if s + n <= src.len() && o + n <= out.len() {
+                out[o..o + n].copy_from_slice(&src[s..s + n]);
+            }
+            o += dst_row;
+        }
+    }
+    buf.sync(SYNC_READ | SYNC_END);
+    std::sync::Arc::from(out.into_boxed_slice())
 }

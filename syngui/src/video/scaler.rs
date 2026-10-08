@@ -272,7 +272,7 @@ impl Scaler {
             _ => YuvMatrix::Bt601,
         };
         let full_range = f.format() == Pixel::YUVJ420P || f.color_range() == Range::JPEG;
-        Some(YuvFrame { layout, matrix, full_range, width: w, height: h, data: buf })
+        Some(YuvFrame { layout, matrix, full_range, width: w, height: h, data: buf, dmabuf: None })
     }
 
     pub fn out_size(&self) -> (u32, u32) {
