@@ -810,6 +810,14 @@ impl V4l2Decoder {
             vw = crop.c.width.min(width);
             vh = crop.c.height.min(height);
         }
+        // Не все драйверы отдают видимую область через G_CROP (Venus — только G_SELECTION): иначе кадр 1280×720
+        // показывался 1280×736 с полосой выравнивания внизу. Размер потока из контейнера — верхняя граница.
+        // SAFETY: params — наша копия параметров потока, жива вместе с декодером.
+        let (pw, ph) = unsafe { ((*self.params).width, (*self.params).height) };
+        if pw > 0 && ph > 0 {
+            vw = vw.min(pw as u32);
+            vh = vh.min(ph as u32);
+        }
         let mut mb = Control { id: CID_MIN_BUFFERS_FOR_CAPTURE, value: 4 };
         let _ = xioctl(raw, G_CTRL, &mut mb);
         let want = (mb.value.max(2) + 4) as u32;
@@ -899,6 +907,19 @@ impl V4l2Decoder {
     /// Сброс (перемотка): декодер создаётся заново — надёжнее, чем сброс очередей
     /// у разных драйверов; первый кадр после пересоздания — десятки мс.
     pub fn flush(&mut self) -> Result<(), VideoError> {
+        // Сначала закрыть старую сессию: у кодека SoC общий лимит нагрузки на все сессии (Venus SM-T295 —
+        // 352800 макроблоков/с), и с открытым старым декодером новый 1080p его превышал: «HW is overloaded»,
+        // сессия падала (session error 1001). Вместо дескриптора — /dev/null: старый закрывается сразу.
+        let raw = self.fd.as_raw_fd();
+        for t in [BUF_TYPE_OUTPUT_MPLANE, BUF_TYPE_CAPTURE_MPLANE] {
+            let mut t = t as i32;
+            let _ = xioctl(raw, STREAMOFF, &mut t);
+        }
+        self.capture = None;
+        self.inputs.clear();
+        if let Ok(null) = File::open("/dev/null") {
+            self.fd = null;
+        }
         let fresh = Self::new(self.params, self.time_base)?;
         *self = fresh;
         Ok(())
