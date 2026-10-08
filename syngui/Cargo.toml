@@ -482,3 +482,7 @@ required-features = ["testing"]
 [[test]]
 name = "grid_explicit_width"
 required-features = ["testing"]
+
+[[test]]
+name = "repro_launch_bounce"
+required-features = ["testing"]

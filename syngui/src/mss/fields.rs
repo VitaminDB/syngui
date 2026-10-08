@@ -982,8 +982,18 @@ impl MssFields {
             };
         }
 
+        // Имя — из `animation-name` или из сокращения `animation: имя 1s …`:
+        // без имени ключевые кадры не запускаются (setup_keyframe_animation),
+        // и правила с одним сокращением молча ничего не делали.
         if let Some(name) = style.animation_name() {
             self.animation_name = Some(name.to_string());
+        } else if let Some(name) = style
+            .get("animation")
+            .and_then(|v| v.as_string())
+            .and_then(crate::animation::keyframe::parse_animation_shorthand)
+            .and_then(|sh| sh.name)
+        {
+            self.animation_name = Some(name);
         }
 
         static WARNED: OnceLock<Mutex<HashSet<String>>> = OnceLock::new();

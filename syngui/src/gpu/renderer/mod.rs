@@ -910,6 +910,12 @@ impl Renderer {
         self.texture_pool.resize(device, width, height);
     }
 
+    /// Формат цели, под который собраны конвейеры: рендерер можно передать
+    /// другой поверхности того же формата (см. [`Self::resize`]).
+    pub fn surface_format(&self) -> wgpu::TextureFormat {
+        self.surface_format
+    }
+
     pub fn font_atlas_stats(&self) -> crate::text::FontAtlasStats {
         self.font_atlas.lock().unwrap_or_else(|e| e.into_inner()).memory_stats()
     }
