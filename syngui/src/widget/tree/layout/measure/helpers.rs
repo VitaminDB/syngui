@@ -1807,10 +1807,19 @@ impl ElementTree {
         divider: f32,
         id: ElementId,
     ) -> Size {
-        let _ = if let Some(node) = self.elements.get_mut(&id) {
-            node.element.layout(constraints)
+        // `layout()` пересчитывает долю (зажим по размеру, первая панель в
+        // пикселях) — берём её уже после него, иначе панели раскладываются
+        // по доле прошлого кадра. Кэш подсказки обновляем тоже: по нему
+        // детей расставляет `position`.
+        let (ratio, divider) = if let Some(node) = self.elements.get_mut(&id) {
+            let _ = node.element.layout(constraints);
+            node.refresh_hint_cache();
+            match node.hint_cache {
+                LayoutHint::Split { ratio, divider, .. } => (ratio, divider),
+                _ => (ratio, divider),
+            }
         } else {
-            Size::zero()
+            (ratio, divider)
         };
 
         let total_w = if constraints.max_width.is_finite() {

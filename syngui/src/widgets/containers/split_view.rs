@@ -11,6 +11,12 @@ use crate::widget::{
 };
 use std::any::Any;
 
+// Цвета полосы берутся из MSS: `border-color` — в покое, `accent-color` — при
+// наведении и перетаскивании, `color` — точки-«ручка», `divider-thickness` —
+// видимая толщина (зона захвата — `divider_width`). Встроенные стили
+// (`styles/split_view.mss`) подставляют переменные темы `--divider`/`--border`
+// и `--accent`; без них — запасные цвета `theme_fallback`.
+
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub enum SplitDirection {
     Horizontal,
@@ -26,6 +32,10 @@ pub struct SplitView {
     second: Box<dyn Widget>,
     classes: Vec<String>,
     ratio_signal: Option<RwSignal<f32>>,
+    first_size: Option<f32>,
+    first_size_signal: Option<RwSignal<f32>>,
+    first_min: f32,
+    first_max: f32,
 }
 
 impl SplitView {
@@ -39,7 +49,43 @@ impl SplitView {
             second: Box::new(second),
             classes: Vec::new(),
             ratio_signal: None,
+            first_size: None,
+            first_size_signal: None,
+            first_min: 0.0,
+            first_max: f32::INFINITY,
         }
+    }
+
+    /// Первая панель фиксированной ширины (высоты — у вертикального) в
+    /// пикселях вместо доли: при изменении размера окна меняется только
+    /// вторая. Так устроены боковые панели.
+    pub fn first_size(mut self, px: f32) -> Self {
+        self.first_size = Some(px.max(0.0));
+        self
+    }
+
+    /// Как [`first_size`](Self::first_size), но размер живёт в сигнале:
+    /// начальный читается из него, перетаскивание записывает новый (уже
+    /// зажатый в [`first_size_range`](Self::first_size_range)) — приложение
+    /// может его сохранить.
+    pub fn first_size_signal(mut self, signal: RwSignal<f32>) -> Self {
+        self.first_size_signal = Some(signal);
+        self
+    }
+
+    /// Пределы размера первой панели в пиксельном режиме. Вторая панель
+    /// всё равно не уже [`min_size`](Self::min_size): на узком окне первая
+    /// ужимается ниже `min`.
+    pub fn first_size_range(mut self, min: f32, max: f32) -> Self {
+        self.first_min = min.max(0.0);
+        self.first_max = max.max(self.first_min);
+        self
+    }
+
+    fn first_px(&self) -> Option<f32> {
+        self.first_size_signal
+            .map(|s| s.get_untracked())
+            .or(self.first_size)
     }
 
     pub fn ratio_signal(mut self, signal: RwSignal<f32>) -> Self {
@@ -103,6 +149,10 @@ impl Widget for SplitView {
             dirty_flags: DirtyFlags::LAYOUT | DirtyFlags::RENDER,
             mss: MssFields::new(),
             ratio_signal: self.ratio_signal,
+            first_px: self.first_px(),
+            first_size_signal: self.first_size_signal,
+            first_min: self.first_min,
+            first_max: self.first_max,
         })
     }
 
@@ -153,9 +203,24 @@ pub struct SplitViewElement {
     dirty_flags: DirtyFlags,
     mss: MssFields,
     ratio_signal: Option<RwSignal<f32>>,
+    /// Пиксельный режим: желаемый размер первой панели (до зажима по окну —
+    /// после сужения и расширения окна панель возвращается к нему).
+    first_px: Option<f32>,
+    first_size_signal: Option<RwSignal<f32>>,
+    first_min: f32,
+    first_max: f32,
 }
 
 impl SplitViewElement {
+    /// Размер первой панели в пиксельном режиме, зажатый в пределы и так,
+    /// чтобы второй осталось не меньше `min_size`.
+    fn clamp_first(&self, px: f32, total: f32) -> f32 {
+        let hi = self.first_max.min(total - self.min_size);
+        px.min(hi)
+            .max(self.first_min.min(total))
+            .clamp(0.0, total.max(0.0))
+    }
+
     fn divider_rect(&self) -> Rect {
         let is_h = self.direction == SplitDirection::Horizontal;
         if is_h {
@@ -185,6 +250,10 @@ impl SplitViewElement {
         if total <= 0.0 {
             return;
         }
+        if let Some(px) = self.first_px {
+            self.ratio = self.clamp_first(px, total) / total;
+            return;
+        }
         let min_ratio = self.min_size / total;
         let max_ratio = 1.0 - min_ratio;
         self.ratio = self.ratio.clamp(min_ratio.min(0.5), max_ratio.max(0.5));
@@ -198,6 +267,19 @@ impl Element for SplitViewElement {
             self.min_size = sv.min_size;
             self.divider_width = sv.divider_width;
             self.ratio_signal = sv.ratio_signal;
+            self.first_size_signal = sv.first_size_signal;
+            self.first_min = sv.first_min;
+            self.first_max = sv.first_max;
+            // Размер из сигнала — всегда его; постоянный `first_size` — только
+            // при включении режима, чтобы пересборка не сбрасывала то, что
+            // пользователь натянул.
+            if !self.dragging {
+                self.first_px = match (sv.first_size_signal, sv.first_size) {
+                    (Some(sig), _) => Some(sig.get_untracked()),
+                    (None, Some(px)) => self.first_px.or(Some(px)),
+                    (None, None) => None,
+                };
+            }
             if let Some(sig) = self.ratio_signal {
                 if !self.dragging {
                     let new = sig.get_untracked().clamp(0.05, 0.95);
@@ -256,7 +338,10 @@ impl Element for SplitViewElement {
         };
 
         let accent = self.mss.accent_color.unwrap_or(Color::from_hex("#3B82F6"));
-        let border = self.mss.border_color.unwrap_or_else(crate::theme_fallback::fallback_divider);
+        let border = self
+            .mss
+            .border_color
+            .unwrap_or_else(crate::theme_fallback::fallback_divider);
         let fg = self.mss.color.unwrap_or(Color::from_hex("#9CA3AF"));
 
         let bg = if self.dragging {
@@ -314,6 +399,24 @@ impl Element for SplitViewElement {
                         } else {
                             pos.y - self.bounds.y()
                         };
+                        if self.first_px.is_some() {
+                            let px = self.clamp_first(local - self.divider_width / 2.0, total);
+                            self.first_px = Some(px);
+                            self.ratio = px / total;
+                            if let Some(sig) = self.first_size_signal {
+                                if (sig.get_untracked() - px).abs() > 0.5 {
+                                    sig.set(px);
+                                }
+                            }
+                            ctx.request_layout();
+                            ctx.request_paint();
+                            ctx.set_cursor(if is_h {
+                                CursorIcon::ColResize
+                            } else {
+                                CursorIcon::RowResize
+                            });
+                            return EventResult::Handled;
+                        }
                         self.ratio = (local / (total + self.divider_width)).clamp(0.0, 1.0);
                         self.clamp_ratio();
                         if let Some(sig) = self.ratio_signal {
