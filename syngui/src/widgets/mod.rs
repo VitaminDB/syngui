@@ -71,8 +71,8 @@ pub use visual::{
 pub use visual::{LiveFrame, LiveInput, LiveView};
 #[cfg(feature = "map")]
 pub use visual::{
-    BuildingOverlay, BuildingShape, HeatOverlay, HeatPoint, MapMarker, MapView, MapViewport,
-    TileCache, TileProvider,
+    BuildingOverlay, BuildingShape, HeatOverlay, HeatPoint, MapCamera, MapMarker, MapPolyline, MapView,
+    MapViewport, TileCache, TileProvider,
 };
 #[cfg(feature = "markdown")]
 pub use visual::{EditorMode, MarkdownEditor, MarkdownView, MdStyle};

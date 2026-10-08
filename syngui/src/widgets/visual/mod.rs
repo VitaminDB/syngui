@@ -51,8 +51,8 @@ pub use image::{Image, ImageFit};
 pub use image_viewport::{ImageViewCommand, ImageViewInfo, ImageViewport};
 #[cfg(feature = "map")]
 pub use map_view::{
-    BuildingOverlay, BuildingShape, HeatOverlay, HeatPoint, MapMarker, MapView, MapViewport,
-    MarkerOverlay, TileCache, TileProvider,
+    BuildingOverlay, BuildingShape, HeatOverlay, HeatPoint, MapCamera, MapMarker, MapPolyline, MapView,
+    MapViewport, MarkerOverlay, TileCache, TileProvider,
 };
 #[cfg(feature = "markdown")]
 pub use markdown_editor::{EditorMode, MarkdownEditor};

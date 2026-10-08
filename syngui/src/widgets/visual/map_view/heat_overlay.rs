@@ -62,7 +62,7 @@ impl HeatOverlay {
             viewport: MapViewport {
                 center_lat: 0.0,
                 center_lng: 0.0,
-                zoom: 1,
+                zoom: 1, zoom_level: 1.0,
                 viewport_w: 0.0,
                 viewport_h: 0.0,
             },
@@ -290,12 +290,12 @@ impl HeatOverlayElement {
         self.points
             .iter()
             .map(|p| {
-                let (px, py) = tile_math::geo_to_pixel(
+                let (px, py) = tile_math::geo_to_pixel_f(
                     p.lat,
                     p.lng,
                     vp.center_lat,
                     vp.center_lng,
-                    vp.zoom,
+                    vp.zoom_level,
                     vp.viewport_w,
                     vp.viewport_h,
                 );
@@ -626,7 +626,7 @@ mod tests {
             viewport: MapViewport {
                 center_lat: 53.2144,
                 center_lng: 63.6246,
-                zoom: 13,
+                zoom: 13, zoom_level: 13.0,
                 viewport_w: 400.0,
                 viewport_h: 300.0,
             },
@@ -670,21 +670,21 @@ mod tests {
         let cold = HeatPoint::new(53.205, 63.63, 5.0);
         let e = element(vec![hot, cold], 5.0, 90.0);
 
-        let (hx, hy) = tile_math::geo_to_pixel(
+        let (hx, hy) = tile_math::geo_to_pixel_f(
             hot.lat,
             hot.lng,
             e.viewport.center_lat,
             e.viewport.center_lng,
-            e.viewport.zoom,
+            e.viewport.zoom_level,
             e.viewport.viewport_w,
             e.viewport.viewport_h,
         );
-        let (cx, cy) = tile_math::geo_to_pixel(
+        let (cx, cy) = tile_math::geo_to_pixel_f(
             cold.lat,
             cold.lng,
             e.viewport.center_lat,
             e.viewport.center_lng,
-            e.viewport.zoom,
+            e.viewport.zoom_level,
             e.viewport.viewport_w,
             e.viewport.viewport_h,
         );

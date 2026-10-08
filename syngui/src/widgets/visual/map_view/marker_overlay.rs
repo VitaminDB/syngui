@@ -30,7 +30,7 @@ impl MarkerOverlay {
             viewport: MapViewport {
                 center_lat: 0.0,
                 center_lng: 0.0,
-                zoom: 1,
+                zoom: 1, zoom_level: 1.0,
                 viewport_w: 0.0,
                 viewport_h: 0.0,
             },
@@ -127,7 +127,7 @@ impl Element for MarkerOverlayElement {
             list,
             &self.markers,
             self.bounds,
-            (vp.center_lat, vp.center_lng, vp.zoom),
+            (vp.center_lat, vp.center_lng, vp.zoom_level),
             self.text_measure.as_deref(),
         );
     }

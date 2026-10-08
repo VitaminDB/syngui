@@ -16,16 +16,65 @@ pub use marker_overlay::MarkerOverlay;
 pub use provider::TileProvider;
 pub use tile_cache::TileCache;
 pub use tile_math::{
-    geo_to_pixel, lat_to_tile_y, lng_to_tile_x, pixel_to_geo, tile_x_to_lng, tile_y_to_lat,
+    geo_to_pixel, geo_to_pixel_f, lat_to_tile_y, lng_to_tile_x, pixel_to_geo, pixel_to_geo_f,
+    tile_x_to_lng, tile_y_to_lat,
 };
 
+/// Положение карты. `zoom` — округлённый масштаб (для старого кода), `zoom_level` — точный (дробный при
+/// плавном масштабировании); оверлеи считают по `zoom_level`.
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct MapViewport {
     pub center_lat: f64,
     pub center_lng: f64,
     pub zoom: u8,
+    pub zoom_level: f64,
     pub viewport_w: f32,
     pub viewport_h: f32,
+}
+
+impl Default for MapViewport {
+    fn default() -> Self {
+        Self { center_lat: 0.0, center_lng: 0.0, zoom: 1, zoom_level: 1.0, viewport_w: 0.0, viewport_h: 0.0 }
+    }
+}
+
+/// Линия поверх карты (маршрут, трек): точки (широта, долгота), цвет и толщина в логических пикселях.
+/// `outline` — подложка шире линии (контур маршрута), рисуется под ней.
+#[derive(Clone, Debug, PartialEq)]
+pub struct MapPolyline {
+    pub points: Vec<(f64, f64)>,
+    pub color: Color,
+    pub width: f32,
+    pub outline: Option<(Color, f32)>,
+}
+
+impl MapPolyline {
+    pub fn new(points: Vec<(f64, f64)>) -> Self {
+        Self { points, color: Color::new(0.1, 0.45, 0.95, 1.0), width: 5.0, outline: None }
+    }
+    pub fn color(mut self, c: Color) -> Self {
+        self.color = c;
+        self
+    }
+    pub fn width(mut self, w: f32) -> Self {
+        self.width = w;
+        self
+    }
+    pub fn outline(mut self, c: Color, w: f32) -> Self {
+        self.outline = Some((c, w));
+        self
+    }
+}
+
+/// Запрос перемещения камеры снаружи (кнопка «моё место», найденный адрес, маршрут целиком). Выполняется,
+/// когда меняется `seq`: так повторное нажатие с той же целью снова переносит карту, даже если её сдвинули.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct MapCamera {
+    pub lat: f64,
+    pub lng: f64,
+    pub zoom: f64,
+    pub seq: u64,
+    pub animate: bool,
 }
 
 use crate::animation::{Animation, Easing};
@@ -43,12 +92,15 @@ use std::any::Any;
 use std::sync::Arc;
 use tile_loader::{TileLoader, TileState};
 
+type GeoCb = Arc<Mutex<dyn FnMut(f64, f64) + Send>>;
+
 pub struct MapView {
     center_lat: f64,
     center_lng: f64,
-    zoom: u8,
+    zoom: f64,
     provider: TileProvider,
     markers: Vec<MapMarker>,
+    polylines: Vec<MapPolyline>,
     width: Option<f32>,
     height: Option<f32>,
     provider_source: Option<Arc<Mutex<TileProvider>>>,
@@ -56,21 +108,32 @@ pub struct MapView {
     animate_target: Option<(f64, f64, u8)>,
     animate_duration_ms: u32,
     animate_easing: Easing,
+    camera: Option<MapCamera>,
+    smooth_zoom: bool,
+    tile_detail: Option<f64>,
+    overzoom: u8,
+    show_attribution: bool,
     on_viewport_change: Option<Arc<Mutex<dyn FnMut(MapViewport) + Send>>>,
     on_marker_click: Option<Arc<Mutex<dyn FnMut(u64) + Send>>>,
+    on_tap: Option<GeoCb>,
+    on_long_press: Option<GeoCb>,
+    on_interaction: Option<Arc<Mutex<dyn FnMut() + Send>>>,
 }
 
-const CLICK_SLOP: f32 = 4.0;
+const TAP_SLOP: f32 = 12.0;
+const DOUBLE_TAP_MS: u128 = 350;
 const MIN_MARKER_HIT_RADIUS: f32 = 10.0;
+const MIN_ZOOM: f64 = 1.0;
 
 impl MapView {
     pub fn new() -> Self {
         Self {
             center_lat: 55.7558,
             center_lng: 37.6173,
-            zoom: 10,
+            zoom: 10.0,
             provider: TileProvider::osm(),
             markers: Vec::new(),
+            polylines: Vec::new(),
             width: None,
             height: None,
             provider_source: None,
@@ -78,8 +141,16 @@ impl MapView {
             animate_target: None,
             animate_duration_ms: 1000,
             animate_easing: Easing::EaseInOutCubic,
+            camera: None,
+            smooth_zoom: false,
+            tile_detail: None,
+            overzoom: 0,
+            show_attribution: true,
             on_viewport_change: None,
             on_marker_click: None,
+            on_tap: None,
+            on_long_press: None,
+            on_interaction: None,
         }
     }
 
@@ -90,7 +161,39 @@ impl MapView {
     }
 
     pub fn zoom(mut self, z: u8) -> Self {
-        self.zoom = z.clamp(1, 19);
+        self.zoom = z.clamp(1, 19) as f64;
+        self
+    }
+
+    /// Начальный масштаб, дробный (с [`MapView::smooth_zoom`]).
+    pub fn zoom_level(mut self, z: f64) -> Self {
+        self.zoom = z.clamp(MIN_ZOOM, 22.0);
+        self
+    }
+
+    /// Плавное масштабирование: щипок, колесо и двойное касание меняют масштаб непрерывно (иначе — шагами по
+    /// уровню плиток, как раньше).
+    pub fn smooth_zoom(mut self, on: bool) -> Self {
+        self.smooth_zoom = on;
+        self
+    }
+
+    /// Насколько детальнее масштаба брать плитки. По умолчанию — `log2(масштаб экрана)`: на экране с плотностью
+    /// 2× плитка в 256 логических пикселей растянута вдвое и мылилась бы, поэтому берётся уровень на единицу глубже.
+    pub fn tile_detail(mut self, levels: f64) -> Self {
+        self.tile_detail = Some(levels.clamp(0.0, 3.0));
+        self
+    }
+
+    /// Насколько можно приближать сверх последнего уровня плиток источника (плитки растягиваются).
+    pub fn overzoom(mut self, levels: u8) -> Self {
+        self.overzoom = levels.min(4);
+        self
+    }
+
+    /// Подпись источника внизу карты (у OSM обязательна; можно показать своей разметкой и выключить здесь).
+    pub fn attribution(mut self, show: bool) -> Self {
+        self.show_attribution = show;
         self
     }
 
@@ -106,6 +209,12 @@ impl MapView {
 
     pub fn markers(mut self, ms: Vec<MapMarker>) -> Self {
         self.markers = ms;
+        self
+    }
+
+    /// Линии поверх плиток (под метками): маршрут, трек.
+    pub fn polylines(mut self, lines: Vec<MapPolyline>) -> Self {
+        self.polylines = lines;
         self
     }
 
@@ -145,6 +254,12 @@ impl MapView {
         self
     }
 
+    /// Перенести камеру, когда меняется `camera.seq` (см. [`MapCamera`]).
+    pub fn camera(mut self, camera: MapCamera) -> Self {
+        self.camera = Some(camera);
+        self
+    }
+
     pub fn animate_duration_ms(mut self, ms: u32) -> Self {
         self.animate_duration_ms = ms;
         self
@@ -164,17 +279,37 @@ impl MapView {
         self.on_marker_click = Some(Arc::new(Mutex::new(cb)));
         self
     }
+
+    /// Касание (щелчок) по карте мимо меток: широта, долгота точки.
+    pub fn on_tap(mut self, cb: impl FnMut(f64, f64) + Send + 'static) -> Self {
+        self.on_tap = Some(Arc::new(Mutex::new(cb)));
+        self
+    }
+
+    /// Пользователь сам двигает или масштабирует карту (перетаскивание, щипок, колесо, двойное касание) — например,
+    /// чтобы перестать следовать за местоположением.
+    pub fn on_interaction(mut self, cb: impl FnMut() + Send + 'static) -> Self {
+        self.on_interaction = Some(Arc::new(Mutex::new(cb)));
+        self
+    }
+
+    /// Долгое нажатие на карту: широта, долгота точки (поставить метку, проложить маршрут сюда).
+    pub fn on_long_press(mut self, cb: impl FnMut(f64, f64) + Send + 'static) -> Self {
+        self.on_long_press = Some(Arc::new(Mutex::new(cb)));
+        self
+    }
 }
 
 impl Widget for MapView {
     fn create_element(&self) -> Box<dyn Element> {
-        Box::new(MapViewElement {
+        let mut e = MapViewElement {
             id: ElementId::new(),
             center_lat: self.center_lat,
             center_lng: self.center_lng,
             zoom: self.zoom,
             provider: self.provider.clone(),
             markers: self.markers.clone(),
+            polylines: self.polylines.clone(),
             preferred_width: self.width,
             preferred_height: self.height,
             bounds: Rect::zero(),
@@ -192,18 +327,35 @@ impl Widget for MapView {
             classes: Vec::new(),
             dirty_flags: DirtyFlags::LAYOUT | DirtyFlags::RENDER,
             touches: std::collections::HashMap::new(),
-            pinch_distance: None,
-            pinch_center: Point::zero(),
+            pinch: None,
             fly_animation: None,
             fly_from: (0.0, 0.0, 0.0),
             fly_to: (0.0, 0.0, 0.0),
+            camera_seq: None,
+            smooth_zoom: self.smooth_zoom,
+            tile_detail: self.tile_detail,
+            overzoom: self.overzoom,
+            show_attribution: self.show_attribution,
             mss: MssFields::new(),
             text_measure: None,
             on_viewport_change: self.on_viewport_change.clone(),
             on_marker_click: self.on_marker_click.clone(),
+            on_tap: self.on_tap.clone(),
+            on_long_press: self.on_long_press.clone(),
+            on_interaction: self.on_interaction.clone(),
             press_position: None,
+            last_tap: None,
+            long_pressed: false,
             last_viewport: None,
-        })
+        };
+        // камера, заданная при создании, — сразу без анимации
+        if let Some(c) = self.camera {
+            e.center_lat = c.lat;
+            e.center_lng = c.lng;
+            e.zoom = c.zoom;
+            e.camera_seq = Some(c.seq);
+        }
+        Box::new(e)
     }
 
     fn can_update(&self, other: &dyn Any) -> bool {
@@ -221,13 +373,23 @@ impl Widget for MapView {
     fn mount(&self, _tree: &mut ElementTree, _parent_id: ElementId) {}
 }
 
+/// Щипок: начальное расстояние и масштаб, точка карты под центром пальцев.
+#[derive(Clone, Copy)]
+struct Pinch {
+    start_distance: f32,
+    start_zoom: f64,
+    anchor_lat: f64,
+    anchor_lng: f64,
+}
+
 pub struct MapViewElement {
     id: ElementId,
     center_lat: f64,
     center_lng: f64,
-    zoom: u8,
+    zoom: f64,
     provider: TileProvider,
     markers: Vec<MapMarker>,
+    polylines: Vec<MapPolyline>,
     preferred_width: Option<f32>,
     preferred_height: Option<f32>,
     bounds: Rect,
@@ -242,16 +404,25 @@ pub struct MapViewElement {
     classes: Vec<String>,
     dirty_flags: DirtyFlags,
     touches: std::collections::HashMap<u64, Point>,
-    pinch_distance: Option<f32>,
-    pinch_center: Point,
+    pinch: Option<Pinch>,
     fly_animation: Option<Animation>,
     fly_from: (f64, f64, f64),
     fly_to: (f64, f64, f64),
+    camera_seq: Option<u64>,
+    smooth_zoom: bool,
+    tile_detail: Option<f64>,
+    overzoom: u8,
+    show_attribution: bool,
     mss: MssFields,
     text_measure: Option<Arc<dyn TextMeasure>>,
     on_viewport_change: Option<Arc<Mutex<dyn FnMut(MapViewport) + Send>>>,
     on_marker_click: Option<Arc<Mutex<dyn FnMut(u64) + Send>>>,
+    on_tap: Option<GeoCb>,
+    on_long_press: Option<GeoCb>,
+    on_interaction: Option<Arc<Mutex<dyn FnMut() + Send>>>,
     press_position: Option<Point>,
+    last_tap: Option<(Point, web_time::Instant)>,
+    long_pressed: bool,
     last_viewport: Option<MapViewport>,
 }
 
@@ -310,6 +481,18 @@ impl MapViewElement {
         }
     }
 
+    fn interacted(&self) {
+        if let Some(cb) = self.on_interaction.clone() {
+            if let Ok(mut f) = cb.lock() {
+                f();
+            }
+        }
+    }
+
+    fn max_zoom(&self) -> f64 {
+        (self.provider.max_zoom + self.overzoom) as f64
+    }
+
     fn emit_viewport(&mut self) {
         let Some(cb) = self.on_viewport_change.clone() else {
             return;
@@ -317,7 +500,8 @@ impl MapViewElement {
         let vp = MapViewport {
             center_lat: self.center_lat,
             center_lng: self.center_lng,
-            zoom: self.zoom,
+            zoom: self.zoom.round().clamp(1.0, 22.0) as u8,
+            zoom_level: self.zoom,
             viewport_w: self.bounds.size.width,
             viewport_h: self.bounds.size.height,
         };
@@ -330,44 +514,135 @@ impl MapViewElement {
         };
     }
 
+    fn local(&self, p: Point) -> (f32, f32) {
+        (p.x - self.bounds.origin.x, p.y - self.bounds.origin.y)
+    }
+
+    fn geo_at(&self, p: Point) -> (f64, f64) {
+        let (x, y) = self.local(p);
+        tile_math::pixel_to_geo_f(x, y, self.center_lat, self.center_lng, self.zoom, self.bounds.size.width, self.bounds.size.height)
+    }
+
+    /// Сдвиг карты так, чтобы точка (lat, lng) оказалась под экранной точкой `p`.
+    fn put_geo_at(&mut self, lat: f64, lng: f64, p: Point) {
+        let (x, y) = self.local(p);
+        let (gx, gy) = tile_math::world_px(lat, lng, self.zoom);
+        let cx = gx - (x - self.bounds.size.width / 2.0) as f64;
+        let cy = gy - (y - self.bounds.size.height / 2.0) as f64;
+        let (clat, clng) = tile_math::world_px_to_geo(cx, cy, self.zoom);
+        self.center_lat = clat.clamp(-85.05, 85.05);
+        self.center_lng = ((clng + 180.0).rem_euclid(360.0)) - 180.0;
+    }
+
+    /// Масштаб вокруг экранной точки (она остаётся на месте).
+    fn zoom_around(&mut self, new_zoom: f64, p: Point) {
+        let (lat, lng) = self.geo_at(p);
+        self.zoom = new_zoom.clamp(MIN_ZOOM, self.max_zoom());
+        self.put_geo_at(lat, lng, p);
+        self.mark_dirty(DirtyFlags::RENDER);
+    }
+
+    fn drag_to(&mut self, position: Point) {
+        // точка карты, взятая в начале перетаскивания, следует за пальцем
+        let (sx, sy) = tile_math::world_px(self.drag_center_lat, self.drag_center_lng, self.zoom);
+        let cx = sx - (position.x - self.drag_start.x) as f64;
+        let cy = sy - (position.y - self.drag_start.y) as f64;
+        let (lat, lng) = tile_math::world_px_to_geo(cx, cy, self.zoom);
+        self.center_lat = lat.clamp(-85.05, 85.05);
+        self.center_lng = ((lng + 180.0).rem_euclid(360.0)) - 180.0;
+        self.mark_dirty(DirtyFlags::RENDER);
+    }
+
+    fn fly(&mut self, lat: f64, lng: f64, zoom: f64, duration_ms: u32, easing: Easing) {
+        self.fly_from = (self.center_lat, self.center_lng, self.zoom);
+        self.fly_to = (lat, lng, zoom.clamp(MIN_ZOOM, self.max_zoom()));
+        self.fly_animation = Some(Animation::tween(easing).from(0.0).to(1.0).duration_ms(duration_ms).build());
+    }
+
     fn clickable_marker_at(&self, position: Point) -> Option<u64> {
         self.on_marker_click.as_ref()?;
-        marker_at(
-            &self.markers,
-            Point::new(
-                position.x - self.bounds.origin.x,
-                position.y - self.bounds.origin.y,
-            ),
-            self.center_lat,
-            self.center_lng,
-            self.zoom,
-            self.bounds.size,
-            web_time::Instant::now(),
-        )
+        let (x, y) = self.local(position);
+        marker_at_f(&self.markers, Point::new(x, y), self.center_lat, self.center_lng, self.zoom, self.bounds.size, web_time::Instant::now())
     }
 
     fn track_press_movement(&mut self, position: Point) {
         if let Some(origin) = self.press_position {
             let dx = position.x - origin.x;
             let dy = position.y - origin.y;
-            if dx * dx + dy * dy > CLICK_SLOP * CLICK_SLOP {
+            if dx * dx + dy * dy > TAP_SLOP * TAP_SLOP {
                 self.press_position = None;
+                self.interacted();
             }
         }
     }
 
-    fn finish_press(&mut self) {
+    /// Конец нажатия без сдвига: метка, двойное касание (приблизить) или касание карты.
+    fn finish_press(&mut self, touch: bool) {
         let Some(position) = self.press_position.take() else {
             return;
         };
-        let Some(id) = self.clickable_marker_at(position) else {
+        if std::mem::take(&mut self.long_pressed) {
             return;
-        };
-        if let Some(cb) = self.on_marker_click.clone() {
+        }
+        if let Some(id) = self.clickable_marker_at(position) {
+            if let Some(cb) = self.on_marker_click.clone() {
+                if let Ok(mut f) = cb.lock() {
+                    f(id);
+                }
+            }
+            return;
+        }
+        // двойное касание пальцем (для мыши — Event::DoubleClick)
+        let now = web_time::Instant::now();
+        if touch {
+            if let Some((p, t)) = self.last_tap {
+                let (dx, dy) = (p.x - position.x, p.y - position.y);
+                if now.duration_since(t).as_millis() < DOUBLE_TAP_MS && dx * dx + dy * dy < 40.0 * 40.0 {
+                    self.last_tap = None;
+                    self.double_tap(position);
+                    return;
+                }
+            }
+            self.last_tap = Some((position, now));
+        }
+        if let Some(cb) = self.on_tap.clone() {
+            let (lat, lng) = self.geo_at(position);
             if let Ok(mut f) = cb.lock() {
-                f(id);
+                f(lat, lng);
             }
         }
+    }
+
+    fn double_tap(&mut self, position: Point) {
+        self.interacted();
+        let target = if self.smooth_zoom { self.zoom + 1.0 } else { self.zoom.round() + 1.0 };
+        let (lat, lng) = self.geo_at(position);
+        let old = self.zoom;
+        self.zoom = target.clamp(MIN_ZOOM, self.max_zoom());
+        // центр после приближения: точка под пальцем остаётся под пальцем
+        self.put_geo_at(lat, lng, position);
+        let (tlat, tlng, tz) = (self.center_lat, self.center_lng, self.zoom);
+        self.zoom = old;
+        self.put_geo_at(lat, lng, position);
+        self.fly(tlat, tlng, tz, 250, Easing::EaseOutCubic);
+        self.mark_dirty(DirtyFlags::RENDER);
+    }
+
+    fn start_drag(&mut self, position: Point) {
+        self.dragging = true;
+        self.drag_start = position;
+        self.drag_center_lat = self.center_lat;
+        self.drag_center_lng = self.center_lng;
+    }
+
+    fn two_touches(&self) -> Option<(Point, f32)> {
+        if self.touches.len() < 2 {
+            return None;
+        }
+        let pts: Vec<&Point> = self.touches.values().collect();
+        let dx = pts[1].x - pts[0].x;
+        let dy = pts[1].y - pts[0].y;
+        Some((Point::new((pts[0].x + pts[1].x) / 2.0, (pts[0].y + pts[1].y) / 2.0), (dx * dx + dy * dy).sqrt().max(1.0)))
     }
 }
 
@@ -380,20 +655,25 @@ pub fn marker_at(
     viewport: Size,
     now: web_time::Instant,
 ) -> Option<u64> {
+    marker_at_f(markers, position, center_lat, center_lng, zoom as f64, viewport, now)
+}
+
+/// [`marker_at`] при дробном масштабе.
+pub fn marker_at_f(
+    markers: &[MapMarker],
+    position: Point,
+    center_lat: f64,
+    center_lng: f64,
+    zoom: f64,
+    viewport: Size,
+    now: web_time::Instant,
+) -> Option<u64> {
     markers.iter().rev().find_map(|marker| {
         let id = marker.id?;
         if marker.is_expired(now) || marker.current_opacity(now) <= 0.001 {
             return None;
         }
-        let (px, py) = tile_math::geo_to_pixel(
-            marker.lat,
-            marker.lng,
-            center_lat,
-            center_lng,
-            zoom,
-            viewport.width,
-            viewport.height,
-        );
+        let (px, py) = tile_math::geo_to_pixel_f(marker.lat, marker.lng, center_lat, center_lng, zoom, viewport.width, viewport.height);
         let radius = (marker.size * marker.current_scale(now) / 2.0).max(MIN_MARKER_HIT_RADIUS);
         let dx = position.x - px;
         let dy = position.y - py;
@@ -414,10 +694,32 @@ impl Element for MapViewElement {
                 self.provider = m.provider.clone();
             }
             self.markers = m.markers.clone();
+            self.polylines = m.polylines.clone();
             self.preferred_width = m.width;
             self.preferred_height = m.height;
+            self.smooth_zoom = m.smooth_zoom;
+            self.tile_detail = m.tile_detail;
+            self.overzoom = m.overzoom;
+            self.show_attribution = m.show_attribution;
             self.on_viewport_change = m.on_viewport_change.clone();
             self.on_marker_click = m.on_marker_click.clone();
+            self.on_tap = m.on_tap.clone();
+            self.on_long_press = m.on_long_press.clone();
+            self.on_interaction = m.on_interaction.clone();
+
+            if let Some(c) = m.camera {
+                if self.camera_seq != Some(c.seq) {
+                    self.camera_seq = Some(c.seq);
+                    if c.animate {
+                        self.fly(c.lat, c.lng, c.zoom, m.animate_duration_ms.min(800), m.animate_easing);
+                    } else {
+                        self.fly_animation = None;
+                        self.center_lat = c.lat;
+                        self.center_lng = c.lng;
+                        self.zoom = c.zoom.clamp(MIN_ZOOM, self.max_zoom());
+                    }
+                }
+            }
 
             if let Some((target_lat, target_lng, target_zoom)) = m.animate_target {
                 let needs_anim = (target_lat - self.fly_to.0).abs() > 1e-8
@@ -426,15 +728,7 @@ impl Element for MapViewElement {
                     || self.fly_animation.is_none();
 
                 if needs_anim {
-                    self.fly_from = (self.center_lat, self.center_lng, self.zoom as f64);
-                    self.fly_to = (target_lat, target_lng, target_zoom as f64);
-                    self.fly_animation = Some(
-                        Animation::tween(m.animate_easing)
-                            .from(0.0)
-                            .to(1.0)
-                            .duration_ms(m.animate_duration_ms)
-                            .build(),
-                    );
+                    self.fly(target_lat, target_lng, target_zoom as f64, m.animate_duration_ms, m.animate_easing);
                 }
             }
 
@@ -483,26 +777,27 @@ impl Element for MapViewElement {
             self.render_tiles(list, tile_atlas);
         }
 
-        let attr_text = self.provider.attribution;
-        let attr_rect = Rect::new(
-            Point::new(
-                bounds.origin.x + 4.0,
-                bounds.origin.y + bounds.size.height - 16.0,
-            ),
-            Size::new(bounds.size.width - 8.0, 14.0),
-        );
-        list.push_rect(
-            Rect::new(
-                Point::new(bounds.origin.x, bounds.origin.y + bounds.size.height - 18.0),
-                Size::new(bounds.size.width, 18.0),
-            ),
-            Color::new(1.0, 1.0, 1.0, 0.7),
-            [0.0; 4],
-        );
-        list.push_text(attr_text, attr_rect, Color::new(0.2, 0.2, 0.2, 1.0), 10.0);
-
         if filtered {
             list.pop_effect_layer();
+        }
+
+        self.render_polylines(list);
+
+        if self.show_attribution {
+            let attr_text = self.provider.attribution;
+            let attr_rect = Rect::new(
+                Point::new(bounds.origin.x + 4.0, bounds.origin.y + bounds.size.height - 16.0),
+                Size::new(bounds.size.width - 8.0, 14.0),
+            );
+            list.push_rect(
+                Rect::new(
+                    Point::new(bounds.origin.x, bounds.origin.y + bounds.size.height - 18.0),
+                    Size::new(bounds.size.width, 18.0),
+                ),
+                Color::new(1.0, 1.0, 1.0, 0.7),
+                [0.0; 4],
+            );
+            list.push_text(attr_text, attr_rect, Color::new(0.2, 0.2, 0.2, 1.0), 10.0);
         }
 
         list.push_z_barrier();
@@ -518,40 +813,37 @@ impl Element for MapViewElement {
         ctx: &mut crate::widget::context::EventContext,
     ) -> EventResult {
         match event {
+            // правая кнопка мыши — то же, что долгое нажатие пальцем (долгого нажатия мышью syngui не выдаёт)
+            Event::MouseDown { position, button: crate::input::MouseButton::Right } => {
+                if self.bounds.contains(*position) && self.touches.is_empty() {
+                    if let Some(cb) = self.on_long_press.clone() {
+                        let (lat, lng) = self.geo_at(*position);
+                        if let Ok(mut f) = cb.lock() {
+                            f(lat, lng);
+                        }
+                        return EventResult::Handled;
+                    }
+                }
+            }
             Event::MouseDown { position, .. } => {
-                if self.bounds.contains(*position) {
+                // палец, который syngui ещё и превращает в мышь, обрабатывается касаниями
+                if self.bounds.contains(*position) && self.touches.is_empty() {
                     self.fly_animation = None;
-                    self.dragging = true;
-                    self.drag_start = *position;
-                    self.drag_center_lat = self.center_lat;
-                    self.drag_center_lng = self.center_lng;
+                    self.start_drag(*position);
                     self.press_position = Some(*position);
+                    self.long_pressed = false;
                     ctx.set_cursor(CursorIcon::Grabbing);
                     return EventResult::Handled;
                 }
             }
             Event::MouseMove(position) => {
-                if self.dragging {
+                if self.dragging && self.touches.is_empty() {
                     self.track_press_movement(*position);
-                    let dx = position.x - self.drag_start.x;
-                    let dy = position.y - self.drag_start.y;
-
-                    let tile_size = 256.0_f64;
-                    let n = (1u64 << self.zoom) as f64;
-                    let total_pixels = n * tile_size;
-
-                    let lng_per_pixel = 360.0 / total_pixels;
-                    self.center_lng = self.drag_center_lng - (dx as f64) * lng_per_pixel;
-
-                    let center_tile_y = tile_math::lat_to_tile_y(self.drag_center_lat, self.zoom);
-                    let new_tile_y = center_tile_y - (dy as f64) / tile_size;
-                    self.center_lat = tile_math::tile_y_to_lat(new_tile_y, self.zoom);
-
-                    self.center_lat = self.center_lat.clamp(-85.05, 85.05);
-
+                    if self.press_position.is_none() {
+                        self.drag_to(*position);
+                        self.emit_viewport();
+                    }
                     ctx.set_cursor(CursorIcon::Grabbing);
-                    self.mark_dirty(DirtyFlags::RENDER);
-                    self.emit_viewport();
                     return EventResult::Handled;
                 } else if self.bounds.contains(*position) {
                     if self.clickable_marker_at(*position).is_some() {
@@ -562,56 +854,47 @@ impl Element for MapViewElement {
                 }
             }
             Event::MouseUp { .. } => {
-                if self.dragging {
+                if self.dragging && self.touches.is_empty() {
                     self.dragging = false;
                     ctx.set_cursor(CursorIcon::Default);
-                    self.finish_press();
+                    self.finish_press(false);
                     return EventResult::Handled;
                 }
             }
-            Event::MouseWheel {
-                position, delta, ..
-            } => {
+            Event::DoubleClick { position, .. } => {
+                if self.bounds.contains(*position) && self.touches.is_empty() {
+                    self.double_tap(*position);
+                    return EventResult::Handled;
+                }
+            }
+            Event::LongPress { position } => {
+                if self.bounds.contains(*position) && self.press_position.is_some() {
+                    if let Some(cb) = self.on_long_press.clone() {
+                        let (lat, lng) = self.geo_at(*position);
+                        self.long_pressed = true;
+                        if let Ok(mut f) = cb.lock() {
+                            f(lat, lng);
+                        }
+                        return EventResult::Handled;
+                    }
+                }
+            }
+            Event::MouseWheel { position, delta, .. } => {
                 if self.bounds.contains(*position) {
                     self.fly_animation = None;
-                    const ZOOM_THRESHOLD: f32 = 12.0;
-
-                    self.zoom_accumulator += *delta;
-
-                    if self.zoom_accumulator.abs() >= ZOOM_THRESHOLD {
-                        let (lat_at_cursor, lng_at_cursor) = tile_math::pixel_to_geo(
-                            position.x - self.bounds.origin.x,
-                            position.y - self.bounds.origin.y,
-                            self.center_lat,
-                            self.center_lng,
-                            self.zoom,
-                            self.bounds.size.width,
-                            self.bounds.size.height,
-                        );
-
-                        let old_zoom = self.zoom;
-                        if self.zoom_accumulator > 0.0 {
-                            self.zoom = (self.zoom + 1).min(self.provider.max_zoom);
-                        } else {
-                            self.zoom = self.zoom.saturating_sub(1).max(1);
-                        }
-                        self.zoom_accumulator = 0.0;
-
-                        if self.zoom != old_zoom {
-                            let (new_lat, new_lng) = tile_math::pixel_to_geo(
-                                position.x - self.bounds.origin.x,
-                                position.y - self.bounds.origin.y,
-                                self.center_lat,
-                                self.center_lng,
-                                self.zoom,
-                                self.bounds.size.width,
-                                self.bounds.size.height,
-                            );
-                            self.center_lat += lat_at_cursor - new_lat;
-                            self.center_lng += lng_at_cursor - new_lng;
-                            self.center_lat = self.center_lat.clamp(-85.05, 85.05);
-
-                            self.mark_dirty(DirtyFlags::RENDER);
+                    self.interacted();
+                    if self.smooth_zoom {
+                        // одна «ступенька» колеса (~12 единиц) — половина уровня
+                        let z = self.zoom + (*delta as f64) / 24.0;
+                        self.zoom_around(z, *position);
+                    } else {
+                        const ZOOM_THRESHOLD: f32 = 12.0;
+                        self.zoom_accumulator += *delta;
+                        if self.zoom_accumulator.abs() >= ZOOM_THRESHOLD {
+                            let step = if self.zoom_accumulator > 0.0 { 1.0 } else { -1.0 };
+                            self.zoom_accumulator = 0.0;
+                            let z = (self.zoom.round() + step).min(self.provider.max_zoom as f64);
+                            self.zoom_around(z, *position);
                         }
                     }
                     self.emit_viewport();
@@ -623,20 +906,16 @@ impl Element for MapViewElement {
                     self.fly_animation = None;
                     self.touches.insert(*id, *position);
                     if self.touches.len() == 1 {
-                        self.dragging = true;
-                        self.drag_start = *position;
-                        self.drag_center_lat = self.center_lat;
-                        self.drag_center_lng = self.center_lng;
+                        self.start_drag(*position);
                         self.press_position = Some(*position);
-                    } else if self.touches.len() == 2 {
+                        self.long_pressed = false;
+                    } else if let Some((center, dist)) = self.two_touches() {
                         self.dragging = false;
                         self.press_position = None;
-                        let pts: Vec<&Point> = self.touches.values().collect();
-                        let dx = pts[1].x - pts[0].x;
-                        let dy = pts[1].y - pts[0].y;
-                        self.pinch_distance = Some((dx * dx + dy * dy).sqrt());
-                        self.pinch_center =
-                            Point::new((pts[0].x + pts[1].x) / 2.0, (pts[0].y + pts[1].y) / 2.0);
+                        self.last_tap = None;
+                        let (lat, lng) = self.geo_at(center);
+                        self.interacted();
+                        self.pinch = Some(Pinch { start_distance: dist, start_zoom: self.zoom, anchor_lat: lat, anchor_lng: lng });
                     }
                     return EventResult::Handled;
                 }
@@ -644,114 +923,19 @@ impl Element for MapViewElement {
             Event::TouchMove { id, position } => {
                 if self.touches.contains_key(id) {
                     self.touches.insert(*id, *position);
-
                     if self.touches.len() == 1 && self.dragging {
                         self.track_press_movement(*position);
-                        let dx = position.x - self.drag_start.x;
-                        let dy = position.y - self.drag_start.y;
-
-                        let tile_size = 256.0_f64;
-                        let n = (1u64 << self.zoom) as f64;
-                        let total_pixels = n * tile_size;
-
-                        let lng_per_pixel = 360.0 / total_pixels;
-                        self.center_lng = self.drag_center_lng - (dx as f64) * lng_per_pixel;
-
-                        let center_tile_y =
-                            tile_math::lat_to_tile_y(self.drag_center_lat, self.zoom);
-                        let new_tile_y = center_tile_y - (dy as f64) / tile_size;
-                        self.center_lat = tile_math::tile_y_to_lat(new_tile_y, self.zoom);
-                        self.center_lat = self.center_lat.clamp(-85.05, 85.05);
-
-                        self.mark_dirty(DirtyFlags::RENDER);
-                        self.emit_viewport();
-                        return EventResult::Handled;
-                    } else if self.touches.len() == 2 {
-                        let pts: Vec<&Point> = self.touches.values().collect();
-                        let dx = pts[1].x - pts[0].x;
-                        let dy = pts[1].y - pts[0].y;
-                        let new_distance = (dx * dx + dy * dy).sqrt();
-                        let center =
-                            Point::new((pts[0].x + pts[1].x) / 2.0, (pts[0].y + pts[1].y) / 2.0);
-
-                        if let Some(prev_dist) = self.pinch_distance {
-                            let ratio = new_distance / prev_dist;
-                            if ratio > 1.5 {
-                                let (lat_c, lng_c) = tile_math::pixel_to_geo(
-                                    center.x - self.bounds.origin.x,
-                                    center.y - self.bounds.origin.y,
-                                    self.center_lat,
-                                    self.center_lng,
-                                    self.zoom,
-                                    self.bounds.size.width,
-                                    self.bounds.size.height,
-                                );
-                                let old_zoom = self.zoom;
-                                self.zoom = (self.zoom + 1).min(self.provider.max_zoom);
-                                if self.zoom != old_zoom {
-                                    let (new_lat, new_lng) = tile_math::pixel_to_geo(
-                                        center.x - self.bounds.origin.x,
-                                        center.y - self.bounds.origin.y,
-                                        self.center_lat,
-                                        self.center_lng,
-                                        self.zoom,
-                                        self.bounds.size.width,
-                                        self.bounds.size.height,
-                                    );
-                                    self.center_lat += lat_c - new_lat;
-                                    self.center_lng += lng_c - new_lng;
-                                    self.center_lat = self.center_lat.clamp(-85.05, 85.05);
-                                }
-                                self.pinch_distance = Some(new_distance);
-                                self.mark_dirty(DirtyFlags::RENDER);
-                            } else if ratio < 0.67 {
-                                let (lat_c, lng_c) = tile_math::pixel_to_geo(
-                                    center.x - self.bounds.origin.x,
-                                    center.y - self.bounds.origin.y,
-                                    self.center_lat,
-                                    self.center_lng,
-                                    self.zoom,
-                                    self.bounds.size.width,
-                                    self.bounds.size.height,
-                                );
-                                let old_zoom = self.zoom;
-                                self.zoom = self.zoom.saturating_sub(1).max(1);
-                                if self.zoom != old_zoom {
-                                    let (new_lat, new_lng) = tile_math::pixel_to_geo(
-                                        center.x - self.bounds.origin.x,
-                                        center.y - self.bounds.origin.y,
-                                        self.center_lat,
-                                        self.center_lng,
-                                        self.zoom,
-                                        self.bounds.size.width,
-                                        self.bounds.size.height,
-                                    );
-                                    self.center_lat += lat_c - new_lat;
-                                    self.center_lng += lng_c - new_lng;
-                                    self.center_lat = self.center_lat.clamp(-85.05, 85.05);
-                                }
-                                self.pinch_distance = Some(new_distance);
-                                self.mark_dirty(DirtyFlags::RENDER);
-                            } else {
-                                let pdx = center.x - self.pinch_center.x;
-                                let pdy = center.y - self.pinch_center.y;
-                                if pdx.abs() > 2.0 || pdy.abs() > 2.0 {
-                                    let tile_size = 256.0_f64;
-                                    let n = (1u64 << self.zoom) as f64;
-                                    let total_pixels = n * tile_size;
-                                    let lng_per_pixel = 360.0 / total_pixels;
-                                    self.center_lng -= (pdx as f64) * lng_per_pixel;
-                                    let center_tile_y =
-                                        tile_math::lat_to_tile_y(self.center_lat, self.zoom);
-                                    let new_tile_y = center_tile_y - (pdy as f64) / tile_size;
-                                    self.center_lat =
-                                        tile_math::tile_y_to_lat(new_tile_y, self.zoom);
-                                    self.center_lat = self.center_lat.clamp(-85.05, 85.05);
-                                    self.pinch_center = center;
-                                    self.mark_dirty(DirtyFlags::RENDER);
-                                }
-                            }
+                        if self.press_position.is_none() {
+                            self.drag_to(*position);
+                            self.emit_viewport();
                         }
+                        return EventResult::Handled;
+                    } else if let (Some(p), Some((center, dist))) = (self.pinch, self.two_touches()) {
+                        // точка карты, бывшая под пальцами, остаётся между ними: масштаб и сдвиг разом
+                        let z = (p.start_zoom + (dist / p.start_distance).log2() as f64).clamp(MIN_ZOOM, self.max_zoom());
+                        self.zoom = z;
+                        self.put_geo_at(p.anchor_lat, p.anchor_lng, center);
+                        self.mark_dirty(DirtyFlags::RENDER);
                         self.emit_viewport();
                         return EventResult::Handled;
                     }
@@ -761,15 +945,17 @@ impl Element for MapViewElement {
                 if self.touches.remove(id).is_some() {
                     if self.touches.is_empty() {
                         self.dragging = false;
-                        self.pinch_distance = None;
-                        self.finish_press();
+                        if self.pinch.take().is_some() && !self.smooth_zoom {
+                            // без плавного масштаба — к ближайшему уровню плиток
+                            let center = Point::new(self.bounds.origin.x + self.bounds.size.width / 2.0, self.bounds.origin.y + self.bounds.size.height / 2.0);
+                            self.zoom_around(self.zoom.round(), center);
+                        }
+                        self.finish_press(true);
+                        self.emit_viewport();
                     } else if self.touches.len() == 1 {
-                        self.pinch_distance = None;
-                        self.dragging = true;
+                        self.pinch = None;
                         let remaining = *self.touches.values().next().unwrap();
-                        self.drag_start = remaining;
-                        self.drag_center_lat = self.center_lat;
-                        self.drag_center_lng = self.center_lng;
+                        self.start_drag(remaining);
                     }
                     return EventResult::Handled;
                 }
@@ -800,15 +986,15 @@ impl Element for MapViewElement {
 
             self.center_lat = self.fly_from.0 + (self.fly_to.0 - self.fly_from.0) * t;
             self.center_lng = self.fly_from.1 + (self.fly_to.1 - self.fly_from.1) * t;
-            let zoom_f64 = self.fly_from.2 + (self.fly_to.2 - self.fly_from.2) * t;
-            self.zoom = zoom_f64.round().clamp(1.0, 19.0) as u8;
+            let zoom = self.fly_from.2 + (self.fly_to.2 - self.fly_from.2) * t;
+            self.zoom = if self.smooth_zoom { zoom } else { zoom.round() };
             self.center_lat = self.center_lat.clamp(-85.05, 85.05);
             self.mark_dirty(DirtyFlags::RENDER);
 
             if !still_running {
                 self.center_lat = self.fly_to.0;
                 self.center_lng = self.fly_to.1;
-                self.zoom = self.fly_to.2.round().clamp(1.0, 19.0) as u8;
+                self.zoom = if self.smooth_zoom { self.fly_to.2 } else { self.fly_to.2.round() };
                 self.fly_animation = None;
             } else {
                 needs_frame = true;
@@ -949,63 +1135,49 @@ impl Element for MapViewElement {
 }
 
 impl MapViewElement {
+    /// Плитки уровня `round(zoom + tile_detail)` (не глубже источника), растянутые до текущего масштаба.
     fn render_tiles(&self, list: &mut DisplayList, tile_atlas: &Arc<Mutex<TileAtlas>>) {
         let bounds = self.bounds;
         let vw = bounds.size.width;
         let vh = bounds.size.height;
-        let zoom = self.zoom;
-        let tile_size = 256.0_f32;
+        let detail = self.tile_detail.unwrap_or_else(|| (list.scale_factor() as f64).log2().clamp(0.0, 2.0));
+        let zt = (self.zoom + detail).round().clamp(0.0, self.provider.max_zoom as f64) as u8;
+        let scale = 2f64.powf(self.zoom - zt as f64);
 
-        let center_tx = tile_math::lng_to_tile_x(self.center_lng, zoom);
-        let center_ty = tile_math::lat_to_tile_y(self.center_lat, zoom);
-
-        let center_px = (center_tx.fract() * tile_size as f64) as f32;
-        let center_py = (center_ty.fract() * tile_size as f64) as f32;
-
-        let center_tile_x = center_tx.floor() as i32;
-        let center_tile_y = center_ty.floor() as i32;
-
-        let dx_min = ((center_px - vw / 2.0) / tile_size).floor() as i32;
-        let dx_max = ((center_px + vw / 2.0) / tile_size).ceil() as i32 - 1;
-        let dy_min = ((center_py - vh / 2.0) / tile_size).floor() as i32;
-        let dy_max = ((center_py + vh / 2.0) / tile_size).ceil() as i32 - 1;
-
-        let max_tile = (1i32 << zoom) - 1;
+        // центр в мировых пикселях уровня плиток
+        let ctx = tile_math::lng_to_tile_x(self.center_lng, zt) * 256.0;
+        let cty = tile_math::lat_to_tile_y(self.center_lat, zt) * 256.0;
+        let half_w = vw as f64 / 2.0 / scale;
+        let half_h = vh as f64 / 2.0 / scale;
+        let tx_min = ((ctx - half_w) / 256.0).floor() as i64;
+        let tx_max = ((ctx + half_w) / 256.0).floor() as i64;
+        let ty_min = ((cty - half_h) / 256.0).floor() as i64;
+        let ty_max = ((cty + half_h) / 256.0).floor() as i64;
+        let n = 1i64 << zt;
+        // экранная координата мирового пикселя уровня zt (края округлены — без щелей между плитками)
+        let sx = |wx: f64| (bounds.origin.x as f64 + vw as f64 / 2.0 + (wx - ctx) * scale).round() as f32;
+        let sy = |wy: f64| (bounds.origin.y as f64 + vh as f64 / 2.0 + (wy - cty) * scale).round() as f32;
 
         let mut atlas = match tile_atlas.lock() {
             Ok(a) => a,
             Err(_) => return,
         };
 
-        for dy in dy_min..=dy_max {
-            for dx in dx_min..=dx_max {
-                let tx = center_tile_x + dx;
-                let ty = center_tile_y + dy;
-
-                if ty < 0 || ty > max_tile {
-                    continue;
-                }
-                let wrapped_tx = ((tx % (max_tile + 1)) + (max_tile + 1)) % (max_tile + 1);
-
-                let key = TileKey {
-                    x: wrapped_tx as u32,
-                    y: ty as u32,
-                    z: zoom,
-                    provider_id: self.provider.id,
-                };
-
-                let screen_x = bounds.origin.x + vw / 2.0 - center_px + (dx as f32) * tile_size;
-                let screen_y = bounds.origin.y + vh / 2.0 - center_py + (dy as f32) * tile_size;
-                let tile_rect = Rect::new(
-                    Point::new(screen_x, screen_y),
-                    Size::new(tile_size, tile_size),
-                );
+        for ty in ty_min..=ty_max {
+            if ty < 0 || ty >= n {
+                continue;
+            }
+            for tx in tx_min..=tx_max {
+                let wrapped_tx = tx.rem_euclid(n);
+                let key = TileKey { x: wrapped_tx as u32, y: ty as u32, z: zt, provider_id: self.provider.id };
+                let x0 = sx(tx as f64 * 256.0);
+                let x1 = sx((tx + 1) as f64 * 256.0);
+                let y0 = sy(ty as f64 * 256.0);
+                let y1 = sy((ty + 1) as f64 * 256.0);
+                let tile_rect = Rect::new(Point::new(x0, y0), Size::new(x1 - x0, y1 - y0));
 
                 if let Some(slot) = atlas.get_tile(&key) {
-                    let uv_rect = Rect::new(
-                        Point::new(slot.uv_x, slot.uv_y),
-                        Size::new(slot.uv_w, slot.uv_h),
-                    );
+                    let uv_rect = Rect::new(Point::new(slot.uv_x, slot.uv_y), Size::new(slot.uv_w, slot.uv_h));
                     list.push_image(tile_rect, TextureId(0), uv_rect, Color::WHITE);
                     continue;
                 }
@@ -1018,20 +1190,11 @@ impl MapViewElement {
 
                 match slot {
                     Some(slot) => {
-                        let uv_rect = Rect::new(
-                            Point::new(slot.uv_x, slot.uv_y),
-                            Size::new(slot.uv_w, slot.uv_h),
-                        );
+                        let uv_rect = Rect::new(Point::new(slot.uv_x, slot.uv_y), Size::new(slot.uv_w, slot.uv_h));
                         list.push_image(tile_rect, TextureId(0), uv_rect, Color::WHITE);
                     }
                     None => {
-                        if !Self::draw_parent_tile(
-                            list,
-                            &mut atlas,
-                            &key,
-                            tile_rect,
-                            self.provider.id,
-                        ) {
+                        if !Self::draw_parent_tile(list, &mut atlas, &key, tile_rect, self.provider.id) {
                             list.push_rect(tile_rect, Color::new(0.9, 0.9, 0.9, 1.0), [0.0; 4]);
                         }
                     }
@@ -1086,6 +1249,27 @@ impl MapViewElement {
         false
     }
 
+    fn render_polylines(&self, list: &mut DisplayList) {
+        let b = self.bounds;
+        for line in &self.polylines {
+            if line.points.len() < 2 {
+                continue;
+            }
+            let pts: Vec<[f32; 2]> = line
+                .points
+                .iter()
+                .map(|&(lat, lng)| {
+                    let (x, y) = tile_math::geo_to_pixel_f(lat, lng, self.center_lat, self.center_lng, self.zoom, b.size.width, b.size.height);
+                    [b.origin.x + x, b.origin.y + y]
+                })
+                .collect();
+            if let Some((c, w)) = line.outline {
+                list.push_line_strip(pts.clone(), c, w);
+            }
+            list.push_line_strip(pts, line.color, line.width);
+        }
+    }
+
     fn render_markers(&self, list: &mut DisplayList) {
         paint_markers(
             list,
@@ -1103,7 +1287,7 @@ pub(crate) fn paint_markers(
     list: &mut DisplayList,
     markers: &[MapMarker],
     bounds: Rect,
-    view: (f64, f64, u8),
+    view: (f64, f64, f64),
     text_measure: Option<&dyn TextMeasure>,
 ) {
     let (center_lat, center_lng, zoom) = view;
@@ -1121,7 +1305,7 @@ pub(crate) fn paint_markers(
         let scale = marker.current_scale(now);
         let effective_size = marker.size * scale;
 
-        let (px, py) = tile_math::geo_to_pixel(
+        let (px, py) = tile_math::geo_to_pixel_f(
             marker.lat,
             marker.lng,
             center_lat,

@@ -161,6 +161,21 @@ where
     wasm_bindgen_futures::spawn_local(fut);
 }
 
+/// User-Agent запросов плиток. Политика тайл-серверов OpenStreetMap требует, чтобы программа себя называла
+/// (без этого сервер может отказывать) — задайте имя своей программы до первого показа карты.
+#[cfg(all(not(target_arch = "wasm32"), feature = "map-native"))]
+static USER_AGENT: std::sync::OnceLock<String> = std::sync::OnceLock::new();
+
+#[cfg(all(not(target_arch = "wasm32"), feature = "map-native"))]
+pub fn set_user_agent(ua: impl Into<String>) {
+    let _ = USER_AGENT.set(ua.into());
+}
+
+#[cfg(all(not(target_arch = "wasm32"), feature = "map-native"))]
+fn user_agent() -> &'static str {
+    USER_AGENT.get().map(|s| s.as_str()).unwrap_or(concat!("syngui-map/", env!("CARGO_PKG_VERSION")))
+}
+
 #[cfg(all(not(target_arch = "wasm32"), feature = "map-native"))]
 async fn fetch_png(url: &str) -> Result<Vec<u8>, String> {
     let url = url.to_string();
@@ -172,6 +187,7 @@ async fn fetch_png(url: &str) -> Result<Vec<u8>, String> {
 #[cfg(all(not(target_arch = "wasm32"), feature = "map-native"))]
 fn ureq_get_bytes(url: &str) -> Result<Vec<u8>, String> {
     let response = ureq::get(url)
+        .header("User-Agent", user_agent())
         .call()
         .map_err(|e| format!("HTTP error: {}", e))?;
 

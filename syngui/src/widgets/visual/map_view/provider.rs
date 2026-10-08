@@ -64,6 +64,19 @@ impl TileProvider {
         }
     }
 
+    /// Свой источник растровых плиток: шаблон с `{z}`, `{x}`, `{y}` и необязательным `{s}` (поддомен из
+    /// `subdomains`). `id` — ключ кэша плиток: у разных источников он должен различаться (встроенные — 0…4).
+    pub fn custom(
+        id: u8,
+        name: &'static str,
+        url_template: &'static str,
+        subdomains: &'static [&'static str],
+        max_zoom: u8,
+        attribution: &'static str,
+    ) -> Self {
+        Self { id, name, url_template, subdomains: if subdomains.is_empty() { &[""] } else { subdomains }, max_zoom, attribution }
+    }
+
     pub fn tile_url(&self, x: u32, y: u32, z: u8) -> String {
         let s_idx = ((x + y) as usize) % self.subdomains.len();
         let s = self.subdomains[s_idx];
