@@ -499,12 +499,17 @@ impl AppHandler {
     /// окна, resize и смене системного DPI; применяется следующим кадром
     /// через [`AppHandler::apply_ui_scale`].
     pub(in crate::app) fn apply_design_scale(&mut self) {
-        let Some((dw, dh)) = self.config.design_size else {
-            return;
-        };
         if self.config.width == 0 || self.config.height == 0 || self.system_scale_factor <= 0.0 {
             return;
         }
+        let portrait = self.config.height > self.config.width;
+        let size = match (portrait, self.config.design_size_portrait) {
+            (true, Some(p)) => Some(p),
+            _ => self.config.design_size,
+        };
+        let Some((dw, dh)) = size else {
+            return;
+        };
         let lw = self.config.width as f64 / self.system_scale_factor;
         let lh = self.config.height as f64 / self.system_scale_factor;
         let scale = (lw / dw as f64).min(lh / dh as f64) as f32;

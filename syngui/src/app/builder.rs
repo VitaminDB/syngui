@@ -136,6 +136,9 @@ pub struct AppBuilder {
     /// чтобы логический вьюпорт целиком вмещал эти размеры — см.
     /// [`AppBuilder::design_size`].
     pub(super) design_size: Option<(f32, f32)>,
+    /// То же для портретной ориентации (экран выше, чем шире) — см.
+    /// [`AppBuilder::design_size_portrait`].
+    pub(super) design_size_portrait: Option<(f32, f32)>,
 }
 
 /// Проверка перед закрытием окна. Вызывается на главном потоке, поэтому
@@ -198,6 +201,7 @@ impl AppBuilder {
             captured_function_keys: crate::input::FunctionKeys::NONE,
             ui_scale: 1.0,
             design_size: None,
+            design_size_portrait: None,
         }
     }
 
@@ -282,6 +286,17 @@ impl AppBuilder {
     /// пикселях займёт весь экран. Перекрывает [`AppBuilder::ui_scale`].
     pub fn design_size(mut self, width: f32, height: f32) -> Self {
         self.design_size = Some((width.max(1.0), height.max(1.0)));
+        self
+    }
+
+    /// Дизайнерское разрешение для портретной ориентации: пока логический
+    /// вьюпорт выше, чем шире (телефон повернули), масштаб подбирается под
+    /// него, а не под [`AppBuilder::design_size`]. Без него альбомное
+    /// разрешение 1920×1080 на узком экране дало бы интерфейс втрое мельче.
+    /// Раскладку под ориентацию приложение выбирает само — по
+    /// [`crate::viewport_size`] (`width < height`).
+    pub fn design_size_portrait(mut self, width: f32, height: f32) -> Self {
+        self.design_size_portrait = Some((width.max(1.0), height.max(1.0)));
         self
     }
 
