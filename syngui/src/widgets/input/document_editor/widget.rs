@@ -978,6 +978,9 @@ struct DragBlock {
     target: Option<(super::model::BlockId, bool)>,
     /// Drag дерева уже объявлен (`block_drag_type`).
     announced: bool,
+    /// Взят за тело выделенного блока, а не за ⋮⋮: без протяжки это
+    /// обычный клик — выделение снимается, каретка встаёт в точку.
+    body: bool,
 }
 
 /// Перетаскивание блока по холсту свободной раскладки.
@@ -991,6 +994,13 @@ struct FreeDrag {
     moved: bool,
     /// Drag дерева уже объявлен (`block_drag_type`).
     announced: bool,
+    /// Позиция ведущего блока на старте (для группы).
+    start: (f32, f32),
+    /// Остальные выделенные блоки, едущие вместе с ведущим, и их
+    /// позиции на старте. Пусто — тянут один блок.
+    group: Vec<(super::model::BlockId, f32, f32)>,
+    /// Взят за тело выделенного блока (см. [`DragBlock::body`]).
+    body: bool,
 }
 
 /// Что тянут за блок в свободной раскладке.
@@ -3485,6 +3495,19 @@ impl DocumentEditorElement {
             self.history().discard_last_checkpoint();
             return false;
         };
+        // Ведущий блок в выделении — вместе с ним едут все выделенные
+        // (каждый закрепляется там, где нарисован).
+        let mut group = Vec::new();
+        if mode == FreeDragMode::Move && self.block_sel.len() > 1 && self.block_sel.contains(&top) {
+            for id in self.block_sel.clone() {
+                if id == top {
+                    continue;
+                }
+                if let Some((gx, gy, _)) = self.pin_block(id) {
+                    group.push((id, gx, gy));
+                }
+            }
+        }
         self.free_drag = Some(FreeDrag {
             block: top,
             grab: Point::new(
@@ -3495,8 +3518,113 @@ impl DocumentEditorElement {
             start_width: width,
             moved: false,
             announced: false,
+            start: (x, y),
+            group,
+            body: false,
         });
         true
+    }
+
+    /// Модель совпадает с последним шагом истории — правки не было.
+    fn unchanged_since_checkpoint(&self) -> bool {
+        let model = lock(&self.model);
+        let history = self.history();
+        history
+            .last_model()
+            .is_some_and(|m| serialize_document(m) == serialize_document(&model))
+    }
+
+    /// Выделенный блок под точкой (верхнего уровня). Среди перекрытых на
+    /// холсте выигрывает выделенный — его и тянут.
+    fn selected_block_at(&self, p: Point) -> Option<super::model::BlockId> {
+        let map = self.blocks.lock().ok()?;
+        self.block_sel
+            .iter()
+            .copied()
+            .find(|id| map.get(id).is_some_and(|r| r.contains(p)))
+    }
+
+    /// Взять выделенные блоки за тело: на холсте — перенос группы,
+    /// в потоке — перестановка. Без протяжки — обычный клик
+    /// ([`Self::click_through_block_sel`]).
+    fn start_body_drag(&mut self, block: super::model::BlockId, at: Point) -> bool {
+        if self.layout.free {
+            if !self.start_free_drag(block, at, FreeDragMode::Move) {
+                return false;
+            }
+            if let Some(d) = &mut self.free_drag {
+                d.body = true;
+            }
+            return true;
+        }
+        self.drag = Some(DragBlock {
+            block,
+            start: at,
+            current: at,
+            started: false,
+            target: None,
+            announced: false,
+            body: true,
+        });
+        true
+    }
+
+    /// Клик по выделенному блоку без протяжки: выделение снимается, дальше
+    /// как обычный клик — фигура становится текущей, в текст — каретка.
+    fn click_through_block_sel(&mut self, at: Point) {
+        self.clear_block_sel();
+        if let Some(id) = self.shape_at(at) {
+            let foreign = self.embed_at(at).is_some();
+            self.select_object(id, !foreign);
+            return;
+        }
+        if self.embed_at(at).is_some() {
+            return;
+        }
+        if let Some(pos) = self.hit_caret(at) {
+            self.table_caret = None;
+            self.code_caret = None;
+            self.goal_x = None;
+            self.set_caret(pos, false);
+        }
+    }
+
+    /// Переставить в потоке группу выделенных блоков к цели, сохранив
+    /// их порядок. `false` — двигать нечего (цель внутри группы).
+    fn move_block_group(
+        &mut self,
+        ids: &[super::model::BlockId],
+        target: super::model::BlockId,
+        before: bool,
+    ) -> bool {
+        if ids.contains(&target) {
+            return false;
+        }
+        let mut model = self.model();
+        let mut moved = false;
+        if before {
+            for id in ids {
+                moved |= edit::move_block(&mut model, *id, target, true);
+            }
+        } else {
+            // После цели: вставляем с конца — каждый следующий встаёт
+            // прямо за целью, перед уже вставленными.
+            for id in ids.iter().rev() {
+                moved |= edit::move_block(&mut model, *id, target, false);
+            }
+        }
+        moved
+    }
+
+    /// Группа, которую переставляет перенос за `block` в потоке: все
+    /// выделенные, если он среди них, иначе он один.
+    fn flow_drag_group(&self, block: super::model::BlockId) -> Vec<super::model::BlockId> {
+        match self.top_level_of(block) {
+            Some(top) if self.block_sel.len() > 1 && self.block_sel.contains(&top) => {
+                self.block_sel.clone()
+            }
+            _ => vec![block],
+        }
     }
 
     /// Объявить перенос блока drag'ом дерева (если хост задал тип): payload
@@ -3559,6 +3687,10 @@ impl DocumentEditorElement {
     /// конце (иначе автосейв дёргался бы на каждый кадр).
     fn update_free_drag(&mut self, at: Point) {
         let Some(drag) = &self.free_drag else { return };
+        if drag.mode == FreeDragMode::Move && !drag.group.is_empty() {
+            self.update_group_drag(at);
+            return;
+        }
         let (block, grab, mode, start_width) = (drag.block, drag.grab, drag.mode, drag.start_width);
         let origin = self.bounds.origin;
         let layout = self.layout;
@@ -3645,6 +3777,47 @@ impl DocumentEditorElement {
                     !same
                 }
             }
+        };
+        if changed {
+            if let Some(drag) = &mut self.free_drag {
+                drag.moved = true;
+            }
+            self.rebuild = true;
+            self.mark_dirty(DirtyFlags::LAYOUT | DirtyFlags::RENDER);
+        }
+    }
+
+    /// Перенос группы выделенных блоков: ведущий снапается к сетке, прочие
+    /// сдвигаются на тот же вектор — взаимное расположение сохраняется.
+    /// Сдвиг зажат так, чтобы ни один блок не ушёл за левый/верхний край.
+    fn update_group_drag(&mut self, at: Point) {
+        let Some(drag) = &self.free_drag else { return };
+        let origin = self.bounds.origin;
+        let layout = self.layout;
+        let (sx, sy) = drag.start;
+        let x = layout.snapped(at.x - drag.grab.x - origin.x);
+        let y = layout.snapped(at.y - drag.grab.y - origin.y);
+        let min_x = drag.group.iter().fold(sx, |m, g| m.min(g.1));
+        let min_y = drag.group.iter().fold(sy, |m, g| m.min(g.2));
+        let dx = (x - sx).max(-min_x);
+        let dy = (y - sy).max(-min_y);
+        let mut moves: Vec<(super::model::BlockId, f32, f32)> = vec![(drag.block, sx, sy)];
+        moves.extend(drag.group.iter().copied());
+        let changed = {
+            let mut model = self.model();
+            let mut changed = false;
+            for (id, gx, gy) in moves {
+                let Some(b) = model.blocks.iter_mut().find(|b| b.id == id) else {
+                    continue;
+                };
+                let (nx, ny) = (gx + dx, gy + dy);
+                let (bx, by) = free::pos_of(&b.attrs).unwrap_or((gx, gy));
+                if (bx - nx).abs() >= 0.5 || (by - ny).abs() >= 0.5 {
+                    free::set_pos(&mut b.attrs, nx, ny);
+                    changed = true;
+                }
+            }
+            changed
         };
         if changed {
             if let Some(drag) = &mut self.free_drag {
@@ -3864,8 +4037,12 @@ impl DocumentEditorElement {
                             Point::new(r.origin.x - 4.0, r.origin.y - 2.0),
                             Size::new(r.size.width + 8.0, r.size.height + 4.0),
                         );
-                        list.push_rect(rr, s.selection_color, [6.0; 4]);
-                        stroke_rect(list, rr, s.caret_color.with_alpha(0.7), 1.0);
+                        // Заливка поверх содержимого — только полупрозрачным
+                        // оттенком акцента: цвет выделения текста в теме
+                        // бывает непрозрачным и закрывал бы текст блока.
+                        let c = s.block_selected_color;
+                        list.push_rect(rr, c.with_alpha(c.a.min(1.0) * 0.16), [6.0; 4]);
+                        stroke_rect(list, rr, c.with_alpha(c.a.min(1.0) * 0.9), 1.5);
                     }
                 }
             }
@@ -5783,6 +5960,7 @@ impl Element for DocumentEditorElement {
                             started: false,
                             target: None,
                             announced: false,
+                            body: false,
                         });
                         ctx.capture();
                         return EventResult::Handled;
@@ -5805,6 +5983,14 @@ impl Element for DocumentEditorElement {
                     if ctx.modifiers.shift && !self.block_sel.is_empty() {
                         if let Some(id) = top {
                             self.select_block_range(id);
+                            return EventResult::Handled;
+                        }
+                    }
+                    // Нажатие на выделенный блок — взять группу целиком;
+                    // без протяжки на отпускании это обычный клик.
+                    if let Some(id) = self.selected_block_at(*position) {
+                        if self.start_body_drag(id, *position) {
+                            ctx.capture();
                             return EventResult::Handled;
                         }
                     }
@@ -5999,7 +6185,12 @@ impl Element for DocumentEditorElement {
                     let announce = self
                         .free_drag
                         .as_ref()
-                        .map(|d| d.mode == FreeDragMode::Move && d.moved && !d.announced)
+                        .map(|d| {
+                            d.mode == FreeDragMode::Move
+                                && d.group.is_empty()
+                                && d.moved
+                                && !d.announced
+                        })
                         .unwrap_or(false);
                     if announce {
                         let block = self.free_drag.as_ref().map(|d| d.block).unwrap();
@@ -6021,13 +6212,18 @@ impl Element for DocumentEditorElement {
                     }
                     if drag.started {
                         let src = drag.block;
-                        let announce = !drag.announced;
+                        let announced = drag.announced;
+                        let group = self.flow_drag_group(src);
+                        // Группу на доску хоста не отдаём — только свою
+                        // перестановку.
+                        let announce = !announced && group.len() == 1;
                         let over_object =
                             self.sized_embed_at(*position).is_some_and(|id| id != src);
                         let target = if over_object {
                             None
                         } else {
-                            self.drop_target(*position).filter(|(t, _)| *t != src)
+                            self.drop_target(*position)
+                                .filter(|(t, _)| *t != src && !group.contains(t))
                         };
                         if announce && self.announce_block_drag(src, *position, ctx) {
                             if let Some(drag) = &mut self.drag {
@@ -6133,41 +6329,57 @@ impl Element for DocumentEditorElement {
                 }
                 if let Some(drag) = self.free_drag.take() {
                     // Перенос за ⋮⋮ мог закончиться над карточкой доски —
-                    // тогда блок забирает хост.
+                    // тогда блок забирает хост (только одиночный).
                     if drag.mode == FreeDragMode::Move
                         && drag.moved
+                        && drag.group.is_empty()
                         && self.host_took_block(*position, drag.block)
                     {
                         return EventResult::Handled;
                     }
                     // Даже без движения блок мог только что закрепиться —
-                    // это правка модели, её надо сохранить.
-                    self.after_edit();
-                    // Клик по ⋮⋮ без переноса выделяет блок.
+                    // это правка модели, её надо сохранить. Если же ничего
+                    // не поменялось (клик по уже закреплённому), пустой шаг
+                    // из истории убираем — иначе Ctrl+Z «ничего не делал».
+                    if !drag.moved && self.unchanged_since_checkpoint() {
+                        self.history().discard_last_checkpoint();
+                        self.publish_history();
+                    } else {
+                        self.after_edit();
+                    }
                     if drag.mode == FreeDragMode::Move && !drag.moved {
-                        if let Some(top) = self.top_level_of(drag.block) {
-                            self.select_blocks(vec![top]);
+                        if drag.body {
+                            // Клик по выделенному блоку без протяжки.
+                            self.click_through_block_sel(*position);
+                        } else if drag.group.is_empty() {
+                            // Клик по ⋮⋮ без переноса выделяет блок; у
+                            // блока из группы выделение остаётся как есть.
+                            if let Some(top) = self.top_level_of(drag.block) {
+                                self.select_blocks(vec![top]);
+                            }
                         }
                     }
                     return EventResult::Handled;
                 }
                 if let Some(drag) = self.drag.take() {
+                    let group = self.flow_drag_group(drag.block);
                     if !drag.started {
-                        if let Some(top) = self.top_level_of(drag.block) {
-                            self.select_blocks(vec![top]);
+                        if drag.body {
+                            self.click_through_block_sel(*position);
+                        } else if group.len() == 1 {
+                            if let Some(top) = self.top_level_of(drag.block) {
+                                self.select_blocks(vec![top]);
+                            }
                         }
                     }
                     if drag.started {
-                        if self.host_took_block(*position, drag.block) {
+                        if group.len() == 1 && self.host_took_block(*position, drag.block) {
                             self.mark_dirty(DirtyFlags::RENDER);
                             return EventResult::Handled;
                         }
                         if let Some((target, before)) = drag.target {
                             self.checkpoint(EditClass::Structure);
-                            let moved = {
-                                let mut model = self.model();
-                                edit::move_block(&mut model, drag.block, target, before)
-                            };
+                            let moved = self.move_block_group(&group, target, before);
                             if moved {
                                 self.after_edit();
                             } else {
@@ -6208,11 +6420,9 @@ impl Element for DocumentEditorElement {
                 if let Some(drag) = self.drag.take() {
                     if drag.started {
                         if let Some((target, before)) = drag.target {
+                            let group = self.flow_drag_group(drag.block);
                             self.checkpoint(EditClass::Structure);
-                            let moved = {
-                                let mut model = self.model();
-                                edit::move_block(&mut model, drag.block, target, before)
-                            };
+                            let moved = self.move_block_group(&group, target, before);
                             if moved {
                                 self.after_edit();
                             } else {

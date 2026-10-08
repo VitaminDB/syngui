@@ -116,6 +116,11 @@ impl UndoStack {
         self.last = None;
     }
 
+    /// Модель последнего сохранённого шага (до правки).
+    pub fn last_model(&self) -> Option<&DocModel> {
+        self.undo.last().map(|s| &s.model)
+    }
+
     pub fn can_undo(&self) -> bool {
         !self.undo.is_empty()
     }

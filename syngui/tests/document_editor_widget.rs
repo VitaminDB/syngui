@@ -2889,3 +2889,118 @@ fn table_cell_selection_by_mouse_and_keyboard() {
         "Ctrl+A не выделил ячейку:\n{out}"
     );
 }
+
+fn ctrl_click(h: &mut TestHarness, p: Point) {
+    h.tree.modifiers.ctrl = true;
+    h.send_event(&Event::MouseDown {
+        button: MouseButton::Left,
+        position: p,
+    });
+    h.send_event(&Event::MouseUp {
+        button: MouseButton::Left,
+        position: p,
+    });
+    h.tree.modifiers.ctrl = false;
+}
+
+/// Выделенные блоки на холсте тянутся за тело любого из них все вместе,
+/// на один и тот же вектор; клик без протяжки снимает выделение.
+#[test]
+fn dragging_a_selected_block_moves_the_whole_group() {
+    let md = "Раз\n\nДва\n\nТри\n\n~~~doc-layout\n0 {x=40 y=40 w=300}\n1 {x=200 y=160 w=300}\n2 {x=40 y=400 w=300}\n~~~\n"
+        .replace("~~~", "```");
+    let handle = DocumentEditorHandle::new();
+    let layout = DocLayout {
+        free: true,
+        snap: true,
+        snap_step: 5.0,
+        ..DocLayout::default()
+    };
+    let mut h = TestHarness::new(Box::new(
+        DocumentEditor::new()
+            .markdown(&md)
+            .handle(&handle)
+            .layout(layout),
+    ));
+    h.tree.text_measure = Some(Arc::new(Mono));
+    h.rebuild();
+    h.layout(900.0, 900.0);
+
+    let a = Point::new(40.0 + 10.0, 40.0 + 8.0);
+    let b = Point::new(200.0 + 10.0, 160.0 + 8.0);
+    ctrl_click(&mut h, a);
+    ctrl_click(&mut h, b);
+    assert_eq!(handle.block_selection().get().len(), 2);
+
+    h.send_event(&Event::MouseDown {
+        button: MouseButton::Left,
+        position: b,
+    });
+    h.send_event(&Event::MouseMove(Point::new(b.x + 50.0, b.y + 30.0)));
+    h.send_event(&Event::MouseMove(Point::new(b.x + 100.0, b.y + 60.0)));
+    h.send_event(&Event::MouseUp {
+        button: MouseButton::Left,
+        position: Point::new(b.x + 100.0, b.y + 60.0),
+    });
+    settle(&mut h);
+
+    let out = handle.serialize();
+    let g = |i: usize, k: &str| geom_val(&out, i, k).unwrap_or(f32::NAN);
+    assert_eq!((g(0, "x"), g(0, "y")), (140.0, 100.0), "первый блок:\n{out}");
+    assert_eq!((g(1, "x"), g(1, "y")), (300.0, 220.0), "второй блок:\n{out}");
+    assert_eq!((g(2, "x"), g(2, "y")), (40.0, 400.0), "невыделенный не едет:\n{out}");
+    assert_eq!(
+        handle.block_selection().get().len(),
+        2,
+        "после переноса группа остаётся выделенной"
+    );
+
+    // Клик по выделенному блоку без протяжки — выделение снимается.
+    let b2 = Point::new(300.0 + 10.0, 220.0 + 8.0);
+    h.send_event(&Event::MouseDown {
+        button: MouseButton::Left,
+        position: b2,
+    });
+    h.send_event(&Event::MouseUp {
+        button: MouseButton::Left,
+        position: b2,
+    });
+    assert!(handle.block_selection().get().is_empty());
+
+    // Отмена переноса — одним шагом.
+    h.tree.modifiers.ctrl = true;
+    h.send_event(&Event::KeyDown(Key::Z));
+    h.tree.modifiers.ctrl = false;
+    settle(&mut h);
+    let undone = handle.serialize();
+    assert_eq!(geom_val(&undone, 0, "x"), Some(40.0), "{undone}");
+    assert_eq!(geom_val(&undone, 1, "x"), Some(200.0), "{undone}");
+}
+
+/// В потоке выделенные блоки переставляются группой, сохраняя порядок.
+#[test]
+fn dragging_a_selected_block_in_flow_moves_the_group() {
+    let (mut h, handle) = editing_harness("а\n\nб\n\nв\n\nг\n", Point::new(X0 + 5.0, Y0 + 5.0));
+    let rows = h.find_by_type_name("doc-text-row");
+    let r = |i: usize| h.element_bounds(rows[i]);
+    let (r0, r1, r2) = (r(0), r(1), r(2));
+    let mid = |r: Rect| Point::new(r.origin.x + 5.0, r.origin.y + r.size.height / 2.0);
+    ctrl_click(&mut h, mid(r1));
+    ctrl_click(&mut h, mid(r2));
+    assert_eq!(handle.block_selection().get().len(), 2);
+
+    let from = mid(r1);
+    let to = Point::new(r0.origin.x + 5.0, r0.origin.y + 1.0);
+    h.send_event(&Event::MouseDown {
+        button: MouseButton::Left,
+        position: from,
+    });
+    h.send_event(&Event::MouseMove(Point::new(from.x, from.y - 6.0)));
+    h.send_event(&Event::MouseMove(to));
+    h.send_event(&Event::MouseUp {
+        button: MouseButton::Left,
+        position: to,
+    });
+    settle(&mut h);
+    assert_eq!(handle.serialize(), "б\n\nв\n\nа\n\nг\n");
+}
