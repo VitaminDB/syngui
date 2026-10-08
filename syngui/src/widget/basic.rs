@@ -948,7 +948,9 @@ impl Element for TextElement {
         if has_extra
             || self.mss_text_align.is_some()
             || self.mss_font_family.is_some()
-            || self.mss_font_weight >= 700
+            // Любой вес, кроме обычного: `push_text` веса не несёт, а замер
+            // шёл с ним — полужирный 600 мерился шире, чем рисовался.
+            || self.mss_font_weight != 400
             || self.mss_text_decoration != crate::mss::TextDecoration::None
         {
             list.push_text_full(

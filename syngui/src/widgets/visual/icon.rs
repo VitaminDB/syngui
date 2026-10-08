@@ -59,7 +59,7 @@ struct IconElement {
 
 impl IconElement {
     fn icon_size(&self) -> f32 {
-        self.mss.icon_size.unwrap_or(DEFAULT_ICON_SIZE)
+        self.mss.icon_size.or(self.mss.icon_font_size).unwrap_or(DEFAULT_ICON_SIZE)
     }
 }
 

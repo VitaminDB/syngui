@@ -30,6 +30,11 @@ pub fn element_theme_transition() -> Option<(f32, crate::animation::Easing)> {
 #[cfg(test)]
 pub const KNOWN_PROPERTIES_FOR_TESTS: &[&str] = KNOWN_PROPERTIES;
 
+/// Служебное свойство: `font-size` правила, объявленный на самом элементе
+/// (см. [`crate::mss::Stylesheet::add_rule`]). Не наследуется — значок берёт
+/// размер из своего правила, а не из `font-size` корня.
+pub const ICON_FONT_SIZE: &str = "-syn-icon-font-size";
+
 const KNOWN_PROPERTIES: &[&str] = &[
     "background",
     "background-color",
@@ -78,6 +83,7 @@ const KNOWN_PROPERTIES: &[&str] = &[
     "text-box-edge",
     "font-family",
     "icon-size",
+    ICON_FONT_SIZE,
     "flow-edge",
     "flow-radius",
     "flow-color",
@@ -368,6 +374,8 @@ pub struct MssFields {
     pub font_family: Option<String>,
 
     pub icon_size: Option<f32>,
+    /// `font-size` из правила самого элемента — запасной размер значка.
+    pub icon_font_size: Option<f32>,
 
     /// Край, в который бокс «перетекает»: у примыкающей к панели карточки
     /// снаружи этого края рисуются вогнутые скругления цветом фона, и она
@@ -497,6 +505,7 @@ impl MssFields {
             font_weight: None,
             font_family: None,
             icon_size: None,
+            icon_font_size: None,
             flow_edge: None,
             flow_radius: None,
             flow_color: None,
@@ -589,6 +598,7 @@ impl MssFields {
         self.font_weight = None;
         self.font_family = None;
         self.icon_size = None;
+        self.icon_font_size = None;
         self.flow_edge = None;
         self.flow_radius = None;
         self.flow_color = None;
@@ -741,6 +751,9 @@ impl MssFields {
         }
         if let Some(v) = style.get("icon-size").and_then(|v| v.as_px()) {
             self.icon_size = Some(v);
+        }
+        if let Some(v) = style.get(ICON_FONT_SIZE).and_then(|v| v.as_px()) {
+            self.icon_font_size = Some(v);
         }
         if let Some(e) = style.get("flow-edge").and_then(|v| v.as_string()) {
             self.flow_edge = match e.trim() {
