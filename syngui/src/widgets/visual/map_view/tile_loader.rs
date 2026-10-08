@@ -186,8 +186,18 @@ async fn fetch_png(url: &str) -> Result<Vec<u8>, String> {
 
 #[cfg(all(not(target_arch = "wasm32"), feature = "map-native"))]
 fn ureq_get_bytes(url: &str) -> Result<Vec<u8>, String> {
-    let response = ureq::get(url)
-        .header("User-Agent", user_agent())
+    // один агент на все плитки: соединения с тайл-сервером переиспользуются (keep-alive) — без этого каждая
+    // плитка открывала новое TLS-соединение, на телефоне по Wi-Fi это сотни миллисекунд на плитку
+    static AGENT: std::sync::OnceLock<ureq::Agent> = std::sync::OnceLock::new();
+    let agent = AGENT.get_or_init(|| {
+        ureq::Agent::config_builder()
+            .user_agent(user_agent())
+            .timeout_global(Some(std::time::Duration::from_secs(20)))
+            .build()
+            .into()
+    });
+    let response = agent
+        .get(url)
         .call()
         .map_err(|e| format!("HTTP error: {}", e))?;
 
