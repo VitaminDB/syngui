@@ -29,6 +29,7 @@ pub struct TextField {
     pub submit_on_focus_lost: bool,
     pub on_escape: Option<Arc<Mutex<dyn FnMut() + Send>>>,
     pub on_prefix_click: Option<Arc<Mutex<dyn FnMut() + Send>>>,
+    pub on_suffix_click: Option<Arc<Mutex<dyn FnMut() + Send>>>,
     pub helper_text: Option<String>,
     pub error_text: Option<String>,
     pub input_filter: Option<Arc<dyn Fn(char) -> bool + Send + Sync>>,
@@ -64,6 +65,7 @@ impl TextField {
             submit_on_focus_lost: false,
             on_escape: None,
             on_prefix_click: None,
+            on_suffix_click: None,
             helper_text: None,
             error_text: None,
             input_filter: None,
@@ -181,6 +183,13 @@ impl TextField {
         self
     }
 
+    /// Щелчок по суффиксу (кнопка «показать пароль», «очистить»): суффикс не
+    /// в дереве элементов, поэтому свой обработчик щелчка ему не дойдёт.
+    pub fn on_suffix_click(mut self, callback: impl FnMut() + Send + 'static) -> Self {
+        self.on_suffix_click = Some(Arc::new(Mutex::new(callback)));
+        self
+    }
+
     pub fn helper_text(mut self, text: impl Into<String>) -> Self {
         self.helper_text = Some(text.into());
         self
@@ -263,6 +272,7 @@ impl Widget for TextField {
             submit_on_focus_lost: self.submit_on_focus_lost,
             on_escape: self.on_escape.clone(),
             on_prefix_click: self.on_prefix_click.clone(),
+            on_suffix_click: self.on_suffix_click.clone(),
             helper_text: self.helper_text.clone(),
             error_text: self.error_text.clone(),
             input_filter: self.input_filter.clone(),
@@ -328,6 +338,7 @@ pub struct TextFieldElement {
     submit_on_focus_lost: bool,
     on_escape: Option<Arc<Mutex<dyn FnMut() + Send>>>,
     on_prefix_click: Option<Arc<Mutex<dyn FnMut() + Send>>>,
+    on_suffix_click: Option<Arc<Mutex<dyn FnMut() + Send>>>,
     helper_text: Option<String>,
     error_text: Option<String>,
     input_filter: Option<Arc<dyn Fn(char) -> bool + Send + Sync>>,
@@ -535,6 +546,16 @@ impl TextFieldElement {
         let y = field.y();
         let h = field.size.height;
         Some(Rect::new(Point::new(x, y), Size::new(w, h)))
+    }
+
+    fn suffix_hit_rect(&self) -> Option<Rect> {
+        if self.suffix_width <= 0.0 || self.suffix_element.is_none() {
+            return None;
+        }
+        let field = self.field_rect();
+        let w = self.suffix_width + 6.0;
+        let x = field.x() + field.size.width - self.h_pad_right() - w;
+        Some(Rect::new(Point::new(x, field.y()), Size::new(w + self.h_pad_right(), field.size.height)))
     }
 
     fn helper_extra(&self) -> f32 {
@@ -757,6 +778,7 @@ impl Element for TextFieldElement {
             self.submit_on_focus_lost = tf.submit_on_focus_lost;
             self.on_escape = tf.on_escape.clone();
             self.on_prefix_click = tf.on_prefix_click.clone();
+            self.on_suffix_click = tf.on_suffix_click.clone();
             self.helper_text = tf.helper_text.clone();
             self.error_text = tf.error_text.clone();
             self.input_filter = tf.input_filter.clone();
@@ -1207,11 +1229,13 @@ impl Element for TextFieldElement {
                     return EventResult::Handled;
                 }
                 if self.hover {
-                    let over_prefix = self.on_prefix_click.is_some()
+                    let over_prefix = (self.on_prefix_click.is_some()
                         && self
                             .prefix_hit_rect()
                             .map(|r| r.contains(*pos))
-                            .unwrap_or(false);
+                            .unwrap_or(false))
+                        || (self.on_suffix_click.is_some()
+                            && self.suffix_hit_rect().map(|r| r.contains(*pos)).unwrap_or(false));
                     if over_prefix {
                         ctx.set_cursor(CursorIcon::Pointer);
                     } else {
@@ -1268,6 +1292,19 @@ impl Element for TextFieldElement {
                     // приходит раньше MouseDown, иначе она исчезала бы сразу.
                     if !self.field_rect().contains(*position) {
                         self.dismiss_hint(ctx);
+                    }
+                }
+                if *button == MouseButton::Left && self.on_suffix_click.is_some() {
+                    if let Some(rect) = self.suffix_hit_rect() {
+                        if rect.contains(*position) {
+                            if let Some(ref cb) = self.on_suffix_click {
+                                if let Ok(mut f) = cb.lock() {
+                                    f();
+                                }
+                            }
+                            ctx.request_paint();
+                            return EventResult::Handled;
+                        }
                     }
                 }
                 if *button == MouseButton::Left && self.on_prefix_click.is_some() {
