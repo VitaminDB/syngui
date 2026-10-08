@@ -189,6 +189,7 @@ const KNOWN_PROPERTIES: &[&str] = &[
     "point-size",
     "divider-thickness",
     "scrollbar-width",
+    "overflow-clip-margin",
     "scrollbar-color",
     "scrollbar-thumb-hover-color",
     "scrollbar-track-color",
@@ -432,6 +433,9 @@ pub struct MssFields {
     pub flex_grow: Option<f32>,
 
     pub scrollbar_width: Option<f32>,
+    /// `overflow-clip-margin`: насколько область обрезки прокрутки выходит
+    /// за её границы (свечение и увеличение элемента в фокусе у края).
+    pub overflow_clip_margin: Option<f32>,
     pub scrollbar_color: Option<Color>,
     pub scrollbar_thumb_hover_color: Option<Color>,
     pub scrollbar_track_color: Option<Color>,
@@ -534,6 +538,7 @@ impl MssFields {
             flex_grow: None,
             divider_thickness: None,
             scrollbar_width: None,
+            overflow_clip_margin: None,
             scrollbar_color: None,
             scrollbar_thumb_hover_color: None,
             scrollbar_track_color: None,
@@ -624,6 +629,7 @@ impl MssFields {
         self.flex_grow = None;
         self.divider_thickness = None;
         self.scrollbar_width = None;
+        self.overflow_clip_margin = None;
         self.scrollbar_color = None;
         self.scrollbar_thumb_hover_color = None;
         self.scrollbar_track_color = None;
@@ -921,6 +927,9 @@ impl MssFields {
             self.divider_thickness = Some(v.max(0.0));
         }
 
+        if let Some(v) = style.get("overflow-clip-margin").and_then(|v| v.as_px()) {
+            self.overflow_clip_margin = Some(v.max(0.0));
+        }
         if let Some(v) = style.get("scrollbar-width").and_then(|v| v.as_px()) {
             self.scrollbar_width = Some(v.max(0.0));
         }

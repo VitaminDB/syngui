@@ -592,6 +592,9 @@ VirtualFlex::flex(240.0, item_count, |i| Box::new(card(i)))      // (min_item_wi
 MSS-свойства скроллбара: `scrollbar-width`, `scrollbar-color`,
 `scrollbar-thumb-hover-color`, `scrollbar-track-color`, `scrollbar-radius`,
 `scrollbar-policy`, `scrollbar-fade-delay` (см. `synthos: styles/components/scrollbars.mss`).
+`overflow-clip-margin: 30px` — область обрезки `ScrollView` шире его границ на
+столько с каждой стороны: свечение и увеличение элемента в фокусе у края ленты
+не срезаются ровной линией (ограничить выход за поля — клипом внешнего бокса).
 
 ---
 
@@ -710,7 +713,7 @@ App::new()
 
 **Разделитель/скроллбар:** `divider-thickness`, `scrollbar-width`,
 `scrollbar-color`, `scrollbar-thumb-hover-color`, `scrollbar-track-color`,
-`scrollbar-radius`, `scrollbar-policy`, `scrollbar-fade-delay`
+`scrollbar-radius`, `scrollbar-policy`, `scrollbar-fade-delay`, `overflow-clip-margin`
 
 **CodeEditor:** `editor-bg`, `editor-fg`, `editor-gutter-bg`, `editor-gutter-fg`,
 `editor-cursor`, `editor-selection`, `editor-current-line`,

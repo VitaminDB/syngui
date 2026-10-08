@@ -554,9 +554,12 @@ impl Element for ScrollViewElement {
             list.push_rect(self.bounds, bg, [0.0; 4]);
         }
 
+        // `overflow-clip-margin`: содержимое видно и чуть за границами —
+        // свечение карточки в фокусе у края ленты не срезается ровной линией.
+        let m = 1.0 + self.mss.overflow_clip_margin.unwrap_or(0.0);
         let clip_bounds = Rect::new(
-            Point::new(self.bounds.origin.x - 1.0, self.bounds.origin.y - 1.0),
-            Size::new(self.bounds.size.width + 2.0, self.bounds.size.height + 2.0),
+            Point::new(self.bounds.origin.x - m, self.bounds.origin.y - m),
+            Size::new(self.bounds.size.width + 2.0 * m, self.bounds.size.height + 2.0 * m),
         );
         list.push_clip(clip_bounds);
         let sf = list.scale_factor().max(1.0);
