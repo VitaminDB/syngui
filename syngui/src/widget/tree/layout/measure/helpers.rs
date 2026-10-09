@@ -922,6 +922,12 @@ impl ElementTree {
             Size::zero()
         };
 
+        // Растянутый стек — на всё место, даже когда все дети плавают поверх (`Positioned`) и
+        // своего размера не дают: иначе он был нулевым, а с ним и область касаний.
+        if expand {
+            max_width = max_width.max(expanded.min_width);
+            max_height = max_height.max(expanded.min_height);
+        }
         Size::new(
             max_width.min(constraints.max_width),
             max_height.min(constraints.max_height),

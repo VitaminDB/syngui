@@ -195,8 +195,10 @@ impl Element for MultiTouchElement {
         size
     }
 
+    /// Всё отведённое место, а не размер содержимого: элементы в `Positioned` своего размера не
+    /// дают, и область касаний была бы нулевой.
     fn layout_hint(&self) -> LayoutHint {
-        LayoutHint::Padding { left: 0.0, top: 0.0, right: 0.0, bottom: 0.0 }
+        LayoutHint::Stack { expand: true }
     }
 
     fn build_display_list(&self, _list: &mut DisplayList, _clip: Rect) {}
@@ -300,6 +302,24 @@ mod tests {
     use super::*;
     use crate::testing::TestHarness;
     use crate::widgets::Text;
+
+    /// Содержимое без своего размера (элементы в `Positioned`): касания ловит всё отведённое место.
+    #[test]
+    fn fills_given_space() {
+        use crate::widgets::containers::{Positioned, Stack};
+        let hits = Arc::new(std::sync::Mutex::new(0u32));
+        let c = hits.clone();
+        let w = MultiTouch::new()
+            .on_touch(move |_| {
+                *c.lock().unwrap() += 1;
+                true
+            })
+            .child(Stack::new().child(Positioned::new(Text::new("x")).at(150.0, 150.0)));
+        let mut h = TestHarness::new(Box::new(w));
+        h.layout(200.0, 200.0);
+        h.send_event(&Event::TouchStart { id: 1, position: Point::new(180.0, 20.0) });
+        assert_eq!(*hits.lock().unwrap(), 1);
+    }
 
     /// Два пальца независимо: каждый получает свои движения, отпускание одного не трогает другой;
     /// палец, ушедший за границы, ведётся дальше.
