@@ -175,6 +175,11 @@ pub struct ElementTree {
     pub(crate) rebuild_registry: std::collections::HashSet<ElementId>,
     pub(crate) last_hovered_path: Vec<ElementId>,
     pub(crate) mouse_captor: Option<ElementId>,
+    /// Захват по пальцу: кто взял `TouchStart` этого пальца, получает его `TouchMove`/`TouchEnd`
+    /// первым. Один общий `mouse_captor` на все пальцы путал одновременные жесты (стик и кнопки
+    /// экранного контроллера, два слайдера): второй палец перехватывал движения первого, а
+    /// отпускание любого снимало захват у всех.
+    pub(crate) touch_captors: std::collections::HashMap<u64, ElementId>,
     /// Элементы, попросившие следующие события указателя
     /// ([`EventContext::watch_pointer`]).
     pub(crate) pointer_watchers: Vec<ElementId>,
@@ -251,6 +256,7 @@ impl ElementTree {
             rebuild_registry: std::collections::HashSet::new(),
             last_hovered_path: Vec::new(),
             mouse_captor: None,
+            touch_captors: Default::default(),
             pointer_watchers: Vec::new(),
             press_owner: None,
             text_selection_owner: None,
@@ -1192,6 +1198,7 @@ impl ElementTree {
         if self.mouse_captor == Some(id) {
             self.mouse_captor = None;
         }
+        self.touch_captors.retain(|_, e| *e != id);
         if self.text_selection_owner == Some(id) {
             self.text_selection_owner = None;
         }

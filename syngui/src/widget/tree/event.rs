@@ -77,7 +77,11 @@ impl ElementTree {
         }
         let result = self.do_handle_event(root_id, event);
         self.notify_pointer_watchers(event);
-        if is_release {
+        if let Event::TouchEnd { id, .. } = event {
+            self.touch_captors.remove(id);
+        }
+        // Пока другие пальцы держат свои элементы, отпускание одного общий захват не снимает.
+        if is_release && (self.touch_captors.is_empty() || !matches!(event, Event::TouchEnd { .. })) {
             self.mouse_captor = None;
             if matches!(event, Event::MouseUp { .. }) {
                 self.release_press_owner(event);
@@ -283,6 +287,10 @@ impl ElementTree {
         // начатый на слайдере/скроллбаре, «отваливался» бы, стоило пальцу
         // покинуть его границы. Если захватчик событие игнорирует, оно, как и
         // прежде, уходит вниз по hit-test.
+        let finger_captor = match event {
+            Event::TouchMove { id, .. } | Event::TouchEnd { id, .. } => self.touch_captors.get(id).copied(),
+            _ => None,
+        };
         if matches!(
             event,
             Event::MouseUp { .. }
@@ -290,7 +298,7 @@ impl ElementTree {
                 | Event::TouchMove { .. }
                 | Event::TouchEnd { .. }
         ) {
-            if let Some(cap) = self.mouse_captor {
+            if let Some(cap) = finger_captor.or(self.mouse_captor) {
                 if self.elements.contains_key(&cap) {
                     let (s, k) = self.accumulated_event_transform(cap);
                     let adj = if is_identity_transform(s, k) {
@@ -357,8 +365,9 @@ impl ElementTree {
                 // Захват тач-жеста: кто заклеймил TouchStart (слайдер,
                 // ScrollView), тот получает и последующие TouchMove/TouchEnd,
                 // даже когда палец уходит за границы виджета.
-                if matches!(event, Event::TouchStart { .. }) {
+                if let Event::TouchStart { id: finger, .. } = event {
                     self.mouse_captor = Some(id);
+                    self.touch_captors.insert(*finger, id);
                 }
                 return r;
             }
@@ -1431,5 +1440,42 @@ mod nested_scrollbar_tests {
             button: MouseButton::Left,
             position: pos,
         });
+    }
+}
+
+#[cfg(test)]
+mod multi_touch_tests {
+    use crate::core::Point;
+    use crate::input::Event;
+    use crate::testing::TestHarness;
+    use crate::widgets::input::Slider;
+    use crate::widgets::Column;
+    use std::sync::{Arc, Mutex};
+
+    /// Два пальца ведут два слайдера: отпускание второго не отнимает у первого его слайдер, а
+    /// движения первого за границами своего слайдера (над вторым) достаются ему же.
+    #[test]
+    fn each_finger_keeps_its_captor() {
+        let a = Arc::new(Mutex::new(Vec::<f32>::new()));
+        let b = Arc::new(Mutex::new(Vec::<f32>::new()));
+        let (la, lb) = (a.clone(), b.clone());
+        let page = Column::new()
+            .child(Slider::new().range(0.0, 100.0).width(200.0).on_change(move |v| la.lock().unwrap().push(v)))
+            .child(Slider::new().range(0.0, 100.0).width(200.0).on_change(move |v| lb.lock().unwrap().push(v)));
+        let mut h = TestHarness::new(Box::new(page));
+        h.layout(300.0, 400.0);
+        let sliders = h.find_by_type_name("Slider");
+        let (ra, rb) = (h.element_bounds(sliders[0]), h.element_bounds(sliders[1]));
+        let pa = Point::new(ra.origin.x + 20.0, ra.origin.y + ra.size.height / 2.0);
+        let pb = Point::new(rb.origin.x + 20.0, rb.origin.y + rb.size.height / 2.0);
+        h.send_event(&Event::TouchStart { id: 1, position: pa });
+        h.send_event(&Event::TouchStart { id: 2, position: pb });
+        h.send_event(&Event::TouchEnd { id: 2, position: pb });
+        b.lock().unwrap().clear();
+        a.lock().unwrap().clear();
+        // Палец 1 ушёл вниз, на второй слайдер, и вправо.
+        h.send_event(&Event::TouchMove { id: 1, position: Point::new(rb.origin.x + 150.0, pb.y) });
+        assert!(!a.lock().unwrap().is_empty(), "первый слайдер ведёт свой палец");
+        assert!(b.lock().unwrap().is_empty(), "второй слайдер чужой палец не трогает");
     }
 }
