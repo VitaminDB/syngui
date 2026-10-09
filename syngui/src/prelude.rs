@@ -8,3 +8,7 @@ pub use crate::widget::{
     UpdateContext, EventContext, Widget, 
     EventContextExt,
 };
+
+/// Перевод исходных строк (`t!("Процессор")`, `tn!`, пометка `n_!`) — см. `i18n`.
+#[cfg(feature = "i18n")]
+pub use crate::{n_, t, tn};
