@@ -49,10 +49,16 @@ fn is_supported(button: WindowButton) -> bool {
 /// кнопка. Промежуточный «запас» здесь только вредит — текстуры грузятся без
 /// mip-уровней, поэтому уменьшение при отрисовке даёт рваные края.
 fn scale_factor() -> f32 {
-    crate::signal::primary_window()
-        .map(|w| w.scale_factor() as f32)
-        .unwrap_or(1.0)
-        .clamp(0.5, 8.0)
+    #[cfg(feature = "winit")]
+    {
+        crate::signal::primary_window()
+            .map(|w| w.scale_factor() as f32)
+            .unwrap_or(1.0)
+            .clamp(0.5, 8.0)
+    }
+    // Без окон winit (встраивание, layer-shell) масштаб знает хозяин поверхности.
+    #[cfg(not(feature = "winit"))]
+    1.0
 }
 
 pub struct SystemWindowControls {
