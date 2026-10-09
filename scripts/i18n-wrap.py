@@ -149,6 +149,11 @@ def ancestors(toks, idx):
     return out
 
 
+def clean_head(text):
+    """Начало оператора без комментариев и атрибутов перед ним."""
+    return re.sub(r"^(?:\s+|//[^\n]*\n|/\*.*?\*/|#!?\[[^\]]*\])*", "", text, flags=re.S)
+
+
 def statement_head(toks, idx, src):
     """Начало оператора, в котором стоит токен (текст до 60 знаков)."""
     depth = 0
@@ -159,18 +164,19 @@ def statement_head(toks, idx, src):
         if t.text in ")]":
             depth += 1
         elif t.text in "([":
-            depth -= 1
+            # незакрытая скобка — мы внутри неё; дальше ищем снаружи
+            depth = max(depth - 1, 0)
         elif t.text == "}":
             if depth == 0:
-                return src[t.end: t.end + 80].lstrip()
+                return clean_head(src[t.end: t.end + 600])
             depth += 1
         elif t.text == "{":
             if depth == 0:
-                return src[t.end: t.end + 80].lstrip()
+                return clean_head(src[t.end: t.end + 600])
             depth -= 1
         elif t.text == ";" and depth == 0:
-            return src[t.end: t.end + 80].lstrip()
-    return src[:80]
+            return clean_head(src[t.end: t.end + 600])
+    return clean_head(src[:600])
 
 
 def matching(toks, k):
@@ -307,8 +313,10 @@ def process(path, rx, dry):
             continue
         if any(nm in SKIP_CALLS for nm in names):
             continue
-        head = statement_head(toks, i, src)
-        is_const = re.match(r"(pub(\([^)]*\))?\s+)?(const|static)\s", head) is not None
+        # константа — если её оператор или оператор любой объемлющей скобки
+        # начинается с const/static (литерал в структуре внутри массива и т. п.)
+        heads = [statement_head(toks, i, src)] + [statement_head(toks, k, src) for k, _ in anc]
+        is_const = any(re.match(r"(pub(\([^)]*\))?\s+)?(const|static)\s", h) for h in heads)
         direct = names[0] if names else ""
         if direct in ("format!",) or direct in PRINT:
             k = anc[0][0]
