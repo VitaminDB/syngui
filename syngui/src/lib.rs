@@ -140,6 +140,9 @@ pub mod prelude {
     pub use crate::i18n::{tr, tr_args, trn, trn_args, try_tr, Lang};
     #[cfg(feature = "i18n")]
     pub use crate::{tr, trn};
+    /// Перевод исходных строк (`t!("Процессор")`, `tn!`, пометка `n_!`).
+    #[cfg(feature = "i18n")]
+    pub use crate::{n_, t, tn};
 
     pub use crate::widgets::{
         set_dialog_labels, AlertDialog, Animated, AnimatedPosition, AnimatedSize, AnimatedSwitcher,
