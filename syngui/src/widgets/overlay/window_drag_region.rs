@@ -99,13 +99,19 @@ impl Element for WindowDragRegionElement {
     fn build_display_list(&self, _list: &mut DisplayList, _clip: Rect) {}
 
     fn handle_event(&mut self, event: &Event, ctx: &mut EventContext) -> EventResult {
-        if let Event::MouseDown { button, position } = event {
-            if *button == MouseButton::Left && self.bounds.contains(*position) {
+        match event {
+            Event::MouseDown { button: MouseButton::Left, position } if self.bounds.contains(*position) => {
                 ctx.start_window_drag();
-                return EventResult::Handled;
+                EventResult::Handled
             }
+            // Двойной щелчок по заголовку — развернуть / вернуть окно (как у
+            // рамок композитора и в других системах).
+            Event::DoubleClick { button: MouseButton::Left, position } if self.bounds.contains(*position) => {
+                ctx.toggle_maximize_window();
+                EventResult::Handled
+            }
+            _ => EventResult::Ignored,
         }
-        EventResult::Ignored
     }
 
     fn animate(&mut self, _dt: Duration) -> bool {
