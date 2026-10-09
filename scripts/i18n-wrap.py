@@ -30,6 +30,8 @@ SKIP_CALLS = {
     "format_args!", "compile_error!", "cfg!", "Command::new", "arg", "args", "env", "var",
 }
 PRINT = {"println!", "eprintln!", "print!", "eprint!"}
+# --errors: сообщения об ошибках тоже текст для человека (CLI-программы)
+ERRORS = {"anyhow!", "bail!", "context", "with_context"}
 
 
 class Tok:
@@ -93,7 +95,7 @@ def lex(src):
             i += m.end() if m else 1
             continue
         if c.isalpha() or c == "_":
-            m = re.match(r"[A-Za-z_][A-Za-z0-9_]*!?", src[i:])
+            m = re.match(r"[^\W\d]\w*!?", src[i:])  # идентификаторы бывают и не ASCII
             word = m.group(0)
             # `x!=y` — не макрос
             if word.endswith("!") and src[i + len(word): i + len(word) + 1] == "=":
@@ -288,7 +290,7 @@ def build_t(literal_src, new_template, args):
     return "t!(" + body + ", " + ", ".join(f"{n} = {e}" for n, e in args) + ")"
 
 
-def process(path, rx, dry):
+def process(path, rx, dry, errors=False):
     src = open(path, encoding="utf-8").read()
     toks = lex(src)
     edits = []  # (start, end, text)
@@ -311,14 +313,15 @@ def process(path, rx, dry):
         # шаблон match с `|`: "а" | "б" =>
         if nxt is not None and nxt.text == "|":
             continue
-        if any(nm in SKIP_CALLS for nm in names):
+        skip = SKIP_CALLS - ERRORS if errors else SKIP_CALLS
+        if any(nm in skip for nm in names):
             continue
         # константа — если её оператор или оператор любой объемлющей скобки
         # начинается с const/static (литерал в структуре внутри массива и т. п.)
         heads = [statement_head(toks, i, src)] + [statement_head(toks, k, src) for k, _ in anc]
         is_const = any(re.match(r"(pub(\([^)]*\))?\s+)?(const|static)\s", h) for h in heads)
         direct = names[0] if names else ""
-        if direct in ("format!",) or direct in PRINT:
+        if direct in ("format!",) or direct in PRINT or (errors and direct in ("anyhow!", "bail!")):
             k = anc[0][0]
             close = matching(toks, k)
             args = split_args(toks, k, close, src)
@@ -366,6 +369,7 @@ def main():
     ap.add_argument("paths", nargs="+")
     ap.add_argument("--dry", action="store_true")
     ap.add_argument("--re", default="[А-Яа-яЁё]")
+    ap.add_argument("--errors", action="store_true", help="переводить и сообщения anyhow!/bail!/.context")
     a = ap.parse_args()
     rx = re.compile(a.re)
     files = []
@@ -377,7 +381,7 @@ def main():
                 files += [os.path.join(d, n) for n in names if n.endswith(".rs")]
     total = 0
     for f in sorted(files):
-        n, consts = process(f, rx, a.dry)
+        n, consts = process(f, rx, a.dry, a.errors)
         total += n
         if n:
             print(f"{f}: {n}" + (f" (n_! в константах: строки {consts[:12]}{'…' if len(consts) > 12 else ''})" if consts else ""))

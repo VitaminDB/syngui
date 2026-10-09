@@ -152,6 +152,7 @@ def main():
     ap.add_argument("--tag", default=None)
     ap.add_argument("--name", default=None)
     ap.add_argument("--check", action="store_true")
+    ap.add_argument("--extra", action="append", default=[], help="файл со строками (по одной, \\n — перенос), например справка clap")
     a = ap.parse_args()
 
     header, old = read_catalog(a.catalog)
@@ -194,6 +195,20 @@ def main():
                     missing += 1
                 suffix = f".{form}" if form else ""
                 out.append(f'"{esc(msgid)}"{suffix} = "{esc(value)}"')
+        out.append("")
+    for extra in a.extra:
+        items = [unesc(l.rstrip("\n")) for l in open(extra, encoding="utf-8") if l.strip()]
+        items = [m for m in items if m not in seen]
+        if not items:
+            continue
+        out.append(f"# {os.path.basename(extra)}")
+        for msgid in items:
+            seen.add(msgid)
+            value = old.get((msgid, None), "")
+            total += 1
+            if not value:
+                missing += 1
+            out.append(f'"{esc(msgid)}" = "{esc(value)}"')
         out.append("")
     text = "\n".join(out).rstrip() + "\n"
     current = open(a.catalog, encoding="utf-8").read() if os.path.exists(a.catalog) else ""
