@@ -213,6 +213,11 @@ impl winit::application::ApplicationHandler<SynGuiUserEvent> for AppHandler {
                 }
             }
             winit::event::WindowEvent::CursorLeft { .. } => {
+                // Перенос файлов ушёл за окно — дальше его ведёт композитор.
+                #[cfg(feature = "wayland-dnd")]
+                if self.try_os_drag() {
+                    return;
+                }
                 // Во время перетаскивания (кнопка зажата, есть захватчик)
                 // уход курсора за окно — не «мышь ушла»: координаты (−1, −1)
                 // захватчик принял бы за движение и, например, прокрутил бы
@@ -235,6 +240,19 @@ impl winit::application::ApplicationHandler<SynGuiUserEvent> for AppHandler {
 
                 if self.devtools_handle_cursor_moved() {
                     return;
+                }
+
+                // При зажатой кнопке композитор держит фокус на окне и шлёт координаты
+                // за его краем — перенос файлов за край уходит в перетаскивание Wayland.
+                #[cfg(feature = "wayland-dnd")]
+                if self.tree.drag_state.is_some() {
+                    let outside = self.window.as_ref().is_some_and(|w| {
+                        let size = w.winit_window().inner_size();
+                        position.x < 0.0 || position.y < 0.0 || position.x >= size.width as f64 || position.y >= size.height as f64
+                    });
+                    if outside && self.try_os_drag() {
+                        return;
+                    }
                 }
 
                 let event = Event::MouseMove(self.cursor_position);
@@ -884,6 +902,30 @@ impl winit::application::ApplicationHandler<SynGuiUserEvent> for AppHandler {
 
 #[cfg(feature = "wayland-dnd")]
 impl AppHandler {
+    /// Перенос файлов (`text/uri-list` или файл) из окна — в перетаскивание Wayland
+    /// (в другие программы, на рабочий стол); внутренний перенос отменяется.
+    #[cfg(feature = "wayland-dnd")]
+    fn try_os_drag(&mut self) -> bool {
+        let Some(data) = self.tree.drag_state.as_ref().map(|d| d.data.clone()) else { return false };
+        let list = if data.drag_type == "text/uri-list" {
+            data.payload.clone()
+        } else if data.drag_type == crate::input::DragData::TYPE_FILE {
+            format!("{}\r\n", super::wayland_dnd::uri::path_to_uri(&data.payload))
+        } else {
+            return false;
+        };
+        let Some(root_id) = self.root_id else { return false };
+        if !super::wayland_dnd::start_os_drag(&list) {
+            return false;
+        }
+        let pos = self.cursor_position;
+        self.tree.end_drag(root_id, pos, true);
+        if let Some(window) = &self.window {
+            window.request_redraw();
+        }
+        true
+    }
+
     fn handle_wayland_dnd(&mut self, ev: super::user_event::WaylandDndEvent) {
         use super::user_event::WaylandDndEvent;
         if self.root_id.is_none() {

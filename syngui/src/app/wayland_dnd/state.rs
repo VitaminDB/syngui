@@ -7,16 +7,20 @@ use smithay_client_toolkit::{
         data_source::DataSourceHandler,
         DataDeviceManagerState, WritePipe,
     },
-    delegate_data_device, delegate_registry, delegate_seat,
+    delegate_data_device, delegate_pointer, delegate_registry, delegate_seat,
     output::{OutputHandler, OutputState},
     registry::{ProvidesRegistryState, RegistryState},
     registry_handlers,
-    seat::{Capability, SeatHandler, SeatState},
+    seat::{
+        pointer::{PointerEvent, PointerEventKind, PointerHandler},
+        Capability, SeatHandler, SeatState,
+    },
 };
 use wayland_client::{
     protocol::{
         wl_data_device::WlDataDevice, wl_data_device_manager::DndAction,
-        wl_data_source::WlDataSource, wl_output::WlOutput, wl_seat::WlSeat, wl_surface::WlSurface,
+        wl_data_source::WlDataSource, wl_output::WlOutput, wl_pointer::WlPointer, wl_seat::WlSeat,
+        wl_surface::WlSurface,
     },
     Connection, QueueHandle,
 };
@@ -43,7 +47,7 @@ fn pick_mime(mimes: &[String]) -> Option<String> {
     None
 }
 
-pub(super) struct DnDState {
+pub(crate) struct DnDState {
     pub registry_state: RegistryState,
     pub seat_state: SeatState,
     pub output_state: OutputState,
@@ -197,19 +201,62 @@ impl DataSourceHandler for DnDState {
         _: Option<String>,
     ) {
     }
+    /// Получатель просит данные вытаскиваемого: список адресов файлов.
     fn send_request(
         &mut self,
         _: &Connection,
         _: &QueueHandle<Self>,
-        _: &WlDataSource,
-        _: String,
-        _: WritePipe,
+        source: &WlDataSource,
+        mime: String,
+        mut pipe: WritePipe,
     ) {
+        let data = super::OS_DRAG.lock().unwrap_or_else(|e| e.into_inner()).as_ref().and_then(|d| d.source.as_ref().filter(|(s, _)| s == source).map(|(_, t)| t.clone()));
+        if let Some(text) = data {
+            use std::io::Write;
+            // text/plain — пути без file://, по строке
+            let out = if mime.starts_with("text/plain") {
+                text.lines().filter(|l| !l.starts_with('#')).map(|l| super::uri::uri_to_path(l).unwrap_or_else(|| l.to_string())).collect::<Vec<_>>().join("\n")
+            } else {
+                text
+            };
+            std::thread::spawn(move || {
+                let _ = pipe.write_all(out.as_bytes());
+            });
+        }
     }
-    fn cancelled(&mut self, _: &Connection, _: &QueueHandle<Self>, _: &WlDataSource) {}
+    fn cancelled(&mut self, _: &Connection, _: &QueueHandle<Self>, source: &WlDataSource) {
+        drop_source(source);
+    }
     fn dnd_dropped(&mut self, _: &Connection, _: &QueueHandle<Self>, _: &WlDataSource) {}
-    fn dnd_finished(&mut self, _: &Connection, _: &QueueHandle<Self>, _: &WlDataSource) {}
+    fn dnd_finished(&mut self, _: &Connection, _: &QueueHandle<Self>, source: &WlDataSource) {
+        drop_source(source);
+    }
     fn action(&mut self, _: &Connection, _: &QueueHandle<Self>, _: &WlDataSource, _: DndAction) {}
+}
+
+/// Источник отработал или отменён — уничтожить.
+fn drop_source(source: &WlDataSource) {
+    let mut g = super::OS_DRAG.lock().unwrap_or_else(|e| e.into_inner());
+    if let Some(d) = g.as_mut() {
+        if d.source.as_ref().is_some_and(|(s, _)| s == source) {
+            d.source = None;
+        }
+    }
+    source.destroy();
+}
+
+/// Нажатия кнопок — их serial и поверхность нужны `start_drag` (свой wl_pointer этого
+/// соединения получает те же события, что и winit).
+impl PointerHandler for DnDState {
+    fn pointer_frame(&mut self, _: &Connection, _: &QueueHandle<Self>, _: &WlPointer, events: &[PointerEvent]) {
+        for e in events {
+            if let PointerEventKind::Press { serial, .. } = e.kind {
+                if let Some(d) = super::OS_DRAG.lock().unwrap_or_else(|e| e.into_inner()).as_mut() {
+                    d.press = Some((serial, e.surface.clone()));
+                }
+            }
+        }
+    }
 }
 
 impl DataOfferHandler for DnDState {
@@ -251,7 +298,15 @@ impl SeatHandler for DnDState {
             && !self.seats.iter().any(|s| s.seat == seat)
         {
             let data_device = self.data_device_manager.get_data_device(qh, &seat);
-            self.seats.push(SeatEntry { seat, data_device });
+            if let Some(d) = super::OS_DRAG.lock().unwrap_or_else(|e| e.into_inner()).as_mut() {
+                d.devices.push(data_device.inner().clone());
+            }
+            self.seats.push(SeatEntry { seat: seat.clone(), data_device });
+        }
+        if capability == Capability::Pointer {
+            if let Err(e) = self.seat_state.get_pointer(qh, &seat) {
+                log::debug!("[wayland_dnd] wl_pointer: {e}");
+            }
         }
     }
 
@@ -286,6 +341,7 @@ impl ProvidesRegistryState for DnDState {
 }
 
 delegate_seat!(DnDState);
+delegate_pointer!(DnDState);
 delegate_data_device!(DnDState);
 delegate_registry!(DnDState);
 smithay_client_toolkit::delegate_output!(DnDState);
