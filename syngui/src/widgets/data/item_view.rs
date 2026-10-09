@@ -150,6 +150,7 @@ pub struct ItemView {
     drag_start: Option<DragStartFn>,
     drop_filter: Option<DropFilter>,
     touch_mode: bool,
+    single_click: bool,
     stretch: bool,
     classes: Vec<String>,
 }
@@ -177,6 +178,7 @@ impl ItemView {
             drag_start: None,
             drop_filter: None,
             touch_mode: false,
+            single_click: false,
             stretch: false,
             classes: Vec::new(),
         }
@@ -286,6 +288,13 @@ impl ItemView {
         self
     }
 
+    /// Открывать элемент одним щелчком мыши (как в KDE), а не двойным.
+    /// Щелчок с Ctrl или Shift по-прежнему только выделяет.
+    pub fn single_click(mut self, on: bool) -> Self {
+        self.single_click = on;
+        self
+    }
+
     /// Сетка: растянуть ячейки, чтобы столбцы заняли всю ширину без пустого
     /// хвоста справа (`item_width` — наименьшая ширина ячейки).
     pub fn stretch(mut self, on: bool) -> Self {
@@ -338,6 +347,7 @@ impl Widget for ItemView {
             scrollbar_drag: None,
             scrollbar_hover: false,
             touch_mode: self.touch_mode,
+            single_click: self.single_click,
             stretch: self.stretch,
             touch: None,
             velocity: VelocityTracker::new(),
@@ -378,6 +388,8 @@ struct Press {
     item: Option<usize>,
     deferred_single: bool,
     dragging: bool,
+    /// Без Ctrl и Shift — щелчок может открыть элемент (`single_click`).
+    plain: bool,
 }
 
 /// Палец на виде: прокрутка начинается, когда он сдвинулся вертикально.
@@ -437,6 +449,7 @@ struct ItemViewElement {
     scrollbar_drag: Option<f32>,
     scrollbar_hover: bool,
     touch_mode: bool,
+    single_click: bool,
     stretch: bool,
     touch: Option<TouchPan>,
     velocity: VelocityTracker,
@@ -475,6 +488,7 @@ impl ItemViewElement {
         self.selection = w.selection.clone();
         self.keyboard_active = w.keyboard_active;
         self.touch_mode = w.touch_mode;
+        self.single_click = w.single_click;
         self.stretch = w.stretch;
         self.on_selection_change = w.on_selection_change.clone();
         self.on_activate = w.on_activate.clone();
@@ -1112,7 +1126,7 @@ impl Element for ItemViewElement {
                                 self.marquee = Some(Marquee { start: c, end: c, base, additive: m.ctrl });
                             }
                         }
-                        self.press = Some(Press { at: *position, item, deferred_single: deferred, dragging: false });
+                        self.press = Some(Press { at: *position, item, deferred_single: deferred, dragging: false, plain: !m.shift && !m.ctrl });
                         ctx.request_paint();
                         EventResult::Captured
                     }
@@ -1153,6 +1167,8 @@ impl Element for ItemViewElement {
                     return EventResult::Handled;
                 }
                 match self.item_at(*position) {
+                    // Открыли уже первым щелчком.
+                    Some(_) if self.single_click => {}
                     Some(i) => {
                         if !self.selection.is_selected(i) {
                             self.click_select(i, Modifiers::default());
@@ -1215,6 +1231,11 @@ impl Element for ItemViewElement {
                             if self.item_at(*position) == Some(i) {
                                 self.emit(ItemSelection::single(i));
                             }
+                        }
+                    }
+                    if self.single_click && p.plain && !p.dragging {
+                        if let Some(i) = p.item.filter(|&i| self.item_at(*position) == Some(i)) {
+                            call(&self.on_activate, i);
                         }
                     }
                     ctx.request_paint();
@@ -1639,6 +1660,26 @@ mod tests {
         assert_eq!(last(&seen), vec![0, 1, 2], "нажатие по выделенному не сбрасывает выделение");
         h.send_event(&Event::MouseUp { button: MouseButton::Left, position: Point::new(150.0, 25.0) });
         assert_eq!(last(&seen), vec![1]);
+    }
+
+    #[test]
+    fn single_click_opens_plain_click_only() {
+        let opened = Arc::new(Mutex::new(Vec::new()));
+        let o = opened.clone();
+        let view = ItemView::new(20, |i, _| Box::new(Text::new(format!("{i}"))))
+            .layout(ItemLayout::Rows { row_height: 50.0 })
+            .single_click(true)
+            .on_activate(move |i| o.lock().unwrap().push(i));
+        let mut h = TestHarness::new(Box::new(view));
+        h.layout(308.0, 200.0);
+        h.tree.modifiers = Modifiers::default();
+        h.send_event(&Event::MouseDown { button: MouseButton::Left, position: Point::new(100.0, 75.0) });
+        h.send_event(&Event::MouseUp { button: MouseButton::Left, position: Point::new(100.0, 75.0) });
+        assert_eq!(*opened.lock().unwrap(), vec![1], "щелчок открывает");
+        h.tree.modifiers = Modifiers { ctrl: true, ..Default::default() };
+        h.send_event(&Event::MouseDown { button: MouseButton::Left, position: Point::new(100.0, 125.0) });
+        h.send_event(&Event::MouseUp { button: MouseButton::Left, position: Point::new(100.0, 125.0) });
+        assert_eq!(*opened.lock().unwrap(), vec![1], "с Ctrl — только выделяет");
     }
 
     #[test]
