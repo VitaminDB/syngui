@@ -76,7 +76,8 @@ impl<W: Widget> StyledWidget<W> {
     }
 
     pub fn style(mut self, prop: impl Into<String>, value: impl Into<StyleValue>) -> Self {
-        self.inline_styles.push((prop.into(), value.into()));
+        let prop = prop.into();
+        self.inline_styles.extend(crate::mss::expand_shorthand(&prop, value.into()));
         self
     }
 
@@ -201,5 +202,16 @@ mod tests {
         assert!(cls.contains(&"b".to_string()), "{cls:?}");
         let w = Column::new().style("height", 5.0_f32).id("x");
         assert!(w.widget_classes().contains(&crate::mss::matching::id_class("x")));
+    }
+
+    /// Сокращения из кода разворачиваются, как в таблице стилей: `border-radius` — в четыре угла.
+    #[test]
+    fn inline_shorthand_expands() {
+        let w = Column::new().style("border-radius", StyleValue::px(12.0)).style("padding", 4.0_f32);
+        let props: Vec<&str> = w.inline_styles.iter().map(|(p, _)| p.as_str()).collect();
+        for p in ["border-top-left-radius", "border-bottom-right-radius", "padding-top", "padding-left"] {
+            assert!(props.contains(&p), "{p}: {props:?}");
+        }
+        assert!(!props.contains(&"border-radius"), "{props:?}");
     }
 }

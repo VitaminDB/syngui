@@ -1,5 +1,6 @@
 pub mod gradient;
 mod rule;
+pub(crate) use rule::expand_shorthand;
 mod selector;
 pub mod transform;
 mod utils;

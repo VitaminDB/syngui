@@ -6,6 +6,7 @@ pub mod inheritance;
 pub mod matching;
 mod parser;
 pub(crate) use parser::transform::normalize_angle;
+pub(crate) use parser::expand_shorthand;
 mod style_engine;
 mod stylesheet;
 mod value;

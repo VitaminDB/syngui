@@ -6,6 +6,15 @@ use super::super::ParseError;
 use super::utils::ParserCursor;
 use super::value::*;
 
+/// Сокращённое свойство (`border-radius`, `padding`, `border`…) — в полные, как в таблице стилей.
+/// Для стилей из кода (`.style("border-radius", 12.0)`): их каскад кладёт как есть, и сокращение
+/// без разворота не читал никто — скругление молча терялось.
+pub(crate) fn expand_shorthand(property: &str, value: StyleValue) -> Vec<(String, StyleValue)> {
+    let mut map = HashMap::new();
+    insert_with_shorthand_expansion(&mut map, property.to_string(), value);
+    map.into_iter().collect()
+}
+
 fn insert_with_shorthand_expansion(
     declarations: &mut HashMap<String, StyleValue>,
     property: String,
