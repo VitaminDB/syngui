@@ -34,6 +34,9 @@ pub struct Button {
     pub active_index: Option<(RwSignal<usize>, usize)>,
     pub icon: Option<String>,
     pub icon_position: IconPosition,
+    /// Забрать фокус при появлении (кнопка по умолчанию в диалоге:
+    /// Enter нажимает её).
+    pub autofocus: bool,
     classes: Vec<String>,
 }
 
@@ -48,6 +51,7 @@ impl Button {
             active_index: None,
             icon: None,
             icon_position: IconPosition::Leading,
+            autofocus: false,
             classes: Vec::new(),
         }
     }
@@ -66,6 +70,13 @@ impl Button {
     pub fn trailing_icon(mut self, icon: impl Into<String>) -> Self {
         self.icon = Some(icon.into());
         self.icon_position = IconPosition::Trailing;
+        self
+    }
+
+    /// Забрать фокус клавиатуры при появлении: Enter и пробел нажимают
+    /// кнопку, Tab уводит к соседним.
+    pub fn autofocus(mut self, on: bool) -> Self {
+        self.autofocus = on;
         self
     }
 
@@ -130,7 +141,9 @@ impl Widget for Button {
             bounds: Rect::zero(),
             hover: false,
             pressed: false,
-            focused: false,
+            // Как у TextField: фокус сразу, дерево подтвердит его при монтировании.
+            focused: self.autofocus && !self.disabled,
+            focus_request_pending: self.autofocus && !self.disabled,
             selected: false,
             classes: self.classes.clone(),
             dirty_flags: DirtyFlags::LAYOUT | DirtyFlags::RENDER,
@@ -169,6 +182,8 @@ pub struct ButtonElement {
     hover: bool,
     pressed: bool,
     focused: bool,
+    /// `autofocus`: дерево заберёт запрос при монтировании.
+    focus_request_pending: bool,
     selected: bool,
     classes: Vec<String>,
     dirty_flags: DirtyFlags,
@@ -246,6 +261,10 @@ impl Element for ButtonElement {
             self.update_selected_state();
             self.mark_dirty(if resized { DirtyFlags::RENDER | DirtyFlags::LAYOUT } else { DirtyFlags::RENDER });
         }
+    }
+
+    fn take_focus_request(&mut self) -> bool {
+        std::mem::take(&mut self.focus_request_pending)
     }
 
     fn layout(&mut self, constraints: Constraints) -> Size {
