@@ -59,6 +59,18 @@ const NAMES: &[(&str, PluralRule)] = &[
 ];
 
 impl PluralRule {
+    /// Категории правила по порядку форм в исходном тексте (`tn!`): у
+    /// восточнославянских — «один», «несколько», «много».
+    pub fn categories(self) -> &'static [PluralCategory] {
+        match self {
+            PluralRule::OneOther => &[PluralCategory::One, PluralCategory::Other],
+            PluralRule::ZeroOneOther => &[PluralCategory::One, PluralCategory::Other],
+            PluralRule::EastSlavic => &[PluralCategory::One, PluralCategory::Few, PluralCategory::Many],
+            PluralRule::Polish => &[PluralCategory::One, PluralCategory::Few, PluralCategory::Many],
+            PluralRule::OtherOnly => &[PluralCategory::Other],
+        }
+    }
+
     /// Правило для базового языка (`ru`, `pt`); неизвестный язык → `OneOther`.
     pub fn for_language(base: &str) -> PluralRule {
         RULES

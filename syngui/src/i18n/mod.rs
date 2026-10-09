@@ -48,6 +48,8 @@ struct Registry {
     app: Vec<Catalog>,
     builtin: Vec<Catalog>,
     requested: Lang,
+    /// Язык исходных строк `t!` (на нём написан код); на нём перевод не нужен.
+    source: Option<Lang>,
     chain: Vec<Lang>,
     missing: HashSet<String>,
 }
@@ -68,6 +70,7 @@ impl Registry {
             app: Vec::new(),
             builtin,
             requested: Lang::en(),
+            source: None,
             chain: Vec::new(),
             missing: HashSet::new(),
         };
@@ -77,6 +80,11 @@ impl Registry {
 
     fn available(&self) -> Vec<Lang> {
         let mut tags: Vec<Lang> = self.app.iter().map(|c| c.tag.clone()).collect();
+        if let Some(src) = &self.source {
+            if !tags.contains(src) {
+                tags.push(src.clone());
+            }
+        }
         for c in &self.builtin {
             if !tags.contains(&c.tag) {
                 tags.push(c.tag.clone());
@@ -128,6 +136,20 @@ impl Registry {
                 {
                     return Some(v.to_string());
                 }
+            }
+        }
+        None
+    }
+
+    /// Перевод исходной строки (`t!`): по цепочке языков; язык исходных
+    /// строк — сама строка.
+    fn lookup_text(&self, key: &str) -> Option<String> {
+        for lang in &self.chain {
+            if self.source.as_ref().is_some_and(|s| s.base() == lang.base()) {
+                return None;
+            }
+            if let Some(v) = self.catalogs_for(lang).find_map(|c| c.get(key)) {
+                return Some(v.to_string());
             }
         }
         None
@@ -310,6 +332,67 @@ pub fn trn_args(key: &str, n: u64, args: &[(&str, &dyn Display)]) -> String {
     format::substitute(&template, &all)
 }
 
+/// Язык исходных строк [`t`] — на нём написан код (`"ru"` у synshell);
+/// без него исходные строки считаются английскими.
+pub fn set_source_language(lang: impl Into<Lang>) {
+    let lang = lang.into();
+    with_registry(|reg| {
+        reg.source = Some(lang);
+        reg.recompute_chain();
+    });
+    bump_revision();
+}
+
+fn source_rule() -> PluralRule {
+    with_registry(|reg| reg.source.as_ref().map(|s| s.plural_rule()).unwrap_or(PluralRule::OneOther))
+}
+
+/// Перевод исходной строки (gettext-подход): ключ — сам текст на языке
+/// исходников ([`set_source_language`]), каталоги — `"текст" = "перевод"`.
+/// Нет перевода — сам текст. Удобно для массового перевода программ:
+/// строка остаётся читаемой в коде, а таблицы-константы переводятся там,
+/// где показываются (`t(k.label)`).
+pub fn t(text: &str) -> String {
+    subscribe();
+    with_registry(|reg| reg.lookup_text(text)).unwrap_or_else(|| text.to_string())
+}
+
+pub fn t_args(text: &str, args: &[(&str, &dyn Display)]) -> String {
+    format::substitute(&t(text), args)
+}
+
+/// Форма по числу для исходных строк: `forms` — формы языка исходников по
+/// порядку его категорий (у русского — «1 файл», «2 файла», «5 файлов»);
+/// в каталоге — `"{n} файл".one = "…"`, `.other` и т. д. (ключ — первая форма).
+pub fn tn_args(n: u64, forms: &[&str], args: &[(&str, &dyn Display)]) -> String {
+    subscribe();
+    let first = forms.first().copied().unwrap_or("");
+    let translated = with_registry(|reg| {
+        for lang in &reg.chain {
+            if reg.source.as_ref().is_some_and(|s| s.base() == lang.base()) {
+                return None;
+            }
+            for cat in reg.catalogs_for(lang) {
+                let form = cat.plural.category(n).suffix();
+                if let Some(v) = cat.get(&catalog::plural_key(first, form)).or_else(|| cat.get(&catalog::plural_key(first, "other"))) {
+                    return Some(v.to_string());
+                }
+            }
+        }
+        None
+    });
+    let template = translated.unwrap_or_else(|| {
+        let rule = source_rule();
+        let cats = rule.categories();
+        let idx = cats.iter().position(|c| *c == rule.category(n)).unwrap_or(cats.len().saturating_sub(1));
+        forms.get(idx).or(forms.last()).copied().unwrap_or("").to_string()
+    });
+    let mut all: Vec<(&str, &dyn Display)> = Vec::with_capacity(args.len() + 1);
+    all.push(("n", &n));
+    all.extend_from_slice(args);
+    format::substitute(&template, &all)
+}
+
 /// Строка встроенного виджета: каталог (приложение поверх встроенного) или литерал.
 pub(crate) fn builtin(key: &str, fallback: &str) -> String {
     subscribe();
@@ -327,6 +410,39 @@ macro_rules! tr {
     };
     ($key:expr, $($name:ident = $value:expr),+ $(,)?) => {
         $crate::i18n::tr_args($key, &[$((stringify!($name), &$value as &dyn ::std::fmt::Display)),+])
+    };
+}
+
+/// Перевод исходной строки: `t!("Процессор")`, `t!("Режим: {name}", name = x)`.
+#[macro_export]
+macro_rules! t {
+    ($text:expr $(,)?) => {
+        $crate::i18n::t($text)
+    };
+    ($text:expr, $($name:ident = $value:expr),+ $(,)?) => {
+        $crate::i18n::t_args($text, &[$((stringify!($name), &$value as &dyn ::std::fmt::Display)),+])
+    };
+}
+
+/// Форма по числу: `tn!(n, "{n} файл", "{n} файла", "{n} файлов")`, можно с
+/// именованными подстановками после форм: `tn!(n, "…", "…", "…"; dir = d)`.
+#[macro_export]
+macro_rules! tn {
+    ($n:expr, $($form:expr),+ $(,)?) => {
+        $crate::i18n::tn_args($n as u64, &[$($form),+], &[])
+    };
+    ($n:expr, $($form:expr),+ ; $($name:ident = $value:expr),+ $(,)?) => {
+        $crate::i18n::tn_args($n as u64, &[$($form),+], &[$((stringify!($name), &$value as &dyn ::std::fmt::Display)),+])
+    };
+}
+
+/// Пометка исходной строки без перевода (для таблиц-констант): строка
+/// остаётся как есть, а сборщик каталога (`scripts/i18n-extract.py`) её
+/// видит; переводится там, где показывается, — `t(label)`.
+#[macro_export]
+macro_rules! n_ {
+    ($text:literal) => {
+        $text
     };
 }
 
@@ -396,6 +512,30 @@ mod tests {
         let tags: Vec<String> = languages().iter().map(|l| l.tag.to_string()).collect();
         assert_eq!(tags, vec!["en", "ru"]);
         assert_eq!(languages()[1].name, "Русский");
+    }
+
+    #[test]
+    fn source_text_translation() {
+        let _serial = setup();
+        register_catalog("@tag = \"en\"\n@name = \"English\"\n\"Процессор\" = \"Processor\"\n\"Окно: {x}\" = \"Window: {x}\"\n\"{n} файл\".one = \"{n} file\"\n\"{n} файл\".other = \"{n} files\"\n").unwrap();
+        set_source_language("ru");
+        set_language("ru_RU.UTF-8");
+        assert_eq!(language().tag(), "ru");
+        assert_eq!(t!("Процессор"), "Процессор");
+        assert_eq!(tn!(3, "{n} файл", "{n} файла", "{n} файлов"), "3 файла");
+        assert_eq!(tn!(11, "{n} файл", "{n} файла", "{n} файлов"), "11 файлов");
+        set_language("en");
+        assert_eq!(t!("Процессор"), "Processor");
+        assert_eq!(t!("Окно: {x}", x = 5), "Window: 5");
+        assert_eq!(t!("Нет перевода"), "Нет перевода");
+        assert_eq!(tn!(1, "{n} файл", "{n} файла", "{n} файлов"), "1 file");
+        assert_eq!(tn!(2, "{n} файл", "{n} файла", "{n} файлов"), "2 files");
+        // немецкого каталога нет — английский, а не исходный русский
+        set_language("de");
+        assert_eq!(t!("Процессор"), "Processor");
+        assert_eq!(n_!("Метка"), "Метка");
+        with_registry(|reg| reg.source = None);
+        set_language("en");
     }
 
     #[test]

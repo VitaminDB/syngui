@@ -3,7 +3,9 @@ use super::plural::PluralRule;
 use std::collections::HashMap;
 use std::fmt;
 
-/// Каталог одного языка: метаданные из `@`-строк и пары `key = "value"`.
+/// Каталог одного языка: метаданные из `@`-строк и пары `key = "value"`;
+/// ключом может быть и сама исходная строка в кавычках (`"Процессор" =
+/// "Processor"`, формы числа — `"{n} файл".few = "…"`), см. [`super::t`].
 #[derive(Clone, Debug)]
 pub struct Catalog {
     pub tag: Lang,
@@ -39,6 +41,36 @@ fn valid_key(key: &str) -> bool {
         && key
             .bytes()
             .all(|b| b.is_ascii_alphanumeric() || matches!(b, b'_' | b'.' | b'-'))
+}
+
+/// Строка в кавычках в начале `rest` и остаток после закрывающей кавычки.
+fn split_quoted(rest: &str, line: usize) -> Result<(String, &str), CatalogError> {
+    let rest = rest.trim_start();
+    let mut chars = rest.char_indices();
+    if chars.next().map(|c| c.1) != Some('"') {
+        return Err(err(line, "expected a double-quoted string"));
+    }
+    let mut value = String::new();
+    loop {
+        match chars.next() {
+            None => return Err(err(line, "unterminated string")),
+            Some((_, '\\')) => match chars.next().map(|c| c.1) {
+                Some('n') => value.push('\n'),
+                Some('t') => value.push('\t'),
+                Some('"') => value.push('"'),
+                Some('\\') => value.push('\\'),
+                Some(other) => return Err(err(line, format!("unknown escape \\{other}"))),
+                None => return Err(err(line, "unterminated escape")),
+            },
+            Some((i, '"')) => return Ok((value, &rest[i + 1..])),
+            Some((_, ch)) => value.push(ch),
+        }
+    }
+}
+
+/// Ключ исходной строки с формой числа: `"{n} файл"` + `few`.
+pub(crate) fn plural_key(msgid: &str, form: &str) -> String {
+    format!("{msgid}\u{1}{form}")
 }
 
 fn parse_quoted(rest: &str, line: usize) -> Result<String, CatalogError> {
@@ -82,6 +114,32 @@ impl Catalog {
             let line = idx + 1;
             let trimmed = raw.trim();
             if trimmed.is_empty() || trimmed.starts_with('#') {
+                continue;
+            }
+            // Исходная строка ключом: `"текст" = "перевод"`, `"{n} файл".few = "…"`.
+            if trimmed.starts_with('"') {
+                let (msgid, rest) = split_quoted(trimmed, line)?;
+                let rest = rest.trim_start();
+                let (form, rest) = match rest.strip_prefix('.') {
+                    Some(r) => {
+                        let end = r.find(|c: char| !c.is_ascii_alphabetic()).unwrap_or(r.len());
+                        (Some(&r[..end]), &r[end..])
+                    }
+                    None => (None, rest),
+                };
+                let Some(rest) = rest.trim_start().strip_prefix('=') else {
+                    return Err(err(line, "expected `\"source\" = \"translation\"`"));
+                };
+                let value = parse_quoted(rest, line)?;
+                // Пустой перевод — ещё не переведено.
+                if value.is_empty() {
+                    continue;
+                }
+                let key = match form {
+                    Some(f) => plural_key(&msgid, f),
+                    None => msgid,
+                };
+                entries.insert(key, value);
                 continue;
             }
             let Some((key, rest)) = trimmed.split_once('=') else {
@@ -227,6 +285,19 @@ files.many = "{n} файлов"
                 .line,
             1
         );
+    }
+
+    #[test]
+    fn source_text_keys() {
+        let c = Catalog::parse(
+            "@tag = \"en\"\n@name = \"English\"\n\"Процессор\" = \"Processor\"\n\"Режим: {x} = {y}\" = \"Mode: {x} = {y}\" # c\n\"{n} файл\".one = \"{n} file\"\n\"{n} файл\".other = \"{n} files\"\n\"Пусто\" = \"\"\n",
+        )
+        .unwrap();
+        assert_eq!(c.get("Процессор"), Some("Processor"));
+        assert_eq!(c.get("Режим: {x} = {y}"), Some("Mode: {x} = {y}"));
+        assert_eq!(c.get(&plural_key("{n} файл", "other")), Some("{n} files"));
+        assert_eq!(c.get("Пусто"), None);
+        assert_eq!(c.len(), 4);
     }
 
     #[test]
