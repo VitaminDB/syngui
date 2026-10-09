@@ -406,16 +406,16 @@ impl Element for GaugeChartElement {
         let track_color = self.mss_track_color.unwrap_or_else(|| {
             fg_color
                 .map(|c| c.with_alpha(0.2))
-                .unwrap_or(Color::from_hex("#e2e8f0"))
+                .unwrap_or_else(crate::theme_fallback::fallback_track)
         });
         let needle_color = self
             .mss_needle_color
             .or(fg_color)
-            .unwrap_or(Color::from_hex("#1e293b"));
+            .unwrap_or_else(crate::theme_fallback::fallback_fg_strong);
         let label_color = self
             .mss_label_color
             .or(fg_color.map(|c| c.with_alpha(0.6)))
-            .unwrap_or(Color::from_hex("#64748b"));
+            .unwrap_or_else(crate::theme_fallback::fallback_muted);
         let scale_factor = (gauge_size / 250.0).clamp(0.5, 1.5);
         let label_font = self.mss_label_font_size.unwrap_or(10.0) * scale_factor;
         let value_font = self.mss_value_font_size.unwrap_or(28.0) * scale_factor;
@@ -548,7 +548,7 @@ impl Element for GaugeChartElement {
         if self.show_value {
             let display_value = self.min + self.anim_progress as f64 * range;
             let value_text = self.format_value(display_value);
-            let value_color = fg_color.unwrap_or(Color::from_hex("#1e293b"));
+            let value_color = fg_color.unwrap_or_else(crate::theme_fallback::fallback_fg_strong);
 
             let has_title = self.title.is_some();
             let title_font = (label_font + 2.0) * scale_factor;

@@ -348,7 +348,7 @@ impl Element for RadarChartElement {
     }
 
     fn build_display_list(&self, list: &mut DisplayList, _clip: Rect) {
-        let bg_color = self.mss.background_color.unwrap_or(Color::WHITE);
+        let bg_color = self.mss.background_color.unwrap_or(Color::TRANSPARENT);
         let border_radius = self.mss.border_radius_resolved(self.bounds.size.width, 0.0);
         let padding = self.mss.padding_ltrb([16.0; 4]);
 
@@ -391,11 +391,11 @@ impl Element for RadarChartElement {
         let grid_color = self
             .mss_grid_color
             .or(self.mss.color.map(|c| c.with_alpha(0.15)))
-            .unwrap_or(Color::from_hex("#d1d5db"));
+            .unwrap_or_else(crate::theme_fallback::fallback_divider);
         let label_color = self
             .mss_label_color
             .or(self.mss.color.map(|c| c.with_alpha(0.6)))
-            .unwrap_or(Color::from_hex("#64748b"));
+            .unwrap_or_else(crate::theme_fallback::fallback_muted);
         let label_font = self.mss_label_font_size.unwrap_or(11.0);
         let step_angle = std::f32::consts::TAU / n as f32;
 
@@ -406,7 +406,7 @@ impl Element for RadarChartElement {
                 Point::new(cx - title_w * 0.5, inner_y),
                 Size::new(title_w, title_font + 4.0),
             );
-            let title_color = self.mss.color.unwrap_or(Color::from_hex("#1e293b"));
+            let title_color = self.mss.color.unwrap_or_else(crate::theme_fallback::fallback_fg_strong);
             list.push_text_centered(title, title_rect, title_color, title_font);
         }
 
