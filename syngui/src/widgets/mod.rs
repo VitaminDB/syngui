@@ -24,9 +24,9 @@ pub use charts::{
 pub use containers::{
     Animated, AnimatedPosition, AnimatedSize, AnimatedSwitcher, AnimationAxis, AspectRatio, Carousel, Column, DecoratedBox, Falloff, Fisheye,
     FisheyeAnchor, Flex, GestureDetector, PanAxis, PanUpdate, PinchUpdate, SwipeDirection, ScaleBox,
-    Grid, IntoWidget, Motion, Named, Padding, Page, Presence, Reactive, RepeatMode, Row, ScrollPhysics, ScrollTarget,
+    Grid, IntoWidget, Motion, MultiTouch, Named, Padding, Page, Presence, Reactive, RepeatMode, Row, ScrollPhysics, ScrollTarget,
     ScrollbarPolicy, ShowIf, SplitDirection, SplitView, Stack, StackFit, TransformBox,
-    TransformOrigin, TransformState, VirtualFlex,
+    TransformOrigin, TransformState, TouchPhase, TouchPoint, VirtualFlex,
 };
 pub use data::{
     ColumnWidth, ListItem, ListView, Property, PropertyGrid, PropertyValue, SelectionMode,
