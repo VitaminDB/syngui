@@ -243,6 +243,19 @@ mod tests {
         h.find_by_type_name("Keyed")
     }
 
+    /// Строки из одного `Reactive` идут столбцом, а не друг на друге.
+    #[test]
+    fn rows_of_one_reactive_stack_vertically() {
+        crate::signal::allow_signal_reads_on_this_thread();
+        let rows = use_signal(vec![(1u64, 1u64), (2, 1), (3, 1)]);
+        let (mut h,) = feed(rows, Arc::new(AtomicUsize::new(0)));
+        h.rebuild();
+        h.layout(600.0, 400.0);
+        let tops: Vec<f32> = ids(&h).iter().map(|&id| h.element_bounds(id).origin.y).collect();
+        assert_eq!(tops.len(), 3);
+        assert!(tops[0] < tops[1] && tops[1] < tops[2], "строки наложены: {tops:?}");
+    }
+
     /// Вставка в середину не трогает соседей: их элементы те же, собрана
     /// только новая строка. При позиционной сверке пересобрались бы все.
     #[test]

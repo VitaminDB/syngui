@@ -756,11 +756,14 @@ impl ElementTree {
             containing_block: constraints.containing_block,
         };
 
+        // Несколько детей (`Reactive`, вернувший список) идут столбцом, как
+        // обещает «List rendering» в docs/12-patterns.md; раньше все они
+        // вставали в одну точку и строки списка рисовались друг на друге.
         let mut child_size = Size::zero();
         for &child_id in children {
             let cs = self.measure_recursive(child_id, loose);
             child_size.width = child_size.width.max(cs.width);
-            child_size.height = child_size.height.max(cs.height);
+            child_size.height += cs.height;
         }
 
         if let Some(node) = self.elements.get_mut(&id) {

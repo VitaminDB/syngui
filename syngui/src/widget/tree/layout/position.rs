@@ -242,7 +242,11 @@ impl ElementTree {
                 );
             }
             crate::widget::LayoutHint::Loose => {
-                self.position_padding_children(&children, parent_pos, 0.0, 0.0);
+                let mut y = parent_pos.y;
+                for &child_id in &children {
+                    self.position_recursive(child_id, Point::new(parent_pos.x, y));
+                    y += self.cache_get(&child_id).map(|c| c.size.height).unwrap_or(0.0);
+                }
             }
             crate::widget::LayoutHint::Portal {
                 anchor,
