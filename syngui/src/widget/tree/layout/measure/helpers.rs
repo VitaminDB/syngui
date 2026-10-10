@@ -759,12 +759,20 @@ impl ElementTree {
         // Несколько детей (`Reactive`, вернувший список) идут столбцом, как
         // обещает «List rendering» в docs/12-patterns.md; раньше все они
         // вставали в одну точку и строки списка рисовались друг на друге.
+        // Плавающие дети (`Positioned` и т.п.) места в столбце не занимают:
+        // их место задано явно (элементы экранного контроллера поверх `Stack`).
         let mut child_size = Size::zero();
+        let mut floating_height = 0.0f32;
         for &child_id in children {
             let cs = self.measure_recursive(child_id, loose);
             child_size.width = child_size.width.max(cs.width);
-            child_size.height += cs.height;
+            if self.child_floats_over_stack(child_id) {
+                floating_height = floating_height.max(cs.height);
+            } else {
+                child_size.height += cs.height;
+            }
         }
+        child_size.height = child_size.height.max(floating_height);
 
         if let Some(node) = self.elements.get_mut(&id) {
             node.element.layout(constraints);
@@ -937,7 +945,7 @@ impl ElementTree {
         )
     }
 
-    fn child_floats_over_stack(&self, child_id: ElementId) -> bool {
+    pub(crate) fn child_floats_over_stack(&self, child_id: ElementId) -> bool {
         self.elements
             .get(&child_id)
             .map(|node| {

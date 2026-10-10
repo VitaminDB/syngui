@@ -242,8 +242,13 @@ impl ElementTree {
                 );
             }
             crate::widget::LayoutHint::Loose => {
+                // Столбцом (см. measure_loose); плавающие — от точки родителя.
                 let mut y = parent_pos.y;
                 for &child_id in &children {
+                    if self.child_floats_over_stack(child_id) {
+                        self.position_recursive(child_id, parent_pos);
+                        continue;
+                    }
                     self.position_recursive(child_id, Point::new(parent_pos.x, y));
                     y += self.cache_get(&child_id).map(|c| c.size.height).unwrap_or(0.0);
                 }
