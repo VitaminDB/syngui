@@ -725,6 +725,15 @@ pub fn create_effect(f: impl Fn() + 'static) -> EffectId {
     })
 }
 
+/// Эффект без владельца: живёт до [`dispose_effect`], а не до удаления элемента, в построении
+/// которого создан (для служб, которые лениво поднимает первый виджет, а нужны всё время).
+pub fn create_detached_effect(f: impl Fn() + 'static) -> EffectId {
+    let saved = RUNTIME.with(|rt| std::mem::take(&mut rt.borrow_mut().element_scope_stack));
+    let id = create_effect(f);
+    RUNTIME.with(|rt| rt.borrow_mut().element_scope_stack = saved);
+    id
+}
+
 pub fn create_effect_with_cleanup(f: impl Fn() -> Option<Box<dyn Fn()>> + 'static) -> EffectId {
     let effect_id = RUNTIME.with(|rt| {
         let mut rt = rt.borrow_mut();

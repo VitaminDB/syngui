@@ -123,7 +123,7 @@ pub mod prelude {
     pub use crate::core::canvas::{CanvasContext, LineCap, LineJoin, Paint};
 
     pub use crate::signal::{
-        create_effect, create_effect_with_cleanup, create_memo, dispose_effect, use_effect,
+        create_detached_effect, create_effect, create_effect_with_cleanup, create_memo, dispose_effect, use_effect,
         use_effect_with_cleanup, use_signal, EffectId, Memo, RwSignal,
     };
 
