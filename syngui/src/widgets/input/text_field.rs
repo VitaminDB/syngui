@@ -1270,6 +1270,17 @@ impl Element for TextFieldElement {
                     .start_transition_to(self.hover, false, false, false);
                 ctx.set_virtual_keyboard_visible(false);
                 self.dismiss_hint(ctx);
+                // Незавершённый ввод IME (preedit) при уходе фокуса — в текст:
+                // нажатие «Сохранить» рядом с полем не должно терять набранное.
+                if let Some(pre) = self.preedit_text.take() {
+                    self.preedit_cursor = None;
+                    if !self.read_only && !pre.is_empty() {
+                        let filtered = self.apply_input_filter(&pre);
+                        self.selection
+                            .replace_selection(&mut self.text, &mut self.cursor_pos, &filtered);
+                        self.trigger_change();
+                    }
+                }
                 self.selection.clear();
                 if self.submit_on_focus_lost {
                     if let Some(ref callback) = self.on_submit {
