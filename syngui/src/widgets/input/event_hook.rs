@@ -21,7 +21,7 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use crate::core::{Point, Rect, Size};
-use crate::input::{Event, EventResult, Key, Modifiers};
+use crate::input::{Event, EventResult, Key, Modifiers, MouseButton};
 use crate::layout::Constraints;
 use crate::mss::{ComputedStyle, MssFields};
 use crate::render::DisplayList;
@@ -102,6 +102,7 @@ type BackHandler = Arc<dyn Fn() -> bool + Send + Sync>;
 type CharHandler = Arc<dyn Fn(char) -> bool + Send + Sync>;
 type KeyFilter = Arc<dyn Fn(Key) -> bool + Send + Sync>;
 type MoveHandler = Arc<dyn Fn(bool) + Send + Sync>;
+type NavButtonHandler = Arc<dyn Fn(MouseButton) -> bool + Send + Sync>;
 
 type LifecycleHandler = Arc<dyn Fn() + Send + Sync>;
 
@@ -116,6 +117,7 @@ pub struct EventHook {
     capture_keys: Option<KeyFilter>,
     capture_shortcuts: Option<ShortcutFilter>,
     on_mouse_move: Option<MoveHandler>,
+    on_nav_button: Option<NavButtonHandler>,
     bounds_out: Option<Arc<crate::core::sync::Mutex<Rect>>>,
     child: Option<Box<dyn Widget>>,
 }
@@ -133,6 +135,7 @@ impl EventHook {
             capture_keys: None,
             capture_shortcuts: None,
             on_mouse_move: None,
+            on_nav_button: None,
             bounds_out: None,
             child: None,
         }
@@ -218,6 +221,13 @@ impl EventHook {
         self
     }
 
+    /// Боковые кнопки мыши «назад»/«вперёд» (`MouseButton::Back`/`Forward`)
+    /// над обёрткой. Обёртка забирает их раньше детей; `true` — съедено.
+    pub fn on_nav_button(mut self, handler: impl Fn(MouseButton) -> bool + Send + Sync + 'static) -> Self {
+        self.on_nav_button = Some(Arc::new(handler));
+        self
+    }
+
     /// Публиковать собственные границы (для позиционирования поповеров).
     pub fn report_bounds(mut self, out: Arc<crate::core::sync::Mutex<Rect>>) -> Self {
         self.bounds_out = Some(out);
@@ -250,6 +260,7 @@ impl Widget for EventHook {
             capture_keys: self.capture_keys.clone(),
             capture_shortcuts: self.capture_shortcuts.clone(),
             on_mouse_move: self.on_mouse_move.clone(),
+            on_nav_button: self.on_nav_button.clone(),
             bounds_out: self.bounds_out.clone(),
             has_child: self.child.is_some(),
             bounds: Rect::zero(),
@@ -300,6 +311,7 @@ struct EventHookElement {
     capture_keys: Option<KeyFilter>,
     capture_shortcuts: Option<ShortcutFilter>,
     on_mouse_move: Option<MoveHandler>,
+    on_nav_button: Option<NavButtonHandler>,
     bounds_out: Option<Arc<crate::core::sync::Mutex<Rect>>>,
     has_child: bool,
     bounds: Rect,
@@ -331,6 +343,7 @@ impl Element for EventHookElement {
             self.capture_keys = hook.capture_keys.clone();
             self.capture_shortcuts = hook.capture_shortcuts.clone();
             self.on_mouse_move = hook.on_mouse_move.clone();
+            self.on_nav_button = hook.on_nav_button.clone();
             self.bounds_out = hook.bounds_out.clone();
             self.has_child = hook.child.is_some();
             self.publish_bounds();
@@ -365,6 +378,15 @@ impl Element for EventHookElement {
                     h(self.bounds.contains(*pos));
                 }
                 return EventResult::Ignored;
+            }
+            Event::MouseDown { button: b @ (MouseButton::Back | MouseButton::Forward), .. } => {
+                return match self.on_nav_button.as_ref() {
+                    Some(h) if h(*b) => EventResult::Handled,
+                    _ => EventResult::Ignored,
+                };
+            }
+            Event::MouseUp { button: MouseButton::Back | MouseButton::Forward, .. } if self.on_nav_button.is_some() => {
+                return EventResult::Handled;
             }
             Event::AppSuspended => {
                 if let Some(h) = self.on_suspend.as_ref() {
@@ -434,6 +456,15 @@ impl Element for EventHookElement {
     }
 
     fn intercepts_event_with(&self, event: &Event, mods: Modifiers) -> bool {
+        if self.on_nav_button.is_some()
+            && matches!(
+                event,
+                Event::MouseDown { button: MouseButton::Back | MouseButton::Forward, .. }
+                    | Event::MouseUp { button: MouseButton::Back | MouseButton::Forward, .. }
+            )
+        {
+            return true;
+        }
         if let (Event::KeyDown(key) | Event::KeyUp(key), Some(filter)) = (event, &self.capture_shortcuts) {
             if filter(*key, mods) {
                 return true;
