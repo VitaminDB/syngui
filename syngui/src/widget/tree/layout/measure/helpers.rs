@@ -709,6 +709,9 @@ impl ElementTree {
         let final_w = explicit_w.unwrap_or(child_size.width + left + right);
         let final_h = explicit_h.unwrap_or(child_size.height + top + bottom);
 
+        let final_w = final_w.max(constraints.min_width);
+        let final_h = final_h.max(constraints.min_height);
+
         layout_log!(self, "Padding: {:.1}x{:.1}", final_w, final_h);
 
         Size::new(
