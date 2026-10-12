@@ -486,3 +486,7 @@ required-features = ["testing"]
 [[test]]
 name = "repro_launch_bounce"
 required-features = ["testing"]
+
+[[example]]
+name = "stream_gap"
+required-features = ["audio"]

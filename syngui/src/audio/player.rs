@@ -476,9 +476,42 @@ impl AudioPlayer {
                         }
                     }
                 };
-                while let Ok(chunk) = rx.recv() {
+                // Хвост источника — неполный блок накопителя и задержка фильтра
+                // (`output_delay`) — дописать тишиной: иначе он сидит в
+                // ресэмплере до следующего куска. У синтеза речи по фразам это
+                // обрывало конец фразы на время синтеза следующей, а обрывок
+                // звучал потом перед ней.
+                let flush_tail = |resampler: &mut SincFixedIn<f32>, accum: &mut Vec<f32>| {
+                    let remaining = accum.len() / src_ch;
+                    accum.resize(in_chunk * src_ch, 0.0);
+                    if let Ok(out) = resampler.process(&split(accum), None) {
+                        let out_chunk = out[0].len();
+                        let take = ((out_chunk as f64) * (remaining as f64) / (in_chunk as f64)).round() as usize
+                            + resampler.output_delay();
+                        push_resampled(&q_drainer, &written_drainer, &out, take.min(out_chunk));
+                    }
+                    accum.clear();
+                };
+                // Очередь почти пуста (< 50 мс) — вывод вот-вот упрётся в тишину.
+                let starving = || q_drainer.lock().map(|g| g.len() / src_ch < native_sr as usize / 20).unwrap_or(false);
+                let mut pending_tail = false;
+                loop {
+                    let chunk = match rx.recv_timeout(Duration::from_millis(10)) {
+                        Ok(c) => c,
+                        Err(mpsc::RecvTimeoutError::Timeout) => {
+                            // Новых данных нет, а очередь кончается: источник
+                            // ждёт (синтез следующей фразы) — вытолкнуть хвост.
+                            if pending_tail && starving() {
+                                flush_tail(&mut resampler, &mut accum);
+                                pending_tail = false;
+                            }
+                            continue;
+                        }
+                        Err(mpsc::RecvTimeoutError::Disconnected) => break,
+                    };
                     wait_for_room(&q_drainer);
                     accum.extend_from_slice(&chunk);
+                    pending_tail = true;
                     while accum.len() >= in_chunk * src_ch {
                         let block: Vec<f32> = accum.drain(..in_chunk * src_ch).collect();
                         match resampler.process(&split(&block), None) {
@@ -493,15 +526,8 @@ impl AudioPlayer {
                         }
                     }
                 }
-                if !accum.is_empty() {
-                    let remaining = accum.len() / src_ch;
-                    accum.resize(in_chunk * src_ch, 0.0);
-                    if let Ok(out) = resampler.process(&split(&accum), None) {
-                        let out_chunk = out[0].len();
-                        let take = ((out_chunk as f64) * (remaining as f64) / (in_chunk as f64))
-                            .round() as usize;
-                        push_resampled(&q_drainer, &written_drainer, &out, take.min(out_chunk));
-                    }
+                if pending_tail {
+                    flush_tail(&mut resampler, &mut accum);
                 }
             })
             .map_err(|e| AudioError::Cpal(format!("spawn drainer: {e}")))?;
