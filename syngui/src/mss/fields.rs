@@ -1416,6 +1416,35 @@ impl MssFields {
         EMPTY.get_or_init(ResolvedProps::new)
     }
 
+    /// Сплошной фон, заданный правилом именно текущего состояния
+    /// (`:active`, `:selected`, `:focus`, `:hover`), без базового правила.
+    /// Градиентный фон (`background: linear-gradient(...)`) уступает только
+    /// такой заливке: базовый `background-color` и `transition` его не отменяют.
+    pub fn state_background_color(&self, hovered: bool, pressed: bool, focused: bool, selected: bool) -> Option<Color> {
+        let pick = |p: &Option<ResolvedProps>| p.as_ref().and_then(|p| p.background_color());
+        if pressed {
+            if let Some(c) = pick(&self.style_active) {
+                return Some(c);
+            }
+        }
+        if selected {
+            if let Some(c) = pick(&self.style_selected) {
+                return Some(c);
+            }
+        }
+        if focused {
+            if let Some(c) = pick(&self.style_focus) {
+                return Some(c);
+            }
+        }
+        if hovered {
+            if let Some(c) = pick(&self.style_hover) {
+                return Some(c);
+            }
+        }
+        None
+    }
+
     pub fn effective_bg(&self, target: &ResolvedProps, fallback: Color) -> Color {
         self.transition
             .background_color()

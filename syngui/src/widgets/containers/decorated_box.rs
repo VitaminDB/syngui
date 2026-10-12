@@ -439,8 +439,10 @@ impl Element for DecoratedBoxElement {
             .unwrap_or_default();
 
         let use_gradient = self.mss.background_gradient.is_some()
-            && self.mss.transition.background_color().is_none()
-            && target.background_color().is_none();
+            && self
+                .mss
+                .state_background_color(self.hover, self.press.is_some(), false, false)
+                .is_none();
 
         if use_gradient {
             let grad = self.mss.background_gradient.as_ref().unwrap().clone();

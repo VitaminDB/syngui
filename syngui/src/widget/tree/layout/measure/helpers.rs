@@ -96,8 +96,14 @@ impl ElementTree {
                 (None, None, None, None, None, None)
             };
 
-        let effective_max_width = explicit_w.unwrap_or(constraints.max_width) - pad_h;
+        // `max-width`/`max-height` из MSS ограничивают и детей: иначе дети
+        // раскладываются по ширине родителя, а сам столбец потом ужимается —
+        // ряд с выравниванием `End` уходил за край, пузыри пропадали.
+        let base_w = explicit_w.unwrap_or(constraints.max_width);
+        let base_w = max_w_dim.map_or(base_w, |m| base_w.min(m));
+        let effective_max_width = base_w - pad_h;
         let raw_h = explicit_h.unwrap_or(constraints.max_height);
+        let raw_h = max_h_dim.map_or(raw_h, |m| raw_h.min(m));
         let effective_max_height = if raw_h.is_infinite() {
             constraints.max_height
         } else {
@@ -373,8 +379,12 @@ impl ElementTree {
                 (None, None, None, None, None, None)
             };
 
-        let effective_max_width = (explicit_w.unwrap_or(constraints.max_width) - pad_h).max(0.0);
-        let effective_max_height = (explicit_h.unwrap_or(constraints.max_height) - pad_v).max(0.0);
+        let base_w = explicit_w.unwrap_or(constraints.max_width);
+        let base_w = max_w_dim.map_or(base_w, |m| base_w.min(m));
+        let base_h = explicit_h.unwrap_or(constraints.max_height);
+        let base_h = max_h_dim.map_or(base_h, |m| base_h.min(m));
+        let effective_max_width = (base_w - pad_h).max(0.0);
+        let effective_max_height = (base_h - pad_v).max(0.0);
 
         let child_cb = Size::new(
             if effective_max_width.is_finite() {

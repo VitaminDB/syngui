@@ -384,16 +384,15 @@ impl Element for ButtonElement {
             }
         }
 
-        // Градиентный фон (как DecoratedBox). Состояние-специфичные solid-цвета
-        // (:hover/:pressed/:selected и transition) перекрывают градиент; при disabled
-        // рисуем приглушённый solid.
+        // Градиентный фон (как DecoratedBox). Его перекрывает только сплошной
+        // цвет, заданный правилом текущего состояния (:hover/:pressed/:selected/
+        // :focus); базовый `background-color` и `transition` градиент не отменяют.
+        // При disabled рисуем приглушённый solid.
         let use_gradient = self.mss.background_gradient.is_some()
             && !self.disabled
-            && self.mss.transition.background_color().is_none()
             && self
                 .mss
-                .target_props(self.hover, self.pressed, self.focused, self.selected)
-                .background_color()
+                .state_background_color(self.hover, self.pressed, self.focused, self.selected)
                 .is_none();
 
         if use_gradient {
