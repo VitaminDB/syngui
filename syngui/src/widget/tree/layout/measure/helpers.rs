@@ -936,6 +936,11 @@ impl ElementTree {
                 constraints
             };
             let child_size = self.measure_recursive(child_id, child_constraints);
+            // Фиксированный (`Positioned::fixed`) слой — в координатах
+            // поверхности, стек под него не растёт.
+            if self.child_is_fixed(child_id) {
+                continue;
+            }
             max_width = max_width.max(child_size.width);
             max_height = max_height.max(child_size.height);
         }
@@ -956,6 +961,13 @@ impl ElementTree {
             max_width.min(constraints.max_width),
             max_height.min(constraints.max_height),
         )
+    }
+
+    /// Ребёнок — `Positioned::fixed()`: лежит в координатах поверхности.
+    pub(crate) fn child_is_fixed(&self, child_id: ElementId) -> bool {
+        self.elements.get(&child_id).is_some_and(|node| {
+            matches!(node.element.layout_hint(), crate::widget::LayoutHint::Positioned { fixed: true, .. })
+        })
     }
 
     pub(crate) fn child_floats_over_stack(&self, child_id: ElementId) -> bool {

@@ -90,7 +90,8 @@
     `create_element/can_update/as_any/as_any_mut/mount`.
 28. **Layout — Flutter-подобный:** родитель даёт `Constraints`, ребёнок
     возвращает `Size`. Нет абсолютного позиционирования, кроме `Positioned`
-    внутри `Stack`/`PanZoom` и оверлеев.
+    внутри `Stack`/`PanZoom` и оверлеев; `Positioned::fixed()` — координаты
+    поверхности, размер в `Stack` не входит.
 29. **Неизвестное MSS-свойство молча игнорируется** (в лог уходит один
     `warn` на свойство: `[MSS] Свойство '…' не поддерживается`).
     Проверяй имена по таблице раздела 6.
@@ -543,6 +544,8 @@ SplitView::new(left, right)
     .initial_ratio(0.3).min_size(200.0).divider_width(4.0)
     .ratio_signal(sig)                     // двусторонняя привязка (persist!)
 Positioned::new(x).at(120.0, 40.0)          // внутри Stack / PanZoom
+Positioned::new(x).fixed().dimensions(w, h) // в координатах поверхности (CSS fixed):
+                                            // подложка под обрезающей карточкой, Stack под неё не растёт
 ShowIf::new(index, selected_signal).child(x)
 ```
 
@@ -1782,7 +1785,7 @@ impl StyledElement for MyBoxElement {
 раскладывает детей: `Center` (дефолт), `Column{..}`, `Row{..}`, `Stack`,
 `Padding{..}`, `Grid{..}`, `Scroll{..}`, `Split{..}`, `AnimatedSize`,
 `Container{..}`, `Loose`, `Portal{..}`, `FloatingWindow{..}`, `Flex{..}`,
-`HorizontalPages`, `Positioned{x,y}`, `PanZoom`.
+`HorizontalPages`, `Positioned{x,y,fixed}`, `PanZoom`.
 
 **DisplayList — что можно рисовать** (`syngui/src/render/display_list/mod.rs`):
 

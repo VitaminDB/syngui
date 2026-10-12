@@ -317,8 +317,10 @@ impl ElementTree {
                     &align_items,
                 );
             }
-            crate::widget::LayoutHint::Positioned { x, y } => {
-                let child_pos = Point::new(parent_pos.x + x, parent_pos.y + y);
+            crate::widget::LayoutHint::Positioned { x, y, fixed } => {
+                // Фиксированный — в координатах поверхности: подложка «в
+                // координатах экрана» внутри обрезающей карточки.
+                let child_pos = if fixed { Point::new(x, y) } else { Point::new(parent_pos.x + x, parent_pos.y + y) };
                 for &child_id in &children {
                     self.position_recursive(child_id, child_pos);
                 }

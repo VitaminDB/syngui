@@ -146,6 +146,9 @@ pub enum LayoutHint {
     Positioned {
         x: f32,
         y: f32,
+        /// Координаты — поверхности (как CSS `position: fixed`), а не родителя;
+        /// размер в родительский Stack не входит.
+        fixed: bool,
     },
     PanZoom,
 }

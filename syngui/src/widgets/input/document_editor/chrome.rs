@@ -284,7 +284,7 @@ impl Element for ChromeElement {
 
     fn layout_hint(&self) -> LayoutHint {
         if let Some((x, y)) = self.absolute {
-            return LayoutHint::Positioned { x, y };
+            return LayoutHint::Positioned { x, y, fixed: false };
         }
         LayoutHint::Column {
             gap: self.gap,

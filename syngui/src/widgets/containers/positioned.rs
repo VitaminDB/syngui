@@ -19,6 +19,10 @@ pub struct Positioned {
     pub offset_signal: Option<RwSignal<Point>>,
     pub size: Option<Size>,
     pub classes: Vec<String>,
+    /// Координаты — поверхности, а не родителя (CSS `position: fixed`):
+    /// слой «в координатах экрана» внутри обрезающего бокса (обои под
+    /// стеклянной карточкой), размер в родительский Stack не входит.
+    pub fixed: bool,
 }
 
 impl Positioned {
@@ -30,7 +34,14 @@ impl Positioned {
             offset_signal: None,
             size: None,
             classes: Vec::new(),
+            fixed: false,
         }
+    }
+
+    /// Координаты `x`/`y` — поверхности, а не родителя (CSS `position: fixed`).
+    pub fn fixed(mut self) -> Self {
+        self.fixed = true;
+        self
     }
 
     pub fn x(mut self, x: f32) -> Self {
@@ -82,6 +93,7 @@ impl Widget for Positioned {
             y: self.y,
             offset_signal: self.offset_signal,
             size: self.size,
+            fixed: self.fixed,
             child_id: None,
             classes: self.classes.clone(),
             dirty_flags: DirtyFlags::LAYOUT | DirtyFlags::RENDER,
@@ -129,6 +141,7 @@ pub struct PositionedElement {
     y: f32,
     offset_signal: Option<RwSignal<Point>>,
     size: Option<Size>,
+    fixed: bool,
     child_id: Option<ElementId>,
     classes: Vec<String>,
     dirty_flags: DirtyFlags,
@@ -139,11 +152,12 @@ impl Element for PositionedElement {
     fn update(&mut self, widget: &dyn Widget, _ctx: &mut UpdateContext) {
         if let Some(p) = widget.as_any().downcast_ref::<Positioned>() {
             let changed_pos = self.x != p.x || self.y != p.y;
-            let changed_size = self.size != p.size;
+            let changed_size = self.size != p.size || self.fixed != p.fixed;
             self.x = p.x;
             self.y = p.y;
             self.offset_signal = p.offset_signal;
             self.size = p.size;
+            self.fixed = p.fixed;
             if let Some(s) = self.offset_signal {
                 s.subscribe_element(self.id);
             }
@@ -183,6 +197,7 @@ impl Element for PositionedElement {
         LayoutHint::Positioned {
             x: self.x,
             y: self.y,
+            fixed: self.fixed,
         }
     }
 
@@ -241,7 +256,7 @@ impl Element for PositionedElement {
     }
 
     fn set_position(&mut self, pos: Point) {
-        self.bounds.origin = Point::new(pos.x + self.x, pos.y + self.y);
+        self.bounds.origin = if self.fixed { Point::new(self.x, self.y) } else { Point::new(pos.x + self.x, pos.y + self.y) };
     }
 
     fn mark_dirty(&mut self, flags: DirtyFlags) {
