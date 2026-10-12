@@ -278,6 +278,29 @@ impl GaugeChartElement {
         self.start_angle + t * (self.end_angle - self.start_angle)
     }
 
+    fn content_bottom(&self, size: f32) -> f32 {
+        let radius = size * 0.4;
+        let track_half = radius * self.track_width_ratio * 0.5;
+        let cy = size * 0.5;
+        let down = (-self.start_angle.sin()).max(0.0).max((-self.end_angle.sin()).max(0.0));
+        let arc_bottom = cy + (radius + track_half) * down;
+        let text_bottom = cy + radius * 0.45 + 30.0;
+        arc_bottom.max(text_bottom) + 8.0
+    }
+
+    fn fit_size(&self, w: f32, h: f32) -> f32 {
+        if self.content_bottom(w) <= h {
+            return w;
+        }
+        let mut lo = 0.0f32;
+        let mut hi = w;
+        for _ in 0..24 {
+            let mid = (lo + hi) * 0.5;
+            if self.content_bottom(mid) <= h { lo = mid } else { hi = mid }
+        }
+        lo.max(w.min(48.0))
+    }
+
     fn format_value(&self, v: f64) -> String {
         if let Some(ref fmt) = self.value_format {
             fmt(v)
@@ -353,18 +376,8 @@ impl Element for GaugeChartElement {
             .unwrap_or(250.0)
             .min(constraints.max_height);
 
-        let gauge_size = w;
-        let radius = gauge_size * 0.4;
-        let track_half = radius * self.track_width_ratio * 0.5;
-        let cy = gauge_size * 0.5;
-        let start_rad = self.start_angle;
-        let end_rad = self.end_angle;
-        let bottom_start = cy + (radius + track_half) * (-start_rad.sin()).max(0.0);
-        let bottom_end = cy + (radius + track_half) * (-end_rad.sin()).max(0.0);
-        let arc_bottom = bottom_start.max(bottom_end);
-        let text_bottom = cy + radius * 0.45 + 30.0;
-        let content_bottom = arc_bottom.max(text_bottom) + 8.0;
-        let effective_h = content_bottom.min(h);
+        let gauge_size = self.fit_size(w, h);
+        let effective_h = self.content_bottom(gauge_size).min(h);
 
         self.bounds = Rect::new(Point::zero(), Size::new(w, effective_h));
         Size::new(w, effective_h)
@@ -391,11 +404,12 @@ impl Element for GaugeChartElement {
         }
 
         let inner_w = self.bounds.size.width - padding[0] - padding[2];
-        let _inner_h = self.bounds.size.height - padding[1] - padding[3];
+        let inner_h = self.bounds.size.height - padding[1] - padding[3];
         let inner_x = self.bounds.origin.x + padding[0];
         let inner_y = self.bounds.origin.y + padding[1];
 
-        let gauge_size = inner_w;
+        let gauge_size = self.fit_size(inner_w, inner_h);
+        let inner_y = inner_y + ((inner_h - self.content_bottom(gauge_size)) * 0.5).max(0.0);
 
         let cx = inner_x + inner_w * 0.5;
         let cy = inner_y + gauge_size * 0.5;
