@@ -223,6 +223,23 @@ pub struct DropdownElement {
 }
 
 impl DropdownElement {
+    fn fit_text(&self, text: &str, max_w: f32, font_size: f32, weight: u16) -> String {
+        let Some(tm) = self.text_measure.as_ref() else { return text.to_string() };
+        let family = self.mss.font_family.as_deref();
+        let measure = |s: &str| tm.measure_text_width_weight(s, font_size, s.chars().count(), weight, family);
+        if max_w <= 0.0 || measure(text) <= max_w {
+            return text.to_string();
+        }
+        let chars: Vec<char> = text.chars().collect();
+        let (mut lo, mut hi) = (0usize, chars.len());
+        while lo < hi {
+            let mid = (lo + hi + 1) / 2;
+            let candidate: String = chars[..mid].iter().collect::<String>().trim_end().to_string() + "…";
+            if measure(&candidate) <= max_w { lo = mid } else { hi = mid - 1 }
+        }
+        chars[..lo].iter().collect::<String>().trim_end().to_string() + "…"
+    }
+
     fn get_selected_label(&self) -> Option<String> {
         let selected_value = self.selected.lock().unwrap_or_else(|e| e.into_inner());
         if let Some(ref value) = *selected_value {
@@ -468,8 +485,8 @@ impl Element for DropdownElement {
                 self.bounds.size.height,
             ),
         );
-        // Одной строкой: узкий Dropdown не должен ломать подпись на две строки —
-        // лишнее обрезается краем контрола.
+        let text = self.fit_text(&text, text_rect.size.width - 4.0, font_size, font_weight);
+        list.push_clip(text_rect);
         list.push_text_styled_singleline(
             &text,
             text_rect,
@@ -480,6 +497,7 @@ impl Element for DropdownElement {
             font_weight,
             self.mss.font_family.clone(),
         );
+        list.pop_clip();
 
         let arrow = if self.is_open { "\u{E5CE}" } else { "\u{E5CF}" };
         let arrow_rect = Rect::new(
@@ -643,8 +661,9 @@ impl Element for DropdownElement {
                         item_h,
                     ),
                 );
+                let label = self.fit_text(&item.label, label_rect.size.width - 4.0, font_size, font_weight);
                 list.push_text_styled_singleline(
-                    &item.label,
+                    &label,
                     label_rect,
                     text_color,
                     font_size,
