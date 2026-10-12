@@ -1546,7 +1546,7 @@ fn drain_audio(
             .pts()
             .or_else(|| decoded.timestamp())
             .map(|p| p as f64 * state.tb_sec);
-        match state.resampler.convert(&decoded) {
+        match state.resampler.convert(&mut decoded) {
             Ok(mut chunk) if !chunk.is_empty() => {
                 let mut pts_sec = pts_sec;
                 if let (Some(target), Some(pts)) = (state.skip_before, pts_sec) {

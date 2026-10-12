@@ -107,10 +107,13 @@ fn decode_thread(path: String, start_sec: f64, tx: mpsc::SyncSender<Vec<f32>>, s
     let mut decoded = frame::Audio::empty();
     // после перемотки на ключевой пакет — отбросить сэмплы раньше цели (точная позиция)
     let mut skip_until = if start_sec > 0.0 { Some(start_sec) } else { None };
-    let send = |swr: &mut Option<ResampleCtx>, f: &frame::Audio, skip: &mut Option<f64>| -> bool {
+    let send = |swr: &mut Option<ResampleCtx>, f: &mut frame::Audio, skip: &mut Option<f64>| -> bool {
+        if f.channel_layout().is_empty() {
+            f.set_channel_layout(ChannelLayout::default(f.channels() as i32));
+        }
+        let f = &*f;
         if swr.is_none() {
-            let layout = if f.channel_layout().is_empty() { ChannelLayout::default(f.channels() as i32) } else { f.channel_layout() };
-            match ResampleCtx::get(f.format(), layout, f.rate(), Sample::F32(Type::Packed), ChannelLayout::STEREO, OUT_RATE) {
+            match ResampleCtx::get(f.format(), f.channel_layout(), f.rate(), Sample::F32(Type::Packed), ChannelLayout::STEREO, OUT_RATE) {
                 Ok(c) => *swr = Some(c),
                 Err(e) => {
                     log::warn!("audio: swr init: {e}");
@@ -157,7 +160,7 @@ fn decode_thread(path: String, start_sec: f64, tx: mpsc::SyncSender<Vec<f32>>, s
                     continue;
                 }
                 while dec.receive_frame(&mut decoded).is_ok() {
-                    if !send(&mut swr, &decoded, &mut skip_until) {
+                    if !send(&mut swr, &mut decoded, &mut skip_until) {
                         return Ok(());
                     }
                 }
@@ -172,7 +175,7 @@ fn decode_thread(path: String, start_sec: f64, tx: mpsc::SyncSender<Vec<f32>>, s
     }
     let _ = dec.send_eof();
     while dec.receive_frame(&mut decoded).is_ok() {
-        if !send(&mut swr, &decoded, &mut skip_until) {
+        if !send(&mut swr, &mut decoded, &mut skip_until) {
             return Ok(());
         }
     }
@@ -308,5 +311,73 @@ impl Drop for AudioFilePlayer {
         if let Some(a) = self.audio.take() {
             a.stop();
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn decoded_seconds(path: &str, start: f64) -> Result<f64, VideoError> {
+        let (tx, rx) = mpsc::sync_channel::<Vec<f32>>(16);
+        let p = path.to_string();
+        let h = thread::spawn(move || decode_thread(p, start, tx, Arc::new(AtomicBool::new(false))));
+        let n: usize = rx.iter().map(|c| c.len()).sum();
+        h.join().unwrap()?;
+        Ok(n as f64 / 2.0 / OUT_RATE as f64)
+    }
+
+    #[test]
+    fn decodes_common_formats() {
+        if std::process::Command::new("ffmpeg").arg("-version").output().is_err() {
+            return;
+        }
+        ffmpeg_next::init().ok();
+        let dir = std::env::temp_dir().join(format!("syngui-audio-fmt-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let cases: &[(&str, &[&str])] = &[
+            ("s16.wav", &["-ac", "2", "-ar", "44100"]),
+            ("mono22.wav", &["-ac", "1", "-ar", "22050"]),
+            ("u8.wav", &["-ac", "1", "-ar", "8000", "-c:a", "pcm_u8"]),
+            ("s24.wav", &["-ac", "2", "-ar", "96000", "-c:a", "pcm_s24le"]),
+            ("s32.wav", &["-ac", "2", "-ar", "48000", "-c:a", "pcm_s32le"]),
+            ("f32.wav", &["-ac", "2", "-ar", "48000", "-c:a", "pcm_f32le"]),
+            ("f64.wav", &["-ac", "2", "-ar", "48000", "-c:a", "pcm_f64le"]),
+            ("c51.wav", &["-ac", "6", "-ar", "48000"]),
+            ("alaw.wav", &["-ac", "1", "-ar", "8000", "-c:a", "pcm_alaw"]),
+            ("adpcm.wav", &["-ac", "2", "-ar", "44100", "-c:a", "adpcm_ms"]),
+            ("t.flac", &["-ac", "2", "-ar", "44100"]),
+            ("t.mp3", &["-ac", "2", "-ar", "44100"]),
+            ("t.ogg", &["-ac", "2", "-ar", "44100"]),
+            ("t.opus", &["-ac", "2", "-ar", "48000"]),
+            ("t.m4a", &["-ac", "2", "-ar", "44100"]),
+            ("t.aiff", &["-ac", "2", "-ar", "44100"]),
+            ("t.wma", &["-ac", "2", "-ar", "44100"]),
+            ("t.mka", &["-ac", "2", "-ar", "44100"]),
+        ];
+        let mut bad = Vec::new();
+        for (name, args) in cases {
+            let path = dir.join(name);
+            let ok = std::process::Command::new("ffmpeg")
+                .args(["-loglevel", "error", "-y", "-f", "lavfi", "-i", "sine=frequency=440:duration=3"])
+                .args(*args)
+                .arg(&path)
+                .status()
+                .is_ok_and(|s| s.success());
+            if !ok {
+                continue;
+            }
+            let p = path.to_string_lossy().into_owned();
+            match decoded_seconds(&p, 0.0) {
+                Ok(s) if (s - 3.0).abs() < 0.15 => {}
+                other => bad.push(format!("{name}: {other:?}")),
+            }
+            match decoded_seconds(&p, 1.0) {
+                Ok(s) if (s - 2.0).abs() < 0.15 => {}
+                other => bad.push(format!("{name} с 1 с: {other:?}")),
+            }
+        }
+        let _ = std::fs::remove_dir_all(&dir);
+        assert!(bad.is_empty(), "{bad:#?}");
     }
 }

@@ -39,7 +39,11 @@ impl Resampler {
         self.out_rate
     }
 
-    pub fn convert(&mut self, frame: &frame::Audio) -> Result<Vec<f32>, VideoError> {
+    pub fn convert(&mut self, frame: &mut frame::Audio) -> Result<Vec<f32>, VideoError> {
+        if frame.channel_layout().is_empty() {
+            frame.set_channel_layout(ChannelLayout::default(frame.channels() as i32));
+        }
+        let frame = &*frame;
         // Выходной кадр — под столько сэмплов, сколько swr может отдать.
         // `Context::run` из ffmpeg-next с пустым кадром выделяет его размером
         // входа: при 44,1 → 48 кГц в него не влезают 8 % сэмплов, они копятся
@@ -105,7 +109,7 @@ mod tests {
             out_rate,
         )
         .expect("new");
-        let out = r.convert(&frame_in).expect("convert");
+        let out = r.convert(&mut frame_in).expect("convert");
         assert!(!out.is_empty(), "resampler не должен вернуть пустой выход");
         let expected = (n as f64 * out_rate as f64 / in_rate as f64) as usize;
         assert!(
@@ -115,6 +119,27 @@ mod tests {
             expected
         );
         assert!(out.iter().any(|&s| s.abs() > 0.01));
+    }
+
+    #[test]
+    fn frame_without_channel_layout_is_converted() {
+        ffmpeg_next::init().ok();
+        let mut r = Resampler::new(Sample::I16(Type::Packed), ChannelLayout::STEREO, 44_100, 48_000).expect("new");
+        let mut produced = 0usize;
+        for _ in 0..20 {
+            let mut f = frame::Audio::new(Sample::I16(Type::Packed), 1024, ChannelLayout::STEREO);
+            unsafe {
+                let raw = f.as_mut_ptr();
+                (*raw).sample_rate = 44_100;
+                ffi::av_channel_layout_uninit(&mut (*raw).ch_layout);
+                (*raw).ch_layout.order = ffi::AVChannelOrder::AV_CHANNEL_ORDER_UNSPEC;
+                (*raw).ch_layout.nb_channels = 2;
+            }
+            assert!(f.channel_layout().is_empty());
+            f.data_mut(0).fill(64);
+            produced += r.convert(&mut f).expect("convert").len();
+        }
+        assert!(produced > 20 * 1024, "{produced}");
     }
 
     #[test]
@@ -136,7 +161,7 @@ mod tests {
                 (*f.as_mut_ptr()).sample_rate = in_rate as i32;
             }
             f.plane_mut::<f32>(0).fill(0.25);
-            produced += r.convert(&f).expect("convert").len();
+            produced += r.convert(&mut f).expect("convert").len();
         }
         let expected = (frames * n) as f64 * out_rate as f64 / in_rate as f64;
         // Внутри swr остаётся хвост фильтра — не больше пары сотен сэмплов,
