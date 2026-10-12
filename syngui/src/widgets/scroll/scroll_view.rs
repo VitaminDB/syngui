@@ -155,6 +155,7 @@ impl Widget for ScrollView {
 
             dragging_vertical: false,
             dragging_horizontal: false,
+            drag_grab: 0.0,
             hover_vertical: false,
             hover_horizontal: false,
             hover_scrollbar_area: false,
@@ -231,6 +232,7 @@ pub struct ScrollViewElement {
 
     dragging_vertical: bool,
     dragging_horizontal: bool,
+    drag_grab: f32,
     hover_vertical: bool,
     hover_horizontal: bool,
     hover_scrollbar_area: bool,
@@ -382,14 +384,36 @@ impl ScrollViewElement {
         )
     }
 
-    /// Прокрутить так, чтобы центр ползунка встал под курсор.
+    /// Нижняя полоса по всей ширине — зона захвата горизонтального ползунка.
+    fn horizontal_track_hit_rect(&self) -> Rect {
+        let grab = self.scrollbar_width + 4.0;
+        Rect::new(
+            Point::new(
+                self.bounds.origin.x,
+                self.bounds.origin.y + self.bounds.size.height - grab,
+            ),
+            Size::new(self.bounds.size.width, grab),
+        )
+    }
+
+    /// Прокрутить так, чтобы точка захвата ползунка встала под курсор.
     fn drag_vertical_to(&mut self, y: f32) {
         let thumb_h = self.vertical_thumb_rect().size.height;
         let track_h = self.bounds.size.height;
         if track_h > thumb_h {
-            let rel = (y - self.bounds.origin.y - thumb_h / 2.0) / (track_h - thumb_h);
+            let rel = (y - self.bounds.origin.y - self.drag_grab) / (track_h - thumb_h);
             self.scroll_offset.y =
                 (rel.clamp(0.0, 1.0) * self.max_scroll_y()).clamp(0.0, self.max_scroll_y());
+        }
+    }
+
+    fn drag_horizontal_to(&mut self, x: f32) {
+        let thumb_w = self.horizontal_thumb_rect().size.width;
+        let track_w = self.bounds.size.width;
+        if track_w > thumb_w {
+            let rel = (x - self.bounds.origin.x - self.drag_grab) / (track_w - thumb_w);
+            self.scroll_offset.x =
+                (rel.clamp(0.0, 1.0) * self.max_scroll_x()).clamp(0.0, self.max_scroll_x());
         }
     }
 
@@ -631,7 +655,11 @@ impl Element for ScrollViewElement {
             Event::MouseDown {
                 button: MouseButton::Left,
                 position,
-            } => self.show_vertical_thumb() && self.vertical_track_hit_rect().contains(*position),
+            } => {
+                (self.show_vertical_thumb() && self.vertical_track_hit_rect().contains(*position))
+                    || (self.show_horizontal_thumb()
+                        && self.horizontal_track_hit_rect().contains(*position))
+            }
             _ => false,
         }
     }
@@ -727,7 +755,11 @@ impl Element for ScrollViewElement {
                 {
                     // Нажатие на полосе мимо ползунка переносит его под
                     // курсор — и сразу можно тянуть.
-                    if !self.vertical_thumb_rect().contains(*position) {
+                    let thumb = self.vertical_thumb_rect();
+                    if thumb.contains(*position) {
+                        self.drag_grab = position.y - thumb.origin.y;
+                    } else {
+                        self.drag_grab = thumb.size.height / 2.0;
                         self.velocity = Point::zero();
                         self.is_coasting = false;
                         self.drag_vertical_to(position.y);
@@ -738,13 +770,22 @@ impl Element for ScrollViewElement {
                     ctx.request_paint();
                     return EventResult::Captured;
                 }
-                if self.show_horizontal_thumb() {
+                if self.show_horizontal_thumb()
+                    && self.horizontal_track_hit_rect().contains(*position)
+                {
                     let thumb = self.horizontal_thumb_rect();
                     if thumb.contains(*position) {
-                        self.dragging_horizontal = true;
-                        ctx.request_paint();
-                        return EventResult::Captured;
+                        self.drag_grab = position.x - thumb.origin.x;
+                    } else {
+                        self.drag_grab = thumb.size.width / 2.0;
+                        self.velocity = Point::zero();
+                        self.is_coasting = false;
+                        self.drag_horizontal_to(position.x);
                     }
+                    self.dragging_horizontal = true;
+                    self.flash_scrollbar();
+                    ctx.request_paint();
+                    return EventResult::Captured;
                 }
                 EventResult::Ignored
             }
@@ -753,28 +794,14 @@ impl Element for ScrollViewElement {
                 let mut result = EventResult::Ignored;
 
                 if self.dragging_vertical {
-                    let thumb_h = self.vertical_thumb_rect().size.height;
-                    let track_h = self.bounds.size.height;
-                    if track_h > thumb_h {
-                        let rel =
-                            (pos.y - self.bounds.origin.y - thumb_h / 2.0) / (track_h - thumb_h);
-                        self.scroll_offset.y = (rel.clamp(0.0, 1.0) * self.max_scroll_y())
-                            .clamp(0.0, self.max_scroll_y());
-                    }
+                    self.drag_vertical_to(pos.y);
                     self.refresh_stick();
                     self.flash_scrollbar();
                     ctx.request_paint();
                     return EventResult::Captured;
                 }
                 if self.dragging_horizontal {
-                    let thumb_w = self.horizontal_thumb_rect().size.width;
-                    let track_w = self.bounds.size.width;
-                    if track_w > thumb_w {
-                        let rel =
-                            (pos.x - self.bounds.origin.x - thumb_w / 2.0) / (track_w - thumb_w);
-                        self.scroll_offset.x = (rel.clamp(0.0, 1.0) * self.max_scroll_x())
-                            .clamp(0.0, self.max_scroll_x());
-                    }
+                    self.drag_horizontal_to(pos.x);
                     self.flash_scrollbar();
                     ctx.request_paint();
                     return EventResult::Captured;
@@ -1297,6 +1324,54 @@ mod tests {
         plain.layout(Constraints::tight(Size::new(400.0, 600.0)));
         plain.set_content_size(Size::new(400.0, 2000.0));
         assert_eq!(plain.scroll_offset().y, 0.0);
+    }
+
+    /// Горизонтальный ползунок над интерактивным содержимым: нажатие
+    /// перехватывает сам ScrollView, ползунок тянется в обе стороны без
+    /// скачка под курсор, а клик по дорожке переносит его туда.
+    #[test]
+    fn horizontal_thumb_is_intercepted_and_drags_back() {
+        let mut el = ScrollView::new().horizontal().create_element();
+        el.layout(Constraints::tight(Size::new(1000.0, 600.0)));
+        el.set_content_size(Size::new(2000.0, 600.0));
+        let mut ctx = crate::widget::context::EventContext::new(el.id());
+        let left = Point::new(5.0, 597.0);
+        assert!(el.intercepts_event(&Event::MouseDown {
+            button: MouseButton::Left,
+            position: Point::new(900.0, 597.0),
+        }));
+        assert_eq!(
+            el.handle_event(
+                &Event::MouseDown {
+                    button: MouseButton::Left,
+                    position: Point::new(900.0, 597.0),
+                },
+                &mut ctx,
+            ),
+            EventResult::Captured
+        );
+        assert_eq!(el.scroll_offset().x, 1000.0, "клик по дорожке у правого края");
+        el.handle_event(
+            &Event::MouseUp {
+                button: MouseButton::Left,
+                position: Point::new(900.0, 597.0),
+            },
+            &mut ctx,
+        );
+        el.handle_event(
+            &Event::MouseDown {
+                button: MouseButton::Left,
+                position: Point::new(990.0, 597.0),
+            },
+            &mut ctx,
+        );
+        assert_eq!(el.scroll_offset().x, 1000.0, "захват ползунка не сдвигает его");
+        el.handle_event(&Event::MouseMove(left), &mut ctx);
+        assert_eq!(el.scroll_offset().x, 0.0, "ползунок вернулся влево");
+        assert!(!el.intercepts_event(&Event::MouseDown {
+            button: MouseButton::Left,
+            position: Point::new(500.0, 300.0),
+        }));
     }
 
     /// Без явного включения поведение прежнее — прижатие к левому верхнему углу.

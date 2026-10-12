@@ -1119,7 +1119,11 @@ impl TableViewElement {
     }
 
     fn max_scroll(&self) -> f32 {
-        (self.content_height() - self.body_rect().size.height).max(0.0)
+        let h_bar = self
+            .h_scrollbar_rects()
+            .map(|(track, _)| track.size.height)
+            .unwrap_or(0.0);
+        (self.content_height() + h_bar - self.body_rect().size.height).max(0.0)
     }
 
     fn set_scroll_offset(&mut self, offset: f32) {
