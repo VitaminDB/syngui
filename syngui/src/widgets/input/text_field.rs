@@ -37,6 +37,7 @@ pub struct TextField {
     /// Забрать клавиатурный фокус при монтировании — для полей, с которых
     /// начинается ввод (палитра команд, диалог поиска).
     pub autofocus: bool,
+    pub focus_token: u64,
     /// Показывать при фокусе всплывашку с текстом из буфера обмена: тап по
     /// ней вставляет текст. Также включается из MSS: `clipboard-hint: on`.
     pub clipboard_hint: bool,
@@ -71,6 +72,7 @@ impl TextField {
             input_filter: None,
             on_filter_reject: None,
             autofocus: false,
+            focus_token: 0,
             clipboard_hint: false,
             initial_selection: None,
             menu_open: use_signal(false),
@@ -171,6 +173,14 @@ impl TextField {
         self
     }
 
+    /// Смена значения при перестройке — поле снова забирает фокус (autofocus
+    /// срабатывает только при появлении: перестроенное поле — тот же элемент).
+    /// Например, счётчик «новый вопрос».
+    pub fn focus_token(mut self, token: u64) -> Self {
+        self.focus_token = token;
+        self
+    }
+
     /// Всплывашка с текстом из буфера обмена при фокусе (тап вставляет
     /// текст). Эквивалент MSS-свойства `clipboard-hint: on`.
     pub fn clipboard_hint(mut self, on: bool) -> Self {
@@ -264,6 +274,7 @@ impl Widget for TextField {
             hover: false,
             focused: self.autofocus,
             autofocus: self.autofocus,
+            focus_token: self.focus_token,
             focus_request_pending: self.autofocus,
             cursor_pos: self.initial_cursor(),
             selection: self.initial_selection_state(),
@@ -330,6 +341,7 @@ pub struct TextFieldElement {
     focused: bool,
     /// Поле просит фокус при монтировании; заявка забирается деревом один раз.
     autofocus: bool,
+    focus_token: u64,
     focus_request_pending: bool,
     cursor_pos: usize,
     selection: TextSelectionState,
@@ -784,11 +796,12 @@ impl Element for TextFieldElement {
             self.input_filter = tf.input_filter.clone();
             self.on_filter_reject = tf.on_filter_reject.clone();
             self.clipboard_hint_prop = tf.clipboard_hint;
-            if tf.autofocus && !self.autofocus {
+            if (tf.autofocus && !self.autofocus) || tf.focus_token != self.focus_token {
                 self.focus_request_pending = true;
                 self.focused = true;
             }
             self.autofocus = tf.autofocus;
+            self.focus_token = tf.focus_token;
             self.mark_dirty(DirtyFlags::LAYOUT | DirtyFlags::RENDER);
         }
     }
