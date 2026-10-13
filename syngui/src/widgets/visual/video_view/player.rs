@@ -449,6 +449,7 @@ pub struct VideoPlayerView {
     footer: Option<HeaderFn>,
     prev: Option<NavFn>,
     next: Option<NavFn>,
+    ended: Option<NavFn>,
     fit: ImageFit,
     seek_step: f64,
 }
@@ -471,6 +472,7 @@ impl VideoPlayerView {
             footer: None,
             prev: None,
             next: None,
+            ended: None,
             fit: ImageFit::Contain,
             seek_step: BUTTON_STEP,
         }
@@ -533,6 +535,13 @@ impl VideoPlayerView {
     /// «следующий трек».
     pub fn on_next(mut self, f: impl Fn() + Send + Sync + 'static) -> Self {
         self.next = Some(Arc::new(f));
+        self
+    }
+
+    /// Ролик дошёл до конца (плеер встал на паузу, по центру ⟲) — вызов на
+    /// главном потоке, раз на каждый конец: повтор, следующий ролик.
+    pub fn on_ended(mut self, f: impl Fn() + Send + Sync + 'static) -> Self {
+        self.ended = Some(Arc::new(f));
         self
     }
 
@@ -629,6 +638,7 @@ struct Ctl {
     footer: Option<HeaderFn>,
     prev: Option<NavFn>,
     next: Option<NavFn>,
+    on_ended: Option<NavFn>,
 }
 
 impl Ctl {
@@ -685,6 +695,7 @@ fn build(view: VideoPlayerView) -> impl Widget {
         footer: view.footer,
         prev: view.prev,
         next: view.next,
+        on_ended: view.ended,
     };
     let token = Arc::new(());
     spawn_ticker(&ctl, Arc::downgrade(&token));
@@ -1427,6 +1438,7 @@ fn spawn_ticker(ctl: &Ctl, token: Weak<()>) {
     let (pos_sig, paused_sig, ended_sig, visible_sig, scrub_sig) =
         (ctl.pos, ctl.paused, ctl.ended, ctl.visible, ctl.scrub);
     let initially_paused = ctl.paused.get_untracked();
+    let on_ended = ctl.on_ended.clone();
     let spawned = std::thread::Builder::new()
         .name("video-player-tick".into())
         .spawn(move || {
@@ -1529,6 +1541,9 @@ fn spawn_ticker(ctl: &Ctl, token: Weak<()>) {
                         set_on_main(pos_sig, duration as f32);
                         shared.shown.store(true, Ordering::Relaxed);
                         set_on_main(visible_sig, true);
+                        if let Some(f) = on_ended.clone() {
+                            crate::async_runtime::run_on_main_thread(move || f());
+                        }
                         continue;
                     }
                 }
