@@ -1013,7 +1013,7 @@ fn fill_streaming<T: Copy>(
             let s = q.pop_front().unwrap_or(0.0);
             (s, s)
         };
-        let (l, r) = (l * volume, r * volume);
+        let (l, r) = (super::apply_gain(l, volume), super::apply_gain(r, volume));
         let out = &mut data[i * ch..(i + 1) * ch];
         if ch == 1 {
             out[0] = conv((l + r) * 0.5);
@@ -1332,7 +1332,7 @@ fn fill_device_frames_i16(
             } else {
                 0.0
             };
-            data[f * dev_ch + c] = ((sample * vol).clamp(-1.0, 1.0) * i16::MAX as f32) as i16;
+            data[f * dev_ch + c] = (super::apply_gain(sample, vol).clamp(-1.0, 1.0) * i16::MAX as f32) as i16;
         }
     }
 }
@@ -1355,7 +1355,7 @@ fn fill_device_frames_u16(
             } else {
                 0.0
             };
-            data[f * dev_ch + c] = (((sample * vol).clamp(-1.0, 1.0) * mid) + mid) as u16;
+            data[f * dev_ch + c] = ((super::apply_gain(sample, vol).clamp(-1.0, 1.0) * mid) + mid) as u16;
         }
     }
 }
@@ -1520,15 +1520,15 @@ fn fill_device_frames_f32(
     let frames = out.len() / dev_ch;
     if audio_ch == 1 {
         for f in 0..frames {
-            let s = chunk.get(f).copied().unwrap_or(0.0) * gain;
+            let s = super::apply_gain(chunk.get(f).copied().unwrap_or(0.0), gain);
             for c in 0..dev_ch {
                 out[f * dev_ch + c] = s;
             }
         }
     } else {
         for f in 0..frames {
-            let l = chunk.get(f * 2).copied().unwrap_or(0.0) * gain;
-            let r = chunk.get(f * 2 + 1).copied().unwrap_or(0.0) * gain;
+            let l = super::apply_gain(chunk.get(f * 2).copied().unwrap_or(0.0), gain);
+            let r = super::apply_gain(chunk.get(f * 2 + 1).copied().unwrap_or(0.0), gain);
             for c in 0..dev_ch {
                 out[f * dev_ch + c] = match c {
                     0 => l,

@@ -60,6 +60,19 @@ impl AudioBuffer {
     }
 }
 
+/// Сэмпл с громкостью `gain`. Выше 1.0 (усиление тихих записей) пики
+/// мягко сжимаются к ±1 вместо жёсткого среза — без хрипа на громких местах.
+#[inline]
+pub(crate) fn apply_gain(s: f32, gain: f32) -> f32 {
+    const KNEE: f32 = 0.8;
+    let x = s * gain;
+    if gain <= 1.0 || x.abs() <= KNEE {
+        return x;
+    }
+    let over = (x.abs() - KNEE) / (1.0 - KNEE);
+    x.signum() * (KNEE + (1.0 - KNEE) * over.tanh())
+}
+
 pub fn compute_rms_bins(pcm: &[f32], channels: u16, bins: usize) -> Vec<f32> {
     if pcm.is_empty() || bins == 0 {
         return vec![0.0; bins.max(1)];
@@ -104,6 +117,18 @@ pub fn compute_rms_bins(pcm: &[f32], channels: u16, bins: usize) -> Vec<f32> {
 
 #[cfg(test)]
 mod buffer_tests {
+    #[test]
+    fn apply_gain_soft_limits_boost() {
+        use super::apply_gain;
+        assert_eq!(apply_gain(0.5, 1.0), 0.5);
+        assert_eq!(apply_gain(1.0, 1.0), 1.0);
+        assert_eq!(apply_gain(0.4, 1.5), 0.6);
+        let y = apply_gain(1.0, 1.5);
+        assert!(y > 0.8 && y < 1.0);
+        assert!(apply_gain(-1.0, 1.5) < -0.8);
+        assert!(apply_gain(0.9, 1.5) < apply_gain(1.0, 1.5));
+    }
+
     use super::*;
 
     #[test]

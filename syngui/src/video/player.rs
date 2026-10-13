@@ -186,8 +186,10 @@ impl VideoPlayer {
         self.master_clock_sec()
     }
 
+    /// Громкость: 1.0 — как в записи, выше — усиление тихих записей
+    /// (до 2.0; пики мягко ограничиваются).
     pub fn set_volume(&self, v: f32) {
-        let v = v.clamp(0.0, 1.0);
+        let v = v.clamp(0.0, 2.0);
         self.shared
             .volume_bits
             .store(v.to_bits(), Ordering::Relaxed);

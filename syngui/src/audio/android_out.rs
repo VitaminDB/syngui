@@ -235,7 +235,7 @@ impl AudioOutputCallback for OboeCallback {
             if let Ok(mut q) = self.queue.lock() {
                 let take = out.len().min(q.len());
                 for slot in out.iter_mut().take(take) {
-                    *slot = q.pop_front().unwrap_or(0.0) * volume;
+                    *slot = super::apply_gain(q.pop_front().unwrap_or(0.0), volume);
                 }
                 taken = take;
             }
