@@ -1140,9 +1140,15 @@ impl ElementTree {
         let shrink_w = mss_intrinsic_w || (explicit_w.is_none() && !parent_imposed_w);
         let shrink_h = mss_intrinsic_h || (explicit_h.is_none() && !parent_imposed_h);
 
+        // Своя `max-height` ограничивает и ребёнка: иначе прокрутка внутри
+        // бокса получает высоту окна, а бокс обрезает её снизу.
         let child_max_h = if shrink_h {
-            if constraints.max_height.is_finite() {
-                (constraints.max_height - pad_v).max(0.0)
+            let cap = match max_h {
+                Some(m) => constraints.max_height.min(m),
+                None => constraints.max_height,
+            };
+            if cap.is_finite() {
+                (cap - pad_v).max(0.0)
             } else {
                 f32::INFINITY
             }
@@ -1999,15 +2005,23 @@ impl ElementTree {
             Size::zero()
         };
 
-        let width = if constraints.max_width.is_finite() {
+        // `width/height: fit-content` (как в CSS): по содержимому, но не больше
+        // доступного — лист с прокруткой и `max-height` не растягивается пустым.
+        let (fit_w, fit_h) = self
+            .elements
+            .get(&id)
+            .and_then(|n| n.element.mss())
+            .map(|m| (m.width.is_some_and(|d| d.is_intrinsic()), m.height.is_some_and(|d| d.is_intrinsic())))
+            .unwrap_or((false, false));
+        let width = if constraints.max_width.is_finite() && !fit_w {
             constraints.max_width
         } else {
-            (content_width + left + right).max(constraints.min_width)
+            (content_width + left + right).max(constraints.min_width).min(constraints.max_width)
         };
-        let height = if constraints.max_height.is_finite() {
+        let height = if constraints.max_height.is_finite() && !fit_h {
             constraints.max_height
         } else {
-            (content_height + top + bottom).max(constraints.min_height)
+            (content_height + top + bottom).max(constraints.min_height).min(constraints.max_height)
         };
 
         if let Some(node) = self.elements.get_mut(&id) {

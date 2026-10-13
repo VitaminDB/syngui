@@ -592,6 +592,10 @@ VirtualFlex::flex(240.0, item_count, |i| Box::new(card(i)))      // (min_item_wi
     .gap(12.0).estimated_item_height(180.0).scrollbar_policy(ScrollbarPolicy::Auto)
 ```
 
+`height: fit-content` у `ScrollView` — высота по содержимому, но не больше доступной (лист/попап с
+`max-height` у обёртки не растягивается пустым, длинное содержимое прокручивается); `max-height`
+`DecoratedBox` ограничивает и высоту ребёнка.
+
 MSS-свойства скроллбара: `scrollbar-width`, `scrollbar-color`,
 `scrollbar-thumb-hover-color`, `scrollbar-track-color`, `scrollbar-radius`,
 `scrollbar-policy`, `scrollbar-fade-delay` (см. `synthos: styles/components/scrollbars.mss`).

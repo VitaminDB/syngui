@@ -493,3 +493,7 @@ required-features = ["testing"]
 [[example]]
 name = "stream_gap"
 required-features = ["audio"]
+
+[[test]]
+name = "scroll_fit_content"
+required-features = ["testing"]
