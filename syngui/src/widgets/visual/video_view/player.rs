@@ -100,6 +100,8 @@ const MI_VOLUME_DOWN: &str = "\u{E04D}";
 const MI_VOLUME_OFF: &str = "\u{E04F}";
 const MI_FULLSCREEN: &str = "\u{E5D0}";
 const MI_FULLSCREEN_EXIT: &str = "\u{E5D1}";
+const MI_CHEVRON_LEFT: &str = "\u{E5CB}";
+const MI_CHEVRON_RIGHT: &str = "\u{E5CC}";
 
 /// Сколько панель держится без движения мыши при воспроизведении.
 const HIDE_AFTER: Duration = Duration::from_millis(2500);
@@ -444,12 +446,18 @@ pub struct VideoPlayerView {
     volume: Option<RwSignal<f32>>,
     position: Option<RwSignal<f32>>,
     header: Option<HeaderFn>,
+    footer: Option<HeaderFn>,
+    prev: Option<NavFn>,
+    next: Option<NavFn>,
     fit: ImageFit,
     seek_step: f64,
 }
 
 /// Строит содержимое верхней полосы (см. [`VideoPlayerView::header`]).
 pub type HeaderFn = Arc<dyn Fn() -> Box<dyn Widget> + Send + Sync>;
+
+/// Переход к соседнему ролику (см. [`VideoPlayerView::on_prev`]).
+pub type NavFn = Arc<dyn Fn() + Send + Sync>;
 
 impl VideoPlayerView {
     pub fn new(source: Arc<dyn MediaSource>) -> Self {
@@ -460,6 +468,9 @@ impl VideoPlayerView {
             volume: None,
             position: None,
             header: None,
+            footer: None,
+            prev: None,
+            next: None,
             fit: ImageFit::Contain,
             seek_step: BUTTON_STEP,
         }
@@ -500,6 +511,28 @@ impl VideoPlayerView {
     /// Содержимое строится заново при каждом показе.
     pub fn header(mut self, f: impl Fn() -> Box<dyn Widget> + Send + Sync + 'static) -> Self {
         self.header = Some(Arc::new(f));
+        self
+    }
+
+    /// Полоса владельца над шкалой перемотки (лента миниатюр соседних
+    /// роликов): видна и прячется вместе с панелью, строится заново при
+    /// каждом показе.
+    pub fn footer(mut self, f: impl Fn() -> Box<dyn Widget> + Send + Sync + 'static) -> Self {
+        self.footer = Some(Arc::new(f));
+        self
+    }
+
+    /// Предыдущий ролик: круглая стрелка у левого края (видна вместе с
+    /// панелью), клавиши Page Up, Shift+P и «предыдущий трек».
+    pub fn on_prev(mut self, f: impl Fn() + Send + Sync + 'static) -> Self {
+        self.prev = Some(Arc::new(f));
+        self
+    }
+
+    /// Следующий ролик: стрелка у правого края, Page Down, Shift+N и
+    /// «следующий трек».
+    pub fn on_next(mut self, f: impl Fn() + Send + Sync + 'static) -> Self {
+        self.next = Some(Arc::new(f));
         self
     }
 
@@ -593,6 +626,9 @@ struct Ctl {
     fullscreen: Option<FullscreenCtl>,
     /// Шаг перемотки ([`VideoPlayerView::seek_step`]).
     seek_step: f64,
+    footer: Option<HeaderFn>,
+    prev: Option<NavFn>,
+    next: Option<NavFn>,
 }
 
 impl Ctl {
@@ -646,6 +682,9 @@ fn build(view: VideoPlayerView) -> impl Widget {
         owner_volume: view.volume,
         scrub: use_signal(None),
         fullscreen: view.fullscreen,
+        footer: view.footer,
+        prev: view.prev,
+        next: view.next,
     };
     let token = Arc::new(());
     spawn_ticker(&ctl, Arc::downgrade(&token));
@@ -677,8 +716,11 @@ fn build(view: VideoPlayerView) -> impl Widget {
     let mut stage = Stack::new()
         .fit(StackFit::Expand)
         .child(video)
-        .child(center_badge(ctl.clone()))
-        .child(controls_layer(ctl.clone()));
+        .child(center_badge(ctl.clone()));
+    if ctl.prev.is_some() || ctl.next.is_some() {
+        stage = stage.child(nav_layer(ctl.clone()));
+    }
+    stage = stage.child(controls_layer(ctl.clone()));
     if let Some(h) = view.header {
         stage = stage.child(header_layer(ctl.clone(), h));
     }
@@ -755,27 +797,14 @@ fn controls_layer(ctl: Ctl) -> impl Widget {
         if !shown {
             return vec![];
         }
-        let hover = ctl.clone();
-        vec![Box::new(
-            GestureDetector::new()
-                .cursor(CursorIcon::Default)
-                .on_hover_change(move |over| {
-                    log::debug!("[video-player] наведение на панель: {over}");
-                    hover.shared.over_controls.store(over, Ordering::Relaxed);
-                    if over {
-                        hover.wake();
-                    }
-                })
-                .child(
-                    DecoratedBox::new().class(ctl.cls("vp-controls")).child(
-                        Column::new()
-                            .gap(if ctl.compact { 2.0 } else { 6.0 })
-                            .cross_axis_alignment(CrossAxisAlignment::Stretch)
-                            .child(seek_bar(ctl.clone()))
-                            .child(bottom_row(ctl.clone())),
-                    ),
-                ),
-        )]
+        let mut col = Column::new()
+            .gap(if ctl.compact { 2.0 } else { 6.0 })
+            .cross_axis_alignment(CrossAxisAlignment::Stretch);
+        if let Some(f) = &ctl.footer {
+            col = col.child(f());
+        }
+        col = col.child(seek_bar(ctl.clone())).child(bottom_row(ctl.clone()));
+        vec![Box::new(over_controls(&ctl, DecoratedBox::new().class(ctl.cls("vp-controls")).child(col)))]
     });
     Column::new()
         .main_axis_alignment(MainAxisAlignment::End)
@@ -791,24 +820,66 @@ fn header_layer(ctl: Ctl, header: HeaderFn) -> impl Widget {
         if !shown {
             return vec![];
         }
-        let hover = ctl.clone();
-        vec![Box::new(
-            GestureDetector::new()
-                .cursor(CursorIcon::Default)
-                .on_hover_change(move |over| {
-                    log::debug!("[video-player] наведение на панель: {over}");
-                    hover.shared.over_controls.store(over, Ordering::Relaxed);
-                    if over {
-                        hover.wake();
-                    }
-                })
-                .child(DecoratedBox::new().class(ctl.cls("vp-header")).child(header())),
-        )]
+        vec![Box::new(over_controls(&ctl, DecoratedBox::new().class(ctl.cls("vp-header")).child(header())))]
     });
     Column::new()
         .main_axis_alignment(MainAxisAlignment::Start)
         .cross_axis_alignment(CrossAxisAlignment::Stretch)
         .child(bar)
+}
+
+/// Пока курсор над панелью, она не прячется.
+fn over_controls(ctl: &Ctl, child: impl Widget + 'static) -> GestureDetector {
+    let hover = ctl.clone();
+    GestureDetector::new()
+        .cursor(CursorIcon::Default)
+        .on_hover_change(move |over| {
+            log::debug!("[video-player] наведение на панель: {over}");
+            hover.shared.over_controls.store(over, Ordering::Relaxed);
+            if over {
+                hover.wake();
+            }
+        })
+        .child(child)
+}
+
+/// Круглые стрелки к соседним роликам по бокам кадра, по высоте — посередине;
+/// видны вместе с панелью. Ряды во всю ширину лежат друг на друге, как в
+/// [`bottom_row`]: мимо стрелок клики проходят к кадру.
+fn nav_layer(ctl: Ctl) -> impl Widget {
+    let side = |ctl: &Ctl, f: Option<NavFn>, prev: bool| -> Row {
+        let c = ctl.clone();
+        let button = Reactive::new(move || -> Vec<Box<dyn Widget>> {
+            let shown = c.visible.get() || c.paused.get();
+            let Some(f) = f.clone().filter(|_| shown) else {
+                return vec![];
+            };
+            let (icon, tip) = if prev {
+                (MI_CHEVRON_LEFT, builtin("video_player.previous.tooltip", "Previous video (Page Up)"))
+            } else {
+                (MI_CHEVRON_RIGHT, builtin("video_player.next.tooltip", "Next video (Page Down)"))
+            };
+            let w = c.clone();
+            vec![Box::new(over_controls(
+                &c,
+                ToolButton::new(icon)
+                    .tooltip(tip)
+                    .on_click(move || {
+                        w.wake();
+                        f()
+                    })
+                    .class(c.cls("vp-nav")),
+            ))]
+        });
+        Row::new()
+            .main_axis_alignment(if prev { MainAxisAlignment::Start } else { MainAxisAlignment::End })
+            .cross_axis_alignment(CrossAxisAlignment::Center)
+            .child(button)
+    };
+    Stack::new()
+        .fit(StackFit::Expand)
+        .child(side(&ctl, ctl.prev.clone(), true))
+        .child(side(&ctl, ctl.next.clone(), false))
 }
 
 /// Часы для источников без своих (кадры из памяти): пока идёт
@@ -1216,12 +1287,18 @@ impl Ctl {
             // Esc во весь экран — выход из него; иначе Esc закрывает
             // просмотрщик (его ловит `Portal`).
             Key::Escape => self.fullscreen.as_ref().is_some_and(|f| f.active),
+            Key::PageUp | Key::MediaPrevious | Key::P => self.prev.is_some(),
+            Key::PageDown | Key::MediaNext | Key::N => self.next.is_some(),
             _ => false,
         }
     }
 
     fn on_key(&self, key: Key, mods: Modifiers) -> KeyReply {
         if mods.ctrl || mods.alt || mods.meta || !self.handles_key(key) {
+            return KeyReply::Ignore;
+        }
+        // N и P — только с Shift (как в YouTube)
+        if matches!(key, Key::N | Key::P) && !mods.shift {
             return KeyReply::Ignore;
         }
         let arrow = if mods.shift { FINE_STEP } else { ARROW_STEP };
@@ -1236,6 +1313,16 @@ impl Ctl {
             Key::M => self.toggle_mute(),
             Key::F | Key::Escape => self.toggle_fullscreen(),
             Key::Home => self.request_seek(0.0),
+            Key::PageUp | Key::MediaPrevious | Key::P => {
+                if let Some(f) = &self.prev {
+                    f()
+                }
+            }
+            Key::PageDown | Key::MediaNext | Key::N => {
+                if let Some(f) = &self.next {
+                    f()
+                }
+            }
             other => {
                 if let Some(n) = digit(other) {
                     self.request_seek(self.duration * n as f64 / 10.0);
@@ -1589,7 +1676,7 @@ impl Element for ClockTickerElement {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::testing::{click_at, TestHarness};
+    use crate::testing::{click_at, press_key, TestHarness};
 
     const W: f32 = 640.0;
     const H: f32 = 360.0;
@@ -1667,6 +1754,44 @@ mod tests {
         settle(&mut h, &engine);
         wait_tap(&mut h, &engine);
         assert!(src.is_paused(), "второй тап при видимой панели — пауза");
+    }
+
+    #[test]
+    fn neighbours_arrows_keys_and_footer() {
+        crate::signal::allow_signal_reads_on_this_thread();
+        let frames = frames();
+        let src = FramesSource::shared(&frames, 24.0, None);
+        let prev = Arc::new(AtomicU32::new(0));
+        let next = Arc::new(AtomicU32::new(0));
+        let (p, n) = (prev.clone(), next.clone());
+        let view = VideoPlayerView::new(src)
+            .on_prev(move || {
+                p.fetch_add(1, Ordering::Relaxed);
+            })
+            .on_next(move || {
+                n.fetch_add(1, Ordering::Relaxed);
+            })
+            .footer(|| Box::new(DecoratedBox::new().class("owner-strip")));
+        let mut h = TestHarness::new(Box::new(view.build()));
+        let engine = h.apply_mss("");
+        settle(&mut h, &engine);
+
+        let navs = h.find_by_class("vp-nav");
+        assert_eq!(navs.len(), 2, "стрелки по бокам");
+        let (l, r) = (h.element_bounds(navs[0]), h.element_bounds(navs[1]));
+        assert!(l.origin.x < W / 4.0 && r.origin.x > W * 0.75, "слева и справа: {l:?} {r:?}");
+        assert!((l.origin.y + l.size.height / 2.0 - H / 2.0).abs() < 2.0, "по высоте посередине: {l:?}");
+        assert_eq!(h.find_by_class("owner-strip").len(), 1, "лента владельца в панели");
+
+        h.send_events(&click_at(Point::new(r.origin.x + r.size.width / 2.0, r.origin.y + r.size.height / 2.0)));
+        settle(&mut h, &engine);
+        assert_eq!(next.load(Ordering::Relaxed), 1, "стрелка → — следующий");
+        h.send_events(&press_key(Key::PageUp));
+        h.send_events(&press_key(Key::PageDown));
+        settle(&mut h, &engine);
+        assert_eq!((prev.load(Ordering::Relaxed), next.load(Ordering::Relaxed)), (1, 2), "Page Up / Page Down");
+        h.send_events(&press_key(Key::N));
+        assert_eq!(next.load(Ordering::Relaxed), 2, "N без Shift — не переход");
     }
 
     #[test]

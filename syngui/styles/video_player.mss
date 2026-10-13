@@ -261,3 +261,33 @@ ToolButton.vp-big-play-sm:hover {
     overflow: hidden;
     background-color: #000000;
 }
+
+/* Круглые стрелки к соседним роликам по бокам кадра (`on_prev`/`on_next`). */
+ToolButton.vp-nav {
+    width: 48px;
+    height: 48px;
+    border-radius: 50%;
+    margin: 0px 16px;
+    background-color: rgba(0, 0, 0, 0.45);
+    border-width: 1px;
+    border-color: rgba(255, 255, 255, 0.22);
+    color: #FFFFFF;
+    icon-size: 30px;
+    transition: background-color 120ms cubic-bezier(0.2, 0.0, 0.0, 1.0);
+}
+
+ToolButton.vp-nav:hover {
+    background-color: rgba(0, 0, 0, 0.7);
+    color: #FFFFFF;
+}
+
+ToolButton.vp-nav-sm {
+    width: 34px;
+    height: 34px;
+    border-radius: 50%;
+    margin: 0px 6px;
+    background-color: rgba(0, 0, 0, 0.45);
+    border-width: 0;
+    color: #FFFFFF;
+    icon-size: 22px;
+}
