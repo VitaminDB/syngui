@@ -84,3 +84,26 @@ fn content_taller_than_min_height_is_not_squeezed() {
     assert!((height_of(&h, "floor") - 240.0).abs() < 1.0);
     assert!((height_of(&h, "inner") - 240.0).abs() < 1.0);
 }
+
+/// flex-ребёнок колонки занимает выданную ему долю высоты, даже если его
+/// содержимое (реактивный текст — Loose, по высоте натуральный) ниже — как в CSS.
+#[test]
+fn flex_child_box_takes_its_share_with_short_content() {
+    let column = Column::new()
+        .child(DecoratedBox::new().style("height", 40.0_f32))
+        .child(DecoratedBox::new().class("grow").child(move || Text::new("коротко")));
+
+    let mut h = TestHarness::new(Box::new(column));
+    let engine = h.apply_mss(MSS);
+    h.apply_styles(&engine);
+    h.layout(400.0, 300.0);
+    h.rebuild();
+    h.apply_styles(&engine);
+    h.layout(400.0, 300.0);
+
+    let grown = height_of(&h, "grow");
+    assert!(
+        (grown - 260.0).abs() < 1.0,
+        "flex-ребёнок колонки должен занять остаток 260, а не {grown}"
+    );
+}

@@ -253,6 +253,15 @@ pub trait Element: Send {
         LayoutHint::Center
     }
 
+    /// Занимать всё отведённое место (конечные `max_width`/`max_height`), даже
+    /// когда дети своего размера не дают — все в `Positioned`. Область касаний
+    /// `MultiTouch` иначе схлопывалась бы до нуля. По умолчанию — нет: размер
+    /// по раскладке, `Stack(Expand)` в свободной поперечной оси Row остаётся
+    /// высотой в содержимое.
+    fn fills_available(&self) -> bool {
+        false
+    }
+
     fn explicit_dimensions(
         &self,
         parent_width: f32,
@@ -563,6 +572,10 @@ impl Element for Box<dyn Element> {
 
     fn layout_hint(&self) -> LayoutHint {
         self.as_ref().layout_hint()
+    }
+
+    fn fills_available(&self) -> bool {
+        self.as_ref().fills_available()
     }
 
     fn explicit_dimensions(

@@ -442,6 +442,18 @@ impl ElementTree {
                 LayoutHint::PanZoom => self.measure_pan_zoom(&children, constraints, id),
             }
         };
+        // Элемент, которому нужно всё отведённое место (`MultiTouch`), — не
+        // меньше конечных максимумов, даже если дети своего размера не дают.
+        let own_size = if !children_empty
+            && self.elements.get_by_idx(idx).is_some_and(|n| n.element.fills_available())
+        {
+            Size::new(
+                if constraints.max_width.is_finite() { own_size.width.max(constraints.max_width) } else { own_size.width },
+                if constraints.max_height.is_finite() { own_size.height.max(constraints.max_height) } else { own_size.height },
+            )
+        } else {
+            own_size
+        };
 
         layout_log!(
             self,

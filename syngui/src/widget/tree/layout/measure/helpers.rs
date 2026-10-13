@@ -719,8 +719,16 @@ impl ElementTree {
         let final_w = explicit_w.unwrap_or(child_size.width + left + right);
         let final_h = explicit_h.unwrap_or(child_size.height + top + bottom);
 
+        // Минимум родителя по ширине соблюдаем всегда (доля flex-ребёнка Row,
+        // ширина `Stack(Expand)`), по высоте — только у flex-ребёнка: Column
+        // задаёт ему min = max = доля остатка, и бокс занимает её, даже если
+        // содержимое ниже (как в CSS). Прочий `min_height` — это «можешь
+        // занять всё» от `Stack(StackFit::Expand)` (см. measure_loose): исполни
+        // его бокс буквально, и шапка с `.grow`-панелью в Row теряет
+        // центрирование — заголовок уезжает к верхнему краю.
+        let flex_item = self.elements.get(&id).is_some_and(|n| n.mss_flex_grow > 0.0);
         let final_w = final_w.max(constraints.min_width);
-        let final_h = final_h.max(constraints.min_height);
+        let final_h = if flex_item { final_h.max(constraints.min_height) } else { final_h };
 
         layout_log!(self, "Padding: {:.1}x{:.1}", final_w, final_h);
 
@@ -951,12 +959,6 @@ impl ElementTree {
             Size::zero()
         };
 
-        // Растянутый стек — на всё место, даже когда все дети плавают поверх (`Positioned`) и
-        // своего размера не дают: иначе он был нулевым, а с ним и область касаний.
-        if expand {
-            max_width = max_width.max(expanded.min_width);
-            max_height = max_height.max(expanded.min_height);
-        }
         Size::new(
             max_width.min(constraints.max_width),
             max_height.min(constraints.max_height),

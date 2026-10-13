@@ -195,10 +195,15 @@ impl Element for MultiTouchElement {
         size
     }
 
-    /// Всё отведённое место, а не размер содержимого: элементы в `Positioned` своего размера не
-    /// дают, и область касаний была бы нулевой.
+    /// Дети растягиваются на всё место, как в `Stack(Expand)`.
     fn layout_hint(&self) -> LayoutHint {
         LayoutHint::Stack { expand: true }
+    }
+
+    /// Всё отведённое место, а не размер содержимого: элементы в `Positioned` своего размера не
+    /// дают, и область касаний была бы нулевой.
+    fn fills_available(&self) -> bool {
+        true
     }
 
     fn build_display_list(&self, _list: &mut DisplayList, _clip: Rect) {}
