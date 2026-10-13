@@ -5,7 +5,9 @@ pub(super) fn map_mouse_button(button: winit::event::MouseButton) -> crate::inpu
         winit::event::MouseButton::Left => crate::input::MouseButton::Left,
         winit::event::MouseButton::Right => crate::input::MouseButton::Right,
         winit::event::MouseButton::Middle => crate::input::MouseButton::Middle,
-        _ => crate::input::MouseButton::Left,
+        winit::event::MouseButton::Back => crate::input::MouseButton::Back,
+        winit::event::MouseButton::Forward => crate::input::MouseButton::Forward,
+        winit::event::MouseButton::Other(n) => crate::input::MouseButton::Other(n),
     }
 }
 
