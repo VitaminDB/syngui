@@ -93,6 +93,7 @@ impl DataDeviceHandler for DnDState {
             return;
         };
         self.accept_counter = self.accept_counter.wrapping_add(1);
+        set_over_own(true);
         if Self::negotiate_offer(&offer, self.accept_counter).is_none() {
             offer.accept_mime_type(self.accept_counter, None);
             return;
@@ -106,6 +107,7 @@ impl DataDeviceHandler for DnDState {
     }
 
     fn leave(&mut self, _conn: &Connection, _qh: &QueueHandle<Self>, _wl_dd: &WlDataDevice) {
+        set_over_own(false);
         if self
             .proxy
             .send_event(SynGuiUserEvent::WaylandDnd(WaylandDndEvent::Leave))
@@ -153,6 +155,16 @@ impl DataDeviceHandler for DnDState {
         let Some(offer) = seat_entry.data_device.data().drag_offer() else {
             return;
         };
+        let (x, y) = (offer.x as f32, offer.y as f32);
+        // Своё перетаскивание брошено в своё окно — внутренний перенос: данные
+        // не читаем, событие — сразу (раньше конца источника).
+        if super::os_drag_active() {
+            set_over_own(false);
+            let _ = self.proxy.send_event(SynGuiUserEvent::WaylandDnd(WaylandDndEvent::OwnDrop { x, y }));
+            offer.finish();
+            offer.destroy();
+            return;
+        }
         let Some(mime) = offer.with_mime_types(|m| pick_mime(m)) else {
             offer.destroy();
             return;
@@ -165,7 +177,6 @@ impl DataDeviceHandler for DnDState {
                 return;
             }
         };
-        let (x, y) = (offer.x as f32, offer.y as f32);
         let proxy = self.proxy.clone();
         std::thread::spawn(move || {
             let mut pipe = pipe;
@@ -198,8 +209,14 @@ impl DataSourceHandler for DnDState {
         _: &Connection,
         _: &QueueHandle<Self>,
         _: &WlDataSource,
-        _: Option<String>,
+        mime: Option<String>,
     ) {
+        // Цель под курсором принимает (или нет) — значок меняет вид. Над своим
+        // окном решает дерево (см. `set_os_drag_accepted` из приложения).
+        let own = super::OS_DRAG.lock().unwrap_or_else(|e| e.into_inner()).as_ref().is_some_and(|d| d.over_own);
+        if !own {
+            super::set_os_drag_accepted(mime.is_some());
+        }
     }
     /// Получатель просит данные вытаскиваемого: список адресов файлов.
     fn send_request(
@@ -226,24 +243,47 @@ impl DataSourceHandler for DnDState {
     }
     fn cancelled(&mut self, _: &Connection, _: &QueueHandle<Self>, source: &WlDataSource) {
         drop_source(source);
+        let _ = self.proxy.send_event(SynGuiUserEvent::WaylandDnd(WaylandDndEvent::SourceEnded));
     }
     fn dnd_dropped(&mut self, _: &Connection, _: &QueueHandle<Self>, _: &WlDataSource) {}
     fn dnd_finished(&mut self, _: &Connection, _: &QueueHandle<Self>, source: &WlDataSource) {
         drop_source(source);
+        let _ = self.proxy.send_event(SynGuiUserEvent::WaylandDnd(WaylandDndEvent::SourceEnded));
     }
     fn action(&mut self, _: &Connection, _: &QueueHandle<Self>, _: &WlDataSource, _: DndAction) {}
 }
 
-/// Источник отработал или отменён — уничтожить.
+/// Источник отработал или отменён — уничтожить вместе со значком.
 fn drop_source(source: &WlDataSource) {
     let mut g = super::OS_DRAG.lock().unwrap_or_else(|e| e.into_inner());
     if let Some(d) = g.as_mut() {
         if d.source.as_ref().is_some_and(|(s, _)| s == source) {
             d.source = None;
+            d.over_own = false;
+            if let Some(icon) = d.icon.take() {
+                for b in icon.buffers {
+                    b.destroy();
+                }
+                icon.surface.destroy();
+            }
         }
     }
     source.destroy();
 }
+
+/// Своё перетаскивание вошло в своё окно (или вышло).
+fn set_over_own(on: bool) {
+    let mut g = super::OS_DRAG.lock().unwrap_or_else(|e| e.into_inner());
+    if let Some(d) = g.as_mut() {
+        d.over_own = on && d.source.is_some();
+    }
+}
+
+wayland_client::delegate_noop!(DnDState: ignore wayland_client::protocol::wl_compositor::WlCompositor);
+wayland_client::delegate_noop!(DnDState: ignore WlSurface);
+wayland_client::delegate_noop!(DnDState: ignore wayland_client::protocol::wl_shm::WlShm);
+wayland_client::delegate_noop!(DnDState: ignore wayland_client::protocol::wl_shm_pool::WlShmPool);
+wayland_client::delegate_noop!(DnDState: ignore wayland_client::protocol::wl_buffer::WlBuffer);
 
 /// Нажатия кнопок — их serial и поверхность нужны `start_drag` (свой wl_pointer этого
 /// соединения получает те же события, что и winit).

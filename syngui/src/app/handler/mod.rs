@@ -93,6 +93,9 @@ pub(super) struct AppHandler {
     /// Потребляется в about_to_wait → ControlFlow::WaitUntil.
     pub(super) wakeup_after: Option<std::time::Duration>,
     pub(super) cursor_position: Point,
+    /// Перенос дерева идёт перетаскиванием Wayland (значок рисует композитор,
+    /// события приходят от wl_data_device, а не от указателя).
+    pub(super) os_drag: bool,
     /// Итоговый множитель «логические единицы → физические пиксели»:
     /// системный DPI-масштаб окна, умноженный на пользовательский
     /// ([`crate::scale::ui_scale`]).
@@ -301,6 +304,7 @@ impl AppHandler {
             last_render_at: Instant::now(),
             wakeup_after: None,
             cursor_position: Point::zero(),
+            os_drag: false,
             scale_factor: crate::scale::ui_scale() as f64,
             system_scale_factor: 1.0,
             focus_manager: FocusManager::new(),

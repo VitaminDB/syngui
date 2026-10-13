@@ -106,6 +106,8 @@ pub struct DragState {
     pub hover_element: Option<ElementId>,
     pub drag_offset: Point,
     pub source_bounds: Rect,
+    /// Под курсором цель, которая примет брошенное.
+    pub accepting: bool,
 }
 
 pub struct ElementTree {
@@ -163,6 +165,9 @@ pub struct ElementTree {
     pub(crate) drop_targets: Vec<ElementId>,
     pub(crate) layout_log_enabled: bool,
     pub(crate) last_mousedown_element: Option<ElementId>,
+    /// Точка последнего события указателя (координаты окна) — начало
+    /// перетаскивания, если виджет не задал её сам.
+    pub(crate) last_pointer: Point,
     pub(crate) scroll_cull_stack: Vec<ScrollCullContext>,
     pub(crate) force_full_measure: bool,
     pub(crate) animation_registry: std::collections::HashSet<ElementId>,
@@ -248,6 +253,7 @@ impl ElementTree {
             drop_targets: Vec::new(),
             layout_log_enabled: std::env::var("MGUI_LAYOUT_LOG").is_ok(),
             last_mousedown_element: None,
+            last_pointer: Point::zero(),
             scroll_cull_stack: Vec::new(),
             force_full_measure: false,
             animation_registry: std::collections::HashSet::new(),

@@ -1545,7 +1545,10 @@ impl Element for ItemViewElement {
     fn set_id(&mut self, id: ElementId) {
         self.id = id;
     }
-    fn mount(&mut self, _tree: &mut ElementTree) {}
+    fn mount(&mut self, tree: &mut ElementTree) {
+        // Цель переноса: брошенное принимает `drop_filter` (без него — ничего).
+        tree.register_drop_target(self.id);
+    }
     fn element_type_name(&self) -> &str {
         "ItemView"
     }

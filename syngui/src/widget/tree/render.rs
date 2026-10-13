@@ -280,6 +280,9 @@ impl ElementTree {
             self.build_display_list(source_id, list, drag.source_bounds);
             list.pop_transform();
             list.pop_opacity();
+            if drag.accepting {
+                accept_mark(list, Rect::new(ghost_origin, drag.source_bounds.size));
+            }
             list.end_overlay();
             return;
         }
@@ -323,6 +326,9 @@ impl ElementTree {
         list.push_text(display_text, text_rect, text_color, font_size);
 
         list.pop_opacity();
+        if drag.accepting {
+            accept_mark(list, ghost_rect);
+        }
         list.end_overlay();
     }
 }
@@ -415,4 +421,17 @@ mod tests {
             .expect("слой проекции");
         assert_eq!(n, 2);
     }
+}
+
+/// Призрак над целью, которая примет брошенное: акцентная рамка и значок «+».
+fn accept_mark(list: &mut DisplayList, r: Rect) {
+    let accent = Color::from_hex("#2DD4BF");
+    let r = Rect::new(Point::new(r.origin.x - 3.0, r.origin.y - 3.0), Size::new(r.size.width + 6.0, r.size.height + 6.0));
+    list.push_rect_bordered(r, accent.with_alpha(0.10), [10.0; 4], Border::new(2.0, accent));
+    let d = 22.0;
+    let c = Point::new(r.origin.x + r.size.width - d * 0.6, r.origin.y + r.size.height - d * 0.6);
+    list.push_rect(Rect::new(Point::new(c.x - d / 2.0 - 2.0, c.y - d / 2.0 - 2.0), Size::new(d + 4.0, d + 4.0)), Color::from_hex("#1E2530"), [(d + 4.0) / 2.0; 4]);
+    list.push_rect(Rect::new(Point::new(c.x - d / 2.0, c.y - d / 2.0), Size::new(d, d)), Color::from_hex("#22C55E"), [d / 2.0; 4]);
+    list.push_rect(Rect::new(Point::new(c.x - 6.0, c.y - 1.25), Size::new(12.0, 2.5)), Color::WHITE, [1.25; 4]);
+    list.push_rect(Rect::new(Point::new(c.x - 1.25, c.y - 6.0), Size::new(2.5, 12.0)), Color::WHITE, [1.25; 4]);
 }

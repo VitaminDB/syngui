@@ -215,7 +215,7 @@ impl winit::application::ApplicationHandler<SynGuiUserEvent> for AppHandler {
             winit::event::WindowEvent::CursorLeft { .. } => {
                 // Перенос файлов ушёл за окно — дальше его ведёт композитор.
                 #[cfg(feature = "wayland-dnd")]
-                if self.try_os_drag() {
+                if self.os_drag || self.try_os_drag() {
                     return;
                 }
                 // Во время перетаскивания (кнопка зажата, есть захватчик)
@@ -281,7 +281,18 @@ impl winit::application::ApplicationHandler<SynGuiUserEvent> for AppHandler {
                             position: pos,
                             data,
                         };
-                        self.tree.dispatch_drag_event(&drag_move);
+                        let accepting = self.tree.dispatch_drag_event(&drag_move).is_handled();
+                        if let Some(ref mut drag) = self.tree.drag_state {
+                            drag.accepting = accepting;
+                        }
+                        // Перенос файлов — сразу перетаскиванием Wayland: тогда
+                        // его ведёт композитор над любыми окнами и слоями, даже
+                        // лежащими поверх этого окна (до сих пор он начинался,
+                        // только когда курсор выходил за окно).
+                        #[cfg(feature = "wayland-dnd")]
+                        if !self.os_drag && self.try_os_drag() {
+                            return;
+                        }
                         if let Some(window) = &self.window {
                             crate::perf::redraw_from(file!(), line!());
                             window.request_redraw();
@@ -934,16 +945,42 @@ impl AppHandler {
         } else {
             return false;
         };
-        let Some(root_id) = self.root_id else { return false };
-        if !super::wayland_dnd::start_os_drag(&list) {
+        if self.root_id.is_none() {
             return false;
         }
-        let pos = self.cursor_position;
-        self.tree.end_drag(root_id, pos, true);
+        let multi = list.lines().filter(|l| !l.trim().is_empty() && !l.starts_with('#')).count() > 1;
+        if !super::wayland_dnd::start_os_drag(&list, multi, self.scale_factor) {
+            return false;
+        }
+        // Перенос дерева продолжается (бросок в это же окно — внутренний),
+        // призрак — значок композитора.
+        self.os_drag = true;
+        if let Some(ref mut drag) = self.tree.drag_state {
+            drag.data.ghost = false;
+        }
         if let Some(window) = &self.window {
             window.request_redraw();
         }
         true
+    }
+
+    /// Своё перетаскивание Wayland над своим окном: точка — переносу дерева,
+    /// значок — по тому, примет ли цель.
+    fn own_drag_move(&mut self, x: f32, y: f32) {
+        let pos = Point::new(x, y);
+        self.cursor_position = pos;
+        let Some(data) = self.tree.drag_state.as_mut().map(|d| {
+            d.current_pos = pos;
+            d.data.clone()
+        }) else {
+            return;
+        };
+        let accepting = self.tree.dispatch_drag_event(&Event::DragMove { position: pos, data }).is_handled();
+        if let Some(ref mut drag) = self.tree.drag_state {
+            drag.accepting = accepting;
+        }
+        super::wayland_dnd::set_os_drag_accepted(accepting);
+        self.request_redraw();
     }
 
     fn handle_wayland_dnd(&mut self, ev: super::user_event::WaylandDndEvent) {
@@ -951,7 +988,32 @@ impl AppHandler {
         if self.root_id.is_none() {
             return;
         }
+        if self.os_drag {
+            let root_id = self.root_id.unwrap();
+            match ev {
+                WaylandDndEvent::Enter { x, y } | WaylandDndEvent::Motion { x, y } => self.own_drag_move(x, y),
+                WaylandDndEvent::Leave => {
+                    self.tree.dispatch_drag_event(&Event::DragLeave);
+                    self.request_redraw();
+                }
+                WaylandDndEvent::OwnDrop { x, y } => {
+                    self.os_drag = false;
+                    self.cursor_position = Point::new(x, y);
+                    self.tree.end_drag(root_id, Point::new(x, y), false);
+                    self.request_redraw();
+                }
+                WaylandDndEvent::SourceEnded => {
+                    self.os_drag = false;
+                    let pos = self.cursor_position;
+                    self.tree.end_drag(root_id, pos, true);
+                    self.request_redraw();
+                }
+                WaylandDndEvent::Drop { .. } => {}
+            }
+            return;
+        }
         match ev {
+            WaylandDndEvent::OwnDrop { .. } | WaylandDndEvent::SourceEnded => {}
             WaylandDndEvent::Enter { x, y } => {
                 let data = crate::input::DragData::new(crate::input::DragData::TYPE_FILE, "", 0);
                 self.cursor_position = Point::new(x, y);

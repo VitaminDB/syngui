@@ -75,6 +75,9 @@ impl ElementTree {
         if matches!(event, Event::MouseDown { .. }) {
             self.press_owner = None;
         }
+        if let Some(p) = event.position() {
+            self.last_pointer = p;
+        }
         let result = self.do_handle_event(root_id, event);
         self.notify_pointer_watchers(event);
         if let Event::TouchEnd { id, .. } = event {
@@ -594,7 +597,10 @@ impl ElementTree {
             }
         }
         if let Some(data) = ctx.start_drag.take() {
-            let pos = ctx.cursor_position;
+            // Виджеты обычно не заполняют `cursor_position` — тогда точка
+            // события: иначе смещение считалось от (0,0) и призрак уезжал от
+            // курсора на всю его позицию в окне.
+            let pos = if ctx.cursor_position == Point::zero() { self.last_pointer } else { ctx.cursor_position };
             let source_id = ElementId(data.source_id);
             let source_bounds = self
                 .elements
@@ -612,6 +618,7 @@ impl ElementTree {
                 hover_element: None,
                 drag_offset,
                 source_bounds,
+                accepting: false,
             });
         }
         if let Some(cursor) = ctx.cursor_icon.take() {

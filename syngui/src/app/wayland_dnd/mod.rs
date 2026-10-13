@@ -15,14 +15,16 @@ use winit::event_loop::EventLoopProxy;
 use crate::app::user_event::SynGuiUserEvent;
 use crate::window::Window;
 
+mod icon;
 mod state;
 pub(crate) mod uri;
 
 use state::DnDState;
 use smithay_client_toolkit::data_device_manager::data_source::DataSourceData;
 use wayland_client::protocol::{
+    wl_buffer::WlBuffer, wl_compositor::WlCompositor,
     wl_data_device::WlDataDevice, wl_data_device_manager::{DndAction, WlDataDeviceManager},
-    wl_data_source::WlDataSource, wl_surface::WlSurface,
+    wl_data_source::WlDataSource, wl_shm::{self, WlShm}, wl_surface::WlSurface,
 };
 use wayland_client::QueueHandle;
 
@@ -35,13 +37,87 @@ pub(crate) struct OsDrag {
     pub devices: Vec<WlDataDevice>,
     pub press: Option<(u32, WlSurface)>,
     pub source: Option<(WlDataSource, String)>,
+    pub compositor: Option<WlCompositor>,
+    pub shm: Option<WlShm>,
+    /// Значок текущего перетаскивания: поверхность, вид, масштаб буфера и
+    /// последние буферы (живут, пока композитор может их читать).
+    pub icon: Option<DragIcon>,
+    /// Своё перетаскивание сейчас над своим окном: принятие решает дерево.
+    pub over_own: bool,
+}
+
+pub(crate) struct DragIcon {
+    surface: WlSurface,
+    look: icon::Look,
+    scale: i32,
+    buffers: Vec<WlBuffer>,
+}
+
+impl OsDrag {
+    /// Нарисовать значок в новый буфер и показать его.
+    fn paint_icon(&mut self, look: icon::Look, first: bool) {
+        let (Some(shm), Some(ic)) = (self.shm.clone(), self.icon.as_mut()) else { return };
+        let (w, h, px) = icon::render(look, ic.scale);
+        let Some(buffer) = shm_buffer(&shm, &self.qh, w, h, &px) else { return };
+        // Смещение задаёт положение значка относительно курсора (копится).
+        let (dx, dy) = if first { icon::OFFSET } else { (0, 0) };
+        // С wl_surface v5 смещение — отдельным запросом, attach — только (0, 0).
+        if wayland_client::Proxy::version(&ic.surface) >= 5 {
+            ic.surface.attach(Some(&buffer), 0, 0);
+            if (dx, dy) != (0, 0) {
+                ic.surface.offset(dx, dy);
+            }
+        } else {
+            ic.surface.attach(Some(&buffer), dx, dy);
+        }
+        ic.surface.set_buffer_scale(ic.scale);
+        ic.surface.damage_buffer(0, 0, w, h);
+        ic.surface.commit();
+        ic.look = look;
+        ic.buffers.push(buffer);
+        if ic.buffers.len() > 3 {
+            ic.buffers.remove(0).destroy();
+        }
+        let _ = self.conn.flush();
+    }
+}
+
+/// Буфер wl_shm из памяти memfd.
+fn shm_buffer(shm: &WlShm, qh: &QueueHandle<DnDState>, w: i32, h: i32, px: &[u8]) -> Option<WlBuffer> {
+    use std::io::Write;
+    use std::os::fd::{AsFd, FromRawFd};
+    let fd = unsafe { libc::memfd_create(c"syngui-dnd-icon".as_ptr(), libc::MFD_CLOEXEC) };
+    if fd < 0 {
+        return None;
+    }
+    let mut file = unsafe { std::fs::File::from_raw_fd(fd) };
+    file.write_all(px).ok()?;
+    let pool = shm.create_pool(file.as_fd(), px.len() as i32, qh, ());
+    let buffer = pool.create_buffer(0, w, h, w * 4, wl_shm::Format::Argb8888, qh, ());
+    pool.destroy();
+    Some(buffer)
+}
+
+/// Над целью, которая примет брошенное (`true`), значок крупнее, с рамкой и «+».
+pub fn set_os_drag_accepted(accepted: bool) {
+    let mut g = OS_DRAG.lock().unwrap_or_else(|e| e.into_inner());
+    let Some(d) = g.as_mut() else { return };
+    let Some(look) = d.icon.as_ref().map(|i| i.look) else { return };
+    if look.accepted != accepted {
+        d.paint_icon(icon::Look { accepted, ..look }, false);
+    }
+}
+
+/// Идёт ли сейчас своё перетаскивание наружу.
+pub fn os_drag_active() -> bool {
+    OS_DRAG.lock().unwrap_or_else(|e| e.into_inner()).as_ref().is_some_and(|d| d.source.is_some())
 }
 
 pub(crate) static OS_DRAG: Mutex<Option<OsDrag>> = Mutex::new(None);
 
 /// Начать перетаскивание наружу (`text/uri-list`): курсор ушёл из окна во время внутреннего
 /// переноса файлов. `false` — нет Wayland, нет нажатия или устройства.
-pub fn start_os_drag(uri_list: &str) -> bool {
+pub fn start_os_drag(uri_list: &str, multi: bool, scale: f64) -> bool {
     let mut g = OS_DRAG.lock().unwrap_or_else(|e| e.into_inner());
     let Some(d) = g.as_mut() else { return false };
     let (Some((serial, surface)), Some(dev)) = (d.press.clone(), d.devices.first().cloned()) else {
@@ -57,7 +133,20 @@ pub fn start_os_drag(uri_list: &str) -> bool {
     if wayland_client::Proxy::version(&d.manager) >= 3 {
         src.set_actions(DndAction::Copy | DndAction::Move);
     }
-    dev.start_drag(Some(&src), &surface, None, serial);
+    if let Some(old) = d.icon.take() {
+        for b in old.buffers {
+            b.destroy();
+        }
+        old.surface.destroy();
+    }
+    if let Some(comp) = d.compositor.clone() {
+        let surface = comp.create_surface(&d.qh, ());
+        d.icon = Some(DragIcon { surface, look: icon::Look { accepted: false, multi }, scale: scale.ceil().max(1.0) as i32, buffers: Vec::new() });
+        d.paint_icon(icon::Look { accepted: false, multi }, true);
+    }
+    d.over_own = false;
+    let icon_surface = d.icon.as_ref().map(|i| i.surface.clone());
+    dev.start_drag(Some(&src), &surface, icon_surface.as_ref(), serial);
     d.source = Some((src, uri_list.to_string()));
     let _ = d.conn.flush();
     log::info!("[wayland_dnd] перетаскивание наружу: {} байт", uri_list.len());
@@ -126,6 +215,10 @@ fn run_dispatch_loop(
         devices: Vec::new(),
         press: None,
         source: None,
+        compositor: globals.bind::<WlCompositor, _, _>(&qh, 1..=5, ()).ok(),
+        shm: globals.bind::<WlShm, _, _>(&qh, 1..=1, ()).ok(),
+        icon: None,
+        over_own: false,
     });
     let mut state = DnDState {
         registry_state,
