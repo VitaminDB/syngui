@@ -204,6 +204,16 @@ impl ButtonElement {
         false
     }
 
+    /// Цвет иконки: `icon-color` состояния, иначе цвет текста.
+    fn icon_color(&self, text_color: Color) -> Color {
+        let target = self.mss.state_props(self.disabled, self.hover, self.pressed, self.focused, self.selected);
+        match self.mss.effective_icon_color(target) {
+            Some(c) if self.disabled && self.mss.style_disabled.is_none() => c.with_alpha(c.a * 0.5),
+            Some(c) => c,
+            None => text_color,
+        }
+    }
+
     fn get_colors(&self) -> (Color, Color, Option<Border>) {
         let target = self.mss.state_props(
             self.disabled,
@@ -420,6 +430,7 @@ impl Element for ButtonElement {
             0.0
         };
 
+        let icon_color = self.icon_color(text_color);
         let content_x = self.bounds.x() + pad_l;
         let content_w = (self.bounds.size.width - pad_l - pad_r).max(0.0);
 
@@ -434,7 +445,7 @@ impl Element for ButtonElement {
                         Point::new(content_x, icon_y),
                         Size::new(icon_size, icon_size),
                     );
-                    list.push_text_centered(icon_str, icon_rect, text_color, icon_size);
+                    list.push_text_centered(icon_str, icon_rect, icon_color, icon_size);
                     let text_x = content_x + icon_size + icon_gap;
                     let text_w = (content_w - icon_size - icon_gap).max(0.0);
                     let text_rect =
@@ -467,7 +478,7 @@ impl Element for ButtonElement {
                     let icon_x = content_x + text_w + icon_gap;
                     let icon_rect =
                         Rect::new(Point::new(icon_x, icon_y), Size::new(icon_size, icon_size));
-                    list.push_text_centered(icon_str, icon_rect, text_color, icon_size);
+                    list.push_text_centered(icon_str, icon_rect, icon_color, icon_size);
                 }
             }
         } else if has_icon {
@@ -477,7 +488,7 @@ impl Element for ButtonElement {
                 Point::new(content_x, icon_y),
                 Size::new(content_w, icon_size),
             );
-            list.push_text_centered(icon_str, icon_rect, text_color, icon_size);
+            list.push_text_centered(icon_str, icon_rect, icon_color, icon_size);
         } else {
             let text_y = self.bounds.y() + (self.bounds.size.height - font_size) / 2.0;
             let text_rect = Rect::new(

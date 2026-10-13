@@ -1464,6 +1464,15 @@ impl MssFields {
             .unwrap_or(fallback)
     }
 
+    /// `icon-color` текущего состояния (`:hover`, `:active`…), иначе базовый.
+    pub fn effective_icon_color(&self, target: &ResolvedProps) -> Option<Color> {
+        let pick = |p: &ResolvedProps| match p.get("icon-color") {
+            crate::animation::transition::AnimatedValue::Color(c) => Some(c),
+            _ => None,
+        };
+        pick(target).or(self.style_normal.as_ref().and_then(pick)).or(self.icon_color)
+    }
+
     pub fn effective_border_color(&self, target: &ResolvedProps, fallback: Color) -> Color {
         self.transition
             .border_color()
