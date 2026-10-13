@@ -91,6 +91,8 @@ pub struct YuvFrame {
 pub struct YuvDmaBuf {
     /// Свой у буфера декодера (не у кадра): GPU кэширует импорт по нему.
     pub id: u64,
+    /// dma-buf есть только у unix-ядер; в браузере и Windows поля нет.
+    #[cfg(unix)]
     pub fd: std::os::fd::RawFd,
     pub y_offset: u32,
     pub y_pitch: u32,
@@ -105,7 +107,11 @@ pub struct YuvDmaBuf {
 
 impl std::fmt::Debug for YuvDmaBuf {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        f.debug_struct("YuvDmaBuf").field("id", &self.id).field("fd", &self.fd).finish_non_exhaustive()
+        let mut d = f.debug_struct("YuvDmaBuf");
+        d.field("id", &self.id);
+        #[cfg(unix)]
+        d.field("fd", &self.fd);
+        d.finish_non_exhaustive()
     }
 }
 

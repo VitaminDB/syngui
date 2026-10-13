@@ -875,6 +875,26 @@ impl winit::application::ApplicationHandler<SynGuiUserEvent> for AppHandler {
             SynGuiUserEvent::A11yAction(req) => {
                 self.handle_a11y_action(req);
             }
+            #[cfg(target_arch = "wasm32")]
+            SynGuiUserEvent::WebBack => {
+                let handled = self
+                    .root_id
+                    .map(|root_id| {
+                        self.tree
+                            .handle_event(root_id, &Event::BackPressed)
+                            .is_handled()
+                    })
+                    .unwrap_or(false);
+                if handled {
+                    super::web_history::arm();
+                    if let Some(ref window) = self.window {
+                        crate::perf::redraw_from(file!(), line!());
+                        window.request_redraw();
+                    }
+                } else {
+                    super::web_history::leave();
+                }
+            }
             SynGuiUserEvent::MainThreadWake => {
                 // Очередь run_on_main_thread: дренируем прямо здесь — рендера
                 // (и его дренажа) в фоне может не быть вовсе.

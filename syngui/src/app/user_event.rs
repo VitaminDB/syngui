@@ -9,6 +9,9 @@ pub enum SynGuiUserEvent {
     /// Разбудить цикл и выполнить очередь `run_on_main_thread` — работает и
     /// когда окно не рендерится (свёрнутое/фоновое Android-приложение).
     MainThreadWake,
+    /// Веб: кнопка «Назад» браузера сняла запись-страж (app/web_history.rs).
+    #[cfg(target_arch = "wasm32")]
+    WebBack,
     /// Скринридер подключился: дерево доступности надо отдать ближайшим
     /// кадром (AccessKit ждёт его после `request_initial_tree() == None`).
     #[cfg(feature = "accessibility")]

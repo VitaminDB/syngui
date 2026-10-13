@@ -52,6 +52,11 @@ impl AppHandler {
         // Веб: пропуск F-клавиш браузеру — до того, как canvas получит фокус.
         #[cfg(target_arch = "wasm32")]
         crate::app::web_keys::install();
+        // Веб: кнопка «Назад» браузера — событие BackPressed.
+        #[cfg(target_arch = "wasm32")]
+        if let Some(proxy) = self.event_loop_proxy.clone() {
+            crate::app::web_history::install(proxy);
+        }
         // Веб: вставка из системного буфера через DOM-событие `paste`.
         #[cfg(target_arch = "wasm32")]
         {
