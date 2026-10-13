@@ -17,11 +17,24 @@ pub struct LineStripCmd {
     pub width: f32,
 }
 
+/// Команда холста в порядке вызова: заливки, линии и тесселированная
+/// геометрия рисуются так, как их вызвали (позднее — поверх).
+#[derive(Clone, Debug)]
+enum Op {
+    Rect(usize),
+    Strip(usize),
+    /// Отрезок `output`: диапазоны вершин и индексов.
+    Tess(std::ops::Range<usize>, std::ops::Range<usize>),
+}
+
 pub struct CanvasContext {
     paint: Paint,
     output: TessOutput,
     rect_commands: Vec<RectCmd>,
     line_strips: Vec<LineStripCmd>,
+    ops: Vec<Op>,
+    /// Сколько вершин и индексов `output` уже учтено в `ops`.
+    tess_mark: (usize, usize),
     origin: Point,
     size: Size,
     state_stack: Vec<Paint>,
@@ -37,6 +50,8 @@ impl CanvasContext {
             output: TessOutput::new(),
             rect_commands: Vec::new(),
             line_strips: Vec::new(),
+            ops: Vec::new(),
+            tess_mark: (0, 0),
             origin,
             size,
             state_stack: Vec::new(),
@@ -112,6 +127,7 @@ impl CanvasContext {
     }
 
     pub fn draw_line(&mut self, x1: f32, y1: f32, x2: f32, y2: f32) {
+        self.order_strip();
         self.line_strips.push(LineStripCmd {
             points: vec![self.to_screen_arr(x1, y1), self.to_screen_arr(x2, y2)],
             color: self.paint.color,
@@ -123,6 +139,7 @@ impl CanvasContext {
         if points.len() < 2 {
             return;
         }
+        self.order_strip();
         self.line_strips.push(LineStripCmd {
             points: points
                 .iter()
@@ -134,6 +151,7 @@ impl CanvasContext {
     }
 
     pub fn draw_rect(&mut self, x: f32, y: f32, w: f32, h: f32) {
+        self.order_strip();
         self.line_strips.push(LineStripCmd {
             points: vec![
                 self.to_screen_arr(x, y),
@@ -156,6 +174,7 @@ impl CanvasContext {
         if let Some(&first) = screen_pts.first() {
             screen_pts.push(first);
         }
+        self.order_strip();
         self.line_strips.push(LineStripCmd {
             points: screen_pts,
             color: self.paint.color,
@@ -170,6 +189,7 @@ impl CanvasContext {
         let center = Point::new(cx, cy);
         let pts = arc_points(center, r, start_angle, end_angle, segments);
         let screen_pts: Vec<[f32; 2]> = pts.iter().map(|p| self.to_screen_arr(p.x, p.y)).collect();
+        self.order_strip();
         self.line_strips.push(LineStripCmd {
             points: screen_pts,
             color: self.paint.color,
@@ -183,6 +203,7 @@ impl CanvasContext {
         let p1 = Point::new(x1, y1);
         let pts = flatten_quad_bezier(p0, cp, p1, 0.5);
         let screen_pts: Vec<[f32; 2]> = pts.iter().map(|p| self.to_screen_arr(p.x, p.y)).collect();
+        self.order_strip();
         self.line_strips.push(LineStripCmd {
             points: screen_pts,
             color: self.paint.color,
@@ -207,6 +228,7 @@ impl CanvasContext {
         let p1 = Point::new(x1, y1);
         let pts = flatten_cubic_bezier(p0, cp1, cp2, p1, 0.5);
         let screen_pts: Vec<[f32; 2]> = pts.iter().map(|p| self.to_screen_arr(p.x, p.y)).collect();
+        self.order_strip();
         self.line_strips.push(LineStripCmd {
             points: screen_pts,
             color: self.paint.color,
@@ -215,6 +237,7 @@ impl CanvasContext {
     }
 
     pub fn fill_rect(&mut self, x: f32, y: f32, w: f32, h: f32) {
+        self.order_rect();
         self.rect_commands.push(RectCmd {
             rect: Rect::new(
                 Point::new(self.origin.x + x, self.origin.y + y),
@@ -226,6 +249,7 @@ impl CanvasContext {
     }
 
     pub fn fill_rounded_rect(&mut self, x: f32, y: f32, w: f32, h: f32, radius: f32) {
+        self.order_rect();
         self.rect_commands.push(RectCmd {
             rect: Rect::new(
                 Point::new(self.origin.x + x, self.origin.y + y),
@@ -237,6 +261,7 @@ impl CanvasContext {
     }
 
     pub fn fill_circle(&mut self, cx: f32, cy: f32, r: f32) {
+        self.order_rect();
         self.rect_commands.push(RectCmd {
             rect: Rect::new(
                 Point::new(self.origin.x + cx - r, self.origin.y + cy - r),
@@ -295,6 +320,7 @@ impl CanvasContext {
     }
 
     pub fn clear(&mut self, color: Color) {
+        self.order_rect();
         self.rect_commands.push(RectCmd {
             rect: Rect::new(self.origin, self.size),
             color,
@@ -322,15 +348,52 @@ impl CanvasContext {
         &self.line_strips
     }
 
-    pub fn flush(self, list: &mut DisplayList) {
-        for cmd in &self.rect_commands {
-            list.push_rect(cmd.rect, cmd.color, cmd.corner_radius);
+    /// Учесть тесселированную геометрию, накопленную после прошлой команды.
+    fn order_tess(&mut self) {
+        let now = (self.output.vertices.len(), self.output.indices.len());
+        if now.1 > self.tess_mark.1 {
+            self.ops.push(Op::Tess(self.tess_mark.0..now.0, self.tess_mark.1..now.1));
         }
-        for cmd in self.line_strips {
-            list.push_line_strip(cmd.points, cmd.color, cmd.width);
-        }
-        if !self.output.is_empty() {
+        self.tess_mark = now;
+    }
+
+    fn order_rect(&mut self) {
+        self.order_tess();
+        self.ops.push(Op::Rect(self.rect_commands.len()));
+    }
+
+    fn order_strip(&mut self) {
+        self.order_tess();
+        self.ops.push(Op::Strip(self.line_strips.len()));
+    }
+
+    /// В список отрисовки — в порядке вызовов.
+    pub fn flush(mut self, list: &mut DisplayList) {
+        self.order_tess();
+        // одна тесселированная пачка без заливок и линий — без копирования
+        if self.ops.len() == 1 && matches!(self.ops[0], Op::Tess(..)) {
             list.push_canvas(self.output.vertices, self.output.indices);
+            return;
+        }
+        let mut strips: Vec<Option<LineStripCmd>> = self.line_strips.into_iter().map(Some).collect();
+        for op in self.ops {
+            match op {
+                Op::Rect(i) => {
+                    let c = &self.rect_commands[i];
+                    list.push_rect(c.rect, c.color, c.corner_radius);
+                }
+                Op::Strip(i) => {
+                    if let Some(c) = strips[i].take() {
+                        list.push_line_strip(c.points, c.color, c.width);
+                    }
+                }
+                Op::Tess(v, i) => {
+                    let base = v.start as u32;
+                    let verts = self.output.vertices[v].to_vec();
+                    let idx = self.output.indices[i].iter().map(|x| x - base).collect();
+                    list.push_canvas(verts, idx);
+                }
+            }
         }
     }
 

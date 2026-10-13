@@ -18,6 +18,8 @@ pub struct Canvas {
     width: Option<Dimension>,
     height: Option<Dimension>,
     animated: bool,
+    limit: Option<f32>,
+    replay: u64,
     background: Option<Color>,
 }
 
@@ -28,6 +30,8 @@ impl Canvas {
             width: None,
             height: None,
             animated: false,
+            limit: None,
+            replay: 0,
             background: None,
         }
     }
@@ -53,6 +57,22 @@ impl Canvas {
         self
     }
 
+    /// Анимация на ограниченное время: кадры идут, пока с появления не
+    /// прошло `secs` секунд, затем холст замирает (последний кадр рисуется
+    /// с `t == secs`). Для анимаций входа — без вечной перерисовки.
+    pub fn animated_for(mut self, secs: f32) -> Self {
+        self.animated = true;
+        self.limit = Some(secs.max(0.0));
+        self
+    }
+
+    /// Ключ повтора: при пересборке с другим значением время анимации
+    /// начинается заново (данные сменились — показать переход ещё раз).
+    pub fn replay(mut self, key: u64) -> Self {
+        self.replay = key;
+        self
+    }
+
     pub fn background(mut self, c: Color) -> Self {
         self.background = Some(c);
         self
@@ -67,6 +87,8 @@ impl Widget for Canvas {
             width: self.width,
             height: self.height,
             animated: self.animated,
+            limit: self.limit,
+            replay: self.replay,
             background: self.background,
             bounds: Rect::zero(),
             elapsed: 0.0,
@@ -97,6 +119,8 @@ pub struct CanvasElement {
     width: Option<Dimension>,
     height: Option<Dimension>,
     animated: bool,
+    limit: Option<f32>,
+    replay: u64,
     background: Option<Color>,
     bounds: Rect,
     elapsed: f32,
@@ -112,6 +136,11 @@ impl Element for CanvasElement {
             self.width = c.width;
             self.height = c.height;
             self.animated = c.animated;
+            self.limit = c.limit;
+            if c.replay != self.replay {
+                self.replay = c.replay;
+                self.elapsed = 0.0;
+            }
             self.background = c.background;
             self.mark_dirty(DirtyFlags::RENDER);
         }
@@ -153,15 +182,18 @@ impl Element for CanvasElement {
 
     /// Кадры нужны только анимированному холсту.
     fn wants_animate_tick(&self) -> bool {
-        self.animated
+        self.animated && self.limit.is_none_or(|l| self.elapsed < l)
     }
 
     fn animate(&mut self, dt: std::time::Duration) -> bool {
-        if self.animated {
-            self.elapsed += dt.as_secs_f32();
-            return true;
+        if !self.wants_animate_tick() {
+            return false;
         }
-        false
+        self.elapsed += dt.as_secs_f32();
+        if let Some(l) = self.limit {
+            self.elapsed = self.elapsed.min(l);
+        }
+        true
     }
 
     fn handle_event(
