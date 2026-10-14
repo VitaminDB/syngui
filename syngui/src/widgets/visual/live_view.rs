@@ -80,6 +80,7 @@ pub enum LiveInput {
 }
 
 type InputFn = Arc<dyn Fn(LiveInput) + Send + Sync>;
+type ResizeFn = Arc<dyn Fn(Size) + Send + Sync>;
 
 pub struct LiveView {
     frame: Arc<LiveFrame>,
@@ -87,11 +88,12 @@ pub struct LiveView {
     classes: Vec<String>,
     on_input: Option<InputFn>,
     cursor: Option<CursorIcon>,
+    on_resize: Option<ResizeFn>,
 }
 
 impl LiveView {
     pub fn new(frame: Arc<LiveFrame>) -> Self {
-        Self { frame, fit: ImageFit::Contain, classes: Vec::new(), on_input: None, cursor: None }
+        Self { frame, fit: ImageFit::Contain, classes: Vec::new(), on_input: None, cursor: None, on_resize: None }
     }
 
     pub fn fit(mut self, fit: ImageFit) -> Self {
@@ -106,6 +108,14 @@ impl LiveView {
 
     pub fn on_input(mut self, f: impl Fn(LiveInput) + Send + Sync + 'static) -> Self {
         self.on_input = Some(Arc::new(f));
+        self
+    }
+
+    /// Размер области виджета (логические единицы) — при первой раскладке и
+    /// каждой смене; зовётся после кадра на главном потоке. Источник может
+    /// подогнать под него свой кадр (разрешение гостя ВМ под окно).
+    pub fn on_resize(mut self, f: impl Fn(Size) + Send + Sync + 'static) -> Self {
+        self.on_resize = Some(Arc::new(f));
         self
     }
 
@@ -125,6 +135,8 @@ impl Widget for LiveView {
             classes: self.classes.clone(),
             on_input: self.on_input.clone(),
             cursor: self.cursor,
+            on_resize: self.on_resize.clone(),
+            reported: Size::new(0.0, 0.0),
             bounds: Rect::zero(),
             dirty_flags: DirtyFlags::LAYOUT | DirtyFlags::RENDER,
             image_handle: None,
@@ -162,6 +174,9 @@ pub struct LiveViewElement {
     classes: Vec<String>,
     on_input: Option<InputFn>,
     cursor: Option<CursorIcon>,
+    on_resize: Option<ResizeFn>,
+    /// Последний размер, отданный `on_resize`.
+    reported: Size,
     bounds: Rect,
     dirty_flags: DirtyFlags,
     image_handle: Option<ImageHandle>,
@@ -250,6 +265,7 @@ impl Element for LiveViewElement {
             self.fit = v.fit;
             self.on_input = v.on_input.clone();
             self.cursor = v.cursor;
+            self.on_resize = v.on_resize.clone();
             if self.classes != v.classes {
                 self.classes = v.classes.clone();
             }
@@ -273,6 +289,13 @@ impl Element for LiveViewElement {
             None => 1.0,
         };
         self.bounds = Rect::new(self.bounds.origin, Size::new(width, height));
+        let size = Size::new(width.round(), height.round());
+        if size != self.reported && size.width >= 1.0 && size.height >= 1.0 {
+            self.reported = size;
+            if let Some(f) = self.on_resize.clone() {
+                crate::async_runtime::run_on_main_thread(move || f(size));
+            }
+        }
         Size::new(width, height)
     }
 

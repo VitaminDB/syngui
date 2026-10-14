@@ -68,6 +68,7 @@ impl AppHandler {
             }
         }
         self.system_scale_factor = window.scale_factor();
+        crate::scale::set_system_scale(self.system_scale_factor as f32);
         self.apply_design_scale();
         // Сбросить mSoftKeyboardActive у GameTextInput: пока он взведён,
         // InputConnection GameActivity перехватывает DPAD_LEFT/RIGHT пульта

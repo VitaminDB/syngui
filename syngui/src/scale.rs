@@ -20,6 +20,8 @@ pub const MAX_UI_SCALE: f32 = 3.0;
 
 thread_local! {
     static UI_SCALE: Cell<f32> = const { Cell::new(1.0) };
+    /// Системный DPI-масштаб главного окна.
+    static SYSTEM_SCALE: Cell<f32> = const { Cell::new(1.0) };
     /// Взведён после смены масштаба; снимается кадром, который его применил.
     static DIRTY: Cell<bool> = const { Cell::new(false) };
 }
@@ -66,4 +68,18 @@ fn clamp(scale: f32) -> f32 {
     } else {
         1.0
     }
+}
+
+/// Системный DPI-масштаб главного окна (окно ставит его само).
+pub fn set_system_scale(scale: f32) {
+    if scale.is_finite() && scale > 0.0 {
+        SYSTEM_SCALE.with(|c| c.set(scale));
+    }
+}
+
+/// Физических пикселей в логической единице: системный DPI × [`ui_scale`].
+/// Переводит размеры раскладки в пиксели экрана (разрешение гостя ВМ под окно,
+/// снимок в натуральную величину).
+pub fn pixel_ratio() -> f32 {
+    SYSTEM_SCALE.with(|c| c.get()) * ui_scale()
 }

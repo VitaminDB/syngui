@@ -184,6 +184,7 @@ impl winit::application::ApplicationHandler<SynGuiUserEvent> for AppHandler {
                 // Новая поверхность — последний кадр на ней не показан.
                 self.last_frame_sig = None;
                 self.system_scale_factor = scale_factor;
+                crate::scale::set_system_scale(scale_factor as f32);
                 self.apply_design_scale();
                 // Пользовательский масштаб множится поверх системного DPI.
                 let effective = self.effective_scale_factor();
