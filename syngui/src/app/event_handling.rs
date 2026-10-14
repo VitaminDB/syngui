@@ -396,39 +396,7 @@ impl winit::application::ApplicationHandler<SynGuiUserEvent> for AppHandler {
                 }
 
                 self.process_virtual_keyboard_request();
-                self.process_window_drag_request();
-                self.process_window_control_requests();
-                if self.take_window_close_request() {
-                    if !self.close_allowed() {
-                        if let Some(window) = &self.window {
-                            crate::perf::redraw_from(file!(), line!());
-                            window.request_redraw();
-                        }
-                        return;
-                    }
-                    if self.should_hide_on_close() {
-                        self.hide_main_window();
-                    } else {
-                        #[cfg(all(
-                            feature = "tray",
-                            not(target_arch = "wasm32"),
-                            not(target_os = "android")
-                        ))]
-                        {
-                            self.tray.take();
-                        }
-                        #[cfg(all(
-                            feature = "single-instance",
-                            not(target_arch = "wasm32"),
-                            not(target_os = "android")
-                        ))]
-                        {
-                            self.single_instance.take();
-                        }
-                        event_loop.exit();
-                    }
-                    return;
-                }
+                self.process_window_requests(event_loop);
             }
             winit::event::WindowEvent::MouseWheel { delta, .. } => {
                 let (scroll_delta, scroll_delta_x) = match delta {
@@ -743,6 +711,9 @@ impl winit::application::ApplicationHandler<SynGuiUserEvent> for AppHandler {
                 }
 
                 self.process_virtual_keyboard_request();
+                // Кнопки и заголовок окна (CSD) нажимают и пальцем: без этого
+                // свернуть/развернуть/закрыть и перетаскивание касанием молчали.
+                self.process_window_requests(event_loop);
             }
 
             winit::event::WindowEvent::RedrawRequested => {
@@ -934,6 +905,45 @@ impl winit::application::ApplicationHandler<SynGuiUserEvent> for AppHandler {
             #[cfg(feature = "wayland-dnd")]
             SynGuiUserEvent::WaylandDnd(ev) => {
                 self.handle_wayland_dnd(ev);
+            }
+        }
+    }
+}
+
+impl AppHandler {
+    /// Запросы окна, поставленные обработкой ввода (мышь или палец):
+    /// перетаскивание и изменение размера, свернуть/развернуть, закрыть.
+    fn process_window_requests(&mut self, event_loop: &winit::event_loop::ActiveEventLoop) {
+        self.process_window_drag_request();
+        self.process_window_control_requests();
+        if self.take_window_close_request() {
+            if !self.close_allowed() {
+                if let Some(window) = &self.window {
+                    crate::perf::redraw_from(file!(), line!());
+                    window.request_redraw();
+                }
+                return;
+            }
+            if self.should_hide_on_close() {
+                self.hide_main_window();
+            } else {
+                #[cfg(all(
+                    feature = "tray",
+                    not(target_arch = "wasm32"),
+                    not(target_os = "android")
+                ))]
+                {
+                    self.tray.take();
+                }
+                #[cfg(all(
+                    feature = "single-instance",
+                    not(target_arch = "wasm32"),
+                    not(target_os = "android")
+                ))]
+                {
+                    self.single_instance.take();
+                }
+                event_loop.exit();
             }
         }
     }

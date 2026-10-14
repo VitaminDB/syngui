@@ -36,6 +36,8 @@ pub(crate) struct OsDrag {
     pub manager: WlDataDeviceManager,
     pub devices: Vec<WlDataDevice>,
     pub press: Option<(u32, WlSurface)>,
+    /// Последнее касание: serial, сиденье и пальцы, что сейчас прижаты.
+    pub touch: Option<TouchPress>,
     pub source: Option<(WlDataSource, String)>,
     pub compositor: Option<WlCompositor>,
     pub shm: Option<WlShm>,
@@ -114,6 +116,52 @@ pub fn os_drag_active() -> bool {
 }
 
 pub(crate) static OS_DRAG: Mutex<Option<OsDrag>> = Mutex::new(None);
+
+pub(crate) struct TouchPress {
+    pub serial: u32,
+    pub seat: wayland_client::protocol::wl_seat::WlSeat,
+    pub fingers: Vec<i32>,
+}
+
+/// Окно тянут пальцем (свой заголовок или край): `xdg_toplevel.move`/`resize`
+/// с serial прижатого пальца. winit (`drag_window`, `drag_resize_window`)
+/// шлёт их только от указателя, вошедшего в окно, — с касанием запрос не
+/// уходил вовсе. `false` — палец не прижат или нет Wayland: тогда путь winit.
+pub fn start_touch_window_op(window: &winit::window::Window, resize: Option<winit::window::ResizeDirection>) -> bool {
+    use smithay_client_toolkit::reexports::protocols::xdg::shell::client::xdg_toplevel::{ResizeEdge, XdgToplevel};
+    use wayland_backend::client::ObjectId;
+    use wayland_client::Proxy;
+    use winit::platform::wayland::WindowExtWayland;
+    use winit::window::ResizeDirection as D;
+
+    let g = OS_DRAG.lock().unwrap_or_else(|e| e.into_inner());
+    let Some(d) = g.as_ref() else { return false };
+    let Some(t) = d.touch.as_ref().filter(|t| !t.fingers.is_empty()) else { return false };
+    let Some(ptr) = window.xdg_toplevel() else { return false };
+    // SAFETY: xdg_toplevel живого winit-окна на том же wl_display, поверх
+    // которого построено соединение DnD.
+    let Ok(id) = (unsafe { ObjectId::from_ptr(XdgToplevel::interface(), ptr.as_ptr().cast()) }) else { return false };
+    let Ok(toplevel) = XdgToplevel::from_id(&d.conn, id) else { return false };
+    match resize {
+        None => toplevel._move(&t.seat, t.serial),
+        Some(dir) => toplevel.resize(
+            &t.seat,
+            t.serial,
+            match dir {
+                D::North => ResizeEdge::Top,
+                D::South => ResizeEdge::Bottom,
+                D::East => ResizeEdge::Right,
+                D::West => ResizeEdge::Left,
+                D::NorthEast => ResizeEdge::TopRight,
+                D::NorthWest => ResizeEdge::TopLeft,
+                D::SouthEast => ResizeEdge::BottomRight,
+                D::SouthWest => ResizeEdge::BottomLeft,
+            },
+        ),
+    }
+    let _ = d.conn.flush();
+    true
+}
 
 /// Начать перетаскивание наружу (`text/uri-list`): курсор ушёл из окна во время внутреннего
 /// переноса файлов. `false` — нет Wayland, нет нажатия или устройства.
@@ -214,6 +262,7 @@ fn run_dispatch_loop(
         manager: data_device_manager.data_device_manager().clone(),
         devices: Vec::new(),
         press: None,
+        touch: None,
         source: None,
         compositor: globals.bind::<WlCompositor, _, _>(&qh, 1..=5, ()).ok(),
         shm: globals.bind::<WlShm, _, _>(&qh, 1..=1, ()).ok(),
@@ -226,6 +275,7 @@ fn run_dispatch_loop(
         output_state,
         data_device_manager,
         seats: Vec::new(),
+        touches: Vec::new(),
         proxy,
         accept_counter: 0,
         exit: false,

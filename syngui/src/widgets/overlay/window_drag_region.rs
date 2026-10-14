@@ -40,6 +40,7 @@ impl Widget for WindowDragRegion {
             classes: Vec::new(),
             dirty_flags: DirtyFlags::LAYOUT | DirtyFlags::RENDER,
             mss: MssFields::new(),
+            touch: None,
         })
     }
 
@@ -76,7 +77,13 @@ struct WindowDragRegionElement {
     classes: Vec<String>,
     dirty_flags: DirtyFlags,
     mss: MssFields,
+    /// Палец, коснувшийся заголовка, и где: окно поедет, когда он сдвинется.
+    touch: Option<(u64, Point)>,
 }
+
+/// Насколько палец сдвигается по заголовку, прежде чем окно поедет за ним
+/// (меньше — тап: двойной тап разворачивает окно).
+const TOUCH_DRAG_SLOP: f32 = 6.0;
 
 impl Element for WindowDragRegionElement {
     fn update(&mut self, _widget: &dyn Widget, _ctx: &mut UpdateContext) {}
@@ -101,8 +108,38 @@ impl Element for WindowDragRegionElement {
     fn handle_event(&mut self, event: &Event, ctx: &mut EventContext) -> EventResult {
         match event {
             Event::MouseDown { button: MouseButton::Left, position } if self.bounds.contains(*position) => {
-                ctx.start_window_drag();
+                // Тап пальцем синтезирует нажатие уже на отпускании — тащить
+                // нечего, окно ведёт сдвиг пальца (ниже).
+                if !crate::input::touch::is_synthesized_mouse() {
+                    ctx.start_window_drag();
+                }
                 EventResult::Handled
+            }
+            // Палец: перетаскивание начинается, когда он сдвинулся, — тап и
+            // двойной тап по заголовку остаются кнопкам и разворачиванию.
+            // Событие не забираем, чтобы касание дошло до вкладок и кнопок.
+            // Движение пальца может забрать захватчик (предок, разбирающий
+            // касания), поэтому следим за указателем сами.
+            Event::TouchStart { id, position } if self.bounds.contains(*position) => {
+                self.touch = Some((*id, *position));
+                ctx.watch_pointer();
+                EventResult::Ignored
+            }
+            Event::TouchMove { id, position } => match self.touch {
+                Some((t, start)) if t == *id => {
+                    if (position.x - start.x).hypot(position.y - start.y) < TOUCH_DRAG_SLOP {
+                        ctx.watch_pointer();
+                        return EventResult::Ignored;
+                    }
+                    self.touch = None;
+                    ctx.start_window_drag();
+                    EventResult::Handled
+                }
+                _ => EventResult::Ignored,
+            },
+            Event::TouchEnd { id, .. } if self.touch.is_some_and(|(t, _)| t == *id) => {
+                self.touch = None;
+                EventResult::Ignored
             }
             // Двойной щелчок по заголовку — развернуть / вернуть окно (как у
             // рамок композитора и в других системах).

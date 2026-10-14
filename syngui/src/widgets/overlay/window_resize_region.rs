@@ -229,6 +229,18 @@ impl Element for WindowResizeRegionElement {
             }
             Event::MouseDown { button, position } if *button == MouseButton::Left => {
                 if let Some(direction) = self.direction_at(*position) {
+                    // Тап пальцем — нажатие уже после отпускания, тянуть нечего.
+                    if !crate::input::touch::is_synthesized_mouse() {
+                        ctx.start_window_resize(direction);
+                    }
+                    return EventResult::Handled;
+                }
+                EventResult::Ignored
+            }
+            // Палец на краю окна — сразу изменение размера: дальше его ведёт
+            // композитор.
+            Event::TouchStart { position, .. } => {
+                if let Some(direction) = self.direction_at(*position) {
                     ctx.start_window_resize(direction);
                     return EventResult::Handled;
                 }
@@ -301,6 +313,7 @@ impl Element for WindowResizeRegionElement {
             Event::MouseDown { button, position } if *button == MouseButton::Left => {
                 self.direction_at(*position).is_some()
             }
+            Event::TouchStart { position, .. } => self.direction_at(*position).is_some(),
             _ => false,
         }
     }

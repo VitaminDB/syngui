@@ -7,12 +7,13 @@ use smithay_client_toolkit::{
         data_source::DataSourceHandler,
         DataDeviceManagerState, WritePipe,
     },
-    delegate_data_device, delegate_pointer, delegate_registry, delegate_seat,
+    delegate_data_device, delegate_pointer, delegate_registry, delegate_seat, delegate_touch,
     output::{OutputHandler, OutputState},
     registry::{ProvidesRegistryState, RegistryState},
     registry_handlers,
     seat::{
         pointer::{PointerEvent, PointerEventKind, PointerHandler},
+        touch::TouchHandler,
         Capability, SeatHandler, SeatState,
     },
 };
@@ -20,7 +21,7 @@ use wayland_client::{
     protocol::{
         wl_data_device::WlDataDevice, wl_data_device_manager::DndAction,
         wl_data_source::WlDataSource, wl_output::WlOutput, wl_pointer::WlPointer, wl_seat::WlSeat,
-        wl_surface::WlSurface,
+        wl_surface::WlSurface, wl_touch::WlTouch,
     },
     Connection, QueueHandle,
 };
@@ -53,6 +54,8 @@ pub(crate) struct DnDState {
     pub output_state: OutputState,
     pub data_device_manager: DataDeviceManagerState,
     pub seats: Vec<SeatEntry>,
+    /// Свои wl_touch и их сиденья.
+    pub touches: Vec<(WlTouch, WlSeat)>,
     pub proxy: EventLoopProxy<SynGuiUserEvent>,
     pub accept_counter: u32,
     pub exit: bool,
@@ -299,6 +302,48 @@ impl PointerHandler for DnDState {
     }
 }
 
+/// Касания — serial прижатого пальца: окно тянут пальцем за свой заголовок
+/// (`xdg_toplevel.move/resize` требуют serial нажатия, а winit знает только
+/// кнопки мыши). Свой wl_touch получает те же касания, что и winit.
+impl TouchHandler for DnDState {
+    fn down(&mut self, _: &Connection, _: &QueueHandle<Self>, touch: &WlTouch, serial: u32, _: u32, _: WlSurface, id: i32, _: (f64, f64)) {
+        let Some(seat) = self.touch_seat(touch) else { return };
+        if let Some(d) = super::OS_DRAG.lock().unwrap_or_else(|e| e.into_inner()).as_mut() {
+            let t = d.touch.get_or_insert_with(|| super::TouchPress { serial, seat: seat.clone(), fingers: Vec::new() });
+            t.serial = serial;
+            t.seat = seat;
+            t.fingers.retain(|f| *f != id);
+            t.fingers.push(id);
+        }
+    }
+
+    fn up(&mut self, _: &Connection, _: &QueueHandle<Self>, _: &WlTouch, _: u32, _: u32, id: i32) {
+        if let Some(d) = super::OS_DRAG.lock().unwrap_or_else(|e| e.into_inner()).as_mut() {
+            if let Some(t) = d.touch.as_mut() {
+                t.fingers.retain(|f| *f != id);
+            }
+        }
+    }
+
+    fn cancel(&mut self, _: &Connection, _: &QueueHandle<Self>, _: &WlTouch) {
+        if let Some(d) = super::OS_DRAG.lock().unwrap_or_else(|e| e.into_inner()).as_mut() {
+            if let Some(t) = d.touch.as_mut() {
+                t.fingers.clear();
+            }
+        }
+    }
+
+    fn motion(&mut self, _: &Connection, _: &QueueHandle<Self>, _: &WlTouch, _: u32, _: i32, _: (f64, f64)) {}
+    fn shape(&mut self, _: &Connection, _: &QueueHandle<Self>, _: &WlTouch, _: i32, _: f64, _: f64) {}
+    fn orientation(&mut self, _: &Connection, _: &QueueHandle<Self>, _: &WlTouch, _: i32, _: f64) {}
+}
+
+impl DnDState {
+    fn touch_seat(&self, touch: &WlTouch) -> Option<WlSeat> {
+        self.touches.iter().find(|(t, _)| t == touch).map(|(_, s)| s.clone())
+    }
+}
+
 impl DataOfferHandler for DnDState {
     fn source_actions(
         &mut self,
@@ -348,6 +393,12 @@ impl SeatHandler for DnDState {
                 log::debug!("[wayland_dnd] wl_pointer: {e}");
             }
         }
+        if capability == Capability::Touch && !self.touches.iter().any(|(_, s)| *s == seat) {
+            match self.seat_state.get_touch(qh, &seat) {
+                Ok(touch) => self.touches.push((touch, seat.clone())),
+                Err(e) => log::debug!("[wayland_dnd] wl_touch: {e}"),
+            }
+        }
     }
 
     fn remove_capability(
@@ -382,6 +433,7 @@ impl ProvidesRegistryState for DnDState {
 
 delegate_seat!(DnDState);
 delegate_pointer!(DnDState);
+delegate_touch!(DnDState);
 delegate_data_device!(DnDState);
 delegate_registry!(DnDState);
 smithay_client_toolkit::delegate_output!(DnDState);

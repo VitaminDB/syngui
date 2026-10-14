@@ -245,8 +245,14 @@ impl AppHandler {
                     D::SouthEast => W::SouthEast,
                     D::SouthWest => W::SouthWest,
                 };
-                if let Err(err) = window.winit_window().drag_resize_window(direction) {
-                    eprintln!("[syngui] drag_resize_window failed: {err}");
+                #[cfg(all(feature = "wayland-dnd", target_os = "linux"))]
+                let by_touch = super::super::wayland_dnd::start_touch_window_op(window.winit_window(), Some(direction));
+                #[cfg(not(all(feature = "wayland-dnd", target_os = "linux")))]
+                let by_touch = false;
+                if !by_touch {
+                    if let Err(err) = window.winit_window().drag_resize_window(direction) {
+                        eprintln!("[syngui] drag_resize_window failed: {err}");
+                    }
                 }
             }
         }
@@ -256,6 +262,10 @@ impl AppHandler {
         self.tree.window_drag_request = false;
         #[cfg(not(target_arch = "wasm32"))]
         if let Some(window) = self.window.as_ref() {
+            #[cfg(all(feature = "wayland-dnd", target_os = "linux"))]
+            if super::super::wayland_dnd::start_touch_window_op(window.winit_window(), None) {
+                return;
+            }
             if let Err(err) = window.winit_window().drag_window() {
                 eprintln!("[syngui] drag_window failed: {err}");
             }
