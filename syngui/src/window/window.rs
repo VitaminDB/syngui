@@ -229,8 +229,15 @@ impl Window {
         self.inner.scale_factor()
     }
 
-    pub fn set_cursor_icon(&self, icon: winit::window::CursorIcon) {
-        self.inner.set_cursor(winit::window::Cursor::Icon(icon));
+    /// Форма указателя; `None` — скрыть его.
+    pub fn set_cursor_icon(&self, icon: Option<winit::window::CursorIcon>) {
+        match icon {
+            Some(icon) => {
+                self.inner.set_cursor(winit::window::Cursor::Icon(icon));
+                self.inner.set_cursor_visible(true);
+            }
+            None => self.inner.set_cursor_visible(false),
+        }
     }
 
     pub fn winit_window(&self) -> &winit::window::Window {

@@ -15,7 +15,7 @@ use std::sync::Arc;
 use crate::core::sync::Mutex;
 use crate::core::{Color, Point, Rect, RectExt, Size};
 use crate::gpu::image_store::{ImageHandle, ImageStore};
-use crate::input::{Event, EventResult, Key, MouseButton};
+use crate::input::{CursorIcon, Event, EventResult, Key, MouseButton};
 use crate::layout::Constraints;
 use crate::mss::{ComputedStyle, MssFields};
 use crate::render::{DisplayList, TextureId};
@@ -86,11 +86,12 @@ pub struct LiveView {
     fit: ImageFit,
     classes: Vec<String>,
     on_input: Option<InputFn>,
+    cursor: Option<CursorIcon>,
 }
 
 impl LiveView {
     pub fn new(frame: Arc<LiveFrame>) -> Self {
-        Self { frame, fit: ImageFit::Contain, classes: Vec::new(), on_input: None }
+        Self { frame, fit: ImageFit::Contain, classes: Vec::new(), on_input: None, cursor: None }
     }
 
     pub fn fit(mut self, fit: ImageFit) -> Self {
@@ -107,6 +108,12 @@ impl LiveView {
         self.on_input = Some(Arc::new(f));
         self
     }
+
+    /// Указатель над кадром (`CursorIcon::None` — скрыть: источник рисует свой).
+    pub fn cursor(mut self, c: CursorIcon) -> Self {
+        self.cursor = Some(c);
+        self
+    }
 }
 
 impl Widget for LiveView {
@@ -117,6 +124,7 @@ impl Widget for LiveView {
             fit: self.fit,
             classes: self.classes.clone(),
             on_input: self.on_input.clone(),
+            cursor: self.cursor,
             bounds: Rect::zero(),
             dirty_flags: DirtyFlags::LAYOUT | DirtyFlags::RENDER,
             image_handle: None,
@@ -153,6 +161,7 @@ pub struct LiveViewElement {
     fit: ImageFit,
     classes: Vec<String>,
     on_input: Option<InputFn>,
+    cursor: Option<CursorIcon>,
     bounds: Rect,
     dirty_flags: DirtyFlags,
     image_handle: Option<ImageHandle>,
@@ -240,6 +249,7 @@ impl Element for LiveViewElement {
             }
             self.fit = v.fit;
             self.on_input = v.on_input.clone();
+            self.cursor = v.cursor;
             if self.classes != v.classes {
                 self.classes = v.classes.clone();
             }
@@ -282,6 +292,11 @@ impl Element for LiveViewElement {
         match event {
             Event::MouseMove(p) => {
                 if self.pressed || self.inside(*p) {
+                    if let Some(c) = self.cursor {
+                        if self.inside(*p) {
+                            ctx.set_cursor(c);
+                        }
+                    }
                     let (x, y) = self.frac(*p);
                     self.emit(LiveInput::Move { x, y });
                     return EventResult::Handled;

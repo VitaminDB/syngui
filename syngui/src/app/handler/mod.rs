@@ -467,8 +467,10 @@ impl AppHandler {
         }
     }
 
-    pub(super) fn map_cursor_icon(cursor: CursorIcon) -> winit::window::CursorIcon {
-        match cursor {
+    /// `None` — указатель скрыт.
+    pub(super) fn map_cursor_icon(cursor: CursorIcon) -> Option<winit::window::CursorIcon> {
+        Some(match cursor {
+            CursorIcon::None => return None,
             CursorIcon::Default => winit::window::CursorIcon::Default,
             CursorIcon::Pointer => winit::window::CursorIcon::Pointer,
             CursorIcon::Text => winit::window::CursorIcon::Text,
@@ -487,7 +489,7 @@ impl AppHandler {
             CursorIcon::EResize => winit::window::CursorIcon::EResize,
             CursorIcon::SResize => winit::window::CursorIcon::SResize,
             CursorIcon::WResize => winit::window::CursorIcon::WResize,
-        }
+        })
     }
 
     /// Системный DPI-масштаб окна, умноженный на пользовательский масштаб

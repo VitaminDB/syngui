@@ -320,6 +320,8 @@ pub enum CursorIcon {
     EResize,
     SResize,
     WResize,
+    /// Указатель скрыт (над экраном виртуальной машины, где гость рисует свой).
+    None,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Default)]

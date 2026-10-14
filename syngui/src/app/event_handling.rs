@@ -516,8 +516,9 @@ impl winit::application::ApplicationHandler<SynGuiUserEvent> for AppHandler {
                 // В браузере сюда F11 попадает, только если приложение её
                 // перехватило (`AppBuilder::capture_function_keys`); иначе
                 // клавишу обрабатывает сам браузер.
+                let grabbed = crate::input::keyboard_grab();
                 #[cfg(not(target_os = "android"))]
-                if event.state == winit::event::ElementState::Pressed {
+                if event.state == winit::event::ElementState::Pressed && !grabbed {
                     if let PhysicalKey::Code(winit::keyboard::KeyCode::F11) = event.physical_key {
                         if let Some(window) = &self.window {
                             let win = window.winit_window();
@@ -534,7 +535,7 @@ impl winit::application::ApplicationHandler<SynGuiUserEvent> for AppHandler {
                     }
                 }
 
-                if event.state == winit::event::ElementState::Pressed {
+                if event.state == winit::event::ElementState::Pressed && !grabbed {
                     if let PhysicalKey::Code(winit::keyboard::KeyCode::F12) = event.physical_key {
                         if let Some(ref mut devtools) = self.devtools {
                             let was_enabled = devtools.is_enabled();
@@ -575,7 +576,7 @@ impl winit::application::ApplicationHandler<SynGuiUserEvent> for AppHandler {
                     }
                 }
 
-                if event.state == winit::event::ElementState::Pressed {
+                if event.state == winit::event::ElementState::Pressed && !grabbed {
                     if let PhysicalKey::Code(winit::keyboard::KeyCode::Tab) = event.physical_key {
                         let focused_wants_tab = self
                             .tree
@@ -663,8 +664,14 @@ impl winit::application::ApplicationHandler<SynGuiUserEvent> for AppHandler {
                     winit::event::ElementState::Released => Event::KeyUp(key),
                 };
 
+                #[cfg(any(target_os = "linux", target_os = "freebsd", target_os = "openbsd", target_os = "netbsd", target_os = "dragonfly", windows, target_os = "macos"))]
+                {
+                    use winit::platform::scancode::PhysicalKeyExtScancode;
+                    crate::input::set_current_scancode(event.physical_key.to_scancode());
+                }
                 if let Some(root_id) = self.root_id {
                     let result = self.tree.handle_event(root_id, &evt);
+                    crate::input::set_current_scancode(None);
                     self.devtools_log_event(&format!("{:?}", evt), &result);
                     if result.is_handled() {
                         if let Some(window) = &self.window {

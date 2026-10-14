@@ -658,6 +658,7 @@ impl ComputedStyle {
                 "nesw-resize" | "sw-resize" => Some(CursorIcon::SwResize),
                 "ne-resize" => Some(CursorIcon::NeResize),
                 "default" | "auto" => Some(CursorIcon::Default),
+                "none" => Some(CursorIcon::None),
                 _ => None,
             })
     }
