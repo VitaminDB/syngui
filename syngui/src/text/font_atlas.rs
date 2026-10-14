@@ -200,6 +200,16 @@ pub struct FontAtlas {
     weight_faces: HashMap<(Option<String>, u16), Option<u8>>,
     /// Шейпленные кластеры эмодзи: строка кластера и кегль → глифы.
     emoji_clusters: HashMap<(String, u16), Option<Vec<GlyphKey>>>,
+    /// Семейство основного шрифта из конфига — для повторного поиска.
+    preferred_family: Option<String>,
+    /// Когда снова искать основной шрифт, если его не нашли (fontconfig
+    /// мог быть недоступен в момент создания атласа — иначе весь текст
+    /// окна так и остался бы пустым до перезапуска).
+    #[cfg(not(target_arch = "wasm32"))]
+    font_retry_at: Option<std::time::Instant>,
+    /// Пауза до следующего поиска: 2 с, удваивается до минуты.
+    #[cfg(not(target_arch = "wasm32"))]
+    font_retry_delay: std::time::Duration,
 }
 
 impl FontAtlas {
@@ -267,7 +277,7 @@ impl FontAtlas {
             (font_data, font_face_index),
             (bold_font_data, bold_face_index),
             (emoji_font_data, emoji_face_index),
-        ) = Self::load_all_fonts(preferred_family);
+        ) = Self::load_all_fonts(preferred_family.clone());
 
         let emoji = FontFace::new(emoji_font_data, emoji_face_index);
         if emoji.is_none() {
@@ -308,6 +318,11 @@ impl FontAtlas {
             scale_ctx: swash::scale::ScaleContext::new(),
             weight_faces: HashMap::new(),
             emoji_clusters: HashMap::new(),
+            preferred_family,
+            #[cfg(not(target_arch = "wasm32"))]
+            font_retry_at: None,
+            #[cfg(not(target_arch = "wasm32"))]
+            font_retry_delay: std::time::Duration::from_secs(2),
         }
     }
 
@@ -417,6 +432,8 @@ impl FontAtlas {
     /// previous frame the atlas is cleared and `generation` bumped, so the
     /// frame being built rasterizes only what it actually shows.
     pub fn begin_frame(&mut self) {
+        #[cfg(not(target_arch = "wasm32"))]
+        self.retry_missing_font();
         if !self.overflowed {
             return;
         }
@@ -426,6 +443,52 @@ impl FontAtlas {
             "font_atlas: reset after overflow, generation {}",
             self.generation
         );
+    }
+
+    /// Основного шрифта нет (поиск при создании атласа не удался) — ищем
+    /// снова, всё реже (2 с … минута); нашёлся — ставим его и сбрасываем всё, что успело
+    /// закэшироваться без него, включая не найденные тогда семейства.
+    #[cfg(not(target_arch = "wasm32"))]
+    fn retry_missing_font(&mut self) {
+        use std::time::{Duration, Instant};
+        if self.has_face(FONT_REGULAR) {
+            return;
+        }
+        let now = Instant::now();
+        if self.font_retry_at.is_some_and(|at| now < at) {
+            return;
+        }
+        self.font_retry_at = Some(now + self.font_retry_delay);
+        self.font_retry_delay = (self.font_retry_delay * 2).min(Duration::from_secs(60));
+        let ((regular, regular_face), (bold, bold_face)) =
+            Self::discover_primary_fonts(self.preferred_family.as_deref());
+        let Some(regular) = FontFace::new(regular, regular_face) else {
+            return;
+        };
+        self.set_face(FONT_REGULAR, Some(regular));
+        if !self.has_face(FONT_BOLD) {
+            self.set_face(FONT_BOLD, FontFace::new(bold, bold_face));
+        }
+        self.extra_fonts.retain(|_, indices| indices.is_some());
+        self.weight_faces.clear();
+        self.charmap_cache.clear();
+        self.reset_glyphs();
+        log::info!("font_atlas: основной шрифт найден при повторном поиске");
+    }
+
+    #[cfg(all(not(target_arch = "wasm32"), not(target_os = "android")))]
+    fn discover_primary_fonts(family: Option<&str>) -> ((Vec<u8>, u32), (Vec<u8>, u32)) {
+        use crate::text::font_discovery;
+        (font_discovery::discover_font(family), font_discovery::discover_bold_font(family))
+    }
+
+    #[cfg(target_os = "android")]
+    fn discover_primary_fonts(family: Option<&str>) -> ((Vec<u8>, u32), (Vec<u8>, u32)) {
+        use crate::text::font_discovery_android;
+        (
+            font_discovery_android::discover_font(family),
+            font_discovery_android::discover_bold_font(family),
+        )
     }
 
     pub fn has_emoji_font(&self) -> bool {
