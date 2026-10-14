@@ -5,7 +5,8 @@ use bitflags::bitflags;
 
 use super::mouse::{MouseEncoding, MouseMode};
 
-const MAX_SCROLLBACK: usize = 5_000;
+/// Строк истории по умолчанию ([`TerminalConfig::scrollback`](super::TerminalConfig::scrollback)).
+pub const DEFAULT_SCROLLBACK: usize = 5_000;
 const MAX_LINK_POOL: usize = 4_096;
 
 bitflags! {
@@ -102,6 +103,7 @@ pub struct Grid {
     current_link_id: Option<u32>,
     links: Vec<Arc<str>>,
     link_lookup: HashMap<Arc<str>, u32>,
+    max_scrollback: usize,
 }
 
 impl Grid {
@@ -132,7 +134,18 @@ impl Grid {
             current_link_id: None,
             links: Vec::new(),
             link_lookup: HashMap::new(),
+            max_scrollback: DEFAULT_SCROLLBACK,
         }
+    }
+
+    /// Предел истории; лишние старые строки отбрасываются сразу.
+    pub fn set_max_scrollback(&mut self, n: usize) {
+        self.max_scrollback = n;
+        while self.scrollback.len() > n {
+            self.scrollback.pop_front();
+            self.wrapped_scrollback.pop_front();
+        }
+        self.revision += 1;
     }
 
     pub fn rows(&self) -> usize {
@@ -391,7 +404,10 @@ impl Grid {
     }
 
     fn push_scrollback_with_wrap(&mut self, line: Vec<Cell>, wrapped: bool) {
-        if self.scrollback.len() == MAX_SCROLLBACK {
+        if self.max_scrollback == 0 {
+            return;
+        }
+        while self.scrollback.len() >= self.max_scrollback {
             self.scrollback.pop_front();
             self.wrapped_scrollback.pop_front();
         }

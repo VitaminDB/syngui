@@ -31,6 +31,8 @@ struct SessionShared {
     pty: Mutex<Option<PtySession>>,
     revision: AtomicU64,
     title_signal: Mutex<Option<RwSignal<String>>>,
+    exit_signal: Mutex<Option<RwSignal<bool>>>,
+    exited: AtomicBool,
     stop_flag: AtomicBool,
     pump_join: Mutex<Option<JoinHandle<()>>>,
     pending_config: Mutex<Option<TerminalConfig>>,
@@ -50,8 +52,10 @@ impl TerminalSession {
         if config.command.is_empty() {
             config.command = default_shell();
         }
+        let mut grid = Grid::new(1, 1);
+        grid.set_max_scrollback(config.scrollback);
         let state = SessionState {
-            grid: Grid::new(1, 1),
+            grid,
             parser: Parser::new(),
             selection: SelectionState::default(),
             scroll_offset: 0,
@@ -65,6 +69,8 @@ impl TerminalSession {
             pty: Mutex::new(None),
             revision: AtomicU64::new(0),
             title_signal: Mutex::new(None),
+            exit_signal: Mutex::new(None),
+            exited: AtomicBool::new(false),
             stop_flag: AtomicBool::new(false),
             pump_join: Mutex::new(None),
             pending_config: Mutex::new(Some(config)),
@@ -111,6 +117,7 @@ impl TerminalSession {
             Ok(pair) => pair,
             Err(e) => {
                 log::error!("[syngui terminal] open pty failed: {e}");
+                mark_exited(&self.inner);
                 return;
             }
         };
@@ -202,6 +209,50 @@ impl TerminalSession {
         self.inner.state.lock().ok().and_then(|s| s.title.clone())
     }
 
+    /// Процесс терминала завершился (или не запустился): сигнал станет `true`.
+    /// Ставится из потока чтения PTY.
+    pub fn set_exit_signal(&self, signal: RwSignal<bool>) {
+        if let Ok(mut guard) = self.inner.exit_signal.lock() {
+            *guard = Some(signal);
+        }
+        if self.inner.exited.load(Ordering::Acquire) {
+            signal.set(true);
+        }
+    }
+
+    /// Процесс терминала завершился (или не запустился).
+    pub fn has_exited(&self) -> bool {
+        self.inner.exited.load(Ordering::Acquire)
+    }
+
+    /// pid запущенной программы (оболочки); `None` — PTY ещё не открыт или закрыт.
+    pub fn pid(&self) -> Option<u32> {
+        self.inner.pty.lock().ok().and_then(|p| p.as_ref().and_then(|p| p.pid()))
+    }
+
+    /// Текущий каталог программы терминала (Linux: `/proc/<pid>/cwd`).
+    pub fn cwd(&self) -> Option<std::path::PathBuf> {
+        let pid = self.pid()?;
+        #[cfg(target_os = "linux")]
+        {
+            std::fs::read_link(format!("/proc/{pid}/cwd")).ok()
+        }
+        #[cfg(not(target_os = "linux"))]
+        {
+            let _ = pid;
+            None
+        }
+    }
+
+    /// Предел строк истории (меняется на лету).
+    pub fn set_scrollback(&self, lines: usize) {
+        if let Ok(mut s) = self.inner.state.lock() {
+            s.grid.set_max_scrollback(lines);
+            s.scroll_offset = s.scroll_offset.min(s.grid.scrollback_len());
+        }
+        self.inner.revision.fetch_add(1, Ordering::Release);
+    }
+
     pub fn set_title_signal(&self, signal: RwSignal<String>) {
         if let Ok(mut guard) = self.inner.title_signal.lock() {
             *guard = Some(signal);
@@ -258,8 +309,18 @@ fn pump_loop(shared: Arc<SessionShared>, rx: Receiver<Vec<u8>>) {
                     *pty = None;
                 }
                 shared.revision.fetch_add(1, Ordering::Release);
+                mark_exited(&shared);
                 break;
             }
+        }
+    }
+}
+
+fn mark_exited(shared: &SessionShared) {
+    shared.exited.store(true, Ordering::Release);
+    if let Ok(guard) = shared.exit_signal.lock() {
+        if let Some(sig) = guard.as_ref() {
+            sig.set(true);
         }
     }
 }

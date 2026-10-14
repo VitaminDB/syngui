@@ -70,6 +70,7 @@ pub struct TerminalElement {
 
     pub(super) autofocus: bool,
     pub(super) focus_request_pending: bool,
+    pub(super) key_hook: Option<super::TerminalKeyHook>,
 }
 
 impl TerminalElement {
@@ -101,6 +102,7 @@ impl TerminalElement {
             command_signal: None,
             autofocus: false,
             focus_request_pending: false,
+            key_hook: None,
         }
     }
 
@@ -301,6 +303,14 @@ impl Element for TerminalElement {
             self.config.font_family = t.config.font_family.clone();
             self.config.font_family_explicit = t.config.font_family_explicit;
             self.config.line_height = t.config.line_height;
+            self.config.palette = t.config.palette;
+            if self.config.scrollback != t.config.scrollback {
+                self.config.scrollback = t.config.scrollback;
+                if let Some(s) = self.session.as_ref() {
+                    s.set_scrollback(t.config.scrollback);
+                }
+            }
+            self.key_hook = t.key_hook.clone();
 
             self.command_signal = t.command_signal;
 
@@ -601,6 +611,11 @@ impl Element for TerminalElement {
                     return EventResult::Ignored;
                 }
                 let mods = ctx.modifiers;
+                if let Some(hook) = self.key_hook.as_ref() {
+                    if hook(*key, mods) {
+                        return EventResult::Handled;
+                    }
+                }
                 use crate::input::Key;
                 if mods.ctrl && mods.alt && matches!(key, Key::C) {
                     if let Some(text) = self.collect_selection() {
@@ -639,6 +654,22 @@ impl Element for TerminalElement {
                 self.clear_selection_if_any(ctx);
                 let bytes = kb::map_char(*c, mods);
                 self.write_pty(&bytes);
+                self.reset_scroll_offset_if_any(ctx);
+                EventResult::Handled
+            }
+
+            // Текст от IME (fcitx/ibus, экранная клавиатура телефона).
+            Event::ImeCommit(text) => {
+                let focused = self
+                    .session
+                    .as_ref()
+                    .map(|s| s.with_state_ref(|st| st.focused))
+                    .unwrap_or(false);
+                if !focused || text.is_empty() {
+                    return EventResult::Ignored;
+                }
+                self.clear_selection_if_any(ctx);
+                self.write_pty(text.as_bytes());
                 self.reset_scroll_offset_if_any(ctx);
                 EventResult::Handled
             }
@@ -955,6 +986,23 @@ impl Element for TerminalElement {
 
             _ => EventResult::Ignored,
         }
+    }
+
+    /// Каретка — клетка курсора: туда IME ставит окно кандидатов, а на
+    /// телефоне фокус терминала показывает экранную клавиатуру.
+    fn ime_cursor_area(&self) -> Option<Rect> {
+        let s = self.session.as_ref()?;
+        let origin = self.inner_origin();
+        s.with_state_ref(|st| {
+            if !st.focused {
+                return None;
+            }
+            let c = st.grid.cursor();
+            Some(Rect::new(
+                Point::new(origin.x + c.col as f32 * self.cell_w, origin.y + c.row as f32 * self.cell_h),
+                Size::new(self.cell_w, self.cell_h),
+            ))
+        })
     }
 
     fn children(&self) -> &[ElementId] {
@@ -1296,9 +1344,9 @@ impl TerminalElement {
 
         let effective_bg = |c: &Cell| -> Color {
             if c.flags.contains(CellFlags::REVERSE) {
-                palette::resolve(c.fg, default_fg, default_bg, true)
+                palette::resolve(c.fg, default_fg, default_bg, true, self.config.palette.as_ref())
             } else {
-                palette::resolve(c.bg, default_fg, default_bg, false)
+                palette::resolve(c.bg, default_fg, default_bg, false, self.config.palette.as_ref())
             }
         };
         let mut col = 0;
@@ -1323,8 +1371,8 @@ impl TerminalElement {
             if cell.ch == ' ' && cell.flags.is_empty() {
                 continue;
             }
-            let mut fg = palette::resolve(cell.fg, default_fg, default_bg, true);
-            let mut bg_for_reverse = palette::resolve(cell.bg, default_fg, default_bg, false);
+            let mut fg = palette::resolve(cell.fg, default_fg, default_bg, true, self.config.palette.as_ref());
+            let mut bg_for_reverse = palette::resolve(cell.bg, default_fg, default_bg, false, self.config.palette.as_ref());
             if cell.flags.contains(CellFlags::REVERSE) {
                 std::mem::swap(&mut fg, &mut bg_for_reverse);
             }
@@ -1366,7 +1414,7 @@ impl TerminalElement {
                     while end < cells.len() && cells[end].link_id == Some(link_id) {
                         end += 1;
                     }
-                    let fg = palette::resolve(start_cell.fg, default_fg, default_bg, true);
+                    let fg = palette::resolve(start_cell.fg, default_fg, default_bg, true, self.config.palette.as_ref());
                     let is_hovered = Some(link_id) == self.hovered_link;
                     let underline_color = if is_hovered {
                         self.link_hover_color()

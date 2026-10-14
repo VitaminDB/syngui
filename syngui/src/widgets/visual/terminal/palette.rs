@@ -27,7 +27,10 @@ fn srgb(r: u8, g: u8, b: u8) -> Color {
     Color::from_srgb(r, g, b, 1.0)
 }
 
-fn indexed_color(idx: u8) -> Color {
+fn indexed_color(idx: u8, custom: Option<&[Color; 16]>) -> Color {
+    if let Some(c) = custom.and_then(|p| p.get(idx as usize)) {
+        return *c;
+    }
     if (idx as usize) < TANGO_16.len() {
         let (r, g, b) = TANGO_16[idx as usize];
         return srgb(r, g, b);
@@ -44,7 +47,8 @@ fn indexed_color(idx: u8) -> Color {
     srgb(v, v, v)
 }
 
-pub fn resolve(c: CellColor, default_fg: Color, default_bg: Color, is_fg: bool) -> Color {
+/// `custom` — палитра из [`TerminalConfig::palette`](super::TerminalConfig::palette).
+pub fn resolve(c: CellColor, default_fg: Color, default_bg: Color, is_fg: bool, custom: Option<&[Color; 16]>) -> Color {
     match c {
         CellColor::Default => {
             if is_fg {
@@ -53,7 +57,7 @@ pub fn resolve(c: CellColor, default_fg: Color, default_bg: Color, is_fg: bool) 
                 default_bg
             }
         }
-        CellColor::Indexed(idx) => indexed_color(idx),
+        CellColor::Indexed(idx) => indexed_color(idx, custom),
         CellColor::Rgb(r, g, b) => srgb(r, g, b),
     }
 }

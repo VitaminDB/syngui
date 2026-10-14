@@ -1,5 +1,6 @@
 use std::any::Any;
 use std::path::PathBuf;
+use std::sync::Arc;
 
 use crate::widget::{Element, ElementId, ElementTree, Widget};
 
@@ -21,6 +22,12 @@ pub use mouse::{MouseEncoding, MouseMode};
 pub use selection::SelectionMode;
 pub use session::TerminalSession;
 
+/// Перехват клавиш приложением: `true` — клавиша его (горячая клавиша окна),
+/// в PTY она не уходит. Видит `KeyDown`; символ, который клавиша набирает,
+/// приходит отдельным `CharInput` раньше неё, поэтому горячие клавиши — с Ctrl
+/// (при Ctrl окно символов не шлёт).
+pub type TerminalKeyHook = Arc<dyn Fn(crate::input::Key, crate::input::Modifiers) -> bool + Send + Sync>;
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum TerminalCommand {
     Copy,
@@ -34,6 +41,7 @@ pub struct Terminal {
     pub(crate) session: Option<TerminalSession>,
     pub(crate) command_signal: Option<crate::signal::RwSignal<Option<TerminalCommand>>>,
     pub(crate) autofocus: bool,
+    pub(crate) key_hook: Option<TerminalKeyHook>,
 }
 
 impl Terminal {
@@ -44,6 +52,7 @@ impl Terminal {
             session: None,
             command_signal: None,
             autofocus: false,
+            key_hook: None,
         }
     }
 
@@ -106,6 +115,30 @@ impl Terminal {
         self.config.line_height = ratio.max(1.0);
         self
     }
+
+    /// Свои 16 цветов ANSI (0–7 обычные, 8–15 яркие) вместо Tango. Цвета
+    /// текста, фона и курсора по умолчанию — из MSS (`color`,
+    /// `background-color`, `accent-color`).
+    pub fn palette(mut self, colors: [crate::core::Color; 16]) -> Self {
+        self.config.palette = Some(colors);
+        self
+    }
+
+    /// Сколько строк истории держать (по умолчанию 5000).
+    pub fn scrollback(mut self, lines: usize) -> Self {
+        self.config.scrollback = lines;
+        self
+    }
+
+    /// Горячие клавиши приложения поверх терминала: функция видит каждое
+    /// нажатие раньше PTY и, вернув `true`, забирает его (см. [`TerminalKeyHook`]).
+    pub fn on_key(
+        mut self,
+        f: impl Fn(crate::input::Key, crate::input::Modifiers) -> bool + Send + Sync + 'static,
+    ) -> Self {
+        self.key_hook = Some(Arc::new(f));
+        self
+    }
 }
 
 impl Default for Terminal {
@@ -122,6 +155,7 @@ impl Widget for Terminal {
         }
         elem.command_signal = self.command_signal;
         elem.autofocus = self.autofocus;
+        elem.key_hook = self.key_hook.clone();
         if self.autofocus {
             let take = self
                 .session

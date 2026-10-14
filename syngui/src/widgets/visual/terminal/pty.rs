@@ -187,6 +187,10 @@ impl PtySession {
         });
     }
 
+    pub fn pid(&self) -> Option<u32> {
+        self.child.process_id()
+    }
+
     pub fn is_alive(&self) -> bool {
         self.reader_alive.load(Ordering::Acquire)
     }
