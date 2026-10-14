@@ -152,7 +152,7 @@ pub mod prelude {
         AnimationAxis, AspectRatio, Autocomplete, Avatar, Badge, BadgeSize, Button, Calendar,
         Canvas, Card, Carousel, Checkbox, Chip, CircularProgress, ColorPicker, ColorValue, Column,
         Combobox, ConfirmDialog, ContextMenu, CrossAxisAlignment, Date, DatePicker, DecoratedBox,
-        Dialog, DialogAction, Divider, DividerDirection, Draggable, DropArea, Dropdown,
+        Dialog, DismissDirection, Dismissible, DialogAction, Divider, DividerDirection, Draggable, DropArea, Dropdown,
         DropdownItem, Flex, FlexDirection, FloatingWindow, Grid, Icon, Image, ImageFit, ListItem,
         ListView, MainAxisAlignment, MenuItem, Motion, Multiselect, NotificationCtx, NotificationHost,
         NotificationItem, NotificationSeverity, Padding, Pagination, PopupMenu, Portal, Presence,

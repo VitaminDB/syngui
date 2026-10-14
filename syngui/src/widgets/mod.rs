@@ -22,7 +22,7 @@ pub use charts::{
     SeriesStyle, TooltipConfig, VisualMapPiece,
 };
 pub use containers::{
-    Animated, AnimatedPosition, AnimatedSize, AnimatedSwitcher, AnimationAxis, AspectRatio, Carousel, Column, DecoratedBox, Falloff, Fisheye,
+    Animated, AnimatedPosition, AnimatedSize, AnimatedSwitcher, AnimationAxis, AspectRatio, Carousel, Column, DecoratedBox, DismissDirection, Dismissible, Falloff, Fisheye,
     FisheyeAnchor, Flex, GestureDetector, PanAxis, PanUpdate, PinchUpdate, SwipeDirection, ScaleBox,
     Grid, IntoWidget, Motion, MultiTouch, Named, Padding, Page, Presence, Reactive, RepeatMode, Row, ScrollPhysics, ScrollTarget,
     ScrollbarPolicy, ShowIf, SplitDirection, SplitView, Stack, StackFit, TransformBox,
