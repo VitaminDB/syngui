@@ -639,6 +639,21 @@ impl AppHandler {
             } else if event_str == "K:enter" {
                 self.tree
                     .handle_event(root_id, &Event::KeyDown(crate::input::Key::Enter));
+            } else if let Some(params) = event_str.strip_prefix("W:") {
+                // Колесо мыши (WheelCallback в SynGuiInputHandler.java):
+                // "x,y,vscroll,hscroll" — курсор в физических пикселях и
+                // шаги колеса. Шаг — те же 40 логических px, что у
+                // `MouseScrollDelta::LineDelta` на десктопе.
+                let v: Vec<f32> = params.split(',').filter_map(|p| p.trim().parse().ok()).collect();
+                if v.len() == 4 {
+                    let sf = self.scale_factor as f32;
+                    let position = crate::core::Point::new(v[0] / sf, v[1] / sf);
+                    self.cursor_position = position;
+                    self.tree.handle_event(
+                        root_id,
+                        &Event::MouseWheel { delta: v[2] * 40.0, delta_x: v[3] * 40.0, position },
+                    );
+                }
             }
         }
 

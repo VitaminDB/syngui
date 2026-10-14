@@ -41,6 +41,9 @@ pub enum ScrollDirection {
     Both,
 }
 
+/// Обработчик прокрутки: (смещение, предел смещения) в пикселях.
+pub type ScrollHandler = std::sync::Arc<dyn Fn(Point, Point) + Send + Sync>;
+
 pub struct ScrollView {
     child: Option<Box<dyn Widget>>,
     direction: ScrollDirection,
@@ -48,6 +51,7 @@ pub struct ScrollView {
     scrollbar_width: f32,
     center_content: bool,
     follow_end: bool,
+    on_scroll: Option<ScrollHandler>,
     classes: Vec<String>,
 }
 
@@ -60,8 +64,18 @@ impl ScrollView {
             scrollbar_width: 8.0,
             center_content: false,
             follow_end: false,
+            on_scroll: None,
             classes: Vec::new(),
         }
+    }
+
+    /// Пользователь прокрутил (колесо, палец, полоса, клавиши, докат):
+    /// `(смещение, предел)` в пикселях — предел это `содержимое − область`.
+    /// Для бесконечных списков: `offset.y >= max.y - запас` — пора
+    /// докачивать следующую страницу. Зовётся только при изменении смещения.
+    pub fn on_scroll(mut self, handler: impl Fn(Point, Point) + Send + Sync + 'static) -> Self {
+        self.on_scroll = Some(std::sync::Arc::new(handler));
+        self
     }
 
     /// Лента (чат, лог): при первом показе содержимое прокручено в самый
@@ -146,6 +160,8 @@ impl Widget for ScrollView {
             center_content: self.center_content,
             follow_end: self.follow_end,
             stick_to_end: true,
+            on_scroll: self.on_scroll.clone(),
+            reported_offset: Point::zero(),
 
             scroll_offset: Point::zero(),
             velocity: Point::zero(),
@@ -220,6 +236,9 @@ pub struct ScrollViewElement {
     /// Лента прижата к низу: содержимое растёт — низ держится. Снимается,
     /// когда пользователь уходит вверх, и ставится снова у самого низа.
     stick_to_end: bool,
+    /// `ScrollView::on_scroll` и смещение, о котором ему сообщили.
+    on_scroll: Option<ScrollHandler>,
+    reported_offset: Point,
 
     scroll_offset: Point,
     velocity: Point,
@@ -469,10 +488,18 @@ impl ScrollViewElement {
     }
 
     /// После прокрутки пользователем: прилипание к низу есть, только если
-    /// он сам стоит у низа (допуск в пиксель — под округление).
+    /// он сам стоит у низа (допуск в пиксель — под округление); и отчёт
+    /// `on_scroll`, если смещение сдвинулось.
     fn refresh_stick(&mut self) {
         if self.follow_end && self.can_scroll_y() {
             self.stick_to_end = self.scroll_offset.y >= self.max_scroll_y() - 1.0;
+        }
+        if let Some(h) = self.on_scroll.as_ref() {
+            let off = self.scroll_offset;
+            if (off.x - self.reported_offset.x).abs() > 0.01 || (off.y - self.reported_offset.y).abs() > 0.01 {
+                self.reported_offset = off;
+                h(off, Point::new(self.max_scroll_x(), self.max_scroll_y()));
+            }
         }
     }
 
@@ -551,6 +578,7 @@ impl Element for ScrollViewElement {
             self.scrollbar_width = sv.scrollbar_width;
             self.center_content = sv.center_content;
             self.follow_end = sv.follow_end;
+            self.on_scroll = sv.on_scroll.clone();
             self.mark_dirty(DirtyFlags::LAYOUT | DirtyFlags::RENDER);
         }
     }

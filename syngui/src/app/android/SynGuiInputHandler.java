@@ -35,7 +35,67 @@ public class SynGuiInputHandler {
             root.addView(inputView);
 
             imm = (InputMethodManager) activity.getSystemService(Activity.INPUT_METHOD_SERVICE);
+
+            // Колесо мыши (ACTION_SCROLL) winit на Android не отдаёт: ловим его
+            // у окна раньше всех View и кладём в очередь событий ("W:…").
+            Window window = activity.getWindow();
+            Window.Callback cb = window.getCallback();
+            if (cb != null && !(cb instanceof WheelCallback)) {
+                window.setCallback(new WheelCallback(cb));
+            }
         });
+    }
+
+    /**
+     * Обёртка Window.Callback: всё делегирует активности, а у generic-событий
+     * мыши вынимает прокрутку колесом. Событие очереди:
+     *   "W:x,y,vscroll,hscroll" — курсор в физических пикселях окна и шаги
+     *   колеса (AXIS_VSCROLL > 0 — от себя, вверх; AXIS_HSCROLL > 0 — вправо).
+     */
+    static final class WheelCallback implements Window.Callback {
+        private final Window.Callback inner;
+
+        WheelCallback(Window.Callback inner) {
+            this.inner = inner;
+        }
+
+        @Override
+        public boolean dispatchGenericMotionEvent(MotionEvent ev) {
+            if (ev.getAction() == MotionEvent.ACTION_SCROLL) {
+                float v = ev.getAxisValue(MotionEvent.AXIS_VSCROLL);
+                float h = ev.getAxisValue(MotionEvent.AXIS_HSCROLL);
+                if (v != 0f || h != 0f) {
+                    events.add("W:" + ev.getX() + "," + ev.getY() + "," + v + "," + h);
+                    return true;
+                }
+            }
+            return inner.dispatchGenericMotionEvent(ev);
+        }
+
+        @Override public boolean dispatchKeyEvent(KeyEvent e) { return inner.dispatchKeyEvent(e); }
+        @Override public boolean dispatchKeyShortcutEvent(KeyEvent e) { return inner.dispatchKeyShortcutEvent(e); }
+        @Override public boolean dispatchTouchEvent(MotionEvent e) { return inner.dispatchTouchEvent(e); }
+        @Override public boolean dispatchTrackballEvent(MotionEvent e) { return inner.dispatchTrackballEvent(e); }
+        @Override public boolean dispatchPopulateAccessibilityEvent(android.view.accessibility.AccessibilityEvent e) { return inner.dispatchPopulateAccessibilityEvent(e); }
+        @Override public View onCreatePanelView(int id) { return inner.onCreatePanelView(id); }
+        @Override public boolean onCreatePanelMenu(int id, Menu menu) { return inner.onCreatePanelMenu(id, menu); }
+        @Override public boolean onPreparePanel(int id, View view, Menu menu) { return inner.onPreparePanel(id, view, menu); }
+        @Override public boolean onMenuOpened(int id, Menu menu) { return inner.onMenuOpened(id, menu); }
+        @Override public boolean onMenuItemSelected(int id, MenuItem item) { return inner.onMenuItemSelected(id, item); }
+        @Override public void onWindowAttributesChanged(WindowManager.LayoutParams attrs) { inner.onWindowAttributesChanged(attrs); }
+        @Override public void onContentChanged() { inner.onContentChanged(); }
+        @Override public void onWindowFocusChanged(boolean hasFocus) { inner.onWindowFocusChanged(hasFocus); }
+        @Override public void onAttachedToWindow() { inner.onAttachedToWindow(); }
+        @Override public void onDetachedFromWindow() { inner.onDetachedFromWindow(); }
+        @Override public void onPanelClosed(int id, Menu menu) { inner.onPanelClosed(id, menu); }
+        @Override public boolean onSearchRequested() { return inner.onSearchRequested(); }
+        @Override public boolean onSearchRequested(SearchEvent e) { return inner.onSearchRequested(e); }
+        @Override public ActionMode onWindowStartingActionMode(ActionMode.Callback cb) { return inner.onWindowStartingActionMode(cb); }
+        @Override public ActionMode onWindowStartingActionMode(ActionMode.Callback cb, int type) { return inner.onWindowStartingActionMode(cb, type); }
+        @Override public void onActionModeStarted(ActionMode mode) { inner.onActionModeStarted(mode); }
+        @Override public void onActionModeFinished(ActionMode mode) { inner.onActionModeFinished(mode); }
+        @Override public void onProvideKeyboardShortcuts(java.util.List<KeyboardShortcutGroup> data, Menu menu, int deviceId) { inner.onProvideKeyboardShortcuts(data, menu, deviceId); }
+        @Override public void onPointerCaptureChanged(boolean hasCapture) { inner.onPointerCaptureChanged(hasCapture); }
     }
 
     public static void showKeyboard() {
@@ -110,7 +170,7 @@ class SynGuiInputView extends View {
 /**
  * Custom InputConnection — receives individual IME operations.
  * Properly tracks composing region to avoid double input.
- * Events queued for native polling:
+ * Events queued for native polling (see also SynGuiInputHandler.WheelCallback):
  *   "C:text" — final text to insert at cursor (after removing composing region)
  *   "D:before,after" — delete surrounding text
  *   "K:enter" — Enter key

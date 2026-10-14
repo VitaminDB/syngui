@@ -575,6 +575,11 @@ reaches the bottom again the view sticks again. To reset on a content
 switch (a different chat), rebuild the `ScrollView` — a fresh element
 starts stuck to the bottom.
 
+`on_scroll(|offset, max| …)` reports every user scroll (wheel, touch, thumb,
+keys, coasting) with the current offset and the scroll limit (`content −
+viewport`), both in pixels — the hook for infinite lists: when
+`offset.y >= max.y - margin`, fetch the next page.
+
 ## Navigation
 
 ### TopAppBar

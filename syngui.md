@@ -1413,6 +1413,9 @@ EventHook::new()
         matches!(key, RemoteKey::Back) && router.back()
     })
     .on_key_down(|key, mods| if mods.ctrl && key == Key::K { KeyReply::Handled } else { KeyReply::Ignore })
+    // Колесо мыши, которое не забрал ScrollView ниже (dx, dy в px, щелчок =
+    // 40, dy > 0 — вверх): на ТВ-раскладке без ScrollView — шаги фокуса.
+    .on_wheel(move |_dx, dy, _pos| { focus.update(|f| if dy < 0.0 { f.down(); } else { f.up(); }); true })
     .child(screen)
 
 focus.get().row() / .col() / .is_focused(r, c) / .set(r, c) / .resize(lens)
@@ -1426,6 +1429,10 @@ FocusScroll::new().vertical().focus(row).peek(80.0).child(Column::new()…).clas
 ```
 
 Ставится у корня экрана: события, не обработанные ниже, всплывают в него.
+На Android колесо мыши (`ACTION_SCROLL`, winit его не отдаёт) ловит JNI-мост
+(`SynGuiInputHandler.WheelCallback`) и подаёт как `Event::MouseWheel`;
+после правки Java-исходников моста dex пересобирает
+`scripts/build-android-dex.sh`.
 На Android аппаратные клавиши (D-pad, медиа, внешняя клавиатура) доходят до
 виджетов как `KeyDown/KeyUp`, пока не открыта экранная клавиатура (тогда —
 только IME-канал); winit-овский IME на Android не включается, иначе
