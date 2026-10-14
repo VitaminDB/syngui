@@ -20,6 +20,8 @@ pub struct MenuItem {
     pub id: String,
     pub label: String,
     pub icon: Option<String>,
+    /// Свой цвет значка (цветные метки и т. п.); `None` — как у текста.
+    pub icon_color: Option<Color>,
     pub shortcut: Option<String>,
     pub disabled: bool,
     pub separator: bool,
@@ -32,6 +34,7 @@ impl MenuItem {
             id: id.into(),
             label: label.into(),
             icon: None,
+            icon_color: None,
             shortcut: None,
             disabled: false,
             separator: false,
@@ -44,6 +47,7 @@ impl MenuItem {
             id: String::new(),
             label: String::new(),
             icon: None,
+            icon_color: None,
             shortcut: None,
             disabled: false,
             separator: true,
@@ -53,6 +57,12 @@ impl MenuItem {
 
     pub fn icon(mut self, icon: impl Into<String>) -> Self {
         self.icon = Some(icon.into());
+        self
+    }
+
+    /// Цвет значка вместо цвета текста (у недоступного пункта — бледнее).
+    pub fn icon_color(mut self, color: Color) -> Self {
+        self.icon_color = Some(color);
         self
     }
 
@@ -523,7 +533,11 @@ impl PopupMenuElement {
                 } else {
                     IconState::Normal
                 };
-                let icon_color = self.mss.icon_color(icon_state, text_color);
+                let icon_color = match item.icon_color {
+                    Some(c) if item.disabled => c.with_alpha(0.4),
+                    Some(c) => c,
+                    None => self.mss.icon_color(icon_state, text_color),
+                };
                 list.push_text_centered(icon, icon_rect, icon_color, 14.0);
                 text_x += ITEM_ICON_BOX + ITEM_ICON_GAP;
             }
