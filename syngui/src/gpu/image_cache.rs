@@ -170,6 +170,41 @@ fn write_level(
     );
 }
 
+/// Места частичной записи, обрезанные по кадру; `None` — выгоднее целиком
+/// (мест много или они покрывают больше половины кадра).
+fn fit_regions(rects: Vec<[u32; 4]>, w: u32, h: u32) -> Option<Vec<[u32; 4]>> {
+    let mut out: Vec<[u32; 4]> = rects
+        .into_iter()
+        .filter_map(|[x, y, rw, rh]| {
+            let (x1, y1) = ((x + rw).min(w), (y + rh).min(h));
+            (x < x1 && y < y1).then_some([x, y, x1 - x, y1 - y])
+        })
+        .collect();
+    if out.len() > 32 {
+        // Много мелких мест — одной рамкой вокруг всех.
+        let (x0, y0) = (out.iter().map(|r| r[0]).min()?, out.iter().map(|r| r[1]).min()?);
+        let (x1, y1) = (out.iter().map(|r| r[0] + r[2]).max()?, out.iter().map(|r| r[1] + r[3]).max()?);
+        out = vec![[x0, y0, x1 - x0, y1 - y0]];
+    }
+    let area: u64 = out.iter().map(|r| r[2] as u64 * r[3] as u64).sum();
+    (area * 2 <= w as u64 * h as u64).then_some(out)
+}
+
+/// Записывает место `[x, y, w, h]` кадра шириной `fw` в нулевой уровень.
+fn write_region(queue: &wgpu::Queue, texture: &wgpu::Texture, fw: u32, rgba: &[u8], [x, y, w, h]: [u32; 4]) {
+    let start = ((y as usize * fw as usize) + x as usize) * 4;
+    let end = ((y + h - 1) as usize * fw as usize + (x + w) as usize) * 4;
+    let Some(src) = rgba.get(start..end) else {
+        return;
+    };
+    queue.write_texture(
+        wgpu::TexelCopyTextureInfo { texture, mip_level: 0, origin: wgpu::Origin3d { x, y, z: 0 }, aspect: wgpu::TextureAspect::All },
+        src,
+        wgpu::TexelCopyBufferLayout { offset: 0, bytes_per_row: Some(4 * fw), rows_per_image: Some(h) },
+        wgpu::Extent3d { width: w, height: h, depth_or_array_layers: 1 },
+    );
+}
+
 /// Сколько уровней нужно текстуре под эти данные.
 fn levels_for(data: &ImageData) -> u32 {
     if data.single_level {
@@ -220,6 +255,10 @@ struct GpuImage {
     /// mali-utility-worker съедает ядро.
     ring: Vec<(wgpu::Texture, wgpu::BindGroup)>,
     cur: usize,
+    /// Места, изменённые последними заливками (`None` — кадр целиком), —
+    /// новейшие в конце: текстура кольца отстала на столько кадров, и
+    /// частичная запись в неё обязана догнать их все.
+    recent: std::collections::VecDeque<Option<Vec<[u32; 4]>>>,
 }
 
 impl GpuImage {
@@ -571,7 +610,31 @@ impl ImageGpuCache {
             // трилинейный, устаревшие уровни всплыли бы при минификации.
             let img = self.images.get_mut(&handle.0).expect("checked above");
             img.cur = (img.cur + 1) % img.ring.len();
-            write_all_levels(queue, img.texture(), data);
+            // Частичная запись: эта текстура кольца видела кадр ring_len назад —
+            // догоняем места всех кадров с тех пор.
+            let lag = img.ring.len();
+            let mut rects: Option<Vec<[u32; 4]>> = data.regions.clone().filter(|_| data.single_level && img.recent.len() + 1 >= lag);
+            for prev in img.recent.iter().rev().take(lag - 1) {
+                rects = match (rects, prev) {
+                    (Some(mut a), Some(b)) => {
+                        a.extend_from_slice(b);
+                        Some(a)
+                    }
+                    _ => None,
+                };
+            }
+            match rects.and_then(|r| fit_regions(r, data.width, data.height)) {
+                Some(r) => {
+                    for rect in &r {
+                        write_region(queue, img.texture(), data.width, &data.rgba, *rect);
+                    }
+                }
+                None => write_all_levels(queue, img.texture(), data),
+            }
+            img.recent.push_back(data.regions.clone());
+            while img.recent.len() > lag {
+                img.recent.pop_front();
+            }
             return;
         }
 
@@ -612,7 +675,7 @@ impl ImageGpuCache {
             ring.push((texture, bind_group));
         }
         write_all_levels(queue, &ring[0].0, data);
-        self.images.insert(handle.0, GpuImage { ring, cur: 0 });
+        self.images.insert(handle.0, GpuImage { ring, cur: 0, recent: std::collections::VecDeque::new() });
     }
 
     pub fn process_uploads(
@@ -675,5 +738,18 @@ mod mip_tests {
         let (w, h, out) = downscale_half(3, 1, &src);
         assert_eq!((w, h), (1, 1));
         assert_eq!(out.len(), 4);
+    }
+}
+
+#[cfg(test)]
+mod region_tests {
+    use super::fit_regions;
+
+    #[test]
+    fn regions_are_clipped_and_large_ones_go_whole() {
+        assert_eq!(fit_regions(vec![[90, 90, 20, 20]], 100, 100), Some(vec![[90, 90, 10, 10]]));
+        assert_eq!(fit_regions(vec![[0, 0, 100, 60]], 100, 100), None);
+        let many: Vec<[u32; 4]> = (0..40).map(|i| [i, 0, 1, 1]).collect();
+        assert_eq!(fit_regions(many, 100, 100), Some(vec![[0, 0, 40, 1]]));
     }
 }

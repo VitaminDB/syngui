@@ -49,6 +49,9 @@ pub struct ImageData {
     pub natural: Option<(u32, u32)>,
     /// Кадр видео в YUV (`rgba` пуст): цвет переводит шейдер, см. [`YuvFrame`].
     pub yuv: Option<Arc<YuvFrame>>,
+    /// Потоковый кадр, у которого изменились только эти места (`[x, y, w, h]`):
+    /// в текстуру заливаются они, а не кадр целиком. `None` — весь кадр.
+    pub regions: Option<Vec<[u32; 4]>>,
 }
 
 /// Раскладка плоскостей YUV 4:2:0 в [`YuvFrame::data`].
@@ -189,6 +192,7 @@ impl ImageData {
             single_level: false,
             natural: None,
             yuv: None,
+            regions: None,
         }
     }
 
@@ -202,6 +206,7 @@ impl ImageData {
             single_level: true,
             natural: None,
             yuv: None,
+            regions: None,
         }
     }
 
@@ -215,6 +220,7 @@ impl ImageData {
             single_level: true,
             natural: None,
             yuv: Some(frame),
+            regions: None,
         }
     }
 }
@@ -640,6 +646,37 @@ impl ImageStore {
         // иначе картинка отстаёт от звука на длину очереди загрузок.
         match self.pending_uploads.iter_mut().find(|(h, _)| *h == handle) {
             Some(slot) => slot.1 = data,
+            None => self.pending_uploads.push((handle, data)),
+        }
+    }
+
+    /// Как [`Self::update_rgba`], но изменились только `regions`
+    /// (`[x, y, w, h]`): в текстуру уйдут они. Незалитый прежний кадр
+    /// заменяется, его места добавляются к новым.
+    pub fn update_rgba_regions(&mut self, handle: ImageHandle, width: u32, height: u32, rgba: impl Into<Arc<[u8]>>, regions: Vec<[u32; 4]>) {
+        let rgba = rgba.into();
+        let Some(key) = self.handle_to_key.get(&handle.0) else {
+            return;
+        };
+        let resized = self.images.get(key).is_some_and(|e| (e.width, e.height) != (width, height));
+        if let Some(entry) = self.images.get_mut(key) {
+            entry.state = ImageLoadState::Ready;
+            entry.width = width;
+            entry.height = height;
+        }
+        let mut data = ImageData::single_level(width, height, rgba);
+        data.regions = (!resized).then_some(regions);
+        match self.pending_uploads.iter_mut().find(|(h, _)| *h == handle) {
+            Some(slot) => {
+                data.regions = match (slot.1.regions.take(), data.regions.take()) {
+                    (Some(mut a), Some(b)) if (slot.1.width, slot.1.height) == (width, height) => {
+                        a.extend(b);
+                        Some(a)
+                    }
+                    _ => None,
+                };
+                slot.1 = data;
+            }
             None => self.pending_uploads.push((handle, data)),
         }
     }
@@ -1234,6 +1271,24 @@ mod tests {
         assert_eq!(uploads[0].1.width, 8);
         assert_eq!(uploads[0].1.height, 6);
         assert_eq!(uploads[0].1.rgba.len(), 8 * 6 * 4);
+    }
+
+    /// Незалитый кадр с местами и новый с местами — места складываются;
+    /// смена размера или кадр целиком — заливка целиком.
+    #[test]
+    fn update_rgba_regions_merges_pending_places() {
+        let mut store = ImageStore::new();
+        let (handle, _) = store.request_rgba("live", 4, 4, solid(4, 4, 0));
+        let _ = store.take_pending_uploads();
+        store.update_rgba_regions(handle, 4, 4, solid(4, 4, 1), vec![[0, 0, 1, 1]]);
+        store.update_rgba_regions(handle, 4, 4, solid(4, 4, 2), vec![[2, 2, 1, 1]]);
+        let up = store.take_pending_uploads();
+        assert_eq!(up[0].1.regions, Some(vec![[0, 0, 1, 1], [2, 2, 1, 1]]));
+        store.update_rgba(handle, 4, 4, solid(4, 4, 3));
+        store.update_rgba_regions(handle, 4, 4, solid(4, 4, 4), vec![[1, 1, 1, 1]]);
+        assert_eq!(store.take_pending_uploads()[0].1.regions, None);
+        store.update_rgba_regions(handle, 8, 4, solid(8, 4, 5), vec![[1, 1, 1, 1]]);
+        assert_eq!(store.take_pending_uploads()[0].1.regions, None);
     }
 
     #[test]

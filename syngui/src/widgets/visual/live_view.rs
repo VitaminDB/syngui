@@ -27,7 +27,13 @@ struct Inner {
     height: u32,
     rgba: Arc<[u8]>,
     version: u64,
+    /// Изменённые места последних версий: (версия, места; `None` — кадр
+    /// целиком). По ним [`LiveView`] заливает в текстуру только изменения.
+    changes: std::collections::VecDeque<(u64, Option<Vec<[u32; 4]>>)>,
 }
+
+/// Сколько версий помнит журнал изменений.
+const CHANGES: usize = 8;
 
 /// Общий кадр: пишет источник (любой поток), показывает [`LiveView`].
 pub struct LiveFrame {
@@ -36,16 +42,46 @@ pub struct LiveFrame {
 
 impl LiveFrame {
     pub fn new() -> Arc<Self> {
-        Arc::new(Self { inner: std::sync::Mutex::new(Inner { width: 0, height: 0, rgba: Arc::from(Vec::new()), version: 0 }) })
+        Arc::new(Self { inner: std::sync::Mutex::new(Inner { width: 0, height: 0, rgba: Arc::from(Vec::new()), version: 0, changes: Default::default() }) })
     }
 
     /// Новый кадр целиком (RGBA, `width * height * 4` байт).
     pub fn set(&self, width: u32, height: u32, rgba: Arc<[u8]>) {
+        self.put(width, height, rgba, None);
+    }
+
+    /// Новый кадр, в котором изменились только `rects` (`[x, y, w, h]`):
+    /// в текстуру уйдут они, а не весь кадр.
+    pub fn set_changed(&self, width: u32, height: u32, rgba: Arc<[u8]>, rects: Vec<[u32; 4]>) {
+        self.put(width, height, rgba, Some(rects));
+    }
+
+    fn put(&self, width: u32, height: u32, rgba: Arc<[u8]>, rects: Option<Vec<[u32; 4]>>) {
         let mut g = self.inner.lock().unwrap();
+        let resized = (g.width, g.height) != (width, height);
         g.width = width;
         g.height = height;
         g.rgba = rgba;
         g.version += 1;
+        let v = g.version;
+        g.changes.push_back((v, rects.filter(|_| !resized)));
+        while g.changes.len() > CHANGES {
+            g.changes.pop_front();
+        }
+    }
+
+    /// Места, изменённые после версии `shown` (`None` — неизвестно, весь кадр).
+    fn changed_since(&self, shown: u64) -> Option<Vec<[u32; 4]>> {
+        let g = self.inner.lock().unwrap();
+        if shown == 0 || g.changes.front().is_none_or(|(v, _)| *v > shown + 1) {
+            return None;
+        }
+        let mut out = Vec::new();
+        for (v, r) in g.changes.iter().filter(|(v, _)| *v > shown) {
+            let _ = v;
+            out.extend_from_slice(r.as_ref()?);
+        }
+        Some(out)
     }
 
     /// Размер кадра (0×0 — кадра ещё нет).
@@ -198,7 +234,10 @@ impl LiveViewElement {
         let Some(store) = self.image_store.as_ref() else { return };
         if let Ok(mut s) = store.lock() {
             match self.image_handle {
-                Some(handle) => s.update_rgba(handle, w, h, rgba),
+                Some(handle) => match self.frame.changed_since(self.shown) {
+                    Some(rects) => s.update_rgba_regions(handle, w, h, rgba, rects),
+                    None => s.update_rgba(handle, w, h, rgba),
+                },
                 None => {
                     let key = format!("live:{:p}:{}", Arc::as_ptr(&self.frame), self.id.0);
                     let (handle, _) = s.request_rgba(&key, w, h, rgba.to_vec());
