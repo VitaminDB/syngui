@@ -35,6 +35,8 @@ pub struct MdStyle {
     pub code_bg: Color,
     pub code_color: Color,
     pub code_font_size: f32,
+    /// Шрифт блоков кода (обычно моноширинный); `None` — шрифт текста.
+    pub code_font_family: Option<String>,
     pub code_padding_h: f32,
     pub code_radius: f32,
     pub code_block_bg: Color,
@@ -106,6 +108,7 @@ impl Default for MdStyle {
             code_bg: Color::from_hex("#F1F5F9"),
             code_color: Color::from_hex("#E11D48"),
             code_font_size: 13.0,
+            code_font_family: None,
             code_padding_h: 5.0,
             code_radius: 4.0,
             code_block_bg: Color::from_hex("#1E293B"),
@@ -591,7 +594,7 @@ impl<'a> MdRenderer<'a> {
         {
             let mut line_byte_offset = 0usize;
             for line in lines {
-                for (a, b) in wrap_code_line(line, avail_w, &mut |t| self.text_width(t, font_size))
+                for (a, b) in wrap_code_line(line, avail_w, &mut |t| self.code_width(t))
                 {
                     display.push((line_byte_offset + a, line_byte_offset + b));
                 }
@@ -619,6 +622,9 @@ impl<'a> MdRenderer<'a> {
         let tokens: &[HighlightToken] = cached.as_deref().unwrap_or(&[]);
 
         let default_color = self.style.code_block_color;
+        // Куски строки (токены подсветки) — на общей базовой линии: одиночная
+        // «,» или «.» иначе центрировалась по своему контуру и подпрыгивала.
+        let prev_bbox = self.list.set_text_bbox_sample(Some(compact_str::CompactString::const_new("Hg")));
         let mut line_y = self.y + padding;
         let mut tok_idx: usize = 0;
 
@@ -634,8 +640,7 @@ impl<'a> MdRenderer<'a> {
                     Point::new(self.origin_x + padding, line_y),
                     Size::new(self.max_width - padding * 2.0, font_size + 2.0),
                 );
-                self.list
-                    .push_text(line, text_rect, default_color, font_size);
+                self.push_code(line, text_rect, default_color);
             } else {
                 let mut x = self.origin_x + padding;
                 let mut cursor = line_start;
@@ -651,23 +656,23 @@ impl<'a> MdRenderer<'a> {
                     let span_end = tok.range.end.min(line_end);
                     if span_start > cursor {
                         let frag = &code[cursor..span_start];
-                        let w = self.text_width(frag, font_size);
+                        let w = self.code_width(frag);
                         let rect = Rect::new(
                             Point::new(x, line_y),
                             Size::new(w.max(1.0), font_size + 2.0),
                         );
-                        self.list.push_text(frag, rect, default_color, font_size);
+                        self.push_code(frag, rect, default_color);
                         x += w;
                         cursor = span_start;
                     }
                     if span_end > span_start {
                         let frag = &code[span_start..span_end];
-                        let w = self.text_width(frag, font_size);
+                        let w = self.code_width(frag);
                         let rect = Rect::new(
                             Point::new(x, line_y),
                             Size::new(w.max(1.0), font_size + 2.0),
                         );
-                        self.list.push_text(frag, rect, tok.color, font_size);
+                        self.push_code(frag, rect, tok.color);
                         x += w;
                         cursor = span_end;
                     } else {
@@ -676,30 +681,46 @@ impl<'a> MdRenderer<'a> {
                 }
                 if cursor < line_end {
                     let frag = &code[cursor..line_end];
-                    let w = self.text_width(frag, font_size);
+                    let w = self.code_width(frag);
                     let rect = Rect::new(
                         Point::new(x, line_y),
                         Size::new(w.max(1.0), font_size + 2.0),
                     );
-                    self.list.push_text(frag, rect, default_color, font_size);
+                    self.push_code(frag, rect, default_color);
                 }
             }
 
-            let line_w = self.text_width(line, font_size);
+            let line_w = self.code_width(line);
             let sel_rect = Rect::new(
                 Point::new(self.origin_x + padding, line_y),
                 Size::new(line_w, line_h),
             );
-            self.emit_selectable(sel_rect, line, font_size, None, false, None);
+            let family = self.style.code_font_family.clone();
+            self.emit_selectable(sel_rect, line, font_size, family, false, None);
 
             line_y += line_h;
         }
+
+        self.list.set_text_bbox_sample(prev_bbox);
 
         if let Some(hotspots) = self.copy_hotspots.as_deref_mut() {
             hotspots.push((bg_rect, code.to_string()));
         }
 
         self.y += total_h;
+    }
+
+    fn code_width(&self, text: &str) -> f32 {
+        code_text_width(text, &self.style, self.text_measure.as_deref())
+    }
+
+    /// Кусок строки кода — шрифтом блока кода.
+    fn push_code(&mut self, text: &str, rect: Rect, color: Color) {
+        let size = self.style.code_font_size;
+        match self.style.code_font_family.clone() {
+            Some(f) => self.list.push_text_styled(text, rect, color, size, TextAlign::DEFAULT, TextDecoration::None, 400, Some(f)),
+            None => self.list.push_text(text, rect, color, size),
+        }
     }
 
     fn render_blockquote(&mut self, blocks: &[MdBlock]) {
@@ -1407,6 +1428,16 @@ fn flatten_recursive(
 /// ([`MdRenderer::text_width`]/[`bold_text_width`] делегируют сюда) —
 /// единственная точка, которой обязан пользоваться и measure-проход:
 /// разные ширины у layout'а и рендера — это наезды либо дыры в ленте.
+/// Ширина строки блока кода — его шрифтом.
+fn code_text_width(text: &str, style: &MdStyle, tm: Option<&dyn TextMeasure>) -> f32 {
+    let n = text.chars().count();
+    match (tm, style.code_font_family.as_deref()) {
+        (Some(tm), Some(f)) => tm.measure_text_width_styled(text, style.code_font_size, n, false, Some(f)),
+        (Some(tm), None) => tm.measure_text_width(text, style.code_font_size, n),
+        (None, _) => text_width(text, style.code_font_size),
+    }
+}
+
 fn span_text_width(text: &str, font_size: f32, bold: bool, tm: Option<&dyn TextMeasure>) -> f32 {
     match tm {
         Some(tm) if bold => {
@@ -1684,12 +1715,7 @@ fn natural_width_of_block(block: &MdBlock, style: &MdStyle, tm: Option<&dyn Text
         MdBlock::Paragraph { inlines } => measure_inlines_width_tm(inlines, style.text_size, tm),
         MdBlock::CodeBlock { code, .. } => {
             let pad = style.code_block_padding * 2.0;
-            let tw = |t: &str| -> f32 {
-                match tm {
-                    Some(tm) => tm.measure_text_width(t, style.code_font_size, t.chars().count()),
-                    None => text_width(t, style.code_font_size),
-                }
-            };
+            let tw = |t: &str| -> f32 { code_text_width(t, style, tm) };
             code.lines().map(tw).fold(0.0f32, f32::max) + pad
         }
         MdBlock::BlockQuote { blocks } => {
@@ -1824,10 +1850,7 @@ fn measure_block(
         }
         MdBlock::CodeBlock { code, .. } => {
             let avail_w = (max_width - style.code_block_padding * 2.0).max(1.0);
-            let mut measure = |t: &str| match tm {
-                Some(tm) => tm.measure_text_width(t, style.code_font_size, t.chars().count()),
-                None => text_width(t, style.code_font_size),
-            };
+            let mut measure = |t: &str| code_text_width(t, style, tm);
             let lines = count_code_display_lines(code, avail_w, &mut measure);
             let line_h = style.code_font_size * style.line_height;
             lines as f32 * line_h + style.code_block_padding * 2.0

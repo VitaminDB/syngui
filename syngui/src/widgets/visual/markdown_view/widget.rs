@@ -59,6 +59,7 @@ pub struct MarkdownView {
     syntax_theme: Option<String>,
     highlighter: Option<Arc<dyn CodeHighlighter>>,
     selectable: bool,
+    code_font_family: Option<String>,
 
     on_link_click: Option<Arc<dyn Fn(&str) + Send + Sync>>,
     base_url: Option<String>,
@@ -80,6 +81,7 @@ impl MarkdownView {
             syntax_theme: None,
             highlighter: None,
             selectable: true,
+            code_font_family: None,
             on_link_click: None,
             base_url: None,
         }
@@ -108,6 +110,12 @@ impl MarkdownView {
 
     pub fn with_copy_code(mut self, on: bool) -> Self {
         self.copy_code = on;
+        self
+    }
+
+    /// Шрифт блоков кода, например `"monospace"` или имя семейства.
+    pub fn code_font_family(mut self, family: impl Into<String>) -> Self {
+        self.code_font_family = Some(family.into());
         self
     }
 
@@ -293,7 +301,7 @@ impl Widget for MarkdownView {
         Box::new(MarkdownViewElement {
             id: ElementId::new(),
             blocks: self.blocks.clone(),
-            style: MdStyle::default(),
+            style: MdStyle { code_font_family: self.code_font_family.clone(), ..MdStyle::default() },
             max_width: self.max_width,
             bounds: Rect::zero(),
             content_height: 0.0,
@@ -787,6 +795,7 @@ impl Element for MarkdownViewElement {
                 && self.selectable == w.selectable
                 && self.syntax_highlight == w.syntax_highlight
                 && self.syntax_theme.as_deref() == w.syntax_theme.as_deref()
+                && self.style.code_font_family == w.code_font_family
                 && same_highlighter
                 && self.base_url.as_deref() == w.base_url.as_deref()
                 && self.on_link_click.is_some() == w.on_link_click.is_some()
@@ -799,6 +808,7 @@ impl Element for MarkdownViewElement {
             self.blocks = w.blocks.clone();
             self.max_width = w.max_width;
             self.copy_code = w.copy_code;
+            self.style.code_font_family = w.code_font_family.clone();
             let theme_changed = self.syntax_theme.as_deref() != w.syntax_theme.as_deref();
             let highlighter_changed =
                 !same_highlighter || self.syntax_highlight != w.syntax_highlight || theme_changed;
@@ -1267,7 +1277,8 @@ impl Element for MarkdownViewElement {
     }
 
     fn reset_mss_styles(&mut self) {
-        self.style = MdStyle::default();
+        // Шрифт кода задан виджетом, а не стилем — переживает пересчёт.
+        self.style = MdStyle { code_font_family: self.style.code_font_family.take(), ..MdStyle::default() };
         self.max_width = None;
     }
 
