@@ -399,10 +399,16 @@ impl winit::application::ApplicationHandler<SynGuiUserEvent> for AppHandler {
                 self.process_window_requests(event_loop);
             }
             winit::event::WindowEvent::MouseWheel { delta, .. } => {
-                let (scroll_delta, scroll_delta_x) = match delta {
+                let (mut scroll_delta, mut scroll_delta_x) = match delta {
                     winit::event::MouseScrollDelta::LineDelta(x, y) => (y * 40.0, x * 40.0),
                     winit::event::MouseScrollDelta::PixelDelta(pos) => (pos.y as f32, pos.x as f32),
                 };
+                // Shift + колесо — горизонтальная прокрутка, как в браузерах:
+                // у обычной мыши второй оси нет.
+                if self.modifiers.shift && scroll_delta_x == 0.0 {
+                    scroll_delta_x = scroll_delta;
+                    scroll_delta = 0.0;
+                }
 
                 if self.devtools_handle_mouse_wheel(scroll_delta) {
                     return;

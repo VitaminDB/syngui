@@ -64,6 +64,11 @@ public class SynGuiInputHandler {
             if (ev.getAction() == MotionEvent.ACTION_SCROLL) {
                 float v = ev.getAxisValue(MotionEvent.AXIS_VSCROLL);
                 float h = ev.getAxisValue(MotionEvent.AXIS_HSCROLL);
+                // Shift + колесо — горизонтальная прокрутка, как в браузерах.
+                if (h == 0f && (ev.getMetaState() & KeyEvent.META_SHIFT_ON) != 0) {
+                    h = v;
+                    v = 0f;
+                }
                 if (v != 0f || h != 0f) {
                     events.add("W:" + ev.getX() + "," + ev.getY() + "," + v + "," + h);
                     return true;

@@ -731,10 +731,13 @@ impl Element for ScrollViewElement {
                 self.scroll_offset.y = (old_y + dy).clamp(0.0, self.max_scroll_y());
                 self.scroll_offset.x = (old_x + dx).clamp(0.0, self.max_scroll_x());
 
+                // Сдвинуться некуда (упор в край или ось не наша — вертикальное
+                // колесо над горизонтальной лентой): событие не наше, пусть
+                // прокрутит родитель — страницу под лентой.
                 if (self.scroll_offset.y - old_y).abs() < 0.001
                     && (self.scroll_offset.x - old_x).abs() < 0.001
                 {
-                    return EventResult::Handled;
+                    return EventResult::Ignored;
                 }
 
                 // Разворот колеса обнуляет прежнюю инерцию, иначе усреднение

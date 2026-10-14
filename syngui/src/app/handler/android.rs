@@ -645,6 +645,7 @@ impl AppHandler {
                 // шаги колеса. Шаг — те же 40 логических px, что у
                 // `MouseScrollDelta::LineDelta` на десктопе.
                 let v: Vec<f32> = params.split(',').filter_map(|p| p.trim().parse().ok()).collect();
+                log::debug!("android: колесо мыши {params}");
                 if v.len() == 4 {
                     let sf = self.scale_factor as f32;
                     let position = crate::core::Point::new(v[0] / sf, v[1] / sf);
