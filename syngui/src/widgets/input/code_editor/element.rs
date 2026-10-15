@@ -3,7 +3,7 @@ use super::find::FindState;
 use super::input::keymap::map_key;
 use super::input::{Cursor, Cursors, KeyAction, MotionGranularity};
 use super::render::{bracket, find_toolbar, gutter, line as line_render, overlay};
-use super::syntax::{Highlighter, Language};
+use super::syntax::{Highlighter, Language, LineHighlighter};
 use super::theme::Theme;
 use super::widget::{CodeEditor, CodeEditorChange, CursorInfo, EditorPersistedState};
 use crate::core::sync::Mutex;
@@ -66,10 +66,25 @@ pub struct CodeEditorElement {
     tab_width: u8,
     insert_spaces: bool,
     language: Option<Language>,
+    custom_highlighter: Option<std::sync::Arc<dyn LineHighlighter>>,
 
     on_change: Option<Arc<Mutex<dyn FnMut(CodeEditorChange) + Send>>>,
     on_save: Option<Arc<Mutex<dyn FnMut(&str) + Send>>>,
     on_cursor: Option<Arc<Mutex<dyn FnMut(CursorInfo) + Send>>>,
+}
+
+fn make_highlighter(
+    custom: Option<&std::sync::Arc<dyn LineHighlighter>>,
+    language: Option<Language>,
+    tab_width: u8,
+    text: &str,
+) -> Option<Highlighter> {
+    let mut h = match custom {
+        Some(c) => Highlighter::custom(c.clone()),
+        None => Highlighter::new(language?, tab_width as usize),
+    };
+    h.reparse(text);
+    Some(h)
 }
 
 impl CodeEditorElement {
@@ -82,11 +97,7 @@ impl CodeEditorElement {
         let highlighter = if over_limit {
             None
         } else {
-            widget.language.map(|lang| {
-                let mut h = Highlighter::new(lang, widget.tab_width as usize);
-                h.reparse(&widget.initial_text);
-                h
-            })
+            make_highlighter(widget.highlighter.as_ref(), widget.language, widget.tab_width, &widget.initial_text)
         };
 
         let (initial_cursors, initial_scroll_lines, initial_scroll_x, initial_state) =
@@ -159,6 +170,7 @@ impl CodeEditorElement {
             tab_width: widget.tab_width,
             insert_spaces: widget.insert_spaces,
             language: widget.language,
+            custom_highlighter: widget.highlighter.clone(),
 
             on_change: widget.on_change.clone(),
             on_save: widget.on_save.clone(),
@@ -1138,18 +1150,21 @@ impl Element for CodeEditorElement {
                 self.mark_dirty(DirtyFlags::LAYOUT | DirtyFlags::RENDER);
             }
 
-            let need_lang_refresh =
-                w.language != self.language || self.highlighter.is_none() && w.language.is_some();
+            let custom_changed = match (&w.highlighter, &self.custom_highlighter) {
+                (Some(a), Some(b)) => !std::sync::Arc::ptr_eq(a, b),
+                (None, None) => false,
+                _ => true,
+            };
+            let need_lang_refresh = custom_changed
+                || w.language != self.language
+                || self.highlighter.is_none() && (w.language.is_some() || w.highlighter.is_some());
             if need_lang_refresh {
                 self.language = w.language;
+                self.custom_highlighter = w.highlighter.clone();
                 self.highlighter = if self.over_size_limit {
                     None
                 } else {
-                    self.language.map(|lang| {
-                        let mut h = Highlighter::new(lang, self.tab_width as usize);
-                        h.reparse(&self.text_snapshot);
-                        h
-                    })
+                    make_highlighter(self.custom_highlighter.as_ref(), self.language, self.tab_width, &self.text_snapshot)
                 };
             } else if let Some(h) = self.highlighter.as_mut() {
                 h.reparse(&self.text_snapshot);

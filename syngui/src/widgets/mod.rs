@@ -23,7 +23,7 @@ pub use charts::{
 };
 pub use containers::{
     Animated, AnimatedPosition, AnimatedSize, AnimatedSwitcher, AnimationAxis, AspectRatio,
-    Carousel, Column, DecoratedBox, DismissDirection, Dismissible, Falloff, Fisheye, FisheyeAnchor,
+    Carousel, Column, DecoratedBox, DismissDirection, DockArea, DockSpec, DockState, DropZone, Dismissible, Falloff, Fisheye, FisheyeAnchor,
     Flex, GestureDetector, Grid, IntoWidget, Motion, MultiTouch, Named, Padding, Page, PanAxis,
     PanUpdate, PinchUpdate, Presence, Reactive, RepeatMode, Row, ScaleBox, ScrollPhysics,
     ScrollTarget, ScrollbarPolicy, ShowIf, SplitDirection, SplitView, Stack, StackFit,
@@ -49,12 +49,12 @@ pub use input::{
     Time, TimePicker, Toggle,
 };
 pub use navigation::{
-    shelf_offset, Breadcrumb, FocusScroll, GridFocus, Pagination, Router, RouterView, Sidebar,
+    shelf_offset, Breadcrumb, FocusScroll, GridFocus, MenuBar, Pagination, Router, RouterView, Sidebar,
     StepInfo, Stepper, Tab, TabBar, TabPosition, TabState, Toolbar, TopAppBar,
 };
 pub use overlay::{
     set_dialog_labels, AlertDialog, ConfirmDialog, ContextMenu, Dialog, DialogAction, Draggable,
-    DropArea, DropInfo, FloatingWindow, MenuItem, PopupAnchor, PopupMenu, PopupPanel, Portal,
+    CommandPalette, DropArea, DropInfo, FloatingWindow, MenuItem, PaletteCommand, PopupAnchor, PopupMenu, PopupPanel, Portal,
     PortalAnchor,
 };
 pub use scroll::{ScrollDirection, ScrollView};

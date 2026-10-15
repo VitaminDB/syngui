@@ -72,6 +72,7 @@ pub mod widgets;
 pub mod window;
 
 pub mod external_url;
+pub mod fuzzy;
 pub use external_url::open_url;
 
 // Кроссплатформенный Instant (на native = std::time, на wasm — performance.now).

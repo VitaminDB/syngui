@@ -30,6 +30,10 @@ pub enum PortalAnchor {
         margin_bottom: f32,
         margin_left: f32,
     },
+    /// По центру по горизонтали, с отступом сверху (палитра команд).
+    TopCenter {
+        margin_top: f32,
+    },
 }
 
 impl Default for PortalAnchor {
@@ -268,6 +272,7 @@ impl PortalElement {
                 margin_bottom,
                 margin_left,
             } => (margin_left, viewport.height - h - margin_bottom),
+            PortalAnchor::TopCenter { margin_top } => ((viewport.width - w) / 2.0, margin_top),
         };
         Rect::new(Point::new(x, y), Size::new(w, h))
     }
@@ -327,6 +332,7 @@ impl Element for PortalElement {
                 margin_bottom,
                 margin_left,
             } => (3, margin_bottom, margin_left),
+            PortalAnchor::TopCenter { margin_top } => (4, margin_top, 0.0),
         };
         LayoutHint::Portal {
             anchor,

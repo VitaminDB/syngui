@@ -12,7 +12,11 @@ use super::{parse_stylesheet_str, StyleSheet};
 /// Исходники встроенных таблиц (по фичам).
 fn sources() -> Vec<&'static str> {
     #[allow(unused_mut)]
-    let mut out: Vec<&'static str> = vec![include_str!("../../styles/split_view.mss")];
+    let mut out: Vec<&'static str> = vec![
+        include_str!("../../styles/split_view.mss"),
+        include_str!("../../styles/dock_area.mss"),
+        include_str!("../../styles/command_palette.mss"),
+    ];
     #[cfg(feature = "ffmpeg")]
     out.push(include_str!("../../styles/video_player.mss"));
     out

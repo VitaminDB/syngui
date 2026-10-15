@@ -1,6 +1,7 @@
 pub mod breadcrumb;
 pub mod focus_scroll;
 pub mod grid_focus;
+pub mod menu_bar;
 pub mod pagination;
 pub mod router;
 pub mod sidebar;
@@ -13,6 +14,7 @@ pub mod top_app_bar;
 pub use breadcrumb::{Breadcrumb, BreadcrumbItem};
 pub use focus_scroll::FocusScroll;
 pub use grid_focus::{shelf_offset, GridFocus};
+pub use menu_bar::MenuBar;
 pub use pagination::Pagination;
 pub use router::{Router, RouterView};
 pub use sidebar::Sidebar;

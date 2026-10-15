@@ -3,8 +3,22 @@ use super::highlight_cache::{LineSpans, Span};
 use super::language::Language;
 use synoptic::TokOpt;
 
+/// Своя подсветка для языков, которых нет среди встроенных [`Language`]
+/// (ассемблер, псевдокод, DSL приложения). Построчная: `state` — состояние
+/// лексера в начале строки (0 — обычное; например, «внутри /* … */»),
+/// возвращается состояние в конце строки.
+pub trait LineHighlighter: Send + Sync {
+    fn highlight_line(&self, line: &str, state: u32, out: &mut LineSpans) -> u32;
+}
+
+enum Backend {
+    Synoptic(synoptic::Highlighter),
+    /// Своя подсветка и состояние лексера в начале каждой строки.
+    Custom(std::sync::Arc<dyn LineHighlighter>, Vec<u32>),
+}
+
 pub struct Highlighter {
-    inner: synoptic::Highlighter,
+    inner: Backend,
     lines: Vec<String>,
     language: Language,
     tab_width: usize,
@@ -26,16 +40,33 @@ impl Highlighter {
             "synoptic::from_extension всегда возвращает Some (fallback на пустой Highlighter)",
         );
         Self {
-            inner,
+            inner: Backend::Synoptic(inner),
             lines: Vec::new(),
             language,
             tab_width,
         }
     }
 
+    /// Подсветка своим [`LineHighlighter`].
+    pub fn custom(h: std::sync::Arc<dyn LineHighlighter>) -> Self {
+        Self { inner: Backend::Custom(h, Vec::new()), lines: Vec::new(), language: Language::Rust, tab_width: 4 }
+    }
+
     pub fn reparse(&mut self, text: &str) {
         self.lines = text.split('\n').map(String::from).collect();
-        self.inner.run(&self.lines);
+        match &mut self.inner {
+            Backend::Synoptic(inner) => inner.run(&self.lines),
+            Backend::Custom(h, states) => {
+                states.clear();
+                let mut state = 0;
+                let mut scratch = LineSpans::new();
+                for line in &self.lines {
+                    states.push(state);
+                    scratch.spans.clear();
+                    state = h.highlight_line(line, state, &mut scratch);
+                }
+            }
+        }
     }
 
     pub fn highlight_lines(
@@ -53,15 +84,30 @@ impl Highlighter {
         let mut result: Vec<LineSpans> = Vec::with_capacity(end_line - start_line);
         for line_idx in start_line..end_line {
             let line_str = &self.lines[line_idx];
-            let toks = self.inner.line(line_idx, line_str);
-            result.push(line_spans_from_tokens(&toks));
+            match &self.inner {
+                Backend::Synoptic(inner) => {
+                    let toks = inner.line(line_idx, line_str);
+                    result.push(line_spans_from_tokens(&toks));
+                }
+                Backend::Custom(h, states) => {
+                    let mut ls = LineSpans::new();
+                    h.highlight_line(line_str, states.get(line_idx).copied().unwrap_or(0), &mut ls);
+                    ls.sort_by_start();
+                    result.push(ls);
+                }
+            }
         }
         result
     }
 
     pub fn reset(&mut self) {
-        self.inner = synoptic::from_extension(self.language.extension(), self.tab_width)
-            .expect("synoptic::from_extension всегда возвращает Some");
+        match &mut self.inner {
+            Backend::Synoptic(inner) => {
+                *inner = synoptic::from_extension(self.language.extension(), self.tab_width)
+                    .expect("synoptic::from_extension всегда возвращает Some");
+            }
+            Backend::Custom(_, states) => states.clear(),
+        }
         self.lines.clear();
     }
 }
@@ -111,6 +157,38 @@ mod tests {
             has_keyword,
             "ожидаем хотя бы один Keyword span в `fn main() {{}}`"
         );
+    }
+
+    struct Hash;
+
+    /// `#` до конца строки — комментарий; `{` открывает блок-комментарий до `}`.
+    impl LineHighlighter for Hash {
+        fn highlight_line(&self, line: &str, state: u32, out: &mut LineSpans) -> u32 {
+            if state == 1 {
+                let end = line.find('}').map(|i| i + 1);
+                out.push(Span::new(0, end.unwrap_or(line.len()) as u32, TokenClass::Comment));
+                return if end.is_some() { 0 } else { 1 };
+            }
+            if let Some(i) = line.find('#') {
+                out.push(Span::new(i as u32, line.len() as u32, TokenClass::Comment));
+            }
+            if let Some(i) = line.find('{') {
+                out.push(Span::new(i as u32, line.len() as u32, TokenClass::Comment));
+                return 1;
+            }
+            0
+        }
+    }
+
+    #[test]
+    fn custom_highlighter_carries_state() {
+        let mut h = Highlighter::custom(std::sync::Arc::new(Hash));
+        let text = "mov r0 # c\na {\nb\n} c";
+        h.reparse(text);
+        let spans = h.highlight_lines(text, 0..4);
+        assert_eq!(spans[0].spans[0].byte_start, 7);
+        assert_eq!(spans[2].spans[0].class, TokenClass::Comment);
+        assert_eq!(spans[3].spans[0].byte_end, 1);
     }
 
     #[test]

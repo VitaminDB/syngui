@@ -1,6 +1,6 @@
 use super::element::CodeEditorElement;
 use super::languages::detect_by_path;
-use super::syntax::Language;
+use super::syntax::{Language, LineHighlighter};
 use crate::core::sync::Mutex;
 use crate::signal::RwSignal;
 use crate::widget::{Element, ElementId, ElementTree, Widget};
@@ -39,6 +39,7 @@ pub struct EditorPersistedState {
 pub struct CodeEditor {
     pub(crate) initial_text: String,
     pub(crate) language: Option<Language>,
+    pub(crate) highlighter: Option<Arc<dyn LineHighlighter>>,
     pub(crate) read_only: bool,
     pub(crate) show_line_numbers: bool,
     pub(crate) soft_wrap: bool,
@@ -58,6 +59,7 @@ impl CodeEditor {
         Self {
             initial_text: String::new(),
             language: None,
+            highlighter: None,
             read_only: false,
             show_line_numbers: true,
             soft_wrap: false,
@@ -80,6 +82,12 @@ impl CodeEditor {
 
     pub fn language(mut self, lang: Language) -> Self {
         self.language = Some(lang);
+        self
+    }
+
+    /// Своя подсветка (важнее [`language`](Self::language)).
+    pub fn highlighter(mut self, h: Arc<dyn LineHighlighter>) -> Self {
+        self.highlighter = Some(h);
         self
     }
 

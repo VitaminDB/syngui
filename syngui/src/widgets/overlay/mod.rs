@@ -1,3 +1,4 @@
+pub mod command_palette;
 pub mod context_menu;
 pub mod dialog;
 pub mod draggable;
@@ -12,6 +13,7 @@ pub mod window_control;
 pub mod window_drag_region;
 pub mod window_resize_region;
 
+pub use command_palette::{filter_commands, CommandPalette, PaletteCommand, PaletteHit};
 pub use context_menu::ContextMenu;
 pub use dialog::{set_dialog_labels, AlertDialog, ConfirmDialog, Dialog, DialogAction};
 pub use draggable::Draggable;
