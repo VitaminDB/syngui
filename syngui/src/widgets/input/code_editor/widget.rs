@@ -52,6 +52,8 @@ pub struct CodeEditor {
     pub(crate) command_signal: Option<RwSignal<Option<EditorCommand>>>,
     pub(crate) state_signal: Option<RwSignal<EditorPersistedState>>,
     pub(crate) classes: Vec<String>,
+    pub(crate) line_marks: Vec<(usize, crate::core::Color)>,
+    pub(crate) reveal_line: Option<usize>,
 }
 
 impl CodeEditor {
@@ -72,6 +74,8 @@ impl CodeEditor {
             command_signal: None,
             state_signal: None,
             classes: vec!["code-editor".to_string()],
+            line_marks: Vec::new(),
+            reveal_line: None,
         }
     }
 
@@ -150,6 +154,19 @@ impl CodeEditor {
 
     pub fn state_signal(mut self, signal: RwSignal<EditorPersistedState>) -> Self {
         self.state_signal = Some(signal);
+        self
+    }
+
+    /// Метки строк (номер с нуля, цвет): фон строки и полоса у левого края —
+    /// текущая инструкция отладчика, точки останова, ошибки.
+    pub fn line_marks(mut self, marks: Vec<(usize, crate::core::Color)>) -> Self {
+        self.line_marks = marks;
+        self
+    }
+
+    /// Прокрутить к строке (номер с нуля), когда значение меняется.
+    pub fn reveal_line(mut self, line: Option<usize>) -> Self {
+        self.reveal_line = line;
         self
     }
 

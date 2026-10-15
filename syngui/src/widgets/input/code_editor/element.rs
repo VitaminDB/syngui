@@ -67,6 +67,10 @@ pub struct CodeEditorElement {
     insert_spaces: bool,
     language: Option<Language>,
     custom_highlighter: Option<std::sync::Arc<dyn LineHighlighter>>,
+    line_marks: Vec<(usize, Color)>,
+    /// Строка, к которой уже прокручено, и ожидающая прокрутка.
+    revealed: Option<usize>,
+    pending_reveal: Option<usize>,
 
     on_change: Option<Arc<Mutex<dyn FnMut(CodeEditorChange) + Send>>>,
     on_save: Option<Arc<Mutex<dyn FnMut(&str) + Send>>>,
@@ -171,6 +175,9 @@ impl CodeEditorElement {
             insert_spaces: widget.insert_spaces,
             language: widget.language,
             custom_highlighter: widget.highlighter.clone(),
+            line_marks: widget.line_marks.clone(),
+            revealed: widget.reveal_line,
+            pending_reveal: widget.reveal_line,
 
             on_change: widget.on_change.clone(),
             on_save: widget.on_save.clone(),
@@ -1113,6 +1120,15 @@ impl Element for CodeEditorElement {
     fn update(&mut self, widget: &dyn Widget, _ctx: &mut UpdateContext) {
         if let Some(w) = widget.as_any().downcast_ref::<CodeEditor>() {
             self.read_only = w.read_only || self.over_size_limit;
+            if self.line_marks != w.line_marks {
+                self.line_marks = w.line_marks.clone();
+                self.mark_dirty(DirtyFlags::RENDER);
+            }
+            if w.reveal_line != self.revealed {
+                self.revealed = w.reveal_line;
+                self.pending_reveal = w.reveal_line;
+                self.mark_dirty(DirtyFlags::LAYOUT | DirtyFlags::RENDER);
+            }
             self.show_line_numbers = w.show_line_numbers;
             let wrap_changed = self.soft_wrap != w.soft_wrap;
             self.soft_wrap = w.soft_wrap;
@@ -1200,6 +1216,14 @@ impl Element for CodeEditorElement {
             self.total_visual_lines.max(1) as f32 * self.line_height()
         };
         self.bounds = Rect::new(Point::zero(), Size::new(w, h));
+        if let Some(line) = self.pending_reveal.take() {
+            // строка вне экрана — показать её в верхней трети
+            let row = self.logical_to_visual_line(line.min(self.buffer.len_lines().saturating_sub(1)), 0);
+            let visible = self.visible_lines_count().max(1);
+            if row < self.scroll_offset_lines || row >= self.scroll_offset_lines + visible {
+                self.scroll_offset_lines = row.saturating_sub(visible / 3);
+            }
+        }
         Size::new(w, h)
     }
 
@@ -1287,6 +1311,10 @@ impl Element for CodeEditorElement {
             let y = self.visual_line_y(vis_row);
             let text_origin = Point::new(self.text_origin_x(), y);
 
+            if let Some((_, color)) = self.line_marks.iter().find(|(l, _)| *l == logical) {
+                list.push_rect(Rect::new(Point::new(self.bounds.x(), y), Size::new(self.bounds.size.width, line_height)), color.with_alpha(0.08), [0.0; 4]);
+                list.push_rect(Rect::new(Point::new(self.bounds.x(), y), Size::new(3.0, line_height)), *color, [0.0; 4]);
+            }
             if self.focused && logical == primary_line {
                 overlay::paint_current_line_bg(
                     list,
