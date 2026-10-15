@@ -61,7 +61,7 @@ pub use scroll::{ScrollDirection, ScrollView};
 pub use visual::{
     default_locale, set_default_locale, Avatar, Badge, BadgeSize, Calendar, CalendarLocale,
     CalendarTheme, Canvas, Card, Chip, CircularProgress, DateOrder, Divider, DividerDirection,
-    EmitKind, EmitterConfig, EmitterShape, Icon, Image, ImageFit, ImageViewCommand, ImageViewInfo,
+    EmitKind, EmitterConfig, GraphEdge, GraphNode, GraphView, EmitterShape, Icon, Image, ImageFit, ImageViewCommand, ImageViewInfo,
     ImageViewport, ParticleEmitter, ParticlePreset, ParticleShape, ParticleSystem, ProgressBar,
     RichText, TextSpan,
 };

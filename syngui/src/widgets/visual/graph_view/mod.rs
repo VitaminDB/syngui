@@ -216,11 +216,11 @@ impl GraphElement {
         })
     }
 
-    /// Начальный вид: корень сверху по центру, масштаб — чтобы граф влез по ширине (не мельче 0.5).
+    /// Начальный вид: масштаб 1:1 (текст читаем), корень сверху по центру.
     fn center_on_root(&mut self) {
         let Some(l) = &self.layout else { return };
         let w = self.bounds.size.width.max(1.0);
-        self.zoom = ((w - 40.0) / l.width.max(1.0)).clamp(0.5, 1.0);
+        self.zoom = 1.0;
         let root = self.root.and_then(|id| self.nodes.iter().position(|n| n.id == id)).unwrap_or(0);
         let (rx, ry) = l.pos.get(root).copied().unwrap_or((0.0, 0.0));
         let rw = self.sizes.get(root).map(|s| s.0).unwrap_or(0.0);
@@ -283,6 +283,10 @@ impl Element for GraphElement {
         }
         if !self.centered && w > 10.0 {
             self.center_on_root();
+            // выбранный узел (курсор листинга) — в поле зрения
+            if let Some(id) = self.selected {
+                self.reveal(id);
+            }
             self.centered = true;
         }
         self.bounds.size
