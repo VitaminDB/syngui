@@ -25,6 +25,12 @@ mod inner {
         }
     }
 
+    impl<T: Default> Default for Mutex<T> {
+        fn default() -> Self {
+            Self::new(T::default())
+        }
+    }
+
     impl<T: ?Sized> Mutex<T> {
         pub fn lock(&self) -> Result<MutexGuard<'_, T>, std::sync::PoisonError<MutexGuard<'_, T>>> {
             // Safety: wasm32 is single-threaded, no concurrent access
