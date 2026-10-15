@@ -517,10 +517,20 @@ impl Element for DropdownElement {
             .unwrap_or(intrinsic)
             .min(max_w)
             .min(constraints.max_width);
+        // как у TextField: явная высота, иначе по отступам темы, иначе 40 px
+        let content_height = match (self.mss.padding_top, self.mss.padding_bottom) {
+            (None, None) => None,
+            (t, b) => {
+                let fs = self.mss.font_size.unwrap_or(14.0);
+                let border = self.mss.border_width.unwrap_or(0.0) * 2.0;
+                Some(((fs * 1.35).ceil() + t.unwrap_or(0.0) + b.unwrap_or(0.0) + border).max(22.0))
+            }
+        };
         let height = self
             .mss
             .height
             .map(|d| d.resolve(constraints.max_height))
+            .or(content_height)
             .unwrap_or(40.0);
 
         self.bounds = Rect::new(Point::zero(), Size::new(width, height));

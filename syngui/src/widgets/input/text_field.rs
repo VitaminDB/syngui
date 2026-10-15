@@ -819,10 +819,23 @@ impl Element for TextFieldElement {
         let mut constraints = constraints;
         constraints.max_width = constraints.max_width.max(constraints.min_width);
         constraints.max_height = constraints.max_height.max(constraints.min_height);
+        // Высота: явная из MSS; иначе, если тема задала вертикальные отступы, —
+        // по содержимому (строка шрифта + отступы + рамка), чтобы компактное
+        // поле (`font-size: 12px; padding: 5px 10px`) не растягивалось до 40 px;
+        // без отступов — прежние 40 px.
+        let content_height = match (self.mss.padding_top, self.mss.padding_bottom) {
+            (None, None) => None,
+            (t, b) => {
+                let fs = self.mss.font_size.unwrap_or(14.0);
+                let border = self.mss.border_width.unwrap_or(0.0) * 2.0;
+                Some((fs * 1.35).ceil() + t.unwrap_or(0.0) + b.unwrap_or(0.0) + border)
+            }
+        };
         let field_height = self
             .mss
             .height
             .map(|d| d.resolve(constraints.max_height))
+            .or(content_height.map(|h| h.max(22.0)))
             .unwrap_or(40.0_f32.max(constraints.min_height))
             .clamp(constraints.min_height, constraints.max_height);
         // Без явной ширины поле занимает всю доступную; в строке без
