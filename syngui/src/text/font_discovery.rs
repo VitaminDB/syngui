@@ -258,6 +258,22 @@ const FALLBACK_BY_SCRIPT: &[(Script, &[&str])] = &[
     ),
 ];
 
+/// Запасные семейства для символов вне основного шрифта (≤, →, ✓, ∑, рамки…),
+/// по убыванию охвата. Перебираются по одному, пока не найдётся глиф.
+pub const SYMBOL_FAMILIES: &[&str] = &[
+    "DejaVu Sans",
+    "Noto Sans Math",
+    "Noto Sans Symbols 2",
+    "Noto Sans Symbols",
+    "FreeSerif",
+    "Symbola",
+];
+
+/// Шрифт одного семейства (без подмены на «похожее»).
+pub fn discover_family_font(name: &str) -> Option<(Vec<u8>, u32)> {
+    try_families_individually(&[FamilyName::Title(name.to_string())], &Properties::default())
+}
+
 fn fallback_families(script: Script) -> &'static [&'static str] {
     FALLBACK_BY_SCRIPT
         .iter()

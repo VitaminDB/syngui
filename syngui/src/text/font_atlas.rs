@@ -179,6 +179,8 @@ pub struct FontAtlas {
     fallback_faces: Vec<u8>,
     fallback_discovered: Vec<u8>,
     fallback_tried: HashSet<Script>,
+    /// Сколько семейств из `SYMBOL_FAMILIES` уже загружено (или не найдено).
+    symbol_tried: usize,
     prefer_japanese: bool,
     prefer_korean: bool,
     next_font_index: u8,
@@ -305,6 +307,7 @@ impl FontAtlas {
             fallback_faces: Vec::new(),
             fallback_discovered: Vec::new(),
             fallback_tried: HashSet::new(),
+            symbol_tried: 0,
             prefer_japanese: false,
             prefer_korean: false,
             next_font_index: FIRST_EXTRA_FONT,
@@ -418,6 +421,7 @@ impl FontAtlas {
         self.prefer_japanese = japanese;
         self.prefer_korean = korean;
         self.fallback_tried.clear();
+        self.symbol_tried = 0;
         let discovered = std::mem::take(&mut self.fallback_discovered);
         if discovered.is_empty() {
             return;
@@ -812,13 +816,15 @@ impl FontAtlas {
     /// the discovered face is appended. Bold text goes through the same
     /// regular-weight faces — CJK fallbacks carry no bold companion.
     fn ensure_fallback_glyph(&mut self, ch: char, size_px: u16) -> Option<GlyphKey> {
-        let script = script_of(ch)?;
         for i in 0..self.fallback_faces.len() {
             let font_index = self.fallback_faces[i];
             if self.glyph_id_in(ch, font_index).is_some() {
                 return self.ensure_glyph_in(ch, size_px, font_index);
             }
         }
+        let Some(script) = script_of(ch) else {
+            return self.ensure_symbol_glyph(ch, size_px);
+        };
         if !self.fallback_tried.insert(script) {
             return None;
         }
@@ -832,6 +838,47 @@ impl FontAtlas {
             script
         );
         self.ensure_glyph_in(ch, size_px, font_index)
+    }
+
+    /// Символ вне основного шрифта и не CJK (≤, →, ✓…): системные семейства
+    /// из `SYMBOL_FAMILIES` подгружаются по одному, пока глиф не найдётся.
+    /// Эмодзи (U+1F000 и выше) остаются цветному шрифту эмодзи.
+    fn ensure_symbol_glyph(&mut self, ch: char, size_px: u16) -> Option<GlyphKey> {
+        if ch as u32 >= 0x1F000 {
+            return None;
+        }
+        while let Some(family) = Self::symbol_family(self.symbol_tried) {
+            self.symbol_tried += 1;
+            let Some((data, face_index)) = Self::discover_symbol_family(family) else { continue };
+            let Some(face) = FontFace::new(data, face_index) else { continue };
+            let font_index = self.push_fallback_face(face);
+            self.fallback_discovered.push(font_index);
+            log::info!("font_atlas: symbol fallback #{font_index} loaded: {family}");
+            if self.glyph_id_in(ch, font_index).is_some() {
+                return self.ensure_glyph_in(ch, size_px, font_index);
+            }
+        }
+        None
+    }
+
+    #[cfg(all(not(target_arch = "wasm32"), not(target_os = "android")))]
+    fn symbol_family(i: usize) -> Option<&'static str> {
+        crate::text::font_discovery::SYMBOL_FAMILIES.get(i).copied()
+    }
+
+    #[cfg(any(target_arch = "wasm32", target_os = "android"))]
+    fn symbol_family(_i: usize) -> Option<&'static str> {
+        None
+    }
+
+    #[cfg(all(not(target_arch = "wasm32"), not(target_os = "android")))]
+    fn discover_symbol_family(family: &str) -> Option<(Vec<u8>, u32)> {
+        crate::text::font_discovery::discover_family_font(family)
+    }
+
+    #[cfg(any(target_arch = "wasm32", target_os = "android"))]
+    fn discover_symbol_family(_family: &str) -> Option<(Vec<u8>, u32)> {
+        None
     }
 
     /// Глиф нужного веса: своё начертание семейства/основного шрифта, при
