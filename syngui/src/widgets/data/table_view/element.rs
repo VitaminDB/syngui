@@ -1130,6 +1130,29 @@ impl TableViewElement {
         (self.content_height() + h_bar - self.body_rect().size.height).max(0.0)
     }
 
+    /// Прокрутка, заданная владельцем через `scroll_state` (например, сброс
+    /// к началу после смены фильтра): таблица пишет туда свою прокрутку, так
+    /// что расхождение значит, что значение поменяли снаружи.
+    fn adopt_scroll_state(&mut self, state: Option<Arc<Mutex<f32>>>) {
+        self.scroll_state = state;
+        let Some(wanted) = self
+            .scroll_state
+            .as_ref()
+            .map(|s| *s.lock().unwrap_or_else(|e| e.into_inner()))
+        else {
+            return;
+        };
+        if (wanted - self.scroll_offset).abs() < 0.5 {
+            return;
+        }
+        self.velocity = 0.0;
+        let offset = wanted.clamp(0.0, self.max_scroll());
+        self.set_scroll_offset(offset);
+        if self.compositional {
+            self.needs_child_rebuild = true;
+        }
+    }
+
     fn set_scroll_offset(&mut self, offset: f32) {
         self.scroll_offset = offset;
         if let Some(ref state) = self.scroll_state {
@@ -2315,10 +2338,11 @@ impl Element for TableViewElement {
                 self.row_padding = v;
             }
             self.compute_column_widths(self.bounds.size.width);
-            self.ensure_cached_for_viewport();
             if data_changed || columns_changed {
                 self.refresh_sorted_indices();
             }
+            self.adopt_scroll_state(tv.scroll_state.clone());
+            self.ensure_cached_for_viewport();
             self.mark_dirty(DirtyFlags::LAYOUT | DirtyFlags::RENDER);
         }
     }
@@ -4229,6 +4253,41 @@ mod tests {
             el.scroll_offset_x
         );
         assert!(el.scroll_offset_x <= el.max_scroll_x() + 0.01);
+    }
+
+    #[test]
+    fn owner_can_reset_scroll_through_scroll_state() {
+        let state = Arc::new(Mutex::new(0.0_f32));
+        let rows: Vec<Vec<String>> = (0..200).map(|i| vec![i.to_string()]).collect();
+        let table = |state: &Arc<Mutex<f32>>| {
+            TableView::new(vec![TableColumn::fixed("A", 100.0)], rows.clone())
+                .row_height(20.0)
+                .header_height(20.0)
+                .scroll_state(state.clone())
+        };
+        let mut h = TestHarness::new(Box::new(table(&state)));
+        h.layout(400.0, 200.0);
+        h.send_event(&Event::MouseWheel {
+            delta: -600.0,
+            delta_x: 0.0,
+            position: Point::new(50.0, 100.0),
+        });
+        let scrolled = *state.lock().unwrap();
+        assert!(scrolled > 0.0, "колесо не прокрутило таблицу");
+
+        *state.lock().unwrap() = 0.0;
+        h.update_widget(Box::new(table(&state)));
+        h.layout(400.0, 200.0);
+        let root = h.root_id;
+        let el = h
+            .tree
+            .get_mut(root)
+            .unwrap()
+            .as_any_mut()
+            .unwrap()
+            .downcast_ref::<TableViewElement>()
+            .unwrap();
+        assert_eq!(el.scroll_offset, 0.0);
     }
 
     #[test]
