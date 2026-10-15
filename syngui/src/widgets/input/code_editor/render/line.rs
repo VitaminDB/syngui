@@ -17,6 +17,27 @@ pub fn paint_line(
     mss: &MssFields,
     text_measure: Option<&dyn TextMeasure>,
 ) {
+    // Базовая линия — по общему образцу, а не по контуру каждого куска:
+    // иначе кусок «, y: » (без высоких букв) центрировался по своим глифам и
+    // съезжал вверх — запятая выглядела как «،».
+    let saved = list.set_text_bbox_sample(Some("Mgyqlj|".into()));
+    paint_spans(list, text, spans, text_origin, line_height, font_size, font_family, theme, mss, text_measure);
+    list.set_text_bbox_sample(saved);
+}
+
+#[allow(clippy::too_many_arguments)]
+fn paint_spans(
+    list: &mut DisplayList,
+    text: &str,
+    spans: &LineSpans,
+    text_origin: Point,
+    line_height: f32,
+    font_size: f32,
+    font_family: Option<&str>,
+    theme: &Theme,
+    mss: &MssFields,
+    text_measure: Option<&dyn TextMeasure>,
+) {
     let fg = theme.fg(mss);
 
     if spans.is_empty() {
