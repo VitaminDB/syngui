@@ -1211,6 +1211,7 @@ Dialog::new("Удалить?")
     .action(DialogAction::new("Отмена", move || open_sig.set(false)))
     .action(DialogAction::new("Удалить", move || { do_it(); open_sig.set(false); }).primary())
     .on_close(move || open_sig.set(false))
+// Esc и «Назад» закрывают диалог, Enter выполняет основное (.primary()) действие.
 AlertDialog::new("Title", "Message", open_sig)
 set_dialog_labels("ОК", "Отмена");     // глобальные подписи (иначе — из каталога i18n)
 

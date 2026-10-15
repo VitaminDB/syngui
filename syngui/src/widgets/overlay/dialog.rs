@@ -434,6 +434,15 @@ impl Element for DialogElement {
                 self.close(ctx);
                 EventResult::Handled
             }
+            Event::KeyDown(crate::input::Key::Enter) => {
+                if let Some(action) = self.actions.iter().rev().find(|a| a.primary) {
+                    if let Ok(mut cb) = action.on_click.lock() {
+                        cb();
+                    }
+                    self.close(ctx);
+                }
+                EventResult::Handled
+            }
             _ => EventResult::Handled,
         }
     }
