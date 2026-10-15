@@ -2561,6 +2561,8 @@ impl Element for TableViewElement {
                     }
                 }
             }
+            list.pop_transform();
+            list.push_transform(Transform::translation(-self.scroll_offset_x, ty));
             return;
         }
 
@@ -3533,7 +3535,7 @@ impl Element for TableViewElement {
 
     fn scroll_offset(&self) -> Point {
         if self.compositional {
-            Point::new(0.0, self.scroll_offset)
+            Point::new(self.scroll_offset_x, self.scroll_offset)
         } else {
             Point::zero()
         }
@@ -3885,7 +3887,9 @@ mod tests {
     use crate::core::types::RectExt;
     use crate::core::Point;
     use crate::input::{Event, MouseButton};
+    use crate::render::DrawCommand;
     use crate::testing::TestHarness;
+    use crate::widget::Widget;
     use std::sync::{Arc, Mutex};
 
     fn sample_table() -> TableView {
@@ -4225,6 +4229,69 @@ mod tests {
             el.scroll_offset_x
         );
         assert!(el.scroll_offset_x <= el.max_scroll_x() + 0.01);
+    }
+
+    #[test]
+    fn widget_cells_follow_horizontal_scroll() {
+        let table = TableView::new(
+            vec![
+                TableColumn::fixed("A", 300.0),
+                TableColumn::fixed("B", 300.0).cell_renderer(|_, _| {
+                    Box::new(crate::widgets::Text::new("PROBE")) as Box<dyn Widget>
+                }),
+                TableColumn::fixed("C", 300.0),
+            ],
+            vec![vec!["a".into(), "b".into(), "c".into()]],
+        )
+        .row_height(30.0)
+        .header_height(20.0);
+
+        let probe_x = |h: &mut TestHarness| -> f32 {
+            let mut tx = Vec::<f32>::new();
+            for cmd in h.paint().commands() {
+                match cmd {
+                    DrawCommand::PushTransform(t) => tx.push(t.m31),
+                    DrawCommand::PopTransform => {
+                        tx.pop();
+                    }
+                    DrawCommand::Text { text, rect, .. } if text.as_str() == "PROBE" => {
+                        return rect.origin.x + tx.iter().sum::<f32>();
+                    }
+                    _ => {}
+                }
+            }
+            panic!("виджет-ячейка не нарисована");
+        };
+
+        let mut h = TestHarness::new(Box::new(table));
+        h.layout(700.0, 200.0);
+        h.rebuild();
+        h.layout(700.0, 200.0);
+        let before = probe_x(&mut h);
+
+        h.send_event(&Event::MouseWheel {
+            delta: 0.0,
+            delta_x: -120.0,
+            position: Point::new(200.0, 100.0),
+        });
+        h.layout(700.0, 200.0);
+        let root = h.root_id;
+        let offset = h
+            .tree
+            .get_mut(root)
+            .unwrap()
+            .as_any_mut()
+            .unwrap()
+            .downcast_ref::<TableViewElement>()
+            .unwrap()
+            .scroll_offset_x;
+        assert!(offset > 0.0);
+        let after = probe_x(&mut h);
+        assert!(
+            (before - after - offset).abs() < 0.5,
+            "ячейка-виджет сдвинулась на {}, а таблица — на {offset}",
+            before - after
+        );
     }
 
     /// Таблица с широкой колонкой: текст ячейки заведомо начинается в
