@@ -910,6 +910,17 @@ impl TableViewElement {
                 _ => {}
             }
         }
+        if key == Key::Enter && !self.editable {
+            let row = self
+                .cursor_cell
+                .map(|(r, _)| r)
+                .or_else(|| self.selected_rows.last().copied());
+            if let Some(r) = row {
+                if self.activate_row(r) {
+                    return EventResult::Handled;
+                }
+            }
+        }
         let Some((r, c)) = self.cursor_cell else {
             if self.row_count() > 0 && !self.columns.is_empty() {
                 let first_col = self.visible_columns().next().unwrap_or(0);
@@ -1032,10 +1043,28 @@ impl TableViewElement {
     /// Клавиши таблицы со строковым выделением (без навигации по ячейкам):
     /// стрелки и PageUp/PageDown/Home/End двигают выделение, с Shift —
     /// расширяют его от опорной строки. Без выделения строк — прокрутка.
+    /// Enter на строке — то же, что двойной щелчок: открыть запись.
+    fn activate_row(&mut self, row: usize) -> bool {
+        let Some(ref cb) = self.on_row_double_click else {
+            return false;
+        };
+        if let Ok(mut f) = cb.lock() {
+            f(row);
+        }
+        true
+    }
+
     fn handle_row_keys(&mut self, key: Key, ctx: &mut EventContext) -> EventResult {
         let n = self.row_count();
         if n == 0 {
             return EventResult::Ignored;
+        }
+        if key == Key::Enter {
+            let row = self.selected_rows.last().copied();
+            return match row {
+                Some(r) if self.activate_row(r) => EventResult::Handled,
+                _ => EventResult::Ignored,
+            };
         }
         let page = self.visible_row_count().max(1);
         let last = n - 1;
@@ -4268,6 +4297,33 @@ mod tests {
             el.scroll_offset_x
         );
         assert!(el.scroll_offset_x <= el.max_scroll_x() + 0.01);
+    }
+
+    #[test]
+    fn enter_opens_the_selected_row_like_double_click() {
+        let opened = Arc::new(Mutex::new(Vec::<usize>::new()));
+        let sink = opened.clone();
+        let table = TableView::new(
+            vec![TableColumn::fixed("A", 100.0)],
+            vec![vec!["a".into()], vec!["b".into()]],
+        )
+        .row_height(20.0)
+        .header_height(20.0)
+        .on_selection_change(|_| {})
+        .on_row_double_click(move |row| sink.lock().unwrap().push(row));
+        let mut h = TestHarness::new(Box::new(table));
+        h.layout(300.0, 200.0);
+        let at = Point::new(30.0, 50.0);
+        h.send_event(&Event::MouseDown {
+            button: MouseButton::Left,
+            position: at,
+        });
+        h.send_event(&Event::MouseUp {
+            button: MouseButton::Left,
+            position: at,
+        });
+        h.send_event(&Event::KeyDown(crate::input::Key::Enter));
+        assert_eq!(*opened.lock().unwrap(), vec![1]);
     }
 
     #[test]
