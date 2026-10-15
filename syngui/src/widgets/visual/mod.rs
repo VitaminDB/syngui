@@ -11,6 +11,7 @@ pub mod divider;
 pub mod emitter;
 #[cfg(feature = "ffmpeg")]
 pub mod frames_view;
+pub mod graph_view;
 pub mod icon;
 pub mod image;
 pub mod image_viewport;
@@ -46,6 +47,7 @@ pub use divider::{Divider, DividerDirection};
 pub use emitter::{EmitterConfig, EmitterShape, ParticleEmitter, ParticlePreset, ParticleShape};
 #[cfg(feature = "ffmpeg")]
 pub use frames_view::FramesView;
+pub use graph_view::{GraphEdge, GraphNode, GraphView};
 pub use icon::Icon;
 pub use image::{Image, ImageFit};
 pub use image_viewport::{ImageViewCommand, ImageViewInfo, ImageViewport};
