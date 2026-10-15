@@ -188,7 +188,7 @@ impl DatePickerElement {
         let y = if self.opens_upward {
             self.bounds.y() - m.height - POPUP_GAP
         } else {
-            self.bounds.y() + INPUT_HEIGHT + POPUP_GAP
+            self.bounds.y() + self.input_h() + POPUP_GAP
         };
         Rect::new(Point::new(self.bounds.x(), y), m.size())
     }
@@ -248,8 +248,8 @@ impl Element for DatePickerElement {
             .map(|d| d.resolve(constraints.max_width))
             .unwrap_or(default_w)
             .min(constraints.max_width);
-        self.bounds = Rect::new(Point::zero(), Size::new(w, INPUT_HEIGHT));
-        Size::new(w, INPUT_HEIGHT)
+        self.bounds = Rect::new(Point::zero(), Size::new(w, self.input_h()));
+        Size::new(w, self.input_h())
     }
 
     fn build_display_list(&self, list: &mut DisplayList, _clip: Rect) {
@@ -280,7 +280,7 @@ impl Element for DatePickerElement {
         let text_rect = Rect::new(
             Point::new(
                 self.bounds.x() + 12.0,
-                self.bounds.y() + (INPUT_HEIGHT - font_size) / 2.0,
+                self.bounds.y() + (self.input_h() - font_size) / 2.0,
             ),
             Size::new(self.bounds.size.width - 40.0, font_size + 2.0),
         );
@@ -307,7 +307,7 @@ impl Element for DatePickerElement {
         let icon_rect = Rect::new(
             Point::new(
                 self.bounds.x() + self.bounds.size.width - 28.0,
-                self.bounds.y() + (INPUT_HEIGHT - 14.0) / 2.0,
+                self.bounds.y() + (self.input_h() - 14.0) / 2.0,
             ),
             Size::new(16.0, 14.0),
         );
@@ -399,7 +399,7 @@ impl Element for DatePickerElement {
                             self.state.goto(d);
                         }
                         let m = self.metrics();
-                        self.opens_upward = self.bounds.y() + INPUT_HEIGHT + POPUP_GAP + m.height
+                        self.opens_upward = self.bounds.y() + self.input_h() + POPUP_GAP + m.height
                             > ctx.viewport_size().height
                             && self.bounds.y() >= m.height + POPUP_GAP;
                         let cal = self.calendar_rect();
@@ -408,7 +408,7 @@ impl Element for DatePickerElement {
                                 Point::new(self.bounds.x(), cal.y()),
                                 Size::new(
                                     m.width.max(self.bounds.size.width),
-                                    m.height + POPUP_GAP + INPUT_HEIGHT,
+                                    m.height + POPUP_GAP + self.input_h(),
                                 ),
                             )
                         } else {
@@ -416,7 +416,7 @@ impl Element for DatePickerElement {
                                 self.bounds.origin,
                                 Size::new(
                                     m.width.max(self.bounds.size.width),
-                                    INPUT_HEIGHT + POPUP_GAP + m.height,
+                                    self.input_h() + POPUP_GAP + m.height,
                                 ),
                             )
                         };
@@ -535,5 +535,12 @@ impl StyledElement for DatePickerElement {
     fn set_classes(&mut self, classes: Vec<String>) {
         self.classes = classes;
         self.mark_dirty(DirtyFlags::RENDER);
+    }
+}
+
+impl DatePickerElement {
+    /// Высота поля: явная из MSS, по отступам темы или стандартная.
+    fn input_h(&self) -> f32 {
+        self.mss.control_height(INPUT_HEIGHT, f32::INFINITY)
     }
 }

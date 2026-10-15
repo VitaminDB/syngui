@@ -258,7 +258,7 @@ impl MultiselectElement {
 
     fn input_height(&self) -> f32 {
         if self.selected.is_empty() {
-            INPUT_HEIGHT
+            self.input_h()
         } else {
             let (visible, extra) = self.visible_chips();
             let available_w = self.bounds.size.width - 40.0;
@@ -281,7 +281,7 @@ impl MultiselectElement {
                     rows += 1;
                 }
             }
-            (8.0 + rows as f32 * (CHIP_HEIGHT + CHIP_GAP) + 4.0).max(INPUT_HEIGHT)
+            (8.0 + rows as f32 * (CHIP_HEIGHT + CHIP_GAP) + 4.0).max(self.input_h())
         }
     }
 
@@ -959,5 +959,12 @@ impl StyledElement for MultiselectElement {
     fn set_classes(&mut self, classes: Vec<String>) {
         self.classes = classes;
         self.mark_dirty(DirtyFlags::RENDER);
+    }
+}
+
+impl MultiselectElement {
+    /// Высота поля: явная из MSS, по отступам темы или стандартная.
+    fn input_h(&self) -> f32 {
+        self.mss.control_height(INPUT_HEIGHT, f32::INFINITY)
     }
 }

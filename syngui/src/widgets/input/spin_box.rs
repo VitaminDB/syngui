@@ -204,10 +204,7 @@ impl SpinBoxElement {
     }
 
     fn resolved_height(&self) -> f32 {
-        self.mss
-            .height
-            .map(|d| d.resolve(f32::INFINITY))
-            .unwrap_or(DEFAULT_HEIGHT)
+        self.mss.control_height(DEFAULT_HEIGHT, f32::INFINITY)
     }
 
     fn resolved_radius(&self) -> f32 {

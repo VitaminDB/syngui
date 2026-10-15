@@ -176,11 +176,7 @@ impl Element for SegmentedButtonElement {
     }
 
     fn layout(&mut self, constraints: Constraints) -> Size {
-        let height = self
-            .mss
-            .height
-            .map(|d| d.resolve(constraints.max_height))
-            .unwrap_or(36.0);
+        let height = self.mss.control_height(36.0, constraints.max_height);
         let font_size = self.mss.font_size_or(14.0);
         let bold: u16 = self.mss.font_weight_or(400);
         let h_padding = self.segment_padding;

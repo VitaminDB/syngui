@@ -212,7 +212,7 @@ impl AutocompleteElement {
         let y = if self.opens_upward {
             self.bounds.y() - h - popup_gap
         } else {
-            self.bounds.y() + INPUT_HEIGHT + popup_gap
+            self.bounds.y() + self.input_h() + popup_gap
         };
         Rect::new(
             Point::new(self.bounds.x(), y),
@@ -258,8 +258,8 @@ impl Element for AutocompleteElement {
             .map(|d| d.resolve(constraints.max_width))
             .unwrap_or(constraints.max_width)
             .min(constraints.max_width);
-        self.bounds = Rect::new(Point::zero(), Size::new(w, INPUT_HEIGHT));
-        Size::new(w, INPUT_HEIGHT)
+        self.bounds = Rect::new(Point::zero(), Size::new(w, self.input_h()));
+        Size::new(w, self.input_h())
     }
 
     fn build_display_list(&self, list: &mut DisplayList, _clip: Rect) {
@@ -298,7 +298,7 @@ impl Element for AutocompleteElement {
         let text_rect = Rect::new(
             Point::new(
                 self.bounds.x() + 12.0,
-                self.bounds.y() + (INPUT_HEIGHT - 14.0) / 2.0,
+                self.bounds.y() + (self.input_h() - 14.0) / 2.0,
             ),
             Size::new(self.bounds.size.width - 24.0, 16.0),
         );
@@ -320,7 +320,7 @@ impl Element for AutocompleteElement {
                     sel_end,
                     self.bounds.x() + 12.0,
                     self.bounds.y() + 10.0,
-                    INPUT_HEIGHT - 20.0,
+                    self.input_h() - 20.0,
                     14.0,
                     sel_color,
                     self.mss.font_family.clone(),
@@ -343,7 +343,7 @@ impl Element for AutocompleteElement {
                 self.cursor_pos,
                 self.bounds.x() + 12.0,
                 self.bounds.y() + 10.0,
-                INPUT_HEIGHT - 20.0,
+                self.input_h() - 20.0,
                 14.0,
                 self.mss.font_weight_or(400),
                 caret,
@@ -354,7 +354,7 @@ impl Element for AutocompleteElement {
         let icon_rect = Rect::new(
             Point::new(
                 self.bounds.x() + self.bounds.size.width - 28.0,
-                self.bounds.y() + (INPUT_HEIGHT - 14.0) / 2.0,
+                self.bounds.y() + (self.input_h() - 14.0) / 2.0,
             ),
             Size::new(16.0, 14.0),
         );
@@ -598,7 +598,7 @@ impl Element for AutocompleteElement {
                 if self.is_open {
                     let popup_gap = 4.0;
                     let dd_h = self.effective_popup_height(self.filtered.len());
-                    self.opens_upward = self.bounds.y() + INPUT_HEIGHT + dd_h + popup_gap
+                    self.opens_upward = self.bounds.y() + self.input_h() + dd_h + popup_gap
                         > ctx.viewport_size().height
                         && self.bounds.y() >= dd_h + popup_gap;
                     let dd = self.dropdown_rect();
@@ -607,7 +607,7 @@ impl Element for AutocompleteElement {
                             Point::new(self.bounds.x(), dd.y()),
                             Size::new(
                                 self.bounds.size.width,
-                                dd.size.height + popup_gap + INPUT_HEIGHT,
+                                dd.size.height + popup_gap + self.input_h(),
                             ),
                         )
                     } else {
@@ -615,7 +615,7 @@ impl Element for AutocompleteElement {
                             self.bounds.origin,
                             Size::new(
                                 self.bounds.size.width,
-                                INPUT_HEIGHT + popup_gap + dd.size.height,
+                                self.input_h() + popup_gap + dd.size.height,
                             ),
                         )
                     };
@@ -812,7 +812,7 @@ impl Element for AutocompleteElement {
         _parent_height: f32,
     ) -> (Option<f32>, Option<f32>) {
         let w = self.width.map(|d| d.resolve(1000.0));
-        (w, Some(INPUT_HEIGHT))
+        (w, Some(self.input_h()))
     }
 
     fn set_position(&mut self, pos: Point) {
@@ -945,5 +945,12 @@ impl StyledElement for AutocompleteElement {
     fn set_classes(&mut self, classes: Vec<String>) {
         self.classes = classes;
         self.mark_dirty(DirtyFlags::RENDER);
+    }
+}
+
+impl AutocompleteElement {
+    /// Высота поля: явная из MSS, по отступам темы или стандартная.
+    fn input_h(&self) -> f32 {
+        self.mss.control_height(INPUT_HEIGHT, f32::INFINITY)
     }
 }

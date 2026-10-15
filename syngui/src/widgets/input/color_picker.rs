@@ -591,11 +591,7 @@ impl Element for ColorPickerElement {
                 .map(|d| d.resolve(constraints.max_width))
                 .unwrap_or(POPUP_WIDTH)
                 .min(constraints.max_width);
-            let h = self
-                .mss
-                .height
-                .map(|d| d.resolve(constraints.max_height.max(0.0)))
-                .unwrap_or(INPUT_HEIGHT);
+            let h = self.mss.control_height(INPUT_HEIGHT, constraints.max_height.max(0.0));
             self.bounds = Rect::new(Point::zero(), Size::new(w, h));
             Size::new(w, h)
         }

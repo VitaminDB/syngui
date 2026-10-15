@@ -480,6 +480,25 @@ impl Default for MssFields {
 }
 
 impl MssFields {
+    /// Высота однострочного элемента управления (поле, выпадающий список,
+    /// сегменты): явная `height` из MSS; иначе, если тема задала вертикальные
+    /// отступы, — по содержимому (строка шрифта + отступы + рамка), чтобы
+    /// компактное поле (`font-size: 12px; padding: 5px 10px`) не тянулось до
+    /// стандартной высоты; без отступов — `default`.
+    pub fn control_height(&self, default: f32, max: f32) -> f32 {
+        if let Some(h) = self.height {
+            return h.resolve(max);
+        }
+        match (self.padding_top, self.padding_bottom) {
+            (None, None) => default,
+            (t, b) => {
+                let fs = self.font_size.unwrap_or(14.0);
+                let border = self.border_width.unwrap_or(0.0) * 2.0;
+                ((fs * 1.35).ceil() + t.unwrap_or(0.0) + b.unwrap_or(0.0) + border).max(22.0)
+            }
+        }
+    }
+
     pub fn new() -> Self {
         Self {
             background_color: None,

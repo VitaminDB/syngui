@@ -195,7 +195,7 @@ impl ComboboxElement {
         let y = if self.opens_upward {
             self.bounds.y() - h - popup_gap
         } else {
-            self.bounds.y() + INPUT_HEIGHT + popup_gap
+            self.bounds.y() + self.input_h() + popup_gap
         };
         let min_w = self
             .popup_min_width
@@ -238,8 +238,8 @@ impl Element for ComboboxElement {
             .map(|d| d.resolve(constraints.max_width))
             .unwrap_or(constraints.max_width)
             .min(constraints.max_width);
-        self.bounds = Rect::new(Point::zero(), Size::new(w, INPUT_HEIGHT));
-        Size::new(w, INPUT_HEIGHT)
+        self.bounds = Rect::new(Point::zero(), Size::new(w, self.input_h()));
+        Size::new(w, self.input_h())
     }
 
     fn build_display_list(&self, list: &mut DisplayList, _clip: Rect) {
@@ -273,7 +273,7 @@ impl Element for ComboboxElement {
         let text_rect = Rect::new(
             Point::new(
                 self.bounds.x() + 12.0,
-                self.bounds.y() + (INPUT_HEIGHT - 14.0) / 2.0,
+                self.bounds.y() + (self.input_h() - 14.0) / 2.0,
             ),
             Size::new(self.bounds.size.width - 40.0, 16.0),
         );
@@ -315,7 +315,7 @@ impl Element for ComboboxElement {
                 self.cursor_pos,
                 self.bounds.x() + 12.0,
                 self.bounds.y() + 10.0,
-                INPUT_HEIGHT - 20.0,
+                self.input_h() - 20.0,
                 14.0,
                 self.mss.font_weight_or(400),
                 caret,
@@ -327,7 +327,7 @@ impl Element for ComboboxElement {
         let arrow_rect = Rect::new(
             Point::new(
                 self.bounds.x() + self.bounds.size.width - 28.0,
-                self.bounds.y() + (INPUT_HEIGHT - 10.0) / 2.0,
+                self.bounds.y() + (self.input_h() - 10.0) / 2.0,
             ),
             Size::new(16.0, 12.0),
         );
@@ -515,7 +515,7 @@ impl Element for ComboboxElement {
                         let popup_gap = 4.0;
                         let dd_h = self.effective_popup_height(self.filtered_indices.len());
                         self.viewport_width = ctx.viewport_size().width;
-                        self.opens_upward = self.bounds.y() + INPUT_HEIGHT + dd_h + popup_gap
+                        self.opens_upward = self.bounds.y() + self.input_h() + dd_h + popup_gap
                             > ctx.viewport_size().height
                             && self.bounds.y() >= dd_h + popup_gap;
                         let dd = self.dropdown_rect();
@@ -535,12 +535,12 @@ impl Element for ComboboxElement {
                         let overlay_bounds = if self.opens_upward {
                             Rect::new(
                                 Point::new(left, dd.y()),
-                                Size::new(right - left, dd.size.height + popup_gap + INPUT_HEIGHT),
+                                Size::new(right - left, dd.size.height + popup_gap + self.input_h()),
                             )
                         } else {
                             Rect::new(
                                 Point::new(left, self.bounds.y()),
-                                Size::new(right - left, INPUT_HEIGHT + popup_gap + dd.size.height),
+                                Size::new(right - left, self.input_h() + popup_gap + dd.size.height),
                             )
                         };
                         ctx.register_overlay(overlay_bounds, false);
@@ -704,7 +704,7 @@ impl Element for ComboboxElement {
         _parent_height: f32,
     ) -> (Option<f32>, Option<f32>) {
         let w = self.width.map(|d| d.resolve(1000.0));
-        (w, Some(INPUT_HEIGHT))
+        (w, Some(self.input_h()))
     }
 
     fn set_position(&mut self, pos: Point) {
@@ -820,5 +820,12 @@ impl StyledElement for ComboboxElement {
     fn set_classes(&mut self, classes: Vec<String>) {
         self.classes = classes;
         self.mark_dirty(DirtyFlags::RENDER);
+    }
+}
+
+impl ComboboxElement {
+    /// Высота поля: явная из MSS, по отступам темы или стандартная.
+    fn input_h(&self) -> f32 {
+        self.mss.control_height(INPUT_HEIGHT, f32::INFINITY)
     }
 }
