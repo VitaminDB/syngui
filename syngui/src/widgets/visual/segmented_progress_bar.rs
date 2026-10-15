@@ -15,6 +15,9 @@ pub enum SegmentState {
     Partial(f32),
     Filled,
     Disabled,
+    /// Сегмент вне учёта (прибор на поверке, в ремонте): плотный нейтральный
+    /// цвет с белой чертой — отличим от «ещё не наступило» и без цвета.
+    Excluded,
     /// Отметка события (красный сегмент с белой точкой — различим и без
     /// цвета). `pulse` — событие не просмотрено: яркость плавно пульсирует.
     Alert {
@@ -213,6 +216,7 @@ impl Element for SegmentedProgressBarElement {
                     track.lerp(&accent, f)
                 }
                 SegmentState::Disabled => neutral.with_alpha(0.30),
+                SegmentState::Excluded => neutral.with_alpha(0.75),
                 SegmentState::Alert { pulse } => {
                     if *pulse {
                         alert.with_alpha(alert.a * pulse_alpha)
@@ -228,6 +232,15 @@ impl Element for SegmentedProgressBarElement {
                 color
             };
             list.push_rect(rect, color, [radius; 4]);
+            if matches!(seg, SegmentState::Excluded) {
+                let t = (h * 0.2).max(1.0);
+                let dash = Rect::new(
+                    Point::new(x + seg_w * 0.2, y + (h - t) / 2.0),
+                    Size::new(seg_w * 0.6, t),
+                );
+                let white = Color::from_hex("#ffffff");
+                list.push_rect(dash, white.with_alpha(white.a * alpha), [t / 2.0; 4]);
+            }
             if matches!(seg, SegmentState::Alert { .. }) {
                 let d = (seg_w.min(h) * 0.4).max(2.0);
                 let dot = Rect::new(
