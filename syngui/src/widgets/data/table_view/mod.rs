@@ -78,6 +78,8 @@ pub struct TableColumn {
     pub cell_renderer: Option<CellRendererFn>,
     pub cell_renderer_with_row: Option<CellRendererWithRowFn>,
     pub align: ColumnAlign,
+    /// Подсказка при наведении на заголовок (строки через «\n»).
+    pub tooltip: Option<String>,
 }
 
 impl Clone for TableColumn {
@@ -95,6 +97,7 @@ impl Clone for TableColumn {
             cell_renderer: self.cell_renderer.clone(),
             cell_renderer_with_row: self.cell_renderer_with_row.clone(),
             align: self.align,
+            tooltip: self.tooltip.clone(),
         }
     }
 }
@@ -117,6 +120,7 @@ impl fmt::Debug for TableColumn {
                 &self.cell_renderer_with_row.as_ref().map(|_| ".."),
             )
             .field("align", &self.align)
+            .field("tooltip", &self.tooltip)
             .finish()
     }
 }
@@ -136,6 +140,7 @@ impl TableColumn {
             cell_renderer: None,
             cell_renderer_with_row: None,
             align: ColumnAlign::default(),
+            tooltip: None,
         }
     }
 
@@ -153,6 +158,7 @@ impl TableColumn {
             cell_renderer: None,
             cell_renderer_with_row: None,
             align: ColumnAlign::default(),
+            tooltip: None,
         }
     }
 
@@ -170,6 +176,7 @@ impl TableColumn {
             cell_renderer: None,
             cell_renderer_with_row: None,
             align: ColumnAlign::default(),
+            tooltip: None,
         }
     }
 
@@ -210,6 +217,12 @@ impl TableColumn {
 
     pub fn align(mut self, align: ColumnAlign) -> Self {
         self.align = align;
+        self
+    }
+
+    /// Подсказка к заголовку: появляется, если задержать над ним мышь.
+    pub fn tooltip(mut self, text: impl Into<String>) -> Self {
+        self.tooltip = Some(text.into());
         self
     }
 

@@ -40,6 +40,8 @@ const CONTEXT_MENU_WIDTH: f32 = 190.0;
 /// которые добавило приложение.
 const CONTEXT_MENU_SEPARATOR: f32 = 9.0;
 /// Сколько пунктов меню таблица рисует сама (копирование ячейки и строки).
+/// Сколько держать мышь над заголовком до подсказки.
+const HEADER_TIP_DELAY_SECS: f32 = 0.45;
 const BUILTIN_CONTEXT_ITEMS: usize = 2;
 
 impl Widget for TableView {
@@ -98,6 +100,7 @@ impl Widget for TableView {
             hovered_row: None,
             kb_anchor: None,
             hovered_header_col: None,
+            header_tip: None,
             settings_button_hovered: false,
             popover_open: false,
             popover_hovered_index: None,
@@ -231,6 +234,8 @@ pub struct TableViewElement {
     /// выделяется промежуток.
     kb_anchor: Option<usize>,
     hovered_header_col: Option<usize>,
+    /// Подсказка заголовка: столбец, x мыши и сколько секунд её держат.
+    header_tip: Option<(usize, f32, f32)>,
     settings_button_hovered: bool,
     popover_open: bool,
     popover_hovered_index: Option<usize>,
@@ -1631,6 +1636,56 @@ impl TableViewElement {
         );
     }
 
+    fn header_tip_shown(&self) -> bool {
+        self.header_tip
+            .is_some_and(|(_, _, wait)| wait >= HEADER_TIP_DELAY_SECS)
+    }
+
+    /// Подсказка заголовка — под шапкой у мыши, в пределах таблицы.
+    fn draw_header_tip(&self, list: &mut DisplayList) {
+        let Some((col, x, wait)) = self.header_tip else {
+            return;
+        };
+        if wait < HEADER_TIP_DELAY_SECS || self.context_menu.is_some() {
+            return;
+        }
+        let Some(text) = self.columns.get(col).and_then(|c| c.tooltip.as_deref()) else {
+            return;
+        };
+        let fs = self.cell_font_size;
+        let line_h = fs * 1.45;
+        let pad = 8.0;
+        let lines: Vec<&str> = text.lines().collect();
+        let width = lines
+            .iter()
+            .map(|l| match self.text_measure.as_ref() {
+                Some(tm) => tm.measure_text_width(l, fs, l.chars().count()),
+                None => l.chars().count() as f32 * fs * 0.55,
+            })
+            .fold(0.0_f32, f32::max)
+            + pad * 2.0;
+        let height = lines.len() as f32 * line_h + pad * 2.0;
+        let left = (x - width / 2.0)
+            .min(self.bounds.x() + self.bounds.size.width - width)
+            .max(self.bounds.x());
+        let rect = Rect::new(
+            Point::new(left, self.bounds.y() + self.header_height + 4.0),
+            Size::new(width, height),
+        );
+        let bg = crate::theme_fallback::fallback_fg_strong();
+        let fg = crate::theme_fallback::fallback_surface();
+        list.begin_overlay();
+        list.push_rect(rect, bg.with_alpha(0.94), [6.0; 4]);
+        for (i, line) in lines.iter().enumerate() {
+            let r = Rect::new(
+                Point::new(rect.x() + pad, rect.y() + pad + i as f32 * line_h),
+                Size::new(width - pad * 2.0, line_h),
+            );
+            list.push_text_singleline(line, r, fg, fs, TextAlign::DEFAULT, 400);
+        }
+        list.end_overlay();
+    }
+
     fn draw_context_menu(&self, list: &mut DisplayList) {
         let Some(rect) = self.context_menu_rect() else {
             return;
@@ -2779,6 +2834,7 @@ impl Element for TableViewElement {
         if self.context_menu.is_some() {
             self.draw_context_menu(list);
         }
+        self.draw_header_tip(list);
     }
 
     fn post_build_display_list(&self, list: &mut DisplayList, _clip: Rect) {
@@ -2811,15 +2867,29 @@ impl Element for TableViewElement {
         if self.context_menu.is_some() {
             self.draw_context_menu(list);
         }
+        self.draw_header_tip(list);
     }
 
     /// Инерция прокрутки и затухание скроллбара.
     fn wants_animate_tick(&self) -> bool {
-        self.velocity.abs() > 0.5 || self.scrollbar_fader.opacity > 0.0
+        self.velocity.abs() > 0.5
+            || self.scrollbar_fader.opacity > 0.0
+            || self
+                .header_tip
+                .is_some_and(|(_, _, wait)| wait < HEADER_TIP_DELAY_SECS)
     }
 
     fn animate(&mut self, dt: Duration) -> bool {
         let mut needs_repaint = false;
+        if let Some((col, x, wait)) = self.header_tip {
+            if wait < HEADER_TIP_DELAY_SECS {
+                let next = wait + dt.as_secs_f32();
+                self.header_tip = Some((col, x, next));
+                if next >= HEADER_TIP_DELAY_SECS {
+                    needs_repaint = true;
+                }
+            }
+        }
         if self.velocity.abs() > 0.5 {
             self.velocity *= 0.92f32.powf(dt.as_secs_f32() * 60.0);
             let new_offset = (self.scroll_offset + self.velocity * dt.as_secs_f32())
@@ -3010,6 +3080,7 @@ impl Element for TableViewElement {
                     self.scrollbar_hovered = false;
                     self.hovered_header_col = None;
                     self.settings_button_hovered = false;
+                    self.header_tip = None;
                     if changed {
                         ctx.request_paint();
                     }
@@ -3018,6 +3089,22 @@ impl Element for TableViewElement {
 
                 if pos.y < self.bounds.y() + self.header_height {
                     let mut painted = false;
+                    let tip_col = self
+                        .col_at_x(pos.x)
+                        .filter(|i| self.columns.get(*i).is_some_and(|c| c.tooltip.is_some()));
+                    match (tip_col, self.header_tip) {
+                        (Some(col), Some((was, _, wait))) if was == col => {
+                            self.header_tip = Some((col, pos.x, wait));
+                        }
+                        (Some(col), _) => {
+                            painted |= self.header_tip_shown();
+                            self.header_tip = Some((col, pos.x, 0.0));
+                        }
+                        (None, _) => {
+                            painted |= self.header_tip_shown();
+                            self.header_tip = None;
+                        }
+                    }
                     let new_btn_hover = self
                         .settings_button_rect()
                         .map_or(false, |r| r.contains(*pos));
@@ -3052,6 +3139,9 @@ impl Element for TableViewElement {
                     return EventResult::Handled;
                 }
 
+                if self.header_tip.take().is_some() {
+                    ctx.request_paint();
+                }
                 if self.hovered_header_col.is_some() || self.settings_button_hovered {
                     self.hovered_header_col = None;
                     self.settings_button_hovered = false;
@@ -4297,6 +4387,29 @@ mod tests {
             el.scroll_offset_x
         );
         assert!(el.scroll_offset_x <= el.max_scroll_x() + 0.01);
+    }
+
+    #[test]
+    fn header_tooltip_shows_after_hover_delay() {
+        let table = TableView::new(
+            vec![TableColumn::fixed("A", 100.0).tooltip("зелёный — есть архив")],
+            vec![vec!["a".into()]],
+        )
+        .row_height(20.0)
+        .header_height(20.0);
+        let mut h = TestHarness::new(Box::new(table));
+        h.layout(300.0, 200.0);
+        let tip_drawn = |h: &mut TestHarness| {
+            h.paint().commands().into_iter().any(|c| {
+                matches!(c, DrawCommand::Text { ref text, .. } if text.as_str() == "зелёный — есть архив")
+            })
+        };
+        h.send_event(&Event::MouseMove(Point::new(30.0, 10.0)));
+        assert!(!tip_drawn(&mut h), "сразу подсказки нет");
+        h.animate(std::time::Duration::from_millis(500));
+        assert!(tip_drawn(&mut h));
+        h.send_event(&Event::MouseMove(Point::new(30.0, 100.0)));
+        assert!(!tip_drawn(&mut h), "ушли с заголовка — подсказка скрыта");
     }
 
     #[test]
