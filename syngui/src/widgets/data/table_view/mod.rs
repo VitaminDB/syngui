@@ -308,6 +308,7 @@ pub struct TableView {
     pub(super) on_sort: Option<Arc<Mutex<dyn FnMut(usize, SortDirection) + Send>>>,
     pub(super) on_row_click: Option<Arc<Mutex<dyn FnMut(usize) + Send>>>,
     pub(super) selected_rows: Vec<usize>,
+    pub(super) emphasized_rows: Vec<usize>,
     pub(super) on_selection_change: Option<Arc<Mutex<dyn FnMut(Vec<usize>) + Send>>>,
     pub(super) width: Option<Dimension>,
     pub(super) height: Option<Dimension>,
@@ -359,6 +360,7 @@ impl TableView {
             on_sort: None,
             on_row_click: None,
             selected_rows: Vec::new(),
+            emphasized_rows: Vec::new(),
             on_selection_change: None,
             width: None,
             height: None,
@@ -415,6 +417,7 @@ impl TableView {
             on_sort: None,
             on_row_click: None,
             selected_rows: Vec::new(),
+            emphasized_rows: Vec::new(),
             on_selection_change: None,
             width: None,
             height: None,
@@ -474,6 +477,13 @@ impl TableView {
     }
     pub fn selected_rows(mut self, rows: Vec<usize>) -> Self {
         self.selected_rows = rows;
+        self
+    }
+
+    /// Строки итогов (индексы данных): фон акцентным тоном и полужирный
+    /// текст — «Итого» видно в длинной таблице.
+    pub fn emphasized_rows(mut self, rows: Vec<usize>) -> Self {
+        self.emphasized_rows = rows;
         self
     }
 

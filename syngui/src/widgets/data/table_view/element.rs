@@ -81,6 +81,7 @@ impl Widget for TableView {
             on_row_click: self.on_row_click.clone(),
             on_selection_change: self.on_selection_change.clone(),
             selected_rows: self.selected_rows.clone(),
+            emphasized_rows: self.emphasized_rows.clone(),
             width: self.width,
             height: self.height,
             scroll_offset: self
@@ -214,6 +215,7 @@ pub struct TableViewElement {
     /// Выбор изменился: список выделенных строк целиком.
     on_selection_change: Option<Arc<Mutex<dyn FnMut(Vec<usize>) + Send>>>,
     selected_rows: Vec<usize>,
+    emphasized_rows: Vec<usize>,
     width: Option<Dimension>,
     height: Option<Dimension>,
     scroll_offset: f32,
@@ -1150,6 +1152,14 @@ impl TableViewElement {
         self.set_scroll_offset(offset);
         if self.compositional {
             self.needs_child_rebuild = true;
+        }
+    }
+
+    fn row_weight(&self, phys_row: usize) -> u16 {
+        if self.emphasized_rows.contains(&phys_row) {
+            600
+        } else {
+            400
         }
     }
 
@@ -2286,6 +2296,7 @@ impl Element for TableViewElement {
                 self.header_press = None;
             }
             self.selected_rows = tv.selected_rows.clone();
+            self.emphasized_rows = tv.emphasized_rows.clone();
             self.cell_cursor = tv.cell_cursor;
             self.text_selection = tv.text_selection;
             self.context_actions = tv.context_actions.clone();
@@ -2426,6 +2437,8 @@ impl Element for TableViewElement {
                         .unwrap_or_else(|| primary.with_alpha(0.15))
                 } else if is_hovered {
                     self.row_hover_bg.unwrap_or_else(|| bg.darken(0.08))
+                } else if self.emphasized_rows.contains(&phys_row) {
+                    primary.with_alpha(0.08)
                 } else if self.striped && vis_row % 2 == 1 {
                     self.row_striped_bg.unwrap_or_else(|| bg.darken(0.015))
                 } else {
@@ -2552,7 +2565,7 @@ impl Element for TableViewElement {
                             fg,
                             cfs,
                             col.align.to_text_align(),
-                            400,
+                            self.row_weight(phys_row),
                         );
                         if may_wrap {
                             list.pop_clip();
@@ -2618,6 +2631,8 @@ impl Element for TableViewElement {
                     .unwrap_or_else(|| primary.with_alpha(0.15))
             } else if is_hovered {
                 self.row_hover_bg.unwrap_or_else(|| bg.darken(0.08))
+            } else if self.emphasized_rows.contains(&phys_row) {
+                primary.with_alpha(0.08)
             } else if self.striped && vis_row % 2 == 1 {
                 self.row_striped_bg.unwrap_or_else(|| bg.darken(0.015))
             } else {
@@ -2709,7 +2724,7 @@ impl Element for TableViewElement {
                             fg,
                             cfs,
                             align.to_text_align(),
-                            400,
+                            self.row_weight(phys_row),
                         );
                         list.pop_clip();
                     }
@@ -4253,6 +4268,33 @@ mod tests {
             el.scroll_offset_x
         );
         assert!(el.scroll_offset_x <= el.max_scroll_x() + 0.01);
+    }
+
+    #[test]
+    fn emphasized_rows_are_bold() {
+        let table = TableView::new(
+            vec![TableColumn::fixed("A", 100.0)],
+            vec![vec!["строка".into()], vec!["Итого".into()]],
+        )
+        .row_height(20.0)
+        .header_height(20.0)
+        .emphasized_rows(vec![1]);
+        let mut h = TestHarness::new(Box::new(table));
+        h.layout(300.0, 200.0);
+        let mut weight = |want: &str| {
+            h.paint()
+                .commands()
+                .into_iter()
+                .find_map(|c| match c {
+                    DrawCommand::Text {
+                        text, font_weight, ..
+                    } if text.as_str() == want => Some(font_weight),
+                    _ => None,
+                })
+                .unwrap()
+        };
+        assert_eq!(weight("строка"), 400);
+        assert_eq!(weight("Итого"), 600);
     }
 
     #[test]
