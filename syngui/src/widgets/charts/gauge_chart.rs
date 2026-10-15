@@ -282,7 +282,9 @@ impl GaugeChartElement {
         let radius = size * 0.4;
         let track_half = radius * self.track_width_ratio * 0.5;
         let cy = size * 0.5;
-        let down = (-self.start_angle.sin()).max(0.0).max((-self.end_angle.sin()).max(0.0));
+        let down = (-self.start_angle.sin())
+            .max(0.0)
+            .max((-self.end_angle.sin()).max(0.0));
         let arc_bottom = cy + (radius + track_half) * down;
         let text_bottom = cy + radius * 0.45 + 30.0;
         arc_bottom.max(text_bottom) + 8.0
@@ -296,7 +298,11 @@ impl GaugeChartElement {
         let mut hi = w;
         for _ in 0..24 {
             let mid = (lo + hi) * 0.5;
-            if self.content_bottom(mid) <= h { lo = mid } else { hi = mid }
+            if self.content_bottom(mid) <= h {
+                lo = mid
+            } else {
+                hi = mid
+            }
         }
         lo.max(w.min(48.0))
     }

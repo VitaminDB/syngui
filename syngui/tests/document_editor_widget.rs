@@ -2946,9 +2946,21 @@ fn dragging_a_selected_block_moves_the_whole_group() {
 
     let out = handle.serialize();
     let g = |i: usize, k: &str| geom_val(&out, i, k).unwrap_or(f32::NAN);
-    assert_eq!((g(0, "x"), g(0, "y")), (140.0, 100.0), "первый блок:\n{out}");
-    assert_eq!((g(1, "x"), g(1, "y")), (300.0, 220.0), "второй блок:\n{out}");
-    assert_eq!((g(2, "x"), g(2, "y")), (40.0, 400.0), "невыделенный не едет:\n{out}");
+    assert_eq!(
+        (g(0, "x"), g(0, "y")),
+        (140.0, 100.0),
+        "первый блок:\n{out}"
+    );
+    assert_eq!(
+        (g(1, "x"), g(1, "y")),
+        (300.0, 220.0),
+        "второй блок:\n{out}"
+    );
+    assert_eq!(
+        (g(2, "x"), g(2, "y")),
+        (40.0, 400.0),
+        "невыделенный не едет:\n{out}"
+    );
     assert_eq!(
         handle.block_selection().get().len(),
         2,

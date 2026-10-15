@@ -379,8 +379,10 @@ impl AppBuilder {
     /// `with_dynamic_theme`) изменившиеся цвета перетекают за `ms`
     /// миллисекунд, а не меняются скачком.
     pub fn with_theme_transition(mut self, ms: u32) -> Self {
-        self.theme_transition =
-            Some((std::time::Duration::from_millis(ms as u64), crate::animation::Easing::EMPHASIZED));
+        self.theme_transition = Some((
+            std::time::Duration::from_millis(ms as u64),
+            crate::animation::Easing::EMPHASIZED,
+        ));
         self
     }
 

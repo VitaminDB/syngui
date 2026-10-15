@@ -26,12 +26,12 @@ use crate::input::{Event, EventResult};
 use crate::layout::Constraints;
 use crate::mss::{ComputedStyle, MssFields};
 use crate::render::DisplayList;
+use crate::signal::RwSignal;
 use crate::widget::context::EventContext;
 use crate::widget::{
     ChildHit, DirtyFlags, Element, ElementId, ElementTree, LayoutHint, StyledElement,
     UpdateContext, Widget,
 };
-use crate::signal::RwSignal;
 use crate::widgets::containers::keyed::Keyed;
 use crate::widgets::containers::{AnimationAxis, TransformOrigin};
 use std::any::Any;
@@ -59,12 +59,24 @@ impl Default for Motion {
 impl Motion {
     /// Без движения: только вкл/выкл (с `collapse` — чистое схлопывание).
     pub const fn none() -> Self {
-        Self { opacity: 1.0, scale_x: 1.0, scale_y: 1.0, dx: 0.0, dy: 0.0 }
+        Self {
+            opacity: 1.0,
+            scale_x: 1.0,
+            scale_y: 1.0,
+            dx: 0.0,
+            dy: 0.0,
+        }
     }
 
     /// Растворение.
     pub const fn fade() -> Self {
-        Self { opacity: 0.0, scale_x: 1.0, scale_y: 1.0, dx: 0.0, dy: 0.0 }
+        Self {
+            opacity: 0.0,
+            scale_x: 1.0,
+            scale_y: 1.0,
+            dx: 0.0,
+            dy: 0.0,
+        }
     }
 
     pub const fn opacity(mut self, o: f32) -> Self {
@@ -97,7 +109,11 @@ impl Motion {
     }
 
     fn is_identity(&self) -> bool {
-        self.opacity >= 1.0 && self.scale_x == 1.0 && self.scale_y == 1.0 && self.dx == 0.0 && self.dy == 0.0
+        self.opacity >= 1.0
+            && self.scale_x == 1.0
+            && self.scale_y == 1.0
+            && self.dx == 0.0
+            && self.dy == 0.0
     }
 }
 
@@ -134,12 +150,19 @@ impl Presence {
     /// пересобирается при смене видимости — так можно прятать и показывать
     /// поддерево с состоянием (поле ввода, прокрутка) и не платить за
     /// пересборку.
-    pub fn signal(visible: RwSignal<bool>, builder: impl Fn() -> Box<dyn Widget> + Send + Sync + 'static) -> Self {
+    pub fn signal(
+        visible: RwSignal<bool>,
+        builder: impl Fn() -> Box<dyn Widget> + Send + Sync + 'static,
+    ) -> Self {
         let now = visible.get_untracked();
         Self::build(None, Some((visible, Arc::new(builder))), now)
     }
 
-    fn build(child: Option<Box<dyn Widget>>, signal: Option<(RwSignal<bool>, Builder)>, visible: bool) -> Self {
+    fn build(
+        child: Option<Box<dyn Widget>>,
+        signal: Option<(RwSignal<bool>, Builder)>,
+        visible: bool,
+    ) -> Self {
         Self {
             child,
             signal,
@@ -234,7 +257,13 @@ impl Presence {
         let (phase, anim) = match (self.visible, self.initial) {
             (true, true) => (
                 Phase::Entering,
-                Some(Animation::tween(self.easing).from(0.0).to(1.0).duration_ms(self.duration_ms).build()),
+                Some(
+                    Animation::tween(self.easing)
+                        .from(0.0)
+                        .to(1.0)
+                        .duration_ms(self.duration_ms)
+                        .build(),
+                ),
             ),
             (true, false) => (Phase::Shown, None),
             (false, _) => (Phase::Hidden, None),
@@ -283,12 +312,16 @@ impl Widget for Presence {
     fn mount(&self, tree: &mut ElementTree, parent_id: ElementId) {
         let Some(child) = &self.child else { return };
         let child_element = child.create_element();
-        let child_id = tree.insert_with_type_id(child_element, Some(parent_id), child.as_any().type_id());
+        let child_id =
+            tree.insert_with_type_id(child_element, Some(parent_id), child.as_any().type_id());
         child.mount(tree, child_id);
     }
 
     fn child_widgets(&self) -> Vec<&dyn Widget> {
-        self.child.iter().map(|c| c.as_ref() as &dyn Widget).collect()
+        self.child
+            .iter()
+            .map(|c| c.as_ref() as &dyn Widget)
+            .collect()
     }
 
     fn widget_classes(&self) -> &[String] {
@@ -351,7 +384,9 @@ impl PresenceElement {
             }
             (false, Phase::Shown) | (false, Phase::Entering) => {
                 self.phase = Phase::Exiting;
-                let ms = self.exit_duration_ms.unwrap_or(self.duration_ms.saturating_mul(3) / 4);
+                let ms = self
+                    .exit_duration_ms
+                    .unwrap_or(self.duration_ms.saturating_mul(3) / 4);
                 self.anim = Some(
                     Animation::tween(self.exit_easing())
                         .from(p)
@@ -377,8 +412,14 @@ impl PresenceElement {
         let b = self.bounds.origin;
         match self.origin {
             TransformOrigin::TopLeft => (b.x, b.y),
-            TransformOrigin::Center => (b.x + self.child_size.width / 2.0, b.y + self.child_size.height / 2.0),
-            TransformOrigin::Custom(x, y) => (b.x + x * self.child_size.width, b.y + y * self.child_size.height),
+            TransformOrigin::Center => (
+                b.x + self.child_size.width / 2.0,
+                b.y + self.child_size.height / 2.0,
+            ),
+            TransformOrigin::Custom(x, y) => (
+                b.x + x * self.child_size.width,
+                b.y + y * self.child_size.height,
+            ),
         }
     }
 }
@@ -423,8 +464,14 @@ impl Element for PresenceElement {
                 size.height *= p;
             }
         }
-        let w = size.width.clamp(constraints.min_width.min(constraints.max_width), constraints.max_width);
-        let h = size.height.clamp(constraints.min_height.min(constraints.max_height), constraints.max_height);
+        let w = size.width.clamp(
+            constraints.min_width.min(constraints.max_width),
+            constraints.max_width,
+        );
+        let h = size.height.clamp(
+            constraints.min_height.min(constraints.max_height),
+            constraints.max_height,
+        );
         self.bounds.size = Size::new(w, h);
         self.bounds.size
     }
@@ -434,7 +481,9 @@ impl Element for PresenceElement {
     }
 
     fn animate(&mut self, dt: Duration) -> bool {
-        let Some(anim) = self.anim.as_mut() else { return false };
+        let Some(anim) = self.anim.as_mut() else {
+            return false;
+        };
         let running = anim.tick(dt);
         if !running {
             self.anim = None;
@@ -625,7 +674,8 @@ impl Element for PresenceElement {
         selected: Option<&ComputedStyle>,
         _checked: Option<&ComputedStyle>,
     ) {
-        self.mss.apply_transitions(base, hover, active, focus, selected);
+        self.mss
+            .apply_transitions(base, hover, active, focus, selected);
     }
 }
 
@@ -650,7 +700,11 @@ mod tests {
     use crate::widget::Text;
 
     fn element(visible: bool, initial: bool) -> PresenceElement {
-        Presence::new(visible, Text::new("x")).initial(initial).duration_ms(100).exit_duration_ms(100).element()
+        Presence::new(visible, Text::new("x"))
+            .initial(initial)
+            .duration_ms(100)
+            .exit_duration_ms(100)
+            .element()
     }
 
     #[test]

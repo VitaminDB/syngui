@@ -514,7 +514,12 @@ mod tests {
         let order: Vec<ShaderType> = b.buckets.iter().map(|k| k.key.shader_type).collect();
         assert_eq!(
             order,
-            vec![ShaderType::Shadow, ShaderType::Rect, ShaderType::Shadow, ShaderType::Rect],
+            vec![
+                ShaderType::Shadow,
+                ShaderType::Rect,
+                ShaderType::Shadow,
+                ShaderType::Rect
+            ],
             "тень плитки и её фон идут после фона карточки"
         );
     }

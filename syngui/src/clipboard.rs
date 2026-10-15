@@ -81,11 +81,17 @@ mod imp {
         #[cfg(all(target_os = "linux", feature = "wl-clipboard-rs"))]
         if std::env::var_os("WAYLAND_DISPLAY").is_some() {
             use std::io::Read;
-            use wl_clipboard_rs::paste::{get_contents, get_mime_types, ClipboardType, MimeType, Seat};
+            use wl_clipboard_rs::paste::{
+                get_contents, get_mime_types, ClipboardType, MimeType, Seat,
+            };
             let offered = get_mime_types(ClipboardType::Regular, Seat::Unspecified).ok()?;
             let mime = mimes.iter().find(|m| offered.contains(**m))?;
-            let (mut pipe, _) =
-                get_contents(ClipboardType::Regular, Seat::Unspecified, MimeType::Specific(mime)).ok()?;
+            let (mut pipe, _) = get_contents(
+                ClipboardType::Regular,
+                Seat::Unspecified,
+                MimeType::Specific(mime),
+            )
+            .ok()?;
             let mut buf = Vec::new();
             pipe.read_to_end(&mut buf).ok()?;
             return Some((mime.to_string(), buf));

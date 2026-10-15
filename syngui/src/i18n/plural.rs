@@ -65,8 +65,16 @@ impl PluralRule {
         match self {
             PluralRule::OneOther => &[PluralCategory::One, PluralCategory::Other],
             PluralRule::ZeroOneOther => &[PluralCategory::One, PluralCategory::Other],
-            PluralRule::EastSlavic => &[PluralCategory::One, PluralCategory::Few, PluralCategory::Many],
-            PluralRule::Polish => &[PluralCategory::One, PluralCategory::Few, PluralCategory::Many],
+            PluralRule::EastSlavic => &[
+                PluralCategory::One,
+                PluralCategory::Few,
+                PluralCategory::Many,
+            ],
+            PluralRule::Polish => &[
+                PluralCategory::One,
+                PluralCategory::Few,
+                PluralCategory::Many,
+            ],
             PluralRule::OtherOnly => &[PluralCategory::Other],
         }
     }

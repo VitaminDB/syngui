@@ -59,13 +59,13 @@ pub mod mss;
 pub mod perf;
 pub mod render;
 pub mod scale;
+/// Снимок интерфейса без окна в PNG.
+#[cfg(feature = "image")]
+pub mod shot;
 pub mod signal;
 pub mod text;
 pub mod theme_fallback;
 pub mod viewport;
-/// Снимок интерфейса без окна в PNG.
-#[cfg(feature = "image")]
-pub mod shot;
 pub mod widget;
 pub mod widgets;
 #[cfg(feature = "winit")]
@@ -123,8 +123,8 @@ pub mod prelude {
     pub use crate::core::canvas::{CanvasContext, LineCap, LineJoin, Paint};
 
     pub use crate::signal::{
-        create_detached_effect, create_effect, create_effect_with_cleanup, create_memo, dispose_effect, use_effect,
-        use_effect_with_cleanup, use_signal, EffectId, Memo, RwSignal,
+        create_detached_effect, create_effect, create_effect_with_cleanup, create_memo,
+        dispose_effect, use_effect, use_effect_with_cleanup, use_signal, EffectId, Memo, RwSignal,
     };
 
     pub use crate::scale::{set_ui_scale, ui_scale, MAX_UI_SCALE, MIN_UI_SCALE};
@@ -141,26 +141,27 @@ pub mod prelude {
 
     #[cfg(feature = "i18n")]
     pub use crate::i18n::{tr, tr_args, trn, trn_args, try_tr, Lang};
-    #[cfg(feature = "i18n")]
-    pub use crate::{tr, trn};
     /// Перевод исходных строк (`t!("Процессор")`, `tn!`, пометка `n_!`).
     #[cfg(feature = "i18n")]
     pub use crate::{n_, t, tn};
+    #[cfg(feature = "i18n")]
+    pub use crate::{tr, trn};
 
     pub use crate::widgets::{
         set_dialog_labels, AlertDialog, Animated, AnimatedPosition, AnimatedSize, AnimatedSwitcher,
         AnimationAxis, AspectRatio, Autocomplete, Avatar, Badge, BadgeSize, Button, Calendar,
         Canvas, Card, Carousel, Checkbox, Chip, CircularProgress, ColorPicker, ColorValue, Column,
         Combobox, ConfirmDialog, ContextMenu, CrossAxisAlignment, Date, DatePicker, DecoratedBox,
-        Dialog, DismissDirection, Dismissible, DialogAction, Divider, DividerDirection, Draggable, DropArea, Dropdown,
-        DropdownItem, Flex, FlexDirection, FloatingWindow, Grid, Icon, Image, ImageFit, ListItem,
-        ListView, MainAxisAlignment, MenuItem, Motion, Multiselect, NotificationCtx, NotificationHost,
-        NotificationItem, NotificationSeverity, Padding, Pagination, PopupMenu, Portal, Presence,
-        ProgressBar, Property, PropertyGrid, PropertyValue, RadioButton, RadioGroup, Reactive,
-        RichText, Router, RouterView, Row, ScrollDirection, ScrollView, SegmentedButton,
-        SelectionMode, Slider, Snackbar, SnackbarPosition, SpinBox, SplitDirection, SplitView,
-        Stack, StackFit, Tab, TabBar, TabPosition, TabState, TableColumn, TableView, TextField,
-        TextSpan, Time, TimePicker, Toggle, ToolButton, Toolbar, Tooltip, TooltipPosition,
-        TopAppBar, TransformOrigin, TreeNode, TreeView,
+        Dialog, DialogAction, DismissDirection, Dismissible, Divider, DividerDirection, Draggable,
+        DropArea, Dropdown, DropdownItem, Flex, FlexDirection, FloatingWindow, Grid, Icon, Image,
+        ImageFit, ListItem, ListView, MainAxisAlignment, MenuItem, Motion, Multiselect,
+        NotificationCtx, NotificationHost, NotificationItem, NotificationSeverity, Padding,
+        Pagination, PopupMenu, Portal, Presence, ProgressBar, Property, PropertyGrid,
+        PropertyValue, RadioButton, RadioGroup, Reactive, RichText, Router, RouterView, Row,
+        ScrollDirection, ScrollView, SegmentedButton, SelectionMode, Slider, Snackbar,
+        SnackbarPosition, SpinBox, SplitDirection, SplitView, Stack, StackFit, Tab, TabBar,
+        TabPosition, TabState, TableColumn, TableView, TextField, TextSpan, Time, TimePicker,
+        Toggle, ToolButton, Toolbar, Tooltip, TooltipPosition, TopAppBar, TransformOrigin,
+        TreeNode, TreeView,
     };
 }

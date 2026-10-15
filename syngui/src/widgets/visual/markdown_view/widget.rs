@@ -301,7 +301,10 @@ impl Widget for MarkdownView {
         Box::new(MarkdownViewElement {
             id: ElementId::new(),
             blocks: self.blocks.clone(),
-            style: MdStyle { code_font_family: self.code_font_family.clone(), ..MdStyle::default() },
+            style: MdStyle {
+                code_font_family: self.code_font_family.clone(),
+                ..MdStyle::default()
+            },
             max_width: self.max_width,
             bounds: Rect::zero(),
             content_height: 0.0,
@@ -1278,7 +1281,10 @@ impl Element for MarkdownViewElement {
 
     fn reset_mss_styles(&mut self) {
         // Шрифт кода задан виджетом, а не стилем — переживает пересчёт.
-        self.style = MdStyle { code_font_family: self.style.code_font_family.take(), ..MdStyle::default() };
+        self.style = MdStyle {
+            code_font_family: self.style.code_font_family.take(),
+            ..MdStyle::default()
+        };
         self.max_width = None;
     }
 

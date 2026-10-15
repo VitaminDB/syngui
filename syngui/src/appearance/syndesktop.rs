@@ -45,7 +45,11 @@ fn config_path() -> Option<PathBuf> {
     }
     let base = super::desktop::config_dir()?;
     let (new, old) = (base.join("synshell"), base.join("syndesktop"));
-    let dir = if !new.exists() && old.exists() { old } else { new };
+    let dir = if !new.exists() && old.exists() {
+        old
+    } else {
+        new
+    };
     Some(dir.join("config.toml"))
 }
 
@@ -290,7 +294,10 @@ buttons = "игнор"
         assert_eq!(t.get("appearance", "accent"), Some("#ff8800"));
         assert_eq!(t.get("appearance.colors", "danger"), Some("#aa0000"));
         assert_eq!(t.get("decorations", "title_height"), Some("28"));
-        assert_eq!(t.get("decorations", "buttons"), Some("close,minimize:maximize"));
+        assert_eq!(
+            t.get("decorations", "buttons"),
+            Some("close,minimize:maximize")
+        );
     }
 
     #[test]
@@ -307,7 +314,10 @@ buttons = "игнор"
     #[test]
     fn decorations_follow_config() {
         let d = decorations_from(&Toml::parse(SAMPLE));
-        assert_eq!(d.layout.left, vec![WindowButton::Close, WindowButton::Minimize]);
+        assert_eq!(
+            d.layout.left,
+            vec![WindowButton::Close, WindowButton::Minimize]
+        );
         assert_eq!(d.layout.right, vec![WindowButton::Maximize]);
         assert_eq!(d.metrics.button_size, 28.0);
         assert_eq!(d.metrics.title_alignment, TitleAlignment::Left);
@@ -322,7 +332,11 @@ buttons = "игнор"
         assert_eq!(d.layout.left, vec![WindowButton::Menu]);
         assert_eq!(
             d.layout.right,
-            vec![WindowButton::Minimize, WindowButton::Maximize, WindowButton::Close]
+            vec![
+                WindowButton::Minimize,
+                WindowButton::Maximize,
+                WindowButton::Close
+            ]
         );
         assert_eq!(d.metrics.title_alignment, TitleAlignment::Center);
     }

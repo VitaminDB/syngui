@@ -163,7 +163,12 @@ impl DataDeviceHandler for DnDState {
         // не читаем, событие — сразу (раньше конца источника).
         if super::os_drag_active() {
             set_over_own(false);
-            let _ = self.proxy.send_event(SynGuiUserEvent::WaylandDnd(WaylandDndEvent::OwnDrop { x, y }));
+            let _ = self
+                .proxy
+                .send_event(SynGuiUserEvent::WaylandDnd(WaylandDndEvent::OwnDrop {
+                    x,
+                    y,
+                }));
             offer.finish();
             offer.destroy();
             return;
@@ -216,7 +221,11 @@ impl DataSourceHandler for DnDState {
     ) {
         // Цель под курсором принимает (или нет) — значок меняет вид. Над своим
         // окном решает дерево (см. `set_os_drag_accepted` из приложения).
-        let own = super::OS_DRAG.lock().unwrap_or_else(|e| e.into_inner()).as_ref().is_some_and(|d| d.over_own);
+        let own = super::OS_DRAG
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .as_ref()
+            .is_some_and(|d| d.over_own);
         if !own {
             super::set_os_drag_accepted(mime.is_some());
         }
@@ -230,12 +239,25 @@ impl DataSourceHandler for DnDState {
         mime: String,
         mut pipe: WritePipe,
     ) {
-        let data = super::OS_DRAG.lock().unwrap_or_else(|e| e.into_inner()).as_ref().and_then(|d| d.source.as_ref().filter(|(s, _)| s == source).map(|(_, t)| t.clone()));
+        let data = super::OS_DRAG
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .as_ref()
+            .and_then(|d| {
+                d.source
+                    .as_ref()
+                    .filter(|(s, _)| s == source)
+                    .map(|(_, t)| t.clone())
+            });
         if let Some(text) = data {
             use std::io::Write;
             // text/plain — пути без file://, по строке
             let out = if mime.starts_with("text/plain") {
-                text.lines().filter(|l| !l.starts_with('#')).map(|l| super::uri::uri_to_path(l).unwrap_or_else(|| l.to_string())).collect::<Vec<_>>().join("\n")
+                text.lines()
+                    .filter(|l| !l.starts_with('#'))
+                    .map(|l| super::uri::uri_to_path(l).unwrap_or_else(|| l.to_string()))
+                    .collect::<Vec<_>>()
+                    .join("\n")
             } else {
                 text
             };
@@ -246,12 +268,16 @@ impl DataSourceHandler for DnDState {
     }
     fn cancelled(&mut self, _: &Connection, _: &QueueHandle<Self>, source: &WlDataSource) {
         drop_source(source);
-        let _ = self.proxy.send_event(SynGuiUserEvent::WaylandDnd(WaylandDndEvent::SourceEnded));
+        let _ = self
+            .proxy
+            .send_event(SynGuiUserEvent::WaylandDnd(WaylandDndEvent::SourceEnded));
     }
     fn dnd_dropped(&mut self, _: &Connection, _: &QueueHandle<Self>, _: &WlDataSource) {}
     fn dnd_finished(&mut self, _: &Connection, _: &QueueHandle<Self>, source: &WlDataSource) {
         drop_source(source);
-        let _ = self.proxy.send_event(SynGuiUserEvent::WaylandDnd(WaylandDndEvent::SourceEnded));
+        let _ = self
+            .proxy
+            .send_event(SynGuiUserEvent::WaylandDnd(WaylandDndEvent::SourceEnded));
     }
     fn action(&mut self, _: &Connection, _: &QueueHandle<Self>, _: &WlDataSource, _: DndAction) {}
 }
@@ -291,10 +317,20 @@ wayland_client::delegate_noop!(DnDState: ignore wayland_client::protocol::wl_buf
 /// Нажатия кнопок — их serial и поверхность нужны `start_drag` (свой wl_pointer этого
 /// соединения получает те же события, что и winit).
 impl PointerHandler for DnDState {
-    fn pointer_frame(&mut self, _: &Connection, _: &QueueHandle<Self>, _: &WlPointer, events: &[PointerEvent]) {
+    fn pointer_frame(
+        &mut self,
+        _: &Connection,
+        _: &QueueHandle<Self>,
+        _: &WlPointer,
+        events: &[PointerEvent],
+    ) {
         for e in events {
             if let PointerEventKind::Press { serial, .. } = e.kind {
-                if let Some(d) = super::OS_DRAG.lock().unwrap_or_else(|e| e.into_inner()).as_mut() {
+                if let Some(d) = super::OS_DRAG
+                    .lock()
+                    .unwrap_or_else(|e| e.into_inner())
+                    .as_mut()
+                {
                     d.press = Some((serial, e.surface.clone()));
                 }
             }
@@ -306,10 +342,30 @@ impl PointerHandler for DnDState {
 /// (`xdg_toplevel.move/resize` требуют serial нажатия, а winit знает только
 /// кнопки мыши). Свой wl_touch получает те же касания, что и winit.
 impl TouchHandler for DnDState {
-    fn down(&mut self, _: &Connection, _: &QueueHandle<Self>, touch: &WlTouch, serial: u32, _: u32, _: WlSurface, id: i32, _: (f64, f64)) {
-        let Some(seat) = self.touch_seat(touch) else { return };
-        if let Some(d) = super::OS_DRAG.lock().unwrap_or_else(|e| e.into_inner()).as_mut() {
-            let t = d.touch.get_or_insert_with(|| super::TouchPress { serial, seat: seat.clone(), fingers: Vec::new() });
+    fn down(
+        &mut self,
+        _: &Connection,
+        _: &QueueHandle<Self>,
+        touch: &WlTouch,
+        serial: u32,
+        _: u32,
+        _: WlSurface,
+        id: i32,
+        _: (f64, f64),
+    ) {
+        let Some(seat) = self.touch_seat(touch) else {
+            return;
+        };
+        if let Some(d) = super::OS_DRAG
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .as_mut()
+        {
+            let t = d.touch.get_or_insert_with(|| super::TouchPress {
+                serial,
+                seat: seat.clone(),
+                fingers: Vec::new(),
+            });
             t.serial = serial;
             t.seat = seat;
             t.fingers.retain(|f| *f != id);
@@ -318,7 +374,11 @@ impl TouchHandler for DnDState {
     }
 
     fn up(&mut self, _: &Connection, _: &QueueHandle<Self>, _: &WlTouch, _: u32, _: u32, id: i32) {
-        if let Some(d) = super::OS_DRAG.lock().unwrap_or_else(|e| e.into_inner()).as_mut() {
+        if let Some(d) = super::OS_DRAG
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .as_mut()
+        {
             if let Some(t) = d.touch.as_mut() {
                 t.fingers.retain(|f| *f != id);
             }
@@ -326,21 +386,46 @@ impl TouchHandler for DnDState {
     }
 
     fn cancel(&mut self, _: &Connection, _: &QueueHandle<Self>, _: &WlTouch) {
-        if let Some(d) = super::OS_DRAG.lock().unwrap_or_else(|e| e.into_inner()).as_mut() {
+        if let Some(d) = super::OS_DRAG
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .as_mut()
+        {
             if let Some(t) = d.touch.as_mut() {
                 t.fingers.clear();
             }
         }
     }
 
-    fn motion(&mut self, _: &Connection, _: &QueueHandle<Self>, _: &WlTouch, _: u32, _: i32, _: (f64, f64)) {}
-    fn shape(&mut self, _: &Connection, _: &QueueHandle<Self>, _: &WlTouch, _: i32, _: f64, _: f64) {}
+    fn motion(
+        &mut self,
+        _: &Connection,
+        _: &QueueHandle<Self>,
+        _: &WlTouch,
+        _: u32,
+        _: i32,
+        _: (f64, f64),
+    ) {
+    }
+    fn shape(
+        &mut self,
+        _: &Connection,
+        _: &QueueHandle<Self>,
+        _: &WlTouch,
+        _: i32,
+        _: f64,
+        _: f64,
+    ) {
+    }
     fn orientation(&mut self, _: &Connection, _: &QueueHandle<Self>, _: &WlTouch, _: i32, _: f64) {}
 }
 
 impl DnDState {
     fn touch_seat(&self, touch: &WlTouch) -> Option<WlSeat> {
-        self.touches.iter().find(|(t, _)| t == touch).map(|(_, s)| s.clone())
+        self.touches
+            .iter()
+            .find(|(t, _)| t == touch)
+            .map(|(_, s)| s.clone())
     }
 }
 
@@ -383,10 +468,17 @@ impl SeatHandler for DnDState {
             && !self.seats.iter().any(|s| s.seat == seat)
         {
             let data_device = self.data_device_manager.get_data_device(qh, &seat);
-            if let Some(d) = super::OS_DRAG.lock().unwrap_or_else(|e| e.into_inner()).as_mut() {
+            if let Some(d) = super::OS_DRAG
+                .lock()
+                .unwrap_or_else(|e| e.into_inner())
+                .as_mut()
+            {
                 d.devices.push(data_device.inner().clone());
             }
-            self.seats.push(SeatEntry { seat: seat.clone(), data_device });
+            self.seats.push(SeatEntry {
+                seat: seat.clone(),
+                data_device,
+            });
         }
         if capability == Capability::Pointer {
             if let Err(e) = self.seat_state.get_pointer(qh, &seat) {

@@ -154,13 +154,21 @@ impl YuvFrame {
             YuvMatrix::Bt2020 => (0.2627, 0.0593),
         };
         let kg = 1.0 - kr - kb;
-        let (ys, cs, yo) = if self.full_range { (1.0, 1.0, 0.0) } else { (255.0 / 219.0, 255.0 / 224.0, 16.0 / 255.0) };
+        let (ys, cs, yo) = if self.full_range {
+            (1.0, 1.0, 0.0)
+        } else {
+            (255.0 / 219.0, 255.0 / 224.0, 16.0 / 255.0)
+        };
         let co = 128.0 / 255.0;
         let crr = 2.0 * (1.0 - kr) * cs;
         let cbb = 2.0 * (1.0 - kb) * cs;
         let cbg = -2.0 * kb * (1.0 - kb) / kg * cs;
         let crg = -2.0 * kr * (1.0 - kr) / kg * cs;
-        let nv12 = if self.layout == YuvLayout::Nv12 { 1.0 } else { 0.0 };
+        let nv12 = if self.layout == YuvLayout::Nv12 {
+            1.0
+        } else {
+            0.0
+        };
         [
             ys, 0.0, crr, 0.0, //
             ys, cbg, crg, 0.0, //
@@ -264,7 +272,8 @@ pub fn idle_image_budget() -> usize {
 /// читаются, растеризуются и строят мипы — каждый в своём потоке, и
 /// появляются вразнобой по мере готовности. Кэш помнит декодированное по
 /// пути и времени изменения файла; повторный запрос готов сразу.
-static DECODED_BUDGET: std::sync::atomic::AtomicUsize = std::sync::atomic::AtomicUsize::new(32 << 20);
+static DECODED_BUDGET: std::sync::atomic::AtomicUsize =
+    std::sync::atomic::AtomicUsize::new(32 << 20);
 
 pub fn set_decoded_cache_budget(bytes: usize) {
     DECODED_BUDGET.store(bytes, std::sync::atomic::Ordering::Relaxed);
@@ -383,8 +392,13 @@ pub fn preload_paths(paths: Vec<String>) {
             if decoded_get(&path).is_some() {
                 continue;
             }
-            let Some(stamp) = file_stamp(&path) else { continue };
-            if let Ok(data) = std::fs::read(&path).map_err(|e| e.to_string()).and_then(|b| decode_image_bytes(&b)) {
+            let Some(stamp) = file_stamp(&path) else {
+                continue;
+            };
+            if let Ok(data) = std::fs::read(&path)
+                .map_err(|e| e.to_string())
+                .and_then(|b| decode_image_bytes(&b))
+            {
                 decoded_put(&path, stamp, &data);
             }
         }
@@ -653,12 +667,22 @@ impl ImageStore {
     /// Как [`Self::update_rgba`], но изменились только `regions`
     /// (`[x, y, w, h]`): в текстуру уйдут они. Незалитый прежний кадр
     /// заменяется, его места добавляются к новым.
-    pub fn update_rgba_regions(&mut self, handle: ImageHandle, width: u32, height: u32, rgba: impl Into<Arc<[u8]>>, regions: Vec<[u32; 4]>) {
+    pub fn update_rgba_regions(
+        &mut self,
+        handle: ImageHandle,
+        width: u32,
+        height: u32,
+        rgba: impl Into<Arc<[u8]>>,
+        regions: Vec<[u32; 4]>,
+    ) {
         let rgba = rgba.into();
         let Some(key) = self.handle_to_key.get(&handle.0) else {
             return;
         };
-        let resized = self.images.get(key).is_some_and(|e| (e.width, e.height) != (width, height));
+        let resized = self
+            .images
+            .get(key)
+            .is_some_and(|e| (e.width, e.height) != (width, height));
         if let Some(entry) = self.images.get_mut(key) {
             entry.state = ImageLoadState::Ready;
             entry.width = width;
@@ -796,15 +820,21 @@ impl ImageStore {
         let results = self.bg_results.clone();
         std::thread::spawn(move || match decode_image_bytes(&data) {
             Ok(image_data) => {
-                results.lock().unwrap_or_else(|e| e.into_inner()).push(LoadResult::Success {
-                    key,
-                    handle,
-                    data: image_data,
-                });
+                results
+                    .lock()
+                    .unwrap_or_else(|e| e.into_inner())
+                    .push(LoadResult::Success {
+                        key,
+                        handle,
+                        data: image_data,
+                    });
             }
             Err(_e) => {
                 log::error!("Failed to decode image '{}': {}", key, _e);
-                results.lock().unwrap_or_else(|e| e.into_inner()).push(LoadResult::Failed { key });
+                results
+                    .lock()
+                    .unwrap_or_else(|e| e.into_inner())
+                    .push(LoadResult::Failed { key });
             }
         });
     }
@@ -831,20 +861,29 @@ impl ImageStore {
                     if let Some(stamp) = file_stamp(&path) {
                         decoded_put(&path, stamp, &image_data);
                     }
-                    results.lock().unwrap_or_else(|e| e.into_inner()).push(LoadResult::Success {
-                        key,
-                        handle,
-                        data: image_data,
-                    });
+                    results
+                        .lock()
+                        .unwrap_or_else(|e| e.into_inner())
+                        .push(LoadResult::Success {
+                            key,
+                            handle,
+                            data: image_data,
+                        });
                 }
                 Err(_e) => {
                     log::error!("Failed to decode image '{}': {}", key, _e);
-                    results.lock().unwrap_or_else(|e| e.into_inner()).push(LoadResult::Failed { key });
+                    results
+                        .lock()
+                        .unwrap_or_else(|e| e.into_inner())
+                        .push(LoadResult::Failed { key });
                 }
             },
             Err(_e) => {
                 log::error!("Failed to read image file '{}': {}", path, _e);
-                results.lock().unwrap_or_else(|e| e.into_inner()).push(LoadResult::Failed { key });
+                results
+                    .lock()
+                    .unwrap_or_else(|e| e.into_inner())
+                    .push(LoadResult::Failed { key });
             }
         });
     }
@@ -868,20 +907,28 @@ impl ImageStore {
             match bytes_result {
                 Ok(bytes) => match decode_image_bytes(&bytes) {
                     Ok(image_data) => {
-                        results.lock().unwrap_or_else(|e| e.into_inner()).push(LoadResult::Success {
-                            key,
-                            handle,
-                            data: image_data,
-                        });
+                        results.lock().unwrap_or_else(|e| e.into_inner()).push(
+                            LoadResult::Success {
+                                key,
+                                handle,
+                                data: image_data,
+                            },
+                        );
                     }
                     Err(e) => {
                         log::error!("Failed to decode image '{}': {}", key, e);
-                        results.lock().unwrap_or_else(|e| e.into_inner()).push(LoadResult::Failed { key });
+                        results
+                            .lock()
+                            .unwrap_or_else(|e| e.into_inner())
+                            .push(LoadResult::Failed { key });
                     }
                 },
                 Err(e) => {
                     log::error!("Failed to fetch image '{}': {}", key, e);
-                    results.lock().unwrap_or_else(|e| e.into_inner()).push(LoadResult::Failed { key });
+                    results
+                        .lock()
+                        .unwrap_or_else(|e| e.into_inner())
+                        .push(LoadResult::Failed { key });
                 }
             }
         });
@@ -919,7 +966,10 @@ fn load_oriented(bytes: &[u8]) -> image::ImageResult<image::DynamicImage> {
 #[cfg(feature = "image")]
 pub fn image_file_size(path: &str) -> Option<(u32, u32)> {
     use image::ImageDecoder;
-    let reader = image::ImageReader::open(path).ok()?.with_guessed_format().ok()?;
+    let reader = image::ImageReader::open(path)
+        .ok()?
+        .with_guessed_format()
+        .ok()?;
     let mut decoder = reader.into_decoder().ok()?;
     let (w, h) = decoder.dimensions();
     let turned = matches!(
@@ -1389,13 +1439,27 @@ mod yuv_tests {
     /// Перевод, как в `yuv.wgsl`: rgb = M · (yuv − off).
     fn rgb(f: &YuvFrame, y: u8, cb: u8, cr: u8) -> [f32; 3] {
         let u = f.shader_uniform();
-        let v = [y as f32 / 255.0 - u[12], cb as f32 / 255.0 - u[13], cr as f32 / 255.0 - u[14]];
-        let row = |i: usize| (u[i * 4] * v[0] + u[i * 4 + 1] * v[1] + u[i * 4 + 2] * v[2]).clamp(0.0, 1.0);
+        let v = [
+            y as f32 / 255.0 - u[12],
+            cb as f32 / 255.0 - u[13],
+            cr as f32 / 255.0 - u[14],
+        ];
+        let row = |i: usize| {
+            (u[i * 4] * v[0] + u[i * 4 + 1] * v[1] + u[i * 4 + 2] * v[2]).clamp(0.0, 1.0)
+        };
         [row(0), row(1), row(2)]
     }
 
     fn frame(matrix: YuvMatrix, full_range: bool) -> YuvFrame {
-        YuvFrame { layout: YuvLayout::Nv12, matrix, full_range, width: 2, height: 2, data: Arc::from(vec![0u8; 6]), dmabuf: None }
+        YuvFrame {
+            layout: YuvLayout::Nv12,
+            matrix,
+            full_range,
+            width: 2,
+            height: 2,
+            data: Arc::from(vec![0u8; 6]),
+            dmabuf: None,
+        }
     }
 
     fn near(a: [f32; 3], b: [f32; 3]) -> bool {
@@ -1408,7 +1472,11 @@ mod yuv_tests {
         assert!(near(rgb(&f, 235, 128, 128), [1.0, 1.0, 1.0]));
         assert!(near(rgb(&f, 16, 128, 128), [0.0, 0.0, 0.0]));
         // Красный BT.709 в ТВ-диапазоне: Y 63, Cb 102, Cr 240.
-        assert!(near(rgb(&f, 63, 102, 240), [1.0, 0.0, 0.0]), "{:?}", rgb(&f, 63, 102, 240));
+        assert!(
+            near(rgb(&f, 63, 102, 240), [1.0, 0.0, 0.0]),
+            "{:?}",
+            rgb(&f, 63, 102, 240)
+        );
         assert_eq!(f.shader_uniform()[15], 1.0, "NV12 помечен для шейдера");
     }
 
@@ -1416,12 +1484,24 @@ mod yuv_tests {
     fn full_range_bt601_green() {
         let f = frame(YuvMatrix::Bt601, true);
         // Зелёный BT.601 полного диапазона: Y 150, Cb 44, Cr 21.
-        assert!(near(rgb(&f, 150, 44, 21), [0.0, 1.0, 0.0]), "{:?}", rgb(&f, 150, 44, 21));
+        assert!(
+            near(rgb(&f, 150, 44, 21), [0.0, 1.0, 0.0]),
+            "{:?}",
+            rgb(&f, 150, 44, 21)
+        );
     }
 
     #[test]
     fn planes_split() {
-        let f = YuvFrame { layout: YuvLayout::I420, matrix: YuvMatrix::Bt601, full_range: false, width: 3, height: 3, data: Arc::from((0..17u8).collect::<Vec<_>>()), dmabuf: None };
+        let f = YuvFrame {
+            layout: YuvLayout::I420,
+            matrix: YuvMatrix::Bt601,
+            full_range: false,
+            width: 3,
+            height: 3,
+            data: Arc::from((0..17u8).collect::<Vec<_>>()),
+            dmabuf: None,
+        };
         assert_eq!(YuvFrame::byte_len(YuvLayout::I420, 3, 3), 17);
         assert_eq!(f.y_plane(), &(0..9).collect::<Vec<u8>>()[..]);
         let (u, v) = f.chroma_planes();

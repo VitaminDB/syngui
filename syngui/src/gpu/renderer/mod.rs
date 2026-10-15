@@ -677,16 +677,26 @@ impl Renderer {
             &image_shader,
             surface_format,
         );
-        let yuv_shader = gpu.device.create_shader_module(wgpu::ShaderModuleDescriptor {
-            label: Some("YUV Shader"),
-            source: wgpu::ShaderSource::Wgsl(include_str!("../yuv.wgsl").into()),
-        });
-        let yuv_pipeline_layout = gpu.device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
-            label: Some("YUV Pipeline Layout"),
-            bind_group_layouts: &[&uniform_bgl, image_gpu_cache.yuv_bind_group_layout()],
-            immediate_size: 0,
-        });
-        let yuv_pipeline = Self::create_pipeline(&gpu.device, "YUV Pipeline", &yuv_pipeline_layout, &yuv_shader, surface_format);
+        let yuv_shader = gpu
+            .device
+            .create_shader_module(wgpu::ShaderModuleDescriptor {
+                label: Some("YUV Shader"),
+                source: wgpu::ShaderSource::Wgsl(include_str!("../yuv.wgsl").into()),
+            });
+        let yuv_pipeline_layout =
+            gpu.device
+                .create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
+                    label: Some("YUV Pipeline Layout"),
+                    bind_group_layouts: &[&uniform_bgl, image_gpu_cache.yuv_bind_group_layout()],
+                    immediate_size: 0,
+                });
+        let yuv_pipeline = Self::create_pipeline(
+            &gpu.device,
+            "YUV Pipeline",
+            &yuv_pipeline_layout,
+            &yuv_shader,
+            surface_format,
+        );
 
         Self {
             rect_pipeline,
@@ -917,7 +927,10 @@ impl Renderer {
     }
 
     pub fn font_atlas_stats(&self) -> crate::text::FontAtlasStats {
-        self.font_atlas.lock().unwrap_or_else(|e| e.into_inner()).memory_stats()
+        self.font_atlas
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .memory_stats()
     }
 }
 
@@ -932,7 +945,9 @@ pub(super) fn debug_skip(t: crate::render::ShaderType) -> bool {
         for name in v.split(',').map(str::trim) {
             m |= match name {
                 "all" => u32::MAX,
-                "rect" => 1 << S::Rect as u32 | 1 << S::RectFlat as u32 | 1 << S::RectRounded as u32,
+                "rect" => {
+                    1 << S::Rect as u32 | 1 << S::RectFlat as u32 | 1 << S::RectRounded as u32
+                }
                 "rect_general" => 1 << S::Rect as u32,
                 "rect_flat" => 1 << S::RectFlat as u32,
                 "rect_rounded" => 1 << S::RectRounded as u32,

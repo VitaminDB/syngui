@@ -17,7 +17,9 @@ pub enum SegmentState {
     Disabled,
     /// Отметка события (красный сегмент с белой точкой — различим и без
     /// цвета). `pulse` — событие не просмотрено: яркость плавно пульсирует.
-    Alert { pulse: bool },
+    Alert {
+        pulse: bool,
+    },
 }
 
 const DEFAULT_HEIGHT: f32 = 10.0;

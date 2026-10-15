@@ -512,7 +512,11 @@ impl ElementTree {
                     };
                     let size = self.measure_recursive_by_idx(cidx, shrunk);
                     total_fixed_width += size.width - w;
-                    let m = child_probes.iter().find(|p| p.idx == cidx).map(|p| p.margin).unwrap_or_default();
+                    let m = child_probes
+                        .iter()
+                        .find(|p| p.idx == cidx)
+                        .map(|p| p.margin)
+                        .unwrap_or_default();
                     if let Some(e) = measured_widths.iter_mut().find(|e| e.0 == cidx) {
                         e.1 = size.width;
                     }
@@ -568,9 +572,7 @@ impl ElementTree {
         // высоты строки (самого высокого ребёнка), а не только flex-дети до
         // предела родителя. Иначе боковая панель рядом с растущим списком
         // остаётся высотой в своё содержимое.
-        if cross_align == CrossAxisAlignment::Stretch
-            && max_height.is_finite()
-            && max_height > 0.0
+        if cross_align == CrossAxisAlignment::Stretch && max_height.is_finite() && max_height > 0.0
         {
             for (cidx, width) in &measured_widths {
                 let margin = child_probes
@@ -584,7 +586,11 @@ impl ElementTree {
                     min_width: *width,
                     max_width: *width,
                     min_height: target,
-                    max_height: if effective_max_height.is_finite() { target } else { f32::INFINITY },
+                    max_height: if effective_max_height.is_finite() {
+                        target
+                    } else {
+                        f32::INFINITY
+                    },
                     containing_block: Size::new(*width, target),
                 };
                 self.measure_recursive_by_idx(*cidx, stretch_constraints);
@@ -726,9 +732,16 @@ impl ElementTree {
         // занять всё» от `Stack(StackFit::Expand)` (см. measure_loose): исполни
         // его бокс буквально, и шапка с `.grow`-панелью в Row теряет
         // центрирование — заголовок уезжает к верхнему краю.
-        let flex_item = self.elements.get(&id).is_some_and(|n| n.mss_flex_grow > 0.0);
+        let flex_item = self
+            .elements
+            .get(&id)
+            .is_some_and(|n| n.mss_flex_grow > 0.0);
         let final_w = final_w.max(constraints.min_width);
-        let final_h = if flex_item { final_h.max(constraints.min_height) } else { final_h };
+        let final_h = if flex_item {
+            final_h.max(constraints.min_height)
+        } else {
+            final_h
+        };
 
         layout_log!(self, "Padding: {:.1}x{:.1}", final_w, final_h);
 
@@ -746,7 +759,8 @@ impl ElementTree {
         max_height: f32,
         id: ElementId,
     ) -> Size {
-        let size = crate::widgets::containers::aspect_ratio::aspect_size(ratio, max_height, constraints);
+        let size =
+            crate::widgets::containers::aspect_ratio::aspect_size(ratio, max_height, constraints);
         let tight = Constraints {
             min_width: size.width,
             max_width: size.width,
@@ -968,7 +982,10 @@ impl ElementTree {
     /// Ребёнок — `Positioned::fixed()`: лежит в координатах поверхности.
     pub(crate) fn child_is_fixed(&self, child_id: ElementId) -> bool {
         self.elements.get(&child_id).is_some_and(|node| {
-            matches!(node.element.layout_hint(), crate::widget::LayoutHint::Positioned { fixed: true, .. })
+            matches!(
+                node.element.layout_hint(),
+                crate::widget::LayoutHint::Positioned { fixed: true, .. }
+            )
         })
     }
 
@@ -1660,14 +1677,26 @@ impl ElementTree {
         // Явная ширина сетки (MSS `width`) — ширина колонок считается от
         // неё, а не от всей доступной (кнопки цифровой панели иначе
         // расползались по ширине экрана, прижатые к левым краям ячеек).
-        let explicit_w = self
-            .elements
-            .get(&id)
-            .and_then(|n| n.element.explicit_dimensions(constraints.containing_block.width, constraints.containing_block.height).0);
+        let explicit_w = self.elements.get(&id).and_then(|n| {
+            n.element
+                .explicit_dimensions(
+                    constraints.containing_block.width,
+                    constraints.containing_block.height,
+                )
+                .0
+        });
         let constraints = match explicit_w {
             Some(w) => {
-                let w = if constraints.max_width.is_finite() { w.min(constraints.max_width) } else { w };
-                Constraints { min_width: constraints.min_width.min(w), max_width: w, ..constraints }
+                let w = if constraints.max_width.is_finite() {
+                    w.min(constraints.max_width)
+                } else {
+                    w
+                };
+                Constraints {
+                    min_width: constraints.min_width.min(w),
+                    max_width: w,
+                    ..constraints
+                }
             }
             None => constraints,
         };
@@ -2013,17 +2042,26 @@ impl ElementTree {
             .elements
             .get(&id)
             .and_then(|n| n.element.mss())
-            .map(|m| (m.width.is_some_and(|d| d.is_intrinsic()), m.height.is_some_and(|d| d.is_intrinsic())))
+            .map(|m| {
+                (
+                    m.width.is_some_and(|d| d.is_intrinsic()),
+                    m.height.is_some_and(|d| d.is_intrinsic()),
+                )
+            })
             .unwrap_or((false, false));
         let width = if constraints.max_width.is_finite() && !fit_w {
             constraints.max_width
         } else {
-            (content_width + left + right).max(constraints.min_width).min(constraints.max_width)
+            (content_width + left + right)
+                .max(constraints.min_width)
+                .min(constraints.max_width)
         };
         let height = if constraints.max_height.is_finite() && !fit_h {
             constraints.max_height
         } else {
-            (content_height + top + bottom).max(constraints.min_height).min(constraints.max_height)
+            (content_height + top + bottom)
+                .max(constraints.min_height)
+                .min(constraints.max_height)
         };
 
         if let Some(node) = self.elements.get_mut(&id) {

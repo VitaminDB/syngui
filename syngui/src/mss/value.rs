@@ -23,7 +23,12 @@ impl From<crate::core::Color> for StyleValue {
     /// Color::from_hex("#243149"))` рисовался почти чёрным.
     fn from(c: crate::core::Color) -> Self {
         let [r, g, b] = c.to_srgb_u8();
-        StyleValue::Color(Color::rgba(r, g, b, (c.a.clamp(0.0, 1.0) * 255.0).round() as u8))
+        StyleValue::Color(Color::rgba(
+            r,
+            g,
+            b,
+            (c.a.clamp(0.0, 1.0) * 255.0).round() as u8,
+        ))
     }
 }
 

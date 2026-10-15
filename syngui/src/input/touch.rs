@@ -139,14 +139,23 @@ impl TouchTracker {
             // Второй палец: это щипок или панорама, не тап.
             self.tap_cancelled = true;
         }
-        self.fingers.insert(id, Finger { start: pos, pos, moved: false });
+        self.fingers.insert(
+            id,
+            Finger {
+                start: pos,
+                pos,
+                moved: false,
+            },
+        );
         set_last_press(pos);
         dispatch(&Event::TouchStart { id, position: pos });
     }
 
     pub fn motion(&mut self, id: u64, pos: Point, dispatch: &mut dyn FnMut(&Event) -> EventResult) {
         let slop = touch_config().tap_slop;
-        let Some(f) = self.fingers.get_mut(&id) else { return };
+        let Some(f) = self.fingers.get_mut(&id) else {
+            return;
+        };
         f.pos = pos;
         if !f.moved && ((pos.x - f.start.x).abs() > slop || (pos.y - f.start.y).abs() > slop) {
             f.moved = true;
@@ -167,8 +176,15 @@ impl TouchTracker {
     }
 
     /// Палец поднят. Возвращает `true`, если синтезирован тап.
-    pub fn up(&mut self, id: u64, pos: Option<Point>, dispatch: &mut dyn FnMut(&Event) -> EventResult) -> bool {
-        let Some(f) = self.fingers.remove(&id) else { return false };
+    pub fn up(
+        &mut self,
+        id: u64,
+        pos: Option<Point>,
+        dispatch: &mut dyn FnMut(&Event) -> EventResult,
+    ) -> bool {
+        let Some(f) = self.fingers.remove(&id) else {
+            return false;
+        };
         let pos = pos.unwrap_or(f.pos);
         dispatch(&Event::TouchEnd { id, position: pos });
         let mut tapped = false;
@@ -191,7 +207,10 @@ impl TouchTracker {
     /// `TouchEnd`, без тапа.
     pub fn cancel(&mut self, dispatch: &mut dyn FnMut(&Event) -> EventResult) {
         for (id, f) in std::mem::take(&mut self.fingers) {
-            dispatch(&Event::TouchEnd { id, position: f.pos });
+            dispatch(&Event::TouchEnd {
+                id,
+                position: f.pos,
+            });
         }
         self.primary = None;
         self.down_at = None;
@@ -208,12 +227,30 @@ impl TouchTracker {
         let button = MouseButton::Left;
         if double {
             self.last_tap = None;
-            synthesized(dispatch, &Event::DoubleClick { button, position: pos });
+            synthesized(
+                dispatch,
+                &Event::DoubleClick {
+                    button,
+                    position: pos,
+                },
+            );
         } else {
             self.last_tap = Some((Instant::now(), pos));
-            synthesized(dispatch, &Event::MouseDown { button, position: pos });
+            synthesized(
+                dispatch,
+                &Event::MouseDown {
+                    button,
+                    position: pos,
+                },
+            );
         }
-        synthesized(dispatch, &Event::MouseUp { button, position: pos });
+        synthesized(
+            dispatch,
+            &Event::MouseUp {
+                button,
+                position: pos,
+            },
+        );
     }
 
     /// Когда хосту проснуться, чтобы проверить долгое нажатие.
@@ -227,11 +264,17 @@ impl TouchTracker {
     /// Проверить таймер долгого нажатия. `true` — оно сработало (событие
     /// уже доставлено).
     pub fn poll(&mut self, dispatch: &mut dyn FnMut(&Event) -> EventResult) -> bool {
-        let Some(deadline) = self.deadline() else { return false };
+        let Some(deadline) = self.deadline() else {
+            return false;
+        };
         if Instant::now() < deadline {
             return false;
         }
-        let Some(pos) = self.primary.and_then(|id| self.fingers.get(&id)).map(|f| f.pos) else {
+        let Some(pos) = self
+            .primary
+            .and_then(|id| self.fingers.get(&id))
+            .map(|f| f.pos)
+        else {
             return false;
         };
         self.long_press_fired = true;
@@ -241,8 +284,20 @@ impl TouchTracker {
         let mut done = r.is_handled();
         if !done && touch_config().long_press_as_secondary {
             let button = MouseButton::Right;
-            let d = synthesized(dispatch, &Event::MouseDown { button, position: pos });
-            let u = synthesized(dispatch, &Event::MouseUp { button, position: pos });
+            let d = synthesized(
+                dispatch,
+                &Event::MouseDown {
+                    button,
+                    position: pos,
+                },
+            );
+            let u = synthesized(
+                dispatch,
+                &Event::MouseUp {
+                    button,
+                    position: pos,
+                },
+            );
             done = d.is_handled() || u.is_handled();
         }
         if done {
@@ -259,7 +314,13 @@ mod tests {
     fn collect(f: impl FnOnce(&mut dyn FnMut(&Event) -> EventResult)) -> Vec<String> {
         let mut out = Vec::new();
         let mut d = |e: &Event| {
-            out.push(format!("{e:?}").split([' ', '{', '(']).next().unwrap().to_string());
+            out.push(
+                format!("{e:?}")
+                    .split([' ', '{', '('])
+                    .next()
+                    .unwrap()
+                    .to_string(),
+            );
             EventResult::Ignored
         };
         f(&mut d);
@@ -274,7 +335,16 @@ mod tests {
             t.motion(1, Point::new(12.0, 11.0), d);
             t.up(1, None, d);
         });
-        assert_eq!(ev, ["TouchStart", "TouchMove", "TouchEnd", "MouseDown", "MouseUp"]);
+        assert_eq!(
+            ev,
+            [
+                "TouchStart",
+                "TouchMove",
+                "TouchEnd",
+                "MouseDown",
+                "MouseUp"
+            ]
+        );
     }
 
     #[test]
@@ -302,7 +372,10 @@ mod tests {
 
     #[test]
     fn long_press_falls_back_to_secondary_click() {
-        set_touch_config(TouchConfig { long_press: Duration::from_millis(0), ..Default::default() });
+        set_touch_config(TouchConfig {
+            long_press: Duration::from_millis(0),
+            ..Default::default()
+        });
         let mut t = TouchTracker::new();
         let ev = collect(|d| {
             t.down(1, Point::new(10.0, 10.0), d);
@@ -310,7 +383,16 @@ mod tests {
             t.up(1, None, d);
         });
         set_touch_config(TouchConfig::default());
-        assert_eq!(ev, ["TouchStart", "LongPress", "MouseDown", "MouseUp", "TouchEnd"]);
+        assert_eq!(
+            ev,
+            [
+                "TouchStart",
+                "LongPress",
+                "MouseDown",
+                "MouseUp",
+                "TouchEnd"
+            ]
+        );
     }
 
     #[test]

@@ -263,8 +263,14 @@ impl Element for AutocompleteElement {
     }
 
     fn build_display_list(&self, list: &mut DisplayList, _clip: Rect) {
-        let bg = self.mss.background_color.unwrap_or_else(crate::theme_fallback::fallback_surface);
-        let fg = self.mss.color.unwrap_or_else(crate::theme_fallback::fallback_fg);
+        let bg = self
+            .mss
+            .background_color
+            .unwrap_or_else(crate::theme_fallback::fallback_surface);
+        let fg = self
+            .mss
+            .color
+            .unwrap_or_else(crate::theme_fallback::fallback_fg);
         let border_base = self
             .mss
             .border_color

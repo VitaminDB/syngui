@@ -1189,7 +1189,11 @@ impl Element for CodeEditorElement {
     }
 
     fn ime_cursor_area(&self) -> Option<Rect> {
-        if self.focused { self.ime_caret.get() } else { None }
+        if self.focused {
+            self.ime_caret.get()
+        } else {
+            None
+        }
     }
 
     fn build_display_list(&self, list: &mut DisplayList, _clip: Rect) {
@@ -1397,7 +1401,9 @@ impl Element for CodeEditorElement {
                         if ci == 0 {
                             let before = &segment[..local.min(segment.len())];
                             let w = match &self.text_measure {
-                                Some(tm) => tm.measure_text_width(before, font_size, before.chars().count()),
+                                Some(tm) => {
+                                    tm.measure_text_width(before, font_size, before.chars().count())
+                                }
                                 None => before.chars().count() as f32 * font_size * 0.6,
                             };
                             self.ime_caret.set(Some(Rect::new(

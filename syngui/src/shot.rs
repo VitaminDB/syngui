@@ -22,19 +22,36 @@ use crate::widget::{ElementTree, Widget};
 /// Нарисовать `build()` размером `size` (логические px) с масштабом `scale` в
 /// PNG `out`; возвращает размер картинки в пикселях. Несколько кадров —
 /// эффекты, пересборки, загрузка картинок; анимации проматываются.
-pub fn render_png(build: impl FnOnce() -> Box<dyn Widget>, mss: &str, size: (u32, u32), scale: f64, out: &str) -> Result<(u32, u32), String> {
+pub fn render_png(
+    build: impl FnOnce() -> Box<dyn Widget>,
+    mss: &str,
+    size: (u32, u32),
+    scale: f64,
+    out: &str,
+) -> Result<(u32, u32), String> {
     crate::signal::init_main_thread();
     crate::signal::allow_signal_reads_on_this_thread();
-    let instance = wgpu::Instance::new(&wgpu::InstanceDescriptor { backends: wgpu::Backends::VULKAN | wgpu::Backends::GL, ..Default::default() });
+    let instance = wgpu::Instance::new(&wgpu::InstanceDescriptor {
+        backends: wgpu::Backends::VULKAN | wgpu::Backends::GL,
+        ..Default::default()
+    });
     let adapter = pollster::block_on(instance.request_adapter(&wgpu::RequestAdapterOptions {
         power_preference: wgpu::PowerPreference::LowPower,
         compatible_surface: None,
         force_fallback_adapter: false,
     }))
     .map_err(|e| format!("нет GPU-адаптера: {e}"))?;
-    let (device, queue) = pollster::block_on(adapter.request_device(&wgpu::DeviceDescriptor { label: Some("syngui shot"), ..Default::default() }))
-        .map_err(|e| format!("не создать устройство: {e}"))?;
-    let gpu = GpuShared { instance, adapter, device, queue };
+    let (device, queue) = pollster::block_on(adapter.request_device(&wgpu::DeviceDescriptor {
+        label: Some("syngui shot"),
+        ..Default::default()
+    }))
+    .map_err(|e| format!("не создать устройство: {e}"))?;
+    let gpu = GpuShared {
+        instance,
+        adapter,
+        device,
+        queue,
+    };
 
     let (lw, lh) = size;
     let pw = (lw as f64 * scale).round() as u32;
@@ -42,7 +59,10 @@ pub fn render_png(build: impl FnOnce() -> Box<dyn Widget>, mss: &str, size: (u32
     let format = wgpu::TextureFormat::Rgba8UnormSrgb;
     let mut renderer = Renderer::new(&gpu, format, pw, ph, lw, lh, None);
     {
-        let mut atlas = renderer.font_atlas.lock().unwrap_or_else(|e| e.into_inner());
+        let mut atlas = renderer
+            .font_atlas
+            .lock()
+            .unwrap_or_else(|e| e.into_inner());
         #[cfg(feature = "material-icons")]
         atlas.set_icon_font_data(crate::text::icon_fonts::material::FONT_DATA.to_vec());
         atlas.set_scale_factor(scale as f32);
@@ -89,7 +109,11 @@ pub fn render_png(build: impl FnOnce() -> Box<dyn Widget>, mss: &str, size: (u32
         list.set_scale_factor(scale as f32);
         tree.build_display_list(root, &mut list, Rect::new(Point::zero(), logical));
         if frame >= 3 {
-            let loading = tree.image_store.as_ref().map(|s| s.lock().unwrap_or_else(|e| e.into_inner()).has_loading()).unwrap_or(false);
+            let loading = tree
+                .image_store
+                .as_ref()
+                .map(|s| s.lock().unwrap_or_else(|e| e.into_inner()).has_loading())
+                .unwrap_or(false);
             if !loading {
                 break;
             }
@@ -97,10 +121,18 @@ pub fn render_png(build: impl FnOnce() -> Box<dyn Widget>, mss: &str, size: (u32
         std::thread::sleep(Duration::from_millis(120));
     }
 
-    let bg = tree.get(root).and_then(|e| e.mss()).and_then(|m| m.background_color).unwrap_or(Color::from_srgb(0x16, 0x18, 0x1d, 1.0));
+    let bg = tree
+        .get(root)
+        .and_then(|e| e.mss())
+        .and_then(|m| m.background_color)
+        .unwrap_or(Color::from_srgb(0x16, 0x18, 0x1d, 1.0));
     let tex = gpu.device.create_texture(&wgpu::TextureDescriptor {
         label: Some("screenshot"),
-        size: wgpu::Extent3d { width: pw, height: ph, depth_or_array_layers: 1 },
+        size: wgpu::Extent3d {
+            width: pw,
+            height: ph,
+            depth_or_array_layers: 1,
+        },
         mip_level_count: 1,
         sample_count: 1,
         dimension: wgpu::TextureDimension::D2,
@@ -122,9 +154,25 @@ pub fn render_png(build: impl FnOnce() -> Box<dyn Widget>, mss: &str, size: (u32
     });
     let mut enc = gpu.device.create_command_encoder(&Default::default());
     enc.copy_texture_to_buffer(
-        wgpu::TexelCopyTextureInfo { texture: &tex, mip_level: 0, origin: wgpu::Origin3d::ZERO, aspect: wgpu::TextureAspect::All },
-        wgpu::TexelCopyBufferInfo { buffer: &buf, layout: wgpu::TexelCopyBufferLayout { offset: 0, bytes_per_row: Some(row), rows_per_image: Some(ph) } },
-        wgpu::Extent3d { width: pw, height: ph, depth_or_array_layers: 1 },
+        wgpu::TexelCopyTextureInfo {
+            texture: &tex,
+            mip_level: 0,
+            origin: wgpu::Origin3d::ZERO,
+            aspect: wgpu::TextureAspect::All,
+        },
+        wgpu::TexelCopyBufferInfo {
+            buffer: &buf,
+            layout: wgpu::TexelCopyBufferLayout {
+                offset: 0,
+                bytes_per_row: Some(row),
+                rows_per_image: Some(ph),
+            },
+        },
+        wgpu::Extent3d {
+            width: pw,
+            height: ph,
+            depth_or_array_layers: 1,
+        },
     );
     gpu.queue.submit([enc.finish()]);
     let slice = buf.slice(..);
@@ -138,6 +186,7 @@ pub fn render_png(build: impl FnOnce() -> Box<dyn Widget>, mss: &str, size: (u32
     }
     drop(data);
     buf.unmap();
-    image::save_buffer(out, &rgba, pw, ph, image::ExtendedColorType::Rgba8).map_err(|e| format!("{out}: {e}"))?;
+    image::save_buffer(out, &rgba, pw, ph, image::ExtendedColorType::Rgba8)
+        .map_err(|e| format!("{out}: {e}"))?;
     Ok((pw, ph))
 }

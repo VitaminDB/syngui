@@ -209,7 +209,10 @@ impl ImageViewport {
     /// «заполнить» и точка картинки в центре области в долях (0..1).
     /// Применяется при загрузке картинки; дальше кадр меняет пользователь.
     pub fn crop(mut self, zoom: f32, center_x: f32, center_y: f32) -> Self {
-        self.crop = Some((zoom.max(1.0), (center_x.clamp(0.0, 1.0), center_y.clamp(0.0, 1.0))));
+        self.crop = Some((
+            zoom.max(1.0),
+            (center_x.clamp(0.0, 1.0), center_y.clamp(0.0, 1.0)),
+        ));
         self
     }
 
@@ -501,7 +504,11 @@ impl ImageViewportElement {
                     return self.set_target(fill, Point::zero(), false)
                 }
                 ImageViewCommand::ToggleFit => {
-                    let next = if self.target_scale <= fill * 1.01 { fill * 2.0 } else { fill };
+                    let next = if self.target_scale <= fill * 1.01 {
+                        fill * 2.0
+                    } else {
+                        fill
+                    };
                     return self.set_target(next, anchor, false);
                 }
                 _ => {}
@@ -509,7 +516,9 @@ impl ImageViewportElement {
         }
         let fit = fit_scale(view, img);
         match command {
-            ImageViewCommand::ZoomIn => self.set_target(self.target_scale * BUTTON_STEP, anchor, false),
+            ImageViewCommand::ZoomIn => {
+                self.set_target(self.target_scale * BUTTON_STEP, anchor, false)
+            }
             ImageViewCommand::ZoomOut => {
                 self.set_target(self.target_scale / BUTTON_STEP, anchor, false)
             }
@@ -543,7 +552,10 @@ impl ImageViewportElement {
     fn crop_now(&self) -> Option<(f32, (f32, f32))> {
         let img = self.img_size()?;
         let fill = fill_scale(self.view(), img);
-        let (cw, ch) = (img.width * self.target_scale, img.height * self.target_scale);
+        let (cw, ch) = (
+            img.width * self.target_scale,
+            img.height * self.target_scale,
+        );
         if cw <= 0.0 || ch <= 0.0 {
             return None;
         }
@@ -662,7 +674,10 @@ impl ImageViewportElement {
                     b.origin.x + b.size.width - BAR_MARGIN - BAR_THICKNESS,
                     b.origin.y + BAR_MARGIN,
                 ),
-                Size::new(BAR_THICKNESS, (b.size.height - BAR_MARGIN - corner).max(0.0)),
+                Size::new(
+                    BAR_THICKNESS,
+                    (b.size.height - BAR_MARGIN - corner).max(0.0),
+                ),
             ),
         }
     }
@@ -745,7 +760,11 @@ impl ImageViewportElement {
         match self.fingers.as_slice() {
             [(_, a), (_, b)] => {
                 let d = ((a.x - b.x).powi(2) + (a.y - b.y).powi(2)).sqrt().max(1.0);
-                self.pinch = Some((d, self.scale, Point::new((a.x + b.x) * 0.5, (a.y + b.y) * 0.5)));
+                self.pinch = Some((
+                    d,
+                    self.scale,
+                    Point::new((a.x + b.x) * 0.5, (a.y + b.y) * 0.5),
+                ));
             }
             [(_, p)] if self.crop_mode => {
                 self.touch_pan = Some((*p, self.offset));
@@ -922,7 +941,10 @@ impl Element for ImageViewportElement {
             let c = self.center();
             let c = Point::new(c.x + self.offset.x, c.y + self.offset.y);
             let (dw, dh) = (nw as f32 * self.scale, nh as f32 * self.scale);
-            let rect = Rect::new(Point::new(c.x - dw * 0.5, c.y - dh * 0.5), Size::new(dw, dh));
+            let rect = Rect::new(
+                Point::new(c.x - dw * 0.5, c.y - dh * 0.5),
+                Size::new(dw, dh),
+            );
 
             let turning = (self.angle - self.target_angle()).abs() > 0.2;
             if !turning && !self.crop_mode {
@@ -944,7 +966,8 @@ impl Element for ImageViewportElement {
                 }
             }
 
-            let identity = self.angle.rem_euclid(360.0).abs() < 0.01 && !self.flip_h && !self.flip_v;
+            let identity =
+                self.angle.rem_euclid(360.0).abs() < 0.01 && !self.flip_h && !self.flip_v;
             if !identity {
                 let t = Transform::translation(-c.x, -c.y)
                     .then_rotate(euclid::Angle::degrees(self.angle))
@@ -1062,7 +1085,9 @@ impl Element for ImageViewportElement {
                     let track = self.track(axis);
                     let along = Self::along(axis, *position);
                     let origin = Self::along(axis, track.origin);
-                    let inside = self.thumb_rect(axis).filter(|t| t.inflate(4.0, 4.0).contains(*position));
+                    let inside = self
+                        .thumb_rect(axis)
+                        .filter(|t| t.inflate(4.0, 4.0).contains(*position));
                     let thumb_pos = match inside {
                         Some(t) => Self::along(axis, t.origin) - origin,
                         None => {
@@ -1365,7 +1390,10 @@ mod tests {
         assert!(bar_thumb(500.0, 500.0, 500.0, 0.0).is_none());
         let (pos, len) = bar_thumb(500.0, 1000.0, 500.0, 0.0).unwrap();
         assert!((len - 250.0).abs() < 1e-3);
-        assert!((pos - 125.0).abs() < 1e-3, "по центру — ползунок посередине");
+        assert!(
+            (pos - 125.0).abs() < 1e-3,
+            "по центру — ползунок посередине"
+        );
         // Картинка сдвинута вправо до упора — видно её левый край.
         let (pos, _) = bar_thumb(500.0, 1000.0, 500.0, 250.0).unwrap();
         assert!(pos.abs() < 1e-3);
@@ -1421,7 +1449,10 @@ mod tests {
         let got = info.get_untracked();
         assert!(!got.fit);
         assert!(got.scale > 0.5);
-        assert!(h.is_animating(id), "после колеса элемент обязан получать кадры");
+        assert!(
+            h.is_animating(id),
+            "после колеса элемент обязан получать кадры"
+        );
         settle(&mut h);
     }
 
@@ -1524,23 +1555,64 @@ mod tests {
         );
         let fit = info.get_untracked().scale;
         // Вписанная: смахивание влево — следующая.
-        h.send_event(&Event::TouchStart { id: 1, position: Point::new(600.0, 300.0) });
-        h.send_event(&Event::TouchMove { id: 1, position: Point::new(400.0, 310.0) });
-        h.send_event(&Event::TouchEnd { id: 1, position: Point::new(400.0, 310.0) });
+        h.send_event(&Event::TouchStart {
+            id: 1,
+            position: Point::new(600.0, 300.0),
+        });
+        h.send_event(&Event::TouchMove {
+            id: 1,
+            position: Point::new(400.0, 310.0),
+        });
+        h.send_event(&Event::TouchEnd {
+            id: 1,
+            position: Point::new(400.0, 310.0),
+        });
         assert_eq!(*swiped.lock().unwrap(), vec![1]);
         // Щипок: пальцы разошлись вдвое — масштаб вдвое.
-        h.send_event(&Event::TouchStart { id: 2, position: Point::new(350.0, 300.0) });
-        h.send_event(&Event::TouchStart { id: 3, position: Point::new(450.0, 300.0) });
-        h.send_event(&Event::TouchMove { id: 2, position: Point::new(300.0, 300.0) });
-        h.send_event(&Event::TouchMove { id: 3, position: Point::new(500.0, 300.0) });
-        assert!((info.get_untracked().scale - fit * 2.0).abs() < 1e-3, "{} vs {}", info.get_untracked().scale, fit * 2.0);
-        h.send_event(&Event::TouchEnd { id: 2, position: Point::new(300.0, 300.0) });
-        h.send_event(&Event::TouchEnd { id: 3, position: Point::new(500.0, 300.0) });
+        h.send_event(&Event::TouchStart {
+            id: 2,
+            position: Point::new(350.0, 300.0),
+        });
+        h.send_event(&Event::TouchStart {
+            id: 3,
+            position: Point::new(450.0, 300.0),
+        });
+        h.send_event(&Event::TouchMove {
+            id: 2,
+            position: Point::new(300.0, 300.0),
+        });
+        h.send_event(&Event::TouchMove {
+            id: 3,
+            position: Point::new(500.0, 300.0),
+        });
+        assert!(
+            (info.get_untracked().scale - fit * 2.0).abs() < 1e-3,
+            "{} vs {}",
+            info.get_untracked().scale,
+            fit * 2.0
+        );
+        h.send_event(&Event::TouchEnd {
+            id: 2,
+            position: Point::new(300.0, 300.0),
+        });
+        h.send_event(&Event::TouchEnd {
+            id: 3,
+            position: Point::new(500.0, 300.0),
+        });
         assert!(!info.get_untracked().fit);
         // Приближенную палец двигает, а не листает.
-        h.send_event(&Event::TouchStart { id: 4, position: Point::new(600.0, 300.0) });
-        h.send_event(&Event::TouchMove { id: 4, position: Point::new(400.0, 300.0) });
-        h.send_event(&Event::TouchEnd { id: 4, position: Point::new(400.0, 300.0) });
+        h.send_event(&Event::TouchStart {
+            id: 4,
+            position: Point::new(600.0, 300.0),
+        });
+        h.send_event(&Event::TouchMove {
+            id: 4,
+            position: Point::new(400.0, 300.0),
+        });
+        h.send_event(&Event::TouchEnd {
+            id: 4,
+            position: Point::new(400.0, 300.0),
+        });
         assert_eq!(*swiped.lock().unwrap(), vec![1]);
     }
 }

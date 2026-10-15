@@ -484,17 +484,22 @@ impl OnScreenKeyboard {
                     return vec![Box::new(DecoratedBox::new())];
                 };
 
-                let mut col = Column::new().gap(gap).cross_axis_alignment(if stretch.is_some() {
-                    CrossAxisAlignment::Stretch
-                } else {
-                    CrossAxisAlignment::Start
-                });
-                for (r, row) in layout.rows.iter().enumerate() {
-                    let mut row_w = Row::new().gap(gap).cross_axis_alignment(if stretch.is_some() {
+                let mut col = Column::new()
+                    .gap(gap)
+                    .cross_axis_alignment(if stretch.is_some() {
                         CrossAxisAlignment::Stretch
                     } else {
-                        CrossAxisAlignment::Center
+                        CrossAxisAlignment::Start
                     });
+                for (r, row) in layout.rows.iter().enumerate() {
+                    let mut row_w =
+                        Row::new()
+                            .gap(gap)
+                            .cross_axis_alignment(if stretch.is_some() {
+                                CrossAxisAlignment::Stretch
+                            } else {
+                                CrossAxisAlignment::Center
+                            });
                     if let Some(h) = stretch {
                         row_w = row_w.height(h);
                     }
@@ -523,28 +528,28 @@ impl OnScreenKeyboard {
                         let change_c = on_change.clone();
                         let submit_c = on_submit.clone();
                         let key_w = GestureDetector::new()
-                                .on_click(move || {
-                                    state.focus.set((r, c));
-                                    apply_action(state, &layouts_c, &action, &change_c, &submit_c);
-                                })
-                                .child({
-                                    let text = Text::new(label).max_lines(1).class(if focused {
-                                        "osk-key-text osk-key-text-focused"
-                                    } else {
-                                        "osk-key-text"
-                                    });
-                                    let b = DecoratedBox::new().class(cls.as_str());
-                                    if stretch.is_some() {
-                                        b.child(
-                                            Row::new()
-                                                .main_axis_alignment(MainAxisAlignment::Center)
-                                                .cross_axis_alignment(CrossAxisAlignment::Center)
-                                                .child(text),
-                                        )
-                                    } else {
-                                        b.child(text)
-                                    }
+                            .on_click(move || {
+                                state.focus.set((r, c));
+                                apply_action(state, &layouts_c, &action, &change_c, &submit_c);
+                            })
+                            .child({
+                                let text = Text::new(label).max_lines(1).class(if focused {
+                                    "osk-key-text osk-key-text-focused"
+                                } else {
+                                    "osk-key-text"
                                 });
+                                let b = DecoratedBox::new().class(cls.as_str());
+                                if stretch.is_some() {
+                                    b.child(
+                                        Row::new()
+                                            .main_axis_alignment(MainAxisAlignment::Center)
+                                            .cross_axis_alignment(CrossAxisAlignment::Center)
+                                            .child(text),
+                                    )
+                                } else {
+                                    b.child(text)
+                                }
+                            });
                         row_w = if stretch.is_some() {
                             row_w.child(key_w.style("flex-grow", width as f32))
                         } else {

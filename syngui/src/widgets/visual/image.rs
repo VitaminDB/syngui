@@ -108,7 +108,12 @@ impl Image {
     /// Как [`Self::from_rgba`], но пиксели общие: перестройка дерева с той
     /// же картинкой (застывший экран, кадр холста) не копирует мегабайты —
     /// хранилище берёт данные только при первом запросе ключа.
-    pub fn from_rgba_shared(key: impl Into<String>, width: u32, height: u32, rgba: Arc<Vec<u8>>) -> Self {
+    pub fn from_rgba_shared(
+        key: impl Into<String>,
+        width: u32,
+        height: u32,
+        rgba: Arc<Vec<u8>>,
+    ) -> Self {
         Self {
             source: ImageSource::RawRgba {
                 key: key.into(),
@@ -287,8 +292,15 @@ impl ImageElement {
 
     fn compute_fit_rect(&self) -> Rect {
         // Пропорции — от показываемой области (crop), а не всего спрайта.
-        let (nw, nh) = match (self.current_uv(), self.crop, self.natural_width, self.natural_height) {
-            (Some([_, _, u, v]), _, Some(w), Some(h)) if w > 0 && h > 0 => (u * w as f32, v * h as f32),
+        let (nw, nh) = match (
+            self.current_uv(),
+            self.crop,
+            self.natural_width,
+            self.natural_height,
+        ) {
+            (Some([_, _, u, v]), _, Some(w), Some(h)) if w > 0 && h > 0 => {
+                (u * w as f32, v * h as f32)
+            }
             (None, Some([_, _, w, h]), _, _) if w > 0.0 && h > 0.0 => (w, h),
             (_, _, Some(w), Some(h)) if w > 0 && h > 0 => (w as f32, h as f32),
             _ => return self.bounds,

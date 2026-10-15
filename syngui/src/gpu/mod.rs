@@ -11,9 +11,12 @@ pub mod tile_atlas;
 
 pub use context::{preferred_surface_format, GpuContext, GpuShared, WindowSurface};
 pub use image_cache::ImageGpuCache;
-pub use image_store::{ImageData, ImageHandle, ImageLoadState, ImageSource, ImageStore, YuvDmaBuf, YuvFrame, YuvLayout, YuvMatrix};
 #[cfg(feature = "image")]
 pub use image_store::image_file_size;
+pub use image_store::{
+    ImageData, ImageHandle, ImageLoadState, ImageSource, ImageStore, YuvDmaBuf, YuvFrame,
+    YuvLayout, YuvMatrix,
+};
 pub use pipeline::RenderPipeline;
 pub use renderer::{RenderStats, Renderer};
 

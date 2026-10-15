@@ -54,7 +54,9 @@ impl Renderer {
             // переконфигурации окно замирало навсегда. Конфиг прежний — размер
             // поправит обычный resize.
             Err(wgpu::SurfaceError::Lost | wgpu::SurfaceError::Outdated) => {
-                surface.surface.configure(&gpu.device, &surface.surface_config);
+                surface
+                    .surface
+                    .configure(&gpu.device, &surface.surface_config);
                 match surface.surface.get_current_texture() {
                     Ok(texture) => texture,
                     Err(e) => {
@@ -74,7 +76,9 @@ impl Renderer {
         // не берёт, и композитор рисует окно сам вместо вывода прямо на план.
         let surface_texture = if surface_texture.suboptimal && suboptimal_reconfigure_due() {
             drop(surface_texture);
-            surface.surface.configure(&gpu.device, &surface.surface_config);
+            surface
+                .surface
+                .configure(&gpu.device, &surface.surface_config);
             match surface.surface.get_current_texture() {
                 Ok(texture) => texture,
                 Err(e) => {
@@ -304,7 +308,11 @@ impl Renderer {
             self.texture_pool.end_frame();
             return RenderStats {
                 draw_calls: self.gpu_buffers.len(),
-                vertex_count: self.gpu_buffers.iter().map(|b| b.index_count as usize).sum(),
+                vertex_count: self
+                    .gpu_buffers
+                    .iter()
+                    .map(|b| b.index_count as usize)
+                    .sum(),
             };
         }
         for h in pool_handles {
@@ -375,11 +383,13 @@ impl Renderer {
                                         );
                                     }
                                     ShaderType::RectFlat | ShaderType::RectRounded => {
-                                        render_pass.set_pipeline(if current_pipeline == ShaderType::RectFlat {
-                                            &self.rect_flat_pipeline
-                                        } else {
-                                            &self.rect_rounded_pipeline
-                                        });
+                                        render_pass.set_pipeline(
+                                            if current_pipeline == ShaderType::RectFlat {
+                                                &self.rect_flat_pipeline
+                                            } else {
+                                                &self.rect_rounded_pipeline
+                                            },
+                                        );
                                         render_pass.set_bind_group(
                                             0,
                                             &self.uniform_bind_group,
@@ -412,8 +422,14 @@ impl Renderer {
                                         );
                                     }
                                     ShaderType::Image => {
-                                        let yuv = batch.texture_id.and_then(|t| self.image_gpu_cache.get_yuv_bind_group(t.0));
-                                        render_pass.set_pipeline(if yuv.is_some() { &self.yuv_pipeline } else { &self.image_pipeline });
+                                        let yuv = batch.texture_id.and_then(|t| {
+                                            self.image_gpu_cache.get_yuv_bind_group(t.0)
+                                        });
+                                        render_pass.set_pipeline(if yuv.is_some() {
+                                            &self.yuv_pipeline
+                                        } else {
+                                            &self.image_pipeline
+                                        });
                                         render_pass.set_bind_group(
                                             0,
                                             &self.uniform_bind_group,

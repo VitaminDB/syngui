@@ -89,7 +89,11 @@ impl Renderer {
                     if buf_idx > seg_start || clear {
                         plan.push(EffectRenderStep::DrawBatches {
                             target: current_target,
-                            buf_range: if buf_idx > seg_start { seg_start..buf_idx } else { 0..0 },
+                            buf_range: if buf_idx > seg_start {
+                                seg_start..buf_idx
+                            } else {
+                                0..0
+                            },
                             clear,
                             clear_color: cc,
                         });
@@ -106,7 +110,11 @@ impl Renderer {
                     if buf_idx > seg_start || clear {
                         plan.push(EffectRenderStep::DrawBatches {
                             target: current_target,
-                            buf_range: if buf_idx > seg_start { seg_start..buf_idx } else { 0..0 },
+                            buf_range: if buf_idx > seg_start {
+                                seg_start..buf_idx
+                            } else {
+                                0..0
+                            },
                             clear,
                             clear_color: cc,
                         });
@@ -146,7 +154,11 @@ impl Renderer {
         if buf_idx > seg_start || clear {
             plan.push(EffectRenderStep::DrawBatches {
                 target: current_target,
-                buf_range: if buf_idx > seg_start { seg_start..buf_idx } else { 0..0 },
+                buf_range: if buf_idx > seg_start {
+                    seg_start..buf_idx
+                } else {
+                    0..0
+                },
                 clear,
                 clear_color: cc,
             });
@@ -901,12 +913,15 @@ impl Renderer {
                             &[batch.uniform_offset],
                         );
                     }
-                    crate::render::ShaderType::RectFlat | crate::render::ShaderType::RectRounded => {
-                        render_pass.set_pipeline(if current_pipeline == crate::render::ShaderType::RectFlat {
-                            &self.rect_flat_pipeline
-                        } else {
-                            &self.rect_rounded_pipeline
-                        });
+                    crate::render::ShaderType::RectFlat
+                    | crate::render::ShaderType::RectRounded => {
+                        render_pass.set_pipeline(
+                            if current_pipeline == crate::render::ShaderType::RectFlat {
+                                &self.rect_flat_pipeline
+                            } else {
+                                &self.rect_rounded_pipeline
+                            },
+                        );
                         render_pass.set_bind_group(
                             0,
                             &self.uniform_bind_group,
@@ -939,8 +954,14 @@ impl Renderer {
                         );
                     }
                     crate::render::ShaderType::Image => {
-                        let yuv = batch.texture_id.and_then(|t| self.image_gpu_cache.get_yuv_bind_group(t.0));
-                        render_pass.set_pipeline(if yuv.is_some() { &self.yuv_pipeline } else { &self.image_pipeline });
+                        let yuv = batch
+                            .texture_id
+                            .and_then(|t| self.image_gpu_cache.get_yuv_bind_group(t.0));
+                        render_pass.set_pipeline(if yuv.is_some() {
+                            &self.yuv_pipeline
+                        } else {
+                            &self.image_pipeline
+                        });
                         render_pass.set_bind_group(
                             0,
                             &self.uniform_bind_group,

@@ -367,7 +367,9 @@ impl Element for DecoratedBoxElement {
             return;
         }
 
-        let target = self.mss.target_props(self.hover, self.press.is_some(), false, false);
+        let target = self
+            .mss
+            .target_props(self.hover, self.press.is_some(), false, false);
 
         let eff_opacity = self
             .keyframe_opacity()
@@ -487,7 +489,9 @@ impl Element for DecoratedBoxElement {
             return;
         }
 
-        let target = self.mss.target_props(self.hover, self.press.is_some(), false, false);
+        let target = self
+            .mss
+            .target_props(self.hover, self.press.is_some(), false, false);
         let eff_opacity = self
             .keyframe_opacity()
             .or(self.mss.transition.opacity())
@@ -619,31 +623,42 @@ impl Element for DecoratedBoxElement {
         if self.mss.style_active.is_some() {
             let was = self.press.is_some();
             match event {
-                Event::TouchStart { id, position } if self.bounds.contains(*position) => self.press = Some((*id, *position)),
+                Event::TouchStart { id, position } if self.bounds.contains(*position) => {
+                    self.press = Some((*id, *position))
+                }
                 // Мышь, синтезированная из тапа (после TouchEnd), — не нажатие.
-                Event::MouseDown { button: crate::input::MouseButton::Left, position }
-                    if self.bounds.contains(*position) && !crate::input::is_synthesized_mouse() =>
-                {
+                Event::MouseDown {
+                    button: crate::input::MouseButton::Left,
+                    position,
+                } if self.bounds.contains(*position) && !crate::input::is_synthesized_mouse() => {
                     self.press = Some((PRESS_MOUSE, *position))
                 }
                 Event::TouchMove { id, position } => {
                     if let Some((pid, start)) = self.press {
-                        if pid == *id && (!self.bounds.contains(*position) || (position.x - start.x).hypot(position.y - start.y) > PRESS_SLOP) {
+                        if pid == *id
+                            && (!self.bounds.contains(*position)
+                                || (position.x - start.x).hypot(position.y - start.y) > PRESS_SLOP)
+                        {
                             self.press = None;
                         }
                     }
                 }
                 Event::MouseMove(position) => {
                     if let Some((PRESS_MOUSE, start)) = self.press {
-                        if !self.bounds.contains(*position) || (position.x - start.x).hypot(position.y - start.y) > PRESS_SLOP {
+                        if !self.bounds.contains(*position)
+                            || (position.x - start.x).hypot(position.y - start.y) > PRESS_SLOP
+                        {
                             self.press = None;
                         }
                     }
                 }
-                Event::TouchEnd { id, .. } if self.press.is_some_and(|(pid, _)| pid == *id) => self.press = None,
-                Event::MouseUp { button: crate::input::MouseButton::Left, .. } if self.press.is_some_and(|(pid, _)| pid == PRESS_MOUSE) => {
+                Event::TouchEnd { id, .. } if self.press.is_some_and(|(pid, _)| pid == *id) => {
                     self.press = None
                 }
+                Event::MouseUp {
+                    button: crate::input::MouseButton::Left,
+                    ..
+                } if self.press.is_some_and(|(pid, _)| pid == PRESS_MOUSE) => self.press = None,
                 Event::FocusLost => self.press = None,
                 _ => {}
             }
@@ -986,20 +1001,29 @@ impl StyledElement for DecoratedBoxElement {
 mod tests {
     use super::*;
     use crate::testing::TestHarness;
-    use crate::widgets::containers::gesture_detector::GestureDetector;
     use crate::widget::WidgetExt;
+    use crate::widgets::containers::gesture_detector::GestureDetector;
 
     fn pressed(h: &mut TestHarness) -> bool {
         let id = h.find_by_class("k")[0];
         let node = h.tree.elements.get_mut(&id).unwrap();
-        node.element.as_any_mut().unwrap().downcast_mut::<DecoratedBoxElement>().unwrap().press.is_some()
+        node.element
+            .as_any_mut()
+            .unwrap()
+            .downcast_mut::<DecoratedBoxElement>()
+            .unwrap()
+            .press
+            .is_some()
     }
 
     /// Клавиша экранной клавиатуры: касание забирает родитель-GestureDetector
     /// (захватчик), а `:active` вложенного блока должен сниматься отпусканием.
     #[test]
     fn active_released_when_parent_captures_touch() {
-        let w = GestureDetector::new().on_press(|_| {}).on_release(|_| {}).child(DecoratedBox::new().class("k"));
+        let w = GestureDetector::new()
+            .on_press(|_| {})
+            .on_release(|_| {})
+            .child(DecoratedBox::new().class("k"));
         let mut h = TestHarness::new(Box::new(w));
         h.apply_mss(".k { width: 40; height: 40; background-color: #333333; } .k:active { background-color: #ff0000; }");
         h.layout(40.0, 40.0);

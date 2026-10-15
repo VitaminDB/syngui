@@ -19,7 +19,9 @@ use crate::input::{CursorIcon, Event, EventResult, Key, MouseButton};
 use crate::layout::Constraints;
 use crate::mss::{ComputedStyle, MssFields};
 use crate::render::{DisplayList, TextureId};
-use crate::widget::{DirtyFlags, Element, ElementId, ElementTree, StyledElement, UpdateContext, Widget};
+use crate::widget::{
+    DirtyFlags, Element, ElementId, ElementTree, StyledElement, UpdateContext, Widget,
+};
 use crate::widgets::ImageFit;
 
 struct Inner {
@@ -42,7 +44,15 @@ pub struct LiveFrame {
 
 impl LiveFrame {
     pub fn new() -> Arc<Self> {
-        Arc::new(Self { inner: std::sync::Mutex::new(Inner { width: 0, height: 0, rgba: Arc::from(Vec::new()), version: 0, changes: Default::default() }) })
+        Arc::new(Self {
+            inner: std::sync::Mutex::new(Inner {
+                width: 0,
+                height: 0,
+                rgba: Arc::from(Vec::new()),
+                version: 0,
+                changes: Default::default(),
+            }),
+        })
     }
 
     /// Новый кадр целиком (RGBA, `width * height * 4` байт).
@@ -103,15 +113,46 @@ impl LiveFrame {
 /// Ввод над кадром; `x`, `y` — доли кадра.
 #[derive(Debug, Clone, PartialEq)]
 pub enum LiveInput {
-    Move { x: f32, y: f32 },
-    Down { button: MouseButton, x: f32, y: f32 },
-    Up { button: MouseButton, x: f32, y: f32 },
+    Move {
+        x: f32,
+        y: f32,
+    },
+    Down {
+        button: MouseButton,
+        x: f32,
+        y: f32,
+    },
+    Up {
+        button: MouseButton,
+        x: f32,
+        y: f32,
+    },
     /// Колесо: `dy` > 0 — вниз, шаги (как у `Event::MouseWheel`, со знаком наоборот).
-    Wheel { dx: f32, dy: f32, x: f32, y: f32 },
-    TouchStart { id: u64, x: f32, y: f32 },
-    TouchMove { id: u64, x: f32, y: f32 },
-    TouchEnd { id: u64, x: f32, y: f32 },
-    Key { key: Key, pressed: bool },
+    Wheel {
+        dx: f32,
+        dy: f32,
+        x: f32,
+        y: f32,
+    },
+    TouchStart {
+        id: u64,
+        x: f32,
+        y: f32,
+    },
+    TouchMove {
+        id: u64,
+        x: f32,
+        y: f32,
+    },
+    TouchEnd {
+        id: u64,
+        x: f32,
+        y: f32,
+    },
+    Key {
+        key: Key,
+        pressed: bool,
+    },
     Char(char),
 }
 
@@ -129,7 +170,14 @@ pub struct LiveView {
 
 impl LiveView {
     pub fn new(frame: Arc<LiveFrame>) -> Self {
-        Self { frame, fit: ImageFit::Contain, classes: Vec::new(), on_input: None, cursor: None, on_resize: None }
+        Self {
+            frame,
+            fit: ImageFit::Contain,
+            classes: Vec::new(),
+            on_input: None,
+            cursor: None,
+            on_resize: None,
+        }
     }
 
     pub fn fit(mut self, fit: ImageFit) -> Self {
@@ -231,7 +279,9 @@ impl LiveViewElement {
         if v == self.shown || w == 0 || h == 0 || rgba.len() < (w as usize) * (h as usize) * 4 {
             return;
         }
-        let Some(store) = self.image_store.as_ref() else { return };
+        let Some(store) = self.image_store.as_ref() else {
+            return;
+        };
         if let Ok(mut s) = store.lock() {
             match self.image_handle {
                 Some(handle) => match self.frame.changed_since(self.shown) {
@@ -273,7 +323,13 @@ impl LiveViewElement {
                 (nw * k, nh * k)
             }
         };
-        Rect::new(Point::new(self.bounds.x() + (bw - sw) / 2.0, self.bounds.y() + (bh - sh) / 2.0), Size::new(sw, sh))
+        Rect::new(
+            Point::new(
+                self.bounds.x() + (bw - sw) / 2.0,
+                self.bounds.y() + (bh - sh) / 2.0,
+            ),
+            Size::new(sw, sh),
+        )
     }
 
     fn frac(&self, p: Point) -> (f32, f32) {
@@ -339,7 +395,10 @@ impl Element for LiveViewElement {
     }
 
     fn build_display_list(&self, list: &mut DisplayList, _clip: Rect) {
-        let bg = self.mss.background_color.unwrap_or_else(|| Color::from_hex("#000000"));
+        let bg = self
+            .mss
+            .background_color
+            .unwrap_or_else(|| Color::from_hex("#000000"));
         list.push_rect(self.bounds, bg, [0.0; 4]);
         if let Some(handle) = self.image_handle {
             let uv = Rect::new(Point::new(0.0, 0.0), Size::new(1.0, 1.0));
@@ -347,7 +406,11 @@ impl Element for LiveViewElement {
         }
     }
 
-    fn handle_event(&mut self, event: &Event, ctx: &mut crate::widget::context::EventContext) -> EventResult {
+    fn handle_event(
+        &mut self,
+        event: &Event,
+        ctx: &mut crate::widget::context::EventContext,
+    ) -> EventResult {
         if self.on_input.is_none() {
             return EventResult::Ignored;
         }
@@ -368,18 +431,35 @@ impl Element for LiveViewElement {
                 let (x, y) = self.frac(*position);
                 self.pressed = true;
                 ctx.capture();
-                self.emit(LiveInput::Down { button: *button, x, y });
+                self.emit(LiveInput::Down {
+                    button: *button,
+                    x,
+                    y,
+                });
                 return EventResult::Handled;
             }
             Event::MouseUp { button, position } if self.pressed => {
                 let (x, y) = self.frac(*position);
                 self.pressed = false;
-                self.emit(LiveInput::Up { button: *button, x, y });
+                self.emit(LiveInput::Up {
+                    button: *button,
+                    x,
+                    y,
+                });
                 return EventResult::Handled;
             }
-            Event::MouseWheel { delta, delta_x, position } if self.inside(*position) => {
+            Event::MouseWheel {
+                delta,
+                delta_x,
+                position,
+            } if self.inside(*position) => {
                 let (x, y) = self.frac(*position);
-                self.emit(LiveInput::Wheel { dx: -*delta_x, dy: -*delta, x, y });
+                self.emit(LiveInput::Wheel {
+                    dx: -*delta_x,
+                    dy: -*delta,
+                    x,
+                    y,
+                });
                 return EventResult::Handled;
             }
             Event::TouchStart { id, position } if self.inside(*position) => {
@@ -399,11 +479,17 @@ impl Element for LiveViewElement {
                 return EventResult::Handled;
             }
             Event::KeyDown(k) => {
-                self.emit(LiveInput::Key { key: *k, pressed: true });
+                self.emit(LiveInput::Key {
+                    key: *k,
+                    pressed: true,
+                });
                 return EventResult::Handled;
             }
             Event::KeyUp(k) => {
-                self.emit(LiveInput::Key { key: *k, pressed: false });
+                self.emit(LiveInput::Key {
+                    key: *k,
+                    pressed: false,
+                });
                 return EventResult::Handled;
             }
             Event::CharInput(c) => {
@@ -487,7 +573,8 @@ impl Element for LiveViewElement {
         selected: Option<&ComputedStyle>,
         _checked: Option<&ComputedStyle>,
     ) {
-        self.mss.apply_transitions(base, hover, active, focus, selected);
+        self.mss
+            .apply_transitions(base, hover, active, focus, selected);
     }
 }
 

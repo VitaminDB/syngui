@@ -1,5 +1,5 @@
-use crate::mss::fields::ICON_FONT_SIZE;
 use super::value::StyleValue;
+use crate::mss::fields::ICON_FONT_SIZE;
 use std::collections::HashMap;
 
 #[derive(Debug, Clone)]
@@ -141,7 +141,9 @@ impl StyleSheet {
     /// (как значки-шрифты в CSS), но не из унаследованного от корня.
     pub fn add_rule(&mut self, mut rule: StyleRule) {
         if let Some(v) = rule.declarations.get("font-size").cloned() {
-            rule.declarations.entry(ICON_FONT_SIZE.to_string()).or_insert(v);
+            rule.declarations
+                .entry(ICON_FONT_SIZE.to_string())
+                .or_insert(v);
         }
         self.rules.push(rule);
     }

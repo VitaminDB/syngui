@@ -50,7 +50,10 @@ pub enum Easing {
     /// [`Spring`](crate::animation::Spring). Кривая нормирована так, что к
     /// `t = 1` пружина успокаивается; при малом демпфировании она
     /// перелетает цель и возвращается (в MSS — `spring(k, c)`).
-    Spring { stiffness: f32, damping: f32 },
+    Spring {
+        stiffness: f32,
+        damping: f32,
+    },
 }
 
 impl Easing {
@@ -71,28 +74,55 @@ impl Easing {
     pub const STANDARD_DECELERATE: Self = Self::CubicBezier(0.0, 0.0, 0.0, 1.0);
     pub const STANDARD_ACCELERATE: Self = Self::CubicBezier(0.3, 0.0, 1.0, 1.0);
     /// Мягкая пружина без перелёта — «перетекание» размера и положения.
-    pub const SPRING_SMOOTH: Self = Self::Spring { stiffness: 380.0, damping: 38.0 };
+    pub const SPRING_SMOOTH: Self = Self::Spring {
+        stiffness: 380.0,
+        damping: 38.0,
+    };
     /// Пружина с лёгким перелётом — появление карточек, значков.
-    pub const SPRING_BOUNCY: Self = Self::Spring { stiffness: 320.0, damping: 22.0 };
+    pub const SPRING_BOUNCY: Self = Self::Spring {
+        stiffness: 320.0,
+        damping: 22.0,
+    };
 
     /// Кривая по имени из MSS: `ease-out-cubic`, `emphasized`,
     /// `cubic-bezier(x1,y1,x2,y2)`, `steps(n)`, `spring(k, c)`.
     /// `None` — имя неизвестно.
     pub fn parse(s: &str) -> Option<Self> {
         let s = s.trim();
-        if let Some(inner) = s.strip_prefix("cubic-bezier(").and_then(|r| r.strip_suffix(')')) {
-            let v: Vec<f32> = inner.split(',').filter_map(|x| x.trim().parse().ok()).collect();
+        if let Some(inner) = s
+            .strip_prefix("cubic-bezier(")
+            .and_then(|r| r.strip_suffix(')'))
+        {
+            let v: Vec<f32> = inner
+                .split(',')
+                .filter_map(|x| x.trim().parse().ok())
+                .collect();
             return (v.len() == 4).then(|| Easing::CubicBezier(v[0], v[1], v[2], v[3]));
         }
         if let Some(inner) = s.strip_prefix("steps(").and_then(|r| r.strip_suffix(')')) {
-            return inner.split(',').next()?.trim().parse().ok().map(Easing::Steps);
+            return inner
+                .split(',')
+                .next()?
+                .trim()
+                .parse()
+                .ok()
+                .map(Easing::Steps);
         }
         if let Some(inner) = s.strip_prefix("spring(").and_then(|r| r.strip_suffix(')')) {
-            let v: Vec<f32> = inner.split(',').filter_map(|x| x.trim().parse().ok()).collect();
+            let v: Vec<f32> = inner
+                .split(',')
+                .filter_map(|x| x.trim().parse().ok())
+                .collect();
             return match v.as_slice() {
                 [] => Some(Easing::SPRING_SMOOTH),
-                [k] => Some(Easing::Spring { stiffness: *k, damping: 2.0 * k.sqrt() }),
-                [k, c, ..] => Some(Easing::Spring { stiffness: *k, damping: *c }),
+                [k] => Some(Easing::Spring {
+                    stiffness: *k,
+                    damping: 2.0 * k.sqrt(),
+                }),
+                [k, c, ..] => Some(Easing::Spring {
+                    stiffness: *k,
+                    damping: *c,
+                }),
             };
         }
         Some(match s {

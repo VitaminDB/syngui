@@ -173,7 +173,10 @@ pub fn set_user_agent(ua: impl Into<String>) {
 
 #[cfg(all(not(target_arch = "wasm32"), feature = "map-native"))]
 fn user_agent() -> &'static str {
-    USER_AGENT.get().map(|s| s.as_str()).unwrap_or(concat!("syngui-map/", env!("CARGO_PKG_VERSION")))
+    USER_AGENT
+        .get()
+        .map(|s| s.as_str())
+        .unwrap_or(concat!("syngui-map/", env!("CARGO_PKG_VERSION")))
 }
 
 #[cfg(all(not(target_arch = "wasm32"), feature = "map-native"))]

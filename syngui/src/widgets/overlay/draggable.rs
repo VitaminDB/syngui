@@ -402,8 +402,8 @@ mod tests {
         let mut col = Column::new().gap(0.0);
         for i in 0..20 {
             let g = g.clone();
-            let mut d = Draggable::new("t", format!("{i}"))
-                .child(Column::new().width(100.0).height(50.0));
+            let mut d =
+                Draggable::new("t", format!("{i}")).child(Column::new().width(100.0).height(50.0));
             if i == 10 {
                 d = d.on_click_with_bounds(move |r| *g.lock().unwrap() = Some(r));
             }
@@ -411,7 +411,11 @@ mod tests {
         }
         let mut h = TestHarness::new(Box::new(ScrollView::new().vertical().child(col)));
         h.layout(200.0, 200.0);
-        h.send_event(&Event::MouseWheel { delta: -400.0, delta_x: 0.0, position: Point::new(50.0, 100.0) });
+        h.send_event(&Event::MouseWheel {
+            delta: -400.0,
+            delta_x: 0.0,
+            position: Point::new(50.0, 100.0),
+        });
         h.layout(200.0, 200.0);
         let sv = h.find_by_type_name("ScrollView")[0];
         let off = h.tree.get(sv).unwrap().scroll_offset().y;
@@ -420,10 +424,19 @@ mod tests {
         let screen_y = 500.0 - off + 25.0;
         assert!((0.0..200.0).contains(&screen_y), "плитка видна: {screen_y}");
         let at = Point::new(50.0, screen_y);
-        h.send_event(&Event::MouseDown { button: MouseButton::Left, position: at });
-        h.send_event(&Event::MouseUp { button: MouseButton::Left, position: at });
+        h.send_event(&Event::MouseDown {
+            button: MouseButton::Left,
+            position: at,
+        });
+        h.send_event(&Event::MouseUp {
+            button: MouseButton::Left,
+            position: at,
+        });
         let r = got.lock().unwrap().expect("клик дошёл");
-        assert!((r.origin.y - (500.0 - off)).abs() < 0.5, "y в окне: {r:?}, off {off}");
+        assert!(
+            (r.origin.y - (500.0 - off)).abs() < 0.5,
+            "y в окне: {r:?}, off {off}"
+        );
         assert_eq!(r.size.height, 50.0);
     }
 }

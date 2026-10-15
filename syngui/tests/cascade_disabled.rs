@@ -12,14 +12,22 @@ Button { color: #ffffff; background: #202020; &:disabled { color: #535a68; backg
 ";
 
 fn tree() -> Box<dyn Widget> {
-    Box::new(Column::new().child(Button::new("A").class("chip")).child(Button::new("B")))
+    Box::new(
+        Column::new()
+            .child(Button::new("A").class("chip"))
+            .child(Button::new("B")),
+    )
 }
 
 fn check(h: &TestHarness) {
     let buttons = h.find_by_type_name("Button");
     assert_eq!(buttons.len(), 2);
     let chip = h.element_mss(buttons[0]).unwrap();
-    assert_eq!(chip.color, Some(Color::from_hex("#ff0000")), ".chip не должен перебиваться :disabled");
+    assert_eq!(
+        chip.color,
+        Some(Color::from_hex("#ff0000")),
+        ".chip не должен перебиваться :disabled"
+    );
     let plain = h.element_mss(buttons[1]).unwrap();
     assert_eq!(plain.color, Some(Color::from_hex("#ffffff")));
     assert_eq!(plain.background_color, Some(Color::from_hex("#202020")));

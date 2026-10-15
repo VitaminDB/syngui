@@ -243,7 +243,10 @@ impl GestureDetector {
 
     /// Двойной щелчок (двойной тап) с точкой и границами детектора — в
     /// одних координатах: так видно, по какой части пришлось нажатие.
-    pub fn on_double_click_with_bounds(mut self, cb: impl FnMut(Point, Rect) + Send + 'static) -> Self {
+    pub fn on_double_click_with_bounds(
+        mut self,
+        cb: impl FnMut(Point, Rect) + Send + 'static,
+    ) -> Self {
         self.on_double_click_with_bounds = Some(Arc::new(Mutex::new(cb)));
         self
     }
@@ -418,7 +421,14 @@ impl PanState {
     fn new(id: u64, at: Point) -> Self {
         let mut velocity = crate::input::VelocityTracker::new();
         velocity.add(at);
-        Self { id, start: at, last: at, active: false, foreign: false, velocity }
+        Self {
+            id,
+            start: at,
+            last: at,
+            active: false,
+            foreign: false,
+            velocity,
+        }
     }
 }
 
@@ -448,11 +458,17 @@ fn call_bounds(cb: &Option<ClickBoundsCb>, p: Point, r: Rect) {
 
 impl GestureDetectorElement {
     fn wants_pan(&self) -> bool {
-        self.on_pan_start.is_some() || self.on_pan_update.is_some() || self.on_pan_end.is_some() || self.on_swipe.is_some()
+        self.on_pan_start.is_some()
+            || self.on_pan_update.is_some()
+            || self.on_pan_end.is_some()
+            || self.on_swipe.is_some()
     }
 
     fn wants_touch(&self) -> bool {
-        self.wants_pan() || self.on_pinch.is_some() || self.on_press.is_some() || self.on_release.is_some()
+        self.wants_pan()
+            || self.on_pinch.is_some()
+            || self.on_press.is_some()
+            || self.on_release.is_some()
     }
 
     fn release(&mut self, inside: bool) {
@@ -474,7 +490,13 @@ impl GestureDetectorElement {
     }
 
     /// Шаг панорамы; `false` — жест не наш (чужая ось), отдать родителю.
-    fn pan_step(pan: &mut PanState, axis: PanAxis, pos: Point, on_start: &Option<MouseBtnCb>, on_update: &Option<PanCb>) -> bool {
+    fn pan_step(
+        pan: &mut PanState,
+        axis: PanAxis,
+        pos: Point,
+        on_start: &Option<MouseBtnCb>,
+        on_update: &Option<PanCb>,
+    ) -> bool {
         if pan.foreign {
             return false;
         }
@@ -502,11 +524,24 @@ impl GestureDetectorElement {
         let delta = Point::new(pos.x - pan.last.x, pos.y - pan.last.y);
         let (delta, total) = match axis {
             PanAxis::Free => (delta, Point::new(pos.x - pan.start.x, pos.y - pan.start.y)),
-            PanAxis::Horizontal => (Point::new(delta.x, 0.0), Point::new(pos.x - pan.start.x, 0.0)),
-            PanAxis::Vertical => (Point::new(0.0, delta.y), Point::new(0.0, pos.y - pan.start.y)),
+            PanAxis::Horizontal => (
+                Point::new(delta.x, 0.0),
+                Point::new(pos.x - pan.start.x, 0.0),
+            ),
+            PanAxis::Vertical => (
+                Point::new(0.0, delta.y),
+                Point::new(0.0, pos.y - pan.start.y),
+            ),
         };
         pan.last = pos;
-        call(on_update, PanUpdate { position: pos, delta, total });
+        call(
+            on_update,
+            PanUpdate {
+                position: pos,
+                delta,
+                total,
+            },
+        );
         true
     }
 
@@ -525,7 +560,11 @@ impl GestureDetectorElement {
         if self.on_swipe.is_some() {
             let total = Point::new(pan.last.x - pan.start.x, pan.last.y - pan.start.y);
             let horizontal = total.x.abs() > total.y.abs();
-            let (dist, speed) = if horizontal { (total.x, v.x) } else { (total.y, v.y) };
+            let (dist, speed) = if horizontal {
+                (total.x, v.x)
+            } else {
+                (total.y, v.y)
+            };
             // Бросок в ту же сторону, что и путь, или просто длинный путь.
             let fling = speed.abs() > SWIPE_VELOCITY && speed.signum() == dist.signum();
             if fling || dist.abs() > SWIPE_DISTANCE && speed.abs() > SWIPE_VELOCITY * 0.25 {
@@ -553,7 +592,9 @@ impl GestureDetectorElement {
                 }
                 self.fingers.retain(|(i, _)| i != id);
                 self.fingers.push((*id, *position));
-                if self.press_touch.is_none() && (self.on_press.is_some() || self.on_release.is_some()) {
+                if self.press_touch.is_none()
+                    && (self.on_press.is_some() || self.on_release.is_some())
+                {
                     self.press_touch = Some(*id);
                     call_bounds(&self.on_press, *position, self.bounds);
                     ctx.request_paint();
@@ -568,7 +609,12 @@ impl GestureDetectorElement {
                         self.pan_finish(pan);
                     }
                     let (a, b) = (self.fingers[0].0, self.fingers[1].0);
-                    let mut p = PinchState { a, b, start_dist: 1.0, last_center: Point::zero() };
+                    let mut p = PinchState {
+                        a,
+                        b,
+                        start_dist: 1.0,
+                        last_center: Point::zero(),
+                    };
                     if let Some((dist, center)) = self.pinch_geometry(&p) {
                         p.start_dist = dist.max(1.0);
                         p.last_center = center;
@@ -594,18 +640,32 @@ impl GestureDetectorElement {
                 }
                 if let Some(p) = self.pinch {
                     if let Some((dist, center)) = self.pinch_geometry(&p) {
-                        let delta = Point::new(center.x - p.last_center.x, center.y - p.last_center.y);
+                        let delta =
+                            Point::new(center.x - p.last_center.x, center.y - p.last_center.y);
                         if let Some(pp) = &mut self.pinch {
                             pp.last_center = center;
                         }
-                        call(&self.on_pinch, PinchUpdate { scale: dist / p.start_dist, center, delta });
+                        call(
+                            &self.on_pinch,
+                            PinchUpdate {
+                                scale: dist / p.start_dist,
+                                center,
+                                delta,
+                            },
+                        );
                         ctx.request_paint();
                     }
                     return EventResult::Handled;
                 }
                 let axis = self.pan_axis;
                 if let Some(pan) = self.pan.as_mut().filter(|p| p.id == *id) {
-                    if !Self::pan_step(pan, axis, *position, &self.on_pan_start, &self.on_pan_update) {
+                    if !Self::pan_step(
+                        pan,
+                        axis,
+                        *position,
+                        &self.on_pan_start,
+                        &self.on_pan_update,
+                    ) {
                         return EventResult::Ignored;
                     }
                     ctx.request_paint();
@@ -704,7 +764,10 @@ impl Element for GestureDetectorElement {
     fn build_display_list(&self, _list: &mut DisplayList, _clip: Rect) {}
 
     fn handle_event(&mut self, event: &Event, ctx: &mut EventContext) -> EventResult {
-        if matches!(event, Event::TouchStart { .. } | Event::TouchMove { .. } | Event::TouchEnd { .. }) {
+        if matches!(
+            event,
+            Event::TouchStart { .. } | Event::TouchMove { .. } | Event::TouchEnd { .. }
+        ) {
             if !self.wants_touch() {
                 return EventResult::Ignored;
             }
@@ -752,7 +815,11 @@ impl Element for GestureDetectorElement {
             Event::MouseDown { button, position }
                 if matches!(button, MouseButton::Right | MouseButton::Middle) =>
             {
-                let cb = if *button == MouseButton::Right { &self.on_secondary_click } else { &self.on_middle_click };
+                let cb = if *button == MouseButton::Right {
+                    &self.on_secondary_click
+                } else {
+                    &self.on_middle_click
+                };
                 if let (Some(cb), true) = (cb, self.bounds.contains(*position)) {
                     if let Ok(mut f) = cb.lock() {
                         f(*position);
@@ -764,7 +831,9 @@ impl Element for GestureDetectorElement {
             Event::MouseDown { button, position } => {
                 if *button == MouseButton::Left && self.bounds.contains(*position) {
                     self.pressed = true;
-                    if !crate::input::is_synthesized_mouse() && (self.on_press.is_some() || self.on_release.is_some()) {
+                    if !crate::input::is_synthesized_mouse()
+                        && (self.on_press.is_some() || self.on_release.is_some())
+                    {
                         self.mouse_pressed = true;
                         call_bounds(&self.on_press, *position, self.bounds);
                     }
@@ -1026,7 +1095,11 @@ mod tests {
                     d.fetch_add(1, Ordering::SeqCst);
                 }
             })
-            .child(ScrollView::new().vertical().child(crate::widgets::Column::new().height(2000.0)));
+            .child(
+                ScrollView::new()
+                    .vertical()
+                    .child(crate::widgets::Column::new().height(2000.0)),
+            );
         let mut h = TestHarness::new(Box::new(gd));
         h.layout(400.0, 400.0);
         let swipe = |h: &mut TestHarness, dir: f32| {
@@ -1045,7 +1118,11 @@ mod tests {
         let off = h.tree.get(sv).unwrap().scroll_offset().y;
         assert!(off > 100.0, "вверх — прокрутка: {off}");
         swipe(&mut h, 1.0);
-        assert_eq!(downs.load(Ordering::SeqCst), 1, "не в начале — вниз прокручивает список");
+        assert_eq!(
+            downs.load(Ordering::SeqCst),
+            1,
+            "не в начале — вниз прокручивает список"
+        );
     }
 
     #[test]
@@ -1127,7 +1204,11 @@ mod press_tests {
         let mut h = TestHarness::new(Box::new(gd));
         h.layout(100.0, 100.0);
         h.touch_down(1, Point::new(50.0, 50.0));
-        assert_eq!(presses.load(Ordering::SeqCst), 1, "нажатие сразу при касании");
+        assert_eq!(
+            presses.load(Ordering::SeqCst),
+            1,
+            "нажатие сразу при касании"
+        );
         h.touch_up(1);
         assert_eq!(presses.load(Ordering::SeqCst), 1);
         assert_eq!(releases.load(Ordering::SeqCst), 1);

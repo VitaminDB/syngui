@@ -256,7 +256,11 @@ impl Element for PositionedElement {
     }
 
     fn set_position(&mut self, pos: Point) {
-        self.bounds.origin = if self.fixed { Point::new(self.x, self.y) } else { Point::new(pos.x + self.x, pos.y + self.y) };
+        self.bounds.origin = if self.fixed {
+            Point::new(self.x, self.y)
+        } else {
+            Point::new(pos.x + self.x, pos.y + self.y)
+        };
     }
 
     fn mark_dirty(&mut self, flags: DirtyFlags) {

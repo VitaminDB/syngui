@@ -97,7 +97,10 @@ pub fn geo_to_pixel_f(
     } else if dx < -size / 2.0 {
         dx += size;
     }
-    ((dx) as f32 + viewport_w / 2.0, (py - cy) as f32 + viewport_h / 2.0)
+    (
+        (dx) as f32 + viewport_w / 2.0,
+        (py - cy) as f32 + viewport_h / 2.0,
+    )
 }
 
 /// [`pixel_to_geo`] при дробном масштабе.
@@ -111,7 +114,11 @@ pub fn pixel_to_geo_f(
     viewport_h: f32,
 ) -> (f64, f64) {
     let (cx, cy) = world_px(center_lat, center_lng, zoom);
-    world_px_to_geo(cx + (px - viewport_w / 2.0) as f64, cy + (py - viewport_h / 2.0) as f64, zoom)
+    world_px_to_geo(
+        cx + (px - viewport_w / 2.0) as f64,
+        cy + (py - viewport_h / 2.0) as f64,
+        zoom,
+    )
 }
 
 #[cfg(test)]

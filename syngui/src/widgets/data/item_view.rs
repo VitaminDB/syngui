@@ -48,7 +48,11 @@ use crate::widgets::containers::{Positioned, Stack};
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub enum ItemLayout {
     /// Ячейки `item_width × item_height`, столбцов — сколько влезет.
-    Grid { item_width: f32, item_height: f32, gap: f32 },
+    Grid {
+        item_width: f32,
+        item_height: f32,
+        gap: f32,
+    },
     /// Строки во всю ширину (`min_width` — не уже, иначе горизонтальной
     /// прокрутки нет: строки просто сжимаются).
     Rows { row_height: f32 },
@@ -65,7 +69,11 @@ pub struct ItemSelection {
 
 impl ItemSelection {
     pub fn single(i: usize) -> Self {
-        Self { selected: [i].into_iter().collect(), cursor: Some(i), anchor: Some(i) }
+        Self {
+            selected: [i].into_iter().collect(),
+            cursor: Some(i),
+            anchor: Some(i),
+        }
     }
 
     pub fn is_selected(&self, i: usize) -> bool {
@@ -73,7 +81,11 @@ impl ItemSelection {
     }
 
     pub fn all(count: usize) -> Self {
-        Self { selected: (0..count).collect(), cursor: None, anchor: None }
+        Self {
+            selected: (0..count).collect(),
+            cursor: None,
+            anchor: None,
+        }
     }
 }
 
@@ -156,7 +168,10 @@ pub struct ItemView {
 }
 
 impl ItemView {
-    pub fn new(count: usize, builder: impl Fn(usize, ItemState) -> Box<dyn Widget> + Send + Sync + 'static) -> Self {
+    pub fn new(
+        count: usize,
+        builder: impl Fn(usize, ItemState) -> Box<dyn Widget> + Send + Sync + 'static,
+    ) -> Self {
         Self {
             count,
             builder: Arc::new(builder),
@@ -223,7 +238,10 @@ impl ItemView {
     }
 
     /// Правая кнопка или клавиша меню: элемент (или фон) и точка в окне.
-    pub fn on_context_menu(mut self, f: impl FnMut((Option<usize>, Point)) + Send + 'static) -> Self {
+    pub fn on_context_menu(
+        mut self,
+        f: impl FnMut((Option<usize>, Point)) + Send + 'static,
+    ) -> Self {
         self.on_context_menu = Some(Arc::new(Mutex::new(f)));
         self
     }
@@ -264,13 +282,19 @@ impl ItemView {
     }
 
     /// Данные переноса выделенных элементов (`None` — не переносить).
-    pub fn on_drag_start(mut self, f: impl Fn(&ItemSelection) -> Option<DragData> + Send + Sync + 'static) -> Self {
+    pub fn on_drag_start(
+        mut self,
+        f: impl Fn(&ItemSelection) -> Option<DragData> + Send + Sync + 'static,
+    ) -> Self {
         self.drag_start = Some(Arc::new(f));
         self
     }
 
     /// Можно ли сбросить перенос на элемент (`Some`) или на фон (`None`).
-    pub fn drop_filter(mut self, f: impl Fn(Option<usize>, &DragData) -> bool + Send + Sync + 'static) -> Self {
+    pub fn drop_filter(
+        mut self,
+        f: impl Fn(Option<usize>, &DragData) -> bool + Send + Sync + 'static,
+    ) -> Self {
         self.drop_filter = Some(Arc::new(f));
         self
     }
@@ -516,7 +540,8 @@ impl ItemViewElement {
 
     fn viewport(&self) -> Size {
         Size::new(
-            (self.bounds.size.width - self.padding[0] - self.padding[2] - self.scrollbar_width).max(0.0),
+            (self.bounds.size.width - self.padding[0] - self.padding[2] - self.scrollbar_width)
+                .max(0.0),
             (self.bounds.size.height - self.padding[1] - self.padding[3]).max(0.0),
         )
     }
@@ -524,7 +549,9 @@ impl ItemViewElement {
     fn cols(&self) -> usize {
         match self.layout {
             ItemLayout::Rows { .. } => 1,
-            ItemLayout::Grid { item_width, gap, .. } => {
+            ItemLayout::Grid {
+                item_width, gap, ..
+            } => {
                 let w = self.viewport().width;
                 (((w + gap) / (item_width + gap)).floor() as usize).max(1)
             }
@@ -535,7 +562,9 @@ impl ItemViewElement {
     fn cell_width(&self) -> f32 {
         match self.layout {
             ItemLayout::Rows { .. } => self.viewport().width,
-            ItemLayout::Grid { item_width, gap, .. } if self.stretch => {
+            ItemLayout::Grid {
+                item_width, gap, ..
+            } if self.stretch => {
                 let cols = self.cols() as f32;
                 ((self.viewport().width - gap * (cols - 1.0)) / cols).max(item_width)
             }
@@ -546,7 +575,9 @@ impl ItemViewElement {
     fn step(&self) -> (f32, f32) {
         match self.layout {
             ItemLayout::Rows { row_height } => (self.viewport().width, row_height),
-            ItemLayout::Grid { item_height, gap, .. } => (self.cell_width() + gap, item_height + gap),
+            ItemLayout::Grid {
+                item_height, gap, ..
+            } => (self.cell_width() + gap, item_height + gap),
         }
     }
 
@@ -629,7 +660,8 @@ impl ItemViewElement {
         let (_, sy) = self.step();
         let cols = self.cols();
         let first = ((self.scroll / sy).floor() as usize).saturating_sub(BUFFER_ROWS);
-        let last = (((self.scroll + self.viewport().height) / sy).ceil() as usize + BUFFER_ROWS).min(self.rows());
+        let last = (((self.scroll + self.viewport().height) / sy).ceil() as usize + BUFFER_ROWS)
+            .min(self.rows());
         (first * cols, (last * cols).min(self.count))
     }
 
@@ -645,9 +677,16 @@ impl ItemViewElement {
         let vh = self.viewport().height;
         let h = (vh / ch * track_h).clamp(24.0, track_h);
         let m = self.max_scroll();
-        let y = if m > 0.0 { self.scroll / m * (track_h - h) } else { 0.0 };
+        let y = if m > 0.0 {
+            self.scroll / m * (track_h - h)
+        } else {
+            0.0
+        };
         Rect::new(
-            Point::new(self.bounds.origin.x + self.bounds.size.width - self.scrollbar_width, self.bounds.origin.y + y),
+            Point::new(
+                self.bounds.origin.x + self.bounds.size.width - self.scrollbar_width,
+                self.bounds.origin.y + y,
+            ),
             Size::new(self.scrollbar_width, h),
         )
     }
@@ -727,7 +766,11 @@ impl ItemViewElement {
         }
         let cursor = self.selection.cursor;
         let anchor = self.selection.anchor;
-        self.emit(ItemSelection { selected: sel, cursor, anchor });
+        self.emit(ItemSelection {
+            selected: sel,
+            cursor,
+            anchor,
+        });
     }
 
     /// Диапазон индексов, строки которых пересекают прямоугольник.
@@ -785,12 +828,18 @@ impl ItemViewElement {
     }
 
     fn typeahead(&mut self, c: char) -> bool {
-        let Some(label) = self.item_label.clone() else { return false };
+        let Some(label) = self.item_label.clone() else {
+            return false;
+        };
         if self.count == 0 || c.is_control() {
             return false;
         }
         let now = Instant::now();
-        if self.typeahead_at.map(|t| now.duration_since(t) > TYPEAHEAD_RESET).unwrap_or(true) {
+        if self
+            .typeahead_at
+            .map(|t| now.duration_since(t) > TYPEAHEAD_RESET)
+            .unwrap_or(true)
+        {
             self.typeahead.clear();
         }
         self.typeahead_at = Some(now);
@@ -798,8 +847,22 @@ impl ItemViewElement {
         let q = self.typeahead.clone();
         // Одна и та же буква подряд — перебирать элементы на неё.
         let repeat = q.chars().count() > 1 && q.chars().all(|x| Some(x) == q.chars().next());
-        let start = self.selection.cursor.map(|c| if repeat || q.chars().count() == 1 { c + 1 } else { c }).unwrap_or(0);
-        let needle: String = if repeat { q.chars().take(1).collect() } else { q };
+        let start = self
+            .selection
+            .cursor
+            .map(|c| {
+                if repeat || q.chars().count() == 1 {
+                    c + 1
+                } else {
+                    c
+                }
+            })
+            .unwrap_or(0);
+        let needle: String = if repeat {
+            q.chars().take(1).collect()
+        } else {
+            q
+        };
         let found = (0..self.count)
             .map(|k| (start + k) % self.count)
             .find(|&i| label(i).to_lowercase().starts_with(&needle));
@@ -870,7 +933,10 @@ impl ItemViewElement {
 }
 
 fn rect_from(a: Point, b: Point) -> Rect {
-    Rect::new(Point::new(a.x.min(b.x), a.y.min(b.y)), Size::new((a.x - b.x).abs(), (a.y - b.y).abs()))
+    Rect::new(
+        Point::new(a.x.min(b.x), a.y.min(b.y)),
+        Size::new((a.x - b.x).abs(), (a.y - b.y).abs()),
+    )
 }
 
 /// Пустышка заданного размера — задаёт высоту содержимого.
@@ -878,7 +944,11 @@ struct Extent(Size);
 
 impl Widget for Extent {
     fn create_element(&self) -> Box<dyn Element> {
-        Box::new(ExtentElement { id: ElementId::new(), bounds: Rect::new(Point::zero(), self.0), dirty: DirtyFlags::LAYOUT })
+        Box::new(ExtentElement {
+            id: ElementId::new(),
+            bounds: Rect::new(Point::zero(), self.0),
+            dirty: DirtyFlags::LAYOUT,
+        })
     }
     fn can_update(&self, other: &dyn Any) -> bool {
         other.is::<Self>()
@@ -956,8 +1026,16 @@ impl Element for ItemViewElement {
     }
 
     fn layout(&mut self, c: Constraints) -> Size {
-        let w = if c.max_width.is_finite() { c.max_width } else { c.min_width.max(0.0) };
-        let h = if c.max_height.is_finite() { c.max_height } else { c.min_height.max(0.0) };
+        let w = if c.max_width.is_finite() {
+            c.max_width
+        } else {
+            c.min_width.max(0.0)
+        };
+        let h = if c.max_height.is_finite() {
+            c.max_height
+        } else {
+            c.min_height.max(0.0)
+        };
         self.bounds.size = Size::new(w, h);
         if let Some(i) = self.pending_scroll_to.take() {
             self.scroll_to_item(i);
@@ -1001,7 +1079,9 @@ impl Element for ItemViewElement {
                 drop_target: self.drop_target == Some(i),
             };
             kids.push(Box::new(
-                Positioned::new((self.builder)(i, st)).at(r.origin.x, r.origin.y).dimensions(size.width, size.height),
+                Positioned::new((self.builder)(i, st))
+                    .at(r.origin.x, r.origin.y)
+                    .dimensions(size.width, size.height),
             ));
         }
         vec![Box::new(Stack::new().children(kids))]
@@ -1023,19 +1103,35 @@ impl Element for ItemViewElement {
         if let Some(m) = &self.marquee {
             let r = rect_from(m.start, m.end);
             let r = Rect::new(
-                Point::new(r.origin.x + self.bounds.origin.x + self.padding[0], r.origin.y + self.bounds.origin.y + self.padding[1]),
+                Point::new(
+                    r.origin.x + self.bounds.origin.x + self.padding[0],
+                    r.origin.y + self.bounds.origin.y + self.padding[1],
+                ),
                 r.size,
             );
             let c = self.selection_color;
-            list.push_rect_bordered(r, c.with_alpha(0.22), [2.0; 4], Border::new(1.0, c.with_alpha(0.9)));
+            list.push_rect_bordered(
+                r,
+                c.with_alpha(0.22),
+                [2.0; 4],
+                Border::new(1.0, c.with_alpha(0.9)),
+            );
         }
         if self.drop_hover && self.drop_target.is_none() {
             // Перенос на фон — подсветить весь вид.
             let r = Rect::new(
-                Point::new(self.bounds.origin.x + 1.0, self.bounds.origin.y + self.scroll + 1.0),
+                Point::new(
+                    self.bounds.origin.x + 1.0,
+                    self.bounds.origin.y + self.scroll + 1.0,
+                ),
                 Size::new(self.bounds.size.width - 2.0, self.bounds.size.height - 2.0),
             );
-            list.push_rect_bordered(r, Color::TRANSPARENT, [6.0; 4], Border::new(2.0, self.selection_color.with_alpha(0.6)));
+            list.push_rect_bordered(
+                r,
+                Color::TRANSPARENT,
+                [6.0; 4],
+                Border::new(2.0, self.selection_color.with_alpha(0.6)),
+            );
         }
         list.pop_transform();
         list.pop_clip();
@@ -1049,10 +1145,17 @@ impl Element for ItemViewElement {
                 0.4
             };
             let t = self.thumb();
-            let inset = if self.scrollbar_hover || self.scrollbar_drag.is_some() { 1.0 } else { 2.0 };
+            let inset = if self.scrollbar_hover || self.scrollbar_drag.is_some() {
+                1.0
+            } else {
+                2.0
+            };
             let t = Rect::new(
                 Point::new(t.origin.x + inset, t.origin.y + 2.0),
-                Size::new((t.size.width - inset * 2.0).max(2.0), (t.size.height - 4.0).max(8.0)),
+                Size::new(
+                    (t.size.width - inset * 2.0).max(2.0),
+                    (t.size.height - 4.0).max(8.0),
+                ),
             );
             list.push_rect(t, base.with_alpha(a), [t.size.width / 2.0; 4]);
         }
@@ -1061,7 +1164,9 @@ impl Element for ItemViewElement {
     fn handle_event(&mut self, event: &Event, ctx: &mut EventContext) -> EventResult {
         let m = ctx.modifiers;
         match event {
-            Event::MouseWheel { delta, position, .. } => {
+            Event::MouseWheel {
+                delta, position, ..
+            } => {
                 if !self.bounds.contains(*position) {
                     return EventResult::Ignored;
                 }
@@ -1086,7 +1191,11 @@ impl Element for ItemViewElement {
                 self.pointer = *position;
                 if *button == MouseButton::Left && self.in_scrollbar(*position) {
                     let t = self.thumb();
-                    let grab = if t.contains(*position) { position.y - t.origin.y } else { t.size.height / 2.0 };
+                    let grab = if t.contains(*position) {
+                        position.y - t.origin.y
+                    } else {
+                        t.size.height / 2.0
+                    };
                     self.scrollbar_drag = Some(grab);
                     self.drag_scrollbar(position.y);
                     ctx.request_layout();
@@ -1119,23 +1228,46 @@ impl Element for ItemViewElement {
                             Some(i) => self.click_select(i, m),
                             None => {
                                 let c = self.to_content(*position);
-                                let base = if m.ctrl || m.shift { self.selection.selected.clone() } else { BTreeSet::new() };
+                                let base = if m.ctrl || m.shift {
+                                    self.selection.selected.clone()
+                                } else {
+                                    BTreeSet::new()
+                                };
                                 if !(m.ctrl || m.shift) {
-                                    self.emit(ItemSelection { selected: BTreeSet::new(), cursor: self.selection.cursor, anchor: None });
+                                    self.emit(ItemSelection {
+                                        selected: BTreeSet::new(),
+                                        cursor: self.selection.cursor,
+                                        anchor: None,
+                                    });
                                 }
-                                self.marquee = Some(Marquee { start: c, end: c, base, additive: m.ctrl });
+                                self.marquee = Some(Marquee {
+                                    start: c,
+                                    end: c,
+                                    base,
+                                    additive: m.ctrl,
+                                });
                             }
                         }
-                        self.press = Some(Press { at: *position, item, deferred_single: deferred, dragging: false, plain: !m.shift && !m.ctrl });
+                        self.press = Some(Press {
+                            at: *position,
+                            item,
+                            deferred_single: deferred,
+                            dragging: false,
+                            plain: !m.shift && !m.ctrl,
+                        });
                         ctx.request_paint();
                         EventResult::Captured
                     }
                     MouseButton::Right => {
                         match item {
-                            Some(i) if !self.selection.is_selected(i) => self.click_select(i, Modifiers::default()),
-                            None if !m.ctrl => {
-                                self.emit(ItemSelection { selected: BTreeSet::new(), cursor: self.selection.cursor, anchor: None })
+                            Some(i) if !self.selection.is_selected(i) => {
+                                self.click_select(i, Modifiers::default())
                             }
+                            None if !m.ctrl => self.emit(ItemSelection {
+                                selected: BTreeSet::new(),
+                                cursor: self.selection.cursor,
+                                anchor: None,
+                            }),
                             _ => {}
                         }
                         call(&self.on_context_menu, (item, *position));
@@ -1152,7 +1284,10 @@ impl Element for ItemViewElement {
                     _ => EventResult::Ignored,
                 }
             }
-            Event::DoubleClick { button: MouseButton::Left, position } => {
+            Event::DoubleClick {
+                button: MouseButton::Left,
+                position,
+            } => {
                 if !self.bounds.contains(*position) || self.in_scrollbar(*position) {
                     return EventResult::Ignored;
                 }
@@ -1204,9 +1339,14 @@ impl Element for ItemViewElement {
                 }
                 if let Some(p) = self.press {
                     if !p.dragging
-                        && ((pos.x - p.at.x).abs() > DRAG_THRESHOLD || (pos.y - p.at.y).abs() > DRAG_THRESHOLD)
+                        && ((pos.x - p.at.x).abs() > DRAG_THRESHOLD
+                            || (pos.y - p.at.y).abs() > DRAG_THRESHOLD)
                     {
-                        self.press = Some(Press { dragging: true, deferred_single: false, ..p });
+                        self.press = Some(Press {
+                            dragging: true,
+                            deferred_single: false,
+                            ..p
+                        });
                         if let Some(f) = self.drag_start.clone() {
                             if let Some(mut data) = f(&self.selection) {
                                 data.source_id = self.id.0;
@@ -1219,7 +1359,10 @@ impl Element for ItemViewElement {
                 }
                 EventResult::Ignored
             }
-            Event::MouseUp { button: MouseButton::Left, position } => {
+            Event::MouseUp {
+                button: MouseButton::Left,
+                position,
+            } => {
                 if self.scrollbar_drag.take().is_some() {
                     ctx.request_paint();
                     return EventResult::Handled;
@@ -1301,7 +1444,15 @@ impl Element for ItemViewElement {
                 ctx.request_layout();
                 match target {
                     Some(t) => {
-                        call(&self.on_drop, ItemDrop { target: t, data: data.clone(), modifiers: m, position: *position });
+                        call(
+                            &self.on_drop,
+                            ItemDrop {
+                                target: t,
+                                data: data.clone(),
+                                modifiers: m,
+                                position: *position,
+                            },
+                        );
                         EventResult::Handled
                     }
                     None => EventResult::Ignored,
@@ -1318,11 +1469,18 @@ impl Element for ItemViewElement {
                 }
                 self.velocity.reset();
                 self.velocity.add(*position);
-                self.touch = Some(TouchPan { id: *id, start: *position, last: *position, panning: false });
+                self.touch = Some(TouchPan {
+                    id: *id,
+                    start: *position,
+                    last: *position,
+                    panning: false,
+                });
                 EventResult::Handled
             }
             Event::TouchMove { id, position } => {
-                let Some(mut t) = self.touch.filter(|t| t.id == *id) else { return EventResult::Ignored };
+                let Some(mut t) = self.touch.filter(|t| t.id == *id) else {
+                    return EventResult::Ignored;
+                };
                 self.velocity.add(*position);
                 if !t.panning {
                     let (dx, dy) = (position.x - t.start.x, position.y - t.start.y);
@@ -1347,7 +1505,9 @@ impl Element for ItemViewElement {
                 EventResult::Handled
             }
             Event::TouchEnd { id, .. } => {
-                let Some(t) = self.touch.filter(|t| t.id == *id) else { return EventResult::Ignored };
+                let Some(t) = self.touch.filter(|t| t.id == *id) else {
+                    return EventResult::Ignored;
+                };
                 self.touch = None;
                 if !t.panning {
                     return EventResult::Ignored;
@@ -1364,7 +1524,9 @@ impl Element for ItemViewElement {
                     return EventResult::Ignored;
                 }
                 // На фоне — меню (хост превратит удержание в правую кнопку).
-                let Some(i) = self.item_at(*position) else { return EventResult::Ignored };
+                let Some(i) = self.item_at(*position) else {
+                    return EventResult::Ignored;
+                };
                 let mut s = self.selection.clone();
                 s.selected.insert(i);
                 s.cursor = Some(i);
@@ -1375,7 +1537,14 @@ impl Element for ItemViewElement {
             }
             Event::KeyDown(key) if self.keyboard_active => {
                 let handled = match key {
-                    Key::Up | Key::Down | Key::Left | Key::Right | Key::Home | Key::End | Key::PageUp | Key::PageDown => {
+                    Key::Up
+                    | Key::Down
+                    | Key::Left
+                    | Key::Right
+                    | Key::Home
+                    | Key::End
+                    | Key::PageUp
+                    | Key::PageDown => {
                         if m.alt {
                             false
                         } else {
@@ -1399,7 +1568,11 @@ impl Element for ItemViewElement {
                         true
                     }
                     Key::Enter if !m.ctrl && !m.alt => {
-                        if let Some(c) = self.selection.cursor.or_else(|| self.selection.selected.iter().next().copied()) {
+                        if let Some(c) = self
+                            .selection
+                            .cursor
+                            .or_else(|| self.selection.selected.iter().next().copied())
+                        {
                             call(&self.on_activate, c);
                             true
                         } else {
@@ -1407,7 +1580,11 @@ impl Element for ItemViewElement {
                         }
                     }
                     Key::Escape if !self.selection.selected.is_empty() => {
-                        self.emit(ItemSelection { selected: BTreeSet::new(), cursor: self.selection.cursor, anchor: None });
+                        self.emit(ItemSelection {
+                            selected: BTreeSet::new(),
+                            cursor: self.selection.cursor,
+                            anchor: None,
+                        });
                         true
                     }
                     Key::ContextMenu => {
@@ -1418,11 +1595,18 @@ impl Element for ItemViewElement {
                                 let r = self.item_rect(c);
                                 Point::new(
                                     self.bounds.origin.x + self.padding[0] + r.origin.x + 12.0,
-                                    self.bounds.origin.y + self.padding[1] + r.origin.y + r.size.height - self.scroll,
+                                    self.bounds.origin.y
+                                        + self.padding[1]
+                                        + r.origin.y
+                                        + r.size.height
+                                        - self.scroll,
                                 )
                             })
                             .unwrap_or(self.bounds.origin);
-                        let target = self.selection.cursor.filter(|c| self.selection.is_selected(*c));
+                        let target = self
+                            .selection
+                            .cursor
+                            .filter(|c| self.selection.is_selected(*c));
                         call(&self.on_context_menu, (target, at));
                         true
                     }
@@ -1583,7 +1767,9 @@ impl Element for ItemViewElement {
 
 impl ItemViewElement {
     fn drag_scrollbar(&mut self, y: f32) {
-        let Some(grab) = self.scrollbar_drag else { return };
+        let Some(grab) = self.scrollbar_drag else {
+            return;
+        };
         let t = self.thumb();
         let track = self.bounds.size.height - t.size.height;
         if track <= 0.0 {
@@ -1616,7 +1802,11 @@ mod tests {
     /// Сетка 100×50 без зазора: в окне 400 px — 4 столбца (минус полоса 8 px → 3).
     fn grid(count: usize, sink: Arc<Mutex<Vec<ItemSelection>>>) -> ItemView {
         ItemView::new(count, |i, _| Box::new(Text::new(format!("{i}"))))
-            .layout(ItemLayout::Grid { item_width: 100.0, item_height: 50.0, gap: 0.0 })
+            .layout(ItemLayout::Grid {
+                item_width: 100.0,
+                item_height: 50.0,
+                gap: 0.0,
+            })
             .item_label(|i| format!("item{i}"))
             .on_selection_change(move |s| sink.lock().unwrap().push(s))
     }
@@ -1629,13 +1819,23 @@ mod tests {
     }
 
     fn last(seen: &Arc<Mutex<Vec<ItemSelection>>>) -> Vec<usize> {
-        seen.lock().unwrap().last().map(|s| s.selected.iter().copied().collect()).unwrap_or_default()
+        seen.lock()
+            .unwrap()
+            .last()
+            .map(|s| s.selected.iter().copied().collect())
+            .unwrap_or_default()
     }
 
     fn press(h: &mut TestHarness, x: f32, y: f32, m: Modifiers) {
         h.tree.modifiers = m;
-        h.send_event(&Event::MouseDown { button: MouseButton::Left, position: Point::new(x, y) });
-        h.send_event(&Event::MouseUp { button: MouseButton::Left, position: Point::new(x, y) });
+        h.send_event(&Event::MouseDown {
+            button: MouseButton::Left,
+            position: Point::new(x, y),
+        });
+        h.send_event(&Event::MouseUp {
+            button: MouseButton::Left,
+            position: Point::new(x, y),
+        });
     }
 
     #[test]
@@ -1643,11 +1843,35 @@ mod tests {
         let (mut h, seen) = harness(20);
         press(&mut h, 150.0, 25.0, Modifiers::default()); // 3 столбца: (0,1) → 1
         assert_eq!(last(&seen), vec![1]);
-        press(&mut h, 50.0, 75.0, Modifiers { shift: true, ..Default::default() }); // → 3
+        press(
+            &mut h,
+            50.0,
+            75.0,
+            Modifiers {
+                shift: true,
+                ..Default::default()
+            },
+        ); // → 3
         assert_eq!(last(&seen), vec![1, 2, 3]);
-        press(&mut h, 250.0, 125.0, Modifiers { ctrl: true, ..Default::default() }); // → 8
+        press(
+            &mut h,
+            250.0,
+            125.0,
+            Modifiers {
+                ctrl: true,
+                ..Default::default()
+            },
+        ); // → 8
         assert_eq!(last(&seen), vec![1, 2, 3, 8]);
-        press(&mut h, 250.0, 125.0, Modifiers { ctrl: true, ..Default::default() });
+        press(
+            &mut h,
+            250.0,
+            125.0,
+            Modifiers {
+                ctrl: true,
+                ..Default::default()
+            },
+        );
         assert_eq!(last(&seen), vec![1, 2, 3]);
     }
 
@@ -1656,12 +1880,30 @@ mod tests {
         let (mut h, seen) = harness(20);
         h.tree.modifiers = Modifiers::default();
         press(&mut h, 50.0, 25.0, Modifiers::default());
-        press(&mut h, 250.0, 25.0, Modifiers { shift: true, ..Default::default() });
+        press(
+            &mut h,
+            250.0,
+            25.0,
+            Modifiers {
+                shift: true,
+                ..Default::default()
+            },
+        );
         assert_eq!(last(&seen), vec![0, 1, 2]);
         h.tree.modifiers = Modifiers::default();
-        h.send_event(&Event::MouseDown { button: MouseButton::Left, position: Point::new(150.0, 25.0) });
-        assert_eq!(last(&seen), vec![0, 1, 2], "нажатие по выделенному не сбрасывает выделение");
-        h.send_event(&Event::MouseUp { button: MouseButton::Left, position: Point::new(150.0, 25.0) });
+        h.send_event(&Event::MouseDown {
+            button: MouseButton::Left,
+            position: Point::new(150.0, 25.0),
+        });
+        assert_eq!(
+            last(&seen),
+            vec![0, 1, 2],
+            "нажатие по выделенному не сбрасывает выделение"
+        );
+        h.send_event(&Event::MouseUp {
+            button: MouseButton::Left,
+            position: Point::new(150.0, 25.0),
+        });
         assert_eq!(last(&seen), vec![1]);
     }
 
@@ -1676,12 +1918,27 @@ mod tests {
         let mut h = TestHarness::new(Box::new(view));
         h.layout(308.0, 200.0);
         h.tree.modifiers = Modifiers::default();
-        h.send_event(&Event::MouseDown { button: MouseButton::Left, position: Point::new(100.0, 75.0) });
-        h.send_event(&Event::MouseUp { button: MouseButton::Left, position: Point::new(100.0, 75.0) });
+        h.send_event(&Event::MouseDown {
+            button: MouseButton::Left,
+            position: Point::new(100.0, 75.0),
+        });
+        h.send_event(&Event::MouseUp {
+            button: MouseButton::Left,
+            position: Point::new(100.0, 75.0),
+        });
         assert_eq!(*opened.lock().unwrap(), vec![1], "щелчок открывает");
-        h.tree.modifiers = Modifiers { ctrl: true, ..Default::default() };
-        h.send_event(&Event::MouseDown { button: MouseButton::Left, position: Point::new(100.0, 125.0) });
-        h.send_event(&Event::MouseUp { button: MouseButton::Left, position: Point::new(100.0, 125.0) });
+        h.tree.modifiers = Modifiers {
+            ctrl: true,
+            ..Default::default()
+        };
+        h.send_event(&Event::MouseDown {
+            button: MouseButton::Left,
+            position: Point::new(100.0, 125.0),
+        });
+        h.send_event(&Event::MouseUp {
+            button: MouseButton::Left,
+            position: Point::new(100.0, 125.0),
+        });
         assert_eq!(*opened.lock().unwrap(), vec![1], "с Ctrl — только выделяет");
     }
 
@@ -1689,15 +1946,25 @@ mod tests {
     fn marquee_selects_intersecting() {
         let (mut h, seen) = harness(5); // строки: 0 1 2 / 3 4 ; фон — справа от 4
         h.tree.modifiers = Modifiers::default();
-        h.send_event(&Event::MouseDown { button: MouseButton::Left, position: Point::new(280.0, 90.0) });
+        h.send_event(&Event::MouseDown {
+            button: MouseButton::Left,
+            position: Point::new(280.0, 90.0),
+        });
         h.send_event(&Event::MouseMove(Point::new(150.0, 40.0)));
         assert_eq!(last(&seen), vec![1, 2, 4]);
         h.send_event(&Event::MouseMove(Point::new(20.0, 10.0)));
         assert_eq!(last(&seen), vec![0, 1, 2, 3, 4]);
-        h.send_event(&Event::MouseUp { button: MouseButton::Left, position: Point::new(20.0, 10.0) });
+        h.send_event(&Event::MouseUp {
+            button: MouseButton::Left,
+            position: Point::new(20.0, 10.0),
+        });
     }
 
-    fn touch_view(count: usize, sink: Arc<Mutex<Vec<ItemSelection>>>, opened: Arc<Mutex<Vec<usize>>>) -> TestHarness {
+    fn touch_view(
+        count: usize,
+        sink: Arc<Mutex<Vec<ItemSelection>>>,
+        opened: Arc<Mutex<Vec<usize>>>,
+    ) -> TestHarness {
         let view = ItemView::new(count, |i, _| Box::new(Text::new(format!("{i}"))))
             .layout(ItemLayout::Rows { row_height: 50.0 })
             .touch_mode(true)
@@ -1717,7 +1984,9 @@ mod tests {
         h.touch_up(1);
         assert_eq!(*opened.lock().unwrap(), vec![1], "тап открывает");
         assert!(seen.lock().unwrap().is_empty(), "и не выделяет");
-        h.send_event(&Event::LongPress { position: Point::new(100.0, 125.0) });
+        h.send_event(&Event::LongPress {
+            position: Point::new(100.0, 125.0),
+        });
         assert_eq!(last(&seen), vec![2], "удержание выделяет");
         // Режим выбора: тап переключает, а не открывает.
         std::thread::sleep(std::time::Duration::from_millis(350));
@@ -1742,7 +2011,11 @@ mod tests {
         h.touch_up(1);
         assert!(opened.lock().unwrap().is_empty(), "прокрутка — не тап");
         let el = h.tree.get(h.root_id).unwrap();
-        assert!((el.scroll_offset().y - 100.0).abs() < 0.5, "содержимое идёт за пальцем: {}", el.scroll_offset().y);
+        assert!(
+            (el.scroll_offset().y - 100.0).abs() < 0.5,
+            "содержимое идёт за пальцем: {}",
+            el.scroll_offset().y
+        );
     }
 
     #[test]
@@ -1765,9 +2038,16 @@ mod tests {
         assert_eq!(last(&seen), vec![3]);
         h.send_event(&Event::KeyDown(Key::Right));
         assert_eq!(last(&seen), vec![4]);
-        h.tree.modifiers = Modifiers { shift: true, ..Default::default() };
+        h.tree.modifiers = Modifiers {
+            shift: true,
+            ..Default::default()
+        };
         h.send_event(&Event::KeyDown(Key::Down));
-        assert_eq!(last(&seen), vec![4, 5, 6, 7], "неполная строка — к последнему");
+        assert_eq!(
+            last(&seen),
+            vec![4, 5, 6, 7],
+            "неполная строка — к последнему"
+        );
         h.tree.modifiers = Modifiers::default();
         h.send_event(&Event::CharInput('i'));
         h.send_event(&Event::CharInput('t'));

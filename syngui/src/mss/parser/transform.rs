@@ -449,8 +449,14 @@ mod tests {
         let v = expand("perspective(400px) rotateX(30deg) rotateY(-0.25turn) translateZ(12px)");
         assert!(v.contains(&("rotate-x".to_string(), StyleValue::Number(30.0))));
         assert!(v.contains(&("rotate-y".to_string(), StyleValue::Number(-90.0))));
-        assert!(v.contains(&("translate-z".to_string(), StyleValue::Length(12.0, Unit::Px))));
-        assert!(v.contains(&("perspective".to_string(), StyleValue::Length(400.0, Unit::Px))));
+        assert!(v.contains(&(
+            "translate-z".to_string(),
+            StyleValue::Length(12.0, Unit::Px)
+        )));
+        assert!(v.contains(&(
+            "perspective".to_string(),
+            StyleValue::Length(400.0, Unit::Px)
+        )));
         let v = expand("rotateZ(10deg) translate3d(1px, 2px, 3px)");
         assert!(v.contains(&("rotate".to_string(), StyleValue::Number(10.0))));
         assert!(v.contains(&("translate-x".to_string(), StyleValue::Length(1.0, Unit::Px))));
@@ -459,9 +465,18 @@ mod tests {
 
     #[test]
     fn normalize_angles() {
-        assert_eq!(normalize_angle(&StyleValue::String("45deg".into())), Some(StyleValue::Number(45.0)));
-        assert_eq!(normalize_angle(&StyleValue::String("0.5turn".into())), Some(StyleValue::Number(180.0)));
-        assert_eq!(normalize_angle(&StyleValue::String("30".into())), Some(StyleValue::Number(30.0)));
+        assert_eq!(
+            normalize_angle(&StyleValue::String("45deg".into())),
+            Some(StyleValue::Number(45.0))
+        );
+        assert_eq!(
+            normalize_angle(&StyleValue::String("0.5turn".into())),
+            Some(StyleValue::Number(180.0))
+        );
+        assert_eq!(
+            normalize_angle(&StyleValue::String("30".into())),
+            Some(StyleValue::Number(30.0))
+        );
         assert_eq!(normalize_angle(&StyleValue::Number(30.0)), None);
     }
 

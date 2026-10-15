@@ -29,9 +29,11 @@ fn switcher_keeps_content_after_exit() {
     let key = use_signal(1u64);
     let root = DecoratedBox::new().child(move || {
         let k = key.get();
-        AnimatedSwitcher::new(k, move || Box::new(Text::new(format!("page {k}")).class("pg")))
-            .duration_ms(100)
-            .exit_duration_ms(100)
+        AnimatedSwitcher::new(k, move || {
+            Box::new(Text::new(format!("page {k}")).class("pg"))
+        })
+        .duration_ms(100)
+        .exit_duration_ms(100)
     });
     let mut h = TestHarness::new(Box::new(root));
     h.rebuild();
@@ -40,10 +42,18 @@ fn switcher_keeps_content_after_exit() {
     key.set(2);
     h.rebuild();
     h.layout(400.0, 400.0);
-    assert_eq!(h.find_by_class("pg").len(), 2, "во время перехода видны обе страницы");
+    assert_eq!(
+        h.find_by_class("pg").len(),
+        2,
+        "во время перехода видны обе страницы"
+    );
     for _ in 0..10 {
         h.animate(Duration::from_millis(50));
         h.layout(400.0, 400.0);
     }
-    assert_eq!(h.find_by_class("pg").len(), 1, "после ухода остаётся текущая страница");
+    assert_eq!(
+        h.find_by_class("pg").len(),
+        1,
+        "после ухода остаётся текущая страница"
+    );
 }

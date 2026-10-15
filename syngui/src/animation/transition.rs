@@ -45,9 +45,9 @@ impl AnimatedValue {
                     .unwrap_or(AnimatedValue::None),
                 PropertyType::Float => {
                     let s = s.trim();
-                    if let Some(StyleValue::Number(deg)) = crate::mss::normalize_angle(
-                        &StyleValue::String(s.to_string()),
-                    ) {
+                    if let Some(StyleValue::Number(deg)) =
+                        crate::mss::normalize_angle(&StyleValue::String(s.to_string()))
+                    {
                         return AnimatedValue::Float(deg);
                     }
                     let s = s.trim_end_matches("px");
@@ -542,7 +542,14 @@ impl TransitionState {
     /// элемента имеют приоритет.
     pub fn add_theme_specs(&mut self, duration_secs: f32, easing: Easing) {
         self.theme_specs.clear();
-        for prop in ["background-color", "color", "border-color", "outline-color", "accent-color", "color-tint"] {
+        for prop in [
+            "background-color",
+            "color",
+            "border-color",
+            "outline-color",
+            "accent-color",
+            "color-tint",
+        ] {
             self.theme_specs.push(TransitionSpec {
                 property: prop.to_string(),
                 duration_secs,
@@ -624,7 +631,11 @@ impl TransitionState {
 
     pub fn tick(&mut self, dt_secs: f32) -> bool {
         // анимации выключены глобально — переходы сразу в конечное значение
-        let dt_secs = if super::enabled() { super::scaled_secs(dt_secs) } else { 1.0e6 };
+        let dt_secs = if super::enabled() {
+            super::scaled_secs(dt_secs)
+        } else {
+            1.0e6
+        };
         for t in &mut self.active {
             t.elapsed += dt_secs;
         }
@@ -817,7 +828,10 @@ pub(crate) fn split_top_level(s: &str, sep: char) -> Vec<&str> {
         }
     }
     out.push(&s[start..]);
-    out.into_iter().map(str::trim).filter(|p| !p.is_empty()).collect()
+    out.into_iter()
+        .map(str::trim)
+        .filter(|p| !p.is_empty())
+        .collect()
 }
 
 /// Токены шорхенда: пробелы внутри скобок не разделяют

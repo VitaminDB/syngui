@@ -125,7 +125,9 @@ pub(crate) fn lerp_style(from: &ComputedStyle, to: &ComputedStyle, t: f32) -> Co
         return out;
     }
     for (prop, v) in to.properties() {
-        let (Some(b), Some(a)) = (v.as_color(), from.get(prop).and_then(|x| x.as_color())) else { continue };
+        let (Some(b), Some(a)) = (v.as_color(), from.get(prop).and_then(|x| x.as_color())) else {
+            continue;
+        };
         if a == b {
             continue;
         }
@@ -134,13 +136,18 @@ pub(crate) fn lerp_style(from: &ComputedStyle, to: &ComputedStyle, t: f32) -> Co
         let mixed = ca.lerp(&cb, t);
         let [r, g, bl] = mixed.to_srgb_u8();
         let al = (mixed.a.clamp(0.0, 1.0) * 255.0).round() as u8;
-        out.set(prop, StyleValue::Color(super::MssColor { r, g, b: bl, a: al }));
+        out.set(
+            prop,
+            StyleValue::Color(super::MssColor { r, g, b: bl, a: al }),
+        );
     }
     out
 }
 
 fn arm_theme_transition(element: &dyn crate::widget::Element) {
-    let t = THEME_TRANSITION.with(|c| c.get()).filter(|_| element.ticks_mss_transitions());
+    let t = THEME_TRANSITION
+        .with(|c| c.get())
+        .filter(|_| element.ticks_mss_transitions());
     super::fields::set_element_theme_transition(t);
 }
 
@@ -596,7 +603,7 @@ pub fn apply_styles_to_tree(tree: &mut ElementTree, style_engine: &StyleEngine) 
             if let Some(node) = tree.elements.get_mut(&id) {
                 if node.had_mss_rules || base.properties().next().is_some() {
                     arm_theme_transition(&*node.element);
-                node.element.reset_mss_styles();
+                    node.element.reset_mss_styles();
                     node.element.apply_computed_style(&base);
                     node.had_mss_rules = base.properties().next().is_some();
                     node.styles_dirty = false;
@@ -693,7 +700,7 @@ pub fn apply_styles_dirty(tree: &mut ElementTree, style_engine: &StyleEngine) ->
                     .unwrap_or(false);
                 if !unchanged && (node.had_mss_rules || parent_inh.properties().next().is_some()) {
                     arm_theme_transition(&*node.element);
-                node.element.reset_mss_styles();
+                    node.element.reset_mss_styles();
                     node.element.apply_computed_style(&parent_inh);
                     node.had_mss_rules = parent_inh.properties().next().is_some();
                     node.refresh_hint_cache();
@@ -784,7 +791,7 @@ pub fn apply_styles_dirty(tree: &mut ElementTree, style_engine: &StyleEngine) ->
             if let Some(node) = tree.elements.get_mut(&id) {
                 if node.had_mss_rules {
                     arm_theme_transition(&*node.element);
-                node.element.reset_mss_styles();
+                    node.element.reset_mss_styles();
                     let empty = ComputedStyle::default();
                     node.element.apply_computed_style(&empty);
                     node.element
@@ -863,12 +870,21 @@ pub fn apply_styles_dirty(tree: &mut ElementTree, style_engine: &StyleEngine) ->
             .filter(|_| !node.element.ticks_mss_transitions())
             .and_then(|(secs, easing)| {
                 let old = node.cascade_cache.as_ref().map(|c| c.base.clone())?;
-                colors_differ(&old, &base).then(|| ThemeFade { id, from: old, to: base.clone(), elapsed: 0.0, duration: secs, easing })
+                colors_differ(&old, &base).then(|| ThemeFade {
+                    id,
+                    from: old,
+                    to: base.clone(),
+                    elapsed: 0.0,
+                    duration: secs,
+                    easing,
+                })
             });
         arm_theme_transition(&*node.element);
         node.element.reset_mss_styles();
         match &fade {
-            Some(f) => node.element.apply_computed_style(&lerp_style(&f.from, &f.to, 0.0)),
+            Some(f) => node
+                .element
+                .apply_computed_style(&lerp_style(&f.from, &f.to, 0.0)),
             None => node.element.apply_computed_style(&base),
         }
         node.element.apply_transition_styles(

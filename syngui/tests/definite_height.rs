@@ -91,7 +91,11 @@ fn content_taller_than_min_height_is_not_squeezed() {
 fn flex_child_box_takes_its_share_with_short_content() {
     let column = Column::new()
         .child(DecoratedBox::new().style("height", 40.0_f32))
-        .child(DecoratedBox::new().class("grow").child(move || Text::new("коротко")));
+        .child(
+            DecoratedBox::new()
+                .class("grow")
+                .child(move || Text::new("коротко")),
+        );
 
     let mut h = TestHarness::new(Box::new(column));
     let engine = h.apply_mss(MSS);

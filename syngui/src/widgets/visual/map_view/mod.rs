@@ -34,7 +34,14 @@ pub struct MapViewport {
 
 impl Default for MapViewport {
     fn default() -> Self {
-        Self { center_lat: 0.0, center_lng: 0.0, zoom: 1, zoom_level: 1.0, viewport_w: 0.0, viewport_h: 0.0 }
+        Self {
+            center_lat: 0.0,
+            center_lng: 0.0,
+            zoom: 1,
+            zoom_level: 1.0,
+            viewport_w: 0.0,
+            viewport_h: 0.0,
+        }
     }
 }
 
@@ -50,7 +57,12 @@ pub struct MapPolyline {
 
 impl MapPolyline {
     pub fn new(points: Vec<(f64, f64)>) -> Self {
-        Self { points, color: Color::new(0.1, 0.45, 0.95, 1.0), width: 5.0, outline: None }
+        Self {
+            points,
+            color: Color::new(0.1, 0.45, 0.95, 1.0),
+            width: 5.0,
+            outline: None,
+        }
     }
     pub fn color(mut self, c: Color) -> Self {
         self.color = c;
@@ -520,7 +532,15 @@ impl MapViewElement {
 
     fn geo_at(&self, p: Point) -> (f64, f64) {
         let (x, y) = self.local(p);
-        tile_math::pixel_to_geo_f(x, y, self.center_lat, self.center_lng, self.zoom, self.bounds.size.width, self.bounds.size.height)
+        tile_math::pixel_to_geo_f(
+            x,
+            y,
+            self.center_lat,
+            self.center_lng,
+            self.zoom,
+            self.bounds.size.width,
+            self.bounds.size.height,
+        )
     }
 
     /// Сдвиг карты так, чтобы точка (lat, lng) оказалась под экранной точкой `p`.
@@ -556,13 +576,27 @@ impl MapViewElement {
     fn fly(&mut self, lat: f64, lng: f64, zoom: f64, duration_ms: u32, easing: Easing) {
         self.fly_from = (self.center_lat, self.center_lng, self.zoom);
         self.fly_to = (lat, lng, zoom.clamp(MIN_ZOOM, self.max_zoom()));
-        self.fly_animation = Some(Animation::tween(easing).from(0.0).to(1.0).duration_ms(duration_ms).build());
+        self.fly_animation = Some(
+            Animation::tween(easing)
+                .from(0.0)
+                .to(1.0)
+                .duration_ms(duration_ms)
+                .build(),
+        );
     }
 
     fn clickable_marker_at(&self, position: Point) -> Option<u64> {
         self.on_marker_click.as_ref()?;
         let (x, y) = self.local(position);
-        marker_at_f(&self.markers, Point::new(x, y), self.center_lat, self.center_lng, self.zoom, self.bounds.size, web_time::Instant::now())
+        marker_at_f(
+            &self.markers,
+            Point::new(x, y),
+            self.center_lat,
+            self.center_lng,
+            self.zoom,
+            self.bounds.size,
+            web_time::Instant::now(),
+        )
     }
 
     fn track_press_movement(&mut self, position: Point) {
@@ -597,7 +631,9 @@ impl MapViewElement {
         if touch {
             if let Some((p, t)) = self.last_tap {
                 let (dx, dy) = (p.x - position.x, p.y - position.y);
-                if now.duration_since(t).as_millis() < DOUBLE_TAP_MS && dx * dx + dy * dy < 40.0 * 40.0 {
+                if now.duration_since(t).as_millis() < DOUBLE_TAP_MS
+                    && dx * dx + dy * dy < 40.0 * 40.0
+                {
                     self.last_tap = None;
                     self.double_tap(position);
                     return;
@@ -615,7 +651,11 @@ impl MapViewElement {
 
     fn double_tap(&mut self, position: Point) {
         self.interacted();
-        let target = if self.smooth_zoom { self.zoom + 1.0 } else { self.zoom.round() + 1.0 };
+        let target = if self.smooth_zoom {
+            self.zoom + 1.0
+        } else {
+            self.zoom.round() + 1.0
+        };
         let (lat, lng) = self.geo_at(position);
         let old = self.zoom;
         self.zoom = target.clamp(MIN_ZOOM, self.max_zoom());
@@ -642,7 +682,10 @@ impl MapViewElement {
         let pts: Vec<&Point> = self.touches.values().collect();
         let dx = pts[1].x - pts[0].x;
         let dy = pts[1].y - pts[0].y;
-        Some((Point::new((pts[0].x + pts[1].x) / 2.0, (pts[0].y + pts[1].y) / 2.0), (dx * dx + dy * dy).sqrt().max(1.0)))
+        Some((
+            Point::new((pts[0].x + pts[1].x) / 2.0, (pts[0].y + pts[1].y) / 2.0),
+            (dx * dx + dy * dy).sqrt().max(1.0),
+        ))
     }
 }
 
@@ -655,7 +698,15 @@ pub fn marker_at(
     viewport: Size,
     now: web_time::Instant,
 ) -> Option<u64> {
-    marker_at_f(markers, position, center_lat, center_lng, zoom as f64, viewport, now)
+    marker_at_f(
+        markers,
+        position,
+        center_lat,
+        center_lng,
+        zoom as f64,
+        viewport,
+        now,
+    )
 }
 
 /// [`marker_at`] при дробном масштабе.
@@ -673,7 +724,15 @@ pub fn marker_at_f(
         if marker.is_expired(now) || marker.current_opacity(now) <= 0.001 {
             return None;
         }
-        let (px, py) = tile_math::geo_to_pixel_f(marker.lat, marker.lng, center_lat, center_lng, zoom, viewport.width, viewport.height);
+        let (px, py) = tile_math::geo_to_pixel_f(
+            marker.lat,
+            marker.lng,
+            center_lat,
+            center_lng,
+            zoom,
+            viewport.width,
+            viewport.height,
+        );
         let radius = (marker.size * marker.current_scale(now) / 2.0).max(MIN_MARKER_HIT_RADIUS);
         let dx = position.x - px;
         let dy = position.y - py;
@@ -711,7 +770,13 @@ impl Element for MapViewElement {
                 if self.camera_seq != Some(c.seq) {
                     self.camera_seq = Some(c.seq);
                     if c.animate {
-                        self.fly(c.lat, c.lng, c.zoom, m.animate_duration_ms.min(800), m.animate_easing);
+                        self.fly(
+                            c.lat,
+                            c.lng,
+                            c.zoom,
+                            m.animate_duration_ms.min(800),
+                            m.animate_easing,
+                        );
                     } else {
                         self.fly_animation = None;
                         self.center_lat = c.lat;
@@ -728,7 +793,13 @@ impl Element for MapViewElement {
                     || self.fly_animation.is_none();
 
                 if needs_anim {
-                    self.fly(target_lat, target_lng, target_zoom as f64, m.animate_duration_ms, m.animate_easing);
+                    self.fly(
+                        target_lat,
+                        target_lng,
+                        target_zoom as f64,
+                        m.animate_duration_ms,
+                        m.animate_easing,
+                    );
                 }
             }
 
@@ -786,7 +857,10 @@ impl Element for MapViewElement {
         if self.show_attribution {
             let attr_text = self.provider.attribution;
             let attr_rect = Rect::new(
-                Point::new(bounds.origin.x + 4.0, bounds.origin.y + bounds.size.height - 16.0),
+                Point::new(
+                    bounds.origin.x + 4.0,
+                    bounds.origin.y + bounds.size.height - 16.0,
+                ),
                 Size::new(bounds.size.width - 8.0, 14.0),
             );
             list.push_rect(
@@ -814,7 +888,10 @@ impl Element for MapViewElement {
     ) -> EventResult {
         match event {
             // правая кнопка мыши — то же, что долгое нажатие пальцем (долгого нажатия мышью syngui не выдаёт)
-            Event::MouseDown { position, button: crate::input::MouseButton::Right } => {
+            Event::MouseDown {
+                position,
+                button: crate::input::MouseButton::Right,
+            } => {
                 if self.bounds.contains(*position) && self.touches.is_empty() {
                     if let Some(cb) = self.on_long_press.clone() {
                         let (lat, lng) = self.geo_at(*position);
@@ -879,7 +956,9 @@ impl Element for MapViewElement {
                     }
                 }
             }
-            Event::MouseWheel { position, delta, .. } => {
+            Event::MouseWheel {
+                position, delta, ..
+            } => {
                 if self.bounds.contains(*position) {
                     self.fly_animation = None;
                     self.interacted();
@@ -891,7 +970,11 @@ impl Element for MapViewElement {
                         const ZOOM_THRESHOLD: f32 = 12.0;
                         self.zoom_accumulator += *delta;
                         if self.zoom_accumulator.abs() >= ZOOM_THRESHOLD {
-                            let step = if self.zoom_accumulator > 0.0 { 1.0 } else { -1.0 };
+                            let step = if self.zoom_accumulator > 0.0 {
+                                1.0
+                            } else {
+                                -1.0
+                            };
                             self.zoom_accumulator = 0.0;
                             let z = (self.zoom.round() + step).min(self.provider.max_zoom as f64);
                             self.zoom_around(z, *position);
@@ -915,7 +998,12 @@ impl Element for MapViewElement {
                         self.last_tap = None;
                         let (lat, lng) = self.geo_at(center);
                         self.interacted();
-                        self.pinch = Some(Pinch { start_distance: dist, start_zoom: self.zoom, anchor_lat: lat, anchor_lng: lng });
+                        self.pinch = Some(Pinch {
+                            start_distance: dist,
+                            start_zoom: self.zoom,
+                            anchor_lat: lat,
+                            anchor_lng: lng,
+                        });
                     }
                     return EventResult::Handled;
                 }
@@ -930,9 +1018,11 @@ impl Element for MapViewElement {
                             self.emit_viewport();
                         }
                         return EventResult::Handled;
-                    } else if let (Some(p), Some((center, dist))) = (self.pinch, self.two_touches()) {
+                    } else if let (Some(p), Some((center, dist))) = (self.pinch, self.two_touches())
+                    {
                         // точка карты, бывшая под пальцами, остаётся между ними: масштаб и сдвиг разом
-                        let z = (p.start_zoom + (dist / p.start_distance).log2() as f64).clamp(MIN_ZOOM, self.max_zoom());
+                        let z = (p.start_zoom + (dist / p.start_distance).log2() as f64)
+                            .clamp(MIN_ZOOM, self.max_zoom());
                         self.zoom = z;
                         self.put_geo_at(p.anchor_lat, p.anchor_lng, center);
                         self.mark_dirty(DirtyFlags::RENDER);
@@ -947,7 +1037,10 @@ impl Element for MapViewElement {
                         self.dragging = false;
                         if self.pinch.take().is_some() && !self.smooth_zoom {
                             // без плавного масштаба — к ближайшему уровню плиток
-                            let center = Point::new(self.bounds.origin.x + self.bounds.size.width / 2.0, self.bounds.origin.y + self.bounds.size.height / 2.0);
+                            let center = Point::new(
+                                self.bounds.origin.x + self.bounds.size.width / 2.0,
+                                self.bounds.origin.y + self.bounds.size.height / 2.0,
+                            );
                             self.zoom_around(self.zoom.round(), center);
                         }
                         self.finish_press(true);
@@ -994,7 +1087,11 @@ impl Element for MapViewElement {
             if !still_running {
                 self.center_lat = self.fly_to.0;
                 self.center_lng = self.fly_to.1;
-                self.zoom = if self.smooth_zoom { self.fly_to.2 } else { self.fly_to.2.round() };
+                self.zoom = if self.smooth_zoom {
+                    self.fly_to.2
+                } else {
+                    self.fly_to.2.round()
+                };
                 self.fly_animation = None;
             } else {
                 needs_frame = true;
@@ -1140,8 +1237,12 @@ impl MapViewElement {
         let bounds = self.bounds;
         let vw = bounds.size.width;
         let vh = bounds.size.height;
-        let detail = self.tile_detail.unwrap_or_else(|| (list.scale_factor() as f64).log2().clamp(0.0, 2.0));
-        let zt = (self.zoom + detail).round().clamp(0.0, self.provider.max_zoom as f64) as u8;
+        let detail = self
+            .tile_detail
+            .unwrap_or_else(|| (list.scale_factor() as f64).log2().clamp(0.0, 2.0));
+        let zt = (self.zoom + detail)
+            .round()
+            .clamp(0.0, self.provider.max_zoom as f64) as u8;
         let scale = 2f64.powf(self.zoom - zt as f64);
 
         // центр в мировых пикселях уровня плиток
@@ -1155,8 +1256,12 @@ impl MapViewElement {
         let ty_max = ((cty + half_h) / 256.0).floor() as i64;
         let n = 1i64 << zt;
         // экранная координата мирового пикселя уровня zt (края округлены — без щелей между плитками)
-        let sx = |wx: f64| (bounds.origin.x as f64 + vw as f64 / 2.0 + (wx - ctx) * scale).round() as f32;
-        let sy = |wy: f64| (bounds.origin.y as f64 + vh as f64 / 2.0 + (wy - cty) * scale).round() as f32;
+        let sx = |wx: f64| {
+            (bounds.origin.x as f64 + vw as f64 / 2.0 + (wx - ctx) * scale).round() as f32
+        };
+        let sy = |wy: f64| {
+            (bounds.origin.y as f64 + vh as f64 / 2.0 + (wy - cty) * scale).round() as f32
+        };
 
         let mut atlas = match tile_atlas.lock() {
             Ok(a) => a,
@@ -1169,7 +1274,12 @@ impl MapViewElement {
             }
             for tx in tx_min..=tx_max {
                 let wrapped_tx = tx.rem_euclid(n);
-                let key = TileKey { x: wrapped_tx as u32, y: ty as u32, z: zt, provider_id: self.provider.id };
+                let key = TileKey {
+                    x: wrapped_tx as u32,
+                    y: ty as u32,
+                    z: zt,
+                    provider_id: self.provider.id,
+                };
                 let x0 = sx(tx as f64 * 256.0);
                 let x1 = sx((tx + 1) as f64 * 256.0);
                 let y0 = sy(ty as f64 * 256.0);
@@ -1177,7 +1287,10 @@ impl MapViewElement {
                 let tile_rect = Rect::new(Point::new(x0, y0), Size::new(x1 - x0, y1 - y0));
 
                 if let Some(slot) = atlas.get_tile(&key) {
-                    let uv_rect = Rect::new(Point::new(slot.uv_x, slot.uv_y), Size::new(slot.uv_w, slot.uv_h));
+                    let uv_rect = Rect::new(
+                        Point::new(slot.uv_x, slot.uv_y),
+                        Size::new(slot.uv_w, slot.uv_h),
+                    );
                     list.push_image(tile_rect, TextureId(0), uv_rect, Color::WHITE);
                     continue;
                 }
@@ -1190,11 +1303,20 @@ impl MapViewElement {
 
                 match slot {
                     Some(slot) => {
-                        let uv_rect = Rect::new(Point::new(slot.uv_x, slot.uv_y), Size::new(slot.uv_w, slot.uv_h));
+                        let uv_rect = Rect::new(
+                            Point::new(slot.uv_x, slot.uv_y),
+                            Size::new(slot.uv_w, slot.uv_h),
+                        );
                         list.push_image(tile_rect, TextureId(0), uv_rect, Color::WHITE);
                     }
                     None => {
-                        if !Self::draw_parent_tile(list, &mut atlas, &key, tile_rect, self.provider.id) {
+                        if !Self::draw_parent_tile(
+                            list,
+                            &mut atlas,
+                            &key,
+                            tile_rect,
+                            self.provider.id,
+                        ) {
                             list.push_rect(tile_rect, Color::new(0.9, 0.9, 0.9, 1.0), [0.0; 4]);
                         }
                     }
@@ -1259,7 +1381,15 @@ impl MapViewElement {
                 .points
                 .iter()
                 .map(|&(lat, lng)| {
-                    let (x, y) = tile_math::geo_to_pixel_f(lat, lng, self.center_lat, self.center_lng, self.zoom, b.size.width, b.size.height);
+                    let (x, y) = tile_math::geo_to_pixel_f(
+                        lat,
+                        lng,
+                        self.center_lat,
+                        self.center_lng,
+                        self.zoom,
+                        b.size.width,
+                        b.size.height,
+                    );
                     [b.origin.x + x, b.origin.y + y]
                 })
                 .collect();

@@ -139,7 +139,10 @@ impl Element for DividerElement {
     }
 
     fn build_display_list(&self, list: &mut DisplayList, _clip: Rect) {
-        let color = self.mss.color.unwrap_or_else(crate::theme_fallback::fallback_divider);
+        let color = self
+            .mss
+            .color
+            .unwrap_or_else(crate::theme_fallback::fallback_divider);
         let thickness = self.mss.border_width_or(1.0);
         let padding = self.mss.padding_left.unwrap_or(0.0);
 

@@ -241,7 +241,11 @@ impl Scaler {
         }
         let len = YuvFrame::byte_len(layout, w, h);
         self.yuv_pool.retain(|b| b.len() == len);
-        let mut buf = match self.yuv_pool.iter().position(|b| Arc::strong_count(b) == 1 && Arc::weak_count(b) == 0) {
+        let mut buf = match self
+            .yuv_pool
+            .iter()
+            .position(|b| Arc::strong_count(b) == 1 && Arc::weak_count(b) == 0)
+        {
             Some(i) => self.yuv_pool.swap_remove(i),
             None => Arc::from(vec![0u8; len].into_boxed_slice()),
         };
@@ -260,7 +264,9 @@ impl Scaler {
                 o += row;
             }
         }
-        if self.yuv_pool.len() < BUFFER_POOL_CAP && (self.yuv_pool.len() + 1) * len <= BUFFER_POOL_BYTES {
+        if self.yuv_pool.len() < BUFFER_POOL_CAP
+            && (self.yuv_pool.len() + 1) * len <= BUFFER_POOL_BYTES
+        {
             self.yuv_pool.push(buf.clone());
         }
         let matrix = match f.color_space() {
@@ -272,7 +278,15 @@ impl Scaler {
             _ => YuvMatrix::Bt601,
         };
         let full_range = f.format() == Pixel::YUVJ420P || f.color_range() == Range::JPEG;
-        Some(YuvFrame { layout, matrix, full_range, width: w, height: h, data: buf, dmabuf: None })
+        Some(YuvFrame {
+            layout,
+            matrix,
+            full_range,
+            width: w,
+            height: h,
+            data: buf,
+            dmabuf: None,
+        })
     }
 
     pub fn out_size(&self) -> (u32, u32) {

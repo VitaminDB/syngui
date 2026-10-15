@@ -48,7 +48,13 @@ fn indexed_color(idx: u8, custom: Option<&[Color; 16]>) -> Color {
 }
 
 /// `custom` — палитра из [`TerminalConfig::palette`](super::TerminalConfig::palette).
-pub fn resolve(c: CellColor, default_fg: Color, default_bg: Color, is_fg: bool, custom: Option<&[Color; 16]>) -> Color {
+pub fn resolve(
+    c: CellColor,
+    default_fg: Color,
+    default_bg: Color,
+    is_fg: bool,
+    custom: Option<&[Color; 16]>,
+) -> Color {
     match c {
         CellColor::Default => {
             if is_fg {

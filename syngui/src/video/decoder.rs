@@ -349,8 +349,15 @@ impl VideoDecoder {
         let yuv_frames = Arc::new(AtomicBool::new(false));
         let yuv_thread = yuv_frames.clone();
         let info = Arc::new(std::sync::Mutex::new(DecodeInfo {
-            codec: ictx.streams().best(MediaType::Video).map(|s| codec_display_name(s.parameters().id())).unwrap_or_default(),
-            audio_codec: ictx.streams().best(MediaType::Audio).map(|s| codec_display_name(s.parameters().id())),
+            codec: ictx
+                .streams()
+                .best(MediaType::Video)
+                .map(|s| codec_display_name(s.parameters().id()))
+                .unwrap_or_default(),
+            audio_codec: ictx
+                .streams()
+                .best(MediaType::Audio)
+                .map(|s| codec_display_name(s.parameters().id())),
             width: meta.width,
             height: meta.height,
             ..Default::default()
@@ -622,7 +629,11 @@ impl VDec {
 
     /// Следующий кадр в `f`; V4L2 в упакованном режиме (`yuv`) отдаёт
     /// плоскости для GPU сразу — тогда в `f` только pts.
-    fn receive(&mut self, f: &mut frame::Video, yuv: bool) -> Result<Option<crate::gpu::YuvFrame>, ffmpeg_next::Error> {
+    fn receive(
+        &mut self,
+        f: &mut frame::Video,
+        yuv: bool,
+    ) -> Result<Option<crate::gpu::YuvFrame>, ffmpeg_next::Error> {
         match self {
             Self::Ff(d) => d.receive_frame(f).map(|_| None),
             #[cfg(target_os = "linux")]
@@ -680,7 +691,10 @@ impl VDec {
 }
 
 fn codec_ctx_time_base(tb: ffmpeg_next::Rational) -> ffi::AVRational {
-    ffi::AVRational { num: tb.numerator(), den: tb.denominator() }
+    ffi::AVRational {
+        num: tb.numerator(),
+        den: tb.denominator(),
+    }
 }
 
 fn run_decoder_thread(
@@ -724,7 +738,10 @@ fn run_decoder_thread(
     // нет или кодек не поддержан — обычный путь (hwaccel/sw).
     #[cfg(target_os = "linux")]
     let v4l2_dec = if matches!(accel, HwAccel::V4l2 | HwAccel::Auto) {
-        let par = ictx.stream(v_idx).ok_or(VideoError::NoVideoStream)?.parameters();
+        let par = ictx
+            .stream(v_idx)
+            .ok_or(VideoError::NoVideoStream)?
+            .parameters();
         // SAFETY: параметры потока живы на время вызова, декодер копирует их.
         match super::v4l2::V4l2Decoder::new(unsafe { par.as_ptr() }, codec_ctx_time_base(v_tb_av)) {
             Ok(d) => {
@@ -1340,9 +1357,15 @@ fn drain_video(
         };
         if !*logged_first_format {
             *logged_first_format = true;
-            let fmt = if packed.is_some() { ffmpeg_next::format::Pixel::NV12 } else { decoded.format() };
+            let fmt = if packed.is_some() {
+                ffmpeg_next::format::Pixel::NV12
+            } else {
+                decoded.format()
+            };
             let hardware = match (hw, hw_codec) {
-                (Some(h), _) if fmt == ffmpeg_next::format::Pixel::from(h.hw_pix_fmt()) => Some(hw_display_name(h.label())),
+                (Some(h), _) if fmt == ffmpeg_next::format::Pixel::from(h.hw_pix_fmt()) => {
+                    Some(hw_display_name(h.label()))
+                }
                 (_, Some(label)) => Some(hw_display_name(label)),
                 _ => None,
             };

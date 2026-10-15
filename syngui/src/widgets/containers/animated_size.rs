@@ -150,7 +150,9 @@ pub struct AnimatedSizeElement {
 impl AnimatedSizeElement {
     /// Начать или перенацелить движение одной оси.
     fn retarget(&self, anim: &mut Option<Animation>, current: f32, target: f32) {
-        let (duration_ms, easing) = self.mss_transition.unwrap_or((self.duration_ms, self.easing));
+        let (duration_ms, easing) = self
+            .mss_transition
+            .unwrap_or((self.duration_ms, self.easing));
         let spring = match easing {
             Easing::Spring { stiffness, damping } => Some((stiffness, damping)),
             _ => self.spring,
@@ -160,9 +162,22 @@ impl AnimatedSizeElement {
                 a.set_target(target);
                 return;
             }
-            *anim = Some(Animation::spring().from(current).to(target).stiffness(k).damping(c).build());
+            *anim = Some(
+                Animation::spring()
+                    .from(current)
+                    .to(target)
+                    .stiffness(k)
+                    .damping(c)
+                    .build(),
+            );
         } else {
-            *anim = Some(Animation::tween(easing).from(current).to(target).duration_ms(duration_ms).build());
+            *anim = Some(
+                Animation::tween(easing)
+                    .from(current)
+                    .to(target)
+                    .duration_ms(duration_ms)
+                    .build(),
+            );
         }
     }
 }

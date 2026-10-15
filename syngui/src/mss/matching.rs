@@ -250,7 +250,11 @@ mod tests {
         assert!(selector_matches(&parsed("#main"), ElementId(1), &t));
         assert!(!selector_matches(&parsed("#other"), ElementId(1), &t));
         assert!(selector_matches(&parsed("#main .label"), ElementId(2), &t));
-        assert!(selector_matches(&parsed("Column#main.panel"), ElementId(1), &t));
+        assert!(selector_matches(
+            &parsed("Column#main.panel"),
+            ElementId(1),
+            &t
+        ));
     }
 
     #[test]

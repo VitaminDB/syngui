@@ -567,7 +567,10 @@ impl TextFieldElement {
         let field = self.field_rect();
         let w = self.suffix_width + 6.0;
         let x = field.x() + field.size.width - self.h_pad_right() - w;
-        Some(Rect::new(Point::new(x, field.y()), Size::new(w + self.h_pad_right(), field.size.height)))
+        Some(Rect::new(
+            Point::new(x, field.y()),
+            Size::new(w + self.h_pad_right(), field.size.height),
+        ))
     }
 
     fn helper_extra(&self) -> f32 {
@@ -826,11 +829,21 @@ impl Element for TextFieldElement {
         // предела (Row меряет детей неограниченно) — разумную ширину по
         // умолчанию, иначе получалось бесконечное поле, а строка с ним
         // схлопывалась до заглушки в 100 px.
-        let default_width = if constraints.max_width.is_finite() { constraints.max_width } else { DEFAULT_WIDTH };
+        let default_width = if constraints.max_width.is_finite() {
+            constraints.max_width
+        } else {
+            DEFAULT_WIDTH
+        };
         let width = self
             .width
             .or(self.mss.width)
-            .map(|d| d.resolve(if constraints.max_width.is_finite() { constraints.max_width } else { DEFAULT_WIDTH }))
+            .map(|d| {
+                d.resolve(if constraints.max_width.is_finite() {
+                    constraints.max_width
+                } else {
+                    DEFAULT_WIDTH
+                })
+            })
             .unwrap_or(default_width)
             .clamp(constraints.min_width, constraints.max_width);
 
@@ -842,7 +855,10 @@ impl Element for TextFieldElement {
         let total_height =
             (field_height + extra).clamp(constraints.min_height, constraints.max_height);
 
-        let fg = self.mss.color.unwrap_or_else(crate::theme_fallback::fallback_fg);
+        let fg = self
+            .mss
+            .color
+            .unwrap_or_else(crate::theme_fallback::fallback_fg);
         let affix_fg = fg.with_alpha(0.6);
         let mut inherited = crate::mss::ComputedStyle::with_color(affix_fg);
         if let Some(icon_sz) = self.mss.icon_size {
@@ -870,7 +886,11 @@ impl Element for TextFieldElement {
     }
 
     fn ime_cursor_area(&self) -> Option<Rect> {
-        if self.focused { self.ime_caret.get() } else { None }
+        if self.focused {
+            self.ime_caret.get()
+        } else {
+            None
+        }
     }
 
     fn build_display_list(&self, list: &mut DisplayList, _clip: Rect) {
@@ -884,8 +904,12 @@ impl Element for TextFieldElement {
             let target = self
                 .mss
                 .target_props(self.hover, false, self.focused, false);
-            let mut bg = self.mss.effective_bg(&target, crate::theme_fallback::fallback_surface());
-            let mut fg = self.mss.effective_fg(&target, crate::theme_fallback::fallback_fg());
+            let mut bg = self
+                .mss
+                .effective_bg(&target, crate::theme_fallback::fallback_surface());
+            let mut fg = self
+                .mss
+                .effective_fg(&target, crate::theme_fallback::fallback_fg());
             let mut bc = self.mss.effective_border_color(&target, Color::TRANSPARENT);
             // Явная ширина из MSS уважается и в фокусе: утолщение до 2px —
             // это фокус-подсказка для полей без своего стиля, а не закон.
@@ -914,8 +938,14 @@ impl Element for TextFieldElement {
             } else {
                 crate::theme_fallback::fallback_border()
             };
-            let bg = self.mss.background_color.unwrap_or_else(crate::theme_fallback::fallback_surface);
-            let fg = self.mss.color.unwrap_or_else(crate::theme_fallback::fallback_fg);
+            let bg = self
+                .mss
+                .background_color
+                .unwrap_or_else(crate::theme_fallback::fallback_surface);
+            let fg = self
+                .mss
+                .color
+                .unwrap_or_else(crate::theme_fallback::fallback_fg);
             let border_base = self.mss.border_color.unwrap_or(default_border);
             let (bg_color, border_color) = if self.disabled {
                 (bg.darken(0.1), border_base)
@@ -1248,7 +1278,10 @@ impl Element for TextFieldElement {
                             .map(|r| r.contains(*pos))
                             .unwrap_or(false))
                         || (self.on_suffix_click.is_some()
-                            && self.suffix_hit_rect().map(|r| r.contains(*pos)).unwrap_or(false));
+                            && self
+                                .suffix_hit_rect()
+                                .map(|r| r.contains(*pos))
+                                .unwrap_or(false));
                     if over_prefix {
                         ctx.set_cursor(CursorIcon::Pointer);
                     } else {
@@ -1289,8 +1322,11 @@ impl Element for TextFieldElement {
                     self.preedit_cursor = None;
                     if !self.read_only && !pre.is_empty() {
                         let filtered = self.apply_input_filter(&pre);
-                        self.selection
-                            .replace_selection(&mut self.text, &mut self.cursor_pos, &filtered);
+                        self.selection.replace_selection(
+                            &mut self.text,
+                            &mut self.cursor_pos,
+                            &filtered,
+                        );
                         self.trigger_change();
                     }
                 }

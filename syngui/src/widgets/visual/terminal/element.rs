@@ -999,7 +999,10 @@ impl Element for TerminalElement {
             }
             let c = st.grid.cursor();
             Some(Rect::new(
-                Point::new(origin.x + c.col as f32 * self.cell_w, origin.y + c.row as f32 * self.cell_h),
+                Point::new(
+                    origin.x + c.col as f32 * self.cell_w,
+                    origin.y + c.row as f32 * self.cell_h,
+                ),
                 Size::new(self.cell_w, self.cell_h),
             ))
         })
@@ -1344,9 +1347,21 @@ impl TerminalElement {
 
         let effective_bg = |c: &Cell| -> Color {
             if c.flags.contains(CellFlags::REVERSE) {
-                palette::resolve(c.fg, default_fg, default_bg, true, self.config.palette.as_ref())
+                palette::resolve(
+                    c.fg,
+                    default_fg,
+                    default_bg,
+                    true,
+                    self.config.palette.as_ref(),
+                )
             } else {
-                palette::resolve(c.bg, default_fg, default_bg, false, self.config.palette.as_ref())
+                palette::resolve(
+                    c.bg,
+                    default_fg,
+                    default_bg,
+                    false,
+                    self.config.palette.as_ref(),
+                )
             }
         };
         let mut col = 0;
@@ -1371,8 +1386,20 @@ impl TerminalElement {
             if cell.ch == ' ' && cell.flags.is_empty() {
                 continue;
             }
-            let mut fg = palette::resolve(cell.fg, default_fg, default_bg, true, self.config.palette.as_ref());
-            let mut bg_for_reverse = palette::resolve(cell.bg, default_fg, default_bg, false, self.config.palette.as_ref());
+            let mut fg = palette::resolve(
+                cell.fg,
+                default_fg,
+                default_bg,
+                true,
+                self.config.palette.as_ref(),
+            );
+            let mut bg_for_reverse = palette::resolve(
+                cell.bg,
+                default_fg,
+                default_bg,
+                false,
+                self.config.palette.as_ref(),
+            );
             if cell.flags.contains(CellFlags::REVERSE) {
                 std::mem::swap(&mut fg, &mut bg_for_reverse);
             }
@@ -1414,7 +1441,13 @@ impl TerminalElement {
                     while end < cells.len() && cells[end].link_id == Some(link_id) {
                         end += 1;
                     }
-                    let fg = palette::resolve(start_cell.fg, default_fg, default_bg, true, self.config.palette.as_ref());
+                    let fg = palette::resolve(
+                        start_cell.fg,
+                        default_fg,
+                        default_bg,
+                        true,
+                        self.config.palette.as_ref(),
+                    );
                     let is_hovered = Some(link_id) == self.hovered_link;
                     let underline_color = if is_hovered {
                         self.link_hover_color()

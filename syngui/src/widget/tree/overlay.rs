@@ -24,7 +24,10 @@ impl ElementTree {
             if self.overlay_stack[i].declarative {
                 continue;
             }
-            let (id, local) = (self.overlay_stack[i].element_id, self.overlay_stack[i].local);
+            let (id, local) = (
+                self.overlay_stack[i].element_id,
+                self.overlay_stack[i].local,
+            );
             self.overlay_stack[i].bounds = self.overlay_window_rect(id, local);
         }
     }
@@ -124,8 +127,14 @@ impl ElementTree {
         let mut keep = Vec::with_capacity(fades.len());
         for mut f in fades.drain(..) {
             f.elapsed += dt_s;
-            let t = if f.duration > 0.0 { (f.elapsed / f.duration).clamp(0.0, 1.0) } else { 1.0 };
-            let Some(node) = self.elements.get_mut(&f.id) else { continue };
+            let t = if f.duration > 0.0 {
+                (f.elapsed / f.duration).clamp(0.0, 1.0)
+            } else {
+                1.0
+            };
+            let Some(node) = self.elements.get_mut(&f.id) else {
+                continue;
+            };
             if node.styles_dirty {
                 continue;
             }

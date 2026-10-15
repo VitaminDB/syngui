@@ -406,7 +406,10 @@ impl Element for RadarChartElement {
                 Point::new(cx - title_w * 0.5, inner_y),
                 Size::new(title_w, title_font + 4.0),
             );
-            let title_color = self.mss.color.unwrap_or_else(crate::theme_fallback::fallback_fg_strong);
+            let title_color = self
+                .mss
+                .color
+                .unwrap_or_else(crate::theme_fallback::fallback_fg_strong);
             list.push_text_centered(title, title_rect, title_color, title_font);
         }
 

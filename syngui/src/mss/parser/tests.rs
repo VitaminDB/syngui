@@ -54,7 +54,10 @@ mod tests {
         // Группа раскладывается на правила по одному на селектор.
         assert_eq!(sheet.rules().len(), 2);
         assert_eq!(sheet.rules()[0].selector, Selector::Class("input".into()));
-        assert_eq!(sheet.rules()[1].selector, Selector::Class("textarea".into()));
+        assert_eq!(
+            sheet.rules()[1].selector,
+            Selector::Class("textarea".into())
+        );
     }
 
     #[test]

@@ -352,7 +352,8 @@ impl CanvasContext {
     fn order_tess(&mut self) {
         let now = (self.output.vertices.len(), self.output.indices.len());
         if now.1 > self.tess_mark.1 {
-            self.ops.push(Op::Tess(self.tess_mark.0..now.0, self.tess_mark.1..now.1));
+            self.ops
+                .push(Op::Tess(self.tess_mark.0..now.0, self.tess_mark.1..now.1));
         }
         self.tess_mark = now;
     }
@@ -375,7 +376,8 @@ impl CanvasContext {
             list.push_canvas(self.output.vertices, self.output.indices);
             return;
         }
-        let mut strips: Vec<Option<LineStripCmd>> = self.line_strips.into_iter().map(Some).collect();
+        let mut strips: Vec<Option<LineStripCmd>> =
+            self.line_strips.into_iter().map(Some).collect();
         for op in self.ops {
             match op {
                 Op::Rect(i) => {

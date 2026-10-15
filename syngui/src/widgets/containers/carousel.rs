@@ -292,7 +292,12 @@ impl CarouselElement {
     fn begin_touch(&mut self, id: u64, at: Point) {
         let mut velocity = crate::input::VelocityTracker::new();
         velocity.add(at);
-        self.touch = Some(CarouselTouch { id, start: at, ours: None, velocity });
+        self.touch = Some(CarouselTouch {
+            id,
+            start: at,
+            ours: None,
+            velocity,
+        });
     }
 
     fn fire_page_change(&self) {
@@ -326,11 +331,19 @@ impl CarouselElement {
         let n = self.page_count.max(1) as f32;
         let natural = n * INDICATOR_SIZE + (n - 1.0) * INDICATOR_GAP;
         let avail = (self.bounds.size.width - 16.0).max(0.0);
-        let k = if natural > avail && natural > 0.0 { avail / natural } else { 1.0 };
+        let k = if natural > avail && natural > 0.0 {
+            avail / natural
+        } else {
+            1.0
+        };
         let size = (INDICATOR_SIZE * k).max(2.0);
         let step = (INDICATOR_SIZE + INDICATOR_GAP) * k;
         let total = (n - 1.0) * step + size;
-        (size, step, self.bounds.x() + (self.bounds.size.width - total) / 2.0)
+        (
+            size,
+            step,
+            self.bounds.x() + (self.bounds.size.width - total) / 2.0,
+        )
     }
 
     fn content_height(&self) -> f32 {
@@ -381,7 +394,9 @@ impl CarouselElement {
                         return EventResult::Handled;
                     }
 
-                    let prev_h = self.show_arrows && self.prev_arrow_rect().contains(*pos) && self.current_page > 0;
+                    let prev_h = self.show_arrows
+                        && self.prev_arrow_rect().contains(*pos)
+                        && self.current_page > 0;
                     let next_h = self.show_arrows
                         && self.next_arrow_rect().contains(*pos)
                         && self.current_page < self.page_count - 1;
@@ -400,7 +415,10 @@ impl CarouselElement {
             Event::MouseDown { button, position }
                 if *button == MouseButton::Left && self.bounds.contains(*position) =>
             {
-                if self.show_arrows && self.prev_arrow_rect().contains(*position) && self.current_page > 0 {
+                if self.show_arrows
+                    && self.prev_arrow_rect().contains(*position)
+                    && self.current_page > 0
+                {
                     self.go_to_page(self.current_page - 1);
                     ctx.request_paint();
                     return EventResult::Handled;
@@ -423,8 +441,7 @@ impl CarouselElement {
                         Size::new(total_w, INDICATOR_AREA_HEIGHT),
                     );
                     if ind_rect.contains(*position) {
-                        let idx =
-                            ((position.x - start_x) / step) as usize;
+                        let idx = ((position.x - start_x) / step) as usize;
                         if idx < self.page_count {
                             self.go_to_page(idx);
                             ctx.request_paint();
@@ -438,7 +455,9 @@ impl CarouselElement {
                 EventResult::Handled
             }
             Event::MouseUp { button, .. }
-                if *button == MouseButton::Left && self.drag_start_x.is_some() && self.touch.is_none() =>
+                if *button == MouseButton::Left
+                    && self.drag_start_x.is_some()
+                    && self.touch.is_none() =>
             {
                 self.settle(0.0);
                 ctx.request_paint();
@@ -454,7 +473,8 @@ impl CarouselElement {
             Event::TouchMove { id, position } => {
                 if self.touch.as_ref().map(|t| t.id) != Some(*id) {
                     // Жест отдала вложенная вертикальная прокрутка — подхватываем.
-                    if !self.swipeable() || self.touch.is_some() || !self.bounds.contains(*position) {
+                    if !self.swipeable() || self.touch.is_some() || !self.bounds.contains(*position)
+                    {
                         return EventResult::Ignored;
                     }
                     self.begin_touch(*id, *position);
@@ -501,10 +521,11 @@ impl CarouselElement {
         }
     }
 
-
     /// Положение ленты в страницах (дробное) — в сигнал, если задан.
     fn publish_position(&self) {
-        let Some(sig) = self.position_signal else { return };
+        let Some(sig) = self.position_signal else {
+            return;
+        };
         let w = self.bounds.size.width;
         if w <= 0.0 {
             return;
@@ -528,7 +549,10 @@ impl Element for CarouselElement {
             self.on_overscroll = c.on_overscroll.clone();
             self.page_signal = c.page_signal;
             self.position_signal = c.position_signal;
-            let want = c.page_signal.map(|s| s.get_untracked()).unwrap_or(c.current_page);
+            let want = c
+                .page_signal
+                .map(|s| s.get_untracked())
+                .unwrap_or(c.current_page);
             if want != self.requested_page {
                 self.requested_page = want;
                 // Листаем с анимацией, а не прыжком.
@@ -552,7 +576,11 @@ impl Element for CarouselElement {
     fn layout(&mut self, constraints: Constraints) -> Size {
         let w = constraints.max_width;
         // Высота из MSS (`height`), иначе — всё доступное место.
-        let h = match self.mss.height.and_then(|d| d.resolve_opt(constraints.containing_block.height)) {
+        let h = match self
+            .mss
+            .height
+            .and_then(|d| d.resolve_opt(constraints.containing_block.height))
+        {
             Some(h) => h.max(constraints.min_height).min(constraints.max_height),
             None if constraints.max_height.is_finite() => constraints.max_height,
             None => 300.0,
@@ -618,7 +646,10 @@ impl Element for CarouselElement {
                 + (INDICATOR_AREA_HEIGHT - size) / 2.0;
 
             let active_color = self.mss.accent_color.unwrap_or(Color::from_hex("#3B82F6"));
-            let inactive_color = self.mss.border_color.unwrap_or_else(crate::theme_fallback::fallback_border);
+            let inactive_color = self
+                .mss
+                .border_color
+                .unwrap_or_else(crate::theme_fallback::fallback_border);
             for i in 0..self.page_count {
                 let x = start_x + i as f32 * step;
                 let r = Rect::new(Point::new(x, y), Size::new(size, size));
@@ -777,7 +808,11 @@ mod touch_tests {
         Carousel::new()
             .page_signal(sig)
             .show_indicators(false)
-            .child(ScrollView::new().vertical().child(Column::new().height(3000.0)))
+            .child(
+                ScrollView::new()
+                    .vertical()
+                    .child(Column::new().height(3000.0)),
+            )
             .child(DecoratedBox::new())
             .child(DecoratedBox::new())
     }

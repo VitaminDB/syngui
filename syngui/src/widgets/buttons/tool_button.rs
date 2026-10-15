@@ -318,12 +318,15 @@ impl Element for ToolButtonElement {
             .mss
             .background_color
             .unwrap_or_else(crate::theme_fallback::fallback_hover);
-        let fg = self.mss.color.unwrap_or_else(crate::theme_fallback::fallback_fg);
+        let fg = self
+            .mss
+            .color
+            .unwrap_or_else(crate::theme_fallback::fallback_fg);
         let accent = self.mss.accent_color.unwrap_or(Color::from_hex("#3B82F6"));
 
-        let target = self
-            .mss
-            .state_props(self.disabled, self.hover, self.pressed, false, self.active);
+        let target =
+            self.mss
+                .state_props(self.disabled, self.hover, self.pressed, false, self.active);
         let (bg, icon_color) = if self.mss.has_mss_styles {
             let bg = self.mss.effective_bg(target, Color::TRANSPARENT);
             let mut ic = self.mss.effective_fg(target, fg);
@@ -812,9 +815,7 @@ mod active_style_tests {
 
     /// Фон, цвет рамки и цвет иконки кнопки по её отрисовке.
     fn paint(active: bool) -> (Color, Option<Color>, Color) {
-        let mut h = TestHarness::new(Box::new(
-            ToolButton::new("x").active(active).class("tb"),
-        ));
+        let mut h = TestHarness::new(Box::new(ToolButton::new("x").active(active).class("tb")));
         h.apply_mss(MSS);
         h.layout_loose(200.0, 200.0);
         let dl = h.paint();

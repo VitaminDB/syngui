@@ -62,7 +62,8 @@ impl HeatOverlay {
             viewport: MapViewport {
                 center_lat: 0.0,
                 center_lng: 0.0,
-                zoom: 1, zoom_level: 1.0,
+                zoom: 1,
+                zoom_level: 1.0,
                 viewport_w: 0.0,
                 viewport_h: 0.0,
             },
@@ -626,7 +627,8 @@ mod tests {
             viewport: MapViewport {
                 center_lat: 53.2144,
                 center_lng: 63.6246,
-                zoom: 13, zoom_level: 13.0,
+                zoom: 13,
+                zoom_level: 13.0,
                 viewport_w: 400.0,
                 viewport_h: 300.0,
             },

@@ -109,7 +109,11 @@ impl FontFace {
 /// свёл к глифам шрифта эмодзи (обычно к одной лигатуре).
 enum Unit {
     Char(char),
-    Cluster { keys: Vec<GlyphKey>, len: usize, first: char },
+    Cluster {
+        keys: Vec<GlyphKey>,
+        len: usize,
+        first: char,
+    },
 }
 
 impl Unit {
@@ -146,8 +150,13 @@ fn emoji_cluster_len(chars: &[char], i: usize) -> usize {
         }
         return if at(j) == Some(0x20E3) { j + 1 - i } else { 1 };
     }
-    let base = (0x1F000..=0x1FAFF).contains(&c) || (0x2600..=0x27BF).contains(&c) || (0x2300..=0x23FF).contains(&c)
-        || (0x2B00..=0x2BFF).contains(&c) || (0x3297..=0x3299).contains(&c) || c == 0x00A9 || c == 0x00AE;
+    let base = (0x1F000..=0x1FAFF).contains(&c)
+        || (0x2600..=0x27BF).contains(&c)
+        || (0x2300..=0x23FF).contains(&c)
+        || (0x2B00..=0x2BFF).contains(&c)
+        || (0x3297..=0x3299).contains(&c)
+        || c == 0x00A9
+        || c == 0x00AE;
     if !base {
         return 1;
     }
@@ -479,7 +488,10 @@ impl FontAtlas {
     #[cfg(all(not(target_arch = "wasm32"), not(target_os = "android")))]
     fn discover_primary_fonts(family: Option<&str>) -> ((Vec<u8>, u32), (Vec<u8>, u32)) {
         use crate::text::font_discovery;
-        (font_discovery::discover_font(family), font_discovery::discover_bold_font(family))
+        (
+            font_discovery::discover_font(family),
+            font_discovery::discover_bold_font(family),
+        )
     }
 
     #[cfg(target_os = "android")]
@@ -612,12 +624,17 @@ impl FontAtlas {
 
     /// Глиф по его id в грани (результат шейпера).
     fn ensure_glyph_id(&mut self, glyph_id: u16, size_px: u16, font_index: u8) -> Option<GlyphKey> {
-        let key = GlyphKey { glyph_id, size_px, font_index };
+        let key = GlyphKey {
+            glyph_id,
+            size_px,
+            font_index,
+        };
         if self.glyphs.contains_key(&key) {
             return Some(key);
         }
         let face = self.face(font_index)?;
-        self.rasterize_glyph(face, glyph_id, size_px, key).map(|_| key)
+        self.rasterize_glyph(face, glyph_id, size_px, key)
+            .map(|_| key)
     }
 
     /// Кластер эмодзи через rustybuzz на шрифте эмодзи: `🧑‍💻` становится одним
@@ -635,7 +652,10 @@ impl FontAtlas {
                 let mut buf = rustybuzz::UnicodeBuffer::new();
                 buf.push_str(cluster);
                 let out = rustybuzz::shape(&rb, &[], buf);
-                out.glyph_infos().iter().map(|g| g.glyph_id as u16).collect()
+                out.glyph_infos()
+                    .iter()
+                    .map(|g| g.glyph_id as u16)
+                    .collect()
             };
             if ids.is_empty() || ids.contains(&0) {
                 return None;
@@ -659,7 +679,11 @@ impl FontAtlas {
             if n > 1 {
                 let cluster: String = chars[i..i + n].iter().collect();
                 if let Some(keys) = self.shape_emoji_cluster(&cluster, size_px) {
-                    out.push(Unit::Cluster { keys, len: n, first: chars[i] });
+                    out.push(Unit::Cluster {
+                        keys,
+                        len: n,
+                        first: chars[i],
+                    });
                     i += n;
                     continue;
                 }
@@ -671,19 +695,37 @@ impl FontAtlas {
     }
 
     fn cluster_advance(&self, keys: &[GlyphKey]) -> f32 {
-        keys.iter().filter_map(|k| self.glyphs.get(k)).map(|g| g.advance).sum()
+        keys.iter()
+            .filter_map(|k| self.glyphs.get(k))
+            .map(|g| g.advance)
+            .sum()
     }
 
-    fn unit_advance(&mut self, unit: &Unit, size_px: u16, weight: FontWeight, font_family: Option<&str>) -> f32 {
+    fn unit_advance(
+        &mut self,
+        unit: &Unit,
+        size_px: u16,
+        weight: FontWeight,
+        font_family: Option<&str>,
+    ) -> f32 {
         match unit {
             Unit::Char(c) => self.glyph_advance(*c, size_px, weight, font_family),
             Unit::Cluster { keys, .. } => self.cluster_advance(keys),
         }
     }
 
-    fn emit_keys(&self, keys: &[GlyphKey], size_px: u16, x: &mut f32, y: f32, result: &mut Vec<ShapedGlyph>) {
+    fn emit_keys(
+        &self,
+        keys: &[GlyphKey],
+        size_px: u16,
+        x: &mut f32,
+        y: f32,
+        result: &mut Vec<ShapedGlyph>,
+    ) {
         for k in keys {
-            let Some(glyph) = self.glyphs.get(k).copied() else { continue };
+            let Some(glyph) = self.glyphs.get(k).copied() else {
+                continue;
+            };
             if glyph.width > 0 && glyph.height > 0 {
                 result.push(ShapedGlyph {
                     x: *x + glyph.bearing_x,
@@ -726,9 +768,16 @@ impl FontAtlas {
         result: &mut Vec<ShapedGlyph>,
     ) {
         match unit {
-            Unit::Char(c) => {
-                self.emit_glyph_spaced(*c, size_px, weight, font_family, x, y, letter_spacing, result)
-            }
+            Unit::Char(c) => self.emit_glyph_spaced(
+                *c,
+                size_px,
+                weight,
+                font_family,
+                x,
+                y,
+                letter_spacing,
+                result,
+            ),
             Unit::Cluster { keys, .. } => {
                 self.emit_keys(keys, size_px, x, y, result);
                 *x += letter_spacing;
@@ -844,7 +893,10 @@ impl FontAtlas {
         if self.faces.iter().flatten().any(same) {
             return None;
         }
-        log::info!("font_atlas: начертание {class} для {:?} загружено", family.unwrap_or("основного шрифта"));
+        log::info!(
+            "font_atlas: начертание {class} для {:?} загружено",
+            family.unwrap_or("основного шрифта")
+        );
         Some(self.push_face(Some(face)))
     }
 
@@ -1204,7 +1256,15 @@ impl FontAtlas {
 
             if ch == '\n' {
                 for &(wch, _) in &word_glyphs {
-                    self.emit_unit(&units[wch], size_px, weight, font_family, &mut x, y, &mut result);
+                    self.emit_unit(
+                        &units[wch],
+                        size_px,
+                        weight,
+                        font_family,
+                        &mut x,
+                        y,
+                        &mut result,
+                    );
                 }
                 word_glyphs.clear();
                 word_width = 0.0;
@@ -1215,12 +1275,28 @@ impl FontAtlas {
 
             if ch == ' ' || breaks_before(prev_ch, ch) {
                 for &(wch, _) in &word_glyphs {
-                    self.emit_unit(&units[wch], size_px, weight, font_family, &mut x, y, &mut result);
+                    self.emit_unit(
+                        &units[wch],
+                        size_px,
+                        weight,
+                        font_family,
+                        &mut x,
+                        y,
+                        &mut result,
+                    );
                 }
                 word_glyphs.clear();
                 word_width = 0.0;
                 if ch == ' ' {
-                    self.emit_unit(&units[unit_idx], size_px, weight, font_family, &mut x, y, &mut result);
+                    self.emit_unit(
+                        &units[unit_idx],
+                        size_px,
+                        weight,
+                        font_family,
+                        &mut x,
+                        y,
+                        &mut result,
+                    );
                     continue;
                 }
             }
@@ -1237,7 +1313,15 @@ impl FontAtlas {
             if max_width > 0.0 && word_width > max_width + wrap_eps && word_glyphs.len() > 1 {
                 let last = word_glyphs.pop().unwrap();
                 for &(wch, _) in &word_glyphs {
-                    self.emit_unit(&units[wch], size_px, weight, font_family, &mut x, y, &mut result);
+                    self.emit_unit(
+                        &units[wch],
+                        size_px,
+                        weight,
+                        font_family,
+                        &mut x,
+                        y,
+                        &mut result,
+                    );
                 }
                 word_glyphs.clear();
                 x = 0.0;
@@ -1248,7 +1332,15 @@ impl FontAtlas {
         }
 
         for &(wch, _) in &word_glyphs {
-            self.emit_unit(&units[wch], size_px, weight, font_family, &mut x, y, &mut result);
+            self.emit_unit(
+                &units[wch],
+                size_px,
+                weight,
+                font_family,
+                &mut x,
+                y,
+                &mut result,
+            );
         }
 
         result
@@ -1350,7 +1442,8 @@ impl FontAtlas {
                 }
             }
 
-            let advance = self.unit_advance(&units[unit_idx], size_px, weight, font_family) + letter_spacing;
+            let advance =
+                self.unit_advance(&units[unit_idx], size_px, weight, font_family) + letter_spacing;
             word_glyphs.push((unit_idx, advance));
             word_width += advance;
 
@@ -1382,7 +1475,7 @@ impl FontAtlas {
 
         for &(wch, _) in &word_glyphs {
             self.emit_unit_spaced(
-                        &units[wch],
+                &units[wch],
                 size_px,
                 weight,
                 font_family,
@@ -1691,7 +1784,12 @@ mod cluster_tests {
     }
 }
 
-#[cfg(all(test, feature = "material-icons", not(target_arch = "wasm32"), not(target_os = "android")))]
+#[cfg(all(
+    test,
+    feature = "material-icons",
+    not(target_arch = "wasm32"),
+    not(target_os = "android")
+))]
 mod private_use_tests {
     use super::*;
 
@@ -1700,19 +1798,27 @@ mod private_use_tests {
     #[test]
     fn icon_font_wins_in_private_use_area() {
         let instance = wgpu::Instance::default();
-        let Ok(adapter) = pollster::block_on(instance.request_adapter(&wgpu::RequestAdapterOptions::default())) else {
+        let Ok(adapter) =
+            pollster::block_on(instance.request_adapter(&wgpu::RequestAdapterOptions::default()))
+        else {
             return; // нет GPU — нечего проверять
         };
-        let Ok((device, queue)) = pollster::block_on(adapter.request_device(&wgpu::DeviceDescriptor::default())) else {
+        let Ok((device, queue)) =
+            pollster::block_on(adapter.request_device(&wgpu::DeviceDescriptor::default()))
+        else {
             return;
         };
         let mut atlas = FontAtlas::with_config(&device, &queue, Some("Inter".into()));
         atlas.set_icon_font_data(crate::text::icon_fonts::material::FONT_DATA.to_vec());
         let volume_up = '\u{E050}';
-        let key = atlas.ensure_glyph_weighted(volume_up, 20, FontWeight(400), None).expect("глиф значка");
+        let key = atlas
+            .ensure_glyph_weighted(volume_up, 20, FontWeight(400), None)
+            .expect("глиф значка");
         assert_eq!(key.font_index, FONT_ICON);
         // Обычный текст — по-прежнему из основного шрифта.
-        let key = atlas.ensure_glyph_weighted('A', 20, FontWeight(400), None).expect("глиф буквы");
+        let key = atlas
+            .ensure_glyph_weighted('A', 20, FontWeight(400), None)
+            .expect("глиф буквы");
         assert_ne!(key.font_index, FONT_ICON);
     }
 
@@ -1722,10 +1828,14 @@ mod private_use_tests {
     #[test]
     fn monospace_family_keeps_own_private_use_glyphs() {
         let instance = wgpu::Instance::default();
-        let Ok(adapter) = pollster::block_on(instance.request_adapter(&wgpu::RequestAdapterOptions::default())) else {
+        let Ok(adapter) =
+            pollster::block_on(instance.request_adapter(&wgpu::RequestAdapterOptions::default()))
+        else {
             return;
         };
-        let Ok((device, queue)) = pollster::block_on(adapter.request_device(&wgpu::DeviceDescriptor::default())) else {
+        let Ok((device, queue)) =
+            pollster::block_on(adapter.request_device(&wgpu::DeviceDescriptor::default()))
+        else {
             return;
         };
         let mut atlas = FontAtlas::with_config(&device, &queue, Some("Inter".into()));
@@ -1734,10 +1844,14 @@ mod private_use_tests {
         if !atlas.family_is_monospace(family) {
             return; // Nerd Font на машине нет
         }
-        let key = atlas.ensure_glyph_weighted('\u{E0B0}', 20, FontWeight(400), Some(family)).expect("глиф powerline");
+        let key = atlas
+            .ensure_glyph_weighted('\u{E0B0}', 20, FontWeight(400), Some(family))
+            .expect("глиф powerline");
         assert_ne!(key.font_index, FONT_ICON);
         // Без семейства значок по-прежнему из иконочного шрифта.
-        let key = atlas.ensure_glyph_weighted('\u{E0B0}', 20, FontWeight(400), None).expect("глиф значка");
+        let key = atlas
+            .ensure_glyph_weighted('\u{E0B0}', 20, FontWeight(400), None)
+            .expect("глиф значка");
         assert_eq!(key.font_index, FONT_ICON);
     }
 }

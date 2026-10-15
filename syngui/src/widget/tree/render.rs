@@ -345,20 +345,17 @@ mod tests {
     fn floating_window_content_not_culled_by_clipping_ancestor() {
         let open = use_signal(true);
         let w = Column::new().child(
-            DecoratedBox::new()
-                .class("panel")
-                .clip(true)
-                .child(
-                    FloatingWindow::new("Окно")
-                        .is_open(open)
-                        .size(Size::new(300.0, 400.0))
-                        .child(move || {
-                            Column::new()
-                                .gap(200.0)
-                                .child(Text::new("верх"))
-                                .child(Text::new("НИЗ"))
-                        }),
-                ),
+            DecoratedBox::new().class("panel").clip(true).child(
+                FloatingWindow::new("Окно")
+                    .is_open(open)
+                    .size(Size::new(300.0, 400.0))
+                    .child(move || {
+                        Column::new()
+                            .gap(200.0)
+                            .child(Text::new("верх"))
+                            .child(Text::new("НИЗ"))
+                    }),
+            ),
         );
         let mut h = TestHarness::new(Box::new(w));
         h.apply_mss(".panel { height: 50; width: 400; }");
@@ -369,7 +366,10 @@ mod tests {
         h.layout_loose(800.0, 800.0);
         let dl = format!("{:?}", h.paint());
         assert!(dl.contains("верх"));
-        assert!(dl.contains("НИЗ"), "содержимое окна ниже края панели отсечено");
+        assert!(
+            dl.contains("НИЗ"),
+            "содержимое окна ниже края панели отсечено"
+        );
     }
 
     /// `rotate-y` в MSS: поддерево элемента уходит в слой, который
@@ -426,12 +426,42 @@ mod tests {
 /// Призрак над целью, которая примет брошенное: акцентная рамка и значок «+».
 fn accept_mark(list: &mut DisplayList, r: Rect) {
     let accent = Color::from_hex("#2DD4BF");
-    let r = Rect::new(Point::new(r.origin.x - 3.0, r.origin.y - 3.0), Size::new(r.size.width + 6.0, r.size.height + 6.0));
-    list.push_rect_bordered(r, accent.with_alpha(0.10), [10.0; 4], Border::new(2.0, accent));
+    let r = Rect::new(
+        Point::new(r.origin.x - 3.0, r.origin.y - 3.0),
+        Size::new(r.size.width + 6.0, r.size.height + 6.0),
+    );
+    list.push_rect_bordered(
+        r,
+        accent.with_alpha(0.10),
+        [10.0; 4],
+        Border::new(2.0, accent),
+    );
     let d = 22.0;
-    let c = Point::new(r.origin.x + r.size.width - d * 0.6, r.origin.y + r.size.height - d * 0.6);
-    list.push_rect(Rect::new(Point::new(c.x - d / 2.0 - 2.0, c.y - d / 2.0 - 2.0), Size::new(d + 4.0, d + 4.0)), Color::from_hex("#1E2530"), [(d + 4.0) / 2.0; 4]);
-    list.push_rect(Rect::new(Point::new(c.x - d / 2.0, c.y - d / 2.0), Size::new(d, d)), Color::from_hex("#22C55E"), [d / 2.0; 4]);
-    list.push_rect(Rect::new(Point::new(c.x - 6.0, c.y - 1.25), Size::new(12.0, 2.5)), Color::WHITE, [1.25; 4]);
-    list.push_rect(Rect::new(Point::new(c.x - 1.25, c.y - 6.0), Size::new(2.5, 12.0)), Color::WHITE, [1.25; 4]);
+    let c = Point::new(
+        r.origin.x + r.size.width - d * 0.6,
+        r.origin.y + r.size.height - d * 0.6,
+    );
+    list.push_rect(
+        Rect::new(
+            Point::new(c.x - d / 2.0 - 2.0, c.y - d / 2.0 - 2.0),
+            Size::new(d + 4.0, d + 4.0),
+        ),
+        Color::from_hex("#1E2530"),
+        [(d + 4.0) / 2.0; 4],
+    );
+    list.push_rect(
+        Rect::new(Point::new(c.x - d / 2.0, c.y - d / 2.0), Size::new(d, d)),
+        Color::from_hex("#22C55E"),
+        [d / 2.0; 4],
+    );
+    list.push_rect(
+        Rect::new(Point::new(c.x - 6.0, c.y - 1.25), Size::new(12.0, 2.5)),
+        Color::WHITE,
+        [1.25; 4],
+    );
+    list.push_rect(
+        Rect::new(Point::new(c.x - 1.25, c.y - 6.0), Size::new(2.5, 12.0)),
+        Color::WHITE,
+        [1.25; 4],
+    );
 }

@@ -285,13 +285,19 @@ impl Element for TabElement {
             .border_color
             .map(|c| c.lighten(0.1))
             .unwrap_or_else(crate::theme_fallback::fallback_divider);
-        let gray_300 = self.mss.border_color.unwrap_or_else(crate::theme_fallback::fallback_border);
+        let gray_300 = self
+            .mss
+            .border_color
+            .unwrap_or_else(crate::theme_fallback::fallback_border);
         let gray_500 = self
             .mss
             .color
             .map(|c| c.with_alpha(0.6))
             .unwrap_or_else(crate::theme_fallback::fallback_muted);
-        let gray_700 = self.mss.color.unwrap_or_else(crate::theme_fallback::fallback_fg);
+        let gray_700 = self
+            .mss
+            .color
+            .unwrap_or_else(crate::theme_fallback::fallback_fg);
         let gray_900 = self
             .mss
             .color

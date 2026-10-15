@@ -594,8 +594,7 @@ impl<'a> MdRenderer<'a> {
         {
             let mut line_byte_offset = 0usize;
             for line in lines {
-                for (a, b) in wrap_code_line(line, avail_w, &mut |t| self.code_width(t))
-                {
+                for (a, b) in wrap_code_line(line, avail_w, &mut |t| self.code_width(t)) {
                     display.push((line_byte_offset + a, line_byte_offset + b));
                 }
                 line_byte_offset += line.len() + 1;
@@ -624,7 +623,9 @@ impl<'a> MdRenderer<'a> {
         let default_color = self.style.code_block_color;
         // Куски строки (токены подсветки) — на общей базовой линии: одиночная
         // «,» или «.» иначе центрировалась по своему контуру и подпрыгивала.
-        let prev_bbox = self.list.set_text_bbox_sample(Some(compact_str::CompactString::const_new("Hg")));
+        let prev_bbox = self
+            .list
+            .set_text_bbox_sample(Some(compact_str::CompactString::const_new("Hg")));
         let mut line_y = self.y + padding;
         let mut tok_idx: usize = 0;
 
@@ -718,7 +719,16 @@ impl<'a> MdRenderer<'a> {
     fn push_code(&mut self, text: &str, rect: Rect, color: Color) {
         let size = self.style.code_font_size;
         match self.style.code_font_family.clone() {
-            Some(f) => self.list.push_text_styled(text, rect, color, size, TextAlign::DEFAULT, TextDecoration::None, 400, Some(f)),
+            Some(f) => self.list.push_text_styled(
+                text,
+                rect,
+                color,
+                size,
+                TextAlign::DEFAULT,
+                TextDecoration::None,
+                400,
+                Some(f),
+            ),
             None => self.list.push_text(text, rect, color, size),
         }
     }
@@ -1432,7 +1442,9 @@ fn flatten_recursive(
 fn code_text_width(text: &str, style: &MdStyle, tm: Option<&dyn TextMeasure>) -> f32 {
     let n = text.chars().count();
     match (tm, style.code_font_family.as_deref()) {
-        (Some(tm), Some(f)) => tm.measure_text_width_styled(text, style.code_font_size, n, false, Some(f)),
+        (Some(tm), Some(f)) => {
+            tm.measure_text_width_styled(text, style.code_font_size, n, false, Some(f))
+        }
         (Some(tm), None) => tm.measure_text_width(text, style.code_font_size, n),
         (None, _) => text_width(text, style.code_font_size),
     }

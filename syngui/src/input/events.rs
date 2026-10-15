@@ -187,7 +187,9 @@ impl Event {
                 id: *id,
                 position: map(*position),
             },
-            Event::LongPress { position } => Event::LongPress { position: map(*position) },
+            Event::LongPress { position } => Event::LongPress {
+                position: map(*position),
+            },
             Event::TouchMove { id, position } => Event::TouchMove {
                 id: *id,
                 position: map(*position),

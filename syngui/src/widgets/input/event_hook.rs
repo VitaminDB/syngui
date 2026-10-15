@@ -212,7 +212,10 @@ impl EventHook {
     /// Сочетания, которые обёртка забирает раньше детей, с учётом
     /// модификаторов: `|k, m| m.ctrl && k == Key::N` — Ctrl+N уходит в
     /// `on_key_down`, даже когда фокус в поле ввода, а сама «n» — в поле.
-    pub fn capture_shortcuts(mut self, filter: impl Fn(Key, Modifiers) -> bool + Send + Sync + 'static) -> Self {
+    pub fn capture_shortcuts(
+        mut self,
+        filter: impl Fn(Key, Modifiers) -> bool + Send + Sync + 'static,
+    ) -> Self {
         self.capture_shortcuts = Some(Arc::new(filter));
         self
     }
@@ -226,7 +229,10 @@ impl EventHook {
 
     /// Боковые кнопки мыши «назад»/«вперёд» (`MouseButton::Back`/`Forward`)
     /// над обёрткой. Обёртка забирает их раньше детей; `true` — съедено.
-    pub fn on_nav_button(mut self, handler: impl Fn(MouseButton) -> bool + Send + Sync + 'static) -> Self {
+    pub fn on_nav_button(
+        mut self,
+        handler: impl Fn(MouseButton) -> bool + Send + Sync + 'static,
+    ) -> Self {
         self.on_nav_button = Some(Arc::new(handler));
         self
     }
@@ -237,7 +243,10 @@ impl EventHook {
     /// 40 px; `dy > 0` — от себя, то есть вверх), `pos` — курсор. Вернуть
     /// `true` — событие съедено. Для интерфейсов, которые двигает фокус, а
     /// не `ScrollView` (ТВ-полки): колесо превращается в шаги фокуса.
-    pub fn on_wheel(mut self, handler: impl Fn(f32, f32, Point) -> bool + Send + Sync + 'static) -> Self {
+    pub fn on_wheel(
+        mut self,
+        handler: impl Fn(f32, f32, Point) -> bool + Send + Sync + 'static,
+    ) -> Self {
         self.on_wheel = Some(Arc::new(handler));
         self
     }
@@ -396,16 +405,26 @@ impl Element for EventHookElement {
                 }
                 return EventResult::Ignored;
             }
-            Event::MouseDown { button: b @ (MouseButton::Back | MouseButton::Forward), .. } => {
+            Event::MouseDown {
+                button: b @ (MouseButton::Back | MouseButton::Forward),
+                ..
+            } => {
                 return match self.on_nav_button.as_ref() {
                     Some(h) if h(*b) => EventResult::Handled,
                     _ => EventResult::Ignored,
                 };
             }
-            Event::MouseUp { button: MouseButton::Back | MouseButton::Forward, .. } if self.on_nav_button.is_some() => {
+            Event::MouseUp {
+                button: MouseButton::Back | MouseButton::Forward,
+                ..
+            } if self.on_nav_button.is_some() => {
                 return EventResult::Handled;
             }
-            Event::MouseWheel { delta, delta_x, position } => {
+            Event::MouseWheel {
+                delta,
+                delta_x,
+                position,
+            } => {
                 return match self.on_wheel.as_ref() {
                     Some(h) if h(*delta_x, *delta, *position) => EventResult::Handled,
                     _ => EventResult::Ignored,
@@ -482,13 +501,20 @@ impl Element for EventHookElement {
         if self.on_nav_button.is_some()
             && matches!(
                 event,
-                Event::MouseDown { button: MouseButton::Back | MouseButton::Forward, .. }
-                    | Event::MouseUp { button: MouseButton::Back | MouseButton::Forward, .. }
+                Event::MouseDown {
+                    button: MouseButton::Back | MouseButton::Forward,
+                    ..
+                } | Event::MouseUp {
+                    button: MouseButton::Back | MouseButton::Forward,
+                    ..
+                }
             )
         {
             return true;
         }
-        if let (Event::KeyDown(key) | Event::KeyUp(key), Some(filter)) = (event, &self.capture_shortcuts) {
+        if let (Event::KeyDown(key) | Event::KeyUp(key), Some(filter)) =
+            (event, &self.capture_shortcuts)
+        {
             if filter(*key, mods) {
                 return true;
             }

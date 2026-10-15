@@ -72,12 +72,14 @@ impl TestHarness {
     /// (тап, долгое нажатие синтезируются).
     pub fn touch_down(&mut self, id: u64, pos: Point) {
         let (tree, root) = (&mut self.tree, self.root_id);
-        self.touch.down(id, pos, &mut |e| tree.handle_event(root, e));
+        self.touch
+            .down(id, pos, &mut |e| tree.handle_event(root, e));
     }
 
     pub fn touch_move(&mut self, id: u64, pos: Point) {
         let (tree, root) = (&mut self.tree, self.root_id);
-        self.touch.motion(id, pos, &mut |e| tree.handle_event(root, e));
+        self.touch
+            .motion(id, pos, &mut |e| tree.handle_event(root, e));
     }
 
     pub fn touch_up(&mut self, id: u64) {

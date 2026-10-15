@@ -30,10 +30,18 @@ pub fn enabled() -> bool {
         2 => false,
         _ => {
             let on = !std::env::var("SYNGUI_ANIMATIONS")
-                .map(|v| matches!(v.trim().to_ascii_lowercase().as_str(), "0" | "off" | "false" | "no"))
+                .map(|v| {
+                    matches!(
+                        v.trim().to_ascii_lowercase().as_str(),
+                        "0" | "off" | "false" | "no"
+                    )
+                })
                 .unwrap_or(false);
             ENABLED.store(if on { 1 } else { 2 }, Ordering::Release);
-            if let Some(k) = std::env::var("SYNGUI_ANIMATION_SPEED").ok().and_then(|v| v.trim().parse::<f32>().ok()) {
+            if let Some(k) = std::env::var("SYNGUI_ANIMATION_SPEED")
+                .ok()
+                .and_then(|v| v.trim().parse::<f32>().ok())
+            {
                 set_speed(k);
             }
             on
@@ -57,7 +65,11 @@ static SPEED_BITS: std::sync::atomic::AtomicU32 = std::sync::atomic::AtomicU32::
 
 /// Скорость анимаций syngui: множитель длительности (переходы MSS, [`Animation`], конечные ключевые кадры).
 pub fn set_speed(factor: f32) {
-    let f = if factor.is_finite() { factor.clamp(0.1, 10.0) } else { 1.0 };
+    let f = if factor.is_finite() {
+        factor.clamp(0.1, 10.0)
+    } else {
+        1.0
+    };
     SPEED_BITS.store(f.to_bits(), Ordering::Relaxed);
 }
 

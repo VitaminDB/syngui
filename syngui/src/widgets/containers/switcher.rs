@@ -248,7 +248,14 @@ impl SwitcherElement {
                 a.set_target(target);
                 return;
             }
-            *anim = Some(Animation::spring().from(current).to(target).stiffness(k).damping(c).build());
+            *anim = Some(
+                Animation::spring()
+                    .from(current)
+                    .to(target)
+                    .stiffness(k)
+                    .damping(c)
+                    .build(),
+            );
         } else {
             *anim = Some(
                 Animation::tween(self.params.easing)
@@ -273,11 +280,16 @@ impl Element for SwitcherElement {
             self.size = w.size;
             self.spring = w.spring;
             if w.key != self.current.0 {
-                self.direction = if self.directional && w.key < self.current.0 { -1.0 } else { 1.0 };
+                self.direction = if self.directional && w.key < self.current.0 {
+                    -1.0
+                } else {
+                    1.0
+                };
                 // Если ключ вернулся к уходящему, его слот снова станет
                 // входящим, а бывший текущий — уходящим: сверка по ключам
                 // подхватит оба без пересоздания.
-                let old = std::mem::replace(&mut self.current, (w.key, w.version, w.builder.clone()));
+                let old =
+                    std::mem::replace(&mut self.current, (w.key, w.version, w.builder.clone()));
                 self.outgoing = Some(old);
                 self.exit_left = self.params.exit_duration_ms as f32 / 1000.0;
                 self.needs_child_rebuild = true;
@@ -292,9 +304,19 @@ impl Element for SwitcherElement {
     }
 
     fn layout(&mut self, constraints: Constraints) -> Size {
-        let size = if self.size { self.current_size } else { self.target_size };
-        let w = size.width.clamp(constraints.min_width.min(constraints.max_width), constraints.max_width);
-        let h = size.height.clamp(constraints.min_height.min(constraints.max_height), constraints.max_height);
+        let size = if self.size {
+            self.current_size
+        } else {
+            self.target_size
+        };
+        let w = size.width.clamp(
+            constraints.min_width.min(constraints.max_width),
+            constraints.max_width,
+        );
+        let h = size.height.clamp(
+            constraints.min_height.min(constraints.max_height),
+            constraints.max_height,
+        );
         self.bounds.size = Size::new(w, h);
         self.bounds.size
     }
@@ -425,9 +447,23 @@ impl Element for SwitcherElement {
     fn build_children(&self) -> Vec<Box<dyn Widget>> {
         let mut out: Vec<Box<dyn Widget>> = Vec::with_capacity(2);
         if let Some((key, version, builder)) = &self.outgoing {
-            out.push(Box::new(Slot::new(*key, *version, Role::Exit, self.direction, self.params, builder.clone())));
+            out.push(Box::new(Slot::new(
+                *key,
+                *version,
+                Role::Exit,
+                self.direction,
+                self.params,
+                builder.clone(),
+            )));
         }
-        out.push(Box::new(Slot::new(self.current.0, self.current.1, Role::Enter, self.direction, self.params, self.current.2.clone())));
+        out.push(Box::new(Slot::new(
+            self.current.0,
+            self.current.1,
+            Role::Enter,
+            self.direction,
+            self.params,
+            self.current.2.clone(),
+        )));
         out
     }
 
@@ -467,7 +503,8 @@ impl Element for SwitcherElement {
         selected: Option<&ComputedStyle>,
         _checked: Option<&ComputedStyle>,
     ) {
-        self.mss.apply_transitions(base, hover, active, focus, selected);
+        self.mss
+            .apply_transitions(base, hover, active, focus, selected);
     }
 }
 
@@ -505,8 +542,21 @@ struct Slot {
 }
 
 impl Slot {
-    fn new(key: u64, version: u64, role: Role, direction: f32, params: Params, builder: Builder) -> Self {
-        Self { key, role, direction, params, keyed: Keyed::from_arc(key, version, builder) }
+    fn new(
+        key: u64,
+        version: u64,
+        role: Role,
+        direction: f32,
+        params: Params,
+        builder: Builder,
+    ) -> Self {
+        Self {
+            key,
+            role,
+            direction,
+            params,
+            keyed: Keyed::from_arc(key, version, builder),
+        }
     }
 }
 
@@ -520,7 +570,13 @@ impl Widget for Slot {
             role: self.role,
             direction: self.direction,
             params: p,
-            anim: Some(Animation::tween(p.easing).from(0.0).to(1.0).duration_ms(p.duration_ms).build()),
+            anim: Some(
+                Animation::tween(p.easing)
+                    .from(0.0)
+                    .to(1.0)
+                    .duration_ms(p.duration_ms)
+                    .build(),
+            ),
             dirty_flags: DirtyFlags::LAYOUT | DirtyFlags::RENDER | DirtyFlags::ANIMATION,
         })
     }
@@ -612,7 +668,9 @@ impl Element for SlotElement {
     }
 
     fn animate(&mut self, dt: Duration) -> bool {
-        let Some(a) = self.anim.as_mut() else { return false };
+        let Some(a) = self.anim.as_mut() else {
+            return false;
+        };
         let running = a.tick(dt);
         if !running {
             self.anim = None;
@@ -634,7 +692,11 @@ impl Element for SlotElement {
         let sign = if self.role == Role::Enter { 1.0 } else { -1.0 } * self.direction;
         let tx = self.params.slide.0 * q * sign;
         let ty = self.params.slide.1 * q * sign;
-        let s = if self.role == Role::Enter { 1.0 + (self.params.scale - 1.0) * q } else { 1.0 };
+        let s = if self.role == Role::Enter {
+            1.0 + (self.params.scale - 1.0) * q
+        } else {
+            1.0
+        };
         let mut t = Transform::identity();
         if s != 1.0 {
             let ox = self.bounds.origin.x + self.child_size.width / 2.0;
@@ -646,7 +708,11 @@ impl Element for SlotElement {
         }
         t = t.then_translate(euclid::Vector2D::new(tx, ty));
         list.push_transform(t);
-        let fade = if self.role == Role::Enter { self.params.fade } else { self.params.fade && self.params.exit_fade };
+        let fade = if self.role == Role::Enter {
+            self.params.fade
+        } else {
+            self.params.fade && self.params.exit_fade
+        };
         list.push_opacity(if fade { p } else { 1.0 });
     }
 
@@ -710,7 +776,12 @@ impl Element for SlotElement {
     }
 
     fn layout_hint(&self) -> LayoutHint {
-        LayoutHint::Padding { left: 0.0, top: 0.0, right: 0.0, bottom: 0.0 }
+        LayoutHint::Padding {
+            left: 0.0,
+            top: 0.0,
+            right: 0.0,
+            bottom: 0.0,
+        }
     }
 }
 

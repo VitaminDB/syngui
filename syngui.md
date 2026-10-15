@@ -1025,6 +1025,8 @@ SpinBox::new().value(1.0).range(0.0, 10.0).step(0.5).decimal_places(2).on_change
 Dropdown::with_items(vec![DropdownItem::new("id", "Метка").icon(MI_X)])
     .selected("id").placeholder("Выбор").width(200.0).max_height(320.0)
     .leading_icon(MI_LIST).on_change(|v: &str| {})
+// Открытый Dropdown фильтрует пункты набором с клавиатуры (подстрока метки без учёта
+// регистра), Backspace стирает, Esc сначала сбрасывает поиск; ↑/↓ прокручивают к пункту.
 
 Combobox::new(items).text("").placeholder("").popup_min_width(240.0).on_change(|s| {})
 Multiselect::new(items).selected(vec![0, 2]).with_autocomplete(true).max_visible(8).on_change(|ids: &[usize]| {})

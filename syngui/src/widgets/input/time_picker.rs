@@ -547,9 +547,18 @@ impl Element for TimePickerElement {
     }
 
     fn build_display_list(&self, list: &mut DisplayList, _clip: Rect) {
-        let bg = self.mss.background_color.unwrap_or_else(crate::theme_fallback::fallback_surface);
-        let fg = self.mss.color.unwrap_or_else(crate::theme_fallback::fallback_fg);
-        let border_base = self.mss.border_color.unwrap_or_else(crate::theme_fallback::fallback_border);
+        let bg = self
+            .mss
+            .background_color
+            .unwrap_or_else(crate::theme_fallback::fallback_surface);
+        let fg = self
+            .mss
+            .color
+            .unwrap_or_else(crate::theme_fallback::fallback_fg);
+        let border_base = self
+            .mss
+            .border_color
+            .unwrap_or_else(crate::theme_fallback::fallback_border);
         let accent = self.mss.accent_color.unwrap_or(Color::from_hex("#3B82F6"));
         let border_color = if self.is_open { accent } else { border_base };
         let font = self.font_size();

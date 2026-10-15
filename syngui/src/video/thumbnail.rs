@@ -28,7 +28,10 @@ pub fn thumbnail(input: &str, max: u32, at: f64) -> Result<Thumbnail, VideoError
     ffmpeg_next::init().ok();
     let mut ictx = ffmpeg_next::format::input(&input.to_string())
         .map_err(|e| VideoError::Open(format!("{input}: {e}")))?;
-    let stream = ictx.streams().best(MediaType::Video).ok_or(VideoError::NoVideoStream)?;
+    let stream = ictx
+        .streams()
+        .best(MediaType::Video)
+        .ok_or(VideoError::NoVideoStream)?;
     let idx = stream.index();
     let rotation = display_rotation(&stream.parameters());
     let mut ctx = ffmpeg_next::codec::context::Context::from_parameters(stream.parameters())
@@ -39,7 +42,11 @@ pub fn thumbnail(input: &str, max: u32, at: f64) -> Result<Thumbnail, VideoError
         .decoder()
         .video()
         .map_err(|e| VideoError::DecoderInit(format!("video decoder: {e}")))?;
-    let duration_sec = if ictx.duration() > 0 { ictx.duration() as f64 / ffi::AV_TIME_BASE as f64 } else { 0.0 };
+    let duration_sec = if ictx.duration() > 0 {
+        ictx.duration() as f64 / ffi::AV_TIME_BASE as f64
+    } else {
+        0.0
+    };
     if duration_sec > 2.0 {
         let ts = (duration_sec * at.clamp(0.0, 0.95) * ffi::AV_TIME_BASE as f64) as i64;
         // Ключевой кадр до цели: его хватает для миниатюры.
@@ -72,11 +79,23 @@ pub fn thumbnail(input: &str, max: u32, at: f64) -> Result<Thumbnail, VideoError
 
     let (sw, sh) = (decoded.width(), decoded.height());
     let k = (max as f64 / sw.max(sh).max(1) as f64).min(1.0);
-    let (tw, th) = (((sw as f64 * k).round() as u32).max(1), ((sh as f64 * k).round() as u32).max(1));
-    let mut sws = SwsContext::get(decoded.format(), sw, sh, Pixel::RGBA, tw, th, Flags::BILINEAR)
-        .map_err(|e| VideoError::Scaler(e.to_string()))?;
+    let (tw, th) = (
+        ((sw as f64 * k).round() as u32).max(1),
+        ((sh as f64 * k).round() as u32).max(1),
+    );
+    let mut sws = SwsContext::get(
+        decoded.format(),
+        sw,
+        sh,
+        Pixel::RGBA,
+        tw,
+        th,
+        Flags::BILINEAR,
+    )
+    .map_err(|e| VideoError::Scaler(e.to_string()))?;
     let mut out = frame::Video::empty();
-    sws.run(&decoded, &mut out).map_err(|e| VideoError::Scaler(e.to_string()))?;
+    sws.run(&decoded, &mut out)
+        .map_err(|e| VideoError::Scaler(e.to_string()))?;
     let stride = out.stride(0);
     let data = out.data(0);
     let mut rgba = Vec::with_capacity((tw * th * 4) as usize);
@@ -84,8 +103,19 @@ pub fn thumbnail(input: &str, max: u32, at: f64) -> Result<Thumbnail, VideoError
         rgba.extend_from_slice(&data[y * stride..y * stride + tw as usize * 4]);
     }
     let (width, height, rgba) = rotate(tw, th, rgba, rotation);
-    let (video_width, video_height) = if rotation % 180 == 90 { (sh, sw) } else { (sw, sh) };
-    Ok(Thumbnail { width, height, rgba, duration_sec, video_width, video_height })
+    let (video_width, video_height) = if rotation % 180 == 90 {
+        (sh, sw)
+    } else {
+        (sw, sh)
+    };
+    Ok(Thumbnail {
+        width,
+        height,
+        rgba,
+        duration_sec,
+        video_width,
+        video_height,
+    })
 }
 
 /// Поворот RGBA по часовой на 0/90/180/270°.

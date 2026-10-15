@@ -124,7 +124,13 @@ mod tests {
     #[test]
     fn frame_without_channel_layout_is_converted() {
         ffmpeg_next::init().ok();
-        let mut r = Resampler::new(Sample::I16(Type::Packed), ChannelLayout::STEREO, 44_100, 48_000).expect("new");
+        let mut r = Resampler::new(
+            Sample::I16(Type::Packed),
+            ChannelLayout::STEREO,
+            44_100,
+            48_000,
+        )
+        .expect("new");
         let mut produced = 0usize;
         for _ in 0..20 {
             let mut f = frame::Audio::new(Sample::I16(Type::Packed), 1024, ChannelLayout::STEREO);

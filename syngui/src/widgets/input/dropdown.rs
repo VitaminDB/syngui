@@ -151,6 +151,7 @@ impl Widget for Dropdown {
             scroll_offset: 0.0,
             touch_drag: None,
             opens_upward: false,
+            query: String::new(),
             classes: Vec::new(),
             dirty_flags: DirtyFlags::LAYOUT | DirtyFlags::RENDER,
             mss: MssFields::default(),
@@ -206,6 +207,7 @@ pub struct DropdownElement {
     /// только как `TouchMove`, поэтому прокрутка пальцем — отдельный путь.
     touch_drag: Option<(u64, Point)>,
     opens_upward: bool,
+    query: String,
     classes: Vec<String>,
     dirty_flags: DirtyFlags,
     mss: MssFields,
@@ -224,9 +226,12 @@ pub struct DropdownElement {
 
 impl DropdownElement {
     fn fit_text(&self, text: &str, max_w: f32, font_size: f32, weight: u16) -> String {
-        let Some(tm) = self.text_measure.as_ref() else { return text.to_string() };
+        let Some(tm) = self.text_measure.as_ref() else {
+            return text.to_string();
+        };
         let family = self.mss.font_family.as_deref();
-        let measure = |s: &str| tm.measure_text_width_weight(s, font_size, s.chars().count(), weight, family);
+        let measure =
+            |s: &str| tm.measure_text_width_weight(s, font_size, s.chars().count(), weight, family);
         if max_w <= 0.0 || measure(text) <= max_w {
             return text.to_string();
         }
@@ -234,10 +239,24 @@ impl DropdownElement {
         let (mut lo, mut hi) = (0usize, chars.len());
         while lo < hi {
             let mid = (lo + hi + 1) / 2;
-            let candidate: String = chars[..mid].iter().collect::<String>().trim_end().to_string() + "…";
-            if measure(&candidate) <= max_w { lo = mid } else { hi = mid - 1 }
+            let candidate: String = chars[..mid]
+                .iter()
+                .collect::<String>()
+                .trim_end()
+                .to_string()
+                + "…";
+            if measure(&candidate) <= max_w {
+                lo = mid
+            } else {
+                hi = mid - 1
+            }
         }
-        chars[..lo].iter().collect::<String>().trim_end().to_string() + "…"
+        chars[..lo]
+            .iter()
+            .collect::<String>()
+            .trim_end()
+            .to_string()
+            + "…"
     }
 
     fn get_selected_label(&self) -> Option<String> {
@@ -252,15 +271,134 @@ impl DropdownElement {
         None
     }
 
+    fn visible_indices(&self) -> Vec<usize> {
+        if self.query.is_empty() {
+            return (0..self.items.len()).collect();
+        }
+        let needle = self.query.to_lowercase();
+        self.items
+            .iter()
+            .enumerate()
+            .filter(|(_, item)| item.label.to_lowercase().contains(&needle))
+            .map(|(i, _)| i)
+            .collect()
+    }
+
+    fn visible_rows(&self) -> usize {
+        self.visible_indices()
+            .len()
+            .max(usize::from(!self.query.is_empty()))
+    }
+
+    fn rebuild_item_bounds(&mut self, base_y: f32) {
+        let width = self.bounds.size.width;
+        self.item_bounds.clear();
+        let mut y = base_y;
+        for i in self.visible_indices() {
+            self.item_bounds
+                .push((Rect::new(Point::new(0.0, y), Size::new(width, 36.0)), i));
+            y += 36.0;
+        }
+    }
+
+    fn selected_index(&self) -> Option<usize> {
+        let selected = self.selected.lock().unwrap_or_else(|e| e.into_inner());
+        let value = selected.as_ref()?;
+        self.items.iter().position(|item| &item.value == value)
+    }
+
+    fn open(&mut self, ctx: &mut EventContext, hover: Option<usize>) {
+        self.is_open = true;
+        self.query.clear();
+        self.hover_item = hover;
+        self.dropdown_bounds.size.height = self.effective_popup_height();
+        self.determine_direction(ctx.viewport_size().height);
+        self.recompute_dropdown_position();
+        self.scroll_to_hover();
+        ctx.register_overlay(self.compute_overlay_bounds(), false);
+        ctx.request_paint();
+    }
+
+    fn close(&mut self, ctx: &mut EventContext) {
+        self.is_open = false;
+        self.query.clear();
+        ctx.unregister_overlay();
+        ctx.request_paint();
+    }
+
+    fn apply_query(&mut self, ctx: &mut EventContext) {
+        self.scroll_offset = 0.0;
+        self.hover_item = self
+            .visible_indices()
+            .into_iter()
+            .find(|&i| !self.items[i].disabled);
+        self.dropdown_bounds.size.height = self.effective_popup_height();
+        self.determine_direction(ctx.viewport_size().height);
+        self.recompute_dropdown_position();
+        ctx.register_overlay(self.compute_overlay_bounds(), false);
+        ctx.request_paint();
+    }
+
+    fn move_hover(&mut self, forward: bool) {
+        let visible = self.visible_indices();
+        if visible.is_empty() {
+            return;
+        }
+        let pos = self
+            .hover_item
+            .and_then(|h| visible.iter().position(|&i| i == h));
+        let next = match (pos, forward) {
+            (None, true) => 0,
+            (None, false) => visible.len() - 1,
+            (Some(p), true) => (p + 1).min(visible.len() - 1),
+            (Some(p), false) => p.saturating_sub(1),
+        };
+        self.hover_item = Some(visible[next]);
+        self.scroll_to_hover();
+    }
+
+    fn scroll_to_hover(&mut self) {
+        let Some(hover) = self.hover_item else { return };
+        let Some(pos) = self.visible_indices().iter().position(|&i| i == hover) else {
+            return;
+        };
+        let top = pos as f32 * 36.0;
+        let view = self.effective_popup_height();
+        if top < self.scroll_offset {
+            self.scroll_offset = top;
+        } else if top + 36.0 > self.scroll_offset + view {
+            self.scroll_offset = top + 36.0 - view;
+        }
+        self.scroll_offset = self.scroll_offset.clamp(0.0, self.max_scroll());
+    }
+
+    fn choose(&mut self, idx: usize, ctx: &mut EventContext) -> bool {
+        let Some(item) = self.items.get(idx) else {
+            return false;
+        };
+        if item.disabled {
+            return false;
+        }
+        let value = item.value.clone();
+        *self.selected.lock().unwrap_or_else(|e| e.into_inner()) = Some(value.clone());
+        if let Some(ref callback) = self.on_change {
+            if let Ok(mut cb) = callback.lock() {
+                cb(&value);
+            }
+        }
+        self.close(ctx);
+        true
+    }
+
     fn effective_popup_height(&self) -> f32 {
-        let content_height = self.items.len() as f32 * 36.0;
+        let content_height = self.visible_rows() as f32 * 36.0;
         let max_h = self.mss_popup_max_height.unwrap_or(self.max_height);
         let min_h = self.mss_popup_min_height.unwrap_or(0.0);
         content_height.min(max_h).max(min_h)
     }
 
     fn max_scroll(&self) -> f32 {
-        let total_height = self.items.len() as f32 * 36.0;
+        let total_height = self.visible_rows() as f32 * 36.0;
         (total_height - self.effective_popup_height()).max(0.0)
     }
 
@@ -295,7 +433,6 @@ impl DropdownElement {
     }
 
     fn recompute_dropdown_position(&mut self) {
-        let width = self.bounds.size.width;
         let height = self.bounds.size.height;
         let dropdown_h = self.dropdown_bounds.size.height;
         let popup_gap = 4.0;
@@ -313,13 +450,7 @@ impl DropdownElement {
         } else {
             height + popup_gap
         };
-        self.item_bounds.clear();
-        let mut y = base_y;
-        for (i, _) in self.items.iter().enumerate() {
-            let item_rect = Rect::new(Point::new(0.0, y), Size::new(width, 36.0));
-            self.item_bounds.push((item_rect, i));
-            y += 36.0;
-        }
+        self.rebuild_item_bounds(base_y);
     }
 }
 
@@ -403,22 +534,24 @@ impl Element for DropdownElement {
         };
         self.dropdown_bounds =
             Rect::new(Point::new(0.0, base_y), Size::new(width, dropdown_height));
-
-        self.item_bounds.clear();
-        let mut y = base_y;
-        for (i, _item) in self.items.iter().enumerate() {
-            let item_rect = Rect::new(Point::new(0.0, y), Size::new(width, 36.0));
-            self.item_bounds.push((item_rect, i));
-            y += 36.0;
-        }
+        self.rebuild_item_bounds(base_y);
 
         Size::new(width, height)
     }
 
     fn build_display_list(&self, list: &mut DisplayList, _clip: Rect) {
-        let bg = self.mss.background_color.unwrap_or_else(crate::theme_fallback::fallback_surface);
-        let fg = self.mss.color.unwrap_or_else(crate::theme_fallback::fallback_fg_strong);
-        let border = self.mss.border_color.unwrap_or_else(crate::theme_fallback::fallback_border);
+        let bg = self
+            .mss
+            .background_color
+            .unwrap_or_else(crate::theme_fallback::fallback_surface);
+        let fg = self
+            .mss
+            .color
+            .unwrap_or_else(crate::theme_fallback::fallback_fg_strong);
+        let border = self
+            .mss
+            .border_color
+            .unwrap_or_else(crate::theme_fallback::fallback_border);
         let muted = fg.with_alpha(0.5);
         let primary = self.mss.accent_color.unwrap_or(Color::from_hex("#3B82F6"));
         let disabled_bg = bg.darken(0.05);
@@ -467,12 +600,16 @@ impl Element for DropdownElement {
             text_left += icon_size + 6.0;
         }
 
-        let text = self
-            .get_selected_label()
-            .unwrap_or_else(|| self.placeholder_text());
-        let text_color = if self.disabled {
-            muted
-        } else if self.get_selected_label().is_none() {
+        let searching = self.is_open && !self.query.is_empty();
+        let text = if searching {
+            format!("\u{E8B6} {}", self.query)
+        } else {
+            self.get_selected_label()
+                .unwrap_or_else(|| self.placeholder_text())
+        };
+        let text_color = if searching {
+            primary
+        } else if self.disabled || self.get_selected_label().is_none() {
             muted
         } else {
             fg
@@ -594,7 +731,8 @@ impl Element for DropdownElement {
                 }
 
                 let item = &self.items[*idx];
-                let is_selected = *self.selected.lock().unwrap_or_else(|e| e.into_inner()) == Some(item.value.clone());
+                let is_selected = *self.selected.lock().unwrap_or_else(|e| e.into_inner())
+                    == Some(item.value.clone());
                 let is_hover = self.hover_item == Some(*idx);
 
                 let item_bg = if item.disabled {
@@ -661,7 +799,12 @@ impl Element for DropdownElement {
                         item_h,
                     ),
                 );
-                let label = self.fit_text(&item.label, label_rect.size.width - 4.0, font_size, font_weight);
+                let label = self.fit_text(
+                    &item.label,
+                    label_rect.size.width - 4.0,
+                    font_size,
+                    font_weight,
+                );
                 list.push_text_styled_singleline(
                     &label,
                     label_rect,
@@ -683,6 +826,23 @@ impl Element for DropdownElement {
                     );
                     list.push_text_centered("\u{E5CA}", check_rect, popup_accent, font_size);
                 }
+            }
+
+            if self.item_bounds.is_empty() && !self.query.is_empty() {
+                let row = Rect::new(
+                    Point::new(inset.x() + 12.0, inset.y()),
+                    Size::new((inset.size.width - 24.0).max(0.0), 36.0),
+                );
+                list.push_text_styled_singleline(
+                    &crate::i18n::builtin("dropdown.no_matches", "No matches"),
+                    row,
+                    popup_muted,
+                    font_size,
+                    TextAlign::DEFAULT,
+                    TextDecoration::None,
+                    font_weight,
+                    self.mss.font_family.clone(),
+                );
             }
 
             list.pop_clip();
@@ -737,45 +897,28 @@ impl Element for DropdownElement {
             Event::MouseDown { button, position } => {
                 if *button == MouseButton::Left {
                     if self.bounds.contains(*position) {
-                        self.is_open = !self.is_open;
                         if self.is_open {
-                            self.determine_direction(ctx.viewport_size().height);
-                            self.recompute_dropdown_position();
-                            ctx.register_overlay(self.compute_overlay_bounds(), false);
+                            self.close(ctx);
                         } else {
-                            ctx.unregister_overlay();
+                            self.open(ctx, self.selected_index());
                         }
-                        ctx.request_paint();
                         return EventResult::Handled;
                     } else if self.is_open {
-                        for (item_rect, idx) in &self.item_bounds {
-                            let adjusted_rect = Rect::new(
+                        let hit = self.item_bounds.iter().find_map(|(item_rect, idx)| {
+                            Rect::new(
                                 Point::new(
                                     self.bounds.x() + item_rect.x(),
                                     self.bounds.y() + item_rect.y() - self.scroll_offset,
                                 ),
                                 item_rect.size,
-                            );
-                            if adjusted_rect.contains(*position) {
-                                let item = &self.items[*idx];
-                                if !item.disabled {
-                                    *self.selected.lock().unwrap_or_else(|e| e.into_inner()) = Some(item.value.clone());
-                                    if let Some(ref callback) = self.on_change {
-                                        if let Ok(mut cb) = callback.lock() {
-                                            cb(&item.value);
-                                        }
-                                    }
-                                    self.is_open = false;
-                                    ctx.unregister_overlay();
-                                    ctx.request_paint();
-                                    return EventResult::Handled;
-                                }
-                            }
+                            )
+                            .contains(*position)
+                            .then_some(*idx)
+                        });
+                        if hit.is_some_and(|idx| self.choose(idx, ctx)) {
+                            return EventResult::Handled;
                         }
-
-                        self.is_open = false;
-                        ctx.unregister_overlay();
-                        ctx.request_paint();
+                        self.close(ctx);
                         return EventResult::Handled;
                     }
                 }
@@ -783,57 +926,47 @@ impl Element for DropdownElement {
             }
             Event::BackPressed => {
                 if self.is_open {
-                    self.is_open = false;
-                    ctx.unregister_overlay();
-                    ctx.request_paint();
+                    self.close(ctx);
                     return EventResult::Handled;
                 }
                 EventResult::Ignored
             }
+            Event::CharInput(ch) if (self.is_open || self.focused) && !ch.is_control() => {
+                if !self.is_open {
+                    self.open(ctx, self.selected_index());
+                }
+                if ch.is_whitespace() && self.query.is_empty() {
+                    return EventResult::Handled;
+                }
+                self.query.push(*ch);
+                self.apply_query(ctx);
+                EventResult::Handled
+            }
             Event::KeyDown(key) => {
                 if self.is_open {
                     match key {
+                        Key::Escape if !self.query.is_empty() => {
+                            self.query.clear();
+                            self.apply_query(ctx);
+                            return EventResult::Handled;
+                        }
                         Key::Escape => {
-                            self.is_open = false;
-                            ctx.unregister_overlay();
-                            ctx.request_paint();
+                            self.close(ctx);
                             return EventResult::Handled;
                         }
-                        Key::Up => {
-                            if let Some(hover) = self.hover_item {
-                                if hover > 0 {
-                                    self.hover_item = Some(hover - 1);
-                                }
-                            } else if !self.items.is_empty() {
-                                self.hover_item = Some(0);
-                            }
-                            ctx.request_paint();
+                        Key::Backspace if !self.query.is_empty() => {
+                            self.query.pop();
+                            self.apply_query(ctx);
                             return EventResult::Handled;
                         }
-                        Key::Down => {
-                            if let Some(hover) = self.hover_item {
-                                if hover < self.items.len() - 1 {
-                                    self.hover_item = Some(hover + 1);
-                                }
-                            } else if !self.items.is_empty() {
-                                self.hover_item = Some(0);
-                            }
+                        Key::Up | Key::Down => {
+                            self.move_hover(*key == Key::Down);
                             ctx.request_paint();
                             return EventResult::Handled;
                         }
                         Key::Enter => {
                             if let Some(hover) = self.hover_item {
-                                let item = &self.items[hover];
-                                if !item.disabled {
-                                    *self.selected.lock().unwrap_or_else(|e| e.into_inner()) = Some(item.value.clone());
-                                    if let Some(ref callback) = self.on_change {
-                                        if let Ok(mut cb) = callback.lock() {
-                                            cb(&item.value);
-                                        }
-                                    }
-                                    self.is_open = false;
-                                    ctx.unregister_overlay();
-                                    ctx.request_paint();
+                                if self.choose(hover, ctx) {
                                     return EventResult::Handled;
                                 }
                             }
@@ -843,31 +976,17 @@ impl Element for DropdownElement {
                 } else if self.focused {
                     match key {
                         Key::Enter | Key::Space => {
-                            self.is_open = true;
-                            self.determine_direction(ctx.viewport_size().height);
-                            self.recompute_dropdown_position();
-                            ctx.register_overlay(self.compute_overlay_bounds(), false);
-                            ctx.request_paint();
+                            self.open(ctx, self.selected_index());
                             return EventResult::Handled;
                         }
                         Key::Down => {
-                            self.is_open = true;
-                            self.hover_item = Some(0);
-                            self.determine_direction(ctx.viewport_size().height);
-                            self.recompute_dropdown_position();
-                            ctx.register_overlay(self.compute_overlay_bounds(), false);
-                            ctx.request_paint();
+                            self.open(ctx, None);
+                            self.move_hover(true);
                             return EventResult::Handled;
                         }
                         Key::Up => {
-                            self.is_open = true;
-                            if !self.items.is_empty() {
-                                self.hover_item = Some(self.items.len() - 1);
-                            }
-                            self.determine_direction(ctx.viewport_size().height);
-                            self.recompute_dropdown_position();
-                            ctx.register_overlay(self.compute_overlay_bounds(), false);
-                            ctx.request_paint();
+                            self.open(ctx, None);
+                            self.move_hover(false);
                             return EventResult::Handled;
                         }
                         _ => {}
@@ -883,8 +1002,7 @@ impl Element for DropdownElement {
             Event::FocusLost => {
                 self.focused = false;
                 if self.is_open {
-                    self.is_open = false;
-                    ctx.unregister_overlay();
+                    self.close(ctx);
                 }
                 ctx.request_paint();
                 EventResult::Handled
@@ -899,8 +1017,8 @@ impl Element for DropdownElement {
             Event::TouchMove { id, position } => match self.touch_drag {
                 Some((tid, last)) if tid == *id => {
                     if self.is_open {
-                        let new_offset =
-                            (self.scroll_offset + last.y - position.y).clamp(0.0, self.max_scroll());
+                        let new_offset = (self.scroll_offset + last.y - position.y)
+                            .clamp(0.0, self.max_scroll());
                         if new_offset != self.scroll_offset {
                             self.scroll_offset = new_offset;
                             self.hover_item = None;

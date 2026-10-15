@@ -249,7 +249,10 @@ impl winit::application::ApplicationHandler<SynGuiUserEvent> for AppHandler {
                 if self.tree.drag_state.is_some() {
                     let outside = self.window.as_ref().is_some_and(|w| {
                         let size = w.winit_window().inner_size();
-                        position.x < 0.0 || position.y < 0.0 || position.x >= size.width as f64 || position.y >= size.height as f64
+                        position.x < 0.0
+                            || position.y < 0.0
+                            || position.x >= size.width as f64
+                            || position.y >= size.height as f64
                     });
                     if outside && self.try_os_drag() {
                         return;
@@ -639,7 +642,15 @@ impl winit::application::ApplicationHandler<SynGuiUserEvent> for AppHandler {
                     winit::event::ElementState::Released => Event::KeyUp(key),
                 };
 
-                #[cfg(any(target_os = "linux", target_os = "freebsd", target_os = "openbsd", target_os = "netbsd", target_os = "dragonfly", windows, target_os = "macos"))]
+                #[cfg(any(
+                    target_os = "linux",
+                    target_os = "freebsd",
+                    target_os = "openbsd",
+                    target_os = "netbsd",
+                    target_os = "dragonfly",
+                    windows,
+                    target_os = "macos"
+                ))]
                 {
                     use winit::platform::scancode::PhysicalKeyExtScancode;
                     crate::input::set_current_scancode(event.physical_key.to_scancode());
@@ -689,7 +700,9 @@ impl winit::application::ApplicationHandler<SynGuiUserEvent> for AppHandler {
                 self.cursor_position = position;
                 // Тап, двойной тап и долгое нажатие синтезирует общий автомат
                 // (`input::touch`); сырые Touch* получают все пальцы.
-                if matches!(touch.phase, winit::event::TouchPhase::Ended) && self.touch.would_tap(id) {
+                if matches!(touch.phase, winit::event::TouchPhase::Ended)
+                    && self.touch.would_tap(id)
+                {
                     self.update_focus_from_click(position);
                 }
                 if let Some(root_id) = self.root_id {
@@ -902,7 +915,10 @@ impl winit::application::ApplicationHandler<SynGuiUserEvent> for AppHandler {
                 if let Some((w, h)) = crate::window::take_pending_size() {
                     // Wayland применяет размер сразу и не присылает Resized —
                     // перестраиваем поверхность и раскладку сами.
-                    let applied = self.window.as_ref().and_then(|win| win.request_inner_size(w, h).map(|s| (win.id(), s)));
+                    let applied = self
+                        .window
+                        .as_ref()
+                        .and_then(|win| win.request_inner_size(w, h).map(|s| (win.id(), s)));
                     if let Some((id, size)) = applied {
                         self.window_event(event_loop, id, winit::event::WindowEvent::Resized(size));
                     }
@@ -961,18 +977,27 @@ impl AppHandler {
     /// (в другие программы, на рабочий стол); внутренний перенос отменяется.
     #[cfg(feature = "wayland-dnd")]
     fn try_os_drag(&mut self) -> bool {
-        let Some(data) = self.tree.drag_state.as_ref().map(|d| d.data.clone()) else { return false };
+        let Some(data) = self.tree.drag_state.as_ref().map(|d| d.data.clone()) else {
+            return false;
+        };
         let list = if data.drag_type == "text/uri-list" {
             data.payload.clone()
         } else if data.drag_type == crate::input::DragData::TYPE_FILE {
-            format!("{}\r\n", super::wayland_dnd::uri::path_to_uri(&data.payload))
+            format!(
+                "{}\r\n",
+                super::wayland_dnd::uri::path_to_uri(&data.payload)
+            )
         } else {
             return false;
         };
         if self.root_id.is_none() {
             return false;
         }
-        let multi = list.lines().filter(|l| !l.trim().is_empty() && !l.starts_with('#')).count() > 1;
+        let multi = list
+            .lines()
+            .filter(|l| !l.trim().is_empty() && !l.starts_with('#'))
+            .count()
+            > 1;
         if !super::wayland_dnd::start_os_drag(&list, multi, self.scale_factor) {
             return false;
         }
@@ -999,7 +1024,13 @@ impl AppHandler {
         }) else {
             return;
         };
-        let accepting = self.tree.dispatch_drag_event(&Event::DragMove { position: pos, data }).is_handled();
+        let accepting = self
+            .tree
+            .dispatch_drag_event(&Event::DragMove {
+                position: pos,
+                data,
+            })
+            .is_handled();
         if let Some(ref mut drag) = self.tree.drag_state {
             drag.accepting = accepting;
         }
@@ -1015,7 +1046,9 @@ impl AppHandler {
         if self.os_drag {
             let root_id = self.root_id.unwrap();
             match ev {
-                WaylandDndEvent::Enter { x, y } | WaylandDndEvent::Motion { x, y } => self.own_drag_move(x, y),
+                WaylandDndEvent::Enter { x, y } | WaylandDndEvent::Motion { x, y } => {
+                    self.own_drag_move(x, y)
+                }
                 WaylandDndEvent::Leave => {
                     self.tree.dispatch_drag_event(&Event::DragLeave);
                     self.request_redraw();
@@ -1240,8 +1273,20 @@ impl AppHandler {
                 self.cursor_position = center;
                 self.tree.handle_event(root_id, &Event::MouseMove(center));
                 self.update_focus_from_click(center);
-                self.tree.handle_event(root_id, &Event::MouseDown { button, position: center });
-                self.tree.handle_event(root_id, &Event::MouseUp { button, position: center });
+                self.tree.handle_event(
+                    root_id,
+                    &Event::MouseDown {
+                        button,
+                        position: center,
+                    },
+                );
+                self.tree.handle_event(
+                    root_id,
+                    &Event::MouseUp {
+                        button,
+                        position: center,
+                    },
+                );
             }
             Action::Focus => {
                 self.update_focus_from_click(center);
@@ -1249,7 +1294,8 @@ impl AppHandler {
             Action::ReplaceSelectedText => {
                 if let Some(ActionData::Value(text)) = req.data {
                     self.update_focus_from_click(center);
-                    self.tree.handle_event(root_id, &Event::ImeCommit(text.to_string()));
+                    self.tree
+                        .handle_event(root_id, &Event::ImeCommit(text.to_string()));
                 }
             }
             _ => return,

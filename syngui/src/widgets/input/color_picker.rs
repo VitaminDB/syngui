@@ -606,9 +606,14 @@ impl Element for ColorPickerElement {
             let border_color = if self.is_open {
                 self.mss.accent_color.unwrap_or(Color::from_hex("#3B82F6"))
             } else {
-                self.mss.border_color.unwrap_or_else(crate::theme_fallback::fallback_border)
+                self.mss
+                    .border_color
+                    .unwrap_or_else(crate::theme_fallback::fallback_border)
             };
-            let bg_color = self.mss.background_color.unwrap_or_else(crate::theme_fallback::fallback_surface);
+            let bg_color = self
+                .mss
+                .background_color
+                .unwrap_or_else(crate::theme_fallback::fallback_surface);
 
             let h = self.bounds.size.height;
             let v_pad = if h < 32.0 { 4.0 } else { 8.0 };
@@ -639,7 +644,10 @@ impl Element for ColorPickerElement {
                     font_size + 2.0,
                 ),
             );
-            let text_color = self.mss.color.unwrap_or_else(crate::theme_fallback::fallback_fg);
+            let text_color = self
+                .mss
+                .color
+                .unwrap_or_else(crate::theme_fallback::fallback_fg);
             // `#RRGGBB` в узком контроле (96 px в панели свойств) переносился
             // на вторую строку и вылезал за кнопку — только одна строка.
             list.push_text_styled_singleline(

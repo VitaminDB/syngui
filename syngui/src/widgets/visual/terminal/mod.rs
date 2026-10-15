@@ -26,7 +26,8 @@ pub use session::TerminalSession;
 /// в PTY она не уходит. Видит `KeyDown`; символ, который клавиша набирает,
 /// приходит отдельным `CharInput` раньше неё, поэтому горячие клавиши — с Ctrl
 /// (при Ctrl окно символов не шлёт).
-pub type TerminalKeyHook = Arc<dyn Fn(crate::input::Key, crate::input::Modifiers) -> bool + Send + Sync>;
+pub type TerminalKeyHook =
+    Arc<dyn Fn(crate::input::Key, crate::input::Modifiers) -> bool + Send + Sync>;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum TerminalCommand {

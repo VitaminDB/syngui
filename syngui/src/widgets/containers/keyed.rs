@@ -251,9 +251,15 @@ mod tests {
         let (mut h,) = feed(rows, Arc::new(AtomicUsize::new(0)));
         h.rebuild();
         h.layout(600.0, 400.0);
-        let tops: Vec<f32> = ids(&h).iter().map(|&id| h.element_bounds(id).origin.y).collect();
+        let tops: Vec<f32> = ids(&h)
+            .iter()
+            .map(|&id| h.element_bounds(id).origin.y)
+            .collect();
         assert_eq!(tops.len(), 3);
-        assert!(tops[0] < tops[1] && tops[1] < tops[2], "строки наложены: {tops:?}");
+        assert!(
+            tops[0] < tops[1] && tops[1] < tops[2],
+            "строки наложены: {tops:?}"
+        );
     }
 
     /// `Positioned` из одного `Reactive` встают на свои места, а не столбцом
@@ -262,14 +268,16 @@ mod tests {
     fn positioned_children_of_reactive_keep_their_places() {
         use crate::containers::{Positioned, Stack, StackFit};
         crate::signal::allow_signal_reads_on_this_thread();
-        let mut h = TestHarness::new(Box::new(Stack::new().fit(StackFit::Expand).child(Reactive::new(
-            move || -> Vec<Box<dyn Widget>> {
+        let mut h = TestHarness::new(Box::new(Stack::new().fit(StackFit::Expand).child(
+            Reactive::new(move || -> Vec<Box<dyn Widget>> {
                 [(10.0, 300.0), (500.0, 20.0), (200.0, 150.0)]
                     .into_iter()
-                    .map(|(x, y)| Box::new(Positioned::new(Text::new("кнопка")).at(x, y)) as Box<dyn Widget>)
+                    .map(|(x, y)| {
+                        Box::new(Positioned::new(Text::new("кнопка")).at(x, y)) as Box<dyn Widget>
+                    })
                     .collect()
-            },
-        ))));
+            }),
+        )));
         h.rebuild();
         h.layout(800.0, 400.0);
         let tops: Vec<(f32, f32)> = h

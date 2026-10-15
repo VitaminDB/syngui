@@ -292,7 +292,11 @@ impl AppHandler {
             let mut font_changed = false;
             if let Some(renderer) = self.renderer.as_mut() {
                 if let Some(font_data) = self.pending_font.borrow_mut().take() {
-                    renderer.font_atlas.lock().unwrap_or_else(|e| e.into_inner()).set_font_data(font_data);
+                    renderer
+                        .font_atlas
+                        .lock()
+                        .unwrap_or_else(|e| e.into_inner())
+                        .set_font_data(font_data);
                     font_changed = true;
                 }
                 if let Some(emoji_data) = self.pending_emoji_font.borrow_mut().take() {
@@ -317,7 +321,13 @@ impl AppHandler {
                 web_sys::console::log_1(&"[syngui] Font data received".into());
             }
             let all_fonts_ready = {
-                let atlas = self.renderer.as_ref().unwrap().font_atlas.lock().unwrap_or_else(|e| e.into_inner());
+                let atlas = self
+                    .renderer
+                    .as_ref()
+                    .unwrap()
+                    .font_atlas
+                    .lock()
+                    .unwrap_or_else(|e| e.into_inner());
                 let has_primary = atlas.has_font();
                 let has_emoji = atlas.has_emoji_font();
                 let emoji_configured = self.config.emoji_font_url.is_some();
@@ -560,9 +570,16 @@ impl AppHandler {
             // живут своим временем — с ними подпись не берём.
             let overlays_on = self.debug_overlay.is_some()
                 || self.devtools.as_ref().is_some_and(|d| d.is_enabled());
-            let sig = if overlays_on { None } else { self.display_list.frame_signature() };
+            let sig = if overlays_on {
+                None
+            } else {
+                self.display_list.frame_signature()
+            };
             let images_busy = {
-                let mut st = renderer.image_store.lock().unwrap_or_else(|e| e.into_inner());
+                let mut st = renderer
+                    .image_store
+                    .lock()
+                    .unwrap_or_else(|e| e.into_inner());
                 // Готовые в фоне картинки забираются до решения о пропуске
                 // кадра: иначе их забирал только рендер (`process_uploads`),
                 // а он пропускался, пока кадр не менялся, — и картинка, ради
@@ -571,7 +588,11 @@ impl AppHandler {
                 st.poll_bg();
                 st.has_pending_uploads() || st.has_pending_frees()
             };
-            if sig.is_some() && sig == self.last_frame_sig && !images_busy && !crate::signal::take_force_frame() {
+            if sig.is_some()
+                && sig == self.last_frame_sig
+                && !images_busy
+                && !crate::signal::take_force_frame()
+            {
                 self.last_frame_skipped = true;
                 crate::perf::record_frame(
                     rebuild_elapsed,
@@ -596,7 +617,11 @@ impl AppHandler {
             // Запоминаем только действительно показанный кадр: при ошибке
             // поверхности рендер ничего не рисует, и следующий такой же кадр
             // пропускать нельзя.
-            self.last_frame_sig = if render_stats.draw_calls > 0 { sig } else { None };
+            self.last_frame_sig = if render_stats.draw_calls > 0 {
+                sig
+            } else {
+                None
+            };
 
             let font_stats = renderer.font_atlas_stats();
             let dl_stats = self.display_list.stats();
@@ -712,7 +737,9 @@ impl AppHandler {
                 }
                 if let Some(root_id) = self.root_id {
                     let transition = self.config.theme_transition;
-                    crate::mss::cascade::with_theme_transition(transition, || self.apply_styles(root_id));
+                    crate::mss::cascade::with_theme_transition(transition, || {
+                        self.apply_styles(root_id)
+                    });
                     self.tree.animations_armed = true;
                 }
                 #[cfg(target_os = "android")]
@@ -771,7 +798,9 @@ impl AppHandler {
                 }
                 if let Some(root_id) = self.root_id {
                     let transition = self.config.theme_transition;
-                    crate::mss::cascade::with_theme_transition(transition, || self.apply_styles(root_id));
+                    crate::mss::cascade::with_theme_transition(transition, || {
+                        self.apply_styles(root_id)
+                    });
                     self.tree.animations_armed = true;
                 }
                 if let Some(window) = &self.window {

@@ -278,16 +278,38 @@ impl DmaBuf {
             .iter()
             .find_map(|p| File::options().read(true).write(true).open(p).ok())
             .ok_or_else(|| VideoError::DecoderInit("v4l2: нет /dev/dma_heap/system".into()))?;
-        let mut a = HeapAlloc { len: len as u64, fd: 0, fd_flags: (libc::O_RDWR | libc::O_CLOEXEC) as u32, heap_flags: 0 };
-        xioctl(heap.as_raw_fd(), HEAP_ALLOC, &mut a).map_err(|e| VideoError::DecoderInit(format!("v4l2: dma-heap {len} байт: {e}")))?;
+        let mut a = HeapAlloc {
+            len: len as u64,
+            fd: 0,
+            fd_flags: (libc::O_RDWR | libc::O_CLOEXEC) as u32,
+            heap_flags: 0,
+        };
+        xioctl(heap.as_raw_fd(), HEAP_ALLOC, &mut a)
+            .map_err(|e| VideoError::DecoderInit(format!("v4l2: dma-heap {len} байт: {e}")))?;
         // SAFETY: fd только что выдан ядром и больше никем не владеет.
         let fd = unsafe { OwnedFd::from_raw_fd(a.fd as RawFd) };
         // SAFETY: отображаем выделенный буфер целиком.
-        let map = unsafe { libc::mmap(ptr::null_mut(), len, libc::PROT_READ | libc::PROT_WRITE, libc::MAP_SHARED, fd.as_raw_fd(), 0) };
+        let map = unsafe {
+            libc::mmap(
+                ptr::null_mut(),
+                len,
+                libc::PROT_READ | libc::PROT_WRITE,
+                libc::MAP_SHARED,
+                fd.as_raw_fd(),
+                0,
+            )
+        };
         if map == libc::MAP_FAILED {
-            return Err(VideoError::DecoderInit(format!("v4l2: mmap dma-buf: {}", std::io::Error::last_os_error())));
+            return Err(VideoError::DecoderInit(format!(
+                "v4l2: mmap dma-buf: {}",
+                std::io::Error::last_os_error()
+            )));
         }
-        Ok(Self { fd, map: map as *mut u8, len })
+        Ok(Self {
+            fd,
+            map: map as *mut u8,
+            len,
+        })
     }
 
     /// Согласование кэша CPU с устройством (начало/конец доступа процессора).
@@ -333,7 +355,11 @@ fn is_decoder_for(fd: RawFd, want: u32) -> bool {
     if xioctl(fd, QUERYCAP, &mut cap).is_err() {
         return false;
     }
-    let caps = if cap.capabilities & CAP_DEVICE_CAPS != 0 { cap.device_caps } else { cap.capabilities };
+    let caps = if cap.capabilities & CAP_DEVICE_CAPS != 0 {
+        cap.device_caps
+    } else {
+        cap.capabilities
+    };
     let m2m = caps & CAP_VIDEO_M2M_MPLANE != 0
         || (caps & CAP_VIDEO_CAPTURE_MPLANE != 0 && caps & CAP_VIDEO_OUTPUT_MPLANE != 0);
     if !m2m {
@@ -362,11 +388,20 @@ fn find_device(want: u32) -> Option<File> {
         .ok()?
         .flatten()
         .map(|e| e.path())
-        .filter(|p| p.file_name().and_then(|n| n.to_str()).is_some_and(|n| n.starts_with("video")))
+        .filter(|p| {
+            p.file_name()
+                .and_then(|n| n.to_str())
+                .is_some_and(|n| n.starts_with("video"))
+        })
         .collect();
     paths.sort();
     paths.into_iter().find_map(|p| {
-        let f = File::options().read(true).write(true).custom_flags(libc::O_NONBLOCK).open(&p).ok()?;
+        let f = File::options()
+            .read(true)
+            .write(true)
+            .custom_flags(libc::O_NONBLOCK)
+            .open(&p)
+            .ok()?;
         is_decoder_for(f.as_raw_fd(), want).then(|| {
             log::info!("v4l2: декодер {}", p.display());
             f
@@ -384,7 +419,11 @@ struct Bsf(*mut ffi::AVBSFContext);
 unsafe impl Send for Bsf {}
 
 impl Bsf {
-    fn new(name: &str, par: *const ffi::AVCodecParameters, tb: ffi::AVRational) -> Result<Self, VideoError> {
+    fn new(
+        name: &str,
+        par: *const ffi::AVCodecParameters,
+        tb: ffi::AVRational,
+    ) -> Result<Self, VideoError> {
         let cname = CString::new(name).unwrap();
         // SAFETY: обычная последовательность av_bsf_*; ошибки проверяются.
         unsafe {
@@ -488,16 +527,26 @@ unsafe impl Send for V4l2Decoder {}
 
 impl V4l2Decoder {
     /// Декодер для потока с этими параметрами; `None`/ошибка — кодека или устройства нет.
-    pub fn new(par: *const ffi::AVCodecParameters, time_base: ffi::AVRational) -> Result<Self, VideoError> {
+    pub fn new(
+        par: *const ffi::AVCodecParameters,
+        time_base: ffi::AVRational,
+    ) -> Result<Self, VideoError> {
         // SAFETY: par — параметры потока демуксера, живы на время вызова; копируем их себе.
         let (codec_id, w, h, params) = unsafe {
             let copy = ffi::avcodec_parameters_alloc();
             ffi::avcodec_parameters_copy(copy, par);
-            ((*par).codec_id, (*par).width.max(16) as u32, (*par).height.max(16) as u32, copy)
+            (
+                (*par).codec_id,
+                (*par).width.max(16) as u32,
+                (*par).height.max(16) as u32,
+                copy,
+            )
         };
-        let (v4l2_fmt, bsf_name) =
-            codec_fourcc(codec_id).ok_or_else(|| VideoError::DecoderInit(format!("v4l2: кодек {codec_id:?} не поддержан")))?;
-        let fd = find_device(v4l2_fmt).ok_or_else(|| VideoError::DecoderInit("v4l2: нет декодера для кодека".into()))?;
+        let (v4l2_fmt, bsf_name) = codec_fourcc(codec_id).ok_or_else(|| {
+            VideoError::DecoderInit(format!("v4l2: кодек {codec_id:?} не поддержан"))
+        })?;
+        let fd = find_device(v4l2_fmt)
+            .ok_or_else(|| VideoError::DecoderInit("v4l2: нет декодера для кодека".into()))?;
         let raw = fd.as_raw_fd();
 
         let mut of: Format = zeroed();
@@ -510,7 +559,8 @@ impl V4l2Decoder {
             of.fmt.pix_mp.num_planes = 1;
             of.fmt.pix_mp.plane_fmt[0].sizeimage = INPUT_SIZE;
         }
-        xioctl(raw, S_FMT, &mut of).map_err(|e| VideoError::DecoderInit(format!("v4l2: S_FMT вход: {e}")))?;
+        xioctl(raw, S_FMT, &mut of)
+            .map_err(|e| VideoError::DecoderInit(format!("v4l2: S_FMT вход: {e}")))?;
         // Драйвер может потребовать буфер больше (msm_vidc, HEVC 4K: 8,4 МБ).
         let in_size = unsafe { of.fmt.pix_mp.plane_fmt[0].sizeimage }.max(1 << 20) as usize;
 
@@ -527,11 +577,22 @@ impl V4l2Decoder {
             let _ = xioctl(raw, SUBSCRIBE_EVENT, &mut s);
         }
 
-        let mut rb = RequestBuffers { count: N_INPUT as u32, type_: BUF_TYPE_OUTPUT_MPLANE, memory: MEMORY_DMABUF, capabilities: 0, flags: 0, reserved: [0; 3] };
-        xioctl(raw, REQBUFS, &mut rb).map_err(|e| VideoError::DecoderInit(format!("v4l2: REQBUFS вход: {e}")))?;
-        let inputs = (0..rb.count).map(|_| DmaBuf::alloc(in_size)).collect::<Result<Vec<_>, _>>()?;
+        let mut rb = RequestBuffers {
+            count: N_INPUT as u32,
+            type_: BUF_TYPE_OUTPUT_MPLANE,
+            memory: MEMORY_DMABUF,
+            capabilities: 0,
+            flags: 0,
+            reserved: [0; 3],
+        };
+        xioctl(raw, REQBUFS, &mut rb)
+            .map_err(|e| VideoError::DecoderInit(format!("v4l2: REQBUFS вход: {e}")))?;
+        let inputs = (0..rb.count)
+            .map(|_| DmaBuf::alloc(in_size))
+            .collect::<Result<Vec<_>, _>>()?;
         let mut t = BUF_TYPE_OUTPUT_MPLANE as i32;
-        xioctl(raw, STREAMON, &mut t).map_err(|e| VideoError::DecoderInit(format!("v4l2: STREAMON вход: {e}")))?;
+        xioctl(raw, STREAMON, &mut t)
+            .map_err(|e| VideoError::DecoderInit(format!("v4l2: STREAMON вход: {e}")))?;
 
         let bsf = match bsf_name {
             Some(n) => Some(Bsf::new(n, params, time_base)?),
@@ -567,11 +628,17 @@ impl V4l2Decoder {
     }
 
     pub fn width(&self) -> u32 {
-        self.capture.as_ref().map(|c| c.visible_w).unwrap_or_else(|| unsafe { (*self.params).width as u32 })
+        self.capture
+            .as_ref()
+            .map(|c| c.visible_w)
+            .unwrap_or_else(|| unsafe { (*self.params).width as u32 })
     }
 
     pub fn height(&self) -> u32 {
-        self.capture.as_ref().map(|c| c.visible_h).unwrap_or_else(|| unsafe { (*self.params).height as u32 })
+        self.capture
+            .as_ref()
+            .map(|c| c.visible_h)
+            .unwrap_or_else(|| unsafe { (*self.params).height as u32 })
     }
 
     /// Подать пакет демуксера. Блокирует, пока не освободится входной буфер
@@ -591,8 +658,13 @@ impl V4l2Decoder {
                     ffi::av_packet_free(&mut p);
                     let mut out = ffi::av_packet_alloc();
                     while ffi::av_bsf_receive_packet(b.0, out) == 0 {
-                        let data = std::slice::from_raw_parts((*out).data, (*out).size as usize).to_vec();
-                        let pts = if (*out).pts == ffi::AV_NOPTS_VALUE { None } else { Some((*out).pts) };
+                        let data =
+                            std::slice::from_raw_parts((*out).data, (*out).size as usize).to_vec();
+                        let pts = if (*out).pts == ffi::AV_NOPTS_VALUE {
+                            None
+                        } else {
+                            Some((*out).pts)
+                        };
                         units.push((data, pts));
                         ffi::av_packet_unref(out);
                     }
@@ -629,7 +701,9 @@ impl V4l2Decoder {
     /// Ждущие пакеты — в свободные входные буферы; затем, если просили, конец потока.
     fn feed(&mut self) -> Result<(), VideoError> {
         while !self.pending_in.is_empty() {
-            let Some(idx) = self.input_free.iter().position(|f| *f) else { break };
+            let Some(idx) = self.input_free.iter().position(|f| *f) else {
+                break;
+            };
             let (data, pts) = self.pending_in.pop_front().expect("не пусто");
             self.submit_input(idx, &data, pts)?;
         }
@@ -645,10 +719,18 @@ impl V4l2Decoder {
         Ok(())
     }
 
-    fn submit_input(&mut self, idx: usize, data: &[u8], pts: Option<i64>) -> Result<(), VideoError> {
+    fn submit_input(
+        &mut self,
+        idx: usize,
+        data: &[u8],
+        pts: Option<i64>,
+    ) -> Result<(), VideoError> {
         let buf = &mut self.inputs[idx];
         if data.len() > buf.len {
-            return Err(VideoError::Other(format!("v4l2: пакет {} байт больше буфера", data.len())));
+            return Err(VideoError::Other(format!(
+                "v4l2: пакет {} байт больше буфера",
+                data.len()
+            )));
         }
         buf.sync(SYNC_WRITE);
         buf.slice_mut()[..data.len()].copy_from_slice(data);
@@ -666,14 +748,22 @@ impl V4l2Decoder {
         b.memory = MEMORY_DMABUF;
         b.length = 1;
         b.m = &mut pl as *mut Plane as u64;
-        b.timestamp = libc::timeval { tv_sec: tag as _, tv_usec: 0 };
-        xioctl(self.fd.as_raw_fd(), QBUF, &mut b).map_err(|e| VideoError::Other(format!("v4l2: QBUF вход: {e}")))?;
+        b.timestamp = libc::timeval {
+            tv_sec: tag as _,
+            tv_usec: 0,
+        };
+        xioctl(self.fd.as_raw_fd(), QBUF, &mut b)
+            .map_err(|e| VideoError::Other(format!("v4l2: QBUF вход: {e}")))?;
         self.input_free[idx] = false;
         Ok(())
     }
 
     fn wait(&self, ms: i32) {
-        let mut p = libc::pollfd { fd: self.fd.as_raw_fd(), events: libc::POLLIN | libc::POLLOUT | libc::POLLPRI, revents: 0 };
+        let mut p = libc::pollfd {
+            fd: self.fd.as_raw_fd(),
+            events: libc::POLLIN | libc::POLLOUT | libc::POLLPRI,
+            revents: 0,
+        };
         // SAFETY: один pollfd.
         unsafe { libc::poll(&mut p, 1, ms) };
     }
@@ -706,7 +796,8 @@ impl V4l2Decoder {
         }
         self.feed()?;
         // Буферы, освобождённые кадрами без копии, — снова декодеру.
-        let back: Vec<(u64, usize)> = std::mem::take(&mut *self.returned.lock().unwrap_or_else(|e| e.into_inner()));
+        let back: Vec<(u64, usize)> =
+            std::mem::take(&mut *self.returned.lock().unwrap_or_else(|e| e.into_inner()));
         if let Some(gen) = self.capture.as_ref().map(|c| c.gen) {
             for (g, idx) in back {
                 if g == gen {
@@ -764,7 +855,11 @@ impl V4l2Decoder {
         let stride = c.stride as usize;
         let uv_off = stride * c.y_lines as usize;
         for plane in 0..2 {
-            let rows = if plane == 0 { h as usize } else { (h as usize).div_ceil(2) };
+            let rows = if plane == 0 {
+                h as usize
+            } else {
+                (h as usize).div_ceil(2)
+            };
             let dst_stride = f.stride(plane);
             let base = if plane == 0 { 0 } else { uv_off };
             let n = (w as usize).min(dst_stride).min(stride);
@@ -790,7 +885,11 @@ impl V4l2Decoder {
         let buf = c.bufs[idx].clone();
         let stride = c.stride;
         let uv_offset = stride * c.y_lines;
-        let hold = CaptureHold { idx, gen: c.gen, returned: self.returned.clone() };
+        let hold = CaptureHold {
+            idx,
+            gen: c.gen,
+            returned: self.returned.clone(),
+        };
         let copy_src = buf.clone();
         let copy = move || pack_nv12(&copy_src, stride as usize, uv_offset as usize, w, h);
         let d = YuvDmaBuf {
@@ -804,7 +903,15 @@ impl V4l2Decoder {
             hold: Box::new((hold, buf)),
         };
         let (matrix, full_range) = self.color();
-        YuvFrame { layout: YuvLayout::Nv12, matrix, full_range, width: w, height: h, data: std::sync::Arc::from(Vec::new().into_boxed_slice()), dmabuf: Some(std::sync::Arc::new(d)) }
+        YuvFrame {
+            layout: YuvLayout::Nv12,
+            matrix,
+            full_range,
+            width: w,
+            height: h,
+            data: std::sync::Arc::from(Vec::new().into_boxed_slice()),
+            dmabuf: Some(std::sync::Arc::new(d)),
+        }
     }
 
     /// Цветовое пространство — из параметров потока (VUI); не указано — по высоте.
@@ -815,8 +922,12 @@ impl V4l2Decoder {
         let (space, range) = unsafe { ((*self.params).color_space, (*self.params).color_range) };
         let matrix = match space {
             ffi::AVColorSpace::AVCOL_SPC_BT709 => YuvMatrix::Bt709,
-            ffi::AVColorSpace::AVCOL_SPC_BT2020_NCL | ffi::AVColorSpace::AVCOL_SPC_BT2020_CL => YuvMatrix::Bt2020,
-            ffi::AVColorSpace::AVCOL_SPC_BT470BG | ffi::AVColorSpace::AVCOL_SPC_SMPTE170M => YuvMatrix::Bt601,
+            ffi::AVColorSpace::AVCOL_SPC_BT2020_NCL | ffi::AVColorSpace::AVCOL_SPC_BT2020_CL => {
+                YuvMatrix::Bt2020
+            }
+            ffi::AVColorSpace::AVCOL_SPC_BT470BG | ffi::AVColorSpace::AVCOL_SPC_SMPTE170M => {
+                YuvMatrix::Bt601
+            }
             _ if h >= 720 => YuvMatrix::Bt709,
             _ => YuvMatrix::Bt601,
         };
@@ -835,7 +946,9 @@ impl V4l2Decoder {
         let (w, h) = (c.visible_w, c.visible_h);
         let len = YuvFrame::byte_len(YuvLayout::Nv12, w, h);
         self.pool.retain(|b| b.len() == len);
-        let mut buf = match self.pool.iter().position(|b| std::sync::Arc::strong_count(b) == 1 && std::sync::Arc::weak_count(b) == 0) {
+        let mut buf = match self.pool.iter().position(|b| {
+            std::sync::Arc::strong_count(b) == 1 && std::sync::Arc::weak_count(b) == 0
+        }) {
             Some(i) => self.pool.swap_remove(i),
             None => std::sync::Arc::from(vec![0u8; len].into_boxed_slice()),
         };
@@ -848,7 +961,10 @@ impl V4l2Decoder {
         let (wu, ch) = (w as usize, (h as usize).div_ceil(2));
         let uv_row = (wu.div_ceil(2) * 2).min(stride);
         let mut o = 0;
-        for (base, rows, n, dst_row) in [(0, h as usize, row, wu), (uv_off, ch, uv_row, wu.div_ceil(2) * 2)] {
+        for (base, rows, n, dst_row) in [
+            (0, h as usize, row, wu),
+            (uv_off, ch, uv_row, wu.div_ceil(2) * 2),
+        ] {
             for r in 0..rows {
                 let s = base + r * stride;
                 if s + n <= src.len() {
@@ -866,8 +982,12 @@ impl V4l2Decoder {
         let (space, range) = unsafe { ((*self.params).color_space, (*self.params).color_range) };
         let matrix = match space {
             ffi::AVColorSpace::AVCOL_SPC_BT709 => YuvMatrix::Bt709,
-            ffi::AVColorSpace::AVCOL_SPC_BT2020_NCL | ffi::AVColorSpace::AVCOL_SPC_BT2020_CL => YuvMatrix::Bt2020,
-            ffi::AVColorSpace::AVCOL_SPC_BT470BG | ffi::AVColorSpace::AVCOL_SPC_SMPTE170M => YuvMatrix::Bt601,
+            ffi::AVColorSpace::AVCOL_SPC_BT2020_NCL | ffi::AVColorSpace::AVCOL_SPC_BT2020_CL => {
+                YuvMatrix::Bt2020
+            }
+            ffi::AVColorSpace::AVCOL_SPC_BT470BG | ffi::AVColorSpace::AVCOL_SPC_SMPTE170M => {
+                YuvMatrix::Bt601
+            }
             _ if h >= 720 => YuvMatrix::Bt709,
             _ => YuvMatrix::Bt601,
         };
@@ -894,7 +1014,8 @@ impl V4l2Decoder {
         b.memory = MEMORY_DMABUF;
         b.length = 1;
         b.m = &mut pl as *mut Plane as u64;
-        xioctl(self.fd.as_raw_fd(), QBUF, &mut b).map_err(|e| VideoError::Other(format!("v4l2: QBUF выход: {e}")))
+        xioctl(self.fd.as_raw_fd(), QBUF, &mut b)
+            .map_err(|e| VideoError::Other(format!("v4l2: QBUF выход: {e}")))
     }
 
     /// Смена параметров потока: выход заново (формат, размер, буферы).
@@ -903,15 +1024,24 @@ impl V4l2Decoder {
         if self.capture.take().is_some() {
             let mut t = BUF_TYPE_CAPTURE_MPLANE as i32;
             let _ = xioctl(raw, STREAMOFF, &mut t);
-            let mut rb = RequestBuffers { count: 0, type_: BUF_TYPE_CAPTURE_MPLANE, memory: MEMORY_DMABUF, capabilities: 0, flags: 0, reserved: [0; 3] };
+            let mut rb = RequestBuffers {
+                count: 0,
+                type_: BUF_TYPE_CAPTURE_MPLANE,
+                memory: MEMORY_DMABUF,
+                capabilities: 0,
+                flags: 0,
+                reserved: [0; 3],
+            };
             let _ = xioctl(raw, REQBUFS, &mut rb);
         }
         let mut cf: Format = zeroed();
         cf.type_ = BUF_TYPE_CAPTURE_MPLANE;
-        xioctl(raw, G_FMT, &mut cf).map_err(|e| VideoError::Other(format!("v4l2: G_FMT выход: {e}")))?;
+        xioctl(raw, G_FMT, &mut cf)
+            .map_err(|e| VideoError::Other(format!("v4l2: G_FMT выход: {e}")))?;
         if unsafe { cf.fmt.pix_mp.pixelformat } != PIX_NV12 {
             cf.fmt.pix_mp.pixelformat = PIX_NV12;
-            xioctl(raw, S_FMT, &mut cf).map_err(|e| VideoError::Other(format!("v4l2: выход NV12: {e}")))?;
+            xioctl(raw, S_FMT, &mut cf)
+                .map_err(|e| VideoError::Other(format!("v4l2: выход NV12: {e}")))?;
         }
         let pm = unsafe { cf.fmt.pix_mp };
         let (width, height) = (pm.width, pm.height);
@@ -932,7 +1062,10 @@ impl V4l2Decoder {
             vw = vw.min(pw as u32);
             vh = vh.min(ph as u32);
         }
-        let mut mb = Control { id: CID_MIN_BUFFERS_FOR_CAPTURE, value: 4 };
+        let mut mb = Control {
+            id: CID_MIN_BUFFERS_FOR_CAPTURE,
+            value: 4,
+        };
         let _ = xioctl(raw, G_CTRL, &mut mb);
         // Без копий кадры держат буферы, пока ждут в очереди плеера и на экране —
         // буферов нужно больше на эту очередь (иначе декодер встанет). Решение —
@@ -941,9 +1074,19 @@ impl V4l2Decoder {
         let zero_copy = crate::gpu::dmabuf::import_supported();
         let extra = if zero_copy { ZERO_COPY_EXTRA } else { 4 };
         let want = (mb.value.max(2) + extra) as u32;
-        let mut rb = RequestBuffers { count: want, type_: BUF_TYPE_CAPTURE_MPLANE, memory: MEMORY_DMABUF, capabilities: 0, flags: 0, reserved: [0; 3] };
-        xioctl(raw, REQBUFS, &mut rb).map_err(|e| VideoError::Other(format!("v4l2: REQBUFS выход: {e}")))?;
-        let bufs = (0..rb.count).map(|_| DmaBuf::alloc(size).map(std::sync::Arc::new)).collect::<Result<Vec<_>, _>>()?;
+        let mut rb = RequestBuffers {
+            count: want,
+            type_: BUF_TYPE_CAPTURE_MPLANE,
+            memory: MEMORY_DMABUF,
+            capabilities: 0,
+            flags: 0,
+            reserved: [0; 3],
+        };
+        xioctl(raw, REQBUFS, &mut rb)
+            .map_err(|e| VideoError::Other(format!("v4l2: REQBUFS выход: {e}")))?;
+        let bufs = (0..rb.count)
+            .map(|_| DmaBuf::alloc(size).map(std::sync::Arc::new))
+            .collect::<Result<Vec<_>, _>>()?;
         log::info!(
             "v4l2: поток {width}x{height} (видно {vw}x{vh}), NV12 stride {stride}, буферов {} ({} МБ){}",
             bufs.len(),
@@ -951,14 +1094,27 @@ impl V4l2Decoder {
             if zero_copy { ", кадры в GPU без копии (в режиме YUV)" } else { "" }
         );
         static NEXT_ID: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(1);
-        let ids = bufs.iter().map(|_| NEXT_ID.fetch_add(1, std::sync::atomic::Ordering::Relaxed)).collect();
+        let ids = bufs
+            .iter()
+            .map(|_| NEXT_ID.fetch_add(1, std::sync::atomic::Ordering::Relaxed))
+            .collect();
         self.capture_gen += 1;
-        self.capture = Some(Capture { bufs, ids, gen: self.capture_gen, zero_copy, stride, y_lines: height, visible_w: vw, visible_h: vh });
+        self.capture = Some(Capture {
+            bufs,
+            ids,
+            gen: self.capture_gen,
+            zero_copy,
+            stride,
+            y_lines: height,
+            visible_w: vw,
+            visible_h: vh,
+        });
         for i in 0..rb.count as usize {
             self.requeue_capture(i)?;
         }
         let mut t = BUF_TYPE_CAPTURE_MPLANE as i32;
-        xioctl(raw, STREAMON, &mut t).map_err(|e| VideoError::Other(format!("v4l2: STREAMON выход: {e}")))?;
+        xioctl(raw, STREAMON, &mut t)
+            .map_err(|e| VideoError::Other(format!("v4l2: STREAMON выход: {e}")))?;
         Ok(())
     }
 
@@ -974,7 +1130,10 @@ impl V4l2Decoder {
             Some(V4l2Frame::Packed(y, pts)) => {
                 let mut f = frame::Video::new(Pixel::NV12, y.width, y.height);
                 let (yp, (uv, _)) = (y.y_plane(), y.chroma_planes());
-                for (plane, src, row) in [(0, yp, y.width as usize), (1, uv, y.chroma_size().0 as usize * 2)] {
+                for (plane, src, row) in [
+                    (0, yp, y.width as usize),
+                    (1, uv, y.chroma_size().0 as usize * 2),
+                ] {
                     let st = f.stride(plane);
                     let dst = f.data_mut(plane);
                     for (r, line) in src.chunks_exact(row).enumerate() {
@@ -986,7 +1145,9 @@ impl V4l2Decoder {
                 Ok(())
             }
             None if self.eos_sent => Err(ffmpeg_next::Error::Eof),
-            None => Err(ffmpeg_next::Error::Other { errno: libc::EAGAIN }),
+            None => Err(ffmpeg_next::Error::Other {
+                errno: libc::EAGAIN,
+            }),
         }
     }
 
@@ -996,7 +1157,9 @@ impl V4l2Decoder {
         match self.ready.pop_front() {
             Some(f) => Ok(f),
             None if self.eos_sent => Err(ffmpeg_next::Error::Eof),
-            None => Err(ffmpeg_next::Error::Other { errno: libc::EAGAIN }),
+            None => Err(ffmpeg_next::Error::Other {
+                errno: libc::EAGAIN,
+            }),
         }
     }
 
@@ -1085,7 +1248,10 @@ fn pack_nv12(buf: &DmaBuf, stride: usize, uv_off: usize, w: u32, h: u32) -> std:
     let row = wu.min(stride);
     let uv_row = (wu.div_ceil(2) * 2).min(stride);
     let mut o = 0;
-    for (base, rows, n, dst_row) in [(0, h as usize, row, wu), (uv_off, ch, uv_row, wu.div_ceil(2) * 2)] {
+    for (base, rows, n, dst_row) in [
+        (0, h as usize, row, wu),
+        (uv_off, ch, uv_row, wu.div_ceil(2) * 2),
+    ] {
         for r in 0..rows {
             let s = base + r * stride;
             if s + n <= src.len() && o + n <= out.len() {

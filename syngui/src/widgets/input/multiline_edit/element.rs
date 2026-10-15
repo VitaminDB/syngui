@@ -606,14 +606,24 @@ impl Element for MultilineTextEditElement {
     }
 
     fn ime_cursor_area(&self) -> Option<Rect> {
-        if self.focused { self.ime_caret.get() } else { None }
+        if self.focused {
+            self.ime_caret.get()
+        } else {
+            None
+        }
     }
 
     fn build_display_list(&self, list: &mut DisplayList, _clip: Rect) {
         let primary = self.mss.accent_color.unwrap_or(Color::from_hex("#3B82F6"));
 
-        let bg = self.mss.background_color.unwrap_or_else(crate::theme_fallback::fallback_surface);
-        let fg = self.mss.color.unwrap_or_else(crate::theme_fallback::fallback_fg);
+        let bg = self
+            .mss
+            .background_color
+            .unwrap_or_else(crate::theme_fallback::fallback_surface);
+        let fg = self
+            .mss
+            .color
+            .unwrap_or_else(crate::theme_fallback::fallback_fg);
         let effective_bc = self.effective_border_color();
         let border_base = effective_bc.unwrap_or_else(crate::theme_fallback::fallback_border);
         let radius = self
@@ -781,7 +791,9 @@ impl Element for MultilineTextEditElement {
                 // подложке и с подчёркиванием (раньше не рисовался вовсе).
                 if let Some(pre) = self.preedit.as_deref().filter(|p| !p.is_empty()) {
                     let w = match &self.text_measure {
-                        Some(tm) => tm.measure_text_width(pre, Self::FONT_SIZE, pre.chars().count()),
+                        Some(tm) => {
+                            tm.measure_text_width(pre, Self::FONT_SIZE, pre.chars().count())
+                        }
                         None => pre.chars().count() as f32 * Self::FONT_SIZE * 0.6,
                     };
                     list.push_rect(
@@ -791,12 +803,18 @@ impl Element for MultilineTextEditElement {
                     );
                     list.push_text(
                         pre,
-                        Rect::new(Point::new(caret_x, y), Size::new(w + 4.0, Self::LINE_HEIGHT)),
+                        Rect::new(
+                            Point::new(caret_x, y),
+                            Size::new(w + 4.0, Self::LINE_HEIGHT),
+                        ),
                         fg,
                         Self::FONT_SIZE,
                     );
                     list.push_rect(
-                        Rect::new(Point::new(caret_x, y + Self::LINE_HEIGHT - 2.0), Size::new(w, 1.0)),
+                        Rect::new(
+                            Point::new(caret_x, y + Self::LINE_HEIGHT - 2.0),
+                            Size::new(w, 1.0),
+                        ),
                         fg,
                         [0.0; 4],
                     );

@@ -18,10 +18,10 @@
 pub mod decorations;
 #[cfg(target_os = "linux")]
 mod desktop;
-#[cfg(target_os = "linux")]
-pub(crate) mod syndesktop;
 #[cfg(all(target_os = "linux", feature = "system-theme"))]
 mod portal;
+#[cfg(target_os = "linux")]
+pub(crate) mod syndesktop;
 
 use crate::core::Color;
 
@@ -182,9 +182,7 @@ where
                 // Возвращает `None`, если портала нет или соединение оборвалось —
                 // тогда доигрываем опросом. В сеансе syndesktop портал говорит
                 // от имени KDE/GTK, а правда — в конфиге syndesktop: только опрос.
-                if !syndesktop::is_session()
-                    && portal::watch(&on_change, &thread_stop).is_some()
-                {
+                if !syndesktop::is_session() && portal::watch(&on_change, &thread_stop).is_some() {
                     return;
                 }
             }

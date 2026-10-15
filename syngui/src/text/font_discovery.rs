@@ -382,7 +382,13 @@ mod weight_tests {
         let (bold, _) = super::discover_bold_font(None);
         let (w500, _) = super::discover_weight_font(None, 500);
         let (w600, _) = super::discover_weight_font(None, 600);
-        eprintln!("regular {} bold {} 500 {} 600 {}", reg.len(), bold.len(), w500.len(), w600.len());
+        eprintln!(
+            "regular {} bold {} 500 {} 600 {}",
+            reg.len(),
+            bold.len(),
+            w500.len(),
+            w600.len()
+        );
         if !reg.is_empty() && !w600.is_empty() {
             assert!(w600 != reg, "600 не должен падать на обычное начертание");
         }

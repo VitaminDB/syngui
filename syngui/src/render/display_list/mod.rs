@@ -886,7 +886,10 @@ impl DisplayList {
             reflection,
         );
         // Текстура слоя — с тем же запасом, что и проецируемый четырёхугольник.
-        self.push_effect_layer(Effect::Projected(quads), crate::core::transform3d::layer_rect(bounds));
+        self.push_effect_layer(
+            Effect::Projected(quads),
+            crate::core::transform3d::layer_rect(bounds),
+        );
     }
 
     pub fn pop_effect_layer(&mut self) {
@@ -1184,7 +1187,15 @@ fn hash_command(h: &mut impl std::hash::Hasher, cmd: &DrawCommand) -> bool {
     use std::hash::Hash;
     std::mem::discriminant(cmd).hash(h);
     match cmd {
-        DrawCommand::Rect { rect, color, corner_radius, border, per_side_border, clip_rect, z_index } => {
+        DrawCommand::Rect {
+            rect,
+            color,
+            corner_radius,
+            border,
+            per_side_border,
+            clip_rect,
+            z_index,
+        } => {
             h_rect(h, rect);
             h_color(h, color);
             h_f4(h, corner_radius);
@@ -1200,8 +1211,21 @@ fn hash_command(h: &mut impl std::hash::Hasher, cmd: &DrawCommand) -> bool {
             z_index.hash(h);
         }
         DrawCommand::Text {
-            text, rect, color, font_size, font_weight, text_align, decoration, font_family,
-            letter_spacing, text_shadow, bbox_sample, clip_rect, z_index, no_wrap, italic,
+            text,
+            rect,
+            color,
+            font_size,
+            font_weight,
+            text_align,
+            decoration,
+            font_family,
+            letter_spacing,
+            text_shadow,
+            bbox_sample,
+            clip_rect,
+            z_index,
+            no_wrap,
+            italic,
         } => {
             text.hash(h);
             h_rect(h, rect);
@@ -1229,7 +1253,16 @@ fn hash_command(h: &mut impl std::hash::Hasher, cmd: &DrawCommand) -> bool {
         | DrawCommand::PopTransform
         | DrawCommand::PopOpacity
         | DrawCommand::ZBarrier => {}
-        DrawCommand::Shadow { rect, color, blur_radius, offset, corner_radius, inset, clip_rect, z_index } => {
+        DrawCommand::Shadow {
+            rect,
+            color,
+            blur_radius,
+            offset,
+            corner_radius,
+            inset,
+            clip_rect,
+            z_index,
+        } => {
             h_rect(h, rect);
             h_color(h, color);
             h_f32(h, *blur_radius);
@@ -1240,7 +1273,15 @@ fn hash_command(h: &mut impl std::hash::Hasher, cmd: &DrawCommand) -> bool {
             clip_rect.hash(h);
             z_index.hash(h);
         }
-        DrawCommand::GlowShadow { rect, color, blur_radius, offset, corner_radius, clip_rect, z_index } => {
+        DrawCommand::GlowShadow {
+            rect,
+            color,
+            blur_radius,
+            offset,
+            corner_radius,
+            clip_rect,
+            z_index,
+        } => {
             h_rect(h, rect);
             h_color(h, color);
             h_f32(h, *blur_radius);
@@ -1250,7 +1291,14 @@ fn hash_command(h: &mut impl std::hash::Hasher, cmd: &DrawCommand) -> bool {
             clip_rect.hash(h);
             z_index.hash(h);
         }
-        DrawCommand::Outline { rect, color, ring_width, corner_radius, clip_rect, z_index } => {
+        DrawCommand::Outline {
+            rect,
+            color,
+            ring_width,
+            corner_radius,
+            clip_rect,
+            z_index,
+        } => {
             h_rect(h, rect);
             h_color(h, color);
             h_f32(h, *ring_width);
@@ -1261,7 +1309,17 @@ fn hash_command(h: &mut impl std::hash::Hasher, cmd: &DrawCommand) -> bool {
         DrawCommand::PushTransform(t) => t.to_array().iter().for_each(|x| h_f32(h, *x)),
         DrawCommand::PushOpacity(o) => h_f32(h, *o),
         DrawCommand::TextCursor {
-            text, cursor_pos, base_x, y, height, font_size, font_weight, color, font_family, clip_rect, z_index,
+            text,
+            cursor_pos,
+            base_x,
+            y,
+            height,
+            font_size,
+            font_weight,
+            color,
+            font_family,
+            clip_rect,
+            z_index,
         } => {
             text.hash(h);
             cursor_pos.hash(h);
@@ -1276,8 +1334,18 @@ fn hash_command(h: &mut impl std::hash::Hasher, cmd: &DrawCommand) -> bool {
             z_index.hash(h);
         }
         DrawCommand::TextSelection {
-            text, sel_start, sel_end, base_x, y, height, font_size, font_weight, color, font_family,
-            clip_rect, z_index,
+            text,
+            sel_start,
+            sel_end,
+            base_x,
+            y,
+            height,
+            font_size,
+            font_weight,
+            color,
+            font_family,
+            clip_rect,
+            z_index,
         } => {
             text.hash(h);
             sel_start.hash(h);
@@ -1292,7 +1360,13 @@ fn hash_command(h: &mut impl std::hash::Hasher, cmd: &DrawCommand) -> bool {
             clip_rect.hash(h);
             z_index.hash(h);
         }
-        DrawCommand::LineStrip { points, color, width, clip_rect, z_index } => {
+        DrawCommand::LineStrip {
+            points,
+            color,
+            width,
+            clip_rect,
+            z_index,
+        } => {
             points.iter().for_each(|p| {
                 h_f32(h, p[0]);
                 h_f32(h, p[1]);
@@ -1338,8 +1412,17 @@ mod signature_tests {
     fn list(color: Color) -> DisplayList {
         let mut l = DisplayList::new();
         l.set_surface_size(Size::new(100.0, 100.0));
-        l.push_rect(Rect::new(Point::new(1.0, 2.0), Size::new(10.0, 10.0)), color, [0.0; 4]);
-        l.push_text("hi", Rect::new(Point::new(0.0, 0.0), Size::new(50.0, 10.0)), color, 12.0);
+        l.push_rect(
+            Rect::new(Point::new(1.0, 2.0), Size::new(10.0, 10.0)),
+            color,
+            [0.0; 4],
+        );
+        l.push_text(
+            "hi",
+            Rect::new(Point::new(0.0, 0.0), Size::new(50.0, 10.0)),
+            color,
+            12.0,
+        );
         l
     }
 

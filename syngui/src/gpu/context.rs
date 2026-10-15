@@ -10,13 +10,23 @@ pub struct GpuShared {
 /// (XRGB) окно во весь экран выводится на план несжатым — вдвое больше трафика
 /// памяти у GPU и дисплея. Остальным GPU — первый sRGB-формат, как раньше.
 /// `SYNGUI_SURFACE_RGBA=0` — не выбирать RGBA8 (сравнение, отладка).
-pub fn preferred_surface_format(caps: &wgpu::SurfaceCapabilities, adapter: &wgpu::Adapter) -> wgpu::TextureFormat {
+pub fn preferred_surface_format(
+    caps: &wgpu::SurfaceCapabilities,
+    adapter: &wgpu::Adapter,
+) -> wgpu::TextureFormat {
     const QUALCOMM: u32 = 0x5143;
     let allowed = std::env::var("SYNGUI_SURFACE_RGBA").map_or(true, |v| v != "0");
-    if allowed && adapter.get_info().vendor == QUALCOMM && caps.formats.contains(&wgpu::TextureFormat::Rgba8UnormSrgb) {
+    if allowed
+        && adapter.get_info().vendor == QUALCOMM
+        && caps.formats.contains(&wgpu::TextureFormat::Rgba8UnormSrgb)
+    {
         return wgpu::TextureFormat::Rgba8UnormSrgb;
     }
-    caps.formats.iter().copied().find(|f| f.is_srgb()).unwrap_or(caps.formats[0])
+    caps.formats
+        .iter()
+        .copied()
+        .find(|f| f.is_srgb())
+        .unwrap_or(caps.formats[0])
 }
 
 pub struct WindowSurface {

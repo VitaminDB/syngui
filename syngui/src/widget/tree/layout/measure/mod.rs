@@ -271,16 +271,38 @@ impl ElementTree {
                 .is_some_and(|n| matches!(n.element.element_type_name(), "Column" | "Row"));
             let pad = match &hint {
                 _ if !plain => None,
-                LayoutHint::Column { padding_left, padding_top, padding_right, padding_bottom, expand: false, .. }
-                | LayoutHint::Row { padding_left, padding_top, padding_right, padding_bottom, .. } => {
-                    Some(Size::new(padding_left + padding_right, padding_top + padding_bottom))
+                LayoutHint::Column {
+                    padding_left,
+                    padding_top,
+                    padding_right,
+                    padding_bottom,
+                    expand: false,
+                    ..
                 }
+                | LayoutHint::Row {
+                    padding_left,
+                    padding_top,
+                    padding_right,
+                    padding_bottom,
+                    ..
+                } => Some(Size::new(
+                    padding_left + padding_right,
+                    padding_top + padding_bottom,
+                )),
                 _ => None,
             };
             let size = match pad {
                 Some(p) => Size::new(
-                    if explicit.0.is_some() { size.width } else { p.width },
-                    if explicit.1.is_some() { size.height } else { p.height },
+                    if explicit.0.is_some() {
+                        size.width
+                    } else {
+                        p.width
+                    },
+                    if explicit.1.is_some() {
+                        size.height
+                    } else {
+                        p.height
+                    },
                 ),
                 None => size,
             };
@@ -445,11 +467,22 @@ impl ElementTree {
         // Элемент, которому нужно всё отведённое место (`MultiTouch`), — не
         // меньше конечных максимумов, даже если дети своего размера не дают.
         let own_size = if !children_empty
-            && self.elements.get_by_idx(idx).is_some_and(|n| n.element.fills_available())
+            && self
+                .elements
+                .get_by_idx(idx)
+                .is_some_and(|n| n.element.fills_available())
         {
             Size::new(
-                if constraints.max_width.is_finite() { own_size.width.max(constraints.max_width) } else { own_size.width },
-                if constraints.max_height.is_finite() { own_size.height.max(constraints.max_height) } else { own_size.height },
+                if constraints.max_width.is_finite() {
+                    own_size.width.max(constraints.max_width)
+                } else {
+                    own_size.width
+                },
+                if constraints.max_height.is_finite() {
+                    own_size.height.max(constraints.max_height)
+                } else {
+                    own_size.height
+                },
             )
         } else {
             own_size
@@ -548,9 +581,19 @@ mod row_stretch_tests {
         let mut h = TestHarness::new(Box::new(row));
         h.layout(300.0, 200.0);
         let boxes = h.find_by_type_name("DecoratedBox");
-        let tallest = boxes.iter().map(|&b| h.element_bounds(b).size.height).fold(0.0f32, f32::max);
-        let side = boxes.iter().map(|&b| h.element_bounds(b)).find(|b| b.origin.x >= 80.0 && b.size.width >= 10.0).expect("второй ребёнок");
+        let tallest = boxes
+            .iter()
+            .map(|&b| h.element_bounds(b).size.height)
+            .fold(0.0f32, f32::max);
+        let side = boxes
+            .iter()
+            .map(|&b| h.element_bounds(b))
+            .find(|b| b.origin.x >= 80.0 && b.size.width >= 10.0)
+            .expect("второй ребёнок");
         assert!(tallest <= 200.0);
-        assert_eq!(side.size.height, 80.0, "второй ребёнок растянут до высоты первого");
+        assert_eq!(
+            side.size.height, 80.0,
+            "второй ребёнок растянут до высоты первого"
+        );
     }
 }

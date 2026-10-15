@@ -246,7 +246,10 @@ impl AppHandler {
                     D::SouthWest => W::SouthWest,
                 };
                 #[cfg(all(feature = "wayland-dnd", target_os = "linux"))]
-                let by_touch = super::super::wayland_dnd::start_touch_window_op(window.winit_window(), Some(direction));
+                let by_touch = super::super::wayland_dnd::start_touch_window_op(
+                    window.winit_window(),
+                    Some(direction),
+                );
                 #[cfg(not(all(feature = "wayland-dnd", target_os = "linux")))]
                 let by_touch = false;
                 if !by_touch {

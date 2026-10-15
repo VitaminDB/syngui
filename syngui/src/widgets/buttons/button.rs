@@ -206,9 +206,17 @@ impl ButtonElement {
 
     /// Цвет иконки: `icon-color` состояния, иначе цвет текста.
     fn icon_color(&self, text_color: Color) -> Color {
-        let target = self.mss.state_props(self.disabled, self.hover, self.pressed, self.focused, self.selected);
+        let target = self.mss.state_props(
+            self.disabled,
+            self.hover,
+            self.pressed,
+            self.focused,
+            self.selected,
+        );
         match self.mss.effective_icon_color(target) {
-            Some(c) if self.disabled && self.mss.style_disabled.is_none() => c.with_alpha(c.a * 0.5),
+            Some(c) if self.disabled && self.mss.style_disabled.is_none() => {
+                c.with_alpha(c.a * 0.5)
+            }
             Some(c) => c,
             None => text_color,
         }
@@ -223,7 +231,9 @@ impl ButtonElement {
             self.selected,
         );
         let bg = self.mss.effective_bg(&target, Color::TRANSPARENT);
-        let fg = self.mss.effective_fg(&target, crate::theme_fallback::fallback_fg());
+        let fg = self
+            .mss
+            .effective_fg(&target, crate::theme_fallback::fallback_fg());
         let bc = self
             .mss
             .transition
@@ -269,7 +279,11 @@ impl Element for ButtonElement {
             self.icon = btn.icon.clone();
             self.icon_position = btn.icon_position;
             self.update_selected_state();
-            self.mark_dirty(if resized { DirtyFlags::RENDER | DirtyFlags::LAYOUT } else { DirtyFlags::RENDER });
+            self.mark_dirty(if resized {
+                DirtyFlags::RENDER | DirtyFlags::LAYOUT
+            } else {
+                DirtyFlags::RENDER
+            });
         }
     }
 
@@ -798,7 +812,11 @@ mod tests {
         use crate::prelude::*;
         let long = use_signal(false);
         let row = Row::new().child(DecoratedBox::new().child(move || {
-            Button::new(if long.get() { "Импортировать (1297)" } else { "Далее" })
+            Button::new(if long.get() {
+                "Импортировать (1297)"
+            } else {
+                "Далее"
+            })
         }));
         let mut h = TestHarness::new(Box::new(row));
         h.rebuild();
@@ -811,6 +829,9 @@ mod tests {
         h.layout(800.0, 60.0);
         let id = h.find_by_type_name("Button")[0];
         let long_w = h.element_bounds(id).size.width;
-        assert!(long_w > short_w * 2.0, "ширина не выросла: {short_w} → {long_w}");
+        assert!(
+            long_w > short_w * 2.0,
+            "ширина не выросла: {short_w} → {long_w}"
+        );
     }
 }

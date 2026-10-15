@@ -117,11 +117,15 @@ fn kde_palette(ini: &Ini) -> Option<SystemPalette> {
         // Отдельного цвета рамок у KDE нет: Breeze смешивает текст с фоном.
         border: mix(window, fg, 0.2),
         accent,
-        accent_fg: get("Colors:Selection", "ForegroundNormal").unwrap_or_else(|| accent.readable_on()),
+        accent_fg: get("Colors:Selection", "ForegroundNormal")
+            .unwrap_or_else(|| accent.readable_on()),
         link: get("Colors:View", "ForegroundLink").unwrap_or(accent),
-        danger: get("Colors:View", "ForegroundNegative").unwrap_or_else(|| Color::from_hex("#DA4453")),
-        success: get("Colors:View", "ForegroundPositive").unwrap_or_else(|| Color::from_hex("#27AE60")),
-        warning: get("Colors:View", "ForegroundNeutral").unwrap_or_else(|| Color::from_hex("#F67400")),
+        danger: get("Colors:View", "ForegroundNegative")
+            .unwrap_or_else(|| Color::from_hex("#DA4453")),
+        success: get("Colors:View", "ForegroundPositive")
+            .unwrap_or_else(|| Color::from_hex("#27AE60")),
+        warning: get("Colors:View", "ForegroundNeutral")
+            .unwrap_or_else(|| Color::from_hex("#F67400")),
     })
 }
 

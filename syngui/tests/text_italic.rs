@@ -26,7 +26,10 @@ fn text_font_style_italic() {
     h.layout(400.0, 200.0);
     let texts = italic_texts(&h.paint());
     assert!(texts.iter().any(|(t, i)| t == "slanted" && *i), "{texts:?}");
-    assert!(texts.iter().any(|(t, i)| t == "upright" && !*i), "{texts:?}");
+    assert!(
+        texts.iter().any(|(t, i)| t == "upright" && !*i),
+        "{texts:?}"
+    );
 }
 
 #[test]
@@ -35,6 +38,12 @@ fn markdown_emphasis_is_italic() {
     h.apply_mss("");
     h.layout(600.0, 200.0);
     let texts = italic_texts(&h.paint());
-    assert!(texts.iter().any(|(t, i)| t.contains("slanted") && *i), "{texts:?}");
-    assert!(texts.iter().any(|(t, i)| t.contains("plain") && !*i), "{texts:?}");
+    assert!(
+        texts.iter().any(|(t, i)| t.contains("slanted") && *i),
+        "{texts:?}"
+    );
+    assert!(
+        texts.iter().any(|(t, i)| t.contains("plain") && !*i),
+        "{texts:?}"
+    );
 }

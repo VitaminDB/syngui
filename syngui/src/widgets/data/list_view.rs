@@ -696,8 +696,14 @@ impl Element for ListViewElement {
     }
 
     fn build_display_list(&self, list: &mut DisplayList, _clip: Rect) {
-        let bg_color = self.mss.background_color.unwrap_or_else(crate::theme_fallback::fallback_surface);
-        let border_color = self.mss.border_color.unwrap_or_else(crate::theme_fallback::fallback_divider);
+        let bg_color = self
+            .mss
+            .background_color
+            .unwrap_or_else(crate::theme_fallback::fallback_surface);
+        let border_color = self
+            .mss
+            .border_color
+            .unwrap_or_else(crate::theme_fallback::fallback_divider);
         let resolve_base = self.bounds.size.width.min(self.bounds.size.height);
         let border_radius = self.mss.border_radius_resolved(resolve_base, 8.0);
         let border_width = self.mss.border_width_or(1.0);
@@ -730,7 +736,10 @@ impl Element for ListViewElement {
             return;
         }
 
-        let fg = self.mss.color.unwrap_or_else(crate::theme_fallback::fallback_fg);
+        let fg = self
+            .mss
+            .color
+            .unwrap_or_else(crate::theme_fallback::fallback_fg);
         let primary = self.mss.accent_color.unwrap_or(Color::from_hex("#3B82F6"));
 
         list.push_clip(self.bounds);
@@ -868,7 +877,10 @@ impl Element for ListViewElement {
         if !self.compositional {
             return;
         }
-        let border_color = self.mss.border_color.unwrap_or_else(crate::theme_fallback::fallback_divider);
+        let border_color = self
+            .mss
+            .border_color
+            .unwrap_or_else(crate::theme_fallback::fallback_divider);
         let resolve_base = self.bounds.size.width.min(self.bounds.size.height);
         let border_radius = self.mss.border_radius_resolved(resolve_base, 8.0);
         let border_width = self.mss.border_width_or(1.0);
@@ -1564,17 +1576,19 @@ mod tests {
     fn shrinking_list_clamps_scroll() {
         for compositional in [false, true] {
             let rows = use_signal(ROWS);
-            let mut h = TestHarness::new(Box::new(Reactive::new(move || -> Vec<Box<dyn Widget>> {
-                let mut list = ListView::virtual_new(rows.get(), |i| ListItem::new(format!("{i}")))
-                    .item_height(ROW_H)
-                    .height(VIEW_H);
-                if compositional {
-                    list = list.item_widget(|_, _, _, _| {
-                        Box::new(DecoratedBox::new().class("row")) as Box<dyn Widget>
-                    });
-                }
-                vec![Box::new(list) as Box<dyn Widget>]
-            })));
+            let mut h =
+                TestHarness::new(Box::new(Reactive::new(move || -> Vec<Box<dyn Widget>> {
+                    let mut list =
+                        ListView::virtual_new(rows.get(), |i| ListItem::new(format!("{i}")))
+                            .item_height(ROW_H)
+                            .height(VIEW_H);
+                    if compositional {
+                        list = list.item_widget(|_, _, _, _| {
+                            Box::new(DecoratedBox::new().class("row")) as Box<dyn Widget>
+                        });
+                    }
+                    vec![Box::new(list) as Box<dyn Widget>]
+                })));
             let engine = h.apply_mss(MSS);
             h.frame(Some(&engine), 300.0, VIEW_H);
             h.send_event(&crate::input::Event::MouseWheel {

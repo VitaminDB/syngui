@@ -237,7 +237,10 @@ impl Element for DropAreaElement {
                 },
             );
         } else {
-            let idle_border = self.mss.border_color.unwrap_or_else(crate::theme_fallback::fallback_border);
+            let idle_border = self
+                .mss
+                .border_color
+                .unwrap_or_else(crate::theme_fallback::fallback_border);
             list.push_rect_bordered(
                 self.bounds,
                 Color::new(0.0, 0.0, 0.0, 0.0),

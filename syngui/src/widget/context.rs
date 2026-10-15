@@ -53,7 +53,14 @@ pub trait TextMeasure: Send + Sync {
         font_family: Option<&str>,
         letter_spacing: f32,
     ) -> f32 {
-        self.measure_text_width_styled_ls(text, font_size, char_count, weight >= 700, font_family, letter_spacing)
+        self.measure_text_width_styled_ls(
+            text,
+            font_size,
+            char_count,
+            weight >= 700,
+            font_family,
+            letter_spacing,
+        )
     }
 
     /// Попадание символа с учётом веса начертания.

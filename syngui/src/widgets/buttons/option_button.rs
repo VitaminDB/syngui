@@ -153,8 +153,14 @@ impl Element for OptionButtonElement {
 
     fn build_display_list(&self, list: &mut DisplayList, _clip: Rect) {
         let base_bg = self.mss.background_color.unwrap_or(Color::TRANSPARENT);
-        let base_fg = self.mss.color.unwrap_or_else(crate::theme_fallback::fallback_fg);
-        let base_border = self.mss.border_color.unwrap_or_else(crate::theme_fallback::fallback_border);
+        let base_fg = self
+            .mss
+            .color
+            .unwrap_or_else(crate::theme_fallback::fallback_fg);
+        let base_border = self
+            .mss
+            .border_color
+            .unwrap_or_else(crate::theme_fallback::fallback_border);
         let accent = self.mss.accent_color.unwrap_or(Color::from_hex("#3B82F6"));
         let font_size = self.mss.font_size_or(14.0);
         let font_weight = self.mss.font_weight_or(400);

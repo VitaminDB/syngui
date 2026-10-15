@@ -9,19 +9,18 @@ use syngui::widgets::{ParticleEmitter, ParticlePreset};
 #[test]
 fn polygon_particles_stay_near_emitter() {
     let token = use_signal(0u32);
-    let root: Box<dyn Widget> = Box::new(
-        Row::new()
-            .child(DecoratedBox::new().class("sp"))
-            .child(move || {
-                ParticleEmitter::new()
-                    .preset(ParticlePreset::Hearts)
-                    .burst_token(token.get())
-                    .child(DecoratedBox::new().class("em"))
-            }),
-    );
+    let root: Box<dyn Widget> = Box::new(Row::new().child(DecoratedBox::new().class("sp")).child(
+        move || {
+            ParticleEmitter::new()
+                .preset(ParticlePreset::Hearts)
+                .burst_token(token.get())
+                .child(DecoratedBox::new().class("em"))
+        },
+    ));
     let mut h = TestHarness::new(root);
     h.rebuild();
-    let engine = h.apply_mss(".sp { width: 300px; height: 40px; } .em { width: 120px; height: 40px; }");
+    let engine =
+        h.apply_mss(".sp { width: 300px; height: 40px; } .em { width: 120px; height: 40px; }");
     h.layout(800.0, 600.0);
     let sp = h.find_by_class("sp")[0];
     assert_eq!(h.element_bounds(sp).size.width, 300.0);
@@ -38,7 +37,10 @@ fn polygon_particles_stay_near_emitter() {
             for v in vertices {
                 n += 1;
                 let (x, y) = (v.position[0], v.position[1]);
-                assert!((180.0..=560.0).contains(&x) && (-200.0..=200.0).contains(&y), "частица далеко от эмиттера: ({x}, {y})");
+                assert!(
+                    (180.0..=560.0).contains(&x) && (-200.0..=200.0).contains(&y),
+                    "частица далеко от эмиттера: ({x}, {y})"
+                );
             }
         }
     }

@@ -48,11 +48,19 @@ fn tag(ictx: &ffmpeg_next::format::context::Input, keys: &[&str]) -> Option<Stri
         None
     };
     // теги контейнера, иначе — аудиопотока (Ogg/Opus хранят их в потоке)
-    find(ictx.metadata()).or_else(|| ictx.streams().best(MediaType::Audio).and_then(|s| find(s.metadata())))
+    find(ictx.metadata()).or_else(|| {
+        ictx.streams()
+            .best(MediaType::Audio)
+            .and_then(|s| find(s.metadata()))
+    })
 }
 
 fn read_meta(ictx: &ffmpeg_next::format::context::Input) -> AudioTrackMeta {
-    let duration_sec = if ictx.duration() > 0 { ictx.duration() as f64 / AV_TIME_BASE } else { 0.0 };
+    let duration_sec = if ictx.duration() > 0 {
+        ictx.duration() as f64 / AV_TIME_BASE
+    } else {
+        0.0
+    };
     let mut cover = None;
     for s in ictx.streams() {
         // SAFETY: поток жив вместе с ictx; attached_pic — пакет внутри AVStream
@@ -80,7 +88,8 @@ fn read_meta(ictx: &ffmpeg_next::format::context::Input) -> AudioTrackMeta {
 /// Теги, длительность и обложка файла (без воспроизведения).
 pub fn probe_audio(path: &str) -> Result<AudioTrackMeta, VideoError> {
     ffmpeg_next::init().ok();
-    let ictx = ffmpeg_next::format::input(&path.to_string()).map_err(|e| VideoError::Open(format!("{path}: {e}")))?;
+    let ictx = ffmpeg_next::format::input(&path.to_string())
+        .map_err(|e| VideoError::Open(format!("{path}: {e}")))?;
     if ictx.streams().best(MediaType::Audio).is_none() {
         return Err(VideoError::Other(format!("{path}: нет аудиопотока")));
     }
@@ -88,9 +97,18 @@ pub fn probe_audio(path: &str) -> Result<AudioTrackMeta, VideoError> {
 }
 
 /// Поток декодера: файл с позиции `start_sec` → стерео-чанки в `tx`, пока жив приёмник и не поднят `stop`.
-fn decode_thread(path: String, start_sec: f64, tx: mpsc::SyncSender<Vec<f32>>, stop: Arc<AtomicBool>) -> Result<(), VideoError> {
-    let mut ictx = ffmpeg_next::format::input(&path).map_err(|e| VideoError::Open(format!("{path}: {e}")))?;
-    let stream = ictx.streams().best(MediaType::Audio).ok_or_else(|| VideoError::Other("нет аудиопотока".into()))?;
+fn decode_thread(
+    path: String,
+    start_sec: f64,
+    tx: mpsc::SyncSender<Vec<f32>>,
+    stop: Arc<AtomicBool>,
+) -> Result<(), VideoError> {
+    let mut ictx =
+        ffmpeg_next::format::input(&path).map_err(|e| VideoError::Open(format!("{path}: {e}")))?;
+    let stream = ictx
+        .streams()
+        .best(MediaType::Audio)
+        .ok_or_else(|| VideoError::Other("нет аудиопотока".into()))?;
     let idx = stream.index();
     let tb = stream.time_base();
     let tb_sec = tb.numerator() as f64 / tb.denominator().max(1) as f64;
@@ -101,51 +119,73 @@ fn decode_thread(path: String, start_sec: f64, tx: mpsc::SyncSender<Vec<f32>>, s
         .map_err(|e| VideoError::DecoderInit(format!("audio decoder: {e}")))?;
     if start_sec > 0.0 {
         let ts = (start_sec * AV_TIME_BASE) as i64;
-        ictx.seek(ts, ..ts).map_err(|e| VideoError::Seek(format!("{start_sec:.2} с: {e}")))?;
+        ictx.seek(ts, ..ts)
+            .map_err(|e| VideoError::Seek(format!("{start_sec:.2} с: {e}")))?;
     }
     let mut swr: Option<ResampleCtx> = None;
     let mut decoded = frame::Audio::empty();
     // после перемотки на ключевой пакет — отбросить сэмплы раньше цели (точная позиция)
-    let mut skip_until = if start_sec > 0.0 { Some(start_sec) } else { None };
-    let send = |swr: &mut Option<ResampleCtx>, f: &mut frame::Audio, skip: &mut Option<f64>| -> bool {
-        if f.channel_layout().is_empty() {
-            f.set_channel_layout(ChannelLayout::default(f.channels() as i32));
-        }
-        let f = &*f;
-        if swr.is_none() {
-            match ResampleCtx::get(f.format(), f.channel_layout(), f.rate(), Sample::F32(Type::Packed), ChannelLayout::STEREO, OUT_RATE) {
-                Ok(c) => *swr = Some(c),
-                Err(e) => {
-                    log::warn!("audio: swr init: {e}");
-                    return false;
-                }
-            }
-        }
-        let ctx = swr.as_mut().unwrap();
-        // SAFETY: контекст инициализирован, функция только считает
-        let cap = unsafe { ffi::swr_get_out_samples(ctx.as_mut_ptr(), f.samples() as i32) }.max(f.samples() as i32).max(1);
-        let mut out = frame::Audio::new(Sample::F32(Type::Packed), cap as usize, ChannelLayout::STEREO);
-        if ctx.run(f, &mut out).is_err() || out.samples() == 0 {
-            return true;
-        }
-        let n = out.samples() * 2;
-        // SAFETY: packed f32 стерео — плоскость 0 длиной samples*2
-        let data: &[f32] = unsafe { std::slice::from_raw_parts(out.data(0).as_ptr() as *const f32, n) };
-        let mut data = data;
-        if let Some(target) = *skip {
-            let pts = f.pts().map(|p| p as f64 * tb_sec);
-            match pts {
-                Some(t) if t + f.samples() as f64 / f.rate().max(1) as f64 <= target => return true,
-                Some(t) if t < target => {
-                    let drop_frames = (((target - t) * OUT_RATE as f64) as usize).min(n / 2);
-                    data = &data[drop_frames * 2..];
-                }
-                _ => {}
-            }
-            *skip = None;
-        }
-        !data.is_empty() && tx.send(data.to_vec()).is_ok() || data.is_empty()
+    let mut skip_until = if start_sec > 0.0 {
+        Some(start_sec)
+    } else {
+        None
     };
+    let send =
+        |swr: &mut Option<ResampleCtx>, f: &mut frame::Audio, skip: &mut Option<f64>| -> bool {
+            if f.channel_layout().is_empty() {
+                f.set_channel_layout(ChannelLayout::default(f.channels() as i32));
+            }
+            let f = &*f;
+            if swr.is_none() {
+                match ResampleCtx::get(
+                    f.format(),
+                    f.channel_layout(),
+                    f.rate(),
+                    Sample::F32(Type::Packed),
+                    ChannelLayout::STEREO,
+                    OUT_RATE,
+                ) {
+                    Ok(c) => *swr = Some(c),
+                    Err(e) => {
+                        log::warn!("audio: swr init: {e}");
+                        return false;
+                    }
+                }
+            }
+            let ctx = swr.as_mut().unwrap();
+            // SAFETY: контекст инициализирован, функция только считает
+            let cap = unsafe { ffi::swr_get_out_samples(ctx.as_mut_ptr(), f.samples() as i32) }
+                .max(f.samples() as i32)
+                .max(1);
+            let mut out = frame::Audio::new(
+                Sample::F32(Type::Packed),
+                cap as usize,
+                ChannelLayout::STEREO,
+            );
+            if ctx.run(f, &mut out).is_err() || out.samples() == 0 {
+                return true;
+            }
+            let n = out.samples() * 2;
+            // SAFETY: packed f32 стерео — плоскость 0 длиной samples*2
+            let data: &[f32] =
+                unsafe { std::slice::from_raw_parts(out.data(0).as_ptr() as *const f32, n) };
+            let mut data = data;
+            if let Some(target) = *skip {
+                let pts = f.pts().map(|p| p as f64 * tb_sec);
+                match pts {
+                    Some(t) if t + f.samples() as f64 / f.rate().max(1) as f64 <= target => {
+                        return true
+                    }
+                    Some(t) if t < target => {
+                        let drop_frames = (((target - t) * OUT_RATE as f64) as usize).min(n / 2);
+                        data = &data[drop_frames * 2..];
+                    }
+                    _ => {}
+                }
+                *skip = None;
+            }
+            !data.is_empty() && tx.send(data.to_vec()).is_ok() || data.is_empty()
+        };
     let mut packet = ffmpeg_next::Packet::empty();
     loop {
         if stop.load(Ordering::Acquire) {
@@ -251,7 +291,12 @@ impl AudioFilePlayer {
     }
 
     pub fn position_sec(&self) -> f64 {
-        let p = self.offset_sec + self.audio.as_ref().map(|a| a.position_seconds()).unwrap_or(0.0);
+        let p = self.offset_sec
+            + self
+                .audio
+                .as_ref()
+                .map(|a| a.position_seconds())
+                .unwrap_or(0.0);
         if self.meta.duration_sec > 0.0 {
             p.min(self.meta.duration_sec)
         } else {
@@ -279,7 +324,11 @@ impl AudioFilePlayer {
 
     /// Перемотка: декодер перезапускается с позиции `sec`.
     pub fn seek(&mut self, sec: f64) -> Result<(), VideoError> {
-        let max = if self.meta.duration_sec > 0.0 { self.meta.duration_sec } else { f64::MAX };
+        let max = if self.meta.duration_sec > 0.0 {
+            self.meta.duration_sec
+        } else {
+            f64::MAX
+        };
         self.start(sec.clamp(0.0, max))
     }
 
@@ -321,7 +370,8 @@ mod tests {
     fn decoded_seconds(path: &str, start: f64) -> Result<f64, VideoError> {
         let (tx, rx) = mpsc::sync_channel::<Vec<f32>>(16);
         let p = path.to_string();
-        let h = thread::spawn(move || decode_thread(p, start, tx, Arc::new(AtomicBool::new(false))));
+        let h =
+            thread::spawn(move || decode_thread(p, start, tx, Arc::new(AtomicBool::new(false))));
         let n: usize = rx.iter().map(|c| c.len()).sum();
         h.join().unwrap()?;
         Ok(n as f64 / 2.0 / OUT_RATE as f64)
@@ -329,7 +379,11 @@ mod tests {
 
     #[test]
     fn decodes_common_formats() {
-        if std::process::Command::new("ffmpeg").arg("-version").output().is_err() {
+        if std::process::Command::new("ffmpeg")
+            .arg("-version")
+            .output()
+            .is_err()
+        {
             return;
         }
         ffmpeg_next::init().ok();
@@ -339,13 +393,28 @@ mod tests {
             ("s16.wav", &["-ac", "2", "-ar", "44100"]),
             ("mono22.wav", &["-ac", "1", "-ar", "22050"]),
             ("u8.wav", &["-ac", "1", "-ar", "8000", "-c:a", "pcm_u8"]),
-            ("s24.wav", &["-ac", "2", "-ar", "96000", "-c:a", "pcm_s24le"]),
-            ("s32.wav", &["-ac", "2", "-ar", "48000", "-c:a", "pcm_s32le"]),
-            ("f32.wav", &["-ac", "2", "-ar", "48000", "-c:a", "pcm_f32le"]),
-            ("f64.wav", &["-ac", "2", "-ar", "48000", "-c:a", "pcm_f64le"]),
+            (
+                "s24.wav",
+                &["-ac", "2", "-ar", "96000", "-c:a", "pcm_s24le"],
+            ),
+            (
+                "s32.wav",
+                &["-ac", "2", "-ar", "48000", "-c:a", "pcm_s32le"],
+            ),
+            (
+                "f32.wav",
+                &["-ac", "2", "-ar", "48000", "-c:a", "pcm_f32le"],
+            ),
+            (
+                "f64.wav",
+                &["-ac", "2", "-ar", "48000", "-c:a", "pcm_f64le"],
+            ),
             ("c51.wav", &["-ac", "6", "-ar", "48000"]),
             ("alaw.wav", &["-ac", "1", "-ar", "8000", "-c:a", "pcm_alaw"]),
-            ("adpcm.wav", &["-ac", "2", "-ar", "44100", "-c:a", "adpcm_ms"]),
+            (
+                "adpcm.wav",
+                &["-ac", "2", "-ar", "44100", "-c:a", "adpcm_ms"],
+            ),
             ("t.flac", &["-ac", "2", "-ar", "44100"]),
             ("t.mp3", &["-ac", "2", "-ar", "44100"]),
             ("t.ogg", &["-ac", "2", "-ar", "44100"]),
@@ -359,7 +428,15 @@ mod tests {
         for (name, args) in cases {
             let path = dir.join(name);
             let ok = std::process::Command::new("ffmpeg")
-                .args(["-loglevel", "error", "-y", "-f", "lavfi", "-i", "sine=frequency=440:duration=3"])
+                .args([
+                    "-loglevel",
+                    "error",
+                    "-y",
+                    "-f",
+                    "lavfi",
+                    "-i",
+                    "sine=frequency=440:duration=3",
+                ])
                 .args(*args)
                 .arg(&path)
                 .status()

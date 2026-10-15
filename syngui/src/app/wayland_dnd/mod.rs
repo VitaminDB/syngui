@@ -19,12 +19,16 @@ mod icon;
 mod state;
 pub(crate) mod uri;
 
-use state::DnDState;
 use smithay_client_toolkit::data_device_manager::data_source::DataSourceData;
+use state::DnDState;
 use wayland_client::protocol::{
-    wl_buffer::WlBuffer, wl_compositor::WlCompositor,
-    wl_data_device::WlDataDevice, wl_data_device_manager::{DndAction, WlDataDeviceManager},
-    wl_data_source::WlDataSource, wl_shm::{self, WlShm}, wl_surface::WlSurface,
+    wl_buffer::WlBuffer,
+    wl_compositor::WlCompositor,
+    wl_data_device::WlDataDevice,
+    wl_data_device_manager::{DndAction, WlDataDeviceManager},
+    wl_data_source::WlDataSource,
+    wl_shm::{self, WlShm},
+    wl_surface::WlSurface,
 };
 use wayland_client::QueueHandle;
 
@@ -58,9 +62,13 @@ pub(crate) struct DragIcon {
 impl OsDrag {
     /// Нарисовать значок в новый буфер и показать его.
     fn paint_icon(&mut self, look: icon::Look, first: bool) {
-        let (Some(shm), Some(ic)) = (self.shm.clone(), self.icon.as_mut()) else { return };
+        let (Some(shm), Some(ic)) = (self.shm.clone(), self.icon.as_mut()) else {
+            return;
+        };
         let (w, h, px) = icon::render(look, ic.scale);
-        let Some(buffer) = shm_buffer(&shm, &self.qh, w, h, &px) else { return };
+        let Some(buffer) = shm_buffer(&shm, &self.qh, w, h, &px) else {
+            return;
+        };
         // Смещение задаёт положение значка относительно курсора (копится).
         let (dx, dy) = if first { icon::OFFSET } else { (0, 0) };
         // С wl_surface v5 смещение — отдельным запросом, attach — только (0, 0).
@@ -85,7 +93,13 @@ impl OsDrag {
 }
 
 /// Буфер wl_shm из памяти memfd.
-fn shm_buffer(shm: &WlShm, qh: &QueueHandle<DnDState>, w: i32, h: i32, px: &[u8]) -> Option<WlBuffer> {
+fn shm_buffer(
+    shm: &WlShm,
+    qh: &QueueHandle<DnDState>,
+    w: i32,
+    h: i32,
+    px: &[u8],
+) -> Option<WlBuffer> {
     use std::io::Write;
     use std::os::fd::{AsFd, FromRawFd};
     let fd = unsafe { libc::memfd_create(c"syngui-dnd-icon".as_ptr(), libc::MFD_CLOEXEC) };
@@ -104,7 +118,9 @@ fn shm_buffer(shm: &WlShm, qh: &QueueHandle<DnDState>, w: i32, h: i32, px: &[u8]
 pub fn set_os_drag_accepted(accepted: bool) {
     let mut g = OS_DRAG.lock().unwrap_or_else(|e| e.into_inner());
     let Some(d) = g.as_mut() else { return };
-    let Some(look) = d.icon.as_ref().map(|i| i.look) else { return };
+    let Some(look) = d.icon.as_ref().map(|i| i.look) else {
+        return;
+    };
     if look.accepted != accepted {
         d.paint_icon(icon::Look { accepted, ..look }, false);
     }
@@ -112,7 +128,11 @@ pub fn set_os_drag_accepted(accepted: bool) {
 
 /// Идёт ли сейчас своё перетаскивание наружу.
 pub fn os_drag_active() -> bool {
-    OS_DRAG.lock().unwrap_or_else(|e| e.into_inner()).as_ref().is_some_and(|d| d.source.is_some())
+    OS_DRAG
+        .lock()
+        .unwrap_or_else(|e| e.into_inner())
+        .as_ref()
+        .is_some_and(|d| d.source.is_some())
 }
 
 pub(crate) static OS_DRAG: Mutex<Option<OsDrag>> = Mutex::new(None);
@@ -127,8 +147,13 @@ pub(crate) struct TouchPress {
 /// с serial прижатого пальца. winit (`drag_window`, `drag_resize_window`)
 /// шлёт их только от указателя, вошедшего в окно, — с касанием запрос не
 /// уходил вовсе. `false` — палец не прижат или нет Wayland: тогда путь winit.
-pub fn start_touch_window_op(window: &winit::window::Window, resize: Option<winit::window::ResizeDirection>) -> bool {
-    use smithay_client_toolkit::reexports::protocols::xdg::shell::client::xdg_toplevel::{ResizeEdge, XdgToplevel};
+pub fn start_touch_window_op(
+    window: &winit::window::Window,
+    resize: Option<winit::window::ResizeDirection>,
+) -> bool {
+    use smithay_client_toolkit::reexports::protocols::xdg::shell::client::xdg_toplevel::{
+        ResizeEdge, XdgToplevel,
+    };
     use wayland_backend::client::ObjectId;
     use wayland_client::Proxy;
     use winit::platform::wayland::WindowExtWayland;
@@ -136,12 +161,21 @@ pub fn start_touch_window_op(window: &winit::window::Window, resize: Option<wini
 
     let g = OS_DRAG.lock().unwrap_or_else(|e| e.into_inner());
     let Some(d) = g.as_ref() else { return false };
-    let Some(t) = d.touch.as_ref().filter(|t| !t.fingers.is_empty()) else { return false };
-    let Some(ptr) = window.xdg_toplevel() else { return false };
+    let Some(t) = d.touch.as_ref().filter(|t| !t.fingers.is_empty()) else {
+        return false;
+    };
+    let Some(ptr) = window.xdg_toplevel() else {
+        return false;
+    };
     // SAFETY: xdg_toplevel живого winit-окна на том же wl_display, поверх
     // которого построено соединение DnD.
-    let Ok(id) = (unsafe { ObjectId::from_ptr(XdgToplevel::interface(), ptr.as_ptr().cast()) }) else { return false };
-    let Ok(toplevel) = XdgToplevel::from_id(&d.conn, id) else { return false };
+    let Ok(id) = (unsafe { ObjectId::from_ptr(XdgToplevel::interface(), ptr.as_ptr().cast()) })
+    else {
+        return false;
+    };
+    let Ok(toplevel) = XdgToplevel::from_id(&d.conn, id) else {
+        return false;
+    };
     match resize {
         None => toplevel._move(&t.seat, t.serial),
         Some(dir) => toplevel.resize(
@@ -174,7 +208,9 @@ pub fn start_os_drag(uri_list: &str, multi: bool, scale: f64) -> bool {
     if let Some((old, _)) = d.source.take() {
         old.destroy();
     }
-    let src = d.manager.create_data_source(&d.qh, DataSourceData::default());
+    let src = d
+        .manager
+        .create_data_source(&d.qh, DataSourceData::default());
     for m in ["text/uri-list", "text/plain;charset=utf-8", "text/plain"] {
         src.offer(m.to_string());
     }
@@ -189,15 +225,32 @@ pub fn start_os_drag(uri_list: &str, multi: bool, scale: f64) -> bool {
     }
     if let Some(comp) = d.compositor.clone() {
         let surface = comp.create_surface(&d.qh, ());
-        d.icon = Some(DragIcon { surface, look: icon::Look { accepted: false, multi }, scale: scale.ceil().max(1.0) as i32, buffers: Vec::new() });
-        d.paint_icon(icon::Look { accepted: false, multi }, true);
+        d.icon = Some(DragIcon {
+            surface,
+            look: icon::Look {
+                accepted: false,
+                multi,
+            },
+            scale: scale.ceil().max(1.0) as i32,
+            buffers: Vec::new(),
+        });
+        d.paint_icon(
+            icon::Look {
+                accepted: false,
+                multi,
+            },
+            true,
+        );
     }
     d.over_own = false;
     let icon_surface = d.icon.as_ref().map(|i| i.surface.clone());
     dev.start_drag(Some(&src), &surface, icon_surface.as_ref(), serial);
     d.source = Some((src, uri_list.to_string()));
     let _ = d.conn.flush();
-    log::info!("[wayland_dnd] перетаскивание наружу: {} байт", uri_list.len());
+    log::info!(
+        "[wayland_dnd] перетаскивание наружу: {} байт",
+        uri_list.len()
+    );
     true
 }
 

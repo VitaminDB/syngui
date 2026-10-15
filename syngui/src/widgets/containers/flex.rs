@@ -167,7 +167,11 @@ impl Element for FlexElement {
 
     fn layout(&mut self, constraints: Constraints) -> Size {
         // Как у Row: без ограничения по ширине — не бесконечность.
-        let width = if constraints.max_width.is_finite() { constraints.max_width } else { constraints.min_width.max(0.0) };
+        let width = if constraints.max_width.is_finite() {
+            constraints.max_width
+        } else {
+            constraints.min_width.max(0.0)
+        };
         let height = constraints.min_height.max(40.0).min(constraints.max_height);
 
         self.bounds = Rect::new(Point::zero(), Size::new(width, height));

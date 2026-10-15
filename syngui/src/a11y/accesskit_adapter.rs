@@ -227,7 +227,9 @@ mod tests {
         let b = super::inner::build_accesskit_node_for_test(&node(Role::Button));
         assert!(b.supports_action(Action::Click) && b.supports_action(Action::Focus));
         let t = super::inner::build_accesskit_node_for_test(&node(Role::TextField));
-        assert!(t.supports_action(Action::ReplaceSelectedText) && !t.supports_action(Action::Click));
+        assert!(
+            t.supports_action(Action::ReplaceSelectedText) && !t.supports_action(Action::Click)
+        );
         let g = super::inner::build_accesskit_node_for_test(&node(Role::Group));
         assert!(!g.supports_action(Action::Click));
     }

@@ -191,7 +191,10 @@ impl Element for ProgressBarElement {
                 ),
                 Size::new(pct_zone - 6.0, self.bounds.size.height),
             );
-            let pct_color = self.mss.color.unwrap_or_else(crate::theme_fallback::fallback_fg);
+            let pct_color = self
+                .mss
+                .color
+                .unwrap_or_else(crate::theme_fallback::fallback_fg);
             list.push_text_centered(&percentage, text_rect, pct_color, fs);
         }
     }
@@ -338,7 +341,10 @@ mod strip_tests {
         for i in 0..=130 {
             let off = -0.3 + i as f32 / 100.0;
             if let Some(r) = indeterminate_strip(bar, off) {
-                assert!(r.x() >= bar.x() && r.x() + r.size.width <= bar.x() + bar.size.width + 1e-3, "offset {off}: {r:?}");
+                assert!(
+                    r.x() >= bar.x() && r.x() + r.size.width <= bar.x() + bar.size.width + 1e-3,
+                    "offset {off}: {r:?}"
+                );
             }
         }
         let mid = indeterminate_strip(bar, 0.35).unwrap();

@@ -9,9 +9,22 @@ use syngui::widgets::Page;
 
 fn tree(flex: bool) -> Box<dyn Widget> {
     let field = TextField::with_text("").placeholder("/path/to/video.mp4");
-    let field: Box<dyn Widget> = if flex { Box::new(field.style("flex", 1.0_f32)) } else { Box::new(field) };
-    let row = Row::new().gap(8.0).child(field).child(Button::new("Открыть"));
-    Box::new(Page::new().vertical().child(DecoratedBox::new().child(Column::new().child(row)).class("card")))
+    let field: Box<dyn Widget> = if flex {
+        Box::new(field.style("flex", 1.0_f32))
+    } else {
+        Box::new(field)
+    };
+    let row = Row::new()
+        .gap(8.0)
+        .child(field)
+        .child(Button::new("Открыть"));
+    Box::new(
+        Page::new().vertical().child(
+            DecoratedBox::new()
+                .child(Column::new().child(row))
+                .class("card"),
+        ),
+    )
 }
 
 #[test]
@@ -33,7 +46,13 @@ fn flex_field_fills_row() {
     h.layout(1000.0, 600.0);
     let tf = h.find_by_type_name("TextField")[0];
     let row = h.find_by_type_name("Row")[0];
-    let (fw, rw) = (h.element_bounds(tf).size.width, h.element_bounds(row).size.width);
+    let (fw, rw) = (
+        h.element_bounds(tf).size.width,
+        h.element_bounds(row).size.width,
+    );
     assert!(rw > 900.0, "строка на всю ширину: {rw}");
-    assert!(fw > 700.0 && fw < rw, "поле занимает остаток строки: {fw} из {rw}");
+    assert!(
+        fw > 700.0 && fw < rw,
+        "поле занимает остаток строки: {fw} из {rw}"
+    );
 }

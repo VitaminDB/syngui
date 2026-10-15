@@ -79,12 +79,36 @@ impl Animation {
     pub fn same_spec(&self, other: &Animation) -> bool {
         match (self, other) {
             (
-                Self::Tween { from, to, duration, delay, easing, .. },
-                Self::Tween { from: f2, to: t2, duration: d2, delay: dl2, easing: e2, .. },
+                Self::Tween {
+                    from,
+                    to,
+                    duration,
+                    delay,
+                    easing,
+                    ..
+                },
+                Self::Tween {
+                    from: f2,
+                    to: t2,
+                    duration: d2,
+                    delay: dl2,
+                    easing: e2,
+                    ..
+                },
             ) => from == f2 && to == t2 && duration == d2 && delay == dl2 && easing == e2,
             (
-                Self::Spring { spring, target, initial, .. },
-                Self::Spring { spring: s2, target: t2, initial: i2, .. },
+                Self::Spring {
+                    spring,
+                    target,
+                    initial,
+                    ..
+                },
+                Self::Spring {
+                    spring: s2,
+                    target: t2,
+                    initial: i2,
+                    ..
+                },
             ) => {
                 spring.stiffness == s2.stiffness
                     && spring.damping == s2.damping
@@ -176,12 +200,25 @@ impl Animation {
     /// Сразу в конечное состояние (анимации выключены глобально — [`super::set_enabled`]).
     pub fn finish(&mut self) {
         match self {
-            Self::Spring { target, current, velocity, .. } => {
+            Self::Spring {
+                target,
+                current,
+                velocity,
+                ..
+            } => {
                 *current = *target;
                 *velocity = 0.0;
             }
-            Self::Tween { duration, elapsed, delay, .. } => *elapsed = *delay + *duration,
-            Self::Sequence { animations, current_index } => {
+            Self::Tween {
+                duration,
+                elapsed,
+                delay,
+                ..
+            } => *elapsed = *delay + *duration,
+            Self::Sequence {
+                animations,
+                current_index,
+            } => {
                 for a in animations.iter_mut() {
                     a.finish();
                 }

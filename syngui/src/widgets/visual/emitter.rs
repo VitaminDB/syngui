@@ -45,7 +45,9 @@ use crate::layout::Constraints;
 use crate::mss::{ComputedStyle, MssColor, MssFields, StyleValue};
 use crate::render::DisplayList;
 use crate::widget::context::EventContext;
-use crate::widget::{DirtyFlags, Element, ElementId, ElementTree, LayoutHint, UpdateContext, Widget};
+use crate::widget::{
+    DirtyFlags, Element, ElementId, ElementTree, LayoutHint, UpdateContext, Widget,
+};
 use std::any::Any;
 use std::f32::consts::{PI, TAU};
 use std::time::Duration;
@@ -101,9 +103,17 @@ pub enum EmitterShape {
 impl EmitterShape {
     pub fn parse(s: &str) -> Option<Self> {
         let toks: Vec<&str> = s.split_whitespace().collect();
-        let pct = |t: &str| t.trim_end_matches('%').parse::<f32>().ok().map(|v| v / 100.0);
+        let pct = |t: &str| {
+            t.trim_end_matches('%')
+                .parse::<f32>()
+                .ok()
+                .map(|v| v / 100.0)
+        };
         Some(match toks.first().copied()? {
-            "point" | "center" => match (toks.get(1).and_then(|t| pct(t)), toks.get(2).and_then(|t| pct(t))) {
+            "point" | "center" => match (
+                toks.get(1).and_then(|t| pct(t)),
+                toks.get(2).and_then(|t| pct(t)),
+            ) {
                 (Some(x), Some(y)) => Self::Point(x, y),
                 _ => Self::Point(0.5, 0.5),
             },
@@ -223,7 +233,13 @@ impl ParticlePreset {
             },
             Self::Fireworks => EmitterConfig {
                 shape: ParticleShape::Circle,
-                colors: vec![c("#ff5e5e"), c("#ffd24d"), c("#5ee0ff"), c("#b17bff"), c("#7dff9a")],
+                colors: vec![
+                    c("#ff5e5e"),
+                    c("#ffd24d"),
+                    c("#5ee0ff"),
+                    c("#b17bff"),
+                    c("#7dff9a"),
+                ],
                 size: (2.0, 4.0),
                 size_end: 0.3,
                 lifetime: (0.8, 1.6),
@@ -490,8 +506,9 @@ impl Overrides {
             ($($f:ident),*) => { Overrides { $($f: self.$f.clone().or_else(|| lower.$f.clone()),)* } };
         }
         pick!(
-            preset, rate, hover_rate, burst, lifetime, speed, direction, spread, gravity, drag, size, size_end,
-            colors, color_end, shape, spin, glow, wobble, twinkle, emitter, front, max
+            preset, rate, hover_rate, burst, lifetime, speed, direction, spread, gravity, drag,
+            size, size_end, colors, color_end, shape, spin, glow, wobble, twinkle, emitter, front,
+            max
         )
     }
 
@@ -501,8 +518,8 @@ impl Overrides {
             ($($f:ident),*) => { $(if let Some(v) = self.$f.clone() { c.$f = v; })* };
         }
         set!(
-            rate, hover_rate, burst, lifetime, speed, direction, spread, gravity, drag, size, size_end, colors,
-            shape, spin, glow, wobble, twinkle, emitter, front, max
+            rate, hover_rate, burst, lifetime, speed, direction, spread, gravity, drag, size,
+            size_end, colors, shape, spin, glow, wobble, twinkle, emitter, front, max
         );
         if self.color_end.is_some() {
             c.color_end = self.color_end;
@@ -626,7 +643,12 @@ impl Default for ParticleEmitter {
 
 impl ParticleEmitter {
     pub fn new() -> Self {
-        Self { child: None, builder: Overrides::default(), burst_token: 0, classes: Vec::new() }
+        Self {
+            child: None,
+            builder: Overrides::default(),
+            burst_token: 0,
+            classes: Vec::new(),
+        }
     }
 
     /// Обернуть содержимое: эмиттер займёт его место и будет видеть
@@ -765,7 +787,10 @@ impl Widget for ParticleEmitter {
     }
 
     fn child_widgets(&self) -> Vec<&dyn Widget> {
-        self.child.as_ref().map(|c| vec![c.as_ref() as &dyn Widget]).unwrap_or_default()
+        self.child
+            .as_ref()
+            .map(|c| vec![c.as_ref() as &dyn Widget])
+            .unwrap_or_default()
     }
 
     fn widget_classes(&self) -> &[String] {
@@ -825,7 +850,11 @@ impl EmitterElement {
     }
 
     fn current_rate(&self) -> f32 {
-        let hover = if self.hover.is_some() { self.config.hover_rate } else { 0.0 };
+        let hover = if self.hover.is_some() {
+            self.config.hover_rate
+        } else {
+            0.0
+        };
         self.config.rate + hover
     }
 
@@ -859,7 +888,8 @@ impl EmitterElement {
         for _ in 0..n.min(room) {
             let (x, y) = self.spawn_origin();
             let c = &self.config;
-            let (dir, spread, speed_r, life_r, size_r, spin) = (c.direction, c.spread, c.speed, c.lifetime, c.size, c.spin);
+            let (dir, spread, speed_r, life_r, size_r, spin) =
+                (c.direction, c.spread, c.speed, c.lifetime, c.size, c.spin);
             let ncolors = c.colors.len();
             let shape = c.shape;
             let angle = (dir + (self.rand() - 0.5) * spread).to_radians();
@@ -916,7 +946,11 @@ impl EmitterElement {
         let mut canvas_used = false;
         for p in &self.particles {
             let t = (p.age / p.life).clamp(0.0, 1.0);
-            let fade_in = if c.fade_in > 0.0 { (t / c.fade_in).min(1.0) } else { 1.0 };
+            let fade_in = if c.fade_in > 0.0 {
+                (t / c.fade_in).min(1.0)
+            } else {
+                1.0
+            };
             let mut alpha = fade_in * (1.0 - t);
             if c.twinkle > 0.0 {
                 alpha *= 1.0 - c.twinkle * 0.5 * (1.0 + (self.time * 18.0 + p.phase).sin());
@@ -933,7 +967,11 @@ impl EmitterElement {
             if size <= 0.05 {
                 continue;
             }
-            let wob = if c.wobble > 0.0 { (self.time * 3.0 + p.phase).sin() * c.wobble * t.min(1.0) } else { 0.0 };
+            let wob = if c.wobble > 0.0 {
+                (self.time * 3.0 + p.phase).sin() * c.wobble * t.min(1.0)
+            } else {
+                0.0
+            };
             let cx = o.x + p.x + wob;
             let cy = o.y + p.y;
             let half = size * 0.5;
@@ -949,15 +987,24 @@ impl EmitterElement {
             }
             let rotated = |pts: &[(f32, f32)]| -> Vec<(f32, f32)> {
                 let (s, co) = p.rot.sin_cos();
-                pts.iter().map(|&(dx, dy)| (cx + dx * co - dy * s, cy + dx * s + dy * co)).collect()
+                pts.iter()
+                    .map(|&(dx, dy)| (cx + dx * co - dy * s, cy + dx * s + dy * co))
+                    .collect()
             };
             match p.shape {
                 ParticleShape::Circle | ParticleShape::Mixed => {
-                    list.push_rect(Rect::new(Point::new(cx - half, cy - half), Size::new(size, size)), color, [half; 4]);
+                    list.push_rect(
+                        Rect::new(Point::new(cx - half, cy - half), Size::new(size, size)),
+                        color,
+                        [half; 4],
+                    );
                 }
                 ParticleShape::Glow => {
                     list.push_shadow(
-                        Rect::new(Point::new(cx - half * 0.5, cy - half * 0.5), Size::new(half, half)),
+                        Rect::new(
+                            Point::new(cx - half * 0.5, cy - half * 0.5),
+                            Size::new(half, half),
+                        ),
                         color,
                         half.max(1.0),
                         (0.0, 0.0),
@@ -966,12 +1013,21 @@ impl EmitterElement {
                 }
                 ParticleShape::Square => {
                     canvas.set_color(color);
-                    canvas.fill_polygon(&rotated(&[(-half, -half), (half, -half), (half, half), (-half, half)]));
+                    canvas.fill_polygon(&rotated(&[
+                        (-half, -half),
+                        (half, -half),
+                        (half, half),
+                        (-half, half),
+                    ]));
                     canvas_used = true;
                 }
                 ParticleShape::Triangle => {
                     canvas.set_color(color);
-                    canvas.fill_polygon(&rotated(&[(0.0, -size * 0.6), (size * 0.55, size * 0.5), (-size * 0.55, size * 0.5)]));
+                    canvas.fill_polygon(&rotated(&[
+                        (0.0, -size * 0.6),
+                        (size * 0.55, size * 0.5),
+                        (-size * 0.55, size * 0.5),
+                    ]));
                     canvas_used = true;
                 }
                 ParticleShape::Star => {
@@ -990,7 +1046,10 @@ impl EmitterElement {
                     for i in 0..24 {
                         let a = i as f32 / 24.0 * TAU;
                         let x = 16.0 * a.sin().powi(3);
-                        let y = -(13.0 * a.cos() - 5.0 * (2.0 * a).cos() - 2.0 * (3.0 * a).cos() - (4.0 * a).cos());
+                        let y = -(13.0 * a.cos()
+                            - 5.0 * (2.0 * a).cos()
+                            - 2.0 * (3.0 * a).cos()
+                            - (4.0 * a).cos());
                         pts.push((x / 32.0 * size, y / 32.0 * size));
                     }
                     canvas.set_color(color);
@@ -1042,14 +1101,27 @@ impl Element for EmitterElement {
     }
 
     fn layout(&mut self, c: Constraints) -> Size {
-        let w = if c.max_width.is_finite() { c.max_width } else { 0.0 };
-        let h = if c.max_height.is_finite() { c.max_height } else { 0.0 };
+        let w = if c.max_width.is_finite() {
+            c.max_width
+        } else {
+            0.0
+        };
+        let h = if c.max_height.is_finite() {
+            c.max_height
+        } else {
+            0.0
+        };
         self.bounds.size = Size::new(w, h);
         self.bounds.size
     }
 
     fn layout_hint(&self) -> LayoutHint {
-        LayoutHint::Padding { left: 0.0, top: 0.0, right: 0.0, bottom: 0.0 }
+        LayoutHint::Padding {
+            left: 0.0,
+            top: 0.0,
+            right: 0.0,
+            bottom: 0.0,
+        }
     }
 
     fn build_display_list(&self, list: &mut DisplayList, _clip: Rect) {
@@ -1200,7 +1272,10 @@ mod tests {
         assert_eq!(parse_scalar("0.5turn"), Some(180.0));
         assert_eq!(parse_range("0.6s 1.2s"), Some((0.6, 1.2)));
         assert_eq!(parse_range("5"), Some((5.0, 5.0)));
-        assert_eq!(EmitterShape::parse("point 50% 100%"), Some(EmitterShape::Point(0.5, 1.0)));
+        assert_eq!(
+            EmitterShape::parse("point 50% 100%"),
+            Some(EmitterShape::Point(0.5, 1.0))
+        );
         assert_eq!(EmitterShape::parse("line top"), Some(EmitterShape::Line(0)));
     }
 
@@ -1219,10 +1294,20 @@ mod tests {
 
     #[test]
     fn burst_token_spawns_particles_and_they_die() {
-        let mut h = TestHarness::new(Box::new(ParticleEmitter::new().preset(ParticlePreset::Stars).burst(20).burst_token(0)));
+        let mut h = TestHarness::new(Box::new(
+            ParticleEmitter::new()
+                .preset(ParticlePreset::Stars)
+                .burst(20)
+                .burst_token(0),
+        ));
         h.layout(100.0, 100.0);
         let before = emitter_count(&mut h);
-        h.update_widget(Box::new(ParticleEmitter::new().preset(ParticlePreset::Stars).burst(20).burst_token(1)));
+        h.update_widget(Box::new(
+            ParticleEmitter::new()
+                .preset(ParticlePreset::Stars)
+                .burst(20)
+                .burst_token(1),
+        ));
         h.layout(100.0, 100.0);
         h.tree.animate(h.root_id, Duration::from_millis(16));
         assert!(emitter_count(&mut h) > before + 10);
@@ -1235,7 +1320,10 @@ mod tests {
     #[test]
     fn hover_rate_emits_only_under_pointer() {
         let content = crate::widgets::DecoratedBox::new().class("c");
-        let w = ParticleEmitter::new().preset(ParticlePreset::Sparkle).hover_rate(60.0).child(content);
+        let w = ParticleEmitter::new()
+            .preset(ParticlePreset::Sparkle)
+            .hover_rate(60.0)
+            .child(content);
         let mut h = TestHarness::new(Box::new(crate::widgets::Column::new().child(w)));
         h.apply_mss(".c { width: 50; height: 50; }");
         h.layout(200.0, 200.0);
@@ -1243,10 +1331,14 @@ mod tests {
             h.tree.animate(h.root_id, Duration::from_millis(16));
         }
         let idle = emitter_count(&mut h);
-        h.tree.handle_event(h.root_id, &Event::MouseMove(Point::new(25.0, 25.0)));
+        h.tree
+            .handle_event(h.root_id, &Event::MouseMove(Point::new(25.0, 25.0)));
         for _ in 0..20 {
             h.tree.animate(h.root_id, Duration::from_millis(16));
         }
-        assert!(emitter_count(&mut h) > idle, "при наведении должны появиться частицы");
+        assert!(
+            emitter_count(&mut h) > idle,
+            "при наведении должны появиться частицы"
+        );
     }
 }

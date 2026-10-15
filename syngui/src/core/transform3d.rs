@@ -106,7 +106,12 @@ pub struct Reflection {
 
 impl Default for Reflection {
     fn default() -> Self {
-        Self { side: ReflectSide::Below, gap: 0.0, opacity: 0.35, length: 0.5 }
+        Self {
+            side: ReflectSide::Below,
+            gap: 0.0,
+            opacity: 0.35,
+            length: 0.5,
+        }
     }
 }
 
@@ -215,7 +220,11 @@ pub fn project_layer(
                 let x = r[0][0] * v[0] + r[0][1] * v[1];
                 let y = r[1][0] * v[0] + r[1][1] * v[1];
                 let z = r[2][0] * v[0] + r[2][1] * v[1] + tz;
-                let w = if d > 0.0 { (1.0 - z / d).max(MIN_W) } else { 1.0 };
+                let w = if d > 0.0 {
+                    (1.0 - z / d).max(MIN_W)
+                } else {
+                    1.0
+                };
                 [o.0 * w + x, o.1 * w + y, w]
             })
         }
@@ -232,22 +241,42 @@ pub fn project_layer(
         // элемента и непрозрачность.
         let (dst, src, alpha): ([(f32, f32); 4], [(f32, f32); 4], [f32; 4]) = match refl.side {
             ReflectSide::Below => (
-                [(x0, y1 + g), (x1, y1 + g), (x1, y1 + g + len_v), (x0, y1 + g + len_v)],
+                [
+                    (x0, y1 + g),
+                    (x1, y1 + g),
+                    (x1, y1 + g + len_v),
+                    (x0, y1 + g + len_v),
+                ],
                 [(x0, y1), (x1, y1), (x1, y1 - len_v), (x0, y1 - len_v)],
                 [a, a, 0.0, 0.0],
             ),
             ReflectSide::Above => (
-                [(x0, y0 - g - len_v), (x1, y0 - g - len_v), (x1, y0 - g), (x0, y0 - g)],
+                [
+                    (x0, y0 - g - len_v),
+                    (x1, y0 - g - len_v),
+                    (x1, y0 - g),
+                    (x0, y0 - g),
+                ],
                 [(x0, y0 + len_v), (x1, y0 + len_v), (x1, y0), (x0, y0)],
                 [0.0, 0.0, a, a],
             ),
             ReflectSide::Right => (
-                [(x1 + g, y0), (x1 + g + len_h, y0), (x1 + g + len_h, y1), (x1 + g, y1)],
+                [
+                    (x1 + g, y0),
+                    (x1 + g + len_h, y0),
+                    (x1 + g + len_h, y1),
+                    (x1 + g, y1),
+                ],
                 [(x1, y0), (x1 - len_h, y0), (x1 - len_h, y1), (x1, y1)],
                 [a, 0.0, 0.0, a],
             ),
             ReflectSide::Left => (
-                [(x0 - g - len_h, y0), (x0 - g, y0), (x0 - g, y1), (x0 - g - len_h, y1)],
+                [
+                    (x0 - g - len_h, y0),
+                    (x0 - g, y0),
+                    (x0 - g, y1),
+                    (x0 - g - len_h, y1),
+                ],
                 [(x0 + len_h, y0), (x0, y0), (x0, y1), (x0 + len_h, y1)],
                 [0.0, a, a, 0.0],
             ),
@@ -303,7 +332,12 @@ mod tests {
     #[test]
     fn rotate_y_narrows_and_keeps_center() {
         let b = Rect::new(Point::new(0.0, 0.0), Size::new(100.0, 100.0));
-        let t = Transform3D { rotate_y: 60.0, origin: Point::new(50.0, 50.0), perspective: Some(0.0), ..Default::default() };
+        let t = Transform3D {
+            rotate_y: 60.0,
+            origin: Point::new(50.0, 50.0),
+            perspective: Some(0.0),
+            ..Default::default()
+        };
         let q = project_layer(b, &Transform::identity(), Some(&t), None);
         let q = &q[0];
         // Ортогонально: ширина × cos 60° = половина (с запасом m = 25 px).
@@ -317,7 +351,12 @@ mod tests {
     fn perspective_makes_near_edge_bigger() {
         let b = Rect::new(Point::new(0.0, 0.0), Size::new(100.0, 100.0));
         // Нижний край (y > 0) при rotateX > 0 идёт к зрителю — шире верхнего.
-        let t = Transform3D { rotate_x: 50.0, origin: Point::new(50.0, 50.0), perspective: Some(300.0), ..Default::default() };
+        let t = Transform3D {
+            rotate_x: 50.0,
+            origin: Point::new(50.0, 50.0),
+            perspective: Some(300.0),
+            ..Default::default()
+        };
         let q = &project_layer(b, &Transform::identity(), Some(&t), None)[0];
         let top = screen(&q.pos[1]).0 - screen(&q.pos[0]).0;
         let bottom = screen(&q.pos[2]).0 - screen(&q.pos[3]).0;
@@ -327,16 +366,31 @@ mod tests {
     #[test]
     fn hidden_backface_is_culled() {
         let b = Rect::new(Point::new(0.0, 0.0), Size::new(10.0, 10.0));
-        let t = Transform3D { rotate_y: 180.0, backface_visible: false, ..Default::default() };
+        let t = Transform3D {
+            rotate_y: 180.0,
+            backface_visible: false,
+            ..Default::default()
+        };
         assert!(project_layer(b, &Transform::identity(), Some(&t), None).is_empty());
-        let t = Transform3D { rotate_y: 180.0, ..Default::default() };
-        assert_eq!(project_layer(b, &Transform::identity(), Some(&t), None).len(), 1);
+        let t = Transform3D {
+            rotate_y: 180.0,
+            ..Default::default()
+        };
+        assert_eq!(
+            project_layer(b, &Transform::identity(), Some(&t), None).len(),
+            1
+        );
     }
 
     #[test]
     fn reflection_below_mirrors_bottom_edge() {
         let b = Rect::new(Point::new(0.0, 0.0), Size::new(40.0, 40.0));
-        let r = Reflection { gap: 2.0, opacity: 0.5, length: 0.5, ..Default::default() };
+        let r = Reflection {
+            gap: 2.0,
+            opacity: 0.5,
+            length: 0.5,
+            ..Default::default()
+        };
         let q = project_layer(b, &Transform::identity(), None, Some(&r));
         assert_eq!(q.len(), 2);
         let refl = &q[0];

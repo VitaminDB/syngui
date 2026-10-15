@@ -276,9 +276,18 @@ impl Element for DialogElement {
         let viewport = list.surface_size();
         self.viewport_size.set(viewport);
 
-        let bg = self.mss.background_color.unwrap_or_else(crate::theme_fallback::fallback_surface);
-        let fg = self.mss.color.unwrap_or_else(crate::theme_fallback::fallback_fg_strong);
-        let border = self.mss.border_color.unwrap_or_else(crate::theme_fallback::fallback_divider);
+        let bg = self
+            .mss
+            .background_color
+            .unwrap_or_else(crate::theme_fallback::fallback_surface);
+        let fg = self
+            .mss
+            .color
+            .unwrap_or_else(crate::theme_fallback::fallback_fg_strong);
+        let border = self
+            .mss
+            .border_color
+            .unwrap_or_else(crate::theme_fallback::fallback_divider);
         let primary = self.mss.accent_color.unwrap_or(Color::from_hex("#3B82F6"));
 
         let backdrop_rect = Rect::new(Point::zero(), viewport);

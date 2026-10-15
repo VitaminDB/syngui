@@ -145,7 +145,11 @@ impl Registry {
     /// строк — сама строка.
     fn lookup_text(&self, key: &str) -> Option<String> {
         for lang in &self.chain {
-            if self.source.as_ref().is_some_and(|s| s.base() == lang.base()) {
+            if self
+                .source
+                .as_ref()
+                .is_some_and(|s| s.base() == lang.base())
+            {
                 return None;
             }
             if let Some(v) = self.catalogs_for(lang).find_map(|c| c.get(key)) {
@@ -344,7 +348,12 @@ pub fn set_source_language(lang: impl Into<Lang>) {
 }
 
 fn source_rule() -> PluralRule {
-    with_registry(|reg| reg.source.as_ref().map(|s| s.plural_rule()).unwrap_or(PluralRule::OneOther))
+    with_registry(|reg| {
+        reg.source
+            .as_ref()
+            .map(|s| s.plural_rule())
+            .unwrap_or(PluralRule::OneOther)
+    })
 }
 
 /// Перевод исходной строки (gettext-подход): ключ — сам текст на языке
@@ -374,7 +383,10 @@ pub fn tn_args(n: u64, forms: &[&str], args: &[(&str, &dyn Display)]) -> String 
             }
             for cat in reg.catalogs_for(lang) {
                 let form = cat.plural.category(n).suffix();
-                if let Some(v) = cat.get(&catalog::plural_key(first, form)).or_else(|| cat.get(&catalog::plural_key(first, "other"))) {
+                if let Some(v) = cat
+                    .get(&catalog::plural_key(first, form))
+                    .or_else(|| cat.get(&catalog::plural_key(first, "other")))
+                {
                     return Some(v.to_string());
                 }
             }
@@ -384,8 +396,16 @@ pub fn tn_args(n: u64, forms: &[&str], args: &[(&str, &dyn Display)]) -> String 
     let template = translated.unwrap_or_else(|| {
         let rule = source_rule();
         let cats = rule.categories();
-        let idx = cats.iter().position(|c| *c == rule.category(n)).unwrap_or(cats.len().saturating_sub(1));
-        forms.get(idx).or(forms.last()).copied().unwrap_or("").to_string()
+        let idx = cats
+            .iter()
+            .position(|c| *c == rule.category(n))
+            .unwrap_or(cats.len().saturating_sub(1));
+        forms
+            .get(idx)
+            .or(forms.last())
+            .copied()
+            .unwrap_or("")
+            .to_string()
     });
     let mut all: Vec<(&str, &dyn Display)> = Vec::with_capacity(args.len() + 1);
     all.push(("n", &n));

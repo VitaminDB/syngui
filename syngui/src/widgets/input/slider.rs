@@ -470,10 +470,7 @@ impl Element for SliderElement {
                 .outline_color
                 .unwrap_or_else(|| fill_base.with_alpha(0.4));
             for &(from, to) in &self.marked {
-                let (from, to) = (
-                    from.clamp(self.min, self.max),
-                    to.clamp(self.min, self.max),
-                );
+                let (from, to) = (from.clamp(self.min, self.max), to.clamp(self.min, self.max));
                 if to <= from {
                     continue;
                 }
@@ -1274,11 +1271,24 @@ mod tests {
         let mut elem = direct(&s);
         elem.layout(Constraints::tight(Size::new(200.0, 4.0)));
         let mut ctx = crate::widget::context::EventContext::new(elem.id);
-        let at = Point::new(elem.track_bounds.x() + elem.track_bounds.size.width / 2.0, elem.bounds.y() + 13.0);
+        let at = Point::new(
+            elem.track_bounds.x() + elem.track_bounds.size.width / 2.0,
+            elem.bounds.y() + 13.0,
+        );
         assert!(elem.hit_test(at));
-        let r = elem.handle_event(&Event::MouseDown { button: MouseButton::Left, position: at }, &mut ctx);
+        let r = elem.handle_event(
+            &Event::MouseDown {
+                button: MouseButton::Left,
+                position: at,
+            },
+            &mut ctx,
+        );
         assert!(r.is_handled());
-        assert!((elem.value - 0.5).abs() < 0.05, "значение под нажатием: {}", elem.value);
+        assert!(
+            (elem.value - 0.5).abs() < 0.05,
+            "значение под нажатием: {}",
+            elem.value
+        );
         assert!(!elem.hit_test(Point::new(at.x, elem.bounds.y() + 40.0)));
     }
 

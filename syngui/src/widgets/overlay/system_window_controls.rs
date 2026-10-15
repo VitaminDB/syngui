@@ -300,7 +300,10 @@ impl SystemWindowControlsElement {
     /// плюс глиф кнопки линиями.
     fn draw_builtin(&self, list: &mut DisplayList, index: usize, rect: Rect) {
         let state = self.state_of(index);
-        let color = self.mss.color.unwrap_or_else(crate::theme_fallback::fallback_fg_strong);
+        let color = self
+            .mss
+            .color
+            .unwrap_or_else(crate::theme_fallback::fallback_fg_strong);
         let is_close = self.buttons[index] == WindowButton::Close;
 
         // Подложка: у «закрыть» — красная, у остальных — из MSS.
@@ -384,7 +387,10 @@ impl SystemWindowControlsElement {
         let state = self.state_of(index);
         let button = self.buttons[index];
         let is_close = button == WindowButton::Close;
-        let fg = self.mss.color.unwrap_or_else(crate::theme_fallback::fallback_fg_strong);
+        let fg = self
+            .mss
+            .color
+            .unwrap_or_else(crate::theme_fallback::fallback_fg_strong);
         let hot = matches!(state, ButtonState::Hover | ButtonState::Pressed);
 
         let cx = rect.x() + rect.size.width / 2.0;
@@ -530,8 +536,7 @@ impl Element for SystemWindowControlsElement {
         let width = if count == 0 {
             0.0
         } else {
-            count as f32 * self.button_size()
-                + (count - 1) as f32 * self.metrics.button_spacing
+            count as f32 * self.button_size() + (count - 1) as f32 * self.metrics.button_spacing
         };
         // Занимаем всю высоту титлбара и центрируем кнопки внутри себя: иначе
         // группа кнопок оказывается ростом с саму кнопку и прижимается к

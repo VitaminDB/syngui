@@ -268,8 +268,15 @@ impl Element for GridElement {
     }
     /// Явная ширина из MSS (`width`) — сетка раскладывает колонки в ней.
     /// Высота всегда по содержимому.
-    fn explicit_dimensions(&self, parent_width: f32, _parent_height: f32) -> (Option<f32>, Option<f32>) {
-        (self.mss.width.and_then(|d| d.resolve_opt(parent_width)), None)
+    fn explicit_dimensions(
+        &self,
+        parent_width: f32,
+        _parent_height: f32,
+    ) -> (Option<f32>, Option<f32>) {
+        (
+            self.mss.width.and_then(|d| d.resolve_opt(parent_width)),
+            None,
+        )
     }
 
     fn mss(&self) -> Option<&crate::mss::MssFields> {

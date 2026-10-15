@@ -6,7 +6,12 @@ use std::time::Duration;
 fn read(path: &str) -> (Vec<f32>, u32) {
     let mut r = hound::WavReader::open(path).expect("wav");
     let sr = r.spec().sample_rate;
-    (r.samples::<i16>().map(|s| s.unwrap() as f32 / 32768.0).collect(), sr)
+    (
+        r.samples::<i16>()
+            .map(|s| s.unwrap() as f32 / 32768.0)
+            .collect(),
+        sr,
+    )
 }
 
 fn main() {

@@ -14,19 +14,28 @@ const MSS: &str = "
 ";
 
 fn shadows(list: &syngui::render::DisplayList) -> usize {
-    list.commands().iter().filter(|c| matches!(c, DrawCommand::Shadow { .. })).count()
+    list.commands()
+        .iter()
+        .filter(|c| matches!(c, DrawCommand::Shadow { .. }))
+        .count()
 }
 
 #[test]
 fn shadow_present_in_first_frame() {
     let mut h = TestHarness::new(Box::new(
-        Row::new().gap(24.0).child(DecoratedBox::new().class("td-tile td-flip")).child(DecoratedBox::new().class("td-tile td-tilt")),
+        Row::new()
+            .gap(24.0)
+            .child(DecoratedBox::new().class("td-tile td-flip"))
+            .child(DecoratedBox::new().class("td-tile td-tilt")),
     ));
     h.apply_mss(MSS);
     h.layout(600.0, 300.0);
     let first = shadows(&h.paint());
     h.animate(Duration::from_millis(16));
     let second = shadows(&h.paint());
-    assert_eq!(first, 2, "в первом кадре у обеих плиток есть тень (потом: {second})");
+    assert_eq!(
+        first, 2,
+        "в первом кадре у обеих плиток есть тень (потом: {second})"
+    );
     assert_eq!(second, 2);
 }

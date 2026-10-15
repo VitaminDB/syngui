@@ -204,8 +204,13 @@ impl Window {
 
     /// Запросить новый размер окна (логические пиксели). `Some` — размер
     /// применён сразу (Wayland): события `Resized` тогда не будет.
-    pub fn request_inner_size(&self, width: u32, height: u32) -> Option<winit::dpi::PhysicalSize<u32>> {
-        self.inner.request_inner_size(winit::dpi::LogicalSize::new(width, height))
+    pub fn request_inner_size(
+        &self,
+        width: u32,
+        height: u32,
+    ) -> Option<winit::dpi::PhysicalSize<u32>> {
+        self.inner
+            .request_inner_size(winit::dpi::LogicalSize::new(width, height))
     }
 
     pub fn id(&self) -> winit::window::WindowId {
@@ -221,7 +226,10 @@ impl Window {
     pub fn set_ime_cursor_area(&self, rect: crate::core::Rect) {
         self.inner.set_ime_cursor_area(
             winit::dpi::LogicalPosition::new(rect.origin.x as f64, rect.origin.y as f64),
-            winit::dpi::LogicalSize::new(rect.size.width.max(1.0) as f64, rect.size.height.max(1.0) as f64),
+            winit::dpi::LogicalSize::new(
+                rect.size.width.max(1.0) as f64,
+                rect.size.height.max(1.0) as f64,
+            ),
         );
     }
 

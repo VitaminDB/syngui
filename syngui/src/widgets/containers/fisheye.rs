@@ -30,7 +30,9 @@ use crate::layout::{Constraints, CrossAxisAlignment, MainAxisAlignment};
 use crate::mss::{ComputedStyle, MssFields};
 use crate::render::DisplayList;
 use crate::widget::context::{EventContext, EventContextExt};
-use crate::widget::{DirtyFlags, Element, ElementId, ElementTree, LayoutHint, UpdateContext, Widget};
+use crate::widget::{
+    DirtyFlags, Element, ElementId, ElementTree, LayoutHint, UpdateContext, Widget,
+};
 use std::any::Any;
 use std::sync::Arc;
 use std::time::Duration;
@@ -180,16 +182,22 @@ impl ScaleBoxElement {
     fn target(&self) -> f32 {
         match &self.source {
             ScaleSource::Fixed(s) => *s,
-            ScaleSource::Fisheye(shared, i) => {
-                shared.lock().unwrap_or_else(|e| e.into_inner()).targets.get(*i).copied().unwrap_or(1.0)
-            }
+            ScaleSource::Fisheye(shared, i) => shared
+                .lock()
+                .unwrap_or_else(|e| e.into_inner())
+                .targets
+                .get(*i)
+                .copied()
+                .unwrap_or(1.0),
         }
     }
 
     fn speed(&self) -> f32 {
         match &self.source {
             ScaleSource::Fixed(_) => self.speed,
-            ScaleSource::Fisheye(shared, _) => shared.lock().unwrap_or_else(|e| e.into_inner()).speed,
+            ScaleSource::Fisheye(shared, _) => {
+                shared.lock().unwrap_or_else(|e| e.into_inner()).speed
+            }
         }
     }
 
@@ -198,15 +206,23 @@ impl ScaleBoxElement {
         let o = self.bounds.origin;
         match self.grow {
             Grow::Both => o,
-            Grow::Overflow { vertical: false, anchor } => Point::new(o.x, o.y + self.child_size.height * anchor),
-            Grow::Overflow { vertical: true, anchor } => Point::new(o.x + self.child_size.width * anchor, o.y),
+            Grow::Overflow {
+                vertical: false,
+                anchor,
+            } => Point::new(o.x, o.y + self.child_size.height * anchor),
+            Grow::Overflow {
+                vertical: true,
+                anchor,
+            } => Point::new(o.x + self.child_size.width * anchor, o.y),
         }
     }
 
     fn transform(&self) -> Transform {
         let a = self.anchor();
         let s = self.current;
-        Transform::translation(-a.x, -a.y).then_scale(s, s).then_translate(euclid::Vector2D::new(a.x, a.y))
+        Transform::translation(-a.x, -a.y)
+            .then_scale(s, s)
+            .then_translate(euclid::Vector2D::new(a.x, a.y))
     }
 }
 
@@ -237,7 +253,9 @@ impl Element for ScaleBoxElement {
         let (w, h) = (self.child_size.width, self.child_size.height);
         let size = match self.grow {
             Grow::Both => Size::new(w * s, h * s),
-            Grow::Overflow { vertical: false, .. } => Size::new(w * s, h),
+            Grow::Overflow {
+                vertical: false, ..
+            } => Size::new(w * s, h),
             Grow::Overflow { vertical: true, .. } => Size::new(w, h * s),
         };
         self.bounds.size = size;
@@ -438,7 +456,10 @@ impl Fisheye {
     pub fn new() -> Self {
         Self {
             children: Vec::new(),
-            shared: Arc::new(Mutex::new(FisheyeShared { speed: 16.0, ..Default::default() })),
+            shared: Arc::new(Mutex::new(FisheyeShared {
+                speed: 16.0,
+                ..Default::default()
+            })),
             vertical: false,
             gap: 0.0,
             zoom: 1.8,
@@ -480,7 +501,10 @@ impl Fisheye {
             CrossAxisAlignment::Center => 0.5,
             _ => 1.0,
         };
-        Grow::Overflow { vertical: self.vertical, anchor }
+        Grow::Overflow {
+            vertical: self.vertical,
+            anchor,
+        }
     }
 
     /// Колонка вместо ряда (док у левого/правого края).
@@ -627,7 +651,10 @@ impl Widget for Fisheye {
     }
 
     fn child_widgets(&self) -> Vec<&dyn Widget> {
-        self.children.iter().map(|c| c.as_ref() as &dyn Widget).collect()
+        self.children
+            .iter()
+            .map(|c| c.as_ref() as &dyn Widget)
+            .collect()
     }
 
     fn widget_classes(&self) -> &[String] {
@@ -701,9 +728,15 @@ impl FisheyeElement {
         let (before, after) = (extra * a, extra * (1.0 - a));
         let b = self.bounds;
         if self.vertical {
-            Rect::new(Point::new(b.origin.x - before, b.origin.y), Size::new(b.size.width + before + after, b.size.height))
+            Rect::new(
+                Point::new(b.origin.x - before, b.origin.y),
+                Size::new(b.size.width + before + after, b.size.height),
+            )
         } else {
-            Rect::new(Point::new(b.origin.x, b.origin.y - before), Size::new(b.size.width, b.size.height + before + after))
+            Rect::new(
+                Point::new(b.origin.x, b.origin.y - before),
+                Size::new(b.size.width, b.size.height + before + after),
+            )
         }
     }
 
@@ -724,9 +757,15 @@ impl FisheyeElement {
         let main = |s: Size| if vertical { s.height } else { s.width };
         let cross = |s: Size| if vertical { s.width } else { s.height };
         // Центры элементов в неувеличенной раскладке.
-        let total: f32 = sh.natural[..n].iter().map(|s| main(*s)).sum::<f32>() + gap * n.saturating_sub(1) as f32;
+        let total: f32 = sh.natural[..n].iter().map(|s| main(*s)).sum::<f32>()
+            + gap * n.saturating_sub(1) as f32;
         let (b0, blen, pad0, pad1) = if vertical {
-            (self.bounds.origin.y, self.bounds.size.height, pad[1], pad[3])
+            (
+                self.bounds.origin.y,
+                self.bounds.size.height,
+                pad[1],
+                pad[3],
+            )
         } else {
             (self.bounds.origin.x, self.bounds.size.width, pad[0], pad[2])
         };
@@ -767,20 +806,29 @@ impl FisheyeElement {
         // Где окажется элемент под указателем, когда масштабы дойдут до целей.
         let hovered = hovered.map(|(i, _)| {
             let t = &sh.targets;
-            let final_total: f32 =
-                (0..n).map(|j| main(sh.natural[j]) * t[j]).sum::<f32>() + gap * n.saturating_sub(1) as f32;
+            let final_total: f32 = (0..n).map(|j| main(sh.natural[j]) * t[j]).sum::<f32>()
+                + gap * n.saturating_sub(1) as f32;
             let fstart = match anchor {
                 FisheyeAnchor::Start => b0 + pad0,
                 FisheyeAnchor::Center => b0 + blen / 2.0 - (final_total + pad0 + pad1) / 2.0 + pad0,
                 FisheyeAnchor::End => b0 + blen - pad1 - final_total,
             };
-            let m0 = fstart + (0..i).map(|j| main(sh.natural[j]) * t[j] + gap).sum::<f32>();
+            let m0 = fstart
+                + (0..i)
+                    .map(|j| main(sh.natural[j]) * t[j] + gap)
+                    .sum::<f32>();
             let mlen = main(sh.natural[i]) * t[i];
             let nc = cross(sh.natural[i]);
             let (c0, clen) = if vertical {
-                (self.bounds.origin.x + pad[0], self.bounds.size.width - pad[0] - pad[2])
+                (
+                    self.bounds.origin.x + pad[0],
+                    self.bounds.size.width - pad[0] - pad[2],
+                )
             } else {
-                (self.bounds.origin.y + pad[1], self.bounds.size.height - pad[1] - pad[3])
+                (
+                    self.bounds.origin.y + pad[1],
+                    self.bounds.size.height - pad[1] - pad[3],
+                )
             };
             let a = self.cross_anchor();
             // Поперёк: элемент лежит у начала/центра/конца, растёт от якоря.
@@ -801,9 +849,19 @@ impl FisheyeElement {
     }
 
     fn report_hover(&mut self, hovered: Option<(usize, Rect)>) {
-        let Some(cb) = self.on_hover.clone() else { return };
+        let Some(cb) = self.on_hover.clone() else {
+            return;
+        };
         let key = hovered.map(|(i, r)| {
-            (i, [r.origin.x.round() as i32, r.origin.y.round() as i32, r.size.width.round() as i32, r.size.height.round() as i32])
+            (
+                i,
+                [
+                    r.origin.x.round() as i32,
+                    r.origin.y.round() as i32,
+                    r.size.width.round() as i32,
+                    r.size.height.round() as i32,
+                ],
+            )
         });
         if key == self.last_hover {
             return;
@@ -819,7 +877,12 @@ impl Element for FisheyeElement {
         if let Some(w) = widget.as_any().downcast_ref::<Fisheye>() {
             // Новый виджет — новое общее состояние (его получили и элементы).
             // Цели переносим, чтобы увеличение не сбрасывалось при пересборке.
-            let old = self.shared.lock().unwrap_or_else(|e| e.into_inner()).targets.clone();
+            let old = self
+                .shared
+                .lock()
+                .unwrap_or_else(|e| e.into_inner())
+                .targets
+                .clone();
             self.shared = w.shared.clone();
             {
                 let mut sh = self.shared.lock().unwrap_or_else(|e| e.into_inner());
@@ -846,8 +909,16 @@ impl Element for FisheyeElement {
     }
 
     fn layout(&mut self, constraints: Constraints) -> Size {
-        let w = if constraints.max_width.is_finite() { constraints.max_width } else { constraints.min_width.max(0.0) };
-        let h = if constraints.max_height.is_finite() { constraints.max_height } else { constraints.min_height.max(0.0) };
+        let w = if constraints.max_width.is_finite() {
+            constraints.max_width
+        } else {
+            constraints.min_width.max(0.0)
+        };
+        let h = if constraints.max_height.is_finite() {
+            constraints.max_height
+        } else {
+            constraints.min_height.max(0.0)
+        };
         self.bounds.size = Size::new(w, h);
         self.bounds.size
     }
@@ -881,7 +952,10 @@ impl Element for FisheyeElement {
     }
 
     fn explicit_dimensions(&self, pw: f32, ph: f32) -> (Option<f32>, Option<f32>) {
-        (self.mss.width.and_then(|d| d.resolve_opt(pw)), self.mss.height.and_then(|d| d.resolve_opt(ph)))
+        (
+            self.mss.width.and_then(|d| d.resolve_opt(pw)),
+            self.mss.height.and_then(|d| d.resolve_opt(ph)),
+        )
     }
 
     /// Полоса-подложка: тени, фон, рамка (наклон `background-rotate-x` —
@@ -954,11 +1028,19 @@ impl Element for FisheyeElement {
     }
     fn apply_computed_style(&mut self, style: &ComputedStyle) {
         self.mss.apply(style);
-        let num = |k: &str| style.get(k).and_then(|v| v.as_px().or_else(|| v.as_string().and_then(|s| s.trim().parse().ok())));
+        let num = |k: &str| {
+            style.get(k).and_then(|v| {
+                v.as_px()
+                    .or_else(|| v.as_string().and_then(|s| s.trim().parse().ok()))
+            })
+        };
         self.mss_zoom = num("magnification");
         self.mss_range = num("magnification-range");
         self.mss_speed = num("magnification-speed");
-        self.mss_falloff = style.get("magnification-falloff").and_then(|v| v.as_string()).and_then(Falloff::parse);
+        self.mss_falloff = style
+            .get("magnification-falloff")
+            .and_then(|v| v.as_string())
+            .and_then(Falloff::parse);
         self.sync_shared();
         self.mark_dirty(DirtyFlags::LAYOUT | DirtyFlags::RENDER);
     }
@@ -979,7 +1061,10 @@ mod tests {
     }
 
     fn sizes(h: &TestHarness) -> Vec<f32> {
-        h.find_by_type_name("ScaleBox").into_iter().map(|id| h.element_bounds(id).size.width).collect()
+        h.find_by_type_name("ScaleBox")
+            .into_iter()
+            .map(|id| h.element_bounds(id).size.width)
+            .collect()
     }
 
     fn settle(h: &mut TestHarness) {
@@ -1014,26 +1099,39 @@ mod tests {
         assert_eq!(sizes(&h), vec![40.0, 40.0, 40.0]);
 
         // Центр ряда 3×40 по центру 400 → средний элемент в 180..220.
-        h.tree.handle_event(h.root_id, &Event::MouseMove(Point::new(200.0, 90.0)));
+        h.tree
+            .handle_event(h.root_id, &Event::MouseMove(Point::new(200.0, 90.0)));
         h.layout(400.0, 100.0);
         settle(&mut h);
         let s = sizes(&h);
         assert!((s[1] - 80.0).abs() < 0.5, "{s:?}");
-        assert!(s[0] > 40.0 && s[0] < s[1] && (s[0] - s[2]).abs() < 0.5, "{s:?}");
+        assert!(
+            s[0] > 40.0 && s[0] < s[1] && (s[0] - s[2]).abs() < 0.5,
+            "{s:?}"
+        );
 
-        h.tree.handle_event(h.root_id, &Event::MouseMove(Point::new(-1.0, -1.0)));
+        h.tree
+            .handle_event(h.root_id, &Event::MouseMove(Point::new(-1.0, -1.0)));
         h.layout(400.0, 100.0);
         settle(&mut h);
-        assert_eq!(sizes(&h).iter().map(|v| v.round()).collect::<Vec<_>>(), vec![40.0, 40.0, 40.0]);
+        assert_eq!(
+            sizes(&h).iter().map(|v| v.round()).collect::<Vec<_>>(),
+            vec![40.0, 40.0, 40.0]
+        );
     }
 
     #[test]
     fn mss_disables_magnification() {
-        let w = Fisheye::new().zoom(2.0).child(item()).child(item()).class("fe");
+        let w = Fisheye::new()
+            .zoom(2.0)
+            .child(item())
+            .child(item())
+            .class("fe");
         let mut h = TestHarness::new(Box::new(w));
         h.apply_mss(".it { width: 40; height: 40; } .fe { magnification: 1; }");
         h.layout(400.0, 100.0);
-        h.tree.handle_event(h.root_id, &Event::MouseMove(Point::new(200.0, 90.0)));
+        h.tree
+            .handle_event(h.root_id, &Event::MouseMove(Point::new(200.0, 90.0)));
         h.layout(400.0, 100.0);
         settle(&mut h);
         assert_eq!(sizes(&h), vec![40.0, 40.0]);
@@ -1041,7 +1139,9 @@ mod tests {
 
     #[test]
     fn fixed_scale_box_takes_scaled_space() {
-        let w = crate::widgets::Row::new().child(ScaleBox::new(item()).scale(1.5)).child(item());
+        let w = crate::widgets::Row::new()
+            .child(ScaleBox::new(item()).scale(1.5))
+            .child(item());
         let mut h = TestHarness::new(Box::new(w));
         h.apply_mss(".it { width: 40; height: 20; }");
         h.layout(400.0, 100.0);
@@ -1058,21 +1158,42 @@ mod tests {
         static A: AtomicUsize = AtomicUsize::new(0);
         static B: AtomicUsize = AtomicUsize::new(0);
         let w = crate::widgets::Row::new()
-            .child(ScaleBox::new(
-                crate::widgets::GestureDetector::new().child(item()).on_click(|| {
-                    A.fetch_add(1, Ordering::SeqCst);
-                }),
-            ).scale(2.0))
-            .child(crate::widgets::GestureDetector::new().child(item()).on_click(|| {
-                B.fetch_add(1, Ordering::SeqCst);
-            }));
+            .child(
+                ScaleBox::new(
+                    crate::widgets::GestureDetector::new()
+                        .child(item())
+                        .on_click(|| {
+                            A.fetch_add(1, Ordering::SeqCst);
+                        }),
+                )
+                .scale(2.0),
+            )
+            .child(
+                crate::widgets::GestureDetector::new()
+                    .child(item())
+                    .on_click(|| {
+                        B.fetch_add(1, Ordering::SeqCst);
+                    }),
+            );
         let mut h = TestHarness::new(Box::new(w));
         h.apply_mss(".it { width: 40; height: 40; }");
         h.layout(400.0, 100.0);
         let click = |h: &mut TestHarness, x: f32, y: f32| {
             let p = Point::new(x, y);
-            h.tree.handle_event(h.root_id, &Event::MouseDown { button: MouseButton::Left, position: p });
-            h.tree.handle_event(h.root_id, &Event::MouseUp { button: MouseButton::Left, position: p });
+            h.tree.handle_event(
+                h.root_id,
+                &Event::MouseDown {
+                    button: MouseButton::Left,
+                    position: p,
+                },
+            );
+            h.tree.handle_event(
+                h.root_id,
+                &Event::MouseUp {
+                    button: MouseButton::Left,
+                    position: p,
+                },
+            );
         };
         // Увеличенный первый элемент занимает 0..80; точка 70 — его.
         click(&mut h, 70.0, 30.0);
@@ -1098,16 +1219,19 @@ mod tests {
             .child(item())
             .child(item())
             .child(item());
-        let mut h = TestHarness::new(Box::new(crate::widgets::Column::new()
-            .main_axis_alignment(MainAxisAlignment::End)
-            .cross_axis_alignment(CrossAxisAlignment::Center)
-            .child(w)));
+        let mut h = TestHarness::new(Box::new(
+            crate::widgets::Column::new()
+                .main_axis_alignment(MainAxisAlignment::End)
+                .cross_axis_alignment(CrossAxisAlignment::Center)
+                .child(w),
+        ));
         h.apply_mss(".it { width: 40; height: 40; }");
         h.layout(400.0, 200.0);
         let fe = h.find_by_type_name("Fisheye")[0];
         assert_eq!(h.element_bounds(fe).size, Size::new(120.0, 40.0));
         // Указатель над средним значком (у верхнего края полосы).
-        h.tree.handle_event(h.root_id, &Event::MouseMove(Point::new(200.0, 165.0)));
+        h.tree
+            .handle_event(h.root_id, &Event::MouseMove(Point::new(200.0, 165.0)));
         h.layout(400.0, 200.0);
         settle_at(&mut h, 400.0, 200.0);
         let b = h.element_bounds(fe);
@@ -1116,11 +1240,18 @@ mod tests {
         let (i, r) = seen.lock().unwrap().expect("наведение");
         assert_eq!(i, 1);
         // Итоговый средний значок: 80×80, низ на нижнем крае полосы.
-        assert!((r.size.width - 80.0).abs() < 0.5 && (r.size.height - 80.0).abs() < 0.5, "{r:?}");
+        assert!(
+            (r.size.width - 80.0).abs() < 0.5 && (r.size.height - 80.0).abs() < 0.5,
+            "{r:?}"
+        );
         assert!((r.origin.y + r.size.height - 200.0).abs() < 0.5, "{r:?}");
-        assert!((r.origin.x + r.size.width / 2.0 - 200.0).abs() < 0.5, "{r:?}");
+        assert!(
+            (r.origin.x + r.size.width / 2.0 - 200.0).abs() < 0.5,
+            "{r:?}"
+        );
         // Точка над полосой (в увеличенном значке) — всё ещё «над рядом».
-        h.tree.handle_event(h.root_id, &Event::MouseMove(Point::new(200.0, 130.0)));
+        h.tree
+            .handle_event(h.root_id, &Event::MouseMove(Point::new(200.0, 130.0)));
         assert!(seen.lock().unwrap().is_some());
     }
 

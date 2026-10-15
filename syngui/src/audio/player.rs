@@ -363,7 +363,11 @@ impl AudioPlayer {
     /// стерео раскладывается по каналам устройства (на моно-устройстве — сводится). Позиция, `samples_played`
     /// и т. п. считаются в кадрах, как для моно.
     #[cfg(target_os = "android")]
-    pub fn start_streaming_channels(rx: Receiver<Vec<f32>>, sample_rate: u32, src_channels: u16) -> Result<Self, AudioError> {
+    pub fn start_streaming_channels(
+        rx: Receiver<Vec<f32>>,
+        sample_rate: u32,
+        src_channels: u16,
+    ) -> Result<Self, AudioError> {
         if src_channels <= 1 {
             return super::android_out::start_streaming(rx, sample_rate);
         }
@@ -374,7 +378,10 @@ impl AudioPlayer {
             .name("syngui-audio-downmix".into())
             .spawn(move || {
                 while let Ok(chunk) = rx.recv() {
-                    let m: Vec<f32> = chunk.chunks(ch).map(|f| f.iter().sum::<f32>() / ch as f32).collect();
+                    let m: Vec<f32> = chunk
+                        .chunks(ch)
+                        .map(|f| f.iter().sum::<f32>() / ch as f32)
+                        .collect();
                     if tx.send(m).is_err() {
                         break;
                     }
@@ -385,7 +392,11 @@ impl AudioPlayer {
     }
 
     #[cfg(not(target_os = "android"))]
-    pub fn start_streaming_channels(rx: Receiver<Vec<f32>>, sample_rate: u32, src_channels: u16) -> Result<Self, AudioError> {
+    pub fn start_streaming_channels(
+        rx: Receiver<Vec<f32>>,
+        sample_rate: u32,
+        src_channels: u16,
+    ) -> Result<Self, AudioError> {
         let src_ch = src_channels.clamp(1, 2) as usize;
         /// Предел очереди вывода (~10 с при 48 кГц моно).
         const MAX_QUEUED_SAMPLES: usize = 48_000 * 10;
@@ -1038,7 +1049,17 @@ fn write_streaming_f32(
     state: &PlayerState,
     info: &cpal::OutputCallbackInfo,
 ) {
-    fill_streaming(queue, played, data, channels, src_ch, state, info, 0.0, |s| s);
+    fill_streaming(
+        queue,
+        played,
+        data,
+        channels,
+        src_ch,
+        state,
+        info,
+        0.0,
+        |s| s,
+    );
 }
 
 #[cfg(not(target_os = "android"))]
@@ -1051,7 +1072,9 @@ fn write_streaming_i16(
     state: &PlayerState,
     info: &cpal::OutputCallbackInfo,
 ) {
-    fill_streaming(queue, played, data, channels, src_ch, state, info, 0, |s| (s.clamp(-1.0, 1.0) * i16::MAX as f32) as i16);
+    fill_streaming(queue, played, data, channels, src_ch, state, info, 0, |s| {
+        (s.clamp(-1.0, 1.0) * i16::MAX as f32) as i16
+    });
 }
 
 #[cfg(not(target_os = "android"))]
@@ -1065,7 +1088,17 @@ fn write_streaming_u16(
     info: &cpal::OutputCallbackInfo,
 ) {
     let mid = (u16::MAX / 2) as f32;
-    fill_streaming(queue, played, data, channels, src_ch, state, info, u16::MAX / 2, |s| ((s.clamp(-1.0, 1.0) * mid) + mid) as u16);
+    fill_streaming(
+        queue,
+        played,
+        data,
+        channels,
+        src_ch,
+        state,
+        info,
+        u16::MAX / 2,
+        |s| ((s.clamp(-1.0, 1.0) * mid) + mid) as u16,
+    );
 }
 
 fn run_mono_prep_and_play(
@@ -1332,7 +1365,8 @@ fn fill_device_frames_i16(
             } else {
                 0.0
             };
-            data[f * dev_ch + c] = (super::apply_gain(sample, vol).clamp(-1.0, 1.0) * i16::MAX as f32) as i16;
+            data[f * dev_ch + c] =
+                (super::apply_gain(sample, vol).clamp(-1.0, 1.0) * i16::MAX as f32) as i16;
         }
     }
 }
@@ -1355,7 +1389,8 @@ fn fill_device_frames_u16(
             } else {
                 0.0
             };
-            data[f * dev_ch + c] = ((super::apply_gain(sample, vol).clamp(-1.0, 1.0) * mid) + mid) as u16;
+            data[f * dev_ch + c] =
+                ((super::apply_gain(sample, vol).clamp(-1.0, 1.0) * mid) + mid) as u16;
         }
     }
 }

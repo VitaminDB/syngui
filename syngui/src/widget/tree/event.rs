@@ -84,7 +84,8 @@ impl ElementTree {
             self.touch_captors.remove(id);
         }
         // Пока другие пальцы держат свои элементы, отпускание одного общий захват не снимает.
-        if is_release && (self.touch_captors.is_empty() || !matches!(event, Event::TouchEnd { .. })) {
+        if is_release && (self.touch_captors.is_empty() || !matches!(event, Event::TouchEnd { .. }))
+        {
             self.mouse_captor = None;
             if matches!(event, Event::MouseUp { .. }) {
                 self.release_press_owner(event);
@@ -99,7 +100,13 @@ impl ElementTree {
     /// наблюдатели только обновляют своё состояние.
     fn notify_pointer_watchers(&mut self, event: &Event) {
         if self.pointer_watchers.is_empty()
-            || !matches!(event, Event::TouchMove { .. } | Event::TouchEnd { .. } | Event::MouseMove(_) | Event::MouseUp { .. })
+            || !matches!(
+                event,
+                Event::TouchMove { .. }
+                    | Event::TouchEnd { .. }
+                    | Event::MouseMove(_)
+                    | Event::MouseUp { .. }
+            )
         {
             return;
         }
@@ -108,7 +115,11 @@ impl ElementTree {
                 continue;
             }
             let (s, k) = self.accumulated_event_transform(id);
-            let adj = if is_identity_transform(s, k) { event.clone() } else { event.with_inverse_transform(s, k) };
+            let adj = if is_identity_transform(s, k) {
+                event.clone()
+            } else {
+                event.with_inverse_transform(s, k)
+            };
             self.dispatch_event_to(id, &adj);
         }
     }
@@ -291,7 +302,9 @@ impl ElementTree {
         // покинуть его границы. Если захватчик событие игнорирует, оно, как и
         // прежде, уходит вниз по hit-test.
         let finger_captor = match event {
-            Event::TouchMove { id, .. } | Event::TouchEnd { id, .. } => self.touch_captors.get(id).copied(),
+            Event::TouchMove { id, .. } | Event::TouchEnd { id, .. } => {
+                self.touch_captors.get(id).copied()
+            }
             _ => None,
         };
         if matches!(
@@ -322,7 +335,11 @@ impl ElementTree {
         if trace_hits() {
             let names: Vec<String> = path
                 .iter()
-                .filter_map(|id| self.elements.get(id).map(|n| format!("{}{:?}", n.element.element_type_name(), n.element.bounds())))
+                .filter_map(|id| {
+                    self.elements.get(id).map(|n| {
+                        format!("{}{:?}", n.element.element_type_name(), n.element.bounds())
+                    })
+                })
                 .collect();
             eprintln!("hit {event:?}: {}", names.join(" > "));
         }
@@ -339,7 +356,10 @@ impl ElementTree {
         // с прокруткой внутри прокручиваемого окна), тянуть надо её.
         if let Some(c) = cut {
             if self.scrollbar_hit_at(path[c], event) {
-                if let Some(inner) = path.iter().rposition(|id| self.scrollbar_hit_at(*id, event)) {
+                if let Some(inner) = path
+                    .iter()
+                    .rposition(|id| self.scrollbar_hit_at(*id, event))
+                {
                     cut = Some(inner);
                 }
             }
@@ -414,7 +434,8 @@ impl ElementTree {
         if is_identity_transform(s, k) {
             node.element.scrollbar_hit(event)
         } else {
-            node.element.scrollbar_hit(&event.with_inverse_transform(s, k))
+            node.element
+                .scrollbar_hit(&event.with_inverse_transform(s, k))
         }
     }
 
@@ -600,7 +621,11 @@ impl ElementTree {
             // Виджеты обычно не заполняют `cursor_position` — тогда точка
             // события: иначе смещение считалось от (0,0) и призрак уезжал от
             // курсора на всю его позицию в окне.
-            let pos = if ctx.cursor_position == Point::zero() { self.last_pointer } else { ctx.cursor_position };
+            let pos = if ctx.cursor_position == Point::zero() {
+                self.last_pointer
+            } else {
+                ctx.cursor_position
+            };
             let source_id = ElementId(data.source_id);
             let source_bounds = self
                 .elements
@@ -1197,7 +1222,9 @@ mod tests {
             v
         };
         let still: i32 = pick(0.0).parse().expect("тап без прокрутки выбирает пункт");
-        let scrolled: i32 = pick(72.0).parse().expect("тап после прокрутки выбирает пункт");
+        let scrolled: i32 = pick(72.0)
+            .parse()
+            .expect("тап после прокрутки выбирает пункт");
         assert_eq!(scrolled, still + 2, "сдвиг пальцем на две строки (72 px)");
     }
 
@@ -1426,7 +1453,9 @@ mod nested_scrollbar_tests {
     /// внешняя перехватывала его — полосу списка нельзя было тянуть).
     #[test]
     fn inner_list_scrollbar_wins() {
-        let items: Vec<ListItem> = (0..100).map(|i| ListItem::new(format!("строка {i}"))).collect();
+        let items: Vec<ListItem> = (0..100)
+            .map(|i| ListItem::new(format!("строка {i}")))
+            .collect();
         // Сверху — отступ: ползунок внешней области остаётся выше списка,
         // нажатие попадает только в её полосу.
         let page = Column::new()
@@ -1467,22 +1496,50 @@ mod multi_touch_tests {
         let b = Arc::new(Mutex::new(Vec::<f32>::new()));
         let (la, lb) = (a.clone(), b.clone());
         let page = Column::new()
-            .child(Slider::new().range(0.0, 100.0).width(200.0).on_change(move |v| la.lock().unwrap().push(v)))
-            .child(Slider::new().range(0.0, 100.0).width(200.0).on_change(move |v| lb.lock().unwrap().push(v)));
+            .child(
+                Slider::new()
+                    .range(0.0, 100.0)
+                    .width(200.0)
+                    .on_change(move |v| la.lock().unwrap().push(v)),
+            )
+            .child(
+                Slider::new()
+                    .range(0.0, 100.0)
+                    .width(200.0)
+                    .on_change(move |v| lb.lock().unwrap().push(v)),
+            );
         let mut h = TestHarness::new(Box::new(page));
         h.layout(300.0, 400.0);
         let sliders = h.find_by_type_name("Slider");
         let (ra, rb) = (h.element_bounds(sliders[0]), h.element_bounds(sliders[1]));
         let pa = Point::new(ra.origin.x + 20.0, ra.origin.y + ra.size.height / 2.0);
         let pb = Point::new(rb.origin.x + 20.0, rb.origin.y + rb.size.height / 2.0);
-        h.send_event(&Event::TouchStart { id: 1, position: pa });
-        h.send_event(&Event::TouchStart { id: 2, position: pb });
-        h.send_event(&Event::TouchEnd { id: 2, position: pb });
+        h.send_event(&Event::TouchStart {
+            id: 1,
+            position: pa,
+        });
+        h.send_event(&Event::TouchStart {
+            id: 2,
+            position: pb,
+        });
+        h.send_event(&Event::TouchEnd {
+            id: 2,
+            position: pb,
+        });
         b.lock().unwrap().clear();
         a.lock().unwrap().clear();
         // Палец 1 ушёл вниз, на второй слайдер, и вправо.
-        h.send_event(&Event::TouchMove { id: 1, position: Point::new(rb.origin.x + 150.0, pb.y) });
-        assert!(!a.lock().unwrap().is_empty(), "первый слайдер ведёт свой палец");
-        assert!(b.lock().unwrap().is_empty(), "второй слайдер чужой палец не трогает");
+        h.send_event(&Event::TouchMove {
+            id: 1,
+            position: Point::new(rb.origin.x + 150.0, pb.y),
+        });
+        assert!(
+            !a.lock().unwrap().is_empty(),
+            "первый слайдер ведёт свой палец"
+        );
+        assert!(
+            b.lock().unwrap().is_empty(),
+            "второй слайдер чужой палец не трогает"
+        );
     }
 }

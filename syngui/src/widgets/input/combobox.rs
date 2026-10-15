@@ -243,9 +243,18 @@ impl Element for ComboboxElement {
     }
 
     fn build_display_list(&self, list: &mut DisplayList, _clip: Rect) {
-        let bg = self.mss.background_color.unwrap_or_else(crate::theme_fallback::fallback_surface);
-        let fg = self.mss.color.unwrap_or_else(crate::theme_fallback::fallback_fg);
-        let border = self.mss.border_color.unwrap_or_else(crate::theme_fallback::fallback_border);
+        let bg = self
+            .mss
+            .background_color
+            .unwrap_or_else(crate::theme_fallback::fallback_surface);
+        let fg = self
+            .mss
+            .color
+            .unwrap_or_else(crate::theme_fallback::fallback_fg);
+        let border = self
+            .mss
+            .border_color
+            .unwrap_or_else(crate::theme_fallback::fallback_border);
         let muted = fg.with_alpha(0.5);
 
         let border_color = if self.focused {

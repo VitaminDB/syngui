@@ -210,7 +210,11 @@ impl Element for FocusScrollElement {
     }
 
     fn set_content_size(&mut self, size: Size) {
-        self.content_width = if self.vertical { size.height } else { size.width };
+        self.content_width = if self.vertical {
+            size.height
+        } else {
+            size.width
+        };
     }
 
     fn wants_content_child_rects(&self) -> bool {

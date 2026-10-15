@@ -135,7 +135,10 @@ impl Element for CardElement {
             list.push_shadow(self.bounds, shadow_color, blur, (0.0, offset_y), radii);
         }
 
-        let bg = self.mss.background_color.unwrap_or_else(crate::theme_fallback::fallback_surface);
+        let bg = self
+            .mss
+            .background_color
+            .unwrap_or_else(crate::theme_fallback::fallback_surface);
         list.push_rect(self.bounds, bg, radii);
     }
 

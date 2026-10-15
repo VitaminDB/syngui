@@ -180,8 +180,12 @@ impl BreadcrumbElement {
             })
     }
 
-    fn item_content_width(&self, item: &BreadcrumbItem, bold: impl Into<crate::text::FontWeight>) -> f32 {
-    let bold: u16 = bold.into().0;
+    fn item_content_width(
+        &self,
+        item: &BreadcrumbItem,
+        bold: impl Into<crate::text::FontWeight>,
+    ) -> f32 {
+        let bold: u16 = bold.into().0;
         let text_w = self.text_width(&item.text, bold);
         if item.icon.is_some() {
             self.icon_size() + self.icon_gap() + text_w
@@ -190,8 +194,12 @@ impl BreadcrumbElement {
         }
     }
 
-    fn item_box_width(&self, item: &BreadcrumbItem, bold: impl Into<crate::text::FontWeight>) -> f32 {
-    let bold: u16 = bold.into().0;
+    fn item_box_width(
+        &self,
+        item: &BreadcrumbItem,
+        bold: impl Into<crate::text::FontWeight>,
+    ) -> f32 {
+        let bold: u16 = bold.into().0;
         self.item_content_width(item, bold) + Self::PADDING_H * 2.0
     }
 
@@ -238,7 +246,8 @@ impl Element for BreadcrumbElement {
 
         for (i, item) in self.items.iter().enumerate() {
             // Последняя крошка рисуется полужирной — мерить её тем же весом.
-            let item_width = self.item_box_width(item, if i == last_index { bold.max(600) } else { bold });
+            let item_width =
+                self.item_box_width(item, if i == last_index { bold.max(600) } else { bold });
             let item_rect = Rect::new(Point::new(total_width, 0.0), Size::new(item_width, item_h));
             self.item_rects.push(item_rect);
             total_width += item_width;
@@ -268,7 +277,10 @@ impl Element for BreadcrumbElement {
             .border_color
             .map(|c| c.with_alpha(0.7))
             .unwrap_or(Color::from_hex("#9CA3AF"));
-        let gray_900 = self.mss.color.unwrap_or_else(crate::theme_fallback::fallback_fg_strong);
+        let gray_900 = self
+            .mss
+            .color
+            .unwrap_or_else(crate::theme_fallback::fallback_fg_strong);
         let primary = self.mss.accent_color.unwrap_or(Color::from_hex("#3B82F6"));
         let hover_bg = self
             .mss

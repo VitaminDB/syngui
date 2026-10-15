@@ -181,9 +181,13 @@ impl Batcher {
                 }
 
                 // Доля свободного места слева: 0 — влево, ½ — по центру, 1 — вправо.
-                let h_frac = if text_align.is_hcenter() && rect.size.width > text_width && text_width > 0.0 {
+                let h_frac = if text_align.is_hcenter()
+                    && rect.size.width > text_width
+                    && text_width > 0.0
+                {
                     0.5
-                } else if text_align.is_right() && rect.size.width > text_width && text_width > 0.0 {
+                } else if text_align.is_right() && rect.size.width > text_width && text_width > 0.0
+                {
                     1.0
                 } else {
                     0.0
@@ -302,8 +306,12 @@ impl Batcher {
                         let d = [is_color_flag, blur, 0.0, 0.0];
                         let d2 = [uv_min_x, uv_min_y, uv_max_x, uv_max_y];
                         let s = shear * h;
-                        let [p0, p1, p2, p3] = self
-                            .transform_quad([[x + s, y], [x + w + s, y], [x + w, y + h], [x, y + h]]);
+                        let [p0, p1, p2, p3] = self.transform_quad([
+                            [x + s, y],
+                            [x + w + s, y],
+                            [x + w, y + h],
+                            [x, y + h],
+                        ]);
                         let state = self.current_batch_mut();
                         let base = state.vertices.len() as u32;
                         state.vertices.extend_from_slice(&[
@@ -371,8 +379,12 @@ impl Batcher {
                     let uv_h = glyph.glyph.uv_h;
                     let is_color_flag = if glyph.glyph.is_color { 1.0 } else { 0.0 };
                     let s = shear * h;
-                    let [p0, p1, p2, p3] =
-                        self.transform_quad([[x + s, y], [x + w + s, y], [x + w, y + h], [x, y + h]]);
+                    let [p0, p1, p2, p3] = self.transform_quad([
+                        [x + s, y],
+                        [x + w + s, y],
+                        [x + w, y + h],
+                        [x, y + h],
+                    ]);
                     let state = self.current_batch_mut();
                     let base = state.vertices.len() as u32;
                     state.vertices.extend_from_slice(&[
@@ -875,7 +887,11 @@ fn snap_boundary(text: &str, i: usize) -> usize {
 
 /// Шейдер заливки: без рамки — лёгкие `fs_flat` (без скруглений) и `fs_rounded`, общий `Rect` — только для рамок.
 /// На тайловых GPU (Adreno 5xx) общий шейдер исполнялся с регистрами самой тяжёлой ветки: фон стоил как рамка.
-fn fill_shader(corner_radius: &[f32; 4], border: Option<&crate::render::Border>, per_side_border: bool) -> ShaderType {
+fn fill_shader(
+    corner_radius: &[f32; 4],
+    border: Option<&crate::render::Border>,
+    per_side_border: bool,
+) -> ShaderType {
     if per_side_border || border.is_some_and(|b| b.width > 0.0) {
         ShaderType::Rect
     } else if corner_radius.iter().any(|r| *r > 0.5) {

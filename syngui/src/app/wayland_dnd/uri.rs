@@ -24,7 +24,10 @@ pub fn parse_uri_list(text: &str) -> Vec<PathBuf> {
 
 /// `file:///путь` → путь (для text/plain).
 pub fn uri_to_path(line: &str) -> Option<String> {
-    parse_uri_list(line).into_iter().next().map(|p| p.to_string_lossy().into_owned())
+    parse_uri_list(line)
+        .into_iter()
+        .next()
+        .map(|p| p.to_string_lossy().into_owned())
 }
 
 /// Путь → `file://` с процентным кодированием (кроме `/` и безопасных символов).
@@ -47,7 +50,10 @@ mod tests {
     #[test]
     fn path_uri_roundtrip() {
         let u = path_to_uri("/tmp/Мой файл #1.txt");
-        assert_eq!(u, "file:///tmp/%D0%9C%D0%BE%D0%B9%20%D1%84%D0%B0%D0%B9%D0%BB%20%231.txt");
+        assert_eq!(
+            u,
+            "file:///tmp/%D0%9C%D0%BE%D0%B9%20%D1%84%D0%B0%D0%B9%D0%BB%20%231.txt"
+        );
         assert_eq!(uri_to_path(&u).as_deref(), Some("/tmp/Мой файл #1.txt"));
     }
 

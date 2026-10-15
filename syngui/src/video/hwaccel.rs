@@ -73,7 +73,9 @@ impl HwAccel {
             other => other,
         };
         match resolved {
-            Self::None | Self::Auto | Self::MediaCodec | Self::MediaCodecSurface | Self::V4l2 => None,
+            Self::None | Self::Auto | Self::MediaCodec | Self::MediaCodecSurface | Self::V4l2 => {
+                None
+            }
             Self::Vaapi => Some(ffi::AVHWDeviceType::AV_HWDEVICE_TYPE_VAAPI),
             Self::Nvdec => Some(ffi::AVHWDeviceType::AV_HWDEVICE_TYPE_CUDA),
             Self::VideoToolbox => Some(ffi::AVHWDeviceType::AV_HWDEVICE_TYPE_VIDEOTOOLBOX),
@@ -89,7 +91,9 @@ impl HwAccel {
             other => other,
         };
         match resolved {
-            Self::None | Self::Auto | Self::MediaCodec | Self::MediaCodecSurface | Self::V4l2 => None,
+            Self::None | Self::Auto | Self::MediaCodec | Self::MediaCodecSurface | Self::V4l2 => {
+                None
+            }
             Self::Vaapi => Some(ffi::AVPixelFormat::AV_PIX_FMT_VAAPI),
             Self::Nvdec => Some(ffi::AVPixelFormat::AV_PIX_FMT_CUDA),
             Self::VideoToolbox => Some(ffi::AVPixelFormat::AV_PIX_FMT_VIDEOTOOLBOX),

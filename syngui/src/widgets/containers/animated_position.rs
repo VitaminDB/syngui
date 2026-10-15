@@ -36,7 +36,12 @@ pub struct AnimatedPosition {
 
 impl AnimatedPosition {
     pub fn new(child: impl Widget + 'static) -> Self {
-        Self { child: Box::new(child), stiffness: 420.0, damping: 40.0, classes: Vec::new() }
+        Self {
+            child: Box::new(child),
+            stiffness: 420.0,
+            damping: 40.0,
+            classes: Vec::new(),
+        }
     }
 
     /// Параметры пружины (по умолчанию 420 / 40 — быстро и без перелёта).
@@ -61,7 +66,9 @@ impl AnimatedPosition {
             offset: (0.0, 0.0),
             velocity: (0.0, 0.0),
             active: false,
-            spring: Spring::new().with_stiffness(self.stiffness).with_damping(self.damping),
+            spring: Spring::new()
+                .with_stiffness(self.stiffness)
+                .with_damping(self.damping),
             classes: self.classes.clone(),
             dirty_flags: DirtyFlags::LAYOUT | DirtyFlags::RENDER,
             mss: MssFields::new(),
@@ -88,8 +95,11 @@ impl Widget for AnimatedPosition {
 
     fn mount(&self, tree: &mut ElementTree, parent_id: ElementId) {
         let child_element = self.child.create_element();
-        let child_id =
-            tree.insert_with_type_id(child_element, Some(parent_id), self.child.as_any().type_id());
+        let child_id = tree.insert_with_type_id(
+            child_element,
+            Some(parent_id),
+            self.child.as_any().type_id(),
+        );
         self.child.mount(tree, child_id);
     }
 
@@ -119,7 +129,9 @@ pub struct AnimatedPositionElement {
 impl Element for AnimatedPositionElement {
     fn update(&mut self, widget: &dyn Widget, _ctx: &mut UpdateContext) {
         if let Some(w) = widget.as_any().downcast_ref::<AnimatedPosition>() {
-            self.spring = Spring::new().with_stiffness(w.stiffness).with_damping(w.damping);
+            self.spring = Spring::new()
+                .with_stiffness(w.stiffness)
+                .with_damping(w.damping);
             self.mark_dirty(DirtyFlags::LAYOUT | DirtyFlags::RENDER);
         }
     }
@@ -164,7 +176,10 @@ impl Element for AnimatedPositionElement {
         let (y, vy) = self.spring.update(self.offset.1, 0.0, self.velocity.1, dt);
         self.offset = (x, y);
         self.velocity = (vx, vy);
-        if self.spring.is_at_rest(x.abs().max(y.abs()), vx.abs().max(vy.abs())) {
+        if self
+            .spring
+            .is_at_rest(x.abs().max(y.abs()), vx.abs().max(vy.abs()))
+        {
             self.offset = (0.0, 0.0);
             self.velocity = (0.0, 0.0);
             self.active = false;
@@ -228,7 +243,12 @@ impl Element for AnimatedPositionElement {
     }
 
     fn layout_hint(&self) -> LayoutHint {
-        LayoutHint::Padding { left: 0.0, top: 0.0, right: 0.0, bottom: 0.0 }
+        LayoutHint::Padding {
+            left: 0.0,
+            top: 0.0,
+            right: 0.0,
+            bottom: 0.0,
+        }
     }
 
     fn set_classes(&mut self, classes: Vec<String>) {
@@ -262,7 +282,8 @@ impl Element for AnimatedPositionElement {
         selected: Option<&ComputedStyle>,
         _checked: Option<&ComputedStyle>,
     ) {
-        self.mss.apply_transitions(base, hover, active, focus, selected);
+        self.mss
+            .apply_transitions(base, hover, active, focus, selected);
     }
 }
 

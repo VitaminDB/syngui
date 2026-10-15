@@ -719,7 +719,8 @@ impl ElementTree {
         for dirty_id in crate::signal::dirty_element_ids() {
             if let Some(node) = self.elements.get_mut(&dirty_id) {
                 if node.element.on_signal_change() {
-                    node.element.mark_dirty(DirtyFlags::LAYOUT | DirtyFlags::RENDER);
+                    node.element
+                        .mark_dirty(DirtyFlags::LAYOUT | DirtyFlags::RENDER);
                     self.note_animation_started(dirty_id);
                 }
                 self.rebuild_registry.insert(dirty_id);
@@ -1288,7 +1289,12 @@ impl ElementTree {
     /// Элемент с именем (`Named`) — к началу ближайшей прокрутки, плавно.
     /// `false` — такого элемента в дереве нет.
     pub fn scroll_named_to_start(&mut self, name: &str) -> bool {
-        let Some(id) = self.elements.iter().find(|(_, n)| n.debug_name.as_deref() == Some(name)).map(|(id, _)| *id) else {
+        let Some(id) = self
+            .elements
+            .iter()
+            .find(|(_, n)| n.debug_name.as_deref() == Some(name))
+            .map(|(id, _)| *id)
+        else {
             return false;
         };
         let bounds = match self.elements.get(&id) {
@@ -1299,9 +1305,16 @@ impl ElementTree {
         // начало относительно содержимого прокрутки — разность с её началом.
         let mut cur = id;
         while let Some(parent) = self.elements.get(&cur).and_then(|n| n.parent) {
-            let is_scroll = self.elements.get(&parent).is_some_and(|n| n.element.is_scroll_container());
+            let is_scroll = self
+                .elements
+                .get(&parent)
+                .is_some_and(|n| n.element.is_scroll_container());
             if is_scroll {
-                let origin = self.elements.get(&parent).map(|n| n.element.bounds().origin).unwrap_or_default();
+                let origin = self
+                    .elements
+                    .get(&parent)
+                    .map(|n| n.element.bounds().origin)
+                    .unwrap_or_default();
                 let rect = crate::core::Rect::new(
                     crate::core::Point::new(bounds.origin.x - origin.x, bounds.origin.y - origin.y),
                     bounds.size,

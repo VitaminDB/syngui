@@ -22,11 +22,13 @@ pub use charts::{
     SeriesStyle, TooltipConfig, VisualMapPiece,
 };
 pub use containers::{
-    Animated, AnimatedPosition, AnimatedSize, AnimatedSwitcher, AnimationAxis, AspectRatio, Carousel, Column, DecoratedBox, DismissDirection, Dismissible, Falloff, Fisheye,
-    FisheyeAnchor, Flex, GestureDetector, PanAxis, PanUpdate, PinchUpdate, SwipeDirection, ScaleBox,
-    Grid, IntoWidget, Motion, MultiTouch, Named, Padding, Page, Presence, Reactive, RepeatMode, Row, ScrollPhysics, ScrollTarget,
-    ScrollbarPolicy, ShowIf, SplitDirection, SplitView, Stack, StackFit, TransformBox,
-    TransformOrigin, TransformState, TouchPhase, TouchPoint, VirtualFlex,
+    Animated, AnimatedPosition, AnimatedSize, AnimatedSwitcher, AnimationAxis, AspectRatio,
+    Carousel, Column, DecoratedBox, DismissDirection, Dismissible, Falloff, Fisheye, FisheyeAnchor,
+    Flex, GestureDetector, Grid, IntoWidget, Motion, MultiTouch, Named, Padding, Page, PanAxis,
+    PanUpdate, PinchUpdate, Presence, Reactive, RepeatMode, Row, ScaleBox, ScrollPhysics,
+    ScrollTarget, ScrollbarPolicy, ShowIf, SplitDirection, SplitView, Stack, StackFit,
+    SwipeDirection, TouchPhase, TouchPoint, TransformBox, TransformOrigin, TransformState,
+    VirtualFlex,
 };
 pub use data::{
     ColumnWidth, ListItem, ListView, Property, PropertyGrid, PropertyValue, SelectionMode,
@@ -59,22 +61,22 @@ pub use scroll::{ScrollDirection, ScrollView};
 pub use visual::{
     default_locale, set_default_locale, Avatar, Badge, BadgeSize, Calendar, CalendarLocale,
     CalendarTheme, Canvas, Card, Chip, CircularProgress, DateOrder, Divider, DividerDirection,
-    EmitKind, Icon, Image, ImageFit, ImageViewCommand, ImageViewInfo, ImageViewport,
-    EmitterConfig, EmitterShape, ParticleEmitter, ParticlePreset, ParticleShape, ParticleSystem,
-    ProgressBar, RichText, TextSpan,
+    EmitKind, EmitterConfig, EmitterShape, Icon, Image, ImageFit, ImageViewCommand, ImageViewInfo,
+    ImageViewport, ParticleEmitter, ParticlePreset, ParticleShape, ParticleSystem, ProgressBar,
+    RichText, TextSpan,
 };
 #[cfg(feature = "ffmpeg")]
 pub use visual::{
     frames_preview, video_player_view, FileSource, FramesSource, FullscreenCtl, MediaSource,
     VideoPlayerView, VideoView,
 };
-pub use visual::{LiveFrame, LiveInput, LiveView};
 #[cfg(feature = "map")]
 pub use visual::{
-    BuildingOverlay, BuildingShape, HeatOverlay, HeatPoint, MapCamera, MapMarker, MapPolyline, MapView,
-    MapViewport, TileCache, TileProvider,
+    BuildingOverlay, BuildingShape, HeatOverlay, HeatPoint, MapCamera, MapMarker, MapPolyline,
+    MapView, MapViewport, TileCache, TileProvider,
 };
 #[cfg(feature = "markdown")]
 pub use visual::{EditorMode, MarkdownEditor, MarkdownView, MdStyle};
+pub use visual::{LiveFrame, LiveInput, LiveView};
 #[cfg(feature = "terminal")]
 pub use visual::{Terminal, TerminalConfig, TerminalSession};

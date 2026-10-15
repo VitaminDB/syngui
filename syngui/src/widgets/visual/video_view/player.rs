@@ -814,8 +814,13 @@ fn controls_layer(ctl: Ctl) -> impl Widget {
         if let Some(f) = &ctl.footer {
             col = col.child(f());
         }
-        col = col.child(seek_bar(ctl.clone())).child(bottom_row(ctl.clone()));
-        vec![Box::new(over_controls(&ctl, DecoratedBox::new().class(ctl.cls("vp-controls")).child(col)))]
+        col = col
+            .child(seek_bar(ctl.clone()))
+            .child(bottom_row(ctl.clone()));
+        vec![Box::new(over_controls(
+            &ctl,
+            DecoratedBox::new().class(ctl.cls("vp-controls")).child(col),
+        ))]
     });
     Column::new()
         .main_axis_alignment(MainAxisAlignment::End)
@@ -831,7 +836,12 @@ fn header_layer(ctl: Ctl, header: HeaderFn) -> impl Widget {
         if !shown {
             return vec![];
         }
-        vec![Box::new(over_controls(&ctl, DecoratedBox::new().class(ctl.cls("vp-header")).child(header())))]
+        vec![Box::new(over_controls(
+            &ctl,
+            DecoratedBox::new()
+                .class(ctl.cls("vp-header"))
+                .child(header()),
+        ))]
     });
     Column::new()
         .main_axis_alignment(MainAxisAlignment::Start)
@@ -866,9 +876,15 @@ fn nav_layer(ctl: Ctl) -> impl Widget {
                 return vec![];
             };
             let (icon, tip) = if prev {
-                (MI_CHEVRON_LEFT, builtin("video_player.previous.tooltip", "Previous video (Page Up)"))
+                (
+                    MI_CHEVRON_LEFT,
+                    builtin("video_player.previous.tooltip", "Previous video (Page Up)"),
+                )
             } else {
-                (MI_CHEVRON_RIGHT, builtin("video_player.next.tooltip", "Next video (Page Down)"))
+                (
+                    MI_CHEVRON_RIGHT,
+                    builtin("video_player.next.tooltip", "Next video (Page Down)"),
+                )
             };
             let w = c.clone();
             vec![Box::new(over_controls(
@@ -883,7 +899,11 @@ fn nav_layer(ctl: Ctl) -> impl Widget {
             ))]
         });
         Row::new()
-            .main_axis_alignment(if prev { MainAxisAlignment::Start } else { MainAxisAlignment::End })
+            .main_axis_alignment(if prev {
+                MainAxisAlignment::Start
+            } else {
+                MainAxisAlignment::End
+            })
             .cross_axis_alignment(CrossAxisAlignment::Center)
             .child(button)
     };
@@ -996,14 +1016,20 @@ fn bottom_row(ctl: Ctl) -> impl Widget {
     center = center
         .child(
             ToolButton::new(step_icon(ctl.seek_step, false))
-                .tooltip(builtin("video_player.back.tooltip", "Back 10 s (J)").replace("10", &step_label(ctl.seek_step)))
+                .tooltip(
+                    builtin("video_player.back.tooltip", "Back 10 s (J)")
+                        .replace("10", &step_label(ctl.seek_step)),
+                )
                 .on_click(move || back.seek_by(-back.seek_step))
                 .class(ctl.cls("vp-btn")),
         )
         .child(play_button(ctl.clone()))
         .child(
             ToolButton::new(step_icon(ctl.seek_step, true))
-                .tooltip(builtin("video_player.forward.tooltip", "Forward 10 s (L)").replace("10", &step_label(ctl.seek_step)))
+                .tooltip(
+                    builtin("video_player.forward.tooltip", "Forward 10 s (L)")
+                        .replace("10", &step_label(ctl.seek_step)),
+                )
                 .on_click(move || fwd.seek_by(fwd.seek_step))
                 .class(ctl.cls("vp-btn")),
         );
@@ -1760,7 +1786,10 @@ mod tests {
         assert!(!src.is_paused(), "тап после пересборки — старт");
         std::thread::sleep(HIDE_AFTER + Duration::from_millis(400));
         settle(&mut h, &engine);
-        assert!(h.find_by_class("vp-controls").is_empty(), "панель спряталась после пересборки");
+        assert!(
+            h.find_by_class("vp-controls").is_empty(),
+            "панель спряталась после пересборки"
+        );
         tap(&mut h, mid);
         settle(&mut h, &engine);
         wait_tap(&mut h, &engine);
@@ -1794,17 +1823,34 @@ mod tests {
         let navs = h.find_by_class("vp-nav");
         assert_eq!(navs.len(), 2, "стрелки по бокам");
         let (l, r) = (h.element_bounds(navs[0]), h.element_bounds(navs[1]));
-        assert!(l.origin.x < W / 4.0 && r.origin.x > W * 0.75, "слева и справа: {l:?} {r:?}");
-        assert!((l.origin.y + l.size.height / 2.0 - H / 2.0).abs() < 2.0, "по высоте посередине: {l:?}");
-        assert_eq!(h.find_by_class("owner-strip").len(), 1, "лента владельца в панели");
+        assert!(
+            l.origin.x < W / 4.0 && r.origin.x > W * 0.75,
+            "слева и справа: {l:?} {r:?}"
+        );
+        assert!(
+            (l.origin.y + l.size.height / 2.0 - H / 2.0).abs() < 2.0,
+            "по высоте посередине: {l:?}"
+        );
+        assert_eq!(
+            h.find_by_class("owner-strip").len(),
+            1,
+            "лента владельца в панели"
+        );
 
-        h.send_events(&click_at(Point::new(r.origin.x + r.size.width / 2.0, r.origin.y + r.size.height / 2.0)));
+        h.send_events(&click_at(Point::new(
+            r.origin.x + r.size.width / 2.0,
+            r.origin.y + r.size.height / 2.0,
+        )));
         settle(&mut h, &engine);
         assert_eq!(next.load(Ordering::Relaxed), 1, "стрелка → — следующий");
         h.send_events(&press_key(Key::PageUp));
         h.send_events(&press_key(Key::PageDown));
         settle(&mut h, &engine);
-        assert_eq!((prev.load(Ordering::Relaxed), next.load(Ordering::Relaxed)), (1, 2), "Page Up / Page Down");
+        assert_eq!(
+            (prev.load(Ordering::Relaxed), next.load(Ordering::Relaxed)),
+            (1, 2),
+            "Page Up / Page Down"
+        );
         h.send_events(&press_key(Key::N));
         assert_eq!(next.load(Ordering::Relaxed), 2, "N без Shift — не переход");
     }

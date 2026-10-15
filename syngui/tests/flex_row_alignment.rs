@@ -34,8 +34,14 @@ fn row_cross_center() {
     let tall = h.element_bounds(h.find_by_class("tall")[0]);
     let short = h.element_bounds(h.find_by_class("short")[0]);
     let mid = |r: Rect| r.origin.y + r.size.height / 2.0;
-    assert!((mid(tall) - mid(short)).abs() < 0.5, "tall {tall:?} short {short:?}");
-    assert!((mid(short) - mid(flex)).abs() < 0.5, "flex {flex:?} short {short:?}");
+    assert!(
+        (mid(tall) - mid(short)).abs() < 0.5,
+        "tall {tall:?} short {short:?}"
+    );
+    assert!(
+        (mid(short) - mid(flex)).abs() < 0.5,
+        "flex {flex:?} short {short:?}"
+    );
 }
 
 #[test]

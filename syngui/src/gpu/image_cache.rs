@@ -182,8 +182,14 @@ fn fit_regions(rects: Vec<[u32; 4]>, w: u32, h: u32) -> Option<Vec<[u32; 4]>> {
         .collect();
     if out.len() > 32 {
         // Много мелких мест — одной рамкой вокруг всех.
-        let (x0, y0) = (out.iter().map(|r| r[0]).min()?, out.iter().map(|r| r[1]).min()?);
-        let (x1, y1) = (out.iter().map(|r| r[0] + r[2]).max()?, out.iter().map(|r| r[1] + r[3]).max()?);
+        let (x0, y0) = (
+            out.iter().map(|r| r[0]).min()?,
+            out.iter().map(|r| r[1]).min()?,
+        );
+        let (x1, y1) = (
+            out.iter().map(|r| r[0] + r[2]).max()?,
+            out.iter().map(|r| r[1] + r[3]).max()?,
+        );
         out = vec![[x0, y0, x1 - x0, y1 - y0]];
     }
     let area: u64 = out.iter().map(|r| r[2] as u64 * r[3] as u64).sum();
@@ -191,17 +197,36 @@ fn fit_regions(rects: Vec<[u32; 4]>, w: u32, h: u32) -> Option<Vec<[u32; 4]>> {
 }
 
 /// Записывает место `[x, y, w, h]` кадра шириной `fw` в нулевой уровень.
-fn write_region(queue: &wgpu::Queue, texture: &wgpu::Texture, fw: u32, rgba: &[u8], [x, y, w, h]: [u32; 4]) {
+fn write_region(
+    queue: &wgpu::Queue,
+    texture: &wgpu::Texture,
+    fw: u32,
+    rgba: &[u8],
+    [x, y, w, h]: [u32; 4],
+) {
     let start = ((y as usize * fw as usize) + x as usize) * 4;
     let end = ((y + h - 1) as usize * fw as usize + (x + w) as usize) * 4;
     let Some(src) = rgba.get(start..end) else {
         return;
     };
     queue.write_texture(
-        wgpu::TexelCopyTextureInfo { texture, mip_level: 0, origin: wgpu::Origin3d { x, y, z: 0 }, aspect: wgpu::TextureAspect::All },
+        wgpu::TexelCopyTextureInfo {
+            texture,
+            mip_level: 0,
+            origin: wgpu::Origin3d { x, y, z: 0 },
+            aspect: wgpu::TextureAspect::All,
+        },
         src,
-        wgpu::TexelCopyBufferLayout { offset: 0, bytes_per_row: Some(4 * fw), rows_per_image: Some(h) },
-        wgpu::Extent3d { width: w, height: h, depth_or_array_layers: 1 },
+        wgpu::TexelCopyBufferLayout {
+            offset: 0,
+            bytes_per_row: Some(4 * fw),
+            rows_per_image: Some(h),
+        },
+        wgpu::Extent3d {
+            width: w,
+            height: h,
+            depth_or_array_layers: 1,
+        },
     );
 }
 
@@ -305,19 +330,48 @@ pub struct ImageGpuCache {
     yuv_layout: wgpu::BindGroupLayout,
 }
 
-fn write_plane(queue: &wgpu::Queue, texture: &wgpu::Texture, bpp: u32, w: u32, h: u32, data: &[u8]) {
+fn write_plane(
+    queue: &wgpu::Queue,
+    texture: &wgpu::Texture,
+    bpp: u32,
+    w: u32,
+    h: u32,
+    data: &[u8],
+) {
     queue.write_texture(
-        wgpu::TexelCopyTextureInfo { texture, mip_level: 0, origin: wgpu::Origin3d::ZERO, aspect: wgpu::TextureAspect::All },
+        wgpu::TexelCopyTextureInfo {
+            texture,
+            mip_level: 0,
+            origin: wgpu::Origin3d::ZERO,
+            aspect: wgpu::TextureAspect::All,
+        },
         data,
-        wgpu::TexelCopyBufferLayout { offset: 0, bytes_per_row: Some(bpp * w), rows_per_image: Some(h) },
-        wgpu::Extent3d { width: w, height: h, depth_or_array_layers: 1 },
+        wgpu::TexelCopyBufferLayout {
+            offset: 0,
+            bytes_per_row: Some(bpp * w),
+            rows_per_image: Some(h),
+        },
+        wgpu::Extent3d {
+            width: w,
+            height: h,
+            depth_or_array_layers: 1,
+        },
     );
 }
 
-fn plane_texture(device: &wgpu::Device, format: wgpu::TextureFormat, w: u32, h: u32) -> wgpu::Texture {
+fn plane_texture(
+    device: &wgpu::Device,
+    format: wgpu::TextureFormat,
+    w: u32,
+    h: u32,
+) -> wgpu::Texture {
     device.create_texture(&wgpu::TextureDescriptor {
         label: Some("YUV Plane"),
-        size: wgpu::Extent3d { width: w, height: h, depth_or_array_layers: 1 },
+        size: wgpu::Extent3d {
+            width: w,
+            height: h,
+            depth_or_array_layers: 1,
+        },
         mip_level_count: 1,
         sample_count: 1,
         dimension: wgpu::TextureDimension::D2,
@@ -414,13 +468,22 @@ impl ImageGpuCache {
 
     /// Bind group кадра YUV (`yuv.wgsl`), если у handle сейчас кадр в YUV.
     pub fn get_yuv_bind_group(&self, handle_id: u32) -> Option<&wgpu::BindGroup> {
-        self.yuv.get(&handle_id).map(|y| match y.cur_import.and_then(|id| y.imported.get(&id)) {
-            Some(s) => &s.bind_group,
-            None => &y.ring[y.cur].bind_group,
-        })
+        self.yuv
+            .get(&handle_id)
+            .map(|y| match y.cur_import.and_then(|id| y.imported.get(&id)) {
+                Some(s) => &s.bind_group,
+                None => &y.ring[y.cur].bind_group,
+            })
     }
 
-    fn yuv_bind_group(&self, device: &wgpu::Device, y: &wgpu::Texture, c1: &wgpu::Texture, c2: Option<&wgpu::Texture>, uniform: &wgpu::Buffer) -> wgpu::BindGroup {
+    fn yuv_bind_group(
+        &self,
+        device: &wgpu::Device,
+        y: &wgpu::Texture,
+        c1: &wgpu::Texture,
+        c2: Option<&wgpu::Texture>,
+        uniform: &wgpu::Buffer,
+    ) -> wgpu::BindGroup {
         let yv = y.create_view(&Default::default());
         let c1v = c1.create_view(&Default::default());
         // NV12: вторая плоскость не нужна шейдеру, но слот занят — та же UV.
@@ -429,11 +492,26 @@ impl ImageGpuCache {
             label: Some("YUV BG"),
             layout: &self.yuv_layout,
             entries: &[
-                wgpu::BindGroupEntry { binding: 0, resource: wgpu::BindingResource::TextureView(&yv) },
-                wgpu::BindGroupEntry { binding: 1, resource: wgpu::BindingResource::TextureView(&c1v) },
-                wgpu::BindGroupEntry { binding: 2, resource: wgpu::BindingResource::TextureView(&c2v) },
-                wgpu::BindGroupEntry { binding: 3, resource: wgpu::BindingResource::Sampler(&self.sampler) },
-                wgpu::BindGroupEntry { binding: 4, resource: uniform.as_entire_binding() },
+                wgpu::BindGroupEntry {
+                    binding: 0,
+                    resource: wgpu::BindingResource::TextureView(&yv),
+                },
+                wgpu::BindGroupEntry {
+                    binding: 1,
+                    resource: wgpu::BindingResource::TextureView(&c1v),
+                },
+                wgpu::BindGroupEntry {
+                    binding: 2,
+                    resource: wgpu::BindingResource::TextureView(&c2v),
+                },
+                wgpu::BindGroupEntry {
+                    binding: 3,
+                    resource: wgpu::BindingResource::Sampler(&self.sampler),
+                },
+                wgpu::BindGroupEntry {
+                    binding: 4,
+                    resource: uniform.as_entire_binding(),
+                },
             ],
         })
     }
@@ -441,23 +519,57 @@ impl ImageGpuCache {
     /// Кадр NV12 из dma-buf: плоскости импортируются (один раз на буфер декодера)
     /// и показываются без копии. `false` — импорт не удался, кадр надо копировать.
     #[cfg(all(target_os = "linux", not(target_arch = "wasm32")))]
-    fn show_dmabuf(&mut self, device: &wgpu::Device, queue: &wgpu::Queue, handle: ImageHandle, f: &std::sync::Arc<YuvFrame>) -> bool {
+    fn show_dmabuf(
+        &mut self,
+        device: &wgpu::Device,
+        queue: &wgpu::Queue,
+        handle: ImageHandle,
+        f: &std::sync::Arc<YuvFrame>,
+    ) -> bool {
         use super::dmabuf::{import_plane, FOURCC_GR88, FOURCC_R8};
-        let Some(d) = f.dmabuf.as_ref() else { return false };
+        let Some(d) = f.dmabuf.as_ref() else {
+            return false;
+        };
         if !super::dmabuf::import_supported() {
             return false;
         }
         self.images.remove(&handle.0);
-        let fits = self.yuv.get(&handle.0).is_some_and(|g| g.width == f.width && g.height == f.height && g.layout == f.layout);
+        let fits = self
+            .yuv
+            .get(&handle.0)
+            .is_some_and(|g| g.width == f.width && g.height == f.height && g.layout == f.layout);
         if !fits {
             self.yuv.remove(&handle.0);
         }
-        let need = !self.yuv.get(&handle.0).is_some_and(|g| g.imported.contains_key(&d.id));
+        let need = !self
+            .yuv
+            .get(&handle.0)
+            .is_some_and(|g| g.imported.contains_key(&d.id));
         if need {
             let (cw, ch) = f.chroma_size();
-            let y = import_plane(device, d.fd, d.y_offset, d.y_pitch, f.width, f.height, FOURCC_R8, wgpu::TextureFormat::R8Unorm);
-            let uv = import_plane(device, d.fd, d.uv_offset, d.uv_pitch, cw, ch, FOURCC_GR88, wgpu::TextureFormat::Rg8Unorm);
-            let (Some(y), Some(uv)) = (y, uv) else { return false };
+            let y = import_plane(
+                device,
+                d.fd,
+                d.y_offset,
+                d.y_pitch,
+                f.width,
+                f.height,
+                FOURCC_R8,
+                wgpu::TextureFormat::R8Unorm,
+            );
+            let uv = import_plane(
+                device,
+                d.fd,
+                d.uv_offset,
+                d.uv_pitch,
+                cw,
+                ch,
+                FOURCC_GR88,
+                wgpu::TextureFormat::Rg8Unorm,
+            );
+            let (Some(y), Some(uv)) = (y, uv) else {
+                return false;
+            };
             let uniform = device.create_buffer(&wgpu::BufferDescriptor {
                 label: Some("YUV Uniform"),
                 size: 64,
@@ -480,7 +592,16 @@ impl ImageGpuCache {
                 let keep = g.cur_import;
                 g.imported.retain(|id, _| Some(*id) == keep);
             }
-            g.imported.insert(d.id, YuvSlot { y, c1: uv, c2: None, uniform, bind_group });
+            g.imported.insert(
+                d.id,
+                YuvSlot {
+                    y,
+                    c1: uv,
+                    c2: None,
+                    uniform,
+                    bind_group,
+                },
+            );
         }
         let g = self.yuv.get_mut(&handle.0).expect("создано выше");
         let slot = &g.imported[&d.id];
@@ -495,7 +616,13 @@ impl ImageGpuCache {
         true
     }
 
-    fn upload_yuv(&mut self, device: &wgpu::Device, queue: &wgpu::Queue, handle: ImageHandle, f: &std::sync::Arc<YuvFrame>) {
+    fn upload_yuv(
+        &mut self,
+        device: &wgpu::Device,
+        queue: &wgpu::Queue,
+        handle: ImageHandle,
+        f: &std::sync::Arc<YuvFrame>,
+    ) {
         #[cfg(all(target_os = "linux", not(target_arch = "wasm32")))]
         if f.dmabuf.is_some() {
             if self.show_dmabuf(device, queue, handle, f) {
@@ -503,18 +630,27 @@ impl ImageGpuCache {
             }
             // GPU не импортирует: та же картинка, скопированная в память.
             let d = f.dmabuf.as_ref().expect("проверено");
-            let copy = YuvFrame { data: (d.copy)(), dmabuf: None, ..(**f).clone() };
+            let copy = YuvFrame {
+                data: (d.copy)(),
+                dmabuf: None,
+                ..(**f).clone()
+            };
             return self.upload_yuv(device, queue, handle, &std::sync::Arc::new(copy));
         }
         self.images.remove(&handle.0);
         let (cw, ch) = f.chroma_size();
-        let fits = self.yuv.get(&handle.0).is_some_and(|g| g.width == f.width && g.height == f.height && g.layout == f.layout && !g.ring.is_empty());
+        let fits = self.yuv.get(&handle.0).is_some_and(|g| {
+            g.width == f.width && g.height == f.height && g.layout == f.layout && !g.ring.is_empty()
+        });
         if !fits {
             let mut ring = Vec::with_capacity(STREAM_RING);
             for _ in 0..STREAM_RING {
                 let y = plane_texture(device, wgpu::TextureFormat::R8Unorm, f.width, f.height);
                 let (c1, c2) = match f.layout {
-                    YuvLayout::Nv12 => (plane_texture(device, wgpu::TextureFormat::Rg8Unorm, cw, ch), None),
+                    YuvLayout::Nv12 => (
+                        plane_texture(device, wgpu::TextureFormat::Rg8Unorm, cw, ch),
+                        None,
+                    ),
                     YuvLayout::I420 => (
                         plane_texture(device, wgpu::TextureFormat::R8Unorm, cw, ch),
                         Some(plane_texture(device, wgpu::TextureFormat::R8Unorm, cw, ch)),
@@ -534,14 +670,35 @@ impl ImageGpuCache {
                     label: Some("YUV BG"),
                     layout: &self.yuv_layout,
                     entries: &[
-                        wgpu::BindGroupEntry { binding: 0, resource: wgpu::BindingResource::TextureView(&yv) },
-                        wgpu::BindGroupEntry { binding: 1, resource: wgpu::BindingResource::TextureView(&c1v) },
-                        wgpu::BindGroupEntry { binding: 2, resource: wgpu::BindingResource::TextureView(&c2v) },
-                        wgpu::BindGroupEntry { binding: 3, resource: wgpu::BindingResource::Sampler(&self.sampler) },
-                        wgpu::BindGroupEntry { binding: 4, resource: uniform.as_entire_binding() },
+                        wgpu::BindGroupEntry {
+                            binding: 0,
+                            resource: wgpu::BindingResource::TextureView(&yv),
+                        },
+                        wgpu::BindGroupEntry {
+                            binding: 1,
+                            resource: wgpu::BindingResource::TextureView(&c1v),
+                        },
+                        wgpu::BindGroupEntry {
+                            binding: 2,
+                            resource: wgpu::BindingResource::TextureView(&c2v),
+                        },
+                        wgpu::BindGroupEntry {
+                            binding: 3,
+                            resource: wgpu::BindingResource::Sampler(&self.sampler),
+                        },
+                        wgpu::BindGroupEntry {
+                            binding: 4,
+                            resource: uniform.as_entire_binding(),
+                        },
                     ],
                 });
-                ring.push(YuvSlot { y, c1, c2, uniform, bind_group });
+                ring.push(YuvSlot {
+                    y,
+                    c1,
+                    c2,
+                    uniform,
+                    bind_group,
+                });
             }
             self.yuv.insert(
                 handle.0,
@@ -613,7 +770,10 @@ impl ImageGpuCache {
             // Частичная запись: эта текстура кольца видела кадр ring_len назад —
             // догоняем места всех кадров с тех пор.
             let lag = img.ring.len();
-            let mut rects: Option<Vec<[u32; 4]>> = data.regions.clone().filter(|_| data.single_level && img.recent.len() + 1 >= lag);
+            let mut rects: Option<Vec<[u32; 4]>> = data
+                .regions
+                .clone()
+                .filter(|_| data.single_level && img.recent.len() + 1 >= lag);
             for prev in img.recent.iter().rev().take(lag - 1) {
                 rects = match (rects, prev) {
                     (Some(mut a), Some(b)) => {
@@ -675,7 +835,14 @@ impl ImageGpuCache {
             ring.push((texture, bind_group));
         }
         write_all_levels(queue, &ring[0].0, data);
-        self.images.insert(handle.0, GpuImage { ring, cur: 0, recent: std::collections::VecDeque::new() });
+        self.images.insert(
+            handle.0,
+            GpuImage {
+                ring,
+                cur: 0,
+                recent: std::collections::VecDeque::new(),
+            },
+        );
     }
 
     pub fn process_uploads(
@@ -747,7 +914,10 @@ mod region_tests {
 
     #[test]
     fn regions_are_clipped_and_large_ones_go_whole() {
-        assert_eq!(fit_regions(vec![[90, 90, 20, 20]], 100, 100), Some(vec![[90, 90, 10, 10]]));
+        assert_eq!(
+            fit_regions(vec![[90, 90, 20, 20]], 100, 100),
+            Some(vec![[90, 90, 10, 10]])
+        );
         assert_eq!(fit_regions(vec![[0, 0, 100, 60]], 100, 100), None);
         let many: Vec<[u32; 4]> = (0..40).map(|i| [i, 0, 1, 1]).collect();
         assert_eq!(fit_regions(many, 100, 100), Some(vec![[0, 0, 40, 1]]));

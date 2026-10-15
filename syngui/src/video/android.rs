@@ -109,9 +109,14 @@ pub fn set_keep_screen_on(on: bool) {
         return;
     }
     let _ = with_env(|env, activity| {
-        env.call_method(activity, "setKeepScreenOn", "(Z)V", &[JValue::Bool(on as u8)])
-            .ok()
-            .map(|_| ())
+        env.call_method(
+            activity,
+            "setKeepScreenOn",
+            "(Z)V",
+            &[JValue::Bool(on as u8)],
+        )
+        .ok()
+        .map(|_| ())
     });
 }
 

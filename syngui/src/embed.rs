@@ -96,7 +96,9 @@ impl EmbedView {
     /// Тик анимаций; `true` — что-то изменилось, нужен кадр. Пустой обход
     /// снимает «взвод» — в простое дерево не обходится.
     pub fn animate(&mut self, dt: Duration) -> bool {
-        let Some(root) = self.root_id else { return false };
+        let Some(root) = self.root_id else {
+            return false;
+        };
         if !self.tree.animations_armed {
             return false;
         }
@@ -124,8 +126,11 @@ impl EmbedView {
         for node in self.tree.elements.values_mut() {
             node.styles_dirty = true;
         }
-        cascade::with_theme_transition(transition, || cascade::apply_styles_dirty(&mut self.tree, engine));
-        self.tree.mark_all_dirty(crate::widget::DirtyFlags::LAYOUT | crate::widget::DirtyFlags::RENDER);
+        cascade::with_theme_transition(transition, || {
+            cascade::apply_styles_dirty(&mut self.tree, engine)
+        });
+        self.tree
+            .mark_all_dirty(crate::widget::DirtyFlags::LAYOUT | crate::widget::DirtyFlags::RENDER);
         self.tree.animations_armed = true;
         self.last_frame_sig = None;
     }
@@ -145,7 +150,9 @@ impl EmbedView {
     }
 
     fn layout_with(&mut self, engine: &StyleEngine, constraints: Constraints) -> Size {
-        let Some(root) = self.root_id else { return Size::zero() };
+        let Some(root) = self.root_id else {
+            return Size::zero();
+        };
         self.tree.root_offset = Point::zero();
         self.tree.set_pixel_snap_scale(0.0);
         let mut size = self.tree.layout(root, constraints);
@@ -170,9 +177,17 @@ impl EmbedView {
     /// единицы; корень растягивается на всю поверхность), display list.
     /// Возвращает `false`, если кадр совпал с
     /// прошлым отданным (`DisplayList::frame_signature`) — рисовать не нужно.
-    pub fn frame(&mut self, engine: &StyleEngine, size: Size, scale: f32, list: &mut DisplayList) -> bool {
+    pub fn frame(
+        &mut self,
+        engine: &StyleEngine,
+        size: Size,
+        scale: f32,
+        list: &mut DisplayList,
+    ) -> bool {
         self.tree.animations_armed = true;
-        let Some(root) = self.root_id else { return false };
+        let Some(root) = self.root_id else {
+            return false;
+        };
         self.prepare(engine);
         self.tree.viewport_size = size;
         crate::viewport::publish(size);
@@ -185,7 +200,8 @@ impl EmbedView {
         list.clear();
         list.set_surface_size(size);
         list.set_scale_factor(scale);
-        self.tree.build_display_list(root, list, Rect::new(Point::zero(), size));
+        self.tree
+            .build_display_list(root, list, Rect::new(Point::zero(), size));
         self.tree.build_drag_overlay(list);
         self.tree.sync_overlay_stack();
         let sig = list.frame_signature();
@@ -212,7 +228,9 @@ impl EmbedView {
     }
 
     fn dispatch(&mut self, event: &Event) -> EventResult {
-        let Some(root) = self.root_id else { return EventResult::Ignored };
+        let Some(root) = self.root_id else {
+            return EventResult::Ignored;
+        };
         self.tree.animations_armed = true;
         self.tree.handle_event(root, event)
     }
@@ -226,7 +244,10 @@ impl EmbedView {
             }
             let data = self.tree.drag_state.as_ref().map(|d| d.data.clone());
             if let Some(data) = data {
-                self.tree.dispatch_drag_event(&Event::DragMove { position: pos, data });
+                self.tree.dispatch_drag_event(&Event::DragMove {
+                    position: pos,
+                    data,
+                });
             }
         }
         r
@@ -257,13 +278,22 @@ impl EmbedView {
             });
             if is_double {
                 self.last_click = None;
-                self.dispatch(&Event::DoubleClick { button, position: pos })
+                self.dispatch(&Event::DoubleClick {
+                    button,
+                    position: pos,
+                })
             } else {
                 self.last_click = Some((Instant::now(), pos));
-                self.dispatch(&Event::MouseDown { button, position: pos })
+                self.dispatch(&Event::MouseDown {
+                    button,
+                    position: pos,
+                })
             }
         } else {
-            self.dispatch(&Event::MouseUp { button, position: pos })
+            self.dispatch(&Event::MouseUp {
+                button,
+                position: pos,
+            })
         }
     }
 
@@ -272,26 +302,34 @@ impl EmbedView {
     /// нажатие синтезируются (см. [`crate::input::touch`]).
     pub fn touch_down(&mut self, id: u64, pos: Point) -> EventResult {
         self.cursor = pos;
-        let Some(root) = self.root_id else { return EventResult::Ignored };
+        let Some(root) = self.root_id else {
+            return EventResult::Ignored;
+        };
         self.tree.animations_armed = true;
         let tree = &mut self.tree;
-        self.touch.down(id, pos, &mut |e| tree.handle_event(root, e));
+        self.touch
+            .down(id, pos, &mut |e| tree.handle_event(root, e));
         EventResult::Handled
     }
 
     pub fn touch_motion(&mut self, id: u64, pos: Point) -> EventResult {
         self.cursor = pos;
-        let Some(root) = self.root_id else { return EventResult::Ignored };
+        let Some(root) = self.root_id else {
+            return EventResult::Ignored;
+        };
         self.tree.animations_armed = true;
         let tree = &mut self.tree;
-        self.touch.motion(id, pos, &mut |e| tree.handle_event(root, e));
+        self.touch
+            .motion(id, pos, &mut |e| tree.handle_event(root, e));
         EventResult::Handled
     }
 
     /// Палец поднят; `pos` — `None`, если хост точку не знает (`wl_touch.up`
     /// её не передаёт) — берётся последняя.
     pub fn touch_up(&mut self, id: u64, pos: Option<Point>) -> EventResult {
-        let Some(root) = self.root_id else { return EventResult::Ignored };
+        let Some(root) = self.root_id else {
+            return EventResult::Ignored;
+        };
         self.tree.animations_armed = true;
         if self.touch.would_tap(id) {
             self.update_focus_from_click(pos.unwrap_or(self.cursor));
@@ -316,7 +354,9 @@ impl EmbedView {
 
     /// Проверить таймер долгого нажатия; `true` — сработало, нужен кадр.
     pub fn touch_poll(&mut self) -> bool {
-        let Some(root) = self.root_id else { return false };
+        let Some(root) = self.root_id else {
+            return false;
+        };
         let tree = &mut self.tree;
         let fired = self.touch.poll(&mut |e| tree.handle_event(root, e));
         if fired {
@@ -333,7 +373,11 @@ impl EmbedView {
     /// Прокрутка: `dy > 0` — вверх (как `LineDelta` winit, уже в пикселях).
     pub fn wheel(&mut self, dx: f32, dy: f32) -> EventResult {
         let pos = self.cursor;
-        self.dispatch(&Event::MouseWheel { delta: dy, delta_x: dx, position: pos })
+        self.dispatch(&Event::MouseWheel {
+            delta: dy,
+            delta_x: dx,
+            position: pos,
+        })
     }
 
     pub fn set_modifiers(&mut self, m: Modifiers) {
@@ -353,7 +397,11 @@ impl EmbedView {
                 .unwrap_or(false);
             if !wants_tab {
                 let old = self.focus.current_focus().or(self.tree.focused_element);
-                let new = if self.modifiers.shift { self.focus.previous_focus() } else { self.focus.next_focus() };
+                let new = if self.modifiers.shift {
+                    self.focus.previous_focus()
+                } else {
+                    self.focus.next_focus()
+                };
                 if let Some(new_id) = new {
                     if let Some(old_id) = old {
                         if old_id != new_id {
@@ -375,7 +423,11 @@ impl EmbedView {
                 }
             }
         }
-        let ev = if pressed { Event::KeyDown(key) } else { Event::KeyUp(key) };
+        let ev = if pressed {
+            Event::KeyDown(key)
+        } else {
+            Event::KeyUp(key)
+        };
         self.dispatch(&ev)
     }
 
@@ -400,7 +452,9 @@ impl EmbedView {
     }
 
     fn process_pending_autofocus(&mut self) {
-        let Some(id) = self.tree.pending_autofocus.take() else { return };
+        let Some(id) = self.tree.pending_autofocus.take() else {
+            return;
+        };
         if !self.tree.elements.contains_key(&id) {
             return;
         }
@@ -476,7 +530,10 @@ impl EmbedView {
         if !node.element.is_visible() {
             return None;
         }
-        let is_portal = matches!(node.element.layout_hint(), crate::widget::LayoutHint::Portal { .. });
+        let is_portal = matches!(
+            node.element.layout_hint(),
+            crate::widget::LayoutHint::Portal { .. }
+        );
         let is_passthrough = is_portal || node.element.passthrough_hit_test();
         if !is_passthrough && !node.element.hit_test(pos) {
             return None;
@@ -504,7 +561,9 @@ impl EmbedView {
         if let Some(info) = node.element.accessibility_info() {
             if matches!(
                 info.role,
-                crate::a11y::Role::TextField | crate::a11y::Role::ComboBox | crate::a11y::Role::Terminal
+                crate::a11y::Role::TextField
+                    | crate::a11y::Role::ComboBox
+                    | crate::a11y::Role::Terminal
             ) && !info.state.disabled
                 && node.element.text_input_hit(pos)
             {

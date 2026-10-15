@@ -644,7 +644,10 @@ impl AppHandler {
                 // "x,y,vscroll,hscroll" — курсор в физических пикселях и
                 // шаги колеса. Шаг — те же 40 логических px, что у
                 // `MouseScrollDelta::LineDelta` на десктопе.
-                let v: Vec<f32> = params.split(',').filter_map(|p| p.trim().parse().ok()).collect();
+                let v: Vec<f32> = params
+                    .split(',')
+                    .filter_map(|p| p.trim().parse().ok())
+                    .collect();
                 log::debug!("android: колесо мыши {params}");
                 if v.len() == 4 {
                     let sf = self.scale_factor as f32;
@@ -652,7 +655,11 @@ impl AppHandler {
                     self.cursor_position = position;
                     self.tree.handle_event(
                         root_id,
-                        &Event::MouseWheel { delta: v[2] * 40.0, delta_x: v[3] * 40.0, position },
+                        &Event::MouseWheel {
+                            delta: v[2] * 40.0,
+                            delta_x: v[3] * 40.0,
+                            position,
+                        },
                     );
                 }
             }

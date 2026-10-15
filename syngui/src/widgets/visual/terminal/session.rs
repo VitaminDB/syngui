@@ -227,7 +227,11 @@ impl TerminalSession {
 
     /// pid запущенной программы (оболочки); `None` — PTY ещё не открыт или закрыт.
     pub fn pid(&self) -> Option<u32> {
-        self.inner.pty.lock().ok().and_then(|p| p.as_ref().and_then(|p| p.pid()))
+        self.inner
+            .pty
+            .lock()
+            .ok()
+            .and_then(|p| p.as_ref().and_then(|p| p.pid()))
     }
 
     /// Текущий каталог программы терминала (Linux: `/proc/<pid>/cwd`).

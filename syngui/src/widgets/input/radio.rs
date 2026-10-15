@@ -64,7 +64,11 @@ impl RadioButton {
 
 impl Widget for RadioButton {
     fn create_element(&self) -> Box<dyn Element> {
-        let selected = self.group_state.lock().unwrap_or_else(|e| e.into_inner()).clone();
+        let selected = self
+            .group_state
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .clone();
         Box::new(RadioButtonElement {
             id: ElementId::new(),
             value: self.value.clone(),
@@ -126,7 +130,11 @@ impl Element for RadioButtonElement {
             self.label = rb.label.clone();
             self.disabled = rb.disabled;
 
-            let selected = self.group_state.lock().unwrap_or_else(|e| e.into_inner()).clone();
+            let selected = self
+                .group_state
+                .lock()
+                .unwrap_or_else(|e| e.into_inner())
+                .clone();
             self.is_selected = selected == self.value;
 
             self.mark_dirty(DirtyFlags::RENDER);
@@ -178,13 +186,19 @@ impl Element for RadioButtonElement {
     }
 
     fn build_display_list(&self, list: &mut DisplayList, _clip: Rect) {
-        let fg = self.mss.color.unwrap_or_else(crate::theme_fallback::fallback_fg);
+        let fg = self
+            .mss
+            .color
+            .unwrap_or_else(crate::theme_fallback::fallback_fg);
         // Как у Checkbox: без `background`/`border-color` в MSS кружок прозрачный, рамка — цвет текста
         // вполпрозрачности, чтобы следовать теме приложения (а не белый круг в тёмной теме).
-        let default_border = self.mss.border_color.unwrap_or_else(|| match self.mss.color {
-            Some(c) => c.with_alpha(c.a * 0.55),
-            None => crate::theme_fallback::fallback_border(),
-        });
+        let default_border = self
+            .mss
+            .border_color
+            .unwrap_or_else(|| match self.mss.color {
+                Some(c) => c.with_alpha(c.a * 0.55),
+                None => crate::theme_fallback::fallback_border(),
+            });
         let disabled_fg = fg.with_alpha(0.5);
         let primary = self.mss.accent_color.unwrap_or(Color::from_hex("#3B82F6"));
         let base_bg = self.mss.background_color.unwrap_or(Color::TRANSPARENT);
@@ -192,7 +206,10 @@ impl Element for RadioButtonElement {
         let border_width = self.mss.border_width_or(2.0);
 
         let (bg_color, border_color) = if self.disabled {
-            (disabled_bg, default_border.with_alpha(default_border.a * 0.5))
+            (
+                disabled_bg,
+                default_border.with_alpha(default_border.a * 0.5),
+            )
         } else if self.is_selected {
             (base_bg, primary)
         } else if self.hover {
@@ -284,7 +301,8 @@ impl Element for RadioButtonElement {
             }
             Event::MouseDown { button, position } => {
                 if *button == MouseButton::Left && self.bounds.contains(*position) {
-                    *self.group_state.lock().unwrap_or_else(|e| e.into_inner()) = self.value.clone();
+                    *self.group_state.lock().unwrap_or_else(|e| e.into_inner()) =
+                        self.value.clone();
                     self.is_selected = true;
                     ctx.request_paint();
                     return EventResult::Handled;
@@ -293,7 +311,8 @@ impl Element for RadioButtonElement {
             }
             Event::KeyDown(Key::Enter) | Event::KeyDown(Key::Space) => {
                 if self.focused {
-                    *self.group_state.lock().unwrap_or_else(|e| e.into_inner()) = self.value.clone();
+                    *self.group_state.lock().unwrap_or_else(|e| e.into_inner()) =
+                        self.value.clone();
                     self.is_selected = true;
                     ctx.request_paint();
                     return EventResult::Handled;

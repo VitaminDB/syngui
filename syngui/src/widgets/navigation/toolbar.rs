@@ -151,7 +151,10 @@ impl Element for ToolbarElement {
             ),
             Size::new(self.bounds.size.width, 1.0),
         );
-        let border_color = self.mss.border_color.unwrap_or_else(crate::theme_fallback::fallback_divider);
+        let border_color = self
+            .mss
+            .border_color
+            .unwrap_or_else(crate::theme_fallback::fallback_divider);
         list.push_rect(bottom_line, border_color, [0.0; 4]);
     }
 

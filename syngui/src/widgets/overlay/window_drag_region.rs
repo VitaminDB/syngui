@@ -107,7 +107,10 @@ impl Element for WindowDragRegionElement {
 
     fn handle_event(&mut self, event: &Event, ctx: &mut EventContext) -> EventResult {
         match event {
-            Event::MouseDown { button: MouseButton::Left, position } if self.bounds.contains(*position) => {
+            Event::MouseDown {
+                button: MouseButton::Left,
+                position,
+            } if self.bounds.contains(*position) => {
                 // Тап пальцем синтезирует нажатие уже на отпускании — тащить
                 // нечего, окно ведёт сдвиг пальца (ниже).
                 if !crate::input::touch::is_synthesized_mouse() {
@@ -143,7 +146,10 @@ impl Element for WindowDragRegionElement {
             }
             // Двойной щелчок по заголовку — развернуть / вернуть окно (как у
             // рамок композитора и в других системах).
-            Event::DoubleClick { button: MouseButton::Left, position } if self.bounds.contains(*position) => {
+            Event::DoubleClick {
+                button: MouseButton::Left,
+                position,
+            } if self.bounds.contains(*position) => {
                 ctx.toggle_maximize_window();
                 EventResult::Handled
             }

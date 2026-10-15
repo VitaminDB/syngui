@@ -122,7 +122,9 @@ impl Catalog {
                 let rest = rest.trim_start();
                 let (form, rest) = match rest.strip_prefix('.') {
                     Some(r) => {
-                        let end = r.find(|c: char| !c.is_ascii_alphabetic()).unwrap_or(r.len());
+                        let end = r
+                            .find(|c: char| !c.is_ascii_alphabetic())
+                            .unwrap_or(r.len());
                         (Some(&r[..end]), &r[end..])
                     }
                     None => (None, rest),

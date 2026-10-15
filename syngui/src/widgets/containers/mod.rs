@@ -1,6 +1,7 @@
 pub mod animated;
 pub mod animated_position;
 pub mod animated_size;
+pub mod aspect_ratio;
 pub mod carousel;
 pub mod column;
 pub mod decorated_box;
@@ -12,7 +13,6 @@ pub mod grid;
 pub mod keyed;
 pub mod multi_touch;
 pub mod named;
-pub mod aspect_ratio;
 pub mod padding;
 pub mod page;
 pub mod pan_zoom;

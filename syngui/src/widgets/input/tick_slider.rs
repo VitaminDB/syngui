@@ -457,13 +457,19 @@ impl Element for TickSliderElement {
         } else {
             fill_base
         };
-        let tick_color = self.mss_tick_color.unwrap_or_else(crate::theme_fallback::fallback_muted);
-        let tick_label_color = self
-            .mss_tick_label_color
-            .unwrap_or_else(|| self.mss.color.unwrap_or_else(crate::theme_fallback::fallback_muted));
-        let value_color = self
-            .mss_value_color
-            .unwrap_or_else(|| self.mss.color.unwrap_or_else(crate::theme_fallback::fallback_fg));
+        let tick_color = self
+            .mss_tick_color
+            .unwrap_or_else(crate::theme_fallback::fallback_muted);
+        let tick_label_color = self.mss_tick_label_color.unwrap_or_else(|| {
+            self.mss
+                .color
+                .unwrap_or_else(crate::theme_fallback::fallback_muted)
+        });
+        let value_color = self.mss_value_color.unwrap_or_else(|| {
+            self.mss
+                .color
+                .unwrap_or_else(crate::theme_fallback::fallback_fg)
+        });
 
         let radius_basis = if self.vertical {
             self.track_bounds.size.width

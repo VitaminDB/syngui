@@ -496,7 +496,9 @@ impl ScrollViewElement {
         }
         if let Some(h) = self.on_scroll.as_ref() {
             let off = self.scroll_offset;
-            if (off.x - self.reported_offset.x).abs() > 0.01 || (off.y - self.reported_offset.y).abs() > 0.01 {
+            if (off.x - self.reported_offset.x).abs() > 0.01
+                || (off.y - self.reported_offset.y).abs() > 0.01
+            {
                 self.reported_offset = off;
                 h(off, Point::new(self.max_scroll_x(), self.max_scroll_y()));
             }
@@ -611,7 +613,10 @@ impl Element for ScrollViewElement {
         let m = 1.0 + self.mss.overflow_clip_margin.unwrap_or(0.0);
         let clip_bounds = Rect::new(
             Point::new(self.bounds.origin.x - m, self.bounds.origin.y - m),
-            Size::new(self.bounds.size.width + 2.0 * m, self.bounds.size.height + 2.0 * m),
+            Size::new(
+                self.bounds.size.width + 2.0 * m,
+                self.bounds.size.height + 2.0 * m,
+            ),
         );
         list.push_clip(clip_bounds);
         let sf = list.scale_factor().max(1.0);
@@ -1028,7 +1033,8 @@ impl Element for ScrollViewElement {
             let t = self.clamp_offset(target);
             self.scroll_offset.x += (t.x - self.scroll_offset.x) * k;
             self.scroll_offset.y += (t.y - self.scroll_offset.y) * k;
-            if (t.x - self.scroll_offset.x).abs() < 0.5 && (t.y - self.scroll_offset.y).abs() < 0.5 {
+            if (t.x - self.scroll_offset.x).abs() < 0.5 && (t.y - self.scroll_offset.y).abs() < 0.5
+            {
                 self.scroll_offset = t;
                 self.glide_to = None;
             }
@@ -1381,7 +1387,11 @@ mod tests {
             ),
             EventResult::Captured
         );
-        assert_eq!(el.scroll_offset().x, 1000.0, "клик по дорожке у правого края");
+        assert_eq!(
+            el.scroll_offset().x,
+            1000.0,
+            "клик по дорожке у правого края"
+        );
         el.handle_event(
             &Event::MouseUp {
                 button: MouseButton::Left,
@@ -1396,7 +1406,11 @@ mod tests {
             },
             &mut ctx,
         );
-        assert_eq!(el.scroll_offset().x, 1000.0, "захват ползунка не сдвигает его");
+        assert_eq!(
+            el.scroll_offset().x,
+            1000.0,
+            "захват ползунка не сдвигает его"
+        );
         el.handle_event(&Event::MouseMove(left), &mut ctx);
         assert_eq!(el.scroll_offset().x, 0.0, "ползунок вернулся влево");
         assert!(!el.intercepts_event(&Event::MouseDown {

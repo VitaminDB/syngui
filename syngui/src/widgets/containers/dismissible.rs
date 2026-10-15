@@ -78,7 +78,13 @@ pub struct Dismissible {
 
 impl Dismissible {
     pub fn new(child: impl Widget + 'static) -> Self {
-        Self { child: Box::new(child), direction: DismissDirection::Both, threshold: 0.4, on_dismiss: None, classes: Vec::new() }
+        Self {
+            child: Box::new(child),
+            direction: DismissDirection::Both,
+            threshold: 0.4,
+            on_dismiss: None,
+            classes: Vec::new(),
+        }
     }
 
     pub fn direction(mut self, d: DismissDirection) -> Self {
@@ -141,7 +147,11 @@ impl Widget for Dismissible {
 
     fn mount(&self, tree: &mut ElementTree, parent_id: ElementId) {
         let child_element = self.child.create_element();
-        let child_id = tree.insert_with_type_id(child_element, Some(parent_id), self.child.as_any().type_id());
+        let child_id = tree.insert_with_type_id(
+            child_element,
+            Some(parent_id),
+            self.child.as_any().type_id(),
+        );
         self.child.mount(tree, child_id);
     }
 
@@ -162,7 +172,9 @@ enum Phase {
     /// Возврат на место.
     Settle,
     /// Улёт за край со скоростью, px/с.
-    Fly { speed: f32 },
+    Fly {
+        speed: f32,
+    },
     /// Улетел, `on_dismiss` вызван; ждёт, пока владелец уберёт.
     Gone,
 }
@@ -201,17 +213,25 @@ impl DismissibleElement {
 
     /// Сдвиг за пальцем: в запрещённую сторону — туго.
     fn follow(&mut self, dx: f32) {
-        self.offset = if self.direction.allows(dx) { dx } else { dx * RESIST };
+        self.offset = if self.direction.allows(dx) {
+            dx
+        } else {
+            dx * RESIST
+        };
     }
 
     /// Палец отпущен со скоростью `vx`: улететь или вернуться.
     fn release(&mut self, vx: f32) {
         let dx = self.offset;
         let far = dx.abs() > self.width() * self.threshold;
-        let fling = vx.abs() > FLING_VELOCITY && vx.signum() == dx.signum() && dx.abs() > FLING_MIN_DISTANCE;
+        let fling = vx.abs() > FLING_VELOCITY
+            && vx.signum() == dx.signum()
+            && dx.abs() > FLING_MIN_DISTANCE;
         if self.direction.allows(dx) && (far || fling) {
             // Не медленнее броска и так, чтобы улететь примерно за 0,2 с.
-            self.phase = Phase::Fly { speed: vx.abs().max(self.width() * 5.0) };
+            self.phase = Phase::Fly {
+                speed: vx.abs().max(self.width() * 5.0),
+            };
         } else {
             self.velocity = vx;
             self.phase = Phase::Settle;
@@ -220,7 +240,11 @@ impl DismissibleElement {
 
     fn dismissed(&mut self) {
         self.phase = Phase::Gone;
-        let dir = if self.offset < 0.0 { SwipeDirection::Left } else { SwipeDirection::Right };
+        let dir = if self.offset < 0.0 {
+            SwipeDirection::Left
+        } else {
+            SwipeDirection::Right
+        };
         if let Some(cb) = &self.on_dismiss {
             if let Ok(mut f) = cb.lock() {
                 f(dir);
@@ -271,7 +295,9 @@ impl Element for DismissibleElement {
                     self.velocity = 0.0;
                     self.phase = Phase::Idle;
                 } else {
-                    let (x, v) = self.spring.update(self.offset, 0.0, self.velocity, dt.as_secs_f32());
+                    let (x, v) =
+                        self.spring
+                            .update(self.offset, 0.0, self.velocity, dt.as_secs_f32());
                     self.offset = x;
                     self.velocity = v;
                     if self.spring.is_at_rest(x.abs(), v.abs()) {
@@ -287,7 +313,11 @@ impl Element for DismissibleElement {
                     self.offset = target;
                 } else {
                     let step = speed * crate::animation::effective_dt(dt).as_secs_f32();
-                    self.offset = if target > 0.0 { (self.offset + step).min(target) } else { (self.offset - step).max(target) };
+                    self.offset = if target > 0.0 {
+                        (self.offset + step).min(target)
+                    } else {
+                        (self.offset - step).max(target)
+                    };
                 }
                 if self.offset == target {
                     self.dismissed();
@@ -334,18 +364,27 @@ impl Element for DismissibleElement {
                 tracker.add(*position);
                 // Поймали возвращающийся элемент — палец ведёт его с текущего места.
                 let start = Point::new(position.x - self.offset, position.y);
-                self.touch = Some(Touch { id: *id, start, ours: None, tracker });
+                self.touch = Some(Touch {
+                    id: *id,
+                    start,
+                    ours: None,
+                    tracker,
+                });
                 EventResult::Handled
             }
             Event::TouchMove { id, position } => {
-                let Some(t) = self.touch.as_mut().filter(|t| t.id == *id) else { return EventResult::Ignored };
+                let Some(t) = self.touch.as_mut().filter(|t| t.id == *id) else {
+                    return EventResult::Ignored;
+                };
                 t.tracker.add(*position);
                 let (dx, dy) = (position.x - t.start.x, position.y - t.start.y);
                 match t.ours {
                     Some(false) => return EventResult::Ignored,
                     Some(true) => {}
                     None => {
-                        if self.offset == 0.0 && dx.abs().max(dy.abs()) < crate::input::touch_config().tap_slop {
+                        if self.offset == 0.0
+                            && dx.abs().max(dy.abs()) < crate::input::touch_config().tap_slop
+                        {
                             return EventResult::Handled;
                         }
                         let ours = self.offset != 0.0 || dx.abs() > dy.abs();
@@ -362,7 +401,9 @@ impl Element for DismissibleElement {
                 EventResult::Handled
             }
             Event::TouchEnd { id, .. } => {
-                let Some(t) = self.touch.take_if(|t| t.id == *id) else { return EventResult::Ignored };
+                let Some(t) = self.touch.take_if(|t| t.id == *id) else {
+                    return EventResult::Ignored;
+                };
                 match t.ours {
                     Some(false) => EventResult::Ignored,
                     None => EventResult::Handled,
@@ -413,7 +454,12 @@ impl Element for DismissibleElement {
     }
 
     fn layout_hint(&self) -> LayoutHint {
-        LayoutHint::Padding { left: 0.0, top: 0.0, right: 0.0, bottom: 0.0 }
+        LayoutHint::Padding {
+            left: 0.0,
+            top: 0.0,
+            right: 0.0,
+            bottom: 0.0,
+        }
     }
 
     fn set_classes(&mut self, classes: Vec<String>) {
@@ -447,7 +493,8 @@ impl Element for DismissibleElement {
         selected: Option<&ComputedStyle>,
         _checked: Option<&ComputedStyle>,
     ) {
-        self.mss.apply_transitions(base, hover, active, focus, selected);
+        self.mss
+            .apply_transitions(base, hover, active, focus, selected);
     }
 }
 
@@ -476,7 +523,10 @@ mod tests {
         let mut el = Dismissible::new(Text::new("x"))
             .direction(d)
             .on_dismiss(move |dir| {
-                hits.fetch_add(if dir == SwipeDirection::Left { 10 } else { 1 }, Ordering::SeqCst);
+                hits.fetch_add(
+                    if dir == SwipeDirection::Left { 10 } else { 1 },
+                    Ordering::SeqCst,
+                );
             })
             .element();
         el.set_content_size(Size::new(300.0, 80.0));
@@ -487,12 +537,30 @@ mod tests {
     fn drag(el: &mut DismissibleElement, path: &[(f32, f32)]) {
         let mut ctx = EventContext::new(el.id);
         let (x0, y0) = path[0];
-        el.handle_event(&Event::TouchStart { id: 1, position: Point::new(x0, y0) }, &mut ctx);
+        el.handle_event(
+            &Event::TouchStart {
+                id: 1,
+                position: Point::new(x0, y0),
+            },
+            &mut ctx,
+        );
         for &(x, y) in &path[1..] {
-            el.handle_event(&Event::TouchMove { id: 1, position: Point::new(x, y) }, &mut ctx);
+            el.handle_event(
+                &Event::TouchMove {
+                    id: 1,
+                    position: Point::new(x, y),
+                },
+                &mut ctx,
+            );
         }
         let (x, y) = *path.last().unwrap();
-        el.handle_event(&Event::TouchEnd { id: 1, position: Point::new(x, y) }, &mut ctx);
+        el.handle_event(
+            &Event::TouchEnd {
+                id: 1,
+                position: Point::new(x, y),
+            },
+            &mut ctx,
+        );
     }
 
     fn settle(el: &mut DismissibleElement) {
@@ -507,7 +575,10 @@ mod tests {
     fn far_drag_dismisses_in_its_direction() {
         let hits = Arc::new(AtomicU32::new(0));
         let mut el = element(DismissDirection::Both, hits.clone());
-        drag(&mut el, &[(150.0, 40.0), (170.0, 40.0), (250.0, 40.0), (290.0, 41.0)]);
+        drag(
+            &mut el,
+            &[(150.0, 40.0), (170.0, 40.0), (250.0, 40.0), (290.0, 41.0)],
+        );
         settle(&mut el);
         assert_eq!(el.phase, Phase::Gone);
         assert_eq!(hits.load(Ordering::SeqCst), 1, "вправо");
@@ -542,10 +613,28 @@ mod tests {
         let hits = Arc::new(AtomicU32::new(0));
         let mut el = element(DismissDirection::Both, hits);
         let mut ctx = EventContext::new(el.id);
-        el.handle_event(&Event::TouchStart { id: 1, position: Point::new(150.0, 40.0) }, &mut ctx);
-        let r = el.handle_event(&Event::TouchMove { id: 1, position: Point::new(152.0, 70.0) }, &mut ctx);
+        el.handle_event(
+            &Event::TouchStart {
+                id: 1,
+                position: Point::new(150.0, 40.0),
+            },
+            &mut ctx,
+        );
+        let r = el.handle_event(
+            &Event::TouchMove {
+                id: 1,
+                position: Point::new(152.0, 70.0),
+            },
+            &mut ctx,
+        );
         assert!(!r.is_handled());
-        let r = el.handle_event(&Event::TouchEnd { id: 1, position: Point::new(152.0, 70.0) }, &mut ctx);
+        let r = el.handle_event(
+            &Event::TouchEnd {
+                id: 1,
+                position: Point::new(152.0, 70.0),
+            },
+            &mut ctx,
+        );
         assert!(!r.is_handled());
         assert_eq!(el.offset, 0.0);
     }
@@ -555,7 +644,13 @@ mod tests {
         let hits = Arc::new(AtomicU32::new(0));
         let mut el = element(DismissDirection::Off, hits);
         let mut ctx = EventContext::new(el.id);
-        let r = el.handle_event(&Event::TouchStart { id: 1, position: Point::new(150.0, 40.0) }, &mut ctx);
+        let r = el.handle_event(
+            &Event::TouchStart {
+                id: 1,
+                position: Point::new(150.0, 40.0),
+            },
+            &mut ctx,
+        );
         assert!(!r.is_handled());
     }
 }

@@ -71,10 +71,16 @@ mod tests {
         let t0 = Instant::now();
         let mut v = VelocityTracker::new();
         for i in 0..6 {
-            v.add_at(t0 + Duration::from_millis(i * 10), Point::new(i as f32 * 10.0, 0.0));
+            v.add_at(
+                t0 + Duration::from_millis(i * 10),
+                Point::new(i as f32 * 10.0, 0.0),
+            );
         }
         let vel = v.velocity_at(t0 + Duration::from_millis(50));
         assert!((vel.x - 1000.0).abs() < 1.0, "{vel:?}");
-        assert_eq!(v.velocity_at(t0 + Duration::from_millis(500)), Point::zero());
+        assert_eq!(
+            v.velocity_at(t0 + Duration::from_millis(500)),
+            Point::zero()
+        );
     }
 }

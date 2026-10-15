@@ -20,7 +20,9 @@ use crate::layout::Constraints;
 use crate::mss::{ComputedStyle, MssFields};
 use crate::render::DisplayList;
 use crate::widget::context::{EventContext, EventContextExt};
-use crate::widget::{DirtyFlags, Element, ElementId, ElementTree, LayoutHint, StyledElement, UpdateContext, Widget};
+use crate::widget::{
+    DirtyFlags, Element, ElementId, ElementTree, LayoutHint, StyledElement, UpdateContext, Widget,
+};
 use std::any::Any;
 use std::sync::Arc;
 
@@ -63,7 +65,12 @@ impl Default for MultiTouch {
 
 impl MultiTouch {
     pub fn new() -> Self {
-        Self { on_touch: None, mouse: true, child: None, classes: Vec::new() }
+        Self {
+            on_touch: None,
+            mouse: true,
+            child: None,
+            classes: Vec::new(),
+        }
     }
 
     /// Касание пальца. На `Down` вернуть `true` — палец взят (иначе событие идёт дальше, ниже
@@ -121,7 +128,10 @@ impl Widget for MultiTouch {
         }
     }
     fn child_widgets(&self) -> Vec<&dyn Widget> {
-        self.child.as_ref().map(|c| vec![c.as_ref() as &dyn Widget]).unwrap_or_default()
+        self.child
+            .as_ref()
+            .map(|c| vec![c.as_ref() as &dyn Widget])
+            .unwrap_or_default()
     }
     fn widget_classes(&self) -> &[String] {
         &self.classes
@@ -143,9 +153,16 @@ pub struct MultiTouchElement {
 
 impl MultiTouchElement {
     fn call(&self, id: u64, phase: TouchPhase, pos: Point) -> bool {
-        let Some(cb) = &self.on_touch else { return false };
+        let Some(cb) = &self.on_touch else {
+            return false;
+        };
         let local = Point::new(pos.x - self.bounds.origin.x, pos.y - self.bounds.origin.y);
-        let t = TouchPoint { id, phase, position: local, size: self.bounds.size };
+        let t = TouchPoint {
+            id,
+            phase,
+            position: local,
+            size: self.bounds.size,
+        };
         cb.lock().map(|mut f| f(t)).unwrap_or(false)
     }
 
@@ -171,7 +188,9 @@ impl MultiTouchElement {
     }
 
     fn up(&mut self, id: u64, pos: Point, ctx: &mut EventContext) -> EventResult {
-        let Some(i) = self.fingers.iter().position(|f| *f == id) else { return EventResult::Ignored };
+        let Some(i) = self.fingers.iter().position(|f| *f == id) else {
+            return EventResult::Ignored;
+        };
         self.fingers.swap_remove(i);
         self.call(id, TouchPhase::Up, pos);
         ctx.request_paint();
@@ -188,8 +207,16 @@ impl Element for MultiTouchElement {
     }
 
     fn layout(&mut self, constraints: Constraints) -> Size {
-        let w = if constraints.max_width.is_finite() { constraints.max_width } else { 0.0 };
-        let h = if constraints.max_height.is_finite() { constraints.max_height } else { 0.0 };
+        let w = if constraints.max_width.is_finite() {
+            constraints.max_width
+        } else {
+            0.0
+        };
+        let h = if constraints.max_height.is_finite() {
+            constraints.max_height
+        } else {
+            0.0
+        };
         let size = Size::new(w, h);
         self.bounds = Rect::new(Point::zero(), size);
         size
@@ -213,15 +240,23 @@ impl Element for MultiTouchElement {
             Event::TouchStart { id, position } => self.down(*id, *position, ctx),
             Event::TouchMove { id, position } => self.moved(*id, *position, ctx),
             Event::TouchEnd { id, position } => self.up(*id, *position, ctx),
-            Event::MouseDown { button: MouseButton::Left, position } if self.mouse && !crate::input::is_synthesized_mouse() => {
+            Event::MouseDown {
+                button: MouseButton::Left,
+                position,
+            } if self.mouse && !crate::input::is_synthesized_mouse() => {
                 self.down(MOUSE_ID, *position, ctx)
             }
-            Event::MouseMove(position) if self.fingers.contains(&MOUSE_ID) => self.moved(MOUSE_ID, *position, ctx),
-            Event::MouseUp { button: MouseButton::Left, position } if self.fingers.contains(&MOUSE_ID) => {
-                self.up(MOUSE_ID, *position, ctx)
+            Event::MouseMove(position) if self.fingers.contains(&MOUSE_ID) => {
+                self.moved(MOUSE_ID, *position, ctx)
             }
+            Event::MouseUp {
+                button: MouseButton::Left,
+                position,
+            } if self.fingers.contains(&MOUSE_ID) => self.up(MOUSE_ID, *position, ctx),
             // Синтезированные из касания щелчки — не наши: пальцы уже пришли касаниями.
-            Event::MouseDown { .. } | Event::MouseUp { .. } if !self.fingers.is_empty() => EventResult::Handled,
+            Event::MouseDown { .. } | Event::MouseUp { .. } if !self.fingers.is_empty() => {
+                EventResult::Handled
+            }
             _ => EventResult::Ignored,
         }
     }
@@ -322,7 +357,10 @@ mod tests {
             .child(Stack::new().child(Positioned::new(Text::new("x")).at(150.0, 150.0)));
         let mut h = TestHarness::new(Box::new(w));
         h.layout(200.0, 200.0);
-        h.send_event(&Event::TouchStart { id: 1, position: Point::new(180.0, 20.0) });
+        h.send_event(&Event::TouchStart {
+            id: 1,
+            position: Point::new(180.0, 20.0),
+        });
         assert_eq!(*hits.lock().unwrap(), 1);
     }
 
@@ -341,14 +379,35 @@ mod tests {
         let mut h = TestHarness::new(Box::new(w));
         h.layout(200.0, 200.0);
         let p = |x, y| Point::new(x, y);
-        h.send_event(&Event::TouchStart { id: 1, position: p(10.0, 10.0) });
-        h.send_event(&Event::TouchStart { id: 2, position: p(150.0, 150.0) });
-        h.send_event(&Event::TouchMove { id: 1, position: p(20.0, 10.0) });
-        h.send_event(&Event::TouchEnd { id: 2, position: p(150.0, 150.0) });
-        h.send_event(&Event::TouchMove { id: 1, position: p(400.0, 10.0) });
-        h.send_event(&Event::TouchEnd { id: 1, position: p(400.0, 10.0) });
+        h.send_event(&Event::TouchStart {
+            id: 1,
+            position: p(10.0, 10.0),
+        });
+        h.send_event(&Event::TouchStart {
+            id: 2,
+            position: p(150.0, 150.0),
+        });
+        h.send_event(&Event::TouchMove {
+            id: 1,
+            position: p(20.0, 10.0),
+        });
+        h.send_event(&Event::TouchEnd {
+            id: 2,
+            position: p(150.0, 150.0),
+        });
+        h.send_event(&Event::TouchMove {
+            id: 1,
+            position: p(400.0, 10.0),
+        });
+        h.send_event(&Event::TouchEnd {
+            id: 1,
+            position: p(400.0, 10.0),
+        });
         let got = log.lock().unwrap().clone();
         use TouchPhase::*;
-        assert_eq!(got, vec![(1, Down), (2, Down), (1, Move), (2, Up), (1, Move), (1, Up)]);
+        assert_eq!(
+            got,
+            vec![(1, Down), (2, Down), (1, Move), (2, Up), (1, Move), (1, Up)]
+        );
     }
 }

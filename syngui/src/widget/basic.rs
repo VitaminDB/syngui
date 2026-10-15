@@ -120,11 +120,29 @@ fn truncate_to_lines<'a>(
     // Место под многоточие нужно, только если текст не влезает: сначала
     // пробуем уложить его целиком в полную ширину последней строки. Иначе
     // текст ровно в свою ширину (кнопка по содержимому) обрезался бы зря.
-    let whole = truncate_to_lines_budget(text, available_width, max_lines, font_size, bold, font_family, tm, false);
+    let whole = truncate_to_lines_budget(
+        text,
+        available_width,
+        max_lines,
+        font_size,
+        bold,
+        font_family,
+        tm,
+        false,
+    );
     if matches!(whole, std::borrow::Cow::Borrowed(_)) {
         return whole;
     }
-    truncate_to_lines_budget(text, available_width, max_lines, font_size, bold, font_family, tm, true)
+    truncate_to_lines_budget(
+        text,
+        available_width,
+        max_lines,
+        font_size,
+        bold,
+        font_family,
+        tm,
+        true,
+    )
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -159,7 +177,11 @@ fn truncate_to_lines_budget<'a>(
     if reserve_ellipsis && ellipsis_w >= available_width {
         return std::borrow::Cow::Owned(ELLIPSIS.to_string());
     }
-    let last_budget = if reserve_ellipsis { available_width - ellipsis_w } else { available_width };
+    let last_budget = if reserve_ellipsis {
+        available_width - ellipsis_w
+    } else {
+        available_width
+    };
 
     let mut line_idx: usize = 0;
     let mut x: f32 = 0.0;
@@ -528,7 +550,9 @@ impl Text {
             id: ElementId::new(),
             bounds: Rect::zero(),
             text: self.text.clone(),
-            color: self.color.unwrap_or_else(crate::theme_fallback::fallback_fg_strong),
+            color: self
+                .color
+                .unwrap_or_else(crate::theme_fallback::fallback_fg_strong),
             base_color: self.color,
             base_font_weight: self.font_weight,
             base_max_lines: match self.elide {
@@ -687,7 +711,7 @@ impl TextElement {
     /// Ширина строки с учётом разрядки: `FontAtlas::emit_glyph_spaced`
     /// добавляет `letter-spacing` после каждого глифа, последний включительно.
     fn measure_line(&self, line: &str, bold: impl Into<crate::text::FontWeight>) -> f32 {
-    let bold: u16 = bold.into().0;
+        let bold: u16 = bold.into().0;
         let chars = line.chars().count();
         let base = self
             .text_measure
@@ -1137,9 +1161,10 @@ impl Element for TextElement {
 
     fn apply_computed_style(&mut self, style: &ComputedStyle) {
         self.apply_style(style);
-        if let (Some(from), Some((secs, easing))) =
-            (self.color_before_reset.take(), crate::mss::fields::element_theme_transition())
-        {
+        if let (Some(from), Some((secs, easing))) = (
+            self.color_before_reset.take(),
+            crate::mss::fields::element_theme_transition(),
+        ) {
             if from != self.color && secs > 0.0 {
                 self.color_anim = Some((from, 0.0, secs, easing));
                 self.mark_dirty(DirtyFlags::RENDER | DirtyFlags::ANIMATION);
@@ -1148,7 +1173,9 @@ impl Element for TextElement {
     }
 
     fn animate(&mut self, dt: std::time::Duration) -> bool {
-        let Some((_, elapsed, dur, _)) = self.color_anim.as_mut() else { return false };
+        let Some((_, elapsed, dur, _)) = self.color_anim.as_mut() else {
+            return false;
+        };
         *elapsed += dt.as_secs_f32();
         let running = *elapsed < *dur;
         if !running {
@@ -1171,8 +1198,11 @@ impl Element for TextElement {
     /// letter-spacing), оставалось бы от старого: `Text.class(if err {"err"}
     /// else {"ok"})` так и оставался бы красным после ухода ошибки.
     fn reset_mss_styles(&mut self) {
-        self.color_before_reset = crate::mss::fields::element_theme_transition().map(|_| self.effective_color());
-        self.color = self.base_color.unwrap_or_else(crate::theme_fallback::fallback_fg_strong);
+        self.color_before_reset =
+            crate::mss::fields::element_theme_transition().map(|_| self.effective_color());
+        self.color = self
+            .base_color
+            .unwrap_or_else(crate::theme_fallback::fallback_fg_strong);
         self.font_size = DEFAULT_FONT_SIZE;
         self.mss_font_weight = self.base_font_weight.unwrap_or(400);
         self.mss_italic = false;

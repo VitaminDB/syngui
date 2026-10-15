@@ -20,8 +20,15 @@ const MSS: &str = r#"
 fn launching_class_after_rebuild_bounces() {
     let launching = use_signal(false);
     let row = DecoratedBox::new().class("bounce").child(move || {
-        let cls = if launching.get() { "item item-launching" } else { "item" };
-        DecoratedBox::new().class(cls).style("width", 40.0_f32).style("height", 40.0_f32)
+        let cls = if launching.get() {
+            "item item-launching"
+        } else {
+            "item"
+        };
+        DecoratedBox::new()
+            .class(cls)
+            .style("width", 40.0_f32)
+            .style("height", 40.0_f32)
     });
     let mut h = TestHarness::new(Box::new(row));
     let engine = h.apply_mss(MSS);
@@ -40,7 +47,11 @@ fn launching_class_after_rebuild_bounces() {
         h.animate(std::time::Duration::from_millis(16));
         let id = h.find_by_class("item-launching")[0];
         let b = h.element_bounds(id);
-        let ty = h.element_mss(id).and_then(|m| m.compute_active_transform(b)).map(|t| t.m32).unwrap_or(0.0);
+        let ty = h
+            .element_mss(id)
+            .and_then(|m| m.compute_active_transform(b))
+            .map(|t| t.m32)
+            .unwrap_or(0.0);
         max_dy = max_dy.min(ty);
     }
     assert!(max_dy < -10.0, "значок должен подпрыгнуть, сдвиг {max_dy}");

@@ -368,7 +368,8 @@ impl NotificationHostElement {
         let title_avail = (max_w - pad * 2.0 - icon_slot - close_slot).max(40.0);
 
         let title_line_h = font_size * 1.4;
-        let title_lines = self.count_visual_lines(&item.title, title_avail, font_size, self.title_weight());
+        let title_lines =
+            self.count_visual_lines(&item.title, title_avail, font_size, self.title_weight());
         let title_h = title_line_h * title_lines as f32;
 
         let (msg_h, msg_gap) = if let Some(ref m) = item.message {
@@ -456,7 +457,10 @@ impl Element for NotificationHostElement {
         let radius = self.effective_border_radius();
         let font_size = self.effective_font_size();
         let font_family_owned = self.mss.font_family.clone();
-        let title_color = self.mss.color.unwrap_or_else(crate::theme_fallback::fallback_fg);
+        let title_color = self
+            .mss
+            .color
+            .unwrap_or_else(crate::theme_fallback::fallback_fg);
         let msg_color = title_color.with_alpha(0.7);
         let close_color_idle = title_color.with_alpha(0.4);
         let close_color_hover = title_color;
@@ -793,7 +797,8 @@ impl NotificationHostElement {
         let title_w =
             (rect.size.width - (title_x - rect.x()) - pad - CLOSE_ICON_SIZE - 8.0).max(40.0);
         let title_line_h = font_size * 1.4;
-        let title_lines = self.count_visual_lines(&n.item.title, title_w, font_size, self.title_weight());
+        let title_lines =
+            self.count_visual_lines(&n.item.title, title_w, font_size, self.title_weight());
         let title_rect = Rect::new(
             Point::new(title_x, rect.y() + pad),
             Size::new(title_w, title_line_h * title_lines as f32),
@@ -812,7 +817,8 @@ impl NotificationHostElement {
         if let Some(ref msg) = n.item.message {
             let msg_font_size = (font_size - 1.0).max(11.0);
             let msg_line_h = msg_font_size * 1.4;
-            let msg_lines = self.count_visual_lines(msg, title_w, msg_font_size, self.message_weight());
+            let msg_lines =
+                self.count_visual_lines(msg, title_w, msg_font_size, self.message_weight());
             let msg_y = title_rect.y() + title_rect.size.height + 4.0;
             let msg_rect = Rect::new(
                 Point::new(title_x, msg_y),

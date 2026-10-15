@@ -1025,7 +1025,9 @@ impl MssFields {
         self.transition = TransitionState::parse_from_style(base);
         let new_normal = ResolvedProps::from_style(base);
 
-        if let (Some((secs, easing)), Some(old)) = (element_theme_transition(), prev_normal.as_ref()) {
+        if let (Some((secs, easing)), Some(old)) =
+            (element_theme_transition(), prev_normal.as_ref())
+        {
             // Смена темы: цвета перетекают и там, где `transition` не
             // объявлен; свои правила элемента остаются в силе.
             self.transition.add_theme_specs(secs, easing);
@@ -1138,13 +1140,15 @@ impl MssFields {
         if bounds.size.width <= 0.0 || bounds.size.height <= 0.0 {
             return;
         }
-        let tilt = self.background_rotate.map(|(rx, ry, persp)| crate::core::Transform3D {
-            rotate_x: rx,
-            rotate_y: ry,
-            perspective: persp,
-            origin: self.transform_origin_or_center(bounds.size),
-            ..Default::default()
-        });
+        let tilt = self
+            .background_rotate
+            .map(|(rx, ry, persp)| crate::core::Transform3D {
+                rotate_x: rx,
+                rotate_y: ry,
+                perspective: persp,
+                origin: self.transform_origin_or_center(bounds.size),
+                ..Default::default()
+            });
         let tilt = tilt.filter(|t| t.is_active());
         if let Some(t) = &tilt {
             list.push_projected_layer(bounds, Some(t), None);
@@ -1152,18 +1156,36 @@ impl MssFields {
         let radii = self.resolved_corner_radii(bounds);
         if let Some(shadows) = &self.box_shadow {
             for sh in shadows.0.iter().filter(|sh| !sh.inset) {
-                list.push_shadow(bounds, sh.color, sh.blur_radius, (sh.offset_x, sh.offset_y), radii);
+                list.push_shadow(
+                    bounds,
+                    sh.color,
+                    sh.blur_radius,
+                    (sh.offset_x, sh.offset_y),
+                    radii,
+                );
             }
         }
         if let Some(glow) = &self.glow {
             for sh in &glow.0 {
-                list.push_glow_shadow(bounds, sh.color, sh.blur_radius, (sh.offset_x, sh.offset_y), radii);
+                list.push_glow_shadow(
+                    bounds,
+                    sh.color,
+                    sh.blur_radius,
+                    (sh.offset_x, sh.offset_y),
+                    radii,
+                );
             }
         }
         self.paint_background(list, bounds);
         if let Some(shadows) = &self.box_shadow {
             for sh in shadows.0.iter().filter(|sh| sh.inset) {
-                list.push_inner_shadow(bounds, sh.color, sh.blur_radius, (sh.offset_x, sh.offset_y), radii);
+                list.push_inner_shadow(
+                    bounds,
+                    sh.color,
+                    sh.blur_radius,
+                    (sh.offset_x, sh.offset_y),
+                    radii,
+                );
             }
         }
         self.paint_border(list, bounds);
@@ -1201,7 +1223,13 @@ impl MssFields {
     /// Фон перетекающего бокса тем же жёстким многоугольником, что и
     /// «ушки»: шейдер скруглённого прямоугольника размывает кромку на
     /// пиксель внутрь, и между боксом и ушками оставался полупрозрачный шов.
-    pub fn paint_flow_box(&self, list: &mut crate::render::DisplayList, bounds: crate::core::Rect, bg: Color, radii: [f32; 4]) {
+    pub fn paint_flow_box(
+        &self,
+        list: &mut crate::render::DisplayList,
+        bounds: crate::core::Rect,
+        bg: Color,
+        radii: [f32; 4],
+    ) {
         if bg.a <= 0.0 || bounds.size.width <= 0.0 || bounds.size.height <= 0.0 {
             return;
         }
@@ -1222,10 +1250,23 @@ impl MssFields {
             }
         };
         arc(&mut pts, x0 + r[0], y0 + r[0], r[0], std::f32::consts::PI);
-        arc(&mut pts, x1 - r[1], y0 + r[1], r[1], -std::f32::consts::FRAC_PI_2);
+        arc(
+            &mut pts,
+            x1 - r[1],
+            y0 + r[1],
+            r[1],
+            -std::f32::consts::FRAC_PI_2,
+        );
         arc(&mut pts, x1 - r[2], y1 - r[2], r[2], 0.0);
-        arc(&mut pts, x0 + r[3], y1 - r[3], r[3], std::f32::consts::FRAC_PI_2);
-        let mut ctx = crate::core::canvas::CanvasContext::new(crate::core::Point::zero(), bounds.size);
+        arc(
+            &mut pts,
+            x0 + r[3],
+            y1 - r[3],
+            r[3],
+            std::f32::consts::FRAC_PI_2,
+        );
+        let mut ctx =
+            crate::core::canvas::CanvasContext::new(crate::core::Point::zero(), bounds.size);
         ctx.set_color(bg);
         ctx.set_anti_alias(0.0);
         ctx.fill_polygon(&pts);
@@ -1236,8 +1277,15 @@ impl MssFields {
     /// Вогнутые «ушки» снаружи края `flow-edge`: карточка перетекает в
     /// панель, к которой примыкает. Рисуются за пределами `bounds`, поэтому
     /// родитель не должен обрезать содержимое по краю.
-    pub fn paint_flow(&self, list: &mut crate::render::DisplayList, bounds: crate::core::Rect, bg: Color) {
-        let (Some(edge), Some(r)) = (self.flow_edge, self.flow_radius) else { return };
+    pub fn paint_flow(
+        &self,
+        list: &mut crate::render::DisplayList,
+        bounds: crate::core::Rect,
+        bg: Color,
+    ) {
+        let (Some(edge), Some(r)) = (self.flow_edge, self.flow_radius) else {
+            return;
+        };
         if r <= 0.5 {
             return;
         }
@@ -1261,17 +1309,33 @@ impl MssFields {
             for i in 0..=steps {
                 let t = i as f32 / steps as f32 * std::f32::consts::FRAC_PI_2;
                 let (c, sn) = (t.cos(), t.sin());
-                pts.push((center.0 - a.0 * r * c - d.0 * r * sn, center.1 - a.1 * r * c - d.1 * r * sn));
+                pts.push((
+                    center.0 - a.0 * r * c - d.0 * r * sn,
+                    center.1 - a.1 * r * c - d.1 * r * sn,
+                ));
             }
             pts
         };
         let ears = match edge {
-            0 => [ear((x0, y0), (-1.0, 0.0), (0.0, 1.0)), ear((x1, y0), (1.0, 0.0), (0.0, 1.0))],
-            1 => [ear((x1, y0), (0.0, -1.0), (-1.0, 0.0)), ear((x1, y1), (0.0, 1.0), (-1.0, 0.0))],
-            2 => [ear((x0, y1), (-1.0, 0.0), (0.0, -1.0)), ear((x1, y1), (1.0, 0.0), (0.0, -1.0))],
-            _ => [ear((x0, y0), (0.0, -1.0), (1.0, 0.0)), ear((x0, y1), (0.0, 1.0), (1.0, 0.0))],
+            0 => [
+                ear((x0, y0), (-1.0, 0.0), (0.0, 1.0)),
+                ear((x1, y0), (1.0, 0.0), (0.0, 1.0)),
+            ],
+            1 => [
+                ear((x1, y0), (0.0, -1.0), (-1.0, 0.0)),
+                ear((x1, y1), (0.0, 1.0), (-1.0, 0.0)),
+            ],
+            2 => [
+                ear((x0, y1), (-1.0, 0.0), (0.0, -1.0)),
+                ear((x1, y1), (1.0, 0.0), (0.0, -1.0)),
+            ],
+            _ => [
+                ear((x0, y0), (0.0, -1.0), (1.0, 0.0)),
+                ear((x0, y1), (0.0, 1.0), (1.0, 0.0)),
+            ],
         };
-        let mut ctx = crate::core::canvas::CanvasContext::new(crate::core::Point::zero(), bounds.size);
+        let mut ctx =
+            crate::core::canvas::CanvasContext::new(crate::core::Point::zero(), bounds.size);
         ctx.set_color(color);
         ctx.set_anti_alias(0.0);
         for pts in ears {
@@ -1420,7 +1484,13 @@ impl MssFields {
     /// (`:active`, `:selected`, `:focus`, `:hover`), без базового правила.
     /// Градиентный фон (`background: linear-gradient(...)`) уступает только
     /// такой заливке: базовый `background-color` и `transition` его не отменяют.
-    pub fn state_background_color(&self, hovered: bool, pressed: bool, focused: bool, selected: bool) -> Option<Color> {
+    pub fn state_background_color(
+        &self,
+        hovered: bool,
+        pressed: bool,
+        focused: bool,
+        selected: bool,
+    ) -> Option<Color> {
         let pick = |p: &Option<ResolvedProps>| p.as_ref().and_then(|p| p.background_color());
         if pressed {
             if let Some(c) = pick(&self.style_active) {
@@ -1470,7 +1540,9 @@ impl MssFields {
             crate::animation::transition::AnimatedValue::Color(c) => Some(c),
             _ => None,
         };
-        pick(target).or(self.style_normal.as_ref().and_then(pick)).or(self.icon_color)
+        pick(target)
+            .or(self.style_normal.as_ref().and_then(pick))
+            .or(self.icon_color)
     }
 
     pub fn effective_border_color(&self, target: &ResolvedProps, fallback: Color) -> Color {
@@ -1753,7 +1825,11 @@ impl MssFields {
             .filter(|a| a.is_running())
             .and_then(|a| float(a.current_values().get(property)))
             .or_else(|| self.transition.get_animated_value(property).and_then(float))
-            .or_else(|| self.current_target.as_ref().and_then(|t| float(t.get(property))))
+            .or_else(|| {
+                self.current_target
+                    .as_ref()
+                    .and_then(|t| float(t.get(property)))
+            })
     }
 
     /// 3D-трансформация (`rotate-x`, `rotate-y`, `translate-z`,
@@ -1781,7 +1857,10 @@ impl MssFields {
     pub fn projected_layer_params(
         &self,
         bounds: crate::core::Rect,
-    ) -> Option<(Option<crate::core::Transform3D>, Option<crate::core::Reflection>)> {
+    ) -> Option<(
+        Option<crate::core::Transform3D>,
+        Option<crate::core::Reflection>,
+    )> {
         let t3d = self.compute_active_transform_3d(bounds);
         if t3d.is_none() && self.box_reflect.is_none() {
             return None;

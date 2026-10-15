@@ -270,12 +270,21 @@ mod tests {
 
     #[test]
     fn width_bound() {
-        assert_eq!(aspect_size(2.0, 0.0, c(400.0, f32::INFINITY)), Size::new(400.0, 200.0));
+        assert_eq!(
+            aspect_size(2.0, 0.0, c(400.0, f32::INFINITY)),
+            Size::new(400.0, 200.0)
+        );
     }
 
     #[test]
     fn height_bound_shrinks_width() {
-        assert_eq!(aspect_size(0.5, 300.0, c(400.0, f32::INFINITY)), Size::new(150.0, 300.0));
-        assert_eq!(aspect_size(1.0, 0.0, c(400.0, 100.0)), Size::new(100.0, 100.0));
+        assert_eq!(
+            aspect_size(0.5, 300.0, c(400.0, f32::INFINITY)),
+            Size::new(150.0, 300.0)
+        );
+        assert_eq!(
+            aspect_size(1.0, 0.0, c(400.0, 100.0)),
+            Size::new(100.0, 100.0)
+        );
     }
 }

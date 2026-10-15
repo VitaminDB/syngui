@@ -17,7 +17,11 @@ const DARK: &str = "
 ";
 
 fn tree() -> Box<dyn Widget> {
-    Box::new(DecoratedBox::new().child(Text::new("x").class("label")).class("card"))
+    Box::new(
+        DecoratedBox::new()
+            .child(Text::new("x").class("label"))
+            .class("card"),
+    )
 }
 
 #[test]
@@ -35,14 +39,23 @@ fn colors_flow_after_stylesheet_swap() {
     assert!(h.is_animating(label), "цвет текста должен перетекать");
 
     h.animate(Duration::from_millis(150));
-    let mid = h.element_mss(card).and_then(|m| m.transition.background_color()).expect("промежуточный фон");
+    let mid = h
+        .element_mss(card)
+        .and_then(|m| m.transition.background_color())
+        .expect("промежуточный фон");
     let lum = mid.r + mid.g + mid.b;
-    assert!(lum > 0.05 && lum < 2.95, "на середине перехода фон серый, а не чёрный/белый: {mid:?}");
+    assert!(
+        lum > 0.05 && lum < 2.95,
+        "на середине перехода фон серый, а не чёрный/белый: {mid:?}"
+    );
 
     assert!(h.animate(Duration::from_millis(400)));
     assert!(!h.is_animating(card));
     assert!(!h.is_animating(label));
-    assert!(h.element_mss(card).and_then(|m| m.transition.background_color()).is_none());
+    assert!(h
+        .element_mss(card)
+        .and_then(|m| m.transition.background_color())
+        .is_none());
 }
 
 #[test]
