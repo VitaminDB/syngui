@@ -372,6 +372,21 @@ impl DockState {
         self.root.set_always(root);
     }
 
+    /// Перенести панель `panel` к группе, где стоит `near`: в центр — в ту же
+    /// группу, к краю — рядом (например, два документа бок о бок).
+    pub fn move_beside(&self, panel: &str, near: &str, zone: DropZone) {
+        let group = self.root.with_untracked(|r| {
+            let mut groups = Vec::new();
+            if let Some(r) = r {
+                r.groups(&mut groups);
+            }
+            groups.iter().find(|g| g.panels.iter().any(|p| p == near)).map(|g| g.id)
+        });
+        if let Some(g) = group {
+            self.move_panel(panel, g, zone);
+        }
+    }
+
     /// Перенести панель в группу `group` (в зону `zone`).
     fn move_panel(&self, panel: &str, group: u64, zone: DropZone) {
         let Some(mut root) = self.root.get_untracked() else { return };
@@ -694,6 +709,13 @@ mod tests {
         assert_eq!(s.spec(), None);
         s.open("x", None);
         assert_eq!(s.panels(), ["x"]);
+    }
+
+    #[test]
+    fn move_beside_splits() {
+        let s = DockState::new(DockSpec::tabs(["a", "b"]));
+        s.move_beside("b", "a", DropZone::Right);
+        assert_eq!(s.spec(), Some(DockSpec::row(DockSpec::tabs(["a"]), DockSpec::tabs(["b"]), 0.5)));
     }
 
     #[test]
