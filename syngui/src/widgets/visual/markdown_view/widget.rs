@@ -81,7 +81,8 @@ impl MarkdownView {
             syntax_theme: None,
             highlighter: None,
             selectable: true,
-            code_font_family: None,
+            // код — моноширинным, как в любом редакторе
+            code_font_family: Some("monospace".into()),
             on_link_click: None,
             base_url: None,
         }

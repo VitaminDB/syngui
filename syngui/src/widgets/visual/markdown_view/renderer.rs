@@ -108,7 +108,7 @@ impl Default for MdStyle {
             code_bg: Color::from_hex("#F1F5F9"),
             code_color: Color::from_hex("#E11D48"),
             code_font_size: 13.0,
-            code_font_family: None,
+            code_font_family: Some("monospace".into()),
             code_padding_h: 5.0,
             code_radius: 4.0,
             code_block_bg: Color::from_hex("#1E293B"),
