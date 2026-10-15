@@ -1402,6 +1402,9 @@ impl TerminalElement {
             );
             if cell.flags.contains(CellFlags::REVERSE) {
                 std::mem::swap(&mut fg, &mut bg_for_reverse);
+                // Фон терминала бывает полупрозрачным (непрозрачность окна) —
+                // буквы цветом фона на инверсии вышли бы невидимыми.
+                fg = fg.with_alpha(1.0);
             }
             if cell.flags.contains(CellFlags::FAINT) {
                 fg = fg.with_alpha(fg.a * 0.6);

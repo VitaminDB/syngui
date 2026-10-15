@@ -174,7 +174,13 @@ impl winit::application::ApplicationHandler<SynGuiUserEvent> for AppHandler {
                     window.request_redraw();
                 }
             }
-            winit::event::WindowEvent::Focused(_) => {
+            winit::event::WindowEvent::Focused(focused) => {
+                // отпускание Shift вне окна не придёт
+                if !focused && self.held_shift != 0 {
+                    self.held_shift = 0;
+                    self.modifiers.shift = self.xkb_shift;
+                    self.tree.modifiers = self.modifiers;
+                }
                 self.sync_window_flags();
             }
             winit::event::WindowEvent::ThemeChanged(theme) => {
@@ -433,8 +439,9 @@ impl winit::application::ApplicationHandler<SynGuiUserEvent> for AppHandler {
                 }
             }
             winit::event::WindowEvent::ModifiersChanged(mods) => {
+                self.xkb_shift = mods.state().shift_key();
                 self.modifiers = Modifiers {
-                    shift: mods.state().shift_key(),
+                    shift: self.xkb_shift || self.held_shift != 0,
                     ctrl: mods.state().control_key(),
                     alt: mods.state().alt_key(),
                     meta: mods.state().super_key(),
@@ -443,6 +450,21 @@ impl winit::application::ApplicationHandler<SynGuiUserEvent> for AppHandler {
             }
             winit::event::WindowEvent::KeyboardInput { event, .. } => {
                 use winit::keyboard::PhysicalKey;
+
+                let shift_bit = match event.physical_key {
+                    PhysicalKey::Code(winit::keyboard::KeyCode::ShiftLeft) => 1,
+                    PhysicalKey::Code(winit::keyboard::KeyCode::ShiftRight) => 2,
+                    _ => 0,
+                };
+                if shift_bit != 0 {
+                    if event.state == winit::event::ElementState::Pressed {
+                        self.held_shift |= shift_bit;
+                    } else {
+                        self.held_shift &= !shift_bit;
+                    }
+                    self.modifiers.shift = self.xkb_shift || self.held_shift != 0;
+                    self.tree.modifiers = self.modifiers;
+                }
 
                 #[cfg(target_os = "android")]
                 {

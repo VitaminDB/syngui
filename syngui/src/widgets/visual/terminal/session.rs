@@ -179,6 +179,11 @@ impl TerminalSession {
         }
     }
 
+    /// Выделен ли текст (для пункта «Копировать» в меню приложения).
+    pub fn has_selection(&self) -> bool {
+        self.with_state_ref(|st| st.selection.is_active())
+    }
+
     pub fn revision(&self) -> u64 {
         self.inner.revision.load(Ordering::Acquire)
     }

@@ -107,6 +107,12 @@ pub(super) struct AppHandler {
     pub(super) focus_manager: FocusManager,
     pub(super) a11y_tree: A11yTree,
     pub(super) modifiers: Modifiers,
+    /// Shift по xkb (`ModifiersChanged`) и физически зажатые Shift (бит 0 —
+    /// левый, 1 — правый). При переключении раскладки по Ctrl+Shift xkb
+    /// делает из Shift `ISO_Next_Group`, и модификатор не выставляется —
+    /// Ctrl+Shift+T приходил бы как Ctrl+T.
+    pub(super) xkb_shift: bool,
+    pub(super) held_shift: u8,
     pub(super) a11y_dirty: bool,
     #[cfg(feature = "accessibility")]
     pub(super) accesskit_adapter: Option<accesskit_winit::Adapter>,
@@ -313,6 +319,8 @@ impl AppHandler {
             #[cfg(not(feature = "accessibility"))]
             a11y_tree: A11yTree::new(Box::new(LoggingAdapter)),
             modifiers: Modifiers::empty(),
+            xkb_shift: false,
+            held_shift: 0,
             a11y_dirty: true,
             #[cfg(feature = "accessibility")]
             accesskit_adapter: None,
