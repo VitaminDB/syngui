@@ -9,6 +9,12 @@
     box-shadow: 0px 12px 32px #00000066;
 }
 
+.palette-field {
+    width: 100%;
+    font-size: 14px;
+    padding: 9px 12px;
+}
+
 .palette-list {
     padding: 2px 0px;
 }

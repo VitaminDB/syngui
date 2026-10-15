@@ -56,12 +56,23 @@ impl DropZone {
 #[derive(Clone, Debug, PartialEq)]
 pub enum DockSpec {
     Split { vertical: bool, ratio: f32, first: Box<DockSpec>, second: Box<DockSpec> },
-    Tabs { panels: Vec<String>, active: usize },
+    /// Группа вкладок. `name` непустое — именованная группа: она остаётся
+    /// на месте, даже когда в ней не осталось вкладок (область документов),
+    /// и в неё можно открыть панель по имени ([`DockState::open_in`]).
+    Tabs { panels: Vec<String>, active: usize, name: String },
 }
 
 impl DockSpec {
     pub fn tabs<S: Into<String>>(panels: impl IntoIterator<Item = S>) -> Self {
-        DockSpec::Tabs { panels: panels.into_iter().map(Into::into).collect(), active: 0 }
+        DockSpec::Tabs { panels: panels.into_iter().map(Into::into).collect(), active: 0, name: String::new() }
+    }
+
+    /// Сделать группу именованной (см. [`DockSpec::Tabs`]).
+    pub fn named(self, group: impl Into<String>) -> Self {
+        match self {
+            DockSpec::Tabs { panels, active, .. } => DockSpec::Tabs { panels, active, name: group.into() },
+            other => other,
+        }
     }
 
     /// Разрез слева направо.
@@ -86,6 +97,7 @@ enum DockNode {
 #[derive(Clone)]
 struct Group {
     id: u64,
+    name: String,
     panels: Vec<String>,
     active: RwSignal<String>,
     /// Подсказка места вставки во время переноса: зона и размер тела группы.
@@ -93,9 +105,9 @@ struct Group {
 }
 
 impl Group {
-    fn new(panels: Vec<String>, active: usize) -> Self {
+    fn new(panels: Vec<String>, active: usize, name: String) -> Self {
         let active = panels.get(active).or(panels.first()).cloned().unwrap_or_default();
-        Group { id: NEXT_GROUP.fetch_add(1, Ordering::Relaxed), panels, active: use_signal(active), hint: use_signal(None) }
+        Group { id: NEXT_GROUP.fetch_add(1, Ordering::Relaxed), name, panels, active: use_signal(active), hint: use_signal(None) }
     }
 }
 
@@ -108,7 +120,7 @@ impl DockNode {
                 first: Box::new(Self::from_spec(first)),
                 second: Box::new(Self::from_spec(second)),
             },
-            DockSpec::Tabs { panels, active } => DockNode::Tabs(Group::new(panels.clone(), *active)),
+            DockSpec::Tabs { panels, active, name } => DockNode::Tabs(Group::new(panels.clone(), *active, name.clone())),
         }
     }
 
@@ -122,7 +134,11 @@ impl DockNode {
             },
             DockNode::Tabs(g) => {
                 let active = g.active.get_untracked();
-                DockSpec::Tabs { panels: g.panels.clone(), active: g.panels.iter().position(|p| *p == active).unwrap_or(0) }
+                DockSpec::Tabs {
+                    panels: g.panels.clone(),
+                    active: g.panels.iter().position(|p| *p == active).unwrap_or(0),
+                    name: g.name.clone(),
+                }
             }
         }
     }
@@ -156,7 +172,7 @@ impl DockNode {
                         g.active.set(next);
                     }
                 }
-                g.panels.is_empty()
+                g.panels.is_empty() && g.name.is_empty()
             }
             DockNode::Split { first, second, .. } => {
                 let first_empty = first.remove(panel);
@@ -185,7 +201,7 @@ impl DockNode {
             }
             DockNode::Tabs(g) if g.id == id => {
                 let old = DockNode::Tabs(g.clone());
-                let new = DockNode::Tabs(Group::new(vec![panel.to_string()], 0));
+                let new = DockNode::Tabs(Group::new(vec![panel.to_string()], 0, String::new()));
                 let dir = match zone {
                     DropZone::Top | DropZone::Bottom => SplitDirection::Vertical,
                     _ => SplitDirection::Horizontal,
@@ -206,11 +222,60 @@ impl DockNode {
 #[derive(Clone, Copy)]
 pub struct DockState {
     root: RwSignal<Option<DockNode>>,
+    focused: RwSignal<String>,
 }
 
 impl DockState {
     pub fn new(spec: DockSpec) -> Self {
-        DockState { root: use_signal(Some(DockNode::from_spec(&spec))) }
+        DockState { root: use_signal(Some(DockNode::from_spec(&spec))), focused: use_signal(String::new()) }
+    }
+
+    /// Последняя активированная панель (клик по вкладке, открытие, перенос).
+    /// Пустая строка — ещё ни одной. Закрытая панель здесь не остаётся.
+    pub fn focused(&self) -> RwSignal<String> {
+        self.focused
+    }
+
+    /// Как [`spec`](Self::spec), но с подпиской на изменения структуры (для
+    /// эффекта, сохраняющего раскладку). Доли разделителей не отслеживаются.
+    pub fn spec_tracked(&self) -> Option<DockSpec> {
+        self.root.with(|r| r.as_ref().map(DockNode::spec))
+    }
+
+    /// Панели именованной группы (пусто — группы нет или она пуста).
+    pub fn group_panels(&self, group: &str) -> Vec<String> {
+        self.root.with_untracked(|r| {
+            let mut groups = Vec::new();
+            if let Some(r) = r {
+                r.groups(&mut groups);
+            }
+            groups.iter().find(|g| g.name == group).map(|g| g.panels.clone()).unwrap_or_default()
+        })
+    }
+
+    /// Открыть панель в именованной группе (уже открыта — активировать).
+    /// Группы нет — как [`open`](Self::open) без соседа.
+    pub fn open_in(&self, panel: &str, group: &str) {
+        if self.activate(panel) {
+            return;
+        }
+        let mut root = self.root.get_untracked();
+        let target = root.as_ref().and_then(|r| {
+            let mut groups = Vec::new();
+            r.groups(&mut groups);
+            groups.iter().find(|g| g.name == group).map(|g| g.id)
+        });
+        match (target, root.as_mut()) {
+            (Some(id), Some(r)) => {
+                if let Some(g) = r.group_mut(id) {
+                    g.panels.push(panel.to_string());
+                    g.active.set(panel.to_string());
+                }
+                self.focused.set(panel.to_string());
+                self.root.set_always(root);
+            }
+            _ => self.open(panel, None),
+        }
     }
 
     /// Текущая раскладка (для сохранения). `None` — все панели закрыты.
@@ -248,6 +313,7 @@ impl DockState {
             match groups.iter().find(|g| g.panels.iter().any(|p| p == panel)) {
                 Some(g) => {
                     g.active.set(panel.to_string());
+                    self.focused.set(panel.to_string());
                     true
                 }
                 None => false,
@@ -278,14 +344,30 @@ impl DockState {
                 }
             }
         }
+        self.focused.set(panel.to_string());
         self.root.set_always(root);
     }
 
     /// Закрыть панель.
     pub fn close(&self, panel: &str) {
         let mut root = self.root.get_untracked();
+        let home = root.as_ref().and_then(|r| {
+            let mut groups = Vec::new();
+            r.groups(&mut groups);
+            groups.iter().find(|g| g.panels.iter().any(|p| p == panel)).map(|g| g.id)
+        });
         if root.as_mut().is_some_and(|r| r.remove(panel)) {
             root = None;
+        }
+        if self.focused.get_untracked() == panel {
+            // фокус — на ту, что стала активной в той же группе, иначе на любую
+            let next = root.as_ref().and_then(|r| {
+                let mut groups = Vec::new();
+                r.groups(&mut groups);
+                groups.sort_by_key(|g| Some(g.id) != home);
+                groups.iter().map(|g| g.active.get_untracked()).find(|a| !a.is_empty())
+            });
+            self.focused.set(next.unwrap_or_default());
         }
         self.root.set_always(root);
     }
@@ -312,6 +394,7 @@ impl DockState {
         } else {
             root.split_group(group, panel, zone);
         }
+        self.focused.set(panel.to_string());
         self.root.set_always(Some(root));
     }
 }
@@ -329,6 +412,7 @@ pub struct DockArea {
     closable: FlagFn,
     on_close: Option<CloseFn>,
     empty: Option<Arc<dyn Fn() -> Box<dyn Widget> + Send + Sync>>,
+    group_empty: Option<Arc<dyn Fn(&str) -> Box<dyn Widget> + Send + Sync>>,
 }
 
 impl DockArea {
@@ -340,6 +424,7 @@ impl DockArea {
             closable: Arc::new(|_| true),
             on_close: None,
             empty: None,
+            group_empty: None,
         }
     }
 
@@ -370,6 +455,13 @@ impl DockArea {
     /// Что показать, когда закрыты все панели.
     pub fn empty(mut self, f: impl Fn() -> Box<dyn Widget> + Send + Sync + 'static) -> Self {
         self.empty = Some(Arc::new(f));
+        self
+    }
+
+    /// Что показать в пустой именованной группе (по имени группы) —
+    /// например, стартовый экран в области документов.
+    pub fn group_empty(mut self, f: impl Fn(&str) -> Box<dyn Widget> + Send + Sync + 'static) -> Self {
+        self.group_empty = Some(Arc::new(f));
         self
     }
 
@@ -417,10 +509,14 @@ impl DockArea {
         let body = {
             let this = self.clone();
             let active = g.active;
+            let name = g.name.clone();
             Reactive::new(move || -> Vec<Box<dyn Widget>> {
                 let panel = active.get();
                 if panel.is_empty() {
-                    return vec![];
+                    return match &this.group_empty {
+                        Some(f) => vec![f(&name)],
+                        None => vec![],
+                    };
                 }
                 vec![(this.content)(&panel)]
             })
@@ -497,10 +593,14 @@ impl DockArea {
             );
         }
         let id = panel.to_string();
+        let focused = self.state.focused;
         Box::new(
             Draggable::new(DOCK_DRAG_TYPE, panel)
                 .label(title)
-                .on_click(move || active_sig.set(id.clone()))
+                .on_click(move || {
+                    active_sig.set(id.clone());
+                    focused.set(id.clone());
+                })
                 .child(DecoratedBox::new().class(if active { "dock-tab active" } else { "dock-tab" }).child(row)),
         )
     }
@@ -562,7 +662,8 @@ mod tests {
         let s = layout();
         s.move_panel("c", gid(&s, "a"), DropZone::Center);
         // группа «c» опустела — разделитель схлопнулся
-        assert_eq!(s.spec(), Some(DockSpec::Tabs { panels: vec!["a".into(), "b".into(), "c".into()], active: 2 }));
+        assert_eq!(s.spec(), Some(DockSpec::Tabs { panels: vec!["a".into(), "b".into(), "c".into()], active: 2, name: String::new() }));
+        assert_eq!(s.focused().get_untracked(), "c");
     }
 
     #[test]
@@ -587,11 +688,29 @@ mod tests {
         assert_eq!(s.panels(), ["a", "b", "c", "d"]);
         s.close("a");
         s.close("b");
-        assert_eq!(s.spec(), Some(DockSpec::Tabs { panels: vec!["c".into(), "d".into()], active: 1 }));
+        assert_eq!(s.spec(), Some(DockSpec::Tabs { panels: vec!["c".into(), "d".into()], active: 1, name: String::new() }));
         s.close("c");
         s.close("d");
         assert_eq!(s.spec(), None);
         s.open("x", None);
         assert_eq!(s.panels(), ["x"]);
+    }
+
+    #[test]
+    fn named_group_survives_empty() {
+        let s = DockState::new(DockSpec::row(DockSpec::tabs(["tree"]), DockSpec::tabs(Vec::<String>::new()).named("docs"), 0.2));
+        s.open_in("doc:1", "docs");
+        s.open_in("doc:2", "docs");
+        assert_eq!(s.group_panels("docs"), ["doc:1", "doc:2"]);
+        assert_eq!(s.focused().get_untracked(), "doc:2");
+        s.close("doc:2");
+        assert_eq!(s.focused().get_untracked(), "doc:1");
+        s.close("doc:1");
+        assert_eq!(s.focused().get_untracked(), "tree");
+        // группа документов на месте, пустая
+        assert_eq!(s.group_panels("docs"), Vec::<String>::new());
+        assert!(matches!(s.spec(), Some(DockSpec::Split { .. })));
+        s.open_in("doc:3", "docs");
+        assert_eq!(s.group_panels("docs"), ["doc:3"]);
     }
 }
