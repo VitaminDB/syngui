@@ -3,6 +3,7 @@ name = "widget_gallery_mss"
 version = "0.1.0"
 edition = "2021"
 authors = ["Alexeyev Vitaly"]
+license.workspace = true
 build = "build.rs"
 
 [lib]

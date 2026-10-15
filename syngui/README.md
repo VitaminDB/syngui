@@ -125,5 +125,4 @@ FFmpeg 7+ development libraries. Without it, no FFmpeg linkage occurs.
 
 ## License
 
-Licensed under either of [Apache-2.0](../LICENSE-APACHE) or [MIT](../LICENSE-MIT) at your
-option.
+syngui is dual-licensed: free under the [GNU GPL v3.0](../LICENSE) (with an [additional permission](../LICENSE-EXCEPTION.md) for proprietary GPU/NPU runtime libraries), or under a [commercial licence](../LICENSE-COMMERCIAL.md) for companies that ship it in closed-source products. Versions up to 15 October 2026 remain under MIT OR Apache-2.0.
