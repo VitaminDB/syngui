@@ -20,6 +20,9 @@ pub struct TreeNodeDecoration {
     pub icon_color: Option<Color>,
     pub badge_color: Option<Color>,
     pub strikethrough: bool,
+    /// Подпись у правого края строки (статус `M`/`A`/`D`, счётчик…).
+    pub trailing: Option<String>,
+    pub trailing_color: Option<Color>,
 }
 
 #[derive(Clone, Debug)]
@@ -84,6 +87,15 @@ impl TreeNode {
     pub fn badge(mut self, c: Color) -> Self {
         let mut deco = self.decoration.take().unwrap_or_default();
         deco.badge_color = Some(c);
+        self.decoration = Some(deco);
+        self
+    }
+
+    /// Подпись у правого края строки: буква статуса, счётчик.
+    pub fn trailing(mut self, text: impl Into<String>, color: Option<Color>) -> Self {
+        let mut deco = self.decoration.take().unwrap_or_default();
+        deco.trailing = Some(text.into());
+        deco.trailing_color = color;
         self.decoration = Some(deco);
         self
     }
@@ -272,6 +284,7 @@ const ARROW_ZONE_WIDTH: f32 = 20.0;
 /// Размер подписи узла и шаг переноса. `* 1.3` — тот же множитель, что
 /// `FontAtlas::shape_text` использует для межстрочного интервала.
 const LABEL_FONT_SIZE: f32 = 14.0;
+const TRAILING_FONT_SIZE: f32 = 11.0;
 const LABEL_LINE_HEIGHT: f32 = LABEL_FONT_SIZE * 1.3;
 
 /// Плашка выделения/hover. `PAD` — воздух между рамкой и содержимым: он
@@ -670,12 +683,19 @@ impl Element for TreeViewElement {
             // высоте центр текста совпадает с центром плашки — иначе воздух
             // сверху и снизу получается разным. Заодно сюда помещаются все
             // строки переноса.
+            // подпись справа (статус, счётчик) — место под неё отнимается у имени
+            let right_edge = self.bounds.x() + self.label_right(self.bounds.size.width);
+            let mut label_right = right_edge;
+            if let Some(t) = node.decoration.as_ref().and_then(|d| d.trailing.as_deref()).filter(|t| !t.is_empty()) {
+                let w = t.chars().count() as f32 * TRAILING_FONT_SIZE * 0.62 + 6.0;
+                let rect = Rect::new(Point::new(right_edge - w, y), Size::new(w, geom.height));
+                let col = node.decoration.as_ref().and_then(|d| d.trailing_color).unwrap_or_else(|| fg.with_alpha(0.55));
+                list.push_text_aligned(t, rect, col, TRAILING_FONT_SIZE, TextAlign::RIGHT, TextDecoration::None, 600);
+                label_right = right_edge - w - 6.0;
+            }
             let label_rect = Rect::new(
                 Point::new(text_x, y),
-                Size::new(
-                    (self.bounds.x() + self.label_right(self.bounds.size.width) - text_x).max(0.0),
-                    geom.height,
-                ),
+                Size::new((label_right - text_x).max(0.0), geom.height),
             );
             let text_color = if is_selected {
                 primary
