@@ -36,6 +36,9 @@ struct SessionShared {
     stop_flag: AtomicBool,
     pump_join: Mutex<Option<JoinHandle<()>>>,
     pending_config: Mutex<Option<TerminalConfig>>,
+    /// Ввод до запуска PTY (он стартует, когда терминал впервые показан) —
+    /// отправляется при запуске, а не теряется.
+    pending_input: Mutex<Vec<u8>>,
     autofocus_consumed: AtomicBool,
 }
 
@@ -73,6 +76,7 @@ impl TerminalSession {
             exited: AtomicBool::new(false),
             stop_flag: AtomicBool::new(false),
             pump_join: Mutex::new(None),
+            pending_input: Mutex::new(Vec::new()),
             pending_config: Mutex::new(Some(config)),
             autofocus_consumed: AtomicBool::new(false),
         });
@@ -125,6 +129,13 @@ impl TerminalSession {
             s.grid.resize(cols as usize, rows as usize);
         }
         if let Ok(mut pty_slot) = self.inner.pty.lock() {
+            let mut pty = pty;
+            let queued = self.inner.pending_input.lock().map(|mut q| std::mem::take(&mut *q)).unwrap_or_default();
+            if !queued.is_empty() {
+                if let Err(e) = pty.write(&queued) {
+                    log::error!("[syngui terminal] pty write error: {e}");
+                }
+            }
             *pty_slot = Some(pty);
         }
         let pump = spawn_pump(self.inner.clone(), rx);
@@ -171,10 +182,19 @@ impl TerminalSession {
             return;
         }
         if let Ok(mut pty) = self.inner.pty.lock() {
-            if let Some(p) = pty.as_mut() {
-                if let Err(e) = p.write(bytes) {
-                    log::error!("[syngui terminal] pty write error: {e}");
+            match pty.as_mut() {
+                Some(p) => {
+                    if let Err(e) = p.write(bytes) {
+                        log::error!("[syngui terminal] pty write error: {e}");
+                    }
                 }
+                // PTY ещё не запущен — в очередь
+                None if !self.inner.exited.load(Ordering::Acquire) => {
+                    if let Ok(mut q) = self.inner.pending_input.lock() {
+                        q.extend_from_slice(bytes);
+                    }
+                }
+                None => {}
             }
         }
     }
