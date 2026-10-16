@@ -102,12 +102,15 @@ struct Group {
     active: RwSignal<String>,
     /// Подсказка места вставки во время переноса: зона и размер тела группы.
     hint: RwSignal<Option<(DropZone, Size)>>,
+    /// Перенос над заголовком: (куда вставить, чья подсказка — индекс
+    /// вкладки или `usize::MAX` для пустого места заголовка).
+    insert: RwSignal<Option<(usize, usize)>>,
 }
 
 impl Group {
     fn new(panels: Vec<String>, active: usize, name: String) -> Self {
         let active = panels.get(active).or(panels.first()).cloned().unwrap_or_default();
-        Group { id: NEXT_GROUP.fetch_add(1, Ordering::Relaxed), name, panels, active: use_signal(active), hint: use_signal(None) }
+        Group { id: NEXT_GROUP.fetch_add(1, Ordering::Relaxed), name, panels, active: use_signal(active), hint: use_signal(None), insert: use_signal(None) }
     }
 }
 
@@ -387,6 +390,32 @@ impl DockState {
         }
     }
 
+    /// Поставить панель в группу `group` на место `index` (до вкладки с этим
+    /// номером; `len` — в конец). Своя группа — перестановка, как вкладки
+    /// браузера; чужая — перенос с вставкой.
+    pub fn insert_panel(&self, panel: &str, group: u64, index: usize) {
+        let Some(mut root) = self.root.get_untracked() else { return };
+        let own = {
+            let mut groups = Vec::new();
+            root.groups(&mut groups);
+            let Some(target) = groups.iter().find(|g| g.id == group) else { return };
+            target.panels.iter().position(|p| p == panel)
+        };
+        // на своё же место — ничего
+        if own.is_some_and(|o| index == o || index == o + 1) {
+            return;
+        }
+        root.remove(panel);
+        let index = if own.is_some_and(|o| o < index) { index - 1 } else { index };
+        if let Some(g) = root.group_mut(group) {
+            let i = index.min(g.panels.len());
+            g.panels.insert(i, panel.to_string());
+            g.active.set(panel.to_string());
+        }
+        self.focused.set(panel.to_string());
+        self.root.set_always(Some(root));
+    }
+
     /// Перенести панель в группу `group` (в зону `zone`).
     fn move_panel(&self, panel: &str, group: u64, zone: DropZone) {
         let Some(mut root) = self.root.get_untracked() else { return };
@@ -515,8 +544,8 @@ impl DockArea {
             Reactive::new(move || -> Vec<Box<dyn Widget>> {
                 let active = g.active.get();
                 let mut row = Row::new().gap(0.0);
-                for p in &g.panels {
-                    row = row.child(this.tab(p, *p == active, g.active));
+                for (i, p) in g.panels.iter().enumerate() {
+                    row = row.child(this.tab(p, *p == active, &g, i));
                 }
                 vec![Box::new(row)]
             })
@@ -567,11 +596,26 @@ impl DockArea {
             })
             .child(Stack::new().fit(StackFit::Expand).child(body).child(overlay));
 
-        // Бросок на заголовок — всегда «в эту группу».
+        // Бросок на пустое место заголовка — в конец этой группы.
+        let insert = g.insert;
+        let count = g.panels.len();
         let header_drop = DropArea::new()
             .accept_types(vec![DOCK_DRAG_TYPE.to_string()])
             .placeholder("")
-            .on_drop(move |d| state.move_panel(&d.payload, gid, DropZone::Center))
+            .on_drag_over(move |_| {
+                if insert.get_untracked() != Some((count, usize::MAX)) {
+                    insert.set(Some((count, usize::MAX)));
+                }
+            })
+            .on_drag_leave(move || {
+                if insert.get_untracked().is_some_and(|(_, o)| o == usize::MAX) {
+                    insert.set(None);
+                }
+            })
+            .on_drop(move |d| {
+                insert.set(None);
+                state.insert_panel(&d.payload, gid, usize::MAX);
+            })
             .child(DecoratedBox::new().class("dock-header").child(header));
 
         Box::new(
@@ -585,38 +629,78 @@ impl DockArea {
         )
     }
 
-    fn tab(self: &Arc<Self>, panel: &str, active: bool, active_sig: RwSignal<String>) -> Box<dyn Widget> {
+    fn tab(self: &Arc<Self>, panel: &str, active: bool, g: &Group, index: usize) -> Box<dyn Widget> {
+        let active_sig = g.active;
         let title = (self.title)(panel);
-        let mut row = Row::new()
-            .gap(6.0)
-            .cross_axis_alignment(crate::layout::CrossAxisAlignment::Center)
-            .child(Text::new(&title).class("dock-tab-title"));
-        if (self.closable)(panel) {
-            let state = self.state;
-            let on_close = self.on_close.clone();
-            let id = panel.to_string();
-            row = row.child(
-                Draggable::new("syngui-dock-close", "")
-                    .threshold(f32::MAX)
-                    .on_click(move || {
-                        state.close(&id);
-                        if let Some(f) = &on_close {
-                            f(&id);
-                        }
-                    })
-                    .child(Text::new("×").class("dock-tab-close")),
-            );
-        }
+        let closable = (self.closable)(panel);
+        let tab_row = {
+            let (state, on_close, id, title) = (self.state, self.on_close.clone(), panel.to_string(), title.clone());
+            move || {
+                let mut row = Row::new()
+                    .gap(6.0)
+                    .cross_axis_alignment(crate::layout::CrossAxisAlignment::Center)
+                    .child(Text::new(&title).class("dock-tab-title"));
+                if closable {
+                    let (on_close, id) = (on_close.clone(), id.clone());
+                    row = row.child(
+                        Draggable::new("syngui-dock-close", "")
+                            .threshold(f32::MAX)
+                            .on_click(move || {
+                                state.close(&id);
+                                if let Some(f) = &on_close {
+                                    f(&id);
+                                }
+                            })
+                            .child(Text::new("×").class("dock-tab-close")),
+                    );
+                }
+                row
+            }
+        };
         let id = panel.to_string();
         let focused = self.state.focused;
+        let insert = g.insert;
+        // полоса места вставки — слева (до вкладки) или справа (после последней)
+        let last = index + 1 == g.panels.len();
+        let body = move || {
+            let mark = match insert.get() {
+                Some((at, _)) if at == index => " drop-before",
+                Some((at, _)) if last && at > index => " drop-after",
+                _ => "",
+            };
+            DecoratedBox::new().class(format!("{}{mark}", if active { "dock-tab active" } else { "dock-tab" })).child(tab_row())
+        };
+        let drag = Draggable::new(DOCK_DRAG_TYPE, panel)
+            .label(title)
+            .on_click(move || {
+                active_sig.set(id.clone());
+                focused.set(id.clone());
+            })
+            .child(body);
+        // бросок на вкладку: левая половина — до неё, правая — после
+        let state = self.state;
+        let gid = g.id;
+        let at = move |info: &DropInfo| if info.local_position.x < info.size.width / 2.0 { index } else { index + 1 };
         Box::new(
-            Draggable::new(DOCK_DRAG_TYPE, panel)
-                .label(title)
-                .on_click(move || {
-                    active_sig.set(id.clone());
-                    focused.set(id.clone());
+            DropArea::new()
+                .accept_types(vec![DOCK_DRAG_TYPE.to_string()])
+                .placeholder("")
+                .on_drag_over(move |info: DropInfo| {
+                    let v = Some((at(&info), index));
+                    if insert.get_untracked() != v {
+                        insert.set(v);
+                    }
                 })
-                .child(DecoratedBox::new().class(if active { "dock-tab active" } else { "dock-tab" }).child(row)),
+                .on_drag_leave(move || {
+                    if insert.get_untracked().is_some_and(|(_, o)| o == index) {
+                        insert.set(None);
+                    }
+                })
+                .on_drop_positioned(move |info: DropInfo| {
+                    insert.set(None);
+                    state.insert_panel(&info.data.payload, gid, at(&info));
+                })
+                .child(drag),
         )
     }
 }
@@ -694,6 +778,33 @@ mod tests {
         let before = s.spec();
         s.move_panel("b", gid(&s, "b"), DropZone::Left);
         assert_eq!(s.spec(), before);
+    }
+
+    #[test]
+    fn reorder_like_browser() {
+        let s = DockState::new(DockSpec::tabs(["a", "b", "c", "d"]));
+        let g = gid(&s, "a");
+        // «a» после «c»
+        s.insert_panel("a", g, 3);
+        assert_eq!(s.panels(), ["b", "c", "a", "d"]);
+        // «d» в начало
+        s.insert_panel("d", g, 0);
+        assert_eq!(s.panels(), ["d", "b", "c", "a"]);
+        // на своё место — без изменений
+        s.insert_panel("b", g, 1);
+        s.insert_panel("b", g, 2);
+        assert_eq!(s.panels(), ["d", "b", "c", "a"]);
+        // в конец
+        s.insert_panel("d", g, usize::MAX);
+        assert_eq!(s.panels(), ["b", "c", "a", "d"]);
+        assert_eq!(s.focused().get_untracked(), "d");
+    }
+
+    #[test]
+    fn insert_from_other_group() {
+        let s = layout();
+        s.insert_panel("c", gid(&s, "a"), 1);
+        assert_eq!(s.spec(), Some(DockSpec::Tabs { panels: vec!["a".into(), "c".into(), "b".into()], active: 1, name: String::new() }));
     }
 
     #[test]

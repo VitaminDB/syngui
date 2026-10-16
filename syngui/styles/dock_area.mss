@@ -17,10 +17,13 @@
 
 .dock-tab {
     height: 34px;
-    padding: 0px 12px;
+    padding: 0px 10px;
     align-items: center;
     border-color: transparent;
     border-bottom-width: 2px;
+    /* боковые — под полосу места вставки при переносе вкладки */
+    border-left-width: 2px;
+    border-right-width: 2px;
 }
 
 .dock-tab:hover {
@@ -28,7 +31,7 @@
 }
 
 .dock-tab.active {
-    border-color: var(--primary, #4F8CFF);
+    border-bottom-color: var(--primary, #4F8CFF);
     background-color: var(--bg-panel, #151922);
 }
 
@@ -59,4 +62,13 @@
     border-color: var(--primary, #4F8CFF);
     border-width: 2px;
     border-radius: 6px;
+}
+
+/* куда встанет перетаскиваемая вкладка */
+.dock-tab.drop-before {
+    border-left-color: var(--primary, #4F8CFF);
+}
+
+.dock-tab.drop-after {
+    border-right-color: var(--primary, #4F8CFF);
 }
