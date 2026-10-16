@@ -123,6 +123,10 @@ impl Widget for TableView {
             header_font_size: self.custom_header_font_size.unwrap_or(12.0),
             header_padding: 12.0,
             row_hover_bg: self.custom_row_hover_bg,
+            popup_bg: None,
+            popup_fg: None,
+            popup_border: None,
+            popup_hover_bg: None,
             row_selected_bg: self.custom_row_selected_bg,
             row_striped_bg: None,
             row_padding: self.custom_row_padding.unwrap_or([0.0; 4]),
@@ -258,6 +262,11 @@ pub struct TableViewElement {
     header_font_size: f32,
     header_padding: f32,
     row_hover_bg: Option<Color>,
+    /// `--popup-*` из MSS — цвета всплывающих панелей таблицы.
+    popup_bg: Option<Color>,
+    popup_fg: Option<Color>,
+    popup_border: Option<Color>,
+    popup_hover_bg: Option<Color>,
     row_selected_bg: Option<Color>,
     row_striped_bg: Option<Color>,
     row_padding: [f32; 4],
@@ -1690,19 +1699,7 @@ impl TableViewElement {
         let Some(rect) = self.context_menu_rect() else {
             return;
         };
-        let bg = self
-            .mss
-            .background_color
-            .unwrap_or_else(crate::theme_fallback::fallback_surface);
-        let border_color = self
-            .mss
-            .border_color
-            .unwrap_or_else(crate::theme_fallback::fallback_border);
-        let fg = self
-            .mss
-            .color
-            .unwrap_or_else(crate::theme_fallback::fallback_fg_strong);
-        let hover_bg = self.row_hover_bg.unwrap_or_else(|| bg.darken(0.06));
+        let (bg, fg, border_color, hover_bg) = self.popup_colors();
 
         let shadow = Rect::new(Point::new(rect.x() + 2.0, rect.y() + 4.0), rect.size);
         list.push_rect(
@@ -2079,24 +2076,27 @@ impl TableViewElement {
         }
     }
 
+    /// Цвета всплывающих панелей (контекстное меню, выбор колонок): как у
+    /// `PopupMenu` — переменные `--popup-*`; без них — фон таблицы, если он
+    /// непрозрачный, иначе поверхность темы (у таблицы с прозрачным фоном
+    /// меню иначе просвечивало бы).
+    fn popup_colors(&self) -> (Color, Color, Color, Color) {
+        let bg = self.popup_bg.unwrap_or_else(|| match self.mss.background_color {
+            Some(c) if c.a > 0.95 => c,
+            _ => crate::theme_fallback::fallback_surface().with_alpha(1.0),
+        });
+        let fg = self.popup_fg.or(self.mss.color).unwrap_or_else(crate::theme_fallback::fallback_fg_strong);
+        let border = self.popup_border.or(self.mss.border_color).unwrap_or_else(crate::theme_fallback::fallback_border);
+        let hover = self.popup_hover_bg.or(self.row_hover_bg).unwrap_or_else(|| bg.darken(0.06));
+        (bg, fg, border, hover)
+    }
+
     fn draw_popover(&self, list: &mut DisplayList) {
         let Some(pop_rect) = self.popover_rect() else {
             return;
         };
-        let bg = self
-            .mss
-            .background_color
-            .unwrap_or_else(crate::theme_fallback::fallback_surface);
-        let border_color = self
-            .mss
-            .border_color
-            .unwrap_or_else(crate::theme_fallback::fallback_border);
-        let fg = self
-            .mss
-            .color
-            .unwrap_or_else(crate::theme_fallback::fallback_fg_strong);
+        let (bg, fg, border_color, hover_bg) = self.popup_colors();
         let primary = self.mss.accent_color.unwrap_or(Color::from_hex("#3B82F6"));
-        let hover_bg = self.row_hover_bg.unwrap_or_else(|| bg.darken(0.06));
 
         let shadow_rect = Rect::new(
             Point::new(pop_rect.x() + 2.0, pop_rect.y() + 4.0),
@@ -3908,6 +3908,16 @@ impl Element for TableViewElement {
 
         if let Some(v) = style.get("header-bg").and_then(|v| v.as_color()) {
             self.header_bg_custom = Some(mss_color_to_core(v));
+        }
+        for (key, slot) in [
+            ("--popup-background", &mut self.popup_bg),
+            ("--popup-color", &mut self.popup_fg),
+            ("--popup-border", &mut self.popup_border),
+            ("--popup-hover-background", &mut self.popup_hover_bg),
+        ] {
+            if let Some(v) = style.get(key).and_then(|v| v.as_color()) {
+                *slot = Some(mss_color_to_core(v));
+            }
         }
         if let Some(v) = style.get("header-color").and_then(|v| v.as_color()) {
             self.header_color_custom = Some(mss_color_to_core(v));
