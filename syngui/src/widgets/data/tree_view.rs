@@ -690,7 +690,7 @@ impl Element for TreeViewElement {
                 let w = t.chars().count() as f32 * TRAILING_FONT_SIZE * 0.62 + 6.0;
                 let rect = Rect::new(Point::new(right_edge - w, y), Size::new(w, geom.height));
                 let col = node.decoration.as_ref().and_then(|d| d.trailing_color).unwrap_or_else(|| fg.with_alpha(0.55));
-                list.push_text_aligned(t, rect, col, TRAILING_FONT_SIZE, TextAlign::RIGHT, TextDecoration::None, 600);
+                list.push_text_aligned(t, rect, col, TRAILING_FONT_SIZE, TextAlign::RIGHT | TextAlign::VCENTER, TextDecoration::None, 600);
                 label_right = right_edge - w - 6.0;
             }
             let label_rect = Rect::new(
