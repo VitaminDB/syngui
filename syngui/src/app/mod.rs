@@ -29,6 +29,48 @@ pub(crate) mod web_text_agent;
 
 pub use builder::{AppBuilder, WindowConfig};
 
+#[cfg(all(not(target_arch = "wasm32"), not(target_os = "android")))]
+static CONTROL_PROXY: std::sync::Mutex<
+    Option<winit::event_loop::EventLoopProxy<user_event::SynGuiUserEvent>>,
+> = std::sync::Mutex::new(None);
+
+#[cfg(all(not(target_arch = "wasm32"), not(target_os = "android")))]
+pub(crate) fn set_control_proxy(
+    proxy: winit::event_loop::EventLoopProxy<user_event::SynGuiUserEvent>,
+) {
+    if let Ok(mut slot) = CONTROL_PROXY.lock() {
+        *slot = Some(proxy);
+    }
+}
+
+fn send_control(_event: user_event::SynGuiUserEvent) -> bool {
+    #[cfg(all(not(target_arch = "wasm32"), not(target_os = "android")))]
+    if let Some(proxy) = CONTROL_PROXY.lock().ok().and_then(|g| g.clone()) {
+        return proxy.send_event(_event).is_ok();
+    }
+    false
+}
+
+/// Показать главное окно (создать, если оно спрятано или ещё не создавалось)
+/// и поднять его. Можно звать из любого потока; `false` — цикл событий ещё
+/// не запущен.
+pub fn show_main_window() -> bool {
+    send_control(user_event::SynGuiUserEvent::Activate)
+}
+
+/// Спрятать главное окно; процесс и состояние вне дерева виджетов живут.
+pub fn hide_main_window() -> bool {
+    send_control(user_event::SynGuiUserEvent::TrayHide)
+}
+
+/// Видно ли сейчас главное окно.
+pub fn main_window_visible() -> bool {
+    MAIN_WINDOW_VISIBLE.load(std::sync::atomic::Ordering::Relaxed)
+}
+
+pub(crate) static MAIN_WINDOW_VISIBLE: std::sync::atomic::AtomicBool =
+    std::sync::atomic::AtomicBool::new(false);
+
 /// Заявка на «тик без кадра»: цикл событий проснётся через `after`, снова
 /// обойдёт анимации (`Element::animate`) и не будет рисовать кадр, если
 /// анимации сами не пометят элементы грязными. Нужен элементам, которым

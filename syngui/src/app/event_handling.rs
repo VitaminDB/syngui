@@ -11,6 +11,16 @@ impl winit::application::ApplicationHandler<SynGuiUserEvent> for AppHandler {
         web_sys::console::log_1(&"[syngui] resumed() called".into());
 
         if self.window.is_none() {
+            if self.config.start_hidden && !self.started_hidden {
+                // Первый resumed резидентной программы: окна нет, пока его не
+                // попросят (show_main_window / второй экземпляр).
+                self.started_hidden = true;
+                self.main_window_visible = false;
+                return;
+            }
+            if self.config.start_hidden && !self.main_window_visible && !self.pending_show {
+                return;
+            }
             self.init(event_loop);
         } else {
             #[cfg(target_os = "android")]
@@ -812,6 +822,7 @@ impl winit::application::ApplicationHandler<SynGuiUserEvent> for AppHandler {
             self.pending_show = false;
             self.init(event_loop);
             self.main_window_visible = true;
+            super::MAIN_WINDOW_VISIBLE.store(true, std::sync::atomic::Ordering::Relaxed);
             if let Some(window) = self.window.as_ref() {
                 window.focus();
                 crate::perf::redraw_from(file!(), line!());

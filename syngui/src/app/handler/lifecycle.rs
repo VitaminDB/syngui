@@ -81,6 +81,7 @@ impl AppHandler {
         self.main_window_id = Some(window.winit_window().id());
         self.window = Some(window.clone());
         self.main_window_visible = true;
+        crate::app::MAIN_WINDOW_VISIBLE.store(true, std::sync::atomic::Ordering::Relaxed);
 
         #[cfg(all(feature = "wayland-dnd", target_os = "linux"))]
         if self.wayland_dnd_handle.is_none() {

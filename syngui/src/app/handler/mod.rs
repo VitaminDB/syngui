@@ -192,6 +192,8 @@ pub(super) struct AppHandler {
     pub(super) main_window_visible: bool,
 
     pub(super) pending_show: bool,
+    /// Первый resumed при `start_hidden` уже пропущен.
+    pub(super) started_hidden: bool,
 
     /// Android: активити в фоне (surface уничтожен). winit в этом состоянии
     /// игнорирует wake-up'ы EventLoopProxy («ignore wake ups while suspended»),
@@ -381,6 +383,7 @@ impl AppHandler {
             last_backdrop: None,
             main_window_visible: true,
             pending_show: false,
+            started_hidden: false,
             #[cfg(target_os = "android")]
             android_suspended: false,
             touch: crate::input::TouchTracker::new(),
@@ -399,6 +402,9 @@ impl AppHandler {
     }
 
     pub(super) fn should_hide_on_close(&self) -> bool {
+        if self.config.hide_on_close {
+            return true;
+        }
         #[cfg(all(
             feature = "tray",
             not(target_arch = "wasm32"),
@@ -424,6 +430,7 @@ impl AppHandler {
                 window.request_redraw();
             }
             self.main_window_visible = true;
+            super::super::MAIN_WINDOW_VISIBLE.store(true, std::sync::atomic::Ordering::Relaxed);
         } else {
             self.pending_show = true;
         }
@@ -436,6 +443,7 @@ impl AppHandler {
             window.set_visible(false);
         }
         self.main_window_visible = false;
+        super::super::MAIN_WINDOW_VISIBLE.store(false, std::sync::atomic::Ordering::Relaxed);
     }
 
     pub(super) fn destroy_window_and_gpu(&mut self) {

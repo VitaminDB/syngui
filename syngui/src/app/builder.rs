@@ -125,6 +125,11 @@ pub struct AppBuilder {
     pub(super) window_icon_png: Option<Vec<u8>>,
     pub(super) tray_config: Option<crate::app::tray::TrayConfig>,
     pub(super) single_instance_id: Option<String>,
+    /// Не создавать окно при старте: приложение работает в фоне, окно
+    /// появится по [`show_main_window`](crate::app::show_main_window).
+    pub(super) start_hidden: bool,
+    /// Закрытие окна прячет его (как с треем), процесс продолжает работать.
+    pub(super) hide_on_close: bool,
     /// Спросить приложение перед закрытием окна: `false` — закрытие отменено.
     pub(super) close_guard: Option<CloseGuard>,
     /// Web: клавиши F1–F12, которые получает приложение (остальные — браузеру).
@@ -197,6 +202,8 @@ impl AppBuilder {
             window_icon_png: None,
             tray_config: None,
             single_instance_id: None,
+            start_hidden: false,
+            hide_on_close: false,
             close_guard: None,
             captured_function_keys: crate::input::FunctionKeys::NONE,
             ui_scale: 1.0,
@@ -621,6 +628,22 @@ impl AppBuilder {
         self
     }
 
+    /// Запуск без окна: цикл событий, таймеры и `run_on_main_thread`
+    /// работают, а окно создаётся по [`show_main_window`](crate::app::show_main_window)
+    /// (или активацией второго экземпляра). Для резидентных программ.
+    pub fn start_hidden(mut self, hidden: bool) -> Self {
+        self.start_hidden = hidden;
+        self
+    }
+
+    /// Закрытие окна (✕, Alt+F4) прячет его, процесс остаётся жить. На
+    /// Wayland окно вместе с деревом виджетов и ГПУ-ресурсами уничтожается и
+    /// строится заново при показе — состояние держите вне дерева.
+    pub fn hide_on_close(mut self, hide: bool) -> Self {
+        self.hide_on_close = hide;
+        self
+    }
+
     pub fn with_single_instance(mut self, id: impl Into<String>) -> Self {
         self.single_instance_id = Some(id.into());
         self
@@ -740,6 +763,7 @@ impl AppBuilder {
                 initial_is_dark,
             );
             app_handler.event_loop_proxy = Some(proxy);
+            super::set_control_proxy(event_loop.create_proxy());
             let waker_proxy = event_loop.create_proxy();
             crate::async_runtime::set_main_thread_waker(move || {
                 let _ = waker_proxy.send_event(super::user_event::SynGuiUserEvent::MainThreadWake);
