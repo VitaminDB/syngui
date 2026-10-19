@@ -1250,7 +1250,9 @@ impl Element for TextElement {
 
 impl StyledElement for TextElement {
     fn apply_style(&mut self, style: &ComputedStyle) {
-        if let Some(color) = style.color() {
+        // Явный `Text::color()` важнее цвета, унаследованного от родителя:
+        // перебить его может только правило под собственный класс текста.
+        if let Some(color) = style.color().filter(|_| self.base_color.is_none() || !self.classes.is_empty()) {
             self.color = Color::from_srgb(color.r, color.g, color.b, color.a as f32 / 255.0);
         }
         self.font_size = style.font_size();

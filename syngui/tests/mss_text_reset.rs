@@ -133,3 +133,17 @@ fn inherited_color_survives_the_reset() {
         "унаследованный от .panel цвет должен дойти до Text, получили {color:?}"
     );
 }
+
+#[test]
+fn builder_color_beats_inherited_color() {
+    // Цветная метка (легенда, значок статуса) внутри строки со своим цветом
+    // текста: унаследованный цвет не должен перекрашивать `Text::color()`.
+    let blue = Color::rgb(0.0, 0.0, 1.0);
+    let widget: Box<dyn Widget> = Box::new(Column::new().class("panel").child(Text::new("hello").color(blue)));
+    let mut h = TestHarness::new(widget);
+    h.apply_mss(".panel { color: #00FF00; }");
+    h.layout(800.0, 600.0);
+
+    let (color, _, _) = painted(&mut h, "hello");
+    assert!(color.b > 0.9 && color.g < 0.05, "цвет билдера должен остаться, получили {color:?}");
+}
