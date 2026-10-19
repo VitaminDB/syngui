@@ -273,7 +273,11 @@ pub fn try_start_wayland_dnd(
         }
     };
 
-    let window_keepalive = window;
+    // Окно не держим: перетаскивание работает с сеатом, а не с окном, а
+    // соединение с композитором живёт в цикле событий winit весь процесс.
+    // Удержание окна не давало резидентным программам спрятать его на
+    // Wayland (`hide_main_window` уничтожает окно — оно оставалось на экране).
+    drop(window);
 
     let handle = std::thread::Builder::new()
         .name("syngui-wayland-dnd".into())
@@ -281,7 +285,6 @@ pub fn try_start_wayland_dnd(
             if let Err(e) = run_dispatch_loop(display_ptr, proxy) {
                 log::warn!("[wayland_dnd] thread exited with error: {e:?}");
             }
-            drop(window_keepalive);
         })
         .ok()?;
     Some(handle)
