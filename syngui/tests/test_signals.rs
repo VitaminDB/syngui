@@ -346,6 +346,8 @@ fn set_always_inside_with_keeps_new_value() {
 /// Пересборка снимает старые подписки по обратному индексу: элемент,
 /// переставший читать сигнал, больше им не будится, а индекс совпадает с
 /// тем, что лежит в слотах. Раньше отписка перебирала все слоты приложения.
+// subscription_counts есть только с признаком `testing`
+#[cfg(feature = "testing")]
 #[test]
 fn rebuild_drops_stale_subscriptions_and_index_matches_slots() {
     use syngui::signal::{

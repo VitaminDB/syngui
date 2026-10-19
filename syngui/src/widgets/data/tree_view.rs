@@ -33,6 +33,8 @@ pub struct TreeNode {
     pub children: Vec<TreeNode>,
     pub expanded: bool,
     pub decoration: Option<TreeNodeDecoration>,
+    /// Подсказка при наведении (многострочная; длинные строки переносятся).
+    pub tooltip: Option<String>,
 }
 
 impl TreeNode {
@@ -44,6 +46,7 @@ impl TreeNode {
             children: Vec::new(),
             expanded: false,
             decoration: None,
+            tooltip: None,
         }
     }
 
@@ -59,7 +62,15 @@ impl TreeNode {
             children,
             expanded: false,
             decoration: None,
+            tooltip: None,
         }
+    }
+
+    /// Подсказка при наведении на строку узла.
+    pub fn tooltip(mut self, text: impl Into<String>) -> Self {
+        let t = text.into();
+        self.tooltip = (!t.trim().is_empty()).then_some(t);
+        self
     }
 
     pub fn icon(mut self, icon: impl Into<String>) -> Self {
@@ -117,7 +128,13 @@ struct FlatNode {
     has_children: bool,
     expanded: bool,
     decoration: Option<TreeNodeDecoration>,
+    tooltip: Option<String>,
 }
+
+/// Задержка подсказки узла, с.
+const TIP_DELAY_SECS: f32 = 0.5;
+/// Наибольшая ширина подсказки.
+const TIP_MAX_W: f32 = 460.0;
 
 fn flatten_nodes(nodes: &[TreeNode], depth: usize, result: &mut Vec<FlatNode>) {
     for node in nodes {
@@ -129,6 +146,7 @@ fn flatten_nodes(nodes: &[TreeNode], depth: usize, result: &mut Vec<FlatNode>) {
             has_children: !node.children.is_empty(),
             expanded: node.expanded,
             decoration: node.decoration.clone(),
+            tooltip: node.tooltip.clone(),
         });
         if node.expanded && !node.children.is_empty() {
             flatten_nodes(&node.children, depth + 1, result);
@@ -250,6 +268,7 @@ impl TreeView {
             rows: Vec::new(),
             rows_width: -1.0,
             text_measure: None,
+            tip: None,
             hovered_index: None,
             bounds: Rect::zero(),
             classes: self.classes.clone(),
@@ -339,9 +358,78 @@ pub struct TreeViewElement {
     rows: Vec<RowGeometry>,
     rows_width: f32,
     text_measure: Option<Arc<dyn crate::widget::context::TextMeasure>>,
+    /// Подсказка: строка под мышью, позиция мыши, сколько ждём (с).
+    tip: Option<(usize, Point, f32)>,
 }
 
 impl TreeViewElement {
+    fn tip_shown(&self) -> bool {
+        self.tip.is_some_and(|(_, _, w)| w >= TIP_DELAY_SECS)
+    }
+
+    /// Строки подсказки с переносом по словам в `max_w`.
+    fn wrap_tip(&self, text: &str, fs: f32, max_w: f32) -> Vec<String> {
+        let width = |s: &str| match self.text_measure.as_ref() {
+            Some(tm) => tm.measure_text_width(s, fs, s.chars().count()),
+            None => s.chars().count() as f32 * fs * 0.55,
+        };
+        let mut out = Vec::new();
+        for para in text.lines() {
+            let mut line = String::new();
+            for word in para.split(' ') {
+                let cand = if line.is_empty() { word.to_string() } else { format!("{line} {word}") };
+                if !line.is_empty() && width(&cand) > max_w {
+                    out.push(std::mem::take(&mut line));
+                    line = word.to_string();
+                } else {
+                    line = cand;
+                }
+            }
+            out.push(line);
+            if out.len() > 40 {
+                out.truncate(40);
+                out.push("…".into());
+                break;
+            }
+        }
+        out
+    }
+
+    fn draw_tip(&self, list: &mut DisplayList) {
+        let Some((i, pos, wait)) = self.tip else { return };
+        if wait < TIP_DELAY_SECS {
+            return;
+        }
+        let Some(text) = self.flat_nodes.get(i).and_then(|n| n.tooltip.as_deref()) else { return };
+        let fs = 12.0;
+        let line_h = fs * 1.45;
+        let pad = 8.0;
+        let max_w = TIP_MAX_W.min(self.bounds.size.width.max(200.0) * 1.6);
+        let lines = self.wrap_tip(text, fs, max_w - pad * 2.0);
+        let measure = |s: &str| match self.text_measure.as_ref() {
+            Some(tm) => tm.measure_text_width(s, fs, s.chars().count()),
+            None => s.chars().count() as f32 * fs * 0.55,
+        };
+        let w = lines.iter().map(|l| measure(l)).fold(0.0_f32, f32::max) + pad * 2.0;
+        let h = lines.len() as f32 * line_h + pad * 2.0;
+        // под курсором, не дальше правого края окна виджета (+ вылет вправо допустим)
+        let x = pos.x.min(self.bounds.x() + self.bounds.size.width + 200.0 - w).max(self.bounds.x());
+        let mut y = pos.y + 18.0;
+        if y + h > self.bounds.y() + self.bounds.size.height + 120.0 {
+            y = (pos.y - h - 8.0).max(self.bounds.y());
+        }
+        let rect = Rect::new(Point::new(x, y), Size::new(w, h));
+        let bg = crate::theme_fallback::fallback_fg_strong();
+        let fg = crate::theme_fallback::fallback_surface();
+        list.begin_overlay();
+        list.push_rect(rect, bg.with_alpha(0.95), [6.0; 4]);
+        for (k, l) in lines.iter().enumerate() {
+            let r = Rect::new(Point::new(rect.x() + pad, rect.y() + pad + k as f32 * line_h), Size::new(w - pad * 2.0, line_h));
+            list.push_text_singleline(l, r, fg, fs, TextAlign::DEFAULT, 400);
+        }
+        list.end_overlay();
+    }
+
     /// Левый край подписи узла относительно левого края виджета: отступ,
     /// вложенность, зона стрелки и, если есть, иконка типа.
     fn label_offset(&self, node: &FlatNode) -> f32 {
@@ -749,6 +837,7 @@ impl Element for TreeViewElement {
                 Border::new(1.0, border_color),
             );
         }
+        self.draw_tip(list);
     }
 
     fn handle_event(&mut self, event: &Event, ctx: &mut EventContext) -> EventResult {
@@ -762,6 +851,10 @@ impl Element for TreeViewElement {
             scroll_x: 0.0,
             scroll_y: self.scroll_offset,
         };
+        // щелчок и прокрутка прячут подсказку
+        if matches!(event, Event::MouseDown { .. } | Event::MouseWheel { .. }) && self.tip.take().is_some_and(|(_, _, w)| w >= TIP_DELAY_SECS) {
+            ctx.request_paint();
+        }
 
         match event {
             Event::MouseMove(pos) => {
@@ -778,7 +871,8 @@ impl Element for TreeViewElement {
                 }
 
                 if !self.bounds.contains(*pos) {
-                    let mut changed = false;
+                    let mut changed = self.tip_shown();
+                    self.tip = None;
                     if self.hovered_index.is_some() {
                         self.hovered_index = None;
                         changed = true;
@@ -799,6 +893,23 @@ impl Element for TreeViewElement {
                 if new_hover != self.hovered_index {
                     self.hovered_index = new_hover;
                     ctx.request_paint();
+                }
+                // подсказка: та же строка — ждём дальше, другая — заново
+                let tip_row = new_hover.filter(|i| self.flat_nodes.get(*i).is_some_and(|n| n.tooltip.is_some()));
+                match (tip_row, self.tip) {
+                    (Some(r), Some((was, _, w))) if was == r => self.tip = Some((r, *pos, w)),
+                    (Some(r), _) => {
+                        if self.tip_shown() {
+                            ctx.request_paint();
+                        }
+                        self.tip = Some((r, *pos, 0.0));
+                    }
+                    (None, _) => {
+                        if self.tip_shown() {
+                            ctx.request_paint();
+                        }
+                        self.tip = None;
+                    }
                 }
 
                 if self.scrollbar_interaction.update_hover(
@@ -1014,7 +1125,19 @@ impl Element for TreeViewElement {
         let style = self
             .mss
             .scrollbar_style(self.mss.color.unwrap_or(Color::from_hex("#9CA3AF")));
-        self.scrollbar_fader.tick(dt.as_secs_f32(), &style)
+        let mut repaint = self.scrollbar_fader.tick(dt.as_secs_f32(), &style);
+        if let Some((r, p, w)) = self.tip {
+            if w < TIP_DELAY_SECS {
+                let next = w + dt.as_secs_f32();
+                self.tip = Some((r, p, next));
+                repaint |= next >= TIP_DELAY_SECS;
+            }
+        }
+        repaint
+    }
+
+    fn wants_animate_tick(&self) -> bool {
+        self.tip.is_some_and(|(_, _, w)| w < TIP_DELAY_SECS)
     }
 
     fn needs_repaint(&self) -> bool {
@@ -1102,6 +1225,16 @@ mod tests {
             });
         let deco = node.decoration.unwrap();
         assert_eq!(deco.label_color, Some(blue));
+    }
+
+    #[test]
+    fn flatten_keeps_tooltip() {
+        let nodes = vec![TreeNode::leaf("a", "A").tooltip("подробно"), TreeNode::leaf("b", "B").tooltip("  ")];
+        let mut flat = Vec::new();
+        flatten_nodes(&nodes, 0, &mut flat);
+        assert_eq!(flat[0].tooltip.as_deref(), Some("подробно"));
+        // пустая подсказка не ставится
+        assert_eq!(flat[1].tooltip, None);
     }
 
     #[test]
