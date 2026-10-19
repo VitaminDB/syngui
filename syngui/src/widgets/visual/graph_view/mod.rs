@@ -41,11 +41,19 @@ pub struct GraphNode {
     pub lines: Vec<Vec<(String, Color)>>,
     /// Цвет полосы заголовка (например, у входного блока).
     pub accent: Option<Color>,
+    /// Свой цвет фона узла (пометка пользователя); смешивается с фоном узла.
+    pub tint: Option<Color>,
 }
 
 impl GraphNode {
     pub fn new(id: u64, lines: Vec<Vec<(String, Color)>>) -> Self {
-        Self { id, lines, accent: None }
+        Self { id, lines, accent: None, tint: None }
+    }
+
+    /// Окрасить фон узла (смешение с обычным фоном, текст остаётся читаемым).
+    pub fn tint(mut self, c: Color) -> Self {
+        self.tint = Some(c);
+        self
     }
 
     pub fn accent(mut self, c: Color) -> Self {
@@ -335,7 +343,9 @@ impl Element for GraphElement {
             }
             let sel = self.selected == Some(n.id);
             list.push_shadow(r, Color::from_srgb(0, 0, 0, 0.35), 8.0 * z, (0.0, 2.0 * z), [6.0 * z; 4]);
-            list.push_rect_bordered(r, fill, [6.0 * z; 4], Border::new(if sel { 2.0 } else { 1.0 }, if sel { accent } else { border }));
+            // непрозрачное смешение: полупрозрачный слой в линейном пространстве высветляет
+            let node_fill = n.tint.map(|t| fill.lerp(&t, 0.18)).unwrap_or(fill);
+            list.push_rect_bordered(r, node_fill, [6.0 * z; 4], Border::new(if sel { 2.0 } else { 1.0 }, if sel { accent } else { border }));
             if let Some(a) = n.accent {
                 list.push_rect(Rect::new(tl, Size::new(size.width, 3.0 * z)), a, [6.0 * z, 6.0 * z, 0.0, 0.0]);
             }
