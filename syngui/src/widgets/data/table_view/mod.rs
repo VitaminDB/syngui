@@ -322,6 +322,7 @@ pub struct TableView {
     pub(super) on_row_click: Option<Arc<Mutex<dyn FnMut(usize) + Send>>>,
     pub(super) selected_rows: Vec<usize>,
     pub(super) emphasized_rows: Vec<usize>,
+    pub(super) row_tints: std::collections::HashMap<usize, Color>,
     pub(super) on_selection_change: Option<Arc<Mutex<dyn FnMut(Vec<usize>) + Send>>>,
     pub(super) width: Option<Dimension>,
     pub(super) height: Option<Dimension>,
@@ -374,6 +375,7 @@ impl TableView {
             on_row_click: None,
             selected_rows: Vec::new(),
             emphasized_rows: Vec::new(),
+            row_tints: std::collections::HashMap::new(),
             on_selection_change: None,
             width: None,
             height: None,
@@ -431,6 +433,7 @@ impl TableView {
             on_row_click: None,
             selected_rows: Vec::new(),
             emphasized_rows: Vec::new(),
+            row_tints: std::collections::HashMap::new(),
             on_selection_change: None,
             width: None,
             height: None,
@@ -497,6 +500,13 @@ impl TableView {
     /// текст — «Итого» видно в длинной таблице.
     pub fn emphasized_rows(mut self, rows: Vec<usize>) -> Self {
         self.emphasized_rows = rows;
+        self
+    }
+
+    /// Свой цвет фона строк (индексы данных): пометки пользователя — цвет
+    /// функции, статус записи. Смешивается с фоном таблицы непрозрачно.
+    pub fn row_tints(mut self, tints: impl IntoIterator<Item = (usize, Color)>) -> Self {
+        self.row_tints = tints.into_iter().collect();
         self
     }
 

@@ -84,6 +84,7 @@ impl Widget for TableView {
             on_selection_change: self.on_selection_change.clone(),
             selected_rows: self.selected_rows.clone(),
             emphasized_rows: self.emphasized_rows.clone(),
+            row_tints: self.row_tints.clone(),
             width: self.width,
             height: self.height,
             scroll_offset: self
@@ -223,6 +224,7 @@ pub struct TableViewElement {
     on_selection_change: Option<Arc<Mutex<dyn FnMut(Vec<usize>) + Send>>>,
     selected_rows: Vec<usize>,
     emphasized_rows: Vec<usize>,
+    row_tints: std::collections::HashMap<usize, Color>,
     width: Option<Dimension>,
     height: Option<Dimension>,
     scroll_offset: f32,
@@ -2381,6 +2383,7 @@ impl Element for TableViewElement {
             }
             self.selected_rows = tv.selected_rows.clone();
             self.emphasized_rows = tv.emphasized_rows.clone();
+            self.row_tints = tv.row_tints.clone();
             self.cell_cursor = tv.cell_cursor;
             self.text_selection = tv.text_selection;
             self.context_actions = tv.context_actions.clone();
@@ -2523,6 +2526,8 @@ impl Element for TableViewElement {
                     self.row_hover_bg.unwrap_or_else(|| bg.darken(0.08))
                 } else if self.emphasized_rows.contains(&phys_row) {
                     primary.with_alpha(0.08)
+                } else if let Some(t) = self.row_tints.get(&phys_row) {
+                    bg.lerp(t, 0.16)
                 } else if self.striped && vis_row % 2 == 1 {
                     self.row_striped_bg.unwrap_or_else(|| bg.darken(0.015))
                 } else {
@@ -2717,6 +2722,8 @@ impl Element for TableViewElement {
                 self.row_hover_bg.unwrap_or_else(|| bg.darken(0.08))
             } else if self.emphasized_rows.contains(&phys_row) {
                 primary.with_alpha(0.08)
+            } else if let Some(t) = self.row_tints.get(&phys_row) {
+                bg.lerp(t, 0.16)
             } else if self.striped && vis_row % 2 == 1 {
                 self.row_striped_bg.unwrap_or_else(|| bg.darken(0.015))
             } else {
