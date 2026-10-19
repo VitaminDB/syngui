@@ -1741,6 +1741,20 @@ impl Element for CodeEditorElement {
                     ctx.set_cursor(CursorIcon::Text);
                     ctx.request_paint();
                     return EventResult::Handled;
+                } else if *button == MouseButton::Right && self.bounds.contains(*position) {
+                    // правый щелчок вне выделения — курсор туда (как в редакторах),
+                    // событие идёт дальше: контекстное меню обёртки откроется над словом
+                    let new_pos = self.click_to_cursor(*position);
+                    let inside = self.cursors.primary().selection_range().is_some_and(|r| r.contains(&new_pos));
+                    if !inside {
+                        self.cursors.clear_secondary();
+                        self.cursors.primary_mut().move_to(new_pos, false);
+                        self.cursors.primary_mut().anchor = None;
+                        self.fire_on_cursor();
+                    }
+                    self.focused = true;
+                    ctx.request_paint();
+                    return EventResult::Ignored;
                 } else if self.focused {
                     self.focused = false;
                     self.undo.commit_group();
