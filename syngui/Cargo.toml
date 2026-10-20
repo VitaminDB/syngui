@@ -109,6 +109,7 @@ softbuffer = { version = "0.4", optional = true }
 # cpal не Send-friendly: stream живёт в собственном потоке, общение через канал.
 cpal = { version = "0.15", optional = true }
 hound = { version = "3.5", optional = true }
+symphonia = { version = "0.5", optional = true, default-features = false, features = ["wav", "pcm", "ogg", "vorbis", "flac", "mp3"] }
 # Resampling для AudioPlayer (если sr ≠ native output sr).
 rubato = { workspace = true, optional = true }
 
@@ -241,6 +242,10 @@ svg = ["image", "dep:resvg"]
 # Захват звука с микрофона + WAV энкодер. Включает виджет AudioWaveform
 # для визуализации входного сигнала.
 audio = ["dep:cpal", "dep:hound", "dep:rubato", "dep:oboe"]
+
+# Звуки интерфейса (`audio::sfx`): декодирование WAV/OGG Vorbis/FLAC в память
+# и микшер коротких звуков с малой задержкой.
+sfx = ["audio", "dep:symphonia"]
 
 # Видео-плеер на базе FFmpeg (libavcodec/format/swscale/swresample).
 # Тянет audio (для AudioPlayer streaming) — A/V sync идёт по playback_clock_sec.

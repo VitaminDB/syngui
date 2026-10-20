@@ -801,7 +801,7 @@ impl GrowingWriter {
     }
 }
 
-fn pick_output_device(
+pub(super) fn pick_output_device(
     host: &cpal::Host,
 ) -> Result<(cpal::Device, cpal::SupportedStreamConfig), AudioError> {
     let mut errors: Vec<String> = Vec::new();

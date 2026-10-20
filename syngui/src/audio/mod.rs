@@ -3,6 +3,8 @@ mod android_out;
 pub mod dsp;
 mod player;
 mod recorder;
+#[cfg(feature = "sfx")]
+pub mod sfx;
 mod ring;
 pub mod session;
 mod stream;
