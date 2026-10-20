@@ -146,6 +146,12 @@ impl Element for NamedElement {
         EventResult::Ignored
     }
 
+    /// Своих размеров обёртка не хранит (границы нулевые) — попадание решает
+    /// содержимое, иначе щелчки и касания до него не доходят.
+    fn passthrough_hit_test(&self) -> bool {
+        true
+    }
+
     fn mount(&mut self, _tree: &mut crate::widget::ElementTree) {}
 
     fn bounds(&self) -> Rect {
@@ -247,5 +253,23 @@ mod tests {
         let inner = h.find_by_type_name("ScrollView")[6];
         let x = h.tree.get(inner).unwrap().scroll_offset().x;
         assert!((x - (800.0 + 24.0 - 300.0)).abs() < 1.0, "{x}");
+    }
+
+    #[test]
+    fn named_child_receives_clicks() {
+        use crate::widgets::Button;
+        use std::sync::atomic::{AtomicUsize, Ordering};
+        use std::sync::Arc;
+        let hits = Arc::new(AtomicUsize::new(0));
+        let h2 = hits.clone();
+        let btn = Button::new("tab").on_click(move || {
+            h2.fetch_add(1, Ordering::SeqCst);
+        });
+        let mut h = TestHarness::new(Box::new(Column::new().child(Named::new("tab", btn))));
+        h.layout(300.0, 200.0);
+        let b = h.find_by_type_name("Button")[0];
+        let r = h.tree.get(b).unwrap().bounds();
+        h.send_events(&crate::testing::click_at(crate::core::Point::new(r.origin.x + r.size.width / 2.0, r.origin.y + r.size.height / 2.0)));
+        assert_eq!(hits.load(Ordering::SeqCst), 1);
     }
 }
