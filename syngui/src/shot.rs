@@ -19,6 +19,17 @@ use crate::render::DisplayList;
 use crate::widget::context::TextMeasure;
 use crate::widget::{ElementTree, Widget};
 
+/// Дополнительные условия снимка.
+#[derive(Debug, Clone, Copy, Default)]
+pub struct ShotOptions {
+    /// Сколько крутить кадры перед снимком: время на асинхронную загрузку
+    /// (вход на сервер, данные, тайлы карты). Ноль — обычные ~20 кадров.
+    pub wait: Duration,
+    /// Состояние окна для MSS-псевдоклассов (`:window-maximized`,
+    /// `:window-focused`) — биты [`crate::mss::window_flags`].
+    pub window_flags: u8,
+}
+
 /// Нарисовать `build()` размером `size` (логические px) с масштабом `scale` в
 /// PNG `out`; возвращает размер картинки в пикселях. Несколько кадров —
 /// эффекты, пересборки, загрузка картинок; анимации проматываются.
@@ -28,6 +39,18 @@ pub fn render_png(
     size: (u32, u32),
     scale: f64,
     out: &str,
+) -> Result<(u32, u32), String> {
+    render_png_with(build, mss, size, scale, out, ShotOptions::default())
+}
+
+/// [`render_png`] с ожиданием загрузки и состоянием окна из `opts`.
+pub fn render_png_with(
+    build: impl FnOnce() -> Box<dyn Widget>,
+    mss: &str,
+    size: (u32, u32),
+    scale: f64,
+    out: &str,
+    opts: ShotOptions,
 ) -> Result<(u32, u32), String> {
     crate::signal::init_main_thread();
     crate::signal::allow_signal_reads_on_this_thread();
@@ -73,6 +96,7 @@ pub fn render_png(
     let sheet = parse_stylesheet_str(mss).map_err(|e| format!("MSS: {e:?}"))?;
     let engine = StyleEngine::new(sheet);
     crate::viewport::viewport_size().set(Size::new(lw as f32, lh as f32));
+    tree.set_window_flags(opts.window_flags);
 
     let widget = build();
     let element = widget.create_element();
@@ -82,7 +106,9 @@ pub fn render_png(
 
     let logical = Size::new(lw as f32, lh as f32);
     let mut list = DisplayList::new();
-    for frame in 0..20 {
+    let started = std::time::Instant::now();
+    let max_frames = 20 + (opts.wait.as_millis() / 120) as usize;
+    for frame in 0..max_frames {
         if let Some(store) = tree.image_store.as_ref() {
             store.lock().unwrap_or_else(|e| e.into_inner()).poll_bg();
         }
@@ -108,7 +134,7 @@ pub fn render_png(
         list.set_surface_size(logical);
         list.set_scale_factor(scale as f32);
         tree.build_display_list(root, &mut list, Rect::new(Point::zero(), logical));
-        if frame >= 3 {
+        if frame >= 3 && started.elapsed() >= opts.wait {
             let loading = tree
                 .image_store
                 .as_ref()
