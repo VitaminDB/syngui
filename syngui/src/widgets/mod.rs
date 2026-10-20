@@ -25,6 +25,7 @@ pub use containers::{
     Animated, AnimatedPosition, AnimatedSize, AnimatedSwitcher, AnimationAxis, AspectRatio,
     Carousel, Column, DecoratedBox, DismissDirection, DockArea, DockSpec, DockState, DropZone, Dismissible, Falloff, Fisheye, FisheyeAnchor,
     Flex, GestureDetector, Grid, IntoWidget, Motion, MultiTouch, Named, Padding, Page, PanAxis,
+    reveal_named, scroll_to_named,
     PanUpdate, PinchUpdate, Presence, Reactive, RepeatMode, Row, ScaleBox, ScrollPhysics,
     ScrollTarget, ScrollbarPolicy, ShowIf, SplitDirection, SplitView, Stack, StackFit,
     SwipeDirection, TouchPhase, TouchPoint, TransformBox, TransformOrigin, TransformState,

@@ -417,6 +417,14 @@ pub trait Element: Send {
         self.ensure_visible(child_rect)
     }
 
+    /// Показать `child_rect` (в координатах содержимого) целиком с запасом
+    /// `margin` по обеим осям, сдвинувшись как можно меньше — плавно, если
+    /// контейнер умеет ([`crate::widgets::reveal_named`]). По умолчанию —
+    /// как `ensure_visible`.
+    fn reveal_rect(&mut self, child_rect: Rect, _margin: f32) -> bool {
+        self.ensure_visible(child_rect)
+    }
+
     fn manages_own_children(&self) -> bool {
         false
     }
@@ -710,6 +718,10 @@ impl Element for Box<dyn Element> {
 
     fn scroll_to_start_of(&mut self, child_rect: Rect) -> bool {
         self.as_mut().scroll_to_start_of(child_rect)
+    }
+
+    fn reveal_rect(&mut self, child_rect: Rect, margin: f32) -> bool {
+        self.as_mut().reveal_rect(child_rect, margin)
     }
 
     fn manages_own_children(&self) -> bool {

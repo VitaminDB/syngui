@@ -1160,6 +1160,38 @@ impl Element for ScrollViewElement {
         true
     }
 
+    fn reveal_rect(&mut self, child_rect: Rect, margin: f32) -> bool {
+        // Ось: минимальный сдвиг, чтобы [lo, hi] с запасом попал в область;
+        // больше области — к началу.
+        fn axis(offset: f32, view: f32, lo: f32, hi: f32, margin: f32, max: f32) -> f32 {
+            let margin = margin.min(((view - (hi - lo)) / 2.0).max(0.0));
+            let t = if hi - lo + 2.0 * margin > view || lo - margin < offset {
+                lo - margin
+            } else if hi + margin > offset + view {
+                hi + margin - view
+            } else {
+                offset
+            };
+            t.clamp(0.0, max)
+        }
+        let base = self.glide_to.unwrap_or(self.scroll_offset);
+        let mut target = base;
+        if self.can_scroll_y() {
+            target.y = axis(base.y, self.bounds.size.height, child_rect.origin.y, child_rect.origin.y + child_rect.size.height, margin, self.max_scroll_y());
+        }
+        if self.can_scroll_x() {
+            target.x = axis(base.x, self.bounds.size.width, child_rect.origin.x, child_rect.origin.x + child_rect.size.width, margin, self.max_scroll_x());
+        }
+        if (target.x - self.scroll_offset.x).abs() < 0.5 && (target.y - self.scroll_offset.y).abs() < 0.5 {
+            self.glide_to = None;
+            return false;
+        }
+        self.is_coasting = false;
+        self.velocity = Point::zero();
+        self.glide_to = Some(target);
+        true
+    }
+
     fn clip_content(&self) -> bool {
         false
     }

@@ -44,7 +44,7 @@ pub use gesture_detector::{GestureDetector, PanAxis, PanUpdate, PinchUpdate, Swi
 pub use grid::Grid;
 pub use keyed::Keyed;
 pub use multi_touch::{MultiTouch, TouchPhase, TouchPoint, MOUSE_ID};
-pub use named::{scroll_to_named, Named};
+pub use named::{reveal_named, scroll_to_named, Named};
 pub use padding::Padding;
 pub use page::{Page, ScrollPhysics, ScrollTarget, ScrollbarPolicy};
 pub use pan_zoom::PanZoomViewport;

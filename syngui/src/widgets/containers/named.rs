@@ -10,6 +10,40 @@ use std::any::Any;
 
 thread_local! {
     static SCROLL_REQUESTS: std::cell::RefCell<Vec<String>> = const { std::cell::RefCell::new(Vec::new()) };
+    static REVEAL_REQUESTS: std::cell::RefCell<Vec<String>> = const { std::cell::RefCell::new(Vec::new()) };
+}
+
+/// Показать элемент `Named::new(name, ..)` целиком: каждая прокрутка над ним
+/// (и вложенные — лента внутри страницы) сдвигается плавно и ровно настолько,
+/// чтобы он попал в область с небольшим запасом; видимый — не двигается.
+/// Для навигации с клавиатуры и геймпада по сеткам и лентам. Выполняется
+/// на следующем кадре — после раскладки.
+pub fn reveal_named(name: impl Into<String>) {
+    REVEAL_REQUESTS.with(|r| {
+        let mut r = r.borrow_mut();
+        let name = name.into();
+        r.retain(|n| *n != name);
+        r.push(name);
+    });
+}
+
+pub(crate) fn take_reveal_requests() -> Vec<String> {
+    REVEAL_REQUESTS.with(|r| std::mem::take(&mut *r.borrow_mut()))
+}
+
+pub(crate) fn return_reveal_requests(mut left: Vec<String>) {
+    if left.is_empty() {
+        return;
+    }
+    REVEAL_REQUESTS.with(|r| {
+        let mut r = r.borrow_mut();
+        left.truncate(8);
+        r.extend(left);
+        let n = r.len();
+        if n > 16 {
+            r.drain(..n - 16);
+        }
+    });
 }
 
 /// Прокрутить ближайшую прокрутку так, чтобы элемент `Named::new(name, ..)`
@@ -177,5 +211,41 @@ mod tests {
         let sv = h.find_by_type_name("ScrollView")[0];
         let y = h.tree.get(sv).unwrap().scroll_offset().y;
         assert!((y - 1000.0).abs() < 1.0, "{y}");
+    }
+
+    #[test]
+    fn reveal_named_scrolls_minimally_in_nested_scrolls() {
+        use crate::widgets::Row;
+        // Страница из 10 лент по 100 px, в каждой — 20 плиток по 100 px.
+        let mut col = Column::new();
+        for r in 0..10 {
+            let mut row = Row::new();
+            for c in 0..20 {
+                row = row.child(Named::new(format!("t{r}-{c}"), Column::new().width(100.0).height(100.0)));
+            }
+            col = col.child(Column::new().height(100.0).child(ScrollView::new().horizontal().child(row)));
+        }
+        let mut h = TestHarness::new(Box::new(ScrollView::new().vertical().child(col)));
+        h.layout(300.0, 400.0);
+        let settle = |h: &mut TestHarness| {
+            h.layout(300.0, 400.0);
+            for _ in 0..80 {
+                h.animate(std::time::Duration::from_millis(16));
+            }
+        };
+        // Видимая плитка — прокрутки на месте.
+        reveal_named("t1-1");
+        settle(&mut h);
+        let svs = h.find_by_type_name("ScrollView");
+        let outer = svs[0];
+        assert!(h.tree.get(outer).unwrap().scroll_offset().y.abs() < 0.5);
+        // Плитка ниже и правее — обе прокрутки сдвигаются ровно до неё (+24 запаса).
+        reveal_named("t5-7");
+        settle(&mut h);
+        let y = h.tree.get(outer).unwrap().scroll_offset().y;
+        assert!((y - (600.0 + 24.0 - 400.0)).abs() < 1.0, "{y}");
+        let inner = h.find_by_type_name("ScrollView")[6];
+        let x = h.tree.get(inner).unwrap().scroll_offset().x;
+        assert!((x - (800.0 + 24.0 - 300.0)).abs() < 1.0, "{x}");
     }
 }

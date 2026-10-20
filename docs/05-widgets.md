@@ -575,6 +575,18 @@ reaches the bottom again the view sticks again. To reset on a content
 switch (a different chat), rebuild the `ScrollView` — a fresh element
 starts stuck to the bottom.
 
+Programmatic scrolling goes through `Named` elements: `scroll_to_named(name)`
+glides the nearest scroll so the element lands at its start (anchors, A–Z
+index), `reveal_named(name)` moves every scroll above the element — nested
+ones too, e.g. a horizontal shelf inside a vertical page — just enough to show
+it whole with a small margin, and leaves a visible element alone (keyboard and
+gamepad navigation over grids and shelves). Both run after the next layout.
+
+```rust
+Named::new(format!("tile-{i}"), tile)   // in the tree
+reveal_named(format!("tile-{sel}"));     // after the selection moved
+```
+
 `on_scroll(|offset, max| …)` reports every user scroll (wheel, touch, thumb,
 keys, coasting) with the current offset and the scroll limit (`content −
 viewport`), both in pixels — the hook for infinite lists: when

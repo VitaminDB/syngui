@@ -1330,8 +1330,65 @@ impl ElementTree {
         false
     }
 
-    /// Выполнить отложенные [`crate::widgets::scroll_to_named`], чьи имена
-    /// есть в этом дереве (после раскладки — позиции уже известны).
+    /// Показать именованный элемент во всех прокрутках над ним
+    /// ([`crate::widgets::reveal_named`]); `false` — имени в дереве нет.
+    pub fn reveal_named(&mut self, name: &str) -> bool {
+        let Some(id) = self
+            .elements
+            .iter()
+            .find(|(_, n)| n.debug_name.as_deref() == Some(name))
+            .map(|(id, _)| *id)
+        else {
+            return false;
+        };
+        let mut bounds = match self.elements.get(&id) {
+            Some(n) => n.element.bounds(),
+            None => return false,
+        };
+        // Обёртка `Named` своего размера не хранит — берём у содержимого.
+        if bounds.size.width <= 0.0 || bounds.size.height <= 0.0 {
+            let child = self.elements.get(&id).and_then(|n| n.children.first().copied());
+            if let Some(cb) = child.and_then(|c| self.elements.get(&c)).map(|c| c.element.bounds()) {
+                bounds = cb;
+            }
+        }
+        // Границы — в координатах дерева без сдвигов прокрутки, поэтому для
+        // каждой прокрутки-предка прямоугольник в её содержимом — разность с
+        // её началом (вложенная лента сдвигает только своё содержимое).
+        let mut cur = id;
+        let mut found = false;
+        while let Some(parent) = self.elements.get(&cur).and_then(|n| n.parent) {
+            let is_scroll = self
+                .elements
+                .get(&parent)
+                .is_some_and(|n| n.element.is_scroll_container());
+            if is_scroll {
+                let origin = self
+                    .elements
+                    .get(&parent)
+                    .map(|n| n.element.bounds().origin)
+                    .unwrap_or_default();
+                let rect = crate::core::Rect::new(
+                    crate::core::Point::new(bounds.origin.x - origin.x, bounds.origin.y - origin.y),
+                    bounds.size,
+                );
+                let moved = self
+                    .elements
+                    .get_mut(&parent)
+                    .is_some_and(|node| node.element.reveal_rect(rect, 24.0));
+                if moved {
+                    self.note_animation_started(parent);
+                }
+                found = true;
+            }
+            cur = parent;
+        }
+        found || self.elements.contains_key(&id)
+    }
+
+    /// Выполнить отложенные [`crate::widgets::scroll_to_named`] и
+    /// [`crate::widgets::reveal_named`], чьи имена есть в этом дереве (после
+    /// раскладки — позиции уже известны).
     pub fn process_scroll_requests(&mut self) {
         let pending = crate::widgets::containers::named::take_scroll_requests();
         let mut left = Vec::new();
@@ -1341,6 +1398,14 @@ impl ElementTree {
             }
         }
         crate::widgets::containers::named::return_scroll_requests(left);
+        let pending = crate::widgets::containers::named::take_reveal_requests();
+        let mut left = Vec::new();
+        for name in pending {
+            if !self.reveal_named(&name) {
+                left.push(name);
+            }
+        }
+        crate::widgets::containers::named::return_reveal_requests(left);
     }
 
     pub fn scroll_element_into_view(
