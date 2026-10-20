@@ -20,14 +20,33 @@ use crate::widget::context::TextMeasure;
 use crate::widget::{ElementTree, Widget};
 
 /// Дополнительные условия снимка.
-#[derive(Debug, Clone, Copy, Default)]
 pub struct ShotOptions {
-    /// Сколько крутить кадры перед снимком: время на асинхронную загрузку
-    /// (вход на сервер, данные, тайлы карты). Ноль — обычные ~20 кадров.
+    /// Сколько крутить кадры перед снимком как минимум: время на асинхронную
+    /// загрузку (данные, тайлы карты). Ноль — обычные ~20 кадров.
     pub wait: Duration,
     /// Состояние окна для MSS-псевдоклассов (`:window-maximized`,
     /// `:window-focused`) — биты [`crate::mss::window_flags`].
     pub window_flags: u8,
+    /// Готовность программы (вошла, загрузила данные): кадры крутятся, пока
+    /// не вернёт `true`, затем ещё [`settle`](Self::settle). Вызывается на
+    /// главном потоке, можно читать сигналы.
+    pub ready: Option<Box<dyn Fn() -> bool>>,
+    /// Пауза после готовности — догрузка того, что запрашивается следом.
+    pub settle: Duration,
+    /// Предел ожидания готовности: снимок делается и без неё.
+    pub timeout: Duration,
+}
+
+impl Default for ShotOptions {
+    fn default() -> Self {
+        Self {
+            wait: Duration::ZERO,
+            window_flags: 0,
+            ready: None,
+            settle: Duration::ZERO,
+            timeout: Duration::from_secs(120),
+        }
+    }
 }
 
 /// Нарисовать `build()` размером `size` (логические px) с масштабом `scale` в
@@ -97,6 +116,11 @@ pub fn render_png_with(
     let engine = StyleEngine::new(sheet);
     crate::viewport::viewport_size().set(Size::new(lw as f32, lh as f32));
     tree.set_window_flags(opts.window_flags);
+    #[cfg(feature = "map")]
+    {
+        renderer.ensure_tile_atlas(&gpu);
+        tree.tile_atlas = renderer.tile_atlas.clone();
+    }
 
     let widget = build();
     let element = widget.create_element();
@@ -107,8 +131,8 @@ pub fn render_png_with(
     let logical = Size::new(lw as f32, lh as f32);
     let mut list = DisplayList::new();
     let started = std::time::Instant::now();
-    let max_frames = 20 + (opts.wait.as_millis() / 120) as usize;
-    for frame in 0..max_frames {
+    let mut ready_at: Option<std::time::Instant> = None;
+    for frame in 0.. {
         if let Some(store) = tree.image_store.as_ref() {
             store.lock().unwrap_or_else(|e| e.into_inner()).poll_bg();
         }
@@ -134,7 +158,19 @@ pub fn render_png_with(
         list.set_surface_size(logical);
         list.set_scale_factor(scale as f32);
         tree.build_display_list(root, &mut list, Rect::new(Point::zero(), logical));
-        if frame >= 3 && started.elapsed() >= opts.wait {
+        if ready_at.is_none() && opts.ready.as_ref().map_or(true, |r| r()) {
+            ready_at = Some(std::time::Instant::now());
+        }
+        let settled = match ready_at {
+            Some(t) => t.elapsed() >= opts.settle && started.elapsed() >= opts.wait,
+            None => started.elapsed() >= opts.timeout,
+        };
+        // Предел: без условия готовности — прежние ~20 кадров после `wait`.
+        let limit = if opts.ready.is_none() { opts.wait } else { opts.timeout };
+        if frame >= 19 && started.elapsed() >= limit {
+            break;
+        }
+        if frame >= 3 && settled {
             let loading = tree
                 .image_store
                 .as_ref()
