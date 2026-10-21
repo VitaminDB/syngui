@@ -187,3 +187,51 @@ fn multiline_edit_context_menu_pastes() {
         "«Вставить» из контекстного меню многострочного поля не сработало: {text:?}"
     );
 }
+
+/// CodeEditor получает команды меню (Copy/Cut/Paste/Select All) через
+/// `command_signal`, а разбирает их в `animate`. В покое редактор в реестре
+/// анимаций не стоит — сигнал команды обязан его туда вернуть, иначе пункт
+/// «Копировать» молча ничего не делает.
+#[cfg(feature = "code-editor")]
+#[test]
+fn code_editor_runs_menu_commands() {
+    use syngui::signal::use_signal;
+    use syngui::widgets::input::code_editor::{CodeEditor, EditorCommand};
+
+    let cmd = use_signal::<Option<EditorCommand>>(None);
+    let widget = Stack::new().child(CodeEditor::new().text("скопируй меня").command_signal(cmd));
+    let mut harness = TestHarness::new(Box::new(widget));
+    harness.layout(800.0, 600.0);
+    harness.rebuild();
+    harness.layout(800.0, 600.0);
+    // Полосы прокрутки могут гаснуть пару кадров — даём им успокоиться.
+    for _ in 0..200 {
+        harness.animate(Duration::from_millis(50));
+    }
+
+    let ids = harness.find_by_type_name("CodeEditor");
+    assert_eq!(ids.len(), 1);
+    assert!(!harness.is_animating(ids[0]), "в покое редактору кадры не нужны");
+
+    cmd.set(Some(EditorCommand::SelectAll));
+    harness.rebuild();
+    assert!(
+        harness.is_animating(ids[0]),
+        "команда в сигнале должна будить редактор"
+    );
+    harness.animate(Duration::from_millis(16));
+    assert_eq!(cmd.get_untracked(), None, "команда разобрана");
+
+    let saved = syngui::clipboard::paste();
+    cmd.set(Some(EditorCommand::Copy));
+    harness.rebuild();
+    harness.animate(Duration::from_millis(16));
+    assert_eq!(cmd.get_untracked(), None, "Copy разобрана");
+    let copied = syngui::clipboard::paste();
+    if let Some(prev) = saved {
+        syngui::clipboard::copy(&prev);
+    }
+    if let Some(text) = copied {
+        assert_eq!(text, "скопируй меня");
+    }
+}

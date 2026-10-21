@@ -1233,6 +1233,9 @@ impl Element for CodeEditorElement {
             self.insert_spaces = w.insert_spaces;
 
             self.command_signal = w.command_signal;
+            if let Some(sig) = self.command_signal {
+                sig.subscribe_element(self.id);
+            }
             self.state_signal = w.state_signal;
 
             if w.initial_text != self.text_snapshot {
@@ -2085,6 +2088,20 @@ impl Element for CodeEditorElement {
 
     fn mount(&mut self, tree: &mut ElementTree) {
         self.text_measure = tree.text_measure.clone();
+        if let Some(sig) = self.command_signal {
+            sig.subscribe_element(self.id);
+        }
+    }
+
+    /// Команда (пункт контекстного меню, внешний Reload) приходит через
+    /// сигнал, а разбирается в `animate`. Без подписки редактор не попадает
+    /// в реестр анимаций, и команда ждёт, пока его разбудит что-то другое.
+    fn on_signal_change(&mut self) -> bool {
+        self.has_pending_command()
+    }
+
+    fn wants_animate_tick(&self) -> bool {
+        self.has_pending_command()
     }
 
     fn accessibility_info(&self) -> Option<crate::a11y::AccessibilityInfo> {
@@ -2169,6 +2186,11 @@ impl Element for CodeEditorElement {
 }
 
 impl CodeEditorElement {
+    fn has_pending_command(&self) -> bool {
+        self.command_signal
+            .is_some_and(|sig| sig.with_untracked(|c| c.is_some()))
+    }
+
     fn handle_action(&mut self, action: KeyAction, ctx: &mut EventContext) {
         if self.goto_buffer.is_some() {
             match action {
