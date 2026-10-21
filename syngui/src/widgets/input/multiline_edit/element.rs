@@ -39,6 +39,7 @@ impl Widget for MultilineTextEdit {
             cursor_line,
             cursor_col,
             scroll_offset: 0,
+            wheel_acc: 0.0,
             selection: TextSelectionState::new(),
             on_change: self.on_change.clone(),
             submit_on_enter: self.submit_on_enter,
@@ -97,6 +98,8 @@ struct MultilineTextEditElement {
     cursor_line: usize,
     cursor_col: usize,
     scroll_offset: usize,
+    /// Прокрутка колесом и пальцем, ещё не набравшая целой строки (px).
+    wheel_acc: f32,
     selection: TextSelectionState,
     on_change: Option<Arc<Mutex<dyn FnMut(&str) + Send>>>,
     submit_on_enter: bool,
@@ -1037,20 +1040,32 @@ impl Element for MultilineTextEditElement {
             Event::MouseWheel {
                 delta, position, ..
             } => {
-                if self.bounds.contains(*position) {
-                    if *delta < 0.0
-                        && self.scroll_offset + self.visible_rows() < self.total_visual_lines
-                    {
-                        self.scroll_offset += 1;
-                        ctx.request_paint();
-                        return EventResult::Handled;
-                    } else if *delta > 0.0 && self.scroll_offset > 0 {
-                        self.scroll_offset -= 1;
-                        ctx.request_paint();
-                        return EventResult::Handled;
-                    }
+                if !self.bounds.contains(*position) || *delta == 0.0 {
+                    return EventResult::Ignored;
                 }
-                EventResult::Ignored
+                // Сдвиг копится в пикселях: палец шлёт много мелких событий,
+                // и строка на каждое листала бы в разы быстрее пальца.
+                let max = self.total_visual_lines.saturating_sub(self.visible_rows());
+                if (*delta < 0.0 && self.scroll_offset >= max)
+                    || (*delta > 0.0 && self.scroll_offset == 0)
+                {
+                    self.wheel_acc = 0.0;
+                    return EventResult::Ignored;
+                }
+                if self.wheel_acc != 0.0 && self.wheel_acc.signum() != delta.signum() {
+                    self.wheel_acc = 0.0;
+                }
+                self.wheel_acc += *delta;
+                let steps = (self.wheel_acc / Self::LINE_HEIGHT).trunc();
+                self.wheel_acc -= steps * Self::LINE_HEIGHT;
+                let steps = steps as i64;
+                if steps < 0 {
+                    self.scroll_offset = (self.scroll_offset + (-steps) as usize).min(max);
+                } else if steps > 0 {
+                    self.scroll_offset = self.scroll_offset.saturating_sub(steps as usize);
+                }
+                ctx.request_paint();
+                EventResult::Handled
             }
             Event::KeyDown(key) => {
                 if !self.focused {
@@ -1567,6 +1582,7 @@ mod tests {
             cursor_line: 0,
             cursor_col: 0,
             scroll_offset: 0,
+            wheel_acc: 0.0,
             selection: TextSelectionState::new(),
             on_change: None,
             submit_on_enter: false,

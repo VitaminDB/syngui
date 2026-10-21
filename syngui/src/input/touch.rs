@@ -54,6 +54,10 @@ impl Default for TouchConfig {
 }
 
 thread_local! {
+    /// Пальцы, которые дерево отдало элементу как мышь
+    /// ([`crate::widget::Element::drags_with_touch`]): ни тапа, ни долгого
+    /// нажатия у такого жеста быть не должно — элемент уже получил нажатие.
+    static AS_MOUSE: std::cell::RefCell<Vec<u64>> = const { std::cell::RefCell::new(Vec::new()) };
     static LAST_PRESS: std::cell::Cell<Option<Point>> = const { std::cell::Cell::new(None) };
     static SYNTHESIZING: std::cell::Cell<bool> = const { std::cell::Cell::new(false) };
 }
@@ -75,6 +79,29 @@ pub fn set_last_press(p: Point) {
 /// `on_press`), так видно, что это то же касание, а не второе нажатие.
 pub fn is_synthesized_mouse() -> bool {
     SYNTHESIZING.with(|s| s.get())
+}
+
+/// Палец `id` ведёт элемент как мышь (вызывает дерево при касании).
+pub(crate) fn mark_finger_as_mouse(id: u64) {
+    AS_MOUSE.with(|v| {
+        let mut v = v.borrow_mut();
+        if !v.contains(&id) {
+            v.push(id);
+        }
+    });
+}
+
+fn finger_as_mouse(id: u64) -> bool {
+    AS_MOUSE.with(|v| v.borrow().contains(&id))
+}
+
+fn forget_finger_as_mouse(id: u64) -> bool {
+    AS_MOUSE.with(|v| {
+        let mut v = v.borrow_mut();
+        let had = v.contains(&id);
+        v.retain(|f| *f != id);
+        had
+    })
 }
 
 fn synthesized(dispatch: &mut dyn FnMut(&Event) -> EventResult, e: &Event) -> EventResult {
@@ -148,7 +175,11 @@ impl TouchTracker {
             },
         );
         set_last_press(pos);
+        forget_finger_as_mouse(id);
         dispatch(&Event::TouchStart { id, position: pos });
+        if finger_as_mouse(id) && self.primary == Some(id) {
+            self.tap_cancelled = true;
+        }
     }
 
     pub fn motion(&mut self, id: u64, pos: Point, dispatch: &mut dyn FnMut(&Event) -> EventResult) {
@@ -187,6 +218,7 @@ impl TouchTracker {
         };
         let pos = pos.unwrap_or(f.pos);
         dispatch(&Event::TouchEnd { id, position: pos });
+        forget_finger_as_mouse(id);
         let mut tapped = false;
         if self.primary == Some(id) {
             self.primary = None;
@@ -211,6 +243,7 @@ impl TouchTracker {
                 id,
                 position: f.pos,
             });
+            forget_finger_as_mouse(id);
         }
         self.primary = None;
         self.down_at = None;

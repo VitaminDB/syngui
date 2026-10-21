@@ -343,6 +343,10 @@ impl Element for StaticWaveformElement {
         false
     }
 
+    fn drags_with_touch(&self, pos: Point) -> bool {
+        self.on_seek.is_some() && self.bounds.contains(pos)
+    }
+
     fn handle_event(&mut self, event: &Event, ctx: &mut EventContext) -> EventResult {
         if self.on_seek.is_none() {
             return EventResult::Ignored;

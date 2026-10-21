@@ -811,6 +811,15 @@ impl Element for PropertyGridElement {
         }
     }
 
+    /// Поле насыщенности и полоса тона открытой палитры строки-цвета.
+    fn drags_with_touch(&self, pos: Point) -> bool {
+        let Some(row_idx) = self.color_picker_row else {
+            return false;
+        };
+        let popup = self.cp_popup_rect(row_idx);
+        self.cp_sv_rect(popup).contains(pos) || self.cp_hue_rect(popup).contains(pos)
+    }
+
     fn handle_event(&mut self, event: &Event, ctx: &mut EventContext) -> EventResult {
         match event {
             Event::MouseMove(pos) => {

@@ -615,6 +615,10 @@ impl Element for TickSliderElement {
         }
     }
 
+    fn drags_with_touch(&self, pos: Point) -> bool {
+        !self.disabled && self.bounds.contains(pos)
+    }
+
     fn handle_event(&mut self, event: &Event, ctx: &mut EventContext) -> EventResult {
         if self.disabled {
             return EventResult::Ignored;

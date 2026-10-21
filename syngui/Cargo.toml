@@ -502,3 +502,7 @@ required-features = ["audio"]
 [[test]]
 name = "scroll_fit_content"
 required-features = ["testing"]
+
+[[test]]
+name = "touch_drag"
+required-features = ["testing"]

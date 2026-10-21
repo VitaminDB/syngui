@@ -799,6 +799,17 @@ impl Element for ColorPickerElement {
         list.end_overlay();
     }
 
+    /// Поле насыщенности, полоса тона и ползунки RGB открытой палитры.
+    fn drags_with_touch(&self, pos: Point) -> bool {
+        if !self.is_open {
+            return false;
+        }
+        let popup = self.popup_rect();
+        self.sv_field_rect(popup).contains(pos)
+            || self.hue_bar_rect(popup).contains(pos)
+            || (0..3).any(|ch| self.rgb_slider_rect(popup, ch).contains(pos))
+    }
+
     fn handle_event(&mut self, event: &Event, ctx: &mut EventContext) -> EventResult {
         match event {
             Event::MouseMove(pos) => {

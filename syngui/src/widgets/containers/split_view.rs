@@ -382,6 +382,11 @@ impl Element for SplitViewElement {
         }
     }
 
+    /// Разделитель тянут пальцем; панели под пальцем прокручиваются как обычно.
+    fn drags_with_touch(&self, pos: Point) -> bool {
+        self.divider_rect().contains(pos)
+    }
+
     fn handle_event(&mut self, event: &Event, ctx: &mut EventContext) -> EventResult {
         match event {
             Event::MouseMove(pos) => {

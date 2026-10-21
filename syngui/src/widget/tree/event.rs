@@ -15,6 +15,24 @@ fn trace_hits() -> bool {
     *ON.get_or_init(|| std::env::var_os("SYNGUI_TRACE_HIT").is_some())
 }
 
+/// `TouchStart` над ручкой элемента, который тянут как мышью, — нажатие
+/// левой кнопки (см. [`crate::widget::Element::drags_with_touch`]).
+fn touch_start_as_mouse(
+    element: &dyn crate::widget::Element,
+    event: &Event,
+) -> Option<(u64, Event)> {
+    match event {
+        Event::TouchStart { id, position } if element.drags_with_touch(*position) => Some((
+            *id,
+            Event::MouseDown {
+                button: crate::input::MouseButton::Left,
+                position: *position,
+            },
+        )),
+        _ => None,
+    }
+}
+
 impl ElementTree {
     pub fn dispatch_event_to(&mut self, id: ElementId, event: &Event) -> EventResult {
         // Событие может запустить transition (hover и т.п.) — взводим обход анимаций.
@@ -29,7 +47,11 @@ impl ElementTree {
             if let Some(ref tm) = self.text_measure {
                 ctx.set_text_measure(tm.clone());
             }
-            let result = node.element.handle_event(event, &mut ctx);
+            let as_mouse = touch_start_as_mouse(&*node.element, event);
+            let result = node
+                .element
+                .handle_event(as_mouse.as_ref().map_or(event, |(_, e)| e), &mut ctx);
+            let claimed = as_mouse.filter(|_| result.is_handled()).map(|(f, _)| f);
             if result.is_handled()
                 && matches!(event, Event::KeyDown(_) | Event::MouseWheel { .. })
                 && trace_keys()
@@ -58,6 +80,9 @@ impl ElementTree {
                 self.scroll_element_into_view(id, rect);
             }
             self.process_overlay_commands(id, &mut ctx);
+            if let Some(finger) = claimed {
+                self.claim_touch_as_mouse(finger, id);
+            }
             if did_something {
                 self.sync_registries_for(id);
             }
@@ -78,7 +103,11 @@ impl ElementTree {
         if let Some(p) = event.position() {
             self.last_pointer = p;
         }
+        if let Some(r) = self.route_touch_as_mouse(event) {
+            return r;
+        }
         let result = self.do_handle_event(root_id, event);
+        let result = self.touch_wheel_fallback(root_id, event, result);
         self.notify_pointer_watchers(event);
         if let Event::TouchEnd { id, .. } = event {
             self.touch_captors.remove(id);
@@ -92,6 +121,121 @@ impl ElementTree {
             }
         }
         result
+    }
+
+    /// Палец взял элемент как мышь ([`crate::widget::Element::drags_with_touch`]).
+    fn claim_touch_as_mouse(&mut self, finger: u64, id: ElementId) {
+        self.touch_mouse.insert(finger, id);
+        self.touch_wheel.remove(&finger);
+        self.mouse_captor = Some(id);
+        self.last_mousedown_element = Some(id);
+        crate::input::touch::mark_finger_as_mouse(finger);
+    }
+
+    /// Движение и отпускание пальца, который ведёт элемент как мышь, —
+    /// `MouseMove`/`MouseUp` прямо этому элементу, мимо hit-test.
+    fn route_touch_as_mouse(&mut self, event: &Event) -> Option<EventResult> {
+        let (finger, position, end) = match event {
+            Event::TouchMove { id, position } => (*id, *position, false),
+            Event::TouchEnd { id, position } => (*id, *position, true),
+            _ => return None,
+        };
+        let target = *self.touch_mouse.get(&finger)?;
+        let mouse = if end {
+            Event::MouseUp {
+                button: crate::input::MouseButton::Left,
+                position,
+            }
+        } else {
+            Event::MouseMove(position)
+        };
+        if self.elements.contains_key(&target) {
+            let (s, k) = self.accumulated_event_transform(target);
+            let adj = if is_identity_transform(s, k) {
+                mouse
+            } else {
+                mouse.with_inverse_transform(s, k)
+            };
+            self.dispatch_event_to(target, &adj);
+        }
+        if end {
+            self.touch_mouse.remove(&finger);
+            self.touch_captors.remove(&finger);
+            if self.mouse_captor == Some(target) {
+                self.mouse_captor = None;
+            }
+        }
+        Some(EventResult::Handled)
+    }
+
+    /// Движение пальца, которое никто не взял, прокручивает колесом то, что
+    /// под началом жеста: списки, деревья, таблицы, редакторы и терминал
+    /// листаются колесом, а `TouchMove` сами не разбирают. До порога тапа
+    /// ничего не крутится — дрожь пальца при тапе не сдвигает список.
+    fn touch_wheel_fallback(
+        &mut self,
+        root_id: ElementId,
+        event: &Event,
+        result: EventResult,
+    ) -> EventResult {
+        match event {
+            Event::TouchStart { id, position } => {
+                // Второй палец — щипок или панорама, не прокрутка. Взявший
+                // `TouchStart` (кнопка с `on_press`) может не брать движение —
+                // тогда оно всё равно листает то, что под пальцем.
+                if self.touch_mouse.contains_key(id) || !self.touch_wheel.is_empty() {
+                    self.touch_wheel.clear();
+                } else {
+                    self.touch_wheel.insert(
+                        *id,
+                        crate::widget::tree::TouchWheel {
+                            start: *position,
+                            last: *position,
+                            active: false,
+                        },
+                    );
+                }
+                result
+            }
+            Event::TouchMove { id, position } => {
+                if result.is_handled() {
+                    return result;
+                }
+                let Some(mut w) = self.touch_wheel.get(id).copied() else {
+                    return result;
+                };
+                if !w.active {
+                    let slop = crate::input::touch_config().tap_slop;
+                    if (position.x - w.start.x).abs() <= slop
+                        && (position.y - w.start.y).abs() <= slop
+                    {
+                        return result;
+                    }
+                    w.active = true;
+                }
+                let dx = position.x - w.last.x;
+                let dy = position.y - w.last.y;
+                w.last = *position;
+                self.touch_wheel.insert(*id, w);
+                if dx == 0.0 && dy == 0.0 {
+                    return result;
+                }
+                // Палец вниз — содержимое за ним вниз: как колесо «вверх».
+                self.do_handle_event(
+                    root_id,
+                    &Event::MouseWheel {
+                        delta: dy,
+                        delta_x: dx,
+                        position: w.start,
+                    },
+                )
+            }
+            Event::TouchEnd { id, .. } => {
+                self.touch_wheel.remove(id);
+                result
+            }
+            _ => result,
+        }
     }
 
     /// Дослать движение и отпускание тем, кто следит за указателем
@@ -783,7 +927,11 @@ impl ElementTree {
             if let Some(ref tm) = self.text_measure {
                 ctx.set_text_measure(tm.clone());
             }
-            let result = node.element.handle_event(event, &mut ctx);
+            let as_mouse = touch_start_as_mouse(&*node.element, event);
+            let result = node
+                .element
+                .handle_event(as_mouse.as_ref().map_or(event, |(_, e)| e), &mut ctx);
+            let claimed = as_mouse.filter(|_| result.is_handled()).map(|(f, _)| f);
             if result.is_handled()
                 && matches!(event, Event::KeyDown(_) | Event::MouseWheel { .. })
                 && std::env::var_os("SYNGUI_TRACE_KEYS").is_some()
@@ -806,6 +954,9 @@ impl ElementTree {
                 }
             }
             self.process_overlay_commands(id, &mut ctx);
+            if let Some(finger) = claimed {
+                self.claim_touch_as_mouse(finger, id);
+            }
             if let Some(rect) = ctx.scroll_into_view_request.take() {
                 self.scroll_element_into_view(id, rect);
             }

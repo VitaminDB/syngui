@@ -2956,6 +2956,11 @@ impl Element for TableViewElement {
         }
     }
 
+    /// Граница колонки в заголовке: палец меняет ширину, а не листает таблицу.
+    fn drags_with_touch(&self, pos: Point) -> bool {
+        self.hit_resize_handle(pos).is_some()
+    }
+
     fn handle_event(&mut self, event: &Event, ctx: &mut EventContext) -> EventResult {
         match event {
             Event::MouseMove(pos) => {

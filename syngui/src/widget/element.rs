@@ -184,6 +184,17 @@ pub trait Element: Send {
         false
     }
 
+    /// Палец, коснувшийся точки `pos` (координаты элемента), тянет элемент
+    /// как мышь с зажатой левой кнопкой: дерево отдаёт ему `MouseDown` сразу
+    /// при касании, движение пальца — `MouseMove`, отпускание — `MouseUp`,
+    /// а тап и долгое нажатие этим пальцем не синтезируются. Для элементов,
+    /// которые перетаскивают мышью (ползунки, разделители, поля палитры) и
+    /// не разбирают `Touch*` сами; `true` — только над самой ручкой, иначе
+    /// палец над элементом перестанет прокручивать предков.
+    fn drags_with_touch(&self, _pos: Point) -> bool {
+        false
+    }
+
     fn needs_repaint(&self) -> bool {
         false
     }
@@ -512,6 +523,10 @@ impl Element for Box<dyn Element> {
 
     fn on_signal_change(&mut self) -> bool {
         self.as_mut().on_signal_change()
+    }
+
+    fn drags_with_touch(&self, pos: Point) -> bool {
+        self.as_ref().drags_with_touch(pos)
     }
 
     fn needs_repaint(&self) -> bool {

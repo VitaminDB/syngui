@@ -110,6 +110,17 @@ pub struct DragState {
     pub accepting: bool,
 }
 
+/// Палец, который прокручивает колесом (см. `ElementTree::touch_wheel`).
+#[derive(Clone, Copy, Debug)]
+pub(crate) struct TouchWheel {
+    /// Где палец коснулся: прокручивается то, что под этой точкой.
+    pub start: crate::core::Point,
+    /// Последняя точка, от которой считается сдвиг.
+    pub last: crate::core::Point,
+    /// Палец ушёл дальше порога тапа — пошла прокрутка.
+    pub active: bool,
+}
+
 pub struct ElementTree {
     pub(crate) elements: ElementStorage,
     pub(crate) root_id: Option<ElementId>,
@@ -185,6 +196,12 @@ pub struct ElementTree {
     /// экранного контроллера, два слайдера): второй палец перехватывал движения первого, а
     /// отпускание любого снимало захват у всех.
     pub(crate) touch_captors: std::collections::HashMap<u64, ElementId>,
+    /// Пальцы, которые ведут элемент как мышь ([`crate::widget::Element::drags_with_touch`]):
+    /// их движение уходит этому элементу `MouseMove`, отпускание — `MouseUp`.
+    pub(crate) touch_mouse: std::collections::HashMap<u64, ElementId>,
+    /// Пальцы, чьё движение никто не взял: оно прокручивает колесом то, что
+    /// под началом жеста (списки и редакторы со своей прокруткой).
+    pub(crate) touch_wheel: std::collections::HashMap<u64, TouchWheel>,
     /// Элементы, попросившие следующие события указателя
     /// ([`EventContext::watch_pointer`]).
     pub(crate) pointer_watchers: Vec<ElementId>,
@@ -263,6 +280,8 @@ impl ElementTree {
             last_hovered_path: Vec::new(),
             mouse_captor: None,
             touch_captors: Default::default(),
+            touch_mouse: Default::default(),
+            touch_wheel: Default::default(),
             pointer_watchers: Vec::new(),
             press_owner: None,
             text_selection_owner: None,
@@ -1206,6 +1225,7 @@ impl ElementTree {
             self.mouse_captor = None;
         }
         self.touch_captors.retain(|_, e| *e != id);
+        self.touch_mouse.retain(|_, e| *e != id);
         if self.text_selection_owner == Some(id) {
             self.text_selection_owner = None;
         }
