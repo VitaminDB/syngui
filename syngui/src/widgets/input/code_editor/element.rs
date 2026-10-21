@@ -39,7 +39,6 @@ pub struct CodeEditorElement {
     scrollbar_fader: crate::widgets::scroll::ScrollbarFader,
     scrollbar_interaction: crate::widgets::scroll::ScrollbarInteraction,
     scrollbar_fader_h: crate::widgets::scroll::ScrollbarFader,
-    #[allow(dead_code)]
     scrollbar_interaction_h: crate::widgets::scroll::ScrollbarInteraction,
     wrap_cache: Vec<Vec<usize>>,
     text_area_width: f32,
@@ -217,13 +216,101 @@ impl CodeEditorElement {
         self.mss.font_family.as_deref()
     }
 
-    fn text_origin_x(&self) -> f32 {
-        let gutter_w = if self.show_line_numbers {
+    fn gutter_w(&self) -> f32 {
+        if self.show_line_numbers {
             gutter::GUTTER_WIDTH
         } else {
             0.0
-        };
-        self.bounds.x() + gutter_w + 8.0 - self.scroll_offset_x
+        }
+    }
+
+    fn text_origin_x(&self) -> f32 {
+        self.bounds.x() + self.gutter_w() + 8.0 - self.scroll_offset_x
+    }
+
+    /// Логические строки, попадающие на экран: `first..last`.
+    fn visible_logical_range(&self) -> (usize, usize) {
+        let total_visual = self.total_visual_lines.max(1);
+        let first_visual = self.scroll_offset_lines.min(total_visual - 1);
+        let last_visual = (first_visual + self.visible_lines_count() + 2).min(total_visual);
+        let (first, _, _) = self.visual_to_logical(first_visual);
+        let (last, _, _) = self.visual_to_logical(last_visual.saturating_sub(1));
+        (first, (last + 1).min(self.buffer.len_lines()))
+    }
+
+    fn char_width(&self) -> f32 {
+        let fs = self.font_size();
+        self.text_measure
+            .as_ref()
+            .map(|tm| tm.measure_text_width_styled("M", fs, 1, false, self.font_family_str()))
+            .unwrap_or(fs * 0.6)
+    }
+
+    /// Насколько можно сдвинуть текст влево: по самой длинной строке на экране
+    /// (плюс место под каретку в конце). Без переноса строк.
+    fn max_scroll_x(&self) -> f32 {
+        if self.soft_wrap {
+            return 0.0;
+        }
+        let (first, last) = self.visible_logical_range();
+        let content = self.measure_max_visible_line_width(first, last) + self.char_width() * 2.0;
+        (content - self.visible_text_width()).max(0.0)
+    }
+
+    /// Геометрия горизонтальной полосы: под текстом, от края gutter'а до
+    /// вертикальной полосы. Уже прокрученное за текущий максимум (строки на
+    /// экране стали короче) остаётся в диапазоне — ползунок не прыгает.
+    fn h_scrollbar_geom(&self) -> crate::widgets::scroll::ScrollbarGeom {
+        let gutter_w = self.gutter_w();
+        let sb_w = self.mss.scrollbar_style(Color::default()).width;
+        let viewport = Rect::new(
+            Point::new(self.bounds.x() + gutter_w, self.bounds.y()),
+            Size::new(
+                (self.bounds.size.width - gutter_w - sb_w - 4.0).max(0.0),
+                self.bounds.size.height,
+            ),
+        );
+        let max = self.max_scroll_x().max(self.scroll_offset_x);
+        crate::widgets::scroll::ScrollbarGeom {
+            viewport,
+            content_w: viewport.size.width + max,
+            content_h: 0.0,
+            scroll_x: self.scroll_offset_x,
+            scroll_y: 0.0,
+        }
+    }
+
+    /// Горизонтально подвинуть текст так, чтобы главная каретка была видна,
+    /// с запасом `margin_chars` символов от края.
+    fn ensure_cursor_visible_x(&mut self, margin_chars: f32) {
+        if self.soft_wrap {
+            if self.scroll_offset_x != 0.0 {
+                self.scroll_offset_x = 0.0;
+            }
+            return;
+        }
+        let Some(tm) = self.text_measure.as_ref() else { return };
+        let (line, col) = self.buffer.byte_to_line_col(self.primary_byte());
+        let line_text = self.buffer.line_str(line);
+        let prefix: String = line_text.chars().take(col).collect();
+        let x = tm.measure_text_width_styled(
+            &prefix,
+            self.font_size(),
+            prefix.chars().count(),
+            false,
+            self.font_family_str(),
+        );
+        let margin = self.char_width() * margin_chars;
+        let view_w = self.visible_text_width();
+        let prev = self.scroll_offset_x;
+        if x - margin < self.scroll_offset_x {
+            self.scroll_offset_x = (x - margin).max(0.0);
+        } else if x + margin > self.scroll_offset_x + view_w {
+            self.scroll_offset_x = (x + margin - view_w).max(0.0);
+        }
+        if (self.scroll_offset_x - prev).abs() > 0.01 {
+            self.scrollbar_fader_h.flash();
+        }
     }
 
     fn visible_text_width(&self) -> f32 {
@@ -819,6 +906,7 @@ impl CodeEditorElement {
         if self.scroll_offset_lines != prev {
             self.scrollbar_fader.flash();
         }
+        self.ensure_cursor_visible_x(4.0);
     }
 
     fn click_to_cursor(&self, pos: Point) -> usize {
@@ -1296,21 +1384,11 @@ impl Element for CodeEditorElement {
             Vec::new()
         };
 
+        // фон строк и номера — под всей шириной, текст — только правее gutter'а:
+        // при горизонтальной прокрутке он уходит под номера, а не поверх них
         for vis_row in first_visual..last_visual {
-            let (logical, seg_start_char, seg_end_char) = self.visual_to_logical(vis_row);
-            let line_text = self.buffer.line_str(logical);
-            let line_byte_start = self.buffer.line_to_byte(logical);
-            let line_chars_count = line_text.chars().count();
-            let (seg_byte_start, seg_byte_end) =
-                self.segment_byte_range(&line_text, seg_start_char, seg_end_char);
-            let segment = &line_text[seg_byte_start..seg_byte_end];
-            let abs_seg_start = line_byte_start + seg_byte_start;
-            let abs_seg_end = line_byte_start + seg_byte_end;
-            let is_last_visual_seg = seg_end_char >= line_chars_count;
-
+            let (logical, seg_start_char, _) = self.visual_to_logical(vis_row);
             let y = self.visual_line_y(vis_row);
-            let text_origin = Point::new(self.text_origin_x(), y);
-
             if let Some((_, color)) = self.line_marks.iter().find(|(l, _)| *l == logical) {
                 list.push_rect(Rect::new(Point::new(self.bounds.x(), y), Size::new(self.bounds.size.width, line_height)), color.with_alpha(0.08), [0.0; 4]);
                 list.push_rect(Rect::new(Point::new(self.bounds.x(), y), Size::new(3.0, line_height)), *color, [0.0; 4]);
@@ -1326,6 +1404,40 @@ impl Element for CodeEditorElement {
                     &self.mss,
                 );
             }
+            if self.show_line_numbers && seg_start_char == 0 {
+                gutter::paint_line_number(
+                    list,
+                    logical,
+                    self.bounds.x(),
+                    y,
+                    line_height,
+                    font_size.min(12.0),
+                    &theme,
+                    &self.mss,
+                );
+            }
+        }
+        let gutter_w = self.gutter_w();
+        list.push_clip(Rect::new(
+            Point::new(self.bounds.x() + gutter_w, self.bounds.y()),
+            Size::new((text_clip.size.width - gutter_w).max(0.0), self.bounds.size.height),
+        ));
+
+        for vis_row in first_visual..last_visual {
+            let (logical, seg_start_char, seg_end_char) = self.visual_to_logical(vis_row);
+            let line_text = self.buffer.line_str(logical);
+            let line_byte_start = self.buffer.line_to_byte(logical);
+            let line_chars_count = line_text.chars().count();
+            let (seg_byte_start, seg_byte_end) =
+                self.segment_byte_range(&line_text, seg_start_char, seg_end_char);
+            let segment = &line_text[seg_byte_start..seg_byte_end];
+            let abs_seg_start = line_byte_start + seg_byte_start;
+            let abs_seg_end = line_byte_start + seg_byte_end;
+            let is_last_visual_seg = seg_end_char >= line_chars_count;
+
+            let y = self.visual_line_y(vis_row);
+            let text_origin = Point::new(self.text_origin_x(), y);
+
 
             for sel in cursor_selections.iter().filter_map(|s| s.as_ref()) {
                 if sel.start < abs_seg_end && sel.end > abs_seg_start {
@@ -1414,19 +1526,6 @@ impl Element for CodeEditorElement {
                 &self.mss,
                 self.text_measure.as_deref(),
             );
-
-            if self.show_line_numbers && seg_start_char == 0 {
-                gutter::paint_line_number(
-                    list,
-                    logical,
-                    self.bounds.x(),
-                    y,
-                    line_height,
-                    font_size.min(12.0),
-                    &theme,
-                    &self.mss,
-                );
-            }
 
             if self.focused {
                 for (ci, (c_line, c_pos)) in cursor_lines.iter().enumerate() {
@@ -1567,6 +1666,7 @@ impl Element for CodeEditorElement {
         }
 
         list.pop_clip();
+        list.pop_clip();
 
         find_toolbar::paint_find_toolbar(
             list,
@@ -1608,22 +1708,18 @@ impl Element for CodeEditorElement {
         }
 
         if !self.soft_wrap {
-            let max_line_w = self.measure_max_visible_line_width(first_logical, last_logical);
-            let viewport_w = self.visible_text_width();
-            if max_line_w > viewport_w + 0.5 {
-                let opacity_h =
-                    crate::widgets::scroll::effective_opacity(&self.scrollbar_fader_h, &style);
-                if opacity_h > 0.0 {
-                    crate::widgets::scroll::render_horizontal(
-                        list,
-                        self.bounds,
-                        max_line_w,
-                        self.scroll_offset_x,
-                        &style,
-                        &self.scrollbar_fader_h,
-                        opacity_h,
-                    );
-                }
+            let opacity_h = crate::widgets::scroll::effective_opacity(&self.scrollbar_fader_h, &style);
+            if opacity_h > 0.0 {
+                let g = self.h_scrollbar_geom();
+                crate::widgets::scroll::render_horizontal(
+                    list,
+                    g.viewport,
+                    g.content_w,
+                    g.scroll_x,
+                    &style,
+                    &self.scrollbar_fader_h,
+                    opacity_h,
+                );
             }
         }
 
@@ -1646,6 +1742,18 @@ impl Element for CodeEditorElement {
             Event::MouseMove(pos) => {
                 let sb_geom = self.scrollbar_geom();
                 let sb_style = self.scrollbar_style_now();
+                let h_geom = self.h_scrollbar_geom();
+
+                if let Some((_, new_x)) = self.scrollbar_interaction_h.update_drag(
+                    &mut self.scrollbar_fader_h,
+                    &h_geom,
+                    &sb_style,
+                    *pos,
+                ) {
+                    self.scroll_offset_x = new_x;
+                    ctx.request_paint();
+                    return EventResult::Captured;
+                }
 
                 if let Some((new_y, _)) = self.scrollbar_interaction.update_drag(
                     &mut self.scrollbar_fader,
@@ -1673,6 +1781,7 @@ impl Element for CodeEditorElement {
                 if self.mouse_selecting && self.focused {
                     let new_pos = self.click_to_cursor(*pos);
                     self.cursors.primary_mut().move_to(new_pos, true);
+                    self.ensure_cursor_visible_x(0.0);
                     self.fire_on_cursor();
                     ctx.request_paint();
                     return EventResult::Handled;
@@ -1688,11 +1797,23 @@ impl Element for CodeEditorElement {
                     ) {
                         ctx.request_paint();
                     }
-                } else if self
-                    .scrollbar_interaction
-                    .clear_hover(&mut self.scrollbar_fader)
-                {
-                    ctx.request_paint();
+                    if !self.soft_wrap
+                        && self.scrollbar_interaction_h.update_hover(
+                            &mut self.scrollbar_fader_h,
+                            &h_geom,
+                            &sb_style,
+                            *pos,
+                            crate::widgets::scroll::SCROLLBAR_HIT_MARGIN,
+                        )
+                    {
+                        ctx.request_paint();
+                    }
+                } else {
+                    let v = self.scrollbar_interaction.clear_hover(&mut self.scrollbar_fader);
+                    let h = self.scrollbar_interaction_h.clear_hover(&mut self.scrollbar_fader_h);
+                    if v || h {
+                        ctx.request_paint();
+                    }
                 }
 
                 if was_hover != self.hover {
@@ -1714,6 +1835,18 @@ impl Element for CodeEditorElement {
                         &sb_style,
                         *position,
                     ) {
+                        ctx.request_paint();
+                        return EventResult::Captured;
+                    }
+                    let h_geom = self.h_scrollbar_geom();
+                    if !self.soft_wrap
+                        && self.scrollbar_interaction_h.try_begin_drag(
+                            &mut self.scrollbar_fader_h,
+                            &h_geom,
+                            &sb_style,
+                            *position,
+                        )
+                    {
                         ctx.request_paint();
                         return EventResult::Captured;
                     }
@@ -1745,7 +1878,13 @@ impl Element for CodeEditorElement {
                     // правый щелчок вне выделения — курсор туда (как в редакторах),
                     // событие идёт дальше: контекстное меню обёртки откроется над словом
                     let new_pos = self.click_to_cursor(*position);
-                    let inside = self.cursors.primary().selection_range().is_some_and(|r| r.contains(&new_pos));
+                    // правый край включительно: щелчок по правой половине последнего
+                    // символа даёт позицию конца выделения — оно должно остаться
+                    let inside = self
+                        .cursors
+                        .iter()
+                        .filter_map(|c| c.selection_range())
+                        .any(|r| r.start <= new_pos && new_pos <= r.end);
                     if !inside {
                         self.cursors.clear_secondary();
                         self.cursors.primary_mut().move_to(new_pos, false);
@@ -1764,10 +1903,9 @@ impl Element for CodeEditorElement {
             }
             Event::MouseUp { button, .. } => {
                 if *button == MouseButton::Left {
-                    if self
-                        .scrollbar_interaction
-                        .end_drag(&mut self.scrollbar_fader)
-                    {
+                    let v = self.scrollbar_interaction.end_drag(&mut self.scrollbar_fader);
+                    let h = self.scrollbar_interaction_h.end_drag(&mut self.scrollbar_fader_h);
+                    if v || h {
                         ctx.request_paint();
                         return EventResult::Handled;
                     }
@@ -1802,10 +1940,27 @@ impl Element for CodeEditorElement {
                 EventResult::Ignored
             }
             Event::MouseWheel {
-                delta, position, ..
+                delta, delta_x, position,
             } => {
                 if !self.bounds.contains(*position) {
                     return EventResult::Ignored;
+                }
+                // горизонталь: тачпад или Shift+колесо (платформа кладёт его в delta_x)
+                if *delta_x != 0.0 && !self.soft_wrap {
+                    let old = self.scroll_offset_x;
+                    let new = old - *delta_x;
+                    self.scroll_offset_x = if new > old {
+                        new.min(self.max_scroll_x().max(old))
+                    } else {
+                        new.max(0.0)
+                    };
+                    if (self.scroll_offset_x - old).abs() > 0.01 {
+                        self.scrollbar_fader_h.flash();
+                        ctx.request_paint();
+                    }
+                    if *delta == 0.0 {
+                        return EventResult::Handled;
+                    }
                 }
                 let visible = self.visible_lines_count();
                 let max_scroll = self.total_visual_lines.saturating_sub(visible);
@@ -1993,6 +2148,7 @@ impl Element for CodeEditorElement {
             .mss
             .scrollbar_style(self.mss.color.unwrap_or(Color::from_hex("#9CA3AF")));
         let mut needs_repaint = self.scrollbar_fader.tick(dt.as_secs_f32(), &style);
+        needs_repaint |= self.scrollbar_fader_h.tick(dt.as_secs_f32(), &style);
 
         if let Some(sig) = self.command_signal {
             if let Some(cmd) = sig.get_untracked() {
@@ -2008,7 +2164,7 @@ impl Element for CodeEditorElement {
     }
 
     fn needs_repaint(&self) -> bool {
-        self.scrollbar_fader.opacity > 0.0
+        self.scrollbar_fader.opacity > 0.0 || self.scrollbar_fader_h.opacity > 0.0
     }
 }
 

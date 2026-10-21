@@ -36,6 +36,16 @@ impl std::fmt::Debug for Highlighter {
 
 impl Highlighter {
     pub fn new(language: Language, tab_width: usize) -> Self {
+        // у synoptic инлайновые правила markdown многострочные: одиночная `*`
+        // или `` ` `` красила текст до следующей такой же через весь файл
+        if language == Language::Markdown {
+            return Self {
+                inner: Backend::Custom(std::sync::Arc::new(super::markdown::MarkdownHighlighter), Vec::new()),
+                lines: Vec::new(),
+                language,
+                tab_width,
+            };
+        }
         let inner = synoptic::from_extension(language.extension(), tab_width).expect(
             "synoptic::from_extension всегда возвращает Some (fallback на пустой Highlighter)",
         );

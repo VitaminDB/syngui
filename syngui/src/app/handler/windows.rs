@@ -229,7 +229,10 @@ impl AppHandler {
                     let evt = match state {
                         winit::event::ElementState::Pressed => {
                             let now = web_time::Instant::now();
-                            let is_double = sw
+                            // двойной — только два левых подряд: правый щелчок
+                            // сразу после левого должен открыть меню, а не стать DoubleClick
+                            let is_double = btn == crate::input::MouseButton::Left
+                                && sw
                                 .last_click_time
                                 .map(|t| now.duration_since(t) < sw.double_click_interval)
                                 .unwrap_or(false)
@@ -248,8 +251,9 @@ impl AppHandler {
                                     button: btn,
                                 }
                             } else {
-                                sw.last_click_time = Some(now);
-                                sw.last_click_pos = Some(pos);
+                                let left = btn == crate::input::MouseButton::Left;
+                                sw.last_click_time = left.then_some(now);
+                                sw.last_click_pos = left.then_some(pos);
                                 UiEvent::MouseDown {
                                     position: pos,
                                     button: btn,

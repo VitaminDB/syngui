@@ -2,6 +2,7 @@ mod capture_names;
 mod highlight_cache;
 mod highlighter;
 mod language;
+mod markdown;
 
 pub use capture_names::TokenClass;
 pub use highlight_cache::{LineSpans, Span};

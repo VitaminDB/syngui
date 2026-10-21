@@ -272,7 +272,8 @@ impl EmbedView {
             return EventResult::Handled;
         }
         if pressed {
-            let is_double = self.last_click.is_some_and(|(t, p)| {
+            let left = button == MouseButton::Left;
+            let is_double = left && self.last_click.is_some_and(|(t, p)| {
                 let d = ((pos.x - p.x).powi(2) + (pos.y - p.y).powi(2)).sqrt();
                 t.elapsed() < self.double_click_interval && d < 4.0
             });
@@ -283,7 +284,7 @@ impl EmbedView {
                     position: pos,
                 })
             } else {
-                self.last_click = Some((Instant::now(), pos));
+                self.last_click = left.then(|| (Instant::now(), pos));
                 self.dispatch(&Event::MouseDown {
                     button,
                     position: pos,

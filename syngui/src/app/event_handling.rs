@@ -347,8 +347,11 @@ impl winit::application::ApplicationHandler<SynGuiUserEvent> for AppHandler {
                     let mapped_button = map_mouse_button(button);
 
                     if is_press {
-                        let is_double = if let (Some(last_time), Some(last_pos)) =
-                            (self.last_click_time, self.last_click_pos)
+                        // двойной — только два левых подряд: правый щелчок
+                        // сразу после левого должен открыть меню, а не стать DoubleClick
+                        let left = mapped_button == crate::input::MouseButton::Left;
+                        let is_double = if let (true, Some(last_time), Some(last_pos)) =
+                            (left, self.last_click_time, self.last_click_pos)
                         {
                             let elapsed = Instant::now().duration_since(last_time);
                             let dx = pos.x - last_pos.x;
@@ -374,8 +377,8 @@ impl winit::application::ApplicationHandler<SynGuiUserEvent> for AppHandler {
                                 window.request_redraw();
                             }
                         } else {
-                            self.last_click_time = Some(Instant::now());
-                            self.last_click_pos = Some(pos);
+                            self.last_click_time = left.then(Instant::now);
+                            self.last_click_pos = left.then_some(pos);
                             let event = Event::MouseDown {
                                 button: mapped_button,
                                 position: pos,
