@@ -61,6 +61,8 @@ impl Widget for MultilineTextEdit {
             menu_pos: self.menu_pos,
             menu_action: self.menu_action,
             menu_mounted: false,
+            menu_kept_selection: false,
+            focus_request_pending: false,
         })
     }
 
@@ -121,6 +123,12 @@ struct MultilineTextEditElement {
     menu_pos: RwSignal<Point>,
     menu_action: RwSignal<Option<EditMenuAction>>,
     menu_mounted: bool,
+    /// Фокус ушёл, пока открыто контекстное меню поля (щелчок по пункту
+    /// забирает фокус раньше, чем пункт выполнится): выделение не снято,
+    /// чтобы «Копировать»/«Вырезать» было что брать; снимается после меню.
+    menu_kept_selection: bool,
+    /// Вернуть фокус после пункта контекстного меню.
+    focus_request_pending: bool,
 }
 
 impl MultilineTextEditElement {
@@ -865,6 +873,7 @@ impl Element for MultilineTextEditElement {
     fn handle_event(&mut self, event: &Event, ctx: &mut EventContext) -> EventResult {
         match event {
             Event::FocusGained => {
+                self.menu_kept_selection = false;
                 self.focused = true;
                 self.start_transition_to_current_state();
                 ctx.set_virtual_keyboard_visible(true);
@@ -875,7 +884,11 @@ impl Element for MultilineTextEditElement {
             }
             Event::FocusLost => {
                 self.focused = false;
-                self.selection.clear();
+                if self.menu_open.get_untracked() || self.menu_action.get_untracked().is_some() {
+                    self.menu_kept_selection = true;
+                } else {
+                    self.selection.clear();
+                }
                 self.start_transition_to_current_state();
                 ctx.set_virtual_keyboard_visible(false);
                 ctx.request_paint();
@@ -1401,7 +1414,19 @@ impl Element for MultilineTextEditElement {
         if let Some(action) = self.menu_action.get_untracked() {
             self.menu_action.set(None);
             self.apply_menu_action(action);
+            if std::mem::take(&mut self.menu_kept_selection) {
+                // Фокус ушёл в меню — вернуть полю, как после меню в любом
+                // редакторе: можно сразу «Копировать» после «Выделить всё».
+                self.focus_request_pending = true;
+            }
             redraw = true;
+        }
+        if self.menu_kept_selection && !self.menu_open.get_untracked() && self.menu_action.get_untracked().is_none() {
+            self.menu_kept_selection = false;
+            if !self.focused {
+                self.selection.clear();
+                redraw = true;
+            }
         }
         redraw
     }
@@ -1412,8 +1437,12 @@ impl Element for MultilineTextEditElement {
 
     /// Пока меню открыто (и пока не разобран его выбор) полю нужны кадры:
     /// пункт приходит отложенно, через сигнал.
+    fn take_focus_request(&mut self) -> bool {
+        std::mem::take(&mut self.focus_request_pending)
+    }
+
     fn wants_animate_tick(&self) -> bool {
-        self.menu_open.get_untracked() || self.menu_action.get_untracked().is_some()
+        self.menu_open.get_untracked() || self.menu_action.get_untracked().is_some() || self.menu_kept_selection
     }
 
     fn manages_own_children(&self) -> bool {
@@ -1604,6 +1633,8 @@ mod tests {
             menu_pos: crate::signal::use_signal(Point::zero()),
             menu_action: crate::signal::use_signal(None),
             menu_mounted: false,
+            menu_kept_selection: false,
+            focus_request_pending: false,
         }
     }
 

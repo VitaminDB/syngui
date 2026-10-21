@@ -304,6 +304,7 @@ impl Widget for TextField {
             menu_pos: self.menu_pos,
             menu_action: self.menu_action,
             menu_mounted: false,
+            menu_kept_selection: false,
         })
     }
 
@@ -374,6 +375,10 @@ pub struct TextFieldElement {
     menu_pos: RwSignal<Point>,
     menu_action: RwSignal<Option<EditMenuAction>>,
     menu_mounted: bool,
+    /// Фокус ушёл, пока открыто контекстное меню поля (щелчок по пункту
+    /// забирает фокус раньше, чем пункт выполнится): выделение не снято,
+    /// чтобы «Копировать»/«Вырезать» было что брать; снимается после меню.
+    menu_kept_selection: bool,
 }
 
 /// Ширина поля, когда родитель не ограничивает её (строка меряет детей
@@ -1301,6 +1306,7 @@ impl Element for TextFieldElement {
                 EventResult::Ignored
             }
             Event::FocusGained => {
+                self.menu_kept_selection = false;
                 self.focused = true;
                 self.mss.start_transition_to(self.hover, false, true, false);
                 ctx.set_virtual_keyboard_visible(true);
@@ -1332,7 +1338,11 @@ impl Element for TextFieldElement {
                         self.trigger_change();
                     }
                 }
-                self.selection.clear();
+                if self.menu_open.get_untracked() || self.menu_action.get_untracked().is_some() {
+                    self.menu_kept_selection = true;
+                } else {
+                    self.selection.clear();
+                }
                 if self.submit_on_focus_lost {
                     if let Some(ref callback) = self.on_submit {
                         if let Ok(mut f) = callback.lock() {
@@ -1785,7 +1795,19 @@ impl Element for TextFieldElement {
         if let Some(action) = self.menu_action.get_untracked() {
             self.menu_action.set(None);
             self.apply_menu_action(action);
+            if std::mem::take(&mut self.menu_kept_selection) {
+                // Фокус ушёл в меню — вернуть полю, как после меню в любом
+                // редакторе: можно сразу «Копировать» после «Выделить всё».
+                self.focus_request_pending = true;
+            }
             redraw = true;
+        }
+        if self.menu_kept_selection && !self.menu_open.get_untracked() && self.menu_action.get_untracked().is_none() {
+            self.menu_kept_selection = false;
+            if !self.focused {
+                self.selection.clear();
+                redraw = true;
+            }
         }
         redraw
     }
@@ -1797,7 +1819,7 @@ impl Element for TextFieldElement {
     /// Пока меню открыто (и пока не разобран его выбор) полю нужны кадры:
     /// пункт приходит отложенно, через сигнал.
     fn wants_animate_tick(&self) -> bool {
-        self.menu_open.get_untracked() || self.menu_action.get_untracked().is_some()
+        self.menu_open.get_untracked() || self.menu_action.get_untracked().is_some() || self.menu_kept_selection
     }
 
     fn manages_own_children(&self) -> bool {

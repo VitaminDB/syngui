@@ -72,6 +72,13 @@ impl ElementTree {
                 crate::perf::incr(crate::perf::Counter::AnimateTicking);
             }
             let animated = node.element.animate(dt);
+            // Элемент просит фокус из своего тика (поле после пункта своего
+            // контекстного меню) — как autofocus, FocusGained придёт в update.
+            if node.element.take_focus_request() {
+                self.focused_element = Some(id);
+                self.pending_autofocus = Some(id);
+                needs_repaint = true;
+            }
             if animated {
                 crate::perf::incr(crate::perf::Counter::AnimateTrue);
             }
