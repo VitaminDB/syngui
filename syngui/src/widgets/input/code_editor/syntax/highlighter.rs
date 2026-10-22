@@ -203,16 +203,7 @@ mod tests {
 
     #[test]
     fn brackets_do_not_crash_any_language() {
-        let langs = [
-            Language::Rust,
-            Language::Json,
-            Language::Toml,
-            Language::Markdown,
-            Language::TypeScript,
-            Language::Tsx,
-            Language::Python,
-        ];
-        for lang in langs {
+        for &lang in Language::ALL {
             let mut h = Highlighter::new(lang, 4);
             for t in ["", "[", "[ ", "[ ]", "[ ]\n[ ]"] {
                 h.reparse(t);

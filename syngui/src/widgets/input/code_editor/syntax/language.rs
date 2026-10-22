@@ -1,4 +1,4 @@
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub enum Language {
     Rust,
     Json,
@@ -7,9 +7,33 @@ pub enum Language {
     TypeScript,
     Tsx,
     Python,
+    C,
+    Cpp,
+    Asm,
+    Shell,
+    Go,
+    JavaScript,
+    Java,
+    CSharp,
+    Lua,
+    Yaml,
+    Html,
+    Css,
+    Xml,
+    Sql,
+    Diff,
+    Ruby,
+    Kotlin,
+    Swift,
+    Php,
+    PlainText,
 }
 
 impl Language {
+    /// Все языки (для выбора в интерфейсе).
+    pub const ALL: &'static [Language] = &[Language::Rust, Language::Json, Language::Toml, Language::Markdown, Language::TypeScript, Language::Tsx, Language::Python, Language::C, Language::Cpp, Language::Asm, Language::Shell, Language::Go, Language::JavaScript, Language::Java, Language::CSharp, Language::Lua, Language::Yaml, Language::Html, Language::Css, Language::Xml, Language::Sql, Language::Diff, Language::Ruby, Language::Kotlin, Language::Swift, Language::Php, Language::PlainText];
+
+    /// Расширение файла для `synoptic::from_extension` (`txt` — без подсветки).
     pub fn extension(self) -> &'static str {
         match self {
             Language::Rust => "rs",
@@ -19,6 +43,26 @@ impl Language {
             Language::TypeScript => "ts",
             Language::Tsx => "tsx",
             Language::Python => "py",
+            Language::C => "c",
+            Language::Cpp => "cpp",
+            Language::Asm => "asm",
+            Language::Shell => "sh",
+            Language::Go => "go",
+            Language::JavaScript => "js",
+            Language::Java => "java",
+            Language::CSharp => "cs",
+            Language::Lua => "lua",
+            Language::Yaml => "yaml",
+            Language::Html => "html",
+            Language::Css => "css",
+            Language::Xml => "xml",
+            Language::Sql => "sql",
+            Language::Diff => "diff",
+            Language::Ruby => "rb",
+            Language::Kotlin => "kt",
+            Language::Swift => "swift",
+            Language::Php => "php",
+            Language::PlainText => "txt",
         }
     }
 
@@ -31,6 +75,26 @@ impl Language {
             Language::TypeScript => "TypeScript",
             Language::Tsx => "TSX",
             Language::Python => "Python",
+            Language::C => "C",
+            Language::Cpp => "C++",
+            Language::Asm => "Ассемблер",
+            Language::Shell => "Shell",
+            Language::Go => "Go",
+            Language::JavaScript => "JavaScript",
+            Language::Java => "Java",
+            Language::CSharp => "C#",
+            Language::Lua => "Lua",
+            Language::Yaml => "YAML",
+            Language::Html => "HTML",
+            Language::Css => "CSS",
+            Language::Xml => "XML",
+            Language::Sql => "SQL",
+            Language::Diff => "Diff",
+            Language::Ruby => "Ruby",
+            Language::Kotlin => "Kotlin",
+            Language::Swift => "Swift",
+            Language::Php => "PHP",
+            Language::PlainText => "Текст",
         }
     }
 }
