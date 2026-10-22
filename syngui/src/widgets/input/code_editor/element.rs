@@ -2210,12 +2210,14 @@ impl Element for CodeEditorElement {
     /// сигнал, а разбирается в `animate`. Без подписки редактор не попадает
     /// в реестр анимаций, и команда ждёт, пока его разбудит что-то другое.
     fn on_signal_change(&mut self) -> bool {
+        // диагностики из сигнала — на лету, без пересборки виджета
+        let diags = self.lsp.has_diag_signal() && self.lsp.sync_diagnostics();
         // список дополнения или справка от приложения — перерисовать
         if self.lsp.has_signals() {
             self.refresh_completion();
             return true;
         }
-        self.has_pending_command()
+        diags || self.has_pending_command()
     }
 
     fn wants_animate_tick(&self) -> bool {

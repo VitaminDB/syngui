@@ -49,6 +49,7 @@ type PosCb = Arc<Mutex<dyn FnMut(usize, usize) + Send>>;
 
 pub(super) struct LspState {
     pub diagnostics: Vec<Diagnostic>,
+    diag_signal: Option<RwSignal<Vec<Diagnostic>>>,
     /// Номера диагностик по возрастанию начальной строки.
     diag_order: Vec<usize>,
 
@@ -80,7 +81,8 @@ pub(super) struct LspState {
 impl LspState {
     pub fn from_widget(w: &CodeEditor) -> Self {
         let mut s = Self {
-            diagnostics: w.diagnostics.clone(),
+            diagnostics: w.diagnostics_signal.map(|s| s.get_untracked()).unwrap_or_else(|| w.diagnostics.clone()),
+            diag_signal: w.diagnostics_signal,
             diag_order: Vec::new(),
             completion: w.completion,
             triggers: w.completion_triggers.clone(),
@@ -114,8 +116,10 @@ impl LspState {
     /// не трогает.
     pub fn update(&mut self, w: &CodeEditor) -> bool {
         let mut changed = false;
-        if self.diagnostics != w.diagnostics {
-            self.diagnostics = w.diagnostics.clone();
+        self.diag_signal = w.diagnostics_signal;
+        let wanted = w.diagnostics_signal.map(|s| s.get_untracked()).unwrap_or_else(|| w.diagnostics.clone());
+        if self.diagnostics != wanted {
+            self.diagnostics = wanted;
             self.rebuild_order();
             changed = true;
         }
@@ -128,7 +132,22 @@ impl LspState {
         changed
     }
 
+    /// Диагностики из сигнала изменились — взять новые; `true` — перерисовать.
+    pub fn sync_diagnostics(&mut self) -> bool {
+        let Some(s) = self.diag_signal else { return false };
+        let d = s.get_untracked();
+        if d == self.diagnostics {
+            return false;
+        }
+        self.diagnostics = d;
+        self.rebuild_order();
+        true
+    }
+
     pub fn subscribe(&self, id: crate::widget::ElementId) {
+        if let Some(s) = self.diag_signal {
+            s.subscribe_element(id);
+        }
         if let Some(s) = self.completion {
             s.subscribe_element(id);
         }
@@ -139,6 +158,10 @@ impl LspState {
 
     pub fn has_signals(&self) -> bool {
         self.completion.is_some() || self.hover.is_some()
+    }
+
+    pub fn has_diag_signal(&self) -> bool {
+        self.diag_signal.is_some()
     }
 
     /// Ждём задержку наведения — нужны тики `animate`.

@@ -63,6 +63,7 @@ pub struct CodeEditor {
     pub(crate) line_marks: Vec<(usize, crate::core::Color)>,
     pub(crate) reveal_line: Option<usize>,
     pub(crate) diagnostics: Vec<Diagnostic>,
+    pub(crate) diagnostics_signal: Option<RwSignal<Vec<Diagnostic>>>,
     pub(crate) completion: Option<RwSignal<Option<CompletionList>>>,
     pub(crate) completion_triggers: Vec<char>,
     pub(crate) on_completion_request: Option<Arc<Mutex<dyn FnMut(CompletionTrigger) + Send>>>,
@@ -92,6 +93,7 @@ impl CodeEditor {
             line_marks: Vec::new(),
             reveal_line: None,
             diagnostics: Vec::new(),
+            diagnostics_signal: None,
             completion: None,
             completion_triggers: Vec::new(),
             on_completion_request: None,
@@ -198,6 +200,14 @@ impl CodeEditor {
     /// не трогает текст и каретку.
     pub fn diagnostics(mut self, d: Vec<Diagnostic>) -> Self {
         self.diagnostics = d;
+        self
+    }
+
+    /// Диагностики из сигнала: редактор перерисовывает их при каждом
+    /// изменении сигнала (проверка на лету по мере набора) без пересборки
+    /// виджета. Перекрывает [`diagnostics`](Self::diagnostics).
+    pub fn diagnostics_signal(mut self, s: RwSignal<Vec<Diagnostic>>) -> Self {
+        self.diagnostics_signal = Some(s);
         self
     }
 

@@ -53,22 +53,16 @@ impl ColorValue {
         format!("#{:02X}{:02X}{:02X}", self.r, self.g, self.b)
     }
 
+    /// `ColorValue` — байты sRGB, `Color` хранит линейные компоненты:
+    /// без перевода образец рисовался светлее (#16161e — серым #4a4a4a), а
+    /// обратный перевод темнил цвет при каждом сохранении.
     pub fn to_color(&self) -> Color {
-        Color::new(
-            self.r as f32 / 255.0,
-            self.g as f32 / 255.0,
-            self.b as f32 / 255.0,
-            self.a as f32 / 255.0,
-        )
+        Color::from_srgb(self.r, self.g, self.b, self.a as f32 / 255.0)
     }
 
     pub fn from_color(c: Color) -> Self {
-        Self {
-            r: (c.r * 255.0).round() as u8,
-            g: (c.g * 255.0).round() as u8,
-            b: (c.b * 255.0).round() as u8,
-            a: (c.a * 255.0).round() as u8,
-        }
+        let [r, g, b] = c.to_srgb_u8();
+        Self { r, g, b, a: (c.a * 255.0).round() as u8 }
     }
 
     pub fn to_hsv(&self) -> (f32, f32, f32) {
@@ -645,17 +639,20 @@ impl Element for ColorPickerElement {
                 .color
                 .unwrap_or_else(crate::theme_fallback::fallback_fg);
             // `#RRGGBB` в узком контроле (96 px в панели свойств) переносился
-            // на вторую строку и вылезал за кнопку — только одна строка.
-            list.push_text_styled_singleline(
-                &self.color.to_hex(),
-                text_rect,
-                text_color,
-                font_size,
-                TextAlign::DEFAULT,
-                TextDecoration::None,
-                400,
-                None,
-            );
+            // на вторую строку и вылезал за кнопку — только одна строка; в
+            // совсем узком (только образец) — без текста.
+            if text_rect.size.width >= font_size * 4.0 {
+                list.push_text_styled_singleline(
+                    &self.color.to_hex(),
+                    text_rect,
+                    text_color,
+                    font_size,
+                    TextAlign::DEFAULT,
+                    TextDecoration::None,
+                    400,
+                    None,
+                );
+            }
         }
 
         if !self.is_open {
