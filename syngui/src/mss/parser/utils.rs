@@ -1,29 +1,53 @@
+use super::{ParseError, ParseErrorKind};
+
 pub(super) struct ParserCursor<'a> {
     pub input: &'a str,
     pub position: usize,
-    pub line: usize,
+    /// Смещение `input` в исходном тексте: у вложенного курсора (значение
+    /// по умолчанию в `var()`) диапазоны ошибок — в байтах всего файла.
+    pub base: usize,
+    /// Нефатальные замечания (неизвестный псевдокласс…): правило разобрано,
+    /// но что-то в нём пропущено. Позиции — абсолютные байты, строку и
+    /// колонку проставляет [`super::MssParser`].
+    pub soft: Vec<ParseError>,
 }
 
 impl<'a> ParserCursor<'a> {
     pub fn new(input: &'a str) -> Self {
+        Self::with_base(input, 0)
+    }
+
+    pub fn with_base(input: &'a str, base: usize) -> Self {
         Self {
             input,
             position: 0,
-            line: 1,
+            base,
+            soft: Vec::new(),
         }
     }
 
+    /// Ошибка на текущем символе (на конце файла — пустой диапазон).
+    pub fn error(&self, kind: ParseErrorKind) -> ParseError {
+        let end = self.position + self.peek().map_or(0, char::len_utf8);
+        self.error_span(kind, self.position, end)
+    }
+
+    /// Ошибка на диапазоне `[start, end)` байт этого курсора.
+    pub fn error_span(&self, kind: ParseErrorKind, start: usize, end: usize) -> ParseError {
+        ParseError::new(kind, self.base + start..self.base + end.max(start))
+    }
+
+    /// «Ожидалось `expected`» с найденным символом.
+    pub fn expected(&self, expected: &str) -> ParseError {
+        self.error(ParseErrorKind::Expected {
+            expected: expected.to_string(),
+            found: self.peek(),
+        })
+    }
+
     pub fn skip_whitespace(&mut self) {
-        while !self.is_eof() {
-            match self.peek() {
-                Some(' ') | Some('\t') | Some('\n') | Some('\r') => {
-                    if self.peek() == Some('\n') {
-                        self.line += 1;
-                    }
-                    self.advance();
-                }
-                _ => break,
-            }
+        while let Some(' ' | '\t' | '\n' | '\r') = self.peek() {
+            self.advance();
         }
     }
 
@@ -37,9 +61,6 @@ impl<'a> ParserCursor<'a> {
                     self.advance();
                     self.advance();
                     break;
-                }
-                if self.peek() == Some('\n') {
-                    self.line += 1;
                 }
                 self.advance();
             }
@@ -97,4 +118,18 @@ impl<'a> ParserCursor<'a> {
         parts.push(&s[start..]);
         parts
     }
+}
+
+/// Строка и колонка (обе с нуля, колонка — в символах Unicode) байтового
+/// смещения `offset` в `text`. Смещение за концом текста — конец текста,
+/// внутри символа — его начало.
+pub fn line_col(text: &str, offset: usize) -> (usize, usize) {
+    let mut offset = offset.min(text.len());
+    while !text.is_char_boundary(offset) {
+        offset -= 1;
+    }
+    let before = &text[..offset];
+    let line = before.bytes().filter(|&b| b == b'\n').count();
+    let line_start = before.rfind('\n').map_or(0, |i| i + 1);
+    (line, before[line_start..].chars().count())
 }

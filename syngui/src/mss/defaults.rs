@@ -31,7 +31,7 @@ fn parse_defaults() -> StyleSheet {
     for src in sources() {
         match parse_stylesheet_str(src) {
             Ok(s) => sheet.merge(&s),
-            Err(e) => log::warn!("[mss] встроенные стили виджетов не разобрались: {e:?}"),
+            Err(e) => log::warn!("[mss] встроенные стили виджетов не разобрались: {e}"),
         }
     }
     sheet

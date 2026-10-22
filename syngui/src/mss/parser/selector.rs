@@ -1,5 +1,6 @@
 use super::super::stylesheet::*;
-use super::super::ParseError;
+use super::{ParseError, ParseErrorKind};
+use std::ops::Range;
 use super::utils::ParserCursor;
 
 #[derive(Debug, Clone)]
@@ -10,13 +11,15 @@ enum SelectorToken {
     PseudoOnly(String),
 }
 
+/// `span` — место селектора в тексте курсора (для ошибок).
 pub(super) fn parse_selector_chains(
     cursor: &ParserCursor,
     s: &str,
+    span: &Range<usize>,
 ) -> Result<Vec<SelectorChain>, ParseError> {
     let s = s.trim();
     if s.is_empty() {
-        return Err(ParseError::EmptySelector(cursor.line));
+        return Err(cursor.error_span(ParseErrorKind::EmptySelector, span.start, span.end));
     }
 
     let parts = cursor.split_by_comma(s);
@@ -27,17 +30,21 @@ pub(super) fn parse_selector_chains(
         if part.is_empty() {
             continue;
         }
-        chains.push(parse_single_chain(cursor, part)?);
+        chains.push(parse_single_chain(cursor, part, span)?);
     }
 
     if chains.is_empty() {
-        return Err(ParseError::EmptySelector(cursor.line));
+        return Err(cursor.error_span(ParseErrorKind::EmptySelector, span.start, span.end));
     }
 
     Ok(chains)
 }
 
-fn parse_single_chain(cursor: &ParserCursor, s: &str) -> Result<SelectorChain, ParseError> {
+fn parse_single_chain(
+    cursor: &ParserCursor,
+    s: &str,
+    span: &Range<usize>,
+) -> Result<SelectorChain, ParseError> {
     let s = s.trim();
 
     let (leading_combinator, rest) = extract_leading_combinator(s);
@@ -51,7 +58,7 @@ fn parse_single_chain(cursor: &ParserCursor, s: &str) -> Result<SelectorChain, P
         });
     }
 
-    let tokens = tokenize_selector(cursor, rest)?;
+    let tokens = tokenize_selector(cursor, rest, span)?;
 
     if tokens.is_empty() {
         return Ok(SelectorChain {
@@ -161,7 +168,11 @@ fn extract_leading_combinator(s: &str) -> (Option<Combinator>, &str) {
     (None, s)
 }
 
-fn tokenize_selector(cursor: &ParserCursor, s: &str) -> Result<Vec<SelectorToken>, ParseError> {
+fn tokenize_selector(
+    cursor: &ParserCursor,
+    s: &str,
+    span: &Range<usize>,
+) -> Result<Vec<SelectorToken>, ParseError> {
     let s = s.trim();
     let mut tokens = Vec::new();
     let mut pos = 0;
@@ -203,7 +214,11 @@ fn tokenize_selector(cursor: &ParserCursor, s: &str) -> Result<Vec<SelectorToken
             }
             let name: String = chars[start..pos].iter().collect();
             if name.is_empty() {
-                return Err(ParseError::InvalidSelector(s.to_string(), cursor.line));
+                return Err(cursor.error_span(
+                    ParseErrorKind::InvalidSelector(s.to_string()),
+                    span.start,
+                    span.end,
+                ));
             }
             if pos < chars.len() && chars[pos] == ':' {
                 pos += 1;

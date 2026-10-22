@@ -2,7 +2,7 @@ use std::collections::HashMap;
 
 use super::super::stylesheet::*;
 use super::super::value::StyleValue;
-use super::super::ParseError;
+use super::{ParseError, ParseErrorKind};
 use super::utils::ParserCursor;
 use super::value::*;
 
@@ -81,14 +81,12 @@ pub(super) fn parse_root_variables(
     cursor: &mut ParserCursor,
     stylesheet: &mut StyleSheet,
 ) -> Result<(), ParseError> {
+    let block_start = cursor.position;
     cursor.consume(":root");
     cursor.skip_whitespace();
 
     if cursor.peek() != Some('{') {
-        return Err(ParseError::UnexpectedToken(
-            format!("Expected '{{', got {:?}", cursor.peek()),
-            cursor.line,
-        ));
+        return Err(cursor.expected("«{» после :root"));
     }
     cursor.consume("{");
     cursor.skip_whitespace();
@@ -108,10 +106,7 @@ pub(super) fn parse_root_variables(
         cursor.skip_whitespace();
 
         if cursor.peek() != Some(':') {
-            return Err(ParseError::UnexpectedToken(
-                format!("Expected ':', got {:?}", cursor.peek()),
-                cursor.line,
-            ));
+            return Err(cursor.expected("«:»"));
         }
         cursor.consume(":");
         cursor.skip_whitespace();
@@ -129,7 +124,11 @@ pub(super) fn parse_root_variables(
     if cursor.peek() == Some('}') {
         cursor.consume("}");
     } else {
-        return Err(ParseError::UnclosedBlock("root".to_string(), cursor.line));
+        return Err(cursor.error_span(
+            ParseErrorKind::UnclosedBlock(":root".to_string()),
+            block_start,
+            block_start + ":root".len(),
+        ));
     }
 
     Ok(())
@@ -139,17 +138,16 @@ pub(super) fn parse_keyframes(
     cursor: &mut ParserCursor,
     stylesheet: &mut StyleSheet,
 ) -> Result<(), ParseError> {
+    let block_start = cursor.position;
     cursor.consume("@keyframes");
     cursor.skip_whitespace();
 
     let name = parse_identifier(cursor)?;
+    let header_end = cursor.position;
     cursor.skip_whitespace();
 
     if cursor.peek() != Some('{') {
-        return Err(ParseError::UnexpectedToken(
-            format!("Expected '{{' after @keyframes {}", name),
-            cursor.line,
-        ));
+        return Err(cursor.expected(&format!("«{{» после @keyframes {name}")));
     }
     cursor.consume("{");
     cursor.skip_whitespace();
@@ -189,11 +187,15 @@ pub(super) fn parse_keyframes(
                 }
                 let num_str = &cursor.input[start..cursor.position];
                 let pct: f32 = num_str.parse().map_err(|_| {
-                    ParseError::InvalidValue(
-                        num_str.to_string(),
-                        "keyframe percentage".to_string(),
-                        cursor.line,
-                    )
+                    let kind = ParseErrorKind::InvalidValue {
+                        value: num_str.to_string(),
+                        reason: "позиция шага @keyframes — процент, from или to".to_string(),
+                    };
+                    if num_str.is_empty() {
+                        cursor.error(kind)
+                    } else {
+                        cursor.error_span(kind, start, cursor.position)
+                    }
                 })?;
                 if cursor.peek() == Some('%') {
                     cursor.consume("%");
@@ -211,10 +213,7 @@ pub(super) fn parse_keyframes(
         }
 
         if cursor.peek() != Some('{') {
-            return Err(ParseError::UnexpectedToken(
-                format!("Expected '{{' in @keyframes step"),
-                cursor.line,
-            ));
+            return Err(cursor.expected("«{» после позиции шага @keyframes"));
         }
         cursor.consume("{");
         cursor.skip_whitespace();
@@ -234,10 +233,7 @@ pub(super) fn parse_keyframes(
             let property = parse_identifier(cursor)?;
             cursor.skip_whitespace();
             if cursor.peek() != Some(':') {
-                return Err(ParseError::UnexpectedToken(
-                    format!("Expected ':' in @keyframes declaration"),
-                    cursor.line,
-                ));
+                return Err(cursor.expected("«:» после имени свойства"));
             }
             cursor.consume(":");
             cursor.skip_whitespace();
@@ -268,9 +264,10 @@ pub(super) fn parse_keyframes(
     if cursor.peek() == Some('}') {
         cursor.consume("}");
     } else {
-        return Err(ParseError::UnclosedBlock(
-            format!("@keyframes {}", name),
-            cursor.line,
+        return Err(cursor.error_span(
+            ParseErrorKind::UnclosedBlock(format!("@keyframes {}", name)),
+            block_start,
+            header_end,
         ));
     }
 
@@ -293,18 +290,22 @@ pub(super) fn parse_rule(
     stylesheet: &mut StyleSheet,
     parent_chain: Option<&SelectorChain>,
 ) -> Result<(), ParseError> {
+    let sel_start = cursor.position;
     let selector_str = parse_selector_string(cursor)?;
+    let sel_end = sel_start + cursor.input[sel_start..cursor.position].trim_end().len();
+    let sel_span = sel_start..sel_end;
 
     if selector_str.is_empty() {
-        return Err(ParseError::EmptySelector(cursor.line));
+        return Err(cursor.error(ParseErrorKind::EmptySelector));
     }
 
     cursor.skip_whitespace();
 
     if cursor.peek() != Some('{') {
-        return Err(ParseError::UnexpectedToken(
-            format!("Expected '{{', got {:?}", cursor.peek()),
-            cursor.line,
+        return Err(cursor.error_span(
+            ParseErrorKind::UnclosedBlock(selector_str.clone()),
+            sel_start,
+            sel_end,
         ));
     }
     cursor.consume("{");
@@ -324,12 +325,14 @@ pub(super) fn parse_rule(
         }
 
         if is_nested_rule_start(cursor) {
-            let current_selector = build_selector_for_nesting(cursor, &selector_str, parent_chain)?;
+            let current_selector =
+                build_selector_for_nesting(cursor, &selector_str, &sel_span, parent_chain)?;
             if !declarations.is_empty() {
                 add_rules(
                     cursor,
                     stylesheet,
                     &selector_str,
+                    &sel_span,
                     parent_chain,
                     std::mem::take(&mut declarations),
                 )?;
@@ -343,10 +346,7 @@ pub(super) fn parse_rule(
         cursor.skip_whitespace();
 
         if cursor.peek() != Some(':') {
-            return Err(ParseError::UnexpectedToken(
-                format!("Expected ':', got {:?}", cursor.peek()),
-                cursor.line,
-            ));
+            return Err(cursor.expected("«:»"));
         }
         cursor.consume(":");
         cursor.skip_whitespace();
@@ -364,7 +364,11 @@ pub(super) fn parse_rule(
     if cursor.peek() == Some('}') {
         cursor.consume("}");
     } else {
-        return Err(ParseError::UnclosedBlock(selector_str.clone(), cursor.line));
+        return Err(cursor.error_span(
+            ParseErrorKind::UnclosedBlock(selector_str.clone()),
+            sel_start,
+            sel_end,
+        ));
     }
 
     if !declarations.is_empty() {
@@ -372,6 +376,7 @@ pub(super) fn parse_rule(
             cursor,
             stylesheet,
             &selector_str,
+            &sel_span,
             parent_chain,
             declarations,
         )?;
@@ -401,13 +406,13 @@ fn is_nested_rule_start(cursor: &ParserCursor) -> bool {
 fn build_selector_for_nesting(
     cursor: &ParserCursor,
     selector_str: &str,
+    sel_span: &std::ops::Range<usize>,
     parent_chain: Option<&SelectorChain>,
 ) -> Result<SelectorChain, ParseError> {
-    let chains = super::selector::parse_selector_chains(cursor, selector_str)?;
-    let first_chain = chains
-        .into_iter()
-        .next()
-        .ok_or_else(|| ParseError::EmptySelector(cursor.line))?;
+    let chains = super::selector::parse_selector_chains(cursor, selector_str, sel_span)?;
+    let first_chain = chains.into_iter().next().ok_or_else(|| {
+        cursor.error_span(ParseErrorKind::EmptySelector, sel_span.start, sel_span.end)
+    })?;
 
     if let Some(parent) = parent_chain {
         Ok(combine_chains(cursor, parent, &first_chain))
@@ -423,14 +428,15 @@ fn build_selector_for_nesting(
 /// своего псевдокласса и специфичности: `.a:hover, .b:hover {}` попадало в
 /// базовый слой каскада и действовало без наведения.
 fn add_rules(
-    cursor: &ParserCursor,
+    cursor: &mut ParserCursor,
     stylesheet: &mut StyleSheet,
     selector_str: &str,
+    sel_span: &std::ops::Range<usize>,
     parent_chain: Option<&SelectorChain>,
     declarations: HashMap<String, StyleValue>,
 ) -> Result<(), ParseError> {
     let selector_str_full = build_selector_str(cursor, selector_str, parent_chain);
-    let chains = super::selector::parse_selector_chains(cursor, selector_str)?;
+    let chains = super::selector::parse_selector_chains(cursor, selector_str, sel_span)?;
     let chains: Vec<SelectorChain> = match parent_chain {
         Some(parent) => chains
             .iter()
@@ -441,9 +447,17 @@ fn add_rules(
     for chain in chains {
         if let Some(p) = chain.pseudo() {
             if !is_known_pseudo(p) {
-                log::warn!(
-                    "MSS: неизвестный псевдокласс :{p} в «{selector_str_full}» — правило пропущено"
+                // Замечание с позицией: в журнал его пишут parse_stylesheet_str
+                // и соседи (раньше — log::warn без места в тексте).
+                let w = cursor.error_span(
+                    ParseErrorKind::UnknownPseudoClass {
+                        pseudo: p.to_string(),
+                        selector: selector_str_full.clone(),
+                    },
+                    sel_span.start,
+                    sel_span.end,
                 );
+                cursor.soft.push(w);
                 continue;
             }
         }

@@ -117,7 +117,7 @@ pub fn render_png_with(
     let mut tree = ElementTree::new();
     tree.text_measure = Some(renderer.font_atlas.clone() as Arc<dyn TextMeasure>);
     tree.image_store = Some(renderer.image_store.clone());
-    let sheet = parse_stylesheet_str(mss).map_err(|e| format!("MSS: {e:?}"))?;
+    let sheet = parse_stylesheet_str(mss).map_err(|e| format!("MSS: {e}"))?;
     let engine = StyleEngine::new(sheet);
     crate::viewport::viewport_size().set(Size::new(lw as f32, lh as f32));
     tree.set_window_flags(opts.window_flags);

@@ -1,9 +1,10 @@
+use super::{ParseError, ParseErrorKind};
 use super::super::value::*;
 use super::utils::ParserCursor;
 
 pub(super) fn parse_identifier(
     cursor: &mut ParserCursor,
-) -> Result<String, super::super::ParseError> {
+) -> Result<String, ParseError> {
     let start = cursor.position;
 
     while !cursor.is_eof() {
@@ -16,10 +17,9 @@ pub(super) fn parse_identifier(
     }
 
     if start == cursor.position {
-        return Err(super::super::ParseError::UnexpectedToken(
-            "Expected identifier".to_string(),
-            cursor.line,
-        ));
+        return Err(cursor.error(ParseErrorKind::ExpectedIdentifier {
+            found: cursor.peek(),
+        }));
     }
 
     Ok(cursor.input[start..cursor.position].to_string())
@@ -27,12 +27,9 @@ pub(super) fn parse_identifier(
 
 pub(super) fn parse_variable_name(
     cursor: &mut ParserCursor,
-) -> Result<String, super::super::ParseError> {
+) -> Result<String, ParseError> {
     if !cursor.starts_with("--") {
-        return Err(super::super::ParseError::InvalidProperty(
-            "Expected CSS variable (--name)".to_string(),
-            cursor.line,
-        ));
+        return Err(cursor.error(ParseErrorKind::ExpectedVariable));
     }
 
     cursor.consume("--");
@@ -53,16 +50,12 @@ pub(super) fn parse_length(_cursor: &ParserCursor, s: &str) -> Option<StyleValue
 
 pub(super) fn parse_var_function(
     cursor: &mut ParserCursor,
-) -> Result<StyleValue, super::super::ParseError> {
+) -> Result<StyleValue, ParseError> {
     cursor.consume("var(");
     cursor.skip_whitespace();
 
     if !cursor.starts_with("--") {
-        return Err(super::super::ParseError::InvalidValue(
-            "var()".to_string(),
-            "Expected --variable".to_string(),
-            cursor.line,
-        ));
+        return Err(cursor.error(ParseErrorKind::ExpectedVariable));
     }
 
     let name = parse_variable_name(cursor)?;
@@ -93,38 +86,39 @@ pub(super) fn parse_var_function(
                     _ => cursor.advance(),
                 }
             }
-            let fallback_str = cursor.input[fallback_start..cursor.position].trim();
+            let raw = &cursor.input[fallback_start..cursor.position];
+            let fallback_str = raw.trim();
+            // Начало обрезанного значения — для позиций ошибок внутри него.
+            let fallback_offset = fallback_start + (raw.len() - raw.trim_start().len());
 
             if cursor.peek() != Some(')') {
-                return Err(super::super::ParseError::UnexpectedToken(
-                    format!("Expected ')' after var() fallback, got {:?}", cursor.peek()),
-                    cursor.line,
-                ));
+                return Err(cursor.expected("«)» в конце var()"));
             }
             cursor.consume(")");
 
             if fallback_str.is_empty() {
-                return Err(super::super::ParseError::InvalidValue(
-                    "var()".to_string(),
-                    "Empty fallback after ','".to_string(),
-                    cursor.line,
+                return Err(cursor.error_span(
+                    ParseErrorKind::InvalidValue {
+                        value: "var()".to_string(),
+                        reason: "пустое значение по умолчанию после «,»".to_string(),
+                    },
+                    fallback_start,
+                    cursor.position,
                 ));
             }
 
-            let mut fallback_cursor = ParserCursor::new(fallback_str);
+            let mut fallback_cursor =
+                ParserCursor::with_base(fallback_str, cursor.base + fallback_offset);
             let fallback = parse_value(&mut fallback_cursor)?;
             Ok(StyleValue::VarWithFallback(name, Box::new(fallback)))
         }
-        _ => Err(super::super::ParseError::UnexpectedToken(
-            format!("Expected ')' or ',', got {:?}", cursor.peek()),
-            cursor.line,
-        )),
+        _ => Err(cursor.expected("«)» или «,» после имени переменной в var()")),
     }
 }
 
 pub(super) fn parse_value(
     cursor: &mut ParserCursor,
-) -> Result<StyleValue, super::super::ParseError> {
+) -> Result<StyleValue, ParseError> {
     cursor.skip_whitespace();
 
     if cursor.starts_with("var(") {
@@ -153,11 +147,7 @@ pub(super) fn parse_value(
     let value_str = cursor.input[start..cursor.position].trim();
 
     if value_str.is_empty() {
-        return Err(super::super::ParseError::InvalidValue(
-            "empty".to_string(),
-            "value expected".to_string(),
-            cursor.line,
-        ));
+        return Err(cursor.error(ParseErrorKind::EmptyValue));
     }
 
     match value_str {
@@ -516,7 +506,7 @@ pub(super) fn expand_border_radius_shorthand(
 
 pub(super) fn parse_selector_string(
     cursor: &mut ParserCursor,
-) -> Result<String, super::super::ParseError> {
+) -> Result<String, ParseError> {
     let mut result = String::new();
 
     while !cursor.is_eof() && cursor.peek() != Some('{') {

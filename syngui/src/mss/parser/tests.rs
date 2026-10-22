@@ -1124,3 +1124,93 @@ mod tests {
         assert_eq!(d, Dimension::Percent(50.0));
     }
 }
+
+/// Позиции ошибок и предупреждений разбора.
+mod positions {
+    use super::super::{line_col, MssParser, ParseErrorKind};
+
+    fn warnings(src: &str) -> Vec<super::super::ParseWarning> {
+        MssParser::new(src).parse().unwrap().1
+    }
+
+    #[test]
+    fn line_col_counts_unicode_chars_from_zero() {
+        let s = "аб\nвгд x";
+        assert_eq!(line_col(s, 0), (0, 0));
+        assert_eq!(line_col(s, "аб".len()), (0, 2));
+        assert_eq!(line_col(s, "аб\nвгд ".len()), (1, 4));
+        // Середина символа — его начало, за концом — конец.
+        assert_eq!(line_col(s, 1), (0, 0));
+        assert_eq!(line_col(s, 1000), (1, 5));
+    }
+
+    #[test]
+    fn missing_colon_points_at_offending_char() {
+        let src = ".a {\n  color: red;\n}\n/* комментарий */\n.карточка {\n  ширина 10px;\n}\n.b { color: blue; }";
+        let (sheet, w) = MssParser::new(src).parse().unwrap();
+        assert_eq!(w.len(), 1, "{w:?}");
+        assert_eq!((w[0].line, w[0].column), (5, 9));
+        assert_eq!(&src[w[0].span.clone()], "1");
+        assert!(matches!(w[0].kind, ParseErrorKind::Expected { found: Some('1'), .. }));
+        assert_eq!(w[0].message, "ожидалось «:», а встречено «1»");
+        assert_eq!(w[0].to_string(), "строка 6, столбец 10: ожидалось «:», а встречено «1»");
+        // Разбор продолжился: .a и .b на месте.
+        assert_eq!(sheet.rules().len(), 2);
+    }
+
+    #[test]
+    fn multiline_selector_and_value_keep_line_numbers() {
+        // Раньше перевод строки в селекторе и значении не считался.
+        let src = ".a,\n.b\n{ background: linear-gradient(\n  red,\n  blue); }\n.c { : x; }";
+        let w = warnings(src);
+        assert_eq!(w.len(), 1, "{w:?}");
+        assert_eq!((w[0].line, w[0].column), (5, 5));
+    }
+
+    #[test]
+    fn unclosed_block_spans_selector() {
+        let src = "\n  .панель > Button {\n  color: red;\n";
+        let w = warnings(src);
+        assert_eq!(w.len(), 1, "{w:?}");
+        assert!(matches!(&w[0].kind, ParseErrorKind::UnclosedBlock(s) if s == ".панель > Button"));
+        assert_eq!(&src[w[0].span.clone()], ".панель > Button");
+        assert_eq!((w[0].line, w[0].column), (1, 2));
+    }
+
+    #[test]
+    fn unknown_pseudo_is_a_positioned_warning() {
+        let src = ".a { color: red; }\n.b:hovr { color: blue; }";
+        let (sheet, w) = MssParser::new(src).parse().unwrap();
+        assert_eq!(sheet.rules().len(), 1);
+        assert_eq!(w.len(), 1);
+        assert_eq!(&src[w[0].span.clone()], ".b:hovr");
+        assert_eq!((w[0].line, w[0].column), (1, 0));
+        assert!(w[0].message.contains(":hovr"));
+    }
+
+    #[test]
+    fn var_fallback_error_is_in_file_coordinates() {
+        let src = ".a {\n  color: var(--x, var(y));\n}";
+        let w = warnings(src);
+        assert_eq!(w.len(), 1, "{w:?}");
+        assert_eq!(w[0].kind, ParseErrorKind::ExpectedVariable);
+        assert_eq!((w[0].line, w[0].column), (1, 22));
+    }
+
+    #[test]
+    fn warnings_are_sorted_by_position() {
+        let src = ".a:zzz { color: red; }\n.b { : 1; }\n.c:yyy { color: red; }";
+        let w = warnings(src);
+        let lines: Vec<usize> = w.iter().map(|w| w.line).collect();
+        assert_eq!(lines, vec![0, 1, 2]);
+    }
+
+    #[test]
+    fn strict_error_has_position() {
+        let e = MssParser::new(".a { color: red; }\n:root { x: 1; }")
+            .parse_strict()
+            .unwrap_err();
+        assert_eq!((e.line, e.column), (1, 8));
+        assert_eq!(e.to_string(), "строка 2, столбец 9: ожидалось имя переменной вида --имя");
+    }
+}
