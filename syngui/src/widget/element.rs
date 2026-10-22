@@ -223,6 +223,12 @@ pub trait Element: Send {
         false
     }
 
+    /// Фокусный элемент сам разбирает клавишу, которую иначе забирает окно
+    /// (F12 — инструменты разработчика): переход к определению в редакторе.
+    fn wants_key(&self, _key: crate::input::Key) -> bool {
+        false
+    }
+
     fn passthrough_hit_test(&self) -> bool {
         false
     }
@@ -543,6 +549,14 @@ impl Element for Box<dyn Element> {
 
     fn hit_test(&self, point: Point) -> bool {
         self.as_ref().hit_test(point)
+    }
+
+    fn wants_tab(&self) -> bool {
+        self.as_ref().wants_tab()
+    }
+
+    fn wants_key(&self, key: crate::input::Key) -> bool {
+        self.as_ref().wants_key(key)
     }
 
     fn passthrough_hit_test(&self) -> bool {

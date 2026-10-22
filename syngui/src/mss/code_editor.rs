@@ -15,6 +15,14 @@ pub struct CodeEditorPalette {
     pub editor_whitespace: Option<Color>,
     pub editor_find_match: Option<Color>,
     pub editor_find_current: Option<Color>,
+    /// Подчёркивание и метка диагностик по важности.
+    pub editor_error: Option<Color>,
+    pub editor_warning: Option<Color>,
+    pub editor_info: Option<Color>,
+    pub editor_hint: Option<Color>,
+    /// Фон и рамка всплывающих окон: дополнение, подсказки.
+    pub editor_popup_bg: Option<Color>,
+    pub editor_popup_border: Option<Color>,
 
     pub tokens: HashMap<String, Color>,
 }
@@ -38,6 +46,12 @@ impl CodeEditorPalette {
         palette.editor_whitespace = read_color(style, "editor-whitespace");
         palette.editor_find_match = read_color(style, "editor-find-match");
         palette.editor_find_current = read_color(style, "editor-find-current");
+        palette.editor_error = read_color(style, "editor-error");
+        palette.editor_warning = read_color(style, "editor-warning");
+        palette.editor_info = read_color(style, "editor-info");
+        palette.editor_hint = read_color(style, "editor-hint");
+        palette.editor_popup_bg = read_color(style, "editor-popup-bg");
+        palette.editor_popup_border = read_color(style, "editor-popup-border");
 
         for (prop_name, _) in style.properties() {
             if let Some(rest) = prop_name.strip_prefix("token-") {

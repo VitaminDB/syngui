@@ -1,4 +1,5 @@
 use super::element::CodeEditorElement;
+use super::lsp::{CompletionList, CompletionTrigger, Diagnostic, HoverInfo};
 use super::languages::detect_by_path;
 use super::syntax::{Language, LineHighlighter};
 use crate::core::sync::Mutex;
@@ -15,12 +16,19 @@ pub enum EditorCommand {
     Paste,
     SelectAll,
     Reload(String),
+    /// Поставить каретку на `line:col` (с нуля, `col` в символах; за
+    /// пределами — к ближайшей позиции), снять выделение и прокрутить так,
+    /// чтобы строка была видна (вне экрана — по центру).
+    SetCursor { line: usize, col: usize },
 }
 
 pub struct CodeEditorChange<'a> {
     pub full_text: &'a str,
 }
 
+/// Положение главной каретки: `line` — строка с нуля, `col` — символ
+/// (Unicode scalar) в строке с нуля. Так же считаются позиции диагностик,
+/// дополнения и подсказок.
 #[derive(Debug, Clone, Copy)]
 pub struct CursorInfo {
     pub line: usize,
@@ -54,6 +62,13 @@ pub struct CodeEditor {
     pub(crate) classes: Vec<String>,
     pub(crate) line_marks: Vec<(usize, crate::core::Color)>,
     pub(crate) reveal_line: Option<usize>,
+    pub(crate) diagnostics: Vec<Diagnostic>,
+    pub(crate) completion: Option<RwSignal<Option<CompletionList>>>,
+    pub(crate) completion_triggers: Vec<char>,
+    pub(crate) on_completion_request: Option<Arc<Mutex<dyn FnMut(CompletionTrigger) + Send>>>,
+    pub(crate) hover: Option<RwSignal<Option<HoverInfo>>>,
+    pub(crate) on_hover: Option<Arc<Mutex<dyn FnMut(usize, usize) + Send>>>,
+    pub(crate) on_goto: Option<Arc<Mutex<dyn FnMut(usize, usize) + Send>>>,
 }
 
 impl CodeEditor {
@@ -76,6 +91,13 @@ impl CodeEditor {
             classes: vec!["code-editor".to_string()],
             line_marks: Vec::new(),
             reveal_line: None,
+            diagnostics: Vec::new(),
+            completion: None,
+            completion_triggers: Vec::new(),
+            on_completion_request: None,
+            hover: None,
+            on_hover: None,
+            on_goto: None,
         }
     }
 
@@ -167,6 +189,59 @@ impl CodeEditor {
     /// Прокрутить к строке (номер с нуля), когда значение меняется.
     pub fn reveal_line(mut self, line: Option<usize>) -> Self {
         self.reveal_line = line;
+        self
+    }
+
+    /// Диагностики (ошибки, предупреждения): волнистое подчёркивание
+    /// диапазона, метка в gutter'е по самой серьёзной на строке, текст —
+    /// во всплывающей подсказке при наведении. Замена списка при пересборке
+    /// не трогает текст и каретку.
+    pub fn diagnostics(mut self, d: Vec<Diagnostic>) -> Self {
+        self.diagnostics = d;
+        self
+    }
+
+    /// Список дополнения от приложения. Пока в сигнале `Some(list)`, каретка
+    /// на `list.line` и не левее `start_col`, под кареткой открыт список,
+    /// отфильтрованный набранным от `start_col`: ↑/↓/PageUp/PageDown —
+    /// выбор, Enter/Tab или щелчок — заменить `[start_col, каретка)` на
+    /// `insert_text`, Esc — закрыть. Закрывая, редактор ставит `None`.
+    pub fn completion(mut self, s: RwSignal<Option<CompletionList>>) -> Self {
+        self.completion = Some(s);
+        self
+    }
+
+    /// Символы, после ввода которых запрашивается дополнение (`.`, `:`, `>`).
+    pub fn completion_triggers(mut self, chars: Vec<char>) -> Self {
+        self.completion_triggers = chars;
+        self
+    }
+
+    /// Запрос дополнения: Ctrl+Space (`manual`), символ-триггер или начало
+    /// слова от двух букв, пока список закрыт. Ответ — в сигнал
+    /// [`completion`](Self::completion).
+    pub fn on_completion_request(mut self, f: impl FnMut(CompletionTrigger) + Send + 'static) -> Self {
+        self.on_completion_request = Some(Arc::new(Mutex::new(f)));
+        self
+    }
+
+    /// Справка над символом: показывается, пока в сигнале `Some(info)`;
+    /// мышь ушла на другое слово, ввод или прокрутка — редактор ставит `None`.
+    pub fn hover(mut self, s: RwSignal<Option<HoverInfo>>) -> Self {
+        self.hover = Some(s);
+        self
+    }
+
+    /// Мышь ~500 мс над символом текста: `(строка, символ)`, один раз на место.
+    pub fn on_hover(mut self, f: impl FnMut(usize, usize) + Send + 'static) -> Self {
+        self.on_hover = Some(Arc::new(Mutex::new(f)));
+        self
+    }
+
+    /// Переход к определению: Ctrl+щелчок по символу или F12 у каретки —
+    /// `(строка, символ)`. С зажатым Ctrl слово под мышью подчёркнуто.
+    pub fn on_goto(mut self, f: impl FnMut(usize, usize) + Send + 'static) -> Self {
+        self.on_goto = Some(Arc::new(Mutex::new(f)));
         self
     }
 

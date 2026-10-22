@@ -8,7 +8,7 @@ use super::theme::Theme;
 use super::widget::{CodeEditor, CodeEditorChange, CursorInfo, EditorPersistedState};
 use crate::core::sync::Mutex;
 use crate::core::{Color, Point, Rect, RectExt, Size};
-use crate::input::{CursorIcon, Event, EventResult, MouseButton};
+use crate::input::{CursorIcon, Event, EventResult, Key, MouseButton};
 use crate::layout::Constraints;
 use crate::mss::code_editor::CodeEditorPalette;
 use crate::mss::{ComputedStyle, MssFields};
@@ -19,6 +19,9 @@ use crate::widget::{
 };
 use std::sync::Arc;
 use std::time::Instant;
+
+#[path = "element_lsp.rs"]
+mod lsp_ui;
 
 pub struct CodeEditorElement {
     id: ElementId,
@@ -74,6 +77,8 @@ pub struct CodeEditorElement {
     on_change: Option<Arc<Mutex<dyn FnMut(CodeEditorChange) + Send>>>,
     on_save: Option<Arc<Mutex<dyn FnMut(&str) + Send>>>,
     on_cursor: Option<Arc<Mutex<dyn FnMut(CursorInfo) + Send>>>,
+    /// Диагностики, дополнение, подсказки, переход к определению.
+    lsp: lsp_ui::LspState,
 }
 
 fn make_highlighter(
@@ -181,6 +186,7 @@ impl CodeEditorElement {
             on_change: widget.on_change.clone(),
             on_save: widget.on_save.clone(),
             on_cursor: widget.on_cursor.clone(),
+            lsp: lsp_ui::LspState::from_widget(widget),
         };
         if over_limit {
             eprintln!(
@@ -646,6 +652,9 @@ impl CodeEditorElement {
             }
             C::Reload(new_text) => {
                 self.apply_external_reload(new_text);
+            }
+            C::SetCursor { line, col } => {
+                self.set_cursor_to(line, col);
             }
         }
     }
@@ -1280,6 +1289,8 @@ impl Element for CodeEditorElement {
             self.on_change = w.on_change.clone();
             self.on_save = w.on_save.clone();
             self.on_cursor = w.on_cursor.clone();
+            self.lsp.update(w);
+            self.lsp.subscribe(self.id);
             self.mark_dirty(DirtyFlags::RENDER);
         }
     }
@@ -1366,6 +1377,8 @@ impl Element for CodeEditorElement {
             Vec::new()
         };
 
+        let diags = self.visible_diagnostics(first_logical, last_logical);
+
         let primary_pos = self.primary_byte();
         let (primary_line, _primary_col_chars) = self.buffer.byte_to_line_col(primary_pos);
         let cursor_lines: Vec<(usize, usize)> = self
@@ -1418,6 +1431,9 @@ impl Element for CodeEditorElement {
                     &theme,
                     &self.mss,
                 );
+            }
+            if seg_start_char == 0 && !diags.is_empty() {
+                self.paint_diag_gutter(list, &diags, logical, y);
             }
         }
         let gutter_w = self.gutter_w();
@@ -1528,6 +1544,18 @@ impl Element for CodeEditorElement {
                 &theme,
                 &self.mss,
                 self.text_measure.as_deref(),
+            );
+
+            self.paint_row_underlines(
+                list,
+                &diags,
+                logical,
+                &line_text,
+                segment,
+                seg_start_char,
+                seg_end_char,
+                is_last_visual_seg,
+                text_origin,
             );
 
             if self.focused {
@@ -1727,6 +1755,8 @@ impl Element for CodeEditorElement {
         }
 
         list.pop_clip();
+
+        self.paint_lsp_overlays(list);
     }
 
     fn handle_event(&mut self, event: &Event, ctx: &mut EventContext) -> EventResult {
@@ -1739,6 +1769,9 @@ impl Element for CodeEditorElement {
             Event::FocusLost => {
                 self.focused = false;
                 self.undo.commit_group();
+                self.hide_completion();
+                self.reset_hover();
+                self.goto_track(false);
                 ctx.request_paint();
                 EventResult::Handled
             }
@@ -1780,6 +1813,16 @@ impl Element for CodeEditorElement {
                 self.hover = self.bounds.contains(*pos);
                 if self.hover {
                     ctx.set_cursor(CursorIcon::Text);
+                }
+                if !self.mouse_selecting {
+                    let mut lsp_repaint = self.hover_track(self.hover.then_some(*pos));
+                    lsp_repaint |= self.goto_track(ctx.modifiers.ctrl || ctx.modifiers.meta);
+                    if self.hover && self.goto_hovering() {
+                        ctx.set_cursor(CursorIcon::Pointer);
+                    }
+                    if lsp_repaint {
+                        ctx.request_paint();
+                    }
                 }
                 if self.mouse_selecting && self.focused {
                     let new_pos = self.click_to_cursor(*pos);
@@ -1830,6 +1873,10 @@ impl Element for CodeEditorElement {
             }
             Event::MouseDown { button, position } => {
                 if *button == MouseButton::Left && self.bounds.contains(*position) {
+                    if self.completion_click(*position) {
+                        ctx.request_paint();
+                        return EventResult::Handled;
+                    }
                     let sb_geom = self.scrollbar_geom();
                     let sb_style = self.scrollbar_style_now();
                     if self.scrollbar_interaction.try_begin_drag(
@@ -1858,6 +1905,25 @@ impl Element for CodeEditorElement {
                     let new_pos = self.click_to_cursor(*position);
                     let alt = ctx.modifiers.alt;
                     let shift = ctx.modifiers.shift;
+                    self.reset_hover();
+
+                    // Ctrl+щелчок — переход к определению символа под мышью
+                    if (ctx.modifiers.ctrl || ctx.modifiers.meta) && !alt && !shift && self.lsp.wants_goto() {
+                        let target = self
+                            .char_at_point(*position)
+                            .unwrap_or_else(|| self.buffer.byte_to_line_col(new_pos));
+                        self.cursors.clear_secondary();
+                        self.cursors.primary_mut().move_to(new_pos, false);
+                        self.cursors.primary_mut().anchor = None;
+                        self.mouse_selecting = false;
+                        self.undo.commit_group();
+                        self.fire_on_cursor();
+                        self.sync_completion();
+                        self.goto_track(false);
+                        self.goto_at(target.0, target.1);
+                        ctx.request_paint();
+                        return EventResult::Handled;
+                    }
 
                     if alt && !shift {
                         self.cursors.add_cursor(new_pos);
@@ -1874,6 +1940,7 @@ impl Element for CodeEditorElement {
                     }
                     self.undo.commit_group();
                     self.fire_on_cursor();
+                    self.sync_completion();
                     ctx.set_cursor(CursorIcon::Text);
                     ctx.request_paint();
                     return EventResult::Handled;
@@ -1894,6 +1961,8 @@ impl Element for CodeEditorElement {
                         self.cursors.primary_mut().anchor = None;
                         self.fire_on_cursor();
                     }
+                    self.sync_completion();
+                    self.reset_hover();
                     self.focused = true;
                     ctx.request_paint();
                     return EventResult::Ignored;
@@ -1937,6 +2006,7 @@ impl Element for CodeEditorElement {
                     pri.pos = end;
                     pri.sticky_col = None;
                     self.fire_on_cursor();
+                    self.sync_completion();
                     ctx.request_paint();
                     return EventResult::Handled;
                 }
@@ -1947,6 +2017,13 @@ impl Element for CodeEditorElement {
             } => {
                 if !self.bounds.contains(*position) {
                     return EventResult::Ignored;
+                }
+                if self.completion_wheel(*position, *delta) {
+                    ctx.request_paint();
+                    return EventResult::Handled;
+                }
+                if self.reset_hover() {
+                    ctx.request_paint();
                 }
                 // горизонталь: тачпад или Shift+колесо (платформа кладёт его в delta_x)
                 if *delta_x != 0.0 && !self.soft_wrap {
@@ -1986,12 +2063,43 @@ impl Element for CodeEditorElement {
                 if !self.focused {
                     return EventResult::Ignored;
                 }
+                if matches!(key, Key::Ctrl | Key::Meta) {
+                    if self.goto_track(true) {
+                        ctx.request_paint();
+                    }
+                    return EventResult::Ignored;
+                }
+                // открытый список дополнения забирает ↑/↓/Enter/Tab/Esc
+                if self.completion_key(*key, ctx.modifiers) {
+                    ctx.request_paint();
+                    return EventResult::Handled;
+                }
+                let m = ctx.modifiers;
+                let ctrl = m.ctrl || m.meta;
+                if *key == Key::Space && ctrl && !m.alt && self.lsp.can_request() {
+                    self.reset_hover();
+                    self.request_completion(None, true);
+                    ctx.request_paint();
+                    return EventResult::Handled;
+                }
+                if *key == Key::F12 && !ctrl && !m.alt && !m.shift && self.lsp.wants_goto() {
+                    self.goto_caret();
+                    return EventResult::Handled;
+                }
                 let Some(action) = map_key(*key, ctx.modifiers) else {
                     return EventResult::Ignored;
                 };
                 self.handle_action(action, ctx);
+                self.reset_hover();
+                self.sync_completion();
                 ctx.request_paint();
                 EventResult::Handled
+            }
+            Event::KeyUp(Key::Ctrl | Key::Meta) => {
+                if self.goto_track(false) {
+                    ctx.request_paint();
+                }
+                EventResult::Ignored
             }
             Event::CharInput(ch) => {
                 if !self.focused || ch.is_control() || ctx.modifiers.ctrl {
@@ -2017,6 +2125,8 @@ impl Element for CodeEditorElement {
                 let mut buf = [0u8; 4];
                 let s = ch.encode_utf8(&mut buf);
                 self.replace_selection_or_insert(s);
+                self.reset_hover();
+                self.after_char_typed(*ch);
                 ctx.request_paint();
                 EventResult::Handled
             }
@@ -2026,6 +2136,8 @@ impl Element for CodeEditorElement {
                 }
                 self.preedit = None;
                 self.replace_selection_or_insert(text);
+                self.reset_hover();
+                self.sync_completion();
                 ctx.request_paint();
                 EventResult::Handled
             }
@@ -2091,17 +2203,27 @@ impl Element for CodeEditorElement {
         if let Some(sig) = self.command_signal {
             sig.subscribe_element(self.id);
         }
+        self.lsp.subscribe(self.id);
     }
 
     /// Команда (пункт контекстного меню, внешний Reload) приходит через
     /// сигнал, а разбирается в `animate`. Без подписки редактор не попадает
     /// в реестр анимаций, и команда ждёт, пока его разбудит что-то другое.
     fn on_signal_change(&mut self) -> bool {
+        // список дополнения или справка от приложения — перерисовать
+        if self.lsp.has_signals() {
+            self.refresh_completion();
+            return true;
+        }
         self.has_pending_command()
     }
 
     fn wants_animate_tick(&self) -> bool {
-        self.has_pending_command()
+        self.has_pending_command() || self.lsp.hover_pending()
+    }
+
+    fn wants_key(&self, key: Key) -> bool {
+        key == Key::F12 && self.focused && self.lsp.wants_goto()
     }
 
     fn accessibility_info(&self) -> Option<crate::a11y::AccessibilityInfo> {
@@ -2171,9 +2293,14 @@ impl Element for CodeEditorElement {
             if let Some(cmd) = sig.get_untracked() {
                 self.process_command(cmd);
                 sig.set(None);
+                self.sync_completion();
                 self.mark_dirty(DirtyFlags::LAYOUT | DirtyFlags::RENDER);
                 needs_repaint = true;
             }
+        }
+        if self.hover_tick(dt) {
+            self.mark_dirty(DirtyFlags::RENDER);
+            needs_repaint = true;
         }
 
         self.push_state_to_signal();
@@ -2373,4 +2500,282 @@ mod tests {
         let n40_again = el.buffer.len_lines();
         assert_eq!(el.total_visual_lines, n40_again.max(1));
     }
+
+    use super::super::lsp::{
+        CompletionItem, CompletionList, CompletionTrigger, Diagnostic, DiagnosticSeverity, HoverInfo,
+    };
+    use super::super::widget::EditorCommand;
+    use crate::input::Modifiers;
+    use crate::signal::{allow_signal_reads_on_this_thread, use_signal, RwSignal};
+    use std::sync::Mutex as StdMutex;
+
+    fn ctx_with(el: &CodeEditorElement, m: Modifiers) -> EventContext {
+        let mut ctx = EventContext::new(el.id);
+        ctx.modifiers = m;
+        ctx
+    }
+
+    fn send(el: &mut CodeEditorElement, ev: Event) -> EventResult {
+        let mut ctx = ctx_with(el, Modifiers::empty());
+        el.handle_event(&ev, &mut ctx)
+    }
+
+    fn send_mod(el: &mut CodeEditorElement, ev: Event, m: Modifiers) -> EventResult {
+        let mut ctx = ctx_with(el, m);
+        el.handle_event(&ev, &mut ctx)
+    }
+
+    fn ctrl() -> Modifiers {
+        Modifiers { ctrl: true, ..Modifiers::empty() }
+    }
+
+    fn laid_out(editor: &CodeEditor) -> CodeEditorElement {
+        let mut el = CodeEditorElement::new(editor);
+        el.layout(Constraints::tight(Size::new(800.0, 400.0)));
+        send(&mut el, Event::FocusGained);
+        el
+    }
+
+    fn item(label: &str, kind: &str) -> CompletionItem {
+        CompletionItem { label: label.into(), insert_text: label.into(), kind: kind.into(), detail: String::new() }
+    }
+
+    fn completion_editor(text: &str) -> (CodeEditor, RwSignal<Option<CompletionList>>, Arc<StdMutex<Vec<CompletionTrigger>>>) {
+        allow_signal_reads_on_this_thread();
+        let sig = use_signal::<Option<CompletionList>>(None);
+        let reqs = Arc::new(StdMutex::new(Vec::new()));
+        let r2 = reqs.clone();
+        let ed = CodeEditor::new()
+            .text(text)
+            .completion(sig)
+            .completion_triggers(vec!['.'])
+            .on_completion_request(move |t| r2.lock().unwrap().push(t));
+        (ed, sig, reqs)
+    }
+
+    #[test]
+    fn completion_filters_and_accept_replaces_range() {
+        let (ed, sig, _) = completion_editor("fn main() {\n    pri\n}");
+        let changes = Arc::new(StdMutex::new(0usize));
+        let c2 = changes.clone();
+        let ed = ed.on_change(move |_| *c2.lock().unwrap() += 1);
+        let mut el = laid_out(&ed);
+        el.process_command(EditorCommand::SetCursor { line: 1, col: 7 });
+        sig.set(Some(CompletionList {
+            line: 1,
+            start_col: 4,
+            items: vec![item("eprintln", "macro"), item("println", "macro"), item("print", "fn"), item("len", "fn")],
+        }));
+        el.refresh_completion();
+        let v = el.completion_view().expect("список виден");
+        assert_eq!(v.filter, "pri");
+        // сначала начинающиеся с «pri», потом содержащие
+        assert_eq!(v.indices, vec![1, 2, 0]);
+
+        // список открыт — ↓ двигает выбор, а не каретку
+        let caret = el.primary_byte();
+        assert_eq!(send(&mut el, Event::KeyDown(Key::Down)), EventResult::Handled);
+        assert_eq!(el.primary_byte(), caret);
+        assert_eq!(el.lsp.sel, 1);
+        send(&mut el, Event::KeyDown(Key::Enter));
+        assert_eq!(el.text_snapshot, "fn main() {\n    print\n}");
+        assert_eq!(el.buffer.byte_to_line_col(el.primary_byte()), (1, 9));
+        assert!(sig.get_untracked().is_none(), "принятый список закрыт");
+        assert_eq!(*changes.lock().unwrap(), 1, "on_change вызван");
+
+        // отмена возвращает набранное
+        send_mod(&mut el, Event::KeyDown(Key::Z), ctrl());
+        assert_eq!(el.text_snapshot, "fn main() {\n    pri\n}");
+    }
+
+    #[test]
+    fn completion_filter_narrows_while_typing_and_hides_when_empty() {
+        let (ed, sig, _) = completion_editor("x\n");
+        let mut el = laid_out(&ed);
+        sig.set(Some(CompletionList { line: 0, start_col: 1, items: vec![item("count", ""), item("clear", "")] }));
+        el.process_command(EditorCommand::SetCursor { line: 0, col: 1 });
+        el.refresh_completion();
+        assert_eq!(el.completion_view().unwrap().indices, vec![0, 1]);
+        send(&mut el, Event::CharInput('c'));
+        send(&mut el, Event::CharInput('l'));
+        assert_eq!(el.completion_view().unwrap().indices, vec![1]);
+        send(&mut el, Event::CharInput('z'));
+        assert!(sig.get_untracked().is_none(), "пустой отфильтрованный список закрывается");
+    }
+
+    #[test]
+    fn escape_closes_completion_without_editing() {
+        let (ed, sig, _) = completion_editor("ab");
+        let mut el = laid_out(&ed);
+        el.process_command(EditorCommand::SetCursor { line: 0, col: 2 });
+        sig.set(Some(CompletionList { line: 0, start_col: 0, items: vec![item("abc", "")] }));
+        assert!(el.completion_view().is_some());
+        assert_eq!(send(&mut el, Event::KeyDown(Key::Escape)), EventResult::Handled);
+        assert!(sig.get_untracked().is_none());
+        assert_eq!(el.text_snapshot, "ab");
+        // каретка ушла левее начала — тоже закрыт
+        sig.set(Some(CompletionList { line: 0, start_col: 2, items: vec![item("abc", "")] }));
+        send(&mut el, Event::KeyDown(Key::Left));
+        assert!(sig.get_untracked().is_none());
+    }
+
+    #[test]
+    fn ctrl_space_and_typing_request_completion() {
+        let (ed, _sig, reqs) = completion_editor("\n");
+        let mut el = laid_out(&ed);
+        assert_eq!(send_mod(&mut el, Event::KeyDown(Key::Space), ctrl()), EventResult::Handled);
+        assert_eq!(
+            reqs.lock().unwrap().last().copied(),
+            Some(CompletionTrigger { line: 0, col: 0, trigger_char: None, manual: true })
+        );
+        reqs.lock().unwrap().clear();
+        send(&mut el, Event::CharInput('p'));
+        assert!(reqs.lock().unwrap().is_empty(), "одна буква — без запроса");
+        send(&mut el, Event::CharInput('r'));
+        send(&mut el, Event::CharInput('i'));
+        assert_eq!(
+            *reqs.lock().unwrap(),
+            vec![CompletionTrigger { line: 0, col: 2, trigger_char: None, manual: false }],
+            "один запрос на слово, пока нет ответа"
+        );
+        send(&mut el, Event::CharInput('.'));
+        assert_eq!(
+            reqs.lock().unwrap().last().copied(),
+            Some(CompletionTrigger { line: 0, col: 4, trigger_char: Some('.'), manual: false })
+        );
+    }
+
+    #[test]
+    fn f12_and_ctrl_click_call_on_goto() {
+        let got = Arc::new(StdMutex::new(Vec::new()));
+        let g2 = got.clone();
+        let ed = CodeEditor::new().text("let value = 1;\nfoo(value)").on_goto(move |l, c| g2.lock().unwrap().push((l, c)));
+        let mut el = laid_out(&ed);
+        assert!(el.wants_key(Key::F12));
+        el.process_command(EditorCommand::SetCursor { line: 1, col: 5 });
+        assert_eq!(send(&mut el, Event::KeyDown(Key::F12)), EventResult::Handled);
+        assert_eq!(got.lock().unwrap().last().copied(), Some((1, 5)));
+
+        // щелчок с Ctrl по третьему символу первой строки
+        let cw = el.char_width();
+        let p = Point::new(el.text_origin_x() + cw * 2.5, el.bounds.y() + el.line_height() * 0.5);
+        send_mod(&mut el, Event::MouseDown { button: MouseButton::Left, position: p }, ctrl());
+        assert_eq!(got.lock().unwrap().last().copied(), Some((0, 2)));
+        assert!(!el.mouse_selecting, "Ctrl+щелчок не начинает выделение");
+        assert!(!el.cursors.primary().has_selection());
+    }
+
+    #[test]
+    fn set_cursor_command_moves_caret_and_scrolls() {
+        allow_signal_reads_on_this_thread();
+        let cmd = use_signal::<Option<EditorCommand>>(None);
+        let ed = CodeEditor::new().text(make_text(300)).command_signal(cmd);
+        let mut el = laid_out(&ed);
+        el.cursors.primary_mut().anchor = Some(0);
+        cmd.set(Some(EditorCommand::SetCursor { line: 200, col: 3 }));
+        el.animate(std::time::Duration::from_millis(16));
+        assert!(cmd.get_untracked().is_none());
+        assert_eq!(el.primary_byte(), el.buffer.line_col_to_byte(200, 3));
+        assert!(!el.cursors.primary().has_selection());
+        let visible = el.visible_lines_count();
+        assert!(el.scroll_offset_lines <= 200 && 200 < el.scroll_offset_lines + visible);
+        assert!(el.scroll_offset_lines > 180, "строка ближе к центру, а не у края");
+        // за пределами — к ближайшей позиции
+        el.process_command(EditorCommand::SetCursor { line: 10_000, col: 10_000 });
+        assert_eq!(el.primary_byte(), el.buffer.len_bytes());
+    }
+
+    #[test]
+    fn diagnostics_update_keeps_text_and_cursor_and_paints() {
+        let text = "let a = 1;\nlet b = a +;\n";
+        let mut el = laid_out(&CodeEditor::new().text(text));
+        el.process_command(EditorCommand::SetCursor { line: 1, col: 4 });
+        let caret = el.primary_byte();
+        send(&mut el, Event::CharInput('x'));
+        let edited = el.text_snapshot.clone();
+        let caret = caret + 1;
+
+        let diags = vec![
+            Diagnostic { line: 1, col: 10, end_line: 1, end_col: 11, severity: DiagnosticSeverity::Error, message: "expected expression".into() },
+            Diagnostic { line: 0, col: 4, end_line: 0, end_col: 4, severity: DiagnosticSeverity::Warning, message: "unused".into() },
+        ];
+        let mut ctx = UpdateContext::new(el.id);
+        el.update(&CodeEditor::new().text(edited.clone()).diagnostics(diags.clone()), &mut ctx);
+        assert_eq!(el.lsp.diagnostics, diags);
+        assert_eq!(el.text_snapshot, edited);
+        assert_eq!(el.primary_byte(), caret);
+        assert_eq!(el.visible_diagnostics(1, 2), vec![0]);
+
+        let mut list = DisplayList::new();
+        el.build_display_list(&mut list, el.bounds);
+        let strips = list
+            .iter_all_commands()
+            .filter(|c| matches!(c, crate::render::DrawCommand::LineStrip { .. }))
+            .count();
+        assert_eq!(strips, 2, "волнистая линия под каждой диагностикой");
+    }
+
+    #[test]
+    fn hover_calls_on_hover_once_and_hides_on_word_change() {
+        allow_signal_reads_on_this_thread();
+        let hover = use_signal::<Option<HoverInfo>>(None);
+        let got = Arc::new(StdMutex::new(Vec::new()));
+        let g2 = got.clone();
+        let ed = CodeEditor::new().text("alpha beta").hover(hover).on_hover(move |l, c| g2.lock().unwrap().push((l, c)));
+        let mut el = laid_out(&ed);
+        let cw = el.char_width();
+        let y = el.bounds.y() + el.line_height() * 0.5;
+        let at = |c: f32| Point::new(el.text_origin_x() + cw * c, y);
+        let (p1, p2, p3) = (at(1.5), at(2.5), at(7.5));
+        send(&mut el, Event::MouseMove(p1));
+        assert!(el.wants_animate_tick());
+        el.animate(std::time::Duration::from_millis(300));
+        assert!(got.lock().unwrap().is_empty());
+        el.animate(std::time::Duration::from_millis(300));
+        assert_eq!(*got.lock().unwrap(), vec![(0, 1)]);
+        el.animate(std::time::Duration::from_millis(600));
+        assert_eq!(got.lock().unwrap().len(), 1, "один раз на место");
+
+        hover.set(Some(HoverInfo { line: 0, col: 1, text: "fn alpha()".into() }));
+        let mut list = DisplayList::new();
+        el.build_display_list(&mut list, el.bounds);
+        assert!(!list.overlay_commands().is_empty(), "подсказка в слое оверлея");
+
+        // в пределах слова — подсказка остаётся, другое слово — скрыта
+        send(&mut el, Event::MouseMove(p2));
+        assert!(hover.get_untracked().is_some());
+        send(&mut el, Event::MouseMove(p3));
+        assert!(hover.get_untracked().is_none());
+        // gutter — не текст
+        assert_eq!(el.char_at_point(Point::new(el.bounds.x() + 4.0, y)), None);
+    }
+
+
+    #[test]
+    fn harness_popup_paints_and_click_accepts() {
+        use crate::testing::TestHarness;
+        let (ed, sig, reqs) = completion_editor("");
+        let changes = Arc::new(StdMutex::new(String::new()));
+        let c2 = changes.clone();
+        let ed = ed.on_change(move |c| *c2.lock().unwrap() = c.full_text.to_string());
+        let mut h = TestHarness::new(Box::new(ed));
+        h.layout(600.0, 300.0);
+        h.send_events(&crate::testing::click_at(Point::new(200.0, 10.0)));
+        h.send_events(&crate::testing::type_text("ve"));
+        let t = reqs.lock().unwrap().last().copied().expect("запрос после двух букв");
+        sig.set(Some(CompletionList {
+            line: t.line,
+            start_col: 0,
+            items: vec![item("vec", "macro"), item("very_long_name", "var")],
+        }));
+        let list = h.paint();
+        assert!(!list.overlay_commands().is_empty(), "список нарисован поверх");
+        // щелчок по второй строке списка (под строкой каретки)
+        let lh = (13.0f32 * 1.5).round();
+        let y = lh + 2.0 + 4.0 + lh * 1.5;
+        h.send_events(&crate::testing::click_at(Point::new(120.0, y)));
+        assert_eq!(*changes.lock().unwrap(), "very_long_name");
+        assert!(sig.get_untracked().is_none());
+    }
+
 }

@@ -548,7 +548,14 @@ impl winit::application::ApplicationHandler<SynGuiUserEvent> for AppHandler {
                     }
                 }
 
-                if event.state == winit::event::ElementState::Pressed && !grabbed {
+                // F12 забирает фокусный элемент, если просит (редактор кода —
+                // переход к определению); иначе — инструменты разработчика.
+                let focused_wants_f12 = self
+                    .tree
+                    .focused_element
+                    .and_then(|id| self.tree.get(id))
+                    .is_some_and(|el| el.wants_key(crate::input::Key::F12));
+                if event.state == winit::event::ElementState::Pressed && !grabbed && !focused_wants_f12 {
                     if let PhysicalKey::Code(winit::keyboard::KeyCode::F12) = event.physical_key {
                         if let Some(ref mut devtools) = self.devtools {
                             let was_enabled = devtools.is_enabled();

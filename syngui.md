@@ -725,7 +725,8 @@ App::new()
 **CodeEditor:** `editor-bg`, `editor-fg`, `editor-gutter-bg`, `editor-gutter-fg`,
 `editor-cursor`, `editor-selection`, `editor-current-line`,
 `editor-bracket-match`, `editor-whitespace`, `editor-find-match`,
-`editor-find-current`, `gutter-color`
+`editor-find-current`, `editor-error`, `editor-warning`, `editor-info`,
+`editor-hint`, `editor-popup-bg`, `editor-popup-border`, `gutter-color`
 
 **Подсветка синтаксиса:** `token-keyword`, `token-keyword-control`,
 `token-type`, `token-type-builtin`, `token-function`, `token-function-macro`,
@@ -1043,6 +1044,13 @@ CodeEditor::new()                     // фича "code-editor"
     .tab_width(4).insert_spaces(true).size_limit_mb(16)
     .command_signal(cmd_sig).state_signal(state_sig)
     .on_change(|c| {}).on_save(|s| {}).on_cursor(|i| {})
+    // языковой сервер: позиции — строка и символ (Unicode scalar) с нуля
+    .diagnostics(vec![Diagnostic { line, col, end_line, end_col, severity: DiagnosticSeverity::Error, message }])
+    .completion(list_sig)             // RwSignal<Option<CompletionList>>: приложение кладёт ответ
+    .completion_triggers(vec!['.', ':']).on_completion_request(|t: CompletionTrigger| {})
+    .hover(hover_sig).on_hover(|line, col| {})   // ~500 мс над символом → справка в hover_sig
+    .on_goto(|line, col| {})          // Ctrl+щелчок, F12 (F12 у фокусного редактора не открывает devtools)
+// команды: EditorCommand::SetCursor { line, col } — каретка, без выделения, строка на экране
 
 DocumentEditor::new()                 // фича "document-editor" (Notion-стиль)
     .markdown(src).read_only(false).handle(&handle)

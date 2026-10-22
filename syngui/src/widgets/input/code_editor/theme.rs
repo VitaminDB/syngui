@@ -1,3 +1,4 @@
+use super::lsp::DiagnosticSeverity;
 use super::syntax::TokenClass;
 use crate::core::Color;
 use crate::mss::code_editor::CodeEditorPalette;
@@ -107,7 +108,38 @@ impl Theme {
             .filter(opaque_enough)
             .unwrap_or_else(|| self.gutter_fg(mss).with_alpha(FALLBACK_INDENT_GUIDE_ALPHA))
     }
+
+    /// Цвет диагностики по важности: подчёркивание, метка в gutter'е.
+    pub fn diagnostic(&self, sev: &DiagnosticSeverity) -> Color {
+        let (c, fallback) = match sev {
+            DiagnosticSeverity::Error => (self.palette.editor_error, DEFAULT_ERROR),
+            DiagnosticSeverity::Warning => (self.palette.editor_warning, DEFAULT_WARNING),
+            DiagnosticSeverity::Info => (self.palette.editor_info, DEFAULT_INFO),
+            DiagnosticSeverity::Hint => (self.palette.editor_hint, DEFAULT_HINT),
+        };
+        c.filter(opaque_enough).unwrap_or(fallback)
+    }
+
+    /// Фон всплывающих окон (дополнение, подсказка) — чуть светлее редактора.
+    pub fn popup_bg(&self, mss: &MssFields) -> Color {
+        self.palette
+            .editor_popup_bg
+            .filter(opaque_enough)
+            .unwrap_or_else(|| self.gutter_bg(mss).lighten(0.03).with_alpha(1.0))
+    }
+
+    pub fn popup_border(&self, mss: &MssFields) -> Color {
+        self.palette
+            .editor_popup_border
+            .filter(opaque_enough)
+            .unwrap_or_else(|| self.fg(mss).with_alpha(0.18))
+    }
 }
+
+const DEFAULT_ERROR: Color = Color { r: 0.937, g: 0.325, b: 0.314, a: 1.0 };
+const DEFAULT_WARNING: Color = Color { r: 0.898, g: 0.667, b: 0.200, a: 1.0 };
+const DEFAULT_INFO: Color = Color { r: 0.380, g: 0.686, b: 0.937, a: 1.0 };
+const DEFAULT_HINT: Color = Color { r: 0.600, g: 0.620, b: 0.660, a: 1.0 };
 
 const FALLBACK_FIND_MATCH_ALPHA: f32 = 0.5;
 const FALLBACK_FIND_CURRENT_ALPHA: f32 = 0.6;
