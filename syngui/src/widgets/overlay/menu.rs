@@ -539,7 +539,13 @@ impl PopupMenuElement {
                 let icon_color = match item.icon_color {
                     Some(c) if item.disabled => c.with_alpha(0.4),
                     Some(c) => c,
-                    None => self.mss.icon_color(icon_state, text_color),
+                    // без icon-color — цвет текста пункта: `color` стиля меню наследуется
+                    // от родителя ContextMenu (у TreeView — прозрачный), иконки пропадали
+                    None => {
+                        let mut m = self.mss.clone();
+                        m.color = None;
+                        m.icon_color(icon_state, text_color)
+                    }
                 };
                 list.push_text_centered(icon, icon_rect, icon_color, 14.0);
                 text_x += ITEM_ICON_BOX + ITEM_ICON_GAP;
