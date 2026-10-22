@@ -108,6 +108,7 @@ pub struct PopupMenu {
     pub is_open: RwSignal<bool>,
     pub on_select: Option<Arc<Mutex<dyn FnMut(&str) + Send>>>,
     pub min_width: f32,
+    pub pass_through: Option<Arc<Mutex<Rect>>>,
 }
 
 impl PopupMenu {
@@ -120,6 +121,7 @@ impl PopupMenu {
             is_open: use_signal(false),
             on_select: None,
             min_width: 180.0,
+            pass_through: None,
         }
     }
 
@@ -157,6 +159,14 @@ impl PopupMenu {
         self.anchor_rect = rect;
         self
     }
+
+    /// Прозрачная зона при открытом меню (обычно строка меню): движение и
+    /// нажатия мыши в ней проходят к виджетам под меню и не закрывают его —
+    /// наведение на соседний заголовок переключает меню, щелчок — без «холостого».
+    pub fn pass_through(mut self, rect: Arc<Mutex<Rect>>) -> Self {
+        self.pass_through = Some(rect);
+        self
+    }
 }
 
 impl Default for PopupMenu {
@@ -176,6 +186,7 @@ impl Widget for PopupMenu {
             is_open: self.is_open,
             on_select: self.on_select.clone(),
             min_width: self.min_width,
+            pass_through: self.pass_through.clone(),
             bounds: Rect::zero(),
             viewport_size: Cell::new(Size::zero()),
             open_path: Vec::new(),
@@ -234,6 +245,7 @@ struct PopupMenuElement {
     is_open: RwSignal<bool>,
     on_select: Option<Arc<Mutex<dyn FnMut(&str) + Send>>>,
     min_width: f32,
+    pass_through: Option<Arc<Mutex<Rect>>>,
     bounds: Rect,
     viewport_size: Cell<Size>,
     open_path: Vec<usize>,
@@ -613,6 +625,7 @@ impl Element for PopupMenuElement {
             self.is_open = m.is_open;
             self.on_select = m.on_select.clone();
             self.min_width = m.min_width;
+            self.pass_through = m.pass_through.clone();
             self.open_path.clear();
             self.level_widths.borrow_mut().clear();
             self.mark_dirty(DirtyFlags::RENDER);
@@ -916,8 +929,13 @@ impl Element for PopupMenuElement {
         self.bounds
     }
 
-    fn hit_test(&self, _point: Point) -> bool {
-        self.is_open.get_untracked()
+    fn hit_test(&self, point: Point) -> bool {
+        self.is_open.get_untracked() && !self.overlay_pass_through(point)
+    }
+
+    fn overlay_pass_through(&self, point: Point) -> bool {
+        let Some(zone) = self.pass_through.as_ref().and_then(|r| r.lock().ok().map(|r| *r)) else { return false };
+        zone.contains(point) && !(0..self.open_path.len().max(1)).any(|l| self.level_rect(l).contains(point))
     }
 
     fn overlay_request(&self) -> Option<(Rect, bool)> {

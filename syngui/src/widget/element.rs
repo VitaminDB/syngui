@@ -253,6 +253,13 @@ pub trait Element: Send {
         None
     }
 
+    /// Точка (координаты окна) в «прозрачной зоне» оверлея: события мыши
+    /// в ней минуют оверлей (даже модальный) и идут к виджетам под ним.
+    /// Строка меню: открытое меню пропускает наведение и щелчки по заголовкам.
+    fn overlay_pass_through(&self, _point: Point) -> bool {
+        false
+    }
+
     /// Прямоугольник каретки в координатах окна — туда IME ставит окно
     /// кандидатов (`Window::set_ime_cursor_area`). `None` — элемент текст
     /// не вводит или каретки сейчас нет.
@@ -573,6 +580,10 @@ impl Element for Box<dyn Element> {
 
     fn overlay_request(&self) -> Option<(Rect, bool)> {
         self.as_ref().overlay_request()
+    }
+
+    fn overlay_pass_through(&self, point: Point) -> bool {
+        self.as_ref().overlay_pass_through(point)
     }
 
     fn ime_cursor_area(&self) -> Option<Rect> {

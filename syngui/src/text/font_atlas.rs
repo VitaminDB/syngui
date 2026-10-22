@@ -413,9 +413,17 @@ impl FontAtlas {
 
     /// Значок Font Awesome по символу дополнительной области PUA.
     fn ensure_awesome_glyph(&mut self, ch: char, size_px: u16) -> Option<GlyphKey> {
-        let (style, code) = crate::text::icon_fonts::fa::decode(ch)?;
-        let idx = self.awesome_faces[style]?;
-        self.ensure_glyph_in(code, size_px, idx)
+        #[cfg(any(feature = "material-icons", feature = "font-awesome"))]
+        {
+            let (style, code) = crate::text::icon_fonts::fa::decode(ch)?;
+            let idx = self.awesome_faces[style]?;
+            self.ensure_glyph_in(code, size_px, idx)
+        }
+        #[cfg(not(any(feature = "material-icons", feature = "font-awesome")))]
+        {
+            let _ = (ch, size_px);
+            None
+        }
     }
 
     pub fn set_icon_font_data(&mut self, data: Vec<u8>) {

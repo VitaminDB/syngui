@@ -332,6 +332,10 @@ impl ElementTree {
                     continue;
                 }
                 let entry = self.overlay_stack[i].clone();
+                // прозрачная зона оверлея (строка меню под открытым меню)
+                if self.elements.get(&entry.element_id).is_some_and(|n| n.element.overlay_pass_through(pos)) {
+                    continue;
+                }
                 let hits = entry.bounds.contains(pos);
                 if hits || entry.modal {
                     if matches!(event, Event::MouseMove(_)) {

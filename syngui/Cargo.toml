@@ -510,3 +510,7 @@ required-features = ["testing"]
 [[example]]
 name = "menu_shot"
 required-features = ["image", "material-icons"]
+
+[[test]]
+name = "menu_bar_switch"
+required-features = ["testing"]
