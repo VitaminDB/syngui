@@ -20,7 +20,24 @@ pub enum EditorCommand {
     /// пределами — к ближайшей позиции), снять выделение и прокрутить так,
     /// чтобы строка была видна (вне экрана — по центру).
     SetCursor { line: usize, col: usize },
+    /// Правки текста (переименование, форматирование языкового сервера):
+    /// позиции в исходном тексте, одним шагом отмены; курсор сдвигается вместе
+    /// с текстом. Пересекающиеся правки — ошибка источника, лишние пропускаются.
+    ApplyEdits(Vec<TextEdit>),
 }
+
+/// Замена диапазона `[start, end)` (строка и символ с нуля) на `text`.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct TextEdit {
+    pub start_line: usize,
+    pub start_col: usize,
+    pub end_line: usize,
+    pub end_col: usize,
+    pub text: String,
+}
+
+/// Перехват клавиш приложением: `true` — клавиша его, редактору не достаётся.
+pub type EditorKeyHook = Arc<dyn Fn(crate::input::Key, crate::input::Modifiers) -> bool + Send + Sync>;
 
 pub struct CodeEditorChange<'a> {
     pub full_text: &'a str,
@@ -70,6 +87,7 @@ pub struct CodeEditor {
     pub(crate) hover: Option<RwSignal<Option<HoverInfo>>>,
     pub(crate) on_hover: Option<Arc<Mutex<dyn FnMut(usize, usize) + Send>>>,
     pub(crate) on_goto: Option<Arc<Mutex<dyn FnMut(usize, usize) + Send>>>,
+    pub(crate) key_hook: Option<EditorKeyHook>,
 }
 
 impl CodeEditor {
@@ -100,6 +118,7 @@ impl CodeEditor {
             hover: None,
             on_hover: None,
             on_goto: None,
+            key_hook: None,
         }
     }
 
@@ -252,6 +271,13 @@ impl CodeEditor {
     /// `(строка, символ)`. С зажатым Ctrl слово под мышью подчёркнуто.
     pub fn on_goto(mut self, f: impl FnMut(usize, usize) + Send + 'static) -> Self {
         self.on_goto = Some(Arc::new(Mutex::new(f)));
+        self
+    }
+
+    /// Клавиши приложения (F2 — переименовать, Shift+F12 — ссылки): видит
+    /// `KeyDown` в фокусе до редактора; `true` — клавиша съедена.
+    pub fn on_key(mut self, f: impl Fn(crate::input::Key, crate::input::Modifiers) -> bool + Send + Sync + 'static) -> Self {
+        self.key_hook = Some(Arc::new(f));
         self
     }
 

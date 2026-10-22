@@ -10,7 +10,7 @@ pub mod theme;
 mod element;
 mod widget;
 
-pub use widget::{CodeEditor, CodeEditorChange, CursorInfo, EditorCommand, EditorPersistedState};
+pub use widget::{CodeEditor, CodeEditorChange, CursorInfo, EditorCommand, EditorKeyHook, EditorPersistedState, TextEdit};
 pub use lsp::{
     CompletionItem, CompletionList, CompletionTrigger, Diagnostic, DiagnosticSeverity, HoverInfo,
 };

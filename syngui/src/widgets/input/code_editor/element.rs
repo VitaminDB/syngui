@@ -76,6 +76,7 @@ pub struct CodeEditorElement {
 
     on_change: Option<Arc<Mutex<dyn FnMut(CodeEditorChange) + Send>>>,
     on_save: Option<Arc<Mutex<dyn FnMut(&str) + Send>>>,
+    key_hook: Option<super::widget::EditorKeyHook>,
     on_cursor: Option<Arc<Mutex<dyn FnMut(CursorInfo) + Send>>>,
     /// Диагностики, дополнение, подсказки, переход к определению.
     lsp: lsp_ui::LspState,
@@ -185,6 +186,7 @@ impl CodeEditorElement {
 
             on_change: widget.on_change.clone(),
             on_save: widget.on_save.clone(),
+            key_hook: widget.key_hook.clone(),
             on_cursor: widget.on_cursor.clone(),
             lsp: lsp_ui::LspState::from_widget(widget),
         };
@@ -447,6 +449,56 @@ impl CodeEditorElement {
         self.fire_on_cursor();
     }
 
+    /// Правки по позициям исходного текста — одним шагом отмены.
+    fn apply_text_edits(&mut self, edits: Vec<super::widget::TextEdit>) {
+        if self.read_only || edits.is_empty() {
+            return;
+        }
+        let cursors_before = self.cursors.clone();
+        let mut ranges: Vec<Edit> = edits
+            .iter()
+            .map(|e| {
+                let a = self.buffer.line_col_to_byte(e.start_line, e.start_col);
+                let b = self.buffer.line_col_to_byte(e.end_line, e.end_col).max(a);
+                Edit::replace(a..b, e.text.clone())
+            })
+            .collect();
+        // с конца, чтобы ранние смещения не съезжали; пересекающиеся — пропустить
+        ranges.sort_by(|x, y| y.range.start.cmp(&x.range.start).then(y.range.end.cmp(&x.range.end)));
+        let mut inverses = Vec::with_capacity(ranges.len());
+        let mut floor = usize::MAX;
+        for edit in &ranges {
+            if edit.range.end > floor {
+                continue;
+            }
+            floor = edit.range.start;
+            let inverse = self.buffer.apply_edit(edit);
+            let removed = inverse.replacement.len();
+            let delta = edit.replacement.len() as isize - removed as isize;
+            self.cursors.shift_after(edit.range.start, edit.range.start + removed, delta);
+            inverses.push(inverse);
+        }
+        if inverses.is_empty() {
+            return;
+        }
+        self.cursors.merge_overlapping();
+        let cursors_after = self.cursors.clone();
+        self.undo.commit_group();
+        self.undo.push_group(inverses, cursors_before, cursors_after);
+        self.undo.commit_group();
+        self.refresh_snapshot();
+        if let Some(h) = self.highlighter.as_mut() {
+            h.reparse(&self.text_snapshot);
+        }
+        if self.find.visible {
+            self.find.search(&self.text_snapshot);
+        }
+        self.wrap_cache.clear();
+        self.total_visual_lines = 0;
+        self.fire_on_change();
+        self.fire_on_cursor();
+    }
+
     fn fire_on_change(&self) {
         if let Some(cb) = &self.on_change {
             if let Ok(mut f) = cb.lock() {
@@ -655,6 +707,9 @@ impl CodeEditorElement {
             }
             C::SetCursor { line, col } => {
                 self.set_cursor_to(line, col);
+            }
+            C::ApplyEdits(edits) => {
+                self.apply_text_edits(edits);
             }
         }
     }
@@ -1288,6 +1343,7 @@ impl Element for CodeEditorElement {
 
             self.on_change = w.on_change.clone();
             self.on_save = w.on_save.clone();
+            self.key_hook = w.key_hook.clone();
             self.on_cursor = w.on_cursor.clone();
             self.lsp.update(w);
             self.lsp.subscribe(self.id);
@@ -2069,6 +2125,11 @@ impl Element for CodeEditorElement {
                     }
                     return EventResult::Ignored;
                 }
+                if let Some(hook) = self.key_hook.as_ref() {
+                    if hook(*key, ctx.modifiers) {
+                        return EventResult::Handled;
+                    }
+                }
                 // открытый список дополнения забирает ↑/↓/Enter/Tab/Esc
                 if self.completion_key(*key, ctx.modifiers) {
                     ctx.request_paint();
@@ -2665,6 +2726,33 @@ mod tests {
         assert_eq!(got.lock().unwrap().last().copied(), Some((0, 2)));
         assert!(!el.mouse_selecting, "Ctrl+щелчок не начинает выделение");
         assert!(!el.cursors.primary().has_selection());
+    }
+
+    #[test]
+    fn apply_edits_one_undo_step_and_key_hook() {
+        use super::super::widget::TextEdit;
+        let hits = Arc::new(StdMutex::new(0));
+        let h2 = hits.clone();
+        let ed = CodeEditor::new().text("let value = 1;\nfoo(value)").on_key(move |k, _| {
+            if k == Key::F2 {
+                *h2.lock().unwrap() += 1;
+                return true;
+            }
+            false
+        });
+        let mut el = laid_out(&ed);
+        el.process_command(EditorCommand::SetCursor { line: 1, col: 10 });
+        el.process_command(EditorCommand::ApplyEdits(vec![
+            TextEdit { start_line: 0, start_col: 4, end_line: 0, end_col: 9, text: "count".into() },
+            TextEdit { start_line: 1, start_col: 4, end_line: 1, end_col: 9, text: "count".into() },
+        ]));
+        assert_eq!(el.text_snapshot, "let count = 1;\nfoo(count)");
+        // курсор за «)» второй строки остался за ней
+        assert_eq!(el.cursors.primary().pos, el.text_snapshot.len());
+        send_mod(&mut el, Event::KeyDown(Key::Z), ctrl());
+        assert_eq!(el.text_snapshot, "let value = 1;\nfoo(value)", "одна отмена — обе правки");
+        assert_eq!(send(&mut el, Event::KeyDown(Key::F2)), EventResult::Handled);
+        assert_eq!(*hits.lock().unwrap(), 1);
     }
 
     #[test]
