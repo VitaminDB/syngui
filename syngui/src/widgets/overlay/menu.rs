@@ -577,7 +577,7 @@ impl PopupMenuElement {
                     Point::new(sc_right - sc_w, item_rect.y()),
                     Size::new(sc_w, item_rect.size.height),
                 );
-                list.push_text_aligned(shortcut, sc_rect, fg.with_alpha(0.4), SHORTCUT_FONT_SIZE, crate::mss::TextAlign::RIGHT, crate::mss::TextDecoration::None, 400);
+                list.push_text_aligned(shortcut, sc_rect, fg.with_alpha(0.4), SHORTCUT_FONT_SIZE, crate::mss::TextAlign::RIGHT | crate::mss::TextAlign::VCENTER, crate::mss::TextDecoration::None, 400);
             }
 
             let label_right_edge = if trailing_block_w > 0.0 {
