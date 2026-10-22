@@ -101,6 +101,9 @@ pub struct AppBuilder {
     pub(super) staging_belt: bool,
     pub(super) devtools: bool,
     pub(super) dynamic_theme_mss: Option<RwSignal<String>>,
+    /// `dynamic_theme_mss` — вся таблица стилей окна (`with_live_styles`):
+    /// при смене она заменяет базовую, а не дописывается поверх неё.
+    pub(super) dynamic_replaces_base: bool,
     pub(super) theme_transition: Option<(std::time::Duration, crate::animation::Easing)>,
     pub(super) system_appearance: Option<RwSignal<crate::appearance::SystemAppearance>>,
     pub(super) backdrop: Option<RwSignal<crate::window::BackdropConfig>>,
@@ -185,6 +188,7 @@ impl AppBuilder {
             staging_belt: false,
             devtools: false,
             dynamic_theme_mss: None,
+            dynamic_replaces_base: false,
             theme_transition: None,
             system_appearance: None,
             backdrop: None,
@@ -382,6 +386,19 @@ impl AppBuilder {
 
     pub fn with_dynamic_theme(mut self, signal: RwSignal<String>) -> Self {
         self.dynamic_theme_mss = Some(signal);
+        self
+    }
+
+    /// Вся таблица стилей окна из сигнала: сразу при запуске и заново при
+    /// каждом его изменении (живая смена темы). В отличие от
+    /// `with_styles_str` + `with_dynamic_theme` с тем же текстом, таблица не
+    /// удваивается: новая заменяет прежнюю. Дополнительные таблицы
+    /// (`with_additional_styles`) остаются поверх.
+    pub fn with_live_styles(mut self, signal: RwSignal<String>) -> Self {
+        let initial = signal.get_untracked();
+        self = self.with_styles_str(&initial);
+        self.dynamic_theme_mss = Some(signal);
+        self.dynamic_replaces_base = true;
         self
     }
 

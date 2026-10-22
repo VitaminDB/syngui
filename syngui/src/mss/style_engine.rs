@@ -224,19 +224,26 @@ impl StyleEngine {
     }
 
     fn resolve_value(&self, value: &StyleValue) -> StyleValue {
+        self.resolve_value_in(value, None)
+    }
+
+    /// Значение переменной `--name`: унаследованное от предков (объявленное в
+    /// обычном правиле, как в CSS — уже разрешённое там), иначе из `:root`.
+    fn lookup_var(&self, name: &str, scope: Option<&ComputedStyle>) -> Option<StyleValue> {
+        if let Some(v) = scope.and_then(|s| s.get(name)) {
+            return Some(v.clone());
+        }
+        self.stylesheet.get_variable(name).map(|v| self.resolve_value_in(v, None))
+    }
+
+    /// Разрешить `var()` с учётом переменных предков элемента (`scope` —
+    /// унаследованный стиль родителя).
+    fn resolve_value_in(&self, value: &StyleValue, scope: Option<&ComputedStyle>) -> StyleValue {
         match value {
-            StyleValue::Var(name) => self
-                .stylesheet
-                .get_variable(name)
-                .cloned()
-                .map(|v| self.resolve_value(&v))
-                .unwrap_or(StyleValue::None),
+            StyleValue::Var(name) => self.lookup_var(name, scope).unwrap_or(StyleValue::None),
             StyleValue::VarWithFallback(name, fallback) => self
-                .stylesheet
-                .get_variable(name)
-                .cloned()
-                .map(|v| self.resolve_value(&v))
-                .unwrap_or_else(|| self.resolve_value(fallback)),
+                .lookup_var(name, scope)
+                .unwrap_or_else(|| self.resolve_value_in(fallback, scope)),
             StyleValue::String(s) if s.contains("var(--") => {
                 let mut result = s.clone();
                 while let Some(start) = result.find("var(--") {
@@ -244,10 +251,7 @@ impl StyleEngine {
                     if let Some(end) = result[var_start..].find(')') {
                         let var_name = &result[var_start..var_start + end];
                         let replacement = self
-                            .stylesheet
-                            .get_variable(var_name)
-                            .cloned()
-                            .map(|v| self.resolve_value(&v))
+                            .lookup_var(var_name, scope)
                             .map(|v| match v {
                                 StyleValue::Color(c) => {
                                     format!("#{:02x}{:02x}{:02x}{:02x}", c.r, c.g, c.b, c.a)
@@ -314,6 +318,12 @@ impl StyleEngine {
 
     pub fn resolve_variable(&self, value: &StyleValue) -> StyleValue {
         self.resolve_value(value)
+    }
+
+    /// [`Self::resolve_variable`] с переменными, унаследованными от предков:
+    /// `.scope { --accent: red; }` меняет `var(--accent)` у потомков.
+    pub fn resolve_variable_in(&self, value: &StyleValue, parent_inherited: &ComputedStyle) -> StyleValue {
+        self.resolve_value_in(value, Some(parent_inherited))
     }
 
     /// Заменить таблицу приложения; встроенные стили виджетов остаются под

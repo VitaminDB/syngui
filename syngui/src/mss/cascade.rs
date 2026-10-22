@@ -16,7 +16,8 @@ fn resolve_for_cascade(
         StyleValue::Inherit | StyleValue::Initial | StyleValue::Unset => {
             resolve_cascade_keyword(value, property, parent_inherited)
         }
-        _ => engine.resolve_variable(value),
+        // Переменные, объявленные у предков (`.scope { --x: … }`), видны потомкам.
+        _ => engine.resolve_variable_in(value, parent_inherited),
     }
 }
 
@@ -990,5 +991,29 @@ mod index_cache_tests {
         assert_eq!(snapshot().since(&start).style_index_builds, 1);
         h.layout(800.0, 600.0);
         assert_eq!(h.element_mss(id).and_then(|m| m.font_size), Some(22.0));
+    }
+}
+
+#[cfg(all(test, feature = "testing"))]
+mod scoped_var_tests {
+    use crate::prelude::*;
+    use crate::testing::TestHarness;
+
+    /// `var()` видит переменные, объявленные у предков (как в CSS), — так
+    /// редактор тем показывает виджеты в теме-черновике внутри своего окна.
+    #[test]
+    fn var_sees_ancestor_custom_properties() {
+        let mut h = TestHarness::new(Box::new(
+            Column::new()
+                .child(DecoratedBox::new().class("scope").child(DecoratedBox::new().child(DecoratedBox::new().class("label"))))
+                .child(DecoratedBox::new().class("label")),
+        ));
+        h.layout(800.0, 600.0);
+        h.apply_mss(":root { --size: 11; } .scope { --size: 23; } .label { font-size: var(--size); }");
+        h.layout(800.0, 600.0);
+        let ids = h.find_by_class("label");
+        let sizes: Vec<_> = ids.iter().map(|id| h.element_mss(*id).and_then(|m| m.font_size)).collect();
+        assert!(sizes.contains(&Some(23.0)), "внутри .scope: {sizes:?}");
+        assert!(sizes.contains(&Some(11.0)), "вне .scope: {sizes:?}");
     }
 }

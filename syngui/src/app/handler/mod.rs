@@ -255,6 +255,11 @@ impl AppHandler {
         initial_is_dark: bool,
     ) -> Self {
         let pending_windows = std::mem::take(&mut config.extra_windows);
+        // Живые стили (`with_live_styles`) уже загружены как базовые.
+        let initial_dynamic = match (config.dynamic_replaces_base, config.dynamic_theme_mss) {
+            (true, Some(sig)) => sig.get_untracked(),
+            _ => String::new(),
+        };
         let sticky_threshold = config.sticky_threshold;
         // Масштаб интерфейса — до создания окна: первый layout уже должен
         // считать логический вьюпорт с ним.
@@ -327,7 +332,7 @@ impl AppHandler {
             #[cfg(feature = "accessibility")]
             accesskit_adapter: None,
             current_theme_is_dark: initial_is_dark,
-            current_dynamic_theme: String::new(),
+            current_dynamic_theme: initial_dynamic,
             current_cursor: CursorIcon::Default,
             last_click_time: None,
             last_click_pos: None,

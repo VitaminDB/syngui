@@ -755,14 +755,24 @@ impl AppHandler {
             let new_mss = sig.get_untracked();
             if new_mss != self.current_dynamic_theme {
                 self.current_dynamic_theme = new_mss.clone();
-                if let Some(ref base) = self.config.stylesheet {
-                    self.style_engine.load_stylesheet(base.clone());
+                if self.config.dynamic_replaces_base {
+                    match parse_stylesheet_str(&new_mss) {
+                        Ok(ss) => self.style_engine.load_stylesheet(ss),
+                        Err(e) => log::warn!("Failed to parse live styles: {:?}", e),
+                    }
+                    for additional in &self.config.additional_stylesheets {
+                        self.style_engine.load_additional_stylesheet(additional.clone());
+                    }
+                } else {
+                    if let Some(ref base) = self.config.stylesheet {
+                        self.style_engine.load_stylesheet(base.clone());
+                    }
+                    for additional in &self.config.additional_stylesheets {
+                        self.style_engine
+                            .load_additional_stylesheet(additional.clone());
+                    }
                 }
-                for additional in &self.config.additional_stylesheets {
-                    self.style_engine
-                        .load_additional_stylesheet(additional.clone());
-                }
-                if !new_mss.is_empty() {
+                if !new_mss.is_empty() && !self.config.dynamic_replaces_base {
                     match parse_stylesheet_str(&new_mss) {
                         Ok(theme_ss) => {
                             self.style_engine.load_additional_stylesheet(theme_ss);
