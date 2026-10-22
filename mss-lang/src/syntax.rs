@@ -941,8 +941,8 @@ impl<'a> Parser<'a> {
     }
 
     /// Проверки значения, которые основной парсер делает при разборе:
-    /// `var()` в начале значения должен быть единственным, имя переменной —
-    /// с `--`, значение по умолчанию — не пустое; скобки — парные.
+    /// у `var()`, занимающего всё значение, имя переменной — с `--`,
+    /// значение по умолчанию — не пустое; скобки — парные.
     fn check_value(&mut self, from: usize, to: usize) {
         let toks = &self.toks[from..to];
         // Парность скобок.
@@ -966,20 +966,6 @@ impl<'a> Parser<'a> {
         {
             return;
         }
-        // Внутри var( … ).
-        let mut j = 2;
-        while toks.get(j).is_some_and(|t| t.kind.is_trivia()) {
-            j += 1;
-        }
-        match toks.get(j) {
-            Some(t) if t.kind == TokenKind::Ident && self.text(t).starts_with("--") => {}
-            Some(t) => {
-                let span = t.span.clone();
-                self.err(span, "в var() ожидалось имя переменной вида --имя");
-                return;
-            }
-            None => return,
-        }
         // Конец var(): парная «)».
         let mut depth = 0i32;
         let mut close = None;
@@ -999,19 +985,30 @@ impl<'a> Parser<'a> {
             }
         }
         let Some(close) = close else { return };
+        // `var(--a) var(--b)` — составное значение: основной парсер берёт его
+        // строкой, var() подставляются при каскаде.
+        if toks[close + 1..].iter().any(|t| !t.kind.is_trivia()) {
+            return;
+        }
+        // Внутри var( … ).
+        let mut j = 2;
+        while toks.get(j).is_some_and(|t| t.kind.is_trivia()) {
+            j += 1;
+        }
+        match toks.get(j) {
+            Some(t) if t.kind == TokenKind::Ident && self.text(t).starts_with("--") => {}
+            Some(t) => {
+                let span = t.span.clone();
+                self.err(span, "в var() ожидалось имя переменной вида --имя");
+                return;
+            }
+            None => return,
+        }
         if let Some(c) = comma {
             if toks[c + 1..close].iter().all(|t| t.kind.is_trivia()) {
                 let span = toks[c].span.clone();
                 self.err(span, "в var() пустое значение по умолчанию после «,»");
             }
-        }
-        if let Some(rest) = toks[close + 1..].iter().find(|t| !t.kind.is_trivia()) {
-            let span = rest.span.start..toks[toks.len() - 1].span.end;
-            self.err(
-                span,
-                "после var(…) в начале значения ничего быть не может: такое значение \
-                 не разбирается, и правило пропускается целиком",
-            );
         }
     }
 
@@ -1487,13 +1484,13 @@ mod tests {
     }
 
     #[test]
-    fn var_prefix_value_must_be_alone() {
+    fn var_prefix_value_checks() {
+        // `var(--x) var(--y)` — составное значение, разбирается строкой.
         let s = parse(".a { padding: var(--x) var(--y); color: var(x); b: var(--z, ); }");
         let msgs: Vec<_> = s.errors.iter().map(|e| e.message.as_str()).collect();
-        assert_eq!(msgs.len(), 3, "{msgs:?}");
-        assert!(msgs[0].contains("после var(…)"));
-        assert!(msgs[1].contains("--имя"));
-        assert!(msgs[2].contains("пустое значение по умолчанию"));
+        assert_eq!(msgs.len(), 2, "{msgs:?}");
+        assert!(msgs[0].contains("--имя"));
+        assert!(msgs[1].contains("пустое значение по умолчанию"));
     }
 
     #[test]

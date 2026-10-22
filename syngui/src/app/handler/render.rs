@@ -379,6 +379,10 @@ impl AppHandler {
 
         let t_rebuild = Instant::now();
         if let Some(root_id) = self.root_id {
+            // `:focus-within` — фокус сменился: стили предков старого и нового.
+            if self.tree.sync_focus_within(crate::mss::cascade::uses_focus_within(&self.style_engine)) {
+                self.apply_styles(root_id);
+            }
             let mut any_rebuilt = false;
             for _ in 0..8 {
                 if !self.tree.rebuild_if_needed(root_id) {

@@ -377,9 +377,8 @@ mod tests {
         let d =
             diags(".a { box-shadow: 0 2px 4px var(--sh, #000); border: 1px solid var(--b, red); }");
         let c: Vec<_> = d.iter().map(|d| d.code).collect();
-        // border — сокращение: запасное значение работает.
-        // «value» — с начала var(), имя переменной — правее.
-        assert_eq!(c, ["value", "unknown-variable", "unknown-variable"]);
+        // Запасное значение внутри составного подставляется (с 2026-10-22).
+        assert_eq!(c, ["unknown-variable", "unknown-variable"]);
     }
 
     #[test]

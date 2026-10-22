@@ -156,6 +156,8 @@ pub struct ElementTree {
     pub window_flags: u8,
     pub focused_text_content: Option<String>,
     pub focused_element: Option<ElementId>,
+    /// Фокус, под который последний раз считались стили `:focus-within`.
+    pub(crate) styled_focus: Option<ElementId>,
     /// Элемент, забравший фокус через autofocus при монтировании/rebuild.
     /// `AppHandler` после rebuild-цикла диспатчит ему `FocusGained` (иначе
     /// поле «фокусировано» только логически: без события не запросится
@@ -229,6 +231,28 @@ pub(crate) struct ScrollCullContext {
 }
 
 impl ElementTree {
+    /// Фокус сменился с прошлого прохода стилей: пометить грязными старый и
+    /// новый фокус с их предками (для `:focus-within`). `true` — нужен
+    /// проход стилей. `enabled` — в таблице есть правила `:focus-within`.
+    pub fn sync_focus_within(&mut self, enabled: bool) -> bool {
+        if self.focused_element == self.styled_focus {
+            return false;
+        }
+        let old = std::mem::replace(&mut self.styled_focus, self.focused_element);
+        if !enabled {
+            return false;
+        }
+        for start in [old, self.focused_element].into_iter().flatten() {
+            let mut cur = Some(start);
+            while let Some(c) = cur {
+                let Some(node) = self.elements.get_mut(&c) else { break };
+                node.styles_dirty = true;
+                cur = node.parent;
+            }
+        }
+        true
+    }
+
     pub fn new() -> Self {
         Self {
             elements: ElementStorage::new(),
@@ -262,6 +286,7 @@ impl ElementTree {
             window_flags: 0,
             focused_text_content: None,
             focused_element: None,
+            styled_focus: None,
             pending_autofocus: None,
             safe_area: crate::core::EdgeInsets::zero(),
             root_offset: Point::zero(),

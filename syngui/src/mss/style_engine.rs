@@ -118,6 +118,29 @@ struct StyleCacheKey {
     classes: Vec<String>,
 }
 
+/// Значение переменной текстом — для подстановки внутрь составного значения.
+fn style_value_text(v: &StyleValue) -> String {
+    use crate::mss::Unit;
+    match v {
+        StyleValue::Color(c) => format!("#{:02x}{:02x}{:02x}{:02x}", c.r, c.g, c.b, c.a),
+        StyleValue::String(s) => s.clone(),
+        StyleValue::Number(n) => format!("{n}"),
+        StyleValue::Length(n, unit) => match unit {
+            Unit::Px => format!("{n}px"),
+            Unit::Percent => format!("{n}%"),
+            Unit::Em => format!("{n}em"),
+            Unit::Rem => format!("{n}rem"),
+            Unit::Vw => format!("{n}vw"),
+            Unit::Vh => format!("{n}vh"),
+            Unit::Auto => "auto".into(),
+            Unit::FitContent => "fit-content".into(),
+            Unit::MaxContent => "max-content".into(),
+            Unit::MinContent => "min-content".into(),
+        },
+        _ => String::new(),
+    }
+}
+
 impl StyleEngine {
     pub fn new(stylesheet: StyleSheet) -> Self {
         Self {
@@ -246,56 +269,38 @@ impl StyleEngine {
                 .unwrap_or_else(|| self.resolve_value_in(fallback, scope)),
             StyleValue::String(s) if s.contains("var(--") => {
                 let mut result = s.clone();
-                while let Some(start) = result.find("var(--") {
-                    let var_start = start + 4;
-                    if let Some(end) = result[var_start..].find(')') {
-                        let var_name = &result[var_start..var_start + end];
-                        let replacement = self
-                            .lookup_var(var_name, scope)
-                            .map(|v| match v {
-                                StyleValue::Color(c) => {
-                                    format!("#{:02x}{:02x}{:02x}{:02x}", c.r, c.g, c.b, c.a)
+                let mut from = 0;
+                while let Some(rel) = result[from..].find("var(--") {
+                    let start = from + rel;
+                    // Парная скобка (в запасном значении бывают свои).
+                    let inner_start = start + 4;
+                    let mut depth = 1i32;
+                    let mut end = None;
+                    let mut comma = None;
+                    for (i, c) in result[inner_start..].char_indices() {
+                        match c {
+                            '(' => depth += 1,
+                            ')' => {
+                                depth -= 1;
+                                if depth == 0 {
+                                    end = Some(inner_start + i);
+                                    break;
                                 }
-                                StyleValue::String(s) => s,
-                                StyleValue::Number(n) => format!("{}", n),
-                                StyleValue::Length(n, unit) => {
-                                    let u = match unit {
-                                        crate::mss::Unit::Px => "px",
-                                        crate::mss::Unit::Percent => "%",
-                                        crate::mss::Unit::Em => "em",
-                                        crate::mss::Unit::Rem => "rem",
-                                        crate::mss::Unit::Vw => "vw",
-                                        crate::mss::Unit::Vh => "vh",
-                                        crate::mss::Unit::Auto
-                                        | crate::mss::Unit::FitContent
-                                        | crate::mss::Unit::MaxContent
-                                        | crate::mss::Unit::MinContent => {
-                                            return match unit {
-                                                crate::mss::Unit::Auto => "auto".into(),
-                                                crate::mss::Unit::FitContent => {
-                                                    "fit-content".into()
-                                                }
-                                                crate::mss::Unit::MaxContent => {
-                                                    "max-content".into()
-                                                }
-                                                _ => "min-content".into(),
-                                            };
-                                        }
-                                    };
-                                    format!("{}{}", n, u)
-                                }
-                                _ => String::new(),
-                            })
-                            .unwrap_or_default();
-                        result = format!(
-                            "{}{}{}",
-                            &result[..start],
-                            replacement,
-                            &result[var_start + end + 1..]
-                        );
-                    } else {
-                        break;
+                            }
+                            ',' if depth == 1 && comma.is_none() => comma = Some(inner_start + i),
+                            _ => {}
+                        }
                     }
+                    let Some(end) = end else { break };
+                    let name = result[inner_start..comma.unwrap_or(end)].trim().to_string();
+                    let fallback = comma.map(|c| result[c + 1..end].trim().to_string());
+                    let replacement = match self.lookup_var(&name, scope) {
+                        Some(v) => style_value_text(&v),
+                        // `var(--x, 200ms)` внутри составного значения — запасное.
+                        None => fallback.unwrap_or_default(),
+                    };
+                    result = format!("{}{}{}", &result[..start], replacement, &result[end + 1..]);
+                    from = start + replacement.len();
                 }
                 if let Some(gradient) = crate::mss::parser::gradient::parse_gradient(&result) {
                     gradient
@@ -958,5 +963,20 @@ mod tests {
         let s = eng.compute_style_with_state(&ctx, ElementState::Normal);
         let c = s.color().expect("color");
         assert_eq!((c.r, c.g, c.b), (0, 255, 0));
+    }
+}
+
+#[cfg(test)]
+mod var_in_compound_tests {
+    use super::*;
+
+    /// `var(--x, запасное)` внутри составного значения: без переменной —
+    /// запасное, а не пустота.
+    #[test]
+    fn fallback_inside_compound_value() {
+        let (sheet, _) = crate::mss::MssParser::new(":root { --known: 10px; }").parse().unwrap();
+        let engine = StyleEngine::new(sheet);
+        let v = engine.resolve_variable(&StyleValue::String("opacity var(--missing, 200ms) ease, transform var(--known) linear".into()));
+        assert_eq!(v, StyleValue::String("opacity 200ms ease, transform 10px linear".into()));
     }
 }

@@ -116,12 +116,36 @@ pub(super) fn parse_var_function(
     }
 }
 
+/// После `var(…)` в начале `rest` до конца объявления (`;`, `}`) — только
+/// пробелы.
+fn var_is_whole_value(rest: &str) -> bool {
+    let mut depth = 0i32;
+    for (i, c) in rest.char_indices() {
+        match c {
+            '(' => depth += 1,
+            ')' => {
+                depth -= 1;
+                if depth == 0 {
+                    let tail = &rest[i + 1..];
+                    let end = tail.find([';', '}']).unwrap_or(tail.len());
+                    return tail[..end].trim().is_empty();
+                }
+            }
+            _ => {}
+        }
+    }
+    true
+}
+
 pub(super) fn parse_value(
     cursor: &mut ParserCursor,
 ) -> Result<StyleValue, ParseError> {
     cursor.skip_whitespace();
 
-    if cursor.starts_with("var(") {
+    // `var(…)` — всё значение целиком; `var(--a) var(--b)` и
+    // `var(--x) 8px` разбираются как строка (сокращения padding/margin/border
+    // понимают переменные по частям, остальное подставляется при каскаде).
+    if cursor.starts_with("var(") && var_is_whole_value(&cursor.input[cursor.position..]) {
         return parse_var_function(cursor);
     }
 

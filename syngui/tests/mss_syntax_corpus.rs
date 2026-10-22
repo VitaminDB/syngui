@@ -8,18 +8,6 @@ use std::path::{Path, PathBuf};
 use syngui::mss::syntax::{self, Item, SelectorPartKind};
 use syngui::mss::{MssParser, ParseErrorKind, SelectorPart, StyleSheet};
 
-const KNOWN_PSEUDO: &[&str] = &[
-    "hover",
-    "active",
-    "pressed",
-    "focus",
-    "selected",
-    "checked",
-    "disabled",
-    "window-maximized",
-    "window-fullscreen",
-    "window-focused",
-];
 
 fn collect(dir: &Path, out: &mut Vec<PathBuf>) {
     let Ok(rd) = std::fs::read_dir(dir) else {
@@ -55,6 +43,10 @@ fn main_names(sheet: &StyleSheet) -> Names {
             if let Some(p) = &chain.pseudo {
                 n.selectors.insert(format!(":{p}"));
             }
+        }
+        // Простой `.класс:псевдо` хранит псевдокласс в самом селекторе.
+        if let Some(p) = r.selector.pseudo() {
+            n.selectors.insert(format!(":{p}"));
         }
         n.properties.extend(r.declarations.keys().cloned());
     }
@@ -145,7 +137,7 @@ fn syntax_names(doc: &syntax::Stylesheet) -> Names {
             s.parts
                 .iter()
                 .filter(|p| p.kind == SelectorPartKind::Pseudo)
-                .all(|p| KNOWN_PSEUDO.contains(&p.name.as_str()))
+                .all(|p| syngui::mss::properties::is_known_pseudo(&p.name))
         };
         let live: Vec<_> = rule.selectors.iter().filter(|s| pseudo_ok(s)).collect();
         if live.is_empty() {

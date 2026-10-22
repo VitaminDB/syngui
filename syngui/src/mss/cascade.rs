@@ -33,6 +33,24 @@ fn window_pseudo_matches(pseudo: &str, window_flags: u8) -> Option<bool> {
     Some(window_flags & flag != 0)
 }
 
+/// `:focus-within`: фокус ввода у самого элемента или у его потомка.
+fn focus_within(tree: &ElementTree, id: ElementId) -> bool {
+    let mut cur = tree.focused_element;
+    while let Some(c) = cur {
+        if c == id {
+            return true;
+        }
+        cur = tree.elements.get(&c).and_then(|n| n.parent);
+    }
+    false
+}
+
+/// Есть ли в таблице правила с `:focus-within` — тогда смена фокуса
+/// пересчитывает стили предков старого и нового фокуса.
+pub fn uses_focus_within(style_engine: &StyleEngine) -> bool {
+    rule_index(style_engine).has_focus_within
+}
+
 /// Индекс правил по правому сегменту селектора.
 ///
 /// Раньше каскад проверял КАЖДОЕ правило на КАЖДОМ элементе — при ~1000
@@ -53,6 +71,8 @@ struct RuleIndex {
     ancestor_classes: std::collections::HashSet<String>,
     /// То же для `+`/`~`: смена меняет совпадения у последующих сиблингов.
     sibling_classes: std::collections::HashSet<String>,
+    /// Есть правила с `:focus-within`.
+    has_focus_within: bool,
 }
 
 /// Результат последнего каскада для элемента — чтобы (а) не применять
@@ -305,12 +325,14 @@ impl RuleIndex {
             s.extend(sibling_classes.iter().cloned());
         });
 
+        let has_focus_within = rules.iter().any(|r| selector_pseudo(&r.selector) == Some("focus-within"));
         Self {
             by_class,
             by_type,
             catch_all,
             ancestor_classes,
             sibling_classes,
+            has_focus_within,
         }
     }
 
@@ -499,6 +521,17 @@ pub fn apply_styles_to_tree(tree: &mut ElementTree, style_engine: &StyleEngine) 
                                 prop,
                                 resolve_for_cascade(style_engine, val, prop, &parent_inh),
                             );
+                        }
+                    }
+                    Some("focus-within") => {
+                        if focus_within(tree, id) {
+                            has_base = true;
+                            for (prop, val) in &rule.declarations {
+                                base.set(
+                                    prop,
+                                    resolve_for_cascade(style_engine, val, prop, &parent_inh),
+                                );
+                            }
                         }
                     }
                     Some(p) => match window_pseudo_matches(p, window_flags) {
@@ -759,6 +792,8 @@ pub fn apply_styles_dirty(tree: &mut ElementTree, style_engine: &StyleEngine) ->
                 Some("focus") => (&mut focus, &mut has_focus),
                 Some("selected") => (&mut selected, &mut has_selected),
                 Some("disabled") => (&mut disabled, &mut has_disabled),
+                Some("focus-within") if focus_within(tree, id) => (&mut base, &mut has_base),
+                Some("focus-within") => continue,
                 Some(p) => match window_pseudo_matches(p, window_flags) {
                     Some(false) | None => continue,
                     Some(true) => (&mut base, &mut has_base),
@@ -1015,5 +1050,36 @@ mod scoped_var_tests {
         let sizes: Vec<_> = ids.iter().map(|id| h.element_mss(*id).and_then(|m| m.font_size)).collect();
         assert!(sizes.contains(&Some(23.0)), "внутри .scope: {sizes:?}");
         assert!(sizes.contains(&Some(11.0)), "вне .scope: {sizes:?}");
+    }
+}
+
+#[cfg(all(test, feature = "testing"))]
+mod focus_within_tests {
+    use crate::prelude::*;
+    use crate::testing::TestHarness;
+
+    /// `:focus-within` действует, пока фокус у элемента или внутри него.
+    #[test]
+    fn focus_within_matches_ancestor_of_focused() {
+        let mut h = TestHarness::new(Box::new(
+            Column::new()
+                .child(DecoratedBox::new().class("box").child(DecoratedBox::new().class("inner")))
+                .child(DecoratedBox::new().class("other")),
+        ));
+        h.layout(800.0, 600.0);
+        let engine = h.apply_mss(".box { font-size: 10; } .box:focus-within { font-size: 20; }");
+        h.layout(800.0, 600.0);
+        let bx = h.find_by_class("box")[0];
+        let inner = h.find_by_class("inner")[0];
+        let other = h.find_by_class("other")[0];
+        assert_eq!(h.element_mss(bx).and_then(|m| m.font_size), Some(10.0));
+        h.tree.focused_element = Some(inner);
+        assert!(h.tree.sync_focus_within(super::uses_focus_within(&engine)));
+        h.apply_styles_dirty(&engine);
+        assert_eq!(h.element_mss(bx).and_then(|m| m.font_size), Some(20.0));
+        h.tree.focused_element = Some(other);
+        assert!(h.tree.sync_focus_within(true));
+        h.apply_styles_dirty(&engine);
+        assert_eq!(h.element_mss(bx).and_then(|m| m.font_size), Some(10.0));
     }
 }

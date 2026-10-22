@@ -113,7 +113,7 @@ pub(crate) fn check_common(
     text: &str,
     toks: &[&Token],
     var_value: &dyn Fn(&str) -> Option<String>,
-    shorthand: bool,
+    _shorthand: bool,
 ) -> Vec<Problem> {
     let mut out = Vec::new();
     for t in toks {
@@ -129,9 +129,6 @@ pub(crate) fn check_common(
         }
     }
     let calls = calls(text, toks);
-    let whole_is_var = calls
-        .first()
-        .is_some_and(|c| c.name == "var" && c.start == 0 && c.end == toks.len());
     for c in &calls {
         if properties::function(&c.name).is_none() {
             out.push(problem(
@@ -149,9 +146,6 @@ pub(crate) fn check_common(
             .get(c.start + 2)
             .filter(|t| t.kind == TokenKind::Ident)
             .map(|t| &text[t.span.clone()]);
-        let has_fallback = toks[c.start..c.end.min(toks.len())]
-            .iter()
-            .any(|t| t.kind == TokenKind::Comma);
         let span = c.name_span.start..toks[c.end.min(toks.len()) - 1].span.end;
         if let Some(p) = parent.filter(|p| matches!(p.name.as_str(), "rgb" | "rgba")) {
             // rgb()/rgba() разбирает только числа; var() подставляется
@@ -171,13 +165,6 @@ pub(crate) fn check_common(
                     format!("var() внутри {}() не работает: {why}", p.name),
                 ));
             }
-        } else if has_fallback && !whole_is_var && !(shorthand && parent.is_none()) {
-            out.push(problem(
-                span,
-                Severity::Warning,
-                "var() с запасным значением работает только как всё значение целиком \
-                 (или часть сокращения border/padding/margin): здесь подставится пустота",
-            ));
         }
     }
     out

@@ -353,7 +353,7 @@ pub const PROPERTIES: &[PropertySpec] = &[
     i("text-decoration", K::Keyword(&["none", "underline", "line-through"]), "Подчёркивание или зачёркивание. Наследуется."),
     i("text-transform", K::Keyword(&["none", "uppercase", "lowercase", "capitalize"]), "Регистр букв. Наследуется."),
     i("text-shadow", K::TextShadow, "Тень текста: смещение x y, размытие, цвет. Наследуется."),
-    p("text-box-edge", K::Keyword(&["text", "normal"]), "`text` — вертикаль текста по метрикам шрифта (образец «Hg»), а не по строке."),
+    p("text-box-edge", K::Keyword(&["text", "ink", "normal"]), "`text` — вертикаль текста по метрикам шрифта (образец «Hg»); `ink`/`normal` — по контуру глифов (по умолчанию)."),
     p("line-clamp", K::Number, "Наибольшее число строк текста, дальше — многоточие."),
     p("clipboard-hint", K::Keyword(&["on", "off", "true", "false", "show", "none", "hidden"]), "TextField: значок с текстом буфера обмена при фокусе (on/off)."),
     // Значки
@@ -614,6 +614,7 @@ pub const PSEUDO_CLASSES: &[(&str, &str)] = &[
     ("active", "Элемент нажат."),
     ("pressed", "Элемент нажат (то же, что :active)."),
     ("focus", "Элемент в фокусе ввода."),
+    ("focus-within", "Фокус ввода у элемента или у кого-то внутри него."),
     ("selected", "Элемент выбран (вкладка, строка списка)."),
     ("checked", "Флажок или переключатель включён."),
     ("disabled", "Элемент отключён."),
@@ -776,7 +777,8 @@ mod tests {
         assert!(is_known_property("--x"));
         assert!(!is_known_property("colour"));
         assert!(is_known_pseudo("hover"));
-        assert!(!is_known_pseudo("focus-within"));
+        assert!(is_known_pseudo("focus-within"));
+        assert!(!is_known_pseudo("focus-visible"));
         assert_eq!(function("rotatey").unwrap().name, "rotateY");
     }
 }

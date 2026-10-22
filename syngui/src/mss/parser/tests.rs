@@ -1264,3 +1264,23 @@ mod registry {
         }
     }
 }
+
+/// `padding: var(--a) var(--b)` раньше было ошибкой разбора, и правило
+/// пропускалось целиком.
+#[test]
+fn shorthand_of_several_vars() {
+    let (sheet, warnings) = crate::mss::MssParser::new(":root { --a: 4px; --b: 9px; } .x { padding: var(--a) var(--b); color: red; }").parse().unwrap();
+    assert!(warnings.is_empty(), "{warnings:?}");
+    let rule = sheet.rules().iter().find(|r| r.selector_str == ".x").expect("правило .x");
+    assert!(matches!(rule.declarations.get("padding-top"), Some(crate::mss::StyleValue::Var(n)) if n == "--a"), "{:?}", rule.declarations);
+    assert!(matches!(rule.declarations.get("padding-right"), Some(crate::mss::StyleValue::Var(n)) if n == "--b"));
+    assert!(rule.declarations.contains_key("color"));
+}
+
+#[test]
+fn focus_within_is_parsed() {
+    let (sheet, warnings) = crate::mss::MssParser::new(".composer:focus-within { color: red; }").parse().unwrap();
+    assert!(warnings.is_empty(), "{warnings:?}");
+    assert_eq!(sheet.rules().len(), 1);
+}
+
