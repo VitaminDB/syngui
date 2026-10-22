@@ -183,6 +183,7 @@ pub struct TreeView {
     on_context: Option<Arc<Mutex<dyn FnMut(&str) + Send>>>,
     on_key: Option<KeyCb>,
     on_navigate: Option<Arc<Mutex<dyn FnMut(&str) + Send>>>,
+    on_selection: Option<Arc<Mutex<dyn FnMut(&[String]) + Send>>>,
     width: Option<Dimension>,
     height: Option<Dimension>,
     classes: Vec<String>,
@@ -202,6 +203,7 @@ impl TreeView {
             on_context: None,
             on_key: None,
             on_navigate: None,
+            on_selection: None,
             width: None,
             height: None,
             classes: Vec::new(),
@@ -272,6 +274,14 @@ impl TreeView {
         self.on_toggle = Some(Arc::new(Mutex::new(f)));
         self
     }
+
+    /// Выделение изменилось (щелчок, Ctrl/Shift+щелчок): весь список id.
+    /// В `SelectionMode::Multiple` — как в файловом менеджере: щелчок —
+    /// одна строка, Ctrl+щелчок — добавить/убрать, Shift+щелчок — диапазон.
+    pub fn on_selection_change(mut self, f: impl FnMut(&[String]) + Send + 'static) -> Self {
+        self.on_selection = Some(Arc::new(Mutex::new(f)));
+        self
+    }
 }
 
 impl TreeView {
@@ -294,6 +304,9 @@ impl TreeView {
             on_context: self.on_context.clone(),
             on_key: self.on_key.clone(),
             on_navigate: self.on_navigate.clone(),
+            on_selection: self.on_selection.clone(),
+            anchor: None,
+            cursor: None,
             focused: false,
             fixed_width: self.width,
             fixed_height: self.height,
@@ -381,6 +394,11 @@ pub struct TreeViewElement {
     on_context: Option<Arc<Mutex<dyn FnMut(&str) + Send>>>,
     on_key: Option<KeyCb>,
     on_navigate: Option<Arc<Mutex<dyn FnMut(&str) + Send>>>,
+    on_selection: Option<Arc<Mutex<dyn FnMut(&[String]) + Send>>>,
+    /// Начало диапазона Shift+щелчка (id строки).
+    anchor: Option<String>,
+    /// Текущая строка (последний щелчок или переход клавишами).
+    cursor: Option<String>,
     /// Последний щелчок был по дереву — клавиши его.
     focused: bool,
     fixed_width: Option<Dimension>,
@@ -621,7 +639,7 @@ impl TreeViewElement {
             return false;
         }
         let n = self.flat_nodes.len();
-        let cur = self.selected.first().and_then(|id| self.flat_nodes.iter().position(|f| &f.id == id));
+        let cur = self.cursor.as_ref().filter(|c| self.selected.contains(c)).or(self.selected.first()).and_then(|id| self.flat_nodes.iter().position(|f| &f.id == id));
         let page = ((self.bounds.size.height / self.item_height.max(1.0)) as usize).max(1);
         let target = match key {
             Key::Down => Some(cur.map_or(0, |c| (c + 1).min(n - 1))),
@@ -655,9 +673,17 @@ impl TreeViewElement {
         };
         let Some(t) = target else { return true };
         let id = self.flat_nodes[t].id.clone();
-        if self.selection_mode != SelectionMode::None {
+        // Shift+стрелки — диапазон от начала выделения
+        let anchor_idx = self.anchor.as_ref().and_then(|a| self.flat_nodes.iter().position(|f| &f.id == a));
+        if self.selection_mode == SelectionMode::Multiple && m.shift && anchor_idx.is_some() {
+            let a = anchor_idx.unwrap();
+            self.selected = self.flat_nodes[a.min(t)..=a.max(t)].iter().map(|f| f.id.clone()).collect();
+        } else if self.selection_mode != SelectionMode::None {
             self.selected = vec![id.clone()];
+            self.anchor = Some(id.clone());
         }
+        self.cursor = Some(id.clone());
+        self.notify_selection();
         // строку — в видимую область
         let g = self.row_geometry(t);
         let h = self.bounds.size.height;
@@ -700,6 +726,16 @@ impl TreeViewElement {
     }
 }
 
+impl TreeViewElement {
+    fn notify_selection(&self) {
+        if let Some(cb) = &self.on_selection {
+            if let Ok(mut f) = cb.lock() {
+                f(&self.selected);
+            }
+        }
+    }
+}
+
 impl Element for TreeViewElement {
     fn update(&mut self, widget: &dyn Widget, _ctx: &mut UpdateContext) {
         if let Some(tv) = widget.as_any().downcast_ref::<TreeView>() {
@@ -714,6 +750,7 @@ impl Element for TreeViewElement {
             self.on_context = tv.on_context.clone();
             self.on_key = tv.on_key.clone();
             self.on_navigate = tv.on_navigate.clone();
+            self.on_selection = tv.on_selection.clone();
             self.fixed_width = tv.width;
             self.fixed_height = tv.height;
             self.reflatten();
@@ -967,6 +1004,13 @@ impl Element for TreeViewElement {
                 return EventResult::Ignored;
             }
             let m = ctx.modifiers;
+            // Ctrl+A — выделить все видимые строки
+            if self.selection_mode == SelectionMode::Multiple && (m.ctrl || m.meta) && !m.alt && !m.shift && *key == Key::A {
+                self.selected = self.flat_nodes.iter().map(|f| f.id.clone()).collect();
+                self.notify_selection();
+                ctx.request_paint();
+                return EventResult::Handled;
+            }
             if self.key_nav(*key, m) {
                 ctx.request_paint();
                 ctx.request_layout();
@@ -1058,8 +1102,12 @@ impl Element for TreeViewElement {
                 if let Some(idx) = self.row_at_y(position.y) {
                     let node_id = self.flat_nodes[idx].id.clone();
                     if let Some(ref cb) = self.on_context {
-                        if self.selection_mode != SelectionMode::None {
+                        // по строке из выделения — выделение то же (меню над всеми)
+                        let keep = self.selection_mode == SelectionMode::Multiple && self.selected.contains(&node_id);
+                        if self.selection_mode != SelectionMode::None && !keep {
                             self.selected = vec![node_id.clone()];
+                            self.anchor = Some(node_id.clone());
+                            self.notify_selection();
                         }
                         if let Ok(mut f) = cb.lock() {
                             f(&node_id);
@@ -1135,12 +1183,44 @@ impl Element for TreeViewElement {
                             self.selected = vec![node_id.clone()];
                         }
                         SelectionMode::Multiple => {
-                            if let Some(pos) = self.selected.iter().position(|s| s == &node_id) {
-                                self.selected.remove(pos);
+                            let m = ctx.modifiers;
+                            let anchor_idx = self.anchor.as_ref().and_then(|a| self.flat_nodes.iter().position(|f| &f.id == a));
+                            if m.shift && anchor_idx.is_some() {
+                                let a = anchor_idx.unwrap();
+                                let (lo, hi) = (a.min(idx), a.max(idx));
+                                let range: Vec<String> = self.flat_nodes[lo..=hi].iter().map(|f| f.id.clone()).collect();
+                                if m.ctrl || m.meta {
+                                    for id in range {
+                                        if !self.selected.contains(&id) {
+                                            self.selected.push(id);
+                                        }
+                                    }
+                                } else {
+                                    self.selected = range;
+                                }
+                            } else if m.ctrl || m.meta {
+                                if let Some(pos) = self.selected.iter().position(|s| s == &node_id) {
+                                    self.selected.remove(pos);
+                                } else {
+                                    self.selected.push(node_id.clone());
+                                }
+                                self.anchor = Some(node_id.clone());
                             } else {
-                                self.selected.push(node_id.clone());
+                                self.selected = vec![node_id.clone()];
+                                self.anchor = Some(node_id.clone());
                             }
                         }
+                    }
+                    if self.selection_mode == SelectionMode::Single {
+                        self.anchor = Some(node_id.clone());
+                    }
+                    self.cursor = Some(node_id.clone());
+                    self.notify_selection();
+                    // Ctrl/Shift+щелчок только меняет выделение — элемент не открывается
+                    let m = ctx.modifiers;
+                    if self.selection_mode == SelectionMode::Multiple && (m.ctrl || m.meta || m.shift) {
+                        ctx.request_paint();
+                        return EventResult::Handled;
                     }
                     if let Some(ref cb) = self.on_select {
                         if let Ok(mut f) = cb.lock() {

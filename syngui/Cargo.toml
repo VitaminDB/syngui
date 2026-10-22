@@ -517,3 +517,7 @@ required-features = ["image", "material-icons"]
 [[test]]
 name = "menu_bar_switch"
 required-features = ["testing"]
+
+[[test]]
+name = "tree_multi_select"
+required-features = ["testing"]
