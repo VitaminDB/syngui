@@ -1,6 +1,6 @@
 use crate::core::sync::Mutex;
 use crate::core::{Color, Point, Rect, RectExt, Size};
-use crate::input::{CursorIcon, Event, EventResult, MouseButton};
+use crate::input::{CursorIcon, Event, EventResult, Key, Modifiers, MouseButton};
 use crate::layout::Constraints;
 use crate::mss::{ComputedStyle, Dimension, TextAlign, TextDecoration};
 use crate::mss::{IconState, MssFields};
@@ -167,6 +167,8 @@ fn toggle_node(nodes: &mut [TreeNode], target_id: &str) -> bool {
     false
 }
 
+type KeyCb = Arc<Mutex<dyn FnMut(&str, Key, Modifiers) -> bool + Send>>;
+
 pub struct TreeView {
     nodes: Vec<TreeNode>,
     indent: f32,
@@ -179,6 +181,8 @@ pub struct TreeView {
     /// Правый щелчок по строке: выделить её и сообщить id (вместо `on_select`) —
     /// контекстное меню знает, над чем открыто.
     on_context: Option<Arc<Mutex<dyn FnMut(&str) + Send>>>,
+    on_key: Option<KeyCb>,
+    on_navigate: Option<Arc<Mutex<dyn FnMut(&str) + Send>>>,
     width: Option<Dimension>,
     height: Option<Dimension>,
     classes: Vec<String>,
@@ -196,6 +200,8 @@ impl TreeView {
             on_select: None,
             on_toggle: None,
             on_context: None,
+            on_key: None,
+            on_navigate: None,
             width: None,
             height: None,
             classes: Vec::new(),
@@ -241,6 +247,21 @@ impl TreeView {
         self
     }
 
+    /// Клавиша, когда дерево в фокусе (после щелчка по нему): `f(id выделенной строки
+    /// или "", клавиша, модификаторы)` → `true`, если обработана. Стрелки, Home/End,
+    /// PageUp/PageDown дерево обрабатывает само (см. [`TreeView::on_navigate`]).
+    pub fn on_key(mut self, f: impl FnMut(&str, Key, Modifiers) -> bool + Send + 'static) -> Self {
+        self.on_key = Some(Arc::new(Mutex::new(f)));
+        self
+    }
+
+    /// Выделение передвинуто клавиатурой (стрелки…): `f(id)` — вместо `on_select`
+    /// (переход не открывает элемент; Enter — через `on_key`).
+    pub fn on_navigate(mut self, f: impl FnMut(&str) + Send + 'static) -> Self {
+        self.on_navigate = Some(Arc::new(Mutex::new(f)));
+        self
+    }
+
     /// Правый щелчок по строке: строка выделяется, вызывается `f(id)` (не `on_select`).
     pub fn on_context(mut self, f: impl FnMut(&str) + Send + 'static) -> Self {
         self.on_context = Some(Arc::new(Mutex::new(f)));
@@ -271,6 +292,9 @@ impl TreeView {
             on_select: self.on_select.clone(),
             on_toggle: self.on_toggle.clone(),
             on_context: self.on_context.clone(),
+            on_key: self.on_key.clone(),
+            on_navigate: self.on_navigate.clone(),
+            focused: false,
             fixed_width: self.width,
             fixed_height: self.height,
             scroll_offset: 0.0,
@@ -355,6 +379,10 @@ pub struct TreeViewElement {
     on_select: Option<Arc<Mutex<dyn FnMut(&str) + Send>>>,
     on_toggle: Option<Arc<Mutex<dyn FnMut(&str, bool) + Send>>>,
     on_context: Option<Arc<Mutex<dyn FnMut(&str) + Send>>>,
+    on_key: Option<KeyCb>,
+    on_navigate: Option<Arc<Mutex<dyn FnMut(&str) + Send>>>,
+    /// Последний щелчок был по дереву — клавиши его.
+    focused: bool,
     fixed_width: Option<Dimension>,
     fixed_height: Option<Dimension>,
     scroll_offset: f32,
@@ -586,6 +614,66 @@ impl TreeViewElement {
         self.recompute_rows();
     }
 
+    /// Навигация клавишами: стрелки, Home/End, PageUp/PageDown; ←/→ — свернуть/развернуть
+    /// (или к родителю/первому потомку). `true` — обработано.
+    fn key_nav(&mut self, key: Key, m: Modifiers) -> bool {
+        if m.ctrl || m.alt || m.meta || self.flat_nodes.is_empty() {
+            return false;
+        }
+        let n = self.flat_nodes.len();
+        let cur = self.selected.first().and_then(|id| self.flat_nodes.iter().position(|f| &f.id == id));
+        let page = ((self.bounds.size.height / self.item_height.max(1.0)) as usize).max(1);
+        let target = match key {
+            Key::Down => Some(cur.map_or(0, |c| (c + 1).min(n - 1))),
+            Key::Up => Some(cur.map_or(0, |c| c.saturating_sub(1))),
+            Key::Home => Some(0),
+            Key::End => Some(n - 1),
+            Key::PageDown => Some(cur.map_or(0, |c| (c + page).min(n - 1))),
+            Key::PageUp => Some(cur.map_or(0, |c| c.saturating_sub(page))),
+            Key::Left | Key::Right => {
+                let Some(c) = cur else { return false };
+                let node = &self.flat_nodes[c];
+                let (id, has, exp, depth) = (node.id.clone(), node.has_children, node.expanded, node.depth);
+                if key == Key::Right && has && !exp || key == Key::Left && has && exp {
+                    toggle_node(&mut self.nodes, &id);
+                    self.reflatten();
+                    if let Some(cb) = &self.on_toggle {
+                        if let Ok(mut f) = cb.lock() {
+                            f(&id, key == Key::Right);
+                        }
+                    }
+                    return true;
+                }
+                if key == Key::Right {
+                    (has && exp && c + 1 < n).then_some(c + 1)
+                } else {
+                    // к родителю: ближайшая строка выше с меньшей глубиной
+                    (0..c).rev().find(|&i| self.flat_nodes[i].depth < depth)
+                }
+            }
+            _ => return false,
+        };
+        let Some(t) = target else { return true };
+        let id = self.flat_nodes[t].id.clone();
+        if self.selection_mode != SelectionMode::None {
+            self.selected = vec![id.clone()];
+        }
+        // строку — в видимую область
+        let g = self.row_geometry(t);
+        let h = self.bounds.size.height;
+        if g.top < self.scroll_offset {
+            self.scroll_offset = g.top;
+        } else if g.top + g.height > self.scroll_offset + h {
+            self.scroll_offset = (g.top + g.height - h).clamp(0.0, self.max_scroll());
+        }
+        if let Some(cb) = &self.on_navigate {
+            if let Ok(mut f) = cb.lock() {
+                f(&id);
+            }
+        }
+        true
+    }
+
     fn row_at_y(&self, y: f32) -> Option<usize> {
         if y < self.bounds.y() || y > self.bounds.y() + self.bounds.size.height {
             return None;
@@ -624,6 +712,8 @@ impl Element for TreeViewElement {
             self.on_select = tv.on_select.clone();
             self.on_toggle = tv.on_toggle.clone();
             self.on_context = tv.on_context.clone();
+            self.on_key = tv.on_key.clone();
+            self.on_navigate = tv.on_navigate.clone();
             self.fixed_width = tv.width;
             self.fixed_height = tv.height;
             self.reflatten();
@@ -867,6 +957,29 @@ impl Element for TreeViewElement {
         // щелчок и прокрутка прячут подсказку
         if matches!(event, Event::MouseDown { .. } | Event::MouseWheel { .. }) && self.tip.take().is_some_and(|(_, _, w)| w >= TIP_DELAY_SECS) {
             ctx.request_paint();
+        }
+        // фокус клавиатуры: последний щелчок — по дереву
+        if let Event::MouseDown { position, .. } = event {
+            self.focused = self.bounds.contains(*position);
+        }
+        if let Event::KeyDown(key) = event {
+            if !self.focused {
+                return EventResult::Ignored;
+            }
+            let m = ctx.modifiers;
+            if self.key_nav(*key, m) {
+                ctx.request_paint();
+                ctx.request_layout();
+                return EventResult::Handled;
+            }
+            let id = self.selected.first().cloned().unwrap_or_default();
+            if let Some(cb) = self.on_key.clone() {
+                if cb.lock().map(|mut f| f(&id, *key, m)).unwrap_or(false) {
+                    ctx.request_paint();
+                    return EventResult::Handled;
+                }
+            }
+            return EventResult::Ignored;
         }
 
         match event {
@@ -1494,4 +1607,40 @@ mod tests {
         });
         assert_eq!(el.row_geometry(0).height, 26.0);
     }
+
+    #[test]
+    fn keyboard_after_click_navigates_and_reports_keys() {
+        use crate::input::{Event, Key, MouseButton};
+        use crate::testing::TestHarness;
+        use std::sync::{Arc, Mutex};
+        let nav = Arc::new(Mutex::new(Vec::<String>::new()));
+        let keys = Arc::new(Mutex::new(Vec::<(String, Key)>::new()));
+        let (n2, k2) = (nav.clone(), keys.clone());
+        let tree = TreeView::new(vec![
+            TreeNode::branch("d", "dir", vec![TreeNode::leaf("d/a", "a")]).expanded(true),
+            TreeNode::leaf("b", "b"),
+        ])
+        .item_height(20.0)
+        .selection_mode(SelectionMode::Single)
+        .on_navigate(move |id| n2.lock().unwrap().push(id.to_string()))
+        .on_key(move |id, k, _| {
+            k2.lock().unwrap().push((id.to_string(), k));
+            k == Key::F2
+        });
+        let mut h = TestHarness::new(Box::new(tree));
+        h.layout(200.0, 200.0);
+        // без фокуса клавиши не его
+        h.send_event(&Event::KeyDown(Key::Down));
+        assert!(nav.lock().unwrap().is_empty());
+        h.send_event(&Event::MouseDown { button: MouseButton::Left, position: crate::core::Point::new(60.0, 5.0) });
+        h.send_event(&Event::KeyDown(Key::Down));
+        h.send_event(&Event::KeyDown(Key::Down));
+        assert_eq!(*nav.lock().unwrap(), vec!["d/a".to_string(), "b".to_string()]);
+        h.send_event(&Event::KeyDown(Key::Up));
+        h.send_event(&Event::KeyDown(Key::Left)); // лист: к родителю
+        assert_eq!(nav.lock().unwrap().last().unwrap(), "d");
+        h.send_event(&Event::KeyDown(Key::F2));
+        assert_eq!(keys.lock().unwrap().last().unwrap(), &("d".to_string(), Key::F2));
+    }
+
 }
