@@ -88,6 +88,14 @@ impl SelectionState {
         self.mode = SelectionMode::Word;
     }
 
+    /// Всё: от первой строки прокрутки до конца экрана.
+    pub fn select_all(&mut self, grid: &Grid) {
+        let last = grid.total_lines().saturating_sub(1) as i32;
+        self.anchor = Some(GridPos::new(0, 0));
+        self.cursor = Some(GridPos::new(last, grid.cols().saturating_sub(1) as u16));
+        self.mode = SelectionMode::Simple;
+    }
+
     pub fn extend_line(&mut self, grid: &Grid) {
         let pos = match self.cursor {
             Some(p) => p,

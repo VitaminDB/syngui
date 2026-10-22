@@ -617,15 +617,19 @@ impl Element for TerminalElement {
                     }
                 }
                 use crate::input::Key;
-                if mods.ctrl && mods.alt && matches!(key, Key::C) {
+                // копирование и вставка как в терминалах: Ctrl+Shift+C/V,
+                // Ctrl+Insert / Shift+Insert (и прежние Ctrl+Alt+C/V)
+                let copy = (mods.ctrl && (mods.shift || mods.alt) && matches!(key, Key::C)) || (mods.ctrl && !mods.shift && matches!(key, Key::Insert));
+                let paste = (mods.ctrl && (mods.shift || mods.alt) && matches!(key, Key::V)) || (mods.shift && !mods.ctrl && matches!(key, Key::Insert));
+                if copy {
                     if let Some(text) = self.collect_selection() {
                         if !text.is_empty() {
                             ctx.copy_to_clipboard(&text);
-                            return EventResult::Handled;
                         }
                     }
+                    return EventResult::Handled;
                 }
-                if mods.ctrl && mods.alt && matches!(key, Key::V) {
+                if paste {
                     self.do_paste(ctx);
                     self.reset_scroll_offset_if_any(ctx);
                     return EventResult::Handled;
@@ -1212,6 +1216,16 @@ impl TerminalElement {
             }
             C::Clear => {
                 self.write_pty(b"\x1b[H\x1b[2J");
+            }
+            C::SelectAll => {
+                if let Some(s) = self.session.as_ref() {
+                    s.with_state(|st| {
+                        let grid = &st.grid;
+                        let mut sel = std::mem::take(&mut st.selection);
+                        sel.select_all(grid);
+                        st.selection = sel;
+                    });
+                }
             }
         }
     }

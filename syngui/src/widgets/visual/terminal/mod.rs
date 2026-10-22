@@ -34,6 +34,8 @@ pub enum TerminalCommand {
     Copy,
     Paste,
     Clear,
+    /// Выделить весь текст: прокрутку и экран.
+    SelectAll,
 }
 
 pub struct Terminal {
