@@ -68,7 +68,7 @@ pub use segmented_progress_bar::{SegmentState, SegmentedProgressBar};
 #[cfg(feature = "audio")]
 pub use static_waveform::StaticWaveform;
 #[cfg(feature = "terminal")]
-pub use terminal::{Terminal, TerminalConfig, TerminalSession};
+pub use terminal::{Terminal, TerminalCommand, TerminalConfig, TerminalSession};
 #[cfg(feature = "ffmpeg")]
 pub use video_view::{
     frames_preview, video_player_view, FileSource, FramesSource, FullscreenCtl, MediaSource,

@@ -80,4 +80,4 @@ pub use visual::{
 pub use visual::{EditorMode, MarkdownEditor, MarkdownView, MdStyle};
 pub use visual::{LiveFrame, LiveInput, LiveView};
 #[cfg(feature = "terminal")]
-pub use visual::{Terminal, TerminalConfig, TerminalSession};
+pub use visual::{Terminal, TerminalCommand, TerminalConfig, TerminalSession};
