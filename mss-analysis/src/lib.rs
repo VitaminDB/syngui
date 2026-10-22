@@ -15,7 +15,7 @@ mod format;
 mod hover;
 mod values;
 
-use mss_lang::syntax::{self, LineIndex, Span};
+use mss_lang::syntax::{LineIndex, Span};
 
 pub use colors::{color_presentations, document_colors, ColorInfo};
 pub use completion::{completion, Completion, CompletionItem, CompletionKind};
@@ -23,6 +23,8 @@ pub use diagnostics::{diagnostics, Diag, Severity};
 pub use format::format;
 pub use hover::{definition, hover, Hover};
 pub use mss_lang::color::Color;
+/// Разбор и реестр — для тех, кому нужно больше готовых функций.
+pub use mss_lang::{properties, syntax};
 
 /// Позиция в тексте: строка и колонка с нуля, колонка — в символах Unicode.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Default, Hash)]

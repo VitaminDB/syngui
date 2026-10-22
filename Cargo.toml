@@ -4,6 +4,7 @@ members = [
     "syngui",
     "mss-lang",
     "mss-analysis",
+    "mss-lsp",
     "app/calculator",
     "app/widget_gallery_mss",
     "app/linamp",
