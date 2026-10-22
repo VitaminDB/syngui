@@ -1214,3 +1214,53 @@ mod positions {
         assert_eq!(e.to_string(), "строка 2, столбец 9: ожидалось имя переменной вида --имя");
     }
 }
+
+/// Реестр `mss::properties` сходится с тем, что разбирает и применяет syngui.
+mod registry {
+    use crate::mss::properties::{self, FunctionGroup, FUNCTIONS};
+
+    #[test]
+    fn easings_parse() {
+        for e in properties::EASINGS {
+            assert!(crate::animation::Easing::parse(e).is_some(), "кривая {e}");
+        }
+        for f in FUNCTIONS.iter().filter(|f| f.group == FunctionGroup::Easing) {
+            let call = match f.name {
+                "cubic-bezier" => "cubic-bezier(0.2, 0, 0, 1)".to_string(),
+                "steps" => "steps(4)".to_string(),
+                _ => format!("{}()", f.name),
+            };
+            assert!(crate::animation::Easing::parse(&call).is_some(), "{call}");
+        }
+    }
+
+    #[test]
+    fn filter_functions_parse() {
+        for f in FUNCTIONS.iter().filter(|f| f.group == FunctionGroup::Filter) {
+            // Функции с особыми аргументами проверяются по имени в разборщике.
+            let call = format!("{}(1)", f.name);
+            let src = include_str!("../../effects/mod.rs");
+            assert!(
+                !crate::effects::parse_filter_chain(&call).is_empty()
+                    || src.contains(&format!("\"{}\"", f.name)),
+                "фильтр {}",
+                f.name
+            );
+        }
+    }
+
+    #[test]
+    fn icon_font_size_is_internal_property() {
+        let p = properties::property(crate::mss::fields::ICON_FONT_SIZE).unwrap();
+        assert!(p.internal);
+    }
+
+    #[test]
+    fn pseudo_classes_are_the_parser_ones() {
+        for (p, _) in properties::PSEUDO_CLASSES {
+            let src = format!(".a:{p} {{ color: red; }}");
+            let (sheet, w) = crate::mss::MssParser::new(&src).parse().unwrap();
+            assert!(w.is_empty() && sheet.rules().len() == 1, ":{p}");
+        }
+    }
+}

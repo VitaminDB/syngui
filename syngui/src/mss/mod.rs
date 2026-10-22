@@ -13,6 +13,8 @@ mod value;
 
 /// Толерантный разбор без потерь со span'ами (для редактора тем, LSP).
 pub use mss_lang::syntax;
+/// Реестр свойств, функций значений, ключевых слов и псевдоклассов.
+pub use mss_lang::properties;
 
 pub use fields::{IconState, MssFields, TextShadow, TextTransform};
 pub use inheritance::{

@@ -473,19 +473,7 @@ fn add_rules(
 /// Псевдоклассы, которые знает каскад (`cascade.rs`). Правило с любым другим
 /// раньше уходило в базовый слой и действовало всегда.
 pub(crate) fn is_known_pseudo(p: &str) -> bool {
-    matches!(
-        p,
-        "hover"
-            | "active"
-            | "pressed"
-            | "focus"
-            | "selected"
-            | "checked"
-            | "disabled"
-            | "window-maximized"
-            | "window-fullscreen"
-            | "window-focused"
-    )
+    mss_lang::properties::is_known_pseudo(p)
 }
 
 fn chain_to_selector(chain: SelectorChain) -> Result<Selector, ParseError> {

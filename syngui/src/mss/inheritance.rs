@@ -1,21 +1,8 @@
 use super::style_engine::ComputedStyle;
 use super::value::StyleValue;
 
-pub const INHERITED_PROPERTIES: &[&str] = &[
-    "color",
-    "font-family",
-    "font-size",
-    "font-weight",
-    "letter-spacing",
-    "text-align",
-    "text-vertical-align",
-    "text-decoration",
-    "text-transform",
-    "text-shadow",
-    "cursor",
-    "line-height",
-    "caret-color",
-];
+/// Наследуемые свойства — из реестра [`crate::mss::properties`].
+pub const INHERITED_PROPERTIES: &[&str] = mss_lang::properties::INHERITED_PROPERTIES;
 
 #[inline]
 pub fn is_inherited(property: &str) -> bool {
