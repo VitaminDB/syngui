@@ -176,6 +176,9 @@ pub struct TreeView {
     selected: Vec<String>,
     on_select: Option<Arc<Mutex<dyn FnMut(&str) + Send>>>,
     on_toggle: Option<Arc<Mutex<dyn FnMut(&str, bool) + Send>>>,
+    /// Правый щелчок по строке: выделить её и сообщить id (вместо `on_select`) —
+    /// контекстное меню знает, над чем открыто.
+    on_context: Option<Arc<Mutex<dyn FnMut(&str) + Send>>>,
     width: Option<Dimension>,
     height: Option<Dimension>,
     classes: Vec<String>,
@@ -192,6 +195,7 @@ impl TreeView {
             selected: Vec::new(),
             on_select: None,
             on_toggle: None,
+            on_context: None,
             width: None,
             height: None,
             classes: Vec::new(),
@@ -237,6 +241,12 @@ impl TreeView {
         self
     }
 
+    /// Правый щелчок по строке: строка выделяется, вызывается `f(id)` (не `on_select`).
+    pub fn on_context(mut self, f: impl FnMut(&str) + Send + 'static) -> Self {
+        self.on_context = Some(Arc::new(Mutex::new(f)));
+        self
+    }
+
     pub fn on_toggle(mut self, f: impl FnMut(&str, bool) + Send + 'static) -> Self {
         self.on_toggle = Some(Arc::new(Mutex::new(f)));
         self
@@ -260,6 +270,7 @@ impl TreeView {
             selected: self.selected.clone(),
             on_select: self.on_select.clone(),
             on_toggle: self.on_toggle.clone(),
+            on_context: self.on_context.clone(),
             fixed_width: self.width,
             fixed_height: self.height,
             scroll_offset: 0.0,
@@ -343,6 +354,7 @@ pub struct TreeViewElement {
     selected: Vec<String>,
     on_select: Option<Arc<Mutex<dyn FnMut(&str) + Send>>>,
     on_toggle: Option<Arc<Mutex<dyn FnMut(&str, bool) + Send>>>,
+    on_context: Option<Arc<Mutex<dyn FnMut(&str) + Send>>>,
     fixed_width: Option<Dimension>,
     fixed_height: Option<Dimension>,
     scroll_offset: f32,
@@ -611,6 +623,7 @@ impl Element for TreeViewElement {
             self.selected = tv.selected.clone();
             self.on_select = tv.on_select.clone();
             self.on_toggle = tv.on_toggle.clone();
+            self.on_context = tv.on_context.clone();
             self.fixed_width = tv.width;
             self.fixed_height = tv.height;
             self.reflatten();
@@ -931,6 +944,16 @@ impl Element for TreeViewElement {
                 }
                 if let Some(idx) = self.row_at_y(position.y) {
                     let node_id = self.flat_nodes[idx].id.clone();
+                    if let Some(ref cb) = self.on_context {
+                        if self.selection_mode != SelectionMode::None {
+                            self.selected = vec![node_id.clone()];
+                        }
+                        if let Ok(mut f) = cb.lock() {
+                            f(&node_id);
+                        }
+                        ctx.request_paint();
+                        return EventResult::Ignored;
+                    }
                     let changed = match self.selection_mode {
                         SelectionMode::None => false,
                         SelectionMode::Single => {
