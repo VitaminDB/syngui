@@ -506,3 +506,7 @@ required-features = ["testing"]
 [[test]]
 name = "touch_drag"
 required-features = ["testing"]
+
+[[example]]
+name = "menu_shot"
+required-features = ["image", "material-icons"]

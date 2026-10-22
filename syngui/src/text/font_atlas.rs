@@ -175,6 +175,8 @@ fn emoji_cluster_len(chars: &[char], i: usize) -> usize {
 
 pub struct FontAtlas {
     faces: Vec<Option<FontFace>>,
+    /// Font Awesome: Solid, Regular, Brands (см. `icon_fonts::fa`).
+    awesome_faces: [Option<u8>; 3],
     extra_fonts: HashMap<String, Option<(u8, u8)>>,
     fallback_faces: Vec<u8>,
     fallback_discovered: Vec<u8>,
@@ -311,6 +313,7 @@ impl FontAtlas {
             prefer_japanese: false,
             prefer_korean: false,
             next_font_index: FIRST_EXTRA_FONT,
+            awesome_faces: [None; 3],
             texture,
             texture_view,
             sampler,
@@ -394,6 +397,25 @@ impl FontAtlas {
         if let Some(face) = FontFace::new(data, 0) {
             self.replace_face(FONT_EMOJI, face);
         }
+    }
+
+    /// Font Awesome (Solid, Regular, Brands) рядом с основным иконочным шрифтом:
+    /// значки — в дополнительных областях PUA (`icon_fonts::fa`).
+    pub fn set_awesome_font_data(&mut self, solid: Vec<u8>, regular: Vec<u8>, brands: Vec<u8>) {
+        for (i, data) in [solid, regular, brands].into_iter().enumerate() {
+            if let Some(face) = FontFace::new(data, 0) {
+                let idx = self.push_face(Some(face));
+                self.awesome_faces[i] = Some(idx);
+            }
+        }
+        self.generation += 1;
+    }
+
+    /// Значок Font Awesome по символу дополнительной области PUA.
+    fn ensure_awesome_glyph(&mut self, ch: char, size_px: u16) -> Option<GlyphKey> {
+        let (style, code) = crate::text::icon_fonts::fa::decode(ch)?;
+        let idx = self.awesome_faces[style]?;
+        self.ensure_glyph_in(code, size_px, idx)
     }
 
     pub fn set_icon_font_data(&mut self, data: Vec<u8>) {
@@ -794,6 +816,9 @@ impl FontAtlas {
     }
 
     fn ensure_glyph(&mut self, ch: char, size_px: u16) -> Option<GlyphKey> {
+        if let Some(k) = self.ensure_awesome_glyph(ch, size_px) {
+            return Some(k);
+        }
         if Self::is_likely_emoji(ch) {
             if let Some(key) = self.ensure_glyph_in(ch, size_px, FONT_EMOJI) {
                 return Some(key);
@@ -897,9 +922,20 @@ impl FontAtlas {
         // Исключение — явно заданное моноширинное семейство: глифы там у него
         // свои по замыслу (Nerd Font, powerline в терминале), а значки
         // Material на тех же позициях ломали приглашение shell.
-        if Self::is_private_use(ch) && !font_family.is_some_and(|f| self.family_is_monospace(f)) {
-            if let Some(k) = self.ensure_glyph_in(ch, size_px, FONT_ICON) {
-                return Some(k);
+        if let Some(k) = self.ensure_awesome_glyph(ch, size_px) {
+            return Some(k);
+        }
+        // Моноширинное семейство берёт PUA-глиф себе, только если он у него есть: иначе
+        // (моноширинный шрифт интерфейса без Nerd-глифов) значки меню и кнопок пропадали.
+        if Self::is_private_use(ch) {
+            let mono_own = match font_family {
+                Some(f) if self.family_is_monospace(f) => self.load_font_family(f).is_some_and(|(r, _)| self.glyph_id_in(ch, r).is_some()),
+                _ => false,
+            };
+            if !mono_own {
+                if let Some(k) = self.ensure_glyph_in(ch, size_px, FONT_ICON) {
+                    return Some(k);
+                }
             }
         }
         let class = weight.class();

@@ -484,6 +484,15 @@ impl AppHandler {
                 .unwrap()
                 .set_icon_font_data(icon_data.to_vec());
         }
+        #[cfg(feature = "font-awesome")]
+        if self.config.font_awesome {
+            use crate::text::icon_fonts::awesome as fa;
+            renderer
+                .font_atlas
+                .lock()
+                .unwrap()
+                .set_awesome_font_data(fa::SOLID_FONT_DATA.to_vec(), fa::REGULAR_FONT_DATA.to_vec(), fa::BRANDS_FONT_DATA.to_vec());
+        }
 
         self.gpu = Some(gpu);
         self.renderer = Some(renderer);

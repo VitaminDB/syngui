@@ -94,6 +94,8 @@ pub struct AppBuilder {
     pub(super) gpu_power: GpuPowerPreference,
     pub(super) font_family: Option<String>,
     pub(super) icon_font_data: Option<&'static [u8]>,
+    /// Подключить Font Awesome рядом с иконочным шрифтом (`icon_fonts::fa`).
+    pub(super) font_awesome: bool,
     pub(super) maximized: bool,
     pub(super) debug_overlay: bool,
     pub(super) staging_belt: bool,
@@ -174,6 +176,7 @@ impl AppBuilder {
             fallback_font_urls: Vec::new(),
             font_family: None,
             icon_font_data: None,
+            font_awesome: false,
             additional_stylesheets: Vec::new(),
             gpu_backend: GpuBackend::Auto,
             gpu_power: GpuPowerPreference::HighPerformance,
@@ -453,6 +456,14 @@ impl AppBuilder {
 
     pub fn with_icon_font(mut self, data: &'static [u8]) -> Self {
         self.icon_font_data = Some(data);
+        self
+    }
+
+    /// Значки Font Awesome 6 (Solid, Regular, Brands) вместе с основным иконочным
+    /// шрифтом (Material): символы — `syngui::text::icon_fonts::fa::solid(0xF015)` и т. п.
+    #[cfg(feature = "font-awesome")]
+    pub fn with_font_awesome(mut self) -> Self {
+        self.font_awesome = true;
         self
     }
 

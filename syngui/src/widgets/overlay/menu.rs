@@ -264,11 +264,12 @@ impl PopupMenuElement {
         text.chars().count() as f32 * font_size * 0.6
     }
 
-    fn item_required_width(&self, item: &MenuItem) -> f32 {
+    fn item_required_width(&self, item: &MenuItem, icon_column: bool) -> f32 {
         if item.separator {
             return 0.0;
         }
-        let icon_w = if item.icon.is_some() {
+        // колонка значков — общая для уровня: подписи без значка выровнены с остальными
+        let icon_w = if item.icon.is_some() || icon_column {
             ITEM_ICON_BOX + ITEM_ICON_GAP
         } else {
             0.0
@@ -311,9 +312,10 @@ impl PopupMenuElement {
             }
         }
         let items = self.items_at_level(level);
+        let icon_column = items.iter().any(|i| i.icon.is_some());
         let max_item_w = items
             .iter()
-            .map(|i| self.item_required_width(i))
+            .map(|i| self.item_required_width(i, icon_column))
             .fold(0.0f32, f32::max);
         let w = max_item_w.max(self.min_width).ceil();
         let mut widths = self.level_widths.borrow_mut();
@@ -488,6 +490,7 @@ impl PopupMenuElement {
         );
 
         let items = self.items_at_level(level);
+        let icon_column = items.iter().any(|i| i.icon.is_some());
         let hover_idx = self.hover_at(level);
         let mut y = lvl.y() + MENU_PADDING;
         for (i, item) in items.iter().enumerate() {
@@ -539,6 +542,8 @@ impl PopupMenuElement {
                     None => self.mss.icon_color(icon_state, text_color),
                 };
                 list.push_text_centered(icon, icon_rect, icon_color, 14.0);
+                text_x += ITEM_ICON_BOX + ITEM_ICON_GAP;
+            } else if icon_column {
                 text_x += ITEM_ICON_BOX + ITEM_ICON_GAP;
             }
 
