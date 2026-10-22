@@ -569,12 +569,15 @@ impl PopupMenuElement {
                 );
                 list.push_text_centered(CHEVRON_GLYPH, cr, arrow, 14.0);
             } else if let Some(ref shortcut) = item.shortcut {
-                let sc_x = item_right - ITEM_INNER_PADDING_RIGHT - trailing_block_w;
+                // по правому краю самим текстом: оценка ширины не совпадает с отрисовкой,
+                // и колонка сочетаний «гуляла» (F2 правее Ctrl+X)
+                let sc_right = item_right - ITEM_INNER_PADDING_RIGHT;
+                let sc_w = trailing_block_w + 24.0;
                 let sc_rect = Rect::new(
-                    Point::new(sc_x, item_rect.y()),
-                    Size::new(trailing_block_w, item_rect.size.height),
+                    Point::new(sc_right - sc_w, item_rect.y()),
+                    Size::new(sc_w, item_rect.size.height),
                 );
-                list.push_text(shortcut, sc_rect, fg.with_alpha(0.4), SHORTCUT_FONT_SIZE);
+                list.push_text_aligned(shortcut, sc_rect, fg.with_alpha(0.4), SHORTCUT_FONT_SIZE, crate::mss::TextAlign::RIGHT, crate::mss::TextDecoration::None, 400);
             }
 
             let label_right_edge = if trailing_block_w > 0.0 {
