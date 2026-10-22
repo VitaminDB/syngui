@@ -3,6 +3,7 @@ resolver = "2"
 members = [
     "syngui",
     "mss-lang",
+    "mss-analysis",
     "app/calculator",
     "app/widget_gallery_mss",
     "app/linamp",

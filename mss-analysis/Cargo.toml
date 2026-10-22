@@ -1,0 +1,12 @@
+[package]
+name = "mss-analysis"
+version = "0.1.0"
+edition.workspace = true
+rust-version.workspace = true
+authors.workspace = true
+license.workspace = true
+description = "Анализ MSS для редакторов: диагностики, дополнение, подсказки, переход к определению, цвета, форматирование"
+
+# Только mss-lang: без графического стека syngui, собирается за секунды.
+[dependencies]
+mss-lang = { path = "../mss-lang" }

@@ -12,11 +12,16 @@ pub enum ValueKind {
     /// Цвет: `#rgb`, `#rrggbb`, `#rrggbbaa`, `rgb()`, `rgba()`, имя,
     /// `darken()`, `lighten()`.
     Color,
-    /// Длина: `12px`, `50%`, `1.5em`, `rem`, `vw`, `vh`, число (= px),
-    /// `auto`, `fit-content`, `max-content`, `min-content`.
+    /// Длина в `px` или число (= px). Другие единицы (`em`, `%`…) парсер
+    /// принимает, но такие свойства их не применяют.
     Length,
     /// 1–4 длины: верх, право, низ, лево (как `padding` в CSS).
     Lengths,
+    /// Размер: `px`, число, `%`, `auto`, `fit-content`, `max-content`,
+    /// `min-content` (ширина, высота, скругление).
+    Size,
+    /// 1–4 размера (`border-radius`).
+    Sizes,
     /// Число без единиц (или с `px` — читается так же).
     Number,
     /// Время: `200ms`, `0.3s`.
@@ -70,6 +75,8 @@ impl ValueKind {
             ValueKind::Color => "цвет",
             ValueKind::Length => "длина",
             ValueKind::Lengths => "1–4 длины",
+            ValueKind::Size => "размер",
+            ValueKind::Sizes => "1–4 размера",
             ValueKind::Number => "число",
             ValueKind::Time => "время",
             ValueKind::Angle => "угол",
@@ -99,7 +106,7 @@ impl ValueKind {
     pub fn keywords(self) -> &'static [&'static str] {
         match self {
             ValueKind::Keyword(k) => k,
-            ValueKind::Length | ValueKind::Lengths => LENGTH_KEYWORDS,
+            ValueKind::Size | ValueKind::Sizes => LENGTH_KEYWORDS,
             ValueKind::FontWeight => FONT_WEIGHTS,
             ValueKind::Easing => EASINGS,
             ValueKind::Background | ValueKind::Shadow | ValueKind::Filter => &["none"],
@@ -151,6 +158,7 @@ const fn i(name: &'static str, kind: ValueKind, doc: &'static str) -> PropertySp
 pub const BORDER_STYLES: &[&str] = &[
     "solid", "dashed", "dotted", "double", "groove", "ridge", "inset", "outset", "none", "hidden",
 ];
+/// Ключевые слова размера ([`ValueKind::Size`]).
 pub const LENGTH_KEYWORDS: &[&str] = &["auto", "fit-content", "max-content", "min-content"];
 pub const FONT_WEIGHTS: &[&str] = &[
     "normal", "bold", "lighter", "bolder", "100", "200", "300", "400", "500", "600", "700", "800",
@@ -299,22 +307,22 @@ pub const PROPERTIES: &[PropertySpec] = &[
     p("border-right-color", K::Color, "Цвет правой рамки."),
     p("border-bottom-color", K::Color, "Цвет нижней рамки."),
     p("border-left-color", K::Color, "Цвет левой рамки."),
-    p("border-radius", K::Lengths, "Скругление углов: 1–4 значения (верх-лево, верх-право, низ-право, низ-лево)."),
-    p("border-top-left-radius", K::Length, "Скругление верхнего левого угла."),
-    p("border-top-right-radius", K::Length, "Скругление верхнего правого угла."),
-    p("border-bottom-right-radius", K::Length, "Скругление нижнего правого угла."),
-    p("border-bottom-left-radius", K::Length, "Скругление нижнего левого угла."),
+    p("border-radius", K::Sizes, "Скругление углов: 1–4 значения (верх-лево, верх-право, низ-право, низ-лево)."),
+    p("border-top-left-radius", K::Size, "Скругление верхнего левого угла."),
+    p("border-top-right-radius", K::Size, "Скругление верхнего правого угла."),
+    p("border-bottom-right-radius", K::Size, "Скругление нижнего правого угла."),
+    p("border-bottom-left-radius", K::Size, "Скругление нижнего левого угла."),
     p("outline", K::Border, "Контур снаружи рамки (кольцо фокуса)."),
     p("outline-width", K::Length, "Толщина контура."),
     p("outline-color", K::Color, "Цвет контура."),
     p("outline-offset", K::Length, "Отступ контура от края элемента."),
     // Размеры и отступы
-    p("width", K::Length, "Ширина: px, %, auto, fit-content, max-content, min-content."),
-    p("height", K::Length, "Высота: px, %, auto, fit-content, max-content, min-content."),
-    p("min-width", K::Length, "Наименьшая ширина."),
-    p("max-width", K::Length, "Наибольшая ширина."),
-    p("min-height", K::Length, "Наименьшая высота."),
-    p("max-height", K::Length, "Наибольшая высота."),
+    p("width", K::Size, "Ширина: px, %, auto, fit-content, max-content, min-content."),
+    p("height", K::Size, "Высота: px, %, auto, fit-content, max-content, min-content."),
+    p("min-width", K::Size, "Наименьшая ширина."),
+    p("max-width", K::Size, "Наибольшая ширина."),
+    p("min-height", K::Size, "Наименьшая высота."),
+    p("max-height", K::Size, "Наибольшая высота."),
     p("padding", K::Lengths, "Внутренние отступы: 1–4 значения (верх, право, низ, лево)."),
     p("padding-top", K::Length, "Внутренний отступ сверху."),
     p("padding-right", K::Length, "Внутренний отступ справа."),
@@ -598,7 +606,7 @@ pub const LENGTH_UNITS: &[&str] = &["px", "%", "em", "rem", "vw", "vh"];
 /// Единицы времени.
 pub const TIME_UNITS: &[&str] = &["ms", "s"];
 /// Единицы угла.
-pub const ANGLE_UNITS: &[&str] = &["deg", "rad", "grad", "turn"];
+pub const ANGLE_UNITS: &[&str] = &["deg", "rad", "turn"];
 
 /// Псевдоклассы, которые знает каскад. Правило с другим пропускается.
 pub const PSEUDO_CLASSES: &[(&str, &str)] = &[
