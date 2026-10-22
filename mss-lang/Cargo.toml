@@ -1,0 +1,12 @@
+[package]
+name = "mss-lang"
+version = "0.1.0"
+edition.workspace = true
+rust-version.workspace = true
+authors.workspace = true
+license.workspace = true
+description = "Язык стилей MSS (syngui) без графики: разбор без потерь со span'ами, реестр свойств, цвета"
+
+# Без зависимостей: крейт собирается за секунды и годится для инструментов
+# (mss-analysis, mss-lsp), которым не нужен графический стек syngui.
+[dependencies]

@@ -11,6 +11,9 @@ mod style_engine;
 mod stylesheet;
 mod value;
 
+/// Толерантный разбор без потерь со span'ами (для редактора тем, LSP).
+pub use mss_lang::syntax;
+
 pub use fields::{IconState, MssFields, TextShadow, TextTransform};
 pub use inheritance::{
     extract_inherited, is_inherited, resolve_cascade_keyword, INHERITED_PROPERTIES,
