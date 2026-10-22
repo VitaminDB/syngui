@@ -257,6 +257,17 @@ impl DisplayList {
     }
 
     pub fn push_text(&mut self, text: &str, rect: crate::core::Rect, color: Color, font_size: f32) {
+        self.push_text_impl(text, rect, color, font_size, false);
+    }
+
+    /// Текст в одну строку (без переноса): длинный текст обрезается по правому
+    /// краю, а не переносится ниже. Для пунктов меню и других строк фиксированной
+    /// высоты — иначе длинная подпись налезает на соседнюю.
+    pub fn push_text_nowrap(&mut self, text: &str, rect: crate::core::Rect, color: Color, font_size: f32) {
+        self.push_text_impl(text, rect, color, font_size, true);
+    }
+
+    fn push_text_impl(&mut self, text: &str, rect: crate::core::Rect, color: Color, font_size: f32, no_wrap: bool) {
         let clip = *self.current_clip();
         let z = self.current_z;
         let italic = self.text_italic;
@@ -275,7 +286,7 @@ impl DisplayList {
             bbox_sample: bbox_sample.clone(),
             clip_rect: clip,
             z_index: z,
-            no_wrap: false,
+            no_wrap,
             italic,
         });
         self.current_z += 1;

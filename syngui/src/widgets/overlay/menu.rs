@@ -608,7 +608,7 @@ impl PopupMenuElement {
                 Point::new(text_x, item_rect.y()),
                 Size::new(label_w, item_rect.size.height),
             );
-            list.push_text(&item.label, label_rect, text_color, LABEL_FONT_SIZE);
+            list.push_text_nowrap(&item.label, label_rect, text_color, LABEL_FONT_SIZE);
 
             y += MENU_ITEM_HEIGHT;
         }
