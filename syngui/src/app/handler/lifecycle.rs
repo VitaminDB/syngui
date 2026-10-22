@@ -650,14 +650,84 @@ impl AppHandler {
             .create_surface(window.clone())
             .expect("Failed to create surface");
 
-        let adapter = instance
+        let preferred = instance
             .request_adapter(&wgpu::RequestAdapterOptions {
                 power_preference,
                 compatible_surface: Some(&surface),
                 force_fallback_adapter: false,
             })
             .await
-            .expect("Failed to find suitable adapter");
+            .ok();
+
+        let limits_for = |adapter: &wgpu::Adapter| {
+            if cfg!(target_arch = "wasm32") || cfg!(target_os = "android") {
+                wgpu::Limits::downlevel_webgl2_defaults().using_resolution(adapter.limits())
+            } else {
+                wgpu::Limits::default()
+            }
+        };
+        let open = |adapter: wgpu::Adapter| {
+            let limits = limits_for(&adapter);
+            async move {
+                let r = adapter
+                    .request_device(&wgpu::DeviceDescriptor {
+                        required_features: wgpu::Features::empty(),
+                        required_limits: limits,
+                        label: Some("GPU Device"),
+                        memory_hints: wgpu::MemoryHints::Performance,
+                        trace: wgpu::Trace::Off,
+                        experimental_features: wgpu::ExperimentalFeatures::disabled(),
+                    })
+                    .await;
+                r.map(|(d, q)| (adapter, d, q))
+            }
+        };
+
+        // Предпочтительная карта может не дать устройство (видеопамять занята
+        // нейросетями — OutOfMemory): тогда остальные карты, подходящие окну,
+        // — встроенная, прочие, программная — вместо паники.
+        let mut opened = None;
+        let mut tried: Vec<wgpu::AdapterInfo> = Vec::new();
+        if let Some(a) = preferred {
+            let info = a.get_info();
+            match open(a).await {
+                Ok(r) => opened = Some(r),
+                Err(e) => log::warn!("gpu: «{}» не дала устройство: {e}; пробую другие карты", info.name),
+            }
+            tried.push(info);
+        }
+        #[cfg(not(target_arch = "wasm32"))]
+        if opened.is_none() {
+            let mut others: Vec<wgpu::Adapter> = instance
+                .enumerate_adapters(backends)
+                .await
+                .into_iter()
+                .filter(|a| a.is_surface_supported(&surface))
+                .filter(|a| {
+                    let i = a.get_info();
+                    !tried.iter().any(|t| t.name == i.name && t.backend == i.backend && t.device == i.device)
+                })
+                .collect();
+            let rank = |a: &wgpu::Adapter| match a.get_info().device_type {
+                wgpu::DeviceType::IntegratedGpu => 0,
+                wgpu::DeviceType::DiscreteGpu => 1,
+                wgpu::DeviceType::VirtualGpu => 2,
+                wgpu::DeviceType::Other => 3,
+                wgpu::DeviceType::Cpu => 4,
+            };
+            others.sort_by_key(|a| (rank(a), a.get_info().backend != wgpu::Backend::Vulkan));
+            for a in others {
+                let info = a.get_info();
+                match open(a).await {
+                    Ok(r) => {
+                        opened = Some(r);
+                        break;
+                    }
+                    Err(e) => log::warn!("gpu: «{}» ({:?}) не дала устройство: {e}", info.name, info.backend),
+                }
+            }
+        }
+        let (adapter, device, queue) = opened.expect("gpu: ни одна видеокарта не дала устройство");
         {
             let info = adapter.get_info();
             log::info!(
@@ -668,26 +738,6 @@ impl AppHandler {
                 power
             );
         }
-
-        let limits = if cfg!(target_arch = "wasm32") {
-            wgpu::Limits::downlevel_webgl2_defaults().using_resolution(adapter.limits())
-        } else if cfg!(target_os = "android") {
-            wgpu::Limits::downlevel_webgl2_defaults().using_resolution(adapter.limits())
-        } else {
-            wgpu::Limits::default()
-        };
-
-        let (device, queue) = adapter
-            .request_device(&wgpu::DeviceDescriptor {
-                required_features: wgpu::Features::empty(),
-                required_limits: limits,
-                label: Some("GPU Device"),
-                memory_hints: wgpu::MemoryHints::Performance,
-                trace: wgpu::Trace::Off,
-                experimental_features: wgpu::ExperimentalFeatures::disabled(),
-            })
-            .await
-            .expect("Failed to create device");
 
         let surface_caps = surface.get_capabilities(&adapter);
         let surface_format = crate::gpu::preferred_surface_format(&surface_caps, &adapter);
