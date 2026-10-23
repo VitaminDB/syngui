@@ -825,7 +825,13 @@ impl AppHandler {
         }
 
         if let Some(ref image_store) = self.tree.image_store {
-            let store = image_store.lock().unwrap_or_else(|e| e.into_inner());
+            let mut store = image_store.lock().unwrap_or_else(|e| e.into_inner());
+            // Анимированные картинки: сменить кадр, если пора, и проснуться
+            // к следующему.
+            store.advance_animations();
+            if let Some(delay) = store.next_animation_frame() {
+                self.wakeup_after = Some(self.wakeup_after.map_or(delay, |d| d.min(delay)));
+            }
             if store.has_loading() || store.has_pending_uploads() {
                 crate::perf::incr(crate::perf::Counter::RedrawImages);
                 if let Some(window) = &self.window {

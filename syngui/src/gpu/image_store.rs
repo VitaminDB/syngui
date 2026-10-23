@@ -52,6 +52,30 @@ pub struct ImageData {
     /// Потоковый кадр, у которого изменились только эти места (`[x, y, w, h]`):
     /// в текстуру заливаются они, а не кадр целиком. `None` — весь кадр.
     pub regions: Option<Vec<[u32; 4]>>,
+    /// Анимация (GIF, WebP, APNG): `rgba` — первый кадр, остальные стор
+    /// заливает в тот же handle по таймеру ([`ImageStore::advance_animations`]).
+    pub anim: Option<Arc<Animation>>,
+}
+
+/// Кадры анимированной картинки, уже сведённые на полный холст.
+#[derive(Debug)]
+pub struct Animation {
+    pub frames: Vec<AnimFrame>,
+}
+
+#[derive(Debug)]
+pub struct AnimFrame {
+    pub rgba: Arc<[u8]>,
+    pub delay: std::time::Duration,
+}
+
+/// Проигрывание анимации в сторе: текущий кадр и когда его сменить.
+struct AnimState {
+    anim: Arc<Animation>,
+    width: u32,
+    height: u32,
+    idx: usize,
+    due: web_time::Instant,
 }
 
 /// Раскладка плоскостей YUV 4:2:0 в [`YuvFrame::data`].
@@ -201,6 +225,7 @@ impl ImageData {
             natural: None,
             yuv: None,
             regions: None,
+            anim: None,
         }
     }
 
@@ -215,6 +240,7 @@ impl ImageData {
             natural: None,
             yuv: None,
             regions: None,
+            anim: None,
         }
     }
 
@@ -229,6 +255,7 @@ impl ImageData {
             natural: None,
             yuv: Some(frame),
             regions: None,
+            anim: None,
         }
     }
 }
@@ -312,7 +339,11 @@ impl ImageData {
     /// Память под данные в кэше и объём загрузки в GPU.
     fn byte_len(&self) -> usize {
         let yuv = self.yuv.as_ref().map_or(0, |f| f.data.len());
-        self.rgba.len() + self.mips.iter().map(|m| m.rgba.len()).sum::<usize>() + yuv
+        // Первый кадр анимации — это `rgba`, остальные считаются отдельно.
+        let anim = self.anim.as_ref().map_or(0, |a| {
+            a.frames.iter().skip(1).map(|f| f.rgba.len()).sum::<usize>()
+        });
+        self.rgba.len() + self.mips.iter().map(|m| m.rgba.len()).sum::<usize>() + yuv + anim
     }
 }
 
@@ -455,6 +486,8 @@ pub struct ImageStore {
     idle_bytes: usize,
     /// Выгруженные handle — рендерер освобождает их текстуры.
     pending_frees: Vec<ImageHandle>,
+    /// Анимированные картинки по handle.
+    animations: HashMap<u32, AnimState>,
 }
 
 impl ImageStore {
@@ -468,7 +501,77 @@ impl ImageStore {
             idle: std::collections::VecDeque::new(),
             idle_bytes: 0,
             pending_frees: Vec::new(),
+            animations: HashMap::new(),
         }
+    }
+
+    fn start_animation(&mut self, handle: ImageHandle, data: &ImageData) {
+        let Some(anim) = &data.anim else { return };
+        if anim.frames.len() < 2 {
+            return;
+        }
+        self.animations.insert(
+            handle.0,
+            AnimState {
+                anim: anim.clone(),
+                width: data.width,
+                height: data.height,
+                idx: 0,
+                due: web_time::Instant::now() + anim.frames[0].delay,
+            },
+        );
+    }
+
+    /// Сменить кадры анимаций, чей срок подошёл (новый кадр — в очередь
+    /// загрузки). Анимация без держателей стоит на паузе.
+    pub fn advance_animations(&mut self) {
+        if self.animations.is_empty() {
+            return;
+        }
+        let now = web_time::Instant::now();
+        let (images, keys) = (&self.images, &self.handle_to_key);
+        let mut frames = Vec::new();
+        for (h, a) in self.animations.iter_mut() {
+            let held = keys
+                .get(h)
+                .and_then(|k| images.get(k))
+                .is_some_and(|e| e.refs > 0);
+            if !held || a.due > now {
+                continue;
+            }
+            // Долго не показывалась (пауза, занятый поток) — не догонять.
+            if now.duration_since(a.due) > std::time::Duration::from_secs(1) {
+                a.due = now;
+            }
+            let n = a.anim.frames.len();
+            while a.due <= now {
+                a.idx = (a.idx + 1) % n;
+                a.due += a.anim.frames[a.idx].delay;
+            }
+            let rgba = a.anim.frames[a.idx].rgba.clone();
+            frames.push((ImageHandle(*h), ImageData::single_level(a.width, a.height, rgba)));
+        }
+        for (handle, data) in frames {
+            match self.pending_uploads.iter_mut().find(|(h, _)| *h == handle) {
+                Some(slot) => slot.1 = data,
+                None => self.pending_uploads.push((handle, data)),
+            }
+        }
+    }
+
+    /// Через сколько сменится ближайший кадр показываемой анимации.
+    pub fn next_animation_frame(&self) -> Option<std::time::Duration> {
+        let now = web_time::Instant::now();
+        self.animations
+            .iter()
+            .filter(|(h, _)| {
+                self.handle_to_key
+                    .get(*h)
+                    .and_then(|k| self.images.get(k))
+                    .is_some_and(|e| e.refs > 0)
+            })
+            .map(|(_, a)| a.due.saturating_duration_since(now))
+            .min()
     }
 
     /// Запросить картинку; каждый запрос — ссылка, которую держатель
@@ -542,6 +645,7 @@ impl ImageStore {
                             refs: 1,
                         },
                     );
+                    self.start_animation(handle, &data);
                     self.pending_uploads.push((handle, data));
                     return (handle, ImageLoadState::Ready);
                 }
@@ -629,6 +733,7 @@ impl ImageStore {
             self.idle_bytes = self.idle_bytes.saturating_sub(entry.bytes());
             self.handle_to_key.remove(&entry.handle.0);
             self.pending_uploads.retain(|(h, _)| *h != entry.handle);
+            self.animations.remove(&entry.handle.0);
             self.pending_frees.push(entry.handle);
         }
     }
@@ -795,6 +900,7 @@ impl ImageStore {
                         self.idle.push_back(key);
                         became_idle = true;
                     }
+                    self.start_animation(handle, &data);
                     self.pending_uploads.push((handle, data));
                 }
                 LoadResult::Failed { key } => {
@@ -807,6 +913,7 @@ impl ImageStore {
         if became_idle {
             self.evict_idle();
         }
+        self.advance_animations();
     }
 
     pub fn has_loading(&self) -> bool {
@@ -986,6 +1093,9 @@ pub fn image_file_size(path: &str) -> Option<(u32, u32)> {
 
 #[cfg(feature = "image")]
 fn decode_image_bytes(bytes: &[u8]) -> Result<ImageData, String> {
+    if let Some(data) = decode_animation(bytes) {
+        return Ok(data);
+    }
     match load_oriented(bytes) {
         Ok(img) => {
             let rgba = img.to_rgba8();
@@ -1003,6 +1113,78 @@ fn decode_image_bytes(bytes: &[u8]) -> Result<ImageData, String> {
         #[cfg(feature = "svg")]
         Err(_) if looks_like_svg(bytes) => decode_svg(bytes),
         Err(e) => Err(e.to_string()),
+    }
+}
+
+/// Больше этого (байт RGBA на все кадры) анимация не декодируется:
+/// показываются уже готовые кадры.
+#[cfg(feature = "image")]
+const MAX_ANIMATION_BYTES: usize = 512 << 20;
+
+/// Анимированный GIF, WebP или APNG — все кадры. `None` — не анимация
+/// (один кадр или другой формат): её декодирует обычный путь, с мипами.
+#[cfg(feature = "image")]
+fn decode_animation(bytes: &[u8]) -> Option<ImageData> {
+    use image::AnimationDecoder;
+    let cursor = || std::io::Cursor::new(bytes);
+    let frames = match image::guess_format(bytes).ok()? {
+        image::ImageFormat::Gif => image::codecs::gif::GifDecoder::new(cursor()).ok()?.into_frames(),
+        image::ImageFormat::WebP => {
+            let d = image::codecs::webp::WebPDecoder::new(cursor()).ok()?;
+            if !d.has_animation() {
+                return None;
+            }
+            d.into_frames()
+        }
+        image::ImageFormat::Png => {
+            let d = image::codecs::png::PngDecoder::new(cursor()).ok()?;
+            if !d.is_apng().ok()? {
+                return None;
+            }
+            d.apng().ok()?.into_frames()
+        }
+        _ => return None,
+    };
+    let limit = max_bitmap_side();
+    let mut out: Vec<AnimFrame> = Vec::new();
+    let mut size = (0, 0);
+    let mut total = 0usize;
+    for frame in frames {
+        let Ok(frame) = frame else { break };
+        let (n, d) = frame.delay().numer_denom_ms();
+        let ms = if d == 0 { 0 } else { n / d };
+        // Как в браузерах: задержка до 10 мс — «не задана», 100 мс.
+        let ms = if ms <= 10 { 100 } else { ms };
+        let buf = frame.into_buffer();
+        let (mut w, mut h) = buf.dimensions();
+        let mut data: Arc<[u8]> = Arc::from(buf.into_raw().into_boxed_slice());
+        while limit > 0 && w.max(h) > limit && w.max(h) > 1 {
+            let (nw, nh, next) = crate::gpu::image_cache::downscale_half(w, h, &data);
+            (w, h) = (nw, nh);
+            data = Arc::from(next.into_boxed_slice());
+        }
+        if out.is_empty() {
+            size = (w, h);
+        } else if (w, h) != size {
+            break;
+        }
+        total += data.len();
+        out.push(AnimFrame {
+            rgba: data,
+            delay: std::time::Duration::from_millis(ms as u64),
+        });
+        if total > MAX_ANIMATION_BYTES {
+            break;
+        }
+    }
+    match out.len() {
+        0 => None,
+        1 => Some(ImageData::with_mips(size.0, size.1, out.pop()?.rgba)),
+        _ => {
+            let mut data = ImageData::single_level(size.0, size.1, out[0].rgba.clone());
+            data.anim = Some(Arc::new(Animation { frames: out }));
+            Some(data)
+        }
     }
 }
 
@@ -1262,6 +1444,47 @@ mod tests {
         let mut third = ImageStore::new();
         assert_eq!(third.request(&src).1, ImageLoadState::Loading);
         let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// Анимированный GIF декодируется всеми кадрами, и стор меняет их по
+    /// таймеру, пока картинку кто-то держит.
+    #[cfg(feature = "image")]
+    #[test]
+    fn animated_gif_plays_frames() {
+        use image::codecs::gif::{GifEncoder, Repeat};
+        let mut bytes = Vec::new();
+        {
+            let mut enc = GifEncoder::new(&mut bytes);
+            enc.set_repeat(Repeat::Infinite).unwrap();
+            for c in [255u8, 0] {
+                let buf = image::RgbaImage::from_pixel(4, 4, image::Rgba([c, 0, 0, 255]));
+                let delay = image::Delay::from_numer_denom_ms(20, 1);
+                enc.encode_frame(image::Frame::from_parts(buf, 0, 0, delay)).unwrap();
+            }
+        }
+        let data = decode_image_bytes(&bytes).unwrap();
+        let anim = data.anim.clone().expect("анимация");
+        assert_eq!(anim.frames.len(), 2);
+        assert_eq!(anim.frames[0].delay, std::time::Duration::from_millis(20));
+        assert_eq!(data.rgba[0], 255);
+
+        let mut store = ImageStore::new();
+        let (h, _) = store.request(&ImageSource::Bytes { key: "gif".into(), data: Arc::new(bytes) });
+        let t = std::time::Instant::now();
+        while store.state_of(h) != Some(ImageLoadState::Ready) && t.elapsed().as_secs() < 10 {
+            std::thread::sleep(std::time::Duration::from_millis(5));
+            store.poll_bg();
+        }
+        let _ = store.take_pending_uploads();
+        assert!(store.next_animation_frame().is_some());
+        std::thread::sleep(std::time::Duration::from_millis(30));
+        store.advance_animations();
+        let up = store.take_pending_uploads();
+        assert_eq!(up.len(), 1);
+        assert_eq!(up[0].1.rgba[0], 0, "второй кадр");
+        // Без держателей — пауза.
+        store.release(h);
+        assert!(store.next_animation_frame().is_none());
     }
 
     #[test]

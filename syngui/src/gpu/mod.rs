@@ -14,7 +14,8 @@ pub use image_cache::ImageGpuCache;
 #[cfg(feature = "image")]
 pub use image_store::image_file_size;
 pub use image_store::{
-    ImageData, ImageHandle, ImageLoadState, ImageSource, ImageStore, YuvDmaBuf, YuvFrame,
+    AnimFrame, Animation, ImageData, ImageHandle, ImageLoadState, ImageSource, ImageStore,
+    YuvDmaBuf, YuvFrame,
     YuvLayout, YuvMatrix,
 };
 pub use pipeline::RenderPipeline;
