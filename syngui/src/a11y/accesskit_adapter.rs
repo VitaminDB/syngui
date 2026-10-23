@@ -13,6 +13,7 @@ mod inner {
             Role::Button => accesskit::Role::Button,
             Role::CheckBox => accesskit::Role::CheckBox,
             Role::RadioButton => accesskit::Role::RadioButton,
+            Role::RadioGroup => accesskit::Role::RadioGroup,
             Role::TextField => accesskit::Role::TextInput,
             Role::Slider => accesskit::Role::Slider,
             Role::ScrollBar => accesskit::Role::ScrollBar,
@@ -99,7 +100,7 @@ mod inner {
                 ak_node.add_action(accesskit::Action::Focus);
                 ak_node.add_action(accesskit::Action::ReplaceSelectedText);
             }
-            Role::Slider | Role::ListBox | Role::Tree | Role::TabList => {
+            Role::Slider | Role::ListBox | Role::Tree | Role::TabList | Role::RadioGroup => {
                 ak_node.add_action(accesskit::Action::Focus);
             }
             _ => {}

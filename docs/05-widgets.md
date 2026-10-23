@@ -106,6 +106,23 @@ Column::new()
     .child(RadioButton::new("large", &group).label("Large"))
 ```
 
+### OptionGroup
+
+Группа взаимоисключающих вариантов одним элементом: обработчик выбора, пояснение второй строкой,
+метка справа, выключенные варианты; стрелки/Home/End с клавиатуры. `selected` — свойство: новое
+значение от родителя принимается, иначе группа помнит выбор пользователя сама.
+
+```rust
+OptionGroup::new(vec![
+    OptionItem::new("pacman", "pacman").description("extra/zig 0.14.1").badge("рекомендуется"),
+    OptionItem::new("download", "Скачать").description("ziglang.org"),
+    OptionItem::new("off", "Недоступно").disabled(true),
+])
+.selected("pacman")
+.horizontal()            // по умолчанию — столбиком
+.on_change(|value: &str| { ... })
+```
+
 ### Toggle (Switch)
 
 ```rust

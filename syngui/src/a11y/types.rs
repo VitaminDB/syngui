@@ -29,6 +29,7 @@ pub enum Role {
     Button,
     CheckBox,
     RadioButton,
+    RadioGroup,
     TextField,
     Slider,
     ScrollBar,

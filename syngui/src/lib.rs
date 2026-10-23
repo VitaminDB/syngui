@@ -158,7 +158,7 @@ pub mod prelude {
         ImageFit, ListItem, ListView, MainAxisAlignment, MenuItem, Motion, Multiselect,
         NotificationCtx, NotificationHost, NotificationItem, NotificationSeverity, Padding,
         Pagination, PopupMenu, Portal, Presence, ProgressBar, Property, PropertyGrid,
-        PropertyValue, RadioButton, RadioGroup, Reactive, RichText, Router, RouterView, Row,
+        PropertyValue, OptionGroup, OptionItem, RadioButton, RadioGroup, Reactive, RichText, Router, RouterView, Row,
         ScrollDirection, ScrollView, SegmentedButton, SelectionMode, Slider, Snackbar,
         SnackbarPosition, SpinBox, SplitDirection, SplitView, Stack, StackFit, Tab, TabBar,
         TabPosition, TabState, TableColumn, TableView, TextField, TextSpan, Time, TimePicker,

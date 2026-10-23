@@ -48,6 +48,16 @@ pub fn build_selection_section() -> impl Widget {
                         .child(RadioButton::new("system", &group).label("System Default")),
                 )
             })
+            .child(Column::new().gap(8.0).child(label("Option Group")).child(
+                OptionGroup::new(vec![
+                    OptionItem::new("pacman", "pacman").description("extra/zig 0.14.1, 48 МБ").badge("рекомендуется"),
+                    OptionItem::new("aur", "AUR").description("zig-bin через yay"),
+                    OptionItem::new("download", "Скачать").description("ziglang.org/download"),
+                    OptionItem::new("none", "Недоступно").disabled(true),
+                ])
+                .selected("pacman")
+                .on_change(|v| println!("OptionGroup: {v}")),
+            ))
             // New: Multiselect
             .child(
                 Column::new().gap(8.0).child(label("Multiselect")).child(

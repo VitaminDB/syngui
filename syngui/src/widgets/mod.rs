@@ -46,7 +46,7 @@ pub use input::{
     input_field, on_screen_keyboard, Autocomplete, Checkbox, ColorPicker, ColorValue, Combobox,
     Date, DatePicker, Dropdown, DropdownItem, DropdownState, EventHook, KeyAction, KeyDef,
     KeyReply, KeyboardController, KeyboardLayout, KeyboardState, MultilineTextEdit, Multiselect,
-    OnScreenKeyboard, RadioButton, RadioGroup, RemoteKey, Slider, SpinBox, TextField, TickSlider,
+    OnScreenKeyboard, OptionGroup, OptionItem, RadioButton, RadioGroup, RemoteKey, Slider, SpinBox, TextField, TickSlider,
     Time, TimePicker, Toggle,
 };
 pub use navigation::{

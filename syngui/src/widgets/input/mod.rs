@@ -13,6 +13,7 @@ pub mod event_hook;
 pub mod multiline_edit;
 pub mod multiselect;
 pub mod on_screen_keyboard;
+pub mod option_group;
 pub mod radio;
 pub mod slider;
 pub mod spin_box;
@@ -37,6 +38,7 @@ pub use on_screen_keyboard::{
     input_field, on_screen_keyboard, KeyAction, KeyDef, KeyboardController, KeyboardLayout,
     KeyboardState, OnScreenKeyboard,
 };
+pub use option_group::{OptionGroup, OptionItem};
 pub use radio::{RadioButton, RadioGroup};
 pub use slider::Slider;
 pub use spin_box::SpinBox;

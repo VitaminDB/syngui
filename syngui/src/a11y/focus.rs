@@ -151,6 +151,7 @@ impl FocusManager {
             Role::Button
                 | Role::CheckBox
                 | Role::RadioButton
+                | Role::RadioGroup
                 | Role::TextField
                 | Role::Slider
                 | Role::ComboBox

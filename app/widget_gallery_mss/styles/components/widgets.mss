@@ -82,6 +82,12 @@ Checkbox {
     }
 }
 
+OptionGroup {
+    color: var(--text);
+    accent-color: var(--accent);
+    font-size: 14px;
+}
+
 RadioButton {
     color: var(--text);
     accent-color: var(--accent);
