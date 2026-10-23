@@ -464,7 +464,28 @@ impl Element for ImageElement {
                         }
                         _ => Rect::new(Point::new(0.0, 0.0), Size::new(1.0, 1.0)),
                     };
+                    // `border-radius` из MSS: скругляется видимая часть картинки (у Cover —
+                    // рамка виджета, у Contain — сама картинка).
+                    let visible = {
+                        let (b, f) = (self.bounds, fit_rect);
+                        let x0 = b.x().max(f.x());
+                        let y0 = b.y().max(f.y());
+                        let x1 = (b.x() + b.size.width).min(f.x() + f.size.width);
+                        let y1 = (b.y() + b.size.height).min(f.y() + f.size.height);
+                        Rect::new(Point::new(x0, y0), Size::new((x1 - x0).max(0.0), (y1 - y0).max(0.0)))
+                    };
+                    let radii = self
+                        .mss
+                        .border_radius
+                        .map(|dims| dims.map(|d| d.resolve(visible.size.width.min(visible.size.height))))
+                        .filter(|r| r.iter().any(|v| *v > 0.0));
+                    if let Some(r) = radii {
+                        list.push_clip_rounded(visible, r);
+                    }
                     list.push_image(fit_rect, TextureId(handle.0), uv_rect, tint);
+                    if radii.is_some() {
+                        list.pop_clip();
+                    }
 
                     if self.opacity < 1.0 {
                         list.pop_opacity();
