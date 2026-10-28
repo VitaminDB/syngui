@@ -12,7 +12,7 @@ use crate::widget::{
 };
 use crate::widgets::containers::{AnimationAxis, IntoWidget};
 use crate::widgets::overlay::menu::PopupAnchor;
-use crate::widgets::overlay::placement::{clamp_span, fit_span};
+use crate::widgets::overlay::placement::{clamp_span, clamp_span_margin, fit_span};
 use std::any::Any;
 use std::cell::Cell;
 use std::sync::Arc;
@@ -21,6 +21,9 @@ use std::time::Duration;
 /// Длительность и кривая появления по умолчанию (`.reveal`); MSS
 /// `transition: size|width|height …` их перекрывает.
 const REVEAL_MS: u32 = 280;
+
+/// Поле от левого и правого края окна, если панель с ним помещается.
+const EDGE_MARGIN: f32 = 8.0;
 
 pub struct PopupPanel {
     children: Vec<Box<dyn Widget>>,
@@ -354,7 +357,7 @@ impl PopupPanelElement {
         // которой не хватает места (открытая клавиатура), прижимается к нулю
         // окна — под статусбар.
         let origin = crate::viewport::viewport_origin();
-        let x = origin.x + clamp_span(x - origin.x, width, viewport.width);
+        let x = origin.x + clamp_span_margin(x - origin.x, width, viewport.width, EDGE_MARGIN);
         let y = origin.y + fit_span(y - origin.y, height, flip_up_to - origin.y, viewport.height);
 
         let max_available = (origin.y + viewport.height - y).max(0.0);

@@ -44,9 +44,26 @@ pub fn clamp_span(start: f32, len: f32, viewport_len: f32) -> f32 {
     start.max(0.0).min((viewport_len - len).max(0.0))
 }
 
+/// Как [`clamp_span`], но с полем `margin` от краёв окна, если слой с ним помещается:
+/// панель у края не прилипает к нему вплотную (на телефоне скругления срезались рамкой экрана).
+pub fn clamp_span_margin(start: f32, len: f32, viewport_len: f32, margin: f32) -> f32 {
+    if viewport_len <= 0.0 || len + 2.0 * margin > viewport_len {
+        return clamp_span(start, len, viewport_len);
+    }
+    start.max(margin).min(viewport_len - len - margin)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn margin_keeps_panel_off_the_edge() {
+        assert_eq!(clamp_span_margin(300.0, 200.0, 420.0, 8.0), 212.0);
+        assert_eq!(clamp_span_margin(-20.0, 200.0, 420.0, 8.0), 8.0);
+        // не помещается с полем — как без него
+        assert_eq!(clamp_span_margin(300.0, 410.0, 420.0, 8.0), 10.0);
+    }
 
     #[test]
     fn keeps_preferred_side_when_it_fits() {
