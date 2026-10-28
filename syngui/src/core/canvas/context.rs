@@ -135,6 +135,18 @@ impl CanvasContext {
         });
     }
 
+    /// Сплошной штрих по точкам с соединениями на стыках и сглаженными краями
+    /// (`paint.feather`). В отличие от [`draw_polyline`](Self::draw_polyline), где каждый
+    /// отрезок — отдельная полоса, тонкая кривая из коротких отрезков не распадается на
+    /// «бусины»: росчерки, обводки, рукописные линии. `closed` — замкнуть контур.
+    pub fn stroke_path(&mut self, points: &[(f32, f32)], closed: bool) {
+        if points.len() < 2 {
+            return;
+        }
+        let pts: Vec<Point> = points.iter().map(|&(x, y)| self.to_screen(x, y)).collect();
+        tessellate_polyline(&pts, &self.paint, closed, &mut self.output);
+    }
+
     pub fn draw_polyline(&mut self, points: &[(f32, f32)]) {
         if points.len() < 2 {
             return;
@@ -430,6 +442,17 @@ mod tests {
         assert!(ctx.tessellated().is_empty());
         assert!(ctx.rect_commands().is_empty());
         assert!(ctx.line_strips().is_empty());
+    }
+
+    #[test]
+    fn stroke_path_is_one_tessellated_strip() {
+        let mut ctx = make_ctx();
+        ctx.set_stroke_width(2.0);
+        let pts: Vec<(f32, f32)> = (0..20).map(|i| (i as f32 * 2.0, (i as f32 * 0.5).sin() * 5.0)).collect();
+        ctx.stroke_path(&pts, false);
+        assert!(ctx.line_strips().is_empty());
+        // 4 вершины на точку: края штриха и сглаживание
+        assert_eq!(ctx.tessellated().vertices.len(), 20 * 4);
     }
 
     #[test]

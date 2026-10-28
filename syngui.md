@@ -1160,6 +1160,8 @@ Image::from_rgba("key", w, h, rgba)
                                           // скрытый Image как предзагрузка перед показом
 
 Canvas::new(|ctx: &mut CanvasContext, t: f32| { /* Path, Paint, LineCap… */ })
+    // ctx.stroke_path(&pts, closed) — сплошной штрих с соединениями (тонкие кривые без «бусин»)
+    // .animated_for(сек) — анимация входа без вечной перерисовки; .replay(key) — повтор при смене данных
     .size(200.0, 120.0).animated(true).background(Color::TRANSPARENT)
 
 Calendar::new().selected(Date::today()).locale(CalendarLocale::russian()).on_select(|d| {})
