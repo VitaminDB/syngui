@@ -85,6 +85,30 @@ pub enum YuvLayout {
     Nv12,
     /// Y, затем U, затем V (программные декодеры, `yuv420p`).
     I420,
+    /// Как NV12, но по 16 бит на отсчёт, значение в старших битах (10-битное видео из
+    /// аппаратного декодера, `p010le`). Нужны текстуры R16Unorm — [`yuv16_supported`].
+    P010,
+}
+
+/// HDR-сигнал кадра: шейдер переводит его в свет и сводит к SDR (тонмаппинг BT.2390).
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct YuvHdr {
+    /// PQ (SMPTE ST 2084); иначе HLG.
+    pub pq: bool,
+    /// Пик ролика, нит (MaxCLL / мастеринг).
+    pub peak_nits: f32,
+}
+
+static YUV16: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
+
+/// GPU умеет фильтруемые 16-битные текстуры: 10-битные кадры ([`YuvLayout::P010`]) идут на GPU,
+/// иначе их переводит процессор.
+pub fn yuv16_supported() -> bool {
+    YUV16.load(std::sync::atomic::Ordering::Relaxed)
+}
+
+pub fn set_yuv16_supported(on: bool) {
+    YUV16.store(on, std::sync::atomic::Ordering::Relaxed);
 }
 
 /// Матрица перевода YUV → RGB.
@@ -104,6 +128,8 @@ pub struct YuvFrame {
     pub matrix: YuvMatrix,
     /// Полный диапазон 0..255 (JPEG); иначе ТВ-диапазон 16..235/240.
     pub full_range: bool,
+    /// HDR (PQ/HLG) — шейдер делает тонмаппинг; `None` — обычный SDR.
+    pub hdr: Option<YuvHdr>,
     pub width: u32,
     pub height: u32,
     /// Плоскости в памяти. У кадра в dma-buf ([`Self::dmabuf`]) — пусто.
@@ -150,28 +176,31 @@ impl YuvFrame {
     /// Сколько байт нужно кадру этого размера и раскладки.
     pub fn byte_len(layout: YuvLayout, width: u32, height: u32) -> usize {
         let (cw, ch) = (width.div_ceil(2) as usize, height.div_ceil(2) as usize);
-        let _ = layout; // NV12: cw*2 байт на строку цветности, I420: две плоскости по cw
-        width as usize * height as usize + cw * ch * 2
+        // NV12: cw*2 байт на строку цветности, I420: две плоскости по cw; P010 — всё вдвое
+        (width as usize * height as usize + cw * ch * 2) * layout.sample_bytes()
     }
 
     pub fn y_plane(&self) -> &[u8] {
-        &self.data[..(self.width * self.height) as usize]
+        &self.data[..(self.width * self.height) as usize * self.layout.sample_bytes()]
     }
 
-    /// Плоскости цветности: NV12 — одна (UV), I420 — U и V.
+    /// Плоскости цветности: NV12/P010 — одна (UV), I420 — U и V.
     pub fn chroma_planes(&self) -> (&[u8], Option<&[u8]>) {
-        let y = (self.width * self.height) as usize;
+        let b = self.layout.sample_bytes();
+        let y = (self.width * self.height) as usize * b;
         let (cw, ch) = self.chroma_size();
-        let c = (cw * ch) as usize;
+        let c = (cw * ch) as usize * b;
         match self.layout {
-            YuvLayout::Nv12 => (&self.data[y..y + 2 * c], None),
+            YuvLayout::Nv12 | YuvLayout::P010 => (&self.data[y..y + 2 * c], None),
             YuvLayout::I420 => (&self.data[y..y + c], Some(&self.data[y + c..y + 2 * c])),
         }
     }
 
     /// Униформа шейдера: строки матрицы (с учётом диапазона) и сдвиги —
-    /// `rgb = M · (yuv − off)`; `w` последней строки — раскладка (1 — NV12).
-    pub fn shader_uniform(&self) -> [f32; 16] {
+    /// `rgb = M · (yuv − off)`; `off.w` — раскладка (1 — UV в одной плоскости). Последний vec4 —
+    /// HDR: (множитель выборки, режим 0 SDR / 1 PQ / 2 HLG, PQ-сигнал пика ролика, пик SDR в долях
+    /// пика ролика по PQ).
+    pub fn shader_uniform(&self) -> [f32; YUV_UNIFORM_FLOATS] {
         let (kr, kb) = match self.matrix {
             YuvMatrix::Bt601 => (0.299, 0.114),
             YuvMatrix::Bt709 => (0.2126, 0.0722),
@@ -188,17 +217,48 @@ impl YuvFrame {
         let cbb = 2.0 * (1.0 - kb) * cs;
         let cbg = -2.0 * kb * (1.0 - kb) / kg * cs;
         let crg = -2.0 * kr * (1.0 - kr) / kg * cs;
-        let nv12 = if self.layout == YuvLayout::Nv12 {
-            1.0
-        } else {
-            0.0
+        let nv12 = if self.layout == YuvLayout::I420 { 0.0 } else { 1.0 };
+        // P010: отсчёт R16Unorm = код<<6 / 65535; ×65535/65472 — код/1023, и матрица та же, что
+        // у 8 бит (ТВ-диапазон 16/255 ≈ 64/1023 с точностью до 0,1 %).
+        let scale = if self.layout == YuvLayout::P010 { 65535.0 / 65472.0 } else { 1.0 };
+        let (mode, src_peak, dst_peak) = match self.hdr {
+            None => (0.0, 0.0, 0.0),
+            Some(h) => {
+                let src = pq_inv(h.peak_nits.clamp(250.0, 10_000.0) as f64);
+                (if h.pq { 1.0 } else { 2.0 }, src as f32, (pq_inv(HDR_SDR_WHITE_NITS as f64) / src) as f32)
+            }
         };
         [
             ys, 0.0, crr, 0.0, //
             ys, cbg, crg, 0.0, //
             ys, cbb, 0.0, 0.0, //
-            yo, co, co, nv12,
+            yo, co, co, nv12, //
+            scale, mode, src_peak, dst_peak,
         ]
+    }
+}
+
+/// Сколько f32 в униформе YUV (`yuv.wgsl`, `YuvParams`).
+pub const YUV_UNIFORM_FLOATS: usize = 20;
+
+/// Белый SDR при тонмаппинге HDR (BT.2408), нит.
+pub const HDR_SDR_WHITE_NITS: f32 = 203.0;
+
+/// PQ (ST 2084): нит → сигнал.
+pub fn pq_inv(nits: f64) -> f64 {
+    const M1: f64 = 2610.0 / 16384.0;
+    const M2: f64 = 2523.0 / 4096.0 * 128.0;
+    const C1: f64 = 3424.0 / 4096.0;
+    const C2: f64 = 2413.0 / 4096.0 * 32.0;
+    const C3: f64 = 2392.0 / 4096.0 * 32.0;
+    let y = (nits / 10_000.0).clamp(0.0, 1.0).powf(M1);
+    ((C1 + C2 * y) / (1.0 + C3 * y)).powf(M2)
+}
+
+impl YuvLayout {
+    /// Байт на отсчёт.
+    pub fn sample_bytes(self) -> usize {
+        if self == YuvLayout::P010 { 2 } else { 1 }
     }
 }
 
@@ -1678,6 +1738,7 @@ mod yuv_tests {
             layout: YuvLayout::Nv12,
             matrix,
             full_range,
+            hdr: None,
             width: 2,
             height: 2,
             data: Arc::from(vec![0u8; 6]),
@@ -1720,6 +1781,7 @@ mod yuv_tests {
             layout: YuvLayout::I420,
             matrix: YuvMatrix::Bt601,
             full_range: false,
+            hdr: None,
             width: 3,
             height: 3,
             data: Arc::from((0..17u8).collect::<Vec<_>>()),

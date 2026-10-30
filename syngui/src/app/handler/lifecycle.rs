@@ -668,10 +668,12 @@ impl AppHandler {
         };
         let open = |adapter: wgpu::Adapter| {
             let limits = limits_for(&adapter);
+            // 16-битные текстуры: 10-битное видео (P010) переводится в цвет на GPU.
+            let features = adapter.features() & wgpu::Features::TEXTURE_FORMAT_16BIT_NORM;
             async move {
                 let r = adapter
                     .request_device(&wgpu::DeviceDescriptor {
-                        required_features: wgpu::Features::empty(),
+                        required_features: features,
                         required_limits: limits,
                         label: Some("GPU Device"),
                         memory_hints: wgpu::MemoryHints::Performance,
@@ -679,6 +681,9 @@ impl AppHandler {
                         experimental_features: wgpu::ExperimentalFeatures::disabled(),
                     })
                     .await;
+                if r.is_ok() {
+                    crate::gpu::set_yuv16_supported(!features.is_empty());
+                }
                 r.map(|(d, q)| (adapter, d, q))
             }
         };

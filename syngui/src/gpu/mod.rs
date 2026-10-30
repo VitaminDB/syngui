@@ -16,7 +16,7 @@ pub use image_store::image_file_size;
 pub use image_store::{
     AnimFrame, Animation, ImageData, ImageHandle, ImageLoadState, ImageSource, ImageStore,
     YuvDmaBuf, YuvFrame,
-    YuvLayout, YuvMatrix,
+    YuvHdr, YuvLayout, YuvMatrix, set_yuv16_supported, yuv16_supported,
 };
 pub use pipeline::RenderPipeline;
 pub use renderer::{RenderStats, Renderer};

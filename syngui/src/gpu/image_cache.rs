@@ -572,7 +572,7 @@ impl ImageGpuCache {
             };
             let uniform = device.create_buffer(&wgpu::BufferDescriptor {
                 label: Some("YUV Uniform"),
-                size: 64,
+                size: (super::image_store::YUV_UNIFORM_FLOATS * 4) as u64,
                 usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
                 mapped_at_creation: false,
             });
@@ -645,10 +645,19 @@ impl ImageGpuCache {
         if !fits {
             let mut ring = Vec::with_capacity(STREAM_RING);
             for _ in 0..STREAM_RING {
-                let y = plane_texture(device, wgpu::TextureFormat::R8Unorm, f.width, f.height);
+                let y_fmt = if f.layout == YuvLayout::P010 {
+                    wgpu::TextureFormat::R16Unorm
+                } else {
+                    wgpu::TextureFormat::R8Unorm
+                };
+                let y = plane_texture(device, y_fmt, f.width, f.height);
                 let (c1, c2) = match f.layout {
                     YuvLayout::Nv12 => (
                         plane_texture(device, wgpu::TextureFormat::Rg8Unorm, cw, ch),
+                        None,
+                    ),
+                    YuvLayout::P010 => (
+                        plane_texture(device, wgpu::TextureFormat::Rg16Unorm, cw, ch),
                         None,
                     ),
                     YuvLayout::I420 => (
@@ -658,7 +667,7 @@ impl ImageGpuCache {
                 };
                 let uniform = device.create_buffer(&wgpu::BufferDescriptor {
                     label: Some("YUV Uniform"),
-                    size: 64,
+                    size: (super::image_store::YUV_UNIFORM_FLOATS * 4) as u64,
                     usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
                     mapped_at_creation: false,
                 });
@@ -719,14 +728,15 @@ impl ImageGpuCache {
         g.held.clear();
         g.cur = (g.cur + 1) % g.ring.len();
         let slot = &g.ring[g.cur];
-        write_plane(queue, &slot.y, 1, f.width, f.height, f.y_plane());
+        let sb = f.layout.sample_bytes() as u32;
+        write_plane(queue, &slot.y, sb, f.width, f.height, f.y_plane());
         let (c1, c2) = f.chroma_planes();
         match (&slot.c2, c2) {
             (Some(t2), Some(c2)) => {
-                write_plane(queue, &slot.c1, 1, cw, ch, c1);
-                write_plane(queue, t2, 1, cw, ch, c2);
+                write_plane(queue, &slot.c1, sb, cw, ch, c1);
+                write_plane(queue, t2, sb, cw, ch, c2);
             }
-            _ => write_plane(queue, &slot.c1, 2, cw, ch, c1),
+            _ => write_plane(queue, &slot.c1, 2 * sb, cw, ch, c1),
         }
         let u = f.shader_uniform();
         let bytes: Vec<u8> = u.iter().flat_map(|v| v.to_le_bytes()).collect();

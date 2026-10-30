@@ -9,6 +9,7 @@ pub mod resampler;
 pub mod scaler;
 pub mod stream;
 pub mod thumbnail;
+pub mod tonemap;
 #[cfg(target_os = "linux")]
 pub mod v4l2;
 

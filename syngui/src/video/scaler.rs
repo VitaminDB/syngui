@@ -192,7 +192,25 @@ impl Scaler {
             row_bytes,
             log2_chroma_h: chroma_shift(frame.format()),
         };
-        if self.slices.len() == 1 {
+        // HDR (PQ/HLG) на SDR-выводе — тонмаппинг вместо swscale: тот кладёт сигнал PQ прямо в
+        // 8 бит, и картинка выходит блеклой.
+        let hdr = (frame.width() == self.out_w && frame.height() == self.out_h)
+            .then(|| super::tonemap::detect(frame))
+            .flatten()
+            .filter(|_| !hdr_passthrough());
+        if let Some(hdr) = hdr {
+            let tables = super::tonemap::tables(hdr);
+            let bands: Vec<(u32, u32)> = self.slices.iter().map(|s| (s.y0, s.rows)).collect();
+            std::thread::scope(|scope| {
+                for (y0, rows) in bands {
+                    let (target, tables) = (&target, &tables);
+                    // SAFETY: полосы не пересекаются по строкам, кадр жив до конца scope.
+                    scope.spawn(move || unsafe {
+                        super::tonemap::convert_rows(target.src, tables, target.dst, target.row_bytes, y0, rows)
+                    });
+                }
+            });
+        } else if self.slices.len() == 1 {
             run_slice(&mut self.slices[0], &target);
         } else {
             // Полосы считаются параллельно: каждая пишет свои строки.
@@ -224,15 +242,18 @@ impl Scaler {
         }
     }
 
-    /// Кадр 4:2:0 8 бит (NV12, yuv420p, yuvj420p) — плоскостями подряд для
-    /// перевода цвета на GPU, без swscale: только копирование строк. `None` —
-    /// другой формат (10 бит, 4:2:2…), его переводит [`Self::convert`].
+    /// Кадр 4:2:0 8 бит (NV12, yuv420p, yuvj420p) или 10 бит P010 (если GPU умеет 16-битные
+    /// текстуры; HDR — с тонмаппингом в шейдере) — плоскостями подряд для перевода цвета на GPU,
+    /// без swscale: только копирование строк. `None` — другой формат (yuv420p10, 4:2:2…), его
+    /// переводит [`Self::convert`].
     pub fn pack_yuv(&mut self, f: &frame::Video) -> Option<crate::gpu::YuvFrame> {
         use crate::gpu::{YuvFrame, YuvLayout, YuvMatrix};
         use ffmpeg_next::color::{Range, Space};
         let layout = match f.format() {
             Pixel::NV12 => YuvLayout::Nv12,
             Pixel::YUV420P | Pixel::YUVJ420P => YuvLayout::I420,
+            // 10 бит из аппаратного декодера: на GPU, если он умеет 16-битные текстуры
+            Pixel::P010LE if crate::gpu::yuv16_supported() => YuvLayout::P010,
             _ => return None,
         };
         let (w, h) = (f.width(), f.height());
@@ -254,6 +275,7 @@ impl Scaler {
         let planes: &[(usize, usize, usize)] = match layout {
             // (плоскость AVFrame, байт в строке, строк)
             YuvLayout::Nv12 => &[(0, w as usize, h as usize), (1, cw * 2, ch)],
+            YuvLayout::P010 => &[(0, w as usize * 2, h as usize), (1, cw * 4, ch)],
             YuvLayout::I420 => &[(0, w as usize, h as usize), (1, cw, ch), (2, cw, ch)],
         };
         let mut o = 0;
@@ -282,6 +304,10 @@ impl Scaler {
             layout,
             matrix,
             full_range,
+            hdr: super::tonemap::detect(f).map(|h| crate::gpu::YuvHdr {
+                pq: h.transfer == super::tonemap::Transfer::Pq,
+                peak_nits: h.peak_nits,
+            }),
             width: w,
             height: h,
             data: buf,
@@ -333,6 +359,11 @@ fn run_slice(slice: &mut Slice, target: &SliceTarget) {
             dst_linesize.as_ptr(),
         );
     }
+}
+
+/// Показ умеет HDR (вывод в PQ) — тонмаппинг не нужен. Пока нет HDR-вывода — всегда `false`.
+fn hdr_passthrough() -> bool {
+    false
 }
 
 /// На сколько ступеней по вертикали прорежена цветность (`log2_chroma_h`).

@@ -257,6 +257,9 @@ impl HwContext {
                 "av_hwframe_transfer_data вернул {rc}"
             )));
         }
+        // Свойства кадра (pts, цветовое пространство, передаточная функция, диапазон, HDR side data)
+        // transfer_data не переносит: без них 10-битный HDR выглядел как SDR, а матрица — как BT.601.
+        unsafe { ffi::av_frame_copy_props(sw_frame.as_mut_ptr(), hw_frame.as_ptr()) };
         if let Some(pts) = hw_frame.pts() {
             sw_frame.set_pts(Some(pts));
         }
