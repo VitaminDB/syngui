@@ -162,3 +162,45 @@ fn drop_after_pause_at_eof_is_quick() {
         "drop плеера после паузы на EOF занял {took:?}"
     );
 }
+
+/// `two_audio.mkv`: дорожка «Тон» (440 Гц, rus) и «Тишина» (eng).
+#[test]
+fn audio_tracks_listed_and_switchable() {
+    let path = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/two_audio.mkv");
+    let mut dec = VideoDecoder::open(path.to_str().unwrap()).expect("open");
+    let tracks = dec.meta().audio_tracks.clone();
+    assert_eq!(tracks.len(), 2, "{tracks:?}");
+    assert_eq!(tracks[0].title.as_deref(), Some("Тон"));
+    assert_eq!(tracks[1].language.as_deref(), Some("eng"));
+    assert_eq!(dec.audio_track(), Some(tracks[0].stream_index));
+
+    // Громкость звука, пока декодер не отдаст ~0,5 с.
+    let rms = |dec: &VideoDecoder, rx: &std::sync::mpsc::Receiver<Vec<f32>>| {
+        let (mut sum, mut n) = (0.0f64, 0usize);
+        let deadline = Instant::now() + Duration::from_secs(5);
+        while n < 48_000 && Instant::now() < deadline {
+            while dec.try_recv_video().is_ok() {}
+            match rx.recv_timeout(Duration::from_millis(20)) {
+                Ok(chunk) => {
+                    sum += chunk.iter().map(|s| (*s as f64).powi(2)).sum::<f64>();
+                    n += chunk.len();
+                }
+                Err(_) => continue,
+            }
+        }
+        assert!(n > 0, "звук не пришёл");
+        (sum / n as f64).sqrt()
+    };
+
+    let rx = dec.take_audio_rx().expect("audio rx");
+    let tone = rms(&dec, &rx);
+    assert!(tone > 0.05, "у тона громкость {tone}");
+
+    assert!(dec.set_audio_track(tracks[1].stream_index));
+    assert!(!dec.set_audio_track(999), "чужой номер потока не принимается");
+    dec.seek(0.0);
+    let rx = dec.re_attach_audio().expect("re-attach");
+    let silence = rms(&dec, &rx);
+    assert!(silence < 0.001, "после смены дорожки громкость {silence}");
+    assert_eq!(dec.audio_track(), Some(tracks[1].stream_index));
+}

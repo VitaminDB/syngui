@@ -13,7 +13,7 @@ pub mod thumbnail;
 pub mod v4l2;
 
 pub use audio_file::{probe_audio, AudioFilePlayer, AudioTrackMeta};
-pub use decoder::{codec_display_name, DecodeInfo, FrameFilter, VideoDecoder, VideoFrame, VideoMeta};
+pub use decoder::{codec_display_name, AudioStreamInfo, DecodeInfo, FrameFilter, VideoDecoder, VideoFrame, VideoMeta};
 pub use error::VideoError;
 pub use hwaccel::HwAccel;
 pub use player::VideoPlayer;

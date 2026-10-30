@@ -250,6 +250,30 @@ impl VideoPlayer {
         Ok(())
     }
 
+    /// Звуковые дорожки файла (озвучки, языки).
+    pub fn audio_tracks(&self) -> &[super::AudioStreamInfo] {
+        &self.decoder.meta().audio_tracks
+    }
+
+    /// Номер потока звучащей дорожки.
+    pub fn audio_track(&self) -> Option<usize> {
+        self.decoder.audio_track()
+    }
+
+    /// Переключить озвучку на дорожку `stream_index` (из [`Self::audio_tracks`])
+    /// с текущего места: декодер открывает её и плеер перематывает на текущую
+    /// позицию, чтобы звук совпал с картинкой.
+    pub fn set_audio_track(&mut self, stream_index: usize) -> Result<(), VideoError> {
+        if self.audio_track() == Some(stream_index) {
+            return Ok(());
+        }
+        if !self.decoder.set_audio_track(stream_index) {
+            return Err(VideoError::Other(format!("нет звуковой дорожки {stream_index}")));
+        }
+        let pos = self.position_sec();
+        self.seek(pos)
+    }
+
     /// После перемотки на паузе ещё не показан кадр новой позиции: пока это
     /// так, `VideoView` продолжает опрашивать плеер (см. `poll_frame`).
     pub fn wants_seek_preview(&self) -> bool {

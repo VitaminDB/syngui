@@ -115,6 +115,26 @@ pub struct VideoMeta {
     /// Поворот кадра для показа по часовой (0, 90, 180, 270) — матрица отображения потока
     /// (`AV_PKT_DATA_DISPLAYMATRIX`, `tkhd` в MP4): так пишут видео камеры телефонов.
     pub rotation: u32,
+    /// Звуковые дорожки файла (озвучки, языки) в порядке потоков.
+    pub audio_tracks: Vec<AudioStreamInfo>,
+}
+
+/// Звуковая дорожка видеофайла — для выбора озвучки
+/// ([`VideoDecoder::set_audio_track`]).
+#[derive(Clone, Debug, PartialEq)]
+pub struct AudioStreamInfo {
+    /// Номер потока в контейнере — его передают в `set_audio_track`.
+    pub stream_index: usize,
+    /// Язык из тега `language` («rus», «eng»…), если указан.
+    pub language: Option<String>,
+    /// Название из тега `title` («LostFilm», «Original»…), если указано.
+    pub title: Option<String>,
+    /// Кодек для людей: «AC-3», «AAC»…
+    pub codec: String,
+    pub channels: u16,
+    pub sample_rate: u32,
+    /// Дорожка помечена в файле как основная.
+    pub default: bool,
 }
 
 /// Как идёт воспроизведение — для показа пользователю (чип плеера): кодеки,
@@ -273,6 +293,9 @@ pub(crate) enum DecoderCmd {
     ReAttachAudio(SyncSender<Vec<f32>>),
     InstallVideoTee(Option<SyncSender<Arc<VideoFrame>>>),
     InstallAudioTee(Option<SyncSender<Vec<f32>>>),
+    /// Сменить звуковую дорожку (номер потока); плеер следом перематывает
+    /// на текущую позицию, чтобы звук пошёл с неё.
+    SetAudioTrack(usize),
 }
 
 pub struct VideoDecoder {
@@ -289,6 +312,8 @@ pub struct VideoDecoder {
     yuv_frames: Arc<AtomicBool>,
     info: Arc<std::sync::Mutex<DecodeInfo>>,
     filter: FilterSlot,
+    /// Номер потока звучащей дорожки; `usize::MAX` — звука нет.
+    audio_track: Arc<std::sync::atomic::AtomicUsize>,
 }
 
 /// «pts ещё неизвестен» в [`VideoDecoder::audio_base_pts_sec`].
@@ -455,6 +480,12 @@ impl VideoDecoder {
             ..Default::default()
         }));
         let info_thread = info.clone();
+        let audio_track = Arc::new(std::sync::atomic::AtomicUsize::new(
+            ictx.streams()
+                .best(MediaType::Audio)
+                .filter(|_| meta.has_audio)
+                .map_or(usize::MAX, |s| s.index()),
+        ));
         let join = thread::Builder::new()
             .name("syngui-video-decoder".into())
             .spawn(move || {
@@ -488,6 +519,7 @@ impl VideoDecoder {
             yuv_frames,
             info,
             filter,
+            audio_track,
         })
     }
 
@@ -550,6 +582,29 @@ impl VideoDecoder {
         let (tx, rx) = mpsc::sync_channel::<Vec<f32>>(AUDIO_QUEUE_CAP);
         self.cmd_tx.send(DecoderCmd::ReAttachAudio(tx)).ok()?;
         Some(rx)
+    }
+
+    /// Номер потока звучащей дорожки (см. [`VideoMeta::audio_tracks`]).
+    pub fn audio_track(&self) -> Option<usize> {
+        match self.audio_track.load(Ordering::Acquire) {
+            usize::MAX => None,
+            i => Some(i),
+        }
+    }
+
+    /// Переключить звук на другую дорожку (номер потока из
+    /// [`VideoMeta::audio_tracks`]). Декодер начинает её с ближайшего пакета;
+    /// чтобы звук совпал с картинкой, следом нужна перемотка на текущую
+    /// позицию — [`super::VideoPlayer::set_audio_track`] делает это сам.
+    pub fn set_audio_track(&self, stream_index: usize) -> bool {
+        if !self.meta.audio_tracks.iter().any(|t| t.stream_index == stream_index) {
+            return false;
+        }
+        if self.audio_track() == Some(stream_index) {
+            return true;
+        }
+        self.audio_track.store(stream_index, Ordering::Release);
+        self.cmd_tx.send(DecoderCmd::SetAudioTrack(stream_index)).is_ok()
     }
 
     /// Кадры 4:2:0 8 бит отдавать в YUV ([`VideoFrame::yuv`]): перевод
@@ -695,7 +750,34 @@ fn read_meta(ictx: &Input) -> Result<VideoMeta, VideoError> {
         None => (false, 0, 0),
     };
 
+    let audio_tracks = ictx
+        .streams()
+        .filter(|s| s.parameters().medium() == MediaType::Audio)
+        .filter_map(|s| {
+            let par = s.parameters();
+            let dec = ffmpeg_next::codec::context::Context::from_parameters(par.clone())
+                .ok()?
+                .decoder()
+                .audio()
+                .ok()?;
+            let tags = s.metadata();
+            let tag = |k: &str| {
+                tags.get(k).map(str::trim).filter(|v| !v.is_empty() && *v != "und").map(String::from)
+            };
+            Some(AudioStreamInfo {
+                stream_index: s.index(),
+                language: tag("language"),
+                title: tag("title"),
+                codec: codec_display_name(par.id()),
+                channels: dec.channels(),
+                sample_rate: dec.rate(),
+                default: s.disposition().contains(ffmpeg_next::format::stream::Disposition::DEFAULT),
+            })
+        })
+        .collect();
+
     Ok(VideoMeta {
+        audio_tracks,
         rotation,
         width: v_dec.width(),
         height: v_dec.height(),
@@ -820,6 +902,13 @@ fn run_decoder_thread(
         .ok_or(VideoError::NoVideoStream)?
         .index();
     let a_idx = ictx.streams().best(MediaType::Audio).map(|s| s.index());
+    // Параметры всех звуковых дорожек: демуксер уходит в поток чтения, а
+    // дорожку можно сменить на ходу (`DecoderCmd::SetAudioTrack`).
+    let audio_streams: Vec<(usize, ffmpeg_next::codec::Parameters, ffmpeg_next::Rational)> = ictx
+        .streams()
+        .filter(|s| s.parameters().medium() == MediaType::Audio)
+        .map(|s| (s.index(), s.parameters(), s.time_base()))
+        .collect();
 
     let v_params = ictx
         .stream(v_idx)
@@ -1012,32 +1101,9 @@ fn run_decoder_thread(
         v_dec.height(),
     )?;
 
-    let mut audio: Option<AudioState> = if let (Some(idx), Some(_)) = (a_idx, audio_tx.as_ref()) {
-        let a_params = ictx.stream(idx).unwrap().parameters();
-        let a_dec = ffmpeg_next::codec::context::Context::from_parameters(a_params)
-            .map_err(|e| VideoError::DecoderInit(format!("audio params: {e}")))?
-            .decoder()
-            .audio()
-            .map_err(|e| VideoError::DecoderInit(format!("audio decoder: {e}")))?;
-
-        let in_layout = if a_dec.channel_layout().is_empty() {
-            ChannelLayout::default(a_dec.channels() as i32)
-        } else {
-            a_dec.channel_layout()
-        };
-        let resampler = Resampler::new(a_dec.format(), in_layout, a_dec.rate(), AUDIO_OUTPUT_SR)?;
-        let tb = ictx.stream(idx).unwrap().time_base();
-        Some(AudioState {
-            stream_idx: idx,
-            decoder: a_dec,
-            resampler,
-            tb_sec: tb.numerator() as f64 / tb.denominator().max(1) as f64,
-            base_pending: true,
-            skip_before: None,
-            timeline: AudioTimeline::new(),
-        })
-    } else {
-        None
+    let mut audio: Option<AudioState> = match (a_idx, audio_tx.as_ref()) {
+        (Some(idx), Some(_)) => Some(open_audio_state(&audio_streams, idx)?),
+        _ => None,
     };
 
     let mut paused = false;
@@ -1081,6 +1147,9 @@ fn run_decoder_thread(
                     audio_tx = Some(new_tx);
                     reset_audio_base(audio.as_mut(), audio_base);
                 }
+                Ok(DecoderCmd::SetAudioTrack(idx)) => {
+                    switch_audio_track(&audio_streams, &mut audio, idx, &mut stages);
+                }
                 Ok(DecoderCmd::InstallVideoTee(tx)) => {
                     tee_video = tx;
                 }
@@ -1110,6 +1179,9 @@ fn run_decoder_thread(
                 Ok(DecoderCmd::ReAttachAudio(new_tx)) => {
                     audio_tx = Some(new_tx);
                     reset_audio_base(audio.as_mut(), audio_base);
+                }
+                Ok(DecoderCmd::SetAudioTrack(idx)) => {
+                    switch_audio_track(&audio_streams, &mut audio, idx, &mut stages);
                 }
                 Ok(DecoderCmd::InstallVideoTee(tx)) => {
                     tee_video = tx;
@@ -1195,6 +1267,9 @@ fn run_decoder_thread(
                             audio_tx = Some(new_tx);
                             reset_audio_base(audio.as_mut(), audio_base);
                         }
+                        Ok(DecoderCmd::SetAudioTrack(idx)) => {
+                            switch_audio_track(&audio_streams, &mut audio, idx, &mut stages);
+                        }
                         Ok(DecoderCmd::InstallVideoTee(tx)) => {
                             tee_video = tx;
                         }
@@ -1253,6 +1328,61 @@ fn run_decoder_thread(
 
     reader.stop();
     Ok(())
+}
+
+/// Открыть декодер и ресэмплер звуковой дорожки `idx`.
+fn open_audio_state(
+    streams: &[(usize, ffmpeg_next::codec::Parameters, ffmpeg_next::Rational)],
+    idx: usize,
+) -> Result<AudioState, VideoError> {
+    let (_, a_params, tb) = streams
+        .iter()
+        .find(|(i, ..)| *i == idx)
+        .ok_or_else(|| VideoError::DecoderInit(format!("нет звуковой дорожки {idx}")))?;
+    let a_dec = ffmpeg_next::codec::context::Context::from_parameters(a_params.clone())
+        .map_err(|e| VideoError::DecoderInit(format!("audio params: {e}")))?
+        .decoder()
+        .audio()
+        .map_err(|e| VideoError::DecoderInit(format!("audio decoder: {e}")))?;
+    let in_layout = if a_dec.channel_layout().is_empty() {
+        ChannelLayout::default(a_dec.channels() as i32)
+    } else {
+        a_dec.channel_layout()
+    };
+    let resampler = Resampler::new(a_dec.format(), in_layout, a_dec.rate(), AUDIO_OUTPUT_SR)?;
+    Ok(AudioState {
+        stream_idx: idx,
+        decoder: a_dec,
+        resampler,
+        tb_sec: tb.numerator() as f64 / tb.denominator().max(1) as f64,
+        base_pending: true,
+        skip_before: None,
+        timeline: AudioTimeline::new(),
+    })
+}
+
+/// Сменить звуковую дорожку; при ошибке остаётся прежняя.
+fn switch_audio_track(
+    streams: &[(usize, ffmpeg_next::codec::Parameters, ffmpeg_next::Rational)],
+    audio: &mut Option<AudioState>,
+    idx: usize,
+    stages: &mut StageStats,
+) {
+    if audio.as_ref().is_some_and(|a| a.stream_idx == idx) {
+        return;
+    }
+    match open_audio_state(streams, idx) {
+        Ok(a) => {
+            let codec = streams
+                .iter()
+                .find(|(i, ..)| *i == idx)
+                .map(|(_, p, _)| codec_display_name(p.id()));
+            stages.set_info(|i| i.audio_codec = codec);
+            log::info!("audio: дорожка {idx}");
+            *audio = Some(a);
+        }
+        Err(e) => log::warn!("audio: дорожка {idx} не открылась: {e}"),
+    }
 }
 
 /// Связь декодера с потоком чтения.
