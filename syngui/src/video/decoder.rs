@@ -136,6 +136,95 @@ pub struct DecodeInfo {
 }
 
 /// Имя кодека для людей.
+/// Обработка кадров видео перед показом (нейрофильтр, повышение чёткости…):
+/// [`VideoDecoder::set_frame_filter`]. Пока фильтр стоит, декодер отдаёт
+/// кадры в RGBA8 (без YUV-показа и dma-buf), а фильтр работает в своём
+/// потоке — следующий кадр декодируется, пока обрабатывается текущий.
+pub trait FrameFilter: Send + Sync {
+    /// Обработать кадр: `frame.rgba` — RGBA8 `width×height`; можно заменить
+    /// пиксели и размер. Кадры приходят по порядку; новая перемотка видна по
+    /// `seek_generation`.
+    fn apply(&self, frame: &mut VideoFrame);
+}
+
+type FilterSlot = Arc<std::sync::Mutex<Option<Arc<dyn FrameFilter>>>>;
+
+/// Выход кадров декодера: прямо в очередь показа или через поток фильтра.
+/// Пока в потоке фильтра есть кадры, туда же идут и остальные — порядок
+/// кадров при включении и выключении фильтра не ломается.
+struct VideoSink {
+    tx: SyncSender<VideoFrame>,
+    filter: FilterSlot,
+    stage: std::cell::OnceCell<Option<SyncSender<VideoFrame>>>,
+    pending: Arc<std::sync::atomic::AtomicUsize>,
+    /// Последний номер перемотки: кадры старых номеров фильтр не трогает —
+    /// плеер их всё равно выбросит.
+    generation: Arc<std::sync::atomic::AtomicU64>,
+}
+
+impl VideoSink {
+    fn new(tx: SyncSender<VideoFrame>, filter: FilterSlot) -> Self {
+        Self {
+            tx,
+            filter,
+            stage: std::cell::OnceCell::new(),
+            pending: Arc::new(std::sync::atomic::AtomicUsize::new(0)),
+            generation: Arc::new(std::sync::atomic::AtomicU64::new(0)),
+        }
+    }
+
+    /// Нужны кадры в RGBA (фильтр стоит или ещё дорабатывает очередь).
+    fn filtering(&self) -> bool {
+        self.pending.load(Ordering::Acquire) > 0 || self.filter.lock().is_ok_and(|f| f.is_some())
+    }
+
+    fn stage(&self) -> Option<&SyncSender<VideoFrame>> {
+        self.stage
+            .get_or_init(|| {
+                let (stx, srx) = mpsc::sync_channel::<VideoFrame>(1);
+                let tx = self.tx.clone();
+                let filter = self.filter.clone();
+                let pending = self.pending.clone();
+                let generation = self.generation.clone();
+                thread::Builder::new()
+                    .name("syngui-video-filter".into())
+                    .spawn(move || {
+                        while let Ok(mut f) = srx.recv() {
+                            let current = f.seek_generation >= generation.load(Ordering::Acquire);
+                            let flt = filter.lock().ok().and_then(|g| g.clone());
+                            if let (Some(flt), true) = (flt, current && !f.rgba.is_empty()) {
+                                flt.apply(&mut f);
+                            }
+                            let sent = tx.send(f);
+                            pending.fetch_sub(1, Ordering::AcqRel);
+                            if sent.is_err() {
+                                break;
+                            }
+                        }
+                        // очередь закрыта: счётчик больше не держит декодер на этом пути
+                        pending.store(0, Ordering::Release);
+                    })
+                    .map_err(|e| log::warn!("video: поток фильтра кадров: {e}"))
+                    .ok()
+                    .map(|_| stx)
+            })
+            .as_ref()
+    }
+
+    fn send(&self, frame: VideoFrame) -> Result<(), ()> {
+        self.generation.fetch_max(frame.seek_generation, Ordering::AcqRel);
+        if self.filtering() {
+            if let Some(stage) = self.stage() {
+                self.pending.fetch_add(1, Ordering::AcqRel);
+                return stage.send(frame).map_err(|_| {
+                    self.pending.fetch_sub(1, Ordering::AcqRel);
+                });
+            }
+        }
+        self.tx.send(frame).map_err(|_| ())
+    }
+}
+
 pub fn codec_display_name(id: ffmpeg_next::codec::Id) -> String {
     use ffmpeg_next::codec::Id;
     match id {
@@ -199,6 +288,7 @@ pub struct VideoDecoder {
     /// Отдавать кадры 4:2:0 в YUV ([`VideoFrame::yuv`]), а не RGBA.
     yuv_frames: Arc<AtomicBool>,
     info: Arc<std::sync::Mutex<DecodeInfo>>,
+    filter: FilterSlot,
 }
 
 /// «pts ещё неизвестен» в [`VideoDecoder::audio_base_pts_sec`].
@@ -348,6 +438,8 @@ impl VideoDecoder {
         let eof_thread = eof.clone();
         let yuv_frames = Arc::new(AtomicBool::new(false));
         let yuv_thread = yuv_frames.clone();
+        let filter: FilterSlot = Arc::new(std::sync::Mutex::new(None));
+        let sink = VideoSink::new(video_tx, filter.clone());
         let info = Arc::new(std::sync::Mutex::new(DecodeInfo {
             codec: ictx
                 .streams()
@@ -370,7 +462,7 @@ impl VideoDecoder {
                     ictx,
                     meta_thread,
                     accel,
-                    video_tx,
+                    sink,
                     audio_tx_opt,
                     cmd_rx,
                     &audio_base_thread,
@@ -395,6 +487,7 @@ impl VideoDecoder {
             eof,
             yuv_frames,
             info,
+            filter,
         })
     }
 
@@ -464,6 +557,18 @@ impl VideoDecoder {
     /// Включает виджет показа; отвод кадров (tee) по-прежнему получает RGBA.
     pub fn set_yuv_frames(&self, on: bool) {
         self.yuv_frames.store(on, Ordering::Relaxed);
+    }
+
+    /// Поставить или снять фильтр кадров ([`FrameFilter`]); действует со
+    /// следующего декодированного кадра.
+    pub fn set_frame_filter(&self, filter: Option<Arc<dyn FrameFilter>>) {
+        if let Ok(mut f) = self.filter.lock() {
+            *f = filter;
+        }
+    }
+
+    pub fn has_frame_filter(&self) -> bool {
+        self.filter.lock().is_ok_and(|f| f.is_some())
     }
 
     pub fn install_video_tee(&self) -> Option<Receiver<Arc<VideoFrame>>> {
@@ -701,7 +806,7 @@ fn run_decoder_thread(
     ictx: Input,
     _meta: VideoMeta,
     accel: HwAccel,
-    video_tx: SyncSender<VideoFrame>,
+    video_tx: VideoSink,
     mut audio_tx: Option<SyncSender<Vec<f32>>>,
     cmd_rx: Receiver<DecoderCmd>,
     audio_base: &AtomicI64,
@@ -1332,7 +1437,7 @@ fn drain_video(
     dec: &mut VDec,
     scaler: &mut Scaler,
     hw: Option<&HwContext>,
-    tx: &SyncSender<VideoFrame>,
+    tx: &VideoSink,
     tee_tx: Option<&SyncSender<Arc<VideoFrame>>>,
     tb_sec: f64,
     logged_first_format: &mut bool,
@@ -1344,7 +1449,7 @@ fn drain_video(
 ) {
     let mut decoded = frame::Video::empty();
     // Показ берёт YUV, отводу кадров (tee) нужен RGBA.
-    let want_yuv = yuv_frames && tee_tx.is_none();
+    let want_yuv = yuv_frames && tee_tx.is_none() && !tx.filtering();
     loop {
         let packed = match dec.receive(&mut decoded, want_yuv) {
             Ok(p) => p,

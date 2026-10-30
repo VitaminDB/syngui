@@ -506,6 +506,15 @@ impl VideoPlayer {
         self.decoder.set_yuv_frames(on);
     }
 
+    /// См. [`VideoDecoder::set_frame_filter`]: обработка кадров перед показом.
+    pub fn set_frame_filter(&self, filter: Option<Arc<dyn super::FrameFilter>>) {
+        self.decoder.set_frame_filter(filter);
+    }
+
+    pub fn has_frame_filter(&self) -> bool {
+        self.decoder.has_frame_filter()
+    }
+
     pub fn install_video_tee(&self) -> Option<Arc<VideoStream>> {
         let rx = self.decoder.install_video_tee()?;
         let meta = self.decoder.meta();
