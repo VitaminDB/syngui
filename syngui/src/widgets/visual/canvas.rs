@@ -133,6 +133,10 @@ impl Element for CanvasElement {
     fn update(&mut self, widget: &dyn Widget, _ctx: &mut UpdateContext) {
         if let Some(c) = widget.as_any().downcast_ref::<Canvas>() {
             self.draw = c.draw.clone();
+            // новый размер — нужна перекомпоновка, не только перерисовка
+            if self.width != c.width || self.height != c.height {
+                self.mark_dirty(DirtyFlags::LAYOUT);
+            }
             self.width = c.width;
             self.height = c.height;
             self.animated = c.animated;
