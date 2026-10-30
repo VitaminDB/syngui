@@ -32,12 +32,8 @@ impl PropertyValue {
                     "false".to_string()
                 }
             }
-            PropertyValue::Color(c) => format!(
-                "#{:02X}{:02X}{:02X}",
-                (c.r * 255.0) as u8,
-                (c.g * 255.0) as u8,
-                (c.b * 255.0) as u8
-            ),
+            // Color хранит линейные компоненты — печатаем sRGB, как в from_hex
+            PropertyValue::Color(c) => c.to_hex(),
             PropertyValue::Choice(items, idx) => items.get(*idx).cloned().unwrap_or_default(),
         }
     }
