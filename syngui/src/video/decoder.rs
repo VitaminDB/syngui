@@ -322,6 +322,9 @@ const PTS_UNKNOWN: i64 = i64::MIN;
 const AUDIO_OUTPUT_SR: u32 = 48_000;
 
 const VIDEO_QUEUE_CAP: usize = 8;
+/// Столько ошибок подряд у аппаратного кодека, не принявшего ни одного
+/// пакета, — и он заменяется программным.
+const HW_FALLBACK_ERRORS: u32 = 8;
 /// Столько ошибок send_packet подряд — поток декодера завершается.
 const MAX_CONSECUTIVE_VIDEO_ERRORS: u32 = 200;
 /// Очередь кадров в буферах MediaCodec: показ планируется на ~0,4 с
@@ -902,6 +905,8 @@ fn run_decoder_thread(
         .ok_or(VideoError::NoVideoStream)?
         .index();
     let a_idx = ictx.streams().best(MediaType::Audio).map(|s| s.index());
+    // Параметры видео для запасного программного декодера (см. ниже).
+    let sw_params = ictx.stream(v_idx).ok_or(VideoError::NoVideoStream)?.parameters();
     // Параметры всех звуковых дорожек: демуксер уходит в поток чтения, а
     // дорожку можно сменить на ходу (`DecoderCmd::SetAudioTrack`).
     let audio_streams: Vec<(usize, ffmpeg_next::codec::Parameters, ffmpeg_next::Rational)> = ictx
@@ -964,7 +969,7 @@ fn run_decoder_thread(
         accel
     };
 
-    let hw: Option<HwContext> = if !accel.uses_hw_device() {
+    let mut hw: Option<HwContext> = if !accel.uses_hw_device() {
         None
     } else {
         match HwContext::try_init(accel) {
@@ -1126,6 +1131,9 @@ fn run_decoder_thread(
     };
 
     let mut video_errors: u32 = 0;
+    // Пакетов видео, принятых декодером: аппаратный кодек, не принявший ни
+    // одного, заменяется программным.
+    let mut video_accepted: u64 = 0;
     let mut stages = StageStats::new(info);
     // Цель последней перемотки, пока до неё не дошли кадры.
     let mut video_skip_before: Option<f64> = None;
@@ -1291,6 +1299,7 @@ fn run_decoder_thread(
             match v_dec.send_packet(&packet) {
                 Ok(()) => {
                     video_errors = 0;
+                    video_accepted += 1;
                     drain_video(
                         &mut v_dec,
                         &mut scaler,
@@ -1311,6 +1320,30 @@ fn run_decoder_thread(
                     if video_errors == 1 || video_errors % 100 == 0 {
                         log::warn!("video: send_packet вернул ошибку ({video_errors} подряд): {e}");
                     }
+                    // Аппаратный кодек не взял ни одного пакета (не хватило
+                    // видеопамяти, профиль не поддержан) — дальше программно,
+                    // с ближайшего ключевого кадра. Чёрный экран при живом
+                    // звуке хуже, чем загруженный процессор.
+                    if hw_codec_active
+                        && !surface_output
+                        && video_accepted == 0
+                        && video_errors >= HW_FALLBACK_ERRORS
+                    {
+                        match open_sw_video(&sw_params, v_tb_av) {
+                            Ok(d) => {
+                                log::warn!(
+                                    "hwaccel: {hw_label} не декодирует ({e}) — перехожу на программное декодирование"
+                                );
+                                v_dec = VDec::Ff(d);
+                                hw = None;
+                                hw_codec_active = false;
+                                logged_first_format = false;
+                                video_errors = 0;
+                                continue;
+                            }
+                            Err(e) => log::warn!("hwaccel: программный декодер не открылся: {e}"),
+                        }
+                    }
                     // Кодек мёртв (например, у MediaCodec отняли Surface):
                     // молотить сеть и аудио на полной скорости бессмысленно.
                     if video_errors >= MAX_CONSECUTIVE_VIDEO_ERRORS {
@@ -1328,6 +1361,21 @@ fn run_decoder_thread(
 
     reader.stop();
     Ok(())
+}
+
+/// Программный видеодекодер по параметрам потока.
+fn open_sw_video(
+    params: &ffmpeg_next::codec::Parameters,
+    tb: ffmpeg_next::Rational,
+) -> Result<ffmpeg_next::decoder::Video, VideoError> {
+    let mut ctx = ffmpeg_next::codec::context::Context::from_parameters(params.clone())
+        .map_err(|e| VideoError::DecoderInit(format!("video params: {e}")))?;
+    unsafe {
+        (*ctx.as_mut_ptr()).pkt_timebase = ffi::AVRational { num: tb.numerator(), den: tb.denominator() };
+    }
+    ctx.decoder()
+        .video()
+        .map_err(|e| VideoError::DecoderInit(format!("video decoder: {e}")))
 }
 
 /// Открыть декодер и ресэмплер звуковой дорожки `idx`.
