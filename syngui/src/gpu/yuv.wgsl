@@ -156,6 +156,24 @@ fn bt2390(e: f32, max_lum: f32) -> f32 {
     return (2.0 * t3 - 3.0 * t2 + 1.0) * ks + (t3 - 2.0 * t2 + t) * (1.0 - ks) + (-2.0 * t3 + 3.0 * t2) * max_lum;
 }
 
+fn bt2020_to_709(l: vec3<f32>) -> vec3<f32> {
+    return vec3(
+        1.660491 * l.r - 0.587641 * l.g - 0.072850 * l.b,
+        -0.124550 * l.r + 1.132900 * l.g - 0.008349 * l.b,
+        -0.018151 * l.r - 0.100579 * l.g + 1.118730 * l.b,
+    );
+}
+
+// R'G'B' BT.2020 (PQ или HLG) → линейный BT.709 для HDR-окна (FP16 extended sRGB): белый 203 нит →
+// 1.0, света выше, цвет вне BT.709 — отрицательными каналами. Свет переводит в цвет вывода композитор.
+fn hdr_to_extended(rgb: vec3<f32>, hlg: bool) -> vec3<f32> {
+    var nits = pq_eotf(rgb);
+    if hlg {
+        nits = hlg_eotf(rgb);
+    }
+    return bt2020_to_709(nits / SDR_WHITE);
+}
+
 // R'G'B' BT.2020 (PQ или HLG) → линейный BT.709 для SDR-вывода: белый SDR 203 нит → 1.0.
 fn hdr_to_sdr(rgb: vec3<f32>) -> vec3<f32> {
     var nits = pq_eotf(rgb);
@@ -200,7 +218,9 @@ fn fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
     let v = vec3(y, cbcr) * yuv.hdr.x - yuv.off.xyz;
     let rgb = clamp(vec3(dot(yuv.r0.xyz, v), dot(yuv.r1.xyz, v), dot(yuv.r2.xyz, v)), vec3(0.0), vec3(1.0));
     var lin = srgb_to_linear(rgb);
-    if yuv.hdr.y > 0.5 {
+    if yuv.hdr.y > 2.5 {
+        lin = hdr_to_extended(rgb, yuv.hdr.y > 3.5);
+    } else if yuv.hdr.y > 0.5 {
         lin = hdr_to_sdr(rgb);
     }
     return apply_rounded_clip(vec4(lin, 1.0) * in.color, in.logical_pos);

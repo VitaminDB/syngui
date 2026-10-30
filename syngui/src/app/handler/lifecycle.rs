@@ -659,6 +659,33 @@ impl AppHandler {
             .await
             .ok();
 
+        // HDR-окно: Vulkan WSI проприетарного NVIDIA объявляет FP16-окно как 1.0 = 80 нит при белом
+        // 203 нит — интерфейс в нём в 2,5 раза темнее. Mesa (Intel, AMD) — 1.0 = белый. Окно с HDR —
+        // на карте Mesa, если она есть и даёт FP16 (у гибридного ноутбука это ещё и карта, ведущая
+        // экран: кадр окна не копируется между картами).
+        #[cfg(not(target_arch = "wasm32"))]
+        let preferred = match preferred {
+            Some(a) if crate::gpu::hdr_requested() && a.get_info().vendor == 0x10de && !a.get_info().driver.contains("NVK") => {
+                let mesa = instance
+                    .enumerate_adapters(backends)
+                    .await
+                    .into_iter()
+                    .filter(|o| o.get_info().vendor != 0x10de && o.get_info().backend == wgpu::Backend::Vulkan)
+                    .find(|o| {
+                        o.is_surface_supported(&surface)
+                            && surface.get_capabilities(o).formats.contains(&wgpu::TextureFormat::Rgba16Float)
+                    });
+                match mesa {
+                    Some(m) => {
+                        log::info!("gpu: HDR-окно — на «{}» вместо «{}»", m.get_info().name, a.get_info().name);
+                        Some(m)
+                    }
+                    None => Some(a),
+                }
+            }
+            other => other,
+        };
+
         let limits_for = |adapter: &wgpu::Adapter| {
             if cfg!(target_arch = "wasm32") || cfg!(target_os = "android") {
                 wgpu::Limits::downlevel_webgl2_defaults().using_resolution(adapter.limits())

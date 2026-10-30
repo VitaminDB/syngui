@@ -198,8 +198,8 @@ impl YuvFrame {
 
     /// Униформа шейдера: строки матрицы (с учётом диапазона) и сдвиги —
     /// `rgb = M · (yuv − off)`; `off.w` — раскладка (1 — UV в одной плоскости). Последний vec4 —
-    /// HDR: (множитель выборки, режим 0 SDR / 1 PQ / 2 HLG, PQ-сигнал пика ролика, пик SDR в долях
-    /// пика ролика по PQ).
+    /// HDR: (множитель выборки, режим 0 SDR / 1 PQ / 2 HLG / 3 PQ в HDR-окно / 4 HLG в HDR-окно,
+    /// PQ-сигнал пика ролика, пик SDR в долях пика ролика по PQ).
     pub fn shader_uniform(&self) -> [f32; YUV_UNIFORM_FLOATS] {
         let (kr, kb) = match self.matrix {
             YuvMatrix::Bt601 => (0.299, 0.114),
@@ -225,7 +225,9 @@ impl YuvFrame {
             None => (0.0, 0.0, 0.0),
             Some(h) => {
                 let src = pq_inv(h.peak_nits.clamp(250.0, 10_000.0) as f64);
-                (if h.pq { 1.0 } else { 2.0 }, src as f32, (pq_inv(HDR_SDR_WHITE_NITS as f64) / src) as f32)
+                // 1/2 — тонмаппинг в SDR; 3/4 — HDR-окно: свет без тонмаппинга
+                let ext = if crate::gpu::hdr_passthrough() { 2.0 } else { 0.0 };
+                (if h.pq { 1.0 } else { 2.0 } + ext, src as f32, (pq_inv(HDR_SDR_WHITE_NITS as f64) / src) as f32)
             }
         };
         [

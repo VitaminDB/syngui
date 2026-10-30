@@ -9,7 +9,10 @@ pub mod texture_pool;
 #[cfg(feature = "map")]
 pub mod tile_atlas;
 
-pub use context::{preferred_surface_format, GpuContext, GpuShared, WindowSurface};
+pub use context::{
+    hdr_passthrough, hdr_requested, hdr_surface, preferred_surface_format, request_hdr_surface, set_hdr_output, GpuContext, GpuShared,
+    WindowSurface,
+};
 pub use image_cache::ImageGpuCache;
 #[cfg(feature = "image")]
 pub use image_store::image_file_size;
