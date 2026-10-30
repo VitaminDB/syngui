@@ -321,17 +321,36 @@ unsafe fn setup_hw_frames_ctx(
     if device_ref.is_null() {
         return false;
     }
-    let frames_ref = ffi::av_hwframe_ctx_alloc(device_ref);
-    if frames_ref.is_null() {
-        log::warn!("hwaccel: av_hwframe_ctx_alloc вернул null");
-        return false;
+    // Самостоятельные hw-кодеки (`*_cuvid`) заводят пул сами: формат кадров
+    // (NV12, P010 для 10 бит, P016) они узнают лишь из заголовка
+    // последовательности, и заранее заданный чужой формат их ломает.
+    let codec = (*ctx).codec;
+    if !codec.is_null() && (*codec).capabilities & ffi::AV_CODEC_CAP_HARDWARE as c_int != 0 {
+        return true;
     }
-    let frames_ctx = (*frames_ref).data as *mut ffi::AVHWFramesContext;
-    (*frames_ctx).format = hw_pix_fmt;
-    (*frames_ctx).sw_format = ffi::AVPixelFormat::AV_PIX_FMT_NV12;
-    (*frames_ctx).width = (*ctx).coded_width.max((*ctx).width);
-    (*frames_ctx).height = (*ctx).coded_height.max((*ctx).height);
-    (*frames_ctx).initial_pool_size = 20;
+    // Параметры пула по самому потоку (sw_format по глубине цвета, размер с
+    // выравниванием, число опорных кадров); плюс запас под очередь показа.
+    let mut frames_ref: *mut ffi::AVBufferRef = ptr::null_mut();
+    if ffi::avcodec_get_hw_frames_parameters(ctx, device_ref, hw_pix_fmt, &mut frames_ref) < 0
+        || frames_ref.is_null()
+    {
+        frames_ref = ffi::av_hwframe_ctx_alloc(device_ref);
+        if frames_ref.is_null() {
+            log::warn!("hwaccel: av_hwframe_ctx_alloc вернул null");
+            return false;
+        }
+        let frames_ctx = (*frames_ref).data as *mut ffi::AVHWFramesContext;
+        (*frames_ctx).format = hw_pix_fmt;
+        (*frames_ctx).sw_format = sw_format_for((*ctx).sw_pix_fmt);
+        (*frames_ctx).width = (*ctx).coded_width.max((*ctx).width);
+        (*frames_ctx).height = (*ctx).coded_height.max((*ctx).height);
+        (*frames_ctx).initial_pool_size = 20;
+    } else {
+        let frames_ctx = (*frames_ref).data as *mut ffi::AVHWFramesContext;
+        if (*frames_ctx).initial_pool_size > 0 {
+            (*frames_ctx).initial_pool_size += 8;
+        }
+    }
     let rc = ffi::av_hwframe_ctx_init(frames_ref);
     if rc < 0 {
         log::warn!("hwaccel: av_hwframe_ctx_init вернул {rc}");
@@ -341,6 +360,18 @@ unsafe fn setup_hw_frames_ctx(
     }
     (*ctx).hw_frames_ctx = frames_ref;
     true
+}
+
+/// Формат пула hw-кадров для программного формата потока: 8 бит — NV12,
+/// 9–10 бит — P010, глубже — P016.
+unsafe fn sw_format_for(sw: ffi::AVPixelFormat) -> ffi::AVPixelFormat {
+    let desc = ffi::av_pix_fmt_desc_get(sw);
+    let depth = if desc.is_null() { 8 } else { (*desc).comp[0].depth };
+    match depth {
+        0..=8 => ffi::AVPixelFormat::AV_PIX_FMT_NV12,
+        9..=10 => ffi::AVPixelFormat::AV_PIX_FMT_P010LE,
+        _ => ffi::AVPixelFormat::AV_PIX_FMT_P016LE,
+    }
 }
 
 #[allow(dead_code)]
