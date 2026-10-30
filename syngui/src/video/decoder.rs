@@ -153,6 +153,10 @@ pub struct DecodeInfo {
     pub zero_copy: bool,
     /// Пришёл первый кадр — `hardware` известно точно.
     pub known: bool,
+    /// Аппаратное декодирование просили, но оно не пошло и видео декодирует
+    /// процессор: чем ускорение и почему (`"nvdec: Generic error…"`). Частая
+    /// причина у NVDEC — видеопамять занята другими программами.
+    pub hw_fallback: Option<String>,
 }
 
 /// Имя кодека для людей.
@@ -969,6 +973,8 @@ fn run_decoder_thread(
         accel
     };
 
+    // Почему аппаратное декодирование не пошло (см. `DecodeInfo::hw_fallback`).
+    let mut fallback_reason: Option<String> = None;
     let mut hw: Option<HwContext> = if !accel.uses_hw_device() {
         None
     } else {
@@ -980,6 +986,10 @@ fn run_decoder_thread(
             }
             Err(e) => {
                 log::warn!("hwaccel: init {} упал, fallback на sw: {e}", accel.label());
+                fallback_reason = Some(format!("{}: {e}", hw_display_name(match accel {
+                    HwAccel::Auto => HwAccel::platform_default().label(),
+                    a => a.label(),
+                })));
                 None
             }
         }
@@ -1019,7 +1029,10 @@ fn run_decoder_thread(
     // не удалось (нет JavaVM, устройство не поддерживает профиль) — не
     // роняем плеер, а пересоздаём контекст и открываем sw-декодер.
     let mut hw_codec_active = false;
-    let hw_label = accel.label();
+    let hw_label = match accel {
+        HwAccel::Auto => HwAccel::platform_default().label(),
+        a => a.label(),
+    };
     #[cfg(target_os = "linux")]
     let v4l2_dec = v4l2_dec.map(VDec::V4l2);
     #[cfg(not(target_os = "linux"))]
@@ -1040,6 +1053,10 @@ fn run_decoder_thread(
                     }
                     Err(e) => {
                         log::warn!("hwaccel: «{name}» не открылся ({e}) — fallback на sw");
+                        fallback_reason = Some(format!("{}: {e}", hw_display_name(match accel {
+                    HwAccel::Auto => HwAccel::platform_default().label(),
+                    a => a.label(),
+                })));
                         let v_params = ictx
                             .stream(v_idx)
                             .ok_or(VideoError::NoVideoStream)?
@@ -1135,6 +1152,9 @@ fn run_decoder_thread(
     // одного, заменяется программным.
     let mut video_accepted: u64 = 0;
     let mut stages = StageStats::new(info);
+    if !hw_codec_active && hw.is_none() && fallback_reason.is_some() {
+        stages.set_info(|i| i.hw_fallback = fallback_reason.take());
+    }
     // Цель последней перемотки, пока до неё не дошли кадры.
     let mut video_skip_before: Option<f64> = None;
     'main: loop {
@@ -1334,6 +1354,7 @@ fn run_decoder_thread(
                                 log::warn!(
                                     "hwaccel: {hw_label} не декодирует ({e}) — перехожу на программное декодирование"
                                 );
+                                stages.set_info(|i| i.hw_fallback = Some(format!("{}: {e}", hw_display_name(hw_label))));
                                 v_dec = VDec::Ff(d);
                                 hw = None;
                                 hw_codec_active = false;
