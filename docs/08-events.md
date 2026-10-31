@@ -250,6 +250,35 @@ that handed a gesture over also ignores its `TouchEnd`.
 velocity from `input::VelocityTracker`), `pan_axis`, `on_swipe`, `on_pinch`,
 `on_pinch_end`; panning also works with a mouse drag (`pan_mouse`).
 
+## Pen (stylus)
+
+Feature `pen` (on by default and with `wayland-dnd`): on Wayland the app binds
+`zwp_tablet_v2` on its own queue of the window's `wl_display`
+(`app/wayland_pen.rs`). A compositor that sees a tablet tool at the client sends
+native pen events instead of pointer emulation (synwm: route `Native`).
+
+```rust
+Event::Pen { phase: PenPhase, sample: PenSample }
+// PenPhase: Hover | Down | Move | Up | Leave
+// PenSample { position, pressure /*0..1*/, tilt_x, tilt_y /*deg*/,
+//             tool: PenTool::{Pen, Eraser}, barrel /*side button*/, time_ms }
+```
+
+- Delivery is like the mouse: hit-test by `position`, local coordinates (scroll,
+  `PanZoomViewport` zoom applied). The element that returns `Handled` on `Down`
+  captures the stroke and gets every `Move` and the `Up`, also outside its bounds.
+- Every `zwp_tablet_tool_v2.frame` is one sample — moves are not coalesced (a
+  handwriting canvas needs all points); redraw is still once per frame.
+- **Fallback.** If nobody takes `Down`, the stroke becomes a mouse drag
+  (`MouseMove`/`MouseDown`/`MouseUp`; with `barrel` pressed — the right
+  button), through the same code as a real mouse (focus, double click, DnD,
+  CSD). Unhandled `Hover` → `MouseMove`; `Leave` → the pointer leaves.
+  So buttons, lists and scroll areas work with the pen without any code.
+- The automaton is `input::PenTracker` (`ElementTree::handle_pen`).
+  Tests: `TestHarness::pen(phase, sample)` and `pen_stroke(&[(x, y, pressure)])`.
+- Check: `cargo run --example pen_probe` (`PEN_PROBE_FULLSCREEN=1` — full
+  screen) draws dots sized by pressure and prints events to stderr.
+
 ## EventContext
 
 Provided to `handle_event()` with utilities for side effects:

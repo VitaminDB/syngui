@@ -33,6 +33,28 @@ fn touch_start_as_mouse(
     }
 }
 
+fn is_pen_down(event: &Event) -> bool {
+    matches!(
+        event,
+        Event::Pen {
+            phase: crate::input::PenPhase::Down,
+            ..
+        }
+    )
+}
+
+/// Продолжение штриха пера — сначала захватчику.
+fn is_pen_stroke(event: &Event) -> bool {
+    use crate::input::PenPhase;
+    matches!(
+        event,
+        Event::Pen {
+            phase: PenPhase::Move | PenPhase::Up | PenPhase::Leave,
+            ..
+        }
+    )
+}
+
 impl ElementTree {
     pub fn dispatch_event_to(&mut self, id: ElementId, event: &Event) -> EventResult {
         // Событие может запустить transition (hover и т.п.) — взводим обход анимаций.
@@ -96,7 +118,15 @@ impl ElementTree {
         self.animations_armed = true;
         // TouchEnd снимает захват так же, как MouseUp: при скролле синтезиро-
         // ванного MouseUp не будет, и захватчик повис бы до следующего клика.
-        let is_release = matches!(event, Event::MouseUp { .. } | Event::TouchEnd { .. });
+        let is_release = matches!(
+            event,
+            Event::MouseUp { .. }
+                | Event::TouchEnd { .. }
+                | Event::Pen {
+                    phase: crate::input::PenPhase::Up,
+                    ..
+                }
+        );
         if matches!(event, Event::MouseDown { .. }) {
             self.press_owner = None;
         }
@@ -121,6 +151,21 @@ impl ElementTree {
             }
         }
         result
+    }
+
+    /// Отсчёт пера через автомат `tracker` (родные события или мышь, если
+    /// `Down` никто не взял; см. [`crate::input::pen`]).
+    pub fn handle_pen(
+        &mut self,
+        root_id: ElementId,
+        tracker: &mut crate::input::PenTracker,
+        phase: crate::input::PenPhase,
+        sample: crate::input::PenSample,
+    ) -> EventResult {
+        use crate::input::PenOut;
+        tracker.handle(phase, sample, &mut |out| match out {
+            PenOut::Pen(e) | PenOut::Mouse(e) => self.handle_event(root_id, e),
+        })
     }
 
     /// Палец взял элемент как мышь ([`crate::widget::Element::drags_with_touch`]).
@@ -351,6 +396,9 @@ impl ElementTree {
                         self.mouse_captor = Some(entry.element_id);
                         self.press_owner.get_or_insert(entry.element_id);
                     }
+                    if is_pen_down(event) && result.is_handled() {
+                        self.mouse_captor = Some(entry.element_id);
+                    }
                     // Жест пальцем, начатый в оверлее (прокрутка списка
                     // Dropdown), остаётся за ним и когда палец выходит за
                     // его край — как захват в `dispatch_positional`.
@@ -461,7 +509,8 @@ impl ElementTree {
                 | Event::MouseMove(_)
                 | Event::TouchMove { .. }
                 | Event::TouchEnd { .. }
-        ) {
+        ) || is_pen_stroke(event)
+        {
             if let Some(cap) = finger_captor.or(self.mouse_captor) {
                 if self.elements.contains_key(&cap) {
                     let (s, k) = self.accumulated_event_transform(cap);
@@ -532,6 +581,10 @@ impl ElementTree {
                     self.last_mousedown_element = Some(id);
                     self.mouse_captor = Some(id);
                     self.press_owner.get_or_insert(id);
+                }
+                // Перо: взявший `Down` ведёт штрих до `Up`.
+                if is_pen_down(event) {
+                    self.mouse_captor = Some(id);
                 }
                 // Захват тач-жеста: кто заклеймил TouchStart (слайдер,
                 // ScrollView), тот получает и последующие TouchMove/TouchEnd,
@@ -1154,11 +1207,13 @@ mod tests {
     type SpyLog = Arc<Mutex<Option<crate::core::Point>>>;
 
     type DblLog = Arc<Mutex<u32>>;
+    type PenLog = Arc<Mutex<Vec<(crate::input::PenPhase, crate::core::Point)>>>;
 
     struct SpyTarget {
         size: Size,
         log: SpyLog,
         dbl: DblLog,
+        pen: Option<PenLog>,
     }
 
     impl SpyTarget {
@@ -1176,10 +1231,19 @@ mod tests {
                     size,
                     log: log.clone(),
                     dbl: dbl.clone(),
+                    pen: None,
                 },
                 log,
                 dbl,
             )
+        }
+
+        /// Цель, рисующая пером: берёт `Event::Pen`, пишет фазы и точки.
+        fn with_pen(size: Size) -> (Self, SpyLog, PenLog) {
+            let (mut spy, log, _) = Self::with_double_click(size);
+            let pen: PenLog = Arc::new(Mutex::new(Vec::new()));
+            spy.pen = Some(pen.clone());
+            (spy, log, pen)
         }
     }
 
@@ -1191,6 +1255,7 @@ mod tests {
                 size: self.size,
                 log: self.log.clone(),
                 dbl: self.dbl.clone(),
+                pen: self.pen.clone(),
                 dirty_flags: DirtyFlags::LAYOUT | DirtyFlags::RENDER,
             })
         }
@@ -1212,6 +1277,7 @@ mod tests {
         size: Size,
         log: SpyLog,
         dbl: DblLog,
+        pen: Option<PenLog>,
         dirty_flags: DirtyFlags,
     }
 
@@ -1223,6 +1289,10 @@ mod tests {
         }
         fn build_display_list(&self, _list: &mut crate::render::DisplayList, _clip: Rect) {}
         fn handle_event(&mut self, event: &Event, _ctx: &mut EventContext) -> EventResult {
+            if let (Some(pen), Event::Pen { phase, sample }) = (&self.pen, event) {
+                pen.lock().unwrap().push((*phase, sample.position));
+                return EventResult::Handled;
+            }
             if let Event::MouseDown { position, .. } = event {
                 *self.log.lock().unwrap() = Some(*position);
                 return EventResult::Handled;
@@ -1586,6 +1656,53 @@ mod tests {
         let r = double_click_at(&mut tree, root_id, 300.0, 200.0);
         assert!(r.is_handled());
         assert_eq!(*table_dbl.lock().unwrap(), 1);
+    }
+
+    fn pen_at(x: f32, y: f32) -> crate::input::PenSample {
+        crate::input::PenSample::new(Point::new(x, y)).with_pressure(0.5)
+    }
+
+    /// Штрих пером: локальные координаты (через PanZoom), захват — движение
+    /// за краем цели идёт ей же, `Up` снимает захват.
+    #[test]
+    fn pen_stroke_is_captured_and_local() {
+        use crate::input::{PenPhase, PenTracker};
+        let (spy, _log, pen) = SpyTarget::with_pen(Size::new(300.0, 300.0));
+        let viewport = PanZoomViewport::new()
+            .pan(use_signal(Point::new(0.0, 0.0)))
+            .zoom(use_signal(2.0_f32))
+            .zoom_range(0.1, 10.0)
+            .child(spy);
+        let (mut tree, root, _w) = build_and_layout(Box::new(viewport));
+        let mut tr = PenTracker::new();
+        tree.handle_pen(root, &mut tr, PenPhase::Down, pen_at(100.0, 100.0));
+        assert!(tree.mouse_captor.is_some());
+        // 700 / 2 = 350 — за краем цели (300), но штрих её.
+        tree.handle_pen(root, &mut tr, PenPhase::Move, pen_at(700.0, 100.0));
+        tree.handle_pen(root, &mut tr, PenPhase::Up, pen_at(700.0, 100.0));
+        assert!(tree.mouse_captor.is_none());
+        let got = pen.lock().unwrap().clone();
+        let phases: Vec<_> = got.iter().map(|(p, _)| *p).collect();
+        assert_eq!(phases, [PenPhase::Down, PenPhase::Move, PenPhase::Up]);
+        let (_, first) = got[0];
+        assert!((first.x - 50.0).abs() < 1e-3 && (first.y - 50.0).abs() < 1e-3, "{first:?}");
+        assert!((got[1].1.x - 350.0).abs() < 1e-3, "{:?}", got[1].1);
+    }
+
+    /// Цель без пера получает штрих как мышь.
+    #[test]
+    fn pen_falls_back_to_mouse() {
+        use crate::input::{PenPhase, PenTracker};
+        let (spy, log) = SpyTarget::new(Size::new(300.0, 300.0));
+        let (mut tree, root, _w) = build_and_layout(Box::new(spy));
+        let mut tr = PenTracker::new();
+        tree.handle_pen(root, &mut tr, PenPhase::Down, pen_at(40.0, 60.0));
+        assert!(tr.is_mouse_fallback());
+        assert_eq!(*log.lock().unwrap(), Some(Point::new(40.0, 60.0)));
+        assert!(tree.mouse_captor.is_some(), "MouseDown взят — захват мыши");
+        tree.handle_pen(root, &mut tr, PenPhase::Up, pen_at(40.0, 60.0));
+        assert!(tree.mouse_captor.is_none());
+        assert!(!tr.is_down());
     }
 }
 

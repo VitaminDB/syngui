@@ -971,6 +971,10 @@ impl winit::application::ApplicationHandler<SynGuiUserEvent> for AppHandler {
             SynGuiUserEvent::WaylandDnd(ev) => {
                 self.handle_wayland_dnd(ev);
             }
+            #[cfg(all(feature = "pen", target_os = "linux"))]
+            SynGuiUserEvent::Pen(frame) => {
+                self.handle_pen_frame(event_loop, frame);
+            }
         }
     }
 }
@@ -1346,4 +1350,114 @@ impl AppHandler {
         self.a11y_dirty = true;
         self.request_redraw();
     }
+}
+
+#[cfg(all(feature = "pen", target_os = "linux"))]
+impl AppHandler {
+    /// `wl_proxy*` поверхности окна (для сопоставления с отсчётом пера).
+    fn wayland_surface_key(window: &crate::window::Window) -> Option<usize> {
+        use raw_window_handle::{HasWindowHandle, RawWindowHandle};
+        match window.winit_window().window_handle().ok()?.as_raw() {
+            RawWindowHandle::Wayland(h) => Some(h.surface.as_ptr() as usize),
+            _ => None,
+        }
+    }
+
+    /// Отсчёт пера из потока tablet-v2: в дерево окна под пером (родные
+    /// `Event::Pen`, а штрих, не взятый никем, — как мышь).
+    fn handle_pen_frame(
+        &mut self,
+        event_loop: &winit::event_loop::ActiveEventLoop,
+        frame: super::wayland_pen::PenFrame,
+    ) {
+        use crate::input::{EventResult, PenOut, PenTracker};
+        use winit::application::ApplicationHandler;
+        let main = self
+            .window
+            .as_ref()
+            .filter(|w| Self::wayland_surface_key(w) == Some(frame.surface))
+            .map(|w| w.winit_window().id());
+        if let Some(main_id) = main {
+            let Some(root_id) = self.root_id else { return };
+            // Логические пиксели поверхности → единицы дерева (с масштабом интерфейса).
+            let k = (self.system_scale_factor / self.scale_factor.max(f64::EPSILON)) as f32;
+            let mut sample = frame.sample;
+            sample.position = Point::new(sample.position.x * k, sample.position.y * k);
+            if matches!(frame.phase, crate::input::PenPhase::Down) {
+                crate::input::set_last_press(sample.position);
+            }
+            let sf = self.scale_factor;
+            let mut tracker = std::mem::take(&mut self.pen);
+            let result = tracker.handle(frame.phase, sample, &mut |out| match out {
+                PenOut::Pen(e) => self.tree.handle_event(root_id, e),
+                PenOut::Mouse(e) => {
+                    // Запасной путь — тем же кодом, что настоящая мышь
+                    // (фокус, двойной щелчок, перетаскивание, CSD).
+                    if let Some(we) = mouse_as_winit(e, sf) {
+                        self.window_event(event_loop, main_id, we);
+                    }
+                    EventResult::Handled
+                }
+            });
+            self.pen = tracker;
+            if result.is_handled() {
+                self.request_redraw();
+            }
+            self.process_virtual_keyboard_request();
+            self.process_window_requests(event_loop);
+            return;
+        }
+        // Дополнительные окна: своё дерево и свой автомат.
+        let found = self.secondary_windows.iter().find_map(|(id, sw)| {
+            (Self::wayland_surface_key(&sw.window) == Some(frame.surface)).then_some(*id)
+        });
+        let Some(id) = found else {
+            log::debug!("[wayland_pen] отсчёт для чужой поверхности {:#x}", frame.surface);
+            return;
+        };
+        let mut tracker = self.pen_secondary.remove(&id).unwrap_or_else(PenTracker::new);
+        if let Some(sw) = self.secondary_windows.get_mut(&id) {
+            let k = (sw.window.scale_factor() / sw.scale_factor.max(f64::EPSILON)) as f32;
+            let mut sample = frame.sample;
+            sample.position = Point::new(sample.position.x * k, sample.position.y * k);
+            if let Some(root_id) = sw.root_id {
+                sw.tree.handle_pen(root_id, &mut tracker, frame.phase, sample);
+            }
+            sw.window.request_redraw();
+        }
+        if tracker.is_near() {
+            self.pen_secondary.insert(id, tracker);
+        }
+    }
+}
+
+/// Событие мыши дерева → событие окна winit (физические пиксели).
+#[cfg(all(feature = "pen", target_os = "linux"))]
+fn mouse_as_winit(e: &Event, scale: f64) -> Option<winit::event::WindowEvent> {
+    use winit::event::{DeviceId, ElementState, WindowEvent};
+    let device_id = DeviceId::dummy();
+    let button = |b: crate::input::MouseButton| match b {
+        crate::input::MouseButton::Left => winit::event::MouseButton::Left,
+        crate::input::MouseButton::Right => winit::event::MouseButton::Right,
+        crate::input::MouseButton::Middle => winit::event::MouseButton::Middle,
+        _ => winit::event::MouseButton::Left,
+    };
+    Some(match e {
+        Event::MouseMove(p) if p.x < 0.0 && p.y < 0.0 => WindowEvent::CursorLeft { device_id },
+        Event::MouseMove(p) => WindowEvent::CursorMoved {
+            device_id,
+            position: winit::dpi::PhysicalPosition::new(p.x as f64 * scale, p.y as f64 * scale),
+        },
+        Event::MouseDown { button: b, .. } => WindowEvent::MouseInput {
+            device_id,
+            state: ElementState::Pressed,
+            button: button(*b),
+        },
+        Event::MouseUp { button: b, .. } => WindowEvent::MouseInput {
+            device_id,
+            state: ElementState::Released,
+            button: button(*b),
+        },
+        _ => return None,
+    })
 }

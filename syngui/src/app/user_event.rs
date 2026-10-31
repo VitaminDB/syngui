@@ -24,6 +24,9 @@ pub enum SynGuiUserEvent {
     A11yAction(accesskit::ActionRequest),
     #[cfg(feature = "wayland-dnd")]
     WaylandDnd(WaylandDndEvent),
+    /// Отсчёт пера (zwp_tablet_v2, см. `app/wayland_pen`).
+    #[cfg(all(feature = "pen", target_os = "linux"))]
+    Pen(super::wayland_pen::PenFrame),
 }
 
 #[cfg(feature = "wayland-dnd")]

@@ -208,6 +208,13 @@ pub(super) struct AppHandler {
 
     #[cfg(all(feature = "wayland-dnd", target_os = "linux"))]
     pub(super) wayland_dnd_handle: Option<std::thread::JoinHandle<()>>,
+
+    /// Поток пера (zwp_tablet_v2) и автоматы штриха: основного окна и
+    /// дополнительных (у каждого своё дерево).
+    #[cfg(all(feature = "pen", target_os = "linux"))]
+    pub(super) wayland_pen_handle: Option<std::thread::JoinHandle<()>>,
+    pub(super) pen: crate::input::PenTracker,
+    pub(super) pen_secondary: std::collections::HashMap<winit::window::WindowId, crate::input::PenTracker>,
 }
 
 pub(super) fn is_wayland_session() -> bool {
@@ -394,6 +401,10 @@ impl AppHandler {
             touch: crate::input::TouchTracker::new(),
             #[cfg(all(feature = "wayland-dnd", target_os = "linux"))]
             wayland_dnd_handle: None,
+            #[cfg(all(feature = "pen", target_os = "linux"))]
+            wayland_pen_handle: None,
+            pen: crate::input::PenTracker::new(),
+            pen_secondary: std::collections::HashMap::new(),
         }
     }
 

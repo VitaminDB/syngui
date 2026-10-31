@@ -24,6 +24,7 @@ raw-window-handle = "0.6.2"
 smithay-client-toolkit = { version = "0.19", optional = true, default-features = false }
 wayland-client = { version = "0.31", optional = true }
 wayland-backend = { version = "0.3", optional = true, features = ["client_system"] }
+wayland-protocols = { version = "0.32", optional = true, features = ["client"] }
 percent-encoding = { version = "2", optional = true }
 bytemuck = { version = "1.25.0", features = ["derive"] }
 anyhow = "1.0.102"
@@ -153,7 +154,7 @@ synoptic = { version = "2", optional = true }
 smallvec = { version = "1", optional = true }
 
 [features]
-default = ["msdf", "effects", "clipboard", "winit", "wayland-dnd", "i18n"]
+default = ["msdf", "effects", "clipboard", "winit", "wayland-dnd", "pen", "i18n"]
 
 # Windowing (winit-based window and app modules)
 winit = ["dep:winit"]
@@ -189,6 +190,15 @@ wayland-dnd = [
     "winit", "winit/wayland",
     "dep:smithay-client-toolkit", "dep:wayland-client",
     "dep:wayland-backend", "dep:percent-encoding",
+    "pen",
+]
+
+# Перо на Wayland (zwp_tablet_v2): давление, наклон, ластик, кнопка — события
+# `Event::Pen` (см. input/pen.rs). Без фичи перо приходит эмуляцией указателя
+# композитора. Включается и вместе с wayland-dnd.
+pen = [
+    "winit", "winit/wayland",
+    "dep:wayland-client", "dep:wayland-backend", "dep:wayland-protocols",
 ]
 
 # Localization: catalogs `key = "value"`, `tr!`/`trn!`, current language as a signal

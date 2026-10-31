@@ -90,6 +90,12 @@ impl AppHandler {
                     super::super::wayland_dnd::try_start_wayland_dnd(window.clone(), proxy);
             }
         }
+        #[cfg(all(feature = "pen", target_os = "linux"))]
+        if self.wayland_pen_handle.is_none() {
+            if let Some(proxy) = self.event_loop_proxy.clone() {
+                self.wayland_pen_handle = super::super::wayland_pen::try_start(&window, proxy);
+            }
+        }
 
         #[cfg(not(target_arch = "wasm32"))]
         if let Some(bytes) = self.config.window_icon_png.clone() {

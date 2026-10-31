@@ -5,6 +5,7 @@ pub mod function_keys;
 pub mod haptics;
 pub mod keyboard;
 pub mod mouse;
+pub mod pen;
 pub mod touch;
 pub mod velocity;
 
@@ -15,6 +16,7 @@ pub use function_keys::{captured_function_keys, set_captured_function_keys, Func
 pub use haptics::{haptic, set_haptic_handler, Haptic};
 pub use keyboard::*;
 pub use mouse::*;
+pub use pen::{PenOut, PenPhase, PenSample, PenTool, PenTracker};
 pub use touch::{
     is_synthesized_mouse, last_press, set_last_press, set_touch_config, touch_config, TouchConfig,
     TouchTracker,

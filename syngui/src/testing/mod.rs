@@ -18,6 +18,7 @@ pub struct TestHarness {
     /// Дерево пересобиралось — следующий кадр синхронизирует a11y.
     a11y_dirty: bool,
     touch: crate::input::TouchTracker,
+    pen: crate::input::PenTracker,
 }
 
 /// Время фаз одного кадра [`TestHarness::frame`].
@@ -65,6 +66,7 @@ impl TestHarness {
             frame_a11y: None,
             a11y_dirty: true,
             touch: crate::input::TouchTracker::new(),
+            pen: crate::input::PenTracker::new(),
         }
     }
 
@@ -74,6 +76,33 @@ impl TestHarness {
         let (tree, root) = (&mut self.tree, self.root_id);
         self.touch
             .down(id, pos, &mut |e| tree.handle_event(root, e));
+    }
+
+    /// Отсчёт пера — через тот же автомат, что у окна: родные `Event::Pen`
+    /// захватчику штриха, а если `Down` никто не взял — мышь.
+    pub fn pen(&mut self, phase: crate::input::PenPhase, sample: crate::input::PenSample) -> EventResult {
+        self.tree
+            .handle_pen(self.root_id, &mut self.pen, phase, sample)
+    }
+
+    /// Штрих пером по точкам `(x, y, давление)`: `Down`, `Move`…, `Up`.
+    pub fn pen_stroke(&mut self, points: &[(f32, f32, f32)]) {
+        use crate::input::{PenPhase, PenSample};
+        let n = points.len();
+        for (i, &(x, y, p)) in points.iter().enumerate() {
+            let phase = if i == 0 {
+                PenPhase::Down
+            } else {
+                PenPhase::Move
+            };
+            let s = PenSample::new(Point::new(x, y))
+                .with_pressure(p)
+                .with_time(i as u32 * 5);
+            self.pen(phase, s);
+            if i + 1 == n {
+                self.pen(PenPhase::Up, s.with_pressure(0.0));
+            }
+        }
     }
 
     pub fn touch_move(&mut self, id: u64, pos: Point) {

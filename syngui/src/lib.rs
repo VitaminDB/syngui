@@ -105,7 +105,7 @@ pub mod prelude {
     pub use crate::core::*;
     pub use crate::effects::Effect;
     pub use crate::gpu::Renderer;
-    pub use crate::input::{Event, EventResult, Key, Modifiers, MouseButton};
+    pub use crate::input::{Event, EventResult, Key, Modifiers, MouseButton, PenPhase, PenSample, PenTool};
     pub use crate::layout::{Constraints, Layout};
     pub use crate::mss::{
         parse_stylesheet_str, ComputedStyle, ElementState, KeyframeStep, KeyframesDefinition,

@@ -66,6 +66,12 @@ pub enum Event {
     /// возобновить плеер (`EventHook::on_resume`).
     AppResumed,
     Custom(String),
+    /// Перо (см. [`crate::input::pen`]): элемент, взявший `Down`, получает
+    /// `Move`/`Up` до конца штриха.
+    Pen {
+        phase: super::pen::PenPhase,
+        sample: super::pen::PenSample,
+    },
     DragStart {
         position: Point,
         data: DragData,
@@ -136,6 +142,13 @@ impl Event {
                 id: *id,
                 position: Point::new(position.x + dx, position.y + dy),
             },
+            Event::Pen { phase, sample } => Event::Pen {
+                phase: *phase,
+                sample: super::pen::PenSample {
+                    position: Point::new(sample.position.x + dx, sample.position.y + dy),
+                    ..*sample
+                },
+            },
             Event::DragStart { position, data } => Event::DragStart {
                 position: Point::new(position.x + dx, position.y + dy),
                 data: data.clone(),
@@ -198,6 +211,13 @@ impl Event {
                 id: *id,
                 position: map(*position),
             },
+            Event::Pen { phase, sample } => Event::Pen {
+                phase: *phase,
+                sample: super::pen::PenSample {
+                    position: map(sample.position),
+                    ..*sample
+                },
+            },
             Event::DragStart { position, data } => Event::DragStart {
                 position: map(*position),
                 data: data.clone(),
@@ -229,6 +249,7 @@ impl Event {
             Event::LongPress { position } => Some(*position),
             Event::TouchMove { position, .. } => Some(*position),
             Event::TouchEnd { position, .. } => Some(*position),
+            Event::Pen { sample, .. } => Some(sample.position),
             Event::DragStart { position, .. } => Some(*position),
             Event::DragMove { position, .. } => Some(*position),
             Event::DragEnter { position, .. } => Some(*position),

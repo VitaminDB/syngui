@@ -15,6 +15,8 @@ pub mod tray;
 pub mod user_event;
 #[cfg(all(feature = "wayland-dnd", target_os = "linux"))]
 pub(crate) mod wayland_dnd;
+#[cfg(all(feature = "pen", target_os = "linux"))]
+pub(crate) mod wayland_pen;
 
 #[cfg(target_os = "android")]
 pub mod notification;
