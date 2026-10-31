@@ -8,6 +8,7 @@ pub mod player;
 pub mod resampler;
 pub mod scaler;
 pub mod stream;
+pub mod subtitle;
 pub mod thumbnail;
 pub mod tonemap;
 #[cfg(target_os = "linux")]
@@ -19,6 +20,7 @@ pub use error::VideoError;
 pub use hwaccel::HwAccel;
 pub use player::VideoPlayer;
 pub use stream::VideoStream;
+pub use subtitle::{SubtitleSource, SubtitleStore, SubtitleStyle, SubtitleTrackInfo};
 pub use thumbnail::{thumbnail, Thumbnail};
 
 /// Уровень подробности логов libav* (уходят в stderr / logcat как

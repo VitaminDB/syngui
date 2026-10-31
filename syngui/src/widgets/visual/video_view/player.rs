@@ -154,6 +154,15 @@ pub trait MediaSource: Send + Sync + 'static {
     /// Раз в шаг тикера, из его потока: досинхронизировать то, что не
     /// удалось сразу (звук, который ещё готовился при перемотке).
     fn tick(&self) {}
+    /// Слой субтитров поверх холста (есть только у файлов).
+    fn subtitle_layer(
+        self: Arc<Self>,
+        _style: RwSignal<crate::video::SubtitleStyle>,
+        _fit: ImageFit,
+        _controls_top: super::ControlsTop,
+    ) -> Option<Box<dyn Widget>> {
+        None
+    }
 }
 
 /// Файл через ffmpeg: `VideoPlayer` с его часами и звуком.
@@ -220,6 +229,19 @@ impl MediaSource for FileSource {
 
     fn drives_position(&self) -> bool {
         true
+    }
+
+    fn subtitle_layer(
+        self: Arc<Self>,
+        style: RwSignal<crate::video::SubtitleStyle>,
+        fit: ImageFit,
+        controls_top: super::ControlsTop,
+    ) -> Option<Box<dyn Widget>> {
+        Some(Box::new(
+            super::SubtitleLayer::new(self.0.clone(), style)
+                .fit(fit)
+                .controls_top(controls_top),
+        ))
     }
 }
 
@@ -452,7 +474,13 @@ pub struct VideoPlayerView {
     ended: Option<NavFn>,
     fit: ImageFit,
     seek_step: f64,
+    subtitles: Option<RwSignal<crate::video::SubtitleStyle>>,
+    keys: Option<(Vec<Key>, KeyFn)>,
 }
+
+/// Свои клавиши владельца (см. [`VideoPlayerView::keys`]): `true` — нажатие
+/// обработано.
+pub type KeyFn = Arc<dyn Fn(Key, Modifiers) -> bool + Send + Sync>;
 
 /// Строит содержимое верхней полосы (см. [`VideoPlayerView::header`]).
 pub type HeaderFn = Arc<dyn Fn() -> Box<dyn Widget> + Send + Sync>;
@@ -475,7 +503,24 @@ impl VideoPlayerView {
             ended: None,
             fit: ImageFit::Contain,
             seek_step: BUTTON_STEP,
+            subtitles: None,
+            keys: None,
         }
+    }
+
+    /// Субтитры поверх кадра (у файлов): дорожку, сдвиг и события берёт у
+    /// плеера (`VideoPlayer::subtitles`), оформление — из `style`. Пока
+    /// видна панель управления, нижние субтитры поднимаются над ней.
+    pub fn subtitles(mut self, style: RwSignal<crate::video::SubtitleStyle>) -> Self {
+        self.subtitles = Some(style);
+        self
+    }
+
+    /// Свои клавиши владельца поверх клавиш плеера (субтитры, дорожки…):
+    /// `keys` — какие перехватывать, `f` — обработчик.
+    pub fn keys(mut self, keys: Vec<Key>, f: impl Fn(Key, Modifiers) -> bool + Send + Sync + 'static) -> Self {
+        self.keys = Some((keys, Arc::new(f)));
+        self
     }
 
     /// Файл, уже открытый в `VideoPlayer`.
@@ -639,6 +684,10 @@ struct Ctl {
     prev: Option<NavFn>,
     next: Option<NavFn>,
     on_ended: Option<NavFn>,
+    /// Верх панели управления для слоя субтитров.
+    controls_top: Option<super::ControlsTop>,
+    /// Свои клавиши владельца.
+    keys: Option<(Vec<Key>, KeyFn)>,
 }
 
 impl Ctl {
@@ -696,6 +745,8 @@ fn build(view: VideoPlayerView) -> impl Widget {
         prev: view.prev,
         next: view.next,
         on_ended: view.ended,
+        controls_top: view.subtitles.map(|_| super::controls_top_slot()),
+        keys: view.keys,
     };
     let token = Arc::new(());
     spawn_ticker(&ctl, Arc::downgrade(&token));
@@ -724,10 +775,13 @@ fn build(view: VideoPlayerView) -> impl Widget {
             .child(source.clone().canvas(ctl.pos, view_fit))
     };
 
-    let mut stage = Stack::new()
-        .fit(StackFit::Expand)
-        .child(video)
-        .child(center_badge(ctl.clone()));
+    let mut stage = Stack::new().fit(StackFit::Expand).child(video);
+    if let (Some(style), Some(slot)) = (view.subtitles, ctl.controls_top.clone()) {
+        if let Some(layer) = source.clone().subtitle_layer(style, view_fit, slot) {
+            stage = stage.child(layer);
+        }
+    }
+    stage = stage.child(center_badge(ctl.clone()));
     if ctl.prev.is_some() || ctl.next.is_some() {
         stage = stage.child(nav_layer(ctl.clone()));
     }
@@ -817,10 +871,11 @@ fn controls_layer(ctl: Ctl) -> impl Widget {
         col = col
             .child(seek_bar(ctl.clone()))
             .child(bottom_row(ctl.clone()));
-        vec![Box::new(over_controls(
-            &ctl,
-            DecoratedBox::new().class(ctl.cls("vp-controls")).child(col),
-        ))]
+        let panel = over_controls(&ctl, DecoratedBox::new().class(ctl.cls("vp-controls")).child(col));
+        vec![match ctl.controls_top.clone() {
+            Some(slot) => Box::new(super::TopProbe::new(slot, panel)),
+            None => Box::new(panel),
+        }]
     });
     Column::new()
         .main_axis_alignment(MainAxisAlignment::End)
@@ -1300,6 +1355,9 @@ impl Ctl {
     }
 
     fn handles_key(&self, key: Key) -> bool {
+        if self.keys.as_ref().is_some_and(|(k, _)| k.contains(&key)) {
+            return true;
+        }
         match key {
             Key::Space
             | Key::K
@@ -1331,6 +1389,12 @@ impl Ctl {
     }
 
     fn on_key(&self, key: Key, mods: Modifiers) -> KeyReply {
+        if let Some((keys, f)) = &self.keys {
+            if keys.contains(&key) && f(key, mods) {
+                self.wake();
+                return KeyReply::Handled;
+            }
+        }
         if mods.ctrl || mods.alt || mods.meta || !self.handles_key(key) {
             return KeyReply::Ignore;
         }

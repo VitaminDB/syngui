@@ -269,6 +269,26 @@ pub const SYMBOL_FAMILIES: &[&str] = &[
     "Symbola",
 ];
 
+/// Шрифт семейства с нужной насыщенностью и наклоном (без подмены на
+/// «похожее» семейство): переменный шрифт отдаётся тем же файлом — ось
+/// `wght` выставляет тот, кто растеризует.
+pub fn discover_styled(name: &str, weight: u16, italic: bool) -> Option<(Vec<u8>, u32)> {
+    let props = Properties {
+        weight: Weight(weight as f32),
+        style: if italic { Style::Italic } else { Style::Normal },
+        ..Properties::default()
+    };
+    try_families_individually(&[FamilyName::Title(name.to_string())], &props)
+}
+
+/// Все семейства шрифтов системы, по алфавиту.
+pub fn list_families() -> Vec<String> {
+    let mut v = SystemSource::new().all_families().unwrap_or_default();
+    v.sort_by_key(|a| a.to_lowercase());
+    v.dedup();
+    v
+}
+
 /// Шрифт одного семейства (без подмены на «похожее»).
 pub fn discover_family_font(name: &str) -> Option<(Vec<u8>, u32)> {
     try_families_individually(&[FamilyName::Title(name.to_string())], &Properties::default())

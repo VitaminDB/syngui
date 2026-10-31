@@ -117,6 +117,8 @@ pub struct VideoMeta {
     pub rotation: u32,
     /// Звуковые дорожки файла (озвучки, языки) в порядке потоков.
     pub audio_tracks: Vec<AudioStreamInfo>,
+    /// Начало ролика в шкале времени видео (`start_time` контейнера), с.
+    pub start_sec: f64,
 }
 
 /// Звуковая дорожка видеофайла — для выбора озвучки
@@ -318,6 +320,8 @@ pub struct VideoDecoder {
     filter: FilterSlot,
     /// Номер потока звучащей дорожки; `usize::MAX` — звука нет.
     audio_track: Arc<std::sync::atomic::AtomicUsize>,
+    /// Субтитры: дорожки контейнера и внешние файлы, события.
+    subtitles: Arc<super::subtitle::SubtitleStore>,
 }
 
 /// «pts ещё неизвестен» в [`VideoDecoder::audio_base_pts_sec`].
@@ -446,6 +450,16 @@ impl VideoDecoder {
         .map_err(|e| VideoError::Open(format!("{input}: {e}")))?;
 
         let meta = read_meta(&ictx)?;
+        let subtitles = Arc::new(super::subtitle::SubtitleStore::new(
+            super::subtitle::ffdec::tracks_of(&ictx),
+            meta.start_sec,
+        ));
+        let subs_thread = super::subtitle::ffdec::SubtitleDecoders::new(
+            &ictx,
+            subtitles.clone(),
+            (meta.width, meta.height),
+            Some(input),
+        );
 
         // Кадры на Surface держат выходные буферы MediaCodec (их немного):
         // очередь короче, иначе кодек остаётся без буферов и встаёт.
@@ -507,6 +521,7 @@ impl VideoDecoder {
                     &eof_thread,
                     &yuv_thread,
                     info_thread,
+                    subs_thread,
                 );
                 if let Err(e) = &r {
                     log::error!("video: поток декодера завершился с ошибкой: {e}");
@@ -527,7 +542,13 @@ impl VideoDecoder {
             info,
             filter,
             audio_track,
+            subtitles,
         })
+    }
+
+    /// Субтитры ролика (дорожки, выбор, события).
+    pub fn subtitles(&self) -> &Arc<super::subtitle::SubtitleStore> {
+        &self.subtitles
     }
 
     /// Как идёт декодирование (см. [`DecodeInfo`]).
@@ -783,7 +804,15 @@ fn read_meta(ictx: &Input) -> Result<VideoMeta, VideoError> {
         })
         .collect();
 
+    // SAFETY: контекст открыт и жив на время вызова.
+    let start_time = unsafe { (*ictx.as_ptr()).start_time };
+    let start_sec = if start_time != ffi::AV_NOPTS_VALUE && start_time > 0 {
+        start_time as f64 / AV_TIME_BASE_F64
+    } else {
+        0.0
+    };
     Ok(VideoMeta {
+        start_sec,
         audio_tracks,
         rotation,
         width: v_dec.width(),
@@ -902,6 +931,7 @@ fn run_decoder_thread(
     eof: &AtomicBool,
     yuv_frames: &AtomicBool,
     info: Arc<std::sync::Mutex<DecodeInfo>>,
+    mut subs: super::subtitle::ffdec::SubtitleDecoders,
 ) -> Result<(), VideoError> {
     let v_idx = ictx
         .streams()
@@ -1164,6 +1194,7 @@ fn run_decoder_thread(
                 Ok(DecoderCmd::Resume) => {}
                 Ok(DecoderCmd::SeekSec(t)) => {
                     perform_seek(&mut reader, &mut seek_gen, &mut v_dec, audio.as_mut(), t)?;
+                    subs.on_seek(t);
                     reset_audio_base(audio.as_mut(), audio_base);
                     stages.first_frame_pending = true;
                     video_skip_before = Some(t);
@@ -1196,6 +1227,7 @@ fn run_decoder_thread(
                 Ok(DecoderCmd::Pause) => {}
                 Ok(DecoderCmd::SeekSec(t)) => {
                     perform_seek(&mut reader, &mut seek_gen, &mut v_dec, audio.as_mut(), t)?;
+                    subs.on_seek(t);
                     reset_audio_base(audio.as_mut(), audio_base);
                     stages.first_frame_pending = true;
                     video_skip_before = Some(t);
@@ -1279,6 +1311,7 @@ fn run_decoder_thread(
                                 audio.as_mut(),
                                 t,
                             )?;
+                            subs.on_seek(t);
                             reset_audio_base(audio.as_mut(), audio_base);
                             stages.first_frame_pending = true;
                             video_skip_before = Some(t);
@@ -1373,10 +1406,14 @@ fn run_decoder_thread(
                     }
                 }
             }
-        } else if let Some(a) = audio.as_mut() {
-            if pkt_idx == a.stream_idx && a.decoder.send_packet(&packet).is_ok() {
-                drain_audio(a, audio_tx.as_ref(), tee_audio.as_ref(), audio_base);
+        } else if audio.as_ref().is_some_and(|a| a.stream_idx == pkt_idx) {
+            if let Some(a) = audio.as_mut() {
+                if a.decoder.send_packet(&packet).is_ok() {
+                    drain_audio(a, audio_tx.as_ref(), tee_audio.as_ref(), audio_base);
+                }
             }
+        } else if !subs.is_empty() {
+            subs.on_packet(&packet);
         }
     }
 

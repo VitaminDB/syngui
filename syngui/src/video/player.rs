@@ -274,6 +274,35 @@ impl VideoPlayer {
         self.seek(pos)
     }
 
+    /// Субтитры ролика: дорожки контейнера и внешние файлы, выбор, сдвиг,
+    /// события ([`super::subtitle::SubtitleStore`]). Внешние файлы рядом с
+    /// роликом подключает владелец (`add_external_near`) — плеер не знает,
+    /// локальный ли это файл.
+    pub fn subtitles(&self) -> Arc<super::subtitle::SubtitleStore> {
+        self.decoder.subtitles().clone()
+    }
+
+    /// Показывать дорожку субтитров `source` (`None` — выключить). Картинки
+    /// (PGS, VobSub) декодируются только у выбранной дорожки — для них плеер
+    /// перематывает на текущее место, чтобы субтитр появился сразу.
+    pub fn set_subtitle_track(&mut self, source: Option<&super::SubtitleSource>) -> bool {
+        let store = self.subtitles();
+        if store.selected().as_ref() == source {
+            return true;
+        }
+        if !store.select(source) {
+            return false;
+        }
+        let bitmap = source.is_some_and(|s| store.tracks().iter().any(|t| t.source == *s && t.bitmap));
+        if bitmap {
+            let pos = self.position_sec();
+            if let Err(e) = self.seek(pos) {
+                log::warn!("субтитры: перемотка после выбора дорожки: {e}");
+            }
+        }
+        true
+    }
+
     /// После перемотки на паузе ещё не показан кадр новой позиции: пока это
     /// так, `VideoView` продолжает опрашивать плеер (см. `poll_frame`).
     pub fn wants_seek_preview(&self) -> bool {

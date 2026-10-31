@@ -87,16 +87,45 @@ impl FontWeight {
 struct FontFace {
     data: Arc<[u8]>,
     face_index: u32,
+    /// Координаты осей переменного шрифта (пусто — как в файле): именованный
+    /// экземпляр, который выбрал fontconfig, или ось `wght` под насыщенность.
+    coords: Arc<[i16]>,
 }
 
 impl FontFace {
     fn new(data: Vec<u8>, face_index: u32) -> Option<Self> {
+        Self::with_weight(data, face_index, None)
+    }
+
+    /// Грань с насыщенностью `weight` у переменного шрифта: ось `wght`
+    /// выставляется по ней. fontconfig кладёт номер именованного экземпляра
+    /// в старшие 16 бит индекса — грань — младшие биты, а экземпляр
+    /// берётся, только если насыщенность не задана. Раньше все насыщенности
+    /// переменного шрифта рисовались начертанием по умолчанию (у Manrope и
+    /// Nunito — ExtraLight).
+    fn with_weight(data: Vec<u8>, raw_index: u32, weight: Option<u16>) -> Option<Self> {
         if data.is_empty() {
             return None;
         }
+        let face_index = raw_index & 0xFFFF;
+        let instance = (raw_index >> 16) as usize;
+        // Насыщенность известна — ось `wght` по ней: экземпляр от font-kit
+        // ненадёжен (все экземпляры файла для него «весят» одинаково, и на
+        // 600 он отдаёт Black). Иначе — координаты экземпляра.
+        let coords: Vec<i16> = match swash::FontRef::from_index(&data, face_index as usize) {
+            Some(f) => match weight {
+                Some(w) if f.variations().any(|v| v.tag() == swash::tag_from_bytes(b"wght")) => {
+                    f.variations().normalized_coords([("wght", w as f32)]).collect()
+                }
+                _ if instance > 0 => f.instances().nth(instance - 1).map(|i| i.normalized_coords().collect()).unwrap_or_default(),
+                _ => Vec::new(),
+            },
+            None => Vec::new(),
+        };
         Some(Self {
             data: Arc::from(data),
             face_index,
+            coords: coords.into(),
         })
     }
 
@@ -297,9 +326,9 @@ impl FontAtlas {
             log::warn!("No emoji font found — emoji will not render");
         }
         let faces = vec![
-            FontFace::new(font_data, font_face_index),
+            FontFace::with_weight(font_data, font_face_index, Some(400)),
             emoji,
-            FontFace::new(bold_font_data, bold_face_index),
+            FontFace::with_weight(bold_font_data, bold_face_index, Some(700)),
             None,
         ];
 
@@ -978,9 +1007,10 @@ impl FontAtlas {
     #[cfg(all(not(target_arch = "wasm32"), not(target_os = "android")))]
     fn discover_weight_face(&mut self, family: Option<&str>, class: u16) -> Option<u8> {
         let (data, face_index) = crate::text::font_discovery::discover_weight_font(family, class);
-        let face = FontFace::new(data, face_index)?;
-        // Тот же файл, что уже загружен (обычное/жирное) — отдельной грани нет.
-        let same = |f: &FontFace| f.face_index == face.face_index && f.data[..] == face.data[..];
+        let face = FontFace::with_weight(data, face_index, Some(class))?;
+        // Тот же файл с теми же осями, что уже загружен (обычное/жирное), —
+        // отдельной грани нет. Переменный шрифт — та же грань с другой `wght`.
+        let same = |f: &FontFace| f.face_index == face.face_index && f.coords == face.coords && f.data[..] == face.data[..];
         if self.faces.iter().flatten().any(same) {
             return None;
         }
@@ -1022,10 +1052,10 @@ impl FontAtlas {
     fn discover_font_family(&mut self, family: &str) -> Option<(u8, u8)> {
         use crate::text::font_discovery;
         let (regular, regular_face) = font_discovery::discover_font(Some(family));
-        let regular = FontFace::new(regular, regular_face)?;
+        let regular = FontFace::with_weight(regular, regular_face, Some(400))?;
         let (bold, bold_face) = font_discovery::discover_bold_font(Some(family));
         let idx_regular = self.push_face(Some(regular));
-        let idx_bold = self.push_face(FontFace::new(bold, bold_face));
+        let idx_bold = self.push_face(FontFace::with_weight(bold, bold_face, Some(700)));
         Some((idx_regular, idx_bold))
     }
 
@@ -1125,10 +1155,11 @@ impl FontAtlas {
             .builder(font_ref)
             .size(size_px as f32)
             .hint(true)
+            .normalized_coords(face.coords.iter())
             .build();
 
-        let glyph_metrics = font_ref.glyph_metrics(&[]);
-        let scale = size_px as f32 / font_ref.metrics(&[]).units_per_em as f32;
+        let glyph_metrics = font_ref.glyph_metrics(&face.coords);
+        let scale = size_px as f32 / font_ref.metrics(&face.coords).units_per_em as f32;
         let advance = glyph_metrics.advance_width(glyph_id) * scale;
 
         let (image, is_color) = {
