@@ -39,6 +39,9 @@ pub struct Chrome {
     extent: Option<(f32, f32)>,
     /// Центрировать детей по поперечной оси (колонка потока).
     center: bool,
+    /// Предел ширины контейнерного блока (цитата, выноска) — колонка
+    /// контента, как у листьев (`rows::clamp_width`).
+    max_width: Option<f32>,
     /// Публиковать свой прямоугольник как геометрию блока.
     track: Option<(BlockId, BlockRectMap)>,
 }
@@ -57,8 +60,15 @@ impl Chrome {
             fill_width: false,
             extent: None,
             center: false,
+            max_width: None,
             track: None,
         }
+    }
+
+    /// Не шире `cap` (колонка контента документа); `None` — без предела.
+    pub fn max_width(mut self, cap: Option<f32>) -> Self {
+        self.max_width = cap;
+        self
     }
 
     /// Публиковать свои границы как прямоугольник блока (ручка ⋮⋮, цель
@@ -154,6 +164,7 @@ impl Widget for Chrome {
             fill_width: self.fill_width,
             extent: self.extent,
             center: self.center,
+            max_width: self.max_width,
             track: self.track.clone(),
         })
     }
@@ -201,6 +212,7 @@ pub struct ChromeElement {
     fill_width: bool,
     extent: Option<(f32, f32)>,
     center: bool,
+    max_width: Option<f32>,
     track: Option<(BlockId, BlockRectMap)>,
 }
 
@@ -215,7 +227,8 @@ impl Element for ChromeElement {
             || self.fixed_width != w.fixed_width
             || self.fill_width != w.fill_width
             || self.extent != w.extent
-            || self.center != w.center;
+            || self.center != w.center
+            || self.max_width != w.max_width;
         self.gap = w.gap;
         self.padding = w.padding;
         self.bg = w.bg;
@@ -226,6 +239,7 @@ impl Element for ChromeElement {
         self.fill_width = w.fill_width;
         self.extent = w.extent;
         self.center = w.center;
+        self.max_width = w.max_width;
         self.track = w.track.clone();
         self.mark_dirty(DirtyFlags::RENDER);
         if layout_changed {
@@ -252,6 +266,10 @@ impl Element for ChromeElement {
             constraints.containing_block.width
         } else {
             0.0
+        };
+        let width = match (self.fixed_width, self.max_width) {
+            (None, Some(cap)) => width.min(cap),
+            _ => width,
         };
         // С детьми дерево зовёт layout с tight-размером (min == max) — его
         // принимаем (фон/полоса рисуются по bounds); без детей — паддинги.
@@ -280,6 +298,15 @@ impl Element for ChromeElement {
             return (Some(parent_width), None);
         }
         (self.fixed_width, None)
+    }
+
+    fn min_max_dimensions(&self, _parent_width: f32, _parent_height: f32) -> (Option<f32>, Option<f32>, Option<f32>, Option<f32>) {
+        // Предел ширины контейнерного блока — и для раскладки детей, и для
+        // центрирования его в колонке потока.
+        match (self.fixed_width, self.max_width) {
+            (None, Some(cap)) => (None, Some(cap), None, None),
+            _ => (None, None, None, None),
+        }
     }
 
     fn layout_hint(&self) -> LayoutHint {

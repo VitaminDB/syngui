@@ -89,6 +89,7 @@ pub fn block_widget(block: &DocBlock, env: &BuildEnv) -> Box<dyn Widget> {
             } else {
                 Box::new(
                     Chrome::new()
+                        .max_width(style.max_content_width)
                         .gap(style.child_spacing)
                         .child(row)
                         .child(children_column(children, env)),
@@ -97,6 +98,7 @@ pub fn block_widget(block: &DocBlock, env: &BuildEnv) -> Box<dyn Widget> {
         }
         BlockKind::Quote(children) => Box::new(
             Chrome::new()
+                .max_width(style.max_content_width)
                 .gap(style.child_spacing)
                 .padding(
                     style.quote_border_width + style.quote_padding_left,
@@ -114,6 +116,7 @@ pub fn block_widget(block: &DocBlock, env: &BuildEnv) -> Box<dyn Widget> {
         } => {
             let accent = attr_color(&block.attrs).unwrap_or_else(|| style.callout_color(kind));
             let mut chrome = Chrome::new()
+                .max_width(style.max_content_width)
                 .gap(style.child_spacing)
                 .padding(
                     style.callout_padding + 3.0,
