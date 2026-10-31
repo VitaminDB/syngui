@@ -171,6 +171,16 @@ pub trait FrameFilter: Send + Sync {
     /// пиксели и размер. Кадры приходят по порядку; новая перемотка видна по
     /// `seek_generation`.
     fn apply(&self, frame: &mut VideoFrame);
+
+    /// Кадров на выходе может быть больше, чем на входе (интерполяция
+    /// кадров): отдать их по порядку через `emit` — промежуточные с pts между
+    /// прошлым кадром и этим, затем сам кадр. Придерживать кадры не нужно:
+    /// промежуточные строятся между уже показанным и новым. По умолчанию —
+    /// [`FrameFilter::apply`] и один кадр.
+    fn process(&self, mut frame: VideoFrame, emit: &mut dyn FnMut(VideoFrame)) {
+        self.apply(&mut frame);
+        emit(frame);
+    }
 }
 
 type FilterSlot = Arc<std::sync::Mutex<Option<Arc<dyn FrameFilter>>>>;
@@ -215,15 +225,20 @@ impl VideoSink {
                 thread::Builder::new()
                     .name("syngui-video-filter".into())
                     .spawn(move || {
-                        while let Ok(mut f) = srx.recv() {
+                        while let Ok(f) = srx.recv() {
                             let current = f.seek_generation >= generation.load(Ordering::Acquire);
                             let flt = filter.lock().ok().and_then(|g| g.clone());
-                            if let (Some(flt), true) = (flt, current && !f.rgba.is_empty()) {
-                                flt.apply(&mut f);
+                            let mut closed = false;
+                            match (flt, current && !f.rgba.is_empty()) {
+                                (Some(flt), true) => flt.process(f, &mut |o| {
+                                    if !closed && tx.send(o).is_err() {
+                                        closed = true;
+                                    }
+                                }),
+                                _ => closed = tx.send(f).is_err(),
                             }
-                            let sent = tx.send(f);
                             pending.fetch_sub(1, Ordering::AcqRel);
-                            if sent.is_err() {
+                            if closed {
                                 break;
                             }
                         }
