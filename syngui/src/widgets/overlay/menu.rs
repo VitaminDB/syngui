@@ -175,9 +175,9 @@ impl Default for PopupMenu {
     }
 }
 
-impl Widget for PopupMenu {
-    fn create_element(&self) -> Box<dyn Element> {
-        Box::new(PopupMenuElement {
+impl PopupMenu {
+    fn build_element(&self) -> PopupMenuElement {
+        PopupMenuElement {
             id: ElementId::new(),
             items: self.items.clone(),
             position: self.position,
@@ -201,7 +201,13 @@ impl Widget for PopupMenu {
             mss_popup_arrow: None,
             text_measure: RefCell::new(None),
             level_widths: RefCell::new(Vec::new()),
-        })
+        }
+    }
+}
+
+impl Widget for PopupMenu {
+    fn create_element(&self) -> Box<dyn Element> {
+        Box::new(self.build_element())
     }
 
     fn can_update(&self, other: &dyn Any) -> bool {
@@ -259,7 +265,9 @@ struct PopupMenuElement {
     mss_popup_hover_fg: Option<Color>,
     mss_popup_arrow: Option<Color>,
     text_measure: RefCell<Option<Arc<dyn crate::widget::context::TextMeasure>>>,
-    level_widths: RefCell<Vec<f32>>,
+    /// Ширина уровня вместе с путём к нему (`open_path[..level]`): другой
+    /// родитель — другие пункты, кэш такого уровня не годится.
+    level_widths: RefCell<Vec<(Vec<usize>, f32)>>,
 }
 
 impl PopupMenuElement {
@@ -317,10 +325,13 @@ impl PopupMenuElement {
     }
 
     fn level_width(&self, level: usize) -> f32 {
+        let prefix = &self.open_path[..level.min(self.open_path.len())];
         {
             let widths = self.level_widths.borrow();
-            if let Some(&w) = widths.get(level) {
-                return w;
+            if let Some((p, w)) = widths.get(level) {
+                if p.as_slice() == prefix && *w > 0.0 {
+                    return *w;
+                }
             }
         }
         let items = self.items_at_level(level);
@@ -332,9 +343,9 @@ impl PopupMenuElement {
         let w = max_item_w.max(self.min_width).ceil();
         let mut widths = self.level_widths.borrow_mut();
         if widths.len() <= level {
-            widths.resize(level + 1, 0.0);
+            widths.resize(level + 1, (Vec::new(), 0.0));
         }
-        widths[level] = w;
+        widths[level] = (prefix.to_vec(), w);
         w
     }
 
@@ -1060,5 +1071,34 @@ impl StyledElement for PopupMenuElement {
     fn set_classes(&mut self, classes: Vec<String>) {
         self.classes = classes;
         self.mark_dirty(DirtyFlags::RENDER);
+    }
+}
+
+#[cfg(test)]
+mod level_width_tests {
+    use super::*;
+
+    fn leaf(id: &str, label: &str) -> MenuItem {
+        MenuItem::new(id, label)
+    }
+
+    /// Подменю, открытое после другого, получает свою ширину, а не ширину
+    /// прежнего подменю того же уровня (было: «Панели» шириной «Пометок»).
+    #[test]
+    fn submenu_width_follows_open_parent() {
+        let short = MenuItem::new("a", "Короткое").children(vec![leaf("a1", "x")]);
+        let long = MenuItem::new("b", "Длинное").children(vec![leaf(
+            "b1",
+            "Панель «Зависимости» (дерево библиотек, импорты, открыть библиотеку)",
+        )]);
+        let el = PopupMenu::new().items(vec![short, long]).build_element();
+        let mut el = el;
+        el.open_path = vec![0, 0];
+        let w_short = el.level_width(1);
+        el.open_path = vec![1, 0];
+        let w_long = el.level_width(1);
+        assert!(w_long > w_short + 100.0, "{w_short} -> {w_long}");
+        el.open_path = vec![0, 0];
+        assert_eq!(el.level_width(1), w_short);
     }
 }
