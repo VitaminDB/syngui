@@ -815,7 +815,7 @@ impl Batcher {
             } => {
                 self.ensure_batch_rect(ShaderType::Image, Some(*texture_id), *clip_rect, *rect);
                 let color_array = self.apply_opacity(color.to_array());
-                let [p0, p1, p2, p3] = self.transform_quad([
+                let mut quad = self.transform_quad([
                     [rect.origin.x, rect.origin.y],
                     [rect.origin.x + rect.size.width, rect.origin.y],
                     [
@@ -824,6 +824,18 @@ impl Batcher {
                     ],
                     [rect.origin.x, rect.origin.y + rect.size.height],
                 ]);
+                // Без поворота края картинки — по пикселям устройства: на дробной
+                // позиции (текст выше дал высоту 17,3 px) выборка смешивает соседние
+                // texel'ы, и картинка 1:1 (узор в пиксель, мелкий текст) мылится.
+                let t = &self.current_transform;
+                if t.m12 == 0.0 && t.m21 == 0.0 && self.scale_factor > 0.0 {
+                    let sf = self.scale_factor;
+                    for p in &mut quad {
+                        p[0] = (p[0] * sf).round() / sf;
+                        p[1] = (p[1] * sf).round() / sf;
+                    }
+                }
+                let [p0, p1, p2, p3] = quad;
                 let data = [2.0, 0.0, 0.0, 0.0];
                 use crate::render::Vertex;
                 let state = self.current_batch_mut();
