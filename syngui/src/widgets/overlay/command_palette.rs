@@ -10,9 +10,14 @@
 //!     .build()
 //! ```
 //!
-//! Классы MSS: `palette`, `palette-field`, `palette-list`, `palette-item`
-//! (+ `selected`), `palette-item-title`, `palette-item-category`,
-//! `palette-item-shortcut`, `palette-empty`.
+//! Та же палитра — выбор из списка (`choose`): заголовок окна (`title`), значки и
+//! пояснения второй строкой у пунктов (`PaletteCommand::icon`, `description`),
+//! группы-секции по категории (`grouped`), закрытие без выбора (`on_dismiss`).
+//!
+//! Классы MSS: `palette`, `palette-title`, `palette-field`, `palette-list`,
+//! `palette-item` (+ `selected`, `rich` — с пояснением), `palette-item-title`,
+//! `palette-item-desc`, `palette-item-icon-wrap`, `palette-item-icon`,
+//! `palette-item-category`, `palette-item-shortcut`, `palette-group`, `palette-empty`.
 
 use std::sync::Arc;
 
@@ -35,6 +40,10 @@ pub struct PaletteCommand {
     pub shortcut: String,
     /// Доп. слова для поиска (синонимы), не показываются.
     pub keywords: String,
+    /// Значок слева (символ шрифта значков); пусто — без значка.
+    pub icon: String,
+    /// Пояснение второй строкой (тоже ищется).
+    pub description: String,
 }
 
 impl PaletteCommand {
@@ -54,6 +63,16 @@ impl PaletteCommand {
 
     pub fn keywords(mut self, k: impl Into<String>) -> Self {
         self.keywords = k.into();
+        self
+    }
+
+    pub fn icon(mut self, i: impl Into<String>) -> Self {
+        self.icon = i.into();
+        self
+    }
+
+    pub fn description(mut self, d: impl Into<String>) -> Self {
+        self.description = d.into();
         self
     }
 }
@@ -78,6 +97,7 @@ pub fn filter_commands(commands: &[PaletteCommand], query: &str) -> Vec<PaletteH
             let fields = [
                 fuzzy::SearchField::new(&c.category, fuzzy::SUBTITLE_BONUS),
                 fuzzy::SearchField::new(&c.keywords, 0),
+                fuzzy::SearchField::new(&c.description, 0),
                 fuzzy::SearchField::new(&c.id, 0),
             ];
             let m = fuzzy::score(&c.title, &fuzzy::normalize(&c.title), &fields, &plan)?;
@@ -90,14 +110,19 @@ pub fn filter_commands(commands: &[PaletteCommand], query: &str) -> Vec<PaletteH
 
 type CommandsFn = Arc<dyn Fn() -> Vec<PaletteCommand> + Send + Sync>;
 type RunFn = Arc<dyn Fn(&str) + Send + Sync>;
+type DismissFn = Arc<dyn Fn() + Send + Sync>;
 
 pub struct CommandPalette {
     open: RwSignal<bool>,
     commands: CommandsFn,
     on_run: RunFn,
+    on_dismiss: Option<DismissFn>,
     placeholder: String,
+    title: String,
+    grouped: bool,
     width: f32,
     visible_rows: usize,
+    margin_top: f32,
 }
 
 impl CommandPalette {
@@ -106,10 +131,39 @@ impl CommandPalette {
             open,
             commands: Arc::new(Vec::new),
             on_run: Arc::new(|_| {}),
+            on_dismiss: None,
             placeholder: "Введите команду…".into(),
+            title: String::new(),
+            grouped: false,
             width: 600.0,
             visible_rows: 12,
+            margin_top: 64.0,
         }
+    }
+
+    /// Закрыта без выбора (Esc, клик мимо).
+    pub fn on_dismiss(mut self, f: impl Fn() + Send + Sync + 'static) -> Self {
+        self.on_dismiss = Some(Arc::new(f));
+        self
+    }
+
+    /// Заголовок над полем ввода (выбор из списка: «Экспорт декомпиляции»).
+    pub fn title(mut self, t: impl Into<String>) -> Self {
+        self.title = t.into();
+        self
+    }
+
+    /// Категории — секциями с подзаголовком (пока запрос пуст), а не приставкой
+    /// «Категория:» у каждого пункта.
+    pub fn grouped(mut self, on: bool) -> Self {
+        self.grouped = on;
+        self
+    }
+
+    /// Отступ окна от верхнего края.
+    pub fn margin_top(mut self, px: f32) -> Self {
+        self.margin_top = px;
+        self
     }
 
     /// Список команд; зовётся при каждом открытии (может зависеть от состояния).
@@ -148,6 +202,16 @@ impl CommandPalette {
         let on_run = self.on_run.clone();
         let rows = self.visible_rows;
         let placeholder = self.placeholder.clone();
+        let grouped = self.grouped;
+        let on_dismiss = self.on_dismiss.clone();
+        let dismiss = Arc::new(move || {
+            if open.get_untracked() {
+                open.set(false);
+                if let Some(f) = &on_dismiss {
+                    f();
+                }
+            }
+        });
 
         let run = {
             let on_run = on_run.clone();
@@ -160,7 +224,9 @@ impl CommandPalette {
 
         let field = {
             let run = run.clone();
+            let dismiss = dismiss.clone();
             move || {
+                let dismiss = dismiss.clone();
                 // пересоздаётся при каждом открытии: пустое поле в фокусе, свежий список
                 if open.get() {
                     snapshot.set_always(commands());
@@ -180,7 +246,7 @@ impl CommandPalette {
                             run(h.command.id.clone());
                         }
                     })
-                    .on_escape(move || open.set(false))
+                    .on_escape(move || dismiss())
                     .class("palette-field")
             }
         };
@@ -195,28 +261,52 @@ impl CommandPalette {
                 }
                 // окно из `rows` строк, в котором виден выбранный пункт
                 let start = sel.saturating_sub(rows - 1).min(items.len().saturating_sub(rows));
+                // секции — только без запроса (с запросом порядок по совпадению)
+                let sections = grouped && query.get().trim().is_empty();
                 let mut col = Column::new().gap(0.0).cross_axis_alignment(CrossAxisAlignment::Stretch);
+                let mut last_group: Option<String> = None;
                 for (i, hit) in items.iter().enumerate().skip(start).take(rows) {
                     let c = &hit.command;
-                    let mut row = Row::new().gap(8.0).cross_axis_alignment(CrossAxisAlignment::Center);
-                    if !c.category.is_empty() {
+                    if sections && !c.category.is_empty() && last_group.as_deref() != Some(c.category.as_str()) {
+                        col = col.child(Text::new(c.category.clone()).class("palette-group"));
+                    }
+                    last_group = Some(c.category.clone());
+                    let mut row = Row::new().gap(10.0).cross_axis_alignment(CrossAxisAlignment::Center);
+                    if !c.icon.is_empty() {
+                        row = row.child(DecoratedBox::new().class("palette-item-icon-wrap").child(crate::widgets::Icon::new(c.icon.clone()).class("palette-item-icon")));
+                    }
+                    if !c.category.is_empty() && !grouped {
                         row = row.child(Text::new(format!("{}:", c.category)).class("palette-item-category"));
                     }
                     let mut title = Row::new().gap(0.0);
                     for (seg, matched) in fuzzy::split_highlight(&c.title, &hit.ranges) {
-                        title = title.child(Text::new(seg).class(if matched { "palette-item-title match" } else { "palette-item-title" }));
+                        title = title.child(Text::new(seg).max_lines(1).class(if matched { "palette-item-title match" } else { "palette-item-title" }));
                     }
-                    row = row.child(DecoratedBox::new().class("palette-item-title-wrap").child(title));
+                    let body: Box<dyn Widget> = if c.description.is_empty() {
+                        Box::new(title)
+                    } else {
+                        Box::new(
+                            Column::new()
+                                .gap(2.0)
+                                .cross_axis_alignment(CrossAxisAlignment::Stretch)
+                                .child(title)
+                                .child(Text::new(c.description.clone()).max_lines(2).class("palette-item-desc")),
+                        )
+                    };
+                    row = row.child(DecoratedBox::new().class("palette-item-title-wrap").child(body));
                     if !c.shortcut.is_empty() {
                         row = row.child(Text::new(&c.shortcut).class("palette-item-shortcut"));
                     }
                     let id = c.id.clone();
                     let run = run.clone();
-                    col = col.child(
-                        GestureDetector::new()
-                            .on_click(move || run(id.clone()))
-                            .child(DecoratedBox::new().class(if i == sel { "palette-item selected" } else { "palette-item" }).child(row)),
-                    );
+                    let rich = !c.description.is_empty() || !c.icon.is_empty() && grouped;
+                    let class = match (i == sel, rich) {
+                        (true, true) => "palette-item rich selected",
+                        (true, false) => "palette-item selected",
+                        (false, true) => "palette-item rich",
+                        (false, false) => "palette-item",
+                    };
+                    col = col.child(GestureDetector::new().on_click(move || run(id.clone())).child(DecoratedBox::new().class(class).child(row)));
                 }
                 vec![Box::new(col)]
             })
@@ -235,13 +325,13 @@ impl CommandPalette {
                 KeyReply::Handled
             })
             .child(
-                DecoratedBox::new().class("palette").child(
-                    Column::new()
-                        .gap(6.0)
-                        .cross_axis_alignment(CrossAxisAlignment::Stretch)
-                        .child(field)
-                        .child(DecoratedBox::new().class("palette-list").child(list)),
-                ),
+                DecoratedBox::new().class("palette").child({
+                    let mut c = Column::new().gap(6.0).cross_axis_alignment(CrossAxisAlignment::Stretch);
+                    if !self.title.is_empty() {
+                        c = c.child(Text::new(self.title.clone()).class("palette-title"));
+                    }
+                    c.child(field).child(DecoratedBox::new().class("palette-list").child(list))
+                }),
             );
 
         Portal::new()
@@ -249,10 +339,10 @@ impl CommandPalette {
             .modal(true)
             .backdrop(true)
             .backdrop_color(crate::core::Color::new(0.0, 0.0, 0.0, 0.25))
-            .anchor(PortalAnchor::TopCenter { margin_top: 64.0 })
+            .anchor(PortalAnchor::TopCenter { margin_top: self.margin_top })
             .close_on_outside_click(true)
             .width(self.width)
-            .on_close(move || open.set(false))
+            .on_close(move || dismiss())
             .child(keys)
     }
 }
@@ -275,5 +365,11 @@ mod tests {
         // не та раскладка
         assert_eq!(filter_commands(&cmds, "jnrh")[0].command.id, "b");
         assert_eq!(filter_commands(&cmds, "откр")[0].ranges, vec![(0, 4)]);
+        // поиск по пояснению
+        let cmds = vec![
+            PaletteCommand::new("x", "Один файл").description("для чтения: .c и .h"),
+            PaletteCommand::new("y", "Проект исходников").description("модули, заголовки, Makefile"),
+        ];
+        assert_eq!(filter_commands(&cmds, "makefile")[0].command.id, "y");
     }
 }

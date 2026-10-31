@@ -34,6 +34,55 @@
     background-color: var(--primary-soft, #4F8CFF26);
 }
 
+/* пункт с пояснением второй строкой / значком (выбор из списка) */
+.palette-item.rich {
+    height: auto;
+    min-height: 44px;
+    padding: 7px 10px;
+}
+
+.palette-item-icon-wrap {
+    width: 30px;
+    height: 30px;
+    border-radius: 8px;
+    background-color: var(--surface-2, #FFFFFF0D);
+    align-items: center;
+    justify-content: center;
+}
+
+.palette-item.selected .palette-item-icon-wrap {
+    background-color: var(--primary-soft, #4F8CFF33);
+}
+
+.palette-item-icon {
+    font-size: 17px;
+    color: var(--text-muted, #8C96A8);
+}
+
+.palette-item.selected .palette-item-icon {
+    color: var(--primary, #4F8CFF);
+}
+
+.palette-item-desc {
+    font-size: 11.5px;
+    color: var(--text-muted, #8C96A8);
+}
+
+.palette-title {
+    padding: 4px 6px 2px 6px;
+    font-size: 14px;
+    font-weight: 600;
+    color: var(--text, #DCE1EA);
+}
+
+.palette-group {
+    padding: 10px 10px 4px 10px;
+    font-size: 10.5px;
+    font-weight: 600;
+    letter-spacing: 0.6px;
+    color: var(--text-subtle, #5D6779);
+}
+
 .palette-item-title-wrap {
     flex-grow: 1;
 }
