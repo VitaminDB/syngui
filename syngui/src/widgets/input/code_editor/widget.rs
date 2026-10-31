@@ -15,6 +15,10 @@ pub enum EditorCommand {
     Cut,
     Paste,
     SelectAll,
+    Undo,
+    Redo,
+    /// Удалить выделенный текст (без копирования в буфер обмена).
+    Delete,
     Reload(String),
     /// Поставить каретку на `line:col` (с нуля, `col` в символах; за
     /// пределами — к ближайшей позиции), снять выделение и прокрутить так,
@@ -88,6 +92,8 @@ pub struct CodeEditor {
     pub(crate) on_hover: Option<Arc<Mutex<dyn FnMut(usize, usize) + Send>>>,
     pub(crate) on_goto: Option<Arc<Mutex<dyn FnMut(usize, usize) + Send>>>,
     pub(crate) key_hook: Option<EditorKeyHook>,
+    pub(crate) breakpoints: Vec<usize>,
+    pub(crate) on_gutter_click: Option<Arc<Mutex<dyn FnMut(usize) + Send>>>,
 }
 
 impl CodeEditor {
@@ -119,6 +125,8 @@ impl CodeEditor {
             on_hover: None,
             on_goto: None,
             key_hook: None,
+            breakpoints: Vec::new(),
+            on_gutter_click: None,
         }
     }
 
@@ -204,6 +212,20 @@ impl CodeEditor {
     /// текущая инструкция отладчика, точки останова, ошибки.
     pub fn line_marks(mut self, marks: Vec<(usize, crate::core::Color)>) -> Self {
         self.line_marks = marks;
+        self
+    }
+
+    /// Точки останова (номера строк с нуля): красный кружок на полях номеров.
+    pub fn breakpoints(mut self, lines: Vec<usize>) -> Self {
+        self.breakpoints = lines;
+        self
+    }
+
+    /// Щелчок левой кнопкой по полю номеров строк (номер строки с нуля) —
+    /// обычно «поставить/снять точку останова». Без обработчика щелчок по
+    /// полю ставит каретку, как раньше.
+    pub fn on_gutter_click(mut self, f: impl FnMut(usize) + Send + 'static) -> Self {
+        self.on_gutter_click = Some(Arc::new(Mutex::new(f)));
         self
     }
 

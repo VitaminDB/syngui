@@ -70,6 +70,8 @@ pub struct CodeEditorElement {
     language: Option<Language>,
     custom_highlighter: Option<std::sync::Arc<dyn LineHighlighter>>,
     line_marks: Vec<(usize, Color)>,
+    breakpoints: Vec<usize>,
+    on_gutter_click: Option<Arc<Mutex<dyn FnMut(usize) + Send>>>,
     /// Строка, к которой уже прокручено, и ожидающая прокрутка.
     revealed: Option<usize>,
     pending_reveal: Option<usize>,
@@ -181,6 +183,8 @@ impl CodeEditorElement {
             language: widget.language,
             custom_highlighter: widget.highlighter.clone(),
             line_marks: widget.line_marks.clone(),
+            breakpoints: widget.breakpoints.clone(),
+            on_gutter_click: widget.on_gutter_click.clone(),
             revealed: widget.reveal_line,
             pending_reveal: widget.reveal_line,
 
@@ -701,6 +705,27 @@ impl CodeEditorElement {
             }
             C::SelectAll => {
                 self.select_all();
+            }
+            C::Undo => {
+                if !self.read_only {
+                    self.undo();
+                    self.ensure_cursor_visible();
+                }
+            }
+            C::Redo => {
+                if !self.read_only {
+                    self.redo();
+                    self.ensure_cursor_visible();
+                }
+            }
+            C::Delete => {
+                if self.read_only {
+                    return;
+                }
+                self.undo.commit_group();
+                self.apply_per_cursor(|c| c.selection_range().map(|r| Edit::replace(r, "")));
+                self.undo.commit_group();
+                self.ensure_cursor_visible();
             }
             C::Reload(new_text) => {
                 self.apply_external_reload(new_text);
@@ -1276,6 +1301,11 @@ impl Element for CodeEditorElement {
                 self.line_marks = w.line_marks.clone();
                 self.mark_dirty(DirtyFlags::RENDER);
             }
+            if self.breakpoints != w.breakpoints {
+                self.breakpoints = w.breakpoints.clone();
+                self.mark_dirty(DirtyFlags::RENDER);
+            }
+            self.on_gutter_click = w.on_gutter_click.clone();
             if w.reveal_line != self.revealed {
                 self.revealed = w.reveal_line;
                 self.pending_reveal = w.reveal_line;
@@ -1488,7 +1518,12 @@ impl Element for CodeEditorElement {
                     &self.mss,
                 );
             }
-            if seg_start_char == 0 && !diags.is_empty() {
+            let bp = seg_start_char == 0 && self.show_line_numbers && self.breakpoints.contains(&logical);
+            if bp {
+                let d = (line_height - 6.0).clamp(6.0, 11.0);
+                let r = Rect::new(Point::new(self.bounds.x() + 4.0, y + (line_height - d) / 2.0), Size::new(d, d));
+                list.push_rect(r, Color::new(0.90, 0.25, 0.25, 1.0), [d / 2.0; 4]);
+            } else if seg_start_char == 0 && !diags.is_empty() {
                 self.paint_diag_gutter(list, &diags, logical, y);
             }
         }
@@ -1957,6 +1992,17 @@ impl Element for CodeEditorElement {
                         return EventResult::Captured;
                     }
 
+                    // щелчок по полю номеров — приложению (точка останова)
+                    if self.show_line_numbers && position.x < self.bounds.x() + self.gutter_w() {
+                        if let Some(cb) = self.on_gutter_click.clone() {
+                            let line = self.buffer.byte_to_line(self.click_to_cursor(*position));
+                            if let Ok(mut f) = cb.lock() {
+                                f(line);
+                            }
+                            ctx.request_paint();
+                            return EventResult::Handled;
+                        }
+                    }
                     self.focused = true;
                     let new_pos = self.click_to_cursor(*position);
                     let alt = ctx.modifiers.alt;
@@ -2868,4 +2914,26 @@ mod tests {
         assert!(sig.get_untracked().is_none());
     }
 
+
+    #[test]
+    fn gutter_click_and_menu_commands() {
+        let got = Arc::new(StdMutex::new(Vec::new()));
+        let g2 = got.clone();
+        let ed = CodeEditor::new().text("one\ntwo\nthree").breakpoints(vec![1]).on_gutter_click(move |l| g2.lock().unwrap().push(l));
+        let mut el = laid_out(&ed);
+        // щелчок по полю номеров третьей строки — обработчику, каретка на месте
+        let p = Point::new(el.bounds.x() + 10.0, el.bounds.y() + el.line_height() * 2.5);
+        assert_eq!(send(&mut el, Event::MouseDown { button: MouseButton::Left, position: p }), EventResult::Handled);
+        assert_eq!(*got.lock().unwrap(), vec![2]);
+        assert_eq!(el.cursors.primary().pos, 0);
+
+        // «Удалить» выделения, «Отменить», «Повторить» — командами (контекстное меню)
+        el.process_command(EditorCommand::SelectAll);
+        el.process_command(EditorCommand::Delete);
+        assert_eq!(el.text_snapshot, "");
+        el.process_command(EditorCommand::Undo);
+        assert_eq!(el.text_snapshot, "one\ntwo\nthree");
+        el.process_command(EditorCommand::Redo);
+        assert_eq!(el.text_snapshot, "");
+    }
 }
