@@ -133,7 +133,12 @@ impl Window {
             .with_title(builder.title)
             .with_visible(builder.visible);
 
-        #[cfg(not(target_os = "android"))]
+        // iOS: winit делает UIWindow ровно заданного размера — окно приложения
+        // iPhone всегда на весь экран, поэтому размер не задаётся.
+        #[cfg(target_os = "ios")]
+        let attributes = attributes.with_transparent(builder.transparent);
+
+        #[cfg(not(any(target_os = "android", target_os = "ios")))]
         let attributes = attributes
             .with_inner_size(winit::dpi::LogicalSize::new(builder.width, builder.height))
             .with_min_inner_size(winit::dpi::LogicalSize::new(

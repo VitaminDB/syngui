@@ -120,25 +120,79 @@ pub fn discover_emoji_font() -> (Vec<u8>, u32) {
     (Vec::new(), 0)
 }
 
+#[cfg(not(target_os = "ios"))]
 fn load_font_bytes(families: &[FamilyName], props: &Properties) -> Option<(Vec<u8>, u32)> {
     let source = SystemSource::new();
     let handle = source.select_best_match(families, props).ok()?;
     handle_to_bytes(handle)
 }
 
+/// iOS: `select_best_match` font-kit читает у каждого начертания признаки
+/// CoreText (`Font::properties`), а у части системных шрифтов iOS 26 нет
+/// наклона — `core-text` падает на `unwrap()`. Здесь семейство только
+/// перечисляется (`select_family_by_name` даёт байты файлов), вес и наклон
+/// читаются из самого шрифта (swash). Паника в font-kit/core-text не роняет
+/// приложение: шрифт просто считается ненайденным.
+#[cfg(target_os = "ios")]
+fn load_font_bytes(families: &[FamilyName], props: &Properties) -> Option<(Vec<u8>, u32)> {
+    let families = families.to_vec();
+    let props = *props;
+    std::panic::catch_unwind(move || ios_best_match(&families, &props))
+        .unwrap_or_else(|_| {
+            log::warn!("[font_discovery] подбор шрифта CoreText упал — шрифт пропущен");
+            None
+        })
+}
+
+#[cfg(target_os = "ios")]
+fn ios_best_match(families: &[FamilyName], props: &Properties) -> Option<(Vec<u8>, u32)> {
+    let source = SystemSource::new();
+    let target = props.weight.0;
+    let want_italic = props.style != Style::Normal;
+    for family in families {
+        let name = match family {
+            FamilyName::Title(n) => n.as_str(),
+            FamilyName::SansSerif => "Helvetica Neue",
+            FamilyName::Serif => "Times New Roman",
+            FamilyName::Monospace => "Menlo",
+            _ => continue,
+        };
+        let Ok(handles) = source.select_family_by_name(name) else {
+            continue;
+        };
+        let mut best: Option<(f32, &Handle)> = None;
+        for handle in handles.fonts() {
+            let Handle::Memory { bytes, font_index } = handle else {
+                continue;
+            };
+            let Some(font) = swash::FontRef::from_index(bytes, *font_index as usize) else {
+                continue;
+            };
+            let attrs = font.attributes();
+            let weight = attrs.weight().0 as f32;
+            let italic = attrs.style() != swash::Style::Normal;
+            // CSS-подбор упрощённо: сначала наклон, потом ближайший вес; при
+            // равенстве для жирных целей — тяжелее, для обычных — легче.
+            let lean = if (weight > target) == (target >= 500.0) { 0.0 } else { 0.5 };
+            let score = if italic != want_italic { 10_000.0 } else { 0.0 } + (weight - target).abs() + lean;
+            if best.is_none_or(|(b, _)| score < b) {
+                best = Some((score, handle));
+            }
+        }
+        if let Some((_, handle)) = best {
+            return handle_to_bytes(handle.clone());
+        }
+    }
+    None
+}
+
 fn try_families_individually(
     families: &[FamilyName],
     props: &Properties,
 ) -> Option<(Vec<u8>, u32)> {
-    let source = SystemSource::new();
-    for family in families {
-        if let Ok(handle) = source.select_best_match(std::slice::from_ref(family), props) {
-            if let Some(result) = handle_to_bytes(handle) {
-                return Some(result);
-            }
-        }
-    }
-    None
+    families
+        .iter()
+        .find_map(|family| load_font_bytes(std::slice::from_ref(family), props))
 }
 
 fn handle_to_bytes(handle: Handle) -> Option<(Vec<u8>, u32)> {
@@ -156,6 +210,11 @@ pub fn list_monospace_families() -> &'static [String] {
     static CACHE: OnceLock<Vec<String>> = OnceLock::new();
     CACHE
         .get_or_init(|| {
+            // iOS: перебор всех семейств через select_best_match упирается в
+            // ту же поломку признаков CoreText, что и load_font_bytes.
+            if cfg!(target_os = "ios") {
+                return Vec::new();
+            }
             let source = SystemSource::new();
             let all = match source.all_families() {
                 Ok(v) => v,
