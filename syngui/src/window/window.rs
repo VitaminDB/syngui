@@ -189,6 +189,15 @@ impl Window {
             inner.set_fullscreen(Some(winit::window::Fullscreen::Borderless(None)));
         }
 
+        // iOS: окно и так на весь экран; полноэкранный режим приложения — это
+        // ещё и скрытая строка состояния, а полоска «домой» гаснет, пока её не трогают.
+        #[cfg(target_os = "ios")]
+        if builder.fullscreen {
+            use winit::platform::ios::WindowExtIOS;
+            inner.set_prefers_status_bar_hidden(true);
+            inner.set_prefers_home_indicator_hidden(true);
+        }
+
         #[cfg(target_arch = "wasm32")]
         {
             let canvas = inner.canvas().expect("Failed to get canvas");
