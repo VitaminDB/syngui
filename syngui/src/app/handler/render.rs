@@ -556,6 +556,8 @@ impl AppHandler {
             if let Some(ref debug) = self.debug_overlay {
                 debug.build_display_list(&mut self.display_list);
             }
+            #[cfg(not(target_os = "android"))]
+            super::super::back_exit::draw(&mut self.display_list);
 
             if let Some(ref mut devtools) = self.devtools {
                 if devtools.is_enabled() {
@@ -965,7 +967,8 @@ impl AppHandler {
         }
 
         let needs_continuous = self.debug_overlay.is_some()
-            || self.devtools.as_ref().map_or(false, |d| d.is_enabled());
+            || self.devtools.as_ref().map_or(false, |d| d.is_enabled())
+            || super::super::back_exit::active();
         if needs_continuous && paced_allowed {
             self.last_paced_redraw = Some(now);
             if let Some(window) = &self.window {

@@ -519,8 +519,24 @@ impl winit::application::ApplicationHandler<SynGuiUserEvent> for AppHandler {
                             if !result.is_handled() {
                                 event_loop.exit();
                             }
+                            // Телефон (synshell): необработанный «назад» — подсказка, второй подряд
+                            // закрывает окно, как кнопка закрытия (back_exit.rs).
                             #[cfg(not(target_os = "android"))]
-                            let _ = (result, &event_loop);
+                            {
+                                let _ = &event_loop;
+                                if result.is_handled() {
+                                    super::back_exit::reset();
+                                } else if super::back_exit::enabled() {
+                                    if super::back_exit::press() {
+                                        self.window_event(event_loop, window_id, winit::event::WindowEvent::CloseRequested);
+                                        return;
+                                    }
+                                    if let Some(window) = &self.window {
+                                        crate::perf::redraw_from(file!(), line!());
+                                        window.request_redraw();
+                                    }
+                                }
+                            }
                         }
                         return;
                     }
