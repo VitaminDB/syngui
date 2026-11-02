@@ -55,20 +55,57 @@ pub(super) struct RecorderState {
     stream_tx: Mutex<Option<mpsc::Sender<Vec<f32>>>>,
     warmup_frames_left: AtomicU32,
     warmup_calm_streak: AtomicU32,
+    /// Копить запись в памяти (для `stop_and_encode_wav`); в потоковом режиме — нет.
+    keep_samples: bool,
+    /// Отбрасывать громкое начало (щелчки включения) — для коротких реплик.
+    warmup: bool,
+}
+
+/// Как записывать: устройство, узел PipeWire, потоковый режим.
+#[derive(Debug, Clone)]
+pub struct RecorderOptions {
+    /// Имя устройства cpal (`list_input_devices`); `None` — по умолчанию.
+    pub device: Option<String>,
+    /// Узел PipeWire (`node.name`, например `palaudio.mic.top`): запись через ALSA-плагин pipewire с
+    /// `PIPEWIRE_NODE` — источник выбирается мимо системного умолчания.
+    pub pipewire_node: Option<String>,
+    /// Копить всю запись в памяти (`stop_and_encode_wav`). Длинным записям — `false` и `open_stream`.
+    pub keep_samples: bool,
+    /// Отбрасывать громкое начало (до 1,5 с) — для коротких реплик; диктофону — `false`.
+    pub warmup: bool,
+}
+
+impl Default for RecorderOptions {
+    fn default() -> Self {
+        Self { device: None, pipewire_node: None, keep_samples: true, warmup: true }
+    }
+}
+
+impl RecorderOptions {
+    /// Длинная запись потоком: без накопления в памяти и без отбрасывания начала.
+    pub fn streaming() -> Self {
+        Self { keep_samples: false, warmup: false, ..Self::default() }
+    }
 }
 
 impl RecorderState {
     fn new() -> Self {
+        Self::with(&RecorderOptions::default())
+    }
+
+    fn with(o: &RecorderOptions) -> Self {
         Self {
             sample_rate: AtomicU32::new(0),
             channels: AtomicU16::new(0),
-            samples: Mutex::new(Vec::with_capacity(48_000 * 30)),
+            samples: Mutex::new(if o.keep_samples { Vec::with_capacity(48_000 * 30) } else { Vec::new() }),
             vis: Mutex::new(VisRing::new(VIS_RING_CAP)),
             started: AtomicBool::new(false),
             paused: AtomicBool::new(false),
             stream_tx: Mutex::new(None),
             warmup_frames_left: AtomicU32::new(0),
             warmup_calm_streak: AtomicU32::new(0),
+            keep_samples: o.keep_samples,
+            warmup: o.warmup,
         }
     }
 
@@ -120,8 +157,10 @@ impl RecorderState {
                 mono.push(sum / ch as f32);
             }
         }
-        if let Ok(mut s) = self.samples.lock() {
-            s.extend_from_slice(&mono);
+        if self.keep_samples {
+            if let Ok(mut s) = self.samples.lock() {
+                s.extend_from_slice(&mono);
+            }
         }
         if let Ok(mut v) = self.vis.lock() {
             v.push(&mono);
@@ -210,6 +249,8 @@ pub struct AudioRecorder {
     join: Option<JoinHandle<Result<(), AudioError>>>,
     started_at: Instant,
     actual_device_name: String,
+    /// Поток кадров, подключённый до старта (потоковый режим), — отдаёт `open_stream`.
+    early_rx: Arc<Mutex<Option<mpsc::Receiver<Vec<f32>>>>>,
 }
 
 impl AudioRecorder {
@@ -218,15 +259,29 @@ impl AudioRecorder {
     }
 
     pub fn start_with_device(preferred: Option<&str>) -> Result<Self, AudioError> {
-        let state = Arc::new(RecorderState::new());
+        Self::start_with(RecorderOptions { device: preferred.map(str::to_string), ..RecorderOptions::default() })
+    }
+
+    /// Запуск с параметрами. Для длинной записи — `RecorderOptions::streaming()` и сразу `open_stream()`:
+    /// поток кадров подключён до старта, ничего не теряется.
+    pub fn start_with(opts: RecorderOptions) -> Result<Self, AudioError> {
+        let state = Arc::new(RecorderState::with(&opts));
+        let (tx, rx) = mpsc::channel::<Vec<f32>>();
+        if !opts.keep_samples {
+            if let Ok(mut g) = state.stream_tx.lock() {
+                *g = Some(tx);
+            }
+        }
+        let early = (!opts.keep_samples).then_some(rx);
+        let preferred = opts.device.clone();
+        let node = opts.pipewire_node.clone();
         let (stop_tx, stop_rx) = mpsc::channel::<()>();
         let (init_tx, init_rx) = mpsc::sync_channel::<Result<String, AudioError>>(1);
 
         let state_thread = state.clone();
-        let preferred_owned = preferred.map(|s| s.to_string());
         let join = thread::Builder::new()
             .name("syngui-audio-recorder".into())
-            .spawn(move || run_audio_thread(state_thread, init_tx, stop_rx, preferred_owned))
+            .spawn(move || run_audio_thread(state_thread, init_tx, stop_rx, preferred, node))
             .map_err(|e| AudioError::Cpal(format!("spawn thread: {e}")))?;
 
         match init_rx.recv_timeout(INIT_TIMEOUT) {
@@ -236,6 +291,7 @@ impl AudioRecorder {
                 join: Some(join),
                 started_at: Instant::now(),
                 actual_device_name: name,
+                early_rx: Arc::new(Mutex::new(early)),
             }),
             Ok(Err(e)) => Err(e),
             Err(_) => Err(AudioError::Cpal("timeout инициализации стрима".into())),
@@ -250,7 +306,11 @@ impl AudioRecorder {
         VisHandle(self.state.clone())
     }
 
+    /// Поток моно-кадров записи (`AudioStream::take_receiver`). Один на запись.
     pub fn open_stream(&self) -> Option<Arc<AudioStream>> {
+        if let Some(rx) = self.early_rx.lock().ok().and_then(|mut g| g.take()) {
+            return Some(AudioStream::new(rx, self.state.sample_rate.load(Ordering::Acquire), 1));
+        }
         let (tx, rx) = mpsc::channel::<Vec<f32>>();
         let mut g = self.state.stream_tx.lock().ok()?;
         if g.is_some() {
@@ -332,8 +392,19 @@ fn run_audio_thread(
     init_tx: mpsc::SyncSender<Result<String, AudioError>>,
     stop_rx: mpsc::Receiver<()>,
     preferred: Option<String>,
+    pipewire_node: Option<String>,
 ) -> Result<(), AudioError> {
     let host = cpal::default_host();
+    // Узел PipeWire: ALSA-плагин pipewire читает PIPEWIRE_NODE при открытии PCM (alsa.conf.d/50-pipewire.conf)
+    let preferred = match pipewire_node.as_deref().filter(|n| !n.is_empty()) {
+        Some(node) => {
+            // SAFETY: переменная живёт лишь на время открытия устройства в этом потоке; syngui её больше не читает
+            std::env::set_var("PIPEWIRE_NODE", node);
+            Some("pipewire".to_string())
+        }
+        None => preferred,
+    };
+    let unset = pipewire_node.is_some().then(|| scopeguard_env("PIPEWIRE_NODE"));
 
     let mut last_err: Option<AudioError> = None;
     let mut already_tried: Vec<String> = Vec::new();
@@ -413,6 +484,8 @@ fn run_audio_thread(
         None
     })();
 
+    // устройство открыто — переменную прочь, иначе ею воспользуется и воспроизведение процесса
+    drop(unset);
     let (stream, actual_name) = match result {
         Some(v) => v,
         None => {
@@ -427,6 +500,17 @@ fn run_audio_thread(
     let _ = stop_rx.recv();
     drop(stream);
     Ok(())
+}
+
+/// Снять переменную окружения, когда устройство открыто (при выходе из области).
+struct EnvGuard(&'static str);
+impl Drop for EnvGuard {
+    fn drop(&mut self) {
+        std::env::remove_var(self.0);
+    }
+}
+fn scopeguard_env(name: &'static str) -> EnvGuard {
+    EnvGuard(name)
 }
 
 fn find_input_device_by_name(host: &cpal::Host, name: &str) -> Option<cpal::Device> {
@@ -515,7 +599,7 @@ fn try_build_stream(
 
     state.sample_rate.store(sample_rate, Ordering::Release);
     state.channels.store(channels, Ordering::Release);
-    let warmup_frames = (sample_rate as u64 * WARMUP_DURATION_MS as u64 / 1000) as u32;
+    let warmup_frames = if state.warmup { (sample_rate as u64 * WARMUP_DURATION_MS as u64 / 1000) as u32 } else { 0 };
     state
         .warmup_frames_left
         .store(warmup_frames, Ordering::Release);
