@@ -136,9 +136,37 @@ fn read_platform() -> Option<SystemAppearance> {
 
 // Windows/macOS: light/dark приходит из winit (`WindowEvent::ThemeChanged` и
 // `Window::theme()` после создания окна) — здесь читать нечего.
-#[cfg(not(target_os = "linux"))]
+#[cfg(not(any(target_os = "linux", target_os = "ios")))]
 fn read_platform() -> Option<SystemAppearance> {
     None
+}
+
+/// iOS: winit тему не отдаёт — `UIScreen.mainScreen.traitCollection.userInterfaceStyle`.
+/// Только из главного потока (UIKit): слежение на iOS без фонового потока, схема
+/// перечитывается, когда приложение снова становится активным (см. `resumed`).
+#[cfg(target_os = "ios")]
+fn read_platform() -> Option<SystemAppearance> {
+    use objc2::runtime::AnyObject;
+    use objc2::{class, msg_send};
+    // SAFETY: обычные геттеры UIKit; nil проверяется до следующего вызова.
+    let style: isize = unsafe {
+        let screen: *mut AnyObject = msg_send![class!(UIScreen), mainScreen];
+        if screen.is_null() {
+            return None;
+        }
+        let traits: *mut AnyObject = msg_send![screen, traitCollection];
+        if traits.is_null() {
+            return None;
+        }
+        msg_send![traits, userInterfaceStyle]
+    };
+    // UIUserInterfaceStyle: 0 — не задано, 1 — светлая, 2 — тёмная.
+    let color_scheme = match style {
+        2 => ColorScheme::Dark,
+        1 => ColorScheme::Light,
+        _ => ColorScheme::NoPreference,
+    };
+    Some(SystemAppearance { color_scheme, ..Default::default() })
 }
 
 /// Ручка слежения: пока жива, `on_change` вызывается при каждом изменении
@@ -169,7 +197,10 @@ where
     F: Fn(SystemAppearance) + Send + 'static,
 {
     let stop = std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false));
-    if env_override().is_some() {
+    // iOS: UIKit читается только из главного потока — опрос делает AppHandler
+    // при возвращении приложения на передний план.
+    if env_override().is_some() || cfg!(target_os = "ios") {
+        drop(on_change);
         return AppearanceWatcher { stop };
     }
 

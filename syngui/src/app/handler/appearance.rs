@@ -33,6 +33,19 @@ impl AppHandler {
         }));
     }
 
+    /// iOS: перечитать схему (тёмная/светлая) — при каждом возвращении на
+    /// передний план; переключатель в Пункте управления тоже проходит через это.
+    #[cfg(target_os = "ios")]
+    pub(in crate::app) fn refresh_system_appearance(&mut self) {
+        let Some(signal) = self.config.system_appearance else {
+            return;
+        };
+        let current = read_system_appearance();
+        if signal.get_untracked() != current {
+            signal.set(current);
+        }
+    }
+
     /// winit-тема окна. На Linux всегда `None` (X11 не отдаёт тему вовсе, а на
     /// Wayland значение отражает лишь CSD-настройку самого приложения) — там
     /// схему приносит портал.

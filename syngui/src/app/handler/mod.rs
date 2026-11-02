@@ -1,4 +1,6 @@
 mod android;
+#[cfg(target_os = "ios")]
+mod ios;
 mod appearance;
 mod lifecycle;
 pub(in crate::app) mod render;

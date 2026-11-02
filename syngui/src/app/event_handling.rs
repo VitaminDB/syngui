@@ -27,6 +27,16 @@ impl winit::application::ApplicationHandler<SynGuiUserEvent> for AppHandler {
             {
                 self.recreate_surface();
             }
+            // iOS: слой Metal переживает уход в фон (новая поверхность добавила бы
+            // второй CAMetalLayer) — в suspended только запрещён рендер (GPU-работа
+            // из фона на iOS запрещена), здесь он снова разрешается.
+            #[cfg(target_os = "ios")]
+            if self.gpu.is_some() {
+                self.surface_valid = true;
+                self.last_frame_sig = None;
+            }
+            #[cfg(target_os = "ios")]
+            self.refresh_system_appearance();
         }
         #[cfg(target_os = "android")]
         {
@@ -139,7 +149,7 @@ impl winit::application::ApplicationHandler<SynGuiUserEvent> for AppHandler {
                 // Поворот экрана, скрытие системных панелей и переход в
                 // многооконный режим меняют безопасную область — на Android
                 // её приходится спрашивать заново (см. update_safe_area).
-                #[cfg(target_os = "android")]
+                #[cfg(any(target_os = "android", target_os = "ios"))]
                 self.update_safe_area();
 
                 if let Some(gpu) = self.gpu.as_mut() {

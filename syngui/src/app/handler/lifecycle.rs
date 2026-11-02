@@ -535,7 +535,7 @@ impl AppHandler {
             }
         }
 
-        #[cfg(target_os = "android")]
+        #[cfg(any(target_os = "android", target_os = "ios"))]
         self.update_safe_area();
 
         #[cfg(target_os = "android")]
@@ -695,6 +695,10 @@ impl AppHandler {
         let limits_for = |adapter: &wgpu::Adapter| {
             if cfg!(target_arch = "wasm32") || cfg!(target_os = "android") {
                 wgpu::Limits::downlevel_webgl2_defaults().using_resolution(adapter.limits())
+            } else if cfg!(target_os = "ios") {
+                // Лимиты Metal на iPhone/iPad разные по поколениям GPU; запрос
+                // больше возможного — отказ в устройстве и паника при запуске.
+                adapter.limits()
             } else {
                 wgpu::Limits::default()
             }

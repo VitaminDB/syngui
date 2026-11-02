@@ -58,6 +58,46 @@ mod platform {
     }
 }
 
+#[cfg(all(not(target_arch = "wasm32"), target_os = "ios"))]
+mod platform {
+    use super::Lang;
+    use std::ffi::{c_char, c_void};
+
+    type CFIndex = isize;
+    #[link(name = "CoreFoundation", kind = "framework")]
+    extern "C" {
+        fn CFLocaleCopyPreferredLanguages() -> *const c_void;
+        fn CFArrayGetCount(a: *const c_void) -> CFIndex;
+        fn CFArrayGetValueAtIndex(a: *const c_void, i: CFIndex) -> *const c_void;
+        fn CFStringGetCString(s: *const c_void, buf: *mut c_char, len: CFIndex, enc: u32) -> u8;
+        fn CFRelease(o: *const c_void);
+    }
+    const UTF8: u32 = 0x0800_0100;
+
+    /// Первый язык из «Настройки → Основные → Язык и регион» («ru-RU», «en-US»).
+    pub fn detect() -> Option<Lang> {
+        // SAFETY: Copy-функция отдаёт массив во владение — освобождается ниже;
+        // элементы массива — CFString, буфер с запасом и нулём на конце.
+        unsafe {
+            let arr = CFLocaleCopyPreferredLanguages();
+            if arr.is_null() {
+                return None;
+            }
+            let mut out = None;
+            if CFArrayGetCount(arr) > 0 {
+                let s = CFArrayGetValueAtIndex(arr, 0);
+                let mut buf = [0 as c_char; 64];
+                if CFStringGetCString(s, buf.as_mut_ptr(), buf.len() as CFIndex, UTF8) != 0 {
+                    let tag = std::ffi::CStr::from_ptr(buf.as_ptr()).to_string_lossy().into_owned();
+                    out = Lang::parse(&tag);
+                }
+            }
+            CFRelease(arr);
+            out
+        }
+    }
+}
+
 #[cfg(all(not(target_arch = "wasm32"), target_os = "windows"))]
 mod platform {
     use super::Lang;
@@ -79,7 +119,7 @@ mod platform {
 
 #[cfg(all(
     not(target_arch = "wasm32"),
-    not(any(target_os = "android", target_os = "macos", target_os = "windows"))
+    not(any(target_os = "android", target_os = "macos", target_os = "ios", target_os = "windows"))
 ))]
 mod platform {
     use super::Lang;

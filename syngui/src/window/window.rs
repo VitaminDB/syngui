@@ -148,7 +148,7 @@ impl Window {
         #[cfg(all(
             unix,
             not(target_os = "android"),
-            not(target_os = "macos"),
+            not(target_vendor = "apple"),
             not(target_arch = "wasm32")
         ))]
         let attributes = match &builder.app_id {
@@ -218,6 +218,11 @@ impl Window {
     }
 
     pub fn size(&self) -> (u32, u32) {
+        // iOS: inner_size — только safe area, а слой Metal на весь экран;
+        // отступы safe area syngui вычитает сам (handler/ios.rs).
+        #[cfg(target_os = "ios")]
+        let size = self.inner.outer_size();
+        #[cfg(not(target_os = "ios"))]
         let size = self.inner.inner_size();
         (size.width, size.height)
     }

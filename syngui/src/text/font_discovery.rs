@@ -16,7 +16,7 @@ const FALLBACK_FAMILIES: &[&str] = &[
     "Lucida Sans Unicode",
 ];
 
-#[cfg(target_os = "macos")]
+#[cfg(target_vendor = "apple")]
 const FALLBACK_FAMILIES: &[&str] = &[
     "Helvetica Neue",
     "Helvetica",
@@ -26,7 +26,7 @@ const FALLBACK_FAMILIES: &[&str] = &[
     "San Francisco",
 ];
 
-#[cfg(not(any(target_os = "windows", target_os = "macos")))]
+#[cfg(not(any(target_os = "windows", target_vendor = "apple")))]
 const FALLBACK_FAMILIES: &[&str] = &[
     "DejaVu Sans",
     "Liberation Sans",
@@ -203,7 +203,7 @@ const FALLBACK_BY_SCRIPT: &[(Script, &[&str])] = &[
     ),
 ];
 
-#[cfg(target_os = "macos")]
+#[cfg(target_vendor = "apple")]
 const FALLBACK_BY_SCRIPT: &[(Script, &[&str])] = &[
     (
         Script::Han,
@@ -221,7 +221,7 @@ const FALLBACK_BY_SCRIPT: &[(Script, &[&str])] = &[
     (Script::Hangul, &["Apple SD Gothic Neo", "PingFang SC"]),
 ];
 
-#[cfg(not(any(target_os = "windows", target_os = "macos")))]
+#[cfg(not(any(target_os = "windows", target_vendor = "apple")))]
 const FALLBACK_BY_SCRIPT: &[(Script, &[&str])] = &[
     (
         Script::Han,
