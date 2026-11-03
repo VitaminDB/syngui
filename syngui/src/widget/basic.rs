@@ -488,6 +488,8 @@ pub struct Text {
     max_lines: Option<usize>,
     elide: Elide,
     selectable: bool,
+    /// Удержание/правый щелчок отдаёт слово обработчику `set_word_lookup`.
+    word_lookup: bool,
 }
 
 impl Text {
@@ -501,7 +503,14 @@ impl Text {
             max_lines: None,
             elide: Elide::End,
             selectable: false,
+            word_lookup: true,
         }
+    }
+
+    /// Слово под пальцем для `set_word_lookup` (по умолчанию включено).
+    pub fn word_lookup(mut self, on: bool) -> Self {
+        self.word_lookup = on;
+        self
     }
 
     pub fn selectable(mut self, on: bool) -> Self {
@@ -590,6 +599,7 @@ impl Text {
             mss_width: None,
             mss_height: None,
             selectable: self.selectable,
+            word_lookup: self.word_lookup,
             selection: TextSelectionState::new(),
             cursor_pos: 0,
             mouse_selecting: false,
@@ -666,6 +676,7 @@ struct TextElement {
     mss_height: Option<crate::mss::Dimension>,
 
     selectable: bool,
+    word_lookup: bool,
     selection: TextSelectionState,
     cursor_pos: usize,
     mouse_selecting: bool,
@@ -747,6 +758,29 @@ impl TextElement {
         }
     }
 
+    /// Слово под точкой с учётом переноса строк.
+    fn word_hit(&self, pos: Point) -> Option<crate::widget::word_lookup::WordHit> {
+        let (pl, pr, pt) = (self.mss_padding_left, self.mss_padding_right, self.mss_padding_top);
+        let width = if self.mss_text_align.is_some() && self.bounds.size.width > 0.0 {
+            (self.bounds.size.width - pl - pr).max(0.0)
+        } else if self.max_render_width.is_finite() {
+            (self.max_render_width - pl - pr).max(self.bounds.size.width - pl - pr)
+        } else {
+            (self.bounds.size.width - pl - pr).max(10000.0)
+        };
+        let line_height = self.mss_line_height.map(|lh| lh.resolve(self.font_size)).unwrap_or(self.font_size * 1.3);
+        let line = ((pos.y - self.bounds.origin.y - pt) / line_height.max(1.0)).max(0.0) as usize;
+        let x = pos.x - self.bounds.origin.x - pl;
+        let byte = match self.text_measure.as_ref() {
+            Some(tm) => {
+                let positions = crate::widget::word_lookup::char_positions(&self.text, width, self.font_size, self.mss_font_weight, self.mss_font_family.as_deref(), tm.as_ref());
+                crate::widget::word_lookup::byte_at(&positions, line, x)?
+            }
+            None => self.hit_test_byte(pos),
+        };
+        crate::widget::word_lookup::word_at(&self.text, byte, pos)
+    }
+
     fn hit_test_byte(&self, pos: Point) -> usize {
         let pl = self.mss_padding_left;
         let x_local = (pos.x - self.bounds.origin.x - pl)
@@ -781,6 +815,7 @@ impl Element for TextElement {
                 self.mouse_selecting = false;
             }
             self.selectable = widget.selectable;
+            self.word_lookup = widget.word_lookup;
             self.text = widget.text.clone();
             self.base_color = widget.color;
             self.base_font_weight = widget.font_weight;
@@ -1019,6 +1054,21 @@ impl Element for TextElement {
     }
 
     fn handle_event(&mut self, event: &Event, ctx: &mut EventContext) -> EventResult {
+        // Слово под пальцем: удержание (касание) или правый щелчок мыши.
+        let lookup_at = match event {
+            Event::LongPress { position } => Some(*position),
+            Event::MouseDown { button: MouseButton::Right, position } => Some(*position),
+            _ => None,
+        };
+        if let Some(pos) = lookup_at {
+            if self.word_lookup && self.bounds.contains(pos) && crate::widget::word_lookup::enabled() {
+                if let Some(hit) = self.word_hit(pos) {
+                    if crate::widget::word_lookup::dispatch(&hit) {
+                        return EventResult::Handled;
+                    }
+                }
+            }
+        }
         if !self.selectable {
             return EventResult::Ignored;
         }

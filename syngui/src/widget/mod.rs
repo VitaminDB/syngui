@@ -7,6 +7,7 @@ pub mod styled;
 pub mod tree;
 pub mod visitor;
 pub mod widget;
+pub mod word_lookup;
 
 pub(crate) use basic::count_visual_lines_via_measure;
 pub use basic::{Center, Elide, Text};
@@ -17,6 +18,7 @@ pub use styled::{StyledElement, StyledWidget, WidgetExt};
 pub use tree::{DragState, ElementId, ElementTree, OverlayEntry, RenderHandle};
 pub use visitor::ElementVisitor;
 pub use widget::Widget;
+pub use word_lookup::{set_word_lookup, WordHit};
 
 /// Добавить классы из строки `"a b c"` — как `StyledWidget::class`: строка
 /// делится по пробелам, повторы пропускаются. Раньше у большинства виджетов
