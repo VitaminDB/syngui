@@ -737,6 +737,13 @@ impl AppHandler {
                     self.style_engine
                         .load_additional_stylesheet(additional.clone());
                 }
+                // Накладка `with_dynamic_theme` (например, акцент) — поверх
+                // новой темы, иначе при смене светлая/тёмная она пропадала.
+                if !self.config.dynamic_replaces_base && !self.current_dynamic_theme.is_empty() {
+                    if let Ok(ss) = parse_stylesheet_str(&self.current_dynamic_theme) {
+                        self.style_engine.load_additional_stylesheet(ss);
+                    }
+                }
                 crate::signal::mark_all_reactive_dirty();
                 for node in self.tree.elements.values_mut() {
                     node.styles_dirty = true;
@@ -770,8 +777,12 @@ impl AppHandler {
                         self.style_engine.load_additional_stylesheet(additional.clone());
                     }
                 } else {
-                    if let Some(ref base) = self.config.stylesheet {
-                        self.style_engine.load_stylesheet(base.clone());
+                    // Основа — текущая тема (светлая/тёмная), если они заданы.
+                    let themed = self.config.theme_state.and_then(|_| {
+                        if self.current_theme_is_dark { self.config.dark_stylesheet.clone() } else { self.config.light_stylesheet.clone() }
+                    });
+                    if let Some(base) = themed.or_else(|| self.config.stylesheet.clone()) {
+                        self.style_engine.load_stylesheet(base);
                     }
                     for additional in &self.config.additional_stylesheets {
                         self.style_engine
@@ -786,7 +797,10 @@ impl AppHandler {
                         Err(e) => log::warn!("Failed to parse dynamic theme: {:?}", e),
                     }
                 }
-                let is_dark = new_mss
+                // С заданными светлой/тёмной темой тёмность решает их сигнал,
+                // а не `--bg` накладки (в накладке акцента его нет).
+                let is_dark = if self.config.theme_state.is_some() { Some(self.current_theme_is_dark) } else { None };
+                let is_dark = is_dark.or_else(|| new_mss
                     .find("--bg:")
                     .and_then(|pos| {
                         let after = &new_mss[pos + 5..];
@@ -800,7 +814,7 @@ impl AppHandler {
                         } else {
                             None
                         }
-                    })
+                    }))
                     .unwrap_or(false);
                 if is_dark != self.current_theme_is_dark {
                     self.current_theme_is_dark = is_dark;
