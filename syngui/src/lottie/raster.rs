@@ -48,6 +48,28 @@ impl Mask {
         self.w == 0 || self.h == 0
     }
 
+    /// Строка `y` от `x` длиной `w`; вызывающий гарантирует, что отрезок
+    /// лежит внутри охвата маски.
+    #[inline]
+    pub fn row(&self, y: i32, x: i32, w: usize) -> &[f32] {
+        let start = (y - self.y0) as usize * self.w + (x - self.x0) as usize;
+        &self.cov[start..start + w]
+    }
+
+    /// Пересечение строки `y` с отрезком `[x0, x1)`: `(начало, срез)` или `None`.
+    #[inline]
+    pub fn row_span(&self, y: i32, x0: i32, x1: i32) -> Option<(i32, &[f32])> {
+        if y < self.y0 || y >= self.y0 + self.h as i32 {
+            return None;
+        }
+        let a = x0.max(self.x0);
+        let b = x1.min(self.x0 + self.w as i32);
+        if b <= a {
+            return None;
+        }
+        Some((a, self.row(y, a, (b - a) as usize)))
+    }
+
     /// Пересечение с другим покрытием (умножение).
     pub fn intersect(&mut self, other: &Mask) {
         for ly in 0..self.h {
@@ -56,28 +78,6 @@ impl Mask {
                 self.cov[ly * self.w + lx] *= v;
             }
         }
-    }
-
-    /// Пересечение двух покрытий над пересечением их охватов.
-    pub fn intersection(a: &Mask, b: &Mask) -> Mask {
-        let x0 = a.x0.max(b.x0);
-        let y0 = a.y0.max(b.y0);
-        let x1 = (a.x0 as i64 + a.w as i64).min(b.x0 as i64 + b.w as i64);
-        let y1 = (a.y0 as i64 + a.h as i64).min(b.y0 as i64 + b.h as i64);
-        if x1 <= x0 as i64 || y1 <= y0 as i64 {
-            return Mask::default();
-        }
-        let w = (x1 - x0 as i64) as usize;
-        let h = (y1 - y0 as i64) as usize;
-        let mut cov = vec![0f32; w * h];
-        for y in 0..h {
-            for x in 0..w {
-                let px = x0 + x as i32;
-                let py = y0 + y as i32;
-                cov[y * w + x] = a.get(px, py) * b.get(px, py);
-            }
-        }
-        Mask { x0, y0, w, h, cov }
     }
 
     /// Покрывает ли маска весь прямоугольник `w×h` полностью (единицами).
@@ -96,15 +96,65 @@ impl Mask {
     }
 }
 
-/// Растеризатор: переиспользует буфер накопления между вызовами.
+/// Растеризатор: переиспользует буфер накопления и буферы покрытия между
+/// вызовами (свежие крупные выделения стоят page fault'ов на каждый кадр).
 #[derive(Default)]
 pub struct Rasterizer {
     acc: Vec<f32>,
+    spare: Vec<Vec<f32>>,
 }
 
 impl Rasterizer {
     pub fn new() -> Self {
         Self::default()
+    }
+
+    /// Буфер из пула длиной `n`, заполненный `fill`.
+    fn alloc(&mut self, n: usize, fill: f32) -> Vec<f32> {
+        // Самый вместительный — чтобы реже перевыделять.
+        let best = (0..self.spare.len()).max_by_key(|&i| self.spare[i].capacity());
+        let mut v = match best {
+            Some(i) => self.spare.swap_remove(i),
+            None => Vec::new(),
+        };
+        v.clear();
+        v.resize(n, fill);
+        v
+    }
+
+    /// Вернуть буфер маски в пул.
+    pub fn recycle(&mut self, m: Mask) {
+        if m.cov.capacity() > 0 && self.spare.len() < 16 {
+            self.spare.push(m.cov);
+        }
+    }
+
+    /// Маска размером `w×h` в позиции `(x0, y0)`, заполненная `fill`.
+    pub fn new_mask(&mut self, x0: i32, y0: i32, w: usize, h: usize, fill: f32) -> Mask {
+        let cov = self.alloc(w * h, fill);
+        Mask { x0, y0, w, h, cov }
+    }
+
+    /// Пересечение двух покрытий (произведение) над пересечением охватов.
+    pub fn intersect(&mut self, a: &Mask, b: &Mask) -> Mask {
+        let x0 = a.x0.max(b.x0);
+        let y0 = a.y0.max(b.y0);
+        let x1 = (a.x0 as i64 + a.w as i64).min(b.x0 as i64 + b.w as i64);
+        let y1 = (a.y0 as i64 + a.h as i64).min(b.y0 as i64 + b.h as i64);
+        if x1 <= x0 as i64 || y1 <= y0 as i64 {
+            return Mask::default();
+        }
+        let w = (x1 - x0 as i64) as usize;
+        let h = (y1 - y0 as i64) as usize;
+        let mut out = self.new_mask(x0, y0, w, h, 0.0);
+        for y in 0..h {
+            let ra = a.row(y0 + y as i32, x0, w);
+            let rb = b.row(y0 + y as i32, x0, w);
+            for ((o, va), vb) in out.cov[y * w..(y + 1) * w].iter_mut().zip(ra).zip(rb) {
+                *o = va * vb;
+            }
+        }
+        out
     }
 
     /// Заливка набора замкнутых ломаных в маску покрытия (обрезка по `clip_w×clip_h`).
@@ -148,7 +198,7 @@ impl Rasterizer {
                 self.line_clipped(p0, p1, bw, bh, stride);
             }
         }
-        let mut cov = vec![0f32; bw * bh];
+        let mut cov = self.alloc(bw * bh, 0.0);
         for y in 0..bh {
             let mut sum = 0.0f32;
             let row = &self.acc[y * stride..(y + 1) * stride];
@@ -652,14 +702,15 @@ impl Pixmap {
             _ => None,
         };
         for y in y0..y1 {
-            let mrow = (y as i32 - mask.y0) as usize * mask.w;
+            let mrow = mask.row(y as i32, x0 as i32, x1 - x0);
+            let crow = clip.map(|cl| cl.row(y as i32, x0 as i32, x1 - x0));
             for x in x0..x1 {
-                let mut c = mask.cov[mrow + (x as i32 - mask.x0) as usize];
+                let mut c = mrow[x - x0];
                 if c <= 0.0 {
                     continue;
                 }
-                if let Some(cl) = clip {
-                    c *= cl.get(x as i32, y as i32);
+                if let Some(cr) = crow {
+                    c *= cr[x - x0];
                     if c <= 0.0 {
                         continue;
                     }
@@ -773,16 +824,24 @@ impl Pixmap {
     /// В 8-битный RGBA с прямой альфой (для текстур).
     pub fn to_rgba8(&self) -> Vec<u8> {
         let mut out = vec![0u8; self.w * self.h * 4];
-        for (i, p) in self.px.iter().enumerate() {
-            let a = p[3].clamp(0.0, 1.0);
-            if a <= 0.0 {
-                continue;
+        // Вне затронутой области холст прозрачен — там уже нули.
+        let Some([x0, y0, x1, y1]) = self.dirty else {
+            return out;
+        };
+        for y in y0..y1 {
+            let row = &self.px[y * self.w + x0..y * self.w + x1];
+            let dst = &mut out[(y * self.w + x0) * 4..(y * self.w + x1) * 4];
+            for (p, o) in row.iter().zip(dst.chunks_exact_mut(4)) {
+                let a = p[3].min(1.0);
+                if a <= 0.0 {
+                    continue;
+                }
+                let k = 255.0 / a;
+                o[0] = (p[0] * k + 0.5).min(255.0) as u8;
+                o[1] = (p[1] * k + 0.5).min(255.0) as u8;
+                o[2] = (p[2] * k + 0.5).min(255.0) as u8;
+                o[3] = (a * 255.0 + 0.5) as u8;
             }
-            let inv = 1.0 / a;
-            out[i * 4] = ((p[0] * inv).clamp(0.0, 1.0) * 255.0 + 0.5) as u8;
-            out[i * 4 + 1] = ((p[1] * inv).clamp(0.0, 1.0) * 255.0 + 0.5) as u8;
-            out[i * 4 + 2] = ((p[2] * inv).clamp(0.0, 1.0) * 255.0 + 0.5) as u8;
-            out[i * 4 + 3] = (a * 255.0 + 0.5) as u8;
         }
         out
     }

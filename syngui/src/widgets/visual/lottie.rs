@@ -24,6 +24,62 @@ use crate::widgets::ImageFit;
 /// Предел стороны растра кадра в пикселях (защита от гигантских областей).
 const MAX_SIDE: u32 = 4096;
 
+/// Ключ растра: (кадр, ширина, высота).
+type FrameKey = (f32, u32, u32);
+
+/// Готовый кадр из фонового потока.
+type FrameSlot = Arc<std::sync::Mutex<Option<(FrameKey, Vec<u8>)>>>;
+
+/// Фоновые потоки растеризации Lottie. Отдельный небольшой пул, а не общий
+/// rayon: долгие кадры не должны занимать воркеры параллельной раскладки.
+#[cfg(not(target_arch = "wasm32"))]
+mod pool {
+    use std::sync::mpsc::{channel, Receiver, Sender};
+    use std::sync::{Arc, Mutex, OnceLock};
+
+    type Job = Box<dyn FnOnce() + Send>;
+
+    static SENDER: OnceLock<Mutex<Sender<Job>>> = OnceLock::new();
+
+    fn worker(rx: Arc<Mutex<Receiver<Job>>>) {
+        loop {
+            let job = match rx.lock() {
+                Ok(r) => r.recv(),
+                Err(_) => return,
+            };
+            match job {
+                // Паника в рендере не роняет поток пула.
+                Ok(job) => {
+                    if std::panic::catch_unwind(std::panic::AssertUnwindSafe(job)).is_err() {
+                        log::error!("Lottie: паника при растеризации кадра");
+                    }
+                }
+                Err(_) => return,
+            }
+        }
+    }
+
+    pub fn spawn(job: impl FnOnce() + Send + 'static) {
+        let sender = SENDER.get_or_init(|| {
+            let (tx, rx) = channel::<Job>();
+            let rx = Arc::new(Mutex::new(rx));
+            let n = std::thread::available_parallelism()
+                .map(|n| (n.get() / 2).clamp(1, 4))
+                .unwrap_or(2);
+            for i in 0..n {
+                let rx = rx.clone();
+                let _ = std::thread::Builder::new()
+                    .name(format!("lottie-{i}"))
+                    .spawn(move || worker(rx));
+            }
+            Mutex::new(tx)
+        });
+        if let Ok(tx) = sender.lock() {
+            let _ = tx.send(Box::new(job));
+        }
+    }
+}
+
 type CompleteFn = Arc<dyn Fn() + Send + Sync>;
 
 pub struct Lottie {
@@ -249,8 +305,10 @@ impl Widget for Lottie {
             seg_start,
             seg_end,
             frame: if self.speed < 0.0 { seg_end } else { seg_start },
-            renderer: Renderer::new(),
+            renderer: Arc::new(std::sync::Mutex::new(Renderer::new())),
             rendered: None,
+            inflight: None,
+            slot: Arc::new(std::sync::Mutex::new(None)),
             on_complete: self.on_complete.clone(),
         })
     }
@@ -294,9 +352,14 @@ pub struct LottieElement {
     seg_start: f32,
     seg_end: f32,
     frame: f32,
-    renderer: Renderer,
-    /// Последний залитый кадр: (кадр, ширина, высота).
-    rendered: Option<(f32, u32, u32)>,
+    /// Рендерер (с буферами) делится с фоновой задачей.
+    renderer: Arc<std::sync::Mutex<Renderer>>,
+    /// Последний залитый кадр.
+    rendered: Option<FrameKey>,
+    /// Кадр, который сейчас растеризуется в фоне.
+    inflight: Option<FrameKey>,
+    /// Куда фоновая задача кладёт готовый кадр.
+    slot: FrameSlot,
     on_complete: Option<CompleteFn>,
 }
 
@@ -359,24 +422,77 @@ impl LottieElement {
         if self.subframe { f } else { f.floor() }
     }
 
-    /// Растеризовать текущий кадр под физический размер области, если он изменился.
-    fn render_if_needed(&mut self) {
+    /// Нужный сейчас растр: кадр и физический размер области.
+    fn wanted_key(&self) -> FrameKey {
         let rect = self.fit_rect();
         let ratio = crate::scale::pixel_ratio().max(0.1);
         let w = ((rect.size.width * ratio).round() as u32).clamp(1, MAX_SIDE);
         let h = ((rect.size.height * ratio).round() as u32).clamp(1, MAX_SIDE);
-        let frame = self.display_frame();
-        if self.rendered == Some((frame, w, h)) {
-            return;
-        }
-        let rgba = self.renderer.render_rgba8(&self.comp, frame, w, h);
+        (self.display_frame(), w, h)
+    }
+
+    fn upload(&mut self, key: FrameKey, rgba: Vec<u8>) {
         if let (Some(handle), Some(store)) = (self.image_handle, self.image_store.as_ref()) {
             if let Ok(mut s) = store.lock() {
-                s.update_rgba(handle, w, h, rgba);
+                s.update_rgba(handle, key.1, key.2, rgba);
             }
         }
-        self.rendered = Some((frame, w, h));
+        self.rendered = Some(key);
         self.mark_dirty(DirtyFlags::RENDER);
+    }
+
+    /// Забрать готовый фоновый кадр и, если нужен другой, заказать его.
+    /// Кадр растеризуется в фоновом потоке и появляется на следующем тике;
+    /// пока он считается, новый не заказывается (кадры не копятся в очереди).
+    fn render_if_needed(&mut self) {
+        let done = self.slot.lock().ok().and_then(|mut s| s.take());
+        if let Some((key, rgba)) = done {
+            self.inflight = None;
+            self.upload(key, rgba);
+        }
+        let key = self.wanted_key();
+        if self.rendered == Some(key) || self.inflight == Some(key) {
+            return;
+        }
+        if self.inflight.is_some() {
+            return;
+        }
+        #[cfg(not(target_arch = "wasm32"))]
+        {
+            let comp = self.comp.clone();
+            let renderer = self.renderer.clone();
+            let slot = self.slot.clone();
+            self.inflight = Some(key);
+            pool::spawn(move || {
+                let rgba = match renderer.lock() {
+                    Ok(mut r) => r.render_rgba8(&comp, key.0, key.1, key.2),
+                    Err(_) => return,
+                };
+                if let Ok(mut s) = slot.lock() {
+                    *s = Some((key, rgba));
+                }
+            });
+        }
+        // В браузере потоков нет — рисуем сразу.
+        #[cfg(target_arch = "wasm32")]
+        {
+            let rgba = match self.renderer.lock() {
+                Ok(mut r) => r.render_rgba8(&self.comp, key.0, key.1, key.2),
+                Err(_) => return,
+            };
+            self.upload(key, rgba);
+        }
+    }
+}
+
+impl Drop for LottieElement {
+    /// Отпустить текстуру кадра в сторе картинок.
+    fn drop(&mut self) {
+        if let (Some(store), Some(handle)) = (&self.image_store, self.image_handle) {
+            if let Ok(mut store) = store.lock() {
+                store.release(handle);
+            }
+        }
     }
 }
 
@@ -392,6 +508,10 @@ impl Element for LottieElement {
                     self.seg_end = e;
                     self.frame = if v.speed < 0.0 { e } else { s };
                     self.rendered = None;
+                    // Кадр старой композиции, ещё считающийся в фоне, уйдёт в
+                    // прежний слот и будет отброшен.
+                    self.slot = Arc::new(std::sync::Mutex::new(None));
+                    self.inflight = None;
                     self.playing = v.autoplay;
                     self.mark_dirty(DirtyFlags::LAYOUT);
                 }
@@ -517,7 +637,8 @@ impl Element for LottieElement {
             }
         }
         self.render_if_needed();
-        self.playing
+        // Пока кадр считается в фоне, тики нужны, чтобы его забрать.
+        self.playing || self.inflight.is_some()
     }
 
     fn wants_animate_tick(&self) -> bool {

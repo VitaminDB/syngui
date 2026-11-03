@@ -176,11 +176,12 @@ impl Renderer {
         }
     }
 
-    /// Клип слоя: внешний клип ∩ прямоугольник прекомпозиции ∩ маски слоя.
-    /// `None` — без ограничений, `Some(пустая)` — слой целиком невидим.
+    /// Собственный клип слоя: внешний клип ∩ прямоугольник прекомпозиции ∩
+    /// маски слоя. `None` — слой ничего не добавляет, действует внешний клип
+    /// (без копирования); `Some(пустая)` — слой целиком невидим.
     fn layer_clip(&mut self, ctx: &Ctx, l: &Layer, frame: f32, mat: &Mat, outer: Option<&Mask>) -> Option<Mask> {
-        let mut clip: Option<Mask> = outer.cloned();
-        let region = |c: &Option<Mask>| -> [usize; 4] {
+        let mut own: Option<Mask> = None;
+        let region = |c: Option<&Mask>| -> [usize; 4] {
             match c {
                 Some(m) => [
                     m.x0.max(0) as usize,
@@ -192,28 +193,41 @@ impl Renderer {
             }
         };
         if matches!(l.kind, LayerKind::Precomp(_)) && l.width > 0.0 && l.height > 0.0 {
-            let r = region(&clip);
+            let r = region(outer);
             if !rect_covers_region(mat, l.width, l.height, r) {
                 let poly = rect_polyline(0.0, 0.0, l.width, l.height, mat);
                 let rect = self
                     .rast
                     .fill(&[poly], FillRule::NonZero, ctx.w, ctx.h)
                     .unwrap_or_default();
-                clip = Some(match clip {
+                own = Some(match outer {
                     None => rect,
-                    Some(c) => Mask::intersection(&c, &rect),
+                    Some(c) => {
+                        let m = self.rast.intersect(c, &rect);
+                        self.rast.recycle(rect);
+                        m
+                    }
                 });
             }
         }
         if !l.masks.is_empty() {
-            let r = region(&clip);
+            let base = own.as_ref().or(outer);
+            let r = region(base);
             let masks = self.layer_masks(ctx, &l.masks, frame, mat, r);
-            clip = Some(match clip {
+            let combined = match base {
                 None => masks,
-                Some(c) => Mask::intersection(&c, &masks),
-            });
+                Some(c) => {
+                    let m = self.rast.intersect(c, &masks);
+                    self.rast.recycle(masks);
+                    m
+                }
+            };
+            if let Some(old) = own.take() {
+                self.rast.recycle(old);
+            }
+            own = Some(combined);
         }
-        clip
+        own
     }
 
     #[allow(clippy::too_many_arguments)]
@@ -235,14 +249,20 @@ impl Renderer {
         if opacity <= 0.0 {
             return;
         }
-        let clip = self.layer_clip(ctx, l, frame, &mat, outer_clip);
-        if clip.as_ref().map(Mask::is_empty).unwrap_or(false) {
+        let own_clip = self.layer_clip(ctx, l, frame, &mat, outer_clip);
+        if own_clip.as_ref().map(Mask::is_empty).unwrap_or(false) {
+            if let Some(m) = own_clip {
+                self.rast.recycle(m);
+            }
             return;
         }
-        let clip_ref = clip.as_ref();
+        let clip_ref = own_clip.as_ref().or(outer_clip);
         let needs_buffer = l.matte.is_some() || opacity < 1.0 || l.blend != BlendMode::Normal;
         if !needs_buffer {
             self.draw_content(ctx, l, frame, &mat, target, depth, clip_ref);
+            if let Some(m) = own_clip {
+                self.rast.recycle(m);
+            }
             return;
         }
         let mut buf = self.take(ctx.w, ctx.h);
@@ -269,6 +289,9 @@ impl Renderer {
             target.composite(&buf, opacity, l.blend);
         }
         self.recycle(buf);
+        if let Some(m) = own_clip {
+            self.rast.recycle(m);
+        }
     }
 
     #[allow(clippy::too_many_arguments)]
@@ -288,6 +311,7 @@ impl Renderer {
                 let poly = rect_polyline(0.0, 0.0, l.width, l.height, mat);
                 if let Some(m) = self.rast.fill(&[poly], FillRule::NonZero, ctx.w, ctx.h) {
                     target.fill_mask(&m, &Paint::solid(*color, 1.0), clip);
+                    self.rast.recycle(m);
                 }
             }
             LayerKind::Image(id) => {
@@ -314,6 +338,7 @@ impl Renderer {
                         },
                         clip,
                     );
+                    self.rast.recycle(m);
                 }
             }
             LayerKind::Precomp(id) => {
@@ -370,31 +395,36 @@ impl Renderer {
         }
         let [rx0, ry0, rx1, ry1] = r;
         let (w, h) = (rx1.saturating_sub(rx0), ry1.saturating_sub(ry0));
-        let mut acc = Mask {
-            x0: rx0 as i32,
-            y0: ry0 as i32,
-            w,
-            h,
-            cov: Vec::new(),
-        };
         if w == 0 || h == 0 {
-            return acc;
+            for c in covs.into_iter().flatten() {
+                self.rast.recycle(c);
+            }
+            return Mask {
+                x0: rx0 as i32,
+                y0: ry0 as i32,
+                w,
+                h,
+                cov: Vec::new(),
+            };
         }
         let first_full = matches!(masks[0].mode, MaskMode::Subtract | MaskMode::Intersect);
-        acc.cov = vec![if first_full { 1.0 } else { 0.0 }; w * h];
+        let mut acc = self.rast.new_mask(rx0 as i32, ry0 as i32, w, h, if first_full { 1.0 } else { 0.0 });
+        let mut tmp = vec![0f32; w];
         for (m, cov) in masks.iter().zip(&covs) {
             let op = (m.opacity.value(frame) / 100.0).clamp(0.0, 1.0);
             for y in 0..h {
-                for x in 0..w {
-                    let mut c = cov
-                        .as_ref()
-                        .map(|c| c.get((x + rx0) as i32, (y + ry0) as i32))
-                        .unwrap_or(0.0);
-                    if m.inverted {
-                        c = 1.0 - c;
-                    }
-                    c *= op;
-                    let r = &mut acc.cov[y * w + x];
+                // Строка покрытия маски на отрезке acc: вне охвата — ноль.
+                tmp.fill(0.0);
+                if let Some((sx, src)) = cov
+                    .as_ref()
+                    .and_then(|c| c.row_span((y + ry0) as i32, rx0 as i32, rx1 as i32))
+                {
+                    let off = sx as usize - rx0;
+                    tmp[off..off + src.len()].copy_from_slice(src);
+                }
+                let row = &mut acc.cov[y * w..(y + 1) * w];
+                for (r, &c0) in row.iter_mut().zip(tmp.iter()) {
+                    let c = if m.inverted { 1.0 - c0 } else { c0 } * op;
                     *r = match m.mode {
                         MaskMode::Add => *r + c - *r * c,
                         MaskMode::Subtract => *r * (1.0 - c),
@@ -406,6 +436,9 @@ impl Renderer {
                     };
                 }
             }
+        }
+        for c in covs.into_iter().flatten() {
+            self.rast.recycle(c);
         }
         acc
     }
@@ -438,6 +471,7 @@ impl Renderer {
                     let paint = Paint::solid([c[0], c.get(1).copied().unwrap_or(0.0), c.get(2).copied().unwrap_or(0.0)], a);
                     if let Some(m) = self.rast.fill(&polys, *rule, ctx.w, ctx.h) {
                         target.fill_mask(&m, &paint, clip);
+                        self.rast.recycle(m);
                     }
                 }
                 Shape::GradientFill { gradient, opacity, rule } => {
@@ -447,6 +481,7 @@ impl Renderer {
                     };
                     if let Some(m) = self.rast.fill(&polys, *rule, ctx.w, ctx.h) {
                         target.fill_mask(&m, &paint, clip);
+                        self.rast.recycle(m);
                     }
                 }
                 Shape::Stroke { color, opacity, style: st } => {
@@ -460,6 +495,7 @@ impl Renderer {
                     build_stroke(&polys, st, frame, &style.mat, &mut stroke_polys);
                     if let Some(m) = self.rast.fill(&stroke_polys, FillRule::NonZero, ctx.w, ctx.h) {
                         target.fill_mask(&m, &paint, clip);
+                        self.rast.recycle(m);
                     }
                 }
                 Shape::GradientStroke { gradient, opacity, style: st } => {
@@ -471,6 +507,7 @@ impl Renderer {
                     build_stroke(&polys, st, frame, &style.mat, &mut stroke_polys);
                     if let Some(m) = self.rast.fill(&stroke_polys, FillRule::NonZero, ctx.w, ctx.h) {
                         target.fill_mask(&m, &paint, clip);
+                        self.rast.recycle(m);
                     }
                 }
                 _ => {}

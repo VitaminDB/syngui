@@ -438,7 +438,10 @@ layers and expressions are not supported. Image assets (embedded base64 or
 files next to the JSON) decode when feature `image` is on.
 
 Frames are rasterized on the CPU at the physical size of the fit rectangle
-(crisp on HiDPI) and uploaded into one GPU texture per instance. By default
+(crisp on HiDPI) in a small dedicated background thread pool (not the shared
+rayon pool used by layout) and uploaded into one GPU texture per instance; a
+finished frame appears on the next tick, and no new frame is queued while one
+is still rendering. On wasm frames render synchronously. By default
 only whole animation frames are rendered; `.subframe(true)` renders
 fractional frames on every tick.
 

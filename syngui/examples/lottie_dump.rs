@@ -1,7 +1,9 @@
 //! Отладочный дамп Lottie: рендерит несколько кадров анимации в одну
 //! PNG-полосу (кадры слева направо) для визуальной проверки.
 //!
-//! `cargo run -p syngui --example lottie_dump --features image -- file.json out.png [size] [frames]`
+//! `cargo run -p syngui --example lottie_dump --features image -- file.json out.png [size] [frames] [repeat]`
+//!
+//! `repeat` > 1 — каждый кадр рисуется столько раз (замер и профилирование рендера).
 
 use std::time::Instant;
 
@@ -15,6 +17,7 @@ fn main() {
     }
     let size: u32 = args.get(3).and_then(|s| s.parse().ok()).unwrap_or(240);
     let frames: usize = args.get(4).and_then(|s| s.parse().ok()).unwrap_or(6);
+    let repeat: u32 = args.get(5).and_then(|s| s.parse().ok()).unwrap_or(1).max(1);
     let bytes = std::fs::read(&args[1]).expect("read");
     let t0 = Instant::now();
     let mut comp = Composition::from_bytes(&bytes).expect("parse");
@@ -57,8 +60,11 @@ fn main() {
     for i in 0..frames {
         let frame = comp.in_point + (comp.frame_count() - 1.0).max(0.0) * i as f32 / (frames.max(2) - 1) as f32;
         let t = Instant::now();
-        let rgba = r.render_rgba8(&comp, frame, fw, fh);
-        let dt = t.elapsed();
+        let mut rgba = r.render_rgba8(&comp, frame, fw, fh);
+        for _ in 1..repeat {
+            rgba = r.render_rgba8(&comp, frame, fw, fh);
+        }
+        let dt = t.elapsed() / repeat;
         total += dt;
         eprintln!("  frame {frame:.1}: {dt:?}");
         for y in 0..fh {
