@@ -22,6 +22,10 @@ pub mod json;
 pub mod model;
 pub mod raster;
 pub mod render;
+/// Глифы системных шрифтов для текста без встроенных контуров —
+/// через текстовую подсистему фреймворка (font-kit + swash).
+#[cfg(all(not(target_arch = "wasm32"), not(target_os = "android")))]
+pub mod sysfont;
 pub mod zip;
 
 pub use geom::Mat;

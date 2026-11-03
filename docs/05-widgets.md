@@ -437,8 +437,11 @@ mattes, time remap, blend modes, fills and strokes (solid and linear/radial
 gradients, dashes), trim paths, repeater, rounded corners, polystar, merge
 paths (boolean ops on fill coverage; strokes draw the source contours),
 offset paths / zig zag / pucker & bloat / twist modifiers, and layer effects
-Fill, Tint, Drop Shadow, Gaussian Blur. Expressions, text animators and
-font-file text (no embedded glyphs) are not supported. Image assets (embedded
+Fill, Tint, Drop Shadow, Gaussian Blur. Text without embedded
+glyphs falls back to system fonts through the framework's text stack
+(font-kit + swash outlines; native only — skipped on wasm/Android), matching
+family and weight with a generic fallback. Expressions and text animators are
+not supported. Image assets (embedded
 base64 or files next to the JSON) decode when feature `image` is on. The
 dotLottie container (.lottie — a ZIP read by syngui's own inflate) loads via
 the same constructors; the first animation from the manifest plays, and image

@@ -52,6 +52,13 @@ fn main() {
             data: img.into_raw().into(),
         })
     });
+    #[cfg(all(not(target_arch = "wasm32"), not(target_os = "android")))]
+    {
+        let n = syngui::lottie::sysfont::load_missing_glyphs(&mut comp);
+        if n > 0 {
+            eprintln!("  системных глифов добавлено: {n}");
+        }
+    }
     let aspect = comp.height / comp.width;
     let (fw, fh) = if aspect <= 1.0 { (size, (size as f32 * aspect).round().max(1.0) as u32) } else { ((size as f32 / aspect).round().max(1.0) as u32, size) };
     let mut r = Renderer::new();

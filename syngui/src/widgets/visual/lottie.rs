@@ -125,14 +125,21 @@ impl Lottie {
     #[allow(clippy::should_implement_trait)]
     pub fn from_str(json: &str) -> Self {
         match Composition::from_str(json) {
-            Ok(c) => Self::new(Arc::new(c)),
+            Ok(mut c) => {
+                load_system_glyphs(&mut c);
+                Self::new(Arc::new(c))
+            }
             Err(e) => Self::failed(e.to_string()),
         }
     }
 
+    /// Из байтов: JSON или dotLottie (.lottie).
     pub fn from_bytes(bytes: &[u8]) -> Self {
         match Composition::from_bytes(bytes) {
-            Ok(c) => Self::new(Arc::new(c)),
+            Ok(mut c) => {
+                load_system_glyphs(&mut c);
+                Self::new(Arc::new(c))
+            }
             Err(e) => Self::failed(e.to_string()),
         }
     }
@@ -146,6 +153,7 @@ impl Lottie {
             Ok(bytes) => match Composition::from_bytes(&bytes) {
                 Ok(mut c) => {
                     load_images(&mut c, path.parent());
+                    load_system_glyphs(&mut c);
                     Self::new(Arc::new(c))
                 }
                 Err(e) => Self::failed(format!("{}: {e}", path.display())),
@@ -287,6 +295,15 @@ fn load_images(comp: &mut Composition, _base: Option<&std::path::Path>) {
         log::warn!("Lottie: растровые слои пропущены — нужна feature `image`");
     }
 }
+
+/// Глифы системных шрифтов для текста без встроенных `chars`.
+#[cfg(all(not(target_arch = "wasm32"), not(target_os = "android")))]
+fn load_system_glyphs(comp: &mut Composition) {
+    crate::lottie::sysfont::load_missing_glyphs(comp);
+}
+
+#[cfg(any(target_arch = "wasm32", target_os = "android"))]
+fn load_system_glyphs(_comp: &mut Composition) {}
 
 impl Widget for Lottie {
     fn create_element(&self) -> Box<dyn Element> {
