@@ -52,7 +52,7 @@ fn outline_to_shapes(outline: &swash::scale::outline::Outline) -> Vec<Shape> {
     let mut shapes = Vec::new();
     let mut cur: Option<ShapePath> = None;
     let mut pi = 0usize;
-    let mut flush = |cur: &mut Option<ShapePath>, shapes: &mut Vec<Shape>| {
+    let flush = |cur: &mut Option<ShapePath>, shapes: &mut Vec<Shape>| {
         if let Some(sp) = cur.take() {
             if sp.verts.len() >= 2 {
                 shapes.push(Shape::Path {
