@@ -439,7 +439,10 @@ paths (boolean ops on fill coverage; strokes draw the source contours),
 offset paths / zig zag / pucker & bloat / twist modifiers, and layer effects
 Fill, Tint, Drop Shadow, Gaussian Blur. Expressions, text animators and
 font-file text (no embedded glyphs) are not supported. Image assets (embedded
-base64 or files next to the JSON) decode when feature `image` is on.
+base64 or files next to the JSON) decode when feature `image` is on. The
+dotLottie container (.lottie — a ZIP read by syngui's own inflate) loads via
+the same constructors; the first animation from the manifest plays, and image
+assets come out of the archive.
 
 Frames are rasterized on the CPU at the physical size of the fit rectangle
 (crisp on HiDPI) in a small dedicated background thread pool (not the shared

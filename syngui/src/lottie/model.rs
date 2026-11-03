@@ -938,9 +938,59 @@ impl Composition {
         Composition::from_json(&root)
     }
 
+    /// Из байтов: обычный JSON или контейнер dotLottie (.lottie, ZIP).
     pub fn from_bytes(bytes: &[u8]) -> Result<Composition, LottieError> {
+        if super::zip::Zip::is_zip(bytes) {
+            return Composition::from_dotlottie(bytes);
+        }
         let text = std::str::from_utf8(bytes).map_err(|_| LottieError::Invalid("файл не в UTF-8"))?;
         Composition::from_str(text.trim_start_matches('\u{feff}'))
+    }
+
+    /// Контейнер dotLottie: первая анимация из manifest.json (или первый
+    /// файл `animations/*.json`); растровые ассеты берутся из архива.
+    pub fn from_dotlottie(bytes: &[u8]) -> Result<Composition, LottieError> {
+        let zip = super::zip::Zip::parse(bytes).map_err(LottieError::Invalid)?;
+        let anim_path = zip
+            .read("manifest.json")
+            .and_then(|m| {
+                let text = String::from_utf8(m).ok()?;
+                let v = json::parse(&text).ok()?;
+                let id = v.get("animations")?.as_array()?.first()?.str_or("id", "").to_string();
+                if id.is_empty() {
+                    None
+                } else {
+                    Some(format!("animations/{id}.json"))
+                }
+            })
+            .or_else(|| {
+                zip.entries
+                    .iter()
+                    .map(|e| e.name.clone())
+                    .find(|n| n.starts_with("animations/") && n.ends_with(".json"))
+            })
+            .ok_or(LottieError::Invalid("dotLottie: не найдена анимация"))?;
+        let data = zip
+            .read(&anim_path)
+            .ok_or(LottieError::Invalid("dotLottie: не удалось распаковать анимацию"))?;
+        let text = String::from_utf8(data).map_err(|_| LottieError::Invalid("dotLottie: анимация не в UTF-8"))?;
+        let mut comp = Composition::from_str(text.trim_start_matches('\u{feff}'))?;
+        // Внешние картинки внутри архива: кладём байты как встроенные.
+        for asset in comp.images.values_mut() {
+            if asset.embedded.is_some() || asset.path.is_empty() {
+                continue;
+            }
+            let p = asset.path.trim_start_matches('/');
+            let file = p.rsplit('/').next().unwrap_or(p);
+            asset.embedded = zip
+                .read(p)
+                .or_else(|| zip.read(&format!("images/{file}")))
+                .or_else(|| zip.read(file));
+            if asset.embedded.is_none() {
+                log::warn!("dotLottie: картинка `{}` не найдена в архиве", asset.path);
+            }
+        }
+        Ok(comp)
     }
 
     pub fn from_json(root: &Json) -> Result<Composition, LottieError> {

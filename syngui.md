@@ -1180,7 +1180,7 @@ Terminal::new()                           // фича "terminal": PTY + VT100
 VideoView / video_player_view(..)         // фича "ffmpeg"
 FramesView::new(frames, fps).playing_signal(..).position_signal(..).autoplay(true)
 // Lottie (bodymovin JSON) — свой парсер и растеризатор (syngui::lottie), без сторонних крейтов:
-// слои shape/solid/precomp/image/text (встроенные глифы), маски, matte, merge paths,
+// слои shape/solid/precomp/image/text (встроенные глифы), маски, matte, merge paths, dotLottie (.lottie),
 // модификаторы (offset/zigzag/pucker/twist/round), эффекты (Fill/Tint/DropShadow/GaussianBlur)
 Lottie::from_file("anim.json").repeat(true).speed(1.0).segment(0.0, 60.0) // или .marker("intro")
     .playing_signal(play).progress_signal(prog).on_complete(|| ..).style("width", 160.0_f32)
