@@ -97,6 +97,7 @@ pub struct Lottie {
     marker: Option<String>,
     on_complete: Option<CompleteFn>,
     size: Option<(f32, f32)>,
+    zoom: f32,
 }
 
 impl Lottie {
@@ -118,6 +119,7 @@ impl Lottie {
             marker: None,
             on_complete: None,
             size: None,
+            zoom: 1.0,
         }
     }
 
@@ -168,6 +170,13 @@ impl Lottie {
         s.comp = None;
         s.error = Some(msg);
         s
+    }
+
+    /// Приближение к центру кадра (1 — как есть): у анимаций с широкими
+    /// пустыми полями вокруг героя. Края за рамкой обрезаются.
+    pub fn zoom(mut self, z: f32) -> Self {
+        self.zoom = z.max(0.1);
+        self
     }
 
     /// Размер виджета в пикселях (без него — из стиля или по композиции).
@@ -336,6 +345,7 @@ impl Widget for Lottie {
             slot: Arc::new(std::sync::Mutex::new(None)),
             on_complete: self.on_complete.clone(),
             size: self.size,
+            zoom: self.zoom,
         })
     }
 
@@ -388,6 +398,7 @@ pub struct LottieElement {
     slot: FrameSlot,
     on_complete: Option<CompleteFn>,
     size: Option<(f32, f32)>,
+    zoom: f32,
 }
 
 impl LottieElement {
@@ -429,7 +440,7 @@ impl LottieElement {
                 Size::new(nw, nh),
             ),
             ImageFit::Contain | ImageFit::Cover => {
-                let scale = if self.fit == ImageFit::Contain { (bw / nw).min(bh / nh) } else { (bw / nw).max(bh / nh) };
+                let scale = if self.fit == ImageFit::Contain { (bw / nw).min(bh / nh) } else { (bw / nw).max(bh / nh) } * self.zoom;
                 let sw = nw * scale;
                 let sh = nh * scale;
                 Rect::new(
@@ -556,6 +567,10 @@ impl Element for LottieElement {
             self.subframe = v.subframe;
             self.classes = v.classes.clone();
             self.on_complete = v.on_complete.clone();
+            if self.zoom != v.zoom {
+                self.zoom = v.zoom;
+                self.rendered = None;
+            }
             if self.size != v.size {
                 self.size = v.size;
                 self.mark_dirty(DirtyFlags::LAYOUT);
@@ -608,7 +623,7 @@ impl Element for LottieElement {
                 .border_radius
                 .map(|dims| dims.map(|d| d.resolve(visible.size.width.min(visible.size.height))))
                 .filter(|r| r.iter().any(|v| *v > 0.0));
-            let clipped = radii.is_some() || self.fit == ImageFit::Cover;
+            let clipped = radii.is_some() || self.fit == ImageFit::Cover || self.zoom > 1.0;
             match radii {
                 Some(r) => list.push_clip_rounded(visible, r),
                 None if clipped => list.push_clip(visible),
