@@ -135,6 +135,70 @@ impl Rasterizer {
         Mask { x0, y0, w, h, cov }
     }
 
+    /// Булева операция над покрытиями (для merge paths): входы уходят в пул.
+    /// `None` — пустое покрытие.
+    pub fn combine(&mut self, a: Option<Mask>, b: Option<Mask>, op: CoverageOp) -> Option<Mask> {
+        let norm = |m: Option<Mask>| m.filter(|m| !m.is_empty());
+        let (a, b) = (norm(a), norm(b));
+        let (a, b) = match (a, b) {
+            (None, None) => return None,
+            (None, Some(b)) => {
+                return match op {
+                    CoverageOp::Union | CoverageOp::Xor => Some(b),
+                    CoverageOp::Subtract | CoverageOp::Intersect => {
+                        self.recycle(b);
+                        None
+                    }
+                };
+            }
+            (Some(a), None) => {
+                return match op {
+                    CoverageOp::Intersect => {
+                        self.recycle(a);
+                        None
+                    }
+                    _ => Some(a),
+                };
+            }
+            (Some(a), Some(b)) => (a, b),
+        };
+        if op == CoverageOp::Intersect {
+            let m = self.intersect(&a, &b);
+            self.recycle(a);
+            self.recycle(b);
+            return norm(Some(m));
+        }
+        // Охват результата: у вычитания — охват `a`, иначе объединение.
+        let (x0, y0, x1, y1) = match op {
+            CoverageOp::Subtract => (a.x0, a.y0, a.x0 + a.w as i32, a.y0 + a.h as i32),
+            _ => (
+                a.x0.min(b.x0),
+                a.y0.min(b.y0),
+                (a.x0 + a.w as i32).max(b.x0 + b.w as i32),
+                (a.y0 + a.h as i32).max(b.y0 + b.h as i32),
+            ),
+        };
+        let (w, h) = ((x1 - x0) as usize, (y1 - y0) as usize);
+        let mut out = self.new_mask(x0, y0, w, h, 0.0);
+        for y in 0..h {
+            let row = &mut out.cov[y * w..(y + 1) * w];
+            for (x, r) in row.iter_mut().enumerate() {
+                let (px, py) = (x0 + x as i32, y0 + y as i32);
+                let va = a.get(px, py);
+                let vb = b.get(px, py);
+                *r = match op {
+                    CoverageOp::Union => va + vb - va * vb,
+                    CoverageOp::Subtract => va * (1.0 - vb),
+                    CoverageOp::Xor => va + vb - 2.0 * va * vb,
+                    CoverageOp::Intersect => unreachable!(),
+                };
+            }
+        }
+        self.recycle(a);
+        self.recycle(b);
+        Some(out)
+    }
+
     /// Пересечение двух покрытий (произведение) над пересечением охватов.
     pub fn intersect(&mut self, a: &Mask, b: &Mask) -> Mask {
         let x0 = a.x0.max(b.x0);
@@ -554,6 +618,15 @@ fn radial_t(p: [f32; 2], c: [f32; 2], r: f32, f: [f32; 2]) -> f32 {
     if t1 >= 0.0 { t1.max(t2.min(t1)).max(0.0) } else { t2.max(0.0) }
 }
 
+/// Булева операция над масками покрытия (merge paths).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum CoverageOp {
+    Union,
+    Subtract,
+    Intersect,
+    Xor,
+}
+
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Default)]
 pub enum BlendMode {
     #[default]
@@ -816,6 +889,179 @@ impl Pixmap {
                     o
                 };
                 self.px[i] = out;
+            }
+        }
+        self.mark(x0, y0, x1, y1);
+    }
+
+    /// Эффект Fill: все непрозрачные пиксели перекрашиваются в `color`,
+    /// альфа умножается на `opacity`.
+    pub fn effect_fill(&mut self, color: [f32; 3], opacity: f32) {
+        let Some([x0, y0, x1, y1]) = self.dirty else {
+            return;
+        };
+        let op = opacity.clamp(0.0, 1.0);
+        for y in y0..y1 {
+            for p in &mut self.px[y * self.w + x0..y * self.w + x1] {
+                let a = p[3] * op;
+                *p = [color[0] * a, color[1] * a, color[2] * a, a];
+            }
+        }
+    }
+
+    /// Эффект Tint: цвет → lerp(black, white, яркость), сила `amount` 0..1.
+    pub fn effect_tint(&mut self, black: [f32; 3], white: [f32; 3], amount: f32) {
+        let Some([x0, y0, x1, y1]) = self.dirty else {
+            return;
+        };
+        let amt = amount.clamp(0.0, 1.0);
+        for y in y0..y1 {
+            for p in &mut self.px[y * self.w + x0..y * self.w + x1] {
+                let a = p[3];
+                if a <= 0.0 {
+                    continue;
+                }
+                let luma = (0.299 * p[0] + 0.587 * p[1] + 0.114 * p[2]) / a;
+                for k in 0..3 {
+                    let target = (black[k] + (white[k] - black[k]) * luma) * a;
+                    p[k] += (target - p[k]) * amt;
+                }
+            }
+        }
+    }
+
+    /// Гауссово размытие (3 прохода box blur) с сигмами по осям в пикселях.
+    pub fn blur(&mut self, sigma_x: f32, sigma_y: f32) {
+        let Some(d) = self.dirty else {
+            return;
+        };
+        let boxes = |sigma: f32| -> [usize; 3] {
+            if sigma < 0.3 {
+                return [0, 0, 0];
+            }
+            // Ширины боксов, дающие приближение гауссианы (W3C-алгоритм).
+            let wi = (sigma * (12.0f32 / 3.0).sqrt() + 1.0).floor() as usize;
+            let wl = if wi.is_multiple_of(2) { wi.saturating_sub(1) } else { wi }.max(1);
+            let wu = wl + 2;
+            let m = ((12.0 * sigma * sigma - (3 * wl * wl + 12 * wl + 9) as f32) / (-4.0 * wl as f32 - 4.0)).round() as usize;
+            let m = m.min(3);
+            let mut out = [wl; 3];
+            for o in out.iter_mut().skip(m) {
+                *o = wu;
+            }
+            out.map(|w| w / 2)
+        };
+        let bx = boxes(sigma_x);
+        let by = boxes(sigma_y);
+        let reach_x = bx.iter().sum::<usize>();
+        let reach_y = by.iter().sum::<usize>();
+        if reach_x == 0 && reach_y == 0 {
+            return;
+        }
+        let x0 = d[0].saturating_sub(reach_x);
+        let y0 = d[1].saturating_sub(reach_y);
+        let x1 = (d[2] + reach_x).min(self.w);
+        let y1 = (d[3] + reach_y).min(self.h);
+        let (rw, rh) = (x1 - x0, y1 - y0);
+        if rw == 0 || rh == 0 {
+            return;
+        }
+        let mut tmp = vec![[0f32; 4]; rw.max(rh)];
+        // Горизонтальные проходы.
+        for &r in bx.iter().filter(|r| **r > 0) {
+            let inv = 1.0 / (2 * r + 1) as f32;
+            for y in y0..y1 {
+                let row = &mut self.px[y * self.w + x0..y * self.w + x1];
+                tmp[..rw].copy_from_slice(row);
+                let mut acc = [0f32; 4];
+                for t in tmp.iter().take(r.min(rw - 1) + 1) {
+                    for k in 0..4 {
+                        acc[k] += t[k];
+                    }
+                }
+                for (x, out) in row.iter_mut().enumerate() {
+                    let add_i = x + r + 1;
+                    let sub_i = x as isize - r as isize;
+                    for k in 0..4 {
+                        out[k] = acc[k] * inv;
+                    }
+                    if add_i < rw {
+                        for k in 0..4 {
+                            acc[k] += tmp[add_i][k];
+                        }
+                    }
+                    if sub_i >= 0 {
+                        let i = sub_i as usize;
+                        if i < rw {
+                            for k in 0..4 {
+                                acc[k] -= tmp[i][k];
+                            }
+                        }
+                    }
+                }
+            }
+        }
+        // Вертикальные проходы.
+        for &r in by.iter().filter(|r| **r > 0) {
+            let inv = 1.0 / (2 * r + 1) as f32;
+            for x in x0..x1 {
+                for (i, t) in tmp[..rh].iter_mut().enumerate() {
+                    *t = self.px[(y0 + i) * self.w + x];
+                }
+                let mut acc = [0f32; 4];
+                for t in tmp.iter().take((r + 1).min(rh)) {
+                    for k in 0..4 {
+                        acc[k] += t[k];
+                    }
+                }
+                for yy in 0..rh {
+                    let add_i = yy + r + 1;
+                    let sub_i = yy as isize - r as isize;
+                    let p = &mut self.px[(y0 + yy) * self.w + x];
+                    for k in 0..4 {
+                        p[k] = acc[k] * inv;
+                    }
+                    if add_i < rh {
+                        for k in 0..4 {
+                            acc[k] += tmp[add_i][k];
+                        }
+                    }
+                    if sub_i >= 0 {
+                        let i = sub_i as usize;
+                        if i < rh {
+                            for k in 0..4 {
+                                acc[k] -= tmp[i][k];
+                            }
+                        }
+                    }
+                }
+            }
+        }
+        self.mark(x0, y0, x1, y1);
+    }
+
+    /// Заполнить себя тенью `src`: цвет × альфа `src`, сдвиг на (dx, dy).
+    pub fn shadow_of(&mut self, src: &Pixmap, color: [f32; 3], opacity: f32, dx: i32, dy: i32) {
+        self.clear();
+        let Some([sx0, sy0, sx1, sy1]) = src.dirty else {
+            return;
+        };
+        let x0 = (sx0 as i64 + dx as i64).clamp(0, self.w as i64) as usize;
+        let y0 = (sy0 as i64 + dy as i64).clamp(0, self.h as i64) as usize;
+        let x1 = (sx1 as i64 + dx as i64).clamp(0, self.w as i64) as usize;
+        let y1 = (sy1 as i64 + dy as i64).clamp(0, self.h as i64) as usize;
+        if x1 <= x0 || y1 <= y0 {
+            return;
+        }
+        let op = opacity.clamp(0.0, 1.0);
+        for y in y0..y1 {
+            let sy = y as i64 - dy as i64;
+            for x in x0..x1 {
+                let sx = x as i64 - dx as i64;
+                let a = src.px[sy as usize * src.w + sx as usize][3] * op;
+                if a > 0.0 {
+                    self.px[y * self.w + x] = [color[0] * a, color[1] * a, color[2] * a, a];
+                }
             }
         }
         self.mark(x0, y0, x1, y1);

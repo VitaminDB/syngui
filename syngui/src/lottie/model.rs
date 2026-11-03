@@ -48,7 +48,10 @@ pub struct Composition {
     pub precomps: HashMap<String, Vec<Layer>>,
     pub images: HashMap<String, ImageAsset>,
     pub markers: Vec<Marker>,
-    /// Сколько слоёв неподдерживаемого типа (текст и т. п.) пропущено.
+    pub fonts: Vec<FontDef>,
+    /// Встроенные глифы: ключ — (семейство, начертание, символ).
+    pub glyphs: HashMap<(String, String, String), Glyph>,
+    /// Сколько слоёв неподдерживаемого типа (аудио, камера и т. п.) пропущено.
     pub unsupported_layers: usize,
 }
 
@@ -99,6 +102,93 @@ pub struct LayerMask {
     pub path: Animated<ShapePath>,
 }
 
+#[derive(Debug, Clone)]
+pub struct FontDef {
+    /// Имя для ссылок из текста (`fName`).
+    pub name: String,
+    pub family: String,
+    pub style: String,
+    /// Подъём базовой линии в единицах на 100 px кегля.
+    pub ascent: f32,
+}
+
+/// Встроенный глиф (`chars[]`): контуры на кегль 100 px.
+#[derive(Debug)]
+pub struct Glyph {
+    pub shapes: Vec<Shape>,
+    /// Ширина (advance) на 100 px кегля.
+    pub advance: f32,
+}
+
+/// Текстовый документ — состояние текста слоя на отрезке кадров.
+#[derive(Debug, Clone)]
+pub struct TextDoc {
+    pub text: String,
+    pub font: String,
+    pub size: f32,
+    pub fill: Option<Vec<f32>>,
+    pub stroke: Option<Vec<f32>>,
+    pub stroke_width: f32,
+    /// Обводка поверх заливки.
+    pub stroke_over_fill: bool,
+    pub line_height: f32,
+    pub baseline_shift: f32,
+    /// Межбуквенный интервал (единицы на 1000 кегля).
+    pub tracking: f32,
+    /// 0 — влево, 1 — вправо, 2 — по центру.
+    pub justify: i64,
+    /// Левый верх текстового бокса (параграфный текст).
+    pub box_pos: Option<[f32; 2]>,
+    pub box_size: Option<[f32; 2]>,
+}
+
+#[derive(Debug)]
+pub struct TextData {
+    /// Документы по кадрам (hold-ключи): действует последний с `t <= frame`.
+    pub docs: Vec<(f32, TextDoc)>,
+}
+
+impl TextData {
+    pub fn doc_at(&self, frame: f32) -> Option<&TextDoc> {
+        self.docs.iter().rev().find(|(t, _)| *t <= frame).or(self.docs.first()).map(|(_, d)| d)
+    }
+}
+
+/// Эффект слоя (поддерживаемое подмножество).
+#[derive(Debug)]
+pub enum Effect {
+    /// Tint (20): карта чёрного/белого по яркости.
+    Tint {
+        black: Animated<Vec<f32>>,
+        white: Animated<Vec<f32>>,
+        /// Проценты 0..100.
+        amount: Animated<f32>,
+    },
+    /// Fill (21): перекраска непрозрачных пикселей.
+    Fill {
+        color: Animated<Vec<f32>>,
+        /// 0..1.
+        opacity: Animated<f32>,
+    },
+    /// Drop Shadow (25).
+    DropShadow {
+        color: Animated<Vec<f32>>,
+        /// 0..255.
+        opacity: Animated<f32>,
+        /// Градусы, 0 — вверх, по часовой.
+        direction: Animated<f32>,
+        distance: Animated<f32>,
+        softness: Animated<f32>,
+        shadow_only: bool,
+    },
+    /// Gaussian Blur (29).
+    GaussianBlur {
+        blurriness: Animated<f32>,
+        /// 1 — оба направления, 2 — горизонталь, 3 — вертикаль.
+        dimensions: Animated<f32>,
+    },
+}
+
 #[derive(Debug)]
 pub enum LayerKind {
     Precomp(String),
@@ -106,6 +196,7 @@ pub enum LayerKind {
     Image(String),
     Null,
     Shape(Vec<Shape>),
+    Text(TextData),
     Unsupported,
 }
 
@@ -129,6 +220,7 @@ pub struct Layer {
     pub matte_source: Option<usize>,
     pub is_matte_source: bool,
     pub blend: BlendMode,
+    pub effects: Vec<Effect>,
     pub hidden: bool,
     pub auto_orient: bool,
     /// Размер прекомпозиции / сплошного слоя.
@@ -241,6 +333,17 @@ impl Transform {
     }
 }
 
+/// Режим merge paths (`mm`). `Merge` — простое объединение контуров в один
+/// (как раздельная отрисовка), остальные — булевы операции по покрытию.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum MergeMode {
+    Merge,
+    Add,
+    Subtract,
+    Intersect,
+    Exclude,
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum GradientKind {
     Linear,
@@ -346,7 +449,28 @@ pub enum Shape {
     RoundCorners {
         radius: Animated<f32>,
     },
-    /// Merge paths / twist / pucker / zigzag / offset: контуры рисуются как есть.
+    /// Merge paths: булева операция над контурами выше по группе.
+    Merge { mode: MergeMode },
+    /// Offset paths: параллельный сдвиг контура.
+    OffsetPath {
+        amount: Animated<f32>,
+        join: LineJoin,
+        miter: f32,
+    },
+    /// Zig Zag: зубцы/волны вдоль контура.
+    ZigZag {
+        size: Animated<f32>,
+        ridges: Animated<f32>,
+        smooth: bool,
+    },
+    /// Pucker & Bloat: вершины к центру, касательные от центра (и наоборот).
+    PuckerBloat { amount: Animated<f32> },
+    /// Twist: закручивание вокруг центра (сильнее у центра).
+    Twist {
+        angle: Animated<f32>,
+        center: Animated<Vec<f32>>,
+    },
+    /// Неподдерживаемый элемент фигуры.
     Ignored,
 }
 
@@ -518,7 +642,36 @@ fn parse_shape(v: &Json) -> Option<Shape> {
         "rd" => Shape::RoundCorners {
             radius: Animated::parse_or(v.get("r"), 0.0),
         },
-        "mm" | "tw" | "pb" | "zz" | "op" => Shape::Ignored,
+        "mm" => Shape::Merge {
+            mode: match v.i64_or("mm", 1) {
+                2 => MergeMode::Add,
+                3 => MergeMode::Subtract,
+                4 => MergeMode::Intersect,
+                5 => MergeMode::Exclude,
+                _ => MergeMode::Merge,
+            },
+        },
+        "op" => Shape::OffsetPath {
+            amount: Animated::parse_or(v.get("a"), 0.0),
+            join: match v.i64_or("lj", 1) {
+                2 => LineJoin::Round,
+                3 => LineJoin::Bevel,
+                _ => LineJoin::Miter,
+            },
+            miter: v.f32_or("ml", 4.0),
+        },
+        "zz" => Shape::ZigZag {
+            size: Animated::parse_or(v.get("s"), 0.0),
+            ridges: Animated::parse_or(v.get("r"), 1.0),
+            smooth: v.get("pt").and_then(Json::as_f64).map(|p| p >= 1.5).unwrap_or(false),
+        },
+        "pb" => Shape::PuckerBloat {
+            amount: Animated::parse_or(v.get("a"), 0.0),
+        },
+        "tw" => Shape::Twist {
+            angle: Animated::parse_or(v.get("a"), 0.0),
+            center: Animated::parse_or(v.get("c"), vec![0.0, 0.0]),
+        },
         other => {
             log::debug!("lottie: неизвестный элемент фигуры `{other}` пропущен");
             Shape::Ignored
@@ -549,6 +702,96 @@ fn parse_mask(v: &Json) -> Option<LayerMask> {
     })
 }
 
+fn parse_text_doc(v: &Json) -> TextDoc {
+    let color = |key: &str| -> Option<Vec<f32>> {
+        v.get(key).map(Json::num_array).filter(|c| c.len() >= 3).map(|c| normalize_color(&c))
+    };
+    let pair = |key: &str| -> Option<[f32; 2]> {
+        let n = v.get(key)?.num_array();
+        if n.len() >= 2 { Some([n[0], n[1]]) } else { None }
+    };
+    let size = v.f32_or("s", 36.0);
+    TextDoc {
+        text: v.str_or("t", "").to_string(),
+        font: v.str_or("f", "").to_string(),
+        size,
+        fill: color("fc"),
+        stroke: color("sc"),
+        stroke_width: v.f32_or("sw", 0.0),
+        stroke_over_fill: v.bool_or("of", true),
+        line_height: {
+            let lh = v.f32_or("lh", 0.0);
+            if lh > 0.0 { lh } else { size * 1.2 }
+        },
+        baseline_shift: v.f32_or("ls", 0.0),
+        tracking: v.f32_or("tr", 0.0),
+        justify: v.i64_or("j", 0),
+        box_pos: pair("ps"),
+        box_size: pair("sz"),
+    }
+}
+
+fn parse_text(v: &Json) -> TextData {
+    let docs = v
+        .get("t")
+        .and_then(|t| t.get("d"))
+        .and_then(|d| d.get("k"))
+        .and_then(Json::as_array)
+        .map(|arr| {
+            arr.iter()
+                .filter_map(|k| Some((k.f32_or("t", 0.0), parse_text_doc(k.get("s")?))))
+                .collect()
+        })
+        .unwrap_or_default();
+    if v.get("t").and_then(|t| t.get("a")).and_then(Json::as_array).map(|a| !a.is_empty()).unwrap_or(false) {
+        log::debug!("lottie: аниматоры текста не поддерживаются, текст рисуется статично");
+    }
+    TextData { docs }
+}
+
+fn parse_effects(v: &Json) -> Vec<Effect> {
+    let Some(list) = v.get("ef").and_then(Json::as_array) else {
+        return Vec::new();
+    };
+    let mut out = Vec::new();
+    for e in list {
+        if e.i64_or("en", 1) == 0 {
+            continue;
+        }
+        let vals = e.get("ef").and_then(Json::as_array).unwrap_or(&[]);
+        let val = |i: usize| vals.get(i).and_then(|x| x.get("v"));
+        let color = |i: usize| Animated::parse_or(val(i), vec![0.0, 0.0, 0.0, 1.0]).map(|c| normalize_color(c));
+        let num = |i: usize, d: f32| Animated::parse_or(val(i), d);
+        match e.i64_or("ty", -1) {
+            20 => out.push(Effect::Tint {
+                black: color(0),
+                white: color(1),
+                amount: num(2, 100.0),
+            }),
+            21 => out.push(Effect::Fill {
+                color: color(2),
+                opacity: num(6, 1.0),
+            }),
+            25 => out.push(Effect::DropShadow {
+                color: color(0),
+                opacity: num(1, 127.0),
+                direction: num(2, 135.0),
+                distance: num(3, 10.0),
+                softness: num(4, 7.0),
+                shadow_only: val(5).and_then(|v| v.get("k")).and_then(Json::as_f64).map(|v| v != 0.0).unwrap_or(false),
+            }),
+            29 => out.push(Effect::GaussianBlur {
+                blurriness: num(0, 0.0),
+                dimensions: num(1, 1.0),
+            }),
+            other => {
+                log::debug!("lottie: эффект {other} (`{}`) не поддерживается", e.str_or("nm", ""));
+            }
+        }
+    }
+    out
+}
+
 fn parse_hex_color(s: &str) -> [f32; 3] {
     let h = s.trim_start_matches('#');
     let c = |i: usize| -> f32 {
@@ -571,6 +814,7 @@ fn parse_layer(v: &Json, unsupported: &mut usize) -> Layer {
         1 => LayerKind::Solid(parse_hex_color(v.str_or("sc", "#000000"))),
         2 => LayerKind::Image(v.str_or("refId", "").to_string()),
         3 => LayerKind::Null,
+        5 => LayerKind::Text(parse_text(v)),
         4 => LayerKind::Shape(
             v.get("shapes")
                 .and_then(Json::as_array)
@@ -580,7 +824,7 @@ fn parse_layer(v: &Json, unsupported: &mut usize) -> Layer {
         other => {
             *unsupported += 1;
             log::warn!(
-                "lottie: слой `{}` типа {other} не поддерживается (текст/аудио/камера) и пропущен",
+                "lottie: слой `{}` типа {other} не поддерживается (аудио/камера/data) и пропущен",
                 v.str_or("nm", "")
             );
             LayerKind::Unsupported
@@ -620,6 +864,7 @@ fn parse_layer(v: &Json, unsupported: &mut usize) -> Layer {
         matte_source: None,
         is_matte_source: v.i64_or("td", 0) == 1,
         blend: BlendMode::from_lottie(v.i64_or("bm", 0)),
+        effects: parse_effects(v),
         hidden: v.bool_or("hd", false),
         auto_orient: v.i64_or("ao", 0) == 1,
         width,
@@ -753,6 +998,43 @@ impl Composition {
                     .collect()
             })
             .unwrap_or_default();
+        let fonts: Vec<FontDef> = root
+            .get("fonts")
+            .and_then(|f| f.get("list"))
+            .and_then(Json::as_array)
+            .map(|arr| {
+                arr.iter()
+                    .map(|f| FontDef {
+                        name: f.str_or("fName", "").to_string(),
+                        family: f.str_or("fFamily", "").to_string(),
+                        style: f.str_or("fStyle", "").to_string(),
+                        ascent: f.f32_or("ascent", 75.0),
+                    })
+                    .collect()
+            })
+            .unwrap_or_default();
+        let mut glyphs = HashMap::new();
+        if let Some(chars) = root.get("chars").and_then(Json::as_array) {
+            for c in chars {
+                let shapes = c
+                    .get("data")
+                    .and_then(|d| d.get("shapes"))
+                    .and_then(Json::as_array)
+                    .map(|a| a.iter().filter_map(parse_shape).collect())
+                    .unwrap_or_default();
+                glyphs.insert(
+                    (
+                        c.str_or("fFamily", "").to_string(),
+                        c.str_or("style", "").to_string(),
+                        c.str_or("ch", "").to_string(),
+                    ),
+                    Glyph {
+                        shapes,
+                        advance: c.f32_or("w", 0.0),
+                    },
+                );
+            }
+        }
         let frame_rate = root.f32_or("fr", 30.0).max(1.0);
         let in_point = root.f32_or("ip", 0.0);
         let out_point = root.f32_or("op", in_point + frame_rate);
@@ -767,8 +1049,23 @@ impl Composition {
             precomps,
             images,
             markers,
+            fonts,
+            glyphs,
             unsupported_layers: unsupported,
         })
+    }
+
+    /// Шрифт по имени (`fName`); иначе первый из списка.
+    pub fn font(&self, name: &str) -> Option<&FontDef> {
+        self.fonts.iter().find(|f| f.name == name).or_else(|| self.fonts.first())
+    }
+
+    /// Встроенный глиф: точное совпадение семейства и начертания,
+    /// иначе любой с тем же символом.
+    pub fn glyph(&self, family: &str, style: &str, ch: &str) -> Option<&Glyph> {
+        self.glyphs
+            .get(&(family.to_string(), style.to_string(), ch.to_string()))
+            .or_else(|| self.glyphs.iter().find(|((_, _, c), _)| c == ch).map(|(_, g)| g))
     }
 
     /// Длительность в кадрах.

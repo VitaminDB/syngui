@@ -549,6 +549,162 @@ pub fn dash_polyline(poly: &Polyline, pattern: &[f32], offset: f32) -> Vec<Polyl
     out
 }
 
+/// Offset paths: параллельный сдвиг ломаной на `amount` (положительный —
+/// наружу у замкнутых). Самопересечения не устраняются.
+pub fn offset_polyline(poly: &Polyline, amount: f32, join: LineJoin, miter_limit: f32) -> Polyline {
+    let n = poly.pts.len();
+    if n < 2 || amount.abs() < 1e-6 {
+        return poly.clone();
+    }
+    let seg_normal = |i: usize| -> [f32; 2] {
+        let a = poly.pts[i % n];
+        let b = poly.pts[(i + 1) % n];
+        let d = sub(b, a);
+        let l = len(d);
+        if l > 0.0 { [-d[1] / l, d[0] / l] } else { [0.0, 0.0] }
+    };
+    let offset_with = |k: f32| -> Vec<[f32; 2]> {
+        (0..n)
+            .map(|i| {
+                let v = poly.pts[i];
+                let (n0, n1) = if poly.closed {
+                    (seg_normal((i + n - 1) % n), seg_normal(i))
+                } else if i == 0 {
+                    (seg_normal(0), seg_normal(0))
+                } else if i == n - 1 {
+                    (seg_normal(n - 2), seg_normal(n - 2))
+                } else {
+                    (seg_normal(i - 1), seg_normal(i))
+                };
+                let dot = (n0[0] * n1[0] + n0[1] * n1[1]).clamp(-1.0, 1.0);
+                let avg = [n0[0] + n1[0], n0[1] + n1[1]];
+                let al = len(avg);
+                if al < 1e-6 {
+                    return add(v, mulf(n1, amount * k));
+                }
+                // Митра: длина 1/cos(θ/2), с ограничением (как Bevel при превышении).
+                let mut m = 1.0 / ((0.5 * (1.0 + dot)).max(1e-4)).sqrt();
+                let limit = if join == LineJoin::Miter { miter_limit.max(1.0) } else { 1.5 };
+                m = m.min(limit);
+                add(v, mulf([avg[0] / al, avg[1] / al], amount * k * m))
+            })
+            .collect()
+    };
+    let area = |pts: &[[f32; 2]]| -> f32 {
+        let mut a = 0.0;
+        for i in 0..pts.len() {
+            let p = pts[i];
+            let q = pts[(i + 1) % pts.len()];
+            a += p[0] * q[1] - q[0] * p[1];
+        }
+        a * 0.5
+    };
+    let mut pts = offset_with(1.0);
+    if poly.closed {
+        // Наружу — туда, где площадь растёт при amount > 0.
+        let grow = area(&pts).abs() >= area(&poly.pts).abs();
+        if grow != (amount > 0.0) {
+            pts = offset_with(-1.0);
+        }
+    }
+    Polyline { pts, closed: poly.closed }
+}
+
+/// Zig Zag: `ridges` зубцов на сегмент контура, амплитуда `size`;
+/// вершины остаются на контуре, пики смещаются по нормали поочерёдно.
+pub fn zigzag_path(sp: &ShapePath, size: f32, ridges: f32, out_tol: f32) -> Polyline {
+    let n = sp.verts.len();
+    let segs = if sp.closed { n } else { n.saturating_sub(1) };
+    let mut out = Vec::new();
+    if n == 0 {
+        return Polyline { pts: out, closed: sp.closed };
+    }
+    let r = ridges.round().max(1.0) as usize;
+    let steps = 2 * r; // пики на нечётных отсчётах
+    let _ = out_tol;
+    let mut flip = 1.0f32;
+    out.push(sp.verts[0]);
+    for i in 0..segs {
+        let j = (i + 1) % n;
+        let p0 = sp.verts[i];
+        let p3 = sp.verts[j];
+        let p1 = add(p0, sp.outs[i]);
+        let p2 = add(p3, sp.ins[j]);
+        for k in 1..=steps {
+            let t = k as f32 / steps as f32;
+            let pos = eval_cubic(p0, p1, p2, p3, t);
+            if k == steps {
+                out.push(p3);
+            } else if k % 2 == 1 {
+                // Нормаль из производной кривой.
+                let mt = 1.0 - t;
+                let d = [
+                    3.0 * mt * mt * (p1[0] - p0[0]) + 6.0 * mt * t * (p2[0] - p1[0]) + 3.0 * t * t * (p3[0] - p2[0]),
+                    3.0 * mt * mt * (p1[1] - p0[1]) + 6.0 * mt * t * (p2[1] - p1[1]) + 3.0 * t * t * (p3[1] - p2[1]),
+                ];
+                let l = len(d).max(1e-6);
+                let nrm = [-d[1] / l, d[0] / l];
+                out.push(add(pos, mulf(nrm, size * flip)));
+                flip = -flip;
+            } else {
+                out.push(pos);
+            }
+        }
+    }
+    if sp.closed && out.len() > 1 {
+        out.pop();
+    }
+    Polyline { pts: out, closed: sp.closed }
+}
+
+/// Pucker & Bloat: `amount` в процентах; положительный тянет вершины к
+/// центру, а касательные — от центра (отрицательный — наоборот).
+pub fn pucker_bloat(sp: &ShapePath, amount_percent: f32) -> ShapePath {
+    let n = sp.verts.len();
+    if n == 0 || amount_percent.abs() < 1e-6 {
+        return sp.clone();
+    }
+    let p = amount_percent / 100.0;
+    let mut c = [0.0f32, 0.0];
+    for v in &sp.verts {
+        c = add(c, *v);
+    }
+    c = mulf(c, 1.0 / n as f32);
+    let mut out = ShapePath::with_capacity(n, sp.closed);
+    for i in 0..n {
+        let v = sp.verts[i];
+        let nv = add(v, mulf(sub(c, v), p));
+        // Абсолютные позиции касательных двигаются от центра.
+        let hi = add(v, sp.ins[i]);
+        let ho = add(v, sp.outs[i]);
+        let nhi = add(hi, mulf(sub(hi, c), p));
+        let nho = add(ho, mulf(sub(ho, c), p));
+        out.push(nv, sub(nhi, nv), sub(nho, nv));
+    }
+    out
+}
+
+/// Twist: поворот точек вокруг `center`; угол максимален в центре и
+/// спадает к нулю на краю (как в After Effects).
+pub fn twist_polyline(poly: &mut Polyline, angle_deg: f32, center: [f32; 2]) {
+    if angle_deg.abs() < 1e-6 || poly.pts.is_empty() {
+        return;
+    }
+    let maxd = poly
+        .pts
+        .iter()
+        .map(|p| dist(*p, center))
+        .fold(0.0f32, f32::max)
+        .max(1e-6);
+    for p in &mut poly.pts {
+        let d = dist(*p, center);
+        let theta = (angle_deg * (1.0 - d / maxd)).to_radians();
+        let (sn, cs) = theta.sin_cos();
+        let r = sub(*p, center);
+        *p = add(center, [r[0] * cs - r[1] * sn, r[0] * sn + r[1] * cs]);
+    }
+}
+
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum LineCap {
     Butt,

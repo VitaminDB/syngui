@@ -431,11 +431,15 @@ FramesView::new(frames, 24.0)         // Arc<Vec<Arc<VideoFrame>>>, fps
 Vector animation player for Lottie (bodymovin JSON), implemented from scratch
 in `syngui::lottie` (own JSON parser, keyframe interpolation, scanline
 rasterizer with exact coverage, layer compositing) — no third-party crates.
-Supported: shape/solid/null/precomp/image layers, parenting, masks and track
+Supported: shape/solid/null/precomp/image layers, text layers from embedded
+glyphs (bodymovin "Glyphs" export; `chars`), parenting, masks and track
 mattes, time remap, blend modes, fills and strokes (solid and linear/radial
-gradients, dashes), trim paths, repeater, rounded corners, polystar. Text
-layers and expressions are not supported. Image assets (embedded base64 or
-files next to the JSON) decode when feature `image` is on.
+gradients, dashes), trim paths, repeater, rounded corners, polystar, merge
+paths (boolean ops on fill coverage; strokes draw the source contours),
+offset paths / zig zag / pucker & bloat / twist modifiers, and layer effects
+Fill, Tint, Drop Shadow, Gaussian Blur. Expressions, text animators and
+font-file text (no embedded glyphs) are not supported. Image assets (embedded
+base64 or files next to the JSON) decode when feature `image` is on.
 
 Frames are rasterized on the CPU at the physical size of the fit rectangle
 (crisp on HiDPI) in a small dedicated background thread pool (not the shared
