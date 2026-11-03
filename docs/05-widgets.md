@@ -426,6 +426,43 @@ FramesView::new(frames, 24.0)         // Arc<Vec<Arc<VideoFrame>>>, fps
                                       // write while paused = seek
 ```
 
+### Lottie
+
+Vector animation player for Lottie (bodymovin JSON), implemented from scratch
+in `syngui::lottie` (own JSON parser, keyframe interpolation, scanline
+rasterizer with exact coverage, layer compositing) — no third-party crates.
+Supported: shape/solid/null/precomp/image layers, parenting, masks and track
+mattes, time remap, blend modes, fills and strokes (solid and linear/radial
+gradients, dashes), trim paths, repeater, rounded corners, polystar. Text
+layers and expressions are not supported. Image assets (embedded base64 or
+files next to the JSON) decode when feature `image` is on.
+
+Frames are rasterized on the CPU at the physical size of the fit rectangle
+(crisp on HiDPI) and uploaded into one GPU texture per instance. By default
+only whole animation frames are rendered; `.subframe(true)` renders
+fractional frames on every tick.
+
+```rust
+Lottie::from_file("anim.json")        // or from_str / from_bytes / new(Arc<Composition>)
+    .fit(ImageFit::Contain)
+    .autoplay(true)                   // default
+    .repeat(true)                     // default; false → stops on the last frame
+    .speed(1.0)                       // negative plays backwards
+    .segment(0.0, 60.0)               // frames; or .marker("intro")
+    .playing_signal(play_sig)         // RwSignal<bool>, bidirectional
+    .progress_signal(prog_sig)        // RwSignal<f32> 0..1; external write while paused = seek
+    .on_complete(|| ..)               // non-repeat end
+    .style("width", 160.0_f32)        // natural size = composition size
+```
+
+Headless rendering without the widget:
+
+```rust
+let comp = syngui::lottie::Composition::from_str(json)?;
+let mut r = syngui::lottie::Renderer::new();
+let rgba: Vec<u8> = r.render_rgba8(&comp, frame, 256, 256); // straight alpha, sRGB
+```
+
 ## Containers
 
 ### DecoratedBox

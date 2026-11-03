@@ -63,7 +63,7 @@ pub use visual::{
     default_locale, set_default_locale, Avatar, Badge, BadgeSize, Calendar, CalendarLocale,
     CalendarTheme, Canvas, Card, Chip, CircularProgress, DateOrder, Divider, DividerDirection,
     EmitKind, EmitterConfig, GraphEdge, GraphNode, GraphView, EmitterShape, Icon, Image, ImageFit, ImageViewCommand, ImageViewInfo,
-    ImageViewport, ParticleEmitter, ParticlePreset, ParticleShape, ParticleSystem, ProgressBar,
+    ImageViewport, Lottie, ParticleEmitter, ParticlePreset, ParticleShape, ParticleSystem, ProgressBar,
     RichText, TextSpan,
 };
 #[cfg(feature = "ffmpeg")]

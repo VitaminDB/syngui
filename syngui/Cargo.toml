@@ -535,3 +535,11 @@ required-features = ["testing"]
 [[test]]
 name = "tree_multi_select"
 required-features = ["testing"]
+
+[[example]]
+name = "lottie_dump"
+required-features = ["image"]
+
+[[example]]
+name = "lottie_shot"
+required-features = ["image"]

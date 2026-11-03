@@ -55,6 +55,7 @@ pub(crate) mod i18n {
 }
 pub mod input;
 pub mod layout;
+pub mod lottie;
 pub mod mss;
 pub mod perf;
 pub mod render;
@@ -155,7 +156,7 @@ pub mod prelude {
         Combobox, ConfirmDialog, ContextMenu, CrossAxisAlignment, Date, DatePicker, DecoratedBox,
         Dialog, DialogAction, DismissDirection, Dismissible, Divider, DividerDirection, Draggable,
         DropArea, Dropdown, DropdownItem, Flex, FlexDirection, FloatingWindow, Grid, Icon, Image,
-        ImageFit, ListItem, ListView, MainAxisAlignment, MenuItem, Motion, Multiselect,
+        ImageFit, ListItem, ListView, Lottie, MainAxisAlignment, MenuItem, Motion, Multiselect,
         NotificationCtx, NotificationHost, NotificationItem, NotificationSeverity, Padding,
         Pagination, PopupMenu, Portal, Presence, ProgressBar, Property, PropertyGrid,
         PropertyValue, OptionGroup, OptionItem, RadioButton, RadioGroup, Reactive, RichText, Router, RouterView, Row,

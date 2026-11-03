@@ -61,11 +61,64 @@ fn build_accordion_section(title: &str, body: &str, state: RwSignal<usize>) -> i
         )
 }
 
+/// Демо-анимация Lottie (собственный JSON: trim path с градиентной обводкой,
+/// polystar со скруглением и радиальным градиентом, repeater, движение по
+/// кривой, маркеры).
+const LOTTIE_DEMO: &str = include_str!("../../assets/lottie_demo.json");
+
+fn build_lottie_demo() -> impl Widget {
+    let playing = use_signal(true);
+    let progress = use_signal(0.0f32);
+    Column::new()
+        .gap(8.0)
+        .child(label("Lottie (own parser + rasterizer, no third-party crates)"))
+        .child(
+            Row::new()
+                .gap(16.0)
+                .child(
+                    Lottie::from_str(LOTTIE_DEMO)
+                        .playing_signal(playing)
+                        .progress_signal(progress)
+                        .style("width", 160.0_f32)
+                        .style("height", 160.0_f32),
+                )
+                .child(
+                    Lottie::from_str(LOTTIE_DEMO)
+                        .marker("draw")
+                        .speed(0.5)
+                        .style("width", 100.0_f32)
+                        .style("height", 100.0_f32),
+                )
+                .child(
+                    Lottie::from_str(LOTTIE_DEMO)
+                        .speed(-1.5)
+                        .subframe(true)
+                        .fit(ImageFit::Cover)
+                        .style("width", 100.0_f32)
+                        .style("height", 60.0_f32),
+                ),
+        )
+        .child(
+            Row::new()
+                .gap(8.0)
+                .child(Button::new("Play / Pause").class("secondary").on_click(move || {
+                    playing.set(!playing.get_untracked());
+                }))
+                .child(
+                    Slider::new()
+                        .value(0.0)
+                        .on_change(move |v| progress.set(v))
+                        .class("slider-width"),
+                ),
+        )
+}
+
 pub fn build_visual_section() -> impl Widget {
     section_card(
         Column::new()
             .gap(16.0)
             .child(section_title("Visual"))
+            .child(build_lottie_demo())
             .child(
                 Column::new().gap(8.0).child(label("Icons")).child(
                     Row::new()
