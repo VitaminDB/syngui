@@ -1589,9 +1589,11 @@ impl ElementTree {
             },
             constraints.containing_block.height,
         );
+        // Элемент не шире строки (как flex-wrap в CSS): иначе длинный текст в
+        // «пилюле» не переносится и вылезает за край контейнера.
         let child_constraints = Constraints {
             min_width: 0.0,
-            max_width: f32::INFINITY,
+            max_width: if constraints.max_width.is_finite() { constraints.max_width } else { f32::INFINITY },
             min_height: 0.0,
             max_height: f32::INFINITY,
             containing_block: flex_cb,
