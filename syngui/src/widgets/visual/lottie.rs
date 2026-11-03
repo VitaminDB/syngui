@@ -96,6 +96,7 @@ pub struct Lottie {
     segment: Option<(f32, f32)>,
     marker: Option<String>,
     on_complete: Option<CompleteFn>,
+    size: Option<(f32, f32)>,
 }
 
 impl Lottie {
@@ -116,6 +117,7 @@ impl Lottie {
             segment: None,
             marker: None,
             on_complete: None,
+            size: None,
         }
     }
 
@@ -158,6 +160,12 @@ impl Lottie {
         s.comp = None;
         s.error = Some(msg);
         s
+    }
+
+    /// Размер виджета в пикселях (без него — из стиля или по композиции).
+    pub fn size(mut self, w: f32, h: f32) -> Self {
+        self.size = Some((w, h));
+        self
     }
 
     pub fn fit(mut self, fit: ImageFit) -> Self {
@@ -310,6 +318,7 @@ impl Widget for Lottie {
             inflight: None,
             slot: Arc::new(std::sync::Mutex::new(None)),
             on_complete: self.on_complete.clone(),
+            size: self.size,
         })
     }
 
@@ -361,6 +370,7 @@ pub struct LottieElement {
     /// Куда фоновая задача кладёт готовый кадр.
     slot: FrameSlot,
     on_complete: Option<CompleteFn>,
+    size: Option<(f32, f32)>,
 }
 
 impl LottieElement {
@@ -529,6 +539,10 @@ impl Element for LottieElement {
             self.subframe = v.subframe;
             self.classes = v.classes.clone();
             self.on_complete = v.on_complete.clone();
+            if self.size != v.size {
+                self.size = v.size;
+                self.mark_dirty(DirtyFlags::LAYOUT);
+            }
             self.mark_dirty(DirtyFlags::RENDER);
         }
     }
@@ -537,6 +551,11 @@ impl Element for LottieElement {
         let (nw, nh) = self.natural;
         let max_w = constraints.max_width;
         let max_h = constraints.max_height;
+        if let Some((w, h)) = self.size {
+            let size = Size::new(w.min(max_w), h.min(max_h));
+            self.bounds = Rect::new(Point::zero(), size);
+            return size;
+        }
         let width = if let Some(d) = self.mss.width {
             d.resolve(max_w).min(max_w)
         } else {
