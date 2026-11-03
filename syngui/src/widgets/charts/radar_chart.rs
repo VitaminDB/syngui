@@ -242,6 +242,31 @@ struct RadarChartElement {
 }
 
 impl RadarChartElement {
+    /// Высота легенды: её нет, если она выключена или ряд один (не рисуется).
+    fn legend_h(&self) -> f32 {
+        if self.legend_config.position != LegendPosition::None && self.radar_series.len() > 1 {
+            legend_height(self.legend_config.position, 12.0)
+        } else {
+            0.0
+        }
+    }
+
+    /// Центр, радиус и размер диаграммы: по центру области между заголовком
+    /// и легендой, с местом под подписи осей.
+    fn geometry(&self, padding: [f32; 4]) -> (f32, f32, f32, f32) {
+        let inner_w = self.bounds.size.width - padding[0] - padding[2];
+        let inner_h = self.bounds.size.height - padding[1] - padding[3];
+        let inner_x = self.bounds.origin.x + padding[0];
+        let inner_y = self.bounds.origin.y + padding[1];
+        let title_h = if self.title.is_some() { 24.0 } else { 0.0 };
+        let label_offset = 24.0;
+        let avail_h = (inner_h - title_h - self.legend_h()).max(60.0);
+        let chart_size = (inner_w - label_offset * 2.0).min(avail_h - label_offset * 2.0).max(60.0);
+        let cx = inner_x + inner_w * 0.5;
+        let cy = inner_y + title_h + avail_h * 0.5;
+        (cx, cy, chart_size * 0.46, chart_size)
+    }
+
     fn compute_data_points(
         &self,
         cx: f32,
@@ -332,7 +357,9 @@ impl Element for RadarChartElement {
             .width
             .or(self.width)
             .map(|d| d.resolve(constraints.max_width))
-            .unwrap_or(350.0)
+            // Без явной ширины — на всю доступную (иначе 350 и прижат влево).
+            .unwrap_or(if constraints.max_width.is_finite() { constraints.max_width } else { 350.0 })
+            .max(constraints.min_width)
             .min(constraints.max_width);
 
         let h = self
@@ -372,21 +399,11 @@ impl Element for RadarChartElement {
         }
 
         let inner_w = self.bounds.size.width - padding[0] - padding[2];
-        let inner_h = self.bounds.size.height - padding[1] - padding[3];
         let inner_x = self.bounds.origin.x + padding[0];
         let inner_y = self.bounds.origin.y + padding[1];
-
-        let title_h = if self.title.is_some() { 24.0 } else { 0.0 };
-        let legend_h = legend_height(self.legend_config.position, 12.0);
+        let legend_h = self.legend_h();
         let label_offset = 24.0;
-
-        let chart_h = (inner_h - title_h - legend_h - label_offset * 2.0).max(60.0);
-        let chart_w = (inner_w - label_offset * 2.0).max(60.0);
-        let chart_size = chart_w.min(chart_h);
-
-        let cx = inner_x + inner_w * 0.5;
-        let cy = inner_y + title_h + label_offset + chart_size * 0.5;
-        let radius = chart_size * 0.4;
+        let (cx, cy, radius, chart_size) = self.geometry(padding);
 
         let grid_color = self
             .mss_grid_color
@@ -519,8 +536,9 @@ impl Element for RadarChartElement {
             }
         }
 
-        if self.legend_config.position != LegendPosition::None && self.radar_series.len() > 1 {
-            let legend_y = cy + chart_size * 0.5 + label_offset;
+        if legend_h > 0.0 {
+            let _ = (chart_size, label_offset);
+            let legend_y = self.bounds.origin.y + self.bounds.size.height - padding[3] - legend_h;
             let legend_rect =
                 Rect::new(Point::new(inner_x, legend_y), Size::new(inner_w, legend_h));
             let names: Vec<&str> = self.radar_series.iter().map(|s| s.name.as_str()).collect();
@@ -606,21 +624,7 @@ impl Element for RadarChartElement {
         let n = self.indicators.len();
         if n >= 3 {
             let padding = self.mss.padding_ltrb([16.0; 4]);
-            let inner_w = self.bounds.size.width - padding[0] - padding[2];
-            let inner_h = self.bounds.size.height - padding[1] - padding[3];
-            let inner_x = self.bounds.origin.x + padding[0];
-            let inner_y = self.bounds.origin.y + padding[1];
-
-            let title_h = if self.title.is_some() { 24.0 } else { 0.0 };
-            let legend_h = legend_height(self.legend_config.position, 12.0);
-            let label_offset = 24.0;
-            let chart_h = (inner_h - title_h - legend_h - label_offset * 2.0).max(60.0);
-            let chart_w = (inner_w - label_offset * 2.0).max(60.0);
-            let chart_size = chart_w.min(chart_h);
-
-            let cx = inner_x + inner_w * 0.5;
-            let cy = inner_y + title_h + label_offset + chart_size * 0.5;
-            let radius = chart_size * 0.4;
+            let (cx, cy, radius, _) = self.geometry(padding);
 
             self.center = (cx, cy);
             self.radius = radius;
