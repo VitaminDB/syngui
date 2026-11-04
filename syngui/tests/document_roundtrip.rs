@@ -361,3 +361,15 @@ fn table_inside_toggle() {
     }
     assert_eq!(serialize_document(&m), src);
 }
+
+#[test]
+fn tight_item_text_after_code_stays_after_it() {
+    use syngui::widgets::input::document_editor::{parse_document, serialize_document};
+    let src = "1. Вызов:\n   ```\n   code()\n   ```\n   Пояснение после кода.\n2. Дальше\n";
+    let out = serialize_document(&parse_document(src));
+    let a = out.find("code()").unwrap();
+    let b = out.find("Пояснение").unwrap();
+    assert!(a < b, "текст после кода ушёл в начало пункта:\n{out}");
+    assert!(out.starts_with("1. Вызов:\n"), "{out}");
+    assert_eq!(serialize_document(&parse_document(&out)), out);
+}

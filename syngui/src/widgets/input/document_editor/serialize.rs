@@ -6,9 +6,50 @@
 //! round-trip: `serialize(parse(serialize(parse(x)))) == serialize(parse(x))`
 //! — проверяется корпусом фикстур в tests/document_roundtrip.rs.
 
+use std::cell::Cell;
+
 use super::attrs::serialize_attrs;
 use super::free;
 use super::model::*;
+
+/// Символы разметки, которыми пишутся блоки и инлайны. По умолчанию —
+/// нормализованные (`*`, `**`, `-`, `1.`, ```` ``` ````); при записи с
+/// сохранением исходника ([`super::preserve`]) — принятые в документе.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct MdStyle {
+    /// Курсив: `*` или `_`.
+    pub em: char,
+    /// Жирный: `*` (`**`) или `_` (`__`).
+    pub strong: char,
+    /// Маркер маркированного списка: `-`, `*` или `+`.
+    pub bullet: char,
+    /// Разделитель нумерованного списка: `.` или `)`.
+    pub delim: char,
+    /// Ограда блока кода: `` ` `` или `~`.
+    pub fence: char,
+}
+
+impl Default for MdStyle {
+    fn default() -> Self {
+        Self { em: '*', strong: '*', bullet: '-', delim: '.', fence: '`' }
+    }
+}
+
+thread_local! {
+    static STYLE: Cell<MdStyle> = Cell::new(MdStyle::default());
+}
+
+fn style() -> MdStyle {
+    STYLE.with(Cell::get)
+}
+
+/// Выполнить запись с заданными символами разметки.
+pub fn with_style<R>(s: MdStyle, f: impl FnOnce() -> R) -> R {
+    let prev = STYLE.with(|c| c.replace(s));
+    let r = f();
+    STYLE.with(|c| c.set(prev));
+    r
+}
 
 pub fn serialize_document(model: &DocModel) -> String {
     let mut lines = blocks_to_lines(&model.blocks);
@@ -85,21 +126,22 @@ fn block_lines(block: &DocBlock) -> Vec<String> {
             }
             vec![line]
         }
-        BlockKind::Bullet { text, children } => list_item_lines("- ", 2, text, children),
+        BlockKind::Bullet { text, children } => list_item_lines(&format!("{} ", style().bullet), 2, text, children),
         BlockKind::Todo {
             checked,
             text,
             children,
         } => {
-            let marker = if *checked { "- [x] " } else { "- [ ] " };
-            list_item_lines(marker, 2, text, children)
+            let b = style().bullet;
+            let marker = if *checked { format!("{b} [x] ") } else { format!("{b} [ ] ") };
+            list_item_lines(&marker, 2, text, children)
         }
         BlockKind::Numbered {
             number,
             text,
             children,
         } => {
-            let marker = format!("{number}. ");
+            let marker = format!("{number}{} ", style().delim);
             let indent = marker.len();
             list_item_lines(&marker, indent, text, children)
         }
@@ -125,8 +167,9 @@ fn block_lines(block: &DocBlock) -> Vec<String> {
             quote_lines(Some(first), children)
         }
         BlockKind::CodeBlock { language, code } => {
-            let longest = longest_run(code, '`');
-            let fence = "`".repeat((longest + 1).max(3));
+            let fc = style().fence;
+            let longest = longest_run(code, fc);
+            let fence = fc.to_string().repeat((longest + 1).max(3));
             let mut lines = vec![format!("{fence}{}", language.as_deref().unwrap_or(""))];
             lines.extend(code.split('\n').map(str::to_string));
             lines.push(fence);
@@ -303,14 +346,16 @@ fn group_runs(runs: &[InlineRun], dim: usize) -> String {
         let group = &runs[i..j];
         match dim {
             0 if runs[i].style.bold => {
-                out.push_str("**");
+                let d = delimiter(style().strong, &out, runs.get(j)).to_string().repeat(2);
+                out.push_str(&d);
                 out.push_str(&group_runs(group, 1));
-                out.push_str("**");
+                out.push_str(&d);
             }
             1 if runs[i].style.italic => {
-                out.push('*');
+                let d = delimiter(style().em, &out, runs.get(j));
+                out.push(d);
                 out.push_str(&group_runs(group, 2));
-                out.push('*');
+                out.push(d);
             }
             2 if runs[i].style.strike => {
                 out.push_str("~~");
@@ -339,6 +384,19 @@ fn group_runs(runs: &[InlineRun], dim: usize) -> String {
         i = j;
     }
     out
+}
+
+/// `_` внутри слова не размечает (CommonMark) — там только `*`.
+fn delimiter(want: char, before: &str, after: Option<&InlineRun>) -> char {
+    if want != '_' {
+        return want;
+    }
+    let word = |c: Option<char>| c.is_some_and(char::is_alphanumeric);
+    if word(before.chars().next_back()) || word(after.and_then(|r| r.text.chars().next())) {
+        '*'
+    } else {
+        '_'
+    }
 }
 
 fn dim_eq(a: &InlineRun, b: &InlineRun, dim: usize) -> bool {

@@ -25,6 +25,7 @@ pub mod links;
 pub mod media_block;
 pub mod model;
 pub mod parse;
+pub mod preserve;
 pub mod props;
 pub mod rows;
 pub mod serialize;
@@ -45,6 +46,7 @@ pub use model::{
 };
 pub use parse::parse_document;
 pub use props::{BlockOutline, TableOp};
+pub use preserve::serialize_preserving;
 pub use serialize::serialize_document;
 pub use shape::ShapeStyle;
 pub use slash::{SlashAction, SlashItem};

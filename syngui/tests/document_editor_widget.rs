@@ -347,6 +347,23 @@ fn list_item_with_children_stays_in_content_column() {
     assert!((last.origin.x - first.origin.x).abs() < 1.0);
 }
 
+#[test]
+fn column_centered_inside_vertical_scroll() {
+    // Внутри вертикальной прокрутки ширина у документа «свободная»: корень
+    // всё равно занимает её всю, а колонка стоит по центру, даже когда все
+    // блоки уже колонки.
+    let ed = DocumentEditor::new().markdown("Абзац.\n\n- пункт\n");
+    let page = syngui::widgets::ScrollView::new().vertical().child(ed);
+    let mut h = TestHarness::new(Box::new(page));
+    h.tree.text_measure = Some(Arc::new(Mono));
+    h.rebuild();
+    h.layout(2000.0, 600.0);
+    let rows = h.find_by_type_name("doc-text-row");
+    assert!(!rows.is_empty());
+    let b = h.element_bounds(rows[0]);
+    assert!(b.origin.x > 400.0, "колонка ушла к левому краю: {b:?}");
+}
+
 // ─── Undo/redo и отступы (S4) ───────────────────────────────────────────────
 
 #[test]

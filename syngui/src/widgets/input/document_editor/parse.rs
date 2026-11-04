@@ -27,7 +27,9 @@ pub fn parse_document(source: &str) -> DocModel {
     let (mut blocks, next_id) = b.finish();
     post_process(&mut blocks);
     take_layout_fence(&mut blocks);
-    DocModel::with_blocks(blocks, next_id)
+    let mut model = DocModel::with_blocks(blocks, next_id);
+    model.source = Some(std::sync::Arc::from(source));
+    model
 }
 
 /// Снимает хвостовой служебный блок ```doc-layout``` и раскладывает
@@ -104,6 +106,9 @@ enum Frame {
         todo: Option<bool>,
         ordered: bool,
         number: u64,
+        /// Последний из `blocks` — абзац из текста плотного пункта после
+        /// вложенного блока: следующий текст дописывается в него.
+        tail: bool,
     },
     Table {
         aligns: Vec<DocAlign>,
@@ -255,6 +260,7 @@ impl Builder {
                     todo: None,
                     ordered,
                     number,
+                    tail: false,
                 });
             }
             Tag::Table(aligns) => {
@@ -378,9 +384,16 @@ impl Builder {
                     todo,
                     ordered,
                     number,
+                    ..
                 }) = self.stack.pop()
                 {
                     text.normalize();
+                    for b in blocks.iter_mut() {
+                        if let BlockKind::Paragraph(t) = &mut b.kind {
+                            t.normalize();
+                            trim_end_ws(t);
+                        }
+                    }
                     // Loose-список: текст пункта пришёл параграфом.
                     if text.is_empty() && !blocks.is_empty() {
                         if let BlockKind::Paragraph(_) = &blocks[0].kind {
@@ -486,6 +499,32 @@ impl Builder {
     fn push_text(&mut self, text: &str, code: bool) {
         let mut style = self.style.current();
         style.code = code;
+        // Плотный пункт списка (без абзацев): текст после вложенного блока
+        // (код, список, цитата) — отдельный абзац после него, а не хвост
+        // первой строки пункта (иначе текст и блок менялись местами).
+        let target = self.stack.iter().rposition(|f| {
+            matches!(f, Frame::Image { .. } | Frame::Para { .. } | Frame::Heading { .. } | Frame::Cell { .. } | Frame::Item { .. } | Frame::Code { .. })
+        });
+        if let Some(i) = target {
+            let needs_tail = matches!(&self.stack[i], Frame::Item { blocks, tail: false, .. }
+                if blocks.last().is_some_and(|b| !matches!(b.kind, BlockKind::Media { .. })));
+            if needs_tail {
+                if text.trim().is_empty() {
+                    return;
+                }
+                let para = self.block(BlockKind::Paragraph(InlineText::default()));
+                if let Frame::Item { blocks, tail, .. } = &mut self.stack[i] {
+                    blocks.push(para);
+                    *tail = true;
+                }
+            }
+            if let Frame::Item { blocks, tail: true, .. } = &mut self.stack[i] {
+                if let Some(BlockKind::Paragraph(t)) = blocks.last_mut().map(|b| &mut b.kind) {
+                    t.push_run(text, style);
+                    return;
+                }
+            }
+        }
         for frame in self.stack.iter_mut().rev() {
             match frame {
                 Frame::Image { alt, .. } => {
@@ -654,8 +693,13 @@ impl Builder {
     fn emit_block(&mut self, block: DocBlock) {
         for frame in self.stack.iter_mut().rev() {
             match frame {
-                Frame::Quote { blocks } | Frame::Item { blocks, .. } => {
+                Frame::Quote { blocks } => {
                     blocks.push(block);
+                    return;
+                }
+                Frame::Item { blocks, tail, .. } => {
+                    blocks.push(block);
+                    *tail = false;
                     return;
                 }
                 _ => {}

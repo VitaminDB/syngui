@@ -21,6 +21,10 @@ pub struct BlockId(pub u64);
 pub struct DocModel {
     pub blocks: Vec<DocBlock>,
     next_id: u64,
+    /// Markdown, из которого разобран документ: по нему
+    /// [`super::preserve::serialize_preserving`] пишет нетронутые блоки
+    /// дословно, со всей исходной разметкой.
+    pub source: Option<std::sync::Arc<str>>,
 }
 
 impl DocModel {
@@ -29,7 +33,7 @@ impl DocModel {
     }
 
     pub fn with_blocks(blocks: Vec<DocBlock>, next_id: u64) -> Self {
-        Self { blocks, next_id }
+        Self { blocks, next_id, source: None }
     }
 
     /// Выдаёт следующий свободный id блока.

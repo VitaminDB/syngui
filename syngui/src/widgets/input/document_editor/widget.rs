@@ -277,6 +277,19 @@ impl DocumentEditorHandle {
         serialize_document(&lock(&self.model))
     }
 
+    /// Markdown с сохранением исходной разметки: нетронутые блоки — как
+    /// были в разобранном тексте (маркеры, отступы, пустые строки),
+    /// изменённые — в принятом в документе стиле. Для файлов с диска.
+    pub fn serialize_preserving(&self) -> String {
+        super::preserve::serialize_preserving(&lock(&self.model))
+    }
+
+    /// Текст `md` записан на диск: дальше дословно сохраняются блоки,
+    /// совпадающие с ним (модель не перестраивается, история цела).
+    pub fn rebase_source(&self, md: &str) {
+        lock(&self.model).source = Some(std::sync::Arc::from(md));
+    }
+
     /// Сигнал ревизии: `.get()` в эффекте — подписка на правки.
     pub fn revision(&self) -> RwSignal<u64> {
         self.revision
@@ -5576,7 +5589,7 @@ impl Element for DocumentEditorElement {
 
     fn min_max_dimensions(
         &self,
-        _parent_width: f32,
+        parent_width: f32,
         parent_height: f32,
     ) -> (Option<f32>, Option<f32>, Option<f32>, Option<f32>) {
         // Документ короче видимой области всё равно занимает её целиком:
@@ -5584,7 +5597,11 @@ impl Element for DocumentEditorElement {
         // редактора (в пустоту скроллера) и каретку поставить некуда.
         let min_h = (self.fill_height && parent_height.is_finite() && parent_height > 0.0)
             .then_some(parent_height);
-        (None, None, min_h, None)
+        // И всю ширину: колонка центрируется внутри корня, а без этого
+        // корень ужимался до самого широкого блока (760 px) и вставал к
+        // левому краю.
+        let min_w = (!self.layout.free && parent_width.is_finite() && parent_width > 0.0).then_some(parent_width);
+        (min_w, None, min_h, None)
     }
 
     fn layout_hint(&self) -> LayoutHint {
