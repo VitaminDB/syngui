@@ -791,12 +791,11 @@ impl Element for DecoratedBoxElement {
             || self.mss.max_width.is_some()
             || self.mss.min_height.is_some()
             || self.mss.max_height.is_some();
-        if has_size_constraints
-            && (self.mss.justify_content.is_some() || self.mss.align_items.is_some())
-        {
+        if self.mss.justify_content.is_some() || self.mss.align_items.is_some() {
             // MSS `justify-content` / `align-items`: ребёнок выравнивается во
-            // внутренней области. Только при явном размере — без него бокс
-            // равен ребёнку и выравнивать нечего.
+            // внутренней области. И без явного размера: плотные ограничения
+            // родителя (AspectRatio, Stack(Expand), растянутая колонка) делают
+            // бокс больше ребёнка; в свободных бокс ужимается до ребёнка.
             LayoutHint::Aligned {
                 left: self.padding_left,
                 top: self.padding_top,
