@@ -1361,7 +1361,10 @@ impl FontAtlas {
         let mut x = 0.0f32;
         let line_height = size_px as f32 * 1.3;
         let mut y = 0.0f32;
-        let wrap_eps = f32::EPSILON * max_width.abs() * 64.0;
+        // Полпикселя: ширина, измеренная при раскладке, и ширина прямоугольника при
+        // отрисовке расходятся на доли пикселя (дробный масштаб 2.6, сложение
+        // отступов во float), а перенос слова по буквам из-за 0,01 px недопустим.
+        let wrap_eps = (f32::EPSILON * max_width.abs() * 64.0).max(0.5);
 
         let mut word_glyphs: Vec<(usize, f32)> = Vec::new();
         let mut word_width = 0.0f32;
@@ -1500,7 +1503,10 @@ impl FontAtlas {
         let mut x = 0.0f32;
         let line_height = size_px as f32 * 1.3;
         let mut y = 0.0f32;
-        let wrap_eps = f32::EPSILON * max_width.abs() * 64.0;
+        // Полпикселя: ширина, измеренная при раскладке, и ширина прямоугольника при
+        // отрисовке расходятся на доли пикселя (дробный масштаб 2.6, сложение
+        // отступов во float), а перенос слова по буквам из-за 0,01 px недопустим.
+        let wrap_eps = (f32::EPSILON * max_width.abs() * 64.0).max(0.5);
 
         let mut word_glyphs: Vec<(usize, f32)> = Vec::new();
         let mut word_width = 0.0f32;
