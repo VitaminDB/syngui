@@ -854,6 +854,21 @@ impl winit::application::ApplicationHandler<SynGuiUserEvent> for AppHandler {
     }
 
     fn about_to_wait(&mut self, event_loop: &winit::event_loop::ActiveEventLoop) {
+        // Android: winit 0.30 не передаёт APP_CMD_DESTROY приложению (TODO в
+        // platform_impl/android), и после уничтожения GameActivity (смахнули из
+        // недавних, система закрыла) цикл крутился вхолостую. Новая активность в том
+        // же процессе свой цикл поднять не может (winit запрещает второй EventLoop) —
+        // окно без фокуса, ANR. Признак уничтожения — у android_app обнулён указатель
+        // glue, и internal_data_path() отдаёт None; тогда процесс завершается, и
+        // система запускает приложение заново в новом процессе.
+        #[cfg(target_os = "android")]
+        if let Some(app) = &self.android_app {
+            if app.internal_data_path().is_none() {
+                log::warn!("syngui: GameActivity уничтожена — завершаем процесс, чтобы следующий запуск начался с чистого цикла");
+                self.dispatch_lifecycle(Event::AppSuspended);
+                std::process::exit(0);
+            }
+        }
         if self.pending_show && self.window.is_none() {
             self.pending_show = false;
             self.init(event_loop);
