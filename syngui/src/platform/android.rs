@@ -242,3 +242,43 @@ pub(crate) fn decode_image(bytes: &[u8], max_side: u32) -> Result<(u32, u32, Vec
         .map_err(|e| format!("ImageDecoder: {e}"))?
     })
 }
+
+pub(super) fn open_url(url: &str) -> Result<(), String> {
+    call_status("openUrl", "(Ljava/lang/String;)Ljava/lang/String;", &[url])
+}
+
+/// Цвет панелей и значки — на UI-потоке активити (Java сама делает
+/// `runOnUiThread`).
+pub(crate) fn set_system_bars(bars: &super::SystemBars) -> Result<(), String> {
+    let c = bars.color;
+    let [r, g, b] = c.to_srgb_u8();
+    let a = (c.a.clamp(0.0, 1.0) * 255.0).round() as u32;
+    let argb = ((a << 24) | ((r as u32) << 16) | ((g as u32) << 8) | b as u32) as i32;
+    with_env(|env, cls| {
+        let ret = env
+            .call_static_method(
+                cls,
+                "setSystemBars",
+                "(IZ)Ljava/lang/String;",
+                &[JValue::Int(argb), JValue::Bool(bars.light_icons as u8)],
+            )
+            .map_err(|e| format!("setSystemBars: {e}"))?
+            .l()
+            .map_err(|e| format!("setSystemBars: {e}"))?;
+        if ret.is_null() {
+            Ok(())
+        } else {
+            let s = JString::from(ret);
+            Err(env.get_string(&s).map(|s| s.into()).unwrap_or_else(|_| "setSystemBars: ошибка".into()))
+        }
+    })
+}
+
+/// Повторить заданные панели после `init` (новая активити при resume).
+pub(crate) fn reapply_system_bars() {
+    if let Some(bars) = super::system_bars() {
+        if let Err(e) = set_system_bars(&bars) {
+            log::warn!("system bars: {e}");
+        }
+    }
+}

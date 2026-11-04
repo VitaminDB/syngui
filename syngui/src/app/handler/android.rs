@@ -512,6 +512,9 @@ impl AppHandler {
         // Пикер медиа, «Поделиться», открыть файл (syngui::platform).
         if let Err(e) = crate::platform::android::init(&mut env, vm_ptr, &loader, &activity) {
             log::warn!("Platform handler registration failed: {}", e);
+        } else {
+            // Новая активити (resume): панели, заданные приложением, — заново.
+            crate::platform::android::reapply_system_bars();
         }
 
         std::mem::forget(vm);
@@ -1115,6 +1118,11 @@ impl AppHandler {
 
     #[cfg(target_os = "android")]
     pub(super) fn set_status_bar_light_icons(&self, light_icons: bool) {
+        // Приложение задало панели само (`platform::set_system_bars`) —
+        // тема значки не переключает.
+        if crate::platform::system_bars().is_some() {
+            return;
+        }
         let Some(ref android_app) = self.android_app else {
             return;
         };

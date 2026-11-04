@@ -112,3 +112,31 @@ syngui = { …, features = ["portal", "clipboard"] }
 `cargo run -p syngui --example platform_probe --features portal -- pick image`
 открывает системный диалог и печатает результат (`Ok(None)` — отмена); также
 `share-text ТЕКСТ`, `share-file ПУТЬ`, `open ПУТЬ`.
+
+## Системные панели, ссылки, масштаб
+
+```rust
+// Шапка и навигационная панель в цвет темы; light_icons — светлые значки (тёмный фон).
+syngui::platform::set_system_bars(Color::from_srgb(0x1E, 0x1A, 0x16, 1.0), true)?;
+// Ссылка в подходящем приложении: https://wa.me/… откроет WhatsApp, иначе браузер.
+syngui::platform::open_url("https://wa.me/77001234567")?;
+// Масштаб интерфейса поверх системного (0.25–3.0), применяется следующим кадром.
+syngui::scale::set_ui_scale(1.15);
+```
+
+- **`set_system_bars(color, light_icons)`** — вызывать в любой момент и из
+  любого потока (например, при смене темы). На Android окно рисуется под
+  панелями (edge-to-edge с Android 15), полосы под статус-баром и
+  навигационной панелью заливает сам syngui цветом `color`; на Android 11–14
+  дополнительно ставятся `setStatusBarColor`/`setNavigationBarColor`. Значки
+  обеих панелей — через `WindowInsetsController` на UI-потоке активити.
+  Выбор переживает уход в фон и главнее автоматического переключения значков
+  по теме. На прочих платформах — `Ok(())` без действий; `system_bars()`
+  возвращает заданное.
+- **`open_url(url)`** — на Android `ACTION_VIEW` (фича `links` не нужна;
+  `syngui::open_url` на Android тоже идёт сюда, так что ссылки MarkdownView
+  работают). На ПК — `syngui::open_url` (фича `links`, webbrowser).
+- **Масштаб** — `AppBuilder::ui_scale(k)` при старте и
+  `syngui::scale::set_ui_scale(k)` в рантайме: раскладка пересчитывается на
+  лету, на Android тоже. Значение приложение сохраняет само.
+

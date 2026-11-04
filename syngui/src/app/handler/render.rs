@@ -717,6 +717,17 @@ impl AppHandler {
                 .set_preferred_cjk(base == "ja", base == "ko");
         }
 
+        // Цвет системных панелей от приложения (`platform::set_system_bars`):
+        // полосы под статус-баром и навигационной панелью — clear-color окна.
+        #[cfg(any(target_os = "android", target_os = "ios"))]
+        if let Some(bars) = crate::platform::take_system_bars_dirty() {
+            self.config.background_color = bars.color;
+            if let Some(window) = &self.window {
+                crate::perf::redraw_from(file!(), line!());
+                window.request_redraw();
+            }
+        }
+
         if let Some(theme_state) = self.config.theme_state {
             let is_dark = theme_state.get_untracked();
             if is_dark != self.current_theme_is_dark {
@@ -731,6 +742,11 @@ impl AppHandler {
                 // области больше не остаются дефолтным светлым фоном.
                 if let Some(bg) = parse_theme_bg(&new_ss) {
                     self.config.background_color = bg;
+                }
+                // Цвет панелей, заданный приложением, главнее фона темы.
+                #[cfg(any(target_os = "android", target_os = "ios"))]
+                if let Some(bars) = crate::platform::system_bars() {
+                    self.config.background_color = bars.color;
                 }
                 self.style_engine.load_stylesheet(new_ss);
                 for additional in &self.config.additional_stylesheets {

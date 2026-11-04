@@ -324,6 +324,59 @@ public class SynGuiPlatformHandler {
         }
     }
 
+    /** Открыть ссылку (https:, mailto:, tel:, …) — WhatsApp, браузер и т.п. */
+    public static String openUrl(String url) {
+        Activity a = sActivity;
+        if (a == null) return "Activity ещё не готова";
+        try {
+            Intent view = new Intent(Intent.ACTION_VIEW, Uri.parse(url));
+            view.addCategory(Intent.CATEGORY_BROWSABLE);
+            a.startActivity(view);
+            return null;
+        } catch (ActivityNotFoundException e) {
+            return "нет приложения для ссылки: " + url;
+        } catch (Throwable t) {
+            Log.w(TAG, "openUrl", t);
+            return describe(t);
+        }
+    }
+
+    // ── Системные панели ─────────────────────────────────────────────────
+
+    /**
+     * Цвет статус-бара и навигационной панели и светлые/тёмные значки на них.
+     * С Android 15 (targetSdk 35) окно рисуется под панелями, и цвет задаёт
+     * сама подложка syngui; setStatusBarColor/setNavigationBarColor нужны
+     * для Android 11–14. lightIcons — светлые значки (для тёмного фона).
+     */
+    @SuppressWarnings("deprecation")
+    public static String setSystemBars(final int argb, final boolean lightIcons) {
+        final Activity a = sActivity;
+        if (a == null) return "Activity ещё не готова";
+        a.runOnUiThread(() -> {
+            try {
+                android.view.Window w = a.getWindow();
+                if (Build.VERSION.SDK_INT < 35) {
+                    w.addFlags(android.view.WindowManager.LayoutParams.FLAG_DRAWS_SYSTEM_BAR_BACKGROUNDS);
+                    w.setStatusBarColor(argb);
+                    w.setNavigationBarColor(argb);
+                }
+                // Без полупрозрачной «защитной» подложки под жестовой панелью.
+                w.setNavigationBarContrastEnforced(false);
+                w.setStatusBarContrastEnforced(false);
+                android.view.WindowInsetsController c = w.getInsetsController();
+                if (c != null) {
+                    int mask = android.view.WindowInsetsController.APPEARANCE_LIGHT_STATUS_BARS
+                            | android.view.WindowInsetsController.APPEARANCE_LIGHT_NAVIGATION_BARS;
+                    c.setSystemBarsAppearance(lightIcons ? 0 : mask, mask);
+                }
+            } catch (Throwable t) {
+                Log.w(TAG, "setSystemBars", t);
+            }
+        });
+        return null;
+    }
+
     public static String openPath(String path) {
         Activity a = sActivity;
         if (a == null) return "Activity ещё не готова";

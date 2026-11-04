@@ -6,6 +6,8 @@
 //! | [`share_text`] | `ACTION_SEND` + chooser                   | текст в буфер обмена                               |
 //! | [`share_file`] | `ACTION_SEND` + chooser (FileProvider или копия в Downloads) | файл в буфер (`text/uri-list`) и показ в файловом менеджере |
 //! | [`open_path`]  | `ACTION_VIEW`                             | `xdg-open`, портал `OpenURI.OpenFile` (во flatpak — первым) |
+//! | [`open_url`]   | `ACTION_VIEW` (WhatsApp, браузер, почта…) | [`crate::open_url`] (фича `links`)                 |
+//! | [`set_system_bars`] | цвет под статус-баром и навигационной панелью, светлые/тёмные значки | no-op |
 //!
 //! Остальные платформы возвращают `Err("не поддерживается")`.
 //!
@@ -75,6 +77,64 @@ pub fn open_path(path: &Path) -> Result<(), String> {
         return Err(format!("нет файла: {}", path.display()));
     }
     imp_open_path(path)
+}
+
+/// Открыть ссылку (`https:`, `mailto:`, `tel:`, …) в подходящем
+/// приложении: на Android — `ACTION_VIEW` (ссылку `https://wa.me/…` откроет
+/// WhatsApp, если он стоит, иначе браузер); на остальных — [`crate::open_url`].
+pub fn open_url(url: &str) -> Result<(), String> {
+    #[cfg(target_os = "android")]
+    return android::open_url(url);
+    #[cfg(not(target_os = "android"))]
+    crate::open_url(url)
+}
+
+/// Цвет системных панелей и их значков.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct SystemBars {
+    /// Фон под статус-баром и навигационной (жестовой) панелью.
+    pub color: crate::core::Color,
+    /// Светлые значки (для тёмного фона); `false` — тёмные.
+    pub light_icons: bool,
+}
+
+static SYSTEM_BARS: std::sync::Mutex<Option<SystemBars>> = std::sync::Mutex::new(None);
+static SYSTEM_BARS_DIRTY: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
+
+/// Покрасить системные панели (статус-бар сверху, навигационная панель
+/// снизу) и выбрать светлые или тёмные значки на них — например, при смене
+/// темы приложения. Можно вызывать в любой момент и из любого потока;
+/// выбор держится до следующего вызова и главнее автоматического
+/// переключения значков по теме (`with_theme_styles`).
+///
+/// На Android полосы под панелями заливает сам syngui (окно рисуется под
+/// ними, edge-to-edge с Android 15), на Android 11–14 дополнительно
+/// задаются `setStatusBarColor`/`setNavigationBarColor`. На прочих
+/// платформах — `Ok(())` без действий.
+pub fn set_system_bars(color: crate::core::Color, light_icons: bool) -> Result<(), String> {
+    let bars = SystemBars { color, light_icons };
+    *SYSTEM_BARS.lock().unwrap_or_else(|e| e.into_inner()) = Some(bars);
+    SYSTEM_BARS_DIRTY.store(true, std::sync::atomic::Ordering::SeqCst);
+    crate::signal::request_redraw();
+    #[cfg(target_os = "android")]
+    return android::set_system_bars(&bars);
+    #[cfg(not(target_os = "android"))]
+    Ok(())
+}
+
+/// Заданные приложением панели ([`set_system_bars`]), если задавались.
+pub fn system_bars() -> Option<SystemBars> {
+    *SYSTEM_BARS.lock().unwrap_or_else(|e| e.into_inner())
+}
+
+/// Забрать флаг «панели сменились» (кадр применяет цвет один раз).
+#[allow(dead_code)]
+pub(crate) fn take_system_bars_dirty() -> Option<SystemBars> {
+    if SYSTEM_BARS_DIRTY.swap(false, std::sync::atomic::Ordering::SeqCst) {
+        system_bars()
+    } else {
+        None
+    }
 }
 
 /// Будет ли [`share_text`] настоящим «Поделиться» (Android), а не копией в
@@ -185,5 +245,16 @@ mod tests {
         assert_eq!(mime_for_path(Path::new("/a/b.JPG")), "image/jpeg");
         assert_eq!(mime_for_path(Path::new("v.mp4")), "video/mp4");
         assert_eq!(mime_for_path(Path::new("noext")), "application/octet-stream");
+    }
+
+    /// Вне Android панели — без действий, но выбор запоминается и один раз
+    /// помечается для кадра.
+    #[test]
+    fn system_bars_remembered() {
+        let c = crate::core::Color::from_srgb(0x1E, 0x1A, 0x16, 1.0);
+        assert_eq!(set_system_bars(c, true), Ok(()));
+        assert_eq!(system_bars(), Some(SystemBars { color: c, light_icons: true }));
+        assert!(take_system_bars_dirty().is_some());
+        assert!(take_system_bars_dirty().is_none());
     }
 }
