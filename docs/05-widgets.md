@@ -379,6 +379,30 @@ clickable and the cursor turns into a pointer only over clickable ones.
 `MapView { filter: … }` from MSS (e.g. a dark theme's `invert`) applies to
 tiles only — markers keep their exact colors.
 
+`on_tap(|lat, lng|)` reports a click past the markers, `on_pointer_move`
+the geo point under the idle cursor (status-bar coordinates, hover
+highlights, an editor's rubber band), `on_double_tap` takes the double
+click instead of zooming in, and `idle_cursor(CursorIcon::Crosshair)`
+replaces the grab hand in drawing modes.
+
+Overlays stacked above the map follow it through `viewport(vp)` from
+`on_viewport_change` and are transparent to input: `HeatOverlay`
+(interpolated field), `BuildingOverlay` (filled footprints),
+`MarkerOverlay` (markers above a fill) and `PipeOverlay` — utility
+networks: `PipeShape` polylines with a per-vertex colour gradient along the
+line (`stroke_path_gradient` under the hood), outline, glow, dashes, a
+sideways `offset` for twin pipes and an animated `flow` of running dashes;
+`PipeNodeShape` glyphs (circle, square, diamond, ring, hexagon) with
+collision-free labels and a pulsing halo. Widths follow the zoom through
+`ref_zoom` / `zoom_exponent` / `width_range`; hit-testing for the map's
+`on_tap` is done with `nearest_pipe` / `nearest_node`.
+
+`MapEditOverlay` adds draggable `EditHandle`s and helper `EditPath`s: it
+takes input only over a handle (`hit_test`), so the map keeps panning
+elsewhere; `on_press` / `on_drag` / `on_release(id, lat, lng, moved)` drive
+vertex editing, `on_secondary` opens a context menu, and a finger drags a
+handle like the mouse (`drags_with_touch`).
+
 ### MarkdownView (feature: `markdown`)
 
 Renders markdown content with code highlighting, inline images and clickable links.

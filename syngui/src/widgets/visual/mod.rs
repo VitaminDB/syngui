@@ -56,8 +56,9 @@ pub use image_viewport::{ImageViewCommand, ImageViewInfo, ImageViewport};
 pub use live_view::{LiveFrame, LiveInput, LiveView};
 #[cfg(feature = "map")]
 pub use map_view::{
-    BuildingOverlay, BuildingShape, HeatOverlay, HeatPoint, MapCamera, MapMarker, MapPolyline,
-    MapView, MapViewport, MarkerOverlay, TileCache, TileProvider,
+    BuildingOverlay, BuildingShape, EditHandle, EditPath, HandleShape, HeatOverlay, HeatPoint,
+    MapCamera, MapEditOverlay, MapMarker, MapPolyline, MapView, MapViewport, MarkerOverlay,
+    NodeGlyph, PipeNodeShape, PipeOverlay, PipeShape, TileCache, TileProvider,
 };
 #[cfg(feature = "markdown")]
 pub use markdown_editor::{EditorMode, MarkdownEditor};

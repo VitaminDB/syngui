@@ -1,7 +1,9 @@
 pub mod building_overlay;
+pub mod edit_overlay;
 pub mod heat_overlay;
 pub mod marker;
 pub mod marker_overlay;
+pub mod pipe_overlay;
 pub mod provider;
 pub mod tile_cache;
 #[cfg(all(target_arch = "wasm32", feature = "map"))]
@@ -10,9 +12,13 @@ pub mod tile_loader;
 pub mod tile_math;
 
 pub use building_overlay::{BuildingOverlay, BuildingShape};
+pub use edit_overlay::{EditHandle, EditPath, HandleShape, MapEditOverlay};
 pub use heat_overlay::{HeatOverlay, HeatPoint};
 pub use marker::MapMarker;
 pub use marker_overlay::MarkerOverlay;
+pub use pipe_overlay::{
+    nearest_node, nearest_pipe, NodeGlyph, PipeHit, PipeNodeShape, PipeOverlay, PipeShape,
+};
 pub use provider::TileProvider;
 pub use tile_cache::TileCache;
 pub use tile_math::{
@@ -130,6 +136,9 @@ pub struct MapView {
     on_tap: Option<GeoCb>,
     on_long_press: Option<GeoCb>,
     on_interaction: Option<Arc<Mutex<dyn FnMut() + Send>>>,
+    on_pointer_move: Option<GeoCb>,
+    on_double_tap: Option<GeoCb>,
+    idle_cursor: Option<CursorIcon>,
 }
 
 const TAP_SLOP: f32 = 12.0;
@@ -163,6 +172,9 @@ impl MapView {
             on_tap: None,
             on_long_press: None,
             on_interaction: None,
+            on_pointer_move: None,
+            on_double_tap: None,
+            idle_cursor: None,
         }
     }
 
@@ -310,6 +322,27 @@ impl MapView {
         self.on_long_press = Some(Arc::new(Mutex::new(cb)));
         self
     }
+
+    /// Курсор над картой (без нажатия): широта, долгота точки — координаты в
+    /// строке состояния, подсветка объекта под курсором, «резинка» редактора.
+    pub fn on_pointer_move(mut self, cb: impl FnMut(f64, f64) + Send + 'static) -> Self {
+        self.on_pointer_move = Some(Arc::new(Mutex::new(cb)));
+        self
+    }
+
+    /// Двойной щелчок (двойное касание) отдаётся обработчику вместо
+    /// приближения карты: завершить рисование линии, открыть объект.
+    pub fn on_double_tap(mut self, cb: impl FnMut(f64, f64) + Send + 'static) -> Self {
+        self.on_double_tap = Some(Arc::new(Mutex::new(cb)));
+        self
+    }
+
+    /// Курсор над картой в покое вместо «ладони»: перекрестие в режиме
+    /// рисования, стрелка в режиме выбора.
+    pub fn idle_cursor(mut self, cursor: CursorIcon) -> Self {
+        self.idle_cursor = Some(cursor);
+        self
+    }
 }
 
 impl Widget for MapView {
@@ -355,6 +388,9 @@ impl Widget for MapView {
             on_tap: self.on_tap.clone(),
             on_long_press: self.on_long_press.clone(),
             on_interaction: self.on_interaction.clone(),
+            on_pointer_move: self.on_pointer_move.clone(),
+            on_double_tap: self.on_double_tap.clone(),
+            idle_cursor: self.idle_cursor,
             press_position: None,
             last_tap: None,
             long_pressed: false,
@@ -432,6 +468,9 @@ pub struct MapViewElement {
     on_tap: Option<GeoCb>,
     on_long_press: Option<GeoCb>,
     on_interaction: Option<Arc<Mutex<dyn FnMut() + Send>>>,
+    on_pointer_move: Option<GeoCb>,
+    on_double_tap: Option<GeoCb>,
+    idle_cursor: Option<CursorIcon>,
     press_position: Option<Point>,
     last_tap: Option<(Point, web_time::Instant)>,
     long_pressed: bool,
@@ -650,6 +689,13 @@ impl MapViewElement {
     }
 
     fn double_tap(&mut self, position: Point) {
+        if let Some(cb) = self.on_double_tap.clone() {
+            let (lat, lng) = self.geo_at(position);
+            if let Ok(mut f) = cb.lock() {
+                f(lat, lng);
+            }
+            return;
+        }
         self.interacted();
         let target = if self.smooth_zoom {
             self.zoom + 1.0
@@ -765,6 +811,9 @@ impl Element for MapViewElement {
             self.on_tap = m.on_tap.clone();
             self.on_long_press = m.on_long_press.clone();
             self.on_interaction = m.on_interaction.clone();
+            self.on_pointer_move = m.on_pointer_move.clone();
+            self.on_double_tap = m.on_double_tap.clone();
+            self.idle_cursor = m.idle_cursor;
 
             if let Some(c) = m.camera {
                 if self.camera_seq != Some(c.seq) {
@@ -926,7 +975,13 @@ impl Element for MapViewElement {
                     if self.clickable_marker_at(*position).is_some() {
                         ctx.set_cursor(CursorIcon::Pointer);
                     } else {
-                        ctx.set_cursor(CursorIcon::Grab);
+                        ctx.set_cursor(self.idle_cursor.unwrap_or(CursorIcon::Grab));
+                    }
+                    if let Some(cb) = self.on_pointer_move.clone() {
+                        let (lat, lng) = self.geo_at(*position);
+                        if let Ok(mut f) = cb.lock() {
+                            f(lat, lng);
+                        }
                     }
                 }
             }

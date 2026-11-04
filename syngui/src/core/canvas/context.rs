@@ -147,6 +147,16 @@ impl CanvasContext {
         tessellate_polyline(&pts, &self.paint, closed, &mut self.output);
     }
 
+    /// Штрих с цветом на каждую вершину (`colors.len() == points.len()`):
+    /// цвет плавно меняется вдоль ломаной. Толщина и сглаживание — текущие.
+    pub fn stroke_path_gradient(&mut self, points: &[(f32, f32)], colors: &[Color]) {
+        if points.len() < 2 || colors.len() != points.len() {
+            return;
+        }
+        let pts: Vec<Point> = points.iter().map(|&(x, y)| self.to_screen(x, y)).collect();
+        tessellate_polyline_gradient(&pts, colors, &self.paint, &mut self.output);
+    }
+
     pub fn draw_polyline(&mut self, points: &[(f32, f32)]) {
         if points.len() < 2 {
             return;

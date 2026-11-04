@@ -191,6 +191,83 @@ pub fn tessellate_polyline(points: &[Point], paint: &Paint, closed: bool, output
     }
 }
 
+/// То же, что [`tessellate_polyline`], но цвет свой у каждой вершины
+/// (`colors.len() == points.len()`): штрих плавно перетекает между
+/// цветами вдоль ломаной — температура вдоль трубы, скорость вдоль трека.
+/// Ширина и сглаживание — из `paint`.
+pub fn tessellate_polyline_gradient(
+    points: &[Point],
+    colors: &[Color],
+    paint: &Paint,
+    output: &mut TessOutput,
+) {
+    let n = points.len();
+    if n < 2 || colors.len() != n {
+        return;
+    }
+    let hw = paint.stroke_width * 0.5;
+    let f = paint.feather;
+    let base = output.vertices.len() as u32;
+    output.vertices.reserve(n * 4);
+    output.indices.reserve((n - 1) * 18);
+
+    let seg_normal = |a: Point, b: Point| -> (f32, f32) {
+        let dx = b.x - a.x;
+        let dy = b.y - a.y;
+        let len = (dx * dx + dy * dy).sqrt();
+        if len < 1e-6 {
+            (0.0, 1.0)
+        } else {
+            (-dy / len, dx / len)
+        }
+    };
+
+    for i in 0..n {
+        let (nx, ny, scale) = if i == 0 {
+            let (snx, sny) = seg_normal(points[0], points[1]);
+            (snx, sny, 1.0)
+        } else if i == n - 1 {
+            let (snx, sny) = seg_normal(points[n - 2], points[n - 1]);
+            (snx, sny, 1.0)
+        } else {
+            let (n1x, n1y) = seg_normal(points[i - 1], points[i]);
+            let (n2x, n2y) = seg_normal(points[i], points[i + 1]);
+            miter_normal(n1x, n1y, n2x, n2y)
+        };
+        let color = colors[i].to_array();
+        let color_t = [color[0], color[1], color[2], 0.0];
+        let p = points[i];
+        for (offset, c) in [
+            ((hw + f) * scale, color_t),
+            (hw * scale, color),
+            (-hw * scale, color),
+            (-(hw + f) * scale, color_t),
+        ] {
+            output.vertices.push(Vertex::new(
+                [p.x + nx * offset, p.y + ny * offset],
+                ZERO_UV,
+                c,
+                ZERO_DATA,
+            ));
+        }
+    }
+
+    for i in 0..(n - 1) as u32 {
+        let c = base + i * 4;
+        let nx = base + (i + 1) * 4;
+        for q in 0..3u32 {
+            output.indices.extend_from_slice(&[
+                c + q,
+                nx + q,
+                nx + q + 1,
+                c + q,
+                nx + q + 1,
+                c + q + 1,
+            ]);
+        }
+    }
+}
+
 fn miter_normal(n1x: f32, n1y: f32, n2x: f32, n2y: f32) -> (f32, f32, f32) {
     let mx = (n1x + n2x) * 0.5;
     let my = (n1y + n2y) * 0.5;
