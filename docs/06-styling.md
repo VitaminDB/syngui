@@ -203,8 +203,15 @@ Each widget has a type name used in MSS selectors:
     box-shadow: 0 2px 4px rgba(0,0,0,0.1), 0 4px 8px rgba(0,0,0,0.05);
     overflow: hidden;                /* visible | hidden | scroll */
     cursor: pointer;                 /* default | pointer | text | ... */
+    pointer-events: none;            /* auto | none */
 }
 ```
+
+`pointer-events: none` убирает элемент вместе с поддеревом из hit-test: касания,
+клики и колесо проходят к тому, что лежит под ним в `Stack`. Нужен декоративным
+слоям поверх интерактивного содержимого — затемнению фото над `Carousel`,
+подписям и плашкам на картинке. Без него такой `DecoratedBox` во всю площадь
+забирает `TouchStart`, и карусель под ним не листается, а нажатие не доходит.
 
 ### 3D, отражения, частицы, увеличение
 

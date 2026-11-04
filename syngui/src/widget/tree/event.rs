@@ -713,6 +713,10 @@ impl ElementTree {
         if !node.element.is_visible() {
             return;
         }
+        // `pointer-events: none`: поддерево прозрачно для указателя и касаний.
+        if node.element.mss().is_some_and(|m| m.pointer_events_none) {
+            return;
+        }
         let is_portal = matches!(
             node.element.layout_hint(),
             crate::widget::LayoutHint::Portal { .. }

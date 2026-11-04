@@ -206,6 +206,10 @@ pub struct MssFields {
 
     pub filter: Option<Vec<crate::effects::FilterEffect>>,
     pub backdrop_filter: Option<Vec<crate::effects::FilterEffect>>,
+    /// `pointer-events: none` — элемент и его поддерево не участвуют в hit-test:
+    /// касания и клики проходят к тому, что под ним (декоративные слои поверх
+    /// карусели, затемнения, подписи на фото).
+    pub pointer_events_none: bool,
     pub outline_width: Option<f32>,
     pub outline_color: Option<Color>,
     pub outline_offset: Option<f32>,
@@ -335,6 +339,7 @@ impl MssFields {
             overflow: None,
             filter: None,
             backdrop_filter: None,
+            pointer_events_none: false,
             outline_width: None,
             outline_color: None,
             outline_offset: None,
@@ -427,6 +432,7 @@ impl MssFields {
         self.overflow = None;
         self.filter = None;
         self.backdrop_filter = None;
+        self.pointer_events_none = false;
         self.outline_width = None;
         self.outline_color = None;
         self.outline_offset = None;
@@ -657,6 +663,9 @@ impl MssFields {
             if !effects.is_empty() {
                 self.filter = Some(effects);
             }
+        }
+        if let Some(s) = style.get("pointer-events").and_then(|v| v.as_string()) {
+            self.pointer_events_none = s.trim().eq_ignore_ascii_case("none");
         }
         if let Some(s) = style.get("backdrop-filter").and_then(|v| v.as_string()) {
             let effects = crate::effects::parse_filter_chain(s);

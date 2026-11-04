@@ -860,3 +860,57 @@ mod touch_tests {
         assert_eq!(sig.get_untracked(), 0);
     }
 }
+
+#[cfg(test)]
+mod pointer_events_tests {
+    use super::*;
+    use crate::testing::TestHarness;
+    use crate::widget::styled::WidgetExt as _;
+    use crate::widgets::{DecoratedBox, GestureDetector, Stack, StackFit};
+    #[allow(unused_imports)]
+    use crate::mss::StyleValue as _;
+
+    /// Декоративный слой во всю площадь поверх карусели (затемнение фото):
+    /// без `pointer-events: none` он забирал касание, и карусель не листалась.
+    fn hero(sig: crate::signal::RwSignal<usize>, overlay_passthrough: bool) -> Stack {
+        let mut car = Carousel::new().page_signal(sig).show_indicators(false).show_arrows(false);
+        for _ in 0..3 {
+            car = car.child(GestureDetector::new().on_click(|| {}).child(DecoratedBox::new()));
+        }
+        let scrim = DecoratedBox::new().class(if overlay_passthrough { "scrim pass" } else { "scrim" });
+        Stack::new().fit(StackFit::Expand).child(car).child(scrim)
+    }
+
+    const MSS: &str = ".scrim { width: 400px; height: 300px; background-color: #00000080; } .scrim.pass { pointer-events: none; }";
+
+    fn swipe(h: &mut TestHarness) {
+        h.touch_down(1, Point::new(300.0, 150.0));
+        for i in 1..=8 {
+            std::thread::sleep(std::time::Duration::from_millis(4));
+            h.touch_move(1, Point::new(300.0 - i as f32 * 25.0, 152.0));
+        }
+        h.touch_up(1);
+    }
+
+    #[test]
+    fn overlay_with_pointer_events_none_lets_carousel_swipe() {
+        crate::signal::allow_signal_reads_on_this_thread();
+        let sig = crate::signal::use_signal(0usize);
+        let mut h = TestHarness::new(Box::new(hero(sig, true)));
+        h.apply_mss(MSS);
+        h.layout(400.0, 300.0);
+        swipe(&mut h);
+        assert_eq!(sig.get_untracked(), 1);
+    }
+
+    #[test]
+    fn opaque_overlay_still_blocks() {
+        crate::signal::allow_signal_reads_on_this_thread();
+        let sig = crate::signal::use_signal(0usize);
+        let mut h = TestHarness::new(Box::new(hero(sig, false)));
+        h.apply_mss(MSS);
+        h.layout(400.0, 300.0);
+        swipe(&mut h);
+        assert_eq!(sig.get_untracked(), 0);
+    }
+}
