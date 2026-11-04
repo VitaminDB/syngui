@@ -181,9 +181,11 @@ public class SynGuiPlatformHandler {
     }
 
     /**
-     * Камеры Samsung/Pixel по умолчанию снимают в HEIC — его (как и AVIF) не
-     * декодирует image-крейт syngui. А JPEG с EXIF-поворотом syngui показал бы
-     * боком. Такие фото перекодируются в JPEG с уже применённым поворотом.
+     * HEIC/HEIF/AVIF (так по умолчанию снимают Samsung и Pixel) отдаются
+     * JPEG-ом: такой файл примут любые приложения при «Поделиться» и сборки
+     * syngui на ПК без фичи `heif`. Показ от этого не зависит — ImageStore
+     * декодирует HEIF/AVIF сам (здесь — системным ImageDecoder), а EXIF-поворот
+     * JPEG учитывает, поэтому JPEG отдаётся как есть, без потери качества.
      */
     private static boolean needsTranscode(File f, String mime) {
         if (mime == null) return false;
@@ -194,16 +196,6 @@ public class SynGuiPlatformHandler {
             case "image/heif-sequence":
             case "image/avif":
                 return true;
-            case "image/jpeg":
-                try {
-                    int o = new android.media.ExifInterface(f.getAbsolutePath()).getAttributeInt(
-                            android.media.ExifInterface.TAG_ORIENTATION,
-                            android.media.ExifInterface.ORIENTATION_NORMAL);
-                    return o != android.media.ExifInterface.ORIENTATION_NORMAL
-                            && o != android.media.ExifInterface.ORIENTATION_UNDEFINED;
-                } catch (Throwable t) {
-                    return false;
-                }
             default:
                 return false;
         }
@@ -379,6 +371,65 @@ public class SynGuiPlatformHandler {
             copy(in, os);
         }
         return uri;
+    }
+
+    // ── Декодирование картинок ───────────────────────────────────────────
+
+    /**
+     * HEIF/HEIC (API 28+) и AVIF (API 31+) системным ImageDecoder → RGBA8
+     * построчно, для ImageStore syngui (на Android libheif не тянем).
+     * Поворот (irot/imir, EXIF) ImageDecoder применяет сам, цвет приводится
+     * к sRGB, 10-битные картинки — к ARGB_8888. maxSide > 0 — большая
+     * сторона уменьшается до него ещё при декодировании.
+     * info[0..2] — ширина, высота, 1 если альфа умножена. Ошибка — null и
+     * текст в error[0].
+     */
+    public static byte[] decodeRgba(byte[] data, final int maxSide, int[] info, String[] error) {
+        android.graphics.Bitmap bmp;
+        try {
+            bmp = decodeBitmap(data, maxSide);
+        } catch (Throwable t) {
+            error[0] = describe(t);
+            return null;
+        }
+        try {
+            if (bmp.getConfig() != android.graphics.Bitmap.Config.ARGB_8888) {
+                android.graphics.Bitmap c = bmp.copy(android.graphics.Bitmap.Config.ARGB_8888, false);
+                bmp.recycle();
+                if (c == null) throw new IllegalStateException("нельзя привести к ARGB_8888");
+                bmp = c;
+            }
+            int w = bmp.getWidth(), h = bmp.getHeight();
+            // ARGB_8888 в памяти — байты R, G, B, A.
+            java.nio.ByteBuffer buf = java.nio.ByteBuffer.allocate(w * h * 4);
+            bmp.copyPixelsToBuffer(buf);
+            info[0] = w;
+            info[1] = h;
+            info[2] = bmp.isPremultiplied() ? 1 : 0;
+            bmp.recycle();
+            return buf.array();
+        } catch (Throwable t) {
+            error[0] = describe(t);
+            return null;
+        }
+    }
+
+    private static android.graphics.Bitmap decodeBitmap(byte[] data, final int maxSide)
+            throws java.io.IOException {
+        android.graphics.ImageDecoder.Source src =
+                android.graphics.ImageDecoder.createSource(java.nio.ByteBuffer.wrap(data));
+        return android.graphics.ImageDecoder.decodeBitmap(src, (decoder, imgInfo, source) -> {
+            decoder.setAllocator(android.graphics.ImageDecoder.ALLOCATOR_SOFTWARE);
+            decoder.setUnpremultipliedRequired(true);
+            decoder.setTargetColorSpace(
+                    android.graphics.ColorSpace.get(android.graphics.ColorSpace.Named.SRGB));
+            int w = imgInfo.getSize().getWidth(), h = imgInfo.getSize().getHeight();
+            int big = Math.max(w, h);
+            if (maxSide > 0 && big > maxSide) {
+                float k = maxSide / (float) big;
+                decoder.setTargetSize(Math.max(1, Math.round(w * k)), Math.max(1, Math.round(h * k)));
+            }
+        });
     }
 
     // ── Вспомогательное ──────────────────────────────────────────────────

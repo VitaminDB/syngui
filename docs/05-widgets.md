@@ -276,6 +276,11 @@ Image::new("path/to/image.png")
     .height(150.0)
 ```
 
+Источник — файл (`Image::new`), байты (`from_bytes`), URL (`from_url`, фича
+`image-network`) или RGBA. Форматы — PNG, JPEG (с EXIF-поворотом), GIF, WebP,
+BMP, ICO; SVG — фича `svg`; HEIC/HEIF и AVIF с камер телефонов — фича `heif`
+на ПК, на Android без фичи (см. [09-rendering.md](09-rendering.md#форматы)).
+
 ### Divider
 
 ```rust

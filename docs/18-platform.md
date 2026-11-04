@@ -32,16 +32,20 @@ platform::open_path(Path::new("/…/card.pdf"))?;
 | `share_file` | `ACTION_SEND` с `EXTRA_STREAM` + chooser, URI — через FileProvider |
 | `open_path` | `ACTION_VIEW` с типом по расширению |
 
-**Фото HEIC/HEIF/AVIF** (по умолчанию так снимают Samsung и Pixel) и JPEG с
-EXIF-поворотом перекодируются в JPEG с применённым поворотом: иначе `Image`
-syngui их не покажет (или покажет боком). Видео копируется как есть.
+**Фото HEIC/HEIF/AVIF** (по умолчанию так снимают Samsung и Pixel)
+перекодируются в JPEG (с применённым поворотом): такой файл примут любые
+приложения при `share_file` и сборки на ПК без фичи `heif`. Показ от этого не
+зависит — `Image` открывает HEIC/AVIF из любого источника сам (на Android —
+системным `ImageDecoder`, см. [09-rendering.md](09-rendering.md#форматы)).
+JPEG, в том числе с EXIF-поворотом, и видео копируются как есть.
 
 Копия в кэше может быть удалена системой — приложение переносит файл к себе
 (`internal_data_path`) и удаляет копию.
 
 Результат активити берётся через `ActivityResultRegistry` самой GameActivity
 (она `AppCompatActivity`), поэтому отдельной Activity в манифесте не нужно.
-Java-часть — `syngui/src/app/android/SynGuiPlatformHandler.java` в DEX
+Java-часть (там же `decodeRgba` — декодер HEIF/AVIF для `ImageStore`) —
+`syngui/src/app/android/SynGuiPlatformHandler.java` в DEX
 фреймворка (`scripts/build-android-dex.sh`).
 
 ### Манифест приложения: FileProvider

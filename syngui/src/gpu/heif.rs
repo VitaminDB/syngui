@@ -69,8 +69,16 @@ pub(crate) fn sniff(bytes: &[u8]) -> Option<Kind> {
 pub(crate) fn decode(bytes: &[u8], kind: Kind, max_side: u32) -> Result<Rgba, String> {
     #[cfg(target_os = "android")]
     {
-        let _ = kind;
-        return crate::platform::android::decode_image(bytes, max_side);
+        let (width, height, mut data, premultiplied) =
+            crate::platform::android::decode_image(bytes, max_side)
+                .map_err(|e| format!("{}: {e}", kind.name()))?;
+        if data.len() != width as usize * height as usize * 4 {
+            return Err(format!("{}: неверный размер буфера", kind.name()));
+        }
+        if premultiplied {
+            unpremultiply(&mut data);
+        }
+        return Ok(Rgba { width, height, data });
     }
     #[cfg(all(feature = "heif", not(target_os = "android")))]
     {

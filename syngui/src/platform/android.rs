@@ -199,3 +199,46 @@ pub(super) fn share_file(path: &Path, mime: &str, title: &str) -> Result<(), Str
 pub(super) fn open_path(path: &Path) -> Result<(), String> {
     call_status("openPath", "(Ljava/lang/String;)Ljava/lang/String;", &[&path.to_string_lossy()])
 }
+
+/// Декодировать картинку (HEIF/AVIF) системным `ImageDecoder`: RGBA8,
+/// ширина, высота и признак умноженной альфы. `max_side` > 0 — большая
+/// сторона уменьшается до него при декодировании.
+pub(crate) fn decode_image(bytes: &[u8], max_side: u32) -> Result<(u32, u32, Vec<u8>, bool), String> {
+    use jni::objects::{JByteArray, JObjectArray};
+    with_env(|env, cls| {
+        // Локальный кадр: поток декодирования прикреплён навсегда, ссылки
+        // иначе копились бы до его выхода.
+        env.with_local_frame(8, |env| -> jni::errors::Result<Result<_, String>> {
+            let input = env.byte_array_from_slice(bytes)?;
+            let info = env.new_int_array(3)?;
+            let error = env.new_object_array(1, "java/lang/String", JObject::null())?;
+            let out = env
+                .call_static_method(
+                    cls,
+                    "decodeRgba",
+                    "([BI[I[Ljava/lang/String;)[B",
+                    &[
+                        JValue::Object(&input),
+                        JValue::Int(max_side.min(i32::MAX as u32) as i32),
+                        JValue::Object(&info),
+                        JValue::Object(&error),
+                    ],
+                )?
+                .l()?;
+            if out.is_null() {
+                let msg = env.get_object_array_element(&JObjectArray::from(error), 0)?;
+                let msg = if msg.is_null() {
+                    "ImageDecoder: ошибка".to_string()
+                } else {
+                    env.get_string(&JString::from(msg))?.into()
+                };
+                return Ok(Err(msg));
+            }
+            let mut sz = [0i32; 3];
+            env.get_int_array_region(&info, 0, &mut sz)?;
+            let data = env.convert_byte_array(JByteArray::from(out))?;
+            Ok(Ok((sz[0] as u32, sz[1] as u32, data, sz[2] != 0)))
+        })
+        .map_err(|e| format!("ImageDecoder: {e}"))?
+    })
+}

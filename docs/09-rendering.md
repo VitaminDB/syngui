@@ -205,6 +205,33 @@ store.has_loading()          // Any images still loading?
 store.poll_bg()              // Poll background loader
 ```
 
+#### Форматы
+
+Формат определяется по содержимому (сигнатуре), а не по расширению;
+декодирование — в фоновом потоке.
+
+| Формат | Чем | Условие |
+|---|---|---|
+| PNG/APNG, JPEG, GIF, WebP, BMP, ICO | image-крейт | фича `image` |
+| SVG | resvg | фича `svg` |
+| HEIF/HEIC, AVIF (ПК, synshell-телефон) | системная libheif (`libheif-rs`) | фича `heif`; Arch: `pacman -S libheif` |
+| HEIF/HEIC (API 28+), AVIF (API 31+) на Android | системный `ImageDecoder` через JNI | только `image`; libheif не нужна |
+
+- **Поворот.** JPEG поворачивается по EXIF Orientation, HEIF/AVIF — по
+  свойствам `irot`/`imir` (EXIF у HEIF по спецификации не используется).
+  `image_file_size(path)` отдаёт размер уже с учётом поворота, не декодируя
+  файл (для HEIF — по `ispe`/`clap`/`irot` из заголовка, без libheif).
+- **10 бит и альфа.** 10-битные HEIC/AVIF сводятся к 8-битному RGBA, альфа —
+  неумноженная, как у остальных форматов. На Android цвет приводится к sRGB.
+- **Без фичи `heif`** на ПК HEIF/AVIF не открываются: в лог пишется
+  `HEIF/HEIC не поддерживается этой сборкой: включите фичу `heif`…`, картинка
+  получает состояние `Failed` — без паники.
+- `set_max_bitmap_side(px)` ограничивает большую сторону; на Android
+  `ImageDecoder` уменьшает картинку сразу при декодировании.
+- Проверка глазами: `cargo run --example image_shot --features heif -- a.heic b.avif out.png`;
+  тесты против эталона `heif-dec`: `cargo test --features heif --lib heif`,
+  свои фото — `SYNGUI_HEIF_SAMPLES=<папка с x.heic и x.png> … -- --ignored samples_from_env`.
+
 ### ImageGpuCache
 
 Uploads images to GPU textures:
