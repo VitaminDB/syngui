@@ -207,6 +207,24 @@ Each widget has a type name used in MSS selectors:
 }
 ```
 
+### Свои шрифты и контур текста
+
+```rust
+App::new().with_font_data("Caveat", include_bytes!("../assets/Caveat-VF.ttf"))
+// или в любой момент: syngui::text::register_font("Caveat", bytes)
+```
+
+```css
+.title {
+    font-family: "Caveat";           /* зарегистрированное семейство — на всех платформах, и на Android */
+    font-weight: 700;                /* переменный шрифт: ось wght; несколько файлов — по OS/2 */
+    text-shadow: 0 2 14 #00000099;   /* x y blur цвет, числа без px */
+    text-stroke: 1px #00000059;      /* контур: ширина и цвет, под буквами */
+}
+```
+
+Глифы, которых нет в семействе, берутся из основного шрифта и запасных.
+
 `pointer-events: none` убирает элемент вместе с поддеревом из hit-test: касания,
 клики и колесо проходят к тому, что лежит под ним в `Stack`. Нужен декоративным
 слоям поверх интерактивного содержимого — затемнению фото над `Carousel`,

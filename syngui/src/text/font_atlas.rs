@@ -103,7 +103,8 @@ impl FontFace {
     /// берётся, только если насыщенность не задана. Раньше все насыщенности
     /// переменного шрифта рисовались начертанием по умолчанию (у Manrope и
     /// Nunito — ExtraLight).
-    fn with_weight(data: Vec<u8>, raw_index: u32, weight: Option<u16>) -> Option<Self> {
+    fn with_weight(data: impl Into<Arc<[u8]>>, raw_index: u32, weight: Option<u16>) -> Option<Self> {
+        let data: Arc<[u8]> = data.into();
         if data.is_empty() {
             return None;
         }
@@ -123,7 +124,7 @@ impl FontFace {
             None => Vec::new(),
         };
         Some(Self {
-            data: Arc::from(data),
+            data,
             face_index,
             coords: coords.into(),
         })
@@ -240,6 +241,9 @@ pub struct FontAtlas {
     /// индекс грани или `None`, если отдельного начертания нет (тогда берётся
     /// ближайшее: 500 → обычное, 600 → жирное).
     weight_faces: HashMap<(Option<String>, u16), Option<u8>>,
+    /// Поколение реестра шрифтов приложения ([`crate::text::registry`]),
+    /// под которое заполнены `extra_fonts`/`weight_faces`.
+    registry_generation: u64,
     /// Шейпленные кластеры эмодзи: строка кластера и кегль → глифы.
     emoji_clusters: HashMap<(String, u16), Option<Vec<GlyphKey>>>,
     /// Семейство основного шрифта из конфига — для повторного поиска.
@@ -361,6 +365,7 @@ impl FontAtlas {
             scale_factor: 1.0,
             scale_ctx: swash::scale::ScaleContext::new(),
             weight_faces: HashMap::new(),
+            registry_generation: 0,
             emoji_clusters: HashMap::new(),
             preferred_family,
             #[cfg(not(target_arch = "wasm32"))]
@@ -999,9 +1004,26 @@ impl FontAtlas {
         if let Some(&idx) = self.weight_faces.get(&key) {
             return idx;
         }
-        let idx = self.discover_weight_face(family, class);
+        let idx = match family.and_then(registered_name) {
+            Some(name) => self.registered_weight_face(&name, class),
+            None => self.discover_weight_face(family, class),
+        };
         self.weight_faces.insert(key, idx);
         idx
+    }
+
+    /// Начертание `class` зарегистрированного семейства: у переменного
+    /// шрифта — та же грань с осью `wght`, у статических — файл с такой
+    /// насыщенностью (±50), иначе `None` (возьмётся обычное или жирное).
+    fn registered_weight_face(&mut self, family: &str, class: u16) -> Option<u8> {
+        let fonts = crate::text::registry::family_fonts(family);
+        let pick = fonts.iter().find(|d| crate::text::registry::face_weight(d).1).or_else(|| {
+            fonts
+                .iter()
+                .find(|d| crate::text::registry::face_weight(d).0.abs_diff(class) <= 50)
+        })?;
+        let face = FontFace::with_weight(pick.clone(), 0, Some(class))?;
+        Some(self.push_face(Some(face)))
     }
 
     #[cfg(all(not(target_arch = "wasm32"), not(target_os = "android")))]
@@ -1034,10 +1056,21 @@ impl FontAtlas {
     }
 
     fn load_font_family(&mut self, family: &str) -> Option<(u8, u8)> {
+        // Приложение зарегистрировало шрифты после первого поиска — «не
+        // найдено» по семействам больше не верно.
+        let generation = crate::text::registry::generation();
+        if generation != self.registry_generation {
+            self.registry_generation = generation;
+            self.extra_fonts.retain(|_, indices| indices.is_some());
+            self.weight_faces.retain(|_, idx| idx.is_some());
+        }
         if let Some(&indices) = self.extra_fonts.get(family) {
             return indices;
         }
-        let indices = self.discover_font_family(family);
+        let indices = match registered_name(family) {
+            Some(name) => self.registered_family(&name),
+            None => self.discover_font_family(first_family(family)),
+        };
         if indices.is_none() {
             log::warn!(
                 "Font family '{}' not found, falling back to primary",
@@ -1046,6 +1079,35 @@ impl FontAtlas {
         }
         self.extra_fonts.insert(family.to_string(), indices);
         indices
+    }
+
+    /// Обычное и жирное начертания зарегистрированного семейства: переменный
+    /// шрифт — ось `wght` 400/700; статические — ближайший к 400 и, если есть,
+    /// файл не легче 600 (иначе жирного нет — берётся обычное).
+    fn registered_family(&mut self, family: &str) -> Option<(u8, u8)> {
+        use crate::text::registry::{face_weight, family_fonts};
+        let fonts = family_fonts(family);
+        let (regular, bold) = match fonts.iter().find(|d| face_weight(d).1) {
+            Some(var) => (
+                FontFace::with_weight(var.clone(), 0, Some(400))?,
+                FontFace::with_weight(var.clone(), 0, Some(700)),
+            ),
+            None => {
+                let regular = fonts.iter().min_by_key(|d| face_weight(d).0.abs_diff(400))?;
+                let bold = fonts
+                    .iter()
+                    .filter(|d| face_weight(d).0 >= 600)
+                    .min_by_key(|d| face_weight(d).0.abs_diff(700));
+                (
+                    FontFace::with_weight(regular.clone(), 0, None)?,
+                    bold.and_then(|b| FontFace::with_weight(b.clone(), 0, None)),
+                )
+            }
+        };
+        log::info!("font_atlas: семейство {family:?} из шрифтов приложения");
+        let idx_regular = self.push_face(Some(regular));
+        let idx_bold = self.push_face(bold);
+        Some((idx_regular, idx_bold))
     }
 
     #[cfg(all(not(target_arch = "wasm32"), not(target_os = "android")))]
@@ -1982,4 +2044,18 @@ mod private_use_tests {
             .expect("глиф значка");
         assert_eq!(key.font_index, FONT_ICON);
     }
+}
+
+/// Первое имя из списка `font-family` («Caveat, cursive» → «Caveat»).
+fn first_family(family: &str) -> &str {
+    family.split(',').next().unwrap_or(family).trim().trim_matches(['"', '\'']).trim()
+}
+
+/// Первое имя из списка `font-family`, зарегистрированное приложением.
+fn registered_name(family: &str) -> Option<String> {
+    family
+        .split(',')
+        .map(|f| f.trim().trim_matches(['"', '\'']).trim())
+        .find(|f| !crate::text::registry::family_fonts(f).is_empty())
+        .map(str::to_string)
 }

@@ -87,6 +87,7 @@ impl Batcher {
                 clip_rect,
                 no_wrap,
                 italic,
+                text_stroke,
                 ..
             } => {
                 // Наклон курсива: верх глифа сдвигается вправо на 0.21·h
@@ -355,14 +356,58 @@ impl Batcher {
                     }
                 }
 
-                self.ensure_batch_rect(ShaderType::Text, None, *clip_rect, text_bbox_rect);
+                let stroke_pad = text_stroke.map_or(0.0, |st| st.width.ceil());
+                self.ensure_batch_rect(
+                    ShaderType::Text,
+                    None,
+                    *clip_rect,
+                    text_bbox_rect.inflate(stroke_pad, stroke_pad),
+                );
                 let color_array = self.apply_opacity(color.to_array());
 
+                // Проходы: контур (`text-stroke`) — копии глифов цветом контура,
+                // сдвинутые по кругу на его ширину (толстый — ещё кольцом
+                // внутри), под буквами; затем сами буквы.
+                // Без контура вектор пуст и памяти не берёт.
+                let mut passes: Vec<(f32, f32, [f32; 4], bool)> = Vec::new();
+                if let Some(st) = text_stroke {
+                    let mut stroke_color = self.apply_opacity(st.color.to_array());
+                    let w = st.width;
+                    let rings: &[(f32, usize)] = if w > 2.5 {
+                        &[(1.0, 16), (0.5, 8)]
+                    } else if w > 1.0 {
+                        &[(1.0, 12)]
+                    } else {
+                        &[(1.0, 8)]
+                    };
+                    // Копии перекрываются: полупрозрачный контур иначе
+                    // копится до непрозрачного. Альфа копии — такая, чтобы
+                    // половина копий (типичная точка контура) дала заданную.
+                    let copies: usize = rings.iter().map(|r| r.1).sum();
+                    let a = stroke_color[3].clamp(0.0, 1.0);
+                    if a < 1.0 {
+                        stroke_color[3] = 1.0 - (1.0 - a).powf(2.0 / copies as f32);
+                    }
+                    for &(k, n) in rings {
+                        for i in 0..n {
+                            let a = std::f32::consts::TAU * i as f32 / n as f32;
+                            passes.push((w * k * a.cos(), w * k * a.sin(), stroke_color, true));
+                        }
+                    }
+                }
+                let main_pass = (0.0, 0.0, color_array, false);
+
+                for (dx, dy, color_array, is_stroke) in passes.into_iter().chain(std::iter::once(main_pass)) {
                 for glyph in glyphs.iter() {
                     if glyph.glyph.width == 0 || glyph.glyph.height == 0 {
                         continue;
                     }
-                    let origin_x = origin_x + line_shift(glyph.line_top);
+                    // Цветные глифы (эмодзи) контура не получают.
+                    if is_stroke && glyph.glyph.is_color {
+                        continue;
+                    }
+                    let origin_x = origin_x + line_shift(glyph.line_top) + dx;
+                    let origin_y = origin_y + dy;
                     let (x, y) = if snap {
                         (
                             (origin_x * sf + glyph.x).round() / sf,
@@ -425,6 +470,7 @@ impl Batcher {
                         base + 2,
                         base + 3,
                     ]);
+                }
                 }
 
                 if *decoration != crate::mss::TextDecoration::None && text_width > 0.0 {

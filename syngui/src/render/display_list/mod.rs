@@ -25,6 +25,8 @@ pub struct DisplayList {
     text_italic: bool,
     /// Образец для вертикальных границ текста (см. [`Self::set_text_bbox_sample`]).
     text_bbox_sample: Option<CompactString>,
+    /// Контур последующего текста (см. [`Self::set_text_stroke`]).
+    text_stroke: Option<crate::mss::fields::TextStroke>,
 }
 
 impl DisplayList {
@@ -32,6 +34,15 @@ impl DisplayList {
     /// его и надо восстановить после курсивного куска.
     pub fn set_text_italic(&mut self, on: bool) -> bool {
         std::mem::replace(&mut self.text_italic, on)
+    }
+
+    /// Контур (MSS `text-stroke`) для последующих текстовых команд.
+    /// Возвращает прежнее значение — его и надо восстановить.
+    pub fn set_text_stroke(
+        &mut self,
+        stroke: Option<crate::mss::fields::TextStroke>,
+    ) -> Option<crate::mss::fields::TextStroke> {
+        std::mem::replace(&mut self.text_stroke, stroke)
     }
 
     /// Образец, по глифам которого считаются вертикальные границы последующих
@@ -57,6 +68,7 @@ impl DisplayList {
             surface_size: Size::zero(),
             scale_factor: 1.0,
             text_italic: false,
+            text_stroke: None,
             text_bbox_sample: None,
         }
     }
@@ -107,6 +119,7 @@ impl DisplayList {
         let size = Size::new(width, height);
         let rect = Rect::new(pos, size);
         let italic = self.text_italic;
+        let text_stroke = self.text_stroke;
         let bbox_sample = self.text_bbox_sample.clone();
 
         self.commands.push(DrawCommand::Text {
@@ -125,6 +138,7 @@ impl DisplayList {
             z_index: self.current_z,
             no_wrap: false,
             italic,
+            text_stroke,
         });
         self.current_z += 1;
     }
@@ -271,6 +285,7 @@ impl DisplayList {
         let clip = *self.current_clip();
         let z = self.current_z;
         let italic = self.text_italic;
+        let text_stroke = self.text_stroke;
         let bbox_sample = self.text_bbox_sample.clone();
         self.target().push(DrawCommand::Text {
             text: CompactString::from(text),
@@ -288,6 +303,7 @@ impl DisplayList {
             z_index: z,
             no_wrap,
             italic,
+            text_stroke,
         });
         self.current_z += 1;
     }
@@ -302,6 +318,7 @@ impl DisplayList {
         let clip = *self.current_clip();
         let z = self.current_z;
         let italic = self.text_italic;
+        let text_stroke = self.text_stroke;
         let bbox_sample = self.text_bbox_sample.clone();
         self.target().push(DrawCommand::Text {
             text: CompactString::from(text),
@@ -319,6 +336,7 @@ impl DisplayList {
             z_index: z,
             no_wrap: false,
             italic,
+            text_stroke,
         });
         self.current_z += 1;
     }
@@ -336,6 +354,7 @@ impl DisplayList {
         let clip = *self.current_clip();
         let z = self.current_z;
         let italic = self.text_italic;
+        let text_stroke = self.text_stroke;
         let bbox_sample = self.text_bbox_sample.clone();
         self.target().push(DrawCommand::Text {
             text: CompactString::from(text),
@@ -353,6 +372,7 @@ impl DisplayList {
             z_index: z,
             no_wrap: false,
             italic,
+            text_stroke,
         });
         self.current_z += 1;
     }
@@ -372,6 +392,7 @@ impl DisplayList {
         let clip = *self.current_clip();
         let z = self.current_z;
         let italic = self.text_italic;
+        let text_stroke = self.text_stroke;
         let bbox_sample = self.text_bbox_sample.clone();
         self.target().push(DrawCommand::Text {
             text: CompactString::from(text),
@@ -389,6 +410,7 @@ impl DisplayList {
             z_index: z,
             no_wrap: true,
             italic,
+            text_stroke,
         });
         self.current_z += 1;
     }
@@ -411,6 +433,7 @@ impl DisplayList {
         let clip = *self.current_clip();
         let z = self.current_z;
         let italic = self.text_italic;
+        let text_stroke = self.text_stroke;
         let bbox_sample = self.text_bbox_sample.clone();
         self.target().push(DrawCommand::Text {
             text: CompactString::from(text),
@@ -428,6 +451,7 @@ impl DisplayList {
             z_index: z,
             no_wrap: true,
             italic,
+            text_stroke,
         });
         self.current_z += 1;
     }
@@ -446,6 +470,7 @@ impl DisplayList {
         let clip = *self.current_clip();
         let z = self.current_z;
         let italic = self.text_italic;
+        let text_stroke = self.text_stroke;
         let bbox_sample = self.text_bbox_sample.clone();
         self.target().push(DrawCommand::Text {
             text: CompactString::from(text),
@@ -463,6 +488,7 @@ impl DisplayList {
             z_index: z,
             no_wrap: false,
             italic,
+            text_stroke,
         });
         self.current_z += 1;
     }
@@ -485,6 +511,7 @@ impl DisplayList {
         let clip = *self.current_clip();
         let z = self.current_z;
         let italic = self.text_italic;
+        let text_stroke = self.text_stroke;
         let bbox_sample = self.text_bbox_sample.clone();
         self.target().push(DrawCommand::Text {
             text: CompactString::from(text),
@@ -502,6 +529,7 @@ impl DisplayList {
             z_index: z,
             no_wrap,
             italic,
+            text_stroke,
         });
         self.current_z += 1;
     }
@@ -522,6 +550,7 @@ impl DisplayList {
         let clip = *self.current_clip();
         let z = self.current_z;
         let italic = self.text_italic;
+        let text_stroke = self.text_stroke;
         self.target().push(DrawCommand::Text {
             text: CompactString::from(text),
             rect,
@@ -538,6 +567,7 @@ impl DisplayList {
             z_index: z,
             no_wrap: false,
             italic,
+            text_stroke,
         });
         self.current_z += 1;
     }
@@ -1027,6 +1057,7 @@ impl DisplayList {
 
     pub fn clear(&mut self) {
         self.text_italic = false;
+        self.text_stroke = None;
         self.commands.clear();
         self.overlay_levels.clear();
         self.overlay_depth = 0;
@@ -1237,8 +1268,13 @@ fn hash_command(h: &mut impl std::hash::Hasher, cmd: &DrawCommand) -> bool {
             z_index,
             no_wrap,
             italic,
+            text_stroke,
         } => {
             text.hash(h);
+            if let Some(st) = text_stroke {
+                h_f32(h, st.width);
+                h_color(h, &st.color);
+            }
             h_rect(h, rect);
             h_color(h, color);
             h_f32(h, *font_size);

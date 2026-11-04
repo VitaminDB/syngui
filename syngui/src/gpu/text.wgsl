@@ -148,10 +148,14 @@ fn fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
             if (i < -k || i > k) { continue; }
             let off = vec2<f32>(f32(i), f32(j)) * duv;
             let w = exp(-(f32(i * i + j * j)) / (2.0 * sigma * sigma));
-            let sample_uv = clamp(in.uv + off, uv_min, uv_max);
+            let p = in.uv + off;
+            // Вне клетки глифа — пусто. Прижим UV к краю (clamp) размазывал
+            // крайние пиксели буквы наружу: полосы и «призраки» у тени с blur ≥ 8.
+            let inside = all(p >= uv_min) && all(p <= uv_max);
+            let sample_uv = clamp(p, uv_min, uv_max);
             // textureSampleLevel: derivatives нам не нужны (атлас без mip'ов),
             // и работает в non-uniform control flow (внутри continue-цикла).
-            let a = textureSampleLevel(font_atlas, font_sampler, sample_uv, 0.0).a;
+            let a = select(0.0, textureSampleLevel(font_atlas, font_sampler, sample_uv, 0.0).a, inside);
             alpha_sum = alpha_sum + a * w;
             w_sum = w_sum + w;
         }

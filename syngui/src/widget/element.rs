@@ -326,6 +326,12 @@ pub trait Element: Send {
         None
     }
 
+    /// Контур текста элемента (MSS `text-stroke`): дерево включает его в
+    /// списке отрисовки на время рисования элемента.
+    fn text_stroke(&self) -> Option<crate::mss::fields::TextStroke> {
+        self.mss().and_then(|m| m.text_stroke)
+    }
+
     fn reset_mss_styles(&mut self) {}
 
     fn element_type_name(&self) -> &str {
@@ -661,6 +667,10 @@ impl Element for Box<dyn Element> {
 
     fn mss(&self) -> Option<&crate::mss::MssFields> {
         self.as_ref().mss()
+    }
+
+    fn text_stroke(&self) -> Option<crate::mss::fields::TextStroke> {
+        self.as_ref().text_stroke()
     }
 
     fn reset_mss_styles(&mut self) {

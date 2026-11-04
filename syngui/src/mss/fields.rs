@@ -112,6 +112,62 @@ impl TextShadow {
     }
 }
 
+/// Контур текста (`text-stroke: 1.5px #00000080`): ширина в px и цвет.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct TextStroke {
+    pub width: f32,
+    pub color: Color,
+}
+
+impl TextStroke {
+    /// `<ширина> [цвет]` в любом порядке; без цвета — чёрный; ширина 0 или
+    /// `none` — без контура.
+    pub fn parse(s: &str) -> Option<Self> {
+        let s = s.trim();
+        if s.eq_ignore_ascii_case("none") {
+            return None;
+        }
+        let mut width = None;
+        let mut color = None;
+        for tok in split_top_level(s) {
+            let num = tok.strip_suffix("px").unwrap_or(tok);
+            match num.parse::<f32>() {
+                Ok(w) if width.is_none() => width = Some(w),
+                _ => color = parse_color_string(tok).or(color),
+            }
+        }
+        let width = width?;
+        (width > 0.0).then_some(TextStroke {
+            width,
+            color: color.unwrap_or(Color::new(0.0, 0.0, 0.0, 1.0)),
+        })
+    }
+}
+
+/// Слова через пробел, не разрывая скобки (`rgba(0, 0, 0, .5)`).
+fn split_top_level(s: &str) -> Vec<&str> {
+    let mut out = Vec::new();
+    let (mut depth, mut start) = (0i32, None);
+    for (i, c) in s.char_indices() {
+        match c {
+            '(' => depth += 1,
+            ')' => depth -= 1,
+            c if c.is_whitespace() && depth == 0 => {
+                if let Some(st) = start.take() {
+                    out.push(&s[st..i]);
+                }
+                continue;
+            }
+            _ => {}
+        }
+        start.get_or_insert(i);
+    }
+    if let Some(st) = start {
+        out.push(&s[st..]);
+    }
+    out
+}
+
 fn parse_color_string(s: &str) -> Option<Color> {
     use crate::mss::value::Color as MssColor;
     MssColor::parse(s).map(|c| {
@@ -228,6 +284,7 @@ pub struct MssFields {
     pub letter_spacing: Option<f32>,
     pub text_transform: Option<TextTransform>,
     pub text_shadow: Option<TextShadow>,
+    pub text_stroke: Option<TextStroke>,
 
     pub gap: Option<f32>,
     pub flex_grow: Option<f32>,
@@ -355,6 +412,7 @@ impl MssFields {
             letter_spacing: None,
             text_transform: None,
             text_shadow: None,
+            text_stroke: None,
             gap: None,
             flex_grow: None,
             divider_thickness: None,
@@ -448,6 +506,7 @@ impl MssFields {
         self.letter_spacing = None;
         self.text_transform = None;
         self.text_shadow = None;
+        self.text_stroke = None;
         self.gap = None;
         self.flex_grow = None;
         self.divider_thickness = None;
@@ -743,6 +802,9 @@ impl MssFields {
 
         if let Some(s) = style.get("text-shadow").and_then(|v| v.as_string()) {
             self.text_shadow = TextShadow::parse(s);
+        }
+        if let Some(s) = style.get("text-stroke").and_then(|v| v.as_string()) {
+            self.text_stroke = TextStroke::parse(s);
         }
 
         if let Some(g) = style.get("gap").and_then(|v| v.as_px()) {

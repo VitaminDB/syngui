@@ -93,7 +93,13 @@ impl ElementTree {
             // MarkdownView в прокрученной ленте сравнивал свои блоки не с тем
             // окном и пропускал видимые — сообщения рисовались пустыми.
             if !is_tooltip {
+                // MSS `text-stroke` (наследуется) — контур текста элемента.
+                let stroke = node.element.text_stroke();
+                let prev_stroke = stroke.map(|s| list.set_text_stroke(Some(s)));
                 node.element.build_display_list(list, cull_clip);
+                if let Some(prev) = prev_stroke {
+                    list.set_text_stroke(prev);
+                }
             }
 
             let child_clip = if do_clip {

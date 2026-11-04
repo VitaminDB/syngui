@@ -453,6 +453,32 @@ impl AppBuilder {
         self
     }
 
+    /// Шрифт приложения под именем семейства: MSS `font-family: "<family>"`
+    /// рисует им текст на любой платформе (на Android — тоже). Можно звать
+    /// несколько раз: разные семейства или начертания одного (обычное,
+    /// жирное). Переменный шрифт отдаёт насыщенность осью `wght`. Глифы,
+    /// которых в шрифте нет, берутся из основного шрифта и фолбэков.
+    /// См. [`crate::text::register_font`].
+    pub fn with_font_data(self, family: &str, data: &'static [u8]) -> Self {
+        crate::text::register_font(family, data);
+        self
+    }
+
+    /// [`with_font_data`](Self::with_font_data) из байтов в памяти.
+    pub fn with_font_bytes(self, family: &str, data: Vec<u8>) -> Self {
+        crate::text::register_font(family, data);
+        self
+    }
+
+    /// [`with_font_data`](Self::with_font_data) из файла; ошибка чтения — в лог.
+    pub fn with_font_file(self, family: &str, path: impl AsRef<std::path::Path>) -> Self {
+        let path = path.as_ref();
+        if let Err(e) = crate::text::register_font_file(family, path) {
+            log::warn!("with_font_file({family:?}, {}): {e}", path.display());
+        }
+        self
+    }
+
     pub fn with_font_url(mut self, url: impl Into<String>) -> Self {
         self.font_url = Some(url.into());
         self

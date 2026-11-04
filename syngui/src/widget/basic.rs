@@ -584,6 +584,7 @@ impl Text {
             mss_letter_spacing: 0.0,
             mss_text_transform: None,
             mss_text_shadow: None,
+            mss_text_stroke: None,
             mss_line_height: None,
             mss_padding_left: 0.0,
             mss_padding_right: 0.0,
@@ -663,6 +664,7 @@ struct TextElement {
     mss_letter_spacing: f32,
     mss_text_transform: Option<crate::mss::fields::TextTransform>,
     mss_text_shadow: Option<crate::mss::fields::TextShadow>,
+    mss_text_stroke: Option<crate::mss::fields::TextStroke>,
     mss_line_height: Option<crate::mss::fields::LineHeight>,
     mss_padding_left: f32,
     mss_padding_right: f32,
@@ -806,6 +808,10 @@ impl TextElement {
 }
 
 impl Element for TextElement {
+    fn text_stroke(&self) -> Option<crate::mss::fields::TextStroke> {
+        self.mss_text_stroke
+    }
+
     fn update(&mut self, widget: &dyn Widget, _ctx: &mut UpdateContext) {
         if let Some(widget) = widget.as_any().downcast_ref::<Text>() {
             let text_changed = self.text != widget.text;
@@ -1263,6 +1269,7 @@ impl Element for TextElement {
         self.mss_letter_spacing = 0.0;
         self.mss_text_transform = None;
         self.mss_text_shadow = None;
+        self.mss_text_stroke = None;
         self.mss_line_height = None;
         self.mss_padding_left = 0.0;
         self.mss_padding_right = 0.0;
@@ -1342,6 +1349,9 @@ impl StyledElement for TextElement {
         }
         if let Some(s) = style.get("text-shadow").and_then(|v| v.as_string()) {
             self.mss_text_shadow = crate::mss::fields::TextShadow::parse(s);
+        }
+        if let Some(s) = style.get("text-stroke").and_then(|v| v.as_string()) {
+            self.mss_text_stroke = crate::mss::fields::TextStroke::parse(s);
         }
         if let Some(v) = style.get("line-height") {
             self.mss_line_height = match v {

@@ -1,5 +1,6 @@
 pub mod font_atlas;
 pub mod line_break;
+pub mod registry;
 pub mod script;
 
 #[cfg(all(not(target_arch = "wasm32"), not(target_os = "android")))]
@@ -12,6 +13,7 @@ pub mod font_discovery_android;
 pub mod icon_fonts;
 
 pub use font_atlas::{FontAtlas, FontAtlasStats, FontWeight};
+pub use registry::{register_font, register_font_file};
 pub use line_break::{break_class, breaks_before, BreakClass};
 pub use script::{script_of, Script};
 

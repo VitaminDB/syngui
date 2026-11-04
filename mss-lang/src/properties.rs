@@ -353,6 +353,7 @@ pub const PROPERTIES: &[PropertySpec] = &[
     i("text-decoration", K::Keyword(&["none", "underline", "line-through"]), "Подчёркивание или зачёркивание. Наследуется."),
     i("text-transform", K::Keyword(&["none", "uppercase", "lowercase", "capitalize"]), "Регистр букв. Наследуется."),
     i("text-shadow", K::TextShadow, "Тень текста: смещение x y, размытие, цвет. Наследуется."),
+    i("text-stroke", K::Border, "Контур текста: ширина и цвет (`1.5px #00000080`), рисуется под буквами поверх тени. Наследуется."),
     p("text-box-edge", K::Keyword(&["text", "ink", "normal"]), "`text` — вертикаль текста по метрикам шрифта (образец «Hg»); `ink`/`normal` — по контуру глифов (по умолчанию)."),
     p("line-clamp", K::Number, "Наибольшее число строк текста, дальше — многоточие."),
     p("clipboard-hint", K::Keyword(&["on", "off", "true", "false", "show", "none", "hidden"]), "TextField: значок с текстом буфера обмена при фокусе (on/off)."),
@@ -764,6 +765,7 @@ mod tests {
                 "text-align",
                 "text-decoration",
                 "text-shadow",
+                "text-stroke",
                 "text-transform",
                 "text-vertical-align",
             ]
