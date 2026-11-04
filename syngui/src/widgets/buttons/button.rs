@@ -149,6 +149,7 @@ impl Widget for Button {
             dirty_flags: DirtyFlags::LAYOUT | DirtyFlags::RENDER,
             mss: MssFields::new(),
             text_measure: None,
+            text_lines: 1,
         })
     }
 
@@ -189,9 +190,35 @@ pub struct ButtonElement {
     dirty_flags: DirtyFlags,
     mss: MssFields,
     text_measure: Option<std::sync::Arc<dyn crate::widget::context::TextMeasure>>,
+    /// Строк подписи по последней раскладке: одна — рисуется без переноса.
+    text_lines: u32,
 }
 
 impl ButtonElement {
+    /// Подпись: в одну строку без переноса, если раскладка посчитала её
+    /// однострочной — ширина при отрисовке (шейпинг Roboto на Android, дробный
+    /// масштаб) может разойтись с измеренной на доли пикселя, и подпись
+    /// «Чат с разработчиком» ломалась на две строки в кнопке по размеру текста.
+    #[allow(clippy::too_many_arguments)]
+    fn push_label(
+        &self,
+        list: &mut DisplayList,
+        text: &str,
+        rect: Rect,
+        color: Color,
+        font_size: f32,
+        align: crate::mss::TextAlign,
+        decoration: crate::mss::TextDecoration,
+        font_weight: u16,
+        font_family: Option<String>,
+    ) {
+        if self.text_lines <= 1 {
+            list.push_text_styled_singleline(text, rect, color, font_size, align, decoration, font_weight, font_family);
+        } else {
+            list.push_text_styled(text, rect, color, font_size, align, decoration, font_weight, font_family);
+        }
+    }
+
     fn update_selected_state(&mut self) -> bool {
         if let Some((signal, index)) = self.active_index {
             let was = self.selected;
@@ -352,12 +379,15 @@ impl Element for ButtonElement {
         if let Some(min_w) = self.mss.min_width {
             width = width.max(min_w.resolve(constraints.max_width));
         }
-        let available_text_w = (width - pad_l - pad_r).max(1.0);
-        let line_count = if text_width > available_text_w + 0.1 {
+        // Место под иконку — не для текста (раньше не вычиталось, и узкая
+        // кнопка с иконкой считала подпись однострочной).
+        let available_text_w = (width - pad_l - pad_r - icon_space).max(1.0);
+        let line_count = if text_width > available_text_w + 0.5 {
             (text_width / available_text_w).ceil() as u32
         } else {
             1
         };
+        self.text_lines = line_count;
         let line_height = font_size * 1.2;
         let natural_height = (line_count as f32 * line_height) + pad_t + pad_b;
         let mut height = self
@@ -464,7 +494,7 @@ impl Element for ButtonElement {
                     let text_w = (content_w - icon_size - icon_gap).max(0.0);
                     let text_rect =
                         Rect::new(Point::new(text_x, text_y), Size::new(text_w, font_size));
-                    list.push_text_styled(
+                    self.push_label(list, 
                         &self.text,
                         text_rect,
                         text_color,
@@ -479,7 +509,7 @@ impl Element for ButtonElement {
                     let text_w = (content_w - icon_size - icon_gap).max(0.0);
                     let text_rect =
                         Rect::new(Point::new(content_x, text_y), Size::new(text_w, font_size));
-                    list.push_text_styled(
+                    self.push_label(list, 
                         &self.text,
                         text_rect,
                         text_color,
@@ -509,7 +539,7 @@ impl Element for ButtonElement {
                 Point::new(content_x, text_y),
                 Size::new(content_w, font_size),
             );
-            list.push_text_styled(
+            self.push_label(list, 
                 &self.text,
                 text_rect,
                 text_color,
