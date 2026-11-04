@@ -17,7 +17,8 @@ pub use heat_overlay::{HeatOverlay, HeatPoint};
 pub use marker::MapMarker;
 pub use marker_overlay::MarkerOverlay;
 pub use pipe_overlay::{
-    nearest_node, nearest_pipe, NodeGlyph, PipeHit, PipeNodeShape, PipeOverlay, PipeShape,
+    nearest_node, nearest_pipe, NodeGlyph, PipeHit, PipeMetrics, PipeNodeShape, PipeOverlay,
+    PipeShape,
 };
 pub use provider::TileProvider;
 pub use tile_cache::TileCache;

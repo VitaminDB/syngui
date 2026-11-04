@@ -216,6 +216,37 @@ impl PipeNodeShape {
     }
 }
 
+/// Как толщина труб и радиус узлов следуют за масштабом карты: на
+/// `ref_zoom` фигуры равны своим пикселям, дальше — степень `zoom_exponent`
+/// от разницы масштабов (1 — как расстояния на карте, 0 — всегда одинаково)
+/// в пределах `width_range`.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct PipeMetrics {
+    pub ref_zoom: f32,
+    pub zoom_exponent: f32,
+    pub width_range: (f32, f32),
+}
+
+impl Default for PipeMetrics {
+    fn default() -> Self {
+        Self {
+            ref_zoom: 16.0,
+            zoom_exponent: 0.55,
+            width_range: (1.0, 26.0),
+        }
+    }
+}
+
+impl PipeMetrics {
+    pub fn scale(&self, zoom: f32) -> f32 {
+        zoom_scale(zoom, self.ref_zoom, self.zoom_exponent)
+    }
+
+    pub fn width(&self, base: f32, zoom: f32) -> f32 {
+        (base * self.scale(zoom)).clamp(self.width_range.0, self.width_range.1)
+    }
+}
+
 /// Слой инженерных сетей поверх [`MapView`](super::MapView): трубы с
 /// градиентом цвета вдоль линии, подложкой и бегущим потоком, узлы с
 /// подписями без наложений. Прозрачен для ввода: клики разбирает карта
@@ -224,9 +255,7 @@ pub struct PipeOverlay {
     pipes: Arc<Vec<PipeShape>>,
     nodes: Arc<Vec<PipeNodeShape>>,
     viewport: MapViewport,
-    ref_zoom: f32,
-    zoom_exponent: f32,
-    width_range: (f32, f32),
+    metrics: PipeMetrics,
     flow_speed: f32,
     flow_spacing: f32,
     flow_dash: f32,
@@ -244,9 +273,7 @@ impl PipeOverlay {
             pipes: Arc::new(Vec::new()),
             nodes: Arc::new(Vec::new()),
             viewport: MapViewport::default(),
-            ref_zoom: 16.0,
-            zoom_exponent: 0.55,
-            width_range: (1.0, 26.0),
+            metrics: PipeMetrics::default(),
             flow_speed: 36.0,
             flow_spacing: 30.0,
             flow_dash: 9.0,
@@ -284,21 +311,26 @@ impl PipeOverlay {
         self
     }
 
+    pub fn metrics(mut self, metrics: PipeMetrics) -> Self {
+        self.metrics = metrics;
+        self
+    }
+
     /// Масштаб, на котором `width` и `radius` фигур равны своим пикселям.
     pub fn ref_zoom(mut self, zoom: f32) -> Self {
-        self.ref_zoom = zoom;
+        self.metrics.ref_zoom = zoom;
         self
     }
 
     /// Насколько толщина следует за масштабом: 1 — как расстояния на карте,
     /// 0 — всегда одинаковая.
     pub fn zoom_exponent(mut self, exponent: f32) -> Self {
-        self.zoom_exponent = exponent.clamp(0.0, 1.0);
+        self.metrics.zoom_exponent = exponent.clamp(0.0, 1.0);
         self
     }
 
     pub fn width_range(mut self, min: f32, max: f32) -> Self {
-        self.width_range = (min.max(0.1), max.max(min));
+        self.metrics.width_range = (min.max(0.1), max.max(min));
         self
     }
 
@@ -374,9 +406,7 @@ impl PipeOverlay {
             pipes: self.pipes.clone(),
             nodes: self.nodes.clone(),
             viewport: self.viewport,
-            ref_zoom: self.ref_zoom,
-            zoom_exponent: self.zoom_exponent,
-            width_range: self.width_range,
+            metrics: self.metrics,
             flow_speed: self.flow_speed,
             flow_spacing: self.flow_spacing,
             flow_dash: self.flow_dash,
@@ -394,9 +424,7 @@ struct OverlayConfig {
     pipes: Arc<Vec<PipeShape>>,
     nodes: Arc<Vec<PipeNodeShape>>,
     viewport: MapViewport,
-    ref_zoom: f32,
-    zoom_exponent: f32,
-    width_range: (f32, f32),
+    metrics: PipeMetrics,
     flow_speed: f32,
     flow_spacing: f32,
     flow_dash: f32,
@@ -415,11 +443,7 @@ impl OverlayConfig {
     }
 
     fn scale(&self) -> f32 {
-        zoom_scale(
-            self.viewport.zoom_level as f32,
-            self.ref_zoom,
-            self.zoom_exponent,
-        )
+        self.metrics.scale(self.viewport.zoom_level as f32)
     }
 
     fn project(&self, lat: f64, lng: f64) -> (f32, f32) {
@@ -585,21 +609,18 @@ pub struct PipeHit {
 pub fn nearest_pipe(
     pipes: &[PipeShape],
     viewport: MapViewport,
-    ref_zoom: f32,
-    zoom_exponent: f32,
-    width_range: (f32, f32),
+    metrics: &PipeMetrics,
     px: f32,
     py: f32,
     tolerance: f32,
 ) -> Option<PipeHit> {
     let zoom = viewport.zoom_level as f32;
-    let scale = zoom_scale(zoom, ref_zoom, zoom_exponent);
     let mut best: Option<PipeHit> = None;
     for pipe in pipes {
         if zoom < pipe.min_zoom || pipe.points.len() < 2 {
             continue;
         }
-        let w = (pipe.width * scale).clamp(width_range.0, width_range.1);
+        let w = metrics.width(pipe.width, zoom);
         let pts = project_pipe(pipe, viewport);
         let Some((d, seg, t)) = polyline_distance(&pts, (px, py)) else {
             continue;
@@ -621,14 +642,13 @@ pub fn nearest_pipe(
 pub fn nearest_node(
     nodes: &[PipeNodeShape],
     viewport: MapViewport,
-    ref_zoom: f32,
-    zoom_exponent: f32,
+    metrics: &PipeMetrics,
     px: f32,
     py: f32,
     tolerance: f32,
 ) -> Option<(u64, f32)> {
     let zoom = viewport.zoom_level as f32;
-    let scale = zoom_scale(zoom, ref_zoom, zoom_exponent);
+    let scale = metrics.scale(zoom);
     let mut best: Option<(u64, f32)> = None;
     for node in nodes {
         if zoom < node.min_zoom {
@@ -681,7 +701,12 @@ fn project_pipe(pipe: &PipeShape, vp: MapViewport) -> Vec<(f32, f32)> {
 
 fn bbox(points: &[(f32, f32)]) -> (f32, f32, f32, f32) {
     points.iter().fold(
-        (f32::INFINITY, f32::INFINITY, f32::NEG_INFINITY, f32::NEG_INFINITY),
+        (
+            f32::INFINITY,
+            f32::INFINITY,
+            f32::NEG_INFINITY,
+            f32::NEG_INFINITY,
+        ),
         |(x0, y0, x1, y1), &(x, y)| (x0.min(x), y0.min(y), x1.max(x), y1.max(y)),
     )
 }
@@ -705,15 +730,13 @@ impl PipeOverlayElement {
         let cfg = &self.config;
         let vp = cfg.viewport;
         let zoom = vp.zoom_level as f32;
-        let scale = cfg.scale();
-        let (min_w, max_w) = cfg.width_range;
 
         let mut projected: Vec<ProjectedPipe> = Vec::with_capacity(cfg.pipes.len());
         for pipe in cfg.pipes.iter() {
             if pipe.points.len() < 2 || zoom < pipe.min_zoom || pipe.opacity <= 0.001 {
                 continue;
             }
-            let width = (pipe.width * scale).clamp(min_w, max_w);
+            let width = cfg.metrics.width(pipe.width, zoom);
             let points = project_pipe(pipe, vp);
             let margin = width * 3.0 + 4.0;
             if !visible(bbox(&points), vp.viewport_w, vp.viewport_h, margin) {
@@ -766,12 +789,8 @@ impl PipeOverlayElement {
                     s += dash + gap;
                 }
             } else if p.shape.colors.len() == p.points.len() && p.shape.colors.len() > 1 {
-                let colors: Vec<Color> = p
-                    .shape
-                    .colors
-                    .iter()
-                    .map(|c| with_opacity(*c, k))
-                    .collect();
+                let colors: Vec<Color> =
+                    p.shape.colors.iter().map(|c| with_opacity(*c, k)).collect();
                 ctx.stroke_path_gradient(&p.points, &colors);
             } else {
                 ctx.set_color(with_opacity(p.shape.colors[0], k));
@@ -782,7 +801,10 @@ impl PipeOverlayElement {
         if cfg.animate {
             let spacing = cfg.flow_spacing;
             let dash = cfg.flow_dash;
-            for p in projected.iter().filter(|p| p.shape.flow != 0.0 && p.width >= 1.8) {
+            for p in projected
+                .iter()
+                .filter(|p| p.shape.flow != 0.0 && p.width >= 1.8)
+            {
                 let cum = cumulative_lengths(&p.points);
                 let total = cum[cum.len() - 1];
                 if total < dash {
@@ -799,7 +821,11 @@ impl PipeOverlayElement {
                 } else {
                     total - shift
                 };
-                let step = if p.shape.flow > 0.0 { spacing } else { -spacing };
+                let step = if p.shape.flow > 0.0 {
+                    spacing
+                } else {
+                    -spacing
+                };
                 let mut guard = 0;
                 while (p.shape.flow > 0.0 && s < total) || (p.shape.flow < 0.0 && s > -spacing) {
                     guard += 1;
@@ -838,7 +864,11 @@ impl PipeOverlayElement {
             } else {
                 (node.radius * scale).clamp(1.0, 40.0)
             };
-            if x < -r * 4.0 || y < -r * 4.0 || x > vp.viewport_w + r * 4.0 || y > vp.viewport_h + r * 4.0 {
+            if x < -r * 4.0
+                || y < -r * 4.0
+                || x > vp.viewport_w + r * 4.0
+                || y > vp.viewport_h + r * 4.0
+            {
                 continue;
             }
             let k = cfg.opacity;
@@ -868,10 +898,7 @@ impl PipeOverlayElement {
                         .unwrap_or(label.chars().count() as f32 * font * 0.58);
                     let (pad_x, h) = (5.0, font + 6.0);
                     let w = text_w + pad_x * 2.0;
-                    let rect = Rect::new(
-                        Point::new(x + r + 4.0, y - h * 0.5),
-                        Size::new(w, h),
-                    );
+                    let rect = Rect::new(Point::new(x + r + 4.0, y - h * 0.5), Size::new(w, h));
                     list_labels.push((rect, label.clone()));
                 }
             }
@@ -1096,7 +1123,10 @@ mod tests {
         let line = [(0.0, 0.0), (10.0, 0.0), (10.0, 10.0)];
         let shifted = offset_polyline(&line, 1.0);
         let corner = shifted[1];
-        assert!((corner.0 - 9.0).abs() < 1e-4 && (corner.1 - 1.0).abs() < 1e-4, "{corner:?}");
+        assert!(
+            (corner.0 - 9.0).abs() < 1e-4 && (corner.1 - 1.0).abs() < 1e-4,
+            "{corner:?}"
+        );
     }
 
     #[test]
@@ -1141,9 +1171,10 @@ mod tests {
         let a = tile_math::pixel_to_geo_f(100.0, 150.0, 53.2, 63.6, 16.0, 400.0, 300.0);
         let b = tile_math::pixel_to_geo_f(300.0, 150.0, 53.2, 63.6, 16.0, 400.0, 300.0);
         let pipes = vec![PipeShape::new(vec![a, b]).id(7).width(6.0)];
-        let hit = nearest_pipe(&pipes, vp, 16.0, 0.55, (1.0, 20.0), 200.0, 154.0, 2.0).unwrap();
+        let metrics = PipeMetrics::default();
+        let hit = nearest_pipe(&pipes, vp, &metrics, 200.0, 154.0, 2.0).unwrap();
         assert_eq!(hit.id, 7);
         assert!((hit.t - 0.5).abs() < 0.01);
-        assert!(nearest_pipe(&pipes, vp, 16.0, 0.55, (1.0, 20.0), 200.0, 170.0, 2.0).is_none());
+        assert!(nearest_pipe(&pipes, vp, &metrics, 200.0, 170.0, 2.0).is_none());
     }
 }

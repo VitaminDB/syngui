@@ -481,8 +481,11 @@ impl Element for MapEditOverlayElement {
     }
 
     fn drags_with_touch(&self, pos: Point) -> bool {
-        self.handle_at(Point::new(pos.x + self.bounds.origin.x, pos.y + self.bounds.origin.y))
-            .is_some()
+        self.handle_at(Point::new(
+            pos.x + self.bounds.origin.x,
+            pos.y + self.bounds.origin.y,
+        ))
+        .is_some()
     }
 
     fn handle_event(&mut self, event: &Event, ctx: &mut EventContext) -> EventResult {
@@ -529,7 +532,8 @@ impl Element for MapEditOverlayElement {
                 if let Some(drag) = self.drag.as_mut() {
                     let dx = position.x - drag.start.x;
                     let dy = position.y - drag.start.y;
-                    if !drag.moved && dx * dx + dy * dy < self.drag_threshold * self.drag_threshold {
+                    if !drag.moved && dx * dx + dy * dy < self.drag_threshold * self.drag_threshold
+                    {
                         return EventResult::Handled;
                     }
                     drag.moved = true;

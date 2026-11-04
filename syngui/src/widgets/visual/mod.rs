@@ -11,12 +11,12 @@ pub mod divider;
 pub mod emitter;
 #[cfg(feature = "ffmpeg")]
 pub mod frames_view;
-pub mod lottie;
 pub mod graph_view;
 pub mod icon;
 pub mod image;
 pub mod image_viewport;
 pub mod live_view;
+pub mod lottie;
 #[cfg(feature = "map")]
 pub mod map_view;
 #[cfg(feature = "markdown")]
@@ -48,17 +48,17 @@ pub use divider::{Divider, DividerDirection};
 pub use emitter::{EmitterConfig, EmitterShape, ParticleEmitter, ParticlePreset, ParticleShape};
 #[cfg(feature = "ffmpeg")]
 pub use frames_view::FramesView;
-pub use lottie::Lottie;
 pub use graph_view::{GraphEdge, GraphNode, GraphView};
 pub use icon::Icon;
 pub use image::{Image, ImageFit};
 pub use image_viewport::{ImageViewCommand, ImageViewInfo, ImageViewport};
 pub use live_view::{LiveFrame, LiveInput, LiveView};
+pub use lottie::Lottie;
 #[cfg(feature = "map")]
 pub use map_view::{
     BuildingOverlay, BuildingShape, EditHandle, EditPath, HandleShape, HeatOverlay, HeatPoint,
     MapCamera, MapEditOverlay, MapMarker, MapPolyline, MapView, MapViewport, MarkerOverlay,
-    NodeGlyph, PipeNodeShape, PipeOverlay, PipeShape, TileCache, TileProvider,
+    NodeGlyph, PipeMetrics, PipeNodeShape, PipeOverlay, PipeShape, TileCache, TileProvider,
 };
 #[cfg(feature = "markdown")]
 pub use markdown_editor::{EditorMode, MarkdownEditor};

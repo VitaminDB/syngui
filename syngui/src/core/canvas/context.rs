@@ -458,7 +458,9 @@ mod tests {
     fn stroke_path_is_one_tessellated_strip() {
         let mut ctx = make_ctx();
         ctx.set_stroke_width(2.0);
-        let pts: Vec<(f32, f32)> = (0..20).map(|i| (i as f32 * 2.0, (i as f32 * 0.5).sin() * 5.0)).collect();
+        let pts: Vec<(f32, f32)> = (0..20)
+            .map(|i| (i as f32 * 2.0, (i as f32 * 0.5).sin() * 5.0))
+            .collect();
         ctx.stroke_path(&pts, false);
         assert!(ctx.line_strips().is_empty());
         // 4 вершины на точку: края штриха и сглаживание
