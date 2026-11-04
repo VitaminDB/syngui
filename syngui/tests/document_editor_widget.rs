@@ -332,6 +332,21 @@ fn wide_layout_centers_content_column() {
     );
 }
 
+#[test]
+fn list_item_with_children_stays_in_content_column() {
+    // Пункт с вложенным списком — в той же колонке, что и соседние пункты.
+    let mut h = harness("1. раз\n2. два\n   - вложенный\n3. три\n");
+    h.layout(2000.0, 600.0);
+    let rows = h.find_by_type_name("doc-text-row");
+    assert_eq!(rows.len(), 4);
+    let first = h.element_bounds(rows[0]);
+    let parent = h.element_bounds(rows[1]);
+    let last = h.element_bounds(rows[3]);
+    assert!((parent.origin.x - first.origin.x).abs() < 1.0, "пункт с детьми сдвинут: {parent:?} против {first:?}");
+    assert!((parent.size.width - first.size.width).abs() < 1.0, "пункт с детьми шире колонки: {parent:?}");
+    assert!((last.origin.x - first.origin.x).abs() < 1.0);
+}
+
 // ─── Undo/redo и отступы (S4) ───────────────────────────────────────────────
 
 #[test]

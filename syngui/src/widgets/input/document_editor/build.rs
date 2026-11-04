@@ -206,8 +206,12 @@ fn item_widget(
     if children.is_empty() {
         return row;
     }
+    // Потолок колонки, как у переключателя и цитаты: без него пункт с
+    // вложенным списком растягивался на всю ширину страницы и выпадал из
+    // центрированной колонки к левому краю.
     Box::new(
         Chrome::new()
+            .max_width(env.style.max_content_width)
             .gap(env.style.child_spacing)
             .child(row)
             .child(children_column(children, env)),
