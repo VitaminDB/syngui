@@ -1,6 +1,8 @@
 pub mod context;
 #[cfg(all(target_os = "linux", not(target_arch = "wasm32")))]
 pub mod dmabuf;
+#[cfg(feature = "image")]
+pub(crate) mod heif;
 pub mod image_cache;
 pub mod image_store;
 pub mod pipeline;

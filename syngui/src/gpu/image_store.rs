@@ -1135,6 +1135,14 @@ fn load_oriented(bytes: &[u8]) -> image::ImageResult<image::DynamicImage> {
 #[cfg(feature = "image")]
 pub fn image_file_size(path: &str) -> Option<(u32, u32)> {
     use image::ImageDecoder;
+    {
+        use std::io::Read;
+        let mut head = vec![0u8; 64];
+        let n = std::fs::File::open(path).ok()?.read(&mut head).ok()?;
+        if crate::gpu::heif::sniff(&head[..n]).is_some() {
+            return crate::gpu::heif::header_size(&std::fs::read(path).ok()?);
+        }
+    }
     let reader = image::ImageReader::open(path)
         .ok()?
         .with_guessed_format()
@@ -1158,24 +1166,35 @@ fn decode_image_bytes(bytes: &[u8]) -> Result<ImageData, String> {
     if let Some(data) = decode_animation(bytes) {
         return Ok(data);
     }
+    if let Some(kind) = crate::gpu::heif::sniff(bytes) {
+        let img = crate::gpu::heif::decode(bytes, kind, max_bitmap_side())?;
+        return Ok(fit_bitmap(img.width, img.height, img.data));
+    }
     match load_oriented(bytes) {
         Ok(img) => {
             let rgba = img.to_rgba8();
-            let (mut w, mut h) = rgba.dimensions();
-            let mut data: Arc<[u8]> = Arc::from(rgba.into_raw().into_boxed_slice());
-            let limit = max_bitmap_side();
-            while limit > 0 && w.max(h) > limit && w.max(h) > 1 {
-                let (nw, nh, next) = crate::gpu::image_cache::downscale_half(w, h, &data);
-                w = nw;
-                h = nh;
-                data = Arc::from(next.into_boxed_slice());
-            }
-            Ok(ImageData::with_mips(w, h, data))
+            let (w, h) = rgba.dimensions();
+            Ok(fit_bitmap(w, h, rgba.into_raw()))
         }
         #[cfg(feature = "svg")]
         Err(_) if looks_like_svg(bytes) => decode_svg(bytes),
         Err(e) => Err(e.to_string()),
     }
+}
+
+/// RGBA → [`ImageData`] с мипами; больше [`max_bitmap_side`] — уменьшается
+/// вдвое, пока не впишется.
+#[cfg(feature = "image")]
+fn fit_bitmap(mut w: u32, mut h: u32, rgba: Vec<u8>) -> ImageData {
+    let mut data: Arc<[u8]> = Arc::from(rgba.into_boxed_slice());
+    let limit = max_bitmap_side();
+    while limit > 0 && w.max(h) > limit && w.max(h) > 1 {
+        let (nw, nh, next) = crate::gpu::image_cache::downscale_half(w, h, &data);
+        w = nw;
+        h = nh;
+        data = Arc::from(next.into_boxed_slice());
+    }
+    ImageData::with_mips(w, h, data)
 }
 
 /// Больше этого (байт RGBA на все кадры) анимация не декодируется:
@@ -1794,5 +1813,111 @@ mod yuv_tests {
         let (u, v) = f.chroma_planes();
         assert_eq!(u, &[9, 10, 11, 12]);
         assert_eq!(v.unwrap(), &[13, 14, 15, 16]);
+    }
+}
+
+/// JPEG с EXIF Orientation = 6 (так хранят снимки камеры телефона)
+/// показывается повёрнутым на 90° по часовой.
+#[cfg(all(test, feature = "image"))]
+#[test]
+fn jpeg_exif_orientation() {
+    let path = format!("{}/tests/fixtures/heif/exif6.jpg", env!("CARGO_MANIFEST_DIR"));
+    let data = decode_image_bytes(&std::fs::read(&path).unwrap()).unwrap();
+    assert_eq!((data.width, data.height), (48, 64));
+    assert_eq!(image_file_size(&path), Some((48, 64)));
+    // Слева вверху — синий (был внизу слева), справа вверху — красный.
+    assert!(data.rgba[2] > 180 && data.rgba[0] < 80, "{:?}", &data.rgba[..4]);
+    let i = (47 * 4) as usize;
+    assert!(data.rgba[i] > 180 && data.rgba[i + 2] < 80, "{:?}", &data.rgba[i..i + 4]);
+}
+
+/// HEIF/AVIF: размеры, поворот (irot), 10 бит и альфа сверяются с эталоном
+/// `heif-dec` → PNG (tests/fixtures/heif/ref_*.png).
+#[cfg(all(test, feature = "heif"))]
+mod heif_tests {
+    use super::*;
+
+    fn fixture(name: &str) -> Vec<u8> {
+        let path = format!("{}/tests/fixtures/heif/{name}", env!("CARGO_MANIFEST_DIR"));
+        std::fs::read(&path).unwrap_or_else(|e| panic!("{path}: {e}"))
+    }
+
+    fn check(file: &str) {
+        let bytes = fixture(file);
+        let data = decode_image_bytes(&bytes).unwrap_or_else(|e| panic!("{file}: {e}"));
+        let reference = image::load_from_memory(&fixture(&format!(
+            "ref_{}.png",
+            file.replace('.', "_")
+        )))
+        .unwrap()
+        .to_rgba8();
+        assert_eq!((data.width, data.height), reference.dimensions(), "{file}: размер");
+        let path = format!("{}/tests/fixtures/heif/{file}", env!("CARGO_MANIFEST_DIR"));
+        assert_eq!(image_file_size(&path), Some(reference.dimensions()), "{file}: размер по заголовку");
+        let worst = data
+            .rgba
+            .iter()
+            .zip(reference.as_raw())
+            .map(|(a, b)| a.abs_diff(*b))
+            .max()
+            .unwrap();
+        assert!(worst <= 2, "{file}: расхождение с heif-dec до {worst}");
+    }
+
+    #[test]
+    fn heic_rotated() {
+        check("rot.heic");
+        // Поворот на 90° по часовой: слева вверху синий, справа вверху красный.
+        let data = decode_image_bytes(&fixture("rot.heic")).unwrap();
+        let px = |x: u32, y: u32| {
+            let i = ((y * data.width + x) * 4) as usize;
+            [data.rgba[i], data.rgba[i + 1], data.rgba[i + 2]]
+        };
+        assert!(px(2, 2)[2] > 200 && px(2, 2)[0] < 60, "{:?}", px(2, 2));
+        assert!(px(data.width - 3, 2)[0] > 200, "{:?}", px(data.width - 3, 2));
+    }
+
+    #[test]
+    fn heic_10bit() {
+        check("deep.heic");
+    }
+
+    #[test]
+    fn heic_alpha() {
+        check("alpha.heic");
+        let data = decode_image_bytes(&fixture("alpha.heic")).unwrap();
+        assert!(data.rgba[3].abs_diff(128) <= 1, "альфа {}", data.rgba[3]);
+    }
+
+    /// Настоящие фото: `SYNGUI_HEIF_SAMPLES=<папка> cargo test … -- --ignored`,
+    /// рядом с каждым `x.heic` — эталон `x.png` от `heif-dec`.
+    #[test]
+    #[ignore]
+    fn samples_from_env() {
+        let dir = std::env::var("SYNGUI_HEIF_SAMPLES").expect("SYNGUI_HEIF_SAMPLES");
+        let mut seen = 0;
+        for entry in std::fs::read_dir(&dir).unwrap() {
+            let path = entry.unwrap().path();
+            let ext = path.extension().and_then(|e| e.to_str()).unwrap_or("").to_lowercase();
+            if !matches!(ext.as_str(), "heic" | "heif" | "avif") {
+                continue;
+            }
+            let data = decode_image_bytes(&std::fs::read(&path).unwrap()).unwrap();
+            let reference = image::open(path.with_extension("png")).unwrap().to_rgba8();
+            assert_eq!((data.width, data.height), reference.dimensions(), "{path:?}");
+            assert_eq!(image_file_size(path.to_str().unwrap()), Some(reference.dimensions()), "{path:?}");
+            let worst = data.rgba.iter().zip(reference.as_raw()).map(|(a, b)| a.abs_diff(*b)).max().unwrap();
+            assert!(worst <= 2, "{path:?}: расхождение {worst}");
+            eprintln!("{path:?}: {}x{} ok", data.width, data.height);
+            seen += 1;
+        }
+        assert!(seen > 0);
+    }
+
+    #[test]
+    fn avif() {
+        check("quad.avif");
+        check("deep.avif");
+        check("alpharot.avif");
     }
 }

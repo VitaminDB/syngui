@@ -257,6 +257,13 @@ image-network = ["dep:ureq", "dep:base64", "image"]
 # `image/svg` (feature `svg` крейта image — её там нет).
 svg = ["image", "dep:resvg"]
 
+# HEIF/HEIC (фото с камер Samsung/iPhone) и AVIF в ImageStore через системную
+# libheif (крейт libheif-rs; Arch: пакет `libheif`). Формат узнаётся по
+# сигнатуре `ftyp`. На Android фича не нужна и ничего не тянет: там HEIF/AVIF
+# декодирует системный ImageDecoder через JNI при любой сборке с `image`.
+# Без фичи на ПК такие картинки не открываются, в лог пишется причина.
+heif = ["image", "dep:libheif-rs"]
+
 # Захват звука с микрофона + WAV энкодер. Включает виджет AudioWaveform
 # для визуализации входного сигнала.
 audio = ["dep:cpal", "dep:hound", "dep:rubato", "dep:oboe"]
@@ -324,6 +331,8 @@ arboard = { version = "3", optional = true, features = [
     "wayland-data-control",
 ] }
 font-kit = "0.14"
+# libheif (feature `heif`): на Android не нужна — там системный ImageDecoder.
+libheif-rs = { version = "3", optional = true, default-features = false, features = ["v1_17"] }
 
 # Tray icon (Tauri), используется только под feature `tray`.
 tray-icon = { version = "0.21", optional = true }
@@ -547,6 +556,10 @@ required-features = ["image"]
 
 [[example]]
 name = "lottie_shot"
+required-features = ["image"]
+
+[[example]]
+name = "image_shot"
 required-features = ["image"]
 
 [[example]]
