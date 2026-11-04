@@ -267,6 +267,17 @@ impl DecoratedBoxElement {
     }
 }
 
+impl DecoratedBoxElement {
+    /// Ширина бордюра по сторонам (лево, верх, право, низ).
+    fn border_insets(&self) -> [f32; 4] {
+        if self.border_sides.iter().any(|s| s.is_some()) {
+            return self.border_sides.map(|s| s.map_or(0.0, |(w, _)| w.max(0.0)));
+        }
+        let w = self.border.as_ref().map_or(0.0, |b| b.width.max(0.0));
+        [w; 4]
+    }
+}
+
 impl Element for DecoratedBoxElement {
     fn as_any_mut(&mut self) -> Option<&mut dyn Any> {
         Some(self)
@@ -781,10 +792,15 @@ impl Element for DecoratedBoxElement {
     }
 
     fn layout_hint(&self) -> LayoutHint {
-        let has_padding = self.padding_left > 0.0
-            || self.padding_right > 0.0
-            || self.padding_top > 0.0
-            || self.padding_bottom > 0.0;
+        // Бордюр рисуется внутри рамки — ребёнок отступает на его ширину плюс
+        // padding (как box-sizing: border-box в CSS). Без этого круг в кольце
+        // выбора цвета (padding 3 + border 2) прижимался к левому верхнему краю.
+        let [bl, bt, br, bb] = self.border_insets();
+        let (padding_left, padding_top, padding_right, padding_bottom) = (self.padding_left + bl, self.padding_top + bt, self.padding_right + br, self.padding_bottom + bb);
+        let has_padding = padding_left > 0.0
+            || padding_right > 0.0
+            || padding_top > 0.0
+            || padding_bottom > 0.0;
         let has_size_constraints = self.width.is_some()
             || self.height.is_some()
             || self.mss.min_width.is_some()
@@ -797,10 +813,10 @@ impl Element for DecoratedBoxElement {
             // родителя (AspectRatio, Stack(Expand), растянутая колонка) делают
             // бокс больше ребёнка; в свободных бокс ужимается до ребёнка.
             LayoutHint::Aligned {
-                left: self.padding_left,
-                top: self.padding_top,
-                right: self.padding_right,
-                bottom: self.padding_bottom,
+                left: padding_left,
+                top: padding_top,
+                right: padding_right,
+                bottom: padding_bottom,
                 h: self
                     .mss
                     .justify_content
@@ -812,17 +828,17 @@ impl Element for DecoratedBoxElement {
             }
         } else if has_size_constraints {
             LayoutHint::Container {
-                left: self.padding_left,
-                top: self.padding_top,
-                right: self.padding_right,
-                bottom: self.padding_bottom,
+                left: padding_left,
+                top: padding_top,
+                right: padding_right,
+                bottom: padding_bottom,
             }
         } else if has_padding {
             LayoutHint::Padding {
-                left: self.padding_left,
-                top: self.padding_top,
-                right: self.padding_right,
-                bottom: self.padding_bottom,
+                left: padding_left,
+                top: padding_top,
+                right: padding_right,
+                bottom: padding_bottom,
             }
         } else {
             LayoutHint::Padding {
@@ -1002,6 +1018,22 @@ mod tests {
     use crate::testing::TestHarness;
     use crate::widget::WidgetExt;
     use crate::widgets::containers::gesture_detector::GestureDetector;
+
+    /// Кольцо выбора цвета: рамка 46 с бордюром 2 и отступом 3, внутри круг 36 —
+    /// он должен стоять на (2+3, 2+3) и заполнять содержимое ровно по центру.
+    #[test]
+    fn child_offset_includes_border_and_padding() {
+        let w = crate::widgets::Column::new().child(DecoratedBox::new().class("ring").child(DecoratedBox::new().class("fill")));
+        let mut h = TestHarness::new(Box::new(w));
+        h.apply_mss(".ring { width: 46px; height: 46px; padding: 3px; border: 2px solid #000000; } .fill { width: 36px; height: 36px; background-color: #ff0000; }");
+        h.layout(200.0, 200.0);
+        let ring = h.element_bounds(h.find_by_class("ring")[0]);
+        let fill = h.element_bounds(h.find_by_class("fill")[0]);
+        eprintln!("ring={ring:?} fill={fill:?}");
+        assert_eq!(ring.size.width, 46.0);
+        assert_eq!(fill.origin.x - ring.origin.x, 5.0);
+        assert_eq!(fill.origin.y - ring.origin.y, 5.0);
+    }
 
     fn pressed(h: &mut TestHarness) -> bool {
         let id = h.find_by_class("k")[0];
