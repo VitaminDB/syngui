@@ -229,6 +229,11 @@ impl AppHandler {
             self.config.width = w.max(1);
             self.config.height = h.max(1);
             self.surface_valid = true;
+            // Новая поверхность пуста: кадр, совпадающий с последним
+            // показанным, пропускать нельзя — иначе после возврата из фона
+            // (Home → снова в приложение) экран остаётся чёрным, пока
+            // что-нибудь не изменится.
+            self.last_frame_sig = None;
         }
     }
 
