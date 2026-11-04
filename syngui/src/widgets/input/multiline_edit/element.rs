@@ -689,16 +689,33 @@ impl Element for MultilineTextEditElement {
         list.push_clip(content_clip);
 
         if self.text.is_empty() && !self.focused {
-            let placeholder_rect = Rect::new(
-                Point::new(text_x, self.bounds.y() + Self::PADDING),
-                Size::new(text_width, Self::LINE_HEIGHT),
-            );
-            list.push_text(
-                &self.placeholder,
-                placeholder_rect,
-                placeholder_color,
-                Self::FONT_SIZE,
-            );
+            // Строки плейсхолдера раскладываются как набранный текст: по
+            // `\n` и переносу по словам, каждая — в свою строку LINE_HEIGHT.
+            // Раньше весь текст шёл в прямоугольник высотой в одну строку с
+            // центрированием по вертикали: на узком экране (телефон) он
+            // переносился, и первая строка уходила выше клипа.
+            let mut y = self.bounds.y() + Self::PADDING;
+            for line in self.placeholder.split('\n') {
+                let chars: Vec<char> = line.chars().collect();
+                let breaks = match &self.text_measure {
+                    Some(tm) if self.soft_wrap && text_width > 0.0 => {
+                        Self::word_wrap_breaks(line, text_width, &**tm)
+                    }
+                    _ => Vec::new(),
+                };
+                let mut start = 0;
+                for end in breaks.into_iter().chain(std::iter::once(chars.len())) {
+                    let seg: String = chars[start..end].iter().collect();
+                    list.push_text_nowrap(
+                        seg.trim_end(),
+                        Rect::new(Point::new(text_x, y), Size::new(text_width, Self::LINE_HEIGHT)),
+                        placeholder_color,
+                        Self::FONT_SIZE,
+                    );
+                    y += Self::LINE_HEIGHT;
+                    start = end;
+                }
+            }
             list.pop_clip();
             return;
         }

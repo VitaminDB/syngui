@@ -54,8 +54,23 @@ impl FrameTimings {
 
 impl TestHarness {
     pub fn new(widget: Box<dyn Widget>) -> Self {
-        signal::allow_signal_reads_on_this_thread();
+        Self::with_tree(widget, ElementTree::new())
+    }
+
+    /// Как [`new`](Self::new), но измеритель текста стоит в дереве ещё до
+    /// монтирования: элементы, берущие его в `mount` (MultilineTextEdit,
+    /// CodeEditor), иначе остаются без него и меряют оценкой.
+    pub fn with_text_measure(
+        widget: Box<dyn Widget>,
+        measure: std::sync::Arc<dyn crate::widget::context::TextMeasure>,
+    ) -> Self {
         let mut tree = ElementTree::new();
+        tree.text_measure = Some(measure);
+        Self::with_tree(widget, tree)
+    }
+
+    fn with_tree(widget: Box<dyn Widget>, mut tree: ElementTree) -> Self {
+        signal::allow_signal_reads_on_this_thread();
         let element = widget.create_element();
         let root_id = tree.insert(element, None);
         widget.mount(&mut tree, root_id);
