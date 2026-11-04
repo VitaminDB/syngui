@@ -635,6 +635,27 @@ impl ElementTree {
         None
     }
 
+    /// Прямоугольник элемента на экране: `bounds()` дочерних элементов
+    /// прокручиваемого контейнера лежат в координатах содержимого, поэтому
+    /// вычитается прокрутка (и учитывается масштаб) всех предков — как в hit-test.
+    pub fn on_screen_bounds(&self, element_id: ElementId) -> Option<crate::core::Rect> {
+        let node = self.elements.get(&element_id)?;
+        let b = node.element.bounds();
+        let (mut x, mut y, mut w, mut h) = (b.origin.x, b.origin.y, b.size.width, b.size.height);
+        let mut parent = node.parent;
+        while let Some(pid) = parent {
+            let Some(p) = self.elements.get(&pid) else { break };
+            let scroll = p.element.scroll_offset();
+            let k = p.element.event_scale().max(f32::EPSILON);
+            x = x * k - scroll.x;
+            y = y * k - scroll.y;
+            w *= k;
+            h *= k;
+            parent = p.parent;
+        }
+        Some(crate::core::Rect::new(crate::core::Point::new(x, y), crate::core::Size::new(w, h)))
+    }
+
     pub fn ensure_element_visible(&mut self, element_id: ElementId) -> bool {
         let element_bounds = match self.elements.get(&element_id) {
             Some(n) => n.element.bounds(),

@@ -881,7 +881,10 @@ impl AppHandler {
             return true;
         }
         self.keyboard_reveal = None;
-        let Some(rect) = self.tree.get(reveal.element).map(|el| el.bounds()) else {
+        // Экранные координаты: у поля внутри ScrollView `bounds()` — в координатах
+        // содержимого, без прокрутки; с ними сдвиг выходил на сотни точек и
+        // уводил весь экран вверх, за край (поле «Приготовление» в редакторе).
+        let Some(rect) = self.tree.on_screen_bounds(reveal.element) else {
             return false;
         };
         const MARGIN: f32 = 20.0;
