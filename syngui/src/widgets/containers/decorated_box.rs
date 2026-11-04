@@ -227,6 +227,7 @@ impl DecoratedBoxElement {
             && self.mss.vignette.is_none()
             && self.mss.color_tint.is_none()
             && self.mss.background_gradient.is_none()
+            && self.mss.background_image.is_none()
             && self.mss.opacity.is_none()
     }
 
@@ -480,6 +481,7 @@ impl Element for DecoratedBoxElement {
             }
         }
 
+        self.mss.paint_background_image(list, self.bounds, radii);
         if let Some(tint) = self.mss.color_tint {
             list.push_rect(self.bounds, tint, radii);
         }

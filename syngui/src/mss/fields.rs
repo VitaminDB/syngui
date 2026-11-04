@@ -87,6 +87,8 @@ impl TextShadow {
             if let Ok(n) = rest[..end].parse::<f32>() {
                 nums.push(n);
                 rest = &rest[end..];
+                // `0px 2px 12px` — единица после числа
+                rest = rest.strip_prefix("px").unwrap_or(rest);
             } else {
                 break;
             }
@@ -192,6 +194,9 @@ pub enum IconState {
 pub struct MssFields {
     pub background_color: Option<Color>,
     pub background_gradient: Option<Gradient>,
+    /// `background-image`: градиент поверх фона (блик, «стекло», объём) —
+    /// как в CSS, под ним остаётся `background-color` текущего состояния.
+    pub background_image: Option<Gradient>,
     pub color: Option<Color>,
     pub border_color: Option<Color>,
     pub accent_color: Option<Color>,
@@ -352,6 +357,7 @@ impl MssFields {
         Self {
             background_color: None,
             background_gradient: None,
+            background_image: None,
             color: None,
             border_color: None,
             accent_color: None,
@@ -447,6 +453,7 @@ impl MssFields {
     pub fn reset(&mut self) {
         self.background_color = None;
         self.background_gradient = None;
+        self.background_image = None;
         self.color = None;
         self.border_color = None;
         self.accent_color = None;
@@ -536,6 +543,12 @@ impl MssFields {
         } else if let Some(bg) = style.background_color() {
             self.background_color = Some(mss_color_to_core(bg));
             self.background_gradient = None;
+        }
+        match style.get("background-image") {
+            Some(StyleValue::Gradient(g)) => self.background_image = Some(g.clone()),
+            Some(StyleValue::None) => self.background_image = None,
+            Some(StyleValue::String(s)) if s == "none" => self.background_image = None,
+            _ => {}
         }
         if let Some(fg) = style.color() {
             self.color = Some(mss_color_to_core(fg));
@@ -1072,6 +1085,18 @@ impl MssFields {
         }
     }
 
+    /// Слой `background-image` поверх уже нарисованного фона.
+    pub fn paint_background_image(
+        &self,
+        list: &mut crate::render::DisplayList,
+        bounds: crate::core::Rect,
+        radii: [f32; 4],
+    ) {
+        if let Some(img) = &self.background_image {
+            list.push_gradient_rect(bounds, img.clone(), radii);
+        }
+    }
+
     pub fn paint_background(
         &self,
         list: &mut crate::render::DisplayList,
@@ -1093,6 +1118,7 @@ impl MssFields {
         if let Some(bg) = bg {
             self.paint_flow(list, bounds, bg);
         }
+        self.paint_background_image(list, bounds, radii);
         if let Some(tint) = self.color_tint {
             list.push_rect(bounds, tint, radii);
         }
@@ -1776,6 +1802,31 @@ impl MssFields {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn text_shadow_accepts_px_units() {
+        let a = TextShadow::parse("0px 2px 12px #00000070").expect("с единицами");
+        assert_eq!((a.offset_x, a.offset_y, a.blur_radius), (0.0, 2.0, 12.0));
+        let b = TextShadow::parse("0 1 0 #ffffffcc").expect("без единиц");
+        assert_eq!((b.offset_x, b.offset_y, b.blur_radius), (0.0, 1.0, 0.0));
+    }
+
+    #[test]
+    fn background_image_layers_over_color_and_none_clears_it() {
+        let grad = crate::mss::parser::gradient::parse_gradient("linear-gradient(180deg, #ffffff80 0%, #00000000 100%)").unwrap();
+        let mut st = ComputedStyle::default();
+        st.set("background-color", StyleValue::Color(crate::mss::value::Color::rgb(200, 0, 60)));
+        st.set("background-image", grad);
+        let mut f = MssFields::new();
+        f.apply(&st);
+        assert!(f.background_color.is_some(), "цвет под слоем остаётся");
+        assert!(f.background_image.is_some());
+        assert!(f.background_gradient.is_none());
+        let mut off = ComputedStyle::default();
+        off.set("background-image", StyleValue::String("none".into()));
+        f.apply(&off);
+        assert!(f.background_image.is_none());
+    }
 
     #[test]
     fn test_new_defaults() {

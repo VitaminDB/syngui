@@ -461,6 +461,9 @@ impl Element for ButtonElement {
         } else if bg_color.a > 0.0 {
             list.push_rect(self.bounds, bg_color, cr);
         }
+        if !self.disabled {
+            self.mss.paint_background_image(list, self.bounds, cr);
+        }
         let pad_l = self.mss.padding_left.unwrap_or(12.0);
         let pad_r = self.mss.padding_right.unwrap_or(12.0);
         let font_size = self.mss.font_size.unwrap_or(14.0);
