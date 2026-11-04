@@ -2916,6 +2916,21 @@ mod tests {
 
 
     #[test]
+    fn harness_typing_keeps_trailing_newline() {
+        use crate::testing::TestHarness;
+        let changes = Arc::new(StdMutex::new(String::new()));
+        let c2 = changes.clone();
+        let ed = CodeEditor::new().text("one\ntwo\n").on_change(move |c| *c2.lock().unwrap() = c.full_text.to_string());
+        let mut h = TestHarness::new(Box::new(ed));
+        h.layout(600.0, 300.0);
+        let lh = (13.0f32 * 1.5).round();
+        // щелчок правее конца второй строки
+        h.send_events(&crate::testing::click_at(Point::new(500.0, lh * 1.5)));
+        h.send_events(&crate::testing::type_text(" ёж"));
+        assert_eq!(*changes.lock().unwrap(), "one\ntwo ёж\n");
+    }
+
+    #[test]
     fn gutter_click_and_menu_commands() {
         let got = Arc::new(StdMutex::new(Vec::new()));
         let g2 = got.clone();
