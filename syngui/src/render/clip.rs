@@ -203,24 +203,26 @@ fn child_corner_bits_from_parent(
     let parent_x2 = parent_x + parent_w;
     let parent_y2 = parent_y + parent_h;
 
-    let touches_left = child_x1 <= parent_x;
-    let touches_top = child_y1 <= parent_y;
-    let touches_right = child_x2 >= parent_x2;
-    let touches_bottom = child_y2 >= parent_y2;
-
+    // Угол дочернего клипа внутри скруглённого угла родителя получает
+    // концентрический радиус: родительский минус отступ (как внутренний радиус
+    // рамки в CSS — outer − border). Раньше радиус наследовался только при
+    // точном совпадении углов, и картинка внутри карточки с бордюром 1 px
+    // (ребёнок отступает на бордюр) торчала прямыми углами за скругление.
+    let inset = |dx: f32, dy: f32, bits: u32| -> u32 {
+        let r = f32::from_bits(bits);
+        let d = dx.max(dy).max(0.0);
+        if r <= 0.0 || d >= r {
+            0
+        } else {
+            (r - d).to_bits()
+        }
+    };
+    let (dl, dt, dr, db) = (child_x1 - parent_x, child_y1 - parent_y, parent_x2 - child_x2, parent_y2 - child_y2);
     let mut out = [0u32; 4];
-    if touches_left && touches_top {
-        out[0] = parent_radius_bits[0];
-    }
-    if touches_right && touches_top {
-        out[1] = parent_radius_bits[1];
-    }
-    if touches_right && touches_bottom {
-        out[2] = parent_radius_bits[2];
-    }
-    if touches_left && touches_bottom {
-        out[3] = parent_radius_bits[3];
-    }
+    out[0] = inset(dl, dt, parent_radius_bits[0]);
+    out[1] = inset(dr, dt, parent_radius_bits[1]);
+    out[2] = inset(dr, db, parent_radius_bits[2]);
+    out[3] = inset(dl, db, parent_radius_bits[3]);
     out
 }
 
@@ -231,6 +233,47 @@ mod tests {
 
     fn r(x: f32, y: f32, w: f32, h: f32) -> Rect {
         Rect::new(Point::new(x, y), Size::new(w, h))
+    }
+
+    /// Картинка внутри карточки с радиусом 24 и бордюром 1: клип ребёнка
+    /// отступает на 1 px — верхние углы получают радиус 23, нижние (далеко
+    /// от углов карточки) — 0.
+    /// Как карточка рецепта syncook: рамка с радиусом 24, бордюром 1 и clip,
+    /// внутри колонка, в ней блок-заглушка фото с фоном и своим clip.
+    #[test]
+    fn card_photo_keeps_rounded_top_corners() {
+        use crate::testing::TestHarness;
+        use crate::widget::WidgetExt;
+        use crate::widgets::{Column, DecoratedBox};
+        let w = Column::new().child(
+            DecoratedBox::new().class("card").clip(true).child(
+                Column::new().child(crate::widgets::AspectRatio::new(4.0 / 3.0).child(crate::widgets::Stack::new().fit(crate::widgets::StackFit::Expand).child(DecoratedBox::new().class("photo").clip(true).child(DecoratedBox::new().class("img"))))),
+            ),
+        );
+        let mut h = TestHarness::new(Box::new(w));
+        h.apply_mss(".card { width: 200px; height: 300px; border-radius: 24px; border: 1px solid #00000000; background-color: #ffffff; } .photo { height: 150px; background-color: #ff8800; } .img { width: 100%; height: 150px; background-color: #0000ff; }");
+        h.layout(400.0, 400.0);
+        let list = h.paint();
+        let mut found = vec![];
+        for c in list.commands() {
+            if let crate::render::DrawCommand::Rect { color, clip_rect, rect, .. } = c {
+                found.push((rect, color, clip_rect.corner_radius_f32()));
+            }
+        }
+        eprintln!("{found:#?}");
+        let blue = found.iter().find(|(_, c, _)| c.b > 0.9 && c.r < 0.1).expect("синий прямоугольник");
+        assert!(blue.2[0] > 20.0 && blue.2[1] > 20.0, "верхние углы картинки скруглены: {:?}", blue.2);
+    }
+
+    #[test]
+    fn inset_child_gets_concentric_radius() {
+        let parent = ClipRect::from_rect_rounded(r(0.0, 0.0, 200.0, 300.0), [24.0; 4]);
+        let child = parent.intersect(r(1.0, 1.0, 198.0, 150.0));
+        let radii = child.corner_radius_bits.map(f32::from_bits);
+        assert_eq!(radii, [23.0, 23.0, 0.0, 0.0]);
+        // совпадающие углы — как раньше, радиус родителя
+        let same = parent.intersect(r(0.0, 0.0, 200.0, 300.0)).corner_radius_bits.map(f32::from_bits);
+        assert_eq!(same, [24.0; 4]);
     }
 
     #[test]
