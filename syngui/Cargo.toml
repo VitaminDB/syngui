@@ -164,6 +164,11 @@ winit = ["dep:winit"]
 # реальном времени, только опрос.
 system-theme = ["dep:zbus"]
 
+# syngui::platform на Linux через xdg-desktop-portal: выбор файлов
+# (FileChooser), открытие файла (OpenURI), показ в файловом менеджере
+# (FileManager1). Без фичи — zenity/kdialog и xdg-open.
+portal = ["dep:zbus"]
+
 # Размытие фона за прозрачным окном средствами композитора (KWin).
 system-blur = ["winit", "dep:wayland-protocols-plasma", "dep:wayland-scanner", "dep:x11rb", "dep:wayland-client", "dep:wayland-backend"]
 
@@ -543,3 +548,6 @@ required-features = ["image"]
 [[example]]
 name = "lottie_shot"
 required-features = ["image"]
+
+[[example]]
+name = "platform_probe"

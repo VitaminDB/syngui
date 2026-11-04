@@ -509,6 +509,11 @@ impl AppHandler {
 
         super::super::notification::set_jni_ptrs(vm_ptr, notif_raw);
 
+        // Пикер медиа, «Поделиться», открыть файл (syngui::platform).
+        if let Err(e) = crate::platform::android::init(&mut env, vm_ptr, &loader, &activity) {
+            log::warn!("Platform handler registration failed: {}", e);
+        }
+
         std::mem::forget(vm);
         Ok(())
     }

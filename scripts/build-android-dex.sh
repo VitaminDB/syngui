@@ -1,6 +1,7 @@
 #!/usr/bin/env bash
 # Пересобрать syngui/src/app/android/syngui_framework.dex из Java-исходников
-# рядом с ним (JNI-мост: обработчики «назад», ввода, уведомлений, версия).
+# рядом с ним (JNI-мост: обработчики «назад», ввода, уведомлений, версия,
+# платформенные службы — пикер медиа, «Поделиться», открыть файл).
 # Dex вшивается в библиотеку (include_bytes!) и грузится InMemoryDexClassLoader,
 # поэтому после правки любого .java его нужно пересобрать и закоммитить.
 # Usage: scripts/build-android-dex.sh  (нужны javac, d8 и android.jar из SDK)
@@ -14,7 +15,7 @@ D8="${D8:-$(command -v d8 || ls "$ANDROID_HOME"/build-tools/*/d8 | sort -V | tai
 
 # SynGuiForegroundService — Service, его объявляет манифест приложения и
 # компилирует само приложение; в dex фреймворка он не входит.
-CLASSES=(SynGuiBackHandler SynGuiInputHandler SynGuiNotificationHandler SynGuiVersionHelper)
+CLASSES=(SynGuiBackHandler SynGuiInputHandler SynGuiNotificationHandler SynGuiVersionHelper SynGuiPlatformHandler)
 SOURCES=()
 for c in "${CLASSES[@]}"; do SOURCES+=("$SRC/$c.java"); done
 
