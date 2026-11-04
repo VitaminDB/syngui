@@ -1713,8 +1713,12 @@ fn drain_video(
         };
         if !*logged_first_format {
             *logged_first_format = true;
-            let fmt = if packed.is_some() {
-                ffmpeg_next::format::Pixel::NV12
+            let fmt = if let Some(y) = &packed {
+                if y.layout == crate::gpu::YuvLayout::P010 {
+                    ffmpeg_next::format::Pixel::P010LE
+                } else {
+                    ffmpeg_next::format::Pixel::NV12
+                }
             } else {
                 decoded.format()
             };

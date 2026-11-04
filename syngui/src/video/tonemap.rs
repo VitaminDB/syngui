@@ -69,6 +69,59 @@ pub fn detect(f: &frame::Video) -> Option<Hdr> {
     Some(Hdr { transfer, peak_nits: peak_nits.clamp(SDR_WHITE_NITS * 1.25, 10_000.0) })
 }
 
+/// HDR потока по его параметрам (передаточная функция и пик из `coded_side_data` контейнера) —
+/// для декодеров, чьи кадры не проходят через AVFrame (V4L2 в упакованном режиме).
+pub fn detect_params(par: *const ffi::AVCodecParameters) -> Option<Hdr> {
+    if par.is_null() {
+        return None;
+    }
+    // SAFETY: par — живые параметры потока; массив side data читается в пределах nb_coded_side_data,
+    // структуры — при совпадении типа и достаточном размере.
+    unsafe {
+        let transfer = match (*par).color_trc {
+            ffi::AVColorTransferCharacteristic::AVCOL_TRC_SMPTE2084 => Transfer::Pq,
+            ffi::AVColorTransferCharacteristic::AVCOL_TRC_ARIB_STD_B67 => Transfer::Hlg,
+            _ => return None,
+        };
+        let mut cll = None;
+        let mut mastering = None;
+        let sd = (*par).coded_side_data;
+        for i in 0..(*par).nb_coded_side_data.max(0) as usize {
+            if sd.is_null() {
+                break;
+            }
+            let e = &*sd.add(i);
+            match e.type_ {
+                ffi::AVPacketSideDataType::AV_PKT_DATA_CONTENT_LIGHT_LEVEL
+                    if e.size >= std::mem::size_of::<ContentLight>() =>
+                {
+                    let c = &*(e.data as *const ContentLight);
+                    if c.max_cll > 0 {
+                        cll = Some(c.max_cll as f32);
+                    }
+                }
+                ffi::AVPacketSideDataType::AV_PKT_DATA_MASTERING_DISPLAY_METADATA
+                    if e.size >= std::mem::size_of::<Mastering>() =>
+                {
+                    let m = &*(e.data as *const Mastering);
+                    if m.has_luminance != 0 && m.max_luminance.den != 0 {
+                        let v = m.max_luminance.num as f32 / m.max_luminance.den as f32;
+                        if v > 0.0 {
+                            mastering = Some(v);
+                        }
+                    }
+                }
+                _ => {}
+            }
+        }
+        let peak_nits = match transfer {
+            Transfer::Hlg => HLG_PEAK_NITS,
+            Transfer::Pq => cll.or(mastering).unwrap_or(DEFAULT_PEAK_NITS),
+        };
+        Some(Hdr { transfer, peak_nits: peak_nits.clamp(SDR_WHITE_NITS * 1.25, 10_000.0) })
+    }
+}
+
 /// `AVContentLightMetadata` (libavutil/mastering_display_metadata.h) — в привязках ffmpeg-sys её нет.
 #[repr(C)]
 struct ContentLight {

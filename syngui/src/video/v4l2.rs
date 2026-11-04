@@ -44,7 +44,15 @@ const CID_MIN_BUFFERS_FOR_CAPTURE: u32 = 0x0098_0900 + 39;
 const fn fourcc(s: &[u8; 4]) -> u32 {
     s[0] as u32 | (s[1] as u32) << 8 | (s[2] as u32) << 16 | (s[3] as u32) << 24
 }
+fn fourcc_str(f: u32) -> String {
+    String::from_utf8_lossy(&f.to_le_bytes()).into_owned()
+}
+
 const PIX_NV12: u32 = fourcc(b"NV12");
+/// 10 бит: 16-битные отсчёты, значение в старших битах. Venus на 10-битном потоке (HEVC Main 10) после
+/// `SOURCE_CHANGE` перечисляет только `Q10C`/`P010`; навязанный NV12 он принимает, но кладёт в 8 бит
+/// младшие биты отсчётов — кадр выходит кислотным/зелёным.
+const PIX_P010: u32 = fourcc(b"P010");
 
 #[repr(C)]
 struct Capability {
@@ -473,6 +481,20 @@ struct Capture {
     y_lines: u32,
     visible_w: u32,
     visible_h: u32,
+    /// Кадры P010 (10 бит, 2 байта на отсчёт), иначе NV12.
+    p010: bool,
+}
+
+/// Форматы выхода, которые драйвер предлагает сейчас (после `SOURCE_CHANGE` — для этого потока).
+fn capture_formats(fd: RawFd) -> Vec<u32> {
+    (0..64)
+        .map_while(|i| {
+            let mut d: FmtDesc = zeroed();
+            d.index = i;
+            d.type_ = BUF_TYPE_CAPTURE_MPLANE;
+            xioctl(fd, ENUM_FMT, &mut d).is_ok().then_some(d.pixelformat)
+        })
+        .collect()
 }
 
 /// Кадр декодера: AVFrame NV12 или (в упакованном режиме) плоскости подряд
@@ -820,9 +842,11 @@ impl V4l2Decoder {
                 let tag = b.timestamp.tv_sec as u64;
                 let pts = self.pts_by_tag.remove(&tag).flatten();
                 let zero_copy = self.capture.as_ref().is_some_and(|c| c.zero_copy);
+                // 10 бит без 16-битных текстур GPU — AVFrame P010: его переведёт процессор (с тонмаппингом).
+                let gpu_ok = !self.capture.as_ref().is_some_and(|c| c.p010) || crate::gpu::yuv16_supported();
                 let f = if self.packed && zero_copy {
                     V4l2Frame::Packed(self.dmabuf_frame(b.index as usize), pts)
-                } else if self.packed {
+                } else if self.packed && gpu_ok {
                     V4l2Frame::Packed(self.copy_packed(b.index as usize), pts)
                 } else {
                     V4l2Frame::Av(self.copy_frame(b.index as usize, pts))
@@ -849,7 +873,9 @@ impl V4l2Decoder {
     fn copy_frame(&self, idx: usize, pts: Option<i64>) -> frame::Video {
         let c = self.capture.as_ref().unwrap();
         let (w, h) = (c.visible_w, c.visible_h);
-        let mut f = frame::Video::new(Pixel::NV12, w, h);
+        let bps = if c.p010 { 2 } else { 1 };
+        let mut f = frame::Video::new(if c.p010 { Pixel::P010LE } else { Pixel::NV12 }, w, h);
+        self.set_color(&mut f);
         c.bufs[idx].sync(SYNC_READ);
         let src = c.bufs[idx].slice();
         let stride = c.stride as usize;
@@ -862,7 +888,7 @@ impl V4l2Decoder {
             };
             let dst_stride = f.stride(plane);
             let base = if plane == 0 { 0 } else { uv_off };
-            let n = (w as usize).min(dst_stride).min(stride);
+            let n = ((w as usize).div_ceil(2) * 2 * bps).min(dst_stride).min(stride);
             let dst = f.data_mut(plane);
             for r in 0..rows {
                 let s = base + r * stride;
@@ -935,6 +961,26 @@ impl V4l2Decoder {
         (matrix, range == ffi::AVColorRange::AVCOL_RANGE_JPEG)
     }
 
+    /// HDR (PQ/HLG) — для тонмаппинга в шейдере.
+    fn hdr(&self) -> Option<crate::gpu::YuvHdr> {
+        super::tonemap::detect_params(self.params).map(|h| crate::gpu::YuvHdr {
+            pq: h.transfer == super::tonemap::Transfer::Pq,
+            peak_nits: h.peak_nits,
+        })
+    }
+
+    /// Метки цвета потока — на AVFrame (по ним swscale и тонмаппинг на процессоре).
+    fn set_color(&self, f: &mut frame::Video) {
+        // SAFETY: params — наша копия параметров потока; кадр только что создан нами.
+        unsafe {
+            let p = f.as_mut_ptr();
+            (*p).colorspace = (*self.params).color_space;
+            (*p).color_range = (*self.params).color_range;
+            (*p).color_trc = (*self.params).color_trc;
+            (*p).color_primaries = (*self.params).color_primaries;
+        }
+    }
+
     /// Кадры NV12 сразу упакованными плоскостями (`receive` отдаёт
     /// [`V4l2Frame::Packed`]): перевод цвета — на GPU.
     pub fn set_packed(&mut self, on: bool) {
@@ -942,10 +988,12 @@ impl V4l2Decoder {
     }
 
     fn copy_packed(&mut self, idx: usize) -> crate::gpu::YuvFrame {
-        use crate::gpu::{YuvFrame, YuvLayout, YuvMatrix};
+        use crate::gpu::{YuvFrame, YuvLayout};
         let c = self.capture.as_ref().unwrap();
         let (w, h) = (c.visible_w, c.visible_h);
-        let len = YuvFrame::byte_len(YuvLayout::Nv12, w, h);
+        let layout = if c.p010 { YuvLayout::P010 } else { YuvLayout::Nv12 };
+        let bps = if c.p010 { 2 } else { 1 };
+        let len = YuvFrame::byte_len(layout, w, h);
         self.pool.retain(|b| b.len() == len);
         let mut buf = match self.pool.iter().position(|b| {
             std::sync::Arc::strong_count(b) == 1 && std::sync::Arc::weak_count(b) == 0
@@ -958,17 +1006,17 @@ impl V4l2Decoder {
         let src = c.bufs[idx].slice();
         let stride = c.stride as usize;
         let uv_off = stride * c.y_lines as usize;
-        let row = (w as usize).min(stride);
-        let (wu, ch) = (w as usize, (h as usize).div_ceil(2));
-        let uv_row = (wu.div_ceil(2) * 2).min(stride);
+        let (wu, ch) = (w as usize * bps, (h as usize).div_ceil(2));
+        let row = wu.min(stride);
+        let uv_row = (w as usize).div_ceil(2) * 2 * bps;
         let mut o = 0;
         for (base, rows, n, dst_row) in [
             (0, h as usize, row, wu),
-            (uv_off, ch, uv_row, wu.div_ceil(2) * 2),
+            (uv_off, ch, uv_row.min(stride), uv_row),
         ] {
             for r in 0..rows {
                 let s = base + r * stride;
-                if s + n <= src.len() {
+                if s + n <= src.len() && o + n <= out.len() {
                     out[o..o + n].copy_from_slice(&src[s..s + n]);
                 }
                 o += dst_row;
@@ -978,25 +1026,12 @@ impl V4l2Decoder {
         if self.pool.len() < PACKED_POOL {
             self.pool.push(buf.clone());
         }
-        // Цветовое пространство — из параметров потока (VUI); не указано — по высоте.
-        // SAFETY: params — наша копия параметров потока, жива вместе с декодером.
-        let (space, range) = unsafe { ((*self.params).color_space, (*self.params).color_range) };
-        let matrix = match space {
-            ffi::AVColorSpace::AVCOL_SPC_BT709 => YuvMatrix::Bt709,
-            ffi::AVColorSpace::AVCOL_SPC_BT2020_NCL | ffi::AVColorSpace::AVCOL_SPC_BT2020_CL => {
-                YuvMatrix::Bt2020
-            }
-            ffi::AVColorSpace::AVCOL_SPC_BT470BG | ffi::AVColorSpace::AVCOL_SPC_SMPTE170M => {
-                YuvMatrix::Bt601
-            }
-            _ if h >= 720 => YuvMatrix::Bt709,
-            _ => YuvMatrix::Bt601,
-        };
+        let (matrix, full_range) = self.color();
         YuvFrame {
-            layout: YuvLayout::Nv12,
+            layout,
             matrix,
-            full_range: range == ffi::AVColorRange::AVCOL_RANGE_JPEG,
-            hdr: None,
+            full_range,
+            hdr: self.hdr(),
             width: w,
             height: h,
             data: buf,
@@ -1040,12 +1075,21 @@ impl V4l2Decoder {
         cf.type_ = BUF_TYPE_CAPTURE_MPLANE;
         xioctl(raw, G_FMT, &mut cf)
             .map_err(|e| VideoError::Other(format!("v4l2: G_FMT выход: {e}")))?;
-        if unsafe { cf.fmt.pix_mp.pixelformat } != PIX_NV12 {
-            cf.fmt.pix_mp.pixelformat = PIX_NV12;
-            xioctl(raw, S_FMT, &mut cf)
-                .map_err(|e| VideoError::Other(format!("v4l2: выход NV12: {e}")))?;
+        // NV12, если драйвер предлагает его для этого потока; нет, но есть P010 (10 бит) — P010.
+        let offered = capture_formats(raw);
+        let want_fmt = if !offered.contains(&PIX_NV12) && offered.contains(&PIX_P010) {
+            PIX_P010
+        } else {
+            PIX_NV12
+        };
+        if unsafe { cf.fmt.pix_mp.pixelformat } != want_fmt {
+            cf.fmt.pix_mp.pixelformat = want_fmt;
+            xioctl(raw, S_FMT, &mut cf).map_err(|e| {
+                VideoError::Other(format!("v4l2: выход {}: {e}", fourcc_str(want_fmt)))
+            })?;
         }
         let pm = unsafe { cf.fmt.pix_mp };
+        let p010 = pm.pixelformat == PIX_P010;
         let (width, height) = (pm.width, pm.height);
         let stride = pm.plane_fmt[0].bytesperline;
         let size = pm.plane_fmt[0].sizeimage as usize;
@@ -1073,7 +1117,8 @@ impl V4l2Decoder {
         // буферов нужно больше на эту очередь (иначе декодер встанет). Решение —
         // по рендереру, не по `packed`: режим YUV плеер включает уже после
         // открытия, когда буферы выделены первым пакетом.
-        let zero_copy = crate::gpu::dmabuf::import_supported();
+        // Импорт dma-buf в GPU — только 8-битные плоскости (R8/GR88).
+        let zero_copy = crate::gpu::dmabuf::import_supported() && !p010;
         let extra = if zero_copy { ZERO_COPY_EXTRA } else { 4 };
         let want = (mb.value.max(2) + extra) as u32;
         let mut rb = RequestBuffers {
@@ -1090,7 +1135,8 @@ impl V4l2Decoder {
             .map(|_| DmaBuf::alloc(size).map(std::sync::Arc::new))
             .collect::<Result<Vec<_>, _>>()?;
         log::info!(
-            "v4l2: поток {width}x{height} (видно {vw}x{vh}), NV12 stride {stride}, буферов {} ({} МБ){}",
+            "v4l2: поток {width}x{height} (видно {vw}x{vh}), {} stride {stride}, буферов {} ({} МБ){}",
+            fourcc_str(pm.pixelformat),
             bufs.len(),
             bufs.len() * size >> 20,
             if zero_copy { ", кадры в GPU без копии (в режиме YUV)" } else { "" }
@@ -1110,6 +1156,7 @@ impl V4l2Decoder {
             y_lines: height,
             visible_w: vw,
             visible_h: vh,
+            p010,
         });
         for i in 0..rb.count as usize {
             self.requeue_capture(i)?;
@@ -1130,11 +1177,14 @@ impl V4l2Decoder {
             }
             // Упакованный режим выключили, а кадры остались в очереди.
             Some(V4l2Frame::Packed(y, pts)) => {
-                let mut f = frame::Video::new(Pixel::NV12, y.width, y.height);
+                let p010 = y.layout == crate::gpu::YuvLayout::P010;
+                let bps = if p010 { 2 } else { 1 };
+                let mut f = frame::Video::new(if p010 { Pixel::P010LE } else { Pixel::NV12 }, y.width, y.height);
+                self.set_color(&mut f);
                 let (yp, (uv, _)) = (y.y_plane(), y.chroma_planes());
                 for (plane, src, row) in [
-                    (0, yp, y.width as usize),
-                    (1, uv, y.chroma_size().0 as usize * 2),
+                    (0, yp, y.width as usize * bps),
+                    (1, uv, y.chroma_size().0 as usize * 2 * bps),
                 ] {
                     let st = f.stride(plane);
                     let dst = f.data_mut(plane);
