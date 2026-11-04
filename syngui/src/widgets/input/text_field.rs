@@ -268,6 +268,7 @@ impl Widget for TextField {
             width: self.width,
             prefix_element: self.prefix.as_ref().map(|w| w.create_element()),
             suffix_element: self.suffix.as_ref().map(|w| w.create_element()),
+            prop_text: self.text.clone(),
             prefix_width: 0.0,
             suffix_width: 0.0,
             bounds: Rect::zero(),
@@ -328,6 +329,9 @@ pub struct TextFieldElement {
     /// Каретка с последней отрисовки (координаты окна) — для IME.
     ime_caret: std::cell::Cell<Option<Rect>>,
     text: String,
+    /// Текст из виджета при последней сборке: неуправляемое поле (без
+    /// `on_change`) в фокусе не затирается пересборкой с тем же текстом.
+    prop_text: String,
     placeholder: String,
     disabled: bool,
     read_only: bool,
@@ -782,7 +786,12 @@ impl Element for TextFieldElement {
             self.read_only = tf.read_only;
             self.obscure = tf.obscure;
             self.width = tf.width;
-            if tf.text != self.text {
+            // Неуправляемое поле (без on_change) в фокусе: родитель
+            // пересобрался по своим причинам с тем же исходным текстом —
+            // набранное не трогаем (иначе ввод откатывался к исходному).
+            let keep_typed = tf.on_change.is_none() && self.focused && tf.text == self.prop_text;
+            self.prop_text = tf.text.clone();
+            if tf.text != self.text && !keep_typed {
                 // Текст подменили снаружи (нормализованное значение после
                 // submit): каретка остаётся в байтах старого текста и может
                 // попасть внутрь многобайтового символа — рендер паниковал
@@ -1942,5 +1951,48 @@ mod negative_space_tests {
         let mut el = TextField::new().create_element();
         let s = el.layout(Constraints::new(0.0, -32.0, 0.0, 40.0));
         assert!(s.width >= 0.0);
+    }
+}
+
+#[cfg(test)]
+mod uncontrolled_rebuild_tests {
+    use super::*;
+    use crate::input::{Event, Key};
+    use std::sync::{Arc, Mutex};
+
+    fn field(submitted: &Arc<Mutex<String>>) -> TextField {
+        let s = submitted.clone();
+        TextField::with_text("Новая папка")
+            .autofocus(true)
+            .select_range(0, "Новая папка".len())
+            .on_submit(move |t| *s.lock().unwrap() = t.to_string())
+    }
+
+    /// Поле переименования в Проводнике: пересборка родителя с тем же
+    /// исходным текстом не откатывает набранное.
+    #[test]
+    fn rebuild_with_same_text_keeps_typed() {
+        let submitted = Arc::new(Mutex::new(String::new()));
+        let mut el = field(&submitted).create_element();
+        let mut ectx = EventContext::new(ElementId::new());
+        el.handle_event(&Event::ImeCommit("Проекты".into()), &mut ectx);
+        let mut uctx = UpdateContext::new(ElementId::new());
+        el.update(&field(&submitted), &mut uctx);
+        el.handle_event(&Event::KeyDown(Key::Enter), &mut ectx);
+        assert_eq!(*submitted.lock().unwrap(), "Проекты");
+    }
+
+    /// Новый текст снаружи по-прежнему применяется.
+    #[test]
+    fn changed_prop_text_applies() {
+        let submitted = Arc::new(Mutex::new(String::new()));
+        let mut el = field(&submitted).create_element();
+        let mut ectx = EventContext::new(ElementId::new());
+        el.handle_event(&Event::ImeCommit("x".into()), &mut ectx);
+        let s = submitted.clone();
+        let w = TextField::with_text("Другое").autofocus(true).on_submit(move |t| *s.lock().unwrap() = t.to_string());
+        el.update(&w, &mut UpdateContext::new(ElementId::new()));
+        el.handle_event(&Event::KeyDown(Key::Enter), &mut ectx);
+        assert_eq!(*submitted.lock().unwrap(), "Другое");
     }
 }
