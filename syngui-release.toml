@@ -1,0 +1,38 @@
+# Выпуск syngui: `syngui package -w -f arch|tar|aur` (syngui-cli/README.md).
+name = "syngui"
+url = "https://github.com/VitaminDB/syngui"
+license = ["GPL-3.0-only"]
+maintainer = "Alexeyev Vitaly"
+makedepends = ["cargo", "git", "clang", "pkgconf"]
+options = ["!lto"]
+
+[packages.mss-lsp]
+description = "Языковой сервер MSS (стили syngui): ошибки, дополнение, подсказки"
+description_en = "MSS (syngui styles) language server: diagnostics, completion, hover"
+depends = ["gcc-libs"]
+bins = ["mss-lsp"]
+
+[packages.syngui-cli]
+description = "syngui: сборка, упаковка и запуск приложений на syngui — Linux x86_64/aarch64, Windows, Android, iOS, пакеты Arch и AUR"
+description_en = "syngui CLI: build, package and run syngui apps — Linux x86_64/aarch64, Windows, Android, iOS, Arch and AUR packages"
+depends = ["gcc-libs", "cargo"]
+optdepends = [
+  "cargo-ndk: сборка под Android",
+  "jdk21-openjdk: gradle для APK",
+  "android-tools: установка на телефон (adb)",
+  "lld: кросс-сборка aarch64 и iOS",
+  "mingw-w64-gcc: сборка под Windows",
+  "podman: переносимая сборка Linux (--portable)",
+  "zip: .ipa и архивы Windows",
+]
+optdepends_en = [
+  "cargo-ndk: Android builds",
+  "jdk21-openjdk: gradle for APKs",
+  "android-tools: install on a phone (adb)",
+  "lld: aarch64 and iOS cross builds",
+  "mingw-w64-gcc: Windows builds",
+  "podman: portable Linux builds (--portable)",
+  "zip: .ipa and Windows archives",
+]
+bins = ["syngui"]
+files = [{ from = "syngui-cli/README.md", to = "usr/share/doc/syngui-cli/" }]
