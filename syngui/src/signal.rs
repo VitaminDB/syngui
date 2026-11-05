@@ -543,6 +543,109 @@ pub fn set_fullscreen(on: bool) {
     crate::platform::android::set_fullscreen(on);
 }
 
+// ── Захват ввода (игры, виртуальные машины) ──────────────────────────────
+
+#[cfg(feature = "winit")]
+static POINTER_LOCKED: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
+
+#[cfg(feature = "winit")]
+thread_local! {
+    static RAW_MOTION: std::cell::RefCell<Option<Box<dyn FnMut(f64, f64)>>> = const { std::cell::RefCell::new(None) };
+}
+
+/// Запереть указатель в главном окне и скрыть его (pointer-constraints: `Locked`, если
+/// нельзя — `Confined`). Пока заперт, сырые смещения мыши (relative-pointer, без
+/// ускорения) идут в [`on_raw_motion`]; кнопки и колесо — обычными событиями.
+/// `false` — вернуть как было. Снимается сама при потере окном фокуса.
+#[cfg(feature = "winit")]
+pub fn set_pointer_lock(on: bool) -> Result<(), String> {
+    #[cfg(not(target_os = "android"))]
+    {
+        let window = primary_window().ok_or("окна ещё нет")?;
+        let win = window.winit_window();
+        use winit::window::CursorGrabMode;
+        if on {
+            win.set_cursor_grab(CursorGrabMode::Locked)
+                .or_else(|_| win.set_cursor_grab(CursorGrabMode::Confined))
+                .map_err(|e| format!("захват указателя: {e}"))?;
+            win.set_cursor_visible(false);
+        } else {
+            let _ = win.set_cursor_grab(CursorGrabMode::None);
+            win.set_cursor_visible(true);
+        }
+        POINTER_LOCKED.store(on, std::sync::atomic::Ordering::SeqCst);
+        Ok(())
+    }
+    #[cfg(target_os = "android")]
+    {
+        let _ = on;
+        Err("захват указателя на Android не поддерживается".into())
+    }
+}
+
+/// Указатель заперт ([`set_pointer_lock`]).
+#[cfg(feature = "winit")]
+pub fn pointer_locked() -> bool {
+    POINTER_LOCKED.load(std::sync::atomic::Ordering::SeqCst)
+}
+
+/// Обработчик сырых смещений мыши `(dx, dy)` в пикселях устройства, пока указатель
+/// заперт: вызывается сразу на каждое событие устройства (без пакетирования по кадрам),
+/// на главном потоке. `None` — снять.
+#[cfg(feature = "winit")]
+pub fn on_raw_motion(handler: Option<Box<dyn FnMut(f64, f64)>>) {
+    RAW_MOTION.with(|c| *c.borrow_mut() = handler);
+}
+
+#[cfg(feature = "winit")]
+pub(crate) fn dispatch_raw_motion(dx: f64, dy: f64) {
+    if !pointer_locked() {
+        return;
+    }
+    RAW_MOTION.with(|c| {
+        if let Some(f) = c.borrow_mut().as_mut() {
+            f(dx, dy);
+        }
+    });
+}
+
+/// Окно потеряло фокус: указатель и клавиатура возвращаются системе.
+#[cfg(feature = "winit")]
+pub(crate) fn release_input_capture() {
+    if pointer_locked() {
+        let _ = set_pointer_lock(false);
+    }
+    if shortcuts_inhibited() {
+        let _ = inhibit_shortcuts(false);
+    }
+}
+
+/// Вся клавиатура — главному окну: Alt+Tab, Super, Alt+F4 и прочие сочетания не уходят
+/// композитору (Wayland, zwp_keyboard_shortcuts_inhibit_v1). `false` — вернуть.
+/// Снимается сама при потере окном фокуса. Не на Wayland — ошибка.
+#[cfg(feature = "winit")]
+pub fn inhibit_shortcuts(on: bool) -> Result<(), String> {
+    #[cfg(all(feature = "pen", target_os = "linux"))]
+    {
+        let window = primary_window().ok_or("окна ещё нет")?;
+        crate::app::wayland_inhibit::set(window.winit_window(), on)
+    }
+    #[cfg(not(all(feature = "pen", target_os = "linux")))]
+    {
+        let _ = on;
+        Err("перехват сочетаний — только на Linux/Wayland (фича pen)".into())
+    }
+}
+
+/// Перехват сочетаний включён ([`inhibit_shortcuts`]).
+#[cfg(feature = "winit")]
+pub fn shortcuts_inhibited() -> bool {
+    #[cfg(all(feature = "pen", target_os = "linux"))]
+    return crate::app::wayland_inhibit::active();
+    #[cfg(not(all(feature = "pen", target_os = "linux")))]
+    false
+}
+
 static FORCE_FRAME: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
 
 /// Следующий кадр отправить, даже если он не отличается от прошлого

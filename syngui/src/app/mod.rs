@@ -18,6 +18,9 @@ pub mod user_event;
 pub(crate) mod wayland_dnd;
 #[cfg(all(feature = "pen", target_os = "linux"))]
 pub(crate) mod wayland_pen;
+// Перехват сочетаний клавиш (keyboard-shortcuts-inhibit): те же зависимости Wayland, что у пера.
+#[cfg(all(feature = "pen", target_os = "linux"))]
+pub(crate) mod wayland_inhibit;
 
 #[cfg(target_os = "android")]
 pub mod notification;

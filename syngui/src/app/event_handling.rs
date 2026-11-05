@@ -195,6 +195,10 @@ impl winit::application::ApplicationHandler<SynGuiUserEvent> for AppHandler {
                 }
             }
             winit::event::WindowEvent::Focused(focused) => {
+                // захват ввода (игры, ВМ) — только пока окно в фокусе
+                if !focused {
+                    crate::signal::release_input_capture();
+                }
                 // отпускание Shift вне окна не придёт
                 if !focused && self.held_shift != 0 {
                     self.held_shift = 0;
@@ -850,6 +854,19 @@ impl winit::application::ApplicationHandler<SynGuiUserEvent> for AppHandler {
             }
 
             _ => {}
+        }
+    }
+
+    /// Сырые смещения мыши (relative-pointer на Wayland) — сразу обработчику
+    /// `signal::on_raw_motion`, пока указатель заперт.
+    fn device_event(
+        &mut self,
+        _event_loop: &winit::event_loop::ActiveEventLoop,
+        _device_id: winit::event::DeviceId,
+        event: winit::event::DeviceEvent,
+    ) {
+        if let winit::event::DeviceEvent::MouseMotion { delta } = event {
+            crate::signal::dispatch_raw_motion(delta.0, delta.1);
         }
     }
 

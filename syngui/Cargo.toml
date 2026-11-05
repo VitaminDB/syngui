@@ -24,7 +24,7 @@ raw-window-handle = "0.6.2"
 smithay-client-toolkit = { version = "0.19", optional = true, default-features = false }
 wayland-client = { version = "0.31", optional = true }
 wayland-backend = { version = "0.3", optional = true, features = ["client_system"] }
-wayland-protocols = { version = "0.32", optional = true, features = ["client"] }
+wayland-protocols = { version = "0.32", optional = true, features = ["client", "unstable"] }
 percent-encoding = { version = "2", optional = true }
 bytemuck = { version = "1.25.0", features = ["derive"] }
 anyhow = "1.0.102"
