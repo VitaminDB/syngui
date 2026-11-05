@@ -186,10 +186,11 @@ pub fn run(o: Opts) -> Result<()> {
         .output()
         .map(|o| o.status.success())
         .unwrap_or(false);
-    let repo = util::capture(git(&root, &["remote", "get-url", "origin"]))
-        .unwrap_or_default()
-        .trim()
-        .to_string();
+    let repo = git(&root, &["remote", "get-url", "origin"])
+        .stderr(std::process::Stdio::null())
+        .output()
+        .map(|o| String::from_utf8_lossy(&o.stdout).trim().to_string())
+        .unwrap_or_default();
 
     util::step(format!(
         "выпуск {tag} ({}){}",
@@ -256,7 +257,7 @@ pub fn run(o: Opts) -> Result<()> {
                 println!("      IPA {n}");
             }
         }
-        println!("      git push origin HEAD {tag} ({repo})");
+        println!("      git push origin HEAD {tag} ({})", if repo.is_empty() { "нет origin" } else { &repo });
         println!("      gh release create {tag}: архивы, APK/IPA, SHA256SUMS");
         println!(
             "      AUR: syngui package {}-f aur с суммами релиза (не публикуется — git push в AUR делает человек)",
@@ -283,6 +284,14 @@ pub fn run(o: Opts) -> Result<()> {
     }
     if tag_exists && !already {
         let msg = format!("тег {tag} уже есть");
+        if dry {
+            util::warn(msg);
+        } else {
+            bail!("{msg}");
+        }
+    }
+    if repo.is_empty() && (o.publish || dry) {
+        let msg = "у репозитория нет remote origin — для --publish (git push, gh release) его нужно завести";
         if dry {
             util::warn(msg);
         } else {
