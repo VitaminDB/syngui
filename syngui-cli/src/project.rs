@@ -56,6 +56,13 @@ pub struct ReleaseMeta {
     pub assets: Vec<String>,
 }
 
+#[derive(Debug, Default, Deserialize, Clone)]
+#[serde(default, deny_unknown_fields)]
+pub struct ArchFeatures {
+    pub features: Option<Vec<String>>,
+    pub default_features: Option<bool>,
+}
+
 #[derive(Debug, Default, Deserialize)]
 #[serde(default, deny_unknown_fields)]
 pub struct WindowsMeta {
@@ -138,6 +145,11 @@ pub struct LinuxMeta {
     pub makedepends: Vec<String>,
     /// Возможности cargo для сборки под Linux.
     pub features: Option<Vec<String>>,
+    /// Включать возможности по умолчанию (по умолчанию да).
+    pub default_features: Option<bool>,
+    /// Свои возможности для x86_64 / aarch64 (заменяют общие): [package.metadata.syngui.linux.aarch64].
+    pub x86_64: Option<ArchFeatures>,
+    pub aarch64: Option<ArchFeatures>,
     /// Дополнительные файлы пакета: "откуда:куда" (куда — от корня, например usr/share/foo).
     pub files: Vec<String>,
     /// Свой установщик в архив tar (по умолчанию генерируется install.sh: ~/.local или /usr).
@@ -347,6 +359,30 @@ impl App {
         let v: Vec<u32> = self.version.split(['.', '-', '+']).take(3).map(|p| p.parse().unwrap_or(0)).collect();
         let g = |i: usize| v.get(i).copied().unwrap_or(0);
         (g(0) * 1_000_000 + g(1) * 1_000 + g(2)).max(1)
+    }
+}
+
+impl App {
+    /// Аргументы возможностей cargo для Linux-цели: `linux.<арх>` поверх общих `linux`.
+    pub fn linux_feature_args(&self, arch: &str) -> Vec<String> {
+        let l = &self.meta.linux;
+        let a = match arch {
+            "x86_64" => l.x86_64.clone(),
+            "aarch64" => l.aarch64.clone(),
+            _ => None,
+        }
+        .unwrap_or_default();
+        let features = a.features.or_else(|| l.features.clone());
+        let default = a.default_features.or(l.default_features).unwrap_or(true);
+        let mut v = Vec::new();
+        if !default {
+            v.push("--no-default-features".to_string());
+        }
+        if let Some(f) = features.filter(|f| !f.is_empty()) {
+            v.push("--features".into());
+            v.push(f.join(","));
+        }
+        v
     }
 }
 

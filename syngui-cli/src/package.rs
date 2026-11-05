@@ -20,8 +20,8 @@ pub fn tar_name(app: &App, target: Target) -> Result<String> {
 
 /// Собрать и упаковать в tar.zst (+ .sha256) в dist: дерево usr/… (его ставит -bin и пакет Arch),
 /// рядом — документы и install.sh (установка вне Arch: ~/.local или /usr).
-pub fn tar(app: &App, target: Target, profile: Profile, portable: bool) -> Result<PathBuf> {
-    let bin = linux::build(app, target, profile, &[], portable)?;
+pub fn tar(app: &App, target: Target, profile: Profile, portable: bool, extra: &[String]) -> Result<PathBuf> {
+    let bin = linux::build(app, target, profile, extra, portable)?;
     let root = app.work_dir("stage").join(target.arch());
     linux::stage(app, &bin, &root, Some(target))?;
     let mut top = vec!["usr".to_string()];
@@ -139,8 +139,8 @@ fn desc_en(app: &App) -> String {
 const INSTALL_TREE: &str = "    cp -a --no-preserve=ownership usr \"$pkgdir\"/\n";
 
 /// Пакет pacman из собранных файлов: PKGBUILD в target/syngui/arch/<крейт>, makepkg.
-pub fn arch(app: &App, target: Target, profile: Profile, portable: bool) -> Result<PathBuf> {
-    let tar = tar(app, target, profile, portable)?;
+pub fn arch(app: &App, target: Target, profile: Profile, portable: bool, extra: &[String]) -> Result<PathBuf> {
+    let tar = tar(app, target, profile, portable, extra)?;
     let name = pkgname(app)?;
     let dir = app.work_dir("arch").join(target.arch());
     std::fs::create_dir_all(&dir)?;
@@ -228,7 +228,10 @@ pub fn aur(app: &App, out: Option<&Path>) -> Result<PathBuf> {
     let opt = if app.meta.linux.optdepends.is_empty() { String::new() } else { format!("optdepends=({})\n", arr(&app.meta.linux.optdepends)) };
     let mut mk = vec!["cargo".to_string(), "git".into(), "clang".into(), "pkgconf".into()];
     mk.extend(app.meta.linux.makedepends.iter().cloned());
-    let features = app.meta.linux.features.as_ref().map(|f| format!(" --features {}", sh(&f.join(",")))).unwrap_or_default();
+    // возможности по архитектуре (linux.x86_64 / linux.aarch64 поверх общих)
+    let fx = arr(&app.linux_feature_args("x86_64"));
+    let fa = arr(&app.linux_feature_args("aarch64"));
+    let features_sel = format!("    local _f=({fx})\n    [ \"$CARCH\" = aarch64 ] && _f=({fa})\n");
 
     // Установка файлов -git: та же раскладка, что stage()
     let rel = |p: &Path| p.strip_prefix(&app.manifest_dir).unwrap_or(p).display().to_string();
@@ -267,7 +270,7 @@ pub fn aur(app: &App, out: Option<&Path>) -> Result<PathBuf> {
         "{maint}pkgname={name}-git\npkgver={ver}.r0\npkgrel=1\npkgdesc={desc}\narch=('x86_64' 'aarch64')\nurl={url}\nlicense=({lic})\ndepends=({deps})\n{opt}makedepends=({mk})\nprovides=({name})\nconflicts=({name} {name}-bin)\noptions=('!lto')\nsource=(\"{repo_name}::git+{repo}.git\")\nsha256sums=('SKIP')\n\n\
          pkgver() {{\n    cd \"$srcdir/{repo_name}\"\n    local v\n    v=$(git describe --tags --abbrev=0 2>/dev/null || echo v{ver})\n    printf '%s.r%s.g%s' \"${{v#v}}\" \"$(git rev-list --count HEAD)\" \"$(git rev-parse --short HEAD)\"\n}}\n\n\
          prepare() {{\n    cd {cd}\n    export RUSTUP_TOOLCHAIN=stable\n    cargo fetch --target \"$(rustc -vV | sed -n 's/host: //p')\"\n}}\n\n\
-         build() {{\n    cd {cd}\n    export RUSTUP_TOOLCHAIN=stable CARGO_TARGET_DIR=\"$srcdir/target\"\n    cargo build --release --offline -p {krate} --bin {bin}{features}\n}}\n\n\
+         build() {{\n    cd {cd}\n    export RUSTUP_TOOLCHAIN=stable CARGO_TARGET_DIR=\"$srcdir/target\"\n{features_sel}    cargo build --release --offline -p {krate} --bin {bin} \"${{_f[@]}}\"\n}}\n\n\
          package() {{\n    cd {cd}\n    CARGO_TARGET_DIR=\"$srcdir/target\"\n{inst}}}\n",
         ver = app.version.replace('-', "_"),
         desc = sh(&desc_en(app)),

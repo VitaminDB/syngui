@@ -79,6 +79,16 @@ pub struct CrateSpec {
     pub features: Vec<String>,
     pub features_env: Option<String>,
     pub no_default_features: bool,
+    /// Свои возможности под архитектуру (заменяют общие): [crates.X.aarch64] features / no_default_features.
+    pub x86_64: Option<CrateArch>,
+    pub aarch64: Option<CrateArch>,
+}
+
+#[derive(Debug, Default, Deserialize, Clone)]
+#[serde(default, deny_unknown_fields)]
+pub struct CrateArch {
+    pub features: Option<Vec<String>>,
+    pub no_default_features: Option<bool>,
 }
 
 #[derive(Debug, Default, Deserialize, Clone)]
@@ -224,7 +234,8 @@ impl Release {
     }
 
     /// Команды cargo build: общая для крейтов без особенностей и отдельные — с возможностями.
-    fn cargo_plans(&self, pkgs: &[&(String, Pkg)]) -> Vec<(Vec<String>, Vec<String>)> {
+    /// `arch` — x86_64 / aarch64 (возможности [crates.X.<арх>]); `env` — учитывать features_env.
+    fn cargo_plans(&self, pkgs: &[&(String, Pkg)], arch: &str, env: bool) -> Vec<(Vec<String>, Vec<String>)> {
         let mut plain: Vec<String> = Vec::new();
         let mut special: Vec<(Vec<String>, Vec<String>)> = Vec::new();
         for (_, p) in pkgs {
@@ -234,12 +245,19 @@ impl Release {
                     if special.iter().any(|(ps, _)| ps.contains(krate)) {
                         continue;
                     }
-                    let feats: Vec<String> = match cs.features_env.as_deref().and_then(|e| std::env::var(e).ok()) {
+                    let per = match arch {
+                        "x86_64" => cs.x86_64.clone(),
+                        "aarch64" => cs.aarch64.clone(),
+                        _ => None,
+                    }
+                    .unwrap_or_default();
+                    let env_v = if env { cs.features_env.as_deref().and_then(|e| std::env::var(e).ok()) } else { None };
+                    let feats: Vec<String> = match env_v {
                         Some(v) => v.split(',').map(str::trim).filter(|s| !s.is_empty()).map(str::to_string).collect(),
-                        None => cs.features.clone(),
+                        None => per.features.clone().unwrap_or_else(|| cs.features.clone()),
                     };
                     let mut args = vec!["-p".to_string(), krate.clone(), "--bins".into()];
-                    if cs.no_default_features {
+                    if per.no_default_features.unwrap_or(cs.no_default_features) {
                         args.push("--no-default-features".into());
                     }
                     if !feats.is_empty() {
@@ -262,7 +280,7 @@ impl Release {
 
     /// Собрать все программы выбранных пакетов; вернуть каталог с ними (после strip).
     fn build(&self, pkgs: &[&(String, Pkg)], target: Target, profile: Profile, strip: bool) -> Result<PathBuf> {
-        for (_, args) in self.cargo_plans(pkgs) {
+        for (_, args) in self.cargo_plans(pkgs, target.arch(), true) {
             let mut c = Command::new("cargo");
             c.current_dir(&self.root).arg("build");
             if profile == Profile::Fast && !linux::has_fast_release(&self.root) {
@@ -510,7 +528,19 @@ impl Release {
                     s += &Self::pkg_meta(p, true, "", &p.depends, std::slice::from_ref(name), &[name.clone(), format!("{name}-bin")], true);
                     let opts = if self.spec.options.is_empty() { vec!["!lto".to_string()] } else { self.spec.options.clone() };
                     s += &format!("makedepends=({})\noptions=({})\nsource=(\"{repo}::git+{url}.git\")\nsha256sums=('SKIP')\n", mk.iter().map(|x| sh(x)).collect::<Vec<_>>().join(" "), opts.iter().map(|x| sh(x)).collect::<Vec<_>>().join(" "));
-                    let builds: Vec<String> = self.cargo_plans(&[&(name.clone(), p.clone())]).into_iter().map(|(_, a)| format!("    cargo build --offline --release {}\n", a.join(" "))).collect();
+                    let one = [&(name.clone(), p.clone())];
+                    let lines = |arch: &str, ind: &str| -> String {
+                        self.cargo_plans(&one, arch, false).into_iter().map(|(_, a)| format!("{ind}cargo build --offline --release {}\n", a.join(" "))).collect()
+                    };
+                    let (bx, ba) = (lines("x86_64", "    "), lines("aarch64", "    "));
+                    // разные возможности по архитектуре — выбор по $CARCH
+                    let builds: Vec<String> = if bx.is_empty() {
+                        vec![]
+                    } else if bx == ba {
+                        vec![bx]
+                    } else {
+                        vec![format!("    if [ \"$CARCH\" = aarch64 ]; then\n{}    else\n{}    fi\n", lines("aarch64", "        "), lines("x86_64", "        "))]
+                    };
                     s += &format!(
                         r#"
 pkgver() {{

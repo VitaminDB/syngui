@@ -114,8 +114,8 @@ pub fn build(app: &App, target: Target, profile: Profile, extra: &[String], port
         if let Some(f) = &w.features {
             c.arg("--features").arg(f.join(","));
         }
-    } else if let Some(f) = &app.meta.linux.features {
-        c.arg("--features").arg(f.join(","));
+    } else {
+        c.args(app.linux_feature_args(target.arch()));
     }
     c.args(extra);
     let out = if target.is_host() {
@@ -177,7 +177,7 @@ fn portable_build(app: &App, profile: Profile, extra: &[String]) -> Result<PathB
         std::fs::create_dir_all(cache.join(d))?;
     }
     let tdir = app.target_dir.join("portable");
-    let cargo_args: Vec<String> = profile_args(app, profile).into_iter().chain(["--bin".into(), bin.clone()]).chain(app.meta.linux.features.iter().flat_map(|f| ["--features".to_string(), f.join(",")])).chain(extra.iter().cloned()).collect();
+    let cargo_args: Vec<String> = profile_args(app, profile).into_iter().chain(["--bin".into(), bin.clone()]).chain(app.linux_feature_args("x86_64")).chain(extra.iter().cloned()).collect();
     let script = format!(
         "set -e; apt-get -qq update >/dev/null && apt-get -qq install -y {} >/dev/null; cargo build {} --target-dir {}",
         apt.iter().map(|a| util::sh(a)).collect::<Vec<_>>().join(" "),

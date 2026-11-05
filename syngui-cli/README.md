@@ -13,8 +13,10 @@ syngui build -t android                # APK (fast-release; подпись ре�
 syngui build -t linux-aarch64,ios      # несколько целей
 syngui run -d android                  # собрать под ABI устройства, поставить, запустить, logcat
 syngui run -d ios                      # .ipa → plumesign (Apple ID) → iPhone
-syngui run -d phone                    # aarch64 → телефон с synshell (synport) в /usr/local
-syngui run -d ssh:root@192.168.8.45    # то же по обычному ssh
+syngui run -d phone                    # aarch64 → телефон (synport) в /usr/local и запуск в его графической сессии
+syngui run -d phone --pkg              # то же пакетом pacman (sudo pacman -U, сверка версии и даты сборки)
+syngui run -d ssh:xiaomi-12t-pro --no-install -- --arg   # только запустить установленную (хост из ~/.ssh/config)
+syngui package -w -f arch -t linux-aarch64 --install -d phone   # пакеты выпуска — на устройство
 syngui package -f apk                  # релиз: --release (LTO), только релизным ключом → dist + .sha256
 syngui package -f tar -t all-linux     # архивы релиза x86_64 и aarch64 (их скачивает -bin)
 syngui package -f arch -t all-linux    # пакеты pacman обеих архитектур
@@ -102,6 +104,8 @@ depends = ["gcc-libs", "fontconfig", "libxkbcommon", "wayland", "vulkan-icd-load
 optdepends = ["ffmpeg: видео"]
 makedepends = ["nasm"]             # для -git, к cargo git clang pkgconf
 features = ["desktop"]
+default_features = true
+aarch64 = { features = ["npu"], default_features = false }   # своё для архитектуры (и x86_64 = {…})
 files = ["data/sounds:usr/share/syncook/sounds"]   # доп. файлы пакета «откуда:куда»
 installer = "packaging/linux/install.sh"   # свой установщик в tar (иначе генерируется: ~/.local или /usr)
 portable_image = "docker.io/library/rust:1-bullseye"   # образ для --portable
@@ -159,6 +163,9 @@ options = ["!lto"]                     # для -git
 [crates.synaptixd]                     # особая сборка крейта (отдельный cargo build)
 features = ["cuda", "npu"]
 features_env = "SYNAPTIXD_FEATURES"    # SYNAPTIXD_FEATURES=cuda — переопределить
+no_default_features = false
+[crates.synaptixd.aarch64]             # своё для архитектуры (в AUR -git — выбор по $CARCH)
+features = ["npu"]
 
 [packages.synshell]                    # метапакет: без файлов
 description = "…"
@@ -235,6 +242,19 @@ APK/IPA крейтов с разделами android/ios в метаданных
 `<имя>.tar`; чужой SHA256SUMS заменяется общим — в нём суммы всех файлов релиза. Файлы от 2 ГиБ
 GitHub не принимает — это проверяется до загрузки.
 
+## Устройства с Linux (`-d phone`, `-d ssh:<хост>`)
+
+`phone` — связь через synport разработчика (synmobile/tools/synport: USB-сеть или synlink, root),
+`ssh:<хост>` — обычный ssh (хост из `~/.ssh/config`). `run` собирает aarch64, ставит и запускает:
+окружение (WAYLAND_DISPLAY, VK_ICD_FILENAMES, MESA_LOADER_DRIVER_OVERRIDE…) берётся у клиента
+графической сессии (synmobile/synpanel/syndesktop), запуск — от его пользователя через setsid;
+журнал — `/tmp/syngui-run-<bin>.log` на устройстве. Без этого по голому ssh программа рисовала бы
+программно (llvmpipe). По умолчанию — в `/usr/local`; если программа уже стоит пакетом pacman,
+утилита откажется (вторая копия перекрыла бы её) и предложит `--pkg`: пакет `-f arch`,
+`pacman -U` на устройстве и сверка версии и даты сборки. Не под root — sudo
+(`SYNGUI_DEVICE_SUDO_PASSWORD` — пароль). Флаги `run`: `--features`, `--no-default-features`,
+`--env KEY=VAL`, `--no-install`, `--no-launch`, аргументы программы — после `--`.
+
 ## Переменные
 
 | Переменная | Что |
@@ -246,5 +266,6 @@ GitHub не принимает — это проверяется до загру
 | `SYNGUI_ANDROID_KEYSTORE` | каталог ключа подписи вместо ~/.secrets/<крейт>-android |
 | `SYNGUI_AARCH64_SYSROOT` | sysroot для linux-aarch64 |
 | `IOS_SDK`, `SYNGUI_IOS_UDID` | iOS SDK, iPhone для установки |
-| `SYNPORT` | путь к synport для `run -d phone` |
+| `SYNPORT` | путь к synport разработчика (с ssh/scp) для `-d phone` |
+| `SYNGUI_DEVICE_SUDO_PASSWORD` | пароль sudo на устройстве (`-d ssh:` не под root) |
 | `<CRATE>_FEATURES` (`features_env`) | возможности особого крейта выпуска |

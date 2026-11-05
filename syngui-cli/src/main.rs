@@ -12,6 +12,7 @@
 //! ```
 
 mod android;
+mod device;
 mod doctor;
 mod icon;
 mod ios;
@@ -23,7 +24,7 @@ mod release;
 mod target;
 mod util;
 
-use anyhow::{bail, Context, Result};
+use anyhow::{bail, Result};
 use clap::{Args, Parser, Subcommand};
 use project::App;
 use std::path::PathBuf;
@@ -131,6 +132,9 @@ enum Cmd {
         /// tar/arch для linux-x86_64 — переносимая сборка в контейнере (glibc 2.31)
         #[arg(long)]
         portable: bool,
+        /// С --install: поставить пакеты на устройство (phone, ssh:<хост>) вместо этой машины
+        #[arg(short, long)]
+        device: Option<String>,
     },
     /// Собрать и запустить: здесь, на Android (adb), iPhone (plumesign), телефоне с synshell (synport) или по ssh
     Run {
@@ -147,7 +151,25 @@ enum Cmd {
         /// Не показывать журнал (android)
         #[arg(long)]
         no_log: bool,
-        /// Аргументы программы (local): после --
+        /// Телефон/ssh: поставить пакетом pacman (package -f arch), а не в /usr/local
+        #[arg(long)]
+        pkg: bool,
+        /// Телефон/ssh: не собирать и не ставить — только запустить установленную программу
+        #[arg(long)]
+        no_install: bool,
+        /// Телефон/ssh: только поставить, не запускать
+        #[arg(long)]
+        no_launch: bool,
+        /// Возможности cargo (поверх метаданных)
+        #[arg(long, value_delimiter = ',')]
+        features: Vec<String>,
+        /// cargo --no-default-features
+        #[arg(long)]
+        no_default_features: bool,
+        /// Переменные окружения программы на устройстве (KEY=VAL, можно несколько)
+        #[arg(long = "env")]
+        env: Vec<String>,
+        /// Аргументы программы: после --
         #[arg(last = true)]
         args: Vec<String>,
     },
@@ -249,7 +271,11 @@ fn real_main(cli: Cli) -> Result<()> {
                 println!("{t}: {}", p.display());
             }
         }
-        Cmd::Package { format, target, sel, fast, out, workspace, only, release_file, install, no_strip, portable } => {
+        Cmd::Package { format, target, sel, fast, out, workspace, only, release_file, install, no_strip, portable, device } => {
+            let dev = match &device {
+                Some(d) => Some(device::Device::parse(d)?),
+                None => None,
+            };
             let profile = if fast { Profile::Fast } else { Profile::Release };
             if workspace {
                 let r = release::Release::load(sel.manifest_path.as_deref(), release_file.as_deref())?;
@@ -259,8 +285,12 @@ fn real_main(cli: Cli) -> Result<()> {
                         for t in targets(&target)? {
                             ensure_linux(t)?;
                             let (pkgs, _) = r.arch(&only, t, profile, !no_strip)?;
-                            if install && t.is_host() {
-                                release::install(&pkgs)?;
+                            if install {
+                                match &dev {
+                                    Some(d) => device::install_packages(d, &pkgs)?,
+                                    None if t.is_host() => release::install(&pkgs)?,
+                                    None => util::warn(format!("--install: пакеты {t} не для этой машины — укажите --device phone|ssh:<хост>")),
+                                }
                             }
                             results.extend(pkgs);
                         }
@@ -292,13 +322,21 @@ fn real_main(cli: Cli) -> Result<()> {
                 "tar" | "bin" => {
                     for t in targets(&target)? {
                         ensure_linux(t)?;
-                        results.push(package::tar(&app, t, profile, portable)?);
+                        results.push(package::tar(&app, t, profile, portable, &[])?);
                     }
                 }
                 "arch" | "pacman" => {
                     for t in targets(&target)? {
                         ensure_linux(t)?;
-                        results.push(package::arch(&app, t, profile, portable)?);
+                        let p = package::arch(&app, t, profile, portable, &[])?;
+                        if install {
+                            match &dev {
+                                Some(d) => device::install_packages(d, std::slice::from_ref(&p))?,
+                                None if t.is_host() => release::install(std::slice::from_ref(&p))?,
+                                None => util::warn(format!("--install: пакет {t} не для этой машины — укажите --device phone|ssh:<хост>")),
+                            }
+                        }
+                        results.push(p);
                     }
                 }
                 "aur" => results.push(package::aur(&app, out.as_deref())?),
@@ -320,9 +358,18 @@ fn real_main(cli: Cli) -> Result<()> {
                 println!("{}", r.display());
             }
         }
-        Cmd::Run { device, sel, prof, no_build, no_log, args } => {
+        Cmd::Run { device, sel, prof, no_build, no_log, pkg, no_install, no_launch, features, no_default_features, env, args } => {
             let app = load(&sel)?;
-            run(&app, &device, prof.profile(), no_build, !no_log, &args)?;
+            let mut extra = Vec::new();
+            if no_default_features {
+                extra.push("--no-default-features".to_string());
+            }
+            if !features.is_empty() {
+                extra.push("--features".into());
+                extra.push(features.join(","));
+            }
+            let o = RunOpts { no_build, log: !no_log, pkg, no_install, no_launch, extra, env };
+            run(&app, &device, prof.profile(), &o, &args)?;
         }
         Cmd::Release { version, sel, apply, publish, no_mobile, release_file, assets } => publish::run(publish::Opts {
             version: &version,
@@ -371,15 +418,27 @@ fn build(app: &App, t: Target, profile: Profile, extra: &[String], portable: boo
     }
 }
 
-fn run(app: &App, device: &str, profile: Profile, no_build: bool, log: bool, args: &[String]) -> Result<()> {
+struct RunOpts {
+    no_build: bool,
+    log: bool,
+    pkg: bool,
+    no_install: bool,
+    no_launch: bool,
+    extra: Vec<String>,
+    env: Vec<String>,
+}
+
+fn run(app: &App, device: &str, profile: Profile, o: &RunOpts, args: &[String]) -> Result<()> {
+    let no_build = o.no_build;
     match device {
         "local" | "host" | "here" => {
             let bin = app.bin()?;
             let mut c = linux::cargo(app, "run", profile);
             c.arg("--bin").arg(&bin);
-            if let Some(f) = &app.meta.linux.features {
-                c.arg("--features").arg(f.join(","));
+            if o.extra.is_empty() {
+                c.args(app.linux_feature_args(Target::host_linux().arch()));
             }
+            c.args(&o.extra);
             c.arg("--").args(args);
             util::run(c)
         }
@@ -394,65 +453,42 @@ fn run(app: &App, device: &str, profile: Profile, no_build: bool, log: bool, arg
             if !apk.is_file() {
                 bail!("нет {} — соберите без --no-build", apk.display());
             }
-            android::install_run(app, &apk, log)
+            android::install_run(app, &apk, o.log)
         }
         "ios" | "iphone" => {
             let ipa = if no_build { app.work_dir("ios").join(format!("{}-{}.ipa", app.krate, app.version)) } else { ios::build(app, profile)? };
             ios::install(&ipa)
         }
         d if d == "phone" || d.starts_with("ssh:") => {
+            let dev = device::Device::parse(d)?;
+            let bin = app.bin()?;
             let t = Target::LinuxAarch64;
-            let bin_path = if no_build { app.target_dir.join(if t.is_host() { String::new() } else { t.triple().into() }).join(profile.dir()).join(app.bin()?) } else { linux::build(app, t, profile, &[], false)? };
-            install_ssh(app, d, &bin_path)
+            if !o.no_install {
+                if o.pkg {
+                    let p = package::arch(app, t, profile, false, &o.extra)?;
+                    device::install_packages(&dev, &[p])?;
+                } else {
+                    let bin_path = if no_build {
+                        app.target_dir.join(if t.is_host() { String::new() } else { t.triple().into() }).join(profile.dir()).join(&bin)
+                    } else {
+                        linux::build(app, t, profile, &o.extra, false)?
+                    };
+                    let stage = app.work_dir("stage").join("device");
+                    linux::stage(app, &bin_path, &stage, Some(t))?;
+                    let tarball = app.work_dir("stage").join(format!("{bin}-device.tar"));
+                    let mut c = Command::new("tar");
+                    c.arg("-cf").arg(&tarball).arg("-C").arg(stage.join("usr")).arg(".");
+                    util::run(c)?;
+                    device::install_tree(&dev, &bin, &tarball)?;
+                }
+            }
+            if o.no_launch {
+                return Ok(());
+            }
+            device::launch(&dev, &bin, args, &o.env)
         }
-        d => bail!("неизвестное устройство {d}: local, android, ios, phone, ssh:<user@host>"),
+        d => bail!("неизвестное устройство {d}: local, android, ios, phone, ssh:<хост>"),
     }
-}
-
-/// synport: $SYNPORT, PATH или synmobile/tools/synport рядом с проектами.
-fn synport() -> Option<PathBuf> {
-    if let Some(p) = std::env::var_os("SYNPORT") {
-        return Some(PathBuf::from(p));
-    }
-    util::which("synport").or_else(|| {
-        let h = util::home();
-        [h.join("Storage/Проекты/2027/synmobile/tools/synport/target/fast-release/synport"), h.join("Projects/2027/synmobile/tools/synport/target/fast-release/synport")].into_iter().find(|p| p.is_file())
-    })
-}
-
-/// Поставить программу (и ярлык со значком) на устройство с Linux по ssh в /usr/local.
-fn install_ssh(app: &App, device: &str, bin_path: &std::path::Path) -> Result<()> {
-    let bin = app.bin()?;
-    let stage = app.work_dir("stage").join("device");
-    linux::stage(app, bin_path, &stage, Some(Target::LinuxAarch64))?;
-    let tarball = app.work_dir("stage").join(format!("{bin}-device.tar"));
-    let mut c = Command::new("tar");
-    c.arg("-cf").arg(&tarball).arg("-C").arg(stage.join("usr")).arg(".");
-    util::run(c)?;
-    let remote_tar = format!("/tmp/{bin}-syngui.tar");
-    // /usr/local: телефон ставит программы мимо pacman; старый процесс не мешает (mv поверх)
-    let script = format!("set -e; d=$(mktemp -d); tar -xf {remote_tar} -C $d; install -Dm755 $d/bin/{bin} /usr/local/bin/{bin}.new && mv -f /usr/local/bin/{bin}.new /usr/local/bin/{bin}; rm -f $d/bin/{bin}; cp -r $d/. /usr/local/; rm -rf $d {remote_tar}; echo установлено: /usr/local/bin/{bin}");
-    util::step(format!("установка на {device}"));
-    if device == "phone" {
-        let sp = synport().context("нет synport (SYNPORT=<путь>) — им идёт связь с телефоном; или --device ssh:root@<адрес>")?;
-        // synport ищет свои файлы от корня synmobile
-        let root = sp.ancestors().nth(5).map(PathBuf::from).unwrap_or_else(|| PathBuf::from("."));
-        let mut c = Command::new(&sp);
-        c.current_dir(&root).arg("scp").arg(&tarball).arg(format!("phone:{remote_tar}"));
-        util::run(c)?;
-        let mut c = Command::new(&sp);
-        c.current_dir(&root).arg("ssh").arg(script);
-        util::run(c)?;
-    } else {
-        let host = device.trim_start_matches("ssh:");
-        let mut c = Command::new("scp");
-        c.arg("-q").arg(&tarball).arg(format!("{host}:{remote_tar}"));
-        util::run(c)?;
-        let mut c = Command::new("ssh");
-        c.arg(host).arg(script);
-        util::run(c)?;
-    }
-    Ok(())
 }
 
 fn info(app: &App) -> Result<()> {

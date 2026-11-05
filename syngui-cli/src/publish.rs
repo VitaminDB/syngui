@@ -347,8 +347,8 @@ pub fn run(o: Opts) -> Result<()> {
         let a = &App::load(o.manifest, o.package)?;
         for x in arts {
             match x {
-                Art::Tar(t) => files.push(package::tar(a, *t, Profile::Release, false)?),
-                Art::TarPortable => files.push(package::tar(a, Target::LinuxX86_64, Profile::Release, true)?),
+                Art::Tar(t) => files.push(package::tar(a, *t, Profile::Release, false, &[])?),
+                Art::TarPortable => files.push(package::tar(a, Target::LinuxX86_64, Profile::Release, true, &[])?),
                 Art::Zip => files.push(package::zip(a, Profile::Release)?),
                 Art::Apk | Art::Ipa => {}
             }
@@ -361,7 +361,7 @@ pub fn run(o: Opts) -> Result<()> {
     } else {
         let a = App::load(o.manifest, o.package)?;
         for t in [Target::LinuxX86_64, Target::LinuxAarch64] {
-            files.push(package::tar(&a, t, Profile::Release, false)?);
+            files.push(package::tar(&a, t, Profile::Release, false, &[])?);
         }
     }
     for (n, a, i) in &mobile {
