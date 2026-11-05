@@ -59,6 +59,8 @@ pub struct AndroidMeta {
     pub permissions: Vec<String>,
     /// Статический FFmpeg из syngui/android-deps/ffmpeg/<abi> (FFMPEG_DIR).
     pub ffmpeg: bool,
+    /// Убрать символы из .so (llvm-strip --strip-unneeded); по умолчанию — кроме --debug.
+    pub strip: Option<bool>,
     /// Foreground-сервис syngui (живой прогресс в уведомлении): подтип specialUse.
     pub foreground_service: Option<String>,
     /// XML, вставляемый в <application> манифеста.
@@ -94,6 +96,8 @@ pub struct IosMeta {
     /// Свой квадратный значок для iOS.
     pub icon: Option<String>,
     pub status_bar_hidden: bool,
+    /// Убрать символы из программы; по умолчанию — кроме --debug (иначе только локальные, -x).
+    pub strip: Option<bool>,
     /// Возможности cargo для iOS (по умолчанию — возможности крейта по умолчанию).
     pub features: Option<Vec<String>>,
     /// Включать возможности по умолчанию (по умолчанию да).

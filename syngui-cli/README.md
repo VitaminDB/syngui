@@ -59,6 +59,7 @@ min_sdk = 30
 target_sdk = 35
 version_code = 3                   # по умолчанию из версии: 1.2.3 → 1002003
 permissions = ["INTERNET"]         # короткие или полные имена
+strip = false                      # оставить символы в .so (по умолчанию strip, кроме --debug)
 ffmpeg = true                      # статический FFmpeg из syngui/android-deps/ffmpeg/<abi>
 foreground_service = "quit_smoking_timer"  # SynGuiForegroundService (specialUse) + разрешения
 background = "#FFF8F0"             # фон окна до первого кадра
@@ -79,6 +80,7 @@ icon_viewbox = "8 8 112 112"       # обрезать поля значка (iOS
 icon_unround = 'rx="30"'           # убрать скругление фона
 icon = "data/icons/ios.svg"        # или свой квадратный значок
 status_bar_hidden = true
+strip = false                      # оставить символы (по умолчанию strip, кроме --debug)
 features = ["ios"]
 default_features = false
 

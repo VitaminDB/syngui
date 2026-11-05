@@ -141,6 +141,9 @@ pub fn build(app: &App, profile: Profile, publish: bool, abis: Option<Vec<String
     for abi in &abis {
         abi_triple(abi)?;
         util::step(format!("{}: lib{lib}.so ({abi}, {})", app.krate, profile.dir()));
+        // cargo-ndk не копирует .so, если в jniLibs файл новее (прошлая сборка другим профилем) —
+        // в APK попала бы чужая библиотека
+        let _ = std::fs::remove_file(jni.join(abi).join(format!("lib{lib}.so")));
         let mut c = Command::new("cargo");
         c.current_dir(&app.manifest_dir).args(["ndk", "-t", abi, "-P", &min_sdk.to_string(), "-o"]).arg(&jni).arg("build");
         c.args(crate::linux::profile_args(app, profile));
@@ -161,6 +164,26 @@ pub fn build(app: &App, profile: Profile, publish: bool, abis: Option<Vec<String
         }
         env(&mut c);
         util::run(c)?;
+    }
+    // Символы: cargo-ndk копирует .so как есть (сотни МБ с отладкой зависимостей)
+    if a.strip.unwrap_or(profile != Profile::Dev) {
+        let strip = ndk_dir()
+            .map(|n| n.join("toolchains/llvm/prebuilt/linux-x86_64/bin/llvm-strip"))
+            .filter(|p| p.is_file())
+            .or_else(|| util::which("llvm-strip"))
+            .context("нет llvm-strip (NDK или пакет llvm) — или [package.metadata.syngui.android] strip = false")?;
+        for abi in &abis {
+            let so = jni.join(abi).join(format!("lib{lib}.so"));
+            if !so.is_file() {
+                bail!("cargo-ndk не оставил {}", so.display());
+            }
+            let before = std::fs::metadata(&so).map(|m| m.len()).unwrap_or(0);
+            let mut c = Command::new(&strip);
+            c.arg("--strip-unneeded").arg(&so);
+            util::run(c)?;
+            let after = std::fs::metadata(&so).map(|m| m.len()).unwrap_or(0);
+            util::note(format!("strip lib{lib}.so ({abi}): {:.1} → {:.1} МБ", before as f64 / 1048576.0, after as f64 / 1048576.0));
+        }
     }
     // Лишние ABI от прошлых сборок не тащить в APK
     if let Ok(rd) = std::fs::read_dir(&jni) {

@@ -57,9 +57,16 @@ pub fn build(app: &App, profile: Profile) -> Result<PathBuf> {
     let dot_app = out.join("Payload").join(format!("{bin}.app"));
     util::copy(&built, &dot_app.join(&bin))?;
     {
+        // полный strip (кроме --debug; у Mach-O — llvm-strip без ключей); strip = false — только локальные (-x)
+        let full = m.strip.unwrap_or(profile != Profile::Dev);
         let mut c = Command::new("llvm-strip");
-        c.arg("-x").arg(dot_app.join(&bin));
-        let _ = util::run(c);
+        if !full {
+            c.arg("-x");
+        }
+        c.arg(dot_app.join(&bin));
+        if let Err(e) = util::run(c) {
+            util::warn(format!("llvm-strip: {e}"));
+        }
     }
 
     // Значки: iPhone 60pt @2x/@3x, iPad 76pt @2x, 83.5pt @2x — квадрат во весь край на белом
