@@ -8,6 +8,7 @@ members = [
     "app/calculator",
     "app/widget_gallery_mss",
     "app/linamp",
+    "syngui-cli",
 ]
 
 [workspace.package]

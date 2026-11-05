@@ -194,6 +194,22 @@ The `ffmpeg` feature (video playback) is **not** enabled by default and requires
 FFmpeg 7+ development libraries (9.x is what current builds track). Without it, no FFmpeg
 linkage occurs.
 
+### Building and packaging apps: the `syngui` CLI
+
+[`syngui-cli`](syngui-cli/README.md) builds, packages and runs syngui apps for every target from
+one place, configured by `[package.metadata.syngui]` in the app's Cargo.toml:
+
+```bash
+cargo install --path syngui-cli --profile fast-release
+syngui doctor                        # check NDK/SDK, JDK, iOS SDK, aarch64 sysroot, tools
+syngui build -t linux-aarch64        # cross-build for phones (clang + lld + sysroot)
+syngui run -d android                # APK for the device ABI, install, launch, logcat
+syngui package -f apk                # release APK signed with ~/.secrets/<crate>-android
+syngui package -f tar -t all-linux   # x86_64 + aarch64 release archives
+syngui package -f aur                # <name>-git and <name>-bin PKGBUILDs
+syngui package -f ipa                # unsigned .ipa built on Linux, no Xcode
+```
+
 ## Examples
 
 Three example apps live under `app/` and depend only on `syngui`:
