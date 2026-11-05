@@ -182,8 +182,22 @@ fn color_op(rgb: vec3<f32>, op: i32, amount: f32) -> vec3<f32> {
     return rgb;
 }
 
+fn unpremul(c: vec4<f32>) -> vec3<f32> {
+    if c.a <= 0.0 { return vec3<f32>(0.0); }
+    return min(c.rgb / c.a, vec3<f32>(1.0));
+}
+
+// Выход — премультиплицированный (его накладывают PREMULTIPLIED_ALPHA_BLENDING): цвет
+// не больше альфы. Иначе эффект, отдавший цвет при нулевой альфе (прозрачная часть
+// слоя), прибавлял бы его ко всему кадру — страница под gradient-map желтела целиком.
 @fragment
 fn fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
+    let c = fs_effect(in);
+    let a = clamp(c.a, 0.0, 1.0);
+    return vec4<f32>(clamp(c.rgb, vec3<f32>(0.0), vec3<f32>(a)), a);
+}
+
+fn fs_effect(in: VertexOutput) -> vec4<f32> {
     let effect = i32(pp.effect_type);
     let amount = pp.intensity;
 
@@ -396,20 +410,22 @@ fn fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
     // ── 17: Gradient Map ──
     if effect == 17 {
         let c = textureSample(input_texture, input_sampler, in.uv);
-        let lum = dot(c.rgb, vec3<f32>(0.299, 0.587, 0.114));
+        // яркость — у самого цвета (без премультипликации), результат — снова × альфа
+        let lum = dot(unpremul(c), vec3<f32>(0.299, 0.587, 0.114));
         let dark = vec3<f32>(pp.params.x, pp.params.y, pp.params.z);
         let light = vec3<f32>(pp.params2.x, pp.params2.y, pp.params2.z);
-        return vec4<f32>(mix(dark, light, lum), c.a);
+        return vec4<f32>(mix(dark, light, lum) * c.a, c.a);
     }
 
     // ── 18: Duotone ──
     if effect == 18 {
         let c = textureSample(input_texture, input_sampler, in.uv);
-        let lum = dot(c.rgb, vec3<f32>(0.299, 0.587, 0.114));
+        let straight = unpremul(c);
+        let lum = dot(straight, vec3<f32>(0.299, 0.587, 0.114));
         let shadow_c = vec3<f32>(pp.params.x, pp.params.y, pp.params.z);
         let highlight_c = vec3<f32>(pp.params2.x, pp.params2.y, pp.params2.z);
         let duotone = mix(shadow_c, highlight_c, lum);
-        return vec4<f32>(mix(c.rgb, duotone, amount), c.a);
+        return vec4<f32>(mix(straight, duotone, amount) * c.a, c.a);
     }
 
     // ── 19: Silhouette ──
