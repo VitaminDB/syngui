@@ -166,6 +166,10 @@ impl super::Renderer {
         })
     }
 
+    /// Проходы по текстурам слоёв (blur, постобработка, наложение слоя). Слои рисуются
+    /// с ALPHA_BLENDING на прозрачный фон — их цвет премультиплицирован, поэтому и
+    /// накладываются они премультиплицированным смешением: иначе альфа учитывалась
+    /// дважды и полупрозрачное в слое (стекло, фильтры, 3D) темнело (50 % белого → 25 %).
     pub(super) fn create_fullscreen_pipeline(
         device: &wgpu::Device,
         label: &str,
@@ -204,7 +208,7 @@ impl super::Renderer {
                 entry_point: Some("fs_main"),
                 targets: &[Some(wgpu::ColorTargetState {
                     format,
-                    blend: Some(wgpu::BlendState::ALPHA_BLENDING),
+                    blend: Some(wgpu::BlendState::PREMULTIPLIED_ALPHA_BLENDING),
                     write_mask: wgpu::ColorWrites::ALL,
                 })],
                 compilation_options: Default::default(),
@@ -266,7 +270,7 @@ impl super::Renderer {
                 entry_point: Some("fs_main"),
                 targets: &[Some(wgpu::ColorTargetState {
                     format,
-                    blend: Some(wgpu::BlendState::ALPHA_BLENDING),
+                    blend: Some(wgpu::BlendState::PREMULTIPLIED_ALPHA_BLENDING),
                     write_mask: wgpu::ColorWrites::ALL,
                 })],
                 compilation_options: Default::default(),

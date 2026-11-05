@@ -1,4 +1,6 @@
 // Post-process shader — applies color filter effects to a rendered texture.
+// Текстуры слоёв премультиплицированы (цвет × альфа); результат тоже должен быть
+// премультиплицирован — его накладывают PREMULTIPLIED_ALPHA_BLENDING.
 // Supports: grayscale, sepia, invert, brightness, contrast, HSB adjustment,
 // pixelate, edge detection, chromatic aberration, scanlines/CRT,
 // displacement/wave, vignette, noise/grain.
@@ -352,8 +354,8 @@ fn fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
     if effect == 14 {
         let c = textureSample(input_texture, input_sampler, in.uv);
         let noise_val = hash21(in.uv * pp.resolution * 0.5 + vec2<f32>(pp.time * 10.0));
-        let alpha = select(0.0, c.a, noise_val > amount);
-        return vec4<f32>(c.rgb, alpha);
+        // слой премультиплицирован: прозрачный пиксель — весь вектор в ноль
+        return c * select(0.0, 1.0, noise_val > amount);
     }
 
     // ── 15: Swirl ──
@@ -416,7 +418,7 @@ fn fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
         let fill = vec3<f32>(pp.params.x, pp.params.y, pp.params.z);
         let fill_a = pp.params.w;
         if c.a > 0.01 {
-            return vec4<f32>(fill, fill_a * c.a);
+            return vec4<f32>(fill * fill_a * c.a, fill_a * c.a);
         }
         return vec4<f32>(0.0);
     }
@@ -553,7 +555,7 @@ fn fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
         let edge = gradient + noise_val;
         // Soft reveal edge
         let reveal = smoothstep(progress - 0.05, progress + 0.05, edge);
-        return vec4<f32>(c.rgb, c.a * reveal);
+        return c * reveal;
     }
 
     // Fallback: passthrough

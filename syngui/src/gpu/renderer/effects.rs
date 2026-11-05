@@ -575,20 +575,25 @@ impl Renderer {
                         _padding: 0.0,
                         _padding2: [0.0; 2],
                     };
-                    let staging =
+                    // Свой буфер униформ на каждый проход: копия staging → общий буфер перед
+                    // проходом на Adreno (Vulkan) не упорядочивалась с проходами, и все проходы
+                    // кадра видели последние записанные параметры (фото под brightness()
+                    // рисовалось с чужим invert()).
+                    let pass_uniforms =
                         gpu.device
                             .create_buffer_init(&wgpu::util::BufferInitDescriptor {
-                                label: Some("Blur Uniform Staging"),
+                                label: Some("Blur Pass Uniforms"),
                                 contents: bytemuck::cast_slice(&[uniforms]),
-                                usage: wgpu::BufferUsages::COPY_SRC,
+                                usage: wgpu::BufferUsages::UNIFORM,
                             });
-                    encoder.copy_buffer_to_buffer(
-                        &staging,
-                        0,
-                        &self.blur_uniform_buffer,
-                        0,
-                        std::mem::size_of::<BlurUniforms>() as u64,
-                    );
+                    let pass_bind_group = gpu.device.create_bind_group(&wgpu::BindGroupDescriptor {
+                        label: Some("Blur Pass Uniform BG"),
+                        layout: &self.blur_uniform_bgl,
+                        entries: &[wgpu::BindGroupEntry {
+                            binding: 0,
+                            resource: pass_uniforms.as_entire_binding(),
+                        }],
+                    });
 
                     let mut rp = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
                         label: Some("Blur Pass"),
@@ -611,7 +616,7 @@ impl Renderer {
                     };
                     rp.set_scissor_rect(sx, sy, sw, sh);
                     rp.set_pipeline(&self.blur_pipeline);
-                    rp.set_bind_group(0, &self.blur_uniform_bind_group, &[]);
+                    rp.set_bind_group(0, &pass_bind_group, &[]);
                     rp.set_bind_group(1, self.texture_pool.bind_group(*source), &[]);
                     rp.set_vertex_buffer(0, self.fullscreen_vertex_buffer.slice(..));
                     rp.set_index_buffer(
@@ -653,20 +658,25 @@ impl Renderer {
                         params2: *params2,
                         bounds: bounds_uv,
                     };
-                    let staging =
+                    // Свой буфер униформ на каждый проход: копия staging → общий буфер перед
+                    // проходом на Adreno (Vulkan) не упорядочивалась с проходами, и все проходы
+                    // кадра видели последние записанные параметры (фото под brightness()
+                    // рисовалось с чужим invert()).
+                    let pass_uniforms =
                         gpu.device
                             .create_buffer_init(&wgpu::util::BufferInitDescriptor {
-                                label: Some("PostProcess Uniform Staging"),
+                                label: Some("PostProcess Pass Uniforms"),
                                 contents: bytemuck::cast_slice(&[uniforms]),
-                                usage: wgpu::BufferUsages::COPY_SRC,
+                                usage: wgpu::BufferUsages::UNIFORM,
                             });
-                    encoder.copy_buffer_to_buffer(
-                        &staging,
-                        0,
-                        &self.postprocess_uniform_buffer,
-                        0,
-                        std::mem::size_of::<PostProcessUniforms>() as u64,
-                    );
+                    let pass_bind_group = gpu.device.create_bind_group(&wgpu::BindGroupDescriptor {
+                        label: Some("PostProcess Pass Uniform BG"),
+                        layout: &self.postprocess_uniform_bgl,
+                        entries: &[wgpu::BindGroupEntry {
+                            binding: 0,
+                            resource: pass_uniforms.as_entire_binding(),
+                        }],
+                    });
 
                     let mut rp = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
                         label: Some("PostProcess Pass"),
@@ -685,7 +695,7 @@ impl Renderer {
                         multiview_mask: None,
                     });
                     rp.set_pipeline(&self.postprocess_pipeline);
-                    rp.set_bind_group(0, &self.postprocess_uniform_bind_group, &[]);
+                    rp.set_bind_group(0, &pass_bind_group, &[]);
                     rp.set_bind_group(1, self.texture_pool.bind_group(*source), &[]);
                     rp.set_vertex_buffer(0, self.fullscreen_vertex_buffer.slice(..));
                     rp.set_index_buffer(

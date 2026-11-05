@@ -91,10 +91,9 @@ pub struct Renderer {
 
     uniform_buffer: wgpu::Buffer,
     uniform_bind_group: wgpu::BindGroup,
-    blur_uniform_buffer: wgpu::Buffer,
-    blur_uniform_bind_group: wgpu::BindGroup,
-    postprocess_uniform_buffer: wgpu::Buffer,
-    postprocess_uniform_bind_group: wgpu::BindGroup,
+    /// Раскладки униформ проходов: у каждого прохода свой буфер (см. effects.rs).
+    blur_uniform_bgl: wgpu::BindGroupLayout,
+    postprocess_uniform_bgl: wgpu::BindGroupLayout,
 
     text_bind_group: wgpu::BindGroup,
 
@@ -347,20 +346,6 @@ impl Renderer {
         let texture_pool =
             crate::gpu::texture_pool::TexturePool::new(&gpu.device, surface_format, width, height);
 
-        let blur_uniforms = BlurUniforms {
-            resolution: [width as f32, height as f32],
-            direction: [1.0, 0.0],
-            radius: 8.0,
-            _padding: 0.0,
-            _padding2: [0.0; 2],
-        };
-        let blur_uniform_buffer =
-            gpu.device
-                .create_buffer_init(&wgpu::util::BufferInitDescriptor {
-                    label: Some("Blur Uniform Buffer"),
-                    contents: bytemuck::cast_slice(&[blur_uniforms]),
-                    usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
-                });
         let blur_uniform_bgl =
             gpu.device
                 .create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
@@ -375,32 +360,6 @@ impl Renderer {
                         },
                         count: None,
                     }],
-                });
-        let blur_uniform_bind_group = gpu.device.create_bind_group(&wgpu::BindGroupDescriptor {
-            label: Some("Blur Uniform BG"),
-            layout: &blur_uniform_bgl,
-            entries: &[wgpu::BindGroupEntry {
-                binding: 0,
-                resource: blur_uniform_buffer.as_entire_binding(),
-            }],
-        });
-
-        let pp_uniforms = PostProcessUniforms {
-            resolution: [width as f32, height as f32],
-            effect_type: 0.0,
-            intensity: 0.0,
-            params: [0.0; 4],
-            time: 0.0,
-            _padding: [0.0; 3],
-            params2: [0.0; 4],
-            bounds: [0.0, 0.0, 1.0, 1.0],
-        };
-        let postprocess_uniform_buffer =
-            gpu.device
-                .create_buffer_init(&wgpu::util::BufferInitDescriptor {
-                    label: Some("PostProcess Uniform Buffer"),
-                    contents: bytemuck::cast_slice(&[pp_uniforms]),
-                    usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
                 });
         let pp_uniform_bgl =
             gpu.device
@@ -417,15 +376,6 @@ impl Renderer {
                         count: None,
                     }],
                 });
-        let postprocess_uniform_bind_group =
-            gpu.device.create_bind_group(&wgpu::BindGroupDescriptor {
-                label: Some("PostProcess Uniform BG"),
-                layout: &pp_uniform_bgl,
-                entries: &[wgpu::BindGroupEntry {
-                    binding: 0,
-                    resource: postprocess_uniform_buffer.as_entire_binding(),
-                }],
-            });
 
         let fullscreen_vertex_buffer =
             gpu.device
@@ -716,10 +666,8 @@ impl Renderer {
             yuv_pipeline,
             uniform_buffer,
             uniform_bind_group,
-            blur_uniform_buffer,
-            blur_uniform_bind_group,
-            postprocess_uniform_buffer,
-            postprocess_uniform_bind_group,
+            blur_uniform_bgl: blur_uniform_bgl.clone(),
+            postprocess_uniform_bgl: pp_uniform_bgl.clone(),
             text_bind_group,
             font_atlas: std::sync::Arc::new(crate::core::sync::Mutex::new(font_atlas)),
             image_gpu_cache,
