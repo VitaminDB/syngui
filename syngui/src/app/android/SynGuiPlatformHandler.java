@@ -377,6 +377,37 @@ public class SynGuiPlatformHandler {
         return null;
     }
 
+    /**
+     * Полноэкранный режим: прятать строку состояния и панель навигации (появляются
+     * по свайпу от края и прячутся сами), окно — под вырезом камеры. false —
+     * вернуть панели. minSdk 30: WindowInsetsController есть всегда.
+     */
+    public static String setFullscreen(final boolean on) {
+        final Activity a = sActivity;
+        if (a == null) return "Activity ещё не готова";
+        a.runOnUiThread(() -> {
+            try {
+                android.view.Window w = a.getWindow();
+                android.view.WindowManager.LayoutParams lp = w.getAttributes();
+                lp.layoutInDisplayCutoutMode = android.view.WindowManager.LayoutParams.LAYOUT_IN_DISPLAY_CUTOUT_MODE_SHORT_EDGES;
+                w.setAttributes(lp);
+                w.setDecorFitsSystemWindows(false);
+                android.view.WindowInsetsController c = w.getInsetsController();
+                if (c == null) return;
+                int bars = android.view.WindowInsets.Type.systemBars();
+                if (on) {
+                    c.setSystemBarsBehavior(android.view.WindowInsetsController.BEHAVIOR_SHOW_TRANSIENT_BARS_BY_SWIPE);
+                    c.hide(bars);
+                } else {
+                    c.show(bars);
+                }
+            } catch (Throwable t) {
+                Log.w(TAG, "setFullscreen", t);
+            }
+        });
+        return null;
+    }
+
     public static String openPath(String path) {
         Activity a = sActivity;
         if (a == null) return "Activity ещё не готова";

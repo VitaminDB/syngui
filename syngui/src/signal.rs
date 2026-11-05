@@ -510,6 +510,8 @@ pub(crate) static QUIT_REQUESTED: std::sync::atomic::AtomicBool =
 /// клавиша), иначе браузер отклонит запрос.
 #[cfg(feature = "winit")]
 pub fn toggle_fullscreen() {
+    #[cfg(target_os = "android")]
+    crate::platform::android::set_fullscreen(!crate::platform::android::is_fullscreen());
     #[cfg(not(target_os = "android"))]
     if let Some(window) = primary_window() {
         let win = window.winit_window();
@@ -535,8 +537,10 @@ pub fn set_fullscreen(on: bool) {
             window.request_redraw();
         }
     }
+    // Android: строка состояния и панель навигации прячутся (по свайпу — на время),
+    // окно — под вырезом камеры; безопасная область переспрашивается сама.
     #[cfg(target_os = "android")]
-    let _ = on;
+    crate::platform::android::set_fullscreen(on);
 }
 
 static FORCE_FRAME: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
@@ -576,8 +580,10 @@ pub fn set_decorations(on: bool) {
             });
         }
     }
+    // Android: строка состояния и панель навигации прячутся (по свайпу — на время),
+    // окно — под вырезом камеры; безопасная область переспрашивается сама.
     #[cfg(target_os = "android")]
-    let _ = on;
+    crate::platform::android::set_fullscreen(on);
 }
 
 #[cfg(feature = "winit")]

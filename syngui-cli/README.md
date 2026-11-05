@@ -78,6 +78,8 @@ ffmpeg = true                      # статический FFmpeg из syngui/a
 foreground_service = "quit_smoking_timer"  # SynGuiForegroundService (specialUse) + разрешения
 background = "#FFF8F0"             # фон окна до первого кадра
 orientation = "portrait"
+fullscreen = true                  # тема без строки состояния с первого кадра (windowFullscreen);
+                                   # панель навигации прячет App::fullscreen(true) / syngui::set_fullscreen
 manifest_application = "android/application.xml"  # XML внутрь <application> (файл или строка с «<»)
 manifest = "<uses-feature android:name=\"android.hardware.nfc\" />"
 res = "android/res"                # свои ресурсы поверх сгенерированных

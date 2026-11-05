@@ -274,6 +274,62 @@ pub(crate) fn set_system_bars(bars: &super::SystemBars) -> Result<(), String> {
     })
 }
 
+/// Полноэкранный режим, заданный приложением: 0 — не задавался, 1 — выкл, 2 — вкл.
+static FULLSCREEN: std::sync::atomic::AtomicU8 = std::sync::atomic::AtomicU8::new(0);
+/// До какого момента (мс от старта) переспрашивать безопасную область: панели
+/// прячутся асинхронно, размер окна при этом не меняется (edge-to-edge).
+static SAFE_AREA_RECHECK_UNTIL: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+
+fn now_ms() -> u64 {
+    static START: std::sync::OnceLock<std::time::Instant> = std::sync::OnceLock::new();
+    START.get_or_init(std::time::Instant::now).elapsed().as_millis() as u64
+}
+
+/// Полноэкранный режим (прятать строку состояния и панель навигации). Запоминается и
+/// повторяется после resume; до готовности активити — применится при `init`.
+pub(crate) fn set_fullscreen(on: bool) {
+    FULLSCREEN.store(if on { 2 } else { 1 }, Ordering::SeqCst);
+    apply_fullscreen();
+}
+
+/// Задавался ли режим (приложением или App::fullscreen).
+pub(crate) fn fullscreen_set() -> bool {
+    FULLSCREEN.load(Ordering::SeqCst) != 0
+}
+
+pub(crate) fn is_fullscreen() -> bool {
+    FULLSCREEN.load(Ordering::SeqCst) == 2
+}
+
+fn apply_fullscreen() {
+    let state = FULLSCREEN.load(Ordering::SeqCst);
+    if state == 0 {
+        return;
+    }
+    let r = with_env(|env, cls| {
+        let ret = env
+            .call_static_method(cls, "setFullscreen", "(Z)Ljava/lang/String;", &[JValue::Bool((state == 2) as u8)])
+            .map_err(|e| format!("setFullscreen: {e}"))?
+            .l()
+            .map_err(|e| format!("setFullscreen: {e}"))?;
+        if ret.is_null() {
+            Ok(())
+        } else {
+            let s = JString::from(ret);
+            Err(env.get_string(&s).map(|s| s.into()).unwrap_or_else(|_| "setFullscreen: ошибка".into()))
+        }
+    });
+    match r {
+        Ok(()) => SAFE_AREA_RECHECK_UNTIL.store(now_ms() + 1500, Ordering::SeqCst),
+        Err(e) => log::debug!("полноэкранный режим: {e}"),
+    }
+}
+
+/// Переспросить безопасную область в этом кадре (после смены полноэкранного режима).
+pub(crate) fn safe_area_recheck() -> bool {
+    now_ms() < SAFE_AREA_RECHECK_UNTIL.load(Ordering::SeqCst)
+}
+
 /// Повторить заданные панели после `init` (новая активити при resume).
 pub(crate) fn reapply_system_bars() {
     if let Some(bars) = super::system_bars() {
@@ -281,4 +337,6 @@ pub(crate) fn reapply_system_bars() {
             log::warn!("system bars: {e}");
         }
     }
+    // полноэкранный режим — тоже (после сворачивания система возвращает панели)
+    apply_fullscreen();
 }

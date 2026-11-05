@@ -14,6 +14,7 @@ impl AppHandler {
 
         let result = unsafe { self.query_safe_area_jni(vm_ptr, activity_ptr) };
         match result {
+            Ok(insets) if insets == self.tree.safe_area => {}
             Ok(insets) => {
                 log::info!(
                     "безопасная область: слева {:.0}, сверху {:.0}, справа {:.0}, снизу {:.0} \
@@ -251,6 +252,16 @@ impl AppHandler {
         if pressed {
             self.dispatch_back();
         }
+        // После смены полноэкранного режима панели прячутся асинхронно, а размер окна
+        // не меняется — безопасную область переспрашиваем, пока режим устанавливается.
+        if crate::platform::android::safe_area_recheck() {
+            let before = self.tree.safe_area;
+            self.update_safe_area();
+            if self.tree.safe_area != before {
+                self.tree.mark_all_dirty(crate::widget::DirtyFlags::LAYOUT);
+            }
+            crate::signal::request_redraw();
+        }
     }
 
     /// Обработка жеста/клавиши «назад», общая для обоих каналов доставки:
@@ -369,6 +380,11 @@ impl AppHandler {
 
         if let Err(e) = unsafe { Self::load_and_register_back(vm_ptr, activity_ptr) } {
             log::warn!("Back handler registration failed: {}", e);
+        }
+        // App::fullscreen(true): при первом запуске активити (дальше режим
+        // повторяется сам после resume, а приложение меняет его set_fullscreen)
+        if self.config.fullscreen && !crate::platform::android::fullscreen_set() {
+            crate::platform::android::set_fullscreen(true);
         }
     }
 

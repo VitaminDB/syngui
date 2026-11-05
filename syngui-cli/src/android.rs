@@ -407,8 +407,9 @@ dependencies {{
     ))?;
 
     let bg = a.background.as_deref().map(|c| format!("        <item name=\"android:windowBackground\">{}</item>\n", util::xml(c))).unwrap_or_default();
+    let fs = if a.fullscreen { "        <item name=\"android:windowFullscreen\">true</item>\n" } else { "" };
     w("app/src/main/res/values/styles.xml", &format!(
-        "<?xml version=\"1.0\" encoding=\"utf-8\"?>\n<resources>\n    <style name=\"Theme.SynGui\" parent=\"Theme.AppCompat.DayNight.NoActionBar\">\n        <item name=\"android:windowNoTitle\">true</item>\n{bg}        <item name=\"android:windowLayoutInDisplayCutoutMode\">shortEdges</item>\n    </style>\n</resources>\n"
+        "<?xml version=\"1.0\" encoding=\"utf-8\"?>\n<resources>\n    <style name=\"Theme.SynGui\" parent=\"Theme.AppCompat.DayNight.NoActionBar\">\n        <item name=\"android:windowNoTitle\">true</item>\n{bg}{fs}        <item name=\"android:windowLayoutInDisplayCutoutMode\">shortEdges</item>\n    </style>\n</resources>\n"
     ))?;
     w("app/src/main/res/xml/syngui_file_paths.xml", "<?xml version=\"1.0\" encoding=\"utf-8\"?>\n<!-- Корни, из которых syngui::platform выдаёт файлы другим приложениям. -->\n<paths>\n    <files-path name=\"files\" path=\".\" />\n    <cache-path name=\"cache\" path=\".\" />\n    <external-files-path name=\"external_files\" path=\".\" />\n    <external-cache-path name=\"external_cache\" path=\".\" />\n</paths>\n")?;
 

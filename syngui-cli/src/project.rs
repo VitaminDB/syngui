@@ -104,6 +104,9 @@ pub struct AndroidMeta {
     pub java: Option<String>,
     /// Цвет фона окна до первого кадра.
     pub background: Option<String>,
+    /// Полноэкранная тема с первого кадра (android:windowFullscreen): без строки состояния;
+    /// панель навигации прячет App::fullscreen(true) / syngui::set_fullscreen.
+    pub fullscreen: bool,
     /// Ориентация экрана (portrait, landscape…); по умолчанию свободная.
     pub orientation: Option<String>,
     /// Каталог ключа подписи (release.jks + password); по умолчанию ~/.secrets/<крейт>-android.
