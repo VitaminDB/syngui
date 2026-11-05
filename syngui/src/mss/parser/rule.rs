@@ -72,6 +72,19 @@ fn insert_with_shorthand_expansion(
             }
         }
         None => {
+            // В одном правиле — тот же порядок, что и в каскаде (ComputedStyle::set):
+            // поздний `background` (не градиент) отменяет `background-color` и наоборот.
+            match property.as_str() {
+                "background" if !matches!(value, StyleValue::Gradient(_)) => {
+                    declarations.remove("background-color");
+                }
+                "background-color" => {
+                    if !matches!(declarations.get("background"), Some(StyleValue::Gradient(_)) | None) {
+                        declarations.remove("background");
+                    }
+                }
+                _ => {}
+            }
             declarations.insert(property, value);
         }
     }

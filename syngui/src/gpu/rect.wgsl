@@ -96,8 +96,7 @@ fn apply_rounded_clip(color: vec4<f32>, logical_pos: vec2<f32>) -> vec4<f32> {
     }
     let cr = uniforms.clip_corner_radius;
     let d = rounded_clip_sdf(logical_pos, uniforms.clip_rect.xy, clip_size, cr);
-    let aa = fwidth(d) * 0.75;
-    let clip_alpha = 1.0 - smoothstep(-aa, aa, d);
+    let clip_alpha = clamp(0.5 - d / max(fwidth(d), 0.0001), 0.0, 1.0);
     if color.a * clip_alpha < 0.001 {
         discard;
     }
@@ -179,12 +178,11 @@ fn fs_outline_ring(in: VertexOutput) -> vec4<f32> {
     let q_i = abs(p) - inner_half + r_i;
     let d_inner = min(max(q_i.x, q_i.y), 0.0) + length(max(q_i, vec2<f32>(0.0))) - r_i;
 
-    let aa = fwidth(d_outer) * 0.75;
+    let fw = max(fwidth(d_outer), 0.0001);
 
-    // Inside outer boundary (the full quad area)
-    let in_outer = smoothstep(aa, -aa, d_outer);
-    // Outside inner boundary (ring area, not the hole inside)
-    let out_inner = smoothstep(-aa, aa, d_inner);
+    // Доля пикселя внутри внешней кромки и снаружи внутренней (как в браузере)
+    let in_outer = clamp(0.5 - d_outer / fw, 0.0, 1.0);
+    let out_inner = clamp(0.5 + d_inner / fw, 0.0, 1.0);
 
     let ring_alpha = in_outer * out_inner;
     if ring_alpha < 0.001 {
@@ -324,8 +322,7 @@ fn fs_per_side_border(in: VertexOutput, max_radius: f32) -> vec4<f32> {
 
     // SDF for rounded rect outer shape
     let d = rounded_rect_sdf(in.uv, rect_size, in.data);
-    let aa = fwidth(d) * 0.75;
-    let outer_alpha = 1.0 - smoothstep(-aa, aa, d);
+    let outer_alpha = clamp(0.5 - d / max(fwidth(d), 0.0001), 0.0, 1.0);
 
     // Distance from each edge in pixels
     let edge_l = in.uv.x * rect_size.x;
@@ -450,7 +447,6 @@ fn fs_rounded(in: VertexOutput) -> @location(0) vec4<f32> {
         rect_size = vec2<f32>(1.0 / max(abs(dx.x), 0.0001), 1.0 / max(abs(dy.y), 0.0001));
     }
     let d = rounded_rect_sdf(in.uv, rect_size, in.data);
-    let aa = fwidth(d) * 0.75;
-    let alpha = 1.0 - smoothstep(-aa, aa, d);
+    let alpha = clamp(0.5 - d / max(fwidth(d), 0.0001), 0.0, 1.0);
     return apply_rounded_clip(vec4<f32>(in.color.rgb, in.color.a * alpha), in.logical_pos);
 }

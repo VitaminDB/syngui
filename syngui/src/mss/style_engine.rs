@@ -455,6 +455,20 @@ impl ComputedStyle {
     }
 
     pub fn set(&mut self, property: &str, value: StyleValue) {
+        // Шорткат `background` (цвет) сбрасывает ранее заданный `background-color`, а
+        // поздний `background-color` — цвет из `background`, как в CSS: побеждает то, что
+        // задано позже по каскаду. Градиент в `background` цвет не трогает (картинка поверх).
+        match property {
+            "background" if !matches!(value, StyleValue::Gradient(_)) => {
+                self.properties.remove("background-color");
+            }
+            "background-color" => {
+                if !matches!(self.properties.get("background"), Some(StyleValue::Gradient(_)) | None) {
+                    self.properties.remove("background");
+                }
+            }
+            _ => {}
+        }
         self.properties.insert(property.to_string(), value);
     }
 
