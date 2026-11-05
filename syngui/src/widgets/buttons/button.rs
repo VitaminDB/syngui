@@ -424,7 +424,7 @@ impl Element for ButtonElement {
             .border_radius_uniform(self.bounds.size.width.min(self.bounds.size.height), 0.0);
         let cr = [radius; 4];
 
-        if let Some(ref shadows) = self.mss.box_shadow {
+        if let Some(shadows) = self.mss.effective_box_shadow(self.disabled) {
             for shadow in &shadows.0 {
                 if !shadow.inset {
                     list.push_shadow(
@@ -866,5 +866,21 @@ mod tests {
             long_w > short_w * 2.0,
             "ширина не выросла: {short_w} → {long_w}"
         );
+    }
+
+    /// `:disabled { box-shadow: none }` снимает тень выключенной кнопки:
+    /// раньше слой `:disabled` давал только цвета, и тень базового правила
+    /// (свечение главной кнопки) оставалась у неактивной кнопки.
+    #[test]
+    fn disabled_layer_removes_shadow() {
+        let css = ".p { box-shadow: 0 6px 18px rgba(255, 0, 0, 0.3); &:disabled { box-shadow: none; } }";
+        let shadows = |disabled: bool| {
+            let mut h = TestHarness::new(Box::new(Button::new("OK").disabled(disabled).class("p")));
+            h.apply_mss(css);
+            h.layout(200.0, 40.0);
+            h.paint().commands().iter().filter(|c| format!("{c:?}").contains("Shadow")).count()
+        };
+        assert!(shadows(false) > 0, "у включённой кнопки тень есть");
+        assert_eq!(shadows(true), 0, "у выключенной тень снята");
     }
 }

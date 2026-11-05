@@ -374,7 +374,7 @@ impl Element for ToolButtonElement {
             None
         };
 
-        if let Some(ref shadows) = self.mss.box_shadow {
+        if let Some(shadows) = self.mss.effective_box_shadow(self.disabled) {
             for shadow in &shadows.0 {
                 if !shadow.inset {
                     list.push_shadow(

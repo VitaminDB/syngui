@@ -315,6 +315,9 @@ pub struct MssFields {
     pub style_selected: Option<ResolvedProps>,
     /// Слой `:disabled`; `None` — правил с `:disabled` нет.
     pub style_disabled: Option<ResolvedProps>,
+    /// Тень выключенного элемента из слоя `:disabled` (внутренний `None` —
+    /// `box-shadow: none`); внешний `None` — правил `:disabled` нет.
+    pub shadow_disabled: Option<Option<Shadows>>,
     pub has_mss_styles: bool,
     pub filter_normal: Option<Vec<crate::effects::FilterEffect>>,
     pub filter_hover: Option<Vec<crate::effects::FilterEffect>>,
@@ -437,6 +440,7 @@ impl MssFields {
             style_focus: None,
             style_selected: None,
             style_disabled: None,
+            shadow_disabled: None,
             has_mss_styles: false,
             filter_normal: None,
             filter_hover: None,
@@ -1330,6 +1334,16 @@ impl MssFields {
     /// Запомнить слой `:disabled` из каскада.
     pub fn set_disabled_style(&mut self, disabled: Option<&ComputedStyle>) {
         self.style_disabled = disabled.map(ResolvedProps::from_style);
+        self.shadow_disabled = disabled.map(|d| d.box_shadow());
+    }
+
+    /// Тени для отрисовки: у выключенного элемента — из слоя `:disabled`,
+    /// если он есть (`box-shadow: none` там снимает тень).
+    pub fn effective_box_shadow(&self, disabled: bool) -> Option<&Shadows> {
+        match (&self.shadow_disabled, disabled) {
+            (Some(s), true) => s.as_ref(),
+            _ => self.box_shadow.as_ref(),
+        }
     }
 
     /// Стили текущего состояния с учётом выключенности: у выключенного
