@@ -1211,7 +1211,11 @@ impl AppHandler {
             }
         }
     }
+}
 
+// Нужна и перетаскиванию (wayland-dnd), и перу (pen): не только под одной из возможностей.
+#[cfg(any(feature = "wayland-dnd", feature = "pen"))]
+impl AppHandler {
     fn request_redraw(&self) {
         if let Some(window) = &self.window {
             crate::perf::redraw_from(file!(), line!());
