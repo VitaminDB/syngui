@@ -432,7 +432,9 @@ impl Element for LiveViewElement {
                     return EventResult::Handled;
                 }
             }
-            Event::MouseDown { button, position } if self.inside(*position) => {
+            // Второе нажатие двойного щелчка приходит как DoubleClick — для удалённого экрана это
+            // обычное нажатие (иначе гость получает один щелчок вместо двух).
+            Event::MouseDown { button, position } | Event::DoubleClick { button, position } if self.inside(*position) => {
                 let (x, y) = self.frac(*position);
                 self.pressed = true;
                 ctx.capture();

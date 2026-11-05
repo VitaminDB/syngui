@@ -571,3 +571,7 @@ required-features = ["image"]
 
 [[example]]
 name = "platform_probe"
+
+[[test]]
+name = "live_view_double_click"
+required-features = ["testing"]
