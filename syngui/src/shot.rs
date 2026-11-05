@@ -35,6 +35,12 @@ pub struct ShotOptions {
     pub settle: Duration,
     /// Предел ожидания готовности: снимок делается и без неё.
     pub timeout: Duration,
+    /// Серия кадров (анимация, запись GIF): больше 1 — после готовности
+    /// снимается столько кадров через [`interval`](Self::interval) живого
+    /// времени, а в имени файла `{n}` заменяется номером кадра (`0000`…).
+    pub frames: u32,
+    /// Промежуток между кадрами серии.
+    pub interval: Duration,
 }
 
 impl Default for ShotOptions {
@@ -45,6 +51,8 @@ impl Default for ShotOptions {
             ready: None,
             settle: Duration::ZERO,
             timeout: Duration::from_secs(120),
+            frames: 1,
+            interval: Duration::from_millis(100),
         }
     }
 }
@@ -134,10 +142,8 @@ pub fn render_png_with(
     tree.set_root(root);
 
     let logical = Size::new(lw as f32, lh as f32);
-    let mut list = DisplayList::new();
-    let started = std::time::Instant::now();
-    let mut ready_at: Option<std::time::Instant> = None;
-    for frame in 0.. {
+    // Один кадр: пересборка, стили, эффекты, раскладка, анимация на `dt`, список рисования.
+    let step = |tree: &mut ElementTree, dt: Duration| -> DisplayList {
         if let Some(store) = tree.image_store.as_ref() {
             store.lock().unwrap_or_else(|e| e.into_inner()).poll_bg();
         }
@@ -145,9 +151,9 @@ pub fn render_png_with(
             if !tree.rebuild_if_needed(root) {
                 break;
             }
-            cascade::apply_styles_dirty(&mut tree, &engine);
+            cascade::apply_styles_dirty(tree, &engine);
         }
-        cascade::apply_styles_dirty(&mut tree, &engine);
+        cascade::apply_styles_dirty(tree, &engine);
         crate::signal::drain_and_run_effects();
         crate::async_runtime::drain_main_thread_callbacks();
         tree.viewport_size = logical;
@@ -155,14 +161,21 @@ pub fn render_png_with(
         let constraints = Constraints::new(0.0, lw as f32, 0.0, lh as f32);
         tree.layout(root, constraints);
         if tree.rebuild_if_needed(root) {
-            cascade::apply_styles_dirty(&mut tree, &engine);
+            cascade::apply_styles_dirty(tree, &engine);
             tree.layout(root, constraints);
         }
-        tree.animate(root, Duration::from_millis(400));
-        list = DisplayList::new();
+        tree.animate(root, dt);
+        let mut list = DisplayList::new();
         list.set_surface_size(logical);
         list.set_scale_factor(scale as f32);
         tree.build_display_list(root, &mut list, Rect::new(Point::zero(), logical));
+        list
+    };
+    let mut list = DisplayList::new();
+    let started = std::time::Instant::now();
+    let mut ready_at: Option<std::time::Instant> = None;
+    for frame in 0.. {
+        list = step(&mut tree, Duration::from_millis(400));
         if ready_at.is_none() && opts.ready.as_ref().map_or(true, |r| r()) {
             ready_at = Some(std::time::Instant::now());
         }
@@ -193,67 +206,81 @@ pub fn render_png_with(
         .and_then(|e| e.mss())
         .and_then(|m| m.background_color)
         .unwrap_or(Color::from_srgb(0x16, 0x18, 0x1d, 1.0));
-    let tex = gpu.device.create_texture(&wgpu::TextureDescriptor {
-        label: Some("screenshot"),
-        size: wgpu::Extent3d {
-            width: pw,
-            height: ph,
-            depth_or_array_layers: 1,
-        },
-        mip_level_count: 1,
-        sample_count: 1,
-        dimension: wgpu::TextureDimension::D2,
-        format,
-        usage: wgpu::TextureUsages::RENDER_ATTACHMENT | wgpu::TextureUsages::COPY_SRC,
-        view_formats: &[],
-    });
-    let view = tex.create_view(&Default::default());
-    // Первый проход грузит картинки в GPU-кэш, второй рисует их.
-    renderer.render_to_view(&gpu, &view, (pw, ph), &list, bg);
-    renderer.render_to_view(&gpu, &view, (pw, ph), &list, bg);
-
-    let row = (pw * 4).div_ceil(256) * 256;
-    let buf = gpu.device.create_buffer(&wgpu::BufferDescriptor {
-        label: Some("readback"),
-        size: (row * ph) as u64,
-        usage: wgpu::BufferUsages::COPY_DST | wgpu::BufferUsages::MAP_READ,
-        mapped_at_creation: false,
-    });
-    let mut enc = gpu.device.create_command_encoder(&Default::default());
-    enc.copy_texture_to_buffer(
-        wgpu::TexelCopyTextureInfo {
-            texture: &tex,
-            mip_level: 0,
-            origin: wgpu::Origin3d::ZERO,
-            aspect: wgpu::TextureAspect::All,
-        },
-        wgpu::TexelCopyBufferInfo {
-            buffer: &buf,
-            layout: wgpu::TexelCopyBufferLayout {
-                offset: 0,
-                bytes_per_row: Some(row),
-                rows_per_image: Some(ph),
+    let mut save = |list: &DisplayList, out: &str| -> Result<(), String> {
+        let tex = gpu.device.create_texture(&wgpu::TextureDescriptor {
+            label: Some("screenshot"),
+            size: wgpu::Extent3d {
+                width: pw,
+                height: ph,
+                depth_or_array_layers: 1,
             },
-        },
-        wgpu::Extent3d {
-            width: pw,
-            height: ph,
-            depth_or_array_layers: 1,
-        },
-    );
-    gpu.queue.submit([enc.finish()]);
-    let slice = buf.slice(..);
-    slice.map_async(wgpu::MapMode::Read, |_| {});
-    let _ = gpu.device.poll(wgpu::PollType::wait_indefinitely());
-    let data = slice.get_mapped_range();
-    let mut rgba = Vec::with_capacity((pw * ph * 4) as usize);
-    for y in 0..ph {
-        let start = (y * row) as usize;
-        rgba.extend_from_slice(&data[start..start + (pw * 4) as usize]);
-    }
-    drop(data);
-    buf.unmap();
+            mip_level_count: 1,
+            sample_count: 1,
+            dimension: wgpu::TextureDimension::D2,
+            format,
+            usage: wgpu::TextureUsages::RENDER_ATTACHMENT | wgpu::TextureUsages::COPY_SRC,
+            view_formats: &[],
+        });
+        let view = tex.create_view(&Default::default());
+        // Первый проход грузит картинки в GPU-кэш, второй рисует их.
+        renderer.render_to_view(&gpu, &view, (pw, ph), &list, bg);
+        renderer.render_to_view(&gpu, &view, (pw, ph), &list, bg);
+
+        let row = (pw * 4).div_ceil(256) * 256;
+        let buf = gpu.device.create_buffer(&wgpu::BufferDescriptor {
+            label: Some("readback"),
+            size: (row * ph) as u64,
+            usage: wgpu::BufferUsages::COPY_DST | wgpu::BufferUsages::MAP_READ,
+            mapped_at_creation: false,
+        });
+        let mut enc = gpu.device.create_command_encoder(&Default::default());
+        enc.copy_texture_to_buffer(
+            wgpu::TexelCopyTextureInfo {
+                texture: &tex,
+                mip_level: 0,
+                origin: wgpu::Origin3d::ZERO,
+                aspect: wgpu::TextureAspect::All,
+            },
+            wgpu::TexelCopyBufferInfo {
+                buffer: &buf,
+                layout: wgpu::TexelCopyBufferLayout {
+                    offset: 0,
+                    bytes_per_row: Some(row),
+                    rows_per_image: Some(ph),
+                },
+            },
+            wgpu::Extent3d {
+                width: pw,
+                height: ph,
+                depth_or_array_layers: 1,
+            },
+        );
+        gpu.queue.submit([enc.finish()]);
+        let slice = buf.slice(..);
+        slice.map_async(wgpu::MapMode::Read, |_| {});
+        let _ = gpu.device.poll(wgpu::PollType::wait_indefinitely());
+        let data = slice.get_mapped_range();
+        let mut rgba = Vec::with_capacity((pw * ph * 4) as usize);
+        for y in 0..ph {
+            let start = (y * row) as usize;
+            rgba.extend_from_slice(&data[start..start + (pw * 4) as usize]);
+        }
+        drop(data);
+        buf.unmap();
     image::save_buffer(out, &rgba, pw, ph, image::ExtendedColorType::Rgba8)
-        .map_err(|e| format!("{out}: {e}"))?;
+            .map_err(|e| format!("{out}: {e}"))
+    };
+    if opts.frames <= 1 {
+        save(&list, out)?;
+        return Ok((pw, ph));
+    }
+    // Серия: кадры через `interval` живого времени (потоки программы тикают сами).
+    for n in 0..opts.frames {
+        if n > 0 {
+            std::thread::sleep(opts.interval);
+            list = step(&mut tree, opts.interval);
+        }
+        save(&list, &out.replace("{n}", &format!("{n:04}")))?;
+    }
     Ok((pw, ph))
 }
