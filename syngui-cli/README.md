@@ -78,6 +78,10 @@ ffmpeg = true                      # статический FFmpeg из syngui/a
 foreground_service = "quit_smoking_timer"  # SynGuiForegroundService (specialUse) + разрешения
 background = "#FFF8F0"             # фон окна до первого кадра
 orientation = "portrait"
+icon_foreground = "assets/icon/icon-foreground.svg"  # адаптивный значок (Android 8+): холст 108dp,
+                                   # рисунок в центральных ~61 %, фон прозрачный; он же — монохромный слой
+icon_background = "#F6EFE3"        # фон адаптивного значка: цвет или SVG
+icon_monochrome = "assets/icon/mono.svg"  # свой слой тематических значков Android 13 (необязательно)
 fullscreen = true                  # тема без строки состояния с первого кадра (windowFullscreen);
                                    # панель навигации прячет App::fullscreen(true) / syngui::set_fullscreen
 manifest_application = "android/application.xml"  # XML внутрь <application> (файл или строка с «<»)

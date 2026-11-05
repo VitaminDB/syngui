@@ -104,6 +104,13 @@ pub struct AndroidMeta {
     pub java: Option<String>,
     /// Цвет фона окна до первого кадра.
     pub background: Option<String>,
+    /// Адаптивный значок (Android 8+): передний план — SVG на холсте 108dp (рисунок в
+    /// центральных ~61 %, фон прозрачный); он же — монохромный (тематические значки).
+    pub icon_foreground: Option<String>,
+    /// Фон адаптивного значка: цвет `#RRGGBB` или SVG.
+    pub icon_background: Option<String>,
+    /// Свой монохромный слой (по умолчанию — icon_foreground).
+    pub icon_monochrome: Option<String>,
     /// Полноэкранная тема с первого кадра (android:windowFullscreen): без строки состояния;
     /// панель навигации прячет App::fullscreen(true) / syngui::set_fullscreen.
     pub fullscreen: bool,

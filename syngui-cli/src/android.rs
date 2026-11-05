@@ -363,6 +363,7 @@ dependencies {{
     <application
         android:label="{label}"
         android:icon="@mipmap/ic_launcher"
+        android:roundIcon="@mipmap/ic_launcher_round"
         android:hasCode="true"
         android:allowBackup="true"
         android:isGame="false"
@@ -421,8 +422,83 @@ dependencies {{
             letter_icon(&name)
         }
     };
-    for (d, px) in [("mdpi", 48), ("hdpi", 72), ("xhdpi", 96), ("xxhdpi", 144), ("xxxhdpi", 192)] {
-        icon::render(&svg, px, None, &dir.join(format!("app/src/main/res/mipmap-{d}/ic_launcher.png")))?;
+    const DENS: [(&str, u32); 5] = [("mdpi", 1), ("hdpi", 2), ("xhdpi", 2), ("xxhdpi", 3), ("xxxhdpi", 4)];
+    let scale = |d: &str| -> f32 {
+        match d {
+            "mdpi" => 1.0,
+            "hdpi" => 1.5,
+            "xhdpi" => 2.0,
+            "xxhdpi" => 3.0,
+            _ => 4.0,
+        }
+    };
+    let res = dir.join("app/src/main/res");
+    // Значок для старых лаунчеров (и запасной круглый)
+    for (d, _) in DENS {
+        let px = (48.0 * scale(d)).round() as u32;
+        icon::render(&svg, px, None, &res.join(format!("mipmap-{d}/ic_launcher.png")))?;
+        icon::render(&svg, px, None, &res.join(format!("mipmap-{d}/ic_launcher_round.png")))?;
+    }
+    // Адаптивный значок: передний план и фон по 108dp, монохромный слой — Android 13
+    let anydpi = res.join("mipmap-anydpi-v26");
+    let stale = ["ic_launcher_foreground.png", "ic_launcher_background.png", "ic_launcher_monochrome.png"];
+    match &a.icon_foreground {
+        Some(fg) => {
+            let read = |p: &str| std::fs::read_to_string(app.path(p)).with_context(|| format!("значок {p}"));
+            let fg_svg = read(fg)?;
+            let mono_svg = match &a.icon_monochrome {
+                Some(m) => Some(read(m)?),
+                None => None,
+            };
+            let bg = a.icon_background.clone().unwrap_or_else(|| "#FFFFFF".into());
+            let bg_svg = if bg.trim_start().starts_with('#') { None } else { Some(read(&bg)?) };
+            for (d, _) in DENS {
+                let px = (108.0 * scale(d)).round() as u32;
+                let m = res.join(format!("mipmap-{d}"));
+                icon::render(&fg_svg, px, None, &m.join("ic_launcher_foreground.png"))?;
+                match &mono_svg {
+                    Some(ms) => icon::render(ms, px, None, &m.join("ic_launcher_monochrome.png"))?,
+                    None => {
+                        let _ = std::fs::remove_file(m.join("ic_launcher_monochrome.png"));
+                    }
+                }
+                match &bg_svg {
+                    Some(bs) => icon::render(bs, px, None, &m.join("ic_launcher_background.png"))?,
+                    None => {
+                        let _ = std::fs::remove_file(m.join("ic_launcher_background.png"));
+                    }
+                }
+            }
+            let bg_ref = match &bg_svg {
+                Some(_) => "@mipmap/ic_launcher_background".to_string(),
+                None => {
+                    util::write_if_changed(
+                        &res.join("values/ic_launcher_background.xml"),
+                        format!("<?xml version=\"1.0\" encoding=\"utf-8\"?>\n<resources>\n    <color name=\"ic_launcher_background\">{}</color>\n</resources>\n", util::xml(bg.trim())),
+                    )?;
+                    "@color/ic_launcher_background".to_string()
+                }
+            };
+            if bg_svg.is_some() {
+                let _ = std::fs::remove_file(res.join("values/ic_launcher_background.xml"));
+            }
+            let mono = if mono_svg.is_some() { "@mipmap/ic_launcher_monochrome" } else { "@mipmap/ic_launcher_foreground" };
+            let xml = format!(
+                "<?xml version=\"1.0\" encoding=\"utf-8\"?>\n<!-- Сгенерировано syngui: адаптивный значок ([package.metadata.syngui.android] icon_foreground/icon_background). -->\n<adaptive-icon xmlns:android=\"http://schemas.android.com/apk/res/android\">\n    <background android:drawable=\"{bg_ref}\" />\n    <foreground android:drawable=\"@mipmap/ic_launcher_foreground\" />\n    <monochrome android:drawable=\"{mono}\" />\n</adaptive-icon>\n"
+            );
+            util::write_if_changed(&anydpi.join("ic_launcher.xml"), &xml)?;
+            util::write_if_changed(&anydpi.join("ic_launcher_round.xml"), &xml)?;
+        }
+        None => {
+            // без адаптивного значка — убрать следы прошлых сборок
+            let _ = std::fs::remove_dir_all(&anydpi);
+            let _ = std::fs::remove_file(res.join("values/ic_launcher_background.xml"));
+            for (d, _) in DENS {
+                for f in stale {
+                    let _ = std::fs::remove_file(res.join(format!("mipmap-{d}/{f}")));
+                }
+            }
+        }
     }
     Ok(())
 }
