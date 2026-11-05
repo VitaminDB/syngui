@@ -120,8 +120,29 @@ pub fn discover_emoji_font() -> (Vec<u8>, u32) {
     (Vec::new(), 0)
 }
 
+/// Системные шрифты доступны: на Linux fontconfig подгружается через dlopen — его может не быть (сервер,
+/// контейнер, минимальная система); тогда программа работает без системных шрифтов, а не падает в font-kit.
+pub fn system_fonts_available() -> bool {
+    #[cfg(target_os = "linux")]
+    {
+        static WARNED: std::sync::Once = std::sync::Once::new();
+        let ok = fontconfig_sys::statics::LIB_RESULT.is_ok();
+        if !ok {
+            WARNED.call_once(|| log::warn!("[font_discovery] libfontconfig.so.1 not found — no system fonts"));
+        }
+        ok
+    }
+    #[cfg(not(target_os = "linux"))]
+    {
+        true
+    }
+}
+
 #[cfg(not(target_os = "ios"))]
 fn load_font_bytes(families: &[FamilyName], props: &Properties) -> Option<(Vec<u8>, u32)> {
+    if !system_fonts_available() {
+        return None;
+    }
     let source = SystemSource::new();
     let handle = source.select_best_match(families, props).ok()?;
     handle_to_bytes(handle)
@@ -212,7 +233,7 @@ pub fn list_monospace_families() -> &'static [String] {
         .get_or_init(|| {
             // iOS: перебор всех семейств через select_best_match упирается в
             // ту же поломку признаков CoreText, что и load_font_bytes.
-            if cfg!(target_os = "ios") {
+            if cfg!(target_os = "ios") || !system_fonts_available() {
                 return Vec::new();
             }
             let source = SystemSource::new();
@@ -342,6 +363,9 @@ pub fn discover_styled(name: &str, weight: u16, italic: bool) -> Option<(Vec<u8>
 
 /// Все семейства шрифтов системы, по алфавиту.
 pub fn list_families() -> Vec<String> {
+    if !system_fonts_available() {
+        return Vec::new();
+    }
     let mut v = SystemSource::new().all_families().unwrap_or_default();
     v.sort_by_key(|a| a.to_lowercase());
     v.dedup();
