@@ -279,17 +279,49 @@ pub fn languages() -> Vec<LangInfo> {
         } else {
             &reg.app
         };
-        source
+        let mut list = source
             .iter()
             .map(|c| LangInfo {
                 tag: c.tag.clone(),
                 name: c.name.clone(),
                 english: c.english.clone(),
             })
-            .collect::<Vec<_>>()
+            .collect::<Vec<_>>();
+        // Язык исходных строк ([`set_source_language`]) — тоже выбор, хотя каталога
+        // у него нет: строки программы и есть его «перевод».
+        if let Some(src) = reg.source.clone() {
+            if !list.iter().any(|l| l.tag.base() == src.base()) {
+                list.push(LangInfo { name: native_name(&src).unwrap_or_else(|| src.tag().to_string()), tag: src, english: None });
+            }
+        }
+        list
     });
     list.sort_by(|a, b| a.tag.cmp(&b.tag));
     list
+}
+
+/// Самоназвание языка исходных строк (у него нет каталога с `@name`).
+fn native_name(lang: &Lang) -> Option<String> {
+    Some(
+        match lang.base() {
+            "ru" => "Русский",
+            "en" => "English",
+            "de" => "Deutsch",
+            "fr" => "Français",
+            "es" => "Español",
+            "it" => "Italiano",
+            "pt" => "Português",
+            "pl" => "Polski",
+            "uk" => "Українська",
+            "kk" => "Қазақша",
+            "tr" => "Türkçe",
+            "zh" => "中文",
+            "ja" => "日本語",
+            "ko" => "한국어",
+            _ => return None,
+        }
+        .to_string(),
+    )
 }
 
 /// Перевод ключа; при отсутствии возвращает сам ключ (и один раз пишет в лог).
