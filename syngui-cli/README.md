@@ -110,6 +110,10 @@ portable_packages = ["pkg-config"]  # apt-пакеты в образе
 [package.metadata.syngui.windows]
 features = ["gui"]
 default_features = true
+
+[package.metadata.syngui.release]          # syngui release --publish
+artifacts = ["tar-portable", "zip"]        # tar, tar-x86_64, tar-aarch64, tar-portable, zip, apk, ipa
+assets = ["~/путь/к/готовым/файлам/*"]     # внешние готовые файлы в релиз GitHub
 ```
 
 Ярлык ставится под своим именем, если задан `desktop` (`kz.syn.synport.desktop` — id AppStream);
@@ -223,6 +227,13 @@ APK/IPA крейтов с разделами android/ios в метаданных
 `target/syngui/releases/vX` с SHA256SUMS, `git push origin HEAD vX`, `gh release create`, затем AUR
 `<пакет>-git/-bin` с суммами релиза в `target/syngui/aur` — их выкладку в AUR делает человек.
 Нужна чистая рабочая копия; существующий тег на другом коммите — ошибка.
+
+Состав релиза приложения задаёт `[package.metadata.syngui.release] artifacts` (без него — tar обеих
+архитектур и APK/IPA по разделам android/ios). Готовые внешние файлы (образы, исходники GPL) —
+`assets` (маски, `~`) или `--assets <каталог|файл>` (можно несколько; у выпуска рабочего пространства —
+`assets` в syngui-release.toml): файлы прикладываются как есть, без копирования, подкаталоги — архивом
+`<имя>.tar`; чужой SHA256SUMS заменяется общим — в нём суммы всех файлов релиза. Файлы от 2 ГиБ
+GitHub не принимает — это проверяется до загрузки.
 
 ## Переменные
 

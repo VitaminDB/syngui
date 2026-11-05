@@ -170,6 +170,9 @@ enum Cmd {
         /// Описание выпуска вместо syngui-release.toml
         #[arg(long)]
         release_file: Option<PathBuf>,
+        /// Приложить к релизу GitHub готовые файлы (каталог — его содержимое; можно несколько)
+        #[arg(long)]
+        assets: Vec<PathBuf>,
     },
     /// Создать релизный ключ подписи Android в ~/.secrets/<крейт>-android (700/600, RSA 4096, 100 лет)
     Keygen {
@@ -321,7 +324,7 @@ fn real_main(cli: Cli) -> Result<()> {
             let app = load(&sel)?;
             run(&app, &device, prof.profile(), no_build, !no_log, &args)?;
         }
-        Cmd::Release { version, sel, apply, publish, no_mobile, release_file } => publish::run(publish::Opts {
+        Cmd::Release { version, sel, apply, publish, no_mobile, release_file, assets } => publish::run(publish::Opts {
             version: &version,
             manifest: sel.manifest_path.as_deref(),
             package: sel.package.as_deref(),
@@ -329,6 +332,7 @@ fn real_main(cli: Cli) -> Result<()> {
             publish,
             no_mobile,
             release_file: release_file.as_deref(),
+            assets,
         })?,
         Cmd::Keygen { sel, dname } => android::keygen(&load(&sel)?, &dname)?,
         Cmd::Init { sel } => init(&load(&sel)?)?,

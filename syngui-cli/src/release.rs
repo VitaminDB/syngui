@@ -67,6 +67,9 @@ pub struct Spec {
     pub options: Vec<String>,
     #[serde(default)]
     pub crates: BTreeMap<String, CrateSpec>,
+    /// Готовые внешние файлы для релиза GitHub (`syngui release --publish`): пути или маски.
+    #[serde(default)]
+    pub assets: Vec<String>,
     pub packages: Map<toml::Value>,
 }
 

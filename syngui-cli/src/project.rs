@@ -42,6 +42,18 @@ pub struct Meta {
     pub ios: IosMeta,
     pub linux: LinuxMeta,
     pub windows: WindowsMeta,
+    pub release: ReleaseMeta,
+}
+
+/// `syngui release`: что собрать в релиз GitHub и какие готовые файлы приложить.
+#[derive(Debug, Default, Deserialize)]
+#[serde(default, deny_unknown_fields)]
+pub struct ReleaseMeta {
+    /// tar (x86_64 и aarch64), tar-x86_64, tar-aarch64, tar-portable (linux-x86_64 в контейнере), zip (Windows),
+    /// apk, ipa. По умолчанию — tar и APK/IPA по разделам android/ios.
+    pub artifacts: Option<Vec<String>>,
+    /// Готовые внешние файлы релиза: пути или маски (`~`, `*`); каталог внутри маски — архивом <имя>.tar.
+    pub assets: Vec<String>,
 }
 
 #[derive(Debug, Default, Deserialize)]

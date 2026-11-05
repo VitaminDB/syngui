@@ -18,6 +18,72 @@ pub struct Opts<'a> {
     pub publish: bool,
     pub no_mobile: bool,
     pub release_file: Option<&'a Path>,
+    /// Внешние готовые файлы (каталог — его содержимое).
+    pub assets: Vec<PathBuf>,
+}
+
+#[derive(Clone, Copy, PartialEq, Debug)]
+enum Art {
+    Tar(Target),
+    TarPortable,
+    Zip,
+    Apk,
+    Ipa,
+}
+
+fn parse_arts(v: &[String]) -> Result<Vec<Art>> {
+    let mut out = Vec::new();
+    for a in v {
+        match a.as_str() {
+            "tar" => out.extend([Art::Tar(Target::LinuxX86_64), Art::Tar(Target::LinuxAarch64)]),
+            "tar-x86_64" => out.push(Art::Tar(Target::LinuxX86_64)),
+            "tar-aarch64" => out.push(Art::Tar(Target::LinuxAarch64)),
+            "tar-portable" => out.push(Art::TarPortable),
+            "zip" => out.push(Art::Zip),
+            "apk" => out.push(Art::Apk),
+            "ipa" => out.push(Art::Ipa),
+            _ => bail!("release.artifacts: неизвестное «{a}» — tar, tar-x86_64, tar-aarch64, tar-portable, zip, apk, ipa"),
+        }
+    }
+    Ok(out)
+}
+
+/// Раскрыть маски/пути внешних файлов: файлы — как есть, каталоги — их содержимое
+/// (из CLI) или сами (внутри маски → архив <имя>.tar).
+fn expand_assets(patterns: &[String], base: &Path, cli: &[PathBuf]) -> Result<Vec<PathBuf>> {
+    let mut items = Vec::new();
+    for p in patterns {
+        let pat = util::expand(p);
+        let pat = if pat.is_absolute() { pat } else { base.join(pat) };
+        let mut c = Command::new("bash");
+        c.args(["-c", "shopt -s nullglob; for f in $1; do printf '%s\\0' \"$f\"; done", "_"]).arg(pat.display().to_string());
+        let out = util::capture(c)?;
+        let found: Vec<PathBuf> = out.split('\0').filter(|s| !s.is_empty()).map(PathBuf::from).collect();
+        if found.is_empty() {
+            util::warn(format!("release.assets: по «{p}» ничего не найдено"));
+        }
+        items.extend(found);
+    }
+    for d in cli {
+        if d.is_dir() {
+            let mut v: Vec<PathBuf> = std::fs::read_dir(d)?.filter_map(|e| e.ok()).map(|e| e.path()).collect();
+            v.sort();
+            items.extend(v);
+        } else if d.is_file() {
+            items.push(d.clone());
+        } else {
+            bail!("--assets: нет {}", d.display());
+        }
+    }
+    Ok(items)
+}
+
+fn human(n: u64) -> String {
+    if n >= 1 << 30 {
+        format!("{:.2} ГБ", n as f64 / (1u64 << 30) as f64)
+    } else {
+        format!("{:.1} МБ", n as f64 / (1u64 << 20) as f64)
+    }
 }
 
 #[derive(serde::Deserialize)]
@@ -136,13 +202,45 @@ pub fn run(o: Opts) -> Result<()> {
     ));
     println!("  версия: {cur} → {v} в {}", version_file.display());
     println!("  коммит «Выпуск {v}» (Cargo.toml, Cargo.lock) и тег {tag}");
+    // Что собрать: release.artifacts приложения или tar обеих архитектур (+ APK/IPA по метаданным)
+    let arts: Option<Vec<Art>> = match app.as_ref().and_then(|a| a.meta.release.artifacts.clone()) {
+        Some(v) => Some(parse_arts(&v)?),
+        None => None,
+    };
+    if let Some(a) = &arts {
+        // явный список заменяет автоопределение APK/IPA
+        let krate = app.as_ref().unwrap().krate.clone();
+        mobile = if o.no_mobile { vec![] } else { vec![(krate, a.contains(&Art::Apk), a.contains(&Art::Ipa))] };
+        mobile.retain(|(_, a, i)| *a || *i);
+    }
+    let asset_patterns: Vec<String> = if workspace {
+        Release::load(o.manifest, Some(&release_file)).map(|r| r.spec.assets).unwrap_or_default()
+    } else {
+        app.as_ref().map(|a| a.meta.release.assets.clone()).unwrap_or_default()
+    };
+    let asset_base = app.as_ref().map(|a| a.manifest_dir.clone()).unwrap_or_else(|| root.clone());
+    let assets = expand_assets(&asset_patterns, &asset_base, &o.assets)?;
     if o.publish || dry {
-        let what = if workspace {
-            "-w -f tar -t all-linux --release".to_string()
-        } else {
-            "-f tar -t all-linux --release".to_string()
+        let what = match &arts {
+            Some(a) => a
+                .iter()
+                .filter(|x| !matches!(x, Art::Apk | Art::Ipa))
+                .map(|x| match x {
+                    Art::Tar(t) => format!("tar {t}"),
+                    Art::TarPortable => "tar linux-x86_64 --portable".into(),
+                    Art::Zip => "zip windows-x86_64".into(),
+                    _ => unreachable!(),
+                })
+                .collect::<Vec<_>>()
+                .join(", "),
+            None if workspace => "-w -f tar -t all-linux --release".to_string(),
+            None => "-f tar -t all-linux --release".to_string(),
         };
-        println!("  {}: syngui package {what}", if dry { "при --publish" } else { "сборка" });
+        println!("  {}: {what}", if dry { "при --publish собрать" } else { "сборка" });
+        for a in &assets {
+            let size = if a.is_dir() { "каталог → .tar".to_string() } else { std::fs::metadata(a).map(|m| human(m.len())).unwrap_or_default() };
+            println!("      + {} ({size})", a.display());
+        }
         for (n, a, i) in &mobile {
             if *a {
                 println!(
@@ -235,7 +333,18 @@ pub fn run(o: Opts) -> Result<()> {
     }
     std::fs::create_dir_all(&out_dir)?;
     let mut files: Vec<PathBuf> = Vec::new();
-    if workspace {
+    if let Some(arts) = &arts {
+        // перечитать: версия уже поднята
+        let a = &App::load(o.manifest, o.package)?;
+        for x in arts {
+            match x {
+                Art::Tar(t) => files.push(package::tar(a, *t, Profile::Release, false)?),
+                Art::TarPortable => files.push(package::tar(a, Target::LinuxX86_64, Profile::Release, true)?),
+                Art::Zip => files.push(package::zip(a, Profile::Release)?),
+                Art::Apk | Art::Ipa => {}
+            }
+        }
+    } else if workspace {
         let r = Release::load(o.manifest, Some(&release_file))?;
         for t in [Target::LinuxX86_64, Target::LinuxAarch64] {
             files.extend(r.tars(&[], t, Profile::Release, true)?);
@@ -262,9 +371,47 @@ pub fn run(o: Opts) -> Result<()> {
     for f in &files {
         util::copy(f, &out_dir.join(f.file_name().unwrap()))?;
     }
-    let sums = package::sha256sums(&out_dir)?;
     let mut upload: Vec<PathBuf> = files.iter().map(|f| out_dir.join(f.file_name().unwrap())).collect();
+    // Внешние файлы: как есть (не копируются — образы большие), каталоги — архивом <имя>.tar
+    for a in &assets {
+        let name = a.file_name().unwrap().to_string_lossy().into_owned();
+        if name == "SHA256SUMS" {
+            util::note(format!("{}: заменяется общим SHA256SUMS релиза (в нём суммы всех файлов)", a.display()));
+            continue;
+        }
+        let item = if a.is_dir() {
+            let t = out_dir.join(format!("{name}.tar"));
+            let mut c = Command::new("tar");
+            c.args(["--owner=0", "--group=0", "--numeric-owner", "-cf"]).arg(&t).arg("-C").arg(a.parent().unwrap()).arg(&name);
+            util::run(c)?;
+            t
+        } else {
+            a.clone()
+        };
+        let n = item.file_name().unwrap().to_string_lossy().into_owned();
+        if upload.iter().any(|u| u.file_name().unwrap().to_string_lossy() == n) {
+            bail!("в релизе два файла с именем {n}");
+        }
+        upload.push(item);
+    }
+    // Общий SHA256SUMS по всем файлам релиза (имена — как у файлов в релизе)
+    let mut c = Command::new("sha256sum");
+    c.args(&upload);
+    let sums_text: String = util::capture(c)?
+        .lines()
+        .map(|l| match l.split_once("  ") {
+            Some((h, p)) => format!("{h}  {}\n", Path::new(p).file_name().unwrap().to_string_lossy()),
+            None => format!("{l}\n"),
+        })
+        .collect();
+    let sums = out_dir.join("SHA256SUMS");
+    util::write(&sums, sums_text)?;
     upload.push(sums);
+    let total: u64 = upload.iter().filter_map(|u| std::fs::metadata(u).ok()).map(|m| m.len()).sum();
+    if let Some(big) = upload.iter().find(|u| std::fs::metadata(u).map(|m| m.len() >= 2 << 30).unwrap_or(false)) {
+        bail!("{}: файл больше 2 ГиБ — GitHub его не примет", big.display());
+    }
+    util::note(format!("в релиз: {} файлов, {}", upload.len(), human(total)));
 
     util::step(format!("git push origin HEAD {tag}"));
     util::run(git(&root, &["push", "origin", "HEAD", &tag]))?;
