@@ -18,19 +18,104 @@ pub fn tar_name(app: &App, target: Target) -> Result<String> {
     Ok(format!("{}-{}-{}.tar.zst", app.bin()?, app.version, target.arch()))
 }
 
-/// Собрать и упаковать дерево usr/… в tar.zst (+ .sha256) в dist.
-pub fn tar(app: &App, target: Target, profile: Profile) -> Result<PathBuf> {
-    let bin = linux::build(app, target, profile, &[])?;
+/// Собрать и упаковать в tar.zst (+ .sha256) в dist: дерево usr/… (его ставит -bin и пакет Arch),
+/// рядом — документы и install.sh (установка вне Arch: ~/.local или /usr).
+pub fn tar(app: &App, target: Target, profile: Profile, portable: bool) -> Result<PathBuf> {
+    let bin = linux::build(app, target, profile, &[], portable)?;
     let root = app.work_dir("stage").join(target.arch());
     linux::stage(app, &bin, &root, Some(target))?;
+    let mut top = vec!["usr".to_string()];
+    for d in &app.meta.docs {
+        let src = app.path(d);
+        let name = src.file_name().unwrap().to_string_lossy().into_owned();
+        util::copy(&src, &root.join(&name))?;
+        top.push(name);
+    }
+    let inst = root.join("install.sh");
+    match &app.meta.linux.installer {
+        Some(i) => util::copy(&app.path(i), &inst)?,
+        None => util::write(&inst, installer(app)?)?,
+    }
+    {
+        use std::os::unix::fs::PermissionsExt;
+        std::fs::set_permissions(&inst, std::fs::Permissions::from_mode(0o755))?;
+    }
+    top.push("install.sh".into());
     let dist = app.dist_dir();
     std::fs::create_dir_all(&dist)?;
     let out = dist.join(tar_name(app, target)?);
     util::step(format!("архив {}", out.display()));
     let mut c = Command::new("tar");
-    c.arg("--zstd").arg("--owner=0").arg("--group=0").arg("--numeric-owner").arg("-cf").arg(&out).arg("-C").arg(&root).arg("usr");
+    c.arg("--zstd").arg("--owner=0").arg("--group=0").arg("--numeric-owner").arg("-cf").arg(&out).arg("-C").arg(&root).args(&top);
     util::run(c)?;
     util::sha256_file(&out)?;
+    Ok(out)
+}
+
+/// install.sh архива: дерево usr/ → $1 (по умолчанию ~/.local), обновить кэши значков и ярлыков.
+fn installer(app: &App) -> Result<String> {
+    let bin = app.bin()?;
+    Ok(format!(
+        r#"#!/bin/sh
+# Установить {bin}: ./install.sh — в ~/.local (без root); sudo ./install.sh /usr — в систему.
+set -eu
+prefix=${{1:-$HOME/.local}}
+here=$(cd "$(dirname "$0")" && pwd)
+mkdir -p "$prefix"
+cp -r "$here/usr/." "$prefix/"
+chmod 755 "$prefix/bin/{bin}"
+command -v gtk-update-icon-cache >/dev/null && gtk-update-icon-cache -q -t "$prefix/share/icons/hicolor" 2>/dev/null || true
+command -v update-desktop-database >/dev/null && update-desktop-database -q "$prefix/share/applications" 2>/dev/null || true
+echo "{bin}: $prefix/bin/{bin}"
+"#
+    ))
+}
+
+/// Windows: `<программа>-<версия>-windows-x86_64.zip` — exe и документы.
+pub fn zip(app: &App, profile: Profile) -> Result<PathBuf> {
+    let exe = linux::build(app, Target::WindowsX86_64, profile, &[], false)?;
+    let dir = app.work_dir("stage").join("windows");
+    if dir.exists() {
+        std::fs::remove_dir_all(&dir)?;
+    }
+    let staged = dir.join(exe.file_name().unwrap());
+    util::copy(&exe, &staged)?;
+    linux::strip(&staged, Target::WindowsX86_64);
+    let mut files = vec![staged];
+    for d in &app.meta.docs {
+        let src = app.path(d);
+        let dst = dir.join(src.file_name().unwrap());
+        util::copy(&src, &dst)?;
+        files.push(dst);
+    }
+    let dist = app.dist_dir();
+    std::fs::create_dir_all(&dist)?;
+    let out = dist.join(format!("{}-{}-windows-x86_64.zip", app.bin()?, app.version));
+    let _ = std::fs::remove_file(&out);
+    util::step(format!("архив {}", out.display()));
+    let mut c = Command::new("zip");
+    c.arg("-qj9X").arg(&out).args(&files);
+    util::run(c)?;
+    util::sha256_file(&out)?;
+    Ok(out)
+}
+
+/// SHA256SUMS по всем артефактам dist (кроме .sha256).
+pub fn sha256sums(dist: &Path) -> Result<PathBuf> {
+    let mut names: Vec<String> = std::fs::read_dir(dist)?
+        .filter_map(|e| e.ok())
+        .filter(|e| e.file_type().map(|t| t.is_file()).unwrap_or(false))
+        .map(|e| e.file_name().to_string_lossy().into_owned())
+        .filter(|n| !n.ends_with(".sha256") && n != "SHA256SUMS")
+        .collect();
+    names.sort();
+    let out = dist.join("SHA256SUMS");
+    if names.is_empty() {
+        return Ok(out);
+    }
+    let mut c = Command::new("sha256sum");
+    c.current_dir(dist).args(&names);
+    util::write(&out, util::capture(c)?)?;
     Ok(out)
 }
 
@@ -54,8 +139,8 @@ fn desc_en(app: &App) -> String {
 const INSTALL_TREE: &str = "    cp -a --no-preserve=ownership usr \"$pkgdir\"/\n";
 
 /// Пакет pacman из собранных файлов: PKGBUILD в target/syngui/arch/<крейт>, makepkg.
-pub fn arch(app: &App, target: Target, profile: Profile) -> Result<PathBuf> {
-    let tar = tar(app, target, profile)?;
+pub fn arch(app: &App, target: Target, profile: Profile, portable: bool) -> Result<PathBuf> {
+    let tar = tar(app, target, profile, portable)?;
     let name = pkgname(app)?;
     let dir = app.work_dir("arch").join(target.arch());
     std::fs::create_dir_all(&dir)?;
@@ -146,18 +231,36 @@ pub fn aur(app: &App, out: Option<&Path>) -> Result<PathBuf> {
     let features = app.meta.linux.features.as_ref().map(|f| format!(" --features {}", sh(&f.join(",")))).unwrap_or_default();
 
     // Установка файлов -git: та же раскладка, что stage()
+    let rel = |p: &Path| p.strip_prefix(&app.manifest_dir).unwrap_or(p).display().to_string();
+    let icon = linux::icon_name(app);
     let mut inst = format!("    install -Dm755 \"$CARGO_TARGET_DIR/release/{bin}\" \"$pkgdir/usr/bin/{bin}\"\n");
     if let Some(d) = app.desktop_file() {
-        let r = d.strip_prefix(&app.manifest_dir).unwrap_or(&d).display().to_string();
-        inst.push_str(&format!("    install -Dm644 {} \"$pkgdir/usr/share/applications/{bin}.desktop\"\n", sh(&r)));
+        let name = if app.meta.desktop.is_some() { d.file_name().unwrap().to_string_lossy().into_owned() } else { format!("{bin}.desktop") };
+        inst.push_str(&format!("    install -Dm644 {} \"$pkgdir/usr/share/applications/{name}\"\n", sh(&rel(&d))));
     }
     if let Some(i) = app.icon() {
-        let r = i.strip_prefix(&app.manifest_dir).unwrap_or(&i).display().to_string();
-        inst.push_str(&format!("    install -Dm644 {} \"$pkgdir/usr/share/icons/hicolor/scalable/apps/{bin}.svg\"\n", sh(&r)));
+        inst.push_str(&format!("    install -Dm644 {} \"$pkgdir/usr/share/icons/hicolor/scalable/apps/{icon}.svg\"\n", sh(&rel(&i))));
+    }
+    if let Some(pat) = &app.meta.icons_png {
+        for size in linux::PNG_SIZES {
+            let p = app.path(&pat.replace("{size}", &size.to_string()));
+            if p.is_file() {
+                inst.push_str(&format!("    install -Dm644 {} \"$pkgdir/usr/share/icons/hicolor/{size}x{size}/apps/{icon}.png\"\n", sh(&rel(&p))));
+            }
+        }
+    }
+    let pkgn = name.clone();
+    for d in &app.meta.docs {
+        let p = app.path(d);
+        let n = p.file_name().unwrap().to_string_lossy().into_owned();
+        let sub = if n.to_uppercase().starts_with("LICENSE") || n.to_uppercase().starts_with("COPYING") { "licenses" } else { "doc" };
+        inst.push_str(&format!("    install -Dm644 {} \"$pkgdir/usr/share/{sub}/{pkgn}/{n}\"\n", sh(&rel(&p))));
     }
     for f in &app.meta.linux.files {
         let (from, to) = f.split_once(':').with_context(|| format!("linux.files: «{f}»"))?;
-        inst.push_str(&format!("    cp -a {} \"$pkgdir/{}\"\n", sh(from), to.trim_start_matches('/')));
+        let to = to.trim_start_matches('/');
+        let parent = Path::new(to).parent().map(|p| p.display().to_string()).unwrap_or_default();
+        inst.push_str(&format!("    install -dm755 \"$pkgdir/{parent}\"\n    cp -r {} \"$pkgdir/{to}\"\n", sh(from)));
     }
 
     let git = format!(

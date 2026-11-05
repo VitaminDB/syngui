@@ -17,6 +17,7 @@ mod ios;
 mod linux;
 mod package;
 mod project;
+mod release;
 mod target;
 mod util;
 
@@ -88,11 +89,14 @@ enum Cmd {
         sel: Sel,
         #[command(flatten)]
         prof: Prof,
+        /// linux-x86_64 в контейнере со старой glibc (2.31): запуск вне Arch — Ubuntu 20.04+, Debian 11+
+        #[arg(long)]
+        portable: bool,
         /// Доп. аргументы cargo (Linux): после --
         #[arg(last = true)]
         cargo_args: Vec<String>,
     },
-    /// Упаковать: tar (архив релиза, основа -bin), arch (пакет pacman), aur (PKGBUILD -git и -bin), apk, ipa
+    /// Упаковать: tar (архив релиза, основа -bin), arch (пакет pacman), aur (PKGBUILD -git и -bin), apk, ipa, zip (Windows)
     Package {
         #[arg(short, long)]
         format: String,
@@ -107,6 +111,24 @@ enum Cmd {
         /// Каталог для aur (по умолчанию target/syngui/aur)
         #[arg(short, long)]
         out: Option<PathBuf>,
+        /// Выпуск всего рабочего пространства по syngui-release.toml (несколько пакетов; arch, tar, aur)
+        #[arg(short, long)]
+        workspace: bool,
+        /// Только эти пакеты выпуска (через запятую)
+        #[arg(long, value_delimiter = ',')]
+        only: Vec<String>,
+        /// Описание выпуска вместо syngui-release.toml
+        #[arg(long)]
+        release_file: Option<PathBuf>,
+        /// Поставить собранные пакеты одной транзакцией (sudo pacman -U; пароль можно подать в stdin)
+        #[arg(long)]
+        install: bool,
+        /// Не убирать символы из программ
+        #[arg(long)]
+        no_strip: bool,
+        /// tar/arch для linux-x86_64 — переносимая сборка в контейнере (glibc 2.31)
+        #[arg(long)]
+        portable: bool,
     },
     /// Собрать и запустить: здесь, на Android (adb), iPhone (plumesign), телефоне с synshell (synport) или по ssh
     Run {
@@ -191,33 +213,67 @@ fn real_main(cli: Cli) -> Result<()> {
             }
         }
         Cmd::Info { sel } => info(&load(&sel)?)?,
-        Cmd::Build { target, sel, prof, cargo_args } => {
+        Cmd::Build { target, sel, prof, portable, cargo_args } => {
             let app = load(&sel)?;
             let mut done = Vec::new();
             for t in targets(&target)? {
-                let p = build(&app, t, prof.profile(), &cargo_args)?;
+                let p = build(&app, t, prof.profile(), &cargo_args, portable)?;
                 done.push((t, p));
             }
             for (t, p) in done {
                 println!("{t}: {}", p.display());
             }
         }
-        Cmd::Package { format, target, sel, fast, out } => {
-            let app = load(&sel)?;
+        Cmd::Package { format, target, sel, fast, out, workspace, only, release_file, install, no_strip, portable } => {
             let profile = if fast { Profile::Fast } else { Profile::Release };
+            if workspace {
+                let r = release::Release::load(sel.manifest_path.as_deref(), release_file.as_deref())?;
+                let mut results = Vec::new();
+                match format.as_str() {
+                    "arch" | "pacman" => {
+                        for t in targets(&target)? {
+                            ensure_linux(t)?;
+                            let (pkgs, _) = r.arch(&only, t, profile, !no_strip)?;
+                            if install && t.is_host() {
+                                release::install(&pkgs)?;
+                            }
+                            results.extend(pkgs);
+                        }
+                    }
+                    "tar" | "bin" => {
+                        for t in targets(&target)? {
+                            ensure_linux(t)?;
+                            results.extend(r.tars(&only, t, profile, !no_strip)?);
+                        }
+                    }
+                    "aur" => {
+                        let out = out.unwrap_or_else(|| r.target_dir.join("syngui/aur"));
+                        results.extend(r.aur(&only, &out)?);
+                    }
+                    f => bail!("--workspace: формат {f} не поддержан — arch, tar, aur"),
+                }
+                if format != "aur" {
+                    results.push(package::sha256sums(&r.target_dir.join("syngui/dist"))?);
+                }
+                for p in results {
+                    println!("{}", p.display());
+                }
+                return Ok(());
+            }
+            let app = load(&sel)?;
             let publish = !fast;
             let mut results = Vec::new();
             match format.as_str() {
                 "tar" | "bin" => {
                     for t in targets(&target)? {
                         ensure_linux(t)?;
-                        results.push(package::tar(&app, t, profile)?);
+                        results.push(package::tar(&app, t, profile, portable)?);
                     }
                 }
                 "arch" | "pacman" => {
                     for t in targets(&target)? {
                         ensure_linux(t)?;
-                        results.push(package::arch(&app, t, profile)?);
+                        results.push(package::arch(&app, t, profile, portable)?);
                     }
                 }
                 "aur" => results.push(package::aur(&app, out.as_deref())?),
@@ -229,7 +285,11 @@ fn real_main(cli: Cli) -> Result<()> {
                     let ipa = ios::build(&app, profile)?;
                     results.push(dist(&app, &ipa, true)?);
                 }
-                f => bail!("неизвестный формат {f}: tar, arch, aur, apk, ipa"),
+                "zip" | "windows" => results.push(package::zip(&app, profile)?),
+                f => bail!("неизвестный формат {f}: tar, arch, aur, apk, ipa, zip"),
+            }
+            if format != "aur" {
+                results.push(package::sha256sums(&app.dist_dir())?);
             }
             for r in results {
                 println!("{}", r.display());
@@ -246,8 +306,13 @@ fn real_main(cli: Cli) -> Result<()> {
 }
 
 fn ensure_linux(t: Target) -> Result<()> {
-    if matches!(t, Target::Android | Target::Ios) {
-        bail!("формат tar/arch — для Linux-целей; для {t}: --format {}", if t == Target::Android { "apk" } else { "ipa" });
+    if matches!(t, Target::Android | Target::Ios | Target::WindowsX86_64) {
+        let f = match t {
+            Target::Android => "apk",
+            Target::Ios => "ipa",
+            _ => "zip",
+        };
+        bail!("формат tar/arch — для Linux-целей; для {t}: --format {f}");
     }
     Ok(())
 }
@@ -263,9 +328,9 @@ fn dist(app: &App, file: &std::path::Path, sum: bool) -> Result<PathBuf> {
     Ok(out)
 }
 
-fn build(app: &App, t: Target, profile: Profile, extra: &[String]) -> Result<PathBuf> {
+fn build(app: &App, t: Target, profile: Profile, extra: &[String], portable: bool) -> Result<PathBuf> {
     match t {
-        Target::LinuxX86_64 | Target::LinuxAarch64 => linux::build(app, t, profile, extra),
+        Target::LinuxX86_64 | Target::LinuxAarch64 | Target::WindowsX86_64 => linux::build(app, t, profile, extra, portable),
         Target::Android => android::build(app, profile, false, None),
         Target::Ios => ios::build(app, profile),
     }
@@ -302,7 +367,7 @@ fn run(app: &App, device: &str, profile: Profile, no_build: bool, log: bool, arg
         }
         d if d == "phone" || d.starts_with("ssh:") => {
             let t = Target::LinuxAarch64;
-            let bin_path = if no_build { app.target_dir.join(if t.is_host() { String::new() } else { t.triple().into() }).join(profile.dir()).join(app.bin()?) } else { linux::build(app, t, profile, &[])? };
+            let bin_path = if no_build { app.target_dir.join(if t.is_host() { String::new() } else { t.triple().into() }).join(profile.dir()).join(app.bin()?) } else { linux::build(app, t, profile, &[], false)? };
             install_ssh(app, d, &bin_path)
         }
         d => bail!("неизвестное устройство {d}: local, android, ios, phone, ssh:<user@host>"),

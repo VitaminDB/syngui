@@ -34,9 +34,21 @@ pub struct Meta {
     pub description_en: Option<String>,
     /// Языки приложения (iOS CFBundleLocalizations); первый — основной.
     pub languages: Option<Vec<String>>,
+    /// Документы в архивы и пакеты (README, лицензии): от каталога крейта.
+    pub docs: Vec<String>,
+    /// PNG-значки по размерам: шаблон с {size} ("assets/icon/synport-{size}.png"); иначе рисуются из SVG.
+    pub icons_png: Option<String>,
     pub android: AndroidMeta,
     pub ios: IosMeta,
     pub linux: LinuxMeta,
+    pub windows: WindowsMeta,
+}
+
+#[derive(Debug, Default, Deserialize)]
+#[serde(default, deny_unknown_fields)]
+pub struct WindowsMeta {
+    pub features: Option<Vec<String>>,
+    pub default_features: Option<bool>,
 }
 
 #[derive(Debug, Default, Deserialize)]
@@ -116,6 +128,12 @@ pub struct LinuxMeta {
     pub features: Option<Vec<String>>,
     /// Дополнительные файлы пакета: "откуда:куда" (куда — от корня, например usr/share/foo).
     pub files: Vec<String>,
+    /// Свой установщик в архив tar (по умолчанию генерируется install.sh: ~/.local или /usr).
+    pub installer: Option<String>,
+    /// Образ для переносимой сборки (--portable): по умолчанию docker.io/library/rust:1-bullseye (glibc 2.31).
+    pub portable_image: Option<String>,
+    /// Пакеты apt в образе переносимой сборки (по умолчанию pkg-config).
+    pub portable_packages: Option<Vec<String>>,
 }
 
 /// Приложение, выбранное для команды.

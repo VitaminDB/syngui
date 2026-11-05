@@ -9,10 +9,11 @@ pub enum Target {
     LinuxAarch64,
     Android,
     Ios,
+    WindowsX86_64,
 }
 
 impl Target {
-    pub const ALL: [Target; 4] = [Target::LinuxX86_64, Target::LinuxAarch64, Target::Android, Target::Ios];
+    pub const ALL: [Target; 5] = [Target::LinuxX86_64, Target::LinuxAarch64, Target::Android, Target::Ios, Target::WindowsX86_64];
 
     pub fn parse(s: &str) -> Result<Target> {
         Ok(match s {
@@ -21,7 +22,8 @@ impl Target {
             "linux" => Target::host_linux(),
             "android" | "apk" => Target::Android,
             "ios" | "iphone" | "ipa" => Target::Ios,
-            _ => bail!("неизвестная цель {s}: linux-x86_64, linux-aarch64, android, ios"),
+            "windows-x86_64" | "windows" | "win64" | "exe" => Target::WindowsX86_64,
+            _ => bail!("неизвестная цель {s}: linux-x86_64, linux-aarch64, android, ios, windows-x86_64"),
         })
     }
 
@@ -39,13 +41,14 @@ impl Target {
             Target::LinuxAarch64 => "linux-aarch64",
             Target::Android => "android",
             Target::Ios => "ios",
+            Target::WindowsX86_64 => "windows-x86_64",
         }
     }
 
     /// Архитектура Linux (pacman/uname).
     pub fn arch(self) -> &'static str {
         match self {
-            Target::LinuxX86_64 => "x86_64",
+            Target::LinuxX86_64 | Target::WindowsX86_64 => "x86_64",
             _ => "aarch64",
         }
     }
@@ -57,6 +60,7 @@ impl Target {
             Target::LinuxAarch64 => "aarch64-unknown-linux-gnu",
             Target::Android => "aarch64-linux-android",
             Target::Ios => "aarch64-apple-ios",
+            Target::WindowsX86_64 => "x86_64-pc-windows-gnu",
         }
     }
 

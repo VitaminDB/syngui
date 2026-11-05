@@ -1,7 +1,8 @@
 # syngui — сборка, упаковка и запуск приложений на syngui
 
 Одна команда вместо `build-apk.sh`, `build-ipa.sh`, ручных PKGBUILD и кросс-окружений:
-Linux x86_64 и aarch64 (компьютеры и телефоны), Android APK, iOS IPA, пакеты Arch и AUR.
+Linux x86_64 и aarch64 (компьютеры и телефоны), Windows x86_64, Android APK, iOS IPA, пакеты Arch и AUR —
+для одного приложения и для выпуска всего рабочего пространства из многих пакетов (synshell).
 
 ```sh
 cargo install --path syngui-cli --profile fast-release   # бинарник `syngui`
@@ -19,6 +20,10 @@ syngui package -f tar -t all-linux     # архивы релиза x86_64 и aar
 syngui package -f arch -t all-linux    # пакеты pacman обеих архитектур
 syngui package -f aur                  # PKGBUILD + .SRCINFO для <имя>-git и <имя>-bin
 syngui package -f ipa                  # неподписанный .ipa
+syngui package -f zip                  # Windows: <bin>-<вер>-windows-x86_64.zip (exe + docs)
+syngui build -t windows-x86_64         # exe через mingw-w64
+syngui package -f tar --portable       # linux-x86_64 в контейнере с glibc 2.31 (Ubuntu 20.04+, Debian 11+)
+syngui package -w -f arch --fast --install   # весь выпуск рабочего пространства, pacman -U одной транзакцией
 syngui keygen -p syncook               # релизный ключ Android в ~/.secrets/syncook-android
 syngui init                            # заготовка [package.metadata.syngui] в Cargo.toml
 ```
@@ -29,6 +34,8 @@ syngui init                            # заготовка [package.metadata.sy
 Профили: по умолчанию `fast-release` (если в Cargo.toml его нет — задаётся через `--config`),
 `--release` — LTO для публикации, `--debug` — dev. `package` всегда собирает `--release`;
 `--fast` — проверить упаковку быстро.
+
+После каждой упаковки в `target/syngui/dist/` обновляется общий `SHA256SUMS`.
 
 Результаты: служебное — `target/syngui/<вид>/<крейт>/` (сгенерированный gradle-проект, .app, stage),
 готовое к выкладке — `target/syngui/dist/` (APK, IPA, `*.tar.zst`, `*.pkg.tar.zst` и `.sha256`).
@@ -48,6 +55,8 @@ bin = "syncook"                    # программа, если их неск�
 desktop = "data/syncook.desktop"   # ярлык Linux
 description_en = "Family recipes"  # описание для AUR (иначе package.description)
 languages = ["ru", "en"]           # iOS: первый — основной
+docs = ["README.md", "LICENSE"]    # в архивы (рядом с install.sh, в zip) и пакеты (usr/share/doc|licenses/<пакет>)
+icons_png = "assets/icon/app-{size}.png"  # PNG 16–512 по шаблону; без него рисуются из SVG
 
 [package.metadata.syngui.android]
 id = "kz.syn.syncook"              # если отличается от общего id
@@ -91,7 +100,90 @@ optdepends = ["ffmpeg: видео"]
 makedepends = ["nasm"]             # для -git, к cargo git clang pkgconf
 features = ["desktop"]
 files = ["data/sounds:usr/share/syncook/sounds"]   # доп. файлы пакета «откуда:куда»
+installer = "packaging/linux/install.sh"   # свой установщик в tar (иначе генерируется: ~/.local или /usr)
+portable_image = "docker.io/library/rust:1-bullseye"   # образ для --portable
+portable_packages = ["pkg-config"]  # apt-пакеты в образе
+
+[package.metadata.syngui.windows]
+features = ["gui"]
+default_features = true
 ```
+
+Ярлык ставится под своим именем, если задан `desktop` (`kz.syn.synport.desktop` — id AppStream);
+значки называются по `Icon=` из ярлыка.
+
+## Архив tar (Linux)
+
+`<bin>-<вер>-<арх>.tar.zst`: дерево `usr/` (его ставят `-bin` и пакет Arch), документы и `install.sh`
+(`./install.sh` — в `~/.local`, `sudo ./install.sh /usr` — в систему). `--portable` (linux-x86_64)
+собирает в podman/docker с образом rust:1-bullseye: рабочее пространство монтируется по тому же пути,
+path-зависимости вне его (`../syngui` через `[patch]`) — только для чтения, кэш cargo —
+`~/.cache/syngui/portable`. Утилита печатает, какая glibc нужна бинарнику.
+
+## Windows
+
+`-t windows-x86_64`: `x86_64-pc-windows-gnu`, линковка `x86_64-w64-mingw32-gcc`, strip mingw.
+Ресурсы exe (значок, VERSIONINFO, манифест) — build.rs крейта (winresource + windres).
+`[package.metadata.syngui.windows] features` — возможности для этой цели.
+
+## Выпуск рабочего пространства (`--workspace`)
+
+Для проектов из многих пакетов (synshell): описание — `syngui-release.toml` в корне рабочего
+пространства (или путь в `[workspace.metadata.syngui] release`). Из него генерируются bash-функции
+`package_<имя>()`; одни и те же функции работают в локальном split-PKGBUILD, в AUR `<имя>-git` и при
+упаковке архивов для `<имя>-bin`.
+
+```sh
+syngui package -w -f arch --fast --install          # собрать всё, makepkg, pacman -U одной транзакцией
+syngui package -w -f arch -t linux-aarch64          # пакеты для телефона (sysroot)
+syngui package -w -f tar -t all-linux               # архивы <пакет>-<вер>-<арх>.tar.zst для -bin
+syngui package -w -f aur                            # <пакет>-git и <пакет>-bin на каждый пакет
+syngui package -w -f arch --only syn-vm,synshell-core   # часть выпуска
+```
+
+```toml
+name = "synshell"                      # pkgbase
+url = "https://github.com/VitaminDB/synshell"
+license = ["GPL-3.0-only"]
+makedepends = ["cargo", "git", "clang", "pkgconf"]
+options = ["!lto"]                     # для -git
+# version — из [workspace.package]; pkgrel — число коммитов (или pkgrel = N)
+
+[crates.synaptixd]                     # особая сборка крейта (отдельный cargo build)
+features = ["cuda", "npu"]
+features_env = "SYNAPTIXD_FEATURES"    # SYNAPTIXD_FEATURES=cuda — переопределить
+
+[packages.synshell]                    # метапакет: без файлов
+description = "…"
+description_en = "…"                   # для AUR
+depends = ["synshell-core", "syn-vm"]  # в AUR — synshell-core-git / -bin
+optdepends = ["synshell-ai: ассистент"]
+optdepends_en = ["synshell-ai: assistant"]
+
+[packages.synshell-core]
+description = "…"
+bins = ["synwm", "synfsd"]             # программы (bin, имя может отличаться от крейта) → /usr/bin
+apps = ["synsettings"]                 # программа + ярлык и значок из data/ её крейта
+desktop = ["synshot"]                  # только ярлык и значок
+files = [
+  { from = "data/synshell-session", to = "usr/bin/", mode = "755" },       # «…/» — в каталог
+  { from = "data/sounds/themes/*", to = "usr/share/sounds/" },             # маска; каталоги — целиком
+  { from = "crates/x/data/OFL.txt", to = "usr/share/licenses/{pkgname}/fonts-OFL.txt" },
+  { run = "echo '[Default Applications]'; cat crates/*/data/defaults.mimeapps | grep '='", to = "usr/share/applications/synshell-mimeapps.list" },
+]
+links = { "usr/bin/syndesktop" = "synwm" }
+dirs = ["usr/share/synaptix/models"]   # пустые каталоги
+provides = ["syndesktop"]
+conflicts = ["syndesktop"]
+replaces = ["syndesktop"]
+backup = ["etc/synaptix/synaptixd.toml"]
+groups = ["synshell-apps"]
+install = "packaging/synshell-core.install"
+aur = false                            # не публиковать в AUR
+```
+
+Программы копируются из target/ и очищаются от символов (`--no-strip` — оставить). Пакеты
+кладутся в `target/syngui/dist`; `--install` ставит их `sudo pacman -U` (пароль можно подать в stdin).
 
 ## Android
 
@@ -130,3 +222,4 @@ synmobile (`devices/*/build/rootfs`, сначала xiaomi-diting). FFmpeg бе�
 | `SYNGUI_AARCH64_SYSROOT` | sysroot для linux-aarch64 |
 | `IOS_SDK`, `SYNGUI_IOS_UDID` | iOS SDK, iPhone для установки |
 | `SYNPORT` | путь к synport для `run -d phone` |
+| `<CRATE>_FEATURES` (`features_env`) | возможности особого крейта выпуска |

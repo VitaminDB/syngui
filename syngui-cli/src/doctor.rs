@@ -68,6 +68,10 @@ pub fn run(targets: &[Target]) -> bool {
                 r.tool("tar", "");
                 r.tool("zstd", "pacman -S zstd");
                 r.tool("makepkg", "пакеты Arch: pacman -S pacman");
+                if *t == Target::LinuxX86_64 {
+                    let ok = util::which("podman").or_else(|| util::which("docker"));
+                    r.check(true, "podman/docker (--portable)", ok.map(|p| p.display().to_string()).unwrap_or_else(|| "нет — нужен только для переносимой сборки (pacman -S podman)".into()), "");
+                }
             }
             Target::Android => {
                 has_target(&mut r, "aarch64-linux-android");
@@ -85,6 +89,13 @@ pub fn run(targets: &[Target]) -> bool {
                 let ff = crate::project::syngui_dir().join("android-deps/ffmpeg/arm64-v8a/lib/libavcodec.a");
                 let ok = ff.is_file();
                 r.check(ok || true, "статический FFmpeg (android.ffmpeg)", if ok { ff.display().to_string() } else { "нет (нужен только с android.ffmpeg = true: syngui/scripts/build-ffmpeg-android.sh)".into() }, "");
+            }
+            Target::WindowsX86_64 => {
+                has_target(&mut r, t.triple());
+                r.tool("x86_64-w64-mingw32-gcc", "pacman -S mingw-w64-gcc");
+                r.tool("x86_64-w64-mingw32-windres", "pacman -S mingw-w64-binutils (ресурсы exe: winresource)");
+                r.tool("x86_64-w64-mingw32-strip", "pacman -S mingw-w64-binutils");
+                r.tool("zip", "pacman -S zip");
             }
             Target::Ios => {
                 has_target(&mut r, "aarch64-apple-ios");
