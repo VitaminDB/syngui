@@ -155,12 +155,13 @@ pub fn build(app: &App, profile: Profile, publish: bool, abis: Option<Vec<String
         if !features.is_empty() {
             c.arg("--features").arg(features.join(","));
         }
-        if a.ffmpeg {
-            let ff = std::env::var_os("FFMPEG_DIR").map(PathBuf::from).unwrap_or_else(|| syngui_dir().join("android-deps/ffmpeg").join(abi));
-            if !ff.join("lib/libavcodec.a").is_file() {
-                bail!("нет статического FFmpeg: {} (syngui/scripts/build-ffmpeg-android.sh {abi})", ff.display());
-            }
-            c.env("FFMPEG_DIR", ff);
+        // Статический FFmpeg под ABI: нужен, если включён syngui/ffmpeg-static (или android.ffmpeg = true)
+        let need_ff = a.ffmpeg || wants_ffmpeg_static(app, &features, a.default_features);
+        let ff = std::env::var_os("FFMPEG_DIR").map(PathBuf::from).unwrap_or_else(|| syngui_dir().join("android-deps/ffmpeg").join(abi));
+        if ff.join("lib/libavcodec.a").is_file() {
+            c.env("FFMPEG_DIR", &ff);
+        } else if need_ff {
+            bail!("нет статического FFmpeg для {abi}: {} — соберите: {}/scripts/build-ffmpeg-android.sh {abi} (или FFMPEG_DIR=<префикс>)", ff.display(), syngui_dir().display());
         }
         env(&mut c);
         util::run(c)?;
@@ -535,4 +536,28 @@ pub fn keygen(app: &App, dname: &str) -> Result<()> {
     }
     util::warn(format!("сохраните копию каталога {} — без него обновления приложения не поставятся", dir.display()));
     Ok(())
+}
+
+/// Включает ли набор возможностей крейта (с учётом вложенных) `syngui/ffmpeg-static`.
+fn wants_ffmpeg_static(app: &App, features: &[String], default: bool) -> bool {
+    let Ok(text) = std::fs::read_to_string(app.manifest_dir.join("Cargo.toml")) else { return false };
+    let Ok(v) = text.parse::<toml::Value>() else { return false };
+    let table = v.get("features").and_then(|f| f.as_table()).cloned().unwrap_or_default();
+    let mut todo: Vec<String> = features.to_vec();
+    if default {
+        todo.push("default".into());
+    }
+    let mut seen = std::collections::HashSet::new();
+    while let Some(f) = todo.pop() {
+        if f.ends_with("ffmpeg-static") {
+            return true;
+        }
+        if !seen.insert(f.clone()) {
+            continue;
+        }
+        if let Some(list) = table.get(&f).and_then(|l| l.as_array()) {
+            todo.extend(list.iter().filter_map(|x| x.as_str()).map(str::to_string));
+        }
+    }
+    false
 }
