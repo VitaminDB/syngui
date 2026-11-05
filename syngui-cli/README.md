@@ -24,6 +24,9 @@ syngui package -f zip                  # Windows: <bin>-<вер>-windows-x86_64.
 syngui build -t windows-x86_64         # exe через mingw-w64
 syngui package -f tar --portable       # linux-x86_64 в контейнере с glibc 2.31 (Ubuntu 20.04+, Debian 11+)
 syngui package -w -f arch --fast --install   # весь выпуск рабочего пространства, pacman -U одной транзакцией
+syngui release 0.2.0                   # выпуск: сухой прогон — что будет сделано
+syngui release 0.2.0 --apply           # версия в Cargo.toml, коммит «Выпуск 0.2.0», тег v0.2.0 (локально)
+syngui release 0.2.0 --publish         # + архивы, APK/IPA, git push, gh release create, AUR с суммами
 syngui keygen -p syncook               # релизный ключ Android в ~/.secrets/syncook-android
 syngui init                            # заготовка [package.metadata.syngui] в Cargo.toml
 ```
@@ -209,6 +212,17 @@ synmobile (`devices/*/build/rootfs`, сначала xiaomi-diting). FFmpeg бе�
 `~/.local/share/ios-sdk/src18/iPhoneOS18.6.sdk`, не ниже 18), clang + ld64.lld.
 .ipa не подписан — `run -d ios` подписывает его на Apple ID и ставит через `plumesign`
 (`SYNGUI_IOS_UDID` — выбрать устройство).
+
+## Выпуск (`syngui release`)
+
+Без флагов — сухой прогон: версия было → стало, какие артефакты соберутся (APK — только при релизном
+ключе), куда пойдут push и релиз GitHub. `--apply` поднимает версию (`[workspace.package]` корня или
+`[package]` крейта), обновляет Cargo.lock, коммитит «Выпуск X» и ставит тег `vX` — без публикации.
+`--publish` (после `--apply` или сразу): архивы `-t all-linux --release` (`-w` при `syngui-release.toml`),
+APK/IPA крейтов с разделами android/ios в метаданных (`--no-mobile` — без них), всё в
+`target/syngui/releases/vX` с SHA256SUMS, `git push origin HEAD vX`, `gh release create`, затем AUR
+`<пакет>-git/-bin` с суммами релиза в `target/syngui/aur` — их выкладку в AUR делает человек.
+Нужна чистая рабочая копия; существующий тег на другом коммите — ошибка.
 
 ## Переменные
 

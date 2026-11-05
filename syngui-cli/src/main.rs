@@ -6,6 +6,7 @@
 //! syngui build -t linux-x86_64|linux-aarch64|android|ios [--release] [-p крейт]
 //! syngui package -f tar|arch|aur|apk|ipa [-t …] [-p крейт]
 //! syngui run [-d local|android|ios|phone|ssh:host] [-p крейт]
+//! syngui release 0.2.0 [--apply|--publish]        выпуск (по умолчанию — сухой прогон)
 //! syngui keygen [-p крейт]                         релизный ключ Android в ~/.secrets/<крейт>-android
 //! syngui init [-p крейт]                           заготовка [package.metadata.syngui]
 //! ```
@@ -17,6 +18,7 @@ mod ios;
 mod linux;
 mod package;
 mod project;
+mod publish;
 mod release;
 mod target;
 mod util;
@@ -148,6 +150,26 @@ enum Cmd {
         /// Аргументы программы (local): после --
         #[arg(last = true)]
         args: Vec<String>,
+    },
+    /// Выпуск: версия в Cargo.toml, коммит, тег; --publish — архивы, APK/IPA, push, релиз GitHub, AUR.
+    /// Без флагов — сухой прогон
+    Release {
+        /// Новая версия (0.2.0)
+        version: String,
+        #[command(flatten)]
+        sel: Sel,
+        /// Поднять версию, закоммитить и поставить тег (локально, без публикации)
+        #[arg(long)]
+        apply: bool,
+        /// Опубликовать: собрать артефакты (--release), git push, gh release create, AUR с суммами
+        #[arg(long)]
+        publish: bool,
+        /// Без APK/IPA
+        #[arg(long)]
+        no_mobile: bool,
+        /// Описание выпуска вместо syngui-release.toml
+        #[arg(long)]
+        release_file: Option<PathBuf>,
     },
     /// Создать релизный ключ подписи Android в ~/.secrets/<крейт>-android (700/600, RSA 4096, 100 лет)
     Keygen {
@@ -299,6 +321,15 @@ fn real_main(cli: Cli) -> Result<()> {
             let app = load(&sel)?;
             run(&app, &device, prof.profile(), no_build, !no_log, &args)?;
         }
+        Cmd::Release { version, sel, apply, publish, no_mobile, release_file } => publish::run(publish::Opts {
+            version: &version,
+            manifest: sel.manifest_path.as_deref(),
+            package: sel.package.as_deref(),
+            apply,
+            publish,
+            no_mobile,
+            release_file: release_file.as_deref(),
+        })?,
         Cmd::Keygen { sel, dname } => android::keygen(&load(&sel)?, &dname)?,
         Cmd::Init { sel } => init(&load(&sel)?)?,
     }
