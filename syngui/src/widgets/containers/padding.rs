@@ -18,9 +18,43 @@ pub struct Padding {
     pub top: Option<f32>,
     pub bottom: Option<f32>,
     pub clip: bool,
+    /// Края, к которым прибавляется safe area окна ([`crate::viewport::safe_area`]):
+    /// слева, сверху, справа, снизу.
+    pub safe: [bool; 4],
 }
 
 impl Padding {
+    /// Содержимое — внутри safe area окна (вырез камеры, строка состояния, жестовая
+    /// панель), а сам контейнер и фон под ним — во весь экран. Для режима
+    /// [`AppBuilder::edge_to_edge`](crate::app::AppBuilder::edge_to_edge) и полноэкранного
+    /// Android: фон корня уходит под вырез, интерактивное — нет. Отступ пересчитывается
+    /// при каждой раскладке (поворот, скрытие панелей); края — [`safe_edges`](Self::safe_edges),
+    /// дополнительный отступ — [`extra`](Self::extra).
+    ///
+    /// ```ignore
+    /// Stack::new().child(background()).child(Padding::safe_area().child(content()))
+    /// ```
+    pub fn safe_area() -> Self {
+        let mut p = Self::all(0.0);
+        p.safe = [true; 4];
+        p
+    }
+
+    /// Какие края отодвигать на safe area: слева, сверху, справа, снизу.
+    pub fn safe_edges(mut self, left: bool, top: bool, right: bool, bottom: bool) -> Self {
+        self.safe = [left, top, right, bottom];
+        self
+    }
+
+    /// Дополнительный отступ поверх safe area (слева, сверху, справа, снизу).
+    pub fn extra(mut self, left: f32, top: f32, right: f32, bottom: f32) -> Self {
+        self.left = Some(left);
+        self.top = Some(top);
+        self.right = Some(right);
+        self.bottom = Some(bottom);
+        self
+    }
+
     pub fn all(padding: f32) -> Self {
         Self {
             child: None,
@@ -30,6 +64,7 @@ impl Padding {
             top: None,
             bottom: None,
             clip: false,
+            safe: [false; 4],
         }
     }
 
@@ -47,6 +82,7 @@ impl Padding {
             top: Some(vertical),
             bottom: Some(vertical),
             clip: false,
+            safe: [false; 4],
         }
     }
 
@@ -59,6 +95,7 @@ impl Padding {
             right: Some(right),
             bottom: Some(bottom),
             clip: false,
+            safe: [false; 4],
         }
     }
 
@@ -94,6 +131,7 @@ impl Widget for Padding {
             top: self.get_top(),
             bottom: self.get_bottom(),
             clip: self.clip,
+            safe: self.safe,
             child_id: None,
             classes: Vec::new(),
             dirty_flags: DirtyFlags::LAYOUT | DirtyFlags::RENDER,
@@ -130,6 +168,23 @@ impl Widget for Padding {
     }
 }
 
+impl PaddingElement {
+    /// Отступы с учётом safe area окна (для `Padding::safe_area`).
+    fn effective(&self) -> (f32, f32, f32, f32) {
+        if self.safe == [false; 4] {
+            return (self.left, self.top, self.right, self.bottom);
+        }
+        let sa = crate::viewport::safe_area();
+        let add = |on: bool, v: f32| if on { v } else { 0.0 };
+        (
+            self.left + add(self.safe[0], sa.left),
+            self.top + add(self.safe[1], sa.top),
+            self.right + add(self.safe[2], sa.right),
+            self.bottom + add(self.safe[3], sa.bottom),
+        )
+    }
+}
+
 pub struct PaddingElement {
     id: ElementId,
     bounds: Rect,
@@ -138,6 +193,7 @@ pub struct PaddingElement {
     top: f32,
     bottom: f32,
     clip: bool,
+    safe: [bool; 4],
     child_id: Option<ElementId>,
     classes: Vec<String>,
     dirty_flags: DirtyFlags,
@@ -152,23 +208,25 @@ impl Element for PaddingElement {
             self.top = padding.get_top();
             self.bottom = padding.get_bottom();
             self.clip = padding.clip;
+            self.safe = padding.safe;
             self.mark_dirty(DirtyFlags::LAYOUT | DirtyFlags::RENDER);
         }
     }
 
     fn layout(&mut self, constraints: Constraints) -> Size {
+        let (left, top, right, bottom) = self.effective();
         let width = if constraints.max_width.is_finite() {
             constraints.max_width
         } else {
-            self.left + self.right + 40.0
+            left + right + 40.0
         };
         let height = constraints
             .min_height
-            .max(self.top + self.bottom + 20.0)
+            .max(top + bottom + 20.0)
             .min(if constraints.max_height.is_finite() {
                 constraints.max_height
             } else {
-                self.top + self.bottom + 40.0
+                top + bottom + 40.0
             });
 
         self.bounds = Rect::new(Point::zero(), Size::new(width, height));
@@ -176,12 +234,8 @@ impl Element for PaddingElement {
     }
 
     fn layout_hint(&self) -> LayoutHint {
-        LayoutHint::Padding {
-            left: self.left,
-            top: self.top,
-            right: self.right,
-            bottom: self.bottom,
-        }
+        let (l, t, r, b) = self.effective();
+        LayoutHint::Padding { left: l, top: t, right: r, bottom: b }
     }
 
     fn build_display_list(&self, _list: &mut DisplayList, _clip: Rect) {}
@@ -302,5 +356,29 @@ impl StyledElement for PaddingElement {
     fn set_classes(&mut self, classes: Vec<String>) {
         self.classes = classes;
         self.mark_dirty(DirtyFlags::RENDER);
+    }
+}
+
+#[cfg(all(test, feature = "testing"))]
+mod tests {
+    use crate::prelude::*;
+    use crate::testing::TestHarness;
+
+    #[test]
+    fn safe_area_padding_follows_viewport_safe_area() {
+        crate::viewport::publish_safe_area(crate::core::EdgeInsets::new(0.0, 37.0, 0.0, 20.0));
+        let mut h = TestHarness::new(Box::new(
+            Padding::safe_area()
+                .safe_edges(false, true, false, true)
+                .extra(0.0, 5.0, 0.0, 0.0)
+                .child(DecoratedBox::new().class("content")),
+        ));
+        h.apply_mss(".content { width: 100%; height: 100%; }");
+        h.layout(400.0, 800.0);
+        let id = h.find_by_class("content")[0];
+        let b = h.element_bounds(id);
+        crate::viewport::publish_safe_area(crate::core::EdgeInsets::zero());
+        assert_eq!(b.origin.y, 42.0, "сверху safe area 37 + extra 5: {b:?}");
+        assert_eq!(b.size.height, 800.0 - 42.0 - 20.0, "{b:?}");
     }
 }
