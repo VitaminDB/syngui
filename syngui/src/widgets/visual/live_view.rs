@@ -104,6 +104,11 @@ impl LiveFrame {
         self.inner.lock().unwrap().version
     }
 
+    /// Последний кадр: ширина, высота, RGBA и версия — для записи и снимков.
+    pub fn latest(&self) -> (u32, u32, Arc<[u8]>, u64) {
+        self.snapshot()
+    }
+
     fn snapshot(&self) -> (u32, u32, Arc<[u8]>, u64) {
         let g = self.inner.lock().unwrap();
         (g.width, g.height, g.rgba.clone(), g.version)
