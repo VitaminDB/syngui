@@ -58,12 +58,21 @@ pub fn preferred_surface_format(
         log::info!("gpu: HDR-окно — Rgba16Float, extended sRGB linear");
         return wgpu::TextureFormat::Rgba16Float;
     }
+    // Смешение альфы — как в CSS/браузерах (в гамма-пространстве sRGB): формат без
+    // автоматического sRGB-кодирования, цвет кодируют шейдеры (renderer::encode_output).
+    // SYNGUI_LINEAR_BLEND=1 — прежнее линейное смешение (sRGB-формат).
+    let css_blend = std::env::var("SYNGUI_LINEAR_BLEND").map_or(true, |v| v == "0");
     let allowed = std::env::var("SYNGUI_SURFACE_RGBA").map_or(true, |v| v != "0");
-    if allowed
-        && adapter.get_info().vendor == QUALCOMM
-        && caps.formats.contains(&wgpu::TextureFormat::Rgba8UnormSrgb)
-    {
-        return wgpu::TextureFormat::Rgba8UnormSrgb;
+    if allowed && adapter.get_info().vendor == QUALCOMM {
+        let f = if css_blend { wgpu::TextureFormat::Rgba8Unorm } else { wgpu::TextureFormat::Rgba8UnormSrgb };
+        if caps.formats.contains(&f) {
+            return f;
+        }
+    }
+    if css_blend {
+        if let Some(f) = caps.formats.iter().copied().find(|f| crate::gpu::renderer::encodes_srgb_output(*f)) {
+            return f;
+        }
     }
     caps.formats
         .iter()

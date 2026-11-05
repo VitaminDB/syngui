@@ -23,6 +23,11 @@ const MAX_POOL_SIZE: usize = 6;
 const EVICTION_FRAMES: u64 = 120;
 
 impl TexturePool {
+    /// Формат текстур слоёв (как у поверхности).
+    pub fn format(&self) -> wgpu::TextureFormat {
+        self.format
+    }
+
     pub fn new(
         device: &wgpu::Device,
         format: wgpu::TextureFormat,

@@ -357,7 +357,9 @@ impl SplashWindow {
 
         let shader = device.create_shader_module(wgpu::ShaderModuleDescriptor {
             label: Some("Splash Shader"),
-            source: wgpu::ShaderSource::Wgsl(SPLASH_SHADER.into()),
+            source: wgpu::ShaderSource::Wgsl(
+                format!("const ENCODE_SRGB: bool = {};\n{SPLASH_SHADER}", crate::gpu::renderer::encodes_srgb_output(format)).into(),
+            ),
         });
 
         let pipeline_layout = device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
@@ -471,7 +473,13 @@ fn vs_main(@builtin(vertex_index) idx: u32) -> VertexOutput {
 @fragment
 fn fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
     let c = textureSample(tex, samp, in.uv);
+    // Не-sRGB поверхность (смешение как в CSS): кодировать в sRGB самим
+    var rgb = c.rgb;
+    if ENCODE_SRGB {
+        let x = max(rgb, vec3<f32>(0.0));
+        rgb = select(1.055 * pow(x, vec3<f32>(1.0 / 2.4)) - 0.055, x * 12.92, x <= vec3<f32>(0.0031308));
+    }
     // Premultiply alpha для Wayland/X11 compositor
-    return vec4<f32>(c.rgb * c.a, c.a);
+    return vec4<f32>(rgb * c.a, c.a);
 }
 "#;

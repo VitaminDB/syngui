@@ -356,7 +356,29 @@ impl Renderer {
             }
 
             other => {
-                if let Some((et, intensity, params, params2)) = other.postprocess_type() {
+                // Одиночный цветовой фильтр — тем же проходом цепочки (sRGB, как CSS),
+                // что и несколько подряд: результат не зависит от того, один он или нет.
+                if let Some(ops) = other.color_ops().filter(|o| !o.is_empty() && o.len() <= COLOR_CHAIN_MAX_OPS) {
+                    let mut codes = [0.0; 4];
+                    let mut amounts = [0.0; 4];
+                    for (i, (code, amount)) in ops.iter().enumerate() {
+                        codes[i] = *code;
+                        amounts[i] = *amount;
+                    }
+                    let temp = texture_pool.acquire(device);
+                    handles.push(temp);
+                    plan.push(EffectRenderStep::PostProcess {
+                        source,
+                        dest: temp,
+                        effect_type: COLOR_CHAIN_EFFECT,
+                        intensity: ops.len() as f32,
+                        params: codes,
+                        params2: amounts,
+                        time: elapsed,
+                        bounds: bounds_px,
+                    });
+                    plan.push(EffectRenderStep::Composite { source: temp, dest });
+                } else if let Some((et, intensity, params, params2)) = other.postprocess_type() {
                     let temp = texture_pool.acquire(device);
                     handles.push(temp);
                     plan.push(EffectRenderStep::PostProcess {
@@ -476,11 +498,9 @@ impl Renderer {
                         EffectTarget::Pool(h) => self.texture_pool.view(*h),
                     };
                     let load = if *clear {
-                        wgpu::LoadOp::Clear(wgpu::Color {
-                            r: clear_color[0],
-                            g: clear_color[1],
-                            b: clear_color[2],
-                            a: clear_color[3],
+                        wgpu::LoadOp::Clear({
+                            let e = |c: f64| if super::encodes_srgb_output(self.surface_format) { super::linear_to_srgb(c) } else { c };
+                            wgpu::Color { r: e(clear_color[0]), g: e(clear_color[1]), b: e(clear_color[2]), a: clear_color[3] }
                         })
                     } else {
                         wgpu::LoadOp::Load
@@ -627,7 +647,9 @@ impl Renderer {
                         intensity: *intensity,
                         params: *params,
                         time: *time,
-                        _padding: [0.0; 3],
+                        // [0]: 1 — текстура слоя sRGB (шейдер читает линейные значения,
+                        // цветовые фильтры CSS считаются на sRGB-значениях)
+                        _padding: [if self.texture_pool.format().is_srgb() { 1.0 } else { 0.0 }, 0.0, 0.0],
                         params2: *params2,
                         bounds: bounds_uv,
                     };

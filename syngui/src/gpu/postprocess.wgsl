@@ -24,7 +24,9 @@ struct PostProcessUniforms {
     // noise: [seed/time, 0, 0, 0]
     params: vec4<f32>,
     time: f32,
-    _pad1: f32,
+    // 1 — входная текстура sRGB: при выборке значения линейные (цепочка 24
+    // переводит их в sRGB, как считает CSS, и обратно)
+    srgb_input: f32,
     _pad2: f32,
     _pad3: f32,
     // Extra params for effects needing >4 floats (gradient-map, duotone, etc.)
@@ -124,6 +126,18 @@ fn hash21(p: vec2<f32>) -> f32 {
     return fract((p3.x + p3.y) * p3.z);
 }
 
+fn linear_to_srgb(c: vec3<f32>) -> vec3<f32> {
+    let lo = c * 12.92;
+    let hi = 1.055 * pow(max(c, vec3<f32>(0.0)), vec3<f32>(1.0 / 2.4)) - 0.055;
+    return select(hi, lo, c <= vec3<f32>(0.0031308));
+}
+
+fn srgb_to_linear(c: vec3<f32>) -> vec3<f32> {
+    let lo = c / 12.92;
+    let hi = pow(max((c + 0.055) / 1.055, vec3<f32>(0.0)), vec3<f32>(2.4));
+    return select(hi, lo, c <= vec3<f32>(0.04045));
+}
+
 // Одна попиксельная цветовая операция цепочки (эффект 24). Коды 0–5
 // совпадают с одноимёнными эффектами ниже; HSB-коррекция разложена на
 // сдвиг тона (3), насыщенность (6) и яркость в HSV (7).
@@ -151,9 +165,12 @@ fn color_op(rgb: vec3<f32>, op: i32, amount: f32) -> vec3<f32> {
         return clamp((rgb - 0.5) * amount + 0.5, vec3<f32>(0.0), vec3<f32>(1.0));
     }
     if op == 6 {
-        var hsv = rgb_to_hsv(rgb);
-        hsv.y = clamp(hsv.y * amount, 0.0, 1.0);
-        return hsv_to_rgb(hsv);
+        // saturate() по спецификации CSS Filter Effects (матрица, яркость сохраняется)
+        let a = amount;
+        let r = (0.213 + 0.787 * a) * rgb.r + (0.715 - 0.715 * a) * rgb.g + (0.072 - 0.072 * a) * rgb.b;
+        let g = (0.213 - 0.213 * a) * rgb.r + (0.715 + 0.285 * a) * rgb.g + (0.072 - 0.072 * a) * rgb.b;
+        let b = (0.213 - 0.213 * a) * rgb.r + (0.715 - 0.715 * a) * rgb.g + (0.072 + 0.928 * a) * rgb.b;
+        return clamp(vec3<f32>(r, g, b), vec3<f32>(0.0), vec3<f32>(1.0));
     }
     if op == 7 {
         var hsv = rgb_to_hsv(rgb);
@@ -170,13 +187,22 @@ fn fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
 
     // ── 24: цепочка цветовых операций за один проход ──
     // params — коды операций, params2 — их величины, intensity — сколько их.
+    // Без цикла с индексом по компонентам uniform-вектора: драйвер Adreno
+    // (Galaxy S24, Vulkan) читал коды операций неверно — фото «негативом».
+    // Операции — на sRGB-значениях (как CSS), премультипликация снимается.
     if effect == 24 {
         let c = textureSample(input_texture, input_sampler, in.uv);
+        let count = i32(amount + 0.5);
         var rgb = c.rgb;
-        let count = i32(amount);
-        for (var i = 0; i < count; i++) {
-            rgb = color_op(rgb, i32(pp.params[i]), pp.params2[i]);
-        }
+        if c.a > 0.0 && c.a < 1.0 { rgb = rgb / c.a; }
+        let srgb = pp.srgb_input > 0.5;
+        if srgb { rgb = linear_to_srgb(rgb); }
+        if count > 0 { rgb = color_op(rgb, i32(pp.params.x + 0.5), pp.params2.x); }
+        if count > 1 { rgb = color_op(rgb, i32(pp.params.y + 0.5), pp.params2.y); }
+        if count > 2 { rgb = color_op(rgb, i32(pp.params.z + 0.5), pp.params2.z); }
+        if count > 3 { rgb = color_op(rgb, i32(pp.params.w + 0.5), pp.params2.w); }
+        if srgb { rgb = srgb_to_linear(rgb); }
+        if c.a < 1.0 { rgb = rgb * c.a; }
         return vec4<f32>(rgb, c.a);
     }
 

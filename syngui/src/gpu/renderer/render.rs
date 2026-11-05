@@ -326,11 +326,10 @@ impl Renderer {
                     view: target_view,
                     resolve_target: None,
                     ops: wgpu::Operations {
-                        load: wgpu::LoadOp::Clear(wgpu::Color {
-                            r: background_color.r as f64,
-                            g: background_color.g as f64,
-                            b: background_color.b as f64,
-                            a: background_color.a as f64,
+                        load: wgpu::LoadOp::Clear({
+                            // не-sRGB цель: цвет очистки кодируется сам (как выход шейдеров)
+                            let e = |c: f32| if super::encodes_srgb_output(self.surface_format) { super::linear_to_srgb(c as f64) } else { c as f64 };
+                            wgpu::Color { r: e(background_color.r), g: e(background_color.g), b: e(background_color.b), a: background_color.a as f64 }
                         }),
                         store: wgpu::StoreOp::Store,
                     },

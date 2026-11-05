@@ -106,7 +106,8 @@ pub fn render_png_with(
     let (lw, lh) = size;
     let pw = (lw as f64 * scale).round() as u32;
     let ph = (lh as f64 * scale).round() as u32;
-    let format = wgpu::TextureFormat::Rgba8UnormSrgb;
+    // как у окна: смешение альфы в sRGB (CSS); байты текстуры — sRGB
+    let format = if std::env::var("SYNGUI_LINEAR_BLEND").is_ok_and(|v| v != "0") { wgpu::TextureFormat::Rgba8UnormSrgb } else { wgpu::TextureFormat::Rgba8Unorm };
     let mut renderer = Renderer::new(&gpu, format, pw, ph, lw, lh, None);
     {
         let mut atlas = renderer
