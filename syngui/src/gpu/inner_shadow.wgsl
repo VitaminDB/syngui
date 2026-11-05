@@ -85,6 +85,13 @@ fn apply_rounded_clip(color: vec4<f32>, logical_pos: vec2<f32>) -> vec4<f32> {
     return vec4(color.rgb, color.a * clip_alpha);
 }
 
+fn erf_approx(x: f32) -> f32 {
+    let a = 0.147;
+    let x2 = x * x;
+    let t = 1.0 - exp(-x2 * (1.27323954 + a * x2) / (1.0 + a * x2));
+    return sign(x) * sqrt(max(t, 0.0));
+}
+
 @fragment
 fn fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
     let blur_radius = in.data.x;
@@ -106,18 +113,17 @@ fn fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
         discard;
     }
 
-    // Inner shadow: contract the rect by blur_radius, then shift by offset.
-    // Shadow appears in the gap between the outer and contracted rects.
-    let contract = blur_radius * 0.5;
-    let inner_half = max(half_size - vec2<f32>(contract), vec2<f32>(0.0));
-    let inner_radius = max(corner_radius - contract, 0.0);
+    // Как inset box-shadow в CSS: тень — всё вне коробки, смещённой на offset,
+    // размытое гауссом σ = blur/2: плотность ½·erfc(−d / (σ√2)), у края 0,5.
     let shadow_center = vec2<f32>(offset_x, offset_y);
-    let d_inner = rounded_box_sdf(p - shadow_center, inner_half, inner_radius);
-
-    // d_inner > 0: outside contracted rect → shadow visible
-    // d_inner <= 0: inside contracted rect → no shadow
-    // smoothstep creates a soft gradient over blur_radius
-    let alpha = smoothstep(0.0, blur_radius, d_inner);
+    let d_inner = rounded_box_sdf(p - shadow_center, half_size, corner_radius);
+    var alpha: f32;
+    if blur_radius <= 0.0 {
+        alpha = smoothstep(-0.5, 0.5, d_inner);
+    } else {
+        let sigma = blur_radius * 0.5;
+        alpha = 0.5 + 0.5 * erf_approx(d_inner / (sigma * 1.41421356));
+    }
 
     if alpha < 0.001 {
         discard;

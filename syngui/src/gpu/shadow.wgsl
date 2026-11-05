@@ -89,6 +89,14 @@ fn apply_rounded_clip(color: vec4<f32>, logical_pos: vec2<f32>) -> vec4<f32> {
     return vec4(color.rgb, color.a * clip_alpha);
 }
 
+// erf с точностью ~1e-4 (Winitzki): хватает для 8-битной тени.
+fn erf_approx(x: f32) -> f32 {
+    let a = 0.147;
+    let x2 = x * x;
+    let t = 1.0 - exp(-x2 * (1.27323954 + a * x2) / (1.0 + a * x2));
+    return sign(x) * sqrt(max(t, 0.0));
+}
+
 @fragment
 fn fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
     let blur_radius = in.data.x;
@@ -96,9 +104,12 @@ fn fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
     let rect_w = in.data.z;
     let rect_h = in.data.w;
 
-    // Total quad size = inner rect + 2 * blur_radius padding on each side
-    let quad_w = rect_w + blur_radius * 2.0;
-    let quad_h = rect_h + blur_radius * 2.0;
+    // Как box-shadow в CSS: коробка, размытая гауссом σ = blur/2; квадрат шире
+    // коробки на 3σ = 1,5·blur с каждой стороны (draw_shadow.rs).
+    let sigma = max(blur_radius * 0.5, 0.001);
+    let pad = blur_radius * 1.5;
+    let quad_w = rect_w + pad * 2.0;
+    let quad_h = rect_h + pad * 2.0;
 
     // Map UV to pixel coordinates relative to quad center
     let p = (in.uv - 0.5) * vec2<f32>(quad_w, quad_h);
@@ -109,16 +120,12 @@ fn fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
     // SDF distance to the inner rounded rect
     let d = rounded_box_sdf(p, half_size, corner_radius);
 
-    // Gaussian falloff: sigma = blur_radius / 3 (so 3-sigma ≈ edge of blur)
-    let sigma = max(blur_radius / 3.0, 0.001);
-    let falloff = exp(-(max(d, 0.0) * max(d, 0.0)) / (2.0 * sigma * sigma));
-
-    // Inside the rect, full shadow; outside, Gaussian falloff
+    // Плотность размытой коробки: ½·erfc(d / (σ√2)) — у края 0,5, внутри → 1.
     var alpha: f32;
-    if d <= 0.0 {
-        alpha = 1.0;
+    if blur_radius <= 0.0 {
+        alpha = 1.0 - smoothstep(-0.5, 0.5, d);
     } else {
-        alpha = falloff;
+        alpha = 0.5 - 0.5 * erf_approx(d / (sigma * 1.41421356));
     }
 
     // Вырез бокса элемента: гаснет на последнем пикселе внутрь от края, чтобы

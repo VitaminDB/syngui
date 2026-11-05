@@ -19,10 +19,12 @@ impl Batcher {
         let color_array = self.apply_opacity(color.to_array());
         let data2 = [offset.0, offset.1, if cutout { 1.0 } else { 0.0 }, 0.0];
 
-        let expanded_x = rect.origin.x - blur_radius + offset.0;
-        let expanded_y = rect.origin.y - blur_radius + offset.1;
-        let expanded_w = rect.size.width + blur_radius * 2.0;
-        let expanded_h = rect.size.height + blur_radius * 2.0;
+        // 3σ (σ = blur/2, как в CSS) — дальше тень меньше 0,2 %; тот же запас в shadow.wgsl
+        let pad = blur_radius.max(0.0) * 1.5;
+        let expanded_x = rect.origin.x - pad + offset.0;
+        let expanded_y = rect.origin.y - pad + offset.1;
+        let expanded_w = rect.size.width + pad * 2.0;
+        let expanded_h = rect.size.height + pad * 2.0;
 
         let avg_radius =
             (corner_radius[0] + corner_radius[1] + corner_radius[2] + corner_radius[3]) / 4.0;

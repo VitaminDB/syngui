@@ -51,7 +51,12 @@ fn vs_main(in: VertexInput) -> VertexOutput {
     let is_sharp_per_side = in.data2.x < -10.0;
     let max_corner = max(max(in.data.x, in.data.y), max(in.data.z, in.data.w));
     let is_plain_fill = max_corner < 0.5 && in.data2.x >= 0.0 && in.data2.x < 0.5;
-    let shift = select(0.5 / uniforms.scale_factor, 0.0, is_sharp_per_side || is_plain_fill);
+    // Сдвиг на полпикселя убран и для скруглённых/обведённых: производным он не
+    // нужен, а края уводил на полпикселя вправо-вниз — у белой карточки на сером
+    // фоне по обоим краям вместо чёткой кромки была полупрозрачная полоса
+    // (сверено с Chromium). Переменные оставлены для ясности режимов.
+    let _modes = is_sharp_per_side || is_plain_fill;
+    let shift = 0.0;
     let ndc_x = ((in.position.x + shift) / uniforms.resolution.x) * 2.0 - 1.0;
     let ndc_y = 1.0 - ((in.position.y + shift) / uniforms.resolution.y) * 2.0;
 
@@ -263,9 +268,9 @@ fn fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
 
     let d = rounded_rect_sdf(in.uv, rect_size, in.data);
 
-    // Anti-aliased edge
-    let aa = fwidth(d) * 0.75;
-    let outer_alpha = 1.0 - smoothstep(-aa, aa, d);
+    // Сглаживание — доля пикселя внутри кромки (как у браузера): ровный край на
+    // границе пикселя чёткий, кривые и дробные края — с плавным переходом.
+    let outer_alpha = clamp(0.5 - d / max(fwidth(d), 0.0001), 0.0, 1.0);
 
     // No border — just fill with rounded corners
     if border_width < 0.5 {

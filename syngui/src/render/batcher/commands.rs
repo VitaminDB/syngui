@@ -508,7 +508,7 @@ impl Batcher {
                 clip_rect,
                 ..
             } => {
-                let pad = blur_radius.max(0.0) + offset.0.abs().max(offset.1.abs());
+                let pad = blur_radius.max(0.0) * 1.5 + offset.0.abs().max(offset.1.abs());
                 let shadow_rect = rect.inflate(pad, pad);
                 if *inset {
                     self.ensure_batch_rect(ShaderType::InnerShadow, None, *clip_rect, shadow_rect);
@@ -527,7 +527,7 @@ impl Batcher {
                 clip_rect,
                 ..
             } => {
-                let pad = blur_radius.max(0.0) + offset.0.abs().max(offset.1.abs());
+                let pad = blur_radius.max(0.0) * 1.5 + offset.0.abs().max(offset.1.abs());
                 self.ensure_batch_rect(
                     ShaderType::GlowShadow,
                     None,
