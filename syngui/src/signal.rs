@@ -543,6 +543,14 @@ pub fn set_fullscreen(on: bool) {
     crate::platform::android::set_fullscreen(on);
 }
 
+/// Частота обновления монитора, на котором сейчас главное окно, в мГц (59940, 144000…);
+/// `None` — окна нет или система не сообщает. Звать в главном потоке.
+#[cfg(feature = "winit")]
+pub fn monitor_refresh_millihertz() -> Option<u32> {
+    let window = primary_window()?;
+    window.winit_window().current_monitor()?.refresh_rate_millihertz().filter(|&r| r >= 10_000)
+}
+
 // ── Захват ввода (игры, виртуальные машины) ──────────────────────────────
 
 #[cfg(feature = "winit")]
