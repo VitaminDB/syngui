@@ -51,6 +51,7 @@ pub struct ScrollView {
     scrollbar_width: f32,
     center_content: bool,
     follow_end: bool,
+    initial_offset: Option<Point>,
     on_scroll: Option<ScrollHandler>,
     classes: Vec<String>,
 }
@@ -64,6 +65,7 @@ impl ScrollView {
             scrollbar_width: 8.0,
             center_content: false,
             follow_end: false,
+            initial_offset: None,
             on_scroll: None,
             classes: Vec::new(),
         }
@@ -84,6 +86,14 @@ impl ScrollView {
     /// возвращается, когда он снова доходит до низа. Только по вертикали.
     pub fn follow_end(mut self, follow: bool) -> Self {
         self.follow_end = follow;
+        self
+    }
+
+    /// Смещение при первом показе (вернуться туда, где страницу оставили).
+    /// Держится, пока содержимое не дорастёт до нужной высоты (оно часто
+    /// строится не сразу), и снимается, как только пользователь прокрутит сам.
+    pub fn initial_offset(mut self, offset: Point) -> Self {
+        self.initial_offset = Some(offset);
         self
     }
 
@@ -159,6 +169,7 @@ impl Widget for ScrollView {
             scrollbar_width: self.scrollbar_width,
             center_content: self.center_content,
             follow_end: self.follow_end,
+            pending_offset: self.initial_offset.filter(|p| p.x > 0.0 || p.y > 0.0),
             stick_to_end: true,
             on_scroll: self.on_scroll.clone(),
             reported_offset: Point::zero(),
@@ -233,6 +244,8 @@ pub struct ScrollViewElement {
     center_content: bool,
     /// Режим ленты (`ScrollView::follow_end`).
     follow_end: bool,
+    /// `ScrollView::initial_offset`, ещё не применённое целиком.
+    pending_offset: Option<Point>,
     /// Лента прижата к низу: содержимое растёт — низ держится. Снимается,
     /// когда пользователь уходит вверх, и ставится снова у самого низа.
     stick_to_end: bool,
@@ -491,6 +504,8 @@ impl ScrollViewElement {
     /// он сам стоит у низа (допуск в пиксель — под округление); и отчёт
     /// `on_scroll`, если смещение сдвинулось.
     fn refresh_stick(&mut self) {
+        // Пользователь прокрутил сам — начальное смещение больше не догоняем.
+        self.pending_offset = None;
         if self.follow_end && self.can_scroll_y() {
             self.stick_to_end = self.scroll_offset.y >= self.max_scroll_y() - 1.0;
         }
@@ -1216,6 +1231,12 @@ impl Element for ScrollViewElement {
         self.bounds.origin = pos;
         // Позиционирование идёт после всех проходов измерения: окно и
         // содержимое уже окончательные.
+        if let Some(p) = self.pending_offset {
+            self.scroll_offset = p;
+            if self.max_scroll_y() >= p.y - 0.5 && self.max_scroll_x() >= p.x - 0.5 {
+                self.pending_offset = None;
+            }
+        }
         self.scroll_offset.y = self.scroll_offset.y.min(self.max_scroll_y()).max(0.0);
         self.scroll_offset.x = self.scroll_offset.x.min(self.max_scroll_x()).max(0.0);
     }
@@ -1351,6 +1372,29 @@ mod tests {
 
     /// Лента: первый показ — к низу, рост содержимого держит низ, уход
     /// пользователя вверх отцепляет, возврат к низу цепляет снова.
+    #[test]
+    fn initial_offset_waits_for_content_and_yields_to_user() {
+        let sv = ScrollView::new().vertical().initial_offset(Point::new(0.0, 900.0));
+        let mut el = sv.create_element();
+        el.layout(Constraints::tight(Size::new(400.0, 600.0)));
+        // Содержимое ещё короткое — сколько можно, смещение ждёт.
+        el.set_content_size(Size::new(400.0, 1000.0));
+        el.set_position(Point::zero());
+        assert_eq!(el.scroll_offset().y, 400.0);
+        // Дорисовалось — встаёт ровно на место.
+        el.set_content_size(Size::new(400.0, 3000.0));
+        el.set_position(Point::zero());
+        assert_eq!(el.scroll_offset().y, 900.0);
+        // Пользователь прокрутил — дальше смещение его.
+        let mut ctx = crate::widget::context::EventContext::new(el.id());
+        let up = Event::MouseWheel { delta: 120.0, delta_x: 0.0, position: Point::new(100.0, 100.0) };
+        el.handle_event(&up, &mut ctx);
+        let mine = el.scroll_offset().y;
+        el.set_content_size(Size::new(400.0, 3200.0));
+        el.set_position(Point::zero());
+        assert_eq!(el.scroll_offset().y, mine);
+    }
+
     #[test]
     fn follow_end_sticks_to_the_bottom_until_the_user_scrolls_up() {
         let sv = ScrollView::new().vertical().follow_end(true);
