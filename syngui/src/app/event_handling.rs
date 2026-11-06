@@ -871,6 +871,7 @@ impl winit::application::ApplicationHandler<SynGuiUserEvent> for AppHandler {
     }
 
     fn about_to_wait(&mut self, event_loop: &winit::event_loop::ActiveEventLoop) {
+        self.apply_custom_cursor(event_loop);
         // Android: winit 0.30 не передаёт APP_CMD_DESTROY приложению (TODO в
         // platform_impl/android), и после уничтожения GameActivity (смахнули из
         // недавних, система закрыла) цикл крутился вхолостую. Новая активность в том

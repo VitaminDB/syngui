@@ -345,6 +345,38 @@ pub enum CursorIcon {
     WResize,
     /// Указатель скрыт (над экраном виртуальной машины, где гость рисует свой).
     None,
+    /// Своя картинка, заданная [`set_custom_cursor`] под этим номером (курсор гостя ВМ и т. п.).
+    Custom(u32),
+}
+
+/// Картинка указателя: RGBA (альфа не предумножена), горячая точка — от левого верхнего угла.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct CursorImage {
+    pub width: u16,
+    pub height: u16,
+    pub hot_x: u16,
+    pub hot_y: u16,
+    pub rgba: Vec<u8>,
+}
+
+/// Свои указатели: номер → (поколение, картинка; `None` — скрыт).
+pub(crate) fn custom_cursors() -> &'static std::sync::Mutex<std::collections::HashMap<u32, (u64, Option<std::sync::Arc<CursorImage>>)>> {
+    static C: std::sync::OnceLock<std::sync::Mutex<std::collections::HashMap<u32, (u64, Option<std::sync::Arc<CursorImage>>)>>> = std::sync::OnceLock::new();
+    C.get_or_init(Default::default)
+}
+
+/// Задать (или сменить) картинку указателя `CursorIcon::Custom(id)`; `None` — над виджетом с
+/// этим указателем он скрыт. Можно звать из любого потока: окно подхватит при следующем цикле.
+pub fn set_custom_cursor(id: u32, image: Option<CursorImage>) {
+    {
+        let mut m = custom_cursors().lock().unwrap();
+        let e = m.entry(id).or_insert((0, None));
+        e.0 += 1;
+        e.1 = image.map(std::sync::Arc::new);
+    }
+    // Разбудить цикл событий окна.
+    #[cfg(feature = "winit")]
+    crate::async_runtime::run_on_main_thread(|| {});
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Default)]

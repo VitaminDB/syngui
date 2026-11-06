@@ -121,6 +121,8 @@ pub(super) struct AppHandler {
     pub(super) current_theme_is_dark: bool,
     pub(super) current_dynamic_theme: String,
     pub(super) current_cursor: CursorIcon,
+    /// Свой указатель, поставленный окну: (номер, поколение картинки).
+    pub(super) custom_cursor_applied: Option<(u32, u64)>,
     pub(super) last_click_time: Option<Instant>,
     pub(super) last_click_pos: Option<Point>,
     /// Порог двойного клика, разрешённый из настройки ОС/DE на старте
@@ -343,6 +345,7 @@ impl AppHandler {
             current_theme_is_dark: initial_is_dark,
             current_dynamic_theme: initial_dynamic,
             current_cursor: CursorIcon::Default,
+            custom_cursor_applied: None,
             last_click_time: None,
             last_click_pos: None,
             double_click_interval,
@@ -504,7 +507,7 @@ impl AppHandler {
     /// `None` — указатель скрыт.
     pub(super) fn map_cursor_icon(cursor: CursorIcon) -> Option<winit::window::CursorIcon> {
         Some(match cursor {
-            CursorIcon::None => return None,
+            CursorIcon::None | CursorIcon::Custom(_) => return None,
             CursorIcon::Default => winit::window::CursorIcon::Default,
             CursorIcon::Pointer => winit::window::CursorIcon::Pointer,
             CursorIcon::Text => winit::window::CursorIcon::Text,

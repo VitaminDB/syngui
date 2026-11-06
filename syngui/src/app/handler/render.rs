@@ -26,9 +26,37 @@ impl AppHandler {
         let new_cursor = self.tree.cursor_request.unwrap_or(CursorIcon::Default);
         if new_cursor != self.current_cursor {
             self.current_cursor = new_cursor;
-            if let Some(window) = &self.window {
-                window.set_cursor_icon(Self::map_cursor_icon(new_cursor));
+            self.custom_cursor_applied = None;
+            // Свой указатель ставится в about_to_wait (нужен цикл событий winit).
+            if !matches!(new_cursor, CursorIcon::Custom(_)) {
+                if let Some(window) = &self.window {
+                    window.set_cursor_icon(Self::map_cursor_icon(new_cursor));
+                }
             }
+        }
+    }
+
+    /// Свой указатель (`CursorIcon::Custom`): картинка новая или только что выбран — поставить.
+    pub(in crate::app) fn apply_custom_cursor(&mut self, event_loop: &winit::event_loop::ActiveEventLoop) {
+        let CursorIcon::Custom(id) = self.current_cursor else { return };
+        let Some(window) = &self.window else { return };
+        let (generation, image) = crate::input::events::custom_cursors().lock().unwrap().get(&id).cloned().unwrap_or((0, None));
+        if self.custom_cursor_applied == Some((id, generation)) {
+            return;
+        }
+        self.custom_cursor_applied = Some((id, generation));
+        let Some(img) = image else {
+            window.set_cursor_icon(None);
+            return;
+        };
+        match winit::window::CustomCursor::from_rgba(img.rgba.clone(), img.width, img.height, img.hot_x.min(img.width.saturating_sub(1)), img.hot_y.min(img.height.saturating_sub(1))) {
+            Ok(src) => {
+                let c = event_loop.create_custom_cursor(src);
+                let w = window.winit_window();
+                w.set_cursor(winit::window::Cursor::Custom(c));
+                w.set_cursor_visible(true);
+            }
+            Err(e) => log::warn!("свой указатель {id}: {e}"),
         }
     }
 
