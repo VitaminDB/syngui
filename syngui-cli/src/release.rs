@@ -29,6 +29,9 @@
 //!   { from = "data/sounds/themes/*", to = "usr/share/sounds/" },
 //!   { run = "echo '[Default Applications]'; cat crates/*/data/defaults.mimeapps | grep '='", to = "usr/share/applications/synshell-mimeapps.list" },
 //! ]
+//! cross = [                             # программы под другую цель (агент для гостя Windows)
+//!   { bin = "syn-vm-agent", target = "x86_64-pc-windows-gnu", to = "usr/share/syn-vm/agent/" },
+//! ]
 //! links = { "usr/bin/syndesktop" = "synwm" }
 //! dirs = ["usr/share/synaptix/models"]
 //! provides = ["syndesktop"]; conflicts = ["syndesktop"]; replaces = ["syndesktop"]
@@ -104,6 +107,8 @@ pub struct Pkg {
     pub apps: Vec<String>,
     pub desktop: Vec<String>,
     pub files: Vec<FileSpec>,
+    /// Программы рабочего пространства, собранные под другую цель (`--target`).
+    pub cross: Vec<CrossBin>,
     pub links: BTreeMap<String, String>,
     pub dirs: Vec<String>,
     pub provides: Vec<String>,
@@ -126,6 +131,27 @@ pub struct FileSpec {
     /// Куда: `…/` — в каталог (имя сохраняется), иначе — точный путь. `{pkgname}` — имя пакета.
     pub to: String,
     pub mode: Option<String>,
+}
+
+#[derive(Debug, Default, Deserialize, Clone)]
+#[serde(default, deny_unknown_fields)]
+pub struct CrossBin {
+    pub bin: String,
+    /// Тройка цели rustc (`x86_64-pc-windows-gnu`, `x86_64-unknown-linux-musl`…).
+    pub target: String,
+    /// Каталог в пакете (`…/`).
+    pub to: String,
+}
+
+impl CrossBin {
+    /// Имя файла программы у цели.
+    fn file(&self) -> String {
+        if self.target.contains("windows") {
+            format!("{}.exe", self.bin)
+        } else {
+            self.bin.clone()
+        }
+    }
 }
 
 impl Pkg {
@@ -200,7 +226,7 @@ impl Release {
             }
         }
         for (name, p) in &packages {
-            for b in p.all_bins().chain(p.desktop.iter()) {
+            for b in p.all_bins().chain(p.desktop.iter()).chain(p.cross.iter().map(|c| &c.bin)) {
                 if !bin_crate.contains_key(b) {
                     bail!("[packages.{name}]: программы {b} нет в рабочем пространстве (bin крейтов {})", root.display());
                 }
@@ -320,6 +346,36 @@ impl Release {
                     }
                 }
             }
+            // Программы под другую цель → $_bins/cross/<цель>/<файл>.
+            for x in &p.cross {
+                let krate = &self.bin_crate[&x.bin].0;
+                let mut c = Command::new("cargo");
+                c.current_dir(&self.root).arg("build");
+                if profile == Profile::Fast && !linux::has_fast_release(&self.root) {
+                    for kv in ["inherits=\"release\"", "lto=false", "codegen-units=256", "incremental=true", "debug=false"] {
+                        c.arg("--config").arg(format!("profile.fast-release.{kv}"));
+                    }
+                }
+                c.args(profile.cargo_args()).args(["-p", krate, "--bin", &x.bin, "--target", &x.target]);
+                util::step(format!("cargo build ({}, {}): {}", x.target, profile.dir(), x.bin));
+                util::run(c)?;
+                let src = self.target_dir.join(&x.target).join(profile.dir()).join(x.file());
+                if !src.is_file() {
+                    bail!("cargo не оставил программу {}", src.display());
+                }
+                let dir = bins.join("cross").join(&x.target);
+                std::fs::create_dir_all(&dir)?;
+                let dst = dir.join(x.file());
+                let _ = std::fs::remove_file(&dst);
+                std::fs::copy(&src, &dst)?;
+                if strip {
+                    if let Some(s) = &strip_tool {
+                        let mut c = Command::new(s);
+                        c.arg("--strip-unneeded").arg(&dst);
+                        util::run(c)?;
+                    }
+                }
+            }
         }
         Ok(bins)
     }
@@ -329,6 +385,11 @@ impl Release {
         let mut s = String::from("    cd \"$_root\"\n");
         for b in p.all_bins() {
             s += &format!("    install -Dm755 \"$_bins/{b}\" \"$pkgdir/usr/bin/{b}\"\n");
+        }
+        for x in &p.cross {
+            let to = x.to.trim_start_matches('/').trim_end_matches('/');
+            let mode = if x.target.contains("windows") { "644" } else { "755" };
+            s += &format!("    install -Dm{mode} \"$_bins/cross/{t}/{f}\" \"$pkgdir/{to}/{f}\"\n", t = x.target, f = x.file());
         }
         for b in p.apps.iter().chain(p.desktop.iter()) {
             let dir = &self.bin_crate[b].1;
@@ -527,20 +588,41 @@ impl Release {
                     }
                     s += &Self::pkg_meta(p, true, "", &p.depends, std::slice::from_ref(name), &[name.clone(), format!("{name}-bin")], true);
                     let opts = if self.spec.options.is_empty() { vec!["!lto".to_string()] } else { self.spec.options.clone() };
+                    if p.cross.iter().any(|x| x.target.contains("windows-gnu")) && !mk.iter().any(|m| m == "mingw-w64-gcc") {
+                        mk.push("mingw-w64-gcc".into());
+                    }
                     s += &format!("makedepends=({})\noptions=({})\nsource=(\"{repo}::git+{url}.git\")\nsha256sums=('SKIP')\n", mk.iter().map(|x| sh(x)).collect::<Vec<_>>().join(" "), opts.iter().map(|x| sh(x)).collect::<Vec<_>>().join(" "));
                     let one = [&(name.clone(), p.clone())];
                     let lines = |arch: &str, ind: &str| -> String {
                         self.cargo_plans(&one, arch, false).into_iter().map(|(_, a)| format!("{ind}cargo build --offline --release {}\n", a.join(" "))).collect()
                     };
                     let (bx, ba) = (lines("x86_64", "    "), lines("aarch64", "    "));
+                    // Программы под другую цель: rustup-цель, сборка и копия в target/release/cross/.
+                    let cross: String = p
+                        .cross
+                        .iter()
+                        .map(|x| {
+                            let krate = &self.bin_crate[&x.bin].0;
+                            format!(
+                                "    rustup target add {t} 2>/dev/null || true\n    cargo build --release -p {krate} --bin {b} --target {t}\n    install -Dm755 target/{t}/release/{f} target/release/cross/{t}/{f}\n",
+                                t = x.target,
+                                b = x.bin,
+                                f = x.file()
+                            )
+                        })
+                        .collect();
+
                     // разные возможности по архитектуре — выбор по $CARCH
-                    let builds: Vec<String> = if bx.is_empty() {
+                    let mut builds: Vec<String> = if bx.is_empty() {
                         vec![]
                     } else if bx == ba {
                         vec![bx]
                     } else {
                         vec![format!("    if [ \"$CARCH\" = aarch64 ]; then\n{}    else\n{}    fi\n", lines("aarch64", "        "), lines("x86_64", "        "))]
                     };
+                    if !cross.is_empty() {
+                        builds.push(cross);
+                    }
                     s += &format!(
                         r#"
 pkgver() {{
