@@ -55,6 +55,10 @@ pub struct ImageData {
     /// Анимация (GIF, WebP, APNG): `rgba` — первый кадр, остальные стор
     /// заливает в тот же handle по таймеру ([`ImageStore::advance_animations`]).
     pub anim: Option<Arc<Animation>>,
+    /// Кадр в изображении Vulkan другого процесса (`rgba` пуст): GPU переписывает его в
+    /// текстуру сам, см. [`crate::gpu::external`].
+    #[cfg(all(target_os = "linux", not(target_arch = "wasm32")))]
+    pub external: Option<Arc<crate::gpu::external::ExternalFrame>>,
 }
 
 /// Кадры анимированной картинки, уже сведённые на полный холст.
@@ -288,6 +292,8 @@ impl ImageData {
             yuv: None,
             regions: None,
             anim: None,
+            #[cfg(all(target_os = "linux", not(target_arch = "wasm32")))]
+            external: None,
         }
     }
 
@@ -303,6 +309,8 @@ impl ImageData {
             yuv: None,
             regions: None,
             anim: None,
+            #[cfg(all(target_os = "linux", not(target_arch = "wasm32")))]
+            external: None,
         }
     }
 
@@ -318,6 +326,8 @@ impl ImageData {
             yuv: Some(frame),
             regions: None,
             anim: None,
+            #[cfg(all(target_os = "linux", not(target_arch = "wasm32")))]
+            external: None,
         }
     }
 }
@@ -883,6 +893,27 @@ impl ImageStore {
             entry.height = frame.height;
         }
         let data = ImageData::yuv(frame);
+        match self.pending_uploads.iter_mut().find(|(h, _)| *h == handle) {
+            Some(slot) => slot.1 = data,
+            None => self.pending_uploads.push((handle, data)),
+        }
+    }
+
+    /// Кадр в изображении Vulkan другого процесса ([`crate::gpu::external`]) — без копии через
+    /// процессор. Незалитый прежний кадр заменяется (и возвращается источнику).
+    #[cfg(all(target_os = "linux", not(target_arch = "wasm32")))]
+    pub fn update_external(&mut self, handle: ImageHandle, frame: Arc<crate::gpu::external::ExternalFrame>) {
+        let Some(key) = self.handle_to_key.get(&handle.0) else {
+            return;
+        };
+        let (width, height) = (frame.image.width, frame.image.height);
+        if let Some(entry) = self.images.get_mut(key) {
+            entry.state = ImageLoadState::Ready;
+            entry.width = width;
+            entry.height = height;
+        }
+        let mut data = ImageData::single_level(width, height, Arc::<[u8]>::from(Vec::new()));
+        data.external = Some(frame);
         match self.pending_uploads.iter_mut().find(|(h, _)| *h == handle) {
             Some(slot) => slot.1 = data,
             None => self.pending_uploads.push((handle, data)),

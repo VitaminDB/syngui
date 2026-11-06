@@ -284,6 +284,8 @@ struct GpuImage {
     /// новейшие в конце: текстура кольца отстала на столько кадров, и
     /// частичная запись в неё обязана догнать их все.
     recent: std::collections::VecDeque<Option<Vec<[u32; 4]>>>,
+    /// Текстуры кольца годятся как цель отрисовки (кадры из внешних изображений).
+    rt: bool,
 }
 
 impl GpuImage {
@@ -322,7 +324,38 @@ struct GpuYuv {
     held: std::collections::VecDeque<std::sync::Arc<YuvFrame>>,
 }
 
+/// Импорт внешних изображений и проход, переписывающий их в текстуры картинок.
+#[cfg(all(target_os = "linux", not(target_arch = "wasm32")))]
+#[derive(Default)]
+struct External {
+    /// Импортированные изображения (`ExternalImage::id`) → текстура и bind group прохода.
+    imports: HashMap<u64, (wgpu::Texture, wgpu::BindGroup)>,
+    /// Порядок импорта — старые выбрасываются сверх [`EXTERNAL_IMPORTS`].
+    order: std::collections::VecDeque<u64>,
+    pass: Option<(wgpu::RenderPipeline, wgpu::BindGroupLayout)>,
+}
+
+/// Сколько импортированных внешних изображений помнить (кольца нескольких источников).
+#[cfg(all(target_os = "linux", not(target_arch = "wasm32")))]
+const EXTERNAL_IMPORTS: usize = 16;
+
+/// Проход: тексел внешнего изображения в текстуру картинки 1:1, непрозрачным
+/// (источник может не заполнять альфу — XRGB).
+#[cfg(all(target_os = "linux", not(target_arch = "wasm32")))]
+const EXTERNAL_WGSL: &str = r#"
+@group(0) @binding(0) var src: texture_2d<f32>;
+@vertex fn vs(@builtin(vertex_index) i: u32) -> @builtin(position) vec4<f32> {
+    let uv = vec2<f32>(f32((i << 1u) & 2u), f32(i & 2u));
+    return vec4<f32>(uv * vec2<f32>(2.0, -2.0) + vec2<f32>(-1.0, 1.0), 0.0, 1.0);
+}
+@fragment fn fs(@builtin(position) p: vec4<f32>) -> @location(0) vec4<f32> {
+    return vec4<f32>(textureLoad(src, vec2<i32>(p.xy), 0).rgb, 1.0);
+}
+"#;
+
 pub struct ImageGpuCache {
+    #[cfg(all(target_os = "linux", not(target_arch = "wasm32")))]
+    external: External,
     images: HashMap<u32, GpuImage>,
     yuv: HashMap<u32, GpuYuv>,
     sampler: wgpu::Sampler,
@@ -453,7 +486,11 @@ impl ImageGpuCache {
 
         #[cfg(all(target_os = "linux", not(target_arch = "wasm32")))]
         super::dmabuf::detect(device);
+        #[cfg(all(target_os = "linux", not(target_arch = "wasm32")))]
+        super::external::detect(device);
         Self {
+            #[cfg(all(target_os = "linux", not(target_arch = "wasm32")))]
+            external: External::default(),
             images: HashMap::new(),
             yuv: HashMap::new(),
             sampler,
@@ -758,6 +795,11 @@ impl ImageGpuCache {
             self.upload_yuv(device, queue, handle, f);
             return;
         }
+        #[cfg(all(target_os = "linux", not(target_arch = "wasm32")))]
+        if let Some(f) = &data.external {
+            self.upload_external(device, queue, handle, f);
+            return;
+        }
         self.yuv.remove(&handle.0);
         let ring_len = if data.single_level { STREAM_RING } else { 1 };
         let same_size = self
@@ -851,8 +893,160 @@ impl ImageGpuCache {
                 ring,
                 cur: 0,
                 recent: std::collections::VecDeque::new(),
+                rt: false,
             },
         );
+    }
+
+    /// Кадр из внешнего изображения: импорт (один раз на изображение), затем проход на GPU в
+    /// текстуру кольца картинки. Источнику кадр возвращается, когда GPU закончил проход.
+    #[cfg(all(target_os = "linux", not(target_arch = "wasm32")))]
+    fn upload_external(
+        &mut self,
+        device: &wgpu::Device,
+        queue: &wgpu::Queue,
+        handle: ImageHandle,
+        frame: &std::sync::Arc<super::external::ExternalFrame>,
+    ) {
+        let img = &frame.image;
+        let (w, h) = (img.width, img.height);
+        if w == 0 || h == 0 {
+            return;
+        }
+        if self.external.pass.is_none() {
+            let bgl = device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
+                label: Some("external BGL"),
+                entries: &[wgpu::BindGroupLayoutEntry {
+                    binding: 0,
+                    visibility: wgpu::ShaderStages::FRAGMENT,
+                    ty: wgpu::BindingType::Texture {
+                        sample_type: wgpu::TextureSampleType::Float { filterable: false },
+                        view_dimension: wgpu::TextureViewDimension::D2,
+                        multisampled: false,
+                    },
+                    count: None,
+                }],
+            });
+            let module = device.create_shader_module(wgpu::ShaderModuleDescriptor {
+                label: Some("external"),
+                source: wgpu::ShaderSource::Wgsl(EXTERNAL_WGSL.into()),
+            });
+            let layout = device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
+                label: Some("external"),
+                bind_group_layouts: &[&bgl],
+                immediate_size: 0,
+            });
+            let pipeline = device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
+                label: Some("external"),
+                layout: Some(&layout),
+                vertex: wgpu::VertexState {
+                    module: &module,
+                    entry_point: Some("vs"),
+                    compilation_options: Default::default(),
+                    buffers: &[],
+                },
+                fragment: Some(wgpu::FragmentState {
+                    module: &module,
+                    entry_point: Some("fs"),
+                    compilation_options: Default::default(),
+                    targets: &[Some(wgpu::ColorTargetState {
+                        format: wgpu::TextureFormat::Rgba8UnormSrgb,
+                        blend: None,
+                        write_mask: wgpu::ColorWrites::ALL,
+                    })],
+                }),
+                primitive: Default::default(),
+                depth_stencil: None,
+                multisample: Default::default(),
+                multiview_mask: None,
+                cache: None,
+            });
+            self.external.pass = Some((pipeline, bgl));
+        }
+        if !self.external.imports.contains_key(&img.id) {
+            let Some(tex) = super::external::import(device, img) else {
+                frame.fail();
+                return;
+            };
+            let view_format = super::external::formats(img.format).map(|f| f.1);
+            let view = tex.create_view(&wgpu::TextureViewDescriptor { format: view_format, ..Default::default() });
+            let (_, bgl) = self.external.pass.as_ref().expect("создан выше");
+            let bg = device.create_bind_group(&wgpu::BindGroupDescriptor {
+                label: Some("external BG"),
+                layout: bgl,
+                entries: &[wgpu::BindGroupEntry { binding: 0, resource: wgpu::BindingResource::TextureView(&view) }],
+            });
+            self.external.imports.insert(img.id, (tex, bg));
+            self.external.order.push_back(img.id);
+            while self.external.order.len() > EXTERNAL_IMPORTS {
+                if let Some(old) = self.external.order.pop_front() {
+                    self.external.imports.remove(&old);
+                }
+            }
+        }
+        self.yuv.remove(&handle.0);
+        let fits = self.images.get(&handle.0).is_some_and(|g| {
+            let s = g.texture().size();
+            g.rt && s.width == w && s.height == h && g.ring.len() == STREAM_RING
+        });
+        if !fits {
+            let ring = (0..STREAM_RING)
+                .map(|_| {
+                    let texture = device.create_texture(&wgpu::TextureDescriptor {
+                        label: Some("Image Texture (external)"),
+                        size: wgpu::Extent3d { width: w, height: h, depth_or_array_layers: 1 },
+                        mip_level_count: 1,
+                        sample_count: 1,
+                        dimension: wgpu::TextureDimension::D2,
+                        format: wgpu::TextureFormat::Rgba8UnormSrgb,
+                        usage: wgpu::TextureUsages::TEXTURE_BINDING | wgpu::TextureUsages::COPY_DST | wgpu::TextureUsages::RENDER_ATTACHMENT,
+                        view_formats: &[],
+                    });
+                    let view = texture.create_view(&Default::default());
+                    let bind_group = device.create_bind_group(&wgpu::BindGroupDescriptor {
+                        label: Some("Image BG"),
+                        layout: &self.bind_group_layout,
+                        entries: &[
+                            wgpu::BindGroupEntry { binding: 0, resource: wgpu::BindingResource::TextureView(&view) },
+                            wgpu::BindGroupEntry { binding: 1, resource: wgpu::BindingResource::Sampler(&self.sampler) },
+                        ],
+                    });
+                    (texture, bind_group)
+                })
+                .collect();
+            self.images.insert(handle.0, GpuImage { ring, cur: 0, recent: Default::default(), rt: true });
+        }
+        let g = self.images.get_mut(&handle.0).expect("создано выше");
+        g.cur = (g.cur + 1) % g.ring.len();
+        // Вся текстура перезаписана — частичным заливкам догонять нечего.
+        g.recent.clear();
+        g.recent.push_back(None);
+        let target = g.ring[g.cur].0.create_view(&Default::default());
+        let (pipeline, _) = self.external.pass.as_ref().expect("создан выше");
+        let (_, bg) = &self.external.imports[&img.id];
+        let mut enc = device.create_command_encoder(&wgpu::CommandEncoderDescriptor { label: Some("external") });
+        {
+            let mut rp = enc.begin_render_pass(&wgpu::RenderPassDescriptor {
+                label: Some("external"),
+                color_attachments: &[Some(wgpu::RenderPassColorAttachment {
+                    view: &target,
+                    depth_slice: None,
+                    resolve_target: None,
+                    ops: wgpu::Operations { load: wgpu::LoadOp::Clear(wgpu::Color::BLACK), store: wgpu::StoreOp::Store },
+                })],
+                depth_stencil_attachment: None,
+                timestamp_writes: None,
+                occlusion_query_set: None,
+                multiview_mask: None,
+            });
+            rp.set_pipeline(pipeline);
+            rp.set_bind_group(0, bg, &[]);
+            rp.draw(0..3, 0..1);
+        }
+        queue.submit(std::iter::once(enc.finish()));
+        // Изображение источника свободно, когда GPU выполнил проход.
+        let hold = frame.clone();
+        queue.on_submitted_work_done(move || drop(hold));
     }
 
     pub fn process_uploads(

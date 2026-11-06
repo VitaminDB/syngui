@@ -32,6 +32,9 @@ struct Inner {
     /// Изменённые места последних версий: (версия, места; `None` — кадр
     /// целиком). По ним [`LiveView`] заливает в текстуру только изменения.
     changes: std::collections::VecDeque<(u64, Option<Vec<[u32; 4]>>)>,
+    /// Кадр в изображении Vulkan другого процесса (`rgba` тогда пуст).
+    #[cfg(all(target_os = "linux", not(target_arch = "wasm32")))]
+    external: Option<Arc<crate::gpu::external::ExternalFrame>>,
 }
 
 /// Сколько версий помнит журнал изменений.
@@ -51,6 +54,8 @@ impl LiveFrame {
                 rgba: Arc::from(Vec::new()),
                 version: 0,
                 changes: Default::default(),
+                #[cfg(all(target_os = "linux", not(target_arch = "wasm32")))]
+                external: None,
             }),
         })
     }
@@ -66,8 +71,31 @@ impl LiveFrame {
         self.put(width, height, rgba, Some(rects));
     }
 
+    /// Новый кадр в изображении Vulkan другого процесса на той же видеокарте — без копии через
+    /// процессор ([`crate::gpu::external`]). Прежний кадр возвращается источнику, когда его
+    /// заменит этот (или когда GPU его дочитает).
+    #[cfg(all(target_os = "linux", not(target_arch = "wasm32")))]
+    pub fn set_external(&self, frame: Arc<crate::gpu::external::ExternalFrame>) {
+        let (w, h) = (frame.image.width, frame.image.height);
+        let mut g = self.inner.lock().unwrap();
+        g.width = w;
+        g.height = h;
+        g.rgba = Arc::from(Vec::new());
+        g.external = Some(frame);
+        g.version += 1;
+        let v = g.version;
+        g.changes.push_back((v, None));
+        while g.changes.len() > CHANGES {
+            g.changes.pop_front();
+        }
+    }
+
     fn put(&self, width: u32, height: u32, rgba: Arc<[u8]>, rects: Option<Vec<[u32; 4]>>) {
         let mut g = self.inner.lock().unwrap();
+        #[cfg(all(target_os = "linux", not(target_arch = "wasm32")))]
+        {
+            g.external = None;
+        }
         let resized = (g.width, g.height) != (width, height);
         g.width = width;
         g.height = height;
@@ -104,7 +132,8 @@ impl LiveFrame {
         self.inner.lock().unwrap().version
     }
 
-    /// Последний кадр: ширина, высота, RGBA и версия — для записи и снимков.
+    /// Последний кадр: ширина, высота, RGBA и версия — для записи и снимков (у кадра во
+    /// внешнем изображении RGBA пуст).
     pub fn latest(&self) -> (u32, u32, Arc<[u8]>, u64) {
         self.snapshot()
     }
@@ -280,6 +309,10 @@ pub struct LiveViewElement {
 impl LiveViewElement {
     /// Залить новую версию кадра, если она есть.
     fn sync(&mut self) {
+        #[cfg(all(target_os = "linux", not(target_arch = "wasm32")))]
+        if self.sync_external() {
+            return;
+        }
         let (w, h, rgba, v) = self.frame.snapshot();
         if v == self.shown || w == 0 || h == 0 || rgba.len() < (w as usize) * (h as usize) * 4 {
             return;
@@ -307,6 +340,45 @@ impl LiveViewElement {
         } else {
             self.mark_dirty(DirtyFlags::RENDER);
         }
+    }
+
+    /// Кадр во внешнем изображении — в ImageStore без пикселей. `false` — кадр обычный.
+    #[cfg(all(target_os = "linux", not(target_arch = "wasm32")))]
+    fn sync_external(&mut self) -> bool {
+        let (ext, w, h, v) = {
+            let g = self.frame.inner.lock().unwrap();
+            match &g.external {
+                Some(e) => (e.clone(), g.width, g.height, g.version),
+                None => return false,
+            }
+        };
+        if v == self.shown {
+            return true;
+        }
+        let Some(store) = self.image_store.as_ref() else {
+            return true;
+        };
+        if let Ok(mut s) = store.lock() {
+            let handle = match self.image_handle {
+                Some(h) => h,
+                None => {
+                    // Заглушка 1×1: handle нужен ImageStore, кадр придёт следующей заливкой.
+                    let key = format!("live:{:p}:{}", Arc::as_ptr(&self.frame), self.id.0);
+                    let (handle, _) = s.request_rgba(&key, 1, 1, vec![0, 0, 0, 255]);
+                    self.image_handle = Some(handle);
+                    handle
+                }
+            };
+            s.update_external(handle, ext);
+        }
+        self.shown = v;
+        if (w, h) != self.natural {
+            self.natural = (w, h);
+            self.mark_dirty(DirtyFlags::LAYOUT | DirtyFlags::RENDER);
+        } else {
+            self.mark_dirty(DirtyFlags::RENDER);
+        }
+        true
     }
 
     fn fit_rect(&self) -> Rect {

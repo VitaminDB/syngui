@@ -358,6 +358,8 @@ interprocess = { version = "2", optional = true }
 # что у wgpu-hal (версии — как у wgpu 28).
 glow = "0.16"
 khronos-egl = "6"
+# Кадры из изображений Vulkan другого процесса (gpu/external.rs): ash — тот же, что у wgpu-hal 28.
+ash = "0.38"
 gtk = { version = "0.18", optional = true }
 # XDG Desktop Portal (`org.freedesktop.appearance`) под feature `system-theme`.
 # Блокирующий API: слежение живёт в отдельном потоке, async-рантайм не нужен.
