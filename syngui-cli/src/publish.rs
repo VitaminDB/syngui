@@ -426,17 +426,16 @@ pub fn run(o: Opts) -> Result<()> {
     util::run(git(&root, &["push", "origin", "HEAD", &tag]))?;
     util::step(format!("gh release create {tag} ({} файлов)", upload.len()));
     let mut c = Command::new("gh");
-    c.current_dir(&root)
-        .args([
-            "release",
-            "create",
-            &tag,
-            "--title",
-            &tag,
-            "--notes",
-            &format!("Выпуск {v}. Суммы — SHA256SUMS."),
-        ])
-        .args(&upload);
+    c.current_dir(&root).args(["release", "create", &tag, "--title", &tag]);
+    // Описание выпуска — docs/release-notes/<версия>.md, если есть.
+    let notes = root.join(format!("docs/release-notes/{v}.md"));
+    if notes.is_file() {
+        util::note(format!("описание: {}", notes.display()));
+        c.arg("--notes-file").arg(&notes);
+    } else {
+        c.args(["--notes", &format!("Выпуск {v}. Суммы — SHA256SUMS.")]);
+    }
+    c.args(&upload);
     util::run(c)?;
 
     let aur_dir = m.target_directory.join("syngui/aur");
