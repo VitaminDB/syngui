@@ -115,14 +115,25 @@ impl Batcher {
                 }
 
                 use crate::render::Vertex;
+                // Вертикаль — по метрикам шрифта (образец «H»), если в тексте есть буквы или
+                // цифры: иначе соседние подписи в одном ряду стояли на разной базовой линии —
+                // «720p» или «Second clip» (с нижним выносным) центрировались по своему контуру
+                // и уезжали на 1–2 px вверх относительно «NVDEC» и «test». Строки из одних
+                // значков, эмодзи и знаков («×», «•», «_») центрируются по контуру, как раньше.
+                // Пустой образец — явный запрос центровки по контуру (`text-box-edge: ink`).
+                let sample: Option<&str> = match bbox_sample.as_deref() {
+                    Some("") => None,
+                    Some(s) => Some(s),
+                    None => text_has_letters(text).then_some(DEFAULT_BBOX_SAMPLE),
+                };
                 let mut glyph_min_y = f32::MAX;
                 let mut glyph_max_y = f32::MIN;
                 let mut glyph_min_x = f32::MAX;
                 let mut glyph_max_x = f32::MIN;
-                if let Some(sample) = bbox_sample.as_ref() {
+                if let Some(sample) = sample {
                     let sample_glyphs = self.shape_text_cached_spacing(
                         font_atlas,
-                        sample.as_str(),
+                        sample,
                         phys_font_size,
                         f32::INFINITY,
                         400,
@@ -137,6 +148,11 @@ impl Batcher {
                         let gh = glyph.glyph.height as f32 / sf;
                         glyph_min_y = glyph_min_y.min(gy);
                         glyph_max_y = glyph_max_y.max(gy + gh);
+                    }
+                    // строки переноса: образец — одна строка, низ блока — на последней строке
+                    let last_line = glyphs.iter().map(|g| g.line_top).fold(0.0f32, f32::max);
+                    if glyph_max_y > f32::MIN {
+                        glyph_max_y += last_line / sf;
                     }
                     for glyph in glyphs.iter() {
                         if glyph.glyph.width == 0 || glyph.glyph.height == 0 {
@@ -177,7 +193,7 @@ impl Batcher {
                     rect.origin.y
                 };
 
-                if bbox_sample.is_some() && sf > 0.0 {
+                if sample.is_some() && sf > 0.0 {
                     origin_y = (origin_y * sf).round() / sf;
                 }
 
@@ -228,7 +244,7 @@ impl Batcher {
                         .unwrap_or(0.0)
                 };
 
-                if bbox_sample.is_some() && sf > 0.0 {
+                if sample.is_some() && sf > 0.0 {
                     origin_x = (origin_x * sf).round() / sf;
                 }
 
@@ -956,5 +972,36 @@ fn fill_shader(
         ShaderType::RectRounded
     } else {
         ShaderType::RectFlat
+    }
+}
+
+/// Образец вертикальных границ текста по умолчанию — прописная «H»: по центру ставится высота
+/// прописных, от верха до базовой линии. Базовая линия у всех строк одного размера одна, а слово
+/// без выносных («Fit», «Filters») стоит по центру кнопки так же, как при центровке по контуру;
+/// нижние выносные свисают под неё, как в наборе.
+const DEFAULT_BBOX_SAMPLE: &str = "H";
+
+/// Есть ли в тексте буквы или цифры обычного шрифта (не значки из областей частного
+/// использования, где живут иконочные шрифты).
+fn text_has_letters(text: &str) -> bool {
+    text.chars().any(|c| {
+        c.is_alphanumeric()
+            && !matches!(c as u32, 0xE000..=0xF8FF | 0xF0000..=0xFFFFD | 0x100000..=0x10FFFD)
+    })
+}
+
+#[cfg(test)]
+mod text_sample_tests {
+    use super::text_has_letters;
+
+    #[test]
+    fn letters_digits_and_symbols() {
+        assert!(text_has_letters("Second clip"));
+        assert!(text_has_letters("−1"));
+        assert!(text_has_letters("目次"));
+        assert!(!text_has_letters("×"));
+        assert!(!text_has_letters("_"));
+        assert!(!text_has_letters("\u{e5cd}"));
+        assert!(!text_has_letters("🙂"));
     }
 }

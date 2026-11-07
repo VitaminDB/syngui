@@ -577,7 +577,7 @@ impl Text {
             color_anim: None,
             color_before_reset: None,
             mss_italic: false,
-            mss_text_box_font: false,
+            mss_text_box_font: None,
             mss_text_align: None,
             mss_text_decoration: crate::mss::TextDecoration::None,
             mss_font_family: None,
@@ -655,9 +655,10 @@ struct TextElement {
     mss_font_weight: u16,
     /// MSS `font-style: italic|oblique` — наклонные глифы.
     mss_italic: bool,
-    /// `text-box-edge: text` — вертикаль по метрикам шрифта (образец «Hg»),
-    /// а не по контуру глифов текста.
-    mss_text_box_font: bool,
+    /// `text-box-edge`: `Some(true)` (`text`) — вертикаль по метрикам шрифта (образец «Hg»),
+    /// `Some(false)` (`ink`) — по контуру глифов текста; `None` — как решит рендерер: по
+    /// метрикам, если в тексте есть буквы или цифры, иначе по контуру.
+    mss_text_box_font: Option<bool>,
     mss_text_align: Option<crate::mss::TextAlign>,
     mss_text_decoration: crate::mss::TextDecoration,
     mss_font_family: Option<String>,
@@ -1012,9 +1013,10 @@ impl Element for TextElement {
         }
 
         let prev_italic = list.set_text_italic(self.mss_italic);
-        let prev_bbox = self
-            .mss_text_box_font
-            .then(|| list.set_text_bbox_sample(Some(compact_str::CompactString::const_new("Hg"))));
+        // пустой образец — явная центровка по контуру (`ink`)
+        let prev_bbox = self.mss_text_box_font.map(|font| {
+            list.set_text_bbox_sample(Some(compact_str::CompactString::const_new(if font { "Hg" } else { "" })))
+        });
         if has_extra
             || self.mss_text_align.is_some()
             || self.mss_font_family.is_some()
@@ -1262,7 +1264,7 @@ impl Element for TextElement {
         self.font_size = DEFAULT_FONT_SIZE;
         self.mss_font_weight = self.base_font_weight.unwrap_or(400);
         self.mss_italic = false;
-        self.mss_text_box_font = false;
+        self.mss_text_box_font = None;
         self.mss_text_align = None;
         self.mss_text_decoration = crate::mss::TextDecoration::None;
         self.mss_font_family = None;
@@ -1320,7 +1322,11 @@ impl StyledElement for TextElement {
             self.mss_italic = matches!(fs, "italic" | "oblique");
         }
         if let Some(edge) = style.get("text-box-edge").and_then(|v| v.as_string()) {
-            self.mss_text_box_font = edge == "text";
+            self.mss_text_box_font = match edge {
+                "text" => Some(true),
+                "ink" => Some(false),
+                _ => None,
+            };
         }
         if let Some(ta) = style.text_align() {
             self.mss_text_align = Some(ta);
