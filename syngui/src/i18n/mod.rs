@@ -243,10 +243,12 @@ pub fn set_language(lang: impl Into<Lang>) {
         reg.recompute_chain();
         (changed, reg.effective())
     });
+    // Календари — всегда: язык по умолчанию (en) совпадает с запрошенным, а
+    // локаль календарей изначально русская, иначе `set_language("en")` её не меняет.
+    sync_calendar_locale(&effective);
     if !changed {
         return;
     }
-    sync_calendar_locale(&effective);
     bump_revision();
 }
 
@@ -264,6 +266,28 @@ fn sync_calendar_locale(_effective: &Lang) {}
 pub fn language() -> Lang {
     subscribe();
     with_registry(|reg| reg.effective())
+}
+
+/// Десятичный разделитель текущего языка: запятая (ru, uk, de, fr, es, it, pl, pt, tr, kk…) или точка
+/// (en, ja, ko, zh…).
+pub fn decimal_separator() -> char {
+    decimal_separator_of(&language())
+}
+
+fn decimal_separator_of(lang: &Lang) -> char {
+    match lang.base() {
+        "en" | "ja" | "ko" | "zh" | "he" | "th" | "hi" => '.',
+        _ => ',',
+    }
+}
+
+/// Число, отформатированное с точкой (`format!("{v:.1}")`), — с десятичным разделителем текущего
+/// языка: `"0.5"` → `"0,5"` по-русски, `"0.5"` по-английски.
+pub fn decimal(s: &str) -> String {
+    match decimal_separator() {
+        '.' => s.to_string(),
+        c => s.replace('.', &c.to_string()),
+    }
 }
 
 /// Язык, запрошенный через `set_language`, до разрешения.
@@ -617,5 +641,18 @@ mod tests {
         harness.rebuild();
         assert_eq!(builds.load(Ordering::SeqCst), before + 1);
         set_language("en");
+    }
+}
+
+#[cfg(test)]
+mod decimal_tests {
+    use super::*;
+
+    #[test]
+    fn separator_by_language() {
+        assert_eq!(decimal_separator_of(&Lang::new("ru")), ',');
+        assert_eq!(decimal_separator_of(&Lang::new("de-DE")), ',');
+        assert_eq!(decimal_separator_of(&Lang::new("en")), '.');
+        assert_eq!(decimal_separator_of(&Lang::new("zh-CN")), '.');
     }
 }

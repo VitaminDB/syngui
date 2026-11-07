@@ -154,6 +154,15 @@ pub fn render_png_with(
     tree.text_measure = Some(renderer.font_atlas.clone() as Arc<dyn TextMeasure>);
     tree.image_store = Some(renderer.image_store.clone());
     let sheet = parse_stylesheet_str(mss).map_err(|e| format!("MSS: {e}"))?;
+    // Признак тёмной темы для запасных цветов виджетов (кнопки, поля без своих правил) — как у окна:
+    // `--bg` таблицы стилей, иначе системное оформление. Без него снимок тёмной программы получал
+    // светлые запасные цвета: бледный текст кнопок, белые сегменты.
+    let theme_bg = sheet.get_variable("--bg").and_then(|v| v.as_color().or_else(|| v.as_string().and_then(crate::mss::MssColor::parse)));
+    let dark = match theme_bg {
+        Some(c) => crate::theme_fallback::color_is_dark(Color::from_srgb(c.r, c.g, c.b, c.a as f32 / 255.0)),
+        None => crate::appearance::read_system_appearance().is_dark(),
+    };
+    crate::theme_fallback::set_dark_theme(dark);
     let engine = StyleEngine::new(sheet);
     crate::viewport::viewport_size().set(Size::new(lw as f32, lh as f32));
     tree.set_window_flags(opts.window_flags);
