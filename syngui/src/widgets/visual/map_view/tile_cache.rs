@@ -35,6 +35,10 @@ struct DiskInner {
     index: Mutex<Vec<TileKey>>,
     sizes: Mutex<HashMap<TileKey, u64>>,
     dirty: AtomicBool,
+    /// Когда индекс последний раз записан на диск: пишется не реже раза в несколько секунд, а не только при
+    /// удалении кэша — общий кэш живёт до конца процесса, и без этого индекс (а с ним и вытеснение старых
+    /// плиток) отставал от файлов.
+    saved_at: Mutex<std::time::Instant>,
 }
 
 struct MemoryInner {
@@ -46,7 +50,18 @@ impl TileCache {
     #[cfg(feature = "map-native")]
     pub fn new(path: impl Into<PathBuf>) -> Self {
         let path = path.into();
-        let index = Self::load_index_from_disk(&path);
+        let mut index = Self::load_index_from_disk(&path);
+        // плитки, записанные после последнего сохранения индекса (процесс завершился раньше), — в начало
+        // очереди как самые старые: иначе их не учитывал бы предел размера и они не вытеснялись бы никогда
+        let known: hashbrown::HashSet<TileKey> = index.iter().copied().collect();
+        let mut orphans: Vec<TileKey> = Self::scan_tiles(&path)
+            .into_iter()
+            .filter(|k| !known.contains(k))
+            .collect();
+        if !orphans.is_empty() {
+            orphans.append(&mut index);
+            index = orphans;
+        }
         let mut sizes: HashMap<TileKey, u64> = HashMap::with_capacity(index.len());
         let mut total: u64 = 0;
         for key in &index {
@@ -63,6 +78,12 @@ impl TileCache {
                 index: Mutex::new(index),
                 sizes: Mutex::new(sizes),
                 dirty: AtomicBool::new(false),
+                // первая же новая плитка записывает индекс
+                saved_at: Mutex::new(
+                    std::time::Instant::now()
+                        .checked_sub(std::time::Duration::from_secs(60))
+                        .unwrap_or_else(std::time::Instant::now),
+                ),
             })),
             max_tiles: 1000,
             max_bytes: None,
@@ -261,6 +282,43 @@ impl TileCache {
             .join(format!("{}_{}.png", key.x, key.y))
     }
 
+    /// Все плитки в каталоге кэша: `<источник>/<z>/<x>_<y>.png`.
+    #[cfg(feature = "map-native")]
+    fn scan_tiles(base: &PathBuf) -> Vec<TileKey> {
+        let mut out = Vec::new();
+        let dirs = |p: &std::path::Path| -> Vec<(u32, PathBuf)> {
+            std::fs::read_dir(p)
+                .into_iter()
+                .flatten()
+                .flatten()
+                .filter_map(|e| {
+                    let n: u32 = e.file_name().to_str()?.parse().ok()?;
+                    Some((n, e.path()))
+                })
+                .collect()
+        };
+        for (pid, pdir) in dirs(base) {
+            let Ok(provider_id) = u8::try_from(pid) else { continue };
+            for (z, zdir) in dirs(&pdir) {
+                let Ok(z) = u8::try_from(z) else { continue };
+                for e in std::fs::read_dir(&zdir).into_iter().flatten().flatten() {
+                    let name = e.file_name();
+                    let Some((x, y)) = name
+                        .to_str()
+                        .and_then(|n| n.strip_suffix(".png"))
+                        .and_then(|n| n.split_once('_'))
+                    else {
+                        continue;
+                    };
+                    if let (Ok(x), Ok(y)) = (x.parse(), y.parse()) {
+                        out.push(TileKey { x, y, z, provider_id });
+                    }
+                }
+            }
+        }
+        out
+    }
+
     #[cfg(feature = "map-native")]
     fn load_index_from_disk(path: &PathBuf) -> Vec<TileKey> {
         let index_path = path.join("index.bin");
@@ -372,7 +430,52 @@ fn disk_put(
         }
 
         inner.dirty.store(true, Ordering::Relaxed);
+        if let Ok(mut at) = inner.saved_at.lock() {
+            if at.elapsed() >= std::time::Duration::from_secs(5) {
+                TileCache::save_index_to_disk(&inner.path, &idx);
+                inner.dirty.store(false, Ordering::Relaxed);
+                *at = std::time::Instant::now();
+            }
+        }
     }
+}
+
+/// Кэш плиток по умолчанию для карт без своего [`TileCache`]: на диске, в каталоге кэша пользователя
+/// (`$XDG_CACHE_HOME` или `~/.cache`) — `<программа>/map-tiles`, чтобы не запрашивать у тайл-сервера одни и
+/// те же плитки при каждом запуске (этого требуют правила серверов OpenStreetMap). Каталог свой у каждой
+/// программы: индекс кэша пишет один процесс. `None` — каталога кэша нет (например, без `HOME`).
+#[cfg(all(not(target_arch = "wasm32"), feature = "map-native"))]
+pub fn default_cache() -> Option<Arc<TileCache>> {
+    static CACHE: std::sync::OnceLock<Option<Arc<TileCache>>> = std::sync::OnceLock::new();
+    CACHE
+        .get_or_init(|| {
+            let base = std::env::var_os("XDG_CACHE_HOME")
+                .map(PathBuf::from)
+                .filter(|p| p.is_absolute())
+                .or_else(|| {
+                    std::env::var_os("HOME")
+                        .map(PathBuf::from)
+                        .filter(|p| p.is_absolute())
+                        .map(|h| h.join(".cache"))
+                })?;
+            let dir = base.join(program_name()).join("map-tiles");
+            Some(Arc::new(
+                TileCache::new(dir)
+                    .max_tiles(4000)
+                    .max_bytes(200 * 1024 * 1024),
+            ))
+        })
+        .clone()
+}
+
+/// Имя исполняемого файла программы (для каталога кэша и User-Agent).
+#[cfg(all(not(target_arch = "wasm32"), feature = "map-native"))]
+pub(super) fn program_name() -> String {
+    std::env::current_exe()
+        .ok()
+        .and_then(|p| p.file_stem().map(|s| s.to_string_lossy().into_owned()))
+        .filter(|s| !s.is_empty())
+        .unwrap_or_else(|| "syngui".to_string())
 }
 
 impl Drop for TileCache {
@@ -385,3 +488,28 @@ impl Drop for TileCache {
 // (idb-хэндлы создаются локально в async, в структуре не хранятся).
 unsafe impl Send for TileCache {}
 unsafe impl Sync for TileCache {}
+
+#[cfg(all(test, feature = "map-native"))]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn tiles_missing_from_index_are_picked_up() {
+        let dir = std::env::temp_dir().join(format!("syngui-tile-cache-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(dir.join("0/3")).unwrap();
+        std::fs::write(dir.join("0/3/1_2.png"), b"x").unwrap();
+        std::fs::write(dir.join("0/3/junk.txt"), b"x").unwrap();
+        let c = TileCache::new(&dir);
+        assert_eq!(c.current_bytes(), 1);
+        if let CacheBackend::Disk(inner) = &c.backend {
+            let idx = inner.index.lock().unwrap();
+            assert_eq!(idx.len(), 1);
+            assert_eq!((idx[0].x, idx[0].y, idx[0].z, idx[0].provider_id), (1, 2, 3, 0));
+        } else {
+            panic!("ожидался дисковый кэш");
+        }
+        drop(c);
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+}

@@ -162,7 +162,8 @@ where
 }
 
 /// User-Agent запросов плиток. Политика тайл-серверов OpenStreetMap требует, чтобы программа себя называла
-/// (без этого сервер может отказывать) — задайте имя своей программы до первого показа карты.
+/// (без этого сервер может отказывать) — задайте имя своей программы и ссылку на неё до первого показа карты.
+/// По умолчанию — имя исполняемого файла и ссылка на syngui.
 #[cfg(all(not(target_arch = "wasm32"), feature = "map-native"))]
 static USER_AGENT: std::sync::OnceLock<String> = std::sync::OnceLock::new();
 
@@ -173,10 +174,17 @@ pub fn set_user_agent(ua: impl Into<String>) {
 
 #[cfg(all(not(target_arch = "wasm32"), feature = "map-native"))]
 fn user_agent() -> &'static str {
-    USER_AGENT
-        .get()
-        .map(|s| s.as_str())
-        .unwrap_or(concat!("syngui-map/", env!("CARGO_PKG_VERSION")))
+    // по умолчанию — имя программы и ссылка на фреймворк: «syn-foo (syngui-map/0.1; +https://…/syngui)»
+    static DEFAULT: std::sync::OnceLock<String> = std::sync::OnceLock::new();
+    USER_AGENT.get().map(|s| s.as_str()).unwrap_or_else(|| {
+        DEFAULT.get_or_init(|| {
+            format!(
+                "{} (syngui-map/{}; +https://github.com/VitaminDB/syngui)",
+                super::tile_cache::program_name(),
+                env!("CARGO_PKG_VERSION")
+            )
+        })
+    })
 }
 
 #[cfg(all(not(target_arch = "wasm32"), feature = "map-native"))]

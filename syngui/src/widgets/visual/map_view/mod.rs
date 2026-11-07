@@ -364,8 +364,8 @@ impl Widget for MapView {
             drag_center_lat: 0.0,
             drag_center_lng: 0.0,
             zoom_accumulator: 0.0,
-            tile_loader: Arc::new(match &self.tile_cache {
-                Some(cache) => TileLoader::with_cache(Arc::clone(cache)),
+            tile_loader: Arc::new(match self.tile_cache.clone().or_else(default_tile_cache) {
+                Some(cache) => TileLoader::with_cache(cache),
                 None => TileLoader::new(),
             }),
             tile_atlas: None,
@@ -787,6 +787,35 @@ pub fn marker_at_f(
     })
 }
 
+/// Кэш плиток, если программа не задала свой ([`MapView::tile_cache`]): на диске в каталоге кэша пользователя.
+fn default_tile_cache() -> Option<Arc<TileCache>> {
+    #[cfg(all(not(target_arch = "wasm32"), feature = "map-native"))]
+    {
+        tile_cache::default_cache()
+    }
+    #[cfg(not(all(not(target_arch = "wasm32"), feature = "map-native")))]
+    {
+        None
+    }
+}
+
+/// Эффект вывода для фильтра источника плиток: `None`, если фильтра нет или он ничего не меняет.
+fn provider_filter_effect(
+    filters: &[crate::effects::FilterEffect],
+) -> Option<crate::render::display_list::Effect> {
+    use crate::render::display_list::Effect;
+    let mut effects: Vec<Effect> = filters
+        .iter()
+        .map(|f| f.to_effect())
+        .filter(|e| !e.is_identity())
+        .collect();
+    match effects.len() {
+        0 => None,
+        1 => Some(effects.remove(0)),
+        _ => Some(Effect::Chain(effects)),
+    }
+}
+
 impl Element for MapViewElement {
     fn update(&mut self, widget: &dyn Widget, _ctx: &mut crate::widget::UpdateContext) {
         if let Some(m) = widget.as_any().downcast_ref::<MapView>() {
@@ -797,7 +826,11 @@ impl Element for MapViewElement {
                         a.clear_provider(self.provider.id);
                     }
                 }
+            }
+            // у osm/osm_light/osm_dark общий `id` (одни и те же плитки) — фильтр и подпись меняются без перезагрузки
+            if m.provider.id != self.provider.id || m.provider.name != self.provider.name {
                 self.provider = m.provider.clone();
+                self.mark_dirty(DirtyFlags::RENDER);
             }
             self.markers = m.markers.clone();
             self.polylines = m.polylines.clone();
@@ -892,10 +925,20 @@ impl Element for MapViewElement {
             list.push_effect_layer(self.build_filter_effect(&target), bounds);
         }
 
+        // свой фильтр источника (светлая/тёмная подложка из плиток OSM) — только на плитки и фон под ними
+        let provider_effect = provider_filter_effect(self.provider.filter);
+        if let Some(ref e) = provider_effect {
+            list.push_effect_layer(e.clone(), bounds);
+        }
+
         list.push_rect(bounds, Color::new(0.678, 0.847, 0.902, 1.0), [0.0; 4]);
 
         if let Some(ref tile_atlas) = self.tile_atlas {
             self.render_tiles(list, tile_atlas);
+        }
+
+        if provider_effect.is_some() {
+            list.pop_effect_layer();
         }
 
         if filtered {
@@ -1163,6 +1206,8 @@ impl Element for MapViewElement {
                         a.clear_provider(self.provider.id);
                     }
                 }
+            }
+            if new_provider.id != self.provider.id || new_provider.name != self.provider.name {
                 self.provider = new_provider;
                 self.mark_dirty(DirtyFlags::RENDER);
             }

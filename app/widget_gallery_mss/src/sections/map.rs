@@ -9,9 +9,8 @@ static PROVIDER_SOURCE: OnceLock<Arc<Mutex<TileProvider>>> = OnceLock::new();
 
 fn get_provider(value: &str) -> TileProvider {
     match value {
-        "carto_light" => TileProvider::carto_light(),
-        "carto_dark" => TileProvider::carto_dark(),
-        "carto_voyager" => TileProvider::carto_voyager(),
+        "osm_light" => TileProvider::osm_light(),
+        "osm_dark" => TileProvider::osm_dark(),
         "esri_satellite" => TileProvider::esri_satellite(),
         _ => TileProvider::osm(),
     }
@@ -32,9 +31,8 @@ pub fn build_map_section() -> impl Widget {
                     .child(
                         Dropdown::with_items(vec![
                             DropdownItem::new("osm", "OpenStreetMap"),
-                            DropdownItem::new("carto_light", "CartoDB Light"),
-                            DropdownItem::new("carto_dark", "CartoDB Dark"),
-                            DropdownItem::new("carto_voyager", "CartoDB Voyager"),
+                            DropdownItem::new("osm_light", "OpenStreetMap Light"),
+                            DropdownItem::new("osm_dark", "OpenStreetMap Dark"),
                             DropdownItem::new("esri_satellite", "ESRI Satellite"),
                         ])
                         .selected("osm")
