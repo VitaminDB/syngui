@@ -768,7 +768,8 @@ impl AppHandler {
                 };
                 // Clear-color окна = фон темы: полоса статус-бара и непокрытые
                 // области больше не остаются дефолтным светлым фоном.
-                if let Some(bg) = parse_theme_bg(&new_ss) {
+                // Прозрачное окно (CSD) фон рисует само: углы за скруглением рамки остаются прозрачными.
+                if let Some(bg) = parse_theme_bg(&new_ss).filter(|_| !self.config.transparent) {
                     self.config.background_color = bg;
                 }
                 // Цвет панелей, заданный приложением, главнее фона темы.

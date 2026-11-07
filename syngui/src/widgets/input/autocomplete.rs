@@ -281,7 +281,7 @@ impl Element for AutocompleteElement {
             .map(|c| c.lighten(0.3))
             .unwrap_or_else(|| self.mss.accent_color.unwrap_or(Color::from_hex("#3B82F6")));
         let placeholder_color = if self.mss.color.is_some() {
-            fg.with_alpha(0.5)
+            crate::theme_fallback::placeholder_color(fg)
         } else {
             Color::from_hex("#9CA3AF")
         };

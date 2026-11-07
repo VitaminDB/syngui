@@ -1054,7 +1054,7 @@ impl Element for TextFieldElement {
             Size::new(f32::INFINITY, text_height),
         );
 
-        let placeholder_color = fg.with_alpha(0.5);
+        let placeholder_color = crate::theme_fallback::placeholder_color(fg);
 
         if self.text.is_empty() && !self.focused {
             let placeholder_rect = Rect::new(
@@ -1092,7 +1092,7 @@ impl Element for TextFieldElement {
                 );
             }
 
-            let text_color = if self.disabled { placeholder_color } else { fg };
+            let text_color = if self.disabled { fg.with_alpha(0.5) } else { fg };
 
             let display_text;
             let preedit_byte_start;

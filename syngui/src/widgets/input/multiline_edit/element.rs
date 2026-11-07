@@ -676,7 +676,7 @@ impl Element for MultilineTextEditElement {
         let lines = self.lines();
         let text_x = self.bounds.x() + self.text_x_offset();
         let text_width = self.bounds.size.width - self.text_x_offset() - self.right_padding();
-        let placeholder_color = fg.with_alpha(0.5);
+        let placeholder_color = crate::theme_fallback::placeholder_color(fg);
         let line_num_color = fg.with_alpha(0.4);
 
         let content_clip = Rect::new(
