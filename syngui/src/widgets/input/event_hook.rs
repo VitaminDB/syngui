@@ -106,6 +106,7 @@ type NavButtonHandler = Arc<dyn Fn(MouseButton) -> bool + Send + Sync>;
 type WheelHandler = Arc<dyn Fn(f32, f32, Point) -> bool + Send + Sync>;
 
 type LifecycleHandler = Arc<dyn Fn() + Send + Sync>;
+type ResizeHandler = Arc<dyn Fn(Size) + Send + Sync>;
 
 pub struct EventHook {
     on_key_down: Option<KeyHandler>,
@@ -121,6 +122,8 @@ pub struct EventHook {
     on_nav_button: Option<NavButtonHandler>,
     on_wheel: Option<WheelHandler>,
     bounds_out: Option<Arc<crate::core::sync::Mutex<Rect>>>,
+    on_resize: Option<ResizeHandler>,
+    fill: bool,
     child: Option<Box<dyn Widget>>,
 }
 
@@ -140,6 +143,8 @@ impl EventHook {
             on_nav_button: None,
             on_wheel: None,
             bounds_out: None,
+            on_resize: None,
+            fill: false,
             child: None,
         }
     }
@@ -257,6 +262,24 @@ impl EventHook {
         self
     }
 
+    /// Сообщать новый размер после раскладки (округлённый, только при
+    /// изменении). Зовётся отложенно, на главном потоке: обработчик может
+    /// менять сигналы — например, сколько кнопок помещается в отведённое
+    /// место. Размер хука задаёт родитель (он занимает все ограничения),
+    /// поэтому от содержимого он не зависит и петли раскладки нет.
+    pub fn on_resize(mut self, handler: impl Fn(Size) + Send + Sync + 'static) -> Self {
+        self.on_resize = Some(Arc::new(handler));
+        self
+    }
+
+    /// Занимать всё отведённое родителем место (конечные максимумы), а не
+    /// размер содержимого: так `on_resize` сообщает, сколько места дано
+    /// (слот с `flex-grow`), а не сколько заняли дети.
+    pub fn fill(mut self) -> Self {
+        self.fill = true;
+        self
+    }
+
     pub fn child<M>(mut self, child: impl IntoWidget<M>) -> Self {
         self.child = Some(child.into_widget());
         self
@@ -286,6 +309,9 @@ impl Widget for EventHook {
             on_nav_button: self.on_nav_button.clone(),
             on_wheel: self.on_wheel.clone(),
             bounds_out: self.bounds_out.clone(),
+            on_resize: self.on_resize.clone(),
+            reported: Size::zero(),
+            fill: self.fill,
             has_child: self.child.is_some(),
             bounds: Rect::zero(),
             classes: Vec::new(),
@@ -338,6 +364,10 @@ struct EventHookElement {
     on_nav_button: Option<NavButtonHandler>,
     on_wheel: Option<WheelHandler>,
     bounds_out: Option<Arc<crate::core::sync::Mutex<Rect>>>,
+    on_resize: Option<ResizeHandler>,
+    /// Последний размер, отданный `on_resize`.
+    reported: Size,
+    fill: bool,
     has_child: bool,
     bounds: Rect,
     classes: Vec<String>,
@@ -351,6 +381,22 @@ impl EventHookElement {
             if let Ok(mut rect) = out.lock() {
                 *rect = self.bounds;
             }
+        }
+    }
+
+    /// Только из прохода расстановки (`set_content_size`): `layout`
+    /// зовётся и для пробных замеров с другими ограничениями.
+    fn report_size(&mut self) {
+        let size = Size::new(
+            self.bounds.size.width.round(),
+            self.bounds.size.height.round(),
+        );
+        if size == self.reported {
+            return;
+        }
+        self.reported = size;
+        if let Some(f) = self.on_resize.clone() {
+            crate::async_runtime::run_on_main_thread(move || f(size));
         }
     }
 }
@@ -371,6 +417,8 @@ impl Element for EventHookElement {
             self.on_nav_button = hook.on_nav_button.clone();
             self.on_wheel = hook.on_wheel.clone();
             self.bounds_out = hook.bounds_out.clone();
+            self.on_resize = hook.on_resize.clone();
+            self.fill = hook.fill;
             self.has_child = hook.child.is_some();
             self.publish_bounds();
         }
@@ -538,6 +586,10 @@ impl Element for EventHookElement {
         self.bounds
     }
 
+    fn fills_available(&self) -> bool {
+        self.fill
+    }
+
     fn set_position(&mut self, pos: Point) {
         self.bounds.origin = pos;
         self.publish_bounds();
@@ -546,6 +598,7 @@ impl Element for EventHookElement {
     fn set_content_size(&mut self, size: Size) {
         self.bounds = Rect::new(self.bounds.origin, size);
         self.publish_bounds();
+        self.report_size();
     }
 
     fn mark_dirty(&mut self, flags: DirtyFlags) {
@@ -631,5 +684,40 @@ impl StyledElement for EventHookElement {
     fn set_classes(&mut self, classes: Vec<String>) {
         self.classes = classes;
         self.mark_dirty(DirtyFlags::RENDER);
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::core::sync::Mutex;
+    use crate::testing::TestHarness;
+    use crate::widgets::{Column, DecoratedBox, Padding};
+
+    fn hook_bounds(fill: bool) -> (Rect, Arc<Mutex<Size>>) {
+        let seen = Arc::new(Mutex::new(Size::zero()));
+        let s2 = seen.clone();
+        let mut hook = EventHook::new()
+            .on_resize(move |s| *s2.lock().unwrap() = s)
+            .child(Padding::all(10.0).child(DecoratedBox::new()));
+        if fill {
+            hook = hook.fill();
+        }
+        let mut h = TestHarness::new(Box::new(Column::new().child(hook)));
+        h.layout(200.0, 100.0);
+        crate::async_runtime::drain_main_thread_callbacks();
+        let id = h.find_by_type_name("EventHook")[0];
+        (h.element_bounds(id), seen)
+    }
+
+    /// Без `fill` хук — размером с содержимое; с `fill` — всё данное
+    /// место, и `on_resize` сообщает именно его.
+    #[test]
+    fn fill_takes_given_space_and_reports_it() {
+        let (b, _) = hook_bounds(false);
+        assert!(b.size.width < 200.0, "{b:?}");
+        let (b, seen) = hook_bounds(true);
+        assert_eq!(b.size.width, 200.0);
+        assert_eq!(seen.lock().unwrap().width, 200.0);
     }
 }
