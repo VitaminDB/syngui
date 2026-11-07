@@ -591,6 +591,16 @@ impl Release {
                     if p.cross.iter().any(|x| x.target.contains("windows-gnu")) && !mk.iter().any(|m| m == "mingw-w64-gcc") {
                         mk.push("mingw-w64-gcc".into());
                     }
+                    // Чужие цели (windows-gnu, musl) есть только у rustup: пакет rust их не содержит,
+                    // а rust и rustup в одной транзакции конфликтуют — вместо cargo/rust нужен rustup.
+                    if !p.cross.is_empty() {
+                        mk.retain(|m| m != "cargo" && m != "rust");
+                        if !mk.iter().any(|m| m == "rustup") {
+                            mk.insert(0, "rustup".into());
+                        }
+                    }
+                    // уже в depends — повтор в makedepends не нужен (namcap)
+                    mk.retain(|m| !p.depends.contains(m));
                     s += &format!("makedepends=({})\noptions=({})\nsource=(\"{repo}::git+{url}.git\")\nsha256sums=('SKIP')\n", mk.iter().map(|x| sh(x)).collect::<Vec<_>>().join(" "), opts.iter().map(|x| sh(x)).collect::<Vec<_>>().join(" "));
                     let one = [&(name.clone(), p.clone())];
                     let lines = |arch: &str, ind: &str| -> String {
@@ -604,7 +614,7 @@ impl Release {
                         .map(|x| {
                             let krate = &self.bin_crate[&x.bin].0;
                             format!(
-                                "    rustup target add {t} 2>/dev/null || true\n    cargo build --release -p {krate} --bin {b} --target {t}\n    install -Dm755 target/{t}/release/{f} target/release/cross/{t}/{f}\n",
+                                "    cargo build --offline --release -p {krate} --bin {b} --target {t}\n    install -Dm755 target/{t}/release/{f} target/release/cross/{t}/{f}\n",
                                 t = x.target,
                                 b = x.bin,
                                 f = x.file()
@@ -612,6 +622,9 @@ impl Release {
                         })
                         .collect();
 
+                    let mut cross_targets: Vec<&str> = p.cross.iter().map(|x| x.target.as_str()).collect();
+                    cross_targets.sort_unstable();
+                    cross_targets.dedup();
                     // разные возможности по архитектуре — выбор по $CARCH
                     let mut builds: Vec<String> = if bx.is_empty() {
                         vec![]
@@ -637,11 +650,17 @@ pkgver() {{
 prepare() {{
     cd "$srcdir/{repo}"
     export RUSTUP_TOOLCHAIN=stable
-    # Без --locked: git-зависимости (syngui и др.) свежие, Cargo.lock обновится.
-    cargo fetch --target "$(rustc -vV | sed -n 's/host: //p')"
+{rustup}    # Без --locked: git-зависимости (syngui и др.) свежие, Cargo.lock обновится.
+    cargo fetch --target "$(rustc -vV | sed -n 's/host: //p')"{fetch_cross}
 }}
 "#,
-                        ver = sh(&self.version)
+                        ver = sh(&self.version),
+                        rustup = if cross_targets.is_empty() {
+                            String::new()
+                        } else {
+                            format!("    rustup toolchain install stable --profile minimal --no-self-update --target {}\n", cross_targets.join(","))
+                        },
+                        fetch_cross = cross_targets.iter().map(|t| format!(" --target {t}")).collect::<String>()
                     );
                     if !builds.is_empty() {
                         s += &format!("\nbuild() {{\n    cd \"$srcdir/{repo}\"\n    export RUSTUP_TOOLCHAIN=stable CARGO_TARGET_DIR=target\n{}}}\n", builds.concat());
