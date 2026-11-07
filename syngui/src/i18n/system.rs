@@ -104,11 +104,24 @@ mod platform {
 
     #[link(name = "kernel32")]
     extern "system" {
+        fn GetUserDefaultUILanguage() -> u16;
+        fn LCIDToLocaleName(lcid: u32, name: *mut u16, len: i32, flags: u32) -> i32;
         fn GetUserDefaultLocaleName(name: *mut u16, len: i32) -> i32;
     }
 
+    /// Язык интерфейса Windows (язык отображения: «Параметры → Время и язык → Язык»), а не региональный
+    /// формат: английская Windows с форматом ru-RU — английский. Формат — только если язык интерфейса не узнать.
     pub fn detect() -> Option<Lang> {
         let mut buf = [0u16; 85];
+        let ui = unsafe { GetUserDefaultUILanguage() } as u32;
+        if ui != 0 {
+            let len = unsafe { LCIDToLocaleName(ui, buf.as_mut_ptr(), buf.len() as i32, 0) };
+            if len > 1 {
+                if let Some(l) = Lang::parse(&String::from_utf16_lossy(&buf[..(len - 1) as usize])) {
+                    return Some(l);
+                }
+            }
+        }
         let len = unsafe { GetUserDefaultLocaleName(buf.as_mut_ptr(), buf.len() as i32) };
         if len <= 1 {
             return None;
