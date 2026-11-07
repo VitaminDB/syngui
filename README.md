@@ -245,7 +245,7 @@ included `gradlew` (requires the Android SDK/NDK and `cargo-ndk`).
 ## How it is tested
 
 The performance numbers above were measured on my machine, and every app I have built since —
-synthos, syndesktop, linux-legion, ardor-mouse — runs on this framework, so its bugs get found
+synthos, synshell, linux-legion, ardor-mouse — runs on this framework, so its bugs get found
 by real use. Developed with the help of [Claude Code](https://claude.com/claude-code).
 
 ## Support
