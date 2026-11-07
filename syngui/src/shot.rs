@@ -19,6 +19,33 @@ use crate::render::DisplayList;
 use crate::widget::context::TextMeasure;
 use crate::widget::{ElementTree, Widget};
 
+/// Нарисовать список в `view` целиком. Картинки уходят в GPU по бюджету байт
+/// на кадр (`UPLOAD_BYTES_PER_FRAME`), поэтому двух проходов мало, когда
+/// картинок много (галерея миниатюр): проходы повторяются, пока очередь
+/// загрузки не опустеет, последний рисует всё. Для своих снимков программ.
+pub fn render_all(
+    renderer: &mut Renderer,
+    gpu: &GpuShared,
+    view: &wgpu::TextureView,
+    size: (u32, u32),
+    list: &DisplayList,
+    bg: Color,
+) {
+    renderer.render_to_view(gpu, view, size, list, bg);
+    for _ in 0..500 {
+        let pending = renderer
+            .image_store
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .has_pending_uploads();
+        if !pending {
+            break;
+        }
+        renderer.render_to_view(gpu, view, size, list, bg);
+    }
+    renderer.render_to_view(gpu, view, size, list, bg);
+}
+
 /// Дополнительные условия снимка.
 pub struct ShotOptions {
     /// Сколько крутить кадры перед снимком как минимум: время на асинхронную
@@ -223,9 +250,7 @@ pub fn render_png_with(
             view_formats: &[],
         });
         let view = tex.create_view(&Default::default());
-        // Первый проход грузит картинки в GPU-кэш, второй рисует их.
-        renderer.render_to_view(&gpu, &view, (pw, ph), &list, bg);
-        renderer.render_to_view(&gpu, &view, (pw, ph), &list, bg);
+        render_all(&mut renderer, &gpu, &view, (pw, ph), list, bg);
 
         let row = (pw * 4).div_ceil(256) * 256;
         let buf = gpu.device.create_buffer(&wgpu::BufferDescriptor {
