@@ -245,12 +245,10 @@ included `gradlew` (requires the Android SDK/NDK and `cargo-ndk`).
 
 ## How it is built
 
-This project is vibe-coded. Since spring 2026 I write all of my projects with [Claude
-Code](https://claude.com/claude-code): I decide what to build and how it fits together,
-describe each task, and review, run and measure the result on my own hardware — the model
-writes the code, the tests and most of the documentation. The performance numbers above were
-measured on my machine, and every app I have built since — synthos, syndesktop, linux-legion,
-ardor-mouse — runs on this framework, so its bugs get found by real use.
+Since spring 2026 I have been working in [Claude Code](https://claude.com/claude-code). The
+performance numbers above were measured on my machine, and every app I have built since —
+synthos, syndesktop, linux-legion, ardor-mouse — runs on this framework, so its bugs get found
+by real use.
 
 ## Support
 
