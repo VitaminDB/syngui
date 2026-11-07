@@ -196,7 +196,12 @@ impl Element for ToggleElement {
         let track_radius = self.mss.border_radius_uniform(24.0, 12.0);
         let thumb_radius = (track_radius - 2.0).max(0.0);
 
-        let track_color = if self.disabled {
+        // Неактивный переключатель сохраняет своё положение цветом: включённый — приглушённый
+        // акцент (раньше серый, как выключенный — «включено, но менять нельзя» читалось как «выключено»).
+        let track_color = if self.disabled && self.is_on {
+            let checked_bg = self.style_checked.as_ref().and_then(|s| s.background_color());
+            checked_bg.unwrap_or(primary).with_alpha(0.45)
+        } else if self.disabled {
             gray_200
         } else if self.is_on {
             let checked_bg = self
@@ -239,7 +244,7 @@ impl Element for ToggleElement {
             Size::new(thumb_size, thumb_size),
         );
         let thumb_base = self.mss.color.unwrap_or(Color::WHITE);
-        let thumb_color = if self.disabled { gray_400 } else { thumb_base };
+        let thumb_color = if self.disabled && self.is_on { thumb_base.with_alpha(0.75) } else if self.disabled { gray_400 } else { thumb_base };
         list.push_shadow(
             thumb_rect,
             Color::new(0.0, 0.0, 0.0, 0.15),
