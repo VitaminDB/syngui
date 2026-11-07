@@ -164,6 +164,8 @@ impl TerminalSession {
         if let Ok(mut s) = self.inner.state.lock() {
             if s.grid.cols() != cols as usize || s.grid.rows() != rows as usize {
                 s.grid.resize(cols as usize, rows as usize);
+                // Увеличение возвращает строки из истории на экран.
+                s.scroll_offset = s.scroll_offset.min(s.grid.scrollback_len());
                 changed = true;
             }
         }

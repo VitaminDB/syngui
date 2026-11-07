@@ -349,6 +349,13 @@ impl Grid {
         self.current_link_id = id;
     }
 
+    /// Смена размера. Строки — как в xterm/alacritty: при уменьшении сначала
+    /// убираются строки ниже курсора, и только если их не хватило — верхние
+    /// (в историю), курсор сдвигается вместе с текстом; при увеличении строки
+    /// возвращаются из истории наверх. Раньше лишние строки всегда снимались
+    /// сверху, а курсор оставался на месте: открылась экранная клавиатура —
+    /// и уже выведенный текст (приглашение sudo) уезжал в историю, экран
+    /// выглядел пустым до следующего вывода.
     pub fn resize(&mut self, cols: usize, rows: usize) {
         let cols = cols.max(1);
         let rows = rows.max(1);
@@ -362,16 +369,33 @@ impl Grid {
             line.resize(cols, Cell::default());
         }
         if rows < self.rows {
-            let drop = self.rows - rows;
-            let drained: Vec<Vec<Cell>> = self.cells.drain(..drop).collect();
-            let drained_w: Vec<bool> = self.wrapped_view.drain(..drop).collect();
+            let (dropped, _) = shrink_rows(
+                &mut self.cells,
+                &mut self.wrapped_view,
+                &mut self.cursor,
+                &mut self.saved_cursor,
+                rows,
+            );
             if !self.on_alt {
-                for (line, w) in drained.into_iter().zip(drained_w) {
+                for (line, w) in dropped {
                     self.push_scrollback_with_wrap(line, w);
                 }
             }
         } else if rows > self.rows {
-            for _ in 0..(rows - self.rows) {
+            let add = rows - self.rows;
+            // На основном экране — вернуть строки из истории наверх.
+            let pull = if self.on_alt { 0 } else { add.min(self.scrollback.len()) };
+            for _ in 0..pull {
+                let line = self.scrollback.pop_back().unwrap_or_else(|| vec![Cell::default(); cols]);
+                let w = self.wrapped_scrollback.pop_back().unwrap_or(false);
+                self.cells.insert(0, line);
+                self.wrapped_view.insert(0, w);
+            }
+            self.cursor.row += pull;
+            if let Some(c) = self.saved_cursor.as_mut() {
+                c.row += pull;
+            }
+            for _ in 0..(add - pull) {
                 self.cells.push(vec![Cell::default(); cols]);
                 self.wrapped_view.push(false);
             }
@@ -381,8 +405,27 @@ impl Grid {
                 line.resize(cols, Cell::default());
             }
             if rows < inactive.cells.len() {
-                inactive.cells.truncate(rows);
-                inactive.wrapped.truncate(rows);
+                let (dropped, _) = shrink_rows(
+                    &mut inactive.cells,
+                    &mut inactive.wrapped,
+                    &mut inactive.cursor,
+                    &mut inactive.saved_cursor,
+                    rows,
+                );
+                // Неактивный буфер при on_alt — основной экран: его строки — в историю.
+                if self.on_alt {
+                    for (line, w) in dropped {
+                        if self.max_scrollback == 0 {
+                            break;
+                        }
+                        while self.scrollback.len() >= self.max_scrollback {
+                            self.scrollback.pop_front();
+                            self.wrapped_scrollback.pop_front();
+                        }
+                        self.scrollback.push_back(line);
+                        self.wrapped_scrollback.push_back(w);
+                    }
+                }
             } else {
                 while inactive.cells.len() < rows {
                     inactive.cells.push(vec![Cell::default(); cols]);
@@ -400,6 +443,10 @@ impl Grid {
         self.cursor.row = self.cursor.row.min(rows - 1);
         self.cursor.col = self.cursor.col.min(cols - 1);
         self.cursor.wrap_pending = false;
+        if let Some(c) = self.saved_cursor.as_mut() {
+            c.row = c.row.min(rows - 1);
+            c.col = c.col.min(cols - 1);
+        }
         self.revision += 1;
     }
 
@@ -659,6 +706,40 @@ impl Grid {
     }
 }
 
+/// Уменьшить экран до `rows` строк: сначала убрать строки ниже курсора,
+/// затем — верхние (их возвращает вызывающий, для истории); курсор и
+/// сохранённый курсор сдвигаются вместе с текстом.
+fn shrink_rows(
+    cells: &mut Vec<Vec<Cell>>,
+    wrapped: &mut Vec<bool>,
+    cursor: &mut Cursor,
+    saved: &mut Option<Cursor>,
+    rows: usize,
+) -> (Vec<(Vec<Cell>, bool)>, usize) {
+    let cur_len = cells.len();
+    if rows >= cur_len {
+        return (Vec::new(), 0);
+    }
+    let excess = cur_len - rows;
+    let below = cur_len.saturating_sub(cursor.row + 1);
+    let trim_bottom = excess.min(below);
+    cells.truncate(cur_len - trim_bottom);
+    wrapped.truncate(cur_len - trim_bottom);
+    let drop = excess - trim_bottom;
+    let lines: Vec<Vec<Cell>> = cells.drain(..drop).collect();
+    let ws: Vec<bool> = wrapped.drain(..drop.min(wrapped.len())).collect();
+    cursor.row = cursor.row.saturating_sub(drop);
+    if let Some(c) = saved.as_mut() {
+        c.row = c.row.saturating_sub(drop);
+    }
+    let out = lines
+        .into_iter()
+        .enumerate()
+        .map(|(i, l)| (l, ws.get(i).copied().unwrap_or(false)))
+        .collect();
+    (out, drop)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -752,5 +833,57 @@ mod tests {
         assert!(g.bracketed_paste());
         g.set_cursor_visible(false);
         assert!(!g.cursor_visible());
+    }
+
+    fn row_text(g: &Grid, r: usize) -> String {
+        g.line(r).iter().map(|c| c.ch).collect::<String>().trim_end().to_string()
+    }
+
+    #[test]
+    fn shrink_keeps_text_above_cursor_visible() {
+        // Экранная клавиатура уменьшила высоту: вывод сверху остаётся на экране.
+        let mut g = Grid::new(10, 20);
+        for ch in "hello".chars() {
+            g.print(ch);
+        }
+        g.cr();
+        g.lf();
+        for ch in "pw:".chars() {
+            g.print(ch);
+        }
+        g.resize(10, 8);
+        assert_eq!(row_text(&g, 0), "hello");
+        assert_eq!(row_text(&g, 1), "pw:");
+        assert_eq!(g.cursor().row, 1);
+        assert_eq!(g.scrollback_len(), 0);
+        // и обратно
+        g.resize(10, 20);
+        assert_eq!(row_text(&g, 0), "hello");
+        assert_eq!(g.cursor().row, 1);
+    }
+
+    #[test]
+    fn shrink_below_cursor_scrolls_top_into_history_and_grow_restores() {
+        let mut g = Grid::new(5, 4);
+        for (i, w) in ["a", "b", "c", "d"].iter().enumerate() {
+            for ch in w.chars() {
+                g.print(ch);
+            }
+            if i < 3 {
+                g.cr();
+                g.lf();
+            }
+        }
+        assert_eq!(g.cursor().row, 3);
+        g.resize(5, 2);
+        assert_eq!(row_text(&g, 0), "c");
+        assert_eq!(row_text(&g, 1), "d");
+        assert_eq!(g.cursor().row, 1);
+        assert_eq!(g.scrollback_len(), 2);
+        g.resize(5, 4);
+        assert_eq!(row_text(&g, 0), "a");
+        assert_eq!(row_text(&g, 3), "d");
+        assert_eq!(g.cursor().row, 3);
+        assert_eq!(g.scrollback_len(), 0);
     }
 }
