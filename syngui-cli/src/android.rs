@@ -416,7 +416,7 @@ dependencies {{
 
     // Значок
     let svg = match app.icon() {
-        Some(p) => std::fs::read_to_string(&p).with_context(|| format!("значок {}", p.display()))?,
+        Some(p) => icon::load(&p)?,
         None => {
             util::warn(format!("у {} нет значка (data/icons/<bin>.svg или [package.metadata.syngui] icon) — буква на круге", app.krate));
             letter_icon(&name)

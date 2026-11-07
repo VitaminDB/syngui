@@ -55,7 +55,7 @@ syngui init                            # заготовка [package.metadata.sy
 [package.metadata.syngui]
 name = "Мамины рецепты"            # имя под значком (Android, iOS)
 id = "kz.syn.syncook"              # id приложения / bundle id
-icon = "assets/icon.svg"           # SVG значка
+icon = "assets/icon.svg"           # SVG значка (или PNG: Android/iOS масштабируют, Linux — hicolor/WxH)
 bin = "syncook"                    # программа, если их несколько
 desktop = "data/syncook.desktop"   # ярлык Linux
 description_en = "Family recipes"  # описание для AUR (иначе package.description)

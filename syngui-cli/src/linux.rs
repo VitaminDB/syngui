@@ -270,9 +270,11 @@ pub fn stage(app: &App, bin_path: &Path, root: &Path, strip_for: Option<Target>)
         util::copy(&d, &root.join("usr/share/applications").join(name))?;
     }
     if let Some(i) = app.icon() {
-        util::copy(&i, &root.join("usr/share/icons/hicolor/scalable/apps").join(format!("{icon}.svg")))?;
-        // PNG по размерам: готовые по шаблону или нарисованные из SVG
-        let svg = std::fs::read_to_string(&i).ok();
+        if !crate::icon::is_raster(&i) {
+            util::copy(&i, &root.join("usr/share/icons/hicolor/scalable/apps").join(format!("{icon}.svg")))?;
+        }
+        // PNG по размерам: готовые по шаблону или нарисованные из SVG (или из PNG-значка)
+        let svg = crate::icon::load(&i).ok();
         for size in PNG_SIZES {
             let out = root.join(format!("usr/share/icons/hicolor/{size}x{size}/apps/{icon}.png"));
             match &app.meta.icons_png {

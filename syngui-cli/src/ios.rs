@@ -6,7 +6,7 @@ use crate::icon;
 use crate::project::App;
 use crate::target::{Profile, Target};
 use crate::util;
-use anyhow::{bail, Context, Result};
+use anyhow::{bail, Result};
 use std::path::{Path, PathBuf};
 use std::process::Command;
 
@@ -71,7 +71,7 @@ pub fn build(app: &App, profile: Profile) -> Result<PathBuf> {
 
     // Значки: iPhone 60pt @2x/@3x, iPad 76pt @2x, 83.5pt @2x — квадрат во весь край на белом
     let svg = match m.icon.as_deref().map(|p| app.path(p)).or_else(|| app.icon()) {
-        Some(p) => std::fs::read_to_string(&p).with_context(|| format!("значок {}", p.display()))?,
+        Some(p) => icon::load(&p)?,
         None => crate::android::letter_icon(&app.display_name()),
     };
     let svg = icon::square(&svg, m.icon_viewbox.as_deref(), m.icon_unround.as_deref());

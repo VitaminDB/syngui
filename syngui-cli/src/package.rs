@@ -242,7 +242,12 @@ pub fn aur(app: &App, out: Option<&Path>) -> Result<PathBuf> {
         inst.push_str(&format!("    install -Dm644 {} \"$pkgdir/usr/share/applications/{name}\"\n", sh(&rel(&d))));
     }
     if let Some(i) = app.icon() {
-        inst.push_str(&format!("    install -Dm644 {} \"$pkgdir/usr/share/icons/hicolor/scalable/apps/{icon}.svg\"\n", sh(&rel(&i))));
+        if crate::icon::is_raster(&i) {
+            let (w, h) = crate::icon::png_size(&i)?;
+            inst.push_str(&format!("    install -Dm644 {} \"$pkgdir/usr/share/icons/hicolor/{w}x{h}/apps/{icon}.png\"\n", sh(&rel(&i))));
+        } else {
+            inst.push_str(&format!("    install -Dm644 {} \"$pkgdir/usr/share/icons/hicolor/scalable/apps/{icon}.svg\"\n", sh(&rel(&i))));
+        }
     }
     if let Some(pat) = &app.meta.icons_png {
         for size in linux::PNG_SIZES {
