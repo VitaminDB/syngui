@@ -2,7 +2,6 @@
 
 [![Licence: GPL-3.0 or commercial](https://img.shields.io/badge/licence-GPL--3.0%20%7C%20commercial-blue)](#license)
 [![Rendering: wgpu](https://img.shields.io/badge/rendering-wgpu%2028-orange)](#rendering)
-[![Vibe-coded with Claude Code](https://img.shields.io/badge/vibe--coded-Claude%20Code-d97757)](#how-it-is-built)
 
 A retained-mode GUI framework for Rust — GPU-rendered via wgpu, styled with CSS-like
 stylesheets, wired with reactive signals.
@@ -243,12 +242,11 @@ The web build omits desktop-only widgets (terminal, video, native clipboard).
 `app/calculator/android/local.properties` pointing at your SDK, then build with the
 included `gradlew` (requires the Android SDK/NDK and `cargo-ndk`).
 
-## How it is built
+## How it is tested
 
-Since spring 2026 I have been working in [Claude Code](https://claude.com/claude-code). The
-performance numbers above were measured on my machine, and every app I have built since —
+The performance numbers above were measured on my machine, and every app I have built since —
 synthos, syndesktop, linux-legion, ardor-mouse — runs on this framework, so its bugs get found
-by real use.
+by real use. Developed with the help of [Claude Code](https://claude.com/claude-code).
 
 ## Support
 
