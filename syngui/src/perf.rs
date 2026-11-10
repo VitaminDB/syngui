@@ -33,6 +33,8 @@ pub fn is_enabled() -> bool {
 
 #[derive(Default)]
 struct PerfCounters {
+    gpu_wait_us: u64,
+    gpu_wait_max_us: u64,
     frames: u64,
     first_frame_printed: bool,
     frame_times_us: Vec<u64>,
@@ -196,6 +198,10 @@ pub fn add_time(kind: TimeKind, dur: Duration) {
         match kind {
             TimeKind::ApplyStyles => p.apply_styles_us += us,
             TimeKind::Animate => p.animate_us += us,
+            TimeKind::GpuWait => {
+                p.gpu_wait_us += us;
+                p.gpu_wait_max_us = p.gpu_wait_max_us.max(us);
+            }
             TimeKind::RenderBatch => {
                 p.render_batch_us += us;
                 p.render_phase_max_us[0] = p.render_phase_max_us[0].max(us);
@@ -328,6 +334,9 @@ fn flush(p: &mut PerfCounters, now: Instant) {
             p.render_phase_max_us[3], p.render_phase_max_us[4], p.render_phase_max_us[5],
     );
 
+    if p.gpu_wait_us > 0 {
+        eprintln!("  gpu:     {}us tot ({}us/frame, max {}us) — ожидание конца кадра на видеокарте", p.gpu_wait_us, p.gpu_wait_us / frames, p.gpu_wait_max_us);
+    }
     if !p.redraw_sites.is_empty() {
         let mut sites: Vec<_> = p.redraw_sites.iter().collect();
         sites.sort_by(|a, b| b.1.cmp(a.1));
@@ -403,6 +412,9 @@ pub enum TimeKind {
     RenderEncode,
     RenderSubmit,
     RenderPresent,
+    /// Ожидание, пока GPU доделает кадр (профиль встраиваемых поверхностей:
+    /// после submit — `device.poll(wait)`); чистое время видеокарты.
+    GpuWait,
 }
 
 /// Счётчики работы дерева для тестов и бенчей: сколько элементов создано и

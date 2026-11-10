@@ -33,6 +33,9 @@ pub struct EmbedView {
     modifiers: Modifiers,
     last_frame_sig: Option<u64>,
     touch: crate::input::TouchTracker,
+    /// Время фаз последнего [`frame`](Self::frame): пересборки и стили,
+    /// раскладка, display list — для профиля кадра (`MGUI_PROFILE`).
+    pub last_timings: [Duration; 3],
 }
 
 impl Default for EmbedView {
@@ -54,6 +57,7 @@ impl EmbedView {
             modifiers: Modifiers::empty(),
             last_frame_sig: None,
             touch: crate::input::TouchTracker::new(),
+            last_timings: [Duration::ZERO; 3],
         }
     }
 
@@ -188,11 +192,14 @@ impl EmbedView {
         let Some(root) = self.root_id else {
             return false;
         };
+        let t0 = Instant::now();
         self.prepare(engine);
+        let t1 = Instant::now();
         self.tree.viewport_size = size;
         crate::viewport::publish(size);
         crate::viewport::publish_origin(Point::zero());
         self.layout_with(engine, Constraints::tight(size));
+        let t2 = Instant::now();
         if self.tab_order_dirty {
             self.focus.rebuild_tab_order(&self.tree, root);
             self.tab_order_dirty = false;
@@ -204,6 +211,8 @@ impl EmbedView {
             .build_display_list(root, list, Rect::new(Point::zero(), size));
         self.tree.build_drag_overlay(list);
         self.tree.sync_overlay_stack();
+        // Для профиля кадра (`MGUI_PROFILE`): пересборки и стили, раскладка, display list.
+        self.last_timings = [t1 - t0, t2 - t1, t2.elapsed()];
         let sig = list.frame_signature();
         if sig.is_some() && sig == self.last_frame_sig {
             return false;
