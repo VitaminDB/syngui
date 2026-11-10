@@ -152,6 +152,7 @@ path-зависимости вне его (`../syngui` через `[patch]`) —
 
 ```sh
 syngui package -w -f arch --fast --install          # собрать всё, makepkg, pacman -U одной транзакцией
+syngui build -w -t linux-aarch64                    # только собрать программы выпуска (без упаковки) → target/syngui/release/<имя>/<арх>/bin
 syngui package -w -f arch -t linux-aarch64          # пакеты для телефона (sysroot)
 syngui package -w -f tar -t all-linux               # архивы <пакет>-<вер>-<арх>.tar.zst для -bin
 syngui package -w -f aur                            # <пакет>-git и <пакет>-bin на каждый пакет

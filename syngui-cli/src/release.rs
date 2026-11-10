@@ -304,6 +304,12 @@ impl Release {
         out
     }
 
+    /// `syngui build -w`: собрать программы выпуска (или пакетов `only`) без упаковки; каталог с копиями программ.
+    pub fn build_bins(&self, only: &[String], target: Target, profile: Profile, strip: bool) -> Result<PathBuf> {
+        let pkgs = self.selected(only)?;
+        self.build(&pkgs, target, profile, strip)
+    }
+
     /// Собрать все программы выбранных пакетов; вернуть каталог с ними (после strip).
     fn build(&self, pkgs: &[&(String, Pkg)], target: Target, profile: Profile, strip: bool) -> Result<PathBuf> {
         for (_, args) in self.cargo_plans(pkgs, target.arch(), true) {

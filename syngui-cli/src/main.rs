@@ -95,6 +95,15 @@ enum Cmd {
         /// linux-x86_64 в контейнере со старой glibc (2.31): запуск вне Arch — Ubuntu 20.04+, Debian 11+
         #[arg(long)]
         portable: bool,
+        /// Всё рабочее пространство по syngui-release.toml (Linux): программы всех пакетов выпуска, без упаковки
+        #[arg(short, long)]
+        workspace: bool,
+        /// С -w: только эти пакеты выпуска (через запятую)
+        #[arg(long, value_delimiter = ',')]
+        only: Vec<String>,
+        /// С -w: описание выпуска вместо syngui-release.toml
+        #[arg(long)]
+        release_file: Option<PathBuf>,
         /// Доп. аргументы cargo (Linux): после --
         #[arg(last = true)]
         cargo_args: Vec<String>,
@@ -260,7 +269,19 @@ fn real_main(cli: Cli) -> Result<()> {
             }
         }
         Cmd::Info { sel } => info(&load(&sel)?)?,
-        Cmd::Build { target, sel, prof, portable, cargo_args } => {
+        Cmd::Build { target, sel, prof, portable, workspace: true, only, release_file, cargo_args } => {
+            if portable || !cargo_args.is_empty() {
+                bail!("с -w: --portable и аргументы cargo не поддерживаются (особая сборка крейтов — в syngui-release.toml)");
+            }
+            let r = release::Release::load(sel.manifest_path.as_deref(), release_file.as_deref())?;
+            for t in targets(&target)? {
+                ensure_linux(t)?;
+                // без strip: программы для установки разработчиком (synport synshell и т. п.) — как из cargo
+                let dir = r.build_bins(&only, t, prof.profile(), false)?;
+                println!("{t}: {}", dir.display());
+            }
+        }
+        Cmd::Build { target, sel, prof, portable, cargo_args, .. } => {
             let app = load(&sel)?;
             let mut done = Vec::new();
             for t in targets(&target)? {
