@@ -298,6 +298,21 @@ impl Batcher {
         clip: ClipRect,
         bbox: Option<Bbox>,
     ) {
+        if let (true, Some(b)) = (crate::perf::is_enabled(), bbox) {
+            // Профиль: площадь по видам шейдеров (после отсечения) — сколько «экранов» перекрашивает кадр.
+            let (mut x0, mut y0, mut x1, mut y1) = (b[0], b[1], b[2], b[3]);
+            if clip.enabled {
+                x0 = x0.max(clip.x());
+                y0 = y0.max(clip.y());
+                x1 = x1.min(clip.x() + clip.width());
+                y1 = y1.min(clip.y() + clip.height());
+            }
+            let area = ((x1 - x0).max(0.0) * (y1 - y0).max(0.0)) as f64;
+            crate::perf::add_area(shader as usize, shader_name(shader), area);
+            if area > 150_000.0 && std::env::var_os("SYNGUI_AREA_DUMP").is_some() {
+                eprintln!("[AREA] {} {:.0}K bbox=[{:.0},{:.0} {:.0}x{:.0}] clip={} {:.0},{:.0} {:.0}x{:.0}", shader_name(shader), area / 1000.0, b[0], b[1], b[2] - b[0], b[3] - b[1], clip.enabled, clip.x(), clip.y(), clip.width(), clip.height());
+            }
+        }
         let key = BatchKey {
             shader_type: shader,
             texture,
@@ -572,5 +587,21 @@ mod tests {
         assert!(!b.transform_keeps_pixel_grid());
         b.current_transform = Transform::identity();
         assert!(b.transform_keeps_pixel_grid());
+    }
+}
+
+fn shader_name(s: ShaderType) -> &'static str {
+    match s {
+        ShaderType::Rect => "rect",
+        ShaderType::RectFlat => "flat",
+        ShaderType::RectRounded => "rounded",
+        ShaderType::Text => "text",
+        ShaderType::TextMono => "text_mono",
+        ShaderType::Shadow => "shadow",
+        ShaderType::InnerShadow => "inner",
+        ShaderType::Image => "image",
+        ShaderType::Effect => "effect",
+        ShaderType::Line => "line",
+        ShaderType::GlowShadow => "glow",
     }
 }

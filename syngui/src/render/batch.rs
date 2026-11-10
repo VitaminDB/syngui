@@ -10,6 +10,9 @@ pub enum ShaderType {
     /// Скруглённая заливка без рамки (`fs_rounded`).
     RectRounded,
     Text,
+    /// Обычные одноцветные глифы без тени (`fs_mono`): общий шейдер текста держит регистры ветки
+    /// размытой тени (цикл до 13×13 выборок) и три `pow` — на Adreno 5xx текст стоил ~24 мс кадра.
+    TextMono,
     Shadow,
     InnerShadow,
     Image,

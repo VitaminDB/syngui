@@ -33,6 +33,8 @@ pub fn is_enabled() -> bool {
 
 #[derive(Default)]
 struct PerfCounters {
+    /// Площадь примитивов по видам шейдеров (`ShaderType as usize`), логические px².
+    area: [f64; 16],
     gpu_wait_us: u64,
     gpu_wait_max_us: u64,
     frames: u64,
@@ -188,6 +190,19 @@ pub fn incr(counter: Counter) {
 }
 
 #[inline]
+/// Закрашенная площадь примитива (логические px², после отсечения) для вида шейдера `shader`.
+pub fn add_area(shader: usize, name: &'static str, area: f64) {
+    if !is_enabled() {
+        return;
+    }
+    AREA_NAMES.with(|n| n.borrow_mut()[shader.min(15)] = name);
+    PERF.with(|p| p.borrow_mut().area[shader.min(15)] += area);
+}
+
+thread_local! {
+    static AREA_NAMES: RefCell<[&'static str; 16]> = const { RefCell::new([""; 16]) };
+}
+
 pub fn add_time(kind: TimeKind, dur: Duration) {
     if !is_enabled() {
         return;
@@ -334,6 +349,17 @@ fn flush(p: &mut PerfCounters, now: Instant) {
             p.render_phase_max_us[3], p.render_phase_max_us[4], p.render_phase_max_us[5],
     );
 
+    if p.area.iter().any(|a| *a > 0.0) {
+        let names = AREA_NAMES.with(|n| *n.borrow());
+        let parts: Vec<String> = p
+            .area
+            .iter()
+            .enumerate()
+            .filter(|(_, a)| **a > 0.0)
+            .map(|(i, a)| format!("{}={:.0}K", if names[i].is_empty() { "?" } else { names[i] }, a / frames as f64 / 1000.0))
+            .collect();
+        eprintln!("  area/кадр (логич. px², тыс.): {}", parts.join(" "));
+    }
     if p.gpu_wait_us > 0 {
         eprintln!("  gpu:     {}us tot ({}us/frame, max {}us) — ожидание конца кадра на видеокарте", p.gpu_wait_us, p.gpu_wait_us / frames, p.gpu_wait_max_us);
     }

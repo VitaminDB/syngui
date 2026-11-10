@@ -106,6 +106,30 @@ fn gamma_coverage(a: f32, color: vec3<f32>) -> f32 {
     return mix(dark, light, t);
 }
 
+// Дешёвая `gamma_coverage` для `fs_mono`: x^2.2 ≈ x²·(0.75 + 0.25x) (ошибка ≤ 1/255 на кромке),
+// вес ветки по яркости — sqrt вместо pow(·, 1/2.2). Без трансцендентных функций на фрагмент.
+fn pow22(x: f32) -> f32 {
+    return x * x * (0.75 + 0.25 * x);
+}
+
+fn gamma_coverage_fast(a: f32, color: vec3<f32>) -> f32 {
+    let luma = clamp(dot(color, vec3<f32>(0.2126, 0.7152, 0.0722)), 0.0, 1.0);
+    let t = sqrt(luma);
+    let dark = 1.0 - pow22(1.0 - a);
+    let light = pow22(a);
+    return mix(dark, light, t);
+}
+
+// Обычный одноцветный глиф без тени (конвейер `TextMono`). Отдельная точка входа: в общей
+// `fs_main` компилятор выделяет регистры по ветке размытой тени, и на тайловых GPU (Adreno 5xx)
+// даже простой глиф стоил как размытие.
+@fragment
+fn fs_mono(in: VertexOutput) -> @location(0) vec4<f32> {
+    let texel = textureSample(font_atlas, font_sampler, in.uv);
+    let alpha = gamma_coverage_fast(texel.a, in.color.rgb);
+    return apply_rounded_clip(vec4<f32>(in.color.rgb, in.color.a * alpha), in.logical_pos);
+}
+
 @fragment
 fn fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
     if (in.data.x > 1.5) {

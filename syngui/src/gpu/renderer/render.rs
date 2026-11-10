@@ -398,8 +398,8 @@ impl Renderer {
                                             &[batch.uniform_offset],
                                         );
                                     }
-                                    ShaderType::Text => {
-                                        render_pass.set_pipeline(&self.text_pipeline);
+                                    ShaderType::Text | ShaderType::TextMono => {
+                                        render_pass.set_pipeline(if current_pipeline == ShaderType::TextMono { &self.text_mono_pipeline } else { &self.text_pipeline });
                                         render_pass.set_bind_group(
                                             0,
                                             &self.uniform_bind_group,

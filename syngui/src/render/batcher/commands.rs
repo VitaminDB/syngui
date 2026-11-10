@@ -15,6 +15,14 @@ impl Batcher {
                 clip_rect,
                 ..
             } => {
+                // Невидимая заливка (прозрачный фон `#00000000`, opacity 0) без рамки ничего не рисует,
+                // но на тайловых GPU (Adreno 5xx) за неё платят полной заливкой со смешиванием:
+                // прозрачные фоны страниц стола перекрашивали экран по нескольку раз за кадр листания.
+                let visible_border = border.as_ref().is_some_and(|b| b.width > 0.0 && b.color.a > 0.0)
+                    || per_side_border.as_ref().is_some_and(|b| b.color.a > 0.0 && b.widths.iter().any(|w| *w > 0.0));
+                if color.a * self.current_opacity < 1.0 / 512.0 && !visible_border {
+                    return;
+                }
                 let shader = fill_shader(corner_radius, border.as_ref(), per_side_border.is_some());
                 self.ensure_batch_rect(shader, None, *clip_rect, rect.inflate(1.0, 1.0));
                 self.set_clip_expand(clip_rect);
@@ -373,8 +381,10 @@ impl Batcher {
                 }
 
                 let stroke_pad = text_stroke.map_or(0.0, |st| st.width.ceil());
+                // Лёгкий шейдер обычных глифов; эмодзи (цветные глифы) — общий.
+                let main_shader = if glyphs.iter().any(|g| g.glyph.is_color) { ShaderType::Text } else { ShaderType::TextMono };
                 self.ensure_batch_rect(
-                    ShaderType::Text,
+                    main_shader,
                     None,
                     *clip_rect,
                     text_bbox_rect.inflate(stroke_pad, stroke_pad),

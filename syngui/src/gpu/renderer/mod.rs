@@ -76,6 +76,7 @@ pub struct Renderer {
     rect_flat_pipeline: wgpu::RenderPipeline,
     rect_rounded_pipeline: wgpu::RenderPipeline,
     text_pipeline: wgpu::RenderPipeline,
+    text_mono_pipeline: wgpu::RenderPipeline,
     shadow_pipeline: wgpu::RenderPipeline,
     inner_shadow_pipeline: wgpu::RenderPipeline,
     line_pipeline: wgpu::RenderPipeline,
@@ -433,7 +434,7 @@ impl Renderer {
             .device
             .create_shader_module(wgpu::ShaderModuleDescriptor {
                 label: Some("Text Shader"),
-                source: wgpu::ShaderSource::Wgsl(encode_output(include_str!("../text.wgsl"), &["fs_main"], encodes_srgb_output(surface_format)).into()),
+                source: wgpu::ShaderSource::Wgsl(encode_output(include_str!("../text.wgsl"), &["fs_main", "fs_mono"], encodes_srgb_output(surface_format)).into()),
             });
         let text_pipeline_layout =
             gpu.device
@@ -448,6 +449,14 @@ impl Renderer {
             &text_pipeline_layout,
             &text_shader,
             surface_format,
+        );
+        let text_mono_pipeline = Self::create_pipeline_fs(
+            &gpu.device,
+            "Text Mono Pipeline",
+            &text_pipeline_layout,
+            &text_shader,
+            surface_format,
+            "fs_mono",
         );
 
         let shadow_shader = gpu
@@ -653,6 +662,7 @@ impl Renderer {
             rect_flat_pipeline,
             rect_rounded_pipeline,
             text_pipeline,
+            text_mono_pipeline,
             shadow_pipeline,
             inner_shadow_pipeline,
             line_pipeline,
@@ -899,7 +909,7 @@ pub(super) fn debug_skip(t: crate::render::ShaderType) -> bool {
                 "rect_general" => 1 << S::Rect as u32,
                 "rect_flat" => 1 << S::RectFlat as u32,
                 "rect_rounded" => 1 << S::RectRounded as u32,
-                "text" => 1 << S::Text as u32,
+                "text" => 1 << S::Text as u32 | 1 << S::TextMono as u32,
                 "shadow" => 1 << S::Shadow as u32,
                 "inner_shadow" => 1 << S::InnerShadow as u32,
                 "image" => 1 << S::Image as u32,
