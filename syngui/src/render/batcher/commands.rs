@@ -111,6 +111,7 @@ impl Batcher {
                 clip_rect,
                 no_wrap,
                 italic,
+                line_height,
                 text_stroke,
                 ..
             } => {
@@ -137,6 +138,28 @@ impl Batcher {
                 if glyphs.is_empty() {
                     return;
                 }
+                // `line-height`: раскладка ставит строки с шагом 1.3 размера, а виджет
+                // меряет блок по заданному интервалу — без этого текст стоял посреди своего
+                // прямоугольника с пустотой сверху и снизу. Строки раздвигаются до шага;
+                // половина разницы сверху получается центровкой, как в CSS.
+                let base_step = phys_font_size as f32 * 1.3;
+                let glyphs = match line_height.map(|lh| lh * sf) {
+                    Some(step) if (step - base_step).abs() > 0.5 && glyphs.iter().any(|g| g.line_top > 0.0) => {
+                        let extra = step - base_step;
+                        let v: Vec<_> = glyphs
+                            .iter()
+                            .map(|g| {
+                                let line = (g.line_top / base_step).round();
+                                let mut g = g.clone();
+                                g.y += line * extra;
+                                g.line_top += line * extra;
+                                g
+                            })
+                            .collect();
+                        std::sync::Arc::new(v)
+                    }
+                    _ => glyphs,
+                };
 
                 use crate::render::Vertex;
                 // Вертикаль — по метрикам шрифта (образец «H»), если в тексте есть буквы или

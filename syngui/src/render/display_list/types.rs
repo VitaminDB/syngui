@@ -53,6 +53,9 @@ pub enum DrawCommand {
         /// Курсив: глифы наклоняются (oblique ~12°) — отдельных курсивных
         /// начертаний атлас не грузит. Берётся из [`super::DisplayList::set_text_italic`].
         italic: bool,
+        /// Межстрочный интервал (MSS `line-height`), логические px; `None` — 1.3 размера.
+        /// Из [`super::DisplayList::set_text_line_height`].
+        line_height: Option<f32>,
         /// Контур (MSS `text-stroke`): копии глифов цветом контура вокруг
         /// букв, под ними. Из [`super::DisplayList::set_text_stroke`].
         text_stroke: Option<crate::mss::fields::TextStroke>,

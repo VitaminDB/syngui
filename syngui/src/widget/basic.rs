@@ -1013,6 +1013,7 @@ impl Element for TextElement {
         }
 
         let prev_italic = list.set_text_italic(self.mss_italic);
+        let prev_line_height = list.set_text_line_height(self.mss_line_height.map(|lh| lh.resolve(self.font_size)));
         // пустой образец — явная центровка по контуру (`ink`)
         let prev_bbox = self.mss_text_box_font.map(|font| {
             list.set_text_bbox_sample(Some(compact_str::CompactString::const_new(if font { "Hg" } else { "" })))
@@ -1056,6 +1057,7 @@ impl Element for TextElement {
             );
         }
         list.set_text_italic(prev_italic);
+        list.set_text_line_height(prev_line_height);
         if let Some(prev) = prev_bbox {
             list.set_text_bbox_sample(prev);
         }
