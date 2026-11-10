@@ -39,7 +39,10 @@ impl Renderer {
         #[cfg(feature = "map")]
         self.sync_tile_atlas(gpu);
 
-        let resolution = [self.logical_width as f32, self.logical_height as f32];
+        // Сцена — физический буфер в логических единицах при общем масштабе:
+        // целая логическая высота (47) против буфера 58 строк при 1.25
+        // сжимала картинку по вертикали, и низ не доходил до края.
+        let resolution = [self.width as f32 / scale, self.height as f32 / scale];
         let clip_slot_map =
             self.write_clip_uniform_slots(gpu, &render_ops, resolution, elapsed, scale);
 
@@ -236,7 +239,7 @@ impl Renderer {
         #[cfg(feature = "map")]
         self.sync_tile_atlas(gpu);
 
-        let resolution = [self.logical_width as f32, self.logical_height as f32];
+        let resolution = [phys_w as f32 / scale, phys_h as f32 / scale];
         let clip_slot_map =
             self.write_clip_uniform_slots(gpu, &render_ops, resolution, elapsed, scale);
 
