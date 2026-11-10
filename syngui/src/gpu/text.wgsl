@@ -112,9 +112,13 @@ fn pow22(x: f32) -> f32 {
     return x * x * (0.75 + 0.25 * x);
 }
 
+// Цвет вершин `fs_mono` уже в sRGB (поверхность без аппаратного sRGB): подставляет отрисовщик.
+const SYNGUI_VERTEX_SRGB: bool = false;
+
 fn gamma_coverage_fast(a: f32, color: vec3<f32>) -> f32 {
     let luma = clamp(dot(color, vec3<f32>(0.2126, 0.7152, 0.0722)), 0.0, 1.0);
-    let t = sqrt(luma);
+    // вес ветки — перцептивная яркость: из линейной ≈ sqrt, из sRGB — она сама
+    let t = select(sqrt(luma), luma, SYNGUI_VERTEX_SRGB);
     let dark = 1.0 - pow22(1.0 - a);
     let light = pow22(a);
     return mix(dark, light, t);

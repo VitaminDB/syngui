@@ -90,6 +90,20 @@ pub struct Batcher {
     pub(self) shaped_cache: HashMap<ShapedTextKey, (Arc<Vec<ShapedGlyph>>, u64)>,
     pub(self) frame_counter: u64,
     pub(self) atlas_generation: u64,
+    /// Поверхность без аппаратного sRGB (смешение «как в CSS»): цвет лёгких конвейеров
+    /// (`RectFlat`, `RectRounded`, `TextMono`) кодируется в sRGB здесь, один раз на вершину, а не
+    /// `pow` в каждом пикселе — у них цвет постоянен на примитив, сглаживание меняет только альфу,
+    /// так что результат тот же. На Adreno 505 кодирование в шейдерах стоило ~9 мс кадра.
+    pub srgb_vertex: bool,
+}
+
+/// sRGB-кодирование цвета вершины — та же формула, что `syngui_out_srgb` в шейдерах.
+pub(crate) fn encode_srgb(c: [f32; 4]) -> [f32; 4] {
+    let e = |x: f32| {
+        let x = x.max(0.0);
+        if x <= 0.0031308 { x * 12.92 } else { 1.055 * x.powf(1.0 / 2.4) - 0.055 }
+    };
+    [e(c[0]), e(c[1]), e(c[2]), c[3]]
 }
 
 struct BatchState {
@@ -112,6 +126,7 @@ impl Batcher {
             shaped_cache: HashMap::new(),
             frame_counter: 0,
             atlas_generation: 0,
+            srgb_vertex: false,
         }
     }
 

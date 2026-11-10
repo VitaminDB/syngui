@@ -24,6 +24,14 @@ impl Batcher {
                     return;
                 }
                 let shader = fill_shader(corner_radius, border.as_ref(), per_side_border.is_some());
+                // Лёгкие конвейеры заливки получают цвет уже в sRGB (см. `Batcher::srgb_vertex`).
+                let fill_color = if self.srgb_vertex && shader != ShaderType::Rect {
+                    let [r, g, b, a] = super::encode_srgb(color.to_array());
+                    crate::core::Color::new(r, g, b, a)
+                } else {
+                    *color
+                };
+                let color = &fill_color;
                 self.ensure_batch_rect(shader, None, *clip_rect, rect.inflate(1.0, 1.0));
                 self.set_clip_expand(clip_rect);
                 if let Some(psb) = per_side_border {
@@ -72,6 +80,8 @@ impl Batcher {
                 let shader = fill_shader(corner_radius, border.as_ref(), per_side_border.is_some());
                 self.ensure_batch_rect(shader, None, *clip_rect, rect.inflate(1.0, 1.0));
                 self.set_clip_expand(clip_rect);
+                let encode = self.srgb_vertex && shader != ShaderType::Rect;
+                let start = if encode { self.current_batch_mut().vertices.len() } else { 0 };
                 self.add_linear_gradient_rect(
                     *rect,
                     gradient,
@@ -79,6 +89,12 @@ impl Batcher {
                     border.as_ref(),
                     per_side_border.as_ref(),
                 );
+                // Лёгкий конвейер: цвета вершин градиента — в sRGB (см. `Batcher::srgb_vertex`).
+                if encode {
+                    for v in &mut self.current_batch_mut().vertices[start..] {
+                        v.color = super::encode_srgb(v.color);
+                    }
+                }
             }
             DrawCommand::Text {
                 text,
@@ -293,7 +309,10 @@ impl Batcher {
                 if let (Some(shadow), Some(baked)) = (text_shadow.as_ref(), baked.as_ref()) {
                     let pad = shadow.blur_radius.max(0.0).ceil() + shadow.offset_x.abs() + shadow.offset_y.abs();
                     self.ensure_batch_rect(ShaderType::TextMono, None, *clip_rect, text_bbox_rect.inflate(pad + 6.0, pad + 6.0));
-                    let shadow_color = self.apply_opacity(shadow.color.to_array());
+                    let mut shadow_color = self.apply_opacity(shadow.color.to_array());
+                    if self.srgb_vertex {
+                        shadow_color = super::encode_srgb(shadow_color);
+                    }
                     for (glyph, b) in glyphs.iter().zip(baked) {
                         let Some((bg, k)) = b else { continue };
                         let origin_x = origin_x + line_shift(glyph.line_top);
@@ -439,7 +458,12 @@ impl Batcher {
                     *clip_rect,
                     text_bbox_rect.inflate(stroke_pad, stroke_pad),
                 );
-                let color_array = self.apply_opacity(color.to_array());
+                let mut color_array = self.apply_opacity(color.to_array());
+                // `TextMono` — цвет уже в sRGB (см. `Batcher::srgb_vertex`).
+                let vertex_srgb = self.srgb_vertex && main_shader == ShaderType::TextMono;
+                if vertex_srgb {
+                    color_array = super::encode_srgb(color_array);
+                }
 
                 // Проходы: контур (`text-stroke`) — копии глифов цветом контура,
                 // сдвинутые по кругу на его ширину (толстый — ещё кольцом
@@ -448,6 +472,9 @@ impl Batcher {
                 let mut passes: Vec<(f32, f32, [f32; 4], bool)> = Vec::new();
                 if let Some(st) = text_stroke {
                     let mut stroke_color = self.apply_opacity(st.color.to_array());
+                    if vertex_srgb {
+                        stroke_color = super::encode_srgb(stroke_color);
+                    }
                     let w = st.width;
                     let rings: &[(f32, usize)] = if w > 2.5 {
                         &[(1.0, 16), (0.5, 8)]

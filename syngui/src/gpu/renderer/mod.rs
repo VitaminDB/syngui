@@ -397,7 +397,7 @@ impl Renderer {
             .device
             .create_shader_module(wgpu::ShaderModuleDescriptor {
                 label: Some("Rect Shader"),
-                source: wgpu::ShaderSource::Wgsl(encode_output(&rect_shader_source(), &["fs_main", "fs_flat", "fs_rounded"], encodes_srgb_output(surface_format)).into()),
+                source: wgpu::ShaderSource::Wgsl(encode_output(&rect_shader_source(), if vertex_srgb(surface_format) { &["fs_main"] } else { &["fs_main", "fs_flat", "fs_rounded"] }, encodes_srgb_output(surface_format)).into()),
             });
         let rect_pipeline_layout =
             gpu.device
@@ -434,7 +434,7 @@ impl Renderer {
             .device
             .create_shader_module(wgpu::ShaderModuleDescriptor {
                 label: Some("Text Shader"),
-                source: wgpu::ShaderSource::Wgsl(encode_output(include_str!("../text.wgsl"), &["fs_main", "fs_mono"], encodes_srgb_output(surface_format)).into()),
+                source: wgpu::ShaderSource::Wgsl(encode_output(&text_shader_source(vertex_srgb(surface_format)), if vertex_srgb(surface_format) { &["fs_main"] } else { &["fs_main", "fs_mono"] }, encodes_srgb_output(surface_format)).into()),
             });
         let text_pipeline_layout =
             gpu.device
@@ -686,7 +686,12 @@ impl Renderer {
             tile_atlas_bind_group: None,
             #[cfg(feature = "map")]
             tile_atlas: None,
-            batcher: Batcher::new(),
+            batcher: {
+                let mut b = Batcher::new();
+                // Цвет лёгких конвейеров кодируется в вершинах (их точки входа без обёртки sRGB).
+                b.srgb_vertex = vertex_srgb(surface_format);
+                b
+            },
             width,
             height,
             logical_width,
@@ -953,6 +958,21 @@ pub fn linear_to_srgb(c: f64) -> f64 {
 
 /// Обернуть фрагментные точки входа шейдера примитивов: выход — sRGB-значения (цвет
 /// внутри шейдера по-прежнему линейный). `entries` — имена `@fragment`-функций.
+/// Кодировать sRGB лёгких конвейеров в вершинах (поверхность без аппаратного sRGB).
+/// Отладка: `SYNGUI_SHADER_SRGB=1` — по-старому, `pow` в каждом пикселе.
+fn vertex_srgb(format: wgpu::TextureFormat) -> bool {
+    encodes_srgb_output(format) && std::env::var_os("SYNGUI_SHADER_SRGB").is_none()
+}
+
+/// Шейдер текста: `fs_mono` получает цвет в sRGB, если поверхность кодирует sRGB в шейдерах
+/// (`Batcher::srgb_vertex`), — константа `SYNGUI_VERTEX_SRGB`.
+fn text_shader_source(vertex_srgb: bool) -> String {
+    include_str!("../text.wgsl").replace(
+        "const SYNGUI_VERTEX_SRGB: bool = false;",
+        if vertex_srgb { "const SYNGUI_VERTEX_SRGB: bool = true;" } else { "const SYNGUI_VERTEX_SRGB: bool = false;" },
+    )
+}
+
 pub(crate) fn encode_output(src: &str, entries: &[&str], encode: bool) -> String {
     if !encode {
         return src.to_string();
