@@ -1039,6 +1039,46 @@ impl DisplayList {
         }
     }
 
+    /// Области `backdrop-filter: blur` кадра (границы слоёв `Effect::BackdropBlur`, координаты
+    /// поверхности). `strip` — убрать сами слои, оставив содержимое: размывает композитор
+    /// (`ext-background-effect-v1`), а внутри поверхности за ними только прозрачный фон.
+    pub fn backdrop_regions(&mut self, strip: bool) -> Vec<crate::core::Rect> {
+        fn scan(cmds: &mut Vec<DrawCommand>, strip: bool, out: &mut Vec<crate::core::Rect>) {
+            let mut stack: Vec<(usize, bool)> = Vec::new();
+            let mut remove: Vec<usize> = Vec::new();
+            for (i, c) in cmds.iter().enumerate() {
+                match c {
+                    DrawCommand::BeginEffectLayer { effect, bounds } => {
+                        let backdrop = matches!(effect, Effect::BackdropBlur { .. });
+                        if backdrop {
+                            out.push(*bounds);
+                        }
+                        stack.push((i, backdrop && strip));
+                    }
+                    DrawCommand::EndEffectLayer { .. } => {
+                        if let Some((b, true)) = stack.pop() {
+                            remove.push(b);
+                            remove.push(i);
+                        }
+                    }
+                    _ => {}
+                }
+            }
+            if !remove.is_empty() {
+                remove.sort_unstable();
+                for i in remove.into_iter().rev() {
+                    cmds.remove(i);
+                }
+            }
+        }
+        let mut out = Vec::new();
+        scan(&mut self.commands, strip, &mut out);
+        for level in &mut self.overlay_levels {
+            scan(level, strip, &mut out);
+        }
+        out
+    }
+
     pub fn commands(&self) -> Vec<DrawCommand> {
         let mut all = self.commands.clone();
         for level in &self.overlay_levels {
@@ -1517,5 +1557,31 @@ mod signature_tests {
         let r = Rect::new(Point::new(0.0, 0.0), Size::new(4.0, 4.0));
         l.push_image(r, TextureId(7), r, Color::rgb(1.0, 1.0, 1.0));
         assert_eq!(l.frame_signature(), None);
+    }
+}
+
+#[cfg(test)]
+mod backdrop_tests {
+    use super::*;
+
+    /// Области `backdrop-filter` находятся; со `strip` слой размытия убирается, а содержимое
+    /// и вложенные слои других эффектов остаются.
+    #[test]
+    fn backdrop_regions_found_and_stripped() {
+        let card = Rect::new(Point::new(10.0, 20.0), Size::new(100.0, 50.0));
+        let mut l = DisplayList::new();
+        l.push_effect_layer(Effect::BackdropBlur { radius: 24.0 }, card);
+        l.push_effect_layer(Effect::Blur { radius: 2.0 }, card);
+        l.push_rect(card, Color::BLACK, [0.0; 4]);
+        l.pop_effect_layer();
+        l.pop_effect_layer();
+        assert_eq!(l.backdrop_regions(false), vec![card]);
+        assert_eq!(l.normal_commands().len(), 5);
+        assert_eq!(l.backdrop_regions(true), vec![card]);
+        let left = l.normal_commands();
+        assert_eq!(left.len(), 3);
+        assert!(matches!(left[0], DrawCommand::BeginEffectLayer { effect: Effect::Blur { .. }, .. }));
+        assert!(matches!(left[1], DrawCommand::Rect { .. }));
+        assert!(matches!(left[2], DrawCommand::EndEffectLayer { .. }));
     }
 }
