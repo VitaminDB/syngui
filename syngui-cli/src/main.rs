@@ -104,6 +104,9 @@ enum Cmd {
         /// С -w: описание выпуска вместо syngui-release.toml
         #[arg(long)]
         release_file: Option<PathBuf>,
+        /// С -w: не делать strip копий программ (по умолчанию strip, как в пакетах)
+        #[arg(long)]
+        no_strip: bool,
         /// Доп. аргументы cargo (Linux): после --
         #[arg(last = true)]
         cargo_args: Vec<String>,
@@ -269,15 +272,15 @@ fn real_main(cli: Cli) -> Result<()> {
             }
         }
         Cmd::Info { sel } => info(&load(&sel)?)?,
-        Cmd::Build { target, sel, prof, portable, workspace: true, only, release_file, cargo_args } => {
+        Cmd::Build { target, sel, prof, portable, workspace: true, only, release_file, no_strip, cargo_args } => {
             if portable || !cargo_args.is_empty() {
                 bail!("с -w: --portable и аргументы cargo не поддерживаются (особая сборка крейтов — в syngui-release.toml)");
             }
             let r = release::Release::load(sel.manifest_path.as_deref(), release_file.as_deref())?;
             for t in targets(&target)? {
                 ensure_linux(t)?;
-                // без strip: программы для установки разработчиком (synport synshell и т. п.) — как из cargo
-                let dir = r.build_bins(&only, t, prof.profile(), false)?;
+                // копии в target/syngui/release (strip — как в пакетах; target/ cargo не трогается)
+                let dir = r.build_bins(&only, t, prof.profile(), !no_strip)?;
                 println!("{t}: {}", dir.display());
             }
         }
