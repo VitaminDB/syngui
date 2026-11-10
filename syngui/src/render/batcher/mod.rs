@@ -513,8 +513,15 @@ mod tests {
     #[test]
     fn outer_shadow_cuts_out_own_box() {
         let data2 = shadow_data2(true);
-        assert_eq!(data2.len(), 4);
+        // рамка вокруг элемента (4 квадрата) — внутренность бокса, где тень нулевая, не рисуется
+        assert_eq!(data2.len(), 16);
         assert!(data2.iter().all(|d| *d == [1.0, 2.0, 1.0, 0.0]));
+    }
+
+    /// Тень без выреза (свечение) — один квадрат целиком.
+    #[test]
+    fn glow_shadow_is_single_quad() {
+        assert_eq!(shadow_data2(false).len(), 4);
     }
 
     /// Свечение рисуется и поверх элемента — без выреза.
