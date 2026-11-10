@@ -126,7 +126,8 @@ fn gamma_coverage_fast(a: f32, color: vec3<f32>) -> f32 {
 @fragment
 fn fs_mono(in: VertexOutput) -> @location(0) vec4<f32> {
     let texel = textureSample(font_atlas, font_sampler, in.uv);
-    let alpha = gamma_coverage_fast(texel.a, in.color.rgb);
+    // data.y = -1: глиф тени, заранее размытый в атласе (покрытие уже готово).
+    let alpha = select(gamma_coverage_fast(texel.a, in.color.rgb), texel.a, in.data.y < -0.5);
     return apply_rounded_clip(vec4<f32>(in.color.rgb, in.color.a * alpha), in.logical_pos);
 }
 

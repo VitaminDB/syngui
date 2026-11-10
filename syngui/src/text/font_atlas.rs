@@ -225,6 +225,9 @@ pub struct FontAtlas {
     cursor_y: u32,
     row_height: u32,
     glyphs: HashMap<GlyphKey, CachedGlyph>,
+    /// Размытые глифы теней (`text-shadow`): (позиция и размер исходного глифа в атласе,
+    /// радиус×4) → глиф с полями. Рисуются одной выборкой вместо цикла размытия в шейдере.
+    blurred: HashMap<(u32, u32, u32, u32, u32), (CachedGlyph, u32)>,
     charmap_cache: HashMap<(char, u8), u16>,
     pixels: Vec<u8>,
     dirty: bool,
@@ -356,6 +359,7 @@ impl FontAtlas {
             cursor_y: 1,
             row_height: 0,
             glyphs: HashMap::new(),
+            blurred: HashMap::new(),
             charmap_cache: HashMap::new(),
             pixels,
             dirty: false,
@@ -577,6 +581,7 @@ impl FontAtlas {
 
     fn reset_glyphs(&mut self) {
         self.glyphs.clear();
+        self.blurred.clear();
         self.pixels.fill(0);
         self.cursor_x = 1;
         self.cursor_y = 1;
@@ -1347,6 +1352,104 @@ impl FontAtlas {
 
         self.glyphs.insert(key, cached);
         Some(())
+    }
+
+    /// Глиф тени `text-shadow` с размытием `blur`: альфа исходного глифа, размытая тем же
+    /// гауссовым ядром, что прежний цикл в шейдере (шаг — тексель атласа, радиус выборки
+    /// `ceil(blur)` до 6, σ = blur/3, за краем глифа — ноль, нормировка по всем выборкам),
+    /// со `smoothstep` покрытия; поля вокруг — радиус выборки. Возвращает глиф и поле (тексели).
+    /// Считается один раз на глиф и радиус: в шейдере тень стоила до 169 выборок на пиксель
+    /// каждый кадр (Adreno 505: текст с тенями — половина кадра листания). `None` — атлас полон
+    /// или глиф цветной: тогда рисовать прежним путём.
+    pub fn blurred_glyph(&mut self, g: &CachedGlyph, blur: f32) -> Option<(CachedGlyph, u32)> {
+        if g.is_color || g.width == 0 || g.height == 0 || blur <= 0.0 {
+            return None;
+        }
+        let ax = (g.uv_x * self.atlas_width as f32).round() as u32;
+        let ay = (g.uv_y * self.atlas_height as f32).round() as u32;
+        let key = (ax, ay, g.width, g.height, (blur * 4.0).round() as u32);
+        if let Some(c) = self.blurred.get(&key) {
+            return Some(*c);
+        }
+        let (w, h) = (g.width as usize, g.height as usize);
+        let k = blur.ceil().clamp(1.0, 6.0) as usize;
+        let sigma = (blur / 3.0).max(0.5);
+        let weights: Vec<f32> = (0..=2 * k).map(|i| {
+            let d = i as f32 - k as f32;
+            (-(d * d) / (2.0 * sigma * sigma)).exp()
+        }).collect();
+        let wsum: f32 = weights.iter().sum();
+        let norm = 1.0 / (wsum * wsum);
+        let (ow, oh) = (w + 2 * k, h + 2 * k);
+        let aw = self.atlas_width as usize;
+        let src = |x: usize, y: usize| self.pixels[((ay as usize + y) * aw + ax as usize + x) * 4 + 3] as f32 / 255.0;
+        // Разделимое ядро: по строкам глифа, затем по столбцам с полями.
+        let mut tmp = vec![0.0f32; ow * h];
+        for y in 0..h {
+            for ox in 0..ow {
+                let mut acc = 0.0;
+                for (i, wt) in weights.iter().enumerate() {
+                    let sx = ox as isize + i as isize - 2 * k as isize;
+                    if sx >= 0 && (sx as usize) < w {
+                        acc += wt * src(sx as usize, y);
+                    }
+                }
+                tmp[y * ow + ox] = acc;
+            }
+        }
+        let mut out = vec![0u8; ow * oh];
+        for oy in 0..oh {
+            for ox in 0..ow {
+                let mut acc = 0.0;
+                for (j, wt) in weights.iter().enumerate() {
+                    let sy = oy as isize + j as isize - 2 * k as isize;
+                    if sy >= 0 && (sy as usize) < h {
+                        acc += wt * tmp[sy as usize * ow + ox];
+                    }
+                }
+                let a = (acc * norm).clamp(0.0, 1.0);
+                out[oy * ow + ox] = (a * a * (3.0 - 2.0 * a) * 255.0).round() as u8;
+            }
+        }
+        // Место в атласе — как у обычных глифов.
+        let padding = 1u32;
+        let (ow32, oh32) = (ow as u32, oh as u32);
+        if self.cursor_x + ow32 + padding > self.atlas_width {
+            self.cursor_y += self.row_height + padding;
+            self.cursor_x = padding;
+            self.row_height = 0;
+        }
+        if self.cursor_y + oh32 + padding > self.atlas_height {
+            self.overflowed = true;
+            return None;
+        }
+        let (bx, by) = (self.cursor_x, self.cursor_y);
+        for y in 0..oh {
+            for x in 0..ow {
+                let i = ((by as usize + y) * aw + bx as usize + x) * 4;
+                self.pixels[i] = 255;
+                self.pixels[i + 1] = 255;
+                self.pixels[i + 2] = 255;
+                self.pixels[i + 3] = out[y * ow + x];
+            }
+        }
+        self.cursor_x += ow32 + padding;
+        self.row_height = self.row_height.max(oh32);
+        self.mark_dirty(bx, by, ow32, oh32);
+        let c = CachedGlyph {
+            uv_x: bx as f32 / self.atlas_width as f32,
+            uv_y: by as f32 / self.atlas_height as f32,
+            uv_w: ow32 as f32 / self.atlas_width as f32,
+            uv_h: oh32 as f32 / self.atlas_height as f32,
+            width: ow32,
+            height: oh32,
+            bearing_x: g.bearing_x - k as f32,
+            bearing_y: g.bearing_y + k as f32,
+            advance: g.advance,
+            is_color: false,
+        };
+        self.blurred.insert(key, (c, k as u32));
+        Some((c, k as u32))
     }
 
     pub fn memory_stats(&self) -> FontAtlasStats {

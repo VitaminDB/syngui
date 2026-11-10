@@ -274,7 +274,57 @@ impl Batcher {
                         text_height.max(rect.size.height) + (origin_y - rect.origin.y).abs(),
                     ),
                 );
-                if let Some(shadow) = text_shadow {
+                // Тень с размытием: глифы, заранее размытые в атласе (`FontAtlas::blurred_glyph`), —
+                // лёгкий шейдер и одна выборка; цикл размытия в шейдере — только если их нет.
+                let baked: Option<Vec<Option<(crate::text::font_atlas::CachedGlyph, u32)>>> = text_shadow
+                    .as_ref()
+                    .filter(|sh| sh.blur_radius > 0.0)
+                    .filter(|_| !shader_text_shadow())
+                    .filter(|_| !glyphs.iter().any(|g| g.glyph.is_color))
+                    .and_then(|sh| {
+                        let blur = sh.blur_radius;
+                        let v: Vec<_> = glyphs
+                            .iter()
+                            .map(|g| if g.glyph.width == 0 || g.glyph.height == 0 { None } else { font_atlas.blurred_glyph(&g.glyph, blur) })
+                            .collect();
+                        let ok = glyphs.iter().zip(&v).all(|(g, b)| b.is_some() || g.glyph.width == 0 || g.glyph.height == 0);
+                        ok.then_some(v)
+                    });
+                if let (Some(shadow), Some(baked)) = (text_shadow.as_ref(), baked.as_ref()) {
+                    let pad = shadow.blur_radius.max(0.0).ceil() + shadow.offset_x.abs() + shadow.offset_y.abs();
+                    self.ensure_batch_rect(ShaderType::TextMono, None, *clip_rect, text_bbox_rect.inflate(pad + 6.0, pad + 6.0));
+                    let shadow_color = self.apply_opacity(shadow.color.to_array());
+                    for (glyph, b) in glyphs.iter().zip(baked) {
+                        let Some((bg, k)) = b else { continue };
+                        let origin_x = origin_x + line_shift(glyph.line_top);
+                        let (gx, gy) = if snap {
+                            (
+                                ((origin_x + shadow.offset_x) * sf + glyph.x).round() / sf,
+                                ((origin_y + shadow.offset_y) * sf + glyph.y).round() / sf,
+                            )
+                        } else {
+                            (origin_x + glyph.x / sf + shadow.offset_x, origin_y + glyph.y / sf + shadow.offset_y)
+                        };
+                        // Поле размытого глифа — в текселях атласа (физических пикселях).
+                        let kp = *k as f32 / sf;
+                        let (x, y) = (gx - kp, gy - kp);
+                        let (w, h) = (bg.width as f32 / sf, bg.height as f32 / sf);
+                        let d = [0.0, -1.0, 0.0, 0.0];
+                        let d2 = [0.0; 4];
+                        let s = shear * h;
+                        let [p0, p1, p2, p3] = self.transform_quad([[x + s, y], [x + w + s, y], [x + w, y + h], [x, y + h]]);
+                        let state = self.current_batch_mut();
+                        let base = state.vertices.len() as u32;
+                        let (u0, v0, u1, v1) = (bg.uv_x, bg.uv_y, bg.uv_x + bg.uv_w, bg.uv_y + bg.uv_h);
+                        state.vertices.extend_from_slice(&[
+                            Vertex { position: p0, uv: [u0, v0], color: shadow_color, data: d, data2: d2 },
+                            Vertex { position: p1, uv: [u1, v0], color: shadow_color, data: d, data2: d2 },
+                            Vertex { position: p2, uv: [u1, v1], color: shadow_color, data: d, data2: d2 },
+                            Vertex { position: p3, uv: [u0, v1], color: shadow_color, data: d, data2: d2 },
+                        ]);
+                        state.indices.extend_from_slice(&[base, base + 1, base + 2, base, base + 2, base + 3]);
+                    }
+                } else if let Some(shadow) = text_shadow {
                     let pad = shadow.blur_radius.max(0.0).ceil()
                         + shadow.offset_x.abs()
                         + shadow.offset_y.abs();
@@ -1014,4 +1064,11 @@ mod text_sample_tests {
         assert!(!text_has_letters("\u{e5cd}"));
         assert!(!text_has_letters("🙂"));
     }
+}
+
+/// Отладка: `SYNGUI_SHADER_TEXT_SHADOW=1` — тень текста прежним циклом размытия в шейдере
+/// (сверка с глифами, размытыми в атласе).
+fn shader_text_shadow() -> bool {
+    static V: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
+    *V.get_or_init(|| std::env::var_os("SYNGUI_SHADER_TEXT_SHADOW").is_some())
 }
