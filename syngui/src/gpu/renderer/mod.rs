@@ -463,7 +463,7 @@ impl Renderer {
             .device
             .create_shader_module(wgpu::ShaderModuleDescriptor {
                 label: Some("Shadow Shader"),
-                source: wgpu::ShaderSource::Wgsl(encode_output(include_str!("../shadow.wgsl"), &["fs_main"], encodes_srgb_output(surface_format)).into()),
+                source: wgpu::ShaderSource::Wgsl(encode_output(include_str!("../shadow.wgsl"), if vertex_srgb(surface_format) { &[] } else { &["fs_main"] }, encodes_srgb_output(surface_format)).into()),
             });
         let shadow_pipeline_layout =
             gpu.device
