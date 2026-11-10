@@ -269,6 +269,32 @@ fn write_all_levels(queue: &wgpu::Queue, texture: &wgpu::Texture, data: &ImageDa
     }
 }
 
+/// Та же картинка вдвое меньше: готовый первый мип или CPU-бокс.
+/// `None` — меньше некуда.
+fn smaller(d: &ImageData) -> Option<ImageData> {
+    if d.width.max(d.height) <= 1 {
+        return None;
+    }
+    let mut out = d.clone();
+    match d.mips.first() {
+        Some(m) => {
+            out.width = m.width;
+            out.height = m.height;
+            out.rgba = m.rgba.clone();
+            out.mips = d.mips[1..].to_vec();
+        }
+        None => {
+            let (w, h, px) = downscale_half(d.width, d.height, &d.rgba);
+            out.width = w;
+            out.height = h;
+            out.rgba = px.into();
+        }
+    }
+    out.natural = d.natural.or(Some((d.width, d.height)));
+    out.regions = None;
+    Some(out)
+}
+
 /// Сколько байт картинок заливать в GPU за кадр (но не меньше двух картинок).
 const UPLOAD_BYTES_PER_FRAME: usize = 4 << 20;
 
@@ -850,6 +876,51 @@ impl ImageGpuCache {
             return;
         }
 
+        // Фото с телефона (4592×8160 ≈ 200 МБ с мипами) может не влезть:
+        // видеопамять занята нейросетями или сторона больше предела карты.
+        // Тогда — уменьшенная вдвое копия, пока не влезет, а не паника.
+        let limit = device.limits().max_texture_dimension_2d;
+        let mut cur = std::borrow::Cow::Borrowed(data);
+        loop {
+            if cur.width.max(cur.height) <= limit {
+                if let Some(ring) = self.create_ring(device, queue, &cur, ring_len) {
+                    if cur.width != data.width {
+                        log::warn!("картинка {}×{} загружена в GPU уменьшенной до {}×{}", data.width, data.height, cur.width, cur.height);
+                    }
+                    self.images.insert(
+                        handle.0,
+                        GpuImage {
+                            ring,
+                            cur: 0,
+                            recent: std::collections::VecDeque::new(),
+                            rt: false,
+                        },
+                    );
+                    return;
+                }
+            }
+            match smaller(&cur) {
+                Some(next) => cur = std::borrow::Cow::Owned(next),
+                None => {
+                    log::error!("картинка {}×{} не поместилась в видеопамять", data.width, data.height);
+                    self.images.remove(&handle.0);
+                    return;
+                }
+            }
+        }
+    }
+
+    /// Текстуры под картинку (кольцо из `ring_len`) с залитыми уровнями;
+    /// `None` — видеопамяти не хватило.
+    fn create_ring(
+        &self,
+        device: &wgpu::Device,
+        queue: &wgpu::Queue,
+        data: &ImageData,
+        ring_len: usize,
+    ) -> Option<Vec<(wgpu::Texture, wgpu::BindGroup)>> {
+        #[cfg(not(target_arch = "wasm32"))]
+        let scope = device.push_error_scope(wgpu::ErrorFilter::OutOfMemory);
         // Полная цепочка мипов: UI рисует картинки сильно меньше натурала
         // (SVG-логотип растеризуется в 512, а плитка в рейле — ~30 px), и
         // один уровень под трилинейным сэмплером давал рваные края.
@@ -887,15 +958,12 @@ impl ImageGpuCache {
             ring.push((texture, bind_group));
         }
         write_all_levels(queue, &ring[0].0, data);
-        self.images.insert(
-            handle.0,
-            GpuImage {
-                ring,
-                cur: 0,
-                recent: std::collections::VecDeque::new(),
-                rt: false,
-            },
-        );
+        #[cfg(not(target_arch = "wasm32"))]
+        if let Some(e) = pollster::block_on(scope.pop()) {
+            log::warn!("картинка {}×{}: {e}", data.width, data.height);
+            return None;
+        }
+        Some(ring)
     }
 
     /// Кадр из внешнего изображения: импорт (один раз на изображение), затем проход на GPU в

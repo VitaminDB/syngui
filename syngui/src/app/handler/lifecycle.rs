@@ -775,6 +775,13 @@ impl AppHandler {
             }
         }
         let (adapter, device, queue) = opened.expect("gpu: ни одна видеокарта не дала устройство");
+        // Нехватка видеопамяти (её заняли нейросети) — в журнал, а не паника
+        // всей программы; картинки при этом грузятся уменьшенными
+        // (ImageCache::upload). Прочие ошибки wgpu — как раньше, фатальны.
+        device.on_uncaptured_error(std::sync::Arc::new(|e: wgpu::Error| match e {
+            wgpu::Error::OutOfMemory { .. } => log::error!("gpu: {e}"),
+            e => panic!("wgpu error: {e}"),
+        }));
         {
             let info = adapter.get_info();
             log::info!(
