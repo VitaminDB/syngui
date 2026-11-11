@@ -164,6 +164,7 @@ impl Widget for Dropdown {
             mss_popup_selected_bg: None,
             mss_popup_selected_fg: None,
             mss_popup_max_height: None,
+            mss_popup_radius: None,
             mss_popup_min_height: None,
             mss_popup_wrap: false,
             mss_fit_selected: false,
@@ -226,6 +227,9 @@ pub struct DropdownElement {
     mss_popup_selected_bg: Option<Color>,
     mss_popup_selected_fg: Option<Color>,
     mss_popup_max_height: Option<f32>,
+    /// `--popup-radius`: скругление меню; без него — как у поля, но не больше 12 px (поле-«пилюля» с огромным
+    /// radius иначе превращает меню в круг)
+    mss_popup_radius: Option<f32>,
     mss_popup_min_height: Option<f32>,
     /// `--popup-wrap: true` — длинные пункты меню переносятся на строки.
     mss_popup_wrap: bool,
@@ -779,7 +783,7 @@ impl Element for DropdownElement {
 
             list.begin_overlay();
 
-            let menu_radius = radius;
+            let menu_radius = self.mss_popup_radius.unwrap_or(radius.min(12.0));
             list.push_shadow(
                 self.dropdown_bounds,
                 Color::new(0.0, 0.0, 0.0, 0.15),
@@ -1293,6 +1297,9 @@ impl Element for DropdownElement {
             .and_then(|v| v.as_color())
         {
             self.mss_popup_selected_fg = Some(mss_color_to_core(c));
+        }
+        if let Some(d) = style.get("--popup-radius").and_then(|v| v.as_dimension()) {
+            self.mss_popup_radius = Some(d.resolve(1000.0));
         }
         if let Some(d) = style
             .get("--popup-max-height")
