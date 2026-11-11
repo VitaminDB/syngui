@@ -784,7 +784,66 @@ impl TextElement {
         crate::widget::word_lookup::word_at(&self.text, byte, pos)
     }
 
+    /// Ширина переноса — та же, что при отрисовке.
+    fn wrap_width(&self) -> f32 {
+        let (pl, pr) = (self.mss_padding_left, self.mss_padding_right);
+        if self.mss_text_align.is_some() && self.bounds.size.width > 0.0 {
+            (self.bounds.size.width - pl - pr).max(0.0)
+        } else if self.max_render_width.is_finite() {
+            (self.max_render_width - pl - pr).max(self.bounds.size.width - pl - pr)
+        } else {
+            (self.bounds.size.width - pl - pr).max(10000.0)
+        }
+    }
+
+    fn line_step(&self) -> f32 {
+        self.mss_line_height.map(|lh| lh.resolve(self.font_size)).unwrap_or(self.font_size * 1.3).max(1.0)
+    }
+
+    /// Раскладка символов многострочного текста (байт, строка, x начала, x конца);
+    /// `None` — текст в одну строку (однострочное выделение) или нечем мерить.
+    fn multiline_positions(&self) -> Option<Vec<(usize, usize, f32, f32)>> {
+        if self.mss_max_lines == Some(1) || self.mss_elide == Elide::Middle || self.mss_text_transform.is_some() {
+            return None;
+        }
+        let tm = self.text_measure.as_ref()?;
+        let width = self.wrap_width();
+        let pos = crate::widget::word_lookup::char_positions(&self.text, width, self.font_size, self.mss_font_weight, self.mss_font_family.as_deref(), tm.as_ref());
+        // строк больше одной: перевод строки или перенос
+        let multi = self.text.contains('\n') || pos.last().is_some_and(|p| p.1 > 0);
+        multi.then_some(pos)
+    }
+
+    /// Байт под точкой в многострочном тексте: строка по y, символ по x;
+    /// правее конца строки — за последним символом, выше/ниже — край текста.
+    fn hit_test_multiline(&self, pos: Point, positions: &[(usize, usize, f32, f32)]) -> usize {
+        let y = pos.y - self.bounds.origin.y - self.mss_padding_top;
+        if y < 0.0 {
+            return 0;
+        }
+        let line = (y / self.line_step()) as usize;
+        let x = pos.x - self.bounds.origin.x - self.mss_padding_left;
+        let on_line: Vec<&(usize, usize, f32, f32)> = positions.iter().filter(|p| p.1 == line).collect();
+        if on_line.is_empty() {
+            // пустая строка: начало следующей строки (минус перевод строки), ниже текста — конец
+            return match positions.iter().find(|p| p.1 > line) {
+                Some(p) => p.0.saturating_sub(1),
+                None => self.text.len(),
+            };
+        }
+        for p in &on_line {
+            if x < (p.2 + p.3) / 2.0 {
+                return p.0;
+            }
+        }
+        let last = on_line[on_line.len() - 1];
+        last.0 + self.text[last.0..].chars().next().map_or(0, |c| c.len_utf8())
+    }
+
     fn hit_test_byte(&self, pos: Point) -> usize {
+        if let Some(positions) = self.multiline_positions() {
+            return self.hit_test_multiline(pos, &positions);
+        }
         let pl = self.mss_padding_left;
         let x_local = (pos.x - self.bounds.origin.x - pl)
             .max(0.0)
@@ -997,7 +1056,24 @@ impl Element for TextElement {
                 let sel_text = self.text.as_str();
                 let s = sel_start.min(sel_text.len());
                 let e = sel_end.min(sel_text.len());
-                if e > s {
+                let multi = if e > s { self.multiline_positions() } else { None };
+                if let Some(positions) = multi {
+                    // многострочный: прямоугольник на каждую строку выделения
+                    let step = self.line_step();
+                    let mut rows: std::collections::BTreeMap<usize, (f32, f32)> = Default::default();
+                    for p in positions.iter().filter(|p| p.0 >= s && p.0 < e) {
+                        let r = rows.entry(p.1).or_insert((p.2, p.3));
+                        r.0 = r.0.min(p.2);
+                        r.1 = r.1.max(p.3);
+                    }
+                    for (line, (x0, x1)) in rows {
+                        let rect = Rect::new(
+                            Point::new(render_bounds.origin.x + x0, render_bounds.origin.y + line as f32 * step),
+                            Size::new((x1 - x0).max(1.0), step),
+                        );
+                        list.push_rect(rect, self.mss_selection_color, [2.0; 4]);
+                    }
+                } else if e > s {
                     list.push_text_selection(
                         sel_text,
                         s,
@@ -1903,6 +1979,37 @@ mod tests {
     fn center_handles_one_unbounded_axis() {
         let size = center_layout(f32::INFINITY, 40.0);
         assert_eq!(size, Size::new(0.0, 40.0));
+    }
+
+    // --- выделение в многострочном тексте ---
+
+    fn multiline_el(text: &str, width: f32) -> TextElement {
+        let mut el = Text::new(text).selectable(true).element();
+        el.text_measure = Some(Arc::new(MonoMeasure));
+        el.font_size = 10.0; // шаг строки 13 px
+        el.layout(Constraints { min_width: 0.0, max_width: width, min_height: 0.0, max_height: f32::INFINITY, containing_block: Size::new(width, 500.0) });
+        el
+    }
+
+    #[test]
+    fn multiline_hit_test_uses_line_by_y() {
+        let el = multiline_el("abc\ndefgh\nxy", 1000.0);
+        // вторая строка (y 13..26), между «d» и «e»
+        assert_eq!(el.hit_test_byte(Point::new(12.0, 18.0)), 5);
+        // правее конца второй строки — за «h»
+        assert_eq!(el.hit_test_byte(Point::new(500.0, 18.0)), 9);
+        // третья строка, начало
+        assert_eq!(el.hit_test_byte(Point::new(0.0, 30.0)), 10);
+        // ниже текста — конец, выше — начало
+        assert_eq!(el.hit_test_byte(Point::new(0.0, 300.0)), 12);
+        assert_eq!(el.hit_test_byte(Point::new(5.0, -3.0)), 0);
+    }
+
+    #[test]
+    fn multiline_hit_test_follows_wrap() {
+        // 60 px: «aaaa bbbb» переносится, «bbbb» — на второй строке
+        let el = multiline_el("aaaa bbbb", 60.0);
+        assert_eq!(el.hit_test_byte(Point::new(12.0, 18.0)), 6);
     }
 
     // --- ширина мерится по тому, что рисуется ---

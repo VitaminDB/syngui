@@ -651,12 +651,19 @@ impl Element for MultilineTextEditElement {
             .mss
             .border_radius_uniform(self.bounds.size.width.min(self.bounds.size.height), 6.0);
 
+        // правило `:focus` со своим цветом рамки — как у TextField: цвет и
+        // толщина из стиля; без него — осветлённая рамка (или акцент) в 2 px
+        let focus_rule = self.mss.target_props(self.hover, false, true, false).border_color().filter(|c| Some(*c) != self.mss.border_color);
         let border_color = if self.focused {
-            effective_bc.map(|c| c.lighten(0.3)).unwrap_or(primary)
+            if focus_rule.is_some() {
+                effective_bc.unwrap_or(primary)
+            } else {
+                effective_bc.map(|c| c.lighten(0.3)).unwrap_or(primary)
+            }
         } else {
             border_base
         };
-        let border_width = if self.focused { 2.0 } else { 1.0 };
+        let border_width = if self.focused && focus_rule.is_none() { 2.0 } else { self.mss.border_width.unwrap_or(1.0) };
 
         list.push_rect_bordered(
             self.bounds,
