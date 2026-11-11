@@ -24,6 +24,10 @@ pub struct MultilineTextEdit {
     /// `Reactive`). Подмена `text` снаружи каретку не двигает, а вставка —
     /// двигает за вставленное и уведомляет `on_change`.
     pub insert_queue: Option<Arc<Mutex<Vec<String>>>>,
+    /// Забрать фокус при создании (как у `TextField::autofocus`).
+    pub autofocus: bool,
+    /// Смена значения при перестройке — поле снова забирает фокус.
+    pub focus_token: u64,
     /// Состояние контекстного меню «Вырезать/Копировать/Вставить».
     pub(crate) menu_open: RwSignal<bool>,
     pub(crate) menu_pos: RwSignal<Point>,
@@ -45,6 +49,8 @@ impl MultilineTextEdit {
             submit_on_enter: false,
             on_submit: None,
             insert_queue: None,
+            autofocus: false,
+            focus_token: 0,
             menu_open: use_signal(false),
             menu_pos: use_signal(Point::zero()),
             menu_action: use_signal(None),
@@ -103,6 +109,18 @@ impl MultilineTextEdit {
 
     pub fn on_submit(mut self, callback: impl FnMut(&str) + Send + 'static) -> Self {
         self.on_submit = Some(Arc::new(Mutex::new(callback)));
+        self
+    }
+
+    /// Забрать фокус при создании (поле ввода чата после отправки и т. п.).
+    pub fn autofocus(mut self, on: bool) -> Self {
+        self.autofocus = on;
+        self
+    }
+
+    /// Смена значения при перестройке — поле снова забирает фокус.
+    pub fn focus_token(mut self, token: u64) -> Self {
+        self.focus_token = token;
         self
     }
 

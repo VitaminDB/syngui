@@ -35,7 +35,9 @@ impl Widget for MultilineTextEdit {
             auto_height: self.auto_height,
             max_rows: self.max_rows,
             bounds: Rect::zero(),
-            focused: false,
+            focused: self.autofocus,
+            autofocus: self.autofocus,
+            focus_token: self.focus_token,
             cursor_line,
             cursor_col,
             scroll_offset: 0,
@@ -62,7 +64,7 @@ impl Widget for MultilineTextEdit {
             menu_action: self.menu_action,
             menu_mounted: false,
             menu_kept_selection: false,
-            focus_request_pending: false,
+            focus_request_pending: self.autofocus,
         })
     }
 
@@ -97,6 +99,8 @@ struct MultilineTextEditElement {
     max_rows: Option<usize>,
     bounds: Rect,
     focused: bool,
+    autofocus: bool,
+    focus_token: u64,
     cursor_line: usize,
     cursor_col: usize,
     scroll_offset: usize,
@@ -582,6 +586,12 @@ impl Element for MultilineTextEditElement {
             self.submit_on_enter = mte.submit_on_enter;
             self.on_submit = mte.on_submit.clone();
             self.insert_queue = mte.insert_queue.clone();
+            if (mte.autofocus && !self.autofocus) || mte.focus_token != self.focus_token {
+                self.focus_request_pending = true;
+                self.focused = true;
+            }
+            self.autofocus = mte.autofocus;
+            self.focus_token = mte.focus_token;
             if self.drain_insert_queue() {
                 self.mark_dirty(DirtyFlags::LAYOUT);
             }
@@ -1625,6 +1635,8 @@ mod tests {
             max_rows,
             bounds: Rect::zero(),
             focused: false,
+            autofocus: false,
+            focus_token: 0,
             cursor_line: 0,
             cursor_col: 0,
             scroll_offset: 0,
