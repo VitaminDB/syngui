@@ -815,6 +815,13 @@ TextField { width: 240px; background-color: var(--bg-search); … }
 `--popup-submenu-arrow-color`, `--popup-min-width`, `--popup-min-height`,
 `--popup-max-height`
 
+Только `Dropdown`: `--fit-selected: true` — ширина поля по выбранному пункту (а не по самому длинному), меняется при выборе; `--popup-wrap: true` — длинные пункты меню переносятся на
+строки (высота пункта по числу строк, вместо обрезки «…»);
+`--popup-min-width` — меню не уже этого значения (может быть шире поля);
+`--popup-max-width` — меню растёт по самому длинному пункту до этого предела
+(не шире окна; вылезающее за правый край сдвигается влево). Ширина самого поля
+без `width` — по самому длинному пункту и пересчитывается при смене списка.
+
 **`MarkdownView`** (`syngui/src/widgets/visual/markdown_view/widget.rs`):
 `--md-h1-size`…`--md-h6-size`, `--md-heading-color`, `--md-heading-spacing`,
 `--md-block-spacing`, `--md-link-color`, `--md-bullet-color`,

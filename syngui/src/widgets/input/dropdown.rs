@@ -165,6 +165,12 @@ impl Widget for Dropdown {
             mss_popup_selected_fg: None,
             mss_popup_max_height: None,
             mss_popup_min_height: None,
+            mss_popup_wrap: false,
+            mss_fit_selected: false,
+            mss_popup_min_width: None,
+            mss_popup_max_width: None,
+            popup_x: 0.0,
+            viewport_w: f32::INFINITY,
             text_measure: None,
         })
     }
@@ -221,6 +227,17 @@ pub struct DropdownElement {
     mss_popup_selected_fg: Option<Color>,
     mss_popup_max_height: Option<f32>,
     mss_popup_min_height: Option<f32>,
+    /// `--popup-wrap: true` — длинные пункты меню переносятся на строки.
+    mss_popup_wrap: bool,
+    /// `--fit-selected: true` — ширина поля по выбранному пункту, а не по самому длинному.
+    mss_fit_selected: bool,
+    /// `--popup-min-width` — меню не уже этого (может быть шире поля).
+    mss_popup_min_width: Option<f32>,
+    /// `--popup-max-width` — меню растёт по самому длинному пункту до этого предела.
+    mss_popup_max_width: Option<f32>,
+    /// Сдвиг меню по x от поля (меню шире поля не вылезает за край окна).
+    popup_x: f32,
+    viewport_w: f32,
     text_measure: Option<std::sync::Arc<dyn crate::widget::context::TextMeasure>>,
 }
 
@@ -290,14 +307,102 @@ impl DropdownElement {
             .max(usize::from(!self.query.is_empty()))
     }
 
+    const ROW_H: f32 = 36.0;
+
+    fn font_size(&self) -> f32 {
+        self.mss.font_size_or(14.0)
+    }
+
+    /// Ширина текста пункта при ширине меню `popup_w`.
+    fn label_width(&self, item: &DropdownItem, popup_w: f32) -> f32 {
+        let bw = self.mss.border_width_or(1.0);
+        let icon = if item.icon.is_some() { 24.0 } else { 0.0 };
+        (popup_w - bw * 2.0 - 12.0 - icon - 32.0 - 4.0).max(10.0)
+    }
+
+    /// Ширина меню: не уже поля и `--popup-min-width`; с `--popup-max-width` —
+    /// по самому длинному пункту до предела; не шире окна.
+    fn popup_width(&self) -> f32 {
+        let base = self.bounds.size.width.max(self.mss_popup_min_width.unwrap_or(0.0));
+        let mut w = base;
+        if let (Some(max_w), Some(tm)) = (self.mss_popup_max_width, self.text_measure.as_ref()) {
+            let fs = self.font_size();
+            let weight = self.mss.font_weight_or(400);
+            let family = self.mss.font_family.as_deref();
+            let bw = self.mss.border_width_or(1.0);
+            let content = self
+                .items
+                .iter()
+                .map(|it| {
+                    let icon = if it.icon.is_some() { 24.0 } else { 0.0 };
+                    tm.measure_text_width_weight(&it.label, fs, it.label.chars().count(), weight, family) + bw * 2.0 + 12.0 + icon + 32.0 + 6.0
+                })
+                .fold(0.0f32, f32::max);
+            w = content.clamp(base, max_w.max(base));
+        }
+        if self.viewport_w.is_finite() {
+            w = w.min((self.viewport_w - 16.0).max(self.bounds.size.width));
+        }
+        w
+    }
+
+    /// Высота пункта: с переносом — по числу строк текста.
+    fn item_height(&self, idx: usize, popup_w: f32) -> f32 {
+        if !self.mss_popup_wrap {
+            return Self::ROW_H;
+        }
+        let (Some(item), Some(tm)) = (self.items.get(idx), self.text_measure.as_ref()) else {
+            return Self::ROW_H;
+        };
+        let fs = self.font_size();
+        let lines = crate::widget::basic::count_visual_lines_via_measure(
+            &item.label,
+            self.label_width(item, popup_w),
+            fs,
+            self.mss.font_weight_or(400),
+            self.mss.font_family.as_deref(),
+            tm.as_ref(),
+        )
+        .max(1);
+        if lines <= 1 {
+            Self::ROW_H
+        } else {
+            (lines as f32 * fs * 1.3 + 16.0).max(Self::ROW_H)
+        }
+    }
+
+    /// Высота всех видимых пунктов.
+    fn content_height(&self) -> f32 {
+        let w = self.popup_width();
+        let h: f32 = self.visible_indices().into_iter().map(|i| self.item_height(i, w)).sum();
+        if h == 0.0 && !self.query.is_empty() {
+            Self::ROW_H
+        } else {
+            h
+        }
+    }
+
     fn rebuild_item_bounds(&mut self, base_y: f32) {
-        let width = self.bounds.size.width;
+        let width = self.popup_width();
         self.item_bounds.clear();
         let mut y = base_y;
         for i in self.visible_indices() {
+            let h = self.item_height(i, width);
             self.item_bounds
-                .push((Rect::new(Point::new(0.0, y), Size::new(width, 36.0)), i));
-            y += 36.0;
+                .push((Rect::new(Point::new(self.popup_x, y), Size::new(width, h)), i));
+            y += h;
+        }
+    }
+
+    /// Сдвиг меню влево, если оно шире поля и вылезает за правый край окна.
+    fn place_popup_x(&mut self) {
+        let w = self.popup_width();
+        self.popup_x = 0.0;
+        if self.viewport_w.is_finite() {
+            let over = self.bounds.x() + w - (self.viewport_w - 8.0);
+            if over > 0.0 {
+                self.popup_x = -over.min((self.bounds.x() - 8.0).max(0.0));
+            }
         }
     }
 
@@ -311,6 +416,8 @@ impl DropdownElement {
         self.is_open = true;
         self.query.clear();
         self.hover_item = hover;
+        self.viewport_w = ctx.viewport_size().width;
+        self.place_popup_x();
         self.dropdown_bounds.size.height = self.effective_popup_height();
         self.determine_direction(ctx.viewport_size().height);
         self.recompute_dropdown_position();
@@ -362,12 +469,15 @@ impl DropdownElement {
         let Some(pos) = self.visible_indices().iter().position(|&i| i == hover) else {
             return;
         };
-        let top = pos as f32 * 36.0;
+        let w = self.popup_width();
+        let vis = self.visible_indices();
+        let top: f32 = vis[..pos].iter().map(|&i| self.item_height(i, w)).sum();
+        let h = self.item_height(vis[pos], w);
         let view = self.effective_popup_height();
         if top < self.scroll_offset {
             self.scroll_offset = top;
-        } else if top + 36.0 > self.scroll_offset + view {
-            self.scroll_offset = top + 36.0 - view;
+        } else if top + h > self.scroll_offset + view {
+            self.scroll_offset = top + h - view;
         }
         self.scroll_offset = self.scroll_offset.clamp(0.0, self.max_scroll());
     }
@@ -381,6 +491,10 @@ impl DropdownElement {
         }
         let value = item.value.clone();
         *self.selected.lock().unwrap_or_else(|e| e.into_inner()) = Some(value.clone());
+        if self.mss_fit_selected {
+            self.mark_dirty(DirtyFlags::LAYOUT);
+            ctx.request_layout();
+        }
         if let Some(ref callback) = self.on_change {
             if let Ok(mut cb) = callback.lock() {
                 cb(&value);
@@ -391,35 +505,32 @@ impl DropdownElement {
     }
 
     fn effective_popup_height(&self) -> f32 {
-        let content_height = self.visible_rows() as f32 * 36.0;
+        let content_height = self.content_height();
         let max_h = self.mss_popup_max_height.unwrap_or(self.max_height);
         let min_h = self.mss_popup_min_height.unwrap_or(0.0);
         content_height.min(max_h).max(min_h)
     }
 
     fn max_scroll(&self) -> f32 {
-        let total_height = self.visible_rows() as f32 * 36.0;
+        let total_height = self.content_height();
         (total_height - self.effective_popup_height()).max(0.0)
     }
 
     fn compute_overlay_bounds(&self) -> Rect {
         let dd_h = self.dropdown_bounds.size.height;
         let popup_gap = 4.0;
+        // по x — объединение поля и меню (меню бывает шире и сдвинуто)
+        let x0 = self.bounds.x().min(self.bounds.x() + self.popup_x);
+        let x1 = (self.bounds.x() + self.bounds.size.width).max(self.bounds.x() + self.popup_x + self.dropdown_bounds.size.width);
         if self.opens_upward {
             Rect::new(
-                Point::new(self.bounds.x(), self.bounds.y() - dd_h - popup_gap),
-                Size::new(
-                    self.bounds.size.width,
-                    dd_h + popup_gap + self.bounds.size.height,
-                ),
+                Point::new(x0, self.bounds.y() - dd_h - popup_gap),
+                Size::new(x1 - x0, dd_h + popup_gap + self.bounds.size.height),
             )
         } else {
             Rect::new(
-                Point::new(self.bounds.x(), self.bounds.y()),
-                Size::new(
-                    self.bounds.size.width,
-                    self.bounds.size.height + popup_gap + dd_h,
-                ),
+                Point::new(x0, self.bounds.y()),
+                Size::new(x1 - x0, self.bounds.size.height + popup_gap + dd_h),
             )
         }
     }
@@ -437,13 +548,13 @@ impl DropdownElement {
         let dropdown_h = self.dropdown_bounds.size.height;
         let popup_gap = 4.0;
 
+        let x = self.bounds.x() + self.popup_x;
         if self.opens_upward {
-            self.dropdown_bounds.origin =
-                Point::new(self.bounds.x(), self.bounds.y() - dropdown_h - popup_gap);
+            self.dropdown_bounds.origin = Point::new(x, self.bounds.y() - dropdown_h - popup_gap);
         } else {
-            self.dropdown_bounds.origin =
-                Point::new(self.bounds.x(), self.bounds.y() + height + popup_gap);
+            self.dropdown_bounds.origin = Point::new(x, self.bounds.y() + height + popup_gap);
         }
+        self.dropdown_bounds.size.width = self.popup_width();
 
         let base_y = if self.opens_upward {
             -dropdown_h - popup_gap
@@ -467,6 +578,15 @@ impl DropdownElement {
 impl Element for DropdownElement {
     fn update(&mut self, widget: &dyn Widget, _ctx: &mut UpdateContext) {
         if let Some(dropdown) = widget.as_any().downcast_ref::<Dropdown>() {
+            // ширина поля — по самому длинному пункту: список (модели
+            // подгружаются позже), подсказка, значок, ширина — пересчитать размер
+            let sel = |st: &DropdownState| st.lock().unwrap_or_else(|e| e.into_inner()).clone();
+            let relayout = (self.mss_fit_selected && sel(&self.selected) != sel(&dropdown.selected))
+                || self.items.len() != dropdown.items.len()
+                || self.items.iter().zip(&dropdown.items).any(|(a, b)| a.label != b.label || a.icon.is_some() != b.icon.is_some())
+                || self.placeholder != dropdown.placeholder
+                || self.width != dropdown.width
+                || self.leading_icon.is_some() != dropdown.leading_icon.is_some();
             self.items = dropdown.items.clone();
             self.selected = dropdown.selected.clone();
             self.placeholder = dropdown.placeholder.clone();
@@ -475,7 +595,7 @@ impl Element for DropdownElement {
             self.max_height = dropdown.max_height;
             self.on_change = dropdown.on_change.clone();
             self.leading_icon = dropdown.leading_icon.clone();
-            self.mark_dirty(DirtyFlags::RENDER);
+            self.mark_dirty(if relayout { DirtyFlags::LAYOUT | DirtyFlags::RENDER } else { DirtyFlags::RENDER });
         }
     }
 
@@ -490,9 +610,11 @@ impl Element for DropdownElement {
             let font_size = self.mss.font_size_or(14.0);
             let max_text_w = if let Some(ref tm) = self.text_measure {
                 let placeholder = self.placeholder_text();
+                let shown = if self.mss_fit_selected { self.get_selected_label() } else { None };
+                let first = shown.unwrap_or(placeholder);
                 let mut max_w =
-                    tm.measure_text_width(&placeholder, font_size, placeholder.chars().count());
-                for item in &self.items {
+                    tm.measure_text_width(&first, font_size, first.chars().count());
+                for item in self.items.iter().filter(|_| !self.mss_fit_selected) {
                     let w =
                         tm.measure_text_width(&item.label, font_size, item.label.chars().count());
                     if w > max_w {
@@ -528,8 +650,7 @@ impl Element for DropdownElement {
         } else {
             height + popup_gap
         };
-        self.dropdown_bounds =
-            Rect::new(Point::new(0.0, base_y), Size::new(width, dropdown_height));
+        self.dropdown_bounds = Rect::new(Point::new(self.popup_x, base_y), Size::new(self.popup_width(), dropdown_height));
         self.rebuild_item_bounds(base_y);
 
         Size::new(width, height)
@@ -795,22 +916,39 @@ impl Element for DropdownElement {
                         item_h,
                     ),
                 );
-                let label = self.fit_text(
-                    &item.label,
-                    label_rect.size.width - 4.0,
-                    font_size,
-                    font_weight,
-                );
-                list.push_text_styled_singleline(
-                    &label,
-                    label_rect,
-                    text_color,
-                    font_size,
-                    TextAlign::DEFAULT,
-                    TextDecoration::None,
-                    font_weight,
-                    self.mss.font_family.clone(),
-                );
+                if self.mss_popup_wrap && item_h > Self::ROW_H {
+                    // перенос: строки по центру пункта
+                    let text_h = item_h - 16.0;
+                    let wrap_rect = Rect::new(
+                        Point::new(label_rect.x(), adjusted_rect.y() + 8.0),
+                        Size::new(label_rect.size.width - 4.0, text_h),
+                    );
+                    list.push_text_full(
+                        &item.label,
+                        wrap_rect,
+                        text_color,
+                        font_size,
+                        TextAlign::DEFAULT,
+                        TextDecoration::None,
+                        font_weight,
+                        self.mss.font_family.clone(),
+                        0.0,
+                        None,
+                        false,
+                    );
+                } else {
+                    let label = self.fit_text(&item.label, label_rect.size.width - 4.0, font_size, font_weight);
+                    list.push_text_styled_singleline(
+                        &label,
+                        label_rect,
+                        text_color,
+                        font_size,
+                        TextAlign::DEFAULT,
+                        TextDecoration::None,
+                        font_weight,
+                        self.mss.font_family.clone(),
+                    );
+                }
 
                 if is_selected {
                     let check_rect = Rect::new(
@@ -1168,6 +1306,16 @@ impl Element for DropdownElement {
         {
             self.mss_popup_min_height = Some(d.resolve(1000.0));
         }
+        self.mss_popup_wrap = style.get("--popup-wrap").is_some_and(|v| match v {
+            crate::mss::StyleValue::Number(n) => *n != 0.0,
+            other => other.as_string().is_some_and(|s| matches!(s.trim(), "true" | "wrap" | "yes" | "1" | "normal")),
+        });
+        self.mss_fit_selected = style.get("--fit-selected").is_some_and(|v| match v {
+            crate::mss::StyleValue::Number(n) => *n != 0.0,
+            other => other.as_string().is_some_and(|s| matches!(s.trim(), "true" | "yes" | "1")),
+        });
+        self.mss_popup_min_width = style.get("--popup-min-width").and_then(|v| v.as_px());
+        self.mss_popup_max_width = style.get("--popup-max-width").and_then(|v| v.as_px());
         self.mark_dirty(DirtyFlags::LAYOUT | DirtyFlags::RENDER);
     }
 
