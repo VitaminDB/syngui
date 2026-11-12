@@ -216,6 +216,8 @@ pub struct ElementTree {
     /// Получает `MouseDown` вне своих границ — по hit-test событие до него не
     /// дошло бы, и выделение оставалось бы висеть после клика по пустому месту.
     pub(crate) text_selection_owner: Option<ElementId>,
+    /// [`ClickAway`](crate::widgets::ClickAway): нажатие мимо содержимого — вызвать.
+    pub(crate) click_away: Vec<(ElementId, std::sync::Arc<dyn Fn() + Send + Sync>)>,
     /// Перевод координат элемента, которому сейчас доставляется событие, в
     /// координаты окна: `окно = p·k − s` (прокрутка и масштаб предков).
     /// Ведётся по ходу `dispatch_event`, отдаётся элементу в
@@ -310,6 +312,7 @@ impl ElementTree {
             pointer_watchers: Vec::new(),
             press_owner: None,
             text_selection_owner: None,
+            click_away: Vec::new(),
             event_xform: (Point::zero(), 1.0),
             post_layout_sync_registry: std::collections::HashSet::new(),
         }
@@ -1251,6 +1254,12 @@ impl ElementTree {
         }
     }
 
+    /// Следить за нажатиями мимо содержимого элемента `id` ([`ClickAway`](crate::widgets::ClickAway)).
+    pub fn add_click_away(&mut self, id: ElementId, f: std::sync::Arc<dyn Fn() + Send + Sync>) {
+        self.click_away.retain(|(e, _)| *e != id);
+        self.click_away.push((id, f));
+    }
+
     fn remove_subtree(&mut self, id: ElementId) {
         let child_ids = match self.elements.get(&id) {
             Some(node) => node.children.clone(),
@@ -1264,6 +1273,7 @@ impl ElementTree {
         self.cache_remove(&id);
         self.overlay_stack.retain(|e| e.element_id != id);
         self.drop_targets.retain(|&dt| dt != id);
+        self.click_away.retain(|(e, _)| *e != id);
         if self.last_mousedown_element == Some(id) {
             self.last_mousedown_element = None;
         }

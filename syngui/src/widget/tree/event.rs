@@ -353,6 +353,7 @@ impl ElementTree {
         if matches!(event, Event::MouseDown { .. }) {
             self.last_mousedown_element = None;
             self.notify_text_selection_owner(event);
+            self.notify_click_away(event);
         }
 
         let event_pos = event.position();
@@ -419,6 +420,37 @@ impl ElementTree {
             return self.dispatch_positional(root_id, event, pos);
         }
         self.dispatch_event(root_id, event)
+    }
+
+    /// [`ClickAway`](crate::widgets::ClickAway): нажатие мимо его содержимого (границ детей) —
+    /// вызвать его обработчик. Само нажатие идёт дальше как обычно: щелчок по вкладке и закрывает
+    /// меню, и переключает вкладку.
+    fn notify_click_away(&mut self, event: &Event) {
+        if self.click_away.is_empty() {
+            return;
+        }
+        let mut fire: Vec<std::sync::Arc<dyn Fn() + Send + Sync>> = Vec::new();
+        for (id, f) in self.click_away.clone() {
+            let Some(node) = self.elements.get(&id) else { continue };
+            let children = node.children.clone();
+            if children.is_empty() {
+                continue;
+            }
+            let inside = children.iter().any(|c| {
+                let (s, k) = self.accumulated_event_transform(*c);
+                let adj = if is_identity_transform(s, k) { event.clone() } else { event.with_inverse_transform(s, k) };
+                match (adj.position(), self.elements.get(c)) {
+                    (Some(pos), Some(n)) => n.element.bounds().contains(pos),
+                    _ => true,
+                }
+            });
+            if !inside {
+                fire.push(f);
+            }
+        }
+        for f in fire {
+            f();
+        }
     }
 
     /// Владелец текстового выделения получает `MouseDown` вне своих границ.
