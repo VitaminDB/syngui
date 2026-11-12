@@ -1169,6 +1169,16 @@ impl<'a> MdRenderer<'a> {
         let start_y = self.y;
 
         for span in spans {
+            // жёсткий перенос (HardBreak — span "\n"): новая строка, как и в измерении
+            // (`simulate_wrap_lines`); раньше рисовался на той же строке — строки склеивались, а
+            // высота, посчитанная с переносами, оставляла пустоту внизу
+            if span.text == "\n" {
+                self.y += line_h;
+                lines_height += line_h;
+                x_rel = 0.0;
+                self.bump_line();
+                continue;
+            }
             let sw = if span.bold {
                 self.bold_text_width(&span.text, span.font_size)
             } else {
@@ -1605,8 +1615,15 @@ fn measure_inlines_width_tm(
             None => bold_text_width(t, font_size),
         }
     };
+    // с жёсткими переносами естественная ширина — самая длинная строка, а не сумма
+    let mut widest = 0.0f32;
     let mut w = 0.0f32;
     for inline in inlines {
+        if matches!(inline, MdInline::HardBreak) {
+            widest = widest.max(w);
+            w = 0.0;
+            continue;
+        }
         w += match inline {
             MdInline::Text(t) => tw(t),
             MdInline::Bold(c) => {
@@ -1634,7 +1651,7 @@ fn measure_inlines_width_tm(
             }
         };
     }
-    w
+    widest.max(w)
 }
 
 /// Режет строку код-блока на подстроки шириной ≤ `avail_w` (байтовые

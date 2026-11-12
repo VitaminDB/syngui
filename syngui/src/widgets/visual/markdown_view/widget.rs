@@ -1206,6 +1206,15 @@ impl Element for MarkdownViewElement {
                 if !self.selectable || !self.bounds.contains(*position) {
                     return EventResult::Ignored;
                 }
+                // Долгое нажатие пальцем (его автомат касаний шлёт правой кнопкой): мышью тут не выделить —
+                // выделить слово под пальцем, если выделения нет, и тогда меню: «Копировать» уже есть что.
+                if crate::input::touch::is_synthesized_mouse() && self.selection_text().is_none() {
+                    let pos_sel = self.hit_test_pos(*position);
+                    self.select_word_at(pos_sel);
+                    self.mouse_selecting = false;
+                    ctx.claim_text_selection();
+                    self.mark_dirty(DirtyFlags::RENDER);
+                }
                 self.menu_pos.set(*position);
                 self.menu_open.set(true);
                 ctx.request_paint();
