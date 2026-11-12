@@ -1746,3 +1746,73 @@ mod update_tests {
         assert_eq!(snapshot().since(&start).md_parse_calls, 0);
     }
 }
+
+#[cfg(test)]
+mod bubble_tests {
+    use super::*;
+    use crate::testing::TestHarness;
+    use std::sync::atomic::{AtomicBool, Ordering};
+
+    /// Пузырь сообщения: прокрутка → строка → рамка → колонка → MarkdownView со ссылкой; тап по ссылке
+    /// (MouseDown+MouseUp, как синтезирует касание) вызывает обработчик ссылки.
+    #[test]
+    fn link_click_inside_scroll_bubble() {
+        static HIT: AtomicBool = AtomicBool::new(false);
+        let md = MarkdownView::new("see [link](tel:123) here").selectable(true).on_link_click(|_| HIT.store(true, Ordering::SeqCst));
+        let tree = crate::widgets::ScrollView::new().vertical().child(
+            crate::widgets::Column::new().child(crate::widgets::Row::new().child(crate::widgets::DecoratedBox::new().child(crate::widgets::Column::new().child(md)))),
+        );
+        let mut h = TestHarness::new(Box::new(tree));
+        h.rebuild();
+        h.layout(400.0, 300.0);
+        let _ = h.paint();
+        let id = h.find_by_type_name("MarkdownView")[0];
+        let b = h.element_bounds(id);
+        assert!(b.size.width > 10.0 && b.size.height > 5.0, "размер {b:?}");
+        // «link» — после «see » (4 символа)
+        let p = Point::new(b.origin.x + b.size.width * 0.45, b.origin.y + b.size.height / 2.0);
+        h.send_event(&Event::MouseDown { button: MouseButton::Left, position: p });
+        h.send_event(&Event::MouseUp { button: MouseButton::Left, position: p });
+        assert!(HIT.load(Ordering::SeqCst), "ссылка не нажалась, bounds {b:?}");
+    }
+
+    fn bubble(md: MarkdownView) -> TestHarness {
+        let tree = crate::widgets::ScrollView::new().vertical().child(
+            crate::widgets::Column::new().child(crate::widgets::Row::new().child(crate::widgets::DecoratedBox::new().child(crate::widgets::Column::new().child(md)))),
+        );
+        let mut h = TestHarness::new(Box::new(tree));
+        h.rebuild();
+        h.layout(400.0, 300.0);
+        let _ = h.paint();
+        h
+    }
+
+    /// То же пальцем: тап по ссылке внутри прокрутки.
+    #[test]
+    fn link_tap_by_touch() {
+        static HIT: AtomicBool = AtomicBool::new(false);
+        let mut h = bubble(MarkdownView::new("see [link](tel:123) here").selectable(true).on_link_click(|_| HIT.store(true, Ordering::SeqCst)));
+        let id = h.find_by_type_name("MarkdownView")[0];
+        let b = h.element_bounds(id);
+        let p = Point::new(b.origin.x + b.size.width * 0.45, b.origin.y + b.size.height / 2.0);
+        h.touch_down(1, p);
+        h.touch_up(1);
+        assert!(HIT.load(Ordering::SeqCst), "касание по ссылке не дошло, bounds {b:?}");
+    }
+
+    /// Долгое нажатие пальцем — слово выделено и меню открыто.
+    #[test]
+    fn long_press_selects_word() {
+        let mut h = bubble(MarkdownView::new("hello world").selectable(true));
+        let id = h.find_by_type_name("MarkdownView")[0];
+        let b = h.element_bounds(id);
+        let p = Point::new(b.origin.x + 5.0, b.origin.y + b.size.height / 2.0);
+        h.touch_down(1, p);
+        std::thread::sleep(std::time::Duration::from_millis(600));
+        h.touch_poll();
+        h.touch_up(1);
+        let dl = h.paint();
+        let selected = dl.commands().iter().any(|c| matches!(c, crate::render::DrawCommand::TextSelection { .. }));
+        assert!(selected, "слово под пальцем не выделено");
+    }
+}
