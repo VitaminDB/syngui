@@ -196,6 +196,8 @@ type ResizeFn = Arc<dyn Fn(Size) + Send + Sync>;
 pub struct LiveView {
     frame: Arc<LiveFrame>,
     fit: ImageFit,
+    pixelated: bool,
+    integer: bool,
     classes: Vec<String>,
     on_input: Option<InputFn>,
     cursor: Option<CursorIcon>,
@@ -207,6 +209,8 @@ impl LiveView {
         Self {
             frame,
             fit: ImageFit::Contain,
+            pixelated: false,
+            integer: false,
             classes: Vec::new(),
             on_input: None,
             cursor: None,
@@ -216,6 +220,19 @@ impl LiveView {
 
     pub fn fit(mut self, fit: ImageFit) -> Self {
         self.fit = fit;
+        self
+    }
+
+    /// Увеличивать без сглаживания (ближайший пиксель): экран ретро-машины, пиксель-арт.
+    pub fn pixelated(mut self, on: bool) -> Self {
+        self.pixelated = on;
+        self
+    }
+
+    /// При `ImageFit::Contain` — только целый масштаб в физических пикселях (1×, 2×, 3×…; меньше
+    /// 1× — как обычно): пиксели кадра одинаковой величины, поля — фоном.
+    pub fn integer_scale(mut self, on: bool) -> Self {
+        self.integer = on;
         self
     }
 
@@ -250,6 +267,8 @@ impl Widget for LiveView {
             id: ElementId::new(),
             frame: self.frame.clone(),
             fit: self.fit,
+            pixelated: self.pixelated,
+            integer: self.integer,
             classes: self.classes.clone(),
             on_input: self.on_input.clone(),
             cursor: self.cursor,
@@ -289,6 +308,8 @@ pub struct LiveViewElement {
     id: ElementId,
     frame: Arc<LiveFrame>,
     fit: ImageFit,
+    pixelated: bool,
+    integer: bool,
     classes: Vec<String>,
     on_input: Option<InputFn>,
     cursor: Option<CursorIcon>,
@@ -307,6 +328,13 @@ pub struct LiveViewElement {
 }
 
 impl LiveViewElement {
+    /// Сглаживание кадра в рендерере — по `pixelated`.
+    fn apply_pixelated(&self) {
+        if let Some(h) = self.image_handle {
+            crate::gpu::image_cache::set_pixelated(h.0, self.pixelated);
+        }
+    }
+
     /// Залить новую версию кадра, если она есть.
     fn sync(&mut self) {
         #[cfg(all(target_os = "linux", not(target_arch = "wasm32")))]
@@ -330,6 +358,9 @@ impl LiveViewElement {
                     let key = format!("live:{:p}:{}", Arc::as_ptr(&self.frame), self.id.0);
                     let (handle, _) = s.request_rgba(&key, w, h, rgba.to_vec());
                     self.image_handle = Some(handle);
+                    if self.pixelated {
+                        crate::gpu::image_cache::set_pixelated(handle.0, true);
+                    }
                 }
             }
         }
@@ -366,6 +397,9 @@ impl LiveViewElement {
                     let key = format!("live:{:p}:{}", Arc::as_ptr(&self.frame), self.id.0);
                     let (handle, _) = s.request_rgba(&key, 1, 1, vec![0, 0, 0, 255]);
                     self.image_handle = Some(handle);
+                    if self.pixelated {
+                        crate::gpu::image_cache::set_pixelated(handle.0, true);
+                    }
                     handle
                 }
             };
@@ -393,6 +427,7 @@ impl LiveViewElement {
             ImageFit::None => (nw, nh),
             ImageFit::Contain => {
                 let k = (bw / nw).min(bh / nh);
+                let k = if self.integer { integer_scale(k) } else { k };
                 (nw * k, nh * k)
             }
             ImageFit::Cover => {
@@ -427,6 +462,23 @@ impl LiveViewElement {
     }
 }
 
+impl Drop for LiveViewElement {
+    fn drop(&mut self) {
+        if self.pixelated {
+            if let Some(h) = self.image_handle {
+                crate::gpu::image_cache::set_pixelated(h.0, false);
+            }
+        }
+    }
+}
+
+/// Наибольший целый масштаб в физических пикселях, не больше `k` (логического); меньше 1× — `k`.
+fn integer_scale(k: f32) -> f32 {
+    let r = crate::scale::pixel_ratio().max(0.01);
+    let n = (k * r + 1e-3).floor();
+    if n >= 1.0 { n / r } else { k }
+}
+
 impl Element for LiveViewElement {
     fn update(&mut self, widget: &dyn Widget, _ctx: &mut UpdateContext) {
         if let Some(v) = widget.as_any().downcast_ref::<LiveView>() {
@@ -435,6 +487,11 @@ impl Element for LiveViewElement {
                 self.shown = 0;
             }
             self.fit = v.fit;
+            self.integer = v.integer;
+            if self.pixelated != v.pixelated {
+                self.pixelated = v.pixelated;
+                self.apply_pixelated();
+            }
             self.on_input = v.on_input.clone();
             self.cursor = v.cursor;
             self.on_resize = v.on_resize.clone();

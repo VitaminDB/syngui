@@ -304,7 +304,8 @@ struct GpuImage {
     /// идёт в ту, которую GPU уже не читает. Иначе драйвер (Mali) делает
     /// copy-on-write всей текстуры на каждый кадр, и второй поток
     /// mali-utility-worker съедает ядро.
-    ring: Vec<(wgpu::Texture, wgpu::BindGroup)>,
+    /// Текстура, bind group со сглаживанием и без него (пиксельный вид, [`set_pixelated`]).
+    ring: Vec<(wgpu::Texture, wgpu::BindGroup, wgpu::BindGroup)>,
     cur: usize,
     /// Места, изменённые последними заливками (`None` — кадр целиком), —
     /// новейшие в конце: текстура кольца отстала на столько кадров, и
@@ -320,6 +321,9 @@ impl GpuImage {
     }
     fn bind_group(&self) -> &wgpu::BindGroup {
         &self.ring[self.cur].1
+    }
+    fn bind_group_nearest(&self) -> &wgpu::BindGroup {
+        &self.ring[self.cur].2
     }
 }
 
@@ -379,12 +383,31 @@ const EXTERNAL_WGSL: &str = r#"
 }
 "#;
 
+/// Картинки (handle), увеличиваемые без сглаживания — чёткие пиксели.
+static PIXELATED: std::sync::RwLock<std::collections::BTreeSet<u32>> = std::sync::RwLock::new(std::collections::BTreeSet::new());
+static PIXELATED_ANY: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
+
+/// Рисовать картинку `handle` без сглаживания при увеличении (ближайший тексел): экран
+/// ретро-машины, пиксель-арт. Уменьшение остаётся сглаженным.
+pub fn set_pixelated(handle: u32, on: bool) {
+    if let Ok(mut s) = PIXELATED.write() {
+        if on {
+            s.insert(handle);
+        } else {
+            s.remove(&handle);
+        }
+        PIXELATED_ANY.store(!s.is_empty(), std::sync::atomic::Ordering::Relaxed);
+    }
+}
+
 pub struct ImageGpuCache {
     #[cfg(all(target_os = "linux", not(target_arch = "wasm32")))]
     external: External,
     images: HashMap<u32, GpuImage>,
     yuv: HashMap<u32, GpuYuv>,
     sampler: wgpu::Sampler,
+    /// Без сглаживания при увеличении: картинки с [`set_pixelated`].
+    sampler_nearest: wgpu::Sampler,
     bind_group_layout: wgpu::BindGroupLayout,
     yuv_layout: wgpu::BindGroupLayout,
 }
@@ -519,10 +542,35 @@ impl ImageGpuCache {
             external: External::default(),
             images: HashMap::new(),
             yuv: HashMap::new(),
+            sampler_nearest: device.create_sampler(&wgpu::SamplerDescriptor {
+                label: Some("Image Sampler Nearest"),
+                address_mode_u: wgpu::AddressMode::ClampToEdge,
+                address_mode_v: wgpu::AddressMode::ClampToEdge,
+                address_mode_w: wgpu::AddressMode::ClampToEdge,
+                mag_filter: wgpu::FilterMode::Nearest,
+                min_filter: wgpu::FilterMode::Linear,
+                mipmap_filter: wgpu::MipmapFilterMode::Linear,
+                ..Default::default()
+            }),
             sampler,
             bind_group_layout,
             yuv_layout,
         }
+    }
+
+    /// Bind group картинки: со сглаживанием и без него.
+    fn image_bind_groups(&self, device: &wgpu::Device, view: &wgpu::TextureView) -> (wgpu::BindGroup, wgpu::BindGroup) {
+        let make = |sampler: &wgpu::Sampler| {
+            device.create_bind_group(&wgpu::BindGroupDescriptor {
+                label: Some("Image BG"),
+                layout: &self.bind_group_layout,
+                entries: &[
+                    wgpu::BindGroupEntry { binding: 0, resource: wgpu::BindingResource::TextureView(view) },
+                    wgpu::BindGroupEntry { binding: 1, resource: wgpu::BindingResource::Sampler(sampler) },
+                ],
+            })
+        };
+        (make(&self.sampler), make(&self.sampler_nearest))
     }
 
     pub fn yuv_bind_group_layout(&self) -> &wgpu::BindGroupLayout {
@@ -918,7 +966,7 @@ impl ImageGpuCache {
         queue: &wgpu::Queue,
         data: &ImageData,
         ring_len: usize,
-    ) -> Option<Vec<(wgpu::Texture, wgpu::BindGroup)>> {
+    ) -> Option<Vec<(wgpu::Texture, wgpu::BindGroup, wgpu::BindGroup)>> {
         #[cfg(not(target_arch = "wasm32"))]
         let scope = device.push_error_scope(wgpu::ErrorFilter::OutOfMemory);
         // Полная цепочка мипов: UI рисует картинки сильно меньше натурала
@@ -941,21 +989,8 @@ impl ImageGpuCache {
                 view_formats: &[],
             });
             let texture_view = texture.create_view(&wgpu::TextureViewDescriptor::default());
-            let bind_group = device.create_bind_group(&wgpu::BindGroupDescriptor {
-                label: Some("Image BG"),
-                layout: &self.bind_group_layout,
-                entries: &[
-                    wgpu::BindGroupEntry {
-                        binding: 0,
-                        resource: wgpu::BindingResource::TextureView(&texture_view),
-                    },
-                    wgpu::BindGroupEntry {
-                        binding: 1,
-                        resource: wgpu::BindingResource::Sampler(&self.sampler),
-                    },
-                ],
-            });
-            ring.push((texture, bind_group));
+            let (bind_group, nearest) = self.image_bind_groups(device, &texture_view);
+            ring.push((texture, bind_group, nearest));
         }
         write_all_levels(queue, &ring[0].0, data);
         #[cfg(not(target_arch = "wasm32"))]
@@ -1071,15 +1106,8 @@ impl ImageGpuCache {
                         view_formats: &[],
                     });
                     let view = texture.create_view(&Default::default());
-                    let bind_group = device.create_bind_group(&wgpu::BindGroupDescriptor {
-                        label: Some("Image BG"),
-                        layout: &self.bind_group_layout,
-                        entries: &[
-                            wgpu::BindGroupEntry { binding: 0, resource: wgpu::BindingResource::TextureView(&view) },
-                            wgpu::BindGroupEntry { binding: 1, resource: wgpu::BindingResource::Sampler(&self.sampler) },
-                        ],
-                    });
-                    (texture, bind_group)
+                    let (bind_group, nearest) = self.image_bind_groups(device, &view);
+                    (texture, bind_group, nearest)
                 })
                 .collect();
             self.images.insert(handle.0, GpuImage { ring, cur: 0, recent: Default::default(), rt: true });
@@ -1140,7 +1168,8 @@ impl ImageGpuCache {
     }
 
     pub fn get_bind_group(&self, handle_id: u32) -> Option<&wgpu::BindGroup> {
-        self.images.get(&handle_id).map(|img| img.bind_group())
+        let nearest = PIXELATED_ANY.load(std::sync::atomic::Ordering::Relaxed) && PIXELATED.read().is_ok_and(|s| s.contains(&handle_id));
+        self.images.get(&handle_id).map(|img| if nearest { img.bind_group_nearest() } else { img.bind_group() })
     }
 }
 
