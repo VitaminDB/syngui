@@ -28,7 +28,7 @@ mod imp {
         .clone()
     }
 
-    pub fn copy(text: &str) {
+    fn copy_arboard(text: &str) {
         let Some(h) = handle() else { return };
         let mut g = match h.lock() {
             Ok(g) => g,
@@ -42,7 +42,34 @@ mod imp {
         }
     }
 
+    /// Копировать текст. На Wayland (synwm и др.) — через нативный буфер
+    /// data-control, а не arboard: arboard кладёт X11-выделение (XWayland),
+    /// которое компоновщик не всегда переносит в Wayland-буфер, и вставить
+    /// в нативные окна нельзя. Без Wayland или при ошибке — arboard.
+    pub fn copy(text: &str) {
+        copy_rich(text, &[]);
+    }
+
     pub fn paste() -> Option<String> {
+        #[cfg(all(target_os = "linux", feature = "wl-clipboard-rs"))]
+        if std::env::var_os("WAYLAND_DISPLAY").is_some() {
+            use std::io::Read;
+
+            use wl_clipboard_rs::paste::{
+                get_contents, ClipboardType, Error, MimeType, Seat,
+            };
+            match get_contents(ClipboardType::Regular, Seat::Unspecified, MimeType::Text) {
+                Ok((mut pipe, _)) => {
+                    let mut buf = Vec::new();
+                    if pipe.read_to_end(&mut buf).is_ok() {
+                        return Some(String::from_utf8_lossy(&buf).into_owned());
+                    }
+                }
+                // пустой буфер / нет текста — это не ошибка, arboard вернул бы то же
+                Err(Error::ClipboardEmpty | Error::NoSeats | Error::NoMimeType) => return None,
+                Err(e) => log::warn!("clipboard: wayland paste не удался ({e}), пробую arboard"),
+            }
+        }
         let h = handle()?;
         let result = h.lock().ok().and_then(|mut g| g.get_text().ok());
         result
@@ -54,7 +81,7 @@ mod imp {
     /// текст (arboard кладёт один формат за раз).
     pub fn copy_rich(text: &str, formats: &[(&str, &[u8])]) {
         #[cfg(all(target_os = "linux", feature = "wl-clipboard-rs"))]
-        if !formats.is_empty() && std::env::var_os("WAYLAND_DISPLAY").is_some() {
+        if std::env::var_os("WAYLAND_DISPLAY").is_some() {
             use wl_clipboard_rs::copy::{MimeSource, MimeType, Options, Source};
             let mut sources = vec![MimeSource {
                 source: Source::Bytes(text.as_bytes().into()),
@@ -68,11 +95,11 @@ mod imp {
             }
             match Options::new().copy_multi(sources) {
                 Ok(()) => return,
-                Err(e) => log::warn!("clipboard: copy_multi не удался ({e}), кладу только текст"),
+                Err(e) => log::warn!("clipboard: copy_multi не удался ({e}), кладу через arboard"),
             }
         }
         let _ = formats;
-        copy(text);
+        copy_arboard(text);
     }
 
     /// Содержимое буфера в первом из предложенных форматов, который в нём
