@@ -134,6 +134,8 @@ impl ElementTree {
             self.last_pointer = p;
         }
         if let Some(r) = self.route_touch_as_mouse(event) {
+            // наблюдатели (карусель, ведущая палец) получают движение и отпускание и здесь
+            self.notify_pointer_watchers(event);
             return r;
         }
         let result = self.do_handle_event(root_id, event);
@@ -287,6 +289,14 @@ impl ElementTree {
     /// (`EventContext::watch_pointer`): обычный путь отдаёт их только
     /// захватчику. Повтор для элемента, уже получившего событие, безвреден —
     /// наблюдатели только обновляют своё состояние.
+    /// Отладка: захваты указателя и касаний (для дампа зависшего ввода).
+    pub fn debug_input_state(&self) -> String {
+        format!(
+            "mouse_captor={:?} touch_captors={:?} touch_mouse={:?} pointer_watchers={:?}",
+            self.mouse_captor, self.touch_captors, self.touch_mouse, self.pointer_watchers
+        )
+    }
+
     fn notify_pointer_watchers(&mut self, event: &Event) {
         if self.pointer_watchers.is_empty()
             || !matches!(

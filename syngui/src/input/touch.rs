@@ -150,6 +150,17 @@ impl TouchTracker {
         Self::default()
     }
 
+    /// Отладка: пальцы и состояние тапа.
+    pub fn debug(&self) -> String {
+        format!(
+            "fingers={:?} primary={:?} tap_cancelled={} long_press_fired={}",
+            self.fingers.keys().collect::<Vec<_>>(),
+            self.primary,
+            self.tap_cancelled,
+            self.long_press_fired
+        )
+    }
+
     /// Сколько пальцев сейчас на поверхности.
     pub fn active(&self) -> usize {
         self.fingers.len()

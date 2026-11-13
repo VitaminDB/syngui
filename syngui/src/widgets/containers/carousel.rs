@@ -227,6 +227,8 @@ struct CarouselTouch {
     /// `None` — ось ещё не ясна; `Some(false)` — жест не наш (вертикальный).
     ours: Option<bool>,
     velocity: crate::input::VelocityTracker,
+    /// Последняя точка — повтор того же движения отбрасывается.
+    last: Point,
 }
 
 /// Бросок быстрее — листаем, даже если протащили меньше порога.
@@ -297,6 +299,7 @@ impl CarouselElement {
             start: at,
             ours: None,
             velocity,
+            last: at,
         });
     }
 
@@ -464,6 +467,11 @@ impl CarouselElement {
                 EventResult::Handled
             }
             Event::TouchStart { id, position } => {
+                // Тот же номер пальца — значит, прежний палец уже поднят, а его TouchEnd до нас не дошёл:
+                // жест начинается заново (иначе карусель больше не листалась бы).
+                if self.touch.as_ref().is_some_and(|t| t.id == *id) {
+                    self.touch = None;
+                }
                 if !self.swipeable() || !self.bounds.contains(*position) || self.touch.is_some() {
                     return EventResult::Ignored;
                 }
@@ -482,6 +490,11 @@ impl CarouselElement {
                 }
                 let slop = crate::input::touch_config().tap_slop;
                 let t = self.touch.as_mut().unwrap();
+                // То же движение второй раз (путь событий и наблюдатель указателя) — не считать
+                if t.last == *position {
+                    return EventResult::Handled;
+                }
+                t.last = *position;
                 t.velocity.add(*position);
                 let (dx, dy) = (position.x - t.start.x, position.y - t.start.y);
                 if t.ours.is_none() {
@@ -707,6 +720,12 @@ impl Element for CarouselElement {
 
     fn handle_event(&mut self, event: &Event, ctx: &mut EventContext) -> EventResult {
         let r = self.handle_event_inner(event, ctx);
+        // Пока ведём палец — наблюдатель указателя (подписка снимается после каждой доставки): TouchStart
+        // мог взять вложенный элемент (значок с on_press), тогда TouchEnd первым уходит ему и поглощается —
+        // без отпускания `touch` висел бы вечно и карусель больше не листалась (SM-T295, 2026-11-13).
+        if self.touch.is_some() {
+            ctx.watch_pointer();
+        }
         self.publish_position();
         r
     }
@@ -755,6 +774,19 @@ impl Element for CarouselElement {
 
     fn element_type_name(&self) -> &str {
         "Carousel"
+    }
+
+    fn debug_state(&self) -> Option<String> {
+        Some(format!(
+            "page={}/{} touch={:?} drag_start={:?} animating={} offset={:.1}/{:.1}",
+            self.current_page,
+            self.page_count,
+            self.touch.as_ref().map(|t| (t.id, t.ours)),
+            self.drag_start_x,
+            self.animating,
+            self.slide_offset,
+            self.target_offset
+        ))
     }
 
     fn reset_mss_styles(&mut self) {
@@ -890,6 +922,30 @@ mod pointer_events_tests {
             h.touch_move(1, Point::new(300.0 - i as f32 * 25.0, 152.0));
         }
         h.touch_up(1);
+    }
+
+    /// Вертикальный жест (шторка, меню программ), начатый на элементе с `on_press`: TouchStart и TouchEnd
+    /// берёт элемент, карусель подхватывает палец в TouchMove и отдаёт как «не наш». Без отпускания
+    /// (оно поглощалось элементом) карусель держала чужое касание вечно и больше не листалась —
+    /// SM-T295 2026-11-13: столы не листались, касания и вертикальные жесты работали.
+    #[test]
+    fn vertical_gesture_on_pressable_child_keeps_carousel_swipeable() {
+        crate::signal::allow_signal_reads_on_this_thread();
+        let sig = crate::signal::use_signal(0usize);
+        let mut car = Carousel::new().page_signal(sig).show_indicators(false).show_arrows(false);
+        for _ in 0..3 {
+            car = car.child(GestureDetector::new().on_press(|_| {}).child(DecoratedBox::new()));
+        }
+        let mut h = TestHarness::new(Box::new(car));
+        h.layout(400.0, 300.0);
+        h.touch_down(1, Point::new(200.0, 250.0));
+        for i in 1..=6 {
+            h.touch_move(1, Point::new(201.0, 250.0 - i as f32 * 30.0));
+        }
+        h.touch_up(1);
+        assert_eq!(sig.get_untracked(), 0);
+        swipe(&mut h);
+        assert_eq!(sig.get_untracked(), 1, "горизонтальный сдвиг после вертикального жеста на элементе");
     }
 
     #[test]

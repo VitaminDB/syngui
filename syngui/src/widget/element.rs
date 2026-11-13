@@ -195,6 +195,11 @@ pub trait Element: Send {
         false
     }
 
+    /// Отладка: внутреннее состояние ввода/жеста элемента для дампа дерева (`None` — нечего сказать).
+    fn debug_state(&self) -> Option<String> {
+        None
+    }
+
     fn needs_repaint(&self) -> bool {
         false
     }

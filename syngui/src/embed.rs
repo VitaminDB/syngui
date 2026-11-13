@@ -349,6 +349,11 @@ impl EmbedView {
         EventResult::Handled
     }
 
+    /// Отладка: состояние касаний и захватов ввода.
+    pub fn input_debug(&self) -> String {
+        format!("touch: {}; tree: {}", self.touch.debug(), self.tree.debug_input_state())
+    }
+
     /// Хост отменил касания (жест забрал композитор).
     pub fn touch_cancel(&mut self) {
         let Some(root) = self.root_id else { return };
