@@ -219,18 +219,12 @@ impl Fonts {
         self.faces.len() - 1
     }
 
-    #[cfg(not(target_os = "android"))]
     fn system(family: Option<&str>, weight: u16, italic: bool) -> Option<(Vec<u8>, u32)> {
         use crate::text::font_discovery as fd;
         match family {
             Some(f) => fd::discover_styled(f, weight, italic),
             None => Some(fd::discover_weight_font(None, weight)).filter(|(d, _)| !d.is_empty()),
         }
-    }
-
-    #[cfg(target_os = "android")]
-    fn system(_family: Option<&str>, _weight: u16, _italic: bool) -> Option<(Vec<u8>, u32)> {
-        None
     }
 
     /// Основное начертание семейства; нет такого семейства — системное.
@@ -272,7 +266,6 @@ impl Fonts {
     }
 
     /// Шрифт для иероглифов, каны, хангыля.
-    #[cfg(not(target_os = "android"))]
     fn cjk(&mut self, ch: char) -> Option<usize> {
         let script = crate::text::script_of(ch)?;
         let k = script as u8;
@@ -284,11 +277,6 @@ impl Fonts {
             .map(|f| self.push(f));
         self.cjk.insert(k, v);
         v
-    }
-
-    #[cfg(target_os = "android")]
-    fn cjk(&mut self, _ch: char) -> Option<usize> {
-        None
     }
 
     /// Начертание для куска `span` при оформлении `style`.

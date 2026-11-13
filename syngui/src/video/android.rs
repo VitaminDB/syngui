@@ -77,6 +77,30 @@ pub fn video_surface() -> Option<*mut c_void> {
     Some(raw)
 }
 
+/// Частота кадров ролика на видео-Surface (`Surface.setFrameRate`, Android
+/// 11+, совместимость FIXED_SOURCE): дисплей с переменной частотой выбирает
+/// режим, кратный ролику (23.976 → 48/120 Гц), а не «свой» близкий — иначе
+/// раз в десятки секунд кадр дублируется и картинка дёргается. `0` — снять.
+pub fn set_video_frame_rate(fps: f32) {
+    let fps = if fps.is_finite() && fps > 0.0 && fps <= 240.0 { fps } else { 0.0 };
+    let ok = with_env(|env, _activity| {
+        let guard = SURFACE_REF.lock().ok()?;
+        let surface = guard.as_ref()?;
+        // FRAME_RATE_COMPATIBILITY_FIXED_SOURCE = 1
+        env.call_method(surface.as_obj(), "setFrameRate", "(FI)V", &[jni::objects::JValue::Float(fps), jni::objects::JValue::Int(1)])
+            .ok()
+            .map(|_| ())
+            .or_else(|| {
+                let _ = env.exception_clear();
+                None
+            })
+    });
+    match ok {
+        Some(()) => log::info!("video surface: частота ролика {fps:.3} кадр/с"),
+        None => log::warn!("video surface: setFrameRate({fps:.3}) не удался"),
+    }
+}
+
 /// Положение видео-Surface в долях окна (x, y, w, h ∈ 0..1): вызывает
 /// `setVideoRect(float,float,float,float)` активити. Зовёт `VideoView`,
 /// когда его fit-прямоугольник меняется.

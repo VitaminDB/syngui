@@ -54,6 +54,9 @@ pub struct VideoPlayer {
     audio: Option<AudioPlayer>,
     shared: Arc<PlayerShared>,
     pending_frame: Option<VideoFrame>,
+    /// Шкала показа кадров на Surface: (pts, момент CLOCK_MONOTONIC в нс) —
+    /// см. [`VideoPlayer::schedule_surface_frames`].
+    surface_anchor: Option<(f64, i64)>,
     wall_start: Option<Instant>,
     paused_accum: WebDuration,
     paused_at: Option<Instant>,
@@ -119,6 +122,7 @@ impl VideoPlayer {
             audio,
             shared,
             pending_frame: None,
+            surface_anchor: None,
             wall_start: Some(Instant::now()),
             paused_accum: WebDuration::ZERO,
             paused_at: None,
@@ -203,6 +207,7 @@ impl VideoPlayer {
     }
 
     pub fn seek(&mut self, sec: f64) -> Result<(), VideoError> {
+        self.surface_anchor = None;
         let target = sec.clamp(0.0, self.shared.duration_sec.max(0.0));
         self.pending_frame = None;
         while self.decoder.try_recv_video().is_ok() {}
@@ -420,12 +425,16 @@ impl VideoPlayer {
             }
             if frame.pts_sec >= clock - SURFACE_LATE_SEC {
                 if let Some(s) = frame.surface.as_ref() {
-                    let delay_ns = ((frame.pts_sec - clock).max(0.0) * 1e9) as i64;
-                    s.render_at(now_ns + delay_ns);
+                    let at = self.surface_time(frame.pts_sec, clock, now_ns);
+                    s.render_at(at);
+                    self.stats.on_scheduled(at, frame.pts_sec);
                 }
                 last = Some(frame);
             } else {
                 // Предыдущий опоздавший — drop вернёт буфер кодеку без показа.
+                if late.is_some() {
+                    self.stats.on_dropped();
+                }
                 late = Some(frame);
             }
             match self.recv_current_frame() {
@@ -451,6 +460,36 @@ impl VideoPlayer {
             self.stats.on_shown(f.pts_sec, clock, audible);
         }
         last
+    }
+
+    /// Момент показа кадра `pts` на Surface. Мастер-часы (звук) идут
+    /// ступеньками по 10–80 мс, и момент «сейчас + (pts − часы)» дрожал на
+    /// ±8 мс: на экране 24 Гц кадр перескакивал через vsync — один кадр
+    /// показывался дважды, соседний пропадал. Поэтому моменты считаются по
+    /// ровной шкале pts (якорь pts → монотонное время), а за часами шкала
+    /// подтягивается медленно, на 2 % расхождения за кадр. Разошлись больше
+    /// чем на 60 мс (перемотка, пауза, смена дорожки) — якорь заново.
+    fn surface_time(&mut self, pts: f64, clock: f64, now_ns: i64) -> i64 {
+        const REANCHOR_NS: i64 = 60_000_000;
+        let by_clock = now_ns + ((pts - clock).max(0.0) * 1e9) as i64;
+        let ideal = match self.surface_anchor {
+            Some((p0, t0)) if pts >= p0 => t0 + ((pts - p0) * 1e9) as i64,
+            _ => {
+                self.surface_anchor = Some((pts, by_clock));
+                return by_clock;
+            }
+        };
+        let err = by_clock - ideal;
+        if err.abs() > REANCHOR_NS {
+            self.surface_anchor = Some((pts, by_clock));
+            return by_clock;
+        }
+        let corr = err / 50;
+        if let Some((_, t0)) = self.surface_anchor.as_mut() {
+            *t0 += corr;
+        }
+        // Не раньше «сейчас»: опоздавший кадр — сразу.
+        (ideal + corr).max(now_ns)
     }
 
     /// Кадр под ползунком после перемотки на паузе. Декодер после `seek` идёт
@@ -615,6 +654,11 @@ struct FrameStats {
     /// pts кадра минус pts слышимого звука: > 0 — картинка впереди звука.
     av_ms: MinMaxSum,
     last_clock: f64,
+    /// Кадры на Surface: шаг между назначенными моментами показа и сколько
+    /// раз он разошёлся с шагом pts больше чем на 4 мс (рывок на экране).
+    sched_ms: MinMaxSum,
+    sched_jitter: u32,
+    last_sched: Option<(i64, f64)>,
 }
 
 #[derive(Default, Clone, Copy)]
@@ -662,7 +706,28 @@ impl FrameStats {
             clock_step_ms: MinMaxSum::default(),
             av_ms: MinMaxSum::default(),
             last_clock: f64::NAN,
+            sched_ms: MinMaxSum::default(),
+            sched_jitter: 0,
+            last_sched: None,
         }
+    }
+
+    /// Кадр с pts `pts` назначен к показу на `at_ns` (Surface).
+    fn on_scheduled(&mut self, at_ns: i64, pts: f64) {
+        if !self.enabled {
+            return;
+        }
+        if let Some((prev_ns, prev_pts)) = self.last_sched {
+            let step = (at_ns - prev_ns) as f64 / 1e6;
+            let want = (pts - prev_pts) * 1000.0;
+            if want > 0.0 && want < 200.0 {
+                self.sched_ms.add(step);
+                if (step - want).abs() > 4.0 {
+                    self.sched_jitter += 1;
+                }
+            }
+        }
+        self.last_sched = Some((at_ns, pts));
     }
 
     fn on_poll(&mut self, clock: f64) {
@@ -712,7 +777,8 @@ impl FrameStats {
         log::info!(
             "[VIDEO STATS {secs:.1}s] показано={} ({:.1}/с) отброшено={} опросов={} часы стояли={}% \
              интервал(мс avg/min/max)={:.1}/{:.1}/{:.1} опережение(мс avg/min/max)={:.0}/{:.0}/{:.0} \
-             шаг часов(мс avg/max)={:.1}/{:.1} кадр−звук(мс avg/min/max)={:.0}/{:.0}/{:.0}",
+             шаг часов(мс avg/max)={:.1}/{:.1} кадр−звук(мс avg/min/max)={:.0}/{:.0}/{:.0} \
+             показ на Surface: шаг(мс avg/min/max)={:.1}/{:.1}/{:.1} сбоев шага={}",
             self.shown,
             self.shown as f64 / secs,
             self.dropped,
@@ -733,7 +799,13 @@ impl FrameStats {
             self.av_ms.avg(),
             self.av_ms.min,
             self.av_ms.max,
+            self.sched_ms.avg(),
+            self.sched_ms.min,
+            self.sched_ms.max,
+            self.sched_jitter,
         );
+        self.sched_ms = MinMaxSum::default();
+        self.sched_jitter = 0;
         self.window_start = Instant::now();
         self.shown = 0;
         self.dropped = 0;

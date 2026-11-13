@@ -311,6 +311,9 @@ impl AppHandler {
 
         // Масштаб интерфейса сменили из UI — применяем до сборки кадра:
         // дальше по функции layout уже считается по новому scale_factor.
+        if crate::scale::take_design_dirty() {
+            self.apply_design_scale();
+        }
         if crate::scale::take_ui_scale_dirty() {
             self.apply_ui_scale();
         }

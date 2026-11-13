@@ -557,7 +557,11 @@ impl AppHandler {
         };
         let lw = self.config.width as f64 / self.system_scale_factor;
         let lh = self.config.height as f64 / self.system_scale_factor;
-        let scale = (lw / dw as f64).min(lh / dh as f64) as f32;
+        let scale = if crate::scale::design_size_paused() {
+            1.0
+        } else {
+            (lw / dw as f64).min(lh / dh as f64) as f32
+        };
         if (scale - crate::scale::ui_scale()).abs() > 1e-4 {
             log::info!(
                 "design_size {dw}×{dh}: логический экран {lw:.0}×{lh:.0} → ui_scale {scale:.3}"

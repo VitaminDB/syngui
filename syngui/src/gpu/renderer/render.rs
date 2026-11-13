@@ -93,6 +93,26 @@ impl Renderer {
             surface_texture
         };
         crate::perf::add_time(crate::perf::TimeKind::RenderAcquire, t.elapsed());
+        // Поверхность уже другого размера, а рендерер ещё не получил resize
+        // (Android: поворот экрана пересоздаёт окно раньше события): кадр,
+        // посчитанный под старый размер, вылез бы за цель (ножницы шире
+        // текстуры — паника wgpu). Пропустить кадр — следующий придёт с
+        // новым размером.
+        let (tw, th) = (surface_texture.texture.width(), surface_texture.texture.height());
+        // Не дольше нескольких кадров подряд: если размер так и не сойдётся,
+        // лучше кадр с обрезкой, чем замершее окно (ножницы зажимаются ниже
+        // только по размеру рендерера).
+        static SKIPPED: std::sync::atomic::AtomicU32 = std::sync::atomic::AtomicU32::new(0);
+        let mismatch = (tw != self.width || th != self.height) && (tw < self.width || th < self.height);
+        if !mismatch {
+            SKIPPED.store(0, std::sync::atomic::Ordering::Relaxed);
+        }
+        if mismatch && SKIPPED.fetch_add(1, std::sync::atomic::Ordering::Relaxed) < 30 {
+            log::debug!("кадр пропущен: поверхность {tw}×{th}, рендерер {}×{}", self.width, self.height);
+            drop(surface_texture);
+            crate::signal::request_redraw();
+            return RenderStats::default();
+        }
         let t = web_time::Instant::now();
         let surface_view = surface_texture
             .texture

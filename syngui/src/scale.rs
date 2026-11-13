@@ -24,6 +24,35 @@ thread_local! {
     static SYSTEM_SCALE: Cell<f32> = const { Cell::new(1.0) };
     /// Взведён после смены масштаба; снимается кадром, который его применил.
     static DIRTY: Cell<bool> = const { Cell::new(false) };
+    /// Дизайнерское разрешение приостановлено (см. [`set_design_size_paused`]).
+    static DESIGN_PAUSED: Cell<bool> = const { Cell::new(false) };
+    /// Паузу сняли или поставили — окно пересчитает масштаб следующим кадром.
+    static DESIGN_DIRTY: Cell<bool> = const { Cell::new(false) };
+}
+
+/// Приостановить подбор масштаба под
+/// [`AppBuilder::design_size`](crate::app::AppBuilder::design_size): пока
+/// пауза, интерфейс в родном масштабе системы (`ui_scale` 1.0, логические
+/// пиксели как у программ без дизайнерского разрешения). Для экранов,
+/// встроенных из других программ и свёрстанных в обычных логических
+/// пикселях (плеер syn-video внутри программы на 1920×1080). Снятие паузы
+/// возвращает масштаб дизайнерского разрешения. Главный поток.
+pub fn set_design_size_paused(paused: bool) {
+    let changed = DESIGN_PAUSED.with(|c| c.replace(paused) != paused);
+    if changed {
+        DESIGN_DIRTY.with(|c| c.set(true));
+        crate::signal::request_redraw();
+    }
+}
+
+/// Стоит ли пауза дизайнерского разрешения.
+pub fn design_size_paused() -> bool {
+    DESIGN_PAUSED.with(|c| c.get())
+}
+
+/// Забрать флаг «пауза дизайнерского разрешения сменилась».
+pub(crate) fn take_design_dirty() -> bool {
+    DESIGN_DIRTY.with(|c| c.replace(false))
 }
 
 /// Текущий пользовательский масштаб (1.0 — «100%»).

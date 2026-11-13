@@ -121,6 +121,8 @@ const FINE_STEP: f64 = 1.0;
 const ARROW_STEP: f64 = 5.0;
 const BUTTON_STEP: f64 = 10.0;
 const VOLUME_STEP: f32 = 0.1;
+/// Индикатор буферизации — если кадров нет дольше этого.
+const BUFFERING_SHOW: Duration = Duration::from_millis(400);
 /// Тап по той же стороне в течение стольких после перемотки двойным тапом
 /// — ещё шаг (серия, как в плеерах телефонов).
 const TAP_SERIES: Duration = Duration::from_millis(800);
@@ -154,6 +156,11 @@ pub trait MediaSource: Send + Sync + 'static {
     /// Раз в шаг тикера, из его потока: досинхронизировать то, что не
     /// удалось сразу (звук, который ещё готовился при перемотке).
     fn tick(&self) {}
+    /// Кадры не идут — ждём данных (сетевой поток): по центру крутится
+    /// индикатор. Зовётся из потока тикера.
+    fn is_buffering(&self) -> bool {
+        false
+    }
     /// Слой субтитров поверх холста (есть только у файлов).
     fn subtitle_layer(
         self: Arc<Self>,
@@ -216,6 +223,10 @@ impl MediaSource for FileSource {
 
     fn has_audio(&self) -> bool {
         self.0.lock().map(|p| p.meta().has_audio).unwrap_or(false)
+    }
+
+    fn is_buffering(&self) -> bool {
+        self.0.lock().map(|p| p.is_buffering()).unwrap_or(false)
     }
 
     fn canvas(self: Arc<Self>, pos: RwSignal<f32>, fit: ImageFit) -> Box<dyn Widget> {
@@ -466,6 +477,7 @@ pub struct VideoPlayerView {
     fullscreen: Option<FullscreenCtl>,
     compact: bool,
     volume: Option<RwSignal<f32>>,
+    volume_max: f32,
     position: Option<RwSignal<f32>>,
     header: Option<HeaderFn>,
     footer: Option<HeaderFn>,
@@ -495,6 +507,7 @@ impl VideoPlayerView {
             fullscreen: None,
             compact: false,
             volume: None,
+            volume_max: 1.0,
             position: None,
             header: None,
             footer: None,
@@ -543,6 +556,13 @@ impl VideoPlayerView {
     /// пишется сюда же, а не в общую «громкость прошлого ролика».
     pub fn volume_signal(mut self, sig: RwSignal<f32>) -> Self {
         self.volume = Some(sig);
+        self
+    }
+
+    /// Верхний предел громкости (1.0 — как в записи; 1.5 — усиление тихих
+    /// фильмов до 150 %): ползунок, клавиши ↑/↓ и сигнал владельца.
+    pub fn volume_max(mut self, max: f32) -> Self {
+        self.volume_max = max.max(0.1);
         self
     }
 
@@ -671,10 +691,14 @@ struct Ctl {
     pos: RwSignal<f32>,
     paused: RwSignal<bool>,
     ended: RwSignal<bool>,
+    /// Кадры не идут, ждём сеть ([`MediaSource::is_buffering`]).
+    buffering: RwSignal<bool>,
     visible: RwSignal<bool>,
     volume: RwSignal<f32>,
     /// Громкость владельца (см. [`VideoPlayerView::volume_signal`]).
     owner_volume: Option<RwSignal<f32>>,
+    /// Предел громкости ([`VideoPlayerView::volume_max`]).
+    volume_max: f32,
     /// Цель перемотки, пока её тащат (см. [`Scrub::active`]).
     scrub: RwSignal<Option<f32>>,
     fullscreen: Option<FullscreenCtl>,
@@ -705,8 +729,9 @@ fn build(view: VideoPlayerView) -> impl Widget {
     let view_fit = view.fit;
     let source = view.source;
     let duration = source.duration();
+    let volume_max = view.volume_max;
     let volume = match view.volume {
-        Some(sig) => sig.get_untracked().clamp(0.0, 1.0),
+        Some(sig) => sig.get_untracked().clamp(0.0, volume_max),
         None => f32::from_bits(LAST_VOLUME.load(Ordering::Relaxed)),
     };
     source.set_volume(volume);
@@ -736,9 +761,11 @@ fn build(view: VideoPlayerView) -> impl Widget {
         },
         paused: use_signal(source.is_paused()),
         ended: use_signal(false),
+        buffering: use_signal(false),
         visible: use_signal(true),
         volume: use_signal(volume),
         owner_volume: view.volume,
+        volume_max,
         scrub: use_signal(None),
         fullscreen: view.fullscreen,
         footer: view.footer,
@@ -750,6 +777,22 @@ fn build(view: VideoPlayerView) -> impl Widget {
     };
     let token = Arc::new(());
     spawn_ticker(&ctl, Arc::downgrade(&token));
+    // Громкость владельца меняют и мимо плеера (своя панель, колесо мыши):
+    // ползунок и источник следуют за ней. Источник — по слабой ссылке:
+    // эффект не держит закрытый ролик.
+    if let Some(sig) = ctl.owner_volume {
+        let weak = Arc::downgrade(&ctl.source);
+        let local = ctl.volume;
+        crate::signal::create_effect(move || {
+            let v = sig.get().clamp(0.0, volume_max);
+            if (local.get_untracked() - v).abs() > 1e-4 {
+                if let Some(src) = weak.upgrade() {
+                    src.set_volume(v);
+                }
+                local.set(v);
+            }
+        });
+    }
 
     // Касание приходит синтезированным щелчком (`input::touch`): по
     // `is_synthesized_mouse` его отличаем от мыши.
@@ -826,6 +869,15 @@ fn center_badge(ctl: Ctl) -> impl Widget {
     let badge = Reactive::new(move || -> Vec<Box<dyn Widget>> {
         let ended = ctl.ended.get();
         if !ctl.paused.get() && !ended {
+            if ctl.buffering.get() {
+                return vec![Box::new(
+                    crate::widgets::CircularProgress::new()
+                        .indeterminate()
+                        .size(if ctl.compact { 32.0 } else { 56.0 })
+                        .stroke_width(if ctl.compact { 3.0 } else { 5.0 })
+                        .class("vp-buffering"),
+                )];
+            }
             return vec![];
         }
         let c = ctl.clone();
@@ -1199,7 +1251,7 @@ fn volume_slider(ctl: Ctl) -> impl Widget {
         vec![Box::new(
             Slider::new()
                 .value(v)
-                .range(0.0, 1.0)
+                .range(0.0, ctl.volume_max)
                 .step(0.01)
                 .width(88.0)
                 .on_change(move |nv: f32| c.set_volume(nv))
@@ -1332,7 +1384,7 @@ impl Ctl {
     }
 
     fn set_volume(&self, v: f32) {
-        let v = v.clamp(0.0, 1.0);
+        let v = v.clamp(0.0, self.volume_max);
         self.source.set_volume(v);
         match self.owner_volume {
             Some(sig) => sig.set(v),
@@ -1527,6 +1579,7 @@ fn spawn_ticker(ctl: &Ctl, token: Weak<()>) {
     let duration = ctl.duration;
     let (pos_sig, paused_sig, ended_sig, visible_sig, scrub_sig) =
         (ctl.pos, ctl.paused, ctl.ended, ctl.visible, ctl.scrub);
+    let buffering_sig = ctl.buffering;
     let initially_paused = ctl.paused.get_untracked();
     let on_ended = ctl.on_ended.clone();
     let spawned = std::thread::Builder::new()
@@ -1536,6 +1589,10 @@ fn spawn_ticker(ctl: &Ctl, token: Weak<()>) {
             let mut last_pos = f64::NAN;
             let mut last_move = Instant::now();
             let mut moved = false;
+            // Буферизация видна, если тянется дольше BUFFERING_SHOW (короткие
+            // паузы сети не мигают индикатором).
+            let mut buffering_since: Option<Instant> = None;
+            let mut buffering_shown = false;
             log::debug!("[video-player] тикер запущен");
             loop {
                 std::thread::sleep(TICK);
@@ -1602,6 +1659,17 @@ fn spawn_ticker(ctl: &Ctl, token: Weak<()>) {
 
                 let paused = source.is_paused();
                 let pos = source.position();
+                let buffering = !paused && source.is_buffering();
+                if buffering {
+                    buffering_since.get_or_insert_with(Instant::now);
+                } else {
+                    buffering_since = None;
+                }
+                let show = buffering_since.is_some_and(|t| t.elapsed() >= BUFFERING_SHOW);
+                if show != buffering_shown {
+                    buffering_shown = show;
+                    set_on_main(buffering_sig, show);
+                }
                 if last_paused != paused {
                     last_paused = paused;
                     set_on_main(paused_sig, paused);

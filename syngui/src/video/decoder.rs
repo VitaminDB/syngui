@@ -971,6 +971,12 @@ fn run_decoder_thread(
     let codec_id = v_params.id();
     let v_stream = ictx.stream(v_idx).ok_or(VideoError::NoVideoStream)?;
     let v_tb_av = v_stream.time_base();
+    #[cfg(target_os = "android")]
+    let v_fps = {
+        let r = v_stream.avg_frame_rate();
+        let r = if r.denominator() != 0 && r.numerator() > 0 { r } else { v_stream.rate() };
+        if r.denominator() != 0 { r.numerator() as f32 / r.denominator() as f32 } else { 0.0 }
+    };
 
     let mut codec_ctx = ffmpeg_next::codec::context::Context::from_parameters(v_params)
         .map_err(|e| VideoError::DecoderInit(format!("video params: {e}")))?;
@@ -1057,6 +1063,10 @@ fn run_decoder_thread(
                         log::info!(
                             "hwaccel: MediaCodec выводит в Surface (без копирования кадров)"
                         );
+                        // Частота ролика — системе: дисплей с переменной
+                        // частотой (LTPO) выберет кратный режим, а не 24 Гц
+                        // под 23.976 с дублями и рывками интерфейса.
+                        super::android::set_video_frame_rate(v_fps);
                     }
                     Err(e) => log::warn!(
                         "hwaccel: mediacodec surface device: {e} — кадры пойдут через CPU"

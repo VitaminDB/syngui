@@ -8,6 +8,10 @@ pub mod font_discovery;
 
 #[cfg(target_os = "android")]
 pub mod font_discovery_android;
+/// На Android — тот же интерфейс поиска шрифтов (`list_families`,
+/// `discover_styled`, `discover_fallback_font`…) по `/system/fonts`.
+#[cfg(target_os = "android")]
+pub use font_discovery_android as font_discovery;
 
 #[cfg(any(feature = "material-icons", feature = "font-awesome"))]
 pub mod icon_fonts;
