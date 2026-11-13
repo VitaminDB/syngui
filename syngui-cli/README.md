@@ -192,6 +192,11 @@ files = [
   { from = "crates/x/data/OFL.txt", to = "usr/share/licenses/{pkgname}/fonts-OFL.txt" },
   { run = "echo '[Default Applications]'; cat crates/*/data/defaults.mimeapps | grep '='", to = "usr/share/applications/synshell-mimeapps.list" },
 ]
+cross = [                              # программы под другую цель (гостевые агенты и т. п.)
+  { bin = "syn-vm-agent", target = "x86_64-unknown-linux-musl", to = "usr/lib/syn-vm/agent/" },
+  # tier 3 (нет std у rustup): nightly + -Zbuild-std, нужен rust-src; win7 — Windows 7…11 одним exe
+  { bin = "syn-vm-agent", target = "x86_64-win7-windows-gnu", to = "usr/lib/syn-vm/agent/", build_std = true },
+]
 links = { "usr/bin/syndesktop" = "synwm" }
 dirs = ["usr/share/synaptix/models"]   # пустые каталоги
 provides = ["syndesktop"]

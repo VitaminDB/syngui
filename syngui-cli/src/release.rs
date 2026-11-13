@@ -141,9 +141,26 @@ pub struct CrossBin {
     pub target: String,
     /// Каталог в пакете (`…/`).
     pub to: String,
+    /// Цель без готовой std у rustup (tier 3: `x86_64-win7-windows-gnu` — Windows 7 и новее):
+    /// собирать nightly с `-Zbuild-std` (нужен компонент rust-src).
+    pub build_std: bool,
 }
 
 impl CrossBin {
+    /// Аргументы cargo до `build`: тулчейн nightly у целей с `build_std`.
+    fn toolchain(&self) -> Option<&'static str> {
+        self.build_std.then_some("+nightly")
+    }
+
+    /// Аргументы cargo после `build`: сборка std под цель.
+    fn std_args(&self) -> &'static [&'static str] {
+        if self.build_std {
+            &["-Zbuild-std=std,panic_abort"]
+        } else {
+            &[]
+        }
+    }
+
     /// Имя файла программы у цели.
     fn file(&self) -> String {
         if self.target.contains("windows") {
@@ -356,7 +373,7 @@ impl Release {
             for x in &p.cross {
                 let krate = &self.bin_crate[&x.bin].0;
                 let mut c = Command::new("cargo");
-                c.current_dir(&self.root).arg("build");
+                c.current_dir(&self.root).args(x.toolchain()).arg("build").args(x.std_args());
                 if profile == Profile::Fast && !linux::has_fast_release(&self.root) {
                     for kv in ["inherits=\"release\"", "lto=false", "codegen-units=256", "incremental=true", "debug=false"] {
                         c.arg("--config").arg(format!("profile.fast-release.{kv}"));
@@ -619,8 +636,10 @@ impl Release {
                         .iter()
                         .map(|x| {
                             let krate = &self.bin_crate[&x.bin].0;
+                            // tier 3: nightly и std из исходников (её зависимости cargo скачивает сам — без --offline)
+                            let how = if x.build_std { "RUSTUP_TOOLCHAIN=nightly cargo build -Zbuild-std=std,panic_abort" } else { "cargo build --offline" };
                             format!(
-                                "    cargo build --offline --release -p {krate} --bin {b} --target {t}\n    install -Dm755 target/{t}/release/{f} target/release/cross/{t}/{f}\n",
+                                "    {how} --release -p {krate} --bin {b} --target {t}\n    install -Dm755 target/{t}/release/{f} target/release/cross/{t}/{f}\n",
                                 t = x.target,
                                 b = x.bin,
                                 f = x.file()
@@ -628,7 +647,8 @@ impl Release {
                         })
                         .collect();
 
-                    let mut cross_targets: Vec<&str> = p.cross.iter().map(|x| x.target.as_str()).collect();
+                    let mut cross_targets: Vec<&str> = p.cross.iter().filter(|x| !x.build_std).map(|x| x.target.as_str()).collect();
+                    let nightly_std = p.cross.iter().any(|x| x.build_std);
                     cross_targets.sort_unstable();
                     cross_targets.dedup();
                     // разные возможности по архитектуре — выбор по $CARCH
@@ -656,7 +676,7 @@ pkgver() {{
 prepare() {{
     cd "$srcdir/{repo}"
     export RUSTUP_TOOLCHAIN=stable
-{rustup}    # Без --locked: git-зависимости (syngui и др.) свежие, Cargo.lock обновится.
+{rustup}{nightly}    # Без --locked: git-зависимости (syngui и др.) свежие, Cargo.lock обновится.
     cargo fetch --target "$(rustc -vV | sed -n 's/host: //p')"{fetch_cross}
 }}
 "#,
@@ -666,7 +686,8 @@ prepare() {{
                         } else {
                             format!("    rustup toolchain install stable --profile minimal --no-self-update --target {}\n", cross_targets.join(","))
                         },
-                        fetch_cross = cross_targets.iter().map(|t| format!(" --target {t}")).collect::<String>()
+                        fetch_cross = cross_targets.iter().map(|t| format!(" --target {t}")).collect::<String>(),
+                        nightly = if nightly_std { "    rustup toolchain install nightly --profile minimal --no-self-update --component rust-src\n" } else { "" }
                     );
                     if !builds.is_empty() {
                         s += &format!("\nbuild() {{\n    cd \"$srcdir/{repo}\"\n    export RUSTUP_TOOLCHAIN=stable CARGO_TARGET_DIR=target\n{}}}\n", builds.concat());
