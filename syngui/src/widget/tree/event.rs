@@ -583,6 +583,17 @@ impl ElementTree {
             eprintln!("hit {event:?}: {}", names.join(" > "));
         }
 
+        // фаза погружения по пути попадания: контейнеры видят нажатие раньше цели
+        if matches!(event, Event::MouseDown { .. } | Event::TouchStart { .. }) {
+            for &id in path.iter() {
+                let (s, k) = self.accumulated_event_transform(id);
+                let adj = if is_identity_transform(s, k) { event.clone() } else { event.with_inverse_transform(s, k) };
+                if let Some(n) = self.elements.get_mut(&id) {
+                    n.element.preview_event(&adj);
+                }
+            }
+        }
+
         let mods = self.modifiers;
         let mut cut = path.iter().position(|id| {
             self.elements
@@ -965,6 +976,12 @@ impl ElementTree {
             .unwrap_or((Point::zero(), 1.0));
 
         let mods = self.modifiers;
+        // фаза погружения: контейнер видит нажатие раньше детей (ScrollView гасит инерцию)
+        if matches!(event, Event::MouseDown { .. } | Event::TouchStart { .. }) {
+            if let Some(n) = self.elements.get_mut(&id) {
+                n.element.preview_event(event);
+            }
+        }
         let intercepts = self
             .elements
             .get(&id)

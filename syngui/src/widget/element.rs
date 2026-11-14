@@ -395,6 +395,13 @@ pub trait Element: Send {
         0
     }
 
+    /// Событие до детей, без права его забрать (фаза погружения): контейнер
+    /// узнаёт о нажатии над своим содержимым, а нажатие всё равно получает
+    /// ребёнок. ScrollView так останавливает инерцию: иначе лента катится
+    /// между нажатием и отпусканием, кнопка видит отпускание мимо себя и
+    /// щелчок пропадает. `event` — в координатах этого элемента.
+    fn preview_event(&mut self, _event: &Event) {}
+
     /// Перехват отдельного события: элемент забирает его себе, не пуская
     /// к детям. По умолчанию — то же, что [`Element::intercepts_child_events`];
     /// переопределяют, когда перехватить нужно ровно один вид событий, а
@@ -731,6 +738,10 @@ impl Element for Box<dyn Element> {
 
     fn intercepts_event(&self, event: &Event) -> bool {
         self.as_ref().intercepts_event(event)
+    }
+
+    fn preview_event(&mut self, event: &Event) {
+        self.as_mut().preview_event(event)
     }
 
     fn intercepts_event_with(&self, event: &Event, mods: crate::input::Modifiers) -> bool {

@@ -698,6 +698,22 @@ impl Element for ScrollViewElement {
         self.scrollbar_hit(event)
     }
 
+    /// Нажатие над содержимым останавливает инерцию колеса и плавную доводку
+    /// (как в браузерах): иначе лента едет между нажатием и отпусканием, и
+    /// щелчок по кнопке в ней пропадает — отпускание приходится мимо кнопки.
+    fn preview_event(&mut self, event: &Event) {
+        let pos = match event {
+            Event::MouseDown { position, .. } | Event::TouchStart { position, .. } => *position,
+            _ => return,
+        };
+        if self.bounds.contains(pos) && (self.is_coasting || self.glide_to.is_some()) {
+            self.is_coasting = false;
+            self.velocity = Point::zero();
+            self.glide_to = None;
+            self.refresh_stick();
+        }
+    }
+
     fn scrollbar_hit(&self, event: &Event) -> bool {
         match event {
             Event::MouseDown {
