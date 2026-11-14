@@ -6,7 +6,7 @@
 //! её через [`DockState::spec`] и восстанавливает [`DockState::new`].
 //! Содержимое панелей строит замыкание [`DockArea::content`] по id панели.
 //!
-//! У внешних краёв всей области (левого, правого, нижнего) — узкие полосы
+//! У внешних краёв всей области (всех четырёх) — узкие полосы
 //! [`EDGE_ZONE`]: брошенная туда вкладка встаёт во всю высоту (ширину)
 //! области, а не делит одну группу ([`DockState::move_to_edge`]).
 //!
@@ -43,27 +43,40 @@ pub enum DropZone {
 
 /// Ширина полосы у внешнего края док-области, где бросок кладёт панель во
 /// всю высоту (ширину) области.
-pub const EDGE_ZONE: f32 = 24.0;
+pub const EDGE_ZONE: f32 = 32.0;
 
 /// Сверху полосы у боковых краёв не заходят на заголовки вкладок — там
 /// бросок вставляет вкладку в группу.
 const EDGE_HEADER: f32 = 40.0;
+
+/// Верхняя полоса тоньше: она лежит на заголовках вкладок, ниже неё на
+/// заголовке бросок по-прежнему вставляет вкладку.
+pub const EDGE_ZONE_TOP: f32 = 10.0;
 
 /// Доля области, которую получает панель, брошенная к внешнему краю.
 const EDGE_RATIO: f32 = 0.25;
 
 impl DropZone {
     /// Зона внешнего края всей док-области по точке (`None` — не у края).
-    /// Верхнего края нет: там заголовки вкладок.
+    /// Верхняя полоса — [`EDGE_ZONE_TOP`] (под ней заголовки вкладок).
     pub fn edge_from_point(x: f32, y: f32, size: Size) -> Option<Self> {
+        Self::edge_in(x, y, size, [0.0; 4])
+    }
+
+    /// То же для области с внутренним отступом `inset` (слева, сверху,
+    /// справа, снизу; [`DockArea::inset`]): поле отступа входит в полосу.
+    pub fn edge_in(x: f32, y: f32, size: Size, inset: [f32; 4]) -> Option<Self> {
         let (w, h) = (size.width, size.height);
-        if y >= h - EDGE_ZONE {
+        let [l, t, r, b] = inset;
+        if y < t + EDGE_ZONE_TOP {
+            Some(DropZone::Top)
+        } else if y >= h - b - EDGE_ZONE {
             Some(DropZone::Bottom)
-        } else if y < EDGE_HEADER {
+        } else if y < t + EDGE_HEADER {
             None
-        } else if x < EDGE_ZONE {
+        } else if x < l + EDGE_ZONE {
             Some(DropZone::Left)
-        } else if x >= w - EDGE_ZONE {
+        } else if x >= w - r - EDGE_ZONE {
             Some(DropZone::Right)
         } else {
             None
@@ -519,6 +532,7 @@ pub struct DockArea {
     on_close: Option<CloseFn>,
     empty: Option<Arc<dyn Fn() -> Box<dyn Widget> + Send + Sync>>,
     group_empty: Option<Arc<dyn Fn(&str) -> Box<dyn Widget> + Send + Sync>>,
+    inset: [f32; 4],
 }
 
 impl DockArea {
@@ -531,7 +545,16 @@ impl DockArea {
             on_close: None,
             empty: None,
             group_empty: None,
+            inset: [0.0; 4],
         }
+    }
+
+    /// Внутренний отступ вокруг панелей (слева, сверху, справа, снизу).
+    /// Отступ ставить здесь, а не снаружи: поле отступа входит в полосы у
+    /// краёв, и курсор, доведённый до края окна, попадает в зону броска.
+    pub fn inset(mut self, left: f32, top: f32, right: f32, bottom: f32) -> Self {
+        self.inset = [left, top, right, bottom];
+        self
     }
 
     /// Содержимое панели по её id.
@@ -573,6 +596,7 @@ impl DockArea {
 
     pub fn build(self) -> Stack {
         let state = self.state;
+        let inset = self.inset;
         let this = Arc::new(self);
         let tree = Reactive::new(move || -> Vec<Box<dyn Widget>> {
             let root = this.state.root.get();
@@ -586,10 +610,13 @@ impl DockArea {
         });
         // Прозрачный слой поверх дерева: берёт перенос только у внешних краёв
         // (приоритет выше групп), остальное уходит группам под ним.
+        let tree = super::Padding::only(inset[0], inset[1], inset[2], inset[3]).child(tree);
         let hint: RwSignal<Option<(DropZone, Size)>> = use_signal(None);
         let overlay = Reactive::new(move || -> Vec<Box<dyn Widget>> {
             let Some((zone, size)) = hint.get() else { return vec![] };
-            let (w, h) = (size.width, size.height);
+            // подсветка — по области панелей, без поля отступа
+            let [l, t, r, b] = inset;
+            let (w, h) = ((size.width - l - r).max(0.0), (size.height - t - b).max(0.0));
             let (x, y, w, h) = match zone {
                 DropZone::Left => (0.0, 0.0, w * EDGE_RATIO, h),
                 DropZone::Right => (w * (1.0 - EDGE_RATIO), 0.0, w * EDGE_RATIO, h),
@@ -597,16 +624,16 @@ impl DockArea {
                 DropZone::Bottom => (0.0, h * (1.0 - EDGE_RATIO), w, h * EDGE_RATIO),
                 DropZone::Center => return vec![],
             };
-            vec![Box::new(Positioned::new(DecoratedBox::new().class("dock-drop-hint")).at(x, y).dimensions(w, h))]
+            vec![Box::new(Positioned::new(DecoratedBox::new().class("dock-drop-hint")).at(l + x, t + y).dimensions(w, h))]
         });
         let edges = DropArea::new()
             .accept_types(vec![DOCK_DRAG_TYPE.to_string()])
             .placeholder("")
             .priority(1)
             .pointer_transparent()
-            .accept_at(|p, size| DropZone::edge_from_point(p.x, p.y, size).is_some())
+            .accept_at(move |p, size| DropZone::edge_in(p.x, p.y, size, inset).is_some())
             .on_drag_over(move |info: DropInfo| {
-                let zone = DropZone::edge_from_point(info.local_position.x, info.local_position.y, info.size);
+                let zone = DropZone::edge_in(info.local_position.x, info.local_position.y, info.size, inset);
                 let v = zone.map(|z| (z, info.size));
                 if hint.get_untracked() != v {
                     hint.set(v);
@@ -615,7 +642,7 @@ impl DockArea {
             .on_drag_leave(move || hint.set(None))
             .on_drop_positioned(move |info: DropInfo| {
                 hint.set(None);
-                if let Some(zone) = DropZone::edge_from_point(info.local_position.x, info.local_position.y, info.size) {
+                if let Some(zone) = DropZone::edge_in(info.local_position.x, info.local_position.y, info.size, inset) {
                     state.move_to_edge(&info.data.payload, zone);
                 }
             })
@@ -862,9 +889,17 @@ mod tests {
         assert_eq!(DropZone::edge_from_point(5.0, 100.0, s), Some(DropZone::Left));
         assert_eq!(DropZone::edge_from_point(395.0, 100.0, s), Some(DropZone::Right));
         assert_eq!(DropZone::edge_from_point(200.0, 195.0, s), Some(DropZone::Bottom));
-        // заголовки вкладок сверху и середина — не край
-        assert_eq!(DropZone::edge_from_point(5.0, 10.0, s), None);
+        assert_eq!(DropZone::edge_from_point(200.0, 4.0, s), Some(DropZone::Top));
+        assert_eq!(DropZone::edge_from_point(5.0, 4.0, s), Some(DropZone::Top));
+        // заголовки вкладок ниже верхней полосы и середина — не край
+        assert_eq!(DropZone::edge_from_point(5.0, 20.0, s), None);
+        assert_eq!(DropZone::edge_from_point(200.0, 20.0, s), None);
         assert_eq!(DropZone::edge_from_point(200.0, 100.0, s), None);
+        // с отступом поле входит в полосу
+        let pad = [8.0, 0.0, 8.0, 0.0];
+        assert_eq!(DropZone::edge_in(399.0, 100.0, s, pad), Some(DropZone::Right));
+        assert_eq!(DropZone::edge_in(400.0 - 8.0 - EDGE_ZONE + 1.0, 100.0, s, pad), Some(DropZone::Right));
+        assert_eq!(DropZone::edge_in(400.0 - 8.0 - EDGE_ZONE - 1.0, 100.0, s, pad), None);
     }
 
     #[test]
