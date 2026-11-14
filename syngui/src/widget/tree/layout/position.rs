@@ -140,7 +140,9 @@ impl ElementTree {
                 row_gap,
                 col_gap,
                 masonry,
+                min_col_width,
             } => {
+                let columns = crate::widgets::containers::grid::effective_columns(columns, min_col_width, col_gap, own_size.width);
                 self.position_grid_children(
                     id, &children, parent_pos, own_size, columns, row_gap, col_gap, masonry,
                 );

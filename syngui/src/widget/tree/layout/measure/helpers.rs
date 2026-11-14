@@ -1672,6 +1672,7 @@ impl ElementTree {
         row_gap: f32,
         col_gap: f32,
         masonry: bool,
+        min_col_width: f32,
         id: ElementId,
     ) -> Size {
         crate::perf::incr(crate::perf::Counter::MeasureGridCall);
@@ -1713,7 +1714,7 @@ impl ElementTree {
             }
         }
 
-        let cols = columns.max(1);
+        let cols = crate::widgets::containers::grid::effective_columns(columns, min_col_width, col_gap, constraints.max_width);
         let total_col_gap = if cols > 1 {
             col_gap * (cols - 1) as f32
         } else {

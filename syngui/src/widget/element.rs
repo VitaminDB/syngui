@@ -90,6 +90,9 @@ pub enum LayoutHint {
         row_gap: f32,
         col_gap: f32,
         masonry: bool,
+        /// > 0 — число колонок по ширине: сколько влезет колонок не уже этой
+        /// (не меньше одной); `columns` тогда не действует.
+        min_col_width: f32,
     },
     Scroll {
         left: f32,

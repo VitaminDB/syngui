@@ -18,6 +18,17 @@ pub struct Grid {
     pub col_gap: f32,
     pub clip: bool,
     pub masonry: bool,
+    pub min_col_width: f32,
+}
+
+/// Число колонок сетки шириной `width`: при `min_col_width > 0` — сколько
+/// влезет колонок не уже неё (минимум одна), иначе `columns`.
+pub fn effective_columns(columns: usize, min_col_width: f32, col_gap: f32, width: f32) -> usize {
+    if min_col_width > 0.0 && width.is_finite() {
+        (((width + col_gap) / (min_col_width + col_gap)).floor() as usize).max(1)
+    } else {
+        columns.max(1)
+    }
 }
 
 impl Grid {
@@ -29,7 +40,16 @@ impl Grid {
             col_gap: 0.0,
             clip: false,
             masonry: false,
+            min_col_width: 0.0,
         }
+    }
+
+    /// Колонки по ширине: столько, сколько влезет колонок не уже `width`
+    /// (на широком окне — больше, на узком — до одной). Карточки настроек,
+    /// плитки галереи и т. п. занимают всю ширину без пустого поля справа.
+    pub fn min_column_width(mut self, width: f32) -> Self {
+        self.min_col_width = width.max(0.0);
+        self
     }
 
     pub fn child<M>(mut self, child: impl IntoWidget<M>) -> Self {
@@ -85,6 +105,7 @@ impl Widget for Grid {
             col_gap: self.col_gap,
             clip: self.clip,
             masonry: self.masonry,
+            min_col_width: self.min_col_width,
             child_ids: Vec::new(),
             classes: Vec::new(),
             dirty_flags: DirtyFlags::LAYOUT | DirtyFlags::RENDER,
@@ -130,6 +151,7 @@ pub struct GridElement {
     col_gap: f32,
     clip: bool,
     masonry: bool,
+    min_col_width: f32,
     child_ids: Vec<ElementId>,
     classes: Vec<String>,
     dirty_flags: DirtyFlags,
@@ -163,6 +185,7 @@ impl Element for GridElement {
             self.col_gap = grid.col_gap;
             self.clip = grid.clip;
             self.masonry = grid.masonry;
+            self.min_col_width = grid.min_col_width;
             self.mark_dirty(DirtyFlags::LAYOUT | DirtyFlags::RENDER);
         }
     }
@@ -189,6 +212,7 @@ impl Element for GridElement {
             row_gap: self.row_gap,
             col_gap: self.col_gap,
             masonry: self.masonry,
+            min_col_width: self.min_col_width,
         }
     }
 

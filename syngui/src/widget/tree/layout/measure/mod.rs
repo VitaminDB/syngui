@@ -391,6 +391,7 @@ impl ElementTree {
                     row_gap,
                     col_gap,
                     masonry,
+                    min_col_width,
                 } => self.measure_grid(
                     &children,
                     constraints,
@@ -398,6 +399,7 @@ impl ElementTree {
                     *row_gap,
                     *col_gap,
                     *masonry,
+                    *min_col_width,
                     id,
                 ),
                 LayoutHint::HorizontalPages => {
