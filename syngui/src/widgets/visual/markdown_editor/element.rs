@@ -139,6 +139,20 @@ impl Widget for BoxedWidget {
     fn mount(&self, tree: &mut ElementTree, parent_id: ElementId) {
         self.0.mount(tree, parent_id);
     }
+    // дети, классы, стили и ключ — от обёрнутого (иначе обновление на месте
+    // стирает классы элемента и не сверяет его детей)
+    fn child_widgets(&self) -> Vec<&dyn Widget> {
+        self.0.child_widgets()
+    }
+    fn widget_classes(&self) -> &[String] {
+        self.0.widget_classes()
+    }
+    fn widget_inline_styles(&self) -> &[(String, crate::mss::StyleValue)] {
+        self.0.widget_inline_styles()
+    }
+    fn widget_key(&self) -> Option<u64> {
+        self.0.widget_key()
+    }
 }
 
 impl Element for MarkdownEditorElement {

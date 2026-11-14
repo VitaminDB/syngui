@@ -943,6 +943,18 @@ impl Widget for BoxedChild {
     fn child_widgets(&self) -> Vec<&dyn Widget> {
         self.0.child_widgets()
     }
+    // Классы, inline-стили и ключ — тоже от обёрнутого: иначе при обновлении
+    // на месте (перенос вкладки, закрытие группы) у элементов стирались
+    // `dock-group`/`dock-split` — пропадал фон-карточка, разделитель синий.
+    fn widget_classes(&self) -> &[String] {
+        self.0.widget_classes()
+    }
+    fn widget_inline_styles(&self) -> &[(String, crate::mss::StyleValue)] {
+        self.0.widget_inline_styles()
+    }
+    fn widget_key(&self) -> Option<u64> {
+        self.0.widget_key()
+    }
 }
 
 #[cfg(test)]
