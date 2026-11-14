@@ -243,13 +243,21 @@ impl DockNode {
 
     /// Разрезать группу `id`, поставив рядом новую с панелью `panel`.
     fn split_group(&mut self, id: u64, panel: &str, zone: DropZone) -> bool {
+        self.split_with(id, Group::new(vec![panel.to_string()], 0, String::new()), zone)
+    }
+
+    /// Разрезать группу `id`, поставив рядом группу `new`.
+    fn split_with(&mut self, id: u64, new: Group, zone: DropZone) -> bool {
         match self {
             DockNode::Split { first, second, .. } => {
-                first.split_group(id, panel, zone) || second.split_group(id, panel, zone)
+                if first.split_with(id, new.clone(), zone) {
+                    return true;
+                }
+                second.split_with(id, new, zone)
             }
             DockNode::Tabs(g) if g.id == id => {
                 let old = DockNode::Tabs(g.clone());
-                let new = DockNode::Tabs(Group::new(vec![panel.to_string()], 0, String::new()));
+                let new = DockNode::Tabs(new);
                 let dir = match zone {
                     DropZone::Top | DropZone::Bottom => SplitDirection::Vertical,
                     _ => SplitDirection::Horizontal,
@@ -262,6 +270,42 @@ impl DockNode {
                 true
             }
             DockNode::Tabs(_) => false,
+        }
+    }
+
+    /// Убрать именованную группу целиком (с панелями); разделитель
+    /// схлопывается в соседа. `true` — пустым стал сам узел.
+    fn remove_group(&mut self, name: &str) -> bool {
+        match self {
+            DockNode::Tabs(g) => g.name == name,
+            DockNode::Split { first, second, .. } => match (first.remove_group(name), second.remove_group(name)) {
+                (true, true) => true,
+                (true, false) => {
+                    *self = (**second).clone();
+                    false
+                }
+                (false, true) => {
+                    *self = (**first).clone();
+                    false
+                }
+                (false, false) => false,
+            },
+        }
+    }
+
+    /// Группа с наибольшей долей площади (по долям разделителей).
+    fn largest(&self, area: f32) -> Option<(u64, f32)> {
+        match self {
+            DockNode::Tabs(g) => Some((g.id, area)),
+            DockNode::Split { ratio, first, second, .. } => {
+                let r = ratio.get_untracked();
+                let a = first.largest(area * r);
+                let b = second.largest(area * (1.0 - r));
+                match (a, b) {
+                    (Some(a), Some(b)) => Some(if b.1 > a.1 { b } else { a }),
+                    (a, b) => a.or(b),
+                }
+            }
         }
     }
 }
@@ -302,7 +346,8 @@ impl DockState {
     }
 
     /// Открыть панель в именованной группе (уже открыта — активировать).
-    /// Группы нет — как [`open`](Self::open) без соседа.
+    /// Группы нет (закрыли, [`close_group`](Self::close_group)) — она
+    /// создаётся заново слева от самой большой группы.
     pub fn open_in(&self, panel: &str, group: &str) {
         if self.activate(panel) {
             return;
@@ -322,8 +367,31 @@ impl DockState {
                 self.focused.set(panel.to_string());
                 self.root.set_always(root);
             }
+            (None, Some(r)) => {
+                let new = Group::new(vec![panel.to_string()], 0, group.to_string());
+                if let Some((id, _)) = r.largest(1.0) {
+                    r.split_with(id, new, DropZone::Left);
+                }
+                self.focused.set(panel.to_string());
+                self.root.set_always(root);
+            }
             _ => self.open(panel, None),
         }
+    }
+
+    /// Закрыть именованную группу целиком (например, пустую область
+    /// документов, чтобы панели заняли её место). Следующий
+    /// [`open_in`](Self::open_in) в неё создаст её снова.
+    pub fn close_group(&self, group: &str) {
+        let mut root = self.root.get_untracked();
+        let panels = self.group_panels(group);
+        if root.as_mut().is_some_and(|r| r.remove_group(group)) {
+            root = None;
+        }
+        if panels.iter().any(|p| *p == self.focused.get_untracked()) {
+            self.focused.set(String::new());
+        }
+        self.root.set_always(root);
     }
 
     /// Текущая раскладка (для сохранения). `None` — все панели закрыты.
@@ -530,6 +598,7 @@ pub struct DockArea {
     title: TitleFn,
     closable: FlagFn,
     on_close: Option<CloseFn>,
+    group_closable: Option<FlagFn>,
     empty: Option<Arc<dyn Fn() -> Box<dyn Widget> + Send + Sync>>,
     group_empty: Option<Arc<dyn Fn(&str) -> Box<dyn Widget> + Send + Sync>>,
     inset: [f32; 4],
@@ -543,6 +612,7 @@ impl DockArea {
             title: Arc::new(|p| p.to_string()),
             closable: Arc::new(|_| true),
             on_close: None,
+            group_closable: None,
             empty: None,
             group_empty: None,
             inset: [0.0; 4],
@@ -572,6 +642,14 @@ impl DockArea {
     /// Можно ли закрыть панель (по умолчанию — любую).
     pub fn closable(mut self, f: impl Fn(&str) -> bool + Send + Sync + 'static) -> Self {
         self.closable = Arc::new(f);
+        self
+    }
+
+    /// Можно ли закрыть пустую именованную группу крестиком в её заголовке
+    /// (по имени группы; по умолчанию — нельзя): пустая область документов
+    /// не занимает место, когда панели нужны во всю высоту.
+    pub fn group_closable(mut self, f: impl Fn(&str) -> bool + Send + Sync + 'static) -> Self {
+        self.group_closable = Some(Arc::new(f));
         self
     }
 
@@ -673,6 +751,16 @@ impl DockArea {
                 let mut row = Row::new().gap(0.0);
                 for (i, p) in g.panels.iter().enumerate() {
                     row = row.child(this.tab(p, *p == active, &g, i));
+                }
+                // пустая именованная группа — крестик «закрыть область»
+                if g.panels.is_empty() && !g.name.is_empty() && this.group_closable.as_ref().is_some_and(|f| f(&g.name)) {
+                    let (state, name) = (this.state, g.name.clone());
+                    row = row.child(
+                        Draggable::new("syngui-dock-close", "")
+                            .threshold(f32::MAX)
+                            .on_click(move || state.close_group(&name))
+                            .child(DecoratedBox::new().class("dock-tab dock-group-close").child(Text::new("×").class("dock-tab-close"))),
+                    );
                 }
                 vec![Box::new(row)]
             })
@@ -921,6 +1009,26 @@ mod tests {
         let s = DockState::new(DockSpec::tabs(["x"]));
         s.move_to_edge("x", DropZone::Bottom);
         assert_eq!(s.spec(), Some(DockSpec::tabs(["x"])));
+    }
+
+    #[test]
+    fn close_and_reopen_named_group() {
+        // документы | (ИИ над терминалом); область документов пуста
+        let s = DockState::new(DockSpec::row(
+            DockSpec::tabs(Vec::<String>::new()).named("docs"),
+            DockSpec::column(DockSpec::tabs(["ai"]), DockSpec::tabs(["term"]), 0.7),
+            0.6,
+        ));
+        s.close_group("docs");
+        assert_eq!(s.spec(), Some(DockSpec::column(DockSpec::tabs(["ai"]), DockSpec::tabs(["term"]), 0.7)));
+        // открыли документ — область вернулась слева от самой большой группы («ai»)
+        s.open_in("doc:1", "docs");
+        assert_eq!(s.group_panels("docs"), ["doc:1"]);
+        let Some(DockSpec::Split { first, .. }) = s.spec() else { panic!() };
+        let DockSpec::Split { vertical, first, second, .. } = *first else { panic!() };
+        assert!(!vertical);
+        assert_eq!(*first, DockSpec::Tabs { panels: vec!["doc:1".into()], active: 0, name: "docs".into() });
+        assert_eq!(*second, DockSpec::tabs(["ai"]));
     }
 
     #[test]

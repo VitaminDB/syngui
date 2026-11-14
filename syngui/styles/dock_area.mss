@@ -72,3 +72,8 @@
 .dock-tab.drop-after {
     border-right-color: var(--primary, #4F8CFF);
 }
+
+/* крестик «закрыть область» в заголовке пустой именованной группы */
+.dock-group-close {
+    border-bottom-width: 0px;
+}
