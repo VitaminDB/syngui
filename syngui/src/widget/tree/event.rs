@@ -1089,7 +1089,8 @@ impl ElementTree {
         }
     }
 
-    /// Drag-события (DragMove/DragEnter/Drop) идут **самой глубокой** цели
+    /// Drag-события (DragMove/DragEnter/Drop) идут цели с наибольшим
+    /// [`Element::drop_priority`], из равных — **самой глубокой**
     /// под курсором, и только если она их не взяла — следующей по глубине:
     /// вложенная DropArea (карточка доски внутри редактора страницы) получает
     /// дроп одна, а не вместе с внешней. Остальные цели, которые точку
@@ -1111,9 +1112,9 @@ impl ElementTree {
             return result;
         }
 
-        // Кандидаты: цели, содержащие точку в своих координатах; глубокие
-        // первыми, из равных — зарегистрированная позже.
-        let mut hits: Vec<(usize, usize, ElementId, Event)> = Vec::new();
+        // Кандидаты: цели, содержащие точку в своих координатах; по
+        // приоритету, затем глубокие первыми, из равных — зарегистрированная позже.
+        let mut hits: Vec<(i32, usize, usize, ElementId, Event)> = Vec::new();
         let mut misses: Vec<ElementId> = Vec::new();
         for (order, target_id) in targets.iter().enumerate() {
             let Some(node) = self.elements.get(target_id) else {
@@ -1130,16 +1131,17 @@ impl ElementTree {
                 .map(|p| node.element.bounds().contains(p))
                 .unwrap_or(false);
             if inside {
-                hits.push((self.depth_of(*target_id), order, *target_id, adjusted));
+                let prio = node.element.drop_priority();
+                hits.push((prio, self.depth_of(*target_id), order, *target_id, adjusted));
             } else {
                 misses.push(*target_id);
             }
         }
-        hits.sort_by(|a, b| b.0.cmp(&a.0).then(b.1.cmp(&a.1)));
+        hits.sort_by(|a, b| b.0.cmp(&a.0).then(b.1.cmp(&a.1)).then(b.2.cmp(&a.2)));
 
         let is_drop = matches!(event, Event::Drop { .. });
         let mut result = EventResult::Ignored;
-        for (_, _, target_id, adjusted) in &hits {
+        for (_, _, _, target_id, adjusted) in &hits {
             if result.is_handled() {
                 if !is_drop {
                     self.deliver_drag_event(*target_id, &Event::DragLeave);
@@ -1179,6 +1181,10 @@ impl ElementTree {
                 data: data.clone(),
             });
         }
+        // Цели, у которых осталась подсветка (последнее движение было над
+        // ними, а бросок взяла другая или перенос отменён), её снимают —
+        // DragLeave всем; принявшая бросок уже сбросила своё состояние.
+        self.dispatch_drag_event(&Event::DragLeave);
         let drag_end = Event::DragEnd { cancelled };
         let source = ElementId(data.source_id);
         if data.source_id != 0 && self.elements.contains_key(&source) {

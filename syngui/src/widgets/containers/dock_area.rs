@@ -6,6 +6,10 @@
 //! её через [`DockState::spec`] и восстанавливает [`DockState::new`].
 //! Содержимое панелей строит замыкание [`DockArea::content`] по id панели.
 //!
+//! У внешних краёв всей области (левого, правого, нижнего) — узкие полосы
+//! [`EDGE_ZONE`]: брошенная туда вкладка встаёт во всю высоту (ширину)
+//! области, а не делит одну группу ([`DockState::move_to_edge`]).
+//!
 //! Перестраивание идёт по частям: смена активной вкладки перестраивает только
 //! тело своей группы, перенос/закрытие — всё дерево.
 //!
@@ -37,7 +41,35 @@ pub enum DropZone {
     Bottom,
 }
 
+/// Ширина полосы у внешнего края док-области, где бросок кладёт панель во
+/// всю высоту (ширину) области.
+pub const EDGE_ZONE: f32 = 24.0;
+
+/// Сверху полосы у боковых краёв не заходят на заголовки вкладок — там
+/// бросок вставляет вкладку в группу.
+const EDGE_HEADER: f32 = 40.0;
+
+/// Доля области, которую получает панель, брошенная к внешнему краю.
+const EDGE_RATIO: f32 = 0.25;
+
 impl DropZone {
+    /// Зона внешнего края всей док-области по точке (`None` — не у края).
+    /// Верхнего края нет: там заголовки вкладок.
+    pub fn edge_from_point(x: f32, y: f32, size: Size) -> Option<Self> {
+        let (w, h) = (size.width, size.height);
+        if y >= h - EDGE_ZONE {
+            Some(DropZone::Bottom)
+        } else if y < EDGE_HEADER {
+            None
+        } else if x < EDGE_ZONE {
+            Some(DropZone::Left)
+        } else if x >= w - EDGE_ZONE {
+            Some(DropZone::Right)
+        } else {
+            None
+        }
+    }
+
     /// Зона по точке внутри области: край — четверть размера, иначе центр.
     pub fn from_point(x: f32, y: f32, size: Size) -> Self {
         let (w, h) = (size.width.max(1.0), size.height.max(1.0));
@@ -416,6 +448,36 @@ impl DockState {
         self.root.set_always(Some(root));
     }
 
+    /// Перенести панель к внешнему краю всей области: слева/справа — во всю
+    /// высоту, сверху/снизу — во всю ширину (корень дерева делится, панель
+    /// получает четверть). `Center` — ничего.
+    pub fn move_to_edge(&self, panel: &str, zone: DropZone) {
+        if zone == DropZone::Center {
+            return;
+        }
+        let mut root = self.root.get_untracked();
+        if root.as_mut().is_some_and(|r| r.remove(panel)) {
+            root = None;
+        }
+        let new = DockNode::Tabs(Group::new(vec![panel.to_string()], 0, String::new()));
+        root = Some(match root {
+            None => new,
+            Some(old) => {
+                let dir = match zone {
+                    DropZone::Top | DropZone::Bottom => SplitDirection::Vertical,
+                    _ => SplitDirection::Horizontal,
+                };
+                let (first, second, ratio) = match zone {
+                    DropZone::Left | DropZone::Top => (new, old, EDGE_RATIO),
+                    _ => (old, new, 1.0 - EDGE_RATIO),
+                };
+                DockNode::Split { dir, ratio: use_signal(ratio), first: Box::new(first), second: Box::new(second) }
+            }
+        });
+        self.focused.set(panel.to_string());
+        self.root.set_always(root);
+    }
+
     /// Перенести панель в группу `group` (в зону `zone`).
     fn move_panel(&self, panel: &str, group: u64, zone: DropZone) {
         let Some(mut root) = self.root.get_untracked() else { return };
@@ -509,9 +571,10 @@ impl DockArea {
         self
     }
 
-    pub fn build(self) -> Reactive {
+    pub fn build(self) -> Stack {
+        let state = self.state;
         let this = Arc::new(self);
-        Reactive::new(move || -> Vec<Box<dyn Widget>> {
+        let tree = Reactive::new(move || -> Vec<Box<dyn Widget>> {
             let root = this.state.root.get();
             vec![match root {
                 Some(node) => this.node(&node),
@@ -520,7 +583,44 @@ impl DockArea {
                     None => Box::new(DecoratedBox::new().class("dock-empty")),
                 },
             }]
-        })
+        });
+        // Прозрачный слой поверх дерева: берёт перенос только у внешних краёв
+        // (приоритет выше групп), остальное уходит группам под ним.
+        let hint: RwSignal<Option<(DropZone, Size)>> = use_signal(None);
+        let overlay = Reactive::new(move || -> Vec<Box<dyn Widget>> {
+            let Some((zone, size)) = hint.get() else { return vec![] };
+            let (w, h) = (size.width, size.height);
+            let (x, y, w, h) = match zone {
+                DropZone::Left => (0.0, 0.0, w * EDGE_RATIO, h),
+                DropZone::Right => (w * (1.0 - EDGE_RATIO), 0.0, w * EDGE_RATIO, h),
+                DropZone::Top => (0.0, 0.0, w, h * EDGE_RATIO),
+                DropZone::Bottom => (0.0, h * (1.0 - EDGE_RATIO), w, h * EDGE_RATIO),
+                DropZone::Center => return vec![],
+            };
+            vec![Box::new(Positioned::new(DecoratedBox::new().class("dock-drop-hint")).at(x, y).dimensions(w, h))]
+        });
+        let edges = DropArea::new()
+            .accept_types(vec![DOCK_DRAG_TYPE.to_string()])
+            .placeholder("")
+            .priority(1)
+            .pointer_transparent()
+            .accept_at(|p, size| DropZone::edge_from_point(p.x, p.y, size).is_some())
+            .on_drag_over(move |info: DropInfo| {
+                let zone = DropZone::edge_from_point(info.local_position.x, info.local_position.y, info.size);
+                let v = zone.map(|z| (z, info.size));
+                if hint.get_untracked() != v {
+                    hint.set(v);
+                }
+            })
+            .on_drag_leave(move || hint.set(None))
+            .on_drop_positioned(move |info: DropInfo| {
+                hint.set(None);
+                if let Some(zone) = DropZone::edge_from_point(info.local_position.x, info.local_position.y, info.size) {
+                    state.move_to_edge(&info.data.payload, zone);
+                }
+            })
+            .child(Stack::new().fit(StackFit::Expand).child(overlay));
+        Stack::new().fit(StackFit::Expand).child(tree).child(edges)
     }
 
     fn node(self: &Arc<Self>, node: &DockNode) -> Box<dyn Widget> {
@@ -754,6 +854,38 @@ mod tests {
         assert_eq!(DropZone::from_point(395.0, 100.0, s), DropZone::Right);
         assert_eq!(DropZone::from_point(200.0, 5.0, s), DropZone::Top);
         assert_eq!(DropZone::from_point(200.0, 195.0, s), DropZone::Bottom);
+    }
+
+    #[test]
+    fn edge_zones() {
+        let s = Size::new(400.0, 200.0);
+        assert_eq!(DropZone::edge_from_point(5.0, 100.0, s), Some(DropZone::Left));
+        assert_eq!(DropZone::edge_from_point(395.0, 100.0, s), Some(DropZone::Right));
+        assert_eq!(DropZone::edge_from_point(200.0, 195.0, s), Some(DropZone::Bottom));
+        // заголовки вкладок сверху и середина — не край
+        assert_eq!(DropZone::edge_from_point(5.0, 10.0, s), None);
+        assert_eq!(DropZone::edge_from_point(200.0, 100.0, s), None);
+    }
+
+    #[test]
+    fn move_to_edge_full_height() {
+        // слева «a,b», справа сверху «c», снизу «d»; «c» — к правому краю
+        let s = DockState::new(DockSpec::row(
+            DockSpec::tabs(["a", "b"]),
+            DockSpec::column(DockSpec::tabs(["c"]), DockSpec::tabs(["d"]), 0.6),
+            0.3,
+        ));
+        s.move_to_edge("b", DropZone::Right);
+        let Some(DockSpec::Split { vertical, ratio, first, second }) = s.spec() else { panic!() };
+        assert!(!vertical);
+        assert!((ratio - 0.75).abs() < 1e-6);
+        assert_eq!(*second, DockSpec::tabs(["b"]));
+        assert_eq!(*first, DockSpec::row(DockSpec::tabs(["a"]), DockSpec::column(DockSpec::tabs(["c"]), DockSpec::tabs(["d"]), 0.6), 0.3));
+        assert_eq!(s.focused().get_untracked(), "b");
+        // единственную панель к краю — она же и корень
+        let s = DockState::new(DockSpec::tabs(["x"]));
+        s.move_to_edge("x", DropZone::Bottom);
+        assert_eq!(s.spec(), Some(DockSpec::tabs(["x"])));
     }
 
     #[test]

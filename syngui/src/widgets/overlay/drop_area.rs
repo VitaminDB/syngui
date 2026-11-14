@@ -31,7 +31,16 @@ pub struct DropArea {
     /// Каждое движение над областью — с позицией (подсветка места вставки).
     pub on_drag_over: Option<Arc<Mutex<dyn FnMut(DropInfo) + Send>>>,
     pub placeholder: String,
+    /// См. [`DropArea::priority`].
+    pub priority: i32,
+    /// См. [`DropArea::accept_at`].
+    pub accept_at: Option<AcceptAtFn>,
+    /// См. [`DropArea::pointer_transparent`].
+    pub pointer_transparent: bool,
 }
+
+/// Фильтр точки: (позиция от левого верхнего угла области, размер области).
+pub type AcceptAtFn = Arc<dyn Fn(Point, Size) -> bool + Send + Sync>;
 
 impl DropArea {
     pub fn new() -> Self {
@@ -44,6 +53,9 @@ impl DropArea {
             on_drag_leave: None,
             on_drag_over: None,
             placeholder: "Drop here".to_string(),
+            priority: 0,
+            accept_at: None,
+            pointer_transparent: false,
         }
     }
 
@@ -84,6 +96,31 @@ impl DropArea {
         self
     }
 
+    /// Приоритет перед другими целями под курсором: больший получает перенос
+    /// раньше, даже если глубже лежит другая `DropArea` (полоса у края
+    /// поверх содержимого). По умолчанию 0 — выигрывает самая глубокая.
+    pub fn priority(mut self, priority: i32) -> Self {
+        self.priority = priority;
+        self
+    }
+
+    /// Принимать перенос только в части области: `false` — точка считается
+    /// вне области, перенос уходит следующей цели под курсором. Вместе с
+    /// [`priority`](Self::priority) — прозрачный слой поверх содержимого,
+    /// который берёт только полосы у краёв.
+    pub fn accept_at(mut self, f: impl Fn(Point, Size) -> bool + Send + Sync + 'static) -> Self {
+        self.accept_at = Some(Arc::new(f));
+        self
+    }
+
+    /// Прозрачна для мыши и касаний (вместе с содержимым): клики проходят к
+    /// тому, что под ней. Перенос она принимает по-прежнему — слой поверх
+    /// всего окна не отнимает у интерфейса кликов.
+    pub fn pointer_transparent(mut self) -> Self {
+        self.pointer_transparent = true;
+        self
+    }
+
     pub fn placeholder(mut self, text: impl Into<String>) -> Self {
         self.placeholder = text.into();
         self
@@ -107,6 +144,9 @@ impl Widget for DropArea {
             on_drag_leave: self.on_drag_leave.clone(),
             on_drag_over: self.on_drag_over.clone(),
             placeholder: self.placeholder.clone(),
+            priority: self.priority,
+            accept_at: self.accept_at.clone(),
+            pointer_transparent: self.pointer_transparent,
             bounds: Rect::zero(),
             drag_over: false,
             dropped_items: Vec::new(),
@@ -153,6 +193,9 @@ struct DropAreaElement {
     on_drag_leave: Option<Arc<Mutex<dyn FnMut() + Send>>>,
     on_drag_over: Option<Arc<Mutex<dyn FnMut(DropInfo) + Send>>>,
     placeholder: String,
+    priority: i32,
+    accept_at: Option<AcceptAtFn>,
+    pointer_transparent: bool,
     bounds: Rect,
     drag_over: bool,
     dropped_items: Vec<String>,
@@ -165,6 +208,14 @@ struct DropAreaElement {
 impl DropAreaElement {
     fn accepts(&self, drag_type: &str) -> bool {
         self.accept_types.is_empty() || self.accept_types.iter().any(|t| t == drag_type)
+    }
+
+    /// Точка в области и проходит фильтр [`DropArea::accept_at`].
+    fn takes(&self, position: Point) -> bool {
+        self.bounds.contains(position)
+            && self.accept_at.as_ref().map_or(true, |f| {
+                f(Point::new(position.x - self.bounds.origin.x, position.y - self.bounds.origin.y), self.bounds.size)
+            })
     }
 
     fn info(&self, position: Point, data: &DragData) -> DropInfo {
@@ -190,6 +241,9 @@ impl Element for DropAreaElement {
             self.on_drag_leave = da.on_drag_leave.clone();
             self.on_drag_over = da.on_drag_over.clone();
             self.placeholder = da.placeholder.clone();
+            self.priority = da.priority;
+            self.accept_at = da.accept_at.clone();
+            self.pointer_transparent = da.pointer_transparent;
             self.mark_dirty(DirtyFlags::RENDER);
         }
     }
@@ -279,7 +333,7 @@ impl Element for DropAreaElement {
     fn handle_event(&mut self, event: &Event, ctx: &mut EventContext) -> EventResult {
         match event {
             Event::DragEnter { position, data } => {
-                if self.accepts(&data.drag_type) {
+                if self.accepts(&data.drag_type) && (self.accept_at.is_none() || self.takes(*position)) {
                     self.drag_over = true;
                     if let Some(ref cb) = self.on_drag_enter {
                         if let Ok(mut f) = cb.lock() {
@@ -311,7 +365,7 @@ impl Element for DropAreaElement {
                 EventResult::Ignored
             }
             Event::Drop { position, data } => {
-                if self.bounds.contains(*position) && self.accepts(&data.drag_type) {
+                if self.takes(*position) && self.accepts(&data.drag_type) {
                     self.drag_over = false;
                     if let Some(ref cb) = self.on_drag_leave {
                         if let Ok(mut f) = cb.lock() {
@@ -336,7 +390,7 @@ impl Element for DropAreaElement {
                 EventResult::Ignored
             }
             Event::DragMove { position, data } => {
-                if self.bounds.contains(*position) && self.accepts(&data.drag_type) {
+                if self.takes(*position) && self.accepts(&data.drag_type) {
                     if !self.drag_over {
                         self.drag_over = true;
                         if let Some(ref cb) = self.on_drag_enter {
@@ -394,6 +448,12 @@ impl Element for DropAreaElement {
     }
     fn set_id(&mut self, id: ElementId) {
         self.id = id;
+    }
+    fn hit_test(&self, point: Point) -> bool {
+        !self.pointer_transparent && self.bounds.contains(point)
+    }
+    fn drop_priority(&self) -> i32 {
+        self.priority
     }
     fn mount(&mut self, tree: &mut ElementTree) {
         tree.register_drop_target(self.id);
