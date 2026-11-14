@@ -85,6 +85,53 @@ fn markdown_view_context_menu_copies_all() {
     }
 }
 
+/// Выделили текст мышью → правый клик → «Копировать»: в буфер попадает выделенное
+/// (как в ленте чата: selectable-пузырь в вертикальной прокрутке).
+#[test]
+fn markdown_view_context_menu_copies_selection() {
+    use syngui::prelude::{Column, ScrollView};
+    let widget = ScrollView::new().vertical().child(Column::new().child(MarkdownView::new("Выделенная строка текста для копирования").selectable(true)));
+    let mut harness = TestHarness::new(Box::new(widget));
+    harness.layout(800.0, 600.0);
+    harness.rebuild();
+    harness.layout(800.0, 600.0);
+    harness.paint();
+
+    // тройной щелчок — выделен весь абзац (протяжка в харнесе без метрики шрифта даёт позицию 0)
+    let a = Point::new(20.0, 10.0);
+    for _ in 0..3 {
+        harness.send_events(&syngui::testing::click_at(a));
+    }
+    harness.layout(800.0, 600.0);
+    harness.paint();
+
+    let at = Point::new(60.0, 10.0);
+    harness.send_events(&[
+        Event::MouseDown { button: MouseButton::Right, position: at },
+        Event::MouseUp { button: MouseButton::Right, position: at },
+    ]);
+    harness.layout(800.0, 600.0);
+    harness.paint();
+
+    let saved = syngui::clipboard::paste();
+    syngui::clipboard::copy("прежнее");
+    // первый пункт — «Копировать»: padding 4 + половина пункта
+    let item = Point::new(at.x + 20.0, at.y + 4.0 + 16.0);
+    harness.send_events(&syngui::testing::click_at(item));
+    harness.animate(Duration::from_millis(16));
+    harness.layout(800.0, 600.0);
+    harness.paint();
+    harness.animate(Duration::from_millis(16));
+
+    let copied = syngui::clipboard::paste();
+    if let Some(prev) = saved {
+        syngui::clipboard::copy(&prev);
+    }
+    if let Some(text) = copied {
+        assert!(text.contains("Выделенная строка"), "«Копировать» из меню не скопировало выделенное: {text:?}");
+    }
+}
+
 #[test]
 fn text_field_context_menu_pastes() {
     use syngui::widgets::input::TextField;

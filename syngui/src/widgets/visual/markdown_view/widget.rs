@@ -1129,6 +1129,13 @@ impl Element for MarkdownViewElement {
                     self.mark_dirty(DirtyFlags::RENDER);
                     return EventResult::Handled;
                 }
+                // Щелчок по пункту своего контекстного меню (или мимо него, закрывая меню) доходит и
+                // сюда: overlay обходит поддерево, а владельцу выделения дерево шлёт MouseDown и вне
+                // границ. Начать здесь новое выделение или снять старое — значит отложенному
+                // «Копировать» (menu_action, выполняется в animate) копировать уже нечего.
+                if self.menu_open.get_untracked() || self.menu_action.get_untracked().is_some() {
+                    return EventResult::Ignored;
+                }
                 if let Some(url) = self.link_url_at(*position) {
                     self.pending_link = Some((url, *position));
                     return EventResult::Handled;
