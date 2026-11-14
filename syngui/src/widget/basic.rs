@@ -188,6 +188,9 @@ fn truncate_to_lines_budget<'a>(
     let mut word_chars: usize = 0;
     let mut word_width: f32 = 0.0;
     let mut last_committed_byte: usize = 0;
+    // начало текущего слова: при переносе слова на последнюю строку всё до
+    // него — уже показанные строки, их не теряем
+    let mut word_start: usize = 0;
     let mut buf = [0u8; 4];
 
     let on_last = |idx: usize| idx == max_lines - 1;
@@ -213,6 +216,9 @@ fn truncate_to_lines_budget<'a>(
                     }
                     line_idx += 1;
                     x = 0.0;
+                    if on_last(line_idx) {
+                        last_committed_byte = word_start;
+                    }
                 }
                 if on_last(line_idx) && x + word_width > last_budget {
                     return ellipsize(text, last_committed_byte);
@@ -228,6 +234,12 @@ fn truncate_to_lines_budget<'a>(
             }
             line_idx += 1;
             x = 0.0;
+            // последняя строка началась после перевода строки: всё до него —
+            // показанные строки (иначе пустая строка между абзацами на
+            // последней строке оставляла от текста одно «…»)
+            if on_last(line_idx) {
+                last_committed_byte = byte_idx;
+            }
             continue;
         }
 
@@ -241,6 +253,9 @@ fn truncate_to_lines_budget<'a>(
                 }
                 line_idx += 1;
                 x = 0.0;
+                if on_last(line_idx) {
+                    last_committed_byte = word_start;
+                }
             }
             if on_last(line_idx) && x + word_width > last_budget {
                 return ellipsize(text, last_committed_byte);
@@ -263,6 +278,9 @@ fn truncate_to_lines_budget<'a>(
             continue;
         }
 
+        if word_chars == 0 {
+            word_start = byte_idx;
+        }
         word_width += advance;
         word_chars += 1;
 
@@ -272,6 +290,9 @@ fn truncate_to_lines_budget<'a>(
             }
             line_idx += 1;
             x = 0.0;
+            if on_last(line_idx) {
+                last_committed_byte = word_start;
+            }
         }
 
         if word_width > budget_for(line_idx) && word_chars > 1 {
@@ -281,6 +302,9 @@ fn truncate_to_lines_budget<'a>(
             line_idx += 1;
             if line_idx >= max_lines {
                 return ellipsize(text, byte_idx);
+            }
+            if on_last(line_idx) {
+                last_committed_byte = byte_idx;
             }
             x = 0.0;
             word_width = advance;
@@ -1762,6 +1786,21 @@ mod tests {
     fn truncate_explicit_newlines_respect_max_lines() {
         let out = truncate_to_lines("a\nb\nc\nd\ne", 100.0, 3, 12.0, false, None, None);
         assert_eq!(out.as_ref(), "a\nb\nc");
+    }
+
+    /// Абзац переносится на все строки, кроме последней, а последней
+    /// оказывается пустая строка между абзацами — показанный текст остаётся
+    /// (раньше от него оставалось одно «…»: блок размышлений ИИ в чате).
+    #[test]
+    fn truncate_keeps_lines_before_paragraph_break_on_last_line() {
+        let out = trunc("aaaa bbbb\n\ncccc dddd", 50.0, 3);
+        assert!(out.starts_with("aaaa"), "{out:?}");
+        assert!(out.contains("bbbb"), "{out:?}");
+        assert!(out.ends_with('\u{2026}'), "{out:?}");
+        // перенос слова на последнюю строку — предыдущие строки тоже целы
+        let out = trunc("aaaa bbbb cccc dddd eeee", 50.0, 2);
+        assert!(out.starts_with("aaaa"), "{out:?}");
+        assert!(out.ends_with('\u{2026}'), "{out:?}");
     }
 
     #[test]
