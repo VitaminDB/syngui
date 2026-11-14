@@ -129,7 +129,7 @@ App::new()
 
 ### GpuPowerPreference
 
-`HighPerformance` (discrete GPU) | `LowPower` (integrated GPU)
+`LowPower` (integrated GPU, default) | `HighPerformance` (discrete GPU — games, heavy graphics)
 
 ## Feature Flags
 

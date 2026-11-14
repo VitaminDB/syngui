@@ -182,7 +182,10 @@ impl AppBuilder {
             font_awesome: false,
             additional_stylesheets: Vec::new(),
             gpu_backend: GpuBackend::Auto,
-            gpu_power: GpuPowerPreference::HighPerformance,
+            // Встроенная карта по умолчанию: обычное окно на гибридном ноутбуке не будит дискретную,
+            // не занимает её видеопамять (нужна нейросетям) и не копирует кадр между картами.
+            // Игры и плееры просят дискретную явно: `.gpu_power(GpuPowerPreference::HighPerformance)`.
+            gpu_power: GpuPowerPreference::LowPower,
             maximized: false,
             debug_overlay: false,
             staging_belt: false,
@@ -515,6 +518,8 @@ impl AppBuilder {
         self
     }
 
+    /// Какую видеокарту просить у wgpu. По умолчанию `LowPower` (встроенная, если есть);
+    /// `HighPerformance` — дискретная, для игр и тяжёлой графики.
     pub fn gpu_power(mut self, power: GpuPowerPreference) -> Self {
         self.gpu_power = power;
         self
