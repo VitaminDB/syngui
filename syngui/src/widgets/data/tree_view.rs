@@ -168,6 +168,44 @@ fn toggle_node(nodes: &mut [TreeNode], target_id: &str) -> bool {
 }
 
 type KeyCb = Arc<Mutex<dyn FnMut(&str, Key, Modifiers) -> bool + Send>>;
+/// Итог переименования строки: `(id, Some(новое имя))` — Enter или щелчок мимо, `(id, None)` — Esc.
+type RenameCb = Arc<Mutex<dyn FnMut(&str, Option<&str>) + Send>>;
+
+/// Переименование строки на месте: текст, курсор и начало выделения (в символах).
+#[derive(Clone, Debug)]
+struct InlineEdit {
+    id: String,
+    text: Vec<char>,
+    cursor: usize,
+    anchor: usize,
+}
+
+impl InlineEdit {
+    fn sel(&self) -> (usize, usize) {
+        (self.cursor.min(self.anchor), self.cursor.max(self.anchor))
+    }
+    fn delete_sel(&mut self) -> bool {
+        let (a, b) = self.sel();
+        if a == b {
+            return false;
+        }
+        self.text.drain(a..b);
+        self.cursor = a;
+        self.anchor = a;
+        true
+    }
+    fn insert(&mut self, s: &str) {
+        self.delete_sel();
+        for ch in s.chars().filter(|c| !c.is_control()) {
+            self.text.insert(self.cursor, ch);
+            self.cursor += 1;
+        }
+        self.anchor = self.cursor;
+    }
+    fn string(&self) -> String {
+        self.text.iter().collect()
+    }
+}
 
 pub struct TreeView {
     nodes: Vec<TreeNode>,
@@ -184,6 +222,8 @@ pub struct TreeView {
     on_key: Option<KeyCb>,
     on_navigate: Option<Arc<Mutex<dyn FnMut(&str) + Send>>>,
     on_selection: Option<Arc<Mutex<dyn FnMut(&[String]) + Send>>>,
+    renaming: Option<String>,
+    on_rename: Option<RenameCb>,
     width: Option<Dimension>,
     height: Option<Dimension>,
     classes: Vec<String>,
@@ -204,6 +244,8 @@ impl TreeView {
             on_key: None,
             on_navigate: None,
             on_selection: None,
+            renaming: None,
+            on_rename: None,
             width: None,
             height: None,
             classes: Vec::new(),
@@ -282,6 +324,20 @@ impl TreeView {
         self.on_selection = Some(Arc::new(Mutex::new(f)));
         self
     }
+
+    /// Переименование на месте: строка `id` становится полем ввода (выделено имя без расширения, как в
+    /// файловом менеджере). Enter или щелчок мимо — `on_rename(id, Some(текст))`, Esc — `on_rename(id, None)`;
+    /// после итога приложение сбрасывает `renaming(None)`. Повторный тот же id поле не пересоздаёт.
+    pub fn renaming(mut self, id: Option<String>) -> Self {
+        self.renaming = id;
+        self
+    }
+
+    /// Итог переименования на месте (см. [`TreeView::renaming`]).
+    pub fn on_rename(mut self, f: impl FnMut(&str, Option<&str>) + Send + 'static) -> Self {
+        self.on_rename = Some(Arc::new(Mutex::new(f)));
+        self
+    }
 }
 
 impl TreeView {
@@ -290,7 +346,7 @@ impl TreeView {
     fn element(&self) -> TreeViewElement {
         let mut flat = Vec::new();
         flatten_nodes(&self.nodes, 0, &mut flat);
-        TreeViewElement {
+        let mut el = TreeViewElement {
             id: ElementId::new(),
             nodes: self.nodes.clone(),
             flat_nodes: flat,
@@ -305,6 +361,9 @@ impl TreeView {
             on_key: self.on_key.clone(),
             on_navigate: self.on_navigate.clone(),
             on_selection: self.on_selection.clone(),
+            on_rename: self.on_rename.clone(),
+            rename_req: None,
+            edit: None,
             anchor: None,
             cursor: None,
             focused: false,
@@ -322,7 +381,12 @@ impl TreeView {
             classes: self.classes.clone(),
             dirty_flags: DirtyFlags::LAYOUT | DirtyFlags::RENDER,
             mss: MssFields::new(),
+        };
+        if let Some(id) = &self.renaming {
+            el.rename_req = Some(id.clone());
+            el.start_edit(id);
         }
+        el
     }
 }
 
@@ -395,6 +459,11 @@ pub struct TreeViewElement {
     on_key: Option<KeyCb>,
     on_navigate: Option<Arc<Mutex<dyn FnMut(&str) + Send>>>,
     on_selection: Option<Arc<Mutex<dyn FnMut(&[String]) + Send>>>,
+    on_rename: Option<RenameCb>,
+    /// Последний запрошенный приложением id переименования (чтобы не пересоздавать поле).
+    rename_req: Option<String>,
+    /// Идёт переименование строки на месте.
+    edit: Option<InlineEdit>,
     /// Начало диапазона Shift+щелчка (id строки).
     anchor: Option<String>,
     /// Текущая строка (последний щелчок или переход клавишами).
@@ -727,6 +796,185 @@ impl TreeViewElement {
 }
 
 impl TreeViewElement {
+    /// Начать переименование строки: поле с её подписью, выделено имя до последней точки (у «.bashrc»
+    /// и имени без точки — всё); строка прокручивается в видимую область.
+    fn start_edit(&mut self, id: &str) {
+        let Some(i) = self.flat_nodes.iter().position(|n| n.id == id) else {
+            self.edit = None;
+            return;
+        };
+        let text: Vec<char> = self.flat_nodes[i].label.chars().collect();
+        let stem = text.iter().rposition(|c| *c == '.').filter(|p| *p > 0).unwrap_or(text.len());
+        self.edit = Some(InlineEdit { id: id.to_string(), text, cursor: stem, anchor: 0 });
+        self.focused = true;
+        if self.rows.len() == self.flat_nodes.len() {
+            let g = self.row_geometry(i);
+            if g.top < self.scroll_offset {
+                self.scroll_offset = g.top;
+            } else if g.top + g.height > self.scroll_offset + self.bounds.size.height {
+                self.scroll_offset = (g.top + g.height - self.bounds.size.height).clamp(0.0, self.max_scroll());
+            }
+        }
+    }
+
+    /// Закончить переименование: `commit` — сообщить новый текст, иначе — отмену.
+    fn finish_edit(&mut self, commit: bool) {
+        let Some(e) = self.edit.take() else { return };
+        let text = e.string();
+        if let Some(cb) = self.on_rename.clone() {
+            if let Ok(mut f) = cb.lock() {
+                f(&e.id, if commit { Some(text.as_str()) } else { None });
+            }
+        }
+    }
+
+    /// Поле переименования: место подписи строки (без правой подписи-статуса).
+    fn edit_rect(&self) -> Option<Rect> {
+        let e = self.edit.as_ref()?;
+        let i = self.flat_nodes.iter().position(|n| n.id == e.id)?;
+        let node = &self.flat_nodes[i];
+        let g = self.row_geometry(i);
+        let y = self.bounds.y() + g.top - self.scroll_offset;
+        let x = self.bounds.x() + self.label_offset(node) - 4.0;
+        let right = self.bounds.x() + self.label_right(self.bounds.size.width);
+        Some(Rect::new(Point::new(x, y + 2.0), Size::new((right - x).max(40.0), (g.height - 4.0).max(10.0))))
+    }
+
+    /// Ширина первых `n` символов текста поля.
+    fn edit_text_width(&self, text: &[char], n: usize) -> f32 {
+        let s: String = text[..n.min(text.len())].iter().collect();
+        match self.text_measure.as_deref() {
+            Some(tm) => tm.measure_text_width_styled(&s, LABEL_FONT_SIZE, n, false, None),
+            None => n as f32 * LABEL_FONT_SIZE * 0.55,
+        }
+    }
+
+    /// Сдвиг текста в поле влево, чтобы курсор был виден (длинное имя).
+    fn edit_shift(&self, e: &InlineEdit, field_w: f32) -> f32 {
+        let cx = self.edit_text_width(&e.text, e.cursor);
+        (cx - (field_w - 12.0)).max(0.0)
+    }
+
+    /// Символ поля под точкой x (щелчок в поле ставит курсор).
+    fn edit_index_at(&self, x: f32) -> usize {
+        let (Some(e), Some(r)) = (self.edit.as_ref(), self.edit_rect()) else { return 0 };
+        let local = x - r.x() - 4.0 + self.edit_shift(e, r.size.width);
+        let mut prev = 0.0;
+        for k in 1..=e.text.len() {
+            let w = self.edit_text_width(&e.text, k);
+            if local < (prev + w) / 2.0 {
+                return k - 1;
+            }
+            prev = w;
+        }
+        e.text.len()
+    }
+
+    /// Клавиши и ввод поля переименования; `None` — событие не для поля.
+    fn edit_event(&mut self, event: &Event, ctx: &mut EventContext) -> Option<EventResult> {
+        self.edit.as_ref()?;
+        let m = ctx.modifiers;
+        match event {
+            Event::KeyDown(key) => {
+                let e = self.edit.as_mut()?;
+                let n = e.text.len();
+                let ctrl = m.ctrl || m.meta;
+                match key {
+                    Key::Enter => {
+                        self.finish_edit(true);
+                    }
+                    Key::Escape => {
+                        self.finish_edit(false);
+                    }
+                    Key::Left | Key::Right | Key::Home | Key::End => {
+                        let (a, b) = e.sel();
+                        let to = match key {
+                            Key::Left if !m.shift && a != b => a,
+                            Key::Right if !m.shift && a != b => b,
+                            Key::Left => e.cursor.saturating_sub(1),
+                            Key::Right => (e.cursor + 1).min(n),
+                            Key::Home => 0,
+                            _ => n,
+                        };
+                        e.cursor = to;
+                        if !m.shift {
+                            e.anchor = to;
+                        }
+                    }
+                    Key::Backspace => {
+                        if !e.delete_sel() && e.cursor > 0 {
+                            e.cursor -= 1;
+                            e.text.remove(e.cursor);
+                            e.anchor = e.cursor;
+                        }
+                    }
+                    Key::Delete => {
+                        if !e.delete_sel() && e.cursor < n {
+                            e.text.remove(e.cursor);
+                        }
+                    }
+                    Key::A if ctrl => {
+                        e.anchor = 0;
+                        e.cursor = n;
+                    }
+                    Key::C | Key::X if ctrl => {
+                        let (a, b) = e.sel();
+                        if a != b {
+                            crate::clipboard::copy(&e.text[a..b].iter().collect::<String>());
+                            if *key == Key::X {
+                                e.delete_sel();
+                            }
+                        }
+                    }
+                    Key::V if ctrl => {
+                        if let Some(s) = crate::clipboard::paste() {
+                            e.insert(s.lines().next().unwrap_or(""));
+                        }
+                    }
+                    _ => {}
+                }
+                ctx.request_paint();
+                Some(EventResult::Handled)
+            }
+            Event::CharInput(ch) => {
+                if ch.is_control() || m.ctrl || m.meta {
+                    return Some(EventResult::Handled);
+                }
+                let mut b = [0u8; 4];
+                self.edit.as_mut()?.insert(ch.encode_utf8(&mut b));
+                ctx.request_paint();
+                Some(EventResult::Handled)
+            }
+            Event::MouseDown { button, position } | Event::DoubleClick { button, position } => {
+                let r = self.edit_rect()?;
+                if r.contains(*position) && *button == MouseButton::Left {
+                    let k = self.edit_index_at(position.x);
+                    let e = self.edit.as_mut()?;
+                    if matches!(event, Event::DoubleClick { .. }) {
+                        e.anchor = 0;
+                        e.cursor = e.text.len();
+                    } else {
+                        e.cursor = k;
+                        if !m.shift {
+                            e.anchor = k;
+                        }
+                    }
+                    ctx.request_paint();
+                    return Some(EventResult::Captured);
+                }
+                // щелчок мимо поля — принять имя (как в файловом менеджере); событие идёт дальше
+                self.finish_edit(true);
+                ctx.request_paint();
+                None
+            }
+            Event::MouseMove(position) if self.edit_rect().is_some_and(|r| r.contains(*position)) => {
+                ctx.set_cursor(CursorIcon::Text);
+                Some(EventResult::Handled)
+            }
+            _ => None,
+        }
+    }
+
     fn notify_selection(&self) {
         if let Some(cb) = &self.on_selection {
             if let Ok(mut f) = cb.lock() {
@@ -751,9 +999,17 @@ impl Element for TreeViewElement {
             self.on_key = tv.on_key.clone();
             self.on_navigate = tv.on_navigate.clone();
             self.on_selection = tv.on_selection.clone();
+            self.on_rename = tv.on_rename.clone();
             self.fixed_width = tv.width;
             self.fixed_height = tv.height;
             self.reflatten();
+            if tv.renaming != self.rename_req {
+                self.rename_req = tv.renaming.clone();
+                match &tv.renaming {
+                    Some(id) => self.start_edit(id),
+                    None => self.edit = None,
+                }
+            }
             self.mark_dirty(DirtyFlags::LAYOUT | DirtyFlags::RENDER);
         }
     }
@@ -933,6 +1189,10 @@ impl Element for TreeViewElement {
                     .and_then(|d| d.label_color)
                     .unwrap_or(fg)
             };
+            // строка переименовывается — вместо подписи поле (рисуется после строк)
+            if self.edit.as_ref().is_some_and(|e| e.id == node.id) {
+                continue;
+            }
             let strikethrough = node
                 .decoration
                 .as_ref()
@@ -951,6 +1211,27 @@ impl Element for TreeViewElement {
             } else {
                 list.push_text(&node.label, label_rect, text_color, LABEL_FONT_SIZE);
             }
+        }
+
+        // поле переименования: фон, рамка акцентом, выделение, текст, курсор
+        if let (Some(e), Some(r)) = (self.edit.as_ref(), self.edit_rect()) {
+            let field_bg = if bg != Color::TRANSPARENT { bg } else { crate::theme_fallback::fallback_bg() };
+            list.push_rect_bordered(r, field_bg, [4.0; 4], Border::new(1.0, primary));
+            list.push_clip(r);
+            let shift = self.edit_shift(e, r.size.width);
+            let tx = r.x() + 4.0 - shift;
+            let (a, b) = e.sel();
+            if a != b {
+                let xa = tx + self.edit_text_width(&e.text, a);
+                let xb = tx + self.edit_text_width(&e.text, b);
+                list.push_rect(Rect::new(Point::new(xa, r.y() + 3.0), Size::new(xb - xa, r.size.height - 6.0)), primary.with_alpha(0.35), [2.0; 4]);
+            }
+            let text: String = e.string();
+            let tw = self.edit_text_width(&e.text, e.text.len()) + 8.0;
+            list.push_text(&text, Rect::new(Point::new(tx, r.y()), Size::new(tw.max(r.size.width), r.size.height)), fg, LABEL_FONT_SIZE);
+            let cx = tx + self.edit_text_width(&e.text, e.cursor);
+            list.push_rect(Rect::new(Point::new(cx, r.y() + 4.0), Size::new(1.5, r.size.height - 8.0)), fg, [0.0; 4]);
+            list.pop_clip();
         }
 
         let style = self.mss.scrollbar_style(fg);
@@ -994,6 +1275,10 @@ impl Element for TreeViewElement {
         // щелчок и прокрутка прячут подсказку
         if matches!(event, Event::MouseDown { .. } | Event::MouseWheel { .. }) && self.tip.take().is_some_and(|(_, _, w)| w >= TIP_DELAY_SECS) {
             ctx.request_paint();
+        }
+        // идёт переименование на месте — клавиши, ввод и щелчки сначала полю
+        if let Some(r) = self.edit_event(event, ctx) {
+            return r;
         }
         // фокус клавиатуры: последний щелчок — по дереву
         if let Event::MouseDown { position, .. } = event {
@@ -1721,6 +2006,42 @@ mod tests {
         assert_eq!(nav.lock().unwrap().last().unwrap(), "d");
         h.send_event(&Event::KeyDown(Key::F2));
         assert_eq!(keys.lock().unwrap().last().unwrap(), &("d".to_string(), Key::F2));
+    }
+
+    #[test]
+    fn inline_rename_selects_stem_edits_and_reports() {
+        use crate::input::{Event, Key, MouseButton};
+        use crate::testing::TestHarness;
+        use std::sync::{Arc, Mutex};
+        let got = Arc::new(Mutex::new(Vec::<(String, Option<String>)>::new()));
+        let g2 = got.clone();
+        let keys = Arc::new(Mutex::new(0usize));
+        let k2 = keys.clone();
+        let tree = TreeView::new(vec![TreeNode::leaf("f", "report.txt"), TreeNode::leaf("g", "b")])
+            .item_height(20.0)
+            .selection_mode(SelectionMode::Single)
+            .on_key(move |_, _, _| {
+                *k2.lock().unwrap() += 1;
+                true
+            })
+            .renaming(Some("f".into()))
+            .on_rename(move |id, t| g2.lock().unwrap().push((id.to_string(), t.map(str::to_string))));
+        let mut h = TestHarness::new(Box::new(tree));
+        h.layout(300.0, 200.0);
+        // выделено «report» — ввод заменяет имя, расширение остаётся
+        for ch in "итог".chars() {
+            h.send_event(&Event::CharInput(ch));
+        }
+        h.send_event(&Event::KeyDown(Key::End));
+        h.send_event(&Event::KeyDown(Key::Backspace));
+        h.send_event(&Event::KeyDown(Key::Enter));
+        assert_eq!(*got.lock().unwrap(), vec![("f".to_string(), Some("итог.tx".to_string()))]);
+        // клавиши во время правки не уходили в on_key
+        assert_eq!(*keys.lock().unwrap(), 0);
+        // после итога поле закрыто: клавиши — снова дереву (фокус остался)
+        h.send_event(&Event::KeyDown(Key::F2));
+        assert_eq!(*keys.lock().unwrap(), 1);
+        let _ = MouseButton::Left;
     }
 
 }
