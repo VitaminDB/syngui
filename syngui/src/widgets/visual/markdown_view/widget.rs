@@ -1822,4 +1822,40 @@ mod bubble_tests {
         let selected = dl.commands().iter().any(|c| matches!(c, crate::render::DrawCommand::TextSelection { .. }));
         assert!(selected, "слово под пальцем не выделено");
     }
+
+    /// Таблица с инлайн-кодом в ячейке (чат Hexspire: «Пароль | `3736…@passWord`»): двойной щелчок по коду
+    /// во второй строке выделяет его, а не заголовок — у каждой строки таблицы своя линия выделения
+    /// (раньше все ячейки шли одной линией первой строки).
+    #[test]
+    fn table_code_cell_double_click_selects_word() {
+        use crate::widget::context::TextMeasure;
+        use std::sync::Arc;
+        struct Mono;
+        impl TextMeasure for Mono {
+            fn measure_text_width(&self, _t: &str, font_size: f32, chars: usize) -> f32 {
+                chars as f32 * font_size * 0.5
+            }
+            fn hit_test_char(&self, text: &str, font_size: f32, x: f32) -> usize {
+                ((x / (font_size * 0.5)).round() as usize).min(text.chars().count())
+            }
+        }
+        let md = MarkdownView::new("| Пароль |\n|---|\n| `42474e4a4d@passWord` |\n| `3736387171626f6e@passWord` *(r→0x37)* |").selectable(true).with_copy_code(true);
+        let tree = crate::widgets::ScrollView::new().vertical().child(crate::widgets::Column::new().child(md));
+        let mut h = TestHarness::new(Box::new(tree));
+        h.tree.text_measure = Some(Arc::new(Mono));
+        h.rebuild();
+        h.layout(400.0, 300.0);
+        let _ = h.paint();
+        let id = h.find_by_type_name("MarkdownView")[0];
+        let runs: Vec<(Rect, String)> = h.tree.get_mut(id).and_then(|e| e.as_any_mut()).and_then(|e| e.downcast_mut::<MarkdownViewElement>()).expect("MarkdownViewElement").selectable_runs.lock().unwrap().iter().map(|r| (r.rect, r.visible_text.clone())).collect();
+        let (r, t) = runs.iter().find(|(_, t)| t.contains("3736")).cloned().unwrap_or_else(|| panic!("нет выделяемого участка ячейки: {runs:?}"));
+        let b = h.element_bounds(id);
+        let p = Point::new(b.origin.x + r.origin.x + r.size.width * 0.2, b.origin.y + r.origin.y + r.size.height / 2.0);
+        for _ in 0..2 {
+            h.send_event(&Event::MouseDown { button: MouseButton::Left, position: p });
+            h.send_event(&Event::MouseUp { button: MouseButton::Left, position: p });
+        }
+        let sel = h.tree.get_mut(id).and_then(|e| e.as_any_mut()).and_then(|e| e.downcast_mut::<MarkdownViewElement>()).expect("MarkdownViewElement").selection_text();
+        assert!(sel.as_deref().is_some_and(|s| !s.trim().is_empty() && t.contains(s.trim())), "двойной щелчок по «{t}» выделил {sel:?}");
+    }
 }

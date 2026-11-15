@@ -1019,6 +1019,9 @@ impl<'a> MdRenderer<'a> {
                 [4.0, 4.0, 0.0, 0.0],
             );
 
+            // строка таблицы — своя линия выделения (иначе все ячейки на одной «линии» первой
+            // строки: двойной щелчок по ячейке ниже выделял заголовок)
+            self.bump_line();
             let mut cx = self.origin_x;
             for (j, flat) in header_flat.iter().enumerate() {
                 let cw = col_widths.get(j).copied().unwrap_or(60.0);
@@ -1060,6 +1063,7 @@ impl<'a> MdRenderer<'a> {
                     .push_rect(stripe_rect, self.style.table_stripe_bg, radius);
             }
 
+            self.bump_line();
             let mut cx = self.origin_x;
             for (j, flat) in row_flat.iter().enumerate() {
                 let cw = col_widths.get(j).copied().unwrap_or(60.0);
