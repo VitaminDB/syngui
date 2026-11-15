@@ -42,8 +42,10 @@ pub fn run_on_main_thread(f: impl FnOnce() + Send + 'static) {
 /// То же, но без запроса кадра: колбэк сам решает, нужен ли он (так работают
 /// кросс-поточные `RwSignal::set` — сигнал запрашивает кадр только если
 /// значение изменилось). Иначе фоновый поток, ставящий одно и то же
-/// значение по таймеру, рендерил бы полный кадр на каждый тик.
-pub(crate) fn run_on_main_thread_wake_only(f: impl FnOnce() + Send + 'static) {
+/// значение по таймеру, рендерил бы полный кадр на каждый тик. Для частых
+/// запросов из фона (прокси хоста скриптов: тысячи чтений подряд) — только
+/// этот вариант: `run_on_main_thread` ждёт кадр (vsync) на каждый вызов.
+pub fn run_on_main_thread_wake_only(f: impl FnOnce() + Send + 'static) {
     let ch = channel();
     let _ = ch.tx.send(Box::new(f));
     let woke = WAKER
