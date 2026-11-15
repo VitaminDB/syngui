@@ -478,10 +478,19 @@ impl VideoDecoder {
 
         // Кадры на Surface держат выходные буферы MediaCodec (их немного):
         // очередь короче, иначе кодек остаётся без буферов и встаёт.
-        let video_cap = if accel == HwAccel::MediaCodecSurface {
-            SURFACE_QUEUE_CAP
-        } else {
-            VIDEO_QUEUE_CAP
+        let video_cap = match accel {
+            HwAccel::MediaCodecSurface => SURFACE_QUEUE_CAP,
+            // Кадры в обычной памяти (MediaCodec без Surface, программный
+            // декодер) ничьих буферов не держат: очередь — до ~192 МБ кадров
+            // (720p — полсекунды), запас для фильтра кадров («плавность»),
+            // который в тяжёлых сценах дольше среднего. Аппаратные кадры
+            // (VAAPI, NVDEC…) держат поверхности декодера — там прежняя.
+            HwAccel::MediaCodec | HwAccel::None => {
+                let bytes = (meta.width as usize * meta.height as usize * 4).max(1);
+                (192 << 20) / bytes
+            }
+            .clamp(VIDEO_QUEUE_CAP, 24),
+            _ => VIDEO_QUEUE_CAP,
         };
         let (video_tx, video_rx) = mpsc::sync_channel::<VideoFrame>(video_cap);
         let (audio_tx_opt, audio_rx_opt) = if meta.has_audio {

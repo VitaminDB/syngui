@@ -1,6 +1,22 @@
 use super::AppHandler;
 
 impl AppHandler {
+    /// Пожелание частоты экрана (`video::android::set_window_frame_rate`) —
+    /// окну, когда оно сменилось или окно пересоздано.
+    #[cfg(target_os = "android")]
+    pub(in crate::app) fn apply_window_frame_rate(&mut self) {
+        let fps = crate::video::android::window_frame_rate();
+        let Some(app) = self.android_app.as_ref() else { return };
+        let Some(win) = app.native_window() else { return };
+        let ptr = win.ptr().as_ptr() as *mut std::ffi::c_void;
+        if self.applied_window_fps == Some((ptr as usize, fps.to_bits())) {
+            return;
+        }
+        self.applied_window_fps = Some((ptr as usize, fps.to_bits()));
+        let ok = crate::video::android::native_window_set_frame_rate(ptr, fps);
+        log::info!("окно: частота экрана {fps:.0} к/с{}", if ok { "" } else { " — не поддерживается" });
+    }
+
     #[cfg(target_os = "android")]
     pub(in crate::app) fn update_safe_area(&mut self) {
         use crate::core::EdgeInsets;

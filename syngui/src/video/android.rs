@@ -101,6 +101,45 @@ pub fn set_video_frame_rate(fps: f32) {
     }
 }
 
+/// Желаемая частота обновления экрана для окна приложения (кадров в секунду;
+/// 0 — без пожелания). Видео, которое плеер рисует сам (кадры в памяти,
+/// «плавность» 60 к/с), иначе упирается в частоту, которую система выбрала
+/// по прошлым кадрам окна, — у дисплеев с переменной частотой это бывает
+/// и 24 Гц. Применяется окном на следующем кадре (`ANativeWindow_setFrameRate`).
+pub fn set_window_frame_rate(fps: f32) {
+    let fps = if fps.is_finite() && fps > 0.0 { fps.min(240.0) } else { 0.0 };
+    if WINDOW_FPS.swap(fps.to_bits(), Ordering::AcqRel) != fps.to_bits() {
+        crate::signal::request_redraw();
+    }
+}
+
+static WINDOW_FPS: std::sync::atomic::AtomicU32 = std::sync::atomic::AtomicU32::new(0);
+
+/// Желаемая частота окна (см. [`set_window_frame_rate`]).
+pub(crate) fn window_frame_rate() -> f32 {
+    f32::from_bits(WINDOW_FPS.load(Ordering::Acquire))
+}
+
+/// `ANativeWindow_setFrameRate` (Android 11+) — через dlsym: на старых
+/// системах символа нет, и прямая ссылка не дала бы загрузить библиотеку.
+pub(crate) fn native_window_set_frame_rate(window: *mut c_void, fps: f32) -> bool {
+    type SetFrameRate = unsafe extern "C" fn(*mut c_void, f32, i8) -> i32;
+    static FN: std::sync::OnceLock<Option<SetFrameRate>> = std::sync::OnceLock::new();
+    let f = FN.get_or_init(|| unsafe {
+        let lib = libc::dlopen(c"libandroid.so".as_ptr(), libc::RTLD_NOW);
+        if lib.is_null() {
+            return None;
+        }
+        let sym = libc::dlsym(lib, c"ANativeWindow_setFrameRate".as_ptr());
+        (!sym.is_null()).then(|| std::mem::transmute::<*mut c_void, SetFrameRate>(sym))
+    });
+    match f {
+        // ANATIVEWINDOW_FRAME_RATE_COMPATIBILITY_FIXED_SOURCE = 1
+        Some(f) => unsafe { f(window, fps, 1) == 0 },
+        None => false,
+    }
+}
+
 /// Положение видео-Surface в долях окна (x, y, w, h ∈ 0..1): вызывает
 /// `setVideoRect(float,float,float,float)` активити. Зовёт `VideoView`,
 /// когда его fit-прямоугольник меняется.

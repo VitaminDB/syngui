@@ -311,6 +311,8 @@ impl AppHandler {
 
         // Масштаб интерфейса сменили из UI — применяем до сборки кадра:
         // дальше по функции layout уже считается по новому scale_factor.
+        #[cfg(target_os = "android")]
+        self.apply_window_frame_rate();
         if crate::scale::take_design_dirty() {
             self.apply_design_scale();
         }

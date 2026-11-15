@@ -57,6 +57,8 @@ pub struct VideoPlayer {
     /// Шкала показа кадров на Surface: (pts, момент CLOCK_MONOTONIC в нс) —
     /// см. [`VideoPlayer::schedule_surface_frames`].
     surface_anchor: Option<(f64, i64)>,
+    /// Сглаженные часы выбора кадра: (время ролика, момент) — см. [`VideoPlayer::smooth_clock`].
+    clock_anchor: Option<(f64, Instant)>,
     wall_start: Option<Instant>,
     paused_accum: WebDuration,
     paused_at: Option<Instant>,
@@ -123,6 +125,7 @@ impl VideoPlayer {
             shared,
             pending_frame: None,
             surface_anchor: None,
+            clock_anchor: None,
             wall_start: Some(Instant::now()),
             paused_accum: WebDuration::ZERO,
             paused_at: None,
@@ -170,6 +173,7 @@ impl VideoPlayer {
     }
 
     pub fn pause(&mut self) {
+        self.clock_anchor = None;
         if self.is_paused() {
             return;
         }
@@ -208,6 +212,7 @@ impl VideoPlayer {
 
     pub fn seek(&mut self, sec: f64) -> Result<(), VideoError> {
         self.surface_anchor = None;
+        self.clock_anchor = None;
         let target = sec.clamp(0.0, self.shared.duration_sec.max(0.0));
         self.pending_frame = None;
         while self.decoder.try_recv_video().is_ok() {}
@@ -351,18 +356,32 @@ impl VideoPlayer {
         if self.awaiting_audio_clock() {
             return None;
         }
-        let clock = self.master_clock_sec();
-        self.stats.on_poll(clock);
+        let raw_clock = self.master_clock_sec();
         let tolerance = self.poll_tolerance_sec();
 
         let mut candidate = match self.pending_frame.take() {
             Some(f) => f,
-            None => self.recv_current_frame()?,
+            None => {
+                self.stats.on_poll(raw_clock);
+                match self.recv_current_frame() {
+                    Some(f) => f,
+                    None => {
+                        self.stats.on_empty();
+                        return None;
+                    }
+                }
+            }
         };
 
         if candidate.surface.is_some() {
-            return self.schedule_surface_frames(candidate, clock);
+            self.stats.on_poll(raw_clock);
+            return self.schedule_surface_frames(candidate, raw_clock);
         }
+        // Кадр выбирается по сглаженным часам: ступеньки часов звука иначе то
+        // «дозревали» два кадра за один кадр экрана (один выброшен), то ни
+        // одного (повтор) — рывки при частоте кадров, равной частоте экрана.
+        let clock = self.smooth_clock(raw_clock);
+        self.stats.on_poll(clock);
 
         // Время кадра ещё не пришло — придерживаем его до следующего опроса.
         if candidate.pts_sec > clock + tolerance {
@@ -373,9 +392,22 @@ impl VideoPlayer {
         loop {
             match self.recv_current_frame() {
                 Some(next) => {
-                    if next.pts_sec <= clock + tolerance {
+                    // Созрел и следующий. Ранний выбрасывается, только если сам
+                    // опоздал почти на кадр экрана: когда частота
+                    // кадров равна частоте экрана, фаза часов медленно ползёт
+                    // через границу выбора — без этого запаса шли пачки
+                    // «дубль — пропуск», а так изредка одна поправка.
+                    // Порог — почти целый кадр экрана: опрос просыпается с дрожью в
+                    // несколько мс, и при пороге в полкадра кадр, опоздавший на 11–13 мс,
+                    // выбрасывался, хотя на экран успевал.
+                    let late = clock - candidate.pts_sec;
+                    if next.pts_sec <= clock + tolerance && late > tolerance * 1.8 {
                         self.stats.on_dropped();
+                        self.stats.on_late(late);
                         candidate = next;
+                    } else if next.pts_sec <= clock + tolerance {
+                        self.pending_frame = Some(next);
+                        break;
                     } else {
                         self.pending_frame = Some(next);
                         break;
@@ -460,6 +492,27 @@ impl VideoPlayer {
             self.stats.on_shown(f.pts_sec, clock, audible);
         }
         last
+    }
+
+    /// Часы для выбора кадра: ровный ход от якоря (время ролика ↔ момент) с
+    /// подтяжкой к мастер-часам на 3 % расхождения за опрос; разошлись больше
+    /// чем на 60 мс (перемотка, пауза, рывок звука) — якорь заново.
+    fn smooth_clock(&mut self, raw: f64) -> f64 {
+        const REANCHOR_SEC: f64 = 0.06;
+        let now = Instant::now();
+        let Some((m0, w0)) = self.clock_anchor else {
+            self.clock_anchor = Some((raw, now));
+            return raw;
+        };
+        let predicted = m0 + now.duration_since(w0).as_secs_f64();
+        let err = raw - predicted;
+        if err.abs() > REANCHOR_SEC {
+            self.clock_anchor = Some((raw, now));
+            return raw;
+        }
+        let corr = err * 0.03;
+        self.clock_anchor = Some((m0 + corr, w0));
+        predicted + corr
     }
 
     /// Момент показа кадра `pts` на Surface. Мастер-часы (звук) идут
@@ -659,6 +712,9 @@ struct FrameStats {
     sched_ms: MinMaxSum,
     sched_jitter: u32,
     last_sched: Option<(i64, f64)>,
+    /// Опросов, когда готового кадра не было (очередь пуста), и наибольшее опоздание выброшенного.
+    empty: u32,
+    late_max_ms: f64,
 }
 
 #[derive(Default, Clone, Copy)]
@@ -709,6 +765,20 @@ impl FrameStats {
             sched_ms: MinMaxSum::default(),
             sched_jitter: 0,
             last_sched: None,
+            empty: 0,
+            late_max_ms: 0.0,
+        }
+    }
+
+    fn on_empty(&mut self) {
+        if self.enabled {
+            self.empty += 1;
+        }
+    }
+
+    fn on_late(&mut self, late_sec: f64) {
+        if self.enabled {
+            self.late_max_ms = self.late_max_ms.max(late_sec * 1000.0);
         }
     }
 
@@ -778,7 +848,8 @@ impl FrameStats {
             "[VIDEO STATS {secs:.1}s] показано={} ({:.1}/с) отброшено={} опросов={} часы стояли={}% \
              интервал(мс avg/min/max)={:.1}/{:.1}/{:.1} опережение(мс avg/min/max)={:.0}/{:.0}/{:.0} \
              шаг часов(мс avg/max)={:.1}/{:.1} кадр−звук(мс avg/min/max)={:.0}/{:.0}/{:.0} \
-             показ на Surface: шаг(мс avg/min/max)={:.1}/{:.1}/{:.1} сбоев шага={}",
+             показ на Surface: шаг(мс avg/min/max)={:.1}/{:.1}/{:.1} сбоев шага={} \
+             пустых опросов={} опоздание выброшенного(мс max)={:.0}",
             self.shown,
             self.shown as f64 / secs,
             self.dropped,
@@ -803,7 +874,11 @@ impl FrameStats {
             self.sched_ms.min,
             self.sched_ms.max,
             self.sched_jitter,
+            self.empty,
+            self.late_max_ms,
         );
+        self.empty = 0;
+        self.late_max_ms = 0.0;
         self.sched_ms = MinMaxSum::default();
         self.sched_jitter = 0;
         self.window_start = Instant::now();

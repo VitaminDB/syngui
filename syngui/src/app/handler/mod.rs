@@ -145,6 +145,9 @@ pub(super) struct AppHandler {
     pub(super) window_positions: std::collections::HashMap<winit::window::WindowId, (i32, i32)>,
     #[cfg(target_os = "android")]
     pub(super) android_app: Option<android_activity::AndroidApp>,
+    /// Окно и частота, уже отданные `ANativeWindow_setFrameRate`.
+    #[cfg(target_os = "android")]
+    pub(super) applied_window_fps: Option<(usize, u32)>,
     #[cfg(target_os = "android")]
     pub(super) keyboard_height: f32,
     #[cfg(target_os = "android")]
@@ -358,6 +361,8 @@ impl AppHandler {
             surface_valid: false,
             #[cfg(target_os = "android")]
             android_app: None,
+            #[cfg(target_os = "android")]
+            applied_window_fps: None,
             #[cfg(target_os = "android")]
             keyboard_height: 0.0,
             #[cfg(target_os = "android")]

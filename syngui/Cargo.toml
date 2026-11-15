@@ -577,3 +577,7 @@ name = "platform_probe"
 [[test]]
 name = "live_view_double_click"
 required-features = ["testing"]
+
+[[test]]
+name = "scroll_tap_segmented"
+required-features = ["testing"]
