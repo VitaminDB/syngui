@@ -959,6 +959,9 @@ impl Element for VirtualListElement {
     fn mss(&self) -> Option<&MssFields> {
         Some(&self.mss)
     }
+    fn mss_mut(&mut self) -> Option<&mut crate::mss::MssFields> {
+        Some(&mut self.mss)
+    }
     fn apply_computed_style(&mut self, style: &ComputedStyle) {
         self.mss.apply(style);
         if let Some(bg) = self.mss.background_color {

@@ -75,6 +75,12 @@ impl ElementTree {
             if let Some((t3d, refl)) = &projected {
                 list.push_projected_layer(node.element.bounds(), t3d.as_ref(), refl.as_ref());
             }
+            // прозрачность из @keyframes у элементов, которые не рисуют её сами
+            // (Text, Row, Button…): слой на всё поддерево
+            let kf_opacity = super::tree_keyframe_opacity(&*node.element);
+            if let Some(o) = kf_opacity {
+                list.push_opacity(o);
+            }
 
             let do_clip = node.element.clip_content();
             let hint = &node.hint_cache;
@@ -243,6 +249,10 @@ impl ElementTree {
             }
 
             node.element.post_build_display_list(list, cull_clip);
+
+            if kf_opacity.is_some() {
+                list.pop_opacity();
+            }
 
             if projected.is_some() {
                 list.pop_effect_layer();

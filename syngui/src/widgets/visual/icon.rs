@@ -89,6 +89,19 @@ impl Element for IconElement {
             .icon_color
             .or(self.mss.color)
             .unwrap_or_else(crate::theme_fallback::fallback_fg);
+        // прозрачность: @keyframes (мигание) → переход → статическая `opacity`;
+        // раньше значок их не учитывал — анимация `opacity` у Icon не работала
+        let opacity = self
+            .mss
+            .keyframe_animation
+            .as_ref()
+            .filter(|a| a.is_running())
+            .and_then(|a| a.current_values().opacity())
+            .or_else(|| self.mss.transition.opacity())
+            .or(self.mss.opacity)
+            .unwrap_or(1.0)
+            .clamp(0.0, 1.0);
+        let color = if opacity < 1.0 { color.multiply_alpha(opacity) } else { color };
         let icon_size = self.icon_size();
 
         let text_rect = Rect::new(
@@ -162,6 +175,15 @@ impl Element for IconElement {
     fn mss(&self) -> Option<&crate::mss::MssFields> {
         Some(&self.mss)
     }
+    fn mss_mut(&mut self) -> Option<&mut crate::mss::MssFields> {
+        Some(&mut self.mss)
+    }
+    fn ticks_own_keyframes(&self) -> bool {
+        true
+    }
+    fn paints_own_opacity(&self) -> bool {
+        true
+    }
     fn apply_computed_style(&mut self, style: &ComputedStyle) {
         self.mss.apply(style);
         self.mark_dirty(DirtyFlags::RENDER | DirtyFlags::LAYOUT);
@@ -178,6 +200,24 @@ impl Element for IconElement {
     ) {
         self.mss
             .apply_transitions(base, hover, active, focus, selected);
+    }
+
+    fn setup_keyframe_animation(&mut self, style: &ComputedStyle, stylesheet: &crate::mss::StyleSheet) {
+        self.mss.setup_keyframe_animation(style, stylesheet);
+    }
+
+    fn animate(&mut self, dt: std::time::Duration) -> bool {
+        let dt = dt.as_secs_f32();
+        let transition = self.mss.transition.tick(dt);
+        let keyframes = self.mss.keyframe_animation.as_mut().map(|a| a.tick(dt)).unwrap_or(false);
+        if transition || keyframes {
+            self.mark_dirty(DirtyFlags::RENDER);
+        }
+        transition || keyframes
+    }
+
+    fn needs_repaint(&self) -> bool {
+        self.mss.transition.is_animating() || self.mss.keyframe_animation.as_ref().is_some_and(|a| a.is_running())
     }
 
     fn accessibility_info(&self) -> Option<crate::a11y::AccessibilityInfo> {

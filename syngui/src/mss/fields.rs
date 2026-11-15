@@ -880,14 +880,7 @@ impl MssFields {
         // Имя — из `animation-name` или из сокращения `animation: имя 1s …`:
         // без имени ключевые кадры не запускаются (setup_keyframe_animation),
         // и правила с одним сокращением молча ничего не делали.
-        if let Some(name) = style.animation_name() {
-            self.animation_name = Some(name.to_string());
-        } else if let Some(name) = style
-            .get("animation")
-            .and_then(|v| v.as_string())
-            .and_then(crate::animation::keyframe::parse_animation_shorthand)
-            .and_then(|sh| sh.name)
-        {
+        if let Some(name) = Self::animation_name_of(style) {
             self.animation_name = Some(name);
         }
 
@@ -969,6 +962,17 @@ impl MssFields {
         if self.glow_hover.is_some() && self.glow_hover != self.glow_normal {
             self.has_mss_styles = true;
         }
+    }
+
+    /// Имя анимации стиля: `animation-name` или сокращение `animation: имя 1s …`.
+    pub fn animation_name_of(style: &ComputedStyle) -> Option<String> {
+        style.animation_name().map(|n| n.to_string()).or_else(|| {
+            style
+                .get("animation")
+                .and_then(|v| v.as_string())
+                .and_then(crate::animation::keyframe::parse_animation_shorthand)
+                .and_then(|sh| sh.name)
+        })
     }
 
     pub fn setup_keyframe_animation(

@@ -581,3 +581,7 @@ required-features = ["testing"]
 [[test]]
 name = "scroll_tap_segmented"
 required-features = ["testing"]
+
+[[test]]
+name = "icon_blink_keyframes"
+required-features = ["testing"]

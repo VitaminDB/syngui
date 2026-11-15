@@ -334,6 +334,23 @@ pub trait Element: Send {
         None
     }
 
+    /// Изменяемые стили MSS: через них дерево запускает и тикает ``
+    /// у элементов, которые не делают этого сами (см. `ticks_own_keyframes`).
+    fn mss_mut(&mut self) -> Option<&mut crate::mss::MssFields> {
+        None
+    }
+
+    /// Элемент сам тикает `keyframe_animation` в `animate()`; иначе — дерево.
+    fn ticks_own_keyframes(&self) -> bool {
+        false
+    }
+
+    /// Элемент сам рисует прозрачность из ``/переходов; иначе дерево
+    /// оборачивает его поддерево слоем `push_opacity`.
+    fn paints_own_opacity(&self) -> bool {
+        false
+    }
+
     /// Контур текста элемента (MSS `text-stroke`): дерево включает его в
     /// списке отрисовки на время рисования элемента.
     fn text_stroke(&self) -> Option<crate::mss::fields::TextStroke> {
@@ -369,11 +386,16 @@ pub trait Element: Send {
         false
     }
 
+    /// По умолчанию — у любого элемента со стилями MSS (раньше только у
+    /// DecoratedBox: `animation:` на Row, Text, Icon, Button… молча не работал).
     fn setup_keyframe_animation(
         &mut self,
-        _style: &crate::mss::ComputedStyle,
-        _stylesheet: &crate::mss::StyleSheet,
+        style: &crate::mss::ComputedStyle,
+        stylesheet: &crate::mss::StyleSheet,
     ) {
+        if let Some(m) = self.mss_mut() {
+            m.setup_keyframe_animation(style, stylesheet);
+        }
     }
 
     fn is_visible(&self) -> bool {
@@ -689,6 +711,22 @@ impl Element for Box<dyn Element> {
 
     fn mss(&self) -> Option<&crate::mss::MssFields> {
         self.as_ref().mss()
+    }
+
+    fn mss_mut(&mut self) -> Option<&mut crate::mss::MssFields> {
+        self.as_mut().mss_mut()
+    }
+
+    fn setup_keyframe_animation(&mut self, style: &crate::mss::ComputedStyle, stylesheet: &crate::mss::StyleSheet) {
+        self.as_mut().setup_keyframe_animation(style, stylesheet)
+    }
+
+    fn ticks_own_keyframes(&self) -> bool {
+        self.as_ref().ticks_own_keyframes()
+    }
+
+    fn paints_own_opacity(&self) -> bool {
+        self.as_ref().paints_own_opacity()
     }
 
     fn text_stroke(&self) -> Option<crate::mss::fields::TextStroke> {

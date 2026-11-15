@@ -507,9 +507,17 @@ impl ElementTree {
     /// Вызывается из всех точек, где анимация могла стартовать: каскад стилей
     /// (keyframes/transitions), измерение и позиционирование (AnimatedSize,
     /// плавный скролл), scroll-into-view. animate() обходит только реестр.
+    /// Keyframe-анимацию элемента, который не тикает её сам, ведёт дерево.
+    pub(crate) fn tree_ticks_keyframes(el: &mut dyn Element, dt: f32) -> bool {
+        if el.ticks_own_keyframes() {
+            return false;
+        }
+        el.mss_mut().and_then(|m| m.keyframe_animation.as_mut()).map(|a| a.tick(dt)).unwrap_or(false)
+    }
+
     pub(crate) fn note_animation_started(&mut self, id: ElementId) {
         if let Some(node) = self.elements.get(&id) {
-            if node.element.needs_repaint() || node.element.wants_animate_tick() {
+            if node.element.needs_repaint() || node.element.wants_animate_tick() || tree_keyframes_running(&*node.element) {
                 self.animation_registry.insert(id);
                 self.animations_armed = true;
             }
@@ -518,7 +526,7 @@ impl ElementTree {
 
     pub(crate) fn sync_registries_for(&mut self, id: ElementId) {
         if let Some(node) = self.elements.get(&id) {
-            if node.element.needs_repaint() || node.element.wants_animate_tick() {
+            if node.element.needs_repaint() || node.element.wants_animate_tick() || tree_keyframes_running(&*node.element) {
                 self.animation_registry.insert(id);
             } else {
                 self.animation_registry.remove(&id);
@@ -1604,4 +1612,17 @@ impl ElementTree {
             }
         }
     }
+}
+
+/// Идёт ли keyframe-анимация, которую ведёт дерево (элемент не тикает её сам).
+pub(crate) fn tree_keyframes_running(el: &dyn Element) -> bool {
+    !el.ticks_own_keyframes() && el.mss().and_then(|m| m.keyframe_animation.as_ref()).is_some_and(|a| a.is_running())
+}
+
+/// Прозрачность из keyframe-анимации для элемента, который не рисует её сам.
+pub(crate) fn tree_keyframe_opacity(el: &dyn Element) -> Option<f32> {
+    if el.paints_own_opacity() {
+        return None;
+    }
+    el.mss().and_then(|m| m.keyframe_animation.as_ref()).filter(|a| a.is_running()).and_then(|a| a.current_values().opacity())
 }

@@ -604,6 +604,7 @@ impl Text {
             mss_text_box_font: None,
             mss_text_align: None,
             mss_text_decoration: crate::mss::TextDecoration::None,
+            kf_mss: crate::mss::MssFields::new(),
             mss_font_family: None,
             mss_letter_spacing: 0.0,
             mss_text_transform: None,
@@ -685,6 +686,9 @@ struct TextElement {
     mss_text_box_font: Option<bool>,
     mss_text_align: Option<crate::mss::TextAlign>,
     mss_text_decoration: crate::mss::TextDecoration,
+    /// Стили только для @keyframes и переходов дерева (своих MssFields у текста нет —
+    /// без них `animation:` на Text молча не работал).
+    kf_mss: crate::mss::MssFields,
     mss_font_family: Option<String>,
     mss_letter_spacing: f32,
     mss_text_transform: Option<crate::mss::fields::TextTransform>,
@@ -892,6 +896,20 @@ impl TextElement {
 }
 
 impl Element for TextElement {
+    fn mss(&self) -> Option<&crate::mss::MssFields> {
+        Some(&self.kf_mss)
+    }
+    fn mss_mut(&mut self) -> Option<&mut crate::mss::MssFields> {
+        Some(&mut self.kf_mss)
+    }
+    fn setup_keyframe_animation(&mut self, style: &ComputedStyle, stylesheet: &crate::mss::StyleSheet) {
+        // своих MssFields у текста нет — из стиля берётся только имя анимации
+        self.kf_mss.animation_name = crate::mss::MssFields::animation_name_of(style);
+        if self.kf_mss.animation_name.is_none() {
+            self.kf_mss.keyframe_animation = None;
+        }
+        self.kf_mss.setup_keyframe_animation(style, stylesheet);
+    }
     fn text_stroke(&self) -> Option<crate::mss::fields::TextStroke> {
         self.mss_text_stroke
     }
