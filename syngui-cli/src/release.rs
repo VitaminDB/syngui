@@ -32,7 +32,8 @@
 //! cross = [                             # программы под другую цель (агент для гостя Windows)
 //!   { bin = "syn-vm-agent", target = "x86_64-pc-windows-gnu", to = "usr/share/syn-vm/agent/" },
 //! ]
-//! links = { "usr/bin/syndesktop" = "synwm" }
+//! libs = [{ crate = "se-agent", file = "libse_agent.so", to = "usr/lib/hexspire/" }]   # cdylib крейта
+//! links = { "usr/bin/syndesktop" = "synwm", "usr/share/x/data" = "{root}/data" }   # {root} — корень (только локально)
 //! dirs = ["usr/share/synaptix/models"]
 //! provides = ["syndesktop"]; conflicts = ["syndesktop"]; replaces = ["syndesktop"]
 //! backup = ["etc/synaptix/synaptixd.toml"]; groups = ["synshell-apps"]
@@ -109,6 +110,8 @@ pub struct Pkg {
     pub files: Vec<FileSpec>,
     /// Программы рабочего пространства, собранные под другую цель (`--target`).
     pub cross: Vec<CrossBin>,
+    /// Библиотеки (cdylib) крейтов рабочего пространства: `{ crate = "se-agent", file = "libse_agent.so", to = "usr/lib/x/" }`.
+    pub libs: Vec<LibSpec>,
     pub links: BTreeMap<String, String>,
     pub dirs: Vec<String>,
     pub provides: Vec<String>,
@@ -131,6 +134,18 @@ pub struct FileSpec {
     /// Куда: `…/` — в каталог (имя сохраняется), иначе — точный путь. `{pkgname}` — имя пакета.
     pub to: String,
     pub mode: Option<String>,
+}
+
+/// Библиотека крейта (`cargo build -p <crate> --lib`) — файл из target в каталог пакета.
+#[derive(Debug, Default, Deserialize, Clone)]
+#[serde(default, deny_unknown_fields)]
+pub struct LibSpec {
+    #[serde(rename = "crate")]
+    pub krate: String,
+    /// Файл в target/<профиль>/ (`libse_agent.so`).
+    pub file: String,
+    /// Каталог в пакете (`…/`).
+    pub to: String,
 }
 
 #[derive(Debug, Default, Deserialize, Clone)]
@@ -176,7 +191,7 @@ impl Pkg {
         self.bins.iter().chain(self.apps.iter())
     }
     fn is_meta(&self) -> bool {
-        self.bins.is_empty() && self.apps.is_empty() && self.desktop.is_empty() && self.files.is_empty() && self.links.is_empty() && self.dirs.is_empty()
+        self.bins.is_empty() && self.apps.is_empty() && self.desktop.is_empty() && self.files.is_empty() && self.links.is_empty() && self.dirs.is_empty() && self.libs.is_empty()
     }
 }
 
@@ -399,6 +414,41 @@ impl Release {
                     }
                 }
             }
+            // Библиотеки крейтов (cdylib) → $_bins/lib/<файл>.
+            for l in &p.libs {
+                let mut c = Command::new("cargo");
+                c.current_dir(&self.root).arg("build");
+                if profile == Profile::Fast && !linux::has_fast_release(&self.root) {
+                    for kv in ["inherits=\"release\"", "lto=false", "codegen-units=256", "incremental=true", "debug=false"] {
+                        c.arg("--config").arg(format!("profile.fast-release.{kv}"));
+                    }
+                }
+                c.args(profile.cargo_args()).args(["-p", &l.krate, "--lib"]);
+                if !target.is_host() {
+                    c.arg("--target").arg(target.triple());
+                    if target == Target::LinuxAarch64 {
+                        linux::cross_env(&self.target_dir, &mut c)?;
+                    }
+                }
+                util::step(format!("cargo build ({target}, {}): {} --lib", profile.dir(), l.krate));
+                util::run(c)?;
+                let src = out.join(&l.file);
+                if !src.is_file() {
+                    bail!("cargo не оставил библиотеку {}", src.display());
+                }
+                let dir = bins.join("lib");
+                std::fs::create_dir_all(&dir)?;
+                let dst = dir.join(&l.file);
+                let _ = std::fs::remove_file(&dst);
+                std::fs::copy(&src, &dst)?;
+                if strip {
+                    if let Some(s) = &strip_tool {
+                        let mut c = Command::new(s);
+                        c.arg("--strip-unneeded").arg(&dst);
+                        util::run(c)?;
+                    }
+                }
+            }
         }
         Ok(bins)
     }
@@ -413,6 +463,10 @@ impl Release {
             let to = x.to.trim_start_matches('/').trim_end_matches('/');
             let mode = if x.target.contains("windows") { "644" } else { "755" };
             s += &format!("    install -Dm{mode} \"$_bins/cross/{t}/{f}\" \"$pkgdir/{to}/{f}\"\n", t = x.target, f = x.file());
+        }
+        for l in &p.libs {
+            let to = l.to.trim_start_matches('/').trim_end_matches('/');
+            s += &format!("    install -Dm755 \"$_bins/lib/{f}\" \"$pkgdir/{to}/{f}\"\n", f = l.file);
         }
         for b in p.apps.iter().chain(p.desktop.iter()) {
             let dir = &self.bin_crate[b].1;
@@ -467,7 +521,10 @@ impl Release {
         for (link, target) in &p.links {
             let link = link.trim_start_matches('/');
             let parent = Path::new(link).parent().map(|p| p.display().to_string()).unwrap_or_default();
-            s += &format!("    install -dm755 \"$pkgdir/{parent}\"\n    ln -sf {} \"$pkgdir/{link}\"\n", sh(target));
+            // `{root}` — корень рабочего пространства ($_root): ссылка на каталог исходников (большие
+            // данные вне git — библиотека Hexspire), пакет — только для этой машины
+            let t = if target.contains("{root}") { format!("\"{}\"", target.replace("{root}", "$_root")) } else { sh(target) };
+            s += &format!("    install -dm755 \"$pkgdir/{parent}\"\n    ln -sfn {t} \"$pkgdir/{link}\"\n");
         }
         Ok(s)
     }
@@ -647,6 +704,13 @@ impl Release {
                         })
                         .collect();
 
+                    // библиотеки крейтов (cdylib) → target/release/lib/ (package_body берёт из $_bins/lib)
+                    let cross: String = cross
+                        + &p
+                            .libs
+                            .iter()
+                            .map(|l| format!("    cargo build --offline --release -p {k} --lib\n    install -Dm755 target/release/{f} target/release/lib/{f}\n", k = l.krate, f = l.file))
+                            .collect::<String>();
                     let mut cross_targets: Vec<&str> = p.cross.iter().filter(|x| !x.build_std).map(|x| x.target.as_str()).collect();
                     let nightly_std = p.cross.iter().any(|x| x.build_std);
                     cross_targets.sort_unstable();
