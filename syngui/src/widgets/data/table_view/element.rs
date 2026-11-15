@@ -2310,11 +2310,14 @@ impl Element for TableViewElement {
                     row_builder,
                 } => {
                     let old_count = self.row_count();
+                    // новый источник строк при том же их числе (данные пересчитаны: адреса после ребейза,
+                    // переименование) — кэш устарел; тот же Arc — данные прежние
+                    let same_source = matches!(&self.data, TableDataSource::Virtual { row_builder: old, .. } if Arc::ptr_eq(old, row_builder));
                     self.data = TableDataSource::Virtual {
                         row_count: *row_count,
                         row_builder: row_builder.clone(),
                     };
-                    if *row_count != old_count {
+                    if *row_count != old_count || !same_source {
                         data_changed = true;
                         self.row_cache.clear();
                         self.cache_range = 0..0;
@@ -4861,5 +4864,33 @@ mod tests {
             .selected_rows_text()
             .expect("нет текста выделенных строк");
         assert_eq!(text, "a1\tb1\na2\tb2");
+    }
+}
+
+#[cfg(test)]
+mod virtual_source_tests {
+    use super::*;
+    use crate::testing::TestHarness;
+
+    fn virt(prefix: &'static str) -> TableView {
+        TableView::virtual_new(vec![TableColumn::new("A")], 3, move |i| vec![format!("{prefix} {i}")]).row_height(20.0).header_height(20.0)
+    }
+
+    fn cell0(h: &mut TestHarness) -> Option<String> {
+        let root = h.root_id;
+        let el = h.tree.get_mut(root).unwrap().as_any_mut().unwrap().downcast_mut::<TableViewElement>().unwrap();
+        el.ensure_cached_for_viewport();
+        el.row_cache.get(&0).and_then(|r| r.first().cloned())
+    }
+
+    /// Новый источник строк при том же их числе (данные пересчитаны) — ячейки новые, не из кэша.
+    #[test]
+    fn new_row_builder_with_same_count_refreshes_cells() {
+        let mut h = TestHarness::new(Box::new(virt("старое")));
+        h.layout(300.0, 200.0);
+        assert_eq!(cell0(&mut h).as_deref(), Some("старое 0"));
+        h.update_widget(Box::new(virt("новое")));
+        h.layout(300.0, 200.0);
+        assert_eq!(cell0(&mut h).as_deref(), Some("новое 0"));
     }
 }

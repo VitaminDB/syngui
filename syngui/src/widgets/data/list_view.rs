@@ -614,11 +614,13 @@ impl Element for ListViewElement {
                     item_builder,
                 } => {
                     let old_count = self.item_count();
+                    // новый источник элементов при том же их числе — кэш устарел (тот же Arc — прежние данные)
+                    let same_source = matches!(&self.data, ListDataSource::Virtual { item_builder: old, .. } if Arc::ptr_eq(old, item_builder));
                     self.data = ListDataSource::Virtual {
                         item_count: *item_count,
                         item_builder: item_builder.clone(),
                     };
-                    if *item_count != old_count {
+                    if *item_count != old_count || !same_source {
                         self.item_cache.clear();
                         self.cache_range = 0..0;
                     }
