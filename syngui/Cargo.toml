@@ -548,6 +548,10 @@ name = "touch_drag"
 required-features = ["testing"]
 
 [[example]]
+name = "text_fx_shot"
+required-features = ["image"]
+
+[[example]]
 name = "menu_shot"
 required-features = ["image", "material-icons"]
 

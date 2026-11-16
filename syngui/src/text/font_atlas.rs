@@ -1362,17 +1362,28 @@ impl FontAtlas {
     /// каждый кадр (Adreno 505: текст с тенями — половина кадра листания). `None` — атлас полон
     /// или глиф цветной: тогда рисовать прежним путём.
     pub fn blurred_glyph(&mut self, g: &CachedGlyph, blur: f32) -> Option<(CachedGlyph, u32)> {
+        self.blurred_glyph_mode(g, blur, false)
+    }
+
+    /// Глиф свечения `text-glow`: то же размытие, но покрытие не сжимается
+    /// `smoothstep`, а приподнимается (`1 − (1 − a)²`) — ореол тянется далеко от букв.
+    pub fn glow_glyph(&mut self, g: &CachedGlyph, blur: f32) -> Option<(CachedGlyph, u32)> {
+        self.blurred_glyph_mode(g, blur, true)
+    }
+
+    fn blurred_glyph_mode(&mut self, g: &CachedGlyph, blur: f32, glow: bool) -> Option<(CachedGlyph, u32)> {
         if g.is_color || g.width == 0 || g.height == 0 || blur <= 0.0 {
             return None;
         }
         let ax = (g.uv_x * self.atlas_width as f32).round() as u32;
         let ay = (g.uv_y * self.atlas_height as f32).round() as u32;
-        let key = (ax, ay, g.width, g.height, (blur * 4.0).round() as u32);
+        let key = (ax, ay, g.width, g.height, (blur * 4.0).round() as u32 | if glow { 0x4000_0000 } else { 0 });
         if let Some(c) = self.blurred.get(&key) {
             return Some(*c);
         }
         let (w, h) = (g.width as usize, g.height as usize);
-        let k = blur.ceil().clamp(1.0, 6.0) as usize;
+        // Радиус выборки — до 48 текселей: свечение `text-glow` бывает в десятки px.
+        let k = blur.ceil().clamp(1.0, 48.0) as usize;
         let sigma = (blur / 3.0).max(0.5);
         let weights: Vec<f32> = (0..=2 * k).map(|i| {
             let d = i as f32 - k as f32;
@@ -1408,9 +1419,19 @@ impl FontAtlas {
                     }
                 }
                 let a = (acc * norm).clamp(0.0, 1.0);
-                out[oy * ow + ox] = (a * a * (3.0 - 2.0 * a) * 255.0).round() as u8;
+                let v = if glow { 1.0 - (1.0 - a) * (1.0 - a) } else { a * a * (3.0 - 2.0 * a) };
+                out[oy * ow + ox] = (v * 255.0).round() as u8;
             }
         }
+        let c = self.place_derived(&out, ow, oh, k, g)?;
+        self.blurred.insert(key, (c, k as u32));
+        Some((c, k as u32))
+    }
+
+    /// Положить в атлас производный глиф (размытый, контур) `ow`×`oh` с полем `k`
+    /// текселей вокруг исходного `g`. `None` — атлас полон.
+    fn place_derived(&mut self, out: &[u8], ow: usize, oh: usize, k: usize, g: &CachedGlyph) -> Option<CachedGlyph> {
+        let aw = self.atlas_width as usize;
         // Место в атласе — как у обычных глифов.
         let padding = 1u32;
         let (ow32, oh32) = (ow as u32, oh as u32);
@@ -1448,9 +1469,69 @@ impl FontAtlas {
             advance: g.advance,
             is_color: false,
         };
+        Some(c)
+    }
+
+    /// Контур `text-stroke` шириной `width` текселей: кольцо вокруг глифа —
+    /// расширенный на `width` глиф минус сам глиф (внутри букв контура нет:
+    /// прозрачная заливка даёт полые буквы). Поле вокруг — `ceil(width)+1`.
+    /// Кешируется по глифу и ширине; `None` — атлас полон или глиф цветной.
+    pub fn outline_glyph(&mut self, g: &CachedGlyph, width: f32) -> Option<(CachedGlyph, u32)> {
+        if g.is_color || g.width == 0 || g.height == 0 || width <= 0.0 {
+            return None;
+        }
+        let width = width.min(32.0);
+        let ax = (g.uv_x * self.atlas_width as f32).round() as u32;
+        let ay = (g.uv_y * self.atlas_height as f32).round() as u32;
+        // старший бит ключа размытия отличает контур
+        let key = (ax, ay, g.width, g.height, 0x8000_0000 | (width * 4.0).round() as u32);
+        if let Some(c) = self.blurred.get(&key) {
+            return Some(*c);
+        }
+        let (w, h) = (g.width as usize, g.height as usize);
+        let k = width.ceil() as usize + 1;
+        let (ow, oh) = (w + 2 * k, h + 2 * k);
+        let aw = self.atlas_width as usize;
+        let src: Vec<f32> = (0..h)
+            .flat_map(|y| (0..w).map(move |x| (x, y)))
+            .map(|(x, y)| self.pixels[((ay as usize + y) * aw + ax as usize + x) * 4 + 3] as f32 / 255.0)
+            .collect();
+        // Диск радиуса width с мягким краем: (dx, dy, вес).
+        let r = k as isize;
+        let disk: Vec<(isize, isize, f32)> = (-r..=r)
+            .flat_map(|dy| (-r..=r).map(move |dx| (dx, dy)))
+            .filter_map(|(dx, dy)| {
+                let d = ((dx * dx + dy * dy) as f32).sqrt();
+                let wgt = (width + 0.5 - d).clamp(0.0, 1.0);
+                (wgt > 0.0).then_some((dx, dy, wgt))
+            })
+            .collect();
+        let mut out = vec![0u8; ow * oh];
+        for oy in 0..oh {
+            for ox in 0..ow {
+                let (cx, cy) = (ox as isize - k as isize, oy as isize - k as isize);
+                let mut dil = 0.0f32;
+                for &(dx, dy, wgt) in &disk {
+                    let (sx, sy) = (cx + dx, cy + dy);
+                    if sx >= 0 && sy >= 0 && (sx as usize) < w && (sy as usize) < h {
+                        let a = src[sy as usize * w + sx as usize] * wgt;
+                        if a > dil {
+                            dil = a;
+                            if dil >= 1.0 {
+                                break;
+                            }
+                        }
+                    }
+                }
+                let inner = if cx >= 0 && cy >= 0 && (cx as usize) < w && (cy as usize) < h { src[cy as usize * w + cx as usize] } else { 0.0 };
+                out[oy * ow + ox] = ((dil - inner).clamp(0.0, 1.0) * 255.0).round() as u8;
+            }
+        }
+        let c = self.place_derived(&out, ow, oh, k, g)?;
         self.blurred.insert(key, (c, k as u32));
         Some((c, k as u32))
     }
+
 
     pub fn memory_stats(&self) -> FontAtlasStats {
         let font_data_bytes = self

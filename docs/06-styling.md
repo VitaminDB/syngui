@@ -225,6 +225,41 @@ App::new().with_font_data("Caveat", include_bytes!("../assets/Caveat-VF.ttf"))
 
 Глифы, которых нет в семействе, берутся из основного шрифта и запасных.
 
+### Эффекты текста: тени, свечение, градиент, анимация
+
+```css
+.clock {
+    /* несколько слоёв через запятую, как в CSS; первый — верхний */
+    text-shadow: 0 0 8 #4fc3f7, 0 0 24 #4fc3f780, 0 2 6 #00000080;
+    text-glow: 16px #4fc3f7;         /* свечение: радиус [цвет]; без цвета — цвет букв; none */
+    text-gradient: linear-gradient(90deg, #4fc3f7, #ab47bc);  /* заливка букв вместо color */
+    text-animation: shimmer 3s;      /* pulse | shimmer | gradient | rainbow <время>; none */
+}
+.hollow { color: #00000000; text-stroke: 2px #66bb6a; }   /* полые буквы — только контур */
+```
+
+- `text-shadow` — слои `x y [blur] [цвет]` (числа без `px` или с ним); один слой — как раньше.
+- `text-glow: <радиус> [цвет]` — ореол вокруг букв во все стороны: три слоя размытия
+  (широкий, средний, плотный), заметно ярче одной тени. Без цвета берётся цвет букв
+  (с `text-gradient` — цвет градиента в этом месте). `none` — выключить.
+- `text-gradient: linear-gradient(угол, цвет [позиция%], …)` — 2+ цвета, угол в `deg`
+  (`0deg` — вверх, `90deg` — вправо) или `to right`; ось — по контуру текста.
+  Работает вместе с тенями, свечением и контуром. `none` — выключить.
+- `text-stroke` — кольцо вокруг букв (внутри буквы контура нет), поэтому прозрачный
+  `color` даёт полые буквы.
+- `text-animation: <имя> [длительность]` (`2s`, `1500ms`; по умолчанию 2 с), циклично:
+  - `pulse` — свечение и тени «дышат» (яркость и охват; без них — сама заливка);
+  - `shimmer` — блик пробегает по буквам слева направо (светлый текст: остальное приглушено);
+  - `gradient` — `text-gradient` плывёт по тексту (без шва);
+  - `rainbow` — цвет (или градиент) идёт по кругу оттенков; серый/белый текст — насыщенными цветами.
+
+  Анимация перерисовывает кадры не чаще 30 к/с и только пока виджет видим: между кадрами
+  цикл будится тиком без кадра (`request_tick`), окно не держится на 60 к/с.
+
+Свойства задаются и в коде: `Text::new("12:34").style("text-glow", StyleValue::String("16px #4fc3f7".into()))`.
+Размытые глифы и контур считаются один раз и кешируются в атласе шрифта. Пример со снимками
+всех эффектов: `cargo run -p syngui --features image --example text_fx_shot -- каталог [кадров]`.
+
 `pointer-events: none` убирает элемент вместе с поддеревом из hit-test: касания,
 клики и колесо проходят к тому, что лежит под ним в `Stack`. Нужен декоративным
 слоям поверх интерактивного содержимого — затемнению фото над `Carousel`,
@@ -271,7 +306,7 @@ that matches a `Text` therefore applies only from this list:
 |-------|------------|
 | Color | `color`, `selection-color` |
 | Font | `font-size`, `font-weight`, `font-family` |
-| Text | `text-align`, `text-decoration`, `text-transform`, `text-shadow`, `letter-spacing`, `line-height`, `line-clamp`, `text-box-edge` |
+| Text | `text-align`, `text-decoration`, `text-transform`, `text-shadow`, `text-glow`, `text-gradient`, `text-animation`, `text-stroke`, `letter-spacing`, `line-height`, `line-clamp`, `text-box-edge` |
 | Box | `padding`, `padding-left/right/top/bottom`, `width`, `height` |
 | Layout | `margin`, `flex-grow` — resolved by the parent from the cascade, not by `Text` itself |
 

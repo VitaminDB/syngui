@@ -29,6 +29,8 @@ pub struct DisplayList {
     text_bbox_sample: Option<CompactString>,
     /// Контур последующего текста (см. [`Self::set_text_stroke`]).
     text_stroke: Option<crate::mss::fields::TextStroke>,
+    /// Эффекты последующего текста (см. [`Self::set_text_fx`]).
+    text_fx: Option<std::sync::Arc<crate::mss::fields::TextFx>>,
 }
 
 impl DisplayList {
@@ -51,6 +53,16 @@ impl DisplayList {
         stroke: Option<crate::mss::fields::TextStroke>,
     ) -> Option<crate::mss::fields::TextStroke> {
         std::mem::replace(&mut self.text_stroke, stroke)
+    }
+
+    /// Эффекты текста (слои тени, свечение, градиент, анимация) для
+    /// последующих текстовых команд. Возвращает прежнее значение — его и надо
+    /// восстановить.
+    pub fn set_text_fx(
+        &mut self,
+        fx: Option<std::sync::Arc<crate::mss::fields::TextFx>>,
+    ) -> Option<std::sync::Arc<crate::mss::fields::TextFx>> {
+        std::mem::replace(&mut self.text_fx, fx)
     }
 
     /// Образец, по глифам которого считаются вертикальные границы последующих
@@ -78,6 +90,7 @@ impl DisplayList {
             text_italic: false,
             text_line_height: None,
             text_stroke: None,
+            text_fx: None,
             text_bbox_sample: None,
         }
     }
@@ -130,6 +143,7 @@ impl DisplayList {
         let italic = self.text_italic;
         let line_height = self.text_line_height;
         let text_stroke = self.text_stroke;
+        let text_fx = self.text_fx.clone();
         let bbox_sample = self.text_bbox_sample.clone();
 
         self.commands.push(DrawCommand::Text {
@@ -150,6 +164,7 @@ impl DisplayList {
             italic,
             line_height,
             text_stroke,
+            text_fx,
         });
         self.current_z += 1;
     }
@@ -298,6 +313,7 @@ impl DisplayList {
         let italic = self.text_italic;
         let line_height = self.text_line_height;
         let text_stroke = self.text_stroke;
+        let text_fx = self.text_fx.clone();
         let bbox_sample = self.text_bbox_sample.clone();
         self.target().push(DrawCommand::Text {
             text: CompactString::from(text),
@@ -317,6 +333,7 @@ impl DisplayList {
             italic,
             line_height,
             text_stroke,
+            text_fx,
         });
         self.current_z += 1;
     }
@@ -333,6 +350,7 @@ impl DisplayList {
         let italic = self.text_italic;
         let line_height = self.text_line_height;
         let text_stroke = self.text_stroke;
+        let text_fx = self.text_fx.clone();
         let bbox_sample = self.text_bbox_sample.clone();
         self.target().push(DrawCommand::Text {
             text: CompactString::from(text),
@@ -352,6 +370,7 @@ impl DisplayList {
             italic,
             line_height,
             text_stroke,
+            text_fx,
         });
         self.current_z += 1;
     }
@@ -371,6 +390,7 @@ impl DisplayList {
         let italic = self.text_italic;
         let line_height = self.text_line_height;
         let text_stroke = self.text_stroke;
+        let text_fx = self.text_fx.clone();
         let bbox_sample = self.text_bbox_sample.clone();
         self.target().push(DrawCommand::Text {
             text: CompactString::from(text),
@@ -390,6 +410,7 @@ impl DisplayList {
             italic,
             line_height,
             text_stroke,
+            text_fx,
         });
         self.current_z += 1;
     }
@@ -411,6 +432,7 @@ impl DisplayList {
         let italic = self.text_italic;
         let line_height = self.text_line_height;
         let text_stroke = self.text_stroke;
+        let text_fx = self.text_fx.clone();
         let bbox_sample = self.text_bbox_sample.clone();
         self.target().push(DrawCommand::Text {
             text: CompactString::from(text),
@@ -430,6 +452,7 @@ impl DisplayList {
             italic,
             line_height,
             text_stroke,
+            text_fx,
         });
         self.current_z += 1;
     }
@@ -454,6 +477,7 @@ impl DisplayList {
         let italic = self.text_italic;
         let line_height = self.text_line_height;
         let text_stroke = self.text_stroke;
+        let text_fx = self.text_fx.clone();
         let bbox_sample = self.text_bbox_sample.clone();
         self.target().push(DrawCommand::Text {
             text: CompactString::from(text),
@@ -473,6 +497,7 @@ impl DisplayList {
             italic,
             line_height,
             text_stroke,
+            text_fx,
         });
         self.current_z += 1;
     }
@@ -493,6 +518,7 @@ impl DisplayList {
         let italic = self.text_italic;
         let line_height = self.text_line_height;
         let text_stroke = self.text_stroke;
+        let text_fx = self.text_fx.clone();
         let bbox_sample = self.text_bbox_sample.clone();
         self.target().push(DrawCommand::Text {
             text: CompactString::from(text),
@@ -512,6 +538,7 @@ impl DisplayList {
             italic,
             line_height,
             text_stroke,
+            text_fx,
         });
         self.current_z += 1;
     }
@@ -536,6 +563,7 @@ impl DisplayList {
         let italic = self.text_italic;
         let line_height = self.text_line_height;
         let text_stroke = self.text_stroke;
+        let text_fx = self.text_fx.clone();
         let bbox_sample = self.text_bbox_sample.clone();
         self.target().push(DrawCommand::Text {
             text: CompactString::from(text),
@@ -555,6 +583,7 @@ impl DisplayList {
             italic,
             line_height,
             text_stroke,
+            text_fx,
         });
         self.current_z += 1;
     }
@@ -577,6 +606,7 @@ impl DisplayList {
         let italic = self.text_italic;
         let line_height = self.text_line_height;
         let text_stroke = self.text_stroke;
+        let text_fx = self.text_fx.clone();
         self.target().push(DrawCommand::Text {
             text: CompactString::from(text),
             rect,
@@ -595,6 +625,7 @@ impl DisplayList {
             italic,
             line_height,
             text_stroke,
+            text_fx,
         });
         self.current_z += 1;
     }
@@ -1337,8 +1368,34 @@ fn hash_command(h: &mut impl std::hash::Hasher, cmd: &DrawCommand) -> bool {
             italic,
             line_height,
             text_stroke,
+            text_fx,
         } => {
             text.hash(h);
+            if let Some(fx) = text_fx {
+                for sh in &fx.shadows {
+                    h_f32(h, sh.offset_x);
+                    h_f32(h, sh.offset_y);
+                    h_f32(h, sh.blur_radius);
+                    h_color(h, &sh.color);
+                }
+                if let Some(g) = fx.glow {
+                    h_f32(h, g.radius);
+                    if let Some(c) = g.color {
+                        h_color(h, &c);
+                    }
+                }
+                if let Some(g) = &fx.gradient {
+                    for (c, p) in g.resolved_stops() {
+                        h_color(h, &c);
+                        h_f32(h, p);
+                    }
+                    if let crate::core::Gradient::Linear { angle_deg, .. } = g {
+                        h_f32(h, *angle_deg);
+                    }
+                }
+                fx.animation.map(|k| k as u8).hash(h);
+                h_f32(h, fx.phase);
+            }
             line_height.map(f32::to_bits).hash(h);
             if let Some(st) = text_stroke {
                 h_f32(h, st.width);

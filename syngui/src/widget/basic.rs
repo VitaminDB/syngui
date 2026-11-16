@@ -609,6 +609,12 @@ impl Text {
             mss_letter_spacing: 0.0,
             mss_text_transform: None,
             mss_text_shadow: None,
+            mss_text_shadows: Vec::new(),
+            mss_text_glow: None,
+            mss_text_gradient: None,
+            mss_text_animation: None,
+            fx_time: 0.0,
+            fx_since_frame: 0.0,
             mss_text_stroke: None,
             mss_line_height: None,
             mss_padding_left: 0.0,
@@ -693,6 +699,19 @@ struct TextElement {
     mss_letter_spacing: f32,
     mss_text_transform: Option<crate::mss::fields::TextTransform>,
     mss_text_shadow: Option<crate::mss::fields::TextShadow>,
+    /// Все слои `text-shadow` (через запятую); при одном слое он же в
+    /// `mss_text_shadow`, при нескольких — рисуются через `TextFx`.
+    mss_text_shadows: Vec<crate::mss::fields::TextShadow>,
+    /// MSS `text-glow`.
+    mss_text_glow: Option<crate::mss::fields::TextGlow>,
+    /// MSS `text-gradient` (линейный).
+    mss_text_gradient: Option<crate::core::Gradient>,
+    /// MSS `text-animation`.
+    mss_text_animation: Option<crate::mss::fields::TextAnimation>,
+    /// Время анимации текста, с (фаза — доля периода).
+    fx_time: f32,
+    /// С прошлого кадра анимации текста, с: кадры — не чаще `TEXT_FX_FPS`.
+    fx_since_frame: f32,
     mss_text_stroke: Option<crate::mss::fields::TextStroke>,
     mss_line_height: Option<crate::mss::fields::LineHeight>,
     mss_padding_left: f32,
@@ -716,7 +735,48 @@ struct TextElement {
     click_count: u8,
 }
 
+/// Частота кадров `text-animation`: плавно для блика и перелива и вдвое
+/// дешевле 60 к/с — виджеты рабочего стола анимируются постоянно.
+const TEXT_FX_FPS: f32 = 30.0;
+
 impl TextElement {
+    /// Эффекты текста для списка отрисовки: несколько слоёв тени, свечение,
+    /// градиент, анимация. Один слой тени без прочего идёт старым путём
+    /// (`text_shadow` команды).
+    fn text_fx(&self) -> Option<Arc<crate::mss::fields::TextFx>> {
+        let shadows = if self.mss_text_shadows.len() > 1 { self.mss_text_shadows.clone() } else { Vec::new() };
+        let fx = crate::mss::fields::TextFx {
+            shadows,
+            glow: self.mss_text_glow,
+            gradient: self.mss_text_gradient.clone(),
+            animation: self.mss_text_animation.map(|a| a.kind),
+            phase: self
+                .mss_text_animation
+                .map_or(0.0, |a| (self.fx_time / a.period).fract()),
+        };
+        (!fx.is_empty()).then(|| Arc::new(fx))
+    }
+
+    /// Шаг `text-animation`: время идёт всегда, кадр (перерисовка этого
+    /// текста) — не чаще [`TEXT_FX_FPS`]; между кадрами цикл будится тиком
+    /// без кадра (`request_tick`), а не vsync'ом всего окна.
+    fn tick_text_animation(&mut self, dt: f32) -> bool {
+        if self.mss_text_animation.is_none() {
+            return false;
+        }
+        let interval = 1.0 / TEXT_FX_FPS;
+        self.fx_time += dt;
+        self.fx_since_frame += dt;
+        if self.fx_since_frame + 0.002 >= interval {
+            self.fx_since_frame = 0.0;
+            self.mark_dirty(DirtyFlags::RENDER);
+            true
+        } else {
+            crate::app::request_tick(std::time::Duration::from_secs_f32(interval - self.fx_since_frame));
+            false
+        }
+    }
+
     /// Текст в том виде, в каком он попадёт на экран: с применённым
     /// `text-transform`. Мерить надо именно его — заглавные шире строчных,
     /// и по неперевёрнутой строке ширина выходит заниженной.
@@ -1089,8 +1149,10 @@ impl Element for TextElement {
         // строка уже усечена по ширине, а рисовать её с переносом опасно —
         // 1px расхождения измерений перекидывали бы хвост на вторую строку.
         let single_line = self.mss_max_lines == Some(1) || self.mss_elide == Elide::Middle;
+        let text_fx = self.text_fx();
         let has_extra = self.mss_letter_spacing != 0.0
             || self.mss_text_shadow.is_some()
+            || text_fx.is_some()
             || self.mss_text_transform.is_some();
 
         if self.selectable {
@@ -1130,6 +1192,7 @@ impl Element for TextElement {
             }
         }
 
+        let prev_fx = text_fx.map(|fx| list.set_text_fx(Some(fx)));
         let prev_italic = list.set_text_italic(self.mss_italic);
         let prev_line_height = list.set_text_line_height(self.mss_line_height.map(|lh| lh.resolve(self.font_size)));
         // пустой образец — явная центровка по контуру (`ink`)
@@ -1176,6 +1239,9 @@ impl Element for TextElement {
         }
         list.set_text_italic(prev_italic);
         list.set_text_line_height(prev_line_height);
+        if let Some(prev) = prev_fx {
+            list.set_text_fx(prev);
+        }
         if let Some(prev) = prev_bbox {
             list.set_text_bbox_sample(prev);
         }
@@ -1351,8 +1417,9 @@ impl Element for TextElement {
     }
 
     fn animate(&mut self, dt: std::time::Duration) -> bool {
+        let fx_frame = self.tick_text_animation(dt.as_secs_f32());
         let Some((_, elapsed, dur, _)) = self.color_anim.as_mut() else {
-            return false;
+            return fx_frame;
         };
         *elapsed += dt.as_secs_f32();
         let running = *elapsed < *dur;
@@ -1360,7 +1427,12 @@ impl Element for TextElement {
             self.color_anim = None;
         }
         self.mark_dirty(DirtyFlags::RENDER);
-        running
+        running || fx_frame
+    }
+
+    /// `text-animation` тикает без кадра на каждом обходе (см. `tick_text_animation`).
+    fn wants_animate_tick(&self) -> bool {
+        self.mss_text_animation.is_some()
     }
 
     fn needs_repaint(&self) -> bool {
@@ -1391,6 +1463,10 @@ impl Element for TextElement {
         self.mss_letter_spacing = 0.0;
         self.mss_text_transform = None;
         self.mss_text_shadow = None;
+        self.mss_text_shadows.clear();
+        self.mss_text_glow = None;
+        self.mss_text_gradient = None;
+        self.mss_text_animation = None;
         self.mss_text_stroke = None;
         self.mss_line_height = None;
         self.mss_padding_left = 0.0;
@@ -1474,10 +1550,35 @@ impl StyledElement for TextElement {
             };
         }
         if let Some(s) = style.get("text-shadow").and_then(|v| v.as_string()) {
-            self.mss_text_shadow = crate::mss::fields::TextShadow::parse(s);
+            self.mss_text_shadows = crate::mss::fields::TextShadow::parse_list(s);
+            self.mss_text_shadow = match self.mss_text_shadows.as_slice() {
+                [one] => Some(one.clone()),
+                _ => None,
+            };
         }
         if let Some(s) = style.get("text-stroke").and_then(|v| v.as_string()) {
             self.mss_text_stroke = crate::mss::fields::TextStroke::parse(s);
+        }
+        if let Some(v) = style.get("text-glow") {
+            self.mss_text_glow = match v {
+                crate::mss::StyleValue::Length(px, _) | crate::mss::StyleValue::Number(px) if *px > 0.0 => {
+                    Some(crate::mss::fields::TextGlow { radius: *px, color: None })
+                }
+                crate::mss::StyleValue::String(s) => crate::mss::fields::TextGlow::parse(s),
+                _ => None,
+            };
+        }
+        if let Some(v) = style.get("text-gradient") {
+            self.mss_text_gradient = crate::mss::fields::parse_text_gradient(v);
+        }
+        if let Some(v) = style.get("text-animation") {
+            let prev = self.mss_text_animation.map(|a| a.kind);
+            self.mss_text_animation = v.as_string().and_then(crate::mss::fields::TextAnimation::parse);
+            if self.mss_text_animation.map(|a| a.kind) != prev {
+                self.fx_time = 0.0;
+                self.fx_since_frame = 0.0;
+                self.mark_dirty(DirtyFlags::RENDER | DirtyFlags::ANIMATION);
+            }
         }
         if let Some(v) = style.get("line-height") {
             self.mss_line_height = match v {
@@ -1706,6 +1807,34 @@ mod tests {
         fn hit_test_char(&self, _text: &str, _font_size: f32, x_offset: f32) -> usize {
             (x_offset / 10.0).floor().max(0.0) as usize
         }
+    }
+
+    /// `text-animation` перерисовывает текст не чаще ~30 к/с: тик на vsync 60 Гц
+    /// кадр не просит, каждый второй — просит; фаза идёт по периоду.
+    #[test]
+    fn text_animation_frames_are_throttled() {
+        let mut el = Text::new("12:34").element();
+        let mut st = ComputedStyle::default();
+        st.set("text-animation", crate::mss::StyleValue::String("shimmer 2s".into()));
+        st.set("text-glow", crate::mss::StyleValue::String("16px #4fc3f7".into()));
+        st.set("text-shadow", crate::mss::StyleValue::String("0 0 8 #4fc3f7, 0 2 6 #00000080".into()));
+        el.apply_style(&st);
+        assert!(el.wants_animate_tick());
+        assert!(!el.needs_repaint(), "между кадрами анимации — без перерисовки окна");
+        let vsync = std::time::Duration::from_micros(16_667);
+        let frames: Vec<bool> = (0..6).map(|_| el.animate(vsync)).collect();
+        assert_eq!(frames, [false, true, false, true, false, true]);
+        let fx = el.text_fx().expect("эффекты");
+        assert_eq!(fx.shadows.len(), 2);
+        assert_eq!(fx.glow.map(|g| g.radius), Some(16.0));
+        assert!((fx.phase - 0.05).abs() < 1e-3, "фаза {}", fx.phase);
+        // `none` снимает анимацию
+        el.reset_mss_styles();
+        let mut st = ComputedStyle::default();
+        st.set("text-animation", crate::mss::StyleValue::String("none".into()));
+        el.apply_style(&st);
+        assert!(!el.wants_animate_tick());
+        assert!(el.text_fx().is_none());
     }
 
     #[test]

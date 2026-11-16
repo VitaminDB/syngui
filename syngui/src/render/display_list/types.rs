@@ -59,6 +59,10 @@ pub enum DrawCommand {
         /// Контур (MSS `text-stroke`): копии глифов цветом контура вокруг
         /// букв, под ними. Из [`super::DisplayList::set_text_stroke`].
         text_stroke: Option<crate::mss::fields::TextStroke>,
+        /// Эффекты (слои тени, свечение, градиент, анимация) — MSS
+        /// `text-shadow` списком, `text-glow`, `text-gradient`,
+        /// `text-animation`. Из [`super::DisplayList::set_text_fx`].
+        text_fx: Option<std::sync::Arc<crate::mss::fields::TextFx>>,
     },
     Image {
         rect: crate::core::Rect,

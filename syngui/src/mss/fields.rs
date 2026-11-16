@@ -146,6 +146,151 @@ impl TextStroke {
     }
 }
 
+/// Части через запятую верхнего уровня (`0 0 8 #fff, 0 0 2 rgba(0, 0, 0, .5)`).
+fn split_top_level_commas(s: &str) -> Vec<&str> {
+    let mut out = Vec::new();
+    let (mut depth, mut start) = (0i32, 0usize);
+    for (i, c) in s.char_indices() {
+        match c {
+            '(' => depth += 1,
+            ')' => depth -= 1,
+            ',' if depth == 0 => {
+                out.push(s[start..i].trim());
+                start = i + 1;
+            }
+            _ => {}
+        }
+    }
+    out.push(s[start..].trim());
+    out.retain(|p| !p.is_empty());
+    out
+}
+
+impl TextShadow {
+    /// Слои `text-shadow` через запятую, как в CSS; первый — верхний.
+    /// Пустой список — `none` или ни одного разборчивого слоя.
+    pub fn parse_list(s: &str) -> Vec<Self> {
+        if s.trim().eq_ignore_ascii_case("none") {
+            return Vec::new();
+        }
+        split_top_level_commas(s).into_iter().filter_map(Self::parse).collect()
+    }
+}
+
+/// Свечение текста (`text-glow: 16px #4fc3f7`): размытые копии букв во все
+/// стороны в несколько слоёв; `color: None` — цвет текста.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct TextGlow {
+    pub radius: f32,
+    pub color: Option<Color>,
+}
+
+impl TextGlow {
+    /// `<радиус> [цвет]` в любом порядке; `none` или 0 — без свечения.
+    pub fn parse(s: &str) -> Option<Self> {
+        let s = s.trim();
+        if s.eq_ignore_ascii_case("none") {
+            return None;
+        }
+        let mut radius = None;
+        let mut color = None;
+        for tok in split_top_level(s) {
+            let num = tok.strip_suffix("px").unwrap_or(tok);
+            match num.parse::<f32>() {
+                Ok(r) if radius.is_none() => radius = Some(r),
+                _ => color = parse_color_string(tok).or(color),
+            }
+        }
+        let radius = radius?;
+        (radius > 0.0).then_some(TextGlow { radius, color })
+    }
+}
+
+/// Анимация текста (`text-animation: shimmer 3s`).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum TextAnimationKind {
+    /// Свечение и тени «дышат» (яркость и охват).
+    Pulse,
+    /// Блик пробегает по буквам слева направо.
+    Shimmer,
+    /// `text-gradient` плывёт по тексту.
+    Gradient,
+    /// Цвет (или градиент) идёт по кругу оттенков.
+    Rainbow,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct TextAnimation {
+    pub kind: TextAnimationKind,
+    /// Период цикла, секунды.
+    pub period: f32,
+}
+
+impl TextAnimation {
+    /// `<имя> [длительность]` (`pulse 2s`, `shimmer 1500ms`); без длительности —
+    /// 2 с; `none` — без анимации.
+    pub fn parse(s: &str) -> Option<Self> {
+        let mut kind = None;
+        let mut period = 2.0f32;
+        for tok in s.split_whitespace() {
+            let t = tok.to_ascii_lowercase();
+            match t.as_str() {
+                "none" => return None,
+                "pulse" => kind = Some(TextAnimationKind::Pulse),
+                "shimmer" => kind = Some(TextAnimationKind::Shimmer),
+                "gradient" => kind = Some(TextAnimationKind::Gradient),
+                "rainbow" => kind = Some(TextAnimationKind::Rainbow),
+                _ => {
+                    let secs = if let Some(ms) = t.strip_suffix("ms") {
+                        ms.parse::<f32>().ok().map(|v| v / 1000.0)
+                    } else {
+                        t.strip_suffix('s').unwrap_or(&t).parse::<f32>().ok()
+                    };
+                    if let Some(v) = secs.filter(|v| *v > 0.0) {
+                        period = v.max(0.05);
+                    }
+                }
+            }
+        }
+        kind.map(|kind| TextAnimation { kind, period })
+    }
+}
+
+/// Эффекты текста сверх одной тени: слои `text-shadow`, `text-glow`,
+/// `text-gradient` и фаза `text-animation`. Ставится на список отрисовки
+/// ([`crate::render::DisplayList::set_text_fx`]) на время команд текста.
+#[derive(Debug, Clone, PartialEq, Default)]
+pub struct TextFx {
+    /// Слои тени; первый рисуется верхним (как в CSS).
+    pub shadows: Vec<TextShadow>,
+    pub glow: Option<TextGlow>,
+    /// Линейный градиент заливки букв (вместо цвета).
+    pub gradient: Option<Gradient>,
+    pub animation: Option<TextAnimationKind>,
+    /// Фаза анимации 0..1.
+    pub phase: f32,
+}
+
+impl TextFx {
+    pub fn is_empty(&self) -> bool {
+        self.shadows.is_empty() && self.glow.is_none() && self.gradient.is_none() && self.animation.is_none()
+    }
+}
+
+/// `text-gradient`: значение MSS (градиент или строка `linear-gradient(…)`).
+/// Берётся только линейный; `none` и прочее — без градиента.
+pub fn parse_text_gradient(v: &StyleValue) -> Option<Gradient> {
+    let g = match v {
+        StyleValue::Gradient(g) => g.clone(),
+        StyleValue::String(s) => match crate::mss::parser::gradient::parse_gradient(s)? {
+            StyleValue::Gradient(g) => g,
+            _ => return None,
+        },
+        _ => return None,
+    };
+    matches!(g, Gradient::Linear { .. }).then_some(g)
+}
+
 /// Слова через пробел, не разрывая скобки (`rgba(0, 0, 0, .5)`).
 fn split_top_level(s: &str) -> Vec<&str> {
     let mut out = Vec::new();
@@ -170,16 +315,12 @@ fn split_top_level(s: &str) -> Vec<&str> {
     out
 }
 
+/// Цвет из строки MSS (sRGB) → линейный `Color`, как у `color` и градиентов.
+/// Раньше sRGB-компоненты шли как линейные: тень и контур текста выходили
+/// заметно светлее заданного (`#4fc3f7` — почти белым).
 fn parse_color_string(s: &str) -> Option<Color> {
     use crate::mss::value::Color as MssColor;
-    MssColor::parse(s).map(|c| {
-        Color::new(
-            c.r as f32 / 255.0,
-            c.g as f32 / 255.0,
-            c.b as f32 / 255.0,
-            c.a as f32 / 255.0,
-        )
-    })
+    MssColor::parse(s).map(mss_color_to_core)
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -1820,6 +1961,35 @@ impl MssFields {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn text_effects_parse() {
+        let l = TextShadow::parse_list("0 0 8 #4fc3f7, 0 0 24 rgba(79, 195, 247, 0.5), 0 2 6 #00000080");
+        assert_eq!(l.len(), 3);
+        assert_eq!(l[1].blur_radius, 24.0);
+        assert!((l[1].color.a - 0.5).abs() < 0.01);
+        assert!(TextShadow::parse_list("none").is_empty());
+        // sRGB #808080 → линейные ~0.216, как у `color`
+        assert!((l[2].color.r - 0.0).abs() < 1e-6);
+        let g = TextShadow::parse("0 0 4 #808080").unwrap();
+        assert!((g.color.r - 0.2158).abs() < 0.01, "{}", g.color.r);
+
+        let glow = TextGlow::parse("16px #4fc3f7").unwrap();
+        assert_eq!(glow.radius, 16.0);
+        assert!(glow.color.is_some());
+        assert_eq!(TextGlow::parse("12").map(|g| (g.radius, g.color)), Some((12.0, None)));
+        assert!(TextGlow::parse("none").is_none());
+
+        let a = TextAnimation::parse("shimmer 3s").unwrap();
+        assert_eq!((a.kind, a.period), (TextAnimationKind::Shimmer, 3.0));
+        assert_eq!(TextAnimation::parse("pulse 1500ms").unwrap().period, 1.5);
+        assert_eq!(TextAnimation::parse("rainbow").unwrap().period, 2.0);
+        assert!(TextAnimation::parse("none").is_none());
+
+        let g = parse_text_gradient(&StyleValue::String("linear-gradient(90deg, #4fc3f7, #ab47bc 80%)".into())).unwrap();
+        assert!(matches!(g, Gradient::Linear { angle_deg, .. } if angle_deg == 90.0));
+        assert!(parse_text_gradient(&StyleValue::String("none".into())).is_none());
+    }
 
     #[test]
     fn text_shadow_accepts_px_units() {
