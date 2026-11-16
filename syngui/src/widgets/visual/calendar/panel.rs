@@ -319,6 +319,11 @@ impl PanelMetrics {
         }
     }
 
+    /// Наибольшая ячейка, при которой панель помещается в высоту `h`.
+    pub fn cell_for_height(h: f32) -> f32 {
+        (h - HEADER_H - DOW_H - PAD) / GRID_ROWS as f32
+    }
+
     pub fn size(&self) -> Size {
         Size::new(self.width, self.height)
     }

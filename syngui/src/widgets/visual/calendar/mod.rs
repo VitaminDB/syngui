@@ -43,6 +43,7 @@ pub struct Calendar {
     on_select: Option<Arc<Mutex<dyn FnMut(Date) + Send>>>,
     show_week_numbers: bool,
     fill_width: bool,
+    fit: bool,
     min_date: Option<Date>,
     max_date: Option<Date>,
     locale: Option<CalendarLocale>,
@@ -55,6 +56,7 @@ impl Calendar {
             on_select: None,
             show_week_numbers: false,
             fill_width: false,
+            fit: false,
             min_date: None,
             max_date: None,
             locale: None,
@@ -86,6 +88,13 @@ impl Calendar {
     /// ширины родителя (не больше предельного), а не из `--cal-cell-size`.
     pub fn fill_width(mut self, v: bool) -> Self {
         self.fill_width = v;
+        self
+    }
+
+    /// Вписать календарь в доступное место по ширине и высоте (виджет рабочего стола,
+    /// карточка заданного размера): ячейка — наибольшая, при которой месяц помещается целиком.
+    pub fn fit(mut self, v: bool) -> Self {
+        self.fit = v;
         self
     }
 
@@ -125,6 +134,7 @@ impl Widget for Calendar {
             on_select: self.on_select.clone(),
             show_week_numbers: self.show_week_numbers,
             fill_width: self.fill_width,
+            fit: self.fit,
             fill_cell: None,
             min_date: self.min_date,
             max_date: self.max_date,
@@ -161,7 +171,8 @@ pub struct CalendarElement {
     on_select: Option<Arc<Mutex<dyn FnMut(Date) + Send>>>,
     show_week_numbers: bool,
     fill_width: bool,
-    /// Ячейка, посчитанная раскладкой из ширины (`fill_width`).
+    fit: bool,
+    /// Ячейка, посчитанная раскладкой из ширины (`fill_width`) или из места (`fit`).
     fill_cell: Option<f32>,
     min_date: Option<Date>,
     max_date: Option<Date>,
@@ -199,8 +210,9 @@ impl Element for CalendarElement {
         if let Some(cal) = widget.as_any().downcast_ref::<Calendar>() {
             self.on_select = cal.on_select.clone();
             self.show_week_numbers = cal.show_week_numbers;
-            if self.fill_width != cal.fill_width {
+            if self.fill_width != cal.fill_width || self.fit != cal.fit {
                 self.fill_width = cal.fill_width;
+                self.fit = cal.fit;
                 self.fill_cell = None;
             }
             self.min_date = cal.min_date;
@@ -219,9 +231,12 @@ impl Element for CalendarElement {
     }
 
     fn layout(&mut self, constraints: Constraints) -> Size {
-        if self.fill_width && constraints.max_width.is_finite() {
-            let week = if self.show_week_numbers { 0.8 } else { 0.0 };
-            let cell = (constraints.max_width - 2.0 * PAD - 6.0 * CELL_GAP) / (7.0 + week);
+        let week = if self.show_week_numbers { 0.8 } else { 0.0 };
+        if (self.fill_width || self.fit) && constraints.max_width.is_finite() {
+            let mut cell = (constraints.max_width - 2.0 * PAD - 6.0 * CELL_GAP) / (7.0 + week);
+            if self.fit && constraints.max_height.is_finite() {
+                cell = cell.min(PanelMetrics::cell_for_height(constraints.max_height));
+            }
             self.fill_cell = Some(cell.floor());
         }
         let metrics = PanelMetrics::new(self.theme().cell, self.show_week_numbers);
