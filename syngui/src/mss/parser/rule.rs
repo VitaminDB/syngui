@@ -11,6 +11,11 @@ use super::value::*;
 /// без разворота не читал никто — скругление молча терялось.
 pub(crate) fn expand_shorthand(property: &str, value: StyleValue) -> Vec<(String, StyleValue)> {
     let mut map = HashMap::new();
+    // Как у правила таблицы (`Stylesheet::add_rule`): свой `font-size` элемента
+    // дублируется в ненаследуемый маркер — по нему отличают заданный размер от унаследованного.
+    if property == "font-size" {
+        map.insert(crate::mss::fields::ICON_FONT_SIZE.to_string(), value.clone());
+    }
     insert_with_shorthand_expansion(&mut map, property.to_string(), value);
     map.into_iter().collect()
 }

@@ -192,6 +192,11 @@ impl CalendarElement {
         let mut t = CalendarTheme::resolve(&self.mss, &self.vars);
         if let Some(c) = self.fill_cell {
             t.cell = c;
+            // Ячейку подобрала раскладка (`fit`/`fill_width`): без явного размера
+            // шрифт чисел растёт вместе с ней (≈ 0.36 ячейки), а не остаётся мелким.
+            if !t.font_size_explicit {
+                t.font_size = t.font_size.max((c * 0.36).round()).max(13.0);
+            }
         }
         t
     }

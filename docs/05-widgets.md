@@ -336,7 +336,19 @@ set_default_locale(CalendarLocale::german());       // язык всего пр�
 `--cal-panel-border`, `--cal-muted-color`, `--cal-outside-color`,
 `--cal-weekend-color`, `--cal-today-color`, `--cal-selected-color`,
 `--cal-hover-bg`, `--cal-disabled-color`, `--cal-cell-size`, `--cal-radius`,
-`--cal-font-size`.
+`--cal-font-size`, `--cal-day-shape`.
+
+- `font-family` — шрифт всего текста панели (шапка, дни недели, числа, номера недель);
+  `font-weight` — насыщенность чисел и подписей, выбранный день и «сегодня» — на 200 жирнее
+  (не меньше 600).
+- `--cal-day-shape: circle | rounded | square` — форма выделения дня (выбранный, рамка
+  «сегодня», наведение): круг, скругление ~¼ ячейки, квадрат.
+- `--cal-outside-color: transparent` прячет дни соседних месяцев целиком: ни числа, ни
+  наведения, ни выбора.
+- `.fit(true)` / `.fill_width(true)` подбирают ячейку под место (до 160 px). Шапка, строка дней
+  недели и стрелки растут с ячейкой крупнее обычной (36 px); без явного размера шрифта
+  (`--cal-font-size` или свой `font-size`) числа растут тоже (~0.36 ячейки, не мельче 13).
+  Снимки: `cargo run -p syngui --features image --example calendar_shot -- каталог`.
 
 ### Accordion
 
