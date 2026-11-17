@@ -1589,19 +1589,34 @@ impl ElementTree {
             },
             constraints.containing_block.height,
         );
-        // Элемент не шире строки (как flex-wrap в CSS): иначе длинный текст в
-        // «пилюле» не переносится и вылезает за край контейнера.
-        let child_constraints = Constraints {
+        // Как flex-wrap в CSS: элемент берёт ширину по содержимому (без
+        // ограничения), а если она шире строки — меряется заново по ширине
+        // строки, чтобы длинный текст в «пилюле» переносился, а не вылезал.
+        // Сразу ограничивать шириной строки нельзя: элементы, заполняющие
+        // доступное место (SegmentedButton и т. п.), растягивались на всю
+        // строку и переносились каждый на свою.
+        let content_constraints = Constraints {
             min_width: 0.0,
-            max_width: if constraints.max_width.is_finite() { constraints.max_width } else { f32::INFINITY },
+            max_width: f32::INFINITY,
             min_height: 0.0,
             max_height: f32::INFINITY,
             containing_block: flex_cb,
         };
+        let line_constraints = Constraints {
+            max_width: if constraints.max_width.is_finite() {
+                constraints.max_width
+            } else {
+                f32::INFINITY
+            },
+            ..content_constraints
+        };
 
         let mut child_sizes: Vec<(ElementId, Size)> = Vec::with_capacity(children.len());
         for &child_id in children {
-            let size = self.measure_recursive(child_id, child_constraints);
+            let mut size = self.measure_recursive(child_id, content_constraints);
+            if size.width > line_constraints.max_width {
+                size = self.measure_recursive(child_id, line_constraints);
+            }
             child_sizes.push((child_id, size));
         }
 
