@@ -46,7 +46,7 @@ impl AppHandler {
 
         let result = unsafe { self.query_safe_area_jni(vm_ptr, activity_ptr) };
         match result {
-            Ok(insets) if insets == self.tree.safe_area => {}
+            Ok(insets) if insets == self.win.tree.safe_area => {}
             Ok(insets) => {
                 log::info!(
                     "безопасная область: слева {:.0}, сверху {:.0}, справа {:.0}, снизу {:.0} \
@@ -57,11 +57,11 @@ impl AppHandler {
                     insets.bottom,
                     self.effective_scale_factor()
                 );
-                self.tree.safe_area = insets;
+                self.win.tree.safe_area = insets;
             }
             Err(e) => {
                 log::warn!("Failed to query safe area via JNI: {}, using defaults", e);
-                self.tree.safe_area = EdgeInsets::new(0.0, 24.0, 0.0, 48.0);
+                self.win.tree.safe_area = EdgeInsets::new(0.0, 24.0, 0.0, 48.0);
             }
         }
     }
@@ -287,10 +287,12 @@ impl AppHandler {
         // После смены полноэкранного режима панели прячутся асинхронно, а размер окна
         // не меняется — безопасную область переспрашиваем, пока режим устанавливается.
         if crate::platform::android::safe_area_recheck() {
-            let before = self.tree.safe_area;
+            let before = self.win.tree.safe_area;
             self.update_safe_area();
-            if self.tree.safe_area != before {
-                self.tree.mark_all_dirty(crate::widget::DirtyFlags::LAYOUT);
+            if self.win.tree.safe_area != before {
+                self.win
+                    .tree
+                    .mark_all_dirty(crate::widget::DirtyFlags::LAYOUT);
             }
             crate::signal::request_redraw();
         }
@@ -309,13 +311,13 @@ impl AppHandler {
             self.keyboard_shown = false;
             self.composing_len = 0;
             self.hide_keyboard_jni();
-            if let Some(old_id) = self.focus_manager.current_focus() {
-                self.tree.dispatch_event_to(old_id, &Event::FocusLost);
-                self.focus_manager.clear_focus();
-                self.tree.focused_element = None;
+            if let Some(old_id) = self.win.focus_manager.current_focus() {
+                self.win.tree.dispatch_event_to(old_id, &Event::FocusLost);
+                self.win.focus_manager.clear_focus();
+                self.win.tree.focused_element = None;
             }
             self.process_virtual_keyboard_request();
-            if let Some(ref window) = self.window {
+            if let Some(ref window) = self.win.window {
                 crate::perf::redraw_from(file!(), line!());
                 window.request_redraw();
             }
@@ -324,11 +326,17 @@ impl AppHandler {
 
         let back_event = Event::BackPressed;
         let handled = self
+            .win
             .root_id
-            .map(|root_id| self.tree.handle_event(root_id, &back_event).is_handled())
+            .map(|root_id| {
+                self.win
+                    .tree
+                    .handle_event(root_id, &back_event)
+                    .is_handled()
+            })
             .unwrap_or(false);
         if handled {
-            if let Some(ref window) = self.window {
+            if let Some(ref window) = self.win.window {
                 crate::perf::redraw_from(file!(), line!());
                 window.request_redraw();
             }
@@ -624,7 +632,7 @@ impl AppHandler {
         let cls: jni::objects::JClass =
             unsafe { jni::objects::JObject::from_raw(ptr as jni::sys::jobject).into() };
 
-        let root_id = self.root_id;
+        let root_id = self.win.root_id;
         let mut had_events = false;
 
         loop {
@@ -650,27 +658,30 @@ impl AppHandler {
 
             if let Some(text) = event_str.strip_prefix("C:") {
                 for _ in 0..self.composing_len {
-                    self.tree
+                    self.win
+                        .tree
                         .handle_event(root_id, &Event::KeyDown(crate::input::Key::Backspace));
                 }
                 self.composing_len = 0;
                 for ch in text.chars() {
-                    self.tree.handle_event(root_id, &Event::CharInput(ch));
+                    self.win.tree.handle_event(root_id, &Event::CharInput(ch));
                 }
             } else if let Some(text) = event_str.strip_prefix("S:") {
                 for _ in 0..self.composing_len {
-                    self.tree
+                    self.win
+                        .tree
                         .handle_event(root_id, &Event::KeyDown(crate::input::Key::Backspace));
                 }
                 self.composing_len = text.chars().count();
                 for ch in text.chars() {
-                    self.tree.handle_event(root_id, &Event::CharInput(ch));
+                    self.win.tree.handle_event(root_id, &Event::CharInput(ch));
                 }
             } else if event_str.starts_with("F:") {
                 self.composing_len = 0;
             } else if event_str.starts_with("R:") {
                 for _ in 0..self.composing_len {
-                    self.tree
+                    self.win
+                        .tree
                         .handle_event(root_id, &Event::KeyDown(crate::input::Key::Backspace));
                 }
                 self.composing_len = 0;
@@ -685,15 +696,18 @@ impl AppHandler {
                     .and_then(|s| s.parse::<usize>().ok())
                     .unwrap_or(0);
                 for _ in 0..before {
-                    self.tree
+                    self.win
+                        .tree
                         .handle_event(root_id, &Event::KeyDown(crate::input::Key::Backspace));
                 }
                 for _ in 0..after {
-                    self.tree
+                    self.win
+                        .tree
                         .handle_event(root_id, &Event::KeyDown(crate::input::Key::Delete));
                 }
             } else if event_str == "K:enter" {
-                self.tree
+                self.win
+                    .tree
                     .handle_event(root_id, &Event::KeyDown(crate::input::Key::Enter));
             } else if let Some(params) = event_str.strip_prefix("W:") {
                 // Колесо мыши (WheelCallback в SynGuiInputHandler.java):
@@ -706,10 +720,10 @@ impl AppHandler {
                     .collect();
                 log::debug!("android: колесо мыши {params}");
                 if v.len() == 4 {
-                    let sf = self.scale_factor as f32;
+                    let sf = self.win.scale_factor as f32;
                     let position = crate::core::Point::new(v[0] / sf, v[1] / sf);
-                    self.cursor_position = position;
-                    self.tree.handle_event(
+                    self.win.cursor_position = position;
+                    self.win.tree.handle_event(
                         root_id,
                         &Event::MouseWheel {
                             delta: v[2] * 40.0,
@@ -724,7 +738,7 @@ impl AppHandler {
         std::mem::forget(vm);
 
         if had_events {
-            if let Some(ref window) = self.window {
+            if let Some(ref window) = self.win.window {
                 crate::perf::redraw_from(file!(), line!());
                 window.request_redraw();
             }
@@ -853,10 +867,11 @@ impl AppHandler {
     #[cfg(target_arch = "wasm32")]
     fn focused_element_rect(&self) -> Option<crate::core::Rect> {
         let id = self
+            .win
             .focus_manager
             .current_focus()
-            .or(self.tree.focused_element)?;
-        self.tree.get(id).map(|el| el.bounds())
+            .or(self.win.tree.focused_element)?;
+        self.win.tree.get(id).map(|el| el.bounds())
     }
 
     /// Веб: положение агента ввода следует за фокусным полем (скролл,
@@ -878,17 +893,17 @@ impl AppHandler {
     pub(in crate::app) fn dismiss_web_keyboard(&mut self) {
         use crate::input::Event;
 
-        if let Some(old_id) = self.focus_manager.current_focus() {
-            if self.tree.elements.contains_key(&old_id) {
-                self.tree.dispatch_event_to(old_id, &Event::FocusLost);
+        if let Some(old_id) = self.win.focus_manager.current_focus() {
+            if self.win.tree.elements.contains_key(&old_id) {
+                self.win.tree.dispatch_event_to(old_id, &Event::FocusLost);
             }
-            self.focus_manager.clear_focus();
-            self.tree.focused_element = None;
-            self.a11y_dirty = true;
+            self.win.focus_manager.clear_focus();
+            self.win.tree.focused_element = None;
+            self.win.a11y_dirty = true;
         }
-        self.tree.virtual_keyboard_request = Some(false);
+        self.win.tree.virtual_keyboard_request = Some(false);
         self.process_virtual_keyboard_request();
-        if let Some(ref window) = self.window {
+        if let Some(ref window) = self.win.window {
             crate::perf::redraw_from(file!(), line!());
             window.request_redraw();
         }
@@ -898,9 +913,10 @@ impl AppHandler {
     #[cfg(any(target_os = "android", target_arch = "wasm32"))]
     pub(in crate::app) fn arm_keyboard_reveal(&mut self) {
         self.keyboard_reveal = self
+            .win
             .focus_manager
             .current_focus()
-            .or(self.tree.focused_element)
+            .or(self.win.tree.focused_element)
             .map(|element| super::KeyboardReveal {
                 element,
                 scrolled: false,
@@ -918,29 +934,29 @@ impl AppHandler {
         let Some(mut reveal) = self.keyboard_reveal else {
             return false;
         };
-        if !self.tree.elements.contains_key(&reveal.element) {
+        if !self.win.tree.elements.contains_key(&reveal.element) {
             self.keyboard_reveal = None;
             return false;
         }
         if !reveal.scrolled {
             reveal.scrolled = true;
             self.keyboard_reveal = Some(reveal);
-            self.tree.ensure_element_visible(reveal.element);
+            self.win.tree.ensure_element_visible(reveal.element);
             return true;
         }
         self.keyboard_reveal = None;
         // Экранные координаты: у поля внутри ScrollView `bounds()` — в координатах
         // содержимого, без прокрутки; с ними сдвиг выходил на сотни точек и
         // уводил весь экран вверх, за край (поле «Приготовление» в редакторе).
-        let Some(rect) = self.tree.on_screen_bounds(reveal.element) else {
+        let Some(rect) = self.win.tree.on_screen_bounds(reveal.element) else {
             return false;
         };
         const MARGIN: f32 = 20.0;
         // Видимая область в абсолютных координатах: позиции элементов уже
         // учитывают текущий сдвиг, край экрана — нет.
-        let top = self.tree.safe_area.top;
+        let top = self.win.tree.safe_area.top;
         let bottom = top + visible_h;
-        let current = self.tree.keyboard_pan;
+        let current = self.win.tree.keyboard_pan;
         let mut pan = current;
         let overflow = rect.origin.y + rect.size.height + MARGIN - bottom;
         if overflow > 0.0 {
@@ -956,7 +972,7 @@ impl AppHandler {
         }
         pan = pan.max(0.0);
         if (pan - current).abs() > 0.5 {
-            self.tree.keyboard_pan = pan;
+            self.win.tree.keyboard_pan = pan;
             return true;
         }
         false
@@ -965,8 +981,8 @@ impl AppHandler {
     /// Снимает сдвиг содержимого; true, если он был.
     #[cfg(any(target_os = "android", target_arch = "wasm32"))]
     pub(in crate::app) fn reset_keyboard_pan(&mut self) -> bool {
-        if self.tree.keyboard_pan != 0.0 {
-            self.tree.keyboard_pan = 0.0;
+        if self.win.tree.keyboard_pan != 0.0 {
+            self.win.tree.keyboard_pan = 0.0;
             true
         } else {
             false
@@ -974,16 +990,16 @@ impl AppHandler {
     }
 
     pub(in crate::app) fn process_virtual_keyboard_request(&mut self) {
-        if let Some(_show) = self.tree.virtual_keyboard_request.take() {
+        if let Some(_show) = self.win.tree.virtual_keyboard_request.take() {
             #[cfg(target_arch = "wasm32")]
             {
                 if _show {
-                    let text = self.tree.focused_text_content.take();
+                    let text = self.win.tree.focused_text_content.take();
                     let rect = self.focused_element_rect();
                     crate::app::web_text_agent::show(
                         text.as_deref(),
-                        self.tree.keyboard_numeric,
-                        self.tree.keyboard_secret,
+                        self.win.tree.keyboard_numeric,
+                        self.win.tree.keyboard_secret,
                         rect,
                     );
                     // Когда клавиатура сожмёт viewport, поле покажется над
@@ -998,9 +1014,9 @@ impl AppHandler {
             #[cfg(target_os = "android")]
             {
                 if _show {
-                    self.set_input_numeric_jni(self.tree.keyboard_numeric);
+                    self.set_input_numeric_jni(self.win.tree.keyboard_numeric);
                     self.composing_len = 0;
-                    if let Some(text) = self.tree.focused_text_content.take() {
+                    if let Some(text) = self.win.tree.focused_text_content.take() {
                         self.set_input_text_jni(&text);
                     }
                     self.arm_keyboard_reveal();
@@ -1094,7 +1110,7 @@ impl AppHandler {
         };
         let vm_ptr = android_app.vm_as_ptr();
         let activity_ptr = android_app.activity_as_ptr();
-        let sf = self.scale_factor as f32;
+        let sf = self.win.scale_factor as f32;
 
         match unsafe { Self::get_keyboard_height_jni(vm_ptr, activity_ptr, sf) } {
             Ok(h) => h,

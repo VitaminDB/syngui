@@ -51,7 +51,7 @@ impl AppHandler {
     /// схему приносит портал.
     #[cfg(not(target_os = "linux"))]
     fn window_color_scheme(&self) -> Option<ColorScheme> {
-        let theme = self.window.as_ref()?.winit_window().theme()?;
+        let theme = self.win.window.as_ref()?.winit_window().theme()?;
         Some(match theme {
             winit::window::Theme::Dark => ColorScheme::Dark,
             winit::window::Theme::Light => ColorScheme::Light,
@@ -69,7 +69,7 @@ impl AppHandler {
         let Some(signal) = self.config.backdrop else {
             return;
         };
-        let Some(window) = self.window.clone() else {
+        let Some(window) = self.win.window.clone() else {
             return;
         };
         crate::signal::create_effect(move || {
@@ -84,12 +84,17 @@ impl AppHandler {
     /// размера, переустанавливает его. Вызывается из `sync_window_flags`, то
     /// есть на каждый resize, maximize и смену фокуса.
     pub(in crate::app) fn sync_window_state(&mut self, state: WindowState) {
-        if let Some(signal) = self.config.window_state {
+        // Сигнал активного окна: у главного — `with_window_state`, у
+        // дополнительного — `WindowConfig::with_window_state` или
+        // `WindowHandle::state`.
+        if let Some(signal) = crate::app::window_handle::state_signal(self.win.handle) {
             if signal.get_untracked() != state {
                 signal.set(state);
             }
         }
-        self.refresh_backdrop();
+        if self.win.is_main() {
+            self.refresh_backdrop();
+        }
     }
 
     /// Регион эффекта задан в координатах поверхности, поэтому после resize его
@@ -99,7 +104,7 @@ impl AppHandler {
         let Some(signal) = self.config.backdrop else {
             return;
         };
-        let Some(window) = self.window.clone() else {
+        let Some(window) = self.win.window.clone() else {
             return;
         };
         let config = signal.get_untracked();

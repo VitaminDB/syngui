@@ -14,6 +14,7 @@ mod splash;
 pub(crate) mod single_instance;
 pub mod tray;
 pub mod user_event;
+pub(crate) mod window_handle;
 #[cfg(all(feature = "wayland-dnd", target_os = "linux"))]
 pub(crate) mod wayland_dnd;
 #[cfg(all(feature = "pen", target_os = "linux"))]
@@ -34,6 +35,7 @@ pub(crate) mod web_keys;
 pub(crate) mod web_text_agent;
 
 pub use builder::{AppBuilder, WindowConfig};
+pub use window_handle::{close_window, current_window, open_window, open_windows, WindowHandle};
 
 #[cfg(all(not(target_arch = "wasm32"), not(target_os = "android")))]
 static CONTROL_PROXY: std::sync::Mutex<

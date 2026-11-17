@@ -23,13 +23,13 @@ pub(in crate::app) fn parse_theme_bg(ss: &crate::mss::StyleSheet) -> Option<crat
 
 impl AppHandler {
     pub(in crate::app) fn update_cursor(&mut self) {
-        let new_cursor = self.tree.cursor_request.unwrap_or(CursorIcon::Default);
-        if new_cursor != self.current_cursor {
-            self.current_cursor = new_cursor;
-            self.custom_cursor_applied = None;
+        let new_cursor = self.win.tree.cursor_request.unwrap_or(CursorIcon::Default);
+        if new_cursor != self.win.current_cursor {
+            self.win.current_cursor = new_cursor;
+            self.win.custom_cursor_applied = None;
             // Свой указатель ставится в about_to_wait (нужен цикл событий winit).
             if !matches!(new_cursor, CursorIcon::Custom(_)) {
-                if let Some(window) = &self.window {
+                if let Some(window) = &self.win.window {
                     window.set_cursor_icon(Self::map_cursor_icon(new_cursor));
                 }
             }
@@ -41,20 +41,22 @@ impl AppHandler {
         &mut self,
         event_loop: &winit::event_loop::ActiveEventLoop,
     ) {
-        let CursorIcon::Custom(id) = self.current_cursor else {
+        let CursorIcon::Custom(id) = self.win.current_cursor else {
             return;
         };
-        let Some(window) = &self.window else { return };
+        let Some(window) = &self.win.window else {
+            return;
+        };
         let (generation, image) = crate::input::events::custom_cursors()
             .lock()
             .unwrap()
             .get(&id)
             .cloned()
             .unwrap_or((0, None));
-        if self.custom_cursor_applied == Some((id, generation)) {
+        if self.win.custom_cursor_applied == Some((id, generation)) {
             return;
         }
-        self.custom_cursor_applied = Some((id, generation));
+        self.win.custom_cursor_applied = Some((id, generation));
         let Some(img) = image else {
             window.set_cursor_icon(None);
             return;
@@ -78,15 +80,16 @@ impl AppHandler {
 
     pub(in crate::app) fn update_focus_from_click(&mut self, pos: Point) {
         let old_focus = self
+            .win
             .focus_manager
             .current_focus()
-            .or(self.tree.focused_element);
+            .or(self.win.tree.focused_element);
 
-        if let Some(root_id) = self.root_id {
+        if let Some(root_id) = self.win.root_id {
             let mut new_focus = None;
             let mut in_nonmodal_overlay = false;
-            self.tree.refresh_overlay_bounds();
-            for entry in self.tree.overlay_stack.iter().rev() {
+            self.win.tree.refresh_overlay_bounds();
+            for entry in self.win.tree.overlay_stack.iter().rev() {
                 if entry.modal {
                     new_focus = self.find_text_input_at(entry.element_id, pos);
                     break;
@@ -113,7 +116,7 @@ impl AppHandler {
                 // закрыть кнопкой «назад», браузер об этом не сообщил.
                 #[cfg(target_arch = "wasm32")]
                 {
-                    self.tree.virtual_keyboard_request = Some(true);
+                    self.win.tree.virtual_keyboard_request = Some(true);
                     self.process_virtual_keyboard_request();
                 }
                 return;
@@ -121,26 +124,30 @@ impl AppHandler {
 
             if let Some(old_id) = old_focus {
                 if Some(old_id) != new_focus {
-                    self.tree.dispatch_event_to(old_id, &Event::FocusLost);
+                    self.win.tree.dispatch_event_to(old_id, &Event::FocusLost);
                 }
             }
 
             if let Some(element_id) = new_focus {
-                if !self.focus_manager.set_focus(element_id) {
-                    self.focus_manager.rebuild_tab_order(&self.tree, root_id);
-                    self.focus_manager.set_focus(element_id);
+                if !self.win.focus_manager.set_focus(element_id) {
+                    self.win
+                        .focus_manager
+                        .rebuild_tab_order(&self.win.tree, root_id);
+                    self.win.focus_manager.set_focus(element_id);
                 }
-                self.tree.focused_element = Some(element_id);
-                self.tree.dispatch_event_to(element_id, &Event::FocusGained);
-                self.a11y_tree.update_focus(element_id);
+                self.win.tree.focused_element = Some(element_id);
+                self.win
+                    .tree
+                    .dispatch_event_to(element_id, &Event::FocusGained);
+                self.win.a11y_tree.update_focus(element_id);
 
                 self.process_virtual_keyboard_request();
             } else {
-                self.focus_manager.clear_focus();
-                self.tree.focused_element = None;
+                self.win.focus_manager.clear_focus();
+                self.win.tree.focused_element = None;
                 self.process_virtual_keyboard_request();
             }
-            self.a11y_dirty = true;
+            self.win.a11y_dirty = true;
         }
     }
 
@@ -150,28 +157,30 @@ impl AppHandler {
     /// чтобы отработали побочные эффекты фокуса: запрос экранной клавиатуры
     /// Android, подсказка буфера обмена, a11y.
     pub(in crate::app) fn process_pending_autofocus(&mut self, root_id: crate::widget::ElementId) {
-        let Some(id) = self.tree.pending_autofocus.take() else {
+        let Some(id) = self.win.tree.pending_autofocus.take() else {
             return;
         };
-        if !self.tree.elements.contains_key(&id) {
+        if !self.win.tree.elements.contains_key(&id) {
             return;
         }
-        let old_focus = self.focus_manager.current_focus();
+        let old_focus = self.win.focus_manager.current_focus();
         if old_focus != Some(id) {
             if let Some(old_id) = old_focus {
-                if self.tree.elements.contains_key(&old_id) {
-                    self.tree.dispatch_event_to(old_id, &Event::FocusLost);
+                if self.win.tree.elements.contains_key(&old_id) {
+                    self.win.tree.dispatch_event_to(old_id, &Event::FocusLost);
                 }
             }
-            if !self.focus_manager.set_focus(id) {
-                self.focus_manager.rebuild_tab_order(&self.tree, root_id);
-                self.focus_manager.set_focus(id);
+            if !self.win.focus_manager.set_focus(id) {
+                self.win
+                    .focus_manager
+                    .rebuild_tab_order(&self.win.tree, root_id);
+                self.win.focus_manager.set_focus(id);
             }
         }
-        self.tree.focused_element = Some(id);
-        self.tree.dispatch_event_to(id, &Event::FocusGained);
-        self.a11y_tree.update_focus(id);
-        self.a11y_dirty = true;
+        self.win.tree.focused_element = Some(id);
+        self.win.tree.dispatch_event_to(id, &Event::FocusGained);
+        self.win.a11y_tree.update_focus(id);
+        self.win.a11y_dirty = true;
         self.process_virtual_keyboard_request();
     }
 
@@ -180,7 +189,7 @@ impl AppHandler {
         element_id: crate::widget::ElementId,
         pos: Point,
     ) -> Option<crate::widget::ElementId> {
-        let node = self.tree.elements.get(&element_id)?;
+        let node = self.win.tree.elements.get(&element_id)?;
         if !node.element.is_visible() {
             return None;
         }
@@ -236,7 +245,7 @@ impl AppHandler {
         element_id: crate::widget::ElementId,
         pos: Point,
     ) -> Option<crate::widget::ElementId> {
-        let node = self.tree.elements.get(&element_id)?;
+        let node = self.win.tree.elements.get(&element_id)?;
         if !node.element.is_visible() {
             return None;
         }
@@ -285,6 +294,7 @@ impl AppHandler {
     /// сведений — 60 Гц.
     fn frame_period(&self) -> std::time::Duration {
         let mhz = self
+            .win
             .window
             .as_ref()
             .and_then(|w| w.winit_window().current_monitor())
@@ -297,9 +307,9 @@ impl AppHandler {
     pub(in crate::app) fn render(&mut self) {
         // Кадр может применить стили или собрать новые элементы — то и другое
         // способно запустить анимацию; взводим обход в следующем update().
-        self.tree.animations_armed = true;
-        self.last_render_at = Instant::now();
-        self.last_frame_skipped = false;
+        self.win.tree.animations_armed = true;
+        self.win.last_render_at = Instant::now();
+        self.win.last_frame_skipped = false;
 
         #[cfg(target_arch = "wasm32")]
         if self.gpu.is_none() {
@@ -321,7 +331,7 @@ impl AppHandler {
             }
         }
 
-        if !self.surface_valid {
+        if !self.win.surface_valid {
             return;
         }
 
@@ -329,17 +339,19 @@ impl AppHandler {
         // дальше по функции layout уже считается по новому scale_factor.
         #[cfg(target_os = "android")]
         self.apply_window_frame_rate();
-        if crate::scale::take_design_dirty() {
+        // Дизайнерское разрешение — по главному окну; масштаб — в каждом
+        // окне при его кадре (флаг снимает главное).
+        if self.win.is_main() && crate::scale::take_design_dirty() {
             self.apply_design_scale();
         }
-        if crate::scale::take_ui_scale_dirty() {
+        if !self.win.is_main() || crate::scale::take_ui_scale_dirty() {
             self.apply_ui_scale();
         }
 
         #[cfg(target_arch = "wasm32")]
         {
             let mut font_changed = false;
-            if let Some(renderer) = self.renderer.as_mut() {
+            if let Some(renderer) = self.win.renderer.as_mut() {
                 if let Some(font_data) = self.pending_font.borrow_mut().take() {
                     renderer
                         .font_atlas
@@ -371,6 +383,7 @@ impl AppHandler {
             }
             let all_fonts_ready = {
                 let atlas = self
+                    .win
                     .renderer
                     .as_ref()
                     .unwrap()
@@ -385,36 +398,38 @@ impl AppHandler {
             if !all_fonts_ready {
                 return;
             }
-            if self.root_id.is_none() {
+            if self.win.root_id.is_none() {
                 {
                     let mut ctx = crate::widget::BuildContext::root();
                     let widget = (self.root_factory)(&mut ctx);
                     web_sys::console::log_1(&"[syngui] Building widget tree with font...".into());
                     let element = widget.create_element();
                     let type_id = widget.as_any().type_id();
-                    let root_id = self.tree.insert_with_type_id(element, None, type_id);
-                    widget.mount(&mut self.tree, root_id);
-                    self.root_id = Some(root_id);
+                    let root_id = self.win.tree.insert_with_type_id(element, None, type_id);
+                    widget.mount(&mut self.win.tree, root_id);
+                    self.win.root_id = Some(root_id);
                     self.apply_styles(root_id);
-                    let logical_w = (self.config.width as f64 / self.scale_factor) as f32;
-                    let logical_h = (self.config.height as f64 / self.scale_factor) as f32;
+                    let logical_w = (self.win.width as f64 / self.win.scale_factor) as f32;
+                    let logical_h = (self.win.height as f64 / self.win.scale_factor) as f32;
                     let safe = self.layout_insets();
                     let layout_h = (logical_h - safe.top - safe.bottom).max(0.0);
-                    self.tree.root_offset =
-                        crate::core::Point::new(safe.left, safe.top - self.tree.keyboard_pan);
+                    self.win.tree.root_offset =
+                        crate::core::Point::new(safe.left, safe.top - self.win.tree.keyboard_pan);
                     let constraints = crate::layout::Constraints::new(
                         0.0,
                         logical_w - safe.left - safe.right,
                         0.0,
                         layout_h,
                     );
-                    self.tree.layout(root_id, constraints);
-                    self.a11y_tree.sync(&self.tree, root_id);
-                    self.focus_manager.rebuild_tab_order(&self.tree, root_id);
+                    self.win.tree.layout(root_id, constraints);
+                    self.win.a11y_tree.sync(&self.win.tree, root_id);
+                    self.win
+                        .focus_manager
+                        .rebuild_tab_order(&self.win.tree, root_id);
                     web_sys::console::log_1(
                         &format!(
                             "[syngui] Widget tree built: {} elements",
-                            self.tree.elements.len()
+                            self.win.tree.elements.len()
                         )
                         .into(),
                     );
@@ -422,14 +437,15 @@ impl AppHandler {
             }
         }
 
-        if self.config.width == 0 || self.config.height == 0 {
+        if self.win.width == 0 || self.win.height == 0 {
             return;
         }
 
         let t_rebuild = Instant::now();
-        if let Some(root_id) = self.root_id {
+        if let Some(root_id) = self.win.root_id {
             // `:focus-within` — фокус сменился: стили предков старого и нового.
             if self
+                .win
                 .tree
                 .sync_focus_within(crate::mss::cascade::uses_focus_within(&self.style_engine))
             {
@@ -437,7 +453,7 @@ impl AppHandler {
             }
             let mut any_rebuilt = false;
             for _ in 0..8 {
-                if !self.tree.rebuild_if_needed(root_id) {
+                if !self.win.tree.rebuild_if_needed(root_id) {
                     break;
                 }
                 any_rebuilt = true;
@@ -447,7 +463,7 @@ impl AppHandler {
                 // Полный перемер после rebuild не нужен: изменившиеся элементы
                 // теряют кэш измерений, а scroll-culling проверяет хэш
                 // ограничений (см. scroll_estimate).
-                self.a11y_dirty = true;
+                self.win.a11y_dirty = true;
             }
             self.process_pending_autofocus(root_id);
         }
@@ -471,9 +487,9 @@ impl AppHandler {
         }
 
         let layout_elapsed;
-        if let Some(root_id) = self.root_id {
-            let logical_w = (self.config.width as f64 / self.scale_factor) as f32;
-            let logical_h = (self.config.height as f64 / self.scale_factor) as f32;
+        if let Some(root_id) = self.win.root_id {
+            let logical_w = (self.win.width as f64 / self.win.scale_factor) as f32;
+            let logical_h = (self.win.height as f64 / self.win.scale_factor) as f32;
             let safe = self.layout_insets();
             #[cfg(target_os = "android")]
             let keyboard_h = self.keyboard_height;
@@ -481,26 +497,26 @@ impl AppHandler {
             let keyboard_h = 0.0f32;
             let layout_h = (logical_h - safe.top - safe.bottom - keyboard_h).max(0.0);
             let layout_w = logical_w - safe.left - safe.right;
-            self.tree.root_offset =
-                crate::core::Point::new(safe.left, safe.top - self.tree.keyboard_pan);
+            self.win.tree.root_offset =
+                crate::core::Point::new(safe.left, safe.top - self.win.tree.keyboard_pan);
             // Публикация размера вьюпорта здесь покрывает пути без отдельного
             // Resized-обработчика (wasm, Android): любой ресайз ведёт к redraw,
             // а set() дедуплицирует — подписчики будятся только при изменении.
             crate::viewport::publish(crate::core::Size::new(layout_w, layout_h));
-            crate::viewport::publish_origin(self.tree.root_offset);
+            crate::viewport::publish_origin(self.win.tree.root_offset);
             let constraints = crate::layout::Constraints::new(0.0, layout_w, 0.0, layout_h);
 
-            self.tree.set_pixel_snap_scale(0.0);
+            self.win.tree.set_pixel_snap_scale(0.0);
 
             let t_layout = Instant::now();
-            self.tree.layout(root_id, constraints);
+            self.win.tree.layout(root_id, constraints);
 
-            if self.tree.rebuild_if_needed(root_id) {
+            if self.win.tree.rebuild_if_needed(root_id) {
                 self.apply_styles(root_id);
-                self.tree.layout(root_id, constraints);
-                self.a11y_dirty = true;
+                self.win.tree.layout(root_id, constraints);
+                self.win.a11y_dirty = true;
             }
-            self.tree.force_full_measure = false;
+            self.win.tree.force_full_measure = false;
             layout_elapsed = t_layout.elapsed();
 
             #[cfg(target_arch = "wasm32")]
@@ -540,22 +556,24 @@ impl AppHandler {
                     closed && self.reset_keyboard_pan()
                 };
                 if changed {
-                    if let Some(window) = &self.window {
+                    if let Some(window) = &self.win.window {
                         crate::perf::redraw_from(file!(), line!());
                         window.request_redraw();
                     }
                 }
             }
 
-            if self.a11y_dirty {
-                self.a11y_tree.sync(&self.tree, root_id);
-                self.focus_manager.rebuild_tab_order(&self.tree, root_id);
-                self.a11y_dirty = false;
+            if self.win.a11y_dirty {
+                self.win.a11y_tree.sync(&self.win.tree, root_id);
+                self.win
+                    .focus_manager
+                    .rebuild_tab_order(&self.win.tree, root_id);
+                self.win.a11y_dirty = false;
 
                 #[cfg(feature = "accessibility")]
                 {
-                    if let Some(ref mut ak_adapter) = self.accesskit_adapter {
-                        if let Some(update) = self.a11y_tree.take_accesskit_update() {
+                    if let Some(ref mut ak_adapter) = self.win.accesskit_adapter {
+                        if let Some(update) = self.win.a11y_tree.take_accesskit_update() {
                             ak_adapter.update_if_active(|| update);
                         }
                     }
@@ -565,60 +583,67 @@ impl AppHandler {
             layout_elapsed = std::time::Duration::ZERO;
         }
 
-        if let (Some(root_id), Some(gpu), Some(renderer)) =
-            (self.root_id, self.gpu.as_ref(), self.renderer.as_mut())
-        {
-            let logical_w = (self.config.width as f64 / self.scale_factor) as f32;
-            let logical_h = (self.config.height as f64 / self.scale_factor) as f32;
+        if let (Some(root_id), Some(gpu), Some(renderer), Some(surface)) = (
+            self.win.root_id,
+            self.gpu.as_ref(),
+            self.win.renderer.as_mut(),
+            self.win.surface.as_ref(),
+        ) {
+            let logical_w = (self.win.width as f64 / self.win.scale_factor) as f32;
+            let logical_h = (self.win.height as f64 / self.win.scale_factor) as f32;
 
             let t_dl = Instant::now();
-            self.display_list.clear();
+            self.win.display_list.clear();
             let surface_size = Size::new(logical_w, logical_h);
-            self.display_list.set_surface_size(surface_size);
-            self.display_list.set_scale_factor(self.scale_factor as f32);
+            self.win.display_list.set_surface_size(surface_size);
+            self.win
+                .display_list
+                .set_scale_factor(self.win.scale_factor as f32);
             let clip = Rect::new(Point::zero(), surface_size);
-            self.tree
-                .build_display_list(root_id, &mut self.display_list, clip);
-            self.tree.build_drag_overlay(&mut self.display_list);
+            self.win
+                .tree
+                .build_display_list(root_id, &mut self.win.display_list, clip);
+            self.win.tree.build_drag_overlay(&mut self.win.display_list);
             let dl_elapsed = t_dl.elapsed();
 
             // Окно кандидатов IME (fcitx/ibus) — у каретки поля в фокусе.
             // Каретку элементы запоминают при отрисовке, поэтому после неё.
             let ime_area = self
+                .win
                 .tree
                 .focused_element
-                .and_then(|id| self.tree.elements.get(&id))
+                .and_then(|id| self.win.tree.elements.get(&id))
                 .and_then(|n| n.element.ime_cursor_area());
             // Поле ввода получило или потеряло фокус — включить/выключить IME
             // (на телефоне это показывает/прячет экранную клавиатуру).
             #[cfg(not(any(target_os = "android", target_arch = "wasm32")))]
-            if ime_area.is_some() != self.ime_allowed {
-                self.ime_allowed = ime_area.is_some();
-                if let Some(window) = &self.window {
-                    window.winit_window().set_ime_allowed(self.ime_allowed);
+            if ime_area.is_some() != self.win.ime_allowed {
+                self.win.ime_allowed = ime_area.is_some();
+                if let Some(window) = &self.win.window {
+                    window.winit_window().set_ime_allowed(self.win.ime_allowed);
                 }
             }
-            if ime_area.is_some() && ime_area != self.last_ime_area {
-                if let (Some(window), Some(rect)) = (&self.window, ime_area) {
+            if ime_area.is_some() && ime_area != self.win.last_ime_area {
+                if let (Some(window), Some(rect)) = (&self.win.window, ime_area) {
                     window.set_ime_cursor_area(rect);
                 }
             }
-            self.last_ime_area = ime_area;
+            self.win.last_ime_area = ime_area;
 
-            if let Some(ref debug) = self.debug_overlay {
-                debug.build_display_list(&mut self.display_list);
+            if let Some(ref debug) = self.win.debug_overlay {
+                debug.build_display_list(&mut self.win.display_list);
             }
             #[cfg(not(target_os = "android"))]
-            super::super::back_exit::draw(&mut self.display_list);
+            super::super::back_exit::draw(&mut self.win.display_list);
 
-            if let Some(ref mut devtools) = self.devtools {
+            if let Some(ref mut devtools) = self.win.devtools {
                 if devtools.is_enabled() {
                     if devtools.expanded_nodes_count() == 0 {
-                        devtools.auto_expand(&self.tree, 4);
+                        devtools.auto_expand(&self.win.tree, 4);
                     }
                     devtools.build_display_list(
-                        &mut self.display_list,
-                        &self.tree,
+                        &mut self.win.display_list,
+                        &self.win.tree,
                         &self.style_engine,
                     );
                 }
@@ -626,12 +651,12 @@ impl AppHandler {
 
             // Тот же кадр, что уже на экране: не рисуем. Отладочные оверлеи
             // живут своим временем — с ними подпись не берём.
-            let overlays_on = self.debug_overlay.is_some()
-                || self.devtools.as_ref().is_some_and(|d| d.is_enabled());
+            let overlays_on = self.win.debug_overlay.is_some()
+                || self.win.devtools.as_ref().is_some_and(|d| d.is_enabled());
             let sig = if overlays_on {
                 None
             } else {
-                self.display_list.frame_signature()
+                self.win.display_list.frame_signature()
             };
             let images_busy = {
                 let mut st = renderer
@@ -647,11 +672,11 @@ impl AppHandler {
                 st.has_pending_uploads() || st.has_pending_frees()
             };
             if sig.is_some()
-                && sig == self.last_frame_sig
+                && sig == self.win.last_frame_sig
                 && !images_busy
                 && !crate::signal::take_force_frame()
             {
-                self.last_frame_skipped = true;
+                self.win.last_frame_skipped = true;
                 crate::perf::record_frame(
                     rebuild_elapsed,
                     layout_elapsed,
@@ -666,29 +691,29 @@ impl AppHandler {
 
             let t_render = Instant::now();
             let render_stats = renderer.render(
-                &gpu.shared,
-                &gpu.window_surface,
-                &self.display_list,
-                self.config.background_color,
+                gpu,
+                surface,
+                &self.win.display_list,
+                self.win.background_color,
             );
             let render_elapsed = t_render.elapsed();
             // Запоминаем только действительно показанный кадр: при ошибке
             // поверхности рендер ничего не рисует, и следующий такой же кадр
             // пропускать нельзя.
-            self.last_frame_sig = if render_stats.draw_calls > 0 {
+            self.win.last_frame_sig = if render_stats.draw_calls > 0 {
                 sig
             } else {
                 None
             };
 
             let font_stats = renderer.font_atlas_stats();
-            let dl_stats = self.display_list.stats();
+            let dl_stats = self.win.display_list.stats();
 
-            if let Some(ref mut debug) = self.debug_overlay {
+            if let Some(ref mut debug) = self.win.debug_overlay {
                 debug.update_stats(crate::debug::FrameStats {
                     draw_calls: render_stats.draw_calls,
                     vertex_count: render_stats.vertex_count,
-                    element_count: self.tree.elements.len(),
+                    element_count: self.win.tree.elements.len(),
                     font_atlas_glyphs: font_stats.glyph_count,
                     font_atlas_mem_kb: font_stats.total_bytes / 1024,
                     display_list_commands: dl_stats.command_count + dl_stats.overlay_command_count,
@@ -705,14 +730,14 @@ impl AppHandler {
                 dl_stats.command_count + dl_stats.overlay_command_count,
             );
 
-            if let Some(ref mut devtools) = self.devtools {
+            if let Some(ref mut devtools) = self.win.devtools {
                 if devtools.is_enabled() {
                     devtools.record_frame_timing(crate::devtools::FrameTiming {
                         layout_us: layout_elapsed.as_micros() as u64,
                         display_list_us: dl_elapsed.as_micros() as u64,
                         batch_render_us: render_elapsed.as_micros() as u64,
                         total_us: (layout_elapsed + dl_elapsed + render_elapsed).as_micros() as u64,
-                        element_count: self.tree.elements.len(),
+                        element_count: self.win.tree.elements.len(),
                         draw_calls: render_stats.draw_calls,
                         vertex_count: render_stats.vertex_count,
                         font_atlas_glyphs: font_stats.glyph_count,
@@ -725,6 +750,9 @@ impl AppHandler {
         }
     }
 
+    /// Тик цикла событий: общее для приложения (очередь главного потока,
+    /// смена темы), затем [`update_window`](Self::update_window) для каждого
+    /// окна.
     pub(in crate::app) fn update(&mut self) {
         crate::async_runtime::poll_main_thread_callbacks();
 
@@ -738,11 +766,12 @@ impl AppHandler {
 
         #[cfg(target_arch = "wasm32")]
         if crate::clipboard::take_refreshed() {
-            if let Some(focused) = self.tree.focused_element {
-                if self.tree.elements.contains_key(&focused) {
-                    self.tree
+            if let Some(focused) = self.win.tree.focused_element {
+                if self.win.tree.elements.contains_key(&focused) {
+                    self.win
+                        .tree
                         .dispatch_event_to(focused, &crate::input::Event::FocusGained);
-                    if let Some(window) = &self.window {
+                    if let Some(window) = &self.win.window {
                         crate::perf::redraw_from(file!(), line!());
                         window.request_redraw();
                     }
@@ -754,32 +783,66 @@ impl AppHandler {
         let dt = now - self.last_frame_time;
         self.last_frame_time = now;
 
-        if let Some(ref mut debug) = self.debug_overlay {
-            debug.record_frame(dt.as_secs_f32());
-        }
-
-        #[cfg(feature = "i18n")]
-        if let Some(renderer) = self.renderer.as_ref() {
-            let lang = crate::i18n::language();
-            let base = lang.base();
-            renderer
-                .font_atlas
-                .lock()
-                .unwrap()
-                .set_preferred_cjk(base == "ja", base == "ko");
-        }
-
         // Цвет системных панелей от приложения (`platform::set_system_bars`):
         // полосы под статус-баром и навигационной панелью — clear-color окна.
         #[cfg(any(target_os = "android", target_os = "ios"))]
         if let Some(bars) = crate::platform::take_system_bars_dirty() {
-            self.config.background_color = bars.color;
-            if let Some(window) = &self.window {
+            self.win.background_color = bars.color;
+            if let Some(window) = &self.win.window {
                 crate::perf::redraw_from(file!(), line!());
                 window.request_redraw();
             }
         }
 
+        let theme = self.update_theme();
+
+        #[cfg(target_os = "android")]
+        {
+            self.poll_input_handler();
+            self.poll_android_back();
+            // Пульс опроса IME-моста и кнопки «назад» вместо безусловного
+            // request_redraw: раньше приложение рендерило полный кадр на
+            // каждом vsync даже в простое. Теперь кадры рисуются только по
+            // грязным элементам/анимациям, а Java-мост опрашивается таймером
+            // без рендера. Тачи приходят событиями winit и в опросе не
+            // нуждаются.
+            let poll_pulse = std::time::Duration::from_millis(12);
+            self.wakeup_after = Some(match self.wakeup_after {
+                Some(d) => d.min(poll_pulse),
+                None => poll_pulse,
+            });
+            // Пока открыта экранная клавиатура, кадры продолжаются: layout
+            // подстраивается под её высоту (query в render), а высота меняется
+            // без событий — анимация IME.
+            if self.keyboard_shown {
+                crate::perf::incr(crate::perf::Counter::RedrawKeyboard);
+                if let Some(window) = &self.win.window {
+                    crate::perf::redraw_from(file!(), line!());
+                    window.request_redraw();
+                }
+            }
+        }
+
+        // Тик без кадра (см. crate::app::request_tick): обход анимаций
+        // продолжается во всех окнах, кадр — только если они пометят что-то
+        // грязным.
+        let tick = crate::app::take_tick_request();
+        if let Some(delay) = tick {
+            self.wakeup_after = Some(match self.wakeup_after {
+                Some(d) => d.min(delay),
+                None => delay,
+            });
+        }
+
+        self.for_each_window(|this| this.update_window(now, dt, theme, tick.is_some()));
+    }
+
+    /// Смена темы (`theme_state`) и живой таблицы стилей (`with_dynamic_theme`,
+    /// `with_live_styles`) — в общей таблице стилей приложения. `Some` —
+    /// стили сменились, окнам пересчитать каскад (внутри — фон новой темы
+    /// для clear-color непрозрачных окон).
+    fn update_theme(&mut self) -> Option<ThemeChange> {
+        let mut change: Option<ThemeChange> = None;
         if let Some(theme_state) = self.config.theme_state {
             let is_dark = theme_state.get_untracked();
             if is_dark != self.current_theme_is_dark {
@@ -793,13 +856,12 @@ impl AppHandler {
                 // Clear-color окна = фон темы: полоса статус-бара и непокрытые
                 // области больше не остаются дефолтным светлым фоном.
                 // Прозрачное окно (CSD) фон рисует само: углы за скруглением рамки остаются прозрачными.
-                if let Some(bg) = parse_theme_bg(&new_ss).filter(|_| !self.config.transparent) {
-                    self.config.background_color = bg;
-                }
+                #[allow(unused_mut)]
+                let mut bg = parse_theme_bg(&new_ss);
                 // Цвет панелей, заданный приложением, главнее фона темы.
                 #[cfg(any(target_os = "android", target_os = "ios"))]
                 if let Some(bars) = crate::platform::system_bars() {
-                    self.config.background_color = bars.color;
+                    bg = Some(bars.color);
                 }
                 self.style_engine.load_stylesheet(new_ss);
                 for additional in &self.config.additional_stylesheets {
@@ -814,22 +876,9 @@ impl AppHandler {
                     }
                 }
                 crate::signal::mark_all_reactive_dirty();
-                for node in self.tree.elements.values_mut() {
-                    node.styles_dirty = true;
-                }
-                if let Some(root_id) = self.root_id {
-                    let transition = self.config.theme_transition;
-                    crate::mss::cascade::with_theme_transition(transition, || {
-                        self.apply_styles(root_id)
-                    });
-                    self.tree.animations_armed = true;
-                }
                 #[cfg(target_os = "android")]
                 self.set_status_bar_light_icons(is_dark);
-                if let Some(window) = &self.window {
-                    crate::perf::redraw_from(file!(), line!());
-                    window.request_redraw();
-                }
+                change = Some(ThemeChange { bg });
             }
         }
 
@@ -902,25 +951,58 @@ impl AppHandler {
                     #[cfg(target_os = "android")]
                     self.set_status_bar_light_icons(is_dark);
                 }
+                let bg = change.and_then(|c| c.bg);
+                change = Some(ThemeChange { bg });
+            }
+        }
+        change
+    }
 
-                for node in self.tree.elements.values_mut() {
-                    node.styles_dirty = true;
-                }
-                if let Some(root_id) = self.root_id {
-                    let transition = self.config.theme_transition;
-                    crate::mss::cascade::with_theme_transition(transition, || {
-                        self.apply_styles(root_id)
-                    });
-                    self.tree.animations_armed = true;
-                }
-                if let Some(window) = &self.window {
-                    crate::perf::redraw_from(file!(), line!());
-                    window.request_redraw();
-                }
+    /// Тик активного окна: перекаскад после смены темы, картинки, анимации
+    /// (с темпом frame_limit), перерисовка по сигналам, отладочные оверлеи.
+    fn update_window(
+        &mut self,
+        now: Instant,
+        dt: std::time::Duration,
+        theme: Option<ThemeChange>,
+        tick: bool,
+    ) {
+        if let Some(ref mut debug) = self.win.debug_overlay {
+            debug.record_frame(dt.as_secs_f32());
+        }
+
+        #[cfg(feature = "i18n")]
+        if let Some(renderer) = self.win.renderer.as_ref() {
+            let lang = crate::i18n::language();
+            let base = lang.base();
+            renderer
+                .font_atlas
+                .lock()
+                .unwrap()
+                .set_preferred_cjk(base == "ja", base == "ko");
+        }
+
+        if let Some(theme) = theme {
+            if let Some(bg) = theme.bg.filter(|_| !self.win.transparent) {
+                self.win.background_color = bg;
+            }
+            for node in self.win.tree.elements.values_mut() {
+                node.styles_dirty = true;
+            }
+            if let Some(root_id) = self.win.root_id {
+                let transition = self.config.theme_transition;
+                crate::mss::cascade::with_theme_transition(transition, || {
+                    self.apply_styles(root_id)
+                });
+                self.win.tree.animations_armed = true;
+            }
+            if let Some(window) = &self.win.window {
+                crate::perf::redraw_from(file!(), line!());
+                window.request_redraw();
             }
         }
 
-        if let Some(ref image_store) = self.tree.image_store {
+        if let Some(ref image_store) = self.win.tree.image_store {
             let mut store = image_store.lock().unwrap_or_else(|e| e.into_inner());
             // Анимированные картинки: сменить кадр, если пора, и проснуться
             // к следующему.
@@ -930,34 +1012,7 @@ impl AppHandler {
             }
             if store.has_loading() || store.has_pending_uploads() {
                 crate::perf::incr(crate::perf::Counter::RedrawImages);
-                if let Some(window) = &self.window {
-                    crate::perf::redraw_from(file!(), line!());
-                    window.request_redraw();
-                }
-            }
-        }
-
-        #[cfg(target_os = "android")]
-        {
-            self.poll_input_handler();
-            self.poll_android_back();
-            // Пульс опроса IME-моста и кнопки «назад» вместо безусловного
-            // request_redraw: раньше приложение рендерило полный кадр на
-            // каждом vsync даже в простое. Теперь кадры рисуются только по
-            // грязным элементам/анимациям, а Java-мост опрашивается таймером
-            // без рендера. Тачи приходят событиями winit и в опросе не
-            // нуждаются.
-            let poll_pulse = std::time::Duration::from_millis(12);
-            self.wakeup_after = Some(match self.wakeup_after {
-                Some(d) => d.min(poll_pulse),
-                None => poll_pulse,
-            });
-            // Пока открыта экранная клавиатура, кадры продолжаются: layout
-            // подстраивается под её высоту (query в render), а высота меняется
-            // без событий — анимация IME.
-            if self.keyboard_shown {
-                crate::perf::incr(crate::perf::Counter::RedrawKeyboard);
-                if let Some(window) = &self.window {
+                if let Some(window) = &self.win.window {
                     crate::perf::redraw_from(file!(), line!());
                     window.request_redraw();
                 }
@@ -969,34 +1024,35 @@ impl AppHandler {
             true
         } else {
             let min_interval = std::time::Duration::from_secs_f32(1.0 / frame_limit as f32);
-            self.last_paced_redraw
+            self.win
+                .last_paced_redraw
                 .map_or(true, |t| now.duration_since(t) >= min_interval)
         };
 
-        if let Some(root_id) = self.root_id {
+        if let Some(root_id) = self.win.root_id {
             // Обход всех элементов — только пока «взведено» (см. animations_armed):
             // события, рендер и новые элементы взводят, пустой обход даёт отбой.
             // В простое update() не трогает дерево вовсе.
-            if self.tree.animations_armed {
+            if self.win.tree.animations_armed {
                 // Простой без кадров (окно в фоне, ожидание события) не должен
                 // проматывать анимацию целиком: переход в 160 мс при dt в
                 // несколько секунд завершался бы на первом же тике, а увидеть
                 // его было бы нечем.
                 let anim_dt = dt.min(std::time::Duration::from_millis(64));
-                if self.tree.animate(root_id, anim_dt) {
+                if self.win.tree.animate(root_id, anim_dt) {
                     crate::perf::incr(crate::perf::Counter::RedrawAnimate);
-                    if self.last_frame_skipped {
+                    if self.win.last_frame_skipped {
                         // Прошлый кадр не показан (не изменился) — vsync не
                         // задаёт темп; следующий — через период обновления.
-                        self.last_frame_skipped = false;
+                        self.win.last_frame_skipped = false;
                         let period = self.frame_period();
                         self.wakeup_after = Some(match self.wakeup_after {
                             Some(d) => d.min(period),
                             None => period,
                         });
                     } else if paced_allowed {
-                        self.last_paced_redraw = Some(now);
-                        if let Some(window) = &self.window {
+                        self.win.last_paced_redraw = Some(now);
+                        if let Some(window) = &self.win.window {
                             crate::perf::redraw_from(file!(), line!());
                             window.request_redraw();
                         }
@@ -1007,6 +1063,7 @@ impl AppHandler {
                         let min_interval =
                             std::time::Duration::from_secs_f32(1.0 / frame_limit as f32);
                         let elapsed = self
+                            .win
                             .last_paced_redraw
                             .map(|t| now.duration_since(t))
                             .unwrap_or(min_interval);
@@ -1019,23 +1076,24 @@ impl AppHandler {
                         });
                     }
                 } else {
-                    self.tree.animations_armed = false;
+                    self.win.tree.animations_armed = false;
                 }
             }
         }
-        // Тик без кадра (см. crate::app::request_tick): обход анимаций
-        // продолжается, кадр — только если они пометят что-то грязным.
-        if let Some(delay) = crate::app::take_tick_request() {
-            self.tree.animations_armed = true;
-            self.wakeup_after = Some(match self.wakeup_after {
-                Some(d) => d.min(delay),
-                None => delay,
-            });
+        if tick {
+            self.win.tree.animations_armed = true;
         }
 
-        if crate::signal::has_dirty_elements() {
+        // Грязные элементы сигналов — перерисовать окно, в дереве которого они
+        // есть: сигналы общие на все окна, а чужое окно их не снимет (и при
+        // свёрнутом окне-хозяине крутило бы кадры вхолостую).
+        if crate::signal::has_dirty_elements()
+            && crate::signal::dirty_element_ids()
+                .iter()
+                .any(|id| self.win.tree.elements.contains_key(id))
+        {
             crate::perf::incr(crate::perf::Counter::RedrawSignals);
-            if let Some(window) = &self.window {
+            if let Some(window) = &self.win.window {
                 crate::perf::redraw_from(file!(), line!());
                 window.request_redraw();
             }
@@ -1043,11 +1101,12 @@ impl AppHandler {
 
         // Подогрев GPU (см. AppBuilder::keep_warm_interval): пустой кадр,
         // если давно не рисовали; иначе — пробуждение к нужному моменту.
-        if let Some(interval) = self.config.keep_warm {
-            let since = self.last_render_at.elapsed();
+        // GPU общий — греет главное окно.
+        if let Some(interval) = self.config.keep_warm.filter(|_| self.win.is_main()) {
+            let since = self.win.last_render_at.elapsed();
             if since >= interval {
                 crate::perf::incr(crate::perf::Counter::RedrawKeepWarm);
-                if let Some(window) = &self.window {
+                if let Some(window) = &self.win.window {
                     crate::perf::redraw_from(file!(), line!());
                     window.request_redraw();
                 }
@@ -1060,15 +1119,22 @@ impl AppHandler {
             }
         }
 
-        let needs_continuous = self.debug_overlay.is_some()
-            || self.devtools.as_ref().map_or(false, |d| d.is_enabled())
-            || super::super::back_exit::active();
+        let needs_continuous = self.win.debug_overlay.is_some()
+            || self.win.devtools.as_ref().map_or(false, |d| d.is_enabled())
+            || (self.win.is_main() && super::super::back_exit::active());
         if needs_continuous && paced_allowed {
-            self.last_paced_redraw = Some(now);
-            if let Some(window) = &self.window {
+            self.win.last_paced_redraw = Some(now);
+            if let Some(window) = &self.win.window {
                 crate::perf::redraw_from(file!(), line!());
                 window.request_redraw();
             }
         }
     }
+}
+
+/// Смена таблицы стилей приложения за тик: окна пересчитывают каскад.
+#[derive(Clone, Copy)]
+struct ThemeChange {
+    /// Фон новой темы (`--bg`) — clear-color непрозрачных окон.
+    bg: Option<crate::core::Color>,
 }

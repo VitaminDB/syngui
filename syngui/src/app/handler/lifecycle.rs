@@ -1,5 +1,5 @@
 use super::AppHandler;
-use crate::gpu::{GpuContext, Renderer};
+use crate::gpu::{GpuContext, GpuShared, Renderer, WindowSurface};
 use crate::window::{Window, WindowBuilder};
 use std::sync::Arc;
 
@@ -67,8 +67,8 @@ impl AppHandler {
                 crate::app::web_text_agent::install(canvas);
             }
         }
-        self.system_scale_factor = window.scale_factor();
-        crate::scale::set_system_scale(self.system_scale_factor as f32);
+        self.win.system_scale_factor = window.scale_factor();
+        crate::scale::set_system_scale(self.win.system_scale_factor as f32);
         self.apply_design_scale();
         // Сбросить mSoftKeyboardActive у GameTextInput: пока он взведён,
         // InputConnection GameActivity перехватывает DPAD_LEFT/RIGHT пульта
@@ -77,9 +77,8 @@ impl AppHandler {
         if let Some(app) = self.android_app.as_ref() {
             app.hide_soft_input(true);
         }
-        self.scale_factor = self.effective_scale_factor();
-        self.main_window_id = Some(window.winit_window().id());
-        self.window = Some(window.clone());
+        self.win.scale_factor = self.effective_scale_factor();
+        self.win.window = Some(window.clone());
         self.main_window_visible = true;
         crate::app::MAIN_WINDOW_VISIBLE.store(true, std::sync::atomic::Ordering::Relaxed);
 
@@ -113,27 +112,30 @@ impl AppHandler {
                 SynGuiActionHandler(self.event_loop_proxy.clone()),
                 SynGuiDeactivationHandler(self.event_loop_proxy.clone()),
             );
-            self.accesskit_adapter = Some(ak_adapter);
+            self.win.accesskit_adapter = Some(ak_adapter);
             window.set_visible(true);
         }
 
         #[cfg(not(target_arch = "wasm32"))]
         {
-            let gpu = pollster::block_on(Self::create_gpu_async(
-                &window,
-                self.config.vsync,
-                self.config.gpu_backend,
-                self.config.gpu_power,
-                self.config.transparent,
-            ));
-            self.complete_gpu_init(gpu);
-
-            if !self.pending_windows.is_empty() {
-                let pending = std::mem::take(&mut self.pending_windows);
-                for (wc, build_fn) in pending {
-                    self.create_secondary_window(event_loop, wc, build_fn);
-                }
+            if let Some(gpu) = self.gpu.as_ref() {
+                // GPU пережил пересоздание главного окна (его держат
+                // дополнительные окна) — поверхность на нём же.
+                let surface =
+                    create_window_surface(gpu, &window, self.config.vsync, self.config.transparent);
+                self.complete_window_init(surface);
+            } else {
+                let gpu = pollster::block_on(Self::create_gpu_async(
+                    &window,
+                    self.config.vsync,
+                    self.config.gpu_backend,
+                    self.config.gpu_power,
+                    self.config.transparent,
+                ));
+                self.complete_gpu_init(gpu);
             }
+
+            self.create_pending_windows(event_loop);
         }
 
         #[cfg(target_arch = "wasm32")]
@@ -210,41 +212,41 @@ impl AppHandler {
     #[allow(dead_code)]
     pub(in crate::app) fn recreate_surface(&mut self) {
         let window = self
+            .win
             .window
             .as_ref()
             .expect("Window must exist for surface recreation");
-        if let Some(gpu) = self.gpu.as_mut() {
+        if let (Some(gpu), Some(surface)) = (self.gpu.as_ref(), self.win.surface.as_mut()) {
             let new_surface = gpu
-                .shared
                 .instance
                 .create_surface(window.clone())
                 .expect("Failed to recreate surface");
 
             let (w, h) = window.size();
-            gpu.window_surface.surface_config.width = w.max(1);
-            gpu.window_surface.surface_config.height = h.max(1);
-            new_surface.configure(&gpu.shared.device, &gpu.window_surface.surface_config);
-            gpu.window_surface.surface = new_surface;
+            surface.surface_config.width = w.max(1);
+            surface.surface_config.height = h.max(1);
+            new_surface.configure(&gpu.device, &surface.surface_config);
+            surface.surface = new_surface;
 
-            self.config.width = w.max(1);
-            self.config.height = h.max(1);
-            self.surface_valid = true;
+            self.win.width = w.max(1);
+            self.win.height = h.max(1);
+            self.win.surface_valid = true;
             // Новая поверхность пуста: кадр, совпадающий с последним
             // показанным, пропускать нельзя — иначе после возврата из фона
             // (Home → снова в приложение) экран остаётся чёрным, пока
             // что-нибудь не изменится.
-            self.last_frame_sig = None;
+            self.win.last_frame_sig = None;
         }
     }
 
     pub(in crate::app) fn drop_surface(&mut self) {
-        self.surface_valid = false;
+        self.win.surface_valid = false;
     }
 
     pub(in crate::app) fn process_window_drag_request(&mut self) {
-        if let Some(direction) = self.tree.window_resize_request.take() {
+        if let Some(direction) = self.win.tree.window_resize_request.take() {
             #[cfg(not(target_arch = "wasm32"))]
-            if let Some(window) = self.window.as_ref() {
+            if let Some(window) = self.win.window.as_ref() {
                 use crate::input::ResizeDirection as D;
                 use winit::window::ResizeDirection as W;
                 let direction = match direction {
@@ -271,12 +273,12 @@ impl AppHandler {
                 }
             }
         }
-        if !self.tree.window_drag_request {
+        if !self.win.tree.window_drag_request {
             return;
         }
-        self.tree.window_drag_request = false;
+        self.win.tree.window_drag_request = false;
         #[cfg(not(target_arch = "wasm32"))]
-        if let Some(window) = self.window.as_ref() {
+        if let Some(window) = self.win.window.as_ref() {
             #[cfg(all(feature = "wayland-dnd", target_os = "linux"))]
             if super::super::wayland_dnd::start_touch_window_op(window.winit_window(), None) {
                 return;
@@ -290,22 +292,22 @@ impl AppHandler {
     pub(in crate::app) fn process_window_control_requests(&mut self) {
         #[cfg(not(target_arch = "wasm32"))]
         {
-            let hide = std::mem::take(&mut self.tree.window_hide_request);
-            let show = std::mem::take(&mut self.tree.window_show_request);
-            let toggle = std::mem::take(&mut self.tree.window_toggle_visibility_request);
+            let hide = std::mem::take(&mut self.win.tree.window_hide_request);
+            let show = std::mem::take(&mut self.win.tree.window_show_request);
+            let toggle = std::mem::take(&mut self.win.tree.window_toggle_visibility_request);
 
-            if let Some(window) = self.window.as_ref() {
+            if let Some(window) = self.win.window.as_ref() {
                 let winit_window = window.winit_window();
-                if self.tree.window_minimize_request {
-                    self.tree.window_minimize_request = false;
+                if self.win.tree.window_minimize_request {
+                    self.win.tree.window_minimize_request = false;
                     winit_window.set_minimized(true);
                 }
-                if self.tree.window_toggle_maximize_request {
-                    self.tree.window_toggle_maximize_request = false;
+                if self.win.tree.window_toggle_maximize_request {
+                    self.win.tree.window_toggle_maximize_request = false;
                     winit_window.set_maximized(!winit_window.is_maximized());
                 }
-                if self.tree.window_toggle_fullscreen_request {
-                    self.tree.window_toggle_fullscreen_request = false;
+                if self.win.tree.window_toggle_fullscreen_request {
+                    self.win.tree.window_toggle_fullscreen_request = false;
                     let is_fs = winit_window.fullscreen().is_some();
                     winit_window.set_fullscreen(if is_fs {
                         None
@@ -315,28 +317,48 @@ impl AppHandler {
                 }
             }
 
-            if hide {
-                self.hide_main_window();
-            }
-            if show {
-                self.show_main_window();
-            }
-            if toggle {
-                self.toggle_main_window_visibility();
+            if self.win.is_main() {
+                if hide {
+                    self.hide_main_window();
+                }
+                if show {
+                    self.show_main_window();
+                }
+                if toggle {
+                    self.toggle_main_window_visibility();
+                }
+            } else if let Some(window) = self.win.window.as_ref() {
+                // Дополнительное окно прячется и показывается само по себе.
+                let visible = window.is_visible().unwrap_or(true);
+                let target = if hide {
+                    Some(false)
+                } else if show {
+                    Some(true)
+                } else if toggle {
+                    Some(!visible)
+                } else {
+                    None
+                };
+                if let Some(on) = target {
+                    window.set_visible(on);
+                    if on {
+                        window.focus();
+                    }
+                }
             }
         }
         #[cfg(target_arch = "wasm32")]
         {
             // В браузере у canvas нет свёртывания/разворачивания/скрытия;
             // полноэкранный режим есть — через Fullscreen API (winit).
-            self.tree.window_minimize_request = false;
-            self.tree.window_toggle_maximize_request = false;
-            self.tree.window_hide_request = false;
-            self.tree.window_show_request = false;
-            self.tree.window_toggle_visibility_request = false;
-            if self.tree.window_toggle_fullscreen_request {
-                self.tree.window_toggle_fullscreen_request = false;
-                if let Some(window) = self.window.as_ref() {
+            self.win.tree.window_minimize_request = false;
+            self.win.tree.window_toggle_maximize_request = false;
+            self.win.tree.window_hide_request = false;
+            self.win.tree.window_show_request = false;
+            self.win.tree.window_toggle_visibility_request = false;
+            if self.win.tree.window_toggle_fullscreen_request {
+                self.win.tree.window_toggle_fullscreen_request = false;
+                if let Some(window) = self.win.window.as_ref() {
                     let winit_window = window.winit_window();
                     let is_fs = winit_window.fullscreen().is_some();
                     winit_window.set_fullscreen(if is_fs {
@@ -350,8 +372,8 @@ impl AppHandler {
     }
 
     pub(in crate::app) fn take_window_close_request(&mut self) -> bool {
-        let v = self.tree.window_close_request;
-        self.tree.window_close_request = false;
+        let v = self.win.tree.window_close_request;
+        self.win.tree.window_close_request = false;
         v
     }
 
@@ -362,7 +384,7 @@ impl AppHandler {
         {
             use crate::mss::window_flags as wf;
             let (maximized, fullscreen, focused, request_redraw) = {
-                let Some(window) = self.window.as_ref() else {
+                let Some(window) = self.win.window.as_ref() else {
                     return;
                 };
                 let winit_window = window.winit_window();
@@ -396,7 +418,7 @@ impl AppHandler {
             if focused {
                 flags |= wf::FOCUSED;
             }
-            if !self.tree.set_window_flags(flags) {
+            if !self.win.tree.set_window_flags(flags) {
                 return;
             }
             if std::env::var("MGUI_WINDOW_FLAGS_LOG").is_ok() {
@@ -404,18 +426,26 @@ impl AppHandler {
                     "[syngui] window_flags: maximized={maximized} fullscreen={fullscreen} focused={focused} (bits=0b{flags:08b})"
                 );
             }
-            if let Some(root_id) = self.root_id {
+            if let Some(root_id) = self.win.root_id {
                 self.apply_styles(root_id);
             }
             request_redraw.request_redraw();
         }
     }
 
-    pub(super) fn complete_gpu_init(&mut self, mut gpu: GpuContext) {
+    pub(super) fn complete_gpu_init(&mut self, gpu: GpuContext) {
         #[cfg(target_arch = "wasm32")]
         web_sys::console::log_1(&"[syngui] complete_gpu_init called".into());
+        let (shared, surface) = gpu.split();
+        self.gpu = Some(shared);
+        self.complete_window_init(surface);
+    }
 
+    /// Главное окно получило поверхность на готовом GPU: рендерер, сигналы,
+    /// службы приложения и корень дерева.
+    pub(super) fn complete_window_init(&mut self, mut surface: WindowSurface) {
         let window = self
+            .win
             .window
             .as_ref()
             .expect("Window must exist before GPU init");
@@ -438,82 +468,38 @@ impl AppHandler {
             let (w, h) = window.size();
             (w.max(1), h.max(1))
         };
-        self.config.width = phys_w;
-        self.config.height = phys_h;
+        self.win.width = phys_w;
+        self.win.height = phys_h;
 
-        gpu.resize(phys_w, phys_h);
+        let gpu = self
+            .gpu
+            .as_ref()
+            .expect("GPU must exist before window init");
+        surface.resize(&gpu.device, phys_w, phys_h);
 
-        let logical_w = (phys_w as f64 / self.scale_factor).max(1.0) as u32;
-        let logical_h = (phys_h as f64 / self.scale_factor).max(1.0) as u32;
         #[cfg(target_arch = "wasm32")]
         web_sys::console::log_1(
-            &format!(
-                "[syngui] creating renderer {}x{} (logical {}x{})",
-                phys_w, phys_h, logical_w, logical_h
-            )
-            .into(),
+            &format!("[syngui] creating renderer {}x{}", phys_w, phys_h).into(),
         );
 
-        let surface_format = gpu.window_surface.surface_config.format;
-        #[allow(unused_mut)]
-        let mut renderer = Renderer::new(
-            &gpu.shared,
-            surface_format,
+        let renderer = self.create_renderer(
+            gpu,
+            surface.surface_config.format,
             phys_w,
             phys_h,
-            logical_w,
-            logical_h,
-            self.config.font_family.clone(),
+            self.win.scale_factor,
         );
+        Self::attach_renderer(&mut self.win.tree, &renderer);
 
-        renderer.set_staging_belt(self.config.staging_belt, &gpu.shared.device);
-
-        #[cfg(target_arch = "wasm32")]
-        web_sys::console::log_1(&"[syngui] renderer created, setting up tree".into());
-
-        self.tree.text_measure =
-            Some(renderer.font_atlas.clone()
-                as std::sync::Arc<dyn crate::widget::context::TextMeasure>);
-        renderer
-            .font_atlas
-            .lock()
-            .unwrap()
-            .set_scale_factor(self.scale_factor as f32);
-
-        self.tree.image_store = Some(renderer.image_store.clone());
-
-        #[cfg(feature = "map")]
-        {
-            renderer.ensure_tile_atlas(&gpu.shared);
-            self.tree.tile_atlas = renderer.tile_atlas.clone();
-        }
-
-        if let Some(icon_data) = self.config.icon_font_data {
-            renderer
-                .font_atlas
-                .lock()
-                .unwrap()
-                .set_icon_font_data(icon_data.to_vec());
-        }
-        #[cfg(feature = "font-awesome")]
-        if self.config.font_awesome {
-            use crate::text::icon_fonts::awesome as fa;
-            renderer.font_atlas.lock().unwrap().set_awesome_font_data(
-                fa::SOLID_FONT_DATA.to_vec(),
-                fa::REGULAR_FONT_DATA.to_vec(),
-                fa::BRANDS_FONT_DATA.to_vec(),
-            );
-        }
-
-        self.gpu = Some(gpu);
-        self.renderer = Some(renderer);
-        self.surface_valid = true;
+        self.win.renderer = Some(renderer);
+        self.win.surface = Some(surface);
+        self.win.surface_valid = true;
 
         #[cfg(target_arch = "wasm32")]
         web_sys::console::log_1(&"[syngui] surface_valid=true, registering signals".into());
 
         crate::signal::init_main_thread();
-        if let Some(ref window) = self.window {
+        if let Some(ref window) = self.win.window {
             crate::signal::set_window(window.clone());
             crate::async_runtime::set_async_window(window.clone());
         }
@@ -565,54 +551,123 @@ impl AppHandler {
 
         #[cfg(not(target_arch = "wasm32"))]
         {
-            let mut ctx = crate::widget::BuildContext::root();
-            let widget = (self.root_factory)(&mut ctx);
-            let element = widget.create_element();
-            let type_id = widget.as_any().type_id();
-            let root_id = self.tree.insert_with_type_id(element, None, type_id);
+            let factory = self.root_factory.clone();
+            self.mount_root(move |ctx| factory(ctx));
+        }
+    }
 
-            widget.mount(&mut self.tree, root_id);
-            self.root_id = Some(root_id);
-
-            self.sync_window_flags();
-
-            self.apply_styles(root_id);
-
-            loop {
-                if !self.tree.rebuild_if_needed(root_id) {
-                    break;
-                }
-                self.apply_styles(root_id);
-            }
-
-            let logical_w = (self.config.width as f64 / self.scale_factor) as f32;
-            let logical_h = (self.config.height as f64 / self.scale_factor) as f32;
-            let safe = self.layout_insets();
-            let layout_h = (logical_h - safe.top - safe.bottom).max(0.0);
-            self.tree.root_offset = crate::core::Point::new(safe.left, safe.top);
-            crate::viewport::publish_origin(self.tree.root_offset);
-            crate::viewport::publish(crate::core::Size::new(
-                logical_w - safe.left - safe.right,
-                layout_h,
-            ));
-            let constraints = crate::layout::Constraints::new(
-                0.0,
-                logical_w - safe.left - safe.right,
-                0.0,
-                layout_h,
+    /// Рендерер окна на общем GPU: атлас шрифтов под масштаб окна, иконочные
+    /// шрифты приложения.
+    pub(super) fn create_renderer(
+        &self,
+        gpu: &GpuShared,
+        format: wgpu::TextureFormat,
+        phys_w: u32,
+        phys_h: u32,
+        scale: f64,
+    ) -> Renderer {
+        let logical_w = (phys_w as f64 / scale).max(1.0) as u32;
+        let logical_h = (phys_h as f64 / scale).max(1.0) as u32;
+        #[allow(unused_mut)]
+        let mut renderer = Renderer::new(
+            gpu,
+            format,
+            phys_w,
+            phys_h,
+            logical_w,
+            logical_h,
+            self.config.font_family.clone(),
+        );
+        renderer.set_staging_belt(self.config.staging_belt, &gpu.device);
+        renderer
+            .font_atlas
+            .lock()
+            .unwrap()
+            .set_scale_factor(scale as f32);
+        #[cfg(feature = "map")]
+        renderer.ensure_tile_atlas(gpu);
+        if let Some(icon_data) = self.config.icon_font_data {
+            renderer
+                .font_atlas
+                .lock()
+                .unwrap()
+                .set_icon_font_data(icon_data.to_vec());
+        }
+        #[cfg(feature = "font-awesome")]
+        if self.config.font_awesome {
+            use crate::text::icon_fonts::awesome as fa;
+            renderer.font_atlas.lock().unwrap().set_awesome_font_data(
+                fa::SOLID_FONT_DATA.to_vec(),
+                fa::REGULAR_FONT_DATA.to_vec(),
+                fa::BRANDS_FONT_DATA.to_vec(),
             );
-            self.tree.layout(root_id, constraints);
+        }
+        renderer
+    }
 
-            self.a11y_tree.sync(&self.tree, root_id);
-            self.focus_manager.rebuild_tab_order(&self.tree, root_id);
-            self.a11y_dirty = false;
+    /// Дерево окна меряет текст и грузит картинки через его рендерер.
+    pub(super) fn attach_renderer(tree: &mut crate::widget::ElementTree, renderer: &Renderer) {
+        tree.text_measure =
+            Some(renderer.font_atlas.clone()
+                as std::sync::Arc<dyn crate::widget::context::TextMeasure>);
+        tree.image_store = Some(renderer.image_store.clone());
+        #[cfg(feature = "map")]
+        {
+            tree.tile_atlas = renderer.tile_atlas.clone();
+        }
+    }
 
-            #[cfg(feature = "accessibility")]
-            {
-                if let Some(ref mut ak_adapter) = self.accesskit_adapter {
-                    if let Some(update) = self.a11y_tree.take_accesskit_update() {
-                        ak_adapter.update_if_active(|| update);
-                    }
+    /// Собрать корень активного окна, применить стили и разложить по
+    /// размеру окна. Эффекты сборщика дополнительного окна принадлежат ему
+    /// и освобождаются при закрытии (см. `window_handle::mount_window_root`).
+    #[cfg_attr(target_arch = "wasm32", allow(dead_code))]
+    pub(in crate::app) fn mount_root(
+        &mut self,
+        build: impl FnOnce(&mut crate::widget::BuildContext) -> Box<dyn crate::widget::Widget>,
+    ) {
+        let root_id = crate::app::window_handle::mount_window_root(
+            self.win.handle,
+            &mut self.win.tree,
+            build,
+        );
+        self.win.root_id = Some(root_id);
+
+        self.sync_window_flags();
+
+        self.apply_styles(root_id);
+
+        loop {
+            if !self.win.tree.rebuild_if_needed(root_id) {
+                break;
+            }
+            self.apply_styles(root_id);
+        }
+
+        let logical_w = (self.win.width as f64 / self.win.scale_factor) as f32;
+        let logical_h = (self.win.height as f64 / self.win.scale_factor) as f32;
+        let safe = self.layout_insets();
+        let layout_h = (logical_h - safe.top - safe.bottom).max(0.0);
+        self.win.tree.root_offset = crate::core::Point::new(safe.left, safe.top);
+        crate::viewport::publish_origin(self.win.tree.root_offset);
+        crate::viewport::publish(crate::core::Size::new(
+            logical_w - safe.left - safe.right,
+            layout_h,
+        ));
+        let constraints =
+            crate::layout::Constraints::new(0.0, logical_w - safe.left - safe.right, 0.0, layout_h);
+        self.win.tree.layout(root_id, constraints);
+
+        self.win.a11y_tree.sync(&self.win.tree, root_id);
+        self.win
+            .focus_manager
+            .rebuild_tab_order(&self.win.tree, root_id);
+        self.win.a11y_dirty = false;
+
+        #[cfg(feature = "accessibility")]
+        {
+            if let Some(ref mut ak_adapter) = self.win.accesskit_adapter {
+                if let Some(update) = self.win.a11y_tree.take_accesskit_update() {
+                    ak_adapter.update_if_active(|| update);
                 }
             }
         }
@@ -816,44 +871,7 @@ impl AppHandler {
             );
         }
 
-        let surface_caps = surface.get_capabilities(&adapter);
-        let surface_format = crate::gpu::preferred_surface_format(&surface_caps, &adapter);
-
-        let (width, height) = window.size();
-        let width = width.max(1);
-        let height = height.max(1);
-        let alpha_mode = if transparent {
-            if surface_caps
-                .alpha_modes
-                .contains(&wgpu::CompositeAlphaMode::PreMultiplied)
-            {
-                wgpu::CompositeAlphaMode::PreMultiplied
-            } else if surface_caps
-                .alpha_modes
-                .contains(&wgpu::CompositeAlphaMode::PostMultiplied)
-            {
-                wgpu::CompositeAlphaMode::PostMultiplied
-            } else {
-                surface_caps.alpha_modes[0]
-            }
-        } else {
-            surface_caps.alpha_modes[0]
-        };
-        let surface_config = wgpu::SurfaceConfiguration {
-            usage: wgpu::TextureUsages::RENDER_ATTACHMENT,
-            format: surface_format,
-            width,
-            height,
-            present_mode: if vsync {
-                wgpu::PresentMode::AutoVsync
-            } else {
-                wgpu::PresentMode::AutoNoVsync
-            },
-            alpha_mode,
-            view_formats: vec![],
-            desired_maximum_frame_latency: 2,
-        };
-
+        let surface_config = surface_config_for(&surface, &adapter, window, vsync, transparent);
         surface.configure(&device, &surface_config);
 
         GpuContext {
@@ -868,6 +886,75 @@ impl AppHandler {
                 surface_config,
             },
         }
+    }
+}
+
+/// Настройка поверхности окна: формат под адаптер, размер окна, vsync;
+/// прозрачному окну (CSD) — премультиплицированная альфа, если есть.
+fn surface_config_for(
+    surface: &wgpu::Surface<'static>,
+    adapter: &wgpu::Adapter,
+    window: &Window,
+    vsync: bool,
+    transparent: bool,
+) -> wgpu::SurfaceConfiguration {
+    let surface_caps = surface.get_capabilities(adapter);
+    let surface_format = crate::gpu::preferred_surface_format(&surface_caps, adapter);
+
+    let (width, height) = window.size();
+    let width = width.max(1);
+    let height = height.max(1);
+    let alpha_mode = if transparent {
+        if surface_caps
+            .alpha_modes
+            .contains(&wgpu::CompositeAlphaMode::PreMultiplied)
+        {
+            wgpu::CompositeAlphaMode::PreMultiplied
+        } else if surface_caps
+            .alpha_modes
+            .contains(&wgpu::CompositeAlphaMode::PostMultiplied)
+        {
+            wgpu::CompositeAlphaMode::PostMultiplied
+        } else {
+            surface_caps.alpha_modes[0]
+        }
+    } else {
+        surface_caps.alpha_modes[0]
+    };
+    wgpu::SurfaceConfiguration {
+        usage: wgpu::TextureUsages::RENDER_ATTACHMENT,
+        format: surface_format,
+        width,
+        height,
+        present_mode: if vsync {
+            wgpu::PresentMode::AutoVsync
+        } else {
+            wgpu::PresentMode::AutoNoVsync
+        },
+        alpha_mode,
+        view_formats: vec![],
+        desired_maximum_frame_latency: 2,
+    }
+}
+
+/// Поверхность нового окна на уже готовом GPU (дополнительное окно или
+/// пересозданное главное).
+#[cfg_attr(target_arch = "wasm32", allow(dead_code))]
+pub(super) fn create_window_surface(
+    gpu: &GpuShared,
+    window: &Arc<Window>,
+    vsync: bool,
+    transparent: bool,
+) -> WindowSurface {
+    let surface = gpu
+        .instance
+        .create_surface(window.clone())
+        .expect("Failed to create surface for window");
+    let surface_config = surface_config_for(&surface, &gpu.adapter, window, vsync, transparent);
+    surface.configure(&gpu.device, &surface_config);
+    WindowSurface {
+        surface,
+        surface_config,
     }
 }
 

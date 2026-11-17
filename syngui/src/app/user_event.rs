@@ -9,6 +9,9 @@ pub enum SynGuiUserEvent {
     /// Разбудить цикл и выполнить очередь `run_on_main_thread` — работает и
     /// когда окно не рендерится (свёрнутое/фоновое Android-приложение).
     MainThreadWake,
+    /// Заявки `open_window` / `close_window` / `WindowHandle::*` ждут цикла
+    /// событий (app/window_handle.rs).
+    WindowCommands,
     /// Веб: кнопка «Назад» браузера сняла запись-страж (app/web_history.rs).
     #[cfg(target_arch = "wasm32")]
     WebBack,

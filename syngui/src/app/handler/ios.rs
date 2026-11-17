@@ -8,7 +8,7 @@ use super::AppHandler;
 
 impl AppHandler {
     pub(in crate::app) fn update_safe_area(&mut self) {
-        let Some(window) = self.window.as_ref() else {
+        let Some(window) = self.win.window.as_ref() else {
             return;
         };
         let w = window.winit_window();
@@ -30,6 +30,6 @@ impl AppHandler {
             insets.bottom,
             sf
         );
-        self.tree.safe_area = insets;
+        self.win.tree.safe_area = insets;
     }
 }

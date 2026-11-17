@@ -1,4 +1,5 @@
 mod android;
+mod app_window;
 mod appearance;
 #[cfg(target_os = "ios")]
 mod ios;
@@ -7,20 +8,16 @@ pub(in crate::app) mod render;
 mod styling;
 mod windows;
 
+pub(in crate::app) use app_window::AppWindow;
+
 use super::builder::AppBuilder;
-#[cfg(feature = "accessibility")]
-use crate::a11y::AccessKitAdapter;
-#[cfg(not(feature = "accessibility"))]
-use crate::a11y::LoggingAdapter;
-use crate::a11y::{A11yTree, FocusManager};
-use crate::core::{Point, Rect};
-use crate::gpu::{GpuContext, Renderer, WindowSurface};
-use crate::input::{CursorIcon, Modifiers};
+use super::window_handle::{WindowBuild, WindowHandle};
+#[cfg(target_arch = "wasm32")]
+use crate::gpu::GpuContext;
+use crate::gpu::GpuShared;
+use crate::input::Modifiers;
 use crate::mss::StyleEngine;
-use crate::render::DisplayList;
-use crate::widget::{ElementTree, Widget};
-use crate::window::Window;
-use std::sync::Arc;
+use crate::widget::Widget;
 use web_time::Instant;
 
 #[cfg(target_arch = "wasm32")]
@@ -38,28 +35,6 @@ pub(super) struct KeyboardReveal {
     pub scrolled: bool,
 }
 
-pub(super) struct SecondaryWindow {
-    #[allow(dead_code)]
-    pub name: String,
-    pub window: Arc<Window>,
-    pub surface: WindowSurface,
-    pub renderer: Renderer,
-    pub tree: ElementTree,
-    pub style_engine: StyleEngine,
-    pub root_id: Option<crate::widget::ElementId>,
-    pub display_list: DisplayList,
-    pub cursor_position: Point,
-    pub current_cursor: CursorIcon,
-    pub last_click_time: Option<Instant>,
-    pub last_click_pos: Option<Point>,
-    pub double_click_interval: std::time::Duration,
-    #[allow(dead_code)]
-    pub focus_manager: FocusManager,
-    pub scale_factor: f64,
-    pub width: u32,
-    pub height: u32,
-}
-
 /// IMPORTANT: Field order matters for drop safety!
 pub(super) type RootFactory =
     std::sync::Arc<dyn Fn(&mut crate::widget::BuildContext) -> Box<dyn Widget> + 'static>;
@@ -67,47 +42,18 @@ pub(super) type RootFactory =
 pub(super) struct AppHandler {
     pub(super) config: AppBuilder,
     pub(super) root_factory: RootFactory,
-    pub(super) tree: ElementTree,
+    /// Активное окно: главное, а на время событий и кадра дополнительного —
+    /// оно (см. [`AppHandler::with_window`]).
+    pub(super) win: AppWindow,
+    /// Таблица стилей приложения — общая для всех окон.
     pub(super) style_engine: StyleEngine,
-    pub(super) renderer: Option<Renderer>,
-    pub(super) gpu: Option<GpuContext>,
-    pub(super) window: Option<Arc<Window>>,
-    /// Последняя отданная IME область каретки — не дёргать winit каждый кадр.
-    pub(super) last_ime_area: Option<Rect>,
-    /// IME окна включён (есть поле ввода в фокусе).
-    pub(super) ime_allowed: bool,
-    /// Подпись последнего отрисованного кадра (`DisplayList::frame_signature`):
-    /// совпала — GPU-кадр не рисуется.
-    pub(super) last_frame_sig: Option<u64>,
-    /// Последний кадр совпал с показанным и не рисовался: present не было,
-    /// frame callback не придёт — анимация, которая визуально почти ничего не
-    /// меняет (затухание полосы прокрутки, хвост инерции), без паузы крутила
-    /// бы цикл вхолостую (десятки тысяч итераций в секунду). Следующий кадр
-    /// анимации — через период обновления экрана.
-    pub(super) last_frame_skipped: bool,
-    pub(super) root_id: Option<crate::widget::ElementId>,
+    /// Общий GPU (instance, adapter, device, queue); поверхности — у окон.
+    pub(super) gpu: Option<GpuShared>,
     pub(super) last_frame_time: Instant,
-    pub(super) last_paced_redraw: Option<Instant>,
-    /// Момент последнего отрисованного кадра — для `keep_warm_interval`.
-    pub(super) last_render_at: Instant,
     /// Запрос «разбудить цикл через N» из update(): анимация ждёт окна
     /// frame-limit'а, либо Android-мост ввода ждёт следующего опроса.
     /// Потребляется в about_to_wait → ControlFlow::WaitUntil.
     pub(super) wakeup_after: Option<std::time::Duration>,
-    pub(super) cursor_position: Point,
-    /// Перенос дерева идёт перетаскиванием Wayland (значок рисует композитор,
-    /// события приходят от wl_data_device, а не от указателя).
-    pub(super) os_drag: bool,
-    /// Итоговый множитель «логические единицы → физические пиксели»:
-    /// системный DPI-масштаб окна, умноженный на пользовательский
-    /// ([`crate::scale::ui_scale`]).
-    pub(super) scale_factor: f64,
-    /// DPI-масштаб окна, каким его сообщает система, — без пользовательского
-    /// множителя. Нужен, чтобы пересчитать `scale_factor` при смене любого
-    /// из двух.
-    pub(super) system_scale_factor: f64,
-    pub(super) focus_manager: FocusManager,
-    pub(super) a11y_tree: A11yTree,
     pub(super) modifiers: Modifiers,
     /// Shift по xkb (`ModifiersChanged`) и физически зажатые Shift (бит 0 —
     /// левый, 1 — правый). При переключении раскладки по Ctrl+Shift xkb
@@ -115,31 +61,16 @@ pub(super) struct AppHandler {
     /// Ctrl+Shift+T приходил бы как Ctrl+T.
     pub(super) xkb_shift: bool,
     pub(super) held_shift: u8,
-    pub(super) a11y_dirty: bool,
-    #[cfg(feature = "accessibility")]
-    pub(super) accesskit_adapter: Option<accesskit_winit::Adapter>,
     pub(super) current_theme_is_dark: bool,
     pub(super) current_dynamic_theme: String,
-    pub(super) current_cursor: CursorIcon,
-    /// Свой указатель, поставленный окну: (номер, поколение картинки).
-    pub(super) custom_cursor_applied: Option<(u32, u64)>,
-    pub(super) last_click_time: Option<Instant>,
-    pub(super) last_click_pos: Option<Point>,
     /// Порог двойного клика, разрешённый из настройки ОС/DE на старте
     /// (или override из билдера). См. [`crate::input::resolve_double_click_interval`].
     pub(super) double_click_interval: std::time::Duration,
-    pub(super) debug_overlay: Option<crate::debug::DebugOverlay>,
-    pub(super) devtools: Option<crate::devtools::DevTools>,
     pub(super) app_start_time: Instant,
-    pub(super) display_list: DisplayList,
-    pub(super) surface_valid: bool,
-    pub(super) main_window_id: Option<winit::window::WindowId>,
-    pub(super) secondary_windows:
-        std::collections::HashMap<winit::window::WindowId, SecondaryWindow>,
-    pub(super) pending_windows: Vec<(
-        super::builder::WindowConfig,
-        Box<dyn FnOnce(&mut crate::widget::BuildContext) -> Box<dyn Widget>>,
-    )>,
+    /// Дополнительные окна, пока не активны.
+    pub(super) secondary_windows: std::collections::HashMap<winit::window::WindowId, AppWindow>,
+    /// Окна, ждущие готовности GPU (`add_window`, ранний `open_window`).
+    pub(super) pending_windows: Vec<(WindowHandle, super::builder::WindowConfig, WindowBuild)>,
     pub(super) sticky_threshold: Option<f32>,
     pub(super) sticky_groups: Vec<std::collections::HashSet<winit::window::WindowId>>,
     pub(super) window_positions: std::collections::HashMap<winit::window::WindowId, (i32, i32)>,
@@ -208,21 +139,12 @@ pub(super) struct AppHandler {
     #[cfg(target_os = "android")]
     pub(super) android_suspended: bool,
 
-    /// Отложенный tap-синтез для тача: (id первого пальца, точка старта,
-    /// превышен ли slop). Клик синтезируется на отпускании и только если палец
-    /// не сдвинулся — иначе скролл списка «проваливался» в строку под пальцем.
-    pub(super) touch: crate::input::TouchTracker,
-
     #[cfg(all(feature = "wayland-dnd", target_os = "linux"))]
     pub(super) wayland_dnd_handle: Option<std::thread::JoinHandle<()>>,
 
-    /// Поток пера (zwp_tablet_v2) и автоматы штриха: основного окна и
-    /// дополнительных (у каждого своё дерево).
+    /// Поток пера (zwp_tablet_v2); автомат штриха — у каждого окна свой.
     #[cfg(all(feature = "pen", target_os = "linux"))]
     pub(super) wayland_pen_handle: Option<std::thread::JoinHandle<()>>,
-    pub(super) pen: crate::input::PenTracker,
-    pub(super) pen_secondary:
-        std::collections::HashMap<winit::window::WindowId, crate::input::PenTracker>,
 }
 
 pub(super) fn is_wayland_session() -> bool {
@@ -236,16 +158,18 @@ impl AppHandler {
     /// Таймер долгого нажатия: сработал — кадр; ещё ждём — проснуться к
     /// сроку (`wakeup_after`), даже если анимаций нет.
     pub(in crate::app) fn poll_touch(&mut self) {
-        let Some(root_id) = self.root_id else { return };
-        let tree = &mut self.tree;
-        let fired = self.touch.poll(&mut |e| tree.handle_event(root_id, e));
+        let Some(root_id) = self.win.root_id else {
+            return;
+        };
+        let tree = &mut self.win.tree;
+        let fired = self.win.touch.poll(&mut |e| tree.handle_event(root_id, e));
         if fired {
-            if let Some(window) = &self.window {
+            if let Some(window) = &self.win.window {
                 crate::perf::redraw_from(file!(), line!());
                 window.request_redraw();
             }
         }
-        if let Some(deadline) = self.touch.deadline() {
+        if let Some(deadline) = self.win.touch.deadline() {
             let delay = deadline.saturating_duration_since(web_time::Instant::now());
             self.wakeup_after = Some(self.wakeup_after.map_or(delay, |d| d.min(delay)));
         }
@@ -255,11 +179,11 @@ impl AppHandler {
     /// (корень на всё окно). Заодно публикует настоящую safe area для
     /// [`crate::viewport::safe_area`].
     pub(in crate::app) fn layout_insets(&self) -> crate::core::EdgeInsets {
-        crate::viewport::publish_safe_area(self.tree.safe_area);
+        crate::viewport::publish_safe_area(self.win.tree.safe_area);
         if self.config.edge_to_edge {
             crate::core::EdgeInsets::zero()
         } else {
-            self.tree.safe_area
+            self.win.tree.safe_area
         }
     }
 
@@ -269,7 +193,11 @@ impl AppHandler {
         style_engine: StyleEngine,
         initial_is_dark: bool,
     ) -> Self {
-        let pending_windows = std::mem::take(&mut config.extra_windows);
+        let pending_windows: Vec<_> = std::mem::take(&mut config.extra_windows)
+            .into_iter()
+            .map(|(wc, build)| (super::window_handle::register(&wc), wc, build))
+            .collect();
+        super::window_handle::register_main(config.window_state);
         // Живые стили (`with_live_styles`) уже загружены как базовые.
         let initial_dynamic = match (config.dynamic_replaces_base, config.dynamic_theme_mss) {
             (true, Some(sig)) => sig.get_untracked(),
@@ -286,11 +214,6 @@ impl AppHandler {
             "double-click interval resolved to {:?}",
             double_click_interval
         );
-        let debug_overlay = if config.debug_overlay {
-            Some(crate::debug::DebugOverlay::new())
-        } else {
-            None
-        };
 
         // Начальный clear-color = фон стартовой темы. Иначе при запуске сразу в
         // тёмной теме (theme_state==current) блок смены не срабатывает и полоса
@@ -308,58 +231,31 @@ impl AppHandler {
             }
         }
 
-        let devtools = {
-            let mut dt = crate::devtools::DevTools::new();
-            if config.devtools {
-                dt.toggle();
-            }
-            Some(dt)
-        };
+        let mut win = AppWindow::new(
+            WindowHandle::MAIN,
+            config.background_color,
+            config.transparent,
+            config.debug_overlay,
+            config.devtools,
+        );
+        win.width = config.width;
+        win.height = config.height;
 
         Self {
             config,
             root_factory,
-            renderer: None,
-            gpu: None,
-            window: None,
-            last_ime_area: None,
-            ime_allowed: false,
-            last_frame_sig: None,
-            last_frame_skipped: false,
-            tree: ElementTree::new(),
+            win,
             style_engine,
-            root_id: None,
+            gpu: None,
             last_frame_time: Instant::now(),
-            last_paced_redraw: None,
-            last_render_at: Instant::now(),
             wakeup_after: None,
-            cursor_position: Point::zero(),
-            os_drag: false,
-            scale_factor: crate::scale::ui_scale() as f64,
-            system_scale_factor: 1.0,
-            focus_manager: FocusManager::new(),
-            #[cfg(feature = "accessibility")]
-            a11y_tree: A11yTree::new(Box::new(AccessKitAdapter::new())),
-            #[cfg(not(feature = "accessibility"))]
-            a11y_tree: A11yTree::new(Box::new(LoggingAdapter)),
             modifiers: Modifiers::empty(),
             xkb_shift: false,
             held_shift: 0,
-            a11y_dirty: true,
-            #[cfg(feature = "accessibility")]
-            accesskit_adapter: None,
             current_theme_is_dark: initial_is_dark,
             current_dynamic_theme: initial_dynamic,
-            current_cursor: CursorIcon::Default,
-            custom_cursor_applied: None,
-            last_click_time: None,
-            last_click_pos: None,
             double_click_interval,
-            debug_overlay,
-            devtools,
             app_start_time: Instant::now(),
-            display_list: DisplayList::new(),
-            surface_valid: false,
             #[cfg(target_os = "android")]
             android_app: None,
             #[cfg(target_os = "android")]
@@ -384,7 +280,6 @@ impl AppHandler {
             pending_fallback_fonts: Rc::new(RefCell::new(Vec::new())),
             #[cfg(target_arch = "wasm32")]
             wasm_font_ready: false,
-            main_window_id: None,
             secondary_windows: std::collections::HashMap::new(),
             pending_windows,
             sticky_threshold,
@@ -411,13 +306,10 @@ impl AppHandler {
             started_hidden: false,
             #[cfg(target_os = "android")]
             android_suspended: false,
-            touch: crate::input::TouchTracker::new(),
             #[cfg(all(feature = "wayland-dnd", target_os = "linux"))]
             wayland_dnd_handle: None,
             #[cfg(all(feature = "pen", target_os = "linux"))]
             wayland_pen_handle: None,
-            pen: crate::input::PenTracker::new(),
-            pen_secondary: std::collections::HashMap::new(),
         }
     }
 
@@ -450,7 +342,7 @@ impl AppHandler {
     }
 
     pub(super) fn show_main_window(&mut self) {
-        self.last_frame_sig = None;
+        self.win.last_frame_sig = None;
         // Wayland не даёт программе развернуть свёрнутое окно или поднять
         // его поверх других: `set_visible`/`focus` у свёрнутого окна ничего
         // не делают, и «Показать окно» из трея или второй запуск оставляли
@@ -458,14 +350,15 @@ impl AppHandler {
         // поверх, как после сворачивания в трей.
         if is_wayland_session()
             && self
+                .win
                 .window
                 .as_ref()
                 .is_some_and(|w| !w.winit_window().has_focus())
         {
             self.destroy_window_and_gpu();
         }
-        if self.window.is_some() {
-            if let Some(window) = self.window.as_ref() {
+        if self.win.window.is_some() {
+            if let Some(window) = self.win.window.as_ref() {
                 window.set_visible(true);
                 window.focus();
                 crate::perf::redraw_from(file!(), line!());
@@ -481,7 +374,7 @@ impl AppHandler {
     pub(super) fn hide_main_window(&mut self) {
         if is_wayland_session() {
             self.destroy_window_and_gpu();
-        } else if let Some(window) = self.window.as_ref() {
+        } else if let Some(window) = self.win.window.as_ref() {
             window.set_visible(false);
         }
         self.main_window_visible = false;
@@ -489,31 +382,35 @@ impl AppHandler {
     }
 
     pub(super) fn destroy_window_and_gpu(&mut self) {
-        self.last_frame_sig = None;
-        self.tree = crate::widget::ElementTree::new();
-        self.root_id = None;
-        self.surface_valid = false;
+        self.win.last_frame_sig = None;
+        self.win.tree = crate::widget::ElementTree::new();
+        self.win.root_id = None;
+        self.win.surface_valid = false;
 
         #[cfg(feature = "winit")]
         crate::signal::clear_window();
         #[cfg(feature = "winit")]
         crate::async_runtime::clear_async_window();
 
-        self.renderer.take();
-        self.gpu.take();
-        self.window.take();
-        self.main_window_id = None;
+        self.win.renderer.take();
+        self.win.surface.take();
+        // Дополнительные окна рисуют на том же GPU — при них он остаётся,
+        // а новое главное окно получит поверхность на нём.
+        if self.secondary_windows.is_empty() {
+            self.gpu.take();
+        }
+        self.win.window.take();
 
-        self.focus_manager = crate::a11y::FocusManager::new();
+        self.win.focus_manager = crate::a11y::FocusManager::new();
         #[cfg(feature = "accessibility")]
         {
-            self.a11y_tree =
+            self.win.a11y_tree =
                 crate::a11y::A11yTree::new(Box::new(crate::a11y::AccessKitAdapter::new()));
-            self.accesskit_adapter = None;
+            self.win.accesskit_adapter = None;
         }
         #[cfg(not(feature = "accessibility"))]
         {
-            self.a11y_tree = crate::a11y::A11yTree::new(Box::new(crate::a11y::LoggingAdapter));
+            self.win.a11y_tree = crate::a11y::A11yTree::new(Box::new(crate::a11y::LoggingAdapter));
         }
     }
 
@@ -526,27 +423,29 @@ impl AppHandler {
     }
 
     /// `None` — указатель скрыт.
-    pub(super) fn map_cursor_icon(cursor: CursorIcon) -> Option<winit::window::CursorIcon> {
+    pub(super) fn map_cursor_icon(
+        cursor: crate::input::CursorIcon,
+    ) -> Option<winit::window::CursorIcon> {
         Some(match cursor {
-            CursorIcon::None | CursorIcon::Custom(_) => return None,
-            CursorIcon::Default => winit::window::CursorIcon::Default,
-            CursorIcon::Pointer => winit::window::CursorIcon::Pointer,
-            CursorIcon::Text => winit::window::CursorIcon::Text,
-            CursorIcon::Grab => winit::window::CursorIcon::Grab,
-            CursorIcon::Grabbing => winit::window::CursorIcon::Grabbing,
-            CursorIcon::Move => winit::window::CursorIcon::Move,
-            CursorIcon::NotAllowed => winit::window::CursorIcon::NotAllowed,
-            CursorIcon::Crosshair => winit::window::CursorIcon::Crosshair,
-            CursorIcon::ColResize => winit::window::CursorIcon::ColResize,
-            CursorIcon::RowResize => winit::window::CursorIcon::RowResize,
-            CursorIcon::NwResize => winit::window::CursorIcon::NwResize,
-            CursorIcon::NeResize => winit::window::CursorIcon::NeResize,
-            CursorIcon::SeResize => winit::window::CursorIcon::SeResize,
-            CursorIcon::SwResize => winit::window::CursorIcon::SwResize,
-            CursorIcon::NResize => winit::window::CursorIcon::NResize,
-            CursorIcon::EResize => winit::window::CursorIcon::EResize,
-            CursorIcon::SResize => winit::window::CursorIcon::SResize,
-            CursorIcon::WResize => winit::window::CursorIcon::WResize,
+            crate::input::CursorIcon::None | crate::input::CursorIcon::Custom(_) => return None,
+            crate::input::CursorIcon::Default => winit::window::CursorIcon::Default,
+            crate::input::CursorIcon::Pointer => winit::window::CursorIcon::Pointer,
+            crate::input::CursorIcon::Text => winit::window::CursorIcon::Text,
+            crate::input::CursorIcon::Grab => winit::window::CursorIcon::Grab,
+            crate::input::CursorIcon::Grabbing => winit::window::CursorIcon::Grabbing,
+            crate::input::CursorIcon::Move => winit::window::CursorIcon::Move,
+            crate::input::CursorIcon::NotAllowed => winit::window::CursorIcon::NotAllowed,
+            crate::input::CursorIcon::Crosshair => winit::window::CursorIcon::Crosshair,
+            crate::input::CursorIcon::ColResize => winit::window::CursorIcon::ColResize,
+            crate::input::CursorIcon::RowResize => winit::window::CursorIcon::RowResize,
+            crate::input::CursorIcon::NwResize => winit::window::CursorIcon::NwResize,
+            crate::input::CursorIcon::NeResize => winit::window::CursorIcon::NeResize,
+            crate::input::CursorIcon::SeResize => winit::window::CursorIcon::SeResize,
+            crate::input::CursorIcon::SwResize => winit::window::CursorIcon::SwResize,
+            crate::input::CursorIcon::NResize => winit::window::CursorIcon::NResize,
+            crate::input::CursorIcon::EResize => winit::window::CursorIcon::EResize,
+            crate::input::CursorIcon::SResize => winit::window::CursorIcon::SResize,
+            crate::input::CursorIcon::WResize => winit::window::CursorIcon::WResize,
         })
     }
 
@@ -554,7 +453,7 @@ impl AppHandler {
     /// интерфейса. Именно он переводит логические единицы в физические
     /// пиксели — и в рендере, и при разборе координат ввода.
     pub(in crate::app) fn effective_scale_factor(&self) -> f64 {
-        self.system_scale_factor * crate::scale::ui_scale() as f64
+        self.win.system_scale_factor * crate::scale::ui_scale() as f64
     }
 
     /// Подобрать пользовательский масштаб под [`AppBuilder::design_size`]:
@@ -563,10 +462,16 @@ impl AppHandler {
     /// окна, resize и смене системного DPI; применяется следующим кадром
     /// через [`AppHandler::apply_ui_scale`].
     pub(in crate::app) fn apply_design_scale(&mut self) {
-        if self.config.width == 0 || self.config.height == 0 || self.system_scale_factor <= 0.0 {
+        // Дизайнерское разрешение — по главному окну; масштаб у приложения
+        // один на все окна.
+        if !self.win.is_main()
+            || self.win.width == 0
+            || self.win.height == 0
+            || self.win.system_scale_factor <= 0.0
+        {
             return;
         }
-        let portrait = self.config.height > self.config.width;
+        let portrait = self.win.height > self.win.width;
         let size = match (portrait, self.config.design_size_portrait) {
             (true, Some(p)) => Some(p),
             _ => self.config.design_size,
@@ -574,8 +479,8 @@ impl AppHandler {
         let Some((dw, dh)) = size else {
             return;
         };
-        let lw = self.config.width as f64 / self.system_scale_factor;
-        let lh = self.config.height as f64 / self.system_scale_factor;
+        let lw = self.win.width as f64 / self.win.system_scale_factor;
+        let lh = self.win.height as f64 / self.win.system_scale_factor;
         let scale = if crate::scale::design_size_paused() {
             1.0
         } else {
@@ -595,17 +500,17 @@ impl AppHandler {
     /// дальше по кадру — в [`AppHandler::render`].
     pub(in crate::app) fn apply_ui_scale(&mut self) {
         let effective = self.effective_scale_factor();
-        if (effective - self.scale_factor).abs() < 1e-6 {
+        if (effective - self.win.scale_factor).abs() < 1e-6 {
             return;
         }
-        self.scale_factor = effective;
+        self.win.scale_factor = effective;
 
-        let (phys_w, phys_h) = (self.config.width, self.config.height);
-        if let Some(renderer) = self.renderer.as_mut() {
+        let (phys_w, phys_h) = (self.win.width, self.win.height);
+        if let Some(renderer) = self.win.renderer.as_mut() {
             let logical_w = (phys_w as f64 / effective).max(1.0) as u32;
             let logical_h = (phys_h as f64 / effective).max(1.0) as u32;
             if let Some(gpu) = self.gpu.as_ref() {
-                renderer.resize(&gpu.shared.device, phys_w, phys_h, logical_w, logical_h);
+                renderer.resize(&gpu.device, phys_w, phys_h, logical_w, logical_h);
             }
             if let Ok(mut atlas) = renderer.font_atlas.lock() {
                 atlas.set_scale_factor(effective as f32);
@@ -614,40 +519,12 @@ impl AppHandler {
 
         // Размер глифа в физических пикселях изменился — закэшированные
         // измерения текста и раскладка целиком считаются заново.
-        self.tree.mark_all_dirty(crate::widget::DirtyFlags::LAYOUT);
-        self.tree.force_full_measure = true;
+        self.win
+            .tree
+            .mark_all_dirty(crate::widget::DirtyFlags::LAYOUT);
+        self.win.tree.force_full_measure = true;
 
-        // Вторичные окна живут со своим DPI, но пользовательский масштаб у
-        // приложения общий.
-        let ui = crate::scale::ui_scale() as f64;
-        let ids: Vec<winit::window::WindowId> = self.secondary_windows.keys().copied().collect();
-        for id in ids {
-            if let Some(sw) = self.secondary_windows.get_mut(&id) {
-                let sf = sw.window.scale_factor() * ui;
-                if (sf - sw.scale_factor).abs() < 1e-6 {
-                    continue;
-                }
-                sw.scale_factor = sf;
-                let logical_w = (sw.width as f64 / sf).max(1.0) as u32;
-                let logical_h = (sw.height as f64 / sf).max(1.0) as u32;
-                if let Some(gpu) = self.gpu.as_ref() {
-                    sw.renderer.resize(
-                        &gpu.shared.device,
-                        sw.width,
-                        sw.height,
-                        logical_w,
-                        logical_h,
-                    );
-                }
-                if let Ok(mut atlas) = sw.renderer.font_atlas.lock() {
-                    atlas.set_scale_factor(sf as f32);
-                }
-                sw.tree.mark_all_dirty(crate::widget::DirtyFlags::LAYOUT);
-                sw.window.request_redraw();
-            }
-        }
-
-        if let Some(window) = &self.window {
+        if let Some(window) = &self.win.window {
             crate::perf::redraw_from(file!(), line!());
             window.request_redraw();
         }

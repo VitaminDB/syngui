@@ -10,7 +10,7 @@ impl winit::application::ApplicationHandler<SynGuiUserEvent> for AppHandler {
         #[cfg(target_arch = "wasm32")]
         web_sys::console::log_1(&"[syngui] resumed() called".into());
 
-        if self.window.is_none() {
+        if self.win.window.is_none() {
             if self.config.start_hidden && !self.started_hidden {
                 // Первый resumed резидентной программы: окна нет, пока его не
                 // попросят (show_main_window / второй экземпляр).
@@ -32,8 +32,8 @@ impl winit::application::ApplicationHandler<SynGuiUserEvent> for AppHandler {
             // из фона на iOS запрещена), здесь он снова разрешается.
             #[cfg(target_os = "ios")]
             if self.gpu.is_some() {
-                self.surface_valid = true;
-                self.last_frame_sig = None;
+                self.win.surface_valid = true;
+                self.win.last_frame_sig = None;
             }
             #[cfg(target_os = "ios")]
             self.refresh_system_appearance();
@@ -47,7 +47,7 @@ impl winit::application::ApplicationHandler<SynGuiUserEvent> for AppHandler {
                 self.dispatch_lifecycle(Event::AppResumed);
             }
         }
-        if let Some(window) = &self.window {
+        if let Some(window) = &self.win.window {
             crate::perf::redraw_from(file!(), line!());
             window.request_redraw();
         }
@@ -78,790 +78,17 @@ impl winit::application::ApplicationHandler<SynGuiUserEvent> for AppHandler {
             self.handle_window_moved(window_id, pos.x, pos.y);
         }
 
-        if self.main_window_id.is_some() && Some(window_id) != self.main_window_id {
-            self.handle_secondary_window_event(window_id, &event);
+        // Событие дополнительного окна — тем же кодом, что у главного, с ним
+        // в активном слоте.
+        if self.win.winit_id() != Some(window_id) {
+            if self.secondary_windows.contains_key(&window_id) {
+                self.with_window(window_id, |this| {
+                    this.handle_window_event(event_loop, window_id, event)
+                });
+            }
             return;
         }
-
-        #[cfg(feature = "accessibility")]
-        {
-            if let (Some(ref mut ak_adapter), Some(ref window)) =
-                (&mut self.accesskit_adapter, &self.window)
-            {
-                ak_adapter.process_event(window.winit_window(), &event);
-            }
-        }
-
-        match event {
-            winit::event::WindowEvent::CloseRequested => {
-                #[cfg(target_os = "android")]
-                {
-                    let _ = &event_loop;
-                    // Единая обработка «назад» (клавиатура → виджеты →
-                    // сворачивание), см. dispatch_back.
-                    self.dispatch_back();
-                }
-                #[cfg(not(target_os = "android"))]
-                {
-                    if !self.close_allowed() {
-                        if let Some(window) = &self.window {
-                            crate::perf::redraw_from(file!(), line!());
-                            window.request_redraw();
-                        }
-                        return;
-                    }
-                    if self.should_hide_on_close() {
-                        self.hide_main_window();
-                    } else {
-                        #[cfg(all(
-                            feature = "tray",
-                            not(target_arch = "wasm32"),
-                            not(target_os = "android")
-                        ))]
-                        {
-                            self.tray.take();
-                        }
-                        #[cfg(all(
-                            feature = "single-instance",
-                            not(target_arch = "wasm32"),
-                            not(target_os = "android")
-                        ))]
-                        {
-                            self.single_instance.take();
-                        }
-                        event_loop.exit();
-                    }
-                }
-            }
-            winit::event::WindowEvent::Resized(physical_size) => {
-                // Новая поверхность — последний кадр на ней не показан.
-                self.last_frame_sig = None;
-                if physical_size.width == 0 || physical_size.height == 0 {
-                    return;
-                }
-
-                self.sync_window_flags();
-
-                self.config.width = physical_size.width;
-                self.config.height = physical_size.height;
-                self.apply_design_scale();
-
-                // Поворот экрана, скрытие системных панелей и переход в
-                // многооконный режим меняют безопасную область — на Android
-                // её приходится спрашивать заново (см. update_safe_area).
-                #[cfg(any(target_os = "android", target_os = "ios"))]
-                self.update_safe_area();
-
-                if let Some(gpu) = self.gpu.as_mut() {
-                    gpu.window_surface.surface_config.width = physical_size.width;
-                    gpu.window_surface.surface_config.height = physical_size.height;
-                    gpu.window_surface
-                        .surface
-                        .configure(&gpu.shared.device, &gpu.window_surface.surface_config);
-                }
-
-                if let Some(renderer) = self.renderer.as_mut() {
-                    let logical_w = (physical_size.width as f64 / self.scale_factor) as u32;
-                    let logical_h = (physical_size.height as f64 / self.scale_factor) as u32;
-                    if let Some(gpu) = self.gpu.as_ref() {
-                        renderer.resize(
-                            &gpu.shared.device,
-                            self.config.width,
-                            self.config.height,
-                            logical_w,
-                            logical_h,
-                        );
-                    }
-                }
-
-                if let Some(root_id) = self.root_id {
-                    let logical_w = (physical_size.width as f64 / self.scale_factor) as f32;
-                    let logical_h = (physical_size.height as f64 / self.scale_factor) as f32;
-                    let safe = self.layout_insets();
-                    let layout_h = (logical_h - safe.top - safe.bottom).max(0.0);
-                    let layout_w = logical_w - safe.left - safe.right;
-                    self.tree.root_offset =
-                        crate::core::Point::new(safe.left, safe.top - self.tree.keyboard_pan);
-                    crate::viewport::publish(crate::core::Size::new(layout_w, layout_h));
-                    crate::viewport::publish_origin(self.tree.root_offset);
-                    let constraints = crate::layout::Constraints::new(0.0, layout_w, 0.0, layout_h);
-                    self.tree.layout(root_id, constraints);
-                    self.a11y_dirty = true;
-                }
-
-                if let Some(window) = &self.window {
-                    crate::perf::redraw_from(file!(), line!());
-                    window.request_redraw();
-                }
-            }
-            winit::event::WindowEvent::Focused(focused) => {
-                // захват ввода (игры, ВМ) — только пока окно в фокусе
-                if !focused {
-                    crate::signal::release_input_capture();
-                }
-                // отпускание Shift вне окна не придёт
-                if !focused && self.held_shift != 0 {
-                    self.held_shift = 0;
-                    self.modifiers.shift = self.xkb_shift;
-                    self.tree.modifiers = self.modifiers;
-                }
-                self.sync_window_flags();
-            }
-            winit::event::WindowEvent::ThemeChanged(theme) => {
-                self.handle_theme_changed(theme);
-            }
-            winit::event::WindowEvent::ScaleFactorChanged { scale_factor, .. } => {
-                // Новая поверхность — последний кадр на ней не показан.
-                self.last_frame_sig = None;
-                self.system_scale_factor = scale_factor;
-                crate::scale::set_system_scale(scale_factor as f32);
-                self.apply_design_scale();
-                // Пользовательский масштаб множится поверх системного DPI.
-                let effective = self.effective_scale_factor();
-                self.scale_factor = effective;
-
-                if let Some(renderer) = self.renderer.as_mut() {
-                    let logical_w = (self.config.width as f64 / effective) as u32;
-                    let logical_h = (self.config.height as f64 / effective) as u32;
-                    if let Some(gpu) = self.gpu.as_ref() {
-                        renderer.resize(
-                            &gpu.shared.device,
-                            self.config.width,
-                            self.config.height,
-                            logical_w,
-                            logical_h,
-                        );
-                    }
-                    if let Ok(mut atlas) = renderer.font_atlas.lock() {
-                        atlas.set_scale_factor(effective as f32);
-                    }
-                    self.tree.mark_all_dirty(crate::widget::DirtyFlags::LAYOUT);
-                }
-
-                if let Some(window) = &self.window {
-                    crate::perf::redraw_from(file!(), line!());
-                    window.request_redraw();
-                }
-            }
-            winit::event::WindowEvent::CursorLeft { .. } => {
-                // Перенос файлов ушёл за окно — дальше его ведёт композитор.
-                #[cfg(feature = "wayland-dnd")]
-                if self.os_drag || self.try_os_drag() {
-                    return;
-                }
-                // Во время перетаскивания (кнопка зажата, есть захватчик)
-                // уход курсора за окно — не «мышь ушла»: координаты (−1, −1)
-                // захватчик принял бы за движение и, например, прокрутил бы
-                // список в начало. Отпускание придёт обычным MouseInput.
-                if self.tree.mouse_captor.is_some() {
-                    return;
-                }
-                if let Some(root_id) = self.root_id {
-                    let off_screen = Event::MouseMove(Point::new(-1.0, -1.0));
-                    let _ = self.tree.handle_event(root_id, &off_screen);
-                    if let Some(window) = &self.window {
-                        crate::perf::redraw_from(file!(), line!());
-                        window.request_redraw();
-                    }
-                }
-            }
-            winit::event::WindowEvent::CursorMoved { position, .. } => {
-                let sf = self.scale_factor as f32;
-                self.cursor_position = Point::new(position.x as f32 / sf, position.y as f32 / sf);
-
-                if self.devtools_handle_cursor_moved() {
-                    return;
-                }
-
-                // При зажатой кнопке композитор держит фокус на окне и шлёт координаты
-                // за его краем — перенос файлов за край уходит в перетаскивание Wayland.
-                #[cfg(feature = "wayland-dnd")]
-                if self.tree.drag_state.is_some() {
-                    let outside = self.window.as_ref().is_some_and(|w| {
-                        let size = w.winit_window().inner_size();
-                        position.x < 0.0
-                            || position.y < 0.0
-                            || position.x >= size.width as f64
-                            || position.y >= size.height as f64
-                    });
-                    if outside && self.try_os_drag() {
-                        return;
-                    }
-                }
-
-                let event = Event::MouseMove(self.cursor_position);
-                if let Some(root_id) = self.root_id {
-                    crate::perf::incr(crate::perf::Counter::MmDispatch);
-                    let _mm_t = web_time::Instant::now();
-                    let result = self.tree.handle_event(root_id, &event);
-                    crate::perf::add_time(
-                        crate::perf::TimeKind::MouseMoveHandleEvent,
-                        _mm_t.elapsed(),
-                    );
-                    if result.is_handled() {
-                        if let Some(window) = &self.window {
-                            crate::perf::redraw_from(file!(), line!());
-                            window.request_redraw();
-                        }
-                    }
-
-                    if self.tree.drag_state.is_some() {
-                        let pos = self.cursor_position;
-                        if let Some(ref mut drag) = self.tree.drag_state {
-                            drag.current_pos = pos;
-                        }
-                        let data = self.tree.drag_state.as_ref().unwrap().data.clone();
-                        let drag_move = Event::DragMove {
-                            position: pos,
-                            data,
-                        };
-                        let accepting = self.tree.dispatch_drag_event(&drag_move).is_handled();
-                        if let Some(ref mut drag) = self.tree.drag_state {
-                            drag.accepting = accepting;
-                        }
-                        // Перенос файлов — сразу перетаскиванием Wayland: тогда
-                        // его ведёт композитор над любыми окнами и слоями, даже
-                        // лежащими поверх этого окна (до сих пор он начинался,
-                        // только когда курсор выходил за окно).
-                        #[cfg(feature = "wayland-dnd")]
-                        if !self.os_drag && self.try_os_drag() {
-                            return;
-                        }
-                        if let Some(window) = &self.window {
-                            crate::perf::redraw_from(file!(), line!());
-                            window.request_redraw();
-                        }
-                    }
-
-                    self.update_cursor();
-                }
-            }
-            winit::event::WindowEvent::MouseInput { state, button, .. } => {
-                let pos = self.cursor_position;
-                let is_press = state == winit::event::ElementState::Pressed;
-
-                if self.devtools_handle_mouse_input(is_press, button) {
-                    return;
-                }
-
-                if is_press {
-                    crate::input::set_last_press(pos);
-                    self.update_focus_from_click(pos);
-                }
-
-                if !is_press && self.tree.drag_state.is_some() {
-                    if let Some(root_id) = self.root_id {
-                        self.tree.end_drag(root_id, pos, false);
-                        if let Some(window) = &self.window {
-                            crate::perf::redraw_from(file!(), line!());
-                            window.request_redraw();
-                        }
-                    }
-                } else {
-                    let mapped_button = map_mouse_button(button);
-
-                    if is_press {
-                        // двойной — только два левых подряд: правый щелчок
-                        // сразу после левого должен открыть меню, а не стать DoubleClick
-                        let left = mapped_button == crate::input::MouseButton::Left;
-                        let is_double = if let (true, Some(last_time), Some(last_pos)) =
-                            (left, self.last_click_time, self.last_click_pos)
-                        {
-                            let elapsed = Instant::now().duration_since(last_time);
-                            let dx = pos.x - last_pos.x;
-                            let dy = pos.y - last_pos.y;
-                            let dist = (dx * dx + dy * dy).sqrt();
-                            elapsed < self.double_click_interval && dist < 4.0
-                        } else {
-                            false
-                        };
-
-                        if is_double {
-                            let dbl_event = Event::DoubleClick {
-                                button: mapped_button,
-                                position: pos,
-                            };
-                            if let Some(root_id) = self.root_id {
-                                self.tree.handle_event(root_id, &dbl_event);
-                            }
-                            self.last_click_time = None;
-                            self.last_click_pos = None;
-                            if let Some(window) = &self.window {
-                                crate::perf::redraw_from(file!(), line!());
-                                window.request_redraw();
-                            }
-                        } else {
-                            self.last_click_time = left.then(Instant::now);
-                            self.last_click_pos = left.then_some(pos);
-                            let event = Event::MouseDown {
-                                button: mapped_button,
-                                position: pos,
-                            };
-                            if let Some(root_id) = self.root_id {
-                                let result = self.tree.handle_event(root_id, &event);
-                                self.devtools_log_event(
-                                    &format!("MouseDown({:?})", mapped_button),
-                                    &result,
-                                );
-                                let _ = result;
-                                if let Some(window) = &self.window {
-                                    crate::perf::redraw_from(file!(), line!());
-                                    window.request_redraw();
-                                }
-                            }
-                        }
-                    } else {
-                        let event = Event::MouseUp {
-                            button: mapped_button,
-                            position: pos,
-                        };
-                        if let Some(root_id) = self.root_id {
-                            let result = self.tree.handle_event(root_id, &event);
-                            self.devtools_log_event(
-                                &format!("MouseUp({:?})", mapped_button),
-                                &result,
-                            );
-                            if result.is_handled() {
-                                if let Some(window) = &self.window {
-                                    crate::perf::redraw_from(file!(), line!());
-                                    window.request_redraw();
-                                }
-                            }
-                        }
-                    }
-                }
-
-                self.process_virtual_keyboard_request();
-                self.process_window_requests(event_loop);
-            }
-            winit::event::WindowEvent::MouseWheel { delta, .. } => {
-                let (mut scroll_delta, mut scroll_delta_x) = match delta {
-                    winit::event::MouseScrollDelta::LineDelta(x, y) => (y * 40.0, x * 40.0),
-                    winit::event::MouseScrollDelta::PixelDelta(pos) => (pos.y as f32, pos.x as f32),
-                };
-                // Shift + колесо — горизонтальная прокрутка, как в браузерах:
-                // у обычной мыши второй оси нет.
-                if self.modifiers.shift && scroll_delta_x == 0.0 {
-                    scroll_delta_x = scroll_delta;
-                    scroll_delta = 0.0;
-                }
-
-                if self.devtools_handle_mouse_wheel(scroll_delta) {
-                    return;
-                }
-
-                let event = Event::MouseWheel {
-                    delta: scroll_delta,
-                    delta_x: scroll_delta_x,
-                    position: self.cursor_position,
-                };
-                if let Some(root_id) = self.root_id {
-                    let result = self.tree.handle_event(root_id, &event);
-                    if result.is_handled() {
-                        if let Some(window) = &self.window {
-                            crate::perf::redraw_from(file!(), line!());
-                            window.request_redraw();
-                        }
-                    }
-                }
-            }
-            winit::event::WindowEvent::ModifiersChanged(mods) => {
-                self.xkb_shift = mods.state().shift_key();
-                self.modifiers = Modifiers {
-                    shift: self.xkb_shift || self.held_shift != 0,
-                    ctrl: mods.state().control_key(),
-                    alt: mods.state().alt_key(),
-                    meta: mods.state().super_key(),
-                };
-                self.tree.modifiers = self.modifiers;
-            }
-            winit::event::WindowEvent::KeyboardInput { event, .. } => {
-                use winit::keyboard::PhysicalKey;
-
-                let shift_bit = match event.physical_key {
-                    PhysicalKey::Code(winit::keyboard::KeyCode::ShiftLeft) => 1,
-                    PhysicalKey::Code(winit::keyboard::KeyCode::ShiftRight) => 2,
-                    _ => 0,
-                };
-                if shift_bit != 0 {
-                    if event.state == winit::event::ElementState::Pressed {
-                        self.held_shift |= shift_bit;
-                    } else {
-                        self.held_shift &= !shift_bit;
-                    }
-                    self.modifiers.shift = self.xkb_shift || self.held_shift != 0;
-                    self.tree.modifiers = self.modifiers;
-                }
-
-                #[cfg(target_os = "android")]
-                {
-                    // «Назад»: без OnBackInvokedDispatcher (Android < 13 или
-                    // enableOnBackInvokedCallback=false) жест приходит
-                    // legacy-путём KEYCODE_BACK → BrowserBack.
-                    if let winit::keyboard::Key::Named(winit::keyboard::NamedKey::BrowserBack) =
-                        &event.logical_key
-                    {
-                        if event.state == winit::event::ElementState::Pressed {
-                            self.dispatch_back();
-                        }
-                        return;
-                    }
-                    // Пока открыта экранная клавиатура, текст и Enter/Backspace
-                    // идут через IME-канал (handler/android.rs) — аппаратные
-                    // клавиши тут не дублируем. Без клавиатуры D-pad пульта,
-                    // медиа-кнопки и внешняя клавиатура доходят до виджетов
-                    // обычным путём KeyDown/KeyUp ниже (текст — CharInput —
-                    // на Android не синтезируется).
-                    if self.keyboard_shown {
-                        return;
-                    }
-                }
-
-                if event.state == winit::event::ElementState::Pressed {
-                    if let winit::keyboard::Key::Named(winit::keyboard::NamedKey::BrowserBack) =
-                        &event.logical_key
-                    {
-                        let back_event = Event::BackPressed;
-                        if let Some(root_id) = self.root_id {
-                            let result = self.tree.handle_event(root_id, &back_event);
-                            // Необработанный «назад» закрывает приложение только
-                            // на Android (как системная кнопка). На Linux это
-                            // клавиша XF86Back — её шлёт и жест «назад» телефона
-                            // (synshell), — выход на корневом экране был бы
-                            // сюрпризом.
-                            #[cfg(target_os = "android")]
-                            if !result.is_handled() {
-                                event_loop.exit();
-                            }
-                            // Телефон (synshell): необработанный «назад» — подсказка, второй подряд
-                            // закрывает окно, как кнопка закрытия (back_exit.rs).
-                            #[cfg(not(target_os = "android"))]
-                            {
-                                let _ = &event_loop;
-                                if result.is_handled() {
-                                    super::back_exit::reset();
-                                } else if super::back_exit::enabled() {
-                                    if super::back_exit::press() {
-                                        self.window_event(
-                                            event_loop,
-                                            window_id,
-                                            winit::event::WindowEvent::CloseRequested,
-                                        );
-                                        return;
-                                    }
-                                    if let Some(window) = &self.window {
-                                        crate::perf::redraw_from(file!(), line!());
-                                        window.request_redraw();
-                                    }
-                                }
-                            }
-                        }
-                        return;
-                    }
-                }
-
-                // В браузере сюда F11 попадает, только если приложение её
-                // перехватило (`AppBuilder::capture_function_keys`); иначе
-                // клавишу обрабатывает сам браузер.
-                let grabbed = crate::input::keyboard_grab();
-                #[cfg(not(target_os = "android"))]
-                if event.state == winit::event::ElementState::Pressed && !grabbed {
-                    if let PhysicalKey::Code(winit::keyboard::KeyCode::F11) = event.physical_key {
-                        if let Some(window) = &self.window {
-                            let win = window.winit_window();
-                            let is_fs = win.fullscreen().is_some();
-                            win.set_fullscreen(if is_fs {
-                                None
-                            } else {
-                                Some(winit::window::Fullscreen::Borderless(None))
-                            });
-                            crate::perf::redraw_from(file!(), line!());
-                            window.request_redraw();
-                        }
-                        return;
-                    }
-                }
-
-                // F12 забирает фокусный элемент, если просит (редактор кода —
-                // переход к определению); иначе — инструменты разработчика.
-                let focused_wants_f12 = self
-                    .tree
-                    .focused_element
-                    .and_then(|id| self.tree.get(id))
-                    .is_some_and(|el| el.wants_key(crate::input::Key::F12));
-                if event.state == winit::event::ElementState::Pressed
-                    && !grabbed
-                    && !focused_wants_f12
-                {
-                    if let PhysicalKey::Code(winit::keyboard::KeyCode::F12) = event.physical_key {
-                        if let Some(ref mut devtools) = self.devtools {
-                            let was_enabled = devtools.is_enabled();
-                            devtools.toggle();
-                            if !was_enabled
-                                && devtools.is_enabled()
-                                && devtools.expanded_nodes_count() == 0
-                            {
-                                devtools.auto_expand(&self.tree, 4);
-                            }
-                        } else {
-                            let mut dt = crate::devtools::DevTools::new();
-                            dt.toggle();
-                            dt.auto_expand(&self.tree, 4);
-                            self.devtools = Some(dt);
-                        }
-                        if let Some(window) = &self.window {
-                            crate::perf::redraw_from(file!(), line!());
-                            window.request_redraw();
-                        }
-                        return;
-                    }
-                    if self.modifiers.ctrl && self.modifiers.alt {
-                        if let PhysicalKey::Code(winit::keyboard::KeyCode::KeyC) =
-                            event.physical_key
-                        {
-                            if let Some(ref mut devtools) = self.devtools {
-                                if devtools.is_enabled() {
-                                    devtools.toggle_picking();
-                                    if let Some(window) = &self.window {
-                                        crate::perf::redraw_from(file!(), line!());
-                                        window.request_redraw();
-                                    }
-                                    return;
-                                }
-                            }
-                        }
-                    }
-                }
-
-                if event.state == winit::event::ElementState::Pressed && !grabbed {
-                    if let PhysicalKey::Code(winit::keyboard::KeyCode::Tab) = event.physical_key {
-                        let focused_wants_tab = self
-                            .tree
-                            .focused_element
-                            .and_then(|id| self.tree.get(id))
-                            .map(|el| el.wants_tab())
-                            .unwrap_or(false);
-
-                        if !focused_wants_tab {
-                            let old_focus = self
-                                .focus_manager
-                                .current_focus()
-                                .or(self.tree.focused_element);
-                            let new_focus = if self.modifiers.shift {
-                                self.focus_manager.previous_focus()
-                            } else {
-                                self.focus_manager.next_focus()
-                            };
-
-                            if let Some(new_id) = new_focus {
-                                if let Some(old_id) = old_focus {
-                                    if old_id != new_id {
-                                        self.tree.dispatch_event_to(old_id, &Event::FocusLost);
-                                    }
-                                }
-                                self.tree.dispatch_event_to(new_id, &Event::FocusGained);
-                                self.tree.focused_element = Some(new_id);
-                                self.a11y_tree.update_focus(new_id);
-                                self.a11y_dirty = true;
-                                self.process_virtual_keyboard_request();
-
-                                if let Some(window) = &self.window {
-                                    crate::perf::redraw_from(file!(), line!());
-                                    window.request_redraw();
-                                }
-                            }
-                            return;
-                        }
-                    }
-                }
-
-                // Текст при Ctrl (кроме AltGr = Ctrl+Alt в Windows) и Cmd —
-                // не набор: в русской раскладке xkb на Ctrl+Z отдаёт «я»
-                // (control-преобразование только для ASCII), и буква
-                // вставлялась бы перед самой отменой.
-                let combo = (self.modifiers.ctrl && !self.modifiers.alt) || self.modifiers.meta;
-                #[cfg(not(target_os = "android"))]
-                if event.state == winit::event::ElementState::Pressed && !combo {
-                    if let Some(text) = event.text {
-                        for ch in text.chars() {
-                            if !ch.is_control() {
-                                let evt = Event::CharInput(ch);
-                                if let Some(root_id) = self.root_id {
-                                    self.tree.handle_event(root_id, &evt);
-                                }
-                            }
-                        }
-                        if let Some(window) = &self.window {
-                            crate::perf::redraw_from(file!(), line!());
-                            window.request_redraw();
-                        }
-                    }
-                }
-
-                // Физический код — основной путь; для клавиш без него (медиа-
-                // кнопки пульта: перемотка) и для кодов, которых нет в `Key`,
-                // берём логическое имя.
-                let named = match &event.logical_key {
-                    winit::keyboard::Key::Named(n) => super::input_mapping::map_named_key(n),
-                    _ => None,
-                };
-                let key = match event.physical_key {
-                    PhysicalKey::Code(code) => match map_key_code(code) {
-                        crate::input::Key::Unknown(_) if named.is_some() => named.unwrap(),
-                        k => k,
-                    },
-                    PhysicalKey::Unidentified(_) => match named {
-                        Some(k) => k,
-                        None => return,
-                    },
-                };
-
-                let evt = match event.state {
-                    winit::event::ElementState::Pressed => Event::KeyDown(key),
-                    winit::event::ElementState::Released => Event::KeyUp(key),
-                };
-
-                #[cfg(any(
-                    target_os = "linux",
-                    target_os = "freebsd",
-                    target_os = "openbsd",
-                    target_os = "netbsd",
-                    target_os = "dragonfly",
-                    windows,
-                    target_os = "macos"
-                ))]
-                {
-                    use winit::platform::scancode::PhysicalKeyExtScancode;
-                    crate::input::set_current_scancode(event.physical_key.to_scancode());
-                }
-                if let Some(root_id) = self.root_id {
-                    let result = self.tree.handle_event(root_id, &evt);
-                    crate::input::set_current_scancode(None);
-                    self.devtools_log_event(&format!("{:?}", evt), &result);
-                    if result.is_handled() {
-                        if let Some(window) = &self.window {
-                            crate::perf::redraw_from(file!(), line!());
-                            window.request_redraw();
-                        }
-                    }
-                }
-            }
-            winit::event::WindowEvent::Ime(ime_event) => {
-                #[cfg(target_os = "android")]
-                {
-                    let _ = ime_event;
-                }
-                #[cfg(not(target_os = "android"))]
-                {
-                    let event = match ime_event {
-                        winit::event::Ime::Commit(text) => Event::ImeCommit(text),
-                        winit::event::Ime::Preedit(text, cursor) => {
-                            Event::ImePreedit { text, cursor }
-                        }
-                        winit::event::Ime::Enabled => Event::ImeEnabled,
-                        winit::event::Ime::Disabled => Event::ImeDisabled,
-                    };
-                    if let Some(root_id) = self.root_id {
-                        self.tree.handle_event(root_id, &event);
-                    }
-                    if let Some(window) = &self.window {
-                        crate::perf::redraw_from(file!(), line!());
-                        window.request_redraw();
-                    }
-                }
-            }
-
-            winit::event::WindowEvent::Touch(touch) => {
-                let sf = self.scale_factor as f32;
-                let position =
-                    Point::new(touch.location.x as f32 / sf, touch.location.y as f32 / sf);
-                let id = touch.id;
-                self.cursor_position = position;
-                // Тап, двойной тап и долгое нажатие синтезирует общий автомат
-                // (`input::touch`); сырые Touch* получают все пальцы.
-                if matches!(touch.phase, winit::event::TouchPhase::Ended)
-                    && self.touch.would_tap(id)
-                {
-                    self.update_focus_from_click(position);
-                }
-                if let Some(root_id) = self.root_id {
-                    let tree = &mut self.tree;
-                    let mut dispatch = |e: &Event| tree.handle_event(root_id, e);
-                    match touch.phase {
-                        winit::event::TouchPhase::Started => {
-                            self.touch.down(id, position, &mut dispatch);
-                        }
-                        winit::event::TouchPhase::Moved => {
-                            self.touch.motion(id, position, &mut dispatch);
-                        }
-                        winit::event::TouchPhase::Ended => {
-                            self.touch.up(id, Some(position), &mut dispatch);
-                        }
-                        winit::event::TouchPhase::Cancelled => {
-                            self.touch.cancel(&mut dispatch);
-                        }
-                    }
-                }
-
-                if let Some(window) = &self.window {
-                    crate::perf::redraw_from(file!(), line!());
-                    window.request_redraw();
-                }
-
-                self.process_virtual_keyboard_request();
-                // Кнопки и заголовок окна (CSD) нажимают и пальцем: без этого
-                // свернуть/развернуть/закрыть и перетаскивание касанием молчали.
-                self.process_window_requests(event_loop);
-            }
-
-            winit::event::WindowEvent::RedrawRequested => {
-                #[cfg(target_arch = "wasm32")]
-                web_sys::console::log_1(
-                    &format!("[syngui] RedrawRequested, gpu={}", self.gpu.is_some()).into(),
-                );
-                self.render();
-            }
-
-            winit::event::WindowEvent::HoveredFile(path) => {
-                let data = DragData::external_file(&path);
-                let pos = self.cursor_position;
-                if self.root_id.is_some() {
-                    self.tree.dispatch_drag_event(&Event::DragEnter {
-                        position: pos,
-                        data,
-                    });
-                    if let Some(window) = &self.window {
-                        crate::perf::redraw_from(file!(), line!());
-                        window.request_redraw();
-                    }
-                }
-            }
-            winit::event::WindowEvent::HoveredFileCancelled => {
-                if self.root_id.is_some() {
-                    self.tree.dispatch_drag_event(&Event::DragLeave);
-                    if let Some(window) = &self.window {
-                        crate::perf::redraw_from(file!(), line!());
-                        window.request_redraw();
-                    }
-                }
-            }
-            winit::event::WindowEvent::DroppedFile(path) => {
-                let data = DragData::external_file(&path);
-                let pos = self.cursor_position;
-                if self.root_id.is_some() {
-                    self.tree.dispatch_drag_event(&Event::Drop {
-                        position: pos,
-                        data,
-                    });
-                    if let Some(window) = &self.window {
-                        crate::perf::redraw_from(file!(), line!());
-                        window.request_redraw();
-                    }
-                }
-            }
-
-            _ => {}
-        }
+        self.handle_window_event(event_loop, window_id, event);
     }
 
     /// Сырые смещения мыши (relative-pointer на Wayland) — сразу обработчику
@@ -878,7 +105,9 @@ impl winit::application::ApplicationHandler<SynGuiUserEvent> for AppHandler {
     }
 
     fn about_to_wait(&mut self, event_loop: &winit::event_loop::ActiveEventLoop) {
-        self.apply_custom_cursor(event_loop);
+        // Заявки окон, не дошедшие user-event'ом (цикл ещё не был запущен).
+        self.process_window_commands(event_loop);
+        self.for_each_window(|this| this.apply_custom_cursor(event_loop));
         // Android: winit 0.30 не передаёт APP_CMD_DESTROY приложению (TODO в
         // platform_impl/android), и после уничтожения GameActivity (смахнули из
         // недавних, система закрыла) цикл крутился вхолостую. Новая активность в том
@@ -898,22 +127,27 @@ impl winit::application::ApplicationHandler<SynGuiUserEvent> for AppHandler {
                 unsafe { libc::_exit(0) };
             }
         }
-        if self.pending_show && self.window.is_none() {
+        if self.pending_show && self.win.window.is_none() {
             self.pending_show = false;
             self.init(event_loop);
             self.main_window_visible = true;
             super::MAIN_WINDOW_VISIBLE.store(true, std::sync::atomic::Ordering::Relaxed);
-            if let Some(window) = self.window.as_ref() {
+            if let Some(window) = self.win.window.as_ref() {
                 window.focus();
                 crate::perf::redraw_from(file!(), line!());
                 window.request_redraw();
             }
         }
 
-        self.poll_touch();
+        self.for_each_window(|this| {
+            this.poll_touch();
+            // Запросы окна с клавиатуры (горячая клавиша → `close_window`),
+            // таймеров и эффектов — не только с мыши и пальца.
+            this.process_window_requests(event_loop);
+        });
         self.update();
         #[cfg(target_arch = "wasm32")]
-        if let Some(window) = &self.window {
+        if let Some(window) = &self.win.window {
             crate::perf::redraw_from(file!(), line!());
             window.request_redraw();
         }
@@ -962,36 +196,20 @@ impl winit::application::ApplicationHandler<SynGuiUserEvent> for AppHandler {
                     self.show_main_window();
                     return;
                 }
-                #[cfg(all(
-                    feature = "tray",
-                    not(target_arch = "wasm32"),
-                    not(target_os = "android")
-                ))]
-                {
-                    self.tray.take();
-                }
-                #[cfg(all(
-                    feature = "single-instance",
-                    not(target_arch = "wasm32"),
-                    not(target_os = "android")
-                ))]
-                {
-                    self.single_instance.take();
-                }
-                event_loop.exit();
+                self.exit_app(event_loop);
             }
             SynGuiUserEvent::MenuItem(id) => {
                 log::debug!("[syngui] tray menu item: {id}");
             }
             #[cfg(feature = "accessibility")]
             SynGuiUserEvent::A11yActivated => {
-                self.a11y_tree.set_accesskit_active(true);
-                self.a11y_dirty = true;
+                self.win.a11y_tree.set_accesskit_active(true);
+                self.win.a11y_dirty = true;
                 self.request_redraw();
             }
             #[cfg(feature = "accessibility")]
             SynGuiUserEvent::A11yDeactivated => {
-                self.a11y_tree.set_accesskit_active(false);
+                self.win.a11y_tree.set_accesskit_active(false);
             }
             #[cfg(feature = "accessibility")]
             SynGuiUserEvent::A11yAction(req) => {
@@ -1000,22 +218,27 @@ impl winit::application::ApplicationHandler<SynGuiUserEvent> for AppHandler {
             #[cfg(target_arch = "wasm32")]
             SynGuiUserEvent::WebBack => {
                 let handled = self
+                    .win
                     .root_id
                     .map(|root_id| {
-                        self.tree
+                        self.win
+                            .tree
                             .handle_event(root_id, &Event::BackPressed)
                             .is_handled()
                     })
                     .unwrap_or(false);
                 if handled {
                     super::web_history::arm();
-                    if let Some(ref window) = self.window {
+                    if let Some(ref window) = self.win.window {
                         crate::perf::redraw_from(file!(), line!());
                         window.request_redraw();
                     }
                 } else {
                     super::web_history::leave();
                 }
+            }
+            SynGuiUserEvent::WindowCommands => {
+                self.process_window_commands(event_loop);
             }
             SynGuiUserEvent::MainThreadWake => {
                 // Очередь run_on_main_thread: дренируем прямо здесь — рендера
@@ -1029,6 +252,7 @@ impl winit::application::ApplicationHandler<SynGuiUserEvent> for AppHandler {
                     // Wayland применяет размер сразу и не присылает Resized —
                     // перестраиваем поверхность и раскладку сами.
                     let applied = self
+                        .win
                         .window
                         .as_ref()
                         .and_then(|win| win.request_inner_size(w, h).map(|s| (win.id(), s)));
@@ -1050,39 +274,794 @@ impl winit::application::ApplicationHandler<SynGuiUserEvent> for AppHandler {
 }
 
 impl AppHandler {
+    /// Событие активного окна (главного или дополнительного — см.
+    /// [`AppHandler::with_window`]).
+    fn handle_window_event(
+        &mut self,
+        event_loop: &winit::event_loop::ActiveEventLoop,
+        window_id: winit::window::WindowId,
+        event: winit::event::WindowEvent,
+    ) {
+        // Android: «назад» идёт своим путём, номер окна не нужен.
+        #[cfg(target_os = "android")]
+        let _ = window_id;
+        #[cfg(feature = "accessibility")]
+        {
+            if let (Some(ref mut ak_adapter), Some(ref window)) =
+                (&mut self.win.accesskit_adapter, &self.win.window)
+            {
+                ak_adapter.process_event(window.winit_window(), &event);
+            }
+        }
+
+        match event {
+            winit::event::WindowEvent::CloseRequested => {
+                #[cfg(target_os = "android")]
+                {
+                    let _ = &event_loop;
+                    // Единая обработка «назад» (клавиатура → виджеты →
+                    // сворачивание), см. dispatch_back.
+                    self.dispatch_back();
+                }
+                #[cfg(not(target_os = "android"))]
+                if self.win.is_main() {
+                    self.close_main_window(event_loop);
+                } else {
+                    self.request_close_current(true);
+                }
+            }
+            winit::event::WindowEvent::Resized(physical_size) => {
+                // Новая поверхность — последний кадр на ней не показан.
+                self.win.last_frame_sig = None;
+                if physical_size.width == 0 || physical_size.height == 0 {
+                    return;
+                }
+
+                self.sync_window_flags();
+
+                self.win.width = physical_size.width;
+                self.win.height = physical_size.height;
+                self.apply_design_scale();
+
+                // Поворот экрана, скрытие системных панелей и переход в
+                // многооконный режим меняют безопасную область — на Android
+                // её приходится спрашивать заново (см. update_safe_area).
+                #[cfg(any(target_os = "android", target_os = "ios"))]
+                self.update_safe_area();
+
+                if let (Some(gpu), Some(surface)) = (self.gpu.as_ref(), self.win.surface.as_mut()) {
+                    surface.surface_config.width = physical_size.width;
+                    surface.surface_config.height = physical_size.height;
+                    surface
+                        .surface
+                        .configure(&gpu.device, &surface.surface_config);
+                }
+
+                if let Some(renderer) = self.win.renderer.as_mut() {
+                    let logical_w = (physical_size.width as f64 / self.win.scale_factor) as u32;
+                    let logical_h = (physical_size.height as f64 / self.win.scale_factor) as u32;
+                    if let Some(gpu) = self.gpu.as_ref() {
+                        renderer.resize(
+                            &gpu.device,
+                            self.win.width,
+                            self.win.height,
+                            logical_w,
+                            logical_h,
+                        );
+                    }
+                }
+
+                if let Some(root_id) = self.win.root_id {
+                    let logical_w = (physical_size.width as f64 / self.win.scale_factor) as f32;
+                    let logical_h = (physical_size.height as f64 / self.win.scale_factor) as f32;
+                    let safe = self.layout_insets();
+                    let layout_h = (logical_h - safe.top - safe.bottom).max(0.0);
+                    let layout_w = logical_w - safe.left - safe.right;
+                    self.win.tree.root_offset =
+                        crate::core::Point::new(safe.left, safe.top - self.win.tree.keyboard_pan);
+                    crate::viewport::publish(crate::core::Size::new(layout_w, layout_h));
+                    crate::viewport::publish_origin(self.win.tree.root_offset);
+                    let constraints = crate::layout::Constraints::new(0.0, layout_w, 0.0, layout_h);
+                    self.win.tree.layout(root_id, constraints);
+                    self.win.a11y_dirty = true;
+                }
+
+                if let Some(window) = &self.win.window {
+                    crate::perf::redraw_from(file!(), line!());
+                    window.request_redraw();
+                }
+            }
+            winit::event::WindowEvent::Focused(focused) => {
+                // захват ввода (игры, ВМ) — только пока окно в фокусе
+                // (захват — у главного окна)
+                if !focused && self.win.is_main() {
+                    crate::signal::release_input_capture();
+                }
+                // отпускание Shift вне окна не придёт
+                if !focused && self.held_shift != 0 {
+                    self.held_shift = 0;
+                    self.modifiers.shift = self.xkb_shift;
+                    self.win.tree.modifiers = self.modifiers;
+                }
+                self.sync_window_flags();
+            }
+            winit::event::WindowEvent::ThemeChanged(theme) => {
+                self.handle_theme_changed(theme);
+            }
+            winit::event::WindowEvent::ScaleFactorChanged { scale_factor, .. } => {
+                // Новая поверхность — последний кадр на ней не показан.
+                self.win.last_frame_sig = None;
+                self.win.system_scale_factor = scale_factor;
+                if self.win.is_main() {
+                    crate::scale::set_system_scale(scale_factor as f32);
+                    self.apply_design_scale();
+                }
+                // Пользовательский масштаб множится поверх системного DPI.
+                let effective = self.effective_scale_factor();
+                self.win.scale_factor = effective;
+
+                if let Some(renderer) = self.win.renderer.as_mut() {
+                    let logical_w = (self.win.width as f64 / effective) as u32;
+                    let logical_h = (self.win.height as f64 / effective) as u32;
+                    if let Some(gpu) = self.gpu.as_ref() {
+                        renderer.resize(
+                            &gpu.device,
+                            self.win.width,
+                            self.win.height,
+                            logical_w,
+                            logical_h,
+                        );
+                    }
+                    if let Ok(mut atlas) = renderer.font_atlas.lock() {
+                        atlas.set_scale_factor(effective as f32);
+                    }
+                    self.win
+                        .tree
+                        .mark_all_dirty(crate::widget::DirtyFlags::LAYOUT);
+                }
+
+                if let Some(window) = &self.win.window {
+                    crate::perf::redraw_from(file!(), line!());
+                    window.request_redraw();
+                }
+            }
+            winit::event::WindowEvent::CursorLeft { .. } => {
+                // Перенос файлов ушёл за окно — дальше его ведёт композитор.
+                #[cfg(feature = "wayland-dnd")]
+                if self.win.os_drag || self.try_os_drag() {
+                    return;
+                }
+                // Во время перетаскивания (кнопка зажата, есть захватчик)
+                // уход курсора за окно — не «мышь ушла»: координаты (−1, −1)
+                // захватчик принял бы за движение и, например, прокрутил бы
+                // список в начало. Отпускание придёт обычным MouseInput.
+                if self.win.tree.mouse_captor.is_some() {
+                    return;
+                }
+                if let Some(root_id) = self.win.root_id {
+                    let off_screen = Event::MouseMove(Point::new(-1.0, -1.0));
+                    let _ = self.win.tree.handle_event(root_id, &off_screen);
+                    if let Some(window) = &self.win.window {
+                        crate::perf::redraw_from(file!(), line!());
+                        window.request_redraw();
+                    }
+                }
+            }
+            winit::event::WindowEvent::CursorMoved { position, .. } => {
+                let sf = self.win.scale_factor as f32;
+                self.win.cursor_position =
+                    Point::new(position.x as f32 / sf, position.y as f32 / sf);
+
+                if self.devtools_handle_cursor_moved() {
+                    return;
+                }
+
+                // При зажатой кнопке композитор держит фокус на окне и шлёт координаты
+                // за его краем — перенос файлов за край уходит в перетаскивание Wayland.
+                #[cfg(feature = "wayland-dnd")]
+                if self.win.tree.drag_state.is_some() {
+                    let outside = self.win.window.as_ref().is_some_and(|w| {
+                        let size = w.winit_window().inner_size();
+                        position.x < 0.0
+                            || position.y < 0.0
+                            || position.x >= size.width as f64
+                            || position.y >= size.height as f64
+                    });
+                    if outside && self.try_os_drag() {
+                        return;
+                    }
+                }
+
+                let event = Event::MouseMove(self.win.cursor_position);
+                if let Some(root_id) = self.win.root_id {
+                    crate::perf::incr(crate::perf::Counter::MmDispatch);
+                    let _mm_t = web_time::Instant::now();
+                    let result = self.win.tree.handle_event(root_id, &event);
+                    crate::perf::add_time(
+                        crate::perf::TimeKind::MouseMoveHandleEvent,
+                        _mm_t.elapsed(),
+                    );
+                    if result.is_handled() {
+                        if let Some(window) = &self.win.window {
+                            crate::perf::redraw_from(file!(), line!());
+                            window.request_redraw();
+                        }
+                    }
+
+                    if self.win.tree.drag_state.is_some() {
+                        let pos = self.win.cursor_position;
+                        if let Some(ref mut drag) = self.win.tree.drag_state {
+                            drag.current_pos = pos;
+                        }
+                        let data = self.win.tree.drag_state.as_ref().unwrap().data.clone();
+                        let drag_move = Event::DragMove {
+                            position: pos,
+                            data,
+                        };
+                        let accepting = self.win.tree.dispatch_drag_event(&drag_move).is_handled();
+                        if let Some(ref mut drag) = self.win.tree.drag_state {
+                            drag.accepting = accepting;
+                        }
+                        // Перенос файлов — сразу перетаскиванием Wayland: тогда
+                        // его ведёт композитор над любыми окнами и слоями, даже
+                        // лежащими поверх этого окна (до сих пор он начинался,
+                        // только когда курсор выходил за окно).
+                        #[cfg(feature = "wayland-dnd")]
+                        if !self.win.os_drag && self.try_os_drag() {
+                            return;
+                        }
+                        if let Some(window) = &self.win.window {
+                            crate::perf::redraw_from(file!(), line!());
+                            window.request_redraw();
+                        }
+                    }
+
+                    self.update_cursor();
+                }
+            }
+            winit::event::WindowEvent::MouseInput { state, button, .. } => {
+                let pos = self.win.cursor_position;
+                let is_press = state == winit::event::ElementState::Pressed;
+
+                if self.devtools_handle_mouse_input(is_press, button) {
+                    return;
+                }
+
+                if is_press {
+                    crate::input::set_last_press(pos);
+                    self.update_focus_from_click(pos);
+                }
+
+                if !is_press && self.win.tree.drag_state.is_some() {
+                    if let Some(root_id) = self.win.root_id {
+                        self.win.tree.end_drag(root_id, pos, false);
+                        if let Some(window) = &self.win.window {
+                            crate::perf::redraw_from(file!(), line!());
+                            window.request_redraw();
+                        }
+                    }
+                } else {
+                    let mapped_button = map_mouse_button(button);
+
+                    if is_press {
+                        // двойной — только два левых подряд: правый щелчок
+                        // сразу после левого должен открыть меню, а не стать DoubleClick
+                        let left = mapped_button == crate::input::MouseButton::Left;
+                        let is_double = if let (true, Some(last_time), Some(last_pos)) =
+                            (left, self.win.last_click_time, self.win.last_click_pos)
+                        {
+                            let elapsed = Instant::now().duration_since(last_time);
+                            let dx = pos.x - last_pos.x;
+                            let dy = pos.y - last_pos.y;
+                            let dist = (dx * dx + dy * dy).sqrt();
+                            elapsed < self.double_click_interval && dist < 4.0
+                        } else {
+                            false
+                        };
+
+                        if is_double {
+                            let dbl_event = Event::DoubleClick {
+                                button: mapped_button,
+                                position: pos,
+                            };
+                            if let Some(root_id) = self.win.root_id {
+                                self.win.tree.handle_event(root_id, &dbl_event);
+                            }
+                            self.win.last_click_time = None;
+                            self.win.last_click_pos = None;
+                            if let Some(window) = &self.win.window {
+                                crate::perf::redraw_from(file!(), line!());
+                                window.request_redraw();
+                            }
+                        } else {
+                            self.win.last_click_time = left.then(Instant::now);
+                            self.win.last_click_pos = left.then_some(pos);
+                            let event = Event::MouseDown {
+                                button: mapped_button,
+                                position: pos,
+                            };
+                            if let Some(root_id) = self.win.root_id {
+                                let result = self.win.tree.handle_event(root_id, &event);
+                                self.devtools_log_event(
+                                    &format!("MouseDown({:?})", mapped_button),
+                                    &result,
+                                );
+                                let _ = result;
+                                if let Some(window) = &self.win.window {
+                                    crate::perf::redraw_from(file!(), line!());
+                                    window.request_redraw();
+                                }
+                            }
+                        }
+                    } else {
+                        let event = Event::MouseUp {
+                            button: mapped_button,
+                            position: pos,
+                        };
+                        if let Some(root_id) = self.win.root_id {
+                            let result = self.win.tree.handle_event(root_id, &event);
+                            self.devtools_log_event(
+                                &format!("MouseUp({:?})", mapped_button),
+                                &result,
+                            );
+                            if result.is_handled() {
+                                if let Some(window) = &self.win.window {
+                                    crate::perf::redraw_from(file!(), line!());
+                                    window.request_redraw();
+                                }
+                            }
+                        }
+                    }
+                }
+
+                self.process_virtual_keyboard_request();
+                self.process_window_requests(event_loop);
+            }
+            winit::event::WindowEvent::MouseWheel { delta, .. } => {
+                let (mut scroll_delta, mut scroll_delta_x) = match delta {
+                    winit::event::MouseScrollDelta::LineDelta(x, y) => (y * 40.0, x * 40.0),
+                    winit::event::MouseScrollDelta::PixelDelta(pos) => (pos.y as f32, pos.x as f32),
+                };
+                // Shift + колесо — горизонтальная прокрутка, как в браузерах:
+                // у обычной мыши второй оси нет.
+                if self.modifiers.shift && scroll_delta_x == 0.0 {
+                    scroll_delta_x = scroll_delta;
+                    scroll_delta = 0.0;
+                }
+
+                if self.devtools_handle_mouse_wheel(scroll_delta) {
+                    return;
+                }
+
+                let event = Event::MouseWheel {
+                    delta: scroll_delta,
+                    delta_x: scroll_delta_x,
+                    position: self.win.cursor_position,
+                };
+                if let Some(root_id) = self.win.root_id {
+                    let result = self.win.tree.handle_event(root_id, &event);
+                    if result.is_handled() {
+                        if let Some(window) = &self.win.window {
+                            crate::perf::redraw_from(file!(), line!());
+                            window.request_redraw();
+                        }
+                    }
+                }
+            }
+            winit::event::WindowEvent::ModifiersChanged(mods) => {
+                self.xkb_shift = mods.state().shift_key();
+                self.modifiers = Modifiers {
+                    shift: self.xkb_shift || self.held_shift != 0,
+                    ctrl: mods.state().control_key(),
+                    alt: mods.state().alt_key(),
+                    meta: mods.state().super_key(),
+                };
+                self.win.tree.modifiers = self.modifiers;
+            }
+            winit::event::WindowEvent::KeyboardInput { event, .. } => {
+                use winit::keyboard::PhysicalKey;
+
+                let shift_bit = match event.physical_key {
+                    PhysicalKey::Code(winit::keyboard::KeyCode::ShiftLeft) => 1,
+                    PhysicalKey::Code(winit::keyboard::KeyCode::ShiftRight) => 2,
+                    _ => 0,
+                };
+                if shift_bit != 0 {
+                    if event.state == winit::event::ElementState::Pressed {
+                        self.held_shift |= shift_bit;
+                    } else {
+                        self.held_shift &= !shift_bit;
+                    }
+                    self.modifiers.shift = self.xkb_shift || self.held_shift != 0;
+                    self.win.tree.modifiers = self.modifiers;
+                }
+
+                #[cfg(target_os = "android")]
+                {
+                    // «Назад»: без OnBackInvokedDispatcher (Android < 13 или
+                    // enableOnBackInvokedCallback=false) жест приходит
+                    // legacy-путём KEYCODE_BACK → BrowserBack.
+                    if let winit::keyboard::Key::Named(winit::keyboard::NamedKey::BrowserBack) =
+                        &event.logical_key
+                    {
+                        if event.state == winit::event::ElementState::Pressed {
+                            self.dispatch_back();
+                        }
+                        return;
+                    }
+                    // Пока открыта экранная клавиатура, текст и Enter/Backspace
+                    // идут через IME-канал (handler/android.rs) — аппаратные
+                    // клавиши тут не дублируем. Без клавиатуры D-pad пульта,
+                    // медиа-кнопки и внешняя клавиатура доходят до виджетов
+                    // обычным путём KeyDown/KeyUp ниже (текст — CharInput —
+                    // на Android не синтезируется).
+                    if self.keyboard_shown {
+                        return;
+                    }
+                }
+
+                if event.state == winit::event::ElementState::Pressed {
+                    if let winit::keyboard::Key::Named(winit::keyboard::NamedKey::BrowserBack) =
+                        &event.logical_key
+                    {
+                        let back_event = Event::BackPressed;
+                        if let Some(root_id) = self.win.root_id {
+                            let result = self.win.tree.handle_event(root_id, &back_event);
+                            // Необработанный «назад» закрывает приложение только
+                            // на Android (как системная кнопка). На Linux это
+                            // клавиша XF86Back — её шлёт и жест «назад» телефона
+                            // (synshell), — выход на корневом экране был бы
+                            // сюрпризом.
+                            #[cfg(target_os = "android")]
+                            if !result.is_handled() {
+                                event_loop.exit();
+                            }
+                            // Телефон (synshell): необработанный «назад» — подсказка, второй подряд
+                            // закрывает окно, как кнопка закрытия (back_exit.rs).
+                            #[cfg(not(target_os = "android"))]
+                            {
+                                let _ = &event_loop;
+                                if result.is_handled() {
+                                    super::back_exit::reset();
+                                } else if super::back_exit::enabled() {
+                                    if super::back_exit::press() {
+                                        self.handle_window_event(
+                                            event_loop,
+                                            window_id,
+                                            winit::event::WindowEvent::CloseRequested,
+                                        );
+                                        return;
+                                    }
+                                    if let Some(window) = &self.win.window {
+                                        crate::perf::redraw_from(file!(), line!());
+                                        window.request_redraw();
+                                    }
+                                }
+                            }
+                        }
+                        return;
+                    }
+                }
+
+                // В браузере сюда F11 попадает, только если приложение её
+                // перехватило (`AppBuilder::capture_function_keys`); иначе
+                // клавишу обрабатывает сам браузер.
+                let grabbed = crate::input::keyboard_grab();
+                #[cfg(not(target_os = "android"))]
+                if event.state == winit::event::ElementState::Pressed && !grabbed {
+                    if let PhysicalKey::Code(winit::keyboard::KeyCode::F11) = event.physical_key {
+                        if let Some(window) = &self.win.window {
+                            let win = window.winit_window();
+                            let is_fs = win.fullscreen().is_some();
+                            win.set_fullscreen(if is_fs {
+                                None
+                            } else {
+                                Some(winit::window::Fullscreen::Borderless(None))
+                            });
+                            crate::perf::redraw_from(file!(), line!());
+                            window.request_redraw();
+                        }
+                        return;
+                    }
+                }
+
+                // F12 забирает фокусный элемент, если просит (редактор кода —
+                // переход к определению); иначе — инструменты разработчика.
+                let focused_wants_f12 = self
+                    .win
+                    .tree
+                    .focused_element
+                    .and_then(|id| self.win.tree.get(id))
+                    .is_some_and(|el| el.wants_key(crate::input::Key::F12));
+                if event.state == winit::event::ElementState::Pressed
+                    && !grabbed
+                    && !focused_wants_f12
+                {
+                    if let PhysicalKey::Code(winit::keyboard::KeyCode::F12) = event.physical_key {
+                        if let Some(ref mut devtools) = self.win.devtools {
+                            let was_enabled = devtools.is_enabled();
+                            devtools.toggle();
+                            if !was_enabled
+                                && devtools.is_enabled()
+                                && devtools.expanded_nodes_count() == 0
+                            {
+                                devtools.auto_expand(&self.win.tree, 4);
+                            }
+                        } else {
+                            let mut dt = crate::devtools::DevTools::new();
+                            dt.toggle();
+                            dt.auto_expand(&self.win.tree, 4);
+                            self.win.devtools = Some(dt);
+                        }
+                        if let Some(window) = &self.win.window {
+                            crate::perf::redraw_from(file!(), line!());
+                            window.request_redraw();
+                        }
+                        return;
+                    }
+                    if self.modifiers.ctrl && self.modifiers.alt {
+                        if let PhysicalKey::Code(winit::keyboard::KeyCode::KeyC) =
+                            event.physical_key
+                        {
+                            if let Some(ref mut devtools) = self.win.devtools {
+                                if devtools.is_enabled() {
+                                    devtools.toggle_picking();
+                                    if let Some(window) = &self.win.window {
+                                        crate::perf::redraw_from(file!(), line!());
+                                        window.request_redraw();
+                                    }
+                                    return;
+                                }
+                            }
+                        }
+                    }
+                }
+
+                if event.state == winit::event::ElementState::Pressed && !grabbed {
+                    if let PhysicalKey::Code(winit::keyboard::KeyCode::Tab) = event.physical_key {
+                        let focused_wants_tab = self
+                            .win
+                            .tree
+                            .focused_element
+                            .and_then(|id| self.win.tree.get(id))
+                            .map(|el| el.wants_tab())
+                            .unwrap_or(false);
+
+                        if !focused_wants_tab {
+                            let old_focus = self
+                                .win
+                                .focus_manager
+                                .current_focus()
+                                .or(self.win.tree.focused_element);
+                            let new_focus = if self.modifiers.shift {
+                                self.win.focus_manager.previous_focus()
+                            } else {
+                                self.win.focus_manager.next_focus()
+                            };
+
+                            if let Some(new_id) = new_focus {
+                                if let Some(old_id) = old_focus {
+                                    if old_id != new_id {
+                                        self.win.tree.dispatch_event_to(old_id, &Event::FocusLost);
+                                    }
+                                }
+                                self.win.tree.dispatch_event_to(new_id, &Event::FocusGained);
+                                self.win.tree.focused_element = Some(new_id);
+                                self.win.a11y_tree.update_focus(new_id);
+                                self.win.a11y_dirty = true;
+                                self.process_virtual_keyboard_request();
+
+                                if let Some(window) = &self.win.window {
+                                    crate::perf::redraw_from(file!(), line!());
+                                    window.request_redraw();
+                                }
+                            }
+                            return;
+                        }
+                    }
+                }
+
+                // Текст при Ctrl (кроме AltGr = Ctrl+Alt в Windows) и Cmd —
+                // не набор: в русской раскладке xkb на Ctrl+Z отдаёт «я»
+                // (control-преобразование только для ASCII), и буква
+                // вставлялась бы перед самой отменой.
+                let combo = (self.modifiers.ctrl && !self.modifiers.alt) || self.modifiers.meta;
+                #[cfg(not(target_os = "android"))]
+                if event.state == winit::event::ElementState::Pressed && !combo {
+                    if let Some(text) = event.text {
+                        for ch in text.chars() {
+                            if !ch.is_control() {
+                                let evt = Event::CharInput(ch);
+                                if let Some(root_id) = self.win.root_id {
+                                    self.win.tree.handle_event(root_id, &evt);
+                                }
+                            }
+                        }
+                        if let Some(window) = &self.win.window {
+                            crate::perf::redraw_from(file!(), line!());
+                            window.request_redraw();
+                        }
+                    }
+                }
+
+                // Физический код — основной путь; для клавиш без него (медиа-
+                // кнопки пульта: перемотка) и для кодов, которых нет в `Key`,
+                // берём логическое имя.
+                let named = match &event.logical_key {
+                    winit::keyboard::Key::Named(n) => super::input_mapping::map_named_key(n),
+                    _ => None,
+                };
+                let key = match event.physical_key {
+                    PhysicalKey::Code(code) => match map_key_code(code) {
+                        crate::input::Key::Unknown(_) if named.is_some() => named.unwrap(),
+                        k => k,
+                    },
+                    PhysicalKey::Unidentified(_) => match named {
+                        Some(k) => k,
+                        None => return,
+                    },
+                };
+
+                let evt = match event.state {
+                    winit::event::ElementState::Pressed => Event::KeyDown(key),
+                    winit::event::ElementState::Released => Event::KeyUp(key),
+                };
+
+                #[cfg(any(
+                    target_os = "linux",
+                    target_os = "freebsd",
+                    target_os = "openbsd",
+                    target_os = "netbsd",
+                    target_os = "dragonfly",
+                    windows,
+                    target_os = "macos"
+                ))]
+                {
+                    use winit::platform::scancode::PhysicalKeyExtScancode;
+                    crate::input::set_current_scancode(event.physical_key.to_scancode());
+                }
+                if let Some(root_id) = self.win.root_id {
+                    let result = self.win.tree.handle_event(root_id, &evt);
+                    crate::input::set_current_scancode(None);
+                    self.devtools_log_event(&format!("{:?}", evt), &result);
+                    if result.is_handled() {
+                        if let Some(window) = &self.win.window {
+                            crate::perf::redraw_from(file!(), line!());
+                            window.request_redraw();
+                        }
+                    }
+                }
+            }
+            winit::event::WindowEvent::Ime(ime_event) => {
+                #[cfg(target_os = "android")]
+                {
+                    let _ = ime_event;
+                }
+                #[cfg(not(target_os = "android"))]
+                {
+                    let event = match ime_event {
+                        winit::event::Ime::Commit(text) => Event::ImeCommit(text),
+                        winit::event::Ime::Preedit(text, cursor) => {
+                            Event::ImePreedit { text, cursor }
+                        }
+                        winit::event::Ime::Enabled => Event::ImeEnabled,
+                        winit::event::Ime::Disabled => Event::ImeDisabled,
+                    };
+                    if let Some(root_id) = self.win.root_id {
+                        self.win.tree.handle_event(root_id, &event);
+                    }
+                    if let Some(window) = &self.win.window {
+                        crate::perf::redraw_from(file!(), line!());
+                        window.request_redraw();
+                    }
+                }
+            }
+
+            winit::event::WindowEvent::Touch(touch) => {
+                let sf = self.win.scale_factor as f32;
+                let position =
+                    Point::new(touch.location.x as f32 / sf, touch.location.y as f32 / sf);
+                let id = touch.id;
+                self.win.cursor_position = position;
+                // Тап, двойной тап и долгое нажатие синтезирует общий автомат
+                // (`input::touch`); сырые Touch* получают все пальцы.
+                if matches!(touch.phase, winit::event::TouchPhase::Ended)
+                    && self.win.touch.would_tap(id)
+                {
+                    self.update_focus_from_click(position);
+                }
+                if let Some(root_id) = self.win.root_id {
+                    let tree = &mut self.win.tree;
+                    let mut dispatch = |e: &Event| tree.handle_event(root_id, e);
+                    match touch.phase {
+                        winit::event::TouchPhase::Started => {
+                            self.win.touch.down(id, position, &mut dispatch);
+                        }
+                        winit::event::TouchPhase::Moved => {
+                            self.win.touch.motion(id, position, &mut dispatch);
+                        }
+                        winit::event::TouchPhase::Ended => {
+                            self.win.touch.up(id, Some(position), &mut dispatch);
+                        }
+                        winit::event::TouchPhase::Cancelled => {
+                            self.win.touch.cancel(&mut dispatch);
+                        }
+                    }
+                }
+
+                if let Some(window) = &self.win.window {
+                    crate::perf::redraw_from(file!(), line!());
+                    window.request_redraw();
+                }
+
+                self.process_virtual_keyboard_request();
+                // Кнопки и заголовок окна (CSD) нажимают и пальцем: без этого
+                // свернуть/развернуть/закрыть и перетаскивание касанием молчали.
+                self.process_window_requests(event_loop);
+            }
+
+            winit::event::WindowEvent::RedrawRequested => {
+                #[cfg(target_arch = "wasm32")]
+                web_sys::console::log_1(
+                    &format!("[syngui] RedrawRequested, gpu={}", self.gpu.is_some()).into(),
+                );
+                self.render();
+            }
+
+            winit::event::WindowEvent::HoveredFile(path) => {
+                let data = DragData::external_file(&path);
+                let pos = self.win.cursor_position;
+                if self.win.root_id.is_some() {
+                    self.win.tree.dispatch_drag_event(&Event::DragEnter {
+                        position: pos,
+                        data,
+                    });
+                    if let Some(window) = &self.win.window {
+                        crate::perf::redraw_from(file!(), line!());
+                        window.request_redraw();
+                    }
+                }
+            }
+            winit::event::WindowEvent::HoveredFileCancelled => {
+                if self.win.root_id.is_some() {
+                    self.win.tree.dispatch_drag_event(&Event::DragLeave);
+                    if let Some(window) = &self.win.window {
+                        crate::perf::redraw_from(file!(), line!());
+                        window.request_redraw();
+                    }
+                }
+            }
+            winit::event::WindowEvent::DroppedFile(path) => {
+                let data = DragData::external_file(&path);
+                let pos = self.win.cursor_position;
+                if self.win.root_id.is_some() {
+                    self.win.tree.dispatch_drag_event(&Event::Drop {
+                        position: pos,
+                        data,
+                    });
+                    if let Some(window) = &self.win.window {
+                        crate::perf::redraw_from(file!(), line!());
+                        window.request_redraw();
+                    }
+                }
+            }
+
+            _ => {}
+        }
+    }
+}
+
+impl AppHandler {
     /// Запросы окна, поставленные обработкой ввода (мышь или палец):
     /// перетаскивание и изменение размера, свернуть/развернуть, закрыть.
     fn process_window_requests(&mut self, event_loop: &winit::event_loop::ActiveEventLoop) {
         self.process_window_drag_request();
         self.process_window_control_requests();
         if self.take_window_close_request() {
-            if !self.close_allowed() {
-                if let Some(window) = &self.window {
-                    crate::perf::redraw_from(file!(), line!());
-                    window.request_redraw();
-                }
-                return;
-            }
-            if self.should_hide_on_close() {
-                self.hide_main_window();
+            if self.win.is_main() {
+                self.close_main_window(event_loop);
             } else {
-                #[cfg(all(
-                    feature = "tray",
-                    not(target_arch = "wasm32"),
-                    not(target_os = "android")
-                ))]
-                {
-                    self.tray.take();
-                }
-                #[cfg(all(
-                    feature = "single-instance",
-                    not(target_arch = "wasm32"),
-                    not(target_os = "android")
-                ))]
-                {
-                    self.single_instance.take();
-                }
-                event_loop.exit();
+                self.request_close_current(true);
             }
         }
     }
@@ -1094,7 +1073,12 @@ impl AppHandler {
     /// (в другие программы, на рабочий стол); внутренний перенос отменяется.
     #[cfg(feature = "wayland-dnd")]
     fn try_os_drag(&mut self) -> bool {
-        let Some(data) = self.tree.drag_state.as_ref().map(|d| d.data.clone()) else {
+        // Поток перетаскивания Wayland привязан к поверхности главного окна:
+        // из дополнительного перенос идёт только внутри него.
+        if !self.win.is_main() {
+            return false;
+        }
+        let Some(data) = self.win.tree.drag_state.as_ref().map(|d| d.data.clone()) else {
             return false;
         };
         let list = if data.drag_type == "text/uri-list" {
@@ -1107,7 +1091,7 @@ impl AppHandler {
         } else {
             return false;
         };
-        if self.root_id.is_none() {
+        if self.win.root_id.is_none() {
             return false;
         }
         let multi = list
@@ -1115,16 +1099,16 @@ impl AppHandler {
             .filter(|l| !l.trim().is_empty() && !l.starts_with('#'))
             .count()
             > 1;
-        if !super::wayland_dnd::start_os_drag(&list, multi, self.scale_factor) {
+        if !super::wayland_dnd::start_os_drag(&list, multi, self.win.scale_factor) {
             return false;
         }
         // Перенос дерева продолжается (бросок в это же окно — внутренний),
         // призрак — значок композитора.
-        self.os_drag = true;
-        if let Some(ref mut drag) = self.tree.drag_state {
+        self.win.os_drag = true;
+        if let Some(ref mut drag) = self.win.tree.drag_state {
             drag.data.ghost = false;
         }
-        if let Some(window) = &self.window {
+        if let Some(window) = &self.win.window {
             window.request_redraw();
         }
         true
@@ -1134,21 +1118,22 @@ impl AppHandler {
     /// значок — по тому, примет ли цель.
     fn own_drag_move(&mut self, x: f32, y: f32) {
         let pos = Point::new(x, y);
-        self.cursor_position = pos;
-        let Some(data) = self.tree.drag_state.as_mut().map(|d| {
+        self.win.cursor_position = pos;
+        let Some(data) = self.win.tree.drag_state.as_mut().map(|d| {
             d.current_pos = pos;
             d.data.clone()
         }) else {
             return;
         };
         let accepting = self
+            .win
             .tree
             .dispatch_drag_event(&Event::DragMove {
                 position: pos,
                 data,
             })
             .is_handled();
-        if let Some(ref mut drag) = self.tree.drag_state {
+        if let Some(ref mut drag) = self.win.tree.drag_state {
             drag.accepting = accepting;
         }
         super::wayland_dnd::set_os_drag_accepted(accepting);
@@ -1157,29 +1142,29 @@ impl AppHandler {
 
     fn handle_wayland_dnd(&mut self, ev: super::user_event::WaylandDndEvent) {
         use super::user_event::WaylandDndEvent;
-        if self.root_id.is_none() {
+        if self.win.root_id.is_none() {
             return;
         }
-        if self.os_drag {
-            let root_id = self.root_id.unwrap();
+        if self.win.os_drag {
+            let root_id = self.win.root_id.unwrap();
             match ev {
                 WaylandDndEvent::Enter { x, y } | WaylandDndEvent::Motion { x, y } => {
                     self.own_drag_move(x, y)
                 }
                 WaylandDndEvent::Leave => {
-                    self.tree.dispatch_drag_event(&Event::DragLeave);
+                    self.win.tree.dispatch_drag_event(&Event::DragLeave);
                     self.request_redraw();
                 }
                 WaylandDndEvent::OwnDrop { x, y } => {
-                    self.os_drag = false;
-                    self.cursor_position = Point::new(x, y);
-                    self.tree.end_drag(root_id, Point::new(x, y), false);
+                    self.win.os_drag = false;
+                    self.win.cursor_position = Point::new(x, y);
+                    self.win.tree.end_drag(root_id, Point::new(x, y), false);
                     self.request_redraw();
                 }
                 WaylandDndEvent::SourceEnded => {
-                    self.os_drag = false;
-                    let pos = self.cursor_position;
-                    self.tree.end_drag(root_id, pos, true);
+                    self.win.os_drag = false;
+                    let pos = self.win.cursor_position;
+                    self.win.tree.end_drag(root_id, pos, true);
                     self.request_redraw();
                 }
                 WaylandDndEvent::Drop { .. } => {}
@@ -1190,8 +1175,8 @@ impl AppHandler {
             WaylandDndEvent::OwnDrop { .. } | WaylandDndEvent::SourceEnded => {}
             WaylandDndEvent::Enter { x, y } => {
                 let data = crate::input::DragData::new(crate::input::DragData::TYPE_FILE, "", 0);
-                self.cursor_position = Point::new(x, y);
-                self.tree.dispatch_drag_event(&Event::DragEnter {
+                self.win.cursor_position = Point::new(x, y);
+                self.win.tree.dispatch_drag_event(&Event::DragEnter {
                     position: Point::new(x, y),
                     data,
                 });
@@ -1199,22 +1184,22 @@ impl AppHandler {
             }
             WaylandDndEvent::Motion { x, y } => {
                 let data = crate::input::DragData::new(crate::input::DragData::TYPE_FILE, "", 0);
-                self.cursor_position = Point::new(x, y);
-                self.tree.dispatch_drag_event(&Event::DragMove {
+                self.win.cursor_position = Point::new(x, y);
+                self.win.tree.dispatch_drag_event(&Event::DragMove {
                     position: Point::new(x, y),
                     data,
                 });
                 self.request_redraw();
             }
             WaylandDndEvent::Leave => {
-                self.tree.dispatch_drag_event(&Event::DragLeave);
+                self.win.tree.dispatch_drag_event(&Event::DragLeave);
                 self.request_redraw();
             }
             WaylandDndEvent::Drop { x, y, paths } => {
-                self.cursor_position = Point::new(x, y);
+                self.win.cursor_position = Point::new(x, y);
                 for path in paths {
                     let data = crate::input::DragData::external_file(&path);
-                    self.tree.dispatch_drag_event(&Event::Drop {
+                    self.win.tree.dispatch_drag_event(&Event::Drop {
                         position: Point::new(x, y),
                         data,
                     });
@@ -1225,24 +1210,13 @@ impl AppHandler {
     }
 }
 
-// Нужна и перетаскиванию (wayland-dnd), и перу (pen): не только под одной из возможностей.
-#[cfg(any(feature = "wayland-dnd", feature = "pen"))]
-impl AppHandler {
-    fn request_redraw(&self) {
-        if let Some(window) = &self.window {
-            crate::perf::redraw_from(file!(), line!());
-            window.request_redraw();
-        }
-    }
-}
-
 impl AppHandler {
     pub(super) fn devtools_log_event(
         &mut self,
         event_type: &str,
         result: &crate::input::EventResult,
     ) {
-        if let Some(ref mut devtools) = self.devtools {
+        if let Some(ref mut devtools) = self.win.devtools {
             if devtools.is_enabled() && !devtools.event_log_paused() {
                 let result_str = match result {
                     crate::input::EventResult::Handled => "Handled",
@@ -1260,8 +1234,8 @@ impl AppHandler {
 
     pub(super) fn devtools_handle_cursor_moved(&mut self) -> bool {
         let surface = self.logical_surface_size();
-        let cursor = self.cursor_position;
-        let devtools = match self.devtools.as_mut() {
+        let cursor = self.win.cursor_position;
+        let devtools = match self.win.devtools.as_mut() {
             Some(d) if d.is_enabled() => d,
             _ => return false,
         };
@@ -1269,8 +1243,8 @@ impl AppHandler {
         devtools.update_mouse_pos(cursor);
 
         if devtools.is_picking() && !devtools.contains_point(cursor, surface) {
-            devtools.update_picking_hover(&self.tree, cursor);
-            if let Some(window) = &self.window {
+            devtools.update_picking_hover(&self.win.tree, cursor);
+            if let Some(window) = &self.win.window {
                 crate::perf::redraw_from(file!(), line!());
                 window.request_redraw();
             }
@@ -1278,8 +1252,8 @@ impl AppHandler {
 
         if devtools.contains_point(cursor, surface) || devtools.is_resizing() {
             let move_event = Event::MouseMove(cursor);
-            devtools.handle_mouse_event(&move_event, surface, &self.tree);
-            if let Some(window) = &self.window {
+            devtools.handle_mouse_event(&move_event, surface, &self.win.tree);
+            if let Some(window) = &self.win.window {
                 crate::perf::redraw_from(file!(), line!());
                 window.request_redraw();
             }
@@ -1295,15 +1269,15 @@ impl AppHandler {
         button: winit::event::MouseButton,
     ) -> bool {
         let surface = self.logical_surface_size();
-        let pos = self.cursor_position;
-        let devtools = match self.devtools.as_mut() {
+        let pos = self.win.cursor_position;
+        let devtools = match self.win.devtools.as_mut() {
             Some(d) if d.is_enabled() => d,
             _ => return false,
         };
 
         if is_press && devtools.is_picking() && !devtools.contains_point(pos, surface) {
-            devtools.complete_pick(&self.tree, pos);
-            if let Some(window) = &self.window {
+            devtools.complete_pick(&self.win.tree, pos);
+            if let Some(window) = &self.win.window {
                 crate::perf::redraw_from(file!(), line!());
                 window.request_redraw();
             }
@@ -1323,8 +1297,8 @@ impl AppHandler {
                     position: pos,
                 }
             };
-            devtools.handle_mouse_event(&evt, surface, &self.tree);
-            if let Some(window) = &self.window {
+            devtools.handle_mouse_event(&evt, surface, &self.win.tree);
+            if let Some(window) = &self.win.window {
                 crate::perf::redraw_from(file!(), line!());
                 window.request_redraw();
             }
@@ -1336,8 +1310,8 @@ impl AppHandler {
 
     pub(super) fn devtools_handle_mouse_wheel(&mut self, scroll_delta: f32) -> bool {
         let surface = self.logical_surface_size();
-        let pos = self.cursor_position;
-        let devtools = match self.devtools.as_mut() {
+        let pos = self.win.cursor_position;
+        let devtools = match self.win.devtools.as_mut() {
             Some(d) if d.is_enabled() => d,
             _ => return false,
         };
@@ -1348,8 +1322,8 @@ impl AppHandler {
                 delta_x: 0.0,
                 position: pos,
             };
-            devtools.handle_mouse_event(&evt, surface, &self.tree);
-            if let Some(window) = &self.window {
+            devtools.handle_mouse_event(&evt, surface, &self.win.tree);
+            if let Some(window) = &self.win.window {
                 crate::perf::redraw_from(file!(), line!());
                 window.request_redraw();
             }
@@ -1364,10 +1338,13 @@ impl AppHandler {
     /// Событие жизненного цикла всем элементам дерева (EventHook::on_suspend /
     /// on_resume): рассылка по всему дереву, а не до первого Handled.
     fn dispatch_lifecycle(&mut self, event: Event) {
-        let ids: Vec<crate::widget::ElementId> = self.tree.elements.keys().copied().collect();
-        for id in ids {
-            self.tree.dispatch_event_to(id, &event);
-        }
+        self.for_each_window(|this| {
+            let ids: Vec<crate::widget::ElementId> =
+                this.win.tree.elements.keys().copied().collect();
+            for id in ids {
+                this.win.tree.dispatch_event_to(id, &event);
+            }
+        });
     }
 }
 
@@ -1380,10 +1357,12 @@ impl AppHandler {
     fn handle_a11y_action(&mut self, req: accesskit::ActionRequest) {
         use accesskit::{Action, ActionData};
         let id = crate::widget::ElementId(req.target_node.0);
-        let Some(bounds) = self.tree.elements.get(&id).map(|n| n.element.bounds()) else {
+        let Some(bounds) = self.win.tree.elements.get(&id).map(|n| n.element.bounds()) else {
             return;
         };
-        let Some(root_id) = self.root_id else { return };
+        let Some(root_id) = self.win.root_id else {
+            return;
+        };
         let center = Point::new(
             bounds.origin.x + bounds.size.width / 2.0,
             bounds.origin.y + bounds.size.height / 2.0,
@@ -1391,17 +1370,19 @@ impl AppHandler {
         match req.action {
             Action::Click => {
                 let button = crate::input::MouseButton::Left;
-                self.cursor_position = center;
-                self.tree.handle_event(root_id, &Event::MouseMove(center));
+                self.win.cursor_position = center;
+                self.win
+                    .tree
+                    .handle_event(root_id, &Event::MouseMove(center));
                 self.update_focus_from_click(center);
-                self.tree.handle_event(
+                self.win.tree.handle_event(
                     root_id,
                     &Event::MouseDown {
                         button,
                         position: center,
                     },
                 );
-                self.tree.handle_event(
+                self.win.tree.handle_event(
                     root_id,
                     &Event::MouseUp {
                         button,
@@ -1415,13 +1396,14 @@ impl AppHandler {
             Action::ReplaceSelectedText => {
                 if let Some(ActionData::Value(text)) = req.data {
                     self.update_focus_from_click(center);
-                    self.tree
+                    self.win
+                        .tree
                         .handle_event(root_id, &Event::ImeCommit(text.to_string()));
                 }
             }
             _ => return,
         }
-        self.a11y_dirty = true;
+        self.win.a11y_dirty = true;
         self.request_redraw();
     }
 }
@@ -1438,52 +1420,22 @@ impl AppHandler {
     }
 
     /// Отсчёт пера из потока tablet-v2: в дерево окна под пером (родные
-    /// `Event::Pen`, а штрих, не взятый никем, — как мышь).
+    /// `Event::Pen`, а штрих, не взятый никем, — как мышь). Окно — любое:
+    /// главное или дополнительное, у каждого свой автомат штриха.
     fn handle_pen_frame(
         &mut self,
         event_loop: &winit::event_loop::ActiveEventLoop,
         frame: super::wayland_pen::PenFrame,
     ) {
-        use crate::input::{EventResult, PenOut, PenTracker};
-        use winit::application::ApplicationHandler;
-        let main = self
-            .window
-            .as_ref()
-            .filter(|w| Self::wayland_surface_key(w) == Some(frame.surface))
-            .map(|w| w.winit_window().id());
-        if let Some(main_id) = main {
-            let Some(root_id) = self.root_id else { return };
-            // Логические пиксели поверхности → единицы дерева (с масштабом интерфейса).
-            let k = (self.system_scale_factor / self.scale_factor.max(f64::EPSILON)) as f32;
-            let mut sample = frame.sample;
-            sample.position = Point::new(sample.position.x * k, sample.position.y * k);
-            if matches!(frame.phase, crate::input::PenPhase::Down) {
-                crate::input::set_last_press(sample.position);
-            }
-            let sf = self.scale_factor;
-            let mut tracker = std::mem::take(&mut self.pen);
-            let result = tracker.handle(frame.phase, sample, &mut |out| match out {
-                PenOut::Pen(e) => self.tree.handle_event(root_id, e),
-                PenOut::Mouse(e) => {
-                    // Запасной путь — тем же кодом, что настоящая мышь
-                    // (фокус, двойной щелчок, перетаскивание, CSD).
-                    if let Some(we) = mouse_as_winit(e, sf) {
-                        self.window_event(event_loop, main_id, we);
-                    }
-                    EventResult::Handled
-                }
-            });
-            self.pen = tracker;
-            if result.is_handled() {
-                self.request_redraw();
-            }
-            self.process_virtual_keyboard_request();
-            self.process_window_requests(event_loop);
-            return;
-        }
-        // Дополнительные окна: своё дерево и свой автомат.
-        let found = self.secondary_windows.iter().find_map(|(id, sw)| {
-            (Self::wayland_surface_key(&sw.window) == Some(frame.surface)).then_some(*id)
+        let key_of = |w: &Option<std::sync::Arc<crate::window::Window>>| {
+            w.as_ref()
+                .filter(|w| Self::wayland_surface_key(w) == Some(frame.surface))
+                .map(|w| w.id())
+        };
+        let found = key_of(&self.win.window).or_else(|| {
+            self.secondary_windows
+                .values()
+                .find_map(|sw| key_of(&sw.window))
         });
         let Some(id) = found else {
             log::debug!(
@@ -1492,23 +1444,45 @@ impl AppHandler {
             );
             return;
         };
-        let mut tracker = self
-            .pen_secondary
-            .remove(&id)
-            .unwrap_or_else(PenTracker::new);
-        if let Some(sw) = self.secondary_windows.get_mut(&id) {
-            let k = (sw.window.scale_factor() / sw.scale_factor.max(f64::EPSILON)) as f32;
-            let mut sample = frame.sample;
-            sample.position = Point::new(sample.position.x * k, sample.position.y * k);
-            if let Some(root_id) = sw.root_id {
-                sw.tree
-                    .handle_pen(root_id, &mut tracker, frame.phase, sample);
+        self.with_window(id, |this| this.handle_pen_frame_here(event_loop, id, frame));
+    }
+
+    fn handle_pen_frame_here(
+        &mut self,
+        event_loop: &winit::event_loop::ActiveEventLoop,
+        window_id: winit::window::WindowId,
+        frame: super::wayland_pen::PenFrame,
+    ) {
+        use crate::input::{EventResult, PenOut};
+        let Some(root_id) = self.win.root_id else {
+            return;
+        };
+        // Логические пиксели поверхности → единицы дерева (с масштабом интерфейса).
+        let k = (self.win.system_scale_factor / self.win.scale_factor.max(f64::EPSILON)) as f32;
+        let mut sample = frame.sample;
+        sample.position = Point::new(sample.position.x * k, sample.position.y * k);
+        if matches!(frame.phase, crate::input::PenPhase::Down) {
+            crate::input::set_last_press(sample.position);
+        }
+        let sf = self.win.scale_factor;
+        let mut tracker = std::mem::take(&mut self.win.pen);
+        let result = tracker.handle(frame.phase, sample, &mut |out| match out {
+            PenOut::Pen(e) => self.win.tree.handle_event(root_id, e),
+            PenOut::Mouse(e) => {
+                // Запасной путь — тем же кодом, что настоящая мышь
+                // (фокус, двойной щелчок, перетаскивание, CSD).
+                if let Some(we) = mouse_as_winit(e, sf) {
+                    self.handle_window_event(event_loop, window_id, we);
+                }
+                EventResult::Handled
             }
-            sw.window.request_redraw();
+        });
+        self.win.pen = tracker;
+        if result.is_handled() {
+            self.request_redraw();
         }
-        if tracker.is_near() {
-            self.pen_secondary.insert(id, tracker);
-        }
+        self.process_virtual_keyboard_request();
+        self.process_window_requests(event_loop);
     }
 }
 

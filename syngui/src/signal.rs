@@ -471,16 +471,37 @@ pub fn add_notifier(notifier: Arc<dyn RedrawNotifier>) {
     });
 }
 
+/// Главное окно: будится сигналами и служит целью `toggle_fullscreen`,
+/// `set_pointer_lock` и т. п. Нотификаторы дополнительных окон
+/// ([`add_window`]) остаются.
 #[cfg(feature = "winit")]
 pub fn set_window(window: Arc<crate::window::Window>) {
-    PRIMARY_WINDOW.with(|cell| *cell.borrow_mut() = Some(window.clone()));
-    set_notifier(window as Arc<dyn RedrawNotifier>);
+    let old = PRIMARY_WINDOW.with(|cell| cell.borrow_mut().replace(window.clone()));
+    if let Some(old) = old {
+        remove_window(&old);
+    }
+    add_notifier(window as Arc<dyn RedrawNotifier>);
 }
 
+/// Главного окна больше нет (спрятано с уничтожением на Wayland).
 #[cfg(feature = "winit")]
 pub fn clear_window() {
-    PRIMARY_WINDOW.with(|cell| *cell.borrow_mut() = None);
-    RUNTIME.with(|rt| rt.borrow_mut().notifiers.clear());
+    let old = PRIMARY_WINDOW.with(|cell| cell.borrow_mut().take());
+    if let Some(old) = old {
+        remove_window(&old);
+    }
+}
+
+/// Убрать нотификатор окна (закрытого дополнительного): runtime больше не
+/// держит его `Arc` и не будит.
+#[cfg(feature = "winit")]
+pub fn remove_window(window: &Arc<crate::window::Window>) {
+    let target = Arc::as_ptr(window) as *const ();
+    RUNTIME.with(|rt| {
+        rt.borrow_mut()
+            .notifiers
+            .retain(|n| Arc::as_ptr(n) as *const () != target);
+    });
 }
 
 #[cfg(feature = "winit")]

@@ -4,7 +4,14 @@ use crate::mss::{load_stylesheet, parse_stylesheet_str, StyleEngine, StyleSheet}
 use crate::signal::RwSignal;
 use crate::widget::{BuildContext, Widget};
 
-#[derive(Clone, Debug)]
+/// Настройки дополнительного окна: при старте — [`AppBuilder::add_window`],
+/// во время работы — [`open_window`](crate::app::open_window).
+///
+/// Окно получает ту же таблицу стилей, тему и масштаб, что и главное, и своё
+/// дерево виджетов, оверлеи, фокус, IME, курсор; запросы окна из его дерева
+/// (перетаскивание за `WindowDragRegion`, `WindowResizeRegion`, кнопки
+/// `SystemWindowControls`, `EventContext::close_window`) действуют на него.
+#[derive(Clone)]
 pub struct WindowConfig {
     pub name: String,
     pub title: String,
@@ -15,6 +22,41 @@ pub struct WindowConfig {
     pub position: Option<(i32, i32)>,
     pub offset_from_main: Option<(i32, i32)>,
     pub decorations: bool,
+    /// Прозрачная поверхность (своя рамка со скруглёнными углами, CSD):
+    /// фон рисует корень, углы за скруглением остаются прозрачными.
+    pub transparent: bool,
+    pub maximized: bool,
+    pub resizable: bool,
+    /// Сигнал состояния окна (развёрнуто / полноэкранно / в фокусе) — как
+    /// [`AppBuilder::with_window_state`] у главного. Без него окно заводит
+    /// свой: [`WindowHandle::state`](crate::app::WindowHandle::state).
+    pub window_state: Option<RwSignal<crate::window::WindowState>>,
+    /// Окно закрылось — см. [`WindowConfig::on_close`].
+    pub on_close: Option<std::rc::Rc<dyn Fn()>>,
+    /// Проверка перед закрытием пользователем — см.
+    /// [`WindowConfig::on_close_request`].
+    pub close_guard: Option<std::rc::Rc<dyn Fn() -> bool>>,
+}
+
+impl std::fmt::Debug for WindowConfig {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("WindowConfig")
+            .field("name", &self.name)
+            .field("title", &self.title)
+            .field("width", &self.width)
+            .field("height", &self.height)
+            .field("min_width", &self.min_width)
+            .field("min_height", &self.min_height)
+            .field("position", &self.position)
+            .field("offset_from_main", &self.offset_from_main)
+            .field("decorations", &self.decorations)
+            .field("transparent", &self.transparent)
+            .field("maximized", &self.maximized)
+            .field("resizable", &self.resizable)
+            .field("on_close", &self.on_close.is_some())
+            .field("close_guard", &self.close_guard.is_some())
+            .finish()
+    }
 }
 
 impl WindowConfig {
@@ -29,7 +71,59 @@ impl WindowConfig {
             position: None,
             offset_from_main: None,
             decorations: true,
+            transparent: false,
+            maximized: false,
+            resizable: true,
+            window_state: None,
+            on_close: None,
+            close_guard: None,
         }
+    }
+
+    /// Без системной рамки — свой заголовок (`WindowDragRegion`,
+    /// `SystemWindowControls`, `WindowResizeRegion`), как
+    /// [`AppBuilder::frameless`] у главного.
+    pub fn frameless(mut self) -> Self {
+        self.decorations = false;
+        self
+    }
+
+    pub fn transparent(mut self, transparent: bool) -> Self {
+        self.transparent = transparent;
+        self
+    }
+
+    pub fn maximized(mut self, maximized: bool) -> Self {
+        self.maximized = maximized;
+        self
+    }
+
+    pub fn resizable(mut self, resizable: bool) -> Self {
+        self.resizable = resizable;
+        self
+    }
+
+    /// Сигнал состояния окна (развёрнуто / полноэкранно / в фокусе) — для
+    /// значка «развернуть/восстановить» своего заголовка.
+    pub fn with_window_state(mut self, signal: RwSignal<crate::window::WindowState>) -> Self {
+        self.window_state = Some(signal);
+        self
+    }
+
+    /// Колбэк после закрытия окна (✕, Alt+F4, [`close_window`](crate::app::close_window),
+    /// `EventContext::close_window`) — приложение убирает своё состояние.
+    /// Зовётся на главном потоке; дерево окна и его эффекты уже освобождены.
+    pub fn on_close(mut self, f: impl Fn() + 'static) -> Self {
+        self.on_close = Some(std::rc::Rc::new(f));
+        self
+    }
+
+    /// Проверка перед закрытием окна пользователем (✕, Alt+F4,
+    /// `EventContext::close_window`): `false` — окно остаётся. Программное
+    /// [`close_window`](crate::app::close_window) её не спрашивает.
+    pub fn on_close_request(mut self, guard: impl Fn() -> bool + 'static) -> Self {
+        self.close_guard = Some(std::rc::Rc::new(guard));
+        self
     }
 
     pub fn title(mut self, title: impl Into<String>) -> Self {

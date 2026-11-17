@@ -85,3 +85,40 @@ pub fn safe_area() -> EdgeInsets {
 pub(crate) fn publish_safe_area(insets: EdgeInsets) {
     SAFE.with(|c| c.set(insets));
 }
+
+/// Вьюпорт одного окна: сигнал размера, смещение layout-области и safe area.
+///
+/// Значения активного окна лежат в thread-local'ах модуля — их и читают
+/// [`viewport_size`], [`viewport_origin`], [`safe_area`]. Главное окно
+/// активно всегда, дополнительное (`app::open_window`) — на время своих
+/// событий, сборки и кадра: его значения меняются местами с thread-local'ами
+/// ([`swap_context`]), так что виджеты второго окна видят размер своего
+/// окна, а адаптивная раскладка главного от него не прыгает.
+#[derive(Default)]
+#[allow(dead_code)]
+pub(crate) struct ViewportContext {
+    size: Option<RwSignal<Size>>,
+    origin: (f32, f32),
+    safe: EdgeInsets,
+}
+
+/// Обменять значения вьюпорта потока с `ctx`. Парный вызов возвращает всё
+/// как было.
+#[allow(dead_code)]
+pub(crate) fn swap_context(ctx: &mut ViewportContext) {
+    VIEWPORT.with(|slot| {
+        let current = slot.get();
+        slot.set(ctx.size);
+        ctx.size = current;
+    });
+    ORIGIN.with(|c| {
+        let current = c.get();
+        c.set(ctx.origin);
+        ctx.origin = current;
+    });
+    SAFE.with(|c| {
+        let current = c.get();
+        c.set(ctx.safe);
+        ctx.safe = current;
+    });
+}
