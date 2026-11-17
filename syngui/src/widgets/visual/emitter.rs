@@ -858,6 +858,48 @@ impl EmitterElement {
         self.config.rate + hover
     }
 
+    /// Один шаг симуляции на `dt` секунд (≤ 50 мс, см. `animate`).
+    fn step(&mut self, dt: f32) -> bool {
+        self.time += dt;
+        if self.bounds.size.width <= 0.0 && self.bounds.size.height <= 0.0 && !self.has_child {
+            return self.pending_bursts > 0;
+        }
+        while self.pending_bursts > 0 {
+            self.pending_bursts -= 1;
+            let n = self.config.burst as usize;
+            self.spawn(n);
+        }
+        let rate = self.current_rate();
+        if rate > 0.0 {
+            self.emit_acc += rate * dt;
+            let n = self.emit_acc.floor();
+            if n >= 1.0 {
+                self.emit_acc -= n;
+                self.spawn(n as usize);
+            }
+        } else {
+            self.emit_acc = 0.0;
+        }
+        let (gx, gy) = self.config.gravity;
+        let drag = self.config.drag;
+        for p in &mut self.particles {
+            p.vx += gx * dt;
+            p.vy += gy * dt;
+            if drag > 0.0 {
+                let k = (1.0 - drag * dt).max(0.0);
+                p.vx *= k;
+                p.vy *= k;
+            }
+            p.x += p.vx * dt;
+            p.y += p.vy * dt;
+            p.rot += p.vrot * dt;
+            p.age += dt;
+        }
+        self.particles.retain(|p| p.age < p.life);
+        self.mark_dirty(DirtyFlags::RENDER);
+        !self.particles.is_empty() || rate > 0.0
+    }
+
     fn spawn_origin(&mut self) -> (f32, f32) {
         let (w, h) = (self.bounds.size.width, self.bounds.size.height);
         match self.config.emitter {
@@ -1159,45 +1201,18 @@ impl Element for EmitterElement {
     }
 
     fn animate(&mut self, dt: Duration) -> bool {
-        let dt = dt.as_secs_f32().min(0.05);
-        self.time += dt;
-        if self.bounds.size.width <= 0.0 && self.bounds.size.height <= 0.0 && !self.has_child {
-            return self.pending_bursts > 0;
+        // Длинный кадр (медленный экран, подтормаживание, снимок) — несколькими
+        // шагами по ≤ 50 мс, а не одним урезанным до 50 мс: иначе на 15–20 к/с
+        // частицы летели в замедленной съёмке, а поток редел. Предел 0.5 с —
+        // после долгой паузы вкладки частицы не «выстреливают» пачкой.
+        let total = dt.as_secs_f32().clamp(0.0, 0.5);
+        let steps = (total / 0.05).ceil().max(1.0) as usize;
+        let h = total / steps as f32;
+        let mut alive = false;
+        for _ in 0..steps {
+            alive = self.step(h);
         }
-        while self.pending_bursts > 0 {
-            self.pending_bursts -= 1;
-            let n = self.config.burst as usize;
-            self.spawn(n);
-        }
-        let rate = self.current_rate();
-        if rate > 0.0 {
-            self.emit_acc += rate * dt;
-            let n = self.emit_acc.floor();
-            if n >= 1.0 {
-                self.emit_acc -= n;
-                self.spawn(n as usize);
-            }
-        } else {
-            self.emit_acc = 0.0;
-        }
-        let (gx, gy) = self.config.gravity;
-        let drag = self.config.drag;
-        for p in &mut self.particles {
-            p.vx += gx * dt;
-            p.vy += gy * dt;
-            if drag > 0.0 {
-                let k = (1.0 - drag * dt).max(0.0);
-                p.vx *= k;
-                p.vy *= k;
-            }
-            p.x += p.vx * dt;
-            p.y += p.vy * dt;
-            p.rot += p.vrot * dt;
-            p.age += dt;
-        }
-        self.particles.retain(|p| p.age < p.life);
-        self.mark_dirty(DirtyFlags::RENDER);
-        !self.particles.is_empty() || rate > 0.0
+        alive
     }
 
     fn passthrough_hit_test(&self) -> bool {
@@ -1290,6 +1305,28 @@ mod tests {
             h.tree.animate(h.root_id, Duration::from_millis(16));
         }
         assert!(emitter_count(&mut h) > 3);
+    }
+
+    /// Длинный кадр не замедляет симуляцию: один тик 400 мс рождает столько
+    /// же частиц, сколько 25 тиков по 16 мс (раньше dt урезался до 50 мс).
+    #[test]
+    fn long_frame_is_simulated_in_substeps() {
+        let count_after = |ticks: &[u64]| {
+            let mut h = TestHarness::new(Box::new(ParticleEmitter::new().class("fx")));
+            h.apply_mss(".fx { particle-rate: 50; particle-lifetime: 5s; particle-shape: circle; }");
+            h.layout(100.0, 100.0);
+            for ms in ticks {
+                h.tree.animate(h.root_id, Duration::from_millis(*ms));
+            }
+            emitter_count(&mut h)
+        };
+        let smooth = count_after(&[16; 25]);
+        let long = count_after(&[400]);
+        assert!(smooth >= 15, "плавный поток: {smooth}");
+        assert!(
+            long as f32 >= smooth as f32 * 0.8,
+            "один длинный кадр: {long} частиц против {smooth}"
+        );
     }
 
     #[test]
