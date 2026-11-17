@@ -105,7 +105,7 @@ impl Highlighter {
             match &self.inner {
                 Backend::Synoptic(inner) => {
                     let toks = inner.line(line_idx, line_str);
-                    result.push(line_spans_from_tokens(&toks));
+                    result.push(line_spans_from_tokens(&toks, line_str, self.tab_width));
                 }
                 Backend::Custom(h, states) => {
                     let mut ls = LineSpans::new();
@@ -134,15 +134,32 @@ impl Highlighter {
     }
 }
 
-fn line_spans_from_tokens(toks: &[TokOpt]) -> LineSpans {
+/// Диапазоны подсветки строки в байтах ИСХОДНОЙ строки. synoptic отдаёт токены по тексту с
+/// раскрытой табуляцией (`\t` → `tab_width` пробелов) — позиции пересчитываются обратно, иначе в
+/// строках с табами подсветка съезжает на `tab_width - 1` на каждый таб.
+fn line_spans_from_tokens(toks: &[TokOpt], line: &str, tab_width: usize) -> LineSpans {
     let mut ls = LineSpans::new();
+    // исходный байт для каждого байта раскрытого текста (и для конца строки)
+    let mut src_of: Vec<u32> = Vec::with_capacity(line.len() + 1);
+    for (i, ch) in line.char_indices() {
+        let n = if ch == '\t' { tab_width.max(1) } else { ch.len_utf8() };
+        for k in 0..n {
+            // внутри многобайтного символа — его же байты; внутри таба — начало таба
+            src_of.push(if ch == '\t' { i as u32 } else { (i + k) as u32 });
+        }
+    }
+    src_of.push(line.len() as u32);
+    let map = |b: u32| -> u32 { src_of.get(b as usize).copied().unwrap_or(line.len() as u32) };
     let mut byte: u32 = 0;
     for tok in toks {
         match tok {
             TokOpt::Some(text, kind) => {
                 let len = text.len() as u32;
                 if let Some(class) = TokenClass::from_synoptic_kind(kind) {
-                    ls.push(Span::new(byte, byte + len, class));
+                    let (a, b) = (map(byte), map(byte + len));
+                    if b > a {
+                        ls.push(Span::new(a, b, class));
+                    }
                 }
                 byte += len;
             }
@@ -165,6 +182,17 @@ mod tests {
         let spans = h.highlight_lines("", 0..1);
         assert_eq!(spans.len(), 1);
         assert!(spans[0].is_empty());
+    }
+
+    #[test]
+    fn spans_are_in_source_bytes_with_tabs() {
+        let mut h = Highlighter::new(Language::Rust, 4);
+        let text = "\t\tfn main() {}\n";
+        h.reparse(text);
+        let spans = h.highlight_lines(text, 0..1);
+        let kw = spans[0].iter().find(|s| s.class == TokenClass::Keyword).expect("Keyword");
+        // `fn` стоит после двух табов: байты 2..4 исходной строки, а не 8..10 раскрытой
+        assert_eq!((kw.byte_start, kw.byte_end), (2, 4));
     }
 
     #[test]
