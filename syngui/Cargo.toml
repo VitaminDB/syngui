@@ -537,6 +537,7 @@ required-features = ["testing"]
 
 [[example]]
 name = "stream_gap"
+path = "probes/stream_gap.rs"
 required-features = ["audio"]
 
 [[test]]
@@ -549,14 +550,17 @@ required-features = ["testing"]
 
 [[example]]
 name = "calendar_shot"
+path = "probes/calendar_shot.rs"
 required-features = ["image"]
 
 [[example]]
 name = "text_fx_shot"
+path = "probes/text_fx_shot.rs"
 required-features = ["image"]
 
 [[example]]
 name = "menu_shot"
+path = "probes/menu_shot.rs"
 required-features = ["image", "material-icons"]
 
 [[test]]
@@ -569,18 +573,22 @@ required-features = ["testing"]
 
 [[example]]
 name = "lottie_dump"
+path = "probes/lottie_dump.rs"
 required-features = ["image"]
 
 [[example]]
 name = "lottie_shot"
+path = "probes/lottie_shot.rs"
 required-features = ["image"]
 
 [[example]]
 name = "image_shot"
+path = "probes/image_shot.rs"
 required-features = ["image"]
 
 [[example]]
 name = "platform_probe"
+path = "probes/platform_probe.rs"
 
 [[test]]
 name = "live_view_double_click"
@@ -593,3 +601,22 @@ required-features = ["testing"]
 [[test]]
 name = "icon_blink_keyframes"
 required-features = ["testing"]
+
+# Ручные проверки (снимки в PNG, перо, захват ввода, звук) — не примеры
+# использования: лежат в probes/, запуск `cargo run --example <имя>`.
+[[example]]
+name = "audio_file_probe"
+path = "probes/audio_file_probe.rs"
+required-features = ["ffmpeg"]
+
+[[example]]
+name = "font_shot"
+path = "probes/font_shot.rs"
+
+[[example]]
+name = "input_capture_probe"
+path = "probes/input_capture_probe.rs"
+
+[[example]]
+name = "pen_probe"
+path = "probes/pen_probe.rs"
