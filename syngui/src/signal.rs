@@ -543,6 +543,20 @@ pub fn set_fullscreen(on: bool) {
     crate::platform::android::set_fullscreen(on);
 }
 
+/// Включён ли полноэкранный режим главного окна (на Android — спрятаны
+/// строка состояния и панель навигации).
+#[cfg(feature = "winit")]
+pub fn is_fullscreen() -> bool {
+    #[cfg(target_os = "android")]
+    {
+        crate::platform::android::is_fullscreen()
+    }
+    #[cfg(not(target_os = "android"))]
+    {
+        primary_window().is_some_and(|w| w.winit_window().fullscreen().is_some())
+    }
+}
+
 /// Частота обновления монитора, на котором сейчас главное окно, в мГц (59940, 144000…);
 /// `None` — окна нет или система не сообщает. Звать в главном потоке.
 #[cfg(feature = "winit")]
