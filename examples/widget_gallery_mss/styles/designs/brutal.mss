@@ -144,7 +144,7 @@ TextField, Dropdown, MultilineTextEdit, Autocomplete, SpinBox, DatePicker, TimeP
 TextField { &:focus { border-color: var(--ink); box-shadow: 4px 4px 0px var(--accent); } }
 SegmentedButton { border: 3px solid var(--ink); border-radius: 0px; background: var(--bg-surface); font-weight: 700; }
 Checkbox, RadioButton { border-color: var(--ink); }
-Toggle { border: 2px solid var(--ink); background: var(--bg-surface); &:checked { background: var(--accent); } }
+Toggle { border: 2px solid var(--ink); background: var(--bg-elevated); &:checked { background: var(--accent); } }
 ProgressBar { height: 14px; border: 2px solid var(--ink); border-radius: 0px; background: var(--bg-surface); color: var(--accent); }
 Slider { height: 8px; border-radius: 0px; background: var(--bg-overlay); }
 Chip { border-radius: 0px; border: 2px solid var(--ink); background-color: var(--glow-1); color: #0f0f0f; font-weight: 700; }

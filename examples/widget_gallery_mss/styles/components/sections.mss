@@ -30,3 +30,10 @@
 .badge-blue { background: var(--accent); }
 .badge-amber { background: var(--warning); }
 .badge-green { background: var(--success); }
+
+/* Подложки демо из темы: нейтральная, рамка и мягкие оттенки палитры */
+.mp-line { border-color: var(--border); }
+.tint-blue { background-color: var(--blue-muted); }
+.tint-green { background-color: var(--green-muted); }
+.tint-amber { background-color: var(--amber-muted); }
+.tint-pink { background-color: var(--purple-muted); }

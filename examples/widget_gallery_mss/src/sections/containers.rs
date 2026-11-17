@@ -15,15 +15,15 @@ pub fn build_containers_section() -> impl Widget {
                     .child(label("SplitView — Horizontal"))
                     .child(
                         DecoratedBox::new()
-                            .style("background-color", Color::from_hex("#F9FAFB"))
+                            .class("mp-well")
                             .style("border-width", 1.0_f32)
-                            .style("border-color", Color::from_hex("#E5E7EB"))
+                            .class("mp-line")
                             .style("border-radius", 8.0_f32)
                             .child(
                                 SplitView::new(
                                     // Left panel
                                     DecoratedBox::new()
-                                        .style("background-color", Color::from_hex("#EFF6FF"))
+                                        .class("tint-blue")
                                         .child(
                                             Column::new()
                                                 .gap(8.0)
@@ -35,7 +35,7 @@ pub fn build_containers_section() -> impl Widget {
                                         ),
                                     // Right panel
                                     DecoratedBox::new()
-                                        .style("background-color", Color::from_hex("#F0FDF4"))
+                                        .class("tint-green")
                                         .child(
                                             Column::new()
                                                 .gap(8.0)
@@ -61,19 +61,19 @@ pub fn build_containers_section() -> impl Widget {
                     .child(label("SplitView — Vertical"))
                     .child(
                         DecoratedBox::new()
-                            .style("background-color", Color::from_hex("#F9FAFB"))
+                            .class("mp-well")
                             .style("border-width", 1.0_f32)
-                            .style("border-color", Color::from_hex("#E5E7EB"))
+                            .class("mp-line")
                             .style("border-radius", 8.0_f32)
                             .child(
                                 SplitView::new(
                                     // Top panel
                                     DecoratedBox::new()
-                                        .style("background-color", Color::from_hex("#FEF3C7"))
+                                        .class("tint-amber")
                                         .child(Text::new("Top Panel").class("label")),
                                     // Bottom panel
                                     DecoratedBox::new()
-                                        .style("background-color", Color::from_hex("#FCE7F3"))
+                                        .class("tint-pink")
                                         .child(Text::new("Bottom Panel").class("label")),
                                 )
                                 .direction(SplitDirection::Vertical)
@@ -99,9 +99,9 @@ pub fn build_containers_section() -> impl Widget {
                     .child(label("TransformBox + DecoratedBox"))
                     .child(
                         DecoratedBox::new()
-                            .style("background-color", Color::from_hex("#F9FAFB"))
+                            .class("mp-well")
                             .style("border-width", 1.0_f32)
-                            .style("border-color", Color::from_hex("#E5E7EB"))
+                            .class("mp-line")
                             .style("border-radius", 8.0_f32)
                             .style("width", 800.0_f32)
                             .style("height", 400.0_f32)
@@ -115,7 +115,7 @@ pub fn build_containers_section() -> impl Widget {
                                     .initial_size(280.0, 160.0)
                                     .child(
                                         DecoratedBox::new()
-                                            .style("background-color", Color::from_hex("#DBEAFE"))
+                                            .class("tint-blue")
                                             .style("border-radius", 8.0_f32)
                                             .style("padding", 16.0_f32)
                                             .child(
@@ -165,9 +165,9 @@ pub fn build_containers_section() -> impl Widget {
                     .child(label("TransformBox + Button"))
                     .child(
                         DecoratedBox::new()
-                            .style("background-color", Color::from_hex("#F9FAFB"))
+                            .class("mp-well")
                             .style("border-width", 1.0_f32)
-                            .style("border-color", Color::from_hex("#E5E7EB"))
+                            .class("mp-line")
                             .style("border-radius", 8.0_f32)
                             .style("width", 800.0_f32)
                             .style("height", 200.0_f32)
@@ -194,9 +194,9 @@ pub fn build_containers_section() -> impl Widget {
                     .child(label("TransformBox + TextField"))
                     .child(
                         DecoratedBox::new()
-                            .style("background-color", Color::from_hex("#F9FAFB"))
+                            .class("mp-well")
                             .style("border-width", 1.0_f32)
-                            .style("border-color", Color::from_hex("#E5E7EB"))
+                            .class("mp-line")
                             .style("border-radius", 8.0_f32)
                             .style("width", 800.0_f32)
                             .style("height", 200.0_f32)
