@@ -24,3 +24,9 @@
 .text-white {
     color: #ffffff;
 }
+
+/* Цветные бейджи */
+.badge-red { background: var(--error); }
+.badge-blue { background: var(--accent); }
+.badge-amber { background: var(--warning); }
+.badge-green { background: var(--success); }

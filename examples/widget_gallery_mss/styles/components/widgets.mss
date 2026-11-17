@@ -18,7 +18,7 @@ Button {
 
 Button.primary {
     background: var(--accent);
-    color: #ffffff;
+    color: var(--on-accent);
     &:hover { background: var(--accent-hover); }
     &:pressed { background: var(--button-pressed); }
 }
@@ -223,6 +223,7 @@ Calendar, DatePicker {
 Calendar, ListView, TabView, Dialog,
 FloatingWindow, PopupMenu, TableView, TreeView,
 PropertyGrid, SegmentedButton {
+    --selected-color: var(--on-accent);
     background: var(--bg-surface);
     color: var(--text);
     accent-color: var(--accent);

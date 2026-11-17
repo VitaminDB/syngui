@@ -90,3 +90,8 @@
     transition: border-color 300ms ease;
     &:hover { border-color: var(--accent); }
 }
+
+/* Нейтральные подложки примеров — из темы, а не белые */
+.mp-surface { background-color: var(--bg-surface); }
+.mp-well { background-color: var(--bg-overlay); }
+.mp-surface Text, .mp-well Text { color: var(--text); }

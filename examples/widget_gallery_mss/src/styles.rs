@@ -1,17 +1,16 @@
 /// Assembles component MSS styles from modular files.
-/// Theme variables (:root block) are provided separately by theme_data.
+/// Theme variables (:root block) and the design's own shell/widget styles
+/// (`styles/designs/*.mss`) are provided separately by theme_data.
 
 pub fn component_styles() -> &'static str {
     concat!(
         // Components
         include_str!("../styles/components/layout_helpers.mss"),
         "\n",
-        include_str!("../styles/components/layout.mss"),
-        "\n",
+
         include_str!("../styles/components/sections.mss"),
         "\n",
-        include_str!("../styles/components/header.mss"),
-        "\n",
+
         include_str!("../styles/components/dimensions.mss"),
         "\n",
         include_str!("../styles/components/widgets.mss"),

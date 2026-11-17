@@ -26,7 +26,7 @@ fn build_margin_demo() -> impl Widget {
             .child(label("Boxes with different margins inside a container"))
             .child(
                 DecoratedBox::new()
-                    .style("background-color", Color::from_hex("#f1f5f9"))
+                    .class("mp-well")
                     .style("border-radius", 8.0_f32)
                     .style("padding", 4.0_f32)
                     .child(
@@ -101,7 +101,7 @@ fn build_border_demo() -> impl Widget {
                     .gap(12.0)
                     .child(
                         DecoratedBox::new()
-                            .style("background-color", Color::from_hex("#ffffff"))
+                            .class("mp-surface")
                             .style("width", 120.0_f32)
                             .style("height", 60.0_f32)
                             .style("border-radius", 8.0_f32)
@@ -110,7 +110,7 @@ fn build_border_demo() -> impl Widget {
                     )
                     .child(
                         DecoratedBox::new()
-                            .style("background-color", Color::from_hex("#ffffff"))
+                            .class("mp-surface")
                             .style("width", 120.0_f32)
                             .style("height", 60.0_f32)
                             .style("border-radius", 8.0_f32)
@@ -119,7 +119,7 @@ fn build_border_demo() -> impl Widget {
                     )
                     .child(
                         DecoratedBox::new()
-                            .style("background-color", Color::from_hex("#ffffff"))
+                            .class("mp-surface")
                             .style("width", 120.0_f32)
                             .style("height", 60.0_f32)
                             .style("border-radius", 8.0_f32)
@@ -128,7 +128,7 @@ fn build_border_demo() -> impl Widget {
                     )
                     .child(
                         DecoratedBox::new()
-                            .style("background-color", Color::from_hex("#ffffff"))
+                            .class("mp-surface")
                             .style("width", 120.0_f32)
                             .style("height", 60.0_f32)
                             .style("border-radius", 12.0_f32)
@@ -172,7 +172,7 @@ fn build_text_align_demo() -> impl Widget {
                     .gap(8.0)
                     .child(
                         DecoratedBox::new()
-                            .style("background-color", Color::from_hex("#f8fafc"))
+                            .class("mp-well")
                             .style("width", 400.0_f32)
                             .style("height", 32.0_f32)
                             .style("border-radius", 4.0_f32)
@@ -181,7 +181,7 @@ fn build_text_align_demo() -> impl Widget {
                     )
                     .child(
                         DecoratedBox::new()
-                            .style("background-color", Color::from_hex("#f8fafc"))
+                            .class("mp-well")
                             .style("width", 400.0_f32)
                             .style("height", 32.0_f32)
                             .style("border-radius", 4.0_f32)
@@ -190,7 +190,7 @@ fn build_text_align_demo() -> impl Widget {
                     )
                     .child(
                         DecoratedBox::new()
-                            .style("background-color", Color::from_hex("#f8fafc"))
+                            .class("mp-well")
                             .style("width", 400.0_f32)
                             .style("height", 32.0_f32)
                             .style("border-radius", 4.0_f32)
@@ -214,7 +214,7 @@ fn build_text_vertical_align_demo() -> impl Widget {
                     .gap(8.0)
                     .child(
                         DecoratedBox::new()
-                            .style("background-color", Color::from_hex("#f8fafc"))
+                            .class("mp-well")
                             .style("width", 400.0_f32)
                             .style("height", 60.0_f32)
                             .style("border-radius", 4.0_f32)
@@ -223,7 +223,7 @@ fn build_text_vertical_align_demo() -> impl Widget {
                     )
                     .child(
                         DecoratedBox::new()
-                            .style("background-color", Color::from_hex("#f8fafc"))
+                            .class("mp-well")
                             .style("width", 400.0_f32)
                             .style("height", 60.0_f32)
                             .style("border-radius", 4.0_f32)
@@ -235,7 +235,7 @@ fn build_text_vertical_align_demo() -> impl Widget {
                     )
                     .child(
                         DecoratedBox::new()
-                            .style("background-color", Color::from_hex("#f8fafc"))
+                            .class("mp-well")
                             .style("width", 400.0_f32)
                             .style("height", 60.0_f32)
                             .style("border-radius", 4.0_f32)

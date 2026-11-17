@@ -1,8 +1,9 @@
 //! Widget Gallery — MSS Theme
 //!
-//! Галерея всех виджетов SYNGUI с Sidebar+Content layout.
-//! Модульная система тем: компонентные MSS + динамические :root переменные.
-//! 10 тем (5 light + 5 dark) с переключением на лету.
+//! Галерея всех виджетов SYNGUI: заголовок окна (CSD), боковая панель
+//! разделов и страница. Три оформления (`theme_data::DESIGNS`) — у каждого
+//! своя оболочка и свой вид виджетов, светлая и тёмная палитра, переключение
+//! на лету.
 
 #[cfg(target_arch = "wasm32")]
 use wasm_bindgen::prelude::*;
@@ -11,6 +12,8 @@ use std::sync::Arc;
 use syngui::core::sync::Mutex;
 use syngui::prelude::*;
 use syngui::widgets::*;
+use syngui::overlay::{ControlsSide, SystemWindowControls, WindowDragRegion, WindowResizeRegion};
+use syngui::window::WindowState;
 
 mod sections;
 mod styles;
@@ -20,11 +23,13 @@ pub mod theme_data;
 #[derive(Clone)]
 pub struct GalleryCtx {
     pub is_dark: RwSignal<bool>,
+    /// Оформление (`theme_data::Design::id`).
+    pub design: RwSignal<String>,
     pub theme_mss: RwSignal<String>,
-    pub current_theme_id: RwSignal<String>,
     pub sidebar_state: RwSignal<usize>,
     pub current_route: RwSignal<String>,
     pub router: Arc<Mutex<Router>>,
+    pub window: RwSignal<WindowState>,
 }
 
 impl GalleryCtx {
@@ -40,26 +45,19 @@ impl GalleryCtx {
         self.sidebar_state.set(idx);
     }
 
-    pub fn apply_theme(&self, theme: &theme_data::GalleryTheme) {
-        self.is_dark.set(theme.is_dark);
-        self.current_theme_id.set(theme.id.to_string());
-        let full_mss = format!("{}\n{}", theme.to_mss(), styles::component_styles());
-        self.theme_mss.set(full_mss);
+    /// Оформление и светлая/тёмная палитра. Цвета перетекают благодаря
+    /// `with_theme_transition`; смена оформления пересобирает оболочку.
+    pub fn apply(&self, design: &str, dark: bool) {
+        let d = theme_data::find_design(design);
+        self.theme_mss.set(d.full_mss(dark));
+        self.is_dark.set(dark);
+        if self.design.get_untracked() != d.id {
+            self.design.set(d.id.to_string());
+        }
     }
 
-    /// Светлая ↔ тёмная: парная тема с тем же номером в своём списке
-    /// (clean_modern ↔ catppuccin, ocean ↔ nord …). Цвета перетекают
-    /// благодаря `with_theme_transition`.
     pub fn toggle_dark(&self) {
-        let themes = theme_data::builtin_themes();
-        let cur = self.current_theme_id.get_untracked();
-        let dark = self.is_dark.get_untracked();
-        let same: Vec<&theme_data::GalleryTheme> = themes.iter().filter(|t| t.is_dark == dark).collect();
-        let other: Vec<&theme_data::GalleryTheme> = themes.iter().filter(|t| t.is_dark != dark).collect();
-        let idx = same.iter().position(|t| t.id == cur).unwrap_or(0);
-        if let Some(t) = other.get(idx).or_else(|| other.first()) {
-            self.apply_theme(t);
-        }
+        self.apply(&self.design.get_untracked(), !self.is_dark.get_untracked());
     }
 }
 
@@ -102,37 +100,56 @@ const SECTIONS: &[Section] = &[
 
 const GROUPS: &[&str] = &["basics", "motion", "overlays", "content", "effects", "plugins", "debug"];
 
-fn build_initial_mss() -> String {
-    let theme = theme_data::default_light();
-    format!("{}\n{}", theme.to_mss(), styles::component_styles())
+/// Шрифты оформлений (OFL, `assets/fonts`): Aurora — Outfit, Brutal —
+/// Space Grotesk и JetBrains Mono для подписей.
+fn register_fonts() {
+    syngui::text::register_font("Outfit", &include_bytes!("../assets/fonts/Outfit.ttf")[..]);
+    syngui::text::register_font("Space Grotesk", &include_bytes!("../assets/fonts/SpaceGrotesk.ttf")[..]);
+    syngui::text::register_font("JetBrains Mono", &include_bytes!("../assets/fonts/JetBrainsMono.ttf")[..]);
 }
 
 fn route_keys() -> Vec<String> {
     SECTIONS.iter().map(|s| s.key.to_string()).collect()
 }
 
+/// Начальное оформление: `GALLERY_DESIGN`, иначе Studio; тёмное — по системе
+/// или `GALLERY_DARK=1|0`.
+fn initial_design() -> (String, bool) {
+    let design = std::env::var("GALLERY_DESIGN").unwrap_or_default();
+    let design = theme_data::find_design(&design).id.to_string();
+    let dark = match std::env::var("GALLERY_DARK").ok().as_deref() {
+        Some("1") => true,
+        Some("0") => false,
+        _ => syngui::appearance::read_system_appearance().is_dark(),
+    };
+    (design, dark)
+}
+
 /// Снимок без окна: `widget_gallery_mss --screenshot СНИМОК.png [--size ШxВ]
-/// [--scale N] [--page РАЗДЕЛ] [--theme ТЕМА] [--lang ЯЗЫК]`.
+/// [--scale N] [--page РАЗДЕЛ] [--design ОФОРМЛЕНИЕ] [--dark|--light] [--lang ЯЗЫК]`.
+#[cfg(not(target_arch = "wasm32"))]
 struct ShotArgs {
     out: String,
     size: (u32, u32),
     scale: f64,
     page: Option<String>,
-    theme: Option<String>,
+    design: String,
+    dark: bool,
     lang: Option<String>,
 }
 
 #[cfg(not(target_arch = "wasm32"))]
 fn parse_shot_args() -> Option<ShotArgs> {
-    let mut a = ShotArgs { out: String::new(), size: (1440, 900), scale: 1.0, page: None, theme: None, lang: None };
+    let (design, dark) = initial_design();
+    let mut a = ShotArgs { out: String::new(), size: (1440, 900), scale: 1.0, page: None, design, dark, lang: None };
     let mut args = std::env::args().skip(1);
     let mut shot = false;
     while let Some(arg) = args.next() {
         match arg.as_str() {
             "-h" | "--help" => {
-                println!("widget_gallery_mss [--screenshot СНИМОК.png [--size ШxВ] [--scale N] [--page РАЗДЕЛ] [--theme ТЕМА] [--lang ЯЗЫК]]");
+                println!("widget_gallery_mss [--screenshot СНИМОК.png [--size ШxВ] [--scale N] [--page РАЗДЕЛ] [--design ОФОРМЛЕНИЕ] [--dark|--light] [--lang ЯЗЫК]]");
                 println!("разделы: {}", SECTIONS.iter().map(|s| s.key).collect::<Vec<_>>().join(" "));
-                println!("темы: {}", theme_data::builtin_themes().iter().map(|t| t.id).collect::<Vec<_>>().join(" "));
+                println!("оформления: {}", theme_data::DESIGNS.iter().map(|d| d.id).collect::<Vec<_>>().join(" "));
                 std::process::exit(0);
             }
             "--screenshot" => {
@@ -146,7 +163,9 @@ fn parse_shot_args() -> Option<ShotArgs> {
             }
             "--scale" => a.scale = args.next().and_then(|s| s.parse().ok()).unwrap_or(a.scale),
             "--page" => a.page = args.next(),
-            "--theme" => a.theme = args.next(),
+            "--design" | "--theme" => a.design = theme_data::find_design(&args.next().unwrap_or_default()).id.to_string(),
+            "--dark" => a.dark = true,
+            "--light" => a.dark = false,
             "--lang" => a.lang = args.next(),
             _ => {}
         }
@@ -156,18 +175,15 @@ fn parse_shot_args() -> Option<ShotArgs> {
 
 #[cfg(not(target_arch = "wasm32"))]
 fn run_shot(a: ShotArgs) {
-    let theme = a.theme.as_deref().and_then(theme_data::find_theme).unwrap_or_else(theme_data::default_light);
-    let mss = format!("{}\n{}", theme.to_mss(), styles::component_styles());
-    let page = a.page.clone();
+    let mss = theme_data::find_design(&a.design).full_mss(a.dark);
+    let (page, design, dark, mss2) = (a.page.clone(), a.design.clone(), a.dark, mss.clone());
     let r = syngui::shot::render_png(
         move || {
-            let ctx = make_ctx(use_signal(mss.clone()), page.as_deref());
-            ctx.is_dark.set(theme.is_dark);
-            ctx.current_theme_id.set(theme.id.to_string());
+            let ctx = make_ctx(use_signal(mss2), page.as_deref(), &design, dark);
             provide_context(ctx);
-            Box::new(DecoratedBox::new().class("grow").child(build_gallery()))
+            Box::new(build_gallery())
         },
-        &format!("{}\n{}", theme.to_mss(), styles::component_styles()),
+        &mss,
         a.size,
         a.scale,
         &a.out,
@@ -196,6 +212,7 @@ fn init_i18n(lang: Option<&str>) {
 pub fn run_app() {
     #[cfg(target_arch = "wasm32")]
     console_error_panic_hook::set_once();
+    register_fonts();
 
     #[cfg(not(target_arch = "wasm32"))]
     if let Some(a) = parse_shot_args() {
@@ -204,15 +221,21 @@ pub fn run_app() {
         return;
     }
 
-    let initial_mss = build_initial_mss();
+    let (design, dark) = initial_design();
+    let initial_mss = theme_data::find_design(&design).full_mss(dark);
     let theme_mss = use_signal(initial_mss.clone());
+    let window = use_signal(WindowState::default());
     init_i18n(None);
 
     App::new()
         .title("SYNGUI Widget Gallery")
+        .app_id("widget_gallery_mss")
         .size(1280, 900)
         .min_size(1024, 600)
         .maximized(true)
+        .frameless()
+        .transparent(true)
+        .background(syngui::core::Color::from_srgb(0, 0, 0, 0.0))
         .vsync(false)
         .gpu_backend(GpuBackend::Auto)
         .gpu_power(GpuPowerPreference::LowPower)
@@ -222,9 +245,11 @@ pub fn run_app() {
         .with_styles_str(&initial_mss)
         .with_dynamic_theme(theme_mss)
         .with_theme_transition(360)
+        .with_window_state(window)
         .with_debug_overlay(false)
         .run(move |_ctx| {
-            provide_context(make_ctx(theme_mss, None));
+            let ctx = make_ctx(theme_mss, None, &design, dark);
+            provide_context(GalleryCtx { window, ..ctx });
             Box::new(DecoratedBox::new().class("grow").child(move || {
                 syngui::i18n::subscribe();
                 build_gallery()
@@ -232,9 +257,7 @@ pub fn run_app() {
         });
 }
 
-fn make_ctx(theme_mss: RwSignal<String>, page: Option<&str>) -> GalleryCtx {
-    let is_dark = use_signal(false);
-    let current_theme_id = use_signal("clean_modern".to_string());
+fn make_ctx(theme_mss: RwSignal<String>, page: Option<&str>, design: &str, dark: bool) -> GalleryCtx {
     // Начальный раздел: `--page` снимка или GALLERY_ROUTE=motion (проверка вёрстки).
     let initial = page
         .map(str::to_string)
@@ -246,12 +269,13 @@ fn make_ctx(theme_mss: RwSignal<String>, page: Option<&str>) -> GalleryCtx {
     let router = Arc::new(Mutex::new(Router::new(route_keys(), &initial)));
 
     GalleryCtx {
-        is_dark,
+        is_dark: use_signal(dark),
+        design: use_signal(design.to_string()),
         theme_mss,
-        current_theme_id,
         sidebar_state,
         current_route,
         router,
+        window: use_signal(WindowState::default()),
     }
 }
 
@@ -259,37 +283,38 @@ fn section_name(key: &str) -> String {
     tr!(&format!("gallery.section.{key}"))
 }
 
+type W = Box<dyn Widget>;
+
 /// Боковая панель: группы разделов, значки Material, активный пункт.
-/// Активный пункт перетекает в карточку содержимого: его правый край
-/// без скруглений, а `flow-edge: right` дорисовывает вогнутые углы цветом
-/// карточки — вкладка и страница становятся одной поверхностью.
-fn build_sidebar() -> impl Widget {
+///
+/// Вид пунктов — дело оформления: в Studio активная вкладка перетекает в
+/// карточку (`flow-edge`), в Aurora это светящаяся пилюля, в Brutal — номер
+/// раздела моноширинным шрифтом и плашка с жёсткой тенью.
+fn build_sidebar(design: &str) -> impl Widget {
     let current = use_context::<GalleryCtx>().current_route;
+    let numbered = design == "brutal";
     DecoratedBox::new().class("gallery-sidebar").child(
         Page::new().vertical().scrollbar_policy(ScrollbarPolicy::Auto).child(
             Column::new().gap(0.0).cross_axis_alignment(CrossAxisAlignment::Stretch).class("nav-list").child(move || {
                 let cur = current.get();
-                // Без зазора между пунктами: у активной вкладки, перетекающей
-                // в карточку, зазор читался бы тёмной линией по краю.
                 let mut col = Column::new().gap(0.0).cross_axis_alignment(CrossAxisAlignment::Stretch);
+                let mut n = 0;
                 for group in GROUPS {
                     col = col.child(Text::new(tr!(&format!("gallery.group.{group}"))).class("nav-group"));
                     for s in SECTIONS.iter().filter(|s| s.group == *group) {
+                        n += 1;
                         let active = cur == s.key;
                         let key = s.key;
+                        let mut row = Row::new().gap(10.0).cross_axis_alignment(CrossAxisAlignment::Center);
+                        row = if numbered {
+                            row.child(Text::new(format!("{n:02}")).class("nav-num"))
+                        } else {
+                            row.child(Icon::new(s.icon).class("nav-icon"))
+                        };
+                        row = row.child(Text::new(section_name(key)).max_lines(1).elide(Elide::End).class("nav-text"));
                         col = col.child(
                             GestureDetector::new()
-                                .child(
-                                    DecoratedBox::new()
-                                        .child(
-                                            Row::new()
-                                                .gap(10.0)
-                                                .cross_axis_alignment(CrossAxisAlignment::Center)
-                                                .child(Icon::new(s.icon).class("nav-icon"))
-                                                .child(Text::new(section_name(key)).class("nav-text")),
-                                        )
-                                        .class(if active { "nav-item nav-item-active" } else { "nav-item" }),
-                                )
+                                .child(DecoratedBox::new().child(row).class(if active { "nav-item nav-item-active" } else { "nav-item" }))
                                 .cursor(syngui::input::CursorIcon::Pointer)
                                 .on_click(move || {
                                     let ctx = use_context::<GalleryCtx>();
@@ -305,67 +330,177 @@ fn build_sidebar() -> impl Widget {
     )
 }
 
-/// Оболочка галереи: шапка и боковая панель — одна тёмная рамка, в которой
-/// лежит скруглённая карточка содержимого; активная вкладка перетекает в
-/// карточку.
-fn build_gallery() -> impl Widget {
-    Column::new().gap(0.0).child(build_header()).child(
-        DecoratedBox::new().class("grow gallery-frame").child(
-            Row::new()
+/// Знак галереи: квадрат с градиентом (Studio, Aurora) или чёрная плашка (Brutal).
+fn brand() -> impl Widget {
+    Row::new()
+        .gap(10.0)
+        .cross_axis_alignment(CrossAxisAlignment::Center)
+        .child(DecoratedBox::new().class("brand-mark").child(Icon::new("\u{E1BD}").class("brand-icon")))
+        .child(
+            Column::new()
                 .gap(0.0)
-                .cross_axis_alignment(CrossAxisAlignment::Stretch)
-                .child(build_sidebar())
-                .child(
-                    DecoratedBox::new()
-                        .class("grow content-frame")
-                        .child(DecoratedBox::new().class("content-card").child(build_content())),
-                ),
-        ),
-    )
+                .child(Text::new("SYNGUI").class("brand-title"))
+                .child(Text::new(tr!("gallery.brand.sub")).class("brand-sub")),
+        )
 }
 
-fn build_header() -> impl Widget {
+/// Заголовок окна (CSD): знак, перетаскиваемая середина с названием
+/// раздела, переключатели оформления, тёмной темы и языка, кнопки окна.
+fn titlebar() -> impl Widget {
     let ctx = use_context::<GalleryCtx>();
-    let is_dark = ctx.is_dark;
-
-    TopAppBar::new(tr!("gallery.title"))
-        .action(Badge::new(concat!("v", env!("CARGO_PKG_VERSION"))).medium().class("header-badge"))
-        .action(Text::new(tr!("gallery.language")).class("header-subtitle"))
-        .action({
-            let current = syngui::i18n::language();
-            let mut dd = Dropdown::new();
-            for lang in syngui::i18n::languages() {
-                dd = dd.item(DropdownItem::new(lang.tag.tag(), lang.name));
-            }
-            dd.selected(current.tag())
-                .on_change(move |tag: &str| syngui::i18n::set_language(tag))
-                .style("width", 150.0_f32)
-        })
-        .action(Text::new(tr!("gallery.theme")).class("header-subtitle"))
-        .action(move || {
-            let themes = theme_data::builtin_themes();
-            let cur = use_context::<GalleryCtx>().current_theme_id.get();
-            let mut dd = Dropdown::new().placeholder(tr!("gallery.theme.placeholder"));
-            for t in &themes {
-                dd = dd.item(DropdownItem::simple(t.name));
-            }
-            let name = themes.iter().find(|t| t.id == cur).map(|t| t.name).unwrap_or(themes[0].name);
-            dd.selected(name)
-                .on_change(move |name: &str| {
-                    if let Some(theme) = theme_data::find_theme_by_name(name) {
-                        let ctx = use_context::<GalleryCtx>();
-                        ctx.apply_theme(&theme);
+    let (route, design, is_dark, window) = (ctx.current_route, ctx.design, ctx.is_dark, ctx.window);
+    let title = Reactive::new(move || -> Vec<W> {
+        let key = route.get();
+        let group = SECTIONS.iter().find(|s| s.key == key).map(|s| s.group).unwrap_or("basics");
+        vec![Box::new(
+            Row::new()
+                .gap(8.0)
+                .cross_axis_alignment(CrossAxisAlignment::Center)
+                .child(Text::new(tr!(&format!("gallery.group.{group}"))).class("tb-crumb"))
+                .child(Text::new("/").class("tb-crumb-sep"))
+                .child(Text::new(section_name(&key)).max_lines(1).elide(Elide::End).class("tb-title")),
+        )]
+    });
+    let designs = Reactive::new(move || -> Vec<W> {
+        let cur = design.get();
+        let idx = theme_data::DESIGNS.iter().position(|d| d.id == cur).unwrap_or(0);
+        let names: Vec<&str> = theme_data::DESIGNS.iter().map(|d| d.name).collect();
+        vec![Box::new(
+            SegmentedButton::new(names)
+                .selected(idx)
+                .on_change(|i| {
+                    let ctx = use_context::<GalleryCtx>();
+                    if let Some(d) = theme_data::DESIGNS.get(i) {
+                        ctx.apply(d.id, ctx.is_dark.get_untracked());
                     }
                 })
-                .style("width", 200.0_f32)
-        })
-        .action(move || {
-            let dark = is_dark.get();
+                .class("tb-designs"),
+        )]
+    });
+    let dark_btn = Reactive::new(move || -> Vec<W> {
+        let dark = is_dark.get();
+        vec![Box::new(
             ToolButton::new(if dark { "\u{E518}" } else { "\u{E51C}" })
                 .tooltip(if dark { tr!("gallery.light") } else { tr!("gallery.dark") })
                 .on_click(|| use_context::<GalleryCtx>().toggle_dark())
-                .class("header-toggle")
-        })
+                .class("tb-btn"),
+        )]
+    });
+    let lang = {
+        let current = syngui::i18n::language();
+        let mut dd = Dropdown::new();
+        for l in syngui::i18n::languages() {
+            dd = dd.item(DropdownItem::new(l.tag.tag(), l.name));
+        }
+        dd.selected(current.tag()).on_change(move |tag: &str| syngui::i18n::set_language(tag)).class("tb-lang")
+    };
+    let controls = Reactive::new(move || -> Vec<W> {
+        let w = window.get();
+        vec![Box::new(SystemWindowControls::new(ControlsSide::Right).maximized(w.maximized).active(w.focused))]
+    });
+    DecoratedBox::new().class("titlebar").child(
+        Row::new()
+            .gap(0.0)
+            .cross_axis_alignment(CrossAxisAlignment::Stretch)
+            .child(DecoratedBox::new().class("tb-left").child(brand()))
+            .child(DecoratedBox::new().class("grow tb-drag-wrap").child(WindowDragRegion::new().child(DecoratedBox::new().class("tb-drag").child(title))))
+            .child(
+                DecoratedBox::new().class("tb-tools").child(
+                    Row::new()
+                        .gap(8.0)
+                        .cross_axis_alignment(CrossAxisAlignment::Center)
+                        .child(designs)
+                        .child(lang)
+                        .child(dark_btn),
+                ),
+            )
+            .child(DecoratedBox::new().class("window-controls").child(controls)),
+    )
+}
+
+/// Фон Aurora: три размытых пятна радиальных градиентов медленно плывут
+/// (keyframes), над ними — стеклянные панели с размытием подложки.
+fn aurora_backdrop() -> impl Widget {
+    Stack::new()
+        .fit(StackFit::Expand)
+        .child(DecoratedBox::new().class("aurora-base"))
+        .child(DecoratedBox::new().class("aurora-blob aurora-blob-1"))
+        .child(DecoratedBox::new().class("aurora-blob aurora-blob-2"))
+        .child(DecoratedBox::new().class("aurora-blob aurora-blob-3"))
+        .child(DecoratedBox::new().class("aurora-grain"))
+}
+
+/// Бегущая строка Brutal внизу окна: одинаковые куски фиксированной ширины
+/// едут влево ровно на ширину куска и повторяются без шва.
+fn ticker() -> impl Widget {
+    let text = tr!("gallery.ticker");
+    let mut track = Row::new().gap(0.0).cross_axis_alignment(CrossAxisAlignment::Center).class("ticker-track");
+    for _ in 0..6 {
+        track = track.child(DecoratedBox::new().class("ticker-chunk").child(Text::new(text.clone()).max_lines(1).class("ticker-text")));
+    }
+    DecoratedBox::new().class("ticker").clip(true).child(track)
+}
+
+fn content_card() -> impl Widget {
+    DecoratedBox::new().class("grow content-frame").child(DecoratedBox::new().class("content-card").child(build_content()))
+}
+
+/// Оболочка оформления.
+fn shell(design: &str) -> W {
+    match design {
+        // Плавающие стеклянные панели над сиянием.
+        "aurora" => Box::new(
+            Stack::new().fit(StackFit::Expand).child(aurora_backdrop()).child(
+                Column::new()
+                    .gap(12.0)
+                    .cross_axis_alignment(CrossAxisAlignment::Stretch)
+                    .class("shell")
+                    .child(titlebar())
+                    .child(
+                        Row::new()
+                            .gap(12.0)
+                            .cross_axis_alignment(CrossAxisAlignment::Stretch)
+                            .class("grow")
+                            .child(build_sidebar(design))
+                            .child(content_card()),
+                    ),
+            ),
+        ),
+        // Заголовок, панель и страница — блоки в толстых рамках.
+        "brutal" => Box::new(
+            Column::new()
+                .gap(0.0)
+                .cross_axis_alignment(CrossAxisAlignment::Stretch)
+                .class("shell")
+                .child(titlebar())
+                .child(Row::new().gap(0.0).cross_axis_alignment(CrossAxisAlignment::Stretch).class("grow").child(build_sidebar(design)).child(content_card()))
+                .child(ticker()),
+        ),
+        // Studio: заголовок и панель — одна тёмная рамка, внутри карточка.
+        _ => Box::new(
+            Column::new()
+                .gap(0.0)
+                .cross_axis_alignment(CrossAxisAlignment::Stretch)
+                .class("shell")
+                .child(titlebar())
+                .child(
+                    DecoratedBox::new()
+                        .class("grow gallery-frame")
+                        .child(Row::new().gap(0.0).cross_axis_alignment(CrossAxisAlignment::Stretch).child(build_sidebar(design)).child(content_card())),
+                ),
+        ),
+    }
+}
+
+/// Окно галереи: оболочка текущего оформления в скруглённой рамке окна
+/// (без скругления развёрнутым) с изменением размера за края.
+fn build_gallery() -> impl Widget {
+    let design = use_context::<GalleryCtx>().design;
+    Reactive::new(move || -> Vec<W> {
+        let d = design.get();
+        let frame = DecoratedBox::new().class(format!("window-frame design-{d}")).clip(true).child(shell(&d));
+        vec![Box::new(WindowResizeRegion::new().over_content(true).inset(5.0).child(frame))]
+    })
 }
 
 fn page_wrap(child: impl Widget + 'static) -> impl Widget {
