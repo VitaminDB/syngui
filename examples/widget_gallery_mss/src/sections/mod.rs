@@ -15,6 +15,7 @@ pub mod ffmpeg_video;
 pub mod gradients;
 pub mod input;
 pub mod layout_animation;
+pub mod lottie;
 #[cfg(feature = "map")]
 pub mod map;
 pub mod markdown;
