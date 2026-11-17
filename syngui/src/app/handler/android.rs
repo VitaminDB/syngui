@@ -3,7 +3,12 @@ use super::AppHandler;
 impl AppHandler {
     /// Пожелание частоты экрана (`video::android::set_window_frame_rate`) —
     /// окну, когда оно сменилось или окно пересоздано.
-    #[cfg(target_os = "android")]
+    /// Без `ffmpeg` модуля видео нет и пожеланий частоты некому задать —
+    /// ничего не делаем (раньше сборка под Android без `ffmpeg` падала).
+    #[cfg(all(target_os = "android", not(feature = "ffmpeg")))]
+    pub(in crate::app) fn apply_window_frame_rate(&mut self) {}
+
+    #[cfg(all(target_os = "android", feature = "ffmpeg"))]
     pub(in crate::app) fn apply_window_frame_rate(&mut self) {
         let fps = crate::video::android::window_frame_rate();
         let Some(app) = self.android_app.as_ref() else { return };
