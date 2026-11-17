@@ -250,6 +250,34 @@ pub struct TickSliderElement {
 }
 
 impl TickSliderElement {
+    /// Высота строки подписей делений под горизонтальным треком (засечка,
+    /// зазор, текст); без `tick_labels` — ноль.
+    fn horizontal_labels_h(&self) -> f32 {
+        if self.tick_labels.is_some() {
+            self.tick_font + 6.0
+        } else {
+            0.0
+        }
+    }
+
+    /// Прямоугольники подписей делений горизонтального слайдера: по центру
+    /// под засечкой, крайние прижаты внутрь виджета.
+    fn horizontal_label_rects(&self) -> Vec<(String, Rect)> {
+        let Some(ref f) = self.tick_labels else { return Vec::new() };
+        let y = self.track_bounds.y() + self.track_bounds.size.height + 2.0 + self.tick_len + 2.0;
+        let left = self.bounds.x();
+        let right = self.bounds.x() + self.bounds.size.width;
+        self.effective_ticks()
+            .into_iter()
+            .map(|tv| {
+                let label = f(tv);
+                let w = estimate_text_width(&label, self.tick_font, self.text_measure.as_ref()) + 2.0;
+                let x = (self.value_to_pos(tv) - w * 0.5).min(right - w).max(left);
+                (label, Rect::new(Point::new(x, y), Size::new(w, self.tick_font + 2.0)))
+            })
+            .collect()
+    }
+
     fn effective_ticks(&self) -> Vec<f32> {
         if !self.ticks.is_empty() {
             return self.ticks.clone();
@@ -418,11 +446,13 @@ impl Element for TickSliderElement {
 
             Size::new(width, height)
         } else {
+            // строка подписей делений под засечками (у вертикального — справа)
+            let labels_h = self.horizontal_labels_h();
             let height = self
                 .height
                 .or(self.mss.height)
                 .map(|d| d.resolve(constraints.max_height))
-                .unwrap_or(self.value_label_h + 28.0)
+                .unwrap_or(self.value_label_h + 28.0 + labels_h)
                 .min(constraints.max_height);
             let width = self
                 .width
@@ -433,7 +463,7 @@ impl Element for TickSliderElement {
 
             self.bounds = Rect::new(Point::zero(), Size::new(width, height));
 
-            let track_top = self.value_label_h + (height - self.value_label_h - track_w) * 0.5;
+            let track_top = self.value_label_h + ((height - self.value_label_h - labels_h - track_w) * 0.5).max(0.0);
             self.track_bounds =
                 Rect::new(Point::new(8.0, track_top), Size::new(width - 16.0, track_w));
 
@@ -533,6 +563,10 @@ impl Element for TickSliderElement {
                     Size::new(TICK_THICKNESS, self.tick_len),
                 );
                 list.push_rect(tick_rect, tick_color, [TICK_THICKNESS * 0.5; 4]);
+            }
+            // подписи делений: раньше у горизонтального не рисовались вовсе
+            for (label, lr) in self.horizontal_label_rects() {
+                list.push_text(&label, lr, tick_label_color, self.tick_font);
             }
         }
 
@@ -948,6 +982,43 @@ mod tests {
             e.track_bounds.y() >= e.value_label_h,
             "трек ниже зоны значения"
         );
+    }
+
+    /// Горизонтальный с подписями: под засечками есть место, подписи
+    /// рисуются по одной на деление, не вылезают за виджет и не наезжают
+    /// на трек.
+    #[test]
+    fn horizontal_tick_labels_drawn_below_track() {
+        let s = TickSlider::new()
+            .horizontal()
+            .range(0.0, 100.0)
+            .ticks(vec![0.0, 25.0, 50.0, 75.0, 100.0])
+            .tick_labels(|v| format!("{v:.0} %"));
+        let mut e = direct(&s);
+        let size = e.layout(Constraints::loose(Size::new(320.0, 400.0)));
+        let plain = direct(&TickSlider::new().horizontal().range(0.0, 100.0).tick_count(5))
+            .layout(Constraints::loose(Size::new(320.0, 400.0)));
+        assert!(size.height >= plain.height + e.tick_font, "место под подписи: {size:?} vs {plain:?}");
+        e.set_position(Point::new(40.0, 10.0));
+        let rects = e.horizontal_label_rects();
+        assert_eq!(rects.len(), 5);
+        let track_bottom = e.track_bounds.y() + e.track_bounds.size.height;
+        for (label, r) in &rects {
+            assert!(r.origin.x >= e.bounds.x() - 0.01 && r.max_x() <= e.bounds.max_x() + 0.01, "{label} {r:?} вне {:?}", e.bounds);
+            assert!(r.origin.y > track_bottom, "{label} наезжает на трек");
+            assert!(r.max_y() <= e.bounds.max_y() + 0.5, "{label} ниже виджета: {r:?} {:?}", e.bounds);
+        }
+        // средняя подпись — по центру своей засечки
+        let (_, mid) = &rects[2];
+        assert!((mid.center().x - e.value_to_pos(50.0)).abs() < 0.5);
+
+        let mut list = DisplayList::new();
+        e.build_display_list(&mut list, e.bounds);
+        let texts = list
+            .iter_all_commands()
+            .filter(|c| matches!(c, crate::render::DrawCommand::Text { .. }))
+            .count();
+        assert!(texts >= 5, "подписи делений нарисованы: {texts}");
     }
 
     #[test]
