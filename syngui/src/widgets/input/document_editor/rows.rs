@@ -75,7 +75,7 @@ macro_rules! leaf_widget_common {
 
 /// Ширина листа: доступная ширина, ограниченная колонкой контента
 /// (`max_content_width`). Корневой Column центрирует ограниченные листья.
-fn clamp_width(constraints: &Constraints, style: &DocStyle) -> f32 {
+pub(super) fn clamp_width(constraints: &Constraints, style: &DocStyle) -> f32 {
     let avail = if constraints.max_width.is_finite() {
         constraints.max_width
     } else {

@@ -522,8 +522,10 @@ impl Element for ShapeElement {
     fn mount(&mut self, _tree: &mut ElementTree) {}
 
     fn layout(&mut self, constraints: Constraints) -> Size {
+        // в колонке контента, как остальные листья (`rows::clamp_width`):
+        // иначе фигура в потоке растягивалась на всю ширину редактора
         let avail = if constraints.max_width.is_finite() {
-            constraints.max_width
+            super::rows::clamp_width(&constraints, &self.style)
         } else {
             DEFAULT_W
         };
