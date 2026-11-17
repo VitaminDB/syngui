@@ -296,6 +296,10 @@ fn real_main(cli: Cli) -> Result<()> {
             }
         }
         Cmd::Package { format, target, sel, fast, out, workspace, only, release_file, install, no_strip, portable, device } => {
+            // пароль sudo из stdin — до сборки, пока его не съели cargo/makepkg
+            if install && device.is_none() {
+                release::capture_sudo_password();
+            }
             let dev = match &device {
                 Some(d) => Some(device::Device::parse(d)?),
                 None => None,

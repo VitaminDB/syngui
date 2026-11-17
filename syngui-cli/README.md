@@ -26,6 +26,7 @@ syngui package -f zip                  # Windows: <bin>-<вер>-windows-x86_64.
 syngui build -t windows-x86_64         # exe через mingw-w64
 syngui package -f tar --portable       # linux-x86_64 в контейнере с glibc 2.31 (Ubuntu 20.04+, Debian 11+)
 syngui package -w -f arch --fast --install   # весь выпуск рабочего пространства, pacman -U одной транзакцией
+echo ПАРОЛЬ | syngui package -w -f arch --fast --install   # без терминала (агент, IDE): пароль sudo из stdin или $SYNGUI_SUDO_PASSWORD
 syngui release 0.2.0                   # выпуск: сухой прогон — что будет сделано
 syngui release 0.2.0 --apply           # версия в Cargo.toml, коммит «Выпуск 0.2.0», тег v0.2.0 (локально)
 syngui release 0.2.0 --publish         # + архивы, APK/IPA, git push, gh release create, AUR с суммами

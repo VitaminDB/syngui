@@ -798,14 +798,74 @@ fn workspace_version(root: &Path) -> Result<String> {
         .context("версия: нет [workspace.package] version — задайте version в syngui-release.toml")
 }
 
+/// Пароль sudo, поданный в stdin (`echo ПАРОЛЬ | syngui package … --install`).
+/// Забирается в самом начале: сборка (cargo, makepkg) наследует stdin и
+/// иначе съедала его раньше шага установки — `sudo -S` получал пустоту.
+static PIPED_SUDO_PASSWORD: std::sync::OnceLock<Option<String>> = std::sync::OnceLock::new();
+
+/// Прочитать первую строку stdin, если это не терминал. С таймаутом: у
+/// открытого, но пустого канала (запуск из агента, IDE) чтение не вернётся.
+pub fn capture_sudo_password() {
+    PIPED_SUDO_PASSWORD.get_or_init(|| {
+        if std::io::IsTerminal::is_terminal(&std::io::stdin()) {
+            return None;
+        }
+        let (tx, rx) = std::sync::mpsc::channel();
+        std::thread::spawn(move || {
+            let mut line = String::new();
+            let _ = std::io::stdin().read_line(&mut line);
+            let _ = tx.send(line);
+        });
+        rx.recv_timeout(std::time::Duration::from_millis(500))
+            .ok()
+            .map(|l| l.trim_end_matches(['\r', '\n']).to_string())
+            .filter(|l| !l.is_empty())
+    });
+}
+
 /// Поставить пакеты одной транзакцией (sudo pacman -U).
+///
+/// Пароль: из stdin (см. [`capture_sudo_password`]) или `$SYNGUI_SUDO_PASSWORD`;
+/// без него — закешированные права (`sudo -n`), в терминале — обычный запрос sudo.
 pub fn install(pkgs: &[PathBuf]) -> Result<()> {
+    use std::io::Write;
     util::step(format!("pacman -U ({} пакетов)", pkgs.len()));
-    let mut c = Command::new("sudo");
-    // пароль из конвейера (`echo … | syngui …`) — sudo -S
-    if !std::io::IsTerminal::is_terminal(&std::io::stdin()) {
-        c.arg("-S");
+    let password = std::env::var("SYNGUI_SUDO_PASSWORD")
+        .ok()
+        .filter(|p| !p.is_empty())
+        .or_else(|| PIPED_SUDO_PASSWORD.get().cloned().flatten());
+    let pacman = |c: &mut Command| {
+        c.args(["pacman", "-U", "--noconfirm"]).args(pkgs);
+    };
+    if let Some(pw) = password {
+        let mut c = Command::new("sudo");
+        c.args(["-S", "-p", ""]);
+        pacman(&mut c);
+        c.stdin(std::process::Stdio::piped());
+        if util::verbose() {
+            util::note(format!("$ {}", util::show(&c)));
+        }
+        let mut child = c.spawn().context("не запускается: sudo")?;
+        if let Some(mut stdin) = child.stdin.take() {
+            let _ = writeln!(stdin, "{pw}");
+        }
+        let st = child.wait()?;
+        if !st.success() {
+            bail!("sudo pacman -U завершился с ошибкой ({st}) — неверный пароль sudo?");
+        }
+        return Ok(());
     }
-    c.args(["pacman", "-U", "--noconfirm"]).args(pkgs);
-    util::run(c)
+    if std::io::IsTerminal::is_terminal(&std::io::stdin()) {
+        let mut c = Command::new("sudo");
+        pacman(&mut c);
+        return util::run(c);
+    }
+    // не терминал и пароля нет: годятся только закешированные права
+    let mut c = Command::new("sudo");
+    c.arg("-n");
+    pacman(&mut c);
+    c.stdin(std::process::Stdio::null());
+    util::run(c).context(
+        "sudo нужен пароль, а терминала нет: подайте его в stdin (`echo ПАРОЛЬ | syngui package … --install`) или в $SYNGUI_SUDO_PASSWORD",
+    )
 }
