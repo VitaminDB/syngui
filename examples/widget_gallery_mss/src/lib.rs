@@ -25,6 +25,8 @@ pub struct GalleryCtx {
     pub is_dark: RwSignal<bool>,
     /// Оформление (`theme_data::Design::id`).
     pub design: RwSignal<String>,
+    /// Id текущей палитры (`"aurora-dark"`) — для того, что красится в коде (Lottie, частицы).
+    pub current_theme_id: RwSignal<String>,
     pub theme_mss: RwSignal<String>,
     pub sidebar_state: RwSignal<usize>,
     pub current_route: RwSignal<String>,
@@ -51,6 +53,7 @@ impl GalleryCtx {
         let d = theme_data::find_design(design);
         self.theme_mss.set(d.full_mss(dark));
         self.is_dark.set(dark);
+        self.current_theme_id.set(d.palette(dark).id.to_string());
         if self.design.get_untracked() != d.id {
             self.design.set(d.id.to_string());
         }
@@ -272,6 +275,7 @@ fn make_ctx(theme_mss: RwSignal<String>, page: Option<&str>, design: &str, dark:
     GalleryCtx {
         is_dark: use_signal(dark),
         design: use_signal(design.to_string()),
+        current_theme_id: use_signal(theme_data::find_design(design).palette(dark).id.to_string()),
         theme_mss,
         sidebar_state,
         current_route,

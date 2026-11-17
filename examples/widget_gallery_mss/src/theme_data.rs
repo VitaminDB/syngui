@@ -17,6 +17,12 @@ pub struct GalleryTheme {
 }
 
 impl GalleryTheme {
+    /// Значение переменной палитры (`"accent"`, `"text-subtle"`); нет такой — `--accent`.
+    pub fn var(&self, name: &str) -> &'static str {
+        let find = |n: &str| self.vars.iter().find(|(k, _)| *k == n).map(|(_, v)| *v);
+        find(name).or_else(|| find("accent")).unwrap_or("#888888")
+    }
+
     /// Блок `:root` со всеми переменными; `--bg` — по нему окно и снимок
     /// выбирают светлые или тёмные запасные цвета виджетов.
     pub fn to_mss(&self) -> String {
@@ -55,6 +61,16 @@ impl Design {
 }
 
 pub const DESIGNS: &[Design] = &[STUDIO, AURORA, BRUTAL];
+
+/// Все палитры всех оформлений.
+pub fn builtin_themes() -> impl Iterator<Item = &'static GalleryTheme> {
+    DESIGNS.iter().flat_map(|d| [&d.light, &d.dark])
+}
+
+/// Палитра по id (`"aurora-dark"` …).
+pub fn find_theme(id: &str) -> Option<&'static GalleryTheme> {
+    builtin_themes().find(|t| t.id == id)
+}
 
 pub fn find_design(id: &str) -> &'static Design {
     DESIGNS.iter().find(|d| d.id == id).unwrap_or(&DESIGNS[0])

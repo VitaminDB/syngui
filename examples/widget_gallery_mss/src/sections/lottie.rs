@@ -86,25 +86,8 @@ const DOTS: Anim = Anim {
 const GRID: [&Anim; 8] = [&SPINNER, &HEART, &EQUALIZER, &ORBIT, &MORPH, &WAVE, &BELL, &DOTS];
 
 /// Цвет темы по имени метки (`@accent`, `@@pink` …).
-fn theme_color<'a>(t: &'a GalleryTheme, name: &str) -> &'a str {
-    match name {
-        "accent" => t.accent,
-        "success" => t.success,
-        "warning" => t.warning,
-        "error" => t.error,
-        "info" => t.info,
-        "purple" => t.purple,
-        "pink" => t.pink,
-        "orange" => t.orange,
-        "teal" => t.teal,
-        "indigo" => t.indigo,
-        "text" => t.text,
-        "text_subtle" => t.text_subtle,
-        "border" => t.border,
-        "bg_surface" => t.bg_surface,
-        "bg_elevated" => t.bg_elevated,
-        _ => t.accent,
-    }
+fn theme_color(t: &GalleryTheme, name: &str) -> &'static str {
+    t.var(&name.replace('_', "-"))
 }
 
 /// `#rgb` / `#rrggbb[aa]` → sRGB 0..1 (как в Lottie); иное — серый.
@@ -159,7 +142,7 @@ fn composition(theme_id: &str, anim: &Anim) -> Arc<Composition> {
         return c;
     }
     let theme = theme_data::find_theme(theme_id).unwrap_or_else(theme_data::default_light);
-    let comp = Arc::new(Composition::from_str(&themed_json(anim.json, &theme)).unwrap_or_else(|e| {
+    let comp = Arc::new(Composition::from_str(&themed_json(anim.json, theme)).unwrap_or_else(|e| {
         log::error!("Lottie `{}`: {e}", anim.key);
         Composition::from_str(r#"{"fr":30,"ip":0,"op":1,"w":200,"h":200,"layers":[]}"#).expect("пустая композиция")
     }));
@@ -529,9 +512,10 @@ fn build_particle_system() -> impl Widget {
                     DecoratedBox::new()
                         .child(move || {
                             let theme = theme_data::find_theme(&theme_id.get()).unwrap_or_else(theme_data::default_light);
-                            let palette = [theme.accent, theme.purple, theme.pink, theme.orange, theme.teal, theme.warning]
+                            let palette = ["accent", "purple", "pink", "orange", "teal", "warning"]
                                 .iter()
-                                .map(|h| Color::from_hex(h))
+                                .map(|n| theme.var(n))
+                                .map(|h: &str| Color::from_hex(h))
                                 .collect();
                             let k = match kind.get() {
                                 1 => EmitKind::Sparks,
@@ -582,7 +566,7 @@ mod tests {
         let all = [&SPINNER, &HEART, &CHECK, &EQUALIZER, &ORBIT, &MORPH, &WAVE, &BELL, &DOTS];
         for theme in theme_data::builtin_themes() {
             for a in all {
-                let json = themed_json(a.json, &theme);
+                let json = themed_json(a.json, theme);
                 assert!(!json.contains("\"@"), "{}: осталась метка", a.key);
                 let c = Composition::from_str(&json).unwrap_or_else(|e| panic!("{} / {}: {e}", a.key, theme.id));
                 assert!(c.out_point > c.in_point, "{}", a.key);
