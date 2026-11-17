@@ -1701,6 +1701,40 @@ App::new().with_window_state(ws)
 Эталон целиком: `synthos: src/lib.rs:79` + `synthos: styles/layout/shell.mss`
 + `synthos: src/components/titlebar.rs`.
 
+### Дополнительные окна во время работы
+
+```rust
+use syngui::app::{close_window, current_window, open_window, WindowConfig, WindowHandle};
+
+// UI-поток (обработчик, эффект, run_on_main_thread); окно появится на ближайшем
+// проходе цикла событий, ручка годна сразу.
+let ws = use_signal(syngui::window::WindowState::default());
+let panel: WindowHandle = open_window(
+    WindowConfig::new("panel").title("Панель").size(900, 700).min_size(480, 320)
+        .frameless().transparent(true)        // свой заголовок, как у главного
+        .with_window_state(ws)                // или panel.state()
+        .on_close_request(|| true)            // ✕ / Alt+F4 / ctx.close_window()
+        .on_close(move || panel_open.set(false)), // окно закрыто, дерево освобождено
+    move |_ctx| Box::new(panel_root()),
+);
+panel.set_title("Панель — проект");
+panel.focus();                                // поднять (Wayland может лишь попросить внимания)
+panel.closed();                               // RwSignal<bool>: true после закрытия
+close_window(panel);                          // или panel.close() / current_window().close()
+```
+
+Дополнительное окно — полноправное: своё дерево, оверлеи и меню, фокус, IME,
+курсоры, двойной щелчок, перетаскивание, `on_key` корня; общие с главным сигналы,
+таблица стилей, тема (`with_dynamic_theme`/`with_live_styles`, переход темы) и
+масштаб. `WindowDragRegion`, `WindowResizeRegion`, `SystemWindowControls`,
+`WindowControl`, `EventContext::close_window` действуют на своё окно,
+`:window-maximized`/`:window-focused` — по своему окну, `viewport_size()` в его
+виджетах — размер его окна. Эффекты, созданные в сборщике окна и в его
+`Reactive`, освобождаются при закрытии. Закрытие главного окна по-прежнему
+завершает приложение. Android, iOS и веб — одно окно: там ручка `open_window`
+закрывается на ближайшем проходе цикла (с `on_close`). `AppBuilder::add_window` (окно при старте) идёт тем же
+путём. Пример — `probes/multi_window.rs`, без дисплея — `testing::WindowHost`.
+
 ---
 
 ## 13. Собственный виджет

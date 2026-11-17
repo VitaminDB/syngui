@@ -620,3 +620,11 @@ path = "probes/input_capture_probe.rs"
 [[example]]
 name = "pen_probe"
 path = "probes/pen_probe.rs"
+
+[[example]]
+name = "multi_window"
+path = "probes/multi_window.rs"
+
+[[test]]
+name = "multi_window"
+required-features = ["testing", "winit"]
