@@ -278,10 +278,10 @@ mod tests {
     fn test_parse_gallery_component_mss() {
         let content = concat!(
             ":root { --bg-base: #f8fafc; --bg-surface: #ffffff; --bg-overlay: #f1f5f9; --bg-elevated: #e2e8f0; --text: #1e293b; --text-subtle: #64748b; --text-muted: #94a3b8; --accent: #3b82f6; --accent-hover: #2563eb; --success: #22c55e; --warning: #f59e0b; --error: #ef4444; --info: #06b6d4; --border: #e2e8f0; --shadow-color: rgba(0,0,0,0.08); --header-bg: #1e293b; --header-text: #ffffff; --sidebar-bg: #ffffff; --input-bg: #ffffff; --section-hover: #f8fafc; --button-bg: #ffffff; --button-hover-text: #ffffff; --button-pressed: #2563eb; --focus-ring: rgba(59,130,246,0.15); --purple: #8b5cf6; --pink: #ec4899; --orange: #f97316; --teal: #14b8a6; --indigo: #6366f1; --blue-muted: #dbeafe; --green-muted: #d1fae5; --amber-muted: #fef3c7; --purple-muted: #ede9fe; --red-muted: #fee2e2; --chart-grid: #e2e8f0; --tooltip-bg: #1e293b; --tooltip-border: #334155; --chart-shadow: rgba(0,0,0,0.06); --glass-bg: rgba(255,255,255,0.15); --glass-border: rgba(255,255,255,0.25); --glass-dark-bg: rgba(0,0,0,0.2); --glass-dark-border: rgba(255,255,255,0.1); --fx-shadow: rgba(0,0,0,0.12); --fx-shadow-md: rgba(0,0,0,0.18); --fx-shadow-lg: rgba(0,0,0,0.22); }\n",
-            include_str!("../../../../app/widget_gallery_mss/styles/components/layout.mss"), "\n",
-            include_str!("../../../../app/widget_gallery_mss/styles/components/widgets.mss"), "\n",
-            include_str!("../../../../app/widget_gallery_mss/styles/components/keyframes.mss"), "\n",
-            include_str!("../../../../app/widget_gallery_mss/styles/pages/gradients.mss"),
+            include_str!("../../../../examples/widget_gallery_mss/styles/components/layout.mss"), "\n",
+            include_str!("../../../../examples/widget_gallery_mss/styles/components/widgets.mss"), "\n",
+            include_str!("../../../../examples/widget_gallery_mss/styles/components/keyframes.mss"), "\n",
+            include_str!("../../../../examples/widget_gallery_mss/styles/pages/gradients.mss"),
         );
         let mut parser = MssParser::new(content);
         let (sheet, _) = parser.parse().unwrap();
@@ -524,7 +524,7 @@ mod tests {
 
     #[test]
     fn test_parse_gallery_gradient_styles() {
-        let input = include_str!("../../../../app/widget_gallery_mss/styles/pages/gradients.mss");
+        let input = include_str!("../../../../examples/widget_gallery_mss/styles/pages/gradients.mss");
         let mut parser = MssParser::new(input);
         let (sheet, _warnings) = parser.parse().unwrap();
         let gradient_rules: Vec<_> = sheet
@@ -648,7 +648,7 @@ mod tests {
 
     #[test]
     fn test_parse_gallery_widgets_mss() {
-        let input = include_str!("../../../../app/widget_gallery_mss/styles/components/widgets.mss");
+        let input = include_str!("../../../../examples/widget_gallery_mss/styles/components/widgets.mss");
         let mut parser = MssParser::new(input);
         let (sheet, warnings) = parser.parse().unwrap();
         assert!(warnings.is_empty(), "Unexpected warnings: {:?}", warnings);

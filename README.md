@@ -211,7 +211,7 @@ syngui package -f ipa                # unsigned .ipa built on Linux, no Xcode
 
 ## Examples
 
-The example app `widget_gallery_mss` lives under `app/` and depends only on `syngui`:
+The example app `widget_gallery_mss` lives under `examples/` and depends only on `syngui`:
 every widget + MSS styling; it also builds to **WebAssembly**.
 
 **Desktop:**
@@ -225,7 +225,7 @@ cargo run -p widget_gallery_mss
 ```bash
 rustup target add wasm32-unknown-unknown
 cargo install wasm-bindgen-cli
-cd app/widget_gallery_mss/web && ./build.sh
+cd examples/widget_gallery_mss/web && ./build.sh
 python3 -m http.server --directory .   # then open http://localhost:8000
 ```
 

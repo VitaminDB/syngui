@@ -400,7 +400,7 @@ pub fn build_visual_section() -> impl Widget {
                                         Column::new()
                                             .gap(4.0)
                                             .child(
-                                                Image::new("app/widget_gallery_mss/pics/nature.jpg")
+                                                Image::new("examples/widget_gallery_mss/pics/nature.jpg")
                                                     .fit(ImageFit::Cover)
                                                     .style("width", 160.0_f32)
                                                     .style("height", 120.0_f32),
@@ -415,7 +415,7 @@ pub fn build_visual_section() -> impl Widget {
                                         Column::new()
                                             .gap(4.0)
                                             .child(
-                                                Image::new("app/widget_gallery_mss/pics/city.jpg")
+                                                Image::new("examples/widget_gallery_mss/pics/city.jpg")
                                                     .fit(ImageFit::Contain)
                                                     .style("width", 160.0_f32)
                                                     .style("height", 120.0_f32),
@@ -430,7 +430,7 @@ pub fn build_visual_section() -> impl Widget {
                                         Column::new()
                                             .gap(4.0)
                                             .child(
-                                                Image::new("app/widget_gallery_mss/pics/abstract.jpg")
+                                                Image::new("examples/widget_gallery_mss/pics/abstract.jpg")
                                                     .tint(Color::new(0.8, 0.9, 1.0, 1.0))
                                                     .style("width", 160.0_f32)
                                                     .style("height", 120.0_f32),

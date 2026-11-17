@@ -11,7 +11,7 @@
 | `docs/...` | `/home/master/Projects/2027/syngui/docs/...` |
 | `synthos: src/...` | `/home/master/Projects/2027/synthos/src/...` |
 | `synthos: styles/...` | `/home/master/Projects/2027/synthos/styles/...` |
-| `gallery: ...` | `/home/master/Projects/2027/syngui/app/widget_gallery_mss/...` |
+| `gallery: ...` | `/home/master/Projects/2027/syngui/examples/widget_gallery_mss/...` |
 
 > ⚠️ **Файлы в `docs/01..15-*.md` частично устарели.** Там встречается
 > `create_signal`, `Signal`/`SetSignal`, `Button::primary()`, `Text::font_size()`,

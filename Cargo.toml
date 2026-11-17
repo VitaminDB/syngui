@@ -5,7 +5,7 @@ members = [
     "mss-lang",
     "mss-analysis",
     "mss-lsp",
-    "app/widget_gallery_mss",
+    "examples/widget_gallery_mss",
     "syngui-cli",
 ]
 

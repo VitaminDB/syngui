@@ -86,7 +86,7 @@ software-режиме для этого источника, без падени�
 
 ## Demo
 
-`app/widget_gallery_mss/src/sections/ffmpeg_video.rs` — Dropdown
+`examples/widget_gallery_mss/src/sections/ffmpeg_video.rs` — Dropdown
 «HW: …» рядом с полем path/URL. По умолчанию выбран `auto`. При
 смене значения **новый плеер** открывается на следующий клик
 «Открыть» — старый плеер дропается.

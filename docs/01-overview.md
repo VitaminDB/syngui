@@ -161,12 +161,7 @@ default = ["msdf", "effects"]
 ```
 syngui/                 — core framework crate
 examples/              — example apps
-  todo/                — kanban board
   widget_gallery_mss/  — widget gallery with MSS themes
-  android_demo/        — Android demo
-app/                   — production apps
-  volna_plus/          — Volna Plus
-  aiplanner/           — AI Planner
 docs/                  — documentation (this folder)
 ```
 
