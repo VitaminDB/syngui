@@ -342,8 +342,14 @@ fn list_item_with_children_stays_in_content_column() {
     let first = h.element_bounds(rows[0]);
     let parent = h.element_bounds(rows[1]);
     let last = h.element_bounds(rows[3]);
-    assert!((parent.origin.x - first.origin.x).abs() < 1.0, "пункт с детьми сдвинут: {parent:?} против {first:?}");
-    assert!((parent.size.width - first.size.width).abs() < 1.0, "пункт с детьми шире колонки: {parent:?}");
+    assert!(
+        (parent.origin.x - first.origin.x).abs() < 1.0,
+        "пункт с детьми сдвинут: {parent:?} против {first:?}"
+    );
+    assert!(
+        (parent.size.width - first.size.width).abs() < 1.0,
+        "пункт с детьми шире колонки: {parent:?}"
+    );
     assert!((last.origin.x - first.origin.x).abs() < 1.0);
 }
 
@@ -3059,7 +3065,8 @@ fn flow_shape_stays_in_content_column() {
     let row = h.element_bounds(h.find_by_type_name("doc-text-row")[0]);
     assert!(shape.size.width <= 760.5, "фигура шире колонки: {shape:?}");
     assert!(
-        (shape.origin.x - row.origin.x).abs() < 1.0 && (shape.size.width - row.size.width).abs() < 1.0,
+        (shape.origin.x - row.origin.x).abs() < 1.0
+            && (shape.size.width - row.size.width).abs() < 1.0,
         "фигура не в колонке абзаца: фигура {shape:?}, абзац {row:?}"
     );
 }

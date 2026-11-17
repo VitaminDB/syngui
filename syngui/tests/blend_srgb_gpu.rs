@@ -24,7 +24,11 @@ fn alpha_blends_in_srgb_like_css() {
                     .gap(10.0)
                     .child(DecoratedBox::new().class("half"))
                     .child(DecoratedBox::new().class("solid"))
-                    .child(DecoratedBox::new().class("veil").child(DecoratedBox::new().class("veil-in"))),
+                    .child(
+                        DecoratedBox::new()
+                            .class("veil")
+                            .child(DecoratedBox::new().class("veil-in")),
+                    ),
             )
         },
         MSS,
@@ -44,12 +48,23 @@ fn alpha_blends_in_srgb_like_css() {
         let p = img.get_pixel(x, 40);
         [p[0] as i32, p[1] as i32, p[2] as i32]
     };
-    let near = |got: [i32; 3], want: [i32; 3], tol: i32| got.iter().zip(want).all(|(g, w)| (g - w).abs() <= tol);
+    let near = |got: [i32; 3], want: [i32; 3], tol: i32| {
+        got.iter().zip(want).all(|(g, w)| (g - w).abs() <= tol)
+    };
     let half = px(40);
-    assert!(near(half, [128, 128, 128], 2), "50 % #000 поверх #fff: {half:?}, по CSS (128,128,128)");
+    assert!(
+        near(half, [128, 128, 128], 2),
+        "50 % #000 поверх #fff: {half:?}, по CSS (128,128,128)"
+    );
     let solid = px(110);
-    assert!(near(solid, [217, 130, 43], 1), "сплошной #d9822b: {solid:?}");
+    assert!(
+        near(solid, [217, 130, 43], 1),
+        "сплошной #d9822b: {solid:?}"
+    );
     let veil = px(180);
-    assert!(near(veil, [92, 159, 194], 3), "#006BA69E поверх #F3F4EF: {veil:?}, по CSS (92,159,194)");
+    assert!(
+        near(veil, [92, 159, 194], 3),
+        "#006BA69E поверх #F3F4EF: {veil:?}, по CSS (92,159,194)"
+    );
     let _ = std::fs::remove_file(&out);
 }

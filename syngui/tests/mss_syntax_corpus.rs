@@ -8,7 +8,6 @@ use std::path::{Path, PathBuf};
 use syngui::mss::syntax::{self, Item, SelectorPartKind};
 use syngui::mss::{MssParser, ParseErrorKind, SelectorPart, StyleSheet};
 
-
 fn collect(dir: &Path, out: &mut Vec<PathBuf>) {
     let Ok(rd) = std::fs::read_dir(dir) else {
         return;

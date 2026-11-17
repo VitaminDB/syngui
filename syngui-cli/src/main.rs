@@ -32,7 +32,11 @@ use std::process::Command;
 use target::{Profile, Target};
 
 #[derive(Parser)]
-#[command(name = "syngui", version, about = "Сборка, упаковка и запуск приложений на syngui: Linux x86_64/aarch64, Android, iOS")]
+#[command(
+    name = "syngui",
+    version,
+    about = "Сборка, упаковка и запуск приложений на syngui: Linux x86_64/aarch64, Android, iOS"
+)]
 struct Cli {
     #[command(subcommand)]
     cmd: Cmd,
@@ -266,13 +270,27 @@ fn main() {
 fn real_main(cli: Cli) -> Result<()> {
     match cli.cmd {
         Cmd::Doctor { target } => {
-            let t = if target.is_empty() { Target::ALL.to_vec() } else { targets(&target)? };
+            let t = if target.is_empty() {
+                Target::ALL.to_vec()
+            } else {
+                targets(&target)?
+            };
             if !doctor::run(&t) {
                 std::process::exit(1);
             }
         }
         Cmd::Info { sel } => info(&load(&sel)?)?,
-        Cmd::Build { target, sel, prof, portable, workspace: true, only, release_file, no_strip, cargo_args } => {
+        Cmd::Build {
+            target,
+            sel,
+            prof,
+            portable,
+            workspace: true,
+            only,
+            release_file,
+            no_strip,
+            cargo_args,
+        } => {
             if portable || !cargo_args.is_empty() {
                 bail!("с -w: --portable и аргументы cargo не поддерживаются (особая сборка крейтов — в syngui-release.toml)");
             }
@@ -284,7 +302,14 @@ fn real_main(cli: Cli) -> Result<()> {
                 println!("{t}: {}", dir.display());
             }
         }
-        Cmd::Build { target, sel, prof, portable, cargo_args, .. } => {
+        Cmd::Build {
+            target,
+            sel,
+            prof,
+            portable,
+            cargo_args,
+            ..
+        } => {
             let app = load(&sel)?;
             let mut done = Vec::new();
             for t in targets(&target)? {
@@ -295,7 +320,20 @@ fn real_main(cli: Cli) -> Result<()> {
                 println!("{t}: {}", p.display());
             }
         }
-        Cmd::Package { format, target, sel, fast, out, workspace, only, release_file, install, no_strip, portable, device } => {
+        Cmd::Package {
+            format,
+            target,
+            sel,
+            fast,
+            out,
+            workspace,
+            only,
+            release_file,
+            install,
+            no_strip,
+            portable,
+            device,
+        } => {
             // пароль sudo из stdin — до сборки, пока его не съели cargo/makepkg
             if install && device.is_none() {
                 release::capture_sudo_password();
@@ -304,9 +342,14 @@ fn real_main(cli: Cli) -> Result<()> {
                 Some(d) => Some(device::Device::parse(d)?),
                 None => None,
             };
-            let profile = if fast { Profile::Fast } else { Profile::Release };
+            let profile = if fast {
+                Profile::Fast
+            } else {
+                Profile::Release
+            };
             if workspace {
-                let r = release::Release::load(sel.manifest_path.as_deref(), release_file.as_deref())?;
+                let r =
+                    release::Release::load(sel.manifest_path.as_deref(), release_file.as_deref())?;
                 let mut results = Vec::new();
                 match format.as_str() {
                     "arch" | "pacman" => {
@@ -386,7 +429,20 @@ fn real_main(cli: Cli) -> Result<()> {
                 println!("{}", r.display());
             }
         }
-        Cmd::Run { device, sel, prof, no_build, no_log, pkg, no_install, no_launch, features, no_default_features, env, args } => {
+        Cmd::Run {
+            device,
+            sel,
+            prof,
+            no_build,
+            no_log,
+            pkg,
+            no_install,
+            no_launch,
+            features,
+            no_default_features,
+            env,
+            args,
+        } => {
             let app = load(&sel)?;
             let mut extra = Vec::new();
             if no_default_features {
@@ -396,10 +452,26 @@ fn real_main(cli: Cli) -> Result<()> {
                 extra.push("--features".into());
                 extra.push(features.join(","));
             }
-            let o = RunOpts { no_build, log: !no_log, pkg, no_install, no_launch, extra, env };
+            let o = RunOpts {
+                no_build,
+                log: !no_log,
+                pkg,
+                no_install,
+                no_launch,
+                extra,
+                env,
+            };
             run(&app, &device, prof.profile(), &o, &args)?;
         }
-        Cmd::Release { version, sel, apply, publish, no_mobile, release_file, assets } => publish::run(publish::Opts {
+        Cmd::Release {
+            version,
+            sel,
+            apply,
+            publish,
+            no_mobile,
+            release_file,
+            assets,
+        } => publish::run(publish::Opts {
             version: &version,
             manifest: sel.manifest_path.as_deref(),
             package: sel.package.as_deref(),
@@ -438,9 +510,17 @@ fn dist(app: &App, file: &std::path::Path, sum: bool) -> Result<PathBuf> {
     Ok(out)
 }
 
-fn build(app: &App, t: Target, profile: Profile, extra: &[String], portable: bool) -> Result<PathBuf> {
+fn build(
+    app: &App,
+    t: Target,
+    profile: Profile,
+    extra: &[String],
+    portable: bool,
+) -> Result<PathBuf> {
     match t {
-        Target::LinuxX86_64 | Target::LinuxAarch64 | Target::WindowsX86_64 => linux::build(app, t, profile, extra, portable),
+        Target::LinuxX86_64 | Target::LinuxAarch64 | Target::WindowsX86_64 => {
+            linux::build(app, t, profile, extra, portable)
+        }
         Target::Android => android::build(app, profile, false, None),
         Target::Ios => ios::build(app, profile),
     }
@@ -472,7 +552,8 @@ fn run(app: &App, device: &str, profile: Profile, o: &RunOpts, args: &[String]) 
         }
         "android" => {
             let apk = if no_build {
-                app.work_dir("android").join(format!("{}-{}.apk", app.krate, app.version))
+                app.work_dir("android")
+                    .join(format!("{}-{}.apk", app.krate, app.version))
             } else {
                 // под ABI подключённого устройства (эмулятор — x86_64)
                 let abi = android::device_abi(&android::device()?)?;
@@ -484,7 +565,12 @@ fn run(app: &App, device: &str, profile: Profile, o: &RunOpts, args: &[String]) 
             android::install_run(app, &apk, o.log)
         }
         "ios" | "iphone" => {
-            let ipa = if no_build { app.work_dir("ios").join(format!("{}-{}.ipa", app.krate, app.version)) } else { ios::build(app, profile)? };
+            let ipa = if no_build {
+                app.work_dir("ios")
+                    .join(format!("{}-{}.ipa", app.krate, app.version))
+            } else {
+                ios::build(app, profile)?
+            };
             ios::install(&ipa)
         }
         d if d == "phone" || d.starts_with("ssh:") => {
@@ -497,7 +583,14 @@ fn run(app: &App, device: &str, profile: Profile, o: &RunOpts, args: &[String]) 
                     device::install_packages(&dev, &[p])?;
                 } else {
                     let bin_path = if no_build {
-                        app.target_dir.join(if t.is_host() { String::new() } else { t.triple().into() }).join(profile.dir()).join(&bin)
+                        app.target_dir
+                            .join(if t.is_host() {
+                                String::new()
+                            } else {
+                                t.triple().into()
+                            })
+                            .join(profile.dir())
+                            .join(&bin)
                     } else {
                         linux::build(app, t, profile, &o.extra, false)?
                     };
@@ -505,7 +598,11 @@ fn run(app: &App, device: &str, profile: Profile, o: &RunOpts, args: &[String]) 
                     linux::stage(app, &bin_path, &stage, Some(t))?;
                     let tarball = app.work_dir("stage").join(format!("{bin}-device.tar"));
                     let mut c = Command::new("tar");
-                    c.arg("-cf").arg(&tarball).arg("-C").arg(stage.join("usr")).arg(".");
+                    c.arg("-cf")
+                        .arg(&tarball)
+                        .arg("-C")
+                        .arg(stage.join("usr"))
+                        .arg(".");
                     util::run(c)?;
                     device::install_tree(&dev, &bin, &tarball)?;
                 }
@@ -525,22 +622,67 @@ fn info(app: &App) -> Result<()> {
     println!("каталог:      {}", app.manifest_dir.display());
     println!("имя:          {}", app.display_name());
     println!("id:           {}", app.app_id());
-    println!("программы:    {}", if app.bins.is_empty() { "—".into() } else { app.bins.join(", ") });
-    println!("основная:     {}", app.bin().unwrap_or_else(|e| format!("? ({e})")));
-    println!("библиотека:   {}", app.lib.clone().unwrap_or_else(|| "—".into()));
-    println!("значок:       {}", app.icon().map(|p| p.display().to_string()).unwrap_or_else(|| "нет (будет буква)".into()));
-    println!("ярлык:        {}", app.desktop_file().map(|p| p.display().to_string()).unwrap_or_else(|| "нет".into()));
-    println!("репозиторий:  {}", app.repository.clone().unwrap_or_else(|| "—".into()));
+    println!(
+        "программы:    {}",
+        if app.bins.is_empty() {
+            "—".into()
+        } else {
+            app.bins.join(", ")
+        }
+    );
+    println!(
+        "основная:     {}",
+        app.bin().unwrap_or_else(|e| format!("? ({e})"))
+    );
+    println!(
+        "библиотека:   {}",
+        app.lib.clone().unwrap_or_else(|| "—".into())
+    );
+    println!(
+        "значок:       {}",
+        app.icon()
+            .map(|p| p.display().to_string())
+            .unwrap_or_else(|| "нет (будет буква)".into())
+    );
+    println!(
+        "ярлык:        {}",
+        app.desktop_file()
+            .map(|p| p.display().to_string())
+            .unwrap_or_else(|| "нет".into())
+    );
+    println!(
+        "репозиторий:  {}",
+        app.repository.clone().unwrap_or_else(|| "—".into())
+    );
     let a = &app.meta.android;
-    println!("android:      id {}, lib {}, ABI {}, minSdk {}, versionCode {}",
+    println!(
+        "android:      id {}, lib {}, ABI {}, minSdk {}, versionCode {}",
         a.id.clone().unwrap_or_else(|| app.app_id()),
-        a.lib.clone().or_else(|| app.lib.clone()).unwrap_or_else(|| "—".into()),
-        a.abis.clone().unwrap_or_else(|| vec!["arm64-v8a".into()]).join(","),
+        a.lib
+            .clone()
+            .or_else(|| app.lib.clone())
+            .unwrap_or_else(|| "—".into()),
+        a.abis
+            .clone()
+            .unwrap_or_else(|| vec!["arm64-v8a".into()])
+            .join(","),
         a.min_sdk.unwrap_or(30),
-        app.version_code());
+        app.version_code()
+    );
     let kd = android::key_dir(app);
-    println!("ключ android: {} ({})", kd.display(), yn(kd.join("release.jks").is_file() && kd.join("password").is_file()));
-    println!("ios:          bundle {}", app.meta.ios.bundle_id.clone().unwrap_or_else(|| app.app_id()));
+    println!(
+        "ключ android: {} ({})",
+        kd.display(),
+        yn(kd.join("release.jks").is_file() && kd.join("password").is_file())
+    );
+    println!(
+        "ios:          bundle {}",
+        app.meta
+            .ios
+            .bundle_id
+            .clone()
+            .unwrap_or_else(|| app.app_id())
+    );
     println!("артефакты:    {}", app.dist_dir().display());
     Ok(())
 }

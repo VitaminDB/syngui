@@ -46,7 +46,13 @@ const CHROME: &[(u32, u32, [i32; 3])] = &[
 
 pub fn render(out: &str) -> std::result::Result<(u32, u32), String> {
     syngui::shot::render_png(
-        || Box::new(DecoratedBox::new().class("page").child(DecoratedBox::new().class("card"))),
+        || {
+            Box::new(
+                DecoratedBox::new()
+                    .class("page")
+                    .child(DecoratedBox::new().class("card")),
+            )
+        },
         MSS,
         (400, 330),
         1.0,
@@ -56,8 +62,12 @@ pub fn render(out: &str) -> std::result::Result<(u32, u32), String> {
 
 #[test]
 fn shadow_matches_chromium() {
-    let out = std::env::var("SYNGUI_SHADOW_OUT")
-        .unwrap_or_else(|_| std::env::temp_dir().join(format!("syngui-shadow-{}.png", std::process::id())).to_string_lossy().into());
+    let out = std::env::var("SYNGUI_SHADOW_OUT").unwrap_or_else(|_| {
+        std::env::temp_dir()
+            .join(format!("syngui-shadow-{}.png", std::process::id()))
+            .to_string_lossy()
+            .into()
+    });
     if let Err(e) = render(&out) {
         if e.contains("GPU") {
             eprintln!("пропуск: {e}");
@@ -69,6 +79,9 @@ fn shadow_matches_chromium() {
     for &(x, y, want) in CHROME {
         let p = img.get_pixel(x, y);
         let got = [p[0] as i32, p[1] as i32, p[2] as i32];
-        assert!(got.iter().zip(want).all(|(g, w)| (g - w).abs() <= 6), "({x},{y}): {got:?}, Chromium {want:?}");
+        assert!(
+            got.iter().zip(want).all(|(g, w)| (g - w).abs() <= 6),
+            "({x},{y}): {got:?}, Chromium {want:?}"
+        );
     }
 }

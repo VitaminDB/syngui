@@ -67,7 +67,11 @@ fn saturate_contrast_keep_hue() {
     let img = image::open(&out).unwrap().to_rgba8();
     let px = |i: u32| {
         let p = img.get_pixel(i * 70 + 30, 30);
-        (p[0] as f32 / 255.0, p[1] as f32 / 255.0, p[2] as f32 / 255.0)
+        (
+            p[0] as f32 / 255.0,
+            p[1] as f32 / 255.0,
+            p[2] as f32 / 255.0,
+        )
     };
     let (r0, g0, b0) = px(0);
     let h0 = hue(r0, g0, b0);
@@ -76,10 +80,21 @@ fn saturate_contrast_keep_hue() {
     for (i, name) in [(1, "saturate"), (2, "contrast"), (3, "saturate+contrast")] {
         let (r, g, b) = px(i);
         let h = hue(r, g, b);
-        assert!((h - h0).abs() < 4.0, "{name}: тон {h:.1}° вместо {h0:.1}° (rgb {r:.2} {g:.2} {b:.2})");
-        assert!(r > b, "{name}: синий преобладает над красным (rgb {r:.2} {g:.2} {b:.2})");
+        assert!(
+            (h - h0).abs() < 4.0,
+            "{name}: тон {h:.1}° вместо {h0:.1}° (rgb {r:.2} {g:.2} {b:.2})"
+        );
+        assert!(
+            r > b,
+            "{name}: синий преобладает над красным (rgb {r:.2} {g:.2} {b:.2})"
+        );
         if name != "contrast" {
-            assert!(sat(r, g, b) >= s0 - 0.01, "{name}: насыщенность упала {:.2} → {:.2}", s0, sat(r, g, b));
+            assert!(
+                sat(r, g, b) >= s0 - 0.01,
+                "{name}: насыщенность упала {:.2} → {:.2}",
+                s0,
+                sat(r, g, b)
+            );
         }
     }
     // invert — проверка, что фильтры вообще применяются

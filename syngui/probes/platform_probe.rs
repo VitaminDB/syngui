@@ -33,8 +33,13 @@ fn main() {
             }
         }
         "share-text" => println!("{:?}", platform::share_text("syngui", arg(1))),
-        "share-file" => println!("{:?}", platform::share_file(Path::new(arg(1)), "", "syngui")),
+        "share-file" => println!(
+            "{:?}",
+            platform::share_file(Path::new(arg(1)), "", "syngui")
+        ),
         "open" => println!("{:?}", platform::open_path(Path::new(arg(1)))),
-        _ => eprintln!("usage: platform_probe pick [image|video|any] | share-text T | share-file P | open P"),
+        _ => eprintln!(
+            "usage: platform_probe pick [image|video|any] | share-text T | share-file P | open P"
+        ),
     }
 }

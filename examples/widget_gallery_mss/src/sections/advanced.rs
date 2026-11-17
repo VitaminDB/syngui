@@ -94,7 +94,9 @@ fn menu_bar_card() -> impl Widget {
                         .menu("Правка", || {
                             vec![
                                 MenuItem::new("undo", "Отменить").shortcut("Ctrl+Z"),
-                                MenuItem::new("redo", "Повторить").shortcut("Ctrl+Y").disabled(true),
+                                MenuItem::new("redo", "Повторить")
+                                    .shortcut("Ctrl+Y")
+                                    .disabled(true),
                                 MenuItem::separator(),
                                 MenuItem::new("cut", "Вырезать").shortcut("Ctrl+X"),
                                 MenuItem::new("copy", "Копировать").shortcut("Ctrl+C"),
@@ -104,12 +106,15 @@ fn menu_bar_card() -> impl Widget {
                         .menu("Вид", move || {
                             let mark = if wrap.get_untracked() { "✓ " } else { "    " };
                             vec![
-                                MenuItem::new("wrap", format!("{mark}Перенос строк")).shortcut("Alt+Z"),
+                                MenuItem::new("wrap", format!("{mark}Перенос строк"))
+                                    .shortcut("Alt+Z"),
                                 MenuItem::new("zoom_in", "Крупнее").shortcut("Ctrl++"),
                                 MenuItem::new("zoom_out", "Мельче").shortcut("Ctrl+-"),
                             ]
                         })
-                        .menu("Справка", || vec![MenuItem::new("about", "О программе")])
+                        .menu("Справка", || {
+                            vec![MenuItem::new("about", "О программе")]
+                        })
                         .on_select(move |id| {
                             if id == "wrap" {
                                 wrap.update(|w| *w = !*w);
@@ -120,7 +125,11 @@ fn menu_bar_card() -> impl Widget {
                 ),
             )
             .child(rtext("adv-result", move || {
-                format!("Выбран пункт: {}   ·   перенос строк: {}", picked.get(), if wrap.get() { "вкл." } else { "выкл." })
+                format!(
+                    "Выбран пункт: {}   ·   перенос строк: {}",
+                    picked.get(),
+                    if wrap.get() { "вкл." } else { "выкл." }
+                )
             })),
     )
 }
@@ -135,12 +144,22 @@ fn line(s: &str) -> Vec<(String, Color)> {
 fn graph_card() -> impl Widget {
     let t = Color::TRANSPARENT;
     let nodes = vec![
-        GraphNode::new(1, vec![line("fn classify(n: i32) -> &str"), line("  if n < 0")]).accent(t),
+        GraphNode::new(
+            1,
+            vec![line("fn classify(n: i32) -> &str"), line("  if n < 0")],
+        )
+        .accent(t),
         GraphNode::new(2, vec![line("  return \"отрицательное\"")]),
         GraphNode::new(3, vec![line("  if n == 0")]),
         GraphNode::new(4, vec![line("  return \"ноль\"")]),
         GraphNode::new(5, vec![line("  let mut i = 2"), line("  while i * i <= n")]),
-        GraphNode::new(6, vec![line("    if n % i == 0"), line("      return \"составное\"")]),
+        GraphNode::new(
+            6,
+            vec![
+                line("    if n % i == 0"),
+                line("      return \"составное\""),
+            ],
+        ),
         GraphNode::new(7, vec![line("    i += 1")]),
         GraphNode::new(8, vec![line("  return \"простое\"")]),
         GraphNode::new(9, vec![line("}  // выход")]).accent(t),
@@ -179,8 +198,14 @@ fn graph_card() -> impl Widget {
                 ),
             )
             .child(rtext("adv-result", move || {
-                let sel = selected.get().map(|id| format!("блок #{id}")).unwrap_or_else(|| "ничего".into());
-                format!("Выбрано: {sel}   ·   открыто двойным щелчком: {} раз", opened.get())
+                let sel = selected
+                    .get()
+                    .map(|id| format!("блок #{id}"))
+                    .unwrap_or_else(|| "ничего".into());
+                format!(
+                    "Выбрано: {sel}   ·   открыто двойным щелчком: {} раз",
+                    opened.get()
+                )
             })),
     )
 }
@@ -192,13 +217,15 @@ fn sliders_card() -> impl Widget {
     let quality = use_signal(2.0f32);
     let done = use_signal(7.0f32);
 
-    let quality_name = |v: f32| match v.round() as i32 {
-        0 => "Низкое",
-        1 => "Среднее",
-        2 => "Высокое",
-        _ => "Ультра",
-    }
-    .to_string();
+    let quality_name = |v: f32| {
+        match v.round() as i32 {
+            0 => "Низкое",
+            1 => "Среднее",
+            2 => "Высокое",
+            _ => "Ультра",
+        }
+        .to_string()
+    };
 
     demo_card(
         "TickSlider · SegmentedProgressBar",
@@ -336,7 +363,9 @@ fn dismissible_card() -> impl Widget {
             .cross_axis_alignment(CrossAxisAlignment::Stretch)
             .child(super::rx(move || {
                 let v = items.get();
-                let mut col = Column::new().gap(8.0).cross_axis_alignment(CrossAxisAlignment::Stretch);
+                let mut col = Column::new()
+                    .gap(8.0)
+                    .cross_axis_alignment(CrossAxisAlignment::Stretch);
                 if v.is_empty() {
                     col = col.child(Text::new("Все уведомления убраны").class("adv-caption"));
                 }
@@ -354,7 +383,11 @@ fn dismissible_card() -> impl Widget {
                         .direction(DismissDirection::Both)
                         .on_dismiss(move |dir| {
                             items.update(|v| v.retain(|&x| x != i));
-                            let side = if dir == SwipeDirection::Left { "влево" } else { "вправо" };
+                            let side = if dir == SwipeDirection::Left {
+                                "влево"
+                            } else {
+                                "вправо"
+                            };
                             last.set(format!("«{title}» — {side}"));
                         }),
                     );
@@ -365,32 +398,49 @@ fn dismissible_card() -> impl Widget {
                 Row::new()
                     .gap(12.0)
                     .cross_axis_alignment(CrossAxisAlignment::Center)
-                    .child(Button::new("Вернуть все").on_click(move || items.set((0..NOTES.len()).collect())))
-                    .child(rtext("adv-result", move || format!("Убрано: {}", last.get()))),
+                    .child(
+                        Button::new("Вернуть все")
+                            .on_click(move || items.set((0..NOTES.len()).collect())),
+                    )
+                    .child(rtext("adv-result", move || {
+                        format!("Убрано: {}", last.get())
+                    })),
             ),
     )
 }
 
 // ─── VirtualList ────────────────────────────────────────────────────────────
 
-const NAMES: &[&str] = &["Анна", "Борис", "Вера", "Глеб", "Дина", "Егор", "Жанна", "Захар", "Ирина", "Кирилл"];
+const NAMES: &[&str] = &[
+    "Анна",
+    "Борис",
+    "Вера",
+    "Глеб",
+    "Дина",
+    "Егор",
+    "Жанна",
+    "Захар",
+    "Ирина",
+    "Кирилл",
+];
 
 fn virtual_list_card() -> impl Widget {
     let rows: Vec<VirtualRow> = (0..10_000u64)
         .map(|i| {
             VirtualRow::new(i, 0, move || {
                 let name = NAMES[(i as usize * 7) % NAMES.len()];
-                let mut col = Column::new()
-                    .gap(2.0)
-                    .child(
-                        Row::new()
-                            .gap(10.0)
-                            .child(Text::new(format!("#{:05}", i + 1)).class("adv-row-num"))
-                            .child(Text::new(name).class("adv-row-title")),
-                    );
+                let mut col = Column::new().gap(2.0).child(
+                    Row::new()
+                        .gap(10.0)
+                        .child(Text::new(format!("#{:05}", i + 1)).class("adv-row-num"))
+                        .child(Text::new(name).class("adv-row-title")),
+                );
                 // каждая пятая строка выше — высоты разные
                 if i % 5 == 0 {
-                    col = col.child(Text::new("Строка с пояснением: высота измеряется на лету").class("adv-row-sub"));
+                    col = col.child(
+                        Text::new("Строка с пояснением: высота измеряется на лету")
+                            .class("adv-row-sub"),
+                    );
                 }
                 Box::new(DecoratedBox::new().class("adv-row").child(col)) as Box<dyn Widget>
             })
@@ -400,9 +450,12 @@ fn virtual_list_card() -> impl Widget {
         "VirtualList",
         "10 000 строк разной высоты: собираются только видимые (и запас вокруг), \
          поэтому прокрутка не зависит от длины списка.",
-        DecoratedBox::new()
-            .class("adv-vlist-host")
-            .child(VirtualList::new(rows).gap(4.0).estimated_row_height(36.0).scrollbar_policy(ScrollbarPolicy::Auto)),
+        DecoratedBox::new().class("adv-vlist-host").child(
+            VirtualList::new(rows)
+                .gap(4.0)
+                .estimated_row_height(36.0)
+                .scrollbar_policy(ScrollbarPolicy::Auto),
+        ),
     )
 }
 
@@ -412,7 +465,13 @@ fn keyboard_card() -> impl Widget {
     let kb = KeyboardState::new("");
     let submitted = use_signal(String::from("—"));
     let osk = on_screen_keyboard(kb, KeyboardLayout::text_ru_en("Готово"))
-        .on_submit(move |q| submitted.set(if q.is_empty() { "(пусто)".into() } else { q.to_string() }))
+        .on_submit(move |q| {
+            submitted.set(if q.is_empty() {
+                "(пусто)".into()
+            } else {
+                q.to_string()
+            })
+        })
         .gap(6.0)
         .stretch(44.0);
     let ctl = osk.controller();
@@ -432,17 +491,23 @@ fn keyboard_card() -> impl Widget {
                     .cross_axis_alignment(CrossAxisAlignment::Center)
                     .child({
                         let c = ctl.clone();
-                        Button::new("Набрать «syngui»").class("secondary").on_click(move || {
-                            for ch in "syngui".chars() {
-                                c.type_char(ch);
-                            }
-                        })
+                        Button::new("Набрать «syngui»")
+                            .class("secondary")
+                            .on_click(move || {
+                                for ch in "syngui".chars() {
+                                    c.type_char(ch);
+                                }
+                            })
                     })
                     .child({
                         let c = ctl.clone();
-                        Button::new("Стереть всё").class("secondary").on_click(move || c.apply(&KeyAction::Clear))
+                        Button::new("Стереть всё")
+                            .class("secondary")
+                            .on_click(move || c.apply(&KeyAction::Clear))
                     })
-                    .child(rtext("adv-result", move || format!("Отправлено: {}", submitted.get()))),
+                    .child(rtext("adv-result", move || {
+                        format!("Отправлено: {}", submitted.get())
+                    })),
             ),
     )
 }
@@ -465,10 +530,12 @@ fn viewports_card() -> impl Widget {
     let cmd = use_signal((0u64, ImageViewCommand::Fit));
     let turns = use_signal(0i32);
     let info = use_signal(ImageViewInfo::default());
-    let send = move |c: ImageViewCommand| cmd.update(|(seq, cur)| {
-        *seq += 1;
-        *cur = c;
-    });
+    let send = move |c: ImageViewCommand| {
+        cmd.update(|(seq, cur)| {
+            *seq += 1;
+            *cur = c;
+        })
+    };
 
     let board = Column::new()
         .gap(24.0)
@@ -482,9 +549,20 @@ fn viewports_card() -> impl Widget {
         .child(
             Row::new()
                 .gap(24.0)
-                .child(Image::new(PIC_NATURE).fit(ImageFit::Cover).class("adv-board-pic"))
-                .child(sticker("Заметка", "Колесо — масштаб,\nлевая кнопка — сдвиг"))
-                .child(Image::new(PIC_ABSTRACT).fit(ImageFit::Cover).class("adv-board-pic")),
+                .child(
+                    Image::new(PIC_NATURE)
+                        .fit(ImageFit::Cover)
+                        .class("adv-board-pic"),
+                )
+                .child(sticker(
+                    "Заметка",
+                    "Колесо — масштаб,\nлевая кнопка — сдвиг",
+                ))
+                .child(
+                    Image::new(PIC_ABSTRACT)
+                        .fit(ImageFit::Cover)
+                        .class("adv-board-pic"),
+                ),
         );
 
     demo_card(
@@ -583,7 +661,8 @@ fn synth_audio() -> Arc<AudioBuffer> {
                     0.0
                 } else {
                     let x = (t - a) / (b - a);
-                    (x * std::f32::consts::PI).sin().powf(0.6) * (0.55 + 0.45 * (t * 9.0).sin().abs())
+                    (x * std::f32::consts::PI).sin().powf(0.6)
+                        * (0.55 + 0.45 * (t * 9.0).sin().abs())
                 }
             })
             .fold(0.0f32, f32::max);
@@ -591,10 +670,15 @@ fn synth_audio() -> Arc<AudioBuffer> {
         seed ^= seed >> 17;
         seed ^= seed << 5;
         let noise = (seed as f32 / u32::MAX as f32) * 2.0 - 1.0;
-        let tone = (t * 220.0 * std::f32::consts::TAU).sin() * 0.6 + (t * 330.0 * std::f32::consts::TAU).sin() * 0.3;
+        let tone = (t * 220.0 * std::f32::consts::TAU).sin() * 0.6
+            + (t * 330.0 * std::f32::consts::TAU).sin() * 0.3;
         pcm.push((tone * 0.7 + noise * 0.3) * env + noise * 0.01);
     }
-    Arc::new(AudioBuffer { pcm: pcm.into(), sample_rate: sr, channels: 1 })
+    Arc::new(AudioBuffer {
+        pcm: pcm.into(),
+        sample_rate: sr,
+        channels: 1,
+    })
 }
 
 fn waveform_card() -> impl Widget {
@@ -623,8 +707,14 @@ fn waveform_card() -> impl Widget {
                 Row::new()
                     .gap(12.0)
                     .cross_axis_alignment(CrossAxisAlignment::Center)
-                    .child(Button::new("В начало").class("secondary").on_click(move || progress.set(0.0)))
-                    .child(rtext("adv-result", move || format!("{} / {}", fmt(progress.get() * 4.0), fmt(4.0)))),
+                    .child(
+                        Button::new("В начало")
+                            .class("secondary")
+                            .on_click(move || progress.set(0.0)),
+                    )
+                    .child(rtext("adv-result", move || {
+                        format!("{} / {}", fmt(progress.get() * 4.0), fmt(4.0))
+                    })),
             ),
     )
 }
@@ -657,16 +747,29 @@ fn aspect_scale_card() -> impl Widget {
                 Row::new()
                     .gap(16.0)
                     .cross_axis_alignment(CrossAxisAlignment::Start)
-                    .child(DecoratedBox::new().class("grow-3").child(ratio_frame(16.0 / 9.0, "16 : 9 — видео", PIC_CITY)))
-                    .child(DecoratedBox::new().class("grow-2").child(ratio_frame(1.0, "1 : 1 — аватар", PIC_NATURE)))
-                    .child(grow(ratio_frame(9.0 / 16.0, "9 : 16 — экран телефона", PIC_ABSTRACT))),
+                    .child(DecoratedBox::new().class("grow-3").child(ratio_frame(
+                        16.0 / 9.0,
+                        "16 : 9 — видео",
+                        PIC_CITY,
+                    )))
+                    .child(DecoratedBox::new().class("grow-2").child(ratio_frame(
+                        1.0,
+                        "1 : 1 — аватар",
+                        PIC_NATURE,
+                    )))
+                    .child(grow(ratio_frame(
+                        9.0 / 16.0,
+                        "9 : 16 — экран телефона",
+                        PIC_ABSTRACT,
+                    ))),
             )
             .child(
                 Column::new()
                     .gap(8.0)
                     .child(label("Масштаб средней плитки"))
                     .child(
-                        TickSlider::new().horizontal()
+                        TickSlider::new()
+                            .horizontal()
                             .range(0.5, 2.0)
                             .step(0.1)
                             .value(1.4)
@@ -682,7 +785,11 @@ fn aspect_scale_card() -> impl Widget {
                             Row::new()
                                 .gap(12.0)
                                 .cross_axis_alignment(CrossAxisAlignment::Center)
-                                .child(DecoratedBox::new().class("adv-tile").child(Text::new("A").class("adv-tile-text")))
+                                .child(
+                                    DecoratedBox::new()
+                                        .class("adv-tile")
+                                        .child(Text::new("A").class("adv-tile-text")),
+                                )
                                 .child(
                                     ScaleBox::new(
                                         DecoratedBox::new()
@@ -692,7 +799,11 @@ fn aspect_scale_card() -> impl Widget {
                                     .scale(s)
                                     .smooth(14.0),
                                 )
-                                .child(DecoratedBox::new().class("adv-tile").child(Text::new("C").class("adv-tile-text")))
+                                .child(
+                                    DecoratedBox::new()
+                                        .class("adv-tile")
+                                        .child(Text::new("C").class("adv-tile-text")),
+                                )
                                 .child(Text::new(format!("×{s:.1}")).class("adv-result")),
                         )
                     })),
@@ -705,7 +816,11 @@ fn aspect_scale_card() -> impl Widget {
 fn dock_card() -> impl Widget {
     let state = DockState::new(DockSpec::row(
         DockSpec::tabs(["files"]),
-        DockSpec::column(DockSpec::tabs(["editor", "preview"]), DockSpec::tabs(["console", "problems"]), 0.62),
+        DockSpec::column(
+            DockSpec::tabs(["editor", "preview"]),
+            DockSpec::tabs(["console", "problems"]),
+            0.62,
+        ),
         0.26,
     ));
     let closed = use_signal(Vec::<String>::new());
@@ -734,10 +849,25 @@ fn dock_card() -> impl Widget {
                         .on_close(move |p| closed.update(|v| v.push(p.to_string())))
                         .content(|p| -> Box<dyn Widget> {
                             let lines: &[&str] = match p {
-                                "files" => &["▾ src", "    main.rs", "    lib.rs", "▸ examples", "  Cargo.toml"],
-                                "editor" => &["fn main() {", "    println!(\"Привет из док-панели\");", "}"],
+                                "files" => &[
+                                    "▾ src",
+                                    "    main.rs",
+                                    "    lib.rs",
+                                    "▸ examples",
+                                    "  Cargo.toml",
+                                ],
+                                "editor" => &[
+                                    "fn main() {",
+                                    "    println!(\"Привет из док-панели\");",
+                                    "}",
+                                ],
                                 "preview" => &["Привет из док-панели"],
-                                "console" => &["$ cargo run", "   Compiling demo v0.1.0", "    Finished in 0.84s", "Привет из док-панели"],
+                                "console" => &[
+                                    "$ cargo run",
+                                    "   Compiling demo v0.1.0",
+                                    "    Finished in 0.84s",
+                                    "Привет из док-панели",
+                                ],
                                 "problems" => &["Нет проблем ✓"],
                                 _ => &[""],
                             };
@@ -755,17 +885,29 @@ fn dock_card() -> impl Widget {
                 Row::new()
                     .gap(12.0)
                     .cross_axis_alignment(CrossAxisAlignment::Center)
-                    .child(Button::new("Вернуть раскладку").class("secondary").on_click(move || {
-                        state.set_spec(DockSpec::row(
-                            DockSpec::tabs(["files"]),
-                            DockSpec::column(DockSpec::tabs(["editor", "preview"]), DockSpec::tabs(["console", "problems"]), 0.62),
-                            0.26,
-                        ));
-                        closed.set(Vec::new());
-                    }))
+                    .child(
+                        Button::new("Вернуть раскладку")
+                            .class("secondary")
+                            .on_click(move || {
+                                state.set_spec(DockSpec::row(
+                                    DockSpec::tabs(["files"]),
+                                    DockSpec::column(
+                                        DockSpec::tabs(["editor", "preview"]),
+                                        DockSpec::tabs(["console", "problems"]),
+                                        0.62,
+                                    ),
+                                    0.26,
+                                ));
+                                closed.set(Vec::new());
+                            }),
+                    )
                     .child(rtext("adv-result", move || {
                         let c = closed.get();
-                        if c.is_empty() { "Закрытых вкладок нет".into() } else { format!("Закрыто: {}", c.join(", ")) }
+                        if c.is_empty() {
+                            "Закрытых вкладок нет".into()
+                        } else {
+                            format!("Закрыто: {}", c.join(", "))
+                        }
                     })),
             ),
     )

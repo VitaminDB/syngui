@@ -5,12 +5,12 @@
 use std::time::Duration;
 
 use syngui::core::Point;
-use syngui::RectExt;
 use syngui::input::Event;
 use syngui::testing::*;
 use syngui::widgets::containers::Stack;
 use syngui::widgets::overlay::MenuItem;
 use syngui::widgets::MenuBar;
+use syngui::RectExt;
 
 fn frame(h: &mut TestHarness) {
     h.frame(None, 800.0, 600.0);
@@ -50,12 +50,20 @@ fn hover_and_click_switch_menus() {
     frame(&mut h);
     let open1 = h.find_by_class("open");
     assert_eq!(open1.len(), 1, "меню осталось открытым");
-    assert_eq!(h.element_bounds(open1[0]), r1, "наведение переключило на «Правка»");
+    assert_eq!(
+        h.element_bounds(open1[0]),
+        r1,
+        "наведение переключило на «Правка»"
+    );
 
     // щелчок по открытому заголовку — закрыть
     h.send_events(&click_at(c1));
     frame(&mut h);
-    assert_eq!(open_titles(&h), 0, "щелчок по открытому заголовку закрывает меню");
+    assert_eq!(
+        open_titles(&h),
+        0,
+        "щелчок по открытому заголовку закрывает меню"
+    );
 
     // открыть «Правка», затем нажатие на «Файл» без наведения (палец/перо) —
     // сразу «Файл», без холостого щелчка, закрывающего первое меню
@@ -69,7 +77,11 @@ fn hover_and_click_switch_menus() {
     h.send_events(&click_at(c0)[1..]);
     frame(&mut h);
     let open = h.find_by_class("open");
-    assert_eq!(open.len(), 1, "один щелчок по другому заголовку открывает его");
+    assert_eq!(
+        open.len(),
+        1,
+        "один щелчок по другому заголовку открывает его"
+    );
     assert_eq!(h.element_bounds(open[0]), r0);
 
     // щелчок мимо строки и меню — закрывает

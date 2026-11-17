@@ -16,7 +16,8 @@ fn fill(mss: &str, class: &str) -> Option<[u8; 3]> {
     })
 }
 
-const BASE: &str = ":root { --accent: #00ff00; } .btn { width: 50px; height: 20px; background-color: #ff0000; }";
+const BASE: &str =
+    ":root { --accent: #00ff00; } .btn { width: 50px; height: 20px; background-color: #ff0000; }";
 
 #[test]
 fn later_background_shorthand_wins() {
@@ -26,7 +27,8 @@ fn later_background_shorthand_wins() {
 
 #[test]
 fn later_background_color_wins_over_shorthand() {
-    let mss = format!("{BASE} .btn {{ background: #0000ff; }} .btn.fab {{ background-color: #ff00ff; }}");
+    let mss =
+        format!("{BASE} .btn {{ background: #0000ff; }} .btn.fab {{ background-color: #ff00ff; }}");
     assert_eq!(fill(&mss, "btn fab"), Some([255, 0, 255]));
 }
 
@@ -54,5 +56,8 @@ fn button_takes_later_background_shorthand() {
         })
         .collect();
     assert!(colors.contains(&[0, 255, 0]), "кнопка: {colors:?}");
-    assert!(!colors.contains(&[255, 0, 0]), "цвет из .btn не должен остаться: {colors:?}");
+    assert!(
+        !colors.contains(&[255, 0, 0]),
+        "цвет из .btn не должен остаться: {colors:?}"
+    );
 }

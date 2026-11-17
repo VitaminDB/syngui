@@ -511,7 +511,22 @@ impl Element for VirtualListElement {
         self.overscan = w.overscan;
         self.scrollbar_policy = w.scrollbar_policy;
         if self.content_width != w.content_width {
+            // Лента стала шире или уже (масштаб листа): точка в середине
+            // области остаётся на месте, а не уезжает к началу.
+            let vw = (self.bounds.size.width - self.padding.left - self.padding.right).max(0.0);
+            let vh = self.viewport_height();
+            let old_cw = self.content_width.unwrap_or(vw);
+            let new_cw = w.content_width.unwrap_or(vw);
+            if old_cw > 1.0 && new_cw > 1.0 && vw > 0.0 {
+                let r = new_cw / old_cw;
+                self.scroll_x = ((self.scroll_x + vw / 2.0) * r - vw / 2.0).max(0.0);
+                self.scroll_y = ((self.scroll_y + vh / 2.0) * r - vh / 2.0).max(0.0);
+                self.stick = false;
+            }
             self.content_width = w.content_width;
+            self.heights.clear();
+            self.built = None;
+            self.rows_dirty = true;
             self.mark_dirty(DirtyFlags::LAYOUT | DirtyFlags::RENDER);
         }
 

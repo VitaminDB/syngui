@@ -191,7 +191,13 @@ impl Pkg {
         self.bins.iter().chain(self.apps.iter())
     }
     fn is_meta(&self) -> bool {
-        self.bins.is_empty() && self.apps.is_empty() && self.desktop.is_empty() && self.files.is_empty() && self.links.is_empty() && self.dirs.is_empty() && self.libs.is_empty()
+        self.bins.is_empty()
+            && self.apps.is_empty()
+            && self.desktop.is_empty()
+            && self.files.is_empty()
+            && self.links.is_empty()
+            && self.dirs.is_empty()
+            && self.libs.is_empty()
     }
 }
 
@@ -238,27 +244,60 @@ impl Release {
         let root = m.workspace_root.clone();
         let path = match file {
             Some(f) => f.to_path_buf(),
-            None => match m.metadata.as_ref().and_then(|v| v.pointer("/syngui/release")).and_then(|v| v.as_str()) {
+            None => match m
+                .metadata
+                .as_ref()
+                .and_then(|v| v.pointer("/syngui/release"))
+                .and_then(|v| v.as_str())
+            {
                 Some(p) => root.join(p),
                 None => root.join("syngui-release.toml"),
             },
         };
-        let text = std::fs::read_to_string(&path).with_context(|| format!("нет описания выпуска {} (syngui-release.toml в корне рабочего пространства)", path.display()))?;
-        let spec: Spec = toml::from_str(&text).with_context(|| format!("разбор {}", path.display()))?;
+        let text = std::fs::read_to_string(&path).with_context(|| {
+            format!(
+                "нет описания выпуска {} (syngui-release.toml в корне рабочего пространства)",
+                path.display()
+            )
+        })?;
+        let spec: Spec =
+            toml::from_str(&text).with_context(|| format!("разбор {}", path.display()))?;
         let mut packages = Vec::new();
         for (name, v) in &spec.packages {
-            let p: Pkg = v.clone().try_into().with_context(|| format!("[packages.{name}] в {}", path.display()))?;
+            let p: Pkg = v
+                .clone()
+                .try_into()
+                .with_context(|| format!("[packages.{name}] в {}", path.display()))?;
             packages.push((name.clone(), p));
         }
         let mut bin_crate = BTreeMap::new();
-        for p in m.packages.iter().filter(|p| m.workspace_members.contains(&p.id)) {
-            let dir = p.manifest_path.parent().unwrap().strip_prefix(&root).unwrap_or(Path::new("")).to_string_lossy().into_owned();
-            for t in p.targets.iter().filter(|t| t.kind.iter().any(|k| k == "bin")) {
+        for p in m
+            .packages
+            .iter()
+            .filter(|p| m.workspace_members.contains(&p.id))
+        {
+            let dir = p
+                .manifest_path
+                .parent()
+                .unwrap()
+                .strip_prefix(&root)
+                .unwrap_or(Path::new(""))
+                .to_string_lossy()
+                .into_owned();
+            for t in p
+                .targets
+                .iter()
+                .filter(|t| t.kind.iter().any(|k| k == "bin"))
+            {
                 bin_crate.insert(t.name.clone(), (p.name.clone(), dir.clone()));
             }
         }
         for (name, p) in &packages {
-            for b in p.all_bins().chain(p.desktop.iter()).chain(p.cross.iter().map(|c| &c.bin)) {
+            for b in p
+                .all_bins()
+                .chain(p.desktop.iter())
+                .chain(p.cross.iter().map(|c| &c.bin))
+            {
                 if !bin_crate.contains_key(b) {
                     bail!("[packages.{name}]: программы {b} нет в рабочем пространстве (bin крейтов {})", root.display());
                 }
@@ -268,7 +307,14 @@ impl Release {
             Some(v) => v.clone(),
             None => workspace_version(&root)?,
         };
-        Ok(Release { spec, packages, root, target_dir: m.target_directory, version, bin_crate })
+        Ok(Release {
+            spec,
+            packages,
+            root,
+            target_dir: m.target_directory,
+            version,
+            bin_crate,
+        })
     }
 
     fn pkgver(&self) -> String {
@@ -278,8 +324,14 @@ impl Release {
     fn pkgrel(&self) -> u32 {
         self.spec.pkgrel.unwrap_or_else(|| {
             let mut c = Command::new("git");
-            c.arg("-C").arg(&self.root).args(["rev-list", "--count", "HEAD"]).stderr(std::process::Stdio::null());
-            c.output().ok().and_then(|o| String::from_utf8_lossy(&o.stdout).trim().parse().ok()).unwrap_or(1)
+            c.arg("-C")
+                .arg(&self.root)
+                .args(["rev-list", "--count", "HEAD"])
+                .stderr(std::process::Stdio::null());
+            c.output()
+                .ok()
+                .and_then(|o| String::from_utf8_lossy(&o.stdout).trim().parse().ok())
+                .unwrap_or(1)
         })
     }
 
@@ -288,12 +340,24 @@ impl Release {
         if only.is_empty() {
             return Ok(self.packages.iter().collect());
         }
-        only.iter().map(|n| self.packages.iter().find(|(p, _)| p == n).with_context(|| format!("нет пакета {n} в описании выпуска"))).collect()
+        only.iter()
+            .map(|n| {
+                self.packages
+                    .iter()
+                    .find(|(p, _)| p == n)
+                    .with_context(|| format!("нет пакета {n} в описании выпуска"))
+            })
+            .collect()
     }
 
     /// Команды cargo build: общая для крейтов без особенностей и отдельные — с возможностями.
     /// `arch` — x86_64 / aarch64 (возможности [crates.X.<арх>]); `env` — учитывать features_env.
-    fn cargo_plans(&self, pkgs: &[&(String, Pkg)], arch: &str, env: bool) -> Vec<(Vec<String>, Vec<String>)> {
+    fn cargo_plans(
+        &self,
+        pkgs: &[&(String, Pkg)],
+        arch: &str,
+        env: bool,
+    ) -> Vec<(Vec<String>, Vec<String>)> {
         let mut plain: Vec<String> = Vec::new();
         let mut special: Vec<(Vec<String>, Vec<String>)> = Vec::new();
         for (_, p) in pkgs {
@@ -309,9 +373,20 @@ impl Release {
                         _ => None,
                     }
                     .unwrap_or_default();
-                    let env_v = if env { cs.features_env.as_deref().and_then(|e| std::env::var(e).ok()) } else { None };
+                    let env_v = if env {
+                        cs.features_env
+                            .as_deref()
+                            .and_then(|e| std::env::var(e).ok())
+                    } else {
+                        None
+                    };
                     let feats: Vec<String> = match env_v {
-                        Some(v) => v.split(',').map(str::trim).filter(|s| !s.is_empty()).map(str::to_string).collect(),
+                        Some(v) => v
+                            .split(',')
+                            .map(str::trim)
+                            .filter(|s| !s.is_empty())
+                            .map(str::to_string)
+                            .collect(),
                         None => per.features.clone().unwrap_or_else(|| cs.features.clone()),
                     };
                     let mut args = vec!["-p".to_string(), krate.clone(), "--bins".into()];
@@ -320,7 +395,19 @@ impl Release {
                     }
                     if !feats.is_empty() {
                         args.push("--features".into());
-                        args.push(feats.iter().map(|f| if f.contains('/') { f.clone() } else { format!("{krate}/{f}") }).collect::<Vec<_>>().join(","));
+                        args.push(
+                            feats
+                                .iter()
+                                .map(|f| {
+                                    if f.contains('/') {
+                                        f.clone()
+                                    } else {
+                                        format!("{krate}/{f}")
+                                    }
+                                })
+                                .collect::<Vec<_>>()
+                                .join(","),
+                        );
                     }
                     special.push((vec![krate.clone()], args));
                 } else if !plain.contains(krate) {
@@ -330,25 +417,49 @@ impl Release {
         }
         let mut out = Vec::new();
         if !plain.is_empty() {
-            out.push((plain.clone(), plain.iter().flat_map(|c| ["-p".to_string(), c.clone()]).collect()));
+            out.push((
+                plain.clone(),
+                plain
+                    .iter()
+                    .flat_map(|c| ["-p".to_string(), c.clone()])
+                    .collect(),
+            ));
         }
         out.extend(special);
         out
     }
 
     /// `syngui build -w`: собрать программы выпуска (или пакетов `only`) без упаковки; каталог с копиями программ.
-    pub fn build_bins(&self, only: &[String], target: Target, profile: Profile, strip: bool) -> Result<PathBuf> {
+    pub fn build_bins(
+        &self,
+        only: &[String],
+        target: Target,
+        profile: Profile,
+        strip: bool,
+    ) -> Result<PathBuf> {
         let pkgs = self.selected(only)?;
         self.build(&pkgs, target, profile, strip)
     }
 
     /// Собрать все программы выбранных пакетов; вернуть каталог с ними (после strip).
-    fn build(&self, pkgs: &[&(String, Pkg)], target: Target, profile: Profile, strip: bool) -> Result<PathBuf> {
+    fn build(
+        &self,
+        pkgs: &[&(String, Pkg)],
+        target: Target,
+        profile: Profile,
+        strip: bool,
+    ) -> Result<PathBuf> {
         for (_, args) in self.cargo_plans(pkgs, target.arch(), true) {
             let mut c = Command::new("cargo");
             c.current_dir(&self.root).arg("build");
             if profile == Profile::Fast && !linux::has_fast_release(&self.root) {
-                for kv in ["inherits=\"release\"", "lto=false", "codegen-units=256", "incremental=true", "debug=false"] {
+                for kv in [
+                    "inherits=\"release\"",
+                    "lto=false",
+                    "codegen-units=256",
+                    "incremental=true",
+                    "debug=false",
+                ] {
                     c.arg("--config").arg(format!("profile.fast-release.{kv}"));
                 }
             }
@@ -359,12 +470,29 @@ impl Release {
                     linux::cross_env(&self.target_dir, &mut c)?;
                 }
             }
-            util::step(format!("cargo build ({target}, {}): {}", profile.dir(), args.iter().filter(|a| !a.starts_with('-')).cloned().collect::<Vec<_>>().join(" ")));
+            util::step(format!(
+                "cargo build ({target}, {}): {}",
+                profile.dir(),
+                args.iter()
+                    .filter(|a| !a.starts_with('-'))
+                    .cloned()
+                    .collect::<Vec<_>>()
+                    .join(" ")
+            ));
             util::run(c)?;
         }
-        let out = if target.is_host() { self.target_dir.join(profile.dir()) } else { self.target_dir.join(target.triple()).join(profile.dir()) };
+        let out = if target.is_host() {
+            self.target_dir.join(profile.dir())
+        } else {
+            self.target_dir.join(target.triple()).join(profile.dir())
+        };
         // Копии программ (strip не трогает target/ — инкрементальная сборка цела)
-        let bins = self.target_dir.join("syngui/release").join(&self.spec.name).join(target.arch()).join("bin");
+        let bins = self
+            .target_dir
+            .join("syngui/release")
+            .join(&self.spec.name)
+            .join(target.arch())
+            .join("bin");
         std::fs::create_dir_all(&bins)?;
         let strip_tool = util::which("llvm-strip");
         for (_, p) in pkgs {
@@ -388,16 +516,35 @@ impl Release {
             for x in &p.cross {
                 let krate = &self.bin_crate[&x.bin].0;
                 let mut c = Command::new("cargo");
-                c.current_dir(&self.root).args(x.toolchain()).arg("build").args(x.std_args());
+                c.current_dir(&self.root)
+                    .args(x.toolchain())
+                    .arg("build")
+                    .args(x.std_args());
                 if profile == Profile::Fast && !linux::has_fast_release(&self.root) {
-                    for kv in ["inherits=\"release\"", "lto=false", "codegen-units=256", "incremental=true", "debug=false"] {
+                    for kv in [
+                        "inherits=\"release\"",
+                        "lto=false",
+                        "codegen-units=256",
+                        "incremental=true",
+                        "debug=false",
+                    ] {
                         c.arg("--config").arg(format!("profile.fast-release.{kv}"));
                     }
                 }
-                c.args(profile.cargo_args()).args(["-p", krate, "--bin", &x.bin, "--target", &x.target]);
-                util::step(format!("cargo build ({}, {}): {}", x.target, profile.dir(), x.bin));
+                c.args(profile.cargo_args())
+                    .args(["-p", krate, "--bin", &x.bin, "--target", &x.target]);
+                util::step(format!(
+                    "cargo build ({}, {}): {}",
+                    x.target,
+                    profile.dir(),
+                    x.bin
+                ));
                 util::run(c)?;
-                let src = self.target_dir.join(&x.target).join(profile.dir()).join(x.file());
+                let src = self
+                    .target_dir
+                    .join(&x.target)
+                    .join(profile.dir())
+                    .join(x.file());
                 if !src.is_file() {
                     bail!("cargo не оставил программу {}", src.display());
                 }
@@ -419,7 +566,13 @@ impl Release {
                 let mut c = Command::new("cargo");
                 c.current_dir(&self.root).arg("build");
                 if profile == Profile::Fast && !linux::has_fast_release(&self.root) {
-                    for kv in ["inherits=\"release\"", "lto=false", "codegen-units=256", "incremental=true", "debug=false"] {
+                    for kv in [
+                        "inherits=\"release\"",
+                        "lto=false",
+                        "codegen-units=256",
+                        "incremental=true",
+                        "debug=false",
+                    ] {
                         c.arg("--config").arg(format!("profile.fast-release.{kv}"));
                     }
                 }
@@ -430,7 +583,11 @@ impl Release {
                         linux::cross_env(&self.target_dir, &mut c)?;
                     }
                 }
-                util::step(format!("cargo build ({target}, {}): {} --lib", profile.dir(), l.krate));
+                util::step(format!(
+                    "cargo build ({target}, {}): {} --lib",
+                    profile.dir(),
+                    l.krate
+                ));
                 util::run(c)?;
                 let src = out.join(&l.file);
                 if !src.is_file() {
@@ -461,21 +618,45 @@ impl Release {
         }
         for x in &p.cross {
             let to = x.to.trim_start_matches('/').trim_end_matches('/');
-            let mode = if x.target.contains("windows") { "644" } else { "755" };
-            s += &format!("    install -Dm{mode} \"$_bins/cross/{t}/{f}\" \"$pkgdir/{to}/{f}\"\n", t = x.target, f = x.file());
+            let mode = if x.target.contains("windows") {
+                "644"
+            } else {
+                "755"
+            };
+            s += &format!(
+                "    install -Dm{mode} \"$_bins/cross/{t}/{f}\" \"$pkgdir/{to}/{f}\"\n",
+                t = x.target,
+                f = x.file()
+            );
         }
         for l in &p.libs {
             let to = l.to.trim_start_matches('/').trim_end_matches('/');
-            s += &format!("    install -Dm755 \"$_bins/lib/{f}\" \"$pkgdir/{to}/{f}\"\n", f = l.file);
+            s += &format!(
+                "    install -Dm755 \"$_bins/lib/{f}\" \"$pkgdir/{to}/{f}\"\n",
+                f = l.file
+            );
         }
         for b in p.apps.iter().chain(p.desktop.iter()) {
             let dir = &self.bin_crate[b].1;
-            let data = if dir.is_empty() { "data".to_string() } else { format!("{dir}/data") };
+            let data = if dir.is_empty() {
+                "data".to_string()
+            } else {
+                format!("{dir}/data")
+            };
             let mut any = false;
             for (rel, to) in [
-                (format!("{data}/{b}.desktop"), format!("usr/share/applications/{b}.desktop")),
-                (format!("{data}/icons/{b}.svg"), format!("usr/share/icons/hicolor/scalable/apps/{b}.svg")),
-                (format!("{data}/icons/{b}.png"), format!("usr/share/icons/hicolor/256x256/apps/{b}.png")),
+                (
+                    format!("{data}/{b}.desktop"),
+                    format!("usr/share/applications/{b}.desktop"),
+                ),
+                (
+                    format!("{data}/icons/{b}.svg"),
+                    format!("usr/share/icons/hicolor/scalable/apps/{b}.svg"),
+                ),
+                (
+                    format!("{data}/icons/{b}.png"),
+                    format!("usr/share/icons/hicolor/256x256/apps/{b}.png"),
+                ),
             ] {
                 if self.root.join(&rel).is_file() {
                     s += &format!("    install -Dm644 {} \"$pkgdir/{to}\"\n", sh(&rel));
@@ -483,11 +664,16 @@ impl Release {
                 }
             }
             if !any {
-                util::warn(format!("[packages.{name}]: у {b} нет ярлыка {data}/{b}.desktop"));
+                util::warn(format!(
+                    "[packages.{name}]: у {b} нет ярлыка {data}/{b}.desktop"
+                ));
             }
         }
         for d in &p.dirs {
-            s += &format!("    install -dm755 \"$pkgdir/{}\"\n", d.trim_start_matches('/'));
+            s += &format!(
+                "    install -dm755 \"$pkgdir/{}\"\n",
+                d.trim_start_matches('/')
+            );
         }
         for f in &p.files {
             let to = f.to.trim_start_matches('/').replace("{pkgname}", name);
@@ -513,35 +699,89 @@ impl Release {
                     }
                 }
                 (None, Some(run)) => {
-                    s += &format!("    ( {run} ) | install -Dm{mode} /dev/stdin \"$pkgdir/{to}\"\n");
+                    s +=
+                        &format!("    ( {run} ) | install -Dm{mode} /dev/stdin \"$pkgdir/{to}\"\n");
                 }
-                _ => bail!("[packages.{name}] files: нужно одно из from / run (to = {})", f.to),
+                _ => bail!(
+                    "[packages.{name}] files: нужно одно из from / run (to = {})",
+                    f.to
+                ),
             }
         }
         for (link, target) in &p.links {
             let link = link.trim_start_matches('/');
-            let parent = Path::new(link).parent().map(|p| p.display().to_string()).unwrap_or_default();
+            let parent = Path::new(link)
+                .parent()
+                .map(|p| p.display().to_string())
+                .unwrap_or_default();
             // `{root}` — корень рабочего пространства ($_root): ссылка на каталог исходников (большие
             // данные вне git — библиотека Hexspire), пакет — только для этой машины
-            let t = if target.contains("{root}") { format!("\"{}\"", target.replace("{root}", "$_root")) } else { sh(target) };
-            s += &format!("    install -dm755 \"$pkgdir/{parent}\"\n    ln -sfn {t} \"$pkgdir/{link}\"\n");
+            let t = if target.contains("{root}") {
+                format!("\"{}\"", target.replace("{root}", "$_root"))
+            } else {
+                sh(target)
+            };
+            s += &format!(
+                "    install -dm755 \"$pkgdir/{parent}\"\n    ln -sfn {t} \"$pkgdir/{link}\"\n"
+            );
         }
         Ok(s)
     }
 
     /// Метаданные пакета (внутри package_<имя>() или в начале одиночного PKGBUILD).
-    fn pkg_meta(p: &Pkg, en: bool, indent: &str, depends: &[String], extra_provides: &[String], extra_conflicts: &[String], install: bool) -> String {
+    fn pkg_meta(
+        p: &Pkg,
+        en: bool,
+        indent: &str,
+        depends: &[String],
+        extra_provides: &[String],
+        extra_conflicts: &[String],
+        install: bool,
+    ) -> String {
         let mut s = String::new();
-        let desc = if en { p.description_en.clone().unwrap_or_else(|| p.description.clone()) } else { p.description.clone() };
+        let desc = if en {
+            p.description_en
+                .clone()
+                .unwrap_or_else(|| p.description.clone())
+        } else {
+            p.description.clone()
+        };
         s += &format!("{indent}pkgdesc={}\n", sh(&desc));
-        let a = |k: &str, v: &[String]| if v.is_empty() { String::new() } else { format!("{indent}{k}=({})\n", v.iter().map(|x| sh(x)).collect::<Vec<_>>().join(" ")) };
+        let a = |k: &str, v: &[String]| {
+            if v.is_empty() {
+                String::new()
+            } else {
+                format!(
+                    "{indent}{k}=({})\n",
+                    v.iter().map(|x| sh(x)).collect::<Vec<_>>().join(" ")
+                )
+            }
+        };
         s += &a("depends", depends);
-        let opt = if en && !p.optdepends_en.is_empty() { &p.optdepends_en } else { &p.optdepends };
+        let opt = if en && !p.optdepends_en.is_empty() {
+            &p.optdepends_en
+        } else {
+            &p.optdepends
+        };
         if !opt.is_empty() {
-            s += &format!("{indent}optdepends=({})\n", opt.iter().map(|x| sh(x)).collect::<Vec<_>>().join(&format!("\n{indent}            ")));
+            s += &format!(
+                "{indent}optdepends=({})\n",
+                opt.iter()
+                    .map(|x| sh(x))
+                    .collect::<Vec<_>>()
+                    .join(&format!("\n{indent}            "))
+            );
         }
-        let provides: Vec<String> = extra_provides.iter().chain(p.provides.iter()).cloned().collect();
-        let conflicts: Vec<String> = extra_conflicts.iter().chain(p.conflicts.iter()).cloned().collect();
+        let provides: Vec<String> = extra_provides
+            .iter()
+            .chain(p.provides.iter())
+            .cloned()
+            .collect();
+        let conflicts: Vec<String> = extra_conflicts
+            .iter()
+            .chain(p.conflicts.iter())
+            .cloned()
+            .collect();
         s += &a("provides", &provides);
         s += &a("conflicts", &conflicts);
         s += &a("replaces", &p.replaces);
@@ -549,22 +789,40 @@ impl Release {
         s += &a("groups", &p.groups);
         if install {
             if let Some(i) = &p.install {
-                s += &format!("{indent}install={}\n", Path::new(i).file_name().unwrap().to_string_lossy());
+                s += &format!(
+                    "{indent}install={}\n",
+                    Path::new(i).file_name().unwrap().to_string_lossy()
+                );
             }
         }
         s
     }
 
     fn license(&self) -> String {
-        let l = if self.spec.license.is_empty() { vec!["GPL-3.0-only".to_string()] } else { self.spec.license.clone() };
+        let l = if self.spec.license.is_empty() {
+            vec!["GPL-3.0-only".to_string()]
+        } else {
+            self.spec.license.clone()
+        };
         l.iter().map(|x| sh(x)).collect::<Vec<_>>().join(" ")
     }
 
     /// Локальный split-PKGBUILD + makepkg → пакеты в dist; вернуть их пути (и каталог pkg/ makepkg).
-    pub fn arch(&self, only: &[String], target: Target, profile: Profile, strip: bool) -> Result<(Vec<PathBuf>, PathBuf)> {
+    pub fn arch(
+        &self,
+        only: &[String],
+        target: Target,
+        profile: Profile,
+        strip: bool,
+    ) -> Result<(Vec<PathBuf>, PathBuf)> {
         let pkgs = self.selected(only)?;
         let bins = self.build(&pkgs, target, profile, strip)?;
-        let dir = self.target_dir.join("syngui/release").join(&self.spec.name).join(target.arch()).join("makepkg");
+        let dir = self
+            .target_dir
+            .join("syngui/release")
+            .join(&self.spec.name)
+            .join(target.arch())
+            .join("makepkg");
         std::fs::create_dir_all(&dir)?;
         let names: Vec<&str> = pkgs.iter().map(|(n, _)| n.as_str()).collect();
         let mut s = format!(
@@ -582,25 +840,63 @@ impl Release {
         );
         for (name, p) in &pkgs {
             if let Some(i) = &p.install {
-                util::copy(&self.root.join(i), &dir.join(Path::new(i).file_name().unwrap()))?;
+                util::copy(
+                    &self.root.join(i),
+                    &dir.join(Path::new(i).file_name().unwrap()),
+                )?;
             }
             let fname = name.replace(['.'], "_");
-            s += &format!("\npackage_{fname}() {{\n{}", Self::pkg_meta(p, false, "    ", &p.depends, &[], &[], true));
-            s += &if p.is_meta() { "    true\n".to_string() } else { self.package_body(name, p)? };
+            s += &format!(
+                "\npackage_{fname}() {{\n{}",
+                Self::pkg_meta(p, false, "    ", &p.depends, &[], &[], true)
+            );
+            s += &if p.is_meta() {
+                "    true\n".to_string()
+            } else {
+                self.package_body(name, p)?
+            };
             s += "}\n";
         }
         util::write(&dir.join("PKGBUILD"), &s)?;
         let dist = self.target_dir.join("syngui/dist");
         std::fs::create_dir_all(&dist)?;
         let conf = dir.join("makepkg.conf");
-        util::write(&conf, format!("source /etc/makepkg.conf\nCARCH={}\nCHOST={}\nPKGDEST={}\n", target.arch(), target.triple(), sh(&dist.display().to_string())))?;
-        util::step(format!("makepkg {} ({} пакетов, {})", self.spec.name, names.len(), target.arch()));
+        util::write(
+            &conf,
+            format!(
+                "source /etc/makepkg.conf\nCARCH={}\nCHOST={}\nPKGDEST={}\n",
+                target.arch(),
+                target.triple(),
+                sh(&dist.display().to_string())
+            ),
+        )?;
+        util::step(format!(
+            "makepkg {} ({} пакетов, {})",
+            self.spec.name,
+            names.len(),
+            target.arch()
+        ));
         let mut c = Command::new("makepkg");
-        c.current_dir(&dir).arg("--config").arg(&conf).args(["-f", "--noconfirm", "--nodeps", "--noextract", "--noprepare"]).env("PKGDEST", &dist);
+        c.current_dir(&dir)
+            .arg("--config")
+            .arg(&conf)
+            .args([
+                "-f",
+                "--noconfirm",
+                "--nodeps",
+                "--noextract",
+                "--noprepare",
+            ])
+            .env("PKGDEST", &dist);
         util::run(c)?;
         let mut out = Vec::new();
         for n in &names {
-            let f = dist.join(format!("{n}-{}-{}-{}.pkg.tar.zst", self.pkgver(), self.pkgrel(), target.arch()));
+            let f = dist.join(format!(
+                "{n}-{}-{}-{}.pkg.tar.zst",
+                self.pkgver(),
+                self.pkgrel(),
+                target.arch()
+            ));
             if !f.is_file() {
                 bail!("makepkg не оставил {}", f.display());
             }
@@ -610,7 +906,13 @@ impl Release {
     }
 
     /// Архивы `<пакет>-<вер>-<арх>.tar.zst` (для -bin) из собранных пакетов; метапакеты пропускаются.
-    pub fn tars(&self, only: &[String], target: Target, profile: Profile, strip: bool) -> Result<Vec<PathBuf>> {
+    pub fn tars(
+        &self,
+        only: &[String],
+        target: Target,
+        profile: Profile,
+        strip: bool,
+    ) -> Result<Vec<PathBuf>> {
         let (_, pkgdir) = self.arch(only, target, profile, strip)?;
         let dist = self.target_dir.join("syngui/dist");
         let mut out = Vec::new();
@@ -620,11 +922,16 @@ impl Release {
             }
             let f = dist.join(format!("{name}-{}-{}.tar.zst", self.version, target.arch()));
             let mut c = Command::new("tar");
-            c.arg("--zstd").args(["--owner=0", "--group=0", "--numeric-owner"]);
+            c.arg("--zstd")
+                .args(["--owner=0", "--group=0", "--numeric-owner"]);
             for x in [".PKGINFO", ".BUILDINFO", ".MTREE", ".INSTALL"] {
                 c.arg(format!("--exclude=./{x}"));
             }
-            c.arg("-cf").arg(&f).arg("-C").arg(pkgdir.join(name)).arg(".");
+            c.arg("-cf")
+                .arg(&f)
+                .arg("-C")
+                .arg(pkgdir.join(name))
+                .arg(".");
             util::run(c)?;
             util::sha256_file(&f)?;
             util::note(f.display().to_string());
@@ -635,8 +942,15 @@ impl Release {
 
     /// AUR: на каждый пакет `<имя>-git` и `<имя>-bin`; метапакеты — с зависимостями на `-git`/`-bin`.
     pub fn aur(&self, only: &[String], out: &Path) -> Result<Vec<PathBuf>> {
-        let url = self.spec.url.clone().context("в syngui-release.toml нет url — нужен для AUR")?;
-        let url = url.trim_end_matches('/').trim_end_matches(".git").to_string();
+        let url = self
+            .spec
+            .url
+            .clone()
+            .context("в syngui-release.toml нет url — нужен для AUR")?;
+        let url = url
+            .trim_end_matches('/')
+            .trim_end_matches(".git")
+            .to_string();
         let repo = url.rsplit('/').next().unwrap_or("src").to_string();
         let maint = format!("# Maintainer: {}\n# Сгенерировано syngui package -f aur --workspace из syngui-release.toml — правки делать там.\n", self.spec.maintainer.as_deref().unwrap_or("Alexeyev Vitaly"));
         let names: Vec<&str> = self.packages.iter().map(|(n, _)| n.as_str()).collect();
@@ -649,16 +963,48 @@ impl Release {
                 let pkgname = format!("{name}-{suffix}");
                 let mut s = maint.clone();
                 s += &format!("pkgname={pkgname}\n");
-                s += &format!("pkgver={}\npkgrel=1\narch=('x86_64' 'aarch64')\nurl={}\nlicense=({})\n", if suffix == "git" { format!("{}.r0", self.pkgver()) } else { self.version.clone() }, sh(&url), self.license());
+                s += &format!(
+                    "pkgver={}\npkgrel=1\narch=('x86_64' 'aarch64')\nurl={}\nlicense=({})\n",
+                    if suffix == "git" {
+                        format!("{}.r0", self.pkgver())
+                    } else {
+                        self.version.clone()
+                    },
+                    sh(&url),
+                    self.license()
+                );
                 if p.is_meta() {
                     // зависимости на пакеты выпуска — их -git/-bin
-                    let dep = |d: &String| if names.contains(&d.as_str()) { format!("{d}-{suffix}") } else { d.clone() };
+                    let dep = |d: &String| {
+                        if names.contains(&d.as_str()) {
+                            format!("{d}-{suffix}")
+                        } else {
+                            d.clone()
+                        }
+                    };
                     let depends: Vec<String> = p.depends.iter().map(dep).collect();
                     let mut q = p.clone();
-                    let fix = |v: &Vec<String>| v.iter().map(|o| match o.split_once(':') { Some((n, r)) if names.contains(&n.trim()) => format!("{}-{suffix}:{r}", n.trim()), _ => o.clone() }).collect::<Vec<_>>();
+                    let fix = |v: &Vec<String>| {
+                        v.iter()
+                            .map(|o| match o.split_once(':') {
+                                Some((n, r)) if names.contains(&n.trim()) => {
+                                    format!("{}-{suffix}:{r}", n.trim())
+                                }
+                                _ => o.clone(),
+                            })
+                            .collect::<Vec<_>>()
+                    };
                     q.optdepends = fix(&p.optdepends);
                     q.optdepends_en = fix(&p.optdepends_en);
-                    s += &Self::pkg_meta(&q, true, "", &depends, std::slice::from_ref(name), std::slice::from_ref(name), false);
+                    s += &Self::pkg_meta(
+                        &q,
+                        true,
+                        "",
+                        &depends,
+                        std::slice::from_ref(name),
+                        std::slice::from_ref(name),
+                        false,
+                    );
                     s += "\npackage() {\n    true\n}\n";
                 } else if suffix == "git" {
                     let mut mk: Vec<String> = self.spec.makedepends.clone();
@@ -666,9 +1012,23 @@ impl Release {
                     if !mk.iter().any(|m| m == "git") {
                         mk.push("git".into());
                     }
-                    s += &Self::pkg_meta(p, true, "", &p.depends, std::slice::from_ref(name), &[name.clone(), format!("{name}-bin")], true);
-                    let opts = if self.spec.options.is_empty() { vec!["!lto".to_string()] } else { self.spec.options.clone() };
-                    if p.cross.iter().any(|x| x.target.contains("windows-gnu")) && !mk.iter().any(|m| m == "mingw-w64-gcc") {
+                    s += &Self::pkg_meta(
+                        p,
+                        true,
+                        "",
+                        &p.depends,
+                        std::slice::from_ref(name),
+                        &[name.clone(), format!("{name}-bin")],
+                        true,
+                    );
+                    let opts = if self.spec.options.is_empty() {
+                        vec!["!lto".to_string()]
+                    } else {
+                        self.spec.options.clone()
+                    };
+                    if p.cross.iter().any(|x| x.target.contains("windows-gnu"))
+                        && !mk.iter().any(|m| m == "mingw-w64-gcc")
+                    {
                         mk.push("mingw-w64-gcc".into());
                     }
                     // Чужие цели (windows-gnu, musl) есть только у rustup: пакет rust их не содержит,
@@ -684,7 +1044,12 @@ impl Release {
                     s += &format!("makedepends=({})\noptions=({})\nsource=(\"{repo}::git+{url}.git\")\nsha256sums=('SKIP')\n", mk.iter().map(|x| sh(x)).collect::<Vec<_>>().join(" "), opts.iter().map(|x| sh(x)).collect::<Vec<_>>().join(" "));
                     let one = [&(name.clone(), p.clone())];
                     let lines = |arch: &str, ind: &str| -> String {
-                        self.cargo_plans(&one, arch, false).into_iter().map(|(_, a)| format!("{ind}cargo build --offline --release {}\n", a.join(" "))).collect()
+                        self.cargo_plans(&one, arch, false)
+                            .into_iter()
+                            .map(|(_, a)| {
+                                format!("{ind}cargo build --offline --release {}\n", a.join(" "))
+                            })
+                            .collect()
                     };
                     let (bx, ba) = (lines("x86_64", "    "), lines("aarch64", "    "));
                     // Программы под другую цель: rustup-цель, сборка и копия в target/release/cross/.
@@ -711,7 +1076,12 @@ impl Release {
                             .iter()
                             .map(|l| format!("    cargo build --offline --release -p {k} --lib\n    install -Dm755 target/release/{f} target/release/lib/{f}\n", k = l.krate, f = l.file))
                             .collect::<String>();
-                    let mut cross_targets: Vec<&str> = p.cross.iter().filter(|x| !x.build_std).map(|x| x.target.as_str()).collect();
+                    let mut cross_targets: Vec<&str> = p
+                        .cross
+                        .iter()
+                        .filter(|x| !x.build_std)
+                        .map(|x| x.target.as_str())
+                        .collect();
                     let nightly_std = p.cross.iter().any(|x| x.build_std);
                     cross_targets.sort_unstable();
                     cross_targets.dedup();
@@ -721,7 +1091,11 @@ impl Release {
                     } else if bx == ba {
                         vec![bx]
                     } else {
-                        vec![format!("    if [ \"$CARCH\" = aarch64 ]; then\n{}    else\n{}    fi\n", lines("aarch64", "        "), lines("x86_64", "        "))]
+                        vec![format!(
+                            "    if [ \"$CARCH\" = aarch64 ]; then\n{}    else\n{}    fi\n",
+                            lines("aarch64", "        "),
+                            lines("x86_64", "        ")
+                        )]
                     };
                     if !cross.is_empty() {
                         builds.push(cross);
@@ -750,8 +1124,15 @@ prepare() {{
                         } else {
                             format!("    rustup toolchain install stable --profile minimal --no-self-update --target {}\n", cross_targets.join(","))
                         },
-                        fetch_cross = cross_targets.iter().map(|t| format!(" --target {t}")).collect::<String>(),
-                        nightly = if nightly_std { "    rustup toolchain install nightly --profile minimal --no-self-update --component rust-src\n" } else { "" }
+                        fetch_cross = cross_targets
+                            .iter()
+                            .map(|t| format!(" --target {t}"))
+                            .collect::<String>(),
+                        nightly = if nightly_std {
+                            "    rustup toolchain install nightly --profile minimal --no-self-update --component rust-src\n"
+                        } else {
+                            ""
+                        }
                     );
                     if !builds.is_empty() {
                         s += &format!("\nbuild() {{\n    cd \"$srcdir/{repo}\"\n    export RUSTUP_TOOLCHAIN=stable CARGO_TARGET_DIR=target\n{}}}\n", builds.concat());
@@ -760,10 +1141,31 @@ prepare() {{
                     s += &format!("\npackage() {{\n    local _root=\"$srcdir/{repo}\" _bins=\"$srcdir/{repo}/target/release\"\n{}}}\n", self.package_body(name, p)?);
                 } else {
                     let tar = |a: &str| format!("{name}-{}-{a}.tar.zst", self.version);
-                    let sum = |a: &str| std::fs::read_to_string(self.target_dir.join("syngui/dist").join(format!("{}.sha256", tar(a)))).ok().and_then(|s| s.split_whitespace().next().map(str::to_string)).unwrap_or_else(|| "SKIP".into());
-                    s += &Self::pkg_meta(p, true, "", &p.depends, std::slice::from_ref(name), &[name.clone(), format!("{name}-git")], true);
+                    let sum = |a: &str| {
+                        std::fs::read_to_string(
+                            self.target_dir
+                                .join("syngui/dist")
+                                .join(format!("{}.sha256", tar(a))),
+                        )
+                        .ok()
+                        .and_then(|s| s.split_whitespace().next().map(str::to_string))
+                        .unwrap_or_else(|| "SKIP".into())
+                    };
+                    s += &Self::pkg_meta(
+                        p,
+                        true,
+                        "",
+                        &p.depends,
+                        std::slice::from_ref(name),
+                        &[name.clone(), format!("{name}-git")],
+                        true,
+                    );
                     s += "options=('!strip' '!debug')\n";
-                    s += &format!("noextract=({} {})\n", sh(&tar("x86_64")), sh(&tar("aarch64")));
+                    s += &format!(
+                        "noextract=({} {})\n",
+                        sh(&tar("x86_64")),
+                        sh(&tar("aarch64"))
+                    );
                     for a in ["x86_64", "aarch64"] {
                         s += &format!("source_{a}=(\"{t}::{url}/releases/download/v$pkgver/{t}\")\nsha256sums_{a}=('{}')\n", sum(a), t = tar(a));
                     }
@@ -772,7 +1174,10 @@ prepare() {{
                 let d = out.join(&pkgname);
                 util::write(&d.join("PKGBUILD"), &s)?;
                 if let Some(i) = p.install.as_ref().filter(|_| !p.is_meta()) {
-                    util::copy(&self.root.join(i), &d.join(Path::new(i).file_name().unwrap()))?;
+                    util::copy(
+                        &self.root.join(i),
+                        &d.join(Path::new(i).file_name().unwrap()),
+                    )?;
                 }
                 let mut c = Command::new("makepkg");
                 c.current_dir(&d).arg("--printsrcinfo");

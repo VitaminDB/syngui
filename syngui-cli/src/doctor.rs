@@ -37,21 +37,44 @@ impl Report {
 }
 
 fn rust_targets() -> Vec<String> {
-    Command::new("rustup").args(["target", "list", "--installed"]).output().map(|o| String::from_utf8_lossy(&o.stdout).lines().map(str::to_string).collect()).unwrap_or_default()
+    Command::new("rustup")
+        .args(["target", "list", "--installed"])
+        .output()
+        .map(|o| {
+            String::from_utf8_lossy(&o.stdout)
+                .lines()
+                .map(str::to_string)
+                .collect()
+        })
+        .unwrap_or_default()
 }
 
 /// Проверить цели; вернуть, всё ли готово.
 pub fn run(targets: &[Target]) -> bool {
     let installed = rust_targets();
     let mut all = true;
-    let has_target = |r: &mut Report, t: &str| r.check(installed.iter().any(|i| i == t), &format!("rust {t}"), if installed.iter().any(|i| i == t) { "есть" } else { "нет" }, &format!("rustup target add {t}"));
+    let has_target = |r: &mut Report, t: &str| {
+        r.check(
+            installed.iter().any(|i| i == t),
+            &format!("rust {t}"),
+            if installed.iter().any(|i| i == t) {
+                "есть"
+            } else {
+                "нет"
+            },
+            &format!("rustup target add {t}"),
+        )
+    };
     {
         println!("\x1b[1mОбщее\x1b[0m");
         let mut r = Report { ok: true };
         r.tool("cargo", "https://rustup.rs");
         r.tool("rustup", "pacman -S rustup");
         r.tool("clang", "pacman -S clang");
-        r.tool("mold", "pacman -S mold (быстрая линковка, ~/.cargo/config.toml)");
+        r.tool(
+            "mold",
+            "pacman -S mold (быстрая линковка, ~/.cargo/config.toml)",
+        );
         all &= r.ok;
     }
     for t in targets {
@@ -63,14 +86,25 @@ pub fn run(targets: &[Target]) -> bool {
                 if !t.is_host() && *t == Target::LinuxAarch64 {
                     r.tool("ld.lld", "pacman -S lld");
                     r.tool("llvm-ar", "pacman -S llvm");
-                    r.path("sysroot aarch64", linux::aarch64_sysroot().as_deref(), "SYNGUI_AARCH64_SYSROOT=<rootfs с glibc> или synport rootfs");
+                    r.path(
+                        "sysroot aarch64",
+                        linux::aarch64_sysroot().as_deref(),
+                        "SYNGUI_AARCH64_SYSROOT=<rootfs с glibc> или synport rootfs",
+                    );
                 }
                 r.tool("tar", "");
                 r.tool("zstd", "pacman -S zstd");
                 r.tool("makepkg", "пакеты Arch: pacman -S pacman");
                 if *t == Target::LinuxX86_64 {
                     let ok = util::which("podman").or_else(|| util::which("docker"));
-                    r.check(true, "podman/docker (--portable)", ok.map(|p| p.display().to_string()).unwrap_or_else(|| "нет — нужен только для переносимой сборки (pacman -S podman)".into()), "");
+                    r.check(
+                        true,
+                        "podman/docker (--portable)",
+                        ok.map(|p| p.display().to_string()).unwrap_or_else(|| {
+                            "нет — нужен только для переносимой сборки (pacman -S podman)".into()
+                        }),
+                        "",
+                    );
                 }
             }
             Target::Android => {
@@ -79,33 +113,67 @@ pub fn run(targets: &[Target]) -> bool {
                 let sdk = android::sdk_dir();
                 r.path("Android SDK", Some(&sdk), "ANDROID_HOME=<sdk> (sdkmanager \"platforms;android-35\" \"build-tools;35.0.0\")");
                 let plat = util::latest_subdir(&sdk.join("platforms"));
-                r.path("платформа SDK", plat.as_deref(), "sdkmanager \"platforms;android-35\"");
-                r.path("NDK", android::ndk_dir().as_deref(), "ANDROID_NDK_HOME=<ndk> или sdkmanager \"ndk;27.2.12479018\"");
-                r.path("JDK 17–21", android::java_home().as_deref(), "pacman -S jdk21-openjdk (или JAVA_HOME)");
-                r.path("zipalign", android::build_tool("zipalign").as_deref(), "sdkmanager \"build-tools;35.0.0\"");
-                r.path("apksigner", android::build_tool("apksigner").as_deref(), "sdkmanager \"build-tools;35.0.0\"");
+                r.path(
+                    "платформа SDK",
+                    plat.as_deref(),
+                    "sdkmanager \"platforms;android-35\"",
+                );
+                r.path(
+                    "NDK",
+                    android::ndk_dir().as_deref(),
+                    "ANDROID_NDK_HOME=<ndk> или sdkmanager \"ndk;27.2.12479018\"",
+                );
+                r.path(
+                    "JDK 17–21",
+                    android::java_home().as_deref(),
+                    "pacman -S jdk21-openjdk (или JAVA_HOME)",
+                );
+                r.path(
+                    "zipalign",
+                    android::build_tool("zipalign").as_deref(),
+                    "sdkmanager \"build-tools;35.0.0\"",
+                );
+                r.path(
+                    "apksigner",
+                    android::build_tool("apksigner").as_deref(),
+                    "sdkmanager \"build-tools;35.0.0\"",
+                );
                 r.tool("keytool", "входит в JDK");
                 r.tool("adb", "pacman -S android-tools (установка на телефон)");
-                let ff = crate::project::syngui_dir().join("android-deps/ffmpeg/arm64-v8a/lib/libavcodec.a");
+                let ff = crate::project::syngui_dir()
+                    .join("android-deps/ffmpeg/arm64-v8a/lib/libavcodec.a");
                 let ok = ff.is_file();
                 r.check(ok || true, "статический FFmpeg (android.ffmpeg)", if ok { ff.display().to_string() } else { "нет (нужен только с android.ffmpeg = true: syngui/scripts/build-ffmpeg-android.sh)".into() }, "");
             }
             Target::WindowsX86_64 => {
                 has_target(&mut r, t.triple());
                 r.tool("x86_64-w64-mingw32-gcc", "pacman -S mingw-w64-gcc");
-                r.tool("x86_64-w64-mingw32-windres", "pacman -S mingw-w64-binutils (ресурсы exe: winresource)");
+                r.tool(
+                    "x86_64-w64-mingw32-windres",
+                    "pacman -S mingw-w64-binutils (ресурсы exe: winresource)",
+                );
                 r.tool("x86_64-w64-mingw32-strip", "pacman -S mingw-w64-binutils");
                 r.tool("zip", "pacman -S zip");
             }
             Target::Ios => {
                 has_target(&mut r, "aarch64-apple-ios");
                 let sdk = ios::sdk();
-                r.path("iOS SDK", Some(&sdk), "IOS_SDK=<iPhoneOS18.x.sdk> (github.com/xybp888/iOS-SDKs; не ниже 18)");
+                r.path(
+                    "iOS SDK",
+                    Some(&sdk),
+                    "IOS_SDK=<iPhoneOS18.x.sdk> (github.com/xybp888/iOS-SDKs; не ниже 18)",
+                );
                 r.tool("ld.lld", "pacman -S lld");
                 r.tool("llvm-ar", "pacman -S llvm");
                 r.tool("zip", "pacman -S zip");
-                r.tool("plumesign", "Plume Impactor — подпись на Apple ID и установка");
-                r.tool("idevicesyslog", "pacman -S libimobiledevice (журнал iPhone)");
+                r.tool(
+                    "plumesign",
+                    "Plume Impactor — подпись на Apple ID и установка",
+                );
+                r.tool(
+                    "idevicesyslog",
+                    "pacman -S libimobiledevice (журнал iPhone)",
+                );
             }
         }
         all &= r.ok;

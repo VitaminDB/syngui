@@ -90,7 +90,10 @@ fn markdown_view_context_menu_copies_all() {
 #[test]
 fn markdown_view_context_menu_copies_selection() {
     use syngui::prelude::{Column, ScrollView};
-    let widget = ScrollView::new().vertical().child(Column::new().child(MarkdownView::new("Выделенная строка текста для копирования").selectable(true)));
+    let widget = ScrollView::new().vertical().child(
+        Column::new()
+            .child(MarkdownView::new("Выделенная строка текста для копирования").selectable(true)),
+    );
     let mut harness = TestHarness::new(Box::new(widget));
     harness.layout(800.0, 600.0);
     harness.rebuild();
@@ -107,8 +110,14 @@ fn markdown_view_context_menu_copies_selection() {
 
     let at = Point::new(60.0, 10.0);
     harness.send_events(&[
-        Event::MouseDown { button: MouseButton::Right, position: at },
-        Event::MouseUp { button: MouseButton::Right, position: at },
+        Event::MouseDown {
+            button: MouseButton::Right,
+            position: at,
+        },
+        Event::MouseUp {
+            button: MouseButton::Right,
+            position: at,
+        },
     ]);
     harness.layout(800.0, 600.0);
     harness.paint();
@@ -128,7 +137,10 @@ fn markdown_view_context_menu_copies_selection() {
         syngui::clipboard::copy(&prev);
     }
     if let Some(text) = copied {
-        assert!(text.contains("Выделенная строка"), "«Копировать» из меню не скопировало выделенное: {text:?}");
+        assert!(
+            text.contains("Выделенная строка"),
+            "«Копировать» из меню не скопировало выделенное: {text:?}"
+        );
     }
 }
 
@@ -258,7 +270,10 @@ fn code_editor_runs_menu_commands() {
 
     let ids = harness.find_by_type_name("CodeEditor");
     assert_eq!(ids.len(), 1);
-    assert!(!harness.is_animating(ids[0]), "в покое редактору кадры не нужны");
+    assert!(
+        !harness.is_animating(ids[0]),
+        "в покое редактору кадры не нужны"
+    );
 
     cmd.set(Some(EditorCommand::SelectAll));
     harness.rebuild();

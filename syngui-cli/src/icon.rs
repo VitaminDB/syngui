@@ -6,13 +6,19 @@ use std::path::Path;
 
 /// Значок PNG (а не SVG)?
 pub fn is_raster(path: &Path) -> bool {
-    path.extension().and_then(|e| e.to_str()).is_some_and(|e| e.eq_ignore_ascii_case("png"))
+    path.extension()
+        .and_then(|e| e.to_str())
+        .is_some_and(|e| e.eq_ignore_ascii_case("png"))
 }
 
 /// Размер PNG по заголовку IHDR.
 pub fn png_size(path: &Path) -> Result<(u32, u32)> {
     let b = std::fs::read(path).with_context(|| format!("значок {}", path.display()))?;
-    anyhow::ensure!(b.len() >= 24 && b.starts_with(b"\x89PNG\r\n\x1a\n") && &b[12..16] == b"IHDR", "{} — не PNG", path.display());
+    anyhow::ensure!(
+        b.len() >= 24 && b.starts_with(b"\x89PNG\r\n\x1a\n") && &b[12..16] == b"IHDR",
+        "{} — не PNG",
+        path.display()
+    );
     let be = |i: usize| u32::from_be_bytes([b[i], b[i + 1], b[i + 2], b[i + 3]]);
     Ok((be(16), be(20)))
 }
@@ -21,7 +27,8 @@ pub fn png_size(path: &Path) -> Result<(u32, u32)> {
 pub fn load(path: &Path) -> Result<String> {
     if is_raster(path) {
         let (w, h) = png_size(path)?;
-        let abs = std::fs::canonicalize(path).with_context(|| format!("значок {}", path.display()))?;
+        let abs =
+            std::fs::canonicalize(path).with_context(|| format!("значок {}", path.display()))?;
         return Ok(format!(
             r#"<svg xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" width="{w}" height="{h}" viewBox="0 0 {w} {h}"><image width="{w}" height="{h}" xlink:href="{}"/></svg>"#,
             crate::util::xml(&abs.to_string_lossy())
@@ -43,7 +50,11 @@ pub fn render(svg: &str, size: u32, background: Option<[u8; 3]>, out: &Path) -> 
     let k = (size as f32 / s.width()).min(size as f32 / s.height());
     let dx = (size as f32 - s.width() * k) / 2.0;
     let dy = (size as f32 - s.height() * k) / 2.0;
-    resvg::render(&tree, tiny_skia::Transform::from_row(k, 0.0, 0.0, k, dx, dy), &mut pix.as_mut());
+    resvg::render(
+        &tree,
+        tiny_skia::Transform::from_row(k, 0.0, 0.0, k, dx, dy),
+        &mut pix.as_mut(),
+    );
     if let Some(d) = out.parent() {
         std::fs::create_dir_all(d)?;
     }
@@ -101,7 +112,10 @@ mod tests {
         let got = tiny_skia::Pixmap::decode_png(&std::fs::read(&out).unwrap()).unwrap();
         assert_eq!(got.width(), 96);
         let p = got.pixel(48, 48).unwrap();
-        assert_eq!((p.red(), p.green(), p.blue(), p.alpha()), (0, 128, 255, 255));
+        assert_eq!(
+            (p.red(), p.green(), p.blue(), p.alpha()),
+            (0, 128, 255, 255)
+        );
     }
 
     #[test]

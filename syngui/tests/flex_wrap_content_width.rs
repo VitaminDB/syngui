@@ -42,7 +42,10 @@ fn segmented_takes_content_width_in_wrap() {
     let a = h.element_bounds(h.find_by_class("seg1")[0]);
     let b = h.element_bounds(h.find_by_class("seg2")[0]);
     assert!(a.size.width < 450.0, "сегменты растянуты: {a:?}");
-    assert_eq!(a.origin.y, b.origin.y, "сегменты должны стоять в одной строке");
+    assert_eq!(
+        a.origin.y, b.origin.y,
+        "сегменты должны стоять в одной строке"
+    );
 }
 
 #[test]
@@ -50,9 +53,11 @@ fn long_text_still_wraps_to_line_width() {
     let long = "очень длинный текст ".repeat(40);
     let h = harness(
         DecoratedBox::new().class("box").child(
-            Flex::row()
-                .wrap()
-                .child(DecoratedBox::new().class("pill").child(Text::new(long).class("txt"))),
+            Flex::row().wrap().child(
+                DecoratedBox::new()
+                    .class("pill")
+                    .child(Text::new(long).class("txt")),
+            ),
         ),
     );
     let t = h.element_bounds(h.find_by_class("txt")[0]);

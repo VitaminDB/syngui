@@ -27,9 +27,9 @@ pub mod mss_properties;
 pub mod navigation;
 pub mod scroll;
 pub mod selection;
-pub mod three_d;
 #[cfg(feature = "terminal")]
 pub mod terminal;
+pub mod three_d;
 pub mod visual;
 
 use syngui::prelude::*;
@@ -50,7 +50,10 @@ pub(crate) fn label(text: &str) -> impl Widget {
 }
 
 /// Текст, пересобираемый при смене сигналов, прочитанных в замыкании.
-pub(crate) fn rtext(class: &'static str, f: impl Fn() -> String + Send + Sync + 'static) -> Reactive {
+pub(crate) fn rtext(
+    class: &'static str,
+    f: impl Fn() -> String + Send + Sync + 'static,
+) -> Reactive {
     Reactive::new(move || vec![Box::new(Text::new(f()).class(class)) as Box<dyn Widget>])
 }
 

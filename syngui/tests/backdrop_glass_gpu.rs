@@ -13,7 +13,13 @@ fn backdrop_glass_is_lighter_than_background() {
     let out = std::env::temp_dir().join(format!("syngui-glass-{}.png", std::process::id()));
     let out_s = out.to_string_lossy().to_string();
     let r = syngui::shot::render_png(
-        || Box::new(DecoratedBox::new().class("root").child(DecoratedBox::new().class("glass"))),
+        || {
+            Box::new(
+                DecoratedBox::new()
+                    .class("root")
+                    .child(DecoratedBox::new().class("glass")),
+            )
+        },
         MSS,
         (300, 140),
         1.0,
@@ -37,7 +43,10 @@ fn backdrop_glass_is_lighter_than_background() {
     let want: Vec<i32> = bg.iter().map(|c| (c + 255 + 1) / 2).collect();
     eprintln!("фон {bg:?}, стекло {glass:?}, по CSS {want:?}");
     for i in 0..3 {
-        assert!((glass[i] - want[i]).abs() <= 3, "стекло {glass:?} вместо {want:?} (фон {bg:?})");
+        assert!(
+            (glass[i] - want[i]).abs() <= 3,
+            "стекло {glass:?} вместо {want:?} (фон {bg:?})"
+        );
     }
     let _ = std::fs::remove_file(&out);
 }

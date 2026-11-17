@@ -46,7 +46,8 @@ fn main() {
     let statics = ["shadows", "glow", "grad", "grad3", "hollow"];
     for theme in ["dark", "light"] {
         let out = format!("{dir}/{theme}.png");
-        let r = syngui::shot::render_png(move || panel(theme, &statics), MSS, (760, 840), 1.0, &out);
+        let r =
+            syngui::shot::render_png(move || panel(theme, &statics), MSS, (760, 840), 1.0, &out);
         println!("{out}: {r:?}");
     }
     // Полые буквы стилями в коде (прозрачный `color` + `text-stroke`).
@@ -57,7 +58,10 @@ fn main() {
                 DecoratedBox::new().class("hollow-bg").child(
                     Text::new("11:24")
                         .style("font-size", StyleValue::px(120.0))
-                        .style("color", StyleValue::Color(syngui::mss::MssColor::rgba(0, 0, 0, 0)))
+                        .style(
+                            "color",
+                            StyleValue::Color(syngui::mss::MssColor::rgba(0, 0, 0, 0)),
+                        )
                         .style("text-stroke", StyleValue::String("2px #66bb6a".into())),
                 ),
             )
@@ -71,8 +75,19 @@ fn main() {
     if frames > 1 {
         let anims = ["pulse", "shimmer", "gmove", "rainbow", "glow-self"];
         let out = format!("{dir}/anim_{{n}}.png");
-        let opts = syngui::shot::ShotOptions { frames, interval: std::time::Duration::from_millis(250), ..Default::default() };
-        let r = syngui::shot::render_png_with(move || panel("dark", &anims), MSS, (760, 840), 1.0, &out, opts);
+        let opts = syngui::shot::ShotOptions {
+            frames,
+            interval: std::time::Duration::from_millis(250),
+            ..Default::default()
+        };
+        let r = syngui::shot::render_png_with(
+            move || panel("dark", &anims),
+            MSS,
+            (760, 840),
+            1.0,
+            &out,
+            opts,
+        );
         println!("{out}: {r:?}");
     }
 }

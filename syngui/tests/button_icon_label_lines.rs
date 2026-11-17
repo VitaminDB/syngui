@@ -50,8 +50,16 @@ fn hugging_button_keeps_label_on_one_line() {
     let (size, no_wrap) = button_size(1000.0);
     // 16 + 18 + 8 + 190 + 16
     assert_eq!(size.width, 248.0);
-    assert!((size.height - (14.0 * 1.2 + 16.0)).abs() < 0.01, "высота {}", size.height);
-    assert_eq!(no_wrap, vec![true], "однострочная подпись рисуется без переноса");
+    assert!(
+        (size.height - (14.0 * 1.2 + 16.0)).abs() < 0.01,
+        "высота {}",
+        size.height
+    );
+    assert_eq!(
+        no_wrap,
+        vec![true],
+        "однострочная подпись рисуется без переноса"
+    );
 }
 
 #[test]
@@ -61,6 +69,10 @@ fn narrow_button_counts_icon_space() {
     // но 198 - 26 = 172 < 190.
     let (size, no_wrap) = button_size(230.0);
     assert_eq!(size.width, 230.0);
-    assert!((size.height - (2.0 * 14.0 * 1.2 + 16.0)).abs() < 0.01, "высота {}", size.height);
+    assert!(
+        (size.height - (2.0 * 14.0 * 1.2 + 16.0)).abs() < 0.01,
+        "высота {}",
+        size.height
+    );
     assert_eq!(no_wrap, vec![false], "две строки — с переносом");
 }

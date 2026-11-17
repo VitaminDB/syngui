@@ -22,7 +22,10 @@ fn tap_segment_after_touch_scroll() {
     for i in 0..12 {
         col = col.child(Text::new(format!("строка {i}")).class("row"));
     }
-    col = col.child(SegmentedButton::new(vec!["a".to_string(), "b".to_string(), "c".to_string()]).on_change(move |i| p.lock().unwrap().push(i)));
+    col = col.child(
+        SegmentedButton::new(vec!["a".to_string(), "b".to_string(), "c".to_string()])
+            .on_change(move |i| p.lock().unwrap().push(i)),
+    );
     for i in 0..12 {
         col = col.child(Text::new(format!("ещё {i}")));
     }
@@ -45,10 +48,17 @@ fn tap_segment_after_touch_scroll() {
     let id = h.find_by_type_name("SegmentedButton")[0];
     let b = h.element_bounds(id);
     eprintln!("сегменты: {b:?}");
-    let at = Point::new(b.x() + b.size.width * 5.0 / 6.0, b.y() + b.size.height / 2.0);
+    let at = Point::new(
+        b.x() + b.size.width * 5.0 / 6.0,
+        b.y() + b.size.height / 2.0,
+    );
     h.touch_down(2, at);
     settle(&mut h);
     h.touch_up(2);
     settle(&mut h);
-    assert_eq!(*picked.lock().unwrap(), vec![2], "касание третьего сегмента");
+    assert_eq!(
+        *picked.lock().unwrap(),
+        vec![2],
+        "касание третьего сегмента"
+    );
 }

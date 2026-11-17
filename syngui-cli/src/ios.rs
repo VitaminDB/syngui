@@ -11,7 +11,9 @@ use std::path::{Path, PathBuf};
 use std::process::Command;
 
 pub fn sdk() -> PathBuf {
-    std::env::var_os("IOS_SDK").map(PathBuf::from).unwrap_or_else(|| util::home().join(".local/share/ios-sdk/src18/iPhoneOS18.6.sdk"))
+    std::env::var_os("IOS_SDK")
+        .map(PathBuf::from)
+        .unwrap_or_else(|| util::home().join(".local/share/ios-sdk/src18/iPhoneOS18.6.sdk"))
 }
 
 /// Собрать .ipa; вернуть путь.
@@ -26,7 +28,10 @@ pub fn build(app: &App, profile: Profile) -> Result<PathBuf> {
     let s = sdk.display();
 
     let mut c = crate::linux::cargo(app, "build", profile);
-    c.arg("--bin").arg(&bin).arg("--target").arg(Target::Ios.triple());
+    c.arg("--bin")
+        .arg(&bin)
+        .arg("--target")
+        .arg(Target::Ios.triple());
     if m.default_features == Some(false) {
         c.arg("--no-default-features");
     }
@@ -48,7 +53,11 @@ pub fn build(app: &App, profile: Profile) -> Result<PathBuf> {
         );
     util::step(format!("{bin}: ios, {}", profile.dir()));
     util::run(c)?;
-    let built = app.target_dir.join(Target::Ios.triple()).join(profile.dir()).join(&bin);
+    let built = app
+        .target_dir
+        .join(Target::Ios.triple())
+        .join(profile.dir())
+        .join(&bin);
 
     let out = app.work_dir("ios");
     if out.exists() {
@@ -70,20 +79,43 @@ pub fn build(app: &App, profile: Profile) -> Result<PathBuf> {
     }
 
     // Значки: iPhone 60pt @2x/@3x, iPad 76pt @2x, 83.5pt @2x — квадрат во весь край на белом
-    let svg = match m.icon.as_deref().map(|p| app.path(p)).or_else(|| app.icon()) {
+    let svg = match m
+        .icon
+        .as_deref()
+        .map(|p| app.path(p))
+        .or_else(|| app.icon())
+    {
         Some(p) => icon::load(&p)?,
         None => crate::android::letter_icon(&app.display_name()),
     };
     let svg = icon::square(&svg, m.icon_viewbox.as_deref(), m.icon_unround.as_deref());
-    for (name, px) in [("AppIcon60x60@2x.png", 120), ("AppIcon60x60@3x.png", 180), ("AppIcon76x76@2x~ipad.png", 152), ("AppIcon83.5x83.5@2x~ipad.png", 167)] {
+    for (name, px) in [
+        ("AppIcon60x60@2x.png", 120),
+        ("AppIcon60x60@3x.png", 180),
+        ("AppIcon76x76@2x~ipad.png", 152),
+        ("AppIcon83.5x83.5@2x~ipad.png", 167),
+    ] {
         icon::render(&svg, px, Some([255, 255, 255]), &dot_app.join(name))?;
     }
 
-    let langs = app.meta.languages.clone().unwrap_or_else(|| vec!["ru".into(), "en".into()]);
-    let sdk_ver = sdk.file_name().unwrap().to_string_lossy().trim_end_matches(".sdk").trim_start_matches("iPhoneOS").to_string();
+    let langs = app
+        .meta
+        .languages
+        .clone()
+        .unwrap_or_else(|| vec!["ru".into(), "en".into()]);
+    let sdk_ver = sdk
+        .file_name()
+        .unwrap()
+        .to_string_lossy()
+        .trim_end_matches(".sdk")
+        .trim_start_matches("iPhoneOS")
+        .to_string();
     let name = util::xml(&app.display_name());
     let id = util::xml(&m.bundle_id.clone().unwrap_or_else(|| app.app_id()));
-    let langs_xml: String = langs.iter().map(|l| format!("<string>{}</string>", util::xml(l))).collect();
+    let langs_xml: String = langs
+        .iter()
+        .map(|l| format!("<string>{}</string>", util::xml(l)))
+        .collect();
     let plist = format!(
         r#"<?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
@@ -137,7 +169,10 @@ pub fn build(app: &App, profile: Profile) -> Result<PathBuf> {
 
     let ipa = out.join(format!("{}-{}.ipa", app.krate, app.version));
     let mut c = Command::new("zip");
-    c.current_dir(&out).args(["-qr", "-X"]).arg(&ipa).arg("Payload");
+    c.current_dir(&out)
+        .args(["-qr", "-X"])
+        .arg(&ipa)
+        .arg("Payload");
     util::run(c)?;
     util::note(format!("{}", ipa.display()));
     Ok(ipa)
@@ -150,7 +185,9 @@ pub fn install(ipa: &Path) -> Result<()> {
     }
     util::step("plumesign: подпись на Apple ID и установка");
     let mut c = Command::new("plumesign");
-    c.args(["sign", "-p"]).arg(ipa).args(["--apple-id", "--register-and-install"]);
+    c.args(["sign", "-p"])
+        .arg(ipa)
+        .args(["--apple-id", "--register-and-install"]);
     if let Ok(u) = std::env::var("SYNGUI_IOS_UDID") {
         c.arg("--udid").arg(u);
     }

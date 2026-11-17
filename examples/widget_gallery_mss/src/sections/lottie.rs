@@ -83,7 +83,9 @@ const DOTS: Anim = Anim {
     caption: "squash & stretch · hold-ключи",
 };
 
-const GRID: [&Anim; 8] = [&SPINNER, &HEART, &EQUALIZER, &ORBIT, &MORPH, &WAVE, &BELL, &DOTS];
+const GRID: [&Anim; 8] = [
+    &SPINNER, &HEART, &EQUALIZER, &ORBIT, &MORPH, &WAVE, &BELL, &DOTS,
+];
 
 /// Цвет темы по имени метки (`@accent`, `@@pink` …).
 fn theme_color(t: &GalleryTheme, name: &str) -> &'static str {
@@ -135,17 +137,21 @@ fn themed_json(template: &str, theme: &GalleryTheme) -> String {
 /// Композиция в цветах темы. Кэш по (тема, анимация): при смене скорости и
 /// размера виджет получает ту же `Arc` и продолжает с текущего кадра.
 fn composition(theme_id: &str, anim: &Anim) -> Arc<Composition> {
-    static CACHE: OnceLock<Mutex<HashMap<(String, &'static str), Arc<Composition>>>> = OnceLock::new();
+    static CACHE: OnceLock<Mutex<HashMap<(String, &'static str), Arc<Composition>>>> =
+        OnceLock::new();
     let cache = CACHE.get_or_init(|| Mutex::new(HashMap::new()));
     let key = (theme_id.to_string(), anim.key);
     if let Some(c) = cache.lock().ok().and_then(|m| m.get(&key).cloned()) {
         return c;
     }
     let theme = theme_data::find_theme(theme_id).unwrap_or_else(theme_data::default_light);
-    let comp = Arc::new(Composition::from_str(&themed_json(anim.json, theme)).unwrap_or_else(|e| {
-        log::error!("Lottie `{}`: {e}", anim.key);
-        Composition::from_str(r#"{"fr":30,"ip":0,"op":1,"w":200,"h":200,"layers":[]}"#).expect("пустая композиция")
-    }));
+    let comp = Arc::new(
+        Composition::from_str(&themed_json(anim.json, theme)).unwrap_or_else(|e| {
+            log::error!("Lottie `{}`: {e}", anim.key);
+            Composition::from_str(r#"{"fr":30,"ip":0,"op":1,"w":200,"h":200,"layers":[]}"#)
+                .expect("пустая композиция")
+        }),
+    );
     if let Ok(mut m) = cache.lock() {
         m.insert(key, comp.clone());
     }
@@ -157,7 +163,9 @@ fn theme_id_signal() -> RwSignal<String> {
 }
 
 fn code(text: &str) -> impl Widget {
-    DecoratedBox::new().child(Text::new(text).class("lt-code-text")).class("lt-code")
+    DecoratedBox::new()
+        .child(Text::new(text).class("lt-code-text"))
+        .class("lt-code")
 }
 
 fn block_head(title: &str, hint: &str) -> impl Widget {
@@ -301,10 +309,14 @@ fn build_scenario() -> impl Widget {
             Column::new()
                 .gap(10.0)
                 .child(Text::new("Сценарий").class("lt-card-title"))
-                .child(label("repeat(false) + on_complete, затем отрезок по маркеру «draw»"))
+                .child(label(
+                    "repeat(false) + on_complete, затем отрезок по маркеру «draw»",
+                ))
                 .child(stage)
                 .child(button)
-                .child(code(".marker(\"draw\")\n.repeat(false)\n.on_complete(|| …)")),
+                .child(code(
+                    ".marker(\"draw\")\n.repeat(false)\n.on_complete(|| …)",
+                )),
         )
         .class("lt-card lt-card-wide")
 }
@@ -319,7 +331,9 @@ fn build_scrub() -> impl Widget {
             Column::new()
                 .gap(10.0)
                 .child(Text::new("Перемотка").class("lt-card-title"))
-                .child(label("progress_signal: кадр по слайдеру, playing_signal: пуск/пауза"))
+                .child(label(
+                    "progress_signal: кадр по слайдеру, playing_signal: пуск/пауза",
+                ))
                 .child(
                     DecoratedBox::new()
                         .child(move || {
@@ -338,7 +352,8 @@ fn build_scrub() -> impl Widget {
                         .cross_axis_alignment(CrossAxisAlignment::Center)
                         .child(move || {
                             let on = playing.get();
-                            Button::new("").icon(if on { "\u{E034}" } else { "\u{E037}" })
+                            Button::new("")
+                                .icon(if on { "\u{E034}" } else { "\u{E037}" })
                                 .class("secondary")
                                 .on_click(move || playing.set(!playing.get_untracked()))
                         })
@@ -365,33 +380,42 @@ fn build_like() -> impl Widget {
             Column::new()
                 .gap(10.0)
                 .child(Text::new("Lottie + частицы").class("lt-card-title"))
-                .child(label("клик: сердце бьётся, вылетают сердечки (ParticleEmitter)"))
+                .child(label(
+                    "клик: сердце бьётся, вылетают сердечки (ParticleEmitter)",
+                ))
                 .child(move || {
                     let n = clicks.get();
                     DecoratedBox::new()
                         .child(
-                            ParticleEmitter::new().burst_token(n).class("lt-like-fx").child(
-                                GestureDetector::new()
-                                    .on_click(move || {
-                                        clicks.set(clicks.get_untracked() + 1);
-                                        progress.set(0.0);
-                                        playing.set(true);
-                                    })
-                                    .child(
-                                        Lottie::new(composition(&theme_id.get(), &HEART))
-                                            .autoplay(false)
-                                            .repeat(false)
-                                            .subframe(true)
-                                            .playing_signal(playing)
-                                            .progress_signal(progress)
-                                            .size(120.0, 120.0),
-                                    ),
-                            ),
+                            ParticleEmitter::new()
+                                .burst_token(n)
+                                .class("lt-like-fx")
+                                .child(
+                                    GestureDetector::new()
+                                        .on_click(move || {
+                                            clicks.set(clicks.get_untracked() + 1);
+                                            progress.set(0.0);
+                                            playing.set(true);
+                                        })
+                                        .child(
+                                            Lottie::new(composition(&theme_id.get(), &HEART))
+                                                .autoplay(false)
+                                                .repeat(false)
+                                                .subframe(true)
+                                                .playing_signal(playing)
+                                                .progress_signal(progress)
+                                                .size(120.0, 120.0),
+                                        ),
+                                ),
                         )
                         .class("lt-stage lt-stage-wide")
                 })
-                .child(move || Text::new(format!("♥ {}", 128 + clicks.get())).class("lt-like-count"))
-                .child(code("particle-preset: hearts;\nparticle-color: var(--pink);")),
+                .child(move || {
+                    Text::new(format!("♥ {}", 128 + clicks.get())).class("lt-like-count")
+                })
+                .child(code(
+                    "particle-preset: hearts;\nparticle-color: var(--pink);",
+                )),
         )
         .class("lt-card lt-card-wide")
 }
@@ -409,7 +433,11 @@ fn particle_card(title: &str, fx: &str, snippet: &str, content: Option<&str>) ->
                     .class("lt-pstage lt-pstage-center"),
             ),
         ),
-        None => Box::new(DecoratedBox::new().child(ParticleEmitter::new().class(fx.to_string())).class("lt-pstage")),
+        None => Box::new(
+            DecoratedBox::new()
+                .child(ParticleEmitter::new().class(fx.to_string()))
+                .class("lt-pstage"),
+        ),
     };
     DecoratedBox::new()
         .child(
@@ -454,7 +482,12 @@ fn build_particles() -> impl Widget {
         ("Угольки", "lt-p-embers", "embers · point 50% 92%", None),
         ("Пыль в луче", "lt-p-dust", "dust · twinkle", None),
         ("Портал", "lt-p-portal", "emitter: ring · glow", None),
-        ("Кисть", "lt-p-trail", "emitter: pointer · hover-rate", Some("проведите курсором")),
+        (
+            "Кисть",
+            "lt-p-trail",
+            "emitter: pointer · hover-rate",
+            Some("проведите курсором"),
+        ),
     ] {
         cards = cards.child(particle_card(title, fx, snippet, content));
     }
@@ -462,9 +495,11 @@ fn build_particles() -> impl Widget {
 
     // Все формы частиц на одинаковом потоке.
     let mut shapes = Flex::new().wrap().gap(10.0);
-    for (i, name) in ["circle", "square", "triangle", "star", "spark", "ring", "glow", "heart", "mixed"]
-        .into_iter()
-        .enumerate()
+    for (i, name) in [
+        "circle", "square", "triangle", "star", "spark", "ring", "glow", "heart", "mixed",
+    ]
+    .into_iter()
+    .enumerate()
     {
         shapes = shapes.child(
             Column::new()
@@ -472,7 +507,10 @@ fn build_particles() -> impl Widget {
                 .cross_axis_alignment(CrossAxisAlignment::Center)
                 .child(
                     DecoratedBox::new()
-                        .child(ParticleEmitter::new().class(format!("lt-shape-fx lt-shape-{name} lt-tint-{}", i % 5)))
+                        .child(
+                            ParticleEmitter::new()
+                                .class(format!("lt-shape-fx lt-shape-{name} lt-tint-{}", i % 5)),
+                        )
                         .class("lt-shape-stage"),
                 )
                 .child(Text::new(name).class("lt-card-caption")),
@@ -507,11 +545,14 @@ fn build_particle_system() -> impl Widget {
             Column::new()
                 .gap(10.0)
                 .child(Text::new("ParticleSystem").class("lt-card-title"))
-                .child(label("простой оверлей: всплеск по burst_token, палитра темы"))
+                .child(label(
+                    "простой оверлей: всплеск по burst_token, палитра темы",
+                ))
                 .child(
                     DecoratedBox::new()
                         .child(move || {
-                            let theme = theme_data::find_theme(&theme_id.get()).unwrap_or_else(theme_data::default_light);
+                            let theme = theme_data::find_theme(&theme_id.get())
+                                .unwrap_or_else(theme_data::default_light);
                             let palette = ["accent", "purple", "pink", "orange", "teal", "warning"]
                                 .iter()
                                 .map(|n| theme.var(n))
@@ -522,16 +563,31 @@ fn build_particle_system() -> impl Widget {
                                 2 => EmitKind::Fireworks,
                                 _ => EmitKind::Confetti,
                             };
-                            ParticleSystem::new(token.get()).kind(k).count(110).palette(palette)
+                            ParticleSystem::new(token.get())
+                                .kind(k)
+                                .count(110)
+                                .palette(palette)
                         })
                         .class("lt-pstage lt-pstage-ps"),
                 )
                 .child(
                     Row::new()
                         .gap(8.0)
-                        .child(Button::new("Конфетти").class("secondary").on_click(move || fire(0)))
-                        .child(Button::new("Искры").class("secondary").on_click(move || fire(1)))
-                        .child(Button::new("Салют").class("secondary").on_click(move || fire(2))),
+                        .child(
+                            Button::new("Конфетти")
+                                .class("secondary")
+                                .on_click(move || fire(0)),
+                        )
+                        .child(
+                            Button::new("Искры")
+                                .class("secondary")
+                                .on_click(move || fire(1)),
+                        )
+                        .child(
+                            Button::new("Салют")
+                                .class("secondary")
+                                .on_click(move || fire(2)),
+                        ),
                 ),
         )
         .class("lt-card lt-card-ps")
@@ -563,12 +619,15 @@ mod tests {
     /// Все шаблоны во всех темах разбираются без ошибок и меток не остаётся.
     #[test]
     fn templates_parse_in_every_theme() {
-        let all = [&SPINNER, &HEART, &CHECK, &EQUALIZER, &ORBIT, &MORPH, &WAVE, &BELL, &DOTS];
+        let all = [
+            &SPINNER, &HEART, &CHECK, &EQUALIZER, &ORBIT, &MORPH, &WAVE, &BELL, &DOTS,
+        ];
         for theme in theme_data::builtin_themes() {
             for a in all {
                 let json = themed_json(a.json, theme);
                 assert!(!json.contains("\"@"), "{}: осталась метка", a.key);
-                let c = Composition::from_str(&json).unwrap_or_else(|e| panic!("{} / {}: {e}", a.key, theme.id));
+                let c = Composition::from_str(&json)
+                    .unwrap_or_else(|e| panic!("{} / {}: {e}", a.key, theme.id));
                 assert!(c.out_point > c.in_point, "{}", a.key);
             }
         }

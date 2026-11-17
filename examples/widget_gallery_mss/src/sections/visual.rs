@@ -71,7 +71,9 @@ fn build_lottie_demo() -> impl Widget {
     let progress = use_signal(0.0f32);
     Column::new()
         .gap(8.0)
-        .child(label("Lottie (own parser + rasterizer, no third-party crates)"))
+        .child(label(
+            "Lottie (own parser + rasterizer, no third-party crates)",
+        ))
         .child(
             Row::new()
                 .gap(16.0)
@@ -101,9 +103,13 @@ fn build_lottie_demo() -> impl Widget {
         .child(
             Row::new()
                 .gap(8.0)
-                .child(Button::new("Play / Pause").class("secondary").on_click(move || {
-                    playing.set(!playing.get_untracked());
-                }))
+                .child(
+                    Button::new("Play / Pause")
+                        .class("secondary")
+                        .on_click(move || {
+                            playing.set(!playing.get_untracked());
+                        }),
+                )
                 .child(
                     Slider::new()
                         .value(0.0)

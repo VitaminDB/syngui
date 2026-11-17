@@ -20,8 +20,10 @@ const ACTIVITY: &str = "com.google.androidgamesdk.GameActivity";
 
 const GRADLEW: &[u8] = include_bytes!("../templates/android/gradlew");
 const WRAPPER_JAR: &[u8] = include_bytes!("../templates/android/gradle/wrapper/gradle-wrapper.jar");
-const WRAPPER_PROPS: &str = include_str!("../templates/android/gradle/wrapper/gradle-wrapper.properties");
-const FOREGROUND_SERVICE: &str = include_str!("../../syngui/src/app/android/SynGuiForegroundService.java");
+const WRAPPER_PROPS: &str =
+    include_str!("../templates/android/gradle/wrapper/gradle-wrapper.properties");
+const FOREGROUND_SERVICE: &str =
+    include_str!("../../syngui/src/app/android/SynGuiForegroundService.java");
 
 pub fn sdk_dir() -> PathBuf {
     std::env::var_os("ANDROID_HOME")
@@ -47,12 +49,21 @@ pub fn java_home() -> Option<PathBuf> {
         return Some(PathBuf::from(p));
     }
     // AGP 8.7 / gradle 8.11 работают с JDK 17–21; новее — не всегда
-    ["/usr/lib/jvm/java-21-openjdk", "/usr/lib/jvm/java-17-openjdk"].iter().map(PathBuf::from).find(|p| p.join("bin/java").is_file())
+    [
+        "/usr/lib/jvm/java-21-openjdk",
+        "/usr/lib/jvm/java-17-openjdk",
+    ]
+    .iter()
+    .map(PathBuf::from)
+    .find(|p| p.join("bin/java").is_file())
 }
 
 /// Инструмент build-tools (apksigner, zipalign, aapt2): из PATH или последних build-tools SDK.
 pub fn build_tool(name: &str) -> Option<PathBuf> {
-    util::latest_subdir(&sdk_dir().join("build-tools")).map(|d| d.join(name)).filter(|p| p.is_file()).or_else(|| util::which(name))
+    util::latest_subdir(&sdk_dir().join("build-tools"))
+        .map(|d| d.join(name))
+        .filter(|p| p.is_file())
+        .or_else(|| util::which(name))
 }
 
 pub fn abi_triple(abi: &str) -> Result<&'static str> {
@@ -69,7 +80,8 @@ fn env(c: &mut Command) {
     let sdk = sdk_dir();
     c.env("ANDROID_HOME", &sdk).env("ANDROID_SDK_ROOT", &sdk);
     if let Some(ndk) = ndk_dir() {
-        c.env("ANDROID_NDK_HOME", &ndk).env("ANDROID_NDK_ROOT", &ndk);
+        c.env("ANDROID_NDK_HOME", &ndk)
+            .env("ANDROID_NDK_ROOT", &ndk);
     }
     if let Some(j) = java_home() {
         c.env("JAVA_HOME", j);
@@ -88,7 +100,16 @@ pub fn key_dir(app: &App) -> PathBuf {
     if let Some(d) = std::env::var_os("SYNGUI_ANDROID_KEYSTORE") {
         return PathBuf::from(d);
     }
-    app.meta.android.keystore.as_deref().map(util::expand).unwrap_or_else(|| util::home().join(".secrets").join(format!("{}-android", app.krate)))
+    app.meta
+        .android
+        .keystore
+        .as_deref()
+        .map(util::expand)
+        .unwrap_or_else(|| {
+            util::home()
+                .join(".secrets")
+                .join(format!("{}-android", app.krate))
+        })
 }
 
 /// Ключ подписи: релизный, если есть; для публикации — обязателен.
@@ -96,33 +117,75 @@ pub fn signing(app: &App, publish: bool) -> Result<Signing> {
     let dir = key_dir(app);
     let (ks, pw) = (dir.join("release.jks"), dir.join("password"));
     if ks.is_file() && pw.is_file() {
-        return Ok(Signing { keystore: ks, password_file: pw, alias: app.meta.android.key_alias.clone().unwrap_or_else(|| app.krate.clone()), release: true });
+        return Ok(Signing {
+            keystore: ks,
+            password_file: pw,
+            alias: app
+                .meta
+                .android
+                .key_alias
+                .clone()
+                .unwrap_or_else(|| app.krate.clone()),
+            release: true,
+        });
     }
     if publish {
-        bail!("нет ключа подписи {}/{{release.jks,password}} — создайте: syngui keygen -p {}", dir.display(), app.krate);
+        bail!(
+            "нет ключа подписи {}/{{release.jks,password}} — создайте: syngui keygen -p {}",
+            dir.display(),
+            app.krate
+        );
     }
     let dbg = util::home().join(".android/debug.keystore");
     if !dbg.is_file() {
         // keytool создаёт отладочный ключ так же, как Android Studio
         let mut c = Command::new("keytool");
         c.args(["-genkeypair", "-keystore"]).arg(&dbg).args([
-            "-storepass", "android", "-keypass", "android", "-alias", "androiddebugkey", "-keyalg", "RSA", "-keysize", "2048", "-validity", "10000",
-            "-dname", "CN=Android Debug,O=Android,C=US",
+            "-storepass",
+            "android",
+            "-keypass",
+            "android",
+            "-alias",
+            "androiddebugkey",
+            "-keyalg",
+            "RSA",
+            "-keysize",
+            "2048",
+            "-validity",
+            "10000",
+            "-dname",
+            "CN=Android Debug,O=Android,C=US",
         ]);
         std::fs::create_dir_all(dbg.parent().unwrap())?;
         util::run(c).context("отладочный ключ ~/.android/debug.keystore")?;
     }
     let pwf = app.work_dir("android").join("debug-password");
     util::write_if_changed(&pwf, "android")?;
-    Ok(Signing { keystore: dbg, password_file: pwf, alias: "androiddebugkey".into(), release: false })
+    Ok(Signing {
+        keystore: dbg,
+        password_file: pwf,
+        alias: "androiddebugkey".into(),
+        release: false,
+    })
 }
 
 /// Собрать подписанный APK; вернуть путь.
 /// `abis` — вместо ABI из метаданных (сборка под подключённое устройство).
-pub fn build(app: &App, profile: Profile, publish: bool, abis: Option<Vec<String>>) -> Result<PathBuf> {
+pub fn build(
+    app: &App,
+    profile: Profile,
+    publish: bool,
+    abis: Option<Vec<String>>,
+) -> Result<PathBuf> {
     let a = &app.meta.android;
-    let lib = a.lib.clone().or_else(|| app.lib.clone()).with_context(|| format!("у крейта {} нет [lib] (cdylib) для Android", app.krate))?;
-    let abis = abis.or_else(|| a.abis.clone()).unwrap_or_else(|| vec!["arm64-v8a".into()]);
+    let lib = a
+        .lib
+        .clone()
+        .or_else(|| app.lib.clone())
+        .with_context(|| format!("у крейта {} нет [lib] (cdylib) для Android", app.krate))?;
+    let abis = abis
+        .or_else(|| a.abis.clone())
+        .unwrap_or_else(|| vec!["arm64-v8a".into()]);
     let min_sdk = a.min_sdk.unwrap_or(30);
     let sign = signing(app, publish)?;
 
@@ -133,19 +196,29 @@ pub fn build(app: &App, profile: Profile, publish: bool, abis: Option<Vec<String
     if generated {
         generate(app, &gradle_dir, &lib, &abis, !publish)?;
     } else if !gradle_dir.join("local.properties").is_file() {
-        util::write(&gradle_dir.join("local.properties"), format!("sdk.dir={}\n", sdk_dir().display()))?;
+        util::write(
+            &gradle_dir.join("local.properties"),
+            format!("sdk.dir={}\n", sdk_dir().display()),
+        )?;
     }
     let jni = gradle_dir.join("app/src/main/jniLibs");
 
     // Rust → lib<name>.so для каждого ABI
     for abi in &abis {
         abi_triple(abi)?;
-        util::step(format!("{}: lib{lib}.so ({abi}, {})", app.krate, profile.dir()));
+        util::step(format!(
+            "{}: lib{lib}.so ({abi}, {})",
+            app.krate,
+            profile.dir()
+        ));
         // cargo-ndk не копирует .so, если в jniLibs файл новее (прошлая сборка другим профилем) —
         // в APK попала бы чужая библиотека
         let _ = std::fs::remove_file(jni.join(abi).join(format!("lib{lib}.so")));
         let mut c = Command::new("cargo");
-        c.current_dir(&app.manifest_dir).args(["ndk", "-t", abi, "-P", &min_sdk.to_string(), "-o"]).arg(&jni).arg("build");
+        c.current_dir(&app.manifest_dir)
+            .args(["ndk", "-t", abi, "-P", &min_sdk.to_string(), "-o"])
+            .arg(&jni)
+            .arg("build");
         c.args(crate::linux::profile_args(app, profile));
         c.arg("--lib");
         if !a.default_features {
@@ -157,7 +230,9 @@ pub fn build(app: &App, profile: Profile, publish: bool, abis: Option<Vec<String
         }
         // Статический FFmpeg под ABI: нужен, если включён syngui/ffmpeg-static (или android.ffmpeg = true)
         let need_ff = a.ffmpeg || wants_ffmpeg_static(app, &features, a.default_features);
-        let ff = std::env::var_os("FFMPEG_DIR").map(PathBuf::from).unwrap_or_else(|| syngui_dir().join("android-deps/ffmpeg").join(abi));
+        let ff = std::env::var_os("FFMPEG_DIR")
+            .map(PathBuf::from)
+            .unwrap_or_else(|| syngui_dir().join("android-deps/ffmpeg").join(abi));
         if ff.join("lib/libavcodec.a").is_file() {
             c.env("FFMPEG_DIR", &ff);
         } else if need_ff {
@@ -183,7 +258,11 @@ pub fn build(app: &App, profile: Profile, publish: bool, abis: Option<Vec<String
             c.arg("--strip-unneeded").arg(&so);
             util::run(c)?;
             let after = std::fs::metadata(&so).map(|m| m.len()).unwrap_or(0);
-            util::note(format!("strip lib{lib}.so ({abi}): {:.1} → {:.1} МБ", before as f64 / 1048576.0, after as f64 / 1048576.0));
+            util::note(format!(
+                "strip lib{lib}.so ({abi}): {:.1} → {:.1} МБ",
+                before as f64 / 1048576.0,
+                after as f64 / 1048576.0
+            ));
         }
     }
     // Лишние ABI от прошлых сборок не тащить в APK
@@ -197,11 +276,16 @@ pub fn build(app: &App, profile: Profile, publish: bool, abis: Option<Vec<String
 
     util::step(format!("{}: APK (gradle)", app.krate));
     let mut c = Command::new(gradle_dir.join("gradlew"));
-    c.current_dir(&gradle_dir).args(["--quiet", "assembleRelease"]);
+    c.current_dir(&gradle_dir)
+        .args(["--quiet", "assembleRelease"]);
     env(&mut c);
     util::run(c)?;
     let outs = gradle_dir.join("app/build/outputs/apk/release");
-    let unsigned = ["app-release-unsigned.apk", "app-release.apk"].iter().map(|n| outs.join(n)).find(|p| p.is_file()).with_context(|| format!("gradle не оставил APK в {}", outs.display()))?;
+    let unsigned = ["app-release-unsigned.apk", "app-release.apk"]
+        .iter()
+        .map(|n| outs.join(n))
+        .find(|p| p.is_file())
+        .with_context(|| format!("gradle не оставил APK в {}", outs.display()))?;
 
     // zipalign + apksigner (подпись заменяет любую прежнюю)
     let work = app.work_dir("android");
@@ -212,17 +296,34 @@ pub fn build(app: &App, profile: Profile, publish: bool, abis: Option<Vec<String
     c.args(["-P", "16", "-f", "4"]).arg(&unsigned).arg(&aligned);
     util::run(c)?;
     let apksigner = build_tool("apksigner").context("нет apksigner (Android SDK build-tools)")?;
-    util::step(format!("подпись: {} ({})", sign.keystore.display(), if sign.release { "релизный ключ" } else { "отладочный ключ" }));
+    util::step(format!(
+        "подпись: {} ({})",
+        sign.keystore.display(),
+        if sign.release {
+            "релизный ключ"
+        } else {
+            "отладочный ключ"
+        }
+    ));
     let mut c = Command::new(&apksigner);
-    c.arg("sign").arg("--ks").arg(&sign.keystore).arg("--ks-key-alias").arg(&sign.alias);
-    c.arg("--ks-pass").arg(format!("file:{}", sign.password_file.display()));
+    c.arg("sign")
+        .arg("--ks")
+        .arg(&sign.keystore)
+        .arg("--ks-key-alias")
+        .arg(&sign.alias);
+    c.arg("--ks-pass")
+        .arg(format!("file:{}", sign.password_file.display()));
     c.arg("--out").arg(&apk).arg(&aligned);
     env(&mut c);
     util::run(c)?;
     let _ = std::fs::remove_file(&aligned);
     let _ = std::fs::remove_file(apk.with_extension("apk.idsig"));
     let size = std::fs::metadata(&apk).map(|m| m.len()).unwrap_or(0);
-    util::note(format!("{} ({:.1} МБ)", apk.display(), size as f64 / 1048576.0));
+    util::note(format!(
+        "{} ({:.1} МБ)",
+        apk.display(),
+        size as f64 / 1048576.0
+    ));
     Ok(apk)
 }
 
@@ -253,8 +354,14 @@ pub fn generate(app: &App, dir: &Path, lib: &str, abis: &[String], debuggable: b
         app.krate
     ))?;
     w("build.gradle.kts", &format!("// Сгенерировано syngui — правки делать в [package.metadata.syngui.android]\nplugins {{\n    id(\"com.android.application\") version \"{AGP}\" apply false\n}}\n"))?;
-    w("gradle.properties", "android.useAndroidX=true\norg.gradle.jvmargs=-Xmx2048m\n")?;
-    w("local.properties", &format!("sdk.dir={}\n", sdk_dir().display()))?;
+    w(
+        "gradle.properties",
+        "android.useAndroidX=true\norg.gradle.jvmargs=-Xmx2048m\n",
+    )?;
+    w(
+        "local.properties",
+        &format!("sdk.dir={}\n", sdk_dir().display()),
+    )?;
     w("gradle/wrapper/gradle-wrapper.properties", WRAPPER_PROPS)?;
     util::write_if_changed(&dir.join("gradle/wrapper/gradle-wrapper.jar"), WRAPPER_JAR)?;
     util::write_if_changed(&dir.join("gradlew"), GRADLEW)?;
@@ -263,8 +370,16 @@ pub fn generate(app: &App, dir: &Path, lib: &str, abis: &[String], debuggable: b
         std::fs::set_permissions(dir.join("gradlew"), std::fs::Permissions::from_mode(0o755))?;
     }
 
-    let abi_list = abis.iter().map(|a| format!("\"{a}\"")).collect::<Vec<_>>().join(", ");
-    let deps = a.gradle_dependencies.iter().map(|d| format!("    implementation(\"{d}\")\n")).collect::<String>();
+    let abi_list = abis
+        .iter()
+        .map(|a| format!("\"{a}\""))
+        .collect::<Vec<_>>()
+        .join(", ");
+    let deps = a
+        .gradle_dependencies
+        .iter()
+        .map(|d| format!("    implementation(\"{d}\")\n"))
+        .collect::<String>();
     let java_dirs = match &a.java {
         Some(j) => format!(", \"{}\"", app.path(j).display()),
         None => String::new(),
@@ -273,8 +388,10 @@ pub fn generate(app: &App, dir: &Path, lib: &str, abis: &[String], debuggable: b
         Some(r) => format!(", \"{}\"", app.path(r).display()),
         None => String::new(),
     };
-    w("app/build.gradle.kts", &format!(
-        r#"// Сгенерировано syngui из [package.metadata.syngui] крейта {krate}.
+    w(
+        "app/build.gradle.kts",
+        &format!(
+            r#"// Сгенерировано syngui из [package.metadata.syngui] крейта {krate}.
 plugins {{
     id("com.android.application")
 }}
@@ -325,16 +442,21 @@ dependencies {{
     implementation(platform("org.jetbrains.kotlin:kotlin-bom:2.1.10"))
 {deps}}}
 "#,
-        krate = app.krate,
-        code = app.version_code(),
-        ver = app.version,
-    ))?;
+            krate = app.krate,
+            code = app.version_code(),
+            ver = app.version,
+        ),
+    )?;
 
     // Манифест
     let mut perms: Vec<String> = a.permissions.iter().map(|p| permission(p)).collect();
     let mut app_extra = String::new();
     if let Some(sub) = &a.foreground_service {
-        for p in ["POST_NOTIFICATIONS", "FOREGROUND_SERVICE", "FOREGROUND_SERVICE_SPECIAL_USE"] {
+        for p in [
+            "POST_NOTIFICATIONS",
+            "FOREGROUND_SERVICE",
+            "FOREGROUND_SERVICE_SPECIAL_USE",
+        ] {
             let p = permission(p);
             if !perms.contains(&p) {
                 perms.push(p);
@@ -344,9 +466,14 @@ dependencies {{
             "        <!-- Foreground-сервис syngui (живой прогресс в уведомлении). -->\n        <service\n            android:name=\"syngui.android.SynGuiForegroundService\"\n            android:exported=\"false\"\n            android:foregroundServiceType=\"specialUse\">\n            <property\n                android:name=\"android.app.PROPERTY_SPECIAL_USE_FGS_SUBTYPE\"\n                android:value=\"{}\" />\n        </service>\n",
             util::xml(sub)
         ));
-        w("app/src/main/java/syngui/android/SynGuiForegroundService.java", FOREGROUND_SERVICE)?;
+        w(
+            "app/src/main/java/syngui/android/SynGuiForegroundService.java",
+            FOREGROUND_SERVICE,
+        )?;
     } else {
-        let _ = std::fs::remove_file(dir.join("app/src/main/java/syngui/android/SynGuiForegroundService.java"));
+        let _ = std::fs::remove_file(
+            dir.join("app/src/main/java/syngui/android/SynGuiForegroundService.java"),
+        );
     }
     if let Some(x) = &a.manifest_application {
         app_extra.push_str(&read_snippet(app, x)?);
@@ -355,10 +482,29 @@ dependencies {{
         Some(x) => read_snippet(app, x)?,
         None => String::new(),
     };
-    let perms_xml: String = perms.iter().map(|p| format!("    <uses-permission android:name=\"{}\" />\n", util::xml(p))).collect();
-    let orientation = a.orientation.as_deref().map(|o| format!("\n            android:screenOrientation=\"{}\"", util::xml(o))).unwrap_or_default();
-    w("app/src/main/AndroidManifest.xml", &format!(
-        r#"<?xml version="1.0" encoding="utf-8"?>
+    let perms_xml: String = perms
+        .iter()
+        .map(|p| {
+            format!(
+                "    <uses-permission android:name=\"{}\" />\n",
+                util::xml(p)
+            )
+        })
+        .collect();
+    let orientation = a
+        .orientation
+        .as_deref()
+        .map(|o| {
+            format!(
+                "\n            android:screenOrientation=\"{}\"",
+                util::xml(o)
+            )
+        })
+        .unwrap_or_default();
+    w(
+        "app/src/main/AndroidManifest.xml",
+        &format!(
+            r#"<?xml version="1.0" encoding="utf-8"?>
 <!-- Сгенерировано syngui из [package.metadata.syngui] крейта {krate}. -->
 <manifest xmlns:android="http://schemas.android.com/apk/res/android">
 
@@ -409,12 +555,26 @@ dependencies {{
 {app_extra}    </application>
 </manifest>
 "#,
-        krate = app.krate,
-        label = util::xml(&name),
-    ))?;
+            krate = app.krate,
+            label = util::xml(&name),
+        ),
+    )?;
 
-    let bg = a.background.as_deref().map(|c| format!("        <item name=\"android:windowBackground\">{}</item>\n", util::xml(c))).unwrap_or_default();
-    let fs = if a.fullscreen { "        <item name=\"android:windowFullscreen\">true</item>\n" } else { "" };
+    let bg = a
+        .background
+        .as_deref()
+        .map(|c| {
+            format!(
+                "        <item name=\"android:windowBackground\">{}</item>\n",
+                util::xml(c)
+            )
+        })
+        .unwrap_or_default();
+    let fs = if a.fullscreen {
+        "        <item name=\"android:windowFullscreen\">true</item>\n"
+    } else {
+        ""
+    };
     w("app/src/main/res/values/styles.xml", &format!(
         "<?xml version=\"1.0\" encoding=\"utf-8\"?>\n<resources>\n    <style name=\"Theme.SynGui\" parent=\"Theme.AppCompat.DayNight.NoActionBar\">\n        <item name=\"android:windowNoTitle\">true</item>\n{bg}{fs}        <item name=\"android:windowLayoutInDisplayCutoutMode\">shortEdges</item>\n    </style>\n</resources>\n"
     ))?;
@@ -428,7 +588,13 @@ dependencies {{
             letter_icon(&name)
         }
     };
-    const DENS: [(&str, u32); 5] = [("mdpi", 1), ("hdpi", 2), ("xhdpi", 2), ("xxhdpi", 3), ("xxxhdpi", 4)];
+    const DENS: [(&str, u32); 5] = [
+        ("mdpi", 1),
+        ("hdpi", 2),
+        ("xhdpi", 2),
+        ("xxhdpi", 3),
+        ("xxxhdpi", 4),
+    ];
     let scale = |d: &str| -> f32 {
         match d {
             "mdpi" => 1.0,
@@ -442,22 +608,45 @@ dependencies {{
     // Значок для старых лаунчеров (и запасной круглый)
     for (d, _) in DENS {
         let px = (48.0 * scale(d)).round() as u32;
-        icon::render(&svg, px, None, &res.join(format!("mipmap-{d}/ic_launcher.png")))?;
-        icon::render(&svg, px, None, &res.join(format!("mipmap-{d}/ic_launcher_round.png")))?;
+        icon::render(
+            &svg,
+            px,
+            None,
+            &res.join(format!("mipmap-{d}/ic_launcher.png")),
+        )?;
+        icon::render(
+            &svg,
+            px,
+            None,
+            &res.join(format!("mipmap-{d}/ic_launcher_round.png")),
+        )?;
     }
     // Адаптивный значок: передний план и фон по 108dp, монохромный слой — Android 13
     let anydpi = res.join("mipmap-anydpi-v26");
-    let stale = ["ic_launcher_foreground.png", "ic_launcher_background.png", "ic_launcher_monochrome.png"];
+    let stale = [
+        "ic_launcher_foreground.png",
+        "ic_launcher_background.png",
+        "ic_launcher_monochrome.png",
+    ];
     match &a.icon_foreground {
         Some(fg) => {
-            let read = |p: &str| std::fs::read_to_string(app.path(p)).with_context(|| format!("значок {p}"));
+            let read = |p: &str| {
+                std::fs::read_to_string(app.path(p)).with_context(|| format!("значок {p}"))
+            };
             let fg_svg = read(fg)?;
             let mono_svg = match &a.icon_monochrome {
                 Some(m) => Some(read(m)?),
                 None => None,
             };
-            let bg = a.icon_background.clone().unwrap_or_else(|| "#FFFFFF".into());
-            let bg_svg = if bg.trim_start().starts_with('#') { None } else { Some(read(&bg)?) };
+            let bg = a
+                .icon_background
+                .clone()
+                .unwrap_or_else(|| "#FFFFFF".into());
+            let bg_svg = if bg.trim_start().starts_with('#') {
+                None
+            } else {
+                Some(read(&bg)?)
+            };
             for (d, _) in DENS {
                 let px = (108.0 * scale(d)).round() as u32;
                 let m = res.join(format!("mipmap-{d}"));
@@ -488,7 +677,11 @@ dependencies {{
             if bg_svg.is_some() {
                 let _ = std::fs::remove_file(res.join("values/ic_launcher_background.xml"));
             }
-            let mono = if mono_svg.is_some() { "@mipmap/ic_launcher_monochrome" } else { "@mipmap/ic_launcher_foreground" };
+            let mono = if mono_svg.is_some() {
+                "@mipmap/ic_launcher_monochrome"
+            } else {
+                "@mipmap/ic_launcher_foreground"
+            };
             let xml = format!(
                 "<?xml version=\"1.0\" encoding=\"utf-8\"?>\n<!-- Сгенерировано syngui: адаптивный значок ([package.metadata.syngui.android] icon_foreground/icon_background). -->\n<adaptive-icon xmlns:android=\"http://schemas.android.com/apk/res/android\">\n    <background android:drawable=\"{bg_ref}\" />\n    <foreground android:drawable=\"@mipmap/ic_launcher_foreground\" />\n    <monochrome android:drawable=\"{mono}\" />\n</adaptive-icon>\n"
             );
@@ -511,13 +704,22 @@ dependencies {{
 
 /// Фрагмент XML: строка с `<` — как есть, иначе путь к файлу.
 fn read_snippet(app: &App, s: &str) -> Result<String> {
-    let text = if s.trim_start().starts_with('<') { s.to_string() } else { std::fs::read_to_string(app.path(s)).with_context(|| format!("фрагмент манифеста {s}"))? };
+    let text = if s.trim_start().starts_with('<') {
+        s.to_string()
+    } else {
+        std::fs::read_to_string(app.path(s)).with_context(|| format!("фрагмент манифеста {s}"))?
+    };
     Ok(text.lines().map(|l| format!("        {l}\n")).collect())
 }
 
 /// Значок-заглушка: первая буква имени на круге.
 pub fn letter_icon(name: &str) -> String {
-    let ch = name.chars().next().unwrap_or('S').to_uppercase().to_string();
+    let ch = name
+        .chars()
+        .next()
+        .unwrap_or('S')
+        .to_uppercase()
+        .to_string();
     format!(
         r##"<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 128 128"><circle cx="64" cy="64" r="60" fill="#3d6df2"/><text x="64" y="86" font-family="sans-serif" font-size="64" font-weight="bold" fill="#fff" text-anchor="middle">{}</text></svg>"##,
         util::xml(&ch)
@@ -534,8 +736,17 @@ pub fn device() -> Result<String> {
         c.arg("devices");
         c
     })?;
-    let devs: Vec<&str> = out.lines().skip(1).filter(|l| l.ends_with("\tdevice")).map(|l| l.split('\t').next().unwrap()).collect();
-    devs.iter().find(|d| !d.starts_with("emulator-")).or(devs.first()).map(|s| s.to_string()).context("нет устройства Android (adb devices); включите отладку по USB")
+    let devs: Vec<&str> = out
+        .lines()
+        .skip(1)
+        .filter(|l| l.ends_with("\tdevice"))
+        .map(|l| l.split('\t').next().unwrap())
+        .collect();
+    devs.iter()
+        .find(|d| !d.starts_with("emulator-"))
+        .or(devs.first())
+        .map(|s| s.to_string())
+        .context("нет устройства Android (adb devices); включите отладку по USB")
 }
 
 /// Основной ABI устройства (ro.product.cpu.abi).
@@ -566,7 +777,14 @@ pub fn install_run(app: &App, apk: &Path, logcat: bool) -> Result<()> {
         return Err(e);
     }
     util::step(format!("запуск {id}"));
-    util::run(adb(&["shell", "am", "start", "-S", "-n", &format!("{id}/{ACTIVITY}")]))?;
+    util::run(adb(&[
+        "shell",
+        "am",
+        "start",
+        "-S",
+        "-n",
+        &format!("{id}/{ACTIVITY}"),
+    ]))?;
     if !logcat {
         return Ok(());
     }
@@ -575,7 +793,10 @@ pub fn install_run(app: &App, apk: &Path, logcat: bool) -> Result<()> {
         std::thread::sleep(std::time::Duration::from_millis(500));
         let mut c = adb(&["shell", "pidof", &id]);
         c.stderr(std::process::Stdio::null());
-        pid = c.output().map(|o| String::from_utf8_lossy(&o.stdout).trim().to_string()).unwrap_or_default();
+        pid = c
+            .output()
+            .map(|o| String::from_utf8_lossy(&o.stdout).trim().to_string())
+            .unwrap_or_default();
         if !pid.is_empty() {
             break;
         }
@@ -599,33 +820,77 @@ pub fn keygen(app: &App, dname: &str) -> Result<()> {
     std::fs::create_dir_all(&dir)?;
     std::fs::set_permissions(&dir, std::fs::Permissions::from_mode(0o700))?;
     let mut pw = [0u8; 24];
-    std::fs::File::open("/dev/urandom").and_then(|mut f| std::io::Read::read_exact(&mut f, &mut pw))?;
-    let pw: String = pw.iter().map(|b| (b"ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz23456789")[*b as usize % 57] as char).collect();
+    std::fs::File::open("/dev/urandom")
+        .and_then(|mut f| std::io::Read::read_exact(&mut f, &mut pw))?;
+    let pw: String = pw
+        .iter()
+        .map(|b| {
+            (b"ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz23456789")[*b as usize % 57] as char
+        })
+        .collect();
     let pwf = dir.join("password");
     std::fs::write(&pwf, &pw)?;
     std::fs::set_permissions(&pwf, std::fs::Permissions::from_mode(0o600))?;
-    let alias = app.meta.android.key_alias.clone().unwrap_or_else(|| app.krate.clone());
+    let alias = app
+        .meta
+        .android
+        .key_alias
+        .clone()
+        .unwrap_or_else(|| app.krate.clone());
     let mut c = Command::new("keytool");
-    c.args(["-genkeypair", "-keystore"]).arg(&ks).args(["-storetype", "PKCS12", "-alias", &alias, "-keyalg", "RSA", "-keysize", "4096", "-validity", "36500", "-dname", dname]);
-    c.arg("-storepass:file").arg(&pwf).arg("-keypass:file").arg(&pwf);
+    c.args(["-genkeypair", "-keystore"]).arg(&ks).args([
+        "-storetype",
+        "PKCS12",
+        "-alias",
+        &alias,
+        "-keyalg",
+        "RSA",
+        "-keysize",
+        "4096",
+        "-validity",
+        "36500",
+        "-dname",
+        dname,
+    ]);
+    c.arg("-storepass:file")
+        .arg(&pwf)
+        .arg("-keypass:file")
+        .arg(&pwf);
     util::run(c)?;
     std::fs::set_permissions(&ks, std::fs::Permissions::from_mode(0o600))?;
-    util::step(format!("ключ: {} (alias {alias}, RSA 4096, 100 лет)", ks.display()));
+    util::step(format!(
+        "ключ: {} (alias {alias}, RSA 4096, 100 лет)",
+        ks.display()
+    ));
     let mut c = Command::new("keytool");
-    c.args(["-list", "-v", "-keystore"]).arg(&ks).arg("-storepass:file").arg(&pwf);
+    c.args(["-list", "-v", "-keystore"])
+        .arg(&ks)
+        .arg("-storepass:file")
+        .arg(&pwf);
     let out = util::capture(c)?;
     if let Some(l) = out.lines().find(|l| l.trim_start().starts_with("SHA256:")) {
         util::note(l.trim());
     }
-    util::warn(format!("сохраните копию каталога {} — без него обновления приложения не поставятся", dir.display()));
+    util::warn(format!(
+        "сохраните копию каталога {} — без него обновления приложения не поставятся",
+        dir.display()
+    ));
     Ok(())
 }
 
 /// Включает ли набор возможностей крейта (с учётом вложенных) `syngui/ffmpeg-static`.
 fn wants_ffmpeg_static(app: &App, features: &[String], default: bool) -> bool {
-    let Ok(text) = std::fs::read_to_string(app.manifest_dir.join("Cargo.toml")) else { return false };
-    let Ok(v) = text.parse::<toml::Value>() else { return false };
-    let table = v.get("features").and_then(|f| f.as_table()).cloned().unwrap_or_default();
+    let Ok(text) = std::fs::read_to_string(app.manifest_dir.join("Cargo.toml")) else {
+        return false;
+    };
+    let Ok(v) = text.parse::<toml::Value>() else {
+        return false;
+    };
+    let table = v
+        .get("features")
+        .and_then(|f| f.as_table())
+        .cloned()
+        .unwrap_or_default();
     let mut todo: Vec<String> = features.to_vec();
     if default {
         todo.push("default".into());

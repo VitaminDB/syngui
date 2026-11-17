@@ -22,29 +22,24 @@ pub fn build_containers_section() -> impl Widget {
                             .child(
                                 SplitView::new(
                                     // Left panel
-                                    DecoratedBox::new()
-                                        .class("tint-blue")
-                                        .child(
-                                            Column::new()
-                                                .gap(8.0)
-                                                .child(Text::new("Left Panel").class("label"))
-                                                .child(
-                                                    Text::new("Drag the divider to resize")
-                                                        .class("label"),
-                                                ),
-                                        ),
+                                    DecoratedBox::new().class("tint-blue").child(
+                                        Column::new()
+                                            .gap(8.0)
+                                            .child(Text::new("Left Panel").class("label"))
+                                            .child(
+                                                Text::new("Drag the divider to resize")
+                                                    .class("label"),
+                                            ),
+                                    ),
                                     // Right panel
-                                    DecoratedBox::new()
-                                        .class("tint-green")
-                                        .child(
-                                            Column::new()
-                                                .gap(8.0)
-                                                .child(Text::new("Right Panel").class("label"))
-                                                .child(
-                                                    Text::new("Flexible content area")
-                                                        .class("label"),
-                                                ),
-                                        ),
+                                    DecoratedBox::new().class("tint-green").child(
+                                        Column::new()
+                                            .gap(8.0)
+                                            .child(Text::new("Right Panel").class("label"))
+                                            .child(
+                                                Text::new("Flexible content area").class("label"),
+                                            ),
+                                    ),
                                 )
                                 .direction(SplitDirection::Horizontal)
                                 .initial_ratio(0.4)

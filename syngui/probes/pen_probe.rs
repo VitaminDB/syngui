@@ -13,7 +13,12 @@ struct Probe;
 
 impl Widget for Probe {
     fn create_element(&self) -> Box<dyn Element> {
-        Box::new(ProbeEl { id: ElementId::new(), bounds: Rect::zero(), dots: Vec::new(), dirty: DirtyFlags::all() })
+        Box::new(ProbeEl {
+            id: ElementId::new(),
+            bounds: Rect::zero(),
+            dots: Vec::new(),
+            dirty: DirtyFlags::all(),
+        })
     }
     fn can_update(&self, other: &dyn Any) -> bool {
         other.is::<Self>()
@@ -43,7 +48,11 @@ impl Element for ProbeEl {
     fn build_display_list(&self, list: &mut DisplayList, _clip: Rect) {
         list.push_rect(self.bounds, Color::rgb(1.0, 1.0, 1.0), [0.0; 4]);
         for &(p, w, eraser) in &self.dots {
-            let c = if eraser { Color::rgb(0.9, 0.1, 0.1) } else { Color::rgb(0.0, 0.0, 0.0) };
+            let c = if eraser {
+                Color::rgb(0.9, 0.1, 0.1)
+            } else {
+                Color::rgb(0.0, 0.0, 0.0)
+            };
             let r = Rect::new(Point::new(p.x - w / 2.0, p.y - w / 2.0), Size::new(w, w));
             list.push_rect(r, c, [w / 2.0; 4]);
         }
@@ -64,7 +73,8 @@ impl Element for ProbeEl {
                 );
                 if matches!(phase, PenPhase::Down | PenPhase::Move) {
                     let w = 1.0 + sample.pressure * 8.0;
-                    self.dots.push((sample.position, w, sample.tool == PenTool::Eraser));
+                    self.dots
+                        .push((sample.position, w, sample.tool == PenTool::Eraser));
                     syngui::widget::context::EventContextExt::mark_dirty(ctx, DirtyFlags::RENDER);
                 }
                 // Наведение не берём — проверка запасного пути мыши.

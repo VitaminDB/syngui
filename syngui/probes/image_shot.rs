@@ -25,7 +25,11 @@ fn main() {
                 row = row.child(
                     Column::new()
                         .gap(4.0)
-                        .child(Image::new(path.clone()).fit(ImageFit::Contain).class("cell"))
+                        .child(
+                            Image::new(path.clone())
+                                .fit(ImageFit::Contain)
+                                .class("cell"),
+                        )
                         .child(Text::new(name).class("name")),
                 );
             }

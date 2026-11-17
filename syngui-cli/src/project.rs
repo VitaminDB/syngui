@@ -230,7 +230,10 @@ impl App {
         let cwd = std::env::current_dir()?;
         let has_meta = |p: &Pkg| p.metadata.as_ref().and_then(|v| v.get("syngui")).is_some();
         let pkg = if let Some(name) = package {
-            m.packages.iter().find(|p| p.name == name).with_context(|| format!("нет крейта {name} в рабочем пространстве"))?
+            m.packages
+                .iter()
+                .find(|p| p.name == name)
+                .with_context(|| format!("нет крейта {name} в рабочем пространстве"))?
         } else if let Some(p) = m
             .packages
             .iter()
@@ -239,7 +242,11 @@ impl App {
         {
             p
         } else {
-            let members: Vec<&Pkg> = m.packages.iter().filter(|p| m.workspace_members.contains(&p.id)).collect();
+            let members: Vec<&Pkg> = m
+                .packages
+                .iter()
+                .filter(|p| m.workspace_members.contains(&p.id))
+                .collect();
             let with: Vec<&&Pkg> = members.iter().filter(|p| has_meta(p)).collect();
             match with.as_slice() {
                 [one] => one,
@@ -256,22 +263,45 @@ impl App {
             }
         };
         let legacy = pkg.metadata.as_ref().and_then(|v| v.get("android"));
-        let legacy_android_id = legacy.and_then(|a| a.get("package")).and_then(|v| v.as_str()).map(str::to_string);
+        let legacy_android_id = legacy
+            .and_then(|a| a.get("package"))
+            .and_then(|v| v.as_str())
+            .map(str::to_string);
         let mut meta: Meta = match pkg.metadata.as_ref().and_then(|v| v.get("syngui")) {
-            Some(v) => serde_json::from_value(v.clone()).with_context(|| format!("[package.metadata.syngui] в {}", pkg.manifest_path.display()))?,
+            Some(v) => serde_json::from_value(v.clone()).with_context(|| {
+                format!(
+                    "[package.metadata.syngui] в {}",
+                    pkg.manifest_path.display()
+                )
+            })?,
             None => Meta::default(),
         };
         if meta.android.min_sdk.is_none() {
-            meta.android.min_sdk = legacy.and_then(|a| a.pointer("/sdk/min_sdk_version")).and_then(|v| v.as_u64()).map(|v| v as u32);
+            meta.android.min_sdk = legacy
+                .and_then(|a| a.pointer("/sdk/min_sdk_version"))
+                .and_then(|v| v.as_u64())
+                .map(|v| v as u32);
         }
         if meta.android.target_sdk.is_none() {
-            meta.android.target_sdk = legacy.and_then(|a| a.pointer("/sdk/target_sdk_version")).and_then(|v| v.as_u64()).map(|v| v as u32);
+            meta.android.target_sdk = legacy
+                .and_then(|a| a.pointer("/sdk/target_sdk_version"))
+                .and_then(|v| v.as_u64())
+                .map(|v| v as u32);
         }
-        let bins = pkg.targets.iter().filter(|t| t.kind.iter().any(|k| k == "bin")).map(|t| t.name.clone()).collect();
+        let bins = pkg
+            .targets
+            .iter()
+            .filter(|t| t.kind.iter().any(|k| k == "bin"))
+            .map(|t| t.name.clone())
+            .collect();
         let lib = pkg
             .targets
             .iter()
-            .find(|t| t.kind.iter().any(|k| k == "cdylib" || k == "lib" || k == "rlib"))
+            .find(|t| {
+                t.kind
+                    .iter()
+                    .any(|k| k == "cdylib" || k == "lib" || k == "rlib")
+            })
             .map(|t| t.name.replace('-', "_"));
         Ok(App {
             krate: pkg.name.clone(),
@@ -300,7 +330,11 @@ impl App {
         match self.bins.as_slice() {
             [one] => Ok(one.clone()),
             [] => bail!("у крейта {} нет программы (bin)", self.krate),
-            many => bail!("у крейта {} несколько программ ({}) — укажите [package.metadata.syngui] bin", self.krate, many.join(", ")),
+            many => bail!(
+                "у крейта {} несколько программ ({}) — укажите [package.metadata.syngui] bin",
+                self.krate,
+                many.join(", ")
+            ),
         }
     }
 
@@ -310,7 +344,13 @@ impl App {
 
     /// id приложения: `id` из метаданных или io.github.vitamindb.<крейт без дефисов>.
     pub fn app_id(&self) -> String {
-        self.meta.id.clone().or_else(|| self.legacy_android_id.clone()).unwrap_or_else(|| format!("io.github.vitamindb.{}", self.krate.replace(['-', '_'], "")))
+        self.meta
+            .id
+            .clone()
+            .or_else(|| self.legacy_android_id.clone())
+            .unwrap_or_else(|| {
+                format!("io.github.vitamindb.{}", self.krate.replace(['-', '_'], ""))
+            })
     }
 
     pub fn path(&self, rel: &str) -> PathBuf {
@@ -328,10 +368,15 @@ impl App {
             return Some(self.path(i));
         }
         let bin = self.bin().unwrap_or_else(|_| self.krate.clone());
-        [format!("data/icons/{bin}.svg"), format!("data/icons/{}.svg", self.krate), "data/icon.svg".into(), "assets/icon.svg".into()]
-            .into_iter()
-            .map(|r| self.manifest_dir.join(r))
-            .find(|p| p.is_file())
+        [
+            format!("data/icons/{bin}.svg"),
+            format!("data/icons/{}.svg", self.krate),
+            "data/icon.svg".into(),
+            "assets/icon.svg".into(),
+        ]
+        .into_iter()
+        .map(|r| self.manifest_dir.join(r))
+        .find(|p| p.is_file())
     }
 
     pub fn desktop_file(&self) -> Option<PathBuf> {
@@ -356,9 +401,14 @@ impl App {
     /// Номер сборки: число коммитов в git (как у iOS-скрипта), иначе 1.
     pub fn build_number(&self) -> u32 {
         let mut c = Command::new("git");
-        c.arg("-C").arg(&self.manifest_dir).args(["rev-list", "--count", "HEAD"]);
+        c.arg("-C")
+            .arg(&self.manifest_dir)
+            .args(["rev-list", "--count", "HEAD"]);
         c.stderr(std::process::Stdio::null());
-        c.output().ok().and_then(|o| String::from_utf8_lossy(&o.stdout).trim().parse().ok()).unwrap_or(1)
+        c.output()
+            .ok()
+            .and_then(|o| String::from_utf8_lossy(&o.stdout).trim().parse().ok())
+            .unwrap_or(1)
     }
 
     /// versionCode Android из семантической версии: 1.2.3 → 1002003 (растёт с каждой версией).
@@ -366,7 +416,12 @@ impl App {
         if let Some(c) = self.meta.android.version_code {
             return c;
         }
-        let v: Vec<u32> = self.version.split(['.', '-', '+']).take(3).map(|p| p.parse().unwrap_or(0)).collect();
+        let v: Vec<u32> = self
+            .version
+            .split(['.', '-', '+'])
+            .take(3)
+            .map(|p| p.parse().unwrap_or(0))
+            .collect();
         let g = |i: usize| v.get(i).copied().unwrap_or(0);
         (g(0) * 1_000_000 + g(1) * 1_000 + g(2)).max(1)
     }
@@ -401,5 +456,8 @@ pub fn syngui_dir() -> PathBuf {
     if let Some(d) = std::env::var_os("SYNGUI_DIR") {
         return PathBuf::from(d);
     }
-    Path::new(env!("CARGO_MANIFEST_DIR")).parent().unwrap().to_path_buf()
+    Path::new(env!("CARGO_MANIFEST_DIR"))
+        .parent()
+        .unwrap()
+        .to_path_buf()
 }

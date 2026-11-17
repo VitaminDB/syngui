@@ -13,11 +13,21 @@ const MSS: &str = r#"
     Calendar { color: #e8ecf4; accent-color: #4fc3f7; background-color: #00000000; border-color: #00000000; }
 "#;
 
-fn shot(dir: &str, name: &str, size: (u32, u32), week: bool, styles: Vec<(&'static str, StyleValue)>) {
+fn shot(
+    dir: &str,
+    name: &str,
+    size: (u32, u32),
+    week: bool,
+    styles: Vec<(&'static str, StyleValue)>,
+) {
     let out = format!("{dir}/{name}.png");
     let r = syngui::shot::render_png(
         move || {
-            let mut cal = Calendar::new().selected(Date::new(2026, 11, 16)).show_week_numbers(week).fit(true).class("cal");
+            let mut cal = Calendar::new()
+                .selected(Date::new(2026, 11, 16))
+                .show_week_numbers(week)
+                .fit(true)
+                .class("cal");
             for (k, v) in styles {
                 cal = cal.style(k, v);
             }
@@ -40,8 +50,45 @@ fn shot(dir: &str, name: &str, size: (u32, u32), week: bool, styles: Vec<(&'stat
 fn main() {
     let dir = std::env::args().nth(1).unwrap_or_else(|| ".".into());
     let s = |v: &str| StyleValue::String(v.into());
-    shot(&dir, "big", (600, 600), false, vec![("font-family", s("Noto Serif")), ("font-weight", StyleValue::Number(300.0)), ("--cal-day-shape", s("rounded"))]);
-    shot(&dir, "weeks", (440, 380), true, vec![("--cal-day-shape", s("square")), ("--cal-weekend-color", StyleValue::Color(MssColor::rgb(255, 138, 128)))]);
-    shot(&dir, "no_outside", (330, 330), false, vec![("--cal-outside-color", StyleValue::Color(MssColor::rgba(0, 0, 0, 0)))]);
-    shot(&dir, "font_fixed", (600, 600), false, vec![("--cal-font-size", StyleValue::px(14.0))]);
+    shot(
+        &dir,
+        "big",
+        (600, 600),
+        false,
+        vec![
+            ("font-family", s("Noto Serif")),
+            ("font-weight", StyleValue::Number(300.0)),
+            ("--cal-day-shape", s("rounded")),
+        ],
+    );
+    shot(
+        &dir,
+        "weeks",
+        (440, 380),
+        true,
+        vec![
+            ("--cal-day-shape", s("square")),
+            (
+                "--cal-weekend-color",
+                StyleValue::Color(MssColor::rgb(255, 138, 128)),
+            ),
+        ],
+    );
+    shot(
+        &dir,
+        "no_outside",
+        (330, 330),
+        false,
+        vec![(
+            "--cal-outside-color",
+            StyleValue::Color(MssColor::rgba(0, 0, 0, 0)),
+        )],
+    );
+    shot(
+        &dir,
+        "font_fixed",
+        (600, 600),
+        false,
+        vec![("--cal-font-size", StyleValue::px(14.0))],
+    );
 }

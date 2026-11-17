@@ -56,7 +56,10 @@ fn tick_slider_follows_finger() {
         100.0,
     );
     let v = log.lock().unwrap().clone();
-    assert!(v.len() >= 4, "значение меняется по ходу пальца, а не только в конце: {v:?}");
+    assert!(
+        v.len() >= 4,
+        "значение меняется по ходу пальца, а не только в конце: {v:?}"
+    );
     let last = *v.last().unwrap();
     assert!(last > 60.0, "ползунок доехал за пальцем: {v:?}");
 }
@@ -81,7 +84,11 @@ fn tick_slider_tap_sets_value_once() {
     let p = Point::new(b.x() + b.size.width * 0.5, b.y() + b.size.height / 2.0);
     h.touch_down(1, p);
     settle(&mut h, 400.0, 100.0);
-    assert_eq!(log.lock().unwrap().len(), 1, "значение ставится сразу при касании");
+    assert_eq!(
+        log.lock().unwrap().len(),
+        1,
+        "значение ставится сразу при касании"
+    );
     h.touch_up(1);
     settle(&mut h, 400.0, 100.0);
     assert_eq!(
@@ -122,7 +129,9 @@ fn list_view_scrolls_by_finger() {
     use syngui::widgets::data::{ListItem, ListView};
     let picked = Arc::new(Mutex::new(Vec::new()));
     let p = picked.clone();
-    let items = (0..40).map(|i| ListItem::new(format!("строка {i}"))).collect();
+    let items = (0..40)
+        .map(|i| ListItem::new(format!("строка {i}")))
+        .collect();
     let widget = Stack::new().child(
         ListView::new(items)
             .item_height(40.0)
@@ -144,7 +153,14 @@ fn list_view_scrolls_by_finger() {
 
     // Пальцем вверх на три строки (из-под тапа, чтобы был запас по высоте).
     let from = Point::new(at.x, b.y() + 170.0);
-    drag(&mut h, from, Point::new(from.x, from.y - 120.0), 8, 400.0, 400.0);
+    drag(
+        &mut h,
+        from,
+        Point::new(from.x, from.y - 120.0),
+        8,
+        400.0,
+        400.0,
+    );
     // Ждём, пока не уйдёт двойной тап.
     std::thread::sleep(std::time::Duration::from_millis(350));
     h.touch_down(1, at);

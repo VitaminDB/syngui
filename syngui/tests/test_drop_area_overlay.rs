@@ -10,7 +10,7 @@ use syngui::core::{Point, Rect};
 use syngui::input::{DragData, Event};
 use syngui::testing::*;
 use syngui::widget::DragState;
-use syngui::widgets::overlay::{DropArea, Draggable};
+use syngui::widgets::overlay::{Draggable, DropArea};
 use syngui::widgets::{Column, Stack, StackFit, Text};
 
 #[derive(Default, Clone)]
@@ -44,7 +44,11 @@ fn build() -> (TestHarness, C) {
                 })
                 .child(Text::new("Группа вкладок")),
         );
-    let (d, o, l) = (c.edge_drop.clone(), c.edge_over.clone(), c.edge_leave.clone());
+    let (d, o, l) = (
+        c.edge_drop.clone(),
+        c.edge_over.clone(),
+        c.edge_leave.clone(),
+    );
     let edge = DropArea::new()
         .accept_types(vec!["tab".into()])
         .placeholder("")
@@ -61,7 +65,12 @@ fn build() -> (TestHarness, C) {
             l.fetch_add(1, Ordering::SeqCst);
         })
         .child(Stack::new());
-    let mut h = TestHarness::new(Box::new(Stack::new().fit(StackFit::Expand).child(content).child(edge)));
+    let mut h = TestHarness::new(Box::new(
+        Stack::new()
+            .fit(StackFit::Expand)
+            .child(content)
+            .child(edge),
+    ));
     h.layout(400.0, 300.0);
     (h, c)
 }
@@ -82,7 +91,11 @@ fn clicks_pass_through_overlay() {
     // и в полосе у края, и вне её
     h.send_events(&click_at(mid(btn, 5.0)));
     h.send_events(&click_at(mid(btn, btn.size.width / 2.0)));
-    assert_eq!(c.click.load(Ordering::SeqCst), 2, "слой не должен забирать клики");
+    assert_eq!(
+        c.click.load(Ordering::SeqCst),
+        2,
+        "слой не должен забирать клики"
+    );
 }
 
 #[test]
@@ -92,15 +105,24 @@ fn edge_takes_drop_only_at_edge() {
     let data = DragData::new("tab", "p", 0);
     // у края — слой (приоритет выше более глубокой группы)
     let at_edge = mid(under, 5.0);
-    h.tree.dispatch_drag_event(&Event::DragMove { position: at_edge, data: data.clone() });
+    h.tree.dispatch_drag_event(&Event::DragMove {
+        position: at_edge,
+        data: data.clone(),
+    });
     assert!(c.edge_over.load(Ordering::SeqCst) >= 1);
-    h.tree.dispatch_drag_event(&Event::Drop { position: at_edge, data: data.clone() });
+    h.tree.dispatch_drag_event(&Event::Drop {
+        position: at_edge,
+        data: data.clone(),
+    });
     assert_eq!(c.edge_drop.load(Ordering::SeqCst), 1);
     assert_eq!(c.under_drop.load(Ordering::SeqCst), 0);
     // в середине — группа под слоем
     assert!(under.size.width > 2.0 * EDGE + 10.0, "{under:?}");
     let inside = mid(under, under.size.width - 5.0);
-    h.tree.dispatch_drag_event(&Event::Drop { position: inside, data });
+    h.tree.dispatch_drag_event(&Event::Drop {
+        position: inside,
+        data,
+    });
     assert_eq!(c.edge_drop.load(Ordering::SeqCst), 1);
     assert_eq!(c.under_drop.load(Ordering::SeqCst), 1);
 }
@@ -111,7 +133,10 @@ fn hint_cleared_when_other_target_takes_drop() {
     let under = bounds_of(&h, "DropArea", 0);
     let data = DragData::new("tab", "p", 0);
     // последнее движение — у края (подсветка слоя), отпустили уже в группе
-    h.tree.dispatch_drag_event(&Event::DragMove { position: mid(under, 5.0), data: data.clone() });
+    h.tree.dispatch_drag_event(&Event::DragMove {
+        position: mid(under, 5.0),
+        data: data.clone(),
+    });
     assert_eq!(c.edge_leave.load(Ordering::SeqCst), 0);
     let p = mid(under, under.size.width - 5.0);
     h.tree.drag_state = Some(DragState {
@@ -126,5 +151,8 @@ fn hint_cleared_when_other_target_takes_drop() {
     let root = h.root_id;
     assert!(h.tree.end_drag(root, p, false));
     assert_eq!(c.under_drop.load(Ordering::SeqCst), 1);
-    assert!(c.edge_leave.load(Ordering::SeqCst) >= 1, "слой должен снять подсветку");
+    assert!(
+        c.edge_leave.load(Ordering::SeqCst) >= 1,
+        "слой должен снять подсветку"
+    );
 }

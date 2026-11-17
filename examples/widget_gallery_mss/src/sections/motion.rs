@@ -61,7 +61,9 @@ fn demo(title: &str, hint: &str, body: impl Widget + 'static) -> impl Widget {
 }
 
 fn code(s: &str) -> impl Widget {
-    DecoratedBox::new().child(Text::new(s).class("demo-code-text")).class("demo-code")
+    DecoratedBox::new()
+        .child(Text::new(s).class("demo-code-text"))
+        .class("demo-code")
 }
 
 // ── Вкладки: панель подстраивается под содержимое ────────────────────────────
@@ -122,16 +124,32 @@ fn dashboard_tab() -> impl Widget {
     let mut grid = Column::new().gap(4.0);
     let mut head = Row::new().gap(4.0);
     for d in ["Пн", "Вт", "Ср", "Чт", "Пт", "Сб", "Вс"] {
-        head = head.child(DecoratedBox::new().child(Text::new(d).class("motion-cal-head")).class("motion-cal-cell"));
+        head = head.child(
+            DecoratedBox::new()
+                .child(Text::new(d).class("motion-cal-head"))
+                .class("motion-cal-cell"),
+        );
     }
     grid = grid.child(head);
     let mut day = 1;
     for _ in 0..5 {
         let mut row = Row::new().gap(4.0);
         for _ in 0..7 {
-            let cls = if day == 21 { "motion-cal-cell motion-cal-today" } else { "motion-cal-cell" };
-            let txt = if day <= 31 { day.to_string() } else { String::new() };
-            row = row.child(DecoratedBox::new().child(Text::new(txt).class("motion-cal-day")).class(cls));
+            let cls = if day == 21 {
+                "motion-cal-cell motion-cal-today"
+            } else {
+                "motion-cal-cell"
+            };
+            let txt = if day <= 31 {
+                day.to_string()
+            } else {
+                String::new()
+            };
+            row = row.child(
+                DecoratedBox::new()
+                    .child(Text::new(txt).class("motion-cal-day"))
+                    .class(cls),
+            );
             day += 1;
         }
         grid = grid.child(row);
@@ -153,7 +171,11 @@ fn media_tab() -> impl Widget {
     Row::new()
         .gap(18.0)
         .cross_axis_alignment(CrossAxisAlignment::Center)
-        .child(DecoratedBox::new().child(Icon::new(mi::MUSIC).class("motion-cover-icon")).class("motion-cover"))
+        .child(
+            DecoratedBox::new()
+                .child(Icon::new(mi::MUSIC).class("motion-cover-icon"))
+                .class("motion-cover"),
+        )
         .child(
             Column::new()
                 .gap(6.0)
@@ -176,7 +198,13 @@ fn ring(value: f32, caption: &str, icon: &str) -> impl Widget {
         .cross_axis_alignment(CrossAxisAlignment::Center)
         .child(
             Stack::new()
-                .child(CircularProgress::new().value(value).size(72.0).stroke_width(6.0).class("motion-ring"))
+                .child(
+                    CircularProgress::new()
+                        .value(value)
+                        .size(72.0)
+                        .stroke_width(6.0)
+                        .class("motion-ring"),
+                )
                 .child(
                     Column::new()
                         .main_axis_alignment(MainAxisAlignment::Center)
@@ -208,8 +236,16 @@ fn build_popup_demo() -> impl Widget {
             Row::new()
                 .gap(8.0)
                 .cross_axis_alignment(CrossAxisAlignment::Center)
-                .child(ToolButton::new(mi::APPS).on_click(move || open.set(!open.get_untracked())).class("motion-bar-btn"))
-                .child(Text::new("Нажмите значок — карточка вырастет из панели").class("motion-bar-text").class("grow"))
+                .child(
+                    ToolButton::new(mi::APPS)
+                        .on_click(move || open.set(!open.get_untracked()))
+                        .class("motion-bar-btn"),
+                )
+                .child(
+                    Text::new("Нажмите значок — карточка вырастет из панели")
+                        .class("motion-bar-text")
+                        .class("grow"),
+                )
                 .child(ToolButton::new(mi::SEARCH).class("motion-bar-btn"))
                 .child(ToolButton::new(mi::SETTINGS).class("motion-bar-btn")),
         )
@@ -277,13 +313,35 @@ struct Note {
 fn build_notifications_demo() -> impl Widget {
     let notes = use_signal(Vec::<Note>::new());
     let next = use_signal(1u64);
-    let titles = ["Снимок экрана сохранён", "Обновление готово", "Новое сообщение", "Сборка завершена", "Батарея 20 %"];
-    let bodies = ["~/Pictures/Screenshot.png", "Перезапустите, чтобы применить", "Алексей: «Смотри, что получилось»", "syngui: 0 ошибок, 9 предупреждений", "Подключите зарядное устройство"];
+    let titles = [
+        "Снимок экрана сохранён",
+        "Обновление готово",
+        "Новое сообщение",
+        "Сборка завершена",
+        "Батарея 20 %",
+    ];
+    let bodies = [
+        "~/Pictures/Screenshot.png",
+        "Перезапустите, чтобы применить",
+        "Алексей: «Смотри, что получилось»",
+        "syngui: 0 ошибок, 9 предупреждений",
+        "Подключите зарядное устройство",
+    ];
     let add = move || {
         let n = next.get_untracked();
         next.set(n + 1);
         let i = (n as usize - 1) % titles.len();
-        notes.update(|v| v.insert(0, Note { id: n, title: titles[i].into(), body: bodies[i].into(), alive: true }));
+        notes.update(|v| {
+            v.insert(
+                0,
+                Note {
+                    id: n,
+                    title: titles[i].into(),
+                    body: bodies[i].into(),
+                    alive: true,
+                },
+            )
+        });
     };
     let remove_oldest = move || {
         notes.update(|v| {
@@ -325,7 +383,13 @@ fn build_notifications_demo() -> impl Widget {
                             )
                             .child(
                                 ToolButton::new(mi::CLOSE)
-                                    .on_click(move || notes.update(|v| v.iter_mut().filter(|x| x.id == id).for_each(|x| x.alive = false)))
+                                    .on_click(move || {
+                                        notes.update(|v| {
+                                            v.iter_mut()
+                                                .filter(|x| x.id == id)
+                                                .for_each(|x| x.alive = false)
+                                        })
+                                    })
                                     .class("motion-note-close"),
                             ),
                     )
@@ -371,7 +435,12 @@ fn build_size_demo() -> impl Widget {
         super::rx(move || {
             let w = if wide.get() { 320.0 } else { 120.0 };
             let h = if wide.get() { 64.0 } else { 120.0 };
-            Box::new(DecoratedBox::new().style("width", w).style("height", h).class(cls))
+            Box::new(
+                DecoratedBox::new()
+                    .style("width", w)
+                    .style("height", h)
+                    .class(cls),
+            )
         })
     };
     demo(
@@ -434,7 +503,10 @@ fn curve_card(name: &str, e: Easing) -> impl Widget {
         let (w, h) = (160.0, 100.0);
         let pad = 8.0;
         let accent = ctx.mss_accent().unwrap_or(Color::rgb(0.3, 0.5, 0.9));
-        let muted = ctx.mss_color().unwrap_or(Color::rgb(0.5, 0.5, 0.5)).with_alpha(0.25);
+        let muted = ctx
+            .mss_color()
+            .unwrap_or(Color::rgb(0.5, 0.5, 0.5))
+            .with_alpha(0.25);
         ctx.set_color(muted);
         ctx.set_stroke_width(1.0);
         ctx.draw_polyline(&[(pad, h - pad - 16.0), (w - pad, h - pad - 16.0)]);
@@ -443,7 +515,10 @@ fn curve_card(name: &str, e: Easing) -> impl Widget {
             .map(|i| {
                 let x = i as f32 / 48.0;
                 let y = e.apply(x);
-                (pad + x * (w - 2.0 * pad), h - pad - 16.0 - y * (h - 2.0 * pad - 16.0))
+                (
+                    pad + x * (w - 2.0 * pad),
+                    h - pad - 16.0 - y * (h - 2.0 * pad - 16.0),
+                )
             })
             .collect();
         ctx.set_color(accent);
@@ -451,7 +526,15 @@ fn curve_card(name: &str, e: Easing) -> impl Widget {
         ctx.draw_polyline(&pts);
         // Точка: цикл 1,6 с — движение туда, пауза, обратно.
         let cycle = (t % 1.6) / 1.6;
-        let p = if cycle < 0.45 { e.apply(cycle / 0.45) } else if cycle < 0.55 { 1.0 } else if cycle < 1.0 { 1.0 - e.apply((cycle - 0.55) / 0.45) } else { 0.0 };
+        let p = if cycle < 0.45 {
+            e.apply(cycle / 0.45)
+        } else if cycle < 0.55 {
+            1.0
+        } else if cycle < 1.0 {
+            1.0 - e.apply((cycle - 0.55) / 0.45)
+        } else {
+            0.0
+        };
         ctx.set_color(accent);
         ctx.fill_circle(pad + p * (w - 2.0 * pad), h - 6.0, 5.0);
     })

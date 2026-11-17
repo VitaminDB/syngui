@@ -38,7 +38,10 @@ pub fn show(c: &Command) -> String {
 }
 
 fn quote(s: &str) -> String {
-    if !s.is_empty() && s.chars().all(|c| c.is_ascii_alphanumeric() || "-_./=:,+@%".contains(c)) {
+    if !s.is_empty()
+        && s.chars()
+            .all(|c| c.is_ascii_alphanumeric() || "-_./=:,+@%".contains(c))
+    {
         s.to_string()
     } else {
         format!("'{}'", s.replace('\'', "'\\''"))
@@ -54,7 +57,9 @@ pub fn run(mut c: Command) -> Result<()> {
     if verbose() {
         note(format!("$ {}", show(&c)));
     }
-    let st = c.status().with_context(|| format!("не запускается: {}", c.get_program().to_string_lossy()))?;
+    let st = c
+        .status()
+        .with_context(|| format!("не запускается: {}", c.get_program().to_string_lossy()))?;
     if !st.success() {
         bail!("команда завершилась с ошибкой ({st}):\n  {}", show(&c));
     }
@@ -71,7 +76,11 @@ pub fn capture(mut c: Command) -> Result<String> {
         .output()
         .with_context(|| format!("не запускается: {}", c.get_program().to_string_lossy()))?;
     if !out.status.success() {
-        bail!("команда завершилась с ошибкой ({}):\n  {}", out.status, show(&c));
+        bail!(
+            "команда завершилась с ошибкой ({}):\n  {}",
+            out.status,
+            show(&c)
+        );
     }
     Ok(String::from_utf8_lossy(&out.stdout).into_owned())
 }
@@ -83,11 +92,15 @@ pub fn which(name: &str) -> Option<PathBuf> {
         return p.is_file().then_some(p);
     }
     let path = std::env::var_os("PATH")?;
-    std::env::split_paths(&path).map(|d| d.join(name)).find(|p| p.is_file())
+    std::env::split_paths(&path)
+        .map(|d| d.join(name))
+        .find(|p| p.is_file())
 }
 
 pub fn home() -> PathBuf {
-    std::env::var_os("HOME").map(PathBuf::from).unwrap_or_else(|| PathBuf::from("/"))
+    std::env::var_os("HOME")
+        .map(PathBuf::from)
+        .unwrap_or_else(|| PathBuf::from("/"))
 }
 
 /// `~/…` → домашний каталог.
@@ -103,14 +116,29 @@ pub fn expand(p: &str) -> PathBuf {
 
 /// Последний по версии подкаталог (`build-tools/35.0.0`, `ndk/27.1…`).
 pub fn latest_subdir(dir: &Path) -> Option<PathBuf> {
-    let mut v: Vec<PathBuf> = std::fs::read_dir(dir).ok()?.filter_map(|e| e.ok()).map(|e| e.path()).filter(|p| p.is_dir()).collect();
-    v.sort_by(|a, b| version_cmp(&a.file_name().unwrap().to_string_lossy(), &b.file_name().unwrap().to_string_lossy()));
+    let mut v: Vec<PathBuf> = std::fs::read_dir(dir)
+        .ok()?
+        .filter_map(|e| e.ok())
+        .map(|e| e.path())
+        .filter(|p| p.is_dir())
+        .collect();
+    v.sort_by(|a, b| {
+        version_cmp(
+            &a.file_name().unwrap().to_string_lossy(),
+            &b.file_name().unwrap().to_string_lossy(),
+        )
+    });
     v.pop()
 }
 
 /// Сравнение строк версий по числовым частям (`9.0` < `10.0`).
 pub fn version_cmp(a: &str, b: &str) -> std::cmp::Ordering {
-    let parts = |s: &str| -> Vec<u64> { s.split(|c: char| !c.is_ascii_digit()).filter(|p| !p.is_empty()).map(|p| p.parse().unwrap_or(0)).collect() };
+    let parts = |s: &str| -> Vec<u64> {
+        s.split(|c: char| !c.is_ascii_digit())
+            .filter(|p| !p.is_empty())
+            .map(|p| p.parse().unwrap_or(0))
+            .collect()
+    };
     parts(a).cmp(&parts(b))
 }
 
@@ -133,7 +161,8 @@ pub fn copy(from: &Path, to: &Path) -> Result<()> {
     if let Some(d) = to.parent() {
         std::fs::create_dir_all(d)?;
     }
-    std::fs::copy(from, to).with_context(|| format!("копирование {} → {}", from.display(), to.display()))?;
+    std::fs::copy(from, to)
+        .with_context(|| format!("копирование {} → {}", from.display(), to.display()))?;
     Ok(())
 }
 
@@ -160,12 +189,19 @@ pub fn sha256_file(path: &Path) -> Result<String> {
     c.current_dir(dir).arg(&name);
     let line = capture(c)?;
     write(&dir.join(format!("{name}.sha256")), &line)?;
-    Ok(line.split_whitespace().next().unwrap_or_default().to_string())
+    Ok(line
+        .split_whitespace()
+        .next()
+        .unwrap_or_default()
+        .to_string())
 }
 
 /// Экранирование для XML-атрибутов и текста.
 pub fn xml(s: &str) -> String {
-    s.replace('&', "&amp;").replace('<', "&lt;").replace('>', "&gt;").replace('"', "&quot;")
+    s.replace('&', "&amp;")
+        .replace('<', "&lt;")
+        .replace('>', "&gt;")
+        .replace('"', "&quot;")
 }
 
 /// Строка для bash в одинарных кавычках.

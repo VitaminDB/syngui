@@ -197,7 +197,10 @@ fn audio_tracks_listed_and_switchable() {
     assert!(tone > 0.05, "у тона громкость {tone}");
 
     assert!(dec.set_audio_track(tracks[1].stream_index));
-    assert!(!dec.set_audio_track(999), "чужой номер потока не принимается");
+    assert!(
+        !dec.set_audio_track(999),
+        "чужой номер потока не принимается"
+    );
     dec.seek(0.0);
     let rx = dec.re_attach_audio().expect("re-attach");
     let silence = rms(&dec, &rx);

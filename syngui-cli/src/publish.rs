@@ -54,11 +54,24 @@ fn expand_assets(patterns: &[String], base: &Path, cli: &[PathBuf]) -> Result<Ve
     let mut items = Vec::new();
     for p in patterns {
         let pat = util::expand(p);
-        let pat = if pat.is_absolute() { pat } else { base.join(pat) };
+        let pat = if pat.is_absolute() {
+            pat
+        } else {
+            base.join(pat)
+        };
         let mut c = Command::new("bash");
-        c.args(["-c", "shopt -s nullglob; for f in $1; do printf '%s\\0' \"$f\"; done", "_"]).arg(pat.display().to_string());
+        c.args([
+            "-c",
+            "shopt -s nullglob; for f in $1; do printf '%s\\0' \"$f\"; done",
+            "_",
+        ])
+        .arg(pat.display().to_string());
         let out = util::capture(c)?;
-        let found: Vec<PathBuf> = out.split('\0').filter(|s| !s.is_empty()).map(PathBuf::from).collect();
+        let found: Vec<PathBuf> = out
+            .split('\0')
+            .filter(|s| !s.is_empty())
+            .map(PathBuf::from)
+            .collect();
         if found.is_empty() {
             util::warn(format!("release.assets: по «{p}» ничего не найдено"));
         }
@@ -66,7 +79,10 @@ fn expand_assets(patterns: &[String], base: &Path, cli: &[PathBuf]) -> Result<Ve
     }
     for d in cli {
         if d.is_dir() {
-            let mut v: Vec<PathBuf> = std::fs::read_dir(d)?.filter_map(|e| e.ok()).map(|e| e.path()).collect();
+            let mut v: Vec<PathBuf> = std::fs::read_dir(d)?
+                .filter_map(|e| e.ok())
+                .map(|e| e.path())
+                .collect();
             v.sort();
             items.extend(v);
         } else if d.is_file() {
@@ -118,7 +134,11 @@ fn bump(cargo_toml: &Path, version: &str, dry: bool) -> Result<Option<String>> {
         if t.starts_with('[') {
             section = t.trim_matches(|c| c == '[' || c == ']').trim().to_string();
         }
-        if old.is_none() && (section == "workspace.package" || section == "package") && t.starts_with("version") && t.contains('"') && !t.contains("workspace")
+        if old.is_none()
+            && (section == "workspace.package" || section == "package")
+            && t.starts_with("version")
+            && t.contains('"')
+            && !t.contains("workspace")
         {
             let cur = t.split('"').nth(1).unwrap_or_default().to_string();
             old = Some(cur);
@@ -140,7 +160,11 @@ fn bump(cargo_toml: &Path, version: &str, dry: bool) -> Result<Option<String>> {
 
 pub fn run(o: Opts) -> Result<()> {
     let v = o.version.trim_start_matches('v');
-    if !v.split('.').all(|p| !p.is_empty() && p.chars().all(|c| c.is_ascii_digit())) || v.split('.').count() != 3 {
+    if !v
+        .split('.')
+        .all(|p| !p.is_empty() && p.chars().all(|c| c.is_ascii_digit()))
+        || v.split('.').count() != 3
+    {
         bail!("версия вида 0.2.0 (получено {})", o.version);
     }
     let dry = !o.apply && !o.publish;
@@ -151,28 +175,47 @@ pub fn run(o: Opts) -> Result<()> {
     }
     let m: Meta = serde_json::from_str(&util::capture(c)?)?;
     let root = m.workspace_root.clone();
-    let release_file = o.release_file.map(Path::to_path_buf).unwrap_or_else(|| root.join("syngui-release.toml"));
+    let release_file = o
+        .release_file
+        .map(Path::to_path_buf)
+        .unwrap_or_else(|| root.join("syngui-release.toml"));
     let workspace = release_file.is_file() && o.package.is_none();
     let tag = format!("v{v}");
 
     // Где версия: корень (workspace.package) или крейт
     let root_toml = root.join("Cargo.toml");
-    let app = if workspace { None } else { Some(App::load(o.manifest, o.package)?) };
+    let app = if workspace {
+        None
+    } else {
+        Some(App::load(o.manifest, o.package)?)
+    };
     let version_file = match &app {
-        Some(a) if bump(&a.manifest_dir.join("Cargo.toml"), v, true)?.is_some() => a.manifest_dir.join("Cargo.toml"),
+        Some(a) if bump(&a.manifest_dir.join("Cargo.toml"), v, true)?.is_some() => {
+            a.manifest_dir.join("Cargo.toml")
+        }
         _ => root_toml.clone(),
     };
-    let cur = bump(&version_file, v, true)?.with_context(|| format!("в {} нет version в [workspace.package] или [package]", version_file.display()))?;
+    let cur = bump(&version_file, v, true)?.with_context(|| {
+        format!(
+            "в {} нет version в [workspace.package] или [package]",
+            version_file.display()
+        )
+    })?;
 
     // Мобильные артефакты: крейты с разделами android / ios в метаданных
     let mut mobile: Vec<(String, bool, bool)> = Vec::new();
     if !o.no_mobile {
-        for p in m.packages.iter().filter(|p| m.workspace_members.contains(&p.id)) {
+        for p in m
+            .packages
+            .iter()
+            .filter(|p| m.workspace_members.contains(&p.id))
+        {
             if !workspace && app.as_ref().is_some_and(|a| a.krate != p.name) {
                 continue;
             }
             let s = p.metadata.as_ref().and_then(|x| x.get("syngui"));
-            let a = s.and_then(|s| s.get("android")).is_some() || p.metadata.as_ref().and_then(|x| x.get("android")).is_some();
+            let a = s.and_then(|s| s.get("android")).is_some()
+                || p.metadata.as_ref().and_then(|x| x.get("android")).is_some();
             let i = s.and_then(|s| s.get("ios")).is_some();
             if a || i {
                 mobile.push((p.name.clone(), a, i));
@@ -180,12 +223,18 @@ pub fn run(o: Opts) -> Result<()> {
         }
     }
 
-    let mut dirty = util::capture(git(&root, &["status", "--porcelain", "--untracked-files=no"]))?;
+    let mut dirty = util::capture(git(
+        &root,
+        &["status", "--porcelain", "--untracked-files=no"],
+    ))?;
     dirty = dirty.trim().to_string();
-    let tag_exists = git(&root, &["rev-parse", "-q", "--verify", &format!("refs/tags/{tag}")])
-        .output()
-        .map(|o| o.status.success())
-        .unwrap_or(false);
+    let tag_exists = git(
+        &root,
+        &["rev-parse", "-q", "--verify", &format!("refs/tags/{tag}")],
+    )
+    .output()
+    .map(|o| o.status.success())
+    .unwrap_or(false);
     let repo = git(&root, &["remote", "get-url", "origin"])
         .stderr(std::process::Stdio::null())
         .output()
@@ -199,7 +248,11 @@ pub fn run(o: Opts) -> Result<()> {
         } else {
             "приложение"
         },
-        if dry { " — сухой прогон" } else { "" }
+        if dry {
+            " — сухой прогон"
+        } else {
+            ""
+        }
     ));
     println!("  версия: {cur} → {v} в {}", version_file.display());
     println!("  коммит «Выпуск {v}» (Cargo.toml, Cargo.lock) и тег {tag}");
@@ -211,15 +264,26 @@ pub fn run(o: Opts) -> Result<()> {
     if let Some(a) = &arts {
         // явный список заменяет автоопределение APK/IPA
         let krate = app.as_ref().unwrap().krate.clone();
-        mobile = if o.no_mobile { vec![] } else { vec![(krate, a.contains(&Art::Apk), a.contains(&Art::Ipa))] };
+        mobile = if o.no_mobile {
+            vec![]
+        } else {
+            vec![(krate, a.contains(&Art::Apk), a.contains(&Art::Ipa))]
+        };
         mobile.retain(|(_, a, i)| *a || *i);
     }
     let asset_patterns: Vec<String> = if workspace {
-        Release::load(o.manifest, Some(&release_file)).map(|r| r.spec.assets).unwrap_or_default()
+        Release::load(o.manifest, Some(&release_file))
+            .map(|r| r.spec.assets)
+            .unwrap_or_default()
     } else {
-        app.as_ref().map(|a| a.meta.release.assets.clone()).unwrap_or_default()
+        app.as_ref()
+            .map(|a| a.meta.release.assets.clone())
+            .unwrap_or_default()
     };
-    let asset_base = app.as_ref().map(|a| a.manifest_dir.clone()).unwrap_or_else(|| root.clone());
+    let asset_base = app
+        .as_ref()
+        .map(|a| a.manifest_dir.clone())
+        .unwrap_or_else(|| root.clone());
     let assets = expand_assets(&asset_patterns, &asset_base, &o.assets)?;
     if o.publish || dry {
         let what = match &arts {
@@ -237,9 +301,22 @@ pub fn run(o: Opts) -> Result<()> {
             None if workspace => "-w -f tar -t all-linux --release".to_string(),
             None => "-f tar -t all-linux --release".to_string(),
         };
-        println!("  {}: {what}", if dry { "при --publish собрать" } else { "сборка" });
+        println!(
+            "  {}: {what}",
+            if dry {
+                "при --publish собрать"
+            } else {
+                "сборка"
+            }
+        );
         for a in &assets {
-            let size = if a.is_dir() { "каталог → .tar".to_string() } else { std::fs::metadata(a).map(|m| human(m.len())).unwrap_or_default() };
+            let size = if a.is_dir() {
+                "каталог → .tar".to_string()
+            } else {
+                std::fs::metadata(a)
+                    .map(|m| human(m.len()))
+                    .unwrap_or_default()
+            };
             println!("      + {} ({size})", a.display());
         }
         for (n, a, i) in &mobile {
@@ -257,7 +334,14 @@ pub fn run(o: Opts) -> Result<()> {
                 println!("      IPA {n}");
             }
         }
-        println!("      git push origin HEAD {tag} ({})", if repo.is_empty() { "нет origin" } else { &repo });
+        println!(
+            "      git push origin HEAD {tag} ({})",
+            if repo.is_empty() {
+                "нет origin"
+            } else {
+                &repo
+            }
+        );
         println!("      gh release create {tag}: архивы, APK/IPA, SHA256SUMS");
         println!(
             "      AUR: syngui package {}-f aur с суммами релиза (не публикуется — git push в AUR делает человек)",
@@ -316,7 +400,11 @@ pub fn run(o: Opts) -> Result<()> {
             .stdout(std::process::Stdio::null());
         util::run(c).context("обновление Cargo.lock")?;
         let mut add = vec!["add", "--"];
-        let vf = version_file.strip_prefix(&root).unwrap_or(&version_file).display().to_string();
+        let vf = version_file
+            .strip_prefix(&root)
+            .unwrap_or(&version_file)
+            .display()
+            .to_string();
         add.push(&vf);
         let tracked_lock = git(&root, &["ls-files", "--error-unmatch", "Cargo.lock"])
             .output()
@@ -348,7 +436,13 @@ pub fn run(o: Opts) -> Result<()> {
         for x in arts {
             match x {
                 Art::Tar(t) => files.push(package::tar(a, *t, Profile::Release, false, &[])?),
-                Art::TarPortable => files.push(package::tar(a, Target::LinuxX86_64, Profile::Release, true, &[])?),
+                Art::TarPortable => files.push(package::tar(
+                    a,
+                    Target::LinuxX86_64,
+                    Profile::Release,
+                    true,
+                    &[],
+                )?),
                 Art::Zip => files.push(package::zip(a, Profile::Release)?),
                 Art::Apk | Art::Ipa => {}
             }
@@ -370,7 +464,9 @@ pub fn run(o: Opts) -> Result<()> {
             if has_key(&root, n, o.manifest) {
                 files.push(android::build(&app, Profile::Release, true, None)?);
             } else {
-                util::warn(format!("APK {n} пропущен: нет релизного ключа (syngui keygen -p {n})"));
+                util::warn(format!(
+                    "APK {n} пропущен: нет релизного ключа (syngui keygen -p {n})"
+                ));
             }
         }
         if *i {
@@ -380,25 +476,38 @@ pub fn run(o: Opts) -> Result<()> {
     for f in &files {
         util::copy(f, &out_dir.join(f.file_name().unwrap()))?;
     }
-    let mut upload: Vec<PathBuf> = files.iter().map(|f| out_dir.join(f.file_name().unwrap())).collect();
+    let mut upload: Vec<PathBuf> = files
+        .iter()
+        .map(|f| out_dir.join(f.file_name().unwrap()))
+        .collect();
     // Внешние файлы: как есть (не копируются — образы большие), каталоги — архивом <имя>.tar
     for a in &assets {
         let name = a.file_name().unwrap().to_string_lossy().into_owned();
         if name == "SHA256SUMS" {
-            util::note(format!("{}: заменяется общим SHA256SUMS релиза (в нём суммы всех файлов)", a.display()));
+            util::note(format!(
+                "{}: заменяется общим SHA256SUMS релиза (в нём суммы всех файлов)",
+                a.display()
+            ));
             continue;
         }
         let item = if a.is_dir() {
             let t = out_dir.join(format!("{name}.tar"));
             let mut c = Command::new("tar");
-            c.args(["--owner=0", "--group=0", "--numeric-owner", "-cf"]).arg(&t).arg("-C").arg(a.parent().unwrap()).arg(&name);
+            c.args(["--owner=0", "--group=0", "--numeric-owner", "-cf"])
+                .arg(&t)
+                .arg("-C")
+                .arg(a.parent().unwrap())
+                .arg(&name);
             util::run(c)?;
             t
         } else {
             a.clone()
         };
         let n = item.file_name().unwrap().to_string_lossy().into_owned();
-        if upload.iter().any(|u| u.file_name().unwrap().to_string_lossy() == n) {
+        if upload
+            .iter()
+            .any(|u| u.file_name().unwrap().to_string_lossy() == n)
+        {
             bail!("в релизе два файла с именем {n}");
         }
         upload.push(item);
@@ -409,24 +518,43 @@ pub fn run(o: Opts) -> Result<()> {
     let sums_text: String = util::capture(c)?
         .lines()
         .map(|l| match l.split_once("  ") {
-            Some((h, p)) => format!("{h}  {}\n", Path::new(p).file_name().unwrap().to_string_lossy()),
+            Some((h, p)) => format!(
+                "{h}  {}\n",
+                Path::new(p).file_name().unwrap().to_string_lossy()
+            ),
             None => format!("{l}\n"),
         })
         .collect();
     let sums = out_dir.join("SHA256SUMS");
     util::write(&sums, sums_text)?;
     upload.push(sums);
-    let total: u64 = upload.iter().filter_map(|u| std::fs::metadata(u).ok()).map(|m| m.len()).sum();
-    if let Some(big) = upload.iter().find(|u| std::fs::metadata(u).map(|m| m.len() >= 2 << 30).unwrap_or(false)) {
-        bail!("{}: файл больше 2 ГиБ — GitHub его не примет", big.display());
+    let total: u64 = upload
+        .iter()
+        .filter_map(|u| std::fs::metadata(u).ok())
+        .map(|m| m.len())
+        .sum();
+    if let Some(big) = upload.iter().find(|u| {
+        std::fs::metadata(u)
+            .map(|m| m.len() >= 2 << 30)
+            .unwrap_or(false)
+    }) {
+        bail!(
+            "{}: файл больше 2 ГиБ — GitHub его не примет",
+            big.display()
+        );
     }
-    util::note(format!("в релиз: {} файлов, {}", upload.len(), human(total)));
+    util::note(format!(
+        "в релиз: {} файлов, {}",
+        upload.len(),
+        human(total)
+    ));
 
     util::step(format!("git push origin HEAD {tag}"));
     util::run(git(&root, &["push", "origin", "HEAD", &tag]))?;
     util::step(format!("gh release create {tag} ({} файлов)", upload.len()));
     let mut c = Command::new("gh");
-    c.current_dir(&root).args(["release", "create", &tag, "--title", &tag]);
+    c.current_dir(&root)
+        .args(["release", "create", &tag, "--title", &tag]);
     // Описание выпуска — docs/release-notes/<версия>.md, если есть.
     let notes = root.join(format!("docs/release-notes/{v}.md"));
     if notes.is_file() {

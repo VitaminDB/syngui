@@ -9,7 +9,10 @@ use syngui::prelude::*;
 fn main() {
     let args: Vec<String> = std::env::args().skip(1).collect();
     let font = args.first().cloned().expect("путь к шрифту");
-    let out = args.last().cloned().unwrap_or_else(|| "font_shot.png".into());
+    let out = args
+        .last()
+        .cloned()
+        .unwrap_or_else(|| "font_shot.png".into());
     let bg = (args.len() > 2).then(|| args[1].clone());
     // Имя нарочно не совпадает с системным: виден именно зарегистрированный файл.
     syngui::text::register_font_file("Рукопись", &font).expect("шрифт");
@@ -28,7 +31,12 @@ fn main() {
     syngui::shot::render_png_with(
         move || {
             let photo: Box<dyn Widget> = match &bg {
-                Some(p) => Box::new(DecoratedBox::new().class("photo").clip(true).child(Image::new(p.clone()).fit(ImageFit::Cover))),
+                Some(p) => Box::new(
+                    DecoratedBox::new()
+                        .class("photo")
+                        .clip(true)
+                        .child(Image::new(p.clone()).fit(ImageFit::Cover)),
+                ),
                 None => Box::new(DecoratedBox::new().class("photo")),
             };
             Box::new(
@@ -42,15 +50,13 @@ fn main() {
                         .child(Text::new("Основной шрифт для сравнения ✓ 🍲").class("base"))
                         .child(Row::new().child(Button::new("Кнопка рукописью").class("btn")))
                         .child(
-                            Stack::new()
-                                .child(photo)
-                                .child(
-                                    Column::new()
-                                        .gap(0.0)
-                                        .child(Text::new("Пирог с вишней").class("over"))
-                                        .child(Text::new("Пирог с вишней").class("stroke"))
-                                        .child(Text::new("Пирог с вишней").class("plain")),
-                                ),
+                            Stack::new().child(photo).child(
+                                Column::new()
+                                    .gap(0.0)
+                                    .child(Text::new("Пирог с вишней").class("over"))
+                                    .child(Text::new("Пирог с вишней").class("stroke"))
+                                    .child(Text::new("Пирог с вишней").class("plain")),
+                            ),
                         ),
                 ),
             )
@@ -59,7 +65,10 @@ fn main() {
         (560, 700),
         2.0,
         &out,
-        syngui::shot::ShotOptions { wait: std::time::Duration::from_millis(800), ..Default::default() },
+        syngui::shot::ShotOptions {
+            wait: std::time::Duration::from_millis(800),
+            ..Default::default()
+        },
     )
     .expect("shot");
     eprintln!("→ {out}");

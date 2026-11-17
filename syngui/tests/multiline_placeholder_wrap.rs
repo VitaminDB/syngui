@@ -49,9 +49,15 @@ fn narrow_placeholder_wraps_top_down() {
     assert_eq!(rows[0].0, "Первая строка");
     assert_eq!(rows.last().unwrap().0, "вторая");
     for (i, (text, rect, clip)) in rows.iter().enumerate() {
-        assert!(rect.min_y() >= clip.min_y(), "строка {i} «{text}» выше клипа: {rect:?} / {clip:?}");
+        assert!(
+            rect.min_y() >= clip.min_y(),
+            "строка {i} «{text}» выше клипа: {rect:?} / {clip:?}"
+        );
         if i > 0 {
-            assert!(rect.min_y() > rows[i - 1].1.min_y(), "строки идут сверху вниз");
+            assert!(
+                rect.min_y() > rows[i - 1].1.min_y(),
+                "строки идут сверху вниз"
+            );
         }
     }
 }

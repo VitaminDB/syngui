@@ -10,9 +10,9 @@ use wasm_bindgen::prelude::*;
 
 use std::sync::Arc;
 use syngui::core::sync::Mutex;
+use syngui::overlay::{ControlsSide, SystemWindowControls, WindowDragRegion, WindowResizeRegion};
 use syngui::prelude::*;
 use syngui::widgets::*;
-use syngui::overlay::{ControlsSide, SystemWindowControls, WindowDragRegion, WindowResizeRegion};
 use syngui::window::WindowState;
 
 mod sections;
@@ -72,46 +72,174 @@ struct Section {
 }
 
 const SECTIONS: &[Section] = &[
-    Section { key: "mss-properties", icon: "\u{E429}", group: "basics" },
-    Section { key: "buttons", icon: "\u{E913}", group: "basics" },
-    Section { key: "input", icon: "\u{E262}", group: "basics" },
-    Section { key: "selection", icon: "\u{E834}", group: "basics" },
-    Section { key: "visual", icon: "\u{E3F4}", group: "basics" },
-    Section { key: "containers", icon: "\u{E8AA}", group: "basics" },
-    Section { key: "navigation", icon: "\u{E87A}", group: "basics" },
-    Section { key: "scroll", icon: "\u{E8D5}", group: "basics" },
-    Section { key: "motion", icon: "\u{E176}", group: "motion" },
-    Section { key: "animation", icon: "\u{E9C1}", group: "motion" },
-    Section { key: "layout-animation", icon: "\u{E9E4}", group: "motion" },
-    Section { key: "lottie", icon: "\u{E71C}", group: "motion" },
-    Section { key: "dialogs", icon: "\u{E0B7}", group: "overlays" },
-    Section { key: "menus", icon: "\u{E5D2}", group: "overlays" },
-    Section { key: "dragdrop", icon: "\u{E945}", group: "overlays" },
-    Section { key: "feedback", icon: "\u{E87F}", group: "overlays" },
-    Section { key: "canvas", icon: "\u{E3AE}", group: "content" },
-    Section { key: "data", icon: "\u{E265}", group: "content" },
-    Section { key: "markdown", icon: "\u{EF42}", group: "content" },
-    Section { key: "charts", icon: "\u{E26B}", group: "content" },
-    Section { key: "gradients", icon: "\u{E3E9}", group: "content" },
-    Section { key: "editors", icon: "\u{E86F}", group: "content" },
-    Section { key: "advanced", icon: "\u{E8B8}", group: "content" },
-    Section { key: "effects-showcase", icon: "\u{E65F}", group: "effects" },
-    Section { key: "three-d", icon: "\u{E9FE}", group: "effects" },
-    Section { key: "effects", icon: "\u{EA0B}", group: "effects" },
-    Section { key: "map", icon: "\u{E55B}", group: "plugins" },
-    Section { key: "ffmpeg-video", icon: "\u{E02C}", group: "plugins" },
-    Section { key: "terminal", icon: "\u{EB8E}", group: "plugins" },
-    Section { key: "border-test", icon: "\u{E228}", group: "debug" },
+    Section {
+        key: "mss-properties",
+        icon: "\u{E429}",
+        group: "basics",
+    },
+    Section {
+        key: "buttons",
+        icon: "\u{E913}",
+        group: "basics",
+    },
+    Section {
+        key: "input",
+        icon: "\u{E262}",
+        group: "basics",
+    },
+    Section {
+        key: "selection",
+        icon: "\u{E834}",
+        group: "basics",
+    },
+    Section {
+        key: "visual",
+        icon: "\u{E3F4}",
+        group: "basics",
+    },
+    Section {
+        key: "containers",
+        icon: "\u{E8AA}",
+        group: "basics",
+    },
+    Section {
+        key: "navigation",
+        icon: "\u{E87A}",
+        group: "basics",
+    },
+    Section {
+        key: "scroll",
+        icon: "\u{E8D5}",
+        group: "basics",
+    },
+    Section {
+        key: "motion",
+        icon: "\u{E176}",
+        group: "motion",
+    },
+    Section {
+        key: "animation",
+        icon: "\u{E9C1}",
+        group: "motion",
+    },
+    Section {
+        key: "layout-animation",
+        icon: "\u{E9E4}",
+        group: "motion",
+    },
+    Section {
+        key: "lottie",
+        icon: "\u{E71C}",
+        group: "motion",
+    },
+    Section {
+        key: "dialogs",
+        icon: "\u{E0B7}",
+        group: "overlays",
+    },
+    Section {
+        key: "menus",
+        icon: "\u{E5D2}",
+        group: "overlays",
+    },
+    Section {
+        key: "dragdrop",
+        icon: "\u{E945}",
+        group: "overlays",
+    },
+    Section {
+        key: "feedback",
+        icon: "\u{E87F}",
+        group: "overlays",
+    },
+    Section {
+        key: "canvas",
+        icon: "\u{E3AE}",
+        group: "content",
+    },
+    Section {
+        key: "data",
+        icon: "\u{E265}",
+        group: "content",
+    },
+    Section {
+        key: "markdown",
+        icon: "\u{EF42}",
+        group: "content",
+    },
+    Section {
+        key: "charts",
+        icon: "\u{E26B}",
+        group: "content",
+    },
+    Section {
+        key: "gradients",
+        icon: "\u{E3E9}",
+        group: "content",
+    },
+    Section {
+        key: "editors",
+        icon: "\u{E86F}",
+        group: "content",
+    },
+    Section {
+        key: "advanced",
+        icon: "\u{E8B8}",
+        group: "content",
+    },
+    Section {
+        key: "effects-showcase",
+        icon: "\u{E65F}",
+        group: "effects",
+    },
+    Section {
+        key: "three-d",
+        icon: "\u{E9FE}",
+        group: "effects",
+    },
+    Section {
+        key: "effects",
+        icon: "\u{EA0B}",
+        group: "effects",
+    },
+    Section {
+        key: "map",
+        icon: "\u{E55B}",
+        group: "plugins",
+    },
+    Section {
+        key: "ffmpeg-video",
+        icon: "\u{E02C}",
+        group: "plugins",
+    },
+    Section {
+        key: "terminal",
+        icon: "\u{EB8E}",
+        group: "plugins",
+    },
+    Section {
+        key: "border-test",
+        icon: "\u{E228}",
+        group: "debug",
+    },
 ];
 
-const GROUPS: &[&str] = &["basics", "motion", "overlays", "content", "effects", "plugins", "debug"];
+const GROUPS: &[&str] = &[
+    "basics", "motion", "overlays", "content", "effects", "plugins", "debug",
+];
 
 /// Шрифты оформлений (OFL, `assets/fonts`): Aurora — Outfit, Brutal —
 /// Space Grotesk и JetBrains Mono для подписей.
 fn register_fonts() {
     syngui::text::register_font("Outfit", &include_bytes!("../assets/fonts/Outfit.ttf")[..]);
-    syngui::text::register_font("Space Grotesk", &include_bytes!("../assets/fonts/SpaceGrotesk.ttf")[..]);
-    syngui::text::register_font("JetBrains Mono", &include_bytes!("../assets/fonts/JetBrainsMono.ttf")[..]);
+    syngui::text::register_font(
+        "Space Grotesk",
+        &include_bytes!("../assets/fonts/SpaceGrotesk.ttf")[..],
+    );
+    syngui::text::register_font(
+        "JetBrains Mono",
+        &include_bytes!("../assets/fonts/JetBrainsMono.ttf")[..],
+    );
 }
 
 fn route_keys() -> Vec<String> {
@@ -147,15 +275,33 @@ struct ShotArgs {
 #[cfg(not(target_arch = "wasm32"))]
 fn parse_shot_args() -> Option<ShotArgs> {
     let (design, dark) = initial_design();
-    let mut a = ShotArgs { out: String::new(), size: (1440, 900), scale: 1.0, page: None, design, dark, lang: None };
+    let mut a = ShotArgs {
+        out: String::new(),
+        size: (1440, 900),
+        scale: 1.0,
+        page: None,
+        design,
+        dark,
+        lang: None,
+    };
     let mut args = std::env::args().skip(1);
     let mut shot = false;
     while let Some(arg) = args.next() {
         match arg.as_str() {
             "-h" | "--help" => {
                 println!("widget_gallery_mss [--screenshot СНИМОК.png [--size ШxВ] [--scale N] [--page РАЗДЕЛ] [--design ОФОРМЛЕНИЕ] [--dark|--light] [--lang ЯЗЫК]]");
-                println!("разделы: {}", SECTIONS.iter().map(|s| s.key).collect::<Vec<_>>().join(" "));
-                println!("оформления: {}", theme_data::DESIGNS.iter().map(|d| d.id).collect::<Vec<_>>().join(" "));
+                println!(
+                    "разделы: {}",
+                    SECTIONS.iter().map(|s| s.key).collect::<Vec<_>>().join(" ")
+                );
+                println!(
+                    "оформления: {}",
+                    theme_data::DESIGNS
+                        .iter()
+                        .map(|d| d.id)
+                        .collect::<Vec<_>>()
+                        .join(" ")
+                );
                 std::process::exit(0);
             }
             "--screenshot" => {
@@ -169,7 +315,11 @@ fn parse_shot_args() -> Option<ShotArgs> {
             }
             "--scale" => a.scale = args.next().and_then(|s| s.parse().ok()).unwrap_or(a.scale),
             "--page" => a.page = args.next(),
-            "--design" | "--theme" => a.design = theme_data::find_design(&args.next().unwrap_or_default()).id.to_string(),
+            "--design" | "--theme" => {
+                a.design = theme_data::find_design(&args.next().unwrap_or_default())
+                    .id
+                    .to_string()
+            }
             "--dark" => a.dark = true,
             "--light" => a.dark = false,
             "--lang" => a.lang = args.next(),
@@ -263,7 +413,12 @@ pub fn run_app() {
         });
 }
 
-fn make_ctx(theme_mss: RwSignal<String>, page: Option<&str>, design: &str, dark: bool) -> GalleryCtx {
+fn make_ctx(
+    theme_mss: RwSignal<String>,
+    page: Option<&str>,
+    design: &str,
+    dark: bool,
+) -> GalleryCtx {
     // Начальный раздел: `--page` снимка или GALLERY_ROUTE=motion (проверка вёрстки).
     let initial = page
         .map(str::to_string)
@@ -301,39 +456,66 @@ fn build_sidebar(design: &str) -> impl Widget {
     let current = use_context::<GalleryCtx>().current_route;
     let numbered = design == "brutal";
     DecoratedBox::new().class("gallery-sidebar").child(
-        Page::new().vertical().scrollbar_policy(ScrollbarPolicy::Auto).child(
-            Column::new().gap(0.0).cross_axis_alignment(CrossAxisAlignment::Stretch).class("nav-list").child(move || {
-                let cur = current.get();
-                let mut col = Column::new().gap(0.0).cross_axis_alignment(CrossAxisAlignment::Stretch);
-                let mut n = 0;
-                for group in GROUPS {
-                    col = col.child(Text::new(tr!(&format!("gallery.group.{group}"))).class("nav-group"));
-                    for s in SECTIONS.iter().filter(|s| s.group == *group) {
-                        n += 1;
-                        let active = cur == s.key;
-                        let key = s.key;
-                        let mut row = Row::new().gap(10.0).cross_axis_alignment(CrossAxisAlignment::Center);
-                        row = if numbered {
-                            row.child(Text::new(format!("{n:02}")).class("nav-num"))
-                        } else {
-                            row.child(Icon::new(s.icon).class("nav-icon"))
-                        };
-                        row = row.child(Text::new(section_name(key)).max_lines(1).elide(Elide::End).class("nav-text"));
-                        col = col.child(
-                            GestureDetector::new()
-                                .child(DecoratedBox::new().child(row).class(if active { "nav-item nav-item-active" } else { "nav-item" }))
-                                .cursor(syngui::input::CursorIcon::Pointer)
-                                .on_click(move || {
-                                    let ctx = use_context::<GalleryCtx>();
-                                    let idx = SECTIONS.iter().position(|s| s.key == key).unwrap_or(0);
-                                    ctx.navigate_with_sidebar(key, idx);
-                                }),
-                        );
-                    }
-                }
-                col
-            }),
-        ).class("nav-page"),
+        Page::new()
+            .vertical()
+            .scrollbar_policy(ScrollbarPolicy::Auto)
+            .child(
+                Column::new()
+                    .gap(0.0)
+                    .cross_axis_alignment(CrossAxisAlignment::Stretch)
+                    .class("nav-list")
+                    .child(move || {
+                        let cur = current.get();
+                        let mut col = Column::new()
+                            .gap(0.0)
+                            .cross_axis_alignment(CrossAxisAlignment::Stretch);
+                        let mut n = 0;
+                        for group in GROUPS {
+                            col = col.child(
+                                Text::new(tr!(&format!("gallery.group.{group}")))
+                                    .class("nav-group"),
+                            );
+                            for s in SECTIONS.iter().filter(|s| s.group == *group) {
+                                n += 1;
+                                let active = cur == s.key;
+                                let key = s.key;
+                                let mut row = Row::new()
+                                    .gap(10.0)
+                                    .cross_axis_alignment(CrossAxisAlignment::Center);
+                                row = if numbered {
+                                    row.child(Text::new(format!("{n:02}")).class("nav-num"))
+                                } else {
+                                    row.child(Icon::new(s.icon).class("nav-icon"))
+                                };
+                                row = row.child(
+                                    Text::new(section_name(key))
+                                        .max_lines(1)
+                                        .elide(Elide::End)
+                                        .class("nav-text"),
+                                );
+                                col = col.child(
+                                    GestureDetector::new()
+                                        .child(DecoratedBox::new().child(row).class(if active {
+                                            "nav-item nav-item-active"
+                                        } else {
+                                            "nav-item"
+                                        }))
+                                        .cursor(syngui::input::CursorIcon::Pointer)
+                                        .on_click(move || {
+                                            let ctx = use_context::<GalleryCtx>();
+                                            let idx = SECTIONS
+                                                .iter()
+                                                .position(|s| s.key == key)
+                                                .unwrap_or(0);
+                                            ctx.navigate_with_sidebar(key, idx);
+                                        }),
+                                );
+                            }
+                        }
+                        col
+                    }),
+            )
+            .class("nav-page"),
     )
 }
 
@@ -342,7 +524,11 @@ fn brand() -> impl Widget {
     Row::new()
         .gap(10.0)
         .cross_axis_alignment(CrossAxisAlignment::Center)
-        .child(DecoratedBox::new().class("brand-mark").child(Icon::new("\u{E1BD}").class("brand-icon")))
+        .child(
+            DecoratedBox::new()
+                .class("brand-mark")
+                .child(Icon::new("\u{E1BD}").class("brand-icon")),
+        )
         .child(
             Column::new()
                 .gap(0.0)
@@ -358,19 +544,31 @@ fn titlebar() -> impl Widget {
     let (route, design, is_dark, window) = (ctx.current_route, ctx.design, ctx.is_dark, ctx.window);
     let title = Reactive::new(move || -> Vec<W> {
         let key = route.get();
-        let group = SECTIONS.iter().find(|s| s.key == key).map(|s| s.group).unwrap_or("basics");
+        let group = SECTIONS
+            .iter()
+            .find(|s| s.key == key)
+            .map(|s| s.group)
+            .unwrap_or("basics");
         vec![Box::new(
             Row::new()
                 .gap(8.0)
                 .cross_axis_alignment(CrossAxisAlignment::Center)
                 .child(Text::new(tr!(&format!("gallery.group.{group}"))).class("tb-crumb"))
                 .child(Text::new("/").class("tb-crumb-sep"))
-                .child(Text::new(section_name(&key)).max_lines(1).elide(Elide::End).class("tb-title")),
+                .child(
+                    Text::new(section_name(&key))
+                        .max_lines(1)
+                        .elide(Elide::End)
+                        .class("tb-title"),
+                ),
         )]
     });
     let designs = Reactive::new(move || -> Vec<W> {
         let cur = design.get();
-        let idx = theme_data::DESIGNS.iter().position(|d| d.id == cur).unwrap_or(0);
+        let idx = theme_data::DESIGNS
+            .iter()
+            .position(|d| d.id == cur)
+            .unwrap_or(0);
         let names: Vec<&str> = theme_data::DESIGNS.iter().map(|d| d.name).collect();
         vec![Box::new(
             SegmentedButton::new(names)
@@ -388,7 +586,11 @@ fn titlebar() -> impl Widget {
         let dark = is_dark.get();
         vec![Box::new(
             ToolButton::new(if dark { "\u{E518}" } else { "\u{E51C}" })
-                .tooltip(if dark { tr!("gallery.light") } else { tr!("gallery.dark") })
+                .tooltip(if dark {
+                    tr!("gallery.light")
+                } else {
+                    tr!("gallery.dark")
+                })
                 .on_click(|| use_context::<GalleryCtx>().toggle_dark())
                 .class("tb-btn"),
         )]
@@ -399,18 +601,26 @@ fn titlebar() -> impl Widget {
         for l in syngui::i18n::languages() {
             dd = dd.item(DropdownItem::new(l.tag.tag(), l.name));
         }
-        dd.selected(current.tag()).on_change(move |tag: &str| syngui::i18n::set_language(tag)).class("tb-lang")
+        dd.selected(current.tag())
+            .on_change(move |tag: &str| syngui::i18n::set_language(tag))
+            .class("tb-lang")
     };
     let controls = Reactive::new(move || -> Vec<W> {
         let w = window.get();
-        vec![Box::new(SystemWindowControls::new(ControlsSide::Right).maximized(w.maximized).active(w.focused))]
+        vec![Box::new(
+            SystemWindowControls::new(ControlsSide::Right)
+                .maximized(w.maximized)
+                .active(w.focused),
+        )]
     });
     DecoratedBox::new().class("titlebar").child(
         Row::new()
             .gap(0.0)
             .cross_axis_alignment(CrossAxisAlignment::Stretch)
             .child(DecoratedBox::new().class("tb-left").child(brand()))
-            .child(DecoratedBox::new().class("grow tb-drag-wrap").child(WindowDragRegion::new().child(DecoratedBox::new().class("tb-drag").child(title))))
+            .child(DecoratedBox::new().class("grow tb-drag-wrap").child(
+                WindowDragRegion::new().child(DecoratedBox::new().class("tb-drag").child(title)),
+            ))
             .child(
                 DecoratedBox::new().class("tb-tools").child(
                     Row::new()
@@ -441,15 +651,26 @@ fn aurora_backdrop() -> impl Widget {
 /// едут влево ровно на ширину куска и повторяются без шва.
 fn ticker() -> impl Widget {
     let text = tr!("gallery.ticker");
-    let mut track = Row::new().gap(0.0).cross_axis_alignment(CrossAxisAlignment::Center).class("ticker-track");
+    let mut track = Row::new()
+        .gap(0.0)
+        .cross_axis_alignment(CrossAxisAlignment::Center)
+        .class("ticker-track");
     for _ in 0..6 {
-        track = track.child(DecoratedBox::new().class("ticker-chunk").child(Text::new(text.clone()).max_lines(1).class("ticker-text")));
+        track = track.child(
+            DecoratedBox::new()
+                .class("ticker-chunk")
+                .child(Text::new(text.clone()).max_lines(1).class("ticker-text")),
+        );
     }
     DecoratedBox::new().class("ticker").clip(true).child(track)
 }
 
 fn content_card() -> impl Widget {
-    DecoratedBox::new().class("grow content-frame").child(DecoratedBox::new().class("content-card").child(build_content()))
+    DecoratedBox::new().class("grow content-frame").child(
+        DecoratedBox::new()
+            .class("content-card")
+            .child(build_content()),
+    )
 }
 
 /// Оболочка оформления.
@@ -457,21 +678,24 @@ fn shell(design: &str) -> W {
     match design {
         // Плавающие стеклянные панели над сиянием.
         "aurora" => Box::new(
-            Stack::new().fit(StackFit::Expand).child(aurora_backdrop()).child(
-                Column::new()
-                    .gap(12.0)
-                    .cross_axis_alignment(CrossAxisAlignment::Stretch)
-                    .class("shell")
-                    .child(titlebar())
-                    .child(
-                        Row::new()
-                            .gap(12.0)
-                            .cross_axis_alignment(CrossAxisAlignment::Stretch)
-                            .class("grow")
-                            .child(build_sidebar(design))
-                            .child(content_card()),
-                    ),
-            ),
+            Stack::new()
+                .fit(StackFit::Expand)
+                .child(aurora_backdrop())
+                .child(
+                    Column::new()
+                        .gap(12.0)
+                        .cross_axis_alignment(CrossAxisAlignment::Stretch)
+                        .class("shell")
+                        .child(titlebar())
+                        .child(
+                            Row::new()
+                                .gap(12.0)
+                                .cross_axis_alignment(CrossAxisAlignment::Stretch)
+                                .class("grow")
+                                .child(build_sidebar(design))
+                                .child(content_card()),
+                        ),
+                ),
         ),
         // Заголовок, панель и страница — блоки в толстых рамках.
         "brutal" => Box::new(
@@ -480,7 +704,14 @@ fn shell(design: &str) -> W {
                 .cross_axis_alignment(CrossAxisAlignment::Stretch)
                 .class("shell")
                 .child(titlebar())
-                .child(Row::new().gap(0.0).cross_axis_alignment(CrossAxisAlignment::Stretch).class("grow").child(build_sidebar(design)).child(content_card()))
+                .child(
+                    Row::new()
+                        .gap(0.0)
+                        .cross_axis_alignment(CrossAxisAlignment::Stretch)
+                        .class("grow")
+                        .child(build_sidebar(design))
+                        .child(content_card()),
+                )
                 .child(ticker()),
         ),
         // Studio: заголовок и панель — одна тёмная рамка, внутри карточка.
@@ -491,9 +722,13 @@ fn shell(design: &str) -> W {
                 .class("shell")
                 .child(titlebar())
                 .child(
-                    DecoratedBox::new()
-                        .class("grow gallery-frame")
-                        .child(Row::new().gap(0.0).cross_axis_alignment(CrossAxisAlignment::Stretch).child(build_sidebar(design)).child(content_card())),
+                    DecoratedBox::new().class("grow gallery-frame").child(
+                        Row::new()
+                            .gap(0.0)
+                            .cross_axis_alignment(CrossAxisAlignment::Stretch)
+                            .child(build_sidebar(design))
+                            .child(content_card()),
+                    ),
                 ),
         ),
     }
@@ -505,8 +740,16 @@ fn build_gallery() -> impl Widget {
     let design = use_context::<GalleryCtx>().design;
     Reactive::new(move || -> Vec<W> {
         let d = design.get();
-        let frame = DecoratedBox::new().class(format!("window-frame design-{d}")).clip(true).child(shell(&d));
-        vec![Box::new(WindowResizeRegion::new().over_content(true).inset(5.0).child(frame))]
+        let frame = DecoratedBox::new()
+            .class(format!("window-frame design-{d}"))
+            .clip(true)
+            .child(shell(&d));
+        vec![Box::new(
+            WindowResizeRegion::new()
+                .over_content(true)
+                .inset(5.0)
+                .child(frame),
+        )]
     })
 }
 
@@ -536,7 +779,9 @@ fn build_content() -> impl Widget {
 
 fn section_page(key: &str) -> Box<dyn Widget> {
     match key {
-        "mss-properties" => Box::new(page_wrap(sections::mss_properties::build_mss_properties_section())),
+        "mss-properties" => Box::new(page_wrap(
+            sections::mss_properties::build_mss_properties_section(),
+        )),
         "buttons" => Box::new(page_wrap(sections::buttons::build_buttons_section())),
         "input" => Box::new(page_wrap(sections::input::build_input_section())),
         "selection" => Box::new(page_wrap(sections::selection::build_selection_section())),
@@ -546,7 +791,9 @@ fn section_page(key: &str) -> Box<dyn Widget> {
         "scroll" => Box::new(page_wrap(sections::scroll::build_scroll_section())),
         "motion" => Box::new(page_wrap(sections::motion::build_motion_section())),
         "animation" => Box::new(page_wrap(sections::animation::build_animation_section())),
-        "layout-animation" => Box::new(page_wrap(sections::layout_animation::build_layout_animation_section())),
+        "layout-animation" => Box::new(page_wrap(
+            sections::layout_animation::build_layout_animation_section(),
+        )),
         "lottie" => Box::new(page_wrap(sections::lottie::build_lottie_section())),
         "dialogs" => Box::new(page_wrap(sections::dialogs::build_dialogs_section())),
         "menus" => Box::new(page_wrap(sections::menus::build_menus_section())),
@@ -575,11 +822,15 @@ fn section_page(key: &str) -> Box<dyn Widget> {
         "ffmpeg-video" => {
             #[cfg(feature = "ffmpeg")]
             {
-                Box::new(page_wrap(sections::ffmpeg_video::build_ffmpeg_video_section()))
+                Box::new(page_wrap(
+                    sections::ffmpeg_video::build_ffmpeg_video_section(),
+                ))
             }
             #[cfg(not(feature = "ffmpeg"))]
             {
-                Box::new(page_wrap(Text::new("FFmpeg Video plugin требует feature 'ffmpeg' (включает libffmpeg).")))
+                Box::new(page_wrap(Text::new(
+                    "FFmpeg Video plugin требует feature 'ffmpeg' (включает libffmpeg).",
+                )))
             }
         }
         "terminal" => {
@@ -589,7 +840,9 @@ fn section_page(key: &str) -> Box<dyn Widget> {
             }
             #[cfg(not(feature = "terminal"))]
             {
-                Box::new(page_wrap(Text::new("Terminal widget требует feature 'terminal' (portable-pty + vte).")))
+                Box::new(page_wrap(Text::new(
+                    "Terminal widget требует feature 'terminal' (portable-pty + vte).",
+                )))
             }
         }
         "border-test" => Box::new(page_wrap(sections::border_test::build_border_test_section())),

@@ -108,8 +108,12 @@ fn code_editor_card() -> impl Widget {
                         let (l, c, _) = cursor.get();
                         format!("Стр. {}, стлб. {}", l + 1, c + 1)
                     }))
-                    .child(super::rtext("ed-status-text", move || format!("{} строк", cursor.get().2)))
-                    .child(super::rtext("ed-status-text", move || format!("{} символов", chars.get())))
+                    .child(super::rtext("ed-status-text", move || {
+                        format!("{} строк", cursor.get().2)
+                    }))
+                    .child(super::rtext("ed-status-text", move || {
+                        format!("{} символов", chars.get())
+                    }))
                     .child(Text::new("Rust · UTF-8 · пробелы: 4").class("ed-status-text")),
             ),
     )
@@ -121,7 +125,9 @@ fn code_editor_card() -> impl Widget {
         Column::new()
             .gap(12.0)
             .child(section_title("CodeEditor"))
-            .child(label("CodeEditor в веб-сборке не подключён (feature code-editor только на desktop).")),
+            .child(label(
+                "CodeEditor в веб-сборке не подключён (feature code-editor только на desktop).",
+            )),
     )
 }
 
@@ -129,18 +135,55 @@ fn code_editor_card() -> impl Widget {
 
 fn palette_commands() -> Vec<PaletteCommand> {
     vec![
-        PaletteCommand::new("file.new", "Новый файл").category("Файл").shortcut("Ctrl+N").icon("\u{E24D}"),
-        PaletteCommand::new("file.open", "Открыть файл…").category("Файл").shortcut("Ctrl+O").icon("\u{E2C8}"),
-        PaletteCommand::new("file.save", "Сохранить").category("Файл").shortcut("Ctrl+S").icon("\u{E161}"),
-        PaletteCommand::new("edit.find", "Найти в файле").category("Правка").shortcut("Ctrl+F").icon("\u{E8B6}").keywords("search поиск"),
-        PaletteCommand::new("edit.replace", "Заменить").category("Правка").shortcut("Ctrl+H").icon("\u{E14D}"),
-        PaletteCommand::new("edit.format", "Форматировать документ").category("Правка").shortcut("Shift+Alt+F").icon("\u{E23C}").keywords("rustfmt prettier"),
-        PaletteCommand::new("view.theme", "Сменить тему").category("Вид").shortcut("Ctrl+T").icon("\u{E40A}").keywords("dark light тёмная светлая"),
-        PaletteCommand::new("view.zoom_in", "Увеличить масштаб").category("Вид").shortcut("Ctrl++").icon("\u{E8FF}"),
-        PaletteCommand::new("view.sidebar", "Показать/скрыть боковую панель").category("Вид").shortcut("Ctrl+B").icon("\u{E9BD}"),
-        PaletteCommand::new("git.commit", "Закоммитить").category("Git").icon("\u{E86F}").keywords("vcs"),
-        PaletteCommand::new("git.push", "Отправить").category("Git").icon("\u{E2C6}"),
-        PaletteCommand::new("help.about", "О программе").category("Справка").icon("\u{E88E}"),
+        PaletteCommand::new("file.new", "Новый файл")
+            .category("Файл")
+            .shortcut("Ctrl+N")
+            .icon("\u{E24D}"),
+        PaletteCommand::new("file.open", "Открыть файл…")
+            .category("Файл")
+            .shortcut("Ctrl+O")
+            .icon("\u{E2C8}"),
+        PaletteCommand::new("file.save", "Сохранить")
+            .category("Файл")
+            .shortcut("Ctrl+S")
+            .icon("\u{E161}"),
+        PaletteCommand::new("edit.find", "Найти в файле")
+            .category("Правка")
+            .shortcut("Ctrl+F")
+            .icon("\u{E8B6}")
+            .keywords("search поиск"),
+        PaletteCommand::new("edit.replace", "Заменить")
+            .category("Правка")
+            .shortcut("Ctrl+H")
+            .icon("\u{E14D}"),
+        PaletteCommand::new("edit.format", "Форматировать документ")
+            .category("Правка")
+            .shortcut("Shift+Alt+F")
+            .icon("\u{E23C}")
+            .keywords("rustfmt prettier"),
+        PaletteCommand::new("view.theme", "Сменить тему")
+            .category("Вид")
+            .shortcut("Ctrl+T")
+            .icon("\u{E40A}")
+            .keywords("dark light тёмная светлая"),
+        PaletteCommand::new("view.zoom_in", "Увеличить масштаб")
+            .category("Вид")
+            .shortcut("Ctrl++")
+            .icon("\u{E8FF}"),
+        PaletteCommand::new("view.sidebar", "Показать/скрыть боковую панель")
+            .category("Вид")
+            .shortcut("Ctrl+B")
+            .icon("\u{E9BD}"),
+        PaletteCommand::new("git.commit", "Закоммитить")
+            .category("Git")
+            .icon("\u{E86F}")
+            .keywords("vcs"),
+        PaletteCommand::new("git.push", "Отправить")
+            .category("Git")
+            .icon("\u{E2C6}"),
+        PaletteCommand::new("help.about", "О программе")
+            .category("Справка")
+            .icon("\u{E88E}"),
     ]
 }
 

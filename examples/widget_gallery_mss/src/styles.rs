@@ -7,10 +7,8 @@ pub fn component_styles() -> &'static str {
         // Components
         include_str!("../styles/components/layout_helpers.mss"),
         "\n",
-
         include_str!("../styles/components/sections.mss"),
         "\n",
-
         include_str!("../styles/components/dimensions.mss"),
         "\n",
         include_str!("../styles/components/widgets.mss"),

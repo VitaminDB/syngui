@@ -139,22 +139,36 @@ fn builder_color_beats_inherited_color() {
     // Цветная метка (легенда, значок статуса) внутри строки со своим цветом
     // текста: унаследованный цвет не должен перекрашивать `Text::color()`.
     let blue = Color::rgb(0.0, 0.0, 1.0);
-    let widget: Box<dyn Widget> = Box::new(Column::new().class("panel").child(Text::new("hello").color(blue)));
+    let widget: Box<dyn Widget> = Box::new(
+        Column::new()
+            .class("panel")
+            .child(Text::new("hello").color(blue)),
+    );
     let mut h = TestHarness::new(widget);
     h.apply_mss(".panel { color: #00FF00; }");
     h.layout(800.0, 600.0);
 
     let (color, _, _) = painted(&mut h, "hello");
-    assert!(color.b > 0.9 && color.g < 0.05, "цвет билдера должен остаться, получили {color:?}");
+    assert!(
+        color.b > 0.9 && color.g < 0.05,
+        "цвет билдера должен остаться, получили {color:?}"
+    );
 }
 
 #[test]
 fn checkbox_label_inherits_text_color() {
     // Подпись флажка — текст: без своего правила берёт цвет родителя, как Text.
-    let widget: Box<dyn Widget> = Box::new(Column::new().class("panel").child(Checkbox::new().label("подпись")));
+    let widget: Box<dyn Widget> = Box::new(
+        Column::new()
+            .class("panel")
+            .child(Checkbox::new().label("подпись")),
+    );
     let mut h = TestHarness::new(widget);
     h.apply_mss(".panel { color: #00FF00; }");
     h.layout(800.0, 600.0);
     let (color, _, _) = painted(&mut h, "подпись");
-    assert!(color.g > 0.9 && color.r < 0.1, "подпись должна быть цвета родителя, получили {color:?}");
+    assert!(
+        color.g > 0.9 && color.r < 0.1,
+        "подпись должна быть цвета родителя, получили {color:?}"
+    );
 }

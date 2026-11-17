@@ -32,16 +32,29 @@ fn synport() -> Option<PathBuf> {
 impl Device {
     pub fn parse(d: &str) -> Result<Device> {
         if d == "phone" {
-            let sp = synport().context("нет synport (SYNPORT=<путь>) — им идёт связь с телефоном; или --device ssh:<хост>")?;
+            let sp = synport().context(
+                "нет synport (SYNPORT=<путь>) — им идёт связь с телефоном; или --device ssh:<хост>",
+            )?;
             // synport ищет файлы устройств от корня synmobile
             let h = util::home();
-            let root = [h.join("Storage/Проекты/2027/synmobile"), h.join("Projects/2027/synmobile")]
-                .into_iter()
-                .find(|p| p.is_dir())
-                .unwrap_or_else(|| PathBuf::from("."));
-            Ok(Device { name: d.into(), synport: Some((sp, root)), host: None })
+            let root = [
+                h.join("Storage/Проекты/2027/synmobile"),
+                h.join("Projects/2027/synmobile"),
+            ]
+            .into_iter()
+            .find(|p| p.is_dir())
+            .unwrap_or_else(|| PathBuf::from("."));
+            Ok(Device {
+                name: d.into(),
+                synport: Some((sp, root)),
+                host: None,
+            })
         } else if let Some(h) = d.strip_prefix("ssh:") {
-            Ok(Device { name: d.into(), synport: None, host: Some(h.into()) })
+            Ok(Device {
+                name: d.into(),
+                synport: None,
+                host: Some(h.into()),
+            })
         } else {
             bail!("устройство {d}: phone или ssh:<хост>")
         }
@@ -55,7 +68,10 @@ impl Device {
         let c = match (&self.synport, &self.host) {
             (Some((sp, root)), _) => {
                 let mut c = Command::new(sp);
-                c.current_dir(root).arg("scp").arg(local).arg(format!("phone:{remote}"));
+                c.current_dir(root)
+                    .arg("scp")
+                    .arg(local)
+                    .arg(format!("phone:{remote}"));
                 c
             }
             (_, Some(h)) => {
@@ -105,7 +121,13 @@ fn sudo_env() -> String {
 
 /// Поставить пакеты pacman на устройство одной транзакцией и сверить дату сборки.
 pub fn install_packages(dev: &Device, pkgs: &[PathBuf]) -> Result<()> {
-    let tag = format!("syngui-{}-{}", std::process::id(), std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH)?.as_secs());
+    let tag = format!(
+        "syngui-{}-{}",
+        std::process::id(),
+        std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)?
+            .as_secs()
+    );
     let mut remote = Vec::new();
     for p in pkgs {
         let r = format!("/tmp/{tag}-{}", p.file_name().unwrap().to_string_lossy());
@@ -114,24 +136,40 @@ pub fn install_packages(dev: &Device, pkgs: &[PathBuf]) -> Result<()> {
         remote.push(r);
     }
     let list = remote.iter().map(|r| sh(r)).collect::<Vec<_>>().join(" ");
-    let script = format!("{}{AS_ROOT}; set -e; $R pacman -U --noconfirm {list}; rm -f {list}", sudo_env());
-    util::step(format!("pacman -U на {} ({} пакетов)", dev.name(), pkgs.len()));
+    let script = format!(
+        "{}{AS_ROOT}; set -e; $R pacman -U --noconfirm {list}; rm -f {list}",
+        sudo_env()
+    );
+    util::step(format!(
+        "pacman -U на {} ({} пакетов)",
+        dev.name(),
+        pkgs.len()
+    ));
     dev.exec(&script)?;
     // сверка: установлена именно эта сборка (pkgver и builddate из .PKGINFO)
     for p in pkgs {
         let mut c = Command::new("bsdtar");
         c.arg("-xOf").arg(p).arg(".PKGINFO");
         let info = util::capture(c)?;
-        let field = |k: &str| info.lines().find_map(|l| l.strip_prefix(&format!("{k} = ")).map(str::to_string)).unwrap_or_default();
+        let field = |k: &str| {
+            info.lines()
+                .find_map(|l| l.strip_prefix(&format!("{k} = ")).map(str::to_string))
+                .unwrap_or_default()
+        };
         let (name, ver, date) = (field("pkgname"), field("pkgver"), field("builddate"));
         let got = dev.capture(&format!("pacman -Qi {} | sed -n 's/^\\(Version\\|Версия\\) *: //p'; date -d \"$(pacman -Qi {} | sed -n 's/^\\(Build Date\\|Дата сборки\\) *: //p')\" +%s 2>/dev/null || true", sh(&name), sh(&name)))?;
         let mut it = got.lines();
-        let (gv, gd) = (it.next().unwrap_or("").trim().to_string(), it.next().unwrap_or("").trim().to_string());
+        let (gv, gd) = (
+            it.next().unwrap_or("").trim().to_string(),
+            it.next().unwrap_or("").trim().to_string(),
+        );
         if gv != ver {
             bail!("{name}: на устройстве {gv}, ожидалось {ver}");
         }
         if !gd.is_empty() && gd != date {
-            util::warn(format!("{name}: дата сборки на устройстве {gd}, у пакета {date}"));
+            util::warn(format!(
+                "{name}: дата сборки на устройстве {gd}, у пакета {date}"
+            ));
         } else {
             util::note(format!("{name} {ver} — установлен"));
         }
@@ -167,7 +205,10 @@ pub fn install_tree(dev: &Device, bin: &str, tarball: &Path) -> Result<()> {
 /// Без этого по голому ssh программа рисовала бы программно (llvmpipe).
 pub fn launch(dev: &Device, bin: &str, args: &[String], env: &[String]) -> Result<()> {
     let argv = args.iter().map(|a| sh(a)).collect::<Vec<_>>().join(" ");
-    let extra = env.iter().map(|kv| format!("export {};", sh(kv))).collect::<String>();
+    let extra = env
+        .iter()
+        .map(|kv| format!("export {};", sh(kv)))
+        .collect::<String>();
     let comm: String = bin.chars().take(15).collect();
     let script = format!(
         r#"set -e
@@ -201,6 +242,9 @@ fi"#,
         extra = extra.replace('"', "\\\""),
         argv = argv.replace('"', "\\\""),
     );
-    util::step(format!("запуск {bin} на {} в графической сессии", dev.name()));
+    util::step(format!(
+        "запуск {bin} на {} в графической сессии",
+        dev.name()
+    ));
     dev.exec(&script)
 }

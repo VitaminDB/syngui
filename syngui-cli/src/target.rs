@@ -13,7 +13,13 @@ pub enum Target {
 }
 
 impl Target {
-    pub const ALL: [Target; 5] = [Target::LinuxX86_64, Target::LinuxAarch64, Target::Android, Target::Ios, Target::WindowsX86_64];
+    pub const ALL: [Target; 5] = [
+        Target::LinuxX86_64,
+        Target::LinuxAarch64,
+        Target::Android,
+        Target::Ios,
+        Target::WindowsX86_64,
+    ];
 
     pub fn parse(s: &str) -> Result<Target> {
         Ok(match s {
@@ -23,7 +29,9 @@ impl Target {
             "android" | "apk" => Target::Android,
             "ios" | "iphone" | "ipa" => Target::Ios,
             "windows-x86_64" | "windows" | "win64" | "exe" => Target::WindowsX86_64,
-            _ => bail!("неизвестная цель {s}: linux-x86_64, linux-aarch64, android, ios, windows-x86_64"),
+            _ => bail!(
+                "неизвестная цель {s}: linux-x86_64, linux-aarch64, android, ios, windows-x86_64"
+            ),
         })
     }
 

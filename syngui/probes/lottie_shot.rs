@@ -9,7 +9,10 @@ use syngui::widgets::Lottie;
 fn main() {
     let args: Vec<String> = std::env::args().collect();
     let path = args.get(1).cloned().unwrap_or_default();
-    let out = args.get(2).cloned().unwrap_or_else(|| "lottie_shot.png".into());
+    let out = args
+        .get(2)
+        .cloned()
+        .unwrap_or_else(|| "lottie_shot.png".into());
     let mss = r#"
         .root { background-color: #202830; padding: 16; }
         .big { width: 240; height: 240; background-color: #ffffff20; }
@@ -26,7 +29,12 @@ fn main() {
                         .gap(16.0)
                         .child(Lottie::from_file(&p1).class("big"))
                         .child(Lottie::from_file(&p2).fit(ImageFit::Cover).class("small"))
-                        .child(Lottie::from_file(&p3).speed(0.0).progress_signal(use_signal(0.5)).class("small")),
+                        .child(
+                            Lottie::from_file(&p3)
+                                .speed(0.0)
+                                .progress_signal(use_signal(0.5))
+                                .class("small"),
+                        ),
                 ),
             )
         },

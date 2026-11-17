@@ -23,10 +23,22 @@ fn double_click_reaches_guest_as_two_presses() {
     h.layout(400.0, 300.0);
     let p = Point::new(100.0, 100.0);
     h.send_events(&[
-        Event::MouseDown { button: MouseButton::Left, position: p },
-        Event::MouseUp { button: MouseButton::Left, position: p },
-        Event::DoubleClick { button: MouseButton::Left, position: p },
-        Event::MouseUp { button: MouseButton::Left, position: p },
+        Event::MouseDown {
+            button: MouseButton::Left,
+            position: p,
+        },
+        Event::MouseUp {
+            button: MouseButton::Left,
+            position: p,
+        },
+        Event::DoubleClick {
+            button: MouseButton::Left,
+            position: p,
+        },
+        Event::MouseUp {
+            button: MouseButton::Left,
+            position: p,
+        },
     ]);
     assert_eq!(*got.lock().unwrap(), ["down", "up", "down", "up"]);
 }

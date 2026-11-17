@@ -15,7 +15,10 @@ fn columns_at(width: f32) -> usize {
     let mut h = TestHarness::new(Box::new(grid()));
     h.layout(width, 600.0);
     let ids = h.find_by_type_name("DecoratedBox");
-    let mut xs: Vec<i32> = ids.iter().map(|&id| h.element_bounds(id).origin.x as i32).collect();
+    let mut xs: Vec<i32> = ids
+        .iter()
+        .map(|&id| h.element_bounds(id).origin.x as i32)
+        .collect();
     xs.sort();
     xs.dedup();
     xs.len()
