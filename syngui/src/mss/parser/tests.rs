@@ -647,8 +647,8 @@ mod tests {
     }
 
     #[test]
-    fn test_parse_calculator_mss() {
-        let input = include_str!("../../../../app/calculator/styles/calculator.mss");
+    fn test_parse_gallery_widgets_mss() {
+        let input = include_str!("../../../../app/widget_gallery_mss/styles/components/widgets.mss");
         let mut parser = MssParser::new(input);
         let (sheet, warnings) = parser.parse().unwrap();
         assert!(warnings.is_empty(), "Unexpected warnings: {:?}", warnings);

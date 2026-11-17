@@ -211,20 +211,13 @@ syngui package -f ipa                # unsigned .ipa built on Linux, no Xcode
 
 ## Examples
 
-Three example apps live under `app/` and depend only on `syngui`:
-
-| App | What it shows |
-|-----|---------------|
-| `calculator` | Minimal reference app — also carries an **Android** target under `app/calculator/android/` |
-| `widget_gallery_mss` | Every widget + MSS styling; also builds to **WebAssembly** |
-| `linamp` | A media player — audio, waveforms, richer layout |
+The example app `widget_gallery_mss` lives under `app/` and depends only on `syngui`:
+every widget + MSS styling; it also builds to **WebAssembly**.
 
 **Desktop:**
 
 ```bash
-cargo run -p calculator
 cargo run -p widget_gallery_mss
-cargo run -p linamp
 ```
 
 **Web (WASM)** — builds the gallery to an ES module and serves it:
@@ -237,10 +230,6 @@ python3 -m http.server --directory .   # then open http://localhost:8000
 ```
 
 The web build omits desktop-only widgets (terminal, video, native clipboard).
-
-**Android** — the `calculator` app ships a Gradle project. Create
-`app/calculator/android/local.properties` pointing at your SDK, then build with the
-included `gradlew` (requires the Android SDK/NDK and `cargo-ndk`).
 
 ## How it is tested
 
