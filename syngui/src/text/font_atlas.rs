@@ -4,6 +4,9 @@ use std::sync::Arc;
 use crate::text::line_break::breaks_before;
 use crate::text::script::{script_of, Script};
 
+/// Ширина табуляции в пробелах — при отрисовке и измерении текста (каретка, выделение, щелчок).
+const TAB_COLUMNS: f32 = 4.0;
+
 const FONT_REGULAR: u8 = 0;
 const FONT_EMOJI: u8 = 1;
 const FONT_BOLD: u8 = 2;
@@ -1789,6 +1792,9 @@ impl FontAtlas {
         weight: FontWeight,
         font_family: Option<&str>,
     ) -> f32 {
+        if ch == '\t' {
+            return self.glyph_advance(' ', size_px, weight, font_family) * TAB_COLUMNS;
+        }
         let key = self.ensure_glyph_weighted(ch, size_px, weight, font_family);
         let key = match key {
             Some(k) => k,
@@ -1938,6 +1944,12 @@ impl FontAtlas {
         letter_spacing: f32,
         result: &mut Vec<ShapedGlyph>,
     ) {
+        // Табуляция: в шрифте у неё нет глифа (ширина 0) — слова слипались. Шаг — как
+        // `TAB_COLUMNS` пробелов (фиксированный, без позиций табуляции).
+        if ch == '\t' {
+            *x += self.glyph_advance(' ', size_px, weight, font_family) * TAB_COLUMNS;
+            return;
+        }
         let key = self.ensure_glyph_weighted(ch, size_px, weight, font_family);
         let key = match key {
             Some(k) => k,
@@ -1968,6 +1980,12 @@ impl FontAtlas {
         y: f32,
         result: &mut Vec<ShapedGlyph>,
     ) {
+        // Табуляция: в шрифте у неё нет глифа (ширина 0) — слова слипались. Шаг — как
+        // `TAB_COLUMNS` пробелов (фиксированный, без позиций табуляции).
+        if ch == '\t' {
+            *x += self.glyph_advance(' ', size_px, weight, font_family) * TAB_COLUMNS;
+            return;
+        }
         let key = self.ensure_glyph_weighted(ch, size_px, weight, font_family);
         let key = match key {
             Some(k) => k,
