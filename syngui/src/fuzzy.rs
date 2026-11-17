@@ -20,6 +20,9 @@ const SUBSEQUENCE_MIN_CHARS: usize = 3;
 const SUBSEQUENCE_MAX_SPREAD_FACTOR: usize = 3;
 const SUBSEQUENCE_MAX_SPREAD_EXTRA: usize = 4;
 const TITLE_LENGTH_PENALTY_STEP: usize = 24;
+/// Надбавка, когда несколько слов запроса стоят в заголовке подряд той же фразой
+/// («модули проекта» — выше «…проекта…, модули»).
+pub const PHRASE_BONUS: i32 = 30;
 
 const LAYOUT_EN: &str = "qwertyuiop[]asdfghjkl;'zxcvbnm,./`";
 const LAYOUT_RU: &str = "йцукенгшщзхъфывапролджэячсмитьбю.ё";
@@ -276,6 +279,13 @@ fn score_tokens(
             }
         }
     }
+    if tokens.len() > 1 {
+        let phrase: Vec<char> = tokens.join(" ").chars().collect();
+        let title_chars: Vec<char> = norm_title.chars().collect();
+        if find_word_start(&title_chars, &phrase).is_some() {
+            total += PHRASE_BONUS;
+        }
+    }
     if via_layout {
         total -= LAYOUT_PENALTY;
     }
@@ -317,6 +327,13 @@ mod tests {
 
     fn hit(title: &str, fields: &[SearchField], q: &str) -> Option<ItemMatch> {
         score(title, &normalize(title), fields, &plan(q).unwrap())
+    }
+
+    #[test]
+    fn phrase_in_title_ranks_first() {
+        let a = hit("Панель «Delphi» (структура проекта Delphi: классы, формы, модули)", &[], "модули проекта").unwrap();
+        let b = hit("Панель «Модули проекта» (подключить библиотеки в одно адресное пространство)", &[], "модули проекта").unwrap();
+        assert!(b.score > a.score, "{} <= {}", b.score, a.score);
     }
 
     #[test]
