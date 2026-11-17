@@ -374,10 +374,13 @@ dependencies {{
         android:theme="@style/Theme.SynGui">
 
         <!-- configChanges широкий: складные телефоны меняют размер и плотность экрана,
-             пересоздание Activity перезапускало бы приложение. -->
+             пересоздание Activity перезапускало бы приложение. singleTask — повторный
+             запуск (ярлык, уведомление) возвращает в открытое окно, а не создаёт второе:
+             второй цикл winit в том же процессе поднять нельзя. -->
         <activity
             android:name="{ACTIVITY}"
             android:exported="true"
+            android:launchMode="singleTask"
             android:resizeableActivity="true"{orientation}
             android:configChanges="orientation|screenSize|smallestScreenSize|screenLayout|keyboardHidden|keyboard|navigation|uiMode|density|fontScale|layoutDirection|locale"
             android:windowSoftInputMode="adjustResize">

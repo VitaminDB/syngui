@@ -884,7 +884,11 @@ impl winit::application::ApplicationHandler<SynGuiUserEvent> for AppHandler {
             if app.internal_data_path().is_none() {
                 log::warn!("syngui: GameActivity уничтожена — завершаем процесс, чтобы следующий запуск начался с чистого цикла");
                 self.dispatch_lifecycle(Event::AppSuspended);
-                std::process::exit(0);
+                // `_exit`, а не `process::exit`: деструкторы глобальных объектов
+                // освобождают JNI-ссылки не из того потока — с CheckJNI
+                // (отлаживаемый APK) это аварийная остановка, процесс висел
+                // с чёрным экраном до ANR.
+                unsafe { libc::_exit(0) };
             }
         }
         if self.pending_show && self.window.is_none() {
