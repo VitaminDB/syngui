@@ -43,5 +43,9 @@ pub fn component_styles() -> &'static str {
         include_str!("../styles/pages/ffmpeg_video.mss"),
         "\n",
         include_str!("../styles/pages/lottie.mss"),
+        "\n",
+        include_str!("../styles/pages/editors.mss"),
+        "\n",
+        include_str!("../styles/pages/advanced.mss"),
     )
 }

@@ -3048,3 +3048,18 @@ fn dragging_a_selected_block_in_flow_moves_the_group() {
     settle(&mut h);
     assert_eq!(handle.serialize(), "б\n\nв\n\nа\n\nг\n");
 }
+
+/// Фигура в потоке — в колонке контента (`max_content_width`, 760 по
+/// умолчанию), как абзац рядом, а не на всю ширину широкого редактора.
+#[test]
+fn flow_shape_stays_in_content_column() {
+    let mut h = harness("Абзац.\n\n![[shape:rect]]{sw=2}\n");
+    h.layout(1400.0, 600.0);
+    let shape = h.element_bounds(h.find_by_type_name("doc-shape")[0]);
+    let row = h.element_bounds(h.find_by_type_name("doc-text-row")[0]);
+    assert!(shape.size.width <= 760.5, "фигура шире колонки: {shape:?}");
+    assert!(
+        (shape.origin.x - row.origin.x).abs() < 1.0 && (shape.size.width - row.size.width).abs() < 1.0,
+        "фигура не в колонке абзаца: фигура {shape:?}, абзац {row:?}"
+    );
+}

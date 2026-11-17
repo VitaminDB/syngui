@@ -14,7 +14,11 @@
 //!
 //! Цвета из MSS: `background-color` — фон, `color` — текст по умолчанию,
 //! `border-color` — рамка узла, `accent-color` — выбранный узел,
-//! `selection-color` — заливка узла.
+//! `selection-color` — заливка узла. Цвет `Color::TRANSPARENT` у куска текста,
+//! ребра ([`GraphEdge`]) или полосы заголовка ([`GraphNode::accent`]) значит
+//! «из темы»: текст — `color`, ребро — `color` с прозрачностью
+//! [`THEMED_EDGE_ALPHA`], полоса — `accent-color`. Так граф перекрашивается
+//! вместе с темой без цветов в коде приложения.
 
 pub mod layout;
 
@@ -75,7 +79,20 @@ impl GraphEdge {
     }
 }
 
-type IdFn = Arc<Mutex<dyn FnMut(u64) + Send>>;
+/// Прозрачность ребра цвета «из темы» (доля от `color`).
+pub const THEMED_EDGE_ALPHA: f32 = 0.55;
+
+/// Цвет ребра: свой или, для `Color::TRANSPARENT`, текст темы с прозрачностью.
+pub fn resolve_edge_color(edge: Color, text: Color) -> Color {
+    if edge == Color::TRANSPARENT { text.with_alpha(text.a * THEMED_EDGE_ALPHA) } else { edge }
+}
+
+/// Цвет полосы заголовка: свой или, для `Color::TRANSPARENT`, акцент темы.
+pub fn resolve_accent_color(own: Color, accent: Color) -> Color {
+    if own == Color::TRANSPARENT { accent } else { own }
+}
+
+type IdFn =Arc<Mutex<dyn FnMut(u64) + Send>>;
 
 pub struct GraphView {
     nodes: Arc<Vec<GraphNode>>,
@@ -322,7 +339,8 @@ impl Element for GraphElement {
                 let s = self.to_screen(p);
                 [s.x, s.y]
             }).collect();
-            let col = if l.back.get(i).copied().unwrap_or(false) { e.color.with_alpha(0.75) } else { e.color };
+            let ec = resolve_edge_color(e.color, text_c);
+            let col = if l.back.get(i).copied().unwrap_or(false) { ec.with_alpha(ec.a * 0.75) } else { ec };
             list.push_line_strip(pts.clone(), col, (1.6 * z).max(1.0));
             // стрелка
             let [x, y] = pts[pts.len() - 1];
@@ -347,7 +365,7 @@ impl Element for GraphElement {
             let node_fill = n.tint.map(|t| fill.lerp(&t, 0.18)).unwrap_or(fill);
             list.push_rect_bordered(r, node_fill, [6.0 * z; 4], Border::new(if sel { 2.0 } else { 1.0 }, if sel { accent } else { border }));
             if let Some(a) = n.accent {
-                list.push_rect(Rect::new(tl, Size::new(size.width, 3.0 * z)), a, [6.0 * z, 6.0 * z, 0.0, 0.0]);
+                list.push_rect(Rect::new(tl, Size::new(size.width, 3.0 * z)), resolve_accent_color(a, accent),[6.0 * z, 6.0 * z, 0.0, 0.0]);
             }
             if fs < 4.0 {
                 continue; // слишком мелко — только коробки
@@ -378,19 +396,31 @@ impl Element for GraphElement {
         let scale = mw / l.width.max(1.0);
         let mh = (l.height * scale).min(b.size.height * 0.3);
         let scale = scale.min(mh / l.height.max(1.0));
+        // высокий узкий граф: масштаб урезан по высоте — ширина карты по графу
+        // (не уже 24 px), граф по центру; иначе узлы жались к левому краю
+        // пустой широкой карты
+        let mw = (l.width * scale).clamp(24.0f32.min(mw), mw);
+        let (gx0, gx1) = (0..self.nodes.len().min(l.pos.len()))
+            .map(|i| (l.pos[i].0, l.pos[i].0 + self.sizes[i].0))
+            .fold((f32::MAX, f32::MIN), |(a, b), (x0, x1)| (a.min(x0), b.max(x1)));
+        let ox = if gx1 > gx0 { ((mw - (gx1 - gx0) * scale) * 0.5).max(0.0) - gx0 * scale } else { 0.0 };
         let mr = Rect::new(Point::new(b.origin.x + b.size.width - mw - 12.0, b.origin.y + b.size.height - mh - 12.0), Size::new(mw, mh));
         if l.width * z > b.size.width || l.height * z > b.size.height {
             list.push_rect_bordered(mr, bg.with_alpha(0.92), [6.0; 4], Border::new(1.0, border));
             for i in 0..self.nodes.len() {
                 let (x, y) = l.pos[i];
-                let nr = Rect::new(Point::new(mr.origin.x + x * scale, mr.origin.y + y * scale), Size::new((self.sizes[i].0 * scale).max(1.0), (self.sizes[i].1 * scale).max(1.0)));
+                let nr = Rect::new(Point::new(mr.origin.x + ox + x * scale, mr.origin.y + y * scale), Size::new((self.sizes[i].0 * scale).max(1.0), (self.sizes[i].1 * scale).max(1.0)));
                 list.push_rect(nr, if self.selected == Some(self.nodes[i].id) { accent } else { text_c.with_alpha(0.35) }, [1.0; 4]);
             }
             // видимая область
             let vx = -self.pan.x / z * scale;
             let vy = -self.pan.y / z * scale;
-            let vr = Rect::new(Point::new(mr.origin.x + vx, mr.origin.y + vy), Size::new(b.size.width / z * scale, b.size.height / z * scale));
-            list.push_rect_bordered(vr, accent.with_alpha(0.08), [2.0; 4], Border::new(1.0, accent.with_alpha(0.7)));
+            let vr = Rect::new(Point::new(mr.origin.x + ox + vx, mr.origin.y + vy), Size::new(b.size.width / z * scale, b.size.height / z * scale));
+            // рамка видимой области — в пределах мини-карты: когда область шире
+            // графа по одной оси, рамка вылезала за мини-карту и за край виджета
+            if let Some(vr) = vr.intersection(&mr) {
+                list.push_rect_bordered(vr, accent.with_alpha(0.08), [2.0; 4], Border::new(1.0, accent.with_alpha(0.7)));
+            }
         }
         list.pop_clip();
     }
@@ -530,5 +560,73 @@ impl StyledElement for GraphElement {
     }
     fn set_classes(&mut self, c: Vec<String>) {
         self.classes = c;
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn transparent_edge_takes_theme_text_color() {
+        let text = Color::from_hex("#202020");
+        let c = resolve_edge_color(Color::TRANSPARENT, text);
+        assert_eq!((c.r, c.g, c.b), (text.r, text.g, text.b));
+        assert!((c.a - THEMED_EDGE_ALPHA).abs() < 1e-6);
+        // свой цвет не трогается
+        let own = Color::from_hex("#22c55e");
+        assert_eq!(resolve_edge_color(own, text), own);
+    }
+
+    /// Широкий низкий виджет и высокий узкий граф: мини-карта видна (граф не
+    /// влезает по высоте), а рамка видимой области шире мини-карты — она
+    /// должна обрезаться мини-картой, а не вылезать за край виджета.
+    #[test]
+    fn minimap_view_rect_stays_inside_widget() {
+        use crate::testing::TestHarness;
+        let nodes: Vec<GraphNode> = (1..=8u64).map(|i| GraphNode::new(i, vec![vec![(format!("блок {i}"), Color::TRANSPARENT)]])).collect();
+        let edges: Vec<GraphEdge> = (1..8u64).map(|i| GraphEdge::new(i, i + 1, Color::TRANSPARENT)).collect();
+        let mut h = TestHarness::new(Box::new(GraphView::new(nodes, edges).root(1)));
+        h.rebuild();
+        h.layout(1100.0, 300.0);
+        let b = h.element_bounds(h.root_id);
+        let list = h.paint();
+        let rects: Vec<Rect> = list
+            .iter_all_commands()
+            .filter_map(|c| match c {
+                crate::render::DrawCommand::Rect { rect, .. } => Some(*rect),
+                _ => None,
+            })
+            .collect();
+        // мини-карта — прямоугольник у правого нижнего угла (отступ 12)
+        let mi = rects
+            .iter()
+            .position(|r| (r.max_x() - (b.max_x() - 12.0)).abs() < 0.5 && (r.max_y() - (b.max_y() - 12.0)).abs() < 0.5)
+            .expect("мини-карта не нарисована");
+        let mr = rects[mi];
+        let eps = 0.5;
+        for r in &rects[mi + 1..] {
+            assert!(
+                r.origin.x >= mr.origin.x - eps && r.max_x() <= mr.max_x() + eps && r.origin.y >= mr.origin.y - eps && r.max_y() <= mr.max_y() + eps,
+                "{r:?} вылезает за мини-карту {mr:?}"
+            );
+        }
+        // ширина карты — по графу (граф по центру), а не пустые 160 px
+        let nodes = &rects[mi + 1..rects.len() - 1];
+        let nodes_left = nodes.iter().map(|r| r.origin.x).fold(f32::MAX, f32::min);
+        let nodes_right = nodes.iter().map(|r| r.max_x()).fold(0.0f32, f32::max);
+        assert!(mr.width() <= 24.5, "карта шире графа: {mr:?}");
+        assert!(
+            ((nodes_left - mr.origin.x) - (mr.max_x() - nodes_right)).abs() < 1.0,
+            "граф не по центру карты: {mr:?}, узлы {nodes_left}..{nodes_right}"
+        );
+    }
+
+    #[test]
+    fn transparent_accent_takes_theme_accent() {
+        let accent = Color::from_hex("#4F8CFF");
+        assert_eq!(resolve_accent_color(Color::TRANSPARENT, accent), accent);
+        let own = Color::from_hex("#ff0000");
+        assert_eq!(resolve_accent_color(own, accent), own);
     }
 }
