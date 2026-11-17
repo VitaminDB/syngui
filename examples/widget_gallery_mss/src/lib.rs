@@ -111,18 +111,102 @@ fn route_keys() -> Vec<String> {
     SECTIONS.iter().map(|s| s.key.to_string()).collect()
 }
 
+/// Снимок без окна: `widget_gallery_mss --screenshot СНИМОК.png [--size ШxВ]
+/// [--scale N] [--page РАЗДЕЛ] [--theme ТЕМА] [--lang ЯЗЫК]`.
+struct ShotArgs {
+    out: String,
+    size: (u32, u32),
+    scale: f64,
+    page: Option<String>,
+    theme: Option<String>,
+    lang: Option<String>,
+}
+
+#[cfg(not(target_arch = "wasm32"))]
+fn parse_shot_args() -> Option<ShotArgs> {
+    let mut a = ShotArgs { out: String::new(), size: (1440, 900), scale: 1.0, page: None, theme: None, lang: None };
+    let mut args = std::env::args().skip(1);
+    let mut shot = false;
+    while let Some(arg) = args.next() {
+        match arg.as_str() {
+            "-h" | "--help" => {
+                println!("widget_gallery_mss [--screenshot СНИМОК.png [--size ШxВ] [--scale N] [--page РАЗДЕЛ] [--theme ТЕМА] [--lang ЯЗЫК]]");
+                println!("разделы: {}", SECTIONS.iter().map(|s| s.key).collect::<Vec<_>>().join(" "));
+                println!("темы: {}", theme_data::builtin_themes().iter().map(|t| t.id).collect::<Vec<_>>().join(" "));
+                std::process::exit(0);
+            }
+            "--screenshot" => {
+                shot = true;
+                a.out = args.next().unwrap_or_else(|| "gallery.png".into());
+            }
+            "--size" => {
+                if let Some((w, h)) = args.next().as_deref().and_then(|s| s.split_once('x')) {
+                    a.size = (w.parse().unwrap_or(a.size.0), h.parse().unwrap_or(a.size.1));
+                }
+            }
+            "--scale" => a.scale = args.next().and_then(|s| s.parse().ok()).unwrap_or(a.scale),
+            "--page" => a.page = args.next(),
+            "--theme" => a.theme = args.next(),
+            "--lang" => a.lang = args.next(),
+            _ => {}
+        }
+    }
+    shot.then_some(a)
+}
+
+#[cfg(not(target_arch = "wasm32"))]
+fn run_shot(a: ShotArgs) {
+    let theme = a.theme.as_deref().and_then(theme_data::find_theme).unwrap_or_else(theme_data::default_light);
+    let mss = format!("{}\n{}", theme.to_mss(), styles::component_styles());
+    let page = a.page.clone();
+    let r = syngui::shot::render_png(
+        move || {
+            let ctx = make_ctx(use_signal(mss.clone()), page.as_deref());
+            ctx.is_dark.set(theme.is_dark);
+            ctx.current_theme_id.set(theme.id.to_string());
+            provide_context(ctx);
+            Box::new(DecoratedBox::new().class("grow").child(build_gallery()))
+        },
+        &format!("{}\n{}", theme.to_mss(), styles::component_styles()),
+        a.size,
+        a.scale,
+        &a.out,
+    );
+    match r {
+        Ok((w, h)) => println!("{}: {w}x{h}", a.out),
+        Err(e) => {
+            eprintln!("{e}");
+            std::process::exit(1);
+        }
+    }
+}
+
+fn init_i18n(lang: Option<&str>) {
+    syngui::i18n::register_catalogs(&[
+        include_str!("../i18n/en.lang"),
+        include_str!("../i18n/ru.lang"),
+    ]);
+    match lang {
+        Some(l) => syngui::i18n::set_language(l),
+        None => syngui::i18n::set_language(syngui::i18n::system_language()),
+    }
+}
+
 #[cfg_attr(target_arch = "wasm32", wasm_bindgen(start))]
 pub fn run_app() {
     #[cfg(target_arch = "wasm32")]
     console_error_panic_hook::set_once();
 
+    #[cfg(not(target_arch = "wasm32"))]
+    if let Some(a) = parse_shot_args() {
+        init_i18n(a.lang.as_deref());
+        run_shot(a);
+        return;
+    }
+
     let initial_mss = build_initial_mss();
     let theme_mss = use_signal(initial_mss.clone());
-    syngui::i18n::register_catalogs(&[
-        include_str!("../i18n/en.lang"),
-        include_str!("../i18n/ru.lang"),
-    ]);
-    syngui::i18n::set_language(syngui::i18n::system_language());
+    init_i18n(None);
 
     App::new()
         .title("SYNGUI Widget Gallery")
@@ -140,7 +224,7 @@ pub fn run_app() {
         .with_theme_transition(360)
         .with_debug_overlay(false)
         .run(move |_ctx| {
-            provide_context(make_ctx(theme_mss));
+            provide_context(make_ctx(theme_mss, None));
             Box::new(DecoratedBox::new().class("grow").child(move || {
                 syngui::i18n::subscribe();
                 build_gallery()
@@ -148,12 +232,13 @@ pub fn run_app() {
         });
 }
 
-fn make_ctx(theme_mss: RwSignal<String>) -> GalleryCtx {
+fn make_ctx(theme_mss: RwSignal<String>, page: Option<&str>) -> GalleryCtx {
     let is_dark = use_signal(false);
     let current_theme_id = use_signal("clean_modern".to_string());
-    // GALLERY_ROUTE=motion — открыть раздел сразу (снимки, проверка вёрстки).
-    let initial = std::env::var("GALLERY_ROUTE")
-        .ok()
+    // Начальный раздел: `--page` снимка или GALLERY_ROUTE=motion (проверка вёрстки).
+    let initial = page
+        .map(str::to_string)
+        .or_else(|| std::env::var("GALLERY_ROUTE").ok())
         .filter(|r| SECTIONS.iter().any(|s| s.key == r))
         .unwrap_or_else(|| "mss-properties".to_string());
     let sidebar_state = use_signal(SECTIONS.iter().position(|s| s.key == initial).unwrap_or(0));
