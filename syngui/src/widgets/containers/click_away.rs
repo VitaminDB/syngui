@@ -11,7 +11,9 @@ use crate::input::{Event, EventResult};
 use crate::layout::Constraints;
 use crate::render::DisplayList;
 use crate::widget::context::EventContext;
-use crate::widget::{DirtyFlags, Element, ElementId, ElementTree, LayoutHint, UpdateContext, Widget};
+use crate::widget::{
+    DirtyFlags, Element, ElementId, ElementTree, LayoutHint, UpdateContext, Widget,
+};
 use std::any::Any;
 use std::sync::Arc;
 
@@ -22,7 +24,10 @@ pub struct ClickAway {
 
 impl ClickAway {
     pub fn new(child: impl Widget + 'static) -> Self {
-        Self { child: Box::new(child), on_away: None }
+        Self {
+            child: Box::new(child),
+            on_away: None,
+        }
     }
 
     /// Нажатие мимо содержимого.
@@ -34,7 +39,11 @@ impl ClickAway {
 
 impl Widget for ClickAway {
     fn create_element(&self) -> Box<dyn Element> {
-        Box::new(ClickAwayElement { id: ElementId::new(), bounds: Rect::zero(), dirty_flags: DirtyFlags::LAYOUT | DirtyFlags::RENDER })
+        Box::new(ClickAwayElement {
+            id: ElementId::new(),
+            bounds: Rect::zero(),
+            dirty_flags: DirtyFlags::LAYOUT | DirtyFlags::RENDER,
+        })
     }
 
     /// Обработчик живёт в реестре дерева с монтирования: новый виджет — новый элемент.
@@ -55,7 +64,8 @@ impl Widget for ClickAway {
             tree.add_click_away(parent_id, f.clone());
         }
         let element = self.child.create_element();
-        let child_id = tree.insert_with_type_id(element, Some(parent_id), self.child.as_any().type_id());
+        let child_id =
+            tree.insert_with_type_id(element, Some(parent_id), self.child.as_any().type_id());
         self.child.mount(tree, child_id);
     }
 
@@ -147,13 +157,20 @@ mod tests {
             c2.fetch_add(1, Ordering::SeqCst);
         });
         let menu = Button::new("item");
-        let root = Column::new().child(other).child(ClickAway::new(menu).on_away(move || {
-            a2.fetch_add(1, Ordering::SeqCst);
-        }));
+        let root = Column::new()
+            .child(other)
+            .child(ClickAway::new(menu).on_away(move || {
+                a2.fetch_add(1, Ordering::SeqCst);
+            }));
         let mut h = TestHarness::new(Box::new(root));
         h.layout(300.0, 300.0);
         let b = h.find_by_type_name("Button");
-        let center = |r: Rect| Point::new(r.origin.x + r.size.width / 2.0, r.origin.y + r.size.height / 2.0);
+        let center = |r: Rect| {
+            Point::new(
+                r.origin.x + r.size.width / 2.0,
+                r.origin.y + r.size.height / 2.0,
+            )
+        };
         let item = h.tree.get(b[1]).unwrap().bounds();
         h.send_events(&crate::testing::click_at(center(item)));
         assert_eq!(away.load(Ordering::SeqCst), 0, "щелчок по меню — не мимо");

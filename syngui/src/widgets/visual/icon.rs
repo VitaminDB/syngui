@@ -101,7 +101,11 @@ impl Element for IconElement {
             .or(self.mss.opacity)
             .unwrap_or(1.0)
             .clamp(0.0, 1.0);
-        let color = if opacity < 1.0 { color.multiply_alpha(opacity) } else { color };
+        let color = if opacity < 1.0 {
+            color.multiply_alpha(opacity)
+        } else {
+            color
+        };
         let icon_size = self.icon_size();
 
         let text_rect = Rect::new(
@@ -202,14 +206,23 @@ impl Element for IconElement {
             .apply_transitions(base, hover, active, focus, selected);
     }
 
-    fn setup_keyframe_animation(&mut self, style: &ComputedStyle, stylesheet: &crate::mss::StyleSheet) {
+    fn setup_keyframe_animation(
+        &mut self,
+        style: &ComputedStyle,
+        stylesheet: &crate::mss::StyleSheet,
+    ) {
         self.mss.setup_keyframe_animation(style, stylesheet);
     }
 
     fn animate(&mut self, dt: std::time::Duration) -> bool {
         let dt = dt.as_secs_f32();
         let transition = self.mss.transition.tick(dt);
-        let keyframes = self.mss.keyframe_animation.as_mut().map(|a| a.tick(dt)).unwrap_or(false);
+        let keyframes = self
+            .mss
+            .keyframe_animation
+            .as_mut()
+            .map(|a| a.tick(dt))
+            .unwrap_or(false);
         if transition || keyframes {
             self.mark_dirty(DirtyFlags::RENDER);
         }
@@ -217,7 +230,12 @@ impl Element for IconElement {
     }
 
     fn needs_repaint(&self) -> bool {
-        self.mss.transition.is_animating() || self.mss.keyframe_animation.as_ref().is_some_and(|a| a.is_running())
+        self.mss.transition.is_animating()
+            || self
+                .mss
+                .keyframe_animation
+                .as_ref()
+                .is_some_and(|a| a.is_running())
     }
 
     fn accessibility_info(&self) -> Option<crate::a11y::AccessibilityInfo> {

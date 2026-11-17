@@ -134,7 +134,11 @@ pub fn render_png_with(
     let pw = (lw as f64 * scale).round() as u32;
     let ph = (lh as f64 * scale).round() as u32;
     // как у окна: смешение альфы в sRGB (CSS); байты текстуры — sRGB
-    let format = if std::env::var("SYNGUI_LINEAR_BLEND").is_ok_and(|v| v != "0") { wgpu::TextureFormat::Rgba8UnormSrgb } else { wgpu::TextureFormat::Rgba8Unorm };
+    let format = if std::env::var("SYNGUI_LINEAR_BLEND").is_ok_and(|v| v != "0") {
+        wgpu::TextureFormat::Rgba8UnormSrgb
+    } else {
+        wgpu::TextureFormat::Rgba8Unorm
+    };
     let mut renderer = Renderer::new(&gpu, format, pw, ph, lw, lh, None);
     {
         let mut atlas = renderer
@@ -146,7 +150,11 @@ pub fn render_png_with(
         #[cfg(feature = "font-awesome")]
         {
             use crate::text::icon_fonts::awesome as fa;
-            atlas.set_awesome_font_data(fa::SOLID_FONT_DATA.to_vec(), fa::REGULAR_FONT_DATA.to_vec(), fa::BRANDS_FONT_DATA.to_vec());
+            atlas.set_awesome_font_data(
+                fa::SOLID_FONT_DATA.to_vec(),
+                fa::REGULAR_FONT_DATA.to_vec(),
+                fa::BRANDS_FONT_DATA.to_vec(),
+            );
         }
         atlas.set_scale_factor(scale as f32);
     }
@@ -157,9 +165,17 @@ pub fn render_png_with(
     // Признак тёмной темы для запасных цветов виджетов (кнопки, поля без своих правил) — как у окна:
     // `--bg` таблицы стилей, иначе системное оформление. Без него снимок тёмной программы получал
     // светлые запасные цвета: бледный текст кнопок, белые сегменты.
-    let theme_bg = sheet.get_variable("--bg").and_then(|v| v.as_color().or_else(|| v.as_string().and_then(crate::mss::MssColor::parse)));
+    let theme_bg = sheet.get_variable("--bg").and_then(|v| {
+        v.as_color()
+            .or_else(|| v.as_string().and_then(crate::mss::MssColor::parse))
+    });
     let dark = match theme_bg {
-        Some(c) => crate::theme_fallback::color_is_dark(Color::from_srgb(c.r, c.g, c.b, c.a as f32 / 255.0)),
+        Some(c) => crate::theme_fallback::color_is_dark(Color::from_srgb(
+            c.r,
+            c.g,
+            c.b,
+            c.a as f32 / 255.0,
+        )),
         None => crate::appearance::read_system_appearance().is_dark(),
     };
     crate::theme_fallback::set_dark_theme(dark);
@@ -221,7 +237,11 @@ pub fn render_png_with(
             None => started.elapsed() >= opts.timeout,
         };
         // Предел: без условия готовности — прежние ~20 кадров после `wait`.
-        let limit = if opts.ready.is_none() { opts.wait } else { opts.timeout };
+        let limit = if opts.ready.is_none() {
+            opts.wait
+        } else {
+            opts.timeout
+        };
         if frame >= 19 && started.elapsed() >= limit {
             break;
         }
@@ -302,7 +322,7 @@ pub fn render_png_with(
         }
         drop(data);
         buf.unmap();
-    image::save_buffer(out, &rgba, pw, ph, image::ExtendedColorType::Rgba8)
+        image::save_buffer(out, &rgba, pw, ph, image::ExtendedColorType::Rgba8)
             .map_err(|e| format!("{out}: {e}"))
     };
     if opts.frames <= 1 {

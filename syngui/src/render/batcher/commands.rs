@@ -18,8 +18,12 @@ impl Batcher {
                 // Невидимая заливка (прозрачный фон `#00000000`, opacity 0) без рамки ничего не рисует,
                 // но на тайловых GPU (Adreno 5xx) за неё платят полной заливкой со смешиванием:
                 // прозрачные фоны страниц стола перекрашивали экран по нескольку раз за кадр листания.
-                let visible_border = border.as_ref().is_some_and(|b| b.width > 0.0 && b.color.a > 0.0)
-                    || per_side_border.as_ref().is_some_and(|b| b.color.a > 0.0 && b.widths.iter().any(|w| *w > 0.0));
+                let visible_border = border
+                    .as_ref()
+                    .is_some_and(|b| b.width > 0.0 && b.color.a > 0.0)
+                    || per_side_border
+                        .as_ref()
+                        .is_some_and(|b| b.color.a > 0.0 && b.widths.iter().any(|w| *w > 0.0));
                 if color.a * self.current_opacity < 1.0 / 512.0 && !visible_border {
                     return;
                 }
@@ -81,7 +85,11 @@ impl Batcher {
                 self.ensure_batch_rect(shader, None, *clip_rect, rect.inflate(1.0, 1.0));
                 self.set_clip_expand(clip_rect);
                 let encode = self.srgb_vertex && shader != ShaderType::Rect;
-                let start = if encode { self.current_batch_mut().vertices.len() } else { 0 };
+                let start = if encode {
+                    self.current_batch_mut().vertices.len()
+                } else {
+                    0
+                };
                 self.add_linear_gradient_rect(
                     *rect,
                     gradient,
@@ -145,7 +153,10 @@ impl Batcher {
                 // половина разницы сверху получается центровкой, как в CSS.
                 let base_step = phys_font_size as f32 * 1.3;
                 let glyphs = match line_height.map(|lh| lh * sf) {
-                    Some(step) if (step - base_step).abs() > 0.5 && glyphs.iter().any(|g| g.line_top > 0.0) => {
+                    Some(step)
+                        if (step - base_step).abs() > 0.5
+                            && glyphs.iter().any(|g| g.line_top > 0.0) =>
+                    {
                         let extra = step - base_step;
                         let v: Vec<_> = glyphs
                             .iter()
@@ -333,7 +344,12 @@ impl Batcher {
                     fx.and_then(|f| f.gradient.as_ref()),
                     anim,
                     phase,
-                    (origin_x + glyph_min_x, origin_y + glyph_min_y, text_width.max(1.0), text_height.max(1.0)),
+                    (
+                        origin_x + glyph_min_x,
+                        origin_y + glyph_min_y,
+                        text_width.max(1.0),
+                        text_height.max(1.0),
+                    ),
                 );
                 let opacity = self.current_opacity;
                 let srgb_vertex = self.srgb_vertex;
@@ -348,18 +364,37 @@ impl Batcher {
                 };
 
                 // Слои размытия снизу вверх: (dx, dy, размытие, цвет | None — цвет заливки, множитель альфы).
-                let mut blur_layers: Vec<(f32, f32, f32, Option<crate::core::Color>, f32, bool)> = Vec::new();
-                let shadow_alpha = if anim == Some(Anim::Pulse) { 0.3 + 0.7 * pulse } else { 1.0 };
+                let mut blur_layers: Vec<(f32, f32, f32, Option<crate::core::Color>, f32, bool)> =
+                    Vec::new();
+                let shadow_alpha = if anim == Some(Anim::Pulse) {
+                    0.3 + 0.7 * pulse
+                } else {
+                    1.0
+                };
                 match fx.filter(|f| !f.shadows.is_empty()) {
                     // CSS: первый слой — верхний, рисуется последним.
                     Some(f) => {
                         for sh in f.shadows.iter().rev() {
-                            blur_layers.push((sh.offset_x, sh.offset_y, sh.blur_radius.max(0.0), Some(sh.color), shadow_alpha, false));
+                            blur_layers.push((
+                                sh.offset_x,
+                                sh.offset_y,
+                                sh.blur_radius.max(0.0),
+                                Some(sh.color),
+                                shadow_alpha,
+                                false,
+                            ));
                         }
                     }
                     None => {
                         if let Some(sh) = text_shadow {
-                            blur_layers.push((sh.offset_x, sh.offset_y, sh.blur_radius.max(0.0), Some(sh.color), shadow_alpha, false));
+                            blur_layers.push((
+                                sh.offset_x,
+                                sh.offset_y,
+                                sh.blur_radius.max(0.0),
+                                Some(sh.color),
+                                shadow_alpha,
+                                false,
+                            ));
                         }
                     }
                 }
@@ -368,10 +403,21 @@ impl Batcher {
                     // заметно ярче одной тени. `pulse` сильнее всего дышит внешним слоем.
                     // Размытие атласа берёт σ = blur/3; свечению нужно σ ≈ радиус/2 — ×1.5.
                     let r = g.radius * 1.5;
-                    let layers = [(r, 1.0, 0.2 + 0.8 * pulse), (r * 0.45, 1.0, 0.45 + 0.55 * pulse), (r * 0.15, 0.9, 0.7 + 0.3 * pulse)];
+                    let layers = [
+                        (r, 1.0, 0.2 + 0.8 * pulse),
+                        (r * 0.45, 1.0, 0.45 + 0.55 * pulse),
+                        (r * 0.15, 0.9, 0.7 + 0.3 * pulse),
+                    ];
                     for (blur, a, p) in layers {
                         if blur > 0.25 {
-                            blur_layers.push((0.0, 0.0, blur, g.color, a * if anim == Some(Anim::Pulse) { p } else { 1.0 }, true));
+                            blur_layers.push((
+                                0.0,
+                                0.0,
+                                blur,
+                                g.color,
+                                a * if anim == Some(Anim::Pulse) { p } else { 1.0 },
+                                true,
+                            ));
                         }
                     }
                 }
@@ -381,16 +427,29 @@ impl Batcher {
                     // Глифы, заранее размытые в атласе (`FontAtlas::blurred_glyph`): лёгкий
                     // шейдер и одна выборка; цикл размытия в шейдере — только если их нет.
                     let blur_tx = blur * sf;
-                    let baked: Option<Vec<Option<(crate::text::font_atlas::CachedGlyph, u32)>>> = (blur > 0.0
-                        && !shader_text_shadow()
-                        && !any_color_glyph)
-                        .then(|| {
-                            glyphs
-                                .iter()
-                                .map(|g| if g.glyph.width == 0 || g.glyph.height == 0 { None } else { if is_glow { font_atlas.glow_glyph(&g.glyph, blur_tx) } else { font_atlas.blurred_glyph(&g.glyph, blur_tx) } })
-                                .collect::<Vec<_>>()
-                        })
-                        .filter(|v| glyphs.iter().zip(v).all(|(g, b)| b.is_some() || g.glyph.width == 0 || g.glyph.height == 0));
+                    let baked: Option<Vec<Option<(crate::text::font_atlas::CachedGlyph, u32)>>> =
+                        (blur > 0.0 && !shader_text_shadow() && !any_color_glyph)
+                            .then(|| {
+                                glyphs
+                                    .iter()
+                                    .map(|g| {
+                                        if g.glyph.width == 0 || g.glyph.height == 0 {
+                                            None
+                                        } else {
+                                            if is_glow {
+                                                font_atlas.glow_glyph(&g.glyph, blur_tx)
+                                            } else {
+                                                font_atlas.blurred_glyph(&g.glyph, blur_tx)
+                                            }
+                                        }
+                                    })
+                                    .collect::<Vec<_>>()
+                            })
+                            .filter(|v| {
+                                glyphs.iter().zip(v).all(|(g, b)| {
+                                    b.is_some() || g.glyph.width == 0 || g.glyph.height == 0
+                                })
+                            });
                     let layer_paint = |x: f32, y: f32| -> crate::core::Color {
                         let c = layer_color.unwrap_or_else(|| paint.at(x, y).with_alpha(1.0));
                         c.with_alpha(c.a * alpha_mul)
@@ -398,7 +457,12 @@ impl Batcher {
                     let uniform = layer_color.is_some();
                     if let Some(baked) = baked {
                         let pad = blur.ceil() * 2.0 + dx.abs() + dy.abs() + 6.0;
-                        self.ensure_batch_rect(ShaderType::TextMono, None, *clip_rect, text_bbox_rect.inflate(pad, pad));
+                        self.ensure_batch_rect(
+                            ShaderType::TextMono,
+                            None,
+                            *clip_rect,
+                            text_bbox_rect.inflate(pad, pad),
+                        );
                         for (glyph, b) in glyphs.iter().zip(baked) {
                             let Some((bg, k)) = b else { continue };
                             let (gx, gy) = place.glyph_pos(glyph, dx, dy);
@@ -419,7 +483,13 @@ impl Batcher {
                     } else if blur > 0.0 {
                         // Прежний путь: размытие циклом в шейдере (радиус выборки до 6 px).
                         let pad_r = blur.ceil();
-                        self.ensure_batch_rect(ShaderType::Text, None, *clip_rect, text_bbox_rect.inflate(pad_r + dx.abs() + dy.abs(), pad_r + dx.abs() + dy.abs()));
+                        self.ensure_batch_rect(
+                            ShaderType::Text,
+                            None,
+                            *clip_rect,
+                            text_bbox_rect
+                                .inflate(pad_r + dx.abs() + dy.abs(), pad_r + dx.abs() + dy.abs()),
+                        );
                         for glyph in glyphs.iter() {
                             if glyph.glyph.width == 0 || glyph.glyph.height == 0 {
                                 continue;
@@ -427,7 +497,8 @@ impl Batcher {
                             let (gx, gy) = place.glyph_pos(glyph, dx, dy);
                             let gw = glyph.glyph.width as f32 / sf;
                             let gh = glyph.glyph.height as f32 / sf;
-                            let (x, y, w, h) = (gx - pad_r, gy - pad_r, gw + 2.0 * pad_r, gh + 2.0 * pad_r);
+                            let (x, y, w, h) =
+                                (gx - pad_r, gy - pad_r, gw + 2.0 * pad_r, gh + 2.0 * pad_r);
                             let g = &glyph.glyph;
                             let upx = if gw > 0.0 { pad_r * (g.uv_w / gw) } else { 0.0 };
                             let upy = if gh > 0.0 { pad_r * (g.uv_h / gh) } else { 0.0 };
@@ -436,7 +507,12 @@ impl Batcher {
                             self.emit_glyph_quad(
                                 [x, y, w, h],
                                 shear * h,
-                                [g.uv_x - upx, g.uv_y - upy, g.uv_x + g.uv_w + upx, g.uv_y + g.uv_h + upy],
+                                [
+                                    g.uv_x - upx,
+                                    g.uv_y - upy,
+                                    g.uv_x + g.uv_w + upx,
+                                    g.uv_y + g.uv_h + upy,
+                                ],
                                 (nx, ny),
                                 [is_color_flag, blur, 0.0, 0.0],
                                 [g.uv_x, g.uv_y, g.uv_x + g.uv_w, g.uv_y + g.uv_h],
@@ -445,11 +521,23 @@ impl Batcher {
                         }
                     } else {
                         // Тень без размытия — копия букв со сдвигом.
-                        let shader = if any_color_glyph { ShaderType::Text } else { ShaderType::TextMono };
+                        let shader = if any_color_glyph {
+                            ShaderType::Text
+                        } else {
+                            ShaderType::TextMono
+                        };
                         let mono = shader == ShaderType::TextMono;
-                        self.ensure_batch_rect(shader, None, *clip_rect, text_bbox_rect.inflate(dx.abs() + 1.0, dy.abs() + 1.0));
+                        self.ensure_batch_rect(
+                            shader,
+                            None,
+                            *clip_rect,
+                            text_bbox_rect.inflate(dx.abs() + 1.0, dy.abs() + 1.0),
+                        );
                         for glyph in glyphs.iter() {
-                            if glyph.glyph.width == 0 || glyph.glyph.height == 0 || glyph.glyph.is_color {
+                            if glyph.glyph.width == 0
+                                || glyph.glyph.height == 0
+                                || glyph.glyph.is_color
+                            {
                                 continue;
                             }
                             let (x, y) = place.glyph_pos(glyph, dx, dy);
@@ -475,16 +563,32 @@ impl Batcher {
                 let stroke_pad = text_stroke.map_or(0.0, |st| st.width.ceil()) + 1.0;
                 let mut stroke_copies: Vec<(f32, f32, [f32; 4])> = Vec::new();
                 if let Some(st) = text_stroke {
-                    let ring: Option<Vec<Option<(crate::text::font_atlas::CachedGlyph, u32)>>> = (!any_color_glyph)
-                        .then(|| {
-                            glyphs
-                                .iter()
-                                .map(|g| if g.glyph.width == 0 || g.glyph.height == 0 { None } else { font_atlas.outline_glyph(&g.glyph, st.width * sf) })
-                                .collect::<Vec<_>>()
-                        })
-                        .filter(|v| glyphs.iter().zip(v).all(|(g, b)| b.is_some() || g.glyph.width == 0 || g.glyph.height == 0));
+                    let ring: Option<Vec<Option<(crate::text::font_atlas::CachedGlyph, u32)>>> =
+                        (!any_color_glyph)
+                            .then(|| {
+                                glyphs
+                                    .iter()
+                                    .map(|g| {
+                                        if g.glyph.width == 0 || g.glyph.height == 0 {
+                                            None
+                                        } else {
+                                            font_atlas.outline_glyph(&g.glyph, st.width * sf)
+                                        }
+                                    })
+                                    .collect::<Vec<_>>()
+                            })
+                            .filter(|v| {
+                                glyphs.iter().zip(v).all(|(g, b)| {
+                                    b.is_some() || g.glyph.width == 0 || g.glyph.height == 0
+                                })
+                            });
                     if let Some(ring) = ring {
-                        self.ensure_batch_rect(ShaderType::TextMono, None, *clip_rect, text_bbox_rect.inflate(stroke_pad + 2.0, stroke_pad + 2.0));
+                        self.ensure_batch_rect(
+                            ShaderType::TextMono,
+                            None,
+                            *clip_rect,
+                            text_bbox_rect.inflate(stroke_pad + 2.0, stroke_pad + 2.0),
+                        );
                         let sc = vcol(st.color, true);
                         for (glyph, b) in glyphs.iter().zip(ring) {
                             let Some((bg, k)) = b else { continue };
@@ -523,25 +627,43 @@ impl Batcher {
                         for &(k, n) in rings {
                             for i in 0..n {
                                 let a = std::f32::consts::TAU * i as f32 / n as f32;
-                                stroke_copies.push((w * k * a.cos(), w * k * a.sin(), stroke_color));
+                                stroke_copies.push((
+                                    w * k * a.cos(),
+                                    w * k * a.sin(),
+                                    stroke_color,
+                                ));
                             }
                         }
                     }
                 }
 
                 // Лёгкий шейдер обычных глифов; эмодзи (цветные глифы) — общий.
-                let main_shader = if any_color_glyph { ShaderType::Text } else { ShaderType::TextMono };
+                let main_shader = if any_color_glyph {
+                    ShaderType::Text
+                } else {
+                    ShaderType::TextMono
+                };
                 let mono = main_shader == ShaderType::TextMono;
-                self.ensure_batch_rect(main_shader, None, *clip_rect, text_bbox_rect.inflate(stroke_pad, stroke_pad));
+                self.ensure_batch_rect(
+                    main_shader,
+                    None,
+                    *clip_rect,
+                    text_bbox_rect.inflate(stroke_pad, stroke_pad),
+                );
                 // `pulse` без тени и свечения — дышит сама заливка.
-                let fill_alpha = if anim == Some(Anim::Pulse) && blur_layers.is_empty() { 0.55 + 0.45 * pulse } else { 1.0 };
+                let fill_alpha = if anim == Some(Anim::Pulse) && blur_layers.is_empty() {
+                    0.55 + 0.45 * pulse
+                } else {
+                    1.0
+                };
                 let fill_uniform = paint.is_uniform();
                 let base_fill = paint.at(origin_x, origin_y);
                 let color_array = vcol(base_fill.with_alpha(base_fill.a * fill_alpha), mono);
 
                 for (dx, dy, stroke_color) in stroke_copies {
                     for glyph in glyphs.iter() {
-                        if glyph.glyph.width == 0 || glyph.glyph.height == 0 || glyph.glyph.is_color {
+                        if glyph.glyph.width == 0 || glyph.glyph.height == 0 || glyph.glyph.is_color
+                        {
                             continue;
                         }
                         let (x, y) = place.glyph_pos(glyph, dx, dy);
@@ -566,7 +688,11 @@ impl Batcher {
                     let g = &glyph.glyph;
                     let (w, h) = (g.width as f32 / sf, g.height as f32 / sf);
                     let is_color_flag = if g.is_color { 1.0 } else { 0.0 };
-                    let (nx, ny) = if fill_uniform || g.is_color { (1, 1) } else { paint.subdiv(w, h) };
+                    let (nx, ny) = if fill_uniform || g.is_color {
+                        (1, 1)
+                    } else {
+                        paint.subdiv(w, h)
+                    };
                     self.emit_glyph_quad(
                         [x, y, w, h],
                         shear * h,
@@ -1179,7 +1305,17 @@ impl TextPaint {
             stops = g
                 .resolved_stops()
                 .into_iter()
-                .map(|(c, p)| ([linear_to_srgb(c.r), linear_to_srgb(c.g), linear_to_srgb(c.b), c.a], p))
+                .map(|(c, p)| {
+                    (
+                        [
+                            linear_to_srgb(c.r),
+                            linear_to_srgb(c.g),
+                            linear_to_srgb(c.b),
+                            c.a,
+                        ],
+                        p,
+                    )
+                })
                 .collect();
         }
         let a = angle.to_radians();
@@ -1232,7 +1368,9 @@ impl TextPaint {
         use crate::mss::fields::TextAnimationKind as A;
         // Работаем в sRGB 0..1, как CSS-градиенты.
         let mut c = if self.stops.len() >= 2 {
-            let mut t = ((x - self.center.0) * self.dir.0 + (y - self.center.1) * self.dir.1) / self.len + 0.5;
+            let mut t = ((x - self.center.0) * self.dir.0 + (y - self.center.1) * self.dir.1)
+                / self.len
+                + 0.5;
             if self.anim == Some(A::Gradient) {
                 // Градиент «туда и обратно» с периодом в две длины плывёт вдоль оси: без шва.
                 let s = (t - 2.0 * self.phase).rem_euclid(2.0);
@@ -1241,7 +1379,12 @@ impl TextPaint {
             sample_stops(&self.stops, t)
         } else {
             let b = self.base;
-            [linear_to_srgb(b.r), linear_to_srgb(b.g), linear_to_srgb(b.b), b.a]
+            [
+                linear_to_srgb(b.r),
+                linear_to_srgb(b.g),
+                linear_to_srgb(b.b),
+                b.a,
+            ]
         };
         match self.anim {
             Some(A::Rainbow) => {
@@ -1275,7 +1418,12 @@ impl TextPaint {
             }
             _ => {}
         }
-        crate::core::Color::new(srgb_to_linear(c[0]), srgb_to_linear(c[1]), srgb_to_linear(c[2]), c[3])
+        crate::core::Color::new(
+            srgb_to_linear(c[0]),
+            srgb_to_linear(c[1]),
+            srgb_to_linear(c[2]),
+            c[3],
+        )
     }
 }
 
@@ -1291,7 +1439,11 @@ fn sample_stops(stops: &[([f32; 4], f32)], t: f32) -> [f32; 4] {
     for w in stops.windows(2) {
         let ((c0, p0), (c1, p1)) = (w[0], w[1]);
         if t >= p0 && t <= p1 {
-            let k = if p1 - p0 < 1e-6 { 0.0 } else { (t - p0) / (p1 - p0) };
+            let k = if p1 - p0 < 1e-6 {
+                0.0
+            } else {
+                (t - p0) / (p1 - p0)
+            };
             return [0, 1, 2, 3].map(|i| c0[i] + (c1[i] - c0[i]) * k);
         }
     }
@@ -1365,9 +1517,22 @@ impl Batcher {
                 let base = state.vertices.len() as u32;
                 for k in 0..4 {
                     let (u, v) = corners[k];
-                    state.vertices.push(Vertex { position: tp[k], uv: tex(u, v), color: cols[k], data, data2 });
+                    state.vertices.push(Vertex {
+                        position: tp[k],
+                        uv: tex(u, v),
+                        color: cols[k],
+                        data,
+                        data2,
+                    });
                 }
-                state.indices.extend_from_slice(&[base, base + 1, base + 2, base, base + 2, base + 3]);
+                state.indices.extend_from_slice(&[
+                    base,
+                    base + 1,
+                    base + 2,
+                    base,
+                    base + 2,
+                    base + 3,
+                ]);
             }
         }
     }

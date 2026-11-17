@@ -303,11 +303,24 @@ impl DisplayList {
     /// Текст в одну строку (без переноса): длинный текст обрезается по правому
     /// краю, а не переносится ниже. Для пунктов меню и других строк фиксированной
     /// высоты — иначе длинная подпись налезает на соседнюю.
-    pub fn push_text_nowrap(&mut self, text: &str, rect: crate::core::Rect, color: Color, font_size: f32) {
+    pub fn push_text_nowrap(
+        &mut self,
+        text: &str,
+        rect: crate::core::Rect,
+        color: Color,
+        font_size: f32,
+    ) {
         self.push_text_impl(text, rect, color, font_size, true);
     }
 
-    fn push_text_impl(&mut self, text: &str, rect: crate::core::Rect, color: Color, font_size: f32, no_wrap: bool) {
+    fn push_text_impl(
+        &mut self,
+        text: &str,
+        rect: crate::core::Rect,
+        color: Color,
+        font_size: f32,
+        no_wrap: bool,
+    ) {
         let clip = *self.current_clip();
         let z = self.current_z;
         let italic = self.text_italic;
@@ -1637,7 +1650,13 @@ mod backdrop_tests {
         assert_eq!(l.backdrop_regions(true), vec![card]);
         let left = l.normal_commands();
         assert_eq!(left.len(), 3);
-        assert!(matches!(left[0], DrawCommand::BeginEffectLayer { effect: Effect::Blur { .. }, .. }));
+        assert!(matches!(
+            left[0],
+            DrawCommand::BeginEffectLayer {
+                effect: Effect::Blur { .. },
+                ..
+            }
+        ));
         assert!(matches!(left[1], DrawCommand::Rect { .. }));
         assert!(matches!(left[2], DrawCommand::EndEffectLayer { .. }));
     }

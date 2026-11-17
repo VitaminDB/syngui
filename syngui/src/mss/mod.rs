@@ -11,10 +11,10 @@ mod style_engine;
 mod stylesheet;
 mod value;
 
-/// Толерантный разбор без потерь со span'ами (для редактора тем, LSP).
-pub use mss_lang::syntax;
 /// Реестр свойств, функций значений, ключевых слов и псевдоклассов.
 pub use mss_lang::properties;
+/// Толерантный разбор без потерь со span'ами (для редактора тем, LSP).
+pub use mss_lang::syntax;
 
 pub use fields::{IconState, MssFields, TextShadow, TextTransform};
 pub use inheritance::{
@@ -108,13 +108,13 @@ fn log_warnings(warnings: &[ParseWarning], content: &str, source: Option<&str>) 
             continue;
         }
         match source {
-            Some(name) => log::warn!(
-                "MSS {name}:{}:{}: {}",
+            Some(name) => log::warn!("MSS {name}:{}:{}: {}", w.line + 1, w.column + 1, w.message),
+            None => log::warn!(
+                "MSS: строка {}, столбец {}: {}",
                 w.line + 1,
                 w.column + 1,
                 w.message
             ),
-            None => log::warn!("MSS: строка {}, столбец {}: {}", w.line + 1, w.column + 1, w.message),
         }
     }
 }

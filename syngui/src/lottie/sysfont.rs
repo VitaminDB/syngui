@@ -83,8 +83,14 @@ fn outline_to_shapes(outline: &swash::scale::outline::Outline) -> Vec<Shape> {
                     let e = p(pi + 1);
                     let last = *sp.verts.last().unwrap_or(&[0.0, 0.0]);
                     // Квадратичная → кубическая.
-                    let c1 = [last[0] + 2.0 / 3.0 * (q[0] - last[0]), last[1] + 2.0 / 3.0 * (q[1] - last[1])];
-                    let c2 = [e[0] + 2.0 / 3.0 * (q[0] - e[0]), e[1] + 2.0 / 3.0 * (q[1] - e[1])];
+                    let c1 = [
+                        last[0] + 2.0 / 3.0 * (q[0] - last[0]),
+                        last[1] + 2.0 / 3.0 * (q[1] - last[1]),
+                    ];
+                    let c2 = [
+                        e[0] + 2.0 / 3.0 * (q[0] - e[0]),
+                        e[1] + 2.0 / 3.0 * (q[1] - e[1]),
+                    ];
                     if let Some(out) = sp.outs.last_mut() {
                         *out = [c1[0] - last[0], c1[1] - last[1]];
                     }
@@ -116,7 +122,11 @@ fn outline_to_shapes(outline: &swash::scale::outline::Outline) -> Vec<Shape> {
     shapes
 }
 
-fn collect_needed(layers: &[Layer], comp: &Composition, needed: &mut HashSet<(String, String, char)>) {
+fn collect_needed(
+    layers: &[Layer],
+    comp: &Composition,
+    needed: &mut HashSet<(String, String, char)>,
+) {
     for l in layers {
         let LayerKind::Text(td) = &l.kind else {
             continue;
@@ -130,7 +140,10 @@ fn collect_needed(layers: &[Layer], comp: &Composition, needed: &mut HashSet<(St
                 if ch == '\r' || ch == '\n' || ch == ' ' {
                     continue;
                 }
-                if comp.glyph(&family, &style, ch.to_string().as_str()).is_none() {
+                if comp
+                    .glyph(&family, &style, ch.to_string().as_str())
+                    .is_none()
+                {
                     needed.insert((family.clone(), style.clone(), ch));
                 }
             }
@@ -159,10 +172,20 @@ pub fn load_missing_glyphs(comp: &mut Composition) -> usize {
     let mut ctx = ScaleContext::new();
     for ((family, style), chars) in by_font {
         let weight = weight_of(&style);
-        let found = crate::text::font_discovery::discover_styled(&family, weight, is_italic(&style)).or_else(|| {
+        let found = crate::text::font_discovery::discover_styled(
+            &family,
+            weight,
+            is_italic(&style),
+        )
+        .or_else(|| {
             // Семейства нет в системе — универсальный шрифт того же веса.
-            log::info!("lottie: шрифт `{family}` ({style}) не найден, берётся системный по весу {weight}");
-            Some(crate::text::font_discovery::discover_weight_font(None, weight)).filter(|(d, _)| !d.is_empty())
+            log::info!(
+                "lottie: шрифт `{family}` ({style}) не найден, берётся системный по весу {weight}"
+            );
+            Some(crate::text::font_discovery::discover_weight_font(
+                None, weight,
+            ))
+            .filter(|(d, _)| !d.is_empty())
         });
         let Some((data, index)) = found else {
             log::warn!("lottie: системный шрифт для `{family}` не найден — текст будет пропущен");

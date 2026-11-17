@@ -220,14 +220,13 @@ impl Element for PaddingElement {
         } else {
             left + right + 40.0
         };
-        let height = constraints
-            .min_height
-            .max(top + bottom + 20.0)
-            .min(if constraints.max_height.is_finite() {
+        let height = constraints.min_height.max(top + bottom + 20.0).min(
+            if constraints.max_height.is_finite() {
                 constraints.max_height
             } else {
                 top + bottom + 40.0
-            });
+            },
+        );
 
         self.bounds = Rect::new(Point::zero(), Size::new(width, height));
         Size::new(width, height)
@@ -235,7 +234,12 @@ impl Element for PaddingElement {
 
     fn layout_hint(&self) -> LayoutHint {
         let (l, t, r, b) = self.effective();
-        LayoutHint::Padding { left: l, top: t, right: r, bottom: b }
+        LayoutHint::Padding {
+            left: l,
+            top: t,
+            right: r,
+            bottom: b,
+        }
     }
 
     fn build_display_list(&self, _list: &mut DisplayList, _clip: Rect) {}

@@ -606,7 +606,15 @@ impl PopupMenuElement {
                     Point::new(sc_right - sc_w, item_rect.y()),
                     Size::new(sc_w, item_rect.size.height),
                 );
-                list.push_text_aligned(shortcut, sc_rect, fg.with_alpha(0.4), SHORTCUT_FONT_SIZE, crate::mss::TextAlign::RIGHT | crate::mss::TextAlign::VCENTER, crate::mss::TextDecoration::None, 400);
+                list.push_text_aligned(
+                    shortcut,
+                    sc_rect,
+                    fg.with_alpha(0.4),
+                    SHORTCUT_FONT_SIZE,
+                    crate::mss::TextAlign::RIGHT | crate::mss::TextAlign::VCENTER,
+                    crate::mss::TextDecoration::None,
+                    400,
+                );
             }
 
             let label_right_edge = if trailing_block_w > 0.0 {
@@ -945,8 +953,15 @@ impl Element for PopupMenuElement {
     }
 
     fn overlay_pass_through(&self, point: Point) -> bool {
-        let Some(zone) = self.pass_through.as_ref().and_then(|r| r.lock().ok().map(|r| *r)) else { return false };
-        zone.contains(point) && !(0..self.open_path.len().max(1)).any(|l| self.level_rect(l).contains(point))
+        let Some(zone) = self
+            .pass_through
+            .as_ref()
+            .and_then(|r| r.lock().ok().map(|r| *r))
+        else {
+            return false;
+        };
+        zone.contains(point)
+            && !(0..self.open_path.len().max(1)).any(|l| self.level_rect(l).contains(point))
     }
 
     fn overlay_request(&self) -> Option<(Rect, bool)> {

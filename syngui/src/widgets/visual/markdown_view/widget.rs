@@ -1765,9 +1765,13 @@ mod bubble_tests {
     #[test]
     fn link_click_inside_scroll_bubble() {
         static HIT: AtomicBool = AtomicBool::new(false);
-        let md = MarkdownView::new("see [link](tel:123) here").selectable(true).on_link_click(|_| HIT.store(true, Ordering::SeqCst));
+        let md = MarkdownView::new("see [link](tel:123) here")
+            .selectable(true)
+            .on_link_click(|_| HIT.store(true, Ordering::SeqCst));
         let tree = crate::widgets::ScrollView::new().vertical().child(
-            crate::widgets::Column::new().child(crate::widgets::Row::new().child(crate::widgets::DecoratedBox::new().child(crate::widgets::Column::new().child(md)))),
+            crate::widgets::Column::new().child(crate::widgets::Row::new().child(
+                crate::widgets::DecoratedBox::new().child(crate::widgets::Column::new().child(md)),
+            )),
         );
         let mut h = TestHarness::new(Box::new(tree));
         h.rebuild();
@@ -1777,15 +1781,29 @@ mod bubble_tests {
         let b = h.element_bounds(id);
         assert!(b.size.width > 10.0 && b.size.height > 5.0, "размер {b:?}");
         // «link» — после «see » (4 символа)
-        let p = Point::new(b.origin.x + b.size.width * 0.45, b.origin.y + b.size.height / 2.0);
-        h.send_event(&Event::MouseDown { button: MouseButton::Left, position: p });
-        h.send_event(&Event::MouseUp { button: MouseButton::Left, position: p });
-        assert!(HIT.load(Ordering::SeqCst), "ссылка не нажалась, bounds {b:?}");
+        let p = Point::new(
+            b.origin.x + b.size.width * 0.45,
+            b.origin.y + b.size.height / 2.0,
+        );
+        h.send_event(&Event::MouseDown {
+            button: MouseButton::Left,
+            position: p,
+        });
+        h.send_event(&Event::MouseUp {
+            button: MouseButton::Left,
+            position: p,
+        });
+        assert!(
+            HIT.load(Ordering::SeqCst),
+            "ссылка не нажалась, bounds {b:?}"
+        );
     }
 
     fn bubble(md: MarkdownView) -> TestHarness {
         let tree = crate::widgets::ScrollView::new().vertical().child(
-            crate::widgets::Column::new().child(crate::widgets::Row::new().child(crate::widgets::DecoratedBox::new().child(crate::widgets::Column::new().child(md)))),
+            crate::widgets::Column::new().child(crate::widgets::Row::new().child(
+                crate::widgets::DecoratedBox::new().child(crate::widgets::Column::new().child(md)),
+            )),
         );
         let mut h = TestHarness::new(Box::new(tree));
         h.rebuild();
@@ -1798,13 +1816,23 @@ mod bubble_tests {
     #[test]
     fn link_tap_by_touch() {
         static HIT: AtomicBool = AtomicBool::new(false);
-        let mut h = bubble(MarkdownView::new("see [link](tel:123) here").selectable(true).on_link_click(|_| HIT.store(true, Ordering::SeqCst)));
+        let mut h = bubble(
+            MarkdownView::new("see [link](tel:123) here")
+                .selectable(true)
+                .on_link_click(|_| HIT.store(true, Ordering::SeqCst)),
+        );
         let id = h.find_by_type_name("MarkdownView")[0];
         let b = h.element_bounds(id);
-        let p = Point::new(b.origin.x + b.size.width * 0.45, b.origin.y + b.size.height / 2.0);
+        let p = Point::new(
+            b.origin.x + b.size.width * 0.45,
+            b.origin.y + b.size.height / 2.0,
+        );
         h.touch_down(1, p);
         h.touch_up(1);
-        assert!(HIT.load(Ordering::SeqCst), "касание по ссылке не дошло, bounds {b:?}");
+        assert!(
+            HIT.load(Ordering::SeqCst),
+            "касание по ссылке не дошло, bounds {b:?}"
+        );
     }
 
     /// Долгое нажатие пальцем — слово выделено и меню открыто.
@@ -1819,7 +1847,10 @@ mod bubble_tests {
         h.touch_poll();
         h.touch_up(1);
         let dl = h.paint();
-        let selected = dl.commands().iter().any(|c| matches!(c, crate::render::DrawCommand::TextSelection { .. }));
+        let selected = dl
+            .commands()
+            .iter()
+            .any(|c| matches!(c, crate::render::DrawCommand::TextSelection { .. }));
         assert!(selected, "слово под пальцем не выделено");
     }
 
@@ -1840,22 +1871,58 @@ mod bubble_tests {
             }
         }
         let md = MarkdownView::new("| Пароль |\n|---|\n| `42474e4a4d@passWord` |\n| `3736387171626f6e@passWord` *(r→0x37)* |").selectable(true).with_copy_code(true);
-        let tree = crate::widgets::ScrollView::new().vertical().child(crate::widgets::Column::new().child(md));
+        let tree = crate::widgets::ScrollView::new()
+            .vertical()
+            .child(crate::widgets::Column::new().child(md));
         let mut h = TestHarness::new(Box::new(tree));
         h.tree.text_measure = Some(Arc::new(Mono));
         h.rebuild();
         h.layout(400.0, 300.0);
         let _ = h.paint();
         let id = h.find_by_type_name("MarkdownView")[0];
-        let runs: Vec<(Rect, String)> = h.tree.get_mut(id).and_then(|e| e.as_any_mut()).and_then(|e| e.downcast_mut::<MarkdownViewElement>()).expect("MarkdownViewElement").selectable_runs.lock().unwrap().iter().map(|r| (r.rect, r.visible_text.clone())).collect();
-        let (r, t) = runs.iter().find(|(_, t)| t.contains("3736")).cloned().unwrap_or_else(|| panic!("нет выделяемого участка ячейки: {runs:?}"));
+        let runs: Vec<(Rect, String)> = h
+            .tree
+            .get_mut(id)
+            .and_then(|e| e.as_any_mut())
+            .and_then(|e| e.downcast_mut::<MarkdownViewElement>())
+            .expect("MarkdownViewElement")
+            .selectable_runs
+            .lock()
+            .unwrap()
+            .iter()
+            .map(|r| (r.rect, r.visible_text.clone()))
+            .collect();
+        let (r, t) = runs
+            .iter()
+            .find(|(_, t)| t.contains("3736"))
+            .cloned()
+            .unwrap_or_else(|| panic!("нет выделяемого участка ячейки: {runs:?}"));
         let b = h.element_bounds(id);
-        let p = Point::new(b.origin.x + r.origin.x + r.size.width * 0.2, b.origin.y + r.origin.y + r.size.height / 2.0);
+        let p = Point::new(
+            b.origin.x + r.origin.x + r.size.width * 0.2,
+            b.origin.y + r.origin.y + r.size.height / 2.0,
+        );
         for _ in 0..2 {
-            h.send_event(&Event::MouseDown { button: MouseButton::Left, position: p });
-            h.send_event(&Event::MouseUp { button: MouseButton::Left, position: p });
+            h.send_event(&Event::MouseDown {
+                button: MouseButton::Left,
+                position: p,
+            });
+            h.send_event(&Event::MouseUp {
+                button: MouseButton::Left,
+                position: p,
+            });
         }
-        let sel = h.tree.get_mut(id).and_then(|e| e.as_any_mut()).and_then(|e| e.downcast_mut::<MarkdownViewElement>()).expect("MarkdownViewElement").selection_text();
-        assert!(sel.as_deref().is_some_and(|s| !s.trim().is_empty() && t.contains(s.trim())), "двойной щелчок по «{t}» выделил {sel:?}");
+        let sel = h
+            .tree
+            .get_mut(id)
+            .and_then(|e| e.as_any_mut())
+            .and_then(|e| e.downcast_mut::<MarkdownViewElement>())
+            .expect("MarkdownViewElement")
+            .selection_text();
+        assert!(
+            sel.as_deref()
+                .is_some_and(|s| !s.trim().is_empty() && t.contains(s.trim())),
+            "двойной щелчок по «{t}» выделил {sel:?}"
+        );
     }
 }

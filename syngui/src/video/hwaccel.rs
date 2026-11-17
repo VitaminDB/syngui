@@ -369,7 +369,11 @@ unsafe fn setup_hw_frames_ctx(
 /// 9–10 бит — P010, глубже — P016.
 unsafe fn sw_format_for(sw: ffi::AVPixelFormat) -> ffi::AVPixelFormat {
     let desc = ffi::av_pix_fmt_desc_get(sw);
-    let depth = if desc.is_null() { 8 } else { (*desc).comp[0].depth };
+    let depth = if desc.is_null() {
+        8
+    } else {
+        (*desc).comp[0].depth
+    };
     match depth {
         0..=8 => ffi::AVPixelFormat::AV_PIX_FMT_NV12,
         9..=10 => ffi::AVPixelFormat::AV_PIX_FMT_P010LE,

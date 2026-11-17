@@ -503,7 +503,15 @@ impl Builder {
         // (код, список, цитата) — отдельный абзац после него, а не хвост
         // первой строки пункта (иначе текст и блок менялись местами).
         let target = self.stack.iter().rposition(|f| {
-            matches!(f, Frame::Image { .. } | Frame::Para { .. } | Frame::Heading { .. } | Frame::Cell { .. } | Frame::Item { .. } | Frame::Code { .. })
+            matches!(
+                f,
+                Frame::Image { .. }
+                    | Frame::Para { .. }
+                    | Frame::Heading { .. }
+                    | Frame::Cell { .. }
+                    | Frame::Item { .. }
+                    | Frame::Code { .. }
+            )
         });
         if let Some(i) = target {
             let needs_tail = matches!(&self.stack[i], Frame::Item { blocks, tail: false, .. }
@@ -518,7 +526,10 @@ impl Builder {
                     *tail = true;
                 }
             }
-            if let Frame::Item { blocks, tail: true, .. } = &mut self.stack[i] {
+            if let Frame::Item {
+                blocks, tail: true, ..
+            } = &mut self.stack[i]
+            {
                 if let Some(BlockKind::Paragraph(t)) = blocks.last_mut().map(|b| &mut b.kind) {
                     t.push_run(text, style);
                     return;

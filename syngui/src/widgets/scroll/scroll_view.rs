@@ -1208,12 +1208,28 @@ impl Element for ScrollViewElement {
         let base = self.glide_to.unwrap_or(self.scroll_offset);
         let mut target = base;
         if self.can_scroll_y() {
-            target.y = axis(base.y, self.bounds.size.height, child_rect.origin.y, child_rect.origin.y + child_rect.size.height, margin, self.max_scroll_y());
+            target.y = axis(
+                base.y,
+                self.bounds.size.height,
+                child_rect.origin.y,
+                child_rect.origin.y + child_rect.size.height,
+                margin,
+                self.max_scroll_y(),
+            );
         }
         if self.can_scroll_x() {
-            target.x = axis(base.x, self.bounds.size.width, child_rect.origin.x, child_rect.origin.x + child_rect.size.width, margin, self.max_scroll_x());
+            target.x = axis(
+                base.x,
+                self.bounds.size.width,
+                child_rect.origin.x,
+                child_rect.origin.x + child_rect.size.width,
+                margin,
+                self.max_scroll_x(),
+            );
         }
-        if (target.x - self.scroll_offset.x).abs() < 0.5 && (target.y - self.scroll_offset.y).abs() < 0.5 {
+        if (target.x - self.scroll_offset.x).abs() < 0.5
+            && (target.y - self.scroll_offset.y).abs() < 0.5
+        {
             self.glide_to = None;
             return false;
         }
@@ -1393,7 +1409,9 @@ mod tests {
     /// пользователя вверх отцепляет, возврат к низу цепляет снова.
     #[test]
     fn initial_offset_waits_for_content_and_yields_to_user() {
-        let sv = ScrollView::new().vertical().initial_offset(Point::new(0.0, 900.0));
+        let sv = ScrollView::new()
+            .vertical()
+            .initial_offset(Point::new(0.0, 900.0));
         let mut el = sv.create_element();
         el.layout(Constraints::tight(Size::new(400.0, 600.0)));
         // Содержимое ещё короткое — сколько можно, смещение ждёт.
@@ -1406,7 +1424,11 @@ mod tests {
         assert_eq!(el.scroll_offset().y, 900.0);
         // Пользователь прокрутил — дальше смещение его.
         let mut ctx = crate::widget::context::EventContext::new(el.id());
-        let up = Event::MouseWheel { delta: 120.0, delta_x: 0.0, position: Point::new(100.0, 100.0) };
+        let up = Event::MouseWheel {
+            delta: 120.0,
+            delta_x: 0.0,
+            position: Point::new(100.0, 100.0),
+        };
         el.handle_event(&up, &mut ctx);
         let mine = el.scroll_offset().y;
         el.set_content_size(Size::new(400.0, 3200.0));

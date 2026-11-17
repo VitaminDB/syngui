@@ -136,10 +136,30 @@ impl Theme {
     }
 }
 
-const DEFAULT_ERROR: Color = Color { r: 0.937, g: 0.325, b: 0.314, a: 1.0 };
-const DEFAULT_WARNING: Color = Color { r: 0.898, g: 0.667, b: 0.200, a: 1.0 };
-const DEFAULT_INFO: Color = Color { r: 0.380, g: 0.686, b: 0.937, a: 1.0 };
-const DEFAULT_HINT: Color = Color { r: 0.600, g: 0.620, b: 0.660, a: 1.0 };
+const DEFAULT_ERROR: Color = Color {
+    r: 0.937,
+    g: 0.325,
+    b: 0.314,
+    a: 1.0,
+};
+const DEFAULT_WARNING: Color = Color {
+    r: 0.898,
+    g: 0.667,
+    b: 0.200,
+    a: 1.0,
+};
+const DEFAULT_INFO: Color = Color {
+    r: 0.380,
+    g: 0.686,
+    b: 0.937,
+    a: 1.0,
+};
+const DEFAULT_HINT: Color = Color {
+    r: 0.600,
+    g: 0.620,
+    b: 0.660,
+    a: 1.0,
+};
 
 const FALLBACK_FIND_MATCH_ALPHA: f32 = 0.5;
 const FALLBACK_FIND_CURRENT_ALPHA: f32 = 0.6;

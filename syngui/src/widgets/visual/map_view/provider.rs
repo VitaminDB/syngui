@@ -12,8 +12,11 @@ pub struct TileProvider {
 
 use crate::effects::FilterEffect;
 
-const OSM_LIGHT_FILTER: &[FilterEffect] =
-    &[FilterEffect::Grayscale(0.6), FilterEffect::Brightness(1.06), FilterEffect::Contrast(0.92)];
+const OSM_LIGHT_FILTER: &[FilterEffect] = &[
+    FilterEffect::Grayscale(0.6),
+    FilterEffect::Brightness(1.06),
+    FilterEffect::Contrast(0.92),
+];
 const OSM_DARK_FILTER: &[FilterEffect] = &[
     FilterEffect::Invert(1.0),
     FilterEffect::HueRotate(180.0),
@@ -142,9 +145,16 @@ mod tests {
             assert!(!p.filter.is_empty());
         }
         assert!(osm.filter.is_empty());
-        assert_eq!(osm.tile_url(1, 2, 3), "https://tile.openstreetmap.org/3/1/2.png");
+        assert_eq!(
+            osm.tile_url(1, 2, 3),
+            "https://tile.openstreetmap.org/3/1/2.png"
+        );
         #[allow(deprecated)]
-        for p in [TileProvider::carto_light(), TileProvider::carto_dark(), TileProvider::carto_voyager()] {
+        for p in [
+            TileProvider::carto_light(),
+            TileProvider::carto_dark(),
+            TileProvider::carto_voyager(),
+        ] {
             assert!(!p.tile_url(0, 0, 0).contains("cartocdn"));
         }
     }

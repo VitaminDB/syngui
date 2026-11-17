@@ -285,7 +285,8 @@ impl<'a> Parser<'a> {
         }
         let s = std::str::from_utf8(&self.bytes[self.pos..self.pos + 4])
             .map_err(|_| self.err("неверная \\u-последовательность"))?;
-        let v = u32::from_str_radix(s, 16).map_err(|_| self.err("неверная \\u-последовательность"))?;
+        let v =
+            u32::from_str_radix(s, 16).map_err(|_| self.err("неверная \\u-последовательность"))?;
         self.pos += 4;
         Ok(v)
     }

@@ -29,7 +29,10 @@ pub fn detect(device: &wgpu::Device) {
     // SAFETY: только чтение сведений об устройстве; устройство живо.
     let ids = unsafe {
         device.as_hal::<wgpu::hal::api::Vulkan>().and_then(|hal| {
-            if !hal.enabled_device_extensions().contains(&ash::khr::external_memory_fd::NAME) {
+            if !hal
+                .enabled_device_extensions()
+                .contains(&ash::khr::external_memory_fd::NAME)
+            {
                 return None;
             }
             let inst = hal.shared_instance().raw_instance();
@@ -42,7 +45,10 @@ pub fn detect(device: &wgpu::Device) {
     if let Some(ids) = ids {
         let _ = UUIDS.set(ids);
     }
-    log::info!("gpu: внешние изображения Vulkan (OPAQUE_FD) — {}", if ids.is_some() { "да" } else { "нет" });
+    log::info!(
+        "gpu: внешние изображения Vulkan (OPAQUE_FD) — {}",
+        if ids.is_some() { "да" } else { "нет" }
+    );
 }
 
 /// Изображение источника: параметры создания и память. Импортируется один раз (по `id`).
@@ -64,7 +70,12 @@ pub struct ExternalImage {
 
 impl std::fmt::Debug for ExternalImage {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        f.debug_struct("ExternalImage").field("id", &self.id).field("format", &self.format).field("width", &self.width).field("height", &self.height).finish_non_exhaustive()
+        f.debug_struct("ExternalImage")
+            .field("id", &self.id)
+            .field("format", &self.format)
+            .field("width", &self.width)
+            .field("height", &self.height)
+            .finish_non_exhaustive()
     }
 }
 
@@ -80,8 +91,15 @@ pub struct ExternalFrame {
 }
 
 impl ExternalFrame {
-    pub fn new(image: Arc<ExternalImage>, done: impl FnOnce(bool) + Send + Sync + 'static) -> Arc<Self> {
-        Arc::new(Self { image, done: Mutex::new(Some(Box::new(done))), failed: AtomicBool::new(false) })
+    pub fn new(
+        image: Arc<ExternalImage>,
+        done: impl FnOnce(bool) + Send + Sync + 'static,
+    ) -> Arc<Self> {
+        Arc::new(Self {
+            image,
+            done: Mutex::new(Some(Box::new(done))),
+            failed: AtomicBool::new(false),
+        })
     }
 
     pub(crate) fn fail(&self) {
@@ -99,7 +117,9 @@ impl Drop for ExternalFrame {
 
 impl std::fmt::Debug for ExternalFrame {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        f.debug_struct("ExternalFrame").field("image", &self.image).finish_non_exhaustive()
+        f.debug_struct("ExternalFrame")
+            .field("image", &self.image)
+            .finish_non_exhaustive()
     }
 }
 
@@ -118,11 +138,16 @@ pub(crate) fn formats(vk_format: i32) -> Option<(wgpu::TextureFormat, wgpu::Text
 /// Импорт изображения источника в текстуру wgpu (только чтение). `None` — не удалось (причина в лог).
 pub(crate) fn import(device: &wgpu::Device, img: &ExternalImage) -> Option<wgpu::Texture> {
     let Some((format, view)) = formats(img.format) else {
-        log::warn!("gpu: внешнее изображение: формат {} не поддерживается", img.format);
+        log::warn!(
+            "gpu: внешнее изображение: формат {} не поддерживается",
+            img.format
+        );
         return None;
     };
     let usage = vk::ImageUsageFlags::from_raw(img.usage);
-    if !usage.contains(vk::ImageUsageFlags::SAMPLED) || (view != format && img.flags & vk::ImageCreateFlags::MUTABLE_FORMAT.as_raw() == 0) {
+    if !usage.contains(vk::ImageUsageFlags::SAMPLED)
+        || (view != format && img.flags & vk::ImageCreateFlags::MUTABLE_FORMAT.as_raw() == 0)
+    {
         log::warn!("gpu: внешнее изображение: нет SAMPLED или MUTABLE_FORMAT");
         return None;
     }
@@ -138,7 +163,11 @@ pub(crate) fn import(device: &wgpu::Device, img: &ExternalImage) -> Option<wgpu:
             .flags(vk::ImageCreateFlags::from_raw(img.flags))
             .image_type(vk::ImageType::TYPE_2D)
             .format(vk::Format::from_raw(img.format))
-            .extent(vk::Extent3D { width: img.width, height: img.height, depth: 1 })
+            .extent(vk::Extent3D {
+                width: img.width,
+                height: img.height,
+                depth: 1,
+            })
             .mip_levels(1)
             .array_layers(1)
             .samples(vk::SampleCountFlags::TYPE_1)
@@ -157,7 +186,10 @@ pub(crate) fn import(device: &wgpu::Device, img: &ExternalImage) -> Option<wgpu:
         let req = dev.get_image_memory_requirements(image);
         let mp = inst.get_physical_device_memory_properties(hal.raw_physical_device());
         let ty = (0..mp.memory_type_count).find(|&i| {
-            req.memory_type_bits & (1 << i) != 0 && mp.memory_types[i as usize].property_flags.contains(vk::MemoryPropertyFlags::DEVICE_LOCAL)
+            req.memory_type_bits & (1 << i) != 0
+                && mp.memory_types[i as usize]
+                    .property_flags
+                    .contains(vk::MemoryPropertyFlags::DEVICE_LOCAL)
         });
         let Some(ty) = ty else {
             dev.destroy_image(image, None);
@@ -171,7 +203,11 @@ pub(crate) fn import(device: &wgpu::Device, img: &ExternalImage) -> Option<wgpu:
         }
         let mut ded = vk::MemoryDedicatedAllocateInfo::default().image(image);
         let mut imp = vk::ImportMemoryFdInfoKHR::default().handle_type(ht).fd(fd);
-        let ai = vk::MemoryAllocateInfo::default().allocation_size(img.size).memory_type_index(ty).push_next(&mut ded).push_next(&mut imp);
+        let ai = vk::MemoryAllocateInfo::default()
+            .allocation_size(img.size)
+            .memory_type_index(ty)
+            .push_next(&mut ded)
+            .push_next(&mut imp);
         let memory = match dev.allocate_memory(&ai, None) {
             Ok(m) => m,
             Err(e) => {
@@ -187,7 +223,11 @@ pub(crate) fn import(device: &wgpu::Device, img: &ExternalImage) -> Option<wgpu:
             log::warn!("gpu: внешнее изображение: vkBindImageMemory: {e}");
             return None;
         }
-        let size = wgpu::Extent3d { width: img.width, height: img.height, depth_or_array_layers: 1 };
+        let size = wgpu::Extent3d {
+            width: img.width,
+            height: img.height,
+            depth_or_array_layers: 1,
+        };
         let views: Vec<wgpu::TextureFormat> = if view != format { vec![view] } else { vec![] };
         let hal_desc = wgpu::hal::TextureDescriptor {
             label: Some("external image"),
@@ -200,7 +240,12 @@ pub(crate) fn import(device: &wgpu::Device, img: &ExternalImage) -> Option<wgpu:
             memory_flags: wgpu::hal::MemoryFlags::empty(),
             view_formats: views.clone(),
         };
-        let raw = hal.texture_from_raw(image, &hal_desc, None, wgpu::hal::vulkan::TextureMemory::Dedicated(memory));
+        let raw = hal.texture_from_raw(
+            image,
+            &hal_desc,
+            None,
+            wgpu::hal::vulkan::TextureMemory::Dedicated(memory),
+        );
         drop(hal);
         Some(device.create_texture_from_hal::<wgpu::hal::api::Vulkan>(
             raw,

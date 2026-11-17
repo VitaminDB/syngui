@@ -25,7 +25,14 @@ pub struct AssStyle {
 
 impl Default for AssStyle {
     fn default() -> Self {
-        Self { bold: false, italic: false, underline: false, strike: false, color: None, align: 2 }
+        Self {
+            bold: false,
+            italic: false,
+            underline: false,
+            strike: false,
+            color: None,
+            align: 2,
+        }
     }
 }
 
@@ -45,10 +52,13 @@ impl Default for AssHeader {
         Self {
             play_res: (384.0, 288.0),
             styles: HashMap::new(),
-            event_format: ["Layer", "Start", "End", "Style", "Name", "MarginL", "MarginR", "MarginV", "Effect", "Text"]
-                .iter()
-                .map(|s| s.to_ascii_lowercase())
-                .collect(),
+            event_format: [
+                "Layer", "Start", "End", "Style", "Name", "MarginL", "MarginR", "MarginV",
+                "Effect", "Text",
+            ]
+            .iter()
+            .map(|s| s.to_ascii_lowercase())
+            .collect(),
             legacy: false,
         }
     }
@@ -62,7 +72,11 @@ fn parse_color(s: &str) -> Option<[u8; 3]> {
     } else {
         t.parse::<i64>().ok()? as u32
     };
-    Some([(v & 0xFF) as u8, ((v >> 8) & 0xFF) as u8, ((v >> 16) & 0xFF) as u8])
+    Some([
+        (v & 0xFF) as u8,
+        ((v >> 8) & 0xFF) as u8,
+        ((v >> 16) & 0xFF) as u8,
+    ])
 }
 
 /// SSA: 1–3 снизу, +4 — сверху (5–7), +8 — посередине (9–11) → цифровой блок.
@@ -91,7 +105,9 @@ impl AssHeader {
                 }
                 continue;
             }
-            let Some((key, value)) = line.split_once(':') else { continue };
+            let Some((key, value)) = line.split_once(':') else {
+                continue;
+            };
             let key = key.trim().to_ascii_lowercase();
             let value = value.trim();
             match section.as_str() {
@@ -102,13 +118,32 @@ impl AssHeader {
                     _ => {}
                 },
                 "v4+ styles" | "v4 styles" => match key.as_str() {
-                    "format" => style_format = value.split(',').map(|f| f.trim().to_ascii_lowercase()).collect(),
+                    "format" => {
+                        style_format = value
+                            .split(',')
+                            .map(|f| f.trim().to_ascii_lowercase())
+                            .collect()
+                    }
                     "style" => {
-                        let fields: Vec<&str> = value.splitn(style_format.len().max(1), ',').map(str::trim).collect();
-                        let get = |name: &str| style_format.iter().position(|f| f == name).and_then(|i| fields.get(i).copied());
-                        let flag = |name: &str| get(name).and_then(|v| v.parse::<i32>().ok()).is_some_and(|v| v != 0);
+                        let fields: Vec<&str> = value
+                            .splitn(style_format.len().max(1), ',')
+                            .map(str::trim)
+                            .collect();
+                        let get = |name: &str| {
+                            style_format
+                                .iter()
+                                .position(|f| f == name)
+                                .and_then(|i| fields.get(i).copied())
+                        };
+                        let flag = |name: &str| {
+                            get(name)
+                                .and_then(|v| v.parse::<i32>().ok())
+                                .is_some_and(|v| v != 0)
+                        };
                         let Some(name) = get("name") else { continue };
-                        let mut align = get("alignment").and_then(|v| v.parse::<u8>().ok()).unwrap_or(2);
+                        let mut align = get("alignment")
+                            .and_then(|v| v.parse::<u8>().ok())
+                            .unwrap_or(2);
                         if h.legacy {
                             align = legacy_align(align);
                         }
@@ -127,7 +162,10 @@ impl AssHeader {
                     _ => {}
                 },
                 "events" if key == "format" => {
-                    h.event_format = value.split(',').map(|f| f.trim().to_ascii_lowercase()).collect();
+                    h.event_format = value
+                        .split(',')
+                        .map(|f| f.trim().to_ascii_lowercase())
+                        .collect();
                 }
                 _ => {}
             }
@@ -171,9 +209,16 @@ pub fn parse_dialogue<'a>(line: &'a str, format: &[String]) -> Option<AssDialogu
     if let Some(rest) = line.strip_prefix("Dialogue:") {
         let n = format.len().max(1);
         let fields: Vec<&str> = rest.trim_start().splitn(n, ',').collect();
-        let get = |name: &str| format.iter().position(|f| f == name).and_then(|i| fields.get(i).copied());
+        let get = |name: &str| {
+            format
+                .iter()
+                .position(|f| f == name)
+                .and_then(|i| fields.get(i).copied())
+        };
         return Some(AssDialogue {
-            layer: get("layer").and_then(|v| v.trim().parse().ok()).unwrap_or(0),
+            layer: get("layer")
+                .and_then(|v| v.trim().parse().ok())
+                .unwrap_or(0),
             start: get("start").and_then(parse_time),
             end: get("end").and_then(parse_time),
             style: get("style").map(str::trim).unwrap_or("Default"),
@@ -206,11 +251,24 @@ struct State {
 
 impl State {
     fn of(style: &AssStyle) -> Self {
-        Self { bold: style.bold, italic: style.italic, underline: style.underline, strike: style.strike, color: style.color }
+        Self {
+            bold: style.bold,
+            italic: style.italic,
+            underline: style.underline,
+            strike: style.strike,
+            color: style.color,
+        }
     }
 
     fn span(&self, text: String) -> Span {
-        Span { text, bold: self.bold, italic: self.italic, underline: self.underline, strike: self.strike, color: self.color }
+        Span {
+            text,
+            bold: self.bold,
+            italic: self.italic,
+            underline: self.underline,
+            strike: self.strike,
+            color: self.color,
+        }
     }
 }
 
@@ -276,36 +334,72 @@ pub fn parse_text(text: &str, style_name: &str, header: &AssHeader, layer: i32) 
                     if let Some(r) = tag.strip_prefix("pos") {
                         let a: Vec<f32> = tag_args(r).split(',').filter_map(num).collect();
                         if a.len() >= 2 {
-                            pos = Some((a[0] / header.play_res.0.max(1.0), a[1] / header.play_res.1.max(1.0)));
+                            pos = Some((
+                                a[0] / header.play_res.0.max(1.0),
+                                a[1] / header.play_res.1.max(1.0),
+                            ));
                         }
                     } else if let Some(r) = tag.strip_prefix("move") {
                         let a: Vec<f32> = tag_args(r).split(',').filter_map(num).collect();
                         if a.len() >= 2 {
-                            pos = Some((a[0] / header.play_res.0.max(1.0), a[1] / header.play_res.1.max(1.0)));
+                            pos = Some((
+                                a[0] / header.play_res.0.max(1.0),
+                                a[1] / header.play_res.1.max(1.0),
+                            ));
                         }
                     } else if let Some(r) = tag.strip_prefix("an") {
-                        if let Some(v) = r.trim().parse::<u8>().ok().filter(|v| (1..=9).contains(v)) {
+                        if let Some(v) = r.trim().parse::<u8>().ok().filter(|v| (1..=9).contains(v))
+                        {
                             align = v;
                         }
-                    } else if let Some(r) = tag.strip_prefix('a').filter(|r| r.chars().next().is_some_and(|c| c.is_ascii_digit())) {
+                    } else if let Some(r) = tag
+                        .strip_prefix('a')
+                        .filter(|r| r.chars().next().is_some_and(|c| c.is_ascii_digit()))
+                    {
                         if let Ok(v) = r.trim().parse::<u8>() {
                             align = legacy_align(v);
                         }
-                    } else if let Some(r) = tag.strip_prefix('p').filter(|r| r.chars().all(|c| c.is_ascii_digit()) && !r.is_empty()) {
+                    } else if let Some(r) = tag
+                        .strip_prefix('p')
+                        .filter(|r| r.chars().all(|c| c.is_ascii_digit()) && !r.is_empty())
+                    {
                         drawing = r.parse::<u32>().unwrap_or(0) > 0;
-                    } else if let Some(r) = tag.strip_prefix("1c").or_else(|| tag.strip_prefix('c').filter(|r| r.starts_with('&') || r.is_empty())) {
-                        st.color = if r.trim().is_empty() { style.color } else { parse_color(r).or(st.color) };
+                    } else if let Some(r) = tag.strip_prefix("1c").or_else(|| {
+                        tag.strip_prefix('c')
+                            .filter(|r| r.starts_with('&') || r.is_empty())
+                    }) {
+                        st.color = if r.trim().is_empty() {
+                            style.color
+                        } else {
+                            parse_color(r).or(st.color)
+                        };
                     } else if let Some(r) = tag.strip_prefix('r') {
                         let name = r.trim();
-                        st = State::of(&if name.is_empty() { style.clone() } else { header.style(name) });
-                    } else if let Some(r) = tag.strip_prefix('b').filter(|r| r.chars().all(|c| c.is_ascii_digit()) && !r.is_empty()) {
+                        st = State::of(&if name.is_empty() {
+                            style.clone()
+                        } else {
+                            header.style(name)
+                        });
+                    } else if let Some(r) = tag
+                        .strip_prefix('b')
+                        .filter(|r| r.chars().all(|c| c.is_ascii_digit()) && !r.is_empty())
+                    {
                         let v: u32 = r.parse().unwrap_or(0);
                         st.bold = v == 1 || v >= 600;
-                    } else if let Some(r) = tag.strip_prefix('i').filter(|r| matches!(*r, "0" | "1" | "")) {
+                    } else if let Some(r) = tag
+                        .strip_prefix('i')
+                        .filter(|r| matches!(*r, "0" | "1" | ""))
+                    {
                         st.italic = r != "0";
-                    } else if let Some(r) = tag.strip_prefix('u').filter(|r| matches!(*r, "0" | "1" | "")) {
+                    } else if let Some(r) = tag
+                        .strip_prefix('u')
+                        .filter(|r| matches!(*r, "0" | "1" | ""))
+                    {
                         st.underline = r != "0";
-                    } else if let Some(r) = tag.strip_prefix('s').filter(|r| matches!(*r, "0" | "1" | "")) {
+                    } else if let Some(r) = tag
+                        .strip_prefix('s')
+                        .filter(|r| matches!(*r, "0" | "1" | ""))
+                    {
                         st.strike = r != "0";
                     }
                 }
@@ -365,7 +459,12 @@ pub fn parse_text(text: &str, style_name: &str, header: &AssHeader, layer: i32) 
     if out.is_empty() {
         return None;
     }
-    Some(SubText { lines: out, align, pos, layer })
+    Some(SubText {
+        lines: out,
+        align,
+        pos,
+        layer,
+    })
 }
 
 /// Разметка SRT (HTML-подобные теги) → разметка ASS: `<i>`, `<b>`, `<u>`,
@@ -385,7 +484,10 @@ pub fn srt_to_ass(text: &str) -> String {
         let tag = after[1..gt].trim().to_ascii_lowercase();
         let (closing, name) = match tag.strip_prefix('/') {
             Some(n) => (true, n.trim().to_string()),
-            None => (false, tag.split_whitespace().next().unwrap_or("").to_string()),
+            None => (
+                false,
+                tag.split_whitespace().next().unwrap_or("").to_string(),
+            ),
         };
         let v = if closing { "0" } else { "1" };
         match name.as_str() {
@@ -397,7 +499,10 @@ pub fn srt_to_ass(text: &str) -> String {
             "font" => {
                 let raw = &after[1..gt];
                 if let Some(rgb) = html_color(raw) {
-                    out.push_str(&format!("{{\\c&H{:02X}{:02X}{:02X}&}}", rgb[2], rgb[1], rgb[0]));
+                    out.push_str(&format!(
+                        "{{\\c&H{:02X}{:02X}{:02X}&}}",
+                        rgb[2], rgb[1], rgb[0]
+                    ));
                 }
             }
             "br" => out.push_str("\\N"),
@@ -416,13 +521,19 @@ fn html_color(tag: &str) -> Option<[u8; 3]> {
     let at = lower.find("color")?;
     let v = lower[at + 5..].trim_start().strip_prefix('=')?.trim_start();
     let v = v.trim_start_matches(['"', '\'']);
-    let end = v.find(|c: char| c == '"' || c == '\'' || c.is_whitespace() || c == '>').unwrap_or(v.len());
+    let end = v
+        .find(|c: char| c == '"' || c == '\'' || c.is_whitespace() || c == '>')
+        .unwrap_or(v.len());
     let v = &v[..end];
     if let Some(hex) = v.strip_prefix('#') {
         let n = u32::from_str_radix(hex, 16).ok()?;
         return match hex.len() {
             6 => Some([(n >> 16) as u8, (n >> 8) as u8, n as u8]),
-            3 => Some([((n >> 8) & 0xF) as u8 * 17, ((n >> 4) & 0xF) as u8 * 17, (n & 0xF) as u8 * 17]),
+            3 => Some([
+                ((n >> 8) & 0xF) as u8 * 17,
+                ((n >> 4) & 0xF) as u8 * 17,
+                (n & 0xF) as u8 * 17,
+            ]),
             _ => None,
         };
     }
@@ -464,7 +575,11 @@ Style: Top,Arial,48,&H0000FFFF,&H000000FF,&H00000000,&H00000000,-1,1,0,0,100,100
     #[test]
     fn dialogue_from_file_and_ffmpeg() {
         let h = AssHeader::parse(HEADER);
-        let d = parse_dialogue("Dialogue: 0,0:00:01.50,0:00:04.00,Top,,0,0,0,,Привет, мир", &h.event_format).unwrap();
+        let d = parse_dialogue(
+            "Dialogue: 0,0:00:01.50,0:00:04.00,Top,,0,0,0,,Привет, мир",
+            &h.event_format,
+        )
+        .unwrap();
         assert_eq!(d.start, Some(1.5));
         assert_eq!(d.end, Some(4.0));
         assert_eq!(d.style, "Top");
@@ -477,7 +592,13 @@ Style: Top,Arial,48,&H0000FFFF,&H000000FF,&H00000000,&H00000000,-1,1,0,0,100,100
     #[test]
     fn markup_spans_lines_and_tags() {
         let h = AssHeader::parse(HEADER);
-        let t = parse_text("{\\an8}Обычный {\\i1}курсив{\\i0}\\Nвторая {\\c&H0000FF&}красная", "Default", &h, 0).unwrap();
+        let t = parse_text(
+            "{\\an8}Обычный {\\i1}курсив{\\i0}\\Nвторая {\\c&H0000FF&}красная",
+            "Default",
+            &h,
+            0,
+        )
+        .unwrap();
         assert_eq!(t.align, 8);
         assert_eq!(t.lines.len(), 2);
         assert_eq!(t.lines[0][0].text, "Обычный ");
@@ -487,7 +608,10 @@ Style: Top,Arial,48,&H0000FFFF,&H000000FF,&H00000000,&H00000000,-1,1,0,0,100,100
         assert_eq!(t.pos, Some((0.5, 0.5)));
         // рисунок — пусто
         assert!(parse_text("{\\p1}m 0 0 l 100 0 100 100{\\p0}", "Default", &h, 0).is_none());
-        assert_eq!(parse_text("а\\hб", "Default", &h, 0).unwrap().plain(), "а\u{a0}б");
+        assert_eq!(
+            parse_text("а\\hб", "Default", &h, 0).unwrap().plain(),
+            "а\u{a0}б"
+        );
     }
 
     #[test]

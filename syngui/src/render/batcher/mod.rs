@@ -101,7 +101,11 @@ pub struct Batcher {
 pub(crate) fn encode_srgb(c: [f32; 4]) -> [f32; 4] {
     let e = |x: f32| {
         let x = x.max(0.0);
-        if x <= 0.0031308 { x * 12.92 } else { 1.055 * x.powf(1.0 / 2.4) - 0.055 }
+        if x <= 0.0031308 {
+            x * 12.92
+        } else {
+            1.055 * x.powf(1.0 / 2.4) - 0.055
+        }
     };
     [e(c[0]), e(c[1]), e(c[2]), c[3]]
 }
@@ -492,8 +496,16 @@ mod tests {
     #[test]
     fn radial_and_conic_gradients_keep_corner_radius() {
         use crate::core::{Color, ColorStop, Gradient, GradientShape, Point, Rect, Size};
-        let stops = || vec![ColorStop::new(Color::WHITE, 0.0), ColorStop::new(Color::BLACK, 1.0)];
-        for g in [Gradient::radial(GradientShape::Circle, (0.5, 0.5), stops()), Gradient::conic(0.0, (0.5, 0.5), stops())] {
+        let stops = || {
+            vec![
+                ColorStop::new(Color::WHITE, 0.0),
+                ColorStop::new(Color::BLACK, 1.0),
+            ]
+        };
+        for g in [
+            Gradient::radial(GradientShape::Circle, (0.5, 0.5), stops()),
+            Gradient::conic(0.0, (0.5, 0.5), stops()),
+        ] {
             let mut b = Batcher::new();
             b.set_scale_factor(2.0);
             let rect = Rect::new(Point::new(0.0, 0.0), Size::new(34.0, 34.0));
@@ -501,8 +513,14 @@ mod tests {
             b.add_linear_gradient_rect(rect, &g, [17.0; 4], None, None);
             let verts = &b.current_batch_mut().vertices;
             assert!(!verts.is_empty());
-            assert!(verts.iter().all(|v| v.data == [34.0; 4]), "радиус в физических px");
-            assert!(verts.iter().all(|v| v.data2[2] == 68.0), "ширина бокса для SDF");
+            assert!(
+                verts.iter().all(|v| v.data == [34.0; 4]),
+                "радиус в физических px"
+            );
+            assert!(
+                verts.iter().all(|v| v.data2[2] == 68.0),
+                "ширина бокса для SDF"
+            );
         }
     }
 

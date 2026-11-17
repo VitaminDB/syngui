@@ -108,7 +108,12 @@ impl CodeEditorElement {
         let highlighter = if over_limit {
             None
         } else {
-            make_highlighter(widget.highlighter.as_ref(), widget.language, widget.tab_width, &widget.initial_text)
+            make_highlighter(
+                widget.highlighter.as_ref(),
+                widget.language,
+                widget.tab_width,
+                &widget.initial_text,
+            )
         };
 
         let (initial_cursors, initial_scroll_lines, initial_scroll_x, initial_state) =
@@ -301,7 +306,9 @@ impl CodeEditorElement {
             }
             return;
         }
-        let Some(tm) = self.text_measure.as_ref() else { return };
+        let Some(tm) = self.text_measure.as_ref() else {
+            return;
+        };
         let (line, col) = self.buffer.byte_to_line_col(self.primary_byte());
         let line_text = self.buffer.line_str(line);
         let prefix: String = line_text.chars().take(col).collect();
@@ -468,7 +475,12 @@ impl CodeEditorElement {
             })
             .collect();
         // с конца, чтобы ранние смещения не съезжали; пересекающиеся — пропустить
-        ranges.sort_by(|x, y| y.range.start.cmp(&x.range.start).then(y.range.end.cmp(&x.range.end)));
+        ranges.sort_by(|x, y| {
+            y.range
+                .start
+                .cmp(&x.range.start)
+                .then(y.range.end.cmp(&x.range.end))
+        });
         let mut inverses = Vec::with_capacity(ranges.len());
         let mut floor = usize::MAX;
         for edit in &ranges {
@@ -479,7 +491,8 @@ impl CodeEditorElement {
             let inverse = self.buffer.apply_edit(edit);
             let removed = inverse.replacement.len();
             let delta = edit.replacement.len() as isize - removed as isize;
-            self.cursors.shift_after(edit.range.start, edit.range.start + removed, delta);
+            self.cursors
+                .shift_after(edit.range.start, edit.range.start + removed, delta);
             inverses.push(inverse);
         }
         if inverses.is_empty() {
@@ -488,7 +501,8 @@ impl CodeEditorElement {
         self.cursors.merge_overlapping();
         let cursors_after = self.cursors.clone();
         self.undo.commit_group();
-        self.undo.push_group(inverses, cursors_before, cursors_after);
+        self.undo
+            .push_group(inverses, cursors_before, cursors_after);
         self.undo.commit_group();
         self.refresh_snapshot();
         if let Some(h) = self.highlighter.as_mut() {
@@ -1365,7 +1379,12 @@ impl Element for CodeEditorElement {
                 self.highlighter = if self.over_size_limit {
                     None
                 } else {
-                    make_highlighter(self.custom_highlighter.as_ref(), self.language, self.tab_width, &self.text_snapshot)
+                    make_highlighter(
+                        self.custom_highlighter.as_ref(),
+                        self.language,
+                        self.tab_width,
+                        &self.text_snapshot,
+                    )
                 };
             } else if let Some(h) = self.highlighter.as_mut() {
                 h.reparse(&self.text_snapshot);
@@ -1406,7 +1425,8 @@ impl Element for CodeEditorElement {
         self.bounds = Rect::new(Point::zero(), Size::new(w, h));
         if let Some(line) = self.pending_reveal.take() {
             // строка вне экрана — показать её в верхней трети
-            let row = self.logical_to_visual_line(line.min(self.buffer.len_lines().saturating_sub(1)), 0);
+            let row =
+                self.logical_to_visual_line(line.min(self.buffer.len_lines().saturating_sub(1)), 0);
             let visible = self.visible_lines_count().max(1);
             if row < self.scroll_offset_lines || row >= self.scroll_offset_lines + visible {
                 self.scroll_offset_lines = row.saturating_sub(visible / 3);
@@ -1492,8 +1512,19 @@ impl Element for CodeEditorElement {
             let (logical, seg_start_char, _) = self.visual_to_logical(vis_row);
             let y = self.visual_line_y(vis_row);
             if let Some((_, color)) = self.line_marks.iter().find(|(l, _)| *l == logical) {
-                list.push_rect(Rect::new(Point::new(self.bounds.x(), y), Size::new(self.bounds.size.width, line_height)), color.with_alpha(0.08), [0.0; 4]);
-                list.push_rect(Rect::new(Point::new(self.bounds.x(), y), Size::new(3.0, line_height)), *color, [0.0; 4]);
+                list.push_rect(
+                    Rect::new(
+                        Point::new(self.bounds.x(), y),
+                        Size::new(self.bounds.size.width, line_height),
+                    ),
+                    color.with_alpha(0.08),
+                    [0.0; 4],
+                );
+                list.push_rect(
+                    Rect::new(Point::new(self.bounds.x(), y), Size::new(3.0, line_height)),
+                    *color,
+                    [0.0; 4],
+                );
             }
             if self.focused && logical == primary_line {
                 overlay::paint_current_line_bg(
@@ -1518,10 +1549,15 @@ impl Element for CodeEditorElement {
                     &self.mss,
                 );
             }
-            let bp = seg_start_char == 0 && self.show_line_numbers && self.breakpoints.contains(&logical);
+            let bp = seg_start_char == 0
+                && self.show_line_numbers
+                && self.breakpoints.contains(&logical);
             if bp {
                 let d = (line_height - 6.0).clamp(6.0, 11.0);
-                let r = Rect::new(Point::new(self.bounds.x() + 4.0, y + (line_height - d) / 2.0), Size::new(d, d));
+                let r = Rect::new(
+                    Point::new(self.bounds.x() + 4.0, y + (line_height - d) / 2.0),
+                    Size::new(d, d),
+                );
                 list.push_rect(r, Color::new(0.90, 0.25, 0.25, 1.0), [d / 2.0; 4]);
             } else if seg_start_char == 0 && !diags.is_empty() {
                 self.paint_diag_gutter(list, &diags, logical, y);
@@ -1530,7 +1566,10 @@ impl Element for CodeEditorElement {
         let gutter_w = self.gutter_w();
         list.push_clip(Rect::new(
             Point::new(self.bounds.x() + gutter_w, self.bounds.y()),
-            Size::new((text_clip.size.width - gutter_w).max(0.0), self.bounds.size.height),
+            Size::new(
+                (text_clip.size.width - gutter_w).max(0.0),
+                self.bounds.size.height,
+            ),
         ));
 
         for vis_row in first_visual..last_visual {
@@ -1547,7 +1586,6 @@ impl Element for CodeEditorElement {
 
             let y = self.visual_line_y(vis_row);
             let text_origin = Point::new(self.text_origin_x(), y);
-
 
             for sel in cursor_selections.iter().filter_map(|s| s.as_ref()) {
                 if sel.start < abs_seg_end && sel.end > abs_seg_start {
@@ -1830,7 +1868,8 @@ impl Element for CodeEditorElement {
         }
 
         if !self.soft_wrap {
-            let opacity_h = crate::widgets::scroll::effective_opacity(&self.scrollbar_fader_h, &style);
+            let opacity_h =
+                crate::widgets::scroll::effective_opacity(&self.scrollbar_fader_h, &style);
             if opacity_h > 0.0 {
                 let g = self.h_scrollbar_geom();
                 crate::widgets::scroll::render_horizontal(
@@ -1946,8 +1985,12 @@ impl Element for CodeEditorElement {
                         ctx.request_paint();
                     }
                 } else {
-                    let v = self.scrollbar_interaction.clear_hover(&mut self.scrollbar_fader);
-                    let h = self.scrollbar_interaction_h.clear_hover(&mut self.scrollbar_fader_h);
+                    let v = self
+                        .scrollbar_interaction
+                        .clear_hover(&mut self.scrollbar_fader);
+                    let h = self
+                        .scrollbar_interaction_h
+                        .clear_hover(&mut self.scrollbar_fader_h);
                     if v || h {
                         ctx.request_paint();
                     }
@@ -2010,7 +2053,11 @@ impl Element for CodeEditorElement {
                     self.reset_hover();
 
                     // Ctrl+щелчок — переход к определению символа под мышью
-                    if (ctx.modifiers.ctrl || ctx.modifiers.meta) && !alt && !shift && self.lsp.wants_goto() {
+                    if (ctx.modifiers.ctrl || ctx.modifiers.meta)
+                        && !alt
+                        && !shift
+                        && self.lsp.wants_goto()
+                    {
                         let target = self
                             .char_at_point(*position)
                             .unwrap_or_else(|| self.buffer.byte_to_line_col(new_pos));
@@ -2077,8 +2124,12 @@ impl Element for CodeEditorElement {
             }
             Event::MouseUp { button, .. } => {
                 if *button == MouseButton::Left {
-                    let v = self.scrollbar_interaction.end_drag(&mut self.scrollbar_fader);
-                    let h = self.scrollbar_interaction_h.end_drag(&mut self.scrollbar_fader_h);
+                    let v = self
+                        .scrollbar_interaction
+                        .end_drag(&mut self.scrollbar_fader);
+                    let h = self
+                        .scrollbar_interaction_h
+                        .end_drag(&mut self.scrollbar_fader_h);
                     if v || h {
                         ctx.request_paint();
                         return EventResult::Handled;
@@ -2115,7 +2166,9 @@ impl Element for CodeEditorElement {
                 EventResult::Ignored
             }
             Event::MouseWheel {
-                delta, delta_x, position,
+                delta,
+                delta_x,
+                position,
             } => {
                 if !self.bounds.contains(*position) {
                     return EventResult::Ignored;
@@ -2614,7 +2667,8 @@ mod tests {
     }
 
     use super::super::lsp::{
-        CompletionItem, CompletionList, CompletionTrigger, Diagnostic, DiagnosticSeverity, HoverInfo,
+        CompletionItem, CompletionList, CompletionTrigger, Diagnostic, DiagnosticSeverity,
+        HoverInfo,
     };
     use super::super::widget::EditorCommand;
     use crate::input::Modifiers;
@@ -2638,7 +2692,10 @@ mod tests {
     }
 
     fn ctrl() -> Modifiers {
-        Modifiers { ctrl: true, ..Modifiers::empty() }
+        Modifiers {
+            ctrl: true,
+            ..Modifiers::empty()
+        }
     }
 
     fn laid_out(editor: &CodeEditor) -> CodeEditorElement {
@@ -2649,10 +2706,21 @@ mod tests {
     }
 
     fn item(label: &str, kind: &str) -> CompletionItem {
-        CompletionItem { label: label.into(), insert_text: label.into(), kind: kind.into(), detail: String::new() }
+        CompletionItem {
+            label: label.into(),
+            insert_text: label.into(),
+            kind: kind.into(),
+            detail: String::new(),
+        }
     }
 
-    fn completion_editor(text: &str) -> (CodeEditor, RwSignal<Option<CompletionList>>, Arc<StdMutex<Vec<CompletionTrigger>>>) {
+    fn completion_editor(
+        text: &str,
+    ) -> (
+        CodeEditor,
+        RwSignal<Option<CompletionList>>,
+        Arc<StdMutex<Vec<CompletionTrigger>>>,
+    ) {
         allow_signal_reads_on_this_thread();
         let sig = use_signal::<Option<CompletionList>>(None);
         let reqs = Arc::new(StdMutex::new(Vec::new()));
@@ -2676,7 +2744,12 @@ mod tests {
         sig.set(Some(CompletionList {
             line: 1,
             start_col: 4,
-            items: vec![item("eprintln", "macro"), item("println", "macro"), item("print", "fn"), item("len", "fn")],
+            items: vec![
+                item("eprintln", "macro"),
+                item("println", "macro"),
+                item("print", "fn"),
+                item("len", "fn"),
+            ],
         }));
         el.refresh_completion();
         let v = el.completion_view().expect("список виден");
@@ -2686,7 +2759,10 @@ mod tests {
 
         // список открыт — ↓ двигает выбор, а не каретку
         let caret = el.primary_byte();
-        assert_eq!(send(&mut el, Event::KeyDown(Key::Down)), EventResult::Handled);
+        assert_eq!(
+            send(&mut el, Event::KeyDown(Key::Down)),
+            EventResult::Handled
+        );
         assert_eq!(el.primary_byte(), caret);
         assert_eq!(el.lsp.sel, 1);
         send(&mut el, Event::KeyDown(Key::Enter));
@@ -2704,7 +2780,11 @@ mod tests {
     fn completion_filter_narrows_while_typing_and_hides_when_empty() {
         let (ed, sig, _) = completion_editor("x\n");
         let mut el = laid_out(&ed);
-        sig.set(Some(CompletionList { line: 0, start_col: 1, items: vec![item("count", ""), item("clear", "")] }));
+        sig.set(Some(CompletionList {
+            line: 0,
+            start_col: 1,
+            items: vec![item("count", ""), item("clear", "")],
+        }));
         el.process_command(EditorCommand::SetCursor { line: 0, col: 1 });
         el.refresh_completion();
         assert_eq!(el.completion_view().unwrap().indices, vec![0, 1]);
@@ -2712,7 +2792,10 @@ mod tests {
         send(&mut el, Event::CharInput('l'));
         assert_eq!(el.completion_view().unwrap().indices, vec![1]);
         send(&mut el, Event::CharInput('z'));
-        assert!(sig.get_untracked().is_none(), "пустой отфильтрованный список закрывается");
+        assert!(
+            sig.get_untracked().is_none(),
+            "пустой отфильтрованный список закрывается"
+        );
     }
 
     #[test]
@@ -2720,13 +2803,24 @@ mod tests {
         let (ed, sig, _) = completion_editor("ab");
         let mut el = laid_out(&ed);
         el.process_command(EditorCommand::SetCursor { line: 0, col: 2 });
-        sig.set(Some(CompletionList { line: 0, start_col: 0, items: vec![item("abc", "")] }));
+        sig.set(Some(CompletionList {
+            line: 0,
+            start_col: 0,
+            items: vec![item("abc", "")],
+        }));
         assert!(el.completion_view().is_some());
-        assert_eq!(send(&mut el, Event::KeyDown(Key::Escape)), EventResult::Handled);
+        assert_eq!(
+            send(&mut el, Event::KeyDown(Key::Escape)),
+            EventResult::Handled
+        );
         assert!(sig.get_untracked().is_none());
         assert_eq!(el.text_snapshot, "ab");
         // каретка ушла левее начала — тоже закрыт
-        sig.set(Some(CompletionList { line: 0, start_col: 2, items: vec![item("abc", "")] }));
+        sig.set(Some(CompletionList {
+            line: 0,
+            start_col: 2,
+            items: vec![item("abc", "")],
+        }));
         send(&mut el, Event::KeyDown(Key::Left));
         assert!(sig.get_untracked().is_none());
     }
@@ -2735,10 +2829,18 @@ mod tests {
     fn ctrl_space_and_typing_request_completion() {
         let (ed, _sig, reqs) = completion_editor("\n");
         let mut el = laid_out(&ed);
-        assert_eq!(send_mod(&mut el, Event::KeyDown(Key::Space), ctrl()), EventResult::Handled);
+        assert_eq!(
+            send_mod(&mut el, Event::KeyDown(Key::Space), ctrl()),
+            EventResult::Handled
+        );
         assert_eq!(
             reqs.lock().unwrap().last().copied(),
-            Some(CompletionTrigger { line: 0, col: 0, trigger_char: None, manual: true })
+            Some(CompletionTrigger {
+                line: 0,
+                col: 0,
+                trigger_char: None,
+                manual: true
+            })
         );
         reqs.lock().unwrap().clear();
         send(&mut el, Event::CharInput('p'));
@@ -2747,13 +2849,23 @@ mod tests {
         send(&mut el, Event::CharInput('i'));
         assert_eq!(
             *reqs.lock().unwrap(),
-            vec![CompletionTrigger { line: 0, col: 2, trigger_char: None, manual: false }],
+            vec![CompletionTrigger {
+                line: 0,
+                col: 2,
+                trigger_char: None,
+                manual: false
+            }],
             "один запрос на слово, пока нет ответа"
         );
         send(&mut el, Event::CharInput('.'));
         assert_eq!(
             reqs.lock().unwrap().last().copied(),
-            Some(CompletionTrigger { line: 0, col: 4, trigger_char: Some('.'), manual: false })
+            Some(CompletionTrigger {
+                line: 0,
+                col: 4,
+                trigger_char: Some('.'),
+                manual: false
+            })
         );
     }
 
@@ -2761,17 +2873,32 @@ mod tests {
     fn f12_and_ctrl_click_call_on_goto() {
         let got = Arc::new(StdMutex::new(Vec::new()));
         let g2 = got.clone();
-        let ed = CodeEditor::new().text("let value = 1;\nfoo(value)").on_goto(move |l, c| g2.lock().unwrap().push((l, c)));
+        let ed = CodeEditor::new()
+            .text("let value = 1;\nfoo(value)")
+            .on_goto(move |l, c| g2.lock().unwrap().push((l, c)));
         let mut el = laid_out(&ed);
         assert!(el.wants_key(Key::F12));
         el.process_command(EditorCommand::SetCursor { line: 1, col: 5 });
-        assert_eq!(send(&mut el, Event::KeyDown(Key::F12)), EventResult::Handled);
+        assert_eq!(
+            send(&mut el, Event::KeyDown(Key::F12)),
+            EventResult::Handled
+        );
         assert_eq!(got.lock().unwrap().last().copied(), Some((1, 5)));
 
         // щелчок с Ctrl по третьему символу первой строки
         let cw = el.char_width();
-        let p = Point::new(el.text_origin_x() + cw * 2.5, el.bounds.y() + el.line_height() * 0.5);
-        send_mod(&mut el, Event::MouseDown { button: MouseButton::Left, position: p }, ctrl());
+        let p = Point::new(
+            el.text_origin_x() + cw * 2.5,
+            el.bounds.y() + el.line_height() * 0.5,
+        );
+        send_mod(
+            &mut el,
+            Event::MouseDown {
+                button: MouseButton::Left,
+                position: p,
+            },
+            ctrl(),
+        );
         assert_eq!(got.lock().unwrap().last().copied(), Some((0, 2)));
         assert!(!el.mouse_selecting, "Ctrl+щелчок не начинает выделение");
         assert!(!el.cursors.primary().has_selection());
@@ -2782,24 +2909,41 @@ mod tests {
         use super::super::widget::TextEdit;
         let hits = Arc::new(StdMutex::new(0));
         let h2 = hits.clone();
-        let ed = CodeEditor::new().text("let value = 1;\nfoo(value)").on_key(move |k, _| {
-            if k == Key::F2 {
-                *h2.lock().unwrap() += 1;
-                return true;
-            }
-            false
-        });
+        let ed = CodeEditor::new()
+            .text("let value = 1;\nfoo(value)")
+            .on_key(move |k, _| {
+                if k == Key::F2 {
+                    *h2.lock().unwrap() += 1;
+                    return true;
+                }
+                false
+            });
         let mut el = laid_out(&ed);
         el.process_command(EditorCommand::SetCursor { line: 1, col: 10 });
         el.process_command(EditorCommand::ApplyEdits(vec![
-            TextEdit { start_line: 0, start_col: 4, end_line: 0, end_col: 9, text: "count".into() },
-            TextEdit { start_line: 1, start_col: 4, end_line: 1, end_col: 9, text: "count".into() },
+            TextEdit {
+                start_line: 0,
+                start_col: 4,
+                end_line: 0,
+                end_col: 9,
+                text: "count".into(),
+            },
+            TextEdit {
+                start_line: 1,
+                start_col: 4,
+                end_line: 1,
+                end_col: 9,
+                text: "count".into(),
+            },
         ]));
         assert_eq!(el.text_snapshot, "let count = 1;\nfoo(count)");
         // курсор за «)» второй строки остался за ней
         assert_eq!(el.cursors.primary().pos, el.text_snapshot.len());
         send_mod(&mut el, Event::KeyDown(Key::Z), ctrl());
-        assert_eq!(el.text_snapshot, "let value = 1;\nfoo(value)", "одна отмена — обе правки");
+        assert_eq!(
+            el.text_snapshot, "let value = 1;\nfoo(value)",
+            "одна отмена — обе правки"
+        );
         assert_eq!(send(&mut el, Event::KeyDown(Key::F2)), EventResult::Handled);
         assert_eq!(*hits.lock().unwrap(), 1);
     }
@@ -2818,9 +2962,15 @@ mod tests {
         assert!(!el.cursors.primary().has_selection());
         let visible = el.visible_lines_count();
         assert!(el.scroll_offset_lines <= 200 && 200 < el.scroll_offset_lines + visible);
-        assert!(el.scroll_offset_lines > 180, "строка ближе к центру, а не у края");
+        assert!(
+            el.scroll_offset_lines > 180,
+            "строка ближе к центру, а не у края"
+        );
         // за пределами — к ближайшей позиции
-        el.process_command(EditorCommand::SetCursor { line: 10_000, col: 10_000 });
+        el.process_command(EditorCommand::SetCursor {
+            line: 10_000,
+            col: 10_000,
+        });
         assert_eq!(el.primary_byte(), el.buffer.len_bytes());
     }
 
@@ -2835,11 +2985,30 @@ mod tests {
         let caret = caret + 1;
 
         let diags = vec![
-            Diagnostic { line: 1, col: 10, end_line: 1, end_col: 11, severity: DiagnosticSeverity::Error, message: "expected expression".into() },
-            Diagnostic { line: 0, col: 4, end_line: 0, end_col: 4, severity: DiagnosticSeverity::Warning, message: "unused".into() },
+            Diagnostic {
+                line: 1,
+                col: 10,
+                end_line: 1,
+                end_col: 11,
+                severity: DiagnosticSeverity::Error,
+                message: "expected expression".into(),
+            },
+            Diagnostic {
+                line: 0,
+                col: 4,
+                end_line: 0,
+                end_col: 4,
+                severity: DiagnosticSeverity::Warning,
+                message: "unused".into(),
+            },
         ];
         let mut ctx = UpdateContext::new(el.id);
-        el.update(&CodeEditor::new().text(edited.clone()).diagnostics(diags.clone()), &mut ctx);
+        el.update(
+            &CodeEditor::new()
+                .text(edited.clone())
+                .diagnostics(diags.clone()),
+            &mut ctx,
+        );
         assert_eq!(el.lsp.diagnostics, diags);
         assert_eq!(el.text_snapshot, edited);
         assert_eq!(el.primary_byte(), caret);
@@ -2860,7 +3029,10 @@ mod tests {
         let hover = use_signal::<Option<HoverInfo>>(None);
         let got = Arc::new(StdMutex::new(Vec::new()));
         let g2 = got.clone();
-        let ed = CodeEditor::new().text("alpha beta").hover(hover).on_hover(move |l, c| g2.lock().unwrap().push((l, c)));
+        let ed = CodeEditor::new()
+            .text("alpha beta")
+            .hover(hover)
+            .on_hover(move |l, c| g2.lock().unwrap().push((l, c)));
         let mut el = laid_out(&ed);
         let cw = el.char_width();
         let y = el.bounds.y() + el.line_height() * 0.5;
@@ -2875,10 +3047,17 @@ mod tests {
         el.animate(std::time::Duration::from_millis(600));
         assert_eq!(got.lock().unwrap().len(), 1, "один раз на место");
 
-        hover.set(Some(HoverInfo { line: 0, col: 1, text: "fn alpha()".into() }));
+        hover.set(Some(HoverInfo {
+            line: 0,
+            col: 1,
+            text: "fn alpha()".into(),
+        }));
         let mut list = DisplayList::new();
         el.build_display_list(&mut list, el.bounds);
-        assert!(!list.overlay_commands().is_empty(), "подсказка в слое оверлея");
+        assert!(
+            !list.overlay_commands().is_empty(),
+            "подсказка в слое оверлея"
+        );
 
         // в пределах слова — подсказка остаётся, другое слово — скрыта
         send(&mut el, Event::MouseMove(p2));
@@ -2888,7 +3067,6 @@ mod tests {
         // gutter — не текст
         assert_eq!(el.char_at_point(Point::new(el.bounds.x() + 4.0, y)), None);
     }
-
 
     #[test]
     fn harness_popup_paints_and_click_accepts() {
@@ -2901,14 +3079,22 @@ mod tests {
         h.layout(600.0, 300.0);
         h.send_events(&crate::testing::click_at(Point::new(200.0, 10.0)));
         h.send_events(&crate::testing::type_text("ve"));
-        let t = reqs.lock().unwrap().last().copied().expect("запрос после двух букв");
+        let t = reqs
+            .lock()
+            .unwrap()
+            .last()
+            .copied()
+            .expect("запрос после двух букв");
         sig.set(Some(CompletionList {
             line: t.line,
             start_col: 0,
             items: vec![item("vec", "macro"), item("very_long_name", "var")],
         }));
         let list = h.paint();
-        assert!(!list.overlay_commands().is_empty(), "список нарисован поверх");
+        assert!(
+            !list.overlay_commands().is_empty(),
+            "список нарисован поверх"
+        );
         // щелчок по второй строке списка (под строкой каретки)
         let lh = (13.0f32 * 1.5).round();
         let y = lh + 2.0 + 4.0 + lh * 1.5;
@@ -2917,13 +3103,14 @@ mod tests {
         assert!(sig.get_untracked().is_none());
     }
 
-
     #[test]
     fn harness_typing_keeps_trailing_newline() {
         use crate::testing::TestHarness;
         let changes = Arc::new(StdMutex::new(String::new()));
         let c2 = changes.clone();
-        let ed = CodeEditor::new().text("one\ntwo\n").on_change(move |c| *c2.lock().unwrap() = c.full_text.to_string());
+        let ed = CodeEditor::new()
+            .text("one\ntwo\n")
+            .on_change(move |c| *c2.lock().unwrap() = c.full_text.to_string());
         let mut h = TestHarness::new(Box::new(ed));
         h.layout(600.0, 300.0);
         let lh = (13.0f32 * 1.5).round();
@@ -2937,11 +3124,23 @@ mod tests {
     fn gutter_click_and_menu_commands() {
         let got = Arc::new(StdMutex::new(Vec::new()));
         let g2 = got.clone();
-        let ed = CodeEditor::new().text("one\ntwo\nthree").breakpoints(vec![1]).on_gutter_click(move |l| g2.lock().unwrap().push(l));
+        let ed = CodeEditor::new()
+            .text("one\ntwo\nthree")
+            .breakpoints(vec![1])
+            .on_gutter_click(move |l| g2.lock().unwrap().push(l));
         let mut el = laid_out(&ed);
         // щелчок по полю номеров третьей строки — обработчику, каретка на месте
         let p = Point::new(el.bounds.x() + 10.0, el.bounds.y() + el.line_height() * 2.5);
-        assert_eq!(send(&mut el, Event::MouseDown { button: MouseButton::Left, position: p }), EventResult::Handled);
+        assert_eq!(
+            send(
+                &mut el,
+                Event::MouseDown {
+                    button: MouseButton::Left,
+                    position: p
+                }
+            ),
+            EventResult::Handled
+        );
         assert_eq!(*got.lock().unwrap(), vec![2]);
         assert_eq!(el.cursors.primary().pos, 0);
 

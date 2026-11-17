@@ -236,13 +236,7 @@ impl PenTracker {
 mod tests {
     use super::*;
 
-    fn run(
-        tr: &mut PenTracker,
-        phase: PenPhase,
-        x: f32,
-        take: bool,
-        log: &mut Vec<String>,
-    ) {
+    fn run(tr: &mut PenTracker, phase: PenPhase, x: f32, take: bool, log: &mut Vec<String>) {
         let s = PenSample::new(Point::new(x, 0.0)).with_pressure(0.5);
         tr.handle(phase, s, &mut |out| match out {
             PenOut::Pen(Event::Pen { phase, .. }) => {
@@ -297,7 +291,10 @@ mod tests {
         let s = PenSample::new(Point::new(0.0, 0.0)).with_barrel(true);
         for phase in [PenPhase::Down, PenPhase::Up] {
             tr.handle(phase, s, &mut |out| {
-                if let PenOut::Mouse(Event::MouseDown { button, .. } | Event::MouseUp { button, .. }) = out {
+                if let PenOut::Mouse(
+                    Event::MouseDown { button, .. } | Event::MouseUp { button, .. },
+                ) = out
+                {
                     buttons.push(*button);
                 }
                 EventResult::Ignored

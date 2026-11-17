@@ -22,10 +22,10 @@ pub use charts::{
     SeriesStyle, TooltipConfig, VisualMapPiece,
 };
 pub use containers::{
-    Animated, AnimatedPosition, AnimatedSize, AnimatedSwitcher, AnimationAxis, AspectRatio,
-    Carousel, Column, DecoratedBox, DismissDirection, DockArea, DockSpec, DockState, DropZone, Dismissible, Falloff, Fisheye, FisheyeAnchor,
-    ClickAway, Flex, GestureDetector, Grid, IntoWidget, Motion, MultiTouch, Named, Padding, Page, PanAxis,
-    reveal_named, scroll_to_named,
+    reveal_named, scroll_to_named, Animated, AnimatedPosition, AnimatedSize, AnimatedSwitcher,
+    AnimationAxis, AspectRatio, Carousel, ClickAway, Column, DecoratedBox, DismissDirection,
+    Dismissible, DockArea, DockSpec, DockState, DropZone, Falloff, Fisheye, FisheyeAnchor, Flex,
+    GestureDetector, Grid, IntoWidget, Motion, MultiTouch, Named, Padding, Page, PanAxis,
     PanUpdate, PinchUpdate, Presence, Reactive, RepeatMode, Row, ScaleBox, ScrollPhysics,
     ScrollTarget, ScrollbarPolicy, ShowIf, SplitDirection, SplitView, Stack, StackFit,
     SwipeDirection, TouchPhase, TouchPoint, TransformBox, TransformOrigin, TransformState,
@@ -46,25 +46,25 @@ pub use input::{
     input_field, on_screen_keyboard, Autocomplete, Checkbox, ColorPicker, ColorValue, Combobox,
     Date, DatePicker, Dropdown, DropdownItem, DropdownState, EventHook, KeyAction, KeyDef,
     KeyReply, KeyboardController, KeyboardLayout, KeyboardState, MultilineTextEdit, Multiselect,
-    OnScreenKeyboard, OptionGroup, OptionItem, RadioButton, RadioGroup, RemoteKey, Slider, SpinBox, TextField, TickSlider,
-    Time, TimePicker, Toggle,
+    OnScreenKeyboard, OptionGroup, OptionItem, RadioButton, RadioGroup, RemoteKey, Slider, SpinBox,
+    TextField, TickSlider, Time, TimePicker, Toggle,
 };
 pub use navigation::{
-    shelf_offset, Breadcrumb, FocusScroll, GridFocus, MenuBar, Pagination, Router, RouterView, Sidebar,
-    StepInfo, Stepper, Tab, TabBar, TabPosition, TabState, Toolbar, TopAppBar,
+    shelf_offset, Breadcrumb, FocusScroll, GridFocus, MenuBar, Pagination, Router, RouterView,
+    Sidebar, StepInfo, Stepper, Tab, TabBar, TabPosition, TabState, Toolbar, TopAppBar,
 };
 pub use overlay::{
-    set_dialog_labels, AlertDialog, ConfirmDialog, ContextMenu, Dialog, DialogAction, Draggable,
-    CommandPalette, DropArea, DropInfo, FloatingWindow, MenuItem, PaletteCommand, PopupAnchor, PopupMenu, PopupPanel, Portal,
-    PortalAnchor,
+    set_dialog_labels, AlertDialog, CommandPalette, ConfirmDialog, ContextMenu, Dialog,
+    DialogAction, Draggable, DropArea, DropInfo, FloatingWindow, MenuItem, PaletteCommand,
+    PopupAnchor, PopupMenu, PopupPanel, Portal, PortalAnchor,
 };
 pub use scroll::{ScrollDirection, ScrollView};
 pub use visual::{
     default_locale, set_default_locale, Avatar, Badge, BadgeSize, Calendar, CalendarLocale,
     CalendarTheme, Canvas, Card, Chip, CircularProgress, DateOrder, Divider, DividerDirection,
-    EmitKind, EmitterConfig, GraphEdge, GraphNode, GraphView, EmitterShape, Icon, Image, ImageFit, ImageViewCommand, ImageViewInfo,
-    ImageViewport, Lottie, ParticleEmitter, ParticlePreset, ParticleShape, ParticleSystem, ProgressBar,
-    RichText, TextSpan,
+    EmitKind, EmitterConfig, EmitterShape, GraphEdge, GraphNode, GraphView, Icon, Image, ImageFit,
+    ImageViewCommand, ImageViewInfo, ImageViewport, Lottie, ParticleEmitter, ParticlePreset,
+    ParticleShape, ParticleSystem, ProgressBar, RichText, TextSpan,
 };
 #[cfg(feature = "ffmpeg")]
 pub use visual::{

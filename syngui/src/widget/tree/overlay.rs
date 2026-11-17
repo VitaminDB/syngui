@@ -67,11 +67,13 @@ impl ElementTree {
                 continue;
             }
 
-            let was_repainting = node.element.needs_repaint() || super::tree_keyframes_running(&*node.element);
+            let was_repainting =
+                node.element.needs_repaint() || super::tree_keyframes_running(&*node.element);
             if was_repainting {
                 crate::perf::incr(crate::perf::Counter::AnimateTicking);
             }
-            let animated = node.element.animate(dt) | Self::tree_ticks_keyframes(&mut *node.element, dt.as_secs_f32());
+            let animated = node.element.animate(dt)
+                | Self::tree_ticks_keyframes(&mut *node.element, dt.as_secs_f32());
             // Элемент просит фокус из своего тика (поле после пункта своего
             // контекстного меню) — как autofocus, FocusGained придёт в update.
             if node.element.take_focus_request() {
@@ -100,7 +102,11 @@ impl ElementTree {
             let keep = self
                 .elements
                 .get(&id)
-                .map(|n| n.element.needs_repaint() || n.element.wants_animate_tick() || super::tree_keyframes_running(&*n.element))
+                .map(|n| {
+                    n.element.needs_repaint()
+                        || n.element.wants_animate_tick()
+                        || super::tree_keyframes_running(&*n.element)
+                })
                 .unwrap_or(false);
             if keep {
                 self.animation_registry.insert(id);

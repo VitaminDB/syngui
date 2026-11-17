@@ -30,7 +30,10 @@ pub struct Spacing {
 
 impl Default for Spacing {
     fn default() -> Self {
-        Self { gap_x: 36.0, gap_y: 56.0 }
+        Self {
+            gap_x: 36.0,
+            gap_y: 56.0,
+        }
     }
 }
 
@@ -126,13 +129,21 @@ pub fn layout(sizes: &[(f32, f32)], edges: &[(usize, usize)], root: usize, sp: S
     renumber(&layers, &mut idx);
     for pass in 0..6 {
         let down = pass % 2 == 0;
-        let range: Vec<usize> = if down { (1..layers_n).collect() } else { (0..layers_n.saturating_sub(1)).rev().collect() };
+        let range: Vec<usize> = if down {
+            (1..layers_n).collect()
+        } else {
+            (0..layers_n.saturating_sub(1)).rev().collect()
+        };
         for li in range {
             let mut keyed: Vec<(f32, usize)> = layers[li]
                 .iter()
                 .map(|&v| {
                     let nb = if down { &preds[v] } else { &succs[v] };
-                    let bc = if nb.is_empty() { idx[v] } else { nb.iter().map(|&u| idx[u]).sum::<f32>() / nb.len() as f32 };
+                    let bc = if nb.is_empty() {
+                        idx[v]
+                    } else {
+                        nb.iter().map(|&u| idx[u]).sum::<f32>() / nb.len() as f32
+                    };
                     (bc, v)
                 })
                 .collect();
@@ -165,8 +176,17 @@ pub fn layout(sizes: &[(f32, f32)], edges: &[(usize, usize)], root: usize, sp: S
         for li in 1..layers_n {
             // желаемое — центр под предками; затем раздвинуть без наложений
             let l = layers[li].clone();
-            let mut want: Vec<f32> =
-                l.iter().map(|&v| if preds[v].is_empty() { x[v] } else { preds[v].iter().map(|&u| center(&x, u)).sum::<f32>() / preds[v].len() as f32 - sizes[v].0 / 2.0 }).collect();
+            let mut want: Vec<f32> = l
+                .iter()
+                .map(|&v| {
+                    if preds[v].is_empty() {
+                        x[v]
+                    } else {
+                        preds[v].iter().map(|&u| center(&x, u)).sum::<f32>() / preds[v].len() as f32
+                            - sizes[v].0 / 2.0
+                    }
+                })
+                .collect();
             for k in 1..l.len() {
                 let min = want[k - 1] + sizes[l[k - 1]].0 + sp.gap_x;
                 if want[k] < min {
@@ -180,8 +200,17 @@ pub fn layout(sizes: &[(f32, f32)], edges: &[(usize, usize)], root: usize, sp: S
         // корень и истоки — над центром своих потомков
         for li in (0..layers_n.saturating_sub(1)).rev() {
             let l = layers[li].clone();
-            let mut want: Vec<f32> =
-                l.iter().map(|&v| if succs[v].is_empty() { x[v] } else { succs[v].iter().map(|&u| center(&x, u)).sum::<f32>() / succs[v].len() as f32 - sizes[v].0 / 2.0 }).collect();
+            let mut want: Vec<f32> = l
+                .iter()
+                .map(|&v| {
+                    if succs[v].is_empty() {
+                        x[v]
+                    } else {
+                        succs[v].iter().map(|&u| center(&x, u)).sum::<f32>() / succs[v].len() as f32
+                            - sizes[v].0 / 2.0
+                    }
+                })
+                .collect();
             for k in 1..l.len() {
                 let min = want[k - 1] + sizes[l[k - 1]].0 + sp.gap_x;
                 if want[k] < min {
@@ -210,7 +239,8 @@ pub fn layout(sizes: &[(f32, f32)], edges: &[(usize, usize)], root: usize, sp: S
             in_cnt[b] += 1;
         }
     }
-    let port = |v: usize, k: usize, cnt: usize| pos[v].0 + sizes[v].0 * (k + 1) as f32 / (cnt + 1) as f32;
+    let port =
+        |v: usize, k: usize, cnt: usize| pos[v].0 + sizes[v].0 * (k + 1) as f32 / (cnt + 1) as f32;
     let mut back_lane = 0f32;
     let mut lane_in_gap = vec![0usize; layers_n];
     let mut routes = Vec::with_capacity(edges.len());
@@ -243,12 +273,25 @@ pub fn layout(sizes: &[(f32, f32)], edges: &[(usize, usize)], root: usize, sp: S
             let right = width + 16.0 + back_lane;
             let below = layer_bottom + lane_off.min(sp.gap_y - 8.0);
             let above = ty - 12.0 - (back_lane % 30.0);
-            routes.push(vec![(sx, sy), (sx, below), (right, below), (right, above), (tx, above), (tx, ty)]);
+            routes.push(vec![
+                (sx, sy),
+                (sx, below),
+                (right, below),
+                (right, above),
+                (tx, above),
+                (tx, ty),
+            ]);
         }
     }
     let width = width + 16.0 + back_lane + 12.0;
     let height = y - sp.gap_y;
-    Layout { pos, routes, back, width, height }
+    Layout {
+        pos,
+        routes,
+        back,
+        width,
+        height,
+    }
 }
 
 #[cfg(test)]
@@ -259,7 +302,10 @@ mod tests {
         for i in 0..sizes.len() {
             for j in i + 1..sizes.len() {
                 let (a, b) = (l.pos[i], l.pos[j]);
-                let sep = a.0 + sizes[i].0 <= b.0 || b.0 + sizes[j].0 <= a.0 || a.1 + sizes[i].1 <= b.1 || b.1 + sizes[j].1 <= a.1;
+                let sep = a.0 + sizes[i].0 <= b.0
+                    || b.0 + sizes[j].0 <= a.0
+                    || a.1 + sizes[i].1 <= b.1
+                    || b.1 + sizes[j].1 <= a.1;
                 if !sep {
                     return true;
                 }
@@ -283,11 +329,19 @@ mod tests {
         // ортогональные ломаные: соседние точки на одной вертикали или горизонтали
         for r in &l.routes {
             for w in r.windows(2) {
-                assert!((w[0].0 - w[1].0).abs() < 0.01 || (w[0].1 - w[1].1).abs() < 0.01, "{r:?}");
+                assert!(
+                    (w[0].0 - w[1].0).abs() < 0.01 || (w[0].1 - w[1].1).abs() < 0.01,
+                    "{r:?}"
+                );
             }
         }
         // обратное ребро уходит правее графа
-        assert!(l.routes[4].iter().any(|p| p.0 > l.pos.iter().zip(&sizes).map(|(p, s)| p.0 + s.0).fold(0.0, f32::max)));
+        assert!(l.routes[4].iter().any(|p| p.0
+            > l.pos
+                .iter()
+                .zip(&sizes)
+                .map(|(p, s)| p.0 + s.0)
+                .fold(0.0, f32::max)));
     }
 
     #[test]

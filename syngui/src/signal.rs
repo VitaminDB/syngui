@@ -548,7 +548,11 @@ pub fn set_fullscreen(on: bool) {
 #[cfg(feature = "winit")]
 pub fn monitor_refresh_millihertz() -> Option<u32> {
     let window = primary_window()?;
-    window.winit_window().current_monitor()?.refresh_rate_millihertz().filter(|&r| r >= 10_000)
+    window
+        .winit_window()
+        .current_monitor()?
+        .refresh_rate_millihertz()
+        .filter(|&r| r >= 10_000)
 }
 
 // ── Захват ввода (игры, виртуальные машины) ──────────────────────────────

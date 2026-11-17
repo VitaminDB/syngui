@@ -256,7 +256,9 @@ impl StyleEngine {
         if let Some(v) = scope.and_then(|s| s.get(name)) {
             return Some(v.clone());
         }
-        self.stylesheet.get_variable(name).map(|v| self.resolve_value_in(v, None))
+        self.stylesheet
+            .get_variable(name)
+            .map(|v| self.resolve_value_in(v, None))
     }
 
     /// Разрешить `var()` с учётом переменных предков элемента (`scope` —
@@ -327,7 +329,11 @@ impl StyleEngine {
 
     /// [`Self::resolve_variable`] с переменными, унаследованными от предков:
     /// `.scope { --accent: red; }` меняет `var(--accent)` у потомков.
-    pub fn resolve_variable_in(&self, value: &StyleValue, parent_inherited: &ComputedStyle) -> StyleValue {
+    pub fn resolve_variable_in(
+        &self,
+        value: &StyleValue,
+        parent_inherited: &ComputedStyle,
+    ) -> StyleValue {
         self.resolve_value_in(value, Some(parent_inherited))
     }
 
@@ -463,7 +469,10 @@ impl ComputedStyle {
                 self.properties.remove("background-color");
             }
             "background-color" => {
-                if !matches!(self.properties.get("background"), Some(StyleValue::Gradient(_)) | None) {
+                if !matches!(
+                    self.properties.get("background"),
+                    Some(StyleValue::Gradient(_)) | None
+                ) {
                     self.properties.remove("background");
                 }
             }
@@ -988,9 +997,16 @@ mod var_in_compound_tests {
     /// запасное, а не пустота.
     #[test]
     fn fallback_inside_compound_value() {
-        let (sheet, _) = crate::mss::MssParser::new(":root { --known: 10px; }").parse().unwrap();
+        let (sheet, _) = crate::mss::MssParser::new(":root { --known: 10px; }")
+            .parse()
+            .unwrap();
         let engine = StyleEngine::new(sheet);
-        let v = engine.resolve_variable(&StyleValue::String("opacity var(--missing, 200ms) ease, transform var(--known) linear".into()));
-        assert_eq!(v, StyleValue::String("opacity 200ms ease, transform 10px linear".into()));
+        let v = engine.resolve_variable(&StyleValue::String(
+            "opacity var(--missing, 200ms) ease, transform var(--known) linear".into(),
+        ));
+        assert_eq!(
+            v,
+            StyleValue::String("opacity 200ms ease, transform 10px linear".into())
+        );
     }
 }

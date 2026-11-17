@@ -298,7 +298,9 @@ impl TileCache {
                 .collect()
         };
         for (pid, pdir) in dirs(base) {
-            let Ok(provider_id) = u8::try_from(pid) else { continue };
+            let Ok(provider_id) = u8::try_from(pid) else {
+                continue;
+            };
             for (z, zdir) in dirs(&pdir) {
                 let Ok(z) = u8::try_from(z) else { continue };
                 for e in std::fs::read_dir(&zdir).into_iter().flatten().flatten() {
@@ -311,7 +313,12 @@ impl TileCache {
                         continue;
                     };
                     if let (Ok(x), Ok(y)) = (x.parse(), y.parse()) {
-                        out.push(TileKey { x, y, z, provider_id });
+                        out.push(TileKey {
+                            x,
+                            y,
+                            z,
+                            provider_id,
+                        });
                     }
                 }
             }
@@ -505,7 +512,10 @@ mod tests {
         if let CacheBackend::Disk(inner) = &c.backend {
             let idx = inner.index.lock().unwrap();
             assert_eq!(idx.len(), 1);
-            assert_eq!((idx[0].x, idx[0].y, idx[0].z, idx[0].provider_id), (1, 2, 3, 0));
+            assert_eq!(
+                (idx[0].x, idx[0].y, idx[0].z, idx[0].provider_id),
+                (1, 2, 3, 0)
+            );
         } else {
             panic!("ожидался дисковый кэш");
         }

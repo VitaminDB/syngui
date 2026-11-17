@@ -103,7 +103,11 @@ impl FontFace {
     /// берётся, только если насыщенность не задана. Раньше все насыщенности
     /// переменного шрифта рисовались начертанием по умолчанию (у Manrope и
     /// Nunito — ExtraLight).
-    fn with_weight(data: impl Into<Arc<[u8]>>, raw_index: u32, weight: Option<u16>) -> Option<Self> {
+    fn with_weight(
+        data: impl Into<Arc<[u8]>>,
+        raw_index: u32,
+        weight: Option<u16>,
+    ) -> Option<Self> {
         let data: Arc<[u8]> = data.into();
         if data.is_empty() {
             return None;
@@ -115,10 +119,19 @@ impl FontFace {
         // 600 он отдаёт Black). Иначе — координаты экземпляра.
         let coords: Vec<i16> = match swash::FontRef::from_index(&data, face_index as usize) {
             Some(f) => match weight {
-                Some(w) if f.variations().any(|v| v.tag() == swash::tag_from_bytes(b"wght")) => {
-                    f.variations().normalized_coords([("wght", w as f32)]).collect()
+                Some(w)
+                    if f.variations()
+                        .any(|v| v.tag() == swash::tag_from_bytes(b"wght")) =>
+                {
+                    f.variations()
+                        .normalized_coords([("wght", w as f32)])
+                        .collect()
                 }
-                _ if instance > 0 => f.instances().nth(instance - 1).map(|i| i.normalized_coords().collect()).unwrap_or_default(),
+                _ if instance > 0 => f
+                    .instances()
+                    .nth(instance - 1)
+                    .map(|i| i.normalized_coords().collect())
+                    .unwrap_or_default(),
                 _ => Vec::new(),
             },
             None => Vec::new(),
@@ -921,8 +934,12 @@ impl FontAtlas {
         }
         while let Some(family) = Self::symbol_family(self.symbol_tried) {
             self.symbol_tried += 1;
-            let Some((data, face_index)) = Self::discover_symbol_family(family) else { continue };
-            let Some(face) = FontFace::new(data, face_index) else { continue };
+            let Some((data, face_index)) = Self::discover_symbol_family(family) else {
+                continue;
+            };
+            let Some(face) = FontFace::new(data, face_index) else {
+                continue;
+            };
             let font_index = self.push_fallback_face(face);
             self.fallback_discovered.push(font_index);
             log::info!("font_atlas: symbol fallback #{font_index} loaded: {family}");
@@ -976,7 +993,9 @@ impl FontAtlas {
         // (моноширинный шрифт интерфейса без Nerd-глифов) значки меню и кнопок пропадали.
         if Self::is_private_use(ch) {
             let mono_own = match font_family {
-                Some(f) if self.family_is_monospace(f) => self.load_font_family(f).is_some_and(|(r, _)| self.glyph_id_in(ch, r).is_some()),
+                Some(f) if self.family_is_monospace(f) => self
+                    .load_font_family(f)
+                    .is_some_and(|(r, _)| self.glyph_id_in(ch, r).is_some()),
                 _ => false,
             };
             if !mono_own {
@@ -1022,11 +1041,14 @@ impl FontAtlas {
     /// насыщенностью (±50), иначе `None` (возьмётся обычное или жирное).
     fn registered_weight_face(&mut self, family: &str, class: u16) -> Option<u8> {
         let fonts = crate::text::registry::family_fonts(family);
-        let pick = fonts.iter().find(|d| crate::text::registry::face_weight(d).1).or_else(|| {
-            fonts
-                .iter()
-                .find(|d| crate::text::registry::face_weight(d).0.abs_diff(class) <= 50)
-        })?;
+        let pick = fonts
+            .iter()
+            .find(|d| crate::text::registry::face_weight(d).1)
+            .or_else(|| {
+                fonts
+                    .iter()
+                    .find(|d| crate::text::registry::face_weight(d).0.abs_diff(class) <= 50)
+            })?;
         let face = FontFace::with_weight(pick.clone(), 0, Some(class))?;
         Some(self.push_face(Some(face)))
     }
@@ -1037,7 +1059,11 @@ impl FontAtlas {
         let face = FontFace::with_weight(data, face_index, Some(class))?;
         // Тот же файл с теми же осями, что уже загружен (обычное/жирное), —
         // отдельной грани нет. Переменный шрифт — та же грань с другой `wght`.
-        let same = |f: &FontFace| f.face_index == face.face_index && f.coords == face.coords && f.data[..] == face.data[..];
+        let same = |f: &FontFace| {
+            f.face_index == face.face_index
+                && f.coords == face.coords
+                && f.data[..] == face.data[..]
+        };
         if self.faces.iter().flatten().any(same) {
             return None;
         }
@@ -1098,7 +1124,9 @@ impl FontAtlas {
                 FontFace::with_weight(var.clone(), 0, Some(700)),
             ),
             None => {
-                let regular = fonts.iter().min_by_key(|d| face_weight(d).0.abs_diff(400))?;
+                let regular = fonts
+                    .iter()
+                    .min_by_key(|d| face_weight(d).0.abs_diff(400))?;
                 let bold = fonts
                     .iter()
                     .filter(|d| face_weight(d).0 >= 600)
@@ -1371,13 +1399,24 @@ impl FontAtlas {
         self.blurred_glyph_mode(g, blur, true)
     }
 
-    fn blurred_glyph_mode(&mut self, g: &CachedGlyph, blur: f32, glow: bool) -> Option<(CachedGlyph, u32)> {
+    fn blurred_glyph_mode(
+        &mut self,
+        g: &CachedGlyph,
+        blur: f32,
+        glow: bool,
+    ) -> Option<(CachedGlyph, u32)> {
         if g.is_color || g.width == 0 || g.height == 0 || blur <= 0.0 {
             return None;
         }
         let ax = (g.uv_x * self.atlas_width as f32).round() as u32;
         let ay = (g.uv_y * self.atlas_height as f32).round() as u32;
-        let key = (ax, ay, g.width, g.height, (blur * 4.0).round() as u32 | if glow { 0x4000_0000 } else { 0 });
+        let key = (
+            ax,
+            ay,
+            g.width,
+            g.height,
+            (blur * 4.0).round() as u32 | if glow { 0x4000_0000 } else { 0 },
+        );
         if let Some(c) = self.blurred.get(&key) {
             return Some(*c);
         }
@@ -1385,15 +1424,19 @@ impl FontAtlas {
         // Радиус выборки — до 48 текселей: свечение `text-glow` бывает в десятки px.
         let k = blur.ceil().clamp(1.0, 48.0) as usize;
         let sigma = (blur / 3.0).max(0.5);
-        let weights: Vec<f32> = (0..=2 * k).map(|i| {
-            let d = i as f32 - k as f32;
-            (-(d * d) / (2.0 * sigma * sigma)).exp()
-        }).collect();
+        let weights: Vec<f32> = (0..=2 * k)
+            .map(|i| {
+                let d = i as f32 - k as f32;
+                (-(d * d) / (2.0 * sigma * sigma)).exp()
+            })
+            .collect();
         let wsum: f32 = weights.iter().sum();
         let norm = 1.0 / (wsum * wsum);
         let (ow, oh) = (w + 2 * k, h + 2 * k);
         let aw = self.atlas_width as usize;
-        let src = |x: usize, y: usize| self.pixels[((ay as usize + y) * aw + ax as usize + x) * 4 + 3] as f32 / 255.0;
+        let src = |x: usize, y: usize| {
+            self.pixels[((ay as usize + y) * aw + ax as usize + x) * 4 + 3] as f32 / 255.0
+        };
         // Разделимое ядро: по строкам глифа, затем по столбцам с полями.
         let mut tmp = vec![0.0f32; ow * h];
         for y in 0..h {
@@ -1419,7 +1462,11 @@ impl FontAtlas {
                     }
                 }
                 let a = (acc * norm).clamp(0.0, 1.0);
-                let v = if glow { 1.0 - (1.0 - a) * (1.0 - a) } else { a * a * (3.0 - 2.0 * a) };
+                let v = if glow {
+                    1.0 - (1.0 - a) * (1.0 - a)
+                } else {
+                    a * a * (3.0 - 2.0 * a)
+                };
                 out[oy * ow + ox] = (v * 255.0).round() as u8;
             }
         }
@@ -1430,7 +1477,14 @@ impl FontAtlas {
 
     /// Положить в атлас производный глиф (размытый, контур) `ow`×`oh` с полем `k`
     /// текселей вокруг исходного `g`. `None` — атлас полон.
-    fn place_derived(&mut self, out: &[u8], ow: usize, oh: usize, k: usize, g: &CachedGlyph) -> Option<CachedGlyph> {
+    fn place_derived(
+        &mut self,
+        out: &[u8],
+        ow: usize,
+        oh: usize,
+        k: usize,
+        g: &CachedGlyph,
+    ) -> Option<CachedGlyph> {
         let aw = self.atlas_width as usize;
         // Место в атласе — как у обычных глифов.
         let padding = 1u32;
@@ -1484,7 +1538,13 @@ impl FontAtlas {
         let ax = (g.uv_x * self.atlas_width as f32).round() as u32;
         let ay = (g.uv_y * self.atlas_height as f32).round() as u32;
         // старший бит ключа размытия отличает контур
-        let key = (ax, ay, g.width, g.height, 0x8000_0000 | (width * 4.0).round() as u32);
+        let key = (
+            ax,
+            ay,
+            g.width,
+            g.height,
+            0x8000_0000 | (width * 4.0).round() as u32,
+        );
         if let Some(c) = self.blurred.get(&key) {
             return Some(*c);
         }
@@ -1494,7 +1554,9 @@ impl FontAtlas {
         let aw = self.atlas_width as usize;
         let src: Vec<f32> = (0..h)
             .flat_map(|y| (0..w).map(move |x| (x, y)))
-            .map(|(x, y)| self.pixels[((ay as usize + y) * aw + ax as usize + x) * 4 + 3] as f32 / 255.0)
+            .map(|(x, y)| {
+                self.pixels[((ay as usize + y) * aw + ax as usize + x) * 4 + 3] as f32 / 255.0
+            })
             .collect();
         // Диск радиуса width с мягким краем: (dx, dy, вес).
         let r = k as isize;
@@ -1523,7 +1585,11 @@ impl FontAtlas {
                         }
                     }
                 }
-                let inner = if cx >= 0 && cy >= 0 && (cx as usize) < w && (cy as usize) < h { src[cy as usize * w + cx as usize] } else { 0.0 };
+                let inner = if cx >= 0 && cy >= 0 && (cx as usize) < w && (cy as usize) < h {
+                    src[cy as usize * w + cx as usize]
+                } else {
+                    0.0
+                };
                 out[oy * ow + ox] = ((dil - inner).clamp(0.0, 1.0) * 255.0).round() as u8;
             }
         }
@@ -1531,7 +1597,6 @@ impl FontAtlas {
         self.blurred.insert(key, (c, k as u32));
         Some((c, k as u32))
     }
-
 
     pub fn memory_stats(&self) -> FontAtlasStats {
         let font_data_bytes = self
@@ -2232,7 +2297,13 @@ mod private_use_tests {
 
 /// Первое имя из списка `font-family` («Caveat, cursive» → «Caveat»).
 fn first_family(family: &str) -> &str {
-    family.split(',').next().unwrap_or(family).trim().trim_matches(['"', '\'']).trim()
+    family
+        .split(',')
+        .next()
+        .unwrap_or(family)
+        .trim()
+        .trim_matches(['"', '\''])
+        .trim()
 }
 
 /// Первое имя из списка `font-family`, зарегистрированное приложением.

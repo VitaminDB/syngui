@@ -48,7 +48,10 @@ pub fn serialize_preserving(model: &DocModel) -> String {
     // Служебный блок свободной раскладки в исходнике — запись целиком
     // нормализатором (он же пишет и раскладку).
     let fence = format!("```{}", free::LAYOUT_FENCE);
-    if ranges.iter().any(|r| src[r.clone()].trim_start().starts_with(&fence)) {
+    if ranges
+        .iter()
+        .any(|r| src[r.clone()].trim_start().starts_with(&fence))
+    {
         return serialize_document(model);
     }
     with_style(style, || {
@@ -64,7 +67,12 @@ pub fn serialize_preserving(model: &DocModel) -> String {
                 };
                 let first = blocks.first()?.kind.is_list_item();
                 let last = blocks.last()?.kind.is_list_item();
-                Some(Chunk { canon: blocks.iter().map(canon).collect(), range, first_item: first, last_item: last })
+                Some(Chunk {
+                    canon: blocks.iter().map(canon).collect(),
+                    range,
+                    first_item: first,
+                    last_item: last,
+                })
             })
             .collect();
         let md: Vec<String> = model.blocks.iter().map(block_markdown).collect();
@@ -96,7 +104,8 @@ fn scan(src: &str) -> (Vec<Range<usize>>, MdStyle, String) {
     let mut depth = 0usize;
     let mut top_list = false;
     // Счётчики вариантов: [*, _], [*, _], [-, *, +], [., )], [`, ~].
-    let (mut em, mut strong, mut bullet, mut delim, mut fence) = ([0; 2], [0; 2], [0; 3], [0; 2], [0; 2]);
+    let (mut em, mut strong, mut bullet, mut delim, mut fence) =
+        ([0; 2], [0; 2], [0; 3], [0; 2], [0; 2]);
     let mut ordered: Vec<bool> = Vec::new();
     let byte = |i: usize| src.as_bytes().get(i).copied().unwrap_or(0);
     let mut parser = Parser::new_ext(src, opts).into_offset_iter();
@@ -121,7 +130,11 @@ fn scan(src: &str) -> (Vec<Range<usize>>, MdStyle, String) {
                     Tag::Item => {
                         let s = src[r.start..].trim_start_matches([' ', '\t']);
                         if ordered.last() == Some(&true) {
-                            match s.trim_start_matches(|c: char| c.is_ascii_digit()).bytes().next() {
+                            match s
+                                .trim_start_matches(|c: char| c.is_ascii_digit())
+                                .bytes()
+                                .next()
+                            {
                                 Some(b')') => delim[1] += 1,
                                 Some(b'.') => delim[0] += 1,
                                 _ => {}
@@ -136,7 +149,11 @@ fn scan(src: &str) -> (Vec<Range<usize>>, MdStyle, String) {
                         }
                     }
                     Tag::CodeBlock(CodeBlockKind::Fenced(_)) => {
-                        match src[r.start..].trim_start_matches([' ', '\t']).bytes().next() {
+                        match src[r.start..]
+                            .trim_start_matches([' ', '\t'])
+                            .bytes()
+                            .next()
+                        {
                             Some(b'~') => fence[1] += 1,
                             Some(b'`') => fence[0] += 1,
                             _ => {}
@@ -192,7 +209,11 @@ fn scan(src: &str) -> (Vec<Range<usize>>, MdStyle, String) {
 /// пробелов и переводов строк — они уходят в промежуток.
 fn trimmed(src: &str, r: Range<usize>) -> Range<usize> {
     let line = src[..r.start].rfind('\n').map_or(0, |i| i + 1);
-    let start = if src[line..r.start].trim().is_empty() { line } else { r.start };
+    let start = if src[line..r.start].trim().is_empty() {
+        line
+    } else {
+        r.start
+    };
     let end = r.start + src[r.clone()].trim_end_matches(['\n', '\r']).len();
     start..end.max(start)
 }
@@ -203,10 +224,19 @@ enum Prev {
     Chunk(usize),
     /// Блок нормализатора; `replaced` — последний исходный кусок, который
     /// он заменил (тогда промежуток после него берётся из исходника).
-    Block { item: bool, replaced: Option<usize> },
+    Block {
+        item: bool,
+        replaced: Option<usize>,
+    },
 }
 
-fn emit(src: &str, chunks: &[Chunk], blocks: &[DocBlock], md: &[String], keys: &[String]) -> String {
+fn emit(
+    src: &str,
+    chunks: &[Chunk],
+    blocks: &[DocBlock],
+    md: &[String],
+    keys: &[String],
+) -> String {
     let matches = |i: usize, k: usize| -> bool {
         let c = &chunks[k].canon;
         i + c.len() <= keys.len() && keys[i..i + c.len()] == c[..]
@@ -237,7 +267,9 @@ fn emit(src: &str, chunks: &[Chunk], blocks: &[DocBlock], md: &[String], keys: &
         let c = &chunks[k];
         match *prev {
             Prev::Chunk(p) if p + 1 == k => out.push_str(gap(k)),
-            Prev::Block { replaced: Some(p), .. } if p + 1 == k => out.push_str(gap(k)),
+            Prev::Block {
+                replaced: Some(p), ..
+            } if p + 1 == k => out.push_str(gap(k)),
             Prev::None if k == 0 => out.push_str(gap(0)),
             p => out.push_str(sep(p, c.first_item)),
         }
@@ -287,7 +319,10 @@ fn emit(src: &str, chunks: &[Chunk], blocks: &[DocBlock], md: &[String], keys: &
     let last = chunks.len().checked_sub(1);
     match prev {
         // Хвост файла (перевод строки в конце или его отсутствие) — как был.
-        Prev::Chunk(p) | Prev::Block { replaced: Some(p), .. } if Some(p) == last => {
+        Prev::Chunk(p)
+        | Prev::Block {
+            replaced: Some(p), ..
+        } if Some(p) == last => {
             out.push_str(&src[chunks[p].range.end..]);
             if !matches!(prev, Prev::Chunk(_)) && !out.ends_with('\n') && src.ends_with('\n') {
                 out.push('\n');
@@ -306,13 +341,19 @@ mod tests {
 
     fn edit_text(model: &mut DocModel, idx: usize, f: impl FnOnce(&mut InlineText)) {
         match &mut model.blocks[idx].kind {
-            BlockKind::Paragraph(t) | BlockKind::Heading { text: t, .. } | BlockKind::Bullet { text: t, .. } | BlockKind::Numbered { text: t, .. } => f(t),
+            BlockKind::Paragraph(t)
+            | BlockKind::Heading { text: t, .. }
+            | BlockKind::Bullet { text: t, .. }
+            | BlockKind::Numbered { text: t, .. } => f(t),
             _ => panic!("не текстовый блок"),
         }
     }
 
     fn append(t: &mut InlineText, s: &str) {
-        t.0.push(InlineRun { text: s.to_string(), style: Default::default() });
+        t.0.push(InlineRun {
+            text: s.to_string(),
+            style: Default::default(),
+        });
     }
 
     const SRC: &str = "Title\n=====\n\nЭто _курсив_ и __жирный__ текст.\n\n* раз\n* два\n\n1) один\n2) два\n   * вложенный\n\n~~~rust\nfn main() {}\n~~~\n\n***\n\n\nКонец   \n";
@@ -353,13 +394,20 @@ mod tests {
         m.blocks.insert(2, extra);
         let out = serialize_preserving(&m);
         assert_eq!(out.matches("Это _курсив_").count(), 2, "{out}");
-        assert!(out.contains("~~~rust\nfn main() {}\n~~~\n\n***\n\n\nКонец   \n"), "{out}");
+        assert!(
+            out.contains("~~~rust\nfn main() {}\n~~~\n\n***\n\n\nКонец   \n"),
+            "{out}"
+        );
         // Удаление блока кода — соседние остаются как были.
         let mut m = parse_document(SRC);
-        m.blocks.retain(|b| !matches!(b.kind, BlockKind::CodeBlock { .. }));
+        m.blocks
+            .retain(|b| !matches!(b.kind, BlockKind::CodeBlock { .. }));
         let out = serialize_preserving(&m);
         assert!(!out.contains("fn main"), "{out}");
-        assert!(out.contains("   * вложенный\n\n***\n\n\nКонец   \n"), "{out}");
+        assert!(
+            out.contains("   * вложенный\n\n***\n\n\nКонец   \n"),
+            "{out}"
+        );
     }
 
     #[test]
@@ -369,8 +417,17 @@ mod tests {
         // Курсив внутри слова: `_` там не работает, нужен `*`.
         edit_text(&mut m, 1, |t| {
             t.0 = vec![
-                InlineRun { text: "сло".into(), style: Default::default() },
-                InlineRun { text: "во".into(), style: crate::widgets::input::document_editor::model::InlineStyle { italic: true, ..Default::default() } },
+                InlineRun {
+                    text: "сло".into(),
+                    style: Default::default(),
+                },
+                InlineRun {
+                    text: "во".into(),
+                    style: crate::widgets::input::document_editor::model::InlineStyle {
+                        italic: true,
+                        ..Default::default()
+                    },
+                },
             ]
         });
         let out = serialize_preserving(&m);
@@ -394,20 +451,35 @@ fn corpus_roundtrip_is_identity() {
     let mut bad = Vec::new();
     let mut n = 0;
     for path in std::fs::read_to_string(list).unwrap().lines() {
-        let Ok(src) = std::fs::read_to_string(path) else { continue };
+        let Ok(src) = std::fs::read_to_string(path) else {
+            continue;
+        };
         n += 1;
         let out = serialize_preserving(&parse_document(&src));
         if out != src {
             if bad.len() < 12 {
-                let at = src.bytes().zip(out.bytes()).position(|(a, b)| a != b).unwrap_or(src.len().min(out.len()));
+                let at = src
+                    .bytes()
+                    .zip(out.bytes())
+                    .position(|(a, b)| a != b)
+                    .unwrap_or(src.len().min(out.len()));
                 let lo = src.floor_char_boundary(at.saturating_sub(80));
                 let lo2 = out.floor_char_boundary(at.saturating_sub(80));
-                eprintln!("== {path} @{at}\n-- src: {:?}\n-- out: {:?}", &src[lo..src.floor_char_boundary((at + 80).min(src.len()))], &out[lo2..out.floor_char_boundary((at + 80).min(out.len()))]);
+                eprintln!(
+                    "== {path} @{at}\n-- src: {:?}\n-- out: {:?}",
+                    &src[lo..src.floor_char_boundary((at + 80).min(src.len()))],
+                    &out[lo2..out.floor_char_boundary((at + 80).min(out.len()))]
+                );
             }
             bad.push(path.to_string());
         }
     }
-    assert!(bad.is_empty(), "{} из {n}: {:#?}", bad.len(), &bad[..bad.len().min(30)]);
+    assert!(
+        bad.is_empty(),
+        "{} из {n}: {:#?}",
+        bad.len(),
+        &bad[..bad.len().min(30)]
+    );
 }
 
 /// Корпус: правка абзаца посередине — результат разбирается в ту же
@@ -421,16 +493,25 @@ fn corpus_edit_is_faithful() {
     let mut bad = Vec::new();
     let mut n = 0;
     for path in std::fs::read_to_string(list).unwrap().lines() {
-        let Ok(src) = std::fs::read_to_string(path) else { continue };
+        let Ok(src) = std::fs::read_to_string(path) else {
+            continue;
+        };
         let mut m = parse_document(&src);
         if free::serialize_geometry(&m.blocks).is_some() {
             continue;
         }
-        let paras: Vec<usize> = (0..m.blocks.len()).filter(|&i| matches!(m.blocks[i].kind, BlockKind::Paragraph(_))).collect();
-        let Some(&idx) = paras.get(paras.len() / 2) else { continue };
+        let paras: Vec<usize> = (0..m.blocks.len())
+            .filter(|&i| matches!(m.blocks[i].kind, BlockKind::Paragraph(_)))
+            .collect();
+        let Some(&idx) = paras.get(paras.len() / 2) else {
+            continue;
+        };
         n += 1;
         if let BlockKind::Paragraph(t) = &mut m.blocks[idx].kind {
-            t.0.push(InlineRun { text: " ПРАВКА".into(), style: InlineStyle::default() });
+            t.0.push(InlineRun {
+                text: " ПРАВКА".into(),
+                style: InlineStyle::default(),
+            });
         }
         let out = serialize_preserving(&m);
         let same_model = serialize_document(&parse_document(&out)) == serialize_document(&m);
@@ -441,7 +522,11 @@ fn corpus_edit_is_faithful() {
         let lost: Vec<&str> = src
             .lines()
             .filter(|l| !src_lines.contains(l))
-            .filter(|l| !l.split(|c: char| !c.is_alphanumeric()).filter(|w| !w.is_empty()).all(|w| para.contains(w)))
+            .filter(|l| {
+                !l.split(|c: char| !c.is_alphanumeric())
+                    .filter(|w| !w.is_empty())
+                    .all(|w| para.contains(w))
+            })
             .collect();
         let lost_n = lost.len();
         if !same_model || lost_n > 0 {
@@ -454,5 +539,10 @@ fn corpus_edit_is_faithful() {
             bad.push(path.to_string());
         }
     }
-    assert!(bad.is_empty(), "{} из {n}: {:#?}", bad.len(), &bad[..bad.len().min(30)]);
+    assert!(
+        bad.is_empty(),
+        "{} из {n}: {:#?}",
+        bad.len(),
+        &bad[..bad.len().min(30)]
+    );
 }

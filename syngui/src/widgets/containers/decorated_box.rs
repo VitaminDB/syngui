@@ -272,7 +272,9 @@ impl DecoratedBoxElement {
     /// Ширина бордюра по сторонам (лево, верх, право, низ).
     fn border_insets(&self) -> [f32; 4] {
         if self.border_sides.iter().any(|s| s.is_some()) {
-            return self.border_sides.map(|s| s.map_or(0.0, |(w, _)| w.max(0.0)));
+            return self
+                .border_sides
+                .map(|s| s.map_or(0.0, |(w, _)| w.max(0.0)));
         }
         let w = self.border.as_ref().map_or(0.0, |b| b.width.max(0.0));
         [w; 4]
@@ -798,11 +800,14 @@ impl Element for DecoratedBoxElement {
         // padding (как box-sizing: border-box в CSS). Без этого круг в кольце
         // выбора цвета (padding 3 + border 2) прижимался к левому верхнему краю.
         let [bl, bt, br, bb] = self.border_insets();
-        let (padding_left, padding_top, padding_right, padding_bottom) = (self.padding_left + bl, self.padding_top + bt, self.padding_right + br, self.padding_bottom + bb);
-        let has_padding = padding_left > 0.0
-            || padding_right > 0.0
-            || padding_top > 0.0
-            || padding_bottom > 0.0;
+        let (padding_left, padding_top, padding_right, padding_bottom) = (
+            self.padding_left + bl,
+            self.padding_top + bt,
+            self.padding_right + br,
+            self.padding_bottom + bb,
+        );
+        let has_padding =
+            padding_left > 0.0 || padding_right > 0.0 || padding_top > 0.0 || padding_bottom > 0.0;
         let has_size_constraints = self.width.is_some()
             || self.height.is_some()
             || self.mss.min_width.is_some()
@@ -1034,7 +1039,11 @@ mod tests {
     /// он должен стоять на (2+3, 2+3) и заполнять содержимое ровно по центру.
     #[test]
     fn child_offset_includes_border_and_padding() {
-        let w = crate::widgets::Column::new().child(DecoratedBox::new().class("ring").child(DecoratedBox::new().class("fill")));
+        let w = crate::widgets::Column::new().child(
+            DecoratedBox::new()
+                .class("ring")
+                .child(DecoratedBox::new().class("fill")),
+        );
         let mut h = TestHarness::new(Box::new(w));
         h.apply_mss(".ring { width: 46px; height: 46px; padding: 3px; border: 2px solid #000000; } .fill { width: 36px; height: 36px; background-color: #ff0000; }");
         h.layout(200.0, 200.0);

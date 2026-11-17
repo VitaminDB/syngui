@@ -173,7 +173,10 @@ impl TextShadow {
         if s.trim().eq_ignore_ascii_case("none") {
             return Vec::new();
         }
-        split_top_level_commas(s).into_iter().filter_map(Self::parse).collect()
+        split_top_level_commas(s)
+            .into_iter()
+            .filter_map(Self::parse)
+            .collect()
     }
 }
 
@@ -273,7 +276,10 @@ pub struct TextFx {
 
 impl TextFx {
     pub fn is_empty(&self) -> bool {
-        self.shadows.is_empty() && self.glow.is_none() && self.gradient.is_none() && self.animation.is_none()
+        self.shadows.is_empty()
+            && self.glow.is_none()
+            && self.gradient.is_none()
+            && self.animation.is_none()
     }
 }
 
@@ -1964,7 +1970,9 @@ mod tests {
 
     #[test]
     fn text_effects_parse() {
-        let l = TextShadow::parse_list("0 0 8 #4fc3f7, 0 0 24 rgba(79, 195, 247, 0.5), 0 2 6 #00000080");
+        let l = TextShadow::parse_list(
+            "0 0 8 #4fc3f7, 0 0 24 rgba(79, 195, 247, 0.5), 0 2 6 #00000080",
+        );
         assert_eq!(l.len(), 3);
         assert_eq!(l[1].blur_radius, 24.0);
         assert!((l[1].color.a - 0.5).abs() < 0.01);
@@ -1977,7 +1985,10 @@ mod tests {
         let glow = TextGlow::parse("16px #4fc3f7").unwrap();
         assert_eq!(glow.radius, 16.0);
         assert!(glow.color.is_some());
-        assert_eq!(TextGlow::parse("12").map(|g| (g.radius, g.color)), Some((12.0, None)));
+        assert_eq!(
+            TextGlow::parse("12").map(|g| (g.radius, g.color)),
+            Some((12.0, None))
+        );
         assert!(TextGlow::parse("none").is_none());
 
         let a = TextAnimation::parse("shimmer 3s").unwrap();
@@ -1986,7 +1997,10 @@ mod tests {
         assert_eq!(TextAnimation::parse("rainbow").unwrap().period, 2.0);
         assert!(TextAnimation::parse("none").is_none());
 
-        let g = parse_text_gradient(&StyleValue::String("linear-gradient(90deg, #4fc3f7, #ab47bc 80%)".into())).unwrap();
+        let g = parse_text_gradient(&StyleValue::String(
+            "linear-gradient(90deg, #4fc3f7, #ab47bc 80%)".into(),
+        ))
+        .unwrap();
         assert!(matches!(g, Gradient::Linear { angle_deg, .. } if angle_deg == 90.0));
         assert!(parse_text_gradient(&StyleValue::String("none".into())).is_none());
     }
@@ -2001,9 +2015,15 @@ mod tests {
 
     #[test]
     fn background_image_layers_over_color_and_none_clears_it() {
-        let grad = crate::mss::parser::gradient::parse_gradient("linear-gradient(180deg, #ffffff80 0%, #00000000 100%)").unwrap();
+        let grad = crate::mss::parser::gradient::parse_gradient(
+            "linear-gradient(180deg, #ffffff80 0%, #00000000 100%)",
+        )
+        .unwrap();
         let mut st = ComputedStyle::default();
-        st.set("background-color", StyleValue::Color(crate::mss::value::Color::rgb(200, 0, 60)));
+        st.set(
+            "background-color",
+            StyleValue::Color(crate::mss::value::Color::rgb(200, 0, 60)),
+        );
         st.set("background-image", grad);
         let mut f = MssFields::new();
         f.apply(&st);

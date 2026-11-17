@@ -33,33 +33,84 @@ impl Batcher {
         // Вырез бокса: внутри элемента (сжатого на радиус скругления и пиксель) тень нулевая —
         // рисуем рамку из четырёх квадратов вокруг, а не квадрат целиком: на Adreno 505 тени карточек
         // стола считали exp/sqrt по всей их площади каждый кадр листания.
-        let (ox0, oy0, ox1, oy1) = (expanded_x, expanded_y, expanded_x + expanded_w, expanded_y + expanded_h);
+        let (ox0, oy0, ox1, oy1) = (
+            expanded_x,
+            expanded_y,
+            expanded_x + expanded_w,
+            expanded_y + expanded_h,
+        );
         let rmax = corner_radius.iter().copied().fold(0.0f32, f32::max);
         let inset = rmax + 1.0;
-        let (ix0, iy0) = ((rect.origin.x + inset).max(ox0), (rect.origin.y + inset).max(oy0));
-        let (ix1, iy1) = ((rect.origin.x + rect.size.width - inset).min(ox1), (rect.origin.y + rect.size.height - inset).min(oy1));
+        let (ix0, iy0) = (
+            (rect.origin.x + inset).max(ox0),
+            (rect.origin.y + inset).max(oy0),
+        );
+        let (ix1, iy1) = (
+            (rect.origin.x + rect.size.width - inset).min(ox1),
+            (rect.origin.y + rect.size.height - inset).min(oy1),
+        );
         let ring = cutout && ix1 - ix0 > 8.0 && iy1 - iy0 > 8.0;
         let quads: Vec<[f32; 4]> = if ring {
-            vec![[ox0, oy0, ox1, iy0], [ox0, iy1, ox1, oy1], [ox0, iy0, ix0, iy1], [ix1, iy0, ox1, iy1]]
+            vec![
+                [ox0, oy0, ox1, iy0],
+                [ox0, iy1, ox1, oy1],
+                [ox0, iy0, ix0, iy1],
+                [ix1, iy0, ox1, iy1],
+            ]
         } else {
             vec![[ox0, oy0, ox1, oy1]]
         };
-        let color_array = if self.srgb_vertex { super::encode_srgb(color_array) } else { color_array };
+        let color_array = if self.srgb_vertex {
+            super::encode_srgb(color_array)
+        } else {
+            color_array
+        };
         for [x0, y0, x1, y1] in quads {
             if x1 - x0 <= 0.0 || y1 - y0 <= 0.0 {
                 continue;
             }
-            let uv = |x: f32, y: f32| [(x - ox0) / expanded_w.max(1e-3), (y - oy0) / expanded_h.max(1e-3)];
+            let uv = |x: f32, y: f32| {
+                [
+                    (x - ox0) / expanded_w.max(1e-3),
+                    (y - oy0) / expanded_h.max(1e-3),
+                ]
+            };
             let [p0, p1, p2, p3] = self.transform_quad([[x0, y0], [x1, y0], [x1, y1], [x0, y1]]);
             let state = self.current_batch_mut();
             let base = state.vertices.len() as u32;
             state.vertices.extend_from_slice(&[
-                Vertex { position: p0, uv: uv(x0, y0), color: color_array, data, data2 },
-                Vertex { position: p1, uv: uv(x1, y0), color: color_array, data, data2 },
-                Vertex { position: p2, uv: uv(x1, y1), color: color_array, data, data2 },
-                Vertex { position: p3, uv: uv(x0, y1), color: color_array, data, data2 },
+                Vertex {
+                    position: p0,
+                    uv: uv(x0, y0),
+                    color: color_array,
+                    data,
+                    data2,
+                },
+                Vertex {
+                    position: p1,
+                    uv: uv(x1, y0),
+                    color: color_array,
+                    data,
+                    data2,
+                },
+                Vertex {
+                    position: p2,
+                    uv: uv(x1, y1),
+                    color: color_array,
+                    data,
+                    data2,
+                },
+                Vertex {
+                    position: p3,
+                    uv: uv(x0, y1),
+                    color: color_array,
+                    data,
+                    data2,
+                },
             ]);
-            state.indices.extend_from_slice(&[base, base + 1, base + 2, base, base + 2, base + 3]);
+            state
+                .indices
+                .extend_from_slice(&[base, base + 1, base + 2, base, base + 2, base + 3]);
         }
     }
 

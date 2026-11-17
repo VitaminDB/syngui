@@ -66,7 +66,10 @@ pub fn detect(f: &frame::Video) -> Option<Hdr> {
         Transfer::Pq => peak_from_side_data(f).unwrap_or(DEFAULT_PEAK_NITS),
     };
     // ниже белого SDR сжимать нечего; выше 10 000 PQ не бывает
-    Some(Hdr { transfer, peak_nits: peak_nits.clamp(SDR_WHITE_NITS * 1.25, 10_000.0) })
+    Some(Hdr {
+        transfer,
+        peak_nits: peak_nits.clamp(SDR_WHITE_NITS * 1.25, 10_000.0),
+    })
 }
 
 /// HDR потока по его параметрам (передаточная функция и пик из `coded_side_data` контейнера) —
@@ -118,7 +121,10 @@ pub fn detect_params(par: *const ffi::AVCodecParameters) -> Option<Hdr> {
             Transfer::Hlg => HLG_PEAK_NITS,
             Transfer::Pq => cll.or(mastering).unwrap_or(DEFAULT_PEAK_NITS),
         };
-        Some(Hdr { transfer, peak_nits: peak_nits.clamp(SDR_WHITE_NITS * 1.25, 10_000.0) })
+        Some(Hdr {
+            transfer,
+            peak_nits: peak_nits.clamp(SDR_WHITE_NITS * 1.25, 10_000.0),
+        })
     }
 }
 
@@ -146,14 +152,20 @@ fn peak_from_side_data(f: &frame::Video) -> Option<f32> {
     // достаточном размере.
     unsafe {
         let p = f.as_ptr();
-        let sd = ffi::av_frame_get_side_data(p, ffi::AVFrameSideDataType::AV_FRAME_DATA_CONTENT_LIGHT_LEVEL);
+        let sd = ffi::av_frame_get_side_data(
+            p,
+            ffi::AVFrameSideDataType::AV_FRAME_DATA_CONTENT_LIGHT_LEVEL,
+        );
         if !sd.is_null() && (*sd).size >= std::mem::size_of::<ContentLight>() {
             let cll = &*((*sd).data as *const ContentLight);
             if cll.max_cll > 0 {
                 return Some(cll.max_cll as f32);
             }
         }
-        let sd = ffi::av_frame_get_side_data(p, ffi::AVFrameSideDataType::AV_FRAME_DATA_MASTERING_DISPLAY_METADATA);
+        let sd = ffi::av_frame_get_side_data(
+            p,
+            ffi::AVFrameSideDataType::AV_FRAME_DATA_MASTERING_DISPLAY_METADATA,
+        );
         if !sd.is_null() && (*sd).size >= std::mem::size_of::<Mastering>() {
             let m = &*((*sd).data as *const Mastering);
             if m.has_luminance != 0 && m.max_luminance.den != 0 {
@@ -219,7 +231,9 @@ fn bt2390(e: f64, max_lum: f64) -> f64 {
     }
     let t = (e - ks) / (1.0 - ks);
     let (t2, t3) = (t * t, t * t * t);
-    (2.0 * t3 - 3.0 * t2 + 1.0) * ks + (t3 - 2.0 * t2 + t) * (1.0 - ks) + (-2.0 * t3 + 3.0 * t2) * max_lum
+    (2.0 * t3 - 3.0 * t2 + 1.0) * ks
+        + (t3 - 2.0 * t2 + t) * (1.0 - ks)
+        + (-2.0 * t3 + 3.0 * t2) * max_lum
 }
 
 // ─── таблицы ────────────────────────────────────────────────────────────────
@@ -256,7 +270,9 @@ impl Tables {
             // OOTF BT.2100 по каждому каналу (без поправки на яркость — для SDR достаточно)
             Transfer::Hlg => HLG_PEAK_NITS as f64 * hlg_inv_oetf(e).powf(1.2),
         };
-        let eotf: Vec<f32> = (0..SIG_N).map(|i| (nits_of(sig(i)) / SDR_WHITE_NITS as f64) as f32).collect();
+        let eotf: Vec<f32> = (0..SIG_N)
+            .map(|i| (nits_of(sig(i)) / SDR_WHITE_NITS as f64) as f32)
+            .collect();
         // BT.2390 в домене PQ: от пика ролика к белому SDR
         let src_peak = pq_inv(hdr.peak_nits as f64);
         let dst_peak = pq_inv(SDR_WHITE_NITS as f64) / src_peak;
@@ -271,8 +287,15 @@ impl Tables {
                 (out / nits) as f32
             })
             .collect();
-        let oetf = (0..LUT_N).map(|i| (srgb_oetf(i as f64 / (LUT_N - 1) as f64) * 255.0 + 0.5) as u8).collect();
-        Self { hdr, eotf, scale, oetf }
+        let oetf = (0..LUT_N)
+            .map(|i| (srgb_oetf(i as f64 / (LUT_N - 1) as f64) * 255.0 + 0.5) as u8)
+            .collect();
+        Self {
+            hdr,
+            eotf,
+            scale,
+            oetf,
+        }
     }
 
     pub fn hdr(&self) -> Hdr {
@@ -302,14 +325,26 @@ impl Tables {
     pub fn chroma(cb: u16, cr: u16, full_range: bool) -> Chroma {
         let d = if full_range { 1023.0 } else { 896.0 };
         let (cbn, crn) = ((cb as f32 - 512.0) / d, (cr as f32 - 512.0) / d);
-        Chroma { r: 1.4746 * crn, g: -0.164_553 * cbn - 0.571_353 * crn, b: 1.8814 * cbn }
+        Chroma {
+            r: 1.4746 * crn,
+            g: -0.164_553 * cbn - 0.571_353 * crn,
+            b: 1.8814 * cbn,
+        }
     }
 
     /// Y' (10 бит) и вклад цветности → sRGB.
     #[inline(always)]
     pub fn pixel_c(&self, y: u16, c: Chroma, full_range: bool) -> [u8; 3] {
-        let yn = if full_range { y as f32 / 1023.0 } else { (y as f32 - 64.0) / 876.0 };
-        let (ri, gi, bi) = (Self::sidx(yn + c.r), Self::sidx(yn + c.g), Self::sidx(yn + c.b));
+        let yn = if full_range {
+            y as f32 / 1023.0
+        } else {
+            (y as f32 - 64.0) / 876.0
+        };
+        let (ri, gi, bi) = (
+            Self::sidx(yn + c.r),
+            Self::sidx(yn + c.g),
+            Self::sidx(yn + c.b),
+        );
         let k = self.scale[ri.max(gi).max(bi)];
         let (r, g, b) = (self.eotf[ri] * k, self.eotf[gi] * k, self.eotf[bi] * k);
         // BT.2020 → BT.709 (линейный свет)
@@ -331,7 +366,11 @@ impl Tables {
                 o = [0.0; 3];
             }
         }
-        [self.encode(o[0].min(1.0)), self.encode(o[1].min(1.0)), self.encode(o[2].min(1.0))]
+        [
+            self.encode(o[0].min(1.0)),
+            self.encode(o[1].min(1.0)),
+            self.encode(o[2].min(1.0)),
+        ]
     }
 
     /// Один пиксель: Y', Cb, Cr (10 бит) → sRGB.
@@ -343,7 +382,10 @@ impl Tables {
 /// Таблицы кешируются по (передача, пик): пересчёт — только при смене ролика.
 pub fn tables(hdr: Hdr) -> Arc<Tables> {
     static CACHE: OnceLock<Mutex<Option<Arc<Tables>>>> = OnceLock::new();
-    let mut c = CACHE.get_or_init(|| Mutex::new(None)).lock().unwrap_or_else(|e| e.into_inner());
+    let mut c = CACHE
+        .get_or_init(|| Mutex::new(None))
+        .lock()
+        .unwrap_or_else(|e| e.into_inner());
     match c.as_ref() {
         Some(t) if t.hdr == hdr => t.clone(),
         _ => {
@@ -359,13 +401,24 @@ pub fn tables(hdr: Hdr) -> Arc<Tables> {
 ///
 /// SAFETY: кадр одного из форматов [`layout`], `dst` вмещает `(y0 + rows) * row_bytes` байт, строки
 /// полосы пишет только этот вызов.
-pub unsafe fn convert_rows(f: *const ffi::AVFrame, t: &Tables, dst: *mut u8, row_bytes: usize, y0: u32, rows: u32) {
+pub unsafe fn convert_rows(
+    f: *const ffi::AVFrame,
+    t: &Tables,
+    dst: *mut u8,
+    row_bytes: usize,
+    y0: u32,
+    rows: u32,
+) {
     let f = &*f;
     let fmt = Pixel::from(std::mem::transmute::<i32, ffi::AVPixelFormat>(f.format));
-    let Some((planes, shift)) = layout(fmt) else { return };
+    let Some((planes, shift)) = layout(fmt) else {
+        return;
+    };
     let full = f.color_range == ffi::AVColorRange::AVCOL_RANGE_JPEG;
     let w = f.width as usize;
-    let rd = |p: *const u8, i: usize| -> u16 { (std::ptr::read_unaligned((p as *const u16).add(i)) >> shift).min(1023) };
+    let rd = |p: *const u8, i: usize| -> u16 {
+        (std::ptr::read_unaligned((p as *const u16).add(i)) >> shift).min(1023)
+    };
     for y in y0 as usize..(y0 + rows) as usize {
         let yl = f.data[0].add(y * f.linesize[0] as usize);
         let cy = y / 2;
@@ -374,7 +427,11 @@ pub unsafe fn convert_rows(f: *const ffi::AVFrame, t: &Tables, dst: *mut u8, row
             let uv = f.data[1].add(cy * f.linesize[1] as usize);
             (uv, uv.add(2), 2usize) // Cb, Cr чередуются: пара на два пикселя
         } else {
-            (f.data[1].add(cy * f.linesize[1] as usize), f.data[2].add(cy * f.linesize[2] as usize), 1usize)
+            (
+                f.data[1].add(cy * f.linesize[1] as usize),
+                f.data[2].add(cy * f.linesize[2] as usize),
+                1usize,
+            )
         };
         for (pair, o) in out.chunks_mut(8).enumerate() {
             let c = Tables::chroma(rd(cu, pair * step), rd(cv, pair * step), full);
@@ -404,13 +461,20 @@ mod tests {
 
     #[test]
     fn eetf_keeps_shadows_compresses_peak() {
-        let t = Tables::new(Hdr { transfer: Transfer::Pq, peak_nits: 1000.0 });
+        let t = Tables::new(Hdr {
+            transfer: Transfer::Pq,
+            peak_nits: 1000.0,
+        });
         let tone = |nits: f32| t.tone_sig(pq_inv(nits as f64) as f32);
         // тени — без изменений
         assert!((tone(10.0) - 1.0).abs() < 1e-3);
         // пик ролика ложится в белый SDR
         let k = tone(1000.0);
-        assert!((1000.0 / SDR_WHITE_NITS * k - 1.0).abs() < 0.01, "пик → {}", 1000.0 / SDR_WHITE_NITS * k);
+        assert!(
+            (1000.0 / SDR_WHITE_NITS * k - 1.0).abs() < 0.01,
+            "пик → {}",
+            1000.0 / SDR_WHITE_NITS * k
+        );
         // монотонно
         let mut prev = 0.0;
         for n in [1.0f32, 50.0, 100.0, 203.0, 400.0, 700.0, 1000.0] {
@@ -427,23 +491,35 @@ mod tests {
 
     #[test]
     fn gray_white_black() {
-        let t = Tables::new(Hdr { transfer: Transfer::Pq, peak_nits: 1000.0 });
+        let t = Tables::new(Hdr {
+            transfer: Transfer::Pq,
+            peak_nits: 1000.0,
+        });
         // чёрный
         assert_eq!(t.pixel(64, 512, 512, false), [0, 0, 0]);
         // серый 20 нит (≈ 10 % белого SDR) — нейтральный, без сдвига оттенка
         let g = t.pixel(code(20.0), 512, 512, false);
         assert!(g[0] == g[1] && g[1] == g[2], "{g:?}");
-        assert!((g[0] as i32 - (srgb_oetf(20.0 / 203.0) * 255.0) as i32).abs() <= 2, "{g:?}");
+        assert!(
+            (g[0] as i32 - (srgb_oetf(20.0 / 203.0) * 255.0) as i32).abs() <= 2,
+            "{g:?}"
+        );
         // пик 1000 нит — почти белый, а не «пересвет 255 с 400 нит»
         let w = t.pixel(code(1000.0), 512, 512, false);
         assert!(w[0] >= 250, "{w:?}");
         let mid = t.pixel(code(400.0), 512, 512, false);
-        assert!(mid[0] < w[0], "400 нит {mid:?} не должен совпасть с пиком {w:?}");
+        assert!(
+            mid[0] < w[0],
+            "400 нит {mid:?} не должен совпасть с пиком {w:?}"
+        );
     }
 
     #[test]
     fn saturated_red_stays_red() {
-        let t = Tables::new(Hdr { transfer: Transfer::Pq, peak_nits: 1000.0 });
+        let t = Tables::new(Hdr {
+            transfer: Transfer::Pq,
+            peak_nits: 1000.0,
+        });
         // чистый красный BT.2020 (Cr максимум) — вне охвата 709, но остаётся красным, без чёрных дыр
         let p = t.pixel(code(100.0), 512, 960, false);
         assert!(p[0] > p[1] && p[0] > p[2], "{p:?}");
@@ -458,15 +534,27 @@ mod bench {
     #[test]
     #[ignore]
     fn pixel_speed() {
-        let t = Tables::new(Hdr { transfer: Transfer::Pq, peak_nits: 1000.0 });
+        let t = Tables::new(Hdr {
+            transfer: Transfer::Pq,
+            peak_nits: 1000.0,
+        });
         let n = 3840 * 2160;
         let mut acc = 0u32;
         let t0 = std::time::Instant::now();
         for i in 0..n {
-            let p = t.pixel((64 + i % 876) as u16, (64 + (i / 7) % 896) as u16, (64 + (i / 13) % 896) as u16, false);
+            let p = t.pixel(
+                (64 + i % 876) as u16,
+                (64 + (i / 7) % 896) as u16,
+                (64 + (i / 13) % 896) as u16,
+                false,
+            );
             acc = acc.wrapping_add(p[0] as u32 + p[1] as u32 + p[2] as u32);
         }
         let dt = t0.elapsed();
-        eprintln!("4K кадр в один поток: {:.1} мс ({:.1} нс/пиксель) [{acc}]", dt.as_secs_f64() * 1e3, dt.as_nanos() as f64 / n as f64);
+        eprintln!(
+            "4K кадр в один поток: {:.1} мс ({:.1} нс/пиксель) [{acc}]",
+            dt.as_secs_f64() * 1e3,
+            dt.as_nanos() as f64 / n as f64
+        );
     }
 }

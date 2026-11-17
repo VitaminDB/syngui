@@ -115,11 +115,11 @@ impl AppHandler {
         #[cfg(feature = "font-awesome")]
         if self.config.font_awesome {
             use crate::text::icon_fonts::awesome as fa;
-            renderer
-                .font_atlas
-                .lock()
-                .unwrap()
-                .set_awesome_font_data(fa::SOLID_FONT_DATA.to_vec(), fa::REGULAR_FONT_DATA.to_vec(), fa::BRANDS_FONT_DATA.to_vec());
+            renderer.font_atlas.lock().unwrap().set_awesome_font_data(
+                fa::SOLID_FONT_DATA.to_vec(),
+                fa::REGULAR_FONT_DATA.to_vec(),
+                fa::BRANDS_FONT_DATA.to_vec(),
+            );
         }
 
         let mut build_ctx = crate::widget::BuildContext::root();
@@ -242,9 +242,9 @@ impl AppHandler {
                             // сразу после левого должен открыть меню, а не стать DoubleClick
                             let is_double = btn == crate::input::MouseButton::Left
                                 && sw
-                                .last_click_time
-                                .map(|t| now.duration_since(t) < sw.double_click_interval)
-                                .unwrap_or(false)
+                                    .last_click_time
+                                    .map(|t| now.duration_since(t) < sw.double_click_interval)
+                                    .unwrap_or(false)
                                 && sw
                                     .last_click_pos
                                     .map(|p| (p.x - pos.x).abs() < 5.0 && (p.y - pos.y).abs() < 5.0)

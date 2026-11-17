@@ -87,8 +87,17 @@ impl DropZone {
     pub fn from_point(x: f32, y: f32, size: Size) -> Self {
         let (w, h) = (size.width.max(1.0), size.height.max(1.0));
         let (fx, fy) = (x / w, y / h);
-        let edges = [(fx, DropZone::Left), (1.0 - fx, DropZone::Right), (fy, DropZone::Top), (1.0 - fy, DropZone::Bottom)];
-        let (d, zone) = edges.into_iter().fold((f32::MAX, DropZone::Center), |a, b| if b.0 < a.0 { b } else { a });
+        let edges = [
+            (fx, DropZone::Left),
+            (1.0 - fx, DropZone::Right),
+            (fy, DropZone::Top),
+            (1.0 - fy, DropZone::Bottom),
+        ];
+        let (d, zone) =
+            edges.into_iter().fold(
+                (f32::MAX, DropZone::Center),
+                |a, b| if b.0 < a.0 { b } else { a },
+            );
         if d < 0.25 {
             zone
         } else {
@@ -100,34 +109,61 @@ impl DropZone {
 /// Сериализуемое описание раскладки (без сигналов) — для сохранения.
 #[derive(Clone, Debug, PartialEq)]
 pub enum DockSpec {
-    Split { vertical: bool, ratio: f32, first: Box<DockSpec>, second: Box<DockSpec> },
+    Split {
+        vertical: bool,
+        ratio: f32,
+        first: Box<DockSpec>,
+        second: Box<DockSpec>,
+    },
     /// Группа вкладок. `name` непустое — именованная группа: она остаётся
     /// на месте, даже когда в ней не осталось вкладок (область документов),
     /// и в неё можно открыть панель по имени ([`DockState::open_in`]).
-    Tabs { panels: Vec<String>, active: usize, name: String },
+    Tabs {
+        panels: Vec<String>,
+        active: usize,
+        name: String,
+    },
 }
 
 impl DockSpec {
     pub fn tabs<S: Into<String>>(panels: impl IntoIterator<Item = S>) -> Self {
-        DockSpec::Tabs { panels: panels.into_iter().map(Into::into).collect(), active: 0, name: String::new() }
+        DockSpec::Tabs {
+            panels: panels.into_iter().map(Into::into).collect(),
+            active: 0,
+            name: String::new(),
+        }
     }
 
     /// Сделать группу именованной (см. [`DockSpec::Tabs`]).
     pub fn named(self, group: impl Into<String>) -> Self {
         match self {
-            DockSpec::Tabs { panels, active, .. } => DockSpec::Tabs { panels, active, name: group.into() },
+            DockSpec::Tabs { panels, active, .. } => DockSpec::Tabs {
+                panels,
+                active,
+                name: group.into(),
+            },
             other => other,
         }
     }
 
     /// Разрез слева направо.
     pub fn row(first: DockSpec, second: DockSpec, ratio: f32) -> Self {
-        DockSpec::Split { vertical: false, ratio, first: Box::new(first), second: Box::new(second) }
+        DockSpec::Split {
+            vertical: false,
+            ratio,
+            first: Box::new(first),
+            second: Box::new(second),
+        }
     }
 
     /// Разрез сверху вниз.
     pub fn column(first: DockSpec, second: DockSpec, ratio: f32) -> Self {
-        DockSpec::Split { vertical: true, ratio, first: Box::new(first), second: Box::new(second) }
+        DockSpec::Split {
+            vertical: true,
+            ratio,
+            first: Box::new(first),
+            second: Box::new(second),
+        }
     }
 }
 
@@ -135,7 +171,12 @@ static NEXT_GROUP: AtomicU64 = AtomicU64::new(1);
 
 #[derive(Clone)]
 enum DockNode {
-    Split { dir: SplitDirection, ratio: RwSignal<f32>, first: Box<DockNode>, second: Box<DockNode> },
+    Split {
+        dir: SplitDirection,
+        ratio: RwSignal<f32>,
+        first: Box<DockNode>,
+        second: Box<DockNode>,
+    },
     Tabs(Group),
 }
 
@@ -154,27 +195,56 @@ struct Group {
 
 impl Group {
     fn new(panels: Vec<String>, active: usize, name: String) -> Self {
-        let active = panels.get(active).or(panels.first()).cloned().unwrap_or_default();
-        Group { id: NEXT_GROUP.fetch_add(1, Ordering::Relaxed), name, panels, active: use_signal(active), hint: use_signal(None), insert: use_signal(None) }
+        let active = panels
+            .get(active)
+            .or(panels.first())
+            .cloned()
+            .unwrap_or_default();
+        Group {
+            id: NEXT_GROUP.fetch_add(1, Ordering::Relaxed),
+            name,
+            panels,
+            active: use_signal(active),
+            hint: use_signal(None),
+            insert: use_signal(None),
+        }
     }
 }
 
 impl DockNode {
     fn from_spec(spec: &DockSpec) -> Self {
         match spec {
-            DockSpec::Split { vertical, ratio, first, second } => DockNode::Split {
-                dir: if *vertical { SplitDirection::Vertical } else { SplitDirection::Horizontal },
+            DockSpec::Split {
+                vertical,
+                ratio,
+                first,
+                second,
+            } => DockNode::Split {
+                dir: if *vertical {
+                    SplitDirection::Vertical
+                } else {
+                    SplitDirection::Horizontal
+                },
                 ratio: use_signal(ratio.clamp(0.05, 0.95)),
                 first: Box::new(Self::from_spec(first)),
                 second: Box::new(Self::from_spec(second)),
             },
-            DockSpec::Tabs { panels, active, name } => DockNode::Tabs(Group::new(panels.clone(), *active, name.clone())),
+            DockSpec::Tabs {
+                panels,
+                active,
+                name,
+            } => DockNode::Tabs(Group::new(panels.clone(), *active, name.clone())),
         }
     }
 
     fn spec(&self) -> DockSpec {
         match self {
-            DockNode::Split { dir, ratio, first, second } => DockSpec::Split {
+            DockNode::Split {
+                dir,
+                ratio,
+                first,
+                second,
+            } => DockSpec::Split {
                 vertical: *dir == SplitDirection::Vertical,
                 ratio: ratio.get_untracked(),
                 first: Box::new(first.spec()),
@@ -203,7 +273,9 @@ impl DockNode {
 
     fn group_mut(&mut self, id: u64) -> Option<&mut Group> {
         match self {
-            DockNode::Split { first, second, .. } => first.group_mut(id).or_else(|| second.group_mut(id)),
+            DockNode::Split { first, second, .. } => {
+                first.group_mut(id).or_else(|| second.group_mut(id))
+            }
             DockNode::Tabs(g) => (g.id == id).then_some(g),
         }
     }
@@ -216,7 +288,11 @@ impl DockNode {
                 if let Some(i) = g.panels.iter().position(|p| p == panel) {
                     g.panels.remove(i);
                     if g.active.get_untracked() == panel {
-                        let next = g.panels.get(i.min(g.panels.len().saturating_sub(1))).cloned().unwrap_or_default();
+                        let next = g
+                            .panels
+                            .get(i.min(g.panels.len().saturating_sub(1)))
+                            .cloned()
+                            .unwrap_or_default();
                         g.active.set(next);
                     }
                 }
@@ -243,7 +319,11 @@ impl DockNode {
 
     /// Разрезать группу `id`, поставив рядом новую с панелью `panel`.
     fn split_group(&mut self, id: u64, panel: &str, zone: DropZone) -> bool {
-        self.split_with(id, Group::new(vec![panel.to_string()], 0, String::new()), zone)
+        self.split_with(
+            id,
+            Group::new(vec![panel.to_string()], 0, String::new()),
+            zone,
+        )
     }
 
     /// Разрезать группу `id`, поставив рядом группу `new`.
@@ -266,7 +346,12 @@ impl DockNode {
                     DropZone::Left | DropZone::Top => (new, old),
                     _ => (old, new),
                 };
-                *self = DockNode::Split { dir, ratio: use_signal(0.5), first: Box::new(first), second: Box::new(second) };
+                *self = DockNode::Split {
+                    dir,
+                    ratio: use_signal(0.5),
+                    first: Box::new(first),
+                    second: Box::new(second),
+                };
                 true
             }
             DockNode::Tabs(_) => false,
@@ -278,18 +363,20 @@ impl DockNode {
     fn remove_group(&mut self, name: &str) -> bool {
         match self {
             DockNode::Tabs(g) => g.name == name,
-            DockNode::Split { first, second, .. } => match (first.remove_group(name), second.remove_group(name)) {
-                (true, true) => true,
-                (true, false) => {
-                    *self = (**second).clone();
-                    false
+            DockNode::Split { first, second, .. } => {
+                match (first.remove_group(name), second.remove_group(name)) {
+                    (true, true) => true,
+                    (true, false) => {
+                        *self = (**second).clone();
+                        false
+                    }
+                    (false, true) => {
+                        *self = (**first).clone();
+                        false
+                    }
+                    (false, false) => false,
                 }
-                (false, true) => {
-                    *self = (**first).clone();
-                    false
-                }
-                (false, false) => false,
-            },
+            }
         }
     }
 
@@ -297,7 +384,12 @@ impl DockNode {
     fn largest(&self, area: f32) -> Option<(u64, f32)> {
         match self {
             DockNode::Tabs(g) => Some((g.id, area)),
-            DockNode::Split { ratio, first, second, .. } => {
+            DockNode::Split {
+                ratio,
+                first,
+                second,
+                ..
+            } => {
                 let r = ratio.get_untracked();
                 let a = first.largest(area * r);
                 let b = second.largest(area * (1.0 - r));
@@ -319,7 +411,10 @@ pub struct DockState {
 
 impl DockState {
     pub fn new(spec: DockSpec) -> Self {
-        DockState { root: use_signal(Some(DockNode::from_spec(&spec))), focused: use_signal(String::new()) }
+        DockState {
+            root: use_signal(Some(DockNode::from_spec(&spec))),
+            focused: use_signal(String::new()),
+        }
     }
 
     /// Последняя активированная панель (клик по вкладке, открытие, перенос).
@@ -341,7 +436,11 @@ impl DockState {
             if let Some(r) = r {
                 r.groups(&mut groups);
             }
-            groups.iter().find(|g| g.name == group).map(|g| g.panels.clone()).unwrap_or_default()
+            groups
+                .iter()
+                .find(|g| g.name == group)
+                .map(|g| g.panels.clone())
+                .unwrap_or_default()
         })
     }
 
@@ -411,7 +510,10 @@ impl DockState {
             if let Some(r) = r {
                 r.groups(&mut groups);
             }
-            groups.iter().flat_map(|g| g.panels.iter().cloned()).collect()
+            groups
+                .iter()
+                .flat_map(|g| g.panels.iter().cloned())
+                .collect()
         })
     }
 
@@ -470,7 +572,10 @@ impl DockState {
         let home = root.as_ref().and_then(|r| {
             let mut groups = Vec::new();
             r.groups(&mut groups);
-            groups.iter().find(|g| g.panels.iter().any(|p| p == panel)).map(|g| g.id)
+            groups
+                .iter()
+                .find(|g| g.panels.iter().any(|p| p == panel))
+                .map(|g| g.id)
         });
         if root.as_mut().is_some_and(|r| r.remove(panel)) {
             root = None;
@@ -481,7 +586,10 @@ impl DockState {
                 let mut groups = Vec::new();
                 r.groups(&mut groups);
                 groups.sort_by_key(|g| Some(g.id) != home);
-                groups.iter().map(|g| g.active.get_untracked()).find(|a| !a.is_empty())
+                groups
+                    .iter()
+                    .map(|g| g.active.get_untracked())
+                    .find(|a| !a.is_empty())
             });
             self.focused.set(next.unwrap_or_default());
         }
@@ -496,7 +604,10 @@ impl DockState {
             if let Some(r) = r {
                 r.groups(&mut groups);
             }
-            groups.iter().find(|g| g.panels.iter().any(|p| p == near)).map(|g| g.id)
+            groups
+                .iter()
+                .find(|g| g.panels.iter().any(|p| p == near))
+                .map(|g| g.id)
         });
         if let Some(g) = group {
             self.move_panel(panel, g, zone);
@@ -507,11 +618,15 @@ impl DockState {
     /// номером; `len` — в конец). Своя группа — перестановка, как вкладки
     /// браузера; чужая — перенос с вставкой.
     pub fn insert_panel(&self, panel: &str, group: u64, index: usize) {
-        let Some(mut root) = self.root.get_untracked() else { return };
+        let Some(mut root) = self.root.get_untracked() else {
+            return;
+        };
         let own = {
             let mut groups = Vec::new();
             root.groups(&mut groups);
-            let Some(target) = groups.iter().find(|g| g.id == group) else { return };
+            let Some(target) = groups.iter().find(|g| g.id == group) else {
+                return;
+            };
             target.panels.iter().position(|p| p == panel)
         };
         // на своё же место — ничего
@@ -519,7 +634,11 @@ impl DockState {
             return;
         }
         root.remove(panel);
-        let index = if own.is_some_and(|o| o < index) { index - 1 } else { index };
+        let index = if own.is_some_and(|o| o < index) {
+            index - 1
+        } else {
+            index
+        };
         if let Some(g) = root.group_mut(group) {
             let i = index.min(g.panels.len());
             g.panels.insert(i, panel.to_string());
@@ -552,7 +671,12 @@ impl DockState {
                     DropZone::Left | DropZone::Top => (new, old, EDGE_RATIO),
                     _ => (old, new, 1.0 - EDGE_RATIO),
                 };
-                DockNode::Split { dir, ratio: use_signal(ratio), first: Box::new(first), second: Box::new(second) }
+                DockNode::Split {
+                    dir,
+                    ratio: use_signal(ratio),
+                    first: Box::new(first),
+                    second: Box::new(second),
+                }
             }
         });
         self.focused.set(panel.to_string());
@@ -561,11 +685,15 @@ impl DockState {
 
     /// Перенести панель в группу `group` (в зону `zone`).
     fn move_panel(&self, panel: &str, group: u64, zone: DropZone) {
-        let Some(mut root) = self.root.get_untracked() else { return };
+        let Some(mut root) = self.root.get_untracked() else {
+            return;
+        };
         {
             let mut groups = Vec::new();
             root.groups(&mut groups);
-            let Some(target) = groups.iter().find(|g| g.id == group) else { return };
+            let Some(target) = groups.iter().find(|g| g.id == group) else {
+                return;
+            };
             let own = target.panels.iter().any(|p| p == panel);
             // в свою же группу: в центр — ничего, к краю единственной вкладкой — тоже
             if own && (zone == DropZone::Center || target.panels.len() == 1) {
@@ -667,7 +795,10 @@ impl DockArea {
 
     /// Что показать в пустой именованной группе (по имени группы) —
     /// например, стартовый экран в области документов.
-    pub fn group_empty(mut self, f: impl Fn(&str) -> Box<dyn Widget> + Send + Sync + 'static) -> Self {
+    pub fn group_empty(
+        mut self,
+        f: impl Fn(&str) -> Box<dyn Widget> + Send + Sync + 'static,
+    ) -> Self {
         self.group_empty = Some(Arc::new(f));
         self
     }
@@ -691,10 +822,15 @@ impl DockArea {
         let tree = super::Padding::only(inset[0], inset[1], inset[2], inset[3]).child(tree);
         let hint: RwSignal<Option<(DropZone, Size)>> = use_signal(None);
         let overlay = Reactive::new(move || -> Vec<Box<dyn Widget>> {
-            let Some((zone, size)) = hint.get() else { return vec![] };
+            let Some((zone, size)) = hint.get() else {
+                return vec![];
+            };
             // подсветка — по области панелей, без поля отступа
             let [l, t, r, b] = inset;
-            let (w, h) = ((size.width - l - r).max(0.0), (size.height - t - b).max(0.0));
+            let (w, h) = (
+                (size.width - l - r).max(0.0),
+                (size.height - t - b).max(0.0),
+            );
             let (x, y, w, h) = match zone {
                 DropZone::Left => (0.0, 0.0, w * EDGE_RATIO, h),
                 DropZone::Right => (w * (1.0 - EDGE_RATIO), 0.0, w * EDGE_RATIO, h),
@@ -702,7 +838,11 @@ impl DockArea {
                 DropZone::Bottom => (0.0, h * (1.0 - EDGE_RATIO), w, h * EDGE_RATIO),
                 DropZone::Center => return vec![],
             };
-            vec![Box::new(Positioned::new(DecoratedBox::new().class("dock-drop-hint")).at(l + x, t + y).dimensions(w, h))]
+            vec![Box::new(
+                Positioned::new(DecoratedBox::new().class("dock-drop-hint"))
+                    .at(l + x, t + y)
+                    .dimensions(w, h),
+            )]
         });
         let edges = DropArea::new()
             .accept_types(vec![DOCK_DRAG_TYPE.to_string()])
@@ -711,7 +851,12 @@ impl DockArea {
             .pointer_transparent()
             .accept_at(move |p, size| DropZone::edge_in(p.x, p.y, size, inset).is_some())
             .on_drag_over(move |info: DropInfo| {
-                let zone = DropZone::edge_in(info.local_position.x, info.local_position.y, info.size, inset);
+                let zone = DropZone::edge_in(
+                    info.local_position.x,
+                    info.local_position.y,
+                    info.size,
+                    inset,
+                );
                 let v = zone.map(|z| (z, info.size));
                 if hint.get_untracked() != v {
                     hint.set(v);
@@ -720,7 +865,12 @@ impl DockArea {
             .on_drag_leave(move || hint.set(None))
             .on_drop_positioned(move |info: DropInfo| {
                 hint.set(None);
-                if let Some(zone) = DropZone::edge_in(info.local_position.x, info.local_position.y, info.size, inset) {
+                if let Some(zone) = DropZone::edge_in(
+                    info.local_position.x,
+                    info.local_position.y,
+                    info.size,
+                    inset,
+                ) {
                     state.move_to_edge(&info.data.payload, zone);
                 }
             })
@@ -730,7 +880,12 @@ impl DockArea {
 
     fn node(self: &Arc<Self>, node: &DockNode) -> Box<dyn Widget> {
         match node {
-            DockNode::Split { dir, ratio, first, second } => Box::new(
+            DockNode::Split {
+                dir,
+                ratio,
+                first,
+                second,
+            } => Box::new(
                 SplitView::new(BoxedChild(self.node(first)), BoxedChild(self.node(second)))
                     .direction(*dir)
                     .ratio_signal(*ratio)
@@ -753,13 +908,20 @@ impl DockArea {
                     row = row.child(this.tab(p, *p == active, &g, i));
                 }
                 // пустая именованная группа — крестик «закрыть область»
-                if g.panels.is_empty() && !g.name.is_empty() && this.group_closable.as_ref().is_some_and(|f| f(&g.name)) {
+                if g.panels.is_empty()
+                    && !g.name.is_empty()
+                    && this.group_closable.as_ref().is_some_and(|f| f(&g.name))
+                {
                     let (state, name) = (this.state, g.name.clone());
                     row = row.child(
                         Draggable::new("syngui-dock-close", "")
                             .threshold(f32::MAX)
                             .on_click(move || state.close_group(&name))
-                            .child(DecoratedBox::new().class("dock-tab dock-group-close").child(Text::new("×").class("dock-tab-close"))),
+                            .child(
+                                DecoratedBox::new()
+                                    .class("dock-tab dock-group-close")
+                                    .child(Text::new("×").class("dock-tab-close")),
+                            ),
                     );
                 }
                 vec![Box::new(row)]
@@ -782,7 +944,9 @@ impl DockArea {
         };
         let hint = g.hint;
         let overlay = Reactive::new(move || -> Vec<Box<dyn Widget>> {
-            let Some((zone, size)) = hint.get() else { return vec![] };
+            let Some((zone, size)) = hint.get() else {
+                return vec![];
+            };
             let (w, h) = (size.width, size.height);
             let (x, y, w, h) = match zone {
                 DropZone::Center => (0.0, 0.0, w, h),
@@ -791,7 +955,11 @@ impl DockArea {
                 DropZone::Top => (0.0, 0.0, w, h / 2.0),
                 DropZone::Bottom => (0.0, h / 2.0, w, h / 2.0),
             };
-            vec![Box::new(Positioned::new(DecoratedBox::new().class("dock-drop-hint")).at(x, y).dimensions(w, h))]
+            vec![Box::new(
+                Positioned::new(DecoratedBox::new().class("dock-drop-hint"))
+                    .at(x, y)
+                    .dimensions(w, h),
+            )]
         });
 
         let state = self.state;
@@ -800,16 +968,23 @@ impl DockArea {
             .accept_types(vec![DOCK_DRAG_TYPE.to_string()])
             .placeholder("")
             .on_drag_over(move |info: DropInfo| {
-                let zone = DropZone::from_point(info.local_position.x, info.local_position.y, info.size);
+                let zone =
+                    DropZone::from_point(info.local_position.x, info.local_position.y, info.size);
                 hint.set(Some((zone, info.size)));
             })
             .on_drag_leave(move || hint.set(None))
             .on_drop_positioned(move |info: DropInfo| {
                 hint.set(None);
-                let zone = DropZone::from_point(info.local_position.x, info.local_position.y, info.size);
+                let zone =
+                    DropZone::from_point(info.local_position.x, info.local_position.y, info.size);
                 state.move_panel(&info.data.payload, gid, zone);
             })
-            .child(Stack::new().fit(StackFit::Expand).child(body).child(overlay));
+            .child(
+                Stack::new()
+                    .fit(StackFit::Expand)
+                    .child(body)
+                    .child(overlay),
+            );
 
         // Бросок на пустое место заголовка — в конец этой группы.
         let insert = g.insert;
@@ -839,17 +1014,33 @@ impl DockArea {
                     .gap(0.0)
                     .cross_axis_alignment(crate::layout::CrossAxisAlignment::Stretch)
                     .child(header_drop)
-                    .child(DecoratedBox::new().class("dock-body").clip(true).child(drop)),
+                    .child(
+                        DecoratedBox::new()
+                            .class("dock-body")
+                            .clip(true)
+                            .child(drop),
+                    ),
             ),
         )
     }
 
-    fn tab(self: &Arc<Self>, panel: &str, active: bool, g: &Group, index: usize) -> Box<dyn Widget> {
+    fn tab(
+        self: &Arc<Self>,
+        panel: &str,
+        active: bool,
+        g: &Group,
+        index: usize,
+    ) -> Box<dyn Widget> {
         let active_sig = g.active;
         let title = (self.title)(panel);
         let closable = (self.closable)(panel);
         let tab_row = {
-            let (state, on_close, id, title) = (self.state, self.on_close.clone(), panel.to_string(), title.clone());
+            let (state, on_close, id, title) = (
+                self.state,
+                self.on_close.clone(),
+                panel.to_string(),
+                title.clone(),
+            );
             move || {
                 let mut row = Row::new()
                     .gap(6.0)
@@ -883,7 +1074,16 @@ impl DockArea {
                 Some((at, _)) if last && at > index => " drop-after",
                 _ => "",
             };
-            DecoratedBox::new().class(format!("{}{mark}", if active { "dock-tab active" } else { "dock-tab" })).child(tab_row())
+            DecoratedBox::new()
+                .class(format!(
+                    "{}{mark}",
+                    if active {
+                        "dock-tab active"
+                    } else {
+                        "dock-tab"
+                    }
+                ))
+                .child(tab_row())
         };
         let drag = Draggable::new(DOCK_DRAG_TYPE, panel)
             .label(title)
@@ -895,7 +1095,13 @@ impl DockArea {
         // бросок на вкладку: левая половина — до неё, правая — после
         let state = self.state;
         let gid = g.id;
-        let at = move |info: &DropInfo| if info.local_position.x < info.size.width / 2.0 { index } else { index + 1 };
+        let at = move |info: &DropInfo| {
+            if info.local_position.x < info.size.width / 2.0 {
+                index
+            } else {
+                index + 1
+            }
+        };
         Box::new(
             DropArea::new()
                 .accept_types(vec![DOCK_DRAG_TYPE.to_string()])
@@ -962,14 +1168,21 @@ mod tests {
     use super::*;
 
     fn layout() -> DockState {
-        DockState::new(DockSpec::row(DockSpec::tabs(["a", "b"]), DockSpec::tabs(["c"]), 0.3))
+        DockState::new(DockSpec::row(
+            DockSpec::tabs(["a", "b"]),
+            DockSpec::tabs(["c"]),
+            0.3,
+        ))
     }
 
     fn gid(s: &DockState, panel: &str) -> u64 {
         s.root.with_untracked(|r| {
             let mut gs = Vec::new();
             r.as_ref().unwrap().groups(&mut gs);
-            gs.iter().find(|g| g.panels.iter().any(|p| p == panel)).unwrap().id
+            gs.iter()
+                .find(|g| g.panels.iter().any(|p| p == panel))
+                .unwrap()
+                .id
         })
     }
 
@@ -986,10 +1199,22 @@ mod tests {
     #[test]
     fn edge_zones() {
         let s = Size::new(400.0, 200.0);
-        assert_eq!(DropZone::edge_from_point(5.0, 100.0, s), Some(DropZone::Left));
-        assert_eq!(DropZone::edge_from_point(395.0, 100.0, s), Some(DropZone::Right));
-        assert_eq!(DropZone::edge_from_point(200.0, 195.0, s), Some(DropZone::Bottom));
-        assert_eq!(DropZone::edge_from_point(200.0, 4.0, s), Some(DropZone::Top));
+        assert_eq!(
+            DropZone::edge_from_point(5.0, 100.0, s),
+            Some(DropZone::Left)
+        );
+        assert_eq!(
+            DropZone::edge_from_point(395.0, 100.0, s),
+            Some(DropZone::Right)
+        );
+        assert_eq!(
+            DropZone::edge_from_point(200.0, 195.0, s),
+            Some(DropZone::Bottom)
+        );
+        assert_eq!(
+            DropZone::edge_from_point(200.0, 4.0, s),
+            Some(DropZone::Top)
+        );
         assert_eq!(DropZone::edge_from_point(5.0, 4.0, s), Some(DropZone::Top));
         // заголовки вкладок ниже верхней полосы и середина — не край
         assert_eq!(DropZone::edge_from_point(5.0, 20.0, s), None);
@@ -997,9 +1222,18 @@ mod tests {
         assert_eq!(DropZone::edge_from_point(200.0, 100.0, s), None);
         // с отступом поле входит в полосу
         let pad = [8.0, 0.0, 8.0, 0.0];
-        assert_eq!(DropZone::edge_in(399.0, 100.0, s, pad), Some(DropZone::Right));
-        assert_eq!(DropZone::edge_in(400.0 - 8.0 - EDGE_ZONE + 1.0, 100.0, s, pad), Some(DropZone::Right));
-        assert_eq!(DropZone::edge_in(400.0 - 8.0 - EDGE_ZONE - 1.0, 100.0, s, pad), None);
+        assert_eq!(
+            DropZone::edge_in(399.0, 100.0, s, pad),
+            Some(DropZone::Right)
+        );
+        assert_eq!(
+            DropZone::edge_in(400.0 - 8.0 - EDGE_ZONE + 1.0, 100.0, s, pad),
+            Some(DropZone::Right)
+        );
+        assert_eq!(
+            DropZone::edge_in(400.0 - 8.0 - EDGE_ZONE - 1.0, 100.0, s, pad),
+            None
+        );
     }
 
     #[test]
@@ -1011,11 +1245,26 @@ mod tests {
             0.3,
         ));
         s.move_to_edge("b", DropZone::Right);
-        let Some(DockSpec::Split { vertical, ratio, first, second }) = s.spec() else { panic!() };
+        let Some(DockSpec::Split {
+            vertical,
+            ratio,
+            first,
+            second,
+        }) = s.spec()
+        else {
+            panic!()
+        };
         assert!(!vertical);
         assert!((ratio - 0.75).abs() < 1e-6);
         assert_eq!(*second, DockSpec::tabs(["b"]));
-        assert_eq!(*first, DockSpec::row(DockSpec::tabs(["a"]), DockSpec::column(DockSpec::tabs(["c"]), DockSpec::tabs(["d"]), 0.6), 0.3));
+        assert_eq!(
+            *first,
+            DockSpec::row(
+                DockSpec::tabs(["a"]),
+                DockSpec::column(DockSpec::tabs(["c"]), DockSpec::tabs(["d"]), 0.6),
+                0.3
+            )
+        );
         assert_eq!(s.focused().get_untracked(), "b");
         // единственную панель к краю — она же и корень
         let s = DockState::new(DockSpec::tabs(["x"]));
@@ -1032,14 +1281,38 @@ mod tests {
             0.6,
         ));
         s.close_group("docs");
-        assert_eq!(s.spec(), Some(DockSpec::column(DockSpec::tabs(["ai"]), DockSpec::tabs(["term"]), 0.7)));
+        assert_eq!(
+            s.spec(),
+            Some(DockSpec::column(
+                DockSpec::tabs(["ai"]),
+                DockSpec::tabs(["term"]),
+                0.7
+            ))
+        );
         // открыли документ — область вернулась слева от самой большой группы («ai»)
         s.open_in("doc:1", "docs");
         assert_eq!(s.group_panels("docs"), ["doc:1"]);
-        let Some(DockSpec::Split { first, .. }) = s.spec() else { panic!() };
-        let DockSpec::Split { vertical, first, second, .. } = *first else { panic!() };
+        let Some(DockSpec::Split { first, .. }) = s.spec() else {
+            panic!()
+        };
+        let DockSpec::Split {
+            vertical,
+            first,
+            second,
+            ..
+        } = *first
+        else {
+            panic!()
+        };
         assert!(!vertical);
-        assert_eq!(*first, DockSpec::Tabs { panels: vec!["doc:1".into()], active: 0, name: "docs".into() });
+        assert_eq!(
+            *first,
+            DockSpec::Tabs {
+                panels: vec!["doc:1".into()],
+                active: 0,
+                name: "docs".into()
+            }
+        );
         assert_eq!(*second, DockSpec::tabs(["ai"]));
     }
 
@@ -1048,7 +1321,14 @@ mod tests {
         let s = layout();
         s.move_panel("c", gid(&s, "a"), DropZone::Center);
         // группа «c» опустела — разделитель схлопнулся
-        assert_eq!(s.spec(), Some(DockSpec::Tabs { panels: vec!["a".into(), "b".into(), "c".into()], active: 2, name: String::new() }));
+        assert_eq!(
+            s.spec(),
+            Some(DockSpec::Tabs {
+                panels: vec!["a".into(), "b".into(), "c".into()],
+                active: 2,
+                name: String::new()
+            })
+        );
         assert_eq!(s.focused().get_untracked(), "c");
     }
 
@@ -1056,8 +1336,18 @@ mod tests {
     fn move_to_edge_splits() {
         let s = layout();
         s.move_panel("b", gid(&s, "c"), DropZone::Bottom);
-        let Some(DockSpec::Split { second, .. }) = s.spec() else { panic!() };
-        let DockSpec::Split { vertical, first, second, .. } = *second else { panic!() };
+        let Some(DockSpec::Split { second, .. }) = s.spec() else {
+            panic!()
+        };
+        let DockSpec::Split {
+            vertical,
+            first,
+            second,
+            ..
+        } = *second
+        else {
+            panic!()
+        };
         assert!(vertical);
         assert_eq!(*first, DockSpec::tabs(["c"]));
         assert_eq!(*second, DockSpec::tabs(["b"]));
@@ -1091,7 +1381,14 @@ mod tests {
     fn insert_from_other_group() {
         let s = layout();
         s.insert_panel("c", gid(&s, "a"), 1);
-        assert_eq!(s.spec(), Some(DockSpec::Tabs { panels: vec!["a".into(), "c".into(), "b".into()], active: 1, name: String::new() }));
+        assert_eq!(
+            s.spec(),
+            Some(DockSpec::Tabs {
+                panels: vec!["a".into(), "c".into(), "b".into()],
+                active: 1,
+                name: String::new()
+            })
+        );
     }
 
     #[test]
@@ -1101,7 +1398,14 @@ mod tests {
         assert_eq!(s.panels(), ["a", "b", "c", "d"]);
         s.close("a");
         s.close("b");
-        assert_eq!(s.spec(), Some(DockSpec::Tabs { panels: vec!["c".into(), "d".into()], active: 1, name: String::new() }));
+        assert_eq!(
+            s.spec(),
+            Some(DockSpec::Tabs {
+                panels: vec!["c".into(), "d".into()],
+                active: 1,
+                name: String::new()
+            })
+        );
         s.close("c");
         s.close("d");
         assert_eq!(s.spec(), None);
@@ -1113,12 +1417,23 @@ mod tests {
     fn move_beside_splits() {
         let s = DockState::new(DockSpec::tabs(["a", "b"]));
         s.move_beside("b", "a", DropZone::Right);
-        assert_eq!(s.spec(), Some(DockSpec::row(DockSpec::tabs(["a"]), DockSpec::tabs(["b"]), 0.5)));
+        assert_eq!(
+            s.spec(),
+            Some(DockSpec::row(
+                DockSpec::tabs(["a"]),
+                DockSpec::tabs(["b"]),
+                0.5
+            ))
+        );
     }
 
     #[test]
     fn named_group_survives_empty() {
-        let s = DockState::new(DockSpec::row(DockSpec::tabs(["tree"]), DockSpec::tabs(Vec::<String>::new()).named("docs"), 0.2));
+        let s = DockState::new(DockSpec::row(
+            DockSpec::tabs(["tree"]),
+            DockSpec::tabs(Vec::<String>::new()).named("docs"),
+            0.2,
+        ));
         s.open_in("doc:1", "docs");
         s.open_in("doc:2", "docs");
         assert_eq!(s.group_panels("docs"), ["doc:1", "doc:2"]);

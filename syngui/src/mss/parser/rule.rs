@@ -2,9 +2,9 @@ use std::collections::HashMap;
 
 use super::super::stylesheet::*;
 use super::super::value::StyleValue;
-use super::{ParseError, ParseErrorKind};
 use super::utils::ParserCursor;
 use super::value::*;
+use super::{ParseError, ParseErrorKind};
 
 /// Сокращённое свойство (`border-radius`, `padding`, `border`…) — в полные, как в таблице стилей.
 /// Для стилей из кода (`.style("border-radius", 12.0)`): их каскад кладёт как есть, и сокращение
@@ -14,7 +14,10 @@ pub(crate) fn expand_shorthand(property: &str, value: StyleValue) -> Vec<(String
     // Как у правила таблицы (`Stylesheet::add_rule`): свой `font-size` элемента
     // дублируется в ненаследуемый маркер — по нему отличают заданный размер от унаследованного.
     if property == "font-size" {
-        map.insert(crate::mss::fields::ICON_FONT_SIZE.to_string(), value.clone());
+        map.insert(
+            crate::mss::fields::ICON_FONT_SIZE.to_string(),
+            value.clone(),
+        );
     }
     insert_with_shorthand_expansion(&mut map, property.to_string(), value);
     map.into_iter().collect()
@@ -84,7 +87,10 @@ fn insert_with_shorthand_expansion(
                     declarations.remove("background-color");
                 }
                 "background-color" => {
-                    if !matches!(declarations.get("background"), Some(StyleValue::Gradient(_)) | None) {
+                    if !matches!(
+                        declarations.get("background"),
+                        Some(StyleValue::Gradient(_)) | None
+                    ) {
                         declarations.remove("background");
                     }
                 }

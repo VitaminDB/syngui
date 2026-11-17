@@ -744,7 +744,11 @@ impl TextElement {
     /// градиент, анимация. Один слой тени без прочего идёт старым путём
     /// (`text_shadow` команды).
     fn text_fx(&self) -> Option<Arc<crate::mss::fields::TextFx>> {
-        let shadows = if self.mss_text_shadows.len() > 1 { self.mss_text_shadows.clone() } else { Vec::new() };
+        let shadows = if self.mss_text_shadows.len() > 1 {
+            self.mss_text_shadows.clone()
+        } else {
+            Vec::new()
+        };
         let fx = crate::mss::fields::TextFx {
             shadows,
             glow: self.mss_text_glow,
@@ -772,7 +776,9 @@ impl TextElement {
             self.mark_dirty(DirtyFlags::RENDER);
             true
         } else {
-            crate::app::request_tick(std::time::Duration::from_secs_f32(interval - self.fx_since_frame));
+            crate::app::request_tick(std::time::Duration::from_secs_f32(
+                interval - self.fx_since_frame,
+            ));
             false
         }
     }
@@ -851,7 +857,11 @@ impl TextElement {
 
     /// Слово под точкой с учётом переноса строк.
     fn word_hit(&self, pos: Point) -> Option<crate::widget::word_lookup::WordHit> {
-        let (pl, pr, pt) = (self.mss_padding_left, self.mss_padding_right, self.mss_padding_top);
+        let (pl, pr, pt) = (
+            self.mss_padding_left,
+            self.mss_padding_right,
+            self.mss_padding_top,
+        );
         let width = if self.mss_text_align.is_some() && self.bounds.size.width > 0.0 {
             (self.bounds.size.width - pl - pr).max(0.0)
         } else if self.max_render_width.is_finite() {
@@ -859,12 +869,22 @@ impl TextElement {
         } else {
             (self.bounds.size.width - pl - pr).max(10000.0)
         };
-        let line_height = self.mss_line_height.map(|lh| lh.resolve(self.font_size)).unwrap_or(self.font_size * 1.3);
+        let line_height = self
+            .mss_line_height
+            .map(|lh| lh.resolve(self.font_size))
+            .unwrap_or(self.font_size * 1.3);
         let line = ((pos.y - self.bounds.origin.y - pt) / line_height.max(1.0)).max(0.0) as usize;
         let x = pos.x - self.bounds.origin.x - pl;
         let byte = match self.text_measure.as_ref() {
             Some(tm) => {
-                let positions = crate::widget::word_lookup::char_positions(&self.text, width, self.font_size, self.mss_font_weight, self.mss_font_family.as_deref(), tm.as_ref());
+                let positions = crate::widget::word_lookup::char_positions(
+                    &self.text,
+                    width,
+                    self.font_size,
+                    self.mss_font_weight,
+                    self.mss_font_family.as_deref(),
+                    tm.as_ref(),
+                );
                 crate::widget::word_lookup::byte_at(&positions, line, x)?
             }
             None => self.hit_test_byte(pos),
@@ -885,18 +905,31 @@ impl TextElement {
     }
 
     fn line_step(&self) -> f32 {
-        self.mss_line_height.map(|lh| lh.resolve(self.font_size)).unwrap_or(self.font_size * 1.3).max(1.0)
+        self.mss_line_height
+            .map(|lh| lh.resolve(self.font_size))
+            .unwrap_or(self.font_size * 1.3)
+            .max(1.0)
     }
 
     /// Раскладка символов многострочного текста (байт, строка, x начала, x конца);
     /// `None` — текст в одну строку (однострочное выделение) или нечем мерить.
     fn multiline_positions(&self) -> Option<Vec<(usize, usize, f32, f32)>> {
-        if self.mss_max_lines == Some(1) || self.mss_elide == Elide::Middle || self.mss_text_transform.is_some() {
+        if self.mss_max_lines == Some(1)
+            || self.mss_elide == Elide::Middle
+            || self.mss_text_transform.is_some()
+        {
             return None;
         }
         let tm = self.text_measure.as_ref()?;
         let width = self.wrap_width();
-        let pos = crate::widget::word_lookup::char_positions(&self.text, width, self.font_size, self.mss_font_weight, self.mss_font_family.as_deref(), tm.as_ref());
+        let pos = crate::widget::word_lookup::char_positions(
+            &self.text,
+            width,
+            self.font_size,
+            self.mss_font_weight,
+            self.mss_font_family.as_deref(),
+            tm.as_ref(),
+        );
         // строк больше одной: перевод строки или перенос
         let multi = self.text.contains('\n') || pos.last().is_some_and(|p| p.1 > 0);
         multi.then_some(pos)
@@ -911,7 +944,8 @@ impl TextElement {
         }
         let line = (y / self.line_step()) as usize;
         let x = pos.x - self.bounds.origin.x - self.mss_padding_left;
-        let on_line: Vec<&(usize, usize, f32, f32)> = positions.iter().filter(|p| p.1 == line).collect();
+        let on_line: Vec<&(usize, usize, f32, f32)> =
+            positions.iter().filter(|p| p.1 == line).collect();
         if on_line.is_empty() {
             // пустая строка: начало следующей строки (минус перевод строки), ниже текста — конец
             return match positions.iter().find(|p| p.1 > line) {
@@ -925,7 +959,11 @@ impl TextElement {
             }
         }
         let last = on_line[on_line.len() - 1];
-        last.0 + self.text[last.0..].chars().next().map_or(0, |c| c.len_utf8())
+        last.0
+            + self.text[last.0..]
+                .chars()
+                .next()
+                .map_or(0, |c| c.len_utf8())
     }
 
     fn hit_test_byte(&self, pos: Point) -> usize {
@@ -962,7 +1000,11 @@ impl Element for TextElement {
     fn mss_mut(&mut self) -> Option<&mut crate::mss::MssFields> {
         Some(&mut self.kf_mss)
     }
-    fn setup_keyframe_animation(&mut self, style: &ComputedStyle, stylesheet: &crate::mss::StyleSheet) {
+    fn setup_keyframe_animation(
+        &mut self,
+        style: &ComputedStyle,
+        stylesheet: &crate::mss::StyleSheet,
+    ) {
         // своих MssFields у текста нет — из стиля берётся только имя анимации
         self.kf_mss.animation_name = crate::mss::MssFields::animation_name_of(style);
         if self.kf_mss.animation_name.is_none() {
@@ -1160,11 +1202,16 @@ impl Element for TextElement {
                 let sel_text = self.text.as_str();
                 let s = sel_start.min(sel_text.len());
                 let e = sel_end.min(sel_text.len());
-                let multi = if e > s { self.multiline_positions() } else { None };
+                let multi = if e > s {
+                    self.multiline_positions()
+                } else {
+                    None
+                };
                 if let Some(positions) = multi {
                     // многострочный: прямоугольник на каждую строку выделения
                     let step = self.line_step();
-                    let mut rows: std::collections::BTreeMap<usize, (f32, f32)> = Default::default();
+                    let mut rows: std::collections::BTreeMap<usize, (f32, f32)> =
+                        Default::default();
                     for p in positions.iter().filter(|p| p.0 >= s && p.0 < e) {
                         let r = rows.entry(p.1).or_insert((p.2, p.3));
                         r.0 = r.0.min(p.2);
@@ -1172,7 +1219,10 @@ impl Element for TextElement {
                     }
                     for (line, (x0, x1)) in rows {
                         let rect = Rect::new(
-                            Point::new(render_bounds.origin.x + x0, render_bounds.origin.y + line as f32 * step),
+                            Point::new(
+                                render_bounds.origin.x + x0,
+                                render_bounds.origin.y + line as f32 * step,
+                            ),
                             Size::new((x1 - x0).max(1.0), step),
                         );
                         list.push_rect(rect, self.mss_selection_color, [2.0; 4]);
@@ -1194,10 +1244,15 @@ impl Element for TextElement {
 
         let prev_fx = text_fx.map(|fx| list.set_text_fx(Some(fx)));
         let prev_italic = list.set_text_italic(self.mss_italic);
-        let prev_line_height = list.set_text_line_height(self.mss_line_height.map(|lh| lh.resolve(self.font_size)));
+        let prev_line_height =
+            list.set_text_line_height(self.mss_line_height.map(|lh| lh.resolve(self.font_size)));
         // пустой образец — явная центровка по контуру (`ink`)
         let prev_bbox = self.mss_text_box_font.map(|font| {
-            list.set_text_bbox_sample(Some(compact_str::CompactString::const_new(if font { "Hg" } else { "" })))
+            list.set_text_bbox_sample(Some(compact_str::CompactString::const_new(if font {
+                "Hg"
+            } else {
+                ""
+            })))
         });
         if has_extra
             || self.mss_text_align.is_some()
@@ -1251,11 +1306,17 @@ impl Element for TextElement {
         // Слово под пальцем: удержание (касание) или правый щелчок мыши.
         let lookup_at = match event {
             Event::LongPress { position } => Some(*position),
-            Event::MouseDown { button: MouseButton::Right, position } => Some(*position),
+            Event::MouseDown {
+                button: MouseButton::Right,
+                position,
+            } => Some(*position),
             _ => None,
         };
         if let Some(pos) = lookup_at {
-            if self.word_lookup && self.bounds.contains(pos) && crate::widget::word_lookup::enabled() {
+            if self.word_lookup
+                && self.bounds.contains(pos)
+                && crate::widget::word_lookup::enabled()
+            {
                 if let Some(hit) = self.word_hit(pos) {
                     if crate::widget::word_lookup::dispatch(&hit) {
                         return EventResult::Handled;
@@ -1507,7 +1568,10 @@ impl StyledElement for TextElement {
     fn apply_style(&mut self, style: &ComputedStyle) {
         // Явный `Text::color()` важнее цвета, унаследованного от родителя:
         // перебить его может только правило под собственный класс текста.
-        if let Some(color) = style.color().filter(|_| self.base_color.is_none() || !self.classes.is_empty()) {
+        if let Some(color) = style
+            .color()
+            .filter(|_| self.base_color.is_none() || !self.classes.is_empty())
+        {
             self.color = Color::from_srgb(color.r, color.g, color.b, color.a as f32 / 255.0);
         }
         self.font_size = style.font_size();
@@ -1561,8 +1625,13 @@ impl StyledElement for TextElement {
         }
         if let Some(v) = style.get("text-glow") {
             self.mss_text_glow = match v {
-                crate::mss::StyleValue::Length(px, _) | crate::mss::StyleValue::Number(px) if *px > 0.0 => {
-                    Some(crate::mss::fields::TextGlow { radius: *px, color: None })
+                crate::mss::StyleValue::Length(px, _) | crate::mss::StyleValue::Number(px)
+                    if *px > 0.0 =>
+                {
+                    Some(crate::mss::fields::TextGlow {
+                        radius: *px,
+                        color: None,
+                    })
                 }
                 crate::mss::StyleValue::String(s) => crate::mss::fields::TextGlow::parse(s),
                 _ => None,
@@ -1573,7 +1642,9 @@ impl StyledElement for TextElement {
         }
         if let Some(v) = style.get("text-animation") {
             let prev = self.mss_text_animation.map(|a| a.kind);
-            self.mss_text_animation = v.as_string().and_then(crate::mss::fields::TextAnimation::parse);
+            self.mss_text_animation = v
+                .as_string()
+                .and_then(crate::mss::fields::TextAnimation::parse);
             if self.mss_text_animation.map(|a| a.kind) != prev {
                 self.fx_time = 0.0;
                 self.fx_since_frame = 0.0;
@@ -1815,12 +1886,24 @@ mod tests {
     fn text_animation_frames_are_throttled() {
         let mut el = Text::new("12:34").element();
         let mut st = ComputedStyle::default();
-        st.set("text-animation", crate::mss::StyleValue::String("shimmer 2s".into()));
-        st.set("text-glow", crate::mss::StyleValue::String("16px #4fc3f7".into()));
-        st.set("text-shadow", crate::mss::StyleValue::String("0 0 8 #4fc3f7, 0 2 6 #00000080".into()));
+        st.set(
+            "text-animation",
+            crate::mss::StyleValue::String("shimmer 2s".into()),
+        );
+        st.set(
+            "text-glow",
+            crate::mss::StyleValue::String("16px #4fc3f7".into()),
+        );
+        st.set(
+            "text-shadow",
+            crate::mss::StyleValue::String("0 0 8 #4fc3f7, 0 2 6 #00000080".into()),
+        );
         el.apply_style(&st);
         assert!(el.wants_animate_tick());
-        assert!(!el.needs_repaint(), "между кадрами анимации — без перерисовки окна");
+        assert!(
+            !el.needs_repaint(),
+            "между кадрами анимации — без перерисовки окна"
+        );
         let vsync = std::time::Duration::from_micros(16_667);
         let frames: Vec<bool> = (0..6).map(|_| el.animate(vsync)).collect();
         assert_eq!(frames, [false, true, false, true, false, true]);
@@ -1831,7 +1914,10 @@ mod tests {
         // `none` снимает анимацию
         el.reset_mss_styles();
         let mut st = ComputedStyle::default();
-        st.set("text-animation", crate::mss::StyleValue::String("none".into()));
+        st.set(
+            "text-animation",
+            crate::mss::StyleValue::String("none".into()),
+        );
         el.apply_style(&st);
         assert!(!el.wants_animate_tick());
         assert!(el.text_fx().is_none());
@@ -2173,7 +2259,13 @@ mod tests {
         let mut el = Text::new(text).selectable(true).element();
         el.text_measure = Some(Arc::new(MonoMeasure));
         el.font_size = 10.0; // шаг строки 13 px
-        el.layout(Constraints { min_width: 0.0, max_width: width, min_height: 0.0, max_height: f32::INFINITY, containing_block: Size::new(width, 500.0) });
+        el.layout(Constraints {
+            min_width: 0.0,
+            max_width: width,
+            min_height: 0.0,
+            max_height: f32::INFINITY,
+            containing_block: Size::new(width, 500.0),
+        });
         el
     }
 

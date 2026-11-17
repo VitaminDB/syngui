@@ -261,7 +261,9 @@ impl RadarChartElement {
         let title_h = if self.title.is_some() { 24.0 } else { 0.0 };
         let label_offset = 24.0;
         let avail_h = (inner_h - title_h - self.legend_h()).max(60.0);
-        let chart_size = (inner_w - label_offset * 2.0).min(avail_h - label_offset * 2.0).max(60.0);
+        let chart_size = (inner_w - label_offset * 2.0)
+            .min(avail_h - label_offset * 2.0)
+            .max(60.0);
         let cx = inner_x + inner_w * 0.5;
         let cy = inner_y + title_h + avail_h * 0.5;
         (cx, cy, chart_size * 0.46, chart_size)
@@ -358,7 +360,11 @@ impl Element for RadarChartElement {
             .or(self.width)
             .map(|d| d.resolve(constraints.max_width))
             // Без явной ширины — на всю доступную (иначе 350 и прижат влево).
-            .unwrap_or(if constraints.max_width.is_finite() { constraints.max_width } else { 350.0 })
+            .unwrap_or(if constraints.max_width.is_finite() {
+                constraints.max_width
+            } else {
+                350.0
+            })
             .max(constraints.min_width)
             .min(constraints.max_width);
 

@@ -2,7 +2,11 @@ use super::syntax::Language;
 use std::path::Path;
 
 pub fn detect_by_path(path: &Path) -> Option<Language> {
-    if let Some(l) = path.file_name().and_then(|n| n.to_str()).and_then(detect_by_name) {
+    if let Some(l) = path
+        .file_name()
+        .and_then(|n| n.to_str())
+        .and_then(detect_by_name)
+    {
         return Some(l);
     }
     let ext = path.extension()?.to_str()?.to_ascii_lowercase();
@@ -45,8 +49,12 @@ pub fn detect_by_extension(ext: &str) -> Option<Language> {
 /// Язык по имени файла без расширения (`Makefile`, `PKGBUILD`, `.bashrc`).
 pub fn detect_by_name(name: &str) -> Option<Language> {
     Some(match name {
-        "PKGBUILD" | ".bashrc" | ".zshrc" | ".profile" | ".bash_profile" | "configure" => Language::Shell,
-        "Makefile" | "makefile" | "GNUmakefile" | "CMakeLists.txt" | "Dockerfile" => Language::Shell,
+        "PKGBUILD" | ".bashrc" | ".zshrc" | ".profile" | ".bash_profile" | "configure" => {
+            Language::Shell
+        }
+        "Makefile" | "makefile" | "GNUmakefile" | "CMakeLists.txt" | "Dockerfile" => {
+            Language::Shell
+        }
         _ => return None,
     })
 }

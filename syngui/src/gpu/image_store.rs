@@ -221,17 +221,33 @@ impl YuvFrame {
         let cbb = 2.0 * (1.0 - kb) * cs;
         let cbg = -2.0 * kb * (1.0 - kb) / kg * cs;
         let crg = -2.0 * kr * (1.0 - kr) / kg * cs;
-        let nv12 = if self.layout == YuvLayout::I420 { 0.0 } else { 1.0 };
+        let nv12 = if self.layout == YuvLayout::I420 {
+            0.0
+        } else {
+            1.0
+        };
         // P010: отсчёт R16Unorm = код<<6 / 65535; ×65535/65472 — код/1023, и матрица та же, что
         // у 8 бит (ТВ-диапазон 16/255 ≈ 64/1023 с точностью до 0,1 %).
-        let scale = if self.layout == YuvLayout::P010 { 65535.0 / 65472.0 } else { 1.0 };
+        let scale = if self.layout == YuvLayout::P010 {
+            65535.0 / 65472.0
+        } else {
+            1.0
+        };
         let (mode, src_peak, dst_peak) = match self.hdr {
             None => (0.0, 0.0, 0.0),
             Some(h) => {
                 let src = pq_inv(h.peak_nits.clamp(250.0, 10_000.0) as f64);
                 // 1/2 — тонмаппинг в SDR; 3/4 — HDR-окно: свет без тонмаппинга
-                let ext = if crate::gpu::hdr_passthrough() { 2.0 } else { 0.0 };
-                (if h.pq { 1.0 } else { 2.0 } + ext, src as f32, (pq_inv(HDR_SDR_WHITE_NITS as f64) / src) as f32)
+                let ext = if crate::gpu::hdr_passthrough() {
+                    2.0
+                } else {
+                    0.0
+                };
+                (
+                    if h.pq { 1.0 } else { 2.0 } + ext,
+                    src as f32,
+                    (pq_inv(HDR_SDR_WHITE_NITS as f64) / src) as f32,
+                )
             }
         };
         [
@@ -264,7 +280,11 @@ pub fn pq_inv(nits: f64) -> f64 {
 impl YuvLayout {
     /// Байт на отсчёт.
     pub fn sample_bytes(self) -> usize {
-        if self == YuvLayout::P010 { 2 } else { 1 }
+        if self == YuvLayout::P010 {
+            2
+        } else {
+            1
+        }
     }
 }
 
@@ -621,7 +641,10 @@ impl ImageStore {
                 a.due += a.anim.frames[a.idx].delay;
             }
             let rgba = a.anim.frames[a.idx].rgba.clone();
-            frames.push((ImageHandle(*h), ImageData::single_level(a.width, a.height, rgba)));
+            frames.push((
+                ImageHandle(*h),
+                ImageData::single_level(a.width, a.height, rgba),
+            ));
         }
         for (handle, data) in frames {
             match self.pending_uploads.iter_mut().find(|(h, _)| *h == handle) {
@@ -902,7 +925,11 @@ impl ImageStore {
     /// Кадр в изображении Vulkan другого процесса ([`crate::gpu::external`]) — без копии через
     /// процессор. Незалитый прежний кадр заменяется (и возвращается источнику).
     #[cfg(all(target_os = "linux", not(target_arch = "wasm32")))]
-    pub fn update_external(&mut self, handle: ImageHandle, frame: Arc<crate::gpu::external::ExternalFrame>) {
+    pub fn update_external(
+        &mut self,
+        handle: ImageHandle,
+        frame: Arc<crate::gpu::external::ExternalFrame>,
+    ) {
         let Some(key) = self.handle_to_key.get(&handle.0) else {
             return;
         };
@@ -1240,7 +1267,9 @@ fn decode_animation(bytes: &[u8]) -> Option<ImageData> {
     use image::AnimationDecoder;
     let cursor = || std::io::Cursor::new(bytes);
     let frames = match image::guess_format(bytes).ok()? {
-        image::ImageFormat::Gif => image::codecs::gif::GifDecoder::new(cursor()).ok()?.into_frames(),
+        image::ImageFormat::Gif => image::codecs::gif::GifDecoder::new(cursor())
+            .ok()?
+            .into_frames(),
         image::ImageFormat::WebP => {
             let d = image::codecs::webp::WebPDecoder::new(cursor()).ok()?;
             if !d.has_animation() {
@@ -1571,7 +1600,8 @@ mod tests {
             for c in [255u8, 0] {
                 let buf = image::RgbaImage::from_pixel(4, 4, image::Rgba([c, 0, 0, 255]));
                 let delay = image::Delay::from_numer_denom_ms(20, 1);
-                enc.encode_frame(image::Frame::from_parts(buf, 0, 0, delay)).unwrap();
+                enc.encode_frame(image::Frame::from_parts(buf, 0, 0, delay))
+                    .unwrap();
             }
         }
         let data = decode_image_bytes(&bytes).unwrap();
@@ -1581,7 +1611,10 @@ mod tests {
         assert_eq!(data.rgba[0], 255);
 
         let mut store = ImageStore::new();
-        let (h, _) = store.request(&ImageSource::Bytes { key: "gif".into(), data: Arc::new(bytes) });
+        let (h, _) = store.request(&ImageSource::Bytes {
+            key: "gif".into(),
+            data: Arc::new(bytes),
+        });
         let t = std::time::Instant::now();
         while store.state_of(h) != Some(ImageLoadState::Ready) && t.elapsed().as_secs() < 10 {
             std::thread::sleep(std::time::Duration::from_millis(5));
@@ -1852,14 +1885,25 @@ mod yuv_tests {
 #[cfg(all(test, feature = "image"))]
 #[test]
 fn jpeg_exif_orientation() {
-    let path = format!("{}/tests/fixtures/heif/exif6.jpg", env!("CARGO_MANIFEST_DIR"));
+    let path = format!(
+        "{}/tests/fixtures/heif/exif6.jpg",
+        env!("CARGO_MANIFEST_DIR")
+    );
     let data = decode_image_bytes(&std::fs::read(&path).unwrap()).unwrap();
     assert_eq!((data.width, data.height), (48, 64));
     assert_eq!(image_file_size(&path), Some((48, 64)));
     // Слева вверху — синий (был внизу слева), справа вверху — красный.
-    assert!(data.rgba[2] > 180 && data.rgba[0] < 80, "{:?}", &data.rgba[..4]);
+    assert!(
+        data.rgba[2] > 180 && data.rgba[0] < 80,
+        "{:?}",
+        &data.rgba[..4]
+    );
     let i = (47 * 4) as usize;
-    assert!(data.rgba[i] > 180 && data.rgba[i + 2] < 80, "{:?}", &data.rgba[i..i + 4]);
+    assert!(
+        data.rgba[i] > 180 && data.rgba[i + 2] < 80,
+        "{:?}",
+        &data.rgba[i..i + 4]
+    );
 }
 
 /// HEIF/AVIF: размеры, поворот (irot), 10 бит и альфа сверяются с эталоном
@@ -1876,15 +1920,21 @@ mod heif_tests {
     fn check(file: &str) {
         let bytes = fixture(file);
         let data = decode_image_bytes(&bytes).unwrap_or_else(|e| panic!("{file}: {e}"));
-        let reference = image::load_from_memory(&fixture(&format!(
-            "ref_{}.png",
-            file.replace('.', "_")
-        )))
-        .unwrap()
-        .to_rgba8();
-        assert_eq!((data.width, data.height), reference.dimensions(), "{file}: размер");
+        let reference =
+            image::load_from_memory(&fixture(&format!("ref_{}.png", file.replace('.', "_"))))
+                .unwrap()
+                .to_rgba8();
+        assert_eq!(
+            (data.width, data.height),
+            reference.dimensions(),
+            "{file}: размер"
+        );
         let path = format!("{}/tests/fixtures/heif/{file}", env!("CARGO_MANIFEST_DIR"));
-        assert_eq!(image_file_size(&path), Some(reference.dimensions()), "{file}: размер по заголовку");
+        assert_eq!(
+            image_file_size(&path),
+            Some(reference.dimensions()),
+            "{file}: размер по заголовку"
+        );
         let worst = data
             .rgba
             .iter()
@@ -1905,7 +1955,11 @@ mod heif_tests {
             [data.rgba[i], data.rgba[i + 1], data.rgba[i + 2]]
         };
         assert!(px(2, 2)[2] > 200 && px(2, 2)[0] < 60, "{:?}", px(2, 2));
-        assert!(px(data.width - 3, 2)[0] > 200, "{:?}", px(data.width - 3, 2));
+        assert!(
+            px(data.width - 3, 2)[0] > 200,
+            "{:?}",
+            px(data.width - 3, 2)
+        );
     }
 
     #[test]
@@ -1929,15 +1983,33 @@ mod heif_tests {
         let mut seen = 0;
         for entry in std::fs::read_dir(&dir).unwrap() {
             let path = entry.unwrap().path();
-            let ext = path.extension().and_then(|e| e.to_str()).unwrap_or("").to_lowercase();
+            let ext = path
+                .extension()
+                .and_then(|e| e.to_str())
+                .unwrap_or("")
+                .to_lowercase();
             if !matches!(ext.as_str(), "heic" | "heif" | "avif") {
                 continue;
             }
             let data = decode_image_bytes(&std::fs::read(&path).unwrap()).unwrap();
             let reference = image::open(path.with_extension("png")).unwrap().to_rgba8();
-            assert_eq!((data.width, data.height), reference.dimensions(), "{path:?}");
-            assert_eq!(image_file_size(path.to_str().unwrap()), Some(reference.dimensions()), "{path:?}");
-            let worst = data.rgba.iter().zip(reference.as_raw()).map(|(a, b)| a.abs_diff(*b)).max().unwrap();
+            assert_eq!(
+                (data.width, data.height),
+                reference.dimensions(),
+                "{path:?}"
+            );
+            assert_eq!(
+                image_file_size(path.to_str().unwrap()),
+                Some(reference.dimensions()),
+                "{path:?}"
+            );
+            let worst = data
+                .rgba
+                .iter()
+                .zip(reference.as_raw())
+                .map(|(a, b)| a.abs_diff(*b))
+                .max()
+                .unwrap();
             assert!(worst <= 2, "{path:?}: расхождение {worst}");
             eprintln!("{path:?}: {}x{} ok", data.width, data.height);
             seen += 1;

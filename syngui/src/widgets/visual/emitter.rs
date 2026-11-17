@@ -1313,7 +1313,9 @@ mod tests {
     fn long_frame_is_simulated_in_substeps() {
         let count_after = |ticks: &[u64]| {
             let mut h = TestHarness::new(Box::new(ParticleEmitter::new().class("fx")));
-            h.apply_mss(".fx { particle-rate: 50; particle-lifetime: 5s; particle-shape: circle; }");
+            h.apply_mss(
+                ".fx { particle-rate: 50; particle-lifetime: 5s; particle-shape: circle; }",
+            );
             h.layout(100.0, 100.0);
             for ms in ticks {
                 h.tree.animate(h.root_id, Duration::from_millis(*ms));

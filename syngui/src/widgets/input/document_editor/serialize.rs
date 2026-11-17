@@ -31,7 +31,13 @@ pub struct MdStyle {
 
 impl Default for MdStyle {
     fn default() -> Self {
-        Self { em: '*', strong: '*', bullet: '-', delim: '.', fence: '`' }
+        Self {
+            em: '*',
+            strong: '*',
+            bullet: '-',
+            delim: '.',
+            fence: '`',
+        }
     }
 }
 
@@ -126,14 +132,20 @@ fn block_lines(block: &DocBlock) -> Vec<String> {
             }
             vec![line]
         }
-        BlockKind::Bullet { text, children } => list_item_lines(&format!("{} ", style().bullet), 2, text, children),
+        BlockKind::Bullet { text, children } => {
+            list_item_lines(&format!("{} ", style().bullet), 2, text, children)
+        }
         BlockKind::Todo {
             checked,
             text,
             children,
         } => {
             let b = style().bullet;
-            let marker = if *checked { format!("{b} [x] ") } else { format!("{b} [ ] ") };
+            let marker = if *checked {
+                format!("{b} [x] ")
+            } else {
+                format!("{b} [ ] ")
+            };
             list_item_lines(&marker, 2, text, children)
         }
         BlockKind::Numbered {
@@ -346,7 +358,9 @@ fn group_runs(runs: &[InlineRun], dim: usize) -> String {
         let group = &runs[i..j];
         match dim {
             0 if runs[i].style.bold => {
-                let d = delimiter(style().strong, &out, runs.get(j)).to_string().repeat(2);
+                let d = delimiter(style().strong, &out, runs.get(j))
+                    .to_string()
+                    .repeat(2);
                 out.push_str(&d);
                 out.push_str(&group_runs(group, 1));
                 out.push_str(&d);

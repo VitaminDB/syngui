@@ -35,13 +35,22 @@ fn connect(display: *mut std::ffi::c_void) -> Result<Inhibit, String> {
     // SAFETY: wl_display взят у окна winit и живёт весь процесс.
     let backend = unsafe { Backend::from_foreign_display(display.cast()) };
     let conn = Connection::from_backend(backend);
-    let (globals, queue) = registry_queue_init::<State>(&conn).map_err(|e| format!("реестр Wayland: {e}"))?;
+    let (globals, queue) =
+        registry_queue_init::<State>(&conn).map_err(|e| format!("реестр Wayland: {e}"))?;
     let qh = queue.handle();
     let manager = globals
         .bind::<ZwpKeyboardShortcutsInhibitManagerV1, _, _>(&qh, 1..=1, ())
         .map_err(|_| "композитор без zwp_keyboard_shortcuts_inhibit_manager_v1".to_string())?;
-    let seat = globals.bind::<WlSeat, _, _>(&qh, 1..=1, ()).map_err(|_| "нет wl_seat".to_string())?;
-    Ok(Inhibit { conn, queue, manager, seat, active: None })
+    let seat = globals
+        .bind::<WlSeat, _, _>(&qh, 1..=1, ())
+        .map_err(|_| "нет wl_seat".to_string())?;
+    Ok(Inhibit {
+        conn,
+        queue,
+        manager,
+        seat,
+        active: None,
+    })
 }
 
 /// Включить/выключить перехват сочетаний для окна. Не Wayland — ошибка.
@@ -71,7 +80,8 @@ pub fn set(window: &winit::window::Window, on: bool) -> Result<(), String> {
             // SAFETY: wl_surface окна winit живёт, пока живо окно (ингибитор снимается раньше).
             let id = unsafe { ObjectId::from_ptr(WlSurface::interface(), surface_ptr.cast()) }
                 .map_err(|e| format!("wl_surface: {e:?}"))?;
-            let surface = WlSurface::from_id(&st.conn, id).map_err(|e| format!("wl_surface: {e:?}"))?;
+            let surface =
+                WlSurface::from_id(&st.conn, id).map_err(|e| format!("wl_surface: {e:?}"))?;
             let qh = st.queue.handle();
             let inh = st.manager.inhibit_shortcuts(&surface, &st.seat, &qh, ());
             st.active = Some((surface_ptr as usize, inh));
@@ -86,14 +96,46 @@ pub fn active() -> bool {
 }
 
 impl Dispatch<WlRegistry, GlobalListContents> for State {
-    fn event(_: &mut Self, _: &WlRegistry, _: <WlRegistry as Proxy>::Event, _: &GlobalListContents, _: &Connection, _: &QueueHandle<Self>) {}
+    fn event(
+        _: &mut Self,
+        _: &WlRegistry,
+        _: <WlRegistry as Proxy>::Event,
+        _: &GlobalListContents,
+        _: &Connection,
+        _: &QueueHandle<Self>,
+    ) {
+    }
 }
 impl Dispatch<WlSeat, ()> for State {
-    fn event(_: &mut Self, _: &WlSeat, _: <WlSeat as Proxy>::Event, _: &(), _: &Connection, _: &QueueHandle<Self>) {}
+    fn event(
+        _: &mut Self,
+        _: &WlSeat,
+        _: <WlSeat as Proxy>::Event,
+        _: &(),
+        _: &Connection,
+        _: &QueueHandle<Self>,
+    ) {
+    }
 }
 impl Dispatch<ZwpKeyboardShortcutsInhibitManagerV1, ()> for State {
-    fn event(_: &mut Self, _: &ZwpKeyboardShortcutsInhibitManagerV1, _: <ZwpKeyboardShortcutsInhibitManagerV1 as Proxy>::Event, _: &(), _: &Connection, _: &QueueHandle<Self>) {}
+    fn event(
+        _: &mut Self,
+        _: &ZwpKeyboardShortcutsInhibitManagerV1,
+        _: <ZwpKeyboardShortcutsInhibitManagerV1 as Proxy>::Event,
+        _: &(),
+        _: &Connection,
+        _: &QueueHandle<Self>,
+    ) {
+    }
 }
 impl Dispatch<ZwpKeyboardShortcutsInhibitorV1, ()> for State {
-    fn event(_: &mut Self, _: &ZwpKeyboardShortcutsInhibitorV1, _: <ZwpKeyboardShortcutsInhibitorV1 as Proxy>::Event, _: &(), _: &Connection, _: &QueueHandle<Self>) {}
+    fn event(
+        _: &mut Self,
+        _: &ZwpKeyboardShortcutsInhibitorV1,
+        _: <ZwpKeyboardShortcutsInhibitorV1 as Proxy>::Event,
+        _: &(),
+        _: &Connection,
+        _: &QueueHandle<Self>,
+    ) {
+    }
 }

@@ -248,7 +248,9 @@ impl OptionGroupElement {
 
     /// Выбрать вариант `i` пользователем: запомнить и вызвать обработчик.
     fn choose(&mut self, i: usize, ctx: &mut EventContext) -> bool {
-        let Some(it) = self.items.get(i) else { return false };
+        let Some(it) = self.items.get(i) else {
+            return false;
+        };
         if it.disabled || it.value == self.selected {
             return false;
         }
@@ -269,7 +271,10 @@ impl OptionGroupElement {
         if n == 0 {
             return None;
         }
-        let start = self.index_of(&self.selected).map(|i| i as isize).unwrap_or(if dir > 0 { -1 } else { n });
+        let start = self
+            .index_of(&self.selected)
+            .map(|i| i as isize)
+            .unwrap_or(if dir > 0 { -1 } else { n });
         let mut i = start;
         for _ in 0..n {
             i = (i + dir).rem_euclid(n);
@@ -335,14 +340,23 @@ impl Element for OptionGroupElement {
             }
             h = y + line_h;
         } else {
-            let full = sizes.iter().map(|s| s.width).fold(0.0f32, f32::max).min(constraints.max_width);
+            let full = sizes
+                .iter()
+                .map(|s| s.width)
+                .fold(0.0f32, f32::max)
+                .min(constraints.max_width);
             // по ширине группы: строка вариантов — во всю ширину (щелчок по пустому месту строки)
-            let row_w = if constraints.max_width.is_finite() { constraints.max_width.max(full) } else { full };
+            let row_w = if constraints.max_width.is_finite() {
+                constraints.max_width.max(full)
+            } else {
+                full
+            };
             for (i, s) in sizes.iter().enumerate() {
                 if i > 0 {
                     h += self.gap;
                 }
-                self.rows.push(Rect::new(Point::new(0.0, h), Size::new(row_w, s.height)));
+                self.rows
+                    .push(Rect::new(Point::new(0.0, h), Size::new(row_w, s.height)));
                 h += s.height;
             }
             w = full;
@@ -361,11 +375,17 @@ impl Element for OptionGroupElement {
     }
 
     fn build_display_list(&self, list: &mut DisplayList, _clip: Rect) {
-        let fg = self.mss.color.unwrap_or_else(crate::theme_fallback::fallback_fg);
-        let default_border = self.mss.border_color.unwrap_or_else(|| match self.mss.color {
-            Some(c) => c.with_alpha(c.a * 0.55),
-            None => crate::theme_fallback::fallback_border(),
-        });
+        let fg = self
+            .mss
+            .color
+            .unwrap_or_else(crate::theme_fallback::fallback_fg);
+        let default_border = self
+            .mss
+            .border_color
+            .unwrap_or_else(|| match self.mss.color {
+                Some(c) => c.with_alpha(c.a * 0.55),
+                None => crate::theme_fallback::fallback_border(),
+            });
         let primary = self.mss.accent_color.unwrap_or(Color::from_hex("#3B82F6"));
         let fs = self.font_size();
         let ds = self.desc_size();
@@ -384,8 +404,19 @@ impl Element for OptionGroupElement {
             let cy = r.y() + ROW_PAD + (lh - RADIO) / 2.0;
             let radio = Rect::new(Point::new(r.x() + 2.0, cy), Size::new(RADIO, RADIO));
             if self.focused && sel {
-                let ring = Rect::new(Point::new(radio.x() - 3.0, radio.y() - 3.0), Size::new(RADIO + 6.0, RADIO + 6.0));
-                list.push_rect_bordered(ring, Color::TRANSPARENT, [RADIO; 4], Border { width: 2.0, color: primary.with_alpha(0.45) });
+                let ring = Rect::new(
+                    Point::new(radio.x() - 3.0, radio.y() - 3.0),
+                    Size::new(RADIO + 6.0, RADIO + 6.0),
+                );
+                list.push_rect_bordered(
+                    ring,
+                    Color::TRANSPARENT,
+                    [RADIO; 4],
+                    Border {
+                        width: 2.0,
+                        color: primary.with_alpha(0.45),
+                    },
+                );
             }
             let border = if off {
                 default_border.with_alpha(default_border.a * 0.5)
@@ -398,12 +429,22 @@ impl Element for OptionGroupElement {
                 radio,
                 self.mss.background_color.unwrap_or(Color::TRANSPARENT),
                 [RADIO / 2.0; 4],
-                Border { width: self.mss.border_width_or(2.0), color: border },
+                Border {
+                    width: self.mss.border_width_or(2.0),
+                    color: border,
+                },
             );
             if sel {
                 let d = RADIO * 0.5;
-                let dot = Rect::new(Point::new(radio.x() + (RADIO - d) / 2.0, radio.y() + (RADIO - d) / 2.0), Size::new(d, d));
-                list.push_rect(dot, if off { fg.with_alpha(0.4) } else { primary }, [d / 2.0; 4]);
+                let dot = Rect::new(
+                    Point::new(radio.x() + (RADIO - d) / 2.0, radio.y() + (RADIO - d) / 2.0),
+                    Size::new(d, d),
+                );
+                list.push_rect(
+                    dot,
+                    if off { fg.with_alpha(0.4) } else { primary },
+                    [d / 2.0; 4],
+                );
             }
             let tx = radio.x() + RADIO + GAP;
             let text_color = if off { fg.with_alpha(0.45) } else { fg };
@@ -425,10 +466,17 @@ impl Element for OptionGroupElement {
                 let bh = ds * 1.45;
                 let by = r.y() + ROW_PAD + (lh - bh) / 2.0;
                 let bc = if off { fg.with_alpha(0.4) } else { primary };
-                list.push_rect(Rect::new(Point::new(bx, by), Size::new(bw, bh)), bc.with_alpha(0.14), [bh / 2.0; 4]);
+                list.push_rect(
+                    Rect::new(Point::new(bx, by), Size::new(bw, bh)),
+                    bc.with_alpha(0.14),
+                    [bh / 2.0; 4],
+                );
                 list.push_text_styled(
                     b,
-                    Rect::new(Point::new(bx + 6.0, by + (bh - ds * 1.2) / 2.0), Size::new(bw, ds * 1.25)),
+                    Rect::new(
+                        Point::new(bx + 6.0, by + (bh - ds * 1.2) / 2.0),
+                        Size::new(bw, ds * 1.25),
+                    ),
                     bc,
                     ds,
                     TextAlign::DEFAULT,
@@ -441,7 +489,10 @@ impl Element for OptionGroupElement {
                 let dw = self.measure(d, ds, 400) + 4.0;
                 list.push_text_styled(
                     d,
-                    Rect::new(Point::new(tx, r.y() + ROW_PAD + lh), Size::new(dw, ds * 1.3)),
+                    Rect::new(
+                        Point::new(tx, r.y() + ROW_PAD + lh),
+                        Size::new(dw, ds * 1.3),
+                    ),
                     fg.with_alpha(if off { 0.35 } else { 0.62 }),
                     ds,
                     TextAlign::DEFAULT,
@@ -468,9 +519,16 @@ impl Element for OptionGroupElement {
                     self.hover = h;
                     ctx.request_paint();
                 }
-                if h.is_some() { EventResult::Handled } else { EventResult::Ignored }
+                if h.is_some() {
+                    EventResult::Handled
+                } else {
+                    EventResult::Ignored
+                }
             }
-            Event::MouseDown { button: MouseButton::Left, position } => match self.row_at(*position) {
+            Event::MouseDown {
+                button: MouseButton::Left,
+                position,
+            } => match self.row_at(*position) {
                 Some(i) => {
                     self.choose(i, ctx);
                     EventResult::Handled
@@ -574,7 +632,10 @@ impl Element for OptionGroupElement {
 
     fn apply_computed_style(&mut self, style: &ComputedStyle) {
         self.mss.apply(style);
-        if let Some(f) = style.get("font-family").and_then(|v| v.as_string().map(|s| s.to_string())) {
+        if let Some(f) = style
+            .get("font-family")
+            .and_then(|v| v.as_string().map(|s| s.to_string()))
+        {
             self.mss.font_family = Some(f);
         }
         self.mark_dirty(DirtyFlags::LAYOUT | DirtyFlags::RENDER);
@@ -641,12 +702,18 @@ mod tests {
     #[test]
     fn vertical_layout_rows() {
         let mut e = el(
-            vec![OptionItem::new("a", "A").description("пояснение"), OptionItem::new("b", "B")],
+            vec![
+                OptionItem::new("a", "A").description("пояснение"),
+                OptionItem::new("b", "B"),
+            ],
             "b",
         );
         let s = e.layout(Constraints::loose(Size::new(300.0, 500.0)));
         assert_eq!(e.rows.len(), 2);
-        assert!(e.rows[0].size.height > e.rows[1].size.height, "у варианта с пояснением строка выше");
+        assert!(
+            e.rows[0].size.height > e.rows[1].size.height,
+            "у варианта с пояснением строка выше"
+        );
         assert!((e.rows[1].y() - (e.rows[0].size.height + e.gap)).abs() < 0.01);
         assert!(s.height >= e.rows[1].y() + e.rows[1].size.height - 0.01);
     }

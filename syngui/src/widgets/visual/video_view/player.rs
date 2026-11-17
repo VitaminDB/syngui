@@ -531,7 +531,11 @@ impl VideoPlayerView {
 
     /// Свои клавиши владельца поверх клавиш плеера (субтитры, дорожки…):
     /// `keys` — какие перехватывать, `f` — обработчик.
-    pub fn keys(mut self, keys: Vec<Key>, f: impl Fn(Key, Modifiers) -> bool + Send + Sync + 'static) -> Self {
+    pub fn keys(
+        mut self,
+        keys: Vec<Key>,
+        f: impl Fn(Key, Modifiers) -> bool + Send + Sync + 'static,
+    ) -> Self {
         self.keys = Some((keys, Arc::new(f)));
         self
     }
@@ -923,7 +927,10 @@ fn controls_layer(ctl: Ctl) -> impl Widget {
         col = col
             .child(seek_bar(ctl.clone()))
             .child(bottom_row(ctl.clone()));
-        let panel = over_controls(&ctl, DecoratedBox::new().class(ctl.cls("vp-controls")).child(col));
+        let panel = over_controls(
+            &ctl,
+            DecoratedBox::new().class(ctl.cls("vp-controls")).child(col),
+        );
         vec![match ctl.controls_top.clone() {
             Some(slot) => Box::new(super::TopProbe::new(slot, panel)),
             None => Box::new(panel),

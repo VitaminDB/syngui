@@ -542,7 +542,11 @@ impl winit::application::ApplicationHandler<SynGuiUserEvent> for AppHandler {
                                     super::back_exit::reset();
                                 } else if super::back_exit::enabled() {
                                     if super::back_exit::press() {
-                                        self.window_event(event_loop, window_id, winit::event::WindowEvent::CloseRequested);
+                                        self.window_event(
+                                            event_loop,
+                                            window_id,
+                                            winit::event::WindowEvent::CloseRequested,
+                                        );
                                         return;
                                     }
                                     if let Some(window) = &self.window {
@@ -585,7 +589,10 @@ impl winit::application::ApplicationHandler<SynGuiUserEvent> for AppHandler {
                     .focused_element
                     .and_then(|id| self.tree.get(id))
                     .is_some_and(|el| el.wants_key(crate::input::Key::F12));
-                if event.state == winit::event::ElementState::Pressed && !grabbed && !focused_wants_f12 {
+                if event.state == winit::event::ElementState::Pressed
+                    && !grabbed
+                    && !focused_wants_f12
+                {
                     if let PhysicalKey::Code(winit::keyboard::KeyCode::F12) = event.physical_key {
                         if let Some(ref mut devtools) = self.devtools {
                             let was_enabled = devtools.is_enabled();
@@ -1479,16 +1486,23 @@ impl AppHandler {
             (Self::wayland_surface_key(&sw.window) == Some(frame.surface)).then_some(*id)
         });
         let Some(id) = found else {
-            log::debug!("[wayland_pen] отсчёт для чужой поверхности {:#x}", frame.surface);
+            log::debug!(
+                "[wayland_pen] отсчёт для чужой поверхности {:#x}",
+                frame.surface
+            );
             return;
         };
-        let mut tracker = self.pen_secondary.remove(&id).unwrap_or_else(PenTracker::new);
+        let mut tracker = self
+            .pen_secondary
+            .remove(&id)
+            .unwrap_or_else(PenTracker::new);
         if let Some(sw) = self.secondary_windows.get_mut(&id) {
             let k = (sw.window.scale_factor() / sw.scale_factor.max(f64::EPSILON)) as f32;
             let mut sample = frame.sample;
             sample.position = Point::new(sample.position.x * k, sample.position.y * k);
             if let Some(root_id) = sw.root_id {
-                sw.tree.handle_pen(root_id, &mut tracker, frame.phase, sample);
+                sw.tree
+                    .handle_pen(root_id, &mut tracker, frame.phase, sample);
             }
             sw.window.request_redraw();
         }

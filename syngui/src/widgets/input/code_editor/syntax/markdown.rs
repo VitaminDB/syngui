@@ -75,10 +75,11 @@ impl LineHighlighter for MarkdownHighlighter {
                 out.push(Span::new(indent as u32, len, QUOTE));
                 return NORMAL;
             }
-            i = indent + list_marker(t).map_or(0, |m| {
-                out.push(Span::new(indent as u32, (indent + m) as u32, MARKER));
-                m
-            });
+            i = indent
+                + list_marker(t).map_or(0, |m| {
+                    out.push(Span::new(indent as u32, (indent + m) as u32, MARKER));
+                    m
+                });
             if let Some(n) = checkbox(&b[i..]) {
                 out.push(Span::new(i as u32, (i + n) as u32, CHECKBOX));
                 i += n;
@@ -366,8 +367,15 @@ fn bare_url(line: &str, i: usize) -> Option<usize> {
     if prev_char(line, i).is_some_and(char::is_alphanumeric) {
         return None;
     }
-    let mut n = s.find(|c: char| c.is_whitespace() || c == '<').unwrap_or(s.len());
-    while n > 0 && matches!(s.as_bytes()[n - 1], b'.' | b',' | b';' | b':' | b')' | b']' | b'!' | b'?' | b'\'' | b'"') {
+    let mut n = s
+        .find(|c: char| c.is_whitespace() || c == '<')
+        .unwrap_or(s.len());
+    while n > 0
+        && matches!(
+            s.as_bytes()[n - 1],
+            b'.' | b',' | b';' | b':' | b')' | b']' | b'!' | b'?' | b'\'' | b'"'
+        )
+    {
         n -= 1;
     }
     Some(n)
@@ -384,7 +392,12 @@ mod tests {
                 let mut ls = LineSpans::new();
                 state = MarkdownHighlighter.highlight_line(line, state, &mut ls);
                 ls.iter()
-                    .map(|s| (line[s.byte_start as usize..s.byte_end as usize].to_string(), s.class))
+                    .map(|s| {
+                        (
+                            line[s.byte_start as usize..s.byte_end as usize].to_string(),
+                            s.class,
+                        )
+                    })
                     .collect()
             })
             .collect()
@@ -408,7 +421,17 @@ mod tests {
     fn task_list_and_inline() {
         let r = spans("- [x] **Жирный** и `код`, [ссылка](http://x.y)");
         let parts: Vec<&str> = r[0].iter().map(|(s, _)| s.as_str()).collect();
-        assert_eq!(parts, ["- ", "[x]", "**Жирный**", "`код`", "[ссылка]", "(http://x.y)"]);
+        assert_eq!(
+            parts,
+            [
+                "- ",
+                "[x]",
+                "**Жирный**",
+                "`код`",
+                "[ссылка]",
+                "(http://x.y)"
+            ]
+        );
     }
 
     #[test]
@@ -430,7 +453,10 @@ mod tests {
         let r = spans("## Заголовок\n<!-- a\nb --> *c*");
         assert_eq!(r[0][0].1, HEADING);
         assert_eq!(r[1][0].1, MUTED);
-        assert_eq!(r[2], vec![("b -->".to_string(), MUTED), ("*c*".to_string(), ITALIC)]);
+        assert_eq!(
+            r[2],
+            vec![("b -->".to_string(), MUTED), ("*c*".to_string(), ITALIC)]
+        );
     }
 
     #[test]

@@ -126,13 +126,19 @@ impl RecordingSession {
     }
 
     pub fn start_with_device(&self, preferred: Option<&str>) -> Result<(), AudioError> {
-        self.start_with_options(super::recorder::RecorderOptions { device: preferred.map(str::to_string), ..Default::default() })
+        self.start_with_options(super::recorder::RecorderOptions {
+            device: preferred.map(str::to_string),
+            ..Default::default()
+        })
     }
 
     /// Запуск с параметрами записи: узел PipeWire (`pipewire_node`, как у
     /// диктофона — источник явно, без пересчёта частоты через устройство ALSA
     /// по умолчанию), без отбрасывания начала (`warmup`) и т. п.
-    pub fn start_with_options(&self, opts: super::recorder::RecorderOptions) -> Result<(), AudioError> {
+    pub fn start_with_options(
+        &self,
+        opts: super::recorder::RecorderOptions,
+    ) -> Result<(), AudioError> {
         if self.is_active() {
             return Err(AudioError::Cpal(
                 "сессия уже активна — вызовите stop() перед повторным start()".into(),

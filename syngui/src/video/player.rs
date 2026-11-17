@@ -278,7 +278,9 @@ impl VideoPlayer {
             return Ok(());
         }
         if !self.decoder.set_audio_track(stream_index) {
-            return Err(VideoError::Other(format!("нет звуковой дорожки {stream_index}")));
+            return Err(VideoError::Other(format!(
+                "нет звуковой дорожки {stream_index}"
+            )));
         }
         let pos = self.position_sec();
         self.seek(pos)
@@ -303,7 +305,8 @@ impl VideoPlayer {
         if !store.select(source) {
             return false;
         }
-        let bitmap = source.is_some_and(|s| store.tracks().iter().any(|t| t.source == *s && t.bitmap));
+        let bitmap =
+            source.is_some_and(|s| store.tracks().iter().any(|t| t.source == *s && t.bitmap));
         if bitmap {
             let pos = self.position_sec();
             if let Err(e) = self.seek(pos) {

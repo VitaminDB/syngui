@@ -5600,7 +5600,8 @@ impl Element for DocumentEditorElement {
         // И всю ширину: колонка центрируется внутри корня, а без этого
         // корень ужимался до самого широкого блока (760 px) и вставал к
         // левому краю.
-        let min_w = (!self.layout.free && parent_width.is_finite() && parent_width > 0.0).then_some(parent_width);
+        let min_w = (!self.layout.free && parent_width.is_finite() && parent_width > 0.0)
+            .then_some(parent_width);
         (min_w, None, min_h, None)
     }
 

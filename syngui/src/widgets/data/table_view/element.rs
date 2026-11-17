@@ -2083,13 +2083,24 @@ impl TableViewElement {
     /// непрозрачный, иначе поверхность темы (у таблицы с прозрачным фоном
     /// меню иначе просвечивало бы).
     fn popup_colors(&self) -> (Color, Color, Color, Color) {
-        let bg = self.popup_bg.unwrap_or_else(|| match self.mss.background_color {
-            Some(c) if c.a > 0.95 => c,
-            _ => crate::theme_fallback::fallback_surface().with_alpha(1.0),
-        });
-        let fg = self.popup_fg.or(self.mss.color).unwrap_or_else(crate::theme_fallback::fallback_fg_strong);
-        let border = self.popup_border.or(self.mss.border_color).unwrap_or_else(crate::theme_fallback::fallback_border);
-        let hover = self.popup_hover_bg.or(self.row_hover_bg).unwrap_or_else(|| bg.darken(0.06));
+        let bg = self
+            .popup_bg
+            .unwrap_or_else(|| match self.mss.background_color {
+                Some(c) if c.a > 0.95 => c,
+                _ => crate::theme_fallback::fallback_surface().with_alpha(1.0),
+            });
+        let fg = self
+            .popup_fg
+            .or(self.mss.color)
+            .unwrap_or_else(crate::theme_fallback::fallback_fg_strong);
+        let border = self
+            .popup_border
+            .or(self.mss.border_color)
+            .unwrap_or_else(crate::theme_fallback::fallback_border);
+        let hover = self
+            .popup_hover_bg
+            .or(self.row_hover_bg)
+            .unwrap_or_else(|| bg.darken(0.06));
         (bg, fg, border, hover)
     }
 
@@ -4876,12 +4887,23 @@ mod virtual_source_tests {
     use crate::testing::TestHarness;
 
     fn virt(prefix: &'static str) -> TableView {
-        TableView::virtual_new(vec![TableColumn::new("A")], 3, move |i| vec![format!("{prefix} {i}")]).row_height(20.0).header_height(20.0)
+        TableView::virtual_new(vec![TableColumn::new("A")], 3, move |i| {
+            vec![format!("{prefix} {i}")]
+        })
+        .row_height(20.0)
+        .header_height(20.0)
     }
 
     fn cell0(h: &mut TestHarness) -> Option<String> {
         let root = h.root_id;
-        let el = h.tree.get_mut(root).unwrap().as_any_mut().unwrap().downcast_mut::<TableViewElement>().unwrap();
+        let el = h
+            .tree
+            .get_mut(root)
+            .unwrap()
+            .as_any_mut()
+            .unwrap()
+            .downcast_mut::<TableViewElement>()
+            .unwrap();
         el.ensure_cached_for_viewport();
         el.row_cache.get(&0).and_then(|r| r.first().cloned())
     }

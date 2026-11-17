@@ -253,7 +253,8 @@ impl VideoSink {
     }
 
     fn send(&self, frame: VideoFrame) -> Result<(), ()> {
-        self.generation.fetch_max(frame.seek_generation, Ordering::AcqRel);
+        self.generation
+            .fetch_max(frame.seek_generation, Ordering::AcqRel);
         if self.filtering() {
             if let Some(stage) = self.stage() {
                 self.pending.fetch_add(1, Ordering::AcqRel);
@@ -649,14 +650,21 @@ impl VideoDecoder {
     /// чтобы звук совпал с картинкой, следом нужна перемотка на текущую
     /// позицию — [`super::VideoPlayer::set_audio_track`] делает это сам.
     pub fn set_audio_track(&self, stream_index: usize) -> bool {
-        if !self.meta.audio_tracks.iter().any(|t| t.stream_index == stream_index) {
+        if !self
+            .meta
+            .audio_tracks
+            .iter()
+            .any(|t| t.stream_index == stream_index)
+        {
             return false;
         }
         if self.audio_track() == Some(stream_index) {
             return true;
         }
         self.audio_track.store(stream_index, Ordering::Release);
-        self.cmd_tx.send(DecoderCmd::SetAudioTrack(stream_index)).is_ok()
+        self.cmd_tx
+            .send(DecoderCmd::SetAudioTrack(stream_index))
+            .is_ok()
     }
 
     /// Кадры 4:2:0 8 бит отдавать в YUV ([`VideoFrame::yuv`]): перевод
@@ -814,7 +822,10 @@ fn read_meta(ictx: &Input) -> Result<VideoMeta, VideoError> {
                 .ok()?;
             let tags = s.metadata();
             let tag = |k: &str| {
-                tags.get(k).map(str::trim).filter(|v| !v.is_empty() && *v != "und").map(String::from)
+                tags.get(k)
+                    .map(str::trim)
+                    .filter(|v| !v.is_empty() && *v != "und")
+                    .map(String::from)
             };
             Some(AudioStreamInfo {
                 stream_index: s.index(),
@@ -823,7 +834,9 @@ fn read_meta(ictx: &Input) -> Result<VideoMeta, VideoError> {
                 codec: codec_display_name(par.id()),
                 channels: dec.channels(),
                 sample_rate: dec.rate(),
-                default: s.disposition().contains(ffmpeg_next::format::stream::Disposition::DEFAULT),
+                default: s
+                    .disposition()
+                    .contains(ffmpeg_next::format::stream::Disposition::DEFAULT),
             })
         })
         .collect();
@@ -964,7 +977,10 @@ fn run_decoder_thread(
         .index();
     let a_idx = ictx.streams().best(MediaType::Audio).map(|s| s.index());
     // Параметры видео для запасного программного декодера (см. ниже).
-    let sw_params = ictx.stream(v_idx).ok_or(VideoError::NoVideoStream)?.parameters();
+    let sw_params = ictx
+        .stream(v_idx)
+        .ok_or(VideoError::NoVideoStream)?
+        .parameters();
     // Параметры всех звуковых дорожек: демуксер уходит в поток чтения, а
     // дорожку можно сменить на ходу (`DecoderCmd::SetAudioTrack`).
     let audio_streams: Vec<(usize, ffmpeg_next::codec::Parameters, ffmpeg_next::Rational)> = ictx
@@ -983,8 +999,16 @@ fn run_decoder_thread(
     #[cfg(target_os = "android")]
     let v_fps = {
         let r = v_stream.avg_frame_rate();
-        let r = if r.denominator() != 0 && r.numerator() > 0 { r } else { v_stream.rate() };
-        if r.denominator() != 0 { r.numerator() as f32 / r.denominator() as f32 } else { 0.0 }
+        let r = if r.denominator() != 0 && r.numerator() > 0 {
+            r
+        } else {
+            v_stream.rate()
+        };
+        if r.denominator() != 0 {
+            r.numerator() as f32 / r.denominator() as f32
+        } else {
+            0.0
+        }
     };
 
     let mut codec_ctx = ffmpeg_next::codec::context::Context::from_parameters(v_params)
@@ -1046,10 +1070,13 @@ fn run_decoder_thread(
             }
             Err(e) => {
                 log::warn!("hwaccel: init {} упал, fallback на sw: {e}", accel.label());
-                fallback_reason = Some(format!("{}: {e}", hw_display_name(match accel {
-                    HwAccel::Auto => HwAccel::platform_default().label(),
-                    a => a.label(),
-                })));
+                fallback_reason = Some(format!(
+                    "{}: {e}",
+                    hw_display_name(match accel {
+                        HwAccel::Auto => HwAccel::platform_default().label(),
+                        a => a.label(),
+                    })
+                ));
                 None
             }
         }
@@ -1117,10 +1144,13 @@ fn run_decoder_thread(
                     }
                     Err(e) => {
                         log::warn!("hwaccel: «{name}» не открылся ({e}) — fallback на sw");
-                        fallback_reason = Some(format!("{}: {e}", hw_display_name(match accel {
-                    HwAccel::Auto => HwAccel::platform_default().label(),
-                    a => a.label(),
-                })));
+                        fallback_reason = Some(format!(
+                            "{}: {e}",
+                            hw_display_name(match accel {
+                                HwAccel::Auto => HwAccel::platform_default().label(),
+                                a => a.label(),
+                            })
+                        ));
                         let v_params = ictx
                             .stream(v_idx)
                             .ok_or(VideoError::NoVideoStream)?
@@ -1421,7 +1451,10 @@ fn run_decoder_thread(
                                 log::warn!(
                                     "hwaccel: {hw_label} не декодирует ({e}) — перехожу на программное декодирование"
                                 );
-                                stages.set_info(|i| i.hw_fallback = Some(format!("{}: {e}", hw_display_name(hw_label))));
+                                stages.set_info(|i| {
+                                    i.hw_fallback =
+                                        Some(format!("{}: {e}", hw_display_name(hw_label)))
+                                });
                                 v_dec = VDec::Ff(d);
                                 hw = None;
                                 hw_codec_active = false;
@@ -1463,7 +1496,10 @@ fn open_sw_video(
     let mut ctx = ffmpeg_next::codec::context::Context::from_parameters(params.clone())
         .map_err(|e| VideoError::DecoderInit(format!("video params: {e}")))?;
     unsafe {
-        (*ctx.as_mut_ptr()).pkt_timebase = ffi::AVRational { num: tb.numerator(), den: tb.denominator() };
+        (*ctx.as_mut_ptr()).pkt_timebase = ffi::AVRational {
+            num: tb.numerator(),
+            den: tb.denominator(),
+        };
     }
     ctx.decoder()
         .video()

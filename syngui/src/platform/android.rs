@@ -46,7 +46,8 @@ pub(crate) unsafe fn init(
         &cls,
         &[NativeMethod {
             name: "nativeOnPicked".into(),
-            sig: "(JLjava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;)V".into(),
+            sig: "(JLjava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;)V"
+                .into(),
             fn_ptr: native_on_picked as *mut std::ffi::c_void,
         }],
     )
@@ -107,9 +108,14 @@ pub(super) fn pick_media(kind: MediaKind, cb: PickCallback) {
         MediaKind::ImageOrVideo => 2,
     };
     let r = with_env(|env, cls| {
-        env.call_static_method(cls, "pickMedia", "(JI)V", &[JValue::Long(id as jlong), JValue::Int(kind)])
-            .map(|_| ())
-            .map_err(|e| format!("pickMedia: {e}"))
+        env.call_static_method(
+            cls,
+            "pickMedia",
+            "(JI)V",
+            &[JValue::Long(id as jlong), JValue::Int(kind)],
+        )
+        .map(|_| ())
+        .map_err(|e| format!("pickMedia: {e}"))
     });
     if let Err(e) = r {
         deliver(id, Err(e));
@@ -153,8 +159,8 @@ extern "system" fn native_on_picked<'l>(
                 .map(|n| n.to_string_lossy().into_owned())
                 .unwrap_or_default()
         });
-        let mime = opt_string(&mut env, &mime)
-            .unwrap_or_else(|| super::mime_for_path(&path).to_string());
+        let mime =
+            opt_string(&mut env, &mime).unwrap_or_else(|| super::mime_for_path(&path).to_string());
         Ok(Some(PickedFile { path, name, mime }))
     } else {
         Ok(None)
@@ -180,7 +186,10 @@ fn call_status(method: &str, sig: &str, args: &[&str]) -> Result<(), String> {
             Ok(())
         } else {
             let s = JString::from(ret);
-            Err(env.get_string(&s).map(|s| s.into()).unwrap_or_else(|_| format!("{method}: ошибка")))
+            Err(env
+                .get_string(&s)
+                .map(|s| s.into())
+                .unwrap_or_else(|_| format!("{method}: ошибка")))
         }
     })
 }
@@ -197,13 +206,20 @@ pub(super) fn share_file(path: &Path, mime: &str, title: &str) -> Result<(), Str
 }
 
 pub(super) fn open_path(path: &Path) -> Result<(), String> {
-    call_status("openPath", "(Ljava/lang/String;)Ljava/lang/String;", &[&path.to_string_lossy()])
+    call_status(
+        "openPath",
+        "(Ljava/lang/String;)Ljava/lang/String;",
+        &[&path.to_string_lossy()],
+    )
 }
 
 /// Декодировать картинку (HEIF/AVIF) системным `ImageDecoder`: RGBA8,
 /// ширина, высота и признак умноженной альфы. `max_side` > 0 — большая
 /// сторона уменьшается до него при декодировании.
-pub(crate) fn decode_image(bytes: &[u8], max_side: u32) -> Result<(u32, u32, Vec<u8>, bool), String> {
+pub(crate) fn decode_image(
+    bytes: &[u8],
+    max_side: u32,
+) -> Result<(u32, u32, Vec<u8>, bool), String> {
     use jni::objects::{JByteArray, JObjectArray};
     with_env(|env, cls| {
         // Локальный кадр: поток декодирования прикреплён навсегда, ссылки
@@ -269,7 +285,10 @@ pub(crate) fn set_system_bars(bars: &super::SystemBars) -> Result<(), String> {
             Ok(())
         } else {
             let s = JString::from(ret);
-            Err(env.get_string(&s).map(|s| s.into()).unwrap_or_else(|_| "setSystemBars: ошибка".into()))
+            Err(env
+                .get_string(&s)
+                .map(|s| s.into())
+                .unwrap_or_else(|_| "setSystemBars: ошибка".into()))
         }
     })
 }
@@ -282,7 +301,10 @@ static SAFE_AREA_RECHECK_UNTIL: std::sync::atomic::AtomicU64 = std::sync::atomic
 
 fn now_ms() -> u64 {
     static START: std::sync::OnceLock<std::time::Instant> = std::sync::OnceLock::new();
-    START.get_or_init(std::time::Instant::now).elapsed().as_millis() as u64
+    START
+        .get_or_init(std::time::Instant::now)
+        .elapsed()
+        .as_millis() as u64
 }
 
 /// Полноэкранный режим (прятать строку состояния и панель навигации). Запоминается и
@@ -308,7 +330,12 @@ fn apply_fullscreen() {
     }
     let r = with_env(|env, cls| {
         let ret = env
-            .call_static_method(cls, "setFullscreen", "(Z)Ljava/lang/String;", &[JValue::Bool((state == 2) as u8)])
+            .call_static_method(
+                cls,
+                "setFullscreen",
+                "(Z)Ljava/lang/String;",
+                &[JValue::Bool((state == 2) as u8)],
+            )
             .map_err(|e| format!("setFullscreen: {e}"))?
             .l()
             .map_err(|e| format!("setFullscreen: {e}"))?;
@@ -316,7 +343,10 @@ fn apply_fullscreen() {
             Ok(())
         } else {
             let s = JString::from(ret);
-            Err(env.get_string(&s).map(|s| s.into()).unwrap_or_else(|_| "setFullscreen: ошибка".into()))
+            Err(env
+                .get_string(&s)
+                .map(|s| s.into())
+                .unwrap_or_else(|_| "setFullscreen: ошибка".into()))
         }
     });
     match r {

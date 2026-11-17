@@ -31,7 +31,35 @@ pub enum Language {
 
 impl Language {
     /// Все языки (для выбора в интерфейсе).
-    pub const ALL: &'static [Language] = &[Language::Rust, Language::Json, Language::Toml, Language::Markdown, Language::TypeScript, Language::Tsx, Language::Python, Language::C, Language::Cpp, Language::Asm, Language::Shell, Language::Go, Language::JavaScript, Language::Java, Language::CSharp, Language::Lua, Language::Yaml, Language::Html, Language::Css, Language::Xml, Language::Sql, Language::Diff, Language::Ruby, Language::Kotlin, Language::Swift, Language::Php, Language::PlainText];
+    pub const ALL: &'static [Language] = &[
+        Language::Rust,
+        Language::Json,
+        Language::Toml,
+        Language::Markdown,
+        Language::TypeScript,
+        Language::Tsx,
+        Language::Python,
+        Language::C,
+        Language::Cpp,
+        Language::Asm,
+        Language::Shell,
+        Language::Go,
+        Language::JavaScript,
+        Language::Java,
+        Language::CSharp,
+        Language::Lua,
+        Language::Yaml,
+        Language::Html,
+        Language::Css,
+        Language::Xml,
+        Language::Sql,
+        Language::Diff,
+        Language::Ruby,
+        Language::Kotlin,
+        Language::Swift,
+        Language::Php,
+        Language::PlainText,
+    ];
 
     /// Расширение файла для `synoptic::from_extension` (`txt` — без подсветки).
     pub fn extension(self) -> &'static str {

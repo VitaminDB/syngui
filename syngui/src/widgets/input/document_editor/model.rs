@@ -33,7 +33,11 @@ impl DocModel {
     }
 
     pub fn with_blocks(blocks: Vec<DocBlock>, next_id: u64) -> Self {
-        Self { blocks, next_id, source: None }
+        Self {
+            blocks,
+            next_id,
+            source: None,
+        }
     }
 
     /// Выдаёт следующий свободный id блока.

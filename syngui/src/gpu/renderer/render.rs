@@ -98,17 +98,25 @@ impl Renderer {
         // посчитанный под старый размер, вылез бы за цель (ножницы шире
         // текстуры — паника wgpu). Пропустить кадр — следующий придёт с
         // новым размером.
-        let (tw, th) = (surface_texture.texture.width(), surface_texture.texture.height());
+        let (tw, th) = (
+            surface_texture.texture.width(),
+            surface_texture.texture.height(),
+        );
         // Не дольше нескольких кадров подряд: если размер так и не сойдётся,
         // лучше кадр с обрезкой, чем замершее окно (ножницы зажимаются ниже
         // только по размеру рендерера).
         static SKIPPED: std::sync::atomic::AtomicU32 = std::sync::atomic::AtomicU32::new(0);
-        let mismatch = (tw != self.width || th != self.height) && (tw < self.width || th < self.height);
+        let mismatch =
+            (tw != self.width || th != self.height) && (tw < self.width || th < self.height);
         if !mismatch {
             SKIPPED.store(0, std::sync::atomic::Ordering::Relaxed);
         }
         if mismatch && SKIPPED.fetch_add(1, std::sync::atomic::Ordering::Relaxed) < 30 {
-            log::debug!("кадр пропущен: поверхность {tw}×{th}, рендерер {}×{}", self.width, self.height);
+            log::debug!(
+                "кадр пропущен: поверхность {tw}×{th}, рендерер {}×{}",
+                self.width,
+                self.height
+            );
             drop(surface_texture);
             crate::signal::request_redraw();
             return RenderStats::default();
@@ -351,8 +359,19 @@ impl Renderer {
                     ops: wgpu::Operations {
                         load: wgpu::LoadOp::Clear({
                             // не-sRGB цель: цвет очистки кодируется сам (как выход шейдеров)
-                            let e = |c: f32| if super::encodes_srgb_output(self.surface_format) { super::linear_to_srgb(c as f64) } else { c as f64 };
-                            wgpu::Color { r: e(background_color.r), g: e(background_color.g), b: e(background_color.b), a: background_color.a as f64 }
+                            let e = |c: f32| {
+                                if super::encodes_srgb_output(self.surface_format) {
+                                    super::linear_to_srgb(c as f64)
+                                } else {
+                                    c as f64
+                                }
+                            };
+                            wgpu::Color {
+                                r: e(background_color.r),
+                                g: e(background_color.g),
+                                b: e(background_color.b),
+                                a: background_color.a as f64,
+                            }
                         }),
                         store: wgpu::StoreOp::Store,
                     },
@@ -419,7 +438,13 @@ impl Renderer {
                                         );
                                     }
                                     ShaderType::Text | ShaderType::TextMono => {
-                                        render_pass.set_pipeline(if current_pipeline == ShaderType::TextMono { &self.text_mono_pipeline } else { &self.text_pipeline });
+                                        render_pass.set_pipeline(
+                                            if current_pipeline == ShaderType::TextMono {
+                                                &self.text_mono_pipeline
+                                            } else {
+                                                &self.text_pipeline
+                                            },
+                                        );
                                         render_pass.set_bind_group(
                                             0,
                                             &self.uniform_bind_group,

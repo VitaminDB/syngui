@@ -15,7 +15,9 @@ use super::{SubText, SubtitleSource, SubtitleTrackInfo};
 pub const EXTENSIONS: &[&str] = &["srt", "ass", "ssa", "vtt"];
 
 fn is_sub_file(p: &Path) -> bool {
-    p.extension().and_then(|e| e.to_str()).is_some_and(|e| EXTENSIONS.iter().any(|x| x.eq_ignore_ascii_case(e)))
+    p.extension()
+        .and_then(|e| e.to_str())
+        .is_some_and(|e| EXTENSIONS.iter().any(|x| x.eq_ignore_ascii_case(e)))
 }
 
 /// Найденный файл и что о нём известно по имени.
@@ -55,14 +57,19 @@ fn language_of(word: &str) -> Option<&'static str> {
 pub fn describe(path: &Path, stem: Option<&str>) -> SubtitleTrackInfo {
     let file_stem = path.file_stem().and_then(|s| s.to_str()).unwrap_or("");
     let tail = match stem {
-        Some(s) if file_stem.len() >= s.len() && file_stem[..s.len()].eq_ignore_ascii_case(s) => &file_stem[s.len()..],
+        Some(s) if file_stem.len() >= s.len() && file_stem[..s.len()].eq_ignore_ascii_case(s) => {
+            &file_stem[s.len()..]
+        }
         _ => file_stem,
     };
     let mut language = None;
     let mut forced = false;
     let mut sdh = false;
     let mut title_words: Vec<&str> = Vec::new();
-    for word in tail.split(|c: char| c == '.' || c == '_' || c == '[' || c == ']' || c == '(' || c == ')').filter(|w| !w.trim().is_empty()) {
+    for word in tail
+        .split(|c: char| c == '.' || c == '_' || c == '[' || c == ']' || c == '(' || c == ')')
+        .filter(|w| !w.trim().is_empty())
+    {
         let lw = word.trim().to_lowercase();
         if lw == "forced" || lw == "надписи" {
             forced = true;
@@ -81,12 +88,25 @@ pub fn describe(path: &Path, stem: Option<&str>) -> SubtitleTrackInfo {
     }
     // Язык из имени папки: «Subs/RUS/…», «Russian/…».
     if language.is_none() {
-        if let Some(dir) = path.parent().and_then(|d| d.file_name()).and_then(|d| d.to_str()) {
-            language = dir.split(|c: char| !c.is_alphanumeric()).find_map(language_of);
+        if let Some(dir) = path
+            .parent()
+            .and_then(|d| d.file_name())
+            .and_then(|d| d.to_str())
+        {
+            language = dir
+                .split(|c: char| !c.is_alphanumeric())
+                .find_map(language_of);
         }
     }
-    let title = Some(title_words.join(" ")).map(|t| t.trim().to_string()).filter(|t| !t.is_empty());
-    let codec = match path.extension().and_then(|e| e.to_str()).map(|e| e.to_ascii_lowercase()).as_deref() {
+    let title = Some(title_words.join(" "))
+        .map(|t| t.trim().to_string())
+        .filter(|t| !t.is_empty());
+    let codec = match path
+        .extension()
+        .and_then(|e| e.to_str())
+        .map(|e| e.to_ascii_lowercase())
+        .as_deref()
+    {
         Some("ass") => "ASS",
         Some("ssa") => "SSA",
         Some("vtt") => "WebVTT",
@@ -106,13 +126,18 @@ pub fn describe(path: &Path, stem: Option<&str>) -> SubtitleTrackInfo {
 
 /// Файлы субтитров к ролику `video` (см. описание модуля), по имени.
 pub fn find(video: &Path) -> Vec<Found> {
-    let Some(dir) = video.parent() else { return Vec::new() };
-    let Some(stem) = video.file_stem().and_then(|s| s.to_str()) else { return Vec::new() };
+    let Some(dir) = video.parent() else {
+        return Vec::new();
+    };
+    let Some(stem) = video.file_stem().and_then(|s| s.to_str()) else {
+        return Vec::new();
+    };
     let matches_stem = |p: &Path| {
         p.file_stem().and_then(|s| s.to_str()).is_some_and(|s| {
             s.len() >= stem.len()
                 && s[..stem.len()].eq_ignore_ascii_case(stem)
-                && (s.len() == stem.len() || matches!(s.as_bytes()[stem.len()], b'.' | b'_' | b' ' | b'-' | b'['))
+                && (s.len() == stem.len()
+                    || matches!(s.as_bytes()[stem.len()], b'.' | b'_' | b' ' | b'-' | b'['))
         })
     };
     let mut out: Vec<Found> = Vec::new();
@@ -123,7 +148,9 @@ pub fn find(video: &Path) -> Vec<Found> {
         }
     };
     let read = |d: &Path| -> Vec<PathBuf> {
-        let mut v: Vec<PathBuf> = std::fs::read_dir(d).map(|r| r.flatten().map(|e| e.path()).collect()).unwrap_or_default();
+        let mut v: Vec<PathBuf> = std::fs::read_dir(d)
+            .map(|r| r.flatten().map(|e| e.path()).collect())
+            .unwrap_or_default();
         v.sort();
         v
     };
@@ -145,7 +172,10 @@ pub fn find(video: &Path) -> Vec<Found> {
             if p.is_file() && is_sub_file(&p) && matches_stem(&p) {
                 push(p, &mut out);
             } else if p.is_dir() {
-                let named_as_video = p.file_name().and_then(|n| n.to_str()).is_some_and(|n| n.eq_ignore_ascii_case(stem));
+                let named_as_video = p
+                    .file_name()
+                    .and_then(|n| n.to_str())
+                    .is_some_and(|n| n.eq_ignore_ascii_case(stem));
                 for q in read(&p) {
                     if q.is_file() && is_sub_file(&q) && (named_as_video || matches_stem(&q)) {
                         push(q, &mut out);
@@ -168,7 +198,13 @@ pub fn decode_text(bytes: &[u8]) -> String {
         let le = bytes[0] == 0xFF;
         let units: Vec<u16> = bytes[2..]
             .chunks_exact(2)
-            .map(|c| if le { u16::from_le_bytes([c[0], c[1]]) } else { u16::from_be_bytes([c[0], c[1]]) })
+            .map(|c| {
+                if le {
+                    u16::from_le_bytes([c[0], c[1]])
+                } else {
+                    u16::from_be_bytes([c[0], c[1]])
+                }
+            })
             .collect();
         return String::from_utf16_lossy(&units);
     }
@@ -176,7 +212,11 @@ pub fn decode_text(bytes: &[u8]) -> String {
         return s.to_string();
     }
     let high = bytes.iter().filter(|&&b| b >= 0xC0).count();
-    let letters = bytes.iter().filter(|&&b| b.is_ascii_alphabetic() || b >= 0xC0).count().max(1);
+    let letters = bytes
+        .iter()
+        .filter(|&&b| b.is_ascii_alphabetic() || b >= 0xC0)
+        .count()
+        .max(1);
     if high * 3 >= letters {
         bytes.iter().map(|&b| cp1251(b)).collect()
     } else {
@@ -187,10 +227,14 @@ pub fn decode_text(bytes: &[u8]) -> String {
 
 fn cp1251(b: u8) -> char {
     const HI: [u16; 64] = [
-        0x0402, 0x0403, 0x201A, 0x0453, 0x201E, 0x2026, 0x2020, 0x2021, 0x20AC, 0x2030, 0x0409, 0x2039, 0x040A, 0x040C, 0x040B, 0x040F, //
-        0x0452, 0x2018, 0x2019, 0x201C, 0x201D, 0x2022, 0x2013, 0x2014, 0xFFFD, 0x2122, 0x0459, 0x203A, 0x045A, 0x045C, 0x045B, 0x045F, //
-        0x00A0, 0x040E, 0x045E, 0x0408, 0x00A4, 0x0490, 0x00A6, 0x00A7, 0x0401, 0x00A9, 0x0404, 0x00AB, 0x00AC, 0x00AD, 0x00AE, 0x0407, //
-        0x00B0, 0x00B1, 0x0406, 0x0456, 0x0491, 0x00B5, 0x00B6, 0x00B7, 0x0451, 0x2116, 0x0454, 0x00BB, 0x0458, 0x0405, 0x0455, 0x0457,
+        0x0402, 0x0403, 0x201A, 0x0453, 0x201E, 0x2026, 0x2020, 0x2021, 0x20AC, 0x2030, 0x0409,
+        0x2039, 0x040A, 0x040C, 0x040B, 0x040F, //
+        0x0452, 0x2018, 0x2019, 0x201C, 0x201D, 0x2022, 0x2013, 0x2014, 0xFFFD, 0x2122, 0x0459,
+        0x203A, 0x045A, 0x045C, 0x045B, 0x045F, //
+        0x00A0, 0x040E, 0x045E, 0x0408, 0x00A4, 0x0490, 0x00A6, 0x00A7, 0x0401, 0x00A9, 0x0404,
+        0x00AB, 0x00AC, 0x00AD, 0x00AE, 0x0407, //
+        0x00B0, 0x00B1, 0x0406, 0x0456, 0x0491, 0x00B5, 0x00B6, 0x00B7, 0x0451, 0x2116, 0x0454,
+        0x00BB, 0x0458, 0x0405, 0x0455, 0x0457,
     ];
     match b {
         0..=0x7F => b as char,
@@ -201,8 +245,10 @@ fn cp1251(b: u8) -> char {
 
 fn cp1252(b: u8) -> char {
     const HI: [u16; 32] = [
-        0x20AC, 0xFFFD, 0x201A, 0x0192, 0x201E, 0x2026, 0x2020, 0x2021, 0x02C6, 0x2030, 0x0160, 0x2039, 0x0152, 0xFFFD, 0x017D, 0xFFFD, //
-        0xFFFD, 0x2018, 0x2019, 0x201C, 0x201D, 0x2022, 0x2013, 0x2014, 0x02DC, 0x2122, 0x0161, 0x203A, 0x0153, 0xFFFD, 0x017E, 0x0178,
+        0x20AC, 0xFFFD, 0x201A, 0x0192, 0x201E, 0x2026, 0x2020, 0x2021, 0x02C6, 0x2030, 0x0160,
+        0x2039, 0x0152, 0xFFFD, 0x017D, 0xFFFD, //
+        0xFFFD, 0x2018, 0x2019, 0x201C, 0x201D, 0x2022, 0x2013, 0x2014, 0x02DC, 0x2122, 0x0161,
+        0x203A, 0x0153, 0xFFFD, 0x017E, 0x0178,
     ];
     match b {
         0x80..=0x9F => char::from_u32(HI[(b - 0x80) as usize] as u32).unwrap_or('\u{FFFD}'),
@@ -221,14 +267,27 @@ pub struct Parsed {
 pub fn load(path: &Path) -> Result<Parsed, String> {
     let bytes = std::fs::read(path).map_err(|e| e.to_string())?;
     let text = decode_text(&bytes);
-    let ext = path.extension().and_then(|e| e.to_str()).map(|e| e.to_ascii_lowercase()).unwrap_or_default();
+    let ext = path
+        .extension()
+        .and_then(|e| e.to_str())
+        .map(|e| e.to_ascii_lowercase())
+        .unwrap_or_default();
     let head = text.trim_start_matches('\u{FEFF}').trim_start();
     let parsed = if head.starts_with("WEBVTT") || ext == "vtt" {
-        Parsed { format: "WebVTT", events: parse_vtt(&text) }
+        Parsed {
+            format: "WebVTT",
+            events: parse_vtt(&text),
+        }
     } else if head.starts_with("[Script Info]") || ext == "ass" || ext == "ssa" {
-        Parsed { format: if ext == "ssa" { "SSA" } else { "ASS" }, events: parse_ass(&text) }
+        Parsed {
+            format: if ext == "ssa" { "SSA" } else { "ASS" },
+            events: parse_ass(&text),
+        }
     } else {
-        Parsed { format: "SRT", events: parse_srt(&text) }
+        Parsed {
+            format: "SRT",
+            events: parse_srt(&text),
+        }
     };
     if parsed.events.is_empty() {
         return Err("в файле нет ни одной строки субтитров".into());
@@ -242,7 +301,10 @@ fn parse_clock(s: &str) -> Option<f64> {
     let parts: Vec<&str> = s.split(':').collect();
     let sec: f64 = parts.last()?.trim().replace(',', ".").parse().ok()?;
     let (h, m) = match parts.len() {
-        3 => (parts[0].trim().parse::<f64>().ok()?, parts[1].trim().parse::<f64>().ok()?),
+        3 => (
+            parts[0].trim().parse::<f64>().ok()?,
+            parts[1].trim().parse::<f64>().ok()?,
+        ),
         2 => (0.0, parts[0].trim().parse::<f64>().ok()?),
         _ => return None,
     };
@@ -273,7 +335,10 @@ pub fn parse_srt(text: &str) -> Vec<(f64, f64, SubText)> {
         let mut body: Vec<&str> = Vec::new();
         while i < lines.len() && !lines[i].trim().is_empty() {
             // Следующая реплика без пустой строки между ними: номер и время.
-            if i + 1 < lines.len() && lines[i].trim().chars().all(|c| c.is_ascii_digit()) && parse_timing(lines[i + 1]).is_some() {
+            if i + 1 < lines.len()
+                && lines[i].trim().chars().all(|c| c.is_ascii_digit())
+                && parse_timing(lines[i + 1]).is_some()
+            {
                 break;
             }
             body.push(lines[i]);
@@ -321,7 +386,14 @@ pub fn parse_vtt(text: &str) -> Vec<(f64, f64, SubText)> {
             clean.push_str(&rest[..lt]);
             let after = &rest[lt..];
             match after.find('>') {
-                Some(gt) if after[1..gt].chars().next().is_some_and(|c| c.is_ascii_digit()) => rest = &after[gt + 1..],
+                Some(gt)
+                    if after[1..gt]
+                        .chars()
+                        .next()
+                        .is_some_and(|c| c.is_ascii_digit()) =>
+                {
+                    rest = &after[gt + 1..]
+                }
                 Some(gt) => {
                     clean.push_str(&after[..=gt]);
                     rest = &after[gt + 1..];
@@ -333,7 +405,11 @@ pub fn parse_vtt(text: &str) -> Vec<(f64, f64, SubText)> {
             }
         }
         clean.push_str(rest);
-        let clean = clean.replace("&amp;", "&").replace("&lt;", "‹").replace("&gt;", "›").replace("&nbsp;", "\u{a0}");
+        let clean = clean
+            .replace("&amp;", "&")
+            .replace("&lt;", "‹")
+            .replace("&gt;", "›")
+            .replace("&nbsp;", "\u{a0}");
         let markup = ass::srt_to_ass(&clean);
         if let Some(mut t) = ass::parse_text(&markup, "Default", &header, 0) {
             // «line:0» / «line:10%» — у верхнего края
@@ -364,8 +440,12 @@ pub fn parse_ass(text: &str) -> Vec<(f64, f64, SubText)> {
         if !line.starts_with("Dialogue:") {
             continue;
         }
-        let Some(d) = ass::parse_dialogue(line, &header.event_format) else { continue };
-        let (Some(start), Some(end)) = (d.start, d.end) else { continue };
+        let Some(d) = ass::parse_dialogue(line, &header.event_format) else {
+            continue;
+        };
+        let (Some(start), Some(end)) = (d.start, d.end) else {
+            continue;
+        };
         if let Some(t) = ass::parse_text(d.text, d.style, &header, d.layer) {
             if end > start {
                 out.push((start, end, t));
@@ -405,7 +485,9 @@ mod tests {
     #[test]
     fn cp1251_is_detected() {
         // «Привет, мир» в Windows-1251
-        let b: Vec<u8> = vec![0xCF, 0xF0, 0xE8, 0xE2, 0xE5, 0xF2, 0x2C, 0x20, 0xEC, 0xE8, 0xF0];
+        let b: Vec<u8> = vec![
+            0xCF, 0xF0, 0xE8, 0xE2, 0xE5, 0xF2, 0x2C, 0x20, 0xEC, 0xE8, 0xF0,
+        ];
         assert_eq!(decode_text(&b), "Привет, мир");
         // «café» в Windows-1252
         assert_eq!(decode_text(&[b'c', b'a', b'f', 0xE9]), "café");
@@ -431,12 +513,31 @@ mod tests {
         let _ = std::fs::remove_dir_all(&dir);
         std::fs::create_dir_all(dir.join("Subs/RUS")).unwrap();
         std::fs::create_dir_all(dir.join("Subs/Серия 1")).unwrap();
-        for f in ["Серия 1.mkv", "Серия 1.srt", "Серия 1.en.srt", "Серия 10.srt", "Subs/RUS/Серия 1.ass", "Subs/Серия 1/2_English.srt", "Subs/RUS/Серия 2.ass"] {
+        for f in [
+            "Серия 1.mkv",
+            "Серия 1.srt",
+            "Серия 1.en.srt",
+            "Серия 10.srt",
+            "Subs/RUS/Серия 1.ass",
+            "Subs/Серия 1/2_English.srt",
+            "Subs/RUS/Серия 2.ass",
+        ] {
             std::fs::write(dir.join(f), "1\n00:00:01,000 --> 00:00:02,000\nx\n").unwrap();
         }
         let found = find(&dir.join("Серия 1.mkv"));
-        let names: Vec<String> = found.iter().map(|f| f.path.strip_prefix(&dir).unwrap().display().to_string()).collect();
-        assert_eq!(names, vec!["Серия 1.en.srt", "Серия 1.srt", "Subs/RUS/Серия 1.ass", "Subs/Серия 1/2_English.srt"]);
+        let names: Vec<String> = found
+            .iter()
+            .map(|f| f.path.strip_prefix(&dir).unwrap().display().to_string())
+            .collect();
+        assert_eq!(
+            names,
+            vec![
+                "Серия 1.en.srt",
+                "Серия 1.srt",
+                "Subs/RUS/Серия 1.ass",
+                "Subs/Серия 1/2_English.srt"
+            ]
+        );
         assert_eq!(found[2].info.language.as_deref(), Some("rus"));
         assert_eq!(found[0].info.language.as_deref(), Some("eng"));
         let _ = std::fs::remove_dir_all(&dir);

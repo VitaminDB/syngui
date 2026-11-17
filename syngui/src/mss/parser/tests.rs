@@ -524,7 +524,8 @@ mod tests {
 
     #[test]
     fn test_parse_gallery_gradient_styles() {
-        let input = include_str!("../../../../examples/widget_gallery_mss/styles/pages/gradients.mss");
+        let input =
+            include_str!("../../../../examples/widget_gallery_mss/styles/pages/gradients.mss");
         let mut parser = MssParser::new(input);
         let (sheet, _warnings) = parser.parse().unwrap();
         let gradient_rules: Vec<_> = sheet
@@ -648,7 +649,8 @@ mod tests {
 
     #[test]
     fn test_parse_gallery_widgets_mss() {
-        let input = include_str!("../../../../examples/widget_gallery_mss/styles/components/widgets.mss");
+        let input =
+            include_str!("../../../../examples/widget_gallery_mss/styles/components/widgets.mss");
         let mut parser = MssParser::new(input);
         let (sheet, warnings) = parser.parse().unwrap();
         assert!(warnings.is_empty(), "Unexpected warnings: {:?}", warnings);
@@ -1151,9 +1153,18 @@ mod positions {
         assert_eq!(w.len(), 1, "{w:?}");
         assert_eq!((w[0].line, w[0].column), (5, 9));
         assert_eq!(&src[w[0].span.clone()], "1");
-        assert!(matches!(w[0].kind, ParseErrorKind::Expected { found: Some('1'), .. }));
+        assert!(matches!(
+            w[0].kind,
+            ParseErrorKind::Expected {
+                found: Some('1'),
+                ..
+            }
+        ));
         assert_eq!(w[0].message, "ожидалось «:», а встречено «1»");
-        assert_eq!(w[0].to_string(), "строка 6, столбец 10: ожидалось «:», а встречено «1»");
+        assert_eq!(
+            w[0].to_string(),
+            "строка 6, столбец 10: ожидалось «:», а встречено «1»"
+        );
         // Разбор продолжился: .a и .b на месте.
         assert_eq!(sheet.rules().len(), 2);
     }
@@ -1211,7 +1222,10 @@ mod positions {
             .parse_strict()
             .unwrap_err();
         assert_eq!((e.line, e.column), (1, 8));
-        assert_eq!(e.to_string(), "строка 2, столбец 9: ожидалось имя переменной вида --имя");
+        assert_eq!(
+            e.to_string(),
+            "строка 2, столбец 9: ожидалось имя переменной вида --имя"
+        );
     }
 }
 
@@ -1224,7 +1238,10 @@ mod registry {
         for e in properties::EASINGS {
             assert!(crate::animation::Easing::parse(e).is_some(), "кривая {e}");
         }
-        for f in FUNCTIONS.iter().filter(|f| f.group == FunctionGroup::Easing) {
+        for f in FUNCTIONS
+            .iter()
+            .filter(|f| f.group == FunctionGroup::Easing)
+        {
             let call = match f.name {
                 "cubic-bezier" => "cubic-bezier(0.2, 0, 0, 1)".to_string(),
                 "steps" => "steps(4)".to_string(),
@@ -1236,7 +1253,10 @@ mod registry {
 
     #[test]
     fn filter_functions_parse() {
-        for f in FUNCTIONS.iter().filter(|f| f.group == FunctionGroup::Filter) {
+        for f in FUNCTIONS
+            .iter()
+            .filter(|f| f.group == FunctionGroup::Filter)
+        {
             // Функции с особыми аргументами проверяются по имени в разборщике.
             let call = format!("{}(1)", f.name);
             let src = include_str!("../../effects/mod.rs");
@@ -1269,18 +1289,33 @@ mod registry {
 /// пропускалось целиком.
 #[test]
 fn shorthand_of_several_vars() {
-    let (sheet, warnings) = crate::mss::MssParser::new(":root { --a: 4px; --b: 9px; } .x { padding: var(--a) var(--b); color: red; }").parse().unwrap();
+    let (sheet, warnings) = crate::mss::MssParser::new(
+        ":root { --a: 4px; --b: 9px; } .x { padding: var(--a) var(--b); color: red; }",
+    )
+    .parse()
+    .unwrap();
     assert!(warnings.is_empty(), "{warnings:?}");
-    let rule = sheet.rules().iter().find(|r| r.selector_str == ".x").expect("правило .x");
-    assert!(matches!(rule.declarations.get("padding-top"), Some(crate::mss::StyleValue::Var(n)) if n == "--a"), "{:?}", rule.declarations);
-    assert!(matches!(rule.declarations.get("padding-right"), Some(crate::mss::StyleValue::Var(n)) if n == "--b"));
+    let rule = sheet
+        .rules()
+        .iter()
+        .find(|r| r.selector_str == ".x")
+        .expect("правило .x");
+    assert!(
+        matches!(rule.declarations.get("padding-top"), Some(crate::mss::StyleValue::Var(n)) if n == "--a"),
+        "{:?}",
+        rule.declarations
+    );
+    assert!(
+        matches!(rule.declarations.get("padding-right"), Some(crate::mss::StyleValue::Var(n)) if n == "--b")
+    );
     assert!(rule.declarations.contains_key("color"));
 }
 
 #[test]
 fn focus_within_is_parsed() {
-    let (sheet, warnings) = crate::mss::MssParser::new(".composer:focus-within { color: red; }").parse().unwrap();
+    let (sheet, warnings) = crate::mss::MssParser::new(".composer:focus-within { color: red; }")
+        .parse()
+        .unwrap();
     assert!(warnings.is_empty(), "{warnings:?}");
     assert_eq!(sheet.rules().len(), 1);
 }
-

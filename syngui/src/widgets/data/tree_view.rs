@@ -504,7 +504,11 @@ impl TreeViewElement {
         for para in text.lines() {
             let mut line = String::new();
             for word in para.split(' ') {
-                let cand = if line.is_empty() { word.to_string() } else { format!("{line} {word}") };
+                let cand = if line.is_empty() {
+                    word.to_string()
+                } else {
+                    format!("{line} {word}")
+                };
                 if !line.is_empty() && width(&cand) > max_w {
                     out.push(std::mem::take(&mut line));
                     line = word.to_string();
@@ -523,11 +527,15 @@ impl TreeViewElement {
     }
 
     fn draw_tip(&self, list: &mut DisplayList) {
-        let Some((i, pos, wait)) = self.tip else { return };
+        let Some((i, pos, wait)) = self.tip else {
+            return;
+        };
         if wait < TIP_DELAY_SECS {
             return;
         }
-        let Some(text) = self.flat_nodes.get(i).and_then(|n| n.tooltip.as_deref()) else { return };
+        let Some(text) = self.flat_nodes.get(i).and_then(|n| n.tooltip.as_deref()) else {
+            return;
+        };
         let fs = 12.0;
         let line_h = fs * 1.45;
         let pad = 8.0;
@@ -540,7 +548,10 @@ impl TreeViewElement {
         let w = lines.iter().map(|l| measure(l)).fold(0.0_f32, f32::max) + pad * 2.0;
         let h = lines.len() as f32 * line_h + pad * 2.0;
         // под курсором, не дальше правого края окна виджета (+ вылет вправо допустим)
-        let x = pos.x.min(self.bounds.x() + self.bounds.size.width + 200.0 - w).max(self.bounds.x());
+        let x = pos
+            .x
+            .min(self.bounds.x() + self.bounds.size.width + 200.0 - w)
+            .max(self.bounds.x());
         let mut y = pos.y + 18.0;
         if y + h > self.bounds.y() + self.bounds.size.height + 120.0 {
             y = (pos.y - h - 8.0).max(self.bounds.y());
@@ -551,7 +562,10 @@ impl TreeViewElement {
         list.begin_overlay();
         list.push_rect(rect, bg.with_alpha(0.95), [6.0; 4]);
         for (k, l) in lines.iter().enumerate() {
-            let r = Rect::new(Point::new(rect.x() + pad, rect.y() + pad + k as f32 * line_h), Size::new(w - pad * 2.0, line_h));
+            let r = Rect::new(
+                Point::new(rect.x() + pad, rect.y() + pad + k as f32 * line_h),
+                Size::new(w - pad * 2.0, line_h),
+            );
             list.push_text_singleline(l, r, fg, fs, TextAlign::DEFAULT, 400);
         }
         list.end_overlay();
@@ -708,7 +722,12 @@ impl TreeViewElement {
             return false;
         }
         let n = self.flat_nodes.len();
-        let cur = self.cursor.as_ref().filter(|c| self.selected.contains(c)).or(self.selected.first()).and_then(|id| self.flat_nodes.iter().position(|f| &f.id == id));
+        let cur = self
+            .cursor
+            .as_ref()
+            .filter(|c| self.selected.contains(c))
+            .or(self.selected.first())
+            .and_then(|id| self.flat_nodes.iter().position(|f| &f.id == id));
         let page = ((self.bounds.size.height / self.item_height.max(1.0)) as usize).max(1);
         let target = match key {
             Key::Down => Some(cur.map_or(0, |c| (c + 1).min(n - 1))),
@@ -720,7 +739,12 @@ impl TreeViewElement {
             Key::Left | Key::Right => {
                 let Some(c) = cur else { return false };
                 let node = &self.flat_nodes[c];
-                let (id, has, exp, depth) = (node.id.clone(), node.has_children, node.expanded, node.depth);
+                let (id, has, exp, depth) = (
+                    node.id.clone(),
+                    node.has_children,
+                    node.expanded,
+                    node.depth,
+                );
                 if key == Key::Right && has && !exp || key == Key::Left && has && exp {
                     toggle_node(&mut self.nodes, &id);
                     self.reflatten();
@@ -743,10 +767,16 @@ impl TreeViewElement {
         let Some(t) = target else { return true };
         let id = self.flat_nodes[t].id.clone();
         // Shift+стрелки — диапазон от начала выделения
-        let anchor_idx = self.anchor.as_ref().and_then(|a| self.flat_nodes.iter().position(|f| &f.id == a));
+        let anchor_idx = self
+            .anchor
+            .as_ref()
+            .and_then(|a| self.flat_nodes.iter().position(|f| &f.id == a));
         if self.selection_mode == SelectionMode::Multiple && m.shift && anchor_idx.is_some() {
             let a = anchor_idx.unwrap();
-            self.selected = self.flat_nodes[a.min(t)..=a.max(t)].iter().map(|f| f.id.clone()).collect();
+            self.selected = self.flat_nodes[a.min(t)..=a.max(t)]
+                .iter()
+                .map(|f| f.id.clone())
+                .collect();
         } else if self.selection_mode != SelectionMode::None {
             self.selected = vec![id.clone()];
             self.anchor = Some(id.clone());
@@ -804,15 +834,25 @@ impl TreeViewElement {
             return;
         };
         let text: Vec<char> = self.flat_nodes[i].label.chars().collect();
-        let stem = text.iter().rposition(|c| *c == '.').filter(|p| *p > 0).unwrap_or(text.len());
-        self.edit = Some(InlineEdit { id: id.to_string(), text, cursor: stem, anchor: 0 });
+        let stem = text
+            .iter()
+            .rposition(|c| *c == '.')
+            .filter(|p| *p > 0)
+            .unwrap_or(text.len());
+        self.edit = Some(InlineEdit {
+            id: id.to_string(),
+            text,
+            cursor: stem,
+            anchor: 0,
+        });
         self.focused = true;
         if self.rows.len() == self.flat_nodes.len() {
             let g = self.row_geometry(i);
             if g.top < self.scroll_offset {
                 self.scroll_offset = g.top;
             } else if g.top + g.height > self.scroll_offset + self.bounds.size.height {
-                self.scroll_offset = (g.top + g.height - self.bounds.size.height).clamp(0.0, self.max_scroll());
+                self.scroll_offset =
+                    (g.top + g.height - self.bounds.size.height).clamp(0.0, self.max_scroll());
             }
         }
     }
@@ -837,7 +877,10 @@ impl TreeViewElement {
         let y = self.bounds.y() + g.top - self.scroll_offset;
         let x = self.bounds.x() + self.label_offset(node) - 4.0;
         let right = self.bounds.x() + self.label_right(self.bounds.size.width);
-        Some(Rect::new(Point::new(x, y + 2.0), Size::new((right - x).max(40.0), (g.height - 4.0).max(10.0))))
+        Some(Rect::new(
+            Point::new(x, y + 2.0),
+            Size::new((right - x).max(40.0), (g.height - 4.0).max(10.0)),
+        ))
     }
 
     /// Ширина первых `n` символов текста поля.
@@ -857,7 +900,9 @@ impl TreeViewElement {
 
     /// Символ поля под точкой x (щелчок в поле ставит курсор).
     fn edit_index_at(&self, x: f32) -> usize {
-        let (Some(e), Some(r)) = (self.edit.as_ref(), self.edit_rect()) else { return 0 };
+        let (Some(e), Some(r)) = (self.edit.as_ref(), self.edit_rect()) else {
+            return 0;
+        };
         let local = x - r.x() - 4.0 + self.edit_shift(e, r.size.width);
         let mut prev = 0.0;
         for k in 1..=e.text.len() {
@@ -967,7 +1012,9 @@ impl TreeViewElement {
                 ctx.request_paint();
                 None
             }
-            Event::MouseMove(position) if self.edit_rect().is_some_and(|r| r.contains(*position)) => {
+            Event::MouseMove(position)
+                if self.edit_rect().is_some_and(|r| r.contains(*position)) =>
+            {
                 ctx.set_cursor(CursorIcon::Text);
                 Some(EventResult::Handled)
             }
@@ -1170,11 +1217,28 @@ impl Element for TreeViewElement {
             // подпись справа (статус, счётчик) — место под неё отнимается у имени
             let right_edge = self.bounds.x() + self.label_right(self.bounds.size.width);
             let mut label_right = right_edge;
-            if let Some(t) = node.decoration.as_ref().and_then(|d| d.trailing.as_deref()).filter(|t| !t.is_empty()) {
+            if let Some(t) = node
+                .decoration
+                .as_ref()
+                .and_then(|d| d.trailing.as_deref())
+                .filter(|t| !t.is_empty())
+            {
                 let w = t.chars().count() as f32 * TRAILING_FONT_SIZE * 0.62 + 6.0;
                 let rect = Rect::new(Point::new(right_edge - w, y), Size::new(w, geom.height));
-                let col = node.decoration.as_ref().and_then(|d| d.trailing_color).unwrap_or_else(|| fg.with_alpha(0.55));
-                list.push_text_aligned(t, rect, col, TRAILING_FONT_SIZE, TextAlign::RIGHT | TextAlign::VCENTER, TextDecoration::None, 600);
+                let col = node
+                    .decoration
+                    .as_ref()
+                    .and_then(|d| d.trailing_color)
+                    .unwrap_or_else(|| fg.with_alpha(0.55));
+                list.push_text_aligned(
+                    t,
+                    rect,
+                    col,
+                    TRAILING_FONT_SIZE,
+                    TextAlign::RIGHT | TextAlign::VCENTER,
+                    TextDecoration::None,
+                    600,
+                );
                 label_right = right_edge - w - 6.0;
             }
             let label_rect = Rect::new(
@@ -1215,7 +1279,11 @@ impl Element for TreeViewElement {
 
         // поле переименования: фон, рамка акцентом, выделение, текст, курсор
         if let (Some(e), Some(r)) = (self.edit.as_ref(), self.edit_rect()) {
-            let field_bg = if bg != Color::TRANSPARENT { bg } else { crate::theme_fallback::fallback_bg() };
+            let field_bg = if bg != Color::TRANSPARENT {
+                bg
+            } else {
+                crate::theme_fallback::fallback_bg()
+            };
             list.push_rect_bordered(r, field_bg, [4.0; 4], Border::new(1.0, primary));
             list.push_clip(r);
             let shift = self.edit_shift(e, r.size.width);
@@ -1224,13 +1292,35 @@ impl Element for TreeViewElement {
             if a != b {
                 let xa = tx + self.edit_text_width(&e.text, a);
                 let xb = tx + self.edit_text_width(&e.text, b);
-                list.push_rect(Rect::new(Point::new(xa, r.y() + 3.0), Size::new(xb - xa, r.size.height - 6.0)), primary.with_alpha(0.35), [2.0; 4]);
+                list.push_rect(
+                    Rect::new(
+                        Point::new(xa, r.y() + 3.0),
+                        Size::new(xb - xa, r.size.height - 6.0),
+                    ),
+                    primary.with_alpha(0.35),
+                    [2.0; 4],
+                );
             }
             let text: String = e.string();
             let tw = self.edit_text_width(&e.text, e.text.len()) + 8.0;
-            list.push_text(&text, Rect::new(Point::new(tx, r.y()), Size::new(tw.max(r.size.width), r.size.height)), fg, LABEL_FONT_SIZE);
+            list.push_text(
+                &text,
+                Rect::new(
+                    Point::new(tx, r.y()),
+                    Size::new(tw.max(r.size.width), r.size.height),
+                ),
+                fg,
+                LABEL_FONT_SIZE,
+            );
             let cx = tx + self.edit_text_width(&e.text, e.cursor);
-            list.push_rect(Rect::new(Point::new(cx, r.y() + 4.0), Size::new(1.5, r.size.height - 8.0)), fg, [0.0; 4]);
+            list.push_rect(
+                Rect::new(
+                    Point::new(cx, r.y() + 4.0),
+                    Size::new(1.5, r.size.height - 8.0),
+                ),
+                fg,
+                [0.0; 4],
+            );
             list.pop_clip();
         }
 
@@ -1273,7 +1363,9 @@ impl Element for TreeViewElement {
             scroll_y: self.scroll_offset,
         };
         // щелчок и прокрутка прячут подсказку
-        if matches!(event, Event::MouseDown { .. } | Event::MouseWheel { .. }) && self.tip.take().is_some_and(|(_, _, w)| w >= TIP_DELAY_SECS) {
+        if matches!(event, Event::MouseDown { .. } | Event::MouseWheel { .. })
+            && self.tip.take().is_some_and(|(_, _, w)| w >= TIP_DELAY_SECS)
+        {
             ctx.request_paint();
         }
         // идёт переименование на месте — клавиши, ввод и щелчки сначала полю
@@ -1290,7 +1382,12 @@ impl Element for TreeViewElement {
             }
             let m = ctx.modifiers;
             // Ctrl+A — выделить все видимые строки
-            if self.selection_mode == SelectionMode::Multiple && (m.ctrl || m.meta) && !m.alt && !m.shift && *key == Key::A {
+            if self.selection_mode == SelectionMode::Multiple
+                && (m.ctrl || m.meta)
+                && !m.alt
+                && !m.shift
+                && *key == Key::A
+            {
                 self.selected = self.flat_nodes.iter().map(|f| f.id.clone()).collect();
                 self.notify_selection();
                 ctx.request_paint();
@@ -1350,7 +1447,8 @@ impl Element for TreeViewElement {
                     ctx.request_paint();
                 }
                 // подсказка: та же строка — ждём дальше, другая — заново
-                let tip_row = new_hover.filter(|i| self.flat_nodes.get(*i).is_some_and(|n| n.tooltip.is_some()));
+                let tip_row = new_hover
+                    .filter(|i| self.flat_nodes.get(*i).is_some_and(|n| n.tooltip.is_some()));
                 match (tip_row, self.tip) {
                     (Some(r), Some((was, _, w))) if was == r => self.tip = Some((r, *pos, w)),
                     (Some(r), _) => {
@@ -1388,7 +1486,8 @@ impl Element for TreeViewElement {
                     let node_id = self.flat_nodes[idx].id.clone();
                     if let Some(ref cb) = self.on_context {
                         // по строке из выделения — выделение то же (меню над всеми)
-                        let keep = self.selection_mode == SelectionMode::Multiple && self.selected.contains(&node_id);
+                        let keep = self.selection_mode == SelectionMode::Multiple
+                            && self.selected.contains(&node_id);
                         if self.selection_mode != SelectionMode::None && !keep {
                             self.selected = vec![node_id.clone()];
                             self.anchor = Some(node_id.clone());
@@ -1469,11 +1568,17 @@ impl Element for TreeViewElement {
                         }
                         SelectionMode::Multiple => {
                             let m = ctx.modifiers;
-                            let anchor_idx = self.anchor.as_ref().and_then(|a| self.flat_nodes.iter().position(|f| &f.id == a));
+                            let anchor_idx = self
+                                .anchor
+                                .as_ref()
+                                .and_then(|a| self.flat_nodes.iter().position(|f| &f.id == a));
                             if m.shift && anchor_idx.is_some() {
                                 let a = anchor_idx.unwrap();
                                 let (lo, hi) = (a.min(idx), a.max(idx));
-                                let range: Vec<String> = self.flat_nodes[lo..=hi].iter().map(|f| f.id.clone()).collect();
+                                let range: Vec<String> = self.flat_nodes[lo..=hi]
+                                    .iter()
+                                    .map(|f| f.id.clone())
+                                    .collect();
                                 if m.ctrl || m.meta {
                                     for id in range {
                                         if !self.selected.contains(&id) {
@@ -1484,7 +1589,8 @@ impl Element for TreeViewElement {
                                     self.selected = range;
                                 }
                             } else if m.ctrl || m.meta {
-                                if let Some(pos) = self.selected.iter().position(|s| s == &node_id) {
+                                if let Some(pos) = self.selected.iter().position(|s| s == &node_id)
+                                {
                                     self.selected.remove(pos);
                                 } else {
                                     self.selected.push(node_id.clone());
@@ -1503,7 +1609,9 @@ impl Element for TreeViewElement {
                     self.notify_selection();
                     // Ctrl/Shift+щелчок только меняет выделение — элемент не открывается
                     let m = ctx.modifiers;
-                    if self.selection_mode == SelectionMode::Multiple && (m.ctrl || m.meta || m.shift) {
+                    if self.selection_mode == SelectionMode::Multiple
+                        && (m.ctrl || m.meta || m.shift)
+                    {
                         ctx.request_paint();
                         return EventResult::Handled;
                     }
@@ -1733,7 +1841,10 @@ mod tests {
 
     #[test]
     fn flatten_keeps_tooltip() {
-        let nodes = vec![TreeNode::leaf("a", "A").tooltip("подробно"), TreeNode::leaf("b", "B").tooltip("  ")];
+        let nodes = vec![
+            TreeNode::leaf("a", "A").tooltip("подробно"),
+            TreeNode::leaf("b", "B").tooltip("  "),
+        ];
         let mut flat = Vec::new();
         flatten_nodes(&nodes, 0, &mut flat);
         assert_eq!(flat[0].tooltip.as_deref(), Some("подробно"));
@@ -2000,15 +2111,24 @@ mod tests {
         // без фокуса клавиши не его
         h.send_event(&Event::KeyDown(Key::Down));
         assert!(nav.lock().unwrap().is_empty());
-        h.send_event(&Event::MouseDown { button: MouseButton::Left, position: crate::core::Point::new(60.0, 5.0) });
+        h.send_event(&Event::MouseDown {
+            button: MouseButton::Left,
+            position: crate::core::Point::new(60.0, 5.0),
+        });
         h.send_event(&Event::KeyDown(Key::Down));
         h.send_event(&Event::KeyDown(Key::Down));
-        assert_eq!(*nav.lock().unwrap(), vec!["d/a".to_string(), "b".to_string()]);
+        assert_eq!(
+            *nav.lock().unwrap(),
+            vec!["d/a".to_string(), "b".to_string()]
+        );
         h.send_event(&Event::KeyDown(Key::Up));
         h.send_event(&Event::KeyDown(Key::Left)); // лист: к родителю
         assert_eq!(nav.lock().unwrap().last().unwrap(), "d");
         h.send_event(&Event::KeyDown(Key::F2));
-        assert_eq!(keys.lock().unwrap().last().unwrap(), &("d".to_string(), Key::F2));
+        assert_eq!(
+            keys.lock().unwrap().last().unwrap(),
+            &("d".to_string(), Key::F2)
+        );
     }
 
     #[test]
@@ -2020,15 +2140,22 @@ mod tests {
         let g2 = got.clone();
         let keys = Arc::new(Mutex::new(0usize));
         let k2 = keys.clone();
-        let tree = TreeView::new(vec![TreeNode::leaf("f", "report.txt"), TreeNode::leaf("g", "b")])
-            .item_height(20.0)
-            .selection_mode(SelectionMode::Single)
-            .on_key(move |_, _, _| {
-                *k2.lock().unwrap() += 1;
-                true
-            })
-            .renaming(Some("f".into()))
-            .on_rename(move |id, t| g2.lock().unwrap().push((id.to_string(), t.map(str::to_string))));
+        let tree = TreeView::new(vec![
+            TreeNode::leaf("f", "report.txt"),
+            TreeNode::leaf("g", "b"),
+        ])
+        .item_height(20.0)
+        .selection_mode(SelectionMode::Single)
+        .on_key(move |_, _, _| {
+            *k2.lock().unwrap() += 1;
+            true
+        })
+        .renaming(Some("f".into()))
+        .on_rename(move |id, t| {
+            g2.lock()
+                .unwrap()
+                .push((id.to_string(), t.map(str::to_string)))
+        });
         let mut h = TestHarness::new(Box::new(tree));
         h.layout(300.0, 200.0);
         // выделено «report» — ввод заменяет имя, расширение остаётся
@@ -2038,7 +2165,10 @@ mod tests {
         h.send_event(&Event::KeyDown(Key::End));
         h.send_event(&Event::KeyDown(Key::Backspace));
         h.send_event(&Event::KeyDown(Key::Enter));
-        assert_eq!(*got.lock().unwrap(), vec![("f".to_string(), Some("итог.tx".to_string()))]);
+        assert_eq!(
+            *got.lock().unwrap(),
+            vec![("f".to_string(), Some("итог.tx".to_string()))]
+        );
         // клавиши во время правки не уходили в on_key
         assert_eq!(*keys.lock().unwrap(), 0);
         // после итога поле закрыто: клавиши — снова дереву (фокус остался)
@@ -2046,5 +2176,4 @@ mod tests {
         assert_eq!(*keys.lock().unwrap(), 1);
         let _ = MouseButton::Left;
     }
-
 }

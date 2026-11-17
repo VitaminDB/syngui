@@ -134,7 +134,14 @@ impl SubtitleStyle {
         ] {
             v.to_bits().hash(&mut h);
         }
-        (self.color, self.outline_color, self.shadow_color, self.box_color, self.file_colors).hash(&mut h);
+        (
+            self.color,
+            self.outline_color,
+            self.shadow_color,
+            self.box_color,
+            self.file_colors,
+        )
+            .hash(&mut h);
         h.finish()
     }
 }
@@ -175,7 +182,13 @@ impl Face {
         let attrs = font.attributes();
         let italic = attrs.style() != swash::Style::Normal;
         let weight = attrs.weight().0;
-        Some(Self { data: Arc::new(data), index, wght, italic, weight })
+        Some(Self {
+            data: Arc::new(data),
+            index,
+            wght,
+            italic,
+            weight,
+        })
     }
 
     fn font(&self) -> FontRef<'_> {
@@ -240,7 +253,9 @@ impl Fonts {
         let idx = match loaded {
             Some(f) => {
                 // тот же файл уже загружен — не держать вторую копию
-                match self.faces.iter().position(|g| g.index == f.index && g.data.len() == f.data.len() && *g.data == *f.data) {
+                match self.faces.iter().position(|g| {
+                    g.index == f.index && g.data.len() == f.data.len() && *g.data == *f.data
+                }) {
                     Some(i) => i,
                     None => self.push(f),
                 }
@@ -256,8 +271,14 @@ impl Fonts {
             return f.clone();
         }
         let mut v = Vec::new();
-        for fam in ["Noto Sans", "DejaVu Sans", "Noto Sans Symbols 2", "Noto Sans Symbols"] {
-            if let Some(f) = Self::system(Some(fam), 400, false).and_then(|(d, i)| Face::load(d, i)) {
+        for fam in [
+            "Noto Sans",
+            "DejaVu Sans",
+            "Noto Sans Symbols 2",
+            "Noto Sans Symbols",
+        ] {
+            if let Some(f) = Self::system(Some(fam), 400, false).and_then(|(d, i)| Face::load(d, i))
+            {
                 v.push(self.push(f));
             }
         }
@@ -281,12 +302,22 @@ impl Fonts {
 
     /// Начертание для куска `span` при оформлении `style`.
     fn pick(&mut self, style: &SubtitleStyle, span: &Span) -> Option<Pick> {
-        let weight = if span.bold { style.font_weight.saturating_add(250).clamp(700, 900) } else { style.font_weight };
+        let weight = if span.bold {
+            style.font_weight.saturating_add(250).clamp(700, 900)
+        } else {
+            style.font_weight
+        };
         let face = self.primary(&style.font_family, weight, span.italic)?;
         let f = &self.faces[face];
         let synth_italic = span.italic && !f.italic;
-        let synth_bold = f.wght.is_none() && weight >= 600 && (f.weight as i32) < weight as i32 - 150;
-        Some(Pick { face, weight, synth_italic, synth_bold })
+        let synth_bold =
+            f.wght.is_none() && weight >= 600 && (f.weight as i32) < weight as i32 - 150;
+        Some(Pick {
+            face,
+            weight,
+            synth_italic,
+            synth_bold,
+        })
     }
 
     /// Чем рисовать `ch`: основным, иначе первым запасным, где он есть.
@@ -342,14 +373,24 @@ static RENDERER: OnceLock<Mutex<SubtitleRenderer>> = OnceLock::new();
 
 /// Общий отрисовщик процесса: шрифты грузятся один раз.
 pub fn with_renderer<R>(f: impl FnOnce(&mut SubtitleRenderer) -> R) -> R {
-    let m = RENDERER.get_or_init(|| Mutex::new(SubtitleRenderer { fonts: Fonts::default(), scale: ScaleContext::new() }));
+    let m = RENDERER.get_or_init(|| {
+        Mutex::new(SubtitleRenderer {
+            fonts: Fonts::default(),
+            scale: ScaleContext::new(),
+        })
+    });
     let mut g = m.lock().unwrap_or_else(|e| e.into_inner());
     f(&mut g)
 }
 
 /// Нарисовать текст (например, образец в настройках) тем же путём, что и
 /// субтитры: строки через `\n`, разметка ASS разрешена.
-pub fn render_sample(text: &str, style: &SubtitleStyle, font_px: f32, max_width_px: f32) -> Option<Rendered> {
+pub fn render_sample(
+    text: &str,
+    style: &SubtitleStyle,
+    font_px: f32,
+    max_width_px: f32,
+) -> Option<Rendered> {
     let header = super::ass::AssHeader::default();
     let t = super::ass::parse_text(&text.replace('\n', "\\N"), "Default", &header, 0)?;
     with_renderer(|r| r.render(&t, style, font_px, max_width_px))
@@ -388,12 +429,21 @@ fn words(text: &str) -> Vec<&str> {
 /// Жадный перенос по ширине `w`: строки как номера кусков.
 fn greedy(pieces: &[Piece], range: std::ops::Range<usize>, w: f32) -> Vec<Line> {
     let mut lines = Vec::new();
-    let mut cur = Line { pieces: Vec::new(), width: 0.0 };
+    let mut cur = Line {
+        pieces: Vec::new(),
+        width: 0.0,
+    };
     let mut pen = 0.0f32;
     for i in range {
         let p = &pieces[i];
         if !cur.pieces.is_empty() && pen + p.width > w {
-            lines.push(std::mem::replace(&mut cur, Line { pieces: Vec::new(), width: 0.0 }));
+            lines.push(std::mem::replace(
+                &mut cur,
+                Line {
+                    pieces: Vec::new(),
+                    width: 0.0,
+                },
+            ));
             pen = 0.0;
         }
         cur.pieces.push(i);
@@ -415,7 +465,13 @@ fn balanced(pieces: &[Piece], range: std::ops::Range<usize>, max: f32) -> Vec<Li
         return first;
     }
     let n = first.len();
-    let (mut lo, mut hi) = (range.clone().map(|i| pieces[i].width).fold(0.0f32, f32::max), max);
+    let (mut lo, mut hi) = (
+        range
+            .clone()
+            .map(|i| pieces[i].width)
+            .fold(0.0f32, f32::max),
+        max,
+    );
     for _ in 0..18 {
         let mid = (lo + hi) / 2.0;
         if greedy(pieces, range.clone(), mid).len() <= n {
@@ -432,7 +488,9 @@ fn balanced(pieces: &[Piece], range: std::ops::Range<usize>, max: f32) -> Vec<Li
 /// Расстояние до ближайшей точки маски (Felzenszwalb–Huttenlocher), в квадрате.
 fn edt_1d(f: &[f32], d: &mut [f32], v: &mut [usize], z: &mut [f32]) {
     let n = f.len();
-    let para = |q: usize, p: usize| ((f[q] + (q * q) as f32) - (f[p] + (p * p) as f32)) / (2.0 * q as f32 - 2.0 * p as f32);
+    let para = |q: usize, p: usize| {
+        ((f[q] + (q * q) as f32) - (f[p] + (p * p) as f32)) / (2.0 * q as f32 - 2.0 * p as f32)
+    };
     let mut k = 0usize;
     v[0] = 0;
     z[0] = f32::NEG_INFINITY;
@@ -464,7 +522,12 @@ fn distance_field(inside: &[bool], w: usize, h: usize) -> Vec<f32> {
     const INF: f32 = 1e20;
     let mut grid: Vec<f32> = inside.iter().map(|&b| if b { 0.0 } else { INF }).collect();
     let n = w.max(h);
-    let (mut f, mut d, mut v, mut z) = (vec![0.0f32; n], vec![0.0f32; n], vec![0usize; n], vec![0.0f32; n + 1]);
+    let (mut f, mut d, mut v, mut z) = (
+        vec![0.0f32; n],
+        vec![0.0f32; n],
+        vec![0usize; n],
+        vec![0.0f32; n + 1],
+    );
     for x in 0..w {
         for y in 0..h {
             f[y] = grid[y * w + x];
@@ -493,7 +556,9 @@ fn blur(a: &mut [f32], w: usize, h: usize, sigma: f32) {
     let mut tmp = vec![0.0f32; a.len()];
     if sigma < 2.0 {
         let r = (sigma * 3.0).ceil() as i32;
-        let k: Vec<f32> = (-r..=r).map(|i| (-(i * i) as f32 / (2.0 * sigma * sigma)).exp()).collect();
+        let k: Vec<f32> = (-r..=r)
+            .map(|i| (-(i * i) as f32 / (2.0 * sigma * sigma)).exp())
+            .collect();
         let sum: f32 = k.iter().sum();
         let k: Vec<f32> = k.iter().map(|v| v / sum).collect();
         for y in 0..h {
@@ -523,7 +588,9 @@ fn blur(a: &mut [f32], w: usize, h: usize, sigma: f32) {
     let wl = ((12.0 * sigma * sigma / n + 1.0).sqrt()).floor() as i32;
     let wl = if wl % 2 == 0 { wl - 1 } else { wl };
     let wu = wl + 2;
-    let m = ((12.0 * sigma * sigma - n * (wl * wl) as f32 - 4.0 * n * wl as f32 - 3.0 * n) / (-4.0 * wl as f32 - 4.0)).round() as i32;
+    let m = ((12.0 * sigma * sigma - n * (wl * wl) as f32 - 4.0 * n * wl as f32 - 3.0 * n)
+        / (-4.0 * wl as f32 - 4.0))
+        .round() as i32;
     for pass in 0..3 {
         let r = ((if pass < m { wl } else { wu }) - 1) / 2;
         box_pass(a, &mut tmp, w, h, r, true);
@@ -533,7 +600,13 @@ fn blur(a: &mut [f32], w: usize, h: usize, sigma: f32) {
 
 fn box_pass(src: &[f32], dst: &mut [f32], w: usize, h: usize, r: i32, horizontal: bool) {
     let (len, lines) = if horizontal { (w, h) } else { (h, w) };
-    let at = |line: usize, i: usize| if horizontal { line * w + i } else { i * w + line };
+    let at = |line: usize, i: usize| {
+        if horizontal {
+            line * w + i
+        } else {
+            i * w + line
+        }
+    };
     let norm = 1.0 / (2 * r + 1) as f32;
     for line in 0..lines {
         let mut acc = 0.0f32;
@@ -563,7 +636,8 @@ fn fill_round_rect(a: &mut [f32], w: usize, h: usize, rect: [f32; 4], radius: f3
         for x in x0..x1 {
             let px = (x as f32 + 0.5 - cx).abs() - (hx - r);
             let py = (y as f32 + 0.5 - cy).abs() - (hy - r);
-            let outside = (px.max(0.0).powi(2) + py.max(0.0).powi(2)).sqrt() + px.max(py).min(0.0) - r;
+            let outside =
+                (px.max(0.0).powi(2) + py.max(0.0).powi(2)).sqrt() + px.max(py).min(0.0) - r;
             let cov = (0.5 - outside).clamp(0.0, 1.0);
             let o = &mut a[y * w + x];
             *o = o.max(cov);
@@ -574,14 +648,22 @@ fn fill_round_rect(a: &mut [f32], w: usize, h: usize, rect: [f32; 4], radius: f3
 impl SubtitleRenderer {
     /// Нарисовать `text` кеглем `font_px` (физические px) в ширину не
     /// больше `max_width_px`. `None` — рисовать нечего или нет шрифта.
-    pub fn render(&mut self, text: &SubText, style: &SubtitleStyle, font_px: f32, max_width_px: f32) -> Option<Rendered> {
+    pub fn render(
+        &mut self,
+        text: &SubText,
+        style: &SubtitleStyle,
+        font_px: f32,
+        max_width_px: f32,
+    ) -> Option<Rendered> {
         let font_px = font_px.max(4.0);
         let spans: Vec<&Span> = text.lines.iter().flatten().collect();
         if spans.is_empty() {
             return None;
         }
         // Метрики строки — по основному начертанию.
-        let base = self.fonts.primary(&style.font_family, style.font_weight, false)?;
+        let base = self
+            .fonts
+            .primary(&style.font_family, style.font_weight, false)?;
         let (ascent, descent) = {
             let f = self.fonts.faces[base].font();
             let m = f.metrics(&[]).scale(font_px);
@@ -621,11 +703,25 @@ impl SubtitleRenderer {
         let outline_px = style.outline.max(0.0) * font_px;
         let soft_px = style.outline_softness.max(0.0) * font_px;
         let box_on = style.box_opacity > 0.003;
-        let box_pad = if box_on { (0.28 * font_px, 0.06 * font_px) } else { (0.0, 0.0) };
+        let box_pad = if box_on {
+            (0.28 * font_px, 0.06 * font_px)
+        } else {
+            (0.0, 0.0)
+        };
         let shadow_on = style.shadow_opacity > 0.003;
-        let shadow_off = if shadow_on { style.shadow.max(0.0) * font_px } else { 0.0 };
-        let shadow_sigma = if shadow_on { style.shadow_blur.max(0.0) * font_px / 2.0 } else { 0.0 };
-        let pad = (outline_px.max(box_pad.0) + soft_px * 2.0 + shadow_off + shadow_sigma * 3.0 + 3.0).ceil();
+        let shadow_off = if shadow_on {
+            style.shadow.max(0.0) * font_px
+        } else {
+            0.0
+        };
+        let shadow_sigma = if shadow_on {
+            style.shadow_blur.max(0.0) * font_px / 2.0
+        } else {
+            0.0
+        };
+        let pad =
+            (outline_px.max(box_pad.0) + soft_px * 2.0 + shadow_off + shadow_sigma * 3.0 + 3.0)
+                .ceil();
         let w = (block_w + 2.0 * pad) as usize;
         let h = (block_h + 2.0 * pad) as usize;
         if w == 0 || h == 0 || w * h > 40_000_000 {
@@ -646,35 +742,73 @@ impl SubtitleRenderer {
             .iter()
             .flatten()
             .map(|s| {
-                let c = if style.file_colors { s.color.unwrap_or(style.color) } else { style.color };
-                [c[0] as f32 / 255.0, c[1] as f32 / 255.0, c[2] as f32 / 255.0]
+                let c = if style.file_colors {
+                    s.color.unwrap_or(style.color)
+                } else {
+                    style.color
+                };
+                [
+                    c[0] as f32 / 255.0,
+                    c[1] as f32 / 255.0,
+                    c[2] as f32 / 255.0,
+                ]
             })
             .collect();
-        let decorations: Vec<(bool, bool)> = text.lines.iter().flatten().map(|s| (s.underline, s.strike)).collect();
+        let decorations: Vec<(bool, bool)> = text
+            .lines
+            .iter()
+            .flatten()
+            .map(|s| (s.underline, s.strike))
+            .collect();
         for (li, line) in lines.iter().enumerate() {
             let x0 = pad + (block_w - line.width) * h_frac;
             let baseline = pad + ascent + line_h * li as f32;
             if box_on {
-                let top = baseline - ascent - box_pad.1 - (line_h - ascent - descent).max(0.0) / 2.0;
+                let top =
+                    baseline - ascent - box_pad.1 - (line_h - ascent - descent).max(0.0) / 2.0;
                 let bh = line_h.max(ascent + descent) + 2.0 * box_pad.1;
-                fill_round_rect(&mut boxes, w, h, [x0 - box_pad.0, top, line.width + 2.0 * box_pad.0, bh], font_px * 0.22);
+                fill_round_rect(
+                    &mut boxes,
+                    w,
+                    h,
+                    [x0 - box_pad.0, top, line.width + 2.0 * box_pad.0, bh],
+                    font_px * 0.22,
+                );
             }
             let mut pen = x0;
             for (k, &pi) in line.pieces.iter().enumerate() {
                 let p = &pieces[pi];
                 let col = colors[p.span];
                 for g in &p.glyphs {
-                    self.draw_glyph(g, p.pick, font_px, pen + g.x, baseline + g.y, w, h, &mut fill_a, &mut fill_c, col);
+                    self.draw_glyph(
+                        g,
+                        p.pick,
+                        font_px,
+                        pen + g.x,
+                        baseline + g.y,
+                        w,
+                        h,
+                        &mut fill_a,
+                        &mut fill_c,
+                        col,
+                    );
                 }
                 let (under, strike) = decorations[p.span];
                 let last = k + 1 == line.pieces.len();
                 let span_w = if last { p.width } else { p.advance };
-                for (on, y) in [(under, baseline + 0.12 * font_px), (strike, baseline - 0.3 * font_px)] {
+                for (on, y) in [
+                    (under, baseline + 0.12 * font_px),
+                    (strike, baseline - 0.3 * font_px),
+                ] {
                     if on {
                         let t = (0.065 * font_px).max(1.0);
                         let r = [pen, y - t / 2.0, span_w, t];
-                        for yy in (r[1].floor().max(0.0) as usize)..((r[1] + r[3]).ceil() as usize).min(h) {
-                            for xx in (r[0].floor().max(0.0) as usize)..((r[0] + r[2]).ceil() as usize).min(w) {
+                        for yy in
+                            (r[1].floor().max(0.0) as usize)..((r[1] + r[3]).ceil() as usize).min(h)
+                        {
+                            for xx in (r[0].floor().max(0.0) as usize)
+                                ..((r[0] + r[2]).ceil() as usize).min(w)
+                            {
                                 let o = yy * w + xx;
                                 fill_c[o] = col;
                                 fill_a[o] = 1.0;
@@ -710,19 +844,37 @@ impl SubtitleRenderer {
                         continue;
                     }
                     let s = (sy as usize) * w + sx as usize;
-                    shadow_a[y as usize * w + x as usize] = fill_a[s].max(outline_a[s]).max(boxes[s] * style.box_opacity.min(1.0));
+                    shadow_a[y as usize * w + x as usize] = fill_a[s]
+                        .max(outline_a[s])
+                        .max(boxes[s] * style.box_opacity.min(1.0));
                 }
             }
             blur(&mut shadow_a, w, h, shadow_sigma);
         }
 
         // Сведение слоёв (альфа умножена): тень → плашка → контур → текст.
-        let col = |c: [u8; 3]| [c[0] as f32 / 255.0, c[1] as f32 / 255.0, c[2] as f32 / 255.0];
-        let (sc, bc, oc) = (col(style.shadow_color), col(style.box_color), col(style.outline_color));
+        let col = |c: [u8; 3]| {
+            [
+                c[0] as f32 / 255.0,
+                c[1] as f32 / 255.0,
+                c[2] as f32 / 255.0,
+            ]
+        };
+        let (sc, bc, oc) = (
+            col(style.shadow_color),
+            col(style.box_color),
+            col(style.outline_color),
+        );
         let opacity = style.opacity.clamp(0.0, 1.0);
         // Цвет «пустых» пикселей — чтобы при сглаживании текстуры по краю
         // не вылезала тёмная кайма.
-        let edge = if outline_px > 0.05 { oc } else if box_on { bc } else { sc };
+        let edge = if outline_px > 0.05 {
+            oc
+        } else if box_on {
+            bc
+        } else {
+            sc
+        };
         let mut rgba = vec![0u8; w * h * 4];
         for i in 0..w * h {
             let mut c = [0.0f32; 3];
@@ -745,13 +897,22 @@ impl SubtitleRenderer {
                 over(fc, fa * opacity);
             }
             let o = i * 4;
-            let out = if a > 0.002 { [c[0] / a, c[1] / a, c[2] / a] } else { edge };
+            let out = if a > 0.002 {
+                [c[0] / a, c[1] / a, c[2] / a]
+            } else {
+                edge
+            };
             rgba[o] = (out[0].clamp(0.0, 1.0) * 255.0 + 0.5) as u8;
             rgba[o + 1] = (out[1].clamp(0.0, 1.0) * 255.0 + 0.5) as u8;
             rgba[o + 2] = (out[2].clamp(0.0, 1.0) * 255.0 + 0.5) as u8;
             rgba[o + 3] = (a.clamp(0.0, 1.0) * 255.0 + 0.5) as u8;
         }
-        Some(Rendered { w: w as u32, h: h as u32, rgba: rgba.into(), text: [pad, pad, block_w, block_h] })
+        Some(Rendered {
+            w: w as u32,
+            h: h as u32,
+            rgba: rgba.into(),
+            text: [pad, pad, block_w, block_h],
+        })
     }
 
     /// Слово → глифы (с запасными шрифтами для отсутствующих символов).
@@ -770,9 +931,14 @@ impl SubtitleRenderer {
         let mut trailing_space = 0.0f32;
         for (fi, s) in runs {
             let face = self.fonts.faces[fi].clone();
-            let Some(mut rb) = rustybuzz::Face::from_slice(&face.data, face.index) else { continue };
+            let Some(mut rb) = rustybuzz::Face::from_slice(&face.data, face.index) else {
+                continue;
+            };
             if let Some(v) = face.wght_for(pick.weight) {
-                rb.set_variations(&[rustybuzz::Variation { tag: rustybuzz::ttf_parser::Tag::from_bytes(b"wght"), value: v }]);
+                rb.set_variations(&[rustybuzz::Variation {
+                    tag: rustybuzz::ttf_parser::Tag::from_bytes(b"wght"),
+                    value: v,
+                }]);
             }
             let upem = rb.units_per_em().max(1) as f32;
             let k = font_px / upem;
@@ -782,20 +948,35 @@ impl SubtitleRenderer {
             let out = rustybuzz::shape(&rb, &[], buf);
             let chars: Vec<(usize, char)> = s.char_indices().collect();
             for (info, pos) in out.glyph_infos().iter().zip(out.glyph_positions()) {
-                let ch = chars.iter().find(|(i, _)| *i == info.cluster as usize).map(|(_, c)| *c).unwrap_or(' ');
+                let ch = chars
+                    .iter()
+                    .find(|(i, _)| *i == info.cluster as usize)
+                    .map(|(_, c)| *c)
+                    .unwrap_or(' ');
                 let adv = pos.x_advance as f32 * k + spacing;
                 if ch.is_whitespace() && ch != '\u{a0}' {
                     trailing_space += adv;
                 } else {
                     trailing_space = 0.0;
-                    glyphs.push(Glyph { face: fi, id: info.glyph_id as u16, x: pen + pos.x_offset as f32 * k, y: -(pos.y_offset as f32) * k });
+                    glyphs.push(Glyph {
+                        face: fi,
+                        id: info.glyph_id as u16,
+                        x: pen + pos.x_offset as f32 * k,
+                        y: -(pos.y_offset as f32) * k,
+                    });
                 }
                 pen += adv;
             }
         }
         // Утолщение и наклон расширяют глифы — немного места справа.
         let extra = if pick.synth_bold { font_px * 0.02 } else { 0.0 };
-        Piece { glyphs, width: (pen - trailing_space).max(0.0) + extra, advance: pen + extra, pick, span }
+        Piece {
+            glyphs,
+            width: (pen - trailing_space).max(0.0) + extra,
+            advance: pen + extra,
+            pick,
+            span,
+        }
     }
 
     #[allow(clippy::too_many_arguments)]
@@ -821,17 +1002,23 @@ impl SubtitleRenderer {
         let mut scaler = b.build();
         let (ix, iy) = (x.floor(), baseline.floor());
         let mut r = Render::new(&[Source::Outline]);
-        r.format(Format::Alpha).offset(Vector::new(x - ix, -(baseline - iy)));
+        r.format(Format::Alpha)
+            .offset(Vector::new(x - ix, -(baseline - iy)));
         // Запасной шрифт не утолщаем и не наклоняем: у него своё начертание.
         if g.face == pick.face {
             if pick.synth_bold {
                 r.embolden(font_px * 0.025);
             }
             if pick.synth_italic {
-                r.transform(Some(Transform::skew(Angle::from_degrees(12.0), Angle::ZERO)));
+                r.transform(Some(Transform::skew(
+                    Angle::from_degrees(12.0),
+                    Angle::ZERO,
+                )));
             }
         }
-        let Some(img) = r.render(&mut scaler, g.id) else { return };
+        let Some(img) = r.render(&mut scaler, g.id) else {
+            return;
+        };
         let pl = img.placement;
         if pl.width == 0 || pl.height == 0 {
             return;
@@ -874,7 +1061,12 @@ mod tests {
                 glyphs: Vec::new(),
                 width: w,
                 advance: w + 5.0,
-                pick: Pick { face: 0, weight: 400, synth_italic: false, synth_bold: false },
+                pick: Pick {
+                    face: 0,
+                    weight: 400,
+                    synth_italic: false,
+                    synth_bold: false,
+                },
                 span: 0,
             })
             .collect()
@@ -885,9 +1077,15 @@ mod tests {
         // жадно: 4 слова + огрызок; выровнено — 3 и 2
         let p = pieces_of(&[40.0, 40.0, 40.0, 40.0, 40.0]);
         let g = greedy(&p, 0..5, 190.0);
-        assert_eq!(g.iter().map(|l| l.pieces.len()).collect::<Vec<_>>(), vec![4, 1]);
+        assert_eq!(
+            g.iter().map(|l| l.pieces.len()).collect::<Vec<_>>(),
+            vec![4, 1]
+        );
         let b = balanced(&p, 0..5, 190.0);
-        assert_eq!(b.iter().map(|l| l.pieces.len()).collect::<Vec<_>>(), vec![3, 2]);
+        assert_eq!(
+            b.iter().map(|l| l.pieces.len()).collect::<Vec<_>>(),
+            vec![3, 2]
+        );
     }
 
     #[test]
@@ -923,7 +1121,8 @@ mod tests {
     #[test]
     fn renders_text_with_outline_and_shadow() {
         let style = SubtitleStyle::default();
-        let Some(r) = render_sample("Проверка\nсубтитров", &style, 48.0, 2000.0) else {
+        let Some(r) = render_sample("Проверка\nсубтитров", &style, 48.0, 2000.0)
+        else {
             // нет ни одного шрифта в системе — нечего проверять
             return;
         };
@@ -935,8 +1134,20 @@ mod tests {
         assert!((0..n).any(|i| px(i).0 < 20 && px(i).1 > 240));
         assert_eq!(px(0).1, 0);
         // перенос: узкая ширина — больше строк, картинка выше
-        let narrow = render_sample("Очень длинная строка субтитров для переноса", &style, 48.0, 300.0).unwrap();
-        let wide = render_sample("Очень длинная строка субтитров для переноса", &style, 48.0, 3000.0).unwrap();
+        let narrow = render_sample(
+            "Очень длинная строка субтитров для переноса",
+            &style,
+            48.0,
+            300.0,
+        )
+        .unwrap();
+        let wide = render_sample(
+            "Очень длинная строка субтитров для переноса",
+            &style,
+            48.0,
+            3000.0,
+        )
+        .unwrap();
         assert!(narrow.h > wide.h && narrow.w < wide.w);
     }
 }
@@ -947,7 +1158,9 @@ mod tests {
 #[test]
 #[ignore]
 fn dump_sample() {
-    let Ok(path) = std::env::var("SUBS_DUMP") else { return };
+    let Ok(path) = std::env::var("SUBS_DUMP") else {
+        return;
+    };
     let mut style = SubtitleStyle::default();
     if let Ok(f) = std::env::var("SUBS_FONT") {
         style.font_family = f;
@@ -961,5 +1174,3 @@ fn dump_sample() {
     std::fs::write(&path, &*r.rgba).unwrap();
     std::fs::write(format!("{path}.txt"), format!("{} {}", r.w, r.h)).unwrap();
 }
-
-

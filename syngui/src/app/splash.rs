@@ -358,7 +358,11 @@ impl SplashWindow {
         let shader = device.create_shader_module(wgpu::ShaderModuleDescriptor {
             label: Some("Splash Shader"),
             source: wgpu::ShaderSource::Wgsl(
-                format!("const ENCODE_SRGB: bool = {};\n{SPLASH_SHADER}", crate::gpu::renderer::encodes_srgb_output(format)).into(),
+                format!(
+                    "const ENCODE_SRGB: bool = {};\n{SPLASH_SHADER}",
+                    crate::gpu::renderer::encodes_srgb_output(format)
+                )
+                .into(),
             ),
         });
 

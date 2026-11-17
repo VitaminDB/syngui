@@ -45,8 +45,8 @@ pub use model::{
     LinkTarget, MediaKind, ShapeKind,
 };
 pub use parse::parse_document;
-pub use props::{BlockOutline, TableOp};
 pub use preserve::serialize_preserving;
+pub use props::{BlockOutline, TableOp};
 pub use serialize::serialize_document;
 pub use shape::ShapeStyle;
 pub use slash::{SlashAction, SlashItem};

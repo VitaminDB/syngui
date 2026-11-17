@@ -217,7 +217,12 @@ fn child_corner_bits_from_parent(
             (r - d).to_bits()
         }
     };
-    let (dl, dt, dr, db) = (child_x1 - parent_x, child_y1 - parent_y, parent_x2 - child_x2, parent_y2 - child_y2);
+    let (dl, dt, dr, db) = (
+        child_x1 - parent_x,
+        child_y1 - parent_y,
+        parent_x2 - child_x2,
+        parent_y2 - child_y2,
+    );
     let mut out = [0u32; 4];
     out[0] = inset(dl, dt, parent_radius_bits[0]);
     out[1] = inset(dr, dt, parent_radius_bits[1]);
@@ -247,7 +252,18 @@ mod tests {
         use crate::widgets::{Column, DecoratedBox};
         let w = Column::new().child(
             DecoratedBox::new().class("card").clip(true).child(
-                Column::new().child(crate::widgets::AspectRatio::new(4.0 / 3.0).child(crate::widgets::Stack::new().fit(crate::widgets::StackFit::Expand).child(DecoratedBox::new().class("photo").clip(true).child(DecoratedBox::new().class("img"))))),
+                Column::new().child(
+                    crate::widgets::AspectRatio::new(4.0 / 3.0).child(
+                        crate::widgets::Stack::new()
+                            .fit(crate::widgets::StackFit::Expand)
+                            .child(
+                                DecoratedBox::new()
+                                    .class("photo")
+                                    .clip(true)
+                                    .child(DecoratedBox::new().class("img")),
+                            ),
+                    ),
+                ),
             ),
         );
         let mut h = TestHarness::new(Box::new(w));
@@ -256,13 +272,26 @@ mod tests {
         let list = h.paint();
         let mut found = vec![];
         for c in list.commands() {
-            if let crate::render::DrawCommand::Rect { color, clip_rect, rect, .. } = c {
+            if let crate::render::DrawCommand::Rect {
+                color,
+                clip_rect,
+                rect,
+                ..
+            } = c
+            {
                 found.push((rect, color, clip_rect.corner_radius_f32()));
             }
         }
         eprintln!("{found:#?}");
-        let blue = found.iter().find(|(_, c, _)| c.b > 0.9 && c.r < 0.1).expect("синий прямоугольник");
-        assert!(blue.2[0] > 20.0 && blue.2[1] > 20.0, "верхние углы картинки скруглены: {:?}", blue.2);
+        let blue = found
+            .iter()
+            .find(|(_, c, _)| c.b > 0.9 && c.r < 0.1)
+            .expect("синий прямоугольник");
+        assert!(
+            blue.2[0] > 20.0 && blue.2[1] > 20.0,
+            "верхние углы картинки скруглены: {:?}",
+            blue.2
+        );
     }
 
     #[test]
@@ -272,7 +301,10 @@ mod tests {
         let radii = child.corner_radius_bits.map(f32::from_bits);
         assert_eq!(radii, [23.0, 23.0, 0.0, 0.0]);
         // совпадающие углы — как раньше, радиус родителя
-        let same = parent.intersect(r(0.0, 0.0, 200.0, 300.0)).corner_radius_bits.map(f32::from_bits);
+        let same = parent
+            .intersect(r(0.0, 0.0, 200.0, 300.0))
+            .corner_radius_bits
+            .map(f32::from_bits);
         assert_eq!(same, [24.0; 4]);
     }
 

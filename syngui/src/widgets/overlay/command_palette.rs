@@ -23,13 +23,13 @@ use std::sync::Arc;
 
 use crate::fuzzy;
 use crate::input::{Key, Modifiers};
-use crate::KeyReply;
 use crate::layout::CrossAxisAlignment;
 use crate::signal::{use_signal, RwSignal};
 use crate::widget::{Text, Widget, WidgetExt};
 use crate::widgets::containers::{Column, DecoratedBox, GestureDetector, Reactive, Row};
 use crate::widgets::input::{EventHook, TextField};
 use crate::widgets::overlay::{Portal, PortalAnchor};
+use crate::KeyReply;
 
 /// Команда в палитре.
 #[derive(Clone, Debug, Default, PartialEq)]
@@ -48,7 +48,11 @@ pub struct PaletteCommand {
 
 impl PaletteCommand {
     pub fn new(id: impl Into<String>, title: impl Into<String>) -> Self {
-        Self { id: id.into(), title: title.into(), ..Self::default() }
+        Self {
+            id: id.into(),
+            title: title.into(),
+            ..Self::default()
+        }
     }
 
     pub fn category(mut self, c: impl Into<String>) -> Self {
@@ -88,7 +92,13 @@ pub struct PaletteHit {
 /// начала слов, смена раскладки). Пустой запрос — все команды по порядку.
 pub fn filter_commands(commands: &[PaletteCommand], query: &str) -> Vec<PaletteHit> {
     let Some(plan) = fuzzy::plan(query) else {
-        return commands.iter().map(|c| PaletteHit { command: c.clone(), ranges: Vec::new() }).collect();
+        return commands
+            .iter()
+            .map(|c| PaletteHit {
+                command: c.clone(),
+                ranges: Vec::new(),
+            })
+            .collect();
     };
     let mut scored: Vec<(i32, usize, Vec<(usize, usize)>)> = commands
         .iter()
@@ -105,7 +115,13 @@ pub fn filter_commands(commands: &[PaletteCommand], query: &str) -> Vec<PaletteH
         })
         .collect();
     scored.sort_by(|a, b| b.0.cmp(&a.0).then(a.1.cmp(&b.1)));
-    scored.into_iter().map(|(_, i, ranges)| PaletteHit { command: commands[i].clone(), ranges }).collect()
+    scored
+        .into_iter()
+        .map(|(_, i, ranges)| PaletteHit {
+            command: commands[i].clone(),
+            ranges,
+        })
+        .collect()
 }
 
 type CommandsFn = Arc<dyn Fn() -> Vec<PaletteCommand> + Send + Sync>;
@@ -220,7 +236,9 @@ impl CommandPalette {
                 on_run(&id);
             })
         };
-        let current = move || -> Vec<PaletteHit> { filter_commands(&snapshot.get_untracked(), &query.get_untracked()) };
+        let current = move || -> Vec<PaletteHit> {
+            filter_commands(&snapshot.get_untracked(), &query.get_untracked())
+        };
 
         let field = {
             let run = run.clone();
@@ -257,30 +275,49 @@ impl CommandPalette {
                 let items = filter_commands(&snapshot.get(), &query.get());
                 let sel = selected.get().min(items.len().saturating_sub(1));
                 if items.is_empty() {
-                    return vec![Box::new(Text::new("Ничего не найдено").class("palette-empty"))];
+                    return vec![Box::new(
+                        Text::new("Ничего не найдено").class("palette-empty"),
+                    )];
                 }
                 // окно из `rows` строк, в котором виден выбранный пункт
-                let start = sel.saturating_sub(rows - 1).min(items.len().saturating_sub(rows));
+                let start = sel
+                    .saturating_sub(rows - 1)
+                    .min(items.len().saturating_sub(rows));
                 // секции — только без запроса (с запросом порядок по совпадению)
                 let sections = grouped && query.get().trim().is_empty();
-                let mut col = Column::new().gap(0.0).cross_axis_alignment(CrossAxisAlignment::Stretch);
+                let mut col = Column::new()
+                    .gap(0.0)
+                    .cross_axis_alignment(CrossAxisAlignment::Stretch);
                 let mut last_group: Option<String> = None;
                 for (i, hit) in items.iter().enumerate().skip(start).take(rows) {
                     let c = &hit.command;
-                    if sections && !c.category.is_empty() && last_group.as_deref() != Some(c.category.as_str()) {
+                    if sections
+                        && !c.category.is_empty()
+                        && last_group.as_deref() != Some(c.category.as_str())
+                    {
                         col = col.child(Text::new(c.category.clone()).class("palette-group"));
                     }
                     last_group = Some(c.category.clone());
-                    let mut row = Row::new().gap(10.0).cross_axis_alignment(CrossAxisAlignment::Center);
+                    let mut row = Row::new()
+                        .gap(10.0)
+                        .cross_axis_alignment(CrossAxisAlignment::Center);
                     if !c.icon.is_empty() {
-                        row = row.child(DecoratedBox::new().class("palette-item-icon-wrap").child(crate::widgets::Icon::new(c.icon.clone()).class("palette-item-icon")));
+                        row = row.child(DecoratedBox::new().class("palette-item-icon-wrap").child(
+                            crate::widgets::Icon::new(c.icon.clone()).class("palette-item-icon"),
+                        ));
                     }
                     if !c.category.is_empty() && !grouped {
-                        row = row.child(Text::new(format!("{}:", c.category)).class("palette-item-category"));
+                        row = row.child(
+                            Text::new(format!("{}:", c.category)).class("palette-item-category"),
+                        );
                     }
                     let mut title = Row::new().gap(0.0);
                     for (seg, matched) in fuzzy::split_highlight(&c.title, &hit.ranges) {
-                        title = title.child(Text::new(seg).max_lines(1).class(if matched { "palette-item-title match" } else { "palette-item-title" }));
+                        title = title.child(Text::new(seg).max_lines(1).class(if matched {
+                            "palette-item-title match"
+                        } else {
+                            "palette-item-title"
+                        }));
                     }
                     let body: Box<dyn Widget> = if c.description.is_empty() {
                         Box::new(title)
@@ -290,10 +327,18 @@ impl CommandPalette {
                                 .gap(2.0)
                                 .cross_axis_alignment(CrossAxisAlignment::Stretch)
                                 .child(title)
-                                .child(Text::new(c.description.clone()).max_lines(2).class("palette-item-desc")),
+                                .child(
+                                    Text::new(c.description.clone())
+                                        .max_lines(2)
+                                        .class("palette-item-desc"),
+                                ),
                         )
                     };
-                    row = row.child(DecoratedBox::new().class("palette-item-title-wrap").child(body));
+                    row = row.child(
+                        DecoratedBox::new()
+                            .class("palette-item-title-wrap")
+                            .child(body),
+                    );
                     if !c.shortcut.is_empty() {
                         row = row.child(Text::new(&c.shortcut).class("palette-item-shortcut"));
                     }
@@ -306,7 +351,11 @@ impl CommandPalette {
                         (false, true) => "palette-item rich",
                         (false, false) => "palette-item",
                     };
-                    col = col.child(GestureDetector::new().on_click(move || run(id.clone())).child(DecoratedBox::new().class(class).child(row)));
+                    col = col.child(
+                        GestureDetector::new()
+                            .on_click(move || run(id.clone()))
+                            .child(DecoratedBox::new().class(class).child(row)),
+                    );
                 }
                 vec![Box::new(col)]
             })
@@ -318,28 +367,33 @@ impl CommandPalette {
                 match key {
                     Key::Down if n > 0 => selected.set((selected.get_untracked() + 1).min(n - 1)),
                     Key::Up => selected.set(selected.get_untracked().saturating_sub(1)),
-                    Key::PageDown if n > 0 => selected.set((selected.get_untracked() + rows).min(n - 1)),
+                    Key::PageDown if n > 0 => {
+                        selected.set((selected.get_untracked() + rows).min(n - 1))
+                    }
                     Key::PageUp => selected.set(selected.get_untracked().saturating_sub(rows)),
                     _ => return KeyReply::Ignore,
                 }
                 KeyReply::Handled
             })
-            .child(
-                DecoratedBox::new().class("palette").child({
-                    let mut c = Column::new().gap(6.0).cross_axis_alignment(CrossAxisAlignment::Stretch);
-                    if !self.title.is_empty() {
-                        c = c.child(Text::new(self.title.clone()).class("palette-title"));
-                    }
-                    c.child(field).child(DecoratedBox::new().class("palette-list").child(list))
-                }),
-            );
+            .child(DecoratedBox::new().class("palette").child({
+                let mut c = Column::new()
+                    .gap(6.0)
+                    .cross_axis_alignment(CrossAxisAlignment::Stretch);
+                if !self.title.is_empty() {
+                    c = c.child(Text::new(self.title.clone()).class("palette-title"));
+                }
+                c.child(field)
+                    .child(DecoratedBox::new().class("palette-list").child(list))
+            }));
 
         Portal::new()
             .is_open(open)
             .modal(true)
             .backdrop(true)
             .backdrop_color(crate::core::Color::new(0.0, 0.0, 0.0, 0.25))
-            .anchor(PortalAnchor::TopCenter { margin_top: self.margin_top })
+            .anchor(PortalAnchor::TopCenter {
+                margin_top: self.margin_top,
+            })
             .close_on_outside_click(true)
             .width(self.width)
             .on_close(move || dismiss())
@@ -356,7 +410,9 @@ mod tests {
         let cmds = vec![
             PaletteCommand::new("a", "Перейти к адресу").category("Навигация"),
             PaletteCommand::new("b", "Открыть файл").category("Файл"),
-            PaletteCommand::new("c", "Закрыть").category("Файл").keywords("выйти"),
+            PaletteCommand::new("c", "Закрыть")
+                .category("Файл")
+                .keywords("выйти"),
         ];
         assert_eq!(filter_commands(&cmds, "").len(), 3);
         assert_eq!(filter_commands(&cmds, "откр")[0].command.id, "b");
@@ -368,7 +424,8 @@ mod tests {
         // поиск по пояснению
         let cmds = vec![
             PaletteCommand::new("x", "Один файл").description("для чтения: .c и .h"),
-            PaletteCommand::new("y", "Проект исходников").description("модули, заголовки, Makefile"),
+            PaletteCommand::new("y", "Проект исходников")
+                .description("модули, заголовки, Makefile"),
         ];
         assert_eq!(filter_commands(&cmds, "makefile")[0].command.id, "y");
     }

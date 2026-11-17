@@ -77,14 +77,23 @@ pub struct RecorderOptions {
 
 impl Default for RecorderOptions {
     fn default() -> Self {
-        Self { device: None, pipewire_node: None, keep_samples: true, warmup: true }
+        Self {
+            device: None,
+            pipewire_node: None,
+            keep_samples: true,
+            warmup: true,
+        }
     }
 }
 
 impl RecorderOptions {
     /// Длинная запись потоком: без накопления в памяти и без отбрасывания начала.
     pub fn streaming() -> Self {
-        Self { keep_samples: false, warmup: false, ..Self::default() }
+        Self {
+            keep_samples: false,
+            warmup: false,
+            ..Self::default()
+        }
     }
 }
 
@@ -97,7 +106,11 @@ impl RecorderState {
         Self {
             sample_rate: AtomicU32::new(0),
             channels: AtomicU16::new(0),
-            samples: Mutex::new(if o.keep_samples { Vec::with_capacity(48_000 * 30) } else { Vec::new() }),
+            samples: Mutex::new(if o.keep_samples {
+                Vec::with_capacity(48_000 * 30)
+            } else {
+                Vec::new()
+            }),
             vis: Mutex::new(VisRing::new(VIS_RING_CAP)),
             started: AtomicBool::new(false),
             paused: AtomicBool::new(false),
@@ -259,7 +272,10 @@ impl AudioRecorder {
     }
 
     pub fn start_with_device(preferred: Option<&str>) -> Result<Self, AudioError> {
-        Self::start_with(RecorderOptions { device: preferred.map(str::to_string), ..RecorderOptions::default() })
+        Self::start_with(RecorderOptions {
+            device: preferred.map(str::to_string),
+            ..RecorderOptions::default()
+        })
     }
 
     /// Запуск с параметрами. Для длинной записи — `RecorderOptions::streaming()` и сразу `open_stream()`:
@@ -309,7 +325,11 @@ impl AudioRecorder {
     /// Поток моно-кадров записи (`AudioStream::take_receiver`). Один на запись.
     pub fn open_stream(&self) -> Option<Arc<AudioStream>> {
         if let Some(rx) = self.early_rx.lock().ok().and_then(|mut g| g.take()) {
-            return Some(AudioStream::new(rx, self.state.sample_rate.load(Ordering::Acquire), 1));
+            return Some(AudioStream::new(
+                rx,
+                self.state.sample_rate.load(Ordering::Acquire),
+                1,
+            ));
         }
         let (tx, rx) = mpsc::channel::<Vec<f32>>();
         let mut g = self.state.stream_tx.lock().ok()?;
@@ -404,7 +424,9 @@ fn run_audio_thread(
         }
         None => preferred,
     };
-    let unset = pipewire_node.is_some().then(|| scopeguard_env("PIPEWIRE_NODE"));
+    let unset = pipewire_node
+        .is_some()
+        .then(|| scopeguard_env("PIPEWIRE_NODE"));
 
     let mut last_err: Option<AudioError> = None;
     let mut already_tried: Vec<String> = Vec::new();
@@ -599,7 +621,11 @@ fn try_build_stream(
 
     state.sample_rate.store(sample_rate, Ordering::Release);
     state.channels.store(channels, Ordering::Release);
-    let warmup_frames = if state.warmup { (sample_rate as u64 * WARMUP_DURATION_MS as u64 / 1000) as u32 } else { 0 };
+    let warmup_frames = if state.warmup {
+        (sample_rate as u64 * WARMUP_DURATION_MS as u64 / 1000) as u32
+    } else {
+        0
+    };
     state
         .warmup_frames_left
         .store(warmup_frames, Ordering::Release);

@@ -213,9 +213,27 @@ impl ButtonElement {
         font_family: Option<String>,
     ) {
         if self.text_lines <= 1 {
-            list.push_text_styled_singleline(text, rect, color, font_size, align, decoration, font_weight, font_family);
+            list.push_text_styled_singleline(
+                text,
+                rect,
+                color,
+                font_size,
+                align,
+                decoration,
+                font_weight,
+                font_family,
+            );
         } else {
-            list.push_text_styled(text, rect, color, font_size, align, decoration, font_weight, font_family);
+            list.push_text_styled(
+                text,
+                rect,
+                color,
+                font_size,
+                align,
+                decoration,
+                font_weight,
+                font_family,
+            );
         }
     }
 
@@ -497,7 +515,8 @@ impl Element for ButtonElement {
                     let text_w = (content_w - icon_size - icon_gap).max(0.0);
                     let text_rect =
                         Rect::new(Point::new(text_x, text_y), Size::new(text_w, font_size));
-                    self.push_label(list, 
+                    self.push_label(
+                        list,
                         &self.text,
                         text_rect,
                         text_color,
@@ -512,7 +531,8 @@ impl Element for ButtonElement {
                     let text_w = (content_w - icon_size - icon_gap).max(0.0);
                     let text_rect =
                         Rect::new(Point::new(content_x, text_y), Size::new(text_w, font_size));
-                    self.push_label(list, 
+                    self.push_label(
+                        list,
                         &self.text,
                         text_rect,
                         text_color,
@@ -542,7 +562,8 @@ impl Element for ButtonElement {
                 Point::new(content_x, text_y),
                 Size::new(content_w, font_size),
             );
-            self.push_label(list, 
+            self.push_label(
+                list,
                 &self.text,
                 text_rect,
                 text_color,
@@ -876,12 +897,17 @@ mod tests {
     /// (свечение главной кнопки) оставалась у неактивной кнопки.
     #[test]
     fn disabled_layer_removes_shadow() {
-        let css = ".p { box-shadow: 0 6px 18px rgba(255, 0, 0, 0.3); &:disabled { box-shadow: none; } }";
+        let css =
+            ".p { box-shadow: 0 6px 18px rgba(255, 0, 0, 0.3); &:disabled { box-shadow: none; } }";
         let shadows = |disabled: bool| {
             let mut h = TestHarness::new(Box::new(Button::new("OK").disabled(disabled).class("p")));
             h.apply_mss(css);
             h.layout(200.0, 40.0);
-            h.paint().commands().iter().filter(|c| format!("{c:?}").contains("Shadow")).count()
+            h.paint()
+                .commands()
+                .iter()
+                .filter(|c| format!("{c:?}").contains("Shadow"))
+                .count()
         };
         assert!(shadows(false) > 0, "у включённой кнопки тень есть");
         assert_eq!(shadows(true), 0, "у выключенной тень снята");

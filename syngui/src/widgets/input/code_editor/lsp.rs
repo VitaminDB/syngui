@@ -110,7 +110,11 @@ fn is_subsequence(needle: &str, hay: &str) -> bool {
 /// Символы `[start, end)` строки `line`, которые подчёркивает диагностика.
 /// `end` может быть на один больше длины строки — «за концом строки»
 /// (ошибка на переводе строки или в пустой строке).
-pub(crate) fn diag_cols_on_line(d: &Diagnostic, line: usize, line_text: &str) -> Option<(usize, usize)> {
+pub(crate) fn diag_cols_on_line(
+    d: &Diagnostic,
+    line: usize,
+    line_text: &str,
+) -> Option<(usize, usize)> {
     let (end_line, end_col) = if (d.end_line, d.end_col) < (d.line, d.col) {
         (d.line, d.col)
     } else {
@@ -194,7 +198,11 @@ pub(crate) fn wrap_text(text: &str, max_chars: usize, max_lines: usize) -> Vec<S
             }
             let mut w = word;
             while w.chars().count() > max_chars {
-                let cut = w.char_indices().nth(max_chars).map(|(b, _)| b).unwrap_or(w.len());
+                let cut = w
+                    .char_indices()
+                    .nth(max_chars)
+                    .map(|(b, _)| b)
+                    .unwrap_or(w.len());
                 out.push(w[..cut].to_string());
                 if out.len() >= max_lines {
                     break 'outer;
@@ -222,12 +230,21 @@ mod tests {
     use super::*;
 
     fn item(label: &str) -> CompletionItem {
-        CompletionItem { label: label.into(), ..Default::default() }
+        CompletionItem {
+            label: label.into(),
+            ..Default::default()
+        }
     }
 
     #[test]
     fn filter_prefix_then_contains_then_subsequence() {
-        let items = vec![item("to_string"), item("String"), item("len"), item("strip"), item("as_str")];
+        let items = vec![
+            item("to_string"),
+            item("String"),
+            item("len"),
+            item("strip"),
+            item("as_str"),
+        ];
         let got = filter_completion(&items, "str");
         // начало: String, strip; содержит: to_string, as_str; подпоследовательность — нет
         assert_eq!(got, vec![1, 3, 0, 4]);
@@ -238,7 +255,14 @@ mod tests {
 
     #[test]
     fn diag_range_zero_width_covers_word() {
-        let d = Diagnostic { line: 0, col: 4, end_line: 0, end_col: 4, severity: DiagnosticSeverity::Error, message: String::new() };
+        let d = Diagnostic {
+            line: 0,
+            col: 4,
+            end_line: 0,
+            end_col: 4,
+            severity: DiagnosticSeverity::Error,
+            message: String::new(),
+        };
         assert_eq!(diag_cols_on_line(&d, 0, "let foo = 1;"), Some((4, 7)));
         assert_eq!(diag_cols_on_line(&d, 0, "let"), Some((3, 4)));
         assert_eq!(diag_cols_on_line(&d, 1, "let foo"), None);
@@ -246,7 +270,14 @@ mod tests {
 
     #[test]
     fn diag_range_multiline() {
-        let d = Diagnostic { line: 1, col: 2, end_line: 3, end_col: 1, severity: DiagnosticSeverity::Warning, message: String::new() };
+        let d = Diagnostic {
+            line: 1,
+            col: 2,
+            end_line: 3,
+            end_col: 1,
+            severity: DiagnosticSeverity::Warning,
+            message: String::new(),
+        };
         assert_eq!(diag_cols_on_line(&d, 0, "abcd"), None);
         assert_eq!(diag_cols_on_line(&d, 1, "abcd"), Some((2, 4)));
         assert_eq!(diag_cols_on_line(&d, 2, "xyz"), Some((0, 3)));

@@ -206,13 +206,22 @@ pub struct SearchField {
 
 impl SearchField {
     pub fn new(text: &str, bonus: i32) -> Self {
-        Self { norm: normalize(text), display: text.to_string(), bonus }
+        Self {
+            norm: normalize(text),
+            display: text.to_string(),
+            bonus,
+        }
     }
 }
 
 /// Оценить элемент: `title` — заголовок как показывается, `norm_title` —
 /// он же после [`normalize`], `fields` — остальные поля.
-pub fn score(title: &str, norm_title: &str, fields: &[SearchField], plan: &QueryPlan) -> Option<ItemMatch> {
+pub fn score(
+    title: &str,
+    norm_title: &str,
+    fields: &[SearchField],
+    plan: &QueryPlan,
+) -> Option<ItemMatch> {
     let primary = score_tokens(title, norm_title, fields, &plan.tokens, false);
     let switched = plan
         .switched

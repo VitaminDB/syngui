@@ -45,9 +45,19 @@ impl Interpolate for ShapePath {
         let t = t_for(ts, 0);
         let lp = |p: [f32; 2], q: [f32; 2]| [p[0] + (q[0] - p[0]) * t, p[1] + (q[1] - p[1]) * t];
         ShapePath {
-            verts: a.verts.iter().zip(&b.verts).map(|(p, q)| lp(*p, *q)).collect(),
+            verts: a
+                .verts
+                .iter()
+                .zip(&b.verts)
+                .map(|(p, q)| lp(*p, *q))
+                .collect(),
             ins: a.ins.iter().zip(&b.ins).map(|(p, q)| lp(*p, *q)).collect(),
-            outs: a.outs.iter().zip(&b.outs).map(|(p, q)| lp(*p, *q)).collect(),
+            outs: a
+                .outs
+                .iter()
+                .zip(&b.outs)
+                .map(|(p, q)| lp(*p, *q))
+                .collect(),
             closed: a.closed,
         }
     }
@@ -93,7 +103,10 @@ impl FromJson for ShapePath {
                     arr.iter()
                         .map(|p| {
                             let n = p.num_array();
-                            [n.first().copied().unwrap_or(0.0), n.get(1).copied().unwrap_or(0.0)]
+                            [
+                                n.first().copied().unwrap_or(0.0),
+                                n.get(1).copied().unwrap_or(0.0),
+                            ]
                         })
                         .collect()
                 })
@@ -189,7 +202,11 @@ fn segment<T>(kfs: &[Keyframe<T>], frame: f32) -> Result<(usize, f32), &T> {
         }
     }
     let span = kfs[hi].time - kfs[lo].time;
-    let p = if span > 0.0 { ((frame - kfs[lo].time) / span).clamp(0.0, 1.0) } else { 1.0 };
+    let p = if span > 0.0 {
+        ((frame - kfs[lo].time) / span).clamp(0.0, 1.0)
+    } else {
+        1.0
+    };
     Ok((lo, p))
 }
 
@@ -239,7 +256,12 @@ impl Animated<Vec<f32>> {
     /// Позиция с учётом пространственных касательных `to`/`ti`
     /// (движение по кривой, равномерное по длине дуги).
     pub fn position(&self, frame: f32) -> [f32; 2] {
-        let two = |v: &Vec<f32>| [v.first().copied().unwrap_or(0.0), v.get(1).copied().unwrap_or(0.0)];
+        let two = |v: &Vec<f32>| {
+            [
+                v.first().copied().unwrap_or(0.0),
+                v.get(1).copied().unwrap_or(0.0),
+            ]
+        };
         match self {
             Animated::Static(v) => two(v),
             Animated::Keyframes(kfs) => match segment(kfs, frame) {
@@ -257,7 +279,10 @@ impl Animated<Vec<f32>> {
                     let (to, ti) = match (k.to, k.ti) {
                         (Some(to), Some(ti)) if to != [0.0, 0.0] || ti != [0.0, 0.0] => (to, ti),
                         _ => {
-                            return [a[0] + (b[0] - a[0]) * ts[0], a[1] + (b[1] - a[1]) * ts[1.min(n - 1)]];
+                            return [
+                                a[0] + (b[0] - a[0]) * ts[0],
+                                a[1] + (b[1] - a[1]) * ts[1.min(n - 1)],
+                            ];
                         }
                     };
                     let c1 = [a[0] + to[0], a[1] + to[1]];
@@ -270,7 +295,13 @@ impl Animated<Vec<f32>> {
 }
 
 /// Точка на кубической кривой на доле `frac` её длины.
-fn point_on_cubic_by_length(p0: [f32; 2], p1: [f32; 2], p2: [f32; 2], p3: [f32; 2], frac: f32) -> [f32; 2] {
+fn point_on_cubic_by_length(
+    p0: [f32; 2],
+    p1: [f32; 2],
+    p2: [f32; 2],
+    p3: [f32; 2],
+    frac: f32,
+) -> [f32; 2] {
     const N: usize = 32;
     let eval = |t: f32| -> [f32; 2] {
         let mt = 1.0 - t;
@@ -300,7 +331,11 @@ fn point_on_cubic_by_length(p0: [f32; 2], p1: [f32; 2], p2: [f32; 2], p3: [f32; 
         i += 1;
     }
     let seg = lens[i] - lens[i - 1];
-    let local = if seg > 0.0 { (target - lens[i - 1]) / seg } else { 0.0 };
+    let local = if seg > 0.0 {
+        (target - lens[i - 1]) / seg
+    } else {
+        0.0
+    };
     eval(((i - 1) as f32 + local) / N as f32)
 }
 
@@ -407,7 +442,10 @@ impl<T: FromJson + Clone> Animated<T> {
         let mut pending_start: Option<T> = None;
         for it in items {
             let time = it.f32_or("t", 0.0);
-            let start = it.get("s").and_then(T::from_json).or_else(|| pending_start.take());
+            let start = it
+                .get("s")
+                .and_then(T::from_json)
+                .or_else(|| pending_start.take());
             let end = it.get("e").and_then(T::from_json);
             let Some(start) = start else {
                 // Последний кадр старого формата без значения: интервал закрыт `e` предыдущего.
@@ -447,7 +485,11 @@ impl<T: FromJson + Clone> Animated<T> {
         if kfs.is_empty() {
             return None;
         }
-        kfs.sort_by(|a, b| a.time.partial_cmp(&b.time).unwrap_or(std::cmp::Ordering::Equal));
+        kfs.sort_by(|a, b| {
+            a.time
+                .partial_cmp(&b.time)
+                .unwrap_or(std::cmp::Ordering::Equal)
+        });
         Some(Animated::Keyframes(kfs))
     }
 
@@ -481,7 +523,10 @@ mod tests {
 
     #[test]
     fn hold_keyframes() {
-        let j = super::super::json::parse(r#"{"a":1,"k":[{"t":0,"s":[1],"h":1},{"t":10,"s":[2],"h":1}]}"#).unwrap();
+        let j = super::super::json::parse(
+            r#"{"a":1,"k":[{"t":0,"s":[1],"h":1},{"t":10,"s":[2],"h":1}]}"#,
+        )
+        .unwrap();
         let a: Animated<f32> = Animated::parse(Some(&j)).unwrap();
         assert_eq!(a.value(9.9), 1.0);
         assert_eq!(a.value(10.0), 2.0);

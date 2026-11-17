@@ -6,14 +6,16 @@
 use std::f32::consts::{PI, TAU};
 
 use super::geom::{
-    dash_polyline, offset_polyline, pucker_bloat, stroke_polyline, trim_paths, twist_polyline, zigzag_path, LineCap,
-    LineJoin, Mat, Polyline, ShapePath,
+    dash_polyline, offset_polyline, pucker_bloat, stroke_polyline, trim_paths, twist_polyline,
+    zigzag_path, LineCap, LineJoin, Mat, Polyline, ShapePath,
 };
 use super::model::{
-    Composition, DashKind, Effect, Gradient, GradientKind, Layer, LayerKind, LayerMask, MaskMode, MatteMode,
-    MergeMode, Shape, StrokeStyle, TextData, Transform,
+    Composition, DashKind, Effect, Gradient, GradientKind, Layer, LayerKind, LayerMask, MaskMode,
+    MatteMode, MergeMode, Shape, StrokeStyle, TextData, Transform,
 };
-use super::raster::{BlendMode, CoverageOp, FillRule, GradientStops, Mask, Paint, Pixmap, Rasterizer};
+use super::raster::{
+    BlendMode, CoverageOp, FillRule, GradientStops, Mask, Paint, Pixmap, Rasterizer,
+};
 
 /// Допуск уплощения кривых в пикселях.
 const TOLERANCE: f32 = 0.2;
@@ -64,10 +66,21 @@ struct PathInst {
 #[derive(Clone, Copy)]
 enum ModInst {
     Round(f32),
-    Offset { amount: f32, join: LineJoin, miter: f32 },
-    Zig { size: f32, ridges: f32 },
+    Offset {
+        amount: f32,
+        join: LineJoin,
+        miter: f32,
+    },
+    Zig {
+        size: f32,
+        ridges: f32,
+    },
     Pucker(f32),
-    Twist { angle: f32, cx: f32, cy: f32 },
+    Twist {
+        angle: f32,
+        cx: f32,
+        cy: f32,
+    },
 }
 
 struct Collected<'a> {
@@ -79,7 +92,10 @@ struct Collected<'a> {
 
 #[inline]
 fn two(v: &[f32]) -> [f32; 2] {
-    [v.first().copied().unwrap_or(0.0), v.get(1).copied().unwrap_or(0.0)]
+    [
+        v.first().copied().unwrap_or(0.0),
+        v.get(1).copied().unwrap_or(0.0),
+    ]
 }
 
 impl Renderer {
@@ -148,7 +164,11 @@ impl Renderer {
         let l = &layers[i];
         // Ключевые кадры свойств заданы во времени композиции: `st`/`sr`
         // сдвигают только время дочерней прекомпозиции (как в lottie-web/rlottie).
-        let extra = if l.auto_orient { auto_orient_angle(&l.transform, frame) } else { 0.0 };
+        let extra = if l.auto_orient {
+            auto_orient_angle(&l.transform, frame)
+        } else {
+            0.0
+        };
         let own = l.transform.matrix_with(frame, extra);
         let parent = match l.parent {
             Some(p) if p != i && p < layers.len() && depth < 64 => {
@@ -188,14 +208,23 @@ impl Renderer {
                 continue;
             }
             let mat = self.layer_matrix(layers, i, frame, root, &mut memo, 0);
-            self.render_layer(ctx, layers, i, frame, mat, root, target, depth, &mut memo, clip);
+            self.render_layer(
+                ctx, layers, i, frame, mat, root, target, depth, &mut memo, clip,
+            );
         }
     }
 
     /// Собственный клип слоя: внешний клип ∩ прямоугольник прекомпозиции ∩
     /// маски слоя. `None` — слой ничего не добавляет, действует внешний клип
     /// (без копирования); `Some(пустая)` — слой целиком невидим.
-    fn layer_clip(&mut self, ctx: &Ctx, l: &Layer, frame: f32, mat: &Mat, outer: Option<&Mask>) -> Option<Mask> {
+    fn layer_clip(
+        &mut self,
+        ctx: &Ctx,
+        l: &Layer,
+        frame: f32,
+        mat: &Mat,
+        outer: Option<&Mask>,
+    ) -> Option<Mask> {
         let mut own: Option<Mask> = None;
         let region = |c: Option<&Mask>| -> [usize; 4] {
             match c {
@@ -273,7 +302,10 @@ impl Renderer {
             return;
         }
         let clip_ref = own_clip.as_ref().or(outer_clip);
-        let needs_buffer = l.matte.is_some() || opacity < 1.0 || l.blend != BlendMode::Normal || !l.effects.is_empty();
+        let needs_buffer = l.matte.is_some()
+            || opacity < 1.0
+            || l.blend != BlendMode::Normal
+            || !l.effects.is_empty();
         if !needs_buffer {
             self.draw_content(ctx, l, frame, &mat, target, depth, clip_ref);
             if let Some(m) = own_clip {
@@ -293,7 +325,9 @@ impl Renderer {
                     let mut mbuf = self.take(ctx.w, ctx.h);
                     if !ml.hidden && ml.in_range(frame) {
                         let mm = self.layer_matrix(layers, src, frame, root, memo, 0);
-                        self.render_layer(ctx, layers, src, frame, mm, root, &mut mbuf, depth, memo, outer_clip);
+                        self.render_layer(
+                            ctx, layers, src, frame, mm, root, &mut mbuf, depth, memo, outer_clip,
+                        );
                     }
                     let (luma, inverted) = match mode {
                         MatteMode::Alpha => (false, false),
@@ -341,7 +375,11 @@ impl Renderer {
                     return;
                 };
                 let (iw, ih) = (image.width.max(1) as f32, image.height.max(1) as f32);
-                let (aw, ah) = if asset.width > 0.0 && asset.height > 0.0 { (asset.width, asset.height) } else { (iw, ih) };
+                let (aw, ah) = if asset.width > 0.0 && asset.height > 0.0 {
+                    (asset.width, asset.height)
+                } else {
+                    (iw, ih)
+                };
                 let img_mat = mat.mul(&Mat::scale(aw / iw, ah / ih));
                 let Some(inv) = img_mat.invert() else {
                     return;
@@ -378,11 +416,22 @@ impl Renderer {
     /// Совокупное покрытие масок слоя. Для прямых масок режимов
     /// add/intersect/lighten/darken область — объединение их охватов,
     /// иначе (subtract, inverted, difference) — вся `region`.
-    fn layer_masks(&mut self, ctx: &Ctx, masks: &[LayerMask], frame: f32, mat: &Mat, region: [usize; 4]) -> Mask {
+    fn layer_masks(
+        &mut self,
+        ctx: &Ctx,
+        masks: &[LayerMask],
+        frame: f32,
+        mat: &Mat,
+        region: [usize; 4],
+    ) -> Mask {
         let mut covs: Vec<Option<Mask>> = Vec::with_capacity(masks.len());
-        let bounded = masks
-            .iter()
-            .all(|m| !m.inverted && matches!(m.mode, MaskMode::Add | MaskMode::Intersect | MaskMode::Lighten | MaskMode::Darken));
+        let bounded = masks.iter().all(|m| {
+            !m.inverted
+                && matches!(
+                    m.mode,
+                    MaskMode::Add | MaskMode::Intersect | MaskMode::Lighten | MaskMode::Darken
+                )
+        });
         let mut bb: Option<[usize; 4]> = None;
         for m in masks {
             let mut path = m.path.value(frame);
@@ -399,7 +448,12 @@ impl Renderer {
                 ];
                 bb = Some(match bb {
                     None => r,
-                    Some(b) => [b[0].min(r[0]), b[1].min(r[1]), b[2].max(r[2]), b[3].max(r[3])],
+                    Some(b) => [
+                        b[0].min(r[0]),
+                        b[1].min(r[1]),
+                        b[2].max(r[2]),
+                        b[3].max(r[3]),
+                    ],
                 });
             }
             covs.push(cov);
@@ -408,7 +462,12 @@ impl Renderer {
         if bounded {
             match bb {
                 Some(b) => {
-                    r = [r[0].max(b[0]), r[1].max(b[1]), r[2].min(b[2]), r[3].min(b[3])];
+                    r = [
+                        r[0].max(b[0]),
+                        r[1].max(b[1]),
+                        r[2].min(b[2]),
+                        r[3].min(b[3]),
+                    ];
                 }
                 None => r = [0, 0, 0, 0],
             }
@@ -428,7 +487,13 @@ impl Renderer {
             };
         }
         let first_full = matches!(masks[0].mode, MaskMode::Subtract | MaskMode::Intersect);
-        let mut acc = self.rast.new_mask(rx0 as i32, ry0 as i32, w, h, if first_full { 1.0 } else { 0.0 });
+        let mut acc = self.rast.new_mask(
+            rx0 as i32,
+            ry0 as i32,
+            w,
+            h,
+            if first_full { 1.0 } else { 0.0 },
+        );
         let mut tmp = vec![0f32; w];
         for (m, cov) in masks.iter().zip(&covs) {
             let op = (m.opacity.value(frame) / 100.0).clamp(0.0, 1.0);
@@ -463,7 +528,15 @@ impl Renderer {
         acc
     }
 
-    fn draw_shapes(&mut self, ctx: &Ctx, items: &[Shape], frame: f32, mat: &Mat, target: &mut Pixmap, clip: Option<&Mask>) {
+    fn draw_shapes(
+        &mut self,
+        ctx: &Ctx,
+        items: &[Shape],
+        frame: f32,
+        mat: &Mat,
+        target: &mut Pixmap,
+        clip: Option<&Mask>,
+    ) {
         let mut col = Collected {
             styles: Vec::new(),
             trims: Vec::new(),
@@ -485,19 +558,36 @@ impl Renderer {
                 continue;
             }
             match style.shape {
-                Shape::Fill { color, opacity, rule } => {
+                Shape::Fill {
+                    color,
+                    opacity,
+                    rule,
+                } => {
                     let c = color.value(frame);
-                    let a = opacity.value(frame) / 100.0 * c.get(3).copied().unwrap_or(1.0) * style.opacity;
+                    let a = opacity.value(frame) / 100.0
+                        * c.get(3).copied().unwrap_or(1.0)
+                        * style.opacity;
                     if a <= 0.0 {
                         continue;
                     }
-                    let paint = Paint::solid([c[0], c.get(1).copied().unwrap_or(0.0), c.get(2).copied().unwrap_or(0.0)], a);
+                    let paint = Paint::solid(
+                        [
+                            c[0],
+                            c.get(1).copied().unwrap_or(0.0),
+                            c.get(2).copied().unwrap_or(0.0),
+                        ],
+                        a,
+                    );
                     if let Some(m) = self.style_fill_mask(ctx, &col, si, *rule) {
                         target.fill_mask(&m, &paint, clip);
                         self.rast.recycle(m);
                     }
                 }
-                Shape::GradientFill { gradient, opacity, rule } => {
+                Shape::GradientFill {
+                    gradient,
+                    opacity,
+                    rule,
+                } => {
                     let a = opacity.value(frame) / 100.0 * style.opacity;
                     let Some(paint) = gradient_paint(gradient, frame, &style.mat, a) else {
                         continue;
@@ -507,28 +597,51 @@ impl Renderer {
                         self.rast.recycle(m);
                     }
                 }
-                Shape::Stroke { color, opacity, style: st } => {
+                Shape::Stroke {
+                    color,
+                    opacity,
+                    style: st,
+                } => {
                     let c = color.value(frame);
-                    let a = opacity.value(frame) / 100.0 * c.get(3).copied().unwrap_or(1.0) * style.opacity;
+                    let a = opacity.value(frame) / 100.0
+                        * c.get(3).copied().unwrap_or(1.0)
+                        * style.opacity;
                     if a <= 0.0 {
                         continue;
                     }
-                    let paint = Paint::solid([c[0], c.get(1).copied().unwrap_or(0.0), c.get(2).copied().unwrap_or(0.0)], a);
+                    let paint = Paint::solid(
+                        [
+                            c[0],
+                            c.get(1).copied().unwrap_or(0.0),
+                            c.get(2).copied().unwrap_or(0.0),
+                        ],
+                        a,
+                    );
                     stroke_polys.clear();
                     build_stroke(&polys, st, frame, &style.mat, &mut stroke_polys);
-                    if let Some(m) = self.rast.fill(&stroke_polys, FillRule::NonZero, ctx.w, ctx.h) {
+                    if let Some(m) = self
+                        .rast
+                        .fill(&stroke_polys, FillRule::NonZero, ctx.w, ctx.h)
+                    {
                         target.fill_mask(&m, &paint, clip);
                         self.rast.recycle(m);
                     }
                 }
-                Shape::GradientStroke { gradient, opacity, style: st } => {
+                Shape::GradientStroke {
+                    gradient,
+                    opacity,
+                    style: st,
+                } => {
                     let a = opacity.value(frame) / 100.0 * style.opacity;
                     let Some(paint) = gradient_paint(gradient, frame, &style.mat, a) else {
                         continue;
                     };
                     stroke_polys.clear();
                     build_stroke(&polys, st, frame, &style.mat, &mut stroke_polys);
-                    if let Some(m) = self.rast.fill(&stroke_polys, FillRule::NonZero, ctx.w, ctx.h) {
+                    if let Some(m) = self
+                        .rast
+                        .fill(&stroke_polys, FillRule::NonZero, ctx.w, ctx.h)
+                    {
                         target.fill_mask(&m, &paint, clip);
                         self.rast.recycle(m);
                     }
@@ -541,7 +654,13 @@ impl Renderer {
     /// Маска заливки стиля: контуры без merge заливаются вместе, каждая
     /// merge-группа собирается булевыми операциями по покрытию (сверху вниз,
     /// как в skottie) и объединяется с остальным.
-    fn style_fill_mask(&mut self, ctx: &Ctx, col: &Collected, si: usize, rule: FillRule) -> Option<Mask> {
+    fn style_fill_mask(
+        &mut self,
+        ctx: &Ctx,
+        col: &Collected,
+        si: usize,
+        rule: FillRule,
+    ) -> Option<Mask> {
         let mut plain: Vec<Polyline> = Vec::new();
         let mut groups: Vec<(usize, Vec<usize>)> = Vec::new();
         for (pi, p) in col.paths.iter().enumerate() {
@@ -573,7 +692,11 @@ impl Renderer {
             let mut acc: Option<Mask> = None;
             for (k, &pi) in idxs.iter().rev().enumerate() {
                 let m = self.rast.fill(&col.paths[pi].polys, rule, ctx.w, ctx.h);
-                acc = if k == 0 { m } else { self.rast.combine(acc, m, op) };
+                acc = if k == 0 {
+                    m
+                } else {
+                    self.rast.combine(acc, m, op)
+                };
             }
             total = self.rast.combine(total, acc, CoverageOp::Union);
         }
@@ -582,7 +705,15 @@ impl Renderer {
 
     /// Текстовый слой из встроенных глифов (`chars`). Слои со шрифтами без
     /// глифов пропускаются (нужен экспорт bodymovin с опцией Glyphs).
-    fn draw_text(&mut self, ctx: &Ctx, td: &TextData, frame: f32, mat: &Mat, target: &mut Pixmap, clip: Option<&Mask>) {
+    fn draw_text(
+        &mut self,
+        ctx: &Ctx,
+        td: &TextData,
+        frame: f32,
+        mat: &Mat,
+        target: &mut Pixmap,
+        clip: Option<&Mask>,
+    ) {
         let Some(doc) = td.doc_at(frame) else {
             return;
         };
@@ -634,7 +765,9 @@ impl Renderer {
             let pen_y = box_y + li as f32 * doc.line_height - doc.baseline_shift;
             for (g, adv) in advances {
                 if let Some(g) = g {
-                    let gm = mat.mul(&Mat::translate(pen_x, pen_y)).mul(&Mat::scale(k, k));
+                    let gm = mat
+                        .mul(&Mat::translate(pen_x, pen_y))
+                        .mul(&Mat::scale(k, k));
                     collect_shapes(&g.shapes, 0.0, gm, 1.0, &CollectCtx::default(), &mut col, 0);
                 }
                 pen_x += adv;
@@ -647,28 +780,37 @@ impl Renderer {
         if polys.is_empty() {
             return;
         }
-        let fill = |r: &mut Self, target: &mut Pixmap, color: &[f32], a: f32, ps: &[Polyline], rule| {
-            if a <= 0.0 || ps.is_empty() {
-                return;
-            }
-            let paint = Paint::solid(
-                [
-                    color.first().copied().unwrap_or(0.0),
-                    color.get(1).copied().unwrap_or(0.0),
-                    color.get(2).copied().unwrap_or(0.0),
-                ],
-                a * color.get(3).copied().unwrap_or(1.0),
-            );
-            if let Some(m) = r.rast.fill(ps, rule, ctx.w, ctx.h) {
-                target.fill_mask(&m, &paint, clip);
-                r.rast.recycle(m);
-            }
-        };
+        let fill =
+            |r: &mut Self, target: &mut Pixmap, color: &[f32], a: f32, ps: &[Polyline], rule| {
+                if a <= 0.0 || ps.is_empty() {
+                    return;
+                }
+                let paint = Paint::solid(
+                    [
+                        color.first().copied().unwrap_or(0.0),
+                        color.get(1).copied().unwrap_or(0.0),
+                        color.get(2).copied().unwrap_or(0.0),
+                    ],
+                    a * color.get(3).copied().unwrap_or(1.0),
+                );
+                if let Some(m) = r.rast.fill(ps, rule, ctx.w, ctx.h) {
+                    target.fill_mask(&m, &paint, clip);
+                    r.rast.recycle(m);
+                }
+            };
         let stroke_polys: Vec<Polyline> = if doc.stroke.is_some() && doc.stroke_width > 0.0 {
             let w = doc.stroke_width * mat.scale_factor();
             let mut out = Vec::new();
             for p in &polys {
-                stroke_polyline(p, w, LineCap::Round, LineJoin::Round, 4.0, TOLERANCE, &mut out);
+                stroke_polyline(
+                    p,
+                    w,
+                    LineCap::Round,
+                    LineJoin::Round,
+                    4.0,
+                    TOLERANCE,
+                    &mut out,
+                );
             }
             out
         } else {
@@ -709,11 +851,19 @@ impl Renderer {
                         op /= 100.0;
                     }
                     buf.effect_fill(
-                        [c.first().copied().unwrap_or(0.0), c.get(1).copied().unwrap_or(0.0), c.get(2).copied().unwrap_or(0.0)],
+                        [
+                            c.first().copied().unwrap_or(0.0),
+                            c.get(1).copied().unwrap_or(0.0),
+                            c.get(2).copied().unwrap_or(0.0),
+                        ],
                         op.clamp(0.0, 1.0),
                     );
                 }
-                Effect::Tint { black, white, amount } => {
+                Effect::Tint {
+                    black,
+                    white,
+                    amount,
+                } => {
                     let b = black.value(frame);
                     let w = white.value(frame);
                     let three = |v: &[f32]| {
@@ -725,7 +875,10 @@ impl Renderer {
                     };
                     buf.effect_tint(three(&b), three(&w), amount.value(frame) / 100.0);
                 }
-                Effect::GaussianBlur { blurriness, dimensions } => {
+                Effect::GaussianBlur {
+                    blurriness,
+                    dimensions,
+                } => {
                     let sigma = blurriness.value(frame) * 0.25 * scale;
                     let (sx, sy) = match dimensions.value(frame).round() as i32 {
                         2 => (sigma, 0.0),
@@ -746,12 +899,19 @@ impl Renderer {
                     let op = (opacity.value(frame) / 255.0).clamp(0.0, 1.0);
                     let rad = (direction.value(frame) - 90.0).to_radians();
                     let dist = distance.value(frame) * scale;
-                    let (dx, dy) = ((rad.cos() * dist).round() as i32, (rad.sin() * dist).round() as i32);
+                    let (dx, dy) = (
+                        (rad.cos() * dist).round() as i32,
+                        (rad.sin() * dist).round() as i32,
+                    );
                     let sigma = softness.value(frame) * 0.25 * scale;
                     let mut sbuf = self.take(ctx.w, ctx.h);
                     sbuf.shadow_of(
                         buf,
-                        [c.first().copied().unwrap_or(0.0), c.get(1).copied().unwrap_or(0.0), c.get(2).copied().unwrap_or(0.0)],
+                        [
+                            c.first().copied().unwrap_or(0.0),
+                            c.get(1).copied().unwrap_or(0.0),
+                            c.get(2).copied().unwrap_or(0.0),
+                        ],
                         op,
                         dx,
                         dy,
@@ -823,7 +983,10 @@ fn repeater_matrix(tr: &Transform, frame: f32, k: f32) -> Mat {
     let a = two(&tr.anchor.value(frame));
     let p = tr.position_at(frame);
     let s = tr.scale.value(frame);
-    let s = [s.first().copied().unwrap_or(100.0) / 100.0, s.get(1).copied().unwrap_or(100.0) / 100.0];
+    let s = [
+        s.first().copied().unwrap_or(100.0) / 100.0,
+        s.get(1).copied().unwrap_or(100.0) / 100.0,
+    ];
     let r = tr.rotation.value(frame);
     let pw = |v: f32| -> f32 {
         if (k - k.round()).abs() < 1e-6 {
@@ -848,7 +1011,15 @@ struct CollectCtx {
     merge: Option<usize>,
 }
 
-fn collect_shapes<'a>(items: &'a [Shape], frame: f32, mat: Mat, opacity: f32, inherited: &CollectCtx, col: &mut Collected<'a>, depth: usize) {
+fn collect_shapes<'a>(
+    items: &'a [Shape],
+    frame: f32,
+    mat: Mat,
+    opacity: f32,
+    inherited: &CollectCtx,
+    col: &mut Collected<'a>,
+    depth: usize,
+) {
     if depth > MAX_DEPTH {
         return;
     }
@@ -858,7 +1029,10 @@ fn collect_shapes<'a>(items: &'a [Shape], frame: f32, mat: Mat, opacity: f32, in
         idx -= 1;
         let it = &items[idx];
         match it {
-            Shape::Fill { .. } | Shape::Stroke { .. } | Shape::GradientFill { .. } | Shape::GradientStroke { .. } => {
+            Shape::Fill { .. }
+            | Shape::Stroke { .. }
+            | Shape::GradientFill { .. }
+            | Shape::GradientStroke { .. } => {
                 col.styles.push(StyleInst {
                     shape: it,
                     mat,
@@ -881,12 +1055,20 @@ fn collect_shapes<'a>(items: &'a [Shape], frame: f32, mat: Mat, opacity: f32, in
                 cx.trims.push(col.trims.len() - 1);
             }
             Shape::RoundCorners { radius } => cx.mods.push(ModInst::Round(radius.value(frame))),
-            Shape::OffsetPath { amount, join, miter } => cx.mods.push(ModInst::Offset {
+            Shape::OffsetPath {
+                amount,
+                join,
+                miter,
+            } => cx.mods.push(ModInst::Offset {
                 amount: amount.value(frame),
                 join: *join,
                 miter: *miter,
             }),
-            Shape::ZigZag { size, ridges, smooth: _ } => cx.mods.push(ModInst::Zig {
+            Shape::ZigZag {
+                size,
+                ridges,
+                smooth: _,
+            } => cx.mods.push(ModInst::Zig {
                 size: size.value(frame),
                 ridges: ridges.value(frame),
             }),
@@ -921,20 +1103,43 @@ fn collect_shapes<'a>(items: &'a [Shape], frame: f32, mat: Mat, opacity: f32, in
                 let so = (start_opacity.value(frame) / 100.0).clamp(0.0, 1.0);
                 let eo = (end_opacity.value(frame) / 100.0).clamp(0.0, 1.0);
                 let before = &items[..idx];
-                let order: Vec<usize> = if *above { (0..n).collect() } else { (0..n).rev().collect() };
+                let order: Vec<usize> = if *above {
+                    (0..n).collect()
+                } else {
+                    (0..n).rev().collect()
+                };
                 for k in order {
                     let rm = repeater_matrix(transform, frame, k as f32 + off);
-                    let op = if n > 1 { so + (eo - so) * k as f32 / (n - 1) as f32 } else { so };
-                    collect_shapes(before, frame, mat.mul(&rm), opacity * op, &cx, col, depth + 1);
+                    let op = if n > 1 {
+                        so + (eo - so) * k as f32 / (n - 1) as f32
+                    } else {
+                        so
+                    };
+                    collect_shapes(
+                        before,
+                        frame,
+                        mat.mul(&rm),
+                        opacity * op,
+                        &cx,
+                        col,
+                        depth + 1,
+                    );
                 }
                 break;
             }
-            Shape::Group { items: sub, transform, .. } => {
+            Shape::Group {
+                items: sub,
+                transform,
+                ..
+            } => {
                 let gm = transform.matrix(frame);
                 let gop = transform.opacity_at(frame);
                 collect_shapes(sub, frame, mat.mul(&gm), opacity * gop, &cx, col, depth + 1);
             }
-            Shape::Rect { .. } | Shape::Ellipse { .. } | Shape::Polystar { .. } | Shape::Path { .. } => {
+            Shape::Rect { .. }
+            | Shape::Ellipse { .. }
+            | Shape::Polystar { .. }
+            | Shape::Path { .. } => {
                 let Some(mut sp) = shape_to_path(it, frame) else {
                     continue;
                 };
@@ -961,11 +1166,19 @@ fn collect_shapes<'a>(items: &'a [Shape], frame: f32, mat: Mat, opacity: f32, in
                                 poly = Some(zigzag_path(&sp, size, ridges, local_tol));
                             }
                         }
-                        ModInst::Offset { amount, join, miter } => {
+                        ModInst::Offset {
+                            amount,
+                            join,
+                            miter,
+                        } => {
                             let base = poly.take().unwrap_or_else(|| sp.flatten(local_tol));
                             poly = Some(offset_polyline(&base, amount, join, miter));
                         }
-                        ModInst::Twist { angle, cx: tx, cy: ty } => {
+                        ModInst::Twist {
+                            angle,
+                            cx: tx,
+                            cy: ty,
+                        } => {
                             let mut base = poly.take().unwrap_or_else(|| sp.flatten(local_tol));
                             twist_polyline(&mut base, angle, [tx, ty]);
                             poly = Some(base);
@@ -1003,7 +1216,9 @@ fn apply_trims(col: &mut Collected) {
     // Порядок применения — порядок списка (обратный порядку встречи).
     for ti in (0..col.trims.len()).rev() {
         let t = &col.trims[ti];
-        let idxs: Vec<usize> = (0..col.paths.len()).filter(|&p| col.paths[p].trims.contains(&ti)).collect();
+        let idxs: Vec<usize> = (0..col.paths.len())
+            .filter(|&p| col.paths[p].trims.contains(&ti))
+            .collect();
         if idxs.is_empty() {
             continue;
         }
@@ -1014,7 +1229,10 @@ fn apply_trims(col: &mut Collected) {
             }
         } else {
             // Все контуры как одна последовательность: общая длина, затем куски по контурам.
-            let total: f32 = idxs.iter().flat_map(|&p| col.paths[p].polys.iter().map(Polyline::length)).sum();
+            let total: f32 = idxs
+                .iter()
+                .flat_map(|&p| col.paths[p].polys.iter().map(Polyline::length))
+                .sum();
             if total <= 0.0 {
                 continue;
             }
@@ -1073,7 +1291,11 @@ fn shape_to_path(shape: &Shape, frame: f32) -> Option<ShapePath> {
             }
             Some(p)
         }
-        Shape::Ellipse { position, size, reversed } => {
+        Shape::Ellipse {
+            position,
+            size,
+            reversed,
+        } => {
             let c = position.position(frame);
             let s = two(&size.value(frame));
             let (rx, ry) = (s[0] / 2.0, s[1] / 2.0);
@@ -1151,11 +1373,19 @@ fn shape_to_path(shape: &Shape, frame: f32) -> Option<ShapePath> {
             let mut long = true;
             for _ in 0..num {
                 let (rad, roundness) = if *star {
-                    if long { (or_, os) } else { (ir, is) }
+                    if long {
+                        (or_, os)
+                    } else {
+                        (ir, is)
+                    }
                 } else {
                     (or_, os)
                 };
-                let perim = if *star { TAU * rad / (num as f32 * 2.0) } else { TAU * rad / (num as f32 * 4.0) };
+                let perim = if *star {
+                    TAU * rad / (num as f32 * 2.0)
+                } else {
+                    TAU * rad / (num as f32 * 4.0)
+                };
                 let x = rad * ang.cos();
                 let y = rad * ang.sin();
                 let l = (x * x + y * y).sqrt();
@@ -1200,7 +1430,8 @@ fn gradient_paint(g: &Gradient, frame: f32, mat: &Mat, opacity: f32) -> Option<P
                 percent = -0.99;
             }
             let dist = rad * percent;
-            let ang = (e[1] - s[1]).atan2(e[0] - s[0]) + g.highlight_angle.value(frame).to_radians();
+            let ang =
+                (e[1] - s[1]).atan2(e[0] - s[0]) + g.highlight_angle.value(frame).to_radians();
             let focal = [s[0] + ang.cos() * dist, s[1] + ang.sin() * dist];
             Paint::Radial {
                 inv,
@@ -1215,7 +1446,13 @@ fn gradient_paint(g: &Gradient, frame: f32, mat: &Mat, opacity: f32) -> Option<P
 }
 
 /// Контуры обводки (в device space) для набора ломаных.
-fn build_stroke(polys: &[Polyline], st: &StrokeStyle, frame: f32, mat: &Mat, out: &mut Vec<Polyline>) {
+fn build_stroke(
+    polys: &[Polyline],
+    st: &StrokeStyle,
+    frame: f32,
+    mat: &Mat,
+    out: &mut Vec<Polyline>,
+) {
     let scale = mat.scale_factor();
     let width = st.width.value(frame) * scale;
     if width <= 0.0 {
@@ -1234,7 +1471,15 @@ fn build_stroke(polys: &[Polyline], st: &StrokeStyle, frame: f32, mat: &Mat, out
     for poly in polys {
         if dashed {
             for piece in dash_polyline(poly, &pattern, dash_offset) {
-                stroke_polyline(&piece, width, st.cap, st.join, st.miter_limit, TOLERANCE, out);
+                stroke_polyline(
+                    &piece,
+                    width,
+                    st.cap,
+                    st.join,
+                    st.miter_limit,
+                    TOLERANCE,
+                    out,
+                );
             }
         } else {
             stroke_polyline(poly, width, st.cap, st.join, st.miter_limit, TOLERANCE, out);

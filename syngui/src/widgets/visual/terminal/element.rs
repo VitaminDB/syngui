@@ -619,8 +619,10 @@ impl Element for TerminalElement {
                 use crate::input::Key;
                 // копирование и вставка как в терминалах: Ctrl+Shift+C/V,
                 // Ctrl+Insert / Shift+Insert (и прежние Ctrl+Alt+C/V)
-                let copy = (mods.ctrl && (mods.shift || mods.alt) && matches!(key, Key::C)) || (mods.ctrl && !mods.shift && matches!(key, Key::Insert));
-                let paste = (mods.ctrl && (mods.shift || mods.alt) && matches!(key, Key::V)) || (mods.shift && !mods.ctrl && matches!(key, Key::Insert));
+                let copy = (mods.ctrl && (mods.shift || mods.alt) && matches!(key, Key::C))
+                    || (mods.ctrl && !mods.shift && matches!(key, Key::Insert));
+                let paste = (mods.ctrl && (mods.shift || mods.alt) && matches!(key, Key::V))
+                    || (mods.shift && !mods.ctrl && matches!(key, Key::Insert));
                 if copy {
                     if let Some(text) = self.collect_selection() {
                         if !text.is_empty() {

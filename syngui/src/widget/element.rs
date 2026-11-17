@@ -198,6 +198,16 @@ pub trait Element: Send {
         false
     }
 
+    /// Элемент разбирает щипок двумя пальцами ([`GestureDetector::on_pinch`]).
+    /// Когда второй палец ложится, а первый уже захватил вложенный элемент
+    /// (прокрутка, список), дерево отдаёт оба пальца ближайшему такому
+    /// предку: щипок работает поверх любой прокрутки.
+    ///
+    /// [`GestureDetector::on_pinch`]: crate::widgets::GestureDetector::on_pinch
+    fn wants_pinch(&self) -> bool {
+        false
+    }
+
     /// Отладка: внутреннее состояние ввода/жеста элемента для дампа дерева (`None` — нечего сказать).
     fn debug_state(&self) -> Option<String> {
         None
@@ -592,6 +602,10 @@ impl Element for Box<dyn Element> {
         self.as_ref().drags_with_touch(pos)
     }
 
+    fn wants_pinch(&self) -> bool {
+        self.as_ref().wants_pinch()
+    }
+
     fn needs_repaint(&self) -> bool {
         self.as_ref().needs_repaint()
     }
@@ -717,7 +731,11 @@ impl Element for Box<dyn Element> {
         self.as_mut().mss_mut()
     }
 
-    fn setup_keyframe_animation(&mut self, style: &crate::mss::ComputedStyle, stylesheet: &crate::mss::StyleSheet) {
+    fn setup_keyframe_animation(
+        &mut self,
+        style: &crate::mss::ComputedStyle,
+        stylesheet: &crate::mss::StyleSheet,
+    ) {
         self.as_mut().setup_keyframe_animation(style, stylesheet)
     }
 

@@ -1,7 +1,7 @@
 use super::super::stylesheet::*;
+use super::utils::ParserCursor;
 use super::{ParseError, ParseErrorKind};
 use std::ops::Range;
-use super::utils::ParserCursor;
 
 #[derive(Debug, Clone)]
 enum SelectorToken {

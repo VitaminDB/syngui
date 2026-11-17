@@ -356,12 +356,23 @@ fn flush(p: &mut PerfCounters, now: Instant) {
             .iter()
             .enumerate()
             .filter(|(_, a)| **a > 0.0)
-            .map(|(i, a)| format!("{}={:.0}K", if names[i].is_empty() { "?" } else { names[i] }, a / frames as f64 / 1000.0))
+            .map(|(i, a)| {
+                format!(
+                    "{}={:.0}K",
+                    if names[i].is_empty() { "?" } else { names[i] },
+                    a / frames as f64 / 1000.0
+                )
+            })
             .collect();
         eprintln!("  area/кадр (логич. px², тыс.): {}", parts.join(" "));
     }
     if p.gpu_wait_us > 0 {
-        eprintln!("  gpu:     {}us tot ({}us/frame, max {}us) — ожидание конца кадра на видеокарте", p.gpu_wait_us, p.gpu_wait_us / frames, p.gpu_wait_max_us);
+        eprintln!(
+            "  gpu:     {}us tot ({}us/frame, max {}us) — ожидание конца кадра на видеокарте",
+            p.gpu_wait_us,
+            p.gpu_wait_us / frames,
+            p.gpu_wait_max_us
+        );
     }
     if !p.redraw_sites.is_empty() {
         let mut sites: Vec<_> = p.redraw_sites.iter().collect();

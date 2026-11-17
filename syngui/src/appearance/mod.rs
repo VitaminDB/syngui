@@ -166,7 +166,10 @@ fn read_platform() -> Option<SystemAppearance> {
         1 => ColorScheme::Light,
         _ => ColorScheme::NoPreference,
     };
-    Some(SystemAppearance { color_scheme, ..Default::default() })
+    Some(SystemAppearance {
+        color_scheme,
+        ..Default::default()
+    })
 }
 
 /// Ручка слежения: пока жива, `on_change` вызывается при каждом изменении

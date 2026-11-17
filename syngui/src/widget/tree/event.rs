@@ -389,7 +389,11 @@ impl ElementTree {
                 }
                 let entry = self.overlay_stack[i].clone();
                 // прозрачная зона оверлея (строка меню под открытым меню)
-                if self.elements.get(&entry.element_id).is_some_and(|n| n.element.overlay_pass_through(pos)) {
+                if self
+                    .elements
+                    .get(&entry.element_id)
+                    .is_some_and(|n| n.element.overlay_pass_through(pos))
+                {
                     continue;
                 }
                 let hits = entry.bounds.contains(pos);
@@ -441,14 +445,20 @@ impl ElementTree {
         }
         let mut fire: Vec<std::sync::Arc<dyn Fn() + Send + Sync>> = Vec::new();
         for (id, f) in self.click_away.clone() {
-            let Some(node) = self.elements.get(&id) else { continue };
+            let Some(node) = self.elements.get(&id) else {
+                continue;
+            };
             let children = node.children.clone();
             if children.is_empty() {
                 continue;
             }
             let inside = children.iter().any(|c| {
                 let (s, k) = self.accumulated_event_transform(*c);
-                let adj = if is_identity_transform(s, k) { event.clone() } else { event.with_inverse_transform(s, k) };
+                let adj = if is_identity_transform(s, k) {
+                    event.clone()
+                } else {
+                    event.with_inverse_transform(s, k)
+                };
                 match (adj.position(), self.elements.get(c)) {
                     (Some(pos), Some(n)) => n.element.bounds().contains(pos),
                     _ => true,
@@ -539,6 +549,23 @@ impl ElementTree {
         // начатый на слайдере/скроллбаре, «отваливался» бы, стоило пальцу
         // покинуть его границы. Если захватчик событие игнорирует, оно, как и
         // прежде, уходит вниз по hit-test.
+        // Второй палец над предком захватчика первого, который ждёт щипка:
+        // оба пальца — ему.
+        if let Event::TouchStart { id, position } = event {
+            if let Some(r) = self.handoff_pinch(*id, *position) {
+                self.touch_last.insert(*id, *position);
+                return r;
+            }
+        }
+        match event {
+            Event::TouchStart { id, position } | Event::TouchMove { id, position } => {
+                self.touch_last.insert(*id, *position);
+            }
+            Event::TouchEnd { id, .. } => {
+                self.touch_last.remove(id);
+            }
+            _ => {}
+        }
         let finger_captor = match event {
             Event::TouchMove { id, .. } | Event::TouchEnd { id, .. } => {
                 self.touch_captors.get(id).copied()
@@ -587,7 +614,11 @@ impl ElementTree {
         if matches!(event, Event::MouseDown { .. } | Event::TouchStart { .. }) {
             for &id in path.iter() {
                 let (s, k) = self.accumulated_event_transform(id);
-                let adj = if is_identity_transform(s, k) { event.clone() } else { event.with_inverse_transform(s, k) };
+                let adj = if is_identity_transform(s, k) {
+                    event.clone()
+                } else {
+                    event.with_inverse_transform(s, k)
+                };
                 if let Some(n) = self.elements.get_mut(&id) {
                     n.element.preview_event(&adj);
                 }
@@ -650,6 +681,71 @@ impl ElementTree {
             }
         }
         EventResult::Ignored
+    }
+
+    /// Второй палец `finger` лёг, пока первый ведёт вложенный элемент
+    /// (прокрутку): если у захватчика первого есть предок (или он сам),
+    /// разбирающий щипок, — первый палец у захватчика отпускается, а оба
+    /// пальца начинаются заново у этого предка.
+    fn handoff_pinch(&mut self, finger: u64, pos: crate::core::Point) -> Option<EventResult> {
+        let (&other, &captor) = self.touch_captors.iter().find(|(f, _)| **f != finger)?;
+        let other_pos = *self.touch_last.get(&other)?;
+        let mut cur = Some(captor);
+        let mut target = None;
+        while let Some(id) = cur {
+            let node = self.elements.get(&id)?;
+            if node.element.wants_pinch() {
+                target = Some(id);
+                break;
+            }
+            cur = node.parent;
+        }
+        let target = target?;
+        let send = |tree: &mut Self, to: ElementId, ev: Event| {
+            let (s, k) = tree.accumulated_event_transform(to);
+            let adj = if is_identity_transform(s, k) {
+                ev
+            } else {
+                ev.with_inverse_transform(s, k)
+            };
+            tree.dispatch_event_to(to, &adj)
+        };
+        if captor != target {
+            send(
+                self,
+                captor,
+                Event::TouchEnd {
+                    id: other,
+                    position: other_pos,
+                },
+            );
+            send(
+                self,
+                target,
+                Event::TouchStart {
+                    id: other,
+                    position: other_pos,
+                },
+            );
+        }
+        self.touch_mouse.remove(&other);
+        self.touch_wheel.clear();
+        let r = send(
+            self,
+            target,
+            Event::TouchStart {
+                id: finger,
+                position: pos,
+            },
+        );
+        self.touch_captors.insert(other, target);
+        self.touch_captors.insert(finger, target);
+        self.mouse_captor = Some(target);
+        Some(if r.is_handled() {
+            r
+        } else {
+            EventResult::Handled
+        })
     }
 
     /// Отпускание кнопки вне границ элемента, принявшего нажатие, отдаётся
@@ -1754,7 +1850,10 @@ mod tests {
         let phases: Vec<_> = got.iter().map(|(p, _)| *p).collect();
         assert_eq!(phases, [PenPhase::Down, PenPhase::Move, PenPhase::Up]);
         let (_, first) = got[0];
-        assert!((first.x - 50.0).abs() < 1e-3 && (first.y - 50.0).abs() < 1e-3, "{first:?}");
+        assert!(
+            (first.x - 50.0).abs() < 1e-3 && (first.y - 50.0).abs() < 1e-3,
+            "{first:?}"
+        );
         assert!((got[1].1.x - 350.0).abs() < 1e-3, "{:?}", got[1].1);
     }
 

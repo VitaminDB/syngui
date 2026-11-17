@@ -33,7 +33,9 @@ use crate::layout::Constraints;
 use crate::mss::{ComputedStyle, MssFields, TextAlign, TextDecoration};
 use crate::render::{Border, DisplayList};
 use crate::widget::context::{EventContext, EventContextExt, TextMeasure, UpdateContext};
-use crate::widget::{DirtyFlags, Element, ElementId, ElementTree, LayoutHint, StyledElement, Widget};
+use crate::widget::{
+    DirtyFlags, Element, ElementId, ElementTree, LayoutHint, StyledElement, Widget,
+};
 
 const FONT: &str = "monospace";
 const PAD: f32 = 8.0;
@@ -51,7 +53,12 @@ pub struct GraphNode {
 
 impl GraphNode {
     pub fn new(id: u64, lines: Vec<Vec<(String, Color)>>) -> Self {
-        Self { id, lines, accent: None, tint: None }
+        Self {
+            id,
+            lines,
+            accent: None,
+            tint: None,
+        }
     }
 
     /// Окрасить фон узла (смешение с обычным фоном, текст остаётся читаемым).
@@ -84,15 +91,23 @@ pub const THEMED_EDGE_ALPHA: f32 = 0.55;
 
 /// Цвет ребра: свой или, для `Color::TRANSPARENT`, текст темы с прозрачностью.
 pub fn resolve_edge_color(edge: Color, text: Color) -> Color {
-    if edge == Color::TRANSPARENT { text.with_alpha(text.a * THEMED_EDGE_ALPHA) } else { edge }
+    if edge == Color::TRANSPARENT {
+        text.with_alpha(text.a * THEMED_EDGE_ALPHA)
+    } else {
+        edge
+    }
 }
 
 /// Цвет полосы заголовка: свой или, для `Color::TRANSPARENT`, акцент темы.
 pub fn resolve_accent_color(own: Color, accent: Color) -> Color {
-    if own == Color::TRANSPARENT { accent } else { own }
+    if own == Color::TRANSPARENT {
+        accent
+    } else {
+        own
+    }
 }
 
-type IdFn =Arc<Mutex<dyn FnMut(u64) + Send>>;
+type IdFn = Arc<Mutex<dyn FnMut(u64) + Send>>;
 
 pub struct GraphView {
     nodes: Arc<Vec<GraphNode>>,
@@ -106,7 +121,15 @@ pub struct GraphView {
 
 impl GraphView {
     pub fn new(nodes: Vec<GraphNode>, edges: Vec<GraphEdge>) -> Self {
-        Self { nodes: Arc::new(nodes), edges: Arc::new(edges), root: None, selected: None, on_select: None, on_activate: None, classes: Vec::new() }
+        Self {
+            nodes: Arc::new(nodes),
+            edges: Arc::new(edges),
+            root: None,
+            selected: None,
+            on_select: None,
+            on_activate: None,
+            classes: Vec::new(),
+        }
     }
 
     pub fn root(mut self, id: u64) -> Self {
@@ -217,26 +240,49 @@ impl GraphElement {
             .nodes
             .iter()
             .map(|n| {
-                let chars = n.lines.iter().map(|l| l.iter().map(|(s, _)| s.chars().count()).sum::<usize>()).max().unwrap_or(4);
-                (chars.max(6) as f32 * self.cw + 2.0 * PAD, n.lines.len().max(1) as f32 * self.row_h + 2.0 * PAD)
+                let chars = n
+                    .lines
+                    .iter()
+                    .map(|l| l.iter().map(|(s, _)| s.chars().count()).sum::<usize>())
+                    .max()
+                    .unwrap_or(4);
+                (
+                    chars.max(6) as f32 * self.cw + 2.0 * PAD,
+                    n.lines.len().max(1) as f32 * self.row_h + 2.0 * PAD,
+                )
             })
             .collect();
         let index = |id: u64| self.nodes.iter().position(|n| n.id == id);
-        let edges: Vec<(usize, usize)> = self.edges.iter().filter_map(|e| Some((index(e.from)?, index(e.to)?))).collect();
+        let edges: Vec<(usize, usize)> = self
+            .edges
+            .iter()
+            .filter_map(|e| Some((index(e.from)?, index(e.to)?)))
+            .collect();
         let root = self.root.and_then(index).unwrap_or(0);
-        self.layout = Some(layout::layout(&self.sizes, &edges, root, layout::Spacing::default()));
+        self.layout = Some(layout::layout(
+            &self.sizes,
+            &edges,
+            root,
+            layout::Spacing::default(),
+        ));
     }
 
     /// Граф → экран.
     fn to_screen(&self, p: (f32, f32)) -> Point {
-        Point::new(self.bounds.origin.x + self.pan.x + p.0 * self.zoom, self.bounds.origin.y + self.pan.y + p.1 * self.zoom)
+        Point::new(
+            self.bounds.origin.x + self.pan.x + p.0 * self.zoom,
+            self.bounds.origin.y + self.pan.y + p.1 * self.zoom,
+        )
     }
 
     fn node_at(&self, p: Point) -> Option<u64> {
         let l = self.layout.as_ref()?;
         (0..self.nodes.len()).find_map(|i| {
             let tl = self.to_screen(l.pos[i]);
-            let r = Rect::new(tl, Size::new(self.sizes[i].0 * self.zoom, self.sizes[i].1 * self.zoom));
+            let r = Rect::new(
+                tl,
+                Size::new(self.sizes[i].0 * self.zoom, self.sizes[i].1 * self.zoom),
+            );
             r.contains(p).then_some(self.nodes[i].id)
         })
     }
@@ -246,7 +292,10 @@ impl GraphElement {
         let Some(l) = &self.layout else { return };
         let w = self.bounds.size.width.max(1.0);
         self.zoom = 1.0;
-        let root = self.root.and_then(|id| self.nodes.iter().position(|n| n.id == id)).unwrap_or(0);
+        let root = self
+            .root
+            .and_then(|id| self.nodes.iter().position(|n| n.id == id))
+            .unwrap_or(0);
         let (rx, ry) = l.pos.get(root).copied().unwrap_or((0.0, 0.0));
         let rw = self.sizes.get(root).map(|s| s.0).unwrap_or(0.0);
         self.pan = Point::new(w / 2.0 - (rx + rw / 2.0) * self.zoom, 24.0 - ry * self.zoom);
@@ -255,12 +304,21 @@ impl GraphElement {
     /// Показать выбранный узел, если он вне экрана.
     fn reveal(&mut self, id: u64) {
         let Some(l) = &self.layout else { return };
-        let Some(i) = self.nodes.iter().position(|n| n.id == id) else { return };
+        let Some(i) = self.nodes.iter().position(|n| n.id == id) else {
+            return;
+        };
         let tl = self.to_screen(l.pos[i]);
         let (w, h) = (self.sizes[i].0 * self.zoom, self.sizes[i].1 * self.zoom);
         let b = self.bounds;
-        if tl.x < b.origin.x || tl.y < b.origin.y || tl.x + w > b.origin.x + b.size.width || tl.y + h > b.origin.y + b.size.height {
-            self.pan = Point::new(b.size.width / 2.0 - (l.pos[i].0 + self.sizes[i].0 / 2.0) * self.zoom, b.size.height / 3.0 - l.pos[i].1 * self.zoom);
+        if tl.x < b.origin.x
+            || tl.y < b.origin.y
+            || tl.x + w > b.origin.x + b.size.width
+            || tl.y + h > b.origin.y + b.size.height
+        {
+            self.pan = Point::new(
+                b.size.width / 2.0 - (l.pos[i].0 + self.sizes[i].0 / 2.0) * self.zoom,
+                b.size.height / 3.0 - l.pos[i].1 * self.zoom,
+            );
         }
     }
 
@@ -275,8 +333,11 @@ impl GraphElement {
 
 impl Element for GraphElement {
     fn update(&mut self, widget: &dyn Widget, _ctx: &mut UpdateContext) {
-        let Some(w) = widget.as_any().downcast_ref::<GraphView>() else { return };
-        let changed = !Arc::ptr_eq(&w.nodes, &self.nodes) && (*w.nodes != *self.nodes || *w.edges != *self.edges);
+        let Some(w) = widget.as_any().downcast_ref::<GraphView>() else {
+            return;
+        };
+        let changed = !Arc::ptr_eq(&w.nodes, &self.nodes)
+            && (*w.nodes != *self.nodes || *w.edges != *self.edges);
         self.on_select = w.on_select.clone();
         self.on_activate = w.on_activate.clone();
         self.classes = w.classes.clone();
@@ -300,8 +361,16 @@ impl Element for GraphElement {
     }
 
     fn layout(&mut self, c: Constraints) -> Size {
-        let w = if c.max_width.is_finite() { c.max_width } else { 800.0 };
-        let h = if c.max_height.is_finite() { c.max_height } else { 600.0 };
+        let w = if c.max_width.is_finite() {
+            c.max_width
+        } else {
+            800.0
+        };
+        let h = if c.max_height.is_finite() {
+            c.max_height
+        } else {
+            600.0
+        };
         self.bounds = Rect::new(self.bounds.origin, Size::new(w, h));
         if self.layout.is_none() {
             self.relayout();
@@ -320,10 +389,16 @@ impl Element for GraphElement {
     fn build_display_list(&self, list: &mut DisplayList, _clip: Rect) {
         let b = self.bounds;
         let text_c = self.mss.color.unwrap_or(Color::from_hex("#D4D9E3"));
-        let bg = self.mss.background_color.unwrap_or(Color::from_hex("#12151B"));
+        let bg = self
+            .mss
+            .background_color
+            .unwrap_or(Color::from_hex("#12151B"));
         let border = self.mss.border_color.unwrap_or(Color::from_hex("#2A303C"));
         let accent = self.mss.accent_color.unwrap_or(Color::from_hex("#4F8CFF"));
-        let fill = self.mss.selection_color.unwrap_or(Color::from_hex("#181C24"));
+        let fill = self
+            .mss
+            .selection_color
+            .unwrap_or(Color::from_hex("#181C24"));
         list.push_rect(b, bg, [0.0; 4]);
         let Some(l) = &self.layout else { return };
         list.push_clip(b);
@@ -331,21 +406,34 @@ impl Element for GraphElement {
 
         // рёбра
         for (i, e) in self.edges.iter().enumerate() {
-            let Some(route) = l.routes.get(i) else { continue };
+            let Some(route) = l.routes.get(i) else {
+                continue;
+            };
             if route.len() < 2 {
                 continue;
             }
-            let pts: Vec<[f32; 2]> = route.iter().map(|&p| {
-                let s = self.to_screen(p);
-                [s.x, s.y]
-            }).collect();
+            let pts: Vec<[f32; 2]> = route
+                .iter()
+                .map(|&p| {
+                    let s = self.to_screen(p);
+                    [s.x, s.y]
+                })
+                .collect();
             let ec = resolve_edge_color(e.color, text_c);
-            let col = if l.back.get(i).copied().unwrap_or(false) { ec.with_alpha(ec.a * 0.75) } else { ec };
+            let col = if l.back.get(i).copied().unwrap_or(false) {
+                ec.with_alpha(ec.a * 0.75)
+            } else {
+                ec
+            };
             list.push_line_strip(pts.clone(), col, (1.6 * z).max(1.0));
             // стрелка
             let [x, y] = pts[pts.len() - 1];
             let a = 6.0 * z.max(0.6);
-            list.push_line_strip(vec![[x - a, y - a * 1.3], [x, y], [x + a, y - a * 1.3]], col, (1.6 * z).max(1.0));
+            list.push_line_strip(
+                vec![[x - a, y - a * 1.3], [x, y], [x + a, y - a * 1.3]],
+                col,
+                (1.6 * z).max(1.0),
+            );
         }
 
         // узлы
@@ -356,16 +444,38 @@ impl Element for GraphElement {
             let tl = self.to_screen(l.pos[i]);
             let size = Size::new(self.sizes[i].0 * z, self.sizes[i].1 * z);
             let r = Rect::new(tl, size);
-            if r.origin.x > b.origin.x + b.size.width || r.origin.y > b.origin.y + b.size.height || r.origin.x + size.width < b.origin.x || r.origin.y + size.height < b.origin.y {
+            if r.origin.x > b.origin.x + b.size.width
+                || r.origin.y > b.origin.y + b.size.height
+                || r.origin.x + size.width < b.origin.x
+                || r.origin.y + size.height < b.origin.y
+            {
                 continue;
             }
             let sel = self.selected == Some(n.id);
-            list.push_shadow(r, Color::from_srgb(0, 0, 0, 0.35), 8.0 * z, (0.0, 2.0 * z), [6.0 * z; 4]);
+            list.push_shadow(
+                r,
+                Color::from_srgb(0, 0, 0, 0.35),
+                8.0 * z,
+                (0.0, 2.0 * z),
+                [6.0 * z; 4],
+            );
             // непрозрачное смешение: полупрозрачный слой в линейном пространстве высветляет
             let node_fill = n.tint.map(|t| fill.lerp(&t, 0.18)).unwrap_or(fill);
-            list.push_rect_bordered(r, node_fill, [6.0 * z; 4], Border::new(if sel { 2.0 } else { 1.0 }, if sel { accent } else { border }));
+            list.push_rect_bordered(
+                r,
+                node_fill,
+                [6.0 * z; 4],
+                Border::new(
+                    if sel { 2.0 } else { 1.0 },
+                    if sel { accent } else { border },
+                ),
+            );
             if let Some(a) = n.accent {
-                list.push_rect(Rect::new(tl, Size::new(size.width, 3.0 * z)), resolve_accent_color(a, accent),[6.0 * z, 6.0 * z, 0.0, 0.0]);
+                list.push_rect(
+                    Rect::new(tl, Size::new(size.width, 3.0 * z)),
+                    resolve_accent_color(a, accent),
+                    [6.0 * z, 6.0 * z, 0.0, 0.0],
+                );
             }
             if fs < 4.0 {
                 continue; // слишком мелко — только коробки
@@ -402,24 +512,58 @@ impl Element for GraphElement {
         let mw = (l.width * scale).clamp(24.0f32.min(mw), mw);
         let (gx0, gx1) = (0..self.nodes.len().min(l.pos.len()))
             .map(|i| (l.pos[i].0, l.pos[i].0 + self.sizes[i].0))
-            .fold((f32::MAX, f32::MIN), |(a, b), (x0, x1)| (a.min(x0), b.max(x1)));
-        let ox = if gx1 > gx0 { ((mw - (gx1 - gx0) * scale) * 0.5).max(0.0) - gx0 * scale } else { 0.0 };
-        let mr = Rect::new(Point::new(b.origin.x + b.size.width - mw - 12.0, b.origin.y + b.size.height - mh - 12.0), Size::new(mw, mh));
+            .fold((f32::MAX, f32::MIN), |(a, b), (x0, x1)| {
+                (a.min(x0), b.max(x1))
+            });
+        let ox = if gx1 > gx0 {
+            ((mw - (gx1 - gx0) * scale) * 0.5).max(0.0) - gx0 * scale
+        } else {
+            0.0
+        };
+        let mr = Rect::new(
+            Point::new(
+                b.origin.x + b.size.width - mw - 12.0,
+                b.origin.y + b.size.height - mh - 12.0,
+            ),
+            Size::new(mw, mh),
+        );
         if l.width * z > b.size.width || l.height * z > b.size.height {
             list.push_rect_bordered(mr, bg.with_alpha(0.92), [6.0; 4], Border::new(1.0, border));
             for i in 0..self.nodes.len() {
                 let (x, y) = l.pos[i];
-                let nr = Rect::new(Point::new(mr.origin.x + ox + x * scale, mr.origin.y + y * scale), Size::new((self.sizes[i].0 * scale).max(1.0), (self.sizes[i].1 * scale).max(1.0)));
-                list.push_rect(nr, if self.selected == Some(self.nodes[i].id) { accent } else { text_c.with_alpha(0.35) }, [1.0; 4]);
+                let nr = Rect::new(
+                    Point::new(mr.origin.x + ox + x * scale, mr.origin.y + y * scale),
+                    Size::new(
+                        (self.sizes[i].0 * scale).max(1.0),
+                        (self.sizes[i].1 * scale).max(1.0),
+                    ),
+                );
+                list.push_rect(
+                    nr,
+                    if self.selected == Some(self.nodes[i].id) {
+                        accent
+                    } else {
+                        text_c.with_alpha(0.35)
+                    },
+                    [1.0; 4],
+                );
             }
             // видимая область
             let vx = -self.pan.x / z * scale;
             let vy = -self.pan.y / z * scale;
-            let vr = Rect::new(Point::new(mr.origin.x + ox + vx, mr.origin.y + vy), Size::new(b.size.width / z * scale, b.size.height / z * scale));
+            let vr = Rect::new(
+                Point::new(mr.origin.x + ox + vx, mr.origin.y + vy),
+                Size::new(b.size.width / z * scale, b.size.height / z * scale),
+            );
             // рамка видимой области — в пределах мини-карты: когда область шире
             // графа по одной оси, рамка вылезала за мини-карту и за край виджета
             if let Some(vr) = vr.intersection(&mr) {
-                list.push_rect_bordered(vr, accent.with_alpha(0.08), [2.0; 4], Border::new(1.0, accent.with_alpha(0.7)));
+                list.push_rect_bordered(
+                    vr,
+                    accent.with_alpha(0.08),
+                    [2.0; 4],
+                    Border::new(1.0, accent.with_alpha(0.7)),
+                );
             }
         }
         list.pop_clip();
@@ -427,7 +571,10 @@ impl Element for GraphElement {
 
     fn handle_event(&mut self, event: &Event, ctx: &mut EventContext) -> EventResult {
         match event {
-            Event::MouseDown { button: MouseButton::Left, position } if self.bounds.contains(*position) => {
+            Event::MouseDown {
+                button: MouseButton::Left,
+                position,
+            } if self.bounds.contains(*position) => {
                 let hit = self.node_at(*position);
                 if let Some(id) = hit {
                     self.selected = Some(id);
@@ -454,16 +601,25 @@ impl Element for GraphElement {
                     return EventResult::Handled;
                 }
                 if self.bounds.contains(*pos) {
-                    ctx.set_cursor(if self.node_at(*pos).is_some() { CursorIcon::Pointer } else { CursorIcon::Grab });
+                    ctx.set_cursor(if self.node_at(*pos).is_some() {
+                        CursorIcon::Pointer
+                    } else {
+                        CursorIcon::Grab
+                    });
                     return EventResult::Handled;
                 }
                 EventResult::Ignored
             }
-            Event::MouseUp { button: MouseButton::Left, .. } if self.drag.is_some() => {
+            Event::MouseUp {
+                button: MouseButton::Left,
+                ..
+            } if self.drag.is_some() => {
                 self.drag = None;
                 EventResult::Handled
             }
-            Event::MouseWheel { delta, position, .. } if self.bounds.contains(*position) => {
+            Event::MouseWheel {
+                delta, position, ..
+            } if self.bounds.contains(*position) => {
                 if ctx.modifiers.ctrl {
                     let k = if *delta > 0.0 { 1.12 } else { 1.0 / 1.12 };
                     let nz = (self.zoom * k).clamp(0.1, 3.0);
@@ -471,7 +627,10 @@ impl Element for GraphElement {
                     let gx = (position.x - self.bounds.origin.x - self.pan.x) / self.zoom;
                     let gy = (position.y - self.bounds.origin.y - self.pan.y) / self.zoom;
                     self.zoom = nz;
-                    self.pan = Point::new(position.x - self.bounds.origin.x - gx * nz, position.y - self.bounds.origin.y - gy * nz);
+                    self.pan = Point::new(
+                        position.x - self.bounds.origin.x - gx * nz,
+                        position.y - self.bounds.origin.y - gy * nz,
+                    );
                 } else if ctx.modifiers.shift {
                     self.pan.x += delta.signum() * 60.0;
                 } else {
@@ -523,7 +682,12 @@ impl Element for GraphElement {
         "GraphView"
     }
     fn layout_hint(&self) -> LayoutHint {
-        LayoutHint::Padding { left: 0.0, top: 0.0, right: 0.0, bottom: 0.0 }
+        LayoutHint::Padding {
+            left: 0.0,
+            top: 0.0,
+            right: 0.0,
+            bottom: 0.0,
+        }
     }
     fn text_input_hit(&self, point: Point) -> bool {
         self.bounds.contains(point)
@@ -584,8 +748,12 @@ mod tests {
     #[test]
     fn minimap_view_rect_stays_inside_widget() {
         use crate::testing::TestHarness;
-        let nodes: Vec<GraphNode> = (1..=8u64).map(|i| GraphNode::new(i, vec![vec![(format!("блок {i}"), Color::TRANSPARENT)]])).collect();
-        let edges: Vec<GraphEdge> = (1..8u64).map(|i| GraphEdge::new(i, i + 1, Color::TRANSPARENT)).collect();
+        let nodes: Vec<GraphNode> = (1..=8u64)
+            .map(|i| GraphNode::new(i, vec![vec![(format!("блок {i}"), Color::TRANSPARENT)]]))
+            .collect();
+        let edges: Vec<GraphEdge> = (1..8u64)
+            .map(|i| GraphEdge::new(i, i + 1, Color::TRANSPARENT))
+            .collect();
         let mut h = TestHarness::new(Box::new(GraphView::new(nodes, edges).root(1)));
         h.rebuild();
         h.layout(1100.0, 300.0);
@@ -601,13 +769,19 @@ mod tests {
         // мини-карта — прямоугольник у правого нижнего угла (отступ 12)
         let mi = rects
             .iter()
-            .position(|r| (r.max_x() - (b.max_x() - 12.0)).abs() < 0.5 && (r.max_y() - (b.max_y() - 12.0)).abs() < 0.5)
+            .position(|r| {
+                (r.max_x() - (b.max_x() - 12.0)).abs() < 0.5
+                    && (r.max_y() - (b.max_y() - 12.0)).abs() < 0.5
+            })
             .expect("мини-карта не нарисована");
         let mr = rects[mi];
         let eps = 0.5;
         for r in &rects[mi + 1..] {
             assert!(
-                r.origin.x >= mr.origin.x - eps && r.max_x() <= mr.max_x() + eps && r.origin.y >= mr.origin.y - eps && r.max_y() <= mr.max_y() + eps,
+                r.origin.x >= mr.origin.x - eps
+                    && r.max_x() <= mr.max_x() + eps
+                    && r.origin.y >= mr.origin.y - eps
+                    && r.max_y() <= mr.max_y() + eps,
                 "{r:?} вылезает за мини-карту {mr:?}"
             );
         }

@@ -55,9 +55,7 @@ mod imp {
         if std::env::var_os("WAYLAND_DISPLAY").is_some() {
             use std::io::Read;
 
-            use wl_clipboard_rs::paste::{
-                get_contents, ClipboardType, Error, MimeType, Seat,
-            };
+            use wl_clipboard_rs::paste::{get_contents, ClipboardType, Error, MimeType, Seat};
             match get_contents(ClipboardType::Regular, Seat::Unspecified, MimeType::Text) {
                 Ok((mut pipe, _)) => {
                     let mut buf = Vec::new();

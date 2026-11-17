@@ -325,7 +325,9 @@ impl RuleIndex {
             s.extend(sibling_classes.iter().cloned());
         });
 
-        let has_focus_within = rules.iter().any(|r| selector_pseudo(&r.selector) == Some("focus-within"));
+        let has_focus_within = rules
+            .iter()
+            .any(|r| selector_pseudo(&r.selector) == Some("focus-within"));
         Self {
             by_class,
             by_type,
@@ -1040,14 +1042,23 @@ mod scoped_var_tests {
     fn var_sees_ancestor_custom_properties() {
         let mut h = TestHarness::new(Box::new(
             Column::new()
-                .child(DecoratedBox::new().class("scope").child(DecoratedBox::new().child(DecoratedBox::new().class("label"))))
+                .child(
+                    DecoratedBox::new()
+                        .class("scope")
+                        .child(DecoratedBox::new().child(DecoratedBox::new().class("label"))),
+                )
                 .child(DecoratedBox::new().class("label")),
         ));
         h.layout(800.0, 600.0);
-        h.apply_mss(":root { --size: 11; } .scope { --size: 23; } .label { font-size: var(--size); }");
+        h.apply_mss(
+            ":root { --size: 11; } .scope { --size: 23; } .label { font-size: var(--size); }",
+        );
         h.layout(800.0, 600.0);
         let ids = h.find_by_class("label");
-        let sizes: Vec<_> = ids.iter().map(|id| h.element_mss(*id).and_then(|m| m.font_size)).collect();
+        let sizes: Vec<_> = ids
+            .iter()
+            .map(|id| h.element_mss(*id).and_then(|m| m.font_size))
+            .collect();
         assert!(sizes.contains(&Some(23.0)), "внутри .scope: {sizes:?}");
         assert!(sizes.contains(&Some(11.0)), "вне .scope: {sizes:?}");
     }
@@ -1063,7 +1074,11 @@ mod focus_within_tests {
     fn focus_within_matches_ancestor_of_focused() {
         let mut h = TestHarness::new(Box::new(
             Column::new()
-                .child(DecoratedBox::new().class("box").child(DecoratedBox::new().class("inner")))
+                .child(
+                    DecoratedBox::new()
+                        .class("box")
+                        .child(DecoratedBox::new().class("inner")),
+                )
                 .child(DecoratedBox::new().class("other")),
         ));
         h.layout(800.0, 600.0);

@@ -492,7 +492,9 @@ fn capture_formats(fd: RawFd) -> Vec<u32> {
             let mut d: FmtDesc = zeroed();
             d.index = i;
             d.type_ = BUF_TYPE_CAPTURE_MPLANE;
-            xioctl(fd, ENUM_FMT, &mut d).is_ok().then_some(d.pixelformat)
+            xioctl(fd, ENUM_FMT, &mut d)
+                .is_ok()
+                .then_some(d.pixelformat)
         })
         .collect()
 }
@@ -843,7 +845,8 @@ impl V4l2Decoder {
                 let pts = self.pts_by_tag.remove(&tag).flatten();
                 let zero_copy = self.capture.as_ref().is_some_and(|c| c.zero_copy);
                 // 10 бит без 16-битных текстур GPU — AVFrame P010: его переведёт процессор (с тонмаппингом).
-                let gpu_ok = !self.capture.as_ref().is_some_and(|c| c.p010) || crate::gpu::yuv16_supported();
+                let gpu_ok =
+                    !self.capture.as_ref().is_some_and(|c| c.p010) || crate::gpu::yuv16_supported();
                 let f = if self.packed && zero_copy {
                     V4l2Frame::Packed(self.dmabuf_frame(b.index as usize), pts)
                 } else if self.packed && gpu_ok {
@@ -888,7 +891,9 @@ impl V4l2Decoder {
             };
             let dst_stride = f.stride(plane);
             let base = if plane == 0 { 0 } else { uv_off };
-            let n = ((w as usize).div_ceil(2) * 2 * bps).min(dst_stride).min(stride);
+            let n = ((w as usize).div_ceil(2) * 2 * bps)
+                .min(dst_stride)
+                .min(stride);
             let dst = f.data_mut(plane);
             for r in 0..rows {
                 let s = base + r * stride;
@@ -991,7 +996,11 @@ impl V4l2Decoder {
         use crate::gpu::{YuvFrame, YuvLayout};
         let c = self.capture.as_ref().unwrap();
         let (w, h) = (c.visible_w, c.visible_h);
-        let layout = if c.p010 { YuvLayout::P010 } else { YuvLayout::Nv12 };
+        let layout = if c.p010 {
+            YuvLayout::P010
+        } else {
+            YuvLayout::Nv12
+        };
         let bps = if c.p010 { 2 } else { 1 };
         let len = YuvFrame::byte_len(layout, w, h);
         self.pool.retain(|b| b.len() == len);
@@ -1179,7 +1188,11 @@ impl V4l2Decoder {
             Some(V4l2Frame::Packed(y, pts)) => {
                 let p010 = y.layout == crate::gpu::YuvLayout::P010;
                 let bps = if p010 { 2 } else { 1 };
-                let mut f = frame::Video::new(if p010 { Pixel::P010LE } else { Pixel::NV12 }, y.width, y.height);
+                let mut f = frame::Video::new(
+                    if p010 { Pixel::P010LE } else { Pixel::NV12 },
+                    y.width,
+                    y.height,
+                );
                 self.set_color(&mut f);
                 let (yp, (uv, _)) = (y.y_plane(), y.chroma_planes());
                 for (plane, src, row) in [

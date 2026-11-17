@@ -300,7 +300,11 @@ impl Element for ChromeElement {
         (self.fixed_width, None)
     }
 
-    fn min_max_dimensions(&self, _parent_width: f32, _parent_height: f32) -> (Option<f32>, Option<f32>, Option<f32>, Option<f32>) {
+    fn min_max_dimensions(
+        &self,
+        _parent_width: f32,
+        _parent_height: f32,
+    ) -> (Option<f32>, Option<f32>, Option<f32>, Option<f32>) {
         // Предел ширины контейнерного блока — и для раскладки детей, и для
         // центрирования его в колонке потока.
         match (self.fixed_width, self.max_width) {

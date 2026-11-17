@@ -300,7 +300,10 @@ impl CalendarVars {
             radius: px("--cal-radius"),
             font_size: px("--cal-font-size"),
             own_font_size: px(crate::mss::fields::ICON_FONT_SIZE),
-            day_shape: style.get("--cal-day-shape").and_then(|v| v.as_string()).and_then(DayShape::parse),
+            day_shape: style
+                .get("--cal-day-shape")
+                .and_then(|v| v.as_string())
+                .and_then(DayShape::parse),
         }
     }
 }
@@ -364,7 +367,11 @@ impl PanelMetrics {
     pub fn new(cell: f32, show_week_numbers: bool) -> Self {
         let cell = cell.clamp(24.0, MAX_CELL);
         let k = chrome_scale(cell);
-        let (header_h, dow_h, nav) = ((HEADER_H * k).round(), (DOW_H * k).round(), (NAV_SIZE * k).round());
+        let (header_h, dow_h, nav) = (
+            (HEADER_H * k).round(),
+            (DOW_H * k).round(),
+            (NAV_SIZE * k).round(),
+        );
         let week_col = if show_week_numbers {
             (cell * 0.8).round()
         } else {
@@ -559,7 +566,15 @@ fn strong_weight(t: &CalendarTheme) -> u16 {
 }
 
 /// Подпись панели по центру прямоугольника — семейством и насыщенностью темы.
-fn label(list: &mut DisplayList, t: &CalendarTheme, text: &str, r: Rect, color: Color, size: f32, weight: u16) {
+fn label(
+    list: &mut DisplayList,
+    t: &CalendarTheme,
+    text: &str,
+    r: Rect,
+    color: Color,
+    size: f32,
+    weight: u16,
+) {
     list.push_text_full(
         text,
         r,
@@ -641,7 +656,15 @@ fn draw_header(list: &mut DisplayList, rect: Rect, input: &PanelInput) {
     } else {
         t.text
     };
-    label(list, t, &year_label, h.year, year_color, fs, strong_weight(t));
+    label(
+        list,
+        t,
+        &year_label,
+        h.year,
+        year_color,
+        fs,
+        strong_weight(t),
+    );
 }
 
 fn draw_days(list: &mut DisplayList, rect: Rect, input: &PanelInput, m: &PanelMetrics) {
@@ -654,7 +677,15 @@ fn draw_days(list: &mut DisplayList, rect: Rect, input: &PanelInput, m: &PanelMe
             Point::new(rect.x() + PAD, m.body_y(rect)),
             Size::new(m.week_col, m.dow_h),
         );
-        label(list, t, locale.week_abbr.as_ref(), r, t.muted, week_font(t), t.font_weight);
+        label(
+            list,
+            t,
+            locale.week_abbr.as_ref(),
+            r,
+            t.muted,
+            week_font(t),
+            t.font_weight,
+        );
     }
 
     for col in 0..7u32 {
@@ -671,7 +702,15 @@ fn draw_days(list: &mut DisplayList, rect: Rect, input: &PanelInput, m: &PanelMe
         } else {
             t.muted
         };
-        label(list, t, locale.weekday_short(weekday), r, color, dow_font(t), t.font_weight);
+        label(
+            list,
+            t,
+            locale.weekday_short(weekday),
+            r,
+            color,
+            dow_font(t),
+            t.font_weight,
+        );
     }
 
     for index in 0..GRID_ROWS * 7 {
@@ -717,8 +756,20 @@ fn draw_days(list: &mut DisplayList, rect: Rect, input: &PanelInput, m: &PanelMe
         } else {
             t.text
         };
-        let weight = if today || selected { strong_weight(t) } else { t.font_weight };
-        label(list, t, &date.day.to_string(), cell, color, t.font_size, weight);
+        let weight = if today || selected {
+            strong_weight(t)
+        } else {
+            t.font_weight
+        };
+        label(
+            list,
+            t,
+            &date.day.to_string(),
+            cell,
+            color,
+            t.font_size,
+            weight,
+        );
     }
 
     if input.show_week_numbers {
@@ -729,7 +780,15 @@ fn draw_days(list: &mut DisplayList, rect: Rect, input: &PanelInput, m: &PanelMe
                 Point::new(rect.x() + PAD, m.grid_y(rect) + row as f32 * m.cell),
                 Size::new(m.week_col, m.cell),
             );
-            label(list, t, &date.iso_week().to_string(), r, t.muted, week_font(t), t.font_weight);
+            label(
+                list,
+                t,
+                &date.iso_week().to_string(),
+                r,
+                t.muted,
+                week_font(t),
+                t.font_weight,
+            );
         }
     }
 }
@@ -784,8 +843,20 @@ fn draw_months(list: &mut DisplayList, rect: Rect, input: &PanelInput, m: &Panel
         } else {
             t.text
         };
-        let weight = if selected || current { strong_weight(t) } else { t.font_weight };
-        label(list, t, &input.locale.month_short(month), inner, color, t.font_size + 1.0, weight);
+        let weight = if selected || current {
+            strong_weight(t)
+        } else {
+            t.font_weight
+        };
+        label(
+            list,
+            t,
+            &input.locale.month_short(month),
+            inner,
+            color,
+            t.font_size + 1.0,
+            weight,
+        );
     }
 }
 
@@ -821,8 +892,20 @@ fn draw_years(list: &mut DisplayList, rect: Rect, input: &PanelInput, m: &PanelM
         } else {
             t.text
         };
-        let weight = if selected || current { strong_weight(t) } else { t.font_weight };
-        label(list, t, &year.to_string(), inner, color, t.font_size + 1.0, weight);
+        let weight = if selected || current {
+            strong_weight(t)
+        } else {
+            t.font_weight
+        };
+        label(
+            list,
+            t,
+            &year.to_string(),
+            inner,
+            color,
+            t.font_size + 1.0,
+            weight,
+        );
     }
 }
 
@@ -856,7 +939,8 @@ pub fn hit_test(rect: Rect, input: &PanelInput, pos: Point) -> Option<PanelHit> 
                 let cell = m.day_cell(panel, index % 7, index / 7);
                 if cell.contains(pos) {
                     let date = grid_date(input.state, input.locale, index);
-                    let outside = date.month != input.state.view_month || date.year != input.state.view_year;
+                    let outside =
+                        date.month != input.state.view_month || date.year != input.state.view_year;
                     // спрятанный соседний день — пустое место
                     if outside && hides_outside(input.theme) {
                         return None;
@@ -985,24 +1069,41 @@ mod tests {
         // первая клетка — 23 февраля, соседний месяц
         let inp = input(state, &locale, &theme);
         let p = inp.metrics().day_cell(rect(&inp), 0, 0).center();
-        assert_eq!(hit_test(rect(&inp), &inp, p), Some(PanelHit::Day(Date::new(2026, 2, 23))));
+        assert_eq!(
+            hit_test(rect(&inp), &inp, p),
+            Some(PanelHit::Day(Date::new(2026, 2, 23)))
+        );
         theme.outside = Color::TRANSPARENT;
         let inp = input(state, &locale, &theme);
-        assert_eq!(hit_test(rect(&inp), &inp, p), None, "спрятанный день не наводится и не выбирается");
+        assert_eq!(
+            hit_test(rect(&inp), &inp, p),
+            None,
+            "спрятанный день не наводится и не выбирается"
+        );
         // а свой месяц — как прежде
         let p = inp.metrics().day_cell(rect(&inp), 6, 0).center();
-        assert_eq!(hit_test(rect(&inp), &inp, p), Some(PanelHit::Day(Date::new(2026, 3, 1))));
+        assert_eq!(
+            hit_test(rect(&inp), &inp, p),
+            Some(PanelHit::Day(Date::new(2026, 3, 1)))
+        );
     }
 
     #[test]
     fn big_cells_scale_header_and_fit_height() {
         let m = PanelMetrics::new(36.0, false);
-        assert_eq!((m.header_h, m.dow_h, m.nav), (HEADER_H, DOW_H, NAV_SIZE), "обычный размер не меняется");
+        assert_eq!(
+            (m.header_h, m.dow_h, m.nav),
+            (HEADER_H, DOW_H, NAV_SIZE),
+            "обычный размер не меняется"
+        );
         for h in [300.0f32, 380.0, 600.0, 900.0, 1400.0] {
             let c = PanelMetrics::cell_for_height(h).floor();
             let m = PanelMetrics::new(c, false);
             assert!(m.height <= h + 0.01, "h={h}: {}", m.height);
-            assert!(PanelMetrics::new(c + 2.0, false).height > h || c + 2.0 > MAX_CELL, "h={h}: ячейка {c} не наибольшая");
+            assert!(
+                PanelMetrics::new(c + 2.0, false).height > h || c + 2.0 > MAX_CELL,
+                "h={h}: ячейка {c} не наибольшая"
+            );
         }
         let big = PanelMetrics::new(80.0, false);
         assert!(big.header_h > HEADER_H * 2.0 && big.nav > NAV_SIZE * 2.0);

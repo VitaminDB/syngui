@@ -227,9 +227,16 @@ mod tests {
         for r in 0..10 {
             let mut row = Row::new();
             for c in 0..20 {
-                row = row.child(Named::new(format!("t{r}-{c}"), Column::new().width(100.0).height(100.0)));
+                row = row.child(Named::new(
+                    format!("t{r}-{c}"),
+                    Column::new().width(100.0).height(100.0),
+                ));
             }
-            col = col.child(Column::new().height(100.0).child(ScrollView::new().horizontal().child(row)));
+            col = col.child(
+                Column::new()
+                    .height(100.0)
+                    .child(ScrollView::new().horizontal().child(row)),
+            );
         }
         let mut h = TestHarness::new(Box::new(ScrollView::new().vertical().child(col)));
         h.layout(300.0, 400.0);
@@ -269,7 +276,10 @@ mod tests {
         h.layout(300.0, 200.0);
         let b = h.find_by_type_name("Button")[0];
         let r = h.tree.get(b).unwrap().bounds();
-        h.send_events(&crate::testing::click_at(crate::core::Point::new(r.origin.x + r.size.width / 2.0, r.origin.y + r.size.height / 2.0)));
+        h.send_events(&crate::testing::click_at(crate::core::Point::new(
+            r.origin.x + r.size.width / 2.0,
+            r.origin.y + r.size.height / 2.0,
+        )));
         assert_eq!(hits.load(Ordering::SeqCst), 1);
     }
 }

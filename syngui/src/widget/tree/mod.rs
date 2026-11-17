@@ -204,6 +204,9 @@ pub struct ElementTree {
     /// Пальцы, чьё движение никто не взял: оно прокручивает колесом то, что
     /// под началом жеста (списки и редакторы со своей прокруткой).
     pub(crate) touch_wheel: std::collections::HashMap<u64, TouchWheel>,
+    /// Последняя точка каждого пальца (координаты окна) — чтобы передать
+    /// палец щипку (см. [`crate::widget::Element::wants_pinch`]).
+    pub(crate) touch_last: std::collections::HashMap<u64, crate::core::Point>,
     /// Элементы, попросившие следующие события указателя
     /// ([`EventContext::watch_pointer`]).
     pub(crate) pointer_watchers: Vec<ElementId>,
@@ -247,7 +250,9 @@ impl ElementTree {
         for start in [old, self.focused_element].into_iter().flatten() {
             let mut cur = Some(start);
             while let Some(c) = cur {
-                let Some(node) = self.elements.get_mut(&c) else { break };
+                let Some(node) = self.elements.get_mut(&c) else {
+                    break;
+                };
                 node.styles_dirty = true;
                 cur = node.parent;
             }
@@ -309,6 +314,7 @@ impl ElementTree {
             touch_captors: Default::default(),
             touch_mouse: Default::default(),
             touch_wheel: Default::default(),
+            touch_last: Default::default(),
             pointer_watchers: Vec::new(),
             press_owner: None,
             text_selection_owner: None,
@@ -512,12 +518,18 @@ impl ElementTree {
         if el.ticks_own_keyframes() {
             return false;
         }
-        el.mss_mut().and_then(|m| m.keyframe_animation.as_mut()).map(|a| a.tick(dt)).unwrap_or(false)
+        el.mss_mut()
+            .and_then(|m| m.keyframe_animation.as_mut())
+            .map(|a| a.tick(dt))
+            .unwrap_or(false)
     }
 
     pub(crate) fn note_animation_started(&mut self, id: ElementId) {
         if let Some(node) = self.elements.get(&id) {
-            if node.element.needs_repaint() || node.element.wants_animate_tick() || tree_keyframes_running(&*node.element) {
+            if node.element.needs_repaint()
+                || node.element.wants_animate_tick()
+                || tree_keyframes_running(&*node.element)
+            {
                 self.animation_registry.insert(id);
                 self.animations_armed = true;
             }
@@ -526,7 +538,10 @@ impl ElementTree {
 
     pub(crate) fn sync_registries_for(&mut self, id: ElementId) {
         if let Some(node) = self.elements.get(&id) {
-            if node.element.needs_repaint() || node.element.wants_animate_tick() || tree_keyframes_running(&*node.element) {
+            if node.element.needs_repaint()
+                || node.element.wants_animate_tick()
+                || tree_keyframes_running(&*node.element)
+            {
                 self.animation_registry.insert(id);
             } else {
                 self.animation_registry.remove(&id);
@@ -655,7 +670,9 @@ impl ElementTree {
         let (mut x, mut y, mut w, mut h) = (b.origin.x, b.origin.y, b.size.width, b.size.height);
         let mut parent = node.parent;
         while let Some(pid) = parent {
-            let Some(p) = self.elements.get(&pid) else { break };
+            let Some(p) = self.elements.get(&pid) else {
+                break;
+            };
             let scroll = p.element.scroll_offset();
             let k = p.element.event_scale().max(f32::EPSILON);
             x = x * k - scroll.x;
@@ -664,7 +681,10 @@ impl ElementTree {
             h *= k;
             parent = p.parent;
         }
-        Some(crate::core::Rect::new(crate::core::Point::new(x, y), crate::core::Size::new(w, h)))
+        Some(crate::core::Rect::new(
+            crate::core::Point::new(x, y),
+            crate::core::Size::new(w, h),
+        ))
     }
 
     pub fn ensure_element_visible(&mut self, element_id: ElementId) -> bool {
@@ -1431,8 +1451,14 @@ impl ElementTree {
         };
         // Обёртка `Named` своего размера не хранит — берём у содержимого.
         if bounds.size.width <= 0.0 || bounds.size.height <= 0.0 {
-            let child = self.elements.get(&id).and_then(|n| n.children.first().copied());
-            if let Some(cb) = child.and_then(|c| self.elements.get(&c)).map(|c| c.element.bounds()) {
+            let child = self
+                .elements
+                .get(&id)
+                .and_then(|n| n.children.first().copied());
+            if let Some(cb) = child
+                .and_then(|c| self.elements.get(&c))
+                .map(|c| c.element.bounds())
+            {
                 bounds = cb;
             }
         }
@@ -1616,7 +1642,11 @@ impl ElementTree {
 
 /// Идёт ли keyframe-анимация, которую ведёт дерево (элемент не тикает её сам).
 pub(crate) fn tree_keyframes_running(el: &dyn Element) -> bool {
-    !el.ticks_own_keyframes() && el.mss().and_then(|m| m.keyframe_animation.as_ref()).is_some_and(|a| a.is_running())
+    !el.ticks_own_keyframes()
+        && el
+            .mss()
+            .and_then(|m| m.keyframe_animation.as_ref())
+            .is_some_and(|a| a.is_running())
 }
 
 /// Прозрачность из keyframe-анимации для элемента, который не рисует её сам.
@@ -1624,5 +1654,8 @@ pub(crate) fn tree_keyframe_opacity(el: &dyn Element) -> Option<f32> {
     if el.paints_own_opacity() {
         return None;
     }
-    el.mss().and_then(|m| m.keyframe_animation.as_ref()).filter(|a| a.is_running()).and_then(|a| a.current_values().opacity())
+    el.mss()
+        .and_then(|m| m.keyframe_animation.as_ref())
+        .filter(|a| a.is_running())
+        .and_then(|a| a.current_values().opacity())
 }

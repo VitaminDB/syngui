@@ -498,11 +498,11 @@ impl AppHandler {
         #[cfg(feature = "font-awesome")]
         if self.config.font_awesome {
             use crate::text::icon_fonts::awesome as fa;
-            renderer
-                .font_atlas
-                .lock()
-                .unwrap()
-                .set_awesome_font_data(fa::SOLID_FONT_DATA.to_vec(), fa::REGULAR_FONT_DATA.to_vec(), fa::BRANDS_FONT_DATA.to_vec());
+            renderer.font_atlas.lock().unwrap().set_awesome_font_data(
+                fa::SOLID_FONT_DATA.to_vec(),
+                fa::REGULAR_FONT_DATA.to_vec(),
+                fa::BRANDS_FONT_DATA.to_vec(),
+            );
         }
 
         self.gpu = Some(gpu);
@@ -676,19 +676,33 @@ impl AppHandler {
         // экран: кадр окна не копируется между картами).
         #[cfg(not(target_arch = "wasm32"))]
         let preferred = match preferred {
-            Some(a) if crate::gpu::hdr_requested() && a.get_info().vendor == 0x10de && !a.get_info().driver.contains("NVK") => {
+            Some(a)
+                if crate::gpu::hdr_requested()
+                    && a.get_info().vendor == 0x10de
+                    && !a.get_info().driver.contains("NVK") =>
+            {
                 let mesa = instance
                     .enumerate_adapters(backends)
                     .await
                     .into_iter()
-                    .filter(|o| o.get_info().vendor != 0x10de && o.get_info().backend == wgpu::Backend::Vulkan)
+                    .filter(|o| {
+                        o.get_info().vendor != 0x10de
+                            && o.get_info().backend == wgpu::Backend::Vulkan
+                    })
                     .find(|o| {
                         o.is_surface_supported(&surface)
-                            && surface.get_capabilities(o).formats.contains(&wgpu::TextureFormat::Rgba16Float)
+                            && surface
+                                .get_capabilities(o)
+                                .formats
+                                .contains(&wgpu::TextureFormat::Rgba16Float)
                     });
                 match mesa {
                     Some(m) => {
-                        log::info!("gpu: HDR-окно — на «{}» вместо «{}»", m.get_info().name, a.get_info().name);
+                        log::info!(
+                            "gpu: HDR-окно — на «{}» вместо «{}»",
+                            m.get_info().name,
+                            a.get_info().name
+                        );
                         Some(m)
                     }
                     None => Some(a),
@@ -739,7 +753,10 @@ impl AppHandler {
             let info = a.get_info();
             match open(a).await {
                 Ok(r) => opened = Some(r),
-                Err(e) => log::warn!("gpu: «{}» не дала устройство: {e}; пробую другие карты", info.name),
+                Err(e) => log::warn!(
+                    "gpu: «{}» не дала устройство: {e}; пробую другие карты",
+                    info.name
+                ),
             }
             tried.push(info);
         }
@@ -752,7 +769,9 @@ impl AppHandler {
                 .filter(|a| a.is_surface_supported(&surface))
                 .filter(|a| {
                     let i = a.get_info();
-                    !tried.iter().any(|t| t.name == i.name && t.backend == i.backend && t.device == i.device)
+                    !tried
+                        .iter()
+                        .any(|t| t.name == i.name && t.backend == i.backend && t.device == i.device)
                 })
                 .collect();
             let rank = |a: &wgpu::Adapter| match a.get_info().device_type {
@@ -770,7 +789,11 @@ impl AppHandler {
                         opened = Some(r);
                         break;
                     }
-                    Err(e) => log::warn!("gpu: «{}» ({:?}) не дала устройство: {e}", info.name, info.backend),
+                    Err(e) => log::warn!(
+                        "gpu: «{}» ({:?}) не дала устройство: {e}",
+                        info.name,
+                        info.backend
+                    ),
                 }
             }
         }

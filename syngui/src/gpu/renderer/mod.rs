@@ -397,7 +397,18 @@ impl Renderer {
             .device
             .create_shader_module(wgpu::ShaderModuleDescriptor {
                 label: Some("Rect Shader"),
-                source: wgpu::ShaderSource::Wgsl(encode_output(&rect_shader_source(), if vertex_srgb(surface_format) { &["fs_main"] } else { &["fs_main", "fs_flat", "fs_rounded"] }, encodes_srgb_output(surface_format)).into()),
+                source: wgpu::ShaderSource::Wgsl(
+                    encode_output(
+                        &rect_shader_source(),
+                        if vertex_srgb(surface_format) {
+                            &["fs_main"]
+                        } else {
+                            &["fs_main", "fs_flat", "fs_rounded"]
+                        },
+                        encodes_srgb_output(surface_format),
+                    )
+                    .into(),
+                ),
             });
         let rect_pipeline_layout =
             gpu.device
@@ -434,7 +445,18 @@ impl Renderer {
             .device
             .create_shader_module(wgpu::ShaderModuleDescriptor {
                 label: Some("Text Shader"),
-                source: wgpu::ShaderSource::Wgsl(encode_output(&text_shader_source(vertex_srgb(surface_format)), if vertex_srgb(surface_format) { &["fs_main"] } else { &["fs_main", "fs_mono"] }, encodes_srgb_output(surface_format)).into()),
+                source: wgpu::ShaderSource::Wgsl(
+                    encode_output(
+                        &text_shader_source(vertex_srgb(surface_format)),
+                        if vertex_srgb(surface_format) {
+                            &["fs_main"]
+                        } else {
+                            &["fs_main", "fs_mono"]
+                        },
+                        encodes_srgb_output(surface_format),
+                    )
+                    .into(),
+                ),
             });
         let text_pipeline_layout =
             gpu.device
@@ -463,7 +485,18 @@ impl Renderer {
             .device
             .create_shader_module(wgpu::ShaderModuleDescriptor {
                 label: Some("Shadow Shader"),
-                source: wgpu::ShaderSource::Wgsl(encode_output(include_str!("../shadow.wgsl"), if vertex_srgb(surface_format) { &[] } else { &["fs_main"] }, encodes_srgb_output(surface_format)).into()),
+                source: wgpu::ShaderSource::Wgsl(
+                    encode_output(
+                        include_str!("../shadow.wgsl"),
+                        if vertex_srgb(surface_format) {
+                            &[]
+                        } else {
+                            &["fs_main"]
+                        },
+                        encodes_srgb_output(surface_format),
+                    )
+                    .into(),
+                ),
             });
         let shadow_pipeline_layout =
             gpu.device
@@ -492,7 +525,14 @@ impl Renderer {
             .device
             .create_shader_module(wgpu::ShaderModuleDescriptor {
                 label: Some("Inner Shadow Shader"),
-                source: wgpu::ShaderSource::Wgsl(encode_output(include_str!("../inner_shadow.wgsl"), &["fs_main"], encodes_srgb_output(surface_format)).into()),
+                source: wgpu::ShaderSource::Wgsl(
+                    encode_output(
+                        include_str!("../inner_shadow.wgsl"),
+                        &["fs_main"],
+                        encodes_srgb_output(surface_format),
+                    )
+                    .into(),
+                ),
             });
         let inner_shadow_pipeline_layout =
             gpu.device
@@ -513,7 +553,14 @@ impl Renderer {
             .device
             .create_shader_module(wgpu::ShaderModuleDescriptor {
                 label: Some("Line Shader"),
-                source: wgpu::ShaderSource::Wgsl(encode_output(include_str!("../line.wgsl"), &["fs_main"], encodes_srgb_output(surface_format)).into()),
+                source: wgpu::ShaderSource::Wgsl(
+                    encode_output(
+                        include_str!("../line.wgsl"),
+                        &["fs_main"],
+                        encodes_srgb_output(surface_format),
+                    )
+                    .into(),
+                ),
             });
         let line_pipeline_layout =
             gpu.device
@@ -620,7 +667,14 @@ impl Renderer {
             .device
             .create_shader_module(wgpu::ShaderModuleDescriptor {
                 label: Some("Image Shader"),
-                source: wgpu::ShaderSource::Wgsl(encode_output(include_str!("../text.wgsl"), &["fs_main"], encodes_srgb_output(surface_format)).into()),
+                source: wgpu::ShaderSource::Wgsl(
+                    encode_output(
+                        include_str!("../text.wgsl"),
+                        &["fs_main"],
+                        encodes_srgb_output(surface_format),
+                    )
+                    .into(),
+                ),
             });
         let image_pipeline_layout =
             gpu.device
@@ -640,7 +694,14 @@ impl Renderer {
             .device
             .create_shader_module(wgpu::ShaderModuleDescriptor {
                 label: Some("YUV Shader"),
-                source: wgpu::ShaderSource::Wgsl(encode_output(include_str!("../yuv.wgsl"), &["fs_main"], encodes_srgb_output(surface_format)).into()),
+                source: wgpu::ShaderSource::Wgsl(
+                    encode_output(
+                        include_str!("../yuv.wgsl"),
+                        &["fs_main"],
+                        encodes_srgb_output(surface_format),
+                    )
+                    .into(),
+                ),
             });
         let yuv_pipeline_layout =
             gpu.device
@@ -944,7 +1005,10 @@ fn rect_shader_source() -> std::borrow::Cow<'static, str> {
 /// автоматического sRGB-кодирования, а шейдеры примитивов кодируют цвет сами. Для sRGB-
 /// и HDR-целей (и `SYNGUI_LINEAR_BLEND=1` при выборе формата) — прежнее линейное смешение.
 pub fn encodes_srgb_output(format: wgpu::TextureFormat) -> bool {
-    matches!(format, wgpu::TextureFormat::Rgba8Unorm | wgpu::TextureFormat::Bgra8Unorm)
+    matches!(
+        format,
+        wgpu::TextureFormat::Rgba8Unorm | wgpu::TextureFormat::Bgra8Unorm
+    )
 }
 
 /// Перевести линейный цвет в sRGB (для цвета очистки не-sRGB цели).
@@ -969,7 +1033,11 @@ fn vertex_srgb(format: wgpu::TextureFormat) -> bool {
 fn text_shader_source(vertex_srgb: bool) -> String {
     include_str!("../text.wgsl").replace(
         "const SYNGUI_VERTEX_SRGB: bool = false;",
-        if vertex_srgb { "const SYNGUI_VERTEX_SRGB: bool = true;" } else { "const SYNGUI_VERTEX_SRGB: bool = false;" },
+        if vertex_srgb {
+            "const SYNGUI_VERTEX_SRGB: bool = true;"
+        } else {
+            "const SYNGUI_VERTEX_SRGB: bool = false;"
+        },
     )
 }
 
@@ -987,8 +1055,15 @@ pub(crate) fn encode_output(src: &str, entries: &[&str], encode: bool) -> String
         s = s.replacen(&from, &format!("fn {e}__linear("), 1);
         // у обычной функции не бывает @location на результате
         let sig = format!("fn {e}__linear(in: VertexOutput) -> @location(0) vec4<f32>");
-        assert!(s.contains(&sig), "сигнатура {e} не (in: VertexOutput) -> @location(0) vec4<f32>");
-        s = s.replacen(&sig, &format!("fn {e}__linear(in: VertexOutput) -> vec4<f32>"), 1);
+        assert!(
+            s.contains(&sig),
+            "сигнатура {e} не (in: VertexOutput) -> @location(0) vec4<f32>"
+        );
+        s = s.replacen(
+            &sig,
+            &format!("fn {e}__linear(in: VertexOutput) -> vec4<f32>"),
+            1,
+        );
         s.push_str(&format!(
             "\n@fragment\nfn {e}(in: VertexOutput) -> @location(0) vec4<f32> {{ return syngui_out_srgb({e}__linear(in)); }}\n"
         ));

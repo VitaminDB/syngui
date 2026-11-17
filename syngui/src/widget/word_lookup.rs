@@ -46,7 +46,12 @@ fn is_word_char(c: char) -> bool {
 pub fn word_at(text: &str, at: usize, position: crate::core::Point) -> Option<WordHit> {
     let at = at.min(text.len());
     // Нажатие сразу за словом (между буквой и пробелом) — тоже это слово.
-    let mut idx = text.char_indices().map(|(b, _)| b).filter(|&b| b <= at).last().unwrap_or(0);
+    let mut idx = text
+        .char_indices()
+        .map(|(b, _)| b)
+        .filter(|&b| b <= at)
+        .last()
+        .unwrap_or(0);
     if !text[idx..].chars().next().is_some_and(is_word_char) {
         let prev = text[..idx].char_indices().last().map(|(b, _)| b);
         match prev {
@@ -54,17 +59,39 @@ pub fn word_at(text: &str, at: usize, position: crate::core::Point) -> Option<Wo
             _ => return None,
         }
     }
-    let start = text[..idx].char_indices().rev().take_while(|&(_, c)| is_word_char(c)).last().map_or(idx, |(b, _)| b);
-    let end = text[idx..].char_indices().find(|&(_, c)| !is_word_char(c)).map_or(text.len(), |(b, _)| idx + b);
-    let word = text[start..end].trim_matches(|c| matches!(c, '\'' | '’' | 'ʼ' | '-')).to_string();
+    let start = text[..idx]
+        .char_indices()
+        .rev()
+        .take_while(|&(_, c)| is_word_char(c))
+        .last()
+        .map_or(idx, |(b, _)| b);
+    let end = text[idx..]
+        .char_indices()
+        .find(|&(_, c)| !is_word_char(c))
+        .map_or(text.len(), |(b, _)| idx + b);
+    let word = text[start..end]
+        .trim_matches(|c| matches!(c, '\'' | '’' | 'ʼ' | '-'))
+        .to_string();
     if !word.chars().any(|c| c.is_alphabetic()) {
         return None;
     }
     let stop = |c: char| matches!(c, '.' | '!' | '?' | '\n' | '…');
-    let s0 = text[..start].char_indices().rev().find(|&(_, c)| stop(c)).map_or(0, |(b, c)| b + c.len_utf8());
-    let s1 = text[end..].char_indices().find(|&(_, c)| stop(c)).map_or(text.len(), |(b, c)| end + b + c.len_utf8());
+    let s0 = text[..start]
+        .char_indices()
+        .rev()
+        .find(|&(_, c)| stop(c))
+        .map_or(0, |(b, c)| b + c.len_utf8());
+    let s1 = text[end..]
+        .char_indices()
+        .find(|&(_, c)| stop(c))
+        .map_or(text.len(), |(b, c)| end + b + c.len_utf8());
     let sentence = text[s0..s1].trim().to_string();
-    Some(WordHit { word, sentence, text: text.to_string(), position })
+    Some(WordHit {
+        word,
+        sentence,
+        text: text.to_string(),
+        position,
+    })
 }
 
 /// Позиции символов текста при переносе по ширине (как при отрисовке):
@@ -86,7 +113,19 @@ pub(crate) fn char_positions(
         let mut x = 0.0f32;
         let chars: Vec<(usize, char, f32)> = seg
             .char_indices()
-            .map(|(b, c)| (base + b, c, tm.measure_text_width_weight(c.encode_utf8(&mut buf), font_size, 1, weight, family)))
+            .map(|(b, c)| {
+                (
+                    base + b,
+                    c,
+                    tm.measure_text_width_weight(
+                        c.encode_utf8(&mut buf),
+                        font_size,
+                        1,
+                        weight,
+                        family,
+                    ),
+                )
+            })
             .collect();
         let mut i = 0;
         while i < chars.len() {
@@ -96,7 +135,10 @@ pub(crate) fn char_positions(
                 i += 1;
                 continue;
             }
-            let j = chars[i..].iter().position(|c| c.1 == ' ').map_or(chars.len(), |p| i + p);
+            let j = chars[i..]
+                .iter()
+                .position(|c| c.1 == ' ')
+                .map_or(chars.len(), |p| i + p);
             let w: f32 = chars[i..j].iter().map(|c| c.2).sum();
             if x + w > width && x > 0.0 {
                 line += 1;
@@ -119,9 +161,22 @@ pub(crate) fn char_positions(
 }
 
 /// Байт символа под точкой (`x`, номер строки).
-pub(crate) fn byte_at(positions: &[(usize, usize, f32, f32)], line: usize, x: f32) -> Option<usize> {
-    let on_line: Vec<&(usize, usize, f32, f32)> = positions.iter().filter(|p| p.1 == line).collect();
-    on_line.iter().find(|p| x >= p.2 && x < p.3).or_else(|| on_line.iter().min_by(|a, b| (a.2 - x).abs().total_cmp(&(b.2 - x).abs()))).map(|p| p.0)
+pub(crate) fn byte_at(
+    positions: &[(usize, usize, f32, f32)],
+    line: usize,
+    x: f32,
+) -> Option<usize> {
+    let on_line: Vec<&(usize, usize, f32, f32)> =
+        positions.iter().filter(|p| p.1 == line).collect();
+    on_line
+        .iter()
+        .find(|p| x >= p.2 && x < p.3)
+        .or_else(|| {
+            on_line
+                .iter()
+                .min_by(|a, b| (a.2 - x).abs().total_cmp(&(b.2 - x).abs()))
+        })
+        .map(|p| p.0)
 }
 
 #[cfg(test)]
@@ -138,7 +193,10 @@ mod tests {
         assert_eq!(h.sentence, "She has a cat, doesn't she?");
         let h = word_at(t, t.find("doesn't").unwrap() + 5, Point::zero()).unwrap();
         assert_eq!(h.word, "doesn't");
-        assert!(word_at(t, t.find(',').unwrap() + 1, Point::zero()).is_none(), "пробел после запятой — не слово");
+        assert!(
+            word_at(t, t.find(',').unwrap() + 1, Point::zero()).is_none(),
+            "пробел после запятой — не слово"
+        );
     }
 
     #[test]
@@ -183,7 +241,9 @@ mod tests {
         let mut h = crate::testing::TestHarness::new(Box::new(text));
         h.layout(400.0, 100.0);
         // Первая строка, чуть правее начала — слово «The».
-        let r = h.send_event(&Event::LongPress { position: Point::new(4.0, 6.0) });
+        let r = h.send_event(&Event::LongPress {
+            position: Point::new(4.0, 6.0),
+        });
         set_word_lookup(None::<fn(&WordHit) -> bool>);
         assert!(r.is_handled(), "удержание по тексту обработано");
         let v = got.lock().unwrap();

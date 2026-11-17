@@ -130,7 +130,12 @@ impl TerminalSession {
         }
         if let Ok(mut pty_slot) = self.inner.pty.lock() {
             let mut pty = pty;
-            let queued = self.inner.pending_input.lock().map(|mut q| std::mem::take(&mut *q)).unwrap_or_default();
+            let queued = self
+                .inner
+                .pending_input
+                .lock()
+                .map(|mut q| std::mem::take(&mut *q))
+                .unwrap_or_default();
             if !queued.is_empty() {
                 if let Err(e) = pty.write(&queued) {
                     log::error!("[syngui terminal] pty write error: {e}");

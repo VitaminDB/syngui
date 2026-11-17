@@ -150,7 +150,12 @@ pub struct TextData {
 
 impl TextData {
     pub fn doc_at(&self, frame: f32) -> Option<&TextDoc> {
-        self.docs.iter().rev().find(|(t, _)| *t <= frame).or(self.docs.first()).map(|(_, d)| d)
+        self.docs
+            .iter()
+            .rev()
+            .find(|(t, _)| *t <= frame)
+            .or(self.docs.first())
+            .map(|(_, d)| d)
     }
 }
 
@@ -247,7 +252,10 @@ pub struct Transform {
 }
 
 fn two(v: &[f32]) -> [f32; 2] {
-    [v.first().copied().unwrap_or(0.0), v.get(1).copied().unwrap_or(0.0)]
+    [
+        v.first().copied().unwrap_or(0.0),
+        v.get(1).copied().unwrap_or(0.0),
+    ]
 }
 
 impl Transform {
@@ -306,7 +314,10 @@ impl Transform {
         compose_transform(
             two(&self.anchor.value(frame)),
             self.position_at(frame),
-            [s.first().copied().unwrap_or(100.0) / 100.0, s.get(1).copied().unwrap_or(100.0) / 100.0],
+            [
+                s.first().copied().unwrap_or(100.0) / 100.0,
+                s.get(1).copied().unwrap_or(100.0) / 100.0,
+            ],
             self.rotation.value(frame) + extra_rotation,
             self.skew.value(frame),
             self.skew_axis.value(frame),
@@ -450,7 +461,9 @@ pub enum Shape {
         radius: Animated<f32>,
     },
     /// Merge paths: булева операция над контурами выше по группе.
-    Merge { mode: MergeMode },
+    Merge {
+        mode: MergeMode,
+    },
     /// Offset paths: параллельный сдвиг контура.
     OffsetPath {
         amount: Animated<f32>,
@@ -464,7 +477,9 @@ pub enum Shape {
         smooth: bool,
     },
     /// Pucker & Bloat: вершины к центру, касательные от центра (и наоборот).
-    PuckerBloat { amount: Animated<f32> },
+    PuckerBloat {
+        amount: Animated<f32>,
+    },
     /// Twist: закручивание вокруг центра (сильнее у центра).
     Twist {
         angle: Animated<f32>,
@@ -540,7 +555,11 @@ fn parse_gradient(v: &Json) -> Gradient {
         color_count
     };
     Gradient {
-        kind: if v.i64_or("t", 1) == 2 { GradientKind::Radial } else { GradientKind::Linear },
+        kind: if v.i64_or("t", 1) == 2 {
+            GradientKind::Radial
+        } else {
+            GradientKind::Linear
+        },
         start: Animated::parse_or(v.get("s"), vec![0.0, 0.0]),
         end: Animated::parse_or(v.get("e"), vec![100.0, 0.0]),
         highlight_length: Animated::parse_or(v.get("h"), 0.0),
@@ -663,7 +682,11 @@ fn parse_shape(v: &Json) -> Option<Shape> {
         "zz" => Shape::ZigZag {
             size: Animated::parse_or(v.get("s"), 0.0),
             ridges: Animated::parse_or(v.get("r"), 1.0),
-            smooth: v.get("pt").and_then(Json::as_f64).map(|p| p >= 1.5).unwrap_or(false),
+            smooth: v
+                .get("pt")
+                .and_then(Json::as_f64)
+                .map(|p| p >= 1.5)
+                .unwrap_or(false),
         },
         "pb" => Shape::PuckerBloat {
             amount: Animated::parse_or(v.get("a"), 0.0),
@@ -704,11 +727,18 @@ fn parse_mask(v: &Json) -> Option<LayerMask> {
 
 fn parse_text_doc(v: &Json) -> TextDoc {
     let color = |key: &str| -> Option<Vec<f32>> {
-        v.get(key).map(Json::num_array).filter(|c| c.len() >= 3).map(|c| normalize_color(&c))
+        v.get(key)
+            .map(Json::num_array)
+            .filter(|c| c.len() >= 3)
+            .map(|c| normalize_color(&c))
     };
     let pair = |key: &str| -> Option<[f32; 2]> {
         let n = v.get(key)?.num_array();
-        if n.len() >= 2 { Some([n[0], n[1]]) } else { None }
+        if n.len() >= 2 {
+            Some([n[0], n[1]])
+        } else {
+            None
+        }
     };
     let size = v.f32_or("s", 36.0);
     TextDoc {
@@ -721,7 +751,11 @@ fn parse_text_doc(v: &Json) -> TextDoc {
         stroke_over_fill: v.bool_or("of", true),
         line_height: {
             let lh = v.f32_or("lh", 0.0);
-            if lh > 0.0 { lh } else { size * 1.2 }
+            if lh > 0.0 {
+                lh
+            } else {
+                size * 1.2
+            }
         },
         baseline_shift: v.f32_or("ls", 0.0),
         tracking: v.f32_or("tr", 0.0),
@@ -743,7 +777,12 @@ fn parse_text(v: &Json) -> TextData {
                 .collect()
         })
         .unwrap_or_default();
-    if v.get("t").and_then(|t| t.get("a")).and_then(Json::as_array).map(|a| !a.is_empty()).unwrap_or(false) {
+    if v.get("t")
+        .and_then(|t| t.get("a"))
+        .and_then(Json::as_array)
+        .map(|a| !a.is_empty())
+        .unwrap_or(false)
+    {
         log::debug!("lottie: аниматоры текста не поддерживаются, текст рисуется статично");
     }
     TextData { docs }
@@ -760,7 +799,9 @@ fn parse_effects(v: &Json) -> Vec<Effect> {
         }
         let vals = e.get("ef").and_then(Json::as_array).unwrap_or(&[]);
         let val = |i: usize| vals.get(i).and_then(|x| x.get("v"));
-        let color = |i: usize| Animated::parse_or(val(i), vec![0.0, 0.0, 0.0, 1.0]).map(|c| normalize_color(c));
+        let color = |i: usize| {
+            Animated::parse_or(val(i), vec![0.0, 0.0, 0.0, 1.0]).map(|c| normalize_color(c))
+        };
         let num = |i: usize, d: f32| Animated::parse_or(val(i), d);
         match e.i64_or("ty", -1) {
             20 => out.push(Effect::Tint {
@@ -778,14 +819,21 @@ fn parse_effects(v: &Json) -> Vec<Effect> {
                 direction: num(2, 135.0),
                 distance: num(3, 10.0),
                 softness: num(4, 7.0),
-                shadow_only: val(5).and_then(|v| v.get("k")).and_then(Json::as_f64).map(|v| v != 0.0).unwrap_or(false),
+                shadow_only: val(5)
+                    .and_then(|v| v.get("k"))
+                    .and_then(Json::as_f64)
+                    .map(|v| v != 0.0)
+                    .unwrap_or(false),
             }),
             29 => out.push(Effect::GaussianBlur {
                 blurriness: num(0, 0.0),
                 dimensions: num(1, 1.0),
             }),
             other => {
-                log::debug!("lottie: эффект {other} (`{}`) не поддерживается", e.str_or("nm", ""));
+                log::debug!(
+                    "lottie: эффект {other} (`{}`) не поддерживается",
+                    e.str_or("nm", "")
+                );
             }
         }
     }
@@ -852,7 +900,11 @@ fn parse_layer(v: &Json, unsupported: &mut usize) -> Layer {
         start_time: v.f32_or("st", 0.0),
         stretch: {
             let sr = v.f32_or("sr", 1.0);
-            if sr.abs() < 1e-6 { 1.0 } else { sr }
+            if sr.abs() < 1e-6 {
+                1.0
+            } else {
+                sr
+            }
         },
         time_remap: Animated::parse(v.get("tm")),
         masks: v
@@ -886,7 +938,11 @@ fn parse_layers(v: Option<&Json>, unsupported: &mut usize) -> Vec<Layer> {
         .collect();
     let raw = v.and_then(Json::as_array).unwrap_or(&[]);
     for i in 0..layers.len() {
-        if let Some(p) = raw.get(i).and_then(|l| l.get("parent")).and_then(Json::as_i64) {
+        if let Some(p) = raw
+            .get(i)
+            .and_then(|l| l.get("parent"))
+            .and_then(Json::as_i64)
+        {
             let idx = by_ind.get(&p).copied();
             layers[i].parent = idx.filter(|&pi| pi != i);
         }
@@ -943,7 +999,8 @@ impl Composition {
         if super::zip::Zip::is_zip(bytes) {
             return Composition::from_dotlottie(bytes);
         }
-        let text = std::str::from_utf8(bytes).map_err(|_| LottieError::Invalid("файл не в UTF-8"))?;
+        let text =
+            std::str::from_utf8(bytes).map_err(|_| LottieError::Invalid("файл не в UTF-8"))?;
         Composition::from_str(text.trim_start_matches('\u{feff}'))
     }
 
@@ -956,7 +1013,12 @@ impl Composition {
             .and_then(|m| {
                 let text = String::from_utf8(m).ok()?;
                 let v = json::parse(&text).ok()?;
-                let id = v.get("animations")?.as_array()?.first()?.str_or("id", "").to_string();
+                let id = v
+                    .get("animations")?
+                    .as_array()?
+                    .first()?
+                    .str_or("id", "")
+                    .to_string();
                 if id.is_empty() {
                     None
                 } else {
@@ -970,10 +1032,11 @@ impl Composition {
                     .find(|n| n.starts_with("animations/") && n.ends_with(".json"))
             })
             .ok_or(LottieError::Invalid("dotLottie: не найдена анимация"))?;
-        let data = zip
-            .read(&anim_path)
-            .ok_or(LottieError::Invalid("dotLottie: не удалось распаковать анимацию"))?;
-        let text = String::from_utf8(data).map_err(|_| LottieError::Invalid("dotLottie: анимация не в UTF-8"))?;
+        let data = zip.read(&anim_path).ok_or(LottieError::Invalid(
+            "dotLottie: не удалось распаковать анимацию",
+        ))?;
+        let text = String::from_utf8(data)
+            .map_err(|_| LottieError::Invalid("dotLottie: анимация не в UTF-8"))?;
         let mut comp = Composition::from_str(text.trim_start_matches('\u{feff}'))?;
         // Внешние картинки внутри архива: кладём байты как встроенные.
         for asset in comp.images.values_mut() {
@@ -1107,7 +1170,10 @@ impl Composition {
 
     /// Шрифт по имени (`fName`); иначе первый из списка.
     pub fn font(&self, name: &str) -> Option<&FontDef> {
-        self.fonts.iter().find(|f| f.name == name).or_else(|| self.fonts.first())
+        self.fonts
+            .iter()
+            .find(|f| f.name == name)
+            .or_else(|| self.fonts.first())
     }
 
     /// Встроенный глиф: точное совпадение семейства и начертания,
@@ -1115,7 +1181,12 @@ impl Composition {
     pub fn glyph(&self, family: &str, style: &str, ch: &str) -> Option<&Glyph> {
         self.glyphs
             .get(&(family.to_string(), style.to_string(), ch.to_string()))
-            .or_else(|| self.glyphs.iter().find(|((_, _, c), _)| c == ch).map(|(_, g)| g))
+            .or_else(|| {
+                self.glyphs
+                    .iter()
+                    .find(|((_, _, c), _)| c == ch)
+                    .map(|(_, g)| g)
+            })
     }
 
     /// Длительность в кадрах.

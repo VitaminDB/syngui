@@ -535,12 +535,18 @@ impl Element for ComboboxElement {
                         let overlay_bounds = if self.opens_upward {
                             Rect::new(
                                 Point::new(left, dd.y()),
-                                Size::new(right - left, dd.size.height + popup_gap + self.input_h()),
+                                Size::new(
+                                    right - left,
+                                    dd.size.height + popup_gap + self.input_h(),
+                                ),
                             )
                         } else {
                             Rect::new(
                                 Point::new(left, self.bounds.y()),
-                                Size::new(right - left, self.input_h() + popup_gap + dd.size.height),
+                                Size::new(
+                                    right - left,
+                                    self.input_h() + popup_gap + dd.size.height,
+                                ),
                             )
                         };
                         ctx.register_overlay(overlay_bounds, false);

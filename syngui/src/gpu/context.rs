@@ -25,7 +25,8 @@ static HDR_OUTPUT: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool
 
 /// Приложение просило HDR-окно.
 pub fn hdr_requested() -> bool {
-    HDR_WANTED.load(std::sync::atomic::Ordering::Relaxed) && std::env::var("SYNGUI_HDR").map_or(true, |v| v != "0")
+    HDR_WANTED.load(std::sync::atomic::Ordering::Relaxed)
+        && std::env::var("SYNGUI_HDR").map_or(true, |v| v != "0")
 }
 
 /// Окно сейчас в HDR (FP16 extended sRGB).
@@ -64,13 +65,22 @@ pub fn preferred_surface_format(
     let css_blend = std::env::var("SYNGUI_LINEAR_BLEND").map_or(true, |v| v == "0");
     let allowed = std::env::var("SYNGUI_SURFACE_RGBA").map_or(true, |v| v != "0");
     if allowed && adapter.get_info().vendor == QUALCOMM {
-        let f = if css_blend { wgpu::TextureFormat::Rgba8Unorm } else { wgpu::TextureFormat::Rgba8UnormSrgb };
+        let f = if css_blend {
+            wgpu::TextureFormat::Rgba8Unorm
+        } else {
+            wgpu::TextureFormat::Rgba8UnormSrgb
+        };
         if caps.formats.contains(&f) {
             return f;
         }
     }
     if css_blend {
-        if let Some(f) = caps.formats.iter().copied().find(|f| crate::gpu::renderer::encodes_srgb_output(*f)) {
+        if let Some(f) = caps
+            .formats
+            .iter()
+            .copied()
+            .find(|f| crate::gpu::renderer::encodes_srgb_output(*f))
+        {
             return f;
         }
     }

@@ -47,9 +47,7 @@ pub(crate) fn sniff(bytes: &[u8]) -> Option<Kind> {
     let size = u32::from_be_bytes(bytes[0..4].try_into().ok()?) as usize;
     let end = size.clamp(16, bytes.len().min(4096));
     // Основной бренд, версия, затем список совместимых.
-    let brands = std::iter::once(&bytes[8..12]).chain(
-        bytes[16..end].chunks_exact(4),
-    );
+    let brands = std::iter::once(&bytes[8..12]).chain(bytes[16..end].chunks_exact(4));
     let mut generic = false;
     for b in brands {
         match b {
@@ -78,7 +76,11 @@ pub(crate) fn decode(bytes: &[u8], kind: Kind, max_side: u32) -> Result<Rgba, St
         if premultiplied {
             unpremultiply(&mut data);
         }
-        return Ok(Rgba { width, height, data });
+        return Ok(Rgba {
+            width,
+            height,
+            data,
+        });
     }
     #[cfg(all(feature = "heif", not(target_os = "android")))]
     {
@@ -108,7 +110,11 @@ fn decode_libheif(bytes: &[u8]) -> Result<Rgba, String> {
     let ctx = HeifContext::read_from_bytes(bytes).map_err(|e| e.to_string())?;
     let handle = ctx.primary_image_handle().map_err(|e| e.to_string())?;
     let deep = handle.luma_bits_per_pixel() > 8;
-    let chroma = if deep { RgbChroma::HdrRgbaLe } else { RgbChroma::Rgba };
+    let chroma = if deep {
+        RgbChroma::HdrRgbaLe
+    } else {
+        RgbChroma::Rgba
+    };
     // decode() применяет irot/imir/clap.
     let img = libheif()
         .decode(&handle, ColorSpace::Rgb(chroma), None)
@@ -136,7 +142,11 @@ fn decode_libheif(bytes: &[u8]) -> Result<Rgba, String> {
     if img.is_premultiplied_alpha() {
         unpremultiply(&mut data);
     }
-    Ok(Rgba { width: w, height: h, data })
+    Ok(Rgba {
+        width: w,
+        height: h,
+        data,
+    })
 }
 
 /// Перевести RGBA с умноженной альфой в неумноженную.

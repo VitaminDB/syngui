@@ -19,10 +19,14 @@ use crate::layout::Constraints;
 use crate::render::{DisplayList, TextureId};
 use crate::signal::RwSignal;
 use crate::video::subtitle::render::{with_renderer, Rendered};
-use crate::video::subtitle::{SubContent, SubText, SubtitleAnimation, SubtitleEvent, SubtitleStore, SubtitleStyle};
+use crate::video::subtitle::{
+    SubContent, SubText, SubtitleAnimation, SubtitleEvent, SubtitleStore, SubtitleStyle,
+};
 use crate::video::VideoPlayer;
 use crate::widget::context::EventContext;
-use crate::widget::{DirtyFlags, Element, ElementId, ElementTree, LayoutHint, UpdateContext, Widget};
+use crate::widget::{
+    DirtyFlags, Element, ElementId, ElementTree, LayoutHint, UpdateContext, Widget,
+};
 use crate::widgets::ImageFit;
 
 /// Насколько заранее рисовать картинку события, с.
@@ -51,7 +55,12 @@ pub struct SubtitleLayer {
 
 impl SubtitleLayer {
     pub fn new(player: Arc<Mutex<VideoPlayer>>, style: RwSignal<SubtitleStyle>) -> Self {
-        Self { player, fit: ImageFit::Contain, style, controls_top: None }
+        Self {
+            player,
+            fit: ImageFit::Contain,
+            style,
+            controls_top: None,
+        }
     }
 
     pub fn fit(mut self, fit: ImageFit) -> Self {
@@ -106,7 +115,10 @@ impl Widget for SubtitleLayer {
 fn initial_scale() -> f32 {
     #[cfg(feature = "winit")]
     {
-        crate::signal::primary_window().map(|w| w.scale_factor() as f32).unwrap_or(1.0).clamp(0.5, 8.0)
+        crate::signal::primary_window()
+            .map(|w| w.scale_factor() as f32)
+            .unwrap_or(1.0)
+            .clamp(0.5, 8.0)
     }
     #[cfg(not(feature = "winit"))]
     1.0
@@ -135,16 +147,23 @@ impl Worker {
         let (tx, rx) = mpsc::channel::<Job>();
         let done: Done = Arc::default();
         let out = done.clone();
-        let _ = std::thread::Builder::new().name("syngui-subtitles".into()).spawn(move || {
-            // Канал закрыт (элемент удалён) — поток выходит.
-            for job in rx {
-                let r = with_renderer(|r| r.render(&job.text, &job.style, job.font_px, job.max_w));
-                if let Ok(mut d) = out.lock() {
-                    d.insert(job.key, r);
+        let _ = std::thread::Builder::new()
+            .name("syngui-subtitles".into())
+            .spawn(move || {
+                // Канал закрыт (элемент удалён) — поток выходит.
+                for job in rx {
+                    let r =
+                        with_renderer(|r| r.render(&job.text, &job.style, job.font_px, job.max_w));
+                    if let Ok(mut d) = out.lock() {
+                        d.insert(job.key, r);
+                    }
                 }
-            }
-        });
-        Self { tx, done, pending: HashSet::new() }
+            });
+        Self {
+            tx,
+            done,
+            pending: HashSet::new(),
+        }
     }
 
     fn request(&mut self, job: Job) {
@@ -240,8 +259,16 @@ fn h_frac(align: u8) -> f32 {
 impl SubtitleLayerElement {
     /// Кадр на экране (как у `VideoView`) и видимая его часть.
     fn video_rect(&self) -> Rect {
-        let (w, h, rot) = self.player.lock().map(|p| (p.meta().width, p.meta().height, p.meta().rotation)).unwrap_or((0, 0, 0));
-        let (nw, nh) = if rot % 180 == 90 { (h as f32, w as f32) } else { (w as f32, h as f32) };
+        let (w, h, rot) = self
+            .player
+            .lock()
+            .map(|p| (p.meta().width, p.meta().height, p.meta().rotation))
+            .unwrap_or((0, 0, 0));
+        let (nw, nh) = if rot % 180 == 90 {
+            (h as f32, w as f32)
+        } else {
+            (w as f32, h as f32)
+        };
         let b = self.bounds;
         if nw <= 0.0 || nh <= 0.0 {
             return b;
@@ -254,7 +281,10 @@ impl SubtitleLayerElement {
             ImageFit::Cover => (bw / nw).max(bh / nh),
         };
         let (sw, sh) = (nw * s, nh * s);
-        Rect::new(Point::new(b.x() + (bw - sw) / 2.0, b.y() + (bh - sh) / 2.0), Size::new(sw, sh))
+        Rect::new(
+            Point::new(b.x() + (bw - sw) / 2.0, b.y() + (bh - sh) / 2.0),
+            Size::new(sw, sh),
+        )
     }
 
     fn key_of(ev: &SubtitleEvent, style: &SubtitleStyle, font_px: f32, max_w: f32) -> u64 {
@@ -272,13 +302,35 @@ impl SubtitleLayerElement {
             u.used = self.frame;
             return true;
         }
-        let Some(r) = self.worker.take(key) else { return false };
+        let Some(r) = self.worker.take(key) else {
+            return false;
+        };
         let handle = match (&r, self.image_store.as_ref()) {
-            (Some(img), Some(store)) => store.lock().ok().map(|mut s| s.request_rgba(&format!("subs:{}:{key:x}", self.id.0), img.w, img.h, img.rgba.to_vec()).0),
+            (Some(img), Some(store)) => store.lock().ok().map(|mut s| {
+                s.request_rgba(
+                    &format!("subs:{}:{key:x}", self.id.0),
+                    img.w,
+                    img.h,
+                    img.rgba.to_vec(),
+                )
+                .0
+            }),
             _ => None,
         };
-        let (w, h, text) = r.as_ref().map(|i| (i.w as f32, i.h as f32, i.text)).unwrap_or((0.0, 0.0, [0.0; 4]));
-        self.uploaded.insert(key, Uploaded { handle, w, h, text, used: self.frame });
+        let (w, h, text) = r
+            .as_ref()
+            .map(|i| (i.w as f32, i.h as f32, i.text))
+            .unwrap_or((0.0, 0.0, [0.0; 4]));
+        self.uploaded.insert(
+            key,
+            Uploaded {
+                handle,
+                w,
+                h,
+                text,
+                used: self.frame,
+            },
+        );
         true
     }
 
@@ -288,16 +340,37 @@ impl SubtitleLayerElement {
             u.used = self.frame;
             return;
         }
-        let handle = self
-            .image_store
-            .as_ref()
-            .and_then(|s| s.lock().ok().map(|mut s| s.request_rgba(&format!("subs:{}:{key:x}", self.id.0), b.w, b.h, b.rgba.to_vec()).0));
-        self.uploaded.insert(key, Uploaded { handle, w: b.w as f32, h: b.h as f32, text: [0.0, 0.0, b.w as f32, b.h as f32], used: self.frame });
+        let handle = self.image_store.as_ref().and_then(|s| {
+            s.lock().ok().map(|mut s| {
+                s.request_rgba(
+                    &format!("subs:{}:{key:x}", self.id.0),
+                    b.w,
+                    b.h,
+                    b.rgba.to_vec(),
+                )
+                .0
+            })
+        });
+        self.uploaded.insert(
+            key,
+            Uploaded {
+                handle,
+                w: b.w as f32,
+                h: b.h as f32,
+                text: [0.0, 0.0, b.w as f32, b.h as f32],
+                used: self.frame,
+            },
+        );
     }
 
     fn evict(&mut self) {
         let frame = self.frame;
-        let old: Vec<u64> = self.uploaded.iter().filter(|(_, u)| frame.saturating_sub(u.used) > EVICT_AFTER_FRAMES).map(|(k, _)| *k).collect();
+        let old: Vec<u64> = self
+            .uploaded
+            .iter()
+            .filter(|(_, u)| frame.saturating_sub(u.used) > EVICT_AFTER_FRAMES)
+            .map(|(k, _)| *k)
+            .collect();
         if old.is_empty() {
             return;
         }
@@ -316,21 +389,35 @@ impl SubtitleLayerElement {
     /// ещё меняется (анимация, ждём отрисовку).
     fn update_items(&mut self, dt: Duration) -> bool {
         self.frame += 1;
-        let Some(store) = self.store.clone() else { return false };
+        let Some(store) = self.store.clone() else {
+            return false;
+        };
         let style = self.style.get_untracked();
         let clock = match self.player.lock() {
             Ok(p) => p.position_sec(),
             Err(_) => return false,
         };
-        let out_sec = if style.anim_out == SubtitleAnimation::None { 0.0 } else { style.anim_out_ms as f64 / 1000.0 };
-        let in_sec = if style.anim_in == SubtitleAnimation::None { 0.0 } else { style.anim_in_ms as f64 / 1000.0 };
+        let out_sec = if style.anim_out == SubtitleAnimation::None {
+            0.0
+        } else {
+            style.anim_out_ms as f64 / 1000.0
+        };
+        let in_sec = if style.anim_in == SubtitleAnimation::None {
+            0.0
+        } else {
+            style.anim_in_ms as f64 / 1000.0
+        };
         let act = store.active(clock, PREFETCH_SEC, out_sec + 0.05);
         let t = act.time;
         let scale = self.scale.get().max(0.5);
 
         let video = self.video_rect();
         let visible_video = video.intersection(&self.bounds).unwrap_or(self.bounds);
-        let area = if style.in_frame { visible_video } else { self.bounds };
+        let area = if style.in_frame {
+            visible_video
+        } else {
+            self.bounds
+        };
         let font_px = (style.size * area.size.height).max(style.min_size_px);
         let max_w = (style.max_width * area.size.width).max(font_px * 4.0);
 
@@ -341,13 +428,22 @@ impl SubtitleLayerElement {
                 SubContent::Text(text) => {
                     let key = Self::key_of(ev, &style, font_px * scale, max_w * scale);
                     if !self.ensure_uploaded(key) {
-                        self.worker.request(Job { key, text: text.clone(), style: style.clone(), font_px: font_px * scale, max_w: max_w * scale });
+                        self.worker.request(Job {
+                            key,
+                            text: text.clone(),
+                            style: style.clone(),
+                            font_px: font_px * scale,
+                            max_w: max_w * scale,
+                        });
                         pending |= ev.start <= t;
                     }
                 }
                 SubContent::Bitmap { rects, .. } => {
                     for (i, b) in rects.iter().enumerate() {
-                        self.ensure_bitmap(ev.id.wrapping_mul(64).wrapping_add(i as u64) ^ 0xB17_0000_0000, b);
+                        self.ensure_bitmap(
+                            ev.id.wrapping_mul(64).wrapping_add(i as u64) ^ 0xB17_0000_0000,
+                            b,
+                        );
                     }
                 }
             }
@@ -374,25 +470,46 @@ impl SubtitleLayerElement {
         let mut items: Vec<DrawItem> = Vec::new();
         let mut events: Vec<&SubtitleEvent> = act.events.iter().collect();
         events.sort_by(|a, b| {
-            let la = if let SubContent::Text(t) = &*a.content { t.layer } else { 0 };
-            let lb = if let SubContent::Text(t) = &*b.content { t.layer } else { 0 };
-            la.cmp(&lb).then(a.start.total_cmp(&b.start)).then(a.id.cmp(&b.id))
+            let la = if let SubContent::Text(t) = &*a.content {
+                t.layer
+            } else {
+                0
+            };
+            let lb = if let SubContent::Text(t) = &*b.content {
+                t.layer
+            } else {
+                0
+            };
+            la.cmp(&lb)
+                .then(a.start.total_cmp(&b.start))
+                .then(a.id.cmp(&b.id))
         });
         // Следующее событие той же группы начинается сразу — уходящее не
         // анимировать (иначе две строки наползают друг на друга).
         let group_of = |e: &SubtitleEvent| match &*e.content {
-            SubContent::Text(t) if t.pos.is_none() || !style.file_positions => Some(row_of(t.align)),
+            SubContent::Text(t) if t.pos.is_none() || !style.file_positions => {
+                Some(row_of(t.align))
+            }
             _ => None,
         };
         let all: Vec<&SubtitleEvent> = act.events.iter().chain(act.upcoming.iter()).collect();
         let followed = |e: &SubtitleEvent| {
             let g = group_of(e);
-            all.iter().any(|o| o.id != e.id && group_of(o) == g && o.start >= e.end - 0.05 && o.start <= e.end + out_sec)
+            all.iter().any(|o| {
+                o.id != e.id
+                    && group_of(o) == g
+                    && o.start >= e.end - 0.05
+                    && o.start <= e.end + out_sec
+            })
         };
         // Сколько уже занято снизу/сверху/в середине, px.
         let mut stack = [0.0f32; 3];
         for ev in events {
-            let in_p = if in_sec > 0.0 { ((t - ev.start) / in_sec) as f32 } else { 1.0 };
+            let in_p = if in_sec > 0.0 {
+                ((t - ev.start) / in_sec) as f32
+            } else {
+                1.0
+            };
             let out_p = if t <= ev.end {
                 0.0
             } else if out_sec > 0.0 && !followed(ev) {
@@ -407,8 +524,16 @@ impl SubtitleLayerElement {
                 animating = true;
             }
             let (ei, eo) = (ease_out(in_p), ease_out(out_p));
-            let a_in = if style.anim_in == SubtitleAnimation::None { 1.0 } else { ei };
-            let a_out = if style.anim_out == SubtitleAnimation::None { 0.0 } else { eo };
+            let a_in = if style.anim_in == SubtitleAnimation::None {
+                1.0
+            } else {
+                ei
+            };
+            let a_out = if style.anim_out == SubtitleAnimation::None {
+                0.0
+            } else {
+                eo
+            };
             let opacity = a_in * (1.0 - a_out);
             let mut dy = 0.0f32;
             let mut sc = 1.0f32;
@@ -426,7 +551,9 @@ impl SubtitleLayerElement {
             match &*ev.content {
                 SubContent::Text(text) => {
                     let key = Self::key_of(ev, &style, font_px * scale, max_w * scale);
-                    let Some(u) = self.uploaded.get(&key) else { continue };
+                    let Some(u) = self.uploaded.get(&key) else {
+                        continue;
+                    };
                     let Some(handle) = u.handle else { continue };
                     let (iw, ih) = (u.w / scale, u.h / scale);
                     let [tx, ty, tw, th] = u.text.map(|v| v / scale);
@@ -463,22 +590,39 @@ impl SubtitleLayerElement {
                     };
                     // В окно целиком.
                     let b = self.bounds;
-                    let text_x = text_x.clamp(b.x() - tx, (b.x() + b.size.width - tw - tx).max(b.x() - tx));
+                    let text_x =
+                        text_x.clamp(b.x() - tx, (b.x() + b.size.width - tw - tx).max(b.x() - tx));
                     let text_y = text_y.clamp(b.y(), (b.y() + b.size.height - th).max(b.y()));
-                    let rect = Rect::new(Point::new(text_x - tx, text_y - ty + dy), Size::new(iw, ih));
-                    items.push(DrawItem { handle, rect, opacity, scale: sc });
+                    let rect =
+                        Rect::new(Point::new(text_x - tx, text_y - ty + dy), Size::new(iw, ih));
+                    items.push(DrawItem {
+                        handle,
+                        rect,
+                        opacity,
+                        scale: sc,
+                    });
                 }
                 SubContent::Bitmap { rects, canvas } => {
                     let (cw, ch) = (canvas.0.max(1) as f32, canvas.1.max(1) as f32);
                     let (sx, sy) = (video.size.width / cw, video.size.height / ch);
                     for (i, b) in rects.iter().enumerate() {
                         let key = ev.id.wrapping_mul(64).wrapping_add(i as u64) ^ 0xB17_0000_0000;
-                        let Some(handle) = self.uploaded.get(&key).and_then(|u| u.handle) else { continue };
+                        let Some(handle) = self.uploaded.get(&key).and_then(|u| u.handle) else {
+                            continue;
+                        };
                         let rect = Rect::new(
-                            Point::new(video.x() + b.x as f32 * sx, video.y() + b.y as f32 * sy - self.lift + dy),
+                            Point::new(
+                                video.x() + b.x as f32 * sx,
+                                video.y() + b.y as f32 * sy - self.lift + dy,
+                            ),
                             Size::new(b.w as f32 * sx, b.h as f32 * sy),
                         );
-                        items.push(DrawItem { handle, rect, opacity: opacity * style.bitmap_opacity, scale: sc });
+                        items.push(DrawItem {
+                            handle,
+                            rect,
+                            opacity: opacity * style.bitmap_opacity,
+                            scale: sc,
+                        });
                     }
                 }
             }
@@ -489,7 +633,14 @@ impl SubtitleLayerElement {
         let mut h = std::collections::hash_map::DefaultHasher::new();
         for it in &items {
             it.handle.0.hash(&mut h);
-            for v in [it.rect.x(), it.rect.y(), it.rect.size.width, it.rect.size.height, it.opacity * 255.0, it.scale * 1000.0] {
+            for v in [
+                it.rect.x(),
+                it.rect.y(),
+                it.rect.size.width,
+                it.rect.size.height,
+                it.opacity * 255.0,
+                it.scale * 1000.0,
+            ] {
                 (v.round() as i32).hash(&mut h);
             }
         }
@@ -539,7 +690,9 @@ impl Element for SubtitleLayerElement {
             if scaled {
                 let c = it.rect.center();
                 list.push_transform(
-                    Transform::translation(-c.x, -c.y).then_scale(it.scale, it.scale).then_translate(euclid::Vector2D::new(c.x, c.y)),
+                    Transform::translation(-c.x, -c.y)
+                        .then_scale(it.scale, it.scale)
+                        .then_translate(euclid::Vector2D::new(c.x, c.y)),
                 );
             }
             list.push_image(it.rect, TextureId(it.handle.0), uv, Color::WHITE);
@@ -619,13 +772,21 @@ pub struct TopProbe {
 
 impl TopProbe {
     pub fn new(slot: ControlsTop, child: impl Widget + 'static) -> Self {
-        Self { slot, child: Box::new(child) }
+        Self {
+            slot,
+            child: Box::new(child),
+        }
     }
 }
 
 impl Widget for TopProbe {
     fn create_element(&self) -> Box<dyn Element> {
-        Box::new(TopProbeElement { id: ElementId::new(), slot: self.slot.clone(), bounds: Rect::zero(), dirty: DirtyFlags::LAYOUT | DirtyFlags::RENDER })
+        Box::new(TopProbeElement {
+            id: ElementId::new(),
+            slot: self.slot.clone(),
+            bounds: Rect::zero(),
+            dirty: DirtyFlags::LAYOUT | DirtyFlags::RENDER,
+        })
     }
 
     fn can_update(&self, other: &dyn Any) -> bool {
@@ -642,7 +803,8 @@ impl Widget for TopProbe {
 
     fn mount(&self, tree: &mut ElementTree, parent_id: ElementId) {
         let element = self.child.create_element();
-        let child_id = tree.insert_with_type_id(element, Some(parent_id), self.child.as_any().type_id());
+        let child_id =
+            tree.insert_with_type_id(element, Some(parent_id), self.child.as_any().type_id());
         self.child.mount(tree, child_id);
     }
 

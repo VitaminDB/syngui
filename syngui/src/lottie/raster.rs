@@ -82,7 +82,11 @@ impl Mask {
 
     /// Покрывает ли маска весь прямоугольник `w×h` полностью (единицами).
     pub fn covers_all(&self, w: usize, h: usize) -> bool {
-        if self.x0 > 0 || self.y0 > 0 || (self.x0 as i64 + self.w as i64) < w as i64 || (self.y0 as i64 + self.h as i64) < h as i64 {
+        if self.x0 > 0
+            || self.y0 > 0
+            || (self.x0 as i64 + self.w as i64) < w as i64
+            || (self.y0 as i64 + self.h as i64) < h as i64
+        {
             return false;
         }
         for y in 0..h {
@@ -222,13 +226,24 @@ impl Rasterizer {
     }
 
     /// Заливка набора замкнутых ломаных в маску покрытия (обрезка по `clip_w×clip_h`).
-    pub fn fill(&mut self, polys: &[Polyline], rule: FillRule, clip_w: usize, clip_h: usize) -> Option<Mask> {
+    pub fn fill(
+        &mut self,
+        polys: &[Polyline],
+        rule: FillRule,
+        clip_w: usize,
+        clip_h: usize,
+    ) -> Option<Mask> {
         let mut bb: Option<[f32; 4]> = None;
         for p in polys {
             if let Some(b) = p.bbox() {
                 bb = Some(match bb {
                     None => b,
-                    Some(o) => [o[0].min(b[0]), o[1].min(b[1]), o[2].max(b[2]), o[3].max(b[3])],
+                    Some(o) => [
+                        o[0].min(b[0]),
+                        o[1].min(b[1]),
+                        o[2].max(b[2]),
+                        o[3].max(b[3]),
+                    ],
                 });
             }
         }
@@ -273,7 +288,11 @@ impl Rasterizer {
                     FillRule::NonZero => sum.abs().min(1.0),
                     FillRule::EvenOdd => {
                         let a = sum.abs() % 2.0;
-                        if a > 1.0 { 2.0 - a } else { a }
+                        if a > 1.0 {
+                            2.0 - a
+                        } else {
+                            a
+                        }
                     }
                 };
                 out[x] = if c < 1.0 / 1024.0 { 0.0 } else { c };
@@ -331,7 +350,11 @@ impl Rasterizer {
         if (p0[1] - p1[1]).abs() <= 1e-7 {
             return;
         }
-        let (dir, p0, p1) = if p0[1] < p1[1] { (1.0f32, p0, p1) } else { (-1.0f32, p1, p0) };
+        let (dir, p0, p1) = if p0[1] < p1[1] {
+            (1.0f32, p0, p1)
+        } else {
+            (-1.0f32, p1, p0)
+        };
         if p1[1] <= 0.0 || p0[1] >= h as f32 {
             return;
         }
@@ -419,7 +442,11 @@ impl GradientStops {
 
     #[inline]
     pub fn sample(&self, t: f32) -> [f32; 4] {
-        let t = if t.is_finite() { t.clamp(0.0, 1.0) } else { 0.0 };
+        let t = if t.is_finite() {
+            t.clamp(0.0, 1.0)
+        } else {
+            0.0
+        };
         let rgb = match self.colors.len() {
             0 => [0.0, 0.0, 0.0],
             1 => self.colors[0].1,
@@ -437,7 +464,11 @@ impl GradientStops {
                     let (o0, c0) = cs[i - 1];
                     let (o1, c1) = cs[i];
                     let k = if o1 > o0 { (t - o0) / (o1 - o0) } else { 1.0 };
-                    [c0[0] + (c1[0] - c0[0]) * k, c0[1] + (c1[1] - c0[1]) * k, c0[2] + (c1[2] - c0[2]) * k]
+                    [
+                        c0[0] + (c1[0] - c0[0]) * k,
+                        c0[1] + (c1[1] - c0[1]) * k,
+                        c0[2] + (c1[2] - c0[2]) * k,
+                    ]
                 }
             }
         };
@@ -497,7 +528,12 @@ impl ImageRgba {
             }
             let a = d[i + 3] as f32 / 255.0;
             // Премультиплицируем для корректной интерполяции.
-            [d[i] as f32 / 255.0 * a, d[i + 1] as f32 / 255.0 * a, d[i + 2] as f32 / 255.0 * a, a]
+            [
+                d[i] as f32 / 255.0 * a,
+                d[i + 1] as f32 / 255.0 * a,
+                d[i + 2] as f32 / 255.0 * a,
+                a,
+            ]
         };
         let (xi, yi) = (x0 as i64, y0 as i64);
         let p00 = px(xi, yi);
@@ -562,7 +598,11 @@ impl Paint {
                 let p = inv.apply([x, y]);
                 let d = [end[0] - start[0], end[1] - start[1]];
                 let dd = d[0] * d[0] + d[1] * d[1];
-                let t = if dd > 0.0 { ((p[0] - start[0]) * d[0] + (p[1] - start[1]) * d[1]) / dd } else { 0.0 };
+                let t = if dd > 0.0 {
+                    ((p[0] - start[0]) * d[0] + (p[1] - start[1]) * d[1]) / dd
+                } else {
+                    0.0
+                };
                 premul(stops.sample(t), *opacity)
             }
             Paint::Radial {
@@ -577,10 +617,19 @@ impl Paint {
                 let t = radial_t(p, *center, *radius, *focal);
                 premul(stops.sample(t), *opacity)
             }
-            Paint::Image { inv, image, opacity } => {
+            Paint::Image {
+                inv,
+                image,
+                opacity,
+            } => {
                 let p = inv.apply([x, y]);
                 let c = image.sample(p[0], p[1]);
-                [c[0] * opacity, c[1] * opacity, c[2] * opacity, c[3] * opacity]
+                [
+                    c[0] * opacity,
+                    c[1] * opacity,
+                    c[2] * opacity,
+                    c[3] * opacity,
+                ]
             }
         }
     }
@@ -615,7 +664,11 @@ fn radial_t(p: [f32; 2], c: [f32; 2], r: f32, f: [f32; 2]) -> f32 {
     let sq = disc.sqrt();
     let t1 = (b - sq) / a;
     let t2 = (b + sq) / a;
-    if t1 >= 0.0 { t1.max(t2.min(t1)).max(0.0) } else { t2.max(0.0) }
+    if t1 >= 0.0 {
+        t1.max(t2.min(t1)).max(0.0)
+    } else {
+        t2.max(0.0)
+    }
 }
 
 /// Булева операция над масками покрытия (merge paths).
@@ -704,7 +757,11 @@ fn blend_channel(mode: BlendMode, cb: f32, cs: f32) -> f32 {
             if cs <= 0.5 {
                 cb - (1.0 - 2.0 * cs) * cb * (1.0 - cb)
             } else {
-                let d = if cb <= 0.25 { ((16.0 * cb - 12.0) * cb + 4.0) * cb } else { cb.sqrt() };
+                let d = if cb <= 0.25 {
+                    ((16.0 * cb - 12.0) * cb + 4.0) * cb
+                } else {
+                    cb.sqrt()
+                };
                 cb + (2.0 * cs - 1.0) * (d - cb)
             }
         }
@@ -834,7 +891,11 @@ impl Pixmap {
         for y in dy0..dy1 {
             for x in dx0..dx1 {
                 let m = matte.px[y * self.w + x];
-                let mut v = if luma { 0.299 * m[0] + 0.587 * m[1] + 0.114 * m[2] } else { m[3] };
+                let mut v = if luma {
+                    0.299 * m[0] + 0.587 * m[1] + 0.114 * m[2]
+                } else {
+                    m[3]
+                };
                 if inverted {
                     v = 1.0 - v;
                 }
@@ -875,11 +936,24 @@ impl Pixmap {
                 let d = self.px[i];
                 let out = if mode == BlendMode::Normal {
                     let inv = 1.0 - s[3];
-                    [s[0] + d[0] * inv, s[1] + d[1] * inv, s[2] + d[2] * inv, s[3] + d[3] * inv]
+                    [
+                        s[0] + d[0] * inv,
+                        s[1] + d[1] * inv,
+                        s[2] + d[2] * inv,
+                        s[3] + d[3] * inv,
+                    ]
                 } else {
                     let (sa, da) = (s[3], d[3]);
-                    let cs = if sa > 0.0 { [s[0] / sa, s[1] / sa, s[2] / sa] } else { [0.0; 3] };
-                    let cb = if da > 0.0 { [d[0] / da, d[1] / da, d[2] / da] } else { [0.0; 3] };
+                    let cs = if sa > 0.0 {
+                        [s[0] / sa, s[1] / sa, s[2] / sa]
+                    } else {
+                        [0.0; 3]
+                    };
+                    let cb = if da > 0.0 {
+                        [d[0] / da, d[1] / da, d[2] / da]
+                    } else {
+                        [0.0; 3]
+                    };
                     let mut o = [0f32; 4];
                     for k in 0..3 {
                         let b = blend_channel(mode, cb[k], cs[k]);
@@ -941,9 +1015,16 @@ impl Pixmap {
             }
             // Ширины боксов, дающие приближение гауссианы (W3C-алгоритм).
             let wi = (sigma * (12.0f32 / 3.0).sqrt() + 1.0).floor() as usize;
-            let wl = if wi.is_multiple_of(2) { wi.saturating_sub(1) } else { wi }.max(1);
+            let wl = if wi.is_multiple_of(2) {
+                wi.saturating_sub(1)
+            } else {
+                wi
+            }
+            .max(1);
             let wu = wl + 2;
-            let m = ((12.0 * sigma * sigma - (3 * wl * wl + 12 * wl + 9) as f32) / (-4.0 * wl as f32 - 4.0)).round() as usize;
+            let m = ((12.0 * sigma * sigma - (3 * wl * wl + 12 * wl + 9) as f32)
+                / (-4.0 * wl as f32 - 4.0))
+                .round() as usize;
             let m = m.min(3);
             let mut out = [wl; 3];
             for o in out.iter_mut().skip(m) {
@@ -1118,7 +1199,9 @@ mod tests {
     #[test]
     fn coverage_exact_area() {
         let mut r = Rasterizer::new();
-        let m = r.fill(&[square(1.5, 1.5, 3.5, 3.5)], FillRule::NonZero, 8, 8).unwrap();
+        let m = r
+            .fill(&[square(1.5, 1.5, 3.5, 3.5)], FillRule::NonZero, 8, 8)
+            .unwrap();
         let total: f32 = m.cov.iter().sum();
         assert!((total - 4.0).abs() < 1e-3, "{total}");
         assert!((m.get(2, 2) - 1.0).abs() < 1e-4);
@@ -1150,7 +1233,9 @@ mod tests {
     fn clipping_outside_canvas_keeps_inside_coverage() {
         let mut r = Rasterizer::new();
         // Квадрат, выходящий за все границы: внутри холст целиком покрыт.
-        let m = r.fill(&[square(-5.0, -5.0, 15.0, 15.0)], FillRule::NonZero, 6, 6).unwrap();
+        let m = r
+            .fill(&[square(-5.0, -5.0, 15.0, 15.0)], FillRule::NonZero, 6, 6)
+            .unwrap();
         assert_eq!((m.w, m.h), (6, 6));
         assert!(m.cov.iter().all(|c| (c - 1.0).abs() < 1e-4));
         // Треугольник, частично слева от холста.
@@ -1167,9 +1252,14 @@ mod tests {
 
     #[test]
     fn gradient_stops_sample() {
-        let g = GradientStops::from_raw(&[0.0, 1.0, 0.0, 0.0, 1.0, 0.0, 0.0, 1.0, 0.0, 1.0, 1.0, 0.0], 2);
+        let g = GradientStops::from_raw(
+            &[0.0, 1.0, 0.0, 0.0, 1.0, 0.0, 0.0, 1.0, 0.0, 1.0, 1.0, 0.0],
+            2,
+        );
         let c = g.sample(0.5);
-        assert!((c[0] - 0.5).abs() < 1e-5 && (c[2] - 0.5).abs() < 1e-5 && (c[3] - 0.5).abs() < 1e-5);
+        assert!(
+            (c[0] - 0.5).abs() < 1e-5 && (c[2] - 0.5).abs() < 1e-5 && (c[3] - 0.5).abs() < 1e-5
+        );
     }
 
     #[test]

@@ -37,10 +37,20 @@ impl AppHandler {
     }
 
     /// Свой указатель (`CursorIcon::Custom`): картинка новая или только что выбран — поставить.
-    pub(in crate::app) fn apply_custom_cursor(&mut self, event_loop: &winit::event_loop::ActiveEventLoop) {
-        let CursorIcon::Custom(id) = self.current_cursor else { return };
+    pub(in crate::app) fn apply_custom_cursor(
+        &mut self,
+        event_loop: &winit::event_loop::ActiveEventLoop,
+    ) {
+        let CursorIcon::Custom(id) = self.current_cursor else {
+            return;
+        };
         let Some(window) = &self.window else { return };
-        let (generation, image) = crate::input::events::custom_cursors().lock().unwrap().get(&id).cloned().unwrap_or((0, None));
+        let (generation, image) = crate::input::events::custom_cursors()
+            .lock()
+            .unwrap()
+            .get(&id)
+            .cloned()
+            .unwrap_or((0, None));
         if self.custom_cursor_applied == Some((id, generation)) {
             return;
         }
@@ -49,7 +59,13 @@ impl AppHandler {
             window.set_cursor_icon(None);
             return;
         };
-        match winit::window::CustomCursor::from_rgba(img.rgba.clone(), img.width, img.height, img.hot_x.min(img.width.saturating_sub(1)), img.hot_y.min(img.height.saturating_sub(1))) {
+        match winit::window::CustomCursor::from_rgba(
+            img.rgba.clone(),
+            img.width,
+            img.height,
+            img.hot_x.min(img.width.saturating_sub(1)),
+            img.hot_y.min(img.height.saturating_sub(1)),
+        ) {
             Ok(src) => {
                 let c = event_loop.create_custom_cursor(src);
                 let w = window.winit_window();
@@ -413,7 +429,10 @@ impl AppHandler {
         let t_rebuild = Instant::now();
         if let Some(root_id) = self.root_id {
             // `:focus-within` — фокус сменился: стили предков старого и нового.
-            if self.tree.sync_focus_within(crate::mss::cascade::uses_focus_within(&self.style_engine)) {
+            if self
+                .tree
+                .sync_focus_within(crate::mss::cascade::uses_focus_within(&self.style_engine))
+            {
                 self.apply_styles(root_id);
             }
             let mut any_rebuilt = false;
@@ -824,12 +843,17 @@ impl AppHandler {
                         Err(e) => log::warn!("Failed to parse live styles: {:?}", e),
                     }
                     for additional in &self.config.additional_stylesheets {
-                        self.style_engine.load_additional_stylesheet(additional.clone());
+                        self.style_engine
+                            .load_additional_stylesheet(additional.clone());
                     }
                 } else {
                     // Основа — текущая тема (светлая/тёмная), если они заданы.
                     let themed = self.config.theme_state.and_then(|_| {
-                        if self.current_theme_is_dark { self.config.dark_stylesheet.clone() } else { self.config.light_stylesheet.clone() }
+                        if self.current_theme_is_dark {
+                            self.config.dark_stylesheet.clone()
+                        } else {
+                            self.config.light_stylesheet.clone()
+                        }
                     });
                     if let Some(base) = themed.or_else(|| self.config.stylesheet.clone()) {
                         self.style_engine.load_stylesheet(base);
@@ -849,22 +873,28 @@ impl AppHandler {
                 }
                 // С заданными светлой/тёмной темой тёмность решает их сигнал,
                 // а не `--bg` накладки (в накладке акцента его нет).
-                let is_dark = if self.config.theme_state.is_some() { Some(self.current_theme_is_dark) } else { None };
-                let is_dark = is_dark.or_else(|| new_mss
-                    .find("--bg:")
-                    .and_then(|pos| {
-                        let after = &new_mss[pos + 5..];
-                        let val = after.trim_start().split(';').next()?.trim();
-                        if val.starts_with('#') && val.len() >= 7 {
-                            let r = u8::from_str_radix(&val[1..3], 16).ok()?;
-                            let g = u8::from_str_radix(&val[3..5], 16).ok()?;
-                            let b = u8::from_str_radix(&val[5..7], 16).ok()?;
-                            let lum = 0.299 * (r as f32) + 0.587 * (g as f32) + 0.114 * (b as f32);
-                            Some(lum < 128.0)
-                        } else {
-                            None
-                        }
-                    }))
+                let is_dark = if self.config.theme_state.is_some() {
+                    Some(self.current_theme_is_dark)
+                } else {
+                    None
+                };
+                let is_dark = is_dark
+                    .or_else(|| {
+                        new_mss.find("--bg:").and_then(|pos| {
+                            let after = &new_mss[pos + 5..];
+                            let val = after.trim_start().split(';').next()?.trim();
+                            if val.starts_with('#') && val.len() >= 7 {
+                                let r = u8::from_str_radix(&val[1..3], 16).ok()?;
+                                let g = u8::from_str_radix(&val[3..5], 16).ok()?;
+                                let b = u8::from_str_radix(&val[5..7], 16).ok()?;
+                                let lum =
+                                    0.299 * (r as f32) + 0.587 * (g as f32) + 0.114 * (b as f32);
+                                Some(lum < 128.0)
+                            } else {
+                                None
+                            }
+                        })
+                    })
                     .unwrap_or(false);
                 if is_dark != self.current_theme_is_dark {
                     self.current_theme_is_dark = is_dark;

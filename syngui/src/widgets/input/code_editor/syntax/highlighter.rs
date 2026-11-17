@@ -40,7 +40,10 @@ impl Highlighter {
         // или `` ` `` красила текст до следующей такой же через весь файл
         if language == Language::Markdown {
             return Self {
-                inner: Backend::Custom(std::sync::Arc::new(super::markdown::MarkdownHighlighter), Vec::new()),
+                inner: Backend::Custom(
+                    std::sync::Arc::new(super::markdown::MarkdownHighlighter),
+                    Vec::new(),
+                ),
                 lines: Vec::new(),
                 language,
                 tab_width,
@@ -59,7 +62,12 @@ impl Highlighter {
 
     /// Подсветка своим [`LineHighlighter`].
     pub fn custom(h: std::sync::Arc<dyn LineHighlighter>) -> Self {
-        Self { inner: Backend::Custom(h, Vec::new()), lines: Vec::new(), language: Language::Rust, tab_width: 4 }
+        Self {
+            inner: Backend::Custom(h, Vec::new()),
+            lines: Vec::new(),
+            language: Language::Rust,
+            tab_width: 4,
+        }
     }
 
     pub fn reparse(&mut self, text: &str) {
@@ -101,7 +109,11 @@ impl Highlighter {
                 }
                 Backend::Custom(h, states) => {
                     let mut ls = LineSpans::new();
-                    h.highlight_line(line_str, states.get(line_idx).copied().unwrap_or(0), &mut ls);
+                    h.highlight_line(
+                        line_str,
+                        states.get(line_idx).copied().unwrap_or(0),
+                        &mut ls,
+                    );
                     ls.sort_by_start();
                     result.push(ls);
                 }
@@ -176,7 +188,11 @@ mod tests {
         fn highlight_line(&self, line: &str, state: u32, out: &mut LineSpans) -> u32 {
             if state == 1 {
                 let end = line.find('}').map(|i| i + 1);
-                out.push(Span::new(0, end.unwrap_or(line.len()) as u32, TokenClass::Comment));
+                out.push(Span::new(
+                    0,
+                    end.unwrap_or(line.len()) as u32,
+                    TokenClass::Comment,
+                ));
                 return if end.is_some() { 0 } else { 1 };
             }
             if let Some(i) = line.find('#') {

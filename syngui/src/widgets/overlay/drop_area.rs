@@ -214,7 +214,13 @@ impl DropAreaElement {
     fn takes(&self, position: Point) -> bool {
         self.bounds.contains(position)
             && self.accept_at.as_ref().map_or(true, |f| {
-                f(Point::new(position.x - self.bounds.origin.x, position.y - self.bounds.origin.y), self.bounds.size)
+                f(
+                    Point::new(
+                        position.x - self.bounds.origin.x,
+                        position.y - self.bounds.origin.y,
+                    ),
+                    self.bounds.size,
+                )
             })
     }
 
@@ -333,7 +339,9 @@ impl Element for DropAreaElement {
     fn handle_event(&mut self, event: &Event, ctx: &mut EventContext) -> EventResult {
         match event {
             Event::DragEnter { position, data } => {
-                if self.accepts(&data.drag_type) && (self.accept_at.is_none() || self.takes(*position)) {
+                if self.accepts(&data.drag_type)
+                    && (self.accept_at.is_none() || self.takes(*position))
+                {
                     self.drag_over = true;
                     if let Some(ref cb) = self.on_drag_enter {
                         if let Ok(mut f) = cb.lock() {

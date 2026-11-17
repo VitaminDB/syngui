@@ -108,7 +108,10 @@ pub enum SubContent {
     Text(SubText),
     /// Картинки и размер холста, к которому отнесены их координаты (обычно
     /// размер кадра видео).
-    Bitmap { rects: Vec<SubBitmap>, canvas: (u32, u32) },
+    Bitmap {
+        rects: Vec<SubBitmap>,
+        canvas: (u32, u32),
+    },
 }
 
 /// Событие: что показывать и когда (секунды в шкале времени видео).
@@ -170,7 +173,13 @@ impl SubtitleStore {
     pub fn new(tracks: Vec<SubtitleTrackInfo>, start_sec: f64) -> Self {
         Self {
             inner: Mutex::new(StoreInner {
-                tracks: tracks.into_iter().map(|info| TrackData { info, events: Vec::new() }).collect(),
+                tracks: tracks
+                    .into_iter()
+                    .map(|info| TrackData {
+                        info,
+                        events: Vec::new(),
+                    })
+                    .collect(),
                 ..Default::default()
             }),
             next_id: AtomicU64::new(1),
@@ -197,7 +206,9 @@ impl SubtitleStore {
 
     pub fn selected(&self) -> Option<SubtitleSource> {
         let g = self.lock();
-        g.selected.and_then(|i| g.tracks.get(i)).map(|t| t.info.source.clone())
+        g.selected
+            .and_then(|i| g.tracks.get(i))
+            .map(|t| t.info.source.clone())
     }
 
     /// Показывать дорожку `source` (`None` — выключить). `false` — такой нет.
@@ -276,7 +287,10 @@ impl SubtitleStore {
                     let mut g = self.lock();
                     if let Some(i) = self.index_of(&g, &src) {
                         let codec = std::mem::take(&mut g.tracks[i].info.codec);
-                        g.tracks[i].info = SubtitleTrackInfo { codec, ..found.info.clone() };
+                        g.tracks[i].info = SubtitleTrackInfo {
+                            codec,
+                            ..found.info.clone()
+                        };
                     }
                     n += 1;
                 }
@@ -292,17 +306,32 @@ impl SubtitleStore {
     /// Дорожка картинок (PGS, VobSub) — декодер разбирает только выбранную.
     pub(crate) fn wants_stream(&self, stream_index: usize) -> bool {
         let g = self.lock();
-        let Some(t) = g.tracks.iter().find(|t| t.info.source == SubtitleSource::Embedded(stream_index)) else {
+        let Some(t) = g
+            .tracks
+            .iter()
+            .find(|t| t.info.source == SubtitleSource::Embedded(stream_index))
+        else {
             return false;
         };
-        !t.info.bitmap || g.selected.and_then(|i| g.tracks.get(i)).is_some_and(|s| std::ptr::eq(s, t))
+        !t.info.bitmap
+            || g.selected
+                .and_then(|i| g.tracks.get(i))
+                .is_some_and(|s| std::ptr::eq(s, t))
     }
 
     /// Событие из потока контейнера. Повтор (то же начало и содержимое —
     /// после перемотки назад пакеты читаются снова) не добавляется.
-    pub(crate) fn push_embedded(&self, stream_index: usize, start: f64, end: f64, content: Option<SubContent>) {
+    pub(crate) fn push_embedded(
+        &self,
+        stream_index: usize,
+        start: f64,
+        end: f64,
+        content: Option<SubContent>,
+    ) {
         let mut g = self.lock();
-        let Some(ti) = self.index_of(&g, &SubtitleSource::Embedded(stream_index)) else { return };
+        let Some(ti) = self.index_of(&g, &SubtitleSource::Embedded(stream_index)) else {
+            return;
+        };
         let track = &mut g.tracks[ti];
         let bitmap = track.info.bitmap;
         // Незакрытые события дорожки кончаются там, где начинается новое.
@@ -321,7 +350,10 @@ impl SubtitleStore {
                 && match (&*e.content, &content) {
                     (SubContent::Text(a), SubContent::Text(b)) => a == b,
                     (SubContent::Bitmap { rects: a, .. }, SubContent::Bitmap { rects: b, .. }) => {
-                        a.len() == b.len() && a.iter().zip(b).all(|(x, y)| (x.x, x.y, x.w, x.h) == (y.x, y.y, y.w, y.h))
+                        a.len() == b.len()
+                            && a.iter()
+                                .zip(b)
+                                .all(|(x, y)| (x.x, x.y, x.w, x.h) == (y.x, y.y, y.w, y.h))
                     }
                     _ => false,
                 }
@@ -343,7 +375,11 @@ impl SubtitleStore {
                 .events
                 .iter()
                 .enumerate()
-                .max_by(|a, b| (a.1.start - start).abs().total_cmp(&(b.1.start - start).abs()))
+                .max_by(|a, b| {
+                    (a.1.start - start)
+                        .abs()
+                        .total_cmp(&(b.1.start - start).abs())
+                })
                 .map(|(i, _)| i);
             if let Some(i) = far {
                 track.events.remove(i);
@@ -376,7 +412,10 @@ impl SubtitleStore {
         let g = self.lock();
         let time = clock - g.delay;
         let Some(track) = g.selected.and_then(|i| g.tracks.get(i)) else {
-            return ActiveSubtitles { time, ..Default::default() };
+            return ActiveSubtitles {
+                time,
+                ..Default::default()
+            };
         };
         let mut events = Vec::new();
         let mut upcoming = Vec::new();
@@ -399,13 +438,20 @@ impl SubtitleStore {
                 upcoming.push(e);
             }
         }
-        ActiveSubtitles { time, events, upcoming }
+        ActiveSubtitles {
+            time,
+            events,
+            upcoming,
+        }
     }
 
     /// Все события выбранной дорожки (для тестов и проверки).
     pub fn events(&self) -> Vec<SubtitleEvent> {
         let g = self.lock();
-        g.selected.and_then(|i| g.tracks.get(i)).map(|t| t.events.clone()).unwrap_or_default()
+        g.selected
+            .and_then(|i| g.tracks.get(i))
+            .map(|t| t.events.clone())
+            .unwrap_or_default()
     }
 }
 
@@ -466,7 +512,15 @@ mod tests {
     use super::*;
 
     fn text(s: &str) -> SubContent {
-        SubContent::Text(SubText { lines: vec![vec![Span { text: s.into(), ..Default::default() }]], align: 2, pos: None, layer: 0 })
+        SubContent::Text(SubText {
+            lines: vec![vec![Span {
+                text: s.into(),
+                ..Default::default()
+            }]],
+            align: 2,
+            pos: None,
+            layer: 0,
+        })
     }
 
     fn store() -> SubtitleStore {
@@ -525,22 +579,36 @@ mod tests {
 #[test]
 #[ignore]
 fn e2e_decode() {
-    let Ok(path) = std::env::var("SUBS_VIDEO") else { return };
+    let Ok(path) = std::env::var("SUBS_VIDEO") else {
+        return;
+    };
     let mut p = crate::video::VideoPlayer::open(&path).expect("ролик открылся");
     let store = p.subtitles();
     let n = store.add_external_near(Path::new(&path));
     let tracks = store.tracks();
     eprintln!("внешних: {n}");
     for (i, t) in tracks.iter().enumerate() {
-        eprintln!("{i}: {:?} {:?} {:?} {} forced={} sdh={} default={}", t.source, t.language, t.title, t.codec, t.forced, t.hearing_impaired, t.default);
+        eprintln!(
+            "{i}: {:?} {:?} {:?} {} forced={} sdh={} default={}",
+            t.source, t.language, t.title, t.codec, t.forced, t.hearing_impaired, t.default
+        );
     }
-    let idx: usize = std::env::var("SUBS_TRACK").ok().and_then(|v| v.parse().ok()).unwrap_or(0);
+    let idx: usize = std::env::var("SUBS_TRACK")
+        .ok()
+        .and_then(|v| v.parse().ok())
+        .unwrap_or(0);
     assert!(p.set_subtitle_track(Some(&tracks[idx].source)));
-    if let Some(t) = std::env::var("SUBS_SEEK").ok().and_then(|v| v.parse::<f64>().ok()) {
+    if let Some(t) = std::env::var("SUBS_SEEK")
+        .ok()
+        .and_then(|v| v.parse::<f64>().ok())
+    {
         p.seek(t).unwrap();
     }
     p.play();
-    let secs: f64 = std::env::var("SUBS_SECS").ok().and_then(|v| v.parse().ok()).unwrap_or(6.0);
+    let secs: f64 = std::env::var("SUBS_SECS")
+        .ok()
+        .and_then(|v| v.parse().ok())
+        .unwrap_or(6.0);
     let t0 = std::time::Instant::now();
     while t0.elapsed().as_secs_f64() < secs {
         let _ = p.poll_frame();
@@ -551,10 +619,15 @@ fn e2e_decode() {
     for e in store.events().iter().take(12) {
         let what = match &*e.content {
             SubContent::Text(t) => format!("{:?} align={} pos={:?}", t.plain(), t.align, t.pos),
-            SubContent::Bitmap { rects, canvas } => format!("картинок {} холст {canvas:?}", rects.len()),
+            SubContent::Bitmap { rects, canvas } => {
+                format!("картинок {} холст {canvas:?}", rects.len())
+            }
         };
         eprintln!("  {:.3}–{:.3}: {what}", e.start, e.end);
     }
     let a = store.active(pos, 0.0, 0.0);
-    eprintln!("видно сейчас: {:?}", a.events.iter().map(|e| e.id).collect::<Vec<_>>());
+    eprintln!(
+        "видно сейчас: {:?}",
+        a.events.iter().map(|e| e.id).collect::<Vec<_>>()
+    );
 }

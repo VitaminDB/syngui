@@ -21,7 +21,18 @@ pub fn paint_line(
     // иначе кусок «, y: » (без высоких букв) центрировался по своим глифам и
     // съезжал вверх — запятая выглядела как «،».
     let saved = list.set_text_bbox_sample(Some("Mgyqlj|".into()));
-    paint_spans(list, text, spans, text_origin, line_height, font_size, font_family, theme, mss, text_measure);
+    paint_spans(
+        list,
+        text,
+        spans,
+        text_origin,
+        line_height,
+        font_size,
+        font_family,
+        theme,
+        mss,
+        text_measure,
+    );
     list.set_text_bbox_sample(saved);
 }
 

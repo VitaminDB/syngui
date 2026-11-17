@@ -731,6 +731,10 @@ impl GestureDetectorElement {
 }
 
 impl Element for GestureDetectorElement {
+    fn wants_pinch(&self) -> bool {
+        self.on_pinch.is_some()
+    }
+
     fn update(&mut self, widget: &dyn Widget, _ctx: &mut UpdateContext) {
         if let Some(gd) = widget.as_any().downcast_ref::<GestureDetector>() {
             self.on_click = gd.on_click.clone();
@@ -1202,6 +1206,39 @@ mod tests {
         h.touch_up(2);
         assert!((*last.lock().unwrap() - 2.0).abs() < 0.01);
     }
+
+    /// Щипок поверх прокрутки: первый палец уже листает вложенный
+    /// ScrollView, второй ложится — оба пальца уходят щипку предка.
+    #[test]
+    fn pinch_over_scroll_view() {
+        use crate::widgets::ScrollView;
+        let last = Arc::new(Mutex::new(1.0f32));
+        let l = last.clone();
+        let gd = GestureDetector::new()
+            .on_pinch(move |p| {
+                *l.lock().unwrap() = p.scale;
+            })
+            .child(
+                ScrollView::new()
+                    .vertical()
+                    .child(crate::widgets::Column::new().height(2000.0)),
+            );
+        let mut h = TestHarness::new(Box::new(gd));
+        h.layout(400.0, 400.0);
+        h.touch_down(1, Point::new(150.0, 300.0));
+        h.touch_move(1, Point::new(150.0, 250.0));
+        h.touch_move(1, Point::new(150.0, 200.0));
+        h.touch_down(2, Point::new(250.0, 200.0));
+        h.touch_move(1, Point::new(100.0, 200.0));
+        h.touch_move(2, Point::new(300.0, 200.0));
+        h.touch_up(1);
+        h.touch_up(2);
+        assert!(
+            (*last.lock().unwrap() - 2.0).abs() < 0.01,
+            "щипок: {}",
+            *last.lock().unwrap()
+        );
+    }
 }
 
 #[cfg(test)]
@@ -1255,7 +1292,9 @@ mod cursor_tests {
     #[test]
     fn hand_cursor_only_when_clickable() {
         // Только жесты (назад, двойной щелчок) — курсор не трогается.
-        let g = GestureDetector::new().on_back(|| true).on_double_click(|| {});
+        let g = GestureDetector::new()
+            .on_back(|| true)
+            .on_double_click(|| {});
         assert_eq!(g.effective_cursor(), None);
         // Щелчок — «рука».
         let g = GestureDetector::new().on_click(|| {});

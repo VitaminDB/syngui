@@ -7,11 +7,11 @@
 
 use std::sync::Arc;
 
+use crate::core::sync::Mutex;
 use crate::core::Rect;
 use crate::layout::CrossAxisAlignment;
 use crate::signal::{use_signal, RwSignal};
 use crate::widget::{Text, Widget, WidgetExt};
-use crate::core::sync::Mutex;
 use crate::widgets::containers::{DecoratedBox, GestureDetector, Reactive, Row};
 use crate::widgets::input::EventHook;
 use crate::widgets::overlay::{MenuItem, PopupAnchor, PopupMenu};
@@ -25,11 +25,18 @@ pub struct MenuBar {
 
 impl MenuBar {
     pub fn new() -> Self {
-        Self { menus: Vec::new(), on_select: Arc::new(|_| {}) }
+        Self {
+            menus: Vec::new(),
+            on_select: Arc::new(|_| {}),
+        }
     }
 
     /// Меню с заголовком `title`; пункты — из `items` при каждом открытии.
-    pub fn menu(mut self, title: impl Into<String>, items: impl Fn() -> Vec<MenuItem> + Send + Sync + 'static) -> Self {
+    pub fn menu(
+        mut self,
+        title: impl Into<String>,
+        items: impl Fn() -> Vec<MenuItem> + Send + Sync + 'static,
+    ) -> Self {
         self.menus.push((title.into(), Arc::new(items)));
         self
     }
@@ -49,7 +56,9 @@ impl MenuBar {
         // границы всей строки — прозрачная зона открытого меню
         let bar: Arc<Mutex<Rect>> = Arc::new(Mutex::new(Rect::zero()));
 
-        let mut row = Row::new().gap(0.0).cross_axis_alignment(CrossAxisAlignment::Center);
+        let mut row = Row::new()
+            .gap(0.0)
+            .cross_axis_alignment(CrossAxisAlignment::Center);
         for (i, (title, _)) in menus.iter().enumerate() {
             let title = title.clone();
             // свои границы заголовка — якорь при переключении наведением
@@ -70,7 +79,10 @@ impl MenuBar {
                         })
                         // меню уже открыто — наведение на другой заголовок переключает
                         .on_hover_change(move |inside| {
-                            if inside && is_open.get_untracked() && current.get_untracked() != Some(i) {
+                            if inside
+                                && is_open.get_untracked()
+                                && current.get_untracked() != Some(i)
+                            {
                                 if let Ok(r) = own_hover.lock() {
                                     anchor.set(*r);
                                 }
@@ -80,7 +92,11 @@ impl MenuBar {
                         .child(move || {
                             let open = is_open.get() && current.get() == Some(i);
                             DecoratedBox::new()
-                                .class(if open { "menubar-item open" } else { "menubar-item" })
+                                .class(if open {
+                                    "menubar-item open"
+                                } else {
+                                    "menubar-item"
+                                })
                                 .child(Text::new(&title).class("menubar-title"))
                         }),
                 ),
@@ -88,7 +104,9 @@ impl MenuBar {
         }
         let bar_menu = bar.clone();
         let menu = Reactive::new(move || -> Vec<Box<dyn Widget>> {
-            let Some(i) = current.get() else { return vec![] };
+            let Some(i) = current.get() else {
+                return vec![];
+            };
             let items = (menus[i].1)();
             let on_select = on_select.clone();
             vec![Box::new(
@@ -102,7 +120,9 @@ impl MenuBar {
                     .on_select(move |id| on_select(id)),
             )]
         });
-        EventHook::new().report_bounds(bar).child(row.child(menu).class("menubar"))
+        EventHook::new()
+            .report_bounds(bar)
+            .child(row.child(menu).class("menubar"))
     }
 }
 

@@ -81,7 +81,10 @@ pub(super) struct LspState {
 impl LspState {
     pub fn from_widget(w: &CodeEditor) -> Self {
         let mut s = Self {
-            diagnostics: w.diagnostics_signal.map(|s| s.get_untracked()).unwrap_or_else(|| w.diagnostics.clone()),
+            diagnostics: w
+                .diagnostics_signal
+                .map(|s| s.get_untracked())
+                .unwrap_or_else(|| w.diagnostics.clone()),
             diag_signal: w.diagnostics_signal,
             diag_order: Vec::new(),
             completion: w.completion,
@@ -117,7 +120,10 @@ impl LspState {
     pub fn update(&mut self, w: &CodeEditor) -> bool {
         let mut changed = false;
         self.diag_signal = w.diagnostics_signal;
-        let wanted = w.diagnostics_signal.map(|s| s.get_untracked()).unwrap_or_else(|| w.diagnostics.clone());
+        let wanted = w
+            .diagnostics_signal
+            .map(|s| s.get_untracked())
+            .unwrap_or_else(|| w.diagnostics.clone());
         if self.diagnostics != wanted {
             self.diagnostics = wanted;
             self.rebuild_order();
@@ -134,7 +140,9 @@ impl LspState {
 
     /// Диагностики из сигнала изменились — взять новые; `true` — перерисовать.
     pub fn sync_diagnostics(&mut self) -> bool {
-        let Some(s) = self.diag_signal else { return false };
+        let Some(s) = self.diag_signal else {
+            return false;
+        };
         let d = s.get_untracked();
         if d == self.diagnostics {
             return false;
@@ -183,7 +191,9 @@ impl LspState {
 
     /// Диагностики, задевающие строки `first..last`.
     pub fn visible(&self, first: usize, last: usize) -> Vec<usize> {
-        let n = self.diag_order.partition_point(|&i| self.diagnostics[i].line < last);
+        let n = self
+            .diag_order
+            .partition_point(|&i| self.diagnostics[i].line < last);
         self.diag_order[..n]
             .iter()
             .copied()
@@ -210,7 +220,9 @@ fn kind_class(kind: &str) -> Option<TokenClass> {
         "var" | "variable" | "local" | "param" => TokenClass::Variable,
         "field" | "property" | "prop" | "member" => TokenClass::Property,
         "kw" | "keyword" => TokenClass::Keyword,
-        "type" | "struct" | "class" | "enum" | "interface" | "trait" | "typeparam" => TokenClass::Type,
+        "type" | "struct" | "class" | "enum" | "interface" | "trait" | "typeparam" => {
+            TokenClass::Type
+        }
         "const" | "constant" | "enummember" | "value" => TokenClass::Constant,
         "mod" | "module" | "namespace" | "package" => TokenClass::Namespace,
         "snippet" | "text" | "str" => TokenClass::String,
@@ -236,7 +248,11 @@ impl CodeEditorElement {
         let fs = self.font_size();
         let n = segment.chars().count();
         let take = local.min(n);
-        let end = segment.char_indices().nth(take).map(|(b, _)| b).unwrap_or(segment.len());
+        let end = segment
+            .char_indices()
+            .nth(take)
+            .map(|(b, _)| b)
+            .unwrap_or(segment.len());
         self.text_w(&segment[..end], fs) + (local - take) as f32 * self.char_width()
     }
 
@@ -283,13 +299,16 @@ impl CodeEditorElement {
             return None;
         }
         let row = self.logical_to_visual_line(line, col);
-        if row < self.scroll_offset_lines || row > self.scroll_offset_lines + self.visible_lines_count() {
+        if row < self.scroll_offset_lines
+            || row > self.scroll_offset_lines + self.visible_lines_count()
+        {
             return None;
         }
         let (_, seg_start, seg_end) = self.visual_to_logical(row);
         let line_text = self.buffer.line_str(line);
         let (b0, b1) = self.segment_byte_range(&line_text, seg_start, seg_end);
-        let x = self.text_origin_x() + self.seg_char_x(&line_text[b0..b1], col.saturating_sub(seg_start));
+        let x = self.text_origin_x()
+            + self.seg_char_x(&line_text[b0..b1], col.saturating_sub(seg_start));
         Some(Point::new(x, self.visual_line_y(row)))
     }
 
@@ -313,17 +332,28 @@ impl CodeEditorElement {
                 return None;
             }
             let text = self.buffer.line_str(line);
-            let filter: String = text.chars().skip(l.start_col).take(col - l.start_col).collect();
+            let filter: String = text
+                .chars()
+                .skip(l.start_col)
+                .take(col - l.start_col)
+                .collect();
             let indices = filter_completion(&l.items, &filter);
             if indices.is_empty() {
                 return None;
             }
-            Some(CompletionView { line: l.line, start_col: l.start_col, filter, indices })
+            Some(CompletionView {
+                line: l.line,
+                start_col: l.start_col,
+                filter,
+                indices,
+            })
         })
     }
 
     fn completion_open(&self) -> bool {
-        self.lsp.completion.is_some_and(|s| s.with_untracked(|l| l.is_some()))
+        self.lsp
+            .completion
+            .is_some_and(|s| s.with_untracked(|l| l.is_some()))
     }
 
     /// Новый список или фильтр — выбор на первый вариант.
@@ -372,17 +402,28 @@ impl CodeEditorElement {
         let (line, col) = self.caret_line_col();
         let text = self.buffer.line_str(line);
         let before: Vec<char> = text.chars().take(col).collect();
-        let n = before.iter().rev().take_while(|c| is_ident_char(**c)).count();
+        let n = before
+            .iter()
+            .rev()
+            .take_while(|c| is_ident_char(**c))
+            .count();
         (line, col, n)
     }
 
     pub(super) fn request_completion(&mut self, trigger_char: Option<char>, manual: bool) {
-        let Some(cb) = self.lsp.on_request.clone() else { return };
+        let Some(cb) = self.lsp.on_request.clone() else {
+            return;
+        };
         let (line, col, n) = self.word_start_before_caret();
         // повтор гасится только у автоматических запросов по слову
         self.lsp.awaiting = (trigger_char.is_none() && !manual).then_some((line, col - n));
         if let Ok(mut f) = cb.lock() {
-            f(CompletionTrigger { line, col, trigger_char, manual });
+            f(CompletionTrigger {
+                line,
+                col,
+                trigger_char,
+                manual,
+            });
         };
     }
 
@@ -427,7 +468,9 @@ impl CodeEditorElement {
             return false;
         }
         self.refresh_completion();
-        let Some(v) = self.lsp.view_key.clone() else { return false };
+        let Some(v) = self.lsp.view_key.clone() else {
+            return false;
+        };
         let n = v.indices.len();
         let sel = self.lsp.sel;
         match key {
@@ -452,14 +495,25 @@ impl CodeEditorElement {
     /// Принять вариант `view_pos` видимого списка: `[start_col, каретка)`
     /// заменяется его текстом обычной правкой (отмена, `on_change`).
     pub(super) fn accept_completion(&mut self, view_pos: usize) {
-        let Some(sig) = self.lsp.completion else { return };
-        let Some(v) = self.completion_view() else { return };
-        let Some(&idx) = v.indices.get(view_pos) else { return };
-        let Some(item) = sig.with_untracked(|l| l.as_ref().and_then(|l| l.items.get(idx).cloned())) else {
+        let Some(sig) = self.lsp.completion else {
+            return;
+        };
+        let Some(v) = self.completion_view() else {
+            return;
+        };
+        let Some(&idx) = v.indices.get(view_pos) else {
+            return;
+        };
+        let Some(item) = sig.with_untracked(|l| l.as_ref().and_then(|l| l.items.get(idx).cloned()))
+        else {
             return;
         };
         self.hide_completion();
-        let text = if item.insert_text.is_empty() { item.label } else { item.insert_text };
+        let text = if item.insert_text.is_empty() {
+            item.label
+        } else {
+            item.insert_text
+        };
         let caret = self.primary_byte();
         let start = self.buffer.line_col_to_byte(v.line, v.start_col);
         if self.read_only || start > caret || (start == caret && text.is_empty()) {
@@ -474,7 +528,9 @@ impl CodeEditorElement {
 
     /// Щелчок по списку: вариант принят. `true` — точка над списком.
     pub(super) fn completion_click(&mut self, pos: Point) -> bool {
-        let Some(g) = self.lsp.popup.get() else { return false };
+        let Some(g) = self.lsp.popup.get() else {
+            return false;
+        };
         if !g.rect.contains(pos) || self.completion_view().is_none() {
             return false;
         }
@@ -490,12 +546,18 @@ impl CodeEditorElement {
 
     /// Колесо над списком прокручивает его. `true` — точка над списком.
     pub(super) fn completion_wheel(&mut self, pos: Point, delta: f32) -> bool {
-        let Some(g) = self.lsp.popup.get() else { return false };
+        let Some(g) = self.lsp.popup.get() else {
+            return false;
+        };
         if !g.rect.contains(pos) {
             return false;
         }
         let max_top = g.total.saturating_sub(COMPLETION_ROWS);
-        self.lsp.top = if delta < 0.0 { (self.lsp.top + 3).min(max_top) } else { self.lsp.top.saturating_sub(3) };
+        self.lsp.top = if delta < 0.0 {
+            (self.lsp.top + 3).min(max_top)
+        } else {
+            self.lsp.top.saturating_sub(3)
+        };
         true
     }
 
@@ -512,7 +574,9 @@ impl CodeEditorElement {
         if !self.lsp.tracks_hover() {
             return false;
         }
-        let hit = pos.filter(|p| !self.point_in_popup(*p)).and_then(|p| self.char_at_point(p));
+        let hit = pos
+            .filter(|p| !self.point_in_popup(*p))
+            .and_then(|p| self.char_at_point(p));
         let word = hit.map(|(l, c)| {
             let (s, e) = word_range(&self.buffer.line_str(l), c);
             (l, s, e)
@@ -577,12 +641,15 @@ impl CodeEditorElement {
     /// Слово под мышью с Ctrl (`ctrl = false` — снять). `true` — перерисовать.
     pub(super) fn goto_track(&mut self, ctrl: bool) -> bool {
         let word = if ctrl && self.lsp.wants_goto() {
-            self.lsp.mouse_pos.and_then(|p| self.char_at_point(p)).and_then(|(l, c)| {
-                let (s, e) = word_range(&self.buffer.line_str(l), c);
-                let t = self.buffer.line_str(l);
-                let ch = t.chars().nth(c)?;
-                is_ident_char(ch).then_some((l, s, e))
-            })
+            self.lsp
+                .mouse_pos
+                .and_then(|p| self.char_at_point(p))
+                .and_then(|(l, c)| {
+                    let (s, e) = word_range(&self.buffer.line_str(l), c);
+                    let t = self.buffer.line_str(l);
+                    let ch = t.chars().nth(c)?;
+                    is_ident_char(ch).then_some((l, s, e))
+                })
         } else {
             None
         };
@@ -629,7 +696,13 @@ impl CodeEditorElement {
     }
 
     /// Метка в gutter'е: самая серьёзная диагностика, начинающаяся на строке.
-    pub(super) fn paint_diag_gutter(&self, list: &mut DisplayList, visible: &[usize], logical: usize, y: f32) {
+    pub(super) fn paint_diag_gutter(
+        &self,
+        list: &mut DisplayList,
+        visible: &[usize],
+        logical: usize,
+        y: f32,
+    ) {
         let worst = visible
             .iter()
             .map(|&i| &self.lsp.diagnostics[i])
@@ -641,7 +714,11 @@ impl CodeEditorElement {
         if self.show_line_numbers {
             popup::paint_gutter_marker(list, self.bounds.x(), y, lh, color);
         } else {
-            list.push_rect(Rect::new(Point::new(self.bounds.x(), y), Size::new(2.0, lh)), color, [0.0; 4]);
+            list.push_rect(
+                Rect::new(Point::new(self.bounds.x(), y), Size::new(2.0, lh)),
+                color,
+                [0.0; 4],
+            );
         }
     }
 
@@ -670,10 +747,13 @@ impl CodeEditorElement {
         if !visible.is_empty() {
             let theme = self.theme();
             // серьёзные — поверх
-            let mut ds: Vec<&Diagnostic> = visible.iter().map(|&i| &self.lsp.diagnostics[i]).collect();
+            let mut ds: Vec<&Diagnostic> =
+                visible.iter().map(|&i| &self.lsp.diagnostics[i]).collect();
             ds.sort_by_key(|d| std::cmp::Reverse(d.severity.rank()));
             for d in ds {
-                let Some((s, e)) = diag_cols_on_line(d, logical, line_text) else { continue };
+                let Some((s, e)) = diag_cols_on_line(d, logical, line_text) else {
+                    continue;
+                };
                 let Some((ls, le)) = clip(s, e) else { continue };
                 let x0 = origin.x + self.seg_char_x(segment, ls);
                 let x1 = origin.x + self.seg_char_x(segment, le);
@@ -685,7 +765,13 @@ impl CodeEditorElement {
                 if let Some((ls, le)) = clip(s, e) {
                     let x0 = origin.x + self.seg_char_x(segment, ls);
                     let x1 = origin.x + self.seg_char_x(segment, le);
-                    popup::paint_straight_underline(list, x0, x1, origin.y + lh - 2.0, self.theme().cursor(&self.mss));
+                    popup::paint_straight_underline(
+                        list,
+                        x0,
+                        x1,
+                        origin.y + lh - 2.0,
+                        self.theme().cursor(&self.mss),
+                    );
                 }
             }
         }
@@ -698,7 +784,9 @@ impl CodeEditorElement {
     }
 
     fn paint_completion(&self, list: &mut DisplayList) {
-        let Some(sig) = self.lsp.completion else { return };
+        let Some(sig) = self.lsp.completion else {
+            return;
+        };
         let Some(v) = self.completion_view() else {
             self.lsp.popup.set(None);
             return;
@@ -725,7 +813,14 @@ impl CodeEditorElement {
                 .map(|&i| {
                     l.and_then(|l| l.items.get(i))
                         .map(|it| {
-                            let detail: String = it.detail.lines().next().unwrap_or("").chars().take(60).collect();
+                            let detail: String = it
+                                .detail
+                                .lines()
+                                .next()
+                                .unwrap_or("")
+                                .chars()
+                                .take(60)
+                                .collect();
                             (it.label.clone(), it.kind.clone(), detail)
                         })
                         .unwrap_or_default()
@@ -736,14 +831,27 @@ impl CodeEditorElement {
         let probe = &items[..items.len().min(50)];
         let kind_w = probe
             .iter()
-            .map(|(_, k, _)| if k.is_empty() { 0.0 } else { self.text_w(k, tag_fs) + 10.0 })
+            .map(|(_, k, _)| {
+                if k.is_empty() {
+                    0.0
+                } else {
+                    self.text_w(k, tag_fs) + 10.0
+                }
+            })
             .fold(0.0f32, f32::max);
-        let label_w = probe.iter().map(|(l, _, _)| self.text_w(l, fs)).fold(0.0f32, f32::max);
-        let detail_w = probe.iter().map(|(_, _, d)| self.text_w(d, fs)).fold(0.0f32, f32::max);
+        let label_w = probe
+            .iter()
+            .map(|(l, _, _)| self.text_w(l, fs))
+            .fold(0.0f32, f32::max);
+        let detail_w = probe
+            .iter()
+            .map(|(_, _, d)| self.text_w(d, fs))
+            .fold(0.0f32, f32::max);
         let kind_col = if kind_w > 0.0 { kind_w + 6.0 } else { 0.0 };
         let gap = if detail_w > 0.0 { 20.0 } else { 0.0 };
         let max_w = (self.bounds.size.width - 8.0).max(120.0).min(640.0);
-        let w = (POPUP_PAD * 2.0 + 8.0 + kind_col + label_w + gap + detail_w + 8.0).clamp(180.0, max_w);
+        let w =
+            (POPUP_PAD * 2.0 + 8.0 + kind_col + label_w + gap + detail_w + 8.0).clamp(180.0, max_w);
         let h = rows as f32 * row_h + POPUP_PAD * 2.0;
 
         let bottom = self.bounds.y() + self.bounds.size.height;
@@ -754,9 +862,16 @@ impl CodeEditorElement {
             below
         };
         let right = self.bounds.x() + self.bounds.size.width - 4.0;
-        let x = (anchor.x - POPUP_PAD - 8.0 - kind_col).min(right - w).max(self.bounds.x() + 2.0);
+        let x = (anchor.x - POPUP_PAD - 8.0 - kind_col)
+            .min(right - w)
+            .max(self.bounds.x() + 2.0);
         let rect = Rect::new(Point::new(x, y), Size::new(w, h));
-        self.lsp.popup.set(Some(PopupGeom { rect, row_h, top, total: n }));
+        self.lsp.popup.set(Some(PopupGeom {
+            rect,
+            row_h,
+            top,
+            total: n,
+        }));
 
         list.begin_overlay();
         popup::paint_panel(list, rect, &theme, &self.mss);
@@ -775,7 +890,9 @@ impl CodeEditorElement {
             let mut tx = rect.x() + POPUP_PAD + 8.0;
             if kind_w > 0.0 {
                 if !kind.is_empty() {
-                    let color = kind_class(kind).map(|c| theme.token(c, &self.mss)).unwrap_or(dim);
+                    let color = kind_class(kind)
+                        .map(|c| theme.token(c, &self.mss))
+                        .unwrap_or(dim);
                     let kw = self.text_w(kind, tag_fs) + 10.0;
                     let tag = Rect::new(Point::new(tx, ry + 3.0), Size::new(kw, row_h - 6.0));
                     list.push_rect(tag, color.with_alpha(0.16), [3.0; 4]);
@@ -790,11 +907,25 @@ impl CodeEditorElement {
                 }
                 tx += kind_col;
             }
-            popup::push_text(list, label, Rect::new(Point::new(tx, ry), Size::new(label_w + 4.0, row_h)), fg, fs, family);
+            popup::push_text(
+                list,
+                label,
+                Rect::new(Point::new(tx, ry), Size::new(label_w + 4.0, row_h)),
+                fg,
+                fs,
+                family,
+            );
             if !detail.is_empty() {
                 let dx = tx + label_w + gap;
                 let dw = (rect.x() + w - POPUP_PAD - dx).max(0.0);
-                popup::push_text(list, detail, Rect::new(Point::new(dx, ry), Size::new(dw, row_h)), dim, fs, family);
+                popup::push_text(
+                    list,
+                    detail,
+                    Rect::new(Point::new(dx, ry), Size::new(dw, row_h)),
+                    dim,
+                    fs,
+                    family,
+                );
             }
         }
         popup::paint_list_thumb(list, rect, top, rows, n, dim.with_alpha(0.5));
@@ -815,11 +946,16 @@ impl CodeEditorElement {
                     .visible_diagnostics(l, l + 1)
                     .into_iter()
                     .map(|i| &self.lsp.diagnostics[i])
-                    .filter(|d| diag_cols_on_line(d, l, &text).is_some_and(|(s, e)| s <= c && c < e))
+                    .filter(|d| {
+                        diag_cols_on_line(d, l, &text).is_some_and(|(s, e)| s <= c && c < e)
+                    })
                     .collect();
                 ds.sort_by_key(|d| d.severity.rank());
                 for d in ds {
-                    for (i, w) in wrap_text(&d.message, TIP_MAX_CHARS, TIP_MAX_LINES).into_iter().enumerate() {
+                    for (i, w) in wrap_text(&d.message, TIP_MAX_CHARS, TIP_MAX_LINES)
+                        .into_iter()
+                        .enumerate()
+                    {
                         lines.push((w, (i == 0).then(|| theme.diagnostic(&d.severity))));
                     }
                 }
@@ -846,14 +982,23 @@ impl CodeEditorElement {
         if lines.is_empty() {
             return;
         }
-        let Some(at) = self.char_screen_pos(l, c) else { return };
+        let Some(at) = self.char_screen_pos(l, c) else {
+            return;
+        };
         let theme = self.theme();
         let fs = self.font_size();
         let family = self.font_family_str();
         let lh = (fs * 1.4).round();
-        let marker = if lines.iter().any(|(_, c)| c.is_some()) { 10.0 } else { 0.0 };
+        let marker = if lines.iter().any(|(_, c)| c.is_some()) {
+            10.0
+        } else {
+            0.0
+        };
         let pad = 8.0;
-        let text_w = lines.iter().map(|(t, _)| self.text_w(t, fs)).fold(0.0f32, f32::max);
+        let text_w = lines
+            .iter()
+            .map(|(t, _)| self.text_w(t, fs))
+            .fold(0.0f32, f32::max);
         let max_w = (self.bounds.size.width - 8.0).max(120.0);
         let w = (text_w + marker + pad * 2.0).min(max_w);
         let h = lines.len() as f32 * lh + pad * 2.0 - 2.0;
@@ -880,7 +1025,10 @@ impl CodeEditorElement {
             }
             if let Some(c) = color {
                 list.push_rect(
-                    Rect::new(Point::new(rect.x() + pad, ly + 4.0), Size::new(3.0, lh - 8.0)),
+                    Rect::new(
+                        Point::new(rect.x() + pad, ly + 4.0),
+                        Size::new(3.0, lh - 8.0),
+                    ),
                     *c,
                     [1.5; 4],
                 );
@@ -888,7 +1036,10 @@ impl CodeEditorElement {
             popup::push_text(
                 list,
                 text,
-                Rect::new(Point::new(rect.x() + pad + marker, ly), Size::new(w - pad * 2.0 - marker, lh)),
+                Rect::new(
+                    Point::new(rect.x() + pad + marker, ly),
+                    Size::new(w - pad * 2.0 - marker, lh),
+                ),
                 fg,
                 fs,
                 family,

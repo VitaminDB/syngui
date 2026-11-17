@@ -128,7 +128,9 @@ pub fn system_fonts_available() -> bool {
         static WARNED: std::sync::Once = std::sync::Once::new();
         let ok = fontconfig_sys::statics::LIB_RESULT.is_ok();
         if !ok {
-            WARNED.call_once(|| log::warn!("[font_discovery] libfontconfig.so.1 not found — no system fonts"));
+            WARNED.call_once(|| {
+                log::warn!("[font_discovery] libfontconfig.so.1 not found — no system fonts")
+            });
         }
         ok
     }
@@ -158,11 +160,10 @@ fn load_font_bytes(families: &[FamilyName], props: &Properties) -> Option<(Vec<u
 fn load_font_bytes(families: &[FamilyName], props: &Properties) -> Option<(Vec<u8>, u32)> {
     let families = families.to_vec();
     let props = *props;
-    std::panic::catch_unwind(move || ios_best_match(&families, &props))
-        .unwrap_or_else(|_| {
-            log::warn!("[font_discovery] подбор шрифта CoreText упал — шрифт пропущен");
-            None
-        })
+    std::panic::catch_unwind(move || ios_best_match(&families, &props)).unwrap_or_else(|_| {
+        log::warn!("[font_discovery] подбор шрифта CoreText упал — шрифт пропущен");
+        None
+    })
 }
 
 #[cfg(target_os = "ios")]
@@ -194,8 +195,13 @@ fn ios_best_match(families: &[FamilyName], props: &Properties) -> Option<(Vec<u8
             let italic = attrs.style() != swash::Style::Normal;
             // CSS-подбор упрощённо: сначала наклон, потом ближайший вес; при
             // равенстве для жирных целей — тяжелее, для обычных — легче.
-            let lean = if (weight > target) == (target >= 500.0) { 0.0 } else { 0.5 };
-            let score = if italic != want_italic { 10_000.0 } else { 0.0 } + (weight - target).abs() + lean;
+            let lean = if (weight > target) == (target >= 500.0) {
+                0.0
+            } else {
+                0.5
+            };
+            let score =
+                if italic != want_italic { 10_000.0 } else { 0.0 } + (weight - target).abs() + lean;
             if best.is_none_or(|(b, _)| score < b) {
                 best = Some((score, handle));
             }
@@ -374,7 +380,10 @@ pub fn list_families() -> Vec<String> {
 
 /// Шрифт одного семейства (без подмены на «похожее»).
 pub fn discover_family_font(name: &str) -> Option<(Vec<u8>, u32)> {
-    try_families_individually(&[FamilyName::Title(name.to_string())], &Properties::default())
+    try_families_individually(
+        &[FamilyName::Title(name.to_string())],
+        &Properties::default(),
+    )
 }
 
 fn fallback_families(script: Script) -> &'static [&'static str] {

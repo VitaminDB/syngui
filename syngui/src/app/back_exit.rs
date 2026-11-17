@@ -68,10 +68,19 @@ pub(crate) fn draw(dl: &mut DisplayList) {
     let w = (tw + pad_x * 2.0).min(surface.width - 24.0);
     // над нижними кнопками приложений (запись, плеер, панель действий), а не поверх них
     let bottom = (surface.height * 0.2).clamp(96.0, 200.0);
-    let rect = Rect::new(Point::new((surface.width - w) * 0.5, surface.height - h - bottom), Size::new(w, h));
+    let rect = Rect::new(
+        Point::new((surface.width - w) * 0.5, surface.height - h - bottom),
+        Size::new(w, h),
+    );
     dl.begin_overlay_absolute();
     dl.push_rect(rect, Color::new(0.12, 0.12, 0.14, 0.94), [h * 0.5; 4]);
-    let tr = Rect::new(Point::new(rect.origin.x + pad_x, rect.origin.y + (h - font * 1.3) * 0.5), Size::new(w - pad_x * 2.0, font * 1.3));
+    let tr = Rect::new(
+        Point::new(
+            rect.origin.x + pad_x,
+            rect.origin.y + (h - font * 1.3) * 0.5,
+        ),
+        Size::new(w - pad_x * 2.0, font * 1.3),
+    );
     dl.push_text(text, tr, Color::new(0.95, 0.95, 0.97, 1.0), font);
     dl.end_overlay();
 }

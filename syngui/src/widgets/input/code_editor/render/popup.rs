@@ -31,13 +31,26 @@ pub fn paint_straight_underline(list: &mut DisplayList, x0: f32, x1: f32, y: f32
     if x1 <= x0 {
         return;
     }
-    list.push_rect(Rect::new(Point::new(x0, y), Size::new(x1 - x0, 1.0)), color, [0.0; 4]);
+    list.push_rect(
+        Rect::new(Point::new(x0, y), Size::new(x1 - x0, 1.0)),
+        color,
+        [0.0; 4],
+    );
 }
 
 /// Метка диагностики в gutter'е: точка у левого края строки.
-pub fn paint_gutter_marker(list: &mut DisplayList, x: f32, line_y: f32, line_height: f32, color: Color) {
+pub fn paint_gutter_marker(
+    list: &mut DisplayList,
+    x: f32,
+    line_y: f32,
+    line_height: f32,
+    color: Color,
+) {
     let d = 6.0;
-    let rect = Rect::new(Point::new(x + 5.0, line_y + (line_height - d) / 2.0), Size::new(d, d));
+    let rect = Rect::new(
+        Point::new(x + 5.0, line_y + (line_height - d) / 2.0),
+        Size::new(d, d),
+    );
     list.push_rect(rect, color, [d / 2.0; 4]);
 }
 
@@ -82,7 +95,15 @@ pub fn push_text(
             400,
             Some(f.to_string()),
         ),
-        None => list.push_text_aligned(text, rect, color, font_size, align, TextDecoration::None, 400),
+        None => list.push_text_aligned(
+            text,
+            rect,
+            color,
+            font_size,
+            align,
+            TextDecoration::None,
+            400,
+        ),
     }
 }
 
@@ -103,7 +124,10 @@ pub fn paint_list_thumb(
     let max_top = total - visible;
     let y = rect.y() + 4.0 + (track_h - h) * (top as f32 / max_top as f32);
     list.push_rect(
-        Rect::new(Point::new(rect.x() + rect.size.width - 5.0, y), Size::new(3.0, h)),
+        Rect::new(
+            Point::new(rect.x() + rect.size.width - 5.0, y),
+            Size::new(3.0, h),
+        ),
         color,
         [1.5; 4],
     );

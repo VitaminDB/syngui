@@ -46,7 +46,11 @@ impl fmt::Display for ParseErrorKind {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
             ParseErrorKind::Expected { expected, found } => {
-                write!(f, "ожидалось {expected}, а встречено {}", describe_char(*found))
+                write!(
+                    f,
+                    "ожидалось {expected}, а встречено {}",
+                    describe_char(*found)
+                )
             }
             ParseErrorKind::UnclosedBlock(what) => {
                 write!(f, "блок «{what}» не закрыт: нет «}}»")
@@ -118,7 +122,13 @@ impl ParseError {
 
 impl fmt::Display for ParseError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(f, "строка {}, столбец {}: {}", self.line + 1, self.column + 1, self.kind)
+        write!(
+            f,
+            "строка {}, столбец {}: {}",
+            self.line + 1,
+            self.column + 1,
+            self.kind
+        )
     }
 }
 
@@ -153,7 +163,13 @@ impl From<ParseError> for ParseWarning {
 
 impl fmt::Display for ParseWarning {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(f, "строка {}, столбец {}: {}", self.line + 1, self.column + 1, self.message)
+        write!(
+            f,
+            "строка {}, столбец {}: {}",
+            self.line + 1,
+            self.column + 1,
+            self.message
+        )
     }
 }
 

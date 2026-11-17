@@ -53,7 +53,9 @@ pub(super) fn title(kind: MediaKind) -> &'static str {
 const IMAGE_GLOBS: &[&str] = &[
     "*.jpg", "*.jpeg", "*.png", "*.webp", "*.gif", "*.bmp", "*.heic", "*.avif",
 ];
-const VIDEO_GLOBS: &[&str] = &["*.mp4", "*.m4v", "*.webm", "*.mkv", "*.mov", "*.avi", "*.3gp"];
+const VIDEO_GLOBS: &[&str] = &[
+    "*.mp4", "*.m4v", "*.webm", "*.mkv", "*.mov", "*.avi", "*.3gp",
+];
 
 fn globs(kind: MediaKind) -> Vec<&'static str> {
     match kind {
@@ -64,9 +66,8 @@ fn globs(kind: MediaKind) -> Vec<&'static str> {
 }
 
 fn has_cmd(name: &str) -> bool {
-    std::env::var_os("PATH").is_some_and(|paths| {
-        std::env::split_paths(&paths).any(|dir| dir.join(name).is_file())
-    })
+    std::env::var_os("PATH")
+        .is_some_and(|paths| std::env::split_paths(&paths).any(|dir| dir.join(name).is_file()))
 }
 
 /// `zenity --file-selection` / `kdialog --getopenfilename`. Код выхода 1 —
@@ -79,12 +80,19 @@ fn dialog_fallback(kind: MediaKind) -> Result<Option<PathBuf>, String> {
         let mut c = Command::new("kdialog");
         let home = std::env::var("HOME").unwrap_or_else(|_| "/".into());
         c.arg("--title").arg(title(kind));
-        c.arg("--getopenfilename").arg(home).arg(format!("{} ({})", globs.join(" "), title(kind)));
+        c.arg("--getopenfilename")
+            .arg(home)
+            .arg(format!("{} ({})", globs.join(" "), title(kind)));
         c
     } else if has_cmd("zenity") {
         let mut c = Command::new("zenity");
-        c.arg("--file-selection").arg(format!("--title={}", title(kind)));
-        c.arg(format!("--file-filter={} | {}", title(kind), globs.join(" ")));
+        c.arg("--file-selection")
+            .arg(format!("--title={}", title(kind)));
+        c.arg(format!(
+            "--file-filter={} | {}",
+            title(kind),
+            globs.join(" ")
+        ));
         c
     } else {
         return Err("нет диалога выбора файла: ни портала, ни zenity/kdialog".into());
@@ -97,7 +105,9 @@ fn dialog_fallback(kind: MediaKind) -> Result<Option<PathBuf>, String> {
     if !out.status.success() {
         return Ok(None);
     }
-    let path = String::from_utf8_lossy(&out.stdout).trim_end_matches('\n').to_string();
+    let path = String::from_utf8_lossy(&out.stdout)
+        .trim_end_matches('\n')
+        .to_string();
     Ok((!path.is_empty()).then(|| PathBuf::from(path)))
 }
 
@@ -118,13 +128,14 @@ pub(super) fn share_text(_title: &str, text: &str) -> Result<(), String> {
 #[cfg(not(feature = "clipboard"))]
 fn pipe_to_clipboard(text: &str) -> Result<(), String> {
     use std::io::Write;
-    let (prog, args): (&str, &[&str]) = if std::env::var_os("WAYLAND_DISPLAY").is_some() && has_cmd("wl-copy") {
-        ("wl-copy", &[])
-    } else if has_cmd("xclip") {
-        ("xclip", &["-selection", "clipboard"])
-    } else {
-        return Err("буфер обмена недоступен (нет фичи `clipboard`, wl-copy, xclip)".into());
-    };
+    let (prog, args): (&str, &[&str]) =
+        if std::env::var_os("WAYLAND_DISPLAY").is_some() && has_cmd("wl-copy") {
+            ("wl-copy", &[])
+        } else if has_cmd("xclip") {
+            ("xclip", &["-selection", "clipboard"])
+        } else {
+            return Err("буфер обмена недоступен (нет фичи `clipboard`, wl-copy, xclip)".into());
+        };
     let mut child = Command::new(prog)
         .args(args)
         .stdin(Stdio::piped())
@@ -150,7 +161,10 @@ pub(super) fn share_file(path: &Path, _mime: &str, _title: &str) -> Result<(), S
         .map_err(|e| format!("{}: {e}", path.display()))?;
     let uri = crate::clipboard::file_uri(&path);
     #[cfg(feature = "clipboard")]
-    crate::clipboard::copy_rich(&path.to_string_lossy(), &[("text/uri-list", uri.as_bytes())]);
+    crate::clipboard::copy_rich(
+        &path.to_string_lossy(),
+        &[("text/uri-list", uri.as_bytes())],
+    );
     show_in_file_manager(&path, &uri)
 }
 
@@ -245,8 +259,7 @@ mod portal {
         conn: &Connection,
         token: &str,
         call: impl FnOnce() -> Result<OwnedObjectPath, String>,
-    ) -> Result<(u32, HashMap<String, OwnedValue>), String>
-    {
+    ) -> Result<(u32, HashMap<String, OwnedValue>), String> {
         let sender = conn
             .unique_name()
             .ok_or("нет имени на шине")?
@@ -254,17 +267,29 @@ mod portal {
             .trim_start_matches(':')
             .replace('.', "_");
         let expected = format!("{PATH}/request/{sender}/{token}");
-        let req = Proxy::new(conn, DEST, expected.as_str(), "org.freedesktop.portal.Request")
-            .map_err(|e| e.to_string())?;
+        let req = Proxy::new(
+            conn,
+            DEST,
+            expected.as_str(),
+            "org.freedesktop.portal.Request",
+        )
+        .map_err(|e| e.to_string())?;
         let mut signals = req.receive_signal("Response").map_err(|e| e.to_string())?;
         let handle = call()?;
         let message = if handle.as_str() == expected {
             signals.next()
         } else {
             // Старый портал (< 0.9) выдаёт свой путь.
-            let req = Proxy::new(conn, DEST, handle.as_str(), "org.freedesktop.portal.Request")
-                .map_err(|e| e.to_string())?;
-            req.receive_signal("Response").map_err(|e| e.to_string())?.next()
+            let req = Proxy::new(
+                conn,
+                DEST,
+                handle.as_str(),
+                "org.freedesktop.portal.Request",
+            )
+            .map_err(|e| e.to_string())?;
+            req.receive_signal("Response")
+                .map_err(|e| e.to_string())?
+                .next()
         }
         .ok_or("портал закрыл соединение")?;
         message
@@ -276,7 +301,10 @@ mod portal {
     pub(super) fn open_file(kind: MediaKind) -> Result<Option<PathBuf>, String> {
         let conn = Connection::session().map_err(|e| e.to_string())?;
         let token = token();
-        let images = ("Изображения".to_string(), vec![(1u32, "image/*".to_string())]);
+        let images = (
+            "Изображения".to_string(),
+            vec![(1u32, "image/*".to_string())],
+        );
         let videos = ("Видео".to_string(), vec![(1u32, "video/*".to_string())]);
         let both = (
             "Фото и видео".to_string(),
@@ -309,7 +337,9 @@ mod portal {
             .get("uris")
             .and_then(|v| Vec::<String>::try_from(v.try_clone().ok()?).ok())
             .unwrap_or_default();
-        let Some(uri) = uris.first() else { return Ok(None) };
+        let Some(uri) = uris.first() else {
+            return Ok(None);
+        };
         super::uri_to_path(uri)
             .map(Some)
             .ok_or_else(|| format!("портал вернул не file-URI: {uri}"))
@@ -355,7 +385,10 @@ mod tests {
             uri_to_path("file:///home/u/%D0%A4%D0%BE%D1%82%D0%BE%201.jpg"),
             Some(PathBuf::from("/home/u/Фото 1.jpg"))
         );
-        assert_eq!(uri_to_path("file://localhost/a/b"), Some(PathBuf::from("/a/b")));
+        assert_eq!(
+            uri_to_path("file://localhost/a/b"),
+            Some(PathBuf::from("/a/b"))
+        );
         assert_eq!(uri_to_path("https://x/y"), None);
     }
 }

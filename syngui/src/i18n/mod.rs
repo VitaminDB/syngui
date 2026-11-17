@@ -315,7 +315,11 @@ pub fn languages() -> Vec<LangInfo> {
         // у него нет: строки программы и есть его «перевод».
         if let Some(src) = reg.source.clone() {
             if !list.iter().any(|l| l.tag.base() == src.base()) {
-                list.push(LangInfo { name: native_name(&src).unwrap_or_else(|| src.tag().to_string()), tag: src, english: None });
+                list.push(LangInfo {
+                    name: native_name(&src).unwrap_or_else(|| src.tag().to_string()),
+                    tag: src,
+                    english: None,
+                });
             }
         }
         list

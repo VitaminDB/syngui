@@ -88,7 +88,9 @@ mod platform {
                 let s = CFArrayGetValueAtIndex(arr, 0);
                 let mut buf = [0 as c_char; 64];
                 if CFStringGetCString(s, buf.as_mut_ptr(), buf.len() as CFIndex, UTF8) != 0 {
-                    let tag = std::ffi::CStr::from_ptr(buf.as_ptr()).to_string_lossy().into_owned();
+                    let tag = std::ffi::CStr::from_ptr(buf.as_ptr())
+                        .to_string_lossy()
+                        .into_owned();
                     out = Lang::parse(&tag);
                 }
             }
@@ -117,7 +119,8 @@ mod platform {
         if ui != 0 {
             let len = unsafe { LCIDToLocaleName(ui, buf.as_mut_ptr(), buf.len() as i32, 0) };
             if len > 1 {
-                if let Some(l) = Lang::parse(&String::from_utf16_lossy(&buf[..(len - 1) as usize])) {
+                if let Some(l) = Lang::parse(&String::from_utf16_lossy(&buf[..(len - 1) as usize]))
+                {
                     return Some(l);
                 }
             }
@@ -132,7 +135,12 @@ mod platform {
 
 #[cfg(all(
     not(target_arch = "wasm32"),
-    not(any(target_os = "android", target_os = "macos", target_os = "ios", target_os = "windows"))
+    not(any(
+        target_os = "android",
+        target_os = "macos",
+        target_os = "ios",
+        target_os = "windows"
+    ))
 ))]
 mod platform {
     use super::Lang;

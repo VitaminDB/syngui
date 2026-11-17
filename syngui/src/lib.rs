@@ -108,7 +108,9 @@ pub mod prelude {
     pub use crate::core::*;
     pub use crate::effects::Effect;
     pub use crate::gpu::Renderer;
-    pub use crate::input::{Event, EventResult, Key, Modifiers, MouseButton, PenPhase, PenSample, PenTool};
+    pub use crate::input::{
+        Event, EventResult, Key, Modifiers, MouseButton, PenPhase, PenSample, PenTool,
+    };
     pub use crate::layout::{Constraints, Layout};
     pub use crate::mss::{
         parse_stylesheet_str, ComputedStyle, ElementState, KeyframeStep, KeyframesDefinition,
@@ -159,13 +161,13 @@ pub mod prelude {
         Dialog, DialogAction, DismissDirection, Dismissible, Divider, DividerDirection, Draggable,
         DropArea, Dropdown, DropdownItem, Flex, FlexDirection, FloatingWindow, Grid, Icon, Image,
         ImageFit, ListItem, ListView, Lottie, MainAxisAlignment, MenuItem, Motion, Multiselect,
-        NotificationCtx, NotificationHost, NotificationItem, NotificationSeverity, Padding,
-        Pagination, PopupMenu, Portal, Presence, ProgressBar, Property, PropertyGrid,
-        PropertyValue, OptionGroup, OptionItem, RadioButton, RadioGroup, Reactive, RichText, Router, RouterView, Row,
-        ScrollDirection, ScrollView, SegmentedButton, SelectionMode, Slider, Snackbar,
-        SnackbarPosition, SpinBox, SplitDirection, SplitView, Stack, StackFit, Tab, TabBar,
-        TabPosition, TabState, TableColumn, TableView, TextField, TextSpan, Time, TimePicker,
-        Toggle, ToolButton, Toolbar, Tooltip, TooltipPosition, TopAppBar, TransformOrigin,
-        TreeNode, TreeView,
+        NotificationCtx, NotificationHost, NotificationItem, NotificationSeverity, OptionGroup,
+        OptionItem, Padding, Pagination, PopupMenu, Portal, Presence, ProgressBar, Property,
+        PropertyGrid, PropertyValue, RadioButton, RadioGroup, Reactive, RichText, Router,
+        RouterView, Row, ScrollDirection, ScrollView, SegmentedButton, SelectionMode, Slider,
+        Snackbar, SnackbarPosition, SpinBox, SplitDirection, SplitView, Stack, StackFit, Tab,
+        TabBar, TabPosition, TabState, TableColumn, TableView, TextField, TextSpan, Time,
+        TimePicker, Toggle, ToolButton, Toolbar, Tooltip, TooltipPosition, TopAppBar,
+        TransformOrigin, TreeNode, TreeView,
     };
 }

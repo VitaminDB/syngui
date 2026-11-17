@@ -1729,7 +1729,12 @@ impl ElementTree {
             }
         }
 
-        let cols = crate::widgets::containers::grid::effective_columns(columns, min_col_width, col_gap, constraints.max_width);
+        let cols = crate::widgets::containers::grid::effective_columns(
+            columns,
+            min_col_width,
+            col_gap,
+            constraints.max_width,
+        );
         let total_col_gap = if cols > 1 {
             col_gap * (cols - 1) as f32
         } else {

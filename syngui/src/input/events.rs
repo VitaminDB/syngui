@@ -360,8 +360,14 @@ pub struct CursorImage {
 }
 
 /// Свои указатели: номер → (поколение, картинка; `None` — скрыт).
-pub(crate) fn custom_cursors() -> &'static std::sync::Mutex<std::collections::HashMap<u32, (u64, Option<std::sync::Arc<CursorImage>>)>> {
-    static C: std::sync::OnceLock<std::sync::Mutex<std::collections::HashMap<u32, (u64, Option<std::sync::Arc<CursorImage>>)>>> = std::sync::OnceLock::new();
+pub(crate) fn custom_cursors() -> &'static std::sync::Mutex<
+    std::collections::HashMap<u32, (u64, Option<std::sync::Arc<CursorImage>>)>,
+> {
+    static C: std::sync::OnceLock<
+        std::sync::Mutex<
+            std::collections::HashMap<u32, (u64, Option<std::sync::Arc<CursorImage>>)>,
+        >,
+    > = std::sync::OnceLock::new();
     C.get_or_init(Default::default)
 }
 

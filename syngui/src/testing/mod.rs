@@ -95,7 +95,11 @@ impl TestHarness {
 
     /// Отсчёт пера — через тот же автомат, что у окна: родные `Event::Pen`
     /// захватчику штриха, а если `Down` никто не взял — мышь.
-    pub fn pen(&mut self, phase: crate::input::PenPhase, sample: crate::input::PenSample) -> EventResult {
+    pub fn pen(
+        &mut self,
+        phase: crate::input::PenPhase,
+        sample: crate::input::PenSample,
+    ) -> EventResult {
         self.tree
             .handle_pen(self.root_id, &mut self.pen, phase, sample)
     }

@@ -384,7 +384,8 @@ const EXTERNAL_WGSL: &str = r#"
 "#;
 
 /// Картинки (handle), увеличиваемые без сглаживания — чёткие пиксели.
-static PIXELATED: std::sync::RwLock<std::collections::BTreeSet<u32>> = std::sync::RwLock::new(std::collections::BTreeSet::new());
+static PIXELATED: std::sync::RwLock<std::collections::BTreeSet<u32>> =
+    std::sync::RwLock::new(std::collections::BTreeSet::new());
 static PIXELATED_ANY: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
 
 /// Рисовать картинку `handle` без сглаживания при увеличении (ближайший тексел): экран
@@ -559,14 +560,24 @@ impl ImageGpuCache {
     }
 
     /// Bind group картинки: со сглаживанием и без него.
-    fn image_bind_groups(&self, device: &wgpu::Device, view: &wgpu::TextureView) -> (wgpu::BindGroup, wgpu::BindGroup) {
+    fn image_bind_groups(
+        &self,
+        device: &wgpu::Device,
+        view: &wgpu::TextureView,
+    ) -> (wgpu::BindGroup, wgpu::BindGroup) {
         let make = |sampler: &wgpu::Sampler| {
             device.create_bind_group(&wgpu::BindGroupDescriptor {
                 label: Some("Image BG"),
                 layout: &self.bind_group_layout,
                 entries: &[
-                    wgpu::BindGroupEntry { binding: 0, resource: wgpu::BindingResource::TextureView(view) },
-                    wgpu::BindGroupEntry { binding: 1, resource: wgpu::BindingResource::Sampler(sampler) },
+                    wgpu::BindGroupEntry {
+                        binding: 0,
+                        resource: wgpu::BindingResource::TextureView(view),
+                    },
+                    wgpu::BindGroupEntry {
+                        binding: 1,
+                        resource: wgpu::BindingResource::Sampler(sampler),
+                    },
                 ],
             })
         };
@@ -933,7 +944,13 @@ impl ImageGpuCache {
             if cur.width.max(cur.height) <= limit {
                 if let Some(ring) = self.create_ring(device, queue, &cur, ring_len) {
                     if cur.width != data.width {
-                        log::warn!("картинка {}×{} загружена в GPU уменьшенной до {}×{}", data.width, data.height, cur.width, cur.height);
+                        log::warn!(
+                            "картинка {}×{} загружена в GPU уменьшенной до {}×{}",
+                            data.width,
+                            data.height,
+                            cur.width,
+                            cur.height
+                        );
                     }
                     self.images.insert(
                         handle.0,
@@ -950,7 +967,11 @@ impl ImageGpuCache {
             match smaller(&cur) {
                 Some(next) => cur = std::borrow::Cow::Owned(next),
                 None => {
-                    log::error!("картинка {}×{} не поместилась в видеопамять", data.width, data.height);
+                    log::error!(
+                        "картинка {}×{} не поместилась в видеопамять",
+                        data.width,
+                        data.height
+                    );
                     self.images.remove(&handle.0);
                     return;
                 }
@@ -1072,12 +1093,18 @@ impl ImageGpuCache {
                 return;
             };
             let view_format = super::external::formats(img.format).map(|f| f.1);
-            let view = tex.create_view(&wgpu::TextureViewDescriptor { format: view_format, ..Default::default() });
+            let view = tex.create_view(&wgpu::TextureViewDescriptor {
+                format: view_format,
+                ..Default::default()
+            });
             let (_, bgl) = self.external.pass.as_ref().expect("создан выше");
             let bg = device.create_bind_group(&wgpu::BindGroupDescriptor {
                 label: Some("external BG"),
                 layout: bgl,
-                entries: &[wgpu::BindGroupEntry { binding: 0, resource: wgpu::BindingResource::TextureView(&view) }],
+                entries: &[wgpu::BindGroupEntry {
+                    binding: 0,
+                    resource: wgpu::BindingResource::TextureView(&view),
+                }],
             });
             self.external.imports.insert(img.id, (tex, bg));
             self.external.order.push_back(img.id);
@@ -1097,12 +1124,18 @@ impl ImageGpuCache {
                 .map(|_| {
                     let texture = device.create_texture(&wgpu::TextureDescriptor {
                         label: Some("Image Texture (external)"),
-                        size: wgpu::Extent3d { width: w, height: h, depth_or_array_layers: 1 },
+                        size: wgpu::Extent3d {
+                            width: w,
+                            height: h,
+                            depth_or_array_layers: 1,
+                        },
                         mip_level_count: 1,
                         sample_count: 1,
                         dimension: wgpu::TextureDimension::D2,
                         format: wgpu::TextureFormat::Rgba8UnormSrgb,
-                        usage: wgpu::TextureUsages::TEXTURE_BINDING | wgpu::TextureUsages::COPY_DST | wgpu::TextureUsages::RENDER_ATTACHMENT,
+                        usage: wgpu::TextureUsages::TEXTURE_BINDING
+                            | wgpu::TextureUsages::COPY_DST
+                            | wgpu::TextureUsages::RENDER_ATTACHMENT,
                         view_formats: &[],
                     });
                     let view = texture.create_view(&Default::default());
@@ -1110,7 +1143,15 @@ impl ImageGpuCache {
                     (texture, bind_group, nearest)
                 })
                 .collect();
-            self.images.insert(handle.0, GpuImage { ring, cur: 0, recent: Default::default(), rt: true });
+            self.images.insert(
+                handle.0,
+                GpuImage {
+                    ring,
+                    cur: 0,
+                    recent: Default::default(),
+                    rt: true,
+                },
+            );
         }
         let g = self.images.get_mut(&handle.0).expect("создано выше");
         g.cur = (g.cur + 1) % g.ring.len();
@@ -1120,7 +1161,9 @@ impl ImageGpuCache {
         let target = g.ring[g.cur].0.create_view(&Default::default());
         let (pipeline, _) = self.external.pass.as_ref().expect("создан выше");
         let (_, bg) = &self.external.imports[&img.id];
-        let mut enc = device.create_command_encoder(&wgpu::CommandEncoderDescriptor { label: Some("external") });
+        let mut enc = device.create_command_encoder(&wgpu::CommandEncoderDescriptor {
+            label: Some("external"),
+        });
         {
             let mut rp = enc.begin_render_pass(&wgpu::RenderPassDescriptor {
                 label: Some("external"),
@@ -1128,7 +1171,10 @@ impl ImageGpuCache {
                     view: &target,
                     depth_slice: None,
                     resolve_target: None,
-                    ops: wgpu::Operations { load: wgpu::LoadOp::Clear(wgpu::Color::BLACK), store: wgpu::StoreOp::Store },
+                    ops: wgpu::Operations {
+                        load: wgpu::LoadOp::Clear(wgpu::Color::BLACK),
+                        store: wgpu::StoreOp::Store,
+                    },
                 })],
                 depth_stencil_attachment: None,
                 timestamp_writes: None,
@@ -1168,8 +1214,15 @@ impl ImageGpuCache {
     }
 
     pub fn get_bind_group(&self, handle_id: u32) -> Option<&wgpu::BindGroup> {
-        let nearest = PIXELATED_ANY.load(std::sync::atomic::Ordering::Relaxed) && PIXELATED.read().is_ok_and(|s| s.contains(&handle_id));
-        self.images.get(&handle_id).map(|img| if nearest { img.bind_group_nearest() } else { img.bind_group() })
+        let nearest = PIXELATED_ANY.load(std::sync::atomic::Ordering::Relaxed)
+            && PIXELATED.read().is_ok_and(|s| s.contains(&handle_id));
+        self.images.get(&handle_id).map(|img| {
+            if nearest {
+                img.bind_group_nearest()
+            } else {
+                img.bind_group()
+            }
+        })
     }
 }
 

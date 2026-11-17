@@ -384,9 +384,16 @@ impl Grid {
         } else if rows > self.rows {
             let add = rows - self.rows;
             // На основном экране — вернуть строки из истории наверх.
-            let pull = if self.on_alt { 0 } else { add.min(self.scrollback.len()) };
+            let pull = if self.on_alt {
+                0
+            } else {
+                add.min(self.scrollback.len())
+            };
             for _ in 0..pull {
-                let line = self.scrollback.pop_back().unwrap_or_else(|| vec![Cell::default(); cols]);
+                let line = self
+                    .scrollback
+                    .pop_back()
+                    .unwrap_or_else(|| vec![Cell::default(); cols]);
                 let w = self.wrapped_scrollback.pop_back().unwrap_or(false);
                 self.cells.insert(0, line);
                 self.wrapped_view.insert(0, w);
@@ -836,7 +843,12 @@ mod tests {
     }
 
     fn row_text(g: &Grid, r: usize) -> String {
-        g.line(r).iter().map(|c| c.ch).collect::<String>().trim_end().to_string()
+        g.line(r)
+            .iter()
+            .map(|c| c.ch)
+            .collect::<String>()
+            .trim_end()
+            .to_string()
     }
 
     #[test]

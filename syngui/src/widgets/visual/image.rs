@@ -472,12 +472,17 @@ impl Element for ImageElement {
                         let y0 = b.y().max(f.y());
                         let x1 = (b.x() + b.size.width).min(f.x() + f.size.width);
                         let y1 = (b.y() + b.size.height).min(f.y() + f.size.height);
-                        Rect::new(Point::new(x0, y0), Size::new((x1 - x0).max(0.0), (y1 - y0).max(0.0)))
+                        Rect::new(
+                            Point::new(x0, y0),
+                            Size::new((x1 - x0).max(0.0), (y1 - y0).max(0.0)),
+                        )
                     };
                     let radii = self
                         .mss
                         .border_radius
-                        .map(|dims| dims.map(|d| d.resolve(visible.size.width.min(visible.size.height))))
+                        .map(|dims| {
+                            dims.map(|d| d.resolve(visible.size.width.min(visible.size.height)))
+                        })
                         .filter(|r| r.iter().any(|v| *v > 0.0));
                     if let Some(r) = radii {
                         list.push_clip_rounded(visible, r);

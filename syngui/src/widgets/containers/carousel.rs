@@ -899,20 +899,31 @@ mod touch_tests {
 #[cfg(test)]
 mod pointer_events_tests {
     use super::*;
+    #[allow(unused_imports)]
+    use crate::mss::StyleValue as _;
     use crate::testing::TestHarness;
     use crate::widget::styled::WidgetExt as _;
     use crate::widgets::{DecoratedBox, GestureDetector, Stack, StackFit};
-    #[allow(unused_imports)]
-    use crate::mss::StyleValue as _;
 
     /// Декоративный слой во всю площадь поверх карусели (затемнение фото):
     /// без `pointer-events: none` он забирал касание, и карусель не листалась.
     fn hero(sig: crate::signal::RwSignal<usize>, overlay_passthrough: bool) -> Stack {
-        let mut car = Carousel::new().page_signal(sig).show_indicators(false).show_arrows(false);
+        let mut car = Carousel::new()
+            .page_signal(sig)
+            .show_indicators(false)
+            .show_arrows(false);
         for _ in 0..3 {
-            car = car.child(GestureDetector::new().on_click(|| {}).child(DecoratedBox::new()));
+            car = car.child(
+                GestureDetector::new()
+                    .on_click(|| {})
+                    .child(DecoratedBox::new()),
+            );
         }
-        let scrim = DecoratedBox::new().class(if overlay_passthrough { "scrim pass" } else { "scrim" });
+        let scrim = DecoratedBox::new().class(if overlay_passthrough {
+            "scrim pass"
+        } else {
+            "scrim"
+        });
         Stack::new().fit(StackFit::Expand).child(car).child(scrim)
     }
 
@@ -935,9 +946,16 @@ mod pointer_events_tests {
     fn vertical_gesture_on_pressable_child_keeps_carousel_swipeable() {
         crate::signal::allow_signal_reads_on_this_thread();
         let sig = crate::signal::use_signal(0usize);
-        let mut car = Carousel::new().page_signal(sig).show_indicators(false).show_arrows(false);
+        let mut car = Carousel::new()
+            .page_signal(sig)
+            .show_indicators(false)
+            .show_arrows(false);
         for _ in 0..3 {
-            car = car.child(GestureDetector::new().on_press(|_| {}).child(DecoratedBox::new()));
+            car = car.child(
+                GestureDetector::new()
+                    .on_press(|_| {})
+                    .child(DecoratedBox::new()),
+            );
         }
         let mut h = TestHarness::new(Box::new(car));
         h.layout(400.0, 300.0);
@@ -948,7 +966,11 @@ mod pointer_events_tests {
         h.touch_up(1);
         assert_eq!(sig.get_untracked(), 0);
         swipe(&mut h);
-        assert_eq!(sig.get_untracked(), 1, "горизонтальный сдвиг после вертикального жеста на элементе");
+        assert_eq!(
+            sig.get_untracked(),
+            1,
+            "горизонтальный сдвиг после вертикального жеста на элементе"
+        );
     }
 
     #[test]

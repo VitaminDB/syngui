@@ -1,10 +1,8 @@
-use super::{ParseError, ParseErrorKind};
 use super::super::value::*;
 use super::utils::ParserCursor;
+use super::{ParseError, ParseErrorKind};
 
-pub(super) fn parse_identifier(
-    cursor: &mut ParserCursor,
-) -> Result<String, ParseError> {
+pub(super) fn parse_identifier(cursor: &mut ParserCursor) -> Result<String, ParseError> {
     let start = cursor.position;
 
     while !cursor.is_eof() {
@@ -25,9 +23,7 @@ pub(super) fn parse_identifier(
     Ok(cursor.input[start..cursor.position].to_string())
 }
 
-pub(super) fn parse_variable_name(
-    cursor: &mut ParserCursor,
-) -> Result<String, ParseError> {
+pub(super) fn parse_variable_name(cursor: &mut ParserCursor) -> Result<String, ParseError> {
     if !cursor.starts_with("--") {
         return Err(cursor.error(ParseErrorKind::ExpectedVariable));
     }
@@ -48,9 +44,7 @@ pub(super) fn parse_length(_cursor: &ParserCursor, s: &str) -> Option<StyleValue
     Some(StyleValue::Length(value, unit))
 }
 
-pub(super) fn parse_var_function(
-    cursor: &mut ParserCursor,
-) -> Result<StyleValue, ParseError> {
+pub(super) fn parse_var_function(cursor: &mut ParserCursor) -> Result<StyleValue, ParseError> {
     cursor.consume("var(");
     cursor.skip_whitespace();
 
@@ -137,9 +131,7 @@ fn var_is_whole_value(rest: &str) -> bool {
     true
 }
 
-pub(super) fn parse_value(
-    cursor: &mut ParserCursor,
-) -> Result<StyleValue, ParseError> {
+pub(super) fn parse_value(cursor: &mut ParserCursor) -> Result<StyleValue, ParseError> {
     cursor.skip_whitespace();
 
     // `var(…)` — всё значение целиком; `var(--a) var(--b)` и
@@ -528,9 +520,7 @@ pub(super) fn expand_border_radius_shorthand(
     }
 }
 
-pub(super) fn parse_selector_string(
-    cursor: &mut ParserCursor,
-) -> Result<String, ParseError> {
+pub(super) fn parse_selector_string(cursor: &mut ParserCursor) -> Result<String, ParseError> {
     let mut result = String::new();
 
     while !cursor.is_eof() && cursor.peek() != Some('{') {

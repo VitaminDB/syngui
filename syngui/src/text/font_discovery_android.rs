@@ -142,7 +142,9 @@ fn spaced(stem: &str) -> String {
         let prev = i.checked_sub(1).map(|j| chars[j]);
         let next = chars.get(i + 1).copied();
         let boundary = c.is_uppercase()
-            && prev.is_some_and(|p| p.is_lowercase() || (p.is_uppercase() && next.is_some_and(|n| n.is_lowercase())));
+            && prev.is_some_and(|p| {
+                p.is_lowercase() || (p.is_uppercase() && next.is_some_and(|n| n.is_lowercase()))
+            });
         if boundary {
             out.push(' ');
         }
@@ -181,17 +183,30 @@ fn catalog() -> &'static Vec<Entry> {
     C.get_or_init(|| {
         let mut v = Vec::new();
         for dir in FONT_DIRS {
-            let Ok(rd) = std::fs::read_dir(dir) else { continue };
+            let Ok(rd) = std::fs::read_dir(dir) else {
+                continue;
+            };
             for e in rd.flatten() {
                 let path = e.path();
-                let ext = path.extension().and_then(|x| x.to_str()).unwrap_or("").to_ascii_lowercase();
+                let ext = path
+                    .extension()
+                    .and_then(|x| x.to_str())
+                    .unwrap_or("")
+                    .to_ascii_lowercase();
                 if !matches!(ext.as_str(), "ttf" | "otf") {
                     continue;
                 }
-                let Some(stem) = path.file_stem().and_then(|s| s.to_str()) else { continue };
+                let Some(stem) = path.file_stem().and_then(|s| s.to_str()) else {
+                    continue;
+                };
                 let (fam, style) = stem.split_once('-').unwrap_or((stem, "Regular"));
                 let (weight, italic) = style_of(style);
-                v.push(Entry { family: spaced(fam), path, weight, italic });
+                v.push(Entry {
+                    family: spaced(fam),
+                    path,
+                    weight,
+                    italic,
+                });
             }
         }
         v
@@ -199,7 +214,10 @@ fn catalog() -> &'static Vec<Entry> {
 }
 
 fn norm(s: &str) -> String {
-    s.chars().filter(|c| !c.is_whitespace() && *c != '-' && *c != '_').flat_map(char::to_lowercase).collect()
+    s.chars()
+        .filter(|c| !c.is_whitespace() && *c != '-' && *c != '_')
+        .flat_map(char::to_lowercase)
+        .collect()
 }
 
 /// Семейства для выбора шрифта: без письменностей отдельных языков (Noto Sans
@@ -209,7 +227,9 @@ pub fn list_families() -> Vec<String> {
         .iter()
         .map(|e| e.family.clone())
         .filter(|f| {
-            let noto_script = (f.starts_with("Noto Sans ") || f.starts_with("Noto Serif ") || f.starts_with("Noto Naskh"))
+            let noto_script = (f.starts_with("Noto Sans ")
+                || f.starts_with("Noto Serif ")
+                || f.starts_with("Noto Naskh"))
                 && !matches!(f.as_str(), "Noto Sans Mono" | "Noto Serif Display");
             !noto_script && !f.contains("Emoji") && !f.starts_with("Android") && !f.ends_with(" UI")
         })
@@ -224,11 +244,17 @@ pub fn list_families() -> Vec<String> {
 pub fn discover_styled(name: &str, weight: u16, italic: bool) -> Option<(Vec<u8>, u32)> {
     let want = norm(name);
     // «sans-serif» и пустое — системный шрифт интерфейса.
-    let want = if want.is_empty() || want == "sansserif" { "roboto".to_string() } else { want };
+    let want = if want.is_empty() || want == "sansserif" {
+        "roboto".to_string()
+    } else {
+        want
+    };
     let best = catalog()
         .iter()
         .filter(|e| norm(&e.family) == want)
-        .min_by_key(|e| (e.italic != italic) as u32 * 10_000 + (e.weight as i32 - weight as i32).unsigned_abs())?;
+        .min_by_key(|e| {
+            (e.italic != italic) as u32 * 10_000 + (e.weight as i32 - weight as i32).unsigned_abs()
+        })?;
     std::fs::read(&best.path).ok().map(|d| (d, 0))
 }
 
@@ -237,7 +263,13 @@ pub fn discover_weight_font(family: Option<&str>, weight: u16) -> (Vec<u8>, u32)
     family
         .and_then(|f| discover_styled(f, weight, false))
         .or_else(|| discover_styled("Roboto", weight, false))
-        .unwrap_or_else(|| if weight >= 600 { discover_bold_font(None) } else { discover_font(None) })
+        .unwrap_or_else(|| {
+            if weight >= 600 {
+                discover_bold_font(None)
+            } else {
+                discover_font(None)
+            }
+        })
 }
 
 /// Одно семейство без подмены на «похожее».

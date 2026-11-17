@@ -82,18 +82,30 @@ pub fn video_surface() -> Option<*mut c_void> {
 /// режим, кратный ролику (23.976 → 48/120 Гц), а не «свой» близкий — иначе
 /// раз в десятки секунд кадр дублируется и картинка дёргается. `0` — снять.
 pub fn set_video_frame_rate(fps: f32) {
-    let fps = if fps.is_finite() && fps > 0.0 && fps <= 240.0 { fps } else { 0.0 };
+    let fps = if fps.is_finite() && fps > 0.0 && fps <= 240.0 {
+        fps
+    } else {
+        0.0
+    };
     let ok = with_env(|env, _activity| {
         let guard = SURFACE_REF.lock().ok()?;
         let surface = guard.as_ref()?;
         // FRAME_RATE_COMPATIBILITY_FIXED_SOURCE = 1
-        env.call_method(surface.as_obj(), "setFrameRate", "(FI)V", &[jni::objects::JValue::Float(fps), jni::objects::JValue::Int(1)])
-            .ok()
-            .map(|_| ())
-            .or_else(|| {
-                let _ = env.exception_clear();
-                None
-            })
+        env.call_method(
+            surface.as_obj(),
+            "setFrameRate",
+            "(FI)V",
+            &[
+                jni::objects::JValue::Float(fps),
+                jni::objects::JValue::Int(1),
+            ],
+        )
+        .ok()
+        .map(|_| ())
+        .or_else(|| {
+            let _ = env.exception_clear();
+            None
+        })
     });
     match ok {
         Some(()) => log::info!("video surface: частота ролика {fps:.3} кадр/с"),
@@ -107,7 +119,11 @@ pub fn set_video_frame_rate(fps: f32) {
 /// по прошлым кадрам окна, — у дисплеев с переменной частотой это бывает
 /// и 24 Гц. Применяется окном на следующем кадре (`ANativeWindow_setFrameRate`).
 pub fn set_window_frame_rate(fps: f32) {
-    let fps = if fps.is_finite() && fps > 0.0 { fps.min(240.0) } else { 0.0 };
+    let fps = if fps.is_finite() && fps > 0.0 {
+        fps.min(240.0)
+    } else {
+        0.0
+    };
     if WINDOW_FPS.swap(fps.to_bits(), Ordering::AcqRel) != fps.to_bits() {
         crate::signal::request_redraw();
     }

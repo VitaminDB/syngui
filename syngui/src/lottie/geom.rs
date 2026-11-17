@@ -234,7 +234,10 @@ impl ShapePath {
         let n = self.verts.len();
         let mut pts = Vec::with_capacity(n * 4);
         if n == 0 {
-            return Polyline { pts, closed: self.closed };
+            return Polyline {
+                pts,
+                closed: self.closed,
+            };
         }
         pts.push(self.verts[0]);
         let segs = if self.closed { n } else { n - 1 };
@@ -254,7 +257,10 @@ impl ShapePath {
             // Последняя точка совпадает с первой — не дублируем.
             pts.pop();
         }
-        Polyline { pts, closed: self.closed }
+        Polyline {
+            pts,
+            closed: self.closed,
+        }
     }
 
     /// Модификатор «скруглить углы» (как в lottie-web): острые вершины
@@ -276,12 +282,20 @@ impl ShapePath {
             let prev = self.verts[(i + n - 1) % n];
             let next = self.verts[(i + 1) % n];
             let d = dist(v, prev);
-            let perc = if d > 0.0 { (d / 2.0).min(radius) / d } else { 0.0 };
+            let perc = if d > 0.0 {
+                (d / 2.0).min(radius) / d
+            } else {
+                0.0
+            };
             let iv = lerp2(v, prev, perc);
             let o = sub(iv, mulf(sub(iv, v), ROUND));
             out.push(iv, [0.0, 0.0], sub(o, iv));
             let d = dist(v, next);
-            let perc = if d > 0.0 { (d / 2.0).min(radius) / d } else { 0.0 };
+            let perc = if d > 0.0 {
+                (d / 2.0).min(radius) / d
+            } else {
+                0.0
+            };
             let iv = lerp2(v, next, perc);
             let o = sub(iv, mulf(sub(iv, v), ROUND));
             out.push(iv, sub(o, iv), [0.0, 0.0]);
@@ -304,13 +318,24 @@ fn eval_cubic(p0: [f32; 2], p1: [f32; 2], p2: [f32; 2], p3: [f32; 2], t: f32) ->
 }
 
 /// Разбить кубическую кривую на отрезки; `out` уже содержит `p0`.
-pub fn flatten_cubic(p0: [f32; 2], p1: [f32; 2], p2: [f32; 2], p3: [f32; 2], tol: f32, out: &mut Vec<[f32; 2]>) {
+pub fn flatten_cubic(
+    p0: [f32; 2],
+    p1: [f32; 2],
+    p2: [f32; 2],
+    p3: [f32; 2],
+    tol: f32,
+    out: &mut Vec<[f32; 2]>,
+) {
     let dd1 = [p0[0] - 2.0 * p1[0] + p2[0], p0[1] - 2.0 * p1[1] + p2[1]];
     let dd2 = [p1[0] - 2.0 * p2[0] + p3[0], p1[1] - 2.0 * p2[1] + p3[1]];
     let dd = len(dd1).max(len(dd2));
     let tol = tol.max(1e-4);
     let n = ((dd * 0.75 / tol).sqrt()).ceil();
-    let n = if n.is_finite() { (n as usize).clamp(1, 160) } else { 16 };
+    let n = if n.is_finite() {
+        (n as usize).clamp(1, 160)
+    } else {
+        16
+    };
     for k in 1..=n {
         out.push(eval_cubic(p0, p1, p2, p3, k as f32 / n as f32));
     }
@@ -344,7 +369,9 @@ impl Polyline {
     }
 
     pub fn length(&self) -> f32 {
-        (0..self.seg_count()).map(|i| dist(self.pt(i), self.pt(i + 1))).sum()
+        (0..self.seg_count())
+            .map(|i| dist(self.pt(i), self.pt(i + 1)))
+            .sum()
     }
 
     /// Прямоугольник, охватывающий точки: `[minx, miny, maxx, maxy]`.
@@ -397,7 +424,10 @@ impl Polyline {
             acc = next;
         }
         if out.len() >= 2 {
-            Some(Polyline { pts: out, closed: false })
+            Some(Polyline {
+                pts: out,
+                closed: false,
+            })
         } else {
             None
         }
@@ -417,7 +447,13 @@ impl Polyline {
 
 /// Trim Paths: `start`/`end` в долях 0..1, `offset` в градусах.
 /// `individually` — все контуры как одна последовательность (`m: 2`).
-pub fn trim_paths(polys: Vec<Polyline>, start: f32, end: f32, offset_deg: f32, individually: bool) -> Vec<Polyline> {
+pub fn trim_paths(
+    polys: Vec<Polyline>,
+    start: f32,
+    end: f32,
+    offset_deg: f32,
+    individually: bool,
+) -> Vec<Polyline> {
     let mut o = (offset_deg % 360.0) / 360.0;
     if o < 0.0 {
         o += 1.0;
@@ -538,7 +574,10 @@ pub fn dash_polyline(poly: &Polyline, pattern: &[f32], offset: f32) -> Vec<Polyl
             } else if remaining <= 0.0 {
                 // Штрих нулевой длины — точка (для круглых концов).
                 if let Some(p) = open.slice(pos, (pos + 1e-3).min(total)) {
-                    out.push(Polyline { pts: vec![p.pts[0]], closed: false });
+                    out.push(Polyline {
+                        pts: vec![p.pts[0]],
+                        closed: false,
+                    });
                 }
             }
         }
@@ -561,7 +600,11 @@ pub fn offset_polyline(poly: &Polyline, amount: f32, join: LineJoin, miter_limit
         let b = poly.pts[(i + 1) % n];
         let d = sub(b, a);
         let l = len(d);
-        if l > 0.0 { [-d[1] / l, d[0] / l] } else { [0.0, 0.0] }
+        if l > 0.0 {
+            [-d[1] / l, d[0] / l]
+        } else {
+            [0.0, 0.0]
+        }
     };
     let offset_with = |k: f32| -> Vec<[f32; 2]> {
         (0..n)
@@ -584,7 +627,11 @@ pub fn offset_polyline(poly: &Polyline, amount: f32, join: LineJoin, miter_limit
                 }
                 // Митра: длина 1/cos(θ/2), с ограничением (как Bevel при превышении).
                 let mut m = 1.0 / ((0.5 * (1.0 + dot)).max(1e-4)).sqrt();
-                let limit = if join == LineJoin::Miter { miter_limit.max(1.0) } else { 1.5 };
+                let limit = if join == LineJoin::Miter {
+                    miter_limit.max(1.0)
+                } else {
+                    1.5
+                };
                 m = m.min(limit);
                 add(v, mulf([avg[0] / al, avg[1] / al], amount * k * m))
             })
@@ -607,7 +654,10 @@ pub fn offset_polyline(poly: &Polyline, amount: f32, join: LineJoin, miter_limit
             pts = offset_with(-1.0);
         }
     }
-    Polyline { pts, closed: poly.closed }
+    Polyline {
+        pts,
+        closed: poly.closed,
+    }
 }
 
 /// Zig Zag: `ridges` зубцов на сегмент контура, амплитуда `size`;
@@ -617,7 +667,10 @@ pub fn zigzag_path(sp: &ShapePath, size: f32, ridges: f32, out_tol: f32) -> Poly
     let segs = if sp.closed { n } else { n.saturating_sub(1) };
     let mut out = Vec::new();
     if n == 0 {
-        return Polyline { pts: out, closed: sp.closed };
+        return Polyline {
+            pts: out,
+            closed: sp.closed,
+        };
     }
     let r = ridges.round().max(1.0) as usize;
     let steps = 2 * r; // пики на нечётных отсчётах
@@ -639,8 +692,12 @@ pub fn zigzag_path(sp: &ShapePath, size: f32, ridges: f32, out_tol: f32) -> Poly
                 // Нормаль из производной кривой.
                 let mt = 1.0 - t;
                 let d = [
-                    3.0 * mt * mt * (p1[0] - p0[0]) + 6.0 * mt * t * (p2[0] - p1[0]) + 3.0 * t * t * (p3[0] - p2[0]),
-                    3.0 * mt * mt * (p1[1] - p0[1]) + 6.0 * mt * t * (p2[1] - p1[1]) + 3.0 * t * t * (p3[1] - p2[1]),
+                    3.0 * mt * mt * (p1[0] - p0[0])
+                        + 6.0 * mt * t * (p2[0] - p1[0])
+                        + 3.0 * t * t * (p3[0] - p2[0]),
+                    3.0 * mt * mt * (p1[1] - p0[1])
+                        + 6.0 * mt * t * (p2[1] - p1[1])
+                        + 3.0 * t * t * (p3[1] - p2[1]),
                 ];
                 let l = len(d).max(1e-6);
                 let nrm = [-d[1] / l, d[0] / l];
@@ -654,7 +711,10 @@ pub fn zigzag_path(sp: &ShapePath, size: f32, ridges: f32, out_tol: f32) -> Poly
     if sp.closed && out.len() > 1 {
         out.pop();
     }
-    Polyline { pts: out, closed: sp.closed }
+    Polyline {
+        pts: out,
+        closed: sp.closed,
+    }
 }
 
 /// Pucker & Bloat: `amount` в процентах; положительный тянет вершины к
@@ -811,7 +871,11 @@ pub fn stroke_polyline(
         let b = pts[(i + 1) % n];
         let d = sub(b, a);
         let l = len(d);
-        if l > 0.0 { mulf(d, 1.0 / l) } else { [1.0, 0.0] }
+        if l > 0.0 {
+            mulf(d, 1.0 / l)
+        } else {
+            [1.0, 0.0]
+        }
     };
     // Прямоугольники сегментов.
     for i in 0..segs {
@@ -819,7 +883,10 @@ pub fn stroke_polyline(
         let b = pts[(i + 1) % n];
         let d = dir(i);
         let nrm = [-d[1] * hw, d[0] * hw];
-        push_polygon(out, vec![add(a, nrm), add(b, nrm), sub(b, nrm), sub(a, nrm)]);
+        push_polygon(
+            out,
+            vec![add(a, nrm), add(b, nrm), sub(b, nrm), sub(a, nrm)],
+        );
     }
     // Соединения.
     let join_at = |i: usize, out: &mut Vec<Polyline>| {
@@ -871,7 +938,12 @@ pub fn stroke_polyline(
                 let ext = mulf(d, hw);
                 push_polygon(
                     out,
-                    vec![add(p, nrm), add(add(p, nrm), ext), add(sub(p, nrm), ext), sub(p, nrm)],
+                    vec![
+                        add(p, nrm),
+                        add(add(p, nrm), ext),
+                        add(sub(p, nrm), ext),
+                        sub(p, nrm),
+                    ],
                 );
             }
         };
@@ -913,7 +985,10 @@ mod tests {
 
     #[test]
     fn dashes_cover_half() {
-        let line = Polyline { pts: vec![[0.0, 0.0], [100.0, 0.0]], closed: false };
+        let line = Polyline {
+            pts: vec![[0.0, 0.0], [100.0, 0.0]],
+            closed: false,
+        };
         let d = dash_polyline(&line, &[10.0, 10.0], 0.0);
         assert_eq!(d.len(), 5);
         let total: f32 = d.iter().map(Polyline::length).sum();
@@ -922,9 +997,20 @@ mod tests {
 
     #[test]
     fn stroke_rect_pieces_oriented() {
-        let line = Polyline { pts: vec![[0.0, 0.0], [10.0, 0.0], [10.0, 10.0]], closed: false };
+        let line = Polyline {
+            pts: vec![[0.0, 0.0], [10.0, 0.0], [10.0, 10.0]],
+            closed: false,
+        };
         let mut out = Vec::new();
-        stroke_polyline(&line, 2.0, LineCap::Square, LineJoin::Miter, 4.0, 0.25, &mut out);
+        stroke_polyline(
+            &line,
+            2.0,
+            LineCap::Square,
+            LineJoin::Miter,
+            4.0,
+            0.25,
+            &mut out,
+        );
         // 2 сегмента + 1 митра + 2 конца.
         assert_eq!(out.len(), 5);
     }

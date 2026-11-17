@@ -358,7 +358,10 @@ impl Renderer {
             other => {
                 // Одиночный цветовой фильтр — тем же проходом цепочки (sRGB, как CSS),
                 // что и несколько подряд: результат не зависит от того, один он или нет.
-                if let Some(ops) = other.color_ops().filter(|o| !o.is_empty() && o.len() <= COLOR_CHAIN_MAX_OPS) {
+                if let Some(ops) = other
+                    .color_ops()
+                    .filter(|o| !o.is_empty() && o.len() <= COLOR_CHAIN_MAX_OPS)
+                {
                     let mut codes = [0.0; 4];
                     let mut amounts = [0.0; 4];
                     for (i, (code, amount)) in ops.iter().enumerate() {
@@ -499,8 +502,19 @@ impl Renderer {
                     };
                     let load = if *clear {
                         wgpu::LoadOp::Clear({
-                            let e = |c: f64| if super::encodes_srgb_output(self.surface_format) { super::linear_to_srgb(c) } else { c };
-                            wgpu::Color { r: e(clear_color[0]), g: e(clear_color[1]), b: e(clear_color[2]), a: clear_color[3] }
+                            let e = |c: f64| {
+                                if super::encodes_srgb_output(self.surface_format) {
+                                    super::linear_to_srgb(c)
+                                } else {
+                                    c
+                                }
+                            };
+                            wgpu::Color {
+                                r: e(clear_color[0]),
+                                g: e(clear_color[1]),
+                                b: e(clear_color[2]),
+                                a: clear_color[3],
+                            }
                         })
                     } else {
                         wgpu::LoadOp::Load
@@ -586,14 +600,15 @@ impl Renderer {
                                 contents: bytemuck::cast_slice(&[uniforms]),
                                 usage: wgpu::BufferUsages::UNIFORM,
                             });
-                    let pass_bind_group = gpu.device.create_bind_group(&wgpu::BindGroupDescriptor {
-                        label: Some("Blur Pass Uniform BG"),
-                        layout: &self.blur_uniform_bgl,
-                        entries: &[wgpu::BindGroupEntry {
-                            binding: 0,
-                            resource: pass_uniforms.as_entire_binding(),
-                        }],
-                    });
+                    let pass_bind_group =
+                        gpu.device.create_bind_group(&wgpu::BindGroupDescriptor {
+                            label: Some("Blur Pass Uniform BG"),
+                            layout: &self.blur_uniform_bgl,
+                            entries: &[wgpu::BindGroupEntry {
+                                binding: 0,
+                                resource: pass_uniforms.as_entire_binding(),
+                            }],
+                        });
 
                     let mut rp = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
                         label: Some("Blur Pass"),
@@ -654,7 +669,15 @@ impl Renderer {
                         time: *time,
                         // [0]: 1 — текстура слоя sRGB (шейдер читает линейные значения,
                         // цветовые фильтры CSS считаются на sRGB-значениях)
-                        _padding: [if self.texture_pool.format().is_srgb() { 1.0 } else { 0.0 }, 0.0, 0.0],
+                        _padding: [
+                            if self.texture_pool.format().is_srgb() {
+                                1.0
+                            } else {
+                                0.0
+                            },
+                            0.0,
+                            0.0,
+                        ],
                         params2: *params2,
                         bounds: bounds_uv,
                     };
@@ -669,14 +692,15 @@ impl Renderer {
                                 contents: bytemuck::cast_slice(&[uniforms]),
                                 usage: wgpu::BufferUsages::UNIFORM,
                             });
-                    let pass_bind_group = gpu.device.create_bind_group(&wgpu::BindGroupDescriptor {
-                        label: Some("PostProcess Pass Uniform BG"),
-                        layout: &self.postprocess_uniform_bgl,
-                        entries: &[wgpu::BindGroupEntry {
-                            binding: 0,
-                            resource: pass_uniforms.as_entire_binding(),
-                        }],
-                    });
+                    let pass_bind_group =
+                        gpu.device.create_bind_group(&wgpu::BindGroupDescriptor {
+                            label: Some("PostProcess Pass Uniform BG"),
+                            layout: &self.postprocess_uniform_bgl,
+                            entries: &[wgpu::BindGroupEntry {
+                                binding: 0,
+                                resource: pass_uniforms.as_entire_binding(),
+                            }],
+                        });
 
                     let mut rp = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
                         label: Some("PostProcess Pass"),
@@ -961,7 +985,13 @@ impl Renderer {
                         );
                     }
                     crate::render::ShaderType::Text | crate::render::ShaderType::TextMono => {
-                        render_pass.set_pipeline(if current_pipeline == crate::render::ShaderType::TextMono { &self.text_mono_pipeline } else { &self.text_pipeline });
+                        render_pass.set_pipeline(
+                            if current_pipeline == crate::render::ShaderType::TextMono {
+                                &self.text_mono_pipeline
+                            } else {
+                                &self.text_pipeline
+                            },
+                        );
                         render_pass.set_bind_group(
                             0,
                             &self.uniform_bind_group,

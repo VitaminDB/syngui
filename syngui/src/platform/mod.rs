@@ -66,7 +66,11 @@ pub fn share_text(title: &str, text: &str) -> Result<(), String> {
 
 /// Поделиться файлом. `mime` пустой — определить по расширению.
 pub fn share_file(path: &Path, mime: &str, title: &str) -> Result<(), String> {
-    let mime = if mime.is_empty() { mime_for_path(path) } else { mime };
+    let mime = if mime.is_empty() {
+        mime_for_path(path)
+    } else {
+        mime
+    };
     imp_share_file(path, mime, title)
 }
 
@@ -216,22 +220,37 @@ fn imp_open_path(path: &Path) -> Result<(), String> {
 
 // ── Прочие платформы ────────────────────────────────────────────────────
 
-#[cfg(not(any(target_os = "android", all(target_os = "linux", not(target_arch = "wasm32")))))]
+#[cfg(not(any(
+    target_os = "android",
+    all(target_os = "linux", not(target_arch = "wasm32"))
+)))]
 const UNSUPPORTED: &str = "не поддерживается";
 
-#[cfg(not(any(target_os = "android", all(target_os = "linux", not(target_arch = "wasm32")))))]
+#[cfg(not(any(
+    target_os = "android",
+    all(target_os = "linux", not(target_arch = "wasm32"))
+)))]
 fn imp_pick(_kind: MediaKind, cb: PickCallback) {
     crate::async_runtime::run_on_main_thread(move || cb(Err(UNSUPPORTED.into())));
 }
-#[cfg(not(any(target_os = "android", all(target_os = "linux", not(target_arch = "wasm32")))))]
+#[cfg(not(any(
+    target_os = "android",
+    all(target_os = "linux", not(target_arch = "wasm32"))
+)))]
 fn imp_share_text(_title: &str, _text: &str) -> Result<(), String> {
     Err(UNSUPPORTED.into())
 }
-#[cfg(not(any(target_os = "android", all(target_os = "linux", not(target_arch = "wasm32")))))]
+#[cfg(not(any(
+    target_os = "android",
+    all(target_os = "linux", not(target_arch = "wasm32"))
+)))]
 fn imp_share_file(_path: &Path, _mime: &str, _title: &str) -> Result<(), String> {
     Err(UNSUPPORTED.into())
 }
-#[cfg(not(any(target_os = "android", all(target_os = "linux", not(target_arch = "wasm32")))))]
+#[cfg(not(any(
+    target_os = "android",
+    all(target_os = "linux", not(target_arch = "wasm32"))
+)))]
 fn imp_open_path(_path: &Path) -> Result<(), String> {
     Err(UNSUPPORTED.into())
 }
@@ -244,7 +263,10 @@ mod tests {
     fn mime_by_extension() {
         assert_eq!(mime_for_path(Path::new("/a/b.JPG")), "image/jpeg");
         assert_eq!(mime_for_path(Path::new("v.mp4")), "video/mp4");
-        assert_eq!(mime_for_path(Path::new("noext")), "application/octet-stream");
+        assert_eq!(
+            mime_for_path(Path::new("noext")),
+            "application/octet-stream"
+        );
     }
 
     /// Вне Android панели — без действий, но выбор запоминается и один раз
@@ -253,7 +275,13 @@ mod tests {
     fn system_bars_remembered() {
         let c = crate::core::Color::from_srgb(0x1E, 0x1A, 0x16, 1.0);
         assert_eq!(set_system_bars(c, true), Ok(()));
-        assert_eq!(system_bars(), Some(SystemBars { color: c, light_icons: true }));
+        assert_eq!(
+            system_bars(),
+            Some(SystemBars {
+                color: c,
+                light_icons: true
+            })
+        );
         assert!(take_system_bars_dirty().is_some());
         assert!(take_system_bars_dirty().is_none());
     }

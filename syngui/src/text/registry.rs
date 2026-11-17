@@ -28,7 +28,10 @@ pub fn register_font(family: &str, data: impl Into<Arc<[u8]>>) {
         return;
     }
     let mut map = FONTS.lock().unwrap_or_else(|e| e.into_inner());
-    let list = map.get_or_insert_with(HashMap::new).entry(key(family)).or_default();
+    let list = map
+        .get_or_insert_with(HashMap::new)
+        .entry(key(family))
+        .or_default();
     if list.iter().any(|d| d[..] == data[..]) {
         return;
     }
@@ -59,14 +62,20 @@ pub(crate) fn generation() -> u64 {
 }
 
 fn key(family: &str) -> String {
-    family.trim().trim_matches(['"', '\'']).trim().to_lowercase()
+    family
+        .trim()
+        .trim_matches(['"', '\''])
+        .trim()
+        .to_lowercase()
 }
 
 /// Насыщенность начертания по OS/2 и есть ли ось `wght`.
 pub(crate) fn face_weight(data: &[u8]) -> (u16, bool) {
     match swash::FontRef::from_index(data, 0) {
         Some(f) => {
-            let variable = f.variations().any(|v| v.tag() == swash::tag_from_bytes(b"wght"));
+            let variable = f
+                .variations()
+                .any(|v| v.tag() == swash::tag_from_bytes(b"wght"));
             (f.attributes().weight().0, variable)
         }
         None => (400, false),

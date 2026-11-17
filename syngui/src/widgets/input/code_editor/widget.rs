@@ -1,6 +1,6 @@
 use super::element::CodeEditorElement;
-use super::lsp::{CompletionList, CompletionTrigger, Diagnostic, HoverInfo};
 use super::languages::detect_by_path;
+use super::lsp::{CompletionList, CompletionTrigger, Diagnostic, HoverInfo};
 use super::syntax::{Language, LineHighlighter};
 use crate::core::sync::Mutex;
 use crate::signal::RwSignal;
@@ -23,7 +23,10 @@ pub enum EditorCommand {
     /// Поставить каретку на `line:col` (с нуля, `col` в символах; за
     /// пределами — к ближайшей позиции), снять выделение и прокрутить так,
     /// чтобы строка была видна (вне экрана — по центру).
-    SetCursor { line: usize, col: usize },
+    SetCursor {
+        line: usize,
+        col: usize,
+    },
     /// Правки текста (переименование, форматирование языкового сервера):
     /// позиции в исходном тексте, одним шагом отмены; курсор сдвигается вместе
     /// с текстом. Пересекающиеся правки — ошибка источника, лишние пропускаются.
@@ -41,7 +44,8 @@ pub struct TextEdit {
 }
 
 /// Перехват клавиш приложением: `true` — клавиша его, редактору не достаётся.
-pub type EditorKeyHook = Arc<dyn Fn(crate::input::Key, crate::input::Modifiers) -> bool + Send + Sync>;
+pub type EditorKeyHook =
+    Arc<dyn Fn(crate::input::Key, crate::input::Modifiers) -> bool + Send + Sync>;
 
 pub struct CodeEditorChange<'a> {
     pub full_text: &'a str,
@@ -271,7 +275,10 @@ impl CodeEditor {
     /// Запрос дополнения: Ctrl+Space (`manual`), символ-триггер или начало
     /// слова от двух букв, пока список закрыт. Ответ — в сигнал
     /// [`completion`](Self::completion).
-    pub fn on_completion_request(mut self, f: impl FnMut(CompletionTrigger) + Send + 'static) -> Self {
+    pub fn on_completion_request(
+        mut self,
+        f: impl FnMut(CompletionTrigger) + Send + 'static,
+    ) -> Self {
         self.on_completion_request = Some(Arc::new(Mutex::new(f)));
         self
     }
@@ -298,7 +305,10 @@ impl CodeEditor {
 
     /// Клавиши приложения (F2 — переименовать, Shift+F12 — ссылки): видит
     /// `KeyDown` в фокусе до редактора; `true` — клавиша съедена.
-    pub fn on_key(mut self, f: impl Fn(crate::input::Key, crate::input::Modifiers) -> bool + Send + Sync + 'static) -> Self {
+    pub fn on_key(
+        mut self,
+        f: impl Fn(crate::input::Key, crate::input::Modifiers) -> bool + Send + Sync + 'static,
+    ) -> Self {
         self.key_hook = Some(Arc::new(f));
         self
     }

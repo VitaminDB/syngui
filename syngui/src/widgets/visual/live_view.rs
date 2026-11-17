@@ -476,7 +476,11 @@ impl Drop for LiveViewElement {
 fn integer_scale(k: f32) -> f32 {
     let r = crate::scale::pixel_ratio().max(0.01);
     let n = (k * r + 1e-3).floor();
-    if n >= 1.0 { n / r } else { k }
+    if n >= 1.0 {
+        n / r
+    } else {
+        k
+    }
 }
 
 impl Element for LiveViewElement {
@@ -563,7 +567,9 @@ impl Element for LiveViewElement {
             }
             // Второе нажатие двойного щелчка приходит как DoubleClick — для удалённого экрана это
             // обычное нажатие (иначе гость получает один щелчок вместо двух).
-            Event::MouseDown { button, position } | Event::DoubleClick { button, position } if self.inside(*position) => {
+            Event::MouseDown { button, position } | Event::DoubleClick { button, position }
+                if self.inside(*position) =>
+            {
                 let (x, y) = self.frac(*position);
                 self.pressed = true;
                 ctx.capture();

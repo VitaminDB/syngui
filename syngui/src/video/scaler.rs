@@ -206,7 +206,14 @@ impl Scaler {
                     let (target, tables) = (&target, &tables);
                     // SAFETY: полосы не пересекаются по строкам, кадр жив до конца scope.
                     scope.spawn(move || unsafe {
-                        super::tonemap::convert_rows(target.src, tables, target.dst, target.row_bytes, y0, rows)
+                        super::tonemap::convert_rows(
+                            target.src,
+                            tables,
+                            target.dst,
+                            target.row_bytes,
+                            y0,
+                            rows,
+                        )
                     });
                 }
             });

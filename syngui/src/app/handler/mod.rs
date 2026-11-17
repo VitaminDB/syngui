@@ -1,7 +1,7 @@
 mod android;
+mod appearance;
 #[cfg(target_os = "ios")]
 mod ios;
-mod appearance;
 mod lifecycle;
 pub(in crate::app) mod render;
 mod styling;
@@ -221,7 +221,8 @@ pub(super) struct AppHandler {
     #[cfg(all(feature = "pen", target_os = "linux"))]
     pub(super) wayland_pen_handle: Option<std::thread::JoinHandle<()>>,
     pub(super) pen: crate::input::PenTracker,
-    pub(super) pen_secondary: std::collections::HashMap<winit::window::WindowId, crate::input::PenTracker>,
+    pub(super) pen_secondary:
+        std::collections::HashMap<winit::window::WindowId, crate::input::PenTracker>,
 }
 
 pub(super) fn is_wayland_session() -> bool {

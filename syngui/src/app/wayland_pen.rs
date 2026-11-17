@@ -73,7 +73,9 @@ struct PenState {
 
 impl PenState {
     fn bind_tablet_seats(&mut self, qh: &QueueHandle<Self>) {
-        let Some(manager) = self.manager.clone() else { return };
+        let Some(manager) = self.manager.clone() else {
+            return;
+        };
         for (seat, ts) in self.seats.iter_mut() {
             if ts.is_none() {
                 *ts = Some(manager.get_tablet_seat(seat, qh, ()));
@@ -92,7 +94,10 @@ impl PenState {
     }
 }
 
-pub fn try_start(window: &Window, proxy: EventLoopProxy<SynGuiUserEvent>) -> Option<std::thread::JoinHandle<()>> {
+pub fn try_start(
+    window: &Window,
+    proxy: EventLoopProxy<SynGuiUserEvent>,
+) -> Option<std::thread::JoinHandle<()>> {
     let display = match window.display_handle().ok()?.as_raw() {
         RawDisplayHandle::Wayland(w) => WlDisplayPtr(w.display),
         _ => return None,
@@ -107,7 +112,10 @@ pub fn try_start(window: &Window, proxy: EventLoopProxy<SynGuiUserEvent>) -> Opt
         .ok()
 }
 
-fn run(display: WlDisplayPtr, proxy: EventLoopProxy<SynGuiUserEvent>) -> Result<(), Box<dyn std::error::Error>> {
+fn run(
+    display: WlDisplayPtr,
+    proxy: EventLoopProxy<SynGuiUserEvent>,
+) -> Result<(), Box<dyn std::error::Error>> {
     // SAFETY: указатель wl_display взят у окна winit и живёт весь процесс.
     let backend = unsafe { Backend::from_foreign_display(display.0.as_ptr().cast()) };
     let conn = Connection::from_backend(backend);
@@ -120,7 +128,13 @@ fn run(display: WlDisplayPtr, proxy: EventLoopProxy<SynGuiUserEvent>) -> Result<
             return Ok(());
         }
     };
-    let mut state = PenState { proxy, manager: Some(manager), seats: Vec::new(), tools: Vec::new(), exit: false };
+    let mut state = PenState {
+        proxy,
+        manager: Some(manager),
+        seats: Vec::new(),
+        tools: Vec::new(),
+        exit: false,
+    };
     for g in globals.contents().clone_list() {
         if g.interface == WlSeat::interface().name {
             let seat: WlSeat = globals.registry().bind(g.name, g.version.min(5), &qh, ());
@@ -147,7 +161,12 @@ impl Dispatch<WlRegistry, GlobalListContents> for PenState {
         _: &Connection,
         qh: &QueueHandle<Self>,
     ) {
-        if let wayland_client::protocol::wl_registry::Event::Global { name, interface, version } = event {
+        if let wayland_client::protocol::wl_registry::Event::Global {
+            name,
+            interface,
+            version,
+        } = event
+        {
             if interface == WlSeat::interface().name {
                 let seat: WlSeat = registry.bind(name, version.min(5), qh, ());
                 state.seats.push((seat, None));
@@ -158,7 +177,15 @@ impl Dispatch<WlRegistry, GlobalListContents> for PenState {
 }
 
 impl Dispatch<WlSeat, ()> for PenState {
-    fn event(_: &mut Self, _: &WlSeat, _: wayland_client::protocol::wl_seat::Event, _: &(), _: &Connection, _: &QueueHandle<Self>) {}
+    fn event(
+        _: &mut Self,
+        _: &WlSeat,
+        _: wayland_client::protocol::wl_seat::Event,
+        _: &(),
+        _: &Connection,
+        _: &QueueHandle<Self>,
+    ) {
+    }
 }
 
 impl Dispatch<ZwpTabletManagerV2, ()> for PenState {
@@ -195,15 +222,32 @@ impl Dispatch<ZwpTabletSeatV2, ()> for PenState {
 }
 
 impl Dispatch<ZwpTabletV2, ()> for PenState {
-    fn event(_: &mut Self, t: &ZwpTabletV2, e: <ZwpTabletV2 as Proxy>::Event, _: &(), _: &Connection, _: &QueueHandle<Self>) {
-        if matches!(e, wayland_protocols::wp::tablet::zv2::client::zwp_tablet_v2::Event::Removed) {
+    fn event(
+        _: &mut Self,
+        t: &ZwpTabletV2,
+        e: <ZwpTabletV2 as Proxy>::Event,
+        _: &(),
+        _: &Connection,
+        _: &QueueHandle<Self>,
+    ) {
+        if matches!(
+            e,
+            wayland_protocols::wp::tablet::zv2::client::zwp_tablet_v2::Event::Removed
+        ) {
             t.destroy();
         }
     }
 }
 
 impl Dispatch<ZwpTabletPadV2, ()> for PenState {
-    fn event(_: &mut Self, p: &ZwpTabletPadV2, e: zwp_tablet_pad_v2::Event, _: &(), _: &Connection, _: &QueueHandle<Self>) {
+    fn event(
+        _: &mut Self,
+        p: &ZwpTabletPadV2,
+        e: zwp_tablet_pad_v2::Event,
+        _: &(),
+        _: &Connection,
+        _: &QueueHandle<Self>,
+    ) {
         if matches!(e, zwp_tablet_pad_v2::Event::Removed) {
             p.destroy();
         }
@@ -215,7 +259,15 @@ impl Dispatch<ZwpTabletPadV2, ()> for PenState {
 }
 
 impl Dispatch<ZwpTabletPadGroupV2, ()> for PenState {
-    fn event(_: &mut Self, _: &ZwpTabletPadGroupV2, _: zwp_tablet_pad_group_v2::Event, _: &(), _: &Connection, _: &QueueHandle<Self>) {}
+    fn event(
+        _: &mut Self,
+        _: &ZwpTabletPadGroupV2,
+        _: zwp_tablet_pad_group_v2::Event,
+        _: &(),
+        _: &Connection,
+        _: &QueueHandle<Self>,
+    ) {
+    }
 
     event_created_child!(PenState, ZwpTabletPadGroupV2, [
         zwp_tablet_pad_group_v2::EVT_RING_OPCODE => (ZwpTabletPadRingV2, ()),
@@ -224,11 +276,27 @@ impl Dispatch<ZwpTabletPadGroupV2, ()> for PenState {
 }
 
 impl Dispatch<ZwpTabletPadRingV2, ()> for PenState {
-    fn event(_: &mut Self, _: &ZwpTabletPadRingV2, _: <ZwpTabletPadRingV2 as Proxy>::Event, _: &(), _: &Connection, _: &QueueHandle<Self>) {}
+    fn event(
+        _: &mut Self,
+        _: &ZwpTabletPadRingV2,
+        _: <ZwpTabletPadRingV2 as Proxy>::Event,
+        _: &(),
+        _: &Connection,
+        _: &QueueHandle<Self>,
+    ) {
+    }
 }
 
 impl Dispatch<ZwpTabletPadStripV2, ()> for PenState {
-    fn event(_: &mut Self, _: &ZwpTabletPadStripV2, _: <ZwpTabletPadStripV2 as Proxy>::Event, _: &(), _: &Connection, _: &QueueHandle<Self>) {}
+    fn event(
+        _: &mut Self,
+        _: &ZwpTabletPadStripV2,
+        _: <ZwpTabletPadStripV2 as Proxy>::Event,
+        _: &(),
+        _: &Connection,
+        _: &QueueHandle<Self>,
+    ) {
+    }
 }
 
 fn surface_key(s: &WlSurface) -> Option<usize> {
@@ -275,7 +343,9 @@ impl Dispatch<ZwpTabletToolV2, ()> for PenState {
             E::Motion { x, y } => t.pos = (x, y),
             E::Pressure { pressure } => t.pressure = pressure as f32 / 65535.0,
             E::Tilt { tilt_x, tilt_y } => t.tilt = (tilt_x as f32, tilt_y as f32),
-            E::Button { button, state: bs, .. } => {
+            E::Button {
+                button, state: bs, ..
+            } => {
                 if button == BTN_STYLUS {
                     t.barrel = matches!(bs, WEnum::Value(zwp_tablet_tool_v2::ButtonState::Pressed));
                 }
@@ -293,7 +363,11 @@ impl Dispatch<ZwpTabletToolV2, ()> for PenState {
                     pressure: t.pressure,
                     tilt_x: t.tilt.0,
                     tilt_y: t.tilt.1,
-                    tool: if t.eraser { PenTool::Eraser } else { PenTool::Pen },
+                    tool: if t.eraser {
+                        PenTool::Eraser
+                    } else {
+                        PenTool::Pen
+                    },
                     barrel: t.barrel,
                     time_ms: time,
                 };
@@ -321,9 +395,17 @@ impl Dispatch<ZwpTabletToolV2, ()> for PenState {
                 t.left = false;
                 for phase in phases {
                     if matches!(phase, PenPhase::Hover | PenPhase::Up | PenPhase::Leave) {
-                        sample.pressure = if phase == PenPhase::Hover { 0.0 } else { sample.pressure };
+                        sample.pressure = if phase == PenPhase::Hover {
+                            0.0
+                        } else {
+                            sample.pressure
+                        };
                     }
-                    state.send(PenFrame { surface, phase, sample });
+                    state.send(PenFrame {
+                        surface,
+                        phase,
+                        sample,
+                    });
                 }
             }
             _ => {}

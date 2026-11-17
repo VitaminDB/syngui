@@ -653,7 +653,11 @@ impl Element for MultilineTextEditElement {
 
         // правило `:focus` со своим цветом рамки — как у TextField: цвет и
         // толщина из стиля; без него — осветлённая рамка (или акцент) в 2 px
-        let focus_rule = self.mss.target_props(self.hover, false, true, false).border_color().filter(|c| Some(*c) != self.mss.border_color);
+        let focus_rule = self
+            .mss
+            .target_props(self.hover, false, true, false)
+            .border_color()
+            .filter(|c| Some(*c) != self.mss.border_color);
         let border_color = if self.focused {
             if focus_rule.is_some() {
                 effective_bc.unwrap_or(primary)
@@ -663,7 +667,11 @@ impl Element for MultilineTextEditElement {
         } else {
             border_base
         };
-        let border_width = if self.focused && focus_rule.is_none() { 2.0 } else { self.mss.border_width.unwrap_or(1.0) };
+        let border_width = if self.focused && focus_rule.is_none() {
+            2.0
+        } else {
+            self.mss.border_width.unwrap_or(1.0)
+        };
 
         list.push_rect_bordered(
             self.bounds,
@@ -725,7 +733,10 @@ impl Element for MultilineTextEditElement {
                     let seg: String = chars[start..end].iter().collect();
                     list.push_text_nowrap(
                         seg.trim_end(),
-                        Rect::new(Point::new(text_x, y), Size::new(text_width, Self::LINE_HEIGHT)),
+                        Rect::new(
+                            Point::new(text_x, y),
+                            Size::new(text_width, Self::LINE_HEIGHT),
+                        ),
                         placeholder_color,
                         Self::FONT_SIZE,
                     );
@@ -1455,7 +1466,10 @@ impl Element for MultilineTextEditElement {
             }
             redraw = true;
         }
-        if self.menu_kept_selection && !self.menu_open.get_untracked() && self.menu_action.get_untracked().is_none() {
+        if self.menu_kept_selection
+            && !self.menu_open.get_untracked()
+            && self.menu_action.get_untracked().is_none()
+        {
             self.menu_kept_selection = false;
             if !self.focused {
                 self.selection.clear();
@@ -1476,7 +1490,9 @@ impl Element for MultilineTextEditElement {
     }
 
     fn wants_animate_tick(&self) -> bool {
-        self.menu_open.get_untracked() || self.menu_action.get_untracked().is_some() || self.menu_kept_selection
+        self.menu_open.get_untracked()
+            || self.menu_action.get_untracked().is_some()
+            || self.menu_kept_selection
     }
 
     fn manages_own_children(&self) -> bool {

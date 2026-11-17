@@ -282,10 +282,11 @@ impl EmbedView {
         }
         if pressed {
             let left = button == MouseButton::Left;
-            let is_double = left && self.last_click.is_some_and(|(t, p)| {
-                let d = ((pos.x - p.x).powi(2) + (pos.y - p.y).powi(2)).sqrt();
-                t.elapsed() < self.double_click_interval && d < 4.0
-            });
+            let is_double = left
+                && self.last_click.is_some_and(|(t, p)| {
+                    let d = ((pos.x - p.x).powi(2) + (pos.y - p.y).powi(2)).sqrt();
+                    t.elapsed() < self.double_click_interval && d < 4.0
+                });
             if is_double {
                 self.last_click = None;
                 self.dispatch(&Event::DoubleClick {
@@ -351,7 +352,11 @@ impl EmbedView {
 
     /// Отладка: состояние касаний и захватов ввода.
     pub fn input_debug(&self) -> String {
-        format!("touch: {}; tree: {}", self.touch.debug(), self.tree.debug_input_state())
+        format!(
+            "touch: {}; tree: {}",
+            self.touch.debug(),
+            self.tree.debug_input_state()
+        )
     }
 
     /// Хост отменил касания (жест забрал композитор).

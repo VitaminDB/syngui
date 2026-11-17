@@ -18,7 +18,9 @@ use crate::lottie::{Composition, Renderer};
 use crate::mss::{ComputedStyle, MssFields};
 use crate::render::{DisplayList, TextureId};
 use crate::signal::RwSignal;
-use crate::widget::{DirtyFlags, Element, ElementId, ElementTree, StyledElement, UpdateContext, Widget};
+use crate::widget::{
+    DirtyFlags, Element, ElementId, ElementTree, StyledElement, UpdateContext, Widget,
+};
 use crate::widgets::ImageFit;
 
 /// Предел стороны растра кадра в пикселях (защита от гигантских областей).
@@ -263,11 +265,18 @@ impl Lottie {
             return (0.0, 0.0);
         };
         if let Some(seg) = self.segment {
-            return (seg.0.max(comp.in_point), seg.1.min(comp.out_point).max(seg.0));
+            return (
+                seg.0.max(comp.in_point),
+                seg.1.min(comp.out_point).max(seg.0),
+            );
         }
         if let Some(name) = &self.marker {
             if let Some(m) = comp.markers.iter().find(|m| &m.name == name) {
-                let end = if m.duration > 0.0 { m.frame + m.duration } else { comp.out_point };
+                let end = if m.duration > 0.0 {
+                    m.frame + m.duration
+                } else {
+                    comp.out_point
+                };
                 return (m.frame, end.min(comp.out_point));
             }
             log::warn!("Lottie: маркер `{name}` не найден, играет вся анимация");
@@ -277,7 +286,8 @@ impl Lottie {
 }
 
 fn empty_composition() -> Composition {
-    Composition::from_str(r#"{"fr":30,"ip":0,"op":1,"w":1,"h":1,"layers":[]}"#).expect("пустая композиция")
+    Composition::from_str(r#"{"fr":30,"ip":0,"op":1,"w":1,"h":1,"layers":[]}"#)
+        .expect("пустая композиция")
 }
 
 /// Декодировать растровые ассеты композиции (PNG/JPEG через `image`).
@@ -286,7 +296,9 @@ fn load_images(comp: &mut Composition, base: Option<&std::path::Path>) {
     comp.load_images(|asset| {
         let bytes = match &asset.embedded {
             Some(b) => b.clone(),
-            None => std::fs::read(base.unwrap_or(std::path::Path::new(".")).join(&asset.path)).ok()?,
+            None => {
+                std::fs::read(base.unwrap_or(std::path::Path::new(".")).join(&asset.path)).ok()?
+            }
         };
         let img = image::load_from_memory(&bytes).ok()?.to_rgba8();
         let (w, h) = img.dimensions();
@@ -316,7 +328,10 @@ fn load_system_glyphs(_comp: &mut Composition) {}
 
 impl Widget for Lottie {
     fn create_element(&self) -> Box<dyn Element> {
-        let comp = self.comp.clone().unwrap_or_else(|| Arc::new(empty_composition()));
+        let comp = self
+            .comp
+            .clone()
+            .unwrap_or_else(|| Arc::new(empty_composition()));
         let (seg_start, seg_end) = self.resolve_segment();
         let natural = (comp.width.max(1.0), comp.height.max(1.0));
         Box::new(LottieElement {
@@ -436,15 +451,25 @@ impl LottieElement {
         match self.fit {
             ImageFit::Fill => self.bounds,
             ImageFit::None => Rect::new(
-                Point::new(self.bounds.x() + (bw - nw) / 2.0, self.bounds.y() + (bh - nh) / 2.0),
+                Point::new(
+                    self.bounds.x() + (bw - nw) / 2.0,
+                    self.bounds.y() + (bh - nh) / 2.0,
+                ),
                 Size::new(nw, nh),
             ),
             ImageFit::Contain | ImageFit::Cover => {
-                let scale = if self.fit == ImageFit::Contain { (bw / nw).min(bh / nh) } else { (bw / nw).max(bh / nh) } * self.zoom;
+                let scale = if self.fit == ImageFit::Contain {
+                    (bw / nw).min(bh / nh)
+                } else {
+                    (bw / nw).max(bh / nh)
+                } * self.zoom;
                 let sw = nw * scale;
                 let sh = nh * scale;
                 Rect::new(
-                    Point::new(self.bounds.x() + (bw - sw) / 2.0, self.bounds.y() + (bh - sh) / 2.0),
+                    Point::new(
+                        self.bounds.x() + (bw - sw) / 2.0,
+                        self.bounds.y() + (bh - sh) / 2.0,
+                    ),
                     Size::new(sw, sh),
                 )
             }
@@ -453,11 +478,17 @@ impl LottieElement {
 
     /// Кадр, который реально рисуется: целый или дробный.
     fn display_frame(&self) -> f32 {
-        let f = self.frame.clamp(self.seg_start, self.seg_end.max(self.seg_start));
+        let f = self
+            .frame
+            .clamp(self.seg_start, self.seg_end.max(self.seg_start));
         // Последний кадр отрезка (`op`) не существует — показываем предыдущий.
         let last = (self.seg_end - 1.0).max(self.seg_start);
         let f = f.min(last);
-        if self.subframe { f } else { f.floor() }
+        if self.subframe {
+            f
+        } else {
+            f.floor()
+        }
     }
 
     /// Нужный сейчас растр: кадр и физический размер области.
@@ -616,7 +647,10 @@ impl Element for LottieElement {
                 let y0 = b.y().max(f.y());
                 let x1 = (b.x() + b.size.width).min(f.x() + f.size.width);
                 let y1 = (b.y() + b.size.height).min(f.y() + f.size.height);
-                Rect::new(Point::new(x0, y0), Size::new((x1 - x0).max(0.0), (y1 - y0).max(0.0)))
+                Rect::new(
+                    Point::new(x0, y0),
+                    Size::new((x1 - x0).max(0.0), (y1 - y0).max(0.0)),
+                )
             };
             let radii = self
                 .mss
@@ -636,7 +670,11 @@ impl Element for LottieElement {
         }
     }
 
-    fn handle_event(&mut self, _event: &Event, _ctx: &mut crate::widget::context::EventContext) -> EventResult {
+    fn handle_event(
+        &mut self,
+        _event: &Event,
+        _ctx: &mut crate::widget::context::EventContext,
+    ) -> EventResult {
         EventResult::Ignored
     }
 
@@ -667,7 +705,11 @@ impl Element for LottieElement {
                         let rel = (self.frame - self.seg_start).rem_euclid(len);
                         self.frame = self.seg_start + rel;
                     } else {
-                        self.frame = if past_end { self.seg_end } else { self.seg_start };
+                        self.frame = if past_end {
+                            self.seg_end
+                        } else {
+                            self.seg_start
+                        };
                         self.set_playing(false);
                         if let Some(cb) = self.on_complete.clone() {
                             cb();
@@ -782,7 +824,8 @@ impl Element for LottieElement {
         selected: Option<&ComputedStyle>,
         _checked: Option<&ComputedStyle>,
     ) {
-        self.mss.apply_transitions(base, hover, active, focus, selected);
+        self.mss
+            .apply_transitions(base, hover, active, focus, selected);
     }
 
     fn accessibility_info(&self) -> Option<crate::a11y::AccessibilityInfo> {

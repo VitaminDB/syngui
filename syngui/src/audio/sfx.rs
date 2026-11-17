@@ -30,9 +30,15 @@ impl Sound {
         let pcm: Vec<f32> = match channels {
             1 => samples.iter().flat_map(|s| [*s, *s]).collect(),
             2 => samples.to_vec(),
-            n => samples.chunks(n as usize).flat_map(|c| [c[0], c[1.min(c.len() - 1)]]).collect(),
+            n => samples
+                .chunks(n as usize)
+                .flat_map(|c| [c[0], c[1.min(c.len() - 1)]])
+                .collect(),
         };
-        Sound { pcm: pcm.into(), sample_rate: sample_rate.max(1) }
+        Sound {
+            pcm: pcm.into(),
+            sample_rate: sample_rate.max(1),
+        }
     }
 
     pub fn duration(&self) -> Duration {
@@ -81,14 +87,27 @@ pub fn load(path: impl AsRef<Path>) -> Result<Sound, AudioError> {
         hint.with_extension(if ext == "oga" { "ogg" } else { ext });
     }
     let probed = symphonia::default::get_probe()
-        .format(&hint, mss, &FormatOptions::default(), &MetadataOptions::default())
+        .format(
+            &hint,
+            mss,
+            &FormatOptions::default(),
+            &MetadataOptions::default(),
+        )
         .map_err(|e| err(&e))?;
     let mut format = probed.format;
-    let track = format.default_track().ok_or_else(|| err(&"нет звуковой дорожки"))?;
+    let track = format
+        .default_track()
+        .ok_or_else(|| err(&"нет звуковой дорожки"))?;
     let track_id = track.id;
-    let mut decoder = symphonia::default::get_codecs().make(&track.codec_params, &DecoderOptions::default()).map_err(|e| err(&e))?;
+    let mut decoder = symphonia::default::get_codecs()
+        .make(&track.codec_params, &DecoderOptions::default())
+        .map_err(|e| err(&e))?;
     let mut rate = track.codec_params.sample_rate.unwrap_or(48_000);
-    let mut channels = track.codec_params.channels.map(|c| c.count() as u16).unwrap_or(2);
+    let mut channels = track
+        .codec_params
+        .channels
+        .map(|c| c.count() as u16)
+        .unwrap_or(2);
     let mut samples: Vec<f32> = Vec::new();
     loop {
         let packet = match format.next_packet() {
@@ -136,7 +155,13 @@ const IDLE_CLOSE: Duration = Duration::from_secs(4);
 
 fn mixer() -> &'static Arc<Mutex<Mixer>> {
     static M: OnceLock<Arc<Mutex<Mixer>>> = OnceLock::new();
-    M.get_or_init(|| Arc::new(Mutex::new(Mixer { voices: Vec::new(), rate: 0, last_active: Instant::now() })))
+    M.get_or_init(|| {
+        Arc::new(Mutex::new(Mixer {
+            voices: Vec::new(),
+            rate: 0,
+            last_active: Instant::now(),
+        }))
+    })
 }
 
 /// Сыграть звук; `volume` — 0..1 (больше 1 — усиление).
@@ -172,7 +197,11 @@ pub fn play(sound: &Sound, volume: f32) {
         if g.voices.len() >= MAX_VOICES {
             g.voices.remove(0);
         }
-        g.voices.push(Voice { pcm, pos: 0, volume });
+        g.voices.push(Voice {
+            pcm,
+            pos: 0,
+            volume,
+        });
         g.last_active = Instant::now();
     }
 }
@@ -181,96 +210,103 @@ pub fn play(sound: &Sound, volume: f32) {
 /// частоту, когда он готов.
 fn open_stream() -> Option<u32> {
     let (tx, rx) = std::sync::mpsc::channel::<Option<u32>>();
-    let spawned = std::thread::Builder::new().name("syngui-sfx".into()).spawn(move || {
-        let host = cpal::default_host();
-        let Ok((device, supported)) = super::player::pick_output_device(&host) else {
-            let _ = tx.send(None);
-            return;
-        };
-        let rate = supported.sample_rate().0;
-        let out_ch = supported.channels() as usize;
-        let format = supported.sample_format();
-        let config: cpal::StreamConfig = supported.into();
-        let m = mixer().clone();
-        let fill = move |out: &mut [f32]| {
-            out.iter_mut().for_each(|s| *s = 0.0);
-            let Ok(mut g) = m.try_lock() else { return };
-            let frames = out.len() / out_ch.max(1);
-            for v in g.voices.iter_mut() {
-                for f in 0..frames {
-                    let i = v.pos + f * 2;
-                    if i + 1 >= v.pcm.len() {
-                        break;
-                    }
-                    let (l, r) = (v.pcm[i] * v.volume, v.pcm[i + 1] * v.volume);
-                    match out_ch {
-                        1 => out[f] += (l + r) * 0.5,
-                        _ => {
-                            out[f * out_ch] += l;
-                            out[f * out_ch + 1] += r;
+    let spawned = std::thread::Builder::new()
+        .name("syngui-sfx".into())
+        .spawn(move || {
+            let host = cpal::default_host();
+            let Ok((device, supported)) = super::player::pick_output_device(&host) else {
+                let _ = tx.send(None);
+                return;
+            };
+            let rate = supported.sample_rate().0;
+            let out_ch = supported.channels() as usize;
+            let format = supported.sample_format();
+            let config: cpal::StreamConfig = supported.into();
+            let m = mixer().clone();
+            let fill = move |out: &mut [f32]| {
+                out.iter_mut().for_each(|s| *s = 0.0);
+                let Ok(mut g) = m.try_lock() else { return };
+                let frames = out.len() / out_ch.max(1);
+                for v in g.voices.iter_mut() {
+                    for f in 0..frames {
+                        let i = v.pos + f * 2;
+                        if i + 1 >= v.pcm.len() {
+                            break;
+                        }
+                        let (l, r) = (v.pcm[i] * v.volume, v.pcm[i + 1] * v.volume);
+                        match out_ch {
+                            1 => out[f] += (l + r) * 0.5,
+                            _ => {
+                                out[f * out_ch] += l;
+                                out[f * out_ch + 1] += r;
+                            }
                         }
                     }
+                    v.pos += frames * 2;
                 }
-                v.pos += frames * 2;
-            }
-            g.voices.retain(|v| v.pos < v.pcm.len());
-            if !g.voices.is_empty() {
-                g.last_active = Instant::now();
-            }
-            out.iter_mut().for_each(|s| *s = s.clamp(-1.0, 1.0));
-        };
-        let errf = |e| log::warn!("звуки интерфейса: {e}");
-        let stream = match format {
-            cpal::SampleFormat::F32 => device.build_output_stream(&config, move |d: &mut [f32], _| fill(d), errf, None),
-            cpal::SampleFormat::I16 => {
-                let mut tmp = Vec::new();
-                device.build_output_stream(
-                    &config,
-                    move |d: &mut [i16], _| {
-                        tmp.resize(d.len(), 0.0);
-                        fill(&mut tmp);
-                        for (o, s) in d.iter_mut().zip(&tmp) {
-                            *o = (s * 32767.0) as i16;
-                        }
-                    },
-                    errf,
-                    None,
-                )
-            }
-            other => {
-                log::warn!("звуки интерфейса: формат {other:?} не поддержан");
+                g.voices.retain(|v| v.pos < v.pcm.len());
+                if !g.voices.is_empty() {
+                    g.last_active = Instant::now();
+                }
+                out.iter_mut().for_each(|s| *s = s.clamp(-1.0, 1.0));
+            };
+            let errf = |e| log::warn!("звуки интерфейса: {e}");
+            let stream = match format {
+                cpal::SampleFormat::F32 => {
+                    device.build_output_stream(&config, move |d: &mut [f32], _| fill(d), errf, None)
+                }
+                cpal::SampleFormat::I16 => {
+                    let mut tmp = Vec::new();
+                    device.build_output_stream(
+                        &config,
+                        move |d: &mut [i16], _| {
+                            tmp.resize(d.len(), 0.0);
+                            fill(&mut tmp);
+                            for (o, s) in d.iter_mut().zip(&tmp) {
+                                *o = (s * 32767.0) as i16;
+                            }
+                        },
+                        errf,
+                        None,
+                    )
+                }
+                other => {
+                    log::warn!("звуки интерфейса: формат {other:?} не поддержан");
+                    let _ = tx.send(None);
+                    return;
+                }
+            };
+            let Ok(stream) = stream else {
+                let _ = tx.send(None);
+                return;
+            };
+            if stream.play().is_err() {
                 let _ = tx.send(None);
                 return;
             }
-        };
-        let Ok(stream) = stream else {
-            let _ = tx.send(None);
-            return;
-        };
-        if stream.play().is_err() {
-            let _ = tx.send(None);
-            return;
-        }
-        if let Ok(mut g) = mixer().lock() {
-            g.rate = rate;
-            g.last_active = Instant::now();
-        }
-        let _ = tx.send(Some(rate));
-        // Держать поток, пока звучит или недавно звучало.
-        loop {
-            std::thread::sleep(Duration::from_millis(250));
-            let idle = mixer().lock().map(|g| g.voices.is_empty() && g.last_active.elapsed() > IDLE_CLOSE).unwrap_or(true);
-            if idle {
-                if let Ok(mut g) = mixer().lock() {
-                    if g.voices.is_empty() {
-                        g.rate = 0;
-                        break;
+            if let Ok(mut g) = mixer().lock() {
+                g.rate = rate;
+                g.last_active = Instant::now();
+            }
+            let _ = tx.send(Some(rate));
+            // Держать поток, пока звучит или недавно звучало.
+            loop {
+                std::thread::sleep(Duration::from_millis(250));
+                let idle = mixer()
+                    .lock()
+                    .map(|g| g.voices.is_empty() && g.last_active.elapsed() > IDLE_CLOSE)
+                    .unwrap_or(true);
+                if idle {
+                    if let Ok(mut g) = mixer().lock() {
+                        if g.voices.is_empty() {
+                            g.rate = 0;
+                            break;
+                        }
                     }
                 }
             }
-        }
-        drop(stream);
-    });
+            drop(stream);
+        });
     if spawned.is_err() {
         return None;
     }
@@ -293,10 +329,16 @@ mod tests {
     #[test]
     fn decodes_wav() {
         let dir = std::env::temp_dir().join("syngui-sfx-test.wav");
-        let spec = hound::WavSpec { channels: 1, sample_rate: 16_000, bits_per_sample: 16, sample_format: hound::SampleFormat::Int };
+        let spec = hound::WavSpec {
+            channels: 1,
+            sample_rate: 16_000,
+            bits_per_sample: 16,
+            sample_format: hound::SampleFormat::Int,
+        };
         let mut w = hound::WavWriter::create(&dir, spec).unwrap();
         for i in 0..1600 {
-            w.write_sample(((i as f32 * 0.1).sin() * 10000.0) as i16).unwrap();
+            w.write_sample(((i as f32 * 0.1).sin() * 10000.0) as i16)
+                .unwrap();
         }
         w.finalize().unwrap();
         let s = load(&dir).unwrap();

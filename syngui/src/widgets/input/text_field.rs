@@ -1092,7 +1092,11 @@ impl Element for TextFieldElement {
                 );
             }
 
-            let text_color = if self.disabled { fg.with_alpha(0.5) } else { fg };
+            let text_color = if self.disabled {
+                fg.with_alpha(0.5)
+            } else {
+                fg
+            };
 
             let display_text;
             let preedit_byte_start;
@@ -1811,7 +1815,10 @@ impl Element for TextFieldElement {
             }
             redraw = true;
         }
-        if self.menu_kept_selection && !self.menu_open.get_untracked() && self.menu_action.get_untracked().is_none() {
+        if self.menu_kept_selection
+            && !self.menu_open.get_untracked()
+            && self.menu_action.get_untracked().is_none()
+        {
             self.menu_kept_selection = false;
             if !self.focused {
                 self.selection.clear();
@@ -1828,7 +1835,9 @@ impl Element for TextFieldElement {
     /// Пока меню открыто (и пока не разобран его выбор) полю нужны кадры:
     /// пункт приходит отложенно, через сигнал.
     fn wants_animate_tick(&self) -> bool {
-        self.menu_open.get_untracked() || self.menu_action.get_untracked().is_some() || self.menu_kept_selection
+        self.menu_open.get_untracked()
+            || self.menu_action.get_untracked().is_some()
+            || self.menu_kept_selection
     }
 
     fn manages_own_children(&self) -> bool {
@@ -1993,7 +2002,9 @@ mod uncontrolled_rebuild_tests {
         let mut ectx = EventContext::new(ElementId::new());
         el.handle_event(&Event::ImeCommit("x".into()), &mut ectx);
         let s = submitted.clone();
-        let w = TextField::with_text("Другое").autofocus(true).on_submit(move |t| *s.lock().unwrap() = t.to_string());
+        let w = TextField::with_text("Другое")
+            .autofocus(true)
+            .on_submit(move |t| *s.lock().unwrap() = t.to_string());
         el.update(&w, &mut UpdateContext::new(ElementId::new()));
         el.handle_event(&Event::KeyDown(Key::Enter), &mut ectx);
         assert_eq!(*submitted.lock().unwrap(), "Другое");
