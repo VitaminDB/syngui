@@ -92,10 +92,30 @@ pub struct GestureDetector {
     pan_axis: PanAxis,
     pan_mouse: bool,
     cursor: CursorIcon,
+    /// Курсор задан явно (`cursor()`); иначе «рука» — только у кликабельных.
+    cursor_explicit: bool,
     classes: Vec<String>,
 }
 
 impl GestureDetector {
+    /// Курсор над областью: явный, «рука» — если по области можно щёлкнуть,
+    /// иначе `None` — курсор не трогается. Детектор только для жестов
+    /// (кнопки мыши «назад/вперёд», двойной щелчок по заголовку окна,
+    /// панорама) раньше ставил «руку» на всю обёрнутую область — в
+    /// приложениях, обёрнутых им целиком, рука была почти везде.
+    fn effective_cursor(&self) -> Option<CursorIcon> {
+        if self.cursor_explicit {
+            return Some(self.cursor);
+        }
+        let clickable = self.on_click.is_some()
+            || self.on_click_at.is_some()
+            || self.on_click_with_bounds.is_some()
+            || self.on_press.is_some()
+            || self.on_release.is_some()
+            || self.on_long_press.is_some();
+        clickable.then_some(CursorIcon::Pointer)
+    }
+
     pub fn new() -> Self {
         Self {
             child: None,
@@ -122,6 +142,7 @@ impl GestureDetector {
             pan_axis: PanAxis::Free,
             pan_mouse: true,
             cursor: CursorIcon::Pointer,
+            cursor_explicit: false,
             classes: Vec::new(),
         }
     }
@@ -273,6 +294,7 @@ impl GestureDetector {
 
     pub fn cursor(mut self, cursor: CursorIcon) -> Self {
         self.cursor = cursor;
+        self.cursor_explicit = true;
         self
     }
 
@@ -323,7 +345,7 @@ impl Widget for GestureDetector {
             pan: None,
             pinch: None,
             mouse_pan: None,
-            cursor: self.cursor,
+            cursor: self.effective_cursor(),
             child_id: None,
             classes: self.classes.clone(),
             dirty_flags: DirtyFlags::LAYOUT | DirtyFlags::RENDER,
@@ -398,7 +420,8 @@ pub struct GestureDetectorElement {
     pinch: Option<PinchState>,
     /// Панорама мышью: начало нажатия; `Some` — кнопка зажата.
     mouse_pan: Option<PanState>,
-    cursor: CursorIcon,
+    /// `None` — курсор над областью не меняется (см. `effective_cursor`).
+    cursor: Option<CursorIcon>,
     child_id: Option<ElementId>,
     classes: Vec<String>,
     dirty_flags: DirtyFlags,
@@ -732,7 +755,7 @@ impl Element for GestureDetectorElement {
             self.on_pinch_end = gd.on_pinch_end.clone();
             self.pan_axis = gd.pan_axis;
             self.pan_mouse = gd.pan_mouse;
-            self.cursor = gd.cursor;
+            self.cursor = gd.effective_cursor();
         }
     }
 
@@ -807,7 +830,9 @@ impl Element for GestureDetectorElement {
                     ctx.request_paint();
                 }
                 if inside {
-                    ctx.set_cursor(self.cursor);
+                    if let Some(cursor) = self.cursor {
+                        ctx.set_cursor(cursor);
+                    }
                     return EventResult::Handled;
                 }
                 EventResult::Ignored
@@ -992,7 +1017,7 @@ impl Element for GestureDetectorElement {
     fn apply_computed_style(&mut self, style: &ComputedStyle) {
         self.mss.apply(style);
         if let Some(c) = self.mss.cursor {
-            self.cursor = c;
+            self.cursor = Some(c);
         }
         self.mark_dirty(DirtyFlags::LAYOUT | DirtyFlags::RENDER);
     }
@@ -1220,5 +1245,23 @@ mod press_tests {
         h.send_events(&crate::testing::click_at(Point::new(50.0, 50.0)));
         assert_eq!(presses.load(Ordering::SeqCst), 2);
         assert_eq!(releases.load(Ordering::SeqCst), 2);
+    }
+}
+
+#[cfg(test)]
+mod cursor_tests {
+    use super::*;
+
+    #[test]
+    fn hand_cursor_only_when_clickable() {
+        // Только жесты (назад, двойной щелчок) — курсор не трогается.
+        let g = GestureDetector::new().on_back(|| true).on_double_click(|| {});
+        assert_eq!(g.effective_cursor(), None);
+        // Щелчок — «рука».
+        let g = GestureDetector::new().on_click(|| {});
+        assert_eq!(g.effective_cursor(), Some(CursorIcon::Pointer));
+        // Явный курсор — как задан.
+        let g = GestureDetector::new().cursor(CursorIcon::Text);
+        assert_eq!(g.effective_cursor(), Some(CursorIcon::Text));
     }
 }
