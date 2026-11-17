@@ -450,6 +450,19 @@ impl AppHandler {
 
     pub(super) fn show_main_window(&mut self) {
         self.last_frame_sig = None;
+        // Wayland не даёт программе развернуть свёрнутое окно или поднять
+        // его поверх других: `set_visible`/`focus` у свёрнутого окна ничего
+        // не делают, и «Показать окно» из трея или второй запуск оставляли
+        // его свёрнутым. Окно без фокуса пересоздаётся — новое появляется
+        // поверх, как после сворачивания в трей.
+        if is_wayland_session()
+            && self
+                .window
+                .as_ref()
+                .is_some_and(|w| !w.winit_window().has_focus())
+        {
+            self.destroy_window_and_gpu();
+        }
         if self.window.is_some() {
             if let Some(window) = self.window.as_ref() {
                 window.set_visible(true);
