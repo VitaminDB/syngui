@@ -131,7 +131,7 @@ pub fn build(app: &App, profile: Profile, publish: bool, abis: Option<Vec<String
         None => (app.work_dir("android"), true),
     };
     if generated {
-        generate(app, &gradle_dir, &lib, &abis)?;
+        generate(app, &gradle_dir, &lib, &abis, !publish)?;
     } else if !gradle_dir.join("local.properties").is_file() {
         util::write(&gradle_dir.join("local.properties"), format!("sdk.dir={}\n", sdk_dir().display()))?;
     }
@@ -236,7 +236,9 @@ fn permission(p: &str) -> String {
 
 /// Сгенерировать gradle-проект из метаданных (перезаписывается при каждой сборке; файлы с тем же
 /// содержимым не трогаются — gradle не пересобирает зря).
-pub fn generate(app: &App, dir: &Path, lib: &str, abis: &[String]) -> Result<()> {
+/// `debuggable` — APK можно отлаживать (`run-as`: файлы приложения, журнал);
+/// только для сборок не на публикацию.
+pub fn generate(app: &App, dir: &Path, lib: &str, abis: &[String], debuggable: bool) -> Result<()> {
     let a = &app.meta.android;
     let id = a.id.clone().unwrap_or_else(|| app.app_id());
     let name = app.display_name();
@@ -296,6 +298,7 @@ android {{
     buildTypes {{
         getByName("release") {{
             isMinifyEnabled = false
+            isDebuggable = {debuggable}
         }}
     }}
 
