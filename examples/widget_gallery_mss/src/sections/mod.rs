@@ -1,3 +1,4 @@
+pub mod advanced;
 pub mod animation;
 pub mod border_test;
 pub mod buttons;
@@ -7,6 +8,7 @@ pub mod containers;
 pub mod data;
 pub mod dialogs;
 pub mod dragdrop;
+pub mod editors;
 pub mod effects;
 pub mod effects_showcase;
 pub mod feedback;
@@ -44,6 +46,11 @@ pub(crate) fn section_title(title: &str) -> impl Widget {
 
 pub(crate) fn label(text: &str) -> impl Widget {
     Text::new(text).class("label")
+}
+
+/// Текст, пересобираемый при смене сигналов, прочитанных в замыкании.
+pub(crate) fn rtext(class: &'static str, f: impl Fn() -> String + Send + Sync + 'static) -> Reactive {
+    Reactive::new(move || vec![Box::new(Text::new(f()).class(class)) as Box<dyn Widget>])
 }
 
 /// Реактивный ребёнок из замыкания, возвращающего `Box<dyn Widget>`

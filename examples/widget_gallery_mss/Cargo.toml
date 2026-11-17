@@ -23,7 +23,7 @@ log = "0.4"
 
 # Desktop: full feature set (clipboard/arboard is desktop-only).
 [target.'cfg(not(target_arch = "wasm32"))'.dependencies]
-syngui = { path = "../../syngui", default-features = false, features = ["winit", "msdf", "effects", "markdown", "markdown-syntax", "material-icons", "clipboard", "i18n"] }
+syngui = { path = "../../syngui", default-features = false, features = ["winit", "msdf", "effects", "markdown", "markdown-syntax", "material-icons", "clipboard", "i18n", "code-editor", "document-editor"] }
 
 # Web: only wasm-safe features (no clipboard/terminal/ffmpeg backends).
 [target.'cfg(target_arch = "wasm32")'.dependencies]

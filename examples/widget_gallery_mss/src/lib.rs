@@ -91,6 +91,8 @@ const SECTIONS: &[Section] = &[
     Section { key: "markdown", icon: "\u{EF42}", group: "content" },
     Section { key: "charts", icon: "\u{E26B}", group: "content" },
     Section { key: "gradients", icon: "\u{E3E9}", group: "content" },
+    Section { key: "editors", icon: "\u{E86F}", group: "content" },
+    Section { key: "advanced", icon: "\u{E1BD}", group: "content" },
     Section { key: "effects-showcase", icon: "\u{E65F}", group: "effects" },
     Section { key: "three-d", icon: "\u{E9FE}", group: "effects" },
     Section { key: "effects", icon: "\u{EA0B}", group: "effects" },
@@ -427,6 +429,8 @@ fn section_page(key: &str) -> Box<dyn Widget> {
         "three-d" => Box::new(page_wrap(sections::three_d::build_three_d_section())),
         "gradients" => Box::new(page_wrap(sections::gradients::build_gradients_section())),
         "charts" => Box::new(sections::charts::build_charts_section()),
+        "editors" => Box::new(page_wrap(sections::editors::build_editors_section())),
+        "advanced" => Box::new(page_wrap(sections::advanced::build_advanced_section())),
         "ffmpeg-video" => {
             #[cfg(feature = "ffmpeg")]
             {
