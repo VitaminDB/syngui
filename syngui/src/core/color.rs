@@ -164,13 +164,33 @@ impl Color {
         0.2126 * self.r + 0.7152 * self.g + 0.0722 * self.b
     }
 
-    /// Чёрный или белый — тот, что контрастнее на этом фоне (порог 0.179 —
-    /// точка равного контраста по WCAG).
+    /// Белый или чёрный текст на этом фоне. Белый — пока его контраст не
+    /// ниже 3:1 (WCAG для кнопок и крупного текста), то есть до яркости
+    /// 0.30. Точка «равного контраста» 0.179 давала чёрный текст на
+    /// насыщенных средних акцентах (синий #3584E4, #3B82F6), где он читается
+    /// хуже белого и выглядит чужим на тёмной теме.
     pub fn readable_on(&self) -> Color {
-        if self.relative_luminance() > 0.179 {
+        if self.relative_luminance() > 0.30 {
             Color::BLACK
         } else {
             Color::WHITE
+        }
+    }
+}
+
+#[cfg(test)]
+mod readable_on_tests {
+    use super::Color;
+
+    #[test]
+    fn white_on_saturated_accents_black_on_light() {
+        // Синие акценты (GNOME, KDE/Tailwind), тёмно-синий — белый текст.
+        for hex in ["#3584E4", "#3B82F6", "#1E40AF"] {
+            assert_eq!(Color::from_hex(hex).readable_on(), Color::WHITE, "{hex}");
+        }
+        // Жёлтый, светло-зелёный, белый — чёрный текст.
+        for hex in ["#F9A825", "#A6E3A1", "#FFFFFF"] {
+            assert_eq!(Color::from_hex(hex).readable_on(), Color::BLACK, "{hex}");
         }
     }
 }
