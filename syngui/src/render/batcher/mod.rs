@@ -485,6 +485,27 @@ mod tests {
         assert!(!b.transform_keeps_pixel_grid());
     }
 
+    /// Радиальная и коническая заливки скругляются, как линейная: каждая
+    /// вершина сетки несёт радиус углов и размер бокса для SDF шейдера.
+    /// Раньше радиус был нулевым, и круглый знак с conic-градиентом
+    /// рисовался квадратом.
+    #[test]
+    fn radial_and_conic_gradients_keep_corner_radius() {
+        use crate::core::{Color, ColorStop, Gradient, GradientShape, Point, Rect, Size};
+        let stops = || vec![ColorStop::new(Color::WHITE, 0.0), ColorStop::new(Color::BLACK, 1.0)];
+        for g in [Gradient::radial(GradientShape::Circle, (0.5, 0.5), stops()), Gradient::conic(0.0, (0.5, 0.5), stops())] {
+            let mut b = Batcher::new();
+            b.set_scale_factor(2.0);
+            let rect = Rect::new(Point::new(0.0, 0.0), Size::new(34.0, 34.0));
+            b.ensure_batch_rect(ShaderType::Rect, None, ClipRect::full_screen(), rect);
+            b.add_linear_gradient_rect(rect, &g, [17.0; 4], None, None);
+            let verts = &b.current_batch_mut().vertices;
+            assert!(!verts.is_empty());
+            assert!(verts.iter().all(|v| v.data == [34.0; 4]), "радиус в физических px");
+            assert!(verts.iter().all(|v| v.data2[2] == 68.0), "ширина бокса для SDF");
+        }
+    }
+
     fn shadow_data2(cutout: bool) -> Vec<[f32; 4]> {
         let mut b = Batcher::new();
         let rect = crate::core::Rect::new(

@@ -333,11 +333,12 @@ impl Batcher {
         &mut self,
         rect: crate::core::Rect,
         gradient: &crate::core::Gradient,
-        _corner_radius: [f32; 4],
-        _border: Option<&crate::render::Border>,
+        corner_radius: [f32; 4],
+        border: Option<&crate::render::Border>,
     ) {
         let origin = rect.origin;
         let size = rect.size;
+        let sf = self.scale_factor;
 
         let grid = match gradient {
             crate::core::Gradient::Radial { quality, .. } => *quality as usize,
@@ -368,8 +369,23 @@ impl Batcher {
 
         let half_min = size.width.min(size.height) / 2.0;
 
-        let scaled_radius = [0.0f32; 4];
-        let border_data = [0.0, 0.0, 0.0, 0.0];
+        // Скругление и рамка — тем же SDF, что у линейного градиента: `uv`
+        // вершин сетки покрывают весь прямоугольник, его размер — в `data2`.
+        // Без этого круглый бокс с radial/conic-заливкой рисовался квадратом.
+        let scaled_radius = corner_radius.map(|r| r * sf);
+        let packed_hw = (size.height * sf).round() * 256.0 + 255.0;
+        let border_data = match border {
+            Some(b) => {
+                let packed_rgb = {
+                    let ri = (b.color.r * 255.0).round() as u32;
+                    let gi = (b.color.g * 255.0).round() as u32;
+                    let bi = (b.color.b * 255.0).round() as u32;
+                    (ri * 65536 + gi * 256 + bi) as f32
+                };
+                [b.width * sf, packed_rgb, size.width * sf, packed_hw]
+            }
+            None => [0.0, 0.0, size.width * sf, packed_hw],
+        };
 
         let transform = self.current_transform;
         let opacity = self.current_opacity;
