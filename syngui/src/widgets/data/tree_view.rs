@@ -219,6 +219,8 @@ pub struct TreeView {
     /// Правый щелчок по строке: выделить её и сообщить id (вместо `on_select`) —
     /// контекстное меню знает, над чем открыто.
     on_context: Option<Arc<Mutex<dyn FnMut(&str) + Send>>>,
+    /// Двойной щелчок по строке (открыть элемент): `f(id)` — после `on_select` первого щелчка.
+    on_activate: Option<Arc<Mutex<dyn FnMut(&str) + Send>>>,
     on_key: Option<KeyCb>,
     on_navigate: Option<Arc<Mutex<dyn FnMut(&str) + Send>>>,
     on_selection: Option<Arc<Mutex<dyn FnMut(&[String]) + Send>>>,
@@ -241,6 +243,7 @@ impl TreeView {
             on_select: None,
             on_toggle: None,
             on_context: None,
+            on_activate: None,
             on_key: None,
             on_navigate: None,
             on_selection: None,
@@ -306,6 +309,12 @@ impl TreeView {
         self
     }
 
+    /// Двойной щелчок по строке — «открыть»: `f(id)`; первый щелчок пары уже вызвал `on_select`.
+    pub fn on_activate(mut self, f: impl FnMut(&str) + Send + 'static) -> Self {
+        self.on_activate = Some(Arc::new(Mutex::new(f)));
+        self
+    }
+
     /// Правый щелчок по строке: строка выделяется, вызывается `f(id)` (не `on_select`).
     pub fn on_context(mut self, f: impl FnMut(&str) + Send + 'static) -> Self {
         self.on_context = Some(Arc::new(Mutex::new(f)));
@@ -358,6 +367,7 @@ impl TreeView {
             on_select: self.on_select.clone(),
             on_toggle: self.on_toggle.clone(),
             on_context: self.on_context.clone(),
+            on_activate: self.on_activate.clone(),
             on_key: self.on_key.clone(),
             on_navigate: self.on_navigate.clone(),
             on_selection: self.on_selection.clone(),
@@ -456,6 +466,7 @@ pub struct TreeViewElement {
     on_select: Option<Arc<Mutex<dyn FnMut(&str) + Send>>>,
     on_toggle: Option<Arc<Mutex<dyn FnMut(&str, bool) + Send>>>,
     on_context: Option<Arc<Mutex<dyn FnMut(&str) + Send>>>,
+    on_activate: Option<Arc<Mutex<dyn FnMut(&str) + Send>>>,
     on_key: Option<KeyCb>,
     on_navigate: Option<Arc<Mutex<dyn FnMut(&str) + Send>>>,
     on_selection: Option<Arc<Mutex<dyn FnMut(&[String]) + Send>>>,
@@ -1043,6 +1054,7 @@ impl Element for TreeViewElement {
             self.on_select = tv.on_select.clone();
             self.on_toggle = tv.on_toggle.clone();
             self.on_context = tv.on_context.clone();
+            self.on_activate = tv.on_activate.clone();
             self.on_key = tv.on_key.clone();
             self.on_navigate = tv.on_navigate.clone();
             self.on_selection = tv.on_selection.clone();
@@ -1477,6 +1489,25 @@ impl Element for TreeViewElement {
 
                 ctx.set_cursor(CursorIcon::Pointer);
                 EventResult::Handled
+            }
+            Event::DoubleClick { button, position } if *button == MouseButton::Left && self.on_activate.is_some() => {
+                if !self.bounds.contains(*position) {
+                    return EventResult::Ignored;
+                }
+                // двойной щелчок по стрелке — не открытие (стрелка уже переключила узел)
+                match self.row_at_y(position.y).filter(|&i| !self.is_in_arrow_zone(position.x, i)) {
+                    Some(idx) => {
+                        let node_id = self.flat_nodes[idx].id.clone();
+                        if let Some(ref cb) = self.on_activate {
+                            if let Ok(mut f) = cb.lock() {
+                                f(&node_id);
+                            }
+                        }
+                        ctx.request_paint();
+                        EventResult::Handled
+                    }
+                    None => EventResult::Ignored,
+                }
             }
             Event::MouseDown { button, position } if *button == MouseButton::Right => {
                 if !self.bounds.contains(*position) {
@@ -2085,6 +2116,26 @@ mod tests {
             containing_block: Size::new(100.0, 400.0),
         });
         assert_eq!(el.row_geometry(0).height, 26.0);
+    }
+
+    #[test]
+    fn double_click_activates_row() {
+        use crate::input::{Event, MouseButton};
+        use crate::testing::TestHarness;
+        use std::sync::{Arc, Mutex};
+        let got = Arc::new(Mutex::new(Vec::<String>::new()));
+        let g2 = got.clone();
+        let tree = TreeView::new(vec![TreeNode::leaf("a", "a"), TreeNode::leaf("b", "b")])
+            .item_height(20.0)
+            .selection_mode(SelectionMode::Single)
+            .on_activate(move |id| g2.lock().unwrap().push(id.to_string()));
+        let mut h = TestHarness::new(Box::new(tree));
+        h.layout(200.0, 200.0);
+        // одиночный щелчок — не открытие
+        h.send_event(&Event::MouseDown { button: MouseButton::Left, position: crate::core::Point::new(60.0, 25.0) });
+        assert!(got.lock().unwrap().is_empty());
+        h.send_event(&Event::DoubleClick { button: MouseButton::Left, position: crate::core::Point::new(60.0, 25.0) });
+        assert_eq!(*got.lock().unwrap(), vec!["b".to_string()]);
     }
 
     #[test]

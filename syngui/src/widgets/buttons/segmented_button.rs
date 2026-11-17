@@ -17,6 +17,8 @@ use std::sync::Arc;
 pub struct Segment {
     pub label: String,
     pub icon: Option<String>,
+    /// Сегмент виден, но выбрать его нельзя (приглушён, не реагирует на мышь и клавиши).
+    pub disabled: bool,
 }
 
 impl Segment {
@@ -24,6 +26,7 @@ impl Segment {
         Self {
             label: label.into(),
             icon: None,
+            disabled: false,
         }
     }
 
@@ -31,6 +34,7 @@ impl Segment {
         Self {
             label: label.into(),
             icon: Some(icon.into()),
+            disabled: false,
         }
     }
 
@@ -38,7 +42,14 @@ impl Segment {
         Self {
             label: String::new(),
             icon: Some(icon.into()),
+            disabled: false,
         }
+    }
+
+    /// Выключить один сегмент (остальные работают).
+    pub fn disabled(mut self, disabled: bool) -> Self {
+        self.disabled = disabled;
+        self
     }
 }
 
@@ -311,8 +322,11 @@ impl Element for SegmentedButtonElement {
                 base_bg.darken(0.08)
             };
             let selected_bg = self.selected_bg.unwrap_or(accent);
+            let seg_off = self.segments[i].disabled;
             let bg = if self.disabled {
                 base_bg.darken(0.02)
+            } else if seg_off && i != self.selected {
+                base_bg
             } else if i == self.selected {
                 // Полупрозрачная подложка ложится на фон сегмента, а не на то,
                 // что под виджетом.
@@ -328,7 +342,7 @@ impl Element for SegmentedButtonElement {
 
             list.push_rect(seg_rect, bg, radius);
 
-            let text_col = if self.disabled {
+            let text_col = if self.disabled || (seg_off && i != self.selected) {
                 base_fg.with_alpha(0.4)
             } else if i == self.selected {
                 self.selected_fg.unwrap_or(Color::WHITE)
@@ -423,8 +437,10 @@ impl Element for SegmentedButtonElement {
             Event::MouseMove(pos) => {
                 let was = self.hovered_index;
                 if self.bounds.contains(*pos) {
-                    self.hovered_index = self.index_at_x(pos.x);
-                    ctx.set_cursor(CursorIcon::Pointer);
+                    self.hovered_index = self.index_at_x(pos.x).filter(|&i| !self.segments[i].disabled);
+                    if self.hovered_index.is_some() {
+                        ctx.set_cursor(CursorIcon::Pointer);
+                    }
                 } else {
                     self.hovered_index = None;
                 }
@@ -440,7 +456,7 @@ impl Element for SegmentedButtonElement {
             Event::MouseDown { button, position }
                 if *button == MouseButton::Left && self.bounds.contains(*position) =>
             {
-                self.pressed_index = self.index_at_x(position.x);
+                self.pressed_index = self.index_at_x(position.x).filter(|&i| !self.segments[i].disabled);
                 ctx.request_paint();
                 EventResult::Handled
             }
@@ -474,8 +490,9 @@ impl Element for SegmentedButtonElement {
                 EventResult::Handled
             }
             Event::KeyDown(Key::Left) if self.focused && !self.segments.is_empty() => {
-                if self.selected > 0 {
-                    self.selected -= 1;
+                // выключенные сегменты клавиатурой пропускаются
+                if let Some(prev) = (0..self.selected).rev().find(|&i| !self.segments[i].disabled) {
+                    self.selected = prev;
                     if let Some(ref cb) = self.on_change {
                         if let Ok(mut f) = cb.lock() {
                             f(self.selected);
@@ -486,8 +503,8 @@ impl Element for SegmentedButtonElement {
                 EventResult::Handled
             }
             Event::KeyDown(Key::Right) if self.focused && !self.segments.is_empty() => {
-                if self.selected + 1 < self.segments.len() {
-                    self.selected += 1;
+                if let Some(next) = (self.selected + 1..self.segments.len()).find(|&i| !self.segments[i].disabled) {
+                    self.selected = next;
                     if let Some(ref cb) = self.on_change {
                         if let Ok(mut f) = cb.lock() {
                             f(self.selected);
