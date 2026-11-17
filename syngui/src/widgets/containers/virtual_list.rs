@@ -77,6 +77,8 @@ pub struct VirtualList {
     reset_key: u64,
     scroll_to: Option<(u64, u64)>,
     scrollbar_policy: ScrollbarPolicy,
+    content_width: Option<f32>,
+    initial_scroll_x: f32,
 }
 
 impl VirtualList {
@@ -90,7 +92,23 @@ impl VirtualList {
             reset_key: 0,
             scroll_to: None,
             scrollbar_policy: ScrollbarPolicy::Auto,
+            content_width: None,
+            initial_scroll_x: 0.0,
         }
+    }
+
+    /// Строки шире области: лента раскладывается этой ширины и двигается
+    /// и вбок. Палец тянет её свободно по обеим осям, как карту (листы
+    /// документа на увеличении), колесо с Shift — вбок.
+    pub fn content_width(mut self, width: f32) -> Self {
+        self.content_width = Some(width.max(0.0));
+        self
+    }
+
+    /// Сдвиг вбок при первом показе (например, на середину широкого листа).
+    pub fn initial_scroll_x(mut self, x: f32) -> Self {
+        self.initial_scroll_x = x.max(0.0);
+        self
     }
 
     pub fn gap(mut self, gap: f32) -> Self {
@@ -163,6 +181,10 @@ impl Widget for VirtualList {
             scroll_to_gen: self.scroll_to.map(|(_, g)| g).unwrap_or(0),
             pending_scroll_to: self.scroll_to.map(|(k, _)| k),
             scroll_y: 0.0,
+            scroll_x: 0.0,
+            velocity_x: 0.0,
+            content_width: self.content_width,
+            pending_scroll_x: (self.initial_scroll_x > 0.0).then_some(self.initial_scroll_x),
             stick: self.follow_end,
             velocity: 0.0,
             is_coasting: false,
@@ -242,6 +264,11 @@ struct VirtualListElement {
     pending_scroll_to: Option<u64>,
 
     scroll_y: f32,
+    /// Сдвиг вбок, когда задана [`VirtualList::content_width`].
+    scroll_x: f32,
+    velocity_x: f32,
+    content_width: Option<f32>,
+    pending_scroll_x: Option<f32>,
     /// Список держится низа (см. [`VirtualList::follow_end`]).
     stick: bool,
     velocity: f32,
@@ -322,6 +349,14 @@ impl VirtualListElement {
         (self.content_height() - self.viewport_height()).max(0.0)
     }
 
+    fn max_scroll_x(&self) -> f32 {
+        let Some(cw) = self.content_width else {
+            return 0.0;
+        };
+        let vw = (self.bounds.size.width - self.padding.left - self.padding.right).max(0.0);
+        (cw - vw).max(0.0)
+    }
+
     /// Первая строка, чей низ ниже `y`. Бинарный поиск по префиксным суммам.
     fn row_at(&self, y: f32) -> usize {
         if self.rows.is_empty() {
@@ -371,6 +406,7 @@ impl VirtualListElement {
     }
 
     fn clamp_scroll(&mut self) {
+        self.scroll_x = self.scroll_x.clamp(0.0, self.max_scroll_x());
         let max = self.max_scroll();
         if self.scroll_y > max {
             self.scroll_y = max;
@@ -390,6 +426,11 @@ impl VirtualListElement {
             && self.scrollbar_opacity > 0.0
             && !self.hover_scrollbar_area;
         self.is_coasting || fading
+    }
+
+    /// Можно ли двигать пальцем хоть по одной оси.
+    fn touch_scrollable(&self) -> bool {
+        self.max_scroll() > 0.0 || self.max_scroll_x() > 0.0
     }
 
     fn scrollbar_track(&self) -> Rect {
@@ -469,6 +510,10 @@ impl Element for VirtualListElement {
         self.follow_end = w.follow_end;
         self.overscan = w.overscan;
         self.scrollbar_policy = w.scrollbar_policy;
+        if self.content_width != w.content_width {
+            self.content_width = w.content_width;
+            self.mark_dirty(DirtyFlags::LAYOUT | DirtyFlags::RENDER);
+        }
 
         let same_rows = self.rows.len() == w.rows.len()
             && self
@@ -525,6 +570,12 @@ impl Element for VirtualListElement {
         if self.stick {
             self.scroll_y = self.max_scroll();
         }
+        if let Some(x) = self.pending_scroll_x {
+            if self.max_scroll_x() > 0.0 {
+                self.scroll_x = x;
+                self.pending_scroll_x = None;
+            }
+        }
         self.clamp_scroll();
         Size::new(w, h)
     }
@@ -535,7 +586,7 @@ impl Element for VirtualListElement {
             top: self.padding.top,
             right: self.padding.right + self.scrollbar_width,
             bottom: self.padding.bottom,
-            unbounded_width: false,
+            unbounded_width: self.content_width.is_some(),
             unbounded_height: true,
         }
     }
@@ -605,12 +656,18 @@ impl Element for VirtualListElement {
                 Box::new(Keyed::from_arc(r.key, r.version, r.builder.clone())) as Box<dyn Widget>
             })
             .collect();
-        vec![Box::new(
-            Column::new()
-                .gap(self.gap)
-                .cross_axis_alignment(CrossAxisAlignment::Stretch)
-                .children(children),
-        )]
+        let column = Column::new()
+            .gap(self.gap)
+            .cross_axis_alignment(CrossAxisAlignment::Stretch)
+            .children(children);
+        match self.content_width {
+            Some(w) => vec![Box::new(crate::widget::styled::WidgetExt::style(
+                crate::widgets::DecoratedBox::new().child(column),
+                "width",
+                w,
+            ))],
+            None => vec![Box::new(column)],
+        }
     }
 
     fn clear_rebuild(&mut self) {
@@ -636,7 +693,7 @@ impl Element for VirtualListElement {
             }
         }
         list.push_clip(self.bounds);
-        list.push_transform(Transform::translation(0.0, -self.shift()));
+        list.push_transform(Transform::translation(-self.scroll_x, -self.shift()));
     }
 
     fn post_build_display_list(&self, list: &mut DisplayList, _clip: Rect) {
@@ -793,12 +850,13 @@ impl Element for VirtualListElement {
             }
 
             Event::TouchStart { id, position } => {
-                if !self.bounds.contains(*position) || self.max_scroll() <= 0.0 {
+                if !self.bounds.contains(*position) || !self.touch_scrollable() {
                     return EventResult::Ignored;
                 }
                 self.touch_drag_start = Some(*position);
                 self.touch_id = Some(*id);
                 self.velocity = 0.0;
+                self.velocity_x = 0.0;
                 self.is_coasting = false;
                 EventResult::Handled
             }
@@ -813,6 +871,12 @@ impl Element for VirtualListElement {
                 self.scroll_y = (self.scroll_y + dy).clamp(0.0, self.max_scroll());
                 let alpha = 0.3;
                 self.velocity = self.velocity * (1.0 - alpha) + dy * VELOCITY_SCALE * alpha;
+                // Широкая лента: палец ведёт её свободно, по обеим осям сразу.
+                if self.max_scroll_x() > 0.0 {
+                    let dx = start.x - position.x;
+                    self.scroll_x = (self.scroll_x + dx).clamp(0.0, self.max_scroll_x());
+                    self.velocity_x = self.velocity_x * (1.0 - alpha) + dx * VELOCITY_SCALE * alpha;
+                }
                 self.touch_drag_start = Some(*position);
                 self.refresh_stick();
                 self.flash_scrollbar();
@@ -826,7 +890,7 @@ impl Element for VirtualListElement {
                 }
                 self.touch_drag_start = None;
                 self.touch_id = None;
-                if self.velocity.abs() > 1.0 {
+                if self.velocity.abs() > 1.0 || self.velocity_x.abs() > 1.0 {
                     self.is_coasting = true;
                 }
                 ctx.request_paint();
@@ -844,11 +908,16 @@ impl Element for VirtualListElement {
         }
         let mut repaint = false;
         if self.is_coasting {
-            self.velocity *= FRICTION.powf(dt_secs * 60.0);
+            let friction = FRICTION.powf(dt_secs * 60.0);
+            self.velocity *= friction;
+            self.velocity_x *= friction;
             self.scroll_y = (self.scroll_y + self.velocity * dt_secs).clamp(0.0, self.max_scroll());
-            if self.velocity.abs() < MIN_VELOCITY {
+            self.scroll_x =
+                (self.scroll_x + self.velocity_x * dt_secs).clamp(0.0, self.max_scroll_x());
+            if self.velocity.abs() < MIN_VELOCITY && self.velocity_x.abs() < MIN_VELOCITY {
                 self.is_coasting = false;
                 self.velocity = 0.0;
+                self.velocity_x = 0.0;
             }
             self.refresh_stick();
             self.mark_dirty(DirtyFlags::LAYOUT | DirtyFlags::RENDER);
@@ -877,7 +946,7 @@ impl Element for VirtualListElement {
     }
 
     fn scroll_offset(&self) -> Point {
-        Point::new(0.0, self.shift())
+        Point::new(self.scroll_x, self.shift())
     }
 
     fn is_scroll_container(&self) -> bool {
@@ -1035,6 +1104,31 @@ mod tests {
 
     fn built_rows(h: &TestHarness) -> usize {
         h.find_by_type_name("Keyed").len()
+    }
+
+    /// Лента шире области (`content_width`): палец ведёт её по обеим осям
+    /// сразу, первый показ — со сдвигом `initial_scroll_x`.
+    #[test]
+    fn wide_content_pans_both_axes() {
+        crate::signal::allow_signal_reads_on_this_thread();
+        let builds = Arc::new(AtomicUsize::new(0));
+        let mut h = TestHarness::new(Box::new(
+            list(200, false, builds)
+                .content_width(1000.0)
+                .initial_scroll_x(100.0),
+        ));
+        let engine = h.apply_mss(MSS);
+        h.frame(Some(&engine), 600.0, VIEW_H);
+        let vl = h.find_by_type_name("VirtualList")[0];
+        let start = h.tree.get(vl).unwrap().scroll_offset();
+        assert!((start.x - 100.0).abs() < 0.5, "начальный сдвиг: {start:?}");
+        h.touch_down(1, Point::new(300.0, 500.0));
+        h.touch_move(1, Point::new(250.0, 450.0));
+        h.touch_move(1, Point::new(200.0, 400.0));
+        h.frame(Some(&engine), 600.0, VIEW_H);
+        let now = h.tree.get(vl).unwrap().scroll_offset();
+        assert!(now.x > start.x + 50.0, "вбок: {now:?}");
+        assert!(now.y > 50.0, "вниз: {now:?}");
     }
 
     /// Строится только видимое окно с запасом, а не вся лента.

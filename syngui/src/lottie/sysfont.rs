@@ -172,21 +172,18 @@ pub fn load_missing_glyphs(comp: &mut Composition) -> usize {
     let mut ctx = ScaleContext::new();
     for ((family, style), chars) in by_font {
         let weight = weight_of(&style);
-        let found = crate::text::font_discovery::discover_styled(
-            &family,
-            weight,
-            is_italic(&style),
-        )
-        .or_else(|| {
-            // Семейства нет в системе — универсальный шрифт того же веса.
-            log::info!(
+        let found =
+            crate::text::font_discovery::discover_styled(&family, weight, is_italic(&style))
+                .or_else(|| {
+                    // Семейства нет в системе — универсальный шрифт того же веса.
+                    log::info!(
                 "lottie: шрифт `{family}` ({style}) не найден, берётся системный по весу {weight}"
             );
-            Some(crate::text::font_discovery::discover_weight_font(
-                None, weight,
-            ))
-            .filter(|(d, _)| !d.is_empty())
-        });
+                    Some(crate::text::font_discovery::discover_weight_font(
+                        None, weight,
+                    ))
+                    .filter(|(d, _)| !d.is_empty())
+                });
         let Some((data, index)) = found else {
             log::warn!("lottie: системный шрифт для `{family}` не найден — текст будет пропущен");
             continue;
