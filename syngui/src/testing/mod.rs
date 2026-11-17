@@ -422,6 +422,147 @@ impl TestHarness {
     }
 }
 
+/// Окна приложения без дисплея. Заявки [`open_window`](crate::app::open_window),
+/// [`close_window`](crate::app::close_window) и `WindowHandle::*` выполняются
+/// тем же кодом, что в цикле событий: корень собирается с владельцем эффектов
+/// окна, закрытие освобождает дерево и эффекты сборщика, отмечает ручку
+/// закрытой и зовёт `on_close`. Вместо окна ОС — [`TestHarness`].
+#[cfg(feature = "winit")]
+pub struct WindowHost {
+    windows: Vec<HostedWindow>,
+    focused: Vec<crate::app::WindowHandle>,
+    main_close_requests: usize,
+}
+
+#[cfg(feature = "winit")]
+struct HostedWindow {
+    handle: crate::app::WindowHandle,
+    harness: TestHarness,
+    on_close: Option<std::rc::Rc<dyn Fn()>>,
+    close_guard: Option<std::rc::Rc<dyn Fn() -> bool>>,
+}
+
+#[cfg(feature = "winit")]
+impl Default for WindowHost {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+#[cfg(feature = "winit")]
+impl WindowHost {
+    pub fn new() -> Self {
+        signal::allow_signal_reads_on_this_thread();
+        Self {
+            windows: Vec::new(),
+            focused: Vec::new(),
+            main_close_requests: 0,
+        }
+    }
+
+    /// Выполнить накопленные заявки окон — как проход цикла событий.
+    pub fn pump(&mut self) {
+        use crate::app::window_handle::{self as wh, WindowCommand};
+        for cmd in wh::take_commands() {
+            match cmd {
+                WindowCommand::Open {
+                    handle,
+                    config,
+                    build,
+                } => {
+                    let mut tree = ElementTree::new();
+                    let root_id = wh::mount_window_root(handle, &mut tree, build);
+                    tree.set_root(root_id);
+                    self.windows.push(HostedWindow {
+                        handle,
+                        harness: TestHarness {
+                            tree,
+                            root_id,
+                            frame_a11y: None,
+                            a11y_dirty: true,
+                            touch: crate::input::TouchTracker::new(),
+                            pen: crate::input::PenTracker::new(),
+                        },
+                        on_close: config.on_close,
+                        close_guard: config.close_guard,
+                    });
+                }
+                WindowCommand::Close(handle) => {
+                    if handle.is_main() {
+                        self.main_close_requests += 1;
+                    } else {
+                        self.release(handle);
+                    }
+                }
+                WindowCommand::SetTitle(..) => {}
+                WindowCommand::Focus(handle) => self.focused.push(handle),
+            }
+        }
+    }
+
+    /// Дерево открытого окна.
+    pub fn window(&mut self, handle: crate::app::WindowHandle) -> Option<&mut TestHarness> {
+        self.windows
+            .iter_mut()
+            .find(|w| w.handle == handle)
+            .map(|w| &mut w.harness)
+    }
+
+    /// Открытые окна в порядке открытия.
+    pub fn open(&self) -> Vec<crate::app::WindowHandle> {
+        self.windows.iter().map(|w| w.handle).collect()
+    }
+
+    /// Окна, которые просили поднять (`WindowHandle::focus`).
+    pub fn focus_requests(&self) -> &[crate::app::WindowHandle] {
+        &self.focused
+    }
+
+    /// Сколько раз просили закрыть главное окно.
+    pub fn main_close_requests(&self) -> usize {
+        self.main_close_requests
+    }
+
+    /// Пользователь закрывает окно (✕, Alt+F4): с проверкой
+    /// `WindowConfig::on_close_request`. `true` — закрылось.
+    pub fn user_close(&mut self, handle: crate::app::WindowHandle) -> bool {
+        let Some(w) = self.windows.iter().find(|w| w.handle == handle) else {
+            return false;
+        };
+        if let Some(guard) = w.close_guard.clone() {
+            if !guard() {
+                return false;
+            }
+        }
+        self.release(handle);
+        true
+    }
+
+    /// Запросы закрытия из деревьев окон (`EventContext::close_window`,
+    /// `WindowControl::close`) — как цикл событий после события окна:
+    /// закрывается то окно, чьё дерево попросило.
+    pub fn process_window_requests(&mut self) {
+        let asked: Vec<crate::app::WindowHandle> = self
+            .windows
+            .iter_mut()
+            .filter_map(|w| {
+                std::mem::take(&mut w.harness.tree.window_close_request).then_some(w.handle)
+            })
+            .collect();
+        for handle in asked {
+            self.user_close(handle);
+        }
+    }
+
+    fn release(&mut self, handle: crate::app::WindowHandle) {
+        let Some(pos) = self.windows.iter().position(|w| w.handle == handle) else {
+            return;
+        };
+        let w = self.windows.remove(pos);
+        crate::app::window_handle::release_window(handle, w.harness.tree, w.on_close);
+    }
+}
+
 pub fn click_at(point: Point) -> Vec<Event> {
     vec![
         Event::MouseMove(point),
