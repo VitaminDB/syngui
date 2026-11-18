@@ -414,13 +414,6 @@ impl Element for SplitViewElement {
             .divider_thickness
             .unwrap_or(self.divider())
             .max(0.0);
-        // Тонкая линия (1–2 px) при наведении и перетаскивании утолщается до
-        // 3 px (не шире зоны захвата) — подсветку видно.
-        let visual_t = if self.dragging || self.hover_divider {
-            visual_t.max(3.0_f32.min(self.divider()))
-        } else {
-            visual_t
-        };
         let visual = if is_h {
             let cx = hit.x() + (hit.size.width - visual_t) / 2.0;
             Rect::new(
