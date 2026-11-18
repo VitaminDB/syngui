@@ -69,7 +69,9 @@ impl Registry {
         let mut reg = Registry {
             app: Vec::new(),
             builtin,
-            requested: Lang::en(),
+            // язык системы (LC_ALL/LC_MESSAGES/LANG…): встроенные строки виджетов («Копировать» в меню
+            // таблицы и т. п.) — сразу на языке пользователя, даже если приложение не вызвало set_language
+            requested: system::system_language(),
             source: None,
             chain: Vec::new(),
             missing: HashSet::new(),
