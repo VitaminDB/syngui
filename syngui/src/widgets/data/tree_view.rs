@@ -226,10 +226,14 @@ pub struct TreeView {
     on_selection: Option<Arc<Mutex<dyn FnMut(&[String]) + Send>>>,
     renaming: Option<String>,
     on_rename: Option<RenameCb>,
+    on_drop: Option<DropCb>,
     width: Option<Dimension>,
     height: Option<Dimension>,
     classes: Vec<String>,
 }
+
+/// Перетаскивание строки на другую: `f(откуда, куда)` (id строк).
+type DropCb = Arc<Mutex<dyn FnMut(&str, &str) + Send>>;
 
 impl TreeView {
     pub fn new(nodes: Vec<TreeNode>) -> Self {
@@ -244,6 +248,7 @@ impl TreeView {
             on_toggle: None,
             on_context: None,
             on_activate: None,
+            on_drop: None,
             on_key: None,
             on_navigate: None,
             on_selection: None,
@@ -315,6 +320,14 @@ impl TreeView {
         self
     }
 
+    /// Перетаскивание строк: зажать строку, сдвинуть больше чем на 6 px — начинается перенос, строка
+    /// под курсором подсвечивается; отпускание над другой строкой вызывает `f(откуда, куда)`.
+    /// Без обработчика перетаскивания нет.
+    pub fn on_drop(mut self, f: impl FnMut(&str, &str) + Send + 'static) -> Self {
+        self.on_drop = Some(Arc::new(Mutex::new(f)));
+        self
+    }
+
     /// Правый щелчок по строке: строка выделяется, вызывается `f(id)` (не `on_select`).
     pub fn on_context(mut self, f: impl FnMut(&str) + Send + 'static) -> Self {
         self.on_context = Some(Arc::new(Mutex::new(f)));
@@ -372,6 +385,8 @@ impl TreeView {
             on_navigate: self.on_navigate.clone(),
             on_selection: self.on_selection.clone(),
             on_rename: self.on_rename.clone(),
+            on_drop: self.on_drop.clone(),
+            drag: None,
             rename_req: None,
             edit: None,
             anchor: None,
@@ -471,6 +486,9 @@ pub struct TreeViewElement {
     on_navigate: Option<Arc<Mutex<dyn FnMut(&str) + Send>>>,
     on_selection: Option<Arc<Mutex<dyn FnMut(&[String]) + Send>>>,
     on_rename: Option<RenameCb>,
+    on_drop: Option<DropCb>,
+    /// Перетаскивание: (id зажатой строки, точка нажатия, идёт ли перенос, строка-цель под курсором).
+    drag: Option<(String, Point, bool, Option<usize>)>,
     /// Последний запрошенный приложением id переименования (чтобы не пересоздавать поле).
     rename_req: Option<String>,
     /// Идёт переименование строки на месте.
@@ -1059,6 +1077,7 @@ impl Element for TreeViewElement {
             self.on_navigate = tv.on_navigate.clone();
             self.on_selection = tv.on_selection.clone();
             self.on_rename = tv.on_rename.clone();
+            self.on_drop = tv.on_drop.clone();
             self.fixed_width = tv.width;
             self.fixed_height = tv.height;
             self.reflatten();
@@ -1128,7 +1147,11 @@ impl Element for TreeViewElement {
             let is_selected = self.selected.contains(&node.id);
             let is_hovered = self.hovered_index == Some(i);
             let pill = self.pill_rect(node, row_rect);
-            if is_selected {
+            // цель перетаскивания — рамкой цвета акцента
+            let is_drop_target = matches!(self.drag, Some((_, _, true, Some(t))) if t == i);
+            if is_drop_target {
+                list.push_rect_bordered(pill, primary.with_alpha(0.25), [ROW_PILL_RADIUS; 4], Border::new(2.0, primary));
+            } else if is_selected {
                 list.push_rect_bordered(
                     pill,
                     primary.with_alpha(0.15),
@@ -1434,6 +1457,20 @@ impl Element for TreeViewElement {
                     return EventResult::Captured;
                 }
 
+                // перетаскивание строки: сдвиг больше порога — перенос, цель — строка под курсором
+                if let Some((src, start, active, target)) = self.drag.clone() {
+                    let moved = (pos.x - start.x).abs() + (pos.y - start.y).abs() > 6.0;
+                    if active || moved {
+                        let new_target = if self.bounds.contains(*pos) { self.row_at_y(pos.y).filter(|i| self.flat_nodes.get(*i).is_some_and(|n| n.id != src)) } else { None };
+                        if !active || new_target != target {
+                            self.drag = Some((src, start, true, new_target));
+                            self.tip = None;
+                            ctx.request_paint();
+                        }
+                        return EventResult::Captured;
+                    }
+                }
+
                 if !self.bounds.contains(*pos) {
                     let mut changed = self.tip_shown();
                     self.tip = None;
@@ -1637,6 +1674,10 @@ impl Element for TreeViewElement {
                         self.anchor = Some(node_id.clone());
                     }
                     self.cursor = Some(node_id.clone());
+                    // возможное начало перетаскивания (если у дерева есть обработчик переноса)
+                    if self.on_drop.is_some() {
+                        self.drag = Some((node_id.clone(), *position, false, None));
+                    }
                     self.notify_selection();
                     // Ctrl/Shift+щелчок только меняет выделение — элемент не открывается
                     let m = ctx.modifiers;
@@ -1663,6 +1704,20 @@ impl Element for TreeViewElement {
                 {
                     ctx.request_paint();
                     return EventResult::Handled;
+                }
+                // конец перетаскивания строки: отпущена над другой строкой — перенос
+                if let Some((src, _, active, target)) = self.drag.take() {
+                    if active {
+                        if let Some(dst) = target.and_then(|i| self.flat_nodes.get(i)).map(|n| n.id.clone()).filter(|d| *d != src) {
+                            if let Some(ref cb) = self.on_drop {
+                                if let Ok(mut f) = cb.lock() {
+                                    f(&src, &dst);
+                                }
+                            }
+                        }
+                        ctx.request_paint();
+                        return EventResult::Handled;
+                    }
                 }
                 EventResult::Ignored
             }
@@ -2136,6 +2191,37 @@ mod tests {
         assert!(got.lock().unwrap().is_empty());
         h.send_event(&Event::DoubleClick { button: MouseButton::Left, position: crate::core::Point::new(60.0, 25.0) });
         assert_eq!(*got.lock().unwrap(), vec!["b".to_string()]);
+    }
+
+    #[test]
+    fn drag_row_onto_another_calls_on_drop() {
+        use crate::core::Point;
+        use crate::input::{Event, MouseButton};
+        use crate::testing::TestHarness;
+        use std::sync::{Arc, Mutex};
+        let got = Arc::new(Mutex::new(Vec::<(String, String)>::new()));
+        let g2 = got.clone();
+        let tree = TreeView::new(vec![TreeNode::leaf("a", "a"), TreeNode::leaf("b", "b"), TreeNode::leaf("c", "c")])
+            .item_height(20.0)
+            .selection_mode(SelectionMode::Single)
+            .on_drop(move |s, d| g2.lock().unwrap().push((s.to_string(), d.to_string())));
+        let mut h = TestHarness::new(Box::new(tree));
+        h.layout(200.0, 200.0);
+        // щелчок без сдвига — не перенос
+        h.send_event(&Event::MouseDown { button: MouseButton::Left, position: Point::new(60.0, 5.0) });
+        h.send_event(&Event::MouseUp { button: MouseButton::Left, position: Point::new(60.0, 5.0) });
+        assert!(got.lock().unwrap().is_empty());
+        // «a» на «c»
+        h.send_event(&Event::MouseDown { button: MouseButton::Left, position: Point::new(60.0, 5.0) });
+        h.send_event(&Event::MouseMove(Point::new(60.0, 25.0)));
+        h.send_event(&Event::MouseMove(Point::new(60.0, 45.0)));
+        h.send_event(&Event::MouseUp { button: MouseButton::Left, position: Point::new(60.0, 45.0) });
+        assert_eq!(*got.lock().unwrap(), vec![("a".to_string(), "c".to_string())]);
+        // отпущена над собой — ничего
+        h.send_event(&Event::MouseDown { button: MouseButton::Left, position: Point::new(60.0, 25.0) });
+        h.send_event(&Event::MouseMove(Point::new(90.0, 27.0)));
+        h.send_event(&Event::MouseUp { button: MouseButton::Left, position: Point::new(90.0, 27.0) });
+        assert_eq!(got.lock().unwrap().len(), 1);
     }
 
     #[test]
