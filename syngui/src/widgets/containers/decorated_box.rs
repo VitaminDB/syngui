@@ -707,29 +707,6 @@ impl Element for DecoratedBoxElement {
         EventResult::Ignored
     }
 
-    /// Голая обёртка (`DecoratedBox::new()` без классов и оформления) не
-    /// видна и событий не ловит — она прозрачна для попадания, как `Padding`
-    /// и `Column`. Иначе растянутая на весь `Stack` обёртка (например,
-    /// реактивная панель поверх карты) закрывает от щелчков всё, что под
-    /// ней, хотя на экране там ничего нет.
-    fn passthrough_hit_test(&self) -> bool {
-        let m = &self.mss;
-        self.classes.is_empty()
-            && self.background.a <= 0.0
-            && self.border.is_none()
-            && self.border_sides.iter().all(Option::is_none)
-            && self.shadow.is_none()
-            && m.background_color.is_none_or(|c| c.a <= 0.0)
-            && m.background_gradient.is_none()
-            && m.background_image.is_none()
-            && m.border_width.is_none()
-            && m.border_widths.is_none()
-            && m.box_shadow.is_none()
-            && m.cursor.is_none()
-            && !m.has_mss_styles
-            && m.style_active.is_none()
-    }
-
     fn animate(&mut self, dt: Duration) -> bool {
         let dt_secs = dt.as_secs_f32();
         let transition_active = self.mss.transition.tick(dt_secs);
@@ -1110,43 +1087,5 @@ mod tests {
         h.touch_move(2, Point::new(20.0, 38.0));
         assert!(!pressed(&mut h));
         h.touch_up(2);
-    }
-
-    /// Голая обёртка поверх `Stack` не закрывает от щелчков нижний слой
-    /// (кнопка режима карты под реактивной панелью), а блок с фоном — закрывает.
-    #[test]
-    fn bare_box_passes_clicks_to_lower_layer() {
-        use crate::widgets::containers::{Column, Stack, StackFit};
-        use std::sync::atomic::{AtomicUsize, Ordering};
-        use std::sync::Arc;
-
-        fn run(top_class: Option<&str>) -> usize {
-            let hits = Arc::new(AtomicUsize::new(0));
-            let hc = hits.clone();
-            let btn = GestureDetector::new()
-                .on_click(move || {
-                    hc.fetch_add(1, Ordering::SeqCst);
-                })
-                .child(DecoratedBox::new().class("btn"));
-            let top: Box<dyn Widget> = match top_class {
-                Some(c) => Box::new(DecoratedBox::new().child(Column::new()).class(c)),
-                None => Box::new(DecoratedBox::new().child(Column::new())),
-            };
-            let w = Stack::new()
-                .fit(StackFit::Expand)
-                .child(Column::new().child(btn))
-                .child(top);
-            let mut h = TestHarness::new(Box::new(w));
-            h.apply_mss(
-                ".btn { width: 40; height: 40; background-color: #333333; } \
-                 .scrim { background-color: #00000080; }",
-            );
-            h.layout(200.0, 200.0);
-            h.send_events(&crate::testing::click_at(Point::new(20.0, 20.0)));
-            hits.load(Ordering::SeqCst)
-        }
-
-        assert_eq!(run(None), 1, "пустой DecoratedBox перехватил щелчок");
-        assert_eq!(run(Some("scrim")), 0, "блок с фоном должен закрывать нижний слой");
     }
 }
