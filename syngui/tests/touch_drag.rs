@@ -215,39 +215,3 @@ fn split_view_resize_end_and_double_click_reset() {
     assert!((size.get_untracked() - 240.0).abs() < 0.5, "сброс к 240: {}", size.get_untracked());
     assert_eq!(*ended.lock().unwrap().last().unwrap(), 240.0);
 }
-
-#[test]
-fn split_view_resizable_signal_hides_divider_and_follows_size() {
-    use syngui::input::{Event, MouseButton};
-    use syngui::widgets::containers::SplitView;
-    use syngui::widgets::DecoratedBox;
-    let size = use_signal(72.0f32);
-    let resizable = use_signal(false);
-    let widget = SplitView::new(DecoratedBox::new(), DecoratedBox::new())
-        .first_size_signal(size)
-        .first_size_range(180.0, 400.0)
-        .resizable_signal(resizable);
-    let mut h = TestHarness::new(Box::new(widget));
-    h.layout(800.0, 300.0);
-    settle(&mut h, 800.0, 300.0);
-    let id = h.find_by_type_name("SplitView")[0];
-    let kids = h.tree.children_of(id).to_vec();
-    // Выключен: первая панель 72 (без зажима минимумом), вторая вплотную.
-    assert!((h.element_bounds(kids[0]).size.width - 72.0).abs() < 0.5);
-    assert!((h.element_bounds(kids[1]).x() - 72.0).abs() < 0.5);
-    // Нажатие на месте разделителя ничего не тянет.
-    h.send_events(&[
-        Event::MouseDown { button: MouseButton::Left, position: Point::new(74.0, 100.0) },
-        Event::MouseMove(Point::new(200.0, 100.0)),
-        Event::MouseUp { button: MouseButton::Left, position: Point::new(200.0, 100.0) },
-    ]);
-    assert_eq!(size.get_untracked(), 72.0);
-    // Включили и поменяли размер извне — подхватывается без пересборки.
-    resizable.set(true);
-    size.set(260.0);
-    h.layout(800.0, 300.0);
-    settle(&mut h, 800.0, 300.0);
-    let kids = h.tree.children_of(id).to_vec();
-    assert!((h.element_bounds(kids[0]).size.width - 260.0).abs() < 0.5, "{:?}", h.element_bounds(kids[0]));
-    assert!(h.element_bounds(kids[1]).x() > 262.0);
-}

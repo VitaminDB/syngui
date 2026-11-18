@@ -202,8 +202,4 @@ SplitView::new(sidebar, content)
     .first_size_range(180.0, 420.0)  // min / max of the first panel
     .reset_size(240.0)               // double-click on the divider resets
     .on_resize_end(|px| save(px))    // once, when the drag ends (or reset)
-    .resizable_signal(wide)          // false: no divider, size from the signal as is
 ```
-
-`first_size_signal` and `resizable_signal` are watched: changing them from
-outside re-lays out the split without rebuilding it.
