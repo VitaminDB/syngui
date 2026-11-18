@@ -49,6 +49,15 @@ impl Highlighter {
                 tab_width,
             };
         }
+        // ассемблер: правила synoptic не знают синтаксиса AT&T (регистры `%rax`, `$imm`), метки и директивы
+        if language == Language::Asm {
+            return Self {
+                inner: Backend::Custom(std::sync::Arc::new(super::asm::AsmHighlighter), Vec::new()),
+                lines: Vec::new(),
+                language,
+                tab_width,
+            };
+        }
         let inner = synoptic::from_extension(language.extension(), tab_width).expect(
             "synoptic::from_extension всегда возвращает Some (fallback на пустой Highlighter)",
         );
