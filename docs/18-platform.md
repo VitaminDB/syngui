@@ -87,6 +87,29 @@ Galaxy Fold при складывании меняет размер и плот�
 иначе Activity пересоздаётся (в том числе пока открыт пикер). Образец —
 `syncook/android/app/src/main/AndroidManifest.xml`.
 
+### Установка APK (самообновление)
+
+```rust
+syngui::platform::install_package(&apk_path, |r| match r {
+    Ok(syngui::platform::InstallOutcome::Installed) => {}   // при обновлении себя не приходит
+    Ok(syngui::platform::InstallOutcome::Cancelled) => {}   // отказ в окне подтверждения
+    Ok(syngui::platform::InstallOutcome::NotAllowed) => {}  // не разрешили «неизвестные источники»
+    Err(e) => log::warn!("{e}"),
+});
+```
+
+Сессия `PackageInstaller`: APK копируется в сессию в фоновом потоке, итог
+приходит широковещательным интентом (приёмник регистрируется на время
+установки, `RECEIVER_NOT_EXPORTED`), окно подтверждения запускается из
+`STATUS_PENDING_USER_ACTION`. В манифесте нужно
+`android.permission.REQUEST_INSTALL_PACKAGES` (syngui-cli:
+`permissions = ["REQUEST_INSTALL_PACKAGES"]`), иначе — `Err` с этим текстом.
+Если приложению ещё не разрешено ставить пакеты, открываются настройки
+`ACTION_MANAGE_UNKNOWN_APP_SOURCES`; после возврата установка продолжается
+сама. FileProvider не нужен. APK должен быть подписан тем же ключом, что и
+установленное приложение. Колбэк — в UI-потоке. На остальных платформах —
+`Err`.
+
 ## Linux (KDE, synshell, прочие)
 
 | Функция | Как сделано |

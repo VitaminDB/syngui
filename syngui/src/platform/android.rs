@@ -12,12 +12,13 @@ use jni::objects::{JClass, JObject, JString, JValue};
 use jni::sys::jlong;
 use jni::{JNIEnv, NativeMethod};
 
-use super::{MediaKind, PickCallback, PickedFile};
+use super::{InstallCallback, InstallOutcome, MediaKind, PickCallback, PickedFile};
 
 static VM_PTR: AtomicPtr<()> = AtomicPtr::new(std::ptr::null_mut());
 static CLASS: AtomicPtr<()> = AtomicPtr::new(std::ptr::null_mut());
 static NEXT_ID: AtomicU64 = AtomicU64::new(1);
 static PENDING: Mutex<Option<HashMap<u64, PickCallback>>> = Mutex::new(None);
+static PENDING_INSTALL: Mutex<Option<HashMap<u64, InstallCallback>>> = Mutex::new(None);
 
 /// Загрузить класс из загрузчика фреймворка, вызвать `register(activity)`
 /// и зарегистрировать натив. Повторный вызов (новое resume) заменяет класс.
@@ -44,12 +45,19 @@ pub(crate) unsafe fn init(
     let cls: JClass = cls.into();
     env.register_native_methods(
         &cls,
-        &[NativeMethod {
-            name: "nativeOnPicked".into(),
-            sig: "(JLjava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;)V"
-                .into(),
-            fn_ptr: native_on_picked as *mut std::ffi::c_void,
-        }],
+        &[
+            NativeMethod {
+                name: "nativeOnPicked".into(),
+                sig: "(JLjava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;)V"
+                    .into(),
+                fn_ptr: native_on_picked as *mut std::ffi::c_void,
+            },
+            NativeMethod {
+                name: "nativeOnInstalled".into(),
+                sig: "(JILjava/lang/String;)V".into(),
+                fn_ptr: native_on_installed as *mut std::ffi::c_void,
+            },
+        ],
     )
     .map_err(|e| format!("RegisterNatives: {e}"))?;
     env.call_static_method(
@@ -166,6 +174,59 @@ extern "system" fn native_on_picked<'l>(
         Ok(None)
     };
     deliver(id as u64, result);
+}
+
+pub(super) fn install_package(path: &Path, cb: InstallCallback) {
+    let id = NEXT_ID.fetch_add(1, Ordering::Relaxed);
+    PENDING_INSTALL
+        .lock()
+        .unwrap_or_else(|e| e.into_inner())
+        .get_or_insert_with(HashMap::new)
+        .insert(id, cb);
+    let path = path.to_string_lossy().into_owned();
+    let r = with_env(|env, cls| {
+        let p: JObject = env.new_string(&path).map_err(|e| format!("{e}"))?.into();
+        env.call_static_method(
+            cls,
+            "installPackage",
+            "(JLjava/lang/String;)V",
+            &[JValue::Long(id as jlong), JValue::Object(&p)],
+        )
+        .map(|_| ())
+        .map_err(|e| format!("installPackage: {e}"))
+    });
+    if let Err(e) = r {
+        deliver_install(id, Err(e));
+    }
+}
+
+fn deliver_install(id: u64, result: Result<InstallOutcome, String>) {
+    let cb = PENDING_INSTALL
+        .lock()
+        .unwrap_or_else(|e| e.into_inner())
+        .as_mut()
+        .and_then(|m| m.remove(&id));
+    match cb {
+        Some(cb) => crate::async_runtime::run_on_main_thread(move || cb(result)),
+        None => log::warn!("[syngui] install_package: итог для неизвестного запроса {id}"),
+    }
+}
+
+extern "system" fn native_on_installed<'l>(
+    mut env: JNIEnv<'l>,
+    _cls: JClass<'l>,
+    id: jlong,
+    status: jni::sys::jint,
+    message: JString<'l>,
+) {
+    let msg = opt_string(&mut env, &message);
+    let result = match status {
+        0 => Ok(InstallOutcome::Installed),
+        1 => Ok(InstallOutcome::Cancelled),
+        3 => Ok(InstallOutcome::NotAllowed),
+        _ => Err(msg.unwrap_or_else(|| "установка не удалась".into())),
+    };
+    deliver_install(id as u64, result);
 }
 
 /// Вызвать статический `String f(String…)` (null — успех).

@@ -1,6 +1,13 @@
 package syngui.android;
 
 import android.app.Activity;
+import android.app.PendingIntent;
+import android.content.BroadcastReceiver;
+import android.content.IntentFilter;
+import android.content.pm.PackageInfo;
+import android.content.pm.PackageInstaller;
+import android.content.pm.PackageManager;
+import android.provider.Settings;
 import android.content.ActivityNotFoundException;
 import android.content.ClipData;
 import android.content.ContentResolver;
@@ -45,6 +52,14 @@ public class SynGuiPlatformHandler {
 
     /** path == null && error == null — пользователь отменил выбор. */
     static native void nativeOnPicked(long id, String path, String name, String mime, String error);
+
+    /** Итог installPackage: status — INSTALL_* ниже, message — текст ошибки или null. */
+    static native void nativeOnInstalled(long id, int status, String message);
+
+    static final int INSTALL_OK = 0;
+    static final int INSTALL_CANCELLED = 1;
+    static final int INSTALL_FAILED = 2;
+    static final int INSTALL_NOT_ALLOWED = 3;
 
     public static void register(Activity activity) {
         sActivity = activity;
@@ -339,6 +354,161 @@ public class SynGuiPlatformHandler {
             Log.w(TAG, "openUrl", t);
             return describe(t);
         }
+    }
+
+    // ── Установка APK ────────────────────────────────────────────────────
+
+    private static final String INSTALL_ACTION = "syngui.android.INSTALL_STATUS";
+
+    /**
+     * Установить APK (в том числе обновить само приложение) через
+     * PackageInstaller. Нужен REQUEST_INSTALL_PACKAGES в манифесте; если
+     * пользователь ещё не разрешил приложению ставить пакеты, открываются
+     * настройки «Установка неизвестных приложений», и после возврата
+     * установка продолжается сама. Подтверждение установки система
+     * показывает всегда. При обновлении себя процесс завершается системой
+     * сразу после установки — колбэк успеха тогда не придёт.
+     */
+    public static void installPackage(final long id, final String path) {
+        final Activity a = sActivity;
+        if (a == null) {
+            nativeOnInstalled(id, INSTALL_FAILED, "Activity ещё не готова");
+            return;
+        }
+        a.runOnUiThread(() -> {
+            try {
+                File f = new File(path);
+                if (!f.isFile()) {
+                    nativeOnInstalled(id, INSTALL_FAILED, "нет файла: " + path);
+                    return;
+                }
+                if (!declaresPermission(a, "android.permission.REQUEST_INSTALL_PACKAGES")) {
+                    nativeOnInstalled(id, INSTALL_FAILED,
+                            "в манифесте нет android.permission.REQUEST_INSTALL_PACKAGES");
+                    return;
+                }
+                PackageManager pm = a.getPackageManager();
+                if (pm.canRequestPackageInstalls()) {
+                    startSession(a, id, f);
+                    return;
+                }
+                Intent settings = new Intent(Settings.ACTION_MANAGE_UNKNOWN_APP_SOURCES,
+                        Uri.parse("package:" + a.getPackageName()));
+                startForResult(a, settings, (code, data) -> {
+                    if (a.getPackageManager().canRequestPackageInstalls()) {
+                        try {
+                            startSession(a, id, f);
+                        } catch (Throwable t) {
+                            Log.w(TAG, "installPackage", t);
+                            nativeOnInstalled(id, INSTALL_FAILED, describe(t));
+                        }
+                    } else {
+                        nativeOnInstalled(id, INSTALL_NOT_ALLOWED, null);
+                    }
+                });
+            } catch (Throwable t) {
+                Log.w(TAG, "installPackage", t);
+                nativeOnInstalled(id, INSTALL_FAILED, describe(t));
+            }
+        });
+    }
+
+    @SuppressWarnings("deprecation")
+    private static Intent legacyIntentExtra(Intent intent) {
+        return intent.getParcelableExtra(Intent.EXTRA_INTENT);
+    }
+
+    private static boolean declaresPermission(Context ctx, String perm) {
+        try {
+            PackageInfo pi = ctx.getPackageManager()
+                    .getPackageInfo(ctx.getPackageName(), PackageManager.GET_PERMISSIONS);
+            if (pi.requestedPermissions == null) return false;
+            for (String p : pi.requestedPermissions) if (perm.equals(p)) return true;
+        } catch (Throwable t) {
+            Log.w(TAG, "declaresPermission", t);
+        }
+        return false;
+    }
+
+    /** Сессия PackageInstaller: копия APK — в фоне, итог — широковещательным интентом. */
+    private static void startSession(final Activity a, final long id, final File f) {
+        new Thread(() -> {
+            PackageInstaller.Session session = null;
+            try {
+                PackageInstaller pi = a.getPackageManager().getPackageInstaller();
+                PackageInstaller.SessionParams params =
+                        new PackageInstaller.SessionParams(PackageInstaller.SessionParams.MODE_FULL_INSTALL);
+                params.setSize(f.length());
+                if (Build.VERSION.SDK_INT >= 31) {
+                    params.setRequireUserAction(PackageInstaller.SessionParams.USER_ACTION_NOT_REQUIRED);
+                }
+                final int sid = pi.createSession(params);
+                session = pi.openSession(sid);
+                try (InputStream in = new FileInputStream(f);
+                     OutputStream os = session.openWrite("base.apk", 0, f.length())) {
+                    copy(in, os);
+                    session.fsync(os);
+                }
+                final String action = INSTALL_ACTION + "." + sid;
+                BroadcastReceiver receiver = new BroadcastReceiver() {
+                    @Override
+                    public void onReceive(Context ctx, Intent intent) {
+                        int status = intent.getIntExtra(PackageInstaller.EXTRA_STATUS,
+                                PackageInstaller.STATUS_FAILURE);
+                        if (status == PackageInstaller.STATUS_PENDING_USER_ACTION) {
+                            Intent confirm = Build.VERSION.SDK_INT >= 33
+                                    ? intent.getParcelableExtra(Intent.EXTRA_INTENT, Intent.class)
+                                    : legacyIntentExtra(intent);
+                            if (confirm != null) {
+                                try {
+                                    confirm.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
+                                    a.startActivity(confirm);
+                                    return;
+                                } catch (Throwable t) {
+                                    Log.w(TAG, "install confirm", t);
+                                }
+                            }
+                            status = PackageInstaller.STATUS_FAILURE;
+                        }
+                        try {
+                            a.getApplicationContext().unregisterReceiver(this);
+                        } catch (Throwable ignored) {
+                        }
+                        if (status == PackageInstaller.STATUS_SUCCESS) {
+                            nativeOnInstalled(id, INSTALL_OK, null);
+                        } else if (status == PackageInstaller.STATUS_FAILURE_ABORTED) {
+                            nativeOnInstalled(id, INSTALL_CANCELLED, null);
+                        } else {
+                            String msg = intent.getStringExtra(PackageInstaller.EXTRA_STATUS_MESSAGE);
+                            nativeOnInstalled(id, INSTALL_FAILED,
+                                    "установка не удалась (" + status + ")" + (msg != null ? ": " + msg : ""));
+                        }
+                    }
+                };
+                Context app = a.getApplicationContext();
+                IntentFilter filter = new IntentFilter(action);
+                if (Build.VERSION.SDK_INT >= 33) {
+                    app.registerReceiver(receiver, filter, Context.RECEIVER_NOT_EXPORTED);
+                } else {
+                    app.registerReceiver(receiver, filter);
+                }
+                Intent status = new Intent(action).setPackage(a.getPackageName());
+                PendingIntent pending = PendingIntent.getBroadcast(app, sid, status,
+                        PendingIntent.FLAG_UPDATE_CURRENT | PendingIntent.FLAG_MUTABLE);
+                session.commit(pending.getIntentSender());
+                session.close();
+                session = null;
+            } catch (Throwable t) {
+                Log.w(TAG, "install session", t);
+                if (session != null) {
+                    try {
+                        session.abandon();
+                    } catch (Throwable ignored) {
+                    }
+                }
+                nativeOnInstalled(id, INSTALL_FAILED, describe(t));
+            }
+        }, "syngui-install").start();
     }
 
     // ── Системные панели ─────────────────────────────────────────────────

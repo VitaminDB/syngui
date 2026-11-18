@@ -6,6 +6,7 @@
 //! | [`share_text`] | `ACTION_SEND` + chooser                   | текст в буфер обмена                               |
 //! | [`share_file`] | `ACTION_SEND` + chooser (FileProvider или копия в Downloads) | файл в буфер (`text/uri-list`) и показ в файловом менеджере |
 //! | [`open_path`]  | `ACTION_VIEW`                             | `xdg-open`, портал `OpenURI.OpenFile` (во flatpak — первым) |
+//! | [`install_package`] | PackageInstaller-сессия (разрешение «неизвестные источники» запрашивается само) | `Err` |
 //! | [`open_url`]   | `ACTION_VIEW` (WhatsApp, браузер, почта…) | [`crate::open_url`] (фича `links`)                 |
 //! | [`set_system_bars`] | цвет под статус-баром и навигационной панелью, светлые/тёмные значки | no-op |
 //!
@@ -81,6 +82,51 @@ pub fn open_path(path: &Path) -> Result<(), String> {
         return Err(format!("нет файла: {}", path.display()));
     }
     imp_open_path(path)
+}
+
+/// Итог [`install_package`].
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum InstallOutcome {
+    /// Пакет установлен (при обновлении самого приложения не приходит:
+    /// система завершает процесс сразу после установки).
+    Installed,
+    /// Пользователь отказался в окне подтверждения установки.
+    Cancelled,
+    /// Пользователь не разрешил приложению устанавливать пакеты
+    /// («Установка неизвестных приложений»).
+    NotAllowed,
+}
+
+type InstallCallback = Box<dyn FnOnce(Result<InstallOutcome, String>) + Send + 'static>;
+
+/// Установить пакет приложения — на Android APK, в том числе новую версию
+/// самого приложения. Не блокирует; колбэк вызывается в UI-потоке.
+///
+/// Android: сессия `PackageInstaller`. В манифесте нужно разрешение
+/// `REQUEST_INSTALL_PACKAGES` (syngui-cli: `permissions =
+/// ["REQUEST_INSTALL_PACKAGES"]`). Если пользователь ещё не разрешил
+/// приложению ставить пакеты, открываются системные настройки, и после
+/// возврата установка продолжается сама; окно подтверждения установки
+/// система показывает всегда (с Android 12 для обновления себя может и не
+/// показывать). Подпись APK должна совпадать с подписью установленного.
+///
+/// Остальные платформы — `Err("не поддерживается")`.
+pub fn install_package(
+    path: &Path,
+    on_done: impl FnOnce(Result<InstallOutcome, String>) + Send + 'static,
+) {
+    let cb: InstallCallback = Box::new(on_done);
+    #[cfg(target_os = "android")]
+    android::install_package(path, cb);
+    #[cfg(not(target_os = "android"))]
+    {
+        let _ = path;
+        crate::async_runtime::run_on_main_thread(move || {
+            cb(Err(
+                "установка пакетов на этой платформе не поддерживается".into()
+            ))
+        });
+    }
 }
 
 /// Открыть ссылку (`https:`, `mailto:`, `tel:`, …) в подходящем
