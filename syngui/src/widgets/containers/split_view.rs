@@ -36,6 +36,8 @@ pub struct SplitView {
     first_size_signal: Option<RwSignal<f32>>,
     first_min: f32,
     first_max: f32,
+    reset_size: Option<f32>,
+    on_resize_end: Option<std::sync::Arc<dyn Fn(f32) + Send + Sync>>,
 }
 
 impl SplitView {
@@ -53,7 +55,25 @@ impl SplitView {
             first_size_signal: None,
             first_min: 0.0,
             first_max: f32::INFINITY,
+            reset_size: None,
+            on_resize_end: None,
         }
+    }
+
+    /// Двойной щелчок по разделителю возвращает первую панель к этому
+    /// размеру: в пиксельном режиме — пиксели, иначе — доля (0…1).
+    pub fn reset_size(mut self, size: f32) -> Self {
+        self.reset_size = Some(size);
+        self
+    }
+
+    /// Вызывается, когда пользователь отпустил разделитель (или сбросил его
+    /// двойным щелчком), с итоговым размером первой панели: пиксели в
+    /// пиксельном режиме, иначе доля. Удобно для сохранения в настройки —
+    /// один раз, а не на каждое движение.
+    pub fn on_resize_end(mut self, f: impl Fn(f32) + Send + Sync + 'static) -> Self {
+        self.on_resize_end = Some(std::sync::Arc::new(f));
+        self
     }
 
     /// Первая панель фиксированной ширины (высоты — у вертикального) в
@@ -153,6 +173,8 @@ impl Widget for SplitView {
             first_size_signal: self.first_size_signal,
             first_min: self.first_min,
             first_max: self.first_max,
+            reset_size: self.reset_size,
+            on_resize_end: self.on_resize_end.clone(),
         })
     }
 
@@ -209,9 +231,22 @@ pub struct SplitViewElement {
     first_size_signal: Option<RwSignal<f32>>,
     first_min: f32,
     first_max: f32,
+    reset_size: Option<f32>,
+    on_resize_end: Option<std::sync::Arc<dyn Fn(f32) + Send + Sync>>,
 }
 
 impl SplitViewElement {
+    /// Текущий размер первой панели для `on_resize_end`.
+    fn current_size(&self) -> f32 {
+        self.first_px.unwrap_or(self.ratio)
+    }
+
+    fn notify_resize_end(&self) {
+        if let Some(f) = &self.on_resize_end {
+            f(self.current_size());
+        }
+    }
+
     /// Размер первой панели в пиксельном режиме, зажатый в пределы и так,
     /// чтобы второй осталось не меньше `min_size`.
     fn clamp_first(&self, px: f32, total: f32) -> f32 {
@@ -270,6 +305,8 @@ impl Element for SplitViewElement {
             self.first_size_signal = sv.first_size_signal;
             self.first_min = sv.first_min;
             self.first_max = sv.first_max;
+            self.reset_size = sv.reset_size;
+            self.on_resize_end = sv.on_resize_end.clone();
             // Размер из сигнала — всегда его; постоянный `first_size` — только
             // при включении режима, чтобы пересборка не сбрасывала то, что
             // пользователь натянул.
@@ -475,9 +512,35 @@ impl Element for SplitViewElement {
                 if self.dragging {
                     self.dragging = false;
                     ctx.request_paint();
+                    self.notify_resize_end();
                     return EventResult::Handled;
                 }
                 EventResult::Ignored
+            }
+            Event::DoubleClick { button, position }
+                if *button == MouseButton::Left && self.reset_size.is_some() =>
+            {
+                if !self.divider_rect().contains(*position) {
+                    return EventResult::Ignored;
+                }
+                let size = self.reset_size.unwrap_or(0.0);
+                self.dragging = false;
+                if self.first_px.is_some() {
+                    self.first_px = Some(size.max(0.0));
+                    if let Some(sig) = self.first_size_signal {
+                        sig.set(size.max(0.0));
+                    }
+                } else {
+                    self.ratio = size.clamp(0.05, 0.95);
+                    self.clamp_ratio();
+                    if let Some(sig) = self.ratio_signal {
+                        sig.set(self.ratio);
+                    }
+                }
+                ctx.request_layout();
+                ctx.request_paint();
+                self.notify_resize_end();
+                EventResult::Handled
             }
             _ => EventResult::Ignored,
         }

@@ -193,3 +193,13 @@ SplitView::new(left_panel, right_panel)
     .min_size(200.0)          // Minimum panel size
     .divider_width(4.0)       // Draggable divider width
 ```
+
+Pixel mode (sidebar-like panel), persisted by the app:
+
+```rust
+SplitView::new(sidebar, content)
+    .first_size_signal(width)        // RwSignal<f32>, px
+    .first_size_range(180.0, 420.0)  // min / max of the first panel
+    .reset_size(240.0)               // double-click on the divider resets
+    .on_resize_end(|px| save(px))    // once, when the drag ends (or reset)
+```
