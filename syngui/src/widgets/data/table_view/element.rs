@@ -165,6 +165,9 @@ impl Widget for TableView {
             header_filters: self.header_filter_values.clone(),
             on_header_filter: self.on_header_filter.clone(),
             header_filter_edit: None,
+            hf_cursor: 0,
+            hf_sel: crate::widget::selection::TextSelectionState::new(),
+            hf_blink: 0.0,
             header_press: None,
             resize_state: None,
             on_column_resize: self.on_column_resize.clone(),
@@ -296,6 +299,10 @@ pub struct TableViewElement {
     on_header_filter: Option<Arc<Mutex<dyn FnMut(usize, String) + Send>>>,
     /// Столбец, в заголовке которого сейчас вводится фильтр.
     header_filter_edit: Option<usize>,
+    /// Каретка (байтовое смещение) и выделение в поле фильтра, фаза мигания.
+    hf_cursor: usize,
+    hf_sel: crate::widget::selection::TextSelectionState,
+    hf_blink: f32,
     on_column_reorder: Option<Arc<Mutex<dyn FnMut(Vec<usize>) + Send>>>,
     /// Нажатие на заголовок, которое ещё может стать переносом столбца.
     header_press: Option<HeaderPress>,
@@ -1019,6 +1026,53 @@ impl TableViewElement {
     fn start_header_filter(&mut self, col: usize) {
         self.header_filter_edit = Some(col);
         self.focused = true;
+        self.hf_cursor = self.header_filter_text(col).len();
+        self.hf_sel.clear();
+        self.hf_blink = 0.0;
+    }
+
+    /// Начать ввод фильтра и включить текстовый ввод окна: на вебе — скрытое
+    /// поле браузера (иначе символы собирались из клавиш, без раскладки), на
+    /// телефоне — экранная клавиатура.
+    fn begin_header_filter(&mut self, col: usize, ctx: &mut EventContext) {
+        self.start_header_filter(col);
+        ctx.set_virtual_keyboard_visible(true);
+        ctx.set_focused_text(self.header_filter_text(col).to_string());
+    }
+
+    fn end_header_filter(&mut self, ctx: &mut EventContext) {
+        if self.header_filter_edit.take().is_some() {
+            self.hf_sel.clear();
+            ctx.set_virtual_keyboard_visible(false);
+        }
+    }
+
+    /// Каретка поля фильтра под экранной координатой `x`.
+    fn hf_cursor_at(&self, col: usize, x: f32) -> usize {
+        let Some((cx, _)) = self.col_x_screen(col) else {
+            return self.hf_cursor;
+        };
+        let text = self.header_filter_text(col);
+        let rel = x - (cx + self.header_padding);
+        let mut best = 0usize;
+        for (i, _) in text.char_indices().chain(std::iter::once((text.len(), ' '))) {
+            let w = self.header_text_width(&text[..i]);
+            if w <= rel + 2.0 {
+                best = i;
+            } else {
+                break;
+            }
+        }
+        best
+    }
+
+    /// Ширина текста заголовка (шрифт заголовка).
+    fn header_text_width(&self, text: &str) -> f32 {
+        let chars = text.chars().count();
+        match self.text_measure.as_ref() {
+            Some(tm) => tm.measure_text_width(text, self.header_font_size, chars),
+            None => chars as f32 * self.header_font_size * 0.55,
+        }
     }
 
     fn set_header_filter(&mut self, col: usize, text: String) {
@@ -1034,26 +1088,119 @@ impl TableViewElement {
         }
     }
 
+    /// Клавиши поля фильтра — как у обычного поля ввода: стрелки, Home/End
+    /// (с Shift — выделение), Backspace/Delete, Ctrl+A/C/X/V, Esc — очистить
+    /// и выйти, Enter/Tab — выйти с текстом.
     fn handle_header_filter_key(&mut self, key: Key, ctx: &mut EventContext) -> EventResult {
         let Some(col) = self.header_filter_edit else {
             return EventResult::Ignored;
         };
+        let ctrl = ctx.modifiers.ctrl || ctx.modifiers.meta;
+        let shift = ctx.modifiers.shift;
+        let mut text = self.header_filter_text(col).to_string();
+        let mut cur = self.hf_cursor.min(text.len());
+        let prev_char = |t: &str, i: usize| t[..i].char_indices().last().map_or(0, |(p, _)| p);
+        let next_char = |t: &str, i: usize| t[i..].chars().next().map_or(i, |c| i + c.len_utf8());
+        let mut changed = false;
         match key {
             Key::Escape => {
                 self.set_header_filter(col, String::new());
-                self.header_filter_edit = None;
+                self.end_header_filter(ctx);
+                ctx.request_paint();
+                return EventResult::Handled;
             }
-            Key::Enter | Key::Tab => self.header_filter_edit = None,
+            Key::Enter | Key::Tab => {
+                self.end_header_filter(ctx);
+                ctx.request_paint();
+                return EventResult::Handled;
+            }
+            Key::A if ctrl => {
+                self.hf_sel.start(0);
+                cur = text.len();
+            }
+            Key::C if ctrl => {
+                if let Some(sel) = self.hf_sel.selected_text(&text, cur) {
+                    ctx.copy_to_clipboard(sel);
+                }
+            }
+            Key::X if ctrl => {
+                if let Some(sel) = self.hf_sel.selected_text(&text, cur).map(str::to_string) {
+                    ctx.copy_to_clipboard(&sel);
+                    changed = self.hf_sel.delete_selection(&mut text, &mut cur);
+                }
+            }
+            Key::V if ctrl => {
+                if let Some(p) = ctx.paste_from_clipboard() {
+                    let p: String = p.chars().filter(|c| !c.is_control()).collect();
+                    self.hf_sel.delete_selection(&mut text, &mut cur);
+                    text.insert_str(cur, &p);
+                    cur += p.len();
+                    changed = true;
+                }
+            }
             Key::Backspace => {
-                let mut text = self.header_filter_text(col).to_string();
-                text.pop();
-                self.set_header_filter(col, text);
+                if !self.hf_sel.delete_selection(&mut text, &mut cur) && cur > 0 {
+                    let p = prev_char(&text, cur);
+                    text.replace_range(p..cur, "");
+                    cur = p;
+                }
+                changed = true;
             }
-            // Стрелки и прочее — не листают таблицу, пока идёт ввод.
+            Key::Delete => {
+                if !self.hf_sel.delete_selection(&mut text, &mut cur) && cur < text.len() {
+                    let n = next_char(&text, cur);
+                    text.replace_range(cur..n, "");
+                }
+                changed = true;
+            }
+            Key::Left | Key::Right | Key::Home | Key::End => {
+                if shift {
+                    self.hf_sel.extend_or_start(cur);
+                } else if let Some((a, b)) = self.hf_sel.range(cur) {
+                    // Без Shift стрелка схлопывает выделение к его краю.
+                    cur = if matches!(key, Key::Left | Key::Home) { a } else { b };
+                    self.hf_sel.clear();
+                    if matches!(key, Key::Left | Key::Right) {
+                        self.hf_cursor = cur;
+                        self.hf_blink = 0.0;
+                        ctx.request_paint();
+                        return EventResult::Handled;
+                    }
+                }
+                cur = match key {
+                    Key::Left => prev_char(&text, cur),
+                    Key::Right => next_char(&text, cur),
+                    Key::Home => 0,
+                    _ => text.len(),
+                };
+            }
+            // Прочие клавиши не листают таблицу, пока идёт ввод.
             _ => {}
         }
+        if changed {
+            self.hf_sel.clear();
+            self.set_header_filter(col, text);
+        }
+        self.hf_cursor = cur;
+        self.hf_blink = 0.0;
         ctx.request_paint();
         EventResult::Handled
+    }
+
+    /// Ввод символа в поле фильтра: на место выделения или у каретки.
+    fn header_filter_char(&mut self, ch: char) {
+        let Some(col) = self.header_filter_edit else {
+            return;
+        };
+        let mut text = self.header_filter_text(col).to_string();
+        let mut cur = self.hf_cursor.min(text.len());
+        self.hf_sel.delete_selection(&mut text, &mut cur);
+        text.insert(cur, ch);
+        cur += ch.len_utf8();
+        self.hf_sel.clear();
+        self.hf_cursor = cur;
+        self.hf_blink = 0.0;
+        self.set_header_filter(col, text);
     }
 
     /// Клавиши таблицы со строковым выделением (без навигации по ячейкам):
@@ -1968,10 +2115,17 @@ impl TableViewElement {
             if filter_editing || !filter_text.is_empty() {
                 // Поле фильтра — подсвеченная плашка на месте названия.
                 let accent = self.mss.accent_color.unwrap_or(Color::from_hex("#3B82F6"));
+                // Правый край плашки — перед значком сортировки (значок стоит
+                // с отступом заголовка, а не `icon_w` от края).
+                let right = if icon_w > 0.0 {
+                    cx + w - h_padding - SORT_ICON_SIZE - 3.0
+                } else {
+                    cx + w - 4.0
+                };
                 let pill = Rect::new(
                     Point::new(cx + 4.0, self.bounds.y() + 6.0),
                     Size::new(
-                        (w - 8.0 - icon_w).max(0.0),
+                        (right - (cx + 4.0)).max(0.0),
                         (self.header_height - 12.0).max(0.0),
                     ),
                 );
@@ -1985,21 +2139,69 @@ impl TableViewElement {
                 } else {
                     list.push_rect(pill, accent.with_alpha(0.12), [6.0; 4]);
                 }
-                let (text, color) = if filter_editing && filter_text.is_empty() {
-                    (format!("{}…|", col.header), header_fg.with_alpha(0.5))
-                } else if filter_editing {
-                    (format!("{filter_text}|"), accent)
+                if filter_editing {
+                    // Поле ввода: выделение, текст и мигающая каретка; длинный
+                    // текст сдвигается, чтобы каретка оставалась видна.
+                    let cur = self.hf_cursor.min(filter_text.len());
+                    let caret_w = self.header_text_width(&filter_text[..cur]);
+                    let shift = (caret_w - (text_rect.size.width - 4.0)).max(0.0);
+                    let tx = text_rect.x() - shift;
+                    if let Some((a, b)) = self.hf_sel.range(cur) {
+                        let xa = tx + self.header_text_width(&filter_text[..a.min(filter_text.len())]);
+                        let xb = tx + self.header_text_width(&filter_text[..b.min(filter_text.len())]);
+                        list.push_rect(
+                            Rect::new(
+                                Point::new(xa, text_rect.y() - 1.0),
+                                Size::new((xb - xa).max(0.0), h_font_size + 4.0),
+                            ),
+                            accent.with_alpha(0.35),
+                            [2.0; 4],
+                        );
+                    }
+                    let shifted = Rect::new(
+                        Point::new(tx, text_rect.y()),
+                        Size::new(text_rect.size.width + shift, text_rect.size.height),
+                    );
+                    if filter_text.is_empty() {
+                        list.push_text_singleline(
+                            &format!("{}…", col.header),
+                            shifted,
+                            header_fg.with_alpha(0.5),
+                            h_font_size,
+                            TextAlign::LEFT,
+                            600,
+                        );
+                    } else {
+                        list.push_text_singleline(
+                            filter_text,
+                            shifted,
+                            accent,
+                            h_font_size,
+                            TextAlign::LEFT,
+                            600,
+                        );
+                    }
+                    // Каретка мигает (полсекунды видна, полсекунды нет).
+                    if (self.hf_blink * 2.0) as u32 % 2 == 0 {
+                        list.push_rect(
+                            Rect::new(
+                                Point::new(tx + caret_w, text_rect.y() - 1.0),
+                                Size::new(1.5, h_font_size + 4.0),
+                            ),
+                            accent,
+                            [0.0; 4],
+                        );
+                    }
                 } else {
-                    (filter_text.to_string(), accent)
-                };
-                list.push_text_singleline(
-                    &text,
-                    text_rect,
-                    color,
-                    h_font_size,
-                    TextAlign::LEFT,
-                    600,
-                );
+                    list.push_text_singleline(
+                        filter_text,
+                        text_rect,
+                        accent,
+                        h_font_size,
+                        TextAlign::LEFT,
+                        600,
+                    );
+                }
             } else {
                 list.push_text_singleline(
                     &col.header,
@@ -2900,8 +3102,22 @@ impl Element for TableViewElement {
                 .is_some_and(|(_, _, wait)| wait < HEADER_TIP_DELAY_SECS)
     }
 
+    /// Пока идёт ввод фильтра в заголовке — кадры для мигания каретки.
+    fn needs_repaint(&self) -> bool {
+        self.header_filter_edit.is_some()
+    }
+
     fn animate(&mut self, dt: Duration) -> bool {
         let mut needs_repaint = false;
+        if self.header_filter_edit.is_some() {
+            let before = (self.hf_blink * 2.0) as u32;
+            self.hf_blink += dt.as_secs_f32();
+            if (self.hf_blink * 2.0) as u32 != before {
+                self.mark_dirty(DirtyFlags::RENDER);
+            }
+            // Мигание каретки держит анимацию, пока идёт ввод.
+            needs_repaint = true;
+        }
         if let Some((col, x, wait)) = self.header_tip {
             if wait < HEADER_TIP_DELAY_SECS {
                 let next = wait + dt.as_secs_f32();
@@ -3318,10 +3534,23 @@ impl Element for TableViewElement {
                     return EventResult::Handled;
                 }
 
+                // Щелчок по полю, где идёт ввод, ставит каретку под мышь.
+                if let Some(ed) = self.header_filter_edit {
+                    if position.y < self.bounds.y() + self.header_height
+                        && self.col_at_x(position.x) == Some(ed)
+                        && !self.header_sort_icon_hit(ed, position.x)
+                    {
+                        self.hf_cursor = self.hf_cursor_at(ed, position.x);
+                        self.hf_sel.clear();
+                        self.hf_blink = 0.0;
+                        ctx.request_paint();
+                        return EventResult::Handled;
+                    }
+                }
                 // Щелчок мимо заголовка (или по другому столбцу) заканчивает
                 // ввод фильтра; текст остаётся.
                 if self.header_filter_edit.is_some() {
-                    self.header_filter_edit = None;
+                    self.end_header_filter(ctx);
                     ctx.request_paint();
                 }
                 if position.y < self.bounds.y() + self.header_height {
@@ -3346,7 +3575,7 @@ impl Element for TableViewElement {
                             return EventResult::Handled;
                         }
                         if filter_click {
-                            self.start_header_filter(col_idx);
+                            self.begin_header_filter(col_idx, ctx);
                             ctx.request_paint();
                             return EventResult::Handled;
                         }
@@ -3503,25 +3732,23 @@ impl Element for TableViewElement {
                 ctx.request_paint();
                 EventResult::Handled
             }
+            // Поле фильтра в заголовке — раньше навигации таблицы: иначе
+            // Ctrl+C/X/V и стрелки уходили таблице, а не тексту фильтра.
+            Event::KeyDown(key) if self.header_filter_edit.is_some() => {
+                self.handle_header_filter_key(*key, ctx)
+            }
+            Event::CharInput(ch) if self.header_filter_edit.is_some() => {
+                if !ch.is_control() && !(ctx.modifiers.ctrl || ctx.modifiers.meta) {
+                    self.header_filter_char(*ch);
+                    ctx.request_paint();
+                }
+                EventResult::Handled
+            }
             Event::KeyDown(key)
                 if (self.keyboard_nav || self.editable || self.popover_open)
                     && (self.focused || self.popover_open) =>
             {
                 self.handle_key_nav(*key, ctx)
-            }
-            Event::KeyDown(key) if self.header_filter_edit.is_some() => {
-                self.handle_header_filter_key(*key, ctx)
-            }
-            Event::CharInput(ch) if self.header_filter_edit.is_some() => {
-                if !ch.is_control() {
-                    if let Some(col) = self.header_filter_edit {
-                        let mut text = self.header_filter_text(col).to_string();
-                        text.push(*ch);
-                        self.set_header_filter(col, text);
-                    }
-                    ctx.request_paint();
-                }
-                EventResult::Handled
             }
             Event::KeyDown(key) if self.focused && self.edit_state.is_none() => {
                 self.handle_row_keys(*key, ctx)
@@ -3563,7 +3790,7 @@ impl Element for TableViewElement {
             }
             Event::FocusLost => {
                 self.focused = false;
-                self.header_filter_edit = None;
+                self.end_header_filter(ctx);
                 if self.edit_state.is_some() {
                     self.commit_edit();
                 }
@@ -3582,7 +3809,7 @@ impl Element for TableViewElement {
                         let slot = self.column_drop_slot(press.x);
                         self.move_column(press.col, slot);
                     } else if press.filter {
-                        self.start_header_filter(press.col);
+                        self.begin_header_filter(press.col, ctx);
                     } else {
                         self.toggle_sort(press.col);
                     }
@@ -4476,6 +4703,74 @@ mod tests {
         });
         h.send_event(&Event::KeyDown(crate::input::Key::Enter));
         assert_eq!(*opened.lock().unwrap(), vec![1]);
+    }
+
+    /// Таблица с фильтром в заголовке и навигацией с клавиатуры; последнее
+    /// значение фильтра — в `seen`.
+    fn filter_table(seen: Arc<Mutex<String>>) -> TestHarness {
+        let table = TableView::new(
+            vec![TableColumn::fixed("A", 150.0), TableColumn::fixed("B", 150.0)],
+            vec![vec!["a".into(), "b".into()]],
+        )
+        .row_height(20.0)
+        .header_height(20.0)
+        .keyboard_nav(true)
+        .header_filter(vec![], move |_, t| *seen.lock().unwrap() = t);
+        let mut h = TestHarness::new(Box::new(table));
+        h.layout(400.0, 200.0);
+        h
+    }
+
+    fn key(h: &mut TestHarness, k: crate::input::Key, ctrl: bool, shift: bool) {
+        h.tree.modifiers = crate::input::Modifiers {
+            ctrl,
+            shift,
+            alt: false,
+            meta: false,
+        };
+        h.send_event(&Event::KeyDown(k));
+        h.tree.modifiers = crate::input::Modifiers::default();
+    }
+
+    #[test]
+    fn header_filter_edits_like_a_text_field() {
+        use crate::input::Key;
+        let seen = Arc::new(Mutex::new(String::new()));
+        let mut h = filter_table(seen.clone());
+        // Щелчок по названию столбца A — ввод фильтра.
+        h.send_event(&Event::MouseDown {
+            button: MouseButton::Left,
+            position: Point::new(30.0, 10.0),
+        });
+        for ch in "абв".chars() {
+            h.send_event(&Event::CharInput(ch));
+        }
+        assert_eq!(*seen.lock().unwrap(), "абв");
+        // Стрелки двигают каретку (а не выделение строк таблицы): вставка в середину.
+        key(&mut h, Key::Left, false, false);
+        key(&mut h, Key::Left, false, false);
+        h.send_event(&Event::CharInput('X'));
+        assert_eq!(*seen.lock().unwrap(), "аXбв");
+        // Delete — символ справа от каретки, Home/End.
+        key(&mut h, Key::Delete, false, false);
+        assert_eq!(*seen.lock().unwrap(), "аXв");
+        key(&mut h, Key::Home, false, false);
+        h.send_event(&Event::CharInput('>'));
+        assert_eq!(*seen.lock().unwrap(), ">аXв");
+        // Shift+стрелка выделяет, ввод заменяет выделенное.
+        key(&mut h, Key::End, false, false);
+        key(&mut h, Key::Left, false, true);
+        key(&mut h, Key::Left, false, true);
+        h.send_event(&Event::CharInput('Z'));
+        assert_eq!(*seen.lock().unwrap(), ">аZ");
+        // Ctrl+A, Ctrl+X — всё вырезано; Ctrl с буквой символом не вводится.
+        key(&mut h, Key::A, true, false);
+        key(&mut h, Key::X, true, false);
+        assert_eq!(*seen.lock().unwrap(), "");
+        // Esc очищает и выходит, Enter оставляет текст.
+        h.send_event(&Event::CharInput('q'));
+        key(&mut h, Key::Enter, false, false);
+        assert_eq!(*seen.lock().unwrap(), "q");
     }
 
     #[test]
