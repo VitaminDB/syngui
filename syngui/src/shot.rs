@@ -91,7 +91,9 @@ impl Default for ShotOptions {
 
 /// События для снимка из строки вида
 /// `move 500 400; down 500 400; move 620 400; up 620 400; wheel 500 400 0 -120`:
-/// координаты логические, `wheel x y dy dx`. Нераспознанное пропускается.
+/// координаты логические, `wheel x y dy dx`. Ещё: `click x y` (левая: нажать+отпустить),
+/// `rclick x y` (правая: контекстное меню), `rdown`/`rup`, `dclick x y` (двойной щелчок).
+/// Нераспознанное пропускается.
 pub fn parse_events(spec: &str) -> Vec<crate::input::Event> {
     use crate::input::{Event, MouseButton};
     spec.split(';')
@@ -100,24 +102,31 @@ pub fn parse_events(spec: &str) -> Vec<crate::input::Event> {
             let kind = it.next()?;
             let nums: Vec<f32> = it.filter_map(|n| n.parse().ok()).collect();
             let pos = Point::new(*nums.first()?, *nums.get(1)?);
+            let press = |button, down: bool| if down { Event::MouseDown { button, position: pos } } else { Event::MouseUp { button, position: pos } };
             Some(match kind {
-                "move" => Event::MouseMove(pos),
-                "down" => Event::MouseDown {
-                    button: MouseButton::Left,
-                    position: pos,
-                },
-                "up" => Event::MouseUp {
-                    button: MouseButton::Left,
-                    position: pos,
-                },
-                "wheel" => Event::MouseWheel {
+                "move" => vec![Event::MouseMove(pos)],
+                "down" => vec![press(MouseButton::Left, true)],
+                "up" => vec![press(MouseButton::Left, false)],
+                "rdown" => vec![press(MouseButton::Right, true)],
+                "rup" => vec![press(MouseButton::Right, false)],
+                "click" => vec![Event::MouseMove(pos), press(MouseButton::Left, true), press(MouseButton::Left, false)],
+                "rclick" => vec![Event::MouseMove(pos), press(MouseButton::Right, true), press(MouseButton::Right, false)],
+                "dclick" => vec![
+                    Event::MouseMove(pos),
+                    press(MouseButton::Left, true),
+                    press(MouseButton::Left, false),
+                    Event::DoubleClick { button: MouseButton::Left, position: pos },
+                    press(MouseButton::Left, false),
+                ],
+                "wheel" => vec![Event::MouseWheel {
                     delta: nums.get(2).copied().unwrap_or(0.0),
                     delta_x: nums.get(3).copied().unwrap_or(0.0),
                     position: pos,
-                },
+                }],
                 _ => return None,
             })
         })
+        .flatten()
         .collect()
 }
 
@@ -403,5 +412,9 @@ mod events_tests {
         assert_eq!(ev.len(), 4);
         assert!(matches!(ev[0], Event::MouseMove(p) if p.x == 10.0 && p.y == 20.0));
         assert!(matches!(ev[3], Event::MouseWheel { delta_x, .. } if delta_x == -120.0));
+        let ev = parse_events("rclick 5 6; click 1 2");
+        assert_eq!(ev.len(), 6);
+        assert!(matches!(ev[1], Event::MouseDown { button: crate::input::MouseButton::Right, .. }));
+        assert!(matches!(ev[5], Event::MouseUp { button: crate::input::MouseButton::Left, .. }));
     }
 }
