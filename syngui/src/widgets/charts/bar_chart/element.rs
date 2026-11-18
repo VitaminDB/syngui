@@ -940,6 +940,17 @@ impl BarChartElement {
 }
 
 /// Непрерывные участки линии: пропуск в данных разрывает её.
+/// Через сколько категорий подписывать ось, чтобы подписи с зазором не
+/// перекрывались.
+fn label_stride(widths: &[f32], cat_width: f32) -> usize {
+    const GAP: f32 = 6.0;
+    let widest = widths.iter().copied().fold(0.0_f32, f32::max);
+    if cat_width <= 0.0 {
+        return 1;
+    }
+    ((widest + GAP) / cat_width).ceil().max(1.0) as usize
+}
+
 fn line_runs(points: &[Option<(f32, f32)>]) -> Vec<Vec<(usize, (f32, f32))>> {
     let mut runs: Vec<Vec<(usize, (f32, f32))>> = Vec::new();
     let mut current: Vec<(usize, (f32, f32))> = Vec::new();
@@ -1302,14 +1313,27 @@ impl Element for BarChartElement {
                 if self.x_axis.show_labels && num_cats > 0 {
                     let cat_width = plot.size.width / num_cats as f32;
                     let label_color = axis_colors.label_color;
+                    let widths: Vec<f32> = self
+                        .categories
+                        .iter()
+                        .map(|cat| {
+                            super::super::render::estimate_text_width(
+                                cat,
+                                axis_font_size,
+                                self.text_measure.as_ref(),
+                            )
+                            .max(20.0)
+                        })
+                        .collect();
+                    let every = label_stride(&widths, cat_width);
                     for (i, cat) in self.categories.iter().enumerate() {
+                        // Подписи не налезают друг на друга: при тесноте —
+                        // каждая k-я, считая от последней категории.
+                        if (num_cats - 1 - i) % every != 0 {
+                            continue;
+                        }
                         let x = plot.origin.x + i as f32 * cat_width + cat_width * 0.5;
-                        let label_w = super::super::render::estimate_text_width(
-                            cat,
-                            axis_font_size,
-                            self.text_measure.as_ref(),
-                        )
-                        .max(20.0);
+                        let label_w = widths[i];
                         let label_rect = Rect::new(
                             Point::new(x - label_w * 0.5, plot.origin.y + plot.size.height + 4.0),
                             Size::new(label_w, axis_font_size + 4.0),
@@ -1646,6 +1670,13 @@ mod tests {
         let above = Point::new(track.origin.x + 2.0, track.origin.y + 2.0);
         assert!(!bar.contains(above));
         assert_eq!(element.hit_test(above), Some(Hover::Bar(0, 0)));
+    }
+
+    #[test]
+    fn crowded_axis_labels_are_thinned() {
+        assert_eq!(label_stride(&[30.0, 30.0], 50.0), 1);
+        assert_eq!(label_stride(&[30.0; 30], 20.0), 2);
+        assert_eq!(label_stride(&[36.0; 30], 12.0), 4);
     }
 
     #[test]
