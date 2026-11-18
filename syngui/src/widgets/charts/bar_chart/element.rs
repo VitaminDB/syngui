@@ -222,7 +222,7 @@ impl BarChartElement {
         let mut value_max = 0.0_f64;
 
         match self.mode {
-            BarMode::Grouped => {
+            BarMode::Grouped | BarMode::Overlay => {
                 for (si, series) in self.bar_series.iter().enumerate() {
                     if !self.anim.is_series_visible(si) {
                         continue;
@@ -484,6 +484,35 @@ impl BarChartElement {
                     }
                 }
             }
+            BarMode::Overlay => {
+                // Все ряды — в одном столбце категории; шкала одна на категорию.
+                let bar_w = cat_width * self.bar_width;
+                if self.bar_track {
+                    self.track_rects = vec![vec![Rect::zero(); num_categories]];
+                }
+                for ci in 0..num_categories {
+                    let bar_x = ci as f32 * cat_width + (cat_width - bar_w) * 0.5;
+                    for si in 0..num_series {
+                        let val = self.bar_series[si].data.get(ci).copied().unwrap_or(0.0);
+                        let val_y = self.value_scale.map(val);
+                        let (rect_y, rect_h) = if val >= 0.0 {
+                            (val_y, (zero_y - val_y).max(0.0))
+                        } else {
+                            (zero_y, (val_y - zero_y).max(0.0))
+                        };
+                        self.bar_rects[si][ci] = Rect::new(
+                            Point::new(plot.origin.x + bar_x, plot.origin.y + rect_y),
+                            Size::new(bar_w, rect_h),
+                        );
+                    }
+                    if self.bar_track {
+                        self.track_rects[0][ci] = Rect::new(
+                            Point::new(plot.origin.x + bar_x, plot.origin.y + track_top),
+                            Size::new(bar_w, (zero_y - track_top).max(0.0)),
+                        );
+                    }
+                }
+            }
             BarMode::Stacked => {
                 let bar_w = cat_width * self.bar_width;
 
@@ -573,6 +602,25 @@ impl BarChartElement {
                         self.bar_rects[si][ci] = Rect::new(
                             Point::new(plot.origin.x + rect_x, plot.origin.y + bar_y),
                             Size::new(rect_w, single_bar_height),
+                        );
+                    }
+                }
+            }
+            BarMode::Overlay => {
+                let bar_h = cat_height * self.bar_width;
+                for ci in 0..num_categories {
+                    let bar_y = ci as f32 * cat_height + (cat_height - bar_h) * 0.5;
+                    for si in 0..num_series {
+                        let val = self.bar_series[si].data.get(ci).copied().unwrap_or(0.0);
+                        let val_x = self.value_scale.map(val);
+                        let (rect_x, rect_w) = if val >= 0.0 {
+                            (zero_x, (val_x - zero_x).max(0.0))
+                        } else {
+                            (val_x, (zero_x - val_x).max(0.0))
+                        };
+                        self.bar_rects[si][ci] = Rect::new(
+                            Point::new(plot.origin.x + rect_x, plot.origin.y + bar_y),
+                            Size::new(rect_w, bar_h),
                         );
                     }
                 }
@@ -827,6 +875,37 @@ impl BarChartElement {
         label: Option<&str>,
         color: Color,
     ) {
+        let body = self.tooltip_block(series_name, value, label, color);
+        self.render_tooltip(list, mouse, category, body);
+    }
+
+    /// Строки подсказки одного ряда: первая — цветом ряда, пояснения ниже —
+    /// обычным текстом (`None`).
+    fn tooltip_block(
+        &self,
+        series_name: &str,
+        value: f64,
+        label: Option<&str>,
+        color: Color,
+    ) -> Vec<(String, Option<Color>)> {
+        let lines: Vec<String> = match label.filter(|l| !l.is_empty()) {
+            Some(l) => l.lines().map(str::to_string).collect(),
+            None => vec![format!("{}: {}", series_name, self.format_value(value))],
+        };
+        lines
+            .into_iter()
+            .enumerate()
+            .map(|(i, l)| (l, (i == 0).then_some(color)))
+            .collect()
+    }
+
+    fn render_tooltip(
+        &self,
+        list: &mut DisplayList,
+        mouse: Point,
+        category: &str,
+        body: Vec<(String, Option<Color>)>,
+    ) {
         let tc = self.tooltip_colors();
         let opacity = self.anim.tooltip_opacity;
         if opacity < 0.01 {
@@ -834,10 +913,6 @@ impl BarChartElement {
         }
 
         let line1 = category.to_string();
-        let body: Vec<String> = match label.filter(|l| !l.is_empty()) {
-            Some(l) => l.lines().map(str::to_string).collect(),
-            None => vec![format!("{}: {}", series_name, self.format_value(value))],
-        };
 
         let line_height = tc.font_size + 4.0;
         let padding = 8.0;
@@ -846,7 +921,7 @@ impl BarChartElement {
         };
         let max_text_width = body
             .iter()
-            .map(|l| measure(l))
+            .map(|(l, _)| measure(l))
             .fold(measure(&line1), f32::max)
             .max(40.0);
         let tooltip_width = max_text_width + padding * 2.0;
@@ -895,22 +970,39 @@ impl BarChartElement {
             tc.font_size,
         );
 
-        for (i, line) in body.iter().enumerate() {
+        for (i, (line, line_color)) in body.iter().enumerate() {
             let rect = Rect::new(
                 Point::new(x + padding, y + padding + line_height * (i + 1) as f32),
                 Size::new(max_text_width, line_height),
             );
-            // Первая строка — цветом ряда, пояснения ниже — обычным текстом.
-            let c = if i == 0 {
-                color.with_alpha(opacity)
-            } else {
-                tc.text_color.with_alpha(opacity * 0.85)
+            let c = match line_color {
+                Some(c) => c.with_alpha(opacity),
+                None => tc.text_color.with_alpha(opacity * 0.85),
             };
             list.push_text(line, rect, c, tc.font_size);
         }
     }
 
     fn render_hover_tooltip(&self, list: &mut DisplayList, mouse: Point, hover: Hover) {
+        // Overlay: все ряды категории в одной подсказке.
+        if let (BarMode::Overlay, Hover::Bar(_, ci)) = (self.mode, hover) {
+            let mut body = Vec::new();
+            for (si, series) in self.bar_series.iter().enumerate() {
+                if !self.anim.is_series_visible(si) {
+                    continue;
+                }
+                let color = self.resolved_colors.get(si).copied().unwrap_or(Color::WHITE);
+                body.extend(self.tooltip_block(
+                    &series.name,
+                    series.data.get(ci).copied().unwrap_or(0.0),
+                    series.labels.get(ci).map(String::as_str),
+                    color,
+                ));
+            }
+            let category = self.categories.get(ci).map(|s| s.as_str()).unwrap_or("?");
+            self.render_tooltip(list, mouse, category, body);
+            return;
+        }
         let (ci, name, value, label, color) = match hover {
             Hover::Bar(si, ci) => {
                 let Some(series) = self.bar_series.get(si) else {
@@ -1157,99 +1249,131 @@ impl Element for BarChartElement {
         let appear = self.anim.appear_eased;
         let num_categories = self.categories.len();
 
-        for (si, series_rects) in self.bar_rects.iter().enumerate() {
+        // Порядок отрисовки: по рядам; в режиме Overlay — по категориям,
+        // больший столбец сзади, меньший поверх.
+        let mut order: Vec<(usize, usize)> = Vec::new();
+        if self.mode == BarMode::Overlay {
+            for ci in 0..num_categories {
+                let mut series: Vec<usize> = (0..self.bar_rects.len()).collect();
+                series.sort_by(|a, b| {
+                    let v = |si: usize| self.bar_series[si].data.get(ci).copied().unwrap_or(0.0).abs();
+                    v(*b).partial_cmp(&v(*a)).unwrap_or(std::cmp::Ordering::Equal)
+                });
+                order.extend(series.into_iter().map(|si| (si, ci)));
+            }
+        } else {
+            for (si, series_rects) in self.bar_rects.iter().enumerate() {
+                order.extend((0..series_rects.len().min(num_categories)).map(|ci| (si, ci)));
+            }
+        }
+        let category_hovered = |ci: usize| matches!(self.hovered, Some(Hover::Bar(_, c)) if c == ci);
+        let radius = self.bar_border_radius;
+        let corner_radii = [radius; 4];
+
+        // Шкала: бледный фон и контур во всю высоту — под заливками.
+        for (si, track_row) in self.track_rects.iter().enumerate() {
             let opacity = self.anim.series_opacity(si);
             if opacity < 0.01 {
                 continue;
             }
+            let base_color = self
+                .resolved_colors
+                .get(si)
+                .copied()
+                .unwrap_or(Color::from_hex("#888888"));
+            for (ci, track) in track_row.iter().enumerate().take(num_categories) {
+                let is_hovered = if self.mode == BarMode::Overlay {
+                    category_hovered(ci)
+                } else {
+                    self.hovered == Some(Hover::Bar(si, ci))
+                };
+                let (fill_a, border_a) = if is_hovered { (0.16, 0.9) } else { (0.08, 0.55) };
+                list.push_rect_bordered(
+                    *track,
+                    base_color.with_alpha(fill_a * opacity),
+                    corner_radii,
+                    Border::new(1.0, base_color.with_alpha(border_a * opacity)),
+                );
+            }
+        }
 
+        for (si, ci) in order {
+            let opacity = self.anim.series_opacity(si);
+            if opacity < 0.01 {
+                continue;
+            }
+            let Some(rect) = self.bar_rects.get(si).and_then(|r| r.get(ci)) else {
+                continue;
+            };
             let base_color = self
                 .resolved_colors
                 .get(si)
                 .copied()
                 .unwrap_or(Color::from_hex("#888888"));
             let color = base_color.with_alpha(opacity);
+            let val = self.bar_series[si].data.get(ci).copied().unwrap_or(0.0);
 
-            for (ci, rect) in series_rects.iter().enumerate() {
-                if ci >= num_categories {
-                    continue;
+            let animated_rect = match self.orientation {
+                BarOrientation::Vertical => {
+                    let animated_h = rect.size.height * appear;
+                    if val >= 0.0 {
+                        Rect::new(
+                            Point::new(rect.origin.x, rect.origin.y + rect.size.height - animated_h),
+                            Size::new(rect.size.width, animated_h),
+                        )
+                    } else {
+                        Rect::new(
+                            Point::new(rect.origin.x, rect.origin.y),
+                            Size::new(rect.size.width, animated_h),
+                        )
+                    }
                 }
-
-                let animated_rect = match self.orientation {
-                    BarOrientation::Vertical => {
-                        let val = self.bar_series[si].data.get(ci).copied().unwrap_or(0.0);
-                        let animated_h = rect.size.height * appear;
-                        if val >= 0.0 {
-                            Rect::new(
-                                Point::new(
-                                    rect.origin.x,
-                                    rect.origin.y + rect.size.height - animated_h,
-                                ),
-                                Size::new(rect.size.width, animated_h),
-                            )
-                        } else {
-                            Rect::new(
-                                Point::new(rect.origin.x, rect.origin.y),
-                                Size::new(rect.size.width, animated_h),
-                            )
-                        }
+                BarOrientation::Horizontal => {
+                    let animated_w = rect.size.width * appear;
+                    if val >= 0.0 {
+                        Rect::new(
+                            Point::new(rect.origin.x, rect.origin.y),
+                            Size::new(animated_w, rect.size.height),
+                        )
+                    } else {
+                        Rect::new(
+                            Point::new(rect.origin.x + rect.size.width - animated_w, rect.origin.y),
+                            Size::new(animated_w, rect.size.height),
+                        )
                     }
-                    BarOrientation::Horizontal => {
-                        let val = self.bar_series[si].data.get(ci).copied().unwrap_or(0.0);
-                        let animated_w = rect.size.width * appear;
-                        if val >= 0.0 {
-                            Rect::new(
-                                Point::new(rect.origin.x, rect.origin.y),
-                                Size::new(animated_w, rect.size.height),
-                            )
-                        } else {
-                            Rect::new(
-                                Point::new(
-                                    rect.origin.x + rect.size.width - animated_w,
-                                    rect.origin.y,
-                                ),
-                                Size::new(animated_w, rect.size.height),
-                            )
-                        }
-                    }
-                };
+                }
+            };
 
-                let is_hovered = self.hovered == Some(Hover::Bar(si, ci));
-                let bar_color = if is_hovered {
-                    color.lighten(0.15)
-                } else {
-                    color
-                };
+            let is_hovered = if self.mode == BarMode::Overlay {
+                category_hovered(ci)
+            } else {
+                self.hovered == Some(Hover::Bar(si, ci))
+            };
+            let bar_color = if is_hovered { color.lighten(0.15) } else { color };
 
-                let radius = self.bar_border_radius;
-                let corner_radii = [radius; 4];
-                if let Some(track) = self.track_rects.get(si).and_then(|r| r.get(ci)) {
-                    // Шкала: бледный фон и контур во всю высоту, заливка —
-                    // по значению, утоплена на толщину контура.
-                    let (fill_a, border_a) = if is_hovered { (0.16, 0.9) } else { (0.08, 0.55) };
-                    list.push_rect_bordered(
-                        *track,
-                        base_color.with_alpha(fill_a * opacity),
-                        corner_radii,
-                        Border::new(1.0, base_color.with_alpha(border_a * opacity)),
+            let track = if self.mode == BarMode::Overlay {
+                self.track_rects.first().and_then(|r| r.get(ci))
+            } else {
+                self.track_rects.get(si).and_then(|r| r.get(ci))
+            };
+            if let Some(track) = track {
+                // Заливка по значению, утоплена на толщину контура.
+                let inset = 2.0_f32;
+                let inner_w = (animated_rect.size.width - inset * 2.0).max(0.0);
+                let inner_h = (animated_rect.size.height - inset).max(0.0);
+                if inner_h > 0.5 {
+                    let top = (animated_rect.origin.y).max(track.origin.y + inset);
+                    let bottom = animated_rect.origin.y + animated_rect.size.height - inset;
+                    let fill = Rect::new(
+                        Point::new(animated_rect.origin.x + inset, top),
+                        Size::new(inner_w, (bottom - top).max(0.0).min(inner_h)),
                     );
-                    let inset = 2.0_f32;
-                    let inner_w = (animated_rect.size.width - inset * 2.0).max(0.0);
-                    let inner_h = (animated_rect.size.height - inset).max(0.0);
-                    if inner_h > 0.5 {
-                        let top = (animated_rect.origin.y).max(track.origin.y + inset);
-                        let bottom = animated_rect.origin.y + animated_rect.size.height - inset;
-                        let fill = Rect::new(
-                            Point::new(animated_rect.origin.x + inset, top),
-                            Size::new(inner_w, (bottom - top).max(0.0).min(inner_h)),
-                        );
-                        let r = (radius - inset).max(1.0);
-                        list.push_rect(fill, bar_color, [r; 4]);
-                    }
-                    continue;
+                    let r = (radius - inset).max(1.0);
+                    list.push_rect(fill, bar_color, [r; 4]);
                 }
-                list.push_rect(animated_rect, bar_color, corner_radii);
+                continue;
             }
+            list.push_rect(animated_rect, bar_color, corner_radii);
         }
 
         if self.show_value_labels && appear > 0.5 {
@@ -1685,6 +1809,29 @@ mod tests {
         let above = Point::new(track.origin.x + 2.0, track.origin.y + 2.0);
         assert!(!bar.contains(above));
         assert_eq!(element.hit_test(above), Some(Hover::Bar(0, 0)));
+    }
+
+    #[test]
+    fn overlay_puts_series_into_one_slot_with_one_track() {
+        let element = laid_out(
+            BarChart::new()
+                .categories(vec!["a".into(), "b".into()])
+                .bar_series(BarSeries::new("big", vec![80.0, 40.0]))
+                .bar_series(BarSeries::new("small", vec![30.0, 60.0]))
+                .mode(BarMode::Overlay)
+                .bar_track(true),
+        );
+        let big = element.bar_rects[0][0];
+        let small = element.bar_rects[1][0];
+        assert_eq!(big.origin.x, small.origin.x);
+        assert_eq!(big.size.width, small.size.width);
+        assert!(big.size.height > small.size.height);
+        assert_eq!(element.track_rects.len(), 1);
+        let center = Point::new(
+            small.origin.x + small.size.width * 0.5,
+            small.origin.y + small.size.height * 0.5,
+        );
+        assert_eq!(element.hit_test(center), Some(Hover::Bar(0, 0)));
     }
 
     #[test]

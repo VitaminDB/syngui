@@ -472,6 +472,10 @@ impl Default for PieLabelPosition {
 pub enum BarMode {
     Grouped,
     Stacked,
+    /// Ряды одной категории — в одном столбце поверх друг друга (не
+    /// стопкой): больший рисуется сзади, меньший поверх. Подсказка
+    /// показывает все ряды категории сразу.
+    Overlay,
 }
 
 impl Default for BarMode {
