@@ -68,6 +68,10 @@ pub struct ShotOptions {
     pub frames: u32,
     /// Промежуток между кадрами серии.
     pub interval: Duration,
+    /// События указателя, проигрываемые после готовности перед снимком
+    /// (наведение — подсказки, перетаскивание, колесо), с парой кадров после
+    /// каждого. Пусто — берутся из `SYNGUI_SHOT_EVENTS` (см. [`parse_events`]).
+    pub events: Vec<crate::input::Event>,
 }
 
 impl Default for ShotOptions {
@@ -80,8 +84,41 @@ impl Default for ShotOptions {
             timeout: Duration::from_secs(120),
             frames: 1,
             interval: Duration::from_millis(100),
+            events: Vec::new(),
         }
     }
+}
+
+/// События для снимка из строки вида
+/// `move 500 400; down 500 400; move 620 400; up 620 400; wheel 500 400 0 -120`:
+/// координаты логические, `wheel x y dy dx`. Нераспознанное пропускается.
+pub fn parse_events(spec: &str) -> Vec<crate::input::Event> {
+    use crate::input::{Event, MouseButton};
+    spec.split(';')
+        .filter_map(|part| {
+            let mut it = part.split_whitespace();
+            let kind = it.next()?;
+            let nums: Vec<f32> = it.filter_map(|n| n.parse().ok()).collect();
+            let pos = Point::new(*nums.first()?, *nums.get(1)?);
+            Some(match kind {
+                "move" => Event::MouseMove(pos),
+                "down" => Event::MouseDown {
+                    button: MouseButton::Left,
+                    position: pos,
+                },
+                "up" => Event::MouseUp {
+                    button: MouseButton::Left,
+                    position: pos,
+                },
+                "wheel" => Event::MouseWheel {
+                    delta: nums.get(2).copied().unwrap_or(0.0),
+                    delta_x: nums.get(3).copied().unwrap_or(0.0),
+                    position: pos,
+                },
+                _ => return None,
+            })
+        })
+        .collect()
 }
 
 /// Нарисовать `build()` размером `size` (логические px) с масштабом `scale` в
@@ -258,6 +295,21 @@ pub fn render_png_with(
         std::thread::sleep(Duration::from_millis(120));
     }
 
+    let events = if opts.events.is_empty() {
+        std::env::var("SYNGUI_SHOT_EVENTS")
+            .map(|s| parse_events(&s))
+            .unwrap_or_default()
+    } else {
+        opts.events
+    };
+    for event in &events {
+        let _ = tree.handle_event(root, event);
+        for _ in 0..3 {
+            list = step(&mut tree, Duration::from_millis(400));
+            std::thread::sleep(Duration::from_millis(60));
+        }
+    }
+
     let bg = tree
         .get(root)
         .and_then(|e| e.mss())
@@ -338,4 +390,18 @@ pub fn render_png_with(
         save(&list, &out.replace("{n}", &format!("{n:04}")))?;
     }
     Ok((pw, ph))
+}
+
+#[cfg(test)]
+mod events_tests {
+    use super::parse_events;
+    use crate::input::Event;
+
+    #[test]
+    fn shot_events_parse() {
+        let ev = parse_events("move 10 20; down 10 20;up 30 20 ; wheel 5 6 0 -120; bogus 1 2; move x");
+        assert_eq!(ev.len(), 4);
+        assert!(matches!(ev[0], Event::MouseMove(p) if p.x == 10.0 && p.y == 20.0));
+        assert!(matches!(ev[3], Event::MouseWheel { delta_x, .. } if delta_x == -120.0));
+    }
 }
