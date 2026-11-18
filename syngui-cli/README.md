@@ -73,6 +73,9 @@ abis = ["arm64-v8a"]               # arm64-v8a, armeabi-v7a, x86_64
 min_sdk = 30
 target_sdk = 35
 version_code = 3                   # по умолчанию из версии: 1.2.3 → 1002003
+version_code_offset = 20000000     # прибавка к коду из версии (переход со своей схемы номеров)
+cleartext_traffic = true           # usesCleartextTraffic: http:// и ws:// (по умолчанию нет)
+allow_backup = false               # android:allowBackup (по умолчанию true)
 permissions = ["INTERNET"]         # короткие или полные имена
 strip = false                      # оставить символы в .so (по умолчанию strip, кроме --debug)
 ffmpeg = true                      # статический FFmpeg из syngui/android-deps/ffmpeg/<abi>
@@ -121,6 +124,8 @@ portable_packages = ["pkg-config"]  # apt-пакеты в образе
 [package.metadata.syngui.windows]
 features = ["gui"]
 default_features = true
+packages = ["update_helper"]       # программы других крейтов рабочего пространства — в zip рядом
+files = ["assets/app.ico"]         # дополнительные файлы в zip
 
 [package.metadata.syngui.release]          # syngui release --publish
 artifacts = ["tar-portable", "zip"]        # tar, tar-x86_64, tar-aarch64, tar-portable, zip, apk, ipa

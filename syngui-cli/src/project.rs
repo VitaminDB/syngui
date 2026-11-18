@@ -68,6 +68,11 @@ pub struct ArchFeatures {
 pub struct WindowsMeta {
     pub features: Option<Vec<String>>,
     pub default_features: Option<bool>,
+    /// Другие крейты рабочего пространства, чьи одноимённые программы кладутся в zip рядом
+    /// с основной (например, помощник самообновления).
+    pub packages: Vec<String>,
+    /// Дополнительные файлы в zip (пути от крейта), например значок .ico.
+    pub files: Vec<String>,
 }
 
 #[derive(Debug, Default, Deserialize)]
@@ -86,6 +91,13 @@ pub struct AndroidMeta {
     pub min_sdk: Option<u32>,
     pub target_sdk: Option<u32>,
     pub version_code: Option<u32>,
+    /// Прибавка к versionCode из версии (1.2.3 → 1002003 + offset): при переходе со своей
+    /// схемы номеров, чтобы новый код был больше уже выпущенных.
+    pub version_code_offset: u32,
+    /// android:usesCleartextTraffic="true" — разрешить http:// и ws:// (по умолчанию нет).
+    pub cleartext_traffic: bool,
+    /// android:allowBackup (по умолчанию true).
+    pub allow_backup: Option<bool>,
     /// Короткие имена (INTERNET) или полные (android.permission.INTERNET).
     pub permissions: Vec<String>,
     /// Статический FFmpeg из syngui/android-deps/ffmpeg/<abi> (FFMPEG_DIR).
@@ -423,7 +435,7 @@ impl App {
             .map(|p| p.parse().unwrap_or(0))
             .collect();
         let g = |i: usize| v.get(i).copied().unwrap_or(0);
-        (g(0) * 1_000_000 + g(1) * 1_000 + g(2)).max(1)
+        (g(0) * 1_000_000 + g(1) * 1_000 + g(2)).max(1) + self.meta.android.version_code_offset
     }
 }
 

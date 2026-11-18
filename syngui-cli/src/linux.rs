@@ -149,15 +149,7 @@ pub fn build(
         c.arg("--target").arg(target.triple());
         match target {
             Target::LinuxAarch64 => cross_env(&app.target_dir, &mut c)?,
-            Target::WindowsX86_64 => {
-                c.env(
-                    "CARGO_TARGET_X86_64_PC_WINDOWS_GNU_LINKER",
-                    "x86_64-w64-mingw32-gcc",
-                )
-                .env("CC_x86_64_pc_windows_gnu", "x86_64-w64-mingw32-gcc")
-                .env("CXX_x86_64_pc_windows_gnu", "x86_64-w64-mingw32-g++")
-                .env("AR_x86_64_pc_windows_gnu", "x86_64-w64-mingw32-ar");
-            }
+            Target::WindowsX86_64 => windows_env(&mut c),
             _ => {}
         }
         app.target_dir.join(target.triple()).join(profile.dir())
@@ -174,6 +166,46 @@ pub fn build(
         bail!("cargo не оставил {}", path.display());
     }
     util::note(format!("{}", path.display()));
+    Ok(path)
+}
+
+/// Кросс-сборка под Windows: mingw-w64.
+fn windows_env(c: &mut Command) {
+    c.env(
+        "CARGO_TARGET_X86_64_PC_WINDOWS_GNU_LINKER",
+        "x86_64-w64-mingw32-gcc",
+    )
+    .env("CC_x86_64_pc_windows_gnu", "x86_64-w64-mingw32-gcc")
+    .env("CXX_x86_64_pc_windows_gnu", "x86_64-w64-mingw32-g++")
+    .env("AR_x86_64_pc_windows_gnu", "x86_64-w64-mingw32-ar");
+}
+
+/// Программа другого крейта рабочего пространства под Windows (`<крейт>.exe`) —
+/// для `[windows] packages`.
+pub fn build_windows_package(app: &App, package: &str, profile: Profile) -> Result<PathBuf> {
+    let mut args = profile_args(app, profile);
+    if let Some(i) = args.iter().position(|a| a == "-p") {
+        args[i + 1] = package.to_string();
+    }
+    let mut c = Command::new("cargo");
+    c.current_dir(&app.manifest_dir)
+        .arg("build")
+        .args(&args)
+        .arg("--bin")
+        .arg(package)
+        .arg("--target")
+        .arg(Target::WindowsX86_64.triple());
+    windows_env(&mut c);
+    util::step(format!("{package}: {}, {}", Target::WindowsX86_64, profile.dir()));
+    util::run(c)?;
+    let path = app
+        .target_dir
+        .join(Target::WindowsX86_64.triple())
+        .join(profile.dir())
+        .join(format!("{package}.exe"));
+    if !path.is_file() {
+        bail!("cargo не оставил {}", path.display());
+    }
     Ok(path)
 }
 

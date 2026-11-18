@@ -90,7 +90,8 @@ echo "{bin}: $prefix/bin/{bin}"
     ))
 }
 
-/// Windows: `<программа>-<версия>-windows-x86_64.zip` — exe и документы.
+/// Windows: `<программа>-<версия>-windows-x86_64.zip` — exe, программы `[windows] packages`,
+/// файлы `[windows] files` и документы.
 pub fn zip(app: &App, profile: Profile) -> Result<PathBuf> {
     let exe = linux::build(app, Target::WindowsX86_64, profile, &[], false)?;
     let dir = app.work_dir("stage").join("windows");
@@ -101,6 +102,22 @@ pub fn zip(app: &App, profile: Profile) -> Result<PathBuf> {
     util::copy(&exe, &staged)?;
     linux::strip(&staged, Target::WindowsX86_64);
     let mut files = vec![staged];
+    for p in &app.meta.windows.packages {
+        let exe = linux::build_windows_package(app, p, profile)?;
+        let dst = dir.join(exe.file_name().unwrap());
+        util::copy(&exe, &dst)?;
+        linux::strip(&dst, Target::WindowsX86_64);
+        files.push(dst);
+    }
+    for f in &app.meta.windows.files {
+        let src = app.path(f);
+        if !src.is_file() {
+            bail!("[windows] files: нет {}", src.display());
+        }
+        let dst = dir.join(src.file_name().unwrap());
+        util::copy(&src, &dst)?;
+        files.push(dst);
+    }
     for d in &app.meta.docs {
         let src = app.path(d);
         let dst = dir.join(src.file_name().unwrap());

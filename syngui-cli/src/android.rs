@@ -514,7 +514,7 @@ dependencies {{
         android:icon="@mipmap/ic_launcher"
         android:roundIcon="@mipmap/ic_launcher_round"
         android:hasCode="true"
-        android:allowBackup="true"
+        android:allowBackup="{backup}"{cleartext}
         android:isGame="false"
         android:enableOnBackInvokedCallback="true"
         android:theme="@style/Theme.SynGui">
@@ -557,6 +557,12 @@ dependencies {{
 "#,
             krate = app.krate,
             label = util::xml(&name),
+            backup = a.allow_backup.unwrap_or(true),
+            cleartext = if a.cleartext_traffic {
+                "\n        android:usesCleartextTraffic=\"true\""
+            } else {
+                ""
+            },
         ),
     )?;
 
