@@ -173,3 +173,15 @@ pub fn render_crosshair(
     );
     list.push_rect(crosshair_rect, color.with_alpha(opacity * 0.5), [0.0; 4]);
 }
+
+/// Цвет текста подсказки: заданный в MSS (`tooltip-color`), иначе
+/// контрастный к фону — тёмный на светлой подложке, светлый на тёмной.
+pub fn tooltip_text_color(explicit: Option<Color>, background: Color) -> Color {
+    explicit.unwrap_or_else(|| {
+        if crate::theme_fallback::color_is_dark(background) {
+            Color::from_hex("#f1f5f9")
+        } else {
+            Color::from_hex("#1e293b")
+        }
+    })
+}

@@ -69,6 +69,7 @@ impl Widget for LineChart {
             mss_legend_font_size: None,
             mss_tooltip_bg: None,
             mss_tooltip_border: None,
+            mss_tooltip_text: None,
             mss_animation_duration: None,
             mss_point_size: None,
             text_measure: None,
@@ -137,6 +138,7 @@ struct LineChartElement {
     mss_legend_font_size: Option<f32>,
     mss_tooltip_bg: Option<Color>,
     mss_tooltip_border: Option<Color>,
+    mss_tooltip_text: Option<Color>,
     mss_animation_duration: Option<f32>,
     mss_point_size: Option<f32>,
 
@@ -323,10 +325,11 @@ impl LineChartElement {
 
     fn tooltip_colors(&self) -> tooltip::TooltipColors {
         let default = tooltip::TooltipColors::default();
+        let background = self.mss_tooltip_bg.unwrap_or(default.background);
         tooltip::TooltipColors {
-            background: self.mss_tooltip_bg.unwrap_or(default.background),
+            background,
             border_color: self.mss_tooltip_border.unwrap_or(default.border_color),
-            text_color: default.text_color,
+            text_color: tooltip::tooltip_text_color(self.mss_tooltip_text, background),
             font_size: self.mss_legend_font_size.unwrap_or(default.font_size),
         }
     }
@@ -942,6 +945,9 @@ impl Element for LineChartElement {
         }
         if let Some(c) = style.get("tooltip-border-color").and_then(|v| v.as_color()) {
             self.mss_tooltip_border = Some(crate::animation::transition::mss_color_to_core(c));
+        }
+        if let Some(c) = style.get("tooltip-color").and_then(|v| v.as_color()) {
+            self.mss_tooltip_text = Some(crate::animation::transition::mss_color_to_core(c));
         }
         if let Some(v) = style.get("animation-duration").and_then(|v| v.as_px()) {
             self.mss_animation_duration = Some(v);

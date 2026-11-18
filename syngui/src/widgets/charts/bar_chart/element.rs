@@ -114,6 +114,8 @@ struct BarChartElement {
     mss_axis_font_size: Option<f32>,
     mss_title_font_size: Option<f32>,
     mss_tooltip_bg: Option<Color>,
+    mss_tooltip_border: Option<Color>,
+    mss_tooltip_text: Option<Color>,
 
     text_measure: Option<Arc<dyn TextMeasure>>,
 }
@@ -173,6 +175,8 @@ impl BarChartElement {
             mss_axis_font_size: None,
             mss_title_font_size: None,
             mss_tooltip_bg: None,
+            mss_tooltip_border: None,
+            mss_tooltip_text: None,
             text_measure: None,
         };
         element.resolve_colors();
@@ -670,10 +674,14 @@ impl BarChartElement {
 
     fn tooltip_colors(&self) -> TooltipColors {
         let default = TooltipColors::default();
+        let background = self.mss_tooltip_bg.unwrap_or(default.background);
         TooltipColors {
-            background: self.mss_tooltip_bg.unwrap_or(default.background),
-            border_color: default.border_color,
-            text_color: default.text_color,
+            background,
+            border_color: self.mss_tooltip_border.unwrap_or(default.border_color),
+            text_color: super::super::render::tooltip::tooltip_text_color(
+                self.mss_tooltip_text,
+                background,
+            ),
             font_size: 12.0,
         }
     }
@@ -869,10 +877,11 @@ impl BarChartElement {
             (0.0, 2.0),
             [6.0; 4],
         );
-        list.push_rect(
+        list.push_rect_bordered(
             tooltip_rect,
-            tc.background.with_alpha(opacity * 0.95),
+            tc.background.with_alpha(opacity * 0.97),
             [6.0; 4],
+            Border::new(1.0, tc.border_color.multiply_alpha(opacity)),
         );
 
         let text_rect1 = Rect::new(
@@ -1574,6 +1583,12 @@ impl Element for BarChartElement {
         }
         if let Some(c) = style.get("tooltip-background").and_then(|v| v.as_color()) {
             self.mss_tooltip_bg = Some(crate::animation::transition::mss_color_to_core(c));
+        }
+        if let Some(c) = style.get("tooltip-border-color").and_then(|v| v.as_color()) {
+            self.mss_tooltip_border = Some(crate::animation::transition::mss_color_to_core(c));
+        }
+        if let Some(c) = style.get("tooltip-color").and_then(|v| v.as_color()) {
+            self.mss_tooltip_text = Some(crate::animation::transition::mss_color_to_core(c));
         }
         if let Some(v) = style.get("animation-duration").and_then(|v| v.as_px()) {
             self.anim.set_appear_duration_ms(v);
