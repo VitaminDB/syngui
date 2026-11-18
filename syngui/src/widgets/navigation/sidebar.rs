@@ -139,11 +139,7 @@ impl Element for SidebarElement {
             .mss
             .width
             .map(|d| d.resolve(constraints.max_width))
-            .unwrap_or(constraints.max_width.min(240.0))
-            // Жёсткая ширина родителя (сплиттер, Row со stretch) — её и
-            // занимаем: иначе между панелью и соседом остаётся зазор.
-            .max(constraints.min_width)
-            .min(constraints.max_width);
+            .unwrap_or(constraints.max_width.min(240.0));
         let height = if constraints.max_height.is_finite() {
             constraints.max_height
         } else {
@@ -155,16 +151,10 @@ impl Element for SidebarElement {
 
     fn explicit_dimensions(
         &self,
-        parent_width: f32,
+        _parent_width: f32,
         _parent_height: f32,
     ) -> (Option<f32>, Option<f32>) {
-        // Проценты — от ширины родителя (было от 0: `width: 100%` давал
-        // нулевую ширину и раскладка панели разваливалась).
-        let w = self
-            .mss
-            .width
-            .map(|d| d.resolve(parent_width))
-            .filter(|w| w.is_finite() && *w > 0.0);
+        let w = self.mss.width.map(|d| d.resolve(0.0));
         (w, Some(f32::INFINITY))
     }
 
