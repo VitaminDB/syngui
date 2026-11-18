@@ -5,6 +5,10 @@ use super::types::{
     TooltipConfig,
 };
 use crate::mss::Dimension;
+use std::sync::{Arc, Mutex};
+
+/// Обработчик прокрутки графика: сдвиг в категориях, плюс — к более поздним.
+pub type PanHandler = Arc<Mutex<dyn FnMut(i32) + Send>>;
 
 pub struct BarChart {
     categories: Vec<String>,
@@ -25,6 +29,8 @@ pub struct BarChart {
     height: Option<Dimension>,
     title: Option<String>,
     classes: Vec<String>,
+    bar_track: bool,
+    on_pan: Option<PanHandler>,
 }
 
 impl BarChart {
@@ -48,7 +54,25 @@ impl BarChart {
             height: None,
             title: None,
             classes: Vec::new(),
+            bar_track: false,
+            on_pan: None,
         }
+    }
+
+    /// Столбец как «шкала»: контур во всю высоту оси значений (до её
+    /// максимума) и заливка по значению. Только для вертикальных
+    /// сгруппированных столбцов.
+    pub fn bar_track(mut self, enabled: bool) -> Self {
+        self.bar_track = enabled;
+        self
+    }
+
+    /// Прокрутка по категориям: перетаскивание по графику (мышь, палец) и
+    /// горизонтальное колесо/тачпад. Обработчик получает сдвиг в категориях:
+    /// плюс — к более поздним (правее), минус — к более ранним.
+    pub fn on_pan(mut self, f: impl FnMut(i32) + Send + 'static) -> Self {
+        self.on_pan = Some(Arc::new(Mutex::new(f)));
+        self
     }
 
     pub fn category(mut self, name: impl Into<String>) -> Self {

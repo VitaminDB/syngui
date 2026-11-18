@@ -497,6 +497,9 @@ pub struct BarSeries {
     pub name: String,
     pub data: Vec<f64>,
     pub color: Option<Color>,
+    /// Текст подсказки по категориям вместо «имя: значение»; строки
+    /// разделяются `\n`. Пустая строка или нехватка — подпись по умолчанию.
+    pub labels: Vec<String>,
 }
 
 impl BarSeries {
@@ -505,7 +508,14 @@ impl BarSeries {
             name: name.into(),
             data,
             color: None,
+            labels: Vec::new(),
         }
+    }
+
+    /// Свои подписи подсказки по категориям (например «765 / 1465 приборов»).
+    pub fn labels(mut self, labels: Vec<String>) -> Self {
+        self.labels = labels;
+        self
     }
 
     pub fn color(mut self, color: impl Into<Color>) -> Self {
@@ -521,6 +531,8 @@ pub struct BarLineSeries {
     pub name: String,
     pub data: Vec<Option<f64>>,
     pub style: SeriesStyle,
+    /// Текст подсказки по категориям, как у [`BarSeries::labels`].
+    pub labels: Vec<String>,
 }
 
 impl BarLineSeries {
@@ -532,7 +544,14 @@ impl BarLineSeries {
             name: name.into(),
             data: data.into_iter().map(Into::into).collect(),
             style: SeriesStyle::default(),
+            labels: Vec::new(),
         }
+    }
+
+    /// Свои подписи подсказки по категориям, как у [`BarSeries::labels`].
+    pub fn labels(mut self, labels: Vec<String>) -> Self {
+        self.labels = labels;
+        self
     }
 
     pub fn color(mut self, color: impl Into<Color>) -> Self {

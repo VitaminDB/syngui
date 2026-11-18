@@ -1,11 +1,11 @@
-use super::BarChart;
+use super::{BarChart, PanHandler};
 use crate::core::canvas::CanvasContext;
 use crate::core::{Color, Point, Rect, Size};
 use crate::input::{Event, EventResult, MouseButton};
 use crate::layout::Constraints;
 use crate::mss::MssFields;
 use crate::mss::{ComputedStyle, Dimension};
-use crate::render::DisplayList;
+use crate::render::{Border, DisplayList};
 use crate::widget::context::{EventContextExt, TextMeasure};
 use crate::widget::{
     DirtyFlags, Element, ElementId, ElementTree, StyledElement, UpdateContext, Widget,
@@ -79,6 +79,14 @@ struct BarChartElement {
     width: Option<Dimension>,
     height: Option<Dimension>,
     title: Option<String>,
+    bar_track: bool,
+    on_pan: Option<PanHandler>,
+    /// Идёт перетаскивание: x начала и сколько категорий уже сдвинуто.
+    pan_drag: Option<(f32, i32)>,
+    /// Накопленная горизонтальная прокрутка колесом/тачпадом, пикселей.
+    pan_wheel: f32,
+    /// Контуры столбцов во всю высоту шкалы (при `bar_track`).
+    track_rects: Vec<Vec<Rect>>,
 
     bounds: Rect,
     layout: ChartLayout,
@@ -141,6 +149,11 @@ impl BarChartElement {
             width: w.width,
             height: w.height,
             title: w.title.clone(),
+            bar_track: w.bar_track,
+            on_pan: w.on_pan.clone(),
+            pan_drag: None,
+            pan_wheel: 0.0,
+            track_rects: Vec::new(),
             bounds: Rect::zero(),
             layout: ChartLayout::default(),
             value_scale: LinearScale::new((0.0, 1.0), (100.0, 0.0)),
@@ -420,9 +433,14 @@ impl BarChartElement {
         let zero_y = self.value_scale.map(0.0);
 
         self.bar_rects = vec![vec![Rect::zero(); num_categories]; num_series];
+        self.track_rects = Vec::new();
+        let track_top = self.value_scale.map(self.value_scale.domain.1);
 
         match self.mode {
             BarMode::Grouped => {
+                if self.bar_track {
+                    self.track_rects = vec![vec![Rect::zero(); num_categories]; num_series];
+                }
                 let group_width = cat_width * self.bar_width;
                 let single_bar_width = if num_series > 1 {
                     group_width / num_series as f32 * (1.0 - self.bar_gap)
@@ -453,6 +471,12 @@ impl BarChartElement {
                             Point::new(plot.origin.x + bar_x, plot.origin.y + rect_y),
                             Size::new(single_bar_width, rect_h),
                         );
+                        if self.bar_track {
+                            self.track_rects[si][ci] = Rect::new(
+                                Point::new(plot.origin.x + bar_x, plot.origin.y + track_top),
+                                Size::new(single_bar_width, (zero_y - track_top).max(0.0)),
+                            );
+                        }
                     }
                 }
             }
@@ -499,6 +523,7 @@ impl BarChartElement {
     }
 
     fn compute_bar_rects_horizontal(&mut self) {
+        self.track_rects = Vec::new();
         let plot = &self.layout.plot_rect;
         let num_categories = self.categories.len();
         let num_series = self.bar_series.len();
@@ -654,7 +679,14 @@ impl BarChartElement {
     }
 
     fn hit_test_bar(&self, pos: Point) -> Option<(usize, usize)> {
-        for (si, series_rects) in self.bar_rects.iter().enumerate() {
+        // Со шкалой попаданием считается весь контур, а не только заливка:
+        // у маленького значения столбец иначе почти не поймать.
+        let rects = if self.track_rects.is_empty() {
+            &self.bar_rects
+        } else {
+            &self.track_rects
+        };
+        for (si, series_rects) in rects.iter().enumerate() {
             if !self.anim.is_series_visible(si) {
                 continue;
             }
@@ -700,6 +732,32 @@ impl BarChartElement {
         match hover {
             Hover::Bar(si, ci) => (si, ci),
             Hover::Line(li, ci) => (self.line_series_index(li), ci),
+        }
+    }
+
+    fn category_width(&self) -> f32 {
+        let n = self.categories.len().max(1) as f32;
+        (self.layout.plot_rect.size.width / n).max(1.0)
+    }
+
+    fn emit_pan(&self, steps: i32) {
+        if let Some(cb) = &self.on_pan {
+            if let Ok(mut f) = cb.lock() {
+                f(steps);
+            }
+        }
+    }
+
+    /// Перетаскивание: содержимое едет за пальцем — вправо значит к более
+    /// ранним категориям. Сдвиг отдаётся целыми категориями по мере хода.
+    fn drag_pan(&mut self, x: f32) {
+        let Some((start, done)) = self.pan_drag else {
+            return;
+        };
+        let total = -((x - start) / self.category_width()).trunc() as i32;
+        if total != done {
+            self.pan_drag = Some((start, total));
+            self.emit_pan(total - done);
         }
     }
 
@@ -758,6 +816,7 @@ impl BarChartElement {
         category: &str,
         series_name: &str,
         value: f64,
+        label: Option<&str>,
         color: Color,
     ) {
         let tc = self.tooltip_colors();
@@ -767,23 +826,23 @@ impl BarChartElement {
         }
 
         let line1 = category.to_string();
-        let line2 = format!("{}: {}", series_name, self.format_value(value));
+        let body: Vec<String> = match label.filter(|l| !l.is_empty()) {
+            Some(l) => l.lines().map(str::to_string).collect(),
+            None => vec![format!("{}: {}", series_name, self.format_value(value))],
+        };
 
         let line_height = tc.font_size + 4.0;
         let padding = 8.0;
-        let max_text_width = super::super::render::estimate_text_width(
-            &line1,
-            tc.font_size,
-            self.text_measure.as_ref(),
-        )
-        .max(super::super::render::estimate_text_width(
-            &line2,
-            tc.font_size,
-            self.text_measure.as_ref(),
-        ))
-        .max(40.0);
+        let measure = |t: &str| {
+            super::super::render::estimate_text_width(t, tc.font_size, self.text_measure.as_ref())
+        };
+        let max_text_width = body
+            .iter()
+            .map(|l| measure(l))
+            .fold(measure(&line1), f32::max)
+            .max(40.0);
         let tooltip_width = max_text_width + padding * 2.0;
-        let tooltip_height = 2.0 * line_height + padding * 2.0;
+        let tooltip_height = (1 + body.len()) as f32 * line_height + padding * 2.0;
 
         let offset_x = 12.0;
         let offset_y = -12.0;
@@ -827,15 +886,23 @@ impl BarChartElement {
             tc.font_size,
         );
 
-        let text_rect2 = Rect::new(
-            Point::new(x + padding, y + padding + line_height),
-            Size::new(max_text_width, line_height),
-        );
-        list.push_text(&line2, text_rect2, color.with_alpha(opacity), tc.font_size);
+        for (i, line) in body.iter().enumerate() {
+            let rect = Rect::new(
+                Point::new(x + padding, y + padding + line_height * (i + 1) as f32),
+                Size::new(max_text_width, line_height),
+            );
+            // Первая строка — цветом ряда, пояснения ниже — обычным текстом.
+            let c = if i == 0 {
+                color.with_alpha(opacity)
+            } else {
+                tc.text_color.with_alpha(opacity * 0.85)
+            };
+            list.push_text(line, rect, c, tc.font_size);
+        }
     }
 
     fn render_hover_tooltip(&self, list: &mut DisplayList, mouse: Point, hover: Hover) {
-        let (ci, name, value, color) = match hover {
+        let (ci, name, value, label, color) = match hover {
             Hover::Bar(si, ci) => {
                 let Some(series) = self.bar_series.get(si) else {
                     return;
@@ -844,6 +911,7 @@ impl BarChartElement {
                     ci,
                     series.name.as_str(),
                     series.data.get(ci).copied().unwrap_or(0.0),
+                    series.labels.get(ci).map(String::as_str),
                     self.resolved_colors
                         .get(si)
                         .copied()
@@ -861,12 +929,13 @@ impl BarChartElement {
                     ci,
                     series.name.as_str(),
                     value,
+                    series.labels.get(ci).map(String::as_str),
                     self.line_colors.get(li).copied().unwrap_or(Color::WHITE),
                 )
             }
         };
         let category = self.categories.get(ci).map(|s| s.as_str()).unwrap_or("?");
-        self.render_value_tooltip(list, mouse, category, name, value, color);
+        self.render_value_tooltip(list, mouse, category, name, value, label, color);
     }
 }
 
@@ -910,6 +979,8 @@ impl Element for BarChartElement {
             self.width = w.width;
             self.height = w.height;
             self.title = w.title.clone();
+            self.bar_track = w.bar_track;
+            self.on_pan = w.on_pan.clone();
 
             self.anim
                 .ensure_series_count(self.bar_series.len() + self.line_series.len());
@@ -1132,6 +1203,31 @@ impl Element for BarChartElement {
 
                 let radius = self.bar_border_radius;
                 let corner_radii = [radius; 4];
+                if let Some(track) = self.track_rects.get(si).and_then(|r| r.get(ci)) {
+                    // Шкала: бледный фон и контур во всю высоту, заливка —
+                    // по значению, утоплена на толщину контура.
+                    let (fill_a, border_a) = if is_hovered { (0.16, 0.9) } else { (0.08, 0.55) };
+                    list.push_rect_bordered(
+                        *track,
+                        base_color.with_alpha(fill_a * opacity),
+                        corner_radii,
+                        Border::new(1.0, base_color.with_alpha(border_a * opacity)),
+                    );
+                    let inset = 2.0_f32;
+                    let inner_w = (animated_rect.size.width - inset * 2.0).max(0.0);
+                    let inner_h = (animated_rect.size.height - inset).max(0.0);
+                    if inner_h > 0.5 {
+                        let top = (animated_rect.origin.y).max(track.origin.y + inset);
+                        let bottom = animated_rect.origin.y + animated_rect.size.height - inset;
+                        let fill = Rect::new(
+                            Point::new(animated_rect.origin.x + inset, top),
+                            Size::new(inner_w, (bottom - top).max(0.0).min(inner_h)),
+                        );
+                        let r = (radius - inset).max(1.0);
+                        list.push_rect(fill, bar_color, [r; 4]);
+                    }
+                    continue;
+                }
                 list.push_rect(animated_rect, bar_color, corner_radii);
             }
         }
@@ -1289,6 +1385,34 @@ impl Element for BarChartElement {
         ctx: &mut crate::widget::context::EventContext,
     ) -> EventResult {
         match event {
+            Event::MouseMove(pos) if self.pan_drag.is_some() => {
+                self.drag_pan(pos.x);
+                ctx.request_paint();
+                EventResult::Handled
+            }
+            Event::MouseUp { button, .. }
+                if *button == MouseButton::Left && self.pan_drag.is_some() =>
+            {
+                self.pan_drag = None;
+                EventResult::Handled
+            }
+            Event::MouseWheel {
+                delta_x, position, ..
+            } if self.on_pan.is_some()
+                && *delta_x != 0.0
+                && self.layout.plot_rect.contains(*position) =>
+            {
+                // Как у прокрутки страницы: delta_x > 0 двигает содержимое
+                // вправо, то есть к более ранним категориям.
+                self.pan_wheel -= *delta_x;
+                let step = self.category_width();
+                let steps = (self.pan_wheel / step).trunc() as i32;
+                if steps != 0 {
+                    self.pan_wheel -= steps as f32 * step;
+                    self.emit_pan(steps);
+                }
+                EventResult::Handled
+            }
             Event::MouseMove(pos) => {
                 if !self.bounds.contains(*pos) {
                     if self.hovered.is_some() {
@@ -1325,6 +1449,10 @@ impl Element for BarChartElement {
                             ctx.request_paint();
                             return EventResult::Handled;
                         }
+                    }
+                    if self.on_pan.is_some() && self.layout.plot_rect.contains(*position) {
+                        self.pan_drag = Some((position.x, 0));
+                        return EventResult::Handled;
                     }
                 }
 
@@ -1497,6 +1625,42 @@ mod tests {
             .categories(vec!["a".to_string(), "b".to_string()])
             .bar_series(BarSeries::new("bars", vec![10.0, 20.0]))
             .animate(false)
+    }
+
+    #[test]
+    fn track_spans_the_whole_axis_and_catches_hover() {
+        let element = laid_out(
+            two_categories()
+                .y_axis(AxisConfig::new().min(0.0).max(100.0))
+                .bar_track(true),
+        );
+        let track = element.track_rects[0][0];
+        let bar = element.bar_rects[0][0];
+        let plot = element.layout.plot_rect;
+        assert!((track.origin.y - (plot.origin.y + element.value_scale.map(100.0))).abs() < 1e-3);
+        assert!(
+            (track.origin.y + track.size.height - (bar.origin.y + bar.size.height)).abs() < 1e-3,
+            "низ контура и столбца совпадают"
+        );
+        // Над заливкой, но внутри контура — всё ещё этот столбец.
+        let above = Point::new(track.origin.x + 2.0, track.origin.y + 2.0);
+        assert!(!bar.contains(above));
+        assert_eq!(element.hit_test(above), Some(Hover::Bar(0, 0)));
+    }
+
+    #[test]
+    fn drag_pans_by_whole_categories() {
+        let got = Arc::new(std::sync::Mutex::new(Vec::new()));
+        let sink = got.clone();
+        let mut element = laid_out(two_categories().on_pan(move |s| sink.lock().unwrap().push(s)));
+        let w = element.category_width();
+        element.pan_drag = Some((100.0, 0));
+        element.drag_pan(100.0 + w * 0.5);
+        element.drag_pan(100.0 + w * 1.2);
+        element.drag_pan(100.0 + w * 2.1);
+        element.drag_pan(100.0 - w * 1.1);
+        // Вправо — к более ранним (минус), затем назад за начальную точку.
+        assert_eq!(*got.lock().unwrap(), vec![-1, -1, 3]);
     }
 
     #[test]
