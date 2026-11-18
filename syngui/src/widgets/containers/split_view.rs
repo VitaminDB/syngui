@@ -38,6 +38,7 @@ pub struct SplitView {
     first_max: f32,
     reset_size: Option<f32>,
     on_resize_end: Option<std::sync::Arc<dyn Fn(f32) + Send + Sync>>,
+    resizable_signal: Option<RwSignal<bool>>,
 }
 
 impl SplitView {
@@ -57,7 +58,19 @@ impl SplitView {
             first_max: f32::INFINITY,
             reset_size: None,
             on_resize_end: None,
+            resizable_signal: None,
         }
+    }
+
+    /// Разделитель включается и выключается сигналом: в `false` его нет
+    /// (ни полосы, ни перетаскивания, панели вплотную), размер первой панели
+    /// берётся из `first_size_signal` без зажима в `first_size_range`.
+    /// Например, боковая панель, которую сворачивают в узкую рельсу.
+    /// Сигналы `first_size_signal` и этот читаются при каждой раскладке —
+    /// изменения извне применяются без пересборки виджета.
+    pub fn resizable_signal(mut self, signal: RwSignal<bool>) -> Self {
+        self.resizable_signal = Some(signal);
+        self
     }
 
     /// Двойной щелчок по разделителю возвращает первую панель к этому
@@ -175,6 +188,7 @@ impl Widget for SplitView {
             first_max: self.first_max,
             reset_size: self.reset_size,
             on_resize_end: self.on_resize_end.clone(),
+            resizable_signal: self.resizable_signal,
         })
     }
 
@@ -233,9 +247,33 @@ pub struct SplitViewElement {
     first_max: f32,
     reset_size: Option<f32>,
     on_resize_end: Option<std::sync::Arc<dyn Fn(f32) + Send + Sync>>,
+    resizable_signal: Option<RwSignal<bool>>,
 }
 
 impl SplitViewElement {
+    /// Изменение размера или включения извне — перераскладка без пересборки.
+    fn subscribe_signals(&self) {
+        if let Some(s) = self.first_size_signal {
+            s.subscribe_element(self.id);
+        }
+        if let Some(s) = self.resizable_signal {
+            s.subscribe_element(self.id);
+        }
+    }
+
+    fn resizable(&self) -> bool {
+        self.resizable_signal.is_none_or(|s| s.get_untracked())
+    }
+
+    /// Ширина разделителя с учётом выключения (`resizable_signal`).
+    fn divider(&self) -> f32 {
+        if self.resizable() {
+            self.divider_width
+        } else {
+            0.0
+        }
+    }
+
     /// Текущий размер первой панели для `on_resize_end`.
     fn current_size(&self) -> f32 {
         self.first_px.unwrap_or(self.ratio)
@@ -250,6 +288,9 @@ impl SplitViewElement {
     /// Размер первой панели в пиксельном режиме, зажатый в пределы и так,
     /// чтобы второй осталось не меньше `min_size`.
     fn clamp_first(&self, px: f32, total: f32) -> f32 {
+        if !self.resizable() {
+            return px.clamp(0.0, total.max(0.0));
+        }
         let hi = self.first_max.min(total - self.min_size);
         px.min(hi)
             .max(self.first_min.min(total))
@@ -259,18 +300,18 @@ impl SplitViewElement {
     fn divider_rect(&self) -> Rect {
         let is_h = self.direction == SplitDirection::Horizontal;
         if is_h {
-            let avail = (self.bounds.size.width - self.divider_width).max(0.0);
+            let avail = (self.bounds.size.width - self.divider()).max(0.0);
             let x = self.bounds.x() + avail * self.ratio;
             Rect::new(
                 Point::new(x, self.bounds.y()),
-                Size::new(self.divider_width, self.bounds.size.height),
+                Size::new(self.divider(), self.bounds.size.height),
             )
         } else {
-            let avail = (self.bounds.size.height - self.divider_width).max(0.0);
+            let avail = (self.bounds.size.height - self.divider()).max(0.0);
             let y = self.bounds.y() + avail * self.ratio;
             Rect::new(
                 Point::new(self.bounds.x(), y),
-                Size::new(self.bounds.size.width, self.divider_width),
+                Size::new(self.bounds.size.width, self.divider()),
             )
         }
     }
@@ -281,7 +322,7 @@ impl SplitViewElement {
             self.bounds.size.width
         } else {
             self.bounds.size.height
-        } - self.divider_width;
+        } - self.divider();
         if total <= 0.0 {
             return;
         }
@@ -307,6 +348,8 @@ impl Element for SplitViewElement {
             self.first_max = sv.first_max;
             self.reset_size = sv.reset_size;
             self.on_resize_end = sv.on_resize_end.clone();
+            self.resizable_signal = sv.resizable_signal;
+            self.subscribe_signals();
             // Размер из сигнала — всегда его; постоянный `first_size` — только
             // при включении режима, чтобы пересборка не сбрасывала то, что
             // пользователь натянул.
@@ -341,6 +384,11 @@ impl Element for SplitViewElement {
             300.0
         };
         self.bounds = Rect::new(Point::zero(), Size::new(w, h));
+        if !self.dragging {
+            if let Some(sig) = self.first_size_signal {
+                self.first_px = Some(sig.get_untracked());
+            }
+        }
         self.clamp_ratio();
         Size::new(w, h)
     }
@@ -349,19 +397,22 @@ impl Element for SplitViewElement {
         LayoutHint::Split {
             horizontal: self.direction == SplitDirection::Horizontal,
             ratio: self.ratio,
-            divider: self.divider_width,
+            divider: self.divider(),
         }
     }
 
     fn build_display_list(&self, _list: &mut DisplayList, _clip: Rect) {}
 
     fn post_build_display_list(&self, list: &mut DisplayList, _clip: Rect) {
+        if !self.resizable() {
+            return;
+        }
         let hit = self.divider_rect();
         let is_h = self.direction == SplitDirection::Horizontal;
         let visual_t = self
             .mss
             .divider_thickness
-            .unwrap_or(self.divider_width)
+            .unwrap_or(self.divider())
             .max(0.0);
         let visual = if is_h {
             let cx = hit.x() + (hit.size.width - visual_t) / 2.0;
@@ -433,7 +484,7 @@ impl Element for SplitViewElement {
                         self.bounds.size.width
                     } else {
                         self.bounds.size.height
-                    } - self.divider_width;
+                    } - self.divider();
 
                     if total > 0.0 {
                         let local = if is_h {
@@ -442,7 +493,7 @@ impl Element for SplitViewElement {
                             pos.y - self.bounds.y()
                         };
                         if self.first_px.is_some() {
-                            let px = self.clamp_first(local - self.divider_width / 2.0, total);
+                            let px = self.clamp_first(local - self.divider() / 2.0, total);
                             self.first_px = Some(px);
                             self.ratio = px / total;
                             if let Some(sig) = self.first_size_signal {
@@ -459,7 +510,7 @@ impl Element for SplitViewElement {
                             });
                             return EventResult::Handled;
                         }
-                        self.ratio = (local / (total + self.divider_width)).clamp(0.0, 1.0);
+                        self.ratio = (local / (total + self.divider())).clamp(0.0, 1.0);
                         self.clamp_ratio();
                         if let Some(sig) = self.ratio_signal {
                             if (sig.get_untracked() - self.ratio).abs() > f32::EPSILON {
@@ -570,7 +621,15 @@ impl Element for SplitViewElement {
     fn set_id(&mut self, id: ElementId) {
         self.id = id;
     }
-    fn mount(&mut self, _tree: &mut ElementTree) {}
+    fn mount(&mut self, _tree: &mut ElementTree) {
+        self.subscribe_signals();
+    }
+
+    /// Размер или включение разделителя поменяли извне (`first_size_signal`,
+    /// `resizable_signal`) — перераскладка.
+    fn on_signal_change(&mut self) -> bool {
+        !self.dragging
+    }
     fn clip_content(&self) -> bool {
         true
     }
