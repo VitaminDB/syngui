@@ -251,3 +251,30 @@ fn split_view_resizable_signal_hides_divider_and_follows_size() {
     assert!((h.element_bounds(kids[0]).size.width - 260.0).abs() < 0.5, "{:?}", h.element_bounds(kids[0]));
     assert!(h.element_bounds(kids[1]).x() > 262.0);
 }
+
+#[test]
+fn sidebar_fills_split_panel() {
+    use syngui::widgets::containers::SplitView;
+    use syngui::widgets::navigation::Sidebar;
+    use syngui::widgets::DecoratedBox;
+    let size = use_signal(330.0f32);
+    let widget = SplitView::new(
+        DecoratedBox::new().child(Sidebar::new().class("side").child(DecoratedBox::new())),
+        DecoratedBox::new(),
+    )
+    .first_size_signal(size)
+    .first_size_range(200.0, 440.0);
+    let mut h = TestHarness::new(Box::new(widget));
+    h.layout(1000.0, 600.0);
+    settle(&mut h, 1000.0, 600.0);
+    let sb = h.find_by_type_name("Sidebar")[0];
+    let w = h.element_bounds(sb).size.width;
+    assert!((w - 330.0).abs() < 0.5, "Sidebar занимает всю панель сплиттера: {w}");
+    // width: 100% — тоже вся панель, а не 0.
+    let engine = h.apply_mss(".side { width: 100%; }");
+    let _ = engine;
+    settle(&mut h, 1000.0, 600.0);
+    h.layout(1000.0, 600.0);
+    let w = h.element_bounds(sb).size.width;
+    assert!((w - 330.0).abs() < 0.5, "width: 100%: {w}");
+}
