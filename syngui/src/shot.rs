@@ -91,7 +91,8 @@ impl Default for ShotOptions {
 
 /// События для снимка из строки вида
 /// `move 500 400; down 500 400; move 620 400; up 620 400; wheel 500 400 0 -120`:
-/// координаты логические, `wheel x y dy dx`. Нераспознанное пропускается.
+/// координаты логические, `wheel x y dy dx`, `dbl x y` — двойной щелчок.
+/// Нераспознанное пропускается.
 pub fn parse_events(spec: &str) -> Vec<crate::input::Event> {
     use crate::input::{Event, MouseButton};
     spec.split(';')
@@ -107,6 +108,10 @@ pub fn parse_events(spec: &str) -> Vec<crate::input::Event> {
                     position: pos,
                 },
                 "up" => Event::MouseUp {
+                    button: MouseButton::Left,
+                    position: pos,
+                },
+                "dbl" => Event::DoubleClick {
                     button: MouseButton::Left,
                     position: pos,
                 },
@@ -399,9 +404,10 @@ mod events_tests {
 
     #[test]
     fn shot_events_parse() {
-        let ev = parse_events("move 10 20; down 10 20;up 30 20 ; wheel 5 6 0 -120; bogus 1 2; move x");
-        assert_eq!(ev.len(), 4);
+        let ev = parse_events("move 10 20; down 10 20;up 30 20 ; wheel 5 6 0 -120; bogus 1 2; move x; dbl 7 8");
+        assert_eq!(ev.len(), 5);
         assert!(matches!(ev[0], Event::MouseMove(p) if p.x == 10.0 && p.y == 20.0));
         assert!(matches!(ev[3], Event::MouseWheel { delta_x, .. } if delta_x == -120.0));
+        assert!(matches!(ev[4], Event::DoubleClick { position, .. } if position.x == 7.0));
     }
 }
