@@ -15,6 +15,51 @@ use super::parser::Performer;
 use super::pty::{default_shell, PtyError, PtySession};
 use super::selection::SelectionState;
 
+/// Где живёт PTY: в приложении или в процессе-хранителе.
+enum Backend {
+    Local(PtySession),
+    #[cfg(unix)]
+    Held(super::holder::HeldPty),
+}
+
+impl Backend {
+    fn write(&mut self, bytes: &[u8]) -> Result<(), String> {
+        match self {
+            Backend::Local(p) => p.write(bytes).map_err(|e| e.to_string()),
+            #[cfg(unix)]
+            Backend::Held(p) => p.write(bytes).map_err(|e| e.to_string()),
+        }
+    }
+    fn resize(&self, cols: u16, rows: u16) {
+        match self {
+            Backend::Local(p) => p.resize(cols, rows),
+            #[cfg(unix)]
+            Backend::Held(p) => p.resize(cols, rows),
+        }
+    }
+    fn pid(&self) -> Option<u32> {
+        match self {
+            Backend::Local(p) => p.pid(),
+            #[cfg(unix)]
+            Backend::Held(p) => p.pid(),
+        }
+    }
+    fn is_alive(&self) -> bool {
+        match self {
+            Backend::Local(p) => p.is_alive(),
+            #[cfg(unix)]
+            Backend::Held(p) => p.is_alive(),
+        }
+    }
+    fn has_foreground_child(&self) -> bool {
+        match self {
+            Backend::Local(p) => p.has_foreground_child(),
+            #[cfg(unix)]
+            Backend::Held(p) => p.has_foreground_child(),
+        }
+    }
+}
+
 pub(super) struct SessionState {
     pub(super) grid: Grid,
     pub(super) parser: Parser,
@@ -28,7 +73,7 @@ pub(super) struct SessionState {
 
 struct SessionShared {
     state: Mutex<SessionState>,
-    pty: Mutex<Option<PtySession>>,
+    pty: Mutex<Option<Backend>>,
     revision: AtomicU64,
     title_signal: Mutex<Option<RwSignal<String>>>,
     exit_signal: Mutex<Option<RwSignal<bool>>>,
@@ -110,17 +155,9 @@ impl TerminalSession {
         };
         let cols = cols.max(1);
         let rows = rows.max(1);
-        let (pty, rx) = match PtySession::open(
-            &config.command,
-            &config.args,
-            cols,
-            rows,
-            config.cwd.clone(),
-            &config.env,
-        ) {
-            Ok(pair) => pair,
-            Err(e) => {
-                log::error!("[syngui terminal] open pty failed: {e}");
+        let (pty, rx) = match open_backend(&config, cols, rows) {
+            Some(pair) => pair,
+            None => {
                 mark_exited(&self.inner);
                 return;
             }
@@ -204,6 +241,58 @@ impl TerminalSession {
                 None => {}
             }
         }
+    }
+
+    /// Завершить процесс терминала. Для локального PTY — то же, что
+    /// отпустить последний handle; для терминала в хранителе — единственный
+    /// способ его завершить (Drop лишь отключается, процесс живёт дальше).
+    /// Вызывать при закрытии вкладки пользователем.
+    pub fn terminate(&self) {
+        if let Ok(mut cfg) = self.inner.pending_config.lock() {
+            // Ещё не запущен — и не запускать.
+            if cfg.take().is_some() {
+                mark_exited(&self.inner);
+                return;
+            }
+        }
+        let pty = self.inner.pty.lock().ok().and_then(|mut p| p.take());
+        match pty {
+            #[cfg(unix)]
+            Some(Backend::Held(p)) => p.kill(),
+            Some(Backend::Local(p)) => drop(p),
+            None => {}
+        }
+    }
+
+    /// PTY держит процесс-хранитель (терминал переживёт перезапуск приложения).
+    pub fn is_held(&self) -> bool {
+        #[cfg(unix)]
+        {
+            matches!(self.inner.pty.lock().ok().as_deref(), Some(Some(Backend::Held(_))))
+        }
+        #[cfg(not(unix))]
+        {
+            false
+        }
+    }
+
+    /// Обновить данные приложения у терминала в хранителе ([`super::holder::HolderSpec::meta`]).
+    pub fn set_holder_meta(&self, meta: &str) {
+        #[cfg(unix)]
+        if let Ok(mut cfg) = self.inner.pending_config.lock() {
+            if let Some(spec) = cfg.as_mut().and_then(|c| c.holder.as_mut()) {
+                spec.meta = meta.to_string();
+                return;
+            }
+        }
+        #[cfg(unix)]
+        if let Ok(p) = self.inner.pty.lock() {
+            if let Some(Backend::Held(h)) = p.as_ref() {
+                h.set_meta(meta);
+            }
+        }
+        #[cfg(not(unix))]
+        let _ = meta;
     }
 
     /// Выделен ли текст (для пункта «Копировать» в меню приложения).
@@ -323,6 +412,41 @@ impl std::fmt::Debug for TerminalSession {
             .field("revision", &self.inner.revision.load(Ordering::Relaxed))
             .field("alive", &self.is_alive())
             .finish()
+    }
+}
+
+/// Открыть PTY: через хранитель, если он задан (не ответил и не запустился —
+/// локальный PTY, чтобы терминал всё равно работал), иначе локальный.
+/// `None` — открыть не удалось или в хранителе нет терминала с таким ключом
+/// (а создавать не просили).
+fn open_backend(config: &TerminalConfig, cols: u16, rows: u16) -> Option<(Backend, Receiver<Vec<u8>>)> {
+    #[cfg(unix)]
+    if let Some(spec) = config.holder.as_ref() {
+        let req = super::holder::OpenRequest {
+            command: &config.command,
+            args: &config.args,
+            cwd: config.cwd.as_deref(),
+            env: &config.env,
+            cols,
+            rows,
+        };
+        match super::holder::HeldPty::open(spec, &req) {
+            Ok(Some((pty, rx))) => return Some((Backend::Held(pty), rx)),
+            Ok(None) => return None,
+            Err(e) => {
+                log::warn!("[syngui terminal] хранитель терминалов недоступен ({e}) — PTY в приложении");
+                if !spec.create {
+                    return None;
+                }
+            }
+        }
+    }
+    match PtySession::open(&config.command, &config.args, cols, rows, config.cwd.clone(), &config.env) {
+        Ok((pty, rx)) => Some((Backend::Local(pty), rx)),
+        Err(e) => {
+            log::error!("[syngui terminal] open pty failed: {e}");
+            None
+        }
     }
 }
 

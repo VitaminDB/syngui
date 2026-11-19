@@ -17,6 +17,10 @@ pub struct TerminalConfig {
     pub palette: Option<[Color; 16]>,
     /// Сколько строк истории держать над экраном.
     pub scrollback: usize,
+    /// Держать PTY в процессе-хранителе (переживает перезапуск и падение
+    /// приложения), см. [`super::holder`]. `None` — PTY внутри приложения.
+    #[cfg(unix)]
+    pub holder: Option<super::holder::HolderSpec>,
 }
 
 impl Default for TerminalConfig {
@@ -33,6 +37,8 @@ impl Default for TerminalConfig {
             line_height: 1.25,
             palette: None,
             scrollback: super::grid::DEFAULT_SCROLLBACK,
+            #[cfg(unix)]
+            holder: None,
         }
     }
 }

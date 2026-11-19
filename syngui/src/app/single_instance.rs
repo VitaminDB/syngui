@@ -3,7 +3,43 @@
     not(target_arch = "wasm32"),
     not(target_os = "android")
 ))]
-pub(crate) use desktop::{notify_running_instance, SingleInstanceLock};
+pub(crate) use desktop::SingleInstanceLock;
+#[cfg(all(
+    feature = "single-instance",
+    not(target_arch = "wasm32"),
+    not(target_os = "android")
+))]
+pub use desktop::{forward_to_running_instance, notify_running_instance};
+
+use std::cell::RefCell;
+
+thread_local! {
+    /// Обработчик аргументов, пересланных вторым запуском (живёт на главном потоке).
+    static INSTANCE_ARGS_HANDLER: RefCell<Option<std::rc::Rc<dyn Fn(Vec<String>)>>> =
+        const { RefCell::new(None) };
+}
+
+/// Задать обработчик аргументов командной строки, которые прислал повторный
+/// запуск приложения (`App::with_single_instance`): `app --open X` при уже
+/// открытом окне не открывает второе, а передаёт `["--open", "X"]` сюда.
+/// Вызывается на главном потоке, после чего окно поднимается. Аргументы — без
+/// имени программы; пустой список — запуск без аргументов. Ставить из
+/// замыкания `run` (главный поток).
+pub fn on_instance_args(handler: impl Fn(Vec<String>) + 'static) {
+    INSTANCE_ARGS_HANDLER.with(|h| *h.borrow_mut() = Some(std::rc::Rc::new(handler)));
+}
+
+#[allow(dead_code)]
+pub(crate) fn dispatch_instance_args(args: Vec<String>) {
+    let handler = INSTANCE_ARGS_HANDLER.with(|h| h.borrow().clone());
+    match handler {
+        Some(f) => f(args),
+        None if !args.is_empty() => {
+            log::info!("[syngui] аргументы повторного запуска без обработчика: {args:?}")
+        }
+        None => {}
+    }
+}
 
 #[cfg(all(
     feature = "single-instance",
@@ -89,12 +125,13 @@ mod desktop {
                 break;
             }
             match incoming {
-                Ok(mut stream) => {
-                    let mut buf = [0u8; 32];
-                    let n = stream.read(&mut buf).unwrap_or(0);
-                    if buf.get(..n).map_or(false, |b| b.starts_with(b"activate")) {
-                        let _ = proxy.send_event(SynGuiUserEvent::Activate);
-                    }
+                Ok(stream) => {
+                    // Читаем в своём потоке: клиент может писать с задержкой,
+                    // а слушатель не должен на нём стоять.
+                    let proxy = proxy.clone();
+                    let _ = thread::Builder::new()
+                        .name("syngui-single-instance-conn".into())
+                        .spawn(move || handle_connection(stream, proxy));
                 }
                 Err(err) if err.kind() == ErrorKind::WouldBlock => {
                     thread::sleep(Duration::from_millis(150));
@@ -107,14 +144,59 @@ mod desktop {
         }
     }
 
+    /// Сообщение: `activate\n`, затем аргументы через `\0` до конца потока.
+    fn handle_connection(stream: Stream, proxy: EventLoopProxy<SynGuiUserEvent>) {
+        let mut stream = stream;
+        let _ = stream.set_nonblocking(false);
+        let _ = stream.set_recv_timeout(Some(Duration::from_secs(2)));
+        let mut buf = Vec::new();
+        let mut chunk = [0u8; 4096];
+        loop {
+            match stream.read(&mut chunk) {
+                Ok(0) => break,
+                Ok(n) => {
+                    buf.extend_from_slice(&chunk[..n]);
+                    if buf.len() > 1 << 20 {
+                        break;
+                    }
+                }
+                Err(e) if e.kind() == ErrorKind::Interrupted => continue,
+                Err(_) => break,
+            }
+        }
+        let Some(rest) = buf.strip_prefix(b"activate") else {
+            return;
+        };
+        let args: Vec<String> = match rest.strip_prefix(b"\n") {
+            Some(a) if !a.is_empty() => a
+                .split(|b| *b == 0)
+                .map(|s| String::from_utf8_lossy(s).into_owned())
+                .collect(),
+            _ => Vec::new(),
+        };
+        crate::async_runtime::run_on_main_thread(move || {
+            super::dispatch_instance_args(args);
+        });
+        let _ = proxy.send_event(SynGuiUserEvent::Activate);
+    }
+
     pub fn notify_running_instance(app_id: &str) -> std::io::Result<()> {
+        forward_to_running_instance(app_id, &[])
+    }
+
+    /// Передать аргументы уже запущенному экземпляру (`App::with_single_instance`
+    /// с тем же `app_id`) и поднять его окно. `Err` — экземпляр не запущен.
+    /// Удобно звать в `main` до тяжёлой инициализации: удалось — выйти.
+    pub fn forward_to_running_instance(app_id: &str, args: &[String]) -> std::io::Result<()> {
         let socket_name = socket_name(app_id);
         let name = socket_name
             .as_str()
             .to_ns_name::<GenericNamespaced>()
             .map_err(|e| std::io::Error::new(ErrorKind::InvalidInput, e))?;
         let mut stream = Stream::connect(name)?;
-        stream.write_all(ACTIVATE_MSG)?;
+        let mut msg = ACTIVATE_MSG.to_vec();
+        msg.extend_from_slice(args.join("\0").as_bytes());
+        stream.write_all(&msg)?;
         stream.flush()?;
         Ok(())
     }

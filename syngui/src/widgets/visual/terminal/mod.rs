@@ -8,6 +8,8 @@ mod clipboard_filter;
 mod config;
 mod element;
 mod grid;
+#[cfg(unix)]
+pub mod holder;
 mod input;
 mod mouse;
 mod palette;

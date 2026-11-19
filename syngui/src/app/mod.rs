@@ -35,6 +35,12 @@ pub(crate) mod web_keys;
 pub(crate) mod web_text_agent;
 
 pub use builder::{AppBuilder, WindowConfig};
+#[cfg(all(
+    feature = "single-instance",
+    not(target_arch = "wasm32"),
+    not(target_os = "android")
+))]
+pub use single_instance::{forward_to_running_instance, on_instance_args};
 pub use window_handle::{close_window, current_window, open_window, open_windows, WindowHandle};
 
 #[cfg(all(not(target_arch = "wasm32"), not(target_os = "android")))]
