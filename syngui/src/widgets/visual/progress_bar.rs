@@ -58,7 +58,7 @@ impl Widget for ProgressBar {
             indeterminate: self.indeterminate,
             show_percentage: self.show_percentage,
             bounds: Rect::zero(),
-            animation_offset: 0.0,
+            animation_offset: clock_offset(),
             classes: Vec::new(),
             dirty_flags: DirtyFlags::LAYOUT | DirtyFlags::RENDER,
             mss: MssFields::new(),
@@ -206,10 +206,10 @@ impl Element for ProgressBarElement {
 
     fn animate(&mut self, dt: std::time::Duration) -> bool {
         if self.indeterminate {
-            self.animation_offset += dt.as_secs_f32() * 0.5;
-            if self.animation_offset > 1.0 {
-                self.animation_offset = -0.3;
-            }
+            // фаза — по общим часам, а не накоплением в элементе: панель, перестраиваемая каждую секунду
+            // (новый элемент), иначе вечно показывала полосу в начале
+            let _ = dt;
+            self.animation_offset = clock_offset();
             return true;
         }
         false
@@ -354,4 +354,12 @@ mod strip_tests {
         assert!((mid.size.width - 30.0).abs() < 1e-3);
         assert!(indeterminate_strip(bar, -0.3).is_none());
     }
+}
+
+/// Фаза бегущей полосы (-0.3…1.0, период 2.6 с) по общим часам процесса: у всех неопределённых полос одна, и
+/// пересоздание элемента её не сбрасывает.
+fn clock_offset() -> f32 {
+    static START: std::sync::OnceLock<std::time::Instant> = std::sync::OnceLock::new();
+    let t = START.get_or_init(std::time::Instant::now).elapsed().as_secs_f32() * 0.5;
+    t.rem_euclid(1.3) - 0.3
 }
