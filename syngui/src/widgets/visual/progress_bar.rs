@@ -101,10 +101,12 @@ impl ProgressBarElement {
 impl Element for ProgressBarElement {
     fn update(&mut self, widget: &dyn Widget, _ctx: &mut UpdateContext) {
         if let Some(pb) = widget.as_any().downcast_ref::<ProgressBar>() {
+            // бегущая ↔ с процентом — другая высота (процент рисуется своим кеглем): нужна раскладка
+            let relayout = self.indeterminate != pb.indeterminate || self.show_percentage != pb.show_percentage;
             self.value = pb.value;
             self.indeterminate = pb.indeterminate;
             self.show_percentage = pb.show_percentage;
-            self.mark_dirty(DirtyFlags::RENDER);
+            self.mark_dirty(if relayout { DirtyFlags::LAYOUT | DirtyFlags::RENDER } else { DirtyFlags::RENDER });
         }
     }
 
@@ -362,4 +364,33 @@ fn clock_offset() -> f32 {
     static START: std::sync::OnceLock<std::time::Instant> = std::sync::OnceLock::new();
     let t = START.get_or_init(std::time::Instant::now).elapsed().as_secs_f32() * 0.5;
     t.rem_euclid(1.3) - 0.3
+}
+
+#[cfg(test)]
+mod update_tests {
+    use super::*;
+    use crate::signal::use_signal;
+    use crate::testing::TestHarness;
+    use crate::widget::WidgetExt;
+    use crate::widgets::{Column, DecoratedBox, Reactive};
+
+    /// Панель, пересобираемая по сигналу (тот же элемент получает `update`): бегущая полоса → доля 75 % —
+    /// в кадре заливка и «75%» (панель «Сборка» Hexspire показывала пустую дорожку).
+    #[test]
+    fn update_from_indeterminate_to_value_paints_fill() {
+        let v = use_signal(None::<f32>);
+        let mut h = TestHarness::new(Box::new(Reactive::new(move || -> Vec<Box<dyn Widget>> {
+            let pb = match v.get() {
+                Some(x) => ProgressBar::with_value(x).show_percentage(),
+                None => ProgressBar::new().indeterminate(),
+            };
+            vec![Box::new(Column::new().child(DecoratedBox::new().class("p").child(pb)))]
+        })));
+        h.frame(None, 400.0, 100.0);
+        let _ = h.paint();
+        v.set(Some(0.75));
+        h.frame(None, 400.0, 100.0);
+        let dl = format!("{:?}", h.paint());
+        assert!(dl.contains("75%"), "{dl}");
+    }
 }
