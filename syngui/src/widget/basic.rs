@@ -1567,10 +1567,12 @@ impl Element for TextElement {
 impl StyledElement for TextElement {
     fn apply_style(&mut self, style: &ComputedStyle) {
         // Явный `Text::color()` важнее цвета, унаследованного от родителя:
-        // перебить его может только правило под собственный класс текста.
+        // перебить его может только правило под собственный класс текста
+        // (класс без `color` — цвет темы предка не применяется).
+        let inherited = style.get(crate::mss::cascade::COLOR_INHERITED).is_some();
         if let Some(color) = style
             .color()
-            .filter(|_| self.base_color.is_none() || !self.classes.is_empty())
+            .filter(|_| self.base_color.is_none() || (!self.classes.is_empty() && !inherited))
         {
             self.color = Color::from_srgb(color.r, color.g, color.b, color.a as f32 / 255.0);
         }

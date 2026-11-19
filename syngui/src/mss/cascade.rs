@@ -448,6 +448,7 @@ pub fn apply_styles_to_tree(tree: &mut ElementTree, style_engine: &StyleEngine) 
         let mut has_checked = false;
         let mut has_disabled = false;
         let mut has_base = base.properties().next().is_some();
+        let mut own_color = false;
 
         if has_identity || has_inline {
             index.candidates(&classes, &type_name, &mut cand);
@@ -566,6 +567,7 @@ pub fn apply_styles_to_tree(tree: &mut ElementTree, style_engine: &StyleEngine) 
                 }
             }
 
+            own_color = declares_color(&matching, tree.elements.get(&id).map(|n| &n.inline_styles[..]).unwrap_or(&[]));
             log::trace!(
                 target: "syngui::mss::cascade",
                 "id={:?} type={} matched={} base_props={}",
@@ -575,6 +577,7 @@ pub fn apply_styles_to_tree(tree: &mut ElementTree, style_engine: &StyleEngine) 
         }
 
         let _ = (has_active, has_focus, has_selected, has_checked);
+        mark_inherited_color(&mut base, own_color);
 
         if has_base
             || has_hover
@@ -865,6 +868,7 @@ pub fn apply_styles_dirty(tree: &mut ElementTree, style_engine: &StyleEngine) ->
                 base.set(prop, resolved);
             }
         }
+        mark_inherited_color(&mut base, declares_color(&matching, &node.inline_styles));
         let hover_full = has_hover.then(|| merge_layer(&base, &hover));
         let active_full = has_active.then(|| merge_layer(&base, &active));
         let focus_full = has_focus.then(|| merge_layer(&base, &focus));
@@ -1096,5 +1100,21 @@ mod focus_within_tests {
         assert!(h.tree.sync_focus_within(true));
         h.apply_styles_dirty(&engine);
         assert_eq!(h.element_mss(bx).and_then(|m| m.font_size), Some(10.0));
+    }
+}
+
+/// Служебное свойство: цвет элемента пришёл только по наследству от предка (ни одно правило
+/// самого элемента и ни один inline-стиль не задали `color`). Text с явным `color()` тогда
+/// сохраняет свой цвет: класс текста без правила `color` не перекрашивает его в цвет темы.
+pub const COLOR_INHERITED: &str = "x-color-inherited";
+
+fn declares_color(matching: &[(usize, (u32, u32, u32), &StyleRule)], inline: &[(String, StyleValue)]) -> bool {
+    matching.iter().any(|(_, _, r)| selector_pseudo(&r.selector).is_none() && r.declarations.iter().any(|(p, _)| p == "color"))
+        || inline.iter().any(|(p, _)| p == "color")
+}
+
+fn mark_inherited_color(base: &mut ComputedStyle, own: bool) {
+    if !own && base.get("color").is_some() {
+        base.set(COLOR_INHERITED, StyleValue::Number(1.0));
     }
 }
