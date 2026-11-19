@@ -226,11 +226,68 @@ impl PtySession {
 }
 
 impl Drop for PtySession {
+    /// Закрытие терминала, как у обычного эмулятора: SIGHUP группе
+    /// переднего плана tty (запущенная команда) и оболочке. Ничего не ждём
+    /// на вызывающем (обычно GUI) потоке: потомок, который игнорирует SIGHUP
+    /// и держит slave-сторону открытой, раньше вешал `join` reader-потока —
+    /// теперь reader завершится сам при EIO, а ожидание оболочки (снятие
+    /// зомби) уходит в отдельный поток.
     fn drop(&mut self) {
-        let _ = self.child.kill();
-        if let Some(join) = self.reader_join.take() {
-            let _ = join.join();
+        #[cfg(unix)]
+        if let (Some(fg), Some(shell)) = (self.master.process_group_leader(), self.child.process_id()) {
+            if i64::from(fg) != i64::from(shell) && fg > 0 {
+                // SAFETY: killpg с положительным pgid — без побочных эффектов на память.
+                unsafe {
+                    libc::killpg(fg as libc::pid_t, libc::SIGHUP);
+                }
+            }
         }
+        let mut killer = self.child.clone_killer();
+        let _ = killer.kill();
+        drop(self.reader_join.take());
+        let mut child = std::mem::replace(&mut self.child, Box::new(ExitedChild));
+        let _ = thread::Builder::new()
+            .name("syngui-pty-reap".into())
+            .spawn(move || {
+                // Дать оболочке закрыться по SIGHUP; не закрылась — SIGKILL.
+                for _ in 0..40 {
+                    if matches!(child.try_wait(), Ok(Some(_))) {
+                        return;
+                    }
+                    thread::sleep(std::time::Duration::from_millis(50));
+                }
+                let _ = child.kill();
+                let _ = child.wait();
+            });
+    }
+}
+
+/// Заглушка на месте `child` после того, как настоящий уехал в reap-поток.
+#[derive(Debug)]
+struct ExitedChild;
+
+impl portable_pty::ChildKiller for ExitedChild {
+    fn kill(&mut self) -> std::io::Result<()> {
+        Ok(())
+    }
+    fn clone_killer(&self) -> Box<dyn portable_pty::ChildKiller + Send + Sync> {
+        Box::new(ExitedChild)
+    }
+}
+
+impl Child for ExitedChild {
+    fn try_wait(&mut self) -> std::io::Result<Option<portable_pty::ExitStatus>> {
+        Ok(Some(portable_pty::ExitStatus::with_exit_code(0)))
+    }
+    fn wait(&mut self) -> std::io::Result<portable_pty::ExitStatus> {
+        Ok(portable_pty::ExitStatus::with_exit_code(0))
+    }
+    fn process_id(&self) -> Option<u32> {
+        None
+    }
+    #[cfg(windows)]
+    fn as_raw_handle(&self) -> Option<std::os::windows::io::RawHandle> {
+        None
     }
 }
 

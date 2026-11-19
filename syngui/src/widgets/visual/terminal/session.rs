@@ -1,5 +1,5 @@
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
-use std::sync::Arc;
+use std::sync::{Arc, Weak};
 use std::thread::{self, JoinHandle};
 use std::time::Duration;
 
@@ -143,7 +143,7 @@ impl TerminalSession {
             }
             *pty_slot = Some(pty);
         }
-        let pump = spawn_pump(self.inner.clone(), rx);
+        let pump = spawn_pump(Arc::downgrade(&self.inner), rx);
         if let Ok(mut guard) = self.inner.pump_join.lock() {
             *guard = Some(pump);
         }
@@ -326,24 +326,41 @@ impl std::fmt::Debug for TerminalSession {
     }
 }
 
-fn spawn_pump(shared: Arc<SessionShared>, rx: Receiver<Vec<u8>>) -> JoinHandle<()> {
+/// Поток разбора вывода PTY держит сессию только через [`Weak`]: сильная
+/// ссылка из него делала бы сессию бессмертной — закрытая вкладка не
+/// освобождала бы `SessionShared`, и PTY с процессами жили бы дальше без
+/// интерфейса. А когда такой процесс всё же завершался, последний `Arc`
+/// отпускался в самом этом потоке, `Drop` делал `join()` своего же потока —
+/// паника «failed to join thread: Resource deadlock avoided», с
+/// `panic = "abort"` это роняло всё приложение.
+fn spawn_pump(shared: Weak<SessionShared>, rx: Receiver<Vec<u8>>) -> JoinHandle<()> {
     thread::Builder::new()
         .name("syngui-term-pump".into())
         .spawn(move || pump_loop(shared, rx))
         .expect("spawn term pump thread")
 }
 
-fn pump_loop(shared: Arc<SessionShared>, rx: Receiver<Vec<u8>>) {
-    while !shared.stop_flag.load(Ordering::Acquire) {
-        match rx.recv_timeout(PUMP_RECV_TIMEOUT) {
-            Ok(chunk) => {
-                process_chunk(&shared, chunk, &rx);
-            }
-            Err(RecvTimeoutError::Timeout) => continue,
+fn pump_loop(weak: Weak<SessionShared>, rx: Receiver<Vec<u8>>) {
+    loop {
+        let msg = rx.recv_timeout(PUMP_RECV_TIMEOUT);
+        // Сессию берём только на время обработки: если её уже освободили,
+        // выходим. Временный `Arc` может оказаться последним — тогда `Drop`
+        // выполнится здесь, и он не ждёт собственный поток (см. `Drop`).
+        let Some(shared) = weak.upgrade() else {
+            break;
+        };
+        if shared.stop_flag.load(Ordering::Acquire) {
+            break;
+        }
+        match msg {
+            Ok(chunk) => process_chunk(&shared, chunk, &rx),
+            Err(RecvTimeoutError::Timeout) => {}
             Err(RecvTimeoutError::Disconnected) => {
-                if let Ok(mut pty) = shared.pty.lock() {
-                    *pty = None;
-                }
+                // Сам PtySession не сбрасываем здесь под замком: его Drop
+                // ждёт reader-поток и шлёт сигнал ребёнку — делаем это вне
+                // замка, чтобы GUI-поток не стоял на `pty.lock()`.
+                let pty = shared.pty.lock().ok().and_then(|mut p| p.take());
+                drop(pty);
                 shared.revision.fetch_add(1, Ordering::Release);
                 mark_exited(&shared);
                 break;
@@ -406,14 +423,131 @@ impl Drop for SessionShared {
     fn drop(&mut self) {
         self.stop_flag.store(true, Ordering::Release);
 
-        if let Ok(mut pty) = self.pty.lock() {
-            pty.take();
-        }
+        // Закрытие PTY: SIGHUP группе терминала и SIGKILL оболочке
+        // (см. `Drop for PtySession`).
+        let pty = self.pty.lock().ok().and_then(|mut p| p.take());
+        drop(pty);
 
-        if let Ok(mut guard) = self.pump_join.lock() {
-            if let Some(join) = guard.take() {
+        let join = self.pump_join.lock().ok().and_then(|mut g| g.take());
+        if let Some(join) = join {
+            // Последнюю ссылку мог отпустить сам pump-поток — ждать себя
+            // нельзя (join своего потока паникует), он и так завершается.
+            if join.thread().id() != thread::current().id() {
                 let _ = join.join();
             }
         }
+    }
+}
+
+#[cfg(all(test, target_os = "linux"))]
+mod tests {
+    use super::*;
+    use std::time::Instant;
+
+    fn session(script: &str) -> TerminalSession {
+        let cfg = TerminalConfig {
+            command: "/bin/sh".into(),
+            args: vec!["-c".into(), script.into()],
+            ..TerminalConfig::default()
+        };
+        let s = TerminalSession::new(cfg).expect("session");
+        s.resize(80, 24); // первый resize запускает PTY
+        s
+    }
+
+    fn wait_until(timeout: Duration, mut f: impl FnMut() -> bool) -> bool {
+        let start = Instant::now();
+        while start.elapsed() < timeout {
+            if f() {
+                return true;
+            }
+            thread::sleep(Duration::from_millis(20));
+        }
+        f()
+    }
+
+    fn proc_alive(pid: u32) -> bool {
+        // Зомби считаем мёртвым: reap-поток снимает его чуть позже.
+        match std::fs::read_to_string(format!("/proc/{pid}/stat")) {
+            Ok(stat) => !stat
+                .rsplit(')')
+                .next()
+                .is_some_and(|rest| rest.trim_start().starts_with('Z')),
+            Err(_) => false,
+        }
+    }
+
+    /// Закрытая вкладка (последний handle отпущен) завершает процессы —
+    /// раньше pump-поток держал сильную ссылку, и PTY жил без интерфейса.
+    #[test]
+    fn dropping_last_handle_kills_process_group() {
+        let s = session("sleep 300 & echo $! > /dev/null; sleep 300");
+        let pid = s.pid().expect("pid");
+        assert!(proc_alive(pid));
+        let weak = Arc::downgrade(&s.inner);
+        drop(s);
+        assert!(weak.upgrade().is_none(), "сессия должна освободиться");
+        assert!(
+            wait_until(Duration::from_secs(3), || !proc_alive(pid)),
+            "оболочка {pid} пережила закрытие вкладки"
+        );
+    }
+
+    /// Завершение дочернего процесса не роняет приложение (раньше — abort
+    /// от join собственного потока в `Drop`), сессия помечается вышедшей.
+    #[test]
+    fn child_exit_marks_exited_without_panic() {
+        let s = session("exit 0");
+        assert!(wait_until(Duration::from_secs(3), || s.has_exited()));
+        assert!(!s.is_alive());
+        drop(s);
+    }
+
+    /// Убийство процесса снаружи (как `kill` из другой сессии) — то же.
+    #[test]
+    fn external_kill_is_survived() {
+        let s = session("sleep 300");
+        let pid = s.pid().expect("pid");
+        unsafe {
+            libc::kill(pid as libc::pid_t, libc::SIGKILL);
+        }
+        assert!(wait_until(Duration::from_secs(3), || s.has_exited()));
+        drop(s);
+    }
+
+    /// Сценарий падения synthos 19.11: вкладку убрали из интерфейса, затем
+    /// её оболочку убили снаружи. Раньше pump-поток отпускал последнюю
+    /// ссылку и паниковал на `join` самого себя (abort всего приложения).
+    #[test]
+    fn orphaned_session_killed_externally_does_not_panic_pump() {
+        use std::sync::atomic::AtomicUsize;
+        static PUMP_PANICS: AtomicUsize = AtomicUsize::new(0);
+        let prev = std::panic::take_hook();
+        std::panic::set_hook(Box::new(move |info| {
+            if thread::current().name() == Some("syngui-term-pump") {
+                PUMP_PANICS.fetch_add(1, Ordering::SeqCst);
+            }
+            prev(info);
+        }));
+        let s = session("sleep 300");
+        let pid = s.pid().expect("pid");
+        drop(s);
+        unsafe {
+            libc::kill(pid as libc::pid_t, libc::SIGKILL);
+        }
+        thread::sleep(Duration::from_millis(400));
+        assert_eq!(PUMP_PANICS.load(Ordering::SeqCst), 0);
+    }
+
+    /// Гонка «последний handle отпущен, пока pump держит временную ссылку»:
+    /// много коротких сессий, отпускаемых в момент выхода процесса.
+    #[test]
+    fn drop_racing_with_exit_does_not_panic() {
+        for i in 0..40 {
+            let s = session("exit 0");
+            thread::sleep(Duration::from_millis((i % 8) as u64 * 3));
+            drop(s);
+        }
+        thread::sleep(Duration::from_millis(200));
     }
 }
