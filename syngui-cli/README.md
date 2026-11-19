@@ -123,6 +123,10 @@ files = ["data/sounds:usr/share/syncook/sounds"]   # доп. файлы паке
 installer = "packaging/linux/install.sh"   # свой установщик в tar (иначе генерируется: ~/.local или /usr)
 portable_image = "docker.io/library/rust:1-bullseye"   # образ для --portable
 portable_packages = ["pkg-config"]  # apt-пакеты в образе
+epoch = 1                          # epoch в PKGBUILD -git, -bin и arch (provides — без него)
+arches = ["x86_64"]                # архитектуры выпуска: -bin/-git и tar в release --publish (иначе — из release.artifacts, иначе обе)
+git_sources = ["syngui::git+https://github.com/VitaminDB/syngui.git"]   # соседи для -git (path-зависимости ../syngui), SKIP
+build_env = ["PATH=/opt/cuda/bin:$PATH"]   # export в build() -git (значение раскрывает bash)
 
 [package.metadata.syngui.windows]
 features = ["gui"]

@@ -14,6 +14,7 @@
 //! ```
 //! Полный список полей — в README крейта syngui-cli.
 
+use crate::target::Target as BuildTarget;
 use crate::util;
 use anyhow::{bail, Context, Result};
 use serde::Deserialize;
@@ -180,6 +181,14 @@ pub struct LinuxMeta {
     pub portable_image: Option<String>,
     /// Пакеты apt в образе переносимой сборки (по умолчанию pkg-config).
     pub portable_packages: Option<Vec<String>>,
+    /// epoch пакета Arch/AUR (PKGBUILD -git, -bin и arch); provides — без него.
+    pub epoch: Option<u32>,
+    /// Архитектуры Linux-выпуска: ["x86_64"], ["aarch64"] (по умолчанию — из release.artifacts, иначе обе).
+    pub arches: Option<Vec<String>>,
+    /// Доп. источники -git рядом с репозиторием: "имя::git+https://…" (соседи по path-зависимостям).
+    pub git_sources: Vec<String>,
+    /// Переменные окружения сборки -git: "PATH=/opt/cuda/bin:$PATH" (значение раскрывает bash).
+    pub build_env: Vec<String>,
 }
 
 /// Приложение, выбранное для команды.
@@ -440,6 +449,39 @@ impl App {
 }
 
 impl App {
+    /// Linux-цели выпуска: linux.arches, иначе tar-цели из release.artifacts, иначе x86_64 и aarch64.
+    pub fn linux_targets(&self) -> Result<Vec<BuildTarget>> {
+        let mut v = Vec::new();
+        if let Some(a) = &self.meta.linux.arches {
+            for x in a {
+                v.push(match x.as_str() {
+                    "x86_64" => BuildTarget::LinuxX86_64,
+                    "aarch64" => BuildTarget::LinuxAarch64,
+                    _ => bail!("linux.arches: неизвестная архитектура «{x}» — x86_64, aarch64"),
+                });
+            }
+        } else if let Some(arts) = &self.meta.release.artifacts {
+            for x in arts {
+                match x.as_str() {
+                    "tar" => v.extend([BuildTarget::LinuxX86_64, BuildTarget::LinuxAarch64]),
+                    "tar-x86_64" | "tar-portable" => v.push(BuildTarget::LinuxX86_64),
+                    "tar-aarch64" => v.push(BuildTarget::LinuxAarch64),
+                    _ => {}
+                }
+            }
+        }
+        if v.is_empty() {
+            v = vec![BuildTarget::LinuxX86_64, BuildTarget::LinuxAarch64];
+        }
+        let mut u = Vec::new();
+        for t in v {
+            if !u.contains(&t) {
+                u.push(t);
+            }
+        }
+        Ok(u)
+    }
+
     /// Аргументы возможностей cargo для Linux-цели: `linux.<арх>` поверх общих `linux`.
     pub fn linux_feature_args(&self, arch: &str) -> Vec<String> {
         let l = &self.meta.linux;

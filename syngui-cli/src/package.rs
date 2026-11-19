@@ -172,6 +172,16 @@ fn depends(app: &App) -> Vec<String> {
     })
 }
 
+/// Строка `epoch=N\n` для PKGBUILD (пусто без linux.epoch).
+fn epoch_line(app: &App) -> String {
+    app.meta.linux.epoch.map(|e| format!("epoch={e}\n")).unwrap_or_default()
+}
+
+/// Префикс версии в имени файла пакета: `N:` при epoch.
+fn epoch_prefix(app: &App) -> String {
+    app.meta.linux.epoch.map(|e| format!("{e}:")).unwrap_or_default()
+}
+
 fn license(app: &App) -> String {
     app.license.clone().unwrap_or_else(|| "GPL-3.0-only".into())
 }
@@ -202,8 +212,9 @@ pub fn arch(
     util::copy(&tar, &dir.join(&tarname))?;
     let pkgver = app.version.replace('-', "_");
     let pkgbuild = format!(
-        "# Сгенерировано syngui package --format arch\npkgname={name}\npkgver={pkgver}\npkgrel={rel}\npkgdesc={desc}\narch=({arch})\nurl={url}\nlicense=({lic})\ndepends=({deps})\n{opt}options=('!strip' '!debug')\nsource=({src})\nsha256sums=('SKIP')\n\npackage() {{\n{INSTALL_TREE}}}\n",
+        "# Сгенерировано syngui package --format arch\npkgname={name}\n{epoch}pkgver={pkgver}\npkgrel={rel}\npkgdesc={desc}\narch=({arch})\nurl={url}\nlicense=({lic})\ndepends=({deps})\n{opt}options=('!strip' '!debug')\nsource=({src})\nsha256sums=('SKIP')\n\npackage() {{\n{INSTALL_TREE}}}\n",
         rel = app.build_number(),
+        epoch = epoch_line(app),
         desc = sh(&app.description),
         arch = sh(target.arch()),
         url = sh(app.repository.as_deref().unwrap_or("")),
@@ -246,7 +257,7 @@ pub fn arch(
         .map(|e| e.path())
         .filter(|p| {
             let n = p.file_name().unwrap().to_string_lossy();
-            n.starts_with(&format!("{name}-{pkgver}-"))
+            n.starts_with(&format!("{name}-{}{pkgver}-", epoch_prefix(app)))
                 && n.ends_with(&format!("-{}.pkg.tar.zst", target.arch()))
         })
         .max_by_key(|p| std::fs::metadata(p).and_then(|m| m.modified()).ok());
@@ -329,6 +340,22 @@ pub fn aur(app: &App, out: Option<&Path>) -> Result<PathBuf> {
         "pkgconf".into(),
     ];
     mk.extend(app.meta.linux.makedepends.iter().cloned());
+    let targets = app.linux_targets()?;
+    let arches = arr(&targets.iter().map(|t| t.arch().to_string()).collect::<Vec<_>>());
+    let epoch = epoch_line(app);
+    // -git: свой репозиторий + соседи (path-зависимости), все SKIP
+    let mut sources = vec![format!("{repo_name}::git+{repo}.git")];
+    sources.extend(app.meta.linux.git_sources.iter().cloned());
+    let skips = arr(&vec!["SKIP".to_string(); sources.len()]);
+    let sources = arr(&sources);
+    let mut build_env = String::new();
+    for e in &app.meta.linux.build_env {
+        let (k, v) = e
+            .split_once('=')
+            .with_context(|| format!("linux.build_env: «{e}» — нужно ИМЯ=значение"))?;
+        // значение в двойных кавычках: $PATH и т. п. раскрывает bash
+        build_env.push_str(&format!("    export {k}=\"{}\"\n", v.replace('"', "\\\"")));
+    }
     // возможности по архитектуре (linux.x86_64 / linux.aarch64 поверх общих)
     let fx = arr(&app.linux_feature_args("x86_64"));
     let fa = arr(&app.linux_feature_args("aarch64"));
@@ -403,10 +430,10 @@ pub fn aur(app: &App, out: Option<&Path>) -> Result<PathBuf> {
     }
 
     let git = format!(
-        "{maint}pkgname={name}-git\npkgver={ver}.r0\npkgrel=1\npkgdesc={desc}\narch=('x86_64' 'aarch64')\nurl={url}\nlicense=({lic})\ndepends=({deps})\n{opt}makedepends=({mk})\nprovides=({name})\nconflicts=({name} {name}-bin)\noptions=('!lto')\nsource=(\"{repo_name}::git+{repo}.git\")\nsha256sums=('SKIP')\n\n\
+        "{maint}pkgname={name}-git\n{epoch}pkgver={ver}.r0\npkgrel=1\npkgdesc={desc}\narch=({arches})\nurl={url}\nlicense=({lic})\ndepends=({deps})\n{opt}makedepends=({mk})\nprovides=({name})\nconflicts=({name} {name}-bin)\noptions=('!lto')\nsource=({sources})\nsha256sums=({skips})\n\n\
          pkgver() {{\n    cd \"$srcdir/{repo_name}\"\n    local v\n    v=$(git describe --tags --abbrev=0 2>/dev/null || echo v{ver})\n    printf '%s.r%s.g%s' \"${{v#v}}\" \"$(git rev-list --count HEAD)\" \"$(git rev-parse --short HEAD)\"\n}}\n\n\
          prepare() {{\n    cd {cd}\n    export RUSTUP_TOOLCHAIN=stable\n    cargo fetch --target \"$(rustc -vV | sed -n 's/host: //p')\"\n}}\n\n\
-         build() {{\n    cd {cd}\n    export RUSTUP_TOOLCHAIN=stable CARGO_TARGET_DIR=\"$srcdir/target\"\n{features_sel}    cargo build --release --offline -p {krate} --bin {bin} \"${{_f[@]}}\"\n}}\n\n\
+         build() {{\n    cd {cd}\n    export RUSTUP_TOOLCHAIN=stable CARGO_TARGET_DIR=\"$srcdir/target\"\n{build_env}{features_sel}    cargo build --release --offline -p {krate} --bin {bin} \"${{_f[@]}}\"\n}}\n\n\
          package() {{\n    cd {cd}\n    CARGO_TARGET_DIR=\"$srcdir/target\"\n{inst}}}\n",
         ver = app.version.replace('-', "_"),
         desc = sh(&desc_en(app)),
@@ -426,14 +453,24 @@ pub fn aur(app: &App, out: Option<&Path>) -> Result<PathBuf> {
             .and_then(|s| s.split_whitespace().next().map(str::to_string))
             .unwrap_or_else(|| "SKIP".into())
     };
-    let (sx, sa) = (sum(Target::LinuxX86_64), sum(Target::LinuxAarch64));
-    if sx == "SKIP" || sa == "SKIP" {
-        util::warn("для -bin нет сумм архивов (syngui package --format tar --target linux-x86_64 и linux-aarch64 --release) — стоит SKIP");
+    let mut srcs = String::new();
+    let mut sums = String::new();
+    let mut missing = Vec::new();
+    for t in &targets {
+        let a = t.arch();
+        let sm = sum(*t);
+        if sm == "SKIP" {
+            missing.push(t.to_string());
+        }
+        srcs.push_str(&format!("source_{a}=(\"{repo}/releases/download/v$pkgver/{bin}-$pkgver-{a}.tar.zst\")\n"));
+        sums.push_str(&format!("sha256sums_{a}=('{sm}')\n"));
+    }
+    if !missing.is_empty() {
+        util::warn(format!("для -bin нет сумм архивов {} (syngui package -f tar -t <цель> --release) — стоит SKIP", missing.join(", ")));
     }
     let binpkg = format!(
-        "{maint}pkgname={name}-bin\npkgver={ver}\npkgrel=1\npkgdesc={desc}\narch=('x86_64' 'aarch64')\nurl={url}\nlicense=({lic})\ndepends=({deps})\n{opt}provides=({name})\nconflicts=({name} {name}-git)\noptions=('!strip' '!debug')\n\
-         source_x86_64=(\"{repo}/releases/download/v$pkgver/{bin}-$pkgver-x86_64.tar.zst\")\nsource_aarch64=(\"{repo}/releases/download/v$pkgver/{bin}-$pkgver-aarch64.tar.zst\")\n\
-         sha256sums_x86_64=('{sx}')\nsha256sums_aarch64=('{sa}')\n\npackage() {{\n    cd \"$srcdir\"\n{INSTALL_TREE}}}\n",
+        "{maint}pkgname={name}-bin\n{epoch}pkgver={ver}\npkgrel=1\npkgdesc={desc}\narch=({arches})\nurl={url}\nlicense=({lic})\ndepends=({deps})\n{opt}provides=({name})\nconflicts=({name} {name}-git)\noptions=('!strip' '!debug')\n\
+         {srcs}{sums}\npackage() {{\n    cd \"$srcdir\"\n{INSTALL_TREE}}}\n",
         ver = app.version,
         desc = sh(&desc_en(app)),
         url = sh(&repo),

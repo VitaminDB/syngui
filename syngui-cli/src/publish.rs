@@ -299,7 +299,13 @@ pub fn run(o: Opts) -> Result<()> {
                 .collect::<Vec<_>>()
                 .join(", "),
             None if workspace => "-w -f tar -t all-linux --release".to_string(),
-            None => "-f tar -t all-linux --release".to_string(),
+            None => match app.as_ref().map(|a| a.linux_targets()).transpose()? {
+                Some(t) => format!(
+                    "-f tar -t {} --release",
+                    t.iter().map(|t| t.to_string()).collect::<Vec<_>>().join(",")
+                ),
+                None => "-f tar -t all-linux --release".to_string(),
+            },
         };
         println!(
             "  {}: {what}",
@@ -454,7 +460,7 @@ pub fn run(o: Opts) -> Result<()> {
         }
     } else {
         let a = App::load(o.manifest, o.package)?;
-        for t in [Target::LinuxX86_64, Target::LinuxAarch64] {
+        for t in a.linux_targets()? {
             files.push(package::tar(&a, t, Profile::Release, false, &[])?);
         }
     }
