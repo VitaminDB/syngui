@@ -1258,7 +1258,18 @@ impl Element for TreeViewElement {
                 .and_then(|d| d.trailing.as_deref())
                 .filter(|t| !t.is_empty())
             {
-                let w = t.chars().count() as f32 * TRAILING_FONT_SIZE * 0.62 + 6.0;
+                // не больше 45% строки: длинная подпись обрезается многоточием, имя не переносится по слогам
+                let char_w = TRAILING_FONT_SIZE * 0.62;
+                let max_w = ((right_edge - text_x) * 0.45).max(char_w * 3.0 + 6.0);
+                let full = t.chars().count() as f32 * char_w + 6.0;
+                let shown: std::borrow::Cow<str> = if full <= max_w {
+                    t.into()
+                } else {
+                    let keep = (((max_w - 6.0) / char_w) as usize).saturating_sub(1).max(1);
+                    format!("{}…", t.chars().take(keep).collect::<String>()).into()
+                };
+                let t: &str = &shown;
+                let w = full.min(max_w);
                 let rect = Rect::new(Point::new(right_edge - w, y), Size::new(w, geom.height));
                 let col = node
                     .decoration
