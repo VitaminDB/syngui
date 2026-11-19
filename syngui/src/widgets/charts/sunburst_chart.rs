@@ -6,7 +6,8 @@
 //! указателем) и внешняя (`highlight`, например от строки списка).
 //!
 //! MSS: `color` — текст в центре, `center-color` — заливка центра,
-//! `label-font-size` — размер текста в центре.
+//! `label-font-size` — размер текста в центре, `separator-color` — тонкие
+//! границы между секторами и кольцами (обычно — цвет фона под графиком).
 
 use crate::core::canvas::CanvasContext;
 use crate::core::{Color, Point, Rect, Size};
@@ -222,6 +223,13 @@ fn flatten(nodes: &[SunburstNode], total: f64, ring: usize, t0: f32, t1: f32, ba
     }
 }
 
+/// Сектор уже этого по внешней дуге (px) не рисуется — иначе «иголки» и шум.
+const MIN_ARC_PX: f32 = 2.0;
+
+fn seg_shown(s: &Seg, r0: f32, ring: f32) -> bool {
+    (s.t1 - s.t0) * TAU * (r0 + ring * (s.ring + 1) as f32) >= MIN_ARC_PX
+}
+
 /// Угол для доли `t` по часовой от верха (в системе `polar_to_cartesian`).
 fn angle(t: f32) -> f32 {
     FRAC_PI_2 - t * TAU
@@ -238,6 +246,7 @@ struct SunburstElement {
     dirty: DirtyFlags,
     mss: MssFields,
     center_color: Option<Color>,
+    separator: Option<Color>,
     font: Option<f32>,
 }
 
@@ -275,7 +284,7 @@ impl SunburstElement {
         if t < 0.0 {
             t += 1.0;
         }
-        self.segs.iter().find(|s| s.ring == k && t >= s.t0 && t < s.t1).map(|s| Some(s.id))
+        self.segs.iter().find(|s| s.ring == k && t >= s.t0 && t < s.t1 && seg_shown(s, r0, ring)).map(|s| Some(s.id))
     }
 
     fn set_hover(&mut self, h: Option<Option<u64>>) {
@@ -306,6 +315,7 @@ impl Widget for SunburstChart {
             dirty: DirtyFlags::LAYOUT | DirtyFlags::RENDER,
             mss: MssFields::new(),
             center_color: None,
+            separator: None,
             font: None,
         };
         e.rebuild();
@@ -386,30 +396,55 @@ impl Element for SunburstElement {
         let dark = fg0.r + fg0.g + fg0.b > 1.5;
         let dim_to = if dark { Color::from_hex("#202226") } else { Color::from_hex("#f4f5f7") };
         let gap = self.w.gap;
-        for s in &self.segs {
-            let inner = r0 + ring * s.ring as f32 + gap * 0.5;
-            let outer = r0 + ring * (s.ring + 1) as f32 - gap * 0.5;
-            // Щель — по длине дуги на внутреннем радиусе.
-            let dt = (gap * 0.5 / inner.max(1.0)) / TAU;
-            let (t0, t1) = if s.t1 - s.t0 > dt * 3.0 { (s.t0 + dt, s.t1 - dt) } else { (s.t0, s.t1) };
+        let sep = self.separator.unwrap_or(dim_to);
+        let shown: Vec<&Seg> = self.segs.iter().filter(|s| seg_shown(s, r0, ring)).collect();
+        let color_of = |s: &Seg| match lit {
             // Под указателем — ярче, остальные — притушены (видно и на светлых кольцах).
-            let color = match lit {
-                Some(id) if id == s.id => s.color.lerp(&Color::WHITE, 0.3),
-                Some(_) => s.color.lerp(&dim_to, 0.5),
-                None => s.color,
-            };
-            ctx.set_color(color);
-            let (a0, a1) = (angle(t0), angle(t1));
-            let steps = (((a0 - a1).abs() / 0.035).ceil() as usize).max(1);
-            for k in 0..steps {
-                let b0 = a0 + (a1 - a0) * k as f32 / steps as f32;
-                let b1 = a0 + (a1 - a0) * (k + 1) as f32 / steps as f32;
-                ctx.fill_polygon(&[
-                    polar_to_cartesian(lx, ly, outer, b0),
-                    polar_to_cartesian(lx, ly, outer, b1),
-                    polar_to_cartesian(lx, ly, inner, b1),
-                    polar_to_cartesian(lx, ly, inner, b0),
-                ]);
+            Some(id) if id == s.id => s.color.lerp(&Color::WHITE, 0.3),
+            Some(_) => s.color.lerp(&dim_to, 0.5),
+            None => s.color,
+        };
+        // Точки дуги радиуса `r` от доли t0 до t1 — не реже чем через ~2 px.
+        let steps = |r: f32, t0: f32, t1: f32| (((t1 - t0) * TAU * r / 2.0).ceil() as usize).clamp(1, 720);
+        let arc_n = |r: f32, t0: f32, t1: f32, n: usize| -> Vec<(f32, f32)> {
+            (0..=n).map(|k| polar_to_cartesian(lx, ly, r, angle(t0 + (t1 - t0) * k as f32 / n as f32))).collect()
+        };
+        let arc = |r: f32, t0: f32, t1: f32| arc_n(r, t0, t1, steps(r, t0, t1));
+        // 1. Заливка секторов встык (без сглаживания внутри — стыки кусочков не видны).
+        ctx.set_anti_alias(0.0);
+        for s in &shown {
+            let inner = r0 + ring * s.ring as f32;
+            let outer = inner + ring;
+            ctx.set_color(color_of(s));
+            let n = steps(outer, s.t0, s.t1);
+            let (o, i) = (arc_n(outer, s.t0, s.t1, n), arc_n(inner, s.t0, s.t1, n));
+            for k in 0..o.len() - 1 {
+                ctx.fill_polygon(&[o[k], o[k + 1], i[k + 1], i[k]]);
+            }
+        }
+        // 2. Внешний край каждого сектора — сглаженной дугой своего цвета.
+        ctx.set_anti_alias(1.0);
+        ctx.set_stroke_width(1.0);
+        for s in &shown {
+            let outer = r0 + ring * (s.ring + 1) as f32;
+            ctx.set_color(color_of(s));
+            ctx.stroke_path(&arc(outer - 0.5, s.t0, s.t1), false);
+        }
+        // 3. Границы — тонкими сглаженными линиями цвета фона: дуга по внутреннему
+        //    радиусу и радиальная черта в начале сектора (если сектор не слишком узкий).
+        if gap > 0.0 {
+            ctx.set_color(sep);
+            ctx.set_stroke_width(gap);
+            for s in &shown {
+                let inner = r0 + ring * s.ring as f32;
+                let outer = inner + ring;
+                ctx.stroke_path(&arc(inner, s.t0, s.t1), false);
+                if (s.t1 - s.t0) * TAU * inner >= gap * 3.0 && (s.t1 - s.t0) < 0.9999 {
+                    let a = angle(s.t0);
+                    ctx.stroke_path(&[polar_to_cartesian(lx, ly, inner, a), polar_to_cartesian(lx, ly, outer + 0.5, a)], false);
+                    let b = angle(s.t1);
+                    ctx.stroke_path(&[polar_to_cartesian(lx, ly, inner, b), polar_to_cartesian(lx, ly, outer + 0.5, b)], false);
+                }
             }
         }
         // Центр: заливка (под указателем — ярче, если по нему щёлкают).
@@ -558,6 +593,7 @@ impl Element for SunburstElement {
         self.mss.apply(style);
         let color = |k: &str| style.get(k).and_then(|v| v.as_color()).map(crate::animation::transition::mss_color_to_core);
         self.center_color = color("center-color");
+        self.separator = color("separator-color");
         self.font = style.get("label-font-size").and_then(|v| v.as_px());
         self.mark_dirty(DirtyFlags::LAYOUT | DirtyFlags::RENDER);
     }
@@ -607,6 +643,7 @@ mod tests {
             dirty: DirtyFlags::empty(),
             mss: MssFields::new(),
             center_color: None,
+            separator: None,
             font: None,
         };
         e.rebuild();

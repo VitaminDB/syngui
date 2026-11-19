@@ -475,6 +475,7 @@ pub const PROPERTIES: &[PropertySpec] = &[
     p("track-color", K::Color, "Цвет дорожки (шкала, ползунок, прогресс)."),
     p("needle-color", K::Color, "GaugeChart: цвет стрелки."),
     p("center-color", K::Color, "SunburstChart: заливка центра."),
+    p("separator-color", K::Color, "SunburstChart: границы между секторами."),
     p("point-size", K::Length, "LineChart: размер точек."),
     p("tick-color", K::Color, "TickSlider: цвет делений."),
     p("tick-label-color", K::Color, "TickSlider: цвет подписей делений."),
