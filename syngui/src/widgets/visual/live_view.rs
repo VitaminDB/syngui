@@ -197,6 +197,8 @@ pub struct LiveView {
     frame: Arc<LiveFrame>,
     fit: ImageFit,
     pixelated: bool,
+    /// Без чёрной подложки: кадр с альфой (курсор, наложение) поверх того, что под виджетом.
+    transparent: bool,
     integer: bool,
     classes: Vec<String>,
     on_input: Option<InputFn>,
@@ -210,6 +212,7 @@ impl LiveView {
             frame,
             fit: ImageFit::Contain,
             pixelated: false,
+            transparent: false,
             integer: false,
             classes: Vec::new(),
             on_input: None,
@@ -224,6 +227,13 @@ impl LiveView {
     }
 
     /// Увеличивать без сглаживания (ближайший пиксель): экран ретро-машины, пиксель-арт.
+    /// Прозрачный фон: не рисовать подложку (по умолчанию чёрная, MSS `background-color`) — для кадров с альфой
+    /// (курсор гостя поверх экрана и т. п.), иначе прозрачные точки выходят чёрными.
+    pub fn transparent(mut self, on: bool) -> Self {
+        self.transparent = on;
+        self
+    }
+
     pub fn pixelated(mut self, on: bool) -> Self {
         self.pixelated = on;
         self
@@ -268,6 +278,7 @@ impl Widget for LiveView {
             frame: self.frame.clone(),
             fit: self.fit,
             pixelated: self.pixelated,
+            transparent: self.transparent,
             integer: self.integer,
             classes: self.classes.clone(),
             on_input: self.on_input.clone(),
@@ -309,6 +320,7 @@ pub struct LiveViewElement {
     frame: Arc<LiveFrame>,
     fit: ImageFit,
     pixelated: bool,
+    transparent: bool,
     integer: bool,
     classes: Vec<String>,
     on_input: Option<InputFn>,
@@ -492,6 +504,7 @@ impl Element for LiveViewElement {
             }
             self.fit = v.fit;
             self.integer = v.integer;
+            self.transparent = v.transparent;
             if self.pixelated != v.pixelated {
                 self.pixelated = v.pixelated;
                 self.apply_pixelated();
@@ -537,7 +550,9 @@ impl Element for LiveViewElement {
             .mss
             .background_color
             .unwrap_or_else(|| Color::from_hex("#000000"));
-        list.push_rect(self.bounds, bg, [0.0; 4]);
+        if !self.transparent || self.mss.background_color.is_some() {
+            list.push_rect(self.bounds, bg, [0.0; 4]);
+        }
         if let Some(handle) = self.image_handle {
             let uv = Rect::new(Point::new(0.0, 0.0), Size::new(1.0, 1.0));
             list.push_image(self.fit_rect(), TextureId(handle.0), uv, Color::WHITE);
