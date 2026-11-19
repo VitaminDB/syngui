@@ -320,10 +320,15 @@ fn spawn_detached(prog: &str, args: &[String]) -> io::Result<()> {
         .stdin(Stdio::null())
         .stdout(Stdio::null())
         .stderr(Stdio::null());
-    // SAFETY: в pre_exec только async-signal-safe setsid.
+    // SAFETY: в pre_exec только async-signal-safe вызовы (setsid, close_range/close).
     unsafe {
         cmd.pre_exec(|| {
             libc::setsid();
+            // Хранитель живёт дольше приложения: унаследованные дескрипторы
+            // без CLOEXEC (блокировка single-instance, сокеты, файлы) держали
+            // бы их после выхода приложения — новый запуск считал бы, что
+            // приложение ещё работает.
+            close_inherited_fds();
             Ok(())
         });
     }
@@ -335,6 +340,17 @@ fn spawn_detached(prog: &str, args: &[String]) -> io::Result<()> {
             let _ = child.wait();
         })?;
     Ok(())
+}
+
+/// Закрыть все дескрипторы от 3 и выше (в дочернем процессе до exec).
+unsafe fn close_inherited_fds() {
+    #[cfg(any(target_os = "linux", target_os = "android"))]
+    if libc::syscall(libc::SYS_close_range, 3u32, u32::MAX, 0u32) == 0 {
+        return;
+    }
+    for fd in 3..4096 {
+        libc::close(fd);
+    }
 }
 
 /// Терминалы хранителя. Хранитель не запущен — пустой список.

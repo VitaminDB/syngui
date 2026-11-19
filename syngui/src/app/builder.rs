@@ -894,12 +894,19 @@ impl AppBuilder {
                     match super::single_instance::SingleInstanceLock::try_acquire(id, proxy.clone())
                     {
                         Ok(Some(lock)) => Some(lock),
-                        Ok(None) => {
-                            if let Err(e) = super::single_instance::notify_running_instance(id) {
-                                eprintln!("[syngui] failed to notify running instance: {e}");
+                        Ok(None) => match super::single_instance::notify_running_instance(id) {
+                            Ok(()) => return,
+                            // Блокировка занята, но экземпляр не отвечает (завис,
+                            // блокировку держит унаследовавший её дочерний
+                            // процесс): молча выйти — значит не запуститься
+                            // вовсе. Запускаемся без single-instance.
+                            Err(e) => {
+                                log::warn!(
+                                    "[syngui] single-instance: блокировка «{id}» занята, но экземпляр не отвечает ({e}) — запуск без неё"
+                                );
+                                None
                             }
-                            return;
-                        }
+                        },
                         Err(e) => {
                             eprintln!("[syngui] single-instance setup failed, continuing without lock: {e}");
                             None
