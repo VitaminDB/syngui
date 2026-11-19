@@ -377,6 +377,17 @@ impl AppHandler {
                 if !focused && self.win.is_main() {
                     crate::signal::release_input_capture();
                 }
+                // отпускания клавиш вне окна не придут — досылаем KeyUp нажатых (Alt после Alt+Tab и т. п.)
+                if !focused && !self.held_keys.is_empty() {
+                    let held = std::mem::take(&mut self.held_keys);
+                    if let Some(root_id) = self.win.root_id {
+                        for (key, sc) in held.into_iter().rev() {
+                            crate::input::set_current_scancode(sc);
+                            self.win.tree.handle_event(root_id, &Event::KeyUp(key));
+                        }
+                        crate::input::set_current_scancode(None);
+                    }
+                }
                 // отпускание Shift вне окна не придёт
                 if !focused && self.held_shift != 0 {
                     self.held_shift = 0;
@@ -919,6 +930,14 @@ impl AppHandler {
                 {
                     use winit::platform::scancode::PhysicalKeyExtScancode;
                     crate::input::set_current_scancode(event.physical_key.to_scancode());
+                }
+                match event.state {
+                    winit::event::ElementState::Pressed => {
+                        if !self.held_keys.iter().any(|(k, _)| *k == key) {
+                            self.held_keys.push((key, crate::input::current_scancode()));
+                        }
+                    }
+                    winit::event::ElementState::Released => self.held_keys.retain(|(k, _)| *k != key),
                 }
                 if let Some(root_id) = self.win.root_id {
                     let result = self.win.tree.handle_event(root_id, &evt);

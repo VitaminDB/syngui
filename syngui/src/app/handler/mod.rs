@@ -61,6 +61,9 @@ pub(super) struct AppHandler {
     /// Ctrl+Shift+T приходил бы как Ctrl+T.
     pub(super) xkb_shift: bool,
     pub(super) held_shift: u8,
+    /// Нажатые клавиши (с аппаратным кодом): при потере фокуса окна их отпускания не придут — досылаются
+    /// KeyUp (иначе у LiveView/ВМ залипает Alt после Alt+Tab, у игр — клавиши движения).
+    pub(super) held_keys: Vec<(crate::input::Key, Option<u32>)>,
     pub(super) current_theme_is_dark: bool,
     pub(super) current_dynamic_theme: String,
     /// Порог двойного клика, разрешённый из настройки ОС/DE на старте
@@ -252,6 +255,7 @@ impl AppHandler {
             modifiers: Modifiers::empty(),
             xkb_shift: false,
             held_shift: 0,
+            held_keys: Vec::new(),
             current_theme_is_dark: initial_is_dark,
             current_dynamic_theme: initial_dynamic,
             double_click_interval,
