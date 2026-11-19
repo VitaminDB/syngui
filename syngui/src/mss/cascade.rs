@@ -1103,18 +1103,34 @@ mod focus_within_tests {
     }
 }
 
-/// Служебное свойство: цвет элемента пришёл только по наследству от предка (ни одно правило
-/// самого элемента и ни один inline-стиль не задали `color`). Text с явным `color()` тогда
+/// Служебное свойство: цвет элемента не задан его классом/id (пришёл от предка или из правила по типу;
+/// inline-стиля `color` тоже нет). Text с явным `color()` тогда
 /// сохраняет свой цвет: класс текста без правила `color` не перекрашивает его в цвет темы.
 pub const COLOR_INHERITED: &str = "x-color-inherited";
 
 fn declares_color(matching: &[(usize, (u32, u32, u32), &StyleRule)], inline: &[(String, StyleValue)]) -> bool {
-    matching.iter().any(|(_, _, r)| selector_pseudo(&r.selector).is_none() && r.declarations.iter().any(|(p, _)| p == "color"))
+    matching.iter().any(|(_, _, r)| selector_pseudo(&r.selector).is_none() && subject_has_class(&r.selector) && r.declarations.contains_key("color"))
         || inline.iter().any(|(p, _)| p == "color")
 }
 
 fn mark_inherited_color(base: &mut ComputedStyle, own: bool) {
     if !own && base.get("color").is_some() {
         base.set(COLOR_INHERITED, StyleValue::Number(1.0));
+    }
+}
+
+/// Правило нацелено на элемент по его классу или id (а не по типу `Text` или только через класс
+/// предка): только такое правило перекрашивает текст с явным `color()`.
+fn subject_has_class(sel: &super::stylesheet::Selector) -> bool {
+    use super::stylesheet::Selector;
+    let part = |p: &super::stylesheet::SelectorPart| {
+        let (a, b, _) = p.specificity();
+        a + b > 0
+    };
+    match sel {
+        Selector::Class(_) | Selector::ClassPseudo(..) | Selector::Id(_) => true,
+        Selector::Element(_) | Selector::ElementPseudo(..) | Selector::Universal => false,
+        Selector::Complex(c) => part(c.target()),
+        Selector::Group(v) => v.iter().any(|c| part(c.target())),
     }
 }
