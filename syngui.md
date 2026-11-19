@@ -880,7 +880,7 @@ TextField { width: 240px; background-color: var(--bg-search); … }
 `PopupPanel`, `Portal`, `Positioned`, `ProgressBar`, `PropertyGrid`,
 `RadarChart`, `RadioButton`, `Reactive`, `RichText`, `RouterView`, `Row`,
 `ScrollView`, `SegmentedButton`, `SegmentedProgressBar`, `ShowIf`, `Sidebar`,
-`Slider`, `Snackbar`, `SpinBox`, `SplitView`, `Stack`, `StaticWaveform`,
+`Slider`, `Snackbar`, `SpinBox`, `SplitView`, `Stack`, `StaticWaveform`, `SunburstChart`,
 `Stepper`, `SystemWindowControls`, `Tab`, `TabBar`, `TableView`, `Terminal`,
 `Text`, `TextField`, `TickSlider`, `TimePicker`, `Toggle`, `Toolbar`,
 `ToolButton`, `Tooltip`, `TopAppBar`, `TransformBox`, `TreeView`, `VideoView`,
@@ -1209,6 +1209,13 @@ LineChart::new().series(Series::new(..)).x_axis(AxisConfig::..).y_axis(..)
     .legend(LegendPosition::Top).tooltip(true).animate(true).zoom(true)
     .title("…").mark_lines(&[0.0]).size(600.0, 320.0).on_point_click(..)
 BarChart / PieChart / RadarChart / GaugeChart — аналогично.
+// Многоуровневое кольцо (как Baobab/Filelight): центр — корень, кольца — уровни,
+// дети под сектором родителя по доле value; наведение и щелчки — приложению.
+SunburstChart::new().levels(4).total(bytes as f64)
+    .nodes(vec![SunburstNode::new(id, "docs", 3.0e9).children(vec![..]).color(c)])
+    .center_text(vec!["4,9 ГБ".into(), "crates".into()]).highlight(hover_id)
+    .on_hover(|id: Option<u64>| ..).on_click(|id| ..).on_center_click(|| ..)
+    .on_secondary_click(|id: Option<u64>, at: Point| ..)  // MSS: color, center-color, label-font-size
 ```
 Цвета/сетка/шрифты — через MSS: `grid-color`, `axis-color`, `axis-font-size`,
 `legend-font-size`, `label-color`, `tooltip-background`, `point-size` и т.д.

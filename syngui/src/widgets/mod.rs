@@ -19,7 +19,7 @@ pub use charts::{
     AreaFill, AxisConfig, BarChart, BarMode, BarOrientation, BarSeries, DataPoint, GaugeChart,
     GaugeSegment, LegendPosition, LineChart, LineStyle, MarkLine, PieChart, PieLabelPosition,
     PieSlice, PointShape, RadarChart, RadarGridShape, RadarIndicator, RadarSeries, Series,
-    SeriesStyle, TooltipConfig, VisualMapPiece,
+    SeriesStyle, SunburstChart, SunburstNode, TooltipConfig, VisualMapPiece,
 };
 pub use containers::{
     reveal_named, scroll_to_named, Animated, AnimatedPosition, AnimatedSize, AnimatedSwitcher,
