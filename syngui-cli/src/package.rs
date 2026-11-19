@@ -212,7 +212,7 @@ pub fn arch(
     util::copy(&tar, &dir.join(&tarname))?;
     let pkgver = app.version.replace('-', "_");
     let pkgbuild = format!(
-        "# Сгенерировано syngui package --format arch\npkgname={name}\n{epoch}pkgver={pkgver}\npkgrel={rel}\npkgdesc={desc}\narch=({arch})\nurl={url}\nlicense=({lic})\ndepends=({deps})\n{opt}options=('!strip' '!debug')\nsource=({src})\nsha256sums=('SKIP')\n\npackage() {{\n{INSTALL_TREE}}}\n",
+        "# Сгенерировано syngui package --format arch\npkgname={name}\n{epoch}pkgver={pkgver}\npkgrel={rel}\npkgdesc={desc}\narch=({arch})\nurl={url}\nlicense=({lic})\ndepends=({deps})\n{opt}conflicts=({name}-bin {name}-git)\noptions=('!strip' '!debug')\nsource=({src})\nsha256sums=('SKIP')\n\npackage() {{\n{INSTALL_TREE}}}\n",
         rel = app.build_number(),
         epoch = epoch_line(app),
         desc = sh(&app.description),

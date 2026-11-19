@@ -887,7 +887,16 @@ impl Release {
             let fname = name.replace(['.'], "_");
             s += &format!(
                 "\npackage_{fname}() {{\n{}",
-                Self::pkg_meta(p, false, "    ", &p.depends, &[], &[], true)
+                // свои варианты из AUR (-bin, -git) — конфликт объявлен явно, install их заменяет
+                Self::pkg_meta(
+                    p,
+                    false,
+                    "    ",
+                    &p.depends,
+                    &[],
+                    &[format!("{name}-bin"), format!("{name}-git")],
+                    true,
+                )
             );
             s += &if p.is_meta() {
                 "    true\n".to_string()
@@ -1275,6 +1284,39 @@ pub fn capture_sudo_password() {
 ///
 /// Пароль: из stdin (см. [`capture_sudo_password`]) или `$SYNGUI_SUDO_PASSWORD`;
 /// без него — закешированные права (`sudo -n`), в терминале — обычный запрос sudo.
+/// Установленные свои варианты ставимых пакетов (`<имя>-bin`, `<имя>-git`, `<имя>` для `-bin`/`-git`):
+/// pacman спросит «Remove …?», а с --noconfirm ответит «нет» — их заменяем явно (--ask 4).
+fn own_variants(pkgs: &[PathBuf]) -> Vec<String> {
+    let mut names = Vec::new();
+    for p in pkgs {
+        let mut c = Command::new("pacman");
+        c.arg("-Qqp").arg(p).stderr(std::process::Stdio::null());
+        if let Ok(o) = c.output() {
+            names.extend(String::from_utf8_lossy(&o.stdout).lines().map(|l| l.trim().to_string()));
+        }
+    }
+    let mut cand = Vec::new();
+    for n in &names {
+        let base = n
+            .strip_suffix("-bin")
+            .or_else(|| n.strip_suffix("-git"))
+            .unwrap_or(n);
+        for v in [base.to_string(), format!("{base}-bin"), format!("{base}-git")] {
+            if &v != n && !names.contains(&v) && !cand.contains(&v) {
+                cand.push(v);
+            }
+        }
+    }
+    if cand.is_empty() {
+        return cand;
+    }
+    let mut c = Command::new("pacman");
+    c.arg("-Qq").args(&cand).stderr(std::process::Stdio::null());
+    c.output()
+        .map(|o| String::from_utf8_lossy(&o.stdout).lines().map(|l| l.trim().to_string()).collect())
+        .unwrap_or_default()
+}
+
 pub fn install(pkgs: &[PathBuf]) -> Result<()> {
     use std::io::Write;
     util::step(format!("pacman -U ({} пакетов)", pkgs.len()));
@@ -1282,8 +1324,17 @@ pub fn install(pkgs: &[PathBuf]) -> Result<()> {
         .ok()
         .filter(|p| !p.is_empty())
         .or_else(|| PIPED_SUDO_PASSWORD.get().cloned().flatten());
+    let replace = own_variants(pkgs);
+    if !replace.is_empty() {
+        util::note(format!("заменяю установленные варианты: {}", replace.join(", ")));
+    }
     let pacman = |c: &mut Command| {
-        c.args(["pacman", "-U", "--noconfirm"]).args(pkgs);
+        c.args(["pacman", "-U", "--noconfirm"]);
+        if !replace.is_empty() {
+            // ALPM_QUESTION_CONFLICT_PKG → «да»: удалить конфликтующий свой вариант
+            c.args(["--ask", "4"]);
+        }
+        c.args(pkgs);
     };
     if let Some(pw) = password {
         let mut c = Command::new("sudo");
@@ -1299,7 +1350,7 @@ pub fn install(pkgs: &[PathBuf]) -> Result<()> {
         }
         let st = child.wait()?;
         if !st.success() {
-            bail!("sudo pacman -U завершился с ошибкой ({st}) — неверный пароль sudo?");
+            bail!("sudo pacman -U завершился с ошибкой ({st}) — причина в выводе выше");
         }
         return Ok(());
     }
