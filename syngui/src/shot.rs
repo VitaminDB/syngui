@@ -311,11 +311,19 @@ pub fn render_png_with(
     } else {
         opts.events
     };
+    // SYNGUI_SHOT_EVENT_WAIT=мс — ждать после каждого события дольше (фоновая работа приложения, которую
+    // событие запустило: анализ, сборка); кадры идут всё это время
+    let extra = std::env::var("SYNGUI_SHOT_EVENT_WAIT").ok().and_then(|s| s.parse::<u64>().ok()).unwrap_or(0);
     for event in &events {
         let _ = tree.handle_event(root, event);
         for _ in 0..3 {
             list = step(&mut tree, Duration::from_millis(400));
             std::thread::sleep(Duration::from_millis(60));
+        }
+        let until = std::time::Instant::now() + Duration::from_millis(extra);
+        while std::time::Instant::now() < until {
+            list = step(&mut tree, Duration::from_millis(100));
+            std::thread::sleep(Duration::from_millis(100));
         }
     }
 
