@@ -339,7 +339,14 @@ pub fn aur(app: &App, out: Option<&Path>) -> Result<PathBuf> {
         "clang".into(),
         "pkgconf".into(),
     ];
-    mk.extend(app.meta.linux.makedepends.iter().cloned());
+    for m in &app.meta.linux.makedepends {
+        if !mk.contains(m) {
+            mk.push(m.clone());
+        }
+    }
+    // уже в depends — повтор в makedepends не нужен (namcap)
+    let rt = depends(app);
+    mk.retain(|m| !rt.contains(m));
     let targets = app.linux_targets()?;
     let arches = arr(&targets.iter().map(|t| t.arch().to_string()).collect::<Vec<_>>());
     let epoch = epoch_line(app);

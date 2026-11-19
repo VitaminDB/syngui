@@ -1047,7 +1047,11 @@ impl Release {
                     s += "\npackage() {\n    true\n}\n";
                 } else if suffix == "git" {
                     let mut mk: Vec<String> = self.spec.makedepends.clone();
-                    mk.extend(p.makedepends.iter().cloned());
+                    for m in &p.makedepends {
+                        if !mk.contains(m) {
+                            mk.push(m.clone());
+                        }
+                    }
                     if !mk.iter().any(|m| m == "git") {
                         mk.push("git".into());
                     }
