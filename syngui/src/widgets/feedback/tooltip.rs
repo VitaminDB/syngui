@@ -175,34 +175,63 @@ pub struct TooltipElement {
 }
 
 impl TooltipElement {
-    fn text_tooltip_rect(&self) -> Rect {
-        let font_size = self.mss.font_size_or(12.0);
-        let pad_h = self.mss.padding_left.unwrap_or(8.0) + self.mss.padding_right.unwrap_or(8.0);
-        let pad_v = self.mss.padding_top.unwrap_or(6.0) + self.mss.padding_bottom.unwrap_or(6.0);
-        let line_height = font_size + 4.0;
+    fn text_width(&self, s: &str, font_size: f32) -> f32 {
+        self.text_measure
+            .as_ref()
+            .map(|tm| tm.measure_text_width(s, font_size, s.chars().count()))
+            .unwrap_or_else(|| s.chars().count() as f32 * font_size * 0.6)
+    }
 
-        let lines: Vec<&str> = self.text.lines().collect();
-        let line_count = lines.len().max(1);
+    /// Отступы текста простой подсказки: из MSS, иначе 10 по бокам и 6 сверху/снизу.
+    fn text_pads(&self) -> (f32, f32, f32, f32) {
+        (
+            self.mss.padding_left.unwrap_or(10.0),
+            self.mss.padding_top.unwrap_or(6.0),
+            self.mss.padding_right.unwrap_or(10.0),
+            self.mss.padding_bottom.unwrap_or(6.0),
+        )
+    }
 
+    /// Строки простой подсказки с переносом по словам в ширину `max_width`
+    /// за вычетом отступов. Раньше текст делился только по переводам строк: длинная
+    /// фраза переносилась уже при отрисовке, вылезала из пузыря, отступы
+    /// пропадали. Возвращает строки и ширину самой длинной.
+    fn wrapped_lines(&self, font_size: f32) -> (Vec<String>, f32) {
+        let (pl, _, pr, _) = self.text_pads();
         let max_w = self
             .mss
             .max_width
             .map(|d| d.resolve(self.bounds.size.width))
             .unwrap_or(self.max_width);
+        let avail = (max_w - pl - pr).max(40.0);
+        let mut out: Vec<String> = Vec::new();
+        for para in self.text.lines() {
+            let mut cur = String::new();
+            for word in para.split(' ') {
+                let cand = if cur.is_empty() { word.to_string() } else { format!("{cur} {word}") };
+                if !cur.is_empty() && self.text_width(&cand, font_size) > avail {
+                    out.push(std::mem::take(&mut cur));
+                    cur = word.to_string();
+                } else {
+                    cur = cand;
+                }
+            }
+            out.push(cur);
+        }
+        if out.is_empty() {
+            out.push(String::new());
+        }
+        let widest = out.iter().map(|l| self.text_width(l, font_size)).fold(0.0f32, f32::max).min(avail);
+        (out, widest)
+    }
 
-        let max_line_width = lines
-            .iter()
-            .map(|line| {
-                self.text_measure
-                    .as_ref()
-                    .map(|tm| tm.measure_text_width(line, font_size, line.chars().count()))
-                    .unwrap_or_else(|| line.chars().count() as f32 * font_size * 0.6)
-            })
-            .fold(0.0f32, f32::max)
-            .min(max_w);
-
-        let tooltip_w = max_line_width + pad_h;
-        let mut tooltip_h = line_count as f32 * line_height + pad_v;
+    fn text_tooltip_rect(&self) -> Rect {
+        let font_size = self.mss.font_size_or(12.0);
+        let (pl, pt, pr, pb) = self.text_pads();
+        let line_height = font_size + 4.0;
+        let (lines, widest) = self.wrapped_lines(font_size);
+        let tooltip_w = widest.ceil() + pl + pr;
+        let mut tooltip_h = lines.len() as f32 * line_height + pt + pb;
 
         if let Some(mh) = self.mss.max_height {
             let resolved = mh.resolve(self.bounds.size.height);
@@ -417,8 +446,7 @@ impl Element for TooltipElement {
         let radius = self
             .mss
             .border_radius_uniform(tip.size.width.min(tip.size.height), 10.0);
-        let pad_l = self.mss.padding_left.unwrap_or(8.0);
-        let pad_t = self.mss.padding_top.unwrap_or(6.0);
+        let (pad_l, pad_t, pad_r, _) = self.text_pads();
         let line_height = font_size + 4.0;
 
         list.begin_overlay();
@@ -446,7 +474,7 @@ impl Element for TooltipElement {
                 Border::new(1.0, Color::from_hex("#3F4147")),
             );
         }
-        let lines: Vec<&str> = self.text.lines().collect();
+        let (lines, _) = self.wrapped_lines(font_size);
         let max_h = self
             .mss
             .max_height
@@ -459,7 +487,7 @@ impl Element for TooltipElement {
             }
             let text_rect = Rect::new(
                 Point::new(tip.x() + pad_l, y),
-                Size::new(tip.size.width - pad_l * 2.0, line_height),
+                Size::new(tip.size.width - pad_l - pad_r + 2.0, line_height),
             );
             list.push_text_styled(
                 line,
@@ -614,5 +642,57 @@ impl StyledElement for TooltipElement {
     fn set_classes(&mut self, classes: Vec<String>) {
         self.classes = classes;
         self.mark_dirty(DirtyFlags::RENDER);
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn element(text: &str) -> TooltipElement {
+        TooltipElement {
+            id: ElementId::new(),
+            text: text.to_string(),
+            is_rich: false,
+            position: TooltipPosition::Below,
+            delay_ms: 0,
+            max_width: 300.0,
+            hovered: false,
+            hover_elapsed: Duration::ZERO,
+            visible: true,
+            child_ids: Vec::new(),
+            bounds: Rect::new(Point::new(100.0, 100.0), Size::new(30.0, 30.0)),
+            content_size: Cell::new(Size::zero()),
+            classes: Vec::new(),
+            dirty_flags: DirtyFlags::empty(),
+            mss: MssFields::new(),
+            text_measure: None,
+            overlay_registered: false,
+        }
+    }
+
+    #[test]
+    fn long_text_wraps_inside_bubble() {
+        let e = element("На свой рабочий стол: машина займёт свободный рабочий стол целиком");
+        let (lines, widest) = e.wrapped_lines(12.0);
+        assert!(lines.len() >= 2, "{lines:?}");
+        // Каждая строка помещается в ширину без отступов.
+        for l in &lines {
+            assert!(e.text_width(l, 12.0) <= 300.0 - 20.0 + 0.01, "{l}");
+        }
+        let r = e.text_tooltip_rect();
+        assert!((r.size.width - (widest.ceil() + 20.0)).abs() < 0.01);
+        // Высота — на все строки и отступы сверху и снизу.
+        assert!((r.size.height - (lines.len() as f32 * 16.0 + 12.0)).abs() < 0.01);
+        // Слова не теряются.
+        assert_eq!(lines.join(" "), "На свой рабочий стол: машина займёт свободный рабочий стол целиком");
+    }
+
+    #[test]
+    fn short_text_one_line_and_newlines_kept() {
+        let e = element("Пауза");
+        assert_eq!(e.wrapped_lines(12.0).0, vec!["Пауза".to_string()]);
+        let e = element("Строка один\nСтрока два");
+        assert_eq!(e.wrapped_lines(12.0).0.len(), 2);
     }
 }
