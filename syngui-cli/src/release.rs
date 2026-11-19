@@ -235,6 +235,19 @@ struct MTarget {
 
 impl Release {
     pub fn load(manifest: Option<&Path>, file: Option<&Path>) -> Result<Release> {
+        Self::load_inner(manifest, file, true).map(|r| r.expect("обязательное описание"))
+    }
+
+    /// Описание выпуска, если оно есть (без `file` и без syngui-release.toml — `None`).
+    pub fn load_opt(manifest: Option<&Path>, file: Option<&Path>) -> Result<Option<Release>> {
+        Self::load_inner(manifest, file, file.is_some())
+    }
+
+    fn load_inner(
+        manifest: Option<&Path>,
+        file: Option<&Path>,
+        required: bool,
+    ) -> Result<Option<Release>> {
         let mut c = Command::new("cargo");
         c.args(["metadata", "--format-version", "1", "--no-deps"]);
         if let Some(m) = manifest {
@@ -254,6 +267,9 @@ impl Release {
                 None => root.join("syngui-release.toml"),
             },
         };
+        if !required && !path.exists() {
+            return Ok(None);
+        }
         let text = std::fs::read_to_string(&path).with_context(|| {
             format!(
                 "нет описания выпуска {} (syngui-release.toml в корне рабочего пространства)",
@@ -307,14 +323,37 @@ impl Release {
             Some(v) => v.clone(),
             None => workspace_version(&root)?,
         };
-        Ok(Release {
+        Ok(Some(Release {
             spec,
             packages,
             root,
             target_dir: m.target_directory,
             version,
             bin_crate,
-        })
+        }))
+    }
+
+    /// Пакет выпуска, в который входит крейт: пакет с тем же именем или пакет, чьи программы
+    /// (bins/apps/desktop) собираются из этого крейта. Несколько кандидатов — ошибка с подсказкой.
+    pub fn package_for_crate(&self, krate: &str) -> Result<Option<String>> {
+        if self.packages.iter().any(|(n, _)| n == krate) {
+            return Ok(Some(krate.to_string()));
+        }
+        let of_crate = |b: &String| self.bin_crate.get(b).is_some_and(|(c, _)| c == krate);
+        let found: Vec<&String> = self
+            .packages
+            .iter()
+            .filter(|(_, p)| p.all_bins().chain(p.desktop.iter()).any(of_crate))
+            .map(|(n, _)| n)
+            .collect();
+        match found.as_slice() {
+            [] => Ok(None),
+            [one] => Ok(Some((*one).clone())),
+            many => bail!(
+                "крейт {krate} входит в несколько пакетов syngui-release.toml ({}) — укажите -w --only <пакет>",
+                many.iter().map(|s| s.as_str()).collect::<Vec<_>>().join(", ")
+            ),
+        }
     }
 
     fn pkgver(&self) -> String {

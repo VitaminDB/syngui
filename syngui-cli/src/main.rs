@@ -247,6 +247,21 @@ fn targets(v: &[String]) -> Result<Vec<Target>> {
     Ok(out)
 }
 
+/// Пакет syngui-release.toml, в который входит выбранный крейт (если описание выпуска есть).
+fn release_package(sel: &Sel, release_file: Option<&std::path::Path>) -> Result<Option<String>> {
+    let Some(r) = release::Release::load_opt(sel.manifest_path.as_deref(), release_file)? else {
+        return Ok(None);
+    };
+    let krate = match &sel.package {
+        Some(p) => p.clone(),
+        None => match load(sel) {
+            Ok(app) => app.krate,
+            Err(_) => return Ok(None),
+        },
+    };
+    r.package_for_crate(&krate)
+}
+
 fn load(sel: &Sel) -> Result<App> {
     App::load(sel.manifest_path.as_deref(), sel.package.as_deref())
 }
@@ -346,6 +361,26 @@ fn real_main(cli: Cli) -> Result<()> {
                 Profile::Fast
             } else {
                 Profile::Release
+            };
+            // -p <крейт> из рабочего пространства с syngui-release.toml: пакет собирается по описанию
+            // выпуска (cross, files, depends…), как -w --only <пакет>, а не голым крейтом.
+            let (workspace, only) = if !workspace
+                && matches!(format.as_str(), "arch" | "pacman" | "tar" | "bin" | "aur")
+            {
+                match release_package(&sel, release_file.as_deref())? {
+                    Some(p) if portable => bail!(
+                        "крейт описан в syngui-release.toml как пакет {p}; --portable для выпуска рабочего пространства не поддержан"
+                    ),
+                    Some(p) => {
+                        util::warn(format!(
+                            "пакет {p} описан в syngui-release.toml — собираю по описанию выпуска (как -w --only {p})"
+                        ));
+                        (true, vec![p])
+                    }
+                    None => (false, only),
+                }
+            } else {
+                (workspace, only)
             };
             if workspace {
                 let r =
