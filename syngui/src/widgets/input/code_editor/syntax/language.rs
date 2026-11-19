@@ -26,6 +26,8 @@ pub enum Language {
     Kotlin,
     Swift,
     Php,
+    Pascal,
+    VisualBasic,
     PlainText,
 }
 
@@ -58,6 +60,8 @@ impl Language {
         Language::Kotlin,
         Language::Swift,
         Language::Php,
+        Language::Pascal,
+        Language::VisualBasic,
         Language::PlainText,
     ];
 
@@ -90,6 +94,8 @@ impl Language {
             Language::Kotlin => "kt",
             Language::Swift => "swift",
             Language::Php => "php",
+            Language::Pascal => "pas",
+            Language::VisualBasic => "bas",
             Language::PlainText => "txt",
         }
     }
@@ -122,6 +128,8 @@ impl Language {
             Language::Kotlin => "Kotlin",
             Language::Swift => "Swift",
             Language::Php => "PHP",
+            Language::Pascal => "Pascal",
+            Language::VisualBasic => "Visual Basic",
             Language::PlainText => "Текст",
         }
     }

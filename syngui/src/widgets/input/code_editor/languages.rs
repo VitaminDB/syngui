@@ -41,6 +41,8 @@ pub fn detect_by_extension(ext: &str) -> Option<Language> {
         "kt" | "kts" => Language::Kotlin,
         "swift" => Language::Swift,
         "php" => Language::Php,
+        "pas" | "pp" | "dpr" | "dpk" | "lpr" | "dfm" | "lfm" => Language::Pascal,
+        "bas" | "cls" | "frm" | "ctl" | "vb" | "vbs" => Language::VisualBasic,
         "txt" | "log" | "text" | "cfg" | "ini" | "conf" => Language::PlainText,
         _ => return None,
     })

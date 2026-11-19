@@ -4,6 +4,8 @@ mod highlighter;
 mod language;
 mod asm;
 mod markdown;
+mod pascal;
+mod basic;
 
 pub use capture_names::TokenClass;
 pub use highlight_cache::{LineSpans, Span};

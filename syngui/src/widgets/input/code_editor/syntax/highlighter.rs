@@ -49,6 +49,11 @@ impl Highlighter {
                 tab_width,
             };
         }
+        // Pascal и Visual Basic: своих правил у synoptic нет
+        if matches!(language, Language::Pascal | Language::VisualBasic) {
+            let h: std::sync::Arc<dyn LineHighlighter> = if language == Language::Pascal { std::sync::Arc::new(super::pascal::PascalHighlighter) } else { std::sync::Arc::new(super::basic::BasicHighlighter) };
+            return Self { inner: Backend::Custom(h, Vec::new()), lines: Vec::new(), language, tab_width };
+        }
         // ассемблер: правила synoptic не знают синтаксиса AT&T (регистры `%rax`, `$imm`), метки и директивы
         if language == Language::Asm {
             return Self {
