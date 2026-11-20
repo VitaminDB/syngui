@@ -215,6 +215,20 @@ impl TooltipElement {
                 } else {
                     cur = cand;
                 }
+                // слово шире строки (путь файла без пробелов) — делится по разделителям `/ \ _ . -`, иначе по
+                // символам: раньше оно оставалось целым, пузырь обрезался до max_width, и текст переносила уже
+                // отрисовка посреди слова («Shape|Lab»), упираясь в рамку — отступов не было видно
+                while self.text_width(&cur, font_size) > avail {
+                    let chars: Vec<char> = cur.chars().collect();
+                    let mut fit = 0;
+                    while fit < chars.len() && self.text_width(&chars[..=fit].iter().collect::<String>(), font_size) <= avail {
+                        fit += 1;
+                    }
+                    let fit = fit.max(1);
+                    let cut = (1..fit).rev().find(|&i| matches!(chars[i - 1], '/' | '\\' | '_' | '.' | '-')).unwrap_or(fit);
+                    out.push(chars[..cut].iter().collect());
+                    cur = chars[cut..].iter().collect();
+                }
             }
             out.push(cur);
         }
@@ -686,6 +700,24 @@ mod tests {
         assert!((r.size.height - (lines.len() as f32 * 16.0 + 12.0)).abs() < 0.01);
         // Слова не теряются.
         assert_eq!(lines.join(" "), "На свой рабочий стол: машина займёт свободный рабочий стол целиком");
+    }
+
+    /// Путь файла без пробелов шире пузыря — делится по «/», каждая строка помещается с отступами, символы
+    /// не теряются (раньше оставался одним словом и переносился отрисовкой посреди слова — «Shape|Lab»).
+    #[test]
+    fn long_path_breaks_at_separators() {
+        let p = "~/Storage/Проекты/2027/hexspire/test_re/ShapeLab/ShapeLab.exe";
+        let e = element(p);
+        let (lines, _) = e.wrapped_lines(12.0);
+        assert!(lines.len() >= 2, "{lines:?}");
+        for l in &lines {
+            assert!(e.text_width(l, 12.0) <= 300.0 - 20.0 + 0.01, "{l}");
+        }
+        // перенос — после разделителя
+        for l in &lines[..lines.len() - 1] {
+            assert!(l.ends_with('/') || l.ends_with('_') || l.ends_with('.'), "{lines:?}");
+        }
+        assert_eq!(lines.concat(), p);
     }
 
     #[test]
