@@ -309,6 +309,9 @@ fn apply_printer(st: State, ppd: Option<(Ppd, Vec<(String, String)>)>) {
                 s.hw_margins = p.hw_margins_mm(&s.paper).unwrap_or([0.0; 4]);
                 if !p.color {
                     s.gray = true;
+                } else if let Some(cm) = user_get("ColorModel") {
+                    // Ч/б по умолчанию, выбранный в настройках принтера.
+                    s.gray = is_gray_choice(&cm);
                 }
                 // Дополнительно: сохранённые пользователем значения (`lpoptions`), остальное — по драйверу.
                 for o in p.options.iter().filter(|o| !OWN_OPTIONS.contains(&o.key.as_str())) {
@@ -514,11 +517,12 @@ fn settings_pane(st: State, doc: Arc<dyn PrintDocument>) -> W {
                     items.push(DropdownItem::new(p.name.clone(), label));
                 }
                 if let Some(p) = list.iter().find(|p| p.name == current) {
-                    let warn = p.state == PrinterState::Disabled || !p.message.is_empty();
+                    let msg = p.message_text();
+                    let warn = p.state == PrinterState::Disabled || !msg.is_empty();
                     let mut t = state_text(p);
-                    if !p.message.is_empty() {
+                    if !msg.is_empty() {
                         t.push_str(" · ");
-                        t.push_str(&p.message);
+                        t.push_str(&msg);
                     }
                     note = Some((t, warn));
                 } else if list.is_empty() {
@@ -786,7 +790,7 @@ fn range_field(st: State, total: usize) -> W {
     Box::new(field)
 }
 
-fn duplex_label(key: &str, fallback: &str) -> String {
+pub fn duplex_label(key: &str, fallback: &str) -> String {
     match key {
         "None" => tr("duplex.none", "One-sided"),
         "DuplexNoTumble" => tr("duplex.long", "Two-sided, flip on long edge"),
@@ -796,12 +800,12 @@ fn duplex_label(key: &str, fallback: &str) -> String {
 }
 
 /// Подпись настройки драйвера: перевод известных, иначе как в PPD.
-pub(crate) fn option_label(key: &str, fallback: &str) -> String {
+pub fn option_label(key: &str, fallback: &str) -> String {
     builtin(&format!("print.opt.{key}"), fallback)
 }
 
 /// Подпись варианта настройки драйвера.
-pub(crate) fn choice_label(option: &str, key: &str, fallback: &str) -> String {
+pub fn choice_label(option: &str, key: &str, fallback: &str) -> String {
     let k = format!("print.choice.{option}.{key}");
     let v = builtin(&k, "");
     if !v.is_empty() {

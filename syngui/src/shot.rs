@@ -92,12 +92,17 @@ impl Default for ShotOptions {
 /// События для снимка из строки вида
 /// `move 500 400; down 500 400; move 620 400; up 620 400; wheel 500 400 0 -120`:
 /// координаты логические, `wheel x y dy dx`. Ещё: `click x y` (левая: нажать+отпустить),
-/// `rclick x y` (правая: контекстное меню), `rdown`/`rup`, `dclick x y` (двойной щелчок).
+/// `rclick x y` (правая: контекстное меню), `rdown`/`rup`, `dclick x y` (двойной щелчок),
+/// `type ТЕКСТ` (символы в поле с фокусом).
 /// Нераспознанное пропускается.
 pub fn parse_events(spec: &str) -> Vec<crate::input::Event> {
     use crate::input::{Event, MouseButton};
     spec.split(';')
         .filter_map(|part| {
+            // `type ТЕКСТ` — ввод символов в поле с фокусом.
+            if let Some(text) = part.trim_start().strip_prefix("type ") {
+                return Some(text.chars().map(Event::CharInput).collect());
+            }
             let mut it = part.split_whitespace();
             let kind = it.next()?;
             let nums: Vec<f32> = it.filter_map(|n| n.parse().ok()).collect();

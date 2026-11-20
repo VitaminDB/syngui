@@ -26,7 +26,7 @@ use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex};
 
 pub use cups::{Job, Printer, PrinterState};
-pub use dialog::{outcome_text, PrintDialog};
+pub use dialog::{choice_label, duplex_label, option_label, outcome_text, PrintDialog};
 pub use paper::Paper;
 pub use ppd::{Choice, Ppd, PpdOption};
 

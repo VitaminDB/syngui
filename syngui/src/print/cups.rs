@@ -26,6 +26,17 @@ pub struct Printer {
 }
 
 impl Printer {
+    /// Предупреждения CUPS (`Alerts`, причина паузы) словами; пусто — всё в порядке.
+    pub fn message_text(&self) -> String {
+        self.message
+            .split([',', ' '])
+            .map(str::trim)
+            .filter(|c| !c.is_empty() && !c.eq_ignore_ascii_case("paused") && *c != "none")
+            .map(alert_text)
+            .collect::<Vec<_>>()
+            .join(", ")
+    }
+
     pub fn title(&self) -> &str {
         if self.description.is_empty() {
             &self.name
@@ -41,6 +52,24 @@ pub enum PrinterState {
     Idle,
     Printing,
     Disabled,
+}
+
+/// Код предупреждения CUPS/IPP (`printer-state-reasons`) → текст.
+pub fn alert_text(code: &str) -> String {
+    let base = code.trim_end_matches("-report").trim_end_matches("-warning").trim_end_matches("-error");
+    let (key, en) = match base {
+        "cups-missing-filter" => ("missing_filter", "printer driver filter is not installed"),
+        "cups-insecure-filter" => ("insecure_filter", "driver filter has insecure permissions"),
+        "media-empty" | "media-needed" => ("media_empty", "out of paper"),
+        "media-jam" => ("media_jam", "paper jam"),
+        "toner-low" | "marker-supply-low" => ("toner_low", "toner is low"),
+        "toner-empty" | "marker-supply-empty" => ("toner_empty", "out of toner"),
+        "door-open" | "cover-open" => ("door_open", "cover is open"),
+        "offline" | "connecting-to-device" => ("offline", "printer is not responding"),
+        "cups-waiting-for-job-completed" => ("waiting", "finishing a job"),
+        _ => return code.to_string(),
+    };
+    crate::i18n::builtin(&format!("print.alert.{key}"), en)
 }
 
 fn lp_command(program: &str) -> Command {
@@ -206,6 +235,8 @@ pub struct Job {
     pub printer: String,
     pub user: String,
     pub size: u64,
+    /// Название документа (из `lpq`), пусто — неизвестно.
+    pub title: String,
 }
 
 /// Незавершённые задания (все принтеры или один).
@@ -216,6 +247,7 @@ pub fn jobs(printer: Option<&str>) -> Result<Vec<Job>, String> {
     }
     let text = run("lpstat", &args)?;
     let names: Vec<String> = printers().unwrap_or_default().into_iter().map(|p| p.name).collect();
+    let titles = parse_lpq(&run("lpq", &["-a"]).unwrap_or_default());
     Ok(text
         .lines()
         .filter_map(|l| {
@@ -229,9 +261,27 @@ pub fn jobs(printer: Option<&str>) -> Result<Vec<Job>, String> {
                 .max_by_key(|n| n.len())
                 .cloned()
                 .unwrap_or_else(|| id.rsplit_once('-').map(|(p, _)| p.to_string()).unwrap_or_default());
-            Some(Job { id, printer, user, size })
+            let num = id.rsplit('-').next().unwrap_or_default();
+            let title = titles.iter().find(|(n, _)| n == num).map(|(_, t)| t.clone()).unwrap_or_default();
+            Some(Job { id, printer, user, size, title })
         })
         .collect())
+}
+
+/// `lpq -a`: номер задания → название документа.
+fn parse_lpq(text: &str) -> Vec<(String, String)> {
+    text.lines()
+        .skip_while(|l| !l.starts_with("Rank"))
+        .skip(1)
+        .filter_map(|l| {
+            let t: Vec<&str> = l.split_whitespace().collect();
+            // ранг, владелец, номер, имя…, размер, «bytes»
+            if t.len() < 6 || t[t.len() - 1] != "bytes" {
+                return None;
+            }
+            Some((t[2].to_string(), t[3..t.len() - 2].join(" ")))
+        })
+        .collect()
 }
 
 /// Отменить задание.
@@ -317,6 +367,187 @@ pub fn print_test_page(name: &str) -> Result<String, String> {
     submit(name, file, "Test page", 1, &[])
 }
 
+// ─────────────────────────────────────────────────────────────── управление принтерами
+
+/// Устройство, найденное CUPS (`lpinfo -v`): USB, сеть (DNS-SD, IPP), файл.
+#[derive(Debug, Clone, Default, PartialEq)]
+pub struct Device {
+    pub uri: String,
+    /// `direct` (USB), `network`, `file`.
+    pub class: String,
+    pub info: String,
+    pub make_model: String,
+    pub location: String,
+}
+
+impl Device {
+    /// Сеть с поддержкой IPP: можно без драйвера (IPP Everywhere).
+    pub fn driverless(&self) -> bool {
+        let u = self.uri.to_ascii_lowercase();
+        u.starts_with("ipp://") || u.starts_with("ipps://") || u.starts_with("dnssd://") && u.contains("._ipp")
+    }
+
+    pub fn title(&self) -> &str {
+        if !self.make_model.is_empty() && self.make_model != "Unknown" {
+            &self.make_model
+        } else if !self.info.is_empty() {
+            &self.info
+        } else {
+            &self.uri
+        }
+    }
+}
+
+/// Найти устройства (несколько секунд: опрос сети). Без «заготовок» бэкендов (`ipp`, `socket` без адреса).
+pub fn devices(timeout_s: u32) -> Result<Vec<Device>, String> {
+    let t = timeout_s.max(1).to_string();
+    let text = run("lpinfo", &["-l", "-v", "--timeout", &t])?;
+    let mut list = parse_devices(&text);
+    // Принтеры IPP Everywhere, которых lpinfo не показал (есть только в DNS-SD).
+    if let Ok(out) = lp_command("driverless").stdout(Stdio::piped()).output() {
+        for uri in String::from_utf8_lossy(&out.stdout).lines().map(str::trim).filter(|l| l.contains("://")) {
+            if !list.iter().any(|d| d.uri == uri) {
+                list.push(Device { uri: uri.to_string(), class: "network".into(), ..Default::default() });
+            }
+        }
+    }
+    Ok(list)
+}
+
+pub(crate) fn parse_devices(text: &str) -> Vec<Device> {
+    let mut list: Vec<Device> = Vec::new();
+    for line in text.lines() {
+        let t = line.trim();
+        if let Some(uri) = t.strip_prefix("Device: uri = ") {
+            list.push(Device { uri: uri.trim().to_string(), ..Default::default() });
+            continue;
+        }
+        let Some(d) = list.last_mut() else { continue };
+        let Some((k, v)) = t.split_once(" = ").or_else(|| t.strip_suffix(" =").map(|k| (k, ""))) else { continue };
+        let v = v.trim().to_string();
+        match k.trim() {
+            "class" => d.class = v,
+            "info" => d.info = v,
+            "make-and-model" => d.make_model = v,
+            "location" => d.location = v,
+            _ => {}
+        }
+    }
+    // Бэкенд без адреса — не устройство; Backend Error Handler — служебный.
+    list.retain(|d| d.uri.contains(':') && d.uri != "beh");
+    list
+}
+
+/// Драйвер (PPD) из `lpinfo -m`.
+#[derive(Debug, Clone, PartialEq)]
+pub struct Driver {
+    /// Для `lpadmin -m`; `everywhere` — без драйвера (IPP Everywhere).
+    pub model: String,
+    pub name: String,
+}
+
+/// Все драйверы CUPS (`lpinfo -m`).
+pub fn drivers() -> Result<Vec<Driver>, String> {
+    let text = run("lpinfo", &["-m"])?;
+    Ok(text
+        .lines()
+        .filter_map(|l| {
+            let (m, n) = l.split_once(' ')?;
+            Some(Driver { model: m.to_string(), name: n.trim().to_string() })
+        })
+        .collect())
+}
+
+/// Драйверы, подходящие модели, лучшие сначала: совпадение производителя и номера модели.
+pub fn rank_drivers(all: &[Driver], make_model: &str) -> Vec<Driver> {
+    let words: Vec<String> = make_model
+        .to_lowercase()
+        .split(|c: char| !c.is_alphanumeric())
+        .filter(|w| w.len() > 1 && !["series", "printer", "the", "mfp", "inc"].contains(w))
+        .map(str::to_string)
+        .collect();
+    if words.is_empty() {
+        return Vec::new();
+    }
+    let make = &words[0];
+    let mut scored: Vec<(i32, &Driver)> = all
+        .iter()
+        .filter_map(|d| {
+            let name = d.name.to_lowercase();
+            let toks: Vec<&str> = name.split(|c: char| !c.is_alphanumeric()).filter(|w| !w.is_empty()).collect();
+            if !toks.contains(&make.as_str()) {
+                return None;
+            }
+            let mut score = 0;
+            for w in &words[1..] {
+                if toks.contains(&w.as_str()) {
+                    score += if w.chars().any(|c| c.is_ascii_digit()) { 10 } else { 2 };
+                } else if w.chars().any(|c| c.is_ascii_digit()) && toks.iter().any(|t| t.starts_with(&w[..w.len().min(3)])) {
+                    score += 1;
+                }
+            }
+            // Родной драйвер производителя или «recommended» — выше.
+            if name.contains("recommended") {
+                score += 3;
+            }
+            Some((score, d))
+        })
+        .collect();
+    scored.sort_by(|a, b| b.0.cmp(&a.0).then_with(|| a.1.name.cmp(&b.1.name)));
+    scored.into_iter().take(40).map(|(_, d)| d.clone()).collect()
+}
+
+/// Имя очереди из названия модели: латиница, цифры, `_`/`-`, без повторов существующих.
+pub fn queue_name(title: &str, taken: &[String]) -> String {
+    let mut base: String = title
+        .chars()
+        .map(|c| if c.is_ascii_alphanumeric() || c == '-' { c } else { '_' })
+        .collect::<String>()
+        .split('_')
+        .filter(|s| !s.is_empty())
+        .collect::<Vec<_>>()
+        .join("_");
+    if base.is_empty() {
+        base = "Printer".into();
+    }
+    base.truncate(60);
+    let mut name = base.clone();
+    let mut n = 2;
+    while taken.iter().any(|t| t.eq_ignore_ascii_case(&name)) {
+        name = format!("{base}_{n}");
+        n += 1;
+    }
+    name
+}
+
+/// Добавить принтер (`lpadmin -p ИМЯ -E -v URI -m МОДЕЛЬ`). Нужны права администратора CUPS
+/// (группа из `SystemGroup`, обычно wheel/sys).
+pub fn add_printer(name: &str, uri: &str, model: &str, description: &str, location: &str) -> Result<(), String> {
+    let mut args = vec!["-p", name, "-E", "-v", uri, "-m", model];
+    if !description.is_empty() {
+        args.extend(["-D", description]);
+    }
+    if !location.is_empty() {
+        args.extend(["-L", location]);
+    }
+    run("lpadmin", &args).map(|_| ())
+}
+
+/// Удалить принтер.
+pub fn remove_printer(name: &str) -> Result<(), String> {
+    run("lpadmin", &["-x", name]).map(|_| ())
+}
+
+/// Описание и расположение принтера.
+pub fn set_info(name: &str, description: &str, location: &str) -> Result<(), String> {
+    run("lpadmin", &["-p", name, "-D", description, "-L", location]).map(|_| ())
+}
+
+/// Запущен ли сервер CUPS.
+pub fn running() -> bool {
+    lp_command("lpstat").arg("-r").output().map(|o| String::from_utf8_lossy(&o.stdout).contains("is running")).unwrap_or(false)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -341,6 +572,33 @@ printer Pana is disabled since Mon -\n\tPaused\n\tDescription: Panasonic\n\tAler
         assert_eq!(v[1], ("PageSize".into(), "A4".into()));
         assert_eq!(v[2], ("printer-info".into(), "HP LaserJet".into()));
         assert_eq!(v.len(), 4);
+    }
+
+    #[test]
+    fn devices_and_drivers() {
+        let t = "Device: uri = ipp\n        class = network\n        info = Internet Printing Protocol (ipp)\n        make-and-model = Unknown\n\
+Device: uri = usb://Samsung/ML-2160%20Series?serial=5A\n        class = direct\n        info = Samsung ML-2160 Series\n        make-and-model = Samsung ML-2160 Series\n        location =\n\
+Device: uri = dnssd://HP%20LaserJet._ipp._tcp.local/\n        class = network\n        info = HP LaserJet\n        make-and-model = HP LaserJet Pro\n";
+        let d = parse_devices(t);
+        assert_eq!(d.len(), 2);
+        assert_eq!(d[0].title(), "Samsung ML-2160 Series");
+        assert!(!d[0].driverless());
+        assert!(d[1].driverless());
+        let all = vec![
+            Driver { model: "a.ppd".into(), name: "Samsung ML-2160 Series, SpliX".into() },
+            Driver { model: "b.ppd".into(), name: "Samsung ML-1640".into() },
+            Driver { model: "c.ppd".into(), name: "HP LaserJet 4".into() },
+        ];
+        let r = rank_drivers(&all, "Samsung ML-2160 Series");
+        assert_eq!(r[0].model, "a.ppd");
+        assert_eq!(r.len(), 2);
+        assert_eq!(queue_name("Samsung ML-2160 Series", &["Samsung_ML-2160_Series".into()]), "Samsung_ML-2160_Series_2");
+    }
+
+    #[test]
+    fn lpq_titles() {
+        let t = "Rank    Owner   Job     File(s)                         Total Size\n1st     master  28      отчёт за год.pdf                  178176 bytes\n";
+        assert_eq!(parse_lpq(t), vec![("28".to_string(), "отчёт за год.pdf".to_string())]);
     }
 
     #[test]
