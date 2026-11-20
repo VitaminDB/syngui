@@ -60,6 +60,8 @@ pub mod mss;
 pub mod perf;
 /// Выбор фото/видео, «Поделиться», открыть файл системными средствами.
 pub mod platform;
+#[cfg(feature = "print")]
+pub mod print;
 pub mod render;
 pub mod scale;
 /// Снимок интерфейса без окна в PNG.

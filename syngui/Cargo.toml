@@ -96,6 +96,9 @@ resvg = { version = "0.45", optional = true }
 # Base64 для data: URL — нужен только при включённом image-network.
 base64 = { version = "0.22", optional = true }
 
+# Печать (`print`): сжатие картинок PDF без потерь.
+miniz_oxide = { version = "0.8", optional = true }
+
 # Async
 parking_lot = { version = "0.12.5", optional = true }
 tokio = { version = "1", features = [
@@ -256,6 +259,9 @@ image-network = ["dep:ureq", "dep:base64", "image"]
 # Имя без префикса `image-` чтобы cargo не интерпретировал его как
 # `image/svg` (feature `svg` крейта image — её там нет).
 svg = ["image", "dep:resvg"]
+
+# Печать: принтеры CUPS, окно печати с предпросмотром, PDF (`syngui::print`).
+print = ["image", "dep:miniz_oxide"]
 
 # HEIF/HEIC (фото с камер Samsung/iPhone) и AVIF в ImageStore через системную
 # libheif (крейт libheif-rs; Arch: пакет `libheif`). Формат узнаётся по

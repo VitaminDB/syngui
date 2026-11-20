@@ -19,6 +19,8 @@ fn sources() -> Vec<&'static str> {
     ];
     #[cfg(feature = "ffmpeg")]
     out.push(include_str!("../../styles/video_player.mss"));
+    #[cfg(feature = "print")]
+    out.push(include_str!("../../styles/print.mss"));
     out
 }
 
