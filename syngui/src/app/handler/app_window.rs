@@ -76,6 +76,8 @@ pub(in crate::app) struct AppWindow {
     pub focus_manager: FocusManager,
     pub a11y_tree: A11yTree,
     pub a11y_dirty: bool,
+    /// Номер последнего снимка для осмотра снаружи (`a11y::inspect`).
+    pub inspect_seq: u64,
     #[cfg(feature = "accessibility")]
     pub accesskit_adapter: Option<accesskit_winit::Adapter>,
     pub current_cursor: CursorIcon,
@@ -141,6 +143,7 @@ impl AppWindow {
             #[cfg(not(feature = "accessibility"))]
             a11y_tree: A11yTree::new(Box::new(crate::a11y::LoggingAdapter)),
             a11y_dirty: true,
+            inspect_seq: 0,
             #[cfg(feature = "accessibility")]
             accesskit_adapter: None,
             current_cursor: CursorIcon::Default,

@@ -808,6 +808,7 @@ impl AppBuilder {
     {
         let root_factory: std::sync::Arc<dyn Fn(&mut BuildContext) -> Box<dyn Widget> + 'static> =
             std::sync::Arc::new(build_root);
+        crate::a11y::inspect::start();
 
         let initial_is_dark = self.theme_state.map(|t| t.get_untracked()).unwrap_or(false);
         // Признак тёмной темы для запасных цветов виджетов (crate::theme_fallback): сигнал темы →

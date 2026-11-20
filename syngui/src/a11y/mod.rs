@@ -1,5 +1,6 @@
 pub mod focus;
 pub mod platform;
+pub mod inspect;
 pub mod tree;
 pub mod types;
 

@@ -563,12 +563,34 @@ impl AppHandler {
                 }
             }
 
+            // Осмотр снаружи (a11y::inspect): свежее дерево по запросу.
+            let inspect = crate::a11y::inspect::current();
+            if inspect > self.win.inspect_seq {
+                self.win.a11y_dirty = true;
+            }
             if self.win.a11y_dirty {
                 self.win.a11y_tree.sync(&self.win.tree, root_id);
                 self.win
                     .focus_manager
                     .rebuild_tab_order(&self.win.tree, root_id);
                 self.win.a11y_dirty = false;
+                if inspect > self.win.inspect_seq {
+                    self.win.inspect_seq = inspect;
+                    if let Some(w) = &self.win.window {
+                        let ww = w.winit_window();
+                        let sf = ww.scale_factor();
+                        let sz = ww.inner_size();
+                        let key = u64::from(ww.id());
+                        crate::a11y::inspect::publish(key, inspect, ((sz.width as f64 / sf) as f32, (sz.height as f64 / sf) as f32), &self.win.a11y_tree);
+                        let actions = crate::a11y::inspect::take_actions(key);
+                        if !actions.is_empty() {
+                            for (id, a) in actions {
+                                self.win.a11y_tree.on_action(id, a, &mut self.win.tree);
+                            }
+                            w.request_redraw();
+                        }
+                    }
+                }
 
                 #[cfg(feature = "accessibility")]
                 {
