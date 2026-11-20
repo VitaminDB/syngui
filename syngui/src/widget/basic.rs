@@ -603,6 +603,7 @@ impl Text {
             mss_italic: false,
             mss_text_box_font: None,
             mss_text_align: None,
+            mss_text_valign: false,
             mss_text_decoration: crate::mss::TextDecoration::None,
             kf_mss: crate::mss::MssFields::new(),
             mss_font_family: None,
@@ -691,6 +692,9 @@ struct TextElement {
     /// метрикам, если в тексте есть буквы или цифры, иначе по контуру.
     mss_text_box_font: Option<bool>,
     mss_text_align: Option<crate::mss::TextAlign>,
+    /// Задан `text-vertical-align`: текст занимает всю доступную высоту, чтобы
+    /// выровняться в ней. Один `text-align` — только горизонталь.
+    mss_text_valign: bool,
     mss_text_decoration: crate::mss::TextDecoration,
     /// Стили только для @keyframes и переходов дерева (своих MssFields у текста нет —
     /// без них `animation:` на Text молча не работал).
@@ -1112,10 +1116,19 @@ impl Element for TextElement {
         } else {
             (text_width + pad_h).min(constraints.max_width)
         };
+        // По высоте `text-align` ничего не растягивает: в Row с ограниченной
+        // высотой текст «по правому краю» иначе занимал всю колонку и отнимал
+        // место у соседей (заголовок таблицы syn-systeminfo). Жёсткую высоту
+        // (бокс, кнопка) соблюдаем — в ней текст центрируется по вертикали;
+        // всю доступную высоту берёт только явный `text-vertical-align`.
         let height = if let Some(h) = explicit_h {
             h
-        } else if aligned && constraints.max_height.is_finite() {
+        } else if aligned && self.mss_text_valign && constraints.max_height.is_finite() {
             constraints.max_height
+        } else if aligned {
+            natural_height
+                .max(constraints.min_height)
+                .min(constraints.max_height)
         } else {
             natural_height.min(constraints.max_height)
         };
@@ -1519,6 +1532,7 @@ impl Element for TextElement {
         self.mss_italic = false;
         self.mss_text_box_font = None;
         self.mss_text_align = None;
+        self.mss_text_valign = false;
         self.mss_text_decoration = crate::mss::TextDecoration::None;
         self.mss_font_family = None;
         self.mss_letter_spacing = 0.0;
@@ -1592,6 +1606,7 @@ impl StyledElement for TextElement {
         }
         if let Some(ta) = style.text_align() {
             self.mss_text_align = Some(ta);
+            self.mss_text_valign = style.get("text-vertical-align").is_some();
         }
         // Явные размеры (MSS width/height). Раньше Text их игнорировал, из-за чего
         // text-align растягивал текст на весь max_width и центрированный глиф уезжал.
