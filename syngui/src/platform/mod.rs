@@ -22,6 +22,8 @@ use std::path::{Path, PathBuf};
 pub(crate) mod android;
 #[cfg(all(target_os = "linux", not(target_arch = "wasm32")))]
 mod linux;
+#[cfg(all(target_os = "linux", not(target_arch = "wasm32")))]
+pub mod cgroup;
 
 /// Что выбирать в [`pick_media`].
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]

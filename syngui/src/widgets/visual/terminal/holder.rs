@@ -426,6 +426,22 @@ pub fn run_holder(socket: &Path) -> io::Result<()> {
         let _ = std::fs::set_permissions(socket, std::fs::Permissions::from_mode(0o600));
     }
     listener.set_nonblocking(true)?;
+    // Свой scope systemd до запуска первой оболочки: setsid не выводит из
+    // cgroup приложения, и остановка его юнита (приложение запустили из
+    // службы, scope приложения закрыли) убила бы хранитель со всеми
+    // терминалами. Оболочки рождаются уже в scope хранителя.
+    #[cfg(all(target_os = "linux", not(target_arch = "wasm32")))]
+    {
+        let prog = std::env::current_exe()
+            .ok()
+            .and_then(|p| p.file_name().map(|n| n.to_string_lossy().into_owned()))
+            .unwrap_or_else(|| "app".into());
+        let prog = prog.trim_end_matches(" (deleted)").to_string();
+        match crate::platform::cgroup::move_to_own_scope(&format!("syngui-holder-{prog}")) {
+            Ok(unit) => log::info!("[syngui holder] свой scope: {unit}"),
+            Err(e) => log::warn!("[syngui holder] свой scope не создан: {e}"),
+        }
+    }
     // Сигналы не трогаем: SIG_IGN унаследовали бы оболочки терминалов, и
     // SIGHUP при закрытии вкладки перестал бы их завершать. От tty хранитель
     // сигналов не получает — он запущен своей сессией (setsid).
