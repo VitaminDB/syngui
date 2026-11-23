@@ -40,6 +40,24 @@ pub fn spawn_local(fut: impl Future<Output = ()> + 'static) {
     pollster::block_on(fut);
 }
 
+/// Подождать `ms` миллисекунд, не блокируя UI: wasm — `setTimeout` в цикле событий браузера
+/// (опрос сервера, скрытие подсказки), не-wasm — `std::thread::sleep`.
+///
+/// ```ignore
+/// syngui::web::spawn_local(async move {
+///     loop {
+///         refresh().await;
+///         syngui::web::sleep_ms(3000).await;
+///     }
+/// });
+/// ```
+pub async fn sleep_ms(ms: u32) {
+    #[cfg(target_arch = "wasm32")]
+    imp::sleep_ms(ms).await;
+    #[cfg(not(target_arch = "wasm32"))]
+    std::thread::sleep(std::time::Duration::from_millis(ms as u64));
+}
+
 /// HTTP-запрос через `window.fetch`: `(код ответа, тело текстом)`.
 ///
 /// `body: Some(..)` без своего `Content-Type` в `headers` уходит как `application/json`;
@@ -124,6 +142,15 @@ pub(crate) mod imp {
             .await
             .map_err(|e| js_err("text", e))?;
         Ok((status, text.as_string().unwrap_or_default()))
+    }
+
+    pub async fn sleep_ms(ms: u32) {
+        let promise = js_sys::Promise::new(&mut |resolve, _reject| {
+            if let Some(w) = web_sys::window() {
+                let _ = w.set_timeout_with_callback_and_timeout_and_arguments_0(&resolve, ms as i32);
+            }
+        });
+        let _ = JsFuture::from(promise).await;
     }
 
     pub async fn fetch_bytes(url: &str) -> Result<Vec<u8>, String> {
