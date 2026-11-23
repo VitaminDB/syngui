@@ -74,6 +74,10 @@ pub struct Spec {
     /// Готовые внешние файлы для релиза GitHub (`syngui release --publish`): пути или маски.
     #[serde(default)]
     pub assets: Vec<String>,
+    /// Архитектуры выпуска: `["x86_64"]` — архивы релиза, `arch=()` и источники AUR
+    /// (по умолчанию x86_64 и aarch64).
+    #[serde(default)]
+    pub arches: Vec<String>,
     pub packages: Map<toml::Value>,
 }
 
@@ -122,6 +126,9 @@ pub struct Pkg {
     pub install: Option<String>,
     /// Публиковать в AUR (по умолчанию да).
     pub aur: Option<bool>,
+    /// Ещё и пакет AUR без суффикса — сборка из исходников тега релиза (архив GitHub
+    /// `…/archive/refs/tags/v<вер>.tar.gz`, Cargo.lock тега), рядом с `-git` и `-bin`.
+    pub aur_source: Option<bool>,
 }
 
 #[derive(Debug, Default, Deserialize, Clone)]
@@ -988,7 +995,25 @@ impl Release {
         Ok(out)
     }
 
-    /// AUR: на каждый пакет `<имя>-git` и `<имя>-bin`; метапакеты — с зависимостями на `-git`/`-bin`.
+    /// Архитектуры выпуска (`arches` в syngui-release.toml, по умолчанию обе).
+    pub fn arches(&self) -> Vec<&'static str> {
+        let all = ["x86_64", "aarch64"];
+        if self.spec.arches.is_empty() {
+            return all.to_vec();
+        }
+        all.into_iter().filter(|a| self.spec.arches.iter().any(|x| x == a)).collect()
+    }
+
+    /// Цели Linux выпуска.
+    pub fn linux_targets(&self) -> Vec<Target> {
+        self.arches()
+            .into_iter()
+            .map(|a| if a == "aarch64" { Target::LinuxAarch64 } else { Target::LinuxX86_64 })
+            .collect()
+    }
+
+    /// AUR: на каждый пакет `<имя>-git` и `<имя>-bin` (и `<имя>` из исходников тега при
+    /// `aur_source = true`); метапакеты — с зависимостями на `-git`/`-bin`.
     pub fn aur(&self, only: &[String], out: &Path) -> Result<Vec<PathBuf>> {
         let url = self
             .spec
@@ -1007,17 +1032,25 @@ impl Release {
             if p.aur == Some(false) {
                 continue;
             }
-            for suffix in ["git", "bin"] {
-                let pkgname = format!("{name}-{suffix}");
+            let arches = self.arches();
+            let mut suffixes = vec!["git", "bin"];
+            if p.aur_source == Some(true) && !p.is_meta() {
+                suffixes.push("src");
+            }
+            for suffix in suffixes {
+                // «src» — пакет без суффикса: сборка из исходников тега
+                let source = suffix == "src";
+                let pkgname = if source { name.clone() } else { format!("{name}-{suffix}") };
                 let mut s = maint.clone();
                 s += &format!("pkgname={pkgname}\n");
                 s += &format!(
-                    "pkgver={}\npkgrel=1\narch=('x86_64' 'aarch64')\nurl={}\nlicense=({})\n",
+                    "pkgver={}\npkgrel=1\narch=({})\nurl={}\nlicense=({})\n",
                     if suffix == "git" {
                         format!("{}.r0", self.pkgver())
                     } else {
                         self.version.clone()
                     },
+                    arches.iter().map(|a| format!("'{a}'")).collect::<Vec<_>>().join(" "),
                     sh(&url),
                     self.license()
                 );
@@ -1054,25 +1087,39 @@ impl Release {
                         false,
                     );
                     s += "\npackage() {\n    true\n}\n";
-                } else if suffix == "git" {
+                } else if suffix == "git" || source {
                     let mut mk: Vec<String> = self.spec.makedepends.clone();
                     for m in &p.makedepends {
                         if !mk.contains(m) {
                             mk.push(m.clone());
                         }
                     }
-                    if !mk.iter().any(|m| m == "git") {
+                    if !source && !mk.iter().any(|m| m == "git") {
                         mk.push("git".into());
                     }
-                    s += &Self::pkg_meta(
-                        p,
-                        true,
-                        "",
-                        &p.depends,
-                        std::slice::from_ref(name),
-                        &[name.clone(), format!("{name}-bin")],
-                        true,
-                    );
+                    if source {
+                        s += &Self::pkg_meta(
+                            p,
+                            true,
+                            "",
+                            &p.depends,
+                            &[],
+                            &[format!("{name}-git"), format!("{name}-bin")],
+                            true,
+                        );
+                    } else {
+                        s += &Self::pkg_meta(
+                            p,
+                            true,
+                            "",
+                            &p.depends,
+                            std::slice::from_ref(name),
+                            &[name.clone(), format!("{name}-bin")],
+                            true,
+                        );
+                    }
+                    // каталог исходников: клон git или распакованный архив тега
+                    let dir = if source { format!("{repo}-$pkgver") } else { repo.clone() };
                     let opts = if self.spec.options.is_empty() {
                         vec!["!lto".to_string()]
                     } else {
@@ -1093,7 +1140,15 @@ impl Release {
                     }
                     // уже в depends — повтор в makedepends не нужен (namcap)
                     mk.retain(|m| !p.depends.contains(m));
-                    s += &format!("makedepends=({})\noptions=({})\nsource=(\"{repo}::git+{url}.git\")\nsha256sums=('SKIP')\n", mk.iter().map(|x| sh(x)).collect::<Vec<_>>().join(" "), opts.iter().map(|x| sh(x)).collect::<Vec<_>>().join(" "));
+                    let (src, sum) = if source {
+                        (
+                            format!("{repo}-$pkgver.tar.gz::{url}/archive/refs/tags/v$pkgver.tar.gz"),
+                            tag_tarball_sha256(&url, &self.version).unwrap_or_else(|| "SKIP".into()),
+                        )
+                    } else {
+                        (format!("{repo}::git+{url}.git"), "SKIP".to_string())
+                    };
+                    s += &format!("makedepends=({})\noptions=({})\nsource=(\"{src}\")\nsha256sums=('{sum}')\n", mk.iter().map(|x| sh(x)).collect::<Vec<_>>().join(" "), opts.iter().map(|x| sh(x)).collect::<Vec<_>>().join(" "));
                     let one = [&(name.clone(), p.clone())];
                     let lines = |arch: &str, ind: &str| -> String {
                         self.cargo_plans(&one, arch, false)
@@ -1152,8 +1207,9 @@ impl Release {
                     if !cross.is_empty() {
                         builds.push(cross);
                     }
-                    s += &format!(
-                        r#"
+                    if !source {
+                        s += &format!(
+                            r#"
 pkgver() {{
     cd "$srcdir/{repo}"
     if git describe --tags >/dev/null 2>&1; then
@@ -1162,15 +1218,25 @@ pkgver() {{
         printf '%s.r%s.g%s' {ver} "$(git rev-list --count HEAD)" "$(git rev-parse --short=7 HEAD)"
     fi
 }}
-
+"#,
+                            ver = sh(&self.version)
+                        );
+                    }
+                    s += &format!(
+                        r#"
 prepare() {{
-    cd "$srcdir/{repo}"
+    cd "$srcdir/{dir}"
     export RUSTUP_TOOLCHAIN=stable
-{rustup}{nightly}    # Без --locked: git-зависимости (syngui и др.) свежие, Cargo.lock обновится.
-    cargo fetch --target "$(rustc -vV | sed -n 's/host: //p')"{fetch_cross}
+{rustup}{nightly}    {fetch_note}
+    cargo fetch {locked}--target "$(rustc -vV | sed -n 's/host: //p')"{fetch_cross}
 }}
 "#,
-                        ver = sh(&self.version),
+                        fetch_note = if source {
+                            "# Cargo.lock тега: версии git-зависимостей (syngui и др.) закреплены."
+                        } else {
+                            "# Без --locked: git-зависимости (syngui и др.) свежие, Cargo.lock обновится."
+                        },
+                        locked = if source { "--locked " } else { "" },
                         rustup = if cross_targets.is_empty() {
                             String::new()
                         } else {
@@ -1187,10 +1253,10 @@ prepare() {{
                         }
                     );
                     if !builds.is_empty() {
-                        s += &format!("\nbuild() {{\n    cd \"$srcdir/{repo}\"\n    export RUSTUP_TOOLCHAIN=stable CARGO_TARGET_DIR=target\n{}}}\n", builds.concat());
+                        s += &format!("\nbuild() {{\n    cd \"$srcdir/{dir}\"\n    export RUSTUP_TOOLCHAIN=stable CARGO_TARGET_DIR=target\n{}}}\n", builds.concat());
                     }
                     // $srcdir задан только при запуске функций, не при чтении PKGBUILD
-                    s += &format!("\npackage() {{\n    local _root=\"$srcdir/{repo}\" _bins=\"$srcdir/{repo}/target/release\"\n{}}}\n", self.package_body(name, p)?);
+                    s += &format!("\npackage() {{\n    local _root=\"$srcdir/{dir}\" _bins=\"$srcdir/{dir}/target/release\"\n{}}}\n", self.package_body(name, p)?);
                 } else {
                     let tar = |a: &str| format!("{name}-{}-{a}.tar.zst", self.version);
                     let sum = |a: &str| {
@@ -1214,11 +1280,10 @@ prepare() {{
                     );
                     s += "options=('!strip' '!debug')\n";
                     s += &format!(
-                        "noextract=({} {})\n",
-                        sh(&tar("x86_64")),
-                        sh(&tar("aarch64"))
+                        "noextract=({})\n",
+                        arches.iter().map(|a| sh(&tar(a))).collect::<Vec<_>>().join(" ")
                     );
-                    for a in ["x86_64", "aarch64"] {
+                    for a in arches.iter().copied() {
                         s += &format!("source_{a}=(\"{t}::{url}/releases/download/v$pkgver/{t}\")\nsha256sums_{a}=('{}')\n", sum(a), t = tar(a));
                     }
                     s += &format!("\npackage() {{\n    bsdtar -xpf \"$srcdir/{name}-$pkgver-$CARCH.tar.zst\" -C \"$pkgdir\"\n}}\n");
@@ -1241,6 +1306,22 @@ prepare() {{
         util::note(format!("{} PKGBUILD в {}", made.len(), out.display()));
         Ok(made)
     }
+}
+
+/// sha256 архива тега на GitHub (`…/archive/refs/tags/v<вер>.tar.gz`) — тег уже
+/// запушен (`release --publish` делает AUR после релиза); иначе `None` → SKIP.
+fn tag_tarball_sha256(url: &str, version: &str) -> Option<String> {
+    let link = format!("{url}/archive/refs/tags/v{version}.tar.gz");
+    let out = Command::new("sh")
+        .args(["-c", "curl -fsSL \"$1\" | sha256sum", "sh", &link])
+        .output()
+        .ok()?;
+    if !out.status.success() {
+        return None;
+    }
+    let sum = String::from_utf8_lossy(&out.stdout).split_whitespace().next()?.to_string();
+    // sha256 пустого ввода — curl ничего не скачал
+    (sum.len() == 64 && sum != "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855").then_some(sum)
 }
 
 /// `[workspace.package] version` (или `[package] version`) из корневого Cargo.toml.

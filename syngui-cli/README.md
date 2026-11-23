@@ -178,6 +178,7 @@ url = "https://github.com/VitaminDB/synshell"
 license = ["GPL-3.0-only"]
 makedepends = ["cargo", "git", "clang", "pkgconf"]
 options = ["!lto"]                     # для -git
+arches = ["x86_64"]                    # архитектуры выпуска: архивы релиза и arch=() в AUR (по умолчанию обе)
 # version — из [workspace.package]; pkgrel — число коммитов (или pkgrel = N)
 
 [crates.synaptixd]                     # особая сборка крейта (отдельный cargo build)
@@ -219,6 +220,8 @@ backup = ["etc/synaptix/synaptixd.toml"]
 groups = ["synshell-apps"]
 install = "packaging/synshell-core.install"
 aur = false                            # не публиковать в AUR
+aur_source = true                      # ещё и пакет <имя> без суффикса: сборка из исходников тега
+                                       # (архив GitHub v<вер>.tar.gz, сумма — при release --publish)
 ```
 
 Программы копируются из target/ и очищаются от символов (`--no-strip` — оставить). Пакеты
