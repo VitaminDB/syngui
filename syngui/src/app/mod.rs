@@ -77,6 +77,20 @@ pub fn hide_main_window() -> bool {
     send_control(user_event::SynGuiUserEvent::TrayHide)
 }
 
+/// Что делает закрытие окна (✕, Alt+F4), на лету: `true` — прячет окно
+/// (в трей), `false` — завершает программу. Переопределяет
+/// `AppBuilder::hide_on_close` и
+/// [`TrayCloseAction`] — для переключателя «сворачивать в трей» в настройках
+/// приложения. Прятать стоит только при запущенном трее
+/// (`AppBuilder::with_tray`), иначе окно вернёт лишь
+/// повторный запуск (единственный экземпляр) или [`show_main_window`].
+pub fn set_hide_on_close(hide: bool) {
+    HIDE_ON_CLOSE.store(if hide { 2 } else { 1 }, std::sync::atomic::Ordering::Relaxed);
+}
+
+/// 0 — как задано при запуске, 1 — закрывать, 2 — прятать.
+pub(crate) static HIDE_ON_CLOSE: std::sync::atomic::AtomicU8 = std::sync::atomic::AtomicU8::new(0);
+
 /// Видно ли сейчас главное окно.
 pub fn main_window_visible() -> bool {
     MAIN_WINDOW_VISIBLE.load(std::sync::atomic::Ordering::Relaxed)

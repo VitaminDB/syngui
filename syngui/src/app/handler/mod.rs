@@ -327,6 +327,11 @@ impl AppHandler {
     }
 
     pub(super) fn should_hide_on_close(&self) -> bool {
+        match super::super::HIDE_ON_CLOSE.load(std::sync::atomic::Ordering::Relaxed) {
+            1 => return false,
+            2 => return true,
+            _ => {}
+        }
         if self.config.hide_on_close {
             return true;
         }
