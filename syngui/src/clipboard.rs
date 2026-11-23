@@ -201,6 +201,7 @@ mod imp {
             if changed {
                 set_cached(text);
                 REFRESHED.set(true);
+                #[cfg(feature = "winit")]
                 if let Some(win) = crate::signal::primary_window() {
                     win.request_redraw();
                 }

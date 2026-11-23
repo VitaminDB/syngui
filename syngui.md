@@ -2096,6 +2096,69 @@ canvas синтетическими клавишами (`input::edit_diff`); `se
 (однопоточная реализация), поэтому пиши `syngui::core::sync::Mutex`, а не `std::sync::Mutex`,
 если код должен собираться под web.
 
+Сборка и запуск — только `syngui build -t web` / `syngui run -d web` (syngui-cli/README.md, раздел «Веб»):
+крейт с `[lib] crate-type = ["cdylib", "rlib"]` и `#[wasm_bindgen(start)]`, результат —
+`target/syngui/web/<крейт>/` (index.html, pkg/, ассеты из `web/assets`), метаданные —
+`[package.metadata.syngui.web]` (`features`, `default_features`, `assets`, `index`, `title`,
+`background`, `telegram = true` — Telegram Mini App).
+
+**`syngui::web`** (`src/web.rs`) — есть на всех целях, чтобы код собирался без `#[cfg]`; не на wasm
+функции ничего не делают и возвращают `None`/`false`, `fetch_*` — `Err`, `web::is_web()` — признак.
+
+- `web::spawn_local(fut)` — async-задача: на wasm `wasm_bindgen_futures::spawn_local` (принятый в
+  syngui путь: шрифты, тайлы карты, буфер обмена), на десктопе — `pollster::block_on` на месте
+  (для настоящей фоновой работы там — `async_runtime::spawn`/tokio). На wasm всё однопоточно:
+  `RwSignal::set` внутри задачи сразу помечает виджеты и запрашивает кадр — `run_on_main_thread` не нужен.
+- `web::fetch_json(method, url, headers: &[(&str, &str)], body: Option<String>) -> Result<(u16, String), String>`
+  — `window.fetch`; тело без своего Content-Type уходит как `application/json`, `Accept: application/json`
+  по умолчанию; любой HTTP-код — `Ok`, `Err` — сеть/CORS. `web::fetch_bytes(url) -> Result<Vec<u8>, String>`.
+- `web::telegram` (`window.Telegram.WebApp` через `js_sys::Reflect`): `is_available()` (есть WebApp и
+  непустой initData), `init_data()` — сырая строка для проверки подписи на сервере, `user_first_name()`,
+  `user_id()`, `user_language_code()`, `color_scheme()`, `is_dark()`, `platform()`, `version()`,
+  `theme_colors() -> Option<ThemeColors>` (поля `bg_color`, `secondary_bg_color`, `text_color`,
+  `hint_color`, `link_color`, `button_color`, `button_text_color`, `header_bg_color`,
+  `accent_text_color`, `section_bg_color`, `section_header_text_color`, `subtitle_text_color`,
+  `destructive_text_color`: `Option<Color>`), `theme_mss()` — `:root { --tg-bg-color: …; … }`
+  (недостающее — из палитры Telegram по умолчанию; вне Telegram — она целиком; заодно
+  `theme_fallback::set_dark_theme`), `ready()`, `expand()`, `close()`, `set_header_color`,
+  `set_background_color`, `show_alert`, `haptic_impact("light"|"medium"|"heavy"|"rigid"|"soft")`,
+  `haptic_notification("success"|"error"|"warning")`, `haptic_selection()`,
+  `on_theme_changed(cb)`, `on_event(name, cb)`.
+
+```rust
+fn app_mss(tg: &str) -> String {
+    format!("{tg}\n{}", include_str!("../styles/app.mss"))  // в app.mss — var(--tg-bg-color) и т. п.
+}
+
+#[cfg_attr(target_arch = "wasm32", wasm_bindgen(start))]
+pub fn run_app() {
+    use syngui::web::{self, telegram};
+    telegram::ready();
+    telegram::expand();
+    let theme = use_signal(app_mss(&telegram::theme_mss()));
+    telegram::on_theme_changed(move || theme.set(app_mss(&telegram::theme_mss())));
+    let status = use_signal(String::new());
+    App::new()
+        .with_font_url("fonts/Inter.ttf")               // web/assets/fonts/Inter.ttf
+        .with_styles_str(&theme.get_untracked())
+        .with_dynamic_theme(theme)
+        .run(move |_| Box::new(Column::new()
+            .child(Button::new("Обновить").on_click(move || {
+                telegram::haptic_impact("light");
+                web::spawn_local(async move {
+                    let auth = telegram::init_data().unwrap_or_default();
+                    let r = web::fetch_json("GET", "/api/status", &[("X-Telegram-Init-Data", &auth)], None).await;
+                    status.set(match r {
+                        Ok((200, body)) => body,
+                        Ok((code, body)) => format!("HTTP {code}: {body}"),
+                        Err(e) => e,
+                    });
+                });
+            }))
+            .child(move || Text::new(status.get()))))
+}
+```
+
 ---
 
 ## 16. Эталонные паттерны synthos

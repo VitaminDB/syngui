@@ -3,9 +3,9 @@
 //! ```text
 //! syngui doctor [-t android]                       что есть для сборки
 //! syngui info [-p крейт]                           что утилита знает о приложении
-//! syngui build -t linux-x86_64|linux-aarch64|android|ios [--release] [-p крейт]
+//! syngui build -t linux-x86_64|linux-aarch64|android|ios|web [--release] [-p крейт]
 //! syngui package -f tar|arch|aur|apk|ipa [-t …] [-p крейт]
-//! syngui run [-d local|android|ios|phone|ssh:host] [-p крейт]
+//! syngui run [-d local|android|ios|phone|ssh:host|web] [-p крейт]
 //! syngui release 0.2.0 [--apply|--publish]        выпуск (по умолчанию — сухой прогон)
 //! syngui keygen [-p крейт]                         релизный ключ Android в ~/.secrets/<крейт>-android
 //! syngui init [-p крейт]                           заготовка [package.metadata.syngui]
@@ -23,6 +23,7 @@ mod publish;
 mod release;
 mod target;
 mod util;
+mod web;
 
 use anyhow::{bail, Result};
 use clap::{Args, Parser, Subcommand};
@@ -35,7 +36,7 @@ use target::{Profile, Target};
 #[command(
     name = "syngui",
     version,
-    about = "Сборка, упаковка и запуск приложений на syngui: Linux x86_64/aarch64, Android, iOS"
+    about = "Сборка, упаковка и запуск приложений на syngui: Linux x86_64/aarch64, Android, iOS, Windows, веб (WASM)"
 )]
 struct Cli {
     #[command(subcommand)]
@@ -76,7 +77,7 @@ impl Prof {
 
 #[derive(Subcommand)]
 enum Cmd {
-    /// Проверить окружение: Rust-цели, NDK/SDK, JDK, iOS SDK, sysroot aarch64, инструменты
+    /// Проверить окружение: Rust-цели, NDK/SDK, JDK, iOS SDK, sysroot aarch64, wasm-bindgen, инструменты
     Doctor {
         /// Цели (по умолчанию все)
         #[arg(short, long)]
@@ -89,7 +90,7 @@ enum Cmd {
     },
     /// Собрать приложение под цель
     Build {
-        /// linux-x86_64, linux-aarch64, android, ios (можно несколько; по умолчанию Linux этой машины)
+        /// linux-x86_64, linux-aarch64, android, ios, windows-x86_64, web (можно несколько; по умолчанию Linux этой машины)
         #[arg(short, long)]
         target: Vec<String>,
         #[command(flatten)]
@@ -152,11 +153,14 @@ enum Cmd {
         #[arg(short, long)]
         device: Option<String>,
     },
-    /// Собрать и запустить: здесь, на Android (adb), iPhone (plumesign), телефоне с synshell (synport) или по ssh
+    /// Собрать и запустить: здесь, на Android (adb), iPhone (plumesign), телефоне с synshell (synport), по ssh или в браузере (web)
     Run {
-        /// local, android, ios, phone, ssh:<user@host>
+        /// local, android, ios, phone, ssh:<user@host>, web
         #[arg(short, long, default_value = "local")]
         device: String,
+        /// web: адрес HTTP-сервера (занят — следующий порт)
+        #[arg(long, default_value = "127.0.0.1:8080")]
+        listen: String,
         #[command(flatten)]
         sel: Sel,
         #[command(flatten)]
@@ -234,7 +238,11 @@ fn targets(v: &[String]) -> Result<Vec<Target>> {
     let mut out = Vec::new();
     for s in v.iter().flat_map(|s| s.split(',')) {
         let ts = match s {
-            "all" => Target::ALL.to_vec(),
+            // all — нативные цели; web — только явно
+            "all" => Target::ALL
+                .into_iter()
+                .filter(|t| *t != Target::Web)
+                .collect(),
             "all-linux" | "linux-all" => vec![Target::LinuxX86_64, Target::LinuxAarch64],
             _ => vec![Target::parse(s)?],
         };
@@ -466,6 +474,7 @@ fn real_main(cli: Cli) -> Result<()> {
         }
         Cmd::Run {
             device,
+            listen,
             sel,
             prof,
             no_build,
@@ -488,6 +497,7 @@ fn real_main(cli: Cli) -> Result<()> {
                 extra.push(features.join(","));
             }
             let o = RunOpts {
+                listen,
                 no_build,
                 log: !no_log,
                 pkg,
@@ -523,6 +533,9 @@ fn real_main(cli: Cli) -> Result<()> {
 }
 
 fn ensure_linux(t: Target) -> Result<()> {
+    if t == Target::Web {
+        bail!("формат tar/arch — для Linux-целей; веб собирается командой syngui build -t web (каталог target/syngui/web/<крейт>)");
+    }
     if matches!(t, Target::Android | Target::Ios | Target::WindowsX86_64) {
         let f = match t {
             Target::Android => "apk",
@@ -558,6 +571,7 @@ fn build(
         }
         Target::Android => android::build(app, profile, false, None),
         Target::Ios => ios::build(app, profile),
+        Target::Web => web::build(app, profile, extra),
     }
 }
 
@@ -569,6 +583,7 @@ struct RunOpts {
     no_launch: bool,
     extra: Vec<String>,
     env: Vec<String>,
+    listen: String,
 }
 
 fn run(app: &App, device: &str, profile: Profile, o: &RunOpts, args: &[String]) -> Result<()> {
@@ -607,6 +622,17 @@ fn run(app: &App, device: &str, profile: Profile, o: &RunOpts, args: &[String]) 
                 ios::build(app, profile)?
             };
             ios::install(&ipa)
+        }
+        "web" | "browser" | "wasm" => {
+            let dir = if no_build {
+                web::out_dir(app)
+            } else {
+                web::build(app, profile, &o.extra)?
+            };
+            if !dir.join("index.html").is_file() {
+                bail!("нет {}/index.html — соберите без --no-build", dir.display());
+            }
+            web::serve(&dir, &o.listen)
         }
         d if d == "phone" || d.starts_with("ssh:") => {
             let dev = device::Device::parse(d)?;
@@ -647,7 +673,7 @@ fn run(app: &App, device: &str, profile: Profile, o: &RunOpts, args: &[String]) 
             }
             device::launch(&dev, &bin, args, &o.env)
         }
-        d => bail!("неизвестное устройство {d}: local, android, ios, phone, ssh:<хост>"),
+        d => bail!("неизвестное устройство {d}: local, android, ios, phone, ssh:<хост>, web"),
     }
 }
 
@@ -717,6 +743,20 @@ fn info(app: &App) -> Result<()> {
             .bundle_id
             .clone()
             .unwrap_or_else(|| app.app_id())
+    );
+    println!(
+        "web:          {} ({}{})",
+        web::out_dir(app).display(),
+        if app.lib_cdylib {
+            "cdylib"
+        } else {
+            "нет cdylib"
+        },
+        if app.meta.web.telegram {
+            ", Telegram Mini App"
+        } else {
+            ""
+        }
     );
     println!("артефакты:    {}", app.dist_dir().display());
     Ok(())

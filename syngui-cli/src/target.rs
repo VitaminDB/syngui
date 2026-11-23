@@ -10,15 +10,18 @@ pub enum Target {
     Android,
     Ios,
     WindowsX86_64,
+    /// WebAssembly в браузере (wasm32-unknown-unknown + wasm-bindgen).
+    Web,
 }
 
 impl Target {
-    pub const ALL: [Target; 5] = [
+    pub const ALL: [Target; 6] = [
         Target::LinuxX86_64,
         Target::LinuxAarch64,
         Target::Android,
         Target::Ios,
         Target::WindowsX86_64,
+        Target::Web,
     ];
 
     pub fn parse(s: &str) -> Result<Target> {
@@ -29,8 +32,9 @@ impl Target {
             "android" | "apk" => Target::Android,
             "ios" | "iphone" | "ipa" => Target::Ios,
             "windows-x86_64" | "windows" | "win64" | "exe" => Target::WindowsX86_64,
+            "web" | "wasm" | "wasm32" => Target::Web,
             _ => bail!(
-                "неизвестная цель {s}: linux-x86_64, linux-aarch64, android, ios, windows-x86_64"
+                "неизвестная цель {s}: linux-x86_64, linux-aarch64, android, ios, windows-x86_64, web"
             ),
         })
     }
@@ -50,6 +54,7 @@ impl Target {
             Target::Android => "android",
             Target::Ios => "ios",
             Target::WindowsX86_64 => "windows-x86_64",
+            Target::Web => "web",
         }
     }
 
@@ -57,6 +62,7 @@ impl Target {
     pub fn arch(self) -> &'static str {
         match self {
             Target::LinuxX86_64 | Target::WindowsX86_64 => "x86_64",
+            Target::Web => "wasm32",
             _ => "aarch64",
         }
     }
@@ -69,6 +75,7 @@ impl Target {
             Target::Android => "aarch64-linux-android",
             Target::Ios => "aarch64-apple-ios",
             Target::WindowsX86_64 => "x86_64-pc-windows-gnu",
+            Target::Web => "wasm32-unknown-unknown",
         }
     }
 

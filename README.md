@@ -220,16 +220,20 @@ every widget + MSS styling; it also builds to **WebAssembly**.
 cargo run -p widget_gallery_mss
 ```
 
-**Web (WASM)** — builds the gallery to an ES module and serves it:
+**Web (WASM)** — `syngui` (the build tool in `syngui-cli/`) builds the gallery into a ready-to-deploy
+directory `target/syngui/web/widget_gallery_mss/` (index.html, `pkg/`, assets) and serves it:
 
 ```bash
 rustup target add wasm32-unknown-unknown
-cargo install wasm-bindgen-cli
-cd examples/widget_gallery_mss/web && ./build.sh
-python3 -m http.server --directory .   # then open http://localhost:8000
+cargo install wasm-bindgen-cli          # syngui fetches the version matching Cargo.lock itself if needed
+syngui build -t web -p widget_gallery_mss
+syngui run -d web -p widget_gallery_mss # http://127.0.0.1:8080/
 ```
 
-The web build omits desktop-only widgets (terminal, video, native clipboard).
+The web build omits desktop-only widgets (terminal, video, native clipboard). Web apps get
+`syngui::web`: `fetch_json` over `window.fetch`, `spawn_local`, and `syngui::web::telegram` for
+Telegram Mini Apps (initData, theme colors as MSS variables, haptics); `[package.metadata.syngui.web]
+telegram = true` adds telegram-web-app.js to the generated page.
 
 ## How it is tested
 

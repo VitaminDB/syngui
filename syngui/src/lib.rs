@@ -71,6 +71,7 @@ pub mod signal;
 pub mod text;
 pub mod theme_fallback;
 pub mod viewport;
+pub mod web;
 pub mod widget;
 pub mod widgets;
 #[cfg(feature = "winit")]

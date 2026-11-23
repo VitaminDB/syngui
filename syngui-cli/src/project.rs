@@ -43,7 +43,28 @@ pub struct Meta {
     pub ios: IosMeta,
     pub linux: LinuxMeta,
     pub windows: WindowsMeta,
+    pub web: WebMeta,
     pub release: ReleaseMeta,
+}
+
+/// `syngui build -t web`: WebAssembly в браузере (см. web.rs).
+#[derive(Debug, Default, Deserialize)]
+#[serde(default, deny_unknown_fields)]
+pub struct WebMeta {
+    /// Возможности cargo для wasm32 (по умолчанию — возможности крейта по умолчанию).
+    pub features: Option<Vec<String>>,
+    /// Включать возможности по умолчанию (по умолчанию да).
+    pub default_features: Option<bool>,
+    /// Каталог ассетов: содержимое копируется в корень сайта (по умолчанию web/assets, если есть).
+    pub assets: Option<String>,
+    /// Своя страница (по умолчанию web/index.html, если есть; иначе генерируется).
+    pub index: Option<String>,
+    /// <title> сгенерированной страницы (по умолчанию name).
+    pub title: Option<String>,
+    /// Фон страницы до первого кадра (CSS-цвет, по умолчанию #000).
+    pub background: Option<String>,
+    /// Telegram Mini App: подключить telegram-web-app.js до модуля приложения.
+    pub telegram: bool,
 }
 
 /// `syngui release`: что собрать в релиз GitHub и какие готовые файлы приложить.
@@ -204,6 +225,8 @@ pub struct App {
     pub target_dir: PathBuf,
     pub bins: Vec<String>,
     pub lib: Option<String>,
+    /// У [lib] есть crate-type cdylib (нужно для веба).
+    pub lib_cdylib: bool,
     pub meta: Meta,
     /// id из прежнего `[package.metadata.android] package` (cargo-apk), если нового нет.
     legacy_android_id: Option<String>,
@@ -315,6 +338,10 @@ impl App {
             .filter(|t| t.kind.iter().any(|k| k == "bin"))
             .map(|t| t.name.clone())
             .collect();
+        let lib_cdylib = pkg
+            .targets
+            .iter()
+            .any(|t| t.kind.iter().any(|k| k == "cdylib"));
         let lib = pkg
             .targets
             .iter()
@@ -335,6 +362,7 @@ impl App {
             target_dir: m.target_directory,
             bins,
             lib,
+            lib_cdylib,
             meta,
             legacy_android_id,
         })

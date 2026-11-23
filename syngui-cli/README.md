@@ -1,7 +1,8 @@
 # syngui — сборка, упаковка и запуск приложений на syngui
 
 Одна команда вместо `build-apk.sh`, `build-ipa.sh`, ручных PKGBUILD и кросс-окружений:
-Linux x86_64 и aarch64 (компьютеры и телефоны), Windows x86_64, Android APK, iOS IPA, пакеты Arch и AUR —
+Linux x86_64 и aarch64 (компьютеры и телефоны), Windows x86_64, Android APK, iOS IPA, веб (WebAssembly,
+в том числе Telegram Mini App), пакеты Arch и AUR —
 для одного приложения и для выпуска всего рабочего пространства из многих пакетов (synshell).
 
 ```sh
@@ -24,6 +25,8 @@ syngui package -f aur                  # PKGBUILD + .SRCINFO для <имя>-git
 syngui package -f ipa                  # неподписанный .ipa
 syngui package -f zip                  # Windows: <bin>-<вер>-windows-x86_64.zip (exe + docs)
 syngui build -t windows-x86_64         # exe через mingw-w64
+syngui build -t web                    # WebAssembly → target/syngui/web/<крейт>/ (index.html, pkg/, ассеты)
+syngui run -d web                      # собрать и раздать по http://127.0.0.1:8080/ (--listen 0.0.0.0:8000)
 syngui package -f tar --portable       # linux-x86_64 в контейнере с glibc 2.31 (Ubuntu 20.04+, Debian 11+)
 syngui package -w -f arch --fast --install   # весь выпуск рабочего пространства, pacman -U одной транзакцией
 echo ПАРОЛЬ | syngui package -w -f arch --fast --install   # без терминала (агент, IDE): пароль sudo из stdin или $SYNGUI_SUDO_PASSWORD
@@ -134,6 +137,15 @@ default_features = true
 packages = ["update_helper"]       # программы других крейтов рабочего пространства — в zip рядом
 files = ["assets/app.ico"]         # дополнительные файлы в zip
 
+[package.metadata.syngui.web]       # syngui build -t web / run -d web
+features = ["web"]                 # возможности cargo для wasm32 (по умолчанию — крейта по умолчанию)
+default_features = false           # по умолчанию true
+assets = "web/assets"              # содержимое — в корень сайта (по умолчанию web/assets, если есть)
+index = "web/index.html"           # своя страница (по умолчанию web/index.html, если есть; иначе генерируется)
+title = "Пульт"                    # <title> сгенерированной страницы (по умолчанию name)
+background = "#17212b"             # фон страницы до первого кадра (по умолчанию #000)
+telegram = true                    # Telegram Mini App: telegram-web-app.js до модуля приложения
+
 [package.metadata.syngui.release]          # syngui release --publish
 artifacts = ["tar-portable", "zip"]        # tar, tar-x86_64, tar-aarch64, tar-portable, zip, apk, ipa
 assets = ["~/путь/к/готовым/файлам/*"]     # внешние готовые файлы в релиз GitHub
@@ -155,6 +167,31 @@ path-зависимости вне его (`../syngui` через `[patch]`) —
 `-t windows-x86_64`: `x86_64-pc-windows-gnu`, линковка `x86_64-w64-mingw32-gcc`, strip mingw.
 Ресурсы exe (значок, VERSIONINFO, манифест) — build.rs крейта (winresource + windres).
 `[package.metadata.syngui.windows] features` — возможности для этой цели.
+
+## Веб (WebAssembly)
+
+`-t web` (`wasm`): `cargo build --lib --target wasm32-unknown-unknown` (профиль как у остальных целей:
+fast-release, `--release` — LTO и `wasm-opt -Oz`, если стоит binaryen; `--debug` — dev и `wasm-bindgen --debug`),
+затем `wasm-bindgen --target web --no-typescript`. Крейту нужен `[lib] crate-type = ["cdylib", "rlib"]` и
+точка входа `#[wasm_bindgen(start)]` (пример — `examples/widget_gallery_mss/src/lib.rs`, `run_app`).
+Результат — готовый к выкладке каталог `target/syngui/web/<крейт>/`: `index.html`, `pkg/<lib>.js`,
+`pkg/<lib>_bg.wasm` и содержимое каталога ассетов (`web/assets/fonts/X.ttf` → `fonts/X.ttf` — путь для
+`.with_font_url("fonts/X.ttf")`).
+
+Страница: `web/index.html` крейта (или `web.index`), иначе генерируется — полноэкранный canvas,
+viewport с `interactive-widget=resizes-content` (экранная клавиатура сжимает canvas), импорт
+`pkg/<lib>.js` и `init()`. С `telegram = true` в `<head>` добавляется
+`<script src="https://telegram.org/js/telegram-web-app.js">` (и в свою страницу, если его там нет);
+API — `syngui::web::telegram`.
+
+wasm-bindgen-cli должен быть той же версии, что крейт `wasm-bindgen` в Cargo.lock: если в PATH другая,
+утилита один раз ставит нужную в `~/.cache/syngui/wasm-bindgen-<версия>/` (`cargo install --root`) и
+берёт её; `syngui doctor -t web` показывает обе версии.
+
+`run -d web` собирает (`--no-build` — нет) и раздаёт каталог встроенным HTTP-сервером (GET/HEAD,
+`application/wasm`, без кэша); адрес — `--listen` (по умолчанию `127.0.0.1:8080`, занят — следующий
+порт). Для Telegram нужен HTTPS — выложите каталог на свой сервер или пробросьте туннелем.
+`--features`/`--no-default-features` у `run` заменяют возможности из метаданных.
 
 ## Выпуск рабочего пространства (`--workspace`)
 

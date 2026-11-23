@@ -426,6 +426,10 @@ web-sys = { version = "0.3", features = [
     "HtmlElement",
     "HtmlCanvasElement",
     "Response",
+    # syngui::web::fetch_json: запрос с методом, заголовками и телом.
+    "Headers",
+    "Request",
+    "RequestInit",
     # Пропуск функциональных клавиш браузеру (app/web_keys.rs).
     "Event",
     "EventTarget",

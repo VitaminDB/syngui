@@ -24,7 +24,7 @@ Thumbs.db
 **/app/build/
 **/jniLibs/
 
-# WASM build output (regenerable via web/build.sh)
+# Прежний вывод wasm-bindgen (сейчас syngui build -t web → target/syngui/web/<крейт>)
 **/web/pkg/
 
 # Статический FFmpeg под Android (scripts/build-ffmpeg-android.sh)

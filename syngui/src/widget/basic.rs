@@ -780,6 +780,7 @@ impl TextElement {
             self.mark_dirty(DirtyFlags::RENDER);
             true
         } else {
+            #[cfg(feature = "winit")]
             crate::app::request_tick(std::time::Duration::from_secs_f32(
                 interval - self.fx_since_frame,
             ));

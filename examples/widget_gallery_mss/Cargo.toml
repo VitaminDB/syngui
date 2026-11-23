@@ -23,11 +23,11 @@ log = "0.4"
 
 # Desktop: full feature set (clipboard/arboard is desktop-only).
 [target.'cfg(not(target_arch = "wasm32"))'.dependencies]
-syngui = { path = "../../syngui", default-features = false, features = ["winit", "msdf", "effects", "markdown", "markdown-syntax", "material-icons", "clipboard", "i18n", "code-editor", "document-editor"] }
+syngui = { path = "../../syngui", default-features = false, features = ["winit", "msdf", "effects", "markdown", "markdown-syntax", "material-icons", "clipboard", "i18n", "code-editor", "document-editor", "audio"] }
 
 # Web: only wasm-safe features (no clipboard/terminal/ffmpeg backends).
 [target.'cfg(target_arch = "wasm32")'.dependencies]
-syngui = { path = "../../syngui", default-features = false, features = ["winit", "msdf", "effects", "markdown", "markdown-syntax", "material-icons", "i18n"] }
+syngui = { path = "../../syngui", default-features = false, features = ["winit", "msdf", "effects", "markdown", "markdown-syntax", "material-icons", "i18n", "audio"] }
 wasm-bindgen = "0.2"
 console_error_panic_hook = "0.1"
 
@@ -37,3 +37,10 @@ winres = "0.1"
 [[bin]]
 name = "widget_gallery_mss"
 path = "src/main.rs"
+
+# syngui build -t web / syngui run -d web: возможности по умолчанию (map, terminal, ffmpeg)
+# тянут десктопные бэкенды — в браузере их нет; набор syngui для wasm задан выше.
+# Страница — web/index.html; содержимое assets/ (fonts/, lottie/) кладётся в корень сайта.
+[package.metadata.syngui.web]
+default_features = false
+assets = "assets"

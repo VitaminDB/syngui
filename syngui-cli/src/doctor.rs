@@ -155,6 +155,41 @@ pub fn run(targets: &[Target]) -> bool {
                 r.tool("x86_64-w64-mingw32-strip", "pacman -S mingw-w64-binutils");
                 r.tool("zip", "pacman -S zip");
             }
+            Target::Web => {
+                has_target(&mut r, t.triple());
+                match crate::web::cli_version() {
+                    Some(v) => {
+                        r.check(true, "wasm-bindgen", &v, "");
+                        // версия cli должна совпадать с крейтом wasm-bindgen в Cargo.lock приложения
+                        let root = std::env::current_dir().unwrap_or_default();
+                        let lock = std::iter::successors(Some(root.as_path()), |p| p.parent())
+                            .find(|p| p.join("Cargo.lock").is_file())
+                            .map(|p| crate::web::locked_versions(p))
+                            .unwrap_or_default();
+                        if let Some(h) = crate::web::mismatch_hint(&v, &lock) {
+                            r.check(true, "wasm-bindgen ↔ Cargo.lock", h, "");
+                        } else if !lock.is_empty() {
+                            r.check(true, "wasm-bindgen ↔ Cargo.lock", lock.join(", "), "");
+                        }
+                    }
+                    None => r.check(
+                        false,
+                        "wasm-bindgen",
+                        "нет",
+                        "cargo install wasm-bindgen-cli --locked (версия — как у крейта wasm-bindgen в Cargo.lock)",
+                    ),
+                }
+                r.check(
+                    true,
+                    "wasm-opt (необязательно)",
+                    util::which("wasm-opt")
+                        .map(|p| p.display().to_string())
+                        .unwrap_or_else(|| {
+                            "нет — уменьшает .wasm при --release (pacman -S binaryen)".into()
+                        }),
+                    "",
+                );
+            }
             Target::Ios => {
                 has_target(&mut r, "aarch64-apple-ios");
                 let sdk = ios::sdk();
