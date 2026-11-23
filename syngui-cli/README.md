@@ -145,6 +145,7 @@ index = "web/index.html"           # своя страница (по умолч�
 title = "Пульт"                    # <title> сгенерированной страницы (по умолчанию name)
 background = "#17212b"             # фон страницы до первого кадра (по умолчанию #000)
 telegram = true                    # Telegram Mini App: telegram-web-app.js до модуля приложения
+gzip = true                        # pkg/*.wasm.gz и pkg/*.js.gz (gzip -9) при --release и в пакетах выпуска (по умолчанию true)
 
 [package.metadata.syngui.release]          # syngui release --publish
 artifacts = ["tar-portable", "zip"]        # tar, tar-x86_64, tar-aarch64, tar-portable, zip, apk, ipa
@@ -172,7 +173,9 @@ path-зависимости вне его (`../syngui` через `[patch]`) —
 
 `-t web` (`wasm`): `cargo build --lib --target wasm32-unknown-unknown` (профиль как у остальных целей:
 fast-release, `--release` — LTO и `wasm-opt -Oz`, если стоит binaryen; `--debug` — dev и `wasm-bindgen --debug`),
-затем `wasm-bindgen --target web --no-typescript`. Крейту нужен `[lib] crate-type = ["cdylib", "rlib"]` и
+затем `wasm-bindgen --target web --no-typescript`. При `--release` и в пакетах выпуска рядом кладутся `pkg/*.wasm.gz` и
+`pkg/*.js.gz` (gzip -9; `web.gzip = false` — не класть) — сервер отдаёт их с `Content-Encoding: gzip`, если браузер
+принимает gzip (wasm 6,3 → 2,4 МБ). Крейту нужен `[lib] crate-type = ["cdylib", "rlib"]` и
 точка входа `#[wasm_bindgen(start)]` (пример — `examples/widget_gallery_mss/src/lib.rs`, `run_app`).
 Результат — готовый к выкладке каталог `target/syngui/web/<крейт>/`: `index.html`, `pkg/<lib>.js`,
 `pkg/<lib>_bg.wasm` и содержимое каталога ассетов (`web/assets/fonts/X.ttf` → `fonts/X.ttf` — путь для
@@ -189,7 +192,7 @@ wasm-bindgen-cli должен быть той же версии, что крей
 берёт её; `syngui doctor -t web` показывает обе версии.
 
 `run -d web` собирает (`--no-build` — нет) и раздаёт каталог встроенным HTTP-сервером (GET/HEAD,
-`application/wasm`, без кэша); адрес — `--listen` (по умолчанию `127.0.0.1:8080`, занят — следующий
+`application/wasm`, без кэша) и `<файл>.gz` с `Content-Encoding: gzip` при `Accept-Encoding: gzip`; адрес — `--listen` (по умолчанию `127.0.0.1:8080`, занят — следующий
 порт). Для Telegram нужен HTTPS — выложите каталог на свой сервер или пробросьте туннелем.
 `--features`/`--no-default-features` у `run` заменяют возможности из метаданных.
 
@@ -248,6 +251,9 @@ cross = [                              # программы под другую 
   # tier 3 (нет std у rustup): nightly + -Zbuild-std, нужен rust-src; win7 — Windows 7…11 одним exe
   { bin = "syn-vm-agent", target = "x86_64-win7-windows-gnu", to = "usr/lib/syn-vm/agent/", build_std = true },
 ]
+webs = [                               # веб-сборки крейтов (как syngui build -t web; --fast — fast-release, иначе --release)
+  { crate = "syn-courier-panel", to = "usr/share/syncourier/panel" },   # index.html, pkg/ (+ .gz), ассеты
+]
 links = { "usr/bin/syndesktop" = "synwm" }
 dirs = ["usr/share/synaptix/models"]   # пустые каталоги
 provides = ["syndesktop"]
@@ -261,7 +267,13 @@ aur_source = true                      # ещё и пакет <имя> без с
                                        # (архив GitHub v<вер>.tar.gz, сумма — при release --publish)
 ```
 
-Программы копируются из target/ и очищаются от символов (`--no-strip` — оставить). Пакеты
+Программы копируются из target/ и очищаются от символов (`--no-strip` — оставить). Веб-сборки (`webs`) собираются как
+`syngui build -t web` (метаданные `[package.metadata.syngui.web]` крейта, gzip всегда по `web.gzip`), каталог
+`target/syngui/web/<крейт>/` копируется в пакет по пути `to`. В AUR (`-git`, сборка из тега) syngui нет — build()
+повторяет то же командами: цель wasm32-unknown-unknown у rustup (makedepends — rustup вместо rust/cargo, плюс
+binaryen для wasm-opt), в prepare() — `cargo install wasm-bindgen-cli` той версии, что крейт wasm-bindgen в
+Cargo.lock, в `$srcdir/wasm-bindgen`; затем wasm-bindgen, wasm-opt, gzip -9, ассеты и index.html (сгенерированная
+страница встраивается в PKGBUILD). Пакеты
 кладутся в `target/syngui/dist`; `--install` ставит их `sudo pacman -U` (пароль можно подать в stdin).
 
 ## Android

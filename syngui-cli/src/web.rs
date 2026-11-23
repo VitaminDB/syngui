@@ -180,10 +180,8 @@ fn wasm_bindgen(app: &App) -> Result<PathBuf> {
     Ok(bin)
 }
 
-/// Собрать сайт; вернуть каталог `target/syngui/web/<крейт>`.
-/// `extra` — свои аргументы cargo (возможности); без них — из метаданных.
-pub fn build(app: &App, profile: Profile, extra: &[String]) -> Result<PathBuf> {
-    ensure_target()?;
+/// Имя [lib] крейта; ошибка, если его нет или он без cdylib.
+pub fn lib_name(app: &App) -> Result<String> {
     let Some(lib) = app.lib.clone() else {
         bail!(
             "у крейта {} нет [lib]: для веба нужен crate-type = [\"cdylib\", \"rlib\"] и #[wasm_bindgen(start)]",
@@ -196,6 +194,88 @@ pub fn build(app: &App, profile: Profile, extra: &[String]) -> Result<PathBuf> {
             app.krate
         );
     }
+    Ok(lib)
+}
+
+/// Каталог ассетов: `web.assets` или web/assets, если есть.
+pub fn assets_dir(app: &App) -> Result<Option<PathBuf>> {
+    Ok(match &app.meta.web.assets {
+        Some(a) => {
+            let p = app.path(a);
+            if !p.is_dir() {
+                bail!("web.assets: нет каталога {}", p.display());
+            }
+            Some(p)
+        }
+        None => Some(app.manifest_dir.join("web/assets")).filter(|p| p.is_dir()),
+    })
+}
+
+/// Страница сайта: своя (web.index / web/index.html, с telegram-web-app.js при telegram = true)
+/// или сгенерированная. Второе — путь своей страницы, если она берётся как есть.
+pub fn index_html(app: &App, lib: &str) -> Result<(String, Option<PathBuf>)> {
+    let w = &app.meta.web;
+    let path = match &w.index {
+        Some(i) => {
+            let p = app.path(i);
+            if !p.is_file() {
+                bail!("web.index: нет {}", p.display());
+            }
+            Some(p)
+        }
+        None => Some(app.manifest_dir.join("web/index.html")).filter(|p| p.is_file()),
+    };
+    let Some(p) = path else {
+        return Ok((generate_index(app, lib), None));
+    };
+    let h = std::fs::read_to_string(&p).with_context(|| format!("чтение {}", p.display()))?;
+    if w.telegram && !h.contains("telegram-web-app.js") {
+        let tag = format!("<script src=\"{TELEGRAM_JS}\"></script>\n");
+        let h = match h.find("</head>") {
+            Some(i) => format!("{}{tag}{}", &h[..i], &h[i..]),
+            None => format!("{tag}{h}"),
+        };
+        return Ok((h, None));
+    }
+    Ok((h, Some(p)))
+}
+
+/// Сжимать ли: `web.gzip` (по умолчанию да) — при --release и в пакетах выпуска.
+pub fn gzip_wanted(app: &App, profile: Profile, package: bool) -> bool {
+    app.meta.web.gzip.unwrap_or(true) && (profile == Profile::Release || package)
+}
+
+/// `pkg/*.wasm` и `pkg/*.js` → рядом `.gz` (gzip -9) для серверов с Content-Encoding: gzip.
+pub fn gzip_pkg(pkg: &Path) -> Result<()> {
+    use flate2::{write::GzEncoder, Compression};
+    for e in std::fs::read_dir(pkg)? {
+        let p = e?.path();
+        let ext = p.extension().and_then(|e| e.to_str()).unwrap_or("");
+        if !matches!(ext, "wasm" | "js") {
+            continue;
+        }
+        let data = std::fs::read(&p)?;
+        let mut z = GzEncoder::new(Vec::new(), Compression::best());
+        z.write_all(&data)?;
+        let gz = z.finish()?;
+        let out = PathBuf::from(format!("{}.gz", p.display()));
+        util::note(format!(
+            "gzip: {} {} → {} КБ",
+            p.file_name().unwrap().to_string_lossy(),
+            data.len() / 1024,
+            gz.len() / 1024
+        ));
+        util::write(&out, gz)?;
+    }
+    Ok(())
+}
+
+/// Собрать сайт; вернуть каталог `target/syngui/web/<крейт>`.
+/// `extra` — свои аргументы cargo (возможности); без них — из метаданных.
+/// `package` — сборка для пакета выпуска (gzip и при fast-release).
+pub fn build(app: &App, profile: Profile, extra: &[String], package: bool) -> Result<PathBuf> {
+    ensure_target()?;
+    let lib = lib_name(app)?;
     util::step(format!("{}: wasm ({})", app.krate, profile.dir()));
     let mut c = linux::cargo(app, "build", profile);
     c.args(["--lib", "--target", TRIPLE]);
@@ -213,9 +293,10 @@ pub fn build(app: &App, profile: Profile, extra: &[String]) -> Result<PathBuf> {
         bail!("нет {} после сборки", wasm.display());
     }
 
+    // каталог — заново: в пакет не должны попасть старые файлы
     let out = out_dir(app);
+    let _ = std::fs::remove_dir_all(&out);
     let pkg = out.join("pkg");
-    let _ = std::fs::remove_dir_all(&pkg);
     util::step(format!("wasm-bindgen → {}", pkg.display()));
     let mut c = Command::new(wasm_bindgen(app)?);
     c.args(["--target", "web", "--no-typescript", "--out-dir"])
@@ -228,46 +309,17 @@ pub fn build(app: &App, profile: Profile, extra: &[String]) -> Result<PathBuf> {
     if profile == Profile::Release {
         wasm_opt(&pkg.join(format!("{lib}_bg.wasm")));
     }
-
-    // ассеты — в корень сайта (with_font_url("fonts/X.ttf") ↔ web/assets/fonts/X.ttf)
-    let w = &app.meta.web;
-    let assets = match &w.assets {
-        Some(a) => {
-            let p = app.path(a);
-            if !p.is_dir() {
-                bail!("web.assets: нет каталога {}", p.display());
-            }
-            Some(p)
-        }
-        None => Some(app.manifest_dir.join("web/assets")).filter(|p| p.is_dir()),
-    };
-    if let Some(a) = &assets {
-        util::note(format!("ассеты: {}", a.display()));
-        util::copy_tree(a, &out)?;
+    if gzip_wanted(app, profile, package) {
+        gzip_pkg(&pkg)?;
     }
 
-    let index = match &w.index {
-        Some(i) => {
-            let p = app.path(i);
-            Some(
-                std::fs::read_to_string(&p)
-                    .with_context(|| format!("web.index: {}", p.display()))?,
-            )
-        }
-        None => std::fs::read_to_string(app.manifest_dir.join("web/index.html")).ok(),
-    };
-    let html = match index {
-        Some(h) if w.telegram && !h.contains("telegram-web-app.js") => {
-            let tag = format!("<script src=\"{TELEGRAM_JS}\"></script>\n");
-            match h.find("</head>") {
-                Some(i) => format!("{}{tag}{}", &h[..i], &h[i..]),
-                None => format!("{tag}{h}"),
-            }
-        }
-        Some(h) => h,
-        None => generate_index(app, &lib),
-    };
-    util::write_if_changed(&out.join("index.html"), html)?;
+    // ассеты — в корень сайта (with_font_url("fonts/X.ttf") ↔ web/assets/fonts/X.ttf)
+    if let Some(a) = assets_dir(app)? {
+        util::note(format!("ассеты: {}", a.display()));
+        util::copy_tree(&a, &out)?;
+    }
+    let (html, _) = index_html(app, &lib)?;
+    util::write(&out.join("index.html"), html)?;
     Ok(out)
 }
 
@@ -362,20 +414,29 @@ fn handle(mut s: TcpStream, root: &Path) -> std::io::Result<()> {
     let mut r = BufReader::new(s.try_clone()?);
     let mut line = String::new();
     r.read_line(&mut line)?;
-    // заголовки не нужны — дочитать до пустой строки
+    // из заголовков нужен только Accept-Encoding
+    let mut gzip_ok = false;
     loop {
         let mut h = String::new();
         if r.read_line(&mut h)? == 0 || h == "\r\n" || h == "\n" {
             break;
+        }
+        if let Some((k, v)) = h.split_once(':') {
+            if k.trim().eq_ignore_ascii_case("accept-encoding")
+                && v.to_ascii_lowercase().contains("gzip")
+            {
+                gzip_ok = true;
+            }
         }
     }
     let mut parts = line.split_whitespace();
     let method = parts.next().unwrap_or("");
     let target = parts.next().unwrap_or("/");
     let path = percent_decode(target.split(['?', '#']).next().unwrap_or("/"));
-    let reply = |s: &mut TcpStream, code: &str, ctype: &str, body: &[u8], head: bool| {
+    let reply = |s: &mut TcpStream, code: &str, ctype: &str, body: &[u8], head: bool, gz: bool| {
+        let enc = if gz { "Content-Encoding: gzip\r\n" } else { "" };
         let hdr = format!(
-            "HTTP/1.1 {code}\r\nContent-Type: {ctype}\r\nContent-Length: {}\r\nCache-Control: no-cache\r\nConnection: close\r\n\r\n",
+            "HTTP/1.1 {code}\r\nContent-Type: {ctype}\r\n{enc}Content-Length: {}\r\nCache-Control: no-cache\r\nVary: Accept-Encoding\r\nConnection: close\r\n\r\n",
             body.len()
         );
         s.write_all(hdr.as_bytes())?;
@@ -390,6 +451,7 @@ fn handle(mut s: TcpStream, root: &Path) -> std::io::Result<()> {
             "405 Method Not Allowed",
             "text/plain",
             b"405",
+            false,
             false,
         );
     }
@@ -406,14 +468,22 @@ fn handle(mut s: TcpStream, root: &Path) -> std::io::Result<()> {
         .canonicalize()
         .map(|f| f.starts_with(root))
         .unwrap_or(false);
+    // сжатая копия рядом (pkg/x.wasm.gz) — если браузер принимает gzip
+    let gz = PathBuf::from(format!("{}.gz", file.display()));
+    if ok && gzip_ok && gz.is_file() {
+        if let Ok(data) = std::fs::read(&gz) {
+            eprintln!("{method} {target} 200 gzip");
+            return reply(&mut s, "200 OK", content_type(&file), &data, head, true);
+        }
+    }
     match std::fs::read(&file) {
         Ok(data) if ok => {
             eprintln!("{method} {target} 200");
-            reply(&mut s, "200 OK", content_type(&file), &data, head)
+            reply(&mut s, "200 OK", content_type(&file), &data, head, false)
         }
         _ => {
             eprintln!("{method} {target} 404");
-            reply(&mut s, "404 Not Found", "text/plain", b"404", head)
+            reply(&mut s, "404 Not Found", "text/plain", b"404", head, false)
         }
     }
 }

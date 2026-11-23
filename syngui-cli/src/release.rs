@@ -33,6 +33,7 @@
 //!   { bin = "syn-vm-agent", target = "x86_64-pc-windows-gnu", to = "usr/share/syn-vm/agent/" },
 //! ]
 //! libs = [{ crate = "se-agent", file = "libse_agent.so", to = "usr/lib/hexspire/" }]   # cdylib крейта
+//! webs = [{ crate = "syn-courier-panel", to = "usr/share/syncourier/panel" }]   # syngui build -t web крейта
 //! links = { "usr/bin/syndesktop" = "synwm", "usr/share/x/data" = "{root}/data" }   # {root} — корень (только локально)
 //! dirs = ["usr/share/synaptix/models"]
 //! provides = ["syndesktop"]; conflicts = ["syndesktop"]; replaces = ["syndesktop"]
@@ -116,6 +117,8 @@ pub struct Pkg {
     pub cross: Vec<CrossBin>,
     /// Библиотеки (cdylib) крейтов рабочего пространства: `{ crate = "se-agent", file = "libse_agent.so", to = "usr/lib/x/" }`.
     pub libs: Vec<LibSpec>,
+    /// Веб-сборки крейтов (`syngui build -t web`): `{ crate = "syn-courier-panel", to = "usr/share/syncourier/panel" }`.
+    pub webs: Vec<WebSpec>,
     pub links: BTreeMap<String, String>,
     pub dirs: Vec<String>,
     pub provides: Vec<String>,
@@ -141,6 +144,16 @@ pub struct FileSpec {
     /// Куда: `…/` — в каталог (имя сохраняется), иначе — точный путь. `{pkgname}` — имя пакета.
     pub to: String,
     pub mode: Option<String>,
+}
+
+/// Веб-сборка крейта (как `syngui build -t web`): содержимое target/syngui/web/<крейт>/ — в каталог пакета.
+#[derive(Debug, Default, Deserialize, Clone)]
+#[serde(default, deny_unknown_fields)]
+pub struct WebSpec {
+    #[serde(rename = "crate")]
+    pub krate: String,
+    /// Каталог в пакете (`usr/share/x/panel`): index.html, pkg/, ассеты.
+    pub to: String,
 }
 
 /// Библиотека крейта (`cargo build -p <crate> --lib`) — файл из target в каталог пакета.
@@ -205,6 +218,7 @@ impl Pkg {
             && self.links.is_empty()
             && self.dirs.is_empty()
             && self.libs.is_empty()
+            && self.webs.is_empty()
     }
 }
 
@@ -652,8 +666,64 @@ impl Release {
                     }
                 }
             }
+            // Веб-сборки крейтов (syngui build -t web) → $_bins/web/<крейт>/.
+            for w in &p.webs {
+                let app = self.web_app(&w.krate)?;
+                let site = crate::web::build(&app, profile, &[], true)?;
+                let dst = bins.join("web").join(&w.krate);
+                let _ = std::fs::remove_dir_all(&dst);
+                util::copy_tree(&site, &dst)?;
+            }
         }
         Ok(bins)
+    }
+
+    /// Приложение крейта веб-сборки.
+    fn web_app(&self, krate: &str) -> Result<crate::project::App> {
+        crate::project::App::load(Some(&self.root.join("Cargo.toml")), Some(krate))
+            .with_context(|| format!("webs: крейт {krate}"))
+    }
+
+    /// build() PKGBUILD для веб-сборки: то же, что `syngui build -t web --release`, но командами
+    /// bash (в AUR syngui нет): cargo → wasm-bindgen ($srcdir/wasm-bindgen из prepare) → wasm-opt,
+    /// если есть → ассеты, index.html → gzip.
+    fn aur_web_build(&self, w: &WebSpec) -> Result<String> {
+        let app = self.web_app(&w.krate)?;
+        let lib = crate::web::lib_name(&app)?;
+        let rel = |p: &Path| -> String {
+            p.strip_prefix(&self.root)
+                .unwrap_or(p)
+                .display()
+                .to_string()
+        };
+        let k = &w.krate;
+        let t = crate::web::TRIPLE;
+        let out = format!("target/release/web/{k}");
+        let feats: String = crate::web::feature_args(&app)
+            .iter()
+            .map(|a| format!(" {}", sh(a)))
+            .collect();
+        let mut s = format!(
+            "    cargo build --offline --release -p {k} --lib --target {t}{feats}\n    rm -rf {out}\n    \"$srcdir/wasm-bindgen/bin/wasm-bindgen\" --target web --no-typescript --out-dir {out}/pkg target/{t}/release/{lib}.wasm\n    if command -v wasm-opt >/dev/null; then\n        wasm-opt -Oz --all-features -o {out}/pkg/{lib}_bg.opt.wasm {out}/pkg/{lib}_bg.wasm && mv {out}/pkg/{lib}_bg.opt.wasm {out}/pkg/{lib}_bg.wasm\n    fi\n"
+        );
+        if crate::web::gzip_wanted(&app, Profile::Release, true) {
+            s += &format!("    gzip -9 -k -f {out}/pkg/*.wasm {out}/pkg/*.js\n");
+        }
+        if let Some(a) = crate::web::assets_dir(&app)? {
+            s += &format!("    cp -r --no-preserve=ownership {}/. {out}/\n", sh(&rel(&a)));
+        }
+        match crate::web::index_html(&app, &lib)? {
+            (_, Some(p)) => {
+                s += &format!("    install -m644 {} {out}/index.html\n", sh(&rel(&p)))
+            }
+            (html, None) => {
+                s += &format!(
+                    "    cat > {out}/index.html <<'SYNGUI_INDEX_HTML'\n{}\nSYNGUI_INDEX_HTML\n",
+                    html.trim_end()
+                )
+            }
+        }
+        Ok(s)
     }
 
     /// Тело package_<имя>(): установка файлов из `$_root` (корень) и `$_bins` (программы).
@@ -680,6 +750,13 @@ impl Release {
             s += &format!(
                 "    install -Dm755 \"$_bins/lib/{f}\" \"$pkgdir/{to}/{f}\"\n",
                 f = l.file
+            );
+        }
+        for w in &p.webs {
+            let to = w.to.trim_start_matches('/').trim_end_matches('/');
+            s += &format!(
+                "    install -dm755 \"$pkgdir/{to}\"\n    cp -r --no-preserve=ownership \"$_bins/web/{k}/.\" \"$pkgdir/{to}/\"\n",
+                k = w.krate
             );
         }
         for b in p.apps.iter().chain(p.desktop.iter()) {
@@ -1132,7 +1209,10 @@ impl Release {
                     }
                     // Чужие цели (windows-gnu, musl) есть только у rustup: пакет rust их не содержит,
                     // а rust и rustup в одной транзакции конфликтуют — вместо cargo/rust нужен rustup.
-                    if !p.cross.is_empty() {
+                    if !p.webs.is_empty() && !mk.iter().any(|m| m == "binaryen") {
+                        mk.push("binaryen".into());
+                    }
+                    if !p.cross.is_empty() || !p.webs.is_empty() {
                         mk.retain(|m| m != "cargo" && m != "rust");
                         if !mk.iter().any(|m| m == "rustup") {
                             mk.insert(0, "rustup".into());
@@ -1183,12 +1263,20 @@ impl Release {
                             .iter()
                             .map(|l| format!("    cargo build --offline --release -p {k} --lib\n    install -Dm755 target/release/{f} target/release/lib/{f}\n", k = l.krate, f = l.file))
                             .collect::<String>();
+                    // веб-сборки крейтов (wasm32 + wasm-bindgen из prepare) → target/release/web/<крейт>/
+                    let mut cross = cross;
+                    for w in &p.webs {
+                        cross += &self.aur_web_build(w)?;
+                    }
                     let mut cross_targets: Vec<&str> = p
                         .cross
                         .iter()
                         .filter(|x| !x.build_std)
                         .map(|x| x.target.as_str())
                         .collect();
+                    if !p.webs.is_empty() {
+                        cross_targets.push(crate::web::TRIPLE);
+                    }
                     let nightly_std = p.cross.iter().any(|x| x.build_std);
                     cross_targets.sort_unstable();
                     cross_targets.dedup();
@@ -1229,8 +1317,16 @@ prepare() {{
     export RUSTUP_TOOLCHAIN=stable
 {rustup}{nightly}    {fetch_note}
     cargo fetch {locked}--target "$(rustc -vV | sed -n 's/host: //p')"{fetch_cross}
-}}
+{wbg}}}
 "#,
+                        wbg = if p.webs.is_empty() {
+                            ""
+                        } else {
+                            r#"    # wasm-bindgen-cli — той же версии, что крейт wasm-bindgen в Cargo.lock (иначе откажется работать)
+    _wbg=$(awk '/^name = "wasm-bindgen"$/ {getline; gsub(/version = |"/, ""); print; exit}' Cargo.lock)
+    cargo install --locked wasm-bindgen-cli --version "$_wbg" --root "$srcdir/wasm-bindgen"
+"#
+                        },
                         fetch_note = if source {
                             "# Cargo.lock тега: версии git-зависимостей (syngui и др.) закреплены."
                         } else {

@@ -65,6 +65,8 @@ pub struct WebMeta {
     pub background: Option<String>,
     /// Telegram Mini App: подключить telegram-web-app.js до модуля приложения.
     pub telegram: bool,
+    /// Класть рядом pkg/*.wasm.gz и pkg/*.js.gz (gzip -9) при --release и в пакетах выпуска (по умолчанию да).
+    pub gzip: Option<bool>,
 }
 
 /// `syngui release`: что собрать в релиз GitHub и какие готовые файлы приложить.

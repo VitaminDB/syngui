@@ -2100,7 +2100,8 @@ canvas синтетическими клавишами (`input::edit_diff`); `se
 крейт с `[lib] crate-type = ["cdylib", "rlib"]` и `#[wasm_bindgen(start)]`, результат —
 `target/syngui/web/<крейт>/` (index.html, pkg/, ассеты из `web/assets`), метаданные —
 `[package.metadata.syngui.web]` (`features`, `default_features`, `assets`, `index`, `title`,
-`background`, `telegram = true` — Telegram Mini App).
+`background`, `telegram = true` — Telegram Mini App, `gzip` — `pkg/*.wasm.gz`/`*.js.gz` при `--release`
+и в пакетах, по умолчанию да). В пакет выпуска — `webs = [{ crate = "…", to = "usr/share/…" }]` в syngui-release.toml.
 
 **`syngui::web`** (`src/web.rs`) — есть на всех целях, чтобы код собирался без `#[cfg]`; не на wasm
 функции ничего не делают и возвращают `None`/`false`, `fetch_*` — `Err`, `web::is_web()` — признак.

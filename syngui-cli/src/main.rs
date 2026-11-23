@@ -571,7 +571,7 @@ fn build(
         }
         Target::Android => android::build(app, profile, false, None),
         Target::Ios => ios::build(app, profile),
-        Target::Web => web::build(app, profile, extra),
+        Target::Web => web::build(app, profile, extra, false),
     }
 }
 
@@ -627,7 +627,7 @@ fn run(app: &App, device: &str, profile: Profile, o: &RunOpts, args: &[String]) 
             let dir = if no_build {
                 web::out_dir(app)
             } else {
-                web::build(app, profile, &o.extra)?
+                web::build(app, profile, &o.extra, false)?
             };
             if !dir.join("index.html").is_file() {
                 bail!("нет {}/index.html — соберите без --no-build", dir.display());
