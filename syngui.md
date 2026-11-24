@@ -1194,7 +1194,8 @@ FramesView::new(frames, fps).playing_signal(..).position_signal(..).autoplay(tru
 // маски (с расширением), matte, merge paths, dotLottie (.lottie),
 // модификаторы (offset/zigzag/pucker/twist/round), эффекты (Fill/Tint/Tritone/Levels/DropShadow/GaussianBlur/RadialWipe/Stroke),
 // стили слоя (тени, свечения, обводка, Color Overlay)
-Lottie::from_file("anim.json").repeat(true).speed(1.0).segment(0.0, 60.0) // или .marker("intro")
+Lottie::from_file("anim.json").repeat(true).speed(1.0).segment(0.0, 60.0) // или .marker("intro"), .bounce(true)
+Lottie::from_file_animation("pack.lottie", "2")   // dotLottie: анимация по id; манифест (скорость/повтор/bounce) — умолчания
     .playing_signal(play).progress_signal(prog).on_complete(|| ..).style("width", 160.0_f32)
 MapView::new().center(lat, lng).zoom(12).provider(TileProvider::osm())
     .marker(MapMarker::new(lat, lng).label("X").pulse())   // фича "map"

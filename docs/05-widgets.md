@@ -491,8 +491,13 @@ glyphs falls back to system fonts through the framework's text stack
 family and weight with a generic fallback. Expressions are not supported. Image assets (embedded
 base64 or files next to the JSON) decode when feature `image` is on. The
 dotLottie container (.lottie — a ZIP read by syngui's own inflate) loads via
-the same constructors; the first animation from the manifest plays, and image
-assets come out of the archive.
+the same constructors (v1 `animations/`+`images/` and v2 `a/`+`i/` layouts);
+the default animation (`activeAnimationId` / `initial.animation`, else the
+first) plays, image assets come out of the archive, and the manifest's speed,
+loop, direction, bounce mode and autoplay become the widget defaults (builder
+methods override them). Pick another animation with
+`Lottie::from_file_animation(path, id)` / `from_bytes_animation(bytes, id)`;
+list ids with `Composition::dotlottie_manifest(bytes)`.
 
 Frames are rasterized on the CPU at the physical size of the fit rectangle
 (crisp on HiDPI) in a small dedicated background thread pool (not the shared
@@ -508,6 +513,7 @@ Lottie::from_file("anim.json")        // or from_str / from_bytes / new(Arc<Comp
     .autoplay(true)                   // default
     .repeat(true)                     // default; false → stops on the last frame
     .speed(1.0)                       // negative plays backwards
+    .bounce(true)                     // ping-pong; without repeat: there and back once
     .segment(0.0, 60.0)               // frames; or .marker("intro")
     .playing_signal(play_sig)         // RwSignal<bool>, bidirectional
     .progress_signal(prog_sig)        // RwSignal<f32> 0..1; external write while paused = seek

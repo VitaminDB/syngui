@@ -53,6 +53,85 @@ pub struct Composition {
     pub glyphs: HashMap<(String, String, String), Glyph>,
     /// Сколько слоёв неподдерживаемого типа (аудио, камера и т. п.) пропущено.
     pub unsupported_layers: usize,
+    /// Параметры воспроизведения из манифеста dotLottie (если анимация
+    /// загружена из .lottie и манифест их задаёт).
+    pub playback: Option<DotLottieAnimation>,
+}
+
+/// Анимация из манифеста dotLottie и её параметры воспроизведения.
+#[derive(Debug, Clone, Default)]
+pub struct DotLottieAnimation {
+    pub id: String,
+    pub speed: Option<f32>,
+    pub looping: Option<bool>,
+    pub autoplay: Option<bool>,
+    /// 1 — вперёд, −1 — назад.
+    pub direction: Option<f32>,
+    /// Режим `bounce`: туда-обратно.
+    pub bounce: bool,
+    pub theme_color: Option<[f32; 3]>,
+}
+
+/// Манифест dotLottie: список анимаций и анимация по умолчанию.
+#[derive(Debug, Clone, Default)]
+pub struct DotLottieManifest {
+    /// Версия формата (`"1"`/`"1.0"` или `"2"`).
+    pub version: String,
+    pub animations: Vec<DotLottieAnimation>,
+    /// `activeAnimationId` (v1) или `initial.animation` (v2).
+    pub active: Option<String>,
+}
+
+impl DotLottieManifest {
+    fn parse(v: &Json) -> DotLottieManifest {
+        let animations = v
+            .get("animations")
+            .and_then(Json::as_array)
+            .map(|arr| {
+                arr.iter()
+                    .map(|a| DotLottieAnimation {
+                        id: a.str_or("id", "").to_string(),
+                        speed: a.get("speed").and_then(Json::as_f32),
+                        looping: a.get("loop").and_then(|l| match l {
+                            Json::Bool(b) => Some(*b),
+                            Json::Num(n) => Some(*n != 0.0),
+                            _ => None,
+                        }),
+                        autoplay: a.get("autoplay").and_then(|l| match l {
+                            Json::Bool(b) => Some(*b),
+                            _ => None,
+                        }),
+                        direction: a.get("direction").and_then(Json::as_f32),
+                        bounce: a.str_or("mode", "normal") == "bounce",
+                        theme_color: a.get("themeColor").and_then(|c| match c {
+                            Json::Str(s) => Some(parse_hex_color(s)),
+                            _ => None,
+                        }),
+                    })
+                    .collect()
+            })
+            .unwrap_or_default();
+        let active = v
+            .get("activeAnimationId")
+            .and_then(|a| match a {
+                Json::Str(s) => Some(s.clone()),
+                _ => None,
+            })
+            .or_else(|| {
+                v.get("initial")
+                    .and_then(|i| i.get("animation"))
+                    .and_then(|a| match a {
+                        Json::Str(s) => Some(s.clone()),
+                        _ => None,
+                    })
+            })
+            .filter(|s| !s.is_empty());
+        DotLottieManifest {
+            version: v.str_or("version", "").to_string(),
+            animations,
+            active,
+        }
+    }
 }
 
 #[derive(Debug, Clone)]
@@ -1190,6 +1269,13 @@ fn parse_styles(v: &Json) -> Vec<LayerStyle> {
     out
 }
 
+fn read_manifest(zip: &super::zip::Zip) -> Option<DotLottieManifest> {
+    let m = zip.read("manifest.json")?;
+    let text = String::from_utf8(m).ok()?;
+    let v = json::parse(text.trim_start_matches('\u{feff}')).ok()?;
+    Some(DotLottieManifest::parse(&v))
+}
+
 fn parse_hex_color(s: &str) -> [f32; 3] {
     let h = s.trim_start_matches('#');
     let c = |i: usize| -> f32 {
@@ -1364,40 +1450,82 @@ impl Composition {
         Composition::from_str(text.trim_start_matches('\u{feff}'))
     }
 
-    /// Контейнер dotLottie: первая анимация из manifest.json (или первый
-    /// файл `animations/*.json`); растровые ассеты берутся из архива.
+    /// Контейнер dotLottie: анимация по умолчанию (`activeAnimationId` /
+    /// `initial.animation`, иначе первая из манифеста).
     pub fn from_dotlottie(bytes: &[u8]) -> Result<Composition, LottieError> {
+        Composition::from_dotlottie_animation(bytes, None)
+    }
+
+    /// Манифест dotLottie без разбора анимаций (список id и параметры).
+    pub fn dotlottie_manifest(bytes: &[u8]) -> Result<DotLottieManifest, LottieError> {
         let zip = super::zip::Zip::parse(bytes).map_err(LottieError::Invalid)?;
-        let anim_path = zip
-            .read("manifest.json")
-            .and_then(|m| {
-                let text = String::from_utf8(m).ok()?;
-                let v = json::parse(&text).ok()?;
-                let id = v
-                    .get("animations")?
-                    .as_array()?
-                    .first()?
-                    .str_or("id", "")
-                    .to_string();
-                if id.is_empty() {
-                    None
-                } else {
-                    Some(format!("animations/{id}.json"))
-                }
-            })
-            .or_else(|| {
+        Ok(read_manifest(&zip).unwrap_or_default())
+    }
+
+    /// Контейнер dotLottie (v1: `animations/`, `images/`; v2: `a/`, `i/`):
+    /// анимация с заданным `id` (или по умолчанию). Растровые ассеты
+    /// берутся из архива, параметры воспроизведения манифеста — в
+    /// [`Composition::playback`].
+    pub fn from_dotlottie_animation(
+        bytes: &[u8],
+        id: Option<&str>,
+    ) -> Result<Composition, LottieError> {
+        let zip = super::zip::Zip::parse(bytes).map_err(LottieError::Invalid)?;
+        let manifest = read_manifest(&zip).unwrap_or_default();
+        let entry = match id {
+            Some(id) => Some(
+                manifest
+                    .animations
+                    .iter()
+                    .find(|a| a.id == id)
+                    .cloned()
+                    .unwrap_or(DotLottieAnimation {
+                        id: id.to_string(),
+                        ..Default::default()
+                    }),
+            ),
+            None => manifest
+                .active
+                .as_ref()
+                .and_then(|act| manifest.animations.iter().find(|a| &a.id == act))
+                .or(manifest.animations.first())
+                .cloned(),
+        };
+        let is_anim = |n: &str| {
+            (n.starts_with("animations/") || n.starts_with("a/"))
+                && n.ends_with(".json")
+                && !n.contains("__MACOSX")
+        };
+        let anim_path = match &entry {
+            Some(e) if !e.id.is_empty() => [
+                format!("animations/{}.json", e.id),
+                format!("a/{}.json", e.id),
+            ]
+            .into_iter()
+            .find(|p| zip.entries.iter().any(|z| &z.name == p)),
+            _ => None,
+        }
+        .or_else(|| {
+            if id.is_some() {
+                None
+            } else {
                 zip.entries
                     .iter()
                     .map(|e| e.name.clone())
-                    .find(|n| n.starts_with("animations/") && n.ends_with(".json"))
-            })
-            .ok_or(LottieError::Invalid("dotLottie: не найдена анимация"))?;
+                    .find(|n| is_anim(n))
+            }
+        })
+        .ok_or(match id {
+            Some(_) => LottieError::Invalid("dotLottie: анимация с таким id не найдена"),
+            None => LottieError::Invalid("dotLottie: не найдена анимация"),
+        })?;
         let data = zip.read(&anim_path).ok_or(LottieError::Invalid(
             "dotLottie: не удалось распаковать анимацию",
         ))?;
         let text = String::from_utf8(data)
             .map_err(|_| LottieError::Invalid("dotLottie: анимация не в UTF-8"))?;
         let mut comp = Composition::from_str(text.trim_start_matches('\u{feff}'))?;
+        comp.playback = entry;
         // Внешние картинки внутри архива: кладём байты как встроенные.
         for asset in comp.images.values_mut() {
             if asset.embedded.is_some() || asset.path.is_empty() {
@@ -1408,6 +1536,7 @@ impl Composition {
             asset.embedded = zip
                 .read(p)
                 .or_else(|| zip.read(&format!("images/{file}")))
+                .or_else(|| zip.read(&format!("i/{file}")))
                 .or_else(|| zip.read(file));
             if asset.embedded.is_none() {
                 log::warn!("dotLottie: картинка `{}` не найдена в архиве", asset.path);
@@ -1525,6 +1654,7 @@ impl Composition {
             fonts,
             glyphs,
             unsupported_layers: unsupported,
+            playback: None,
         })
     }
 

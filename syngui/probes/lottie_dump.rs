@@ -18,9 +18,28 @@ fn main() {
     let size: u32 = args.get(3).and_then(|s| s.parse().ok()).unwrap_or(240);
     let frames: usize = args.get(4).and_then(|s| s.parse().ok()).unwrap_or(6);
     let repeat: u32 = args.get(5).and_then(|s| s.parse().ok()).unwrap_or(1).max(1);
-    let bytes = std::fs::read(&args[1]).expect("read");
+    // `файл.lottie#id` — анимация dotLottie по id из манифеста.
+    let (path, anim_id) = match args[1].rsplit_once('#') {
+        Some((p, id)) => (p.to_string(), Some(id.to_string())),
+        None => (args[1].clone(), None),
+    };
+    let bytes = std::fs::read(&path).expect("read");
+    if let Ok(m) = Composition::dotlottie_manifest(&bytes) {
+        let ids: Vec<&str> = m.animations.iter().map(|a| a.id.as_str()).collect();
+        eprintln!(
+            "dotLottie v{}: анимации {ids:?}, по умолчанию {:?}",
+            m.version, m.active
+        );
+    }
     let t0 = Instant::now();
-    let mut comp = Composition::from_bytes(&bytes).expect("parse");
+    let mut comp = match &anim_id {
+        Some(id) => Composition::from_dotlottie_animation(&bytes, Some(id)),
+        None => Composition::from_bytes(&bytes),
+    }
+    .expect("parse");
+    if let Some(pb) = &comp.playback {
+        eprintln!("  параметры манифеста: {pb:?}");
+    }
     eprintln!(
         "{}: {}x{} fr={} ip={} op={} layers={} precomps={} images={} parse={:?} unsupported_layers={}",
         comp.name,
@@ -35,7 +54,7 @@ fn main() {
         t0.elapsed(),
         comp.unsupported_layers
     );
-    let base_dir = std::path::Path::new(&args[1])
+    let base_dir = std::path::Path::new(&path)
         .parent()
         .map(|p| p.to_path_buf());
     comp.load_images(|asset| {

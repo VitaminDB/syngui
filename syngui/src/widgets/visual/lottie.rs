@@ -91,6 +91,7 @@ pub struct Lottie {
     classes: Vec<String>,
     autoplay: bool,
     repeat: bool,
+    bounce: bool,
     speed: f32,
     subframe: bool,
     playing_signal: Option<RwSignal<bool>>,
@@ -105,15 +106,29 @@ pub struct Lottie {
 impl Lottie {
     /// Из уже разобранной композиции (одна композиция может использоваться
     /// несколькими виджетами).
+    /// Параметры воспроизведения из манифеста dotLottie (скорость, повтор,
+    /// направление, bounce, автозапуск) становятся значениями по умолчанию;
+    /// методы-построители их переопределяют.
     pub fn new(comp: Arc<Composition>) -> Self {
+        let pb = comp.playback.clone().unwrap_or_default();
+        let speed = pb
+            .speed
+            .filter(|v| v.is_finite() && *v > 0.0)
+            .unwrap_or(1.0)
+            * if pb.direction.unwrap_or(1.0) < 0.0 {
+                -1.0
+            } else {
+                1.0
+            };
         Self {
             comp: Some(comp),
             error: None,
             fit: ImageFit::Contain,
             classes: Vec::new(),
-            autoplay: true,
-            repeat: true,
-            speed: 1.0,
+            autoplay: pb.autoplay.unwrap_or(true),
+            repeat: pb.looping.unwrap_or(true),
+            bounce: pb.bounce,
+            speed,
             subframe: false,
             playing_signal: None,
             progress_signal: None,
@@ -145,6 +160,36 @@ impl Lottie {
                 Self::new(Arc::new(c))
             }
             Err(e) => Self::failed(e.to_string()),
+        }
+    }
+
+    /// Из байтов dotLottie: анимация с заданным `id` из манифеста
+    /// (список — [`Composition::dotlottie_manifest`]).
+    pub fn from_bytes_animation(bytes: &[u8], id: &str) -> Self {
+        match Composition::from_dotlottie_animation(bytes, Some(id)) {
+            Ok(mut c) => {
+                load_images(&mut c, None);
+                load_system_glyphs(&mut c);
+                Self::new(Arc::new(c))
+            }
+            Err(e) => Self::failed(format!("{id}: {e}")),
+        }
+    }
+
+    /// Из файла dotLottie: анимация с заданным `id` из манифеста.
+    #[cfg(not(target_arch = "wasm32"))]
+    pub fn from_file_animation(path: impl AsRef<std::path::Path>, id: &str) -> Self {
+        let path = path.as_ref();
+        match std::fs::read(path) {
+            Ok(bytes) => match Composition::from_dotlottie_animation(&bytes, Some(id)) {
+                Ok(mut c) => {
+                    load_images(&mut c, path.parent());
+                    load_system_glyphs(&mut c);
+                    Self::new(Arc::new(c))
+                }
+                Err(e) => Self::failed(format!("{} ({id}): {e}", path.display())),
+            },
+            Err(e) => Self::failed(format!("{}: {e}", path.display())),
         }
     }
 
@@ -206,6 +251,13 @@ impl Lottie {
     /// Повторять по кругу (по умолчанию `true`); иначе — остановка на последнем кадре.
     pub fn repeat(mut self, on: bool) -> Self {
         self.repeat = on;
+        self
+    }
+
+    /// Туда-обратно (режим bounce): дойдя до конца, анимация идёт назад.
+    /// Без повтора — один проход вперёд и назад, затем `on_complete`.
+    pub fn bounce(mut self, on: bool) -> Self {
+        self.bounce = on;
         self
     }
 
@@ -349,6 +401,9 @@ impl Widget for Lottie {
             progress_signal: self.progress_signal,
             playing: self.autoplay && self.comp.is_some(),
             repeat: self.repeat,
+            bounce: self.bounce,
+            bounce_dir: 1.0,
+            bounced: false,
             speed: self.speed,
             subframe: self.subframe,
             seg_start,
@@ -398,6 +453,11 @@ pub struct LottieElement {
     progress_signal: Option<RwSignal<f32>>,
     playing: bool,
     repeat: bool,
+    bounce: bool,
+    /// Текущее направление в режиме bounce (±1).
+    bounce_dir: f32,
+    /// В этом проходе уже был разворот (для bounce без повтора).
+    bounced: bool,
     speed: f32,
     subframe: bool,
     seg_start: f32,
@@ -594,6 +654,11 @@ impl Element for LottieElement {
             }
             self.fit = v.fit;
             self.repeat = v.repeat;
+            if self.bounce != v.bounce {
+                self.bounce = v.bounce;
+                self.bounce_dir = 1.0;
+                self.bounced = false;
+            }
             self.speed = v.speed;
             self.subframe = v.subframe;
             self.classes = v.classes.clone();
@@ -697,10 +762,20 @@ impl Element for LottieElement {
             if len <= 0.0 {
                 self.set_playing(false);
             } else {
-                self.frame += dt.as_secs_f32() * self.comp.frame_rate * self.speed;
-                let past_end = self.speed >= 0.0 && self.frame >= self.seg_end;
-                let past_start = self.speed < 0.0 && self.frame <= self.seg_start;
-                if past_end || past_start {
+                let eff = self.speed * if self.bounce { self.bounce_dir } else { 1.0 };
+                self.frame += dt.as_secs_f32() * self.comp.frame_rate * eff;
+                let past_end = eff >= 0.0 && self.frame >= self.seg_end;
+                let past_start = eff < 0.0 && self.frame <= self.seg_start;
+                if (past_end || past_start) && self.bounce && (self.repeat || !self.bounced) {
+                    // Разворот: отражение от края отрезка.
+                    self.frame = if past_end {
+                        self.seg_end - (self.frame - self.seg_end).min(len)
+                    } else {
+                        self.seg_start + (self.seg_start - self.frame).min(len)
+                    };
+                    self.bounce_dir = -self.bounce_dir;
+                    self.bounced = true;
+                } else if past_end || past_start {
                     if self.repeat {
                         let rel = (self.frame - self.seg_start).rem_euclid(len);
                         self.frame = self.seg_start + rel;
@@ -711,6 +786,8 @@ impl Element for LottieElement {
                             self.seg_start
                         };
                         self.set_playing(false);
+                        self.bounce_dir = 1.0;
+                        self.bounced = false;
                         if let Some(cb) = self.on_complete.clone() {
                             cb();
                         }
@@ -860,5 +937,78 @@ impl StyledElement for LottieElement {
     fn set_classes(&mut self, classes: Vec<String>) {
         self.classes = classes;
         self.mark_dirty(DirtyFlags::RENDER);
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::sync::atomic::{AtomicBool, Ordering};
+
+    const JSON: &str = r#"{"fr":30,"ip":0,"op":30,"w":10,"h":10,"layers":[]}"#;
+
+    fn element(w: &Lottie) -> Box<dyn Element> {
+        w.create_element()
+    }
+
+    fn frame_of(e: &mut Box<dyn Element>) -> (f32, bool) {
+        let el = e
+            .as_any_mut()
+            .and_then(|a| a.downcast_mut::<LottieElement>())
+            .expect("LottieElement");
+        (el.frame, el.playing)
+    }
+
+    #[test]
+    fn bounce_once_then_complete() {
+        let done = Arc::new(AtomicBool::new(false));
+        let d = done.clone();
+        let w = Lottie::from_str(JSON)
+            .bounce(true)
+            .repeat(false)
+            .on_complete(move || d.store(true, Ordering::SeqCst));
+        let mut e = element(&w);
+        e.animate(Duration::from_millis(600));
+        assert!((frame_of(&mut e).0 - 18.0).abs() < 1e-3);
+        // Дошли до конца — разворот, отражение на 6 кадров назад.
+        e.animate(Duration::from_millis(600));
+        assert!((frame_of(&mut e).0 - 24.0).abs() < 1e-3);
+        assert!(!done.load(Ordering::SeqCst));
+        e.animate(Duration::from_millis(1000));
+        let (f, playing) = frame_of(&mut e);
+        assert_eq!(f, 0.0);
+        assert!(!playing);
+        assert!(done.load(Ordering::SeqCst));
+    }
+
+    #[test]
+    fn bounce_repeat_keeps_going() {
+        let w = Lottie::from_str(JSON).bounce(true);
+        let mut e = element(&w);
+        for _ in 0..10 {
+            e.animate(Duration::from_millis(700));
+        }
+        let (f, playing) = frame_of(&mut e);
+        assert!(playing && (0.0..=30.0).contains(&f));
+    }
+
+    #[test]
+    fn dotlottie_hints_become_defaults() {
+        let mut c = Composition::from_str(JSON).unwrap();
+        c.playback = Some(crate::lottie::DotLottieAnimation {
+            id: "a".into(),
+            speed: Some(2.0),
+            looping: Some(false),
+            autoplay: Some(true),
+            direction: Some(-1.0),
+            bounce: true,
+            theme_color: None,
+        });
+        let w = Lottie::new(Arc::new(c));
+        assert_eq!(w.speed, -2.0);
+        assert!(!w.repeat && w.bounce);
+        // Построитель переопределяет манифест.
+        let w = w.speed(1.0).repeat(true);
+        assert!(w.repeat && w.speed == 1.0);
     }
 }

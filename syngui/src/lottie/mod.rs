@@ -30,6 +30,8 @@ pub mod sysfont;
 pub mod zip;
 
 pub use geom::Mat;
-pub use model::{Composition, ImageAsset, LottieError, Marker};
+pub use model::{
+    Composition, DotLottieAnimation, DotLottieManifest, ImageAsset, LottieError, Marker,
+};
 pub use raster::{ImageRgba, Pixmap};
 pub use render::Renderer;

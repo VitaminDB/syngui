@@ -19,9 +19,6 @@
 - [ ] **эффекты по мере встречаемости**: Hue/Saturation и прочие `ty: 5`
       (распознавать по `mn`), Displacement Map, Set Matte, Twirl/Wavy/Spherize;
       стили Bevel/Satin/Gradient Overlay.
-- [ ] **dotLottie: выбор анимации** — `Lottie::from_file` играет первую из
-      manifest.json; нужен API выбора по id (`multiple_animations.lottie`
-      из lottie-ios — готовый образец) и чтение темы/скорости из манифеста.
 - [ ] **проверить семантику `sr` (time stretch) для свойств самого слоя**:
       сейчас ключевые кадры свойств считаются во времени композиции, `st`/`sr`
       сдвигают только время дочерней прекомпозиции (так сошлись все образцы,
