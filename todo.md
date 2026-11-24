@@ -16,12 +16,9 @@
 - [ ] **3D-слои и камера**: `ddd: 1`, повороты `rx`/`ry`, ориентация `or`,
       слой-камера (ty 13) с перспективой. Сейчас берётся только 2D-проекция
       (`rz`), камера пропускается как Unsupported.
-- [ ] **layer styles** (`sy`: Drop Shadow, Inner Shadow, Outer/Inner Glow,
-      Stroke, Bevel): похожи на эффекты, большинство ложится на готовые
-      `Pixmap::blur`/`shadow_of`.
-- [ ] **остальные эффекты слоёв**: Tritone (23), Hue/Saturation, Levels,
-      Radial Blur, Stroke (22), CC-эффекты по мере встречаемости. Каркас разбора
-      и применения готов (`parse_effects` / `apply_effects`).
+- [ ] **эффекты по мере встречаемости**: Hue/Saturation и прочие `ty: 5`
+      (распознавать по `mn`), Displacement Map, Set Matte, Twirl/Wavy/Spherize;
+      стили Bevel/Satin/Gradient Overlay.
 - [ ] **dotLottie: выбор анимации** — `Lottie::from_file` играет первую из
       manifest.json; нужен API выбора по id (`multiple_animations.lottie`
       из lottie-ios — готовый образец) и чтение темы/скорости из манифеста.

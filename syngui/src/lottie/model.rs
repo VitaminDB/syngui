@@ -281,6 +281,81 @@ pub enum Effect {
         /// 1 — оба направления, 2 — горизонталь, 3 — вертикаль.
         dimensions: Animated<f32>,
     },
+    /// Tritone (23): света/полутона/тени по яркости.
+    Tritone {
+        highlights: Animated<Vec<f32>>,
+        midtones: Animated<Vec<f32>>,
+        shadows: Animated<Vec<f32>>,
+        /// Смешивание с исходным, проценты.
+        blend: Animated<f32>,
+    },
+    /// Pro Levels (24): по каналам RGB, R, G, B, A — вход чёрное/белое,
+    /// гамма, выход чёрное/белое.
+    Levels { channels: Vec<[Animated<f32>; 5]> },
+    /// Radial Wipe (26).
+    RadialWipe {
+        /// Проценты.
+        completion: Animated<f32>,
+        start_angle: Animated<f32>,
+        center: Animated<Vec<f32>>,
+        /// 1 — по часовой, 2 — против, 3 — в обе стороны.
+        direction: i64,
+        feather: Animated<f32>,
+    },
+    /// Stroke (22): обводка масок слоя.
+    Stroke {
+        /// Номер маски (с 1), если не `all_masks`.
+        mask: usize,
+        all_masks: bool,
+        color: Animated<Vec<f32>>,
+        brush_size: Animated<f32>,
+        /// 0..1 (в файлах — проценты или доли).
+        opacity: Animated<f32>,
+        /// Проценты.
+        start: Animated<f32>,
+        end: Animated<f32>,
+        /// 1 — поверх слоя, 2 — на прозрачном, 3 — проявить слой.
+        paint_style: i64,
+    },
+}
+
+/// Стиль слоя (`sy`, layer styles Photoshop-образца).
+#[derive(Debug)]
+pub enum LayerStyle {
+    /// Drop Shadow (1) и Inner Shadow (2).
+    Shadow {
+        inner: bool,
+        color: Animated<Vec<f32>>,
+        /// Проценты.
+        opacity: Animated<f32>,
+        /// Угол источника света, градусы (90 — свет сверху, тень вниз).
+        angle: Animated<f32>,
+        distance: Animated<f32>,
+        size: Animated<f32>,
+        /// Spread / Choke, проценты.
+        spread: Animated<f32>,
+    },
+    /// Outer Glow (3) и Inner Glow (4).
+    Glow {
+        inner: bool,
+        color: Animated<Vec<f32>>,
+        opacity: Animated<f32>,
+        size: Animated<f32>,
+        spread: Animated<f32>,
+        /// Inner Glow: источник от центра (`sr: 1`) или от края.
+        from_center: bool,
+    },
+    /// Stroke (0): обводка снаружи.
+    Stroke {
+        color: Animated<Vec<f32>>,
+        opacity: Animated<f32>,
+        size: Animated<f32>,
+    },
+    /// Color Overlay (7).
+    ColorOverlay {
+        color: Animated<Vec<f32>>,
+        opacity: Animated<f32>,
+    },
 }
 
 #[derive(Debug)]
@@ -310,7 +385,7 @@ pub struct Layer {
     pub time_remap: Option<Animated<f32>>,
     pub masks: Vec<LayerMask>,
     /// Контуры всех масок по порядку `masksProperties` (включая режим None) —
-    /// для текста по контуру; заполняется только у текстовых слоёв.
+    /// для текста по контуру и эффекта Stroke.
     pub mask_paths: Vec<Animated<ShapePath>>,
     pub matte: Option<MatteMode>,
     /// Индекс слоя-источника matte в том же списке.
@@ -318,6 +393,7 @@ pub struct Layer {
     pub is_matte_source: bool,
     pub blend: BlendMode,
     pub effects: Vec<Effect>,
+    pub styles: Vec<LayerStyle>,
     pub hidden: bool,
     pub auto_orient: bool,
     /// Размер прекомпозиции / сплошного слоя.
@@ -1019,12 +1095,96 @@ fn parse_effects(v: &Json) -> Vec<Effect> {
                 blurriness: num(0, 0.0),
                 dimensions: num(1, 1.0),
             }),
+            23 => out.push(Effect::Tritone {
+                highlights: color(0),
+                midtones: color(1),
+                shadows: color(2),
+                blend: num(3, 0.0),
+            }),
+            24 => {
+                // Блоки по 7 значений, начиная со 2-го: группа, вход
+                // чёрное/белое, гамма, выход чёрное/белое, конец группы.
+                let channels = [2usize, 9, 16, 23, 30]
+                    .iter()
+                    .map(|&b| {
+                        [
+                            num(b + 1, 0.0),
+                            num(b + 2, 1.0),
+                            num(b + 3, 1.0),
+                            num(b + 4, 0.0),
+                            num(b + 5, 1.0),
+                        ]
+                    })
+                    .collect();
+                out.push(Effect::Levels { channels });
+            }
+            26 => out.push(Effect::RadialWipe {
+                completion: num(0, 0.0),
+                start_angle: num(1, 0.0),
+                center: Animated::parse_or(val(2), vec![0.0, 0.0]),
+                direction: num(3, 1.0).first_value().round() as i64,
+                feather: num(4, 0.0),
+            }),
+            22 => out.push(Effect::Stroke {
+                mask: num(0, 1.0).first_value().round().max(1.0) as usize,
+                all_masks: *num(1, 0.0).first_value() != 0.0,
+                color: color(3),
+                brush_size: num(4, 2.0),
+                opacity: num(6, 1.0),
+                start: num(7, 0.0),
+                end: num(8, 100.0),
+                paint_style: num(10, 1.0).first_value().round() as i64,
+            }),
             other => {
                 log::debug!(
                     "lottie: эффект {other} (`{}`) не поддерживается",
                     e.str_or("nm", "")
                 );
             }
+        }
+    }
+    out
+}
+
+fn parse_styles(v: &Json) -> Vec<LayerStyle> {
+    let Some(list) = v.get("sy").and_then(Json::as_array) else {
+        return Vec::new();
+    };
+    let mut out = Vec::new();
+    for st in list {
+        let num = |key: &str, d: f32| Animated::parse_or(st.get(key), d);
+        let color = || parse_color(st.get("c"));
+        match st.i64_or("ty", -1) {
+            t @ (1 | 2) => out.push(LayerStyle::Shadow {
+                inner: t == 2,
+                color: color(),
+                opacity: num("o", 75.0),
+                angle: num("a", 120.0),
+                distance: num("d", 5.0),
+                size: num("s", 5.0),
+                spread: num("ch", 0.0),
+            }),
+            t @ (3 | 4) => out.push(LayerStyle::Glow {
+                inner: t == 4,
+                color: color(),
+                opacity: num("o", 75.0),
+                size: num("s", 5.0),
+                spread: num("ch", 0.0),
+                from_center: *num("sr", 2.0).first_value() < 1.5,
+            }),
+            0 => out.push(LayerStyle::Stroke {
+                color: color(),
+                opacity: num("o", 100.0),
+                size: num("s", 3.0),
+            }),
+            7 => out.push(LayerStyle::ColorOverlay {
+                color: color(),
+                opacity: num("so", 100.0),
+            }),
+            other => log::debug!(
+                "lottie: стиль слоя {other} (`{}`) не поддерживается",
+                st.str_or("nm", "")
+            ),
         }
     }
     out
@@ -1102,23 +1262,21 @@ fn parse_layer(v: &Json, unsupported: &mut usize) -> Layer {
             .and_then(Json::as_array)
             .map(|a| a.iter().filter_map(parse_mask).collect())
             .unwrap_or_default(),
-        mask_paths: if ty == 5 {
-            v.get("masksProperties")
-                .and_then(Json::as_array)
-                .map(|a| {
-                    a.iter()
-                        .map(|m| Animated::parse_or(m.get("pt"), ShapePath::default()))
-                        .collect()
-                })
-                .unwrap_or_default()
-        } else {
-            Vec::new()
-        },
+        mask_paths: v
+            .get("masksProperties")
+            .and_then(Json::as_array)
+            .map(|a| {
+                a.iter()
+                    .map(|m| Animated::parse_or(m.get("pt"), ShapePath::default()))
+                    .collect()
+            })
+            .unwrap_or_default(),
         matte,
         matte_source: None,
         is_matte_source: v.i64_or("td", 0) == 1,
         blend: BlendMode::from_lottie(v.i64_or("bm", 0)),
         effects: parse_effects(v),
+        styles: parse_styles(v),
         hidden: v.bool_or("hd", false),
         auto_orient: v.i64_or("ao", 0) == 1,
         width,

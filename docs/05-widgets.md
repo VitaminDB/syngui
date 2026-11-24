@@ -477,8 +477,10 @@ glyphs (bodymovin "Glyphs" export; `chars`), parenting, masks and track
 mattes, time remap, blend modes, fills and strokes (solid and linear/radial
 gradients, dashes), trim paths, repeater, rounded corners, polystar, merge
 paths (boolean ops on fill coverage; strokes draw the source contours),
-offset paths / zig zag / pucker & bloat / twist modifiers, and layer effects
-Fill, Tint, Drop Shadow, Gaussian Blur. Text layers support text animators
+offset paths / zig zag (sharp and smooth) / pucker & bloat / twist modifiers,
+layer effects Fill, Tint, Tritone, Pro Levels, Drop Shadow, Gaussian Blur,
+Radial Wipe, Stroke (along masks), and layer styles Drop/Inner Shadow,
+Outer/Inner Glow, Stroke, Color Overlay. Text layers support text animators
 (range selectors by characters/words/lines with all selector shapes, ease and
 smoothness; per-letter position, anchor, scale, rotation, skew, opacity,
 fill/stroke color, hue/saturation/brightness, stroke width and tracking) and

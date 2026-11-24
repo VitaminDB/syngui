@@ -306,7 +306,8 @@ impl Renderer {
         let needs_buffer = l.matte.is_some()
             || opacity < 1.0
             || l.blend != BlendMode::Normal
-            || !l.effects.is_empty();
+            || !l.effects.is_empty()
+            || !l.styles.is_empty();
         if !needs_buffer {
             self.draw_content(ctx, l, frame, &mat, target, depth, clip_ref);
             if let Some(m) = own_clip {
@@ -318,6 +319,9 @@ impl Renderer {
         self.draw_content(ctx, l, frame, &mat, &mut buf, depth, clip_ref);
         if !l.effects.is_empty() {
             self.apply_effects(ctx, l, frame, &mat, &mut buf);
+        }
+        if !l.styles.is_empty() && buf.dirty.is_some() {
+            self.apply_styles(ctx, l, frame, &mat, &mut buf);
         }
         if buf.dirty.is_some() {
             if let (Some(mode), Some(src)) = (l.matte, l.matte_source) {
@@ -1186,8 +1190,278 @@ impl Renderer {
                     std::mem::swap(buf, &mut sbuf);
                     self.recycle(sbuf);
                 }
+                Effect::Tritone {
+                    highlights,
+                    midtones,
+                    shadows,
+                    blend,
+                } => {
+                    buf.effect_tritone(
+                        rgb3(&highlights.value(frame)),
+                        rgb3(&midtones.value(frame)),
+                        rgb3(&shadows.value(frame)),
+                        blend.value(frame) / 100.0,
+                    );
+                }
+                Effect::Levels { channels } => {
+                    let mut ch = [[0.0, 1.0, 1.0, 0.0, 1.0]; 5];
+                    for (dst, src) in ch.iter_mut().zip(channels) {
+                        for (d, v) in dst.iter_mut().zip(src) {
+                            *d = v.value(frame);
+                        }
+                    }
+                    buf.effect_levels(&ch);
+                }
+                Effect::RadialWipe {
+                    completion,
+                    start_angle,
+                    center,
+                    direction,
+                    feather,
+                } => {
+                    let c = mat.apply(two(&center.value(frame)));
+                    buf.radial_wipe(
+                        c,
+                        start_angle.value(frame),
+                        completion.value(frame) / 100.0,
+                        *direction as i32,
+                        feather.value(frame) * scale,
+                    );
+                }
+                Effect::Stroke {
+                    mask,
+                    all_masks,
+                    color,
+                    brush_size,
+                    opacity,
+                    start,
+                    end,
+                    paint_style,
+                } => {
+                    let paths: Vec<&super::anim::Animated<ShapePath>> = if *all_masks {
+                        l.mask_paths.iter().collect()
+                    } else {
+                        l.mask_paths.get(mask - 1).into_iter().collect()
+                    };
+                    let mut polys = Vec::new();
+                    for p in paths {
+                        let mut sp = p.value(frame);
+                        sp.transform(mat);
+                        polys.push(sp.flatten(TOLERANCE));
+                    }
+                    let (s0, s1) = (start.value(frame) / 100.0, end.value(frame) / 100.0);
+                    if s0 > 0.0 || s1 < 1.0 {
+                        polys = trim_paths(polys, s0, s1, 0.0, false);
+                    }
+                    let width = brush_size.value(frame) * scale;
+                    let mut sp = Vec::new();
+                    for p in &polys {
+                        stroke_polyline(
+                            p,
+                            width,
+                            LineCap::Round,
+                            LineJoin::Round,
+                            4.0,
+                            TOLERANCE,
+                            &mut sp,
+                        );
+                    }
+                    let mut op = opacity.value(frame);
+                    if op > 1.0 {
+                        op /= 100.0;
+                    }
+                    let cov = self.rast.fill(&sp, FillRule::NonZero, ctx.w, ctx.h);
+                    match paint_style {
+                        3 => match &cov {
+                            Some(m) => buf.multiply_coverage(m),
+                            None => buf.clear(),
+                        },
+                        style => {
+                            if *style == 2 {
+                                buf.clear();
+                            }
+                            if let Some(m) = &cov {
+                                buf.fill_mask(
+                                    m,
+                                    &Paint::solid(rgb3(&color.value(frame)), op.clamp(0.0, 1.0)),
+                                    None,
+                                );
+                            }
+                        }
+                    }
+                    if let Some(m) = cov {
+                        self.rast.recycle(m);
+                    }
+                }
             }
         }
+    }
+
+    /// Стили слоя (layer styles): тени и свечения под слоем и внутри него,
+    /// обводка снаружи, заливка цветом. Порядок — как в After Effects:
+    /// снизу тень, внешнее свечение, обводка; поверх содержимого — цвет,
+    /// внутреннее свечение, внутренняя тень.
+    fn apply_styles(&mut self, ctx: &Ctx, l: &Layer, frame: f32, mat: &Mat, buf: &mut Pixmap) {
+        use super::model::LayerStyle as St;
+        let scale = mat.scale_factor().max(1e-6);
+        let mut src = self.take(ctx.w, ctx.h);
+        src.copy_from(buf);
+        // Содержимое: перекраска и внутренние эффекты.
+        for st in &l.styles {
+            if let St::ColorOverlay { color, opacity } = st {
+                buf.color_overlay(rgb3(&color.value(frame)), opacity.value(frame) / 100.0);
+            }
+        }
+        for st in &l.styles {
+            let mut s = self.take(ctx.w, ctx.h);
+            match st {
+                St::Glow {
+                    inner: true,
+                    color,
+                    opacity,
+                    size,
+                    spread,
+                    from_center,
+                } => {
+                    let sigma = size.value(frame) * scale * 0.5;
+                    let margin = (sigma * 3.0).ceil() as usize + 2;
+                    let c = rgb3(&color.value(frame));
+                    let op = opacity.value(frame) / 100.0;
+                    let sp = spread.value(frame) / 100.0;
+                    if *from_center {
+                        s.silhouette(&src, c, 1.0, 0, 0, sp, true, margin);
+                        s.blur(sigma, sigma);
+                        s.invert_alpha_colored(c, op);
+                    } else {
+                        s.silhouette(&src, c, op, 0, 0, sp, true, margin);
+                        s.blur(sigma, sigma);
+                    }
+                    s.mask_by_alpha(&src);
+                    buf.composite(&s, 1.0, BlendMode::Normal);
+                }
+                St::Shadow {
+                    inner: true,
+                    color,
+                    opacity,
+                    angle,
+                    distance,
+                    size,
+                    spread,
+                } => {
+                    let (dx, dy) = style_offset(angle.value(frame), distance.value(frame) * scale);
+                    let sigma = size.value(frame) * scale * 0.5;
+                    let margin = (sigma * 3.0).ceil() as usize
+                        + dx.unsigned_abs().max(dy.unsigned_abs()) as usize
+                        + 2;
+                    s.silhouette(
+                        &src,
+                        rgb3(&color.value(frame)),
+                        opacity.value(frame) / 100.0,
+                        dx,
+                        dy,
+                        spread.value(frame) / 100.0,
+                        true,
+                        margin,
+                    );
+                    s.blur(sigma, sigma);
+                    s.mask_by_alpha(&src);
+                    buf.composite(&s, 1.0, BlendMode::Normal);
+                }
+                _ => {}
+            }
+            self.recycle(s);
+        }
+        // Под слоем: тень, внешнее свечение, обводка.
+        let mut under = self.take(ctx.w, ctx.h);
+        let mut any_under = false;
+        for pass in 0..3 {
+            for st in &l.styles {
+                let mut s = self.take(ctx.w, ctx.h);
+                let drawn = match (pass, st) {
+                    (
+                        0,
+                        St::Shadow {
+                            inner: false,
+                            color,
+                            opacity,
+                            angle,
+                            distance,
+                            size,
+                            spread,
+                        },
+                    ) => {
+                        let (dx, dy) =
+                            style_offset(angle.value(frame), distance.value(frame) * scale);
+                        let sigma = size.value(frame) * scale * 0.5;
+                        s.silhouette(
+                            &src,
+                            rgb3(&color.value(frame)),
+                            opacity.value(frame) / 100.0,
+                            dx,
+                            dy,
+                            spread.value(frame) / 100.0,
+                            false,
+                            0,
+                        );
+                        s.blur(sigma, sigma);
+                        true
+                    }
+                    (
+                        1,
+                        St::Glow {
+                            inner: false,
+                            color,
+                            opacity,
+                            size,
+                            spread,
+                            ..
+                        },
+                    ) => {
+                        let sigma = size.value(frame) * scale * 0.5;
+                        s.silhouette(
+                            &src,
+                            rgb3(&color.value(frame)),
+                            opacity.value(frame) / 100.0,
+                            0,
+                            0,
+                            spread.value(frame) / 100.0,
+                            false,
+                            0,
+                        );
+                        s.blur(sigma, sigma);
+                        true
+                    }
+                    (
+                        2,
+                        St::Stroke {
+                            color,
+                            opacity,
+                            size,
+                        },
+                    ) => {
+                        s.dilated_of(
+                            &src,
+                            rgb3(&color.value(frame)),
+                            opacity.value(frame) / 100.0,
+                            size.value(frame) * scale,
+                        );
+                        true
+                    }
+                    _ => false,
+                };
+                if drawn {
+                    under.composite(&s, 1.0, BlendMode::Normal);
+                    any_under = true;
+                }
+                self.recycle(s);
+            }
+        }
+        if any_under {
+            under.composite(buf, 1.0, BlendMode::Normal);
+            std::mem::swap(buf, &mut under);
+        }
+        self.recycle(under);
+        self.recycle(src);
     }
 }
 
@@ -1390,6 +1664,24 @@ fn adjust_hsv(c: &mut [f32], hue: f32, sat: f32, bri: f32) {
     c[0] = r;
     c[1] = g;
     c[2] = b;
+}
+
+#[inline]
+fn rgb3(v: &[f32]) -> [f32; 3] {
+    [
+        v.first().copied().unwrap_or(0.0),
+        v.get(1).copied().unwrap_or(0.0),
+        v.get(2).copied().unwrap_or(0.0),
+    ]
+}
+
+/// Смещение тени стиля: угол источника света (90° — сверху, тень вниз).
+fn style_offset(angle_deg: f32, dist: f32) -> (i32, i32) {
+    let r = angle_deg.to_radians();
+    (
+        (-r.cos() * dist).round() as i32,
+        (r.sin() * dist).round() as i32,
+    )
 }
 
 fn auto_orient_angle(tr: &Transform, local: f32) -> f32 {

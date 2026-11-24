@@ -1149,6 +1149,366 @@ impl Pixmap {
     }
 
     /// В 8-битный RGBA с прямой альфой (для текстур).
+    /// Копия содержимого `src` (того же размера) — только затронутая область.
+    pub fn copy_from(&mut self, src: &Pixmap) {
+        self.clear();
+        let Some([x0, y0, x1, y1]) = src.dirty else {
+            return;
+        };
+        for y in y0..y1 {
+            let r = y * self.w + x0..y * self.w + x1;
+            self.px[r.clone()].copy_from_slice(&src.px[r]);
+        }
+        self.dirty = src.dirty;
+    }
+
+    /// Обратить альфу силуэта и залить цветом: `a' = (1 − a)·opacity` в
+    /// пределах затронутой области (свечение от центра).
+    pub fn invert_alpha_colored(&mut self, color: [f32; 3], opacity: f32) {
+        let Some([x0, y0, x1, y1]) = self.dirty else {
+            return;
+        };
+        let op = opacity.clamp(0.0, 1.0);
+        for y in y0..y1 {
+            for p in &mut self.px[y * self.w + x0..y * self.w + x1] {
+                let a = (1.0 - p[3]).clamp(0.0, 1.0) * op;
+                *p = [color[0] * a, color[1] * a, color[2] * a, a];
+            }
+        }
+    }
+
+    /// Силуэт `src` цветом `color`: альфа источника, сдвинутая на `dx,dy`,
+    /// с расширением `spread` (0..1, как Spread/Choke в After Effects) и,
+    /// если `inverted`, обращённая (для внутренних теней и свечений —
+    /// тогда силуэт занимает охват источника с полями `margin`).
+    #[allow(clippy::too_many_arguments)]
+    pub fn silhouette(
+        &mut self,
+        src: &Pixmap,
+        color: [f32; 3],
+        opacity: f32,
+        dx: i32,
+        dy: i32,
+        spread: f32,
+        inverted: bool,
+        margin: usize,
+    ) {
+        self.clear();
+        let Some([sx0, sy0, sx1, sy1]) = src.dirty else {
+            return;
+        };
+        let m = margin as i64;
+        let (x0, y0, x1, y1) = if inverted {
+            (
+                sx0 as i64 - m,
+                sy0 as i64 - m,
+                sx1 as i64 + m,
+                sy1 as i64 + m,
+            )
+        } else {
+            (
+                sx0 as i64 + dx as i64,
+                sy0 as i64 + dy as i64,
+                sx1 as i64 + dx as i64,
+                sy1 as i64 + dy as i64,
+            )
+        };
+        let x0 = x0.clamp(0, self.w as i64) as usize;
+        let y0 = y0.clamp(0, self.h as i64) as usize;
+        let x1 = x1.clamp(0, self.w as i64) as usize;
+        let y1 = y1.clamp(0, self.h as i64) as usize;
+        if x1 <= x0 || y1 <= y0 {
+            return;
+        }
+        let op = opacity.clamp(0.0, 1.0);
+        let k = 1.0 / (1.0 - spread.clamp(0.0, 0.999));
+        for y in y0..y1 {
+            let sy = y as i64 - dy as i64;
+            for x in x0..x1 {
+                let sx = x as i64 - dx as i64;
+                let inside =
+                    sx >= sx0 as i64 && sx < sx1 as i64 && sy >= sy0 as i64 && sy < sy1 as i64;
+                let mut a = if inside {
+                    src.px[sy as usize * src.w + sx as usize][3]
+                } else {
+                    0.0
+                };
+                if inverted {
+                    a = 1.0 - a;
+                }
+                let a = (a * k).min(1.0) * op;
+                if a > 0.0 {
+                    self.px[y * self.w + x] = [color[0] * a, color[1] * a, color[2] * a, a];
+                }
+            }
+        }
+        self.mark(x0, y0, x1, y1);
+    }
+
+    /// Умножить содержимое на альфу `src` (вне её охвата — ноль).
+    pub fn mask_by_alpha(&mut self, src: &Pixmap) {
+        let Some([x0, y0, x1, y1]) = self.dirty else {
+            return;
+        };
+        let Some([sx0, sy0, sx1, sy1]) = src.dirty else {
+            self.clear();
+            return;
+        };
+        for y in y0..y1 {
+            for x in x0..x1 {
+                let i = y * self.w + x;
+                let a = if x >= sx0 && x < sx1 && y >= sy0 && y < sy1 {
+                    src.px[i][3]
+                } else {
+                    0.0
+                };
+                if a < 1.0 {
+                    for c in self.px[i].iter_mut() {
+                        *c *= a;
+                    }
+                }
+            }
+        }
+    }
+
+    /// Круговое расширение альфы `src` на `radius` пикселей, залитое цветом
+    /// (обводка снаружи — layer style Stroke). Максимум по окну для каждой
+    /// строки круга — алгоритм ван Херка/Гила–Вермана, O(r·N).
+    pub fn dilated_of(&mut self, src: &Pixmap, color: [f32; 3], opacity: f32, radius: f32) {
+        self.clear();
+        let Some([sx0, sy0, sx1, sy1]) = src.dirty else {
+            return;
+        };
+        let r = radius.max(0.0).ceil() as usize;
+        let x0 = sx0.saturating_sub(r);
+        let y0 = sy0.saturating_sub(r);
+        let x1 = (sx1 + r).min(self.w);
+        let y1 = (sy1 + r).min(self.h);
+        let (rw, rh) = (x1 - x0, y1 - y0);
+        if rw == 0 || rh == 0 {
+            return;
+        }
+        let alpha = |x: usize, y: usize| -> f32 {
+            if x >= sx0 && x < sx1 && y >= sy0 && y < sy1 {
+                src.px[y * src.w + x][3]
+            } else {
+                0.0
+            }
+        };
+        let mut out = vec![0f32; rw * rh];
+        let mut row = vec![0f32; rw];
+        let mut hm = vec![0f32; rw];
+        let mut g = vec![0f32; rw];
+        let mut h = vec![0f32; rw];
+        let rr = radius.max(0.0);
+        for dy in -(r as i64)..=(r as i64) {
+            let half = (rr * rr - (dy * dy) as f32).max(0.0).sqrt();
+            let wnd = half.floor() as usize;
+            for yy in 0..rh {
+                let sy = yy as i64 + y0 as i64 + dy;
+                if sy < sy0 as i64 || sy >= sy1 as i64 {
+                    continue;
+                }
+                for (xx, v) in row.iter_mut().enumerate() {
+                    *v = alpha(x0 + xx, sy as usize);
+                }
+                // Скользящий максимум окна 2·wnd+1.
+                let k = 2 * wnd + 1;
+                for i in 0..rw {
+                    g[i] = if i % k == 0 {
+                        row[i]
+                    } else {
+                        g[i - 1].max(row[i])
+                    };
+                }
+                for i in (0..rw).rev() {
+                    h[i] = if i == rw - 1 || (i + 1) % k == 0 {
+                        row[i]
+                    } else {
+                        h[i + 1].max(row[i])
+                    };
+                }
+                for (i, v) in hm.iter_mut().enumerate() {
+                    if i < wnd || i + wnd >= rw {
+                        // Укороченное окно у края: напрямую.
+                        let lo = i.saturating_sub(wnd);
+                        let hi = (i + wnd).min(rw - 1);
+                        *v = row[lo..=hi].iter().copied().fold(0.0, f32::max);
+                    } else {
+                        *v = h[i - wnd].max(g[i + wnd]);
+                    }
+                }
+                let o = &mut out[yy * rw..(yy + 1) * rw];
+                for (ov, hv) in o.iter_mut().zip(&hm) {
+                    if *hv > *ov {
+                        *ov = *hv;
+                    }
+                }
+            }
+        }
+        let op = opacity.clamp(0.0, 1.0);
+        for yy in 0..rh {
+            for xx in 0..rw {
+                let a = out[yy * rw + xx] * op;
+                if a > 0.0 {
+                    self.px[(y0 + yy) * self.w + x0 + xx] =
+                        [color[0] * a, color[1] * a, color[2] * a, a];
+                }
+            }
+        }
+        self.mark(x0, y0, x1, y1);
+    }
+
+    /// Color Overlay: цвет смешивается с исходным с долей `opacity`, альфа
+    /// сохраняется.
+    pub fn color_overlay(&mut self, color: [f32; 3], opacity: f32) {
+        let Some([x0, y0, x1, y1]) = self.dirty else {
+            return;
+        };
+        let op = opacity.clamp(0.0, 1.0);
+        for y in y0..y1 {
+            for p in &mut self.px[y * self.w + x0..y * self.w + x1] {
+                let a = p[3];
+                for k in 0..3 {
+                    p[k] += (color[k] * a - p[k]) * op;
+                }
+            }
+        }
+    }
+
+    /// Tritone: яркость → тени/полутона/света; `blend` — доля исходного.
+    pub fn effect_tritone(&mut self, high: [f32; 3], mid: [f32; 3], shadow: [f32; 3], blend: f32) {
+        let Some([x0, y0, x1, y1]) = self.dirty else {
+            return;
+        };
+        let keep = blend.clamp(0.0, 1.0);
+        for y in y0..y1 {
+            for p in &mut self.px[y * self.w + x0..y * self.w + x1] {
+                let a = p[3];
+                if a <= 0.0 {
+                    continue;
+                }
+                let l = ((0.299 * p[0] + 0.587 * p[1] + 0.114 * p[2]) / a).clamp(0.0, 1.0);
+                for k in 0..3 {
+                    let c = if l < 0.5 {
+                        shadow[k] + (mid[k] - shadow[k]) * l * 2.0
+                    } else {
+                        mid[k] + (high[k] - mid[k]) * (l - 0.5) * 2.0
+                    };
+                    p[k] = c * a + (p[k] - c * a) * keep;
+                }
+            }
+        }
+    }
+
+    /// Уровни (Levels): `rgb`, `r`, `g`, `b`, `a` — по пять чисел: вход
+    /// чёрное/белое, гамма, выход чёрное/белое (0..1).
+    pub fn effect_levels(&mut self, ch: &[[f32; 5]; 5]) {
+        let Some([x0, y0, x1, y1]) = self.dirty else {
+            return;
+        };
+        let lv = |v: f32, p: &[f32; 5]| -> f32 {
+            let [ib, iw, g, ob, ow] = *p;
+            let d = iw - ib;
+            let mut t = if d.abs() < 1e-6 {
+                if v >= iw {
+                    1.0
+                } else {
+                    0.0
+                }
+            } else {
+                ((v - ib) / d).clamp(0.0, 1.0)
+            };
+            if g > 0.0 && (g - 1.0).abs() > 1e-6 {
+                t = t.powf(1.0 / g);
+            }
+            ob + t * (ow - ob)
+        };
+        let ident = |p: &[f32; 5]| *p == [0.0, 1.0, 1.0, 0.0, 1.0];
+        let (do_rgb, do_a) = (
+            !(ident(&ch[0]) && ident(&ch[1]) && ident(&ch[2]) && ident(&ch[3])),
+            !ident(&ch[4]),
+        );
+        for y in y0..y1 {
+            for p in &mut self.px[y * self.w + x0..y * self.w + x1] {
+                let a = p[3];
+                if a <= 0.0 {
+                    continue;
+                }
+                let mut na = a;
+                if do_a {
+                    na = lv(a, &ch[4]).clamp(0.0, 1.0);
+                }
+                for k in 0..3 {
+                    let mut c = p[k] / a;
+                    if do_rgb {
+                        c = lv(lv(c, &ch[0]), &ch[k + 1]);
+                    }
+                    p[k] = c.clamp(0.0, 1.0) * na;
+                }
+                p[3] = na;
+            }
+        }
+    }
+
+    /// Radial Wipe: видимая часть — сектор от угла `start` (градусы от
+    /// вертикали вверх, по часовой) на `(1 − completion)·360°`; `dir`:
+    /// 1 — по часовой, 2 — против, 3 — в обе стороны; `feather` — мягкость
+    /// края в пикселях.
+    pub fn radial_wipe(
+        &mut self,
+        center: [f32; 2],
+        start: f32,
+        completion: f32,
+        dir: i32,
+        feather: f32,
+    ) {
+        let Some([x0, y0, x1, y1]) = self.dirty else {
+            return;
+        };
+        let c = completion.clamp(0.0, 1.0);
+        if c <= 0.0 {
+            return;
+        }
+        if c >= 1.0 {
+            self.clear();
+            return;
+        }
+        let wiped = c * 360.0;
+        for y in y0..y1 {
+            for x in x0..x1 {
+                let dxp = x as f32 + 0.5 - center[0];
+                let dyp = y as f32 + 0.5 - center[1];
+                // Угол по часовой от «вверх».
+                let mut ang = dxp.atan2(-dyp).to_degrees() - start;
+                ang = ang.rem_euclid(360.0);
+                // Расстояние (в градусах) до границы стёртого сектора.
+                let edge = match dir {
+                    2 => (360.0 - ang) - wiped,
+                    3 => {
+                        let d = ang.min(360.0 - ang);
+                        d - wiped / 2.0
+                    }
+                    _ => ang - wiped,
+                };
+                let v = if feather > 0.0 {
+                    let r = (dxp * dxp + dyp * dyp).sqrt().max(1.0);
+                    let px = edge.to_radians() * r;
+                    (px / feather + 0.5).clamp(0.0, 1.0)
+                } else if edge >= 0.0 {
+                    1.0
+                } else {
+                    0.0
+                };
+                if v < 1.0 {
+                    for k in self.px[y * self.w + x].iter_mut() {
+                        *k *= v;
+                    }
+                }
+            }
+        }
+    }
+
     pub fn to_rgba8(&self) -> Vec<u8> {
         let mut out = vec![0u8; self.w * self.h * 4];
         // Вне затронутой области холст прозрачен — там уже нули.
