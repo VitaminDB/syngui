@@ -7,7 +7,7 @@ use std::f32::consts::{PI, TAU};
 
 use super::geom::{
     dash_polyline, offset_polyline, pucker_bloat, stroke_polyline, trim_paths, twist_polyline,
-    zigzag_path, zigzag_smooth, LineCap, LineJoin, Mat, Polyline, ShapePath,
+    zigzag_path, zigzag_smooth, LineCap, LineJoin, Mat, Mat4, Polyline, ShapePath,
 };
 use super::model::{
     Composition, DashKind, Effect, Gradient, GradientKind, Layer, LayerKind, LayerMask, MaskMode,
@@ -84,6 +84,19 @@ enum ModInst {
     },
 }
 
+/// Камера списка слоёв: вид (мир → камера), зум и центр проекции.
+struct Camera {
+    view: Mat4,
+    zoom: f32,
+    center: [f32; 2],
+}
+
+/// Состояние отрисовки списка слоёв: мировые матрицы и камера.
+struct Scene {
+    world: Vec<Option<Mat4>>,
+    camera: Option<Camera>,
+}
+
 struct Collected<'a> {
     styles: Vec<StyleInst<'a>>,
     trims: Vec<TrimInst>,
@@ -132,7 +145,16 @@ impl Renderer {
             w: target.w,
             h: target.h,
         };
-        self.render_layers(&ctx, &comp.layers, frame, root, target, 0, None);
+        self.render_layers(
+            &ctx,
+            &comp.layers,
+            frame,
+            root,
+            target,
+            0,
+            None,
+            [comp.width, comp.height],
+        );
     }
 
     fn take(&mut self, w: usize, h: usize) -> Pixmap {
@@ -150,16 +172,16 @@ impl Renderer {
         }
     }
 
-    fn layer_matrix(
+    /// Мировая матрица слоя (4×4, с родителями) в координатах списка слоёв.
+    fn layer_world(
         &self,
         layers: &[Layer],
         i: usize,
         frame: f32,
-        root: &Mat,
-        memo: &mut Vec<Option<Mat>>,
+        scene: &mut Scene,
         depth: usize,
-    ) -> Mat {
-        if let Some(m) = memo[i] {
+    ) -> Mat4 {
+        if let Some(m) = scene.world[i] {
             return m;
         }
         let l = &layers[i];
@@ -170,16 +192,52 @@ impl Renderer {
         } else {
             0.0
         };
-        let own = l.transform.matrix_with(frame, extra);
-        let parent = match l.parent {
-            Some(p) if p != i && p < layers.len() && depth < 64 => {
-                self.layer_matrix(layers, p, frame, root, memo, depth + 1)
-            }
-            _ => *root,
+        let own = match &l.kind {
+            LayerKind::Camera { .. } => camera_matrix(&l.transform, frame),
+            _ if l.three_d => l.transform.matrix4(frame, extra),
+            _ => Mat4::from_affine(&l.transform.matrix_with(frame, extra)),
         };
-        let m = parent.mul(&own);
-        memo[i] = Some(m);
+        let m = match l.parent {
+            Some(p) if p != i && p < layers.len() && depth < 64 => self
+                .layer_world(layers, p, frame, scene, depth + 1)
+                .mul(&own),
+            _ => own,
+        };
+        scene.world[i] = Some(m);
         m
+    }
+
+    /// Итоговая аффинная матрица слоя: 3D-слои при камере — перспективная
+    /// проекция (линеаризованная в точке привязки), иначе — ортогональная.
+    fn layer_matrix(
+        &self,
+        layers: &[Layer],
+        i: usize,
+        frame: f32,
+        root: &Mat,
+        scene: &mut Scene,
+    ) -> Mat {
+        let world = self.layer_world(layers, i, frame, scene, 0);
+        let l = &layers[i];
+        let local = match &scene.camera {
+            Some(cam) if l.three_d => {
+                let p0 = two(&l.transform.anchor.value(frame));
+                cam.view
+                    .mul(&world)
+                    .project_affine(cam.zoom, cam.center, p0)
+                    // За камерой — слой не виден.
+                    .unwrap_or(Mat {
+                        a: 0.0,
+                        b: 0.0,
+                        c: 0.0,
+                        d: 0.0,
+                        e: 0.0,
+                        f: 0.0,
+                    })
+            }
+            _ => world.ortho(),
+        };
+        root.mul(&local)
     }
 
     #[allow(clippy::too_many_arguments)]
@@ -192,6 +250,7 @@ impl Renderer {
         target: &mut Pixmap,
         depth: usize,
         clip: Option<&Mask>,
+        size: [f32; 2],
     ) {
         if depth > MAX_DEPTH {
             return;
@@ -199,18 +258,37 @@ impl Renderer {
         if clip.map(Mask::is_empty).unwrap_or(false) {
             return;
         }
-        let mut memo = vec![None; layers.len()];
+        let mut scene = Scene {
+            world: vec![None; layers.len()],
+            camera: None,
+        };
+        // Активная камера списка — верхняя видимая (как в After Effects).
+        if let Some(ci) = layers.iter().position(|l| {
+            matches!(l.kind, LayerKind::Camera { .. }) && !l.hidden && l.in_range(frame)
+        }) {
+            if let LayerKind::Camera { zoom } = &layers[ci].kind {
+                let world = self.layer_world(layers, ci, frame, &mut scene, 0);
+                scene.camera = Some(Camera {
+                    view: world.rigid_inverse(),
+                    zoom: zoom.value(frame),
+                    center: [size[0] / 2.0, size[1] / 2.0],
+                });
+            }
+        }
         for i in (0..layers.len()).rev() {
             let l = &layers[i];
             if l.hidden || l.is_matte_source || !l.in_range(frame) {
                 continue;
             }
-            if matches!(l.kind, LayerKind::Null | LayerKind::Unsupported) {
+            if matches!(
+                l.kind,
+                LayerKind::Null | LayerKind::Unsupported | LayerKind::Camera { .. }
+            ) {
                 continue;
             }
-            let mat = self.layer_matrix(layers, i, frame, root, &mut memo, 0);
+            let mat = self.layer_matrix(layers, i, frame, root, &mut scene);
             self.render_layer(
-                ctx, layers, i, frame, mat, root, target, depth, &mut memo, clip,
+                ctx, layers, i, frame, mat, root, target, depth, &mut scene, clip,
             );
         }
     }
@@ -287,7 +365,7 @@ impl Renderer {
         root: &Mat,
         target: &mut Pixmap,
         depth: usize,
-        memo: &mut Vec<Option<Mat>>,
+        scene: &mut Scene,
         outer_clip: Option<&Mask>,
     ) {
         let l = &layers[i];
@@ -329,9 +407,9 @@ impl Renderer {
                     let ml = &layers[src];
                     let mut mbuf = self.take(ctx.w, ctx.h);
                     if !ml.hidden && ml.in_range(frame) {
-                        let mm = self.layer_matrix(layers, src, frame, root, memo, 0);
+                        let mm = self.layer_matrix(layers, src, frame, root, scene);
                         self.render_layer(
-                            ctx, layers, src, frame, mm, root, &mut mbuf, depth, memo, outer_clip,
+                            ctx, layers, src, frame, mm, root, &mut mbuf, depth, scene, outer_clip,
                         );
                     }
                     let (luma, inverted) = match mode {
@@ -411,10 +489,19 @@ impl Renderer {
                     Some(tm) => tm.value(frame) * ctx.comp.frame_rate,
                     None => l.local_frame(frame),
                 };
-                self.render_layers(ctx, children, child_frame, mat, target, depth + 1, clip);
+                self.render_layers(
+                    ctx,
+                    children,
+                    child_frame,
+                    mat,
+                    target,
+                    depth + 1,
+                    clip,
+                    [l.width, l.height],
+                );
             }
             LayerKind::Text(td) => self.draw_text(ctx, l, td, frame, mat, target, clip),
-            LayerKind::Null | LayerKind::Unsupported => {}
+            LayerKind::Null | LayerKind::Unsupported | LayerKind::Camera { .. } => {}
         }
     }
 
@@ -1684,6 +1771,66 @@ fn style_offset(angle_deg: f32, dist: f32) -> (i32, i32) {
     )
 }
 
+/// Мировая матрица камеры (из её пространства, где она смотрит вдоль +z):
+/// позиция, наведение на точку интереса (`a`), ориентация и повороты.
+fn camera_matrix(tr: &Transform, frame: f32) -> Mat4 {
+    let p2 = tr.position_at(frame);
+    let p = [p2[0], p2[1], tr.position_z(frame)];
+    let a = tr.anchor.value(frame);
+    let a = [
+        a.first().copied().unwrap_or(p[0]),
+        a.get(1).copied().unwrap_or(p[1]),
+        a.get(2).copied().unwrap_or(p[2] + 1.0),
+    ];
+    let mut d = [a[0] - p[0], a[1] - p[1], a[2] - p[2]];
+    let dl = (d[0] * d[0] + d[1] * d[1] + d[2] * d[2]).sqrt();
+    if dl < 1e-6 {
+        d = [0.0, 0.0, 1.0];
+    } else {
+        d = [d[0] / dl, d[1] / dl, d[2] / dl];
+    }
+    let cross = |u: [f32; 3], v: [f32; 3]| {
+        [
+            u[1] * v[2] - u[2] * v[1],
+            u[2] * v[0] - u[0] * v[2],
+            u[0] * v[1] - u[1] * v[0],
+        ]
+    };
+    let norm = |v: [f32; 3]| {
+        let l = (v[0] * v[0] + v[1] * v[1] + v[2] * v[2]).sqrt();
+        if l < 1e-6 {
+            [1.0, 0.0, 0.0]
+        } else {
+            [v[0] / l, v[1] / l, v[2] / l]
+        }
+    };
+    // «Низ» мира — +y; базис камеры: x вправо, y вниз, z — взгляд.
+    let x = norm(cross([0.0, 1.0, 0.0], d));
+    let y = cross(d, x);
+    let look = Mat4([
+        [x[0], y[0], d[0], 0.0],
+        [x[1], y[1], d[1], 0.0],
+        [x[2], y[2], d[2], 0.0],
+        [0.0, 0.0, 0.0, 1.0],
+    ]);
+    let mut m = Mat4::translate(p[0], p[1], p[2]).mul(&look);
+    let g = |v: &[f32], i: usize| v.get(i).copied().unwrap_or(0.0);
+    if let Some(o) = &tr.orientation {
+        let o = o.value(frame);
+        m = m
+            .mul(&Mat4::rotate_x(g(&o, 0)))
+            .mul(&Mat4::rotate_y(g(&o, 1)))
+            .mul(&Mat4::rotate_z(g(&o, 2)));
+    }
+    if let Some(rx) = &tr.rotation_x {
+        m = m.mul(&Mat4::rotate_x(rx.value(frame)));
+    }
+    if let Some(ry) = &tr.rotation_y {
+        m = m.mul(&Mat4::rotate_y(ry.value(frame)));
+    }
+    m.mul(&Mat4::rotate_z(tr.rotation.value(frame)))
+}
+
 fn auto_orient_angle(tr: &Transform, local: f32) -> f32 {
     let p0 = tr.position_at(local - 0.5);
     let p1 = tr.position_at(local + 0.5);
@@ -2304,5 +2451,55 @@ mod tests {
         let (pt, ang) = p.point_at(15.0).unwrap();
         assert!((pt[0] - 10.0).abs() < 1e-5 && (pt[1] - 5.0).abs() < 1e-5);
         assert!((ang - PI / 2.0).abs() < 1e-5);
+    }
+}
+
+#[cfg(test)]
+mod tests3d {
+    use super::*;
+
+    fn comp(cam_z: f32, layer_z: f32, ry: f32) -> Composition {
+        let json = format!(
+            r##"{{"fr":30,"ip":0,"op":10,"w":200,"h":200,"layers":[
+            {{"ty":13,"ind":1,"pe":{{"a":0,"k":500}},"ks":{{"p":{{"a":0,"k":[100,100,{cam_z}]}},"a":{{"a":0,"k":[100,100,0]}}}},"ip":0,"op":10,"st":0}},
+            {{"ty":1,"ind":2,"ddd":1,"sc":"#ff0000","sw":40,"sh":40,
+              "ks":{{"p":{{"a":0,"k":[100,100,{layer_z}]}},"a":{{"a":0,"k":[20,20,0]}},"ry":{{"a":0,"k":{ry}}}}},"ip":0,"op":10,"st":0}}]}}"##
+        );
+        Composition::from_str(&json).unwrap()
+    }
+
+    fn width_of_red(c: &Composition) -> usize {
+        let mut r = Renderer::new();
+        let px = r.render_rgba8(c, 0.0, 200, 200);
+        // Ширина красного по средней строке.
+        (0..200)
+            .filter(|x| px[(100 * 200 + x) * 4 + 3] > 128)
+            .count()
+    }
+
+    #[test]
+    fn default_camera_keeps_plane_size() {
+        // Камера на расстоянии zoom: плоскость z=0 — в натуральную величину.
+        assert!((width_of_red(&comp(-500.0, 0.0, 0.0)) as i32 - 40).abs() <= 1);
+        // Ближе к камере — крупнее (вдвое при половине расстояния).
+        assert!((width_of_red(&comp(-500.0, -250.0, 0.0)) as i32 - 80).abs() <= 2);
+    }
+
+    #[test]
+    fn y_rotation_foreshortens() {
+        // 60° по Y: ширина × cos 60° (линеаризация в центре слоя).
+        let w = width_of_red(&comp(-500.0, 0.0, 60.0)) as i32;
+        assert!((w - 20).abs() <= 2, "w={w}");
+    }
+
+    #[test]
+    fn mat4_rigid_inverse() {
+        let m = Mat4::translate(3.0, -2.0, 5.0)
+            .mul(&Mat4::rotate_y(30.0))
+            .mul(&Mat4::rotate_x(-20.0));
+        let p = m.rigid_inverse().apply(m.apply([1.0, 2.0, 3.0]));
+        assert!(
+            (p[0] - 1.0).abs() < 1e-4 && (p[1] - 2.0).abs() < 1e-4 && (p[2] - 3.0).abs() < 1e-4
+        );
     }
 }

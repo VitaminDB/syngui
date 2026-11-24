@@ -485,7 +485,10 @@ Outer/Inner Glow, Stroke, Color Overlay. Text layers support text animators
 smoothness; per-letter position, anchor, scale, rotation, skew, opacity,
 fill/stroke color, hue/saturation/brightness, stroke width and tracking) and
 text on a mask path (margins, perpendicular, force alignment, reverse). Mask
-expansion is supported. Text without embedded
+expansion is supported. 3D layers (`ddd`: X/Y/Z rotation, orientation, z of
+position/anchor/scale) use 4×4 matrices with orthographic projection, or the
+composition's camera layer (perspective, point of interest; the layer plane's
+projection is approximated affinely at its anchor). Text without embedded
 glyphs falls back to system fonts through the framework's text stack
 (font-kit + swash outlines; native only — skipped on wasm/Android), matching
 family and weight with a generic fallback. Expressions are not supported. Image assets (embedded

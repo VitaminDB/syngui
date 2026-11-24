@@ -116,6 +116,154 @@ impl Mat {
     }
 }
 
+/// Матрица 4×4 для 3D-слоёв (по строкам, действует на столбец `[x,y,z,1]`).
+/// Система координат After Effects: x вправо, y вниз, z от зрителя.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct Mat4(pub [[f32; 4]; 4]);
+
+impl Mat4 {
+    pub const IDENTITY: Mat4 = Mat4([
+        [1.0, 0.0, 0.0, 0.0],
+        [0.0, 1.0, 0.0, 0.0],
+        [0.0, 0.0, 1.0, 0.0],
+        [0.0, 0.0, 0.0, 1.0],
+    ]);
+
+    pub fn translate(x: f32, y: f32, z: f32) -> Mat4 {
+        let mut m = Mat4::IDENTITY;
+        m.0[0][3] = x;
+        m.0[1][3] = y;
+        m.0[2][3] = z;
+        m
+    }
+
+    pub fn scale(x: f32, y: f32, z: f32) -> Mat4 {
+        let mut m = Mat4::IDENTITY;
+        m.0[0][0] = x;
+        m.0[1][1] = y;
+        m.0[2][2] = z;
+        m
+    }
+
+    /// Поворот вокруг X: при положительном угле верх уходит от зрителя.
+    pub fn rotate_x(deg: f32) -> Mat4 {
+        let (s, c) = deg.to_radians().sin_cos();
+        Mat4([
+            [1.0, 0.0, 0.0, 0.0],
+            [0.0, c, s, 0.0],
+            [0.0, -s, c, 0.0],
+            [0.0, 0.0, 0.0, 1.0],
+        ])
+    }
+
+    /// Поворот вокруг Y: при положительном угле правый край уходит от зрителя.
+    pub fn rotate_y(deg: f32) -> Mat4 {
+        let (s, c) = deg.to_radians().sin_cos();
+        Mat4([
+            [c, 0.0, -s, 0.0],
+            [0.0, 1.0, 0.0, 0.0],
+            [s, 0.0, c, 0.0],
+            [0.0, 0.0, 0.0, 1.0],
+        ])
+    }
+
+    /// Поворот вокруг Z — как [`Mat::rotate`] (по часовой на экране).
+    pub fn rotate_z(deg: f32) -> Mat4 {
+        Mat4::from_affine(&Mat::rotate(deg))
+    }
+
+    pub fn from_affine(m: &Mat) -> Mat4 {
+        Mat4([
+            [m.a, m.c, 0.0, m.e],
+            [m.b, m.d, 0.0, m.f],
+            [0.0, 0.0, 1.0, 0.0],
+            [0.0, 0.0, 0.0, 1.0],
+        ])
+    }
+
+    pub fn mul(&self, o: &Mat4) -> Mat4 {
+        let mut r = [[0.0f32; 4]; 4];
+        for (i, row) in r.iter_mut().enumerate() {
+            for (j, v) in row.iter_mut().enumerate() {
+                *v = (0..4).map(|k| self.0[i][k] * o.0[k][j]).sum();
+            }
+        }
+        Mat4(r)
+    }
+
+    pub fn apply(&self, p: [f32; 3]) -> [f32; 3] {
+        let m = &self.0;
+        [
+            m[0][0] * p[0] + m[0][1] * p[1] + m[0][2] * p[2] + m[0][3],
+            m[1][0] * p[0] + m[1][1] * p[1] + m[1][2] * p[2] + m[1][3],
+            m[2][0] * p[0] + m[2][1] * p[1] + m[2][2] * p[2] + m[2][3],
+        ]
+    }
+
+    /// Обратная для жёсткого движения (поворот + сдвиг).
+    pub fn rigid_inverse(&self) -> Mat4 {
+        let m = &self.0;
+        let mut r = Mat4::IDENTITY;
+        for i in 0..3 {
+            for j in 0..3 {
+                r.0[i][j] = m[j][i];
+            }
+        }
+        for i in 0..3 {
+            r.0[i][3] = -(0..3).map(|k| r.0[i][k] * m[k][3]).sum::<f32>();
+        }
+        r
+    }
+
+    /// Ортогональная проекция на экран (z отбрасывается) — плоскость слоя
+    /// `z = 0` в локальных координатах.
+    pub fn ortho(&self) -> Mat {
+        let m = &self.0;
+        Mat {
+            a: m[0][0],
+            b: m[1][0],
+            c: m[0][1],
+            d: m[1][1],
+            e: m[0][3],
+            f: m[1][3],
+        }
+    }
+
+    /// Перспективная проекция плоскости слоя (`self` — из локальных
+    /// координат слоя в пространство камеры, камера смотрит вдоль +z):
+    /// `x' = cx + zoom·x/z`. Проекция плоскости — гомография; возвращается
+    /// её аффинное приближение (якобиан) в локальной точке `p0`.
+    /// `None` — точка за камерой.
+    pub fn project_affine(&self, zoom: f32, center: [f32; 2], p0: [f32; 2]) -> Option<Mat> {
+        let m = &self.0;
+        // Строки гомографии по (u, v, 1).
+        let row = |i: usize| [m[i][0], m[i][1], m[i][3]];
+        let (rx, ry, rz) = (row(0), row(1), row(2));
+        let dot = |r: [f32; 3]| r[0] * p0[0] + r[1] * p0[1] + r[2];
+        let (x, y, z) = (dot(rx), dot(ry), dot(rz));
+        if z <= 1e-3 {
+            return None;
+        }
+        let k = zoom / z;
+        // d(x/z)/du = (rx_u·z − x·rz_u) / z².
+        let du = |r: [f32; 3], v: f32, c: usize| (r[c] * z - v * rz[c]) / (z * z);
+        let a = zoom * du(rx, x, 0);
+        let c = zoom * du(rx, x, 1);
+        let b = zoom * du(ry, y, 0);
+        let d = zoom * du(ry, y, 1);
+        let sx = center[0] + x * k;
+        let sy = center[1] + y * k;
+        Some(Mat {
+            a,
+            b,
+            c,
+            d,
+            e: sx - a * p0[0] - c * p0[1],
+            f: sy - b * p0[0] - d * p0[1],
+        })
+    }
+}
+
 /// Матрица трансформации Lottie (слоя или группы):
 /// `T(position) · R(rotation) · Skew(skew, axis) · S(scale) · T(-anchor)`.
 pub fn compose_transform(

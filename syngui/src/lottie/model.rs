@@ -8,7 +8,7 @@ use std::collections::HashMap;
 use std::sync::Arc;
 
 use super::anim::Animated;
-use super::geom::{compose_transform, LineCap, LineJoin, Mat, ShapePath};
+use super::geom::{compose_transform, LineCap, LineJoin, Mat, Mat4, ShapePath};
 use super::json::{self, Json};
 use super::raster::{BlendMode, FillRule, ImageRgba};
 
@@ -445,6 +445,11 @@ pub enum LayerKind {
     Null,
     Shape(Vec<Shape>),
     Text(TextData),
+    /// Камера (ty 13): `zoom` — расстояние до плоскости проекции (`pe`).
+    /// Точка интереса — `transform.anchor`.
+    Camera {
+        zoom: Animated<f32>,
+    },
     Unsupported,
 }
 
@@ -474,6 +479,8 @@ pub struct Layer {
     pub effects: Vec<Effect>,
     pub styles: Vec<LayerStyle>,
     pub hidden: bool,
+    /// 3D-слой (`ddd: 1`): учитываются z, повороты X/Y и ориентация.
+    pub three_d: bool,
     pub auto_orient: bool,
     /// Размер прекомпозиции / сплошного слоя.
     pub width: f32,
@@ -483,7 +490,11 @@ pub struct Layer {
 #[derive(Debug, Clone)]
 pub enum Position {
     Joint(Animated<Vec<f32>>),
-    Split { x: Animated<f32>, y: Animated<f32> },
+    Split {
+        x: Animated<f32>,
+        y: Animated<f32>,
+        z: Option<Animated<f32>>,
+    },
 }
 
 #[derive(Debug, Clone)]
@@ -496,6 +507,10 @@ pub struct Transform {
     pub opacity: Animated<f32>,
     pub skew: Animated<f32>,
     pub skew_axis: Animated<f32>,
+    /// 3D: повороты X/Y и ориентация (градусы).
+    pub rotation_x: Option<Animated<f32>>,
+    pub rotation_y: Option<Animated<f32>>,
+    pub orientation: Option<Animated<Vec<f32>>>,
 }
 
 fn two(v: &[f32]) -> [f32; 2] {
@@ -515,6 +530,9 @@ impl Transform {
             opacity: Animated::Static(100.0),
             skew: Animated::Static(0.0),
             skew_axis: Animated::Static(0.0),
+            rotation_x: None,
+            rotation_y: None,
+            orientation: None,
         }
     }
 
@@ -526,6 +544,7 @@ impl Transform {
             Some(p) if p.bool_or("s", false) => Position::Split {
                 x: Animated::parse_or(p.get("x"), 0.0),
                 y: Animated::parse_or(p.get("y"), 0.0),
+                z: Animated::parse(p.get("z")),
             },
             p => Position::Joint(Animated::parse_or(p, vec![0.0, 0.0])),
         };
@@ -541,13 +560,63 @@ impl Transform {
             opacity: Animated::parse_or(v.get("o"), 100.0),
             skew: Animated::parse_or(v.get("sk"), 0.0),
             skew_axis: Animated::parse_or(v.get("sa"), 0.0),
+            rotation_x: Animated::parse(v.get("rx")),
+            rotation_y: Animated::parse(v.get("ry")),
+            orientation: Animated::parse(v.get("or")),
         }
+    }
+
+    /// Координата z позиции (3D-слои).
+    pub fn position_z(&self, frame: f32) -> f32 {
+        match &self.position {
+            Position::Joint(p) => p.value(frame).get(2).copied().unwrap_or(0.0),
+            Position::Split { z, .. } => z.as_ref().map(|z| z.value(frame)).unwrap_or(0.0),
+        }
+    }
+
+    /// Матрица 3D-слоя: `T(p)·O·Rx·Ry·Rz·Skew·S·T(−a)` с z-компонентами
+    /// позиции, привязки и масштаба; `extra_rotation` добавляется к Z.
+    pub fn matrix4(&self, frame: f32, extra_rotation: f32) -> Mat4 {
+        let a = self.anchor.value(frame);
+        let s = self.scale.value(frame);
+        let p = self.position_at(frame);
+        let g = |v: &[f32], i: usize, d: f32| v.get(i).copied().unwrap_or(d);
+        let mut m = Mat4::translate(p[0], p[1], self.position_z(frame));
+        if let Some(o) = &self.orientation {
+            let o = o.value(frame);
+            m = m
+                .mul(&Mat4::rotate_x(g(&o, 0, 0.0)))
+                .mul(&Mat4::rotate_y(g(&o, 1, 0.0)))
+                .mul(&Mat4::rotate_z(g(&o, 2, 0.0)));
+        }
+        if let Some(rx) = &self.rotation_x {
+            m = m.mul(&Mat4::rotate_x(rx.value(frame)));
+        }
+        if let Some(ry) = &self.rotation_y {
+            m = m.mul(&Mat4::rotate_y(ry.value(frame)));
+        }
+        // Поворот Z, наклон и масштаб XY — общей 2D-частью.
+        let flat = compose_transform(
+            [0.0, 0.0],
+            [0.0, 0.0],
+            [g(&s, 0, 100.0) / 100.0, g(&s, 1, 100.0) / 100.0],
+            self.rotation.value(frame) + extra_rotation,
+            self.skew.value(frame),
+            self.skew_axis.value(frame),
+        );
+        m.mul(&Mat4::from_affine(&flat))
+            .mul(&Mat4::scale(1.0, 1.0, g(&s, 2, 100.0) / 100.0))
+            .mul(&Mat4::translate(
+                -g(&a, 0, 0.0),
+                -g(&a, 1, 0.0),
+                -g(&a, 2, 0.0),
+            ))
     }
 
     pub fn position_at(&self, frame: f32) -> [f32; 2] {
         match &self.position {
             Position::Joint(p) => p.position(frame),
-            Position::Split { x, y } => [x.value(frame), y.value(frame)],
+            Position::Split { x, y, .. } => [x.value(frame), y.value(frame)],
         }
     }
 
@@ -579,7 +648,7 @@ impl Transform {
     pub fn is_static(&self) -> bool {
         let pos_static = match &self.position {
             Position::Joint(p) => !p.is_animated(),
-            Position::Split { x, y } => !x.is_animated() && !y.is_animated(),
+            Position::Split { x, y, .. } => !x.is_animated() && !y.is_animated(),
         };
         pos_static
             && !self.anchor.is_animated()
@@ -1299,6 +1368,9 @@ fn parse_layer(v: &Json, unsupported: &mut usize) -> Layer {
         2 => LayerKind::Image(v.str_or("refId", "").to_string()),
         3 => LayerKind::Null,
         5 => LayerKind::Text(parse_text(v)),
+        13 => LayerKind::Camera {
+            zoom: Animated::parse_or(v.get("pe"), 1000.0),
+        },
         4 => LayerKind::Shape(
             v.get("shapes")
                 .and_then(Json::as_array)
@@ -1364,6 +1436,7 @@ fn parse_layer(v: &Json, unsupported: &mut usize) -> Layer {
         effects: parse_effects(v),
         styles: parse_styles(v),
         hidden: v.bool_or("hd", false),
+        three_d: v.i64_or("ddd", 0) == 1,
         auto_orient: v.i64_or("ao", 0) == 1,
         width,
         height,
