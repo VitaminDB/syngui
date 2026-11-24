@@ -84,6 +84,25 @@ enum ModInst {
     },
 }
 
+/// Контуры стиля `si`: без merge и по merge-группам.
+fn style_paths(col: &Collected, si: usize) -> (Vec<usize>, Vec<(usize, Vec<usize>)>) {
+    let mut plain = Vec::new();
+    let mut groups: Vec<(usize, Vec<usize>)> = Vec::new();
+    for (pi, p) in col.paths.iter().enumerate() {
+        if !p.styles.contains(&si) {
+            continue;
+        }
+        match p.merge {
+            None => plain.push(pi),
+            Some(g) => match groups.iter_mut().find(|(gid, _)| *gid == g) {
+                Some((_, v)) => v.push(pi),
+                None => groups.push((g, vec![pi])),
+            },
+        }
+    }
+    (plain, groups)
+}
+
 /// Камера списка слоёв: вид (мир → камера), зум и центр проекции.
 struct Camera {
     view: Mat4,
@@ -732,7 +751,17 @@ impl Renderer {
                         a,
                     );
                     stroke_polys.clear();
-                    build_stroke(&polys, st, frame, &style.mat, &mut stroke_polys);
+                    if col
+                        .paths
+                        .iter()
+                        .any(|p| p.merge.is_some() && p.styles.contains(&si))
+                    {
+                        let mut src = Vec::new();
+                        self.stroke_source(ctx, &col, si, &mut src);
+                        build_stroke(&src, st, frame, &style.mat, &mut stroke_polys);
+                    } else {
+                        build_stroke(&polys, st, frame, &style.mat, &mut stroke_polys);
+                    }
                     if let Some(m) = self
                         .rast
                         .fill(&stroke_polys, FillRule::NonZero, ctx.w, ctx.h)
@@ -751,7 +780,17 @@ impl Renderer {
                         continue;
                     };
                     stroke_polys.clear();
-                    build_stroke(&polys, st, frame, &style.mat, &mut stroke_polys);
+                    if col
+                        .paths
+                        .iter()
+                        .any(|p| p.merge.is_some() && p.styles.contains(&si))
+                    {
+                        let mut src = Vec::new();
+                        self.stroke_source(ctx, &col, si, &mut src);
+                        build_stroke(&src, st, frame, &style.mat, &mut stroke_polys);
+                    } else {
+                        build_stroke(&polys, st, frame, &style.mat, &mut stroke_polys);
+                    }
                     if let Some(m) = self
                         .rast
                         .fill(&stroke_polys, FillRule::NonZero, ctx.w, ctx.h)
@@ -775,46 +814,65 @@ impl Renderer {
         si: usize,
         rule: FillRule,
     ) -> Option<Mask> {
-        let mut plain: Vec<Polyline> = Vec::new();
-        let mut groups: Vec<(usize, Vec<usize>)> = Vec::new();
-        for (pi, p) in col.paths.iter().enumerate() {
-            if !p.styles.contains(&si) {
-                continue;
-            }
-            match p.merge {
-                None => plain.extend(p.polys.iter().cloned()),
-                Some(g) => match groups.iter_mut().find(|(gid, _)| *gid == g) {
-                    Some((_, v)) => v.push(pi),
-                    None => groups.push((g, vec![pi])),
-                },
-            }
-        }
+        let (plain, groups) = style_paths(col, si);
+        let plain: Vec<Polyline> = plain
+            .iter()
+            .flat_map(|&pi| col.paths[pi].polys.iter().cloned())
+            .collect();
         let mut total = if plain.is_empty() {
             None
         } else {
             self.rast.fill(&plain, rule, ctx.w, ctx.h)
         };
         for (gid, idxs) in groups {
-            let op = match col.merges[gid] {
-                MergeMode::Add | MergeMode::Merge => CoverageOp::Union,
-                MergeMode::Subtract => CoverageOp::Subtract,
-                MergeMode::Intersect => CoverageOp::Intersect,
-                MergeMode::Exclude => CoverageOp::Xor,
-            };
-            // Порядок соединения — сверху вниз по списку, т. е. в обратном
-            // порядке добавления контуров.
-            let mut acc: Option<Mask> = None;
-            for (k, &pi) in idxs.iter().rev().enumerate() {
-                let m = self.rast.fill(&col.paths[pi].polys, rule, ctx.w, ctx.h);
-                acc = if k == 0 {
-                    m
-                } else {
-                    self.rast.combine(acc, m, op)
-                };
-            }
+            let acc = self.merge_group_mask(ctx, col, gid, &idxs, rule);
             total = self.rast.combine(total, acc, CoverageOp::Union);
         }
         total
+    }
+
+    /// Покрытие merge-группы: булевы операции сверху вниз по списку
+    /// (в обратном порядке добавления контуров), как в skottie.
+    fn merge_group_mask(
+        &mut self,
+        ctx: &Ctx,
+        col: &Collected,
+        gid: usize,
+        idxs: &[usize],
+        rule: FillRule,
+    ) -> Option<Mask> {
+        let op = match col.merges[gid] {
+            MergeMode::Add | MergeMode::Merge => CoverageOp::Union,
+            MergeMode::Subtract => CoverageOp::Subtract,
+            MergeMode::Intersect => CoverageOp::Intersect,
+            MergeMode::Exclude => CoverageOp::Xor,
+        };
+        let mut acc: Option<Mask> = None;
+        for (k, &pi) in idxs.iter().rev().enumerate() {
+            let m = self.rast.fill(&col.paths[pi].polys, rule, ctx.w, ctx.h);
+            acc = if k == 0 {
+                m
+            } else {
+                self.rast.combine(acc, m, op)
+            };
+        }
+        acc
+    }
+
+    /// Контуры для обводки стиля: обычные контуры как есть, merge-группы —
+    /// граница результата булевой операции (изолиния покрытия).
+    fn stroke_source(&mut self, ctx: &Ctx, col: &Collected, si: usize, out: &mut Vec<Polyline>) {
+        out.clear();
+        let (plain, groups) = style_paths(col, si);
+        for pi in plain {
+            out.extend(col.paths[pi].polys.iter().cloned());
+        }
+        for (gid, idxs) in groups {
+            if let Some(m) = self.merge_group_mask(ctx, col, gid, &idxs, FillRule::NonZero) {
+                out.extend(m.contours(0.5));
+                self.rast.recycle(m);
+            }
+        }
     }
 
     /// Текстовый слой из встроенных глифов (`chars`, в том числе

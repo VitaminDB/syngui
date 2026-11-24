@@ -22,7 +22,133 @@ pub struct Mask {
     pub cov: Vec<f32>,
 }
 
+/// Точка изолинии на ребре клетки: (id ребра, координаты).
+type EdgePt = (u64, [f32; 2]);
+
 impl Mask {
+    /// Контуры области `покрытие ≥ iso` (marching squares по центрам
+    /// пикселей с линейной интерполяцией): замкнутые ломаные в координатах
+    /// холста. Седловые клетки разрешаются по среднему значению.
+    pub fn contours(&self, iso: f32) -> Vec<Polyline> {
+        let (w, h) = (self.w as i64, self.h as i64);
+        if w == 0 || h == 0 || self.cov.len() < self.w * self.h {
+            return Vec::new();
+        }
+        // Поле с рамкой из нулей: узлы i ∈ -1..=w, j ∈ -1..=h.
+        let val = |i: i64, j: i64| -> f32 {
+            if i < 0 || j < 0 || i >= w || j >= h {
+                0.0
+            } else {
+                self.cov[(j * w + i) as usize]
+            }
+        };
+        let gw = w + 2; // число узлов по x
+                        // Идентификаторы рёбер: горизонтальное (i,j)-(i+1,j) и вертикальное (i,j)-(i,j+1).
+        let hid = |i: i64, j: i64| (((j + 1) * gw + (i + 1)) * 2) as u64;
+        let vid = |i: i64, j: i64| (((j + 1) * gw + (i + 1)) * 2 + 1) as u64;
+        let pt_h = |i: i64, j: i64| -> [f32; 2] {
+            let (a, b) = (val(i, j), val(i + 1, j));
+            let t = if (b - a).abs() < 1e-9 {
+                0.5
+            } else {
+                ((iso - a) / (b - a)).clamp(0.0, 1.0)
+            };
+            [
+                self.x0 as f32 + i as f32 + 0.5 + t,
+                self.y0 as f32 + j as f32 + 0.5,
+            ]
+        };
+        let pt_v = |i: i64, j: i64| -> [f32; 2] {
+            let (a, b) = (val(i, j), val(i, j + 1));
+            let t = if (b - a).abs() < 1e-9 {
+                0.5
+            } else {
+                ((iso - a) / (b - a)).clamp(0.0, 1.0)
+            };
+            [
+                self.x0 as f32 + i as f32 + 0.5,
+                self.y0 as f32 + j as f32 + 0.5 + t,
+            ]
+        };
+        // Отрезки: начало → конец (по рёбрам), внутренность слева.
+        let mut next: std::collections::HashMap<u64, (u64, [f32; 2])> =
+            std::collections::HashMap::new();
+        let mut starts: Vec<(u64, [f32; 2])> = Vec::new();
+        for j in -1..h {
+            for i in -1..w {
+                let (a, b, c, d) = (val(i, j), val(i + 1, j), val(i + 1, j + 1), val(i, j + 1));
+                let code = ((a >= iso) as u8)
+                    | (((b >= iso) as u8) << 1)
+                    | (((c >= iso) as u8) << 2)
+                    | (((d >= iso) as u8) << 3);
+                if code == 0 || code == 15 {
+                    continue;
+                }
+                // Рёбра клетки: верх, право, низ, лево.
+                let top = (hid(i, j), pt_h(i, j));
+                let right = (vid(i + 1, j), pt_v(i + 1, j));
+                let bottom = (hid(i, j + 1), pt_h(i, j + 1));
+                let left = (vid(i, j), pt_v(i, j));
+                let center_in = (a + b + c + d) / 4.0 >= iso;
+                let segs: &[(EdgePt, EdgePt)] = &match code {
+                    1 => [(left, top), (left, left)],
+                    2 => [(top, right), (top, top)],
+                    3 => [(left, right), (left, left)],
+                    4 => [(right, bottom), (right, right)],
+                    5 => {
+                        if center_in {
+                            [(left, bottom), (right, top)]
+                        } else {
+                            [(left, top), (right, bottom)]
+                        }
+                    }
+                    6 => [(top, bottom), (top, top)],
+                    7 => [(left, bottom), (left, left)],
+                    8 => [(bottom, left), (bottom, bottom)],
+                    9 => [(bottom, top), (bottom, bottom)],
+                    10 => {
+                        if center_in {
+                            [(top, left), (bottom, right)]
+                        } else {
+                            [(top, right), (bottom, left)]
+                        }
+                    }
+                    11 => [(bottom, right), (bottom, bottom)],
+                    12 => [(right, left), (right, right)],
+                    13 => [(right, top), (right, right)],
+                    _ => [(top, left), (top, top)], // 14
+                };
+                for &(s0, s1) in segs {
+                    if s0.0 == s1.0 {
+                        continue; // заглушка (одна пара)
+                    }
+                    next.insert(s0.0, (s1.0, s1.1));
+                    starts.push(s0);
+                }
+            }
+        }
+        // Склейка отрезков в замкнутые контуры.
+        let mut out = Vec::new();
+        for (sid, spt) in starts {
+            if !next.contains_key(&sid) {
+                continue;
+            }
+            let mut pts = vec![spt];
+            let mut cur = sid;
+            while let Some((nid, npt)) = next.remove(&cur) {
+                if nid == sid {
+                    break;
+                }
+                pts.push(npt);
+                cur = nid;
+            }
+            if pts.len() >= 3 {
+                out.push(Polyline { pts, closed: true });
+            }
+        }
+        out
+    }
+
     pub fn full(w: usize, h: usize) -> Mask {
         Mask {
             x0: 0,
@@ -1632,5 +1758,51 @@ mod tests {
         a.composite(&b, 1.0, BlendMode::Normal);
         let px = a.to_rgba8();
         assert_eq!(&px[..4], &[128, 0, 128, 255]);
+    }
+}
+
+#[cfg(test)]
+mod contour_tests {
+    use super::*;
+
+    #[test]
+    fn square_contour_is_closed_and_sized() {
+        // Квадрат 4×4 полного покрытия в маске 8×8.
+        let mut m = Mask {
+            x0: 10,
+            y0: 20,
+            w: 8,
+            h: 8,
+            cov: vec![0.0; 64],
+        };
+        for y in 2..6 {
+            for x in 2..6 {
+                m.cov[y * 8 + x] = 1.0;
+            }
+        }
+        let c = m.contours(0.5);
+        assert_eq!(c.len(), 1);
+        let bb = c[0].bbox().unwrap();
+        // Граница — посередине между центрами пикселей: 12..16 × 22..26.
+        assert!((bb[0] - 12.0).abs() < 1e-4 && (bb[2] - 16.0).abs() < 1e-4);
+        assert!((bb[1] - 22.0).abs() < 1e-4 && (bb[3] - 26.0).abs() < 1e-4);
+    }
+
+    #[test]
+    fn ring_has_two_contours() {
+        let mut m = Mask {
+            x0: 0,
+            y0: 0,
+            w: 9,
+            h: 9,
+            cov: vec![0.0; 81],
+        };
+        for y in 1..8 {
+            for x in 1..8 {
+                let inner = (3..6).contains(&x) && (3..6).contains(&y);
+                m.cov[y * 9 + x] = if inner { 0.0 } else { 1.0 };
+            }
+        }
+        assert_eq!(m.contours(0.5).len(), 2);
     }
 }

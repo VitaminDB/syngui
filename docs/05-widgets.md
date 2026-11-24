@@ -476,7 +476,8 @@ Supported: shape/solid/null/precomp/image layers, text layers from embedded
 glyphs (bodymovin "Glyphs" export; `chars`), parenting, masks and track
 mattes, time remap, blend modes, fills and strokes (solid and linear/radial
 gradients, dashes), trim paths, repeater, rounded corners, polystar, merge
-paths (boolean ops on fill coverage; strokes draw the source contours),
+paths (boolean ops on coverage; strokes follow the outline of the result,
+extracted by marching squares),
 offset paths / zig zag (sharp and smooth) / pucker & bloat / twist modifiers,
 layer effects Fill, Tint, Tritone, Pro Levels, Drop Shadow, Gaussian Blur,
 Radial Wipe, Stroke (along masks), and layer styles Drop/Inner Shadow,
