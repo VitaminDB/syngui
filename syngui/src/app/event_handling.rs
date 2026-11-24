@@ -509,6 +509,7 @@ impl AppHandler {
                             position: pos,
                             data,
                         };
+                        crate::widgets::overlay::drop_area::HIDE_GHOST.store(false, std::sync::atomic::Ordering::Relaxed);
                         let accepting = self.win.tree.dispatch_drag_event(&drag_move).is_handled();
                         if let Some(ref mut drag) = self.win.tree.drag_state {
                             drag.accepting = accepting;
@@ -1144,6 +1145,7 @@ impl AppHandler {
         }) else {
             return;
         };
+        crate::widgets::overlay::drop_area::HIDE_GHOST.store(false, std::sync::atomic::Ordering::Relaxed);
         let accepting = self
             .win
             .tree

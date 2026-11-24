@@ -273,6 +273,10 @@ impl ElementTree {
             Some(d) if d.data.ghost => d,
             _ => return,
         };
+        // цель под курсором рисует своё превью броска
+        if drag.accepting && crate::widgets::overlay::drop_area::HIDE_GHOST.load(std::sync::atomic::Ordering::Relaxed) {
+            return;
+        }
 
         list.begin_overlay_absolute();
 

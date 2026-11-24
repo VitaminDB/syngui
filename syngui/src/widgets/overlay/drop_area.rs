@@ -21,6 +21,10 @@ pub struct DropInfo {
     pub size: Size,
 }
 
+/// Над областью с [`DropArea::hide_ghost`] — призрак переноса не рисовать
+/// (сбрасывается перед каждой рассылкой движения переноса).
+pub static HIDE_GHOST: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
+
 pub struct DropArea {
     pub child: Option<Box<dyn Widget>>,
     pub accept_types: Vec<String>,
@@ -37,6 +41,9 @@ pub struct DropArea {
     pub accept_at: Option<AcceptAtFn>,
     /// См. [`DropArea::pointer_transparent`].
     pub pointer_transparent: bool,
+    /// Над областью призрак переноса не рисуется: цель показывает своё
+    /// превью броска (клип на дорожке таймлайна).
+    pub hide_ghost: bool,
 }
 
 /// Фильтр точки: (позиция от левого верхнего угла области, размер области).
@@ -56,6 +63,7 @@ impl DropArea {
             priority: 0,
             accept_at: None,
             pointer_transparent: false,
+            hide_ghost: false,
         }
     }
 
@@ -121,6 +129,13 @@ impl DropArea {
         self
     }
 
+    /// Прятать призрак переноса, пока курсор над областью и она принимает
+    /// перенос, — цель рисует своё превью броска.
+    pub fn hide_ghost(mut self) -> Self {
+        self.hide_ghost = true;
+        self
+    }
+
     pub fn placeholder(mut self, text: impl Into<String>) -> Self {
         self.placeholder = text.into();
         self
@@ -147,6 +162,7 @@ impl Widget for DropArea {
             priority: self.priority,
             accept_at: self.accept_at.clone(),
             pointer_transparent: self.pointer_transparent,
+            hide_ghost: self.hide_ghost,
             bounds: Rect::zero(),
             drag_over: false,
             dropped_items: Vec::new(),
@@ -196,6 +212,7 @@ struct DropAreaElement {
     priority: i32,
     accept_at: Option<AcceptAtFn>,
     pointer_transparent: bool,
+    hide_ghost: bool,
     bounds: Rect,
     drag_over: bool,
     dropped_items: Vec<String>,
@@ -250,6 +267,7 @@ impl Element for DropAreaElement {
             self.priority = da.priority;
             self.accept_at = da.accept_at.clone();
             self.pointer_transparent = da.pointer_transparent;
+            self.hide_ghost = da.hide_ghost;
             self.mark_dirty(DirtyFlags::RENDER);
         }
     }
@@ -374,6 +392,9 @@ impl Element for DropAreaElement {
             }
             Event::Drop { position, data } => {
                 if self.takes(*position) && self.accepts(&data.drag_type) {
+                    if self.hide_ghost {
+                        HIDE_GHOST.store(true, std::sync::atomic::Ordering::Relaxed);
+                    }
                     self.drag_over = false;
                     if let Some(ref cb) = self.on_drag_leave {
                         if let Ok(mut f) = cb.lock() {
