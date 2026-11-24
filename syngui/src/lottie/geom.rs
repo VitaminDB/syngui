@@ -204,13 +204,11 @@ impl Mat4 {
     pub fn rigid_inverse(&self) -> Mat4 {
         let m = &self.0;
         let mut r = Mat4::IDENTITY;
-        for i in 0..3 {
-            for j in 0..3 {
-                r.0[i][j] = m[j][i];
+        for (i, row) in r.0.iter_mut().take(3).enumerate() {
+            for (j, v) in row.iter_mut().take(3).enumerate() {
+                *v = m[j][i];
             }
-        }
-        for i in 0..3 {
-            r.0[i][3] = -(0..3).map(|k| r.0[i][k] * m[k][3]).sum::<f32>();
+            row[3] = -(row[0] * m[0][3] + row[1] * m[1][3] + row[2] * m[2][3]);
         }
         r
     }
