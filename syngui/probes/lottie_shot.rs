@@ -2,9 +2,17 @@
 //! проверка раскладки, загрузки текстуры и тиков анимации.
 //!
 //! `cargo run -p syngui --example lottie_shot --features image -- file.json out.png`
+//! (`файл.lottie#id` — анимация dotLottie по id).
 
 use syngui::prelude::*;
 use syngui::widgets::Lottie;
+
+fn open(path: &str) -> Lottie {
+    match path.rsplit_once('#') {
+        Some((p, id)) => Lottie::from_file_animation(p, id),
+        None => Lottie::from_file(path),
+    }
+}
 
 fn main() {
     let args: Vec<String> = std::env::args().collect();
@@ -27,10 +35,10 @@ fn main() {
                 DecoratedBox::new().class("root").child(
                     Row::new()
                         .gap(16.0)
-                        .child(Lottie::from_file(&p1).class("big"))
-                        .child(Lottie::from_file(&p2).fit(ImageFit::Cover).class("small"))
+                        .child(open(&p1).class("big"))
+                        .child(open(&p2).fit(ImageFit::Cover).class("small"))
                         .child(
-                            Lottie::from_file(&p3)
+                            open(&p3)
                                 .speed(0.0)
                                 .progress_signal(use_signal(0.5))
                                 .class("small"),

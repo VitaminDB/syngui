@@ -1196,7 +1196,7 @@ FramesView::new(frames, fps).playing_signal(..).position_signal(..).autoplay(tru
 // стили слоя (тени, свечения, обводка, Color Overlay)
 Lottie::from_file("anim.json").repeat(true).speed(1.0).segment(0.0, 60.0) // или .marker("intro"), .bounce(true)
 Lottie::from_file_animation("pack.lottie", "2")   // dotLottie: анимация по id; манифест (скорость/повтор/bounce) — умолчания
-    .playing_signal(play).progress_signal(prog).on_complete(|| ..).style("width", 160.0_f32)
+    .playing_signal(play).progress_signal(prog).on_complete(|| ..).on_marker(|name| ..).style("width", 160.0_f32)
 MapView::new().center(lat, lng).zoom(12).provider(TileProvider::osm())
     .marker(MapMarker::new(lat, lng).label("X").pulse())   // фича "map"
 HeatOverlay::new().points(vec![HeatPoint::new(lat, lng, 71.5)]).viewport(vp)

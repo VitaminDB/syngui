@@ -503,7 +503,10 @@ Frames are rasterized on the CPU at the physical size of the fit rectangle
 (crisp on HiDPI) in a small dedicated background thread pool (not the shared
 rayon pool used by layout) and uploaded into one GPU texture per instance; a
 finished frame appears on the next tick, and no new frame is queued while one
-is still rendering. On wasm frames render synchronously. By default
+is still rendering. On wasm frames render synchronously. Small animations
+(all frames at the current size fit in 24 MB) are rasterized once: frames go
+into a process-wide cache shared by every instance of the same composition
+(96 MB budget, least recently shown frames are evicted). By default
 only whole animation frames are rendered; `.subframe(true)` renders
 fractional frames on every tick.
 
@@ -518,6 +521,7 @@ Lottie::from_file("anim.json")        // or from_str / from_bytes / new(Arc<Comp
     .playing_signal(play_sig)         // RwSignal<bool>, bidirectional
     .progress_signal(prog_sig)        // RwSignal<f32> 0..1; external write while paused = seek
     .on_complete(|| ..)               // non-repeat end
+    .on_marker(|name| ..)             // playback crossed a marker frame
     .style("width", 160.0_f32)        // natural size = composition size
 ```
 

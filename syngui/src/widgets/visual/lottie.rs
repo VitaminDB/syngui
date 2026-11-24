@@ -32,6 +32,114 @@ type FrameKey = (f32, u32, u32);
 /// Готовый кадр из фонового потока.
 type FrameSlot = Arc<std::sync::Mutex<Option<(FrameKey, Vec<u8>)>>>;
 
+/// Кэш готовых кадров маленьких анимаций (иконки и т. п.): кадр
+/// растеризуется один раз и дальше берётся из памяти — общий для всех
+/// экземпляров одной композиции. Кэшируются только анимации, все кадры
+/// которых при данном размере укладываются в [`frame_cache::PER_ANIM`];
+/// общий объём ограничен [`frame_cache::BUDGET`], вытесняются давно не
+/// показанные кадры.
+mod frame_cache {
+    use std::collections::HashMap;
+    use std::sync::{Arc, Mutex, OnceLock, Weak};
+
+    use crate::lottie::Composition;
+
+    pub const PER_ANIM: usize = 24 << 20;
+    pub const BUDGET: usize = 96 << 20;
+
+    type Key = (usize, u32, u32, u32);
+
+    struct Entry {
+        comp: Weak<Composition>,
+        data: Arc<Vec<u8>>,
+        used: u64,
+    }
+
+    #[derive(Default)]
+    struct Cache {
+        map: HashMap<Key, Entry>,
+        bytes: usize,
+        tick: u64,
+    }
+
+    fn cache() -> &'static Mutex<Cache> {
+        static C: OnceLock<Mutex<Cache>> = OnceLock::new();
+        C.get_or_init(|| Mutex::new(Cache::default()))
+    }
+
+    fn key(comp: &Arc<Composition>, k: super::FrameKey) -> Key {
+        (Arc::as_ptr(comp) as usize, k.0.to_bits(), k.1, k.2)
+    }
+
+    /// Помещаются ли все кадры анимации размера `w×h` в лимит.
+    pub fn eligible(comp: &Composition, w: u32, h: u32) -> bool {
+        let frames = comp.frame_count().ceil().max(1.0) as usize;
+        (w as usize) * (h as usize) * 4 * frames <= PER_ANIM
+    }
+
+    pub fn get(comp: &Arc<Composition>, k: super::FrameKey) -> Option<Arc<Vec<u8>>> {
+        let mut c = cache().lock().ok()?;
+        c.tick += 1;
+        let tick = c.tick;
+        let e = c.map.get_mut(&key(comp, k))?;
+        // Тот же адрес мог достаться новой композиции.
+        if !Weak::ptr_eq(&e.comp, &Arc::downgrade(comp)) || e.comp.strong_count() == 0 {
+            return None;
+        }
+        e.used = tick;
+        Some(e.data.clone())
+    }
+
+    pub fn put(comp: &Arc<Composition>, k: super::FrameKey, data: Arc<Vec<u8>>) {
+        let Ok(mut c) = cache().lock() else {
+            return;
+        };
+        c.tick += 1;
+        let used = c.tick;
+        let n = data.len();
+        if let Some(old) = c.map.insert(
+            key(comp, k),
+            Entry {
+                comp: Arc::downgrade(comp),
+                data,
+                used,
+            },
+        ) {
+            c.bytes -= old.data.len();
+        }
+        c.bytes += n;
+        if c.bytes > BUDGET {
+            // Сначала кадры удалённых композиций, затем давно не показанные.
+            let mut dead = 0;
+            c.map.retain(|_, e| {
+                let alive = e.comp.strong_count() > 0;
+                if !alive {
+                    dead += e.data.len();
+                }
+                alive
+            });
+            c.bytes -= dead;
+            if c.bytes > BUDGET {
+                let mut v: Vec<(u64, Key)> = c.map.iter().map(|(k, e)| (e.used, *k)).collect();
+                v.sort_unstable();
+                for (_, k) in v {
+                    if c.bytes <= BUDGET * 3 / 4 {
+                        break;
+                    }
+                    if let Some(e) = c.map.remove(&k) {
+                        c.bytes -= e.data.len();
+                    }
+                }
+            }
+        }
+    }
+
+    #[cfg(test)]
+    pub fn len() -> usize {
+        cache().lock().map(|c| c.map.len()).unwrap_or(0)
+    }
+}
+
 /// Фоновые потоки растеризации Lottie. Отдельный небольшой пул, а не общий
 /// rayon: долгие кадры не должны занимать воркеры параллельной раскладки.
 #[cfg(not(target_arch = "wasm32"))]
@@ -83,6 +191,7 @@ mod pool {
 }
 
 type CompleteFn = Arc<dyn Fn() + Send + Sync>;
+type MarkerFn = Arc<dyn Fn(&str) + Send + Sync>;
 
 pub struct Lottie {
     comp: Option<Arc<Composition>>,
@@ -99,6 +208,7 @@ pub struct Lottie {
     segment: Option<(f32, f32)>,
     marker: Option<String>,
     on_complete: Option<CompleteFn>,
+    on_marker: Option<MarkerFn>,
     size: Option<(f32, f32)>,
     zoom: f32,
 }
@@ -135,6 +245,7 @@ impl Lottie {
             segment: None,
             marker: None,
             on_complete: None,
+            on_marker: None,
             size: None,
             zoom: 1.0,
         }
@@ -307,6 +418,13 @@ impl Lottie {
         self
     }
 
+    /// Вызывается с именем маркера (`markers[].cm`), когда воспроизведение
+    /// проходит его кадр (в любую сторону, с учётом повтора и bounce).
+    pub fn on_marker(mut self, f: impl Fn(&str) + Send + Sync + 'static) -> Self {
+        self.on_marker = Some(Arc::new(f));
+        self
+    }
+
     /// Ошибка разбора, если файл не удалось загрузить.
     pub fn error(&self) -> Option<&str> {
         self.error.as_deref()
@@ -414,6 +532,7 @@ impl Widget for Lottie {
             inflight: None,
             slot: Arc::new(std::sync::Mutex::new(None)),
             on_complete: self.on_complete.clone(),
+            on_marker: self.on_marker.clone(),
             size: self.size,
             zoom: self.zoom,
         })
@@ -472,11 +591,32 @@ pub struct LottieElement {
     /// Куда фоновая задача кладёт готовый кадр.
     slot: FrameSlot,
     on_complete: Option<CompleteFn>,
+    on_marker: Option<MarkerFn>,
     size: Option<(f32, f32)>,
     zoom: f32,
 }
 
 impl LottieElement {
+    /// Сообщить о маркерах, пройденных на отрезках `(from, to]` (в сторону
+    /// движения; начальная точка не включается).
+    fn fire_markers(&self, spans: &[(f32, f32)]) {
+        let Some(cb) = &self.on_marker else {
+            return;
+        };
+        for &(from, to) in spans {
+            for m in &self.comp.markers {
+                let hit = if to >= from {
+                    m.frame > from && m.frame <= to
+                } else {
+                    m.frame < from && m.frame >= to
+                };
+                if hit {
+                    cb(&m.name);
+                }
+            }
+        }
+    }
+
     fn seg_len(&self) -> f32 {
         (self.seg_end - self.seg_start).max(0.0)
     }
@@ -586,6 +726,13 @@ impl LottieElement {
         if self.inflight.is_some() {
             return;
         }
+        let cacheable = !self.subframe && frame_cache::eligible(&self.comp, key.1, key.2);
+        if cacheable {
+            if let Some(data) = frame_cache::get(&self.comp, key) {
+                self.upload(key, (*data).clone());
+                return;
+            }
+        }
         #[cfg(not(target_arch = "wasm32"))]
         {
             let comp = self.comp.clone();
@@ -597,6 +744,9 @@ impl LottieElement {
                     Ok(mut r) => r.render_rgba8(&comp, key.0, key.1, key.2),
                     Err(_) => return,
                 };
+                if cacheable {
+                    frame_cache::put(&comp, key, Arc::new(rgba.clone()));
+                }
                 if let Ok(mut s) = slot.lock() {
                     *s = Some((key, rgba));
                 }
@@ -609,6 +759,9 @@ impl LottieElement {
                 Ok(mut r) => r.render_rgba8(&self.comp, key.0, key.1, key.2),
                 Err(_) => return,
             };
+            if cacheable {
+                frame_cache::put(&self.comp, key, Arc::new(rgba.clone()));
+            }
             self.upload(key, rgba);
         }
     }
@@ -663,6 +816,7 @@ impl Element for LottieElement {
             self.subframe = v.subframe;
             self.classes = v.classes.clone();
             self.on_complete = v.on_complete.clone();
+            self.on_marker = v.on_marker.clone();
             if self.zoom != v.zoom {
                 self.zoom = v.zoom;
                 self.rendered = None;
@@ -763,7 +917,10 @@ impl Element for LottieElement {
                 self.set_playing(false);
             } else {
                 let eff = self.speed * if self.bounce { self.bounce_dir } else { 1.0 };
+                let prev = self.frame;
                 self.frame += dt.as_secs_f32() * self.comp.frame_rate * eff;
+                let mut spans: [(f32, f32); 2] = [(prev, self.frame), (0.0, 0.0)];
+                let mut nspans = 1;
                 let past_end = eff >= 0.0 && self.frame >= self.seg_end;
                 let past_start = eff < 0.0 && self.frame <= self.seg_start;
                 if (past_end || past_start) && self.bounce && (self.repeat || !self.bounced) {
@@ -775,24 +932,42 @@ impl Element for LottieElement {
                     };
                     self.bounce_dir = -self.bounce_dir;
                     self.bounced = true;
+                    let edge = if past_end {
+                        self.seg_end
+                    } else {
+                        self.seg_start
+                    };
+                    spans = [(prev, edge), (edge, self.frame)];
+                    nspans = 2;
                 } else if past_end || past_start {
                     if self.repeat {
                         let rel = (self.frame - self.seg_start).rem_euclid(len);
                         self.frame = self.seg_start + rel;
+                        // Переход через край: начало следующего круга включается.
+                        spans = if past_end {
+                            [(prev, self.seg_end), (self.seg_start - 1e-3, self.frame)]
+                        } else {
+                            [(prev, self.seg_start), (self.seg_end + 1e-3, self.frame)]
+                        };
+                        nspans = 2;
                     } else {
                         self.frame = if past_end {
                             self.seg_end
                         } else {
                             self.seg_start
                         };
+                        spans[0] = (prev, self.frame);
                         self.set_playing(false);
                         self.bounce_dir = 1.0;
                         self.bounced = false;
+                        self.fire_markers(&spans[..nspans]);
+                        nspans = 0;
                         if let Some(cb) = self.on_complete.clone() {
                             cb();
                         }
                     }
                 }
+                self.fire_markers(&spans[..nspans]);
             }
             if let Some(sig) = self.progress_signal {
                 let p = self.progress();
@@ -990,6 +1165,37 @@ mod tests {
         }
         let (f, playing) = frame_of(&mut e);
         assert!(playing && (0.0..=30.0).contains(&f));
+    }
+
+    #[test]
+    fn markers_fire_when_crossed() {
+        use std::sync::Mutex as M;
+        let json = r#"{"fr":30,"ip":0,"op":30,"w":10,"h":10,"layers":[],
+            "markers":[{"cm":"start","tm":0,"dr":0},{"cm":"mid","tm":15,"dr":0},{"cm":"end","tm":30,"dr":0}]}"#;
+        let log = Arc::new(M::new(Vec::<String>::new()));
+        let l2 = log.clone();
+        let w = Lottie::from_str(json).on_marker(move |n| l2.lock().unwrap().push(n.to_string()));
+        let mut e = element(&w);
+        e.animate(Duration::from_millis(400)); // 0 → 12
+        assert!(log.lock().unwrap().is_empty());
+        e.animate(Duration::from_millis(400)); // 12 → 24: mid
+        e.animate(Duration::from_millis(400)); // 24 → 36 → круг: end, start
+        assert_eq!(*log.lock().unwrap(), vec!["mid", "end", "start"]);
+    }
+
+    #[test]
+    fn frame_cache_shared_and_validated() {
+        let comp = Arc::new(Composition::from_str(JSON).unwrap());
+        assert!(frame_cache::eligible(&comp, 64, 64));
+        assert!(!frame_cache::eligible(&comp, 2000, 2000));
+        let k = (3.0, 8, 8);
+        assert!(frame_cache::get(&comp, k).is_none());
+        frame_cache::put(&comp, k, Arc::new(vec![7u8; 256]));
+        assert_eq!(frame_cache::get(&comp, k).unwrap()[0], 7);
+        assert!(frame_cache::len() >= 1);
+        // Другая композиция — промах, даже с тем же ключом кадра.
+        let other = Arc::new(Composition::from_str(JSON).unwrap());
+        assert!(frame_cache::get(&other, k).is_none());
     }
 
     #[test]
