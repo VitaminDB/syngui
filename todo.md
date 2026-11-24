@@ -5,9 +5,9 @@
 
 ## Lottie (`syngui/src/lottie`, виджет `Lottie`)
 
-- [ ] **эффекты по мере встречаемости**: Hue/Saturation и прочие `ty: 5`
-      (распознавать по `mn`), Displacement Map, Set Matte, Twirl/Wavy/Spherize;
-      стили Bevel/Satin/Gradient Overlay.
+- [ ] **эффекты по мере встречаемости**: Hue/Saturation (нужна сверка
+      номеров параметров), Box Blur, Displacement Map, Set Matte,
+      Twirl/Wavy/Spherize, CC Slant; стили Bevel/Satin/Gradient Overlay.
 - [ ] **производительность**: грязные регионы между кадрами (сейчас кадр
       растеризуется целиком), SIMD-заливка строк покрытия (`wide` уже в
       зависимостях), параллельные слои через отдельный пул.

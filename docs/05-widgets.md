@@ -480,7 +480,9 @@ paths (boolean ops on coverage; strokes follow the outline of the result,
 extracted by marching squares),
 offset paths / zig zag (sharp and smooth) / pucker & bloat / twist modifiers,
 layer effects Fill, Tint, Tritone, Pro Levels, Drop Shadow, Gaussian Blur,
-Radial Wipe, Stroke (along masks), and layer styles Drop/Inner Shadow,
+Radial Wipe, Stroke (along masks), Invert, motion blur (CC Force Motion
+Blur, Cartoon Moblur — the layer is sampled across the shutter); effects
+wrapped as `ty: 5` are recognized by match name; and layer styles Drop/Inner Shadow,
 Outer/Inner Glow, Stroke, Color Overlay. Text layers support text animators
 (range selectors by characters/words/lines with all selector shapes, ease and
 smoothness; per-letter position, anchor, scale, rotation, skew, opacity,

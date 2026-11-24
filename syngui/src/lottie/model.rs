@@ -388,6 +388,15 @@ pub enum Effect {
         direction: i64,
         feather: Animated<f32>,
     },
+    /// Invert (RGB): `blend` — доля исходного, проценты.
+    Invert { blend: Animated<f32> },
+    /// Размытие движения (CC Force Motion Blur и подобные): слой
+    /// рендерится в `samples` моментах в пределах угла затвора.
+    MotionBlur {
+        samples: Animated<f32>,
+        /// Градусы (360 — весь кадр).
+        shutter: Animated<f32>,
+    },
     /// Stroke (22): обводка масок слоя.
     Stroke {
         /// Номер маски (с 1), если не `all_masks`.
@@ -1307,7 +1316,33 @@ fn parse_effects(v: &Json) -> Vec<Effect> {
             Animated::parse_or(val(i), vec![0.0, 0.0, 0.0, 1.0]).map(|c| normalize_color(c))
         };
         let num = |i: usize, d: f32| Animated::parse_or(val(i), d);
-        match e.i64_or("ty", -1) {
+        // Эффект в обёртке `ty: 5` — по match name (параметры те же).
+        let ty = match (e.i64_or("ty", -1), e.str_or("mn", "")) {
+            (5, "ADBE Tint") => 20,
+            (5, "ADBE Fill") => 21,
+            (5, "ADBE Stroke") => 22,
+            (5, "ADBE Tritone") => 23,
+            (5, "ADBE Pro Levels2") => 24,
+            (5, "ADBE Drop Shadow") => 25,
+            (5, "ADBE Radial Wipe") => 26,
+            (5, "ADBE Gaussian Blur 2" | "ADBE Fast Blur") => 29,
+            (5, "ADBE Invert") => 1001,
+            (5, "CC Force Motion Blur") => 1002,
+            (5, "PECMBS") => 1003,
+            (t, _) => t,
+        };
+        match ty {
+            1001 => out.push(Effect::Invert { blend: num(1, 0.0) }),
+            // CC Force Motion Blur: число отсчётов, угол затвора.
+            1002 => out.push(Effect::MotionBlur {
+                samples: num(0, 8.0),
+                shutter: num(2, 180.0),
+            }),
+            // Cartoon Moblur: угол затвора — 5-й параметр.
+            1003 => out.push(Effect::MotionBlur {
+                samples: Animated::Static(8.0),
+                shutter: num(4, 180.0),
+            }),
             20 => out.push(Effect::Tint {
                 black: color(0),
                 white: color(1),

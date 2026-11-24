@@ -1354,6 +1354,41 @@ impl Pixmap {
         self.mark(x0, y0, x1, y1);
     }
 
+    /// Прибавить `src·k` (накопление для усреднения кадров).
+    pub fn accumulate(&mut self, src: &Pixmap, k: f32) {
+        let Some([x0, y0, x1, y1]) = src.dirty else {
+            return;
+        };
+        for y in y0..y1 {
+            for x in x0..x1 {
+                let i = y * self.w + x;
+                let s = src.px[i];
+                let d = &mut self.px[i];
+                for c in 0..4 {
+                    d[c] += s[c] * k;
+                }
+            }
+        }
+        self.mark(x0, y0, x1, y1);
+    }
+
+    /// Инверсия цвета (альфа сохраняется); `keep` — доля исходного.
+    pub fn effect_invert(&mut self, keep: f32) {
+        let Some([x0, y0, x1, y1]) = self.dirty else {
+            return;
+        };
+        let keep = keep.clamp(0.0, 1.0);
+        for y in y0..y1 {
+            for p in &mut self.px[y * self.w + x0..y * self.w + x1] {
+                let a = p[3];
+                for k in 0..3 {
+                    let inv = a - p[k];
+                    p[k] = inv + (p[k] - inv) * keep;
+                }
+            }
+        }
+    }
+
     /// Копия содержимого `src` (того же размера) — только затронутая область.
     pub fn copy_from(&mut self, src: &Pixmap) {
         self.clear();

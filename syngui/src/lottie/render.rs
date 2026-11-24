@@ -446,6 +446,9 @@ impl Renderer {
         // точной гомографией плоскости.
         let warp = self.layer_homography(layers, i, frame, root, scene);
         let needs_buffer = warp.is_some()
+            || l.effects
+                .iter()
+                .any(|e| matches!(e, Effect::MotionBlur { .. }))
             || l.matte.is_some()
             || opacity < 1.0
             || l.blend != BlendMode::Normal
@@ -459,7 +462,40 @@ impl Renderer {
             return;
         }
         let mut buf = self.take(ctx.w, ctx.h);
-        self.draw_content(ctx, l, frame, &mat, &mut buf, depth, clip_ref);
+        let blur = l.effects.iter().find_map(|e| match e {
+            Effect::MotionBlur { samples, shutter } => Some((
+                samples.value(frame).round().clamp(1.0, 32.0) as usize,
+                shutter.value(frame),
+            )),
+            _ => None,
+        });
+        match blur {
+            Some((n, shutter)) if n > 1 && shutter > 0.0 => {
+                // Затвор по центру кадра: моменты frame ± shutter/720.
+                let span = shutter / 360.0;
+                let mut tmp = self.take(ctx.w, ctx.h);
+                for k in 0..n {
+                    let f = frame + span * (k as f32 / (n - 1) as f32 - 0.5);
+                    let m = self.layer_matrix(
+                        layers,
+                        i,
+                        f,
+                        root,
+                        &mut Scene {
+                            world: vec![None; layers.len()],
+                            camera: None,
+                            comp: ctx.comp,
+                            has_expr: ctx.comp.has_expressions,
+                        },
+                    );
+                    tmp.clear();
+                    self.draw_content(ctx, l, f, &m, &mut tmp, depth, clip_ref);
+                    buf.accumulate(&tmp, 1.0 / n as f32);
+                }
+                self.recycle(tmp);
+            }
+            _ => self.draw_content(ctx, l, frame, &mat, &mut buf, depth, clip_ref),
+        }
         if !l.effects.is_empty() {
             self.apply_effects(ctx, l, frame, &mat, &mut buf);
         }
@@ -1390,6 +1426,8 @@ impl Renderer {
                     std::mem::swap(buf, &mut sbuf);
                     self.recycle(sbuf);
                 }
+                Effect::Invert { blend } => buf.effect_invert(blend.value(frame) / 100.0),
+                Effect::MotionBlur { .. } => {}
                 Effect::Tritone {
                     highlights,
                     midtones,
