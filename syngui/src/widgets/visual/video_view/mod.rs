@@ -368,6 +368,8 @@ impl Element for VideoViewElement {
         if self.surface_mode {
             // Кадры рисует кодек: UI не перерисовываем, но продолжаем тикать,
             // чтобы планировать показ следующих кадров.
+            // Без winit (сборка без окна: снимки, библиотеки) цикла событий нет.
+            #[cfg(feature = "winit")]
             if ticking {
                 crate::app::request_tick(Duration::from_millis(40));
             }
