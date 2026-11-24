@@ -64,9 +64,11 @@ pub mod platform;
 pub mod print;
 pub mod render;
 pub mod scale;
-/// Снимок интерфейса без окна в PNG.
+/// Покадровый рендерер без окна (экспорт видео, превью).
 #[cfg(feature = "image")]
 pub mod offscreen;
+/// Снимок интерфейса без окна в PNG.
+#[cfg(feature = "image")]
 pub mod shot;
 pub mod signal;
 pub mod text;
