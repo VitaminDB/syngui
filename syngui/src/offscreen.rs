@@ -56,7 +56,7 @@ impl Offscreen {
     pub fn with_scale(size: (u32, u32), scale: f64, mss: &str) -> Result<Self, String> {
         crate::signal::init_main_thread();
         crate::signal::allow_signal_reads_on_this_thread();
-        let (gpu, renderer, format, pw, ph) = crate::shot::gpu_renderer(size, scale)?;
+        let (gpu, renderer, format, pw, ph) = crate::shot::gpu_renderer(size, scale, true)?;
         let mut tree = ElementTree::new();
         tree.text_measure = Some(renderer.font_atlas.clone() as Arc<dyn TextMeasure>);
         tree.image_store = Some(renderer.image_store.clone());

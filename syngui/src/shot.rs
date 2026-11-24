@@ -159,7 +159,7 @@ pub fn render_png_with(
 ) -> Result<(u32, u32), String> {
     crate::signal::init_main_thread();
     crate::signal::allow_signal_reads_on_this_thread();
-    let (gpu, mut renderer, format, pw, ph) = gpu_renderer(size, scale)?;
+    let (gpu, mut renderer, format, pw, ph) = gpu_renderer(size, scale, false)?;
     let (lw, lh) = size;
     let mut tree = ElementTree::new();
     tree.text_measure = Some(renderer.font_atlas.clone() as Arc<dyn TextMeasure>);
@@ -386,13 +386,22 @@ mod events_tests {
 
 /// GPU без окна и рендерер в текстуру `size × scale` (снимки, [`crate::offscreen`]):
 /// устройство, формат (как у окна: смешение альфы в sRGB), шрифты значков.
-pub(crate) fn gpu_renderer(size: (u32, u32), scale: f64) -> Result<(GpuShared, Renderer, wgpu::TextureFormat, u32, u32), String> {
+pub(crate) fn gpu_renderer(size: (u32, u32), scale: f64, high_performance: bool) -> Result<(GpuShared, Renderer, wgpu::TextureFormat, u32, u32), String> {
     let instance = wgpu::Instance::new(&wgpu::InstanceDescriptor {
         backends: wgpu::Backends::VULKAN | wgpu::Backends::GL,
         ..Default::default()
     });
     let adapter = pollster::block_on(instance.request_adapter(&wgpu::RequestAdapterOptions {
-        power_preference: wgpu::PowerPreference::LowPower,
+        // Покадровая отрисовка (экспорт видео) читает каждый кадр обратно: у
+        // встроенной Intel (Mesa) чтение отображённого буфера ~250 МБ/с — 33 мс
+        // на кадр 1080p против 1 мс у дискретной. Снимок — один кадр, ему
+        // хватает экономной. SYNGUI_OFFSCREEN_GPU=low|high — переопределить.
+        power_preference: match std::env::var("SYNGUI_OFFSCREEN_GPU").as_deref() {
+            Ok("high") => wgpu::PowerPreference::HighPerformance,
+            Ok("low") => wgpu::PowerPreference::LowPower,
+            _ if high_performance => wgpu::PowerPreference::HighPerformance,
+            _ => wgpu::PowerPreference::LowPower,
+        },
         compatible_surface: None,
         force_fallback_adapter: false,
     }))
