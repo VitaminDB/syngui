@@ -1055,6 +1055,26 @@ impl Element for PopupMenuElement {
             .apply_transitions(base, hover, active, focus, selected);
     }
 
+    /// Пункты открытого меню и подменю — узлами (нажимаются по тексту).
+    fn accessibility_children(&self) -> Vec<(crate::a11y::AccessibilityInfo, Rect)> {
+        use crate::a11y::{AccessibilityInfo, NodeProperties, NodeState, Role};
+        if !self.is_open.get_untracked() {
+            return Vec::new();
+        }
+        let mut out = Vec::new();
+        for level in 0..=self.open_path.len() {
+            let items = self.items_at_level(level);
+            if items.is_empty() {
+                break;
+            }
+            for (i, it) in items.iter().enumerate().filter(|(_, it)| !it.separator) {
+                let state = NodeState { disabled: it.disabled, expanded: (!it.children.is_empty()).then_some(self.open_path.get(level) == Some(&i)), ..Default::default() };
+                out.push((AccessibilityInfo { role: Role::Button, state, properties: NodeProperties { label: Some(it.label.clone()), keyboard_shortcut: it.shortcut.clone(), ..Default::default() } }, self.item_rect_at(level, i)));
+            }
+        }
+        out
+    }
+
     fn accessibility_info(&self) -> Option<crate::a11y::AccessibilityInfo> {
         Some(crate::a11y::AccessibilityInfo {
             role: crate::a11y::Role::Menu,
