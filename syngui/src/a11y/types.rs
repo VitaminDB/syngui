@@ -16,6 +16,16 @@ impl A11yId {
         A11yId(id.0)
     }
 
+    /// Виртуальный узел `i` рисованного элемента (строка сетки, пункт списка):
+    /// стабилен, пока у элемента тот же id.
+    pub fn virtual_child(id: ElementId, i: usize) -> Self {
+        A11yId((1 << 61) | (id.0 << 12) | (i as u64 & 0xFFF))
+    }
+
+    pub fn is_virtual(self) -> bool {
+        self.0 & (1 << 61) != 0 && self.0 < (1 << 62)
+    }
+
     /// Синтетический корень, когда верхних узлов несколько.
     pub const SYNTHETIC_ROOT: A11yId = A11yId(u64::MAX);
 }

@@ -12,6 +12,12 @@ pub enum PropertyValue {
     Bool(bool),
     Color(Color),
     Choice(Vec<String>, usize),
+    /// Число в пределах: полоса заполнения, протяжка мышью по шагу, щелчок — ввод.
+    Range { value: f64, min: f64, max: f64, step: f64 },
+    /// Заголовок раздела (строка без значения).
+    Header,
+    /// Кнопка в строке: щелчок — `on_change(строка, Action(подпись))`.
+    Action(String),
 }
 
 impl PropertyValue {
@@ -35,6 +41,12 @@ impl PropertyValue {
             // Color хранит линейные компоненты — печатаем sRGB, как в from_hex
             PropertyValue::Color(c) => c.to_hex(),
             PropertyValue::Choice(items, idx) => items.get(*idx).cloned().unwrap_or_default(),
+            PropertyValue::Range { value, step, .. } => {
+                let d = if *step >= 1.0 { 0 } else if *step >= 0.1 { 1 } else if *step >= 0.01 { 2 } else { 3 };
+                format!("{value:.prec$}", prec = d)
+            }
+            PropertyValue::Header => String::new(),
+            PropertyValue::Action(label) => label.clone(),
         }
     }
 }
@@ -72,6 +84,21 @@ impl Property {
             name: name.into(),
             value: PropertyValue::Color(value),
         }
+    }
+
+    /// Число в пределах `min..=max` с шагом `step` (протяжка мышью, ввод щелчком).
+    pub fn range(name: impl Into<String>, value: f64, min: f64, max: f64, step: f64) -> Self {
+        Self { name: name.into(), value: PropertyValue::Range { value: value.clamp(min, max), min, max, step } }
+    }
+
+    /// Заголовок раздела.
+    pub fn header(name: impl Into<String>) -> Self {
+        Self { name: name.into(), value: PropertyValue::Header }
+    }
+
+    /// Кнопка `label` в строке `name`.
+    pub fn action(name: impl Into<String>, label: impl Into<String>) -> Self {
+        Self { name: name.into(), value: PropertyValue::Action(label.into()) }
     }
 
     pub fn choice(name: impl Into<String>, items: Vec<String>, selected: usize) -> Self {

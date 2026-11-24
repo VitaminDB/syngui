@@ -93,6 +93,7 @@ impl A11yTree {
                 for child_id in &children_ids {
                     self.build_node(element_tree, *child_id, Some(a11y_id), &mut a11y_children);
                 }
+                self.push_virtual(element.as_ref(), element_id, Some(a11y_id), &mut a11y_children);
 
                 let node = A11yNode {
                     id: a11y_id,
@@ -114,7 +115,17 @@ impl A11yTree {
                 for child_id in &children_ids {
                     self.build_node(element_tree, *child_id, parent, out);
                 }
+                self.push_virtual(element.as_ref(), element_id, parent, out);
             }
+        }
+    }
+
+    /// Узлы частей рисованного элемента ([`crate::widget::Element::accessibility_children`]).
+    fn push_virtual(&mut self, element: &dyn crate::widget::Element, element_id: ElementId, parent: Option<A11yId>, out: &mut Vec<A11yId>) {
+        for (i, (info, bounds)) in element.accessibility_children().into_iter().enumerate() {
+            let id = A11yId::virtual_child(element_id, i);
+            self.nodes.insert(id, A11yNode { id, role: info.role, state: info.state, properties: info.properties, parent, children: Vec::new(), element_id, bounds });
+            out.push(id);
         }
     }
 
@@ -199,7 +210,7 @@ impl A11yTree {
         match action {
             Action::Click => {
                 if let Some(elem) = tree.get(element_id) {
-                    let bounds = elem.bounds();
+                    let bounds = if node_id.is_virtual() { self.nodes.get(&node_id).map(|n| n.bounds).unwrap_or_default() } else { elem.bounds() };
                     let center = crate::core::Point::new(
                         bounds.origin.x + bounds.size.width / 2.0,
                         bounds.origin.y + bounds.size.height / 2.0,

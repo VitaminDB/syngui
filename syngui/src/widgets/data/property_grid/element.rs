@@ -49,6 +49,9 @@ impl Widget for PropertyGrid {
             cp_sat: 0.0,
             cp_val: 0.0,
             cp_drag: CpDragTarget::None,
+            range_drag: None,
+            choice_row: None,
+            choice_hover: None,
         })
     }
 
@@ -97,6 +100,11 @@ pub struct PropertyGridElement {
     cp_sat: f32,
     cp_val: f32,
     cp_drag: CpDragTarget,
+    /// Протяжка числа: строка, x нажатия, значение при нажатии, был ли сдвиг.
+    range_drag: Option<(usize, f32, f64, bool)>,
+    /// Открытый список выбора: строка и пункт под курсором.
+    choice_row: Option<usize>,
+    choice_hover: Option<usize>,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq)]
@@ -154,6 +162,29 @@ impl PropertyGridElement {
         }
     }
 
+    fn row_y(&self, row: usize) -> f32 {
+        self.bounds.y() + row as f32 * self.row_height - self.scroll_offset
+    }
+
+    /// Список выбора под строкой `row` (в ширину значения).
+    fn choice_rect(&self, row: usize) -> Rect {
+        let n = match &self.properties.get(row).map(|p| &p.value) {
+            Some(PropertyValue::Choice(items, _)) => items.len(),
+            _ => 0,
+        };
+        let label_w = self.label_w();
+        Rect::new(Point::new(self.bounds.x() + label_w, self.row_y(row) + self.row_height), Size::new(self.bounds.size.width - label_w, n as f32 * self.row_height))
+    }
+
+    /// Значение диапазона после сдвига мыши на `dx` от нажатия (по шагу).
+    fn range_at(&self, row: usize, dx: f32, v0: f64) -> Option<PropertyValue> {
+        let PropertyValue::Range { min, max, step, .. } = self.properties.get(row)?.value else { return None };
+        let w = (self.bounds.size.width - self.label_w()).max(1.0) as f64;
+        let raw = v0 + dx as f64 / w * (max - min);
+        let v = if step > 0.0 { ((raw - min) / step).round() * step + min } else { raw };
+        Some(PropertyValue::Range { value: v.clamp(min, max), min, max, step })
+    }
+
     fn fire_change(&self, idx: usize, value: PropertyValue) {
         if let Some(ref cb) = self.on_change {
             if let Ok(mut f) = cb.lock() {
@@ -199,6 +230,17 @@ impl PropertyGridElement {
                         } else {
                             return;
                         }
+                    }
+                    PropertyValue::Range { min, max, step, .. } => match self.edit_buffer.trim().replace(',', ".").parse::<f64>() {
+                        Ok(v) => PropertyValue::Range { value: v.clamp(*min, *max), min: *min, max: *max, step: *step },
+                        Err(_) => {
+                            self.editing_row = None;
+                            return;
+                        }
+                    },
+                    PropertyValue::Header | PropertyValue::Action(_) => {
+                        self.editing_row = None;
+                        return;
                     }
                     PropertyValue::Choice(items, _) => {
                         let selected = items
@@ -579,13 +621,20 @@ impl Element for PropertyGridElement {
                 );
             }
 
+            let prop = &self.properties[row_idx];
+            // заголовок раздела: строка во всю ширину, без делителя и значения
+            if matches!(prop.value, PropertyValue::Header) {
+                let hr = Rect::new(Point::new(base_x, y), Size::new(self.bounds.size.width, self.row_height));
+                list.push_rect(hr, bg.darken(0.06), [0.0; 4]);
+                let tr = Rect::new(Point::new(self.bounds.x() + 10.0, y + (self.row_height - 12.0) / 2.0), Size::new(self.bounds.size.width - 20.0, 13.0));
+                list.push_text(&prop.name.to_uppercase(), tr, fg.with_alpha(0.62), 11.0);
+                continue;
+            }
             list.push_rect(
                 Rect::new(Point::new(div_x, y), Size::new(1.0, self.row_height)),
                 border_color,
                 [0.0; 4],
             );
-
-            let prop = &self.properties[row_idx];
 
             let label_rect = Rect::new(
                 Point::new(self.bounds.x() + 12.0, y + (self.row_height - 13.0) / 2.0),
@@ -656,6 +705,24 @@ impl Element for PropertyGridElement {
                             Size::new(value_w - 38.0, 14.0),
                         );
                         list.push_text(&prop.value.display(), text_rect, fg, 12.0);
+                    }
+                    PropertyValue::Range { value, min, max, .. } => {
+                        // полоса заполнения: доля значения в пределах
+                        let frac = if max > min { ((value - min) / (max - min)).clamp(0.0, 1.0) as f32 } else { 0.0 };
+                        let bar = Rect::new(Point::new(value_x + 2.0, y + 3.0), Size::new((value_w - 4.0) * frac, self.row_height - 6.0));
+                        list.push_rect(bar, primary.with_alpha(if self.range_drag.map(|d| d.0) == Some(row_idx) { 0.35 } else { 0.2 }), [3.0; 4]);
+                        list.push_text(&prop.value.display(), value_rect, fg, 12.0);
+                    }
+                    PropertyValue::Action(label) => {
+                        let br = Rect::new(Point::new(value_x + 4.0, y + 3.0), Size::new(value_w - 8.0, self.row_height - 6.0));
+                        let hot = self.hover_row == Some(row_idx);
+                        list.push_rect_bordered(br, if hot { primary.with_alpha(0.18) } else { fg.with_alpha(0.06) }, [5.0; 4], Border::new(1.0, border_color));
+                        list.push_text_centered(label, br, fg, 12.0);
+                    }
+                    PropertyValue::Choice(..) => {
+                        list.push_text(&prop.value.display(), value_rect, fg, 12.0);
+                        let ar = Rect::new(Point::new(value_x + value_w - 22.0, y), Size::new(16.0, self.row_height));
+                        list.push_text_centered("\u{25BE}", ar, fg.with_alpha(0.5), 11.0);
                     }
                     _ => {
                         list.push_text(&prop.value.display(), value_rect, fg, 12.0);
@@ -780,6 +847,24 @@ impl Element for PropertyGridElement {
             list.end_overlay();
         }
 
+        if let Some(row_idx) = self.choice_row {
+            if let PropertyValue::Choice(items, sel) = &self.properties[row_idx].value {
+                let r = self.choice_rect(row_idx);
+                list.begin_overlay();
+                list.push_shadow(r, Color::BLACK.with_alpha(0.15), 10.0, (0.0, 3.0), [6.0; 4]);
+                list.push_rect_bordered(r, bg, [6.0; 4], Border::new(1.0, border_color));
+                for (i, it) in items.iter().enumerate() {
+                    let ir = Rect::new(Point::new(r.x(), r.y() + i as f32 * self.row_height), Size::new(r.size.width, self.row_height));
+                    if self.choice_hover == Some(i) {
+                        list.push_rect(ir, primary.with_alpha(0.14), [0.0; 4]);
+                    }
+                    let tr = Rect::new(Point::new(ir.x() + 10.0, ir.y() + (self.row_height - 13.0) / 2.0), Size::new(ir.size.width - 20.0, 14.0));
+                    list.push_text(it, tr, if i == *sel { primary } else { fg }, 12.0);
+                }
+                list.end_overlay();
+            }
+        }
+
         if let Some(row_idx) = self.color_picker_row {
             let popup = self.cp_popup_rect(row_idx);
             list.begin_overlay();
@@ -823,6 +908,35 @@ impl Element for PropertyGridElement {
     fn handle_event(&mut self, event: &Event, ctx: &mut EventContext) -> EventResult {
         match event {
             Event::MouseMove(pos) => {
+                // протяжка числа
+                if let Some((row, x0, v0, _)) = self.range_drag {
+                    let dx = pos.x - x0;
+                    if dx.abs() > 2.0 {
+                        self.range_drag = Some((row, x0, v0, true));
+                        if let Some(pv) = self.range_at(row, dx, v0) {
+                            let changed = !matches!((&pv, &self.properties[row].value), (PropertyValue::Range { value: a, .. }, PropertyValue::Range { value: b, .. }) if (a - b).abs() < 1e-12);
+                            if changed {
+                                self.properties[row].value = pv.clone();
+                                self.fire_change(row, pv);
+                            }
+                        }
+                    }
+                    ctx.set_cursor(CursorIcon::EResize);
+                    ctx.request_paint();
+                    return EventResult::Handled;
+                }
+                if let Some(row) = self.choice_row {
+                    let r = self.choice_rect(row);
+                    if r.contains(*pos) {
+                        let h = Some(((pos.y - r.y()) / self.row_height) as usize);
+                        if h != self.choice_hover {
+                            self.choice_hover = h;
+                            ctx.request_paint();
+                        }
+                        ctx.set_cursor(CursorIcon::Pointer);
+                        return EventResult::Handled;
+                    }
+                }
                 if self.cp_drag != CpDragTarget::None {
                     if let Some(row_idx) = self.color_picker_row {
                         let popup = self.cp_popup_rect(row_idx);
@@ -891,6 +1005,14 @@ impl Element for PropertyGridElement {
                 EventResult::Handled
             }
             Event::MouseUp { button, .. } if *button == MouseButton::Left => {
+                if let Some((row, _, _, moved)) = self.range_drag.take() {
+                    // щелчок без протяжки — ввод числа
+                    if !moved {
+                        self.start_edit(row);
+                    }
+                    ctx.request_paint();
+                    return EventResult::Handled;
+                }
                 if self.cp_drag != CpDragTarget::None {
                     self.cp_drag = CpDragTarget::None;
                     return EventResult::Handled;
@@ -898,6 +1020,25 @@ impl Element for PropertyGridElement {
                 EventResult::Ignored
             }
             Event::MouseDown { button, position } if *button == MouseButton::Left => {
+                if let Some(row) = self.choice_row.take() {
+                    let r = self.choice_rect(row);
+                    ctx.unregister_overlay();
+                    if r.contains(*position) {
+                        let i = ((position.y - r.y()) / self.row_height) as usize;
+                        if let PropertyValue::Choice(items, _) = &self.properties[row].value {
+                            if i < items.len() {
+                                let pv = PropertyValue::Choice(items.clone(), i);
+                                self.properties[row].value = pv.clone();
+                                self.fire_change(row, pv);
+                            }
+                        }
+                        self.choice_hover = None;
+                        ctx.request_paint();
+                        return EventResult::Handled;
+                    }
+                    self.choice_hover = None;
+                    ctx.request_paint();
+                }
                 if self.add_dropdown_open {
                     let dd = self.dropdown_rect();
                     if dd.contains(*position) {
@@ -993,6 +1134,33 @@ impl Element for PropertyGridElement {
                     let value_x = self.bounds.x() + label_w;
 
                     if position.x >= value_x {
+                        match self.properties[row_idx].value.clone() {
+                            PropertyValue::Header => return EventResult::Handled,
+                            PropertyValue::Action(label) => {
+                                self.fire_change(row_idx, PropertyValue::Action(label));
+                                ctx.request_paint();
+                                return EventResult::Handled;
+                            }
+                            PropertyValue::Range { value, .. } => {
+                                if self.editing_row.is_some() {
+                                    self.commit_edit();
+                                }
+                                self.range_drag = Some((row_idx, position.x, value, false));
+                                ctx.request_paint();
+                                return EventResult::Handled;
+                            }
+                            PropertyValue::Choice(..) => {
+                                if self.editing_row.is_some() {
+                                    self.commit_edit();
+                                }
+                                self.choice_row = Some(row_idx);
+                                self.choice_hover = None;
+                                ctx.register_overlay(self.choice_rect(row_idx), false);
+                                ctx.request_paint();
+                                return EventResult::Handled;
+                            }
+                            _ => {}
+                        }
                         if let PropertyValue::Bool(b) = &self.properties[row_idx].value {
                             let new_val = !b;
                             let pv = PropertyValue::Bool(new_val);
@@ -1223,6 +1391,41 @@ impl Element for PropertyGridElement {
             }
             _ => EventResult::Ignored,
         }
+    }
+
+    fn accessibility_children(&self) -> Vec<(crate::a11y::AccessibilityInfo, Rect)> {
+        use crate::a11y::{AccessibilityInfo, NodeProperties, NodeState, Role};
+        let label_w = self.label_w();
+        let mut out = Vec::new();
+        for (i, p) in self.properties.iter().enumerate() {
+            let y = self.row_y(i);
+            if y + self.row_height < self.bounds.y() || y > self.bounds.y() + self.bounds.size.height {
+                continue;
+            }
+            let full = Rect::new(Point::new(self.bounds.x(), y), Size::new(self.bounds.size.width, self.row_height));
+            let val = Rect::new(Point::new(self.bounds.x() + label_w, y), Size::new(self.bounds.size.width - label_w, self.row_height));
+            let (role, label, value, rect, checked) = match &p.value {
+                PropertyValue::Header => (Role::Heading(3), p.name.clone(), None, full, None),
+                PropertyValue::Action(l) => (Role::Button, if p.name.is_empty() { l.clone() } else { format!("{}: {l}", p.name) }, None, val, None),
+                PropertyValue::Range { .. } => (Role::Slider, p.name.clone(), Some(p.value.display()), val, None),
+                PropertyValue::Choice(..) => (Role::ComboBox, p.name.clone(), Some(p.value.display()), val, None),
+                PropertyValue::Bool(b) => (Role::CheckBox, p.name.clone(), None, val, Some(*b)),
+                _ => (Role::TextField, p.name.clone(), Some(p.value.display()), val, None),
+            };
+            let state = NodeState { checked, expanded: matches!(p.value, PropertyValue::Choice(..)).then_some(self.choice_row == Some(i)), ..Default::default() };
+            out.push((AccessibilityInfo { role, state, properties: NodeProperties { label: Some(label), value, ..Default::default() } }, rect));
+        }
+        // пункты открытого списка
+        if let Some(row) = self.choice_row {
+            if let PropertyValue::Choice(items, sel) = &self.properties[row].value {
+                let r = self.choice_rect(row);
+                for (j, it) in items.iter().enumerate() {
+                    let ir = Rect::new(Point::new(r.x(), r.y() + j as f32 * self.row_height), Size::new(r.size.width, self.row_height));
+                    out.push((AccessibilityInfo { role: Role::Button, state: NodeState { selected: j == *sel, ..Default::default() }, properties: NodeProperties { label: Some(it.clone()), ..Default::default() } }, ir));
+                }
+            }
+        }
+        out
     }
 
     fn children(&self) -> &[ElementId] {

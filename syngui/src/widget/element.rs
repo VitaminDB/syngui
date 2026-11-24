@@ -470,6 +470,12 @@ pub trait Element: Send {
         None
     }
 
+    /// Части рисованного элемента для доступности (строки, пункты): узел и его
+    /// прямоугольник в координатах окна. Щелчок по узлу — в центр прямоугольника.
+    fn accessibility_children(&self) -> Vec<(crate::a11y::AccessibilityInfo, crate::core::Rect)> {
+        Vec::new()
+    }
+
     fn clip_content(&self) -> bool {
         false
     }
@@ -822,6 +828,10 @@ impl Element for Box<dyn Element> {
 
     fn accessibility_info(&self) -> Option<crate::a11y::AccessibilityInfo> {
         self.as_ref().accessibility_info()
+    }
+
+    fn accessibility_children(&self) -> Vec<(crate::a11y::AccessibilityInfo, crate::core::Rect)> {
+        self.as_ref().accessibility_children()
     }
 
     fn clip_content(&self) -> bool {
