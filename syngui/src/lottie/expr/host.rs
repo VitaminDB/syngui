@@ -826,9 +826,6 @@ fn h_marker_nearest(it: &mut Interp, this: &Value, a: &[Value]) -> R<Value> {
     }
 }
 
-fn h_noop_value(it: &mut Interp, _: &Value, _: &[Value]) -> R<Value> {
-    Ok(it.frame.value.clone())
-}
 
 impl EvalFrame {
     /// Зерно для шума (стабильно по времени, в отличие от `random`).
