@@ -2566,6 +2566,7 @@ fn gradient_paint(g: &Gradient, frame: f32, mat: &Mat, opacity: f32) -> Option<P
             inv,
             start: s,
             end: e,
+            lut: super::raster::gradient_lut(&stops, opacity),
             stops,
             opacity,
         },
@@ -2586,6 +2587,7 @@ fn gradient_paint(g: &Gradient, frame: f32, mat: &Mat, opacity: f32) -> Option<P
                 center: s,
                 radius: rad,
                 focal,
+                lut: super::raster::gradient_lut(&stops, opacity),
                 stops,
                 opacity,
             }

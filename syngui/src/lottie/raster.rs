@@ -652,12 +652,14 @@ impl ImageRgba {
             if i + 3 >= d.len() {
                 return [0.0; 4];
             }
-            let a = d[i + 3] as f32 / 255.0;
+            const K: f32 = 1.0 / 255.0;
+            let a = d[i + 3] as f32 * K;
             // Премультиплицируем для корректной интерполяции.
+            let ka = a * K;
             [
-                d[i] as f32 / 255.0 * a,
-                d[i + 1] as f32 / 255.0 * a,
-                d[i + 2] as f32 / 255.0 * a,
+                d[i] as f32 * ka,
+                d[i + 1] as f32 * ka,
+                d[i + 2] as f32 * ka,
                 a,
             ]
         };
@@ -687,6 +689,8 @@ pub enum Paint {
         end: [f32; 2],
         stops: GradientStops,
         opacity: f32,
+        /// Таблица премультиплицированных цветов по `t` (см. [`gradient_lut`]).
+        lut: Arc<[[f32; 4]]>,
     },
     Radial {
         inv: Mat,
@@ -695,6 +699,7 @@ pub enum Paint {
         focal: [f32; 2],
         stops: GradientStops,
         opacity: f32,
+        lut: Arc<[[f32; 4]]>,
     },
     Image {
         inv: Mat,
@@ -718,8 +723,8 @@ impl Paint {
                 inv,
                 start,
                 end,
-                stops,
-                opacity,
+                lut,
+                ..
             } => {
                 let p = inv.apply([x, y]);
                 let d = [end[0] - start[0], end[1] - start[1]];
@@ -729,19 +734,19 @@ impl Paint {
                 } else {
                     0.0
                 };
-                premul(stops.sample(t), *opacity)
+                lut_at(lut, t)
             }
             Paint::Radial {
                 inv,
                 center,
                 radius,
                 focal,
-                stops,
-                opacity,
+                lut,
+                ..
             } => {
                 let p = inv.apply([x, y]);
                 let t = radial_t(p, *center, *radius, *focal);
-                premul(stops.sample(t), *opacity)
+                lut_at(lut, t)
             }
             Paint::Image {
                 inv,
@@ -759,6 +764,103 @@ impl Paint {
             }
         }
     }
+}
+
+/// Свой небольшой пул rayon для полос крупных заливок — не общий пул
+/// раскладки (кадр не должен занимать его воркеры).
+#[cfg(not(target_arch = "wasm32"))]
+fn fill_pool() -> &'static rayon::ThreadPool {
+    static P: std::sync::OnceLock<rayon::ThreadPool> = std::sync::OnceLock::new();
+    P.get_or_init(|| {
+        rayon::ThreadPoolBuilder::new()
+            .num_threads(fill_threads(usize::MAX))
+            .thread_name(|i| format!("lottie-fill-{i}"))
+            .build()
+            .expect("пул заливки Lottie")
+    })
+}
+
+/// Сколько потоков на заливку площади `area` пикселей.
+fn fill_threads(area: usize) -> usize {
+    #[cfg(target_arch = "wasm32")]
+    {
+        let _ = area;
+        1
+    }
+    #[cfg(not(target_arch = "wasm32"))]
+    {
+        const MIN_AREA: usize = 128 * 1024;
+        if area < MIN_AREA {
+            return 1;
+        }
+        static N: std::sync::OnceLock<usize> = std::sync::OnceLock::new();
+        let n = *N.get_or_init(|| {
+            std::thread::available_parallelism()
+                .map(|n| n.get().clamp(1, 4))
+                .unwrap_or(1)
+        });
+        n.min(area / (MIN_AREA / 2)).max(1)
+    }
+}
+
+/// Source-over по покрытию полосы строк `rows` (начиная со строки `r[1]`,
+/// столбцы `r[0]..r[2]`); `shade(x, y)` — премультиплицированный цвет.
+#[inline]
+fn fill_span(
+    rows: &mut [[f32; 4]],
+    w: usize,
+    mask: &Mask,
+    clip: Option<&Mask>,
+    r: [usize; 3],
+    shade: &(impl Fn(usize, usize) -> [f32; 4] + Sync),
+) {
+    let [x0, y0, x1] = r;
+    for (ry, row) in rows.chunks_mut(w).enumerate() {
+        let y = y0 + ry;
+        let mrow = mask.row(y as i32, x0 as i32, x1 - x0);
+        let crow = clip.map(|cl| cl.row(y as i32, x0 as i32, x1 - x0));
+        for (k, dst) in row[x0..x1].iter_mut().enumerate() {
+            let mut c = mrow[k];
+            if c <= 0.0 {
+                continue;
+            }
+            if let Some(cr) = crow {
+                c *= cr[k];
+                if c <= 0.0 {
+                    continue;
+                }
+            }
+            let src = shade(x0 + k, y);
+            let sa = src[3] * c;
+            let inv = 1.0 - sa;
+            dst[0] = src[0] * c + dst[0] * inv;
+            dst[1] = src[1] * c + dst[1] * inv;
+            dst[2] = src[2] * c + dst[2] * inv;
+            dst[3] = sa + dst[3] * inv;
+        }
+    }
+}
+
+/// Размер таблицы градиента: на 8-битном выводе ступеньки не видны.
+const LUT_N: usize = 1024;
+
+/// Таблица градиента: `LUT_N` премультиплицированных цветов с учётом
+/// непрозрачности.
+pub fn gradient_lut(stops: &GradientStops, opacity: f32) -> Arc<[[f32; 4]]> {
+    (0..LUT_N)
+        .map(|i| premul(stops.sample(i as f32 / (LUT_N - 1) as f32), opacity))
+        .collect()
+}
+
+#[inline]
+fn lut_at(lut: &[[f32; 4]], t: f32) -> [f32; 4] {
+    let t = if t.is_finite() {
+        t.clamp(0.0, 1.0)
+    } else {
+        0.0
+    };
+    let i = ((t * (lut.len() - 1) as f32) + 0.5) as usize;
+    lut[i.min(lut.len() - 1)]
 }
 
 #[inline]
@@ -953,35 +1055,60 @@ impl Pixmap {
         if x1 <= x0 || y1 <= y0 {
             return;
         }
-        let solid = match paint {
-            Paint::Solid(c) => Some(*c),
-            _ => None,
-        };
-        for y in y0..y1 {
-            let mrow = mask.row(y as i32, x0 as i32, x1 - x0);
-            let crow = clip.map(|cl| cl.row(y as i32, x0 as i32, x1 - x0));
-            for x in x0..x1 {
-                let mut c = mrow[x - x0];
-                if c <= 0.0 {
-                    continue;
-                }
-                if let Some(cr) = crow {
-                    c *= cr[x - x0];
-                    if c <= 0.0 {
-                        continue;
-                    }
-                }
-                let src = match solid {
-                    Some(s) => s,
-                    None => paint.sample(x as f32 + 0.5, y as f32 + 0.5),
+        // Краска по пикселю строки: координаты — приращением вдоль x.
+        match paint {
+            Paint::Solid(s) => {
+                let s = *s;
+                self.fill_rows(mask, clip, [x0, y0, x1, y1], false, |_, _| s);
+            }
+            Paint::Linear {
+                inv,
+                start,
+                end,
+                lut,
+                ..
+            } => {
+                let d = [end[0] - start[0], end[1] - start[1]];
+                let dd = d[0] * d[0] + d[1] * d[1];
+                // t = ta·x + tb·y + tc (линейно по пикселю).
+                let (ta, tb, tc) = if dd > 0.0 {
+                    (
+                        (inv.a * d[0] + inv.b * d[1]) / dd,
+                        (inv.c * d[0] + inv.d * d[1]) / dd,
+                        ((inv.e - start[0]) * d[0] + (inv.f - start[1]) * d[1]) / dd,
+                    )
+                } else {
+                    (0.0, 0.0, 0.0)
                 };
-                let dst = &mut self.px[y * self.w + x];
-                let sa = src[3] * c;
-                let inv = 1.0 - sa;
-                dst[0] = src[0] * c + dst[0] * inv;
-                dst[1] = src[1] * c + dst[1] * inv;
-                dst[2] = src[2] * c + dst[2] * inv;
-                dst[3] = sa + dst[3] * inv;
+                self.fill_rows(mask, clip, [x0, y0, x1, y1], false, |x, y| {
+                    lut_at(lut, ta * (x as f32 + 0.5) + tb * (y as f32 + 0.5) + tc)
+                });
+            }
+            Paint::Radial {
+                inv,
+                center,
+                radius,
+                focal,
+                lut,
+                ..
+            } => {
+                let (c, r, f) = (*center, *radius, *focal);
+                self.fill_rows(mask, clip, [x0, y0, x1, y1], true, |x, y| {
+                    let p = inv.apply([x as f32 + 0.5, y as f32 + 0.5]);
+                    lut_at(lut, radial_t(p, c, r, f))
+                });
+            }
+            Paint::Image {
+                inv,
+                image,
+                opacity,
+            } => {
+                let op = *opacity;
+                self.fill_rows(mask, clip, [x0, y0, x1, y1], true, |x, y| {
+                    let p = inv.apply([x as f32 + 0.5, y as f32 + 0.5]);
+                    let c = image.sample(p[0], p[1]);
+                    [c[0] * op, c[1] * op, c[2] * op, c[3] * op]
+                });
             }
         }
         self.mark(x0, y0, x1, y1);
@@ -1387,6 +1514,47 @@ impl Pixmap {
                 }
             }
         }
+    }
+
+    /// Source-over по покрытию `mask` (и `clip`) в прямоугольнике `r`;
+    /// `shade(x, y)` — премультиплицированный цвет пикселя (мономорфизуется
+    /// под каждую краску).
+    fn fill_rows(
+        &mut self,
+        mask: &Mask,
+        clip: Option<&Mask>,
+        r: [usize; 4],
+        heavy: bool,
+        shade: impl Fn(usize, usize) -> [f32; 4] + Sync,
+    ) {
+        let [x0, y0, x1, y1] = r;
+        let w = self.w;
+        let rows = &mut self.px[y0 * w..y1 * w];
+        let area = (x1 - x0) * (y1 - y0);
+        // Потоки окупаются только для дорогих красок (картинка, радиальный
+        // градиент); сплошная и линейная заливка упираются в память.
+        let threads = if heavy { fill_threads(area) } else { 1 };
+        #[cfg(not(target_arch = "wasm32"))]
+        if threads > 1 {
+            // Крупная заливка: полосы строк в постоянном пуле заливки.
+            let per = (y1 - y0).div_ceil(threads);
+            fill_pool().scope(|sc| {
+                let mut rest = rows;
+                let mut y = y0;
+                while y < y1 {
+                    let n = per.min(y1 - y);
+                    let (band, tail) = rest.split_at_mut(n * w);
+                    rest = tail;
+                    let shade = &shade;
+                    let yb = y;
+                    sc.spawn(move |_| fill_span(band, w, mask, clip, [x0, yb, x1], shade));
+                    y += n;
+                }
+            });
+            return;
+        }
+        let _ = threads;
+        fill_span(rows, w, mask, clip, [x0, y0, x1], &shade);
     }
 
     /// Копия содержимого `src` (того же размера) — только затронутая область.
