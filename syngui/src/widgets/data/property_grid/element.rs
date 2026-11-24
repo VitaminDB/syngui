@@ -38,6 +38,7 @@ impl Widget for PropertyGrid {
             suggestions: self.suggestions.clone(),
             on_add: self.on_add.clone(),
             on_remove: self.on_remove.clone(),
+            on_mark: self.on_mark.clone(),
             add_mode: false,
             add_buffer: String::new(),
             add_cursor: 0,
@@ -89,6 +90,7 @@ pub struct PropertyGridElement {
     suggestions: Vec<String>,
     on_add: Option<Arc<Mutex<dyn FnMut(&str, PropertyValue) + Send>>>,
     on_remove: Option<Arc<Mutex<dyn FnMut(usize, &str) + Send>>>,
+    on_mark: Option<Arc<Mutex<dyn FnMut(usize) + Send>>>,
     add_mode: bool,
     add_buffer: String,
     add_cursor: usize,
@@ -160,6 +162,12 @@ impl PropertyGridElement {
         } else {
             None
         }
+    }
+
+    /// Квадрат отметки строки — у правого края подписи.
+    fn mark_rect(&self, row: usize) -> Rect {
+        let s = (self.row_height - 8.0).min(18.0);
+        Rect::new(Point::new(self.bounds.x() + self.label_w() - s - 4.0, self.row_y(row) + (self.row_height - s) / 2.0), Size::new(s, s))
     }
 
     fn row_y(&self, row: usize) -> f32 {
@@ -397,6 +405,7 @@ impl PropertyGridElement {
         self.properties.push(Property {
             name: name.clone(),
             value,
+            mark: None,
         });
         self.add_buffer.clear();
         self.add_cursor = 0;
@@ -411,7 +420,7 @@ impl PropertyGridElement {
                 let name = name.clone();
                 let value = PropertyValue::Text(String::new());
                 self.fire_add(&name, value.clone());
-                self.properties.push(Property { name, value });
+                self.properties.push(Property { name, value, mark: None });
             }
         }
         self.add_buffer.clear();
@@ -514,6 +523,7 @@ impl Element for PropertyGridElement {
             self.on_change = pg.on_change.clone();
             self.on_add = pg.on_add.clone();
             self.on_remove = pg.on_remove.clone();
+            self.on_mark = pg.on_mark.clone();
             self.label_width = pg.label_width;
             self.row_height = pg.row_height;
             self.fixed_width = pg.width;
@@ -638,10 +648,19 @@ impl Element for PropertyGridElement {
 
             let label_rect = Rect::new(
                 Point::new(self.bounds.x() + 12.0, y + (self.row_height - 13.0) / 2.0),
-                Size::new(label_w - 20.0, 14.0),
+                Size::new(label_w - 20.0 - if prop.mark.is_some() { 22.0 } else { 0.0 }, 14.0),
             );
             list.push_text(&prop.name, label_rect, fg.with_alpha(0.5), 12.0);
 
+            if let Some(m) = prop.mark {
+                let r = self.mark_rect(row_idx);
+                let (glyph, col) = match m {
+                    crate::widgets::data::PropertyMark::Empty => ("\u{25C7}", fg.with_alpha(0.45)),
+                    crate::widgets::data::PropertyMark::Partial => ("\u{25C8}", primary),
+                    crate::widgets::data::PropertyMark::Full => ("\u{25C6}", primary),
+                };
+                list.push_text_centered(glyph, r, col, 13.0);
+            }
             let is_editing = self.editing_row == Some(row_idx);
             let value_rect = Rect::new(
                 Point::new(value_x + 8.0, y + (self.row_height - 13.0) / 2.0),
@@ -1131,6 +1150,15 @@ impl Element for PropertyGridElement {
 
                 if let Some(row_idx) = self.row_at_y(position.y) {
                     let label_w = self.label_w();
+                    if self.properties[row_idx].mark.is_some() && self.mark_rect(row_idx).contains(*position) {
+                        if let Some(cb) = &self.on_mark {
+                            if let Ok(mut f) = cb.lock() {
+                                f(row_idx);
+                            }
+                        }
+                        ctx.request_paint();
+                        return EventResult::Handled;
+                    }
                     let value_x = self.bounds.x() + label_w;
 
                     if position.x >= value_x {
@@ -1415,6 +1443,10 @@ impl Element for PropertyGridElement {
             };
             let state = NodeState { checked, expanded: matches!(p.value, PropertyValue::Choice(..)).then_some(self.choice_row == Some(i)), ..Default::default() };
             out.push((AccessibilityInfo { role, state, properties: NodeProperties { label: Some(label), value, ..Default::default() } }, rect));
+            if let Some(m) = p.mark {
+                let st = NodeState { pressed: m == crate::widgets::data::PropertyMark::Full, ..Default::default() };
+                out.push((AccessibilityInfo { role: Role::Button, state: st, properties: NodeProperties { label: Some(format!("Ключ: {}", p.name)), ..Default::default() } }, self.mark_rect(i)));
+            }
         }
         // пункты открытого списка
         if let Some(row) = self.choice_row {

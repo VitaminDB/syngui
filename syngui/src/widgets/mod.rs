@@ -32,7 +32,7 @@ pub use containers::{
     VirtualFlex,
 };
 pub use data::{
-    ColumnWidth, ListItem, ListView, Property, PropertyGrid, PropertyValue, SelectionMode,
+    ColumnWidth, ListItem, ListView, Property, PropertyGrid, PropertyMark, PropertyValue, SelectionMode,
     SortDirection, TableColumn, TableContextAction, TableView, TreeNode, TreeNodeDecoration,
     TreeView,
 };

@@ -51,10 +51,20 @@ impl PropertyValue {
     }
 }
 
+/// Отметка строки слева от значения (ключевой кадр анимации и т. п.):
+/// пустой ◇, частичный ◈, полный ◆; щелчок — `PropertyGrid::on_mark`.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum PropertyMark {
+    Empty,
+    Partial,
+    Full,
+}
+
 #[derive(Clone, Debug)]
 pub struct Property {
     pub name: String,
     pub value: PropertyValue,
+    pub mark: Option<PropertyMark>,
 }
 
 impl Property {
@@ -62,6 +72,7 @@ impl Property {
         Self {
             name: name.into(),
             value: PropertyValue::Text(value.into()),
+            mark: None,
         }
     }
 
@@ -69,6 +80,7 @@ impl Property {
         Self {
             name: name.into(),
             value: PropertyValue::Number(value),
+            mark: None,
         }
     }
 
@@ -76,6 +88,7 @@ impl Property {
         Self {
             name: name.into(),
             value: PropertyValue::Bool(value),
+            mark: None,
         }
     }
 
@@ -83,28 +96,36 @@ impl Property {
         Self {
             name: name.into(),
             value: PropertyValue::Color(value),
+            mark: None,
         }
     }
 
     /// Число в пределах `min..=max` с шагом `step` (протяжка мышью, ввод щелчком).
     pub fn range(name: impl Into<String>, value: f64, min: f64, max: f64, step: f64) -> Self {
-        Self { name: name.into(), value: PropertyValue::Range { value: value.clamp(min, max), min, max, step } }
+        Self { name: name.into(), value: PropertyValue::Range { value: value.clamp(min, max), min, max, step }, mark: None }
     }
 
     /// Заголовок раздела.
     pub fn header(name: impl Into<String>) -> Self {
-        Self { name: name.into(), value: PropertyValue::Header }
+        Self { name: name.into(), value: PropertyValue::Header, mark: None }
     }
 
     /// Кнопка `label` в строке `name`.
     pub fn action(name: impl Into<String>, label: impl Into<String>) -> Self {
-        Self { name: name.into(), value: PropertyValue::Action(label.into()) }
+        Self { name: name.into(), value: PropertyValue::Action(label.into()), mark: None }
+    }
+
+    /// Отметка строки (◇ ◈ ◆) — щелчок по ней: `PropertyGrid::on_mark`.
+    pub fn with_mark(mut self, mark: PropertyMark) -> Self {
+        self.mark = Some(mark);
+        self
     }
 
     pub fn choice(name: impl Into<String>, items: Vec<String>, selected: usize) -> Self {
         Self {
             name: name.into(),
             value: PropertyValue::Choice(items, selected),
+            mark: None,
         }
     }
 }
@@ -114,6 +135,7 @@ pub struct PropertyGrid {
     on_change: Option<Arc<Mutex<dyn FnMut(usize, PropertyValue) + Send>>>,
     on_add: Option<Arc<Mutex<dyn FnMut(&str, PropertyValue) + Send>>>,
     on_remove: Option<Arc<Mutex<dyn FnMut(usize, &str) + Send>>>,
+    on_mark: Option<Arc<Mutex<dyn FnMut(usize) + Send>>>,
     label_width: Option<f32>,
     row_height: f32,
     width: Option<Dimension>,
@@ -129,6 +151,7 @@ impl PropertyGrid {
             on_change: None,
             on_add: None,
             on_remove: None,
+            on_mark: None,
             label_width: None,
             row_height: 32.0,
             width: None,
@@ -145,6 +168,12 @@ impl PropertyGrid {
 
     pub fn properties(mut self, props: Vec<Property>) -> Self {
         self.properties = props;
+        self
+    }
+
+    /// Щелчок по отметке строки (`Property::with_mark`).
+    pub fn on_mark(mut self, f: impl FnMut(usize) + Send + 'static) -> Self {
+        self.on_mark = Some(Arc::new(Mutex::new(f)));
         self
     }
 

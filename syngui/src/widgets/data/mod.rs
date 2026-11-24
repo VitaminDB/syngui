@@ -12,4 +12,4 @@ pub use table_view::{
 pub use tree_view::{TreeNode, TreeNodeDecoration, TreeView};
 
 pub mod property_grid;
-pub use property_grid::{Property, PropertyGrid, PropertyValue};
+pub use property_grid::{Property, PropertyGrid, PropertyMark, PropertyValue};
