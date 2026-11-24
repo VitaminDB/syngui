@@ -2,13 +2,15 @@
 //! с кубическим безье-easing'ом (`i`/`o`), удержанием (`h`) и
 //! пространственными кривыми позиции (`to`/`ti`, параметризация по длине дуги).
 
+use std::sync::Arc;
+
 use super::geom::ShapePath;
 use super::json::Json;
 
 /// Значение, которое умеет интерполироваться между ключевыми кадрами.
 /// `ts` — прогресс по измерениям (для многомерных свойств у каждого
 /// измерения может быть свой easing); при нехватке берётся последний.
-pub trait Interpolate: Clone {
+pub trait Interpolate: Clone + super::expr::ExprValue {
     fn lerp(a: &Self, b: &Self, ts: &[f32]) -> Self;
 }
 
@@ -145,15 +147,64 @@ pub struct Keyframe<T> {
 pub enum Animated<T> {
     Static(T),
     Keyframes(Vec<Keyframe<T>>),
+    /// Выражение After Effects поверх значения по ключам.
+    Expr(Arc<ExprProp<T>>),
+}
+
+/// Свойство с выражением: значение по ключам, программа и зерно
+/// случайных функций (`wiggle`, `random`).
+#[derive(Debug)]
+pub struct ExprProp<T> {
+    pub base: Animated<T>,
+    pub prog: Arc<super::expr::Program>,
+    pub seed: u64,
+}
+
+/// Сколько выражений скомпилировано в этом потоке (признак наличия
+/// выражений у разобранной композиции).
+pub fn compiled_expressions() -> u64 {
+    COMPILED.with(|c| c.get())
+}
+
+thread_local! {
+    static COMPILED: std::cell::Cell<u64> = const { std::cell::Cell::new(0) };
 }
 
 impl<T: Clone> Animated<T> {
     pub fn is_animated(&self) -> bool {
-        matches!(self, Animated::Keyframes(k) if k.len() > 1)
+        match self {
+            Animated::Keyframes(k) => k.len() > 1,
+            Animated::Expr(_) => true,
+            Animated::Static(_) => false,
+        }
+    }
+
+    /// Значение без выражения (ключевые кадры).
+    pub fn base(&self) -> &Animated<T> {
+        match self {
+            Animated::Expr(e) => e.base.base(),
+            other => other,
+        }
+    }
+
+    /// Времена ключевых кадров (в кадрах); у статического — пусто.
+    pub fn key_times(&self) -> Vec<f32> {
+        match self.base() {
+            Animated::Keyframes(k) => k.iter().map(|k| k.time).collect(),
+            _ => Vec::new(),
+        }
+    }
+
+    pub fn has_expression(&self) -> bool {
+        matches!(self, Animated::Expr(_))
     }
 
     /// Преобразовать все значения (нормализация цветов и т. п.).
     pub fn map<F: FnMut(&T) -> T>(&self, mut f: F) -> Animated<T> {
+        self.map_dyn(&mut f)
+    }
+
+    fn map_dyn(&self, f: &mut dyn FnMut(&T) -> T) -> Animated<T> {
         match self {
             Animated::Static(v) => Animated::Static(f(v)),
             Animated::Keyframes(kfs) => Animated::Keyframes(
@@ -161,7 +212,7 @@ impl<T: Clone> Animated<T> {
                     .map(|k| Keyframe {
                         time: k.time,
                         start: f(&k.start),
-                        end: k.end.as_ref().map(&mut f),
+                        end: k.end.as_ref().map(&mut *f),
                         hold: k.hold,
                         ease_out: k.ease_out.clone(),
                         ease_in: k.ease_in.clone(),
@@ -170,6 +221,11 @@ impl<T: Clone> Animated<T> {
                     })
                     .collect(),
             ),
+            Animated::Expr(e) => Animated::Expr(Arc::new(ExprProp {
+                base: e.base.map_dyn(f),
+                prog: e.prog.clone(),
+                seed: e.seed,
+            })),
         }
     }
 
@@ -177,6 +233,7 @@ impl<T: Clone> Animated<T> {
         match self {
             Animated::Static(v) => v,
             Animated::Keyframes(k) => &k[0].start,
+            Animated::Expr(e) => e.base.first_value(),
         }
     }
 }
@@ -248,6 +305,10 @@ impl<T: Interpolate> Animated<T> {
                     T::lerp(&k.start, end, &ts[..n])
                 }
             },
+            Animated::Expr(e) => {
+                let base = e.base.value(frame);
+                super::expr::evaluate(&e.prog, frame, &base, self, e.seed).unwrap_or(base)
+            }
         }
     }
 }
@@ -264,6 +325,7 @@ impl Animated<Vec<f32>> {
         };
         match self {
             Animated::Static(v) => two(v),
+            Animated::Expr(_) => two(&self.value(frame)),
             Animated::Keyframes(kfs) => match segment(kfs, frame) {
                 Err(v) => two(v),
                 Ok((i, p)) => {
@@ -428,6 +490,32 @@ impl<T: FromJson + Clone> Animated<T> {
     /// Разобрать свойство `{a, k}`; `None`, если ключа нет или формат неизвестен.
     pub fn parse(prop: Option<&Json>) -> Option<Self> {
         let prop = prop?;
+        let base = Self::parse_base(prop)?;
+        if let Some(Json::Str(src)) = prop.get("x") {
+            match super::expr::Program::compile(src) {
+                Ok(prog) => {
+                    let n = COMPILED.with(|c| {
+                        c.set(c.get() + 1);
+                        c.get()
+                    });
+                    // Зерно — от текста и порядка разбора (детерминированно).
+                    let mut h: u64 = 0xcbf2_9ce4_8422_2325 ^ n.wrapping_mul(0x9e37_79b9);
+                    for b in src.bytes() {
+                        h = (h ^ b as u64).wrapping_mul(0x100_0000_01b3);
+                    }
+                    return Some(Animated::Expr(Arc::new(ExprProp {
+                        base,
+                        prog: Arc::new(prog),
+                        seed: h,
+                    })));
+                }
+                Err(e) => log::debug!("lottie: выражение не разобрано ({e}): {src}"),
+            }
+        }
+        Some(base)
+    }
+
+    fn parse_base(prop: &Json) -> Option<Self> {
         // Иногда вместо объекта лежит сырое значение.
         let k = match prop.get("k") {
             Some(k) => k,

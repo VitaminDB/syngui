@@ -92,9 +92,18 @@ struct Camera {
 }
 
 /// Состояние отрисовки списка слоёв: мировые матрицы и камера.
-struct Scene {
+struct Scene<'a> {
     world: Vec<Option<Mat4>>,
     camera: Option<Camera>,
+    /// Композиция — для контекста выражений.
+    comp: &'a Composition,
+    has_expr: bool,
+}
+
+impl Scene<'_> {
+    fn comp_ptr(&self) -> &Composition {
+        self.comp
+    }
 }
 
 struct Collected<'a> {
@@ -185,6 +194,9 @@ impl Renderer {
             return m;
         }
         let l = &layers[i];
+        let _expr = scene
+            .has_expr
+            .then(|| super::expr::enter(scene.comp_ptr(), layers, i));
         // Ключевые кадры свойств заданы во времени композиции: `st`/`sr`
         // сдвигают только время дочерней прекомпозиции (как в lottie-web/rlottie).
         let extra = if l.auto_orient {
@@ -261,6 +273,8 @@ impl Renderer {
         let mut scene = Scene {
             world: vec![None; layers.len()],
             camera: None,
+            comp: ctx.comp,
+            has_expr: ctx.comp.has_expressions,
         };
         // Активная камера списка — верхняя видимая (как в After Effects).
         if let Some(ci) = layers.iter().position(|l| {
@@ -369,6 +383,10 @@ impl Renderer {
         outer_clip: Option<&Mask>,
     ) {
         let l = &layers[i];
+        let _expr = ctx
+            .comp
+            .has_expressions
+            .then(|| super::expr::enter(ctx.comp, layers, i));
         let opacity = l.transform.opacity_at(frame);
         if opacity <= 0.0 {
             return;

@@ -491,7 +491,14 @@ composition's camera layer (perspective, point of interest; the layer plane's
 projection is approximated affinely at its anchor). Text without embedded
 glyphs falls back to system fonts through the framework's text stack
 (font-kit + swash outlines; native only — skipped on wasm/Android), matching
-family and weight with a generic fallback. Expressions are not supported. Image assets (embedded
+family and weight with a generic fallback. After Effects expressions run
+in syngui's own interpreter of the bodymovin JavaScript subset (functions,
+`if`/`switch`/loops, `try`/`catch`, vector arithmetic): `wiggle`,
+`loopOut`/`loopIn` (cycle/pingpong/offset/continue), `key`/`nearestKey`/
+`numKeys`, `valueAtTime`/`velocityAtTime`, `clamp`/`linear`/`ease`,
+`random`/`seedRandom`, `Math`, and references through `thisComp.layer(..)`,
+`comp(..)`, `content(..)`, `transform`, `effect(..)(..)`. A failing
+expression keeps the keyframed value. Image assets (embedded
 base64 or files next to the JSON) decode when feature `image` is on. The
 dotLottie container (.lottie — a ZIP read by syngui's own inflate) loads via
 the same constructors (v1 `animations/`+`images/` and v2 `a/`+`i/` layouts);

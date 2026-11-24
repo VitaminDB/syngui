@@ -9,7 +9,26 @@ use std::time::Instant;
 
 use syngui::lottie::{Composition, Renderer};
 
+/// Журнал в stderr при `LOTTIE_LOG=1` (ошибки выражений, пропуски).
+struct StderrLog;
+
+impl log::Log for StderrLog {
+    fn enabled(&self, m: &log::Metadata) -> bool {
+        m.level() <= log::Level::Debug && m.target().starts_with("syngui::lottie")
+    }
+    fn log(&self, r: &log::Record) {
+        if self.enabled(r.metadata()) {
+            eprintln!("[{}] {}", r.level(), r.args());
+        }
+    }
+    fn flush(&self) {}
+}
+
 fn main() {
+    if std::env::var_os("LOTTIE_LOG").is_some() {
+        let _ = log::set_logger(&StderrLog);
+        log::set_max_level(log::LevelFilter::Debug);
+    }
     let args: Vec<String> = std::env::args().collect();
     if args.len() < 3 {
         eprintln!("usage: lottie_dump <in.json> <out.png> [size=240] [frames=6]");

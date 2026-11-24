@@ -56,6 +56,10 @@ pub struct Composition {
     /// Параметры воспроизведения из манифеста dotLottie (если анимация
     /// загружена из .lottie и манифест их задаёт).
     pub playback: Option<DotLottieAnimation>,
+    /// Имя прекомпозиции (`nm` ассета) → её id — для `comp('…')`.
+    pub precomp_names: HashMap<String, String>,
+    /// В анимации есть выражения (рендер ставит контекст слоя).
+    pub has_expressions: bool,
 }
 
 /// Анимация из манифеста dotLottie и её параметры воспроизведения.
@@ -477,6 +481,10 @@ pub struct Layer {
     pub is_matte_source: bool,
     pub blend: BlendMode,
     pub effects: Vec<Effect>,
+    /// Все эффекты как параметры (для выражений).
+    pub effect_controls: Vec<EffectCtl>,
+    /// Имена фигур верхнего уровня shape-слоя (для выражений).
+    pub shape_names: Vec<String>,
     pub styles: Vec<LayerStyle>,
     pub hidden: bool,
     /// 3D-слой (`ddd: 1`): учитываются z, повороты X/Y и ориентация.
@@ -710,6 +718,9 @@ pub enum Shape {
     Group {
         name: String,
         items: Vec<Shape>,
+        /// Имена элементов (`nm`) параллельно `items` — для `content('…')`
+        /// в выражениях.
+        item_names: Vec<String>,
         transform: Transform,
     },
     Rect {
@@ -892,11 +903,7 @@ fn parse_shape(v: &Json) -> Option<Shape> {
     let reversed = v.i64_or("d", 1) == 3;
     let shape = match v.str_or("ty", "") {
         "gr" => {
-            let items = v
-                .get("it")
-                .and_then(Json::as_array)
-                .map(|a| a.iter().filter_map(parse_shape).collect::<Vec<_>>())
-                .unwrap_or_default();
+            let (items, item_names) = parse_shape_list(v.get("it"));
             // Трансформация группы лежит внутри `it` элементом `tr`.
             let transform = v
                 .get("it")
@@ -907,6 +914,7 @@ fn parse_shape(v: &Json) -> Option<Shape> {
             Shape::Group {
                 name: v.str_or("nm", "").to_string(),
                 items,
+                item_names,
                 transform,
             }
         }
@@ -1022,6 +1030,68 @@ fn parse_shape(v: &Json) -> Option<Shape> {
         }
     };
     Some(shape)
+}
+
+/// Список фигур с именами элементов (`nm`).
+fn parse_shape_list(v: Option<&Json>) -> (Vec<Shape>, Vec<String>) {
+    let mut items = Vec::new();
+    let mut names = Vec::new();
+    for it in v.and_then(Json::as_array).unwrap_or(&[]) {
+        if let Some(s) = parse_shape(it) {
+            items.push(s);
+            names.push(it.str_or("nm", "").to_string());
+        }
+    }
+    (items, names)
+}
+
+/// Эффект слоя как набор параметров — для `effect('…')('…')` в выражениях
+/// (в том числе Slider/Color/Checkbox Control и псевдо-эффекты).
+#[derive(Debug)]
+pub struct EffectCtl {
+    pub name: String,
+    pub match_name: String,
+    pub params: Vec<EffectParam>,
+}
+
+#[derive(Debug)]
+pub struct EffectParam {
+    pub name: String,
+    pub match_name: String,
+    pub value: Animated<Vec<f32>>,
+}
+
+fn parse_effect_controls(v: &Json) -> Vec<EffectCtl> {
+    fn params(list: &[Json], out: &mut Vec<EffectParam>) {
+        for p in list {
+            // Группы параметров (ty 5) — разворачиваем.
+            if let Some(sub) = p.get("ef").and_then(Json::as_array) {
+                params(sub, out);
+                continue;
+            }
+            out.push(EffectParam {
+                name: p.str_or("nm", "").to_string(),
+                match_name: p.str_or("mn", "").to_string(),
+                value: Animated::parse_or(p.get("v"), vec![0.0]),
+            });
+        }
+    }
+    v.get("ef")
+        .and_then(Json::as_array)
+        .map(|list| {
+            list.iter()
+                .map(|e| {
+                    let mut ps = Vec::new();
+                    params(e.get("ef").and_then(Json::as_array).unwrap_or(&[]), &mut ps);
+                    EffectCtl {
+                        name: e.str_or("nm", "").to_string(),
+                        match_name: e.str_or("mn", "").to_string(),
+                        params: ps,
+                    }
+                })
+                .collect()
+        })
+        .unwrap_or_default()
 }
 
 fn parse_mask(v: &Json) -> Option<LayerMask> {
@@ -1371,12 +1441,7 @@ fn parse_layer(v: &Json, unsupported: &mut usize) -> Layer {
         13 => LayerKind::Camera {
             zoom: Animated::parse_or(v.get("pe"), 1000.0),
         },
-        4 => LayerKind::Shape(
-            v.get("shapes")
-                .and_then(Json::as_array)
-                .map(|a| a.iter().filter_map(parse_shape).collect())
-                .unwrap_or_default(),
-        ),
+        4 => LayerKind::Shape(parse_shape_list(v.get("shapes")).0),
         other => {
             *unsupported += 1;
             log::warn!(
@@ -1434,6 +1499,16 @@ fn parse_layer(v: &Json, unsupported: &mut usize) -> Layer {
         is_matte_source: v.i64_or("td", 0) == 1,
         blend: BlendMode::from_lottie(v.i64_or("bm", 0)),
         effects: parse_effects(v),
+        effect_controls: if v.get("ef").is_some() {
+            parse_effect_controls(v)
+        } else {
+            Vec::new()
+        },
+        shape_names: if ty == 4 {
+            parse_shape_list(v.get("shapes")).1
+        } else {
+            Vec::new()
+        },
         styles: parse_styles(v),
         hidden: v.bool_or("hd", false),
         three_d: v.i64_or("ddd", 0) == 1,
@@ -1626,13 +1701,18 @@ impl Composition {
             return Err(LottieError::Invalid("нет поля `layers` — это не Lottie"));
         }
         let mut unsupported = 0usize;
+        let compiled_before = super::anim::compiled_expressions();
         let layers = parse_layers(root.get("layers"), &mut unsupported);
+        let mut precomp_names = HashMap::new();
         let mut precomps = HashMap::new();
         let mut images = HashMap::new();
         if let Some(assets) = root.get("assets").and_then(Json::as_array) {
             for a in assets {
                 let id = a.str_or("id", "").to_string();
                 if a.get("layers").is_some() {
+                    if let Some(nm) = a.get("nm").and_then(Json::as_str) {
+                        precomp_names.insert(nm.to_string(), id.clone());
+                    }
                     precomps.insert(id, parse_layers(a.get("layers"), &mut unsupported));
                 } else if a.get("p").is_some() {
                     let p = a.str_or("p", "");
@@ -1728,6 +1808,8 @@ impl Composition {
             glyphs,
             unsupported_layers: unsupported,
             playback: None,
+            precomp_names,
+            has_expressions: super::anim::compiled_expressions() != compiled_before,
         })
     }
 
