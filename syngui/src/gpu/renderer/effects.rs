@@ -13,6 +13,25 @@ const BLUR_KERNEL_REACH_PX: u32 = 34;
 const COLOR_CHAIN_EFFECT: f32 = 24.0;
 const COLOR_CHAIN_MAX_OPS: usize = 4;
 
+fn blend_mode_code(mode: crate::render::display_list::BlendModeType) -> u32 {
+    use crate::render::display_list::BlendModeType as B;
+    match mode {
+        B::Normal => 0,
+        B::Multiply => 1,
+        B::Screen => 2,
+        B::Overlay => 3,
+        B::Darken => 4,
+        B::Lighten => 5,
+        B::ColorDodge => 6,
+        B::ColorBurn => 7,
+        B::SoftLight => 8,
+        B::HardLight => 9,
+        B::Difference => 10,
+        B::Exclusion => 11,
+        B::Add => 12,
+    }
+}
+
 impl Renderer {
     pub(super) fn build_render_plan(
         &mut self,
@@ -190,9 +209,27 @@ impl Renderer {
                 });
             }
 
+            Effect::BlendMode { mode } => {
+                if *mode == crate::render::display_list::BlendModeType::Normal {
+                    plan.push(EffectRenderStep::Composite { source, dest });
+                } else {
+                    let backdrop = texture_pool.acquire(device);
+                    handles.push(backdrop);
+                    plan.push(EffectRenderStep::CopyTargetToPool {
+                        source: dest,
+                        dest: backdrop,
+                    });
+                    plan.push(EffectRenderStep::CompositeBlend {
+                        source,
+                        backdrop,
+                        dest,
+                        mode: blend_mode_code(*mode),
+                    });
+                }
+            }
+
             Effect::None
             | Effect::Opacity { .. }
-            | Effect::BlendMode { .. }
             | Effect::Shadow { .. } => {
                 plan.push(EffectRenderStep::Composite { source, dest });
             }
@@ -331,7 +368,14 @@ impl Renderer {
                         }
                         pending.clear();
                     };
+                let mut blend_mode = None;
                 for eff in &active {
+                    if let Effect::BlendMode { mode } = eff {
+                        if *mode != crate::render::display_list::BlendModeType::Normal {
+                            blend_mode = Some(*mode);
+                        }
+                        continue;
+                    }
                     if let Some(ops) = eff.color_ops() {
                         pending.extend(ops);
                         continue;
@@ -349,10 +393,25 @@ impl Renderer {
                     );
                 }
                 flush(&mut pending, &mut current, texture_pool, plan, handles);
-                plan.push(EffectRenderStep::Composite {
-                    source: current,
-                    dest,
-                });
+                if let Some(mode) = blend_mode {
+                    let backdrop = texture_pool.acquire(device);
+                    handles.push(backdrop);
+                    plan.push(EffectRenderStep::CopyTargetToPool {
+                        source: dest,
+                        dest: backdrop,
+                    });
+                    plan.push(EffectRenderStep::CompositeBlend {
+                        source: current,
+                        backdrop,
+                        dest,
+                        mode: blend_mode_code(mode),
+                    });
+                } else {
+                    plan.push(EffectRenderStep::Composite {
+                        source: current,
+                        dest,
+                    });
+                }
             }
 
             other => {
@@ -924,6 +983,89 @@ impl Renderer {
                             depth_or_array_layers: 1,
                         },
                     );
+                }
+
+                EffectRenderStep::CopyTargetToPool { source, dest } => {
+                    let src_tex = match source {
+                        EffectTarget::Scene => scene_texture,
+                        EffectTarget::Pool(h) => self.texture_pool.texture(*h),
+                    };
+                    encoder.copy_texture_to_texture(
+                        wgpu::TexelCopyTextureInfo {
+                            texture: src_tex,
+                            mip_level: 0,
+                            origin: wgpu::Origin3d::ZERO,
+                            aspect: wgpu::TextureAspect::All,
+                        },
+                        wgpu::TexelCopyTextureInfo {
+                            texture: self.texture_pool.texture(*dest),
+                            mip_level: 0,
+                            origin: wgpu::Origin3d::ZERO,
+                            aspect: wgpu::TextureAspect::All,
+                        },
+                        wgpu::Extent3d {
+                            width: self.width.max(1),
+                            height: self.height.max(1),
+                            depth_or_array_layers: 1,
+                        },
+                    );
+                }
+
+                EffectRenderStep::CompositeBlend {
+                    source,
+                    backdrop,
+                    dest,
+                    mode,
+                } => {
+                    let uniforms = super::BlendUniforms {
+                        mode: *mode,
+                        srgb_input: if self.texture_pool.format().is_srgb() { 1.0 } else { 0.0 },
+                        _pad0: 0.0,
+                        _pad1: 0.0,
+                    };
+                    let ubuf = gpu.device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
+                        label: Some("Blend Uniforms"),
+                        contents: bytemuck::bytes_of(&uniforms),
+                        usage: wgpu::BufferUsages::UNIFORM,
+                    });
+                    let ubg = gpu.device.create_bind_group(&wgpu::BindGroupDescriptor {
+                        label: Some("Blend Uniform BG"),
+                        layout: &self.blend_uniform_bgl,
+                        entries: &[wgpu::BindGroupEntry {
+                            binding: 0,
+                            resource: ubuf.as_entire_binding(),
+                        }],
+                    });
+                    let view = match dest {
+                        EffectTarget::Scene => scene_view,
+                        EffectTarget::Pool(h) => self.texture_pool.view(*h),
+                    };
+                    let mut rp = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
+                        label: Some("Composite Blend Pass"),
+                        color_attachments: &[Some(wgpu::RenderPassColorAttachment {
+                            view,
+                            resolve_target: None,
+                            ops: wgpu::Operations {
+                                load: wgpu::LoadOp::Load,
+                                store: wgpu::StoreOp::Store,
+                            },
+                            depth_slice: None,
+                        })],
+                        depth_stencil_attachment: None,
+                        timestamp_writes: None,
+                        occlusion_query_set: None,
+                        multiview_mask: None,
+                    });
+                    rp.set_pipeline(&self.blend_pipeline);
+                    rp.set_bind_group(0, self.texture_pool.bind_group(*source), &[]);
+                    rp.set_bind_group(1, self.texture_pool.bind_group(*backdrop), &[]);
+                    rp.set_bind_group(2, &ubg, &[]);
+                    rp.set_vertex_buffer(0, self.fullscreen_vertex_buffer.slice(..));
+                    rp.set_index_buffer(
+                        self.fullscreen_index_buffer.slice(..),
+                        wgpu::IndexFormat::Uint32,
+                    );
+                    rp.draw_indexed(0..6, 0, 0..1);
                 }
             }
         }

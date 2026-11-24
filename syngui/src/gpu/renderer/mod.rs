@@ -71,6 +71,15 @@ impl Default for RenderStats {
     }
 }
 
+#[repr(C)]
+#[derive(Copy, Clone, Debug, bytemuck::Pod, bytemuck::Zeroable)]
+pub(super) struct BlendUniforms {
+    mode: u32,
+    srgb_input: f32,
+    _pad0: f32,
+    _pad1: f32,
+}
+
 pub struct Renderer {
     rect_pipeline: wgpu::RenderPipeline,
     rect_flat_pipeline: wgpu::RenderPipeline,
@@ -85,6 +94,7 @@ pub struct Renderer {
     blit_pipeline: wgpu::RenderPipeline,
     glow_shadow_pipeline: wgpu::RenderPipeline,
     glow_blit_pipeline: wgpu::RenderPipeline,
+    blend_pipeline: wgpu::RenderPipeline,
     projected_pipeline: wgpu::RenderPipeline,
     image_pipeline: wgpu::RenderPipeline,
     /// Видеокадры в YUV (`ImageData::yuv`): перевод цвета в шейдере.
@@ -95,6 +105,7 @@ pub struct Renderer {
     /// Раскладки униформ проходов: у каждого прохода свой буфер (см. effects.rs).
     blur_uniform_bgl: wgpu::BindGroupLayout,
     postprocess_uniform_bgl: wgpu::BindGroupLayout,
+    blend_uniform_bgl: wgpu::BindGroupLayout,
 
     text_bind_group: wgpu::BindGroup,
 
@@ -248,6 +259,16 @@ enum EffectRenderStep {
     },
     CopySceneToPool {
         dest: crate::gpu::texture_pool::PoolHandle,
+    },
+    CopyTargetToPool {
+        source: EffectTarget,
+        dest: crate::gpu::texture_pool::PoolHandle,
+    },
+    CompositeBlend {
+        source: crate::gpu::texture_pool::PoolHandle,
+        backdrop: crate::gpu::texture_pool::PoolHandle,
+        dest: EffectTarget,
+        mode: u32,
     },
     /// Слой четырёхугольниками в однородных координатах (3D, отражение).
     CompositeProjected {
@@ -648,6 +669,48 @@ impl Renderer {
             surface_format,
         );
 
+        let blend_uniform_bgl =
+            gpu.device
+                .create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
+                    label: Some("Blend Uniform BGL"),
+                    entries: &[wgpu::BindGroupLayoutEntry {
+                        binding: 0,
+                        visibility: wgpu::ShaderStages::FRAGMENT,
+                        ty: wgpu::BindingType::Buffer {
+                            ty: wgpu::BufferBindingType::Uniform,
+                            has_dynamic_offset: false,
+                            min_binding_size: wgpu::BufferSize::new(
+                                std::mem::size_of::<BlendUniforms>() as u64,
+                            ),
+                        },
+                        count: None,
+                    }],
+                });
+        let blend_shader = gpu
+            .device
+            .create_shader_module(wgpu::ShaderModuleDescriptor {
+                label: Some("Blend Shader"),
+                source: wgpu::ShaderSource::Wgsl(include_str!("../blend.wgsl").into()),
+            });
+        let blend_pipeline_layout =
+            gpu.device
+                .create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
+                    label: Some("Blend Pipeline Layout"),
+                    bind_group_layouts: &[
+                        texture_pool.bind_group_layout(),
+                        texture_pool.bind_group_layout(),
+                        &blend_uniform_bgl,
+                    ],
+                    immediate_size: 0,
+                });
+        let blend_pipeline = Self::create_fullscreen_pipeline_replace(
+            &gpu.device,
+            "Blend Pipeline",
+            &blend_pipeline_layout,
+            &blend_shader,
+            surface_format,
+        );
+
         let projected_shader = gpu
             .device
             .create_shader_module(wgpu::ShaderModuleDescriptor {
@@ -732,6 +795,7 @@ impl Renderer {
             blit_pipeline,
             glow_shadow_pipeline,
             glow_blit_pipeline,
+            blend_pipeline,
             projected_pipeline,
             image_pipeline,
             yuv_pipeline,
@@ -739,6 +803,7 @@ impl Renderer {
             uniform_bind_group,
             blur_uniform_bgl: blur_uniform_bgl.clone(),
             postprocess_uniform_bgl: pp_uniform_bgl.clone(),
+            blend_uniform_bgl,
             text_bind_group,
             font_atlas: std::sync::Arc::new(crate::core::sync::Mutex::new(font_atlas)),
             image_gpu_cache,

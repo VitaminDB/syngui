@@ -129,9 +129,10 @@ list.end_effect_layer();
 | `shadow(color, blur_radius, offset_x, offset_y)` | `box-shadow: 2px 4px 8px #00000040` | Drop shadow |
 | `opacity(value)` | `opacity: 0.8` | `value: f32` (0.0–1.0) |
 | `glow(radius, intensity)` | `glow: 0 0 12px #6366f180` | Blur + additive composite (bloom) |
-| `Effect::BlendMode { mode }` | `mix-blend-mode: multiply` | Compositing blend mode |
+| `Effect::BlendMode { mode }` | `DecoratedBox::layer_effect(...)` | GPU compositing blend mode (`blend.wgsl`) |
+| `Effect::ShapeMask { ellipse, center, size, radius, feather, invert }` | `DecoratedBox::layer_effect(...)` | GPU SDF mask (rounded rect or ellipse, feather, invert) |
 
-**BlendModeType values:** `Normal`, `Multiply`, `Screen`, `Overlay`, `Darken`, `Lighten`, `ColorDodge`, `ColorBurn`, `SoftLight`, `HardLight`, `Difference`, `Exclusion`
+**BlendModeType values:** `Normal`, `Multiply`, `Screen`, `Overlay`, `Darken`, `Lighten`, `ColorDodge`, `ColorBurn`, `SoftLight`, `HardLight`, `Difference`, `Exclusion`, `Add`
 
 ### Projection (3D и отражения)
 

@@ -15,6 +15,7 @@ use std::time::Duration;
 pub struct DecoratedBox {
     pub child: Option<Box<dyn Widget>>,
     pub clip: bool,
+    pub layer_effect: Option<crate::render::display_list::Effect>,
 }
 
 impl Default for DecoratedBox {
@@ -32,6 +33,7 @@ impl DecoratedBox {
         Self {
             child: None,
             clip: false,
+            layer_effect: None,
         }
     }
 
@@ -42,6 +44,12 @@ impl DecoratedBox {
 
     pub fn clip(mut self, clip: bool) -> Self {
         self.clip = clip;
+        self
+    }
+
+    /// Произвольный GPU-эффект слоя (маска, режим наложения, цепочка эффектов).
+    pub fn layer_effect(mut self, effect: crate::render::display_list::Effect) -> Self {
+        self.layer_effect = Some(effect);
         self
     }
 }
@@ -62,6 +70,7 @@ impl Widget for DecoratedBox {
             padding_top: 0.0,
             padding_bottom: 0.0,
             clip: self.clip,
+            layer_effect: self.layer_effect.clone(),
             bounds: Rect::zero(),
             child_id: None,
             classes: Vec::new(),
@@ -115,6 +124,7 @@ pub struct DecoratedBoxElement {
     padding_top: f32,
     padding_bottom: f32,
     clip: bool,
+    layer_effect: Option<crate::render::display_list::Effect>,
     bounds: Rect,
     child_id: Option<ElementId>,
     classes: Vec<String>,
@@ -229,6 +239,7 @@ impl DecoratedBoxElement {
             && self.mss.background_gradient.is_none()
             && self.mss.background_image.is_none()
             && self.mss.opacity.is_none()
+            && self.layer_effect.is_none()
     }
 
     fn build_filter_effect(
@@ -289,6 +300,7 @@ impl Element for DecoratedBoxElement {
     fn update(&mut self, widget: &dyn Widget, _ctx: &mut UpdateContext) {
         if let Some(db) = widget.as_any().downcast_ref::<DecoratedBox>() {
             self.clip = db.clip;
+            self.layer_effect = db.layer_effect.clone();
             self.mark_dirty(DirtyFlags::LAYOUT | DirtyFlags::RENDER);
         }
     }
@@ -444,6 +456,11 @@ impl Element for DecoratedBoxElement {
                 );
             }
         }
+        if let Some(ef) = &self.layer_effect {
+            if !ef.is_identity() {
+                list.push_effect_layer(ef.clone(), self.bounds);
+            }
+        }
         if self.has_filter_effects(&target) {
             list.push_effect_layer(self.build_filter_effect(&target), self.bounds);
         }
@@ -584,6 +601,9 @@ impl Element for DecoratedBoxElement {
         }
 
         if self.has_filter_effects(&target) {
+            list.pop_effect_layer();
+        }
+        if self.layer_effect.as_ref().is_some_and(|e| !e.is_identity()) {
             list.pop_effect_layer();
         }
         if self

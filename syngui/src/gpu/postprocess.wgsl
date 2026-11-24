@@ -574,6 +574,39 @@ fn fs_effect(in: VertexOutput) -> vec4<f32> {
         return c * reveal;
     }
 
+    // ── 27: Shape Mask (rounded rect / ellipse SDF + feather + invert) ──
+    if effect == 27 {
+        let c = textureSample(input_texture, input_sampler, in.uv);
+        let local = to_local_uv(in.uv);
+        let bw = max(pp.bounds.z * pp.resolution.x, 1.0);
+        let bh = max(pp.bounds.w * pp.resolution.y, 1.0);
+        let aspect = bw / bh;
+        let p = local - vec2<f32>(0.5 + pp.params.x, 0.5 + pp.params.y);
+        let half_sz = max(pp.params.zw * 0.5, vec2<f32>(0.0005));
+        var d: f32;
+        if amount > 0.5 {
+            // эллипс: нормированный SDF с градиентной поправкой
+            let pa = vec2<f32>(p.x * aspect, p.y);
+            let ha = vec2<f32>(half_sz.x * aspect, half_sz.y);
+            let q = pa / ha;
+            let len = length(q);
+            let grad = length(pa / (ha * ha));
+            d = select(-min(ha.x, ha.y), (len - 1.0) / max(grad, 1e-4), len > 1e-5);
+        } else {
+            let pa = vec2<f32>(p.x * aspect, p.y);
+            let ha = vec2<f32>(half_sz.x * aspect, half_sz.y);
+            let r = clamp(pp.params2.x, 0.0, 0.5) * 2.0 * min(ha.x, ha.y);
+            let q = abs(pa) - (ha - vec2<f32>(r));
+            d = length(max(q, vec2<f32>(0.0))) + min(max(q.x, q.y), 0.0) - r;
+        }
+        let feather = max(pp.params2.y, 0.0015);
+        var m = 1.0 - smoothstep(-feather * 0.5, feather * 0.5, d);
+        if pp.params2.z > 0.5 {
+            m = 1.0 - m;
+        }
+        return c * m;
+    }
+
     // Fallback: passthrough
     return textureSample(input_texture, input_sampler, in.uv);
 }

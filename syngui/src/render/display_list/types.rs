@@ -195,6 +195,7 @@ pub enum BlendModeType {
     HardLight,
     Difference,
     Exclusion,
+    Add,
 }
 
 #[derive(Clone, Debug)]
@@ -323,6 +324,16 @@ pub enum Effect {
     },
     BlendMode {
         mode: BlendModeType,
+    },
+    /// Геометрическая SDF-маска слоя: прямоугольник (со скруглением) или овал,
+    /// центр и размер — в долях границ элемента, мягкость края `feather`, инверсия.
+    ShapeMask {
+        ellipse: bool,
+        center: [f32; 2],
+        size: [f32; 2],
+        radius: f32,
+        feather: f32,
+        invert: bool,
     },
     Chain(Vec<Effect>),
     /// Слой выводится четырёхугольниками в однородных координатах —
@@ -487,6 +498,7 @@ impl Effect {
             Effect::Refraction { distortion, .. } => distortion.abs() < 0.001,
             Effect::LensFlare { intensity, .. } => *intensity <= 0.0,
             Effect::MaskReveal { progress, .. } => *progress <= 0.0,
+            Effect::BlendMode { mode } => *mode == BlendModeType::Normal,
             Effect::Chain(effects) => effects.iter().all(|e| e.is_identity()),
             _ => false,
         }
@@ -596,6 +608,19 @@ impl Effect {
                 progress,
                 direction,
             } => Some((26.0, *progress, [*direction, 0.0, 0.0, 0.0], z)),
+            Effect::ShapeMask {
+                ellipse,
+                center,
+                size,
+                radius,
+                feather,
+                invert,
+            } => Some((
+                27.0,
+                if *ellipse { 1.0 } else { 0.0 },
+                [center[0], center[1], size[0], size[1]],
+                [*radius, *feather, if *invert { 1.0 } else { 0.0 }, 0.0],
+            )),
             _ => None,
         }
     }
