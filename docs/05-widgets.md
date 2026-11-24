@@ -498,7 +498,10 @@ in syngui's own interpreter of the bodymovin JavaScript subset (functions,
 `loopOut`/`loopIn` (cycle/pingpong/offset/continue), `key`/`nearestKey`/
 `numKeys`, `valueAtTime`/`velocityAtTime`, `clamp`/`linear`/`ease`,
 `random`/`seedRandom`, `Math`, and references through `thisComp.layer(..)`,
-`comp(..)`, `content(..)`, `transform`, `effect(..)(..)`. A failing
+`comp(..)`, `content(..)`, `transform`, `effect(..)(..)`, `mask(..)`,
+`toComp`/`fromComp`, `sourceRectAtTime`, composition markers,
+`text.sourceText`, `posterizeTime`, `smooth`; text layers accept a
+`sourceText` expression. A failing
 expression keeps the keyframed value. Image assets (embedded
 base64 or files next to the JSON) decode when feature `image` is on. The
 dotLottie container (.lottie — a ZIP read by syngui's own inflate) loads via

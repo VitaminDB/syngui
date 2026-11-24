@@ -132,6 +132,10 @@ pub enum Host {
     Content(*const [Shape], *const [String]),
     Effect(*const EffectCtl),
     Prop(PropRef),
+    /// Маркеры композиции.
+    Markers(*const Composition),
+    /// Текст слоя (`text.sourceText`).
+    Text(*const [Layer], usize),
 }
 
 impl Host {
@@ -143,6 +147,8 @@ impl Host {
             Host::Shape(_) | Host::Content(..) => "PropertyGroup",
             Host::Effect(_) => "Effect",
             Host::Prop(_) => "Property",
+            Host::Markers(_) => "MarkerProperty",
+            Host::Text(..) => "TextProperty",
         }
     }
 }
@@ -632,6 +638,194 @@ fn h_time_to_frames(it: &mut Interp, _: &Value, a: &[Value]) -> R<Value> {
     Ok(Value::Num((t * fps).floor()))
 }
 
+/// `posterizeTime(fps)`: дальше время и значение — с шагом 1/fps.
+fn h_posterize_time(it: &mut Interp, _: &Value, a: &[Value]) -> R<Value> {
+    let fps = a.first().map(|v| it.num(v)).unwrap_or(0.0);
+    if fps > 0.0 {
+        let t = (it.frame.time() * fps).floor() / fps;
+        let f = (t * it.frame.fps as f64) as f32;
+        let v = it.frame.prop.base_at(f);
+        it.frame.frame = f;
+        if !matches!(v, Value::Undef) {
+            it.frame.value = v.clone();
+        }
+        if let Some(root) = it.root.clone() {
+            define(&root, "time", Value::Num(t));
+            define(&root, "value", it.frame.value.clone());
+        }
+    }
+    Ok(it.frame.value.clone())
+}
+
+/// `smooth(width=0.2, samples=5, t=time)`: среднее значение по окну.
+fn h_smooth(it: &mut Interp, this: &Value, a: &[Value]) -> R<Value> {
+    let p = prop_of(it, this);
+    let width = a.first().map(|v| it.num(v)).unwrap_or(0.2);
+    let samples = a.get(1).map(|v| it.num(v)).unwrap_or(5.0).max(1.0) as usize;
+    let t = a.get(2).map(|v| it.num(v)).unwrap_or(it.frame.time());
+    if samples == 1 || width <= 0.0 {
+        return Ok(p.base_at((t * it.frame.fps as f64) as f32));
+    }
+    let mut acc = Value::Num(0.0);
+    for k in 0..samples {
+        let tk = t - width / 2.0 + width * k as f64 / (samples - 1) as f64;
+        let v = p.base_at((tk * it.frame.fps as f64) as f32);
+        acc = it.binop(super::parser::BinOp::Add, acc, v)?;
+    }
+    it.binop(super::parser::BinOp::Div, acc, Value::Num(samples as f64))
+}
+
+/// Матрица слоя в координаты композиции (с родителями, 3D — ортогонально).
+fn layer_to_comp(ls: &[Layer], i: usize, frame: f32) -> crate::lottie::geom::Mat {
+    let mut m = crate::lottie::geom::Mat::IDENTITY;
+    let mut cur = Some(i);
+    let mut guard = 0;
+    while let Some(k) = cur {
+        let l = &ls[k];
+        let own = if l.three_d {
+            l.transform.matrix4(frame, 0.0).ortho()
+        } else {
+            l.transform.matrix(frame)
+        };
+        m = own.mul(&m);
+        cur = l.parent.filter(|p| *p != k && *p < ls.len());
+        guard += 1;
+        if guard > 64 {
+            break;
+        }
+    }
+    m
+}
+
+fn this_layer(it: &Interp, this: &Value) -> Option<(*const [Layer], usize)> {
+    match this {
+        Value::Host(Host::Layer(ls, i)) => Some((*ls, *i)),
+        _ => it.frame.ctx.map(|c| (c.layers, c.idx)),
+    }
+}
+
+fn point_transform(it: &mut Interp, this: &Value, a: &[Value], to_comp: bool) -> R<Value> {
+    let Some((ls, i)) = this_layer(it, this) else {
+        return err("toComp(): нет слоя");
+    };
+    let p = it.deref(a.first().cloned().unwrap_or(Value::Undef));
+    let pt = as_nums(&p).unwrap_or_else(|| vec![to_num(&p), 0.0]);
+    let f = match a.get(1) {
+        Some(t) => (it.num(t) * it.frame.fps as f64) as f32,
+        None => it.frame.frame,
+    };
+    let m = layer_to_comp(unsafe { &*ls }, i, f);
+    let m = if to_comp {
+        m
+    } else {
+        match m.invert() {
+            Some(inv) => inv,
+            None => return Ok(p),
+        }
+    };
+    let q = m.apply([
+        pt.first().copied().unwrap_or(0.0) as f32,
+        pt.get(1).copied().unwrap_or(0.0) as f32,
+    ]);
+    let mut out = vec![q[0] as f64, q[1] as f64];
+    out.extend(pt.iter().skip(2));
+    Ok(num_arr(&out))
+}
+
+fn h_to_comp(it: &mut Interp, this: &Value, a: &[Value]) -> R<Value> {
+    point_transform(it, this, a, true)
+}
+
+fn h_from_comp(it: &mut Interp, this: &Value, a: &[Value]) -> R<Value> {
+    point_transform(it, this, a, false)
+}
+
+fn h_source_rect(it: &mut Interp, this: &Value, a: &[Value]) -> R<Value> {
+    let Some((ls, i)) = this_layer(it, this) else {
+        return err("sourceRectAtTime(): нет слоя");
+    };
+    let f = match a.first() {
+        Some(t) => (it.num(t) * it.frame.fps as f64) as f32,
+        None => it.frame.frame,
+    };
+    let Some(comp) = it.frame.comp() else {
+        return err("sourceRectAtTime(): нет композиции");
+    };
+    let l = unsafe { &(*ls)[i] };
+    let b = crate::lottie::render::layer_bounds(comp, l, f).unwrap_or([0.0; 4]);
+    Ok(obj(vec![
+        ("left", Value::Num(b[0] as f64)),
+        ("top", Value::Num(b[1] as f64)),
+        ("width", Value::Num(b[2] as f64)),
+        ("height", Value::Num(b[3] as f64)),
+    ]))
+}
+
+fn h_mask(it: &mut Interp, this: &Value, a: &[Value]) -> R<Value> {
+    let key = str_arg(it, a, 0);
+    let Some((ls, i)) = this_layer(it, this) else {
+        return err("mask(): нет слоя");
+    };
+    let l = unsafe { &(*ls)[i] };
+    match find_named(&l.mask_paths, &l.mask_names, &key) {
+        Some(p) => Ok(obj(vec![
+            ("maskPath", Value::Host(Host::Prop(PropRef::Path(p)))),
+            ("name", Value::Str(to_str(&key).into())),
+        ])),
+        None => err(format!("маска `{}` не найдена", to_str(&key))),
+    }
+}
+
+/// Маркер композиции как объект: `time`, `duration`, `comment`, `index`.
+fn marker_obj(comp: &Composition, i: usize, fps: f32) -> Option<Value> {
+    let m = comp.markers.get(i)?;
+    Some(obj(vec![
+        ("time", Value::Num(m.frame as f64 / fps as f64)),
+        ("duration", Value::Num(m.duration as f64 / fps as f64)),
+        ("comment", Value::Str(m.name.as_str().into())),
+        ("index", Value::Num(i as f64 + 1.0)),
+    ]))
+}
+
+fn h_marker_key(it: &mut Interp, this: &Value, a: &[Value]) -> R<Value> {
+    let Value::Host(Host::Markers(c)) = this else {
+        return err("key(): не маркеры");
+    };
+    let comp = unsafe { &**c };
+    let key = str_arg(it, a, 0);
+    let i = match &key {
+        Value::Num(n) if *n >= 1.0 => Some(*n as usize - 1),
+        Value::Num(_) => None,
+        other => {
+            let k = to_str(other);
+            comp.markers.iter().position(|m| m.name == k)
+        }
+    };
+    match i.and_then(|i| marker_obj(comp, i, it.frame.fps)) {
+        Some(m) => Ok(m),
+        None => err(format!("маркер `{}` не найден", to_str(&key))),
+    }
+}
+
+fn h_marker_nearest(it: &mut Interp, this: &Value, a: &[Value]) -> R<Value> {
+    let Value::Host(Host::Markers(c)) = this else {
+        return err("nearestKey(): не маркеры");
+    };
+    let comp = unsafe { &**c };
+    let t = a.first().map(|v| it.num(v)).unwrap_or(it.frame.time());
+    let f = (t * it.frame.fps as f64) as f32;
+    let i = comp
+        .markers
+        .iter()
+        .enumerate()
+        .min_by(|x, y| (x.1.frame - f).abs().total_cmp(&(y.1.frame - f).abs()))
+        .map(|(i, _)| i);
+    match i.and_then(|i| marker_obj(comp, i, it.frame.fps)) {
+        Some(m) => Ok(m),
+        None => err("nearestKey(): нет маркеров"),
+    }
+}
+
 fn h_noop_value(it: &mut Interp, _: &Value, _: &[Value]) -> R<Value> {
     Ok(it.frame.value.clone())
 }
@@ -660,8 +854,14 @@ pub fn install_globals(g: &Env) {
         ("wiggle", h_wiggle),
         ("framesToTime", h_frames_to_time),
         ("timeToFrames", h_time_to_frames),
-        ("posterizeTime", h_noop_value),
-        ("smooth", h_noop_value),
+        ("posterizeTime", h_posterize_time),
+        ("smooth", h_smooth),
+        ("toComp", h_to_comp),
+        ("fromComp", h_from_comp),
+        ("toWorld", h_to_comp),
+        ("fromWorld", h_from_comp),
+        ("sourceRectAtTime", h_source_rect),
+        ("mask", h_mask),
     ];
     for (name, f) in funcs {
         define(g, name, native(*f, Value::Undef));
@@ -812,6 +1012,10 @@ pub fn member(it: &mut Interp, h: Host, name: &str) -> R<Value> {
                 "name" => Ok(Value::Str(
                     comp.map(|c| c.name.as_str()).unwrap_or("").into(),
                 )),
+                "marker" => match comp {
+                    Some(c) => Ok(Value::Host(Host::Markers(c))),
+                    None => Ok(Value::Undef),
+                },
                 _ => Ok(Value::Undef),
             }
         }
@@ -821,6 +1025,11 @@ pub fn member(it: &mut Interp, h: Host, name: &str) -> R<Value> {
             match name {
                 "content" => method(h_content),
                 "effect" => method(h_effect),
+                "toComp" | "toWorld" => method(h_to_comp),
+                "fromComp" | "fromWorld" => method(h_from_comp),
+                "sourceRectAtTime" => method(h_source_rect),
+                "mask" => method(h_mask),
+                "text" => Ok(Value::Host(Host::Text(ls, i))),
                 "transform" => Ok(Value::Host(Host::Transform(&l.transform))),
                 "name" => Ok(Value::Str(l.name.as_str().into())),
                 "index" => Ok(Value::Num(l.index as f64)),
@@ -870,6 +1079,8 @@ pub fn member(it: &mut Interp, h: Host, name: &str) -> R<Value> {
             "name" => Ok(Value::Str(unsafe { (*e).name.as_str() }.into())),
             _ => Ok(Value::Undef),
         },
+        Host::Markers(c) => markers_member(it, c, name),
+        Host::Text(ls, i) => text_member(it, ls, i, name),
         Host::Prop(p) => match name {
             "value" => Ok(p.value_at(it.frame.frame)),
             "valueAtTime" => method(h_value_at_time),
@@ -885,12 +1096,41 @@ pub fn member(it: &mut Interp, h: Host, name: &str) -> R<Value> {
             "loopOutDuration" => method(h_loop_out_duration),
             "loopInDuration" => method(h_loop_in_duration),
             "wiggle" => method(h_wiggle),
+            "smooth" => method(h_smooth),
             "length" => {
                 let v = p.value_at(it.frame.frame);
                 it.member(&v, "length")
             }
             _ => Ok(Value::Undef),
         },
+    }
+}
+
+fn markers_member(it: &mut Interp, c: *const Composition, name: &str) -> R<Value> {
+    let comp = unsafe { &*c };
+    let this = Value::Host(Host::Markers(c));
+    match name {
+        "numKeys" => Ok(Value::Num(comp.markers.len() as f64)),
+        "key" => Ok(native(h_marker_key, this)),
+        "nearestKey" => Ok(native(h_marker_nearest, this)),
+        _ => {
+            let _ = it;
+            Ok(Value::Undef)
+        }
+    }
+}
+
+fn text_member(it: &mut Interp, ls: *const [Layer], i: usize, name: &str) -> R<Value> {
+    let l = unsafe { &(*ls)[i] };
+    match (name, &l.kind) {
+        ("sourceText", LayerKind::Text(td)) => {
+            let f = it.frame.frame;
+            Ok(td
+                .doc_at(f)
+                .map(|d| Value::Str(d.text.as_str().into()))
+                .unwrap_or(Value::Str("".into())))
+        }
+        _ => Ok(Value::Undef),
     }
 }
 

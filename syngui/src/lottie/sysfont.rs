@@ -136,7 +136,9 @@ fn collect_needed(
                 Some(f) => (f.family.clone(), f.style.clone()),
                 None => (doc.font.clone(), String::new()),
             };
-            for ch in doc.text.chars() {
+            // Текст из выражения заранее неизвестен — плюс печатный ASCII.
+            let extra = td.expr.is_some().then_some('!'..='~').into_iter().flatten();
+            for ch in doc.text.chars().chain(extra) {
                 if ch == '\r' || ch == '\n' || ch == ' ' {
                     continue;
                 }

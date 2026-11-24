@@ -152,11 +152,17 @@ pub struct Interp {
     steps: u64,
     /// Контекст вычисляемого свойства.
     pub frame: host::EvalFrame,
+    /// Корневая область вычисления (для `posterizeTime`).
+    pub root: Option<Env>,
 }
 
 impl Interp {
     pub fn new(frame: host::EvalFrame) -> Self {
-        Interp { steps: 0, frame }
+        Interp {
+            steps: 0,
+            frame,
+            root: None,
+        }
     }
 
     fn tick(&mut self) -> R<()> {

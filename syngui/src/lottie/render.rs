@@ -895,7 +895,8 @@ impl Renderer {
         let Some(doc) = td.doc_at(frame) else {
             return;
         };
-        if doc.text.is_empty() {
+        let source = text_source(td, doc, frame);
+        if source.is_empty() {
             return;
         }
         let (family, style, ascent) = match ctx.comp.font(&doc.font) {
@@ -908,7 +909,7 @@ impl Renderer {
             Some(ps) => (ps[0], ps[1] + ascent * k),
             None => (0.0, 0.0),
         };
-        let text = doc.text.replace("\r\n", "\r");
+        let text = source.replace("\r\n", "\r");
         let lines: Vec<&str> = text.split(['\r', '\n', '\u{3}']).collect();
 
         // Буквы и их индексы для селекторов: [буква, без пробелов, слово, строка].
@@ -1908,6 +1909,104 @@ fn camera_matrix(tr: &Transform, frame: f32) -> Mat4 {
         m = m.mul(&Mat4::rotate_y(ry.value(frame)));
     }
     m.mul(&Mat4::rotate_z(tr.rotation.value(frame)))
+}
+
+/// Текст документа с учётом выражения `sourceText`.
+fn text_source<'a>(
+    td: &TextData,
+    doc: &'a super::model::TextDoc,
+    frame: f32,
+) -> std::borrow::Cow<'a, str> {
+    use super::expr::{evaluate_value, interp::to_str, PropRef, Value};
+    match &td.expr {
+        Some(p) => match evaluate_value(
+            p,
+            frame,
+            Value::Str(doc.text.as_str().into()),
+            PropRef::None,
+            0,
+        ) {
+            Some(v) => std::borrow::Cow::Owned(to_str(&v)),
+            None => std::borrow::Cow::Borrowed(&doc.text),
+        },
+        None => std::borrow::Cow::Borrowed(&doc.text),
+    }
+}
+
+/// Охват содержимого слоя в его локальных координатах без обводок —
+/// `[x, y, ширина, высота]` (для `sourceRectAtTime` в выражениях).
+pub fn layer_bounds(comp: &Composition, l: &Layer, frame: f32) -> Option<[f32; 4]> {
+    match &l.kind {
+        LayerKind::Shape(items) => {
+            let mut col = Collected {
+                styles: Vec::new(),
+                trims: Vec::new(),
+                paths: Vec::new(),
+                merges: Vec::new(),
+            };
+            collect_shapes(
+                items,
+                frame,
+                Mat::IDENTITY,
+                1.0,
+                &CollectCtx::default(),
+                &mut col,
+                0,
+            );
+            let mut bb: Option<[f32; 4]> = None;
+            for p in col.paths.iter().flat_map(|p| p.polys.iter()) {
+                if let Some(b) = p.bbox() {
+                    bb = Some(match bb {
+                        None => b,
+                        Some(a) => [
+                            a[0].min(b[0]),
+                            a[1].min(b[1]),
+                            a[2].max(b[2]),
+                            a[3].max(b[3]),
+                        ],
+                    });
+                }
+            }
+            bb.map(|b| [b[0], b[1], b[2] - b[0], b[3] - b[1]])
+        }
+        LayerKind::Solid(_) | LayerKind::Precomp(_) => Some([0.0, 0.0, l.width, l.height]),
+        LayerKind::Image(id) => comp.images.get(id).map(|a| [0.0, 0.0, a.width, a.height]),
+        LayerKind::Text(td) => {
+            let doc = td.doc_at(frame)?;
+            let text = text_source(td, doc, frame);
+            let (family, style, ascent) = match comp.font(&doc.font) {
+                Some(f) => (f.family.as_str(), f.style.as_str(), f.ascent),
+                None => ("", "", 75.0),
+            };
+            let k = doc.size / 100.0;
+            let lines: Vec<&str> = text.split(['\r', '\n']).collect();
+            let width = lines
+                .iter()
+                .map(|line| {
+                    line.chars()
+                        .map(|ch| {
+                            let mut b = [0u8; 4];
+                            comp.glyph(family, style, ch.encode_utf8(&mut b))
+                                .map(|g| g.advance * k)
+                                .unwrap_or(doc.size * 0.33)
+                                + doc.tracking / 1000.0 * doc.size
+                        })
+                        .sum::<f32>()
+                })
+                .fold(0.0f32, f32::max);
+            let x = match doc.justify {
+                1 => -width,
+                2 => -width / 2.0,
+                _ => 0.0,
+            } + doc.box_pos.map(|p| p[0]).unwrap_or(0.0);
+            let top = doc.box_pos.map(|p| p[1]).unwrap_or(-ascent * k);
+            let h = ascent * k
+                + (lines.len().saturating_sub(1)) as f32 * doc.line_height
+                + doc.size * 0.25;
+            Some([x, top, width, h])
+        }
+        _ => None,
+    }
 }
 
 fn auto_orient_angle(tr: &Transform, local: f32) -> f32 {

@@ -145,6 +145,19 @@ pub fn evaluate<T: ExprValue>(
     prop: &Animated<T>,
     seed: u64,
 ) -> Option<T> {
+    let v = evaluate_value(prog, frame, base.to_value(), T::prop_ref(prop), seed)?;
+    T::from_value(&v, base)
+}
+
+/// Вычислить выражение с произвольным базовым значением (`value`) —
+/// например, строкой текстового документа (`sourceText`).
+pub fn evaluate_value(
+    prog: &Program,
+    frame: f32,
+    base: Value,
+    prop: PropRef,
+    seed: u64,
+) -> Option<Value> {
     let depth = DEPTH.with(|d| d.get());
     if depth >= MAX_DEPTH {
         return None;
@@ -158,15 +171,13 @@ pub fn evaluate<T: ExprValue>(
     }
     let _dec = Dec;
     let fps = host::current().map(|_| host_fps()).unwrap_or(30.0);
-    let frame_ctx = host::EvalFrame::new(frame, fps, base.to_value(), T::prop_ref(prop), seed);
+    let frame_ctx = host::EvalFrame::new(frame, fps, base, prop, seed);
     let mut it = interp::Interp::new(frame_ctx);
     let env = interp::eval_scope();
+    it.root = Some(env.clone());
     host::install_frame(&env, &it);
     match it.run(&prog.stmts, &env) {
-        Ok(v) => {
-            let v = it.deref(v);
-            T::from_value(&v, base)
-        }
+        Ok(v) => Some(it.deref(v)),
         Err(e) => {
             if !prog.reported.swap(true, Ordering::Relaxed) {
                 log::debug!(
@@ -296,5 +307,94 @@ $bm_rt = g() || value;"#;
         assert_eq!(p.value(0.0), 42.0);
         let p = prop_f32(&with_expr(r#"{"a":0,"k":42}"#, "while (true) {}"));
         assert_eq!(p.value(0.0), 42.0);
+    }
+
+    fn comp_with(exprs: &[(&str, &str)]) -> crate::lottie::Composition {
+        // Слой 1 — «база» (сдвиг 100,50; квадрат 20×10 от 0,0); слой 2 — проба с выражениями.
+        let mut props = String::new();
+        for (k, x) in exprs {
+            let base = match *k {
+                "p" => r#"{"a":0,"k":[0,0]}"#,
+                "s" => r#"{"a":0,"k":[100,100]}"#,
+                _ => r#"{"a":0,"k":0}"#,
+            };
+            props.push_str(&format!("\"{k}\":{},", with_expr(base, x)));
+        }
+        let props = props.trim_end_matches(',');
+        let json = format!(
+            r#"{{"fr":10,"ip":0,"op":100,"w":200,"h":200,"nm":"main",
+            "markers":[{{"cm":"a","tm":20,"dr":5}},{{"cm":"b","tm":40,"dr":0}}],
+            "layers":[
+              {{"ty":4,"ind":1,"nm":"base","ks":{{"p":{{"a":0,"k":[100,50]}}}},"ip":0,"op":100,"st":0,
+                "masksProperties":[{{"nm":"M1","mode":"n","pt":{{"a":0,"k":{{"c":true,"v":[[0,0],[5,0],[5,5]],"i":[[0,0],[0,0],[0,0]],"o":[[0,0],[0,0],[0,0]]}}}}}}],
+                "shapes":[{{"ty":"rc","nm":"R","p":{{"a":0,"k":[10,5]}},"s":{{"a":0,"k":[20,10]}},"r":{{"a":0,"k":0}}}}]}},
+              {{"ty":4,"ind":2,"nm":"probe","ks":{{{props}}},"ip":0,"op":100,"st":0,"shapes":[]}}
+            ]}}"#
+        );
+        crate::lottie::Composition::from_str(&json).unwrap()
+    }
+
+    #[test]
+    fn markers_tocomp_sourcerect_mask() {
+        let c = comp_with(&[
+            (
+                "o",
+                "thisComp.marker.key('b').time * 10 + thisComp.marker.numKeys",
+            ),
+            (
+                "r",
+                "var r = thisComp.layer('base').sourceRectAtTime(); r.width + r.height / 10;",
+            ),
+            ("p", "thisComp.layer('base').toComp([10, 5]);"),
+            ("sk", "thisComp.layer('base').mask('M1').maskPath ? 7 : 0;"),
+        ]);
+        assert!(c.has_expressions);
+        let _g = enter(&c, &c.layers, 1);
+        let t = &c.layers[1].transform;
+        assert!(
+            (t.opacity.value(0.0) - 42.0).abs() < 1e-4,
+            "{}",
+            t.opacity.value(0.0)
+        );
+        assert!(
+            (t.rotation.value(0.0) - 21.0).abs() < 1e-4,
+            "{}",
+            t.rotation.value(0.0)
+        );
+        assert_eq!(t.position_at(0.0), [110.0, 55.0]);
+        assert_eq!(t.skew.value(0.0), 7.0);
+    }
+
+    #[test]
+    fn posterize_and_smooth() {
+        let c = comp_with(&[("o", "posterizeTime(2); time * 100;")]);
+        let _g = enter(&c, &c.layers, 1);
+        // fps 10, кадр 7 → 0.7 с → с шагом 0.5 с → 0.5.
+        assert!((c.layers[1].transform.opacity.value(7.0) - 50.0).abs() < 1e-3);
+        let p = prop_f32(&with_expr(KEYS, "smooth(0.2, 5)"));
+        // Линейный участок: среднее по окну равно значению.
+        assert!((p.value(5.0) - 50.0).abs() < 1e-2, "{}", p.value(5.0));
+    }
+
+    #[test]
+    fn text_source_expression() {
+        let json = r#"{"fr":10,"ip":0,"op":10,"w":100,"h":100,"layers":[
+            {"ty":5,"ind":1,"ks":{},"ip":0,"op":10,"st":0,
+             "t":{"d":{"k":[{"s":{"s":20,"f":"F","t":"abc"},"t":0}],"x":"var $bm_rt;\n$bm_rt = value + ' ' + Math.round(time * 10);"},"p":{},"m":{"g":1,"a":{"a":0,"k":[0,0]}},"a":[]}}]}"#;
+        let c = crate::lottie::Composition::from_str(json).unwrap();
+        assert!(c.has_expressions);
+        let crate::lottie::model::LayerKind::Text(td) = &c.layers[0].kind else {
+            panic!()
+        };
+        let _g = enter(&c, &c.layers, 0);
+        let v = evaluate_value(
+            td.expr.as_ref().unwrap(),
+            3.0,
+            Value::Str("abc".into()),
+            PropRef::None,
+            0,
+        )
+        .unwrap();
+        assert_eq!(interp::to_str(&v), "abc 3");
     }
 }

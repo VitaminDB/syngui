@@ -162,6 +162,11 @@ pub struct ExprProp<T> {
 
 /// Сколько выражений скомпилировано в этом потоке (признак наличия
 /// выражений у разобранной композиции).
+/// Отметить скомпилированное выражение (для [`compiled_expressions`]).
+pub fn note_compiled() {
+    COMPILED.with(|c| c.set(c.get() + 1));
+}
+
 pub fn compiled_expressions() -> u64 {
     COMPILED.with(|c| c.get())
 }

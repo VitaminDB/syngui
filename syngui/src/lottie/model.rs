@@ -318,6 +318,9 @@ pub struct TextData {
     /// Выравнивание точки привязки букв (`m.a`, проценты).
     pub anchor_align: Animated<Vec<f32>>,
     pub path: Option<TextPathOpts>,
+    /// Выражение `sourceText` (`t.d.x`): `value` — текст документа,
+    /// результат — новый текст.
+    pub expr: Option<std::sync::Arc<super::expr::Program>>,
 }
 
 impl TextData {
@@ -475,6 +478,8 @@ pub struct Layer {
     /// Контуры всех масок по порядку `masksProperties` (включая режим None) —
     /// для текста по контуру и эффекта Stroke.
     pub mask_paths: Vec<Animated<ShapePath>>,
+    /// Имена масок параллельно `mask_paths` — для `mask('…')`.
+    pub mask_names: Vec<String>,
     pub matte: Option<MatteMode>,
     /// Индекс слоя-источника matte в том же списке.
     pub matte_source: Option<usize>,
@@ -1236,6 +1241,20 @@ fn parse_text(v: &Json) -> TextData {
                 .collect()
         })
         .unwrap_or_default();
+    let expr = t
+        .and_then(|t| t.get("d"))
+        .and_then(|d| d.get("x"))
+        .and_then(Json::as_str)
+        .and_then(|src| match super::expr::Program::compile(src) {
+            Ok(p) => {
+                super::anim::note_compiled();
+                Some(std::sync::Arc::new(p))
+            }
+            Err(e) => {
+                log::debug!("lottie: выражение текста не разобрано ({e})");
+                None
+            }
+        });
     let animators = t
         .and_then(|t| t.get("a"))
         .and_then(Json::as_array)
@@ -1269,6 +1288,7 @@ fn parse_text(v: &Json) -> TextData {
         animators,
         anchor_align,
         path,
+        expr,
     }
 }
 
@@ -1484,6 +1504,11 @@ fn parse_layer(v: &Json, unsupported: &mut usize) -> Layer {
             .get("masksProperties")
             .and_then(Json::as_array)
             .map(|a| a.iter().filter_map(parse_mask).collect())
+            .unwrap_or_default(),
+        mask_names: v
+            .get("masksProperties")
+            .and_then(Json::as_array)
+            .map(|a| a.iter().map(|m| m.str_or("nm", "").to_string()).collect())
             .unwrap_or_default(),
         mask_paths: v
             .get("masksProperties")
