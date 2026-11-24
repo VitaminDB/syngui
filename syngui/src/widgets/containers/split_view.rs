@@ -1,3 +1,4 @@
+use crate::core::sync::Mutex;
 use crate::core::{Color, Point, Rect, RectExt, Size};
 use crate::input::{CursorIcon, Event, EventResult, MouseButton};
 use crate::layout::Constraints;
@@ -10,6 +11,7 @@ use crate::widget::{
     DirtyFlags, Element, ElementId, ElementTree, LayoutHint, StyledElement, UpdateContext, Widget,
 };
 use std::any::Any;
+use std::sync::Arc;
 
 // Цвета полосы берутся из MSS: `border-color` — в покое, `accent-color` — при
 // наведении и перетаскивании, `color` — точки-«ручка», `divider-thickness` —
@@ -36,6 +38,7 @@ pub struct SplitView {
     first_size_signal: Option<RwSignal<f32>>,
     first_min: f32,
     first_max: f32,
+    on_resize_end: Option<Arc<Mutex<dyn FnMut(f32) + Send>>>,
 }
 
 impl SplitView {
@@ -53,7 +56,15 @@ impl SplitView {
             first_size_signal: None,
             first_min: 0.0,
             first_max: f32::INFINITY,
+            on_resize_end: None,
         }
+    }
+
+    /// Вызывается один раз при отпускании разделителя с итоговой долей `ratio`
+    /// (удобно для сохранения раскладки без записи на каждое движение мыши).
+    pub fn on_resize_end(mut self, f: impl FnMut(f32) + Send + 'static) -> Self {
+        self.on_resize_end = Some(Arc::new(Mutex::new(f)));
+        self
     }
 
     /// Первая панель фиксированной ширины (высоты — у вертикального) в
@@ -153,6 +164,7 @@ impl Widget for SplitView {
             first_size_signal: self.first_size_signal,
             first_min: self.first_min,
             first_max: self.first_max,
+            on_resize_end: self.on_resize_end.clone(),
         })
     }
 
@@ -209,6 +221,7 @@ pub struct SplitViewElement {
     first_size_signal: Option<RwSignal<f32>>,
     first_min: f32,
     first_max: f32,
+    on_resize_end: Option<Arc<Mutex<dyn FnMut(f32) + Send>>>,
 }
 
 impl SplitViewElement {
@@ -270,6 +283,7 @@ impl Element for SplitViewElement {
             self.first_size_signal = sv.first_size_signal;
             self.first_min = sv.first_min;
             self.first_max = sv.first_max;
+            self.on_resize_end = sv.on_resize_end.clone();
             // Размер из сигнала — всегда его; постоянный `first_size` — только
             // при включении режима, чтобы пересборка не сбрасывала то, что
             // пользователь натянул.
@@ -474,6 +488,11 @@ impl Element for SplitViewElement {
             Event::MouseUp { button, .. } if *button == MouseButton::Left => {
                 if self.dragging {
                     self.dragging = false;
+                    if let Some(ref cb) = self.on_resize_end {
+                        if let Ok(mut f) = cb.lock() {
+                            f(self.ratio);
+                        }
+                    }
                     ctx.request_paint();
                     return EventResult::Handled;
                 }

@@ -407,6 +407,9 @@ impl DockNode {
 pub struct DockState {
     root: RwSignal<Option<DockNode>>,
     focused: RwSignal<String>,
+    /// Счётчик неструктурных правок (смена активной вкладки, отпускание разделителя):
+    /// будит [`spec_tracked`](Self::spec_tracked), не перестраивая дерево.
+    version: RwSignal<u64>,
 }
 
 impl DockState {
@@ -414,7 +417,13 @@ impl DockState {
         DockState {
             root: use_signal(Some(DockNode::from_spec(&spec))),
             focused: use_signal(String::new()),
+            version: use_signal(0),
         }
+    }
+
+    /// Пометить раскладку изменённой (для подписчиков [`spec_tracked`](Self::spec_tracked)).
+    fn touch(&self) {
+        self.version.set(self.version.get_untracked().wrapping_add(1));
     }
 
     /// Последняя активированная панель (клик по вкладке, открытие, перенос).
@@ -423,9 +432,11 @@ impl DockState {
         self.focused
     }
 
-    /// Как [`spec`](Self::spec), но с подпиской на изменения структуры (для
-    /// эффекта, сохраняющего раскладку). Доли разделителей не отслеживаются.
+    /// Как [`spec`](Self::spec), но с подпиской на изменения раскладки (структура,
+    /// смена активной вкладки и итоговые доли разделителей после отпускания) —
+    /// для эффекта автосохранения.
     pub fn spec_tracked(&self) -> Option<DockSpec> {
+        let _ = self.version.get();
         self.root.with(|r| r.as_ref().map(DockNode::spec))
     }
 
@@ -530,8 +541,12 @@ impl DockState {
             }
             match groups.iter().find(|g| g.panels.iter().any(|p| p == panel)) {
                 Some(g) => {
+                    let changed = g.active.get_untracked() != panel;
                     g.active.set(panel.to_string());
                     self.focused.set(panel.to_string());
+                    if changed {
+                        self.touch();
+                    }
                     true
                 }
                 None => false,
@@ -885,14 +900,18 @@ impl DockArea {
                 ratio,
                 first,
                 second,
-            } => Box::new(
-                SplitView::new(BoxedChild(self.node(first)), BoxedChild(self.node(second)))
-                    .direction(*dir)
-                    .ratio_signal(*ratio)
-                    .initial_ratio(ratio.get_untracked())
-                    .min_size(80.0)
-                    .class("dock-split"),
-            ),
+            } => {
+                let state = self.state;
+                Box::new(
+                    SplitView::new(BoxedChild(self.node(first)), BoxedChild(self.node(second)))
+                        .direction(*dir)
+                        .ratio_signal(*ratio)
+                        .initial_ratio(ratio.get_untracked())
+                        .min_size(80.0)
+                        .on_resize_end(move |_| state.touch())
+                        .class("dock-split"),
+                )
+            }
             DockNode::Tabs(g) => self.group(g.clone()),
         }
     }
@@ -1085,11 +1104,16 @@ impl DockArea {
                 ))
                 .child(tab_row())
         };
+        let state_click = self.state;
         let drag = Draggable::new(DOCK_DRAG_TYPE, panel)
             .label(title)
             .on_click(move || {
+                let changed = active_sig.get_untracked() != id;
                 active_sig.set(id.clone());
                 focused.set(id.clone());
+                if changed {
+                    state_click.touch();
+                }
             })
             .child(body);
         // бросок на вкладку: левая половина — до неё, правая — после
@@ -1447,5 +1471,51 @@ mod tests {
         assert!(matches!(s.spec(), Some(DockSpec::Split { .. })));
         s.open_in("doc:3", "docs");
         assert_eq!(s.group_panels("docs"), ["doc:3"]);
+    }
+
+    #[test]
+    fn spec_tracked_notifies_on_activate_and_resize_end() {
+        use crate::core::Point;
+        use crate::input::{Event, MouseButton};
+        use crate::signal::use_effect;
+        use crate::testing::TestHarness;
+        use std::sync::atomic::AtomicUsize;
+
+        let s = layout();
+        let hits = Arc::new(AtomicUsize::new(0));
+        let h_eff = hits.clone();
+        use_effect(move || {
+            let _ = s.spec_tracked();
+            h_eff.fetch_add(1, Ordering::SeqCst);
+        });
+        let base = hits.load(Ordering::SeqCst);
+        // смена активной вкладки будит эффект
+        s.activate("b");
+        crate::signal::drain_and_run_effects();
+        assert!(hits.load(Ordering::SeqCst) > base);
+        let after_tab = hits.load(Ordering::SeqCst);
+
+        // перетаскивание разделителя будит эффект только при отпускании
+        let mut harness = TestHarness::new(Box::new(DockArea::new(s).build()));
+        harness.rebuild();
+        harness.layout(400.0, 200.0);
+        // разделитель при ratio=0.3 на x ≈ (400-6)*0.3 + 3 ≈ 121
+        harness.send_event(&Event::MouseDown {
+            button: MouseButton::Left,
+            position: Point::new(121.0, 100.0),
+        });
+        harness.send_event(&Event::MouseMove(Point::new(220.0, 100.0)));
+        crate::signal::drain_and_run_effects();
+        assert_eq!(hits.load(Ordering::SeqCst), after_tab);
+        harness.send_event(&Event::MouseUp {
+            button: MouseButton::Left,
+            position: Point::new(220.0, 100.0),
+        });
+        crate::signal::drain_and_run_effects();
+        assert!(hits.load(Ordering::SeqCst) > after_tab);
+        let Some(DockSpec::Split { ratio, .. }) = s.spec() else {
+            panic!()
+        };
+        assert!(ratio > 0.5, "ratio updated: {ratio}");
     }
 }
