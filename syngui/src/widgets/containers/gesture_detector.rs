@@ -480,6 +480,23 @@ fn call_bounds(cb: &Option<ClickBoundsCb>, p: Point, r: Rect) {
 }
 
 impl GestureDetectorElement {
+    /// Есть ли дело до левой кнопки: без таких обработчиков нажатие уходит
+    /// дальше — детектор только ради правого щелчка не мешает перетаскиванию
+    /// и щелчкам снаружи.
+    fn wants_left(&self) -> bool {
+        self.on_click.is_some()
+            || self.on_click_at.is_some()
+            || self.on_click_with_bounds.is_some()
+            || self.on_double_click.is_some()
+            || self.on_double_click_with_bounds.is_some()
+            || self.on_mouse_down.is_some()
+            || self.on_mouse_up.is_some()
+            || self.on_press.is_some()
+            || self.on_release.is_some()
+            || self.on_long_press.is_some()
+            || self.wants_pan()
+    }
+
     fn wants_pan(&self) -> bool {
         self.on_pan_start.is_some()
             || self.on_pan_update.is_some()
@@ -858,7 +875,7 @@ impl Element for GestureDetectorElement {
                 EventResult::Ignored
             }
             Event::MouseDown { button, position } => {
-                if *button == MouseButton::Left && self.bounds.contains(*position) {
+                if *button == MouseButton::Left && self.bounds.contains(*position) && self.wants_left() {
                     self.pressed = true;
                     if !crate::input::is_synthesized_mouse()
                         && (self.on_press.is_some() || self.on_release.is_some())
@@ -926,7 +943,8 @@ impl Element for GestureDetectorElement {
                 EventResult::Ignored
             }
             Event::DoubleClick { position, .. } => {
-                if self.bounds.contains(*position) {
+                if self.bounds.contains(*position)
+                    && (self.on_double_click.is_some() || self.on_double_click_with_bounds.is_some()) {
                     if let Some(ref cb) = self.on_double_click {
                         if let Ok(mut f) = cb.lock() {
                             f();
