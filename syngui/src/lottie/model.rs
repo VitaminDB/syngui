@@ -1,8 +1,8 @@
 //! Модель данных Lottie (bodymovin JSON) и её разбор. Поддерживаются слои
 //! shape/solid/null/precomp/image, маски, track matte, time remap, parenting,
 //! фигуры (rect/ellipse/polystar/path), заливки и обводки (цвет и градиенты),
-//! trim paths, repeater, скругление углов. Текстовые слои и выражения —
-//! вне объёма (пропускаются с предупреждением в лог).
+//! trim paths, repeater, скругление углов, текстовые слои с аниматорами
+//! и текстом по контуру.
 
 use std::collections::HashMap;
 use std::sync::Arc;
@@ -100,6 +100,8 @@ pub struct LayerMask {
     pub inverted: bool,
     pub opacity: Animated<f32>,
     pub path: Animated<ShapePath>,
+    /// Расширение (+) / сужение (−) маски в единицах слоя (`x`).
+    pub expand: Animated<f32>,
 }
 
 #[derive(Debug, Clone)]
@@ -142,10 +144,97 @@ pub struct TextDoc {
     pub box_size: Option<[f32; 2]>,
 }
 
+/// Единицы, по которым считается индекс буквы в селекторе (`b`).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum TextBasedOn {
+    Characters,
+    CharactersExcludingSpaces,
+    Words,
+    Lines,
+}
+
+/// Форма селектора (`sh`).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum SelectorShape {
+    Square,
+    RampUp,
+    RampDown,
+    Triangle,
+    Round,
+    Smooth,
+}
+
+/// Range-селектор аниматора текста (`t.a[].s`).
+#[derive(Debug)]
+pub struct TextSelector {
+    pub based_on: TextBasedOn,
+    pub shape: SelectorShape,
+    /// Единицы start/end/offset: `true` — индексы, `false` — проценты.
+    pub index_units: bool,
+    pub start: Animated<f32>,
+    pub end: Animated<f32>,
+    pub offset: Animated<f32>,
+    /// Проценты 0..100.
+    pub amount: Animated<f32>,
+    /// Ease High / Ease Low (`xe`/`ne`), проценты −100..100.
+    pub ease_high: Animated<f32>,
+    pub ease_low: Animated<f32>,
+    /// Smoothness (`sm`, только для формы Square), проценты.
+    pub smoothness: Animated<f32>,
+    /// Порядок букв перемешивается (`rn`).
+    pub randomize: bool,
+}
+
+/// Анимируемые свойства аниматора текста (`t.a[].a`): значение действует
+/// на букву с весом селектора.
+#[derive(Debug, Default)]
+pub struct TextAnimProps {
+    pub anchor: Option<Animated<Vec<f32>>>,
+    pub position: Option<Animated<Vec<f32>>>,
+    /// Проценты.
+    pub scale: Option<Animated<Vec<f32>>>,
+    pub rotation: Option<Animated<f32>>,
+    pub skew: Option<Animated<f32>>,
+    pub skew_axis: Option<Animated<f32>>,
+    /// Проценты 0..100.
+    pub opacity: Option<Animated<f32>>,
+    pub fill: Option<Animated<Vec<f32>>>,
+    pub stroke: Option<Animated<Vec<f32>>>,
+    pub stroke_width: Option<Animated<f32>>,
+    /// Трекинг (единицы на 1000 кегля).
+    pub tracking: Option<Animated<f32>>,
+    /// Сдвиг тона заливки (градусы), насыщенности и яркости (проценты).
+    pub fill_hue: Option<Animated<f32>>,
+    pub fill_saturation: Option<Animated<f32>>,
+    pub fill_brightness: Option<Animated<f32>>,
+}
+
+#[derive(Debug)]
+pub struct TextAnimator {
+    pub selector: Option<TextSelector>,
+    pub props: TextAnimProps,
+}
+
+/// Текст по контуру маски (`t.p`).
+#[derive(Debug)]
+pub struct TextPathOpts {
+    /// Индекс маски слоя (среди всех `masksProperties`).
+    pub mask: usize,
+    pub first_margin: Animated<f32>,
+    pub last_margin: Animated<f32>,
+    pub reversed: Animated<f32>,
+    pub perpendicular: Animated<f32>,
+    pub force_align: Animated<f32>,
+}
+
 #[derive(Debug)]
 pub struct TextData {
     /// Документы по кадрам (hold-ключи): действует последний с `t <= frame`.
     pub docs: Vec<(f32, TextDoc)>,
+    pub animators: Vec<TextAnimator>,
+    /// Выравнивание точки привязки букв (`m.a`, проценты).
+    pub anchor_align: Animated<Vec<f32>>,
+    pub path: Option<TextPathOpts>,
 }
 
 impl TextData {
@@ -220,6 +309,9 @@ pub struct Layer {
     /// Time remap прекомпозиции: значение в секундах.
     pub time_remap: Option<Animated<f32>>,
     pub masks: Vec<LayerMask>,
+    /// Контуры всех масок по порядку `masksProperties` (включая режим None) —
+    /// для текста по контуру; заполняется только у текстовых слоёв.
+    pub mask_paths: Vec<Animated<ShapePath>>,
     pub matte: Option<MatteMode>,
     /// Индекс слоя-источника matte в том же списке.
     pub matte_source: Option<usize>,
@@ -682,9 +774,14 @@ fn parse_shape(v: &Json) -> Option<Shape> {
         "zz" => Shape::ZigZag {
             size: Animated::parse_or(v.get("s"), 0.0),
             ridges: Animated::parse_or(v.get("r"), 1.0),
+            // `pt` — число или анимируемое свойство: 1 — уголки, 2 — волна.
             smooth: v
                 .get("pt")
-                .and_then(Json::as_f64)
+                .and_then(|p| {
+                    p.as_f64()
+                        .map(|x| x as f32)
+                        .or_else(|| Animated::<f32>::parse(Some(p)).map(|a| *a.first_value()))
+                })
                 .map(|p| p >= 1.5)
                 .unwrap_or(false),
         },
@@ -722,6 +819,7 @@ fn parse_mask(v: &Json) -> Option<LayerMask> {
         inverted: v.bool_or("inv", false),
         opacity: Animated::parse_or(v.get("o"), 100.0),
         path: Animated::parse_or(v.get("pt"), ShapePath::default()),
+        expand: Animated::parse_or(v.get("x"), 0.0),
     })
 }
 
@@ -765,9 +863,76 @@ fn parse_text_doc(v: &Json) -> TextDoc {
     }
 }
 
+fn parse_selector(v: &Json) -> TextSelector {
+    let num = |key: &str, d: f32| Animated::parse_or(v.get(key), d);
+    if v.i64_or("t", 0) != 0 {
+        log::debug!("lottie: селектор-выражение текста — действует на все буквы");
+    }
+    TextSelector {
+        based_on: match v.i64_or("b", 1) {
+            2 => TextBasedOn::CharactersExcludingSpaces,
+            3 => TextBasedOn::Words,
+            4 => TextBasedOn::Lines,
+            _ => TextBasedOn::Characters,
+        },
+        shape: match v.i64_or("sh", 1) {
+            2 => SelectorShape::RampUp,
+            3 => SelectorShape::RampDown,
+            4 => SelectorShape::Triangle,
+            5 => SelectorShape::Round,
+            6 => SelectorShape::Smooth,
+            _ => SelectorShape::Square,
+        },
+        index_units: v.i64_or("r", 1) == 2,
+        // Селектор-выражение (`t: 1`) — весь текст.
+        start: if v.i64_or("t", 0) != 0 {
+            Animated::Static(0.0)
+        } else {
+            num("s", 0.0)
+        },
+        end: if v.i64_or("t", 0) != 0 {
+            Animated::Static(100.0)
+        } else {
+            num("e", 100.0)
+        },
+        offset: if v.i64_or("t", 0) != 0 {
+            Animated::Static(0.0)
+        } else {
+            num("o", 0.0)
+        },
+        amount: num("a", 100.0),
+        ease_high: num("xe", 0.0),
+        ease_low: num("ne", 0.0),
+        smoothness: num("sm", 100.0),
+        randomize: v.i64_or("rn", 0) == 1,
+    }
+}
+
+fn parse_anim_props(v: &Json) -> TextAnimProps {
+    let vec = |key: &str| Animated::<Vec<f32>>::parse(v.get(key));
+    let num = |key: &str| Animated::<f32>::parse(v.get(key));
+    let color = |key: &str| vec(key).map(|a| a.map(|c| normalize_color(c)));
+    TextAnimProps {
+        anchor: vec("a"),
+        position: vec("p"),
+        scale: vec("s"),
+        rotation: num("r").or_else(|| num("rz")),
+        skew: num("sk"),
+        skew_axis: num("sa"),
+        opacity: num("o"),
+        fill: color("fc"),
+        stroke: color("sc"),
+        stroke_width: num("sw"),
+        tracking: num("t"),
+        fill_hue: num("fh"),
+        fill_saturation: num("fs"),
+        fill_brightness: num("fb"),
+    }
+}
+
 fn parse_text(v: &Json) -> TextData {
-    let docs = v
-        .get("t")
+    let t = v.get("t");
+    let docs = t
         .and_then(|t| t.get("d"))
         .and_then(|d| d.get("k"))
         .and_then(Json::as_array)
@@ -777,15 +942,40 @@ fn parse_text(v: &Json) -> TextData {
                 .collect()
         })
         .unwrap_or_default();
-    if v.get("t")
+    let animators = t
         .and_then(|t| t.get("a"))
         .and_then(Json::as_array)
-        .map(|a| !a.is_empty())
-        .unwrap_or(false)
-    {
-        log::debug!("lottie: аниматоры текста не поддерживаются, текст рисуется статично");
+        .map(|arr| {
+            arr.iter()
+                .map(|a| TextAnimator {
+                    selector: a.get("s").filter(|s| s.is_object()).map(parse_selector),
+                    props: a.get("a").map(parse_anim_props).unwrap_or_default(),
+                })
+                .collect()
+        })
+        .unwrap_or_default();
+    let anchor_align = Animated::parse_or(
+        t.and_then(|t| t.get("m")).and_then(|m| m.get("a")),
+        vec![0.0, 0.0],
+    );
+    let path = t.and_then(|t| t.get("p")).and_then(|p| {
+        let mask = p.get("m").and_then(Json::as_i64)?;
+        let num = |key: &str| Animated::parse_or(p.get(key), 0.0);
+        Some(TextPathOpts {
+            mask: mask.max(0) as usize,
+            first_margin: num("f"),
+            last_margin: num("l"),
+            reversed: num("r"),
+            perpendicular: Animated::parse_or(p.get("p"), 1.0),
+            force_align: num("a"),
+        })
+    });
+    TextData {
+        docs,
+        animators,
+        anchor_align,
+        path,
     }
-    TextData { docs }
 }
 
 fn parse_effects(v: &Json) -> Vec<Effect> {
@@ -912,6 +1102,18 @@ fn parse_layer(v: &Json, unsupported: &mut usize) -> Layer {
             .and_then(Json::as_array)
             .map(|a| a.iter().filter_map(parse_mask).collect())
             .unwrap_or_default(),
+        mask_paths: if ty == 5 {
+            v.get("masksProperties")
+                .and_then(Json::as_array)
+                .map(|a| {
+                    a.iter()
+                        .map(|m| Animated::parse_or(m.get("pt"), ShapePath::default()))
+                        .collect()
+                })
+                .unwrap_or_default()
+        } else {
+            Vec::new()
+        },
         matte,
         matte_source: None,
         is_matte_source: v.i64_or("td", 0) == 1,

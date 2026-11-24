@@ -9,11 +9,12 @@
 //! ```
 //!
 //! Виджет — [`crate::widgets::Lottie`]. Поддерживаются слои shape/solid/
-//! null/precomp/image/text (встроенные глифы), parenting, маски и track
-//! matte, time remap, градиенты, trim paths, merge paths, repeater, пунктир,
+//! null/precomp/image/text (встроенные глифы, аниматоры текста, текст по
+//! контуру), parenting, маски (с расширением) и track matte, time remap,
+//! градиенты, trim paths, merge paths, repeater, пунктир,
 //! модификаторы контуров и эффекты Fill/Tint/DropShadow/GaussianBlur, а
-//! также контейнер dotLottie (.lottie, свой ZIP+inflate). Выражения и
-//! текст системными шрифтами не поддерживаются.
+//! также контейнер dotLottie (.lottie, свой ZIP+inflate). Текст без
+//! встроенных глифов — системными шрифтами (`sysfont`).
 
 pub mod anim;
 pub mod geom;

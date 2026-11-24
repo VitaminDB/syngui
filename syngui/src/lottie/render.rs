@@ -7,7 +7,7 @@ use std::f32::consts::{PI, TAU};
 
 use super::geom::{
     dash_polyline, offset_polyline, pucker_bloat, stroke_polyline, trim_paths, twist_polyline,
-    zigzag_path, LineCap, LineJoin, Mat, Polyline, ShapePath,
+    zigzag_path, zigzag_smooth, LineCap, LineJoin, Mat, Polyline, ShapePath,
 };
 use super::model::{
     Composition, DashKind, Effect, Gradient, GradientKind, Layer, LayerKind, LayerMask, MaskMode,
@@ -74,6 +74,7 @@ enum ModInst {
     Zig {
         size: f32,
         ridges: f32,
+        smooth: bool,
     },
     Pucker(f32),
     Twist {
@@ -408,7 +409,7 @@ impl Renderer {
                 };
                 self.render_layers(ctx, children, child_frame, mat, target, depth + 1, clip);
             }
-            LayerKind::Text(td) => self.draw_text(ctx, td, frame, mat, target, clip),
+            LayerKind::Text(td) => self.draw_text(ctx, l, td, frame, mat, target, clip),
             LayerKind::Null | LayerKind::Unsupported => {}
         }
     }
@@ -437,7 +438,11 @@ impl Renderer {
             let mut path = m.path.value(frame);
             path.closed = true;
             path.transform(mat);
-            let poly = path.flatten(TOLERANCE);
+            let mut poly = path.flatten(TOLERANCE);
+            let x = m.expand.value(frame);
+            if x.abs() > 1e-4 {
+                poly = offset_polyline(&poly, x * mat.scale_factor(), LineJoin::Round, 4.0);
+            }
             let cov = self.rast.fill(&[poly], FillRule::NonZero, ctx.w, ctx.h);
             if let Some(c) = &cov {
                 let r = [
@@ -703,11 +708,14 @@ impl Renderer {
         total
     }
 
-    /// Текстовый слой из встроенных глифов (`chars`). Слои со шрифтами без
-    /// глифов пропускаются (нужен экспорт bodymovin с опцией Glyphs).
+    /// Текстовый слой из встроенных глифов (`chars`, в том числе
+    /// подставленных из системных шрифтов): раскладка строк, аниматоры
+    /// (range-селекторы по буквам/словам/строкам) и текст по контуру маски.
+    #[allow(clippy::too_many_arguments)]
     fn draw_text(
         &mut self,
         ctx: &Ctx,
+        layer: &Layer,
         td: &TextData,
         frame: f32,
         mat: &Mat,
@@ -731,80 +739,344 @@ impl Renderer {
             None => (0.0, 0.0),
         };
         let text = doc.text.replace("\r\n", "\r");
-        let mut col = Collected {
-            styles: Vec::new(),
-            trims: Vec::new(),
-            paths: Vec::new(),
-            merges: Vec::new(),
-        };
+        let lines: Vec<&str> = text.split(['\r', '\n', '\u{3}']).collect();
+
+        // Буквы и их индексы для селекторов: [буква, без пробелов, слово, строка].
+        struct Letter<'g> {
+            glyph: Option<&'g super::model::Glyph>,
+            adv: f32,
+            line: usize,
+            idx: [usize; 4],
+        }
+        let mut letters: Vec<Letter> = Vec::new();
+        let mut cnt = [0usize; 3];
         let mut missing = false;
-        for (li, line) in text.split(['\r', '\n']).enumerate() {
-            let advances: Vec<(Option<&super::model::Glyph>, f32)> = line
-                .chars()
-                .map(|ch| {
-                    let g = ctx.comp.glyph(family, style, ch.to_string().as_str());
-                    let adv = match g {
-                        Some(g) => g.advance * k,
-                        None => {
-                            if ch != ' ' {
-                                missing = true;
-                            }
-                            doc.size * 0.33
+        for (li, line) in lines.iter().enumerate() {
+            let n = line.chars().count();
+            for (ci, ch) in line.chars().enumerate() {
+                let space = ch.is_whitespace();
+                let mut buf = [0u8; 4];
+                let g = ctx.comp.glyph(family, style, ch.encode_utf8(&mut buf));
+                let adv = match g {
+                    Some(g) => g.advance * k,
+                    None => {
+                        if !space {
+                            missing = true;
                         }
-                    };
-                    (g, adv + doc.tracking / 1000.0 * doc.size)
-                })
-                .collect();
-            let width: f32 = advances.iter().map(|(_, a)| a).sum();
-            let mut pen_x = box_x
-                + match doc.justify {
-                    1 => -width,
-                    2 => -width / 2.0,
-                    _ => 0.0,
+                        doc.size * 0.33
+                    }
                 };
-            let pen_y = box_y + li as f32 * doc.line_height - doc.baseline_shift;
-            for (g, adv) in advances {
-                if let Some(g) = g {
-                    let gm = mat
-                        .mul(&Mat::translate(pen_x, pen_y))
-                        .mul(&Mat::scale(k, k));
-                    collect_shapes(&g.shapes, 0.0, gm, 1.0, &CollectCtx::default(), &mut col, 0);
+                letters.push(Letter {
+                    glyph: g,
+                    adv,
+                    line: li,
+                    idx: [cnt[0], cnt[1], cnt[2], li],
+                });
+                cnt[0] += 1;
+                if !space {
+                    cnt[1] += 1;
                 }
-                pen_x += adv;
+                if space || ci + 1 == n {
+                    cnt[2] += 1;
+                }
             }
         }
         if missing {
             log::debug!("lottie: в `chars` нет части глифов текста `{}`", doc.text);
         }
-        let polys: Vec<Polyline> = col.paths.into_iter().flat_map(|p| p.polys).collect();
+        if letters.is_empty() {
+            return;
+        }
+        let totals = [cnt[0], cnt[1], cnt[2], lines.len()];
+
+        // Веса аниматоров по буквам.
+        let na = td.animators.len();
+        let mut mults = vec![1.0f32; letters.len() * na];
+        for (ai, an) in td.animators.iter().enumerate() {
+            let Some(sel) = &an.selector else {
+                continue;
+            };
+            let unit = match sel.based_on {
+                super::model::TextBasedOn::Characters => 0,
+                super::model::TextBasedOn::CharactersExcludingSpaces => 1,
+                super::model::TextBasedOn::Words => 2,
+                super::model::TextBasedOn::Lines => 3,
+            };
+            let ev = SelectorEval::new(sel, frame, totals[unit]);
+            for (li, l) in letters.iter().enumerate() {
+                mults[li * na + ai] = ev.weight(l.idx[unit]);
+            }
+        }
+
+        let base_tracking = doc.tracking / 1000.0 * doc.size;
+        // Трекинг аниматоров — как у документа, в тысячных долях кегля.
+        let extra: Vec<f32> = (0..letters.len())
+            .map(|li| {
+                td.animators
+                    .iter()
+                    .enumerate()
+                    .filter_map(|(ai, an)| {
+                        an.props
+                            .tracking
+                            .as_ref()
+                            .map(|t| t.value(frame) / 1000.0 * doc.size * mults[li * na + ai])
+                    })
+                    .sum()
+            })
+            .collect();
+        let mut line_width = vec![0.0f32; lines.len()];
+        for (li, l) in letters.iter().enumerate() {
+            line_width[l.line] += l.adv + base_tracking + extra[li];
+        }
+
+        // Контур для текста по маске (локальные координаты слоя).
+        let path = td.path.as_ref().and_then(|p| {
+            let sp = layer.mask_paths.get(p.mask)?.value(frame);
+            let tol = TOLERANCE / mat.scale_factor().max(1e-6);
+            let mut poly = sp.flatten(tol);
+            if p.reversed.value(frame) != 0.0 {
+                poly.pts.reverse();
+            }
+            let len = poly.length();
+            (len > 0.0).then_some((p, poly, len))
+        });
+
+        let align = two(&td.anchor_align.value(frame));
+        let mut pen_x = 0.0f32;
+        let mut cur_line = usize::MAX;
+        let mut spread = 0.0f32;
+        // Пакеты букв с одинаковым стилем: заливка, обводка, ширина обводки.
+        let mut batch_key: Option<[f32; 9]> = None;
+        let mut batch_polys: Vec<Polyline> = Vec::new();
+        for (li, l) in letters.iter().enumerate() {
+            if l.line != cur_line {
+                cur_line = l.line;
+                let width = line_width[l.line];
+                pen_x = match &path {
+                    Some((p, _, len)) => {
+                        let f = p.first_margin.value(frame);
+                        let lm = p.last_margin.value(frame);
+                        let free = len - f - lm - width;
+                        spread = 0.0;
+                        if p.force_align.value(frame) != 0.0 {
+                            let n = letters.iter().filter(|x| x.line == l.line).count();
+                            if n > 1 {
+                                spread = free / (n - 1) as f32;
+                            }
+                            f
+                        } else {
+                            match doc.justify {
+                                1 => f + free,
+                                2 => f + free / 2.0,
+                                _ => f,
+                            }
+                        }
+                    }
+                    None => {
+                        box_x
+                            + match doc.justify {
+                                1 => -width,
+                                2 => -width / 2.0,
+                                _ => 0.0,
+                            }
+                    }
+                };
+            }
+            // Свойства аниматоров для буквы.
+            let mut anchor = [0.0f32; 2];
+            let mut pos = [0.0f32; 2];
+            let mut scale = [1.0f32; 2];
+            let mut rot = 0.0f32;
+            let mut skew = 0.0f32;
+            let mut skew_axis = 0.0f32;
+            let mut opacity = 100.0f32;
+            let mut fill = doc.fill.clone();
+            let mut stroke = doc.stroke.clone();
+            let mut sw = doc.stroke_width;
+            for (ai, an) in td.animators.iter().enumerate() {
+                let m = mults[li * na + ai];
+                if m == 0.0 {
+                    continue;
+                }
+                let pr = &an.props;
+                if let Some(a) = &pr.anchor {
+                    let v = two(&a.value(frame));
+                    anchor[0] += v[0] * m;
+                    anchor[1] += v[1] * m;
+                }
+                if let Some(p) = &pr.position {
+                    let v = two(&p.value(frame));
+                    pos[0] += v[0] * m;
+                    pos[1] += v[1] * m;
+                }
+                if let Some(sc) = &pr.scale {
+                    let v = sc.value(frame);
+                    let sx = v.first().copied().unwrap_or(100.0) / 100.0;
+                    let sy = v.get(1).copied().unwrap_or(sx * 100.0) / 100.0;
+                    scale[0] *= 1.0 + (sx - 1.0) * m;
+                    scale[1] *= 1.0 + (sy - 1.0) * m;
+                }
+                if let Some(r) = &pr.rotation {
+                    rot += r.value(frame) * m;
+                }
+                if let Some(sk) = &pr.skew {
+                    skew += sk.value(frame) * m;
+                }
+                if let Some(sa) = &pr.skew_axis {
+                    skew_axis += sa.value(frame) * m;
+                }
+                if let Some(o) = &pr.opacity {
+                    opacity += (o.value(frame) * m - opacity) * m;
+                }
+                if let Some(c) = &pr.fill {
+                    let c = c.value(frame);
+                    let f = fill.get_or_insert_with(|| c.clone());
+                    for (fi, cv) in f.iter_mut().zip(c.iter()).take(3) {
+                        *fi += (cv - *fi) * m;
+                    }
+                }
+                if let Some(c) = &pr.stroke {
+                    let c = c.value(frame);
+                    let f = stroke.get_or_insert_with(|| c.clone());
+                    for (fi, cv) in f.iter_mut().zip(c.iter()).take(3) {
+                        *fi += (cv - *fi) * m;
+                    }
+                }
+                if let Some(w) = &pr.stroke_width {
+                    sw += w.value(frame) * m;
+                }
+                if let Some(f) = fill.as_mut() {
+                    let hue = pr.fill_hue.as_ref().map(|v| v.value(frame) * m);
+                    let sat = pr
+                        .fill_saturation
+                        .as_ref()
+                        .map(|v| v.value(frame) / 100.0 * m);
+                    let bri = pr
+                        .fill_brightness
+                        .as_ref()
+                        .map(|v| v.value(frame) / 100.0 * m);
+                    if hue.is_some() || sat.is_some() || bri.is_some() {
+                        adjust_hsv(
+                            f,
+                            hue.unwrap_or(0.0),
+                            sat.unwrap_or(0.0),
+                            bri.unwrap_or(0.0),
+                        );
+                    }
+                }
+            }
+            let glyph_adv = l.adv;
+            let half = glyph_adv / 2.0;
+            let ax = align[0] / 100.0 * half;
+            let ay = align[1] / 100.0 * doc.size;
+            let line_y = l.line as f32 * doc.line_height - doc.baseline_shift;
+            let base = match &path {
+                Some((p, poly, _)) => {
+                    let (pt, ang) = poly.point_at(pen_x + half).unwrap_or(([0.0; 2], 0.0));
+                    let mut m = mat.mul(&Mat::translate(pt[0], pt[1]));
+                    if p.perpendicular.value(frame) != 0.0 {
+                        m = m.mul(&Mat::rotate(ang.to_degrees()));
+                    }
+                    m.mul(&Mat::translate(0.0, line_y))
+                }
+                None => mat.mul(&Mat::translate(pen_x + half, box_y + line_y)),
+            };
+            pen_x += glyph_adv + base_tracking + extra[li] + spread;
+            let alpha = (opacity / 100.0).clamp(0.0, 1.0);
+            let Some(g) = l.glyph else {
+                continue;
+            };
+            if alpha <= 0.0 || (scale[0] == 0.0 && scale[1] == 0.0) {
+                continue;
+            }
+            let anim = super::geom::compose_transform(anchor, pos, scale, rot, skew, skew_axis);
+            let gm = base
+                .mul(&Mat::translate(ax, ay))
+                .mul(&anim)
+                .mul(&Mat::translate(-ax - half, -ay))
+                .mul(&Mat::scale(k, k));
+            let rgba = |c: &Option<Vec<f32>>| -> [f32; 4] {
+                match c {
+                    Some(c) => [
+                        c.first().copied().unwrap_or(0.0),
+                        c.get(1).copied().unwrap_or(0.0),
+                        c.get(2).copied().unwrap_or(0.0),
+                        c.get(3).copied().unwrap_or(1.0) * alpha,
+                    ],
+                    None => [0.0; 4],
+                }
+            };
+            let f = rgba(&fill);
+            let st = rgba(&stroke);
+            let key = [
+                f[0],
+                f[1],
+                f[2],
+                f[3],
+                st[0],
+                st[1],
+                st[2],
+                st[3],
+                sw * gm.scale_factor() / k.max(1e-6),
+            ];
+            if batch_key.is_some_and(|b| b != key) {
+                self.flush_text_batch(
+                    ctx,
+                    doc,
+                    batch_key.take().unwrap(),
+                    &mut batch_polys,
+                    target,
+                    clip,
+                );
+            }
+            batch_key = Some(key);
+            let mut col = Collected {
+                styles: Vec::new(),
+                trims: Vec::new(),
+                paths: Vec::new(),
+                merges: Vec::new(),
+            };
+            collect_shapes(&g.shapes, 0.0, gm, 1.0, &CollectCtx::default(), &mut col, 0);
+            batch_polys.extend(col.paths.into_iter().flat_map(|p| p.polys));
+        }
+        if let Some(key) = batch_key {
+            self.flush_text_batch(ctx, doc, key, &mut batch_polys, target, clip);
+        }
+    }
+
+    /// Отрисовать накопленные буквы одного стиля: `key` — заливка RGBA,
+    /// обводка RGBA и ширина обводки в пикселях.
+    fn flush_text_batch(
+        &mut self,
+        ctx: &Ctx,
+        doc: &super::model::TextDoc,
+        key: [f32; 9],
+        polys: &mut Vec<Polyline>,
+        target: &mut Pixmap,
+        clip: Option<&Mask>,
+    ) {
         if polys.is_empty() {
             return;
         }
-        let fill =
-            |r: &mut Self, target: &mut Pixmap, color: &[f32], a: f32, ps: &[Polyline], rule| {
-                if a <= 0.0 || ps.is_empty() {
-                    return;
-                }
-                let paint = Paint::solid(
-                    [
-                        color.first().copied().unwrap_or(0.0),
-                        color.get(1).copied().unwrap_or(0.0),
-                        color.get(2).copied().unwrap_or(0.0),
-                    ],
-                    a * color.get(3).copied().unwrap_or(1.0),
-                );
-                if let Some(m) = r.rast.fill(ps, rule, ctx.w, ctx.h) {
-                    target.fill_mask(&m, &paint, clip);
-                    r.rast.recycle(m);
-                }
-            };
-        let stroke_polys: Vec<Polyline> = if doc.stroke.is_some() && doc.stroke_width > 0.0 {
-            let w = doc.stroke_width * mat.scale_factor();
+        let paint_fill = |r: &mut Self, target: &mut Pixmap, c: [f32; 4], ps: &[Polyline]| {
+            if c[3] <= 0.0 || ps.is_empty() {
+                return;
+            }
+            let paint = Paint::solid([c[0], c[1], c[2]], c[3]);
+            if let Some(m) = r.rast.fill(ps, FillRule::NonZero, ctx.w, ctx.h) {
+                target.fill_mask(&m, &paint, clip);
+                r.rast.recycle(m);
+            }
+        };
+        let fill = [key[0], key[1], key[2], key[3]];
+        let stroke = [key[4], key[5], key[6], key[7]];
+        let width = key[8];
+        let stroke_polys: Vec<Polyline> = if stroke[3] > 0.0 && width > 0.0 {
             let mut out = Vec::new();
-            for p in &polys {
+            for p in polys.iter() {
                 stroke_polyline(
                     p,
-                    w,
+                    width,
                     LineCap::Round,
                     LineJoin::Round,
                     4.0,
@@ -816,23 +1088,14 @@ impl Renderer {
         } else {
             Vec::new()
         };
-        let do_fill = |r: &mut Self, target: &mut Pixmap| {
-            if let Some(c) = &doc.fill {
-                fill(r, target, c, 1.0, &polys, FillRule::NonZero);
-            }
-        };
-        let do_stroke = |r: &mut Self, target: &mut Pixmap| {
-            if let Some(c) = &doc.stroke {
-                fill(r, target, c, 1.0, &stroke_polys, FillRule::NonZero);
-            }
-        };
         if doc.stroke_over_fill {
-            do_fill(self, target);
-            do_stroke(self, target);
+            paint_fill(self, target, fill, polys);
+            paint_fill(self, target, stroke, &stroke_polys);
         } else {
-            do_stroke(self, target);
-            do_fill(self, target);
+            paint_fill(self, target, stroke, &stroke_polys);
+            paint_fill(self, target, fill, polys);
         }
+        polys.clear();
     }
 
     /// Применить эффекты слоя к его буферу (до matte и смешивания).
@@ -939,6 +1202,194 @@ impl Layer {
     pub fn in_range(&self, frame: f32) -> bool {
         frame >= self.in_point && frame < self.out_point
     }
+}
+
+/// Range-селектор текста, вычисленный на кадре (как в lottie-web
+/// `TextSelectorProperty`): границы в единицах индекса и easing.
+struct SelectorEval<'a> {
+    sel: &'a super::model::TextSelector,
+    s: f32,
+    e: f32,
+    amount: f32,
+    smooth: f32,
+    ease: [f32; 4],
+    perm: Option<Vec<usize>>,
+}
+
+impl<'a> SelectorEval<'a> {
+    fn new(sel: &'a super::model::TextSelector, frame: f32, total: usize) -> Self {
+        let divisor = if sel.index_units || total == 0 {
+            1.0
+        } else {
+            100.0 / total as f32
+        };
+        let o = sel.offset.value(frame) / divisor;
+        let mut s = sel.start.value(frame) / divisor + o;
+        let mut e = sel.end.value(frame) / divisor + o;
+        if s > e {
+            std::mem::swap(&mut s, &mut e);
+        }
+        let ne = sel.ease_low.value(frame);
+        let xe = sel.ease_high.value(frame);
+        let (mut x1, mut y1, mut x2, mut y2) = (0.0, 0.0, 1.0, 1.0);
+        if ne > 0.0 {
+            x1 = ne / 100.0;
+        } else {
+            y1 = -ne / 100.0;
+        }
+        if xe > 0.0 {
+            x2 = 1.0 - xe / 100.0;
+        } else {
+            y2 = 1.0 + xe / 100.0;
+        }
+        // Случайный порядок — детерминированная перестановка (LCG).
+        let perm = sel.randomize.then(|| {
+            let mut p: Vec<usize> = (0..total).collect();
+            let mut st: u32 = 0x9E37_79B9 ^ total as u32;
+            for i in (1..p.len()).rev() {
+                st = st.wrapping_mul(1_664_525).wrapping_add(1_013_904_223);
+                let j = (st >> 8) as usize % (i + 1);
+                p.swap(i, j);
+            }
+            p
+        });
+        SelectorEval {
+            sel,
+            s,
+            e,
+            amount: sel.amount.value(frame) / 100.0,
+            smooth: sel.smoothness.value(frame),
+            ease: [x1, y1, x2, y2],
+            perm,
+        }
+    }
+
+    fn weight(&self, ind: usize) -> f32 {
+        use super::model::SelectorShape as Sh;
+        let ind = match &self.perm {
+            Some(p) => p.get(ind).copied().unwrap_or(ind),
+            None => ind,
+        } as f32;
+        let (s, e) = (self.s, self.e);
+        let [x1, y1, x2, y2] = self.ease;
+        let ease = |m: f32| super::anim::cubic_bezier_ease(x1, y1, x2, y2, m);
+        let ramp = || {
+            if e == s {
+                if ind >= e {
+                    1.0
+                } else {
+                    0.0
+                }
+            } else {
+                (0.5 / (e - s) + (ind - s) / (e - s)).clamp(0.0, 1.0)
+            }
+        };
+        let mut mult = match self.sel.shape {
+            Sh::RampUp => ease(ramp()),
+            Sh::RampDown => ease(if e == s {
+                if ind >= e {
+                    0.0
+                } else {
+                    1.0
+                }
+            } else {
+                1.0 - ramp()
+            }),
+            Sh::Triangle => {
+                if e == s {
+                    0.0
+                } else {
+                    let m = ramp();
+                    ease(if m < 0.5 {
+                        m * 2.0
+                    } else {
+                        1.0 - 2.0 * (m - 0.5)
+                    })
+                }
+            }
+            Sh::Round => {
+                if e == s {
+                    0.0
+                } else {
+                    let tot = e - s;
+                    let i = (ind + 0.5 - s).clamp(0.0, tot);
+                    let x = -tot / 2.0 + i;
+                    let a = tot / 2.0;
+                    ease((1.0 - (x * x) / (a * a)).max(0.0).sqrt())
+                }
+            }
+            Sh::Smooth => {
+                if e == s {
+                    0.0
+                } else {
+                    let i = (ind + 0.5 - s).clamp(0.0, e - s);
+                    ease((1.0 + (PI + TAU * i / (e - s)).cos()) / 2.0)
+                }
+            }
+            Sh::Square => {
+                let mut m = 0.0;
+                if ind >= s.floor() {
+                    m = if ind - s < 0.0 {
+                        (e.min(1.0) - (s - ind)).clamp(0.0, 1.0)
+                    } else {
+                        (e - ind).clamp(0.0, 1.0)
+                    };
+                }
+                ease(m)
+            }
+        };
+        if self.smooth != 100.0 {
+            let sm = (self.smooth * 0.01).max(1e-8);
+            let th = 0.5 - sm * 0.5;
+            mult = if mult < th {
+                0.0
+            } else {
+                ((mult - th) / sm).min(1.0)
+            };
+        }
+        mult * self.amount
+    }
+}
+
+/// Сдвиг тона (градусы), насыщенности и яркости (доли) цвета RGB на месте.
+fn adjust_hsv(c: &mut [f32], hue: f32, sat: f32, bri: f32) {
+    if c.len() < 3 {
+        return;
+    }
+    let (r, g, b) = (c[0], c[1], c[2]);
+    let max = r.max(g).max(b);
+    let min = r.min(g).min(b);
+    let d = max - min;
+    let mut h = if d <= 0.0 {
+        0.0
+    } else if max == r {
+        ((g - b) / d).rem_euclid(6.0)
+    } else if max == g {
+        (b - r) / d + 2.0
+    } else {
+        (r - g) / d + 4.0
+    } / 6.0;
+    let mut s = if max <= 0.0 { 0.0 } else { d / max };
+    let mut v = max;
+    h = (h + hue / 360.0).rem_euclid(1.0);
+    s = (s + sat).clamp(0.0, 1.0);
+    v = (v + bri).clamp(0.0, 1.0);
+    let i = (h * 6.0).floor();
+    let f = h * 6.0 - i;
+    let p = v * (1.0 - s);
+    let q = v * (1.0 - f * s);
+    let t = v * (1.0 - (1.0 - f) * s);
+    let (r, g, b) = match i as i32 % 6 {
+        0 => (v, t, p),
+        1 => (q, v, p),
+        2 => (p, v, t),
+        3 => (p, q, v),
+        4 => (t, p, v),
+        _ => (v, p, q),
+    };
+    c[0] = r;
+    c[1] = g;
+    c[2] = b;
 }
 
 fn auto_orient_angle(tr: &Transform, local: f32) -> f32 {
@@ -1067,10 +1518,11 @@ fn collect_shapes<'a>(
             Shape::ZigZag {
                 size,
                 ridges,
-                smooth: _,
+                smooth,
             } => cx.mods.push(ModInst::Zig {
                 size: size.value(frame),
                 ridges: ridges.value(frame),
+                smooth: *smooth,
             }),
             Shape::PuckerBloat { amount } => cx.mods.push(ModInst::Pucker(amount.value(frame))),
             Shape::Twist { angle, center } => {
@@ -1161,9 +1613,17 @@ fn collect_shapes<'a>(
                                 sp = pucker_bloat(&sp, a);
                             }
                         }
-                        ModInst::Zig { size, ridges } => {
+                        ModInst::Zig {
+                            size,
+                            ridges,
+                            smooth,
+                        } => {
                             if poly.is_none() {
-                                poly = Some(zigzag_path(&sp, size, ridges, local_tol));
+                                if smooth {
+                                    sp = zigzag_smooth(&sp, size, ridges);
+                                } else {
+                                    poly = Some(zigzag_path(&sp, size, ridges, local_tol));
+                                }
                             }
                         }
                         ModInst::Offset {
@@ -1484,5 +1944,73 @@ fn build_stroke(
         } else {
             stroke_polyline(poly, width, st.cap, st.join, st.miter_limit, TOLERANCE, out);
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::super::anim::Animated;
+    use super::super::model::{SelectorShape, TextBasedOn, TextSelector};
+    use super::*;
+
+    fn sel(shape: SelectorShape, s: f32, e: f32, o: f32) -> TextSelector {
+        TextSelector {
+            based_on: TextBasedOn::Characters,
+            shape,
+            index_units: false,
+            start: Animated::Static(s),
+            end: Animated::Static(e),
+            offset: Animated::Static(o),
+            amount: Animated::Static(100.0),
+            ease_high: Animated::Static(0.0),
+            ease_low: Animated::Static(0.0),
+            smoothness: Animated::Static(100.0),
+            randomize: false,
+        }
+    }
+
+    #[test]
+    fn square_selector_partial_letter() {
+        // 4 буквы, 0..60% + смещение 0: буквы 0,1 целиком, 2 — на 0.4.
+        let s = sel(SelectorShape::Square, 0.0, 60.0, 0.0);
+        let ev = SelectorEval::new(&s, 0.0, 4);
+        let w: Vec<f32> = (0..4).map(|i| ev.weight(i)).collect();
+        assert!((w[0] - 1.0).abs() < 1e-5 && (w[1] - 1.0).abs() < 1e-5);
+        assert!((w[2] - 0.4).abs() < 1e-5);
+        assert_eq!(w[3], 0.0);
+        // Смещение 50% сдвигает окно на две буквы.
+        let s = sel(SelectorShape::Square, 0.0, 50.0, 50.0);
+        let ev = SelectorEval::new(&s, 0.0, 4);
+        assert_eq!(ev.weight(1), 0.0);
+        assert!((ev.weight(2) - 1.0).abs() < 1e-5);
+    }
+
+    #[test]
+    fn ramp_and_triangle_shapes() {
+        let s = sel(SelectorShape::RampUp, 0.0, 100.0, 0.0);
+        let ev = SelectorEval::new(&s, 0.0, 4);
+        let w: Vec<f32> = (0..4).map(|i| ev.weight(i)).collect();
+        assert!(w.windows(2).all(|p| p[0] < p[1]));
+        let s = sel(SelectorShape::Triangle, 0.0, 100.0, 0.0);
+        let ev = SelectorEval::new(&s, 0.0, 5);
+        assert!(ev.weight(2) > ev.weight(0) && ev.weight(2) > ev.weight(4));
+    }
+
+    #[test]
+    fn hsv_roundtrip_hue_shift() {
+        let mut c = vec![1.0, 0.0, 0.0];
+        adjust_hsv(&mut c, 120.0, 0.0, 0.0);
+        assert!((c[1] - 1.0).abs() < 1e-5 && c[0].abs() < 1e-5);
+    }
+
+    #[test]
+    fn polyline_point_at() {
+        let p = Polyline {
+            pts: vec![[0.0, 0.0], [10.0, 0.0], [10.0, 10.0]],
+            closed: false,
+        };
+        let (pt, ang) = p.point_at(15.0).unwrap();
+        assert!((pt[0] - 10.0).abs() < 1e-5 && (pt[1] - 5.0).abs() < 1e-5);
+        assert!((ang - PI / 2.0).abs() < 1e-5);
     }
 }

@@ -433,6 +433,40 @@ impl Polyline {
         }
     }
 
+    /// Точка на длине `l` от начала и угол касательной (радианы). За концами
+    /// открытой ломаной — продолжение крайнего отрезка по прямой.
+    pub fn point_at(&self, l: f32) -> Option<([f32; 2], f32)> {
+        let n = self.seg_count();
+        if n == 0 {
+            return None;
+        }
+        let mut acc = 0.0f32;
+        let mut last = None;
+        for s in 0..n {
+            let a = self.pt(s);
+            let b = self.pt(s + 1);
+            let sl = dist(a, b);
+            if sl <= 0.0 {
+                continue;
+            }
+            let ang = (b[1] - a[1]).atan2(b[0] - a[0]);
+            if last.is_none() && l < 0.0 {
+                let t = l / sl;
+                return Some((lerp2(a, b, t), ang));
+            }
+            if l <= acc + sl {
+                let t = (l - acc) / sl;
+                return Some((lerp2(a, b, t), ang));
+            }
+            acc += sl;
+            last = Some((a, b, sl, ang));
+        }
+        let (a, b, sl, ang) = last?;
+        // За концом: продолжение последнего отрезка.
+        let t = 1.0 + (l - acc) / sl;
+        Some((lerp2(a, b, t), ang))
+    }
+
     /// Открытая копия замкнутой ломаной (конец возвращается в начало).
     fn opened(&self) -> Polyline {
         if self.closed && !self.pts.is_empty() {
@@ -719,6 +753,85 @@ pub fn zigzag_path(sp: &ShapePath, size: f32, ridges: f32, out_tol: f32) -> Poly
 
 /// Pucker & Bloat: `amount` в процентах; положительный тянет вершины к
 /// центру, а касательные — от центра (отрицательный — наоборот).
+/// Сглаженный Zig Zag (`pt: 2`): вершины только в пиках (поочерёдно по
+/// обе стороны контура) с касательными вдоль контура — получается волна,
+/// близкая к синусоиде. У открытого контура концы остаются на месте.
+/// Результат — кривые, к нему применимы следующие модификаторы.
+pub fn zigzag_smooth(sp: &ShapePath, size: f32, ridges: f32) -> ShapePath {
+    let n = sp.verts.len();
+    let segs = if sp.closed { n } else { n.saturating_sub(1) };
+    if n < 2 || segs == 0 {
+        return sp.clone();
+    }
+    let r = ridges.round().max(1.0) as usize;
+    let steps = 2 * r;
+    // (точка на контуре, касательная, вершина).
+    let mut pts: Vec<([f32; 2], [f32; 2], [f32; 2])> = Vec::new();
+    let deriv = |p0: [f32; 2], p1: [f32; 2], p2: [f32; 2], p3: [f32; 2], t: f32| {
+        let mt = 1.0 - t;
+        let mut d = [
+            3.0 * mt * mt * (p1[0] - p0[0])
+                + 6.0 * mt * t * (p2[0] - p1[0])
+                + 3.0 * t * t * (p3[0] - p2[0]),
+            3.0 * mt * mt * (p1[1] - p0[1])
+                + 6.0 * mt * t * (p2[1] - p1[1])
+                + 3.0 * t * t * (p3[1] - p2[1]),
+        ];
+        if len(d) < 1e-6 {
+            d = sub(p3, p0);
+        }
+        let l = len(d).max(1e-6);
+        [d[0] / l, d[1] / l]
+    };
+    let mut flip = 1.0f32;
+    for i in 0..segs {
+        let j = (i + 1) % n;
+        let p0 = sp.verts[i];
+        let p3 = sp.verts[j];
+        let p1 = add(p0, sp.outs[i]);
+        let p2 = add(p3, sp.ins[j]);
+        if i == 0 && !sp.closed {
+            pts.push((p0, deriv(p0, p1, p2, p3, 0.0), p0));
+        }
+        for k in (1..steps).step_by(2) {
+            let t = k as f32 / steps as f32;
+            let pos = eval_cubic(p0, p1, p2, p3, t);
+            let tan = deriv(p0, p1, p2, p3, t);
+            let v = add(pos, mulf([-tan[1], tan[0]], size * flip));
+            flip = -flip;
+            pts.push((pos, tan, v));
+        }
+        if i + 1 == segs && !sp.closed {
+            pts.push((p3, deriv(p0, p1, p2, p3, 1.0), p3));
+        }
+    }
+    let m = pts.len();
+    // Ручки ~0.36 расстояния между соседями вдоль контура — полуволна
+    // синусоиды кубической кривой.
+    const K: f32 = 0.3642;
+    let mut out = ShapePath::with_capacity(m, sp.closed);
+    for idx in 0..m {
+        let (base, tan, v) = pts[idx];
+        let nb = |o: Option<usize>| o.map(|q| dist(base, pts[q].0) * K).unwrap_or(0.0);
+        let prev = if idx > 0 {
+            Some(idx - 1)
+        } else if sp.closed {
+            Some(m - 1)
+        } else {
+            None
+        };
+        let next = if idx + 1 < m {
+            Some(idx + 1)
+        } else if sp.closed {
+            Some(0)
+        } else {
+            None
+        };
+        out.push(v, mulf(tan, -nb(prev)), mulf(tan, nb(next)));
+    }
+    out
+}
+
 pub fn pucker_bloat(sp: &ShapePath, amount_percent: f32) -> ShapePath {
     let n = sp.verts.len();
     if n == 0 || amount_percent.abs() < 1e-6 {
