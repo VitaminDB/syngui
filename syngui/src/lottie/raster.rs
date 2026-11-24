@@ -1381,9 +1381,9 @@ impl Pixmap {
         for y in y0..y1 {
             for p in &mut self.px[y * self.w + x0..y * self.w + x1] {
                 let a = p[3];
-                for k in 0..3 {
-                    let inv = a - p[k];
-                    p[k] = inv + (p[k] - inv) * keep;
+                for c in p.iter_mut().take(3) {
+                    let inv = a - *c;
+                    *c = inv + (*c - inv) * keep;
                 }
             }
         }
