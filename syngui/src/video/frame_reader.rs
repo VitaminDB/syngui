@@ -155,3 +155,14 @@ impl FrameReader {
 // между потоками, если ими не пользуются одновременно; `FrameReader` берут
 // через `&mut self`, одновременного доступа нет.
 unsafe impl Send for FrameReader {}
+
+impl FrameReader {
+    /// Кадр после последнего выданного [`FrameReader::frame_at`] (для
+    /// интерполяции между соседними кадрами); `None` — конец файла.
+    pub fn peek_next(&mut self) -> Option<RgbaFrame> {
+        if self.next.is_none() {
+            self.next = self.decode_next().ok().flatten();
+        }
+        self.next.clone()
+    }
+}
