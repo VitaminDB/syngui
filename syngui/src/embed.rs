@@ -403,6 +403,7 @@ impl EmbedView {
     pub fn set_modifiers(&mut self, m: Modifiers) {
         self.modifiers = m;
         self.tree.modifiers = m;
+        crate::input::set_current_modifiers(m);
     }
 
     /// Клавиша. `text` — набранный текст (только при нажатии). Tab двигает
@@ -460,6 +461,7 @@ impl EmbedView {
         }
         self.modifiers = Modifiers::empty();
         self.tree.modifiers = self.modifiers;
+        crate::input::set_current_modifiers(self.modifiers);
     }
 
     /// Поверхность получила клавиатуру: вернуть фокус полю, если было.

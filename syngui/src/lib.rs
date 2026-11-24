@@ -170,7 +170,7 @@ pub mod prelude {
         NotificationCtx, NotificationHost, NotificationItem, NotificationSeverity, OptionGroup,
         OptionItem, Padding, Pagination, PopupMenu, Portal, Presence, ProgressBar, Property,
         PropertyGrid, PropertyValue, RadioButton, RadioGroup, Reactive, RichText, Router,
-        RouterView, Row, ScrollDirection, ScrollView, SegmentedButton, SelectionMode, Slider,
+        RouterView, Row, ScrollDirection, ScrollHandle, ScrollView, SegmentedButton, SelectionMode, Slider,
         Snackbar, SnackbarPosition, SpinBox, SplitDirection, SplitView, Stack, StackFit, Tab,
         TabBar, TabPosition, TabState, TableColumn, TableView, TextField, TextSpan, Time,
         TimePicker, Toggle, ToolButton, Toolbar, Tooltip, TooltipPosition, TopAppBar,

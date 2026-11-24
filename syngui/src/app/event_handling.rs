@@ -393,6 +393,7 @@ impl AppHandler {
                     self.held_shift = 0;
                     self.modifiers.shift = self.xkb_shift;
                     self.win.tree.modifiers = self.modifiers;
+                    crate::input::set_current_modifiers(self.modifiers);
                 }
                 self.sync_window_flags();
             }
@@ -669,6 +670,7 @@ impl AppHandler {
                     meta: mods.state().super_key(),
                 };
                 self.win.tree.modifiers = self.modifiers;
+                crate::input::set_current_modifiers(self.modifiers);
             }
             winit::event::WindowEvent::KeyboardInput { event, .. } => {
                 use winit::keyboard::PhysicalKey;
@@ -686,6 +688,7 @@ impl AppHandler {
                     }
                     self.modifiers.shift = self.xkb_shift || self.held_shift != 0;
                     self.win.tree.modifiers = self.modifiers;
+                    crate::input::set_current_modifiers(self.modifiers);
                 }
 
                 #[cfg(target_os = "android")]

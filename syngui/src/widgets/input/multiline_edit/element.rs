@@ -1400,6 +1400,7 @@ impl Element for MultilineTextEditElement {
                         ctx.request_paint();
                         EventResult::Handled
                     }
+                    k if k.types_text() && !ctrl && !ctx.modifiers.alt && !self.read_only => EventResult::Handled,
                     _ => EventResult::Ignored,
                 }
             }

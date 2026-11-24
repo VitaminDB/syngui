@@ -1375,6 +1375,7 @@ impl Element for PropertyGridElement {
                     ctx.request_paint();
                     EventResult::Handled
                 }
+                k if k.types_text() && !ctx.modifiers.ctrl && !ctx.modifiers.alt => EventResult::Handled,
                 _ => EventResult::Ignored,
             },
             Event::FocusLost => {

@@ -197,6 +197,7 @@ impl AppHandler {
         crate::viewport::swap_context(&mut self.win.viewport);
         let prev_current = window_handle::set_current(self.win.handle);
         self.win.tree.modifiers = self.modifiers;
+        crate::input::set_current_modifiers(self.modifiers);
 
         let result = f(self);
 

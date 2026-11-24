@@ -58,7 +58,7 @@ pub use overlay::{
     DialogAction, Draggable, DropArea, DropInfo, FloatingWindow, MenuItem, PaletteCommand,
     PopupAnchor, PopupMenu, PopupPanel, Portal, PortalAnchor,
 };
-pub use scroll::{ScrollDirection, ScrollView};
+pub use scroll::{ScrollDirection, ScrollHandle, ScrollView};
 pub use visual::{
     default_locale, set_default_locale, Avatar, Badge, BadgeSize, Calendar, CalendarLocale,
     CalendarTheme, Canvas, Card, Chip, CircularProgress, DateOrder, Divider, DividerDirection,

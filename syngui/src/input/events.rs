@@ -977,3 +977,19 @@ impl ResizeDirection {
         }
     }
 }
+
+static CURRENT_MODIFIERS: std::sync::atomic::AtomicU8 = std::sync::atomic::AtomicU8::new(0);
+
+/// Модификаторы, зажатые сейчас (по последнему событию окна). Для
+/// обработчиков без `EventContext` — щелчок `Draggable`, `GestureDetector`:
+/// Ctrl/Shift+щелчок добавляет к выделению и т. п.
+pub fn current_modifiers() -> Modifiers {
+    let b = CURRENT_MODIFIERS.load(std::sync::atomic::Ordering::Relaxed);
+    Modifiers { shift: b & 1 != 0, ctrl: b & 2 != 0, alt: b & 4 != 0, meta: b & 8 != 0 }
+}
+
+/// Окно сообщает новые модификаторы.
+pub fn set_current_modifiers(m: Modifiers) {
+    let b = m.shift as u8 | (m.ctrl as u8) << 1 | (m.alt as u8) << 2 | (m.meta as u8) << 3;
+    CURRENT_MODIFIERS.store(b, std::sync::atomic::Ordering::Relaxed);
+}

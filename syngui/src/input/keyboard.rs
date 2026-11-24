@@ -79,6 +79,15 @@ pub enum Key {
     Unknown(u32),
 }
 
+impl Key {
+    /// Клавиша печатает текст (буква, цифра, пробел, знак): поле ввода в
+    /// фокусе забирает её `KeyDown` себе, иначе он всплывал к глобальным
+    /// хоткеям (пробел — «пуск», S — «разрезать») посреди набора.
+    pub fn types_text(self) -> bool {
+        matches!(self, Key::A | Key::B | Key::C | Key::D | Key::E | Key::F | Key::G | Key::H | Key::I | Key::J | Key::K | Key::L | Key::M | Key::N | Key::O | Key::P | Key::Q | Key::R | Key::S | Key::T | Key::U | Key::V | Key::W | Key::X | Key::Y | Key::Z | Key::Num0 | Key::Num1 | Key::Num2 | Key::Num3 | Key::Num4 | Key::Num5 | Key::Num6 | Key::Num7 | Key::Num8 | Key::Num9 | Key::Space | Key::Unknown(_))
+    }
+}
+
 thread_local! {
     static KEY_SCANCODE: std::cell::Cell<Option<u32>> = const { std::cell::Cell::new(None) };
 }

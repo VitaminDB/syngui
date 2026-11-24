@@ -44,7 +44,42 @@ pub enum ScrollDirection {
 /// Обработчик прокрутки: (смещение, предел смещения) в пикселях.
 pub type ScrollHandler = std::sync::Arc<dyn Fn(Point, Point) + Send + Sync>;
 
+/// Ручка прокрутки: прочитать смещение и размер окна, попросить сдвиг из кода
+/// (масштаб таймлайна с якорем под курсором, «показать элемент»). Сдвиг
+/// применяется на ближайшей раскладке.
+#[derive(Clone, Default)]
+pub struct ScrollHandle(std::sync::Arc<std::sync::Mutex<HandleState>>);
+
+#[derive(Default)]
+struct HandleState {
+    offset: Point,
+    viewport: Size,
+    request: Option<Point>,
+}
+
+impl ScrollHandle {
+    pub fn new() -> Self {
+        Self::default()
+    }
+    /// Текущее смещение содержимого.
+    pub fn offset(&self) -> Point {
+        self.0.lock().map(|s| s.offset).unwrap_or_default()
+    }
+    /// Видимая область.
+    pub fn viewport(&self) -> Size {
+        self.0.lock().map(|s| s.viewport).unwrap_or_default()
+    }
+    /// Прокрутить к смещению (обрежется по краям).
+    pub fn scroll_to(&self, p: Point) {
+        if let Ok(mut s) = self.0.lock() {
+            s.request = Some(Point::new(p.x.max(0.0), p.y.max(0.0)));
+            s.offset = p;
+        }
+    }
+}
+
 pub struct ScrollView {
+    handle: Option<ScrollHandle>,
     child: Option<Box<dyn Widget>>,
     direction: ScrollDirection,
     scrollbar_policy: ScrollbarPolicy,
@@ -53,6 +88,8 @@ pub struct ScrollView {
     follow_end: bool,
     initial_offset: Option<Point>,
     on_scroll: Option<ScrollHandler>,
+    /// Направление задано явно (для сложения `horizontal().vertical()`).
+    dir_set: bool,
     classes: Vec<String>,
 }
 
@@ -67,6 +104,8 @@ impl ScrollView {
             follow_end: false,
             initial_offset: None,
             on_scroll: None,
+            handle: None,
+            dir_set: false,
             classes: Vec::new(),
         }
     }
@@ -89,6 +128,12 @@ impl ScrollView {
         self
     }
 
+    /// Ручка: смещение из кода и чтение текущего ([`ScrollHandle`]).
+    pub fn handle(mut self, h: ScrollHandle) -> Self {
+        self.handle = Some(h);
+        self
+    }
+
     /// Смещение при первом показе (вернуться туда, где страницу оставили).
     /// Держится, пока содержимое не дорастёт до нужной высоты (оно часто
     /// строится не сразу), и снимается, как только пользователь прокрутит сам.
@@ -103,6 +148,7 @@ impl ScrollView {
     }
 
     pub fn direction(mut self, direction: ScrollDirection) -> Self {
+        self.dir_set = true;
         self.direction = direction;
         self
     }
@@ -115,12 +161,17 @@ impl ScrollView {
         self
     }
 
+    /// Прокрутка по вертикали; после `horizontal()` — в обе стороны (раньше
+    /// `horizontal().vertical()` молча оставлял только вертикаль).
     pub fn vertical(self) -> Self {
-        self.direction(ScrollDirection::Vertical)
+        let d = if self.dir_set && !matches!(self.direction, ScrollDirection::Vertical) { ScrollDirection::Both } else { ScrollDirection::Vertical };
+        self.direction(d)
     }
 
+    /// Прокрутка по горизонтали; после `vertical()` — в обе стороны.
     pub fn horizontal(self) -> Self {
-        self.direction(ScrollDirection::Horizontal)
+        let d = if self.dir_set && !matches!(self.direction, ScrollDirection::Horizontal) { ScrollDirection::Both } else { ScrollDirection::Horizontal };
+        self.direction(d)
     }
 
     pub fn both(self) -> Self {
@@ -173,6 +224,7 @@ impl Widget for ScrollView {
             stick_to_end: true,
             on_scroll: self.on_scroll.clone(),
             reported_offset: Point::zero(),
+            handle: self.handle.clone(),
 
             scroll_offset: Point::zero(),
             velocity: Point::zero(),
@@ -252,6 +304,7 @@ pub struct ScrollViewElement {
     /// `ScrollView::on_scroll` и смещение, о котором ему сообщили.
     on_scroll: Option<ScrollHandler>,
     reported_offset: Point,
+    handle: Option<ScrollHandle>,
 
     scroll_offset: Point,
     velocity: Point,
@@ -596,6 +649,7 @@ impl Element for ScrollViewElement {
             self.center_content = sv.center_content;
             self.follow_end = sv.follow_end;
             self.on_scroll = sv.on_scroll.clone();
+            self.handle = sv.handle.clone();
             self.mark_dirty(DirtyFlags::LAYOUT | DirtyFlags::RENDER);
         }
     }
@@ -619,6 +673,14 @@ impl Element for ScrollViewElement {
     }
 
     fn build_display_list(&self, list: &mut DisplayList, _clip: Rect) {
+        if let Some(h) = &self.handle {
+            if let Ok(mut s) = h.0.lock() {
+                if s.request.is_none() {
+                    s.offset = self.scroll_offset;
+                }
+                s.viewport = self.bounds.size;
+            }
+        }
         if let Some(bg) = self.mss.background_color {
             list.push_rect(self.bounds, bg, [0.0; 4]);
         }
@@ -735,6 +797,10 @@ impl Element for ScrollViewElement {
                 delta_x: ev_dx,
                 position,
             } => {
+                // Ctrl+колесо — масштаб (у родителя), не прокрутка
+                if ctx.modifiers.ctrl {
+                    return EventResult::Ignored;
+                }
                 if !self.bounds.contains(*position) {
                     return EventResult::Ignored;
                 }
@@ -1261,6 +1327,11 @@ impl Element for ScrollViewElement {
 
     fn set_position(&mut self, pos: Point) {
         self.bounds.origin = pos;
+        if let Some(r) = self.handle.as_ref().and_then(|h| h.0.lock().ok().and_then(|mut s| s.request.take())) {
+            self.pending_offset = Some(r);
+            self.velocity = Point::zero();
+            self.is_coasting = false;
+        }
         // Позиционирование идёт после всех проходов измерения: окно и
         // содержимое уже окончательные.
         if let Some(p) = self.pending_offset {
