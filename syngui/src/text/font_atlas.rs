@@ -7,17 +7,21 @@ use crate::text::script::{script_of, Script};
 /// Ширина табуляции в пробелах — при отрисовке и измерении текста (каретка, выделение, щелчок).
 const TAB_COLUMNS: f32 = 4.0;
 
-const FONT_REGULAR: u8 = 0;
-const FONT_EMOJI: u8 = 1;
-const FONT_BOLD: u8 = 2;
-const FONT_ICON: u8 = 3;
-const FIRST_EXTRA_FONT: u8 = 4;
+/// Номер грани в атласе. Был `u8`: больше 252 подключённых граней (библиотека
+/// шрифтов титров) — номер молча переполнялся, и глифы брались из чужих шрифтов.
+pub type FontIdx = u16;
+
+const FONT_REGULAR: FontIdx = 0;
+const FONT_EMOJI: FontIdx = 1;
+const FONT_BOLD: FontIdx = 2;
+const FONT_ICON: FontIdx = 3;
+const FIRST_EXTRA_FONT: FontIdx = 4;
 
 #[derive(Clone, Copy, Hash, Eq, PartialEq, Debug)]
 pub struct GlyphKey {
     pub glyph_id: u16,
     pub size_px: u16,
-    pub font_index: u8,
+    pub font_index: FontIdx,
 }
 
 #[derive(Clone, Copy, Debug)]
@@ -222,16 +226,16 @@ fn emoji_cluster_len(chars: &[char], i: usize) -> usize {
 pub struct FontAtlas {
     faces: Vec<Option<FontFace>>,
     /// Font Awesome: Solid, Regular, Brands (см. `icon_fonts::fa`).
-    awesome_faces: [Option<u8>; 3],
-    extra_fonts: HashMap<String, Option<(u8, u8)>>,
-    fallback_faces: Vec<u8>,
-    fallback_discovered: Vec<u8>,
+    awesome_faces: [Option<FontIdx>; 3],
+    extra_fonts: HashMap<String, Option<(FontIdx, FontIdx)>>,
+    fallback_faces: Vec<FontIdx>,
+    fallback_discovered: Vec<FontIdx>,
     fallback_tried: HashSet<Script>,
     /// Сколько семейств из `SYMBOL_FAMILIES` уже загружено (или не найдено).
     symbol_tried: usize,
     prefer_japanese: bool,
     prefer_korean: bool,
-    next_font_index: u8,
+    next_font_index: FontIdx,
     texture: wgpu::Texture,
     pub texture_view: wgpu::TextureView,
     pub sampler: wgpu::Sampler,
@@ -244,7 +248,7 @@ pub struct FontAtlas {
     /// Размытые глифы теней (`text-shadow`): (позиция и размер исходного глифа в атласе,
     /// радиус×4) → глиф с полями. Рисуются одной выборкой вместо цикла размытия в шейдере.
     blurred: HashMap<(u32, u32, u32, u32, u32), (CachedGlyph, u32)>,
-    charmap_cache: HashMap<(char, u8), u16>,
+    charmap_cache: HashMap<(char, FontIdx), u16>,
     pixels: Vec<u8>,
     dirty: bool,
     /// Область атласа, изменённая с последней заливки: x0, y0, x1, y1
@@ -259,7 +263,7 @@ pub struct FontAtlas {
     /// Начертания 500/600 (Medium/SemiBold) по семейству (`None` — основное):
     /// индекс грани или `None`, если отдельного начертания нет (тогда берётся
     /// ближайшее: 500 → обычное, 600 → жирное).
-    weight_faces: HashMap<(Option<String>, u16), Option<u8>>,
+    weight_faces: HashMap<(Option<String>, u16), Option<FontIdx>>,
     /// Поколение реестра шрифтов приложения ([`crate::text::registry`]),
     /// под которое заполнены `extra_fonts`/`weight_faces`.
     registry_generation: u64,
@@ -617,19 +621,19 @@ impl FontAtlas {
         r[3] = r[3].max(y + h);
     }
 
-    fn face(&self, font_index: u8) -> Option<FontFace> {
+    fn face(&self, font_index: FontIdx) -> Option<FontFace> {
         self.faces
             .get(font_index as usize)
             .and_then(|face| face.clone())
     }
 
-    fn has_face(&self, font_index: u8) -> bool {
+    fn has_face(&self, font_index: FontIdx) -> bool {
         self.faces
             .get(font_index as usize)
             .is_some_and(|face| face.is_some())
     }
 
-    fn set_face(&mut self, font_index: u8, face: Option<FontFace>) {
+    fn set_face(&mut self, font_index: FontIdx, face: Option<FontFace>) {
         let i = font_index as usize;
         if self.faces.len() <= i {
             self.faces.resize(i + 1, None);
@@ -637,32 +641,32 @@ impl FontAtlas {
         self.faces[i] = face;
     }
 
-    fn replace_face(&mut self, font_index: u8, face: FontFace) {
+    fn replace_face(&mut self, font_index: FontIdx, face: FontFace) {
         self.set_face(font_index, Some(face));
         self.charmap_cache.retain(|&(_, fi), _| fi != font_index);
         self.glyphs.retain(|key, _| key.font_index != font_index);
         self.generation += 1;
     }
 
-    fn push_face(&mut self, face: Option<FontFace>) -> u8 {
+    fn push_face(&mut self, face: Option<FontFace>) -> FontIdx {
         let font_index = self.next_font_index;
         self.next_font_index += 1;
         self.set_face(font_index, face);
         font_index
     }
 
-    fn push_fallback_face(&mut self, face: FontFace) -> u8 {
+    fn push_fallback_face(&mut self, face: FontFace) -> FontIdx {
         let font_index = self.push_face(Some(face));
         self.fallback_faces.push(font_index);
         self.generation += 1;
         font_index
     }
 
-    fn cached_glyph_id(&self, ch: char, font_index: u8) -> Option<u16> {
+    fn cached_glyph_id(&self, ch: char, font_index: FontIdx) -> Option<u16> {
         self.charmap_cache.get(&(ch, font_index)).copied()
     }
 
-    fn lookup_and_cache_glyph_id(&mut self, ch: char, font_index: u8, face: &FontFace) -> u16 {
+    fn lookup_and_cache_glyph_id(&mut self, ch: char, font_index: FontIdx, face: &FontFace) -> u16 {
         let gid = face.font_ref().map(|fr| fr.charmap().map(ch)).unwrap_or(0);
         self.charmap_cache.insert((ch, font_index), gid);
         gid
@@ -685,7 +689,7 @@ impl FontAtlas {
             || (0x3297..=0x3299).contains(&c)
     }
 
-    fn glyph_id_in(&mut self, ch: char, font_index: u8) -> Option<u16> {
+    fn glyph_id_in(&mut self, ch: char, font_index: FontIdx) -> Option<u16> {
         let glyph_id = match self.cached_glyph_id(ch, font_index) {
             Some(gid) => gid,
             None => {
@@ -696,7 +700,7 @@ impl FontAtlas {
         (glyph_id != 0).then_some(glyph_id)
     }
 
-    fn ensure_glyph_in(&mut self, ch: char, size_px: u16, font_index: u8) -> Option<GlyphKey> {
+    fn ensure_glyph_in(&mut self, ch: char, size_px: u16, font_index: FontIdx) -> Option<GlyphKey> {
         let glyph_id = self.glyph_id_in(ch, font_index)?;
         let key = GlyphKey {
             glyph_id,
@@ -712,7 +716,7 @@ impl FontAtlas {
     }
 
     /// Глиф по его id в грани (результат шейпера).
-    fn ensure_glyph_id(&mut self, glyph_id: u16, size_px: u16, font_index: u8) -> Option<GlyphKey> {
+    fn ensure_glyph_id(&mut self, glyph_id: u16, size_px: u16, font_index: FontIdx) -> Option<GlyphKey> {
         let key = GlyphKey {
             glyph_id,
             size_px,
@@ -1026,7 +1030,7 @@ impl FontAtlas {
     /// Отдельное начертание 500/600, лениво. Если шрифт такого не несёт,
     /// подбор font-kit (правила CSS) вернёт ближайшее — обычное или жирное;
     /// такое совпадение не дублируем, а отвечаем `None` (сработает фолбэк).
-    fn weight_face(&mut self, family: Option<&str>, class: u16) -> Option<u8> {
+    fn weight_face(&mut self, family: Option<&str>, class: u16) -> Option<FontIdx> {
         let key = (family.map(str::to_string), class);
         if let Some(&idx) = self.weight_faces.get(&key) {
             return idx;
@@ -1042,7 +1046,7 @@ impl FontAtlas {
     /// Начертание `class` зарегистрированного семейства: у переменного
     /// шрифта — та же грань с осью `wght`, у статических — файл с такой
     /// насыщенностью (±50), иначе `None` (возьмётся обычное или жирное).
-    fn registered_weight_face(&mut self, family: &str, class: u16) -> Option<u8> {
+    fn registered_weight_face(&mut self, family: &str, class: u16) -> Option<FontIdx> {
         let fonts = crate::text::registry::family_fonts(family);
         let pick = fonts
             .iter()
@@ -1057,7 +1061,7 @@ impl FontAtlas {
     }
 
     #[cfg(all(not(target_arch = "wasm32"), not(target_os = "android")))]
-    fn discover_weight_face(&mut self, family: Option<&str>, class: u16) -> Option<u8> {
+    fn discover_weight_face(&mut self, family: Option<&str>, class: u16) -> Option<FontIdx> {
         let (data, face_index) = crate::text::font_discovery::discover_weight_font(family, class);
         let face = FontFace::with_weight(data, face_index, Some(class))?;
         // Тот же файл с теми же осями, что уже загружен (обычное/жирное), —
@@ -1078,7 +1082,7 @@ impl FontAtlas {
     }
 
     #[cfg(any(target_arch = "wasm32", target_os = "android"))]
-    fn discover_weight_face(&mut self, _family: Option<&str>, _class: u16) -> Option<u8> {
+    fn discover_weight_face(&mut self, _family: Option<&str>, _class: u16) -> Option<FontIdx> {
         None
     }
 
@@ -1089,7 +1093,7 @@ impl FontAtlas {
         self.ensure_glyph(ch, size_px)
     }
 
-    fn load_font_family(&mut self, family: &str) -> Option<(u8, u8)> {
+    fn load_font_family(&mut self, family: &str) -> Option<(FontIdx, FontIdx)> {
         // Приложение зарегистрировало шрифты после первого поиска — «не
         // найдено» по семействам больше не верно.
         let generation = crate::text::registry::generation();
@@ -1118,7 +1122,7 @@ impl FontAtlas {
     /// Обычное и жирное начертания зарегистрированного семейства: переменный
     /// шрифт — ось `wght` 400/700; статические — ближайший к 400 и, если есть,
     /// файл не легче 600 (иначе жирного нет — берётся обычное).
-    fn registered_family(&mut self, family: &str) -> Option<(u8, u8)> {
+    fn registered_family(&mut self, family: &str) -> Option<(FontIdx, FontIdx)> {
         use crate::text::registry::{face_weight, family_fonts};
         let fonts = family_fonts(family);
         let (regular, bold) = match fonts.iter().find(|d| face_weight(d).1) {
@@ -1147,7 +1151,7 @@ impl FontAtlas {
     }
 
     #[cfg(all(not(target_arch = "wasm32"), not(target_os = "android")))]
-    fn discover_font_family(&mut self, family: &str) -> Option<(u8, u8)> {
+    fn discover_font_family(&mut self, family: &str) -> Option<(FontIdx, FontIdx)> {
         use crate::text::font_discovery;
         let (regular, regular_face) = font_discovery::discover_font(Some(family));
         let regular = FontFace::with_weight(regular, regular_face, Some(400))?;
@@ -1158,12 +1162,12 @@ impl FontAtlas {
     }
 
     #[cfg(target_os = "android")]
-    fn discover_font_family(&mut self, _family: &str) -> Option<(u8, u8)> {
+    fn discover_font_family(&mut self, _family: &str) -> Option<(FontIdx, FontIdx)> {
         None
     }
 
     #[cfg(target_arch = "wasm32")]
-    fn discover_font_family(&mut self, _family: &str) -> Option<(u8, u8)> {
+    fn discover_font_family(&mut self, _family: &str) -> Option<(FontIdx, FontIdx)> {
         None
     }
 

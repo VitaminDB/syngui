@@ -81,3 +81,47 @@ pub(crate) fn face_weight(data: &[u8]) -> (u16, bool) {
         None => (400, false),
     }
 }
+
+/// Имя семейства из таблицы name шрифта: типографское (16), иначе обычное
+/// (1); английское, если есть. Для библиотек шрифтов, где имя файла не
+/// совпадает с семейством.
+pub fn font_family_name(data: &[u8]) -> Option<String> {
+    let f = swash::FontRef::from_index(data, 0)?;
+    let pick = |id: swash::StringId| {
+        let mut any = None;
+        for s in f.localized_strings().filter(|s| s.id() == id) {
+            let t: String = s.chars().collect();
+            let t = t.trim().to_string();
+            if t.is_empty() {
+                continue;
+            }
+            if s.language().starts_with("en") || s.language().is_empty() {
+                return Some(t);
+            }
+            any.get_or_insert(t);
+        }
+        any
+    };
+    pick(swash::StringId::TypographicFamily).or_else(|| pick(swash::StringId::Family))
+}
+
+/// Прочитать файл шрифта и зарегистрировать под его собственным семейством;
+/// вернуть это имя (для `font-family`).
+pub fn register_font_file_auto(path: impl AsRef<std::path::Path>) -> std::io::Result<Option<String>> {
+    let data = std::fs::read(path)?;
+    let Some(name) = font_family_name(&data) else { return Ok(None) };
+    register_font(&name, data);
+    Ok(Some(name))
+}
+
+/// Все ли буквы `text` (кроме пробелов) есть хотя бы в одном файле
+/// зарегистрированного семейства — иначе их нарисует запасной шрифт.
+/// Незарегистрированное семейство — `false`.
+pub fn family_covers(family: &str, text: &str) -> bool {
+    let files = family_fonts(family);
+    if files.is_empty() {
+        return false;
+    }
+    let maps: Vec<swash::FontRef> = files.iter().filter_map(|d| swash::FontRef::from_index(d, 0)).collect();
+    text.chars().filter(|c| !c.is_whitespace()).all(|c| maps.iter().any(|f| f.charmap().map(c) != 0))
+}
