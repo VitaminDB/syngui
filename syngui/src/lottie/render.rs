@@ -216,8 +216,11 @@ impl Renderer {
         let _expr = scene
             .has_expr
             .then(|| super::expr::enter(scene.comp_ptr(), layers, i));
-        // Ключевые кадры свойств заданы во времени композиции: `st`/`sr`
-        // сдвигают только время дочерней прекомпозиции (как в lottie-web/rlottie).
+        // Ключевые кадры свойств заданы во времени содержащей композиции:
+        // `st`/`sr` сдвигают только время дочерней прекомпозиции. Сверено с
+        // lottie-web: PropertyFactory берёт `comp.renderedFrame − st` и
+        // сравнивает с `t − st` (сдвиг сокращается), `sr` есть только в
+        // CompElement.prepareFrame (`renderedFrame = num / sr`).
         let extra = if l.auto_orient {
             auto_orient_angle(&l.transform, frame)
         } else {
