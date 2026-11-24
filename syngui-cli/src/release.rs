@@ -950,7 +950,9 @@ impl Release {
         let names: Vec<&str> = pkgs.iter().map(|(n, _)| n.as_str()).collect();
         let mut s = format!(
             "# Сгенерировано syngui package --workspace из syngui-release.toml — правки делать там.\npkgbase={}\npkgname=({})\npkgver={}\npkgrel={}\npkgdesc={}\narch=({})\nurl={}\nlicense=({})\noptions=('!strip' '!debug' '!lto')\n\n_root={}\n_bins={}\n",
-            self.spec.name,
+            // один пакет (--only): makepkg собирает его как не разделённый, каталог
+            // пакета — pkg/<pkgbase>; pkgbase другого имени давал «не перейти в pkg/<имя>»
+            if names.len() == 1 { names[0] } else { self.spec.name.as_str() },
             names.join(" "),
             self.pkgver(),
             self.pkgrel(),
