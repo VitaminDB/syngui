@@ -267,6 +267,15 @@ impl VideoSink {
     }
 }
 
+/// Сведения о видеофайле (размер, длительность, частота кадров, звук, поворот)
+/// без потоков декодера — для медиатек и монтажа.
+pub fn probe(input: &str) -> Result<VideoMeta, VideoError> {
+    ffmpeg_next::init().ok();
+    let ictx = ffmpeg_next::format::input(&input.to_string())
+        .map_err(|e| VideoError::Open(format!("{input}: {e}")))?;
+    read_meta(&ictx)
+}
+
 pub fn codec_display_name(id: ffmpeg_next::codec::Id) -> String {
     use ffmpeg_next::codec::Id;
     match id {

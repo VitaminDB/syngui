@@ -16,7 +16,7 @@ pub mod v4l2;
 
 pub use audio_file::{probe_audio, AudioFilePlayer, AudioTrackMeta};
 pub use decoder::{
-    codec_display_name, AudioStreamInfo, DecodeInfo, FrameFilter, VideoDecoder, VideoFrame,
+    codec_display_name, probe, AudioStreamInfo, DecodeInfo, FrameFilter, VideoDecoder, VideoFrame,
     VideoMeta,
 };
 pub use error::VideoError;
