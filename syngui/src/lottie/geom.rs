@@ -227,6 +227,22 @@ impl Mat4 {
         }
     }
 
+    /// Гомография плоскости слоя (`self` — из локальных координат слоя в
+    /// пространство камеры): `(u, v, 1) → (X, Y, W)`, экранная точка —
+    /// `(X/W, Y/W)`, где `X = zoom·x + cx·z`, `Y = zoom·y + cy·z`, `W = z`.
+    pub fn project_homography(&self, zoom: f32, center: [f32; 2]) -> Hom {
+        let m = &self.0;
+        let row = |i: usize| [m[i][0], m[i][1], m[i][3]];
+        let (rx, ry, rz) = (row(0), row(1), row(2));
+        let mut h = [[0.0f32; 3]; 3];
+        for k in 0..3 {
+            h[0][k] = zoom * rx[k] + center[0] * rz[k];
+            h[1][k] = zoom * ry[k] + center[1] * rz[k];
+            h[2][k] = rz[k];
+        }
+        Hom(h)
+    }
+
     /// Перспективная проекция плоскости слоя (`self` — из локальных
     /// координат слоя в пространство камеры, камера смотрит вдоль +z):
     /// `x' = cx + zoom·x/z`. Проекция плоскости — гомография; возвращается
@@ -259,6 +275,54 @@ impl Mat4 {
             e: sx - a * p0[0] - c * p0[1],
             f: sy - b * p0[0] - d * p0[1],
         })
+    }
+}
+
+/// Гомография 3×3 (по строкам, на столбец `[x, y, 1]`).
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct Hom(pub [[f32; 3]; 3]);
+
+impl Hom {
+    pub fn from_affine(m: &Mat) -> Hom {
+        Hom([[m.a, m.c, m.e], [m.b, m.d, m.f], [0.0, 0.0, 1.0]])
+    }
+
+    pub fn mul(&self, o: &Hom) -> Hom {
+        let mut r = [[0.0f32; 3]; 3];
+        for (i, row) in r.iter_mut().enumerate() {
+            for (j, v) in row.iter_mut().enumerate() {
+                *v = (0..3).map(|k| self.0[i][k] * o.0[k][j]).sum();
+            }
+        }
+        Hom(r)
+    }
+
+    /// `(x, y)` → однородная точка `(X, Y, W)`.
+    #[inline]
+    pub fn apply3(&self, p: [f32; 2]) -> [f32; 3] {
+        let m = &self.0;
+        [
+            m[0][0] * p[0] + m[0][1] * p[1] + m[0][2],
+            m[1][0] * p[0] + m[1][1] * p[1] + m[1][2],
+            m[2][0] * p[0] + m[2][1] * p[1] + m[2][2],
+        ]
+    }
+
+    pub fn invert(&self) -> Option<Hom> {
+        let m = &self.0;
+        let c = |r0: usize, c0: usize, r1: usize, c1: usize| {
+            m[r0][c0] * m[r1][c1] - m[r0][c1] * m[r1][c0]
+        };
+        let det = m[0][0] * c(1, 1, 2, 2) - m[0][1] * c(1, 0, 2, 2) + m[0][2] * c(1, 0, 2, 1);
+        if det.abs() < 1e-12 {
+            return None;
+        }
+        let k = 1.0 / det;
+        Some(Hom([
+            [c(1, 1, 2, 2) * k, -c(0, 1, 2, 2) * k, c(0, 1, 1, 2) * k],
+            [-c(1, 0, 2, 2) * k, c(0, 0, 2, 2) * k, -c(0, 0, 1, 2) * k],
+            [c(1, 0, 2, 1) * k, -c(0, 0, 2, 1) * k, c(0, 0, 1, 1) * k],
+        ]))
     }
 }
 

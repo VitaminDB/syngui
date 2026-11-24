@@ -488,8 +488,8 @@ fill/stroke color, hue/saturation/brightness, stroke width and tracking) and
 text on a mask path (margins, perpendicular, force alignment, reverse). Mask
 expansion is supported. 3D layers (`ddd`: X/Y/Z rotation, orientation, z of
 position/anchor/scale) use 4×4 matrices with orthographic projection, or the
-composition's camera layer (perspective, point of interest; the layer plane's
-projection is approximated affinely at its anchor). Text without embedded
+composition's camera layer (true perspective: the layer renders with an
+affine approximation and is warped by the exact homography of its plane). Text without embedded
 glyphs falls back to system fonts through the framework's text stack
 (font-kit + swash outlines; native only — skipped on wasm/Android), matching
 family and weight with a generic fallback. After Effects expressions run

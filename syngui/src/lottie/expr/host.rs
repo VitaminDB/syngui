@@ -826,7 +826,6 @@ fn h_marker_nearest(it: &mut Interp, this: &Value, a: &[Value]) -> R<Value> {
     }
 }
 
-
 impl EvalFrame {
     /// Зерно для шума (стабильно по времени, в отличие от `random`).
     pub fn rng_seed(&self) -> u64 {

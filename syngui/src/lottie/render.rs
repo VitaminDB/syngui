@@ -7,7 +7,7 @@ use std::f32::consts::{PI, TAU};
 
 use super::geom::{
     dash_polyline, offset_polyline, pucker_bloat, stroke_polyline, trim_paths, twist_polyline,
-    zigzag_path, zigzag_smooth, LineCap, LineJoin, Mat, Mat4, Polyline, ShapePath,
+    zigzag_path, zigzag_smooth, Hom, LineCap, LineJoin, Mat, Mat4, Polyline, ShapePath,
 };
 use super::model::{
     Composition, DashKind, Effect, Gradient, GradientKind, Layer, LayerKind, LayerMask, MaskMode,
@@ -243,6 +243,27 @@ impl Renderer {
 
     /// Итоговая аффинная матрица слоя: 3D-слои при камере — перспективная
     /// проекция (линеаризованная в точке привязки), иначе — ортогональная.
+    /// Точная гомография 3D-слоя при камере (локальные координаты →
+    /// пиксели); `None` — слой рисуется аффинно.
+    fn layer_homography(
+        &self,
+        layers: &[Layer],
+        i: usize,
+        frame: f32,
+        root: &Mat,
+        scene: &mut Scene,
+    ) -> Option<Hom> {
+        let cam = scene.camera.as_ref()?;
+        let l = &layers[i];
+        if !l.three_d {
+            return None;
+        }
+        let (view, zoom, center) = (cam.view, cam.zoom, cam.center);
+        let world = self.layer_world(layers, i, frame, scene, 0);
+        let h = view.mul(&world).project_homography(zoom, center);
+        Some(Hom::from_affine(root).mul(&h))
+    }
+
     fn layer_matrix(
         &self,
         layers: &[Layer],
@@ -421,7 +442,11 @@ impl Renderer {
             return;
         }
         let clip_ref = own_clip.as_ref().or(outer_clip);
-        let needs_buffer = l.matte.is_some()
+        // Перспектива: слой рисуется аффинным приближением и деформируется
+        // точной гомографией плоскости.
+        let warp = self.layer_homography(layers, i, frame, root, scene);
+        let needs_buffer = warp.is_some()
+            || l.matte.is_some()
             || opacity < 1.0
             || l.blend != BlendMode::Normal
             || !l.effects.is_empty()
@@ -440,6 +465,14 @@ impl Renderer {
         }
         if !l.styles.is_empty() && buf.dirty.is_some() {
             self.apply_styles(ctx, l, frame, &mat, &mut buf);
+        }
+        if let (Some(h), Some(ainv)) = (warp, mat.invert()) {
+            // Пиксель буфера → локальная точка (обратная аффинной) → холст.
+            let fwd = h.mul(&Hom::from_affine(&ainv));
+            let mut wbuf = self.take(ctx.w, ctx.h);
+            wbuf.warp_from(&buf, &fwd);
+            std::mem::swap(&mut buf, &mut wbuf);
+            self.recycle(wbuf);
         }
         if buf.dirty.is_some() {
             if let (Some(mode), Some(src)) = (l.matte, l.matte_source) {
@@ -2668,6 +2701,24 @@ mod tests3d {
         // 60° по Y: ширина × cos 60° (линеаризация в центре слоя).
         let w = width_of_red(&comp(-500.0, 0.0, 60.0)) as i32;
         assert!((w - 20).abs() <= 2, "w={w}");
+    }
+
+    fn column_height(c: &Composition, x: usize) -> usize {
+        let mut r = Renderer::new();
+        let px = r.render_rgba8(c, 0.0, 200, 200);
+        (0..200).filter(|y| px[(y * 200 + x) * 4 + 3] > 128).count()
+    }
+
+    #[test]
+    fn perspective_keystone() {
+        // 60° по Y: правый край уходит от камеры — он ниже левого.
+        let c = comp(-500.0, 0.0, 60.0);
+        let left = column_height(&c, 92);
+        let right = column_height(&c, 108);
+        assert!(left > right + 1, "left={left} right={right}");
+        // Без поворота края равны.
+        let c = comp(-500.0, 0.0, 0.0);
+        assert_eq!(column_height(&c, 85), column_height(&c, 115));
     }
 
     #[test]

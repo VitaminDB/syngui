@@ -4,7 +4,7 @@
 
 use std::sync::Arc;
 
-use super::geom::{Mat, Polyline};
+use super::geom::{Hom, Mat, Polyline};
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum FillRule {
@@ -1275,6 +1275,85 @@ impl Pixmap {
     }
 
     /// В 8-битный RGBA с прямой альфой (для текстур).
+    /// Перспективная деформация: `fwd` переводит пиксели `src` в пиксели
+    /// холста, каждый пиксель холста берётся из `src` обратным отображением
+    /// с билинейной выборкой (премультиплицированные цвета).
+    pub fn warp_from(&mut self, src: &Pixmap, fwd: &Hom) {
+        self.clear();
+        let Some([sx0, sy0, sx1, sy1]) = src.dirty else {
+            return;
+        };
+        let Some(inv) = fwd.invert() else {
+            return;
+        };
+        // Охват: углы затронутой области источника (только перед камерой).
+        let mut bb = [f32::MAX, f32::MAX, f32::MIN, f32::MIN];
+        for c in [
+            [sx0 as f32, sy0 as f32],
+            [sx1 as f32, sy0 as f32],
+            [sx1 as f32, sy1 as f32],
+            [sx0 as f32, sy1 as f32],
+        ] {
+            let p = fwd.apply3(c);
+            if p[2] <= 1e-6 {
+                // Часть плоскости за камерой — берём весь холст.
+                bb = [0.0, 0.0, self.w as f32, self.h as f32];
+                break;
+            }
+            let (x, y) = (p[0] / p[2], p[1] / p[2]);
+            bb = [bb[0].min(x), bb[1].min(y), bb[2].max(x), bb[3].max(y)];
+        }
+        let x0 = (bb[0].floor().max(0.0) as usize).min(self.w);
+        let y0 = (bb[1].floor().max(0.0) as usize).min(self.h);
+        let x1 = (bb[2].ceil().max(0.0) as usize + 1).min(self.w);
+        let y1 = (bb[3].ceil().max(0.0) as usize + 1).min(self.h);
+        if x1 <= x0 || y1 <= y0 {
+            return;
+        }
+        let sample = |x: i64, y: i64| -> [f32; 4] {
+            if x < sx0 as i64 || y < sy0 as i64 || x >= sx1 as i64 || y >= sy1 as i64 {
+                [0.0; 4]
+            } else {
+                src.px[y as usize * src.w + x as usize]
+            }
+        };
+        for y in y0..y1 {
+            for x in x0..x1 {
+                let p = inv.apply3([x as f32 + 0.5, y as f32 + 0.5]);
+                if p[2] <= 1e-6 {
+                    continue;
+                }
+                let fx = p[0] / p[2] - 0.5;
+                let fy = p[1] / p[2] - 0.5;
+                if fx < sx0 as f32 - 1.0
+                    || fy < sy0 as f32 - 1.0
+                    || fx > sx1 as f32
+                    || fy > sy1 as f32
+                {
+                    continue;
+                }
+                let (ix, iy) = (fx.floor() as i64, fy.floor() as i64);
+                let (tx, ty) = (fx - ix as f32, fy - iy as f32);
+                let (a, b, c, d) = (
+                    sample(ix, iy),
+                    sample(ix + 1, iy),
+                    sample(ix, iy + 1),
+                    sample(ix + 1, iy + 1),
+                );
+                let mut o = [0f32; 4];
+                for k in 0..4 {
+                    let top = a[k] + (b[k] - a[k]) * tx;
+                    let bot = c[k] + (d[k] - c[k]) * tx;
+                    o[k] = top + (bot - top) * ty;
+                }
+                if o[3] > 0.0 {
+                    self.px[y * self.w + x] = o;
+                }
+            }
+        }
+        self.mark(x0, y0, x1, y1);
+    }
+
     /// Копия содержимого `src` (того же размера) — только затронутая область.
     pub fn copy_from(&mut self, src: &Pixmap) {
         self.clear();
