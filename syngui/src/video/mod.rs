@@ -3,6 +3,7 @@ pub mod android;
 pub mod audio_file;
 pub mod decoder;
 pub mod error;
+pub mod frame_reader;
 pub mod hwaccel;
 pub mod player;
 pub mod resampler;
@@ -20,6 +21,7 @@ pub use decoder::{
     VideoMeta,
 };
 pub use error::VideoError;
+pub use frame_reader::{FrameReader, RgbaFrame};
 pub use hwaccel::HwAccel;
 pub use player::VideoPlayer;
 pub use stream::VideoStream;

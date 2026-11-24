@@ -119,7 +119,7 @@ pub fn thumbnail(input: &str, max: u32, at: f64) -> Result<Thumbnail, VideoError
 }
 
 /// Поворот RGBA по часовой на 0/90/180/270°.
-fn rotate(w: u32, h: u32, src: Vec<u8>, cw: u32) -> (u32, u32, Vec<u8>) {
+pub(crate) fn rotate(w: u32, h: u32, src: Vec<u8>, cw: u32) -> (u32, u32, Vec<u8>) {
     if cw == 0 {
         return (w, h, src);
     }

@@ -102,6 +102,7 @@ type BackHandler = Arc<dyn Fn() -> bool + Send + Sync>;
 type CharHandler = Arc<dyn Fn(char) -> bool + Send + Sync>;
 type KeyFilter = Arc<dyn Fn(Key) -> bool + Send + Sync>;
 type MoveHandler = Arc<dyn Fn(bool) + Send + Sync>;
+type HoverHandler = Arc<dyn Fn(Option<(Point, Size)>) + Send + Sync>;
 type NavButtonHandler = Arc<dyn Fn(MouseButton) -> bool + Send + Sync>;
 type WheelHandler = Arc<dyn Fn(f32, f32, Point) -> bool + Send + Sync>;
 
@@ -119,6 +120,7 @@ pub struct EventHook {
     capture_keys: Option<KeyFilter>,
     capture_shortcuts: Option<ShortcutFilter>,
     on_mouse_move: Option<MoveHandler>,
+    on_hover_at: Option<HoverHandler>,
     on_nav_button: Option<NavButtonHandler>,
     on_wheel: Option<WheelHandler>,
     bounds_out: Option<Arc<crate::core::sync::Mutex<Rect>>>,
@@ -140,6 +142,7 @@ impl EventHook {
             capture_keys: None,
             capture_shortcuts: None,
             on_mouse_move: None,
+            on_hover_at: None,
             on_nav_button: None,
             on_wheel: None,
             bounds_out: None,
@@ -232,6 +235,14 @@ impl EventHook {
         self
     }
 
+    /// Курсор над обёрткой: точка относительно её левого верхнего угла и размер обёртки (`Some`)
+    /// при каждом движении, `None` — курсор ушёл. Для промотки превью ведением
+    /// курсора, подсказок по месту. Событие не поглощается.
+    pub fn on_hover_at(mut self, handler: impl Fn(Option<(Point, Size)>) + Send + Sync + 'static) -> Self {
+        self.on_hover_at = Some(Arc::new(handler));
+        self
+    }
+
     /// Боковые кнопки мыши «назад»/«вперёд» (`MouseButton::Back`/`Forward`)
     /// над обёрткой. Обёртка забирает их раньше детей; `true` — съедено.
     pub fn on_nav_button(
@@ -306,6 +317,8 @@ impl Widget for EventHook {
             capture_keys: self.capture_keys.clone(),
             capture_shortcuts: self.capture_shortcuts.clone(),
             on_mouse_move: self.on_mouse_move.clone(),
+            on_hover_at: self.on_hover_at.clone(),
+            hovering: false,
             on_nav_button: self.on_nav_button.clone(),
             on_wheel: self.on_wheel.clone(),
             bounds_out: self.bounds_out.clone(),
@@ -361,6 +374,8 @@ struct EventHookElement {
     capture_keys: Option<KeyFilter>,
     capture_shortcuts: Option<ShortcutFilter>,
     on_mouse_move: Option<MoveHandler>,
+    on_hover_at: Option<HoverHandler>,
+    hovering: bool,
     on_nav_button: Option<NavButtonHandler>,
     on_wheel: Option<WheelHandler>,
     bounds_out: Option<Arc<crate::core::sync::Mutex<Rect>>>,
@@ -414,6 +429,7 @@ impl Element for EventHookElement {
             self.capture_keys = hook.capture_keys.clone();
             self.capture_shortcuts = hook.capture_shortcuts.clone();
             self.on_mouse_move = hook.on_mouse_move.clone();
+            self.on_hover_at = hook.on_hover_at.clone();
             self.on_nav_button = hook.on_nav_button.clone();
             self.on_wheel = hook.on_wheel.clone();
             self.bounds_out = hook.bounds_out.clone();
@@ -450,6 +466,15 @@ impl Element for EventHookElement {
             Event::MouseMove(pos) => {
                 if let Some(h) = self.on_mouse_move.as_ref() {
                     h(self.bounds.contains(*pos));
+                }
+                if let Some(h) = self.on_hover_at.as_ref() {
+                    if self.bounds.contains(*pos) {
+                        self.hovering = true;
+                        h(Some((Point::new(pos.x - self.bounds.origin.x, pos.y - self.bounds.origin.y), self.bounds.size)));
+                    } else if self.hovering {
+                        self.hovering = false;
+                        h(None);
+                    }
                 }
                 return EventResult::Ignored;
             }

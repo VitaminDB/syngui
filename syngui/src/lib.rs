@@ -66,6 +66,7 @@ pub mod render;
 pub mod scale;
 /// Снимок интерфейса без окна в PNG.
 #[cfg(feature = "image")]
+pub mod offscreen;
 pub mod shot;
 pub mod signal;
 pub mod text;

@@ -159,56 +159,8 @@ pub fn render_png_with(
 ) -> Result<(u32, u32), String> {
     crate::signal::init_main_thread();
     crate::signal::allow_signal_reads_on_this_thread();
-    let instance = wgpu::Instance::new(&wgpu::InstanceDescriptor {
-        backends: wgpu::Backends::VULKAN | wgpu::Backends::GL,
-        ..Default::default()
-    });
-    let adapter = pollster::block_on(instance.request_adapter(&wgpu::RequestAdapterOptions {
-        power_preference: wgpu::PowerPreference::LowPower,
-        compatible_surface: None,
-        force_fallback_adapter: false,
-    }))
-    .map_err(|e| format!("нет GPU-адаптера: {e}"))?;
-    let (device, queue) = pollster::block_on(adapter.request_device(&wgpu::DeviceDescriptor {
-        label: Some("syngui shot"),
-        ..Default::default()
-    }))
-    .map_err(|e| format!("не создать устройство: {e}"))?;
-    let gpu = GpuShared {
-        instance,
-        adapter,
-        device,
-        queue,
-    };
-
+    let (gpu, mut renderer, format, pw, ph) = gpu_renderer(size, scale)?;
     let (lw, lh) = size;
-    let pw = (lw as f64 * scale).round() as u32;
-    let ph = (lh as f64 * scale).round() as u32;
-    // как у окна: смешение альфы в sRGB (CSS); байты текстуры — sRGB
-    let format = if std::env::var("SYNGUI_LINEAR_BLEND").is_ok_and(|v| v != "0") {
-        wgpu::TextureFormat::Rgba8UnormSrgb
-    } else {
-        wgpu::TextureFormat::Rgba8Unorm
-    };
-    let mut renderer = Renderer::new(&gpu, format, pw, ph, lw, lh, None);
-    {
-        let mut atlas = renderer
-            .font_atlas
-            .lock()
-            .unwrap_or_else(|e| e.into_inner());
-        #[cfg(feature = "material-icons")]
-        atlas.set_icon_font_data(crate::text::icon_fonts::material::FONT_DATA.to_vec());
-        #[cfg(feature = "font-awesome")]
-        {
-            use crate::text::icon_fonts::awesome as fa;
-            atlas.set_awesome_font_data(
-                fa::SOLID_FONT_DATA.to_vec(),
-                fa::REGULAR_FONT_DATA.to_vec(),
-                fa::BRANDS_FONT_DATA.to_vec(),
-            );
-        }
-        atlas.set_scale_factor(scale as f32);
-    }
     let mut tree = ElementTree::new();
     tree.text_measure = Some(renderer.font_atlas.clone() as Arc<dyn TextMeasure>);
     tree.image_store = Some(renderer.image_store.clone());
@@ -430,4 +382,58 @@ mod events_tests {
         assert!(matches!(ev[1], Event::MouseDown { button: crate::input::MouseButton::Right, .. }));
         assert!(matches!(ev[5], Event::MouseUp { button: crate::input::MouseButton::Left, .. }));
     }
+}
+
+/// GPU без окна и рендерер в текстуру `size × scale` (снимки, [`crate::offscreen`]):
+/// устройство, формат (как у окна: смешение альфы в sRGB), шрифты значков.
+pub(crate) fn gpu_renderer(size: (u32, u32), scale: f64) -> Result<(GpuShared, Renderer, wgpu::TextureFormat, u32, u32), String> {
+    let instance = wgpu::Instance::new(&wgpu::InstanceDescriptor {
+        backends: wgpu::Backends::VULKAN | wgpu::Backends::GL,
+        ..Default::default()
+    });
+    let adapter = pollster::block_on(instance.request_adapter(&wgpu::RequestAdapterOptions {
+        power_preference: wgpu::PowerPreference::LowPower,
+        compatible_surface: None,
+        force_fallback_adapter: false,
+    }))
+    .map_err(|e| format!("нет GPU-адаптера: {e}"))?;
+    let (device, queue) = pollster::block_on(adapter.request_device(&wgpu::DeviceDescriptor {
+        label: Some("syngui offscreen"),
+        ..Default::default()
+    }))
+    .map_err(|e| format!("не создать устройство: {e}"))?;
+    let gpu = GpuShared {
+        instance,
+        adapter,
+        device,
+        queue,
+    };
+    let (lw, lh) = size;
+    let pw = (lw as f64 * scale).round() as u32;
+    let ph = (lh as f64 * scale).round() as u32;
+    let format = if std::env::var("SYNGUI_LINEAR_BLEND").is_ok_and(|v| v != "0") {
+        wgpu::TextureFormat::Rgba8UnormSrgb
+    } else {
+        wgpu::TextureFormat::Rgba8Unorm
+    };
+    let renderer = Renderer::new(&gpu, format, pw, ph, lw, lh, None);
+    {
+        let mut atlas = renderer
+            .font_atlas
+            .lock()
+            .unwrap_or_else(|e| e.into_inner());
+        #[cfg(feature = "material-icons")]
+        atlas.set_icon_font_data(crate::text::icon_fonts::material::FONT_DATA.to_vec());
+        #[cfg(feature = "font-awesome")]
+        {
+            use crate::text::icon_fonts::awesome as fa;
+            atlas.set_awesome_font_data(
+                fa::SOLID_FONT_DATA.to_vec(),
+                fa::REGULAR_FONT_DATA.to_vec(),
+                fa::BRANDS_FONT_DATA.to_vec(),
+            );
+        }
+        atlas.set_scale_factor(scale as f32);
+    }
+    Ok((gpu, renderer, format, pw, ph))
 }
